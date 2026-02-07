@@ -136,7 +136,7 @@ export function McpManager() {
   const serverCount = Object.keys(servers).length;
 
   return (
-    <div>
+    <div className="h-full overflow-auto">
       <div className="flex items-center justify-between mb-4">
         <div>
           <div className="flex items-center gap-2">

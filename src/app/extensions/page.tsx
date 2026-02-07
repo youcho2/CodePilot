@@ -40,7 +40,7 @@ function ExtensionsPageInner() {
           </TabsList>
         </Tabs>
       </div>
-      <div className="flex-1 overflow-auto p-6">
+      <div className="flex-1 overflow-hidden p-6">
         {tab === "skills" && <SkillsManager />}
         {tab === "mcp" && <McpManager />}
       </div>

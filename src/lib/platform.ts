@@ -53,13 +53,21 @@ export function getClaudeCandidatePaths(): string[] {
   if (isWindows) {
     const appData = process.env.APPDATA || path.join(home, 'AppData', 'Roaming');
     const localAppData = process.env.LOCALAPPDATA || path.join(home, 'AppData', 'Local');
-    return [
-      path.join(appData, 'npm', 'claude.cmd'),
-      path.join(localAppData, 'npm', 'claude.cmd'),
-      path.join(home, '.npm-global', 'bin', 'claude.cmd'),
-      path.join(home, '.claude', 'bin', 'claude.exe'),
-      path.join(home, '.local', 'bin', 'claude.cmd'),
+    const exts = ['.cmd', '.exe', '.bat', ''];
+    const baseDirs = [
+      path.join(appData, 'npm'),
+      path.join(localAppData, 'npm'),
+      path.join(home, '.npm-global', 'bin'),
+      path.join(home, '.claude', 'bin'),
+      path.join(home, '.local', 'bin'),
     ];
+    const candidates: string[] = [];
+    for (const dir of baseDirs) {
+      for (const ext of exts) {
+        candidates.push(path.join(dir, 'claude' + ext));
+      }
+    }
+    return candidates;
   }
   return [
     '/usr/local/bin/claude',
