@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { ScrollArea } from "@/components/ui/scroll-area";
+
 import { HugeiconsIcon } from "@hugeicons/react";
 import { PlusSignIcon, Search01Icon, ZapIcon, Loading02Icon } from "@hugeicons/core-free-icons";
 import { SkillListItem } from "./SkillListItem";
@@ -144,7 +144,7 @@ export function SkillsManager() {
               />
             </div>
           </div>
-          <ScrollArea className="flex-1">
+          <div className="flex-1 overflow-y-auto min-h-0">
             <div className="p-1">
               {projectSkills.length > 0 && (
                 <div className="mb-1">
@@ -242,7 +242,7 @@ export function SkillsManager() {
                 </div>
               )}
             </div>
-          </ScrollArea>
+          </div>
         </div>
 
         {/* Right: editor */}
