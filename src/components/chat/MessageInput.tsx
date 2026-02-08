@@ -469,7 +469,7 @@ export function MessageInput({
         return;
       }
     },
-    [popoverMode, popoverItems, selectedIndex, insertItem, closePopover, badge, inputValue, removeBadge]
+    [popoverMode, popoverItems, popoverFilter, selectedIndex, insertItem, closePopover, badge, inputValue, removeBadge]
   );
 
   // Click outside to close popover
