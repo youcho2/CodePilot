@@ -14,7 +14,7 @@ import type {
 } from '@anthropic-ai/claude-agent-sdk';
 import type { ClaudeStreamOptions, SSEEvent, TokenUsage, MCPServerConfig, PermissionRequestEvent } from '@/types';
 import { registerPendingPermission } from './permission-registry';
-import { getSetting } from './db';
+import { getSetting, getActiveProvider } from './db';
 import { findClaudeBinary, getExpandedPath } from './platform';
 import os from 'os';
 
@@ -108,13 +108,46 @@ export function streamClaude(options: ClaudeStreamOptions): ReadableStream<strin
         // Ensure SDK subprocess has expanded PATH (consistent with Electron mode)
         sdkEnv.PATH = getExpandedPath();
 
-        const appToken = getSetting('anthropic_auth_token');
-        const appBaseUrl = getSetting('anthropic_base_url');
-        if (appToken) {
-          sdkEnv.ANTHROPIC_AUTH_TOKEN = appToken;
-        }
-        if (appBaseUrl) {
-          sdkEnv.ANTHROPIC_BASE_URL = appBaseUrl;
+        // Try to get config from active provider first
+        const activeProvider = getActiveProvider();
+
+        if (activeProvider && activeProvider.api_key) {
+          // Clear all existing ANTHROPIC_* variables to prevent conflicts
+          for (const key of Object.keys(sdkEnv)) {
+            if (key.startsWith('ANTHROPIC_')) {
+              delete sdkEnv[key];
+            }
+          }
+
+          // Inject provider config — set both token variants so extra_env can clear the unwanted one
+          sdkEnv.ANTHROPIC_AUTH_TOKEN = activeProvider.api_key;
+          sdkEnv.ANTHROPIC_API_KEY = activeProvider.api_key;
+          if (activeProvider.base_url) {
+            sdkEnv.ANTHROPIC_BASE_URL = activeProvider.base_url;
+          }
+
+          // Inject extra environment variables
+          // Empty string values mean "delete this variable" (e.g. clear ANTHROPIC_API_KEY for AUTH_TOKEN-only providers)
+          try {
+            const extraEnv = JSON.parse(activeProvider.extra_env || '{}');
+            for (const [key, value] of Object.entries(extraEnv)) {
+              if (typeof value === 'string') {
+                if (value === '') {
+                  delete sdkEnv[key];
+                } else {
+                  sdkEnv[key] = value;
+                }
+              }
+            }
+          } catch {
+            // ignore malformed extra_env
+          }
+        } else {
+          // Fall back to legacy settings
+          const appToken = getSetting('anthropic_auth_token');
+          const appBaseUrl = getSetting('anthropic_base_url');
+          if (appToken) sdkEnv.ANTHROPIC_AUTH_TOKEN = appToken;
+          if (appBaseUrl) sdkEnv.ANTHROPIC_BASE_URL = appBaseUrl;
         }
 
         const queryOptions: Options = {

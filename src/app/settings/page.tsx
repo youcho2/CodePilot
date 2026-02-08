@@ -25,6 +25,7 @@ import {
   SlidersHorizontalIcon,
   Loading02Icon,
 } from "@hugeicons/core-free-icons";
+import { ProviderManager } from "@/components/settings/ProviderManager";
 
 interface SettingsData {
   [key: string]: unknown;
@@ -60,110 +61,7 @@ export default function SettingsPage() {
   );
 }
 
-// --- API Configuration Section (CodePilot app settings, stored in SQLite) ---
-function ApiConfigSection() {
-  const [token, setToken] = useState("");
-  const [baseUrl, setBaseUrl] = useState("");
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [status, setStatus] = useState<"idle" | "saved" | "error">("idle");
-
-  useEffect(() => {
-    fetch("/api/settings/app")
-      .then((r) => r.json())
-      .then((data) => {
-        const s = data.settings || {};
-        setToken(s.anthropic_auth_token || "");
-        setBaseUrl(s.anthropic_base_url || "");
-      })
-      .catch(() => {})
-      .finally(() => setLoading(false));
-  }, []);
-
-  const handleSave = async () => {
-    setSaving(true);
-    setStatus("idle");
-    try {
-      const res = await fetch("/api/settings/app", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          settings: {
-            anthropic_auth_token: token,
-            anthropic_base_url: baseUrl,
-          },
-        }),
-      });
-      if (res.ok) {
-        setStatus("saved");
-        setTimeout(() => setStatus("idle"), 2000);
-      } else {
-        setStatus("error");
-      }
-    } catch {
-      setStatus("error");
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  if (loading) return null;
-
-  return (
-    <div className="rounded-lg border border-border/50 p-4 space-y-4">
-      <div>
-        <Label className="text-sm font-medium">API Configuration</Label>
-        <p className="text-xs text-muted-foreground">
-          Optional. Configure a custom Anthropic-compatible API for Claude Code.
-          Leave empty to use the default authentication (claude login / shell environment).
-        </p>
-      </div>
-      <div className="space-y-3">
-        <div>
-          <Label htmlFor="api-base-url" className="text-xs text-muted-foreground">
-            API Base URL
-          </Label>
-          <Input
-            id="api-base-url"
-            placeholder="https://api.anthropic.com"
-            value={baseUrl}
-            onChange={(e) => setBaseUrl(e.target.value)}
-            className="mt-1 font-mono text-sm"
-          />
-        </div>
-        <div>
-          <Label htmlFor="api-token" className="text-xs text-muted-foreground">
-            API Token (ANTHROPIC_AUTH_TOKEN)
-          </Label>
-          <Input
-            id="api-token"
-            type="password"
-            placeholder="sk-ant-..."
-            value={token}
-            onChange={(e) => setToken(e.target.value)}
-            className="mt-1 font-mono text-sm"
-          />
-        </div>
-      </div>
-      <div className="flex items-center gap-3">
-        <Button onClick={handleSave} disabled={saving} size="sm" className="gap-2">
-          {saving ? (
-            <HugeiconsIcon icon={Loading02Icon} className="h-4 w-4 animate-spin" />
-          ) : (
-            <HugeiconsIcon icon={FloppyDiskIcon} className="h-4 w-4" />
-          )}
-          {saving ? "Saving..." : "Save API Config"}
-        </Button>
-        {status === "saved" && (
-          <span className="text-sm text-green-600 dark:text-green-400">Saved</span>
-        )}
-        {status === "error" && (
-          <span className="text-sm text-destructive">Failed to save</span>
-        )}
-      </div>
-    </div>
-  );
-}
+// ApiConfigSection removed — replaced by ProviderManager component
 
 // --- Claude CLI Settings Section (manages ~/.claude/settings.json) ---
 function SettingsPageInner() {
@@ -280,7 +178,7 @@ function SettingsPageInner() {
 
       <div className="flex-1 overflow-auto p-6">
         <div className="max-w-3xl space-y-6">
-          <ApiConfigSection />
+          <ProviderManager />
 
           {loading ? (
             <div className="flex items-center justify-center py-12">

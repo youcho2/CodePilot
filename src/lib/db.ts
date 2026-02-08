@@ -1,7 +1,7 @@
 import Database from 'better-sqlite3';
 import path from 'path';
 import crypto from 'crypto';
-import type { ChatSession, Message, SettingsMap, TaskItem, TaskStatus } from '@/types';
+import type { ChatSession, Message, SettingsMap, TaskItem, TaskStatus, ApiProvider, CreateProviderRequest, UpdateProviderRequest } from '@/types';
 
 const dataDir = process.env.CLAUDE_GUI_DATA_DIR || path.join(require('os').homedir(), '.codepilot');
 const DB_PATH = path.join(dataDir, 'codepilot.db');
@@ -95,6 +95,20 @@ function initDb(db: Database.Database): void {
       FOREIGN KEY (session_id) REFERENCES chat_sessions(id) ON DELETE CASCADE
     );
 
+    CREATE TABLE IF NOT EXISTS api_providers (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      provider_type TEXT NOT NULL DEFAULT 'anthropic',
+      base_url TEXT NOT NULL DEFAULT '',
+      api_key TEXT NOT NULL DEFAULT '',
+      is_active INTEGER NOT NULL DEFAULT 0,
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      extra_env TEXT NOT NULL DEFAULT '{}',
+      notes TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
     CREATE INDEX IF NOT EXISTS idx_messages_session_id ON messages(session_id);
     CREATE INDEX IF NOT EXISTS idx_messages_created_at ON messages(created_at);
     CREATE INDEX IF NOT EXISTS idx_sessions_updated_at ON chat_sessions(updated_at);
@@ -158,6 +172,37 @@ function migrateDb(db: Database.Database): void {
     );
     CREATE INDEX IF NOT EXISTS idx_tasks_session_id ON tasks(session_id);
   `);
+
+  // Ensure api_providers table exists for databases created before this migration
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS api_providers (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      provider_type TEXT NOT NULL DEFAULT 'anthropic',
+      base_url TEXT NOT NULL DEFAULT '',
+      api_key TEXT NOT NULL DEFAULT '',
+      is_active INTEGER NOT NULL DEFAULT 0,
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      extra_env TEXT NOT NULL DEFAULT '{}',
+      notes TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+  `);
+
+  // Migrate existing settings to a default provider if api_providers is empty
+  const providerCount = db.prepare('SELECT COUNT(*) as count FROM api_providers').get() as { count: number };
+  if (providerCount.count === 0) {
+    const tokenRow = db.prepare("SELECT value FROM settings WHERE key = 'anthropic_auth_token'").get() as { value: string } | undefined;
+    const baseUrlRow = db.prepare("SELECT value FROM settings WHERE key = 'anthropic_base_url'").get() as { value: string } | undefined;
+    if (tokenRow || baseUrlRow) {
+      const id = crypto.randomBytes(16).toString('hex');
+      const now = new Date().toISOString().replace('T', ' ').split('.')[0];
+      db.prepare(
+        'INSERT INTO api_providers (id, name, provider_type, base_url, api_key, is_active, sort_order, extra_env, notes, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+      ).run(id, 'Default', 'anthropic', baseUrlRow?.value || '', tokenRow?.value || '', 1, 0, '{}', 'Migrated from settings', now, now);
+    }
+  }
 }
 
 // ==========================================
@@ -255,6 +300,13 @@ export function addMessage(
   return db.prepare('SELECT * FROM messages WHERE id = ?').get(id) as Message;
 }
 
+export function clearSessionMessages(sessionId: string): void {
+  const db = getDb();
+  db.prepare('DELETE FROM messages WHERE session_id = ?').run(sessionId);
+  // Reset SDK session ID so next message starts fresh
+  db.prepare('UPDATE chat_sessions SET sdk_session_id = ? WHERE id = ?').run('', sessionId);
+}
+
 // ==========================================
 // Settings Operations
 // ==========================================
@@ -338,4 +390,96 @@ export function deleteTask(id: string): boolean {
   const db = getDb();
   const result = db.prepare('DELETE FROM tasks WHERE id = ?').run(id);
   return result.changes > 0;
+}
+
+// ==========================================
+// API Provider Operations
+// ==========================================
+
+export function getAllProviders(): ApiProvider[] {
+  const db = getDb();
+  return db.prepare('SELECT * FROM api_providers ORDER BY sort_order ASC, created_at ASC').all() as ApiProvider[];
+}
+
+export function getProvider(id: string): ApiProvider | undefined {
+  const db = getDb();
+  return db.prepare('SELECT * FROM api_providers WHERE id = ?').get(id) as ApiProvider | undefined;
+}
+
+export function getActiveProvider(): ApiProvider | undefined {
+  const db = getDb();
+  return db.prepare('SELECT * FROM api_providers WHERE is_active = 1 LIMIT 1').get() as ApiProvider | undefined;
+}
+
+export function createProvider(data: CreateProviderRequest): ApiProvider {
+  const db = getDb();
+  const id = crypto.randomBytes(16).toString('hex');
+  const now = new Date().toISOString().replace('T', ' ').split('.')[0];
+
+  // Get max sort_order to append at end
+  const maxRow = db.prepare('SELECT MAX(sort_order) as max_order FROM api_providers').get() as { max_order: number | null };
+  const sortOrder = (maxRow.max_order ?? -1) + 1;
+
+  db.prepare(
+    'INSERT INTO api_providers (id, name, provider_type, base_url, api_key, is_active, sort_order, extra_env, notes, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+  ).run(
+    id,
+    data.name,
+    data.provider_type || 'anthropic',
+    data.base_url || '',
+    data.api_key || '',
+    0,
+    sortOrder,
+    data.extra_env || '{}',
+    data.notes || '',
+    now,
+    now,
+  );
+
+  return getProvider(id)!;
+}
+
+export function updateProvider(id: string, data: UpdateProviderRequest): ApiProvider | undefined {
+  const db = getDb();
+  const existing = getProvider(id);
+  if (!existing) return undefined;
+
+  const now = new Date().toISOString().replace('T', ' ').split('.')[0];
+  const name = data.name ?? existing.name;
+  const providerType = data.provider_type ?? existing.provider_type;
+  const baseUrl = data.base_url ?? existing.base_url;
+  const apiKey = data.api_key ?? existing.api_key;
+  const extraEnv = data.extra_env ?? existing.extra_env;
+  const notes = data.notes ?? existing.notes;
+  const sortOrder = data.sort_order ?? existing.sort_order;
+
+  db.prepare(
+    'UPDATE api_providers SET name = ?, provider_type = ?, base_url = ?, api_key = ?, extra_env = ?, notes = ?, sort_order = ?, updated_at = ? WHERE id = ?'
+  ).run(name, providerType, baseUrl, apiKey, extraEnv, notes, sortOrder, now, id);
+
+  return getProvider(id);
+}
+
+export function deleteProvider(id: string): boolean {
+  const db = getDb();
+  const result = db.prepare('DELETE FROM api_providers WHERE id = ?').run(id);
+  return result.changes > 0;
+}
+
+export function activateProvider(id: string): boolean {
+  const db = getDb();
+  const existing = getProvider(id);
+  if (!existing) return false;
+
+  const transaction = db.transaction(() => {
+    db.prepare('UPDATE api_providers SET is_active = 0').run();
+    db.prepare('UPDATE api_providers SET is_active = 1 WHERE id = ?').run(id);
+  });
+  transaction();
+  return true;
+}
+
+export function deactivateAllProviders(): void {
+  const db = getDb();
+  db.prepare('UPDATE api_providers SET is_active = 0').run();
 }

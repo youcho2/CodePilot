@@ -94,6 +94,51 @@ export interface Setting {
 }
 
 // ==========================================
+// API Provider Types
+// ==========================================
+
+export interface ApiProvider {
+  id: string;
+  name: string;
+  provider_type: string; // 'anthropic' | 'openrouter' | 'bedrock' | 'vertex' | 'custom'
+  base_url: string;
+  api_key: string;
+  is_active: number; // SQLite boolean: 0 or 1
+  sort_order: number;
+  extra_env: string; // JSON string of Record<string, string>
+  notes: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CreateProviderRequest {
+  name: string;
+  provider_type?: string;
+  base_url?: string;
+  api_key?: string;
+  extra_env?: string;
+  notes?: string;
+}
+
+export interface UpdateProviderRequest {
+  name?: string;
+  provider_type?: string;
+  base_url?: string;
+  api_key?: string;
+  extra_env?: string;
+  notes?: string;
+  sort_order?: number;
+}
+
+export interface ProvidersResponse {
+  providers: ApiProvider[];
+}
+
+export interface ProviderResponse {
+  provider: ApiProvider;
+}
+
+// ==========================================
 // Token Usage
 // ==========================================
 
