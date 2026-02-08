@@ -61,10 +61,11 @@ linux:
   category: Development
   artifactName: "${productName}-${version}-${arch}.${ext}"
   desktop:
-    Name: CodePilot
-    Comment: A native desktop GUI for Claude Code
-    Categories: Development;IDE;
-    StartupWMClass: codepilot
+    entry:
+      Name: CodePilot
+      Comment: A native desktop GUI for Claude Code
+      Categories: Development;IDE;
+      StartupWMClass: codepilot
   target:
     - target: AppImage
       arch: [x64, arm64]
