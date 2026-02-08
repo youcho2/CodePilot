@@ -10,7 +10,7 @@
  * 4. Edge cases (root, same path, trailing separators) are handled
  */
 
-import { describe, it } from 'node:test';
+import { describe, it, after } from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'path';
 import os from 'os';
@@ -112,8 +112,46 @@ describe('File API path traversal scenarios', () => {
     });
   }
 
-  // Cleanup
-  it('cleanup test fixtures', () => {
+  // Cleanup test fixtures
+  after(() => {
     fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+});
+
+describe('baseDir validation', () => {
+  it('should reject baseDir set to root (bypass attempt)', () => {
+    // If baseDir=/, every path would pass isPathSafe — must be blocked
+    const homeDir = os.homedir();
+    assert.equal(isPathSafe(homeDir, '/'), false);
+  });
+
+  it('should reject baseDir outside home directory', () => {
+    const homeDir = os.homedir();
+    assert.equal(isPathSafe(homeDir, '/tmp'), false);
+    assert.equal(isPathSafe(homeDir, '/etc'), false);
+    assert.equal(isPathSafe(homeDir, '/var/log'), false);
+  });
+
+  it('should allow baseDir inside home directory', () => {
+    const homeDir = os.homedir();
+    const projectDir = path.join(homeDir, 'projects', 'myapp');
+    assert.equal(isPathSafe(homeDir, projectDir), true);
+  });
+
+  it('should allow baseDir equal to home directory', () => {
+    const homeDir = os.homedir();
+    assert.equal(isPathSafe(homeDir, homeDir), true);
+  });
+
+  it('should block files outside home when no baseDir provided (fallback)', () => {
+    const homeDir = os.homedir();
+    assert.equal(isPathSafe(homeDir, '/etc/passwd'), false);
+    assert.equal(isPathSafe(homeDir, '/tmp/malicious'), false);
+  });
+
+  it('should allow files inside home when no baseDir provided (fallback)', () => {
+    const homeDir = os.homedir();
+    const filePath = path.join(homeDir, 'documents', 'file.txt');
+    assert.equal(isPathSafe(homeDir, filePath), true);
   });
 });

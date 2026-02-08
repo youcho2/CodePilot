@@ -15,18 +15,37 @@ export async function GET(request: NextRequest) {
   }
 
   const path = require('path');
+  const os = require('os');
   const resolvedDir = path.resolve(dir);
+  const homeDir = os.homedir();
 
   // Use baseDir (the session's working directory) as the trust boundary.
-  // If no baseDir is provided, fall back to the requested directory itself
-  // (preserves backward compatibility while still preventing traversal
-  // when the frontend supplies the session working directory).
+  // The baseDir itself must be under the user's home directory to prevent
+  // attackers from setting baseDir=/ to bypass all restrictions.
+  // If no baseDir is provided, fall back to the user's home directory
+  // to prevent scanning arbitrary system directories.
   const baseDir = searchParams.get('baseDir');
   if (baseDir) {
     const resolvedBase = path.resolve(baseDir);
+    // Ensure baseDir is within the home directory (prevent baseDir=/ bypass)
+    if (!isPathSafe(homeDir, resolvedBase)) {
+      return NextResponse.json<ErrorResponse>(
+        { error: 'Base directory is outside the allowed scope' },
+        { status: 403 }
+      );
+    }
     if (!isPathSafe(resolvedBase, resolvedDir)) {
       return NextResponse.json<ErrorResponse>(
         { error: 'Directory is outside the project scope' },
+        { status: 403 }
+      );
+    }
+  } else {
+    // Fallback: without a baseDir, restrict to the user's home directory
+    // to prevent scanning arbitrary system directories like /etc
+    if (!isPathSafe(homeDir, resolvedDir)) {
+      return NextResponse.json<ErrorResponse>(
+        { error: 'Directory is outside the allowed scope' },
         { status: 403 }
       );
     }
