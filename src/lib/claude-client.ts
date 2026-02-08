@@ -18,7 +18,7 @@ import type {
 import type { ClaudeStreamOptions, SSEEvent, TokenUsage, MCPServerConfig, PermissionRequestEvent } from '@/types';
 import { registerPendingPermission } from './permission-registry';
 import { getSetting, getActiveProvider } from './db';
-import { findClaudeBinary, getExpandedPath } from './platform';
+import { findClaudeBinary, findGitBash, getExpandedPath } from './platform';
 import os from 'os';
 
 let cachedClaudePath: string | null | undefined;
@@ -157,6 +157,14 @@ export function streamClaude(options: ClaudeStreamOptions): ReadableStream<strin
         // Ensure SDK subprocess has expanded PATH (consistent with Electron mode)
         sdkEnv.PATH = getExpandedPath();
 
+        // On Windows, auto-detect Git Bash if not already configured
+        if (process.platform === 'win32' && !process.env.CLAUDE_CODE_GIT_BASH_PATH) {
+          const gitBashPath = findGitBash();
+          if (gitBashPath) {
+            sdkEnv.CLAUDE_CODE_GIT_BASH_PATH = gitBashPath;
+          }
+        }
+
         // Try to get config from active provider first
         const activeProvider = getActiveProvider();
 
@@ -192,11 +200,22 @@ export function streamClaude(options: ClaudeStreamOptions): ReadableStream<strin
             // ignore malformed extra_env
           }
         } else {
-          // Fall back to legacy settings
+          // No active provider — check legacy DB settings first, then fall back to
+          // environment variables already present in process.env (copied into sdkEnv above).
+          // This allows users who set ANTHROPIC_API_KEY / ANTHROPIC_AUTH_TOKEN / ANTHROPIC_BASE_URL
+          // in their shell environment to use them without configuring a provider in the UI.
           const appToken = getSetting('anthropic_auth_token');
           const appBaseUrl = getSetting('anthropic_base_url');
-          if (appToken) sdkEnv.ANTHROPIC_AUTH_TOKEN = appToken;
-          if (appBaseUrl) sdkEnv.ANTHROPIC_BASE_URL = appBaseUrl;
+          if (appToken) {
+            sdkEnv.ANTHROPIC_AUTH_TOKEN = appToken;
+          }
+          if (appBaseUrl) {
+            sdkEnv.ANTHROPIC_BASE_URL = appBaseUrl;
+          }
+          // If neither legacy settings nor env vars provide a key, log a warning
+          if (!appToken && !sdkEnv.ANTHROPIC_API_KEY && !sdkEnv.ANTHROPIC_AUTH_TOKEN) {
+            console.warn('[claude-client] No API key found: no active provider, no legacy settings, and no ANTHROPIC_API_KEY/ANTHROPIC_AUTH_TOKEN in environment');
+          }
         }
 
         const queryOptions: Options = {
