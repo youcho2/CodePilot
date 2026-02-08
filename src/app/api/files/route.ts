@@ -14,16 +14,22 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  // Safety: resolve absolute path and validate
   const path = require('path');
   const resolvedDir = path.resolve(dir);
 
-  // Only allow scanning within the provided directory
-  if (!isPathSafe(resolvedDir, resolvedDir)) {
-    return NextResponse.json<ErrorResponse>(
-      { error: 'Invalid directory path' },
-      { status: 403 }
-    );
+  // Use baseDir (the session's working directory) as the trust boundary.
+  // If no baseDir is provided, fall back to the requested directory itself
+  // (preserves backward compatibility while still preventing traversal
+  // when the frontend supplies the session working directory).
+  const baseDir = searchParams.get('baseDir');
+  if (baseDir) {
+    const resolvedBase = path.resolve(baseDir);
+    if (!isPathSafe(resolvedBase, resolvedDir)) {
+      return NextResponse.json<ErrorResponse>(
+        { error: 'Directory is outside the project scope' },
+        { status: 403 }
+      );
+    }
   }
 
   try {
