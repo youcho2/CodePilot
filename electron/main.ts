@@ -1,14 +1,16 @@
-import { app, BrowserWindow, nativeImage, dialog } from 'electron';
+import { app, BrowserWindow, nativeImage, dialog, session, utilityProcess } from 'electron';
 import path from 'path';
-import { spawn, execFileSync, ChildProcess } from 'child_process';
+import { execFileSync } from 'child_process';
 import fs from 'fs';
 import net from 'net';
 import os from 'os';
 
 let mainWindow: BrowserWindow | null = null;
-let serverProcess: ChildProcess | null = null;
+let serverProcess: Electron.UtilityProcess | null = null;
 let serverPort: number | null = null;
 let serverErrors: string[] = [];
+let serverExited = false;
+let serverExitCode: number | null = null;
 let userShellEnv: Record<string, string> = {};
 
 const isDev = !app.isPackaged;
@@ -125,9 +127,9 @@ async function waitForServer(port: number, timeout = 30000): Promise<void> {
   const start = Date.now();
   while (Date.now() - start < timeout) {
     // If the server process already exited, fail fast
-    if (serverProcess && serverProcess.exitCode !== null) {
+    if (serverExited) {
       throw new Error(
-        `Server process exited with code ${serverProcess.exitCode}.\n\n${serverErrors.join('\n')}`
+        `Server process exited with code ${serverExitCode}.\n\n${serverErrors.join('\n')}`
       );
     }
     try {
@@ -152,20 +154,16 @@ async function waitForServer(port: number, timeout = 30000): Promise<void> {
   );
 }
 
-function startServer(port: number): ChildProcess {
+function startServer(port: number): Electron.UtilityProcess {
   const standaloneDir = path.join(process.resourcesPath, 'standalone');
   const serverPath = path.join(standaloneDir, 'server.js');
 
-  // Always use Electron's built-in Node.js in packaged mode.
-  // electron-builder's @electron/rebuild compiles native modules (better-sqlite3)
-  // for Electron's Node ABI, so we must use the matching runtime.
-  const nodePath = process.execPath;
-
-  console.log(`Using Node.js: ${nodePath}`);
   console.log(`Server path: ${serverPath}`);
   console.log(`Standalone dir: ${standaloneDir}`);
 
   serverErrors = [];
+  serverExited = false;
+  serverExitCode = null;
 
   const home = os.homedir();
   const shellPath = userShellEnv.PATH || process.env.PATH || '';
@@ -199,30 +197,19 @@ function startServer(port: number): ChildProcess {
     PORT: String(port),
     HOSTNAME: '127.0.0.1',
     CLAUDE_GUI_DATA_DIR: path.join(home, '.codepilot'),
-    ELECTRON_RUN_AS_NODE: '1',
     HOME: home,
     USERPROFILE: home,
     PATH: constructedPath,
   };
 
-  // On Windows, spawn Node.js directly with windowsHide to prevent console flash.
-  // On macOS, spawn via /bin/sh to prevent the Electron binary from appearing
-  // as a separate Dock icon (even with ELECTRON_RUN_AS_NODE=1).
-  let child: ChildProcess;
-  if (process.platform === 'win32') {
-    child = spawn(nodePath, [serverPath], {
-      env,
-      stdio: 'pipe',
-      cwd: standaloneDir,
-      windowsHide: true,
-    });
-  } else {
-    child = spawn('/bin/sh', ['-c', `exec "${nodePath}" "${serverPath}"`], {
-      env,
-      stdio: 'pipe',
-      cwd: standaloneDir,
-    });
-  }
+  // Use Electron's utilityProcess to run the server in a child process
+  // without spawning a separate Dock icon on macOS.
+  const child = utilityProcess.fork(serverPath, [], {
+    env,
+    cwd: standaloneDir,
+    stdio: 'pipe',
+    serviceName: 'codepilot-server',
+  });
 
   child.stdout?.on('data', (data: Buffer) => {
     const msg = data.toString().trim();
@@ -238,6 +225,8 @@ function startServer(port: number): ChildProcess {
 
   child.on('exit', (code) => {
     console.log(`Server process exited with code ${code}`);
+    serverExited = true;
+    serverExitCode = code;
     serverProcess = null;
   });
 
@@ -301,6 +290,26 @@ app.whenReady().then(async () => {
 
   // Verify native module ABI compatibility before starting the server
   checkNativeModuleABI();
+
+  // Clear cache on version upgrade
+  const currentVersion = app.getVersion();
+  const versionFilePath = path.join(app.getPath('userData'), 'last-version.txt');
+  try {
+    const lastVersion = fs.existsSync(versionFilePath)
+      ? fs.readFileSync(versionFilePath, 'utf-8').trim()
+      : '';
+    if (lastVersion && lastVersion !== currentVersion) {
+      console.log(`Version changed from ${lastVersion} to ${currentVersion}, clearing cache...`);
+      await session.defaultSession.clearCache();
+      await session.defaultSession.clearStorageData({
+        storages: ['cachestorage', 'serviceworkers'],
+      });
+      console.log('Cache cleared successfully');
+    }
+    fs.writeFileSync(versionFilePath, currentVersion, 'utf-8');
+  } catch (err) {
+    console.warn('Failed to check/clear version cache:', err);
+  }
 
   // Set macOS Dock icon
   if (process.platform === 'darwin' && app.dock) {
