@@ -15,16 +15,40 @@ export async function GET(request: NextRequest) {
   }
 
   const path = require('path');
+  const os = require('os');
   const resolvedPath = path.resolve(filePath);
+  const homeDir = os.homedir();
 
-  // Basic safety: the file must exist under some reasonable base
-  // We check it resolves to an absolute path and is not a traversal attempt
-  const dir = path.dirname(resolvedPath);
-  if (!isPathSafe(dir, resolvedPath)) {
-    return NextResponse.json<ErrorResponse>(
-      { error: 'Invalid file path' },
-      { status: 403 }
-    );
+  // Validate that the file is within the session's working directory.
+  // The baseDir parameter should be the session's working directory,
+  // which acts as the trust boundary for file access.
+  // The baseDir itself must be under the user's home directory to prevent
+  // attackers from setting baseDir=/ to bypass all restrictions.
+  const baseDir = searchParams.get('baseDir');
+  if (baseDir) {
+    const resolvedBase = path.resolve(baseDir);
+    // Ensure baseDir is within the home directory (prevent baseDir=/ bypass)
+    if (!isPathSafe(homeDir, resolvedBase)) {
+      return NextResponse.json<ErrorResponse>(
+        { error: 'Base directory is outside the allowed scope' },
+        { status: 403 }
+      );
+    }
+    if (!isPathSafe(resolvedBase, resolvedPath)) {
+      return NextResponse.json<ErrorResponse>(
+        { error: 'File is outside the project scope' },
+        { status: 403 }
+      );
+    }
+  } else {
+    // Fallback: without a baseDir, restrict to the user's home directory
+    // to prevent reading arbitrary system files like /etc/passwd
+    if (!isPathSafe(homeDir, resolvedPath)) {
+      return NextResponse.json<ErrorResponse>(
+        { error: 'File is outside the allowed scope' },
+        { status: 403 }
+      );
+    }
   }
 
   try {
