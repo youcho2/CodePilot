@@ -366,24 +366,63 @@ export function streamClaude(options: ClaudeStreamOptions): ReadableStream<strin
           }
         };
 
-        // Build the prompt: save all file attachments to disk and reference them in the prompt.
-        // Claude Code's built-in Read tool can read images (converts to base64 internally),
-        // PDFs, and text files — this is more reliable than constructing SDK multimodal messages.
-        let finalPrompt: string = prompt;
+        // Build the prompt with file attachments.
+        // Images → sent as multimodal base64 content blocks (vision).
+        // Non-image files → saved to disk and referenced via Read tool.
+        let finalPrompt: string | AsyncIterable<SDKUserMessage> = prompt;
 
         if (files && files.length > 0) {
-          const workDir = workingDirectory || process.cwd();
-          const savedPaths = saveUploadedFiles(files, workDir);
-          const fileReferences = savedPaths
-            .map((p, i) => {
-              const f = files[i];
-              if (isImageFile(f.type)) {
-                return `[User attached image: ${p} (${f.name})]`;
-              }
-              return `[User attached file: ${p} (${f.name})]`;
-            })
-            .join('\n');
-          finalPrompt = `${fileReferences}\n\nPlease read the attached file(s) above using your Read tool, then respond to the user's message:\n\n${prompt}`;
+          const imageFiles = files.filter(f => isImageFile(f.type));
+          const nonImageFiles = files.filter(f => !isImageFile(f.type));
+
+          // Save non-image files to disk for Read tool access
+          let textPrompt = prompt;
+          if (nonImageFiles.length > 0) {
+            const workDir = workingDirectory || process.cwd();
+            const savedPaths = saveUploadedFiles(nonImageFiles, workDir);
+            const fileReferences = savedPaths
+              .map((p, i) => `[User attached file: ${p} (${nonImageFiles[i].name})]`)
+              .join('\n');
+            textPrompt = `${fileReferences}\n\nPlease read the attached file(s) above using your Read tool, then respond to the user's message:\n\n${prompt}`;
+          }
+
+          // If there are images, build a multimodal SDKUserMessage
+          if (imageFiles.length > 0) {
+            const contentBlocks: Array<
+              | { type: 'image'; source: { type: 'base64'; media_type: string; data: string } }
+              | { type: 'text'; text: string }
+            > = [];
+
+            for (const img of imageFiles) {
+              contentBlocks.push({
+                type: 'image',
+                source: {
+                  type: 'base64',
+                  media_type: img.type || 'image/png',
+                  data: img.data,
+                },
+              });
+            }
+
+            contentBlocks.push({ type: 'text', text: textPrompt });
+
+            const userMessage: SDKUserMessage = {
+              type: 'user',
+              message: {
+                role: 'user',
+                content: contentBlocks,
+              },
+              parent_tool_use_id: null,
+              session_id: sdkSessionId || '',
+            };
+
+            // Create a single-message async iterable
+            finalPrompt = (async function* () {
+              yield userMessage;
+            })();
+          } else {
+            finalPrompt = textPrompt;
+          }
         }
 
         const conversation = query({
