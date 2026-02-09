@@ -54,9 +54,17 @@ export function SkillsManager() {
     []
   );
 
+  const buildSkillUrl = useCallback((skill: SkillItem) => {
+    const base = `/api/skills/${encodeURIComponent(skill.name)}`;
+    if (skill.source === "installed" && skill.installedSource) {
+      return `${base}?source=${skill.installedSource}`;
+    }
+    return base;
+  }, []);
+
   const handleSave = useCallback(
-    async (name: string, content: string) => {
-      const res = await fetch(`/api/skills/${encodeURIComponent(name)}`, {
+    async (skill: SkillItem, content: string) => {
+      const res = await fetch(buildSkillUrl(skill), {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ content }),
@@ -68,32 +76,44 @@ export function SkillsManager() {
       const data = await res.json();
       // Update in list
       setSkills((prev) =>
-        prev.map((s) => (s.name === name && s.source === data.skill.source ? data.skill : s))
+        prev.map((s) =>
+          s.name === skill.name &&
+          s.source === data.skill.source &&
+          s.installedSource === data.skill.installedSource
+            ? data.skill
+            : s
+        )
       );
       // Update selected
       setSelected(data.skill);
     },
-    []
+    [buildSkillUrl]
   );
 
   const handleDelete = useCallback(
     async (skill: SkillItem) => {
-      const res = await fetch(
-        `/api/skills/${encodeURIComponent(skill.name)}`,
-        { method: "DELETE" }
-      );
+      const res = await fetch(buildSkillUrl(skill), { method: "DELETE" });
       if (res.ok) {
         setSkills((prev) =>
           prev.filter(
-            (s) => !(s.name === skill.name && s.source === skill.source)
+            (s) =>
+              !(
+                s.name === skill.name &&
+                s.source === skill.source &&
+                s.installedSource === skill.installedSource
+              )
           )
         );
-        if (selected?.name === skill.name && selected?.source === skill.source) {
+        if (
+          selected?.name === skill.name &&
+          selected?.source === skill.source &&
+          selected?.installedSource === skill.installedSource
+        ) {
           setSelected(null);
         }
       }
     },
-    [selected]
+    [buildSkillUrl, selected]
   );
 
   const filtered = skills.filter(
@@ -153,11 +173,12 @@ export function SkillsManager() {
                   </span>
                   {projectSkills.map((skill) => (
                     <SkillListItem
-                      key={`${skill.source}:${skill.name}`}
+                      key={`${skill.source}:${skill.installedSource ?? "default"}:${skill.name}`}
                       skill={skill}
                       selected={
                         selected?.name === skill.name &&
-                        selected?.source === skill.source
+                        selected?.source === skill.source &&
+                        selected?.installedSource === skill.installedSource
                       }
                       onSelect={() => setSelected(skill)}
                       onDelete={handleDelete}
@@ -172,11 +193,12 @@ export function SkillsManager() {
                   </span>
                   {globalSkills.map((skill) => (
                     <SkillListItem
-                      key={`${skill.source}:${skill.name}`}
+                      key={`${skill.source}:${skill.installedSource ?? "default"}:${skill.name}`}
                       skill={skill}
                       selected={
                         selected?.name === skill.name &&
-                        selected?.source === skill.source
+                        selected?.source === skill.source &&
+                        selected?.installedSource === skill.installedSource
                       }
                       onSelect={() => setSelected(skill)}
                       onDelete={handleDelete}
@@ -191,11 +213,12 @@ export function SkillsManager() {
                   </span>
                   {installedSkills.map((skill) => (
                     <SkillListItem
-                      key={`${skill.source}:${skill.name}`}
+                      key={`${skill.source}:${skill.installedSource ?? "default"}:${skill.name}`}
                       skill={skill}
                       selected={
                         selected?.name === skill.name &&
-                        selected?.source === skill.source
+                        selected?.source === skill.source &&
+                        selected?.installedSource === skill.installedSource
                       }
                       onSelect={() => setSelected(skill)}
                       onDelete={handleDelete}
@@ -210,11 +233,12 @@ export function SkillsManager() {
                   </span>
                   {pluginSkills.map((skill) => (
                     <SkillListItem
-                      key={skill.filePath || `${skill.source}:${skill.name}`}
+                      key={skill.filePath || `${skill.source}:${skill.installedSource ?? "default"}:${skill.name}`}
                       skill={skill}
                       selected={
                         selected?.name === skill.name &&
-                        selected?.source === skill.source
+                        selected?.source === skill.source &&
+                        selected?.installedSource === skill.installedSource
                       }
                       onSelect={() => setSelected(skill)}
                       onDelete={handleDelete}

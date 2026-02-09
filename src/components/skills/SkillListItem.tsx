@@ -17,6 +17,7 @@ export interface SkillItem {
   description: string;
   content: string;
   source: "global" | "project" | "plugin" | "installed";
+  installedSource?: "agents" | "claude";
   filePath: string;
 }
 
@@ -89,7 +90,9 @@ export function SkillListItem({
             ) : (
               <HugeiconsIcon icon={FolderOpenIcon} className="h-2.5 w-2.5 mr-0.5" />
             )}
-            {skill.source}
+            {skill.source === "installed" && skill.installedSource
+              ? `installed:${skill.installedSource}`
+              : skill.source}
           </Badge>
         </div>
         <p className="text-xs text-muted-foreground truncate">

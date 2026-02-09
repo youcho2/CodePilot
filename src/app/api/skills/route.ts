@@ -2,14 +2,19 @@ import { NextRequest, NextResponse } from "next/server";
 import fs from "fs";
 import path from "path";
 import os from "os";
+import crypto from "crypto";
 
 interface SkillFile {
   name: string;
   description: string;
   content: string;
   source: "global" | "project" | "plugin" | "installed";
+  installedSource?: "agents" | "claude";
   filePath: string;
 }
+
+type InstalledSource = "agents" | "claude";
+type InstalledSkill = SkillFile & { installedSource: InstalledSource; contentHash: string };
 
 function getGlobalCommandsDir(): string {
   return path.join(os.homedir(), ".claude", "commands");
@@ -46,6 +51,14 @@ function getPluginCommandsDirs(): string[] {
 
 function getInstalledSkillsDir(): string {
   return path.join(os.homedir(), ".agents", "skills");
+}
+
+function getClaudeSkillsDir(): string {
+  return path.join(os.homedir(), ".claude", "skills");
+}
+
+function computeContentHash(content: string): string {
+  return crypto.createHash("sha1").update(content, "utf8").digest("hex");
 }
 
 /**
@@ -97,12 +110,15 @@ function parseSkillFrontMatter(content: string): { name?: string; description?: 
 }
 
 /**
- * Scan ~/.agents/skills/ for installed skills (npx skills add).
- * Each skill is a directory containing a SKILL.md with YAML front matter.
+ * Scan a directory for installed skills.
+ * Each skill is a subdirectory containing a SKILL.md with YAML front matter.
+ * Used for both ~/.agents/skills/ and ~/.claude/skills/.
  */
-function scanInstalledSkills(): SkillFile[] {
-  const skills: SkillFile[] = [];
-  const dir = getInstalledSkillsDir();
+function scanInstalledSkills(
+  dir: string,
+  installedSource: InstalledSource
+): InstalledSkill[] {
+  const skills: InstalledSkill[] = [];
   if (!fs.existsSync(dir)) return skills;
 
   try {
@@ -116,12 +132,15 @@ function scanInstalledSkills(): SkillFile[] {
       const meta = parseSkillFrontMatter(content);
       const name = meta.name || entry.name;
       const description = meta.description || `Installed skill: /${name}`;
+      const contentHash = computeContentHash(content);
 
       skills.push({
         name,
         description,
         content,
         source: "installed",
+        installedSource,
+        contentHash,
         filePath: skillMdPath,
       });
     }
@@ -129,6 +148,43 @@ function scanInstalledSkills(): SkillFile[] {
     // ignore read errors
   }
   return skills;
+}
+
+function resolveInstalledSkills(
+  agentsSkills: InstalledSkill[],
+  claudeSkills: InstalledSkill[],
+  preferredSource: InstalledSource
+): SkillFile[] {
+  const all = [...agentsSkills, ...claudeSkills];
+  const byName = new Map<string, InstalledSkill[]>();
+  for (const skill of all) {
+    const existing = byName.get(skill.name);
+    if (existing) {
+      existing.push(skill);
+    } else {
+      byName.set(skill.name, [skill]);
+    }
+  }
+
+  const resolved: InstalledSkill[] = [];
+  for (const group of byName.values()) {
+    if (group.length === 1) {
+      resolved.push(group[0]);
+      continue;
+    }
+
+    const uniqueHashes = new Set(group.map((s) => s.contentHash));
+    if (uniqueHashes.size === 1) {
+      const preferred =
+        group.find((s) => s.installedSource === preferredSource) || group[0];
+      resolved.push(preferred);
+      continue;
+    }
+
+    resolved.push(...group);
+  }
+
+  return resolved.map(({ contentHash: _contentHash, ...rest }) => rest);
 }
 
 function scanDirectory(
@@ -183,7 +239,27 @@ export async function GET(request: NextRequest) {
 
     const globalSkills = scanDirectory(globalDir, "global");
     const projectSkills = scanDirectory(projectDir, "project");
-    const installedSkills = scanInstalledSkills();
+
+    const agentsSkillsDir = getInstalledSkillsDir();
+    const claudeSkillsDir = getClaudeSkillsDir();
+    console.log(`[skills] Scanning installed: ${agentsSkillsDir} (exists: ${fs.existsSync(agentsSkillsDir)})`);
+    console.log(`[skills] Scanning installed: ${claudeSkillsDir} (exists: ${fs.existsSync(claudeSkillsDir)})`);
+    const agentsSkills = scanInstalledSkills(agentsSkillsDir, "agents");
+    const claudeSkills = scanInstalledSkills(claudeSkillsDir, "claude");
+    const preferredInstalledSource: InstalledSource =
+      agentsSkills.length === claudeSkills.length
+        ? "claude"
+        : agentsSkills.length > claudeSkills.length
+          ? "agents"
+          : "claude";
+    console.log(
+      `[skills] Installed counts: agents=${agentsSkills.length}, claude=${claudeSkills.length}, preferred=${preferredInstalledSource}`
+    );
+    const installedSkills = resolveInstalledSkills(
+      agentsSkills,
+      claudeSkills,
+      preferredInstalledSource
+    );
 
     // Scan installed plugin skills
     const pluginSkills: SkillFile[] = [];
