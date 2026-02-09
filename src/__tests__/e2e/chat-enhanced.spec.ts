@@ -30,7 +30,7 @@ test.describe('Chat UI Enhanced (V2)', () => {
       // Wait for assistant response -- V2 uses gradient avatar instead of text label
       // Detect assistant response via the gradient avatar
       await expect(
-        page.locator('.from-violet-500')
+        page.locator('[data-role="assistant"]')
       ).toBeVisible({ timeout: 30_000 });
 
       // Wait for streaming to complete
@@ -50,7 +50,7 @@ test.describe('Chat UI Enhanced (V2)', () => {
       await sendMessage(page, 'Show me a Python hello world');
 
       await expect(
-        page.locator('.from-violet-500')
+        page.locator('[data-role="assistant"]')
       ).toBeVisible({ timeout: 30_000 });
 
       await waitForStreamingEnd(page);
@@ -103,9 +103,9 @@ test.describe('Chat UI Enhanced (V2)', () => {
       await goToChat(page);
       await sendMessage(page, 'Hi there');
 
-      // V2: Assistant avatar uses gradient bg (from-violet-500 to-purple-600)
+      // Detect assistant response via data-role attribute
       await expect(
-        page.locator('.from-violet-500')
+        page.locator('[data-role="assistant"]')
       ).toBeVisible({ timeout: 30_000 });
     });
 
@@ -125,7 +125,7 @@ test.describe('Chat UI Enhanced (V2)', () => {
 
       // V2: Assistant avatar is gradient, not bg-primary
       await expect(
-        page.locator('.from-violet-500:has(svg)')
+        page.locator('[data-role="assistant"]')
       ).toBeVisible({ timeout: 30_000 });
     });
   });

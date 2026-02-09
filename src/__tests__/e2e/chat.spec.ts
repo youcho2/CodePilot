@@ -116,9 +116,9 @@ test.describe('Chat Page', () => {
       await goToChat(page);
       await sendMessage(page, 'Say hello');
 
-      // V2: Wait for assistant response -- gradient avatar appears
+      // Wait for assistant response
       await expect(
-        page.locator('.from-violet-500')
+        page.locator('[data-role="assistant"]')
       ).toBeVisible({ timeout: 10_000 });
     });
 

@@ -124,7 +124,7 @@ export function SkillEditor({ skill, onSave, onDelete }: SkillEditorProps) {
                 : skill.source === "installed"
                   ? "border-orange-500/40 text-orange-600 dark:text-orange-400"
                   : skill.source === "plugin"
-                    ? "border-purple-500/40 text-purple-600 dark:text-purple-400"
+                    ? "border-indigo-500/40 text-indigo-600 dark:text-indigo-400"
                     : "border-blue-500/40 text-blue-600 dark:text-blue-400"
             )}
           >

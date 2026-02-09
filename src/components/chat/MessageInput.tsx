@@ -9,6 +9,7 @@ import {
   ClipboardIcon,
   HelpCircleIcon,
   ArrowDown01Icon,
+  ArrowUp02Icon,
   CommandLineIcon,
   Attachment01Icon,
   Cancel01Icon,
@@ -32,6 +33,7 @@ import {
   PromptInputSubmit,
   usePromptInputAttachments,
 } from '@/components/ai-elements/prompt-input';
+import { SquareIcon } from 'lucide-react';
 import type { ChatStatus } from 'ai';
 import type { FileAttachment } from '@/types';
 import { nanoid } from 'nanoid';
@@ -221,7 +223,14 @@ function FileAwareSubmitButton({
       status={status}
       onStop={onStop}
       disabled={disabled || (!isStreaming && !inputValue.trim() && !hasBadge && !hasFiles)}
-    />
+      className="rounded-full"
+    >
+      {isStreaming ? (
+        <SquareIcon className="size-4" />
+      ) : (
+        <HugeiconsIcon icon={ArrowUp02Icon} className="h-4 w-4" strokeWidth={2} />
+      )}
+    </PromptInputSubmit>
   );
 }
 
@@ -887,7 +896,7 @@ export function MessageInput({
                   >
                     <HugeiconsIcon icon={currentMode.icon} className="h-3.5 w-3.5" />
                     <span className="text-xs">{currentMode.label}</span>
-                    <HugeiconsIcon icon={ArrowDown01Icon} className="h-2.5 w-2.5" />
+                    <HugeiconsIcon icon={ArrowDown01Icon} className={cn("h-2.5 w-2.5 transition-transform duration-200", modeMenuOpen && "rotate-180")} />
                   </PromptInputButton>
 
                   {/* Mode dropdown */}
@@ -931,7 +940,7 @@ export function MessageInput({
                     onClick={() => setModelMenuOpen((prev) => !prev)}
                   >
                     <span className="text-xs font-mono">{currentModelOption.label}</span>
-                    <HugeiconsIcon icon={ArrowDown01Icon} className="h-2.5 w-2.5" />
+                    <HugeiconsIcon icon={ArrowDown01Icon} className={cn("h-2.5 w-2.5 transition-transform duration-200", modelMenuOpen && "rotate-180")} />
                   </PromptInputButton>
 
                   {modelMenuOpen && (

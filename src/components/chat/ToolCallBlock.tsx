@@ -312,7 +312,7 @@ export function ToolCallBlock({
           category === 'read' && "text-blue-500",
           category === 'write' && "text-amber-500",
           category === 'bash' && "text-green-500",
-          category === 'search' && "text-purple-500",
+          category === 'search' && "text-indigo-500",
           category === 'other' && "text-zinc-500",
         )} />
         <span className="font-mono text-xs truncate flex-1 text-foreground/80">{summary}</span>
