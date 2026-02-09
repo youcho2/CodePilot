@@ -402,6 +402,7 @@ export interface FileAttachment {
   type: string; // MIME type
   size: number;
   data: string; // base64 encoded content
+  filePath?: string; // persisted disk path (for messages reloaded from DB)
 }
 
 // Check if a MIME type is an image

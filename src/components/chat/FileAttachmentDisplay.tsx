@@ -11,6 +11,17 @@ interface FileAttachmentDisplayProps {
   files: FileAttachment[];
 }
 
+/**
+ * Build a display URL for a file attachment.
+ * - If base64 `data` is available (optimistic / in-memory): use data URI
+ * - If `filePath` is available (reloaded from DB): use the uploads API
+ */
+function fileUrl(f: FileAttachment): string {
+  if (f.data) return `data:${f.type};base64,${f.data}`;
+  if (f.filePath) return `/api/uploads?path=${encodeURIComponent(f.filePath)}`;
+  return '';
+}
+
 export function FileAttachmentDisplay({ files }: FileAttachmentDisplayProps) {
   const [lightboxOpen, setLightboxOpen] = useState(false);
   const [lightboxIndex, setLightboxIndex] = useState(0);
@@ -19,7 +30,7 @@ export function FileAttachmentDisplay({ files }: FileAttachmentDisplayProps) {
   const otherFiles = files.filter((f) => !isImageFile(f.type));
 
   const lightboxImages = imageFiles.map((f) => ({
-    src: `data:${f.type};base64,${f.data}`,
+    src: fileUrl(f),
     alt: f.name,
   }));
 
@@ -44,7 +55,7 @@ export function FileAttachmentDisplay({ files }: FileAttachmentDisplayProps) {
           {imageFiles.map((file, i) => (
             <ImageThumbnail
               key={file.id}
-              src={`data:${file.type};base64,${file.data}`}
+              src={fileUrl(file)}
               alt={file.name}
               onClick={() => handlePreview(i)}
             />

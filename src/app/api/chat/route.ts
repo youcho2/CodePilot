@@ -2,6 +2,8 @@ import { NextRequest } from 'next/server';
 import { streamClaude } from '@/lib/claude-client';
 import { addMessage, getSession, updateSessionTitle, updateSdkSessionId, getSetting } from '@/lib/db';
 import type { SendMessageRequest, SSEEvent, TokenUsage, MessageContentBlock, FileAttachment } from '@/types';
+import fs from 'fs';
+import path from 'path';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -26,8 +28,24 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    // Save user message
-    addMessage(session_id, 'user', content);
+    // Save user message — persist file metadata so attachments survive page reload
+    let savedContent = content;
+    if (files && files.length > 0) {
+      const workDir = session.working_directory || process.cwd();
+      const uploadDir = path.join(workDir, '.codepilot-uploads');
+      if (!fs.existsSync(uploadDir)) {
+        fs.mkdirSync(uploadDir, { recursive: true });
+      }
+      const fileMeta = files.map((f) => {
+        const safeName = path.basename(f.name).replace(/[^a-zA-Z0-9._-]/g, '_');
+        const filePath = path.join(uploadDir, `${Date.now()}-${safeName}`);
+        const buffer = Buffer.from(f.data, 'base64');
+        fs.writeFileSync(filePath, buffer);
+        return { id: f.id, name: f.name, type: f.type, size: buffer.length, filePath };
+      });
+      savedContent = `<!--files:${JSON.stringify(fileMeta)}-->${content}`;
+    }
+    addMessage(session_id, 'user', savedContent);
 
     // Auto-generate title from first message if still default
     if (session.title === 'New Chat') {
