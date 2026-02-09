@@ -9,8 +9,7 @@ import {
 } from '@/components/ai-elements/conversation';
 import { MessageItem } from './MessageItem';
 import { StreamingMessage } from './StreamingMessage';
-import { HugeiconsIcon } from "@hugeicons/react";
-import { BotIcon } from "@hugeicons/core-free-icons";
+import { CodePilotLogo } from './CodePilotLogo';
 
 interface ToolUseInfo {
   id: string;
@@ -55,11 +54,7 @@ export function MessageList({
         <ConversationEmptyState
           title="Claude Chat"
           description="Start a conversation with Claude. Ask questions, get help with code, or explore ideas."
-          icon={
-            <div className="flex h-16 w-16 items-center justify-center rounded-full bg-gradient-to-br from-violet-500/20 to-purple-600/20">
-              <HugeiconsIcon icon={BotIcon} className="h-8 w-8 text-violet-500" />
-            </div>
-          }
+          icon={<CodePilotLogo className="h-16 w-16" />}
         />
       </div>
     );

@@ -4,7 +4,6 @@ import { useRef, useState, useCallback, useEffect, type KeyboardEvent, type Form
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
   AtIcon,
-  DivideSignIcon,
   FolderOpenIcon,
   Wrench01Icon,
   ClipboardIcon,
@@ -13,6 +12,14 @@ import {
   CommandLineIcon,
   Attachment01Icon,
   Cancel01Icon,
+  Delete02Icon,
+  Coins01Icon,
+  FileZipIcon,
+  Stethoscope02Icon,
+  FileEditIcon,
+  SearchList01Icon,
+  BrainIcon,
+  GlobalIcon,
 } from "@hugeicons/core-free-icons";
 import { cn } from '@/lib/utils';
 import { FolderPicker } from './FolderPicker';
@@ -64,6 +71,7 @@ interface PopoverItem {
   builtIn?: boolean;
   immediate?: boolean;
   installedSource?: "agents" | "claude";
+  icon?: typeof CommandLineIcon;
 }
 
 interface CommandBadge {
@@ -85,15 +93,15 @@ const COMMAND_PROMPTS: Record<string, string> = {
 };
 
 const BUILT_IN_COMMANDS: PopoverItem[] = [
-  { label: 'help', value: '/help', description: 'Show available commands and tips', builtIn: true, immediate: true },
-  { label: 'clear', value: '/clear', description: 'Clear conversation history', builtIn: true, immediate: true },
-  { label: 'cost', value: '/cost', description: 'Show token usage statistics', builtIn: true, immediate: true },
-  { label: 'compact', value: '/compact', description: 'Compress conversation context', builtIn: true },
-  { label: 'doctor', value: '/doctor', description: 'Diagnose project health', builtIn: true },
-  { label: 'init', value: '/init', description: 'Initialize CLAUDE.md for project', builtIn: true },
-  { label: 'review', value: '/review', description: 'Review code quality', builtIn: true },
-  { label: 'terminal-setup', value: '/terminal-setup', description: 'Configure terminal settings', builtIn: true },
-  { label: 'memory', value: '/memory', description: 'Edit project memory file', builtIn: true },
+  { label: 'help', value: '/help', description: 'Show available commands and tips', builtIn: true, immediate: true, icon: HelpCircleIcon },
+  { label: 'clear', value: '/clear', description: 'Clear conversation history', builtIn: true, immediate: true, icon: Delete02Icon },
+  { label: 'cost', value: '/cost', description: 'Show token usage statistics', builtIn: true, immediate: true, icon: Coins01Icon },
+  { label: 'compact', value: '/compact', description: 'Compress conversation context', builtIn: true, icon: FileZipIcon },
+  { label: 'doctor', value: '/doctor', description: 'Diagnose project health', builtIn: true, icon: Stethoscope02Icon },
+  { label: 'init', value: '/init', description: 'Initialize CLAUDE.md for project', builtIn: true, icon: FileEditIcon },
+  { label: 'review', value: '/review', description: 'Review code quality', builtIn: true, icon: SearchList01Icon },
+  { label: 'terminal-setup', value: '/terminal-setup', description: 'Configure terminal settings', builtIn: true, icon: CommandLineIcon },
+  { label: 'memory', value: '/memory', description: 'Edit project memory file', builtIn: true, icon: BrainIcon },
 ];
 
 interface ModeOption {
@@ -291,6 +299,7 @@ export function MessageInput({
 }: MessageInputProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const popoverRef = useRef<HTMLDivElement>(null);
+  const searchInputRef = useRef<HTMLInputElement>(null);
   const modeMenuRef = useRef<HTMLDivElement>(null);
   const modelMenuRef = useRef<HTMLDivElement>(null);
 
@@ -358,11 +367,8 @@ export function MessageInput({
   }, [sessionId]);
 
   // Fetch skills for / command (built-in + API)
-  const fetchSkills = useCallback(async (filter: string) => {
-    const builtIn = BUILT_IN_COMMANDS.filter((cmd) =>
-      cmd.label.toLowerCase().includes(filter.toLowerCase())
-    );
-
+  // Returns all items unfiltered — filtering is done by filteredItems
+  const fetchSkills = useCallback(async () => {
     let apiSkills: PopoverItem[] = [];
     try {
       const res = await fetch('/api/skills');
@@ -370,26 +376,23 @@ export function MessageInput({
         const data = await res.json();
         const skills = data.skills || [];
         apiSkills = skills
-          .filter((s: { name: string }) => s.name.toLowerCase().includes(filter.toLowerCase()))
-          .map((s: { name: string; description: string; source?: string; installedSource?: "agents" | "claude" }) => {
-            const sourceHint =
-              s.source === "installed" && s.installedSource
-                ? ` (${s.installedSource})`
-                : "";
-            return {
-              label: s.name,
-              value: `/${s.name}`,
-              description: `${s.description || ""}${sourceHint}`,
-              builtIn: false,
-              installedSource: s.installedSource,
-            };
-          });
+          .map((s: { name: string; description: string; source?: string; installedSource?: "agents" | "claude" }) => ({
+            label: s.name,
+            value: `/${s.name}`,
+            description: s.description || "",
+            builtIn: false,
+            installedSource: s.installedSource,
+          }));
       }
     } catch {
       // API not available - just use built-in commands
     }
 
-    return [...builtIn, ...apiSkills].slice(0, 20);
+    // Deduplicate: remove API skills that share a name with built-in commands
+    const builtInNames = new Set(BUILT_IN_COMMANDS.map(c => c.label));
+    const uniqueSkills = apiSkills.filter(s => !builtInNames.has(s.label));
+
+    return [...BUILT_IN_COMMANDS, ...uniqueSkills];
   }, []);
 
   // Close popover
@@ -479,7 +482,7 @@ export function MessageInput({
       setPopoverFilter(filter);
       setTriggerPos(cursorPos - slashMatch[2].length - 1);
       setSelectedIndex(0);
-      const items = await fetchSkills(filter);
+      const items = await fetchSkills();
       setPopoverItems(items);
       return;
     }
@@ -701,49 +704,127 @@ export function MessageInput({
       <div className="mx-auto">
         <div className="relative">
           {/* Popover */}
-          {popoverMode && filteredItems.length > 0 && (
-            <div
-              ref={popoverRef}
-              className="absolute bottom-full left-0 right-0 mb-2 rounded-xl border bg-popover shadow-lg overflow-hidden z-50"
-            >
-              <div className="px-3 py-2 text-xs font-medium text-muted-foreground border-b">
-                {popoverMode === 'file' ? 'Files' : 'Commands'}
+          {popoverMode && filteredItems.length > 0 && (() => {
+            const builtInItems = filteredItems.filter(item => item.builtIn);
+            const skillItems = filteredItems.filter(item => !item.builtIn);
+            let globalIdx = 0;
+
+            const renderItem = (item: PopoverItem, idx: number) => (
+              <button
+                key={`${idx}-${item.value}`}
+                ref={idx === selectedIndex ? (el) => { el?.scrollIntoView({ block: 'nearest' }); } : undefined}
+                className={cn(
+                  "flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm transition-colors",
+                  idx === selectedIndex ? "bg-accent text-accent-foreground" : "hover:bg-accent/50"
+                )}
+                onClick={() => insertItem(item)}
+                onMouseEnter={() => setSelectedIndex(idx)}
+              >
+                {popoverMode === 'file' ? (
+                  <HugeiconsIcon icon={AtIcon} className="h-4 w-4 shrink-0 text-muted-foreground" />
+                ) : item.builtIn && item.icon ? (
+                  <HugeiconsIcon icon={item.icon} className="h-4 w-4 shrink-0 text-muted-foreground" />
+                ) : !item.builtIn ? (
+                  <HugeiconsIcon icon={GlobalIcon} className="h-4 w-4 shrink-0 text-muted-foreground" />
+                ) : (
+                  <HugeiconsIcon icon={CommandLineIcon} className="h-4 w-4 shrink-0 text-muted-foreground" />
+                )}
+                <span className="font-mono text-xs truncate">{item.label}</span>
+                {item.description && (
+                  <span className="text-xs text-muted-foreground truncate max-w-[200px]">
+                    {item.description}
+                  </span>
+                )}
+                {!item.builtIn && item.installedSource && (
+                  <span className="text-xs text-muted-foreground shrink-0 ml-auto">
+                    {item.installedSource === 'claude' ? 'Personal' : 'Agents'}
+                  </span>
+                )}
+              </button>
+            );
+
+            return (
+              <div
+                ref={popoverRef}
+                className="absolute bottom-full left-0 right-0 mb-2 rounded-xl border bg-popover shadow-lg overflow-hidden z-50"
+              >
+                {popoverMode === 'skill' ? (
+                  <div className="px-3 py-2 border-b">
+                    <input
+                      ref={searchInputRef}
+                      type="text"
+                      placeholder="Search..."
+                      value={popoverFilter}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        setPopoverFilter(val);
+                        setSelectedIndex(0);
+                        // Sync textarea: replace the filter portion after /
+                        if (triggerPos !== null) {
+                          const before = inputValue.slice(0, triggerPos + 1);
+                          setInputValue(before + val);
+                        }
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === 'ArrowDown') {
+                          e.preventDefault();
+                          setSelectedIndex((prev) => (prev + 1) % filteredItems.length);
+                        } else if (e.key === 'ArrowUp') {
+                          e.preventDefault();
+                          setSelectedIndex((prev) => (prev - 1 + filteredItems.length) % filteredItems.length);
+                        } else if (e.key === 'Enter' || e.key === 'Tab') {
+                          e.preventDefault();
+                          if (filteredItems[selectedIndex]) {
+                            insertItem(filteredItems[selectedIndex]);
+                          }
+                        } else if (e.key === 'Escape') {
+                          e.preventDefault();
+                          closePopover();
+                          textareaRef.current?.focus();
+                        }
+                      }}
+                      className="w-full bg-transparent text-sm text-foreground placeholder:text-muted-foreground outline-none"
+                      autoFocus
+                    />
+                  </div>
+                ) : (
+                  <div className="px-3 py-2 text-xs font-medium text-muted-foreground border-b">
+                    Files
+                  </div>
+                )}
+                <div className="max-h-48 overflow-y-auto py-1">
+                  {popoverMode === 'file' ? (
+                    filteredItems.map((item, i) => renderItem(item, i))
+                  ) : (
+                    <>
+                      {builtInItems.length > 0 && (
+                        <>
+                          <div className="px-3 py-1.5 text-xs font-medium text-muted-foreground">
+                            Commands
+                          </div>
+                          {builtInItems.map((item) => {
+                            const idx = globalIdx++;
+                            return renderItem(item, idx);
+                          })}
+                        </>
+                      )}
+                      {skillItems.length > 0 && (
+                        <>
+                          <div className="px-3 py-1.5 text-xs font-medium text-muted-foreground">
+                            Skills
+                          </div>
+                          {skillItems.map((item) => {
+                            const idx = globalIdx++;
+                            return renderItem(item, idx);
+                          })}
+                        </>
+                      )}
+                    </>
+                  )}
+                </div>
               </div>
-              <div className="max-h-48 overflow-y-auto py-1">
-                {filteredItems.map((item, i) => (
-                  <button
-                    key={item.value}
-                    ref={i === selectedIndex ? (el) => { el?.scrollIntoView({ block: 'nearest' }); } : undefined}
-                    className={cn(
-                      "flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm transition-colors",
-                      i === selectedIndex ? "bg-accent text-accent-foreground" : "hover:bg-accent/50"
-                    )}
-                    onClick={() => insertItem(item)}
-                    onMouseEnter={() => setSelectedIndex(i)}
-                  >
-                    {popoverMode === 'file' ? (
-                      <HugeiconsIcon icon={AtIcon} className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                    ) : item.builtIn ? (
-                      <HugeiconsIcon icon={CommandLineIcon} className="h-3.5 w-3.5 shrink-0 text-blue-400" />
-                    ) : (
-                      <HugeiconsIcon icon={DivideSignIcon} className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                    )}
-                    <span className="font-mono text-xs truncate">{item.label}</span>
-                    {item.builtIn && (
-                      <span className="text-[9px] px-1 py-0.5 rounded bg-blue-500/10 text-blue-400 font-medium shrink-0">
-                        Built-in
-                      </span>
-                    )}
-                    {item.description && (
-                      <span className="ml-auto text-xs text-muted-foreground truncate max-w-[200px]">
-                        {item.description}
-                      </span>
-                    )}
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
+            );
+          })()}
 
           {/* PromptInput replaces the old input area */}
           <PromptInput
