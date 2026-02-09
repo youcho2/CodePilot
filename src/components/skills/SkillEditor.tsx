@@ -29,7 +29,7 @@ type ViewMode = "edit" | "preview" | "split";
 
 interface SkillEditorProps {
   skill: SkillItem;
-  onSave: (name: string, content: string) => Promise<void>;
+  onSave: (skill: SkillItem, content: string) => Promise<void>;
   onDelete: (skill: SkillItem) => void;
 }
 
@@ -53,13 +53,13 @@ export function SkillEditor({ skill, onSave, onDelete }: SkillEditorProps) {
   const handleSave = useCallback(async () => {
     setSaving(true);
     try {
-      await onSave(skill.name, content);
+      await onSave(skill, content);
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
     } finally {
       setSaving(false);
     }
-  }, [skill.name, content, onSave]);
+  }, [skill, content, onSave]);
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -121,15 +121,23 @@ export function SkillEditor({ skill, onSave, onDelete }: SkillEditorProps) {
               "text-[10px] px-1.5 py-0 shrink-0",
               skill.source === "global"
                 ? "border-green-500/40 text-green-600 dark:text-green-400"
-                : "border-blue-500/40 text-blue-600 dark:text-blue-400"
+                : skill.source === "installed"
+                  ? "border-orange-500/40 text-orange-600 dark:text-orange-400"
+                  : skill.source === "plugin"
+                    ? "border-purple-500/40 text-purple-600 dark:text-purple-400"
+                    : "border-blue-500/40 text-blue-600 dark:text-blue-400"
             )}
           >
             {skill.source === "global" ? (
               <HugeiconsIcon icon={GlobeIcon} className="h-2.5 w-2.5 mr-0.5" />
+            ) : skill.source === "installed" ? (
+              <HugeiconsIcon icon={FolderOpenIcon} className="h-2.5 w-2.5 mr-0.5" />
             ) : (
               <HugeiconsIcon icon={FolderOpenIcon} className="h-2.5 w-2.5 mr-0.5" />
             )}
-            {skill.source}
+            {skill.source === "installed" && skill.installedSource
+              ? `installed:${skill.installedSource}`
+              : skill.source}
           </Badge>
         </div>
 

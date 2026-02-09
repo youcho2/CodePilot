@@ -63,6 +63,7 @@ interface PopoverItem {
   description?: string;
   builtIn?: boolean;
   immediate?: boolean;
+  installedSource?: "agents" | "claude";
 }
 
 interface CommandBadge {
@@ -70,6 +71,7 @@ interface CommandBadge {
   label: string;
   description: string;
   isSkill: boolean;
+  installedSource?: "agents" | "claude";
 }
 
 type PopoverMode = 'file' | 'skill' | null;
@@ -369,12 +371,19 @@ export function MessageInput({
         const skills = data.skills || [];
         apiSkills = skills
           .filter((s: { name: string }) => s.name.toLowerCase().includes(filter.toLowerCase()))
-          .map((s: { name: string; description: string }) => ({
-            label: s.name,
-            value: `/${s.name}`,
-            description: s.description,
-            builtIn: false,
-          }));
+          .map((s: { name: string; description: string; source?: string; installedSource?: "agents" | "claude" }) => {
+            const sourceHint =
+              s.source === "installed" && s.installedSource
+                ? ` (${s.installedSource})`
+                : "";
+            return {
+              label: s.name,
+              value: `/${s.name}`,
+              description: `${s.description || ""}${sourceHint}`,
+              builtIn: false,
+              installedSource: s.installedSource,
+            };
+          });
       }
     } catch {
       // API not available - just use built-in commands
@@ -417,6 +426,7 @@ export function MessageInput({
         label: item.label,
         description: item.description || '',
         isSkill: !item.builtIn,
+        installedSource: item.installedSource,
       });
       setInputValue('');
       closePopover();
@@ -518,7 +528,12 @@ export function MessageInput({
       if (badge.isSkill) {
         // Fetch skill content from API
         try {
-          const res = await fetch(`/api/skills/${encodeURIComponent(badge.label)}`);
+          const sourceParam = badge.installedSource
+            ? `?source=${badge.installedSource}`
+            : "";
+          const res = await fetch(
+            `/api/skills/${encodeURIComponent(badge.label)}${sourceParam}`
+          );
           if (res.ok) {
             const data = await res.json();
             expandedPrompt = data.skill?.content || '';
