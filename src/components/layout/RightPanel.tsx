@@ -14,7 +14,11 @@ import { usePanel } from "@/hooks/usePanel";
 import { FileTree } from "@/components/project/FileTree";
 import { FilePreview } from "@/components/project/FilePreview";
 
-export function RightPanel() {
+interface RightPanelProps {
+  width?: number;
+}
+
+export function RightPanel({ width }: RightPanelProps) {
   const { panelOpen, setPanelOpen, workingDirectory, sessionId, sessionTitle, setSessionTitle } = usePanel();
   const [previewPath, setPreviewPath] = useState<string | null>(null);
   const [isEditingName, setIsEditingName] = useState(false);
@@ -93,7 +97,7 @@ export function RightPanel() {
   };
 
   return (
-    <aside className="hidden h-full w-72 shrink-0 flex-col overflow-hidden bg-background lg:flex">
+    <aside className="hidden h-full shrink-0 flex-col overflow-hidden bg-background lg:flex" style={{ width: width ?? 288 }}>
       {/* Header */}
       <div className="flex h-10 shrink-0 items-center justify-between px-4">
         <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Chat Info</span>
