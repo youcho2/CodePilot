@@ -21,9 +21,6 @@ jobs:
   build-windows:
     if: ${{ github.event_name == 'push' || inputs.platform == 'all' || inputs.platform == 'windows' }}
     runs-on: windows-latest
-    strategy:
-      matrix:
-        arch: [x64, arm64]
     steps:
       - uses: actions/checkout@v4
 
@@ -38,13 +35,13 @@ jobs:
       - name: Build Electron app
         run: npm run electron:build
 
-      - name: Package for Windows (${{ matrix.arch }})
-        run: npx electron-builder --win --${{ matrix.arch }} --config electron-builder.yml
+      - name: Package for Windows
+        run: npx electron-builder --win --config electron-builder.yml --publish never
 
       - name: Upload Windows artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: windows-${{ matrix.arch }}
+          name: windows
           path: |
             release/*.exe
             release/*.zip
@@ -71,7 +68,7 @@ jobs:
         run: npm run electron:build
 
       - name: Package for macOS (${{ matrix.arch }})
-        run: npx electron-builder --mac --${{ matrix.arch }} --config electron-builder.yml
+        run: npx electron-builder --mac --${{ matrix.arch }} --config electron-builder.yml --publish never
 
       - name: Upload macOS artifacts
         uses: actions/upload-artifact@v4
@@ -101,7 +98,7 @@ jobs:
         run: npm run electron:build
 
       - name: Package for Linux (${{ matrix.arch }})
-        run: npx electron-builder --linux --${{ matrix.arch }} --config electron-builder.yml
+        run: npx electron-builder --linux --${{ matrix.arch }} --config electron-builder.yml --publish never
 
       - name: Upload Linux artifacts
         uses: actions/upload-artifact@v4
