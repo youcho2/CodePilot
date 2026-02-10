@@ -4,7 +4,7 @@
 **A native desktop GUI for Claude Code** -- chat, code, and manage projects through a polished visual interface instead of the terminal.
 
 [![GitHub release](https://img.shields.io/github/v/release/op7418/CodePilot)](https://github.com/op7418/CodePilot/releases)
-[![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Windows-lightgrey)](https://github.com/op7418/CodePilot/releases)
+[![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey)](https://github.com/op7418/CodePilot/releases)
 [![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
 [中文文档](./README_CN.md) | [日本語](./README_JA.md)
@@ -13,19 +13,22 @@
 
 ## Features
 
-- **💬 Conversational coding** -- Stream responses from Claude in real time with full Markdown rendering, syntax-highlighted code blocks, and tool-call visualization.
-- **📂 Session management** -- Create, rename, archive, and resume chat sessions. Conversations are persisted locally in SQLite so nothing is lost between restarts.
-- **🎯 Project-aware context** -- Pick a working directory per session. The right panel shows a live file tree and file previews so you always know what Claude is looking at.
-- **🔒 Permission controls** -- Approve, deny, or auto-allow tool use on a per-action basis. Choose between permission modes to match your comfort level.
-- **🎭 Multiple interaction modes** -- Switch between *Code*, *Plan*, and *Ask* modes to control how Claude behaves in each session.
-- **🤖 Model selector** -- Switch between Claude models (Opus, Sonnet, Haiku) mid-conversation.
-- **🔌 MCP server management** -- Add, configure, and remove Model Context Protocol servers directly from the Extensions page. Supports `stdio`, `sse`, and `http` transport types.
-- **⚡ Custom skills** -- Define reusable prompt-based skills (global or per-project) that can be invoked as slash commands during chat.
-- **⚙️ Settings editor** -- Visual and JSON editors for your `~/.claude/settings.json`, including permissions and environment variables.
-- **📊 Token usage tracking** -- See input/output token counts and estimated cost after every assistant response.
-- **🌗 Dark / Light theme** -- One-click theme toggle in the navigation rail.
-- **⌨️ Slash commands** -- Built-in commands like `/help`, `/clear`, `/cost`, `/compact`, `/doctor`, `/review`, and more.
-- **🖥️ Electron packaging** -- Ships as a native desktop app with a hidden title bar, bundled Next.js server, and automatic port allocation.
+- **Conversational coding** -- Stream responses from Claude in real time with full Markdown rendering, syntax-highlighted code blocks, and tool-call visualization.
+- **Session management** -- Create, rename, archive, and resume chat sessions. Conversations are persisted locally in SQLite so nothing is lost between restarts.
+- **Project-aware context** -- Pick a working directory per session. The right panel shows a live file tree and file previews so you always know what Claude is looking at.
+- **Resizable panels** -- Drag the edges of the chat list and right panel to adjust their width. Your preferred sizes are saved across sessions.
+- **File & image attachments** -- Attach files and images directly in the chat input. Images are sent as multimodal vision content for Claude to analyze.
+- **Permission controls** -- Approve, deny, or auto-allow tool use on a per-action basis. Choose between permission modes to match your comfort level.
+- **Multiple interaction modes** -- Switch between *Code*, *Plan*, and *Ask* modes to control how Claude behaves in each session.
+- **Model selector** -- Switch between Claude models (Opus, Sonnet, Haiku) mid-conversation.
+- **MCP server management** -- Add, configure, and remove Model Context Protocol servers directly from the Extensions page. Supports `stdio`, `sse`, and `http` transport types.
+- **Custom skills** -- Define reusable prompt-based skills (global or per-project) that can be invoked as slash commands during chat.
+- **Settings editor** -- Visual and JSON editors for your `~/.claude/settings.json`, including permissions and environment variables.
+- **Token usage tracking** -- See input/output token counts and estimated cost after every assistant response.
+- **Auto update check** -- The app periodically checks for new releases and notifies you when an update is available.
+- **Dark / Light theme** -- One-click theme toggle in the navigation rail.
+- **Slash commands** -- Built-in commands like `/help`, `/clear`, `/cost`, `/compact`, `/doctor`, `/review`, and more.
+- **Electron packaging** -- Ships as a native desktop app with a hidden title bar, bundled Next.js server, graceful shutdown, and automatic port allocation.
 
 ---
 
@@ -49,13 +52,13 @@
 
 ## Download
 
-Pre-built releases are available on the [**Releases**](https://github.com/op7418/CodePilot/releases) page.
+Pre-built releases are available on the [**Releases**](https://github.com/op7418/CodePilot/releases) page. Releases are built automatically via GitHub Actions for all platforms.
 
 ### Supported Platforms
 
-- **macOS**: Universal binary (arm64 + x64) distributed as `.dmg`
-- **Windows**: x64 distributed as `.zip`
-- **Linux**: x64 and arm64 distributed as `.AppImage`, `.deb`, and `.rpm`
+- **macOS** -- arm64 (Apple Silicon) and x64 (Intel) distributed as `.dmg`
+- **Windows** -- NSIS installer (`.exe`) bundling x64 + arm64
+- **Linux** -- x64 and arm64 distributed as `.AppImage`, `.deb`, and `.rpm`
 
 ---
 
@@ -64,7 +67,7 @@ Pre-built releases are available on the [**Releases**](https://github.com/op7418
 ```bash
 # Clone the repository
 git clone https://github.com/op7418/CodePilot.git
-cd codepilot
+cd CodePilot
 
 # Install dependencies
 npm install
@@ -140,6 +143,7 @@ Windows SmartScreen will block the installer or executable.
 | Streaming | [Vercel AI SDK](https://sdk.vercel.ai/) helpers + Server-Sent Events |
 | Icons | [Hugeicons](https://hugeicons.com/) + [Lucide](https://lucide.dev/) |
 | Testing | [Playwright](https://playwright.dev/) |
+| CI/CD | [GitHub Actions](https://github.com/features/actions) (auto-build + release on tag) |
 | Build / Pack | electron-builder + esbuild |
 
 ---
@@ -148,6 +152,7 @@ Windows SmartScreen will block the installer or executable.
 
 ```
 codepilot/
+├── .github/workflows/      # CI/CD: multi-platform build & auto-release
 ├── electron/                # Electron main process & preload
 │   ├── main.ts              # Window creation, embedded server lifecycle
 │   └── preload.ts           # Context bridge
@@ -166,7 +171,7 @@ codepilot/
 │   ├── components/
 │   │   ├── ai-elements/     # Message bubbles, code blocks, tool calls, etc.
 │   │   ├── chat/            # ChatView, MessageList, MessageInput, streaming
-│   │   ├── layout/          # AppShell, NavRail, Header, RightPanel
+│   │   ├── layout/          # AppShell, NavRail, ResizeHandle, RightPanel
 │   │   ├── plugins/         # MCP server list & editor
 │   │   ├── project/         # FileTree, FilePreview, TaskList
 │   │   ├── skills/          # SkillsManager, SkillEditor
@@ -202,9 +207,23 @@ npm run build
 # Build Electron distributable + Next.js
 npm run electron:build
 
-# Package macOS DMG (universal binary)
-npm run electron:pack
+# Package for specific platforms
+npm run electron:pack:mac     # macOS DMG (arm64 + x64)
+npm run electron:pack:win     # Windows NSIS installer
+npm run electron:pack:linux   # Linux AppImage, deb, rpm
 ```
+
+### CI/CD
+
+The project uses GitHub Actions for automated builds. Pushing a `v*` tag triggers a full multi-platform build and automatically creates a GitHub Release with all artifacts:
+
+```bash
+git tag v0.8.1
+git push origin v0.8.1
+# CI builds Windows + macOS + Linux, then publishes the release
+```
+
+You can also manually trigger builds for individual platforms from the Actions tab.
 
 ### Notes
 
