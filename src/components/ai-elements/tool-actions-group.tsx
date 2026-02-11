@@ -222,6 +222,7 @@ export function ToolActionsGroup({
   const summaryParts: string[] = [];
   if (runningCount > 0) summaryParts.push(`${runningCount} running`);
   if (doneCount > 0) summaryParts.push(`${doneCount} completed`);
+  if (runningCount === 0 && isStreaming) summaryParts.push('generating response');
   if (summaryParts.length === 0) summaryParts.push(`${tools.length} actions`);
 
   return (

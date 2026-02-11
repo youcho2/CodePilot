@@ -147,7 +147,11 @@ export function StreamingMessage({
 
   // Extract a human-readable summary of the running command
   const getRunningCommandSummary = (): string | undefined => {
-    if (runningTools.length === 0) return undefined;
+    if (runningTools.length === 0) {
+      // All tools completed but still streaming — AI is generating text
+      if (toolUses.length > 0) return 'Generating response...';
+      return undefined;
+    }
     const tool = runningTools[runningTools.length - 1];
     const input = tool.input as Record<string, unknown>;
     if (tool.name === 'Bash' && input.command) {
