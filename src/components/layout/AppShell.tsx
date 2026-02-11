@@ -115,12 +115,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   }, []);
 
   // Auto-open panel on chat detail routes, close on others
+  // Also close doc preview when navigating away or switching sessions
   useEffect(() => {
     setPanelOpenRaw(isChatDetailRoute);
-    if (!isChatDetailRoute) {
-      setPreviewFileRaw(null);
-    }
-  }, [isChatDetailRoute]);
+    setPreviewFileRaw(null);
+  }, [isChatDetailRoute, pathname]);
 
   const setPanelOpen = useCallback((open: boolean) => {
     setPanelOpenRaw(open);

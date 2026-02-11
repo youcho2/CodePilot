@@ -93,8 +93,9 @@ export function DocPreview({
     };
   }, [filePath]);
 
-  const handleCopyPath = async () => {
-    await navigator.clipboard.writeText(filePath);
+  const handleCopyContent = async () => {
+    const text = preview?.content || filePath;
+    await navigator.clipboard.writeText(text);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
@@ -126,13 +127,13 @@ export function DocPreview({
           <ViewModeToggle value={viewMode} onChange={onViewModeChange} />
         )}
 
-        <Button variant="ghost" size="icon-sm" onClick={handleCopyPath}>
+        <Button variant="ghost" size="icon-sm" onClick={handleCopyContent}>
           {copied ? (
             <HugeiconsIcon icon={Tick01Icon} className="h-3.5 w-3.5 text-green-500" />
           ) : (
             <HugeiconsIcon icon={Copy01Icon} className="h-3.5 w-3.5" />
           )}
-          <span className="sr-only">Copy path</span>
+          <span className="sr-only">Copy content</span>
         </Button>
 
         <Button variant="ghost" size="icon-sm" onClick={onClose}>
