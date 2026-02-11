@@ -137,6 +137,13 @@ export function FileTree({ workingDirectory, onFileSelect, onFileAdd }: FileTree
     fetchTree();
   }, [fetchTree]);
 
+  // Auto-refresh when AI finishes streaming
+  useEffect(() => {
+    const handler = () => fetchTree();
+    window.addEventListener('refresh-file-tree', handler);
+    return () => window.removeEventListener('refresh-file-tree', handler);
+  }, [fetchTree]);
+
   // Build default expanded set from first-level directories
   const defaultExpanded = new Set(
     tree.filter((n) => n.type === "directory").map((n) => n.path)

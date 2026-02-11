@@ -443,6 +443,8 @@ export function ChatView({ sessionId, initialMessages = [], modelName, initialMo
         setPermissionResolved(null);
         setPendingApprovalSessionId('');
         abortControllerRef.current = null;
+        // Notify file tree to refresh after AI finishes
+        window.dispatchEvent(new CustomEvent('refresh-file-tree'));
       }
     },
     [sessionId, isStreaming, setStreamingSessionId, setPendingApprovalSessionId, mode, currentModel]
