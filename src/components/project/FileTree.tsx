@@ -17,6 +17,7 @@ import type { ReactNode } from "react";
 interface FileTreeProps {
   workingDirectory: string;
   onFileSelect: (path: string) => void;
+  onFileAdd?: (path: string) => void;
 }
 
 function getFileIcon(extension?: string): ReactNode {
@@ -104,7 +105,7 @@ function RenderTreeNodes({ nodes, searchQuery }: { nodes: FileTreeNode[]; search
   );
 }
 
-export function FileTree({ workingDirectory, onFileSelect }: FileTreeProps) {
+export function FileTree({ workingDirectory, onFileSelect, onFileAdd }: FileTreeProps) {
   const [tree, setTree] = useState<FileTreeNode[]>([]);
   const [loading, setLoading] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
@@ -186,6 +187,7 @@ export function FileTree({ workingDirectory, onFileSelect }: FileTreeProps) {
             defaultExpanded={defaultExpanded}
             // eslint-disable-next-line @typescript-eslint/no-explicit-any -- AI Elements FileTree onSelect type conflicts with HTMLAttributes.onSelect
             onSelect={onFileSelect as any}
+            onAdd={onFileAdd}
             className="border-0 rounded-none"
           >
             <RenderTreeNodes nodes={tree} searchQuery={searchQuery} />

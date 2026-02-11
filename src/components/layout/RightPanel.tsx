@@ -66,6 +66,10 @@ export function RightPanel({ width }: RightPanelProps) {
     }
   }, [handleSaveName]);
 
+  const handleFileAdd = useCallback((path: string) => {
+    window.dispatchEvent(new CustomEvent('attach-file-to-chat', { detail: { path } }));
+  }, []);
+
   const handleFileSelect = useCallback((path: string) => {
     // Only open preview for text-based files, skip images/videos/binaries
     const ext = path.split(".").pop()?.toLowerCase() || "";
@@ -172,6 +176,7 @@ export function RightPanel({ width }: RightPanelProps) {
             <FileTree
               workingDirectory={workingDirectory}
               onFileSelect={handleFileSelect}
+              onFileAdd={handleFileAdd}
             />
           </div>
         </div>

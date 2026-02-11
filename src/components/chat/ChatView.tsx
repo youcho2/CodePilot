@@ -37,6 +37,7 @@ export function ChatView({ sessionId, initialMessages = [], modelName, initialMo
   const [pendingPermission, setPendingPermission] = useState<PermissionRequestEvent | null>(null);
   const [permissionResolved, setPermissionResolved] = useState<'allow' | 'deny' | null>(null);
   const [streamingToolOutput, setStreamingToolOutput] = useState('');
+  const toolTimeoutRef = useRef<{ toolName: string; elapsedSeconds: number } | null>(null);
 
   const handleModeChange = useCallback((newMode: string) => {
     setMode(newMode);
@@ -68,6 +69,8 @@ export function ChatView({ sessionId, initialMessages = [], modelName, initialMo
 
   // Ref to keep accumulated streaming content in sync regardless of React batching
   const accumulatedRef = useRef('');
+  // Ref for sendMessage to allow self-referencing in timeout auto-retry without circular deps
+  const sendMessageRef = useRef<(content: string, files?: FileAttachment[]) => Promise<void>>(undefined);
 
   // Re-sync streaming content when the window regains visibility (Electron/browser tab switch)
   useEffect(() => {
@@ -321,6 +324,19 @@ export function ChatView({ sessionId, initialMessages = [], modelName, initialMo
                   break;
                 }
 
+                case 'tool_timeout': {
+                  try {
+                    const timeoutData = JSON.parse(event.data);
+                    toolTimeoutRef.current = {
+                      toolName: timeoutData.tool_name,
+                      elapsedSeconds: timeoutData.elapsed_seconds,
+                    };
+                  } catch {
+                    // skip malformed timeout data
+                  }
+                  break;
+                }
+
                 case 'error': {
                   accumulated += '\n\n**Error:** ' + event.data;
                   accumulatedRef.current = accumulated;
@@ -353,7 +369,43 @@ export function ChatView({ sessionId, initialMessages = [], modelName, initialMo
         }
       } catch (error) {
         if (error instanceof DOMException && error.name === 'AbortError') {
-          // User stopped generation - still add partial content
+          const timeoutInfo = toolTimeoutRef.current;
+          if (timeoutInfo) {
+            // Tool execution timed out — save partial content and auto-retry
+            if (accumulated.trim()) {
+              const partialMessage: Message = {
+                id: 'temp-assistant-' + Date.now(),
+                session_id: sessionId,
+                role: 'assistant',
+                content: accumulated.trim() + `\n\n*(tool ${timeoutInfo.toolName} timed out after ${timeoutInfo.elapsedSeconds}s)*`,
+                created_at: new Date().toISOString(),
+                token_usage: null,
+              };
+              setMessages((prev) => [...prev, partialMessage]);
+            }
+            // Clean up before auto-retry
+            toolTimeoutRef.current = null;
+            setIsStreaming(false);
+            setStreamingSessionId('');
+            setStreamingContent('');
+            accumulatedRef.current = '';
+            setToolUses([]);
+            setToolResults([]);
+            setStreamingToolOutput('');
+            setStatusText(undefined);
+            setPendingPermission(null);
+            setPermissionResolved(null);
+            setPendingApprovalSessionId('');
+            abortControllerRef.current = null;
+            // Auto-retry: send a follow-up message telling the model to adjust strategy
+            setTimeout(() => {
+              sendMessageRef.current?.(
+                `The previous tool "${timeoutInfo.toolName}" timed out after ${timeoutInfo.elapsedSeconds} seconds. Please try a different approach to accomplish the task. Avoid repeating the same operation that got stuck.`
+              );
+            }, 500);
+            return; // Skip the normal finally cleanup since we did it above
+          }
+          // User manually stopped generation — add partial content
           if (accumulated.trim()) {
             const partialMessage: Message = {
               id: 'temp-assistant-' + Date.now(),
@@ -378,6 +430,7 @@ export function ChatView({ sessionId, initialMessages = [], modelName, initialMo
           setMessages((prev) => [...prev, errorMessage]);
         }
       } finally {
+        toolTimeoutRef.current = null;
         setIsStreaming(false);
         setStreamingSessionId('');
         setStreamingContent('');
@@ -394,6 +447,9 @@ export function ChatView({ sessionId, initialMessages = [], modelName, initialMo
     },
     [sessionId, isStreaming, setStreamingSessionId, setPendingApprovalSessionId, mode, currentModel]
   );
+
+  // Keep sendMessageRef in sync so timeout auto-retry can call it
+  sendMessageRef.current = sendMessage;
 
   const handleCommand = useCallback((command: string) => {
     switch (command) {
@@ -482,6 +538,7 @@ export function ChatView({ sessionId, initialMessages = [], modelName, initialMo
         pendingPermission={pendingPermission}
         onPermissionResponse={handlePermissionResponse}
         permissionResolved={permissionResolved}
+        onForceStop={stopStreaming}
       />
       <MessageInput
         onSend={sendMessage}

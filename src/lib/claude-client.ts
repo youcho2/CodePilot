@@ -168,6 +168,7 @@ export function streamClaude(options: ClaudeStreamOptions): ReadableStream<strin
     abortController,
     permissionMode,
     files,
+    toolTimeoutSeconds = 0,
   } = options;
 
   return new ReadableStream<string>({
@@ -542,6 +543,17 @@ export function streamClaude(options: ClaudeStreamOptions): ReadableStream<strin
                   elapsed_time_seconds: progressMsg.elapsed_time_seconds,
                 }),
               }));
+              // Auto-timeout: abort if tool runs longer than configured threshold
+              if (toolTimeoutSeconds > 0 && progressMsg.elapsed_time_seconds >= toolTimeoutSeconds) {
+                controller.enqueue(formatSSE({
+                  type: 'tool_timeout',
+                  data: JSON.stringify({
+                    tool_name: progressMsg.tool_name,
+                    elapsed_seconds: Math.round(progressMsg.elapsed_time_seconds),
+                  }),
+                }));
+                abortController?.abort();
+              }
               break;
             }
 

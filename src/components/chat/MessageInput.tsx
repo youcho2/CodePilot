@@ -251,6 +251,38 @@ function AttachFileButton() {
 }
 
 /**
+ * Bridge component that listens for 'attach-file-to-chat' custom events
+ * from the file tree and adds files as attachments. Must be rendered inside PromptInput.
+ */
+function FileTreeAttachmentBridge() {
+  const attachments = usePromptInputAttachments();
+
+  useEffect(() => {
+    const handler = async (e: Event) => {
+      const customEvent = e as CustomEvent<{ path: string }>;
+      const filePath = customEvent.detail?.path;
+      if (!filePath) return;
+
+      try {
+        const res = await fetch(`/api/files/raw?path=${encodeURIComponent(filePath)}`);
+        if (!res.ok) return;
+        const blob = await res.blob();
+        const filename = filePath.split('/').pop() || 'file';
+        const file = new File([blob], filename, { type: blob.type || 'application/octet-stream' });
+        attachments.add([file]);
+      } catch {
+        // Silently fail if file fetch fails
+      }
+    };
+
+    window.addEventListener('attach-file-to-chat', handler);
+    return () => window.removeEventListener('attach-file-to-chat', handler);
+  }, [attachments]);
+
+  return null;
+}
+
+/**
  * Capsule display for attached files, rendered inside PromptInput context.
  */
 function FileAttachmentsCapsules() {
@@ -842,6 +874,8 @@ export function MessageInput({
             multiple
             maxFileSize={MAX_FILE_SIZE}
           >
+            {/* Bridge: listens for file tree "+" button events */}
+            <FileTreeAttachmentBridge />
             {/* Command badge */}
             {badge && (
               <div className="flex w-full items-center gap-1.5 px-3 pt-2.5 pb-0 order-first">

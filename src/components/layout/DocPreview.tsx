@@ -263,9 +263,9 @@ function RenderedView({
 
   // Markdown / MDX
   return (
-    <div className="p-4 overflow-x-hidden break-words">
+    <div className="px-6 py-4 overflow-x-hidden break-words">
       <Streamdown
-        className="size-full [&>*:first-child]:mt-0 [&>*:last-child]:mb-0"
+        className="size-full [&>*:first-child]:mt-0 [&>*:last-child]:mb-0 [&_ul]:pl-6 [&_ol]:pl-6"
         plugins={streamdownPlugins}
       >
         {content}

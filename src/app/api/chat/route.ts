@@ -10,8 +10,8 @@ export const dynamic = 'force-dynamic';
 
 export async function POST(request: NextRequest) {
   try {
-    const body: SendMessageRequest & { files?: FileAttachment[] } = await request.json();
-    const { session_id, content, model, mode, files } = body;
+    const body: SendMessageRequest & { files?: FileAttachment[]; toolTimeout?: number } = await request.json();
+    const { session_id, content, model, mode, files, toolTimeout } = body;
 
     if (!session_id || !content) {
       return new Response(JSON.stringify({ error: 'session_id and content are required' }), {
@@ -103,6 +103,7 @@ export async function POST(request: NextRequest) {
       abortController,
       permissionMode,
       files: fileAttachments,
+      toolTimeoutSeconds: toolTimeout || 120,
     });
 
     // Tee the stream: one for client, one for collecting the response
