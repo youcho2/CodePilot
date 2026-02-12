@@ -31,6 +31,7 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
   const [messages, setMessages] = useState<Message[]>(initialMessages);
   const [hasMore, setHasMore] = useState(initialHasMore);
   const [loadingMore, setLoadingMore] = useState(false);
+  const loadingMoreRef = useRef(false);
   const [streamingContent, setStreamingContent] = useState('');
   const [isStreaming, setIsStreaming] = useState(false);
   const [toolUses, setToolUses] = useState<ToolUseInfo[]>([]);
@@ -113,7 +114,9 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
   }, [initialHasMore]);
 
   const loadEarlierMessages = useCallback(async () => {
-    if (loadingMore || !hasMore || messages.length === 0) return;
+    // Use ref as atomic lock to prevent double-fetch from rapid clicks
+    if (loadingMoreRef.current || !hasMore || messages.length === 0) return;
+    loadingMoreRef.current = true;
     setLoadingMore(true);
     try {
       // Use _rowid of the earliest message as cursor
@@ -128,9 +131,10 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
         setMessages(prev => [...data.messages, ...prev]);
       }
     } finally {
+      loadingMoreRef.current = false;
       setLoadingMore(false);
     }
-  }, [sessionId, messages, hasMore, loadingMore]);
+  }, [sessionId, messages, hasMore]);
 
   const stopStreaming = useCallback(() => {
     abortControllerRef.current?.abort();

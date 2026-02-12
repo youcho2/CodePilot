@@ -95,14 +95,16 @@ export function getExpandedPath(): string {
   return parts.join(path.delimiter);
 }
 
-// TTL cache for findClaudeBinary to avoid repeated filesystem probes
+// TTL cache for findClaudeBinary to avoid repeated filesystem probes.
+// Only caches "found" results; "not found" is never cached so a fresh
+// install is detected immediately on the next check.
 let _cachedBinaryPath: string | undefined | null = null; // null = not cached
 let _cachedBinaryTimestamp = 0;
 const BINARY_CACHE_TTL = 60_000; // 60 seconds
 
 /**
  * Find and validate the Claude CLI binary.
- * Results are cached for 60s to avoid redundant filesystem probes on every poll.
+ * Positive results are cached for 60s; negative results are never cached.
  */
 export function findClaudeBinary(): string | undefined {
   const now = Date.now();
@@ -111,8 +113,13 @@ export function findClaudeBinary(): string | undefined {
   }
 
   const found = _findClaudeBinaryUncached();
-  _cachedBinaryPath = found;
-  _cachedBinaryTimestamp = now;
+  if (found) {
+    _cachedBinaryPath = found;
+    _cachedBinaryTimestamp = now;
+  } else {
+    // Don't cache "not found" — user may install CLI any moment
+    _cachedBinaryPath = null;
+  }
   return found;
 }
 
