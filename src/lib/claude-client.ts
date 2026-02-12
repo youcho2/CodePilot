@@ -135,26 +135,32 @@ function extractTokenUsage(msg: SDKResultMessage): TokenUsage | null {
  * Returns a ReadableStream of SSE-formatted strings.
  */
 /**
- * Save non-image file attachments to a temporary upload directory
- * and return the file paths. The files are placed in .codepilot-uploads/
- * under the working directory so Claude's Read tool can access them.
+ * Get file paths for non-image attachments. If the file already has a
+ * persisted filePath (written by the uploads route), reuse it. Otherwise
+ * fall back to writing the file to .codepilot-uploads/.
  */
-function saveUploadedFiles(files: FileAttachment[], workDir: string): string[] {
-  const uploadDir = path.join(workDir, '.codepilot-uploads');
-  if (!fs.existsSync(uploadDir)) {
-    fs.mkdirSync(uploadDir, { recursive: true });
-  }
-  const savedPaths: string[] = [];
+function getUploadedFilePaths(files: FileAttachment[], workDir: string): string[] {
+  const paths: string[] = [];
+  let uploadDir: string | undefined;
   for (const file of files) {
-    // Sanitize filename to prevent directory traversal
-    const safeName = path.basename(file.name).replace(/[^a-zA-Z0-9._-]/g, '_');
-    const timestamp = Date.now();
-    const filePath = path.join(uploadDir, `${timestamp}-${safeName}`);
-    const buffer = Buffer.from(file.data, 'base64');
-    fs.writeFileSync(filePath, buffer);
-    savedPaths.push(filePath);
+    if (file.filePath) {
+      paths.push(file.filePath);
+    } else {
+      // Fallback: write file to disk (should not happen in normal flow)
+      if (!uploadDir) {
+        uploadDir = path.join(workDir, '.codepilot-uploads');
+        if (!fs.existsSync(uploadDir)) {
+          fs.mkdirSync(uploadDir, { recursive: true });
+        }
+      }
+      const safeName = path.basename(file.name).replace(/[^a-zA-Z0-9._-]/g, '_');
+      const filePath = path.join(uploadDir, `${Date.now()}-${safeName}`);
+      const buffer = Buffer.from(file.data, 'base64');
+      fs.writeFileSync(filePath, buffer);
+      paths.push(filePath);
+    }
   }
-  return savedPaths;
+  return paths;
 }
 
 export function streamClaude(options: ClaudeStreamOptions): ReadableStream<string> {
@@ -409,7 +415,7 @@ export function streamClaude(options: ClaudeStreamOptions): ReadableStream<strin
           let textPrompt = prompt;
           if (nonImageFiles.length > 0) {
             const workDir = workingDirectory || process.cwd();
-            const savedPaths = saveUploadedFiles(nonImageFiles, workDir);
+            const savedPaths = getUploadedFilePaths(nonImageFiles, workDir);
             const fileReferences = savedPaths
               .map((p, i) => `[User attached file: ${p} (${nonImageFiles[i].name})]`)
               .join('\n');
