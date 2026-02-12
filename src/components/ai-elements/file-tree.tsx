@@ -123,18 +123,13 @@ export const FileTreeFolder = ({
   children,
   ...props
 }: FileTreeFolderProps) => {
-  const { expandedPaths, togglePath, selectedPath, onSelect } =
+  const { expandedPaths, togglePath } =
     useContext(FileTreeContext);
   const isExpanded = expandedPaths.has(path);
-  const isSelected = selectedPath === path;
 
-  const handleOpenChange = useCallback(() => {
+  const handleToggle = useCallback(() => {
     togglePath(path);
   }, [togglePath, path]);
-
-  const handleSelect = useCallback(() => {
-    onSelect?.(path);
-  }, [onSelect, path]);
 
   const folderContextValue = useMemo(
     () => ({ isExpanded, name, path }),
@@ -143,38 +138,39 @@ export const FileTreeFolder = ({
 
   return (
     <FileTreeFolderContext.Provider value={folderContextValue}>
-      <Collapsible onOpenChange={handleOpenChange} open={isExpanded}>
+      <Collapsible onOpenChange={handleToggle} open={isExpanded}>
         <div
           className={cn("", className)}
           role="treeitem"
           tabIndex={0}
           {...props}
         >
-          <CollapsibleTrigger asChild>
-            <button
-              className={cn(
-                "flex w-full items-center gap-1 rounded px-2 py-1 text-left transition-colors hover:bg-muted/50",
-                isSelected && "bg-muted"
+          <div
+            className="flex w-full items-center gap-1 rounded px-2 py-1 text-left transition-colors hover:bg-muted/50"
+          >
+            <CollapsibleTrigger asChild>
+              <button
+                type="button"
+                className="shrink-0 rounded p-0.5 hover:bg-muted"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <ChevronRightIcon
+                  className={cn(
+                    "size-4 text-muted-foreground transition-transform",
+                    isExpanded && "rotate-90"
+                  )}
+                />
+              </button>
+            </CollapsibleTrigger>
+            <FileTreeIcon>
+              {isExpanded ? (
+                <FolderOpenIcon className="size-4 text-blue-500" />
+              ) : (
+                <FolderIcon className="size-4 text-blue-500" />
               )}
-              onClick={handleSelect}
-              type="button"
-            >
-              <ChevronRightIcon
-                className={cn(
-                  "size-4 shrink-0 text-muted-foreground transition-transform",
-                  isExpanded && "rotate-90"
-                )}
-              />
-              <FileTreeIcon>
-                {isExpanded ? (
-                  <FolderOpenIcon className="size-4 text-blue-500" />
-                ) : (
-                  <FolderIcon className="size-4 text-blue-500" />
-                )}
-              </FileTreeIcon>
-              <FileTreeName>{name}</FileTreeName>
-            </button>
-          </CollapsibleTrigger>
+            </FileTreeIcon>
+            <FileTreeName>{name}</FileTreeName>
+          </div>
           <CollapsibleContent>
             <div className="ml-4 border-l pl-2">{children}</div>
           </CollapsibleContent>
