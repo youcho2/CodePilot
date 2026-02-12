@@ -150,11 +150,20 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
-  // Poll periodically so the indicator stays in sync when settings change
+  // Re-fetch when window gains focus / becomes visible instead of polling every 5s
   useEffect(() => {
     fetchSkipPermissions();
-    const id = setInterval(fetchSkipPermissions, 5000);
-    return () => clearInterval(id);
+    const handleVisibility = () => {
+      if (document.visibilityState === "visible") {
+        fetchSkipPermissions();
+      }
+    };
+    document.addEventListener("visibilitychange", handleVisibility);
+    window.addEventListener("focus", fetchSkipPermissions);
+    return () => {
+      document.removeEventListener("visibilitychange", handleVisibility);
+      window.removeEventListener("focus", fetchSkipPermissions);
+    };
   }, [fetchSkipPermissions]);
 
   // --- Update check state ---
