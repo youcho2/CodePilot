@@ -1,5 +1,6 @@
 'use client';
 
+import { useRef, useEffect } from 'react';
 import type { Message, PermissionRequestEvent } from '@/types';
 import {
   Conversation,
@@ -35,6 +36,9 @@ interface MessageListProps {
   onPermissionResponse?: (decision: 'allow' | 'allow_session' | 'deny') => void;
   permissionResolved?: 'allow' | 'deny' | null;
   onForceStop?: () => void;
+  hasMore?: boolean;
+  loadingMore?: boolean;
+  onLoadMore?: () => void;
 }
 
 export function MessageList({
@@ -49,7 +53,34 @@ export function MessageList({
   onPermissionResponse,
   permissionResolved,
   onForceStop,
+  hasMore,
+  loadingMore,
+  onLoadMore,
 }: MessageListProps) {
+  // Scroll anchor: preserve position when older messages are prepended
+  const anchorIdRef = useRef<string | null>(null);
+  const prevMessageCountRef = useRef(messages.length);
+
+  // Before loading more, record the first visible message ID
+  const handleLoadMore = () => {
+    if (messages.length > 0) {
+      anchorIdRef.current = messages[0].id;
+    }
+    onLoadMore?.();
+  };
+
+  // After messages are prepended, scroll the anchor element back into view
+  useEffect(() => {
+    if (anchorIdRef.current && messages.length > prevMessageCountRef.current) {
+      const el = document.getElementById(`msg-${anchorIdRef.current}`);
+      if (el) {
+        el.scrollIntoView({ block: 'start' });
+      }
+      anchorIdRef.current = null;
+    }
+    prevMessageCountRef.current = messages.length;
+  }, [messages]);
+
   if (messages.length === 0 && !isStreaming) {
     return (
       <div className="flex flex-1 items-center justify-center">
@@ -65,8 +96,21 @@ export function MessageList({
   return (
     <Conversation>
       <ConversationContent className="mx-auto max-w-3xl px-4 py-6 gap-6">
+        {hasMore && (
+          <div className="flex justify-center">
+            <button
+              onClick={handleLoadMore}
+              disabled={loadingMore}
+              className="text-sm text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
+            >
+              {loadingMore ? 'Loading...' : 'Load earlier messages'}
+            </button>
+          </div>
+        )}
         {messages.map((message) => (
-          <MessageItem key={message.id} message={message} />
+          <div key={message.id} id={`msg-${message.id}`}>
+            <MessageItem message={message} />
+          </div>
         ))}
 
         {isStreaming && (
