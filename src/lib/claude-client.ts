@@ -283,8 +283,28 @@ export function streamClaude(options: ClaudeStreamOptions): ReadableStream<strin
           };
         }
 
-        if (mcpServers && Object.keys(mcpServers).length > 0) {
-          queryOptions.mcpServers = toSdkMcpConfig(mcpServers);
+        // Load MCP servers: use passed-in config, or auto-read from config files
+        let effectiveMcpServers = mcpServers;
+        if (!effectiveMcpServers || Object.keys(effectiveMcpServers).length === 0) {
+          try {
+            const userConfigPath = path.join(os.homedir(), '.claude.json');
+            const settingsPath = path.join(os.homedir(), '.claude', 'settings.json');
+            let merged: Record<string, MCPServerConfig> = {};
+            if (fs.existsSync(userConfigPath)) {
+              const userConfig = JSON.parse(fs.readFileSync(userConfigPath, 'utf-8'));
+              if (userConfig.mcpServers) merged = { ...merged, ...userConfig.mcpServers };
+            }
+            if (fs.existsSync(settingsPath)) {
+              const settings = JSON.parse(fs.readFileSync(settingsPath, 'utf-8'));
+              if (settings.mcpServers) merged = { ...merged, ...settings.mcpServers };
+            }
+            if (Object.keys(merged).length > 0) effectiveMcpServers = merged;
+          } catch {
+            // ignore config read errors
+          }
+        }
+        if (effectiveMcpServers && Object.keys(effectiveMcpServers).length > 0) {
+          queryOptions.mcpServers = toSdkMcpConfig(effectiveMcpServers);
         }
 
         // Resume session if we have an SDK session ID from a previous conversation turn
