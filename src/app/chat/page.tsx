@@ -78,6 +78,20 @@ export default function NewChatPage() {
     async (content: string) => {
       if (isStreaming) return;
 
+      // Require a project directory before sending
+      if (!workingDir.trim()) {
+        const hint: Message = {
+          id: 'hint-' + Date.now(),
+          session_id: '',
+          role: 'assistant',
+          content: '**Please select a project directory first.** Use the folder picker in the toolbar below to choose a working directory before sending a message.',
+          created_at: new Date().toISOString(),
+          token_usage: null,
+        };
+        setMessages((prev) => [...prev, hint]);
+        return;
+      }
+
       setIsStreaming(true);
       setStreamingContent('');
       setToolUses([]);
@@ -90,14 +104,12 @@ export default function NewChatPage() {
       let sessionId = '';
 
       try {
-        // Create a new session with optional working directory
+        // Create a new session with working directory
         const createBody: Record<string, string> = {
           title: content.slice(0, 50),
           mode,
+          working_directory: workingDir.trim(),
         };
-        if (workingDir.trim()) {
-          createBody.working_directory = workingDir.trim();
-        }
 
         const createRes = await fetch('/api/chat/sessions', {
           method: 'POST',

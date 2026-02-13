@@ -53,6 +53,7 @@ function formatRelativeTime(dateStr: string): string {
 const COLLAPSED_PROJECTS_KEY = "codepilot:collapsed-projects";
 
 function loadCollapsedProjects(): Set<string> {
+  if (typeof window === 'undefined') return new Set();
   try {
     const raw = localStorage.getItem(COLLAPSED_PROJECTS_KEY);
     if (raw) return new Set(JSON.parse(raw));
@@ -129,27 +130,45 @@ export function ChatListPanel({ open, width }: ChatListPanelProps) {
   const [creatingChat, setCreatingChat] = useState(false);
 
   const handleNewChat = useCallback(async () => {
-    const lastDir = localStorage.getItem("codepilot:last-working-directory");
+    const lastDir = typeof window !== 'undefined'
+      ? localStorage.getItem("codepilot:last-working-directory")
+      : null;
+
     if (!lastDir) {
-      router.push("/chat");
+      // No saved directory — let user pick one
+      setFolderPickerOpen(true);
       return;
     }
+
+    // Validate the saved directory still exists
     setCreatingChat(true);
     try {
+      const checkRes = await fetch(
+        `/api/files/browse?dir=${encodeURIComponent(lastDir)}`
+      );
+      if (!checkRes.ok) {
+        // Directory is gone — clear stale value and prompt user
+        localStorage.removeItem("codepilot:last-working-directory");
+        setFolderPickerOpen(true);
+        return;
+      }
+
       const res = await fetch("/api/chat/sessions", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ working_directory: lastDir }),
       });
       if (!res.ok) {
-        router.push("/chat");
+        // Backend rejected it (e.g. INVALID_DIRECTORY) — prompt user
+        localStorage.removeItem("codepilot:last-working-directory");
+        setFolderPickerOpen(true);
         return;
       }
       const data = await res.json();
       router.push(`/chat/${data.session.id}`);
       window.dispatchEvent(new CustomEvent("session-created"));
     } catch {
-      router.push("/chat");
+      setFolderPickerOpen(true);
     } finally {
       setCreatingChat(false);
     }
