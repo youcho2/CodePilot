@@ -21,6 +21,7 @@ export default function ChatSessionPage({ params }: ChatSessionPageProps) {
   const [sessionTitle, setSessionTitle] = useState<string>('');
   const [sessionModel, setSessionModel] = useState<string>('');
   const [sessionMode, setSessionMode] = useState<string>('');
+  const [projectName, setProjectName] = useState<string>('');
   const { setWorkingDirectory, setSessionId, setSessionTitle: setPanelSessionTitle, setPanelOpen } = usePanel();
 
   // Load session info and set working directory
@@ -32,6 +33,7 @@ export default function ChatSessionPage({ params }: ChatSessionPageProps) {
           const data: { session: ChatSession } = await res.json();
           if (data.session.working_directory) {
             setWorkingDirectory(data.session.working_directory);
+            localStorage.setItem("codepilot:last-working-directory", data.session.working_directory);
           }
           setSessionId(id);
           setPanelOpen(true);
@@ -40,6 +42,7 @@ export default function ChatSessionPage({ params }: ChatSessionPageProps) {
           setPanelSessionTitle(title);
           setSessionModel(data.session.model || '');
           setSessionMode(data.session.mode || 'code');
+          setProjectName(data.session.project_name || '');
         }
       } catch {
         // Session info load failed - panel will still work without directory
@@ -112,9 +115,15 @@ export default function ChatSessionPage({ params }: ChatSessionPageProps) {
       {/* Chat title bar */}
       {sessionTitle && (
         <div
-          className="flex items-center justify-center px-4 py-2"
+          className="flex items-center justify-center px-4 py-2 gap-1"
           style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}
         >
+          {projectName && (
+            <>
+              <span className="text-xs text-muted-foreground shrink-0">{projectName}</span>
+              <span className="text-xs text-muted-foreground shrink-0">/</span>
+            </>
+          )}
           <h2 className="text-sm font-medium text-foreground/80 truncate max-w-md">
             {sessionTitle}
           </h2>

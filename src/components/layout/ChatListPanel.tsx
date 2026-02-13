@@ -2,9 +2,19 @@
 
 import { usePathname, useRouter } from "next/navigation";
 import Link from "next/link";
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useMemo } from "react";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { Delete02Icon, Search01Icon, Notification02Icon, FileImportIcon } from "@hugeicons/core-free-icons";
+import {
+  Delete02Icon,
+  Search01Icon,
+  Notification02Icon,
+  FileImportIcon,
+  Folder01Icon,
+  ArrowDown01Icon,
+  ArrowRight01Icon,
+  PlusSignIcon,
+  FolderOpenIcon,
+} from "@hugeicons/core-free-icons";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -17,6 +27,7 @@ import { cn } from "@/lib/utils";
 import { usePanel } from "@/hooks/usePanel";
 import { ConnectionStatus } from "./ConnectionStatus";
 import { ImportSessionDialog } from "./ImportSessionDialog";
+import { FolderPicker } from "@/components/chat/FolderPicker";
 import type { ChatSession } from "@/types";
 
 interface ChatListPanelProps {
@@ -33,34 +44,65 @@ function formatRelativeTime(dateStr: string): string {
   const diffDay = Math.floor(diffHr / 24);
 
   if (diffMin < 1) return "just now";
-  if (diffMin < 60) return `${diffMin}m ago`;
-  if (diffHr < 24) return `${diffHr}h ago`;
-  if (diffDay < 7) return `${diffDay}d ago`;
+  if (diffMin < 60) return `${diffMin}m`;
+  if (diffHr < 24) return `${diffHr}h`;
+  if (diffDay < 7) return `${diffDay}d`;
   return date.toLocaleDateString();
 }
 
-const DATE_GROUP_ORDER = ["Today", "Yesterday", "Last 7 Days", "Older"];
+const COLLAPSED_PROJECTS_KEY = "codepilot:collapsed-projects";
 
-function groupSessionsByDate(
-  sessions: ChatSession[]
-): Record<string, ChatSession[]> {
-  const groups: Record<string, ChatSession[]> = {};
-  const now = new Date();
-  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const yesterday = new Date(today.getTime() - 86400000);
-  const lastWeek = new Date(today.getTime() - 7 * 86400000);
-
-  for (const session of sessions) {
-    const date = new Date(session.updated_at);
-    let group: string;
-    if (date >= today) group = "Today";
-    else if (date >= yesterday) group = "Yesterday";
-    else if (date >= lastWeek) group = "Last 7 Days";
-    else group = "Older";
-
-    if (!groups[group]) groups[group] = [];
-    groups[group].push(session);
+function loadCollapsedProjects(): Set<string> {
+  try {
+    const raw = localStorage.getItem(COLLAPSED_PROJECTS_KEY);
+    if (raw) return new Set(JSON.parse(raw));
+  } catch {
+    // ignore
   }
+  return new Set();
+}
+
+function saveCollapsedProjects(collapsed: Set<string>) {
+  localStorage.setItem(COLLAPSED_PROJECTS_KEY, JSON.stringify([...collapsed]));
+}
+
+interface ProjectGroup {
+  workingDirectory: string;
+  displayName: string;
+  sessions: ChatSession[];
+  latestUpdatedAt: number;
+}
+
+function groupSessionsByProject(sessions: ChatSession[]): ProjectGroup[] {
+  const map = new Map<string, ChatSession[]>();
+  for (const session of sessions) {
+    const key = session.working_directory || "";
+    if (!map.has(key)) map.set(key, []);
+    map.get(key)!.push(session);
+  }
+
+  const groups: ProjectGroup[] = [];
+  for (const [wd, groupSessions] of map) {
+    // Sort sessions within group by updated_at DESC
+    groupSessions.sort(
+      (a, b) =>
+        new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime()
+    );
+    const displayName =
+      wd === ""
+        ? "No Project"
+        : groupSessions[0]?.project_name || wd.split("/").pop() || wd;
+    const latestUpdatedAt = new Date(groupSessions[0].updated_at).getTime();
+    groups.push({
+      workingDirectory: wd,
+      displayName,
+      sessions: groupSessions,
+      latestUpdatedAt,
+    });
+  }
+
+  // Sort groups by most recently active first
+  groups.sort((a, b) => b.latestUpdatedAt - a.latestUpdatedAt);
   return groups;
 }
 
@@ -79,6 +121,21 @@ export function ChatListPanel({ open, width }: ChatListPanelProps) {
   const [deletingSession, setDeletingSession] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [importDialogOpen, setImportDialogOpen] = useState(false);
+  const [folderPickerOpen, setFolderPickerOpen] = useState(false);
+  const [collapsedProjects, setCollapsedProjects] = useState<Set<string>>(
+    () => loadCollapsedProjects()
+  );
+  const [hoveredFolder, setHoveredFolder] = useState<string | null>(null);
+
+  const toggleProject = useCallback((wd: string) => {
+    setCollapsedProjects((prev) => {
+      const next = new Set(prev);
+      if (next.has(wd)) next.delete(wd);
+      else next.add(wd);
+      saveCollapsedProjects(next);
+      return next;
+    });
+  }, []);
 
   const fetchSessions = useCallback(async () => {
     try {
@@ -104,11 +161,11 @@ export function ChatListPanel({ open, width }: ChatListPanelProps) {
   // Refresh session list when a session is created or updated
   useEffect(() => {
     const handler = () => fetchSessions();
-    window.addEventListener('session-created', handler);
-    window.addEventListener('session-updated', handler);
+    window.addEventListener("session-created", handler);
+    window.addEventListener("session-updated", handler);
     return () => {
-      window.removeEventListener('session-created', handler);
-      window.removeEventListener('session-updated', handler);
+      window.removeEventListener("session-created", handler);
+      window.removeEventListener("session-updated", handler);
     };
   }, [fetchSessions]);
 
@@ -118,7 +175,7 @@ export function ChatListPanel({ open, width }: ChatListPanelProps) {
   ) => {
     e.preventDefault();
     e.stopPropagation();
-    if (!confirm('Delete this conversation?')) return;
+    if (!confirm("Delete this conversation?")) return;
     setDeletingSession(sessionId);
     try {
       const res = await fetch(`/api/chat/sessions/${sessionId}`, {
@@ -137,6 +194,46 @@ export function ChatListPanel({ open, width }: ChatListPanelProps) {
     }
   };
 
+  const handleCreateSessionInProject = async (
+    e: React.MouseEvent,
+    workingDirectory: string
+  ) => {
+    e.stopPropagation();
+    try {
+      const res = await fetch("/api/chat/sessions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ working_directory: workingDirectory }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        window.dispatchEvent(new CustomEvent("session-created"));
+        router.push(`/chat/${data.session.id}`);
+      }
+    } catch {
+      // Silently fail
+    }
+  };
+
+  const handleFolderSelect = async (path: string) => {
+    try {
+      const res = await fetch("/api/chat/sessions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ working_directory: path }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        window.dispatchEvent(new CustomEvent("session-created"));
+        router.push(`/chat/${data.session.id}`);
+      }
+    } catch {
+      // Silently fail
+    }
+  };
+
+  const isSearching = searchQuery.length > 0;
+
   const filteredSessions = searchQuery
     ? sessions.filter(
         (s) =>
@@ -146,26 +243,51 @@ export function ChatListPanel({ open, width }: ChatListPanelProps) {
       )
     : sessions;
 
-  const groupedSessions = groupSessionsByDate(filteredSessions);
+  const projectGroups = useMemo(
+    () => groupSessionsByProject(filteredSessions),
+    [filteredSessions]
+  );
 
   if (!open) return null;
 
   return (
-    <aside className="hidden h-full shrink-0 flex-col overflow-hidden bg-sidebar lg:flex" style={{ width: width ?? 240 }}>
+    <aside
+      className="hidden h-full shrink-0 flex-col overflow-hidden bg-sidebar lg:flex"
+      style={{ width: width ?? 240 }}
+    >
       {/* Header - extra top padding for macOS traffic lights */}
       <div className="flex h-12 shrink-0 items-center justify-between px-3 mt-5 pl-6">
         <span className="text-[13px] font-semibold tracking-tight text-sidebar-foreground">
-          Chats
+          Threads
         </span>
-        <ConnectionStatus />
+        <div className="flex items-center gap-1">
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon-xs"
+                className="text-muted-foreground hover:text-foreground"
+                onClick={() => setFolderPickerOpen(true)}
+              >
+                <HugeiconsIcon icon={FolderOpenIcon} className="h-3.5 w-3.5" />
+                <span className="sr-only">Open project folder</span>
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="bottom">Open project folder</TooltipContent>
+          </Tooltip>
+          <ConnectionStatus />
+        </div>
       </div>
 
       {/* Search */}
       <div className="px-3 py-2">
         <div className="relative">
-          <HugeiconsIcon icon={Search01Icon} className="absolute left-2.5 top-1/2 h-3 w-3 -translate-y-1/2 text-muted-foreground" />
+          <HugeiconsIcon
+            icon={Search01Icon}
+            className="absolute left-2.5 top-1/2 h-3 w-3 -translate-y-1/2 text-muted-foreground"
+          />
           <Input
-            placeholder="Search chats..."
+            placeholder="Search threads..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             className="h-8 pl-7 text-xs"
@@ -193,48 +315,108 @@ export function ChatListPanel({ open, width }: ChatListPanelProps) {
         </Tooltip>
       </div>
 
-      {/* Chat sessions list */}
+      {/* Session list grouped by project */}
       <ScrollArea className="flex-1 min-h-0 px-3">
         <div className="flex flex-col pb-3">
           {filteredSessions.length === 0 ? (
             <p className="px-2.5 py-3 text-[11px] text-muted-foreground/60">
-              {searchQuery ? "No matching chats" : "No conversations yet"}
+              {searchQuery ? "No matching threads" : "No conversations yet"}
             </p>
           ) : (
-            DATE_GROUP_ORDER.map((group) => {
-              const groupSessions = groupedSessions[group];
-              if (!groupSessions || groupSessions.length === 0) return null;
+            projectGroups.map((group) => {
+              const isCollapsed =
+                !isSearching && collapsedProjects.has(group.workingDirectory);
+              const isFolderHovered =
+                hoveredFolder === group.workingDirectory;
+
               return (
-                <div key={group} className="mt-2 first:mt-0">
-                  <span className="px-2.5 py-1 text-[11px] font-medium uppercase tracking-wider text-muted-foreground/60">
-                    {group}
-                  </span>
-                  <div className="mt-1 flex flex-col gap-1">
-                    {groupSessions.map((session) => {
-                      const isActive = pathname === `/chat/${session.id}`;
-                      const isHovered = hoveredSession === session.id;
-                      const isDeleting = deletingSession === session.id;
-                      const isSessionStreaming = streamingSessionId === session.id;
-                      const needsApproval = pendingApprovalSessionId === session.id;
-                      const mode = session.mode || "code";
-                      const badgeCfg = MODE_BADGE_CONFIG[mode];
-                      return (
-                        <div
-                          key={session.id}
-                          className="group relative"
-                          onMouseEnter={() => setHoveredSession(session.id)}
-                          onMouseLeave={() => setHoveredSession(null)}
-                        >
-                          <Link
-                            href={`/chat/${session.id}`}
-                            className={cn(
-                              "flex flex-col gap-0.5 rounded-lg px-2.5 py-2 transition-all duration-150",
-                              isActive
-                                ? "bg-sidebar-accent text-sidebar-accent-foreground"
-                                : "text-sidebar-foreground hover:bg-accent/50"
-                            )}
+                <div key={group.workingDirectory || "__no_project"} className="mt-1 first:mt-0">
+                  {/* Folder header */}
+                  <div
+                    className={cn(
+                      "flex items-center gap-1 rounded-md px-2 py-1 cursor-pointer select-none transition-colors",
+                      "hover:bg-accent/50"
+                    )}
+                    onClick={() => toggleProject(group.workingDirectory)}
+                    onMouseEnter={() =>
+                      setHoveredFolder(group.workingDirectory)
+                    }
+                    onMouseLeave={() => setHoveredFolder(null)}
+                  >
+                    <HugeiconsIcon
+                      icon={isCollapsed ? ArrowRight01Icon : ArrowDown01Icon}
+                      className="h-3 w-3 shrink-0 text-muted-foreground"
+                    />
+                    <HugeiconsIcon
+                      icon={Folder01Icon}
+                      className="h-3.5 w-3.5 shrink-0 text-blue-500"
+                    />
+                    <span className="flex-1 truncate text-[12px] font-medium text-sidebar-foreground">
+                      {group.displayName}
+                    </span>
+                    {/* New chat in project button (on hover) */}
+                    {isFolderHovered && group.workingDirectory !== "" && (
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button
+                            variant="ghost"
+                            size="icon-xs"
+                            className="h-5 w-5 shrink-0 text-muted-foreground hover:text-foreground"
+                            onClick={(e) =>
+                              handleCreateSessionInProject(
+                                e,
+                                group.workingDirectory
+                              )
+                            }
                           >
-                            <div className="flex items-center gap-1.5 min-w-0">
+                            <HugeiconsIcon
+                              icon={PlusSignIcon}
+                              className="h-3 w-3"
+                            />
+                            <span className="sr-only">
+                              New chat in {group.displayName}
+                            </span>
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent side="right">
+                          New chat in {group.displayName}
+                        </TooltipContent>
+                      </Tooltip>
+                    )}
+                  </div>
+
+                  {/* Session items */}
+                  {!isCollapsed && (
+                    <div className="mt-0.5 flex flex-col gap-0.5">
+                      {group.sessions.map((session) => {
+                        const isActive = pathname === `/chat/${session.id}`;
+                        const isHovered = hoveredSession === session.id;
+                        const isDeleting = deletingSession === session.id;
+                        const isSessionStreaming =
+                          streamingSessionId === session.id;
+                        const needsApproval =
+                          pendingApprovalSessionId === session.id;
+                        const mode = session.mode || "code";
+                        const badgeCfg = MODE_BADGE_CONFIG[mode];
+
+                        return (
+                          <div
+                            key={session.id}
+                            className="group relative"
+                            onMouseEnter={() =>
+                              setHoveredSession(session.id)
+                            }
+                            onMouseLeave={() => setHoveredSession(null)}
+                          >
+                            <Link
+                              href={`/chat/${session.id}`}
+                              className={cn(
+                                "flex items-center gap-1.5 rounded-md pl-7 pr-2 py-1.5 transition-all duration-150 min-w-0",
+                                isActive
+                                  ? "bg-sidebar-accent text-sidebar-accent-foreground"
+                                  : "text-sidebar-foreground hover:bg-accent/50"
+                              )}
+                            >
                               {/* Streaming pulse indicator */}
                               {isSessionStreaming && (
                                 <span className="relative flex h-2 w-2 shrink-0">
@@ -242,63 +424,66 @@ export function ChatListPanel({ open, width }: ChatListPanelProps) {
                                   <span className="relative inline-flex h-2 w-2 rounded-full bg-green-500" />
                                 </span>
                               )}
-                              <span className="line-clamp-2 text-[13px] font-medium leading-tight break-all">
-                                {session.title}
-                              </span>
-                              {/* Approval reminder */}
+                              {/* Approval indicator */}
                               {needsApproval && (
                                 <span className="flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-full bg-amber-500/10">
-                                  <HugeiconsIcon icon={Notification02Icon} className="h-2.5 w-2.5 text-amber-500" />
+                                  <HugeiconsIcon
+                                    icon={Notification02Icon}
+                                    className="h-2.5 w-2.5 text-amber-500"
+                                  />
                                 </span>
                               )}
-                            </div>
-                            <div className="flex items-center gap-1.5 min-w-0">
-                              {/* Mode badge */}
-                              <span className={cn("text-[9px] px-1 py-0.5 rounded font-medium leading-none shrink-0", badgeCfg.className)}>
-                                {badgeCfg.label}
-                              </span>
-                              {session.project_name && (
-                                <span className="truncate text-[10px] text-muted-foreground/50">
-                                  {session.project_name}
+                              <div className="flex-1 min-w-0">
+                                <span className="line-clamp-1 text-[12px] font-medium leading-tight break-all">
+                                  {session.title}
                                 </span>
-                              )}
-                              {session.project_name && (
-                                <span className="text-muted-foreground/30 text-[10px]">
-                                  ·
-                                </span>
-                              )}
-                              <span className="text-[10px] text-muted-foreground/40 shrink-0">
-                                {formatRelativeTime(session.updated_at)}
-                              </span>
-                            </div>
-                          </Link>
-                          {(isHovered || isDeleting) && (
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <Button
-                                  variant="ghost"
-                                  size="icon-xs"
-                                  className="absolute right-1 top-2 text-muted-foreground/60 hover:text-destructive"
-                                  onClick={(e) =>
-                                    handleDeleteSession(e, session.id)
-                                  }
-                                  disabled={isDeleting}
+                              </div>
+                              <div className="flex items-center gap-1 shrink-0">
+                                {/* Mode badge */}
+                                <span
+                                  className={cn(
+                                    "text-[9px] px-1 py-0.5 rounded font-medium leading-none",
+                                    badgeCfg.className
+                                  )}
                                 >
-                                  <HugeiconsIcon icon={Delete02Icon} className="h-3 w-3" />
-                                  <span className="sr-only">
-                                    Delete session
-                                  </span>
-                                </Button>
-                              </TooltipTrigger>
-                              <TooltipContent side="right">
-                                Delete
-                              </TooltipContent>
-                            </Tooltip>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
+                                  {badgeCfg.label}
+                                </span>
+                                <span className="text-[10px] text-muted-foreground/40">
+                                  {formatRelativeTime(session.updated_at)}
+                                </span>
+                              </div>
+                            </Link>
+                            {(isHovered || isDeleting) && (
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Button
+                                    variant="ghost"
+                                    size="icon-xs"
+                                    className="absolute right-1 top-1 text-muted-foreground/60 hover:text-destructive"
+                                    onClick={(e) =>
+                                      handleDeleteSession(e, session.id)
+                                    }
+                                    disabled={isDeleting}
+                                  >
+                                    <HugeiconsIcon
+                                      icon={Delete02Icon}
+                                      className="h-3 w-3"
+                                    />
+                                    <span className="sr-only">
+                                      Delete session
+                                    </span>
+                                  </Button>
+                                </TooltipTrigger>
+                                <TooltipContent side="right">
+                                  Delete
+                                </TooltipContent>
+                              </Tooltip>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
               );
             })
@@ -317,6 +502,13 @@ export function ChatListPanel({ open, width }: ChatListPanelProps) {
       <ImportSessionDialog
         open={importDialogOpen}
         onOpenChange={setImportDialogOpen}
+      />
+
+      {/* Folder Picker Dialog */}
+      <FolderPicker
+        open={folderPickerOpen}
+        onOpenChange={setFolderPickerOpen}
+        onSelect={handleFolderSelect}
       />
     </aside>
   );
