@@ -4,14 +4,13 @@ import { useRef, useState, useCallback, useEffect, type KeyboardEvent, type Form
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
   AtIcon,
-  FolderOpenIcon,
   Wrench01Icon,
   ClipboardIcon,
   HelpCircleIcon,
   ArrowDown01Icon,
   ArrowUp02Icon,
   CommandLineIcon,
-  Attachment01Icon,
+  PlusSignIcon,
   Cancel01Icon,
   Delete02Icon,
   Coins01Icon,
@@ -23,7 +22,6 @@ import {
   GlobalIcon,
 } from "@hugeicons/core-free-icons";
 import { cn } from '@/lib/utils';
-import { FolderPicker } from './FolderPicker';
 import {
   PromptInput,
   PromptInputTextarea,
@@ -61,7 +59,6 @@ interface MessageInputProps {
   modelName?: string;
   onModelChange?: (model: string) => void;
   workingDirectory?: string;
-  onWorkingDirectoryChange?: (dir: string) => void;
   mode?: string;
   onModeChange?: (mode: string) => void;
 }
@@ -245,7 +242,7 @@ function AttachFileButton() {
       onClick={() => attachments.openFileDialog()}
       tooltip="Attach files"
     >
-      <HugeiconsIcon icon={Attachment01Icon} className="h-3.5 w-3.5" />
+      <HugeiconsIcon icon={PlusSignIcon} className="h-3.5 w-3.5" />
     </PromptInputButton>
   );
 }
@@ -343,7 +340,6 @@ export function MessageInput({
   modelName,
   onModelChange,
   workingDirectory,
-  onWorkingDirectoryChange,
   mode = 'code',
   onModeChange,
 }: MessageInputProps) {
@@ -358,7 +354,6 @@ export function MessageInput({
   const [popoverFilter, setPopoverFilter] = useState('');
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [triggerPos, setTriggerPos] = useState<number | null>(null);
-  const [folderPickerOpen, setFolderPickerOpen] = useState(false);
   const [modeMenuOpen, setModeMenuOpen] = useState(false);
   const [modelMenuOpen, setModelMenuOpen] = useState(false);
   const [inputValue, setInputValue] = useState('');
@@ -742,10 +737,6 @@ export function MessageInput({
   const currentModelOption = MODEL_OPTIONS.find((m) => m.value === currentModelValue) || MODEL_OPTIONS[0];
   const currentMode = MODE_OPTIONS.find((m) => m.value === mode) || MODE_OPTIONS[0];
 
-  const folderShortName = workingDirectory
-    ? workingDirectory.split('/').filter(Boolean).pop() || workingDirectory
-    : '';
-
   // Map isStreaming to ChatStatus for PromptInputSubmit
   const chatStatus: ChatStatus = isStreaming ? 'streaming' : 'ready';
 
@@ -921,23 +912,11 @@ export function MessageInput({
                 {/* Attach file button */}
                 <AttachFileButton />
 
-                {/* Folder picker button */}
-                <PromptInputButton
-                  onClick={() => setFolderPickerOpen(true)}
-                  tooltip={workingDirectory || 'Select project folder'}
-                >
-                  <HugeiconsIcon icon={FolderOpenIcon} className="h-3.5 w-3.5" />
-                  <span className="max-w-[120px] truncate text-xs">
-                    {folderShortName || 'Folder'}
-                  </span>
-                </PromptInputButton>
-
                 {/* Mode selector */}
                 <div className="relative" ref={modeMenuRef}>
                   <PromptInputButton
                     onClick={() => setModeMenuOpen((prev) => !prev)}
                   >
-                    <HugeiconsIcon icon={currentMode.icon} className="h-3.5 w-3.5" />
                     <span className="text-xs">{currentMode.label}</span>
                     <HugeiconsIcon icon={ArrowDown01Icon} className={cn("h-2.5 w-2.5 transition-transform duration-200", modeMenuOpen && "rotate-180")} />
                   </PromptInputButton>
@@ -974,9 +953,7 @@ export function MessageInput({
                     </div>
                   )}
                 </div>
-              </PromptInputTools>
 
-              <div className="flex items-center gap-1.5">
                 {/* Model selector */}
                 <div className="relative" ref={modelMenuRef}>
                   <PromptInputButton
@@ -987,7 +964,7 @@ export function MessageInput({
                   </PromptInputButton>
 
                   {modelMenuOpen && (
-                    <div className="absolute bottom-full right-0 mb-1.5 w-48 rounded-lg border bg-popover shadow-lg overflow-hidden z-50">
+                    <div className="absolute bottom-full left-0 mb-1.5 w-48 rounded-lg border bg-popover shadow-lg overflow-hidden z-50">
                       <div className="py-1">
                         {MODEL_OPTIONS.map((opt) => {
                           const isActive = opt.value === currentModelValue;
@@ -1011,29 +988,20 @@ export function MessageInput({
                     </div>
                   )}
                 </div>
+              </PromptInputTools>
 
-                <FileAwareSubmitButton
-                  status={chatStatus}
-                  onStop={onStop}
-                  disabled={disabled}
-                  inputValue={inputValue}
-                  hasBadge={!!badge}
-                />
-              </div>
+              <FileAwareSubmitButton
+                status={chatStatus}
+                onStop={onStop}
+                disabled={disabled}
+                inputValue={inputValue}
+                hasBadge={!!badge}
+              />
             </PromptInputFooter>
           </PromptInput>
         </div>
       </div>
 
-      {/* FolderPicker dialog */}
-      <FolderPicker
-        open={folderPickerOpen}
-        onOpenChange={setFolderPickerOpen}
-        onSelect={(dir) => {
-          onWorkingDirectoryChange?.(dir);
-        }}
-        initialPath={workingDirectory || undefined}
-      />
     </div>
   );
 }

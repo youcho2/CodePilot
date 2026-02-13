@@ -152,7 +152,7 @@ export function FileTree({ workingDirectory, onFileSelect, onFileAdd }: FileTree
   return (
     <div className="flex flex-col h-full min-h-0">
       {/* Header */}
-      <div className="flex items-center gap-2 p-2 border-b border-border/30 shrink-0">
+      <div className="flex items-center gap-2 px-4 py-2 shrink-0">
         <p className="min-w-0 flex-1 truncate text-[11px] text-muted-foreground" title={workingDirectory}>
           {workingDirectory || 'No directory selected'}
         </p>
@@ -169,14 +169,16 @@ export function FileTree({ workingDirectory, onFileSelect, onFileAdd }: FileTree
       </div>
 
       {/* Search */}
-      <div className="relative p-2 border-b border-border/30 shrink-0">
-        <HugeiconsIcon icon={Search01Icon} className="absolute left-4 top-1/2 h-3 w-3 -translate-y-1/2 text-muted-foreground" />
-        <Input
-          placeholder="Filter files..."
-          value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
-          className="h-7 pl-7 text-xs"
-        />
+      <div className="px-4 pb-2 shrink-0">
+        <div className="relative">
+          <HugeiconsIcon icon={Search01Icon} className="absolute left-2.5 top-1/2 h-3 w-3 -translate-y-1/2 text-muted-foreground pointer-events-none" />
+          <Input
+            placeholder="Filter files..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="h-7 pl-7 text-xs"
+          />
+        </div>
       </div>
 
       {/* Tree */}

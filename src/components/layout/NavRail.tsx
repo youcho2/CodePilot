@@ -3,11 +3,10 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useTheme } from "next-themes";
-import { useCallback, useState, useSyncExternalStore } from "react";
+import { useCallback, useSyncExternalStore } from "react";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
   Message02Icon,
-  PlusSignIcon,
   GridIcon,
   Settings02Icon,
   Moon02Icon,
@@ -20,7 +19,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
-import type { SessionResponse } from "@/types";
+
 
 interface NavRailProps {
   chatListOpen: boolean;
@@ -42,58 +41,9 @@ export function NavRail({ onToggleChatList, hasUpdate, skipPermissionsActive }: 
   const emptySubscribe = useCallback(() => () => {}, []);
   const mounted = useSyncExternalStore(emptySubscribe, () => true, () => false);
   const isChatRoute = pathname === "/chat" || pathname.startsWith("/chat/");
-  const [creatingChat, setCreatingChat] = useState(false);
-
-  const handleNewChat = useCallback(async () => {
-    const lastDir = localStorage.getItem("codepilot:last-working-directory");
-    if (!lastDir) {
-      router.push("/chat");
-      return;
-    }
-
-    setCreatingChat(true);
-    try {
-      const res = await fetch("/api/chat/sessions", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ working_directory: lastDir }),
-      });
-      if (!res.ok) {
-        router.push("/chat");
-        return;
-      }
-      const data: SessionResponse = await res.json();
-      router.push(`/chat/${data.session.id}`);
-      window.dispatchEvent(new CustomEvent("session-created"));
-    } catch {
-      router.push("/chat");
-    } finally {
-      setCreatingChat(false);
-    }
-  }, [router]);
 
   return (
     <aside className="flex w-14 shrink-0 flex-col items-center bg-sidebar pb-3 pt-10">
-      {/* New Chat */}
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="mb-2 h-9 w-9"
-            disabled={creatingChat}
-            onClick={handleNewChat}
-          >
-            <HugeiconsIcon icon={PlusSignIcon} className="h-4 w-4" />
-            <span className="sr-only">New Chat</span>
-          </Button>
-        </TooltipTrigger>
-        <TooltipContent side="right">New Chat</TooltipContent>
-      </Tooltip>
-
-      {/* Divider */}
-      <div className="mx-auto mb-2 h-px w-6 bg-border/50" />
-
       {/* Nav icons */}
       <nav className="flex flex-1 flex-col items-center gap-1">
         {navItems.map((item) => {

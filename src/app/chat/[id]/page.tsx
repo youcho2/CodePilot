@@ -1,11 +1,12 @@
 'use client';
 
-import { useEffect, useState, use } from 'react';
+import { useEffect, useState, useRef, useCallback, use } from 'react';
 import Link from 'next/link';
 import type { Message, MessagesResponse, ChatSession } from '@/types';
 import { ChatView } from '@/components/chat/ChatView';
 import { HugeiconsIcon } from "@hugeicons/react";
-import { Loading02Icon } from "@hugeicons/core-free-icons";
+import { Loading02Icon, PencilEdit01Icon } from "@hugeicons/core-free-icons";
+import { Input } from '@/components/ui/input';
 import { usePanel } from '@/hooks/usePanel';
 
 interface ChatSessionPageProps {
@@ -22,7 +23,53 @@ export default function ChatSessionPage({ params }: ChatSessionPageProps) {
   const [sessionModel, setSessionModel] = useState<string>('');
   const [sessionMode, setSessionMode] = useState<string>('');
   const [projectName, setProjectName] = useState<string>('');
+  const [isEditingTitle, setIsEditingTitle] = useState(false);
+  const [editTitle, setEditTitle] = useState('');
+  const titleInputRef = useRef<HTMLInputElement>(null);
   const { setWorkingDirectory, setSessionId, setSessionTitle: setPanelSessionTitle, setPanelOpen } = usePanel();
+
+  const handleStartEditTitle = useCallback(() => {
+    setEditTitle(sessionTitle || 'New Conversation');
+    setIsEditingTitle(true);
+  }, [sessionTitle]);
+
+  const handleSaveTitle = useCallback(async () => {
+    const trimmed = editTitle.trim();
+    if (!trimmed) {
+      setIsEditingTitle(false);
+      return;
+    }
+    try {
+      const res = await fetch(`/api/chat/sessions/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title: trimmed }),
+      });
+      if (res.ok) {
+        setSessionTitle(trimmed);
+        setPanelSessionTitle(trimmed);
+        window.dispatchEvent(new CustomEvent('session-updated', { detail: { id, title: trimmed } }));
+      }
+    } catch {
+      // silently fail
+    }
+    setIsEditingTitle(false);
+  }, [editTitle, id, setPanelSessionTitle]);
+
+  const handleTitleKeyDown = useCallback((e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') {
+      handleSaveTitle();
+    } else if (e.key === 'Escape') {
+      setIsEditingTitle(false);
+    }
+  }, [handleSaveTitle]);
+
+  useEffect(() => {
+    if (isEditingTitle && titleInputRef.current) {
+      titleInputRef.current.focus();
+      titleInputRef.current.select();
+    }
+  }, [isEditingTitle]);
 
   // Load session info and set working directory
   useEffect(() => {
@@ -115,7 +162,7 @@ export default function ChatSessionPage({ params }: ChatSessionPageProps) {
       {/* Chat title bar */}
       {sessionTitle && (
         <div
-          className="flex items-center justify-center px-4 py-2 gap-1"
+          className="flex items-center justify-center px-4 pb-2 gap-1"
           style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}
         >
           {projectName && (
@@ -124,9 +171,33 @@ export default function ChatSessionPage({ params }: ChatSessionPageProps) {
               <span className="text-xs text-muted-foreground shrink-0">/</span>
             </>
           )}
-          <h2 className="text-sm font-medium text-foreground/80 truncate max-w-md">
-            {sessionTitle}
-          </h2>
+          {isEditingTitle ? (
+            <div style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
+              <Input
+                ref={titleInputRef}
+                value={editTitle}
+                onChange={(e) => setEditTitle(e.target.value)}
+                onKeyDown={handleTitleKeyDown}
+                onBlur={handleSaveTitle}
+                className="h-7 text-sm max-w-md text-center"
+              />
+            </div>
+          ) : (
+            <div
+              className="flex items-center gap-1 group cursor-default max-w-md"
+              style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
+            >
+              <h2 className="text-sm font-medium text-foreground/80 truncate">
+                {sessionTitle}
+              </h2>
+              <button
+                onClick={handleStartEditTitle}
+                className="opacity-0 group-hover:opacity-100 transition-opacity shrink-0 p-0.5 rounded hover:bg-muted"
+              >
+                <HugeiconsIcon icon={PencilEdit01Icon} className="h-3 w-3 text-muted-foreground" />
+              </button>
+            </div>
+          )}
         </div>
       )}
       <ChatView key={id} sessionId={id} initialMessages={messages} initialHasMore={hasMore} modelName={sessionModel} initialMode={sessionMode} />

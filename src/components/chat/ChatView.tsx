@@ -59,19 +59,6 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
   }, [sessionId]);
   const abortControllerRef = useRef<AbortController | null>(null);
 
-  const handleWorkingDirectoryChange = useCallback((dir: string) => {
-    setWorkingDirectory(dir);
-    setPanelOpen(true);
-    // Persist to database
-    if (sessionId) {
-      fetch(`/api/chat/sessions/${sessionId}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ working_directory: dir }),
-      }).catch(() => { /* silent */ });
-    }
-  }, [sessionId, setWorkingDirectory, setPanelOpen]);
-
   // Ref to keep accumulated streaming content in sync regardless of React batching
   const accumulatedRef = useRef('');
   // Ref for sendMessage to allow self-referencing in timeout auto-retry without circular deps
@@ -484,7 +471,6 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
         modelName={currentModel}
         onModelChange={setCurrentModel}
         workingDirectory={workingDirectory}
-        onWorkingDirectoryChange={handleWorkingDirectoryChange}
         mode={mode}
         onModeChange={handleModeChange}
       />

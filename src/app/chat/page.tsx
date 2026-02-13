@@ -35,12 +35,6 @@ export default function NewChatPage() {
   const [streamingToolOutput, setStreamingToolOutput] = useState('');
   const abortControllerRef = useRef<AbortController | null>(null);
 
-  const handleWorkingDirectoryChange = useCallback((dir: string) => {
-    setWorkingDir(dir);
-    setWorkingDirectory(dir);
-    setPanelOpen(true);
-  }, [setWorkingDirectory, setPanelOpen]);
-
   const stopStreaming = useCallback(() => {
     abortControllerRef.current?.abort();
     abortControllerRef.current = null;
@@ -364,7 +358,6 @@ export default function NewChatPage() {
         modelName={currentModel}
         onModelChange={setCurrentModel}
         workingDirectory={workingDir}
-        onWorkingDirectoryChange={handleWorkingDirectoryChange}
         mode={mode}
         onModeChange={setMode}
       />

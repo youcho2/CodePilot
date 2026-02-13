@@ -126,6 +126,34 @@ export function ChatListPanel({ open, width }: ChatListPanelProps) {
     () => loadCollapsedProjects()
   );
   const [hoveredFolder, setHoveredFolder] = useState<string | null>(null);
+  const [creatingChat, setCreatingChat] = useState(false);
+
+  const handleNewChat = useCallback(async () => {
+    const lastDir = localStorage.getItem("codepilot:last-working-directory");
+    if (!lastDir) {
+      router.push("/chat");
+      return;
+    }
+    setCreatingChat(true);
+    try {
+      const res = await fetch("/api/chat/sessions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ working_directory: lastDir }),
+      });
+      if (!res.ok) {
+        router.push("/chat");
+        return;
+      }
+      const data = await res.json();
+      router.push(`/chat/${data.session.id}`);
+      window.dispatchEvent(new CustomEvent("session-created"));
+    } catch {
+      router.push("/chat");
+    } finally {
+      setCreatingChat(false);
+    }
+  }, [router]);
 
   const toggleProject = useCallback((wd: string) => {
     setCollapsedProjects((prev) => {
@@ -260,27 +288,39 @@ export function ChatListPanel({ open, width }: ChatListPanelProps) {
         <span className="text-[13px] font-semibold tracking-tight text-sidebar-foreground">
           Threads
         </span>
-        <div className="flex items-center gap-1">
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon-xs"
-                className="text-muted-foreground hover:text-foreground"
-                onClick={() => setFolderPickerOpen(true)}
-              >
-                <HugeiconsIcon icon={FolderOpenIcon} className="h-3.5 w-3.5" />
-                <span className="sr-only">Open project folder</span>
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent side="bottom">Open project folder</TooltipContent>
-          </Tooltip>
-          <ConnectionStatus />
-        </div>
+        <ConnectionStatus />
+      </div>
+
+      {/* New Chat + New Project */}
+      <div className="flex items-center gap-2 px-3 pb-2">
+        <Button
+          variant="outline"
+          size="sm"
+          className="flex-1 justify-center gap-1.5 h-8 text-xs"
+          disabled={creatingChat}
+          onClick={handleNewChat}
+        >
+          <HugeiconsIcon icon={PlusSignIcon} className="h-3.5 w-3.5" />
+          New Chat
+        </Button>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              variant="outline"
+              size="icon-sm"
+              className="h-8 w-8 shrink-0"
+              onClick={() => setFolderPickerOpen(true)}
+            >
+              <HugeiconsIcon icon={FolderOpenIcon} className="h-3.5 w-3.5" />
+              <span className="sr-only">Open project folder</span>
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent side="bottom">Open project folder</TooltipContent>
+        </Tooltip>
       </div>
 
       {/* Search */}
-      <div className="px-3 py-2">
+      <div className="px-3 pb-2">
         <div className="relative">
           <HugeiconsIcon
             icon={Search01Icon}
@@ -297,22 +337,15 @@ export function ChatListPanel({ open, width }: ChatListPanelProps) {
 
       {/* Import CLI Session */}
       <div className="px-3 pb-1">
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button
-              variant="ghost"
-              size="sm"
-              className="w-full justify-start gap-2 h-7 text-xs text-muted-foreground hover:text-foreground"
-              onClick={() => setImportDialogOpen(true)}
-            >
-              <HugeiconsIcon icon={FileImportIcon} className="h-3 w-3" />
-              Import CLI Session
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent side="right">
-            Import conversations from Claude Code CLI
-          </TooltipContent>
-        </Tooltip>
+        <Button
+          variant="ghost"
+          size="sm"
+          className="w-full justify-start gap-2 h-7 text-xs text-muted-foreground hover:text-foreground"
+          onClick={() => setImportDialogOpen(true)}
+        >
+          <HugeiconsIcon icon={FileImportIcon} className="h-3 w-3" />
+          Import CLI Session
+        </Button>
       </div>
 
       {/* Session list grouped by project */}
@@ -349,19 +382,23 @@ export function ChatListPanel({ open, width }: ChatListPanelProps) {
                     />
                     <HugeiconsIcon
                       icon={Folder01Icon}
-                      className="h-3.5 w-3.5 shrink-0 text-blue-500"
+                      className="h-3.5 w-3.5 shrink-0 text-muted-foreground"
                     />
                     <span className="flex-1 truncate text-[12px] font-medium text-sidebar-foreground">
                       {group.displayName}
                     </span>
                     {/* New chat in project button (on hover) */}
-                    {isFolderHovered && group.workingDirectory !== "" && (
+                    {group.workingDirectory !== "" && (
                       <Tooltip>
                         <TooltipTrigger asChild>
                           <Button
                             variant="ghost"
                             size="icon-xs"
-                            className="h-5 w-5 shrink-0 text-muted-foreground hover:text-foreground"
+                            className={cn(
+                              "h-5 w-5 shrink-0 text-muted-foreground hover:text-foreground transition-opacity",
+                              isFolderHovered ? "opacity-100" : "opacity-0"
+                            )}
+                            tabIndex={isFolderHovered ? 0 : -1}
                             onClick={(e) =>
                               handleCreateSessionInProject(
                                 e,
@@ -459,7 +496,7 @@ export function ChatListPanel({ open, width }: ChatListPanelProps) {
                                   <Button
                                     variant="ghost"
                                     size="icon-xs"
-                                    className="absolute right-1 top-1 text-muted-foreground/60 hover:text-destructive"
+                                    className="absolute right-1 top-1 bg-sidebar text-muted-foreground/60 hover:text-destructive"
                                     onClick={(e) =>
                                       handleDeleteSession(e, session.id)
                                     }
