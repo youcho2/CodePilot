@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-CodePilot — Claude Code 的原生桌面 GUI 客户端，基于 Electron + Next.js。
+CodePilot — Claude Code 的桌面 GUI 客户端，基于 Electron + Next.js。
 
 ## Release Checklist
 

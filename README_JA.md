@@ -1,7 +1,7 @@
 <img src="docs/icon-readme.png" width="32" height="32" alt="CodePilot" style="vertical-align: middle; margin-right: 8px;" /> CodePilot
 ===
 
-**Claude Code のネイティブ デスクトップ GUI** -- ターミナルではなく、洗練されたビジュアルインターフェースを通じてチャット、コーディング、プロジェクト管理を行えます。
+**Claude Code のデスクトップ GUI クライアント** -- ターミナルではなく、洗練されたビジュアルインターフェースを通じてチャット、コーディング、プロジェクト管理を行えます。
 
 [![GitHub release](https://img.shields.io/github/v/release/op7418/CodePilot)](https://github.com/op7418/CodePilot/releases)
 [![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Windows-lightgrey)](https://github.com/op7418/CodePilot/releases)
@@ -25,7 +25,7 @@
 - **📊 トークン使用量追跡** -- アシスタントのレスポンスごとに入力/出力トークン数と推定コストが表示されます。
 - **🌗 ダーク / ライト テーマ** -- ナビゲーションレールのワンクリックでテーマを切り替えられます。
 - **⌨️ スラッシュコマンド** -- `/help`、`/clear`、`/cost`、`/compact`、`/doctor`、`/review` などの組み込みコマンドを使用できます。
-- **🖥️ Electron パッケージング** -- 隠れたタイトルバー、バンドルされた Next.js サーバー、自動ポート割り当てを備えたネイティブ デスクトップ アプリとして配布されます。
+- **🖥️ Electron パッケージング** -- 隠れたタイトルバー、バンドルされた Next.js サーバー、自動ポート割り当てを備えたデスクトップ アプリとして配布されます。
 
 ---
 
