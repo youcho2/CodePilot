@@ -74,6 +74,15 @@ export function isPathSafe(basePath: string, targetPath: string): boolean {
   return resolvedTarget.startsWith(resolvedBase + path.sep) || resolvedTarget === resolvedBase;
 }
 
+/**
+ * Check if a path is a filesystem root (e.g., `/`, `C:\`, `D:\`).
+ * Used to prevent using root as a baseDir for file browsing.
+ */
+export function isRootPath(p: string): boolean {
+  const resolved = path.resolve(p);
+  return resolved === path.parse(resolved).root;
+}
+
 export async function scanDirectory(dir: string, depth: number = 3): Promise<FileTreeNode[]> {
   const resolvedDir = path.resolve(dir);
 
