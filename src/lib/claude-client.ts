@@ -24,6 +24,28 @@ import os from 'os';
 import fs from 'fs';
 import path from 'path';
 
+/**
+ * Sanitize a string for use as an environment variable value.
+ * Removes null bytes and control characters that cause spawn EINVAL.
+ */
+function sanitizeEnvValue(value: string): string {
+  // eslint-disable-next-line no-control-regex
+  return value.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '');
+}
+
+/**
+ * Sanitize all values in an env record so child_process.spawn won't
+ * throw EINVAL due to invalid characters (null bytes, control chars).
+ */
+function sanitizeEnv(env: Record<string, string>): Record<string, string> {
+  for (const [key, value] of Object.entries(env)) {
+    if (typeof value === 'string') {
+      env[key] = sanitizeEnvValue(value);
+    }
+  }
+  return env;
+}
+
 let cachedClaudePath: string | null | undefined;
 
 function findClaudePath(): string | undefined {
@@ -262,7 +284,7 @@ export function streamClaude(options: ClaudeStreamOptions): ReadableStream<strin
           permissionMode: skipPermissions
             ? 'bypassPermissions'
             : ((permissionMode as Options['permissionMode']) || 'acceptEdits'),
-          env: sdkEnv,
+          env: sanitizeEnv(sdkEnv),
         };
 
         if (skipPermissions) {
