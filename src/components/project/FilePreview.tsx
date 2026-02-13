@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Light as SyntaxHighlighter } from "react-syntax-highlighter";
 import { atomOneDark } from "react-syntax-highlighter/dist/esm/styles/hljs";
+import { usePanel } from "@/hooks/usePanel";
 import type { FilePreview as FilePreviewType } from "@/types";
 
 interface FilePreviewProps {
@@ -16,6 +17,7 @@ interface FilePreviewProps {
 }
 
 export function FilePreview({ filePath, onBack }: FilePreviewProps) {
+  const { workingDirectory } = usePanel();
   const [preview, setPreview] = useState<FilePreviewType | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -27,7 +29,7 @@ export function FilePreview({ filePath, onBack }: FilePreviewProps) {
       setError(null);
       try {
         const res = await fetch(
-          `/api/files/preview?path=${encodeURIComponent(filePath)}`
+          `/api/files/preview?path=${encodeURIComponent(filePath)}${workingDirectory ? `&baseDir=${encodeURIComponent(workingDirectory)}` : ''}`
         );
         if (!res.ok) {
           const data = await res.json();
