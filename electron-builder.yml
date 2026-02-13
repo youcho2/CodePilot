@@ -54,9 +54,10 @@ win:
 nsis:
   oneClick: false
   perMachine: false
-  allowToChangeInstallationDirectory: true
+  allowToChangeInstallationDirectory: false
   createDesktopShortcut: true
   createStartMenuShortcut: true
+  deleteAppDataOnUninstall: false
 linux:
   icon: build/icon.png
   category: Development

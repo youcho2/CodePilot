@@ -55,9 +55,15 @@ function killServer(): Promise<void> {
     const pid = serverProcess.pid;
 
     const timeout = setTimeout(() => {
-      // Force kill via Node's process.kill with SIGKILL
+      // Force kill — on Windows use taskkill to kill the entire process tree
       if (pid) {
-        try { process.kill(pid, 'SIGKILL'); } catch { /* already dead */ }
+        try {
+          if (process.platform === 'win32') {
+            spawn('taskkill', ['/T', '/F', '/PID', String(pid)], { stdio: 'ignore' });
+          } else {
+            process.kill(pid, 'SIGKILL');
+          }
+        } catch { /* already dead */ }
       }
       serverProcess = null;
       resolve();
@@ -69,8 +75,12 @@ function killServer(): Promise<void> {
       resolve();
     });
 
-    // UtilityProcess.kill() sends SIGTERM
-    serverProcess.kill();
+    // On Windows, SIGTERM is not supported — use taskkill to kill the tree
+    if (process.platform === 'win32' && pid) {
+      spawn('taskkill', ['/T', '/F', '/PID', String(pid)], { stdio: 'ignore' });
+    } else {
+      serverProcess.kill();
+    }
   });
 }
 
