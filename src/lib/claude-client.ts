@@ -487,7 +487,7 @@ export function streamClaude(options: ClaudeStreamOptions): ReadableStream<strin
           // Save non-image files to disk for Read tool access
           let textPrompt = prompt;
           if (nonImageFiles.length > 0) {
-            const workDir = workingDirectory || process.cwd();
+            const workDir = workingDirectory || os.homedir();
             const savedPaths = getUploadedFilePaths(nonImageFiles, workDir);
             const fileReferences = savedPaths
               .map((p, i) => `[User attached file: ${p} (${nonImageFiles[i].name})]`)
