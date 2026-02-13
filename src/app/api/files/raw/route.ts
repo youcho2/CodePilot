@@ -1,8 +1,6 @@
 import { NextRequest } from 'next/server';
 import fs from 'fs/promises';
 import path from 'path';
-import os from 'os';
-import { isPathSafe } from '@/lib/files';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -94,15 +92,7 @@ export async function GET(request: NextRequest) {
     });
   }
 
-  const homeDir = os.homedir();
   const resolved = path.resolve(filePath);
-
-  if (!isPathSafe(homeDir, resolved)) {
-    return new Response(JSON.stringify({ error: 'Access denied' }), {
-      status: 403,
-      headers: { 'Content-Type': 'application/json' },
-    });
-  }
 
   try {
     await fs.access(resolved);

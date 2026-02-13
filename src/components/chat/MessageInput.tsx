@@ -270,13 +270,17 @@ function FileTreeAttachmentBridge() {
 
       try {
         const res = await fetch(`/api/files/raw?path=${encodeURIComponent(filePath)}`);
-        if (!res.ok) return;
+        if (!res.ok) {
+          console.warn(`[FileTreeAttachment] Failed to fetch file: ${res.status} ${res.statusText}`, filePath);
+          return;
+        }
         const blob = await res.blob();
-        const filename = filePath.split('/').pop() || 'file';
+        // Handle both Unix (/) and Windows (\) path separators
+        const filename = filePath.split(/[/\\]/).pop() || 'file';
         const file = new File([blob], filename, { type: blob.type || 'application/octet-stream' });
         attachmentsRef.current.add([file]);
-      } catch {
-        // Silently fail if file fetch fails
+      } catch (err) {
+        console.warn('[FileTreeAttachment] Error attaching file:', filePath, err);
       }
     };
 
