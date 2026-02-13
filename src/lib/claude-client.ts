@@ -35,15 +35,18 @@ function sanitizeEnvValue(value: string): string {
 
 /**
  * Sanitize all values in an env record so child_process.spawn won't
- * throw EINVAL due to invalid characters (null bytes, control chars).
+ * throw EINVAL due to invalid characters or non-string values.
+ * On Windows, spawn is strict: every env value MUST be a string.
+ * Spreading process.env can include undefined values which cause EINVAL.
  */
 function sanitizeEnv(env: Record<string, string>): Record<string, string> {
+  const clean: Record<string, string> = {};
   for (const [key, value] of Object.entries(env)) {
     if (typeof value === 'string') {
-      env[key] = sanitizeEnvValue(value);
+      clean[key] = sanitizeEnvValue(value);
     }
   }
-  return env;
+  return clean;
 }
 
 let cachedClaudePath: string | null | undefined;
@@ -291,10 +294,18 @@ export function streamClaude(options: ClaudeStreamOptions): ReadableStream<strin
           queryOptions.allowDangerouslySkipPermissions = true;
         }
 
-        // Find claude binary for packaged app where PATH is limited
+        // Find claude binary for packaged app where PATH is limited.
+        // On Windows, npm installs Claude CLI as a .cmd wrapper which cannot
+        // be spawned directly without shell:true — skip it and let the SDK
+        // resolve the executable internally.
         const claudePath = findClaudePath();
         if (claudePath) {
-          queryOptions.pathToClaudeCodeExecutable = claudePath;
+          const ext = path.extname(claudePath).toLowerCase();
+          if (ext === '.cmd' || ext === '.bat') {
+            console.warn('[claude-client] Ignoring .cmd/.bat wrapper, falling back to SDK resolution:', claudePath);
+          } else {
+            queryOptions.pathToClaudeCodeExecutable = claudePath;
+          }
         }
 
         if (model) {
