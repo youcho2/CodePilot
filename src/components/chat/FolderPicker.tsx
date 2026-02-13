@@ -97,7 +97,7 @@ export function FolderPicker({ open, onOpenChange, onSelect, initialPath }: Fold
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-lg">
+      <DialogContent className="max-w-lg overflow-hidden">
         <DialogHeader>
           <DialogTitle>Select Project Folder</DialogTitle>
         </DialogHeader>
@@ -153,7 +153,7 @@ export function FolderPicker({ open, onOpenChange, onSelect, initialPath }: Fold
                 </DropdownMenuContent>
               </DropdownMenu>
             )}
-            <span className="truncate text-xs font-mono text-muted-foreground">
+            <span className="min-w-0 overflow-x-auto whitespace-nowrap text-xs font-mono text-muted-foreground">
               {currentDir}
             </span>
           </div>
