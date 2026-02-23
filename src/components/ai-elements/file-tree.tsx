@@ -246,8 +246,8 @@ export const FileTreeFile = ({
       >
         {children ?? (
           <>
-            {/* Spacer for alignment */}
-            <span className="size-4" />
+            {/* Spacer matching folder chevron button (size-4 icon + p-0.5 padding) */}
+            <span className="size-5 shrink-0" />
             <FileTreeIcon>
               {icon ?? <FileIcon className="size-4 text-muted-foreground" />}
             </FileTreeIcon>

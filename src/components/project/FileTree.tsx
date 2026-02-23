@@ -118,7 +118,7 @@ export function FileTree({ workingDirectory, onFileSelect, onFileAdd }: FileTree
     setLoading(true);
     try {
       const res = await fetch(
-        `/api/files?dir=${encodeURIComponent(workingDirectory)}&baseDir=${encodeURIComponent(workingDirectory)}&depth=4`
+        `/api/files?dir=${encodeURIComponent(workingDirectory)}&baseDir=${encodeURIComponent(workingDirectory)}&depth=4&_t=${Date.now()}`
       );
       if (res.ok) {
         const data = await res.json();
@@ -144,10 +144,8 @@ export function FileTree({ workingDirectory, onFileSelect, onFileAdd }: FileTree
     return () => window.removeEventListener('refresh-file-tree', handler);
   }, [fetchTree]);
 
-  // Build default expanded set from first-level directories
-  const defaultExpanded = new Set(
-    tree.filter((n) => n.type === "directory").map((n) => n.path)
-  );
+  // Default to all directories collapsed
+  const defaultExpanded = new Set<string>();
 
   return (
     <div className="flex flex-col h-full min-h-0">

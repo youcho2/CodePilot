@@ -110,7 +110,7 @@ export async function POST(request: NextRequest) {
       abortController,
       permissionMode,
       files: fileAttachments,
-      toolTimeoutSeconds: toolTimeout || 120,
+      toolTimeoutSeconds: toolTimeout || 300,
     });
 
     // Tee the stream: one for client, one for collecting the response

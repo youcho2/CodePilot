@@ -239,6 +239,9 @@ export function streamClaude(options: ClaudeStreamOptions): ReadableStream<strin
 
   return new ReadableStream<string>({
     async start(controller) {
+      // Hoist activeProvider so it's accessible in the catch block for error messages
+      const activeProvider = getActiveProvider();
+
       try {
         // Build env for the Claude Code subprocess.
         // Start with process.env (includes user shell env from Electron's loadUserShellEnv).
@@ -251,6 +254,12 @@ export function streamClaude(options: ClaudeStreamOptions): ReadableStream<strin
         // Ensure SDK subprocess has expanded PATH (consistent with Electron mode)
         sdkEnv.PATH = getExpandedPath();
 
+        // Remove CLAUDECODE env var to prevent "nested session" detection.
+        // When CodePilot is launched from within a Claude Code CLI session
+        // (e.g. during development), the child process inherits this variable
+        // and the SDK refuses to start.
+        delete sdkEnv.CLAUDECODE;
+
         // On Windows, auto-detect Git Bash if not already configured
         if (process.platform === 'win32' && !process.env.CLAUDE_CODE_GIT_BASH_PATH) {
           const gitBashPath = findGitBash();
@@ -258,9 +267,6 @@ export function streamClaude(options: ClaudeStreamOptions): ReadableStream<strin
             sdkEnv.CLAUDE_CODE_GIT_BASH_PATH = gitBashPath;
           }
         }
-
-        // Try to get config from active provider first
-        const activeProvider = getActiveProvider();
 
         if (activeProvider && activeProvider.api_key) {
           // Clear all existing ANTHROPIC_* variables to prevent conflicts
@@ -323,6 +329,14 @@ export function streamClaude(options: ClaudeStreamOptions): ReadableStream<strin
             ? 'bypassPermissions'
             : ((permissionMode as Options['permissionMode']) || 'acceptEdits'),
           env: sanitizeEnv(sdkEnv),
+          // Load settings so the SDK behaves like the CLI (tool permissions,
+          // CLAUDE.md, etc.). When an active provider is configured in
+          // CodePilot, skip 'user' settings because ~/.claude/settings.json
+          // may contain env overrides (ANTHROPIC_BASE_URL, ANTHROPIC_MODEL,
+          // etc.) that would conflict with the provider's configuration.
+          settingSources: activeProvider?.api_key
+            ? ['project', 'local']
+            : ['user', 'project', 'local'],
         };
 
         if (skipPermissions) {
@@ -362,28 +376,11 @@ export function streamClaude(options: ClaudeStreamOptions): ReadableStream<strin
           };
         }
 
-        // Load MCP servers: use passed-in config, or auto-read from config files
-        let effectiveMcpServers = mcpServers;
-        if (!effectiveMcpServers || Object.keys(effectiveMcpServers).length === 0) {
-          try {
-            const userConfigPath = path.join(os.homedir(), '.claude.json');
-            const settingsPath = path.join(os.homedir(), '.claude', 'settings.json');
-            let merged: Record<string, MCPServerConfig> = {};
-            if (fs.existsSync(userConfigPath)) {
-              const userConfig = JSON.parse(fs.readFileSync(userConfigPath, 'utf-8'));
-              if (userConfig.mcpServers) merged = { ...merged, ...userConfig.mcpServers };
-            }
-            if (fs.existsSync(settingsPath)) {
-              const settings = JSON.parse(fs.readFileSync(settingsPath, 'utf-8'));
-              if (settings.mcpServers) merged = { ...merged, ...settings.mcpServers };
-            }
-            if (Object.keys(merged).length > 0) effectiveMcpServers = merged;
-          } catch {
-            // ignore config read errors
-          }
-        }
-        if (effectiveMcpServers && Object.keys(effectiveMcpServers).length > 0) {
-          queryOptions.mcpServers = toSdkMcpConfig(effectiveMcpServers);
+        // MCP servers: only pass explicitly provided config (e.g. from CodePilot UI).
+        // User-level MCP config from ~/.claude.json and ~/.claude/settings.json
+        // is now automatically loaded by the SDK via settingSources: ['user', 'project', 'local'].
+        if (mcpServers && Object.keys(mcpServers).length > 0) {
+          queryOptions.mcpServers = toSdkMcpConfig(mcpServers);
         }
 
         // Resume session if we have an SDK session ID from a previous conversation turn
@@ -678,7 +675,33 @@ export function streamClaude(options: ClaudeStreamOptions): ReadableStream<strin
         controller.enqueue(formatSSE({ type: 'done', data: '' }));
         controller.close();
       } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+        const rawMessage = error instanceof Error ? error.message : 'Unknown error';
+        let errorMessage = rawMessage;
+
+        // Provide more specific error messages based on error type
+        if (error instanceof Error) {
+          const code = (error as NodeJS.ErrnoException).code;
+          if (code === 'ENOENT' || rawMessage.includes('ENOENT') || rawMessage.includes('spawn')) {
+            errorMessage = `Claude Code CLI not found. Please ensure Claude Code is installed and available in your PATH.\n\nOriginal error: ${rawMessage}`;
+          } else if (rawMessage.includes('exited with code 1') || rawMessage.includes('exit code 1')) {
+            const providerHint = activeProvider?.name ? ` (Provider: ${activeProvider.name})` : '';
+            errorMessage = `Claude Code process exited with an error${providerHint}. This is often caused by:\n• Invalid or missing API Key\n• Incorrect Base URL configuration\n• Network connectivity issues\n\nOriginal error: ${rawMessage}`;
+          } else if (rawMessage.includes('exited with code')) {
+            const providerHint = activeProvider?.name ? ` (Provider: ${activeProvider.name})` : '';
+            errorMessage = `Claude Code process crashed unexpectedly${providerHint}.\n\nOriginal error: ${rawMessage}`;
+          } else if (code === 'ECONNREFUSED' || rawMessage.includes('ECONNREFUSED') || rawMessage.includes('fetch failed')) {
+            const baseUrl = activeProvider?.base_url || 'default';
+            errorMessage = `Cannot connect to API endpoint (${baseUrl}). Please check your network connection and Base URL configuration.\n\nOriginal error: ${rawMessage}`;
+          } else if (rawMessage.includes('401') || rawMessage.includes('Unauthorized') || rawMessage.includes('authentication')) {
+            const providerHint = activeProvider?.name ? ` for provider "${activeProvider.name}"` : '';
+            errorMessage = `Authentication failed${providerHint}. Please verify your API Key is correct and has not expired.\n\nOriginal error: ${rawMessage}`;
+          } else if (rawMessage.includes('403') || rawMessage.includes('Forbidden')) {
+            errorMessage = `Access denied. Your API Key may not have permission for this operation.\n\nOriginal error: ${rawMessage}`;
+          } else if (rawMessage.includes('429') || rawMessage.includes('rate limit') || rawMessage.includes('Rate limit')) {
+            errorMessage = `Rate limit exceeded. Please wait a moment before retrying.\n\nOriginal error: ${rawMessage}`;
+          }
+        }
+
         controller.enqueue(formatSSE({ type: 'error', data: errorMessage }));
         controller.enqueue(formatSSE({ type: 'done', data: '' }));
         controller.close();

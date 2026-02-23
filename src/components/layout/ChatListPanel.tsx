@@ -51,6 +51,7 @@ function formatRelativeTime(dateStr: string): string {
 }
 
 const COLLAPSED_PROJECTS_KEY = "codepilot:collapsed-projects";
+const COLLAPSED_INITIALIZED_KEY = "codepilot:collapsed-initialized";
 
 function loadCollapsedProjects(): Set<string> {
   if (typeof window === 'undefined') return new Set();
@@ -116,7 +117,7 @@ const MODE_BADGE_CONFIG = {
 export function ChatListPanel({ open, width }: ChatListPanelProps) {
   const pathname = usePathname();
   const router = useRouter();
-  const { streamingSessionId, pendingApprovalSessionId } = usePanel();
+  const { streamingSessionId, pendingApprovalSessionId, workingDirectory } = usePanel();
   const [sessions, setSessions] = useState<ChatSession[]>([]);
   const [hoveredSession, setHoveredSession] = useState<string | null>(null);
   const [deletingSession, setDeletingSession] = useState<string | null>(null);
@@ -130,9 +131,8 @@ export function ChatListPanel({ open, width }: ChatListPanelProps) {
   const [creatingChat, setCreatingChat] = useState(false);
 
   const handleNewChat = useCallback(async () => {
-    const lastDir = typeof window !== 'undefined'
-      ? localStorage.getItem("codepilot:last-working-directory")
-      : null;
+    const lastDir = workingDirectory
+      || (typeof window !== 'undefined' ? localStorage.getItem("codepilot:last-working-directory") : null);
 
     if (!lastDir) {
       // No saved directory — let user pick one
@@ -156,7 +156,7 @@ export function ChatListPanel({ open, width }: ChatListPanelProps) {
       const res = await fetch("/api/chat/sessions", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ working_directory: lastDir }),
+        body: JSON.stringify({ working_directory: lastDir, model: localStorage.getItem('codepilot:last-model') || '' }),
       });
       if (!res.ok) {
         // Backend rejected it (e.g. INVALID_DIRECTORY) — prompt user
@@ -172,7 +172,7 @@ export function ChatListPanel({ open, width }: ChatListPanelProps) {
     } finally {
       setCreatingChat(false);
     }
-  }, [router]);
+  }, [router, workingDirectory]);
 
   const toggleProject = useCallback((wd: string) => {
     setCollapsedProjects((prev) => {
@@ -294,6 +294,18 @@ export function ChatListPanel({ open, width }: ChatListPanelProps) {
     () => groupSessionsByProject(filteredSessions),
     [filteredSessions]
   );
+
+  // On first use, auto-collapse all project groups except the most recent one
+  useEffect(() => {
+    if (projectGroups.length <= 1) return;
+    if (localStorage.getItem(COLLAPSED_INITIALIZED_KEY)) return;
+    const toCollapse = new Set(
+      projectGroups.slice(1).map((g) => g.workingDirectory)
+    );
+    setCollapsedProjects(toCollapse);
+    saveCollapsedProjects(toCollapse);
+    localStorage.setItem(COLLAPSED_INITIALIZED_KEY, "1");
+  }, [projectGroups]);
 
   if (!open) return null;
 

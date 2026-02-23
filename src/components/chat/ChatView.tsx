@@ -38,7 +38,7 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
   const [toolResults, setToolResults] = useState<ToolResultInfo[]>([]);
   const [statusText, setStatusText] = useState<string | undefined>();
   const [mode, setMode] = useState(initialMode || 'code');
-  const [currentModel, setCurrentModel] = useState(modelName || 'sonnet');
+  const [currentModel, setCurrentModel] = useState(modelName || (typeof window !== 'undefined' ? localStorage.getItem('codepilot:last-model') : null) || 'sonnet');
   const [pendingPermission, setPendingPermission] = useState<PermissionRequestEvent | null>(null);
   const [permissionResolved, setPermissionResolved] = useState<'allow' | 'deny' | null>(null);
   const [streamingToolOutput, setStreamingToolOutput] = useState('');
@@ -235,6 +235,9 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
           onToolResult: (res) => {
             setStreamingToolOutput('');
             setToolResults((prev) => [...prev, res]);
+            // Refresh file tree after each tool completes — file writes,
+            // deletions, and other FS operations are done via tools.
+            window.dispatchEvent(new Event('refresh-file-tree'));
           },
           onToolOutput: (data) => {
             setStreamingToolOutput((prev) => {

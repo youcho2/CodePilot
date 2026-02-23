@@ -91,3 +91,117 @@ CodePilot — Claude Code 的桌面 GUI 客户端，基于 Electron + Next.js。
 - 构建前清理 `rm -rf release/ .next/` 可避免旧产物污染
 - 构建 Windows 包后需要 `npm rebuild better-sqlite3` 恢复本地开发环境
 - macOS 交叉编译 Windows 需要 Wine（Apple Silicon 上可能不可用），可用 zip 替代 NSIS
+
+## v0.11.0 Changelog
+
+### 核心修复：SDK settingSources 配置
+
+**问题**：CodePilot 通过 SDK 调用 Claude Code 时未设置 `settingSources`，导致 SDK 运行在隔离模式，不加载用户的 `~/.claude/settings.json` 和项目级 `.claude/settings.json`。这造成工具权限、超时配置、CLAUDE.md 项目记忆等全部缺失，是 WebFetch 超时、工具行为与 CLI 不一致等问题的根因。
+
+**修复**：在 `queryOptions` 中添加 `settingSources: ['project', 'local']`（有 Provider 时）或 `['user', 'project', 'local']`（无 Provider 时）。有 Provider 时跳过 `user` 是因为 `~/.claude/settings.json` 中的 `env` 字段（如 `ANTHROPIC_BASE_URL`）会覆盖 CodePilot Provider 的配置。
+
+**文件**：`src/lib/claude-client.ts`
+
+### 核心修复：CLAUDECODE 嵌套会话检测
+
+**问题**：当用户从 Claude Code CLI 内启动 CodePilot（开发模式或日常同时使用），子进程继承 `CLAUDECODE` 环境变量，SDK 检测到后拒绝启动，报错 "Claude Code cannot be launched inside another Claude Code session"。这是大量用户报告 "exited with code 1" 的重要原因之一。
+
+**修复**：在构建 SDK env 时 `delete sdkEnv.CLAUDECODE`。
+
+**文件**：`src/lib/claude-client.ts`
+
+### 移除手动 MCP 配置读取
+
+**原因**：之前 SDK 在隔离模式下不加载设置文件，所以 CodePilot 手动读取 `~/.claude.json` 和 `~/.claude/settings.json` 中的 `mcpServers`。现在 SDK 通过 `settingSources` 自动加载，手动读取会导致 MCP 服务器重复注册。
+
+**修复**：移除手动读取逻辑，只传递 CodePilot UI 中显式配置的 MCP 服务器。
+
+**文件**：`src/lib/claude-client.ts`
+
+### 移除硬编码超时环境变量
+
+**原因**：之前为解决工具超时问题，硬编码了 `API_TIMEOUT_MS=600000` 和 `CLAUDE_CODE_STREAM_CLOSE_TIMEOUT=600`。现在 SDK 从用户设置中正确加载这些配置，硬编码不再需要。
+
+**文件**：`src/lib/claude-client.ts`
+
+### 改善错误信息展示
+
+**问题**：Claude Code 进程报错时只显示原始 error.message，用户无法判断原因。
+
+**修复**：根据错误类型（ENOENT、exit code 1、ECONNREFUSED、401/403/429 等）提供具体的错误描述和排查建议，包含 Provider 名称。
+
+**文件**：`src/lib/claude-client.ts`
+
+### 切换项目时自动刷新右侧文件树
+
+**问题**：用户在左侧切换到不同项目的聊天时，右侧 FileTree 没有自动刷新。
+
+**修复**：在 `ChatSessionPage` 的 `loadSession` 中，`setWorkingDirectory` 后 dispatch `refresh-file-tree` 事件。
+
+**文件**：`src/app/chat/[id]/page.tsx`
+
+### 工具完成后实时刷新文件树
+
+**问题**：AI 写入新文件后，文件树要等整个对话结束才刷新，且可能因缓存不显示新文件。
+
+**修复**：在 `onToolResult` 回调中 dispatch `refresh-file-tree` 事件；fetch 请求添加 `_t=Date.now()` 防止缓存。
+
+**文件**：`src/components/chat/ChatView.tsx`、`src/components/project/FileTree.tsx`
+
+### 同项目新建聊天不再弹出目录选择
+
+**问题**：在某个项目的聊天页面点新建，即使当前已有 workingDirectory，仍弹出 FolderPicker。
+
+**修复**：`handleNewChat` 优先使用当前 `workingDirectory`（从 `usePanel` 获取），其次 localStorage，最后才弹 FolderPicker。
+
+**文件**：`src/components/layout/ChatListPanel.tsx`
+
+### 记住上次选择的模型
+
+**问题**：每次新建聊天模型都重置为 sonnet。
+
+**修复**：模型切换时保存到 `localStorage('codepilot:last-model')`；ChatView 初始化时从 localStorage 读取；新建 session 时传入 last-model。
+
+**文件**：`src/components/chat/MessageInput.tsx`、`src/components/chat/ChatView.tsx`、`src/components/layout/ChatListPanel.tsx`
+
+### 左侧项目文件夹默认收起
+
+**问题**：左侧 ChatListPanel 的项目文件夹默认全部展开，项目多时很乱。
+
+**修复**：首次使用时（通过 `codepilot:collapsed-initialized` 标记），自动折叠除最近活跃项目外的所有项目组。右侧 FileTree 的 `defaultExpanded` 改为空 Set。
+
+**文件**：`src/components/layout/ChatListPanel.tsx`、`src/components/project/FileTree.tsx`
+
+### 修复右侧文件树图标对齐
+
+**问题**：文件名和图标无法垂直对齐。
+
+**修复**：文件行的 spacer 从 `size-4` 改为 `size-5 shrink-0`，匹配文件夹 chevron 按钮的实际尺寸（size-4 icon + p-0.5 padding = 20px）。
+
+**文件**：`src/components/ai-elements/file-tree.tsx`
+
+### 动态模型列表 + Provider 切换通知
+
+**问题**：模型列表写死为 sonnet/opus/haiku 三个选项，切换 Provider 后模型名称不更新。
+
+**修复**：新增 `/api/providers/models` 端点，根据当前激活 Provider 返回对应模型列表；MessageInput 动态加载模型列表；ProviderManager 激活 Provider 后 dispatch `provider-changed` 事件触发刷新。
+
+**文件**：`src/app/api/providers/models/route.ts`（新增）、`src/components/chat/MessageInput.tsx`、`src/components/settings/ProviderManager.tsx`
+
+### 修复上下文按钮和文件类型匹配
+
+**问题**：右侧文件树的 "+" 按钮在某些状态下不起作用；扩展名格式的文件类型（如 `.ts`）无法正确匹配。
+
+**修复**：在 PromptInput 的文件类型匹配逻辑中添加对 `.` 开头扩展名模式的处理。
+
+**文件**：`src/components/ai-elements/prompt-input.tsx`
+
+### 工具超时时间调整
+
+**修复**：默认 toolTimeout 从 120s 调整为 300s。
+
+**文件**：`src/app/api/chat/route.ts`
+
+### 待实现功能
+
+- **Plan Mode 自动切换执行**：SDK 的 `Query` 接口支持 `setPermissionMode()`，可在 plan 完成后切换到 code mode 开始执行。需要新增前端→后端的通信通道（类似现有的 permission API），保存 `conversation` 引用，在 UI 上添加"开始执行"按钮。

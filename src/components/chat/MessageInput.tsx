@@ -116,61 +116,12 @@ const MODE_OPTIONS: ModeOption[] = [
   { value: 'ask', label: 'Ask', icon: HelpCircleIcon, description: 'Answer questions only' },
 ];
 
-// Default Claude model options — labels are dynamically overridden by active provider
+// Default Claude model options — used as fallback when API is unavailable
 const DEFAULT_MODEL_OPTIONS = [
   { value: 'sonnet', label: 'Sonnet 4.5' },
   { value: 'opus', label: 'Opus 4.6' },
   { value: 'haiku', label: 'Haiku 4.5' },
 ];
-
-// Provider-specific model label mappings (alias → display name)
-const PROVIDER_MODEL_LABELS: Record<string, Record<string, string>> = {
-  // GLM Coding Plan (Z.AI / 智谱)
-  'https://api.z.ai/api/anthropic': {
-    sonnet: 'GLM-4.7',
-    opus: 'GLM-4.7',
-    haiku: 'GLM-4.5-Air',
-  },
-  'https://open.bigmodel.cn/api/anthropic': {
-    sonnet: 'GLM-4.7',
-    opus: 'GLM-4.7',
-    haiku: 'GLM-4.5-Air',
-  },
-  // Kimi Coding Plan
-  'https://api.kimi.com/coding/': {
-    sonnet: 'Kimi K2.5',
-    opus: 'Kimi K2.5',
-    haiku: 'Kimi K2.5',
-  },
-  // Moonshot Open Platform
-  'https://api.moonshot.ai/anthropic': {
-    sonnet: 'Kimi K2.5',
-    opus: 'Kimi K2.5',
-    haiku: 'Kimi K2.5',
-  },
-  'https://api.moonshot.cn/anthropic': {
-    sonnet: 'Kimi K2.5',
-    opus: 'Kimi K2.5',
-    haiku: 'Kimi K2.5',
-  },
-  // MiniMax Coding Plan
-  'https://api.minimaxi.com/anthropic': {
-    sonnet: 'MiniMax-M2.1',
-    opus: 'MiniMax-M2.1',
-    haiku: 'MiniMax-M2.1',
-  },
-  'https://api.minimax.io/anthropic': {
-    sonnet: 'MiniMax-M2.1',
-    opus: 'MiniMax-M2.1',
-    haiku: 'MiniMax-M2.1',
-  },
-  // OpenRouter — keeps Claude names, provider handles routing
-  'https://openrouter.ai/api': {
-    sonnet: 'Sonnet 4.5',
-    opus: 'Opus 4.6',
-    haiku: 'Haiku 4.5',
-  },
-};
 
 /**
  * Convert a data URL to a FileAttachment object.
@@ -248,6 +199,44 @@ function AttachFileButton() {
 }
 
 /**
+ * Infer a MIME type from a filename extension so that files added from the
+ * file tree pass the PromptInput accept-type validation.  Code / text files
+ * are mapped to `text/*` subtypes; images and PDFs get their standard types.
+ * Falls back to `application/octet-stream` for unknown extensions.
+ */
+function mimeFromFilename(name: string): string {
+  const ext = name.split('.').pop()?.toLowerCase() || '';
+  const TEXT_EXTS: Record<string, string> = {
+    md: 'text/markdown', mdx: 'text/markdown',
+    txt: 'text/plain', csv: 'text/csv',
+    json: 'application/json',
+    ts: 'text/typescript', tsx: 'text/typescript',
+    js: 'text/javascript', jsx: 'text/javascript',
+    py: 'text/x-python', go: 'text/x-go', rs: 'text/x-rust',
+    rb: 'text/x-ruby', java: 'text/x-java', c: 'text/x-c',
+    cpp: 'text/x-c++', h: 'text/x-c', hpp: 'text/x-c++',
+    cs: 'text/x-csharp', swift: 'text/x-swift', kt: 'text/x-kotlin',
+    html: 'text/html', css: 'text/css', scss: 'text/css',
+    xml: 'text/xml', yaml: 'text/yaml', yml: 'text/yaml',
+    toml: 'text/plain', ini: 'text/plain', cfg: 'text/plain',
+    sh: 'text/x-shellscript', bash: 'text/x-shellscript', zsh: 'text/x-shellscript',
+    sql: 'text/x-sql', graphql: 'text/plain', gql: 'text/plain',
+    vue: 'text/plain', svelte: 'text/plain', astro: 'text/plain',
+    env: 'text/plain', gitignore: 'text/plain', dockerignore: 'text/plain',
+    dockerfile: 'text/plain', makefile: 'text/plain',
+    log: 'text/plain', lock: 'text/plain',
+  };
+  const IMAGE_EXTS: Record<string, string> = {
+    jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png',
+    gif: 'image/gif', webp: 'image/webp', svg: 'image/svg+xml',
+  };
+  if (TEXT_EXTS[ext]) return TEXT_EXTS[ext];
+  if (IMAGE_EXTS[ext]) return IMAGE_EXTS[ext];
+  if (ext === 'pdf') return 'application/pdf';
+  return 'application/octet-stream';
+}
+
+/**
  * Bridge component that listens for 'attach-file-to-chat' custom events
  * from the file tree and adds files as attachments. Must be rendered inside PromptInput.
  */
@@ -274,7 +263,10 @@ function FileTreeAttachmentBridge() {
         const blob = await res.blob();
         // Handle both Unix (/) and Windows (\) path separators
         const filename = filePath.split(/[/\\]/).pop() || 'file';
-        const file = new File([blob], filename, { type: blob.type || 'application/octet-stream' });
+        // Use a proper MIME type derived from the extension so the file
+        // passes PromptInput's accept-type validation (text/* etc.)
+        const mime = mimeFromFilename(filename);
+        const file = new File([blob], filename, { type: mime });
         attachmentsRef.current.add([file]);
       } catch (err) {
         console.warn('[FileTreeAttachment] Error attaching file:', filePath, err);
@@ -358,34 +350,36 @@ export function MessageInput({
   const [modelMenuOpen, setModelMenuOpen] = useState(false);
   const [inputValue, setInputValue] = useState('');
   const [badge, setBadge] = useState<CommandBadge | null>(null);
-  const [activeProviderBaseUrl, setActiveProviderBaseUrl] = useState<string | null>(null);
+  const [dynamicModels, setDynamicModels] = useState<{ value: string; label: string }[]>(DEFAULT_MODEL_OPTIONS);
   const [activeProviderName, setActiveProviderName] = useState<string | null>(null);
 
-  // Fetch active provider to adapt model labels
-  useEffect(() => {
-    fetch('/api/providers')
+  // Fetch models from API
+  const fetchModels = useCallback(() => {
+    fetch('/api/providers/models')
       .then((r) => r.json())
       .then((data) => {
-        const active = (data.providers || []).find((p: { is_active: number }) => p.is_active === 1);
-        if (active) {
-          setActiveProviderBaseUrl(active.base_url || null);
-          setActiveProviderName(active.name || null);
+        if (data.models && data.models.length > 0) {
+          setDynamicModels(data.models);
         } else {
-          setActiveProviderBaseUrl(null);
-          setActiveProviderName(null);
+          setDynamicModels(DEFAULT_MODEL_OPTIONS);
         }
+        setActiveProviderName(data.provider_name || null);
       })
-      .catch(() => {});
+      .catch(() => {
+        setDynamicModels(DEFAULT_MODEL_OPTIONS);
+        setActiveProviderName(null);
+      });
   }, []);
 
-  // Compute model options based on active provider
-  const MODEL_OPTIONS = DEFAULT_MODEL_OPTIONS.map((opt) => {
-    if (activeProviderBaseUrl && PROVIDER_MODEL_LABELS[activeProviderBaseUrl]) {
-      const label = PROVIDER_MODEL_LABELS[activeProviderBaseUrl][opt.value];
-      if (label) return { ...opt, label };
-    }
-    return opt;
-  });
+  // Load models on mount and listen for provider changes
+  useEffect(() => {
+    fetchModels();
+    const handler = () => fetchModels();
+    window.addEventListener('provider-changed', handler);
+    return () => window.removeEventListener('provider-changed', handler);
+  }, [fetchModels]);
+
+  const MODEL_OPTIONS = dynamicModels;
 
   // Fetch files for @ mention
   const fetchFiles = useCallback(async (filter: string) => {
@@ -960,11 +954,19 @@ export function MessageInput({
                     onClick={() => setModelMenuOpen((prev) => !prev)}
                   >
                     <span className="text-xs font-mono">{currentModelOption.label}</span>
+                    {activeProviderName && activeProviderName !== 'Anthropic' && (
+                      <span className="text-[9px] text-muted-foreground">{activeProviderName}</span>
+                    )}
                     <HugeiconsIcon icon={ArrowDown01Icon} className={cn("h-2.5 w-2.5 transition-transform duration-200", modelMenuOpen && "rotate-180")} />
                   </PromptInputButton>
 
                   {modelMenuOpen && (
                     <div className="absolute bottom-full left-0 mb-1.5 w-48 rounded-lg border bg-popover shadow-lg overflow-hidden z-50">
+                      {activeProviderName && (
+                        <div className="px-3 py-1.5 text-[10px] text-muted-foreground border-b">
+                          {activeProviderName}
+                        </div>
+                      )}
                       <div className="py-1">
                         {MODEL_OPTIONS.map((opt) => {
                           const isActive = opt.value === currentModelValue;
@@ -977,6 +979,7 @@ export function MessageInput({
                               )}
                               onClick={() => {
                                 onModelChange?.(opt.value);
+                                localStorage.setItem('codepilot:last-model', opt.value);
                                 setModelMenuOpen(false);
                               }}
                             >

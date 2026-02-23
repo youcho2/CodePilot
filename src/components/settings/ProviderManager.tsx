@@ -164,6 +164,7 @@ export function ProviderManager() {
             is_active: p.id === provider.id ? 1 : 0,
           }))
         );
+        window.dispatchEvent(new Event('provider-changed'));
       }
     } catch {
       // ignore
@@ -184,6 +185,7 @@ export function ProviderManager() {
         setProviders((prev) =>
           prev.map((p) => ({ ...p, is_active: 0 }))
         );
+        window.dispatchEvent(new Event('provider-changed'));
       }
     } catch {
       // ignore
