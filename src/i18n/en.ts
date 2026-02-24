@@ -80,6 +80,21 @@ const en = {
   'settings.enableAutoApprove': 'Enable Auto-approve',
   'settings.language': 'Language',
   'settings.languageDesc': 'Choose the display language for the interface',
+  'settings.usage': 'Usage',
+
+  // ── Settings: Usage Stats ───────────────────────────────────
+  'usage.totalTokens': 'Total Tokens',
+  'usage.totalCost': 'Total Cost',
+  'usage.sessions': 'Sessions',
+  'usage.cacheHitRate': 'Cache Hit Rate',
+  'usage.input': 'In',
+  'usage.output': 'Out',
+  'usage.cached': 'cached',
+  'usage.dailyChart': 'Daily Token Usage',
+  'usage.loading': 'Loading...',
+  'usage.loadError': 'Failed to load usage stats',
+  'usage.noData': 'No usage data yet',
+  'usage.noDataHint': 'Start a conversation to see statistics here.',
 
   // ── Settings: CLI ───────────────────────────────────────────
   'cli.permissions': 'Permissions',

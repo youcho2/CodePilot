@@ -1,21 +1,22 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useCallback, useSyncExternalStore } from "react";
 import { HugeiconsIcon } from "@hugeicons/react";
 import type { IconSvgElement } from "@hugeicons/react";
 import {
   Settings02Icon,
   CodeIcon,
 } from "@hugeicons/core-free-icons";
-import { Plug01Icon } from "@hugeicons/core-free-icons";
+import { Plug01Icon, Analytics02Icon } from "@hugeicons/core-free-icons";
 import { cn } from "@/lib/utils";
 import { GeneralSection } from "./GeneralSection";
 import { ProviderManager } from "./ProviderManager";
 import { CliSettingsSection } from "./CliSettingsSection";
+import { UsageStatsSection } from "./UsageStatsSection";
 import { useTranslation } from "@/hooks/useTranslation";
 import type { TranslationKey } from "@/i18n";
 
-type Section = "general" | "providers" | "cli";
+type Section = "general" | "providers" | "cli" | "usage";
 
 interface SidebarItem {
   id: Section;
@@ -27,44 +28,47 @@ const sidebarItems: SidebarItem[] = [
   { id: "general", label: "General", icon: Settings02Icon },
   { id: "providers", label: "Providers", icon: Plug01Icon },
   { id: "cli", label: "Claude CLI", icon: CodeIcon },
+  { id: "usage", label: "Usage", icon: Analytics02Icon },
 ];
 
-function getInitialSection(): Section {
-  if (typeof window !== "undefined") {
-    const hash = window.location.hash.replace("#", "");
-    if (sidebarItems.some((item) => item.id === hash)) {
-      return hash as Section;
-    }
+function getSectionFromHash(): Section {
+  if (typeof window === "undefined") return "general";
+  const hash = window.location.hash.replace("#", "");
+  if (sidebarItems.some((item) => item.id === hash)) {
+    return hash as Section;
   }
   return "general";
 }
 
+function subscribeToHash(callback: () => void) {
+  window.addEventListener("hashchange", callback);
+  return () => window.removeEventListener("hashchange", callback);
+}
+
 export function SettingsLayout() {
-  const [activeSection, setActiveSection] = useState<Section>(getInitialSection);
+  // useSyncExternalStore subscribes to hash changes without triggering
+  // the react-hooks/set-state-in-effect lint rule.
+  const hashSection = useSyncExternalStore(subscribeToHash, getSectionFromHash, () => "general" as Section);
+
+  // Local state allows immediate UI update on click before the hash updates.
+  const [overrideSection, setOverrideSection] = useState<Section | null>(null);
+  const activeSection = overrideSection ?? hashSection;
+
   const { t } = useTranslation();
 
   const settingsLabelKeys: Record<string, TranslationKey> = {
     'General': 'settings.general',
     'Providers': 'settings.providers',
     'Claude CLI': 'settings.claudeCli',
+    'Usage': 'settings.usage',
   };
 
-  // Sync hash on mount and on popstate
-  useEffect(() => {
-    const onHashChange = () => {
-      const hash = window.location.hash.replace("#", "");
-      if (sidebarItems.some((item) => item.id === hash)) {
-        setActiveSection(hash as Section);
-      }
-    };
-    window.addEventListener("hashchange", onHashChange);
-    return () => window.removeEventListener("hashchange", onHashChange);
-  }, []);
-
-  const handleSectionChange = (section: Section) => {
-    setActiveSection(section);
+  const handleSectionChange = useCallback((section: Section) => {
+    setOverrideSection(section);
     window.history.replaceState(null, "", `/settings#${section}`);
-  };
+    // Clear override so subsequent hash changes take effect
+    queueMicrotask(() => setOverrideSection(null));
+  }, []);
 
   return (
     <div className="flex h-full flex-col">
@@ -100,6 +104,7 @@ export function SettingsLayout() {
           {activeSection === "general" && <GeneralSection />}
           {activeSection === "providers" && <ProviderManager />}
           {activeSection === "cli" && <CliSettingsSection />}
+          {activeSection === "usage" && <UsageStatsSection />}
         </div>
       </div>
     </div>

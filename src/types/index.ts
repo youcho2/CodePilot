@@ -15,6 +15,7 @@ export interface ChatSession {
   status: 'active' | 'archived';
   mode?: 'code' | 'plan' | 'ask';
   needs_approval?: boolean;
+  provider_name: string;
 }
 
 // ==========================================

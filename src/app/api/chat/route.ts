@@ -1,6 +1,6 @@
 import { NextRequest } from 'next/server';
 import { streamClaude } from '@/lib/claude-client';
-import { addMessage, getSession, updateSessionTitle, updateSdkSessionId, getSetting } from '@/lib/db';
+import { addMessage, getSession, updateSessionTitle, updateSdkSessionId, updateSessionModel, updateSessionProvider, getSetting, getActiveProvider } from '@/lib/db';
 import type { SendMessageRequest, SSEEvent, TokenUsage, MessageContentBlock, FileAttachment } from '@/types';
 import fs from 'fs';
 import path from 'path';
@@ -56,6 +56,17 @@ export async function POST(request: NextRequest) {
 
     // Determine model: request override > session model > default setting
     const effectiveModel = model || session.model || getSetting('default_model') || undefined;
+
+    // Persist model and provider to session so usage stats can group by model+provider.
+    // This runs on every message but the DB writes are cheap (single UPDATE by PK).
+    if (effectiveModel && effectiveModel !== session.model) {
+      updateSessionModel(session_id, effectiveModel);
+    }
+    const activeProvider = getActiveProvider();
+    const providerName = activeProvider?.name || '';
+    if (providerName !== (session.provider_name || '')) {
+      updateSessionProvider(session_id, providerName);
+    }
 
     // Determine permission mode from chat mode: code → acceptEdits, plan → plan, ask → default (no tools)
     const effectiveMode = mode || session.mode || 'code';
@@ -185,11 +196,14 @@ async function collectStreamResponse(stream: ReadableStream<string>, sessionId: 
                 // skip malformed tool_result data
               }
             } else if (event.type === 'status') {
-              // Capture SDK session_id from init event and persist it
+              // Capture SDK session_id and model from init event and persist them
               try {
                 const statusData = JSON.parse(event.data);
                 if (statusData.session_id) {
                   updateSdkSessionId(sessionId, statusData.session_id);
+                }
+                if (statusData.model) {
+                  updateSessionModel(sessionId, statusData.model);
                 }
               } catch {
                 // skip malformed status data

@@ -77,6 +77,21 @@ const zh: Record<TranslationKey, string> = {
   'settings.enableAutoApprove': '启用自动批准',
   'settings.language': '语言',
   'settings.languageDesc': '选择界面显示语言',
+  'settings.usage': '用量统计',
+
+  // ── Settings: Usage Stats ───────────────────────────────────
+  'usage.totalTokens': '总 Token',
+  'usage.totalCost': '总费用',
+  'usage.sessions': '会话数',
+  'usage.cacheHitRate': '缓存命中率',
+  'usage.input': '输入',
+  'usage.output': '输出',
+  'usage.cached': '已缓存',
+  'usage.dailyChart': '每日 Token 用量',
+  'usage.loading': '加载中...',
+  'usage.loadError': '加载用量数据失败',
+  'usage.noData': '暂无用量数据',
+  'usage.noDataHint': '开始对话后即可在此查看统计信息。',
 
   // ── Settings: CLI ───────────────────────────────────────────
   'cli.permissions': '权限',
