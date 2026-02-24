@@ -533,10 +533,40 @@ export function streamClaude(options: ClaudeStreamOptions): ReadableStream<strin
           }
         }
 
-        const conversation = query({
+        // Try to start the conversation. If resuming a previous session fails
+        // (e.g. stale/corrupt session file, CLI version mismatch), automatically
+        // fall back to starting a fresh conversation without resume.
+        let conversation = query({
           prompt: finalPrompt,
           options: queryOptions,
         });
+
+        // Wrap the iterator so we can detect resume failures on the first message
+        if (sdkSessionId) {
+          try {
+            // Peek at the first message to verify resume works
+            const iter = conversation[Symbol.asyncIterator]();
+            const first = await iter.next();
+
+            // Re-wrap into an async iterable that yields the first message then the rest
+            conversation = (async function* () {
+              if (!first.done) yield first.value;
+              while (true) {
+                const next = await iter.next();
+                if (next.done) break;
+                yield next.value;
+              }
+            })() as ReturnType<typeof query>;
+          } catch (resumeError) {
+            console.warn('[claude-client] Resume failed, retrying without resume:', resumeError instanceof Error ? resumeError.message : resumeError);
+            // Remove resume and try again as a fresh conversation
+            delete queryOptions.resume;
+            conversation = query({
+              prompt: finalPrompt,
+              options: queryOptions,
+            });
+          }
+        }
 
         registerConversation(sessionId, conversation);
 
