@@ -19,7 +19,7 @@ import type { ClaudeStreamOptions, SSEEvent, TokenUsage, MCPServerConfig, Permis
 import { isImageFile } from '@/types';
 import { registerPendingPermission } from './permission-registry';
 import { registerConversation, unregisterConversation } from './conversation-registry';
-import { getSetting, getActiveProvider } from './db';
+import { getSetting, getActiveProvider, updateSdkSessionId } from './db';
 import { findClaudeBinary, findGitBash, getExpandedPath } from './platform';
 import os from 'os';
 import fs from 'fs';
@@ -747,6 +747,19 @@ export function streamClaude(options: ClaudeStreamOptions): ReadableStream<strin
 
         controller.enqueue(formatSSE({ type: 'error', data: errorMessage }));
         controller.enqueue(formatSSE({ type: 'done', data: '' }));
+
+        // If we were resuming a session and it crashed mid-stream, clear the
+        // stale sdk_session_id so the next message starts a fresh SDK session
+        // instead of repeatedly hitting the same broken resume.
+        if (sdkSessionId && sessionId) {
+          try {
+            updateSdkSessionId(sessionId, '');
+            console.warn('[claude-client] Cleared stale sdk_session_id for session', sessionId);
+          } catch {
+            // best effort
+          }
+        }
+
         controller.close();
       } finally {
         unregisterConversation(sessionId);
