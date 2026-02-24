@@ -11,6 +11,7 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { useTranslation } from "@/hooks/useTranslation";
 import { InstallWizard } from "@/components/layout/InstallWizard";
 
 interface ClaudeStatus {
@@ -23,6 +24,7 @@ const BACKED_OFF_INTERVAL = 60_000; // 60s after 3 consecutive stable results
 const STABLE_THRESHOLD = 3;
 
 export function ConnectionStatus() {
+  const { t } = useTranslation();
   const [status, setStatus] = useState<ClaudeStatus | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [wizardOpen, setWizardOpen] = useState(false);
@@ -150,7 +152,7 @@ export function ConnectionStatus() {
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle>
-              {connected ? "Claude Code Connected" : "Claude Code Not Connected"}
+              {connected ? t('connection.installed') : t('connection.notInstalled')}
             </DialogTitle>
             <DialogDescription>
               {connected
@@ -165,7 +167,7 @@ export function ConnectionStatus() {
                 <span className="block h-2.5 w-2.5 shrink-0 rounded-full bg-emerald-500" />
                 <div>
                   <p className="font-medium text-emerald-700 dark:text-emerald-400">Active</p>
-                  <p className="text-xs text-muted-foreground">Version {status?.version}</p>
+                  <p className="text-xs text-muted-foreground">{t('connection.version', { version: status?.version ?? '' })}</p>
                 </div>
               </div>
             </div>
@@ -177,7 +179,7 @@ export function ConnectionStatus() {
               </div>
 
               <div>
-                <h4 className="font-medium mb-1.5">1. Install Claude Code</h4>
+                <h4 className="font-medium mb-1.5">1. {t('connection.installClaude')}</h4>
                 <code className="block rounded-md bg-muted px-3 py-2 text-xs">
                   npm install -g @anthropic-ai/claude-code
                 </code>
@@ -206,7 +208,7 @@ export function ConnectionStatus() {
                     }}
                     className="w-full"
                   >
-                    Install Claude Code Automatically
+                    {t('connection.installAuto')}
                   </Button>
                 </div>
               )}
@@ -218,7 +220,7 @@ export function ConnectionStatus() {
               variant="outline"
               onClick={handleManualRefresh}
             >
-              Refresh
+              {t('connection.refresh')}
             </Button>
           </DialogFooter>
         </DialogContent>

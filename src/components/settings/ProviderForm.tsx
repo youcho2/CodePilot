@@ -23,6 +23,7 @@ import {
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Loading02Icon, ArrowDown01Icon, ArrowUp01Icon } from "@hugeicons/core-free-icons";
 import type { ApiProvider } from "@/types";
+import { useTranslation } from "@/hooks/useTranslation";
 
 const PROVIDER_PRESETS: Record<string, { base_url: string; extra_env: string }> = {
   anthropic: { base_url: "https://api.anthropic.com", extra_env: "{}" },
@@ -75,6 +76,7 @@ export function ProviderForm({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showAdvanced, setShowAdvanced] = useState(false);
+  const { t } = useTranslation();
 
   // Reset form when dialog opens
   useEffect(() => {
@@ -178,7 +180,7 @@ export function ProviderForm({
       <DialogContent className="max-w-[28rem] overflow-hidden">
         <DialogHeader>
           <DialogTitle>
-            {mode === "edit" ? "Edit Provider" : "Add Provider"}
+            {mode === "edit" ? t('provider.editProvider') : t('provider.addProvider')}
           </DialogTitle>
           <DialogDescription>
             {mode === "edit"
@@ -190,7 +192,7 @@ export function ProviderForm({
         <form onSubmit={handleSubmit} className="space-y-4 min-w-0">
           <div className="space-y-2">
             <Label htmlFor="provider-name" className="text-xs text-muted-foreground">
-              Name
+              {t('provider.name')}
             </Label>
             <Input
               id="provider-name"
@@ -203,7 +205,7 @@ export function ProviderForm({
 
           <div className="space-y-2">
             <Label htmlFor="provider-type" className="text-xs text-muted-foreground">
-              Provider Type
+              {t('provider.providerType')}
             </Label>
             <Select value={providerType} onValueChange={handleTypeChange}>
               <SelectTrigger className="w-full text-sm">
@@ -221,7 +223,7 @@ export function ProviderForm({
 
           <div className="space-y-2">
             <Label htmlFor="provider-base-url" className="text-xs text-muted-foreground">
-              API Base URL
+              {t('provider.baseUrl')}
             </Label>
             <Input
               id="provider-base-url"
@@ -234,7 +236,7 @@ export function ProviderForm({
 
           <div className="space-y-2">
             <Label htmlFor="provider-api-key" className="text-xs text-muted-foreground">
-              API Key
+              {t('provider.apiKey')}
             </Label>
             <Input
               id="provider-api-key"
@@ -256,14 +258,14 @@ export function ProviderForm({
               icon={showAdvanced ? ArrowUp01Icon : ArrowDown01Icon}
               className="h-3 w-3"
             />
-            Advanced Options
+            {t('provider.advancedOptions')}
           </button>
 
           {showAdvanced && (
             <div className="space-y-4 border-t border-border/50 pt-4">
               <div className="space-y-2">
                 <Label htmlFor="provider-extra-env" className="text-xs text-muted-foreground">
-                  Extra Environment Variables (JSON)
+                  {t('provider.extraEnvVars')} (JSON)
                 </Label>
                 <Textarea
                   id="provider-extra-env"
@@ -277,11 +279,11 @@ export function ProviderForm({
 
               <div className="space-y-2">
                 <Label htmlFor="provider-notes" className="text-xs text-muted-foreground">
-                  Notes
+                  {t('provider.notes')}
                 </Label>
                 <Textarea
                   id="provider-notes"
-                  placeholder="Optional notes about this provider..."
+                  placeholder={t('provider.notesPlaceholder')}
                   value={notes}
                   onChange={(e) => setNotes(e.target.value)}
                   className="text-sm"
@@ -302,13 +304,13 @@ export function ProviderForm({
               onClick={() => onOpenChange(false)}
               disabled={saving}
             >
-              Cancel
+              {t('common.cancel')}
             </Button>
             <Button type="submit" disabled={saving} className="gap-2">
               {saving && (
                 <HugeiconsIcon icon={Loading02Icon} className="h-4 w-4 animate-spin" />
               )}
-              {saving ? "Saving..." : mode === "edit" ? "Update" : "Add Provider"}
+              {saving ? t('provider.saving') : mode === "edit" ? t('provider.update') : t('provider.addProvider')}
             </Button>
           </DialogFooter>
         </form>

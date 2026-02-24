@@ -23,6 +23,7 @@ import {
 import { cn } from "@/lib/utils";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { useTranslation } from "@/hooks/useTranslation";
 import type { SkillItem } from "./SkillListItem";
 
 type ViewMode = "edit" | "preview" | "split";
@@ -34,6 +35,7 @@ interface SkillEditorProps {
 }
 
 export function SkillEditor({ skill, onSave, onDelete }: SkillEditorProps) {
+  const { t } = useTranslation();
   const [content, setContent] = useState(skill.content);
   const [viewMode, setViewMode] = useState<ViewMode>("edit");
   const [saving, setSaving] = useState(false);
@@ -153,7 +155,7 @@ export function SkillEditor({ skill, onSave, onDelete }: SkillEditorProps) {
                 <HugeiconsIcon icon={Edit02Icon} className="h-3 w-3" />
               </Button>
             </TooltipTrigger>
-            <TooltipContent>Edit</TooltipContent>
+            <TooltipContent>{t('skills.edit')}</TooltipContent>
           </Tooltip>
           <Tooltip>
             <TooltipTrigger asChild>
@@ -165,7 +167,7 @@ export function SkillEditor({ skill, onSave, onDelete }: SkillEditorProps) {
                 <HugeiconsIcon icon={EyeIcon} className="h-3 w-3" />
               </Button>
             </TooltipTrigger>
-            <TooltipContent>Preview</TooltipContent>
+            <TooltipContent>{t('skills.preview')}</TooltipContent>
           </Tooltip>
           <Tooltip>
             <TooltipTrigger asChild>
@@ -177,7 +179,7 @@ export function SkillEditor({ skill, onSave, onDelete }: SkillEditorProps) {
                 <HugeiconsIcon icon={LayoutTwoColumnIcon} className="h-3 w-3" />
               </Button>
             </TooltipTrigger>
-            <TooltipContent>Split</TooltipContent>
+            <TooltipContent>{t('skills.splitView')}</TooltipContent>
           </Tooltip>
 
           <div className="w-px h-4 bg-border mx-1" />
@@ -194,7 +196,7 @@ export function SkillEditor({ skill, onSave, onDelete }: SkillEditorProps) {
             ) : (
               <HugeiconsIcon icon={FloppyDiskIcon} className="h-3 w-3" />
             )}
-            {saving ? "Saving" : saved ? "Saved" : "Save"}
+            {saving ? "Saving" : saved ? t('skills.saved') : t('skills.save')}
           </Button>
 
           {/* Delete */}
@@ -217,7 +219,7 @@ export function SkillEditor({ skill, onSave, onDelete }: SkillEditorProps) {
             onChange={(e) => setContent(e.target.value)}
             onKeyDown={handleKeyDown}
             className="h-full w-full resize-none rounded-none border-0 font-mono text-sm focus-visible:ring-0 focus-visible:ring-offset-0 min-h-[400px]"
-            placeholder="Write your skill prompt in Markdown..."
+            placeholder={t('skills.placeholder')}
           />
         )}
         {viewMode === "preview" && (
@@ -231,7 +233,7 @@ export function SkillEditor({ skill, onSave, onDelete }: SkillEditorProps) {
                 onChange={(e) => setContent(e.target.value)}
                 onKeyDown={handleKeyDown}
                 className="h-full w-full resize-none rounded-none border-0 font-mono text-sm focus-visible:ring-0 focus-visible:ring-offset-0"
-                placeholder="Write your skill prompt in Markdown..."
+                placeholder={t('skills.placeholder')}
               />
             </div>
             <div className="flex-1 min-w-0 overflow-auto">

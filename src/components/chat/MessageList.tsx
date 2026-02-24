@@ -1,6 +1,7 @@
 'use client';
 
 import { useRef, useEffect } from 'react';
+import { useTranslation } from '@/hooks/useTranslation';
 import type { Message, PermissionRequestEvent } from '@/types';
 import {
   Conversation,
@@ -57,6 +58,7 @@ export function MessageList({
   loadingMore,
   onLoadMore,
 }: MessageListProps) {
+  const { t } = useTranslation();
   // Scroll anchor: preserve position when older messages are prepended
   const anchorIdRef = useRef<string | null>(null);
   const prevMessageCountRef = useRef(messages.length);
@@ -86,7 +88,7 @@ export function MessageList({
       <div className="flex flex-1 items-center justify-center">
         <ConversationEmptyState
           title="Claude Chat"
-          description="Start a conversation with Claude. Ask questions, get help with code, or explore ideas."
+          description={t('messageList.emptyDescription')}
           icon={<CodePilotLogo className="h-16 w-16" />}
         />
       </div>
@@ -103,7 +105,7 @@ export function MessageList({
               disabled={loadingMore}
               className="text-sm text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
             >
-              {loadingMore ? 'Loading...' : 'Load earlier messages'}
+              {loadingMore ? t('messageList.loading') : t('messageList.loadEarlier')}
             </button>
           </div>
         )}

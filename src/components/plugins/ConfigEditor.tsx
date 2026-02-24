@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { Textarea } from '@/components/ui/textarea';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
+import { useTranslation } from '@/hooks/useTranslation';
 
 interface ConfigEditorProps {
   value: string;
@@ -12,6 +13,7 @@ interface ConfigEditorProps {
 }
 
 export function ConfigEditor({ value, onSave, label }: ConfigEditorProps) {
+  const { t } = useTranslation();
   const [text, setText] = useState(value);
   const [error, setError] = useState<string | null>(null);
 
@@ -52,7 +54,7 @@ export function ConfigEditor({ value, onSave, label }: ConfigEditorProps) {
       {error && <p className="text-xs text-destructive">{error}</p>}
       <div className="flex gap-2">
         <Button size="sm" onClick={handleSave}>
-          Save
+          {t('common.save')}
         </Button>
         <Button size="sm" variant="outline" onClick={handleFormat}>
           Format

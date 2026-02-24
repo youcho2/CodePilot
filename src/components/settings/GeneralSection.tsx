@@ -16,17 +16,21 @@ import {
 import { HugeiconsIcon } from "@hugeicons/react";
 import { ReloadIcon, Loading02Icon } from "@hugeicons/core-free-icons";
 import { useUpdate } from "@/hooks/useUpdate";
+import { useTranslation } from "@/hooks/useTranslation";
+import { SUPPORTED_LOCALES, type Locale } from "@/i18n";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 function UpdateCard() {
   const { updateInfo, checking, checkForUpdates } = useUpdate();
+  const { t } = useTranslation();
   const currentVersion = process.env.NEXT_PUBLIC_APP_VERSION || "0.0.0";
 
   return (
     <div className="rounded-lg border border-border/50 p-4 transition-shadow hover:shadow-sm">
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-sm font-medium">CodePilot</h2>
-          <p className="text-xs text-muted-foreground">Version {currentVersion}</p>
+          <h2 className="text-sm font-medium">{t('settings.codepilot')}</h2>
+          <p className="text-xs text-muted-foreground">{t('settings.version', { version: currentVersion })}</p>
         </div>
         <Button
           variant="outline"
@@ -40,7 +44,7 @@ function UpdateCard() {
           ) : (
             <HugeiconsIcon icon={ReloadIcon} className="h-3.5 w-3.5" />
           )}
-          {checking ? "Checking..." : "Check for Updates"}
+          {checking ? t('settings.checking') : t('settings.checkForUpdates')}
         </Button>
       </div>
 
@@ -50,7 +54,7 @@ function UpdateCard() {
             <div className="flex items-center gap-2">
               <span className="h-2 w-2 rounded-full bg-blue-500" />
               <span className="text-sm">
-                Update available: <span className="font-medium">v{updateInfo.latestVersion}</span>
+                {t('settings.updateAvailable', { version: updateInfo.latestVersion })}
               </span>
               <Button
                 variant="link"
@@ -58,11 +62,11 @@ function UpdateCard() {
                 className="h-auto p-0 text-sm"
                 onClick={() => window.open(updateInfo.releaseUrl, "_blank")}
               >
-                View Release
+                {t('settings.viewRelease')}
               </Button>
             </div>
           ) : (
-            <p className="text-sm text-muted-foreground">You&apos;re on the latest version.</p>
+            <p className="text-sm text-muted-foreground">{t('settings.latestVersion')}</p>
           )}
         </div>
       )}
@@ -74,6 +78,7 @@ export function GeneralSection() {
   const [skipPermissions, setSkipPermissions] = useState(false);
   const [showSkipPermWarning, setShowSkipPermWarning] = useState(false);
   const [skipPermSaving, setSkipPermSaving] = useState(false);
+  const { t, locale, setLocale } = useTranslation();
 
   const fetchAppSettings = useCallback(async () => {
     try {
@@ -129,10 +134,9 @@ export function GeneralSection() {
       <div className={`rounded-lg border p-4 transition-shadow hover:shadow-sm ${skipPermissions ? "border-orange-500/50 bg-orange-500/5" : "border-border/50"}`}>
         <div className="flex items-center justify-between">
           <div>
-            <h2 className="text-sm font-medium">Auto-approve All Actions</h2>
+            <h2 className="text-sm font-medium">{t('settings.autoApproveTitle')}</h2>
             <p className="text-xs text-muted-foreground">
-              Skip all permission checks and auto-approve every tool action.
-              This is dangerous and should only be used for trusted tasks.
+              {t('settings.autoApproveDesc')}
             </p>
           </div>
           <Switch
@@ -144,42 +148,59 @@ export function GeneralSection() {
         {skipPermissions && (
           <div className="mt-3 flex items-center gap-2 rounded-md bg-orange-500/10 px-3 py-2 text-xs text-orange-600 dark:text-orange-400">
             <span className="h-2 w-2 shrink-0 rounded-full bg-orange-500" />
-            All tool actions will be auto-approved without confirmation. Use with caution.
+            {t('settings.autoApproveWarning')}
           </div>
         )}
+      </div>
+
+      {/* Language picker */}
+      <div className="rounded-lg border border-border/50 p-4 transition-shadow hover:shadow-sm">
+        <div className="flex items-center justify-between">
+          <div>
+            <h2 className="text-sm font-medium">{t('settings.language')}</h2>
+            <p className="text-xs text-muted-foreground">{t('settings.languageDesc')}</p>
+          </div>
+          <Select value={locale} onValueChange={(v) => setLocale(v as Locale)}>
+            <SelectTrigger className="w-[140px]">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {SUPPORTED_LOCALES.map((l) => (
+                <SelectItem key={l.value} value={l.value}>{l.label}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
       </div>
 
       {/* Skip-permissions warning dialog */}
       <AlertDialog open={showSkipPermWarning} onOpenChange={setShowSkipPermWarning}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Enable Auto-approve All Actions?</AlertDialogTitle>
+            <AlertDialogTitle>{t('settings.autoApproveDialogTitle')}</AlertDialogTitle>
             <AlertDialogDescription asChild>
               <div className="space-y-2">
                 <p>
-                  This will bypass all permission checks. Claude will be able to
-                  execute any tool action without asking for your confirmation,
-                  including:
+                  {t('settings.autoApproveDialogDesc')}
                 </p>
                 <ul className="list-disc pl-5 space-y-1">
-                  <li>Running arbitrary shell commands</li>
-                  <li>Reading, writing, and deleting files</li>
-                  <li>Making network requests</li>
+                  <li>{t('settings.autoApproveShellCommands')}</li>
+                  <li>{t('settings.autoApproveFileOps')}</li>
+                  <li>{t('settings.autoApproveNetwork')}</li>
                 </ul>
                 <p className="font-medium text-orange-600 dark:text-orange-400">
-                  Only enable this if you fully trust the task at hand. This
-                  setting applies to all new chat sessions.
+                  {t('settings.autoApproveTrustWarning')}
                 </p>
               </div>
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogCancel>{t('settings.cancel')}</AlertDialogCancel>
             <AlertDialogAction
               onClick={() => saveSkipPermissions(true)}
               className="bg-orange-600 hover:bg-orange-700 text-white"
             >
-              Enable Auto-approve
+              {t('settings.enableAutoApprove')}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

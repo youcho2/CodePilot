@@ -14,6 +14,7 @@ import { code } from "@streamdown/code";
 import { math } from "@streamdown/math";
 import { mermaid } from "@streamdown/mermaid";
 import { usePanel } from "@/hooks/usePanel";
+import { useTranslation } from "@/hooks/useTranslation";
 import type { FilePreview as FilePreviewType } from "@/types";
 
 const streamdownPlugins = { cjk, code, math, mermaid };
@@ -252,13 +253,14 @@ function RenderedView({
   content: string;
   filePath: string;
 }) {
+  const { t } = useTranslation();
   if (isHtml(filePath)) {
     return (
       <iframe
         srcDoc={content}
         sandbox=""
         className="h-full w-full border-0"
-        title="HTML Preview"
+        title={t('docPreview.htmlPreview')}
       />
     );
   }

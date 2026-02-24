@@ -25,6 +25,7 @@ import {
 } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { usePanel } from "@/hooks/usePanel";
+import { useTranslation } from "@/hooks/useTranslation";
 import { ConnectionStatus } from "./ConnectionStatus";
 import { ImportSessionDialog } from "./ImportSessionDialog";
 import { FolderPicker } from "@/components/chat/FolderPicker";
@@ -35,7 +36,7 @@ interface ChatListPanelProps {
   width?: number;
 }
 
-function formatRelativeTime(dateStr: string): string {
+function formatRelativeTime(dateStr: string, t: (key: import('@/i18n').TranslationKey, params?: Record<string, string | number>) => string): string {
   const date = new Date(dateStr.includes("T") ? dateStr : dateStr + "Z");
   const now = new Date();
   const diffMs = now.getTime() - date.getTime();
@@ -43,10 +44,10 @@ function formatRelativeTime(dateStr: string): string {
   const diffHr = Math.floor(diffMin / 60);
   const diffDay = Math.floor(diffHr / 24);
 
-  if (diffMin < 1) return "just now";
-  if (diffMin < 60) return `${diffMin}m`;
-  if (diffHr < 24) return `${diffHr}h`;
-  if (diffDay < 7) return `${diffDay}d`;
+  if (diffMin < 1) return t('chatList.justNow');
+  if (diffMin < 60) return t('chatList.minutesAgo', { n: diffMin });
+  if (diffHr < 24) return t('chatList.hoursAgo', { n: diffHr });
+  if (diffDay < 7) return t('chatList.daysAgo', { n: diffDay });
   return date.toLocaleDateString();
 }
 
@@ -117,6 +118,7 @@ export function ChatListPanel({ open, width }: ChatListPanelProps) {
   const pathname = usePathname();
   const router = useRouter();
   const { streamingSessionId, pendingApprovalSessionId, workingDirectory } = usePanel();
+  const { t } = useTranslation();
   const [sessions, setSessions] = useState<ChatSession[]>([]);
   const [hoveredSession, setHoveredSession] = useState<string | null>(null);
   const [deletingSession, setDeletingSession] = useState<string | null>(null);
@@ -331,7 +333,7 @@ export function ChatListPanel({ open, width }: ChatListPanelProps) {
           onClick={handleNewChat}
         >
           <HugeiconsIcon icon={PlusSignIcon} className="h-3.5 w-3.5" />
-          New Chat
+          {t('chatList.newConversation')}
         </Button>
         <Tooltip>
           <TooltipTrigger asChild>
@@ -342,10 +344,10 @@ export function ChatListPanel({ open, width }: ChatListPanelProps) {
               onClick={() => setFolderPickerOpen(true)}
             >
               <HugeiconsIcon icon={FolderOpenIcon} className="h-3.5 w-3.5" />
-              <span className="sr-only">Open project folder</span>
+              <span className="sr-only">{t('chatList.addProjectFolder')}</span>
             </Button>
           </TooltipTrigger>
-          <TooltipContent side="bottom">Open project folder</TooltipContent>
+          <TooltipContent side="bottom">{t('chatList.addProjectFolder')}</TooltipContent>
         </Tooltip>
       </div>
 
@@ -357,7 +359,7 @@ export function ChatListPanel({ open, width }: ChatListPanelProps) {
             className="absolute left-2.5 top-1/2 h-3 w-3 -translate-y-1/2 text-muted-foreground"
           />
           <Input
-            placeholder="Search threads..."
+            placeholder={t('chatList.searchSessions')}
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             className="h-8 pl-7 text-xs"
@@ -374,7 +376,7 @@ export function ChatListPanel({ open, width }: ChatListPanelProps) {
           onClick={() => setImportDialogOpen(true)}
         >
           <HugeiconsIcon icon={FileImportIcon} className="h-3 w-3" />
-          Import CLI Session
+          {t('chatList.importFromCli')}
         </Button>
       </div>
 
@@ -383,7 +385,7 @@ export function ChatListPanel({ open, width }: ChatListPanelProps) {
         <div className="flex flex-col pb-3">
           {filteredSessions.length === 0 ? (
             <p className="px-2.5 py-3 text-[11px] text-muted-foreground/60">
-              {searchQuery ? "No matching threads" : "No conversations yet"}
+              {searchQuery ? "No matching threads" : t('chatList.noSessions')}
             </p>
           ) : (
             projectGroups.map((group) => {
@@ -539,7 +541,7 @@ export function ChatListPanel({ open, width }: ChatListPanelProps) {
                                   {badgeCfg.label}
                                 </span>
                                 <span className="text-[10px] text-muted-foreground/40">
-                                  {formatRelativeTime(session.updated_at)}
+                                  {formatRelativeTime(session.updated_at, t)}
                                 </span>
                               </div>
                             </Link>
@@ -560,12 +562,12 @@ export function ChatListPanel({ open, width }: ChatListPanelProps) {
                                       className="h-3 w-3"
                                     />
                                     <span className="sr-only">
-                                      Delete session
+                                      {t('chatList.delete')}
                                     </span>
                                   </Button>
                                 </TooltipTrigger>
                                 <TooltipContent side="right">
-                                  Delete
+                                  {t('chatList.delete')}
                                 </TooltipContent>
                               </Tooltip>
                             )}

@@ -23,6 +23,7 @@ import {
   FileImportIcon,
   MessageAddIcon,
 } from "@hugeicons/core-free-icons";
+import { useTranslation } from "@/hooks/useTranslation";
 import { cn } from "@/lib/utils";
 
 interface ClaudeSessionInfo {
@@ -45,7 +46,7 @@ interface ImportSessionDialogProps {
   onOpenChange: (open: boolean) => void;
 }
 
-function formatRelativeTime(dateStr: string): string {
+function formatRelativeTime(dateStr: string): { key: 'import.justNow' | 'import.minutesAgo' | 'import.hoursAgo' | 'import.daysAgo'; params?: Record<string, number> } | string {
   const date = new Date(dateStr);
   const now = new Date();
   const diffMs = now.getTime() - date.getTime();
@@ -53,10 +54,10 @@ function formatRelativeTime(dateStr: string): string {
   const diffHr = Math.floor(diffMin / 60);
   const diffDay = Math.floor(diffHr / 24);
 
-  if (diffMin < 1) return "just now";
-  if (diffMin < 60) return `${diffMin}m ago`;
-  if (diffHr < 24) return `${diffHr}h ago`;
-  if (diffDay < 7) return `${diffDay}d ago`;
+  if (diffMin < 1) return { key: 'import.justNow' };
+  if (diffMin < 60) return { key: 'import.minutesAgo', params: { n: diffMin } };
+  if (diffHr < 24) return { key: 'import.hoursAgo', params: { n: diffHr } };
+  if (diffDay < 7) return { key: 'import.daysAgo', params: { n: diffDay } };
   return date.toLocaleDateString();
 }
 
@@ -71,6 +72,7 @@ export function ImportSessionDialog({
   onOpenChange,
 }: ImportSessionDialogProps) {
   const router = useRouter();
+  const { t } = useTranslation();
   const [sessions, setSessions] = useState<ClaudeSessionInfo[]>([]);
   const [loading, setLoading] = useState(false);
   const [importing, setImporting] = useState<string | null>(null);
@@ -154,7 +156,7 @@ export function ImportSessionDialog({
               icon={FileImportIcon}
               className="h-5 w-5 text-primary"
             />
-            Import CLI Session
+            {t('import.title')}
           </DialogTitle>
           <DialogDescription>
             Browse and import conversations from Claude Code CLI. Imported
@@ -169,7 +171,7 @@ export function ImportSessionDialog({
             className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground"
           />
           <Input
-            placeholder="Search by project, message, or branch..."
+            placeholder={t('import.searchSessions')}
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             className="pl-8 text-sm"
@@ -204,8 +206,8 @@ export function ImportSessionDialog({
                 />
                 <p className="text-sm">
                   {searchQuery
-                    ? "No matching sessions"
-                    : "No Claude Code CLI sessions found"}
+                    ? t('import.noSessions')
+                    : t('import.noSessions')}
                 </p>
                 <p className="text-xs mt-1 opacity-60">
                   {searchQuery
@@ -264,7 +266,7 @@ export function ImportSessionDialog({
                               icon={Loading02Icon}
                               className="h-3 w-3 mr-1 animate-spin"
                             />
-                            Importing...
+                            {t('import.importing')}
                           </>
                         ) : (
                           <>
@@ -272,7 +274,7 @@ export function ImportSessionDialog({
                               icon={FileImportIcon}
                               className="h-3 w-3 mr-1"
                             />
-                            Import
+                            {t('import.import')}
                           </>
                         )}
                       </Button>
@@ -295,14 +297,17 @@ export function ImportSessionDialog({
                           icon={MessageAddIcon}
                           className="h-2.5 w-2.5"
                         />
-                        {totalMessages} msg{totalMessages !== 1 ? "s" : ""}
+                        {t(totalMessages !== 1 ? 'import.messagesPlural' : 'import.messages', { n: totalMessages })}
                       </span>
                       <span className="flex items-center gap-0.5 shrink-0">
                         <HugeiconsIcon
                           icon={ClockIcon}
                           className="h-2.5 w-2.5"
                         />
-                        {formatRelativeTime(session.updatedAt)}
+                        {(() => {
+                          const rel = formatRelativeTime(session.updatedAt);
+                          return typeof rel === 'string' ? rel : t(rel.key, rel.params);
+                        })()}
                       </span>
                       <span className="shrink-0">
                         {formatFileSize(session.fileSize)}

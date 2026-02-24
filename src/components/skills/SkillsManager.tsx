@@ -10,10 +10,12 @@ import { PlusSignIcon, Search01Icon, ZapIcon, Loading02Icon } from "@hugeicons/c
 import { SkillListItem } from "./SkillListItem";
 import { SkillEditor } from "./SkillEditor";
 import { CreateSkillDialog } from "./CreateSkillDialog";
+import { useTranslation } from "@/hooks/useTranslation";
 import type { SkillItem } from "./SkillListItem";
 
 export function SkillsManager() {
   const { workingDirectory } = usePanel();
+  const { t } = useTranslation();
   const [skills, setSkills] = useState<SkillItem[]>([]);
   const [selected, setSelected] = useState<SkillItem | null>(null);
   const [loading, setLoading] = useState(true);
@@ -138,7 +140,7 @@ export function SkillsManager() {
       <div className="flex h-64 items-center justify-center">
         <HugeiconsIcon icon={Loading02Icon} className="h-5 w-5 animate-spin text-muted-foreground" />
         <span className="ml-2 text-sm text-muted-foreground">
-          Loading skills...
+          {t('skills.loadingSkills')}
         </span>
       </div>
     );
@@ -148,10 +150,10 @@ export function SkillsManager() {
     <div className="flex flex-col h-full">
       {/* Header */}
       <div className="flex items-center gap-3 mb-4">
-        <h3 className="text-lg font-semibold flex-1">Skills</h3>
+        <h3 className="text-lg font-semibold flex-1">{t('extensions.skills')}</h3>
         <Button size="sm" onClick={() => setShowCreate(true)} className="gap-1">
           <HugeiconsIcon icon={PlusSignIcon} className="h-3.5 w-3.5" />
-          New Skill
+          {t('skills.newSkill')}
         </Button>
       </div>
 
@@ -163,7 +165,7 @@ export function SkillsManager() {
             <div className="relative">
               <HugeiconsIcon icon={Search01Icon} className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
               <Input
-                placeholder="Search skills..."
+                placeholder={t('skills.searchSkills')}
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 className="pl-7 h-8 text-sm"
@@ -236,7 +238,7 @@ export function SkillsManager() {
                 <div className="flex flex-col items-center gap-2 py-8 text-muted-foreground">
                   <HugeiconsIcon icon={ZapIcon} className="h-8 w-8 opacity-40" />
                   <p className="text-xs">
-                    {search ? "No skills match your search" : "No skills yet"}
+                    {search ? t('skills.noSkillsFound') : t('skills.noSkillsFound')}
                   </p>
                   {!search && (
                     <Button
@@ -268,9 +270,9 @@ export function SkillsManager() {
             <div className="flex flex-col items-center justify-center h-full text-muted-foreground gap-3">
               <HugeiconsIcon icon={ZapIcon} className="h-12 w-12 opacity-30" />
               <div className="text-center">
-                <p className="text-sm font-medium">No skill selected</p>
+                <p className="text-sm font-medium">{t('skills.noSelected')}</p>
                 <p className="text-xs">
-                  Select a skill from the list or create a new one
+                  {t('skills.selectOrCreate')}
                 </p>
               </div>
               <Button
@@ -280,7 +282,7 @@ export function SkillsManager() {
                 className="gap-1"
               >
                 <HugeiconsIcon icon={PlusSignIcon} className="h-3.5 w-3.5" />
-                New Skill
+                {t('skills.newSkill')}
               </Button>
             </div>
           )}

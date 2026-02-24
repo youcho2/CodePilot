@@ -12,6 +12,8 @@ import { cn } from "@/lib/utils";
 import { GeneralSection } from "./GeneralSection";
 import { ProviderManager } from "./ProviderManager";
 import { CliSettingsSection } from "./CliSettingsSection";
+import { useTranslation } from "@/hooks/useTranslation";
+import type { TranslationKey } from "@/i18n";
 
 type Section = "general" | "providers" | "cli";
 
@@ -39,6 +41,13 @@ function getInitialSection(): Section {
 
 export function SettingsLayout() {
   const [activeSection, setActiveSection] = useState<Section>(getInitialSection);
+  const { t } = useTranslation();
+
+  const settingsLabelKeys: Record<string, TranslationKey> = {
+    'General': 'settings.general',
+    'Providers': 'settings.providers',
+    'Claude CLI': 'settings.claudeCli',
+  };
 
   // Sync hash on mount and on popstate
   useEffect(() => {
@@ -60,9 +69,9 @@ export function SettingsLayout() {
   return (
     <div className="flex h-full flex-col">
       <div className="border-b border-border/50 px-6 pt-4 pb-4">
-        <h1 className="text-xl font-semibold">Settings</h1>
+        <h1 className="text-xl font-semibold">{t('settings.title')}</h1>
         <p className="text-sm text-muted-foreground">
-          Manage CodePilot and Claude CLI settings
+          {t('settings.description')}
         </p>
       </div>
 
@@ -81,7 +90,7 @@ export function SettingsLayout() {
               )}
             >
               <HugeiconsIcon icon={item.icon} className="h-4 w-4 shrink-0" />
-              {item.label}
+              {t(settingsLabelKeys[item.label])}
             </button>
           ))}
         </nav>

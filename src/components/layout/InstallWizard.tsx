@@ -21,6 +21,7 @@ import {
   Copy01Icon,
   Download04Icon,
 } from "@hugeicons/core-free-icons";
+import { useTranslation } from "@/hooks/useTranslation";
 
 interface InstallProgress {
   status: "idle" | "running" | "success" | "failed" | "cancelled";
@@ -93,6 +94,7 @@ export function InstallWizard({
   onOpenChange,
   onInstallComplete,
 }: InstallWizardProps) {
+  const { t } = useTranslation();
   const [phase, setPhase] = useState<WizardPhase>("checking");
   const [progress, setProgress] = useState<InstallProgress | null>(null);
   const [logs, setLogs] = useState<string[]>([]);
@@ -249,7 +251,7 @@ export function InstallWizard({
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle>Install Claude Code</DialogTitle>
+          <DialogTitle>{t('install.title')}</DialogTitle>
           <DialogDescription>
             {phase === "confirm"
               ? "Claude Code CLI was not detected. Install it now?"
@@ -292,7 +294,7 @@ export function InstallWizard({
           {phase === "checking" && steps.length === 0 && (
             <div className="flex items-center gap-2.5 text-sm text-muted-foreground">
               <HugeiconsIcon icon={Loading02Icon} className="size-4 animate-spin" />
-              <span>Checking environment...</span>
+              <span>{t('install.checkingPrereqs')}</span>
             </div>
           )}
 
@@ -330,7 +332,7 @@ export function InstallWizard({
                   Already installed
                 </p>
                 <p className="text-muted-foreground text-xs">
-                  Claude Code is already available.
+                  {t('install.alreadyInstalled')}
                 </p>
               </div>
             </div>
@@ -342,7 +344,7 @@ export function InstallWizard({
               <HugeiconsIcon icon={Tick01Icon} className="size-5 text-emerald-500 shrink-0" />
               <div className="text-sm">
                 <p className="font-medium text-emerald-700 dark:text-emerald-400">
-                  Installation complete
+                  {t('install.complete')}
                 </p>
                 <p className="text-muted-foreground text-xs">
                   Claude Code CLI has been installed successfully.
@@ -374,7 +376,7 @@ export function InstallWizard({
               onClick={handleCopyLogs}
             >
               <HugeiconsIcon icon={Copy01Icon} />
-              {copied ? "Copied" : "Copy Logs"}
+              {copied ? t('install.copied') : t('install.copyLogs')}
             </Button>
           )}
 
@@ -382,28 +384,28 @@ export function InstallWizard({
           {phase === "confirm" && (
             <Button size="sm" onClick={handleConfirmInstall}>
               <HugeiconsIcon icon={Download04Icon} />
-              Install
+              {t('install.install')}
             </Button>
           )}
 
           {/* Installing: cancel button */}
           {phase === "installing" && (
             <Button variant="destructive" size="sm" onClick={cancelInstall}>
-              Cancel
+              {t('install.cancel')}
             </Button>
           )}
 
           {/* Failed: retry */}
           {phase === "failed" && (
             <Button size="sm" onClick={checkPrereqs}>
-              Retry
+              {t('install.retry')}
             </Button>
           )}
 
           {/* Success / already-installed: done */}
           {(phase === "success" || phase === "already-installed") && (
             <Button size="sm" onClick={handleDone}>
-              Done
+              {t('install.done')}
             </Button>
           )}
         </DialogFooter>

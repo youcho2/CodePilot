@@ -9,6 +9,7 @@ import { Loading02Icon, PencilEdit01Icon } from "@hugeicons/core-free-icons";
 import { Input } from '@/components/ui/input';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { usePanel } from '@/hooks/usePanel';
+import { useTranslation } from '@/hooks/useTranslation';
 
 interface ChatSessionPageProps {
   params: Promise<{ id: string }>;
@@ -29,9 +30,10 @@ export default function ChatSessionPage({ params }: ChatSessionPageProps) {
   const [editTitle, setEditTitle] = useState('');
   const titleInputRef = useRef<HTMLInputElement>(null);
   const { setWorkingDirectory, setSessionId, setSessionTitle: setPanelSessionTitle, setPanelOpen } = usePanel();
+  const { t } = useTranslation();
 
   const handleStartEditTitle = useCallback(() => {
-    setEditTitle(sessionTitle || 'New Conversation');
+    setEditTitle(sessionTitle || t('chat.newConversation'));
     setIsEditingTitle(true);
   }, [sessionTitle]);
 
@@ -88,7 +90,7 @@ export default function ChatSessionPage({ params }: ChatSessionPageProps) {
           }
           setSessionId(id);
           setPanelOpen(true);
-          const title = data.session.title || 'New Conversation';
+          const title = data.session.title || t('chat.newConversation');
           setSessionTitle(title);
           setPanelSessionTitle(title);
           setSessionModel(data.session.model || '');

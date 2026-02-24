@@ -9,6 +9,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Light as SyntaxHighlighter } from "react-syntax-highlighter";
 import { atomOneDark } from "react-syntax-highlighter/dist/esm/styles/hljs";
 import { usePanel } from "@/hooks/usePanel";
+import { useTranslation } from "@/hooks/useTranslation";
 import type { FilePreview as FilePreviewType } from "@/types";
 
 interface FilePreviewProps {
@@ -18,6 +19,7 @@ interface FilePreviewProps {
 
 export function FilePreview({ filePath, onBack }: FilePreviewProps) {
   const { workingDirectory } = usePanel();
+  const { t } = useTranslation();
   const [preview, setPreview] = useState<FilePreviewType | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -33,12 +35,12 @@ export function FilePreview({ filePath, onBack }: FilePreviewProps) {
         );
         if (!res.ok) {
           const data = await res.json();
-          throw new Error(data.error || "Failed to load file");
+          throw new Error(data.error || t('filePreview.failedToLoad'));
         }
         const data = await res.json();
         setPreview(data.preview);
       } catch (err) {
-        setError(err instanceof Error ? err.message : "Failed to load file");
+        setError(err instanceof Error ? err.message : t('filePreview.failedToLoad'));
       } finally {
         setLoading(false);
       }
@@ -66,7 +68,7 @@ export function FilePreview({ filePath, onBack }: FilePreviewProps) {
       <div className="flex items-center gap-2 pb-2">
         <Button variant="ghost" size="icon-sm" onClick={onBack}>
           <HugeiconsIcon icon={ArrowLeft01Icon} className="h-3.5 w-3.5" />
-          <span className="sr-only">Back to file tree</span>
+          <span className="sr-only">{t('filePreview.backToTree')}</span>
         </Button>
         <div className="min-w-0 flex-1">
           <p className="truncate text-xs text-muted-foreground">
@@ -79,7 +81,7 @@ export function FilePreview({ filePath, onBack }: FilePreviewProps) {
           ) : (
             <HugeiconsIcon icon={Copy01Icon} className="h-3.5 w-3.5" />
           )}
-          <span className="sr-only">Copy path</span>
+          <span className="sr-only">{t('filePreview.copyPath')}</span>
         </Button>
       </div>
 
@@ -90,7 +92,7 @@ export function FilePreview({ filePath, onBack }: FilePreviewProps) {
             {preview.language}
           </Badge>
           <span className="text-[10px] text-muted-foreground">
-            {preview.line_count} lines
+            {t('filePreview.lines', { count: preview.line_count })}
           </span>
         </div>
       )}
@@ -110,7 +112,7 @@ export function FilePreview({ filePath, onBack }: FilePreviewProps) {
               onClick={onBack}
               className="mt-2 text-xs"
             >
-              Back to file tree
+              {t('filePreview.backToTree')}
             </Button>
           </div>
         ) : preview ? (

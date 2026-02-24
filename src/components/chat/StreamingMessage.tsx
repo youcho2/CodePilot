@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
+import { useTranslation } from '@/hooks/useTranslation';
 import {
   Message as AIMessage,
   MessageContent,
@@ -295,6 +296,7 @@ export function StreamingMessage({
   permissionResolved,
   onForceStop,
 }: StreamingMessageProps) {
+  const { t } = useTranslation();
   const runningTools = toolUses.filter(
     (tool) => !toolResults.some((r) => r.tool_use_id === tool.id)
   );
@@ -430,18 +432,18 @@ export function StreamingMessage({
                     variant="default"
                     onClick={() => onPermissionResponse?.('allow_session')}
                   >
-                    Allow for Session
+                    {t('streaming.allowForSession')}
                   </ConfirmationAction>
                 )}
               </ConfirmationActions>
             </ConfirmationRequest>
 
             <ConfirmationAccepted>
-              <p className="text-xs text-green-600 dark:text-green-400">Allowed</p>
+              <p className="text-xs text-green-600 dark:text-green-400">{t('streaming.allowed')}</p>
             </ConfirmationAccepted>
 
             <ConfirmationRejected>
-              <p className="text-xs text-red-600 dark:text-red-400">Denied</p>
+              <p className="text-xs text-red-600 dark:text-red-400">{t('streaming.denied')}</p>
             </ConfirmationRejected>
           </Confirmation>
         )}
@@ -454,7 +456,7 @@ export function StreamingMessage({
         {/* Loading indicator when no content yet */}
         {isStreaming && !content && toolUses.length === 0 && !pendingPermission && (
           <div className="py-2">
-            <Shimmer>Thinking...</Shimmer>
+            <Shimmer>{t('streaming.thinking')}</Shimmer>
           </div>
         )}
 

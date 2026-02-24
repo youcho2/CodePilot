@@ -1,0 +1,270 @@
+import type { TranslationKey } from './en';
+
+const zh: Record<TranslationKey, string> = {
+  // ── Navigation ──────────────────────────────────────────────
+  'nav.chats': '对话',
+  'nav.extensions': '扩展',
+  'nav.settings': '设置',
+  'nav.autoApproveOn': '自动批准已开启',
+  'nav.lightMode': '浅色模式',
+  'nav.darkMode': '深色模式',
+  'nav.toggleTheme': '切换主题',
+
+  // ── Chat list panel ─────────────────────────────────────────
+  'chatList.justNow': '刚刚',
+  'chatList.minutesAgo': '{n}分钟',
+  'chatList.hoursAgo': '{n}小时',
+  'chatList.daysAgo': '{n}天',
+  'chatList.newConversation': '新对话',
+  'chatList.delete': '删除',
+  'chatList.searchSessions': '搜索会话...',
+  'chatList.noSessions': '暂无会话',
+  'chatList.importFromCli': '从 Claude CLI 导入',
+  'chatList.addProjectFolder': '添加项目文件夹',
+
+  // ── Message list ────────────────────────────────────────────
+  'messageList.claudeChat': 'Claude 对话',
+  'messageList.emptyDescription': '开始与 Claude 对话。提问、获取代码帮助或探索想法。',
+  'messageList.loadEarlier': '加载更早的消息',
+  'messageList.loading': '加载中...',
+
+  // ── Message input ───────────────────────────────────────────
+  'messageInput.attachFiles': '附加文件',
+  'messageInput.helpDesc': '显示可用命令和提示',
+  'messageInput.clearDesc': '清除对话历史',
+  'messageInput.costDesc': '显示 Token 用量统计',
+  'messageInput.compactDesc': '压缩对话上下文',
+  'messageInput.doctorDesc': '诊断项目健康状况',
+  'messageInput.initDesc': '初始化项目 CLAUDE.md',
+  'messageInput.reviewDesc': '审查代码质量',
+  'messageInput.terminalSetupDesc': '配置终端设置',
+  'messageInput.memoryDesc': '编辑项目记忆文件',
+  'messageInput.modeCode': '代码',
+  'messageInput.modePlan': '计划',
+
+  // ── Streaming message ───────────────────────────────────────
+  'streaming.thinking': '思考中...',
+  'streaming.allowForSession': '本次会话允许',
+  'streaming.allowed': '已允许',
+  'streaming.denied': '已拒绝',
+
+  // ── Chat view / session page ────────────────────────────────
+  'chat.newConversation': '新对话',
+
+  // ── Settings: General ───────────────────────────────────────
+  'settings.title': '设置',
+  'settings.description': '管理 CodePilot 和 Claude CLI 设置',
+  'settings.general': '通用',
+  'settings.providers': '服务商',
+  'settings.claudeCli': 'Claude CLI',
+  'settings.codepilot': 'CodePilot',
+  'settings.version': '版本 {version}',
+  'settings.checkForUpdates': '检查更新',
+  'settings.checking': '检查中...',
+  'settings.updateAvailable': '有新版本：v{version}',
+  'settings.viewRelease': '查看发布',
+  'settings.latestVersion': '已是最新版本。',
+  'settings.autoApproveTitle': '自动批准所有操作',
+  'settings.autoApproveDesc': '跳过所有权限检查并自动批准每个工具操作。这很危险，仅应用于受信任的任务。',
+  'settings.autoApproveWarning': '所有工具操作将在无确认的情况下自动批准。请谨慎使用。',
+  'settings.autoApproveDialogTitle': '启用自动批准所有操作？',
+  'settings.autoApproveDialogDesc': '这将绕过所有权限检查。Claude 将能够在不征求您确认的情况下执行任何工具操作，包括：',
+  'settings.autoApproveShellCommands': '运行任意 Shell 命令',
+  'settings.autoApproveFileOps': '读取、写入和删除文件',
+  'settings.autoApproveNetwork': '发起网络请求',
+  'settings.autoApproveTrustWarning': '仅在您完全信任当前任务时才启用此选项。此设置适用于所有新的聊天会话。',
+  'settings.cancel': '取消',
+  'settings.enableAutoApprove': '启用自动批准',
+  'settings.language': '语言',
+  'settings.languageDesc': '选择界面显示语言',
+
+  // ── Settings: CLI ───────────────────────────────────────────
+  'cli.permissions': '权限',
+  'cli.permissionsDesc': '配置 Claude CLI 的权限设置',
+  'cli.envVars': '环境变量',
+  'cli.envVarsDesc': '传递给 Claude 的环境变量',
+  'cli.form': '表单',
+  'cli.json': 'JSON',
+  'cli.save': '保存',
+  'cli.format': '格式化',
+  'cli.reset': '重置',
+  'cli.settingsSaved': '设置已保存',
+  'cli.confirmSaveTitle': '确认保存',
+  'cli.confirmSaveDesc': '这将覆盖您当前的 ~/.claude/settings.json 文件。确定要继续吗？',
+
+  // ── Settings: Providers ─────────────────────────────────────
+  'provider.addProvider': '添加服务商',
+  'provider.editProvider': '编辑服务商',
+  'provider.deleteProvider': '删除服务商',
+  'provider.deleteConfirm': '确定要删除"{name}"吗？此操作无法撤销。',
+  'provider.deleting': '删除中...',
+  'provider.delete': '删除',
+  'provider.noProviders': '未配置服务商',
+  'provider.addToStart': '添加服务商以开始使用',
+  'provider.quickPresets': '快速预设',
+  'provider.customProviders': '自定义服务商',
+  'provider.active': '活跃',
+  'provider.configured': '已配置',
+  'provider.name': '名称',
+  'provider.providerType': '服务商类型',
+  'provider.apiKey': 'API 密钥',
+  'provider.baseUrl': '基础 URL',
+  'provider.advancedOptions': '高级选项',
+  'provider.extraEnvVars': '额外环境变量',
+  'provider.notes': '备注',
+  'provider.notesPlaceholder': '关于此服务商的可选备注...',
+  'provider.saving': '保存中...',
+  'provider.update': '更新',
+  'provider.envDetected': '从环境变量检测到',
+
+  // ── Right panel / Files ─────────────────────────────────────
+  'panel.files': '文件',
+  'panel.openPanel': '打开面板',
+  'panel.closePanel': '关闭面板',
+
+  // ── File tree ───────────────────────────────────────────────
+  'fileTree.filterFiles': '筛选文件...',
+  'fileTree.refresh': '刷新',
+  'fileTree.noFiles': '未找到文件',
+  'fileTree.selectFolder': '选择项目文件夹以查看文件',
+
+  // ── File preview ────────────────────────────────────────────
+  'filePreview.backToTree': '返回文件树',
+  'filePreview.lines': '{count} 行',
+  'filePreview.copyPath': '复制路径',
+  'filePreview.failedToLoad': '加载文件失败',
+
+  // ── Doc preview ─────────────────────────────────────────────
+  'docPreview.htmlPreview': 'HTML 预览',
+
+  // ── Extensions page ─────────────────────────────────────────
+  'extensions.title': '扩展',
+  'extensions.skills': '技能',
+  'extensions.mcpServers': 'MCP 服务器',
+
+  // ── Skills ──────────────────────────────────────────────────
+  'skills.noSelected': '未选择技能',
+  'skills.selectOrCreate': '从列表中选择一个技能或创建新技能',
+  'skills.newSkill': '新建技能',
+  'skills.loadingSkills': '加载技能中...',
+  'skills.noSkillsFound': '未找到技能',
+  'skills.searchSkills': '搜索技能...',
+  'skills.createSkill': '创建技能',
+  'skills.nameRequired': '名称为必填项',
+  'skills.nameInvalid': '名称只能包含字母、数字、连字符和下划线',
+  'skills.skillName': '技能名称',
+  'skills.scope': '作用域',
+  'skills.global': '全局',
+  'skills.project': '项目',
+  'skills.template': '模板',
+  'skills.blank': '空白',
+  'skills.commitHelper': '提交助手',
+  'skills.codeReviewer': '代码审查',
+  'skills.saved': '已保存',
+  'skills.save': '保存',
+  'skills.edit': '编辑',
+  'skills.preview': '预览',
+  'skills.splitView': '分屏视图',
+  'skills.deleteConfirm': '再次点击以确认',
+  'skills.placeholder': '用 Markdown 编写技能提示词...',
+
+  // ── MCP ─────────────────────────────────────────────────────
+  'mcp.addServer': '添加服务器',
+  'mcp.loadingServers': '加载 MCP 服务器中...',
+  'mcp.serverConfig': 'MCP 服务器配置',
+  'mcp.noServers': '未配置 MCP 服务器',
+  'mcp.noServersDesc': '添加 MCP 服务器以扩展 Claude 的能力',
+  'mcp.arguments': '参数：',
+  'mcp.environment': '环境变量：',
+  'mcp.listTab': '列表',
+  'mcp.jsonTab': 'JSON 配置',
+  'mcp.editServer': '编辑服务器',
+  'mcp.serverName': '服务器名称',
+  'mcp.serverType': '服务器类型',
+  'mcp.command': '命令',
+  'mcp.argsLabel': '参数（每行一个）',
+  'mcp.url': 'URL',
+  'mcp.headers': '请求头（JSON）',
+  'mcp.envVars': '环境变量（JSON）',
+  'mcp.formTab': '表单',
+  'mcp.jsonEditTab': 'JSON',
+  'mcp.saveChanges': '保存更改',
+
+  // ── Folder picker ───────────────────────────────────────────
+  'folderPicker.title': '选择项目文件夹',
+  'folderPicker.loading': '加载中...',
+  'folderPicker.noSubdirs': '无子目录',
+  'folderPicker.cancel': '取消',
+  'folderPicker.select': '选择此文件夹',
+
+  // ── Import session dialog ───────────────────────────────────
+  'import.title': '从 Claude CLI 导入会话',
+  'import.searchSessions': '搜索会话...',
+  'import.noSessions': '未找到会话',
+  'import.import': '导入',
+  'import.importing': '导入中...',
+  'import.justNow': '刚刚',
+  'import.minutesAgo': '{n}分钟前',
+  'import.hoursAgo': '{n}小时前',
+  'import.daysAgo': '{n}天前',
+  'import.messages': '{n} 条消息',
+  'import.messagesPlural': '{n} 条消息',
+
+  // ── Connection status ───────────────────────────────────────
+  'connection.notInstalled': 'Claude Code 未安装',
+  'connection.installed': 'Claude Code 已安装',
+  'connection.version': '版本：{version}',
+  'connection.installPrompt': '要使用 Claude Code 功能，您需要安装 Claude Code CLI。',
+  'connection.runCommand': '在终端中运行以下命令：',
+  'connection.installAuto': '自动安装 Claude Code',
+  'connection.refresh': '刷新',
+  'connection.installClaude': '安装 Claude Code',
+
+  // ── Install wizard ──────────────────────────────────────────
+  'install.title': '安装 Claude Code',
+  'install.checkingPrereqs': '检查前置条件...',
+  'install.alreadyInstalled': 'Claude Code 已安装',
+  'install.readyToInstall': '准备安装',
+  'install.installing': '正在安装 Claude Code...',
+  'install.complete': '安装完成',
+  'install.failed': '安装失败',
+  'install.copyLogs': '复制日志',
+  'install.copied': '已复制',
+  'install.install': '安装',
+  'install.cancel': '取消',
+  'install.retry': '重试',
+  'install.done': '完成',
+
+  // ── Task list ───────────────────────────────────────────────
+  'tasks.all': '全部',
+  'tasks.active': '进行中',
+  'tasks.done': '已完成',
+  'tasks.addPlaceholder': '添加任务...',
+  'tasks.addTask': '添加任务',
+  'tasks.loading': '加载任务中...',
+  'tasks.noTasks': '暂无任务',
+  'tasks.noMatching': '无匹配任务',
+
+  // ── Tool call block ─────────────────────────────────────────
+  'tool.running': '运行中',
+  'tool.success': '成功',
+  'tool.error': '错误',
+
+  // ── Common ──────────────────────────────────────────────────
+  'common.cancel': '取消',
+  'common.save': '保存',
+  'common.delete': '删除',
+  'common.loading': '加载中...',
+  'common.close': '关闭',
+  'common.enabled': '已启用',
+  'common.disabled': '已禁用',
+
+  // ── CLI dynamic field labels ──────────────────────────────
+  'cli.loadingSettings': '加载设置中...',
+  'cli.field.skipDangerousModePermissionPrompt': '跳过危险模式权限提示',
+  'cli.field.verbose': '详细日志',
+  'cli.field.theme': '主题',
+  'cli.formatError': '无法格式化：无效的 JSON',
+};
+
+export default zh;

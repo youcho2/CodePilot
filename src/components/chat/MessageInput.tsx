@@ -21,6 +21,8 @@ import {
   StopIcon,
 } from "@hugeicons/core-free-icons";
 import { cn } from '@/lib/utils';
+import { useTranslation } from '@/hooks/useTranslation';
+import type { TranslationKey } from '@/i18n';
 import {
   PromptInput,
   PromptInputTextarea,
@@ -65,6 +67,7 @@ interface PopoverItem {
   label: string;
   value: string;
   description?: string;
+  descriptionKey?: TranslationKey;
   builtIn?: boolean;
   immediate?: boolean;
   installedSource?: "agents" | "claude";
@@ -91,15 +94,15 @@ const COMMAND_PROMPTS: Record<string, string> = {
 };
 
 const BUILT_IN_COMMANDS: PopoverItem[] = [
-  { label: 'help', value: '/help', description: 'Show available commands and tips', builtIn: true, immediate: true, icon: HelpCircleIcon },
-  { label: 'clear', value: '/clear', description: 'Clear conversation history', builtIn: true, immediate: true, icon: Delete02Icon },
-  { label: 'cost', value: '/cost', description: 'Show token usage statistics', builtIn: true, immediate: true, icon: Coins01Icon },
-  { label: 'compact', value: '/compact', description: 'Compress conversation context', builtIn: true, icon: FileZipIcon },
-  { label: 'doctor', value: '/doctor', description: 'Diagnose project health', builtIn: true, icon: Stethoscope02Icon },
-  { label: 'init', value: '/init', description: 'Initialize CLAUDE.md for project', builtIn: true, icon: FileEditIcon },
-  { label: 'review', value: '/review', description: 'Review code quality', builtIn: true, icon: SearchList01Icon },
-  { label: 'terminal-setup', value: '/terminal-setup', description: 'Configure terminal settings', builtIn: true, icon: CommandLineIcon },
-  { label: 'memory', value: '/memory', description: 'Edit project memory file', builtIn: true, icon: BrainIcon },
+  { label: 'help', value: '/help', description: 'Show available commands and tips', descriptionKey: 'messageInput.helpDesc', builtIn: true, immediate: true, icon: HelpCircleIcon },
+  { label: 'clear', value: '/clear', description: 'Clear conversation history', descriptionKey: 'messageInput.clearDesc', builtIn: true, immediate: true, icon: Delete02Icon },
+  { label: 'cost', value: '/cost', description: 'Show token usage statistics', descriptionKey: 'messageInput.costDesc', builtIn: true, immediate: true, icon: Coins01Icon },
+  { label: 'compact', value: '/compact', description: 'Compress conversation context', descriptionKey: 'messageInput.compactDesc', builtIn: true, icon: FileZipIcon },
+  { label: 'doctor', value: '/doctor', description: 'Diagnose project health', descriptionKey: 'messageInput.doctorDesc', builtIn: true, icon: Stethoscope02Icon },
+  { label: 'init', value: '/init', description: 'Initialize CLAUDE.md for project', descriptionKey: 'messageInput.initDesc', builtIn: true, icon: FileEditIcon },
+  { label: 'review', value: '/review', description: 'Review code quality', descriptionKey: 'messageInput.reviewDesc', builtIn: true, icon: SearchList01Icon },
+  { label: 'terminal-setup', value: '/terminal-setup', description: 'Configure terminal settings', descriptionKey: 'messageInput.terminalSetupDesc', builtIn: true, icon: CommandLineIcon },
+  { label: 'memory', value: '/memory', description: 'Edit project memory file', descriptionKey: 'messageInput.memoryDesc', builtIn: true, icon: BrainIcon },
 ];
 
 interface ModeOption {
@@ -183,11 +186,12 @@ function FileAwareSubmitButton({
  */
 function AttachFileButton() {
   const attachments = usePromptInputAttachments();
+  const { t } = useTranslation();
 
   return (
     <PromptInputButton
       onClick={() => attachments.openFileDialog()}
-      tooltip="Attach files"
+      tooltip={t('messageInput.attachFiles')}
     >
       <HugeiconsIcon icon={PlusSignIcon} className="h-3.5 w-3.5" />
     </PromptInputButton>
@@ -331,6 +335,7 @@ export function MessageInput({
   mode = 'code',
   onModeChange,
 }: MessageInputProps) {
+  const { t } = useTranslation();
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const popoverRef = useRef<HTMLDivElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
@@ -752,9 +757,9 @@ export function MessageInput({
                   <HugeiconsIcon icon={CommandLineIcon} className="h-4 w-4 shrink-0 text-muted-foreground" />
                 )}
                 <span className="font-mono text-xs truncate">{item.label}</span>
-                {item.description && (
+                {(item.descriptionKey || item.description) && (
                   <span className="text-xs text-muted-foreground truncate max-w-[200px]">
-                    {item.description}
+                    {item.descriptionKey ? t(item.descriptionKey) : item.description}
                   </span>
                 )}
                 {!item.builtIn && item.installedSource && (
@@ -919,7 +924,7 @@ export function MessageInput({
                         )}
                         onClick={() => onModeChange?.(opt.value)}
                       >
-                        {opt.label}
+                        {opt.value === 'code' ? t('messageInput.modeCode') : opt.value === 'plan' ? t('messageInput.modePlan') : opt.label}
                       </button>
                     );
                   })}

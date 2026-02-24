@@ -26,6 +26,7 @@ import {
 import { ProviderForm } from "./ProviderForm";
 import type { ProviderFormData } from "./ProviderForm";
 import type { ApiProvider } from "@/types";
+import { useTranslation } from "@/hooks/useTranslation";
 
 const QUICK_PRESETS = [
   { name: "Anthropic", provider_type: "anthropic", base_url: "https://api.anthropic.com" },
@@ -46,6 +47,7 @@ export function ProviderManager() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [envDetected, setEnvDetected] = useState<Record<string, string>>({});
+  const { t } = useTranslation();
 
   // Form dialog state
   const [formOpen, setFormOpen] = useState(false);
@@ -215,7 +217,7 @@ export function ProviderManager() {
         </div>
         <Button size="sm" className="gap-1" onClick={handleAdd}>
           <HugeiconsIcon icon={PlusSignIcon} className="h-3.5 w-3.5" />
-          Add Provider
+          {t('provider.addProvider')}
         </Button>
       </div>
 
@@ -241,7 +243,7 @@ export function ProviderManager() {
                   ? "text-muted-foreground"
                   : "text-green-700 dark:text-green-400"
               }`}>
-                Environment variables detected
+                {t('provider.envDetected')}
               </p>
               {hasActiveProvider ? (
                 <Badge variant="secondary" className="text-[10px] px-1.5 py-0 text-muted-foreground">
@@ -284,7 +286,7 @@ export function ProviderManager() {
         <div className="flex flex-col items-center gap-3 py-8 text-muted-foreground">
           <HugeiconsIcon icon={ServerStack01Icon} className="h-10 w-10 opacity-30" />
           <div className="text-center">
-            <p className="text-sm font-medium">No providers configured</p>
+            <p className="text-sm font-medium">{t('provider.noProviders')}</p>
             <p className="text-xs mt-0.5">
               {Object.keys(envDetected).length > 0
                 ? "Using environment variables. Add a provider below to override."
@@ -336,7 +338,7 @@ export function ProviderManager() {
                       </Badge>
                       {isActive && (
                         <Badge variant="outline" className="text-[10px] px-1.5 py-0 text-green-600 dark:text-green-400 border-green-500/30">
-                          Active
+                          {t('provider.active')}
                         </Badge>
                       )}
                     </div>
@@ -407,7 +409,7 @@ export function ProviderManager() {
       {/* Quick presets row (when providers exist) */}
       {!loading && providers.length > 0 && (
         <div className="flex items-center gap-1.5 flex-wrap">
-          <span className="text-xs text-muted-foreground mr-1">Quick add:</span>
+          <span className="text-xs text-muted-foreground mr-1">{t('provider.quickPresets')}:</span>
           {QUICK_PRESETS.map((preset) => (
             <Button
               key={preset.name}
@@ -437,19 +439,19 @@ export function ProviderManager() {
       <AlertDialog open={!!deleteTarget} onOpenChange={(open) => !open && setDeleteTarget(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Delete Provider</AlertDialogTitle>
+            <AlertDialogTitle>{t('provider.deleteProvider')}</AlertDialogTitle>
             <AlertDialogDescription>
-              Are you sure you want to delete &quot;{deleteTarget?.name}&quot;? This action cannot be undone.
+              {t('provider.deleteConfirm', { name: deleteTarget?.name ?? '' })}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel disabled={deleting}>Cancel</AlertDialogCancel>
+            <AlertDialogCancel disabled={deleting}>{t('common.cancel')}</AlertDialogCancel>
             <AlertDialogAction
               onClick={handleDelete}
               disabled={deleting}
               className="bg-destructive text-white hover:bg-destructive/90"
             >
-              {deleting ? "Deleting..." : "Delete"}
+              {deleting ? t('provider.deleting') : t('common.delete')}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
