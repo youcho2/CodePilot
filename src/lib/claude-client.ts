@@ -385,8 +385,27 @@ export function streamClaude(options: ClaudeStreamOptions): ReadableStream<strin
           queryOptions.mcpServers = toSdkMcpConfig(mcpServers);
         }
 
-        // Resume session if we have an SDK session ID from a previous conversation turn
-        if (sdkSessionId) {
+        // Resume session if we have an SDK session ID from a previous conversation turn.
+        // Pre-check: verify working_directory exists before attempting resume.
+        // Resume depends on session context (cwd/project scope), so if the
+        // original working_directory no longer exists, resume will fail.
+        let shouldResume = !!sdkSessionId;
+        if (shouldResume && workingDirectory && !fs.existsSync(workingDirectory)) {
+          console.warn(`[claude-client] Working directory "${workingDirectory}" does not exist, skipping resume`);
+          shouldResume = false;
+          if (sessionId) {
+            try { updateSdkSessionId(sessionId, ''); } catch { /* best effort */ }
+          }
+          controller.enqueue(formatSSE({
+            type: 'status',
+            data: JSON.stringify({
+              notification: true,
+              title: 'Session fallback',
+              message: 'Original working directory no longer exists. Starting fresh conversation.',
+            }),
+          }));
+        }
+        if (shouldResume) {
           queryOptions.resume = sdkSessionId;
         }
 
@@ -542,7 +561,7 @@ export function streamClaude(options: ClaudeStreamOptions): ReadableStream<strin
         });
 
         // Wrap the iterator so we can detect resume failures on the first message
-        if (sdkSessionId) {
+        if (shouldResume) {
           try {
             // Peek at the first message to verify resume works
             const iter = conversation[Symbol.asyncIterator]();
@@ -558,7 +577,21 @@ export function streamClaude(options: ClaudeStreamOptions): ReadableStream<strin
               }
             })() as ReturnType<typeof query>;
           } catch (resumeError) {
-            console.warn('[claude-client] Resume failed, retrying without resume:', resumeError instanceof Error ? resumeError.message : resumeError);
+            const errMsg = resumeError instanceof Error ? resumeError.message : String(resumeError);
+            console.warn('[claude-client] Resume failed, retrying without resume:', errMsg);
+            // Clear stale sdk_session_id so future messages don't retry this broken resume
+            if (sessionId) {
+              try { updateSdkSessionId(sessionId, ''); } catch { /* best effort */ }
+            }
+            // Notify frontend about the fallback
+            controller.enqueue(formatSSE({
+              type: 'status',
+              data: JSON.stringify({
+                notification: true,
+                title: 'Session fallback',
+                message: 'Previous session could not be resumed. Starting fresh conversation.',
+              }),
+            }));
             // Remove resume and try again as a fresh conversation
             delete queryOptions.resume;
             conversation = query({

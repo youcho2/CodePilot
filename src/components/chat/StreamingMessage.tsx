@@ -460,9 +460,11 @@ export function StreamingMessage({
           </div>
         )}
 
-        {/* Status bar during streaming */}
-        {isStreaming && !pendingPermission && <StreamingStatusBar statusText={
-          statusText || getRunningCommandSummary()
+        {/* Status bar during streaming — show permission wait status when awaiting authorization */}
+        {isStreaming && <StreamingStatusBar statusText={
+          pendingPermission && !permissionResolved
+            ? `Waiting for authorization: ${pendingPermission.toolName}`
+            : statusText || getRunningCommandSummary()
         } onForceStop={onForceStop} />}
       </MessageContent>
     </AIMessage>

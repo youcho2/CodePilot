@@ -4,7 +4,8 @@ interface PendingPermission {
   resolve: (result: PermissionResult) => void;
   createdAt: number;
   abortSignal?: AbortSignal;
-  toolInput: Record<string, unknown>; // Original tool input for updatedInput in allow response
+  toolInput: Record<string, unknown>;
+  timer: ReturnType<typeof setTimeout>;
 }
 
 const TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
@@ -22,50 +23,49 @@ function getMap(): Map<string, PendingPermission> {
 }
 
 /**
- * Lazily clean up expired entries (older than TIMEOUT_MS).
+ * Helper to deny and remove a pending permission entry.
  */
-function cleanupExpired() {
+function denyAndRemove(id: string, message: string) {
   const map = getMap();
-  const now = Date.now();
-  for (const [id, entry] of map) {
-    if (now - entry.createdAt > TIMEOUT_MS) {
-      entry.resolve({ behavior: 'deny', message: 'Permission request timed out' });
-      map.delete(id);
-    }
-  }
+  const entry = map.get(id);
+  if (!entry) return;
+  clearTimeout(entry.timer);
+  entry.resolve({ behavior: 'deny', message });
+  map.delete(id);
 }
 
 /**
  * Register a pending permission request.
- * Returns a Promise that resolves when the user responds.
+ * Returns a Promise that resolves when the user responds or after TIMEOUT_MS.
  */
 export function registerPendingPermission(
   id: string,
   toolInput: Record<string, unknown>,
   abortSignal?: AbortSignal,
 ): Promise<PermissionResult> {
-  // Lazily clean up expired entries on each registration
-  cleanupExpired();
-
   const map = getMap();
 
   return new Promise<PermissionResult>((resolve) => {
+    // Per-request independent timer: auto-deny after TIMEOUT_MS
+    const timer = setTimeout(() => {
+      if (map.has(id)) {
+        console.warn(`[permission-registry] Permission request ${id} timed out after ${TIMEOUT_MS / 1000}s`);
+        resolve({ behavior: 'deny', message: 'Permission request timed out' });
+        map.delete(id);
+      }
+    }, TIMEOUT_MS);
+
     map.set(id, {
       resolve,
       createdAt: Date.now(),
       abortSignal,
       toolInput,
+      timer,
     });
 
     // Auto-deny if the abort signal fires (client disconnect / stop button)
     if (abortSignal) {
-      const onAbort = () => {
-        if (map.has(id)) {
-          resolve({ behavior: 'deny', message: 'Request aborted' });
-          map.delete(id);
-        }
-      };
-      abortSignal.addEventListener('abort', onAbort, { once: true });
+      abortSignal.addEventListener('abort', () => denyAndRemove(id, 'Request aborted'), { once: true });
     }
   });
 }
@@ -82,7 +82,8 @@ export function resolvePendingPermission(
   const entry = map.get(id);
   if (!entry) return false;
 
-  // SDK requires updatedInput when allowing — inject the original tool input
+  clearTimeout(entry.timer);
+
   if (result.behavior === 'allow' && !result.updatedInput) {
     result = { ...result, updatedInput: entry.toolInput };
   }

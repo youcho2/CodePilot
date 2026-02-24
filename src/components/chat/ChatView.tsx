@@ -216,6 +216,20 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
 
       let accumulated = '';
 
+      // Stream idle timeout: abort if no SSE events arrive for this duration.
+      // Set slightly above the 5-minute permission timeout (300s) to avoid races.
+      const STREAM_IDLE_TIMEOUT_MS = 330_000;
+      let lastEventTime = Date.now();
+      let isIdleTimeout = false;
+      const idleCheckTimer = setInterval(() => {
+        if (Date.now() - lastEventTime >= STREAM_IDLE_TIMEOUT_MS) {
+          clearInterval(idleCheckTimer);
+          isIdleTimeout = true;
+          controller.abort();
+        }
+      }, 10_000);
+      const markActive = () => { lastEventTime = Date.now(); };
+
       try {
         const response = await fetch('/api/chat', {
           method: 'POST',
@@ -240,11 +254,13 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
 
         const result = await consumeSSEStream(reader, {
           onText: (acc) => {
+            markActive();
             accumulated = acc;
             accumulatedRef.current = acc;
             setStreamingContent(acc);
           },
           onToolUse: (tool) => {
+            markActive();
             setStreamingToolOutput('');
             setToolUses((prev) => {
               if (prev.some((t) => t.id === tool.id)) return prev;
@@ -254,6 +270,7 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
             });
           },
           onToolResult: (res) => {
+            markActive();
             setStreamingToolOutput('');
             setToolResults((prev) => {
               const next = [...prev, res];
@@ -265,15 +282,18 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
             window.dispatchEvent(new Event('refresh-file-tree'));
           },
           onToolOutput: (data) => {
+            markActive();
             setStreamingToolOutput((prev) => {
               const next = prev + (prev ? '\n' : '') + data;
               return next.length > 5000 ? next.slice(-5000) : next;
             });
           },
           onToolProgress: (toolName, elapsed) => {
+            markActive();
             setStatusText(`Running ${toolName}... (${elapsed}s)`);
           },
           onStatus: (text) => {
+            markActive();
             if (text?.startsWith('Connected (')) {
               setStatusText(text);
               setTimeout(() => setStatusText(undefined), 2000);
@@ -281,21 +301,28 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
               setStatusText(text);
             }
           },
-          onResult: () => { /* token usage captured by consumeSSEStream */ },
+          onResult: () => {
+            markActive();
+            /* token usage captured by consumeSSEStream */
+          },
           onPermissionRequest: (permData) => {
+            markActive();
             setPendingPermission(permData);
             setPermissionResolved(null);
             setPendingApprovalSessionId(sessionId);
           },
           onToolTimeout: (toolName, elapsedSeconds) => {
+            markActive();
             toolTimeoutRef.current = { toolName, elapsedSeconds };
           },
           onModeChanged: (sdkMode) => {
+            markActive();
             // Map SDK permissionMode to UI mode
             const uiMode = sdkMode === 'plan' ? 'plan' : 'code';
             handleModeChange(uiMode);
           },
           onError: (acc) => {
+            markActive();
             accumulated = acc;
             accumulatedRef.current = acc;
             setStreamingContent(acc);
@@ -341,56 +368,75 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
           setMessages((prev) => [...prev, assistantMessage]);
         }
       } catch (error) {
+        clearInterval(idleCheckTimer);
+
         if (error instanceof DOMException && error.name === 'AbortError') {
-          const timeoutInfo = toolTimeoutRef.current;
-          if (timeoutInfo) {
-            // Tool execution timed out — save partial content and auto-retry
+          // Stream idle timeout — no SSE events for too long
+          if (isIdleTimeout) {
+            const idleSecs = Math.round(STREAM_IDLE_TIMEOUT_MS / 1000);
+            const errContent = accumulated.trim()
+              ? accumulated.trim() + `\n\n**Error:** Stream idle timeout — no response for ${idleSecs}s. The connection may have dropped.`
+              : `**Error:** Stream idle timeout — no response for ${idleSecs}s. The connection may have dropped.`;
+            const errMessage: Message = {
+              id: 'temp-error-' + Date.now(),
+              session_id: sessionId,
+              role: 'assistant',
+              content: errContent,
+              created_at: new Date().toISOString(),
+              token_usage: null,
+            };
+            setMessages((prev) => [...prev, errMessage]);
+          } else {
+            const timeoutInfo = toolTimeoutRef.current;
+            if (timeoutInfo) {
+              // Tool execution timed out — save partial content and auto-retry
+              if (accumulated.trim()) {
+                const partialMessage: Message = {
+                  id: 'temp-assistant-' + Date.now(),
+                  session_id: sessionId,
+                  role: 'assistant',
+                  content: accumulated.trim() + `\n\n*(tool ${timeoutInfo.toolName} timed out after ${timeoutInfo.elapsedSeconds}s)*`,
+                  created_at: new Date().toISOString(),
+                  token_usage: null,
+                };
+                setMessages((prev) => [...prev, partialMessage]);
+              }
+              // Clean up before auto-retry
+              toolTimeoutRef.current = null;
+              setIsStreaming(false);
+              setStreamingSessionId('');
+              setStreamingContent('');
+              accumulatedRef.current = '';
+              toolUsesRef.current = [];
+              toolResultsRef.current = [];
+              setToolUses([]);
+              setToolResults([]);
+              setStreamingToolOutput('');
+              setStatusText(undefined);
+              setPendingPermission(null);
+              setPermissionResolved(null);
+              setPendingApprovalSessionId('');
+              abortControllerRef.current = null;
+              // Auto-retry: send a follow-up message telling the model to adjust strategy
+              setTimeout(() => {
+                sendMessageRef.current?.(
+                  `The previous tool "${timeoutInfo.toolName}" timed out after ${timeoutInfo.elapsedSeconds} seconds. Please try a different approach to accomplish the task. Avoid repeating the same operation that got stuck.`
+                );
+              }, 500);
+              return; // Skip the normal finally cleanup since we did it above
+            }
+            // User manually stopped generation — add partial content
             if (accumulated.trim()) {
               const partialMessage: Message = {
                 id: 'temp-assistant-' + Date.now(),
                 session_id: sessionId,
                 role: 'assistant',
-                content: accumulated.trim() + `\n\n*(tool ${timeoutInfo.toolName} timed out after ${timeoutInfo.elapsedSeconds}s)*`,
+                content: accumulated.trim() + '\n\n*(generation stopped)*',
                 created_at: new Date().toISOString(),
                 token_usage: null,
               };
               setMessages((prev) => [...prev, partialMessage]);
             }
-            // Clean up before auto-retry
-            toolTimeoutRef.current = null;
-            setIsStreaming(false);
-            setStreamingSessionId('');
-            setStreamingContent('');
-            accumulatedRef.current = '';
-            toolUsesRef.current = [];
-            toolResultsRef.current = [];
-            setToolUses([]);
-            setToolResults([]);
-            setStreamingToolOutput('');
-            setStatusText(undefined);
-            setPendingPermission(null);
-            setPermissionResolved(null);
-            setPendingApprovalSessionId('');
-            abortControllerRef.current = null;
-            // Auto-retry: send a follow-up message telling the model to adjust strategy
-            setTimeout(() => {
-              sendMessageRef.current?.(
-                `The previous tool "${timeoutInfo.toolName}" timed out after ${timeoutInfo.elapsedSeconds} seconds. Please try a different approach to accomplish the task. Avoid repeating the same operation that got stuck.`
-              );
-            }, 500);
-            return; // Skip the normal finally cleanup since we did it above
-          }
-          // User manually stopped generation — add partial content
-          if (accumulated.trim()) {
-            const partialMessage: Message = {
-              id: 'temp-assistant-' + Date.now(),
-              session_id: sessionId,
-              role: 'assistant',
-              content: accumulated.trim() + '\n\n*(generation stopped)*',
-              created_at: new Date().toISOString(),
-              token_usage: null,
-            };
-            setMessages((prev) => [...prev, partialMessage]);
           }
         } else {
           const errMsg = error instanceof Error ? error.message : 'Unknown error';
@@ -405,6 +451,7 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
           setMessages((prev) => [...prev, errorMessage]);
         }
       } finally {
+        clearInterval(idleCheckTimer);
         toolTimeoutRef.current = null;
         setIsStreaming(false);
         setStreamingSessionId('');
