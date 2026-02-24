@@ -504,17 +504,6 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
     }
   }, [sessionId, sendMessage]);
 
-  // Determine if "Start Execution" button should show
-  const showStartExecution = mode === 'plan' && !isStreaming && messages.length > 0 && messages[messages.length - 1]?.role === 'assistant';
-
-  const handleStartExecution = useCallback(() => {
-    handleModeChange('code');
-    // Small delay to let mode change propagate before sending
-    setTimeout(() => {
-      sendMessage('请按照上面的计划开始执行。');
-    }, 100);
-  }, [handleModeChange, sendMessage]);
-
   return (
     <div className="flex h-full min-h-0 flex-col">
       <MessageList
@@ -533,17 +522,6 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
         loadingMore={loadingMore}
         onLoadMore={loadEarlierMessages}
       />
-      {showStartExecution && (
-        <div className="flex justify-center py-3 px-4">
-          <button
-            onClick={handleStartExecution}
-            className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground shadow-sm transition-colors hover:bg-primary/90"
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>
-            开始执行
-          </button>
-        </div>
-      )}
       <MessageInput
         onSend={sendMessage}
         onCommand={handleCommand}

@@ -258,9 +258,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               <ResizeHandle side="left" onResize={handleChatListResize} onResizeEnd={handleChatListResizeEnd} />
             )}
             <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
-              {/* Electron draggable title bar region */}
+              {/* Electron draggable title bar region — matches side panels' mt-5 */}
               <div
-                className="h-11 w-full shrink-0"
+                className="h-5 w-full shrink-0"
                 style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}
               />
               <main className="relative flex-1 overflow-hidden">{children}</main>

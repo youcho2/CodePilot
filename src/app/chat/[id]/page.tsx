@@ -166,7 +166,7 @@ export default function ChatSessionPage({ params }: ChatSessionPageProps) {
       {/* Chat title bar */}
       {sessionTitle && (
         <div
-          className="flex items-center justify-center px-4 pb-2 gap-1"
+          className="flex h-12 shrink-0 items-center justify-center px-4 gap-1"
           style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}
         >
           {projectName && (
