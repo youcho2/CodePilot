@@ -719,6 +719,20 @@ export function streamClaude(options: ClaudeStreamOptions): ReadableStream<strin
         controller.close();
       } catch (error) {
         const rawMessage = error instanceof Error ? error.message : 'Unknown error';
+        // Log full error details for debugging (visible in terminal / dev tools)
+        console.error('[claude-client] Stream error:', {
+          message: rawMessage,
+          stack: error instanceof Error ? error.stack : undefined,
+          cause: error instanceof Error ? (error as { cause?: unknown }).cause : undefined,
+          stderr: error instanceof Error ? (error as { stderr?: string }).stderr : undefined,
+          code: error instanceof Error ? (error as NodeJS.ErrnoException).code : undefined,
+        });
+
+        // Try to extract stderr or cause for more useful error messages
+        const stderr = error instanceof Error ? (error as { stderr?: string }).stderr : undefined;
+        const cause = error instanceof Error ? (error as { cause?: unknown }).cause : undefined;
+        const extraDetail = stderr || (cause instanceof Error ? cause.message : cause ? String(cause) : '');
+
         let errorMessage = rawMessage;
 
         // Provide more specific error messages based on error type
@@ -728,7 +742,8 @@ export function streamClaude(options: ClaudeStreamOptions): ReadableStream<strin
             errorMessage = `Claude Code CLI not found. Please ensure Claude Code is installed and available in your PATH.\n\nOriginal error: ${rawMessage}`;
           } else if (rawMessage.includes('exited with code 1') || rawMessage.includes('exit code 1')) {
             const providerHint = activeProvider?.name ? ` (Provider: ${activeProvider.name})` : '';
-            errorMessage = `Claude Code process exited with an error${providerHint}. This is often caused by:\n• Invalid or missing API Key\n• Incorrect Base URL configuration\n• Network connectivity issues\n\nOriginal error: ${rawMessage}`;
+            const detailHint = extraDetail ? `\n\nDetails: ${extraDetail}` : '';
+            errorMessage = `Claude Code process exited with an error${providerHint}. This is often caused by:\n• Invalid or missing API Key\n• Incorrect Base URL configuration\n• Network connectivity issues${detailHint}\n\nOriginal error: ${rawMessage}`;
           } else if (rawMessage.includes('exited with code')) {
             const providerHint = activeProvider?.name ? ` (Provider: ${activeProvider.name})` : '';
             errorMessage = `Claude Code process crashed unexpectedly${providerHint}.\n\nOriginal error: ${rawMessage}`;
