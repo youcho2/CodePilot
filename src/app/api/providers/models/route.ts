@@ -4,7 +4,7 @@ import type { ErrorResponse } from '@/types';
 
 // Default Claude model options
 const DEFAULT_MODELS = [
-  { value: 'sonnet', label: 'Sonnet 4.5' },
+  { value: 'sonnet', label: 'Sonnet 4.6' },
   { value: 'opus', label: 'Opus 4.6' },
   { value: 'haiku', label: 'Haiku 4.5' },
 ];
@@ -47,7 +47,7 @@ const PROVIDER_MODEL_LABELS: Record<string, { value: string; label: string }[]> 
     { value: 'haiku', label: 'MiniMax-M2.1' },
   ],
   'https://openrouter.ai/api': [
-    { value: 'sonnet', label: 'Sonnet 4.5' },
+    { value: 'sonnet', label: 'Sonnet 4.6' },
     { value: 'opus', label: 'Opus 4.6' },
     { value: 'haiku', label: 'Haiku 4.5' },
   ],
