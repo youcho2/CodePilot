@@ -55,12 +55,22 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
       }).then(() => {
         window.dispatchEvent(new CustomEvent('session-updated'));
       }).catch(() => { /* silent */ });
+
+      // Try to switch SDK permission mode in real-time (works if streaming)
+      fetch('/api/chat/mode', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sessionId, mode: newMode }),
+      }).catch(() => { /* silent — will apply on next message */ });
     }
   }, [sessionId]);
   const abortControllerRef = useRef<AbortController | null>(null);
 
   // Ref to keep accumulated streaming content in sync regardless of React batching
   const accumulatedRef = useRef('');
+  // Refs to track tool data reliably across closures (state reads can be stale)
+  const toolUsesRef = useRef<ToolUseInfo[]>([]);
+  const toolResultsRef = useRef<ToolResultInfo[]>([]);
   // Ref for sendMessage to allow self-referencing in timeout auto-retry without circular deps
   const sendMessageRef = useRef<(content: string, files?: FileAttachment[]) => Promise<void>>(undefined);
 
@@ -128,10 +138,10 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
     abortControllerRef.current = null;
   }, []);
 
-  const handlePermissionResponse = useCallback(async (decision: 'allow' | 'allow_session' | 'deny') => {
+  const handlePermissionResponse = useCallback(async (decision: 'allow' | 'allow_session' | 'deny', updatedInput?: Record<string, unknown>) => {
     if (!pendingPermission) return;
 
-    const body: { permissionRequestId: string; decision: { behavior: 'allow'; updatedPermissions?: unknown[] } | { behavior: 'deny'; message?: string } } = {
+    const body: { permissionRequestId: string; decision: { behavior: 'allow'; updatedPermissions?: unknown[]; updatedInput?: Record<string, unknown> } | { behavior: 'deny'; message?: string } } = {
       permissionRequestId: pendingPermission.permissionRequestId,
       decision: decision === 'deny'
         ? { behavior: 'deny', message: 'User denied permission' }
@@ -140,6 +150,7 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
             ...(decision === 'allow_session' && pendingPermission.suggestions
               ? { updatedPermissions: pendingPermission.suggestions }
               : {}),
+            ...(updatedInput ? { updatedInput } : {}),
           },
     };
 
@@ -156,10 +167,18 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
       // Best effort - the stream will handle timeout
     }
 
-    // Clear permission state after a short delay so user sees the feedback
+    // Clear permission state after a short delay so user sees the feedback.
+    // Only clear if no new permission request has arrived in the meantime.
+    const answeredId = pendingPermission.permissionRequestId;
     setTimeout(() => {
-      setPendingPermission(null);
-      setPermissionResolved(null);
+      setPendingPermission((current) => {
+        if (current?.permissionRequestId === answeredId) {
+          // Same request — safe to clear both
+          setPermissionResolved(null);
+          return null;
+        }
+        return current; // A new request arrived — keep it
+      });
     }, 1000);
   }, [pendingPermission, setPendingApprovalSessionId]);
 
@@ -229,12 +248,18 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
             setStreamingToolOutput('');
             setToolUses((prev) => {
               if (prev.some((t) => t.id === tool.id)) return prev;
-              return [...prev, tool];
+              const next = [...prev, tool];
+              toolUsesRef.current = next;
+              return next;
             });
           },
           onToolResult: (res) => {
             setStreamingToolOutput('');
-            setToolResults((prev) => [...prev, res]);
+            setToolResults((prev) => {
+              const next = [...prev, res];
+              toolResultsRef.current = next;
+              return next;
+            });
             // Refresh file tree after each tool completes — file writes,
             // deletions, and other FS operations are done via tools.
             window.dispatchEvent(new Event('refresh-file-tree'));
@@ -265,6 +290,11 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
           onToolTimeout: (toolName, elapsedSeconds) => {
             toolTimeoutRef.current = { toolName, elapsedSeconds };
           },
+          onModeChanged: (sdkMode) => {
+            // Map SDK permissionMode to UI mode
+            const uiMode = sdkMode === 'plan' ? 'plan' : 'code';
+            handleModeChange(uiMode);
+          },
           onError: (acc) => {
             accumulated = acc;
             accumulatedRef.current = acc;
@@ -274,13 +304,37 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
 
         accumulated = result.accumulated;
 
+        // Build the assistant message content.
+        // When tools were used, serialize as a JSON content-blocks array
+        // (same format the backend API route stores), so MessageItem's
+        // parseToolBlocks() can render tool UI from history.
+        const finalToolUses = toolUsesRef.current;
+        const finalToolResults = toolResultsRef.current;
+        const hasTools = finalToolUses.length > 0 || finalToolResults.length > 0;
+
+        let messageContent = accumulated.trim();
+        if (hasTools && messageContent) {
+          const contentBlocks: Array<Record<string, unknown>> = [];
+          if (accumulated.trim()) {
+            contentBlocks.push({ type: 'text', text: accumulated.trim() });
+          }
+          for (const tu of finalToolUses) {
+            contentBlocks.push({ type: 'tool_use', id: tu.id, name: tu.name, input: tu.input });
+            const tr = finalToolResults.find(r => r.tool_use_id === tu.id);
+            if (tr) {
+              contentBlocks.push({ type: 'tool_result', tool_use_id: tr.tool_use_id, content: tr.content });
+            }
+          }
+          messageContent = JSON.stringify(contentBlocks);
+        }
+
         // Add the assistant message to the list
-        if (accumulated.trim()) {
+        if (messageContent) {
           const assistantMessage: Message = {
             id: 'temp-assistant-' + Date.now(),
             session_id: sessionId,
             role: 'assistant',
-            content: accumulated.trim(),
+            content: messageContent,
             created_at: new Date().toISOString(),
             token_usage: result.tokenUsage ? JSON.stringify(result.tokenUsage) : null,
           };
@@ -308,6 +362,8 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
             setStreamingSessionId('');
             setStreamingContent('');
             accumulatedRef.current = '';
+            toolUsesRef.current = [];
+            toolResultsRef.current = [];
             setToolUses([]);
             setToolResults([]);
             setStreamingToolOutput('');
@@ -354,6 +410,8 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
         setStreamingSessionId('');
         setStreamingContent('');
         accumulatedRef.current = '';
+        toolUsesRef.current = [];
+        toolResultsRef.current = [];
         setToolUses([]);
         setToolResults([]);
         setStreamingToolOutput('');
@@ -446,6 +504,17 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
     }
   }, [sessionId, sendMessage]);
 
+  // Determine if "Start Execution" button should show
+  const showStartExecution = mode === 'plan' && !isStreaming && messages.length > 0 && messages[messages.length - 1]?.role === 'assistant';
+
+  const handleStartExecution = useCallback(() => {
+    handleModeChange('code');
+    // Small delay to let mode change propagate before sending
+    setTimeout(() => {
+      sendMessage('请按照上面的计划开始执行。');
+    }, 100);
+  }, [handleModeChange, sendMessage]);
+
   return (
     <div className="flex h-full min-h-0 flex-col">
       <MessageList
@@ -464,6 +533,17 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
         loadingMore={loadingMore}
         onLoadMore={loadEarlierMessages}
       />
+      {showStartExecution && (
+        <div className="flex justify-center py-3 px-4">
+          <button
+            onClick={handleStartExecution}
+            className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground shadow-sm transition-colors hover:bg-primary/90"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+            开始执行
+          </button>
+        </div>
+      )}
       <MessageInput
         onSend={sendMessage}
         onCommand={handleCommand}

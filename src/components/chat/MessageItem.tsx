@@ -8,7 +8,8 @@ import {
   MessageResponse,
 } from '@/components/ai-elements/message';
 import { ToolActionsGroup } from '@/components/ai-elements/tool-actions-group';
-import { CopyIcon, CheckIcon, ChevronDownIcon, ChevronUpIcon } from 'lucide-react';
+import { HugeiconsIcon } from "@hugeicons/react";
+import { Copy01Icon, Tick01Icon, ArrowDown01Icon, ArrowUp01Icon } from "@hugeicons/core-free-icons";
 import { FileAttachmentDisplay } from './FileAttachmentDisplay';
 
 interface MessageItemProps {
@@ -175,9 +176,9 @@ function CopyButton({ text }: { text: string }) {
       title="Copy"
     >
       {copied ? (
-        <CheckIcon className="h-3 w-3 text-green-500" />
+        <HugeiconsIcon icon={Tick01Icon} className="h-3 w-3 text-green-500" />
       ) : (
-        <CopyIcon className="h-3 w-3" />
+        <HugeiconsIcon icon={Copy01Icon} className="h-3 w-3" />
       )}
     </button>
   );
@@ -287,12 +288,12 @@ export function MessageItem({ message }: MessageItemProps) {
                 >
                   {isExpanded ? (
                     <>
-                      <ChevronUpIcon className="h-3 w-3" />
+                      <HugeiconsIcon icon={ArrowUp01Icon} className="h-3 w-3" />
                       <span>收起</span>
                     </>
                   ) : (
                     <>
-                      <ChevronDownIcon className="h-3 w-3" />
+                      <HugeiconsIcon icon={ArrowDown01Icon} className="h-3 w-3" />
                       <span>展开</span>
                     </>
                   )}

@@ -18,6 +18,7 @@ import type {
 import type { ClaudeStreamOptions, SSEEvent, TokenUsage, MCPServerConfig, PermissionRequestEvent, FileAttachment } from '@/types';
 import { isImageFile } from '@/types';
 import { registerPendingPermission } from './permission-registry';
+import { registerConversation, unregisterConversation } from './conversation-registry';
 import { getSetting, getActiveProvider } from './db';
 import { findClaudeBinary, findGitBash, getExpandedPath } from './platform';
 import os from 'os';
@@ -226,6 +227,7 @@ function getUploadedFilePaths(files: FileAttachment[], workDir: string): string[
 export function streamClaude(options: ClaudeStreamOptions): ReadableStream<string> {
   const {
     prompt,
+    sessionId,
     sdkSessionId,
     model,
     systemPrompt,
@@ -536,6 +538,8 @@ export function streamClaude(options: ClaudeStreamOptions): ReadableStream<strin
           options: queryOptions,
         });
 
+        registerConversation(sessionId, conversation);
+
         let lastAssistantText = '';
         let tokenUsage: TokenUsage | null = null;
 
@@ -623,6 +627,15 @@ export function streamClaude(options: ClaudeStreamOptions): ReadableStream<strin
                       tools: sysMsg.tools,
                     }),
                   }));
+                } else if (sysMsg.subtype === 'status') {
+                  // SDK sends status messages when permission mode changes (e.g. ExitPlanMode)
+                  const statusMsg = sysMsg as SDKSystemMessage & { permissionMode?: string };
+                  if (statusMsg.permissionMode) {
+                    controller.enqueue(formatSSE({
+                      type: 'mode_changed',
+                      data: statusMsg.permissionMode,
+                    }));
+                  }
                 }
               }
               break;
@@ -705,6 +718,8 @@ export function streamClaude(options: ClaudeStreamOptions): ReadableStream<strin
         controller.enqueue(formatSSE({ type: 'error', data: errorMessage }));
         controller.enqueue(formatSSE({ type: 'done', data: '' }));
         controller.close();
+      } finally {
+        unregisterConversation(sessionId);
       }
     },
 

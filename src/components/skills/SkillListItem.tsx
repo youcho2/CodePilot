@@ -1,7 +1,7 @@
 "use client";
 
 import { HugeiconsIcon } from "@hugeicons/react";
-import { ZapIcon, Delete02Icon, GlobeIcon, FolderOpenIcon, Plug01Icon, Download04Icon } from "@hugeicons/core-free-icons";
+import { ZapIcon, Delete02Icon, GlobeIcon, Plug01Icon, Download04Icon } from "@hugeicons/core-free-icons";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -76,19 +76,15 @@ export function SkillListItem({
                 ? "border-green-500/40 text-green-600 dark:text-green-400"
                 : skill.source === "installed"
                   ? "border-orange-500/40 text-orange-600 dark:text-orange-400"
-                  : skill.source === "plugin"
-                    ? "border-indigo-500/40 text-indigo-600 dark:text-indigo-400"
-                    : "border-blue-500/40 text-blue-600 dark:text-blue-400"
+                  : "border-indigo-500/40 text-indigo-600 dark:text-indigo-400"
             )}
           >
             {skill.source === "global" ? (
               <HugeiconsIcon icon={GlobeIcon} className="h-2.5 w-2.5 mr-0.5" />
             ) : skill.source === "installed" ? (
               <HugeiconsIcon icon={Download04Icon} className="h-2.5 w-2.5 mr-0.5" />
-            ) : skill.source === "plugin" ? (
-              <HugeiconsIcon icon={Plug01Icon} className="h-2.5 w-2.5 mr-0.5" />
             ) : (
-              <HugeiconsIcon icon={FolderOpenIcon} className="h-2.5 w-2.5 mr-0.5" />
+              <HugeiconsIcon icon={Plug01Icon} className="h-2.5 w-2.5 mr-0.5" />
             )}
             {skill.source === "installed" && skill.installedSource
               ? `installed:${skill.installedSource}`

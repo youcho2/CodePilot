@@ -311,6 +311,7 @@ export type SSEEventType =
   | 'result'             // final result with usage stats
   | 'error'              // error occurred
   | 'permission_request' // permission approval needed
+  | 'mode_changed'       // SDK permission mode changed (e.g. plan → code)
   | 'done';              // stream complete
 
 export interface SSEEvent {
@@ -345,6 +346,7 @@ export interface PermissionResponseRequest {
   decision: {
     behavior: 'allow';
     updatedPermissions?: PermissionSuggestion[];
+    updatedInput?: Record<string, unknown>;
   } | {
     behavior: 'deny';
     message?: string;

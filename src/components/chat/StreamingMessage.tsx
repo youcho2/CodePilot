@@ -40,7 +40,7 @@ interface StreamingMessageProps {
   streamingToolOutput?: string;
   statusText?: string;
   pendingPermission?: PermissionRequestEvent | null;
-  onPermissionResponse?: (decision: 'allow' | 'allow_session' | 'deny') => void;
+  onPermissionResponse?: (decision: 'allow' | 'allow_session' | 'deny', updatedInput?: Record<string, unknown>) => void;
   permissionResolved?: 'allow' | 'deny' | null;
   onForceStop?: () => void;
 }
@@ -64,6 +64,185 @@ function ElapsedTimer() {
     <span className="tabular-nums">
       {mins > 0 ? `${mins}m ${secs}s` : `${secs}s`}
     </span>
+  );
+}
+
+function AskUserQuestionUI({
+  toolInput,
+  onSubmit,
+}: {
+  toolInput: Record<string, unknown>;
+  onSubmit: (decision: 'allow', updatedInput: Record<string, unknown>) => void;
+}) {
+  const questions = (toolInput.questions || []) as Array<{
+    question: string;
+    options: Array<{ label: string; description?: string }>;
+    multiSelect: boolean;
+    header?: string;
+  }>;
+
+  const [selections, setSelections] = useState<Record<string, Set<string>>>({});
+  const [otherTexts, setOtherTexts] = useState<Record<string, string>>({});
+  const [useOther, setUseOther] = useState<Record<string, boolean>>({});
+
+  const toggleOption = (qIdx: string, label: string, multi: boolean) => {
+    setSelections((prev) => {
+      const current = new Set(prev[qIdx] || []);
+      if (multi) {
+        current.has(label) ? current.delete(label) : current.add(label);
+      } else {
+        current.clear();
+        current.add(label);
+      }
+      return { ...prev, [qIdx]: current };
+    });
+    // Deselect "Other" when picking a regular option
+    setUseOther((prev) => ({ ...prev, [qIdx]: false }));
+  };
+
+  const toggleOther = (qIdx: string, multi: boolean) => {
+    if (!multi) {
+      setSelections((prev) => ({ ...prev, [qIdx]: new Set() }));
+    }
+    setUseOther((prev) => ({ ...prev, [qIdx]: !prev[qIdx] }));
+  };
+
+  const handleSubmit = () => {
+    const answers: Record<string, string> = {};
+    questions.forEach((q, i) => {
+      const qIdx = String(i);
+      const selected = Array.from(selections[qIdx] || []);
+      if (useOther[qIdx] && otherTexts[qIdx]?.trim()) {
+        selected.push(otherTexts[qIdx].trim());
+      }
+      answers[q.question] = selected.join(', ');
+    });
+    onSubmit('allow', { questions: toolInput.questions, answers });
+  };
+
+  const hasAnswer = questions.some((_, i) => {
+    const qIdx = String(i);
+    return (selections[qIdx]?.size || 0) > 0 || (useOther[qIdx] && otherTexts[qIdx]?.trim());
+  });
+
+  return (
+    <div className="space-y-4 py-2">
+      {questions.map((q, i) => {
+        const qIdx = String(i);
+        const selected = selections[qIdx] || new Set<string>();
+        return (
+          <div key={qIdx} className="space-y-2">
+            {q.header && (
+              <span className="inline-block rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
+                {q.header}
+              </span>
+            )}
+            <p className="text-sm font-medium">{q.question}</p>
+            <div className="flex flex-wrap gap-2">
+              {q.options.map((opt) => {
+                const isSelected = selected.has(opt.label);
+                return (
+                  <button
+                    key={opt.label}
+                    onClick={() => toggleOption(qIdx, opt.label, q.multiSelect)}
+                    className={`rounded-lg border px-3 py-1.5 text-xs transition-colors ${
+                      isSelected
+                        ? 'border-primary bg-primary/10 text-primary'
+                        : 'border-border bg-background text-foreground hover:bg-muted'
+                    }`}
+                    title={opt.description}
+                  >
+                    {q.multiSelect && (
+                      <span className="mr-1.5">{isSelected ? '☑' : '☐'}</span>
+                    )}
+                    {opt.label}
+                  </button>
+                );
+              })}
+              {/* Other option */}
+              <button
+                onClick={() => toggleOther(qIdx, q.multiSelect)}
+                className={`rounded-lg border px-3 py-1.5 text-xs transition-colors ${
+                  useOther[qIdx]
+                    ? 'border-primary bg-primary/10 text-primary'
+                    : 'border-border bg-background text-foreground hover:bg-muted'
+                }`}
+              >
+                Other
+              </button>
+            </div>
+            {useOther[qIdx] && (
+              <input
+                type="text"
+                placeholder="Type your answer..."
+                value={otherTexts[qIdx] || ''}
+                onChange={(e) => setOtherTexts((prev) => ({ ...prev, [qIdx]: e.target.value }))}
+                className="w-full rounded-md border border-border bg-background px-3 py-1.5 text-xs focus:border-primary focus:outline-none"
+                autoFocus
+              />
+            )}
+          </div>
+        );
+      })}
+      <button
+        onClick={handleSubmit}
+        disabled={!hasAnswer}
+        className="rounded-lg bg-primary px-4 py-1.5 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-40"
+      >
+        Submit
+      </button>
+    </div>
+  );
+}
+
+function ExitPlanModeUI({
+  toolInput,
+  onApprove,
+  onDeny,
+}: {
+  toolInput: Record<string, unknown>;
+  onApprove: () => void;
+  onDeny: () => void;
+}) {
+  const allowedPrompts = (toolInput.allowedPrompts || []) as Array<{
+    tool: string;
+    prompt: string;
+  }>;
+
+  return (
+    <div className="space-y-3 rounded-lg border border-primary/30 bg-primary/5 p-4">
+      <div className="flex items-center gap-2">
+        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-primary"><polyline points="9 11 12 14 22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+        <span className="text-sm font-medium">Plan complete — ready to execute</span>
+      </div>
+      {allowedPrompts.length > 0 && (
+        <div className="space-y-1">
+          <p className="text-xs text-muted-foreground">Requested permissions:</p>
+          <ul className="space-y-0.5">
+            {allowedPrompts.map((p, i) => (
+              <li key={i} className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                <span className="rounded bg-muted px-1.5 py-0.5 font-mono text-[10px]">{p.tool}</span>
+                <span>{p.prompt}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+      <div className="flex gap-2">
+        <button
+          onClick={onDeny}
+          className="rounded-lg border border-border px-3 py-1.5 text-xs transition-colors hover:bg-muted"
+        >
+          Reject
+        </button>
+        <button
+          onClick={onApprove}
+          className="rounded-lg bg-primary px-4 py-1.5 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90"
+        >
+          Approve & Execute
+        </button>
+      </div>
+    </div>
   );
 }
 
@@ -185,8 +364,34 @@ export function StreamingMessage({
           />
         )}
 
-        {/* Permission approval confirmation */}
-        {(pendingPermission || permissionResolved) && (
+        {/* Permission approval — AskUserQuestion gets a dedicated UI */}
+        {pendingPermission?.toolName === 'AskUserQuestion' && !permissionResolved && (
+          <AskUserQuestionUI
+            toolInput={pendingPermission.toolInput as Record<string, unknown>}
+            onSubmit={(decision, updatedInput) => onPermissionResponse?.(decision, updatedInput)}
+          />
+        )}
+        {pendingPermission?.toolName === 'AskUserQuestion' && permissionResolved && (
+          <p className="py-1 text-xs text-green-600 dark:text-green-400">Answer submitted</p>
+        )}
+
+        {/* Permission approval — ExitPlanMode gets a dedicated UI */}
+        {pendingPermission?.toolName === 'ExitPlanMode' && !permissionResolved && (
+          <ExitPlanModeUI
+            toolInput={pendingPermission.toolInput as Record<string, unknown>}
+            onApprove={() => onPermissionResponse?.('allow')}
+            onDeny={() => onPermissionResponse?.('deny')}
+          />
+        )}
+        {pendingPermission?.toolName === 'ExitPlanMode' && permissionResolved === 'allow' && (
+          <p className="py-1 text-xs text-green-600 dark:text-green-400">Plan approved — executing</p>
+        )}
+        {pendingPermission?.toolName === 'ExitPlanMode' && permissionResolved === 'deny' && (
+          <p className="py-1 text-xs text-red-600 dark:text-red-400">Plan rejected</p>
+        )}
+
+        {/* Permission approval — generic confirmation for other tools */}
+        {(pendingPermission || permissionResolved) && pendingPermission?.toolName !== 'AskUserQuestion' && pendingPermission?.toolName !== 'ExitPlanMode' && (
           <Confirmation
             approval={getApproval()}
             state={getConfirmationState()}

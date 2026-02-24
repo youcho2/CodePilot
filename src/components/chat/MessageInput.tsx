@@ -4,8 +4,6 @@ import { useRef, useState, useCallback, useEffect, type KeyboardEvent, type Form
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
   AtIcon,
-  Wrench01Icon,
-  ClipboardIcon,
   HelpCircleIcon,
   ArrowDown01Icon,
   ArrowUp02Icon,
@@ -20,6 +18,7 @@ import {
   SearchList01Icon,
   BrainIcon,
   GlobalIcon,
+  StopIcon,
 } from "@hugeicons/core-free-icons";
 import { cn } from '@/lib/utils';
 import {
@@ -31,7 +30,6 @@ import {
   PromptInputSubmit,
   usePromptInputAttachments,
 } from '@/components/ai-elements/prompt-input';
-import { SquareIcon } from 'lucide-react';
 import type { ChatStatus } from 'ai';
 import type { FileAttachment } from '@/types';
 import { nanoid } from 'nanoid';
@@ -70,6 +68,7 @@ interface PopoverItem {
   builtIn?: boolean;
   immediate?: boolean;
   installedSource?: "agents" | "claude";
+  source?: "global" | "project" | "plugin" | "installed";
   icon?: typeof CommandLineIcon;
 }
 
@@ -106,14 +105,11 @@ const BUILT_IN_COMMANDS: PopoverItem[] = [
 interface ModeOption {
   value: string;
   label: string;
-  icon: typeof Wrench01Icon;
-  description: string;
 }
 
 const MODE_OPTIONS: ModeOption[] = [
-  { value: 'code', label: 'Code', icon: Wrench01Icon, description: 'Read, write files & run commands' },
-  { value: 'plan', label: 'Plan', icon: ClipboardIcon, description: 'Analyze & plan without executing' },
-  { value: 'ask', label: 'Ask', icon: HelpCircleIcon, description: 'Answer questions only' },
+  { value: 'code', label: 'Code' },
+  { value: 'plan', label: 'Plan' },
 ];
 
 // Default Claude model options — used as fallback when API is unavailable
@@ -174,7 +170,7 @@ function FileAwareSubmitButton({
       className="rounded-full"
     >
       {isStreaming ? (
-        <SquareIcon className="size-4" />
+        <HugeiconsIcon icon={StopIcon} className="size-4" />
       ) : (
         <HugeiconsIcon icon={ArrowUp02Icon} className="h-4 w-4" strokeWidth={2} />
       )}
@@ -338,7 +334,6 @@ export function MessageInput({
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const popoverRef = useRef<HTMLDivElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
-  const modeMenuRef = useRef<HTMLDivElement>(null);
   const modelMenuRef = useRef<HTMLDivElement>(null);
 
   const [popoverMode, setPopoverMode] = useState<PopoverMode>(null);
@@ -346,7 +341,6 @@ export function MessageInput({
   const [popoverFilter, setPopoverFilter] = useState('');
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [triggerPos, setTriggerPos] = useState<number | null>(null);
-  const [modeMenuOpen, setModeMenuOpen] = useState(false);
   const [modelMenuOpen, setModelMenuOpen] = useState(false);
   const [inputValue, setInputValue] = useState('');
   const [badge, setBadge] = useState<CommandBadge | null>(null);
@@ -410,17 +404,19 @@ export function MessageInput({
   const fetchSkills = useCallback(async () => {
     let apiSkills: PopoverItem[] = [];
     try {
-      const res = await fetch('/api/skills');
+      const cwdParam = workingDirectory ? `?cwd=${encodeURIComponent(workingDirectory)}` : '';
+      const res = await fetch(`/api/skills${cwdParam}`);
       if (res.ok) {
         const data = await res.json();
         const skills = data.skills || [];
         apiSkills = skills
-          .map((s: { name: string; description: string; source?: string; installedSource?: "agents" | "claude" }) => ({
+          .map((s: { name: string; description: string; source?: "global" | "project" | "plugin" | "installed"; installedSource?: "agents" | "claude" }) => ({
             label: s.name,
             value: `/${s.name}`,
             description: s.description || "",
             builtIn: false,
             installedSource: s.installedSource,
+            source: s.source,
           }));
       }
     } catch {
@@ -432,7 +428,7 @@ export function MessageInput({
     const uniqueSkills = apiSkills.filter(s => !builtInNames.has(s.label));
 
     return [...BUILT_IN_COMMANDS, ...uniqueSkills];
-  }, []);
+  }, [workingDirectory]);
 
   // Close popover
   const closePopover = useCallback(() => {
@@ -570,11 +566,12 @@ export function MessageInput({
       if (badge.isSkill) {
         // Fetch skill content from API
         try {
-          const sourceParam = badge.installedSource
-            ? `?source=${badge.installedSource}`
-            : "";
+          const detailParams = new URLSearchParams();
+          if (badge.installedSource) detailParams.set("source", badge.installedSource);
+          if (workingDirectory) detailParams.set("cwd", workingDirectory);
+          const qs = detailParams.toString();
           const res = await fetch(
-            `/api/skills/${encodeURIComponent(badge.label)}${sourceParam}`
+            `/api/skills/${encodeURIComponent(badge.label)}${qs ? `?${qs}` : ""}`
           );
           if (res.ok) {
             const data = await res.json();
@@ -699,18 +696,6 @@ export function MessageInput({
     return () => document.removeEventListener('mousedown', handler);
   }, [popoverMode, closePopover]);
 
-  // Click outside to close mode menu
-  useEffect(() => {
-    if (!modeMenuOpen) return;
-    const handler = (e: MouseEvent) => {
-      if (modeMenuRef.current && !modeMenuRef.current.contains(e.target as Node)) {
-        setModeMenuOpen(false);
-      }
-    };
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
-  }, [modeMenuOpen]);
-
   // Click outside to close model menu
   useEffect(() => {
     if (!modelMenuOpen) return;
@@ -729,7 +714,6 @@ export function MessageInput({
 
   const currentModelValue = modelName || 'sonnet';
   const currentModelOption = MODEL_OPTIONS.find((m) => m.value === currentModelValue) || MODEL_OPTIONS[0];
-  const currentMode = MODE_OPTIONS.find((m) => m.value === mode) || MODE_OPTIONS[0];
 
   // Map isStreaming to ChatStatus for PromptInputSubmit
   const chatStatus: ChatStatus = isStreaming ? 'streaming' : 'ready';
@@ -741,7 +725,8 @@ export function MessageInput({
           {/* Popover */}
           {popoverMode && filteredItems.length > 0 && (() => {
             const builtInItems = filteredItems.filter(item => item.builtIn);
-            const skillItems = filteredItems.filter(item => !item.builtIn);
+            const projectItems = filteredItems.filter(item => !item.builtIn && item.source === 'project');
+            const skillItems = filteredItems.filter(item => !item.builtIn && item.source !== 'project');
             let globalIdx = 0;
 
             const renderItem = (item: PopoverItem, idx: number) => (
@@ -759,6 +744,8 @@ export function MessageInput({
                   <HugeiconsIcon icon={AtIcon} className="h-4 w-4 shrink-0 text-muted-foreground" />
                 ) : item.builtIn && item.icon ? (
                   <HugeiconsIcon icon={item.icon} className="h-4 w-4 shrink-0 text-muted-foreground" />
+                ) : !item.builtIn && item.source === 'project' ? (
+                  <HugeiconsIcon icon={FileEditIcon} className="h-4 w-4 shrink-0 text-muted-foreground" />
                 ) : !item.builtIn ? (
                   <HugeiconsIcon icon={GlobalIcon} className="h-4 w-4 shrink-0 text-muted-foreground" />
                 ) : (
@@ -843,6 +830,17 @@ export function MessageInput({
                           })}
                         </>
                       )}
+                      {projectItems.length > 0 && (
+                        <>
+                          <div className="px-3 py-1.5 text-xs font-medium text-muted-foreground">
+                            Project Commands
+                          </div>
+                          {projectItems.map((item) => {
+                            const idx = globalIdx++;
+                            return renderItem(item, idx);
+                          })}
+                        </>
+                      )}
                       {skillItems.length > 0 && (
                         <>
                           <div className="px-3 py-1.5 text-xs font-medium text-muted-foreground">
@@ -906,46 +904,25 @@ export function MessageInput({
                 {/* Attach file button */}
                 <AttachFileButton />
 
-                {/* Mode selector */}
-                <div className="relative" ref={modeMenuRef}>
-                  <PromptInputButton
-                    onClick={() => setModeMenuOpen((prev) => !prev)}
-                  >
-                    <span className="text-xs">{currentMode.label}</span>
-                    <HugeiconsIcon icon={ArrowDown01Icon} className={cn("h-2.5 w-2.5 transition-transform duration-200", modeMenuOpen && "rotate-180")} />
-                  </PromptInputButton>
-
-                  {/* Mode dropdown */}
-                  {modeMenuOpen && (
-                    <div className="absolute bottom-full left-0 mb-1.5 w-56 rounded-lg border bg-popover shadow-lg overflow-hidden z-50">
-                      <div className="py-1">
-                        {MODE_OPTIONS.map((opt) => {
-                          const isActive = opt.value === mode;
-                          return (
-                            <button
-                              key={opt.value}
-                              className={cn(
-                                "flex w-full items-center gap-2 px-3 py-2 text-left text-sm transition-colors",
-                                isActive ? "bg-accent text-accent-foreground" : "hover:bg-accent/50"
-                              )}
-                              onClick={() => {
-                                onModeChange?.(opt.value);
-                                setModeMenuOpen(false);
-                              }}
-                            >
-                              <HugeiconsIcon icon={opt.icon} className="h-4 w-4 shrink-0" />
-                              <div className="flex flex-col min-w-0">
-                                <span className="font-medium text-xs">{opt.label}</span>
-                                <span className="text-[10px] text-muted-foreground truncate">
-                                  {opt.description}
-                                </span>
-                              </div>
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  )}
+                {/* Mode capsule toggle */}
+                <div className="flex items-center rounded-full border border-border/60 overflow-hidden h-7">
+                  {MODE_OPTIONS.map((opt) => {
+                    const isActive = opt.value === mode;
+                    return (
+                      <button
+                        key={opt.value}
+                        className={cn(
+                          "px-2.5 py-1 text-xs font-medium transition-colors",
+                          isActive
+                            ? "bg-accent text-accent-foreground"
+                            : "text-muted-foreground hover:text-foreground"
+                        )}
+                        onClick={() => onModeChange?.(opt.value)}
+                      >
+                        {opt.label}
+                      </button>
+                    );
+                  })}
                 </div>
 
                 {/* Model selector */}

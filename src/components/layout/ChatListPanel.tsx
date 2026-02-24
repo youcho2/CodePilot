@@ -111,7 +111,6 @@ function groupSessionsByProject(sessions: ChatSession[]): ProjectGroup[] {
 const MODE_BADGE_CONFIG = {
   code: { label: "Code", className: "bg-blue-500/10 text-blue-500" },
   plan: { label: "Plan", className: "bg-sky-500/10 text-sky-500" },
-  ask: { label: "Ask", className: "bg-green-500/10 text-green-500" },
 } as const;
 
 export function ChatListPanel({ open, width }: ChatListPanelProps) {
@@ -396,23 +395,40 @@ export function ChatListPanel({ open, width }: ChatListPanelProps) {
               return (
                 <div key={group.workingDirectory || "__no_project"} className="mt-1 first:mt-0">
                   {/* Folder header */}
-                  <div
-                    className={cn(
-                      "flex items-center gap-1 rounded-md px-2 py-1 cursor-pointer select-none transition-colors",
-                      "hover:bg-accent/50"
-                    )}
-                    onClick={() => toggleProject(group.workingDirectory)}
-                    onMouseEnter={() =>
-                      setHoveredFolder(group.workingDirectory)
-                    }
-                    onMouseLeave={() => setHoveredFolder(null)}
-                  >
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <div
+                        className={cn(
+                          "flex items-center gap-1 rounded-md px-2 py-1 cursor-pointer select-none transition-colors",
+                          "hover:bg-accent/50"
+                        )}
+                        onClick={() => toggleProject(group.workingDirectory)}
+                        onDoubleClick={(e) => {
+                          e.stopPropagation();
+                          if (group.workingDirectory) {
+                            const w = window as unknown as { electronAPI?: { shell?: { openPath: (p: string) => void } } };
+                            if (w.electronAPI?.shell?.openPath) {
+                              w.electronAPI.shell.openPath(group.workingDirectory);
+                            } else {
+                              fetch('/api/files/open', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ path: group.workingDirectory }),
+                              }).catch(() => {});
+                            }
+                          }
+                        }}
+                        onMouseEnter={() =>
+                          setHoveredFolder(group.workingDirectory)
+                        }
+                        onMouseLeave={() => setHoveredFolder(null)}
+                      >
                     <HugeiconsIcon
                       icon={isCollapsed ? ArrowRight01Icon : ArrowDown01Icon}
                       className="h-3 w-3 shrink-0 text-muted-foreground"
                     />
                     <HugeiconsIcon
-                      icon={Folder01Icon}
+                      icon={isCollapsed ? Folder01Icon : FolderOpenIcon}
                       className="h-3.5 w-3.5 shrink-0 text-muted-foreground"
                     />
                     <span className="flex-1 truncate text-[12px] font-medium text-sidebar-foreground">
@@ -452,6 +468,12 @@ export function ChatListPanel({ open, width }: ChatListPanelProps) {
                       </Tooltip>
                     )}
                   </div>
+                    </TooltipTrigger>
+                    <TooltipContent side="right" className="max-w-xs">
+                      <p className="text-xs break-all">{group.workingDirectory || 'No Project'}</p>
+                      {group.workingDirectory && <p className="text-[10px] text-muted-foreground mt-0.5">Double-click to open in Finder</p>}
+                    </TooltipContent>
+                  </Tooltip>
 
                   {/* Session items */}
                   {!isCollapsed && (
@@ -465,7 +487,7 @@ export function ChatListPanel({ open, width }: ChatListPanelProps) {
                         const needsApproval =
                           pendingApprovalSessionId === session.id;
                         const mode = session.mode || "code";
-                        const badgeCfg = MODE_BADGE_CONFIG[mode];
+                        const badgeCfg = MODE_BADGE_CONFIG[mode as keyof typeof MODE_BADGE_CONFIG] || MODE_BADGE_CONFIG.code;
 
                         return (
                           <div

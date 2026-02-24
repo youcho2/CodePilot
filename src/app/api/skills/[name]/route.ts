@@ -8,8 +8,8 @@ function getGlobalCommandsDir(): string {
   return path.join(os.homedir(), ".claude", "commands");
 }
 
-function getProjectCommandsDir(): string {
-  return path.join(process.cwd(), ".claude", "commands");
+function getProjectCommandsDir(cwd?: string): string {
+  return path.join(cwd || process.cwd(), ".claude", "commands");
 }
 
 function getInstalledSkillsDir(): string {
@@ -149,7 +149,7 @@ function findInstalledSkillMatches(
 
 function findSkillFile(
   name: string,
-  options?: { installedSource?: InstalledSource; installedOnly?: boolean }
+  options?: { installedSource?: InstalledSource; installedOnly?: boolean; cwd?: string }
 ):
   | SkillMatch
   | { conflict: true; sources: InstalledSource[] }
@@ -158,7 +158,7 @@ function findSkillFile(
 
   if (!options?.installedOnly) {
     // Check project first, then global, then installed (~/.agents/skills/ and ~/.claude/skills/)
-    const projectPath = path.join(getProjectCommandsDir(), `${name}.md`);
+    const projectPath = path.join(getProjectCommandsDir(options?.cwd), `${name}.md`);
     if (fs.existsSync(projectPath)) {
       return { filePath: projectPath, source: "project" };
     }
@@ -211,6 +211,7 @@ export async function GET(
     const { name } = await params;
     const url = new URL(_request.url);
     const sourceParam = url.searchParams.get("source");
+    const cwdParam = url.searchParams.get("cwd") || undefined;
     const installedSource =
       sourceParam === "agents" || sourceParam === "claude"
         ? (sourceParam as InstalledSource)
@@ -223,8 +224,8 @@ export async function GET(
     }
 
     const found = installedSource
-      ? findSkillFile(name, { installedSource, installedOnly: true })
-      : findSkillFile(name);
+      ? findSkillFile(name, { installedSource, installedOnly: true, cwd: cwdParam })
+      : findSkillFile(name, { cwd: cwdParam });
     if (found && "conflict" in found) {
       return NextResponse.json(
         { error: "Multiple skills with different content", sources: found.sources },
@@ -327,6 +328,7 @@ export async function DELETE(
     const { name } = await params;
     const url = new URL(_request.url);
     const sourceParam = url.searchParams.get("source");
+    const cwdParam = url.searchParams.get("cwd") || undefined;
     const installedSource =
       sourceParam === "agents" || sourceParam === "claude"
         ? (sourceParam as InstalledSource)
@@ -339,8 +341,8 @@ export async function DELETE(
     }
 
     const found = installedSource
-      ? findSkillFile(name, { installedSource, installedOnly: true })
-      : findSkillFile(name);
+      ? findSkillFile(name, { installedSource, installedOnly: true, cwd: cwdParam })
+      : findSkillFile(name, { cwd: cwdParam });
     if (found && "conflict" in found) {
       return NextResponse.json(
         { error: "Multiple skills with different content", sources: found.sources },

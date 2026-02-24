@@ -13,8 +13,8 @@ import {
   Loading02Icon,
   CheckmarkCircle02Icon,
   CancelCircleIcon,
+  ArrowRight01Icon,
 } from "@hugeicons/core-free-icons";
-import { ChevronRightIcon } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 // ---------------------------------------------------------------------------
@@ -229,7 +229,8 @@ export function ToolActionsGroup({
         onClick={handleToggle}
         className="flex w-full items-center gap-2 py-1 text-xs rounded-sm hover:bg-muted/30 transition-colors"
       >
-        <ChevronRightIcon
+        <HugeiconsIcon
+          icon={ArrowRight01Icon}
           className={cn(
             "h-3 w-3 shrink-0 text-muted-foreground/60 transition-transform duration-200",
             expanded && "rotate-90"

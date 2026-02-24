@@ -283,10 +283,11 @@ export async function GET(request: NextRequest) {
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { name, content, scope } = body as {
+    const { name, content, scope, cwd } = body as {
       name: string;
       content: string;
       scope: "global" | "project";
+      cwd?: string;
     };
 
     if (!name || typeof name !== "string") {
@@ -306,7 +307,7 @@ export async function POST(request: Request) {
     }
 
     const dir =
-      scope === "project" ? getProjectCommandsDir() : getGlobalCommandsDir();
+      scope === "project" ? getProjectCommandsDir(cwd) : getGlobalCommandsDir();
 
     if (!fs.existsSync(dir)) {
       fs.mkdirSync(dir, { recursive: true });

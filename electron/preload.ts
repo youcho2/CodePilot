@@ -7,6 +7,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
     node: process.versions.node,
     chrome: process.versions.chrome,
   },
+  shell: {
+    openPath: (folderPath: string) => ipcRenderer.invoke('shell:open-path', folderPath),
+  },
   install: {
     checkPrerequisites: () => ipcRenderer.invoke('install:check-prerequisites'),
     start: (options?: { includeNode?: boolean }) => ipcRenderer.invoke('install:start', options),

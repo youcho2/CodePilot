@@ -1,4 +1,4 @@
-import { app, BrowserWindow, nativeImage, dialog, session, utilityProcess, ipcMain } from 'electron';
+import { app, BrowserWindow, nativeImage, dialog, session, utilityProcess, ipcMain, shell } from 'electron';
 import path from 'path';
 import { execFileSync, spawn, ChildProcess } from 'child_process';
 import fs from 'fs';
@@ -706,6 +706,11 @@ app.whenReady().then(async () => {
   });
 
   // --- End install wizard IPC handlers ---
+
+  // Open a folder in the system file manager (Finder / Explorer)
+  ipcMain.handle('shell:open-path', async (_event: Electron.IpcMainInvokeEvent, folderPath: string) => {
+    return shell.openPath(folderPath);
+  });
 
   try {
     let port: number;

@@ -149,26 +149,9 @@ export function FileTree({ workingDirectory, onFileSelect, onFileAdd }: FileTree
 
   return (
     <div className="flex flex-col h-full min-h-0">
-      {/* Header */}
-      <div className="flex items-center gap-2 px-4 py-2 shrink-0">
-        <p className="min-w-0 flex-1 truncate text-[11px] text-muted-foreground" title={workingDirectory}>
-          {workingDirectory || 'No directory selected'}
-        </p>
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          onClick={fetchTree}
-          disabled={loading}
-          className="h-6 w-6 shrink-0"
-        >
-          <HugeiconsIcon icon={RefreshIcon} className={cn("h-3 w-3", loading && "animate-spin")} />
-          <span className="sr-only">Refresh</span>
-        </Button>
-      </div>
-
-      {/* Search */}
-      <div className="px-4 pb-2 shrink-0">
-        <div className="relative">
+      {/* Search + Refresh */}
+      <div className="flex items-center gap-1.5 px-4 py-2 shrink-0">
+        <div className="relative flex-1 min-w-0">
           <HugeiconsIcon icon={Search01Icon} className="absolute left-2.5 top-1/2 h-3 w-3 -translate-y-1/2 text-muted-foreground pointer-events-none" />
           <Input
             placeholder="Filter files..."
@@ -177,6 +160,16 @@ export function FileTree({ workingDirectory, onFileSelect, onFileAdd }: FileTree
             className="h-7 pl-7 text-xs"
           />
         </div>
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          onClick={fetchTree}
+          disabled={loading}
+          className="h-7 w-7 shrink-0"
+        >
+          <HugeiconsIcon icon={RefreshIcon} className={cn("h-3 w-3", loading && "animate-spin")} />
+          <span className="sr-only">Refresh</span>
+        </Button>
       </div>
 
       {/* Tree */}

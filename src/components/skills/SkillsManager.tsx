@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { usePanel } from "@/hooks/usePanel";
 
 import { HugeiconsIcon } from "@hugeicons/react";
 import { PlusSignIcon, Search01Icon, ZapIcon, Loading02Icon } from "@hugeicons/core-free-icons";
@@ -12,6 +13,7 @@ import { CreateSkillDialog } from "./CreateSkillDialog";
 import type { SkillItem } from "./SkillListItem";
 
 export function SkillsManager() {
+  const { workingDirectory } = usePanel();
   const [skills, setSkills] = useState<SkillItem[]>([]);
   const [selected, setSelected] = useState<SkillItem | null>(null);
   const [loading, setLoading] = useState(true);
@@ -20,17 +22,18 @@ export function SkillsManager() {
 
   const fetchSkills = useCallback(async () => {
     try {
-      const res = await fetch("/api/skills");
+      const cwdParam = workingDirectory ? `?cwd=${encodeURIComponent(workingDirectory)}` : '';
+      const res = await fetch(`/api/skills${cwdParam}`);
       if (res.ok) {
         const data = await res.json();
-        setSkills(data.skills || []);
+        setSkills((data.skills || []).filter((s: SkillItem) => s.source !== "project"));
       }
     } catch {
       // ignore
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [workingDirectory]);
 
   useEffect(() => {
     fetchSkills();
@@ -41,7 +44,7 @@ export function SkillsManager() {
       const res = await fetch("/api/skills", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name, content, scope }),
+        body: JSON.stringify({ name, content, scope, cwd: workingDirectory || undefined }),
       });
       if (!res.ok) {
         const data = await res.json();
@@ -51,16 +54,20 @@ export function SkillsManager() {
       setSkills((prev) => [...prev, data.skill]);
       setSelected(data.skill);
     },
-    []
+    [workingDirectory]
   );
 
   const buildSkillUrl = useCallback((skill: SkillItem) => {
-    const base = `/api/skills/${encodeURIComponent(skill.name)}`;
+    const params = new URLSearchParams();
     if (skill.source === "installed" && skill.installedSource) {
-      return `${base}?source=${skill.installedSource}`;
+      params.set("source", skill.installedSource);
     }
-    return base;
-  }, []);
+    if (workingDirectory) {
+      params.set("cwd", workingDirectory);
+    }
+    const qs = params.toString();
+    return `/api/skills/${encodeURIComponent(skill.name)}${qs ? `?${qs}` : ""}`;
+  }, [workingDirectory]);
 
   const handleSave = useCallback(
     async (skill: SkillItem, content: string) => {
@@ -123,7 +130,6 @@ export function SkillsManager() {
   );
 
   const globalSkills = filtered.filter((s) => s.source === "global");
-  const projectSkills = filtered.filter((s) => s.source === "project");
   const installedSkills = filtered.filter((s) => s.source === "installed");
   const pluginSkills = filtered.filter((s) => s.source === "plugin");
 
@@ -166,26 +172,6 @@ export function SkillsManager() {
           </div>
           <div className="flex-1 overflow-y-auto min-h-0">
             <div className="p-1">
-              {projectSkills.length > 0 && (
-                <div className="mb-1">
-                  <span className="px-3 py-1 text-[10px] font-medium uppercase text-muted-foreground">
-                    Project
-                  </span>
-                  {projectSkills.map((skill) => (
-                    <SkillListItem
-                      key={`${skill.source}:${skill.installedSource ?? "default"}:${skill.name}`}
-                      skill={skill}
-                      selected={
-                        selected?.name === skill.name &&
-                        selected?.source === skill.source &&
-                        selected?.installedSource === skill.installedSource
-                      }
-                      onSelect={() => setSelected(skill)}
-                      onDelete={handleDelete}
-                    />
-                  ))}
-                </div>
-              )}
               {globalSkills.length > 0 && (
                 <div className="mb-1">
                   <span className="px-3 py-1 text-[10px] font-medium uppercase text-muted-foreground">

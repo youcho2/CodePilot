@@ -7,6 +7,7 @@ import { ChatView } from '@/components/chat/ChatView';
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Loading02Icon, PencilEdit01Icon } from "@hugeicons/core-free-icons";
 import { Input } from '@/components/ui/input';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { usePanel } from '@/hooks/usePanel';
 
 interface ChatSessionPageProps {
@@ -23,6 +24,7 @@ export default function ChatSessionPage({ params }: ChatSessionPageProps) {
   const [sessionModel, setSessionModel] = useState<string>('');
   const [sessionMode, setSessionMode] = useState<string>('');
   const [projectName, setProjectName] = useState<string>('');
+  const [sessionWorkingDir, setSessionWorkingDir] = useState<string>('');
   const [isEditingTitle, setIsEditingTitle] = useState(false);
   const [editTitle, setEditTitle] = useState('');
   const titleInputRef = useRef<HTMLInputElement>(null);
@@ -80,6 +82,7 @@ export default function ChatSessionPage({ params }: ChatSessionPageProps) {
           const data: { session: ChatSession } = await res.json();
           if (data.session.working_directory) {
             setWorkingDirectory(data.session.working_directory);
+            setSessionWorkingDir(data.session.working_directory);
             localStorage.setItem("codepilot:last-working-directory", data.session.working_directory);
             window.dispatchEvent(new Event('refresh-file-tree'));
           }
@@ -168,7 +171,34 @@ export default function ChatSessionPage({ params }: ChatSessionPageProps) {
         >
           {projectName && (
             <>
-              <span className="text-xs text-muted-foreground shrink-0">{projectName}</span>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    className="text-xs text-muted-foreground shrink-0 hover:text-foreground transition-colors cursor-pointer"
+                    style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
+                    onClick={() => {
+                      if (sessionWorkingDir) {
+                        const w = window as unknown as { electronAPI?: { shell?: { openPath: (p: string) => void } } };
+                        if (w.electronAPI?.shell?.openPath) {
+                          w.electronAPI.shell.openPath(sessionWorkingDir);
+                        } else {
+                          fetch('/api/files/open', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ path: sessionWorkingDir }),
+                          }).catch(() => {});
+                        }
+                      }
+                    }}
+                  >
+                    {projectName}
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p className="text-xs break-all">{sessionWorkingDir || projectName}</p>
+                  <p className="text-[10px] text-muted-foreground mt-0.5">Click to open in Finder</p>
+                </TooltipContent>
+              </Tooltip>
               <span className="text-xs text-muted-foreground shrink-0">/</span>
             </>
           )}
