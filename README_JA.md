@@ -73,6 +73,7 @@ npm install
 npm run dev
 
 # -- または、開発モードで完全な Electron アプリを起動 --
+node scripts/build-electron.mjs   # Electron メインプロセスをコンパイル（初回のみ必要）
 npm run electron:dev
 ```
 
@@ -191,6 +192,9 @@ codepilot/
 ```bash
 # Next.js 開発サーバーのみを実行（ブラウザで開く）
 npm run dev
+
+# Electron メインプロセスをコンパイル（初回実行前に必要）
+node scripts/build-electron.mjs
 
 # 開発モードで完全な Electron アプリを実行
 # (Next.js を起動して待機し、その後 Electron を開く)

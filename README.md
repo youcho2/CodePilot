@@ -76,6 +76,7 @@ npm install
 npm run dev
 
 # -- or start the full Electron app in dev mode --
+node scripts/build-electron.mjs   # compile Electron main process (first time only)
 npm run electron:dev
 ```
 
@@ -196,6 +197,9 @@ codepilot/
 ```bash
 # Run Next.js dev server only (opens in browser)
 npm run dev
+
+# Compile the Electron main process (required before first run)
+node scripts/build-electron.mjs
 
 # Run the full Electron app in dev mode
 # (starts Next.js + waits for it, then opens Electron)
