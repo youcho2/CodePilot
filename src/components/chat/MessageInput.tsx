@@ -351,6 +351,10 @@ export function MessageInput({
   const [badge, setBadge] = useState<CommandBadge | null>(null);
   const [dynamicModels, setDynamicModels] = useState<{ value: string; label: string }[]>(DEFAULT_MODEL_OPTIONS);
   const [activeProviderName, setActiveProviderName] = useState<string | null>(null);
+  const [aiSuggestions, setAiSuggestions] = useState<PopoverItem[]>([]);
+  const [aiSearchLoading, setAiSearchLoading] = useState(false);
+  const aiSearchAbortRef = useRef<AbortController | null>(null);
+  const aiSearchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Fetch models from API
   const fetchModels = useCallback(() => {
@@ -442,6 +446,17 @@ export function MessageInput({
     setPopoverFilter('');
     setSelectedIndex(0);
     setTriggerPos(null);
+    // Clean up AI search state
+    setAiSuggestions([]);
+    setAiSearchLoading(false);
+    if (aiSearchTimerRef.current) {
+      clearTimeout(aiSearchTimerRef.current);
+      aiSearchTimerRef.current = null;
+    }
+    if (aiSearchAbortRef.current) {
+      aiSearchAbortRef.current.abort();
+      aiSearchAbortRef.current = null;
+    }
   }, []);
 
   // Remove active badge
@@ -644,24 +659,127 @@ export function MessageInput({
     setInputValue('');
   }, [inputValue, onSend, onCommand, disabled, isStreaming, closePopover, badge]);
 
+  const filteredItems = popoverItems.filter((item) => {
+    const q = popoverFilter.toLowerCase();
+    return item.label.toLowerCase().includes(q)
+      || (item.description || '').toLowerCase().includes(q);
+  });
+
+  // Debounced AI semantic search when substring results are insufficient
+  const nonBuiltInFilteredCount = filteredItems.filter(i => !i.builtIn).length;
+  useEffect(() => {
+    // Only trigger for skill mode with enough input and few substring matches
+    if (popoverMode !== 'skill' || popoverFilter.length < 2 || nonBuiltInFilteredCount >= 2) {
+      setAiSuggestions([]);
+      setAiSearchLoading(false);
+      if (aiSearchTimerRef.current) {
+        clearTimeout(aiSearchTimerRef.current);
+        aiSearchTimerRef.current = null;
+      }
+      if (aiSearchAbortRef.current) {
+        aiSearchAbortRef.current.abort();
+        aiSearchAbortRef.current = null;
+      }
+      return;
+    }
+
+    // Cancel previous timer and request
+    if (aiSearchTimerRef.current) {
+      clearTimeout(aiSearchTimerRef.current);
+    }
+    if (aiSearchAbortRef.current) {
+      aiSearchAbortRef.current.abort();
+    }
+
+    setAiSearchLoading(true);
+
+    aiSearchTimerRef.current = setTimeout(async () => {
+      const abortController = new AbortController();
+      aiSearchAbortRef.current = abortController;
+
+      try {
+        // Collect non-built-in skills for AI search
+        const skillsPayload = popoverItems
+          .filter(i => !i.builtIn)
+          .map(i => ({ name: i.label, description: (i.description || '').slice(0, 100) }));
+
+        if (skillsPayload.length === 0) {
+          setAiSearchLoading(false);
+          return;
+        }
+
+        const res = await fetch('/api/skills/search', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          signal: abortController.signal,
+          body: JSON.stringify({
+            query: popoverFilter,
+            skills: skillsPayload,
+            model: modelName || 'haiku',
+          }),
+        });
+
+        if (abortController.signal.aborted) return;
+
+        if (!res.ok) {
+          setAiSuggestions([]);
+          setAiSearchLoading(false);
+          return;
+        }
+
+        const data = await res.json();
+        const suggestions: string[] = data.suggestions || [];
+
+        // Map suggested names back to PopoverItems, deduplicating against substring results
+        const filteredNames = new Set(filteredItems.map(i => i.label));
+        const aiItems = suggestions
+          .filter(name => !filteredNames.has(name))
+          .map(name => popoverItems.find(i => i.label === name))
+          .filter((item): item is PopoverItem => !!item);
+
+        setAiSuggestions(aiItems);
+      } catch {
+        // Silently fail — don't show AI suggestions on error
+        if (!abortController.signal.aborted) {
+          setAiSuggestions([]);
+        }
+      } finally {
+        if (!abortController.signal.aborted) {
+          setAiSearchLoading(false);
+        }
+      }
+    }, 500);
+
+    return () => {
+      if (aiSearchTimerRef.current) {
+        clearTimeout(aiSearchTimerRef.current);
+        aiSearchTimerRef.current = null;
+      }
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [popoverFilter, popoverMode, nonBuiltInFilteredCount]);
+
+  // Combined list for keyboard navigation
+  const allDisplayedItems = [...filteredItems, ...aiSuggestions];
+
   const handleKeyDown = useCallback(
     (e: KeyboardEvent<HTMLTextAreaElement>) => {
       // Popover navigation
       if (popoverMode && popoverItems.length > 0) {
         if (e.key === 'ArrowDown') {
           e.preventDefault();
-          setSelectedIndex((prev) => (prev + 1) % filteredItems.length);
+          setSelectedIndex((prev) => (prev + 1) % allDisplayedItems.length);
           return;
         }
         if (e.key === 'ArrowUp') {
           e.preventDefault();
-          setSelectedIndex((prev) => (prev - 1 + filteredItems.length) % filteredItems.length);
+          setSelectedIndex((prev) => (prev - 1 + allDisplayedItems.length) % allDisplayedItems.length);
           return;
         }
         if (e.key === 'Enter' || e.key === 'Tab') {
           e.preventDefault();
-          if (filteredItems[selectedIndex]) {
-            insertItem(filteredItems[selectedIndex]);
+          if (allDisplayedItems[selectedIndex]) {
+            insertItem(allDisplayedItems[selectedIndex]);
           }
           return;
         }
@@ -686,7 +804,7 @@ export function MessageInput({
         return;
       }
     },
-    [popoverMode, popoverItems, popoverFilter, selectedIndex, insertItem, closePopover, badge, inputValue, removeBadge]
+    [popoverMode, popoverItems, popoverFilter, selectedIndex, insertItem, closePopover, badge, inputValue, removeBadge, allDisplayedItems]
   );
 
   // Click outside to close popover
@@ -713,10 +831,6 @@ export function MessageInput({
     return () => document.removeEventListener('mousedown', handler);
   }, [modelMenuOpen]);
 
-  const filteredItems = popoverItems.filter((item) =>
-    item.label.toLowerCase().includes(popoverFilter.toLowerCase())
-  );
-
   const currentModelValue = modelName || 'sonnet';
   const currentModelOption = MODEL_OPTIONS.find((m) => m.value === currentModelValue) || MODEL_OPTIONS[0];
 
@@ -728,7 +842,7 @@ export function MessageInput({
       <div className="mx-auto">
         <div className="relative">
           {/* Popover */}
-          {popoverMode && filteredItems.length > 0 && (() => {
+          {popoverMode && (allDisplayedItems.length > 0 || aiSearchLoading) && (() => {
             const builtInItems = filteredItems.filter(item => item.builtIn);
             const projectItems = filteredItems.filter(item => !item.builtIn && item.source === 'project');
             const skillItems = filteredItems.filter(item => !item.builtIn && item.source !== 'project');
@@ -795,14 +909,14 @@ export function MessageInput({
                       onKeyDown={(e) => {
                         if (e.key === 'ArrowDown') {
                           e.preventDefault();
-                          setSelectedIndex((prev) => (prev + 1) % filteredItems.length);
+                          setSelectedIndex((prev) => (prev + 1) % allDisplayedItems.length);
                         } else if (e.key === 'ArrowUp') {
                           e.preventDefault();
-                          setSelectedIndex((prev) => (prev - 1 + filteredItems.length) % filteredItems.length);
+                          setSelectedIndex((prev) => (prev - 1 + allDisplayedItems.length) % allDisplayedItems.length);
                         } else if (e.key === 'Enter' || e.key === 'Tab') {
                           e.preventDefault();
-                          if (filteredItems[selectedIndex]) {
-                            insertItem(filteredItems[selectedIndex]);
+                          if (allDisplayedItems[selectedIndex]) {
+                            insertItem(allDisplayedItems[selectedIndex]);
                           }
                         } else if (e.key === 'Escape') {
                           e.preventDefault();
@@ -852,6 +966,22 @@ export function MessageInput({
                             Skills
                           </div>
                           {skillItems.map((item) => {
+                            const idx = globalIdx++;
+                            return renderItem(item, idx);
+                          })}
+                        </>
+                      )}
+                      {/* AI Suggested section */}
+                      {(aiSuggestions.length > 0 || aiSearchLoading) && (
+                        <>
+                          <div className="px-3 py-1.5 text-xs font-medium text-muted-foreground flex items-center gap-1.5">
+                            <HugeiconsIcon icon={BrainIcon} className="h-3.5 w-3.5" />
+                            {t('messageInput.aiSuggested')}
+                            {aiSearchLoading && (
+                              <span className="inline-block h-3 w-3 animate-spin rounded-full border-2 border-current border-t-transparent" />
+                            )}
+                          </div>
+                          {aiSuggestions.map((item) => {
                             const idx = globalIdx++;
                             return renderItem(item, idx);
                           })}

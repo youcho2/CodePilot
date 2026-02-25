@@ -44,6 +44,7 @@ const en = {
   'messageInput.memoryDesc': 'Edit project memory file',
   'messageInput.modeCode': 'Code',
   'messageInput.modePlan': 'Plan',
+  'messageInput.aiSuggested': 'AI Suggested',
 
   // ── Streaming message ───────────────────────────────────────
   'streaming.thinking': 'Thinking...',
