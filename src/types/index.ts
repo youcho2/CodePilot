@@ -16,6 +16,7 @@ export interface ChatSession {
   mode?: 'code' | 'plan' | 'ask';
   needs_approval?: boolean;
   provider_name: string;
+  provider_id: string;
 }
 
 // ==========================================
@@ -112,6 +113,13 @@ export interface ApiProvider {
   updated_at: string;
 }
 
+export interface ProviderModelGroup {
+  provider_id: string;       // provider DB id, or 'env' for environment variables
+  provider_name: string;
+  provider_type: string;
+  models: Array<{ value: string; label: string }>;
+}
+
 export interface CreateProviderRequest {
   name: string;
   provider_type?: string;
@@ -168,6 +176,7 @@ export interface SendMessageRequest {
   content: string;
   model?: string;
   mode?: string;
+  provider_id?: string;
 }
 
 export interface UpdateMCPConfigRequest {
@@ -438,4 +447,5 @@ export interface ClaudeStreamOptions {
   permissionMode?: string;
   files?: FileAttachment[];
   toolTimeoutSeconds?: number;
+  provider?: ApiProvider;
 }

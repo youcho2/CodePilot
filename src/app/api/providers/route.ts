@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getAllProviders, createProvider } from '@/lib/db';
+import { getAllProviders, createProvider, getSetting } from '@/lib/db';
 import type { ProviderResponse, ErrorResponse, CreateProviderRequest, ApiProvider } from '@/types';
 
 function maskApiKey(provider: ApiProvider): ApiProvider {
@@ -38,7 +38,11 @@ export async function GET() {
   try {
     const providers = getAllProviders().map(maskApiKey);
     const envDetected = detectEnvVars();
-    return NextResponse.json({ providers, env_detected: envDetected });
+    return NextResponse.json({
+      providers,
+      env_detected: envDetected,
+      default_provider_id: getSetting('default_provider_id') || '',
+    });
   } catch (error) {
     return NextResponse.json<ErrorResponse>(
       { error: error instanceof Error ? error.message : 'Failed to get providers' },

@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
-import { getActiveProvider } from '@/lib/db';
-import type { ErrorResponse } from '@/types';
+import { getAllProviders, getDefaultProviderId } from '@/lib/db';
+import type { ErrorResponse, ProviderModelGroup } from '@/types';
 
 // Default Claude model options
 const DEFAULT_MODELS = [
@@ -53,31 +53,67 @@ const PROVIDER_MODEL_LABELS: Record<string, { value: string; label: string }[]> 
   ],
 };
 
+/**
+ * Deduplicate models: if multiple aliases map to the same label, keep only the first one.
+ */
+function deduplicateModels(models: { value: string; label: string }[]): { value: string; label: string }[] {
+  const seen = new Set<string>();
+  const result: { value: string; label: string }[] = [];
+  for (const m of models) {
+    if (!seen.has(m.label)) {
+      seen.add(m.label);
+      result.push(m);
+    }
+  }
+  return result;
+}
+
 export async function GET() {
   try {
-    const activeProvider = getActiveProvider();
+    const providers = getAllProviders();
+    const groups: ProviderModelGroup[] = [];
 
-    // No active provider or anthropic type -> default Claude models
-    if (!activeProvider || activeProvider.provider_type === 'anthropic') {
-      return NextResponse.json({
+    // Check for environment variables
+    const hasEnvKey = !!(process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN);
+    if (hasEnvKey) {
+      groups.push({
+        provider_id: 'env',
+        provider_name: 'Environment',
+        provider_type: 'anthropic',
         models: DEFAULT_MODELS,
-        provider_name: activeProvider?.name || 'Anthropic',
       });
     }
 
-    // Custom/other provider -> match by base_url
-    const matched = PROVIDER_MODEL_LABELS[activeProvider.base_url];
-    if (matched) {
-      return NextResponse.json({
-        models: matched,
-        provider_name: activeProvider.name,
+    // Build a group for each configured provider
+    for (const provider of providers) {
+      const matched = PROVIDER_MODEL_LABELS[provider.base_url];
+      const rawModels = matched || DEFAULT_MODELS;
+      const models = deduplicateModels(rawModels);
+
+      groups.push({
+        provider_id: provider.id,
+        provider_name: provider.name,
+        provider_type: provider.provider_type,
+        models,
       });
     }
 
-    // Unknown provider -> return defaults with provider name
+    // If no groups at all (no env, no providers), show default Anthropic group
+    if (groups.length === 0) {
+      groups.push({
+        provider_id: 'env',
+        provider_name: 'Anthropic',
+        provider_type: 'anthropic',
+        models: DEFAULT_MODELS,
+      });
+    }
+
+    // Determine default provider
+    const defaultProviderId = getDefaultProviderId() || groups[0].provider_id;
+
     return NextResponse.json({
-      models: DEFAULT_MODELS,
-      provider_name: activeProvider.name,
+      groups,
+      default_provider_id: defaultProviderId,
     });
   } catch (error) {
     return NextResponse.json<ErrorResponse>(

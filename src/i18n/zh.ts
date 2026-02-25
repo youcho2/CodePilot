@@ -132,6 +132,9 @@ const zh: Record<TranslationKey, string> = {
   'provider.saving': '保存中...',
   'provider.update': '更新',
   'provider.envDetected': '从环境变量检测到',
+  'provider.default': '默认',
+  'provider.setDefault': '设为默认',
+  'provider.environment': '环境变量',
 
   // ── Right panel / Files ─────────────────────────────────────
   'panel.files': '文件',

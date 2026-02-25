@@ -135,6 +135,9 @@ const en = {
   'provider.saving': 'Saving...',
   'provider.update': 'Update',
   'provider.envDetected': 'Detected from environment',
+  'provider.default': 'Default',
+  'provider.setDefault': 'Set as Default',
+  'provider.environment': 'Environment',
 
   // ── Right panel / Files ─────────────────────────────────────
   'panel.files': 'Files',

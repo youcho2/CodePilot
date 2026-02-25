@@ -24,9 +24,10 @@ interface ChatViewProps {
   initialHasMore?: boolean;
   modelName?: string;
   initialMode?: string;
+  providerId?: string;
 }
 
-export function ChatView({ sessionId, initialMessages = [], initialHasMore = false, modelName, initialMode }: ChatViewProps) {
+export function ChatView({ sessionId, initialMessages = [], initialHasMore = false, modelName, initialMode, providerId }: ChatViewProps) {
   const { setStreamingSessionId, workingDirectory, setWorkingDirectory, setPanelOpen, setPendingApprovalSessionId } = usePanel();
   const [messages, setMessages] = useState<Message[]>(initialMessages);
   const [hasMore, setHasMore] = useState(initialHasMore);
@@ -39,6 +40,7 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
   const [statusText, setStatusText] = useState<string | undefined>();
   const [mode, setMode] = useState(initialMode || 'code');
   const [currentModel, setCurrentModel] = useState(modelName || (typeof window !== 'undefined' ? localStorage.getItem('codepilot:last-model') : null) || 'sonnet');
+  const [currentProviderId, setCurrentProviderId] = useState(providerId || (typeof window !== 'undefined' ? localStorage.getItem('codepilot:last-provider-id') : null) || '');
   const [pendingPermission, setPendingPermission] = useState<PermissionRequestEvent | null>(null);
   const [permissionResolved, setPermissionResolved] = useState<'allow' | 'deny' | null>(null);
   const [streamingToolOutput, setStreamingToolOutput] = useState('');
@@ -64,6 +66,12 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
       }).catch(() => { /* silent — will apply on next message */ });
     }
   }, [sessionId]);
+
+  const handleProviderModelChange = useCallback((newProviderId: string, model: string) => {
+    setCurrentProviderId(newProviderId);
+    setCurrentModel(model);
+  }, []);
+
   const abortControllerRef = useRef<AbortController | null>(null);
 
   // Abort active stream on unmount (e.g., session switch via key={id} remount).
@@ -266,6 +274,7 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
             content,
             mode,
             model: currentModel,
+            provider_id: currentProviderId,
             ...(files && files.length > 0 ? { files } : {}),
           }),
           signal: controller.signal,
@@ -498,7 +507,7 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
         window.dispatchEvent(new CustomEvent('refresh-file-tree'));
       }
     },
-    [sessionId, isStreaming, setStreamingSessionId, setPendingApprovalSessionId, mode, currentModel]
+    [sessionId, isStreaming, setStreamingSessionId, setPendingApprovalSessionId, mode, currentModel, currentProviderId]
   );
 
   // Keep sendMessageRef in sync so timeout auto-retry can call it
@@ -605,6 +614,8 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
         sessionId={sessionId}
         modelName={currentModel}
         onModelChange={setCurrentModel}
+        providerId={currentProviderId}
+        onProviderModelChange={handleProviderModelChange}
         workingDirectory={workingDirectory}
         mode={mode}
         onModeChange={handleModeChange}

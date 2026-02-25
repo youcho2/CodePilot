@@ -15,7 +15,7 @@ import type {
   NotificationHookInput,
   PostToolUseHookInput,
 } from '@anthropic-ai/claude-agent-sdk';
-import type { ClaudeStreamOptions, SSEEvent, TokenUsage, MCPServerConfig, PermissionRequestEvent, FileAttachment } from '@/types';
+import type { ClaudeStreamOptions, SSEEvent, TokenUsage, MCPServerConfig, PermissionRequestEvent, FileAttachment, ApiProvider } from '@/types';
 import { isImageFile } from '@/types';
 import { registerPendingPermission } from './permission-registry';
 import { registerConversation, unregisterConversation } from './conversation-registry';
@@ -242,7 +242,7 @@ export function streamClaude(options: ClaudeStreamOptions): ReadableStream<strin
   return new ReadableStream<string>({
     async start(controller) {
       // Hoist activeProvider so it's accessible in the catch block for error messages
-      const activeProvider = getActiveProvider();
+      const activeProvider: ApiProvider | undefined = options.provider ?? getActiveProvider();
 
       try {
         // Build env for the Claude Code subprocess.

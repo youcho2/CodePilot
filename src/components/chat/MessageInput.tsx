@@ -33,7 +33,7 @@ import {
   usePromptInputAttachments,
 } from '@/components/ai-elements/prompt-input';
 import type { ChatStatus } from 'ai';
-import type { FileAttachment } from '@/types';
+import type { FileAttachment, ProviderModelGroup } from '@/types';
 import { nanoid } from 'nanoid';
 
 // Accepted file types for upload
@@ -58,6 +58,8 @@ interface MessageInputProps {
   sessionId?: string;
   modelName?: string;
   onModelChange?: (model: string) => void;
+  providerId?: string;
+  onProviderModelChange?: (providerId: string, model: string) => void;
   workingDirectory?: string;
   mode?: string;
   onModeChange?: (mode: string) => void;
@@ -331,6 +333,8 @@ export function MessageInput({
   sessionId,
   modelName,
   onModelChange,
+  providerId,
+  onProviderModelChange,
   workingDirectory,
   mode = 'code',
   onModeChange,
@@ -349,40 +353,53 @@ export function MessageInput({
   const [modelMenuOpen, setModelMenuOpen] = useState(false);
   const [inputValue, setInputValue] = useState('');
   const [badge, setBadge] = useState<CommandBadge | null>(null);
-  const [dynamicModels, setDynamicModels] = useState<{ value: string; label: string }[]>(DEFAULT_MODEL_OPTIONS);
-  const [activeProviderName, setActiveProviderName] = useState<string | null>(null);
+  const [providerGroups, setProviderGroups] = useState<ProviderModelGroup[]>([]);
+  const [defaultProviderId, setDefaultProviderId] = useState<string>('');
   const [aiSuggestions, setAiSuggestions] = useState<PopoverItem[]>([]);
   const [aiSearchLoading, setAiSearchLoading] = useState(false);
   const aiSearchAbortRef = useRef<AbortController | null>(null);
   const aiSearchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Fetch models from API
-  const fetchModels = useCallback(() => {
+  // Fetch provider groups from API
+  const fetchProviderModels = useCallback(() => {
     fetch('/api/providers/models')
       .then((r) => r.json())
       .then((data) => {
-        if (data.models && data.models.length > 0) {
-          setDynamicModels(data.models);
+        if (data.groups && data.groups.length > 0) {
+          setProviderGroups(data.groups);
         } else {
-          setDynamicModels(DEFAULT_MODEL_OPTIONS);
+          setProviderGroups([{
+            provider_id: 'env',
+            provider_name: 'Anthropic',
+            provider_type: 'anthropic',
+            models: DEFAULT_MODEL_OPTIONS,
+          }]);
         }
-        setActiveProviderName(data.provider_name || null);
+        setDefaultProviderId(data.default_provider_id || '');
       })
       .catch(() => {
-        setDynamicModels(DEFAULT_MODEL_OPTIONS);
-        setActiveProviderName(null);
+        setProviderGroups([{
+          provider_id: 'env',
+          provider_name: 'Anthropic',
+          provider_type: 'anthropic',
+          models: DEFAULT_MODEL_OPTIONS,
+        }]);
+        setDefaultProviderId('');
       });
   }, []);
 
   // Load models on mount and listen for provider changes
   useEffect(() => {
-    fetchModels();
-    const handler = () => fetchModels();
+    fetchProviderModels();
+    const handler = () => fetchProviderModels();
     window.addEventListener('provider-changed', handler);
     return () => window.removeEventListener('provider-changed', handler);
-  }, [fetchModels]);
+  }, [fetchProviderModels]);
 
-  const MODEL_OPTIONS = dynamicModels;
+  // Derive flat model list for current provider (used by currentModelOption lookup)
+  const currentProviderIdValue = providerId || defaultProviderId || (providerGroups[0]?.provider_id ?? '');
+  const currentGroup = providerGroups.find(g => g.provider_id === currentProviderIdValue) || providerGroups[0];
+  const MODEL_OPTIONS = currentGroup?.models || DEFAULT_MODEL_OPTIONS;
 
   // Fetch files for @ mention
   const fetchFiles = useCallback(async (filter: string) => {
@@ -1066,40 +1083,50 @@ export function MessageInput({
                     onClick={() => setModelMenuOpen((prev) => !prev)}
                   >
                     <span className="text-xs font-mono">{currentModelOption.label}</span>
-                    {activeProviderName && activeProviderName !== 'Anthropic' && (
-                      <span className="text-[9px] text-muted-foreground">{activeProviderName}</span>
+                    {currentGroup && currentGroup.provider_name !== 'Anthropic' && currentGroup.provider_name !== 'Environment' && (
+                      <span className="text-[9px] text-muted-foreground">{currentGroup.provider_name}</span>
                     )}
                     <HugeiconsIcon icon={ArrowDown01Icon} className={cn("h-2.5 w-2.5 transition-transform duration-200", modelMenuOpen && "rotate-180")} />
                   </PromptInputButton>
 
                   {modelMenuOpen && (
-                    <div className="absolute bottom-full left-0 mb-1.5 w-48 rounded-lg border bg-popover shadow-lg overflow-hidden z-50">
-                      {activeProviderName && (
-                        <div className="px-3 py-1.5 text-[10px] text-muted-foreground border-b">
-                          {activeProviderName}
+                    <div className="absolute bottom-full left-0 mb-1.5 w-52 rounded-lg border bg-popover shadow-lg overflow-hidden z-50 max-h-80 overflow-y-auto">
+                      {providerGroups.map((group, groupIdx) => (
+                        <div key={group.provider_id}>
+                          {/* Group header */}
+                          <div className={cn(
+                            "px-3 py-1.5 text-[10px] font-medium text-muted-foreground",
+                            groupIdx > 0 && "border-t"
+                          )}>
+                            {group.provider_name}
+                          </div>
+                          {/* Models in group */}
+                          <div className="py-0.5">
+                            {group.models.map((opt) => {
+                              const isActive = opt.value === currentModelValue && group.provider_id === currentProviderIdValue;
+                              return (
+                                <button
+                                  key={`${group.provider_id}-${opt.value}`}
+                                  className={cn(
+                                    "flex w-full items-center justify-between gap-2 px-3 py-1.5 text-left text-sm transition-colors",
+                                    isActive ? "bg-accent text-accent-foreground" : "hover:bg-accent/50"
+                                  )}
+                                  onClick={() => {
+                                    onModelChange?.(opt.value);
+                                    onProviderModelChange?.(group.provider_id, opt.value);
+                                    localStorage.setItem('codepilot:last-model', opt.value);
+                                    localStorage.setItem('codepilot:last-provider-id', group.provider_id);
+                                    setModelMenuOpen(false);
+                                  }}
+                                >
+                                  <span className="font-mono text-xs">{opt.label}</span>
+                                  {isActive && <span className="text-xs">✓</span>}
+                                </button>
+                              );
+                            })}
+                          </div>
                         </div>
-                      )}
-                      <div className="py-1">
-                        {MODEL_OPTIONS.map((opt) => {
-                          const isActive = opt.value === currentModelValue;
-                          return (
-                            <button
-                              key={opt.value}
-                              className={cn(
-                                "flex w-full items-center gap-2 px-3 py-2 text-left text-sm transition-colors",
-                                isActive ? "bg-accent text-accent-foreground" : "hover:bg-accent/50"
-                              )}
-                              onClick={() => {
-                                onModelChange?.(opt.value);
-                                localStorage.setItem('codepilot:last-model', opt.value);
-                                setModelMenuOpen(false);
-                              }}
-                            >
-                              <span className="font-mono text-xs">{opt.label}</span>
-                            </button>
-                          );
-                        })}
-                      </div>
+                      ))}
                     </div>
                   )}
                 </div>

@@ -23,6 +23,7 @@ export default function ChatSessionPage({ params }: ChatSessionPageProps) {
   const [error, setError] = useState<string | null>(null);
   const [sessionTitle, setSessionTitle] = useState<string>('');
   const [sessionModel, setSessionModel] = useState<string>('');
+  const [sessionProviderId, setSessionProviderId] = useState<string>('');
   const [sessionMode, setSessionMode] = useState<string>('');
   const [projectName, setProjectName] = useState<string>('');
   const [sessionWorkingDir, setSessionWorkingDir] = useState<string>('');
@@ -94,6 +95,7 @@ export default function ChatSessionPage({ params }: ChatSessionPageProps) {
           setSessionTitle(title);
           setPanelSessionTitle(title);
           setSessionModel(data.session.model || '');
+          setSessionProviderId(data.session.provider_id || '');
           setSessionMode(data.session.mode || 'code');
           setProjectName(data.session.project_name || '');
         }
@@ -233,7 +235,7 @@ export default function ChatSessionPage({ params }: ChatSessionPageProps) {
           )}
         </div>
       )}
-      <ChatView key={id} sessionId={id} initialMessages={messages} initialHasMore={hasMore} modelName={sessionModel} initialMode={sessionMode} />
+      <ChatView key={id} sessionId={id} initialMessages={messages} initialHasMore={hasMore} modelName={sessionModel} initialMode={sessionMode} providerId={sessionProviderId} />
     </div>
   );
 }

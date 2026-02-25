@@ -153,6 +153,20 @@ function migrateDb(db: Database.Database): void {
   if (!colNames.includes('provider_name')) {
     db.exec("ALTER TABLE chat_sessions ADD COLUMN provider_name TEXT NOT NULL DEFAULT ''");
   }
+  if (!colNames.includes('provider_id')) {
+    db.exec("ALTER TABLE chat_sessions ADD COLUMN provider_id TEXT NOT NULL DEFAULT ''");
+  }
+
+  // Migrate is_active provider to default_provider_id setting
+  const defaultProviderSetting = db.prepare("SELECT value FROM settings WHERE key = 'default_provider_id'").get() as { value: string } | undefined;
+  if (!defaultProviderSetting) {
+    const activeProvider = db.prepare('SELECT id FROM api_providers WHERE is_active = 1 LIMIT 1').get() as { id: string } | undefined;
+    if (activeProvider) {
+      db.prepare(
+        "INSERT INTO settings (key, value) VALUES ('default_provider_id', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value"
+      ).run(activeProvider.id);
+    }
+  }
 
   const msgColumns = db.prepare("PRAGMA table_info(messages)").all() as { name: string }[];
   const msgColNames = msgColumns.map(c => c.name);
@@ -272,6 +286,19 @@ export function updateSessionModel(id: string, model: string): void {
 export function updateSessionProvider(id: string, providerName: string): void {
   const db = getDb();
   db.prepare('UPDATE chat_sessions SET provider_name = ? WHERE id = ?').run(providerName, id);
+}
+
+export function updateSessionProviderId(id: string, providerId: string): void {
+  const db = getDb();
+  db.prepare('UPDATE chat_sessions SET provider_id = ? WHERE id = ?').run(providerId, id);
+}
+
+export function getDefaultProviderId(): string | undefined {
+  return getSetting('default_provider_id') || undefined;
+}
+
+export function setDefaultProviderId(id: string): void {
+  setSetting('default_provider_id', id);
 }
 
 export function updateSessionWorkingDirectory(id: string, workingDirectory: string): void {

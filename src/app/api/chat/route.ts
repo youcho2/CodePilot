@@ -1,6 +1,6 @@
 import { NextRequest } from 'next/server';
 import { streamClaude } from '@/lib/claude-client';
-import { addMessage, getSession, updateSessionTitle, updateSdkSessionId, updateSessionModel, updateSessionProvider, getSetting, getActiveProvider } from '@/lib/db';
+import { addMessage, getSession, updateSessionTitle, updateSdkSessionId, updateSessionModel, updateSessionProvider, updateSessionProviderId, getSetting, getProvider, getDefaultProviderId } from '@/lib/db';
 import type { SendMessageRequest, SSEEvent, TokenUsage, MessageContentBlock, FileAttachment } from '@/types';
 import fs from 'fs';
 import path from 'path';
@@ -10,8 +10,8 @@ export const dynamic = 'force-dynamic';
 
 export async function POST(request: NextRequest) {
   try {
-    const body: SendMessageRequest & { files?: FileAttachment[]; toolTimeout?: number } = await request.json();
-    const { session_id, content, model, mode, files, toolTimeout } = body;
+    const body: SendMessageRequest & { files?: FileAttachment[]; toolTimeout?: number; provider_id?: string } = await request.json();
+    const { session_id, content, model, mode, files, toolTimeout, provider_id } = body;
 
     if (!session_id || !content) {
       return new Response(JSON.stringify({ error: 'session_id and content are required' }), {
@@ -62,10 +62,35 @@ export async function POST(request: NextRequest) {
     if (effectiveModel && effectiveModel !== session.model) {
       updateSessionModel(session_id, effectiveModel);
     }
-    const activeProvider = getActiveProvider();
-    const providerName = activeProvider?.name || '';
+
+    // Resolve provider: explicit provider_id > default_provider_id > environment variables
+    let resolvedProvider: import('@/types').ApiProvider | undefined;
+    const effectiveProviderId = provider_id || session.provider_id || '';
+    if (effectiveProviderId && effectiveProviderId !== 'env') {
+      resolvedProvider = getProvider(effectiveProviderId);
+      if (!resolvedProvider) {
+        // Requested provider not found, try default
+        const defaultId = getDefaultProviderId();
+        if (defaultId) {
+          resolvedProvider = getProvider(defaultId);
+        }
+      }
+    } else if (!effectiveProviderId) {
+      // No provider specified, try default
+      const defaultId = getDefaultProviderId();
+      if (defaultId) {
+        resolvedProvider = getProvider(defaultId);
+      }
+    }
+    // effectiveProviderId === 'env' → resolvedProvider stays undefined → uses env vars
+
+    const providerName = resolvedProvider?.name || '';
     if (providerName !== (session.provider_name || '')) {
       updateSessionProvider(session_id, providerName);
+    }
+    const persistProviderId = effectiveProviderId || provider_id || '';
+    if (persistProviderId !== (session.provider_id || '')) {
+      updateSessionProviderId(session_id, persistProviderId);
     }
 
     // Determine permission mode from chat mode: code → acceptEdits, plan → plan, ask → default (no tools)
@@ -122,6 +147,7 @@ export async function POST(request: NextRequest) {
       permissionMode,
       files: fileAttachments,
       toolTimeoutSeconds: toolTimeout || 300,
+      provider: resolvedProvider,
     });
 
     // Tee the stream: one for client, one for collecting the response

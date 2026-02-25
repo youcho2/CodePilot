@@ -19,9 +19,7 @@ import {
   Loading02Icon,
   Delete02Icon,
   PencilEdit01Icon,
-  Tick01Icon,
   ServerStack01Icon,
-  Cancel01Icon,
 } from "@hugeicons/core-free-icons";
 import { ProviderForm } from "./ProviderForm";
 import type { ProviderFormData } from "./ProviderForm";
@@ -58,9 +56,6 @@ export function ProviderManager() {
   // Delete confirmation state
   const [deleteTarget, setDeleteTarget] = useState<ApiProvider | null>(null);
   const [deleting, setDeleting] = useState(false);
-
-  // Activating state
-  const [activatingId, setActivatingId] = useState<string | null>(null);
 
   const fetchProviders = useCallback(async () => {
     try {
@@ -119,6 +114,7 @@ export function ProviderManager() {
       setProviders((prev) =>
         prev.map((p) => (p.id === editingProvider.id ? result.provider : p))
       );
+      window.dispatchEvent(new Event('provider-changed'));
     } else {
       const res = await fetch("/api/providers", {
         method: "POST",
@@ -131,6 +127,7 @@ export function ProviderManager() {
       }
       const result = await res.json();
       setProviders((prev) => [...prev, result.provider]);
+      window.dispatchEvent(new Event('provider-changed'));
     }
   };
 
@@ -143,56 +140,13 @@ export function ProviderManager() {
       });
       if (res.ok) {
         setProviders((prev) => prev.filter((p) => p.id !== deleteTarget.id));
+        window.dispatchEvent(new Event('provider-changed'));
       }
     } catch {
       // ignore
     } finally {
       setDeleting(false);
       setDeleteTarget(null);
-    }
-  };
-
-  const handleActivate = async (provider: ApiProvider) => {
-    setActivatingId(provider.id);
-    try {
-      const res = await fetch(`/api/providers/${provider.id}/activate`, {
-        method: "POST",
-      });
-      if (res.ok) {
-        // Mark the activated provider as active, deactivate others
-        setProviders((prev) =>
-          prev.map((p) => ({
-            ...p,
-            is_active: p.id === provider.id ? 1 : 0,
-          }))
-        );
-        window.dispatchEvent(new Event('provider-changed'));
-      }
-    } catch {
-      // ignore
-    } finally {
-      setActivatingId(null);
-    }
-  };
-
-  const handleDeactivate = async (provider: ApiProvider) => {
-    setActivatingId(provider.id);
-    try {
-      const res = await fetch(`/api/providers/${provider.id}/activate`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ active: false }),
-      });
-      if (res.ok) {
-        setProviders((prev) =>
-          prev.map((p) => ({ ...p, is_active: 0 }))
-        );
-        window.dispatchEvent(new Event('provider-changed'));
-      }
-    } catch {
-      // ignore
-    } finally {
-      setActivatingId(null);
     }
   };
 
@@ -212,7 +166,7 @@ export function ProviderManager() {
             )}
           </div>
           <p className="text-xs text-muted-foreground mt-0.5">
-            Manage API providers for Claude Code. The active provider will be used for all sessions.
+            Configure API providers. Select provider and model from the chat input.
           </p>
         </div>
         <Button size="sm" className="gap-1" onClick={handleAdd}>
@@ -229,49 +183,25 @@ export function ProviderManager() {
       )}
 
       {/* Environment variable detection banner */}
-      {!loading && Object.keys(envDetected).length > 0 && (() => {
-        const hasActiveProvider = providers.some(p => p.is_active === 1);
-        return (
-          <div className={`rounded-md border p-3 ${
-            hasActiveProvider
-              ? "border-border/50 bg-muted/30"
-              : "border-green-500/30 bg-green-500/5"
-          }`}>
-            <div className="flex items-center gap-2 mb-1">
-              <p className={`text-xs font-medium ${
-                hasActiveProvider
-                  ? "text-muted-foreground"
-                  : "text-green-700 dark:text-green-400"
-              }`}>
-                {t('provider.envDetected')}
-              </p>
-              {hasActiveProvider ? (
-                <Badge variant="secondary" className="text-[10px] px-1.5 py-0 text-muted-foreground">
-                  Overridden
-                </Badge>
-              ) : (
-                <Badge variant="outline" className="text-[10px] px-1.5 py-0 text-green-600 dark:text-green-400 border-green-500/30">
-                  In use
-                </Badge>
-              )}
-            </div>
-            <div className="space-y-0.5">
-              {Object.entries(envDetected).map(([key, value]) => (
-                <p key={key} className={`text-xs font-mono ${
-                  hasActiveProvider ? "text-muted-foreground/60 line-through" : "text-muted-foreground"
-                }`}>
-                  {key}={value}
-                </p>
-              ))}
-            </div>
-            {hasActiveProvider && (
-              <p className="text-xs text-muted-foreground mt-1.5">
-                Active provider takes priority. Disable it to use environment variables.
-              </p>
-            )}
+      {!loading && Object.keys(envDetected).length > 0 && (
+        <div className="rounded-md border p-3 border-green-500/30 bg-green-500/5">
+          <div className="flex items-center gap-2 mb-1">
+            <p className="text-xs font-medium text-green-700 dark:text-green-400">
+              {t('provider.envDetected')}
+            </p>
+            <Badge variant="outline" className="text-[10px] px-1.5 py-0 text-green-600 dark:text-green-400 border-green-500/30">
+              {t('provider.configured')}
+            </Badge>
           </div>
-        );
-      })()}
+          <div className="space-y-0.5">
+            {Object.entries(envDetected).map(([key, value]) => (
+              <p key={key} className="text-xs font-mono text-muted-foreground">
+                {key}={value}
+              </p>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Loading */}
       {loading && (
@@ -314,95 +244,50 @@ export function ProviderManager() {
       {/* Provider list */}
       {!loading && sorted.length > 0 && (
         <div className="space-y-2 max-h-[400px] overflow-y-auto min-h-0">
-          {sorted.map((provider) => {
-            const isActive = provider.is_active === 1;
-            const isActivating = activatingId === provider.id;
-
-            return (
-              <div
-                key={provider.id}
-                className={`rounded-lg border p-3 transition-colors ${
-                  isActive
-                    ? "border-border bg-green-500/5"
-                    : "border-border/50 hover:border-border"
-                }`}
-              >
-                <div className="flex items-start justify-between gap-3">
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm font-medium truncate">
-                        {provider.name}
-                      </span>
-                      <Badge variant="secondary" className="text-[10px] px-1.5 py-0">
-                        {provider.provider_type}
-                      </Badge>
-                      {isActive && (
-                        <Badge variant="outline" className="text-[10px] px-1.5 py-0 text-green-600 dark:text-green-400 border-green-500/30">
-                          {t('provider.active')}
-                        </Badge>
-                      )}
-                    </div>
-                    {provider.base_url && (
-                      <p className="text-xs text-muted-foreground font-mono truncate mt-0.5">
-                        {provider.base_url}
-                      </p>
-                    )}
+          {sorted.map((provider) => (
+            <div
+              key={provider.id}
+              className="rounded-lg border p-3 transition-colors border-border/50 hover:border-border"
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-medium truncate">
+                      {provider.name}
+                    </span>
+                    <Badge variant="secondary" className="text-[10px] px-1.5 py-0">
+                      {provider.provider_type}
+                    </Badge>
                   </div>
+                  {provider.base_url && (
+                    <p className="text-xs text-muted-foreground font-mono truncate mt-0.5">
+                      {provider.base_url}
+                    </p>
+                  )}
+                </div>
 
-                  {/* Actions */}
-                  <div className="flex items-center gap-1 shrink-0">
-                    {isActive ? (
-                      <Button
-                        variant="ghost"
-                        size="xs"
-                        disabled={isActivating}
-                        onClick={() => handleDeactivate(provider)}
-                        className="gap-1 text-muted-foreground"
-                      >
-                        {isActivating ? (
-                          <HugeiconsIcon icon={Loading02Icon} className="h-3 w-3 animate-spin" />
-                        ) : (
-                          <HugeiconsIcon icon={Cancel01Icon} className="h-3 w-3" />
-                        )}
-                        Disable
-                      </Button>
-                    ) : (
-                      <Button
-                        variant="ghost"
-                        size="xs"
-                        disabled={isActivating}
-                        onClick={() => handleActivate(provider)}
-                        className="gap-1"
-                      >
-                        {isActivating ? (
-                          <HugeiconsIcon icon={Loading02Icon} className="h-3 w-3 animate-spin" />
-                        ) : (
-                          <HugeiconsIcon icon={Tick01Icon} className="h-3 w-3" />
-                        )}
-                        Apply
-                      </Button>
-                    )}
-                    <Button
-                      variant="ghost"
-                      size="icon-xs"
-                      title="Edit"
-                      onClick={() => handleEdit(provider)}
-                    >
-                      <HugeiconsIcon icon={PencilEdit01Icon} className="h-3 w-3" />
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="icon-xs"
-                      title="Delete"
-                      onClick={() => setDeleteTarget(provider)}
-                    >
-                      <HugeiconsIcon icon={Delete02Icon} className="h-3 w-3 text-destructive" />
-                    </Button>
-                  </div>
+                {/* Actions */}
+                <div className="flex items-center gap-1 shrink-0">
+                  <Button
+                    variant="ghost"
+                    size="icon-xs"
+                    title="Edit"
+                    onClick={() => handleEdit(provider)}
+                  >
+                    <HugeiconsIcon icon={PencilEdit01Icon} className="h-3 w-3" />
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="icon-xs"
+                    title="Delete"
+                    onClick={() => setDeleteTarget(provider)}
+                  >
+                    <HugeiconsIcon icon={Delete02Icon} className="h-3 w-3 text-destructive" />
+                  </Button>
                 </div>
               </div>
-            );
-          })}
+            </div>
+          ))}
         </div>
       )}
 

@@ -30,6 +30,7 @@ export default function NewChatPage() {
   const [workingDir, setWorkingDir] = useState('');
   const [mode, setMode] = useState('code');
   const [currentModel, setCurrentModel] = useState('sonnet');
+  const [currentProviderId, setCurrentProviderId] = useState('');
   const [pendingPermission, setPendingPermission] = useState<PermissionRequestEvent | null>(null);
   const [permissionResolved, setPermissionResolved] = useState<'allow' | 'deny' | null>(null);
   const [streamingToolOutput, setStreamingToolOutput] = useState('');
@@ -143,7 +144,7 @@ export default function NewChatPage() {
         const response = await fetch('/api/chat', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ session_id: session.id, content, mode, model: currentModel }),
+          body: JSON.stringify({ session_id: session.id, content, mode, model: currentModel, provider_id: currentProviderId }),
           signal: controller.signal,
         });
 
@@ -310,7 +311,7 @@ export default function NewChatPage() {
         abortControllerRef.current = null;
       }
     },
-    [isStreaming, router, workingDir, mode, currentModel, setPendingApprovalSessionId]
+    [isStreaming, router, workingDir, mode, currentModel, currentProviderId, setPendingApprovalSessionId]
   );
 
   const handleCommand = useCallback((command: string) => {
@@ -369,6 +370,11 @@ export default function NewChatPage() {
         isStreaming={isStreaming}
         modelName={currentModel}
         onModelChange={setCurrentModel}
+        providerId={currentProviderId}
+        onProviderModelChange={(pid, model) => {
+          setCurrentProviderId(pid);
+          setCurrentModel(model);
+        }}
         workingDirectory={workingDir}
         mode={mode}
         onModeChange={setMode}
