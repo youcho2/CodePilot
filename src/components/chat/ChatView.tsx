@@ -66,6 +66,33 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
   }, [sessionId]);
   const abortControllerRef = useRef<AbortController | null>(null);
 
+  // Abort active stream on unmount (e.g., session switch via key={id} remount).
+  // This triggers the existing server-side cleanup chain:
+  //   fetch abort → request.signal 'abort' → route abortController.abort()
+  //   → collectStreamResponse catch block saves partial message to DB
+  //   → permission-registry abort handler auto-denies pending permissions
+  useEffect(() => {
+    return () => {
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+        abortControllerRef.current = null;
+      }
+      setStreamingSessionId('');
+      setPendingApprovalSessionId('');
+    };
+  }, [setStreamingSessionId, setPendingApprovalSessionId]);
+
+  // Warn before closing window/tab while streaming to prevent accidental data loss
+  useEffect(() => {
+    if (!isStreaming) return;
+    const handler = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = '';
+    };
+    window.addEventListener('beforeunload', handler);
+    return () => window.removeEventListener('beforeunload', handler);
+  }, [isStreaming]);
+
   // Ref to keep accumulated streaming content in sync regardless of React batching
   const accumulatedRef = useRef('');
   // Refs to track tool data reliably across closures (state reads can be stale)
