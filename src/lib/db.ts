@@ -109,10 +109,40 @@ function initDb(db: Database.Database): void {
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
 
+    CREATE TABLE IF NOT EXISTS media_generations (
+      id TEXT PRIMARY KEY,
+      type TEXT NOT NULL DEFAULT 'image',
+      status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending', 'processing', 'completed', 'failed')),
+      provider TEXT NOT NULL DEFAULT 'gemini',
+      model TEXT NOT NULL DEFAULT '',
+      prompt TEXT NOT NULL DEFAULT '',
+      aspect_ratio TEXT NOT NULL DEFAULT '1:1',
+      image_size TEXT NOT NULL DEFAULT '1K',
+      local_path TEXT NOT NULL DEFAULT '',
+      thumbnail_path TEXT NOT NULL DEFAULT '',
+      session_id TEXT,
+      message_id TEXT,
+      tags TEXT NOT NULL DEFAULT '[]',
+      metadata TEXT NOT NULL DEFAULT '{}',
+      error TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      completed_at TEXT
+    );
+
+    CREATE TABLE IF NOT EXISTS media_tags (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL UNIQUE,
+      color TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
     CREATE INDEX IF NOT EXISTS idx_messages_session_id ON messages(session_id);
     CREATE INDEX IF NOT EXISTS idx_messages_created_at ON messages(created_at);
     CREATE INDEX IF NOT EXISTS idx_sessions_updated_at ON chat_sessions(updated_at);
     CREATE INDEX IF NOT EXISTS idx_tasks_session_id ON tasks(session_id);
+    CREATE INDEX IF NOT EXISTS idx_media_created_at ON media_generations(created_at);
+    CREATE INDEX IF NOT EXISTS idx_media_session_id ON media_generations(session_id);
+    CREATE INDEX IF NOT EXISTS idx_media_status ON media_generations(status);
   `);
 
   // Run migrations for existing databases
@@ -205,6 +235,40 @@ function migrateDb(db: Database.Database): void {
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
+  `);
+
+  // Ensure media_generations table exists for databases created before this migration
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS media_generations (
+      id TEXT PRIMARY KEY,
+      type TEXT NOT NULL DEFAULT 'image',
+      status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending', 'processing', 'completed', 'failed')),
+      provider TEXT NOT NULL DEFAULT 'gemini',
+      model TEXT NOT NULL DEFAULT '',
+      prompt TEXT NOT NULL DEFAULT '',
+      aspect_ratio TEXT NOT NULL DEFAULT '1:1',
+      image_size TEXT NOT NULL DEFAULT '1K',
+      local_path TEXT NOT NULL DEFAULT '',
+      thumbnail_path TEXT NOT NULL DEFAULT '',
+      session_id TEXT,
+      message_id TEXT,
+      tags TEXT NOT NULL DEFAULT '[]',
+      metadata TEXT NOT NULL DEFAULT '{}',
+      error TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      completed_at TEXT
+    );
+
+    CREATE TABLE IF NOT EXISTS media_tags (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL UNIQUE,
+      color TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_media_created_at ON media_generations(created_at);
+    CREATE INDEX IF NOT EXISTS idx_media_session_id ON media_generations(session_id);
+    CREATE INDEX IF NOT EXISTS idx_media_status ON media_generations(status);
   `);
 
   // Migrate existing settings to a default provider if api_providers is empty
