@@ -247,8 +247,8 @@ const QUICK_PRESETS: QuickPreset[] = [
   {
     key: "gemini-image",
     name: "Google Gemini (Image)",
-    description: "Nano Banana 2 — AI image generation by Google Gemini",
-    descriptionZh: "Nano Banana 2 — Google Gemini AI 图片生成",
+    description: "Nano Banana Pro — AI image generation by Google Gemini",
+    descriptionZh: "Nano Banana Pro — Google Gemini AI 图片生成",
     icon: <Google size={18} />,
     provider_type: "gemini-image",
     base_url: "https://generativelanguage.googleapis.com/v1beta",
@@ -264,7 +264,7 @@ const GEMINI_IMAGE_MODELS = [
   { value: 'gemini-2.5-flash-image', label: 'Nano Banana' },
 ];
 
-const DEFAULT_GEMINI_IMAGE_MODEL = 'gemini-3.1-flash-image-preview';
+const DEFAULT_GEMINI_IMAGE_MODEL = 'gemini-3-pro-image-preview';
 
 function getGeminiImageModel(provider: ApiProvider): string {
   try {

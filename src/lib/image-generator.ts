@@ -43,7 +43,7 @@ export async function generateSingleImage(params: GenerateSingleImageParams): Pr
   }
 
   // Read configured model from extra_env, fall back to default
-  let configuredModel = 'gemini-3.1-flash-image-preview';
+  let configuredModel = 'gemini-3-pro-image-preview';
   try {
     const env = JSON.parse(provider.extra_env || '{}');
     if (env.GEMINI_IMAGE_MODEL) configuredModel = env.GEMINI_IMAGE_MODEL;

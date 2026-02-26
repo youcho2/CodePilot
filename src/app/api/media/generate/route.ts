@@ -41,7 +41,7 @@ export async function POST(request: NextRequest) {
         id: result.mediaGenerationId,
         text: '',
         images: result.images,
-        model: body.model || 'gemini-3.1-flash-image-preview',
+        model: body.model || 'gemini-3-pro-image-preview',
         imageSize: body.imageSize || '1K',
         elapsedMs: result.elapsedMs,
       }),
