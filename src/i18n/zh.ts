@@ -135,6 +135,15 @@ const zh: Record<TranslationKey, string> = {
   'provider.default': '默认',
   'provider.setDefault': '设为默认',
   'provider.environment': '环境变量',
+  'provider.connectedProviders': '已连接的提供商',
+  'provider.noConnected': '尚未连接任何提供商',
+  'provider.connect': '连接',
+  'provider.disconnect': '断开连接',
+  'provider.disconnecting': '断开中...',
+  'provider.disconnectProvider': '断开提供商',
+  'provider.disconnectConfirm': '确定要断开"{name}"吗？此操作无法撤销。',
+  'provider.addProviderSection': '添加提供商',
+  'provider.addProviderDesc': '选择要连接的提供商。大多数预设只需填写 API 密钥。',
 
   // ── Right panel / Files ─────────────────────────────────────
   'panel.files': '文件',

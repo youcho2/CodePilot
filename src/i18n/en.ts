@@ -138,6 +138,15 @@ const en = {
   'provider.default': 'Default',
   'provider.setDefault': 'Set as Default',
   'provider.environment': 'Environment',
+  'provider.connectedProviders': 'Connected Providers',
+  'provider.noConnected': 'No providers connected yet',
+  'provider.connect': 'Connect',
+  'provider.disconnect': 'Disconnect',
+  'provider.disconnecting': 'Disconnecting...',
+  'provider.disconnectProvider': 'Disconnect Provider',
+  'provider.disconnectConfirm': 'Are you sure you want to disconnect "{name}"? This action cannot be undone.',
+  'provider.addProviderSection': 'Add Provider',
+  'provider.addProviderDesc': 'Select a provider to connect. Most presets only require an API key.',
 
   // ── Right panel / Files ─────────────────────────────────────
   'panel.files': 'Files',
