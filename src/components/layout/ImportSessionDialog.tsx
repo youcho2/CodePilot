@@ -24,7 +24,7 @@ import {
   MessageAddIcon,
 } from "@hugeicons/core-free-icons";
 import { useTranslation } from "@/hooks/useTranslation";
-import { cn } from "@/lib/utils";
+import { cn, parseDBDate } from "@/lib/utils";
 
 interface ClaudeSessionInfo {
   sessionId: string;
@@ -47,7 +47,7 @@ interface ImportSessionDialogProps {
 }
 
 function formatRelativeTime(dateStr: string): { key: 'import.justNow' | 'import.minutesAgo' | 'import.hoursAgo' | 'import.daysAgo'; params?: Record<string, number> } | string {
-  const date = new Date(dateStr);
+  const date = parseDBDate(dateStr);
   const now = new Date();
   const diffMs = now.getTime() - date.getTime();
   const diffMin = Math.floor(diffMs / 60000);

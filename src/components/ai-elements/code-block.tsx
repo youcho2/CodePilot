@@ -149,6 +149,10 @@ const getHighlighter = (
   const highlighterPromise = createHighlighter({
     langs: [language],
     themes: ["github-light", "github-dark"],
+  }).catch(() => {
+    // Language not supported by Shiki — fall back to plain text
+    highlighterCache.delete(language);
+    return getHighlighter("text" as BundledLanguage);
   });
 
   highlighterCache.set(language, highlighterPromise);

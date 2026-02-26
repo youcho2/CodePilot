@@ -23,7 +23,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { cn } from "@/lib/utils";
+import { cn, parseDBDate } from "@/lib/utils";
 import { usePanel } from "@/hooks/usePanel";
 import { useTranslation } from "@/hooks/useTranslation";
 import { useNativeFolderPicker } from "@/hooks/useNativeFolderPicker";
@@ -38,7 +38,7 @@ interface ChatListPanelProps {
 }
 
 function formatRelativeTime(dateStr: string, t: (key: import('@/i18n').TranslationKey, params?: Record<string, string | number>) => string): string {
-  const date = new Date(dateStr.includes("T") ? dateStr : dateStr + "Z");
+  const date = parseDBDate(dateStr);
   const now = new Date();
   const diffMs = now.getTime() - date.getTime();
   const diffMin = Math.floor(diffMs / 60000);
@@ -90,13 +90,13 @@ function groupSessionsByProject(sessions: ChatSession[]): ProjectGroup[] {
     // Sort sessions within group by updated_at DESC
     groupSessions.sort(
       (a, b) =>
-        new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime()
+        parseDBDate(b.updated_at).getTime() - parseDBDate(a.updated_at).getTime()
     );
     const displayName =
       wd === ""
         ? "No Project"
         : groupSessions[0]?.project_name || wd.split("/").pop() || wd;
-    const latestUpdatedAt = new Date(groupSessions[0].updated_at).getTime();
+    const latestUpdatedAt = parseDBDate(groupSessions[0].updated_at).getTime();
     groups.push({
       workingDirectory: wd,
       displayName,

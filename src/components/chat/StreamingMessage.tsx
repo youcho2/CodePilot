@@ -18,8 +18,50 @@ import {
   ConfirmationAction,
 } from '@/components/ai-elements/confirmation';
 import { Shimmer } from '@/components/ai-elements/shimmer';
+import { ImageGenConfirmation } from './ImageGenConfirmation';
 import type { ToolUIPart } from 'ai';
 import type { PermissionRequestEvent } from '@/types';
+
+interface ImageGenRequest {
+  prompt: string;
+  aspectRatio: string;
+  resolution: string;
+  referenceImages?: string[];
+}
+
+function parseImageGenRequest(text: string): { beforeText: string; request: ImageGenRequest; afterText: string } | null {
+  const regex = /```image-gen-request\s*\n?([\s\S]*?)\n?\s*```/;
+  const match = text.match(regex);
+  if (!match) return null;
+  try {
+    let raw = match[1].trim();
+    let json: Record<string, unknown>;
+    try {
+      json = JSON.parse(raw);
+    } catch {
+      // Attempt to fix common model output issues: unescaped quotes in values
+      raw = raw.replace(/"prompt"\s*:\s*"([\s\S]*?)"\s*([,}])/g, (_m, val, tail) => {
+        const escaped = val.replace(/(?<!\\)"/g, '\\"');
+        return `"prompt": "${escaped}"${tail}`;
+      });
+      json = JSON.parse(raw);
+    }
+    const beforeText = text.slice(0, match.index).trim();
+    const afterText = text.slice((match.index || 0) + match[0].length).trim();
+    return {
+      beforeText,
+      request: {
+        prompt: String(json.prompt || ''),
+        aspectRatio: String(json.aspectRatio || '1:1'),
+        resolution: String(json.resolution || '1K'),
+        referenceImages: Array.isArray(json.referenceImages) ? json.referenceImages : undefined,
+      },
+      afterText,
+    };
+  } catch {
+    return null;
+  }
+}
 
 interface ToolUseInfo {
   id: string;
@@ -449,9 +491,36 @@ export function StreamingMessage({
         )}
 
         {/* Streaming text content rendered via Streamdown */}
-        {content && (
-          <MessageResponse>{content}</MessageResponse>
-        )}
+        {content && (() => {
+          console.log('[StreamingMessage] content:', JSON.stringify(content.slice(0, 500)));
+          const parsed = parseImageGenRequest(content);
+          console.log('[StreamingMessage] parseImageGenRequest result:', parsed ? 'OK' : 'null', 'isStreaming:', isStreaming);
+          if (parsed) {
+            return (
+              <>
+                {parsed.beforeText && <MessageResponse>{parsed.beforeText}</MessageResponse>}
+                <ImageGenConfirmation
+                  initialPrompt={parsed.request.prompt}
+                  initialAspectRatio={parsed.request.aspectRatio}
+                  initialResolution={parsed.request.resolution}
+                  referenceImagePaths={parsed.request.referenceImages}
+                />
+                {parsed.afterText && <MessageResponse>{parsed.afterText}</MessageResponse>}
+              </>
+            );
+          }
+          // Strip partial or unparseable image-gen-request blocks to avoid Shiki errors
+          if (isStreaming) {
+            const hasImageGenBlock = /```image-gen-request/.test(content);
+            const stripped = content.replace(/```image-gen-request[\s\S]*$/, '').trim();
+            if (stripped) return <MessageResponse>{stripped}</MessageResponse>;
+            // Show shimmer while the image-gen block is being streamed
+            if (hasImageGenBlock) return <Shimmer>{t('streaming.thinking')}</Shimmer>;
+            return null;
+          }
+          const stripped = content.replace(/```image-gen-request[\s\S]*?```/g, '').trim();
+          return stripped ? <MessageResponse>{stripped}</MessageResponse> : null;
+        })()}
 
         {/* Loading indicator when no content yet */}
         {isStreaming && !content && toolUses.length === 0 && !pendingPermission && (

@@ -224,6 +224,46 @@ function getUploadedFilePaths(files: FileAttachment[], workDir: string): string[
   return paths;
 }
 
+/**
+ * Build a context-enriched prompt by prepending conversation history.
+ * Used when SDK session resume is unavailable or fails.
+ */
+function buildPromptWithHistory(
+  prompt: string,
+  history?: Array<{ role: 'user' | 'assistant'; content: string }>,
+): string {
+  if (!history || history.length === 0) return prompt;
+
+  const lines: string[] = ['<conversation_history>'];
+  for (const msg of history) {
+    // For assistant messages with tool blocks (JSON arrays), summarize
+    let content = msg.content;
+    if (msg.role === 'assistant' && content.startsWith('[')) {
+      try {
+        const blocks = JSON.parse(content);
+        const parts: string[] = [];
+        for (const b of blocks) {
+          if (b.type === 'text' && b.text) parts.push(b.text);
+          else if (b.type === 'tool_use') parts.push(`[Used tool: ${b.name}]`);
+          else if (b.type === 'tool_result') {
+            const resultStr = typeof b.content === 'string' ? b.content : JSON.stringify(b.content);
+            // Truncate long tool results
+            parts.push(`[Tool result: ${resultStr.slice(0, 500)}${resultStr.length > 500 ? '...' : ''}]`);
+          }
+        }
+        content = parts.join('\n');
+      } catch {
+        // Not JSON, use as-is
+      }
+    }
+    lines.push(`${msg.role === 'user' ? 'Human' : 'Assistant'}: ${content}`);
+  }
+  lines.push('</conversation_history>');
+  lines.push('');
+  lines.push(prompt);
+  return lines.join('\n');
+}
+
 export function streamClaude(options: ClaudeStreamOptions): ReadableStream<string> {
   const {
     prompt,
@@ -237,6 +277,7 @@ export function streamClaude(options: ClaudeStreamOptions): ReadableStream<strin
     permissionMode,
     files,
     toolTimeoutSeconds = 0,
+    conversationHistory,
   } = options;
 
   return new ReadableStream<string>({
@@ -493,28 +534,39 @@ export function streamClaude(options: ClaudeStreamOptions): ReadableStream<strin
           }
         };
 
-        // Build the prompt with file attachments.
-        // Images → sent as multimodal base64 content blocks (vision).
-        // Non-image files → saved to disk and referenced via Read tool.
-        let finalPrompt: string | AsyncIterable<SDKUserMessage> = prompt;
+        // Build the prompt with file attachments and optional conversation history.
+        // When resuming, the SDK has full context so we send the raw prompt.
+        // When NOT resuming (fresh or fallback), prepend DB history for context.
+        function buildFinalPrompt(useHistory: boolean): string | AsyncIterable<SDKUserMessage> {
+          const basePrompt = useHistory
+            ? buildPromptWithHistory(prompt, conversationHistory)
+            : prompt;
 
-        if (files && files.length > 0) {
+          if (!files || files.length === 0) return basePrompt;
+
           const imageFiles = files.filter(f => isImageFile(f.type));
           const nonImageFiles = files.filter(f => !isImageFile(f.type));
 
-          // Save non-image files to disk for Read tool access
-          let textPrompt = prompt;
+          let textPrompt = basePrompt;
           if (nonImageFiles.length > 0) {
             const workDir = workingDirectory || os.homedir();
             const savedPaths = getUploadedFilePaths(nonImageFiles, workDir);
             const fileReferences = savedPaths
               .map((p, i) => `[User attached file: ${p} (${nonImageFiles[i].name})]`)
               .join('\n');
-            textPrompt = `${fileReferences}\n\nPlease read the attached file(s) above using your Read tool, then respond to the user's message:\n\n${prompt}`;
+            textPrompt = `${fileReferences}\n\nPlease read the attached file(s) above using your Read tool, then respond to the user's message:\n\n${basePrompt}`;
           }
 
-          // If there are images, build a multimodal SDKUserMessage
           if (imageFiles.length > 0) {
+            // Append image disk paths to the text prompt so Claude knows where
+            // the files are on disk (enables skills to reference them by path).
+            const workDir = workingDirectory || os.homedir();
+            const imagePaths = getUploadedFilePaths(imageFiles, workDir);
+            const imageReferences = imagePaths
+              .map((p, i) => `[User attached image: ${p} (${imageFiles[i].name})]`)
+              .join('\n');
+            const textWithImageRefs = `${imageReferences}\n\n${textPrompt}`;
+
             const contentBlocks: Array<
               | { type: 'image'; source: { type: 'base64'; media_type: string; data: string } }
               | { type: 'text'; text: string }
@@ -531,7 +583,7 @@ export function streamClaude(options: ClaudeStreamOptions): ReadableStream<strin
               });
             }
 
-            contentBlocks.push({ type: 'text', text: textPrompt });
+            contentBlocks.push({ type: 'text', text: textWithImageRefs });
 
             const userMessage: SDKUserMessage = {
               type: 'user',
@@ -543,14 +595,15 @@ export function streamClaude(options: ClaudeStreamOptions): ReadableStream<strin
               session_id: sdkSessionId || '',
             };
 
-            // Create a single-message async iterable
-            finalPrompt = (async function* () {
+            return (async function* () {
               yield userMessage;
             })();
-          } else {
-            finalPrompt = textPrompt;
           }
+
+          return textPrompt;
         }
+
+        let finalPrompt = buildFinalPrompt(!shouldResume);
 
         // Try to start the conversation. If resuming a previous session fails
         // (e.g. stale/corrupt session file, CLI version mismatch), automatically
@@ -592,10 +645,10 @@ export function streamClaude(options: ClaudeStreamOptions): ReadableStream<strin
                 message: 'Previous session could not be resumed. Starting fresh conversation.',
               }),
             }));
-            // Remove resume and try again as a fresh conversation
+            // Remove resume and try again as a fresh conversation with history context
             delete queryOptions.resume;
             conversation = query({
-              prompt: finalPrompt,
+              prompt: buildFinalPrompt(true),
               options: queryOptions,
             });
           }

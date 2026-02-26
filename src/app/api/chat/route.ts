@@ -1,6 +1,6 @@
 import { NextRequest } from 'next/server';
 import { streamClaude } from '@/lib/claude-client';
-import { addMessage, getSession, updateSessionTitle, updateSdkSessionId, updateSessionModel, updateSessionProvider, updateSessionProviderId, getSetting, getProvider, getDefaultProviderId } from '@/lib/db';
+import { addMessage, getMessages, getSession, updateSessionTitle, updateSdkSessionId, updateSessionModel, updateSessionProvider, updateSessionProviderId, getSetting, getProvider, getDefaultProviderId } from '@/lib/db';
 import type { SendMessageRequest, SSEEvent, TokenUsage, MessageContentBlock, FileAttachment } from '@/types';
 import fs from 'fs';
 import path from 'path';
@@ -10,8 +10,11 @@ export const dynamic = 'force-dynamic';
 
 export async function POST(request: NextRequest) {
   try {
-    const body: SendMessageRequest & { files?: FileAttachment[]; toolTimeout?: number; provider_id?: string } = await request.json();
-    const { session_id, content, model, mode, files, toolTimeout, provider_id } = body;
+    const body: SendMessageRequest & { files?: FileAttachment[]; toolTimeout?: number; provider_id?: string; systemPromptAppend?: string } = await request.json();
+    const { session_id, content, model, mode, files, toolTimeout, provider_id, systemPromptAppend } = body;
+
+    console.log('[chat API] content length:', content.length, 'first 200 chars:', content.slice(0, 200));
+    console.log('[chat API] systemPromptAppend:', systemPromptAppend ? `${systemPromptAppend.length} chars` : 'none');
 
     if (!session_id || !content) {
       return new Response(JSON.stringify({ error: 'session_id and content are required' }), {
@@ -135,19 +138,43 @@ export async function POST(request: NextRequest) {
         })
       : undefined;
 
+    // Append per-request system prompt (e.g. skill injection for image generation)
+    let finalSystemPrompt = systemPromptOverride || session.system_prompt || undefined;
+    if (systemPromptAppend) {
+      finalSystemPrompt = (finalSystemPrompt || '') + '\n\n' + systemPromptAppend;
+    }
+
+    // Load recent conversation history from DB as fallback context.
+    // This is used when SDK session resume is unavailable or fails,
+    // so the model still has conversation context.
+    const { messages: recentMsgs } = getMessages(session_id, { limit: 50 });
+    // Exclude the user message we just saved (last in the list) — it's already the prompt
+    const historyMsgs = recentMsgs.slice(0, -1).map(m => ({
+      role: m.role as 'user' | 'assistant',
+      content: m.content,
+    }));
+
     // Stream Claude response, using SDK session ID for resume if available
+    console.log('[chat API] streamClaude params:', {
+      promptLength: content.length,
+      promptFirst200: content.slice(0, 200),
+      sdkSessionId: session.sdk_session_id || 'none',
+      systemPromptLength: finalSystemPrompt?.length || 0,
+      systemPromptFirst200: finalSystemPrompt?.slice(0, 200) || 'none',
+    });
     const stream = streamClaude({
       prompt: content,
       sessionId: session_id,
       sdkSessionId: session.sdk_session_id || undefined,
       model: effectiveModel,
-      systemPrompt: systemPromptOverride || session.system_prompt || undefined,
+      systemPrompt: finalSystemPrompt,
       workingDirectory: session.working_directory || undefined,
       abortController,
       permissionMode,
       files: fileAttachments,
       toolTimeoutSeconds: toolTimeout || 300,
       provider: resolvedProvider,
+      conversationHistory: historyMsgs,
     });
 
     // Tee the stream: one for client, one for collecting the response

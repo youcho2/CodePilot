@@ -8,6 +8,7 @@ import { HugeiconsIcon } from "@hugeicons/react";
 import {
   Message02Icon,
   GridIcon,
+  Image01Icon,
   Settings02Icon,
   Moon02Icon,
   Sun02Icon,
@@ -34,6 +35,7 @@ interface NavRailProps {
 const navItems = [
   { href: "/chat", label: "Chats", icon: Message02Icon },
   { href: "/extensions", label: "Extensions", icon: GridIcon },
+  { href: "/gallery", label: "Gallery", icon: Image01Icon },
   { href: "/settings", label: "Settings", icon: Settings02Icon },
 ] as const;
 
@@ -45,6 +47,7 @@ export function NavRail({ onToggleChatList, hasUpdate, readyToInstall, skipPermi
   const navLabelKeys: Record<string, TranslationKey> = {
     'Chats': 'nav.chats',
     'Extensions': 'nav.extensions',
+    'Gallery': 'gallery.title',
     'Settings': 'nav.settings',
   };
   const emptySubscribe = useCallback(() => () => {}, []);

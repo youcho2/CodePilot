@@ -448,4 +448,6 @@ export interface ClaudeStreamOptions {
   files?: FileAttachment[];
   toolTimeoutSeconds?: number;
   provider?: ApiProvider;
+  /** Recent conversation history from DB — used as fallback context when SDK resume is unavailable or fails */
+  conversationHistory?: Array<{ role: 'user' | 'assistant'; content: string }>;
 }

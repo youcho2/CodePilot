@@ -11,6 +11,87 @@ import { ToolActionsGroup } from '@/components/ai-elements/tool-actions-group';
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Copy01Icon, Tick01Icon, ArrowDown01Icon, ArrowUp01Icon } from "@hugeicons/core-free-icons";
 import { FileAttachmentDisplay } from './FileAttachmentDisplay';
+import { ImageGenConfirmation } from './ImageGenConfirmation';
+import { ImageGenCard } from './ImageGenCard';
+import { imageGenRefStore } from './ChatView';
+import { parseDBDate } from '@/lib/utils';
+
+interface ImageGenRequest {
+  prompt: string;
+  aspectRatio: string;
+  resolution: string;
+  referenceImages?: string[];
+}
+
+function parseImageGenRequest(text: string): { beforeText: string; request: ImageGenRequest; afterText: string } | null {
+  const regex = /```image-gen-request\s*\n?([\s\S]*?)\n?\s*```/;
+  const match = text.match(regex);
+  if (!match) return null;
+  try {
+    let raw = match[1].trim();
+    let json: Record<string, unknown>;
+    try {
+      json = JSON.parse(raw);
+    } catch {
+      // Attempt to fix common model output issues: unescaped quotes in values
+      raw = raw.replace(/"prompt"\s*:\s*"([\s\S]*?)"\s*([,}])/g, (_m, val, tail) => {
+        const escaped = val.replace(/(?<!\\)"/g, '\\"');
+        return `"prompt": "${escaped}"${tail}`;
+      });
+      json = JSON.parse(raw);
+    }
+    const beforeText = text.slice(0, match.index).trim();
+    const afterText = text.slice((match.index || 0) + match[0].length).trim();
+    return {
+      beforeText,
+      request: {
+        prompt: String(json.prompt || ''),
+        aspectRatio: String(json.aspectRatio || '1:1'),
+        resolution: String(json.resolution || '1K'),
+        referenceImages: Array.isArray(json.referenceImages) ? json.referenceImages : undefined,
+      },
+      afterText,
+    };
+  } catch {
+    return null;
+  }
+}
+
+interface ImageGenResultData {
+  status: 'generating' | 'completed' | 'error';
+  prompt: string;
+  aspectRatio?: string;
+  resolution?: string;
+  model?: string;
+  images?: Array<{ mimeType: string; localPath?: string; data?: string }>;
+  error?: string;
+}
+
+function parseImageGenResult(text: string): { beforeText: string; result: ImageGenResultData; afterText: string } | null {
+  const regex = /```image-gen-result\s*\n?([\s\S]*?)\n?\s*```/;
+  const match = text.match(regex);
+  if (!match) return null;
+  try {
+    const json = JSON.parse(match[1]);
+    const beforeText = text.slice(0, match.index).trim();
+    const afterText = text.slice((match.index || 0) + match[0].length).trim();
+    return {
+      beforeText,
+      result: {
+        status: json.status || 'completed',
+        prompt: String(json.prompt || ''),
+        aspectRatio: json.aspectRatio,
+        resolution: json.resolution,
+        model: json.model,
+        images: Array.isArray(json.images) ? json.images : undefined,
+        error: json.error,
+      },
+      afterText,
+    };
+  } catch {
+    return null;
+  }
+}
 
 interface MessageItemProps {
   message: Message;
@@ -206,6 +287,17 @@ const COLLAPSE_HEIGHT = 300;
 
 export function MessageItem({ message }: MessageItemProps) {
   const isUser = message.role === 'user';
+
+  // Collapse/expand state for long user messages (hooks must be called unconditionally)
+  const [isExpanded, setIsExpanded] = useState(false);
+  const [isOverflowing, setIsOverflowing] = useState(false);
+  const contentRef = useRef<HTMLDivElement>(null);
+
+  // Hide image-gen system notices — they exist in DB for Claude's context but shouldn't render
+  if (isUser && message.content.startsWith('[__IMAGE_GEN_NOTICE__')) {
+    return null;
+  }
+
   const { text, tools } = parseToolBlocks(message.content);
   const pairedTools = pairTools(tools);
 
@@ -215,11 +307,6 @@ export function MessageItem({ message }: MessageItemProps) {
     : { files: [], text };
 
   const displayText = isUser ? textWithoutFiles : text;
-
-  // Collapse/expand state for long user messages
-  const [isExpanded, setIsExpanded] = useState(false);
-  const [isOverflowing, setIsOverflowing] = useState(false);
-  const contentRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (isUser && contentRef.current) {
@@ -236,7 +323,7 @@ export function MessageItem({ message }: MessageItemProps) {
     }
   }
 
-  const timestamp = new Date(message.created_at).toLocaleTimeString([], {
+  const timestamp = parseDBDate(message.created_at).toLocaleTimeString([], {
     hour: '2-digit',
     minute: '2-digit',
   });
@@ -300,9 +387,80 @@ export function MessageItem({ message }: MessageItemProps) {
                 </button>
               )}
             </div>
-          ) : (
-            <MessageResponse>{displayText}</MessageResponse>
-          )
+          ) : (() => {
+            // Try image-gen-result first (new direct-call format)
+            const genResult = parseImageGenResult(displayText);
+            if (genResult) {
+              const { result } = genResult;
+              if (result.status === 'generating') {
+                return (
+                  <>
+                    {genResult.beforeText && <MessageResponse>{genResult.beforeText}</MessageResponse>}
+                    <div className="flex items-center gap-2 py-3">
+                      <div className="h-4 w-4 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+                      <span className="text-sm text-muted-foreground">Generating image...</span>
+                    </div>
+                    {genResult.afterText && <MessageResponse>{genResult.afterText}</MessageResponse>}
+                  </>
+                );
+              }
+              if (result.status === 'error') {
+                return (
+                  <>
+                    {genResult.beforeText && <MessageResponse>{genResult.beforeText}</MessageResponse>}
+                    <div className="rounded-md border border-red-200 bg-red-50 dark:border-red-800 dark:bg-red-950/30 p-3">
+                      <p className="text-sm text-red-600 dark:text-red-400">{result.error || 'Image generation failed'}</p>
+                    </div>
+                    {genResult.afterText && <MessageResponse>{genResult.afterText}</MessageResponse>}
+                  </>
+                );
+              }
+              if (result.status === 'completed' && result.images && result.images.length > 0) {
+                return (
+                  <>
+                    {genResult.beforeText && <MessageResponse>{genResult.beforeText}</MessageResponse>}
+                    <ImageGenCard
+                      images={result.images.map(img => ({
+                        data: img.data || '',
+                        mimeType: img.mimeType,
+                        localPath: img.localPath,
+                      }))}
+                      prompt={result.prompt}
+                      aspectRatio={result.aspectRatio}
+                      imageSize={result.resolution}
+                      model={result.model}
+                    />
+                    {genResult.afterText && <MessageResponse>{genResult.afterText}</MessageResponse>}
+                  </>
+                );
+              }
+            }
+
+            // Legacy: image-gen-request (model-dependent format, for old messages)
+            const parsed = parseImageGenRequest(displayText);
+            if (parsed) {
+              // Check module-level store for reference image base64 data
+              const refData = imageGenRefStore.get(message.id);
+              return (
+                <>
+                  {parsed.beforeText && <MessageResponse>{parsed.beforeText}</MessageResponse>}
+                  <ImageGenConfirmation
+                    initialPrompt={parsed.request.prompt}
+                    initialAspectRatio={parsed.request.aspectRatio}
+                    initialResolution={parsed.request.resolution}
+                    referenceImagePaths={parsed.request.referenceImages}
+                    referenceImagesData={refData}
+                  />
+                  {parsed.afterText && <MessageResponse>{parsed.afterText}</MessageResponse>}
+                </>
+              );
+            }
+            const stripped = displayText
+              .replace(/```image-gen-request[\s\S]*?```/g, '')
+              .replace(/```image-gen-result[\s\S]*?```/g, '')
+              .trim();
+            return stripped ? <MessageResponse>{stripped}</MessageResponse> : null;
+          })()
         )}
       </MessageContent>
 

@@ -12,6 +12,7 @@ import { UpdateBanner } from "./UpdateBanner";
 import { DocPreview } from "./DocPreview";
 import { PanelContext, type PanelContent, type PreviewViewMode } from "@/hooks/usePanel";
 import { UpdateContext, type UpdateInfo } from "@/hooks/useUpdate";
+import { ImageGenContext, useImageGenState } from "@/hooks/useImageGen";
 import { ErrorBoundary } from "./ErrorBoundary";
 
 const CHATLIST_MIN = 180;
@@ -342,9 +343,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     [panelOpen, setPanelOpen, panelContent, workingDirectory, sessionId, sessionTitle, streamingSessionId, pendingApprovalSessionId, previewFile, setPreviewFile, previewViewMode]
   );
 
+  const imageGenValue = useImageGenState();
+
   return (
     <UpdateContext.Provider value={updateContextValue}>
       <PanelContext.Provider value={panelContextValue}>
+        <ImageGenContext.Provider value={imageGenValue}>
         <TooltipProvider delayDuration={300}>
           <div className="flex h-screen overflow-hidden">
             <NavRail
@@ -396,6 +400,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </div>
           <UpdateDialog />
         </TooltipProvider>
+        </ImageGenContext.Provider>
       </PanelContext.Provider>
     </UpdateContext.Provider>
   );

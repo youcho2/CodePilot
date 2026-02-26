@@ -35,6 +35,8 @@ import {
 import type { ChatStatus } from 'ai';
 import type { FileAttachment, ProviderModelGroup } from '@/types';
 import { nanoid } from 'nanoid';
+import { ImageGenToggle } from './ImageGenToggle';
+import { useImageGen } from '@/hooks/useImageGen';
 
 // Accepted file types for upload
 const ACCEPTED_FILE_TYPES = [
@@ -50,7 +52,8 @@ const MAX_DOC_SIZE = 10 * 1024 * 1024;   // 10MB
 const MAX_FILE_SIZE = MAX_DOC_SIZE;       // Use larger limit; we validate per-type in conversion
 
 interface MessageInputProps {
-  onSend: (content: string, files?: FileAttachment[]) => void;
+  onSend: (content: string, files?: FileAttachment[], systemPromptAppend?: string, displayOverride?: string) => void;
+  onImageGenerate?: (prompt: string, files?: FileAttachment[]) => void;
   onCommand?: (command: string) => void;
   onStop?: () => void;
   disabled?: boolean;
@@ -326,6 +329,7 @@ function FileAttachmentsCapsules() {
 
 export function MessageInput({
   onSend,
+  onImageGenerate,
   onCommand,
   onStop,
   disabled,
@@ -340,6 +344,7 @@ export function MessageInput({
   onModeChange,
 }: MessageInputProps) {
   const { t } = useTranslation();
+  const imageGen = useImageGen();
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const popoverRef = useRef<HTMLDivElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
@@ -596,6 +601,16 @@ export function MessageInput({
       return attachments;
     };
 
+    // If imageGen toggle is on and no badge, call onImageGenerate directly (no model dependency)
+    if (imageGen.state.enabled && !badge && !isStreaming && onImageGenerate) {
+      const files = await convertFiles();
+      const hasFiles = files.length > 0;
+      if (!content && !hasFiles) return;
+      setInputValue('');
+      onImageGenerate(content, hasFiles ? files : undefined);
+      return;
+    }
+
     // If badge is active, expand the command/skill and send
     if (badge && !isStreaming) {
       let expandedPrompt = '';
@@ -674,7 +689,7 @@ export function MessageInput({
 
     onSend(content || 'Please review the attached file(s).', hasFiles ? files : undefined);
     setInputValue('');
-  }, [inputValue, onSend, onCommand, disabled, isStreaming, closePopover, badge]);
+  }, [inputValue, onSend, onImageGenerate, onCommand, disabled, isStreaming, closePopover, badge, imageGen]);
 
   const filteredItems = popoverItems.filter((item) => {
     const q = popoverFilter.toLowerCase();
@@ -1083,9 +1098,6 @@ export function MessageInput({
                     onClick={() => setModelMenuOpen((prev) => !prev)}
                   >
                     <span className="text-xs font-mono">{currentModelOption.label}</span>
-                    {currentGroup && currentGroup.provider_name !== 'Anthropic' && currentGroup.provider_name !== 'Environment' && (
-                      <span className="text-[9px] text-muted-foreground">{currentGroup.provider_name}</span>
-                    )}
                     <HugeiconsIcon icon={ArrowDown01Icon} className={cn("h-2.5 w-2.5 transition-transform duration-200", modelMenuOpen && "rotate-180")} />
                   </PromptInputButton>
 
@@ -1130,6 +1142,9 @@ export function MessageInput({
                     </div>
                   )}
                 </div>
+
+                {/* Image generation toggle */}
+                <ImageGenToggle />
               </PromptInputTools>
 
               <FileAwareSubmitButton

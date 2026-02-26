@@ -7,6 +7,13 @@ import { MessageInput } from './MessageInput';
 import { usePanel } from '@/hooks/usePanel';
 import { consumeSSEStream } from '@/hooks/useSSEStream';
 
+/**
+ * Module-level store for reference image base64 data.
+ * Keyed by message ID — ImageGenConfirmation reads from here to pass
+ * reference images to /api/media/generate without storing base64 in DB.
+ */
+export const imageGenRefStore = new Map<string, Array<{ mimeType: string; data: string }>>();
+
 interface ToolUseInfo {
   id: string;
   name: string;
@@ -218,14 +225,17 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
   }, [pendingPermission, setPendingApprovalSessionId]);
 
   const sendMessage = useCallback(
-    async (content: string, files?: FileAttachment[]) => {
+    async (content: string, files?: FileAttachment[], systemPromptAppend?: string, displayOverride?: string) => {
       if (isStreaming) return;
 
+      // Use displayOverride for UI if provided (e.g. image-gen skill injection hides the skill prompt)
+      const displayUserContent = displayOverride || content;
+
       // Build display content: embed file metadata as HTML comment for MessageItem to parse
-      let displayContent = content;
+      let displayContent = displayUserContent;
       if (files && files.length > 0) {
         const fileMeta = files.map(f => ({ id: f.id, name: f.name, type: f.type, size: f.size, data: f.data }));
-        displayContent = `<!--files:${JSON.stringify(fileMeta)}-->${content}`;
+        displayContent = `<!--files:${JSON.stringify(fileMeta)}-->${displayUserContent}`;
       }
 
       // Optimistic: add user message to UI immediately
@@ -276,6 +286,7 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
             model: currentModel,
             provider_id: currentProviderId,
             ...(files && files.length > 0 ? { files } : {}),
+            ...(systemPromptAppend ? { systemPromptAppend } : {}),
           }),
           signal: controller.signal,
         });
@@ -587,6 +598,112 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
     }
   }, [sessionId, sendMessage]);
 
+  // Listen for image generation completion — persist notice to DB only (no model call)
+  // MessageItem hides messages matching this prefix so the user doesn't see them.
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      if (!detail) return;
+      const paths = (detail.images || [])
+        .map((img: { localPath?: string }) => img.localPath)
+        .filter(Boolean);
+      const pathInfo = paths.length > 0 ? `, file path: ${paths.join(', ')}` : '';
+      const notice = `[__IMAGE_GEN_NOTICE__ prompt: "${detail.prompt}", aspect ratio: ${detail.aspectRatio}, resolution: ${detail.resolution}${pathInfo}. You can use your Read tool to view the generated image if you need to analyze or discuss it.]`;
+      // Persist to DB only — does NOT trigger model
+      fetch('/api/chat/messages', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ session_id: sessionId, role: 'user', content: notice }),
+      }).catch(() => {});
+    };
+    window.addEventListener('image-gen-completed', handler);
+    return () => window.removeEventListener('image-gen-completed', handler);
+  }, [sessionId]);
+
+  // Direct image generation — bypasses /api/chat, shows ImageGenConfirmation for parameter selection
+  const handleImageGenerate = useCallback(async (prompt: string, files?: FileAttachment[]) => {
+    if (!prompt.trim() && (!files || files.length === 0)) return;
+
+    const displayPrompt = prompt || 'Generate an image';
+
+    // Build user display content — only store file metadata (no base64) for DB
+    let userDbContent = displayPrompt;
+    if (files && files.length > 0) {
+      const metaOnly = files.map(f => ({ id: f.id, name: f.name, type: f.type, size: f.size }));
+      userDbContent = `<!--files:${JSON.stringify(metaOnly)}-->${displayPrompt}`;
+    }
+
+    // Build user display content for UI — include base64 for immediate rendering
+    let userUiContent = displayPrompt;
+    if (files && files.length > 0) {
+      const metaWithData = files.map(f => ({ id: f.id, name: f.name, type: f.type, size: f.size, data: f.data }));
+      userUiContent = `<!--files:${JSON.stringify(metaWithData)}-->${displayPrompt}`;
+    }
+
+    // Add user message to UI
+    setMessages(prev => [...prev, {
+      id: 'temp-' + Date.now(),
+      session_id: sessionId,
+      role: 'user',
+      content: userUiContent,
+      created_at: new Date().toISOString(),
+      token_usage: null,
+    }]);
+
+    // Persist user message (lightweight, no base64)
+    fetch('/api/chat/messages', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ session_id: sessionId, role: 'user', content: userDbContent }),
+    }).catch(() => {});
+
+    // Auto-generate title from first message if needed
+    if (messages.length === 0) {
+      const title = displayPrompt.slice(0, 50) + (displayPrompt.length > 50 ? '...' : '');
+      fetch(`/api/chat/sessions/${sessionId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title }),
+      }).then(() => {
+        window.dispatchEvent(new CustomEvent('session-updated'));
+      }).catch(() => {});
+    }
+
+    // Store reference images in module-level map for ImageGenConfirmation to pick up
+    const msgId = 'imggen-' + Date.now();
+    if (files && files.length > 0) {
+      const imageFiles = files.filter(f => f.type.startsWith('image/'));
+      if (imageFiles.length > 0) {
+        imageGenRefStore.set(msgId, imageFiles.map(f => ({ mimeType: f.type, data: f.data })));
+      }
+    }
+
+    // Build image-gen-request — renders ImageGenConfirmation with interactive UI
+    const requestPayload: Record<string, unknown> = {
+      prompt: displayPrompt,
+      aspectRatio: '1:1',
+      resolution: '1K',
+    };
+    const requestContent = '```image-gen-request\n' + JSON.stringify(requestPayload) + '\n```';
+
+    // Add assistant message with ImageGenConfirmation UI
+    setMessages(prev => [...prev, {
+      id: msgId,
+      session_id: sessionId,
+      role: 'assistant',
+      content: requestContent,
+      created_at: new Date().toISOString(),
+      token_usage: null,
+    }]);
+
+    // Persist assistant message so it survives page reload
+    fetch('/api/chat/messages', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ session_id: sessionId, role: 'assistant', content: requestContent }),
+    }).catch(() => {});
+  }, [sessionId, messages.length]);
+
   return (
     <div className="flex h-full min-h-0 flex-col">
       <MessageList
@@ -607,6 +724,7 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
       />
       <MessageInput
         onSend={sendMessage}
+        onImageGenerate={handleImageGenerate}
         onCommand={handleCommand}
         onStop={stopStreaming}
         disabled={false}

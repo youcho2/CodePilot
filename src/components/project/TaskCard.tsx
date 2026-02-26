@@ -4,7 +4,7 @@ import { useState, useRef, useEffect } from "react";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Delete02Icon } from "@hugeicons/core-free-icons";
 import { Button } from "@/components/ui/button";
-import { cn } from "@/lib/utils";
+import { cn, parseDBDate } from "@/lib/utils";
 import type { TaskItem, TaskStatus } from "@/types";
 
 interface TaskCardProps {
@@ -28,7 +28,7 @@ const nextStatus: Record<TaskStatus, TaskStatus> = {
 };
 
 function formatTime(dateStr: string): string {
-  const date = new Date(dateStr.includes("T") ? dateStr : dateStr + "Z");
+  const date = parseDBDate(dateStr);
   const now = new Date();
   const diffMs = now.getTime() - date.getTime();
   const diffMin = Math.floor(diffMs / 60000);
