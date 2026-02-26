@@ -8,6 +8,7 @@ import { ChatListPanel } from "./ChatListPanel";
 import { RightPanel } from "./RightPanel";
 import { ResizeHandle } from "./ResizeHandle";
 import { UpdateDialog } from "./UpdateDialog";
+import { UpdateBanner } from "./UpdateBanner";
 import { DocPreview } from "./DocPreview";
 import { PanelContext, type PanelContent, type PreviewViewMode } from "@/hooks/usePanel";
 import { UpdateContext, type UpdateInfo } from "@/hooks/useUpdate";
@@ -172,17 +173,26 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const [checking, setChecking] = useState(false);
   const [showDialog, setShowDialog] = useState(false);
 
-  const checkForUpdates = useCallback(async () => {
+  const isNativeUpdater = typeof window !== "undefined" && !!window.electronAPI?.updater;
+
+  // --- Browser-mode update check (fallback) ---
+  const checkForUpdatesBrowser = useCallback(async () => {
     setChecking(true);
     try {
       const res = await fetch("/api/app/updates");
       if (!res.ok) return;
-      const data: UpdateInfo = await res.json();
-      setUpdateInfo(data);
+      const data = await res.json();
+      const info: UpdateInfo = {
+        ...data,
+        downloadProgress: null,
+        readyToInstall: false,
+        isNativeUpdate: false,
+      };
+      setUpdateInfo(info);
 
-      if (data.updateAvailable) {
+      if (info.updateAvailable) {
         const dismissed = localStorage.getItem(DISMISSED_VERSION_KEY);
-        if (dismissed !== data.latestVersion) {
+        if (dismissed !== info.latestVersion) {
           setShowDialog(true);
         }
       }
@@ -193,6 +203,97 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
+  // --- Electron native updater check ---
+  const checkForUpdatesNative = useCallback(async () => {
+    setChecking(true);
+    try {
+      await window.electronAPI?.updater?.checkForUpdates();
+    } catch {
+      setChecking(false);
+    }
+  }, []);
+
+  const checkForUpdates = isNativeUpdater ? checkForUpdatesNative : checkForUpdatesBrowser;
+
+  // Subscribe to native updater IPC events
+  useEffect(() => {
+    if (!isNativeUpdater) return;
+
+    const unsubscribe = window.electronAPI!.updater!.onStatus((event) => {
+      switch (event.status) {
+        case 'checking':
+          setChecking(true);
+          break;
+
+        case 'available':
+          setChecking(false);
+          setUpdateInfo((prev) => {
+            const releaseNotes = typeof event.info?.releaseNotes === 'string'
+              ? event.info.releaseNotes
+              : '';
+            const newInfo: UpdateInfo = {
+              updateAvailable: true,
+              latestVersion: event.info?.version ?? '',
+              currentVersion: prev?.currentVersion ?? (process.env.NEXT_PUBLIC_APP_VERSION || '0.0.0'),
+              releaseName: event.info?.releaseName ?? `v${event.info?.version}`,
+              releaseNotes,
+              releaseUrl: `https://github.com/op7418/CodePilot/releases/tag/v${event.info?.version}`,
+              publishedAt: event.info?.releaseDate ?? '',
+              downloadProgress: prev?.downloadProgress ?? null,
+              readyToInstall: prev?.readyToInstall ?? false,
+              isNativeUpdate: true,
+            };
+            return newInfo;
+          });
+          // Show dialog if not dismissed
+          if (event.info?.version) {
+            const dismissed = localStorage.getItem(DISMISSED_VERSION_KEY);
+            if (dismissed !== event.info.version) {
+              setShowDialog(true);
+            }
+          }
+          break;
+
+        case 'not-available':
+          setChecking(false);
+          break;
+
+        case 'downloading':
+          setUpdateInfo((prev) => prev ? {
+            ...prev,
+            downloadProgress: event.progress?.percent ?? null,
+          } : prev);
+          break;
+
+        case 'downloaded':
+          setUpdateInfo((prev) => {
+            if (!prev) return prev;
+            return {
+              ...prev,
+              readyToInstall: true,
+              downloadProgress: 100,
+            };
+          });
+          break;
+
+        case 'error':
+          setChecking(false);
+          console.warn('[updater] Error:', event.error);
+          break;
+      }
+    });
+
+    return unsubscribe;
+  }, [isNativeUpdater]);
+
+  // Browser mode: check on mount + every 8 hours
+  useEffect(() => {
+    if (isNativeUpdater) return;
+    checkForUpdatesBrowser();
+    const id = setInterval(checkForUpdatesBrowser, CHECK_INTERVAL);
+    return () => clearInterval(id);
+  }, [isNativeUpdater, checkForUpdatesBrowser]);
+
   const dismissUpdate = useCallback(() => {
     setShowDialog(false);
     if (updateInfo?.latestVersion) {
@@ -200,12 +301,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     }
   }, [updateInfo]);
 
-  // Check on mount + every 8 hours
-  useEffect(() => {
-    checkForUpdates();
-    const id = setInterval(checkForUpdates, CHECK_INTERVAL);
-    return () => clearInterval(id);
-  }, [checkForUpdates]);
+  const quitAndInstall = useCallback(() => {
+    window.electronAPI?.updater?.quitAndInstall();
+  }, []);
 
   const updateContextValue = useMemo(
     () => ({
@@ -215,8 +313,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       dismissUpdate,
       showDialog,
       setShowDialog,
+      quitAndInstall,
     }),
-    [updateInfo, checking, checkForUpdates, dismissUpdate, showDialog]
+    [updateInfo, checking, checkForUpdates, dismissUpdate, showDialog, quitAndInstall]
   );
 
   const panelContextValue = useMemo(
@@ -252,6 +351,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               chatListOpen={chatListOpen}
               onToggleChatList={() => setChatListOpen(!chatListOpen)}
               hasUpdate={updateInfo?.updateAvailable ?? false}
+              readyToInstall={updateInfo?.readyToInstall ?? false}
               skipPermissionsActive={skipPermissionsActive}
             />
             <ErrorBoundary>
@@ -266,6 +366,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 className="h-5 w-full shrink-0"
                 style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}
               />
+              <UpdateBanner />
               <main className="relative flex-1 overflow-hidden">
                 <ErrorBoundary>{children}</ErrorBoundary>
               </main>

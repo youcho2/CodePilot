@@ -17,6 +17,29 @@ interface ElectronInstallAPI {
   onProgress: (callback: (data: any) => void) => () => void;
 }
 
+interface UpdateStatusEvent {
+  status: 'checking' | 'available' | 'not-available' | 'downloading' | 'downloaded' | 'error';
+  info?: {
+    version: string;
+    releaseNotes?: string | { version: string; note: string }[] | null;
+    releaseName?: string | null;
+    releaseDate?: string;
+  };
+  progress?: {
+    percent: number;
+    bytesPerSecond: number;
+    transferred: number;
+    total: number;
+  };
+  error?: string;
+}
+
+interface ElectronUpdaterAPI {
+  checkForUpdates: () => Promise<unknown>;
+  quitAndInstall: () => Promise<void>;
+  onStatus: (callback: (data: UpdateStatusEvent) => void) => () => void;
+}
+
 interface ElectronAPI {
   versions: {
     electron: string;
@@ -33,6 +56,7 @@ interface ElectronAPI {
     }) => Promise<{ canceled: boolean; filePaths: string[] }>;
   };
   install: ElectronInstallAPI;
+  updater?: ElectronUpdaterAPI;
 }
 
 declare global {

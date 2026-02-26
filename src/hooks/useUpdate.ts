@@ -10,6 +10,9 @@ export interface UpdateInfo {
   releaseNotes: string;
   releaseUrl: string;
   publishedAt: string;
+  downloadProgress: number | null;
+  readyToInstall: boolean;
+  isNativeUpdate: boolean;
 }
 
 export interface UpdateContextValue {
@@ -19,6 +22,7 @@ export interface UpdateContextValue {
   dismissUpdate: () => void;
   showDialog: boolean;
   setShowDialog: (v: boolean) => void;
+  quitAndInstall: () => void;
 }
 
 export const UpdateContext = createContext<UpdateContextValue | null>(null);

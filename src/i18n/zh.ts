@@ -296,6 +296,14 @@ const zh: Record<TranslationKey, string> = {
   'error.tryAgain': '重试',
   'error.reloadApp': '重新加载',
 
+  // ── Update ─────────────────────────────────────────────────
+  'update.newVersionAvailable': '有新版本可用',
+  'update.downloading': '下载中',
+  'update.restartToUpdate': '重启以更新',
+  'update.restartNow': '立即重启',
+  'update.readyToInstall': 'CodePilot v{version} 已就绪 — 重启以完成更新',
+  'update.later': '稍后',
+
   // ── CLI dynamic field labels ──────────────────────────────
   'cli.loadingSettings': '加载设置中...',
   'cli.field.skipDangerousModePermissionPrompt': '跳过危险模式权限提示',

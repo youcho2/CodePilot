@@ -27,6 +27,7 @@ interface NavRailProps {
   chatListOpen: boolean;
   onToggleChatList: () => void;
   hasUpdate?: boolean;
+  readyToInstall?: boolean;
   skipPermissionsActive?: boolean;
 }
 
@@ -36,7 +37,7 @@ const navItems = [
   { href: "/settings", label: "Settings", icon: Settings02Icon },
 ] as const;
 
-export function NavRail({ onToggleChatList, hasUpdate, skipPermissionsActive }: NavRailProps) {
+export function NavRail({ onToggleChatList, hasUpdate, readyToInstall, skipPermissionsActive }: NavRailProps) {
   const pathname = usePathname();
   const router = useRouter();
   const { theme, setTheme } = useTheme();
@@ -103,7 +104,10 @@ export function NavRail({ onToggleChatList, hasUpdate, skipPermissionsActive }: 
                       </Link>
                     </Button>
                     {item.href === "/settings" && hasUpdate && (
-                      <span className="absolute top-0.5 right-0.5 h-2 w-2 rounded-full bg-blue-500" />
+                      <span className={cn(
+                        "absolute top-0.5 right-0.5 h-2 w-2 rounded-full",
+                        readyToInstall ? "bg-green-500 animate-pulse" : "bg-blue-500"
+                      )} />
                     )}
                   </div>
                 )}

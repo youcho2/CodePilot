@@ -4,6 +4,7 @@ import { execFileSync, spawn, ChildProcess } from 'child_process';
 import fs from 'fs';
 import net from 'net';
 import os from 'os';
+import { initAutoUpdater, setUpdaterWindow } from './updater';
 
 let mainWindow: BrowserWindow | null = null;
 let serverProcess: Electron.UtilityProcess | null = null;
@@ -739,6 +740,11 @@ app.whenReady().then(async () => {
 
     serverPort = port;
     createWindow(port);
+
+    // Initialize auto-updater in packaged mode only
+    if (!isDev && mainWindow) {
+      initAutoUpdater(mainWindow);
+    }
   } catch (err) {
     console.error('Failed to start:', err);
     dialog.showErrorBox(
@@ -766,6 +772,11 @@ app.on('activate', async () => {
         serverPort = port;
       }
       createWindow(serverPort || 3000);
+
+      // Re-attach updater to the new window
+      if (!isDev && mainWindow) {
+        setUpdaterWindow(mainWindow);
+      }
     } catch (err) {
       console.error('Failed to restart server:', err);
     }

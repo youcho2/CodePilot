@@ -25,4 +25,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
       return () => { ipcRenderer.removeListener('install:progress', listener); };
     },
   },
+  updater: {
+    checkForUpdates: () => ipcRenderer.invoke('updater:check'),
+    quitAndInstall: () => ipcRenderer.invoke('updater:quit-and-install'),
+    onStatus: (callback: (data: unknown) => void) => {
+      const listener = (_event: unknown, data: unknown) => callback(data);
+      ipcRenderer.on('updater:status', listener);
+      return () => { ipcRenderer.removeListener('updater:status', listener); };
+    },
+  },
 });

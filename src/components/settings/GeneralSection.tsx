@@ -21,7 +21,7 @@ import { SUPPORTED_LOCALES, type Locale } from "@/i18n";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 function UpdateCard() {
-  const { updateInfo, checking, checkForUpdates } = useUpdate();
+  const { updateInfo, checking, checkForUpdates, quitAndInstall } = useUpdate();
   const { t } = useTranslation();
   const currentVersion = process.env.NEXT_PUBLIC_APP_VERSION || "0.0.0";
 
@@ -52,18 +52,33 @@ function UpdateCard() {
         <div className="mt-3">
           {updateInfo.updateAvailable ? (
             <div className="flex items-center gap-2">
-              <span className="h-2 w-2 rounded-full bg-blue-500" />
+              <span className={`h-2 w-2 rounded-full ${updateInfo.readyToInstall ? 'bg-green-500' : 'bg-blue-500'}`} />
               <span className="text-sm">
-                {t('settings.updateAvailable', { version: updateInfo.latestVersion })}
+                {updateInfo.readyToInstall
+                  ? t('update.readyToInstall', { version: updateInfo.latestVersion })
+                  : updateInfo.downloadProgress != null && updateInfo.downloadProgress > 0 && !updateInfo.readyToInstall
+                    ? `${t('update.downloading')} ${Math.round(updateInfo.downloadProgress)}%`
+                    : t('settings.updateAvailable', { version: updateInfo.latestVersion })}
               </span>
-              <Button
-                variant="link"
-                size="sm"
-                className="h-auto p-0 text-sm"
-                onClick={() => window.open(updateInfo.releaseUrl, "_blank")}
-              >
-                {t('settings.viewRelease')}
-              </Button>
+              {updateInfo.readyToInstall ? (
+                <Button
+                  variant="link"
+                  size="sm"
+                  className="h-auto p-0 text-sm"
+                  onClick={quitAndInstall}
+                >
+                  {t('update.restartToUpdate')}
+                </Button>
+              ) : !updateInfo.isNativeUpdate ? (
+                <Button
+                  variant="link"
+                  size="sm"
+                  className="h-auto p-0 text-sm"
+                  onClick={() => window.open(updateInfo.releaseUrl, "_blank")}
+                >
+                  {t('settings.viewRelease')}
+                </Button>
+              ) : null}
             </div>
           ) : (
             <p className="text-sm text-muted-foreground">{t('settings.latestVersion')}</p>

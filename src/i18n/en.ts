@@ -299,6 +299,14 @@ const en = {
   'error.tryAgain': 'Try Again',
   'error.reloadApp': 'Reload App',
 
+  // ── Update ─────────────────────────────────────────────────
+  'update.newVersionAvailable': 'New Version Available',
+  'update.downloading': 'Downloading',
+  'update.restartToUpdate': 'Restart to Update',
+  'update.restartNow': 'Restart Now',
+  'update.readyToInstall': 'CodePilot v{version} is ready — restart to update',
+  'update.later': 'Later',
+
   // ── CLI dynamic field labels ──────────────────────────────
   'cli.loadingSettings': 'Loading settings...',
   'cli.field.skipDangerousModePermissionPrompt': 'Skip Dangerous Mode Permission Prompt',
