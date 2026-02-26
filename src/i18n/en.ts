@@ -145,6 +145,7 @@ const en = {
   'provider.disconnecting': 'Disconnecting...',
   'provider.disconnectProvider': 'Disconnect Provider',
   'provider.disconnectConfirm': 'Are you sure you want to disconnect "{name}"? This action cannot be undone.',
+  'provider.ccSwitchHint': 'Claude Code configurations added via tools like cc switch may not be readable by CodePilot. We recommend re-adding your provider here.',
   'provider.addProviderSection': 'Add Provider',
   'provider.addProviderDesc': 'Select a provider to connect. Most presets only require an API key.',
 
@@ -289,6 +290,14 @@ const en = {
   'common.close': 'Close',
   'common.enabled': 'Enabled',
   'common.disabled': 'Disabled',
+
+  // ── Error boundary ────────────────────────────────────────
+  'error.title': 'Something went wrong',
+  'error.description': 'An unexpected error occurred. You can try again or reload the app.',
+  'error.showDetails': 'Show details',
+  'error.hideDetails': 'Hide details',
+  'error.tryAgain': 'Try Again',
+  'error.reloadApp': 'Reload App',
 
   // ── CLI dynamic field labels ──────────────────────────────
   'cli.loadingSettings': 'Loading settings...',

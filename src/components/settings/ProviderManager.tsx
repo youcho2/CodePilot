@@ -146,8 +146,8 @@ const QUICK_PRESETS: QuickPreset[] = [
   {
     key: "glm-cn",
     name: "GLM (CN)",
-    description: "Zhipu GLM — China region",
-    descriptionZh: "智谱 GLM — 中国区",
+    description: "Zhipu GLM Code Plan — China region",
+    descriptionZh: "智谱 GLM 编程套餐 — 中国区",
     icon: <Zhipu size={18} />,
     provider_type: "custom",
     base_url: "https://open.bigmodel.cn/api/anthropic",
@@ -157,8 +157,8 @@ const QUICK_PRESETS: QuickPreset[] = [
   {
     key: "glm-global",
     name: "GLM (Global)",
-    description: "Zhipu GLM — Global region",
-    descriptionZh: "智谱 GLM — 国际区",
+    description: "Zhipu GLM Code Plan — Global region",
+    descriptionZh: "智谱 GLM 编程套餐 — 国际区",
     icon: <Zhipu size={18} />,
     provider_type: "custom",
     base_url: "https://api.z.ai/api/anthropic",
@@ -190,8 +190,8 @@ const QUICK_PRESETS: QuickPreset[] = [
   {
     key: "minimax-cn",
     name: "MiniMax (CN)",
-    description: "MiniMax API — China region",
-    descriptionZh: "MiniMax API — 中国区",
+    description: "MiniMax Code Plan — China region",
+    descriptionZh: "MiniMax 编程套餐 — 中国区",
     icon: <Minimax size={18} />,
     provider_type: "custom",
     base_url: "https://api.minimaxi.com/anthropic",
@@ -201,8 +201,8 @@ const QUICK_PRESETS: QuickPreset[] = [
   {
     key: "minimax-global",
     name: "MiniMax (Global)",
-    description: "MiniMax API — Global region",
-    descriptionZh: "MiniMax API — 国际区",
+    description: "MiniMax Code Plan — Global region",
+    descriptionZh: "MiniMax 编程套餐 — 国际区",
     icon: <Minimax size={18} />,
     provider_type: "custom",
     base_url: "https://api.minimax.io/anthropic",
@@ -563,20 +563,30 @@ export function ProviderManager() {
         <div className="rounded-lg border border-border/50 p-4 space-y-2">
           <h3 className="text-sm font-medium mb-1">{t('provider.connectedProviders')}</h3>
 
-          {/* Environment variable detection */}
-          {Object.keys(envDetected).length > 0 && (
-            <div className="flex items-center gap-3 py-2.5 px-1 border-b border-border/30">
+          {/* Claude Code default config */}
+          <div className="border-b border-border/30 pb-2">
+            <div className="flex items-center gap-3 py-2.5 px-1">
               <div className="shrink-0 w-[22px] flex justify-center">
                 <Anthropic size={18} />
               </div>
               <div className="flex-1 min-w-0">
-                <span className="text-sm font-medium">{t('provider.environment')}</span>
-                <Badge variant="outline" className="ml-2 text-[10px] px-1.5 py-0">
-                  ENV
-                </Badge>
+                <div className="flex items-center gap-2">
+                  <span className="text-sm font-medium">Claude Code</span>
+                  <Badge variant="outline" className="text-[10px] px-1.5 py-0">
+                    {t('provider.default')}
+                  </Badge>
+                  {Object.keys(envDetected).length > 0 && (
+                    <Badge variant="outline" className="text-[10px] px-1.5 py-0 text-green-600 dark:text-green-400 border-green-500/30">
+                      ENV
+                    </Badge>
+                  )}
+                </div>
               </div>
             </div>
-          )}
+            <p className="text-[11px] text-muted-foreground ml-[34px] leading-relaxed">
+              {t('provider.ccSwitchHint')}
+            </p>
+          </div>
 
           {/* Connected provider list */}
           {sorted.length > 0 ? (

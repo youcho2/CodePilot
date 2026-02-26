@@ -142,6 +142,7 @@ const zh: Record<TranslationKey, string> = {
   'provider.disconnecting': '断开中...',
   'provider.disconnectProvider': '断开提供商',
   'provider.disconnectConfirm': '确定要断开"{name}"吗？此操作无法撤销。',
+  'provider.ccSwitchHint': '通过类似 cc switch 等工具添加的 Claude Code 配置可能无法被 CodePilot 读取，建议在此处重新添加。',
   'provider.addProviderSection': '添加提供商',
   'provider.addProviderDesc': '选择要连接的提供商。大多数预设只需填写 API 密钥。',
 
@@ -286,6 +287,14 @@ const zh: Record<TranslationKey, string> = {
   'common.close': '关闭',
   'common.enabled': '已启用',
   'common.disabled': '已禁用',
+
+  // ── Error boundary ────────────────────────────────────────
+  'error.title': '出错了',
+  'error.description': '发生了意外错误。您可以重试或重新加载应用。',
+  'error.showDetails': '显示详情',
+  'error.hideDetails': '隐藏详情',
+  'error.tryAgain': '重试',
+  'error.reloadApp': '重新加载',
 
   // ── CLI dynamic field labels ──────────────────────────────
   'cli.loadingSettings': '加载设置中...',
