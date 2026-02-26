@@ -11,6 +11,7 @@ import { UpdateDialog } from "./UpdateDialog";
 import { DocPreview } from "./DocPreview";
 import { PanelContext, type PanelContent, type PreviewViewMode } from "@/hooks/usePanel";
 import { UpdateContext, type UpdateInfo } from "@/hooks/useUpdate";
+import { ErrorBoundary } from "./ErrorBoundary";
 
 const CHATLIST_MIN = 180;
 const CHATLIST_MAX = 400;
@@ -253,7 +254,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               hasUpdate={updateInfo?.updateAvailable ?? false}
               skipPermissionsActive={skipPermissionsActive}
             />
-            <ChatListPanel open={chatListOpen} width={chatListWidth} />
+            <ErrorBoundary>
+              <ChatListPanel open={chatListOpen} width={chatListWidth} />
+            </ErrorBoundary>
             {chatListOpen && (
               <ResizeHandle side="left" onResize={handleChatListResize} onResizeEnd={handleChatListResizeEnd} />
             )}
@@ -263,24 +266,32 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 className="h-5 w-full shrink-0"
                 style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}
               />
-              <main className="relative flex-1 overflow-hidden">{children}</main>
+              <main className="relative flex-1 overflow-hidden">
+                <ErrorBoundary>{children}</ErrorBoundary>
+              </main>
             </div>
             {isChatDetailRoute && previewFile && (
               <ResizeHandle side="right" onResize={handleDocPreviewResize} onResizeEnd={handleDocPreviewResizeEnd} />
             )}
             {isChatDetailRoute && previewFile && (
-              <DocPreview
-                filePath={previewFile}
-                viewMode={previewViewMode}
-                onViewModeChange={setPreviewViewMode}
-                onClose={() => setPreviewFile(null)}
-                width={docPreviewWidth}
-              />
+              <ErrorBoundary>
+                <DocPreview
+                  filePath={previewFile}
+                  viewMode={previewViewMode}
+                  onViewModeChange={setPreviewViewMode}
+                  onClose={() => setPreviewFile(null)}
+                  width={docPreviewWidth}
+                />
+              </ErrorBoundary>
             )}
             {isChatDetailRoute && panelOpen && (
               <ResizeHandle side="right" onResize={handleRightPanelResize} onResizeEnd={handleRightPanelResizeEnd} />
             )}
-            {isChatDetailRoute && <RightPanel width={rightPanelWidth} />}
+            {isChatDetailRoute && (
+              <ErrorBoundary>
+                <RightPanel width={rightPanelWidth} />
+              </ErrorBoundary>
+            )}
           </div>
           <UpdateDialog />
         </TooltipProvider>
