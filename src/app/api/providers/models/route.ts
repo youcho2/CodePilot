@@ -13,12 +13,12 @@ const DEFAULT_MODELS = [
 const PROVIDER_MODEL_LABELS: Record<string, { value: string; label: string }[]> = {
   'https://api.z.ai/api/anthropic': [
     { value: 'sonnet', label: 'GLM-4.7' },
-    { value: 'opus', label: 'GLM-4.7' },
+    { value: 'opus', label: 'GLM-5' },
     { value: 'haiku', label: 'GLM-4.5-Air' },
   ],
   'https://open.bigmodel.cn/api/anthropic': [
     { value: 'sonnet', label: 'GLM-4.7' },
-    { value: 'opus', label: 'GLM-4.7' },
+    { value: 'opus', label: 'GLM-5' },
     { value: 'haiku', label: 'GLM-4.5-Air' },
   ],
   'https://api.kimi.com/coding/': [
@@ -37,14 +37,14 @@ const PROVIDER_MODEL_LABELS: Record<string, { value: string; label: string }[]> 
     { value: 'haiku', label: 'Kimi K2.5' },
   ],
   'https://api.minimaxi.com/anthropic': [
-    { value: 'sonnet', label: 'MiniMax-M2.1' },
-    { value: 'opus', label: 'MiniMax-M2.1' },
-    { value: 'haiku', label: 'MiniMax-M2.1' },
+    { value: 'sonnet', label: 'MiniMax-M2.5' },
+    { value: 'opus', label: 'MiniMax-M2.5' },
+    { value: 'haiku', label: 'MiniMax-M2.5' },
   ],
   'https://api.minimax.io/anthropic': [
-    { value: 'sonnet', label: 'MiniMax-M2.1' },
-    { value: 'opus', label: 'MiniMax-M2.1' },
-    { value: 'haiku', label: 'MiniMax-M2.1' },
+    { value: 'sonnet', label: 'MiniMax-M2.5' },
+    { value: 'opus', label: 'MiniMax-M2.5' },
+    { value: 'haiku', label: 'MiniMax-M2.5' },
   ],
   'https://openrouter.ai/api': [
     { value: 'sonnet', label: 'Sonnet 4.6' },
