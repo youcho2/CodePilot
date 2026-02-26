@@ -10,6 +10,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   shell: {
     openPath: (folderPath: string) => ipcRenderer.invoke('shell:open-path', folderPath),
   },
+  dialog: {
+    openFolder: (options?: { defaultPath?: string; title?: string }) =>
+      ipcRenderer.invoke('dialog:open-folder', options),
+  },
   install: {
     checkPrerequisites: () => ipcRenderer.invoke('install:check-prerequisites'),
     start: (options?: { includeNode?: boolean }) => ipcRenderer.invoke('install:start', options),

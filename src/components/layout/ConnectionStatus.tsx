@@ -31,8 +31,7 @@ export function ConnectionStatus() {
 
   const isElectron =
     typeof window !== "undefined" &&
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    !!(window as any).electronAPI?.install;
+    !!window.electronAPI?.install;
   const stableCountRef = useRef(0);
   const lastConnectedRef = useRef<boolean | null>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);

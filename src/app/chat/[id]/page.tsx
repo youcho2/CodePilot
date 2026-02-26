@@ -182,9 +182,8 @@ export default function ChatSessionPage({ params }: ChatSessionPageProps) {
                     style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
                     onClick={() => {
                       if (sessionWorkingDir) {
-                        const w = window as unknown as { electronAPI?: { shell?: { openPath: (p: string) => void } } };
-                        if (w.electronAPI?.shell?.openPath) {
-                          w.electronAPI.shell.openPath(sessionWorkingDir);
+                        if (window.electronAPI?.shell?.openPath) {
+                          window.electronAPI.shell.openPath(sessionWorkingDir);
                         } else {
                           fetch('/api/files/open', {
                             method: 'POST',

@@ -712,6 +712,17 @@ app.whenReady().then(async () => {
     return shell.openPath(folderPath);
   });
 
+  // Native folder picker dialog
+  ipcMain.handle('dialog:open-folder', async (_event, options?: { defaultPath?: string; title?: string }) => {
+    if (!mainWindow) return { canceled: true, filePaths: [] };
+    const result = await dialog.showOpenDialog(mainWindow, {
+      title: options?.title || 'Select a project folder',
+      defaultPath: options?.defaultPath || undefined,
+      properties: ['openDirectory', 'createDirectory'],
+    });
+    return { canceled: result.canceled, filePaths: result.filePaths };
+  });
+
   try {
     let port: number;
 

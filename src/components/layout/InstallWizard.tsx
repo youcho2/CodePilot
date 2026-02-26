@@ -58,18 +58,7 @@ interface PrereqResult {
 
 function getInstallAPI() {
   if (typeof window !== "undefined") {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    return (window as any).electronAPI?.install as
-      | {
-          checkPrerequisites: () => Promise<PrereqResult>;
-          start: (options?: { includeNode?: boolean }) => Promise<void>;
-          cancel: () => Promise<void>;
-          getLogs: () => Promise<string[]>;
-          onProgress: (
-            callback: (progress: InstallProgress) => void
-          ) => () => void;
-        }
-      | undefined;
+    return window.electronAPI?.install;
   }
   return undefined;
 }

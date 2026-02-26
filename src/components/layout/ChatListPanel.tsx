@@ -26,6 +26,7 @@ import {
 import { cn } from "@/lib/utils";
 import { usePanel } from "@/hooks/usePanel";
 import { useTranslation } from "@/hooks/useTranslation";
+import { useNativeFolderPicker } from "@/hooks/useNativeFolderPicker";
 import { ConnectionStatus } from "./ConnectionStatus";
 import { ImportSessionDialog } from "./ImportSessionDialog";
 import { FolderPicker } from "@/components/chat/FolderPicker";
@@ -119,6 +120,7 @@ export function ChatListPanel({ open, width }: ChatListPanelProps) {
   const router = useRouter();
   const { streamingSessionId, pendingApprovalSessionId, workingDirectory } = usePanel();
   const { t } = useTranslation();
+  const { isElectron, openNativePicker } = useNativeFolderPicker();
   const [sessions, setSessions] = useState<ChatSession[]>([]);
   const [hoveredSession, setHoveredSession] = useState<string | null>(null);
   const [deletingSession, setDeletingSession] = useState<string | null>(null);
@@ -131,13 +133,39 @@ export function ChatListPanel({ open, width }: ChatListPanelProps) {
   const [hoveredFolder, setHoveredFolder] = useState<string | null>(null);
   const [creatingChat, setCreatingChat] = useState(false);
 
+  const handleFolderSelect = useCallback(async (path: string) => {
+    try {
+      const res = await fetch("/api/chat/sessions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ working_directory: path }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        window.dispatchEvent(new CustomEvent("session-created"));
+        router.push(`/chat/${data.session.id}`);
+      }
+    } catch {
+      // Silently fail
+    }
+  }, [router]);
+
+  const openFolderPicker = useCallback(async (defaultPath?: string) => {
+    if (isElectron) {
+      const path = await openNativePicker({ defaultPath, title: t('folderPicker.title') });
+      if (path) handleFolderSelect(path);
+    } else {
+      setFolderPickerOpen(true);
+    }
+  }, [isElectron, openNativePicker, t, handleFolderSelect]);
+
   const handleNewChat = useCallback(async () => {
     const lastDir = workingDirectory
       || (typeof window !== 'undefined' ? localStorage.getItem("codepilot:last-working-directory") : null);
 
     if (!lastDir) {
       // No saved directory — let user pick one
-      setFolderPickerOpen(true);
+      openFolderPicker();
       return;
     }
 
@@ -150,7 +178,7 @@ export function ChatListPanel({ open, width }: ChatListPanelProps) {
       if (!checkRes.ok) {
         // Directory is gone — clear stale value and prompt user
         localStorage.removeItem("codepilot:last-working-directory");
-        setFolderPickerOpen(true);
+        openFolderPicker();
         return;
       }
 
@@ -162,18 +190,18 @@ export function ChatListPanel({ open, width }: ChatListPanelProps) {
       if (!res.ok) {
         // Backend rejected it (e.g. INVALID_DIRECTORY) — prompt user
         localStorage.removeItem("codepilot:last-working-directory");
-        setFolderPickerOpen(true);
+        openFolderPicker();
         return;
       }
       const data = await res.json();
       router.push(`/chat/${data.session.id}`);
       window.dispatchEvent(new CustomEvent("session-created"));
     } catch {
-      setFolderPickerOpen(true);
+      openFolderPicker();
     } finally {
       setCreatingChat(false);
     }
-  }, [router, workingDirectory]);
+  }, [router, workingDirectory, openFolderPicker]);
 
   const toggleProject = useCallback((wd: string) => {
     setCollapsedProjects((prev) => {
@@ -263,23 +291,6 @@ export function ChatListPanel({ open, width }: ChatListPanelProps) {
     }
   };
 
-  const handleFolderSelect = async (path: string) => {
-    try {
-      const res = await fetch("/api/chat/sessions", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ working_directory: path }),
-      });
-      if (res.ok) {
-        const data = await res.json();
-        window.dispatchEvent(new CustomEvent("session-created"));
-        router.push(`/chat/${data.session.id}`);
-      }
-    } catch {
-      // Silently fail
-    }
-  };
-
   const isSearching = searchQuery.length > 0;
 
   const filteredSessions = searchQuery
@@ -341,7 +352,7 @@ export function ChatListPanel({ open, width }: ChatListPanelProps) {
               variant="outline"
               size="icon-sm"
               className="h-8 w-8 shrink-0"
-              onClick={() => setFolderPickerOpen(true)}
+              onClick={() => openFolderPicker()}
             >
               <HugeiconsIcon icon={FolderOpenIcon} className="h-3.5 w-3.5" />
               <span className="sr-only">{t('chatList.addProjectFolder')}</span>
@@ -408,9 +419,8 @@ export function ChatListPanel({ open, width }: ChatListPanelProps) {
                         onDoubleClick={(e) => {
                           e.stopPropagation();
                           if (group.workingDirectory) {
-                            const w = window as unknown as { electronAPI?: { shell?: { openPath: (p: string) => void } } };
-                            if (w.electronAPI?.shell?.openPath) {
-                              w.electronAPI.shell.openPath(group.workingDirectory);
+                            if (window.electronAPI?.shell?.openPath) {
+                              window.electronAPI.shell.openPath(group.workingDirectory);
                             } else {
                               fetch('/api/files/open', {
                                 method: 'POST',
