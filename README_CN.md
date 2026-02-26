@@ -64,6 +64,7 @@ npm install
 npm run dev
 
 # -- 或者启动完整的 Electron 桌面应用 --
+node scripts/build-electron.mjs   # 编译 Electron 主进程（首次运行前需要）
 npm run electron:dev
 ```
 
@@ -196,6 +197,9 @@ codepilot/
 ```bash
 # 仅运行 Next.js 开发服务器（在浏览器中打开）
 npm run dev
+
+# 编译 Electron 主进程（首次运行前需要执行）
+node scripts/build-electron.mjs
 
 # 运行完整的 Electron 桌面应用（开发模式）
 # （先启动 Next.js，等待就绪后打开 Electron）
