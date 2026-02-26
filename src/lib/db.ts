@@ -3,7 +3,7 @@ import path from 'path';
 import crypto from 'crypto';
 import fs from 'fs';
 import os from 'os';
-import type { ChatSession, Message, SettingsMap, TaskItem, TaskStatus, ApiProvider, CreateProviderRequest, UpdateProviderRequest } from '@/types';
+import type { ChatSession, Message, SettingsMap, TaskItem, TaskStatus, ApiProvider, CreateProviderRequest, UpdateProviderRequest, MediaJob, MediaJobStatus, MediaJobItem, MediaJobItemStatus, MediaContextEvent, BatchConfig } from '@/types';
 
 const dataDir = process.env.CLAUDE_GUI_DATA_DIR || path.join(os.homedir(), '.codepilot');
 const DB_PATH = path.join(dataDir, 'codepilot.db');
@@ -136,6 +136,57 @@ function initDb(db: Database.Database): void {
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
 
+    CREATE TABLE IF NOT EXISTS media_jobs (
+      id TEXT PRIMARY KEY,
+      session_id TEXT,
+      status TEXT NOT NULL DEFAULT 'draft'
+        CHECK(status IN ('draft','planning','planned','running','paused','completed','cancelled','failed')),
+      doc_paths TEXT NOT NULL DEFAULT '[]',
+      style_prompt TEXT NOT NULL DEFAULT '',
+      batch_config TEXT NOT NULL DEFAULT '{}',
+      total_items INTEGER NOT NULL DEFAULT 0,
+      completed_items INTEGER NOT NULL DEFAULT 0,
+      failed_items INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+      completed_at TEXT,
+      FOREIGN KEY (session_id) REFERENCES chat_sessions(id) ON DELETE SET NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS media_job_items (
+      id TEXT PRIMARY KEY,
+      job_id TEXT NOT NULL,
+      idx INTEGER NOT NULL DEFAULT 0,
+      prompt TEXT NOT NULL DEFAULT '',
+      aspect_ratio TEXT NOT NULL DEFAULT '1:1',
+      image_size TEXT NOT NULL DEFAULT '1K',
+      model TEXT NOT NULL DEFAULT '',
+      tags TEXT NOT NULL DEFAULT '[]',
+      source_refs TEXT NOT NULL DEFAULT '[]',
+      status TEXT NOT NULL DEFAULT 'pending'
+        CHECK(status IN ('pending','processing','completed','failed','cancelled')),
+      retry_count INTEGER NOT NULL DEFAULT 0,
+      result_media_generation_id TEXT,
+      error TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+      FOREIGN KEY (job_id) REFERENCES media_jobs(id) ON DELETE CASCADE,
+      FOREIGN KEY (result_media_generation_id) REFERENCES media_generations(id) ON DELETE SET NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS media_context_events (
+      id TEXT PRIMARY KEY,
+      session_id TEXT NOT NULL,
+      job_id TEXT NOT NULL,
+      payload TEXT NOT NULL DEFAULT '{}',
+      sync_mode TEXT NOT NULL DEFAULT 'manual'
+        CHECK(sync_mode IN ('manual','auto_batch')),
+      synced_at TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      FOREIGN KEY (session_id) REFERENCES chat_sessions(id) ON DELETE CASCADE,
+      FOREIGN KEY (job_id) REFERENCES media_jobs(id) ON DELETE CASCADE
+    );
+
     CREATE INDEX IF NOT EXISTS idx_messages_session_id ON messages(session_id);
     CREATE INDEX IF NOT EXISTS idx_messages_created_at ON messages(created_at);
     CREATE INDEX IF NOT EXISTS idx_sessions_updated_at ON chat_sessions(updated_at);
@@ -143,6 +194,11 @@ function initDb(db: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_media_created_at ON media_generations(created_at);
     CREATE INDEX IF NOT EXISTS idx_media_session_id ON media_generations(session_id);
     CREATE INDEX IF NOT EXISTS idx_media_status ON media_generations(status);
+    CREATE INDEX IF NOT EXISTS idx_media_jobs_session_id ON media_jobs(session_id);
+    CREATE INDEX IF NOT EXISTS idx_media_jobs_status ON media_jobs(status);
+    CREATE INDEX IF NOT EXISTS idx_media_job_items_job_id ON media_job_items(job_id);
+    CREATE INDEX IF NOT EXISTS idx_media_job_items_status ON media_job_items(status);
+    CREATE INDEX IF NOT EXISTS idx_media_context_events_job_id ON media_context_events(job_id);
   `);
 
   // Run migrations for existing databases
@@ -269,6 +325,76 @@ function migrateDb(db: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_media_created_at ON media_generations(created_at);
     CREATE INDEX IF NOT EXISTS idx_media_session_id ON media_generations(session_id);
     CREATE INDEX IF NOT EXISTS idx_media_status ON media_generations(status);
+  `);
+
+  // Ensure media_jobs tables exist for databases created before this migration
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS media_jobs (
+      id TEXT PRIMARY KEY,
+      session_id TEXT,
+      status TEXT NOT NULL DEFAULT 'draft'
+        CHECK(status IN ('draft','planning','planned','running','paused','completed','cancelled','failed')),
+      doc_paths TEXT NOT NULL DEFAULT '[]',
+      style_prompt TEXT NOT NULL DEFAULT '',
+      batch_config TEXT NOT NULL DEFAULT '{}',
+      total_items INTEGER NOT NULL DEFAULT 0,
+      completed_items INTEGER NOT NULL DEFAULT 0,
+      failed_items INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+      completed_at TEXT,
+      FOREIGN KEY (session_id) REFERENCES chat_sessions(id) ON DELETE SET NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS media_job_items (
+      id TEXT PRIMARY KEY,
+      job_id TEXT NOT NULL,
+      idx INTEGER NOT NULL DEFAULT 0,
+      prompt TEXT NOT NULL DEFAULT '',
+      aspect_ratio TEXT NOT NULL DEFAULT '1:1',
+      image_size TEXT NOT NULL DEFAULT '1K',
+      model TEXT NOT NULL DEFAULT '',
+      tags TEXT NOT NULL DEFAULT '[]',
+      source_refs TEXT NOT NULL DEFAULT '[]',
+      status TEXT NOT NULL DEFAULT 'pending'
+        CHECK(status IN ('pending','processing','completed','failed','cancelled')),
+      retry_count INTEGER NOT NULL DEFAULT 0,
+      result_media_generation_id TEXT,
+      error TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+      FOREIGN KEY (job_id) REFERENCES media_jobs(id) ON DELETE CASCADE,
+      FOREIGN KEY (result_media_generation_id) REFERENCES media_generations(id) ON DELETE SET NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS media_context_events (
+      id TEXT PRIMARY KEY,
+      session_id TEXT NOT NULL,
+      job_id TEXT NOT NULL,
+      payload TEXT NOT NULL DEFAULT '{}',
+      sync_mode TEXT NOT NULL DEFAULT 'manual'
+        CHECK(sync_mode IN ('manual','auto_batch')),
+      synced_at TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      FOREIGN KEY (session_id) REFERENCES chat_sessions(id) ON DELETE CASCADE,
+      FOREIGN KEY (job_id) REFERENCES media_jobs(id) ON DELETE CASCADE
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_media_jobs_session_id ON media_jobs(session_id);
+    CREATE INDEX IF NOT EXISTS idx_media_jobs_status ON media_jobs(status);
+    CREATE INDEX IF NOT EXISTS idx_media_job_items_job_id ON media_job_items(job_id);
+    CREATE INDEX IF NOT EXISTS idx_media_job_items_status ON media_job_items(status);
+    CREATE INDEX IF NOT EXISTS idx_media_context_events_job_id ON media_context_events(job_id);
+  `);
+
+  // Recover stale jobs: mark 'running' jobs as 'paused' after process restart
+  db.exec(`
+    UPDATE media_jobs SET status = 'paused', updated_at = datetime('now')
+    WHERE status = 'running'
+  `);
+  db.exec(`
+    UPDATE media_job_items SET status = 'pending', updated_at = datetime('now')
+    WHERE status = 'processing'
   `);
 
   // Migrate existing settings to a default provider if api_providers is empty
@@ -690,6 +816,229 @@ export function getTokenUsageStats(days: number = 30): {
   }>;
 
   return { summary, daily };
+}
+
+// ==========================================
+// Media Job Operations
+// ==========================================
+
+const DEFAULT_BATCH_CONFIG: BatchConfig = {
+  concurrency: 2,
+  maxRetries: 2,
+  retryDelayMs: 2000,
+};
+
+export function createMediaJob(params: {
+  sessionId?: string;
+  docPaths?: string[];
+  stylePrompt?: string;
+  batchConfig?: Partial<BatchConfig>;
+  totalItems: number;
+}): MediaJob {
+  const db = getDb();
+  const id = crypto.randomBytes(16).toString('hex');
+  const now = new Date().toISOString().replace('T', ' ').split('.')[0];
+  const config = { ...DEFAULT_BATCH_CONFIG, ...params.batchConfig };
+
+  db.prepare(
+    `INSERT INTO media_jobs (id, session_id, status, doc_paths, style_prompt, batch_config, total_items, completed_items, failed_items, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, 0, 0, ?, ?)`
+  ).run(
+    id,
+    params.sessionId || null,
+    'planned',
+    JSON.stringify(params.docPaths || []),
+    params.stylePrompt || '',
+    JSON.stringify(config),
+    params.totalItems,
+    now,
+    now,
+  );
+
+  return getMediaJob(id)!;
+}
+
+export function getMediaJob(id: string): MediaJob | undefined {
+  const db = getDb();
+  return db.prepare('SELECT * FROM media_jobs WHERE id = ?').get(id) as MediaJob | undefined;
+}
+
+export function getMediaJobsBySession(sessionId: string): MediaJob[] {
+  const db = getDb();
+  return db.prepare('SELECT * FROM media_jobs WHERE session_id = ? ORDER BY created_at DESC').all(sessionId) as MediaJob[];
+}
+
+export function getAllMediaJobs(limit = 50, offset = 0): MediaJob[] {
+  const db = getDb();
+  return db.prepare('SELECT * FROM media_jobs ORDER BY created_at DESC LIMIT ? OFFSET ?').all(limit, offset) as MediaJob[];
+}
+
+export function updateMediaJobStatus(id: string, status: MediaJobStatus): void {
+  const db = getDb();
+  const now = new Date().toISOString().replace('T', ' ').split('.')[0];
+  const completedAt = (status === 'completed' || status === 'cancelled' || status === 'failed') ? now : null;
+
+  db.prepare(
+    'UPDATE media_jobs SET status = ?, updated_at = ?, completed_at = COALESCE(?, completed_at) WHERE id = ?'
+  ).run(status, now, completedAt, id);
+}
+
+export function updateMediaJobCounters(id: string): void {
+  const db = getDb();
+  const now = new Date().toISOString().replace('T', ' ').split('.')[0];
+  db.prepare(`
+    UPDATE media_jobs SET
+      completed_items = (SELECT COUNT(*) FROM media_job_items WHERE job_id = ? AND status = 'completed'),
+      failed_items = (SELECT COUNT(*) FROM media_job_items WHERE job_id = ? AND status = 'failed'),
+      updated_at = ?
+    WHERE id = ?
+  `).run(id, id, now, id);
+}
+
+export function deleteMediaJob(id: string): boolean {
+  const db = getDb();
+  const result = db.prepare('DELETE FROM media_jobs WHERE id = ?').run(id);
+  return result.changes > 0;
+}
+
+// ==========================================
+// Media Job Item Operations
+// ==========================================
+
+export function createMediaJobItems(jobId: string, items: Array<{
+  prompt: string;
+  aspectRatio?: string;
+  imageSize?: string;
+  model?: string;
+  tags?: string[];
+  sourceRefs?: string[];
+}>): MediaJobItem[] {
+  const db = getDb();
+  const now = new Date().toISOString().replace('T', ' ').split('.')[0];
+  const insertStmt = db.prepare(
+    `INSERT INTO media_job_items (id, job_id, idx, prompt, aspect_ratio, image_size, model, tags, source_refs, status, retry_count, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', 0, ?, ?)`
+  );
+
+  const ids: string[] = [];
+  const transaction = db.transaction(() => {
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i];
+      const id = crypto.randomBytes(16).toString('hex');
+      ids.push(id);
+      insertStmt.run(
+        id, jobId, i,
+        item.prompt,
+        item.aspectRatio || '1:1',
+        item.imageSize || '1K',
+        item.model || '',
+        JSON.stringify(item.tags || []),
+        JSON.stringify(item.sourceRefs || []),
+        now, now,
+      );
+    }
+  });
+  transaction();
+
+  return ids.map(id => db.prepare('SELECT * FROM media_job_items WHERE id = ?').get(id) as MediaJobItem);
+}
+
+export function getMediaJobItems(jobId: string): MediaJobItem[] {
+  const db = getDb();
+  return db.prepare('SELECT * FROM media_job_items WHERE job_id = ? ORDER BY idx ASC').all(jobId) as MediaJobItem[];
+}
+
+export function getMediaJobItem(id: string): MediaJobItem | undefined {
+  const db = getDb();
+  return db.prepare('SELECT * FROM media_job_items WHERE id = ?').get(id) as MediaJobItem | undefined;
+}
+
+export function getPendingJobItems(jobId: string, maxRetries: number): MediaJobItem[] {
+  const db = getDb();
+  return db.prepare(
+    `SELECT * FROM media_job_items
+     WHERE job_id = ? AND (status = 'pending' OR (status = 'failed' AND retry_count < ?))
+     ORDER BY idx ASC`
+  ).all(jobId, maxRetries) as MediaJobItem[];
+}
+
+export function updateMediaJobItem(id: string, updates: {
+  status?: MediaJobItemStatus;
+  retryCount?: number;
+  resultMediaGenerationId?: string | null;
+  error?: string | null;
+  prompt?: string;
+  aspectRatio?: string;
+  imageSize?: string;
+  tags?: string[];
+}): MediaJobItem | undefined {
+  const db = getDb();
+  const existing = getMediaJobItem(id);
+  if (!existing) return undefined;
+
+  const now = new Date().toISOString().replace('T', ' ').split('.')[0];
+  db.prepare(`
+    UPDATE media_job_items SET
+      status = ?,
+      retry_count = ?,
+      result_media_generation_id = ?,
+      error = ?,
+      prompt = ?,
+      aspect_ratio = ?,
+      image_size = ?,
+      tags = ?,
+      updated_at = ?
+    WHERE id = ?
+  `).run(
+    updates.status ?? existing.status,
+    updates.retryCount ?? existing.retry_count,
+    updates.resultMediaGenerationId !== undefined ? updates.resultMediaGenerationId : existing.result_media_generation_id,
+    updates.error !== undefined ? updates.error : existing.error,
+    updates.prompt ?? existing.prompt,
+    updates.aspectRatio ?? existing.aspect_ratio,
+    updates.imageSize ?? existing.image_size,
+    updates.tags ? JSON.stringify(updates.tags) : existing.tags,
+    now,
+    id,
+  );
+
+  return getMediaJobItem(id);
+}
+
+export function cancelPendingJobItems(jobId: string): void {
+  const db = getDb();
+  const now = new Date().toISOString().replace('T', ' ').split('.')[0];
+  db.prepare(
+    "UPDATE media_job_items SET status = 'cancelled', updated_at = ? WHERE job_id = ? AND status IN ('pending', 'failed')"
+  ).run(now, jobId);
+}
+
+// ==========================================
+// Media Context Event Operations
+// ==========================================
+
+export function createContextEvent(params: {
+  sessionId: string;
+  jobId: string;
+  payload: Record<string, unknown>;
+  syncMode?: 'manual' | 'auto_batch';
+}): MediaContextEvent {
+  const db = getDb();
+  const id = crypto.randomBytes(16).toString('hex');
+  const now = new Date().toISOString().replace('T', ' ').split('.')[0];
+
+  db.prepare(
+    `INSERT INTO media_context_events (id, session_id, job_id, payload, sync_mode, created_at)
+     VALUES (?, ?, ?, ?, ?, ?)`
+  ).run(id, params.sessionId, params.jobId, JSON.stringify(params.payload), params.syncMode || 'manual', now);
+
+  return db.prepare('SELECT * FROM media_context_events WHERE id = ?').get(id) as MediaContextEvent;
+}
+
+export function markContextEventSynced(id: string): void {
+  const db = getDb();
+  const now = new Date().toISOString().replace('T', ' ').split('.')[0];
+  db.prepare('UPDATE media_context_events SET synced_at = ? WHERE id = ?').run(now, id);
 }
 
 // ==========================================

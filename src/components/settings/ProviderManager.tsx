@@ -247,8 +247,8 @@ const QUICK_PRESETS: QuickPreset[] = [
   {
     key: "gemini-image",
     name: "Google Gemini (Image)",
-    description: "Nano Banana Pro — AI image generation by Google Gemini",
-    descriptionZh: "Nano Banana Pro — Google Gemini AI 图片生成",
+    description: "Nano Banana 2 — AI image generation by Google Gemini",
+    descriptionZh: "Nano Banana 2 — Google Gemini AI 图片生成",
     icon: <Google size={18} />,
     provider_type: "gemini-image",
     base_url: "https://generativelanguage.googleapis.com/v1beta",
@@ -257,6 +257,23 @@ const QUICK_PRESETS: QuickPreset[] = [
     category: "media",
   },
 ];
+
+const GEMINI_IMAGE_MODELS = [
+  { value: 'gemini-3.1-flash-image-preview', label: 'Nano Banana 2' },
+  { value: 'gemini-3-pro-image-preview', label: 'Nano Banana Pro' },
+  { value: 'gemini-2.5-flash-image', label: 'Nano Banana' },
+];
+
+const DEFAULT_GEMINI_IMAGE_MODEL = 'gemini-3.1-flash-image-preview';
+
+function getGeminiImageModel(provider: ApiProvider): string {
+  try {
+    const env = JSON.parse(provider.extra_env || '{}');
+    return env.GEMINI_IMAGE_MODEL || DEFAULT_GEMINI_IMAGE_MODEL;
+  } catch {
+    return DEFAULT_GEMINI_IMAGE_MODEL;
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Preset connect dialog
@@ -553,6 +570,31 @@ export function ProviderManager() {
     }
   };
 
+  const handleImageModelChange = useCallback(async (provider: ApiProvider, model: string) => {
+    try {
+      const env = JSON.parse(provider.extra_env || '{}');
+      env.GEMINI_IMAGE_MODEL = model;
+      const newExtraEnv = JSON.stringify(env);
+      const res = await fetch(`/api/providers/${provider.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: provider.name,
+          provider_type: provider.provider_type,
+          base_url: provider.base_url,
+          api_key: provider.api_key,
+          extra_env: newExtraEnv,
+          notes: provider.notes,
+        }),
+      });
+      if (res.ok) {
+        const result = await res.json();
+        setProviders(prev => prev.map(p => p.id === provider.id ? result.provider : p));
+        window.dispatchEvent(new Event('provider-changed'));
+      }
+    } catch { /* ignore */ }
+  }, []);
+
   const sorted = [...providers].sort((a, b) => a.sort_order - b.sort_order);
 
   return (
@@ -607,37 +649,62 @@ export function ProviderManager() {
             sorted.map((provider) => (
               <div
                 key={provider.id}
-                className="flex items-center gap-3 py-2.5 px-1 border-b border-border/30 last:border-b-0"
+                className="py-2.5 px-1 border-b border-border/30 last:border-b-0"
               >
-                <div className="shrink-0 w-[22px] flex justify-center">
-                  {getProviderIcon(provider.name, provider.base_url)}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm font-medium truncate">{provider.name}</span>
-                    <Badge variant="secondary" className="text-[10px] px-1.5 py-0">
-                      {provider.api_key ? "API Key" : t('provider.configured')}
-                    </Badge>
+                <div className="flex items-center gap-3">
+                  <div className="shrink-0 w-[22px] flex justify-center">
+                    {getProviderIcon(provider.name, provider.base_url)}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-medium truncate">{provider.name}</span>
+                      <Badge variant="secondary" className="text-[10px] px-1.5 py-0">
+                        {provider.api_key ? "API Key" : t('provider.configured')}
+                      </Badge>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-1 shrink-0">
+                    <Button
+                      variant="ghost"
+                      size="icon-xs"
+                      title="Edit"
+                      onClick={() => handleEdit(provider)}
+                    >
+                      <HugeiconsIcon icon={PencilEdit01Icon} className="h-3 w-3" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="xs"
+                      className="text-destructive hover:text-destructive"
+                      onClick={() => setDeleteTarget(provider)}
+                    >
+                      {t('provider.disconnect')}
+                    </Button>
                   </div>
                 </div>
-                <div className="flex items-center gap-1 shrink-0">
-                  <Button
-                    variant="ghost"
-                    size="icon-xs"
-                    title="Edit"
-                    onClick={() => handleEdit(provider)}
-                  >
-                    <HugeiconsIcon icon={PencilEdit01Icon} className="h-3 w-3" />
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="xs"
-                    className="text-destructive hover:text-destructive"
-                    onClick={() => setDeleteTarget(provider)}
-                  >
-                    {t('provider.disconnect')}
-                  </Button>
-                </div>
+                {/* Gemini Image model selector — capsule buttons */}
+                {provider.provider_type === 'gemini-image' && (
+                  <div className="ml-[34px] mt-2 flex items-center gap-1.5">
+                    <span className="text-[11px] text-muted-foreground mr-1">{isZh ? '模型' : 'Model'}:</span>
+                    {GEMINI_IMAGE_MODELS.map((m) => {
+                      const isActive = getGeminiImageModel(provider) === m.value;
+                      return (
+                        <button
+                          key={m.value}
+                          type="button"
+                          onClick={() => handleImageModelChange(provider, m.value)}
+                          className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-[11px] font-medium border transition-all ${
+                            isActive
+                              ? 'bg-primary/10 text-primary border-primary/30'
+                              : 'text-muted-foreground border-border/60 hover:text-foreground hover:border-foreground/30 hover:bg-accent/50'
+                          }`}
+                        >
+                          {m.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
             ))
           ) : (

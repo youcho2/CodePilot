@@ -14,12 +14,16 @@ export function ImageGenToggle() {
   const { state, setEnabled } = useImageGen();
   const { t } = useTranslation();
 
+  const handleToggle = () => {
+    setEnabled(!state.enabled);
+  };
+
   return (
     <Tooltip>
       <TooltipTrigger asChild>
         <button
           type="button"
-          onClick={() => setEnabled(!state.enabled)}
+          onClick={handleToggle}
           className={cn(
             'inline-flex items-center justify-center rounded-full px-2.5 h-7 text-xs font-medium border transition-all',
             state.enabled

@@ -13,14 +13,17 @@ import { Copy01Icon, Tick01Icon, ArrowDown01Icon, ArrowUp01Icon } from "@hugeico
 import { FileAttachmentDisplay } from './FileAttachmentDisplay';
 import { ImageGenConfirmation } from './ImageGenConfirmation';
 import { ImageGenCard } from './ImageGenCard';
-import { imageGenRefStore } from './ChatView';
+import { BatchPlanInlinePreview } from './batch-image-gen/BatchPlanInlinePreview';
+import { buildReferenceImages } from '@/lib/image-ref-store';
 import { parseDBDate } from '@/lib/utils';
+import type { PlannerOutput } from '@/types';
 
 interface ImageGenRequest {
   prompt: string;
   aspectRatio: string;
   resolution: string;
   referenceImages?: string[];
+  useLastGenerated?: boolean;
 }
 
 function parseImageGenRequest(text: string): { beforeText: string; request: ImageGenRequest; afterText: string } | null {
@@ -49,6 +52,7 @@ function parseImageGenRequest(text: string): { beforeText: string; request: Imag
         aspectRatio: String(json.aspectRatio || '1:1'),
         resolution: String(json.resolution || '1K'),
         referenceImages: Array.isArray(json.referenceImages) ? json.referenceImages : undefined,
+        useLastGenerated: json.useLastGenerated === true,
       },
       afterText,
     };
@@ -85,6 +89,33 @@ function parseImageGenResult(text: string): { beforeText: string; result: ImageG
         model: json.model,
         images: Array.isArray(json.images) ? json.images : undefined,
         error: json.error,
+      },
+      afterText,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function parseBatchPlan(text: string): { beforeText: string; plan: PlannerOutput; afterText: string } | null {
+  const regex = /```batch-plan\s*\n?([\s\S]*?)\n?\s*```/;
+  const match = text.match(regex);
+  if (!match) return null;
+  try {
+    const json = JSON.parse(match[1]);
+    const beforeText = text.slice(0, match.index).trim();
+    const afterText = text.slice((match.index || 0) + match[0].length).trim();
+    return {
+      beforeText,
+      plan: {
+        summary: json.summary || '',
+        items: Array.isArray(json.items) ? json.items.map((item: Record<string, unknown>) => ({
+          prompt: String(item.prompt || ''),
+          aspectRatio: String(item.aspectRatio || '1:1'),
+          resolution: String(item.resolution || '1K'),
+          tags: Array.isArray(item.tags) ? item.tags : [],
+          sourceRefs: Array.isArray(item.sourceRefs) ? item.sourceRefs : [],
+        })) : [],
       },
       afterText,
     };
@@ -388,6 +419,18 @@ export function MessageItem({ message }: MessageItemProps) {
               )}
             </div>
           ) : (() => {
+            // Try batch-plan first (Image Agent batch mode)
+            const batchPlanResult = parseBatchPlan(displayText);
+            if (batchPlanResult) {
+              return (
+                <>
+                  {batchPlanResult.beforeText && <MessageResponse>{batchPlanResult.beforeText}</MessageResponse>}
+                  <BatchPlanInlinePreview plan={batchPlanResult.plan} messageId={message.id} />
+                  {batchPlanResult.afterText && <MessageResponse>{batchPlanResult.afterText}</MessageResponse>}
+                </>
+              );
+            }
+
             // Try image-gen-result first (new direct-call format)
             const genResult = parseImageGenResult(displayText);
             if (genResult) {
@@ -439,8 +482,11 @@ export function MessageItem({ message }: MessageItemProps) {
             // Legacy: image-gen-request (model-dependent format, for old messages)
             const parsed = parseImageGenRequest(displayText);
             if (parsed) {
-              // Check module-level store for reference image base64 data
-              const refData = imageGenRefStore.get(message.id);
+              const refs = buildReferenceImages(
+                message.id,
+                parsed.request.useLastGenerated || false,
+                parsed.request.referenceImages,
+              );
               return (
                 <>
                   {parsed.beforeText && <MessageResponse>{parsed.beforeText}</MessageResponse>}
@@ -448,8 +494,7 @@ export function MessageItem({ message }: MessageItemProps) {
                     initialPrompt={parsed.request.prompt}
                     initialAspectRatio={parsed.request.aspectRatio}
                     initialResolution={parsed.request.resolution}
-                    referenceImagePaths={parsed.request.referenceImages}
-                    referenceImagesData={refData}
+                    referenceImages={refs.length > 0 ? refs : undefined}
                   />
                   {parsed.afterText && <MessageResponse>{parsed.afterText}</MessageResponse>}
                 </>
@@ -458,6 +503,7 @@ export function MessageItem({ message }: MessageItemProps) {
             const stripped = displayText
               .replace(/```image-gen-request[\s\S]*?```/g, '')
               .replace(/```image-gen-result[\s\S]*?```/g, '')
+              .replace(/```batch-plan[\s\S]*?```/g, '')
               .trim();
             return stripped ? <MessageResponse>{stripped}</MessageResponse> : null;
           })()

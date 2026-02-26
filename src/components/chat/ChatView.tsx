@@ -6,13 +6,8 @@ import { MessageList } from './MessageList';
 import { MessageInput } from './MessageInput';
 import { usePanel } from '@/hooks/usePanel';
 import { consumeSSEStream } from '@/hooks/useSSEStream';
-
-/**
- * Module-level store for reference image base64 data.
- * Keyed by message ID — ImageGenConfirmation reads from here to pass
- * reference images to /api/media/generate without storing base64 in DB.
- */
-export const imageGenRefStore = new Map<string, Array<{ mimeType: string; data: string }>>();
+import { BatchExecutionDashboard, BatchContextSync } from './batch-image-gen';
+import { setLastGeneratedImages, transferPendingToMessage } from '@/lib/image-ref-store';
 
 interface ToolUseInfo {
   id: string;
@@ -115,6 +110,8 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
   const toolResultsRef = useRef<ToolResultInfo[]>([]);
   // Ref for sendMessage to allow self-referencing in timeout auto-retry without circular deps
   const sendMessageRef = useRef<(content: string, files?: FileAttachment[]) => Promise<void>>(undefined);
+  // Pending image generation notices — flushed into the next user message so the LLM knows about generated images
+  const pendingImageNoticesRef = useRef<string[]>([]);
 
   // Re-sync streaming content when the window regains visibility (Electron/browser tab switch)
   useEffect(() => {
@@ -275,13 +272,22 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
       }, 10_000);
       const markActive = () => { lastEventTime = Date.now(); };
 
+      // Flush any pending image generation notices into the prompt so
+      // the LLM (especially in SDK resume mode) knows about previously generated images.
+      let effectiveContent = content;
+      if (pendingImageNoticesRef.current.length > 0) {
+        const notices = pendingImageNoticesRef.current.join('\n\n');
+        pendingImageNoticesRef.current = [];
+        effectiveContent = `${notices}\n\n---\n\n${content}`;
+      }
+
       try {
         const response = await fetch('/api/chat', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             session_id: sessionId,
-            content,
+            content: effectiveContent,
             mode,
             model: currentModel,
             provider_id: currentProviderId,
@@ -412,6 +418,11 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
             created_at: new Date().toISOString(),
             token_usage: result.tokenUsage ? JSON.stringify(result.tokenUsage) : null,
           };
+          // Transfer pending reference images to this message ID so MessageItem can
+          // retrieve them. StreamingMessage uses __pending__ directly, but once the
+          // message transitions to MessageItem, it's keyed by message.id.
+          transferPendingToMessage(assistantMessage.id);
+
           setMessages((prev) => [...prev, assistantMessage]);
         }
       } catch (error) {
@@ -598,7 +609,9 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
     }
   }, [sessionId, sendMessage]);
 
-  // Listen for image generation completion — persist notice to DB only (no model call)
+  // Listen for image generation completion — persist notice to DB and queue for next user message.
+  // The notice is NOT sent as a separate LLM turn (avoids permission popups).
+  // Instead it's flushed into the next user message via pendingImageNoticesRef.
   // MessageItem hides messages matching this prefix so the user doesn't see them.
   useEffect(() => {
     const handler = (e: Event) => {
@@ -607,102 +620,28 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
       const paths = (detail.images || [])
         .map((img: { localPath?: string }) => img.localPath)
         .filter(Boolean);
-      const pathInfo = paths.length > 0 ? `, file path: ${paths.join(', ')}` : '';
-      const notice = `[__IMAGE_GEN_NOTICE__ prompt: "${detail.prompt}", aspect ratio: ${detail.aspectRatio}, resolution: ${detail.resolution}${pathInfo}. You can use your Read tool to view the generated image if you need to analyze or discuss it.]`;
-      // Persist to DB only — does NOT trigger model
+      const pathInfo = paths.length > 0 ? `\nGenerated image file paths:\n${paths.map((p: string) => `- ${p}`).join('\n')}` : '';
+      const notice = `[Image generation completed]\n- Prompt: "${detail.prompt}"\n- Aspect ratio: ${detail.aspectRatio}\n- Resolution: ${detail.resolution}${pathInfo}`;
+
+      // Store generated image paths so subsequent edits can use them as reference
+      if (paths.length > 0) {
+        setLastGeneratedImages(paths);
+      }
+
+      // Queue for next user message so the LLM gets the context
+      pendingImageNoticesRef.current.push(notice);
+
+      // Also persist to DB for history reload
+      const dbNotice = `[__IMAGE_GEN_NOTICE__ prompt: "${detail.prompt}", aspect ratio: ${detail.aspectRatio}, resolution: ${detail.resolution}${paths.length > 0 ? `, file path: ${paths.join(', ')}` : ''}]`;
       fetch('/api/chat/messages', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ session_id: sessionId, role: 'user', content: notice }),
+        body: JSON.stringify({ session_id: sessionId, role: 'user', content: dbNotice }),
       }).catch(() => {});
     };
     window.addEventListener('image-gen-completed', handler);
     return () => window.removeEventListener('image-gen-completed', handler);
   }, [sessionId]);
-
-  // Direct image generation — bypasses /api/chat, shows ImageGenConfirmation for parameter selection
-  const handleImageGenerate = useCallback(async (prompt: string, files?: FileAttachment[]) => {
-    if (!prompt.trim() && (!files || files.length === 0)) return;
-
-    const displayPrompt = prompt || 'Generate an image';
-
-    // Build user display content — only store file metadata (no base64) for DB
-    let userDbContent = displayPrompt;
-    if (files && files.length > 0) {
-      const metaOnly = files.map(f => ({ id: f.id, name: f.name, type: f.type, size: f.size }));
-      userDbContent = `<!--files:${JSON.stringify(metaOnly)}-->${displayPrompt}`;
-    }
-
-    // Build user display content for UI — include base64 for immediate rendering
-    let userUiContent = displayPrompt;
-    if (files && files.length > 0) {
-      const metaWithData = files.map(f => ({ id: f.id, name: f.name, type: f.type, size: f.size, data: f.data }));
-      userUiContent = `<!--files:${JSON.stringify(metaWithData)}-->${displayPrompt}`;
-    }
-
-    // Add user message to UI
-    setMessages(prev => [...prev, {
-      id: 'temp-' + Date.now(),
-      session_id: sessionId,
-      role: 'user',
-      content: userUiContent,
-      created_at: new Date().toISOString(),
-      token_usage: null,
-    }]);
-
-    // Persist user message (lightweight, no base64)
-    fetch('/api/chat/messages', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ session_id: sessionId, role: 'user', content: userDbContent }),
-    }).catch(() => {});
-
-    // Auto-generate title from first message if needed
-    if (messages.length === 0) {
-      const title = displayPrompt.slice(0, 50) + (displayPrompt.length > 50 ? '...' : '');
-      fetch(`/api/chat/sessions/${sessionId}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ title }),
-      }).then(() => {
-        window.dispatchEvent(new CustomEvent('session-updated'));
-      }).catch(() => {});
-    }
-
-    // Store reference images in module-level map for ImageGenConfirmation to pick up
-    const msgId = 'imggen-' + Date.now();
-    if (files && files.length > 0) {
-      const imageFiles = files.filter(f => f.type.startsWith('image/'));
-      if (imageFiles.length > 0) {
-        imageGenRefStore.set(msgId, imageFiles.map(f => ({ mimeType: f.type, data: f.data })));
-      }
-    }
-
-    // Build image-gen-request — renders ImageGenConfirmation with interactive UI
-    const requestPayload: Record<string, unknown> = {
-      prompt: displayPrompt,
-      aspectRatio: '1:1',
-      resolution: '1K',
-    };
-    const requestContent = '```image-gen-request\n' + JSON.stringify(requestPayload) + '\n```';
-
-    // Add assistant message with ImageGenConfirmation UI
-    setMessages(prev => [...prev, {
-      id: msgId,
-      session_id: sessionId,
-      role: 'assistant',
-      content: requestContent,
-      created_at: new Date().toISOString(),
-      token_usage: null,
-    }]);
-
-    // Persist assistant message so it survives page reload
-    fetch('/api/chat/messages', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ session_id: sessionId, role: 'assistant', content: requestContent }),
-    }).catch(() => {});
-  }, [sessionId, messages.length]);
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -722,9 +661,12 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
         loadingMore={loadingMore}
         onLoadMore={loadEarlierMessages}
       />
+      {/* Batch image generation panels — shown above the input area */}
+      <BatchExecutionDashboard />
+      <BatchContextSync />
+
       <MessageInput
         onSend={sendMessage}
-        onImageGenerate={handleImageGenerate}
         onCommand={handleCommand}
         onStop={stopStreaming}
         disabled={false}

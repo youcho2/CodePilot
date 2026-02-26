@@ -33,9 +33,10 @@ export async function GET(request: NextRequest) {
     });
   }
 
-  // Security: only allow files within .codepilot-uploads/ directories
+  // Security: only allow files within known .codepilot-* directories
   const resolved = path.resolve(filePath);
-  if (!resolved.includes('.codepilot-uploads')) {
+  const allowedDirs = ['.codepilot-uploads', '.codepilot-media', '.codepilot-images'];
+  if (!allowedDirs.some(dir => resolved.includes(dir))) {
     return new Response(JSON.stringify({ error: 'Access denied' }), {
       status: 403,
       headers: { 'Content-Type': 'application/json' },

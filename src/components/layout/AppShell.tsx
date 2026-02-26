@@ -13,6 +13,7 @@ import { DocPreview } from "./DocPreview";
 import { PanelContext, type PanelContent, type PreviewViewMode } from "@/hooks/usePanel";
 import { UpdateContext, type UpdateInfo } from "@/hooks/useUpdate";
 import { ImageGenContext, useImageGenState } from "@/hooks/useImageGen";
+import { BatchImageGenContext, useBatchImageGenState } from "@/hooks/useBatchImageGen";
 import { ErrorBoundary } from "./ErrorBoundary";
 
 const CHATLIST_MIN = 180;
@@ -344,11 +345,13 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   );
 
   const imageGenValue = useImageGenState();
+  const batchImageGenValue = useBatchImageGenState();
 
   return (
     <UpdateContext.Provider value={updateContextValue}>
       <PanelContext.Provider value={panelContextValue}>
         <ImageGenContext.Provider value={imageGenValue}>
+        <BatchImageGenContext.Provider value={batchImageGenValue}>
         <TooltipProvider delayDuration={300}>
           <div className="flex h-screen overflow-hidden">
             <NavRail
@@ -400,6 +403,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </div>
           <UpdateDialog />
         </TooltipProvider>
+        </BatchImageGenContext.Provider>
         </ImageGenContext.Provider>
       </PanelContext.Provider>
     </UpdateContext.Provider>

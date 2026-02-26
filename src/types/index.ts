@@ -407,6 +407,16 @@ export const SETTING_KEYS = {
 } as const;
 
 // ==========================================
+// Reference Image Types (for image generation)
+// ==========================================
+
+export interface ReferenceImage {
+  mimeType: string;
+  data?: string;       // base64 (user upload)
+  localPath?: string;  // file path (generated result)
+}
+
+// ==========================================
 // File Attachment Types
 // ==========================================
 
@@ -434,6 +444,145 @@ export function formatFileSize(bytes: number): string {
 // ==========================================
 // Claude Client Types
 // ==========================================
+
+// ==========================================
+// Batch Image Generation Types
+// ==========================================
+
+export type MediaJobStatus = 'draft' | 'planning' | 'planned' | 'running' | 'paused' | 'completed' | 'cancelled' | 'failed';
+export type MediaJobItemStatus = 'pending' | 'processing' | 'completed' | 'failed' | 'cancelled';
+
+export interface MediaJob {
+  id: string;
+  session_id: string | null;
+  status: MediaJobStatus;
+  doc_paths: string;       // JSON array of file paths
+  style_prompt: string;
+  batch_config: string;    // JSON of BatchConfig
+  total_items: number;
+  completed_items: number;
+  failed_items: number;
+  created_at: string;
+  updated_at: string;
+  completed_at: string | null;
+}
+
+export interface MediaJobItem {
+  id: string;
+  job_id: string;
+  idx: number;
+  prompt: string;
+  aspect_ratio: string;
+  image_size: string;
+  model: string;
+  tags: string;            // JSON array of strings
+  source_refs: string;     // JSON array of strings
+  status: MediaJobItemStatus;
+  retry_count: number;
+  result_media_generation_id: string | null;
+  error: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface MediaContextEvent {
+  id: string;
+  session_id: string;
+  job_id: string;
+  payload: string;         // JSON object
+  sync_mode: 'manual' | 'auto_batch';
+  synced_at: string | null;
+  created_at: string;
+}
+
+export interface BatchConfig {
+  concurrency: number;     // max parallel image generations (default: 2)
+  maxRetries: number;      // max retry attempts per item (default: 2)
+  retryDelayMs: number;    // base delay for exponential backoff (default: 2000)
+}
+
+export interface PlannerItem {
+  prompt: string;
+  aspectRatio: string;
+  resolution: string;
+  tags: string[];
+  sourceRefs: string[];
+}
+
+export interface PlannerOutput {
+  summary: string;
+  items: PlannerItem[];
+}
+
+export type JobProgressEventType =
+  | 'item_started'
+  | 'item_completed'
+  | 'item_failed'
+  | 'item_retry'
+  | 'job_completed'
+  | 'job_paused'
+  | 'job_cancelled';
+
+export interface JobProgressEvent {
+  type: JobProgressEventType;
+  jobId: string;
+  itemId?: string;
+  itemIdx?: number;
+  progress: {
+    total: number;
+    completed: number;
+    failed: number;
+    processing: number;
+  };
+  error?: string;
+  retryCount?: number;
+  mediaGenerationId?: string;
+  timestamp: string;
+}
+
+// --- Batch Image Gen API Types ---
+
+export interface CreateMediaJobRequest {
+  sessionId?: string;
+  items: Array<{
+    prompt: string;
+    aspectRatio?: string;
+    imageSize?: string;
+    model?: string;
+    tags?: string[];
+    sourceRefs?: string[];
+  }>;
+  batchConfig?: Partial<BatchConfig>;
+  stylePrompt?: string;
+  docPaths?: string[];
+}
+
+export interface PlanMediaJobRequest {
+  docPaths?: string[];
+  docContent?: string;
+  stylePrompt: string;
+  sessionId?: string;
+  count?: number;
+}
+
+export interface UpdateMediaJobItemsRequest {
+  items: Array<{
+    id: string;
+    prompt?: string;
+    aspectRatio?: string;
+    imageSize?: string;
+    tags?: string[];
+  }>;
+}
+
+export interface MediaJobResponse {
+  job: MediaJob;
+  items: MediaJobItem[];
+}
+
+export interface MediaJobListResponse {
+  jobs: MediaJob[];
+}
 
 export interface ClaudeStreamOptions {
   prompt: string;

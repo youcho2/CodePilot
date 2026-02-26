@@ -7,6 +7,7 @@ import { ImageGenCard } from './ImageGenCard';
 import { useTranslation } from '@/hooks/useTranslation';
 import { usePanel } from '@/hooks/usePanel';
 import type { TranslationKey } from '@/i18n';
+import type { ReferenceImage } from '@/types';
 import type { ImageGenResult } from '@/hooks/useImageGen';
 
 const ASPECT_RATIOS = [
@@ -19,8 +20,7 @@ interface ImageGenConfirmationProps {
   initialPrompt: string;
   initialAspectRatio: string;
   initialResolution: string;
-  referenceImagePaths?: string[];
-  referenceImagesData?: Array<{ mimeType: string; data: string }>;
+  referenceImages?: ReferenceImage[];
 }
 
 type Status = 'idle' | 'generating' | 'completed' | 'error';
@@ -35,8 +35,7 @@ export function ImageGenConfirmation({
   initialPrompt,
   initialAspectRatio,
   initialResolution,
-  referenceImagePaths,
-  referenceImagesData,
+  referenceImages,
 }: ImageGenConfirmationProps) {
   const { t } = useTranslation();
   const { sessionId } = usePanel();
@@ -87,6 +86,10 @@ export function ImageGenConfirmation({
     setError(null);
 
     try {
+      // Split unified ReferenceImage[] back into base64 data vs file paths for the API
+      const refData = referenceImages?.filter(r => r.data).map(r => ({ mimeType: r.mimeType, data: r.data! }));
+      const refPaths = referenceImages?.filter(r => r.localPath).map(r => r.localPath!);
+
       const res = await fetch('/api/media/generate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -95,11 +98,12 @@ export function ImageGenConfirmation({
           aspectRatio,
           imageSize: resolution,
           sessionId,
-          ...(referenceImagesData && referenceImagesData.length > 0
-            ? { referenceImages: referenceImagesData }
-            : referenceImagePaths && referenceImagePaths.length > 0
-              ? { referenceImagePaths }
-              : {}),
+          ...(refData && refData.length > 0
+            ? { referenceImages: refData }
+            : {}),
+          ...(refPaths && refPaths.length > 0
+            ? { referenceImagePaths: refPaths }
+            : {}),
         }),
         signal: controller.signal,
       });
@@ -163,7 +167,7 @@ export function ImageGenConfirmation({
     } finally {
       abortRef.current = null;
     }
-  }, [prompt, aspectRatio, resolution, initialPrompt, sessionId, referenceImagePaths, referenceImagesData]);
+  }, [prompt, aspectRatio, resolution, initialPrompt, sessionId, referenceImages]);
 
   const handleRegenerate = useCallback(() => {
     setResult(null);
@@ -185,7 +189,7 @@ export function ImageGenConfirmation({
           aspectRatio={aspectRatio}
           imageSize={resolution}
           onRegenerate={handleRegenerate}
-          referenceImages={referenceImagesData}
+          referenceImages={referenceImages?.filter(r => r.data).map(r => ({ mimeType: r.mimeType, data: r.data! }))}
         />
       </div>
     );
@@ -200,18 +204,20 @@ export function ImageGenConfirmation({
       </div>
 
       <div className="p-4 space-y-3">
-        {/* Reference images preview */}
-        {referenceImagesData && referenceImagesData.length > 0 ? (
+        {/* Reference images preview — unified loop over all reference images */}
+        {referenceImages && referenceImages.length > 0 && (
           <div>
             <label className="text-xs font-medium text-muted-foreground mb-1.5 block">
               {t('imageGen.referenceImages' as TranslationKey)}
             </label>
             <div className="flex gap-2 flex-wrap">
-              {referenceImagesData.map((img, i) => (
+              {referenceImages.map((img, i) => (
                 <div key={i} className="w-16 h-16 rounded-md border border-border/30 overflow-hidden bg-muted/30">
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img
-                    src={`data:${img.mimeType};base64,${img.data}`}
+                    src={img.data
+                      ? `data:${img.mimeType};base64,${img.data}`
+                      : `/api/uploads?path=${encodeURIComponent(img.localPath!)}`}
                     alt={`Reference ${i + 1}`}
                     className="w-full h-full object-cover"
                   />
@@ -219,25 +225,7 @@ export function ImageGenConfirmation({
               ))}
             </div>
           </div>
-        ) : referenceImagePaths && referenceImagePaths.length > 0 ? (
-          <div>
-            <label className="text-xs font-medium text-muted-foreground mb-1.5 block">
-              {t('imageGen.referenceImages' as TranslationKey)}
-            </label>
-            <div className="flex gap-2 flex-wrap">
-              {referenceImagePaths.map((p, i) => (
-                <div key={i} className="w-16 h-16 rounded-md border border-border/30 overflow-hidden bg-muted/30">
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img
-                    src={`/api/uploads?path=${encodeURIComponent(p)}`}
-                    alt={`Reference ${i + 1}`}
-                    className="w-full h-full object-cover"
-                  />
-                </div>
-              ))}
-            </div>
-          </div>
-        ) : null}
+        )}
 
         {/* Prompt textarea */}
         <div>

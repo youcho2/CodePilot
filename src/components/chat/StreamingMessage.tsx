@@ -19,14 +19,17 @@ import {
 } from '@/components/ai-elements/confirmation';
 import { Shimmer } from '@/components/ai-elements/shimmer';
 import { ImageGenConfirmation } from './ImageGenConfirmation';
+import { BatchPlanInlinePreview } from './batch-image-gen/BatchPlanInlinePreview';
+import { PENDING_KEY, buildReferenceImages } from '@/lib/image-ref-store';
 import type { ToolUIPart } from 'ai';
-import type { PermissionRequestEvent } from '@/types';
+import type { PermissionRequestEvent, PlannerOutput } from '@/types';
 
 interface ImageGenRequest {
   prompt: string;
   aspectRatio: string;
   resolution: string;
   referenceImages?: string[];
+  useLastGenerated?: boolean;
 }
 
 function parseImageGenRequest(text: string): { beforeText: string; request: ImageGenRequest; afterText: string } | null {
@@ -55,6 +58,34 @@ function parseImageGenRequest(text: string): { beforeText: string; request: Imag
         aspectRatio: String(json.aspectRatio || '1:1'),
         resolution: String(json.resolution || '1K'),
         referenceImages: Array.isArray(json.referenceImages) ? json.referenceImages : undefined,
+        useLastGenerated: json.useLastGenerated === true,
+      },
+      afterText,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function parseBatchPlan(text: string): { beforeText: string; plan: PlannerOutput; afterText: string } | null {
+  const regex = /```batch-plan\s*\n?([\s\S]*?)\n?\s*```/;
+  const match = text.match(regex);
+  if (!match) return null;
+  try {
+    const json = JSON.parse(match[1]);
+    const beforeText = text.slice(0, match.index).trim();
+    const afterText = text.slice((match.index || 0) + match[0].length).trim();
+    return {
+      beforeText,
+      plan: {
+        summary: json.summary || '',
+        items: Array.isArray(json.items) ? json.items.map((item: Record<string, unknown>) => ({
+          prompt: String(item.prompt || ''),
+          aspectRatio: String(item.aspectRatio || '1:1'),
+          resolution: String(item.resolution || '1K'),
+          tags: Array.isArray(item.tags) ? item.tags : [],
+          sourceRefs: Array.isArray(item.sourceRefs) ? item.sourceRefs : [],
+        })) : [],
       },
       afterText,
     };
@@ -492,10 +523,26 @@ export function StreamingMessage({
 
         {/* Streaming text content rendered via Streamdown */}
         {content && (() => {
-          console.log('[StreamingMessage] content:', JSON.stringify(content.slice(0, 500)));
+          // Try batch-plan first (Image Agent batch mode)
+          const batchPlanResult = parseBatchPlan(content);
+          if (batchPlanResult) {
+            return (
+              <>
+                {batchPlanResult.beforeText && <MessageResponse>{batchPlanResult.beforeText}</MessageResponse>}
+                <BatchPlanInlinePreview plan={batchPlanResult.plan} messageId={`streaming-${Date.now()}`} />
+                {batchPlanResult.afterText && <MessageResponse>{batchPlanResult.afterText}</MessageResponse>}
+              </>
+            );
+          }
+
+          // Try image-gen-request
           const parsed = parseImageGenRequest(content);
-          console.log('[StreamingMessage] parseImageGenRequest result:', parsed ? 'OK' : 'null', 'isStreaming:', isStreaming);
           if (parsed) {
+            const refs = buildReferenceImages(
+              PENDING_KEY,
+              parsed.request.useLastGenerated || false,
+              parsed.request.referenceImages,
+            );
             return (
               <>
                 {parsed.beforeText && <MessageResponse>{parsed.beforeText}</MessageResponse>}
@@ -503,22 +550,29 @@ export function StreamingMessage({
                   initialPrompt={parsed.request.prompt}
                   initialAspectRatio={parsed.request.aspectRatio}
                   initialResolution={parsed.request.resolution}
-                  referenceImagePaths={parsed.request.referenceImages}
+                  referenceImages={refs.length > 0 ? refs : undefined}
                 />
                 {parsed.afterText && <MessageResponse>{parsed.afterText}</MessageResponse>}
               </>
             );
           }
-          // Strip partial or unparseable image-gen-request blocks to avoid Shiki errors
+          // Strip partial or unparseable code fence blocks to avoid Shiki errors
           if (isStreaming) {
             const hasImageGenBlock = /```image-gen-request/.test(content);
-            const stripped = content.replace(/```image-gen-request[\s\S]*$/, '').trim();
+            const hasBatchPlanBlock = /```batch-plan/.test(content);
+            const stripped = content
+              .replace(/```image-gen-request[\s\S]*$/, '')
+              .replace(/```batch-plan[\s\S]*$/, '')
+              .trim();
             if (stripped) return <MessageResponse>{stripped}</MessageResponse>;
-            // Show shimmer while the image-gen block is being streamed
-            if (hasImageGenBlock) return <Shimmer>{t('streaming.thinking')}</Shimmer>;
+            // Show shimmer while the structured block is being streamed
+            if (hasImageGenBlock || hasBatchPlanBlock) return <Shimmer>{t('streaming.thinking')}</Shimmer>;
             return null;
           }
-          const stripped = content.replace(/```image-gen-request[\s\S]*?```/g, '').trim();
+          const stripped = content
+            .replace(/```image-gen-request[\s\S]*?```/g, '')
+            .replace(/```batch-plan[\s\S]*?```/g, '')
+            .trim();
           return stripped ? <MessageResponse>{stripped}</MessageResponse> : null;
         })()}
 
