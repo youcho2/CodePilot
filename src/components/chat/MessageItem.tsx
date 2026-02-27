@@ -491,6 +491,7 @@ export function MessageItem({ message }: MessageItemProps) {
                 <>
                   {parsed.beforeText && <MessageResponse>{parsed.beforeText}</MessageResponse>}
                   <ImageGenConfirmation
+                    messageId={message.id}
                     initialPrompt={parsed.request.prompt}
                     initialAspectRatio={parsed.request.aspectRatio}
                     initialResolution={parsed.request.resolution}

@@ -17,6 +17,7 @@ const ASPECT_RATIOS = [
 const RESOLUTIONS = ['1K', '2K', '4K'] as const;
 
 interface ImageGenConfirmationProps {
+  messageId?: string;
   initialPrompt: string;
   initialAspectRatio: string;
   initialResolution: string;
@@ -32,6 +33,7 @@ function storageKey(prompt: string, sessionId?: string): string {
 }
 
 export function ImageGenConfirmation({
+  messageId,
   initialPrompt,
   initialAspectRatio,
   initialResolution,
@@ -138,6 +140,28 @@ export function ImageGenConfirmation({
           localStorage.setItem(storageKey(initialPrompt, sessionId), JSON.stringify(storable));
         } catch {
           // storage full
+        }
+
+        // Persist result to DB by replacing image-gen-request with image-gen-result
+        if (messageId) {
+          const resultBlock = JSON.stringify({
+            status: 'completed',
+            prompt,
+            aspectRatio,
+            resolution,
+            images: genResult.images.map(img => ({
+              mimeType: img.mimeType,
+              localPath: img.localPath,
+            })),
+          });
+          fetch('/api/chat/messages', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              message_id: messageId,
+              content: '```image-gen-result\n' + resultBlock + '\n```',
+            }),
+          }).catch(() => {});
         }
 
         // Defer event dispatch so React commits setResult/setStatus before

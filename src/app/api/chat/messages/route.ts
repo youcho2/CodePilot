@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { addMessage, getSession } from '@/lib/db';
+import { addMessage, updateMessageContent, getSession } from '@/lib/db';
 
 export const runtime = 'nodejs';
 
@@ -34,6 +34,34 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ message });
   } catch (error) {
     const msg = error instanceof Error ? error.message : 'Failed to save message';
+    return NextResponse.json({ error: msg }, { status: 500 });
+  }
+}
+
+/**
+ * PUT /api/chat/messages
+ * Update the content of an existing message.
+ * Used to replace image-gen-request with image-gen-result after generation.
+ */
+export async function PUT(request: NextRequest) {
+  try {
+    const body = await request.json();
+    const { message_id, content } = body as {
+      message_id: string;
+      content: string;
+    };
+
+    if (!message_id || !content) {
+      return NextResponse.json(
+        { error: 'message_id and content are required' },
+        { status: 400 },
+      );
+    }
+
+    updateMessageContent(message_id, content);
+    return NextResponse.json({ ok: true });
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : 'Failed to update message';
     return NextResponse.json({ error: msg }, { status: 500 });
   }
 }

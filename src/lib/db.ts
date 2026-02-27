@@ -565,6 +565,11 @@ export function addMessage(
   return db.prepare('SELECT * FROM messages WHERE id = ?').get(id) as Message;
 }
 
+export function updateMessageContent(messageId: string, content: string): void {
+  const db = getDb();
+  db.prepare('UPDATE messages SET content = ? WHERE id = ?').run(content, messageId);
+}
+
 export function clearSessionMessages(sessionId: string): void {
   const db = getDb();
   db.prepare('DELETE FROM messages WHERE session_id = ?').run(sessionId);
