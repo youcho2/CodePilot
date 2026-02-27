@@ -199,7 +199,7 @@ function getExpandedShellPath(): string {
     return [...new Set(allParts)].join(sep);
   } else {
     const basePath = `/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin`;
-    const raw = `${basePath}:${home}/.npm-global/bin:${home}/.local/bin:${home}/.claude/bin:${shellPath}`;
+    const raw = `${basePath}:${home}/.npm-global/bin:${home}/.local/bin:${home}/.claude/bin:${home}/.codepilot/node/bin:${shellPath}`;
     const allParts = raw.split(':').filter(Boolean);
     return [...new Set(allParts)].join(':');
   }
@@ -528,17 +528,24 @@ app.whenReady().then(async () => {
             let args: string[];
 
             if (isMac) {
-              // Try Homebrew
+              // Try Homebrew first, fallback to official tarball download
               const brewPaths = ['/opt/homebrew/bin/brew', '/usr/local/bin/brew'];
               const brewPath = brewPaths.find(p => fs.existsSync(p));
-              if (!brewPath) {
-                addLog('Homebrew not found. Cannot auto-install Node.js on macOS without Homebrew.');
-                resolve(false);
-                return;
+              if (brewPath) {
+                cmd = brewPath;
+                args = ['install', 'node'];
+                addLog(`Running: ${brewPath} install node`);
+              } else {
+                // Fallback: download official Node.js binary tarball (no Homebrew/sudo needed)
+                const arch = process.arch === 'arm64' ? 'arm64' : 'x64';
+                const nodeVersion = 'v22.12.0';
+                const nodeDir = path.join(home, '.codepilot', 'node');
+                const tarballUrl = `https://nodejs.org/dist/${nodeVersion}/node-${nodeVersion}-darwin-${arch}.tar.gz`;
+                addLog(`Homebrew not found. Downloading Node.js ${nodeVersion} from nodejs.org...`);
+                addLog(`Architecture: ${arch}, Target: ${nodeDir}`);
+                cmd = 'sh';
+                args = ['-c', `mkdir -p "${nodeDir}" && curl -fsSL "${tarballUrl}" | tar xz --strip-components=1 -C "${nodeDir}"`];
               }
-              cmd = brewPath;
-              args = ['install', 'node'];
-              addLog(`Running: ${brewPath} install node`);
             } else if (isWin) {
               cmd = 'winget';
               args = ['install', '-e', '--id', 'OpenJS.NodeJS.LTS', '--accept-source-agreements', '--accept-package-agreements'];
