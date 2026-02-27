@@ -10,8 +10,12 @@ import { PlusSignIcon, Search01Icon, ZapIcon, Loading02Icon } from "@hugeicons/c
 import { SkillListItem } from "./SkillListItem";
 import { SkillEditor } from "./SkillEditor";
 import { CreateSkillDialog } from "./CreateSkillDialog";
+import { MarketplaceBrowser } from "./MarketplaceBrowser";
 import { useTranslation } from "@/hooks/useTranslation";
+import { cn } from "@/lib/utils";
 import type { SkillItem } from "./SkillListItem";
+
+type ViewTab = "local" | "marketplace";
 
 export function SkillsManager() {
   const { workingDirectory } = usePanel();
@@ -21,6 +25,7 @@ export function SkillsManager() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [showCreate, setShowCreate] = useState(false);
+  const [viewTab, setViewTab] = useState<ViewTab>("local");
 
   const fetchSkills = useCallback(async () => {
     try {
@@ -150,14 +155,45 @@ export function SkillsManager() {
     <div className="flex flex-col h-full">
       {/* Header */}
       <div className="flex items-center gap-3 mb-4">
-        <h3 className="text-lg font-semibold flex-1">{t('extensions.skills')}</h3>
-        <Button size="sm" onClick={() => setShowCreate(true)} className="gap-1">
-          <HugeiconsIcon icon={PlusSignIcon} className="h-3.5 w-3.5" />
-          {t('skills.newSkill')}
-        </Button>
+        <h3 className="text-lg font-semibold">{t('extensions.skills')}</h3>
+        {/* Segmented control */}
+        <div className="flex items-center bg-muted rounded-md p-0.5">
+          <button
+            className={cn(
+              "px-3 py-1 text-xs font-medium rounded transition-colors",
+              viewTab === "local"
+                ? "bg-background text-foreground shadow-sm"
+                : "text-muted-foreground hover:text-foreground"
+            )}
+            onClick={() => setViewTab("local")}
+          >
+            {t('skills.mySkills')}
+          </button>
+          <button
+            className={cn(
+              "px-3 py-1 text-xs font-medium rounded transition-colors",
+              viewTab === "marketplace"
+                ? "bg-background text-foreground shadow-sm"
+                : "text-muted-foreground hover:text-foreground"
+            )}
+            onClick={() => setViewTab("marketplace")}
+          >
+            {t('skills.marketplace')}
+          </button>
+        </div>
+        <div className="flex-1" />
+        {viewTab === "local" && (
+          <Button size="sm" onClick={() => setShowCreate(true)} className="gap-1">
+            <HugeiconsIcon icon={PlusSignIcon} className="h-3.5 w-3.5" />
+            {t('skills.newSkill')}
+          </Button>
+        )}
       </div>
 
       {/* Main content */}
+      {viewTab === "marketplace" ? (
+        <MarketplaceBrowser onInstalled={fetchSkills} />
+      ) : (
       <div className="flex gap-4 flex-1 min-h-0">
         {/* Left: skill list */}
         <div className="w-64 shrink-0 flex flex-col border border-border rounded-lg overflow-hidden">
@@ -288,6 +324,7 @@ export function SkillsManager() {
           )}
         </div>
       </div>
+      )}
 
       <CreateSkillDialog
         open={showCreate}

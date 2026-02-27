@@ -68,31 +68,7 @@ export function SkillListItem({
     >
       <HugeiconsIcon icon={ZapIcon} className="h-4 w-4 shrink-0 text-muted-foreground" />
       <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-2">
-          <span className="text-sm font-medium truncate">/{skill.name}</span>
-          <Badge
-            variant="outline"
-            className={cn(
-              "text-[10px] px-1.5 py-0",
-              skill.source === "global"
-                ? "border-green-500/40 text-green-600 dark:text-green-400"
-                : skill.source === "installed"
-                  ? "border-orange-500/40 text-orange-600 dark:text-orange-400"
-                  : "border-indigo-500/40 text-indigo-600 dark:text-indigo-400"
-            )}
-          >
-            {skill.source === "global" ? (
-              <HugeiconsIcon icon={GlobeIcon} className="h-2.5 w-2.5 mr-0.5" />
-            ) : skill.source === "installed" ? (
-              <HugeiconsIcon icon={Download04Icon} className="h-2.5 w-2.5 mr-0.5" />
-            ) : (
-              <HugeiconsIcon icon={Plug01Icon} className="h-2.5 w-2.5 mr-0.5" />
-            )}
-            {skill.source === "installed" && skill.installedSource
-              ? `installed:${skill.installedSource}`
-              : skill.source}
-          </Badge>
-        </div>
+        <span className="text-sm font-medium truncate block">/{skill.name}</span>
         <p className="text-xs text-muted-foreground truncate">
           {skill.description}
         </p>

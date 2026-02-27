@@ -9,6 +9,12 @@
 [![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey)](https://github.com/op7418/CodePilot/releases)
 [![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
+### 加入用户群
+
+<img src="docs/wechat-group-qr.png" width="240" alt="微信用户群二维码" />
+
+扫描二维码加入微信用户群，交流使用心得、反馈问题和获取最新动态。
+
 ---
 
 ## 功能特性

@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 export default function McpRedirect() {
   const router = useRouter();
   useEffect(() => {
-    router.replace("/extensions?tab=mcp");
+    router.replace("/mcp");
   }, [router]);
   return null;
 }

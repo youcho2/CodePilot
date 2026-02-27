@@ -9,6 +9,12 @@
 
 [中文文档](./README_CN.md) | [日本語](./README_JA.md)
 
+### Join the Community / 加入用户群
+
+<img src="docs/wechat-group-qr.png" width="240" alt="WeChat Group QR Code" />
+
+Scan the QR code to join the WeChat user group for discussions, feedback, and updates.
+
 ---
 
 ## Features

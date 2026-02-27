@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 export default function PluginsRedirect() {
   const router = useRouter();
   useEffect(() => {
-    router.replace("/extensions");
+    router.replace("/skills");
   }, [router]);
   return null;
 }

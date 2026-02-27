@@ -7,7 +7,8 @@ import { useCallback, useSyncExternalStore } from "react";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
   Message02Icon,
-  GridIcon,
+  ZapIcon,
+  Plug01Icon,
   Image01Icon,
   Settings02Icon,
   Moon02Icon,
@@ -34,7 +35,8 @@ interface NavRailProps {
 
 const navItems = [
   { href: "/chat", label: "Chats", icon: Message02Icon },
-  { href: "/extensions", label: "Extensions", icon: GridIcon },
+  { href: "/skills", label: "Skills", icon: ZapIcon },
+  { href: "/mcp", label: "MCP", icon: Plug01Icon },
   { href: "/gallery", label: "Gallery", icon: Image01Icon },
   { href: "/settings", label: "Settings", icon: Settings02Icon },
 ] as const;
@@ -46,7 +48,8 @@ export function NavRail({ onToggleChatList, hasUpdate, readyToInstall, skipPermi
   const { t } = useTranslation();
   const navLabelKeys: Record<string, TranslationKey> = {
     'Chats': 'nav.chats',
-    'Extensions': 'nav.extensions',
+    'Skills': 'extensions.skills',
+    'MCP': 'extensions.mcpServers',
     'Gallery': 'gallery.title',
     'Settings': 'nav.settings',
   };
@@ -62,9 +65,7 @@ export function NavRail({ onToggleChatList, hasUpdate, readyToInstall, skipPermi
           const isActive =
             item.href === "/chat"
               ? pathname === "/chat" || pathname.startsWith("/chat/")
-              : item.href === "/extensions"
-                ? pathname.startsWith("/extensions")
-                : pathname === item.href || pathname.startsWith(item.href + "?");
+              : pathname === item.href || pathname.startsWith(item.href + "/") || pathname.startsWith(item.href + "?");
 
           return (
             <Tooltip key={item.href}>
