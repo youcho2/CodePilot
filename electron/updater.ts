@@ -98,7 +98,14 @@ export function initAutoUpdater(win: BrowserWindow) {
   });
 
   ipcMain.handle('updater:download', async () => {
-    return autoUpdater.downloadUpdate();
+    try {
+      return await autoUpdater.downloadUpdate();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.error('[updater] Download failed:', message);
+      sendStatus({ status: 'error', error: message });
+      throw err;
+    }
   });
 
   ipcMain.handle('updater:quit-and-install', () => {

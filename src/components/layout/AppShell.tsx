@@ -280,6 +280,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
         case 'error':
           setChecking(false);
+          // Reset download progress so the download button re-appears
+          setUpdateInfo((prev) => prev ? { ...prev, downloadProgress: null } : prev);
           console.warn('[updater] Error:', event.error);
           break;
       }
@@ -300,8 +302,16 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     setShowDialog(false);
   }, []);
 
-  const downloadUpdate = useCallback(() => {
-    window.electronAPI?.updater?.downloadUpdate();
+  const downloadUpdate = useCallback(async () => {
+    // Immediately show downloading state so user gets feedback
+    setUpdateInfo((prev) => prev ? { ...prev, downloadProgress: 0 } : prev);
+    try {
+      await window.electronAPI?.updater?.downloadUpdate();
+    } catch (err) {
+      console.warn('[updater] Download failed:', err);
+      // Reset progress so the download button re-appears
+      setUpdateInfo((prev) => prev ? { ...prev, downloadProgress: null } : prev);
+    }
   }, []);
 
   const quitAndInstall = useCallback(() => {

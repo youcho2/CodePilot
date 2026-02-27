@@ -20,7 +20,7 @@ export function UpdateDialog() {
   if (!updateInfo?.updateAvailable) return null;
 
   const { isNativeUpdate, readyToInstall, downloadProgress } = updateInfo;
-  const isDownloading = isNativeUpdate && !readyToInstall && downloadProgress != null && downloadProgress > 0;
+  const isDownloading = isNativeUpdate && !readyToInstall && downloadProgress != null;
 
   return (
     <Dialog open={showDialog} onOpenChange={(open) => {

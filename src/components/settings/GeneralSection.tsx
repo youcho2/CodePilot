@@ -26,7 +26,7 @@ function UpdateCard() {
   const currentVersion = process.env.NEXT_PUBLIC_APP_VERSION || "0.0.0";
 
   const isDownloading = updateInfo?.isNativeUpdate && !updateInfo.readyToInstall
-    && updateInfo.downloadProgress != null && updateInfo.downloadProgress > 0;
+    && updateInfo.downloadProgress != null;
 
   return (
     <div className="rounded-lg border border-border/50 p-4 transition-shadow hover:shadow-sm">
