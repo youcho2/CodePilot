@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getTasksBySession, createTask } from '@/lib/db';
+import { getTasksBySession, createTask, syncSdkTasks } from '@/lib/db';
 import type { TasksResponse, TaskResponse, ErrorResponse, CreateTaskRequest } from '@/types';
 
 export async function GET(request: NextRequest) {
@@ -40,6 +40,29 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     return NextResponse.json<ErrorResponse>(
       { error: error instanceof Error ? error.message : 'Failed to create task' },
+      { status: 500 }
+    );
+  }
+}
+
+/** Bulk sync SDK tasks (replace-all for source='sdk') */
+export async function PUT(request: NextRequest) {
+  try {
+    const body: { session_id: string; todos: Array<{ id: string; content: string; status: string; activeForm?: string }> } = await request.json();
+
+    if (!body.session_id || !body.todos) {
+      return NextResponse.json<ErrorResponse>(
+        { error: 'Missing session_id or todos' },
+        { status: 400 }
+      );
+    }
+
+    syncSdkTasks(body.session_id, body.todos);
+    const tasks = getTasksBySession(body.session_id);
+    return NextResponse.json<TasksResponse>({ tasks });
+  } catch (error) {
+    return NextResponse.json<ErrorResponse>(
+      { error: error instanceof Error ? error.message : 'Failed to sync tasks' },
       { status: 500 }
     );
   }

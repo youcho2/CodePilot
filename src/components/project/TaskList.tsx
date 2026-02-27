@@ -44,6 +44,13 @@ export function TaskList({ sessionId }: TaskListProps) {
     fetchTasks();
   }, [fetchTasks]);
 
+  // Auto-refresh when SDK TodoWrite syncs tasks
+  useEffect(() => {
+    const handler = () => { fetchTasks(); };
+    window.addEventListener('tasks-updated', handler);
+    return () => window.removeEventListener('tasks-updated', handler);
+  }, [fetchTasks]);
+
   const handleCreate = async () => {
     const title = newTitle.trim();
     if (!title || !sessionId) return;

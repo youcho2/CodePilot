@@ -151,6 +151,7 @@ const en = {
 
   // ── Right panel / Files ─────────────────────────────────────
   'panel.files': 'Files',
+  'panel.tasks': 'Tasks',
   'panel.openPanel': 'Open panel',
   'panel.closePanel': 'Close panel',
 

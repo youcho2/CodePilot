@@ -23,6 +23,7 @@ export interface SSECallbacks {
   onPermissionRequest: (data: PermissionRequestEvent) => void;
   onToolTimeout: (toolName: string, elapsedSeconds: number) => void;
   onModeChanged: (mode: string) => void;
+  onTaskUpdate: (sessionId: string) => void;
   onError: (accumulated: string) => void;
 }
 
@@ -135,6 +136,16 @@ function handleSSEEvent(
       return accumulated;
     }
 
+    case 'task_update': {
+      try {
+        const taskData = JSON.parse(event.data);
+        callbacks.onTaskUpdate(taskData.session_id);
+      } catch {
+        // skip malformed task_update data
+      }
+      return accumulated;
+    }
+
     case 'error': {
       const next = accumulated + '\n\n**Error:** ' + event.data;
       callbacks.onError(next);
@@ -220,6 +231,7 @@ export function useSSEStream() {
         onPermissionRequest: (d) => callbacksRef.current?.onPermissionRequest(d),
         onToolTimeout: (n, s) => callbacksRef.current?.onToolTimeout(n, s),
         onModeChanged: (m) => callbacksRef.current?.onModeChanged(m),
+        onTaskUpdate: (s) => callbacksRef.current?.onTaskUpdate(s),
         onError: (a) => callbacksRef.current?.onError(a),
       };
 

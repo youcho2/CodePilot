@@ -148,6 +148,7 @@ const zh: Record<TranslationKey, string> = {
 
   // ── Right panel / Files ─────────────────────────────────────
   'panel.files': '文件',
+  'panel.tasks': '任务',
   'panel.openPanel': '打开面板',
   'panel.closePanel': '关闭面板',
 

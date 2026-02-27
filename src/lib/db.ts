@@ -292,6 +292,13 @@ function migrateDb(db: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_tasks_session_id ON tasks(session_id);
   `);
 
+  // Add source column to tasks table (user vs sdk)
+  const taskColumns = db.prepare("PRAGMA table_info(tasks)").all() as { name: string }[];
+  const taskColNames = taskColumns.map(c => c.name);
+  if (!taskColNames.includes('source')) {
+    db.exec("ALTER TABLE tasks ADD COLUMN source TEXT NOT NULL DEFAULT 'user'");
+  }
+
   // Ensure api_providers table exists for databases created before this migration
   db.exec(`
     CREATE TABLE IF NOT EXISTS api_providers (
@@ -724,8 +731,8 @@ export function createTask(sessionId: string, title: string, description?: strin
   const now = new Date().toISOString().replace('T', ' ').split('.')[0];
 
   db.prepare(
-    'INSERT INTO tasks (id, session_id, title, status, description, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
-  ).run(id, sessionId, title, 'pending', description || null, now, now);
+    'INSERT INTO tasks (id, session_id, title, status, description, source, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+  ).run(id, sessionId, title, 'pending', description || null, 'user', now, now);
 
   return getTask(id)!;
 }
@@ -751,6 +758,46 @@ export function deleteTask(id: string): boolean {
   const db = getDb();
   const result = db.prepare('DELETE FROM tasks WHERE id = ?').run(id);
   return result.changes > 0;
+}
+
+/**
+ * Sync SDK tasks (from TodoWrite tool) into the tasks table.
+ * Replace-all strategy: delete all source='sdk' tasks for this session,
+ * then insert the new list. User-created tasks (source='user') are untouched.
+ */
+export function syncSdkTasks(
+  sessionId: string,
+  todos: Array<{ id: string; content: string; status: string; activeForm?: string }>
+): void {
+  const db = getDb();
+  const now = new Date().toISOString().replace('T', ' ').split('.')[0];
+
+  // Map SDK status to local TaskStatus
+  const mapStatus = (s: string): TaskStatus => {
+    switch (s) {
+      case 'completed': return 'completed';
+      case 'in_progress': return 'in_progress';
+      case 'pending': return 'pending';
+      default: return 'pending';
+    }
+  };
+
+  console.log('[db] syncSdkTasks:', sessionId, 'todos count:', todos.length);
+
+  const txn = db.transaction(() => {
+    // Delete all SDK-sourced tasks for this session
+    db.prepare("DELETE FROM tasks WHERE session_id = ? AND source = 'sdk'").run(sessionId);
+
+    // Insert new SDK tasks
+    const insert = db.prepare(
+      'INSERT INTO tasks (id, session_id, title, status, description, source, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+    );
+    for (const todo of todos) {
+      const taskId = `sdk-${sessionId.slice(0, 8)}-${todo.id}`;
+      insert.run(taskId, sessionId, todo.content, mapStatus(todo.status), todo.activeForm || null, 'sdk', now, now);
+    }
+  });
+  txn();
 }
 
 // ==========================================

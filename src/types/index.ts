@@ -62,6 +62,7 @@ export interface TaskItem {
   title: string;
   status: TaskStatus;
   description: string | null;
+  source: 'user' | 'sdk';
   created_at: string;
   updated_at: string;
 }
@@ -326,6 +327,7 @@ export type SSEEventType =
   | 'error'              // error occurred
   | 'permission_request' // permission approval needed
   | 'mode_changed'       // SDK permission mode changed (e.g. plan → code)
+  | 'task_update'        // SDK TodoWrite task sync
   | 'done';              // stream complete
 
 export interface SSEEvent {

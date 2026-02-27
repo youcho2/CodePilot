@@ -326,6 +326,8 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
             markActive();
             setStreamingToolOutput('');
             setToolResults((prev) => {
+              // Dedup: skip if already received for this tool_use_id
+              if (prev.some(r => r.tool_use_id === res.tool_use_id)) return prev;
               const next = [...prev, res];
               toolResultsRef.current = next;
               return next;
@@ -373,6 +375,11 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
             // Map SDK permissionMode to UI mode
             const uiMode = sdkMode === 'plan' ? 'plan' : 'code';
             handleModeChange(uiMode);
+          },
+          onTaskUpdate: () => {
+            markActive();
+            // Notify TaskList to refresh its data
+            window.dispatchEvent(new CustomEvent('tasks-updated'));
           },
           onError: (acc) => {
             markActive();

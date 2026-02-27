@@ -12,13 +12,15 @@ import {
 import { usePanel } from "@/hooks/usePanel";
 import { useTranslation } from "@/hooks/useTranslation";
 import { FileTree } from "@/components/project/FileTree";
+import { TaskList } from "@/components/project/TaskList";
+import { cn } from "@/lib/utils";
 
 interface RightPanelProps {
   width?: number;
 }
 
 export function RightPanel({ width }: RightPanelProps) {
-  const { panelOpen, setPanelOpen, workingDirectory, previewFile, setPreviewFile } = usePanel();
+  const { panelOpen, setPanelOpen, panelContent, setPanelContent, workingDirectory, sessionId, previewFile, setPreviewFile } = usePanel();
   const { t } = useTranslation();
 
   const handleFileAdd = useCallback((path: string) => {
@@ -71,7 +73,26 @@ export function RightPanel({ width }: RightPanelProps) {
     <aside className="hidden h-full shrink-0 flex-col overflow-hidden bg-background lg:flex" style={{ width: width ?? 288 }}>
       {/* Header */}
       <div className="flex h-12 mt-5 shrink-0 items-center justify-between px-4">
-        <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">{t('panel.files')}</span>
+        <div className="flex items-center gap-1">
+          <button
+            className={cn(
+              "text-[11px] font-semibold uppercase tracking-wider px-2 py-1 rounded",
+              panelContent === "files" ? "bg-accent text-accent-foreground" : "text-muted-foreground hover:text-foreground"
+            )}
+            onClick={() => setPanelContent("files")}
+          >
+            {t('panel.files')}
+          </button>
+          <button
+            className={cn(
+              "text-[11px] font-semibold uppercase tracking-wider px-2 py-1 rounded",
+              panelContent === "tasks" ? "bg-accent text-accent-foreground" : "text-muted-foreground hover:text-foreground"
+            )}
+            onClick={() => setPanelContent("tasks")}
+          >
+            {t('panel.tasks')}
+          </button>
+        </div>
         <Tooltip>
           <TooltipTrigger asChild>
             <Button
@@ -89,11 +110,17 @@ export function RightPanel({ width }: RightPanelProps) {
 
       {/* Body */}
       <div className="flex flex-1 flex-col min-h-0 overflow-hidden">
-        <FileTree
-          workingDirectory={workingDirectory}
-          onFileSelect={handleFileSelect}
-          onFileAdd={handleFileAdd}
-        />
+        {panelContent === "files" ? (
+          <FileTree
+            workingDirectory={workingDirectory}
+            onFileSelect={handleFileSelect}
+            onFileAdd={handleFileAdd}
+          />
+        ) : (
+          <div className="px-3 pt-1 h-full">
+            <TaskList sessionId={sessionId} />
+          </div>
+        )}
       </div>
     </aside>
   );

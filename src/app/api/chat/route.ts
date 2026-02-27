@@ -1,6 +1,6 @@
 import { NextRequest } from 'next/server';
 import { streamClaude } from '@/lib/claude-client';
-import { addMessage, getMessages, getSession, updateSessionTitle, updateSdkSessionId, updateSessionModel, updateSessionProvider, updateSessionProviderId, getSetting, getProvider, getDefaultProviderId, acquireSessionLock, releaseSessionLock, setSessionRuntimeStatus } from '@/lib/db';
+import { addMessage, getMessages, getSession, updateSessionTitle, updateSdkSessionId, updateSessionModel, updateSessionProvider, updateSessionProviderId, getSetting, getProvider, getDefaultProviderId, acquireSessionLock, releaseSessionLock, setSessionRuntimeStatus, syncSdkTasks } from '@/lib/db';
 import type { SendMessageRequest, SSEEvent, TokenUsage, MessageContentBlock, FileAttachment } from '@/types';
 import crypto from 'crypto';
 import fs from 'fs';
@@ -235,6 +235,8 @@ async function collectStreamResponse(stream: ReadableStream<string>, sessionId: 
   const contentBlocks: MessageContentBlock[] = [];
   let currentText = '';
   let tokenUsage: TokenUsage | null = null;
+  // Dedup layer: skip duplicate tool_result events by tool_use_id
+  const seenToolResultIds = new Set<string>();
 
   try {
     while (true) {
@@ -270,12 +272,16 @@ async function collectStreamResponse(stream: ReadableStream<string>, sessionId: 
             } else if (event.type === 'tool_result') {
               try {
                 const resultData = JSON.parse(event.data);
-                contentBlocks.push({
-                  type: 'tool_result',
-                  tool_use_id: resultData.tool_use_id,
-                  content: resultData.content,
-                  is_error: resultData.is_error || false,
-                });
+                // Dedup: skip if already seen
+                if (!seenToolResultIds.has(resultData.tool_use_id)) {
+                  seenToolResultIds.add(resultData.tool_use_id);
+                  contentBlocks.push({
+                    type: 'tool_result',
+                    tool_use_id: resultData.tool_use_id,
+                    content: resultData.content,
+                    is_error: resultData.is_error || false,
+                  });
+                }
               } catch {
                 // skip malformed tool_result data
               }
@@ -291,6 +297,16 @@ async function collectStreamResponse(stream: ReadableStream<string>, sessionId: 
                 }
               } catch {
                 // skip malformed status data
+              }
+            } else if (event.type === 'task_update') {
+              // Sync SDK TodoWrite tasks to local DB
+              try {
+                const taskData = JSON.parse(event.data);
+                if (taskData.session_id && taskData.todos) {
+                  syncSdkTasks(taskData.session_id, taskData.todos);
+                }
+              } catch {
+                // skip malformed task_update data
               }
             } else if (event.type === 'result') {
               try {
