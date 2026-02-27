@@ -1,7 +1,8 @@
 import { NextRequest } from 'next/server';
 import { streamClaude } from '@/lib/claude-client';
-import { addMessage, getMessages, getSession, updateSessionTitle, updateSdkSessionId, updateSessionModel, updateSessionProvider, updateSessionProviderId, getSetting, getProvider, getDefaultProviderId } from '@/lib/db';
+import { addMessage, getMessages, getSession, updateSessionTitle, updateSdkSessionId, updateSessionModel, updateSessionProvider, updateSessionProviderId, getSetting, getProvider, getDefaultProviderId, acquireSessionLock, releaseSessionLock, setSessionRuntimeStatus } from '@/lib/db';
 import type { SendMessageRequest, SSEEvent, TokenUsage, MessageContentBlock, FileAttachment } from '@/types';
+import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
 
@@ -9,6 +10,9 @@ export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 export async function POST(request: NextRequest) {
+  let activeSessionId: string | undefined;
+  let activeLockId: string | undefined;
+
   try {
     const body: SendMessageRequest & { files?: FileAttachment[]; toolTimeout?: number; provider_id?: string; systemPromptAppend?: string } = await request.json();
     const { session_id, content, model, mode, files, toolTimeout, provider_id, systemPromptAppend } = body;
@@ -30,6 +34,19 @@ export async function POST(request: NextRequest) {
         headers: { 'Content-Type': 'application/json' },
       });
     }
+
+    // Acquire exclusive lock for this session to prevent concurrent requests
+    const lockId = crypto.randomBytes(8).toString('hex');
+    const lockAcquired = acquireSessionLock(session_id, lockId, `chat-${process.pid}`, 600);
+    if (!lockAcquired) {
+      return new Response(
+        JSON.stringify({ error: 'Session is busy processing another request', code: 'SESSION_BUSY' }),
+        { status: 409, headers: { 'Content-Type': 'application/json' } },
+      );
+    }
+    activeSessionId = session_id;
+    activeLockId = lockId;
+    setSessionRuntimeStatus(session_id, 'running');
 
     // Save user message — persist file metadata so attachments survive page reload
     let savedContent = content;
@@ -168,20 +185,26 @@ export async function POST(request: NextRequest) {
       sdkSessionId: session.sdk_session_id || undefined,
       model: effectiveModel,
       systemPrompt: finalSystemPrompt,
-      workingDirectory: session.working_directory || undefined,
+      workingDirectory: session.sdk_cwd || session.working_directory || undefined,
       abortController,
       permissionMode,
       files: fileAttachments,
       toolTimeoutSeconds: toolTimeout || 300,
       provider: resolvedProvider,
       conversationHistory: historyMsgs,
+      onRuntimeStatusChange: (status: string) => {
+        try { setSessionRuntimeStatus(session_id, status); } catch { /* best effort */ }
+      },
     });
 
     // Tee the stream: one for client, one for collecting the response
     const [streamForClient, streamForCollect] = stream.tee();
 
-    // Save assistant message in background
-    collectStreamResponse(streamForCollect, session_id);
+    // Save assistant message in background, with cleanup callback to release lock
+    collectStreamResponse(streamForCollect, session_id, () => {
+      releaseSessionLock(session_id, lockId);
+      setSessionRuntimeStatus(session_id, 'idle');
+    });
 
     return new Response(streamForClient, {
       headers: {
@@ -191,6 +214,14 @@ export async function POST(request: NextRequest) {
       },
     });
   } catch (error) {
+    // Release lock and reset status on error (only if lock was acquired)
+    if (activeSessionId && activeLockId) {
+      try {
+        releaseSessionLock(activeSessionId, activeLockId);
+        setSessionRuntimeStatus(activeSessionId, 'idle', error instanceof Error ? error.message : 'Unknown error');
+      } catch { /* best effort */ }
+    }
+
     const message = error instanceof Error ? error.message : 'Internal server error';
     return new Response(JSON.stringify({ error: message }), {
       status: 500,
@@ -199,7 +230,7 @@ export async function POST(request: NextRequest) {
   }
 }
 
-async function collectStreamResponse(stream: ReadableStream<string>, sessionId: string) {
+async function collectStreamResponse(stream: ReadableStream<string>, sessionId: string, onComplete?: () => void) {
   const reader = stream.getReader();
   const contentBlocks: MessageContentBlock[] = [];
   let currentText = '';
@@ -332,5 +363,7 @@ async function collectStreamResponse(stream: ReadableStream<string>, sessionId: 
         addMessage(sessionId, 'assistant', content);
       }
     }
+  } finally {
+    onComplete?.();
   }
 }

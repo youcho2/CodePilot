@@ -243,6 +243,21 @@ function migrateDb(db: Database.Database): void {
   if (!colNames.includes('provider_id')) {
     db.exec("ALTER TABLE chat_sessions ADD COLUMN provider_id TEXT NOT NULL DEFAULT ''");
   }
+  if (!colNames.includes('sdk_cwd')) {
+    db.exec("ALTER TABLE chat_sessions ADD COLUMN sdk_cwd TEXT NOT NULL DEFAULT ''");
+    // Backfill sdk_cwd from working_directory for existing sessions
+    db.exec("UPDATE chat_sessions SET sdk_cwd = working_directory WHERE sdk_cwd = '' AND working_directory != ''");
+  }
+  if (!colNames.includes('runtime_status')) {
+    db.exec("ALTER TABLE chat_sessions ADD COLUMN runtime_status TEXT NOT NULL DEFAULT 'idle'");
+  }
+  if (!colNames.includes('runtime_updated_at')) {
+    db.exec("ALTER TABLE chat_sessions ADD COLUMN runtime_updated_at TEXT NOT NULL DEFAULT ''");
+  }
+  if (!colNames.includes('runtime_error')) {
+    db.exec("ALTER TABLE chat_sessions ADD COLUMN runtime_error TEXT NOT NULL DEFAULT ''");
+  }
+  db.exec("CREATE INDEX IF NOT EXISTS idx_sessions_runtime_status ON chat_sessions(runtime_status)");
 
   // Migrate is_active provider to default_provider_id setting
   const defaultProviderSetting = db.prepare("SELECT value FROM settings WHERE key = 'default_provider_id'").get() as { value: string } | undefined;
@@ -406,6 +421,59 @@ function migrateDb(db: Database.Database): void {
     WHERE status = 'processing'
   `);
 
+  // Create session_runtime_locks table
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS session_runtime_locks (
+      session_id TEXT PRIMARY KEY,
+      lock_id TEXT NOT NULL,
+      owner TEXT NOT NULL,
+      expires_at TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+      FOREIGN KEY (session_id) REFERENCES chat_sessions(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_runtime_locks_expires_at ON session_runtime_locks(expires_at);
+  `);
+
+  // Create permission_requests table
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS permission_requests (
+      id TEXT PRIMARY KEY,
+      session_id TEXT NOT NULL,
+      sdk_session_id TEXT NOT NULL DEFAULT '',
+      tool_name TEXT NOT NULL,
+      tool_input TEXT NOT NULL,
+      decision_reason TEXT NOT NULL DEFAULT '',
+      status TEXT NOT NULL CHECK(status IN ('pending','allow','deny','timeout','aborted')),
+      updated_permissions TEXT NOT NULL DEFAULT '[]',
+      updated_input TEXT,
+      message TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      expires_at TEXT NOT NULL,
+      resolved_at TEXT,
+      FOREIGN KEY (session_id) REFERENCES chat_sessions(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_permission_session_status ON permission_requests(session_id, status);
+    CREATE INDEX IF NOT EXISTS idx_permission_expires_at ON permission_requests(expires_at);
+  `);
+
+  // Startup recovery: reset stale runtime states from previous process
+  db.exec(`
+    UPDATE chat_sessions
+    SET runtime_status = 'idle',
+        runtime_error = 'Process restarted',
+        runtime_updated_at = datetime('now')
+    WHERE runtime_status IN ('running', 'waiting_permission')
+  `);
+  db.exec("DELETE FROM session_runtime_locks");
+  db.exec(`
+    UPDATE permission_requests
+    SET status = 'aborted',
+        resolved_at = datetime('now'),
+        message = 'Process restarted'
+    WHERE status = 'pending'
+  `);
+
   // Migrate existing settings to a default provider if api_providers is empty
   const providerCount = db.prepare('SELECT COUNT(*) as count FROM api_providers').get() as { count: number };
   if (providerCount.count === 0) {
@@ -449,8 +517,8 @@ export function createSession(
   const projectName = path.basename(wd);
 
   db.prepare(
-    'INSERT INTO chat_sessions (id, title, created_at, updated_at, model, system_prompt, working_directory, sdk_session_id, project_name, status, mode) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
-  ).run(id, title || 'New Chat', now, now, model || '', systemPrompt || '', wd, '', projectName, 'active', mode || 'code');
+    'INSERT INTO chat_sessions (id, title, created_at, updated_at, model, system_prompt, working_directory, sdk_session_id, project_name, status, mode, sdk_cwd) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+  ).run(id, title || 'New Chat', now, now, model || '', systemPrompt || '', wd, '', projectName, 'active', mode || 'code', wd);
 
   return getSession(id)!;
 }
@@ -1076,6 +1144,184 @@ export function markContextEventSynced(id: string): void {
   const db = getDb();
   const now = new Date().toISOString().replace('T', ' ').split('.')[0];
   db.prepare('UPDATE media_context_events SET synced_at = ? WHERE id = ?').run(now, id);
+}
+
+// ==========================================
+// Session Runtime Lock Operations
+// ==========================================
+
+/**
+ * Acquire an exclusive lock for a session.
+ * Uses SQLite's single-writer guarantee: within a transaction, delete expired
+ * locks then INSERT. PK conflict = already locked → return false.
+ */
+export function acquireSessionLock(
+  sessionId: string,
+  lockId: string,
+  owner: string,
+  ttlSec: number = 300,
+): boolean {
+  const db = getDb();
+  const now = new Date().toISOString().replace('T', ' ').split('.')[0];
+  const expiresAt = new Date(Date.now() + ttlSec * 1000).toISOString().replace('T', ' ').split('.')[0];
+
+  const txn = db.transaction(() => {
+    // Delete expired locks first
+    db.prepare("DELETE FROM session_runtime_locks WHERE expires_at < ?").run(now);
+    // Try to insert — PK conflict means session is already locked
+    try {
+      db.prepare(
+        'INSERT INTO session_runtime_locks (session_id, lock_id, owner, expires_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)'
+      ).run(sessionId, lockId, owner, expiresAt, now, now);
+      return true;
+    } catch {
+      return false;
+    }
+  });
+
+  return txn();
+}
+
+/**
+ * Renew an existing session lock by extending its expiry.
+ */
+export function renewSessionLock(
+  sessionId: string,
+  lockId: string,
+  ttlSec: number = 300,
+): boolean {
+  const db = getDb();
+  const now = new Date().toISOString().replace('T', ' ').split('.')[0];
+  const expiresAt = new Date(Date.now() + ttlSec * 1000).toISOString().replace('T', ' ').split('.')[0];
+
+  const result = db.prepare(
+    'UPDATE session_runtime_locks SET expires_at = ?, updated_at = ? WHERE session_id = ? AND lock_id = ?'
+  ).run(expiresAt, now, sessionId, lockId);
+
+  return result.changes > 0;
+}
+
+/**
+ * Release a session lock.
+ */
+export function releaseSessionLock(sessionId: string, lockId: string): boolean {
+  const db = getDb();
+  const result = db.prepare(
+    'DELETE FROM session_runtime_locks WHERE session_id = ? AND lock_id = ?'
+  ).run(sessionId, lockId);
+  return result.changes > 0;
+}
+
+/**
+ * Update the runtime status of a session.
+ */
+export function setSessionRuntimeStatus(
+  sessionId: string,
+  status: string,
+  error?: string,
+): void {
+  const db = getDb();
+  const now = new Date().toISOString().replace('T', ' ').split('.')[0];
+  db.prepare(
+    'UPDATE chat_sessions SET runtime_status = ?, runtime_updated_at = ?, runtime_error = ? WHERE id = ?'
+  ).run(status, now, error || '', sessionId);
+}
+
+// ==========================================
+// Permission Request Operations
+// ==========================================
+
+/**
+ * Create a pending permission request record in DB.
+ */
+export function createPermissionRequest(params: {
+  id: string;
+  sessionId: string;
+  sdkSessionId?: string;
+  toolName: string;
+  toolInput: string;
+  decisionReason?: string;
+  expiresAt: string;
+}): void {
+  const db = getDb();
+  db.prepare(
+    `INSERT INTO permission_requests (id, session_id, sdk_session_id, tool_name, tool_input, decision_reason, status, expires_at)
+     VALUES (?, ?, ?, ?, ?, ?, 'pending', ?)`
+  ).run(
+    params.id,
+    params.sessionId,
+    params.sdkSessionId || '',
+    params.toolName,
+    params.toolInput,
+    params.decisionReason || '',
+    params.expiresAt,
+  );
+}
+
+/**
+ * Resolve a pending permission request. Only updates if status is still 'pending'.
+ * Returns true if the request was found and resolved, false otherwise.
+ */
+export function resolvePermissionRequest(
+  id: string,
+  status: 'allow' | 'deny' | 'timeout' | 'aborted',
+  opts?: {
+    updatedPermissions?: unknown[];
+    updatedInput?: Record<string, unknown>;
+    message?: string;
+  },
+): boolean {
+  const db = getDb();
+  const now = new Date().toISOString().replace('T', ' ').split('.')[0];
+  const result = db.prepare(
+    `UPDATE permission_requests
+     SET status = ?, resolved_at = ?, updated_permissions = ?, updated_input = ?, message = ?
+     WHERE id = ? AND status = 'pending'`
+  ).run(
+    status,
+    now,
+    JSON.stringify(opts?.updatedPermissions || []),
+    opts?.updatedInput ? JSON.stringify(opts.updatedInput) : null,
+    opts?.message || '',
+    id,
+  );
+  return result.changes > 0;
+}
+
+/**
+ * Expire all pending permission requests that have passed their expiry time.
+ */
+export function expirePermissionRequests(now?: string): number {
+  const db = getDb();
+  const cutoff = now || new Date().toISOString().replace('T', ' ').split('.')[0];
+  const result = db.prepare(
+    `UPDATE permission_requests
+     SET status = 'timeout', resolved_at = ?, message = 'Expired'
+     WHERE status = 'pending' AND expires_at < ?`
+  ).run(cutoff, cutoff);
+  return result.changes;
+}
+
+/**
+ * Get a permission request by ID.
+ */
+export function getPermissionRequest(id: string): {
+  id: string;
+  session_id: string;
+  sdk_session_id: string;
+  tool_name: string;
+  tool_input: string;
+  decision_reason: string;
+  status: string;
+  updated_permissions: string;
+  updated_input: string | null;
+  message: string;
+  created_at: string;
+  expires_at: string;
+  resolved_at: string | null;
+} | undefined {
+  const db = getDb();
+  return db.prepare('SELECT * FROM permission_requests WHERE id = ?').get(id) as ReturnType<typeof getPermissionRequest>;
 }
 
 // ==========================================

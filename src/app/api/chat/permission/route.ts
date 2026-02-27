@@ -1,5 +1,6 @@
 import { NextRequest } from 'next/server';
 import { resolvePendingPermission } from '@/lib/permission-registry';
+import { getPermissionRequest } from '@/lib/db';
 import type { PermissionResponseRequest } from '@/types';
 import type { PermissionResult, PermissionUpdate } from '@anthropic-ai/claude-agent-sdk';
 
@@ -15,6 +16,21 @@ export async function POST(request: NextRequest) {
       return new Response(
         JSON.stringify({ error: 'permissionRequestId and decision are required' }),
         { status: 400, headers: { 'Content-Type': 'application/json' } },
+      );
+    }
+
+    // Validate against DB before resolving in-memory
+    const dbRecord = getPermissionRequest(permissionRequestId);
+    if (!dbRecord) {
+      return new Response(
+        JSON.stringify({ error: 'Permission request not found', code: 'NOT_FOUND' }),
+        { status: 404, headers: { 'Content-Type': 'application/json' } },
+      );
+    }
+    if (dbRecord.status !== 'pending') {
+      return new Response(
+        JSON.stringify({ error: `Permission request already resolved (status: ${dbRecord.status})`, code: 'ALREADY_RESOLVED' }),
+        { status: 409, headers: { 'Content-Type': 'application/json' } },
       );
     }
 
@@ -36,8 +52,11 @@ export async function POST(request: NextRequest) {
 
     if (!found) {
       return new Response(
-        JSON.stringify({ error: 'Permission request not found or already resolved' }),
-        { status: 404, headers: { 'Content-Type': 'application/json' } },
+        JSON.stringify({
+          error: 'Permission request exists in DB but the in-memory waiter is gone (process may have restarted)',
+          code: 'WAITER_GONE',
+        }),
+        { status: 410, headers: { 'Content-Type': 'application/json' } },
       );
     }
 

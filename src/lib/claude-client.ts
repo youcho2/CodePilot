@@ -19,7 +19,7 @@ import type { ClaudeStreamOptions, SSEEvent, TokenUsage, MCPServerConfig, Permis
 import { isImageFile } from '@/types';
 import { registerPendingPermission } from './permission-registry';
 import { registerConversation, unregisterConversation } from './conversation-registry';
-import { getSetting, getActiveProvider, updateSdkSessionId } from './db';
+import { getSetting, getActiveProvider, updateSdkSessionId, createPermissionRequest } from './db';
 import { findClaudeBinary, findGitBash, getExpandedPath } from './platform';
 import os from 'os';
 import fs from 'fs';
@@ -278,6 +278,7 @@ export function streamClaude(options: ClaudeStreamOptions): ReadableStream<strin
     files,
     toolTimeoutSeconds = 0,
     conversationHistory,
+    onRuntimeStatusChange,
   } = options;
 
   return new ReadableStream<string>({
@@ -465,15 +466,39 @@ export function streamClaude(options: ClaudeStreamOptions): ReadableStream<strin
             description: undefined,
           };
 
+          // Persist permission request to DB for audit/recovery
+          const expiresAt = new Date(Date.now() + 5 * 60 * 1000).toISOString().replace('T', ' ').split('.')[0];
+          try {
+            createPermissionRequest({
+              id: permissionRequestId,
+              sessionId,
+              sdkSessionId: sdkSessionId || '',
+              toolName,
+              toolInput: JSON.stringify(input),
+              decisionReason: opts.decisionReason || '',
+              expiresAt,
+            });
+          } catch (e) {
+            console.warn('[claude-client] Failed to persist permission request to DB:', e);
+          }
+
           // Send permission_request SSE event to the client
           controller.enqueue(formatSSE({
             type: 'permission_request',
             data: JSON.stringify(permEvent),
           }));
 
+          // Notify runtime status change
+          onRuntimeStatusChange?.('waiting_permission');
+
           // Wait for user response (resolved by POST /api/chat/permission)
           // Store original input so registry can inject updatedInput on allow
-          return registerPendingPermission(permissionRequestId, input, opts.signal);
+          const result = await registerPendingPermission(permissionRequestId, input, opts.signal);
+
+          // Restore runtime status after permission resolved
+          onRuntimeStatusChange?.('running');
+
+          return result;
         };
 
         // Hooks: capture notifications and tool completion events

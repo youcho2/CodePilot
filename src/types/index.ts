@@ -17,6 +17,10 @@ export interface ChatSession {
   needs_approval?: boolean;
   provider_name: string;
   provider_id: string;
+  sdk_cwd: string;
+  runtime_status: string;
+  runtime_updated_at: string;
+  runtime_error: string;
 }
 
 // ==========================================
@@ -599,4 +603,5 @@ export interface ClaudeStreamOptions {
   provider?: ApiProvider;
   /** Recent conversation history from DB — used as fallback context when SDK resume is unavailable or fails */
   conversationHistory?: Array<{ role: 'user' | 'assistant'; content: string }>;
+  onRuntimeStatusChange?: (status: string) => void;
 }
