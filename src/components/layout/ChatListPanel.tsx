@@ -15,6 +15,7 @@ import {
   PlusSignIcon,
   FolderOpenIcon,
 } from "@hugeicons/core-free-icons";
+import { Columns2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -25,6 +26,7 @@ import {
 } from "@/components/ui/tooltip";
 import { cn, parseDBDate } from "@/lib/utils";
 import { usePanel } from "@/hooks/usePanel";
+import { useSplit } from "@/hooks/useSplit";
 import { useTranslation } from "@/hooks/useTranslation";
 import { useNativeFolderPicker } from "@/hooks/useNativeFolderPicker";
 import { ConnectionStatus } from "./ConnectionStatus";
@@ -110,15 +112,11 @@ function groupSessionsByProject(sessions: ChatSession[]): ProjectGroup[] {
   return groups;
 }
 
-const MODE_BADGE_CONFIG = {
-  code: { label: "Code", className: "bg-blue-500/10 text-blue-500" },
-  plan: { label: "Plan", className: "bg-sky-500/10 text-sky-500" },
-} as const;
-
 export function ChatListPanel({ open, width }: ChatListPanelProps) {
   const pathname = usePathname();
   const router = useRouter();
-  const { streamingSessionId, pendingApprovalSessionId, activeStreamingSessions, pendingApprovalSessionIds, workingDirectory } = usePanel();
+  const { streamingSessionId, pendingApprovalSessionId, activeStreamingSessions, pendingApprovalSessionIds, workingDirectory, sessionId: currentSessionId } = usePanel();
+  const { splitSessions, isSplitActive, activeColumnId, addToSplit, removeFromSplit, setActiveColumn, isInSplit } = useSplit();
   const { t } = useTranslation();
   const { isElectron, openNativePicker } = useNativeFolderPicker();
   const [sessions, setSessions] = useState<ChatSession[]>([]);
@@ -275,6 +273,10 @@ export function ChatListPanel({ open, width }: ChatListPanelProps) {
       });
       if (res.ok) {
         setSessions((prev) => prev.filter((s) => s.id !== sessionId));
+        // Remove from split if it's there
+        if (isInSplit(sessionId)) {
+          removeFromSplit(sessionId);
+        }
         if (pathname === `/chat/${sessionId}`) {
           router.push("/chat");
         }
@@ -309,14 +311,27 @@ export function ChatListPanel({ open, width }: ChatListPanelProps) {
 
   const isSearching = searchQuery.length > 0;
 
-  const filteredSessions = searchQuery
-    ? sessions.filter(
+  const splitSessionIds = useMemo(
+    () => new Set(splitSessions.map((s) => s.sessionId)),
+    [splitSessions]
+  );
+
+  const filteredSessions = useMemo(() => {
+    let result = sessions;
+    if (searchQuery) {
+      result = result.filter(
         (s) =>
           s.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
           (s.project_name &&
             s.project_name.toLowerCase().includes(searchQuery.toLowerCase()))
-      )
-    : sessions;
+      );
+    }
+    // Exclude sessions in split group (they are shown in the split section)
+    if (isSplitActive) {
+      result = result.filter((s) => !splitSessionIds.has(s.id));
+    }
+    return result;
+  }, [sessions, searchQuery, isSplitActive, splitSessionIds]);
 
   const projectGroups = useMemo(
     () => groupSessionsByProject(filteredSessions),
@@ -410,7 +425,71 @@ export function ChatListPanel({ open, width }: ChatListPanelProps) {
       {/* Session list grouped by project */}
       <ScrollArea className="flex-1 min-h-0 px-3">
         <div className="flex flex-col pb-3">
-          {filteredSessions.length === 0 ? (
+          {/* Split group section */}
+          {isSplitActive && (
+            <div className="mb-2 rounded-lg border border-border/60 bg-muted/30 p-1.5">
+              <div className="flex items-center gap-1.5 px-2 py-1">
+                <Columns2 className="h-3 w-3 text-muted-foreground" />
+                <span className="text-[11px] font-medium text-muted-foreground">{t('split.splitGroup')}</span>
+              </div>
+              <div className="mt-0.5 flex flex-col gap-0.5">
+                {splitSessions.map((session) => {
+                  const isActiveInSplit = activeColumnId === session.sessionId;
+                  const isSessionStreaming =
+                    activeStreamingSessions.has(session.sessionId) || streamingSessionId === session.sessionId;
+                  const needsApproval =
+                    pendingApprovalSessionIds.has(session.sessionId) || pendingApprovalSessionId === session.sessionId;
+
+                  return (
+                    <div
+                      key={session.sessionId}
+                      className={cn(
+                        "group relative flex items-center gap-1.5 rounded-md pl-7 pr-2 py-1.5 transition-all duration-150 min-w-0 cursor-pointer",
+                        isActiveInSplit
+                          ? "bg-sidebar-accent text-sidebar-accent-foreground"
+                          : "text-sidebar-foreground hover:bg-accent/50"
+                      )}
+                      onClick={(e) => {
+                        e.preventDefault();
+                        setActiveColumn(session.sessionId);
+                      }}
+                    >
+                      {isSessionStreaming && (
+                        <span className="relative flex h-2 w-2 shrink-0">
+                          <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-green-400 opacity-75" />
+                          <span className="relative inline-flex h-2 w-2 rounded-full bg-green-500" />
+                        </span>
+                      )}
+                      {needsApproval && (
+                        <span className="flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-full bg-amber-500/10">
+                          <HugeiconsIcon icon={Notification02Icon} className="h-2.5 w-2.5 text-amber-500" />
+                        </span>
+                      )}
+                      <div className="flex-1 min-w-0">
+                        <span className="line-clamp-1 text-[12px] font-medium leading-tight break-all">
+                          {session.title}
+                        </span>
+                      </div>
+                      <Button
+                        variant="ghost"
+                        size="icon-xs"
+                        className="h-4 w-4 shrink-0 text-muted-foreground/60 hover:text-foreground opacity-0 group-hover:opacity-100 transition-opacity"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          removeFromSplit(session.sessionId);
+                        }}
+                      >
+                        <X className="h-2.5 w-2.5" />
+                        <span className="sr-only">{t('split.closeSplit')}</span>
+                      </Button>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {filteredSessions.length === 0 && (!isSplitActive || splitSessions.length === 0) ? (
             <p className="px-2.5 py-3 text-[11px] text-muted-foreground/60">
               {searchQuery ? "No matching threads" : t('chatList.noSessions')}
             </p>
@@ -514,8 +593,7 @@ export function ChatListPanel({ open, width }: ChatListPanelProps) {
                           activeStreamingSessions.has(session.id) || streamingSessionId === session.id;
                         const needsApproval =
                           pendingApprovalSessionIds.has(session.id) || pendingApprovalSessionId === session.id;
-                        const mode = session.mode || "code";
-                        const badgeCfg = MODE_BADGE_CONFIG[mode as keyof typeof MODE_BADGE_CONFIG] || MODE_BADGE_CONFIG.code;
+                        const canSplit = !isActive && !isInSplit(session.id);
 
                         return (
                           <div
@@ -529,74 +607,81 @@ export function ChatListPanel({ open, width }: ChatListPanelProps) {
                             <Link
                               href={`/chat/${session.id}`}
                               className={cn(
-                                "flex items-center gap-1.5 rounded-md pl-7 pr-2 py-1.5 transition-all duration-150 min-w-0",
+                                "flex items-center gap-1.5 rounded-md pl-2 pr-2 py-1.5 transition-all duration-150 min-w-0",
                                 isActive
                                   ? "bg-sidebar-accent text-sidebar-accent-foreground"
                                   : "text-sidebar-foreground hover:bg-accent/50"
                               )}
                             >
-                              {/* Streaming pulse indicator */}
-                              {isSessionStreaming && (
-                                <span className="relative flex h-2 w-2 shrink-0">
-                                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-green-400 opacity-75" />
-                                  <span className="relative inline-flex h-2 w-2 rounded-full bg-green-500" />
-                                </span>
-                              )}
-                              {/* Approval indicator */}
-                              {needsApproval && (
-                                <span className="flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-full bg-amber-500/10">
-                                  <HugeiconsIcon
-                                    icon={Notification02Icon}
-                                    className="h-2.5 w-2.5 text-amber-500"
-                                  />
-                                </span>
-                              )}
+                              {/* Left icon area — always same size, swap content via opacity */}
+                              <span className="relative flex h-3.5 w-3.5 shrink-0 items-center justify-center">
+                                {/* Split icon: visible on hover when splittable */}
+                                {canSplit && (
+                                  <button
+                                    className={cn(
+                                      "absolute inset-0 flex items-center justify-center text-muted-foreground hover:text-foreground transition-opacity",
+                                      isHovered ? "opacity-100" : "opacity-0 pointer-events-none"
+                                    )}
+                                    onClick={(e) => {
+                                      e.preventDefault();
+                                      e.stopPropagation();
+                                      addToSplit({
+                                        sessionId: session.id,
+                                        title: session.title,
+                                        workingDirectory: session.working_directory || "",
+                                        projectName: session.project_name || "",
+                                        mode: session.mode,
+                                      });
+                                    }}
+                                  >
+                                    <Columns2 className="h-3 w-3" />
+                                  </button>
+                                )}
+                                {/* Streaming indicator: hidden when hover shows split icon */}
+                                {isSessionStreaming && (
+                                  <span className={cn(
+                                    "relative flex h-2 w-2 transition-opacity",
+                                    isHovered && canSplit ? "opacity-0" : "opacity-100"
+                                  )}>
+                                    <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-green-400 opacity-75" />
+                                    <span className="relative inline-flex h-2 w-2 rounded-full bg-green-500" />
+                                  </span>
+                                )}
+                                {/* Approval indicator: hidden when hover shows split icon */}
+                                {needsApproval && !isSessionStreaming && (
+                                  <span className={cn(
+                                    "flex h-3.5 w-3.5 items-center justify-center rounded-full bg-amber-500/10 transition-opacity",
+                                    isHovered && canSplit ? "opacity-0" : "opacity-100"
+                                  )}>
+                                    <HugeiconsIcon icon={Notification02Icon} className="h-2.5 w-2.5 text-amber-500" />
+                                  </span>
+                                )}
+                              </span>
                               <div className="flex-1 min-w-0">
                                 <span className="line-clamp-1 text-[12px] font-medium leading-tight break-all">
                                   {session.title}
                                 </span>
                               </div>
-                              <div className="flex items-center gap-1 shrink-0">
-                                {/* Mode badge */}
-                                <span
-                                  className={cn(
-                                    "text-[9px] px-1 py-0.5 rounded font-medium leading-none",
-                                    badgeCfg.className
-                                  )}
-                                >
-                                  {badgeCfg.label}
-                                </span>
-                                <span className="text-[10px] text-muted-foreground/40">
+                              {/* Right area — fixed width, time and delete stacked with opacity */}
+                              <div className="relative w-[38px] h-4 shrink-0">
+                                <span className={cn(
+                                  "absolute inset-0 flex items-center justify-end text-[10px] text-muted-foreground/40 truncate transition-opacity",
+                                  (isHovered || isDeleting) ? "opacity-0" : "opacity-100"
+                                )}>
                                   {formatRelativeTime(session.updated_at, t)}
                                 </span>
+                                <button
+                                  className={cn(
+                                    "absolute inset-0 flex items-center justify-end text-muted-foreground/60 hover:text-destructive transition-opacity",
+                                    (isHovered || isDeleting) ? "opacity-100" : "opacity-0 pointer-events-none"
+                                  )}
+                                  onClick={(e) => handleDeleteSession(e, session.id)}
+                                  disabled={isDeleting}
+                                >
+                                  <HugeiconsIcon icon={Delete02Icon} className="h-3 w-3" />
+                                </button>
                               </div>
                             </Link>
-                            {(isHovered || isDeleting) && (
-                              <Tooltip>
-                                <TooltipTrigger asChild>
-                                  <Button
-                                    variant="ghost"
-                                    size="icon-xs"
-                                    className="absolute right-1 top-1 bg-sidebar text-muted-foreground/60 hover:text-destructive"
-                                    onClick={(e) =>
-                                      handleDeleteSession(e, session.id)
-                                    }
-                                    disabled={isDeleting}
-                                  >
-                                    <HugeiconsIcon
-                                      icon={Delete02Icon}
-                                      className="h-3 w-3"
-                                    />
-                                    <span className="sr-only">
-                                      {t('chatList.delete')}
-                                    </span>
-                                  </Button>
-                                </TooltipTrigger>
-                                <TooltipContent side="right">
-                                  {t('chatList.delete')}
-                                </TooltipContent>
-                              </Tooltip>
-                            )}
                           </div>
                         );
                       })}

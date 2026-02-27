@@ -453,6 +453,12 @@ const zh: Record<TranslationKey, string> = {
   'cli.field.verbose': '详细日志',
   'cli.field.theme': '主题',
   'cli.formatError': '无法格式化：无效的 JSON',
+
+  // ── Split screen ─────────────────────────────────────────────
+  'split.splitScreen': '分屏',
+  'split.closeSplit': '关闭分屏',
+  'split.splitGroup': '分屏',
+  'chatList.splitScreen': '分屏',
 };
 
 export default zh;

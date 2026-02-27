@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useMemo } from "react";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { NavRail } from "./NavRail";
 import { ChatListPanel } from "./ChatListPanel";
@@ -14,8 +14,38 @@ import { PanelContext, type PanelContent, type PreviewViewMode } from "@/hooks/u
 import { UpdateContext, type UpdateInfo } from "@/hooks/useUpdate";
 import { ImageGenContext, useImageGenState } from "@/hooks/useImageGen";
 import { BatchImageGenContext, useBatchImageGenState } from "@/hooks/useBatchImageGen";
+import { SplitContext, type SplitSession } from "@/hooks/useSplit";
+import { SplitChatContainer } from "./SplitChatContainer";
 import { ErrorBoundary } from "./ErrorBoundary";
 import { getActiveSessionIds, getSnapshot } from "@/lib/stream-session-manager";
+
+const SPLIT_SESSIONS_KEY = "codepilot:split-sessions";
+const SPLIT_ACTIVE_COLUMN_KEY = "codepilot:split-active-column";
+
+function loadSplitSessions(): SplitSession[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = localStorage.getItem(SPLIT_SESSIONS_KEY);
+    if (raw) return JSON.parse(raw);
+  } catch {
+    // ignore
+  }
+  return [];
+}
+
+function saveSplitSessions(sessions: SplitSession[]) {
+  if (sessions.length >= 2) {
+    localStorage.setItem(SPLIT_SESSIONS_KEY, JSON.stringify(sessions));
+  } else {
+    localStorage.removeItem(SPLIT_SESSIONS_KEY);
+    localStorage.removeItem(SPLIT_ACTIVE_COLUMN_KEY);
+  }
+}
+
+function loadActiveColumn(): string {
+  if (typeof window === "undefined") return "";
+  return localStorage.getItem(SPLIT_ACTIVE_COLUMN_KEY) || "";
+}
 
 const EMPTY_SET = new Set<string>();
 const CHATLIST_MIN = 180;
@@ -40,6 +70,7 @@ const DISMISSED_VERSION_KEY = "codepilot_dismissed_update_version";
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
+  const router = useRouter();
 
   const [chatListOpen, setChatListOpenRaw] = useState(false);
 
@@ -75,7 +106,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   // Panel state
   const isChatRoute = pathname.startsWith("/chat/") || pathname === "/chat";
-  const isChatDetailRoute = pathname.startsWith("/chat/");
 
   // Auto-close chat list when leaving chat routes
   const setChatListOpen = useCallback((open: boolean) => {
@@ -117,6 +147,133 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     window.addEventListener('stream-session-event', handler);
     return () => window.removeEventListener('stream-session-event', handler);
   }, []);
+
+  // --- Split-screen state ---
+  const [splitSessions, setSplitSessions] = useState<SplitSession[]>(() => loadSplitSessions());
+  const [activeColumnId, setActiveColumnIdRaw] = useState<string>(() => loadActiveColumn());
+  const isSplitActive = splitSessions.length >= 2;
+  const isChatDetailRoute = pathname.startsWith("/chat/") || isSplitActive;
+
+  // Persist split sessions to localStorage
+  useEffect(() => {
+    saveSplitSessions(splitSessions);
+    if (activeColumnId) {
+      localStorage.setItem(SPLIT_ACTIVE_COLUMN_KEY, activeColumnId);
+    }
+  }, [splitSessions, activeColumnId]);
+
+  // URL sync: when activeColumn changes, update router
+  useEffect(() => {
+    if (isSplitActive && activeColumnId) {
+      const target = `/chat/${activeColumnId}`;
+      if (pathname !== target) {
+        router.replace(target);
+      }
+    }
+  }, [isSplitActive, activeColumnId, pathname, router]);
+
+  const setActiveColumn = useCallback((sessionId: string) => {
+    setActiveColumnIdRaw(sessionId);
+  }, []);
+
+  const addToSplit = useCallback((session: SplitSession) => {
+    setSplitSessions((prev) => {
+      // If already in split, don't add again
+      if (prev.some((s) => s.sessionId === session.sessionId)) return prev;
+
+      if (prev.length < 2) {
+        // First time entering split: add current active session + new session
+        // The current session info comes from PanelContext
+        const currentSessionId = sessionId;
+        if (currentSessionId && currentSessionId !== session.sessionId) {
+          const currentSession: SplitSession = {
+            sessionId: currentSessionId,
+            title: sessionTitle || "New Conversation",
+            workingDirectory: workingDirectory || "",
+            projectName: "",
+            mode: "code",
+          };
+          // Check if current is already in the list
+          const hasCurrentAlready = prev.some((s) => s.sessionId === currentSessionId);
+          const next = hasCurrentAlready ? [...prev, session] : [...prev, currentSession, session];
+          setActiveColumnIdRaw(session.sessionId);
+          return next;
+        }
+      }
+
+      // Append to existing split
+      const next = [...prev, session];
+      setActiveColumnIdRaw(session.sessionId);
+      return next;
+    });
+  }, [sessionId, sessionTitle, workingDirectory]);
+
+  const removeFromSplit = useCallback((removeId: string) => {
+    setSplitSessions((prev) => {
+      const next = prev.filter((s) => s.sessionId !== removeId);
+      if (next.length <= 1) {
+        // Exit split mode
+        if (next.length === 1) {
+          // Navigate to the remaining session
+          router.replace(`/chat/${next[0].sessionId}`);
+        }
+        return [];
+      }
+      // If removing active column, switch to first remaining
+      setActiveColumnIdRaw((currentActive) =>
+        currentActive === removeId ? next[0].sessionId : currentActive
+      );
+      return next;
+    });
+  }, [router]);
+
+  const exitSplit = useCallback(() => {
+    const firstSession = splitSessions[0];
+    setSplitSessions([]);
+    setActiveColumnIdRaw("");
+    if (firstSession) {
+      router.replace(`/chat/${firstSession.sessionId}`);
+    }
+  }, [splitSessions, router]);
+
+  const isInSplit = useCallback((sid: string) => {
+    return splitSessions.some((s) => s.sessionId === sid);
+  }, [splitSessions]);
+
+  // Handle delete of a session that's in split
+  useEffect(() => {
+    const handler = () => {
+      // Re-validate split sessions exist
+      setSplitSessions((prev) => {
+        // We don't remove here; deletion handler in ChatListPanel will call removeFromSplit
+        return prev;
+      });
+    };
+    window.addEventListener("session-deleted", handler);
+    return () => window.removeEventListener("session-deleted", handler);
+  }, []);
+
+  // Exit split when navigating to non-chat routes
+  useEffect(() => {
+    if (isSplitActive && !pathname.startsWith("/chat")) {
+      setSplitSessions([]);
+      setActiveColumnIdRaw("");
+    }
+  }, [isSplitActive, pathname]);
+
+  const splitContextValue = useMemo(
+    () => ({
+      splitSessions,
+      activeColumnId,
+      isSplitActive,
+      addToSplit,
+      removeFromSplit,
+      setActiveColumn,
+      exitSplit,
+      isInSplit,
+    }),
+    [splitSessions, activeColumnId, isSplitActive, addToSplit, removeFromSplit, setActiveColumn, exitSplit, isInSplit]
+  );
 
   // Warn before closing window/tab while any session is streaming
   useEffect(() => {
@@ -414,6 +571,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   return (
     <UpdateContext.Provider value={updateContextValue}>
       <PanelContext.Provider value={panelContextValue}>
+        <SplitContext.Provider value={splitContextValue}>
         <ImageGenContext.Provider value={imageGenValue}>
         <BatchImageGenContext.Provider value={batchImageGenValue}>
         <TooltipProvider delayDuration={300}>
@@ -439,7 +597,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               />
               <UpdateBanner />
               <main className="relative flex-1 overflow-hidden">
-                <ErrorBoundary>{children}</ErrorBoundary>
+                {isSplitActive ? (
+                  <SplitChatContainer />
+                ) : (
+                  <ErrorBoundary>{children}</ErrorBoundary>
+                )}
               </main>
             </div>
             {isChatDetailRoute && previewFile && (
@@ -469,6 +631,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         </TooltipProvider>
         </BatchImageGenContext.Provider>
         </ImageGenContext.Provider>
+        </SplitContext.Provider>
       </PanelContext.Provider>
     </UpdateContext.Provider>
   );

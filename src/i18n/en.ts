@@ -456,6 +456,12 @@ const en = {
   'cli.field.verbose': 'Verbose',
   'cli.field.theme': 'Theme',
   'cli.formatError': 'Cannot format: invalid JSON',
+
+  // ── Split screen ─────────────────────────────────────────────
+  'split.splitScreen': 'Split Screen',
+  'split.closeSplit': 'Close Split',
+  'split.splitGroup': 'Split',
+  'chatList.splitScreen': 'Split Screen',
 } as const;
 
 export type TranslationKey = keyof typeof en;
