@@ -298,6 +298,9 @@ function migrateDb(db: Database.Database): void {
   if (!taskColNames.includes('source')) {
     db.exec("ALTER TABLE tasks ADD COLUMN source TEXT NOT NULL DEFAULT 'user'");
   }
+  if (!taskColNames.includes('sort_order')) {
+    db.exec("ALTER TABLE tasks ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0");
+  }
 
   // Ensure api_providers table exists for databases created before this migration
   db.exec(`
@@ -717,7 +720,7 @@ export function updateSessionStatus(id: string, status: 'active' | 'archived'): 
 
 export function getTasksBySession(sessionId: string): TaskItem[] {
   const db = getDb();
-  return db.prepare('SELECT * FROM tasks WHERE session_id = ? ORDER BY created_at ASC').all(sessionId) as TaskItem[];
+  return db.prepare('SELECT * FROM tasks WHERE session_id = ? ORDER BY sort_order ASC, created_at ASC').all(sessionId) as TaskItem[];
 }
 
 export function getTask(id: string): TaskItem | undefined {
@@ -788,13 +791,14 @@ export function syncSdkTasks(
     // Delete all SDK-sourced tasks for this session
     db.prepare("DELETE FROM tasks WHERE session_id = ? AND source = 'sdk'").run(sessionId);
 
-    // Insert new SDK tasks
+    // Insert new SDK tasks with stable sort_order
     const insert = db.prepare(
-      'INSERT INTO tasks (id, session_id, title, status, description, source, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+      'INSERT INTO tasks (id, session_id, title, status, description, source, sort_order, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
     );
-    for (const todo of todos) {
-      const taskId = `sdk-${sessionId.slice(0, 8)}-${todo.id}`;
-      insert.run(taskId, sessionId, todo.content, mapStatus(todo.status), todo.activeForm || null, 'sdk', now, now);
+    for (let i = 0; i < todos.length; i++) {
+      const todo = todos[i];
+      const taskId = `sdk-${sessionId}-${todo.id}`;
+      insert.run(taskId, sessionId, todo.content, mapStatus(todo.status), todo.activeForm || null, 'sdk', i, now, now);
     }
   });
   txn();

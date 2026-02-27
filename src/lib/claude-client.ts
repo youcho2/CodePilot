@@ -451,10 +451,6 @@ export function streamClaude(options: ClaudeStreamOptions): ReadableStream<strin
           queryOptions.resume = sdkSessionId;
         }
 
-        // Track emitted tool_result IDs to prevent duplicates
-        // (PostToolUse hook and user message handler can both emit for the same tool_use_id)
-        const emittedToolResultIds = new Set<string>();
-
         // Permission handler: sends SSE event and waits for user response
         queryOptions.canUseTool = async (toolName, input, opts) => {
           const permissionRequestId = `perm-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -525,20 +521,16 @@ export function streamClaude(options: ClaudeStreamOptions): ReadableStream<strin
             hooks: [async (input) => {
               const toolEvent = input as PostToolUseHookInput;
               console.log('[claude-client] PostToolUse:', toolEvent.tool_name, 'id:', toolEvent.tool_use_id);
-              // Dedup: only emit if not already seen
-              if (!emittedToolResultIds.has(toolEvent.tool_use_id)) {
-                emittedToolResultIds.add(toolEvent.tool_use_id);
-                controller.enqueue(formatSSE({
-                  type: 'tool_result',
-                  data: JSON.stringify({
-                    tool_use_id: toolEvent.tool_use_id,
-                    content: typeof toolEvent.tool_response === 'string'
-                      ? toolEvent.tool_response
-                      : JSON.stringify(toolEvent.tool_response),
-                    is_error: false,
-                  }),
-                }));
-              }
+              controller.enqueue(formatSSE({
+                type: 'tool_result',
+                data: JSON.stringify({
+                  tool_use_id: toolEvent.tool_use_id,
+                  content: typeof toolEvent.tool_response === 'string'
+                    ? toolEvent.tool_response
+                    : JSON.stringify(toolEvent.tool_response),
+                  is_error: false,
+                }),
+              }));
 
               // Detect TodoWrite tool and emit task_update SSE for frontend sync
               if (toolEvent.tool_name === 'TodoWrite') {
@@ -665,7 +657,7 @@ export function streamClaude(options: ClaudeStreamOptions): ReadableStream<strin
           return textPrompt;
         }
 
-        let finalPrompt = buildFinalPrompt(!shouldResume);
+        const finalPrompt = buildFinalPrompt(!shouldResume);
 
         // Try to start the conversation. If resuming a previous session fails
         // (e.g. stale/corrupt session file, CLI version mismatch), automatically
@@ -759,9 +751,6 @@ export function streamClaude(options: ClaudeStreamOptions): ReadableStream<strin
               if (Array.isArray(content)) {
                 for (const block of content) {
                   if (block.type === 'tool_result') {
-                    // Dedup: skip if already emitted by PostToolUse hook
-                    if (emittedToolResultIds.has(block.tool_use_id)) continue;
-                    emittedToolResultIds.add(block.tool_use_id);
                     const resultContent = typeof block.content === 'string'
                       ? block.content
                       : Array.isArray(block.content)

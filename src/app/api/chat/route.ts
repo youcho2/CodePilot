@@ -272,15 +272,24 @@ async function collectStreamResponse(stream: ReadableStream<string>, sessionId: 
             } else if (event.type === 'tool_result') {
               try {
                 const resultData = JSON.parse(event.data);
-                // Dedup: skip if already seen
-                if (!seenToolResultIds.has(resultData.tool_use_id)) {
+                const newBlock = {
+                  type: 'tool_result' as const,
+                  tool_use_id: resultData.tool_use_id,
+                  content: resultData.content,
+                  is_error: resultData.is_error || false,
+                };
+                // Last-wins: if same tool_use_id already exists, replace it
+                // (user handler's result may be more complete than PostToolUse's)
+                if (seenToolResultIds.has(resultData.tool_use_id)) {
+                  const idx = contentBlocks.findIndex(
+                    (b) => b.type === 'tool_result' && 'tool_use_id' in b && b.tool_use_id === resultData.tool_use_id
+                  );
+                  if (idx >= 0) {
+                    contentBlocks[idx] = newBlock;
+                  }
+                } else {
                   seenToolResultIds.add(resultData.tool_use_id);
-                  contentBlocks.push({
-                    type: 'tool_result',
-                    tool_use_id: resultData.tool_use_id,
-                    content: resultData.content,
-                    is_error: resultData.is_error || false,
-                  });
+                  contentBlocks.push(newBlock);
                 }
               } catch {
                 // skip malformed tool_result data

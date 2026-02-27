@@ -326,8 +326,14 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
             markActive();
             setStreamingToolOutput('');
             setToolResults((prev) => {
-              // Dedup: skip if already received for this tool_use_id
-              if (prev.some(r => r.tool_use_id === res.tool_use_id)) return prev;
+              // Last-wins: if same tool_use_id exists, replace with newer (potentially more complete) result
+              const existingIdx = prev.findIndex(r => r.tool_use_id === res.tool_use_id);
+              if (existingIdx >= 0) {
+                const next = [...prev];
+                next[existingIdx] = res;
+                toolResultsRef.current = next;
+                return next;
+              }
               const next = [...prev, res];
               toolResultsRef.current = next;
               return next;

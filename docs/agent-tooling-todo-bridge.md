@@ -16,12 +16,13 @@ SDK TodoWrite tool_use
 
 ## TodoWrite Field Mapping
 
-| SDK TodoWrite field | Local tasks table column | Notes |
-|---------------------|-------------------------|-------|
-| `id`                | `id` (prefixed `sdk-`)  | Prefixed to avoid collision with user tasks |
-| `content`           | `title`                 | Main display text |
-| `status`            | `status`                | Mapped via `mapStatus()` |
-| `priority`          | `description`           | Optional context |
+| SDK TodoWriteInput field | Local tasks table column | Notes |
+|--------------------------|-------------------------|-------|
+| (array index)            | `id` (prefixed `sdk-{sessionId}-{index}`) | Full sessionId avoids collision |
+| `content`                | `title`                 | Main display text |
+| `status`                 | `status`                | Mapped via `mapStatus()` |
+| `activeForm`             | `description`           | Present-continuous form label |
+| (array index)            | `sort_order`            | Preserves original order |
 
 ### Status Mapping
 
@@ -40,19 +41,20 @@ SDK TodoWrite tool_use
 
 This is naturally idempotent — calling it multiple times with the same data produces identical results. User-created tasks (`source = 'user'`) are never affected.
 
-## tool_result Three-Layer Dedup
+## tool_result Two-Layer Last-Wins Dedup
 
-Both `PostToolUse` hook and `user` message handler in the SDK can emit the same `tool_result`. Three layers prevent duplicates:
+Both `PostToolUse` hook and `user` message handler in the SDK can emit the same `tool_result`.
+PostToolUse fires first (for immediate UI feedback); the user handler's result may be more
+complete/canonical. Strategy: **both sources emit freely; consumption layers use "last wins"
+(replace, not skip)** so the most complete result is always kept.
 
-### Layer 1: claude-client.ts (SSE emission)
-- `emittedToolResultIds` Set — checks before enqueueing any `tool_result` SSE event
-- Both PostToolUse and user message handler check this Set
+### Layer 1: route.ts (DB persistence)
+- `seenToolResultIds` Set in `collectStreamResponse()` — when a duplicate `tool_use_id`
+  arrives, the existing `contentBlock` entry is **replaced** with the newer result.
 
-### Layer 2: route.ts (DB persistence)
-- `seenToolResultIds` Set in `collectStreamResponse()` — skips duplicate `tool_use_id` before writing to `contentBlocks`
-
-### Layer 3: ChatView.tsx (UI state)
-- `onToolResult` checks `prev.some(r => r.tool_use_id === id)` before adding to state
+### Layer 2: ChatView.tsx (UI state)
+- `onToolResult` finds existing entry by `tool_use_id` and **replaces** it instead of
+  appending a duplicate.
 
 ## SSE Event Types
 
