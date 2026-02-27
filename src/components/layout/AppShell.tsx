@@ -225,6 +225,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         downloadProgress: null,
         readyToInstall: false,
         isNativeUpdate: false,
+        lastError: null,
       };
       setUpdateInfo(info);
 
@@ -244,6 +245,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   // --- Electron native updater check ---
   const checkForUpdatesNative = useCallback(async () => {
     setChecking(true);
+    setUpdateInfo((prev) => prev ? { ...prev, lastError: null } : prev);
     try {
       await window.electronAPI?.updater?.checkForUpdates();
     } catch {
@@ -280,6 +282,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               downloadProgress: prev?.downloadProgress ?? null,
               readyToInstall: prev?.readyToInstall ?? false,
               isNativeUpdate: true,
+              lastError: null,
             };
             return newInfo;
           });
@@ -300,6 +303,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           setUpdateInfo((prev) => prev ? {
             ...prev,
             downloadProgress: event.progress?.percent ?? null,
+            lastError: null,
           } : prev);
           break;
 
@@ -310,6 +314,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               ...prev,
               readyToInstall: true,
               downloadProgress: 100,
+              lastError: null,
             };
           });
           break;
@@ -317,7 +322,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         case 'error':
           setChecking(false);
           // Reset download progress so the download button re-appears
-          setUpdateInfo((prev) => prev ? { ...prev, downloadProgress: null } : prev);
+          setUpdateInfo((prev) => prev ? {
+            ...prev,
+            downloadProgress: null,
+            lastError: event.error ?? 'Update failed',
+          } : prev);
           console.warn('[updater] Error:', event.error);
           break;
       }
@@ -340,13 +349,18 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   const downloadUpdate = useCallback(async () => {
     // Immediately show downloading state so user gets feedback
-    setUpdateInfo((prev) => prev ? { ...prev, downloadProgress: 0 } : prev);
+    setUpdateInfo((prev) => prev ? { ...prev, downloadProgress: 0, lastError: null } : prev);
     try {
       await window.electronAPI?.updater?.downloadUpdate();
     } catch (err) {
       console.warn('[updater] Download failed:', err);
+      const message = err instanceof Error ? err.message : String(err);
       // Reset progress so the download button re-appears
-      setUpdateInfo((prev) => prev ? { ...prev, downloadProgress: null } : prev);
+      setUpdateInfo((prev) => prev ? {
+        ...prev,
+        downloadProgress: null,
+        lastError: message,
+      } : prev);
     }
   }, []);
 

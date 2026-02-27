@@ -102,6 +102,11 @@ function UpdateCard() {
                   />
                 </div>
               )}
+              {updateInfo.lastError && (
+                <p className="text-xs text-red-600 dark:text-red-400">
+                  {updateInfo.lastError}
+                </p>
+              )}
             </div>
           ) : (
             <p className="text-sm text-muted-foreground">{t('settings.latestVersion')}</p>

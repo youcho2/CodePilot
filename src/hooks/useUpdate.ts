@@ -13,6 +13,7 @@ export interface UpdateInfo {
   downloadProgress: number | null;
   readyToInstall: boolean;
   isNativeUpdate: boolean;
+  lastError: string | null;
 }
 
 export interface UpdateContextValue {

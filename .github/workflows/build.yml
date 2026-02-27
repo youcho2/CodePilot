@@ -46,9 +46,6 @@ jobs:
   build-macos:
     if: ${{ github.event_name == 'push' || inputs.platform == 'all' || inputs.platform == 'macos' }}
     runs-on: macos-latest
-    strategy:
-      matrix:
-        arch: [x64, arm64]
     steps:
       - uses: actions/checkout@v4
 
@@ -63,10 +60,10 @@ jobs:
       - name: Build Electron app
         run: npm run electron:build
 
-      - name: Package for macOS (${{ matrix.arch }})
+      - name: Package for macOS (x64 + arm64)
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: npx electron-builder --mac --${{ matrix.arch }} --config electron-builder.yml --publish always
+        run: npx electron-builder --mac --config electron-builder.yml --publish always
 
   build-linux:
     if: ${{ github.event_name == 'push' || inputs.platform == 'all' || inputs.platform == 'linux' }}
