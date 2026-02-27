@@ -409,6 +409,10 @@ const zh: Record<TranslationKey, string> = {
   'gallery.imageDetail': '图片详情',
   'gallery.prompt': '提示词',
   'gallery.download': '下载',
+  'gallery.favorites': '收藏',
+  'gallery.favoritesOnly': '只看收藏',
+  'gallery.addToFavorites': '添加到收藏',
+  'gallery.removeFromFavorites': '取消收藏',
 
   // ── Provider: Gemini Image ──────────────────────────────────
   'provider.chatProviders': '聊天服务商',

@@ -264,7 +264,7 @@ const GEMINI_IMAGE_MODELS = [
   { value: 'gemini-2.5-flash-image', label: 'Nano Banana' },
 ];
 
-const DEFAULT_GEMINI_IMAGE_MODEL = 'gemini-3-pro-image-preview';
+const DEFAULT_GEMINI_IMAGE_MODEL = 'gemini-3.1-flash-image-preview';
 
 function getGeminiImageModel(provider: ApiProvider): string {
   try {

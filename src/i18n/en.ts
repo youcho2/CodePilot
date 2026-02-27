@@ -412,6 +412,10 @@ const en = {
   'gallery.imageDetail': 'Image Detail',
   'gallery.prompt': 'Prompt',
   'gallery.download': 'Download',
+  'gallery.favorites': 'Favorites',
+  'gallery.favoritesOnly': 'Favorites',
+  'gallery.addToFavorites': 'Add to favorites',
+  'gallery.removeFromFavorites': 'Remove from favorites',
 
   // ── Provider: Gemini Image ──────────────────────────────────
   'provider.chatProviders': 'Chat Providers',

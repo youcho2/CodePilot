@@ -124,6 +124,7 @@ function initDb(db: Database.Database): void {
       message_id TEXT,
       tags TEXT NOT NULL DEFAULT '[]',
       metadata TEXT NOT NULL DEFAULT '{}',
+      favorited INTEGER NOT NULL DEFAULT 0,
       error TEXT,
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       completed_at TEXT
@@ -310,6 +311,7 @@ function migrateDb(db: Database.Database): void {
       message_id TEXT,
       tags TEXT NOT NULL DEFAULT '[]',
       metadata TEXT NOT NULL DEFAULT '{}',
+      favorited INTEGER NOT NULL DEFAULT 0,
       error TEXT,
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       completed_at TEXT
@@ -386,6 +388,13 @@ function migrateDb(db: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_media_job_items_status ON media_job_items(status);
     CREATE INDEX IF NOT EXISTS idx_media_context_events_job_id ON media_context_events(job_id);
   `);
+
+  // Add favorited column to media_generations if missing
+  try {
+    db.exec("ALTER TABLE media_generations ADD COLUMN favorited INTEGER NOT NULL DEFAULT 0");
+  } catch {
+    // Column already exists
+  }
 
   // Recover stale jobs: mark 'running' jobs as 'paused' after process restart
   db.exec(`

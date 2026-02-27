@@ -13,6 +13,7 @@ interface DbRow {
   local_path: string;
   tags: string;
   metadata: string;
+  favorited: number;
   created_at: string;
   session_id: string | null;
   [key: string]: unknown;
@@ -56,6 +57,7 @@ function mapRow(row: DbRow) {
     aspectRatio: row.aspect_ratio,
     imageSize: row.image_size,
     tags,
+    favorited: !!row.favorited,
     created_at: row.created_at,
     session_id: row.session_id || undefined,
     referenceImages,
@@ -68,6 +70,7 @@ export async function GET(request: NextRequest) {
     const tags = searchParams.get('tags');
     const dateFrom = searchParams.get('dateFrom');
     const dateTo = searchParams.get('dateTo');
+    const favoritesOnly = searchParams.get('favoritesOnly') === '1';
     const sort = searchParams.get('sort') || 'newest';
     const limit = parseInt(searchParams.get('limit') || '50', 10);
     const offset = parseInt(searchParams.get('offset') || '0', 10);
@@ -76,6 +79,10 @@ export async function GET(request: NextRequest) {
 
     const conditions: string[] = [];
     const params: unknown[] = [];
+
+    if (favoritesOnly) {
+      conditions.push("mg.favorited = 1");
+    }
 
     if (tags) {
       const tagList = tags.split(',').map(t => t.trim()).filter(Boolean);

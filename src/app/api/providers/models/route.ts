@@ -84,8 +84,12 @@ export async function GET() {
       });
     }
 
+    // Provider types that are not LLMs (e.g. image generation) — skip in chat model selector
+    const MEDIA_PROVIDER_TYPES = new Set(['gemini-image']);
+
     // Build a group for each configured provider
     for (const provider of providers) {
+      if (MEDIA_PROVIDER_TYPES.has(provider.provider_type)) continue;
       const matched = PROVIDER_MODEL_LABELS[provider.base_url];
       const rawModels = matched || DEFAULT_MODELS;
       const models = deduplicateModels(rawModels);

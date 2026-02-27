@@ -1,10 +1,7 @@
 'use client';
 
 import { HugeiconsIcon } from '@hugeicons/react';
-import { PaintBrush01Icon } from '@hugeicons/core-free-icons';
-import { parseDBDate } from '@/lib/utils';
-import { Badge } from '@/components/ui/badge';
-import type { Tag } from './TagManager';
+import { PaintBrush01Icon, FavouriteIcon } from '@hugeicons/core-free-icons';
 
 export interface GalleryItem {
   id: string;
@@ -14,6 +11,7 @@ export interface GalleryItem {
   aspectRatio?: string;
   imageSize?: string;
   tags: string[];
+  favorited?: boolean;
   created_at: string;
   session_id?: string;
   referenceImages?: Array<{ mimeType: string; localPath: string }>;
@@ -21,7 +19,6 @@ export interface GalleryItem {
 
 interface GalleryGridProps {
   items: GalleryItem[];
-  tags: Tag[];
   onSelect: (item: GalleryItem) => void;
 }
 
@@ -37,49 +34,36 @@ function thumbnailUrl(item: GalleryItem): string {
   return '';
 }
 
-function formatDate(dateStr: string): string {
-  try {
-    const date = parseDBDate(dateStr);
-    return date.toLocaleDateString(undefined, {
-      month: 'short',
-      day: 'numeric',
-      year: 'numeric',
-    });
-  } catch {
-    return dateStr;
-  }
-}
-
-export function GalleryGrid({ items, tags, onSelect }: GalleryGridProps) {
-  const tagMap = new Map(tags.map((t) => [t.id, t]));
-
+export function GalleryGrid({ items, onSelect }: GalleryGridProps) {
   return (
-    <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+    <div
+      className="gap-3"
+      style={{
+        columnCount: 6,
+        columnGap: '12px',
+      }}
+    >
       {items.map((item) => {
         const url = thumbnailUrl(item);
-        const itemTags = item.tags
-          .map((tid) => tagMap.get(tid))
-          .filter((t): t is Tag => !!t);
 
         return (
-          <button
+          <div
             key={item.id}
-            type="button"
+            className="mb-3 cursor-pointer rounded-lg overflow-hidden ring-0 hover:ring-2 hover:ring-border transition-all"
+            style={{ breakInside: 'avoid' }}
             onClick={() => onSelect(item)}
-            className="group text-left rounded-lg border border-border/50 bg-card overflow-hidden hover:border-border transition-colors"
           >
-            {/* Thumbnail */}
-            <div className="relative aspect-square bg-muted/30 overflow-hidden">
+            <div className="relative bg-muted/30">
               {url ? (
                 // eslint-disable-next-line @next/next/no-img-element
                 <img
                   src={url}
                   alt={item.prompt}
-                  className="h-full w-full object-cover transition-transform group-hover:scale-[1.03]"
+                  className="block w-full h-auto"
                   loading="lazy"
                 />
               ) : (
-                <div className="flex h-full items-center justify-center">
+                <div className="flex aspect-square items-center justify-center">
                   <HugeiconsIcon icon={PaintBrush01Icon} className="h-8 w-8 text-muted-foreground/30" />
                 </div>
               )}
@@ -88,35 +72,13 @@ export function GalleryGrid({ items, tags, onSelect }: GalleryGridProps) {
                   {item.images.length}
                 </span>
               )}
-            </div>
-
-            {/* Info */}
-            <div className="p-2.5 space-y-1.5">
-              <p className="text-xs text-foreground/80 line-clamp-2 leading-relaxed">
-                {item.prompt}
-              </p>
-              <div className="flex items-center justify-between gap-2">
-                <span className="text-[10px] text-muted-foreground">
-                  {formatDate(item.created_at)}
+              {item.favorited && (
+                <span className="absolute top-1.5 left-1.5">
+                  <HugeiconsIcon icon={FavouriteIcon} className="h-4 w-4 text-red-500 drop-shadow" fill="currentColor" />
                 </span>
-                {itemTags.length > 0 && (
-                  <div className="flex items-center gap-1 overflow-hidden">
-                    {itemTags.slice(0, 2).map((tag) => (
-                      <span
-                        key={tag.id}
-                        className="inline-block h-2 w-2 rounded-full shrink-0"
-                        style={{ backgroundColor: tag.color || '#6b7280' }}
-                        title={tag.name}
-                      />
-                    ))}
-                    {itemTags.length > 2 && (
-                      <span className="text-[9px] text-muted-foreground">+{itemTags.length - 2}</span>
-                    )}
-                  </div>
-                )}
-              </div>
+              )}
             </div>
-          </button>
+          </div>
         );
       })}
     </div>
