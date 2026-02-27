@@ -13,42 +13,48 @@ export function ResizeHandle({ side, onResize, onResizeEnd }: ResizeHandleProps)
   const isDragging = useRef(false);
   const startX = useRef(0);
 
-  const handleMouseDown = useCallback(
-    (e: React.MouseEvent) => {
+  const handlePointerDown = useCallback(
+    (e: React.PointerEvent) => {
       e.preventDefault();
       isDragging.current = true;
       startX.current = e.clientX;
-
+      // Capture pointer so all subsequent events route here, even over iframes
+      (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
       document.body.style.cursor = "col-resize";
       document.body.style.userSelect = "none";
-
-      const handleMouseMove = (ev: MouseEvent) => {
-        if (!isDragging.current) return;
-        const delta = ev.clientX - startX.current;
-        startX.current = ev.clientX;
-        onResize(delta);
-      };
-
-      const handleMouseUp = () => {
-        isDragging.current = false;
-        document.body.style.cursor = "";
-        document.body.style.userSelect = "";
-        document.removeEventListener("mousemove", handleMouseMove);
-        document.removeEventListener("mouseup", handleMouseUp);
-        onResizeEnd?.();
-      };
-
-      document.addEventListener("mousemove", handleMouseMove);
-      document.addEventListener("mouseup", handleMouseUp);
     },
-    [onResize, onResizeEnd]
+    []
+  );
+
+  const handlePointerMove = useCallback(
+    (e: React.PointerEvent) => {
+      if (!isDragging.current) return;
+      const delta = e.clientX - startX.current;
+      startX.current = e.clientX;
+      onResize(delta);
+    },
+    [onResize]
+  );
+
+  const handlePointerUp = useCallback(
+    (e: React.PointerEvent) => {
+      if (!isDragging.current) return;
+      isDragging.current = false;
+      (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+      onResizeEnd?.();
+    },
+    [onResizeEnd]
   );
 
   return (
     <div
-      onMouseDown={handleMouseDown}
+      onPointerDown={handlePointerDown}
+      onPointerMove={handlePointerMove}
+      onPointerUp={handlePointerUp}
       className={cn(
-        "group relative z-10 flex w-1 shrink-0 cursor-col-resize items-center justify-center",
+        "group relative z-10 flex w-1 shrink-0 cursor-col-resize items-center justify-center touch-none",
         side === "left" ? "-ml-0.5" : "-mr-0.5"
       )}
     >
