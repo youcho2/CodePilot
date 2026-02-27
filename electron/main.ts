@@ -199,7 +199,7 @@ function getExpandedShellPath(): string {
     return [...new Set(allParts)].join(sep);
   } else {
     const basePath = `/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin`;
-    const raw = `${basePath}:${home}/.npm-global/bin:${home}/.local/bin:${home}/.claude/bin:${home}/.codepilot/node/bin:${shellPath}`;
+    const raw = `${basePath}:${home}/.npm-global/bin:${home}/.local/bin:${home}/.claude/bin:${shellPath}`;
     const allParts = raw.split(':').filter(Boolean);
     return [...new Set(allParts)].join(':');
   }
@@ -459,7 +459,14 @@ app.whenReady().then(async () => {
       // claude not found
     }
 
-    return { hasNode, nodeVersion, hasClaude, claudeVersion };
+    // Check Homebrew on macOS
+    let hasHomebrew = false;
+    if (process.platform === 'darwin') {
+      const brewPaths = ['/opt/homebrew/bin/brew', '/usr/local/bin/brew'];
+      hasHomebrew = brewPaths.some(p => fs.existsSync(p));
+    }
+
+    return { hasNode, nodeVersion, hasClaude, claudeVersion, hasHomebrew, platform: process.platform };
   });
 
   ipcMain.handle('install:start', (_event: Electron.IpcMainInvokeEvent, options?: { includeNode?: boolean }) => {
@@ -528,7 +535,7 @@ app.whenReady().then(async () => {
             let args: string[];
 
             if (isMac) {
-              // Try Homebrew first, fallback to official tarball download
+              // macOS: Homebrew only — UI should guide the user to install Homebrew first
               const brewPaths = ['/opt/homebrew/bin/brew', '/usr/local/bin/brew'];
               const brewPath = brewPaths.find(p => fs.existsSync(p));
               if (brewPath) {
@@ -536,15 +543,9 @@ app.whenReady().then(async () => {
                 args = ['install', 'node'];
                 addLog(`Running: ${brewPath} install node`);
               } else {
-                // Fallback: download official Node.js binary tarball (no Homebrew/sudo needed)
-                const arch = process.arch === 'arm64' ? 'arm64' : 'x64';
-                const nodeVersion = 'v22.12.0';
-                const nodeDir = path.join(home, '.codepilot', 'node');
-                const tarballUrl = `https://nodejs.org/dist/${nodeVersion}/node-${nodeVersion}-darwin-${arch}.tar.gz`;
-                addLog(`Homebrew not found. Downloading Node.js ${nodeVersion} from nodejs.org...`);
-                addLog(`Architecture: ${arch}, Target: ${nodeDir}`);
-                cmd = 'sh';
-                args = ['-c', `mkdir -p "${nodeDir}" && curl -fsSL "${tarballUrl}" | tar xz --strip-components=1 -C "${nodeDir}"`];
+                addLog('Homebrew is required. Please install Homebrew first and retry.');
+                resolve(false);
+                return;
               }
             } else if (isWin) {
               cmd = 'winget';

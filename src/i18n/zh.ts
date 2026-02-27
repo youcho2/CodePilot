@@ -264,6 +264,15 @@ const zh: Record<TranslationKey, string> = {
   'install.cancel': '取消',
   'install.retry': '重试',
   'install.done': '完成',
+  'install.recheck': '重新检测',
+  'install.copy': '复制',
+  'install.homebrewRequired': '需要先安装 Homebrew',
+  'install.homebrewDescription': 'Homebrew 是 macOS 的包管理器，安装 Node.js 需要它。',
+  'install.homebrewSteps': '请按以下步骤操作：',
+  'install.homebrewStep1': '打开终端（Terminal）',
+  'install.homebrewStep2': '粘贴上面的命令并按回车',
+  'install.homebrewStep3': '按提示完成安装',
+  'install.homebrewStep4': '回到这里点击"重新检测"',
 
   // ── Task list ───────────────────────────────────────────────
   'tasks.all': '全部',

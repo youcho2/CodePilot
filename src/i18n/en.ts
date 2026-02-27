@@ -267,6 +267,15 @@ const en = {
   'install.cancel': 'Cancel',
   'install.retry': 'Retry',
   'install.done': 'Done',
+  'install.recheck': 'Recheck',
+  'install.copy': 'Copy',
+  'install.homebrewRequired': 'Homebrew is required',
+  'install.homebrewDescription': 'Homebrew is the package manager for macOS. Node.js installation requires it.',
+  'install.homebrewSteps': 'Follow these steps:',
+  'install.homebrewStep1': 'Open Terminal',
+  'install.homebrewStep2': 'Paste the command above and press Enter',
+  'install.homebrewStep3': 'Follow the on-screen instructions to complete the installation',
+  'install.homebrewStep4': 'Come back here and click "Recheck"',
 
   // ── Task list ───────────────────────────────────────────────
   'tasks.all': 'All',

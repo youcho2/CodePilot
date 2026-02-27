@@ -54,6 +54,8 @@ interface PrereqResult {
   nodeVersion?: string;
   hasClaude: boolean;
   claudeVersion?: string;
+  hasHomebrew?: boolean;
+  platform?: string;
 }
 
 function getInstallAPI() {
@@ -88,6 +90,7 @@ export function InstallWizard({
   const [progress, setProgress] = useState<InstallProgress | null>(null);
   const [logs, setLogs] = useState<string[]>([]);
   const [copied, setCopied] = useState(false);
+  const [copiedBrew, setCopiedBrew] = useState(false);
   const [prereqs, setPrereqs] = useState<PrereqResult | null>(null);
   const logEndRef = useRef<HTMLDivElement>(null);
   const cleanupRef = useRef<(() => void) | null>(null);
@@ -223,6 +226,7 @@ export function InstallWizard({
       setLogs([]); // eslint-disable-line react-hooks/set-state-in-effect
       setProgress(null); // eslint-disable-line react-hooks/set-state-in-effect
       setCopied(false); // eslint-disable-line react-hooks/set-state-in-effect
+      setCopiedBrew(false); // eslint-disable-line react-hooks/set-state-in-effect
       setPrereqs(null); // eslint-disable-line react-hooks/set-state-in-effect
       checkPrereqs();
     }
@@ -288,12 +292,53 @@ export function InstallWizard({
           )}
 
           {/* Phase: confirm — ask user before installing */}
-          {phase === "confirm" && (
+          {phase === "confirm" && prereqs && !prereqs.hasNode && !prereqs.hasHomebrew && prereqs.platform === "darwin" && (
+            <div className="space-y-3">
+              <div className="rounded-lg bg-amber-500/10 px-4 py-3 text-sm space-y-1.5">
+                <p className="text-amber-700 dark:text-amber-400 font-medium">
+                  {t('install.homebrewRequired')}
+                </p>
+                <p className="text-muted-foreground text-xs">
+                  {t('install.homebrewDescription')}
+                </p>
+              </div>
+              <div className="rounded-md bg-zinc-950 dark:bg-zinc-900 border border-zinc-800 px-3 py-2.5 flex items-center gap-2">
+                <code className="flex-1 text-xs text-zinc-300 break-all select-all">
+                  /bin/bash -c &quot;$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)&quot;
+                </code>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="shrink-0 h-7 px-2"
+                  onClick={async () => {
+                    try {
+                      await navigator.clipboard.writeText('/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"');
+                      setCopiedBrew(true);
+                      setTimeout(() => setCopiedBrew(false), 2000);
+                    } catch { /* clipboard not available */ }
+                  }}
+                >
+                  <HugeiconsIcon icon={Copy01Icon} className="size-3.5" />
+                  <span className="text-xs">{copiedBrew ? t('install.copied') : t('install.copy')}</span>
+                </Button>
+              </div>
+              <div className="text-sm text-muted-foreground space-y-1">
+                <p>{t('install.homebrewSteps')}</p>
+                <ol className="list-decimal list-inside space-y-0.5 text-xs">
+                  <li>{t('install.homebrewStep1')}</li>
+                  <li>{t('install.homebrewStep2')}</li>
+                  <li>{t('install.homebrewStep3')}</li>
+                  <li>{t('install.homebrewStep4')}</li>
+                </ol>
+              </div>
+            </div>
+          )}
+          {phase === "confirm" && !(prereqs && !prereqs.hasNode && !prereqs.hasHomebrew && prereqs.platform === "darwin") && (
             <div className="space-y-3">
               <div className="rounded-lg bg-amber-500/10 px-4 py-3 text-sm space-y-1.5">
                 {prereqs && !prereqs.hasNode && (
                   <p className="text-amber-700 dark:text-amber-400">
-                    Node.js — not found (will be installed via {process.platform === "win32" ? "winget" : "Homebrew"})
+                    Node.js — not found (will be installed via {prereqs.platform === "win32" ? "winget" : "Homebrew"})
                   </p>
                 )}
                 {prereqs?.hasNode && (
@@ -369,8 +414,13 @@ export function InstallWizard({
             </Button>
           )}
 
-          {/* Confirm phase: single "Install" button */}
-          {phase === "confirm" && (
+          {/* Confirm phase: "Recheck" when Homebrew missing on macOS, otherwise "Install" */}
+          {phase === "confirm" && prereqs && !prereqs.hasNode && !prereqs.hasHomebrew && prereqs.platform === "darwin" && (
+            <Button size="sm" onClick={checkPrereqs}>
+              {t('install.recheck')}
+            </Button>
+          )}
+          {phase === "confirm" && !(prereqs && !prereqs.hasNode && !prereqs.hasHomebrew && prereqs.platform === "darwin") && (
             <Button size="sm" onClick={handleConfirmInstall}>
               <HugeiconsIcon icon={Download04Icon} />
               {t('install.install')}
