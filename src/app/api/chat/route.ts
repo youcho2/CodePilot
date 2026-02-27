@@ -149,7 +149,7 @@ export async function POST(request: NextRequest) {
             name: f.name,
             type: f.type,
             size: f.size,
-            data: f.data,
+            data: meta?.filePath ? '' : f.data, // Skip base64 data if file is already saved to disk
             filePath: meta?.filePath,
           };
         })

@@ -325,7 +325,40 @@ function getIconPath(): string {
   return path.join(process.resourcesPath, 'icon.icns');
 }
 
-function createWindow(port: number) {
+/** Inline loading HTML shown while the server starts up */
+const LOADING_HTML = `data:text/html;charset=utf-8,${encodeURIComponent(`<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    height: 100vh; display: flex; align-items: center; justify-content: center;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: #0a0a0a; color: #a0a0a0;
+    -webkit-app-region: drag;
+  }
+  .container { text-align: center; }
+  .spinner {
+    width: 28px; height: 28px; margin: 0 auto 14px;
+    border: 2.5px solid rgba(255,255,255,0.1);
+    border-top-color: rgba(255,255,255,0.5);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  p { font-size: 13px; opacity: 0.7; }
+</style>
+</head>
+<body>
+<div class="container">
+  <div class="spinner"></div>
+  <p>Starting CodePilot...</p>
+</div>
+</body>
+</html>`)}`;
+
+function createWindow(url?: string) {
   const windowOptions: Electron.BrowserWindowConstructorOptions = {
     width: 1280,
     height: 860,
@@ -352,7 +385,7 @@ function createWindow(port: number) {
 
   mainWindow = new BrowserWindow(windowOptions);
 
-  mainWindow.loadURL(`http://127.0.0.1:${port}`);
+  mainWindow.loadURL(url || LOADING_HTML);
 
   if (isDev) {
     mainWindow.webContents.openDevTools();
@@ -730,16 +763,24 @@ app.whenReady().then(async () => {
     if (isDev) {
       port = 3000;
       console.log(`Dev mode: connecting to http://127.0.0.1:${port}`);
+      serverPort = port;
+      createWindow(`http://127.0.0.1:${port}`);
     } else {
       port = await getPort();
       console.log(`Starting server on port ${port}...`);
       serverProcess = startServer(port);
+      serverPort = port;
+
+      // Show window immediately with loading screen
+      createWindow();
+
+      // Wait for server in background, then navigate to real URL
       await waitForServer(port);
       console.log('Server is ready');
+      if (mainWindow) {
+        mainWindow.loadURL(`http://127.0.0.1:${port}`);
+      }
     }
-
-    serverPort = port;
-    createWindow(port);
 
     // Initialize auto-updater in packaged mode only
     if (!isDev && mainWindow) {
@@ -768,10 +809,16 @@ app.on('activate', async () => {
       if (!isDev && !serverProcess) {
         const port = await getPort();
         serverProcess = startServer(port);
+        // Show loading window immediately
+        createWindow();
         await waitForServer(port);
         serverPort = port;
+        if (mainWindow) {
+          mainWindow.loadURL(`http://127.0.0.1:${port}`);
+        }
+      } else {
+        createWindow(`http://127.0.0.1:${serverPort || 3000}`);
       }
-      createWindow(serverPort || 3000);
 
       // Re-attach updater to the new window
       if (!isDev && mainWindow) {

@@ -2,7 +2,7 @@
 
 import { usePathname, useRouter } from "next/navigation";
 import Link from "next/link";
-import { useEffect, useState, useCallback, useMemo } from "react";
+import { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
   Delete02Icon,
@@ -213,37 +213,53 @@ export function ChatListPanel({ open, width }: ChatListPanelProps) {
     });
   }, []);
 
+  // AbortController ref for cancelling in-flight requests
+  const abortRef = useRef<AbortController | null>(null);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   const fetchSessions = useCallback(async () => {
+    // Cancel any in-flight request
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
     try {
-      const res = await fetch("/api/chat/sessions");
+      const res = await fetch("/api/chat/sessions", { signal: controller.signal });
       if (res.ok) {
         const data = await res.json();
         setSessions(data.sessions || []);
       }
-    } catch {
-      // API may not be available yet
+    } catch (e) {
+      // Ignore abort errors; log others
+      if (e instanceof DOMException && e.name === 'AbortError') return;
     }
   }, []);
 
-  useEffect(() => {
-    fetchSessions();
+  const debouncedFetchSessions = useCallback(() => {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => {
+      fetchSessions();
+    }, 300);
   }, [fetchSessions]);
 
-  // Refresh session list when navigating
+  // Fetch on mount
   useEffect(() => {
     fetchSessions();
-  }, [pathname, fetchSessions]);
+    return () => {
+      abortRef.current?.abort();
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+    };
+  }, [fetchSessions]);
 
-  // Refresh session list when a session is created or updated
+  // Refresh session list when a session is created or updated (debounced)
   useEffect(() => {
-    const handler = () => fetchSessions();
+    const handler = () => debouncedFetchSessions();
     window.addEventListener("session-created", handler);
     window.addEventListener("session-updated", handler);
     return () => {
       window.removeEventListener("session-created", handler);
       window.removeEventListener("session-updated", handler);
     };
-  }, [fetchSessions]);
+  }, [debouncedFetchSessions]);
 
   const handleDeleteSession = async (
     e: React.MouseEvent,

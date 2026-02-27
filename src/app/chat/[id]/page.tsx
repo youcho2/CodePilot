@@ -118,7 +118,7 @@ export default function ChatSessionPage({ params }: ChatSessionPageProps) {
 
     async function loadMessages() {
       try {
-        const res = await fetch(`/api/chat/sessions/${id}/messages?limit=100`);
+        const res = await fetch(`/api/chat/sessions/${id}/messages?limit=30`);
         if (cancelled) return;
         if (!res.ok) {
           if (res.status === 404) {
