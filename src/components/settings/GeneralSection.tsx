@@ -21,9 +21,12 @@ import { SUPPORTED_LOCALES, type Locale } from "@/i18n";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 function UpdateCard() {
-  const { updateInfo, checking, checkForUpdates, quitAndInstall } = useUpdate();
+  const { updateInfo, checking, checkForUpdates, downloadUpdate, quitAndInstall, setShowDialog } = useUpdate();
   const { t } = useTranslation();
   const currentVersion = process.env.NEXT_PUBLIC_APP_VERSION || "0.0.0";
+
+  const isDownloading = updateInfo?.isNativeUpdate && !updateInfo.readyToInstall
+    && updateInfo.downloadProgress != null && updateInfo.downloadProgress > 0;
 
   return (
     <div className="rounded-lg border border-border/50 p-4 transition-shadow hover:shadow-sm">
@@ -32,53 +35,73 @@ function UpdateCard() {
           <h2 className="text-sm font-medium">{t('settings.codepilot')}</h2>
           <p className="text-xs text-muted-foreground">{t('settings.version', { version: currentVersion })}</p>
         </div>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={checkForUpdates}
-          disabled={checking}
-          className="gap-2"
-        >
-          {checking ? (
-            <HugeiconsIcon icon={Loading02Icon} className="h-3.5 w-3.5 animate-spin" />
-          ) : (
-            <HugeiconsIcon icon={ReloadIcon} className="h-3.5 w-3.5" />
+        <div className="flex items-center gap-2">
+          {/* Show install/restart button when update available */}
+          {updateInfo?.updateAvailable && !checking && (
+            updateInfo.readyToInstall ? (
+              <Button size="sm" onClick={quitAndInstall}>
+                {t('update.restartToUpdate')}
+              </Button>
+            ) : updateInfo.isNativeUpdate && !isDownloading ? (
+              <Button size="sm" onClick={downloadUpdate}>
+                {t('update.installUpdate')}
+              </Button>
+            ) : !updateInfo.isNativeUpdate ? (
+              <Button size="sm" variant="outline" onClick={() => window.open(updateInfo.releaseUrl, "_blank")}>
+                {t('settings.viewRelease')}
+              </Button>
+            ) : null
           )}
-          {checking ? t('settings.checking') : t('settings.checkForUpdates')}
-        </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={checkForUpdates}
+            disabled={checking}
+            className="gap-2"
+          >
+            {checking ? (
+              <HugeiconsIcon icon={Loading02Icon} className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <HugeiconsIcon icon={ReloadIcon} className="h-3.5 w-3.5" />
+            )}
+            {checking ? t('settings.checking') : t('settings.checkForUpdates')}
+          </Button>
+        </div>
       </div>
 
       {updateInfo && !checking && (
         <div className="mt-3">
           {updateInfo.updateAvailable ? (
-            <div className="flex items-center gap-2">
-              <span className={`h-2 w-2 rounded-full ${updateInfo.readyToInstall ? 'bg-green-500' : 'bg-blue-500'}`} />
-              <span className="text-sm">
-                {updateInfo.readyToInstall
-                  ? t('update.readyToInstall', { version: updateInfo.latestVersion })
-                  : updateInfo.downloadProgress != null && updateInfo.downloadProgress > 0 && !updateInfo.readyToInstall
-                    ? `${t('update.downloading')} ${Math.round(updateInfo.downloadProgress)}%`
-                    : t('settings.updateAvailable', { version: updateInfo.latestVersion })}
-              </span>
-              {updateInfo.readyToInstall ? (
-                <Button
-                  variant="link"
-                  size="sm"
-                  className="h-auto p-0 text-sm"
-                  onClick={quitAndInstall}
-                >
-                  {t('update.restartToUpdate')}
-                </Button>
-              ) : !updateInfo.isNativeUpdate ? (
-                <Button
-                  variant="link"
-                  size="sm"
-                  className="h-auto p-0 text-sm"
-                  onClick={() => window.open(updateInfo.releaseUrl, "_blank")}
-                >
-                  {t('settings.viewRelease')}
-                </Button>
-              ) : null}
+            <div className="space-y-2">
+              <div className="flex items-center gap-2">
+                <span className={`h-2 w-2 rounded-full ${updateInfo.readyToInstall ? 'bg-green-500' : isDownloading ? 'bg-yellow-500 animate-pulse' : 'bg-blue-500'}`} />
+                <span className="text-sm">
+                  {updateInfo.readyToInstall
+                    ? t('update.readyToInstall', { version: updateInfo.latestVersion })
+                    : isDownloading
+                      ? `${t('update.downloading')} ${Math.round(updateInfo.downloadProgress!)}%`
+                      : t('settings.updateAvailable', { version: updateInfo.latestVersion })}
+                </span>
+                {updateInfo.releaseNotes && (
+                  <Button
+                    variant="link"
+                    size="sm"
+                    className="h-auto p-0 text-xs text-muted-foreground"
+                    onClick={() => setShowDialog(true)}
+                  >
+                    {t('gallery.viewDetails')}
+                  </Button>
+                )}
+              </div>
+              {/* Download progress bar */}
+              {isDownloading && (
+                <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
+                  <div
+                    className="h-full rounded-full bg-blue-500 transition-all"
+                    style={{ width: `${Math.min(updateInfo.downloadProgress!, 100)}%` }}
+                  />
+                </div>
+              )}
             </div>
           ) : (
             <p className="text-sm text-muted-foreground">{t('settings.latestVersion')}</p>

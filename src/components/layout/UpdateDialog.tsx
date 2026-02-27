@@ -14,12 +14,13 @@ import { useUpdate } from "@/hooks/useUpdate";
 import { useTranslation } from "@/hooks/useTranslation";
 
 export function UpdateDialog() {
-  const { updateInfo, showDialog, dismissUpdate, quitAndInstall } = useUpdate();
+  const { updateInfo, showDialog, dismissUpdate, downloadUpdate, quitAndInstall } = useUpdate();
   const { t } = useTranslation();
 
   if (!updateInfo?.updateAvailable) return null;
 
   const { isNativeUpdate, readyToInstall, downloadProgress } = updateInfo;
+  const isDownloading = isNativeUpdate && !readyToInstall && downloadProgress != null && downloadProgress > 0;
 
   return (
     <Dialog open={showDialog} onOpenChange={(open) => {
@@ -68,17 +69,17 @@ export function UpdateDialog() {
           Current: v{updateInfo.currentVersion} &rarr; Latest: v{updateInfo.latestVersion}
         </p>
 
-        {/* Download progress bar (native update, downloading) */}
-        {isNativeUpdate && !readyToInstall && downloadProgress != null && downloadProgress > 0 && (
+        {/* Download progress bar */}
+        {isDownloading && (
           <div className="space-y-1">
             <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
               <div
                 className="h-full rounded-full bg-blue-500 transition-all"
-                style={{ width: `${Math.min(downloadProgress, 100)}%` }}
+                style={{ width: `${Math.min(downloadProgress!, 100)}%` }}
               />
             </div>
             <p className="text-xs text-muted-foreground">
-              {t('update.downloading')} {Math.round(downloadProgress)}%
+              {t('update.downloading')} {Math.round(downloadProgress!)}%
             </p>
           </div>
         )}
@@ -88,7 +89,6 @@ export function UpdateDialog() {
             {t('update.later')}
           </Button>
           {!isNativeUpdate ? (
-            // Browser mode: open release page
             <Button
               onClick={() => {
                 window.open(updateInfo.releaseUrl, "_blank");
@@ -97,14 +97,16 @@ export function UpdateDialog() {
               {t('settings.viewRelease')}
             </Button>
           ) : readyToInstall ? (
-            // Electron: downloaded, ready to install
             <Button onClick={quitAndInstall}>
               {t('update.restartToUpdate')}
             </Button>
-          ) : (
-            // Electron: still downloading
+          ) : isDownloading ? (
             <Button disabled>
               {t('update.downloading')}...
+            </Button>
+          ) : (
+            <Button onClick={downloadUpdate}>
+              {t('update.installUpdate')}
             </Button>
           )}
         </DialogFooter>

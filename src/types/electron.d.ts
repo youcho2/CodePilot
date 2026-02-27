@@ -36,6 +36,7 @@ interface UpdateStatusEvent {
 
 interface ElectronUpdaterAPI {
   checkForUpdates: () => Promise<unknown>;
+  downloadUpdate: () => Promise<unknown>;
   quitAndInstall: () => Promise<void>;
   onStatus: (callback: (data: UpdateStatusEvent) => void) => () => void;
 }

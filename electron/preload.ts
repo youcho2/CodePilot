@@ -27,6 +27,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   },
   updater: {
     checkForUpdates: () => ipcRenderer.invoke('updater:check'),
+    downloadUpdate: () => ipcRenderer.invoke('updater:download'),
     quitAndInstall: () => ipcRenderer.invoke('updater:quit-and-install'),
     onStatus: (callback: (data: unknown) => void) => {
       const listener = (_event: unknown, data: unknown) => callback(data);

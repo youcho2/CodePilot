@@ -19,6 +19,7 @@ export interface UpdateContextValue {
   updateInfo: UpdateInfo | null;
   checking: boolean;
   checkForUpdates: () => Promise<void>;
+  downloadUpdate: () => void;
   dismissUpdate: () => void;
   showDialog: boolean;
   setShowDialog: (v: boolean) => void;

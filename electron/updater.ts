@@ -1,6 +1,6 @@
 import { autoUpdater } from 'electron-updater';
 import type { BrowserWindow } from 'electron';
-import { ipcMain } from 'electron';
+import { ipcMain, session } from 'electron';
 
 let mainWindow: BrowserWindow | null = null;
 
@@ -8,12 +8,40 @@ function sendStatus(data: Record<string, unknown>) {
   mainWindow?.webContents.send('updater:status', data);
 }
 
+/**
+ * Resolve system proxy for GitHub and inject into electron-updater
+ * so that VPN / proxy tools are respected during update downloads.
+ */
+async function configureProxy() {
+  try {
+    const proxy = await session.defaultSession.resolveProxy('https://github.com');
+    // proxy returns "DIRECT" or "PROXY host:port" / "SOCKS5 host:port" etc.
+    if (proxy && proxy !== 'DIRECT') {
+      const match = proxy.match(/^(?:PROXY|HTTPS)\s+(.+)/i);
+      if (match) {
+        process.env.HTTPS_PROXY = `http://${match[1]}`;
+        console.log('[updater] Using system proxy:', process.env.HTTPS_PROXY);
+      }
+      const socksMatch = proxy.match(/^SOCKS5?\s+(.+)/i);
+      if (socksMatch) {
+        process.env.HTTPS_PROXY = `socks5://${socksMatch[1]}`;
+        console.log('[updater] Using system SOCKS proxy:', process.env.HTTPS_PROXY);
+      }
+    }
+  } catch (err) {
+    console.warn('[updater] Failed to resolve proxy:', err);
+  }
+}
+
 export function initAutoUpdater(win: BrowserWindow) {
   mainWindow = win;
 
-  // Configuration
-  autoUpdater.autoDownload = true;
+  // Configuration — don't auto-download, let user trigger manually
+  autoUpdater.autoDownload = false;
   autoUpdater.autoInstallOnAppQuit = true;
+
+  // Resolve and apply system proxy for update downloads
+  configureProxy();
 
   // --- Events ---
   autoUpdater.on('checking-for-update', () => {
@@ -67,6 +95,10 @@ export function initAutoUpdater(win: BrowserWindow) {
   // --- IPC handlers ---
   ipcMain.handle('updater:check', async () => {
     return autoUpdater.checkForUpdates();
+  });
+
+  ipcMain.handle('updater:download', async () => {
+    return autoUpdater.downloadUpdate();
   });
 
   ipcMain.handle('updater:quit-and-install', () => {

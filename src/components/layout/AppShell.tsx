@@ -298,10 +298,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   const dismissUpdate = useCallback(() => {
     setShowDialog(false);
-    if (updateInfo?.latestVersion) {
-      localStorage.setItem(DISMISSED_VERSION_KEY, updateInfo.latestVersion);
-    }
-  }, [updateInfo]);
+  }, []);
+
+  const downloadUpdate = useCallback(() => {
+    window.electronAPI?.updater?.downloadUpdate();
+  }, []);
 
   const quitAndInstall = useCallback(() => {
     window.electronAPI?.updater?.quitAndInstall();
@@ -312,12 +313,13 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       updateInfo,
       checking,
       checkForUpdates,
+      downloadUpdate,
       dismissUpdate,
       showDialog,
       setShowDialog,
       quitAndInstall,
     }),
-    [updateInfo, checking, checkForUpdates, dismissUpdate, showDialog, quitAndInstall]
+    [updateInfo, checking, checkForUpdates, downloadUpdate, dismissUpdate, showDialog, quitAndInstall]
   );
 
   const panelContextValue = useMemo(

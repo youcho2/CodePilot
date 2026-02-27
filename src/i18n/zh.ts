@@ -302,6 +302,7 @@ const zh: Record<TranslationKey, string> = {
   'update.restartToUpdate': '重启以更新',
   'update.restartNow': '立即重启',
   'update.readyToInstall': 'CodePilot v{version} 已就绪 — 重启以完成更新',
+  'update.installUpdate': '下载并安装',
   'update.later': '稍后',
 
   // ── Image Generation ──────────────────────────────────────
