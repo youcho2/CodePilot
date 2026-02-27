@@ -565,9 +565,32 @@ export function addMessage(
   return db.prepare('SELECT * FROM messages WHERE id = ?').get(id) as Message;
 }
 
-export function updateMessageContent(messageId: string, content: string): void {
+export function updateMessageContent(messageId: string, content: string): number {
   const db = getDb();
-  db.prepare('UPDATE messages SET content = ? WHERE id = ?').run(content, messageId);
+  const result = db.prepare('UPDATE messages SET content = ? WHERE id = ?').run(content, messageId);
+  return result.changes;
+}
+
+/**
+ * Find the most recent assistant message in a session that contains a given text snippet,
+ * update its content, and return the real message ID. Used as fallback when the frontend
+ * only has a temporary message ID.
+ */
+export function updateMessageBySessionAndHint(
+  sessionId: string,
+  promptHint: string,
+  content: string,
+): { changes: number; messageId?: string } {
+  const db = getDb();
+  // Find the latest assistant message containing the prompt hint within an image-gen-request block
+  const row = db.prepare(
+    "SELECT id FROM messages WHERE session_id = ? AND role = 'assistant' AND content LIKE '%image-gen-request%' AND content LIKE ? ORDER BY created_at DESC LIMIT 1"
+  ).get(sessionId, `%${promptHint.slice(0, 60)}%`) as { id: string } | undefined;
+
+  if (!row) return { changes: 0 };
+
+  const result = db.prepare('UPDATE messages SET content = ? WHERE id = ?').run(content, row.id);
+  return { changes: result.changes, messageId: row.id };
 }
 
 export function clearSessionMessages(sessionId: string): void {

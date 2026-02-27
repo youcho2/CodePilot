@@ -143,7 +143,7 @@ export function ImageGenConfirmation({
         }
 
         // Persist result to DB by replacing image-gen-request with image-gen-result
-        if (messageId) {
+        {
           const resultBlock = JSON.stringify({
             status: 'completed',
             prompt,
@@ -158,8 +158,10 @@ export function ImageGenConfirmation({
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-              message_id: messageId,
+              message_id: messageId || '',
               content: '```image-gen-result\n' + resultBlock + '\n```',
+              session_id: sessionId,
+              prompt_hint: initialPrompt,
             }),
           }).catch(() => {});
         }
