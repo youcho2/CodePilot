@@ -118,7 +118,7 @@ const MODE_BADGE_CONFIG = {
 export function ChatListPanel({ open, width }: ChatListPanelProps) {
   const pathname = usePathname();
   const router = useRouter();
-  const { streamingSessionId, pendingApprovalSessionId, workingDirectory } = usePanel();
+  const { streamingSessionId, pendingApprovalSessionId, activeStreamingSessions, pendingApprovalSessionIds, workingDirectory } = usePanel();
   const { t } = useTranslation();
   const { isElectron, openNativePicker } = useNativeFolderPicker();
   const [sessions, setSessions] = useState<ChatSession[]>([]);
@@ -495,9 +495,9 @@ export function ChatListPanel({ open, width }: ChatListPanelProps) {
                         const isHovered = hoveredSession === session.id;
                         const isDeleting = deletingSession === session.id;
                         const isSessionStreaming =
-                          streamingSessionId === session.id;
+                          activeStreamingSessions.has(session.id) || streamingSessionId === session.id;
                         const needsApproval =
-                          pendingApprovalSessionId === session.id;
+                          pendingApprovalSessionIds.has(session.id) || pendingApprovalSessionId === session.id;
                         const mode = session.mode || "code";
                         const badgeCfg = MODE_BADGE_CONFIG[mode as keyof typeof MODE_BADGE_CONFIG] || MODE_BADGE_CONFIG.code;
 

@@ -590,6 +590,49 @@ export interface MediaJobListResponse {
   jobs: MediaJob[];
 }
 
+// ==========================================
+// Stream Session Manager Types
+// ==========================================
+
+export interface ToolUseInfo {
+  id: string;
+  name: string;
+  input: unknown;
+}
+
+export interface ToolResultInfo {
+  tool_use_id: string;
+  content: string;
+}
+
+export type StreamPhase = 'active' | 'completed' | 'error' | 'stopped';
+
+export interface SessionStreamSnapshot {
+  sessionId: string;
+  phase: StreamPhase;
+  streamingContent: string;
+  toolUses: ToolUseInfo[];
+  toolResults: ToolResultInfo[];
+  streamingToolOutput: string;
+  statusText: string | undefined;
+  pendingPermission: PermissionRequestEvent | null;
+  permissionResolved: 'allow' | 'deny' | null;
+  tokenUsage: TokenUsage | null;
+  startedAt: number;
+  completedAt: number | null;
+  error: string | null;
+  /** Final message content built at stream completion for ChatView to consume */
+  finalMessageContent: string | null;
+}
+
+export interface StreamEvent {
+  type: 'snapshot-updated' | 'phase-changed' | 'permission-request' | 'completed';
+  sessionId: string;
+  snapshot: SessionStreamSnapshot;
+}
+
+export type StreamEventListener = (event: StreamEvent) => void;
+
 export interface ClaudeStreamOptions {
   prompt: string;
   sessionId: string;

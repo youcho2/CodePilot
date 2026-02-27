@@ -73,16 +73,15 @@ export async function GET() {
     const providers = getAllProviders();
     const groups: ProviderModelGroup[] = [];
 
-    // Check for environment variables
-    const hasEnvKey = !!(process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN);
-    if (hasEnvKey) {
-      groups.push({
-        provider_id: 'env',
-        provider_name: 'Environment',
-        provider_type: 'anthropic',
-        models: DEFAULT_MODELS,
-      });
-    }
+    // Always show the built-in Claude Code provider group.
+    // Claude Code CLI stores credentials in ~/.claude/ (via `claude login`),
+    // which the SDK subprocess can read — even without ANTHROPIC_API_KEY in env.
+    groups.push({
+      provider_id: 'env',
+      provider_name: 'Claude Code',
+      provider_type: 'anthropic',
+      models: DEFAULT_MODELS,
+    });
 
     // Provider types that are not LLMs (e.g. image generation) — skip in chat model selector
     const MEDIA_PROVIDER_TYPES = new Set(['gemini-image']);
@@ -99,16 +98,6 @@ export async function GET() {
         provider_name: provider.name,
         provider_type: provider.provider_type,
         models,
-      });
-    }
-
-    // If no groups at all (no env, no providers), show default Anthropic group
-    if (groups.length === 0) {
-      groups.push({
-        provider_id: 'env',
-        provider_name: 'Anthropic',
-        provider_type: 'anthropic',
-        models: DEFAULT_MODELS,
       });
     }
 

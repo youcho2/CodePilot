@@ -1,24 +1,20 @@
 'use client';
 
 import { useState, useCallback, useEffect, useRef } from 'react';
-import type { Message, MessagesResponse, PermissionRequestEvent, FileAttachment } from '@/types';
+import type { Message, MessagesResponse, FileAttachment, SessionStreamSnapshot } from '@/types';
 import { MessageList } from './MessageList';
 import { MessageInput } from './MessageInput';
 import { usePanel } from '@/hooks/usePanel';
-import { consumeSSEStream } from '@/hooks/useSSEStream';
 import { BatchExecutionDashboard, BatchContextSync } from './batch-image-gen';
 import { setLastGeneratedImages, transferPendingToMessage } from '@/lib/image-ref-store';
-
-interface ToolUseInfo {
-  id: string;
-  name: string;
-  input: unknown;
-}
-
-interface ToolResultInfo {
-  tool_use_id: string;
-  content: string;
-}
+import {
+  startStream,
+  stopStream,
+  subscribe,
+  getSnapshot,
+  respondToPermission,
+  clearSnapshot,
+} from '@/lib/stream-session-manager';
 
 interface ChatViewProps {
   sessionId: string;
@@ -35,18 +31,29 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
   const [hasMore, setHasMore] = useState(initialHasMore);
   const [loadingMore, setLoadingMore] = useState(false);
   const loadingMoreRef = useRef(false);
-  const [streamingContent, setStreamingContent] = useState('');
-  const [isStreaming, setIsStreaming] = useState(false);
-  const [toolUses, setToolUses] = useState<ToolUseInfo[]>([]);
-  const [toolResults, setToolResults] = useState<ToolResultInfo[]>([]);
-  const [statusText, setStatusText] = useState<string | undefined>();
   const [mode, setMode] = useState(initialMode || 'code');
   const [currentModel, setCurrentModel] = useState(modelName || (typeof window !== 'undefined' ? localStorage.getItem('codepilot:last-model') : null) || 'sonnet');
   const [currentProviderId, setCurrentProviderId] = useState(providerId || (typeof window !== 'undefined' ? localStorage.getItem('codepilot:last-provider-id') : null) || '');
-  const [pendingPermission, setPendingPermission] = useState<PermissionRequestEvent | null>(null);
-  const [permissionResolved, setPermissionResolved] = useState<'allow' | 'deny' | null>(null);
-  const [streamingToolOutput, setStreamingToolOutput] = useState('');
-  const toolTimeoutRef = useRef<{ toolName: string; elapsedSeconds: number } | null>(null);
+
+  // Stream snapshot from the manager — drives all streaming UI
+  const [streamSnapshot, setStreamSnapshot] = useState<SessionStreamSnapshot | null>(
+    () => getSnapshot(sessionId)
+  );
+
+  // Derive rendering state from snapshot (backward-compatible with MessageList props)
+  const isStreaming = streamSnapshot?.phase === 'active';
+  const streamingContent = streamSnapshot?.streamingContent ?? '';
+  const toolUses = streamSnapshot?.toolUses ?? [];
+  const toolResults = streamSnapshot?.toolResults ?? [];
+  const streamingToolOutput = streamSnapshot?.streamingToolOutput ?? '';
+  const statusText = streamSnapshot?.statusText;
+  const pendingPermission = streamSnapshot?.pendingPermission ?? null;
+  const permissionResolved = streamSnapshot?.permissionResolved ?? null;
+
+  // Pending image generation notices — flushed into the next user message so the LLM knows about generated images
+  const pendingImageNoticesRef = useRef<string[]>([]);
+  // Ref for sendMessage to allow self-referencing in timeout auto-retry
+  const sendMessageRef = useRef<(content: string, files?: FileAttachment[]) => Promise<void>>(undefined);
 
   const handleModeChange = useCallback((newMode: string) => {
     setMode(newMode);
@@ -74,60 +81,68 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
     setCurrentModel(model);
   }, []);
 
-  const abortControllerRef = useRef<AbortController | null>(null);
-
-  // Abort active stream on unmount (e.g., session switch via key={id} remount).
-  // This triggers the existing server-side cleanup chain:
-  //   fetch abort → request.signal 'abort' → route abortController.abort()
-  //   → collectStreamResponse catch block saves partial message to DB
-  //   → permission-registry abort handler auto-denies pending permissions
+  // Subscribe to stream-session-manager for this session.
+  // On unmount we only unsubscribe — we do NOT abort the stream.
   useEffect(() => {
-    return () => {
-      if (abortControllerRef.current) {
-        abortControllerRef.current.abort();
-        abortControllerRef.current = null;
+    // Restore snapshot if stream is already active (e.g., user switched away and back)
+    const existing = getSnapshot(sessionId);
+    if (existing) {
+      setStreamSnapshot(existing);
+      if (existing.phase === 'active') {
+        setStreamingSessionId(sessionId);
       }
-      setStreamingSessionId('');
-      setPendingApprovalSessionId('');
-    };
-  }, [setStreamingSessionId, setPendingApprovalSessionId]);
-
-  // Warn before closing window/tab while streaming to prevent accidental data loss
-  useEffect(() => {
-    if (!isStreaming) return;
-    const handler = (e: BeforeUnloadEvent) => {
-      e.preventDefault();
-      e.returnValue = '';
-    };
-    window.addEventListener('beforeunload', handler);
-    return () => window.removeEventListener('beforeunload', handler);
-  }, [isStreaming]);
-
-  // Ref to keep accumulated streaming content in sync regardless of React batching
-  const accumulatedRef = useRef('');
-  // Refs to track tool data reliably across closures (state reads can be stale)
-  const toolUsesRef = useRef<ToolUseInfo[]>([]);
-  const toolResultsRef = useRef<ToolResultInfo[]>([]);
-  // Ref for sendMessage to allow self-referencing in timeout auto-retry without circular deps
-  const sendMessageRef = useRef<(content: string, files?: FileAttachment[]) => Promise<void>>(undefined);
-  // Pending image generation notices — flushed into the next user message so the LLM knows about generated images
-  const pendingImageNoticesRef = useRef<string[]>([]);
-
-  // Re-sync streaming content when the window regains visibility (Electron/browser tab switch)
-  useEffect(() => {
-    const handleVisibilityChange = () => {
-      if (document.visibilityState === 'visible' && accumulatedRef.current) {
-        setStreamingContent(accumulatedRef.current);
+      if (existing.pendingPermission && !existing.permissionResolved) {
+        setPendingApprovalSessionId(sessionId);
       }
-    };
-    document.addEventListener('visibilitychange', handleVisibilityChange);
-    // Also handle Electron-specific focus events
-    window.addEventListener('focus', handleVisibilityChange);
+    } else {
+      setStreamSnapshot(null);
+    }
+
+    const unsubscribe = subscribe(sessionId, (event) => {
+      setStreamSnapshot(event.snapshot);
+
+      // Sync panel state
+      if (event.type === 'phase-changed') {
+        if (event.snapshot.phase === 'active') {
+          setStreamingSessionId(sessionId);
+        } else {
+          setStreamingSessionId('');
+          setPendingApprovalSessionId('');
+        }
+      }
+      if (event.type === 'permission-request') {
+        setPendingApprovalSessionId(sessionId);
+      }
+      if (event.type === 'completed') {
+        setStreamingSessionId('');
+        setPendingApprovalSessionId('');
+
+        // Append the final assistant message to the messages list
+        const finalContent = event.snapshot.finalMessageContent;
+        if (finalContent) {
+          const assistantMessage: Message = {
+            id: 'temp-assistant-' + Date.now(),
+            session_id: sessionId,
+            role: 'assistant',
+            content: finalContent,
+            created_at: new Date().toISOString(),
+            token_usage: event.snapshot.tokenUsage ? JSON.stringify(event.snapshot.tokenUsage) : null,
+          };
+          // Transfer pending reference images to this message ID
+          transferPendingToMessage(assistantMessage.id);
+          setMessages((prev) => [...prev, assistantMessage]);
+        }
+
+        // Clear the snapshot from the manager since we've consumed it
+        clearSnapshot(sessionId);
+      }
+    });
+
     return () => {
-      document.removeEventListener('visibilitychange', handleVisibilityChange);
-      window.removeEventListener('focus', handleVisibilityChange);
+      unsubscribe();
+      // Do NOT abort — stream continues in the manager
     };
-  }, []);
+  }, [sessionId, setStreamingSessionId, setPendingApprovalSessionId]);
 
   const initializedRef = useRef(false);
   useEffect(() => {
@@ -172,55 +187,21 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
     }
   }, [sessionId, messages, hasMore]);
 
+  // Stop streaming — delegates to manager
   const stopStreaming = useCallback(() => {
-    abortControllerRef.current?.abort();
-    abortControllerRef.current = null;
-  }, []);
+    stopStream(sessionId);
+  }, [sessionId]);
 
-  const handlePermissionResponse = useCallback(async (decision: 'allow' | 'allow_session' | 'deny', updatedInput?: Record<string, unknown>) => {
-    if (!pendingPermission) return;
+  // Permission response — delegates to manager
+  const handlePermissionResponse = useCallback(
+    async (decision: 'allow' | 'allow_session' | 'deny', updatedInput?: Record<string, unknown>) => {
+      setPendingApprovalSessionId('');
+      await respondToPermission(sessionId, decision, updatedInput);
+    },
+    [sessionId, setPendingApprovalSessionId]
+  );
 
-    const body: { permissionRequestId: string; decision: { behavior: 'allow'; updatedPermissions?: unknown[]; updatedInput?: Record<string, unknown> } | { behavior: 'deny'; message?: string } } = {
-      permissionRequestId: pendingPermission.permissionRequestId,
-      decision: decision === 'deny'
-        ? { behavior: 'deny', message: 'User denied permission' }
-        : {
-            behavior: 'allow',
-            ...(decision === 'allow_session' && pendingPermission.suggestions
-              ? { updatedPermissions: pendingPermission.suggestions }
-              : {}),
-            ...(updatedInput ? { updatedInput } : {}),
-          },
-    };
-
-    setPermissionResolved(decision === 'deny' ? 'deny' : 'allow');
-    setPendingApprovalSessionId('');
-
-    try {
-      await fetch('/api/chat/permission', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      });
-    } catch {
-      // Best effort - the stream will handle timeout
-    }
-
-    // Clear permission state after a short delay so user sees the feedback.
-    // Only clear if no new permission request has arrived in the meantime.
-    const answeredId = pendingPermission.permissionRequestId;
-    setTimeout(() => {
-      setPendingPermission((current) => {
-        if (current?.permissionRequestId === answeredId) {
-          // Same request — safe to clear both
-          setPermissionResolved(null);
-          return null;
-        }
-        return current; // A new request arrived — keep it
-      });
-    }, 1000);
-  }, [pendingPermission, setPendingApprovalSessionId]);
-
+  // Send message — delegates stream management to the manager
   const sendMessage = useCallback(
     async (content: string, files?: FileAttachment[], systemPromptAppend?: string, displayOverride?: string) => {
       if (isStreaming) return;
@@ -245,304 +226,35 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
         token_usage: null,
       };
       setMessages((prev) => [...prev, userMessage]);
-      setIsStreaming(true);
-      setStreamingSessionId(sessionId);
-      setStreamingContent('');
-      accumulatedRef.current = '';
-      setToolUses([]);
-      setToolResults([]);
-      setStatusText(undefined);
 
-      const controller = new AbortController();
-      abortControllerRef.current = controller;
-
-      let accumulated = '';
-
-      // Stream idle timeout: abort if no SSE events arrive for this duration.
-      // Set slightly above the 5-minute permission timeout (300s) to avoid races.
-      const STREAM_IDLE_TIMEOUT_MS = 330_000;
-      let lastEventTime = Date.now();
-      let isIdleTimeout = false;
-      const idleCheckTimer = setInterval(() => {
-        if (Date.now() - lastEventTime >= STREAM_IDLE_TIMEOUT_MS) {
-          clearInterval(idleCheckTimer);
-          isIdleTimeout = true;
-          controller.abort();
-        }
-      }, 10_000);
-      const markActive = () => { lastEventTime = Date.now(); };
-
-      // Flush any pending image generation notices into the prompt so
-      // the LLM (especially in SDK resume mode) knows about previously generated images.
-      let effectiveContent = content;
-      if (pendingImageNoticesRef.current.length > 0) {
-        const notices = pendingImageNoticesRef.current.join('\n\n');
+      // Flush pending image notices
+      const notices = pendingImageNoticesRef.current.length > 0
+        ? [...pendingImageNoticesRef.current]
+        : undefined;
+      if (notices) {
         pendingImageNoticesRef.current = [];
-        effectiveContent = `${notices}\n\n---\n\n${content}`;
       }
 
-      try {
-        const response = await fetch('/api/chat', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            session_id: sessionId,
-            content: effectiveContent,
-            mode,
-            model: currentModel,
-            provider_id: currentProviderId,
-            ...(files && files.length > 0 ? { files } : {}),
-            ...(systemPromptAppend ? { systemPromptAppend } : {}),
-          }),
-          signal: controller.signal,
-        });
-
-        if (!response.ok) {
-          const err = await response.json();
-          throw new Error(err.error || 'Failed to send message');
-        }
-
-        const reader = response.body?.getReader();
-        if (!reader) throw new Error('No response stream');
-
-        const result = await consumeSSEStream(reader, {
-          onText: (acc) => {
-            markActive();
-            accumulated = acc;
-            accumulatedRef.current = acc;
-            setStreamingContent(acc);
-          },
-          onToolUse: (tool) => {
-            markActive();
-            setStreamingToolOutput('');
-            setToolUses((prev) => {
-              if (prev.some((t) => t.id === tool.id)) return prev;
-              const next = [...prev, tool];
-              toolUsesRef.current = next;
-              return next;
-            });
-          },
-          onToolResult: (res) => {
-            markActive();
-            setStreamingToolOutput('');
-            setToolResults((prev) => {
-              // Last-wins: if same tool_use_id exists, replace with newer (potentially more complete) result
-              const existingIdx = prev.findIndex(r => r.tool_use_id === res.tool_use_id);
-              if (existingIdx >= 0) {
-                const next = [...prev];
-                next[existingIdx] = res;
-                toolResultsRef.current = next;
-                return next;
-              }
-              const next = [...prev, res];
-              toolResultsRef.current = next;
-              return next;
-            });
-            // Refresh file tree after each tool completes — file writes,
-            // deletions, and other FS operations are done via tools.
-            window.dispatchEvent(new Event('refresh-file-tree'));
-          },
-          onToolOutput: (data) => {
-            markActive();
-            setStreamingToolOutput((prev) => {
-              const next = prev + (prev ? '\n' : '') + data;
-              return next.length > 5000 ? next.slice(-5000) : next;
-            });
-          },
-          onToolProgress: (toolName, elapsed) => {
-            markActive();
-            setStatusText(`Running ${toolName}... (${elapsed}s)`);
-          },
-          onStatus: (text) => {
-            markActive();
-            if (text?.startsWith('Connected (')) {
-              setStatusText(text);
-              setTimeout(() => setStatusText(undefined), 2000);
-            } else {
-              setStatusText(text);
-            }
-          },
-          onResult: () => {
-            markActive();
-            /* token usage captured by consumeSSEStream */
-          },
-          onPermissionRequest: (permData) => {
-            markActive();
-            setPendingPermission(permData);
-            setPermissionResolved(null);
-            setPendingApprovalSessionId(sessionId);
-          },
-          onToolTimeout: (toolName, elapsedSeconds) => {
-            markActive();
-            toolTimeoutRef.current = { toolName, elapsedSeconds };
-          },
-          onModeChanged: (sdkMode) => {
-            markActive();
-            // Map SDK permissionMode to UI mode
-            const uiMode = sdkMode === 'plan' ? 'plan' : 'code';
-            handleModeChange(uiMode);
-          },
-          onTaskUpdate: () => {
-            markActive();
-            // Notify TaskList to refresh its data
-            window.dispatchEvent(new CustomEvent('tasks-updated'));
-          },
-          onError: (acc) => {
-            markActive();
-            accumulated = acc;
-            accumulatedRef.current = acc;
-            setStreamingContent(acc);
-          },
-        });
-
-        accumulated = result.accumulated;
-
-        // Build the assistant message content.
-        // When tools were used, serialize as a JSON content-blocks array
-        // (same format the backend API route stores), so MessageItem's
-        // parseToolBlocks() can render tool UI from history.
-        const finalToolUses = toolUsesRef.current;
-        const finalToolResults = toolResultsRef.current;
-        const hasTools = finalToolUses.length > 0 || finalToolResults.length > 0;
-
-        let messageContent = accumulated.trim();
-        if (hasTools && messageContent) {
-          const contentBlocks: Array<Record<string, unknown>> = [];
-          if (accumulated.trim()) {
-            contentBlocks.push({ type: 'text', text: accumulated.trim() });
-          }
-          for (const tu of finalToolUses) {
-            contentBlocks.push({ type: 'tool_use', id: tu.id, name: tu.name, input: tu.input });
-            const tr = finalToolResults.find(r => r.tool_use_id === tu.id);
-            if (tr) {
-              contentBlocks.push({ type: 'tool_result', tool_use_id: tr.tool_use_id, content: tr.content });
-            }
-          }
-          messageContent = JSON.stringify(contentBlocks);
-        }
-
-        // Add the assistant message to the list
-        if (messageContent) {
-          const assistantMessage: Message = {
-            id: 'temp-assistant-' + Date.now(),
-            session_id: sessionId,
-            role: 'assistant',
-            content: messageContent,
-            created_at: new Date().toISOString(),
-            token_usage: result.tokenUsage ? JSON.stringify(result.tokenUsage) : null,
-          };
-          // Transfer pending reference images to this message ID so MessageItem can
-          // retrieve them. StreamingMessage uses __pending__ directly, but once the
-          // message transitions to MessageItem, it's keyed by message.id.
-          transferPendingToMessage(assistantMessage.id);
-
-          setMessages((prev) => [...prev, assistantMessage]);
-        }
-      } catch (error) {
-        clearInterval(idleCheckTimer);
-
-        if (error instanceof DOMException && error.name === 'AbortError') {
-          // Stream idle timeout — no SSE events for too long
-          if (isIdleTimeout) {
-            const idleSecs = Math.round(STREAM_IDLE_TIMEOUT_MS / 1000);
-            const errContent = accumulated.trim()
-              ? accumulated.trim() + `\n\n**Error:** Stream idle timeout — no response for ${idleSecs}s. The connection may have dropped.`
-              : `**Error:** Stream idle timeout — no response for ${idleSecs}s. The connection may have dropped.`;
-            const errMessage: Message = {
-              id: 'temp-error-' + Date.now(),
-              session_id: sessionId,
-              role: 'assistant',
-              content: errContent,
-              created_at: new Date().toISOString(),
-              token_usage: null,
-            };
-            setMessages((prev) => [...prev, errMessage]);
-          } else {
-            const timeoutInfo = toolTimeoutRef.current;
-            if (timeoutInfo) {
-              // Tool execution timed out — save partial content and auto-retry
-              if (accumulated.trim()) {
-                const partialMessage: Message = {
-                  id: 'temp-assistant-' + Date.now(),
-                  session_id: sessionId,
-                  role: 'assistant',
-                  content: accumulated.trim() + `\n\n*(tool ${timeoutInfo.toolName} timed out after ${timeoutInfo.elapsedSeconds}s)*`,
-                  created_at: new Date().toISOString(),
-                  token_usage: null,
-                };
-                setMessages((prev) => [...prev, partialMessage]);
-              }
-              // Clean up before auto-retry
-              toolTimeoutRef.current = null;
-              setIsStreaming(false);
-              setStreamingSessionId('');
-              setStreamingContent('');
-              accumulatedRef.current = '';
-              toolUsesRef.current = [];
-              toolResultsRef.current = [];
-              setToolUses([]);
-              setToolResults([]);
-              setStreamingToolOutput('');
-              setStatusText(undefined);
-              setPendingPermission(null);
-              setPermissionResolved(null);
-              setPendingApprovalSessionId('');
-              abortControllerRef.current = null;
-              // Auto-retry: send a follow-up message telling the model to adjust strategy
-              setTimeout(() => {
-                sendMessageRef.current?.(
-                  `The previous tool "${timeoutInfo.toolName}" timed out after ${timeoutInfo.elapsedSeconds} seconds. Please try a different approach to accomplish the task. Avoid repeating the same operation that got stuck.`
-                );
-              }, 500);
-              return; // Skip the normal finally cleanup since we did it above
-            }
-            // User manually stopped generation — add partial content
-            if (accumulated.trim()) {
-              const partialMessage: Message = {
-                id: 'temp-assistant-' + Date.now(),
-                session_id: sessionId,
-                role: 'assistant',
-                content: accumulated.trim() + '\n\n*(generation stopped)*',
-                created_at: new Date().toISOString(),
-                token_usage: null,
-              };
-              setMessages((prev) => [...prev, partialMessage]);
-            }
-          }
-        } else {
-          const errMsg = error instanceof Error ? error.message : 'Unknown error';
-          const errorMessage: Message = {
-            id: 'temp-error-' + Date.now(),
-            session_id: sessionId,
-            role: 'assistant',
-            content: `**Error:** ${errMsg}`,
-            created_at: new Date().toISOString(),
-            token_usage: null,
-          };
-          setMessages((prev) => [...prev, errorMessage]);
-        }
-      } finally {
-        clearInterval(idleCheckTimer);
-        toolTimeoutRef.current = null;
-        setIsStreaming(false);
-        setStreamingSessionId('');
-        setStreamingContent('');
-        accumulatedRef.current = '';
-        toolUsesRef.current = [];
-        toolResultsRef.current = [];
-        setToolUses([]);
-        setToolResults([]);
-        setStreamingToolOutput('');
-        setStatusText(undefined);
-        setPendingPermission(null);
-        setPermissionResolved(null);
-        setPendingApprovalSessionId('');
-        abortControllerRef.current = null;
-        // Notify file tree to refresh after AI finishes
-        window.dispatchEvent(new CustomEvent('refresh-file-tree'));
-      }
+      // Delegate to stream session manager
+      startStream({
+        sessionId,
+        content,
+        mode,
+        model: currentModel,
+        providerId: currentProviderId,
+        files,
+        systemPromptAppend,
+        pendingImageNotices: notices,
+        onModeChanged: (sdkMode) => {
+          const uiMode = sdkMode === 'plan' ? 'plan' : 'code';
+          handleModeChange(uiMode);
+        },
+        sendMessageFn: (retryContent: string, retryFiles?: FileAttachment[]) => {
+          sendMessageRef.current?.(retryContent, retryFiles);
+        },
+      });
     },
-    [sessionId, isStreaming, setStreamingSessionId, setPendingApprovalSessionId, mode, currentModel, currentProviderId]
+    [sessionId, isStreaming, mode, currentModel, currentProviderId, handleModeChange]
   );
 
   // Keep sendMessageRef in sync so timeout auto-retry can call it

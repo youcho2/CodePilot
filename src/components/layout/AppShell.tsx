@@ -15,7 +15,9 @@ import { UpdateContext, type UpdateInfo } from "@/hooks/useUpdate";
 import { ImageGenContext, useImageGenState } from "@/hooks/useImageGen";
 import { BatchImageGenContext, useBatchImageGenState } from "@/hooks/useBatchImageGen";
 import { ErrorBoundary } from "./ErrorBoundary";
+import { getActiveSessionIds, getSnapshot } from "@/lib/stream-session-manager";
 
+const EMPTY_SET = new Set<string>();
 const CHATLIST_MIN = 180;
 const CHATLIST_MAX = 400;
 const RIGHTPANEL_MIN = 200;
@@ -92,6 +94,40 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const [sessionTitle, setSessionTitle] = useState("");
   const [streamingSessionId, setStreamingSessionId] = useState("");
   const [pendingApprovalSessionId, setPendingApprovalSessionId] = useState("");
+
+  // --- Multi-session stream tracking (driven by stream-session-manager) ---
+  const [activeStreamingSessions, setActiveStreamingSessions] = useState<Set<string>>(EMPTY_SET);
+  const [pendingApprovalSessionIds, setPendingApprovalSessionIds] = useState<Set<string>>(EMPTY_SET);
+
+  // Listen for global stream events from stream-session-manager
+  useEffect(() => {
+    const handler = () => {
+      const activeIds = getActiveSessionIds();
+      setActiveStreamingSessions(activeIds.length > 0 ? new Set(activeIds) : EMPTY_SET);
+
+      const approvals = new Set<string>();
+      for (const sid of activeIds) {
+        const snap = getSnapshot(sid);
+        if (snap?.pendingPermission && !snap.permissionResolved) {
+          approvals.add(sid);
+        }
+      }
+      setPendingApprovalSessionIds(approvals.size > 0 ? approvals : EMPTY_SET);
+    };
+    window.addEventListener('stream-session-event', handler);
+    return () => window.removeEventListener('stream-session-event', handler);
+  }, []);
+
+  // Warn before closing window/tab while any session is streaming
+  useEffect(() => {
+    if (activeStreamingSessions.size === 0) return;
+    const handler = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = '';
+    };
+    window.addEventListener('beforeunload', handler);
+    return () => window.removeEventListener('beforeunload', handler);
+  }, [activeStreamingSessions]);
 
   // --- Doc Preview state ---
   const [previewFile, setPreviewFileRaw] = useState<string | null>(null);
@@ -348,12 +384,14 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       setStreamingSessionId,
       pendingApprovalSessionId,
       setPendingApprovalSessionId,
+      activeStreamingSessions,
+      pendingApprovalSessionIds,
       previewFile,
       setPreviewFile,
       previewViewMode,
       setPreviewViewMode,
     }),
-    [panelOpen, setPanelOpen, panelContent, workingDirectory, sessionId, sessionTitle, streamingSessionId, pendingApprovalSessionId, previewFile, setPreviewFile, previewViewMode]
+    [panelOpen, setPanelOpen, panelContent, workingDirectory, sessionId, sessionTitle, streamingSessionId, pendingApprovalSessionId, activeStreamingSessions, pendingApprovalSessionIds, previewFile, setPreviewFile, previewViewMode]
   );
 
   const imageGenValue = useImageGenState();
