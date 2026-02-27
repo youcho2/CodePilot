@@ -644,6 +644,7 @@ export interface ClaudeStreamOptions {
   abortController?: AbortController;
   permissionMode?: string;
   files?: FileAttachment[];
+  imageAgentMode?: boolean;
   toolTimeoutSeconds?: number;
   provider?: ApiProvider;
   /** Recent conversation history from DB — used as fallback context when SDK resume is unavailable or fails */

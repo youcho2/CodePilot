@@ -279,6 +279,7 @@ export function streamClaude(options: ClaudeStreamOptions): ReadableStream<strin
     toolTimeoutSeconds = 0,
     conversationHistory,
     onRuntimeStatusChange,
+    imageAgentMode,
   } = options;
 
   return new ReadableStream<string>({
@@ -612,14 +613,21 @@ export function streamClaude(options: ClaudeStreamOptions): ReadableStream<strin
           }
 
           if (imageFiles.length > 0) {
-            // Append image disk paths to the text prompt so Claude knows where
-            // the files are on disk (enables skills to reference them by path).
-            const workDir = workingDirectory || os.homedir();
-            const imagePaths = getUploadedFilePaths(imageFiles, workDir);
-            const imageReferences = imagePaths
-              .map((p, i) => `[User attached image: ${p} (${imageFiles[i].name})]`)
-              .join('\n');
-            const textWithImageRefs = `${imageReferences}\n\n${textPrompt}`;
+            // In imageAgentMode, skip file path references so Claude doesn't
+            // try to use built-in tools to analyze images from disk. It will
+            // see the images via vision (base64 content blocks) and follow the
+            // IMAGE_AGENT_SYSTEM_PROMPT to output image-gen-request blocks.
+            // In normal mode, append disk paths so skills can reference them.
+            const textWithImageRefs = imageAgentMode
+              ? textPrompt
+              : (() => {
+                  const workDir = workingDirectory || os.homedir();
+                  const imagePaths = getUploadedFilePaths(imageFiles, workDir);
+                  const imageReferences = imagePaths
+                    .map((p, i) => `[User attached image: ${p} (${imageFiles[i].name})]`)
+                    .join('\n');
+                  return `${imageReferences}\n\n${textPrompt}`;
+                })();
 
             const contentBlocks: Array<
               | { type: 'image'; source: { type: 'base64'; media_type: string; data: string } }

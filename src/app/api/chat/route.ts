@@ -149,7 +149,7 @@ export async function POST(request: NextRequest) {
             name: f.name,
             type: f.type,
             size: f.size,
-            data: meta?.filePath ? '' : f.data, // Skip base64 data if file is already saved to disk
+            data: (meta?.filePath && !f.type.startsWith('image/')) ? '' : f.data, // Keep base64 for images (needed for vision); clear for non-images (read from disk)
             filePath: meta?.filePath,
           };
         })
@@ -189,6 +189,7 @@ export async function POST(request: NextRequest) {
       abortController,
       permissionMode,
       files: fileAttachments,
+      imageAgentMode: !!systemPromptAppend,
       toolTimeoutSeconds: toolTimeout || 300,
       provider: resolvedProvider,
       conversationHistory: historyMsgs,
