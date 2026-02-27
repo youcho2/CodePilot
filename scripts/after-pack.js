@@ -118,4 +118,33 @@ module.exports = async function afterPack(context) {
       }
     }
   }
+
+  // Step 4: Ad-hoc code sign on macOS for auto-update compatibility.
+  // electron-updater's ShipIt process validates code signatures when applying
+  // updates. Without at least an ad-hoc signature, the update fails with:
+  //   "Code signature did not pass validation: 代码未能满足指定的代码要求"
+  // Ad-hoc signing (codesign -s -) creates a valid local signature without
+  // requiring an Apple Developer certificate.
+  // This runs AFTER all file modifications (better-sqlite3 replacement above)
+  // so the signature covers the final app state. If a real certificate is
+  // available, electron-builder's signing step will override this.
+  if (platform === 'mac') {
+    const appName = context.packager.appInfo.productFilename;
+    const appPath = path.join(appOutDir, `${appName}.app`);
+
+    if (fs.existsSync(appPath)) {
+      console.log(`[afterPack] Ad-hoc signing ${appPath} for auto-update compatibility...`);
+      try {
+        execSync(`codesign --force --deep -s - "${appPath}"`, {
+          stdio: 'inherit',
+          timeout: 120000,
+        });
+        console.log('[afterPack] Ad-hoc signing completed successfully');
+      } catch (err) {
+        console.warn('[afterPack] Ad-hoc signing failed (non-fatal):', err.message);
+      }
+    } else {
+      console.warn(`[afterPack] macOS app not found at ${appPath}, skipping ad-hoc signing`);
+    }
+  }
 };

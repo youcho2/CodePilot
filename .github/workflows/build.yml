@@ -63,6 +63,7 @@ jobs:
       - name: Package for macOS (x64 + arm64)
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
         run: npx electron-builder --mac --config electron-builder.yml --publish always
 
   build-linux:
