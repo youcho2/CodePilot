@@ -259,6 +259,14 @@ export function ChatListPanel({ open, width }: ChatListPanelProps) {
     };
   }, [debouncedFetchSessions]);
 
+  // Periodic poll to catch sessions created server-side (e.g. bridge)
+  useEffect(() => {
+    const interval = setInterval(() => {
+      fetchSessions();
+    }, 5000);
+    return () => clearInterval(interval);
+  }, [fetchSessions]);
+
   const handleDeleteSession = async (
     e: React.MouseEvent,
     sessionId: string
