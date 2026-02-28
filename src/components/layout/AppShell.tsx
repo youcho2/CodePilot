@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { NavRail } from "./NavRail";
@@ -208,14 +208,15 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     });
   }, [sessionId, sessionTitle, workingDirectory]);
 
+  const pendingNavigateRef = useRef<string | null>(null);
+
   const removeFromSplit = useCallback((removeId: string) => {
     setSplitSessions((prev) => {
       const next = prev.filter((s) => s.sessionId !== removeId);
       if (next.length <= 1) {
-        // Exit split mode
+        // Exit split mode — defer navigation to useEffect
         if (next.length === 1) {
-          // Navigate to the remaining session
-          router.replace(`/chat/${next[0].sessionId}`);
+          pendingNavigateRef.current = next[0].sessionId;
         }
         return [];
       }
@@ -225,7 +226,16 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       );
       return next;
     });
-  }, [router]);
+  }, []);
+
+  // Deferred navigation after split exit (avoids setState-during-render)
+  useEffect(() => {
+    if (pendingNavigateRef.current) {
+      const target = pendingNavigateRef.current;
+      pendingNavigateRef.current = null;
+      router.replace(`/chat/${target}`);
+    }
+  }, [splitSessions, router]);
 
   const exitSplit = useCallback(() => {
     const firstSession = splitSessions[0];
