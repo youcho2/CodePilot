@@ -37,6 +37,7 @@ import { ProviderForm } from "./ProviderForm";
 import type { ProviderFormData } from "./ProviderForm";
 import type { ApiProvider } from "@/types";
 import { useTranslation } from "@/hooks/useTranslation";
+import type { TranslationKey } from "@/i18n";
 import Anthropic from "@lobehub/icons/es/Anthropic";
 import OpenRouter from "@lobehub/icons/es/OpenRouter";
 import Zhipu from "@lobehub/icons/es/Zhipu";
@@ -46,6 +47,8 @@ import Minimax from "@lobehub/icons/es/Minimax";
 import Aws from "@lobehub/icons/es/Aws";
 import Bedrock from "@lobehub/icons/es/Bedrock";
 import Google from "@lobehub/icons/es/Google";
+import Volcengine from "@lobehub/icons/es/Volcengine";
+import Bailian from "@lobehub/icons/es/Bailian";
 
 // ---------------------------------------------------------------------------
 // Brand icon resolver
@@ -62,6 +65,10 @@ function getProviderIcon(name: string, baseUrl: string): ReactNode {
   if (url.includes("kimi.com") || lower.includes("kimi")) return <Kimi size={18} />;
   if (url.includes("moonshot") || lower.includes("moonshot")) return <Moonshot size={18} />;
   if (url.includes("minimax") || lower.includes("minimax")) return <Minimax size={18} />;
+  if (url.includes("volces.com") || url.includes("volcengine") || lower.includes("volcengine") || lower.includes("火山") || lower.includes("doubao") || lower.includes("豆包"))
+    return <Volcengine size={18} />;
+  if (url.includes("dashscope") || lower.includes("bailian") || lower.includes("百炼") || lower.includes("aliyun"))
+    return <Bailian size={18} />;
   if (lower.includes("bedrock")) return <Bedrock size={18} />;
   if (lower.includes("vertex") || lower.includes("google")) return <Google size={18} />;
   if (lower.includes("aws")) return <Aws size={18} />;
@@ -118,7 +125,7 @@ const QUICK_PRESETS: QuickPreset[] = [
     description: "Anthropic-compatible API — provide URL and Key",
     descriptionZh: "Anthropic 兼容第三方 API — 填写地址和密钥",
     icon: <Anthropic size={18} />,
-    provider_type: "custom",
+    provider_type: "anthropic",
     base_url: "",
     extra_env: '{"ANTHROPIC_API_KEY":""}',
     fields: ["name", "api_key", "base_url", "model_names"],
@@ -212,6 +219,28 @@ const QUICK_PRESETS: QuickPreset[] = [
     fields: ["api_key"],
   },
   {
+    key: "volcengine",
+    name: "Volcengine Ark",
+    description: "Volcengine Ark Coding Plan — Doubao, GLM, DeepSeek, Kimi",
+    descriptionZh: "字节火山方舟 Coding Plan — 豆包、GLM、DeepSeek、Kimi",
+    icon: <Volcengine size={18} />,
+    provider_type: "custom",
+    base_url: "https://ark.cn-beijing.volces.com/api/coding",
+    extra_env: '{"ANTHROPIC_AUTH_TOKEN":""}',
+    fields: ["api_key", "model_names"],
+  },
+  {
+    key: "bailian",
+    name: "Aliyun Bailian",
+    description: "Aliyun Bailian Coding Plan — Qwen, GLM, Kimi, MiniMax",
+    descriptionZh: "阿里云百炼 Coding Plan — 通义千问、GLM、Kimi、MiniMax",
+    icon: <Bailian size={18} />,
+    provider_type: "custom",
+    base_url: "https://coding.dashscope.aliyuncs.com/apps/anthropic",
+    extra_env: '{"ANTHROPIC_AUTH_TOKEN":""}',
+    fields: ["api_key"],
+  },
+  {
     key: "bedrock",
     name: "AWS Bedrock",
     description: "Amazon Bedrock — requires AWS credentials",
@@ -294,6 +323,7 @@ function PresetConnectDialog({
   const [baseUrl, setBaseUrl] = useState("");
   const [name, setName] = useState("");
   const [extraEnv, setExtraEnv] = useState("{}");
+  const [modelName, setModelName] = useState("");
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -307,6 +337,7 @@ function PresetConnectDialog({
     setBaseUrl(preset.base_url);
     setName(preset.name);
     setExtraEnv(preset.extra_env);
+    setModelName("");
     setError(null);
     setSaving(false);
     setShowAdvanced(false);
@@ -325,6 +356,15 @@ function PresetConnectDialog({
       try {
         const envObj = JSON.parse(finalExtraEnv);
         envObj[keyField] = apiKey;
+        finalExtraEnv = JSON.stringify(envObj);
+      } catch { /* use as-is */ }
+    }
+
+    // Inject model name into extra_env if model_names field is used
+    if (preset.fields.includes("model_names") && modelName.trim()) {
+      try {
+        const envObj = JSON.parse(finalExtraEnv);
+        envObj["ANTHROPIC_MODEL"] = modelName.trim();
         finalExtraEnv = JSON.stringify(envObj);
       } catch { /* use as-is */ }
     }
@@ -407,6 +447,24 @@ function PresetConnectDialog({
                 className="text-sm font-mono"
                 autoFocus
               />
+            </div>
+          )}
+
+          {/* Model name — for providers that need user-specified model */}
+          {preset.fields.includes("model_names") && (
+            <div className="space-y-2">
+              <Label className="text-xs text-muted-foreground">{t('provider.modelName' as TranslationKey)}</Label>
+              <Input
+                value={modelName}
+                onChange={(e) => setModelName(e.target.value)}
+                placeholder="ark-code-latest"
+                className="text-sm font-mono"
+              />
+              <p className="text-[11px] text-muted-foreground">
+                {isZh
+                  ? '在服务商控制台配置的模型名称，如 ark-code-latest、doubao-seed-2.0-code'
+                  : 'Model name configured in provider console, e.g. ark-code-latest'}
+              </p>
             </div>
           )}
 

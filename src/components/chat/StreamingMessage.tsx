@@ -219,7 +219,7 @@ function AskUserQuestionUI({
                   <button
                     key={opt.label}
                     onClick={() => toggleOption(qIdx, opt.label, q.multiSelect)}
-                    className={`rounded-lg border px-3 py-1.5 text-xs transition-colors ${
+                    className={`rounded-lg border h-8 px-3 text-sm font-medium transition-colors ${
                       isSelected
                         ? 'border-primary bg-primary/10 text-primary'
                         : 'border-border bg-background text-foreground hover:bg-muted'
@@ -236,7 +236,7 @@ function AskUserQuestionUI({
               {/* Other option */}
               <button
                 onClick={() => toggleOther(qIdx, q.multiSelect)}
-                className={`rounded-lg border px-3 py-1.5 text-xs transition-colors ${
+                className={`rounded-lg border h-8 px-3 text-sm font-medium transition-colors ${
                   useOther[qIdx]
                     ? 'border-primary bg-primary/10 text-primary'
                     : 'border-border bg-background text-foreground hover:bg-muted'
@@ -261,7 +261,7 @@ function AskUserQuestionUI({
       <button
         onClick={handleSubmit}
         disabled={!hasAnswer}
-        className="rounded-lg bg-primary px-4 py-1.5 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-40"
+        className="rounded-lg bg-primary h-8 px-4 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-40"
       >
         Submit
       </button>
@@ -439,17 +439,6 @@ export function StreamingMessage({
           />
         )}
 
-        {/* Permission approval — AskUserQuestion gets a dedicated UI */}
-        {pendingPermission?.toolName === 'AskUserQuestion' && !permissionResolved && (
-          <AskUserQuestionUI
-            toolInput={pendingPermission.toolInput as Record<string, unknown>}
-            onSubmit={(decision, updatedInput) => onPermissionResponse?.(decision, updatedInput)}
-          />
-        )}
-        {pendingPermission?.toolName === 'AskUserQuestion' && permissionResolved && (
-          <p className="py-1 text-xs text-green-600 dark:text-green-400">Answer submitted</p>
-        )}
-
         {/* Permission approval — ExitPlanMode gets a dedicated UI */}
         {pendingPermission?.toolName === 'ExitPlanMode' && !permissionResolved && (
           <ExitPlanModeUI
@@ -575,6 +564,17 @@ export function StreamingMessage({
             .trim();
           return stripped ? <MessageResponse>{stripped}</MessageResponse> : null;
         })()}
+
+        {/* Permission approval — AskUserQuestion rendered after text so it stays in view */}
+        {pendingPermission?.toolName === 'AskUserQuestion' && !permissionResolved && (
+          <AskUserQuestionUI
+            toolInput={pendingPermission.toolInput as Record<string, unknown>}
+            onSubmit={(decision, updatedInput) => onPermissionResponse?.(decision, updatedInput)}
+          />
+        )}
+        {pendingPermission?.toolName === 'AskUserQuestion' && permissionResolved && (
+          <p className="py-1 text-xs text-green-600 dark:text-green-400">Answer submitted</p>
+        )}
 
         {/* Loading indicator when no content yet */}
         {isStreaming && !content && toolUses.length === 0 && !pendingPermission && (

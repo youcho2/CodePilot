@@ -51,6 +51,15 @@ const PROVIDER_MODEL_LABELS: Record<string, { value: string; label: string }[]> 
     { value: 'opus', label: 'Opus 4.6' },
     { value: 'haiku', label: 'Haiku 4.5' },
   ],
+  'https://coding.dashscope.aliyuncs.com/apps/anthropic': [
+    { value: 'qwen3.5-plus', label: 'Qwen 3.5 Plus' },
+    { value: 'qwen3-coder-next', label: 'Qwen 3 Coder Next' },
+    { value: 'qwen3-coder-plus', label: 'Qwen 3 Coder Plus' },
+    { value: 'kimi-k2.5', label: 'Kimi K2.5' },
+    { value: 'glm-5', label: 'GLM-5' },
+    { value: 'glm-4.7', label: 'GLM-4.7' },
+    { value: 'MiniMax-M2.5', label: 'MiniMax-M2.5' },
+  ],
 };
 
 /**
@@ -90,7 +99,19 @@ export async function GET() {
     for (const provider of providers) {
       if (MEDIA_PROVIDER_TYPES.has(provider.provider_type)) continue;
       const matched = PROVIDER_MODEL_LABELS[provider.base_url];
-      const rawModels = matched || DEFAULT_MODELS;
+      let rawModels = matched || DEFAULT_MODELS;
+
+      // For providers with ANTHROPIC_MODEL in extra_env (e.g. Volcengine Ark),
+      // show the configured model name in the selector
+      if (!matched) {
+        try {
+          const envObj = JSON.parse(provider.extra_env || '{}');
+          if (envObj.ANTHROPIC_MODEL) {
+            rawModels = [{ value: envObj.ANTHROPIC_MODEL, label: envObj.ANTHROPIC_MODEL }];
+          }
+        } catch { /* use default */ }
+      }
+
       const models = deduplicateModels(rawModels);
 
       groups.push({

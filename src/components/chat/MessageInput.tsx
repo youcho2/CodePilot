@@ -81,18 +81,6 @@ const IMAGE_AGENT_SYSTEM_PROMPT = `你是一个图像生成助手。当用户请
 - 如果用户要求修改上一张生成的图片，必须加 "useLastGenerated": true
 - 在输出结构化块之前，可以先简要说明你的理解和计划`;
 
-// Accepted file types for upload
-const ACCEPTED_FILE_TYPES = [
-  'image/jpeg', 'image/png', 'image/gif', 'image/webp',
-  'application/pdf',
-  'text/*',
-  '.md', '.json', '.csv', '.ts', '.tsx', '.js', '.jsx', '.py', '.go', '.rs',
-].join(',');
-
-// Max file sizes
-const MAX_IMAGE_SIZE = 5 * 1024 * 1024;  // 5MB
-const MAX_DOC_SIZE = 10 * 1024 * 1024;   // 10MB
-const MAX_FILE_SIZE = MAX_DOC_SIZE;       // Use larger limit; we validate per-type in conversion
 
 interface MessageInputProps {
   onSend: (content: string, files?: FileAttachment[], systemPromptAppend?: string, displayOverride?: string) => void;
@@ -631,12 +619,7 @@ export function MessageInput({
             file.filename || 'file',
             file.mediaType || 'application/octet-stream',
           );
-          // Enforce per-type size limits
-          const isImage = attachment.type.startsWith('image/');
-          const sizeLimit = isImage ? MAX_IMAGE_SIZE : MAX_DOC_SIZE;
-          if (attachment.size <= sizeLimit) {
-            attachments.push(attachment);
-          }
+          attachments.push(attachment);
         } catch {
           // Skip files that fail conversion
         }
@@ -1082,9 +1065,8 @@ export function MessageInput({
           {/* PromptInput replaces the old input area */}
           <PromptInput
             onSubmit={handleSubmit}
-            accept={ACCEPTED_FILE_TYPES}
+            accept=""
             multiple
-            maxFileSize={MAX_FILE_SIZE}
           >
             {/* Bridge: listens for file tree "+" button events */}
             <FileTreeAttachmentBridge />

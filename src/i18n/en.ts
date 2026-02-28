@@ -128,6 +128,7 @@ const en = {
   'provider.providerType': 'Provider Type',
   'provider.apiKey': 'API Key',
   'provider.baseUrl': 'Base URL',
+  'provider.modelName': 'Model Name',
   'provider.advancedOptions': 'Advanced Options',
   'provider.extraEnvVars': 'Extra Environment Variables',
   'provider.notes': 'Notes',

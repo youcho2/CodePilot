@@ -125,6 +125,7 @@ const zh: Record<TranslationKey, string> = {
   'provider.providerType': '服务商类型',
   'provider.apiKey': 'API 密钥',
   'provider.baseUrl': '基础 URL',
+  'provider.modelName': '模型名称',
   'provider.advancedOptions': '高级选项',
   'provider.extraEnvVars': '额外环境变量',
   'provider.notes': '备注',
