@@ -1,13 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { HugeiconsIcon } from "@hugeicons/react";
-import { PlusSignIcon } from "@hugeicons/core-free-icons";
-import { Input } from "@/components/ui/input";
-import { Button } from "@/components/ui/button";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
-import { TaskCard } from "./TaskCard";
 import { useTranslation } from "@/hooks/useTranslation";
 import type { TaskItem, TaskStatus } from "@/types";
 
@@ -15,14 +9,10 @@ interface TaskListProps {
   sessionId: string;
 }
 
-type FilterTab = "all" | "in_progress" | "completed";
-
 export function TaskList({ sessionId }: TaskListProps) {
   const { t } = useTranslation();
   const [tasks, setTasks] = useState<TaskItem[]>([]);
   const [loading, setLoading] = useState(false);
-  const [newTitle, setNewTitle] = useState("");
-  const [filter, setFilter] = useState<FilterTab>("all");
 
   const fetchTasks = useCallback(async () => {
     if (!sessionId) return;
@@ -51,135 +41,74 @@ export function TaskList({ sessionId }: TaskListProps) {
     return () => window.removeEventListener('tasks-updated', handler);
   }, [fetchTasks]);
 
-  const handleCreate = async () => {
-    const title = newTitle.trim();
-    if (!title || !sessionId) return;
-
+  const handleToggle = async (task: TaskItem) => {
+    const nextStatus: TaskStatus = task.status === "completed" ? "pending" : "completed";
     try {
-      const res = await fetch("/api/tasks", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ session_id: sessionId, title }),
-      });
-      if (res.ok) {
-        const data = await res.json();
-        setTasks((prev) => [...prev, data.task]);
-        setNewTitle("");
-      }
-    } catch {
-      // silently fail
-    }
-  };
-
-  const handleUpdate = async (
-    id: string,
-    updates: { title?: string; status?: TaskStatus }
-  ) => {
-    try {
-      const res = await fetch(`/api/tasks/${id}`, {
+      const res = await fetch(`/api/tasks/${task.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(updates),
+        body: JSON.stringify({ status: nextStatus }),
       });
       if (res.ok) {
         const data = await res.json();
-        setTasks((prev) => prev.map((t) => (t.id === id ? data.task : t)));
+        setTasks((prev) => prev.map((t) => (t.id === task.id ? data.task : t)));
       }
     } catch {
       // silently fail
     }
   };
 
-  const handleDelete = async (id: string) => {
-    try {
-      const res = await fetch(`/api/tasks/${id}`, { method: "DELETE" });
-      if (res.ok) {
-        setTasks((prev) => prev.filter((t) => t.id !== id));
-      }
-    } catch {
-      // silently fail
-    }
-  };
+  if (loading && tasks.length === 0) {
+    return (
+      <p className="py-2 text-center text-xs text-muted-foreground">
+        {t('tasks.loading')}
+      </p>
+    );
+  }
 
-  const filtered = tasks.filter((task) => {
-    if (filter === "all") return true;
-    if (filter === "in_progress")
-      return task.status === "pending" || task.status === "in_progress";
-    if (filter === "completed") return task.status === "completed";
-    return true;
-  });
-
-  const filterTabs: { key: FilterTab; label: string }[] = [
-    { key: "all", label: t('tasks.all') },
-    { key: "in_progress", label: t('tasks.active') },
-    { key: "completed", label: t('tasks.done') },
-  ];
+  if (tasks.length === 0) {
+    return (
+      <p className="py-2 text-center text-xs text-muted-foreground">
+        {t('tasks.noTasks')}
+      </p>
+    );
+  }
 
   return (
-    <div className="flex h-full flex-col">
-      {/* Filter tabs */}
-      <div className="flex items-center gap-1 pb-2">
-        {filterTabs.map((tab) => (
-          <Button
-            key={tab.key}
-            variant="ghost"
-            size="sm"
-            className={cn(
-              "h-6 px-2 text-[10px]",
-              filter === tab.key && "bg-accent"
-            )}
-            onClick={() => setFilter(tab.key)}
+    <div className="flex flex-col gap-0.5">
+      {tasks.map((task) => {
+        const isDone = task.status === "completed";
+        return (
+          <button
+            key={task.id}
+            className="flex items-center gap-2 rounded-md px-1 py-1 text-left hover:bg-accent/50 transition-colors"
+            onClick={() => handleToggle(task)}
           >
-            {tab.label}
-          </Button>
-        ))}
-      </div>
-
-      {/* Add task input */}
-      <div className="flex items-center gap-1 pb-2">
-        <Input
-          placeholder={t('tasks.addPlaceholder')}
-          value={newTitle}
-          onChange={(e) => setNewTitle(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") handleCreate();
-          }}
-          className="h-7 text-xs"
-        />
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          onClick={handleCreate}
-          disabled={!newTitle.trim()}
-        >
-          <HugeiconsIcon icon={PlusSignIcon} className="h-3.5 w-3.5" />
-          <span className="sr-only">{t('tasks.addTask')}</span>
-        </Button>
-      </div>
-
-      {/* Task list */}
-      <ScrollArea className="flex-1">
-        {loading && tasks.length === 0 ? (
-          <p className="py-4 text-center text-xs text-muted-foreground">
-            {t('tasks.loading')}
-          </p>
-        ) : filtered.length === 0 ? (
-          <p className="py-4 text-center text-xs text-muted-foreground">
-            {tasks.length === 0 ? t('tasks.noTasks') : t('tasks.noMatching')}
-          </p>
-        ) : (
-          <div className="flex flex-col gap-1.5 pb-4">
-            {filtered.map((task) => (
-              <TaskCard
-                key={task.id}
-                task={task}
-                onUpdate={handleUpdate}
-                onDelete={handleDelete}
-              />
-            ))}
-          </div>
-        )}
-      </ScrollArea>
+            <span
+              className={cn(
+                "flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded border transition-colors",
+                isDone
+                  ? "border-foreground bg-foreground text-background"
+                  : "border-muted-foreground/40"
+              )}
+            >
+              {isDone && (
+                <svg className="h-2.5 w-2.5" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M2.5 6l2.5 2.5 4.5-5" />
+                </svg>
+              )}
+            </span>
+            <span
+              className={cn(
+                "flex-1 truncate text-xs",
+                isDone && "text-muted-foreground line-through"
+              )}
+            >
+              {task.title}
+            </span>
+          </button>
+        );
+      })}
     </div>
   );
 }
