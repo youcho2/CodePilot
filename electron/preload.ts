@@ -25,6 +25,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
       return () => { ipcRenderer.removeListener('install:progress', listener); };
     },
   },
+  bridge: {
+    isActive: () => ipcRenderer.invoke('bridge:is-active'),
+  },
   // Native auto-updater bridge — disabled (code signature issues on macOS).
   // Users are directed to download from GitHub Releases.
   // TODO: Re-enable after obtaining Apple Developer certificate.
