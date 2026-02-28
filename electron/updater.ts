@@ -1,132 +1,25 @@
-import { autoUpdater } from 'electron-updater';
+// =============================================================================
+// Native auto-updater (electron-updater) — DISABLED
+//
+// Temporarily disabled due to macOS code signature validation failures with
+// ad-hoc signing. Users are directed to download from GitHub Releases instead.
+// The browser-mode update check (via /api/app/updates) remains active in the
+// frontend to notify users of new versions.
+//
+// TODO: Re-enable after obtaining an Apple Developer certificate for proper
+// code signing, then uncomment this file and the calls in main.ts / preload.ts.
+// =============================================================================
+
+// import { autoUpdater } from 'electron-updater';
 import type { BrowserWindow } from 'electron';
-import { ipcMain, session } from 'electron';
+// import { ipcMain, session } from 'electron';
 
-let mainWindow: BrowserWindow | null = null;
-
-function sendStatus(data: Record<string, unknown>) {
-  mainWindow?.webContents.send('updater:status', data);
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+export function initAutoUpdater(_win: BrowserWindow) {
+  console.log('[updater] Native auto-updater is disabled. Users should download updates from GitHub Releases.');
 }
 
-/**
- * Resolve system proxy for GitHub and inject into electron-updater
- * so that VPN / proxy tools are respected during update downloads.
- */
-async function configureProxy() {
-  try {
-    const proxy = await session.defaultSession.resolveProxy('https://github.com');
-    // proxy returns "DIRECT" or "PROXY host:port" / "SOCKS5 host:port" etc.
-    if (proxy && proxy !== 'DIRECT') {
-      const match = proxy.match(/^(?:PROXY|HTTPS)\s+(.+)/i);
-      if (match) {
-        process.env.HTTPS_PROXY = `http://${match[1]}`;
-        console.log('[updater] Using system proxy:', process.env.HTTPS_PROXY);
-      }
-      const socksMatch = proxy.match(/^SOCKS5?\s+(.+)/i);
-      if (socksMatch) {
-        process.env.HTTPS_PROXY = `socks5://${socksMatch[1]}`;
-        console.log('[updater] Using system SOCKS proxy:', process.env.HTTPS_PROXY);
-      }
-    }
-  } catch (err) {
-    console.warn('[updater] Failed to resolve proxy:', err);
-  }
-}
-
-export function initAutoUpdater(win: BrowserWindow) {
-  mainWindow = win;
-
-  // Configuration — don't auto-download, let user trigger manually
-  autoUpdater.autoDownload = false;
-  autoUpdater.autoInstallOnAppQuit = true;
-
-  // Resolve and apply system proxy for update downloads
-  configureProxy();
-
-  // --- Events ---
-  autoUpdater.on('checking-for-update', () => {
-    sendStatus({ status: 'checking' });
-  });
-
-  autoUpdater.on('update-available', (info) => {
-    sendStatus({
-      status: 'available',
-      info: {
-        version: info.version,
-        releaseNotes: info.releaseNotes,
-        releaseName: info.releaseName,
-        releaseDate: info.releaseDate,
-      },
-    });
-  });
-
-  autoUpdater.on('update-not-available', () => {
-    sendStatus({ status: 'not-available' });
-  });
-
-  autoUpdater.on('download-progress', (progress) => {
-    sendStatus({
-      status: 'downloading',
-      progress: {
-        percent: progress.percent,
-        bytesPerSecond: progress.bytesPerSecond,
-        transferred: progress.transferred,
-        total: progress.total,
-      },
-    });
-  });
-
-  autoUpdater.on('update-downloaded', (info) => {
-    sendStatus({
-      status: 'downloaded',
-      info: {
-        version: info.version,
-        releaseNotes: info.releaseNotes,
-        releaseName: info.releaseName,
-        releaseDate: info.releaseDate,
-      },
-    });
-  });
-
-  autoUpdater.on('error', (err) => {
-    sendStatus({ status: 'error', error: err.message });
-  });
-
-  // --- IPC handlers ---
-  ipcMain.handle('updater:check', async () => {
-    return autoUpdater.checkForUpdates();
-  });
-
-  ipcMain.handle('updater:download', async () => {
-    try {
-      return await autoUpdater.downloadUpdate();
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      console.error('[updater] Download failed:', message);
-      sendStatus({ status: 'error', error: message });
-      throw err;
-    }
-  });
-
-  ipcMain.handle('updater:quit-and-install', () => {
-    autoUpdater.quitAndInstall();
-  });
-
-  // Initial check after 10 seconds
-  setTimeout(() => {
-    autoUpdater.checkForUpdates().catch((err) => {
-      console.warn('[updater] Initial check failed:', err.message);
-    });
-  }, 10_000);
-
-  // Periodic check every 4 hours
-  setInterval(() => {
-    autoUpdater.checkForUpdates().catch((err) => {
-      console.warn('[updater] Periodic check failed:', err.message);
-    });
-  }, 4 * 60 * 60 * 1000);
-}
-
-export function setUpdaterWindow(win: BrowserWindow) {
-  mainWindow = win;
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+export function setUpdaterWindow(_win: BrowserWindow) {
+  // no-op while native updater is disabled
 }

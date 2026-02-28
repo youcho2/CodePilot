@@ -25,14 +25,17 @@ contextBridge.exposeInMainWorld('electronAPI', {
       return () => { ipcRenderer.removeListener('install:progress', listener); };
     },
   },
-  updater: {
-    checkForUpdates: () => ipcRenderer.invoke('updater:check'),
-    downloadUpdate: () => ipcRenderer.invoke('updater:download'),
-    quitAndInstall: () => ipcRenderer.invoke('updater:quit-and-install'),
-    onStatus: (callback: (data: unknown) => void) => {
-      const listener = (_event: unknown, data: unknown) => callback(data);
-      ipcRenderer.on('updater:status', listener);
-      return () => { ipcRenderer.removeListener('updater:status', listener); };
-    },
-  },
+  // Native auto-updater bridge — disabled (code signature issues on macOS).
+  // Users are directed to download from GitHub Releases.
+  // TODO: Re-enable after obtaining Apple Developer certificate.
+  // updater: {
+  //   checkForUpdates: () => ipcRenderer.invoke('updater:check'),
+  //   downloadUpdate: () => ipcRenderer.invoke('updater:download'),
+  //   quitAndInstall: () => ipcRenderer.invoke('updater:quit-and-install'),
+  //   onStatus: (callback: (data: unknown) => void) => {
+  //     const listener = (_event: unknown, data: unknown) => callback(data);
+  //     ipcRenderer.on('updater:status', listener);
+  //     return () => { ipcRenderer.removeListener('updater:status', listener); };
+  //   },
+  // },
 });

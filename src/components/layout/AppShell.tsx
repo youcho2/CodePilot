@@ -368,9 +368,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const [checking, setChecking] = useState(false);
   const [showDialog, setShowDialog] = useState(false);
 
-  const isNativeUpdater = typeof window !== "undefined" && !!window.electronAPI?.updater;
+  // Native auto-updater disabled — always use browser-mode (GitHub API) check.
+  // Users are directed to download from GitHub Releases.
+  // TODO: Re-enable native updater after obtaining Apple Developer certificate.
+  const isNativeUpdater = false;
 
-  // --- Browser-mode update check (fallback) ---
+  // --- Browser-mode update check ---
   const checkForUpdatesBrowser = useCallback(async () => {
     setChecking(true);
     try {
@@ -399,130 +402,28 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
-  // --- Electron native updater check ---
-  const checkForUpdatesNative = useCallback(async () => {
-    setChecking(true);
-    setUpdateInfo((prev) => prev ? { ...prev, lastError: null } : prev);
-    try {
-      await window.electronAPI?.updater?.checkForUpdates();
-    } catch {
-      setChecking(false);
-    }
-  }, []);
-
-  const checkForUpdates = isNativeUpdater ? checkForUpdatesNative : checkForUpdatesBrowser;
-
-  // Subscribe to native updater IPC events
-  useEffect(() => {
-    if (!isNativeUpdater) return;
-
-    const unsubscribe = window.electronAPI!.updater!.onStatus((event) => {
-      switch (event.status) {
-        case 'checking':
-          setChecking(true);
-          break;
-
-        case 'available':
-          setChecking(false);
-          setUpdateInfo((prev) => {
-            const releaseNotes = typeof event.info?.releaseNotes === 'string'
-              ? event.info.releaseNotes
-              : '';
-            const newInfo: UpdateInfo = {
-              updateAvailable: true,
-              latestVersion: event.info?.version ?? '',
-              currentVersion: prev?.currentVersion ?? (process.env.NEXT_PUBLIC_APP_VERSION || '0.0.0'),
-              releaseName: event.info?.releaseName ?? `v${event.info?.version}`,
-              releaseNotes,
-              releaseUrl: `https://github.com/op7418/CodePilot/releases/tag/v${event.info?.version}`,
-              publishedAt: event.info?.releaseDate ?? '',
-              downloadProgress: prev?.downloadProgress ?? null,
-              readyToInstall: prev?.readyToInstall ?? false,
-              isNativeUpdate: true,
-              lastError: null,
-            };
-            return newInfo;
-          });
-          // Show dialog if not dismissed
-          if (event.info?.version) {
-            const dismissed = localStorage.getItem(DISMISSED_VERSION_KEY);
-            if (dismissed !== event.info.version) {
-              setShowDialog(true);
-            }
-          }
-          break;
-
-        case 'not-available':
-          setChecking(false);
-          break;
-
-        case 'downloading':
-          setUpdateInfo((prev) => prev ? {
-            ...prev,
-            downloadProgress: event.progress?.percent ?? null,
-            lastError: null,
-          } : prev);
-          break;
-
-        case 'downloaded':
-          setUpdateInfo((prev) => {
-            if (!prev) return prev;
-            return {
-              ...prev,
-              readyToInstall: true,
-              downloadProgress: 100,
-              lastError: null,
-            };
-          });
-          break;
-
-        case 'error':
-          setChecking(false);
-          // Reset download progress so the download button re-appears
-          setUpdateInfo((prev) => prev ? {
-            ...prev,
-            downloadProgress: null,
-            lastError: event.error ?? 'Update failed',
-          } : prev);
-          console.warn('[updater] Error:', event.error);
-          break;
-      }
-    });
-
-    return unsubscribe;
-  }, [isNativeUpdater]);
+  // Native updater check disabled — always use browser-mode check
+  const checkForUpdates = checkForUpdatesBrowser;
 
   // Browser mode: check on mount + every 8 hours
   useEffect(() => {
-    if (isNativeUpdater) return;
     checkForUpdatesBrowser();
     const id = setInterval(checkForUpdatesBrowser, CHECK_INTERVAL);
     return () => clearInterval(id);
-  }, [isNativeUpdater, checkForUpdatesBrowser]);
+  }, [checkForUpdatesBrowser]);
 
   const dismissUpdate = useCallback(() => {
     setShowDialog(false);
   }, []);
 
+  // Native download/install disabled — no-ops while native updater is disabled.
+  // The UI shows "View Release" (opens GitHub) instead.
   const downloadUpdate = useCallback(async () => {
-    // Immediately show downloading state so user gets feedback
-    setUpdateInfo((prev) => prev ? { ...prev, downloadProgress: 0, lastError: null } : prev);
-    try {
-      await window.electronAPI?.updater?.downloadUpdate();
-    } catch (err) {
-      console.warn('[updater] Download failed:', err);
-      const message = err instanceof Error ? err.message : String(err);
-      // Reset progress so the download button re-appears
-      setUpdateInfo((prev) => prev ? {
-        ...prev,
-        downloadProgress: null,
-        lastError: message,
-      } : prev);
-    }
+    // no-op: native updater disabled
   }, []);
 
   const quitAndInstall = useCallback(() => {
-    window.electronAPI?.updater?.quitAndInstall();
+    // no-op: native updater disabled
   }, []);
 
   const updateContextValue = useMemo(
