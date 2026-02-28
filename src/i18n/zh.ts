@@ -19,8 +19,9 @@ const zh: Record<TranslationKey, string> = {
   'chatList.delete': '删除',
   'chatList.searchSessions': '搜索会话...',
   'chatList.noSessions': '暂无会话',
-  'chatList.importFromCli': '从 Claude CLI 导入',
+  'chatList.importFromCli': '从 Claude Code 导入',
   'chatList.addProjectFolder': '添加项目文件夹',
+  'chatList.threads': '对话列表',
 
   // ── Message list ────────────────────────────────────────────
   'messageList.claudeChat': 'Claude 对话',
@@ -267,6 +268,9 @@ const zh: Record<TranslationKey, string> = {
   'connection.installAuto': '自动安装 Claude Code',
   'connection.refresh': '刷新',
   'connection.installClaude': '安装 Claude Code',
+  'connection.connected': '已连接',
+  'connection.disconnected': '未连接',
+  'connection.checking': '检测中',
 
   // ── Install wizard ──────────────────────────────────────────
   'install.title': '安装 Claude Code',

@@ -358,10 +358,7 @@ export function ChatListPanel({ open, width }: ChatListPanelProps) {
       style={{ width: width ?? 240 }}
     >
       {/* Header - extra top padding for macOS traffic lights */}
-      <div className="flex h-12 shrink-0 items-center justify-between px-3 mt-5 pl-6">
-        <span className="text-[13px] font-semibold tracking-tight text-sidebar-foreground">
-          Threads
-        </span>
+      <div className="flex h-12 shrink-0 items-center px-3 mt-5">
         <ConnectionStatus />
       </div>
 
@@ -425,12 +422,19 @@ export function ChatListPanel({ open, width }: ChatListPanelProps) {
       {/* Session list grouped by project */}
       <ScrollArea className="flex-1 min-h-0 px-3">
         <div className="flex flex-col pb-3">
+          {/* Section title */}
+          <div className="px-2 pt-1 pb-1.5">
+            <span className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground/60">
+              {t('chatList.threads')}
+            </span>
+          </div>
+
           {/* Split group section */}
           {isSplitActive && (
             <div className="mb-2 rounded-lg border border-border/60 bg-muted/30 p-1.5">
               <div className="flex items-center gap-1.5 px-2 py-1">
-                <Columns2 className="h-3 w-3 text-muted-foreground" />
-                <span className="text-[11px] font-medium text-muted-foreground">{t('split.splitGroup')}</span>
+                <Columns2 className="h-3.5 w-3.5 text-muted-foreground" />
+                <span className="text-xs font-medium text-muted-foreground">{t('split.splitGroup')}</span>
               </div>
               <div className="mt-0.5 flex flex-col gap-0.5">
                 {splitSessions.map((session) => {
@@ -466,7 +470,7 @@ export function ChatListPanel({ open, width }: ChatListPanelProps) {
                         </span>
                       )}
                       <div className="flex-1 min-w-0">
-                        <span className="line-clamp-1 text-[12px] font-medium leading-tight break-all">
+                        <span className="line-clamp-1 text-[13px] font-medium leading-tight break-all">
                           {session.title}
                         </span>
                       </div>
@@ -532,13 +536,13 @@ export function ChatListPanel({ open, width }: ChatListPanelProps) {
                       >
                     <HugeiconsIcon
                       icon={isCollapsed ? ArrowRight01Icon : ArrowDown01Icon}
-                      className="h-3 w-3 shrink-0 text-muted-foreground"
+                      className="h-3.5 w-3.5 shrink-0 text-muted-foreground"
                     />
                     <HugeiconsIcon
                       icon={isCollapsed ? Folder01Icon : FolderOpenIcon}
-                      className="h-3.5 w-3.5 shrink-0 text-muted-foreground"
+                      className="h-4 w-4 shrink-0 text-muted-foreground"
                     />
-                    <span className="flex-1 truncate text-[12px] font-medium text-sidebar-foreground">
+                    <span className="flex-1 truncate text-[13px] font-medium text-sidebar-foreground">
                       {group.displayName}
                     </span>
                     {/* New chat in project button (on hover) */}
@@ -562,7 +566,7 @@ export function ChatListPanel({ open, width }: ChatListPanelProps) {
                           >
                             <HugeiconsIcon
                               icon={PlusSignIcon}
-                              className="h-3 w-3"
+                              className="h-3.5 w-3.5"
                             />
                             <span className="sr-only">
                               New chat in {group.displayName}
@@ -634,7 +638,7 @@ export function ChatListPanel({ open, width }: ChatListPanelProps) {
                                       });
                                     }}
                                   >
-                                    <Columns2 className="h-3 w-3" />
+                                    <Columns2 className="h-3.5 w-3.5" />
                                   </button>
                                 )}
                                 {/* Streaming indicator: hidden when hover shows split icon */}
@@ -658,14 +662,14 @@ export function ChatListPanel({ open, width }: ChatListPanelProps) {
                                 )}
                               </span>
                               <div className="flex-1 min-w-0">
-                                <span className="line-clamp-1 text-[12px] font-medium leading-tight break-all">
+                                <span className="line-clamp-1 text-[13px] font-medium leading-tight break-all">
                                   {session.title}
                                 </span>
                               </div>
                               {/* Right area — fixed width, time and delete stacked with opacity */}
                               <div className="relative w-[38px] h-4 shrink-0">
                                 <span className={cn(
-                                  "absolute inset-0 flex items-center justify-end text-[10px] text-muted-foreground/40 truncate transition-opacity",
+                                  "absolute inset-0 flex items-center justify-end text-[11px] text-muted-foreground/40 truncate transition-opacity",
                                   (isHovered || isDeleting) ? "opacity-0" : "opacity-100"
                                 )}>
                                   {formatRelativeTime(session.updated_at, t)}
@@ -678,7 +682,7 @@ export function ChatListPanel({ open, width }: ChatListPanelProps) {
                                   onClick={(e) => handleDeleteSession(e, session.id)}
                                   disabled={isDeleting}
                                 >
-                                  <HugeiconsIcon icon={Delete02Icon} className="h-3 w-3" />
+                                  <HugeiconsIcon icon={Delete02Icon} className="h-3.5 w-3.5" />
                                 </button>
                               </div>
                             </Link>

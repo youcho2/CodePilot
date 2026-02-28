@@ -141,10 +141,10 @@ export function ConnectionStatus() {
           )}
         />
         {status === null
-          ? "Checking"
+          ? t('connection.checking')
           : connected
-            ? "Connected"
-            : "Disconnected"}
+            ? t('connection.connected')
+            : t('connection.disconnected')}
       </button>
 
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>

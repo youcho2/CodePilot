@@ -22,8 +22,9 @@ const en = {
   'chatList.delete': 'Delete',
   'chatList.searchSessions': 'Search sessions...',
   'chatList.noSessions': 'No sessions yet',
-  'chatList.importFromCli': 'Import from Claude CLI',
+  'chatList.importFromCli': 'Import from Claude Code',
   'chatList.addProjectFolder': 'Add project folder',
+  'chatList.threads': 'Threads',
 
   // ── Message list ────────────────────────────────────────────
   'messageList.claudeChat': 'Claude Chat',
@@ -270,6 +271,9 @@ const en = {
   'connection.installAuto': 'Install Claude Code Automatically',
   'connection.refresh': 'Refresh',
   'connection.installClaude': 'Install Claude Code',
+  'connection.connected': 'Connected',
+  'connection.disconnected': 'Disconnected',
+  'connection.checking': 'Checking',
 
   // ── Install wizard ──────────────────────────────────────────
   'install.title': 'Install Claude Code',
