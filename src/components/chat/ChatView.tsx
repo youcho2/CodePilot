@@ -35,6 +35,14 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
   const [currentModel, setCurrentModel] = useState(modelName || (typeof window !== 'undefined' ? localStorage.getItem('codepilot:last-model') : null) || 'sonnet');
   const [currentProviderId, setCurrentProviderId] = useState(providerId || (typeof window !== 'undefined' ? localStorage.getItem('codepilot:last-provider-id') : null) || '');
 
+  // Sync model/provider when session data loads (props update after async fetch)
+  useEffect(() => {
+    if (modelName) setCurrentModel(modelName);
+  }, [modelName]);
+  useEffect(() => {
+    if (providerId) setCurrentProviderId(providerId);
+  }, [providerId]);
+
   // Stream snapshot from the manager — drives all streaming UI
   const [streamSnapshot, setStreamSnapshot] = useState<SessionStreamSnapshot | null>(
     () => getSnapshot(sessionId)
@@ -79,7 +87,13 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
   const handleProviderModelChange = useCallback((newProviderId: string, model: string) => {
     setCurrentProviderId(newProviderId);
     setCurrentModel(model);
-  }, []);
+    // Persist immediately so switching chats preserves the selection
+    fetch(`/api/chat/sessions/${sessionId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model, provider_id: newProviderId }),
+    }).catch(() => {});
+  }, [sessionId]);
 
   // Subscribe to stream-session-manager for this session.
   // On unmount we only unsubscribe — we do NOT abort the stream.
