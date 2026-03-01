@@ -39,9 +39,17 @@ jobs:
         run: npm run electron:build
 
       - name: Package for Windows
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: npx electron-builder --win --config electron-builder.yml --publish always
+        run: npx electron-builder --win --config electron-builder.yml --publish never
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-windows
+          path: |
+            release/*.exe
+            release/*.exe.blockmap
+            release/latest.yml
+          retention-days: 3
 
   build-macos:
     if: ${{ github.event_name == 'push' || inputs.platform == 'all' || inputs.platform == 'macos' }}
@@ -62,9 +70,20 @@ jobs:
 
       - name: Package for macOS (x64 + arm64)
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CSC_IDENTITY_AUTO_DISCOVERY: "false"
-        run: npx electron-builder --mac --config electron-builder.yml --publish always
+        run: npx electron-builder --mac --config electron-builder.yml --publish never
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-macos
+          path: |
+            release/*.dmg
+            release/*.dmg.blockmap
+            release/*.zip
+            release/*.zip.blockmap
+            release/latest-mac.yml
+          retention-days: 3
 
   build-linux:
     if: ${{ github.event_name == 'push' || inputs.platform == 'all' || inputs.platform == 'linux' }}
@@ -87,9 +106,18 @@ jobs:
         run: npm run electron:build
 
       - name: Package for Linux (${{ matrix.arch }})
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: npx electron-builder --linux --${{ matrix.arch }} --config electron-builder.yml --publish always
+        run: npx electron-builder --linux --${{ matrix.arch }} --config electron-builder.yml --publish never
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-linux-${{ matrix.arch }}
+          path: |
+            release/*.AppImage
+            release/*.deb
+            release/*.rpm
+            release/latest-linux*.yml
+          retention-days: 3
 
   release:
     if: ${{ always() && github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') && !contains(needs.*.result, 'cancelled') }}
@@ -99,6 +127,15 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: List artifacts
+        run: find artifacts -type f | sort
 
       - name: Get version and previous tag
         id: meta
@@ -124,7 +161,7 @@ jobs:
             echo "CHANGELOG_EOF"
           } >> "$GITHUB_OUTPUT"
 
-      - name: Update release notes
+      - name: Create release and upload assets
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -174,9 +211,13 @@ jobs:
           CHANGELOG_INLINE_EOF
           fi
 
-          # Update the draft release created by electron-builder with full notes
-          gh release edit "${GITHUB_REF_NAME}" \
+          # Collect all release files
+          FILES=$(find artifacts -type f \( -name "*.dmg" -o -name "*.zip" -o -name "*.exe" -o -name "*.AppImage" -o -name "*.deb" -o -name "*.rpm" -o -name "*.blockmap" -o -name "*.yml" \) | sort)
+
+          # Create release and upload all assets in one shot
+          # shellcheck disable=SC2086
+          gh release create "${GITHUB_REF_NAME}" \
             --title "CodePilot v${VERSION}" \
             --notes-file release-notes.md \
             --latest \
-            --draft=false
+            $FILES
