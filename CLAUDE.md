@@ -65,10 +65,10 @@ CodePilot — Claude Code 的桌面 GUI 客户端，基于 Electron + Next.js。
 - **Requirements**（系统要求、依赖说明）
 - **Changelog**（自上一版本以来的 commit 列表）
 
-## Architecture Docs
+## Docs 目录
 
-- [Agent Tooling & TodoWrite Bridge](docs/agent-tooling-todo-bridge.md) — SDK → SSE → DB 事件流、TodoWrite 字段映射、tool_result 三层去重策略
-- [多 IM 远程会话桥接系统](docs/bridge-system.md) — Telegram 远程操控 Claude 会话，含目录结构、数据流、关键设计决策
+- `docs/handover/` — 交接文档（架构、数据流、设计决策）。**检索前先读 README.md；增删文件后更新索引。**
+- `docs/research/` — 调研文档（技术方案、可行性分析）。**同上。**
 
 ## Build Notes
 
