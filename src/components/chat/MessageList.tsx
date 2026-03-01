@@ -2,6 +2,7 @@
 
 import { useRef, useEffect } from 'react';
 import { useTranslation } from '@/hooks/useTranslation';
+import { useStickToBottomContext } from 'use-stick-to-bottom';
 import type { Message, PermissionRequestEvent } from '@/types';
 import {
   Conversation,
@@ -12,6 +13,24 @@ import {
 import { MessageItem } from './MessageItem';
 import { StreamingMessage } from './StreamingMessage';
 import { CodePilotLogo } from './CodePilotLogo';
+
+/**
+ * Scrolls to bottom when streaming starts.
+ * Must be rendered inside <Conversation> (StickToBottom provider).
+ */
+function ScrollOnStream({ isStreaming }: { isStreaming: boolean }) {
+  const { scrollToBottom } = useStickToBottomContext();
+  const wasStreaming = useRef(false);
+
+  useEffect(() => {
+    if (isStreaming && !wasStreaming.current) {
+      scrollToBottom();
+    }
+    wasStreaming.current = isStreaming;
+  }, [isStreaming, scrollToBottom]);
+
+  return null;
+}
 
 interface ToolUseInfo {
   id: string;
@@ -97,6 +116,7 @@ export function MessageList({
 
   return (
     <Conversation>
+      <ScrollOnStream isStreaming={isStreaming} />
       <ConversationContent className="mx-auto max-w-3xl px-4 py-6 gap-6">
         {hasMore && (
           <div className="flex justify-center">
