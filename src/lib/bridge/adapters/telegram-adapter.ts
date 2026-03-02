@@ -14,7 +14,7 @@ import type {
 } from '../types';
 import type { FileAttachment } from '@/types';
 import { BaseChannelAdapter, registerAdapterFactory } from '../channel-adapter';
-import { callTelegramApi, escapeHtml } from './telegram-utils';
+import { callTelegramApi } from './telegram-utils';
 import {
   isImageEnabled,
   downloadPhoto,
@@ -22,7 +22,7 @@ import {
   isSupportedImageMime,
   inferMimeType,
 } from './telegram-media';
-import type { TelegramPhotoSize, TelegramDocument } from './telegram-media';
+import type { TelegramPhotoSize, TelegramDocument, MediaDownloadResult } from './telegram-media';
 import { getChannelOffset, setChannelOffset, insertAuditLog } from '../../db';
 import { getSetting } from '../../db';
 
@@ -55,14 +55,6 @@ interface TelegramUpdate {
     message?: { message_id: number; chat: { id: number } };
     data?: string;
   };
-}
-
-/**
- * Async queue entry — resolved by the poll loop, consumed by consumeOne().
- */
-interface QueueEntry {
-  message: InboundMessage;
-  resolve: () => void;
 }
 
 /** Media group debounce buffer entry for album messages. */
@@ -384,15 +376,22 @@ export class TelegramAdapter extends BaseChannelAdapter {
 
   /**
    * Mark an update as safely processed (enqueued or intentionally skipped).
-   * Advances committedOffset and prunes the dedup set when it exceeds capacity.
+   *
+   * Uses contiguous watermark advancement: committedOffset only advances when
+   * there are no gaps (e.g., media-group updates still buffered) below it.
+   * This prevents offset from jumping past un-flushed album messages.
    */
   private markUpdateProcessed(updateId: number): void {
-    if (updateId >= this.committedOffset) {
-      this.committedOffset = updateId + 1;
-    }
     this.recentUpdateIds.add(updateId);
+
+    // Walk committedOffset forward contiguously — only advance while
+    // the current position has been confirmed as processed.
+    while (this.recentUpdateIds.has(this.committedOffset)) {
+      this.committedOffset++;
+    }
+
+    // Prune dedup set when it exceeds capacity
     if (this.recentUpdateIds.size > DEDUP_SET_MAX) {
-      // Remove oldest entries (Set iterates in insertion order)
       const excess = this.recentUpdateIds.size - DEDUP_SET_MAX;
       let removed = 0;
       for (const id of this.recentUpdateIds) {
@@ -510,6 +509,9 @@ export class TelegramAdapter extends BaseChannelAdapter {
             const hasDocImage = m.document && this.isDocumentImage(m.document);
             const hasMedia = hasPhoto || hasDocImage;
 
+            // Unified text extraction: text for regular messages, caption for media messages
+            const messageText = m.text ?? m.caption ?? '';
+
             if (hasMedia && isImageEnabled()) {
               if (m.media_group_id) {
                 // Album message — buffer for debounce, advance fetchOffset immediately
@@ -519,8 +521,9 @@ export class TelegramAdapter extends BaseChannelAdapter {
                 // Single image message — process immediately
                 await this.processSingleImageMessage(update, chatId, userId, displayName);
               }
-            } else if (m.text) {
-              // Pure text message — original logic
+            } else if (messageText) {
+              // Text/caption message (covers: pure text, image_enabled=false + caption,
+              // unsupported document + caption)
               const msg: InboundMessage = {
                 messageId: String(m.message_id),
                 address: {
@@ -529,7 +532,7 @@ export class TelegramAdapter extends BaseChannelAdapter {
                   userId,
                   displayName,
                 },
-                text: m.text,
+                text: messageText,
                 timestamp: m.date * 1000,
                 raw: update,
                 updateId: update.update_id,
@@ -542,7 +545,7 @@ export class TelegramAdapter extends BaseChannelAdapter {
                   chatId,
                   direction: 'inbound',
                   messageId: String(m.message_id),
-                  summary: m.text.slice(0, 200),
+                  summary: messageText.slice(0, 200),
                 });
               } catch { /* best effort */ }
 
@@ -586,6 +589,7 @@ export class TelegramAdapter extends BaseChannelAdapter {
   /**
    * Process a single image message (no media_group_id).
    * Downloads the image and enqueues a message with attachments.
+   * Sends rejection notifications directly to Telegram on failure.
    */
   private async processSingleImageMessage(
     update: TelegramUpdate,
@@ -595,45 +599,44 @@ export class TelegramAdapter extends BaseChannelAdapter {
   ): Promise<void> {
     const m = update.message!;
     const token = this.botToken;
+    const address = { channelType: 'telegram' as const, chatId, userId, displayName };
+
     if (!token) {
       this.markUpdateProcessed(update.update_id);
       return;
     }
 
     const attachments: FileAttachment[] = [];
-    let rejectedReason: string | undefined;
+    const rejections: MediaDownloadResult[] = [];
 
     if (m.photo && m.photo.length > 0) {
-      const att = await downloadPhoto(token, m.photo, String(m.message_id));
-      if (att) attachments.push(att);
+      const result = await downloadPhoto(token, m.photo, String(m.message_id));
+      if (result.attachment) {
+        attachments.push(result.attachment);
+      } else if (result.rejected && result.rejected !== 'unsupported_type') {
+        rejections.push(result);
+      }
     } else if (m.document) {
       const result = await downloadDocumentImage(token, m.document, String(m.message_id));
       if (result.attachment) {
         attachments.push(result.attachment);
-      } else if (result.rejected) {
-        rejectedReason = result.rejected;
+      } else if (result.rejected && result.rejected !== 'unsupported_type') {
+        rejections.push(result);
       }
+    }
+
+    // Send rejection notification directly to user
+    if (rejections.length > 0) {
+      const notice = rejections.map(r => r.rejectedMessage || 'Image processing failed').join('\n');
+      this.send({ address, text: notice, parseMode: 'plain' }).catch(() => {});
     }
 
     const text = m.caption || m.text || '';
     const hasContent = attachments.length > 0 || text.trim();
 
     if (!hasContent) {
-      // Nothing usable — if rejected, we'll still mark processed
-      if (rejectedReason && rejectedReason !== 'unsupported_type') {
-        // Enqueue a rejection notification as text
-        const msg: InboundMessage = {
-          messageId: String(m.message_id),
-          address: { channelType: 'telegram', chatId, userId, displayName },
-          text: `[Image rejected] ${rejectedReason}`,
-          timestamp: m.date * 1000,
-          raw: update,
-          updateId: update.update_id,
-        };
-        this.enqueue(msg);
-      } else {
-        this.markUpdateProcessed(update.update_id);
-      }
+      // Nothing usable (all images failed, no text) — mark processed
+      this.markUpdateProcessed(update.update_id);
       return;
     }
 
@@ -654,8 +657,8 @@ export class TelegramAdapter extends BaseChannelAdapter {
 
     const msg: InboundMessage = {
       messageId: String(m.message_id),
-      address: { channelType: 'telegram', chatId, userId, displayName },
-      text: text,
+      address,
+      text,
       timestamp: m.date * 1000,
       raw: update,
       updateId: update.update_id,
@@ -706,6 +709,13 @@ export class TelegramAdapter extends BaseChannelAdapter {
     if (!entry) return;
     this.mediaGroupBuffers.delete(mediaGroupId);
 
+    const address = {
+      channelType: 'telegram' as const,
+      chatId: entry.chatId,
+      userId: entry.userId,
+      displayName: entry.displayName,
+    };
+
     const token = this.botToken;
     if (!token) {
       // Can't download — mark all as processed
@@ -717,6 +727,7 @@ export class TelegramAdapter extends BaseChannelAdapter {
     }
 
     const attachments: FileAttachment[] = [];
+    const rejections: MediaDownloadResult[] = [];
     let caption = '';
     let firstMessageId = '';
     let firstDate = 0;
@@ -734,12 +745,29 @@ export class TelegramAdapter extends BaseChannelAdapter {
       }
 
       if (m.photo && m.photo.length > 0) {
-        const att = await downloadPhoto(token, m.photo, String(m.message_id));
-        if (att) attachments.push(att);
+        const result = await downloadPhoto(token, m.photo, String(m.message_id));
+        if (result.attachment) {
+          attachments.push(result.attachment);
+        } else if (result.rejected && result.rejected !== 'unsupported_type') {
+          rejections.push(result);
+        }
       } else if (m.document && this.isDocumentImage(m.document)) {
         const result = await downloadDocumentImage(token, m.document, String(m.message_id));
-        if (result.attachment) attachments.push(result.attachment);
+        if (result.attachment) {
+          attachments.push(result.attachment);
+        } else if (result.rejected && result.rejected !== 'unsupported_type') {
+          rejections.push(result);
+        }
       }
+    }
+
+    // Send rejection notification if any images failed
+    if (rejections.length > 0) {
+      const reasons = rejections.map(r => r.rejectedMessage || 'Image processing failed').join('\n');
+      const notice = rejections.length === 1
+        ? reasons
+        : `${rejections.length} image(s) failed:\n${reasons}`;
+      this.send({ address, text: notice, parseMode: 'plain' }).catch(() => {});
     }
 
     const text = caption;
@@ -771,14 +799,15 @@ export class TelegramAdapter extends BaseChannelAdapter {
     // Use the max updateId so acknowledgeUpdate advances offset past all buffered updates
     const maxUpdateId = Math.max(...entry.updateIds);
 
+    // Pre-register all buffered IDs in recentUpdateIds so the contiguous
+    // watermark walk can advance past them when bridge-manager acks maxUpdateId.
+    for (const uid of entry.updateIds) {
+      this.recentUpdateIds.add(uid);
+    }
+
     const msg: InboundMessage = {
       messageId: firstMessageId,
-      address: {
-        channelType: 'telegram',
-        chatId: entry.chatId,
-        userId: entry.userId,
-        displayName: entry.displayName,
-      },
+      address,
       text,
       timestamp: firstDate * 1000,
       updateId: maxUpdateId,

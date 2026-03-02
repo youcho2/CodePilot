@@ -46,6 +46,19 @@ export interface TelegramDocument {
   file_size?: number;
 }
 
+// ── Download Result ──────────────────────────────────────────
+
+export type MediaRejectCode = 'too_large' | 'unsupported_type' | 'download_failed';
+
+/** Unified result for all media download attempts. */
+export interface MediaDownloadResult {
+  attachment: FileAttachment | null;
+  /** Rejection code — set when attachment is null and failure is user-actionable. */
+  rejected?: MediaRejectCode;
+  /** Human-readable rejection message for display in Telegram. */
+  rejectedMessage?: string;
+}
+
 // ── Public API ───────────────────────────────────────────────
 
 /**
@@ -127,33 +140,30 @@ export function selectOptimalPhoto(photos: TelegramPhotoSize[]): TelegramPhotoSi
 }
 
 /**
- * Download a photo from Telegram's photo[] array and return a FileAttachment.
+ * Download a photo from Telegram's photo[] array.
  *
  * Selects the optimal size, calls getFile API, downloads the binary,
  * and converts to base64.
- *
- * Returns null if download fails after retries.
  */
 export async function downloadPhoto(
   botToken: string,
   photos: TelegramPhotoSize[],
   messageId: string,
-): Promise<FileAttachment | null> {
+): Promise<MediaDownloadResult> {
   const selected = selectOptimalPhoto(photos);
-  return downloadFileById(botToken, selected.file_id, messageId, selected.file_size);
+  return downloadFileById(botToken, selected.file_id, messageId);
 }
 
 /**
  * Download a document-type image from Telegram.
  *
  * Pre-checks file_size against the max limit before initiating download.
- * Returns null with a reason string if the document is too large or not a supported image.
  */
 export async function downloadDocumentImage(
   botToken: string,
   doc: TelegramDocument,
   messageId: string,
-): Promise<{ attachment: FileAttachment | null; rejected?: string }> {
+): Promise<MediaDownloadResult> {
   // Check MIME type
   const mime = doc.mime_type || inferMimeType(doc.file_name || '');
   if (!mime || !isSupportedImageMime(mime)) {
@@ -163,16 +173,14 @@ export async function downloadDocumentImage(
   // Pre-check file size before downloading
   const maxSize = getMaxImageSize();
   if (doc.file_size && doc.file_size > maxSize) {
-    const sizeMB = (doc.file_size / (1024 * 1024)).toFixed(1);
-    const limitMB = (maxSize / (1024 * 1024)).toFixed(0);
     return {
       attachment: null,
-      rejected: `Image file too large (${sizeMB} MB). Max allowed: ${limitMB} MB. Please send as a photo instead of a file.`,
+      rejected: 'too_large',
+      rejectedMessage: formatSizeError(doc.file_size, maxSize),
     };
   }
 
-  const attachment = await downloadFileById(botToken, doc.file_id, messageId, doc.file_size);
-  return { attachment };
+  return downloadFileById(botToken, doc.file_id, messageId);
 }
 
 // ── Internal ─────────────────────────────────────────────────
@@ -186,8 +194,7 @@ async function downloadFileById(
   botToken: string,
   fileId: string,
   messageId: string,
-  expectedSize?: number,
-): Promise<FileAttachment | null> {
+): Promise<MediaDownloadResult> {
   const maxSize = getMaxImageSize();
 
   for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
@@ -208,7 +215,7 @@ async function downloadFileById(
           await sleep(1000 * Math.pow(2, attempt - 1));
           continue;
         }
-        return null;
+        return { attachment: null, rejected: 'download_failed', rejectedMessage: 'Failed to get file info from Telegram.' };
       }
 
       const filePath: string = getFileData.result.file_path;
@@ -217,7 +224,7 @@ async function downloadFileById(
       // Pre-check size from API response
       if (fileSize && fileSize > maxSize) {
         console.warn(`[telegram-media] File too large: ${fileSize} bytes (max ${maxSize})`);
-        return null;
+        return { attachment: null, rejected: 'too_large', rejectedMessage: formatSizeError(fileSize, maxSize) };
       }
 
       // Step 2: Download the file
@@ -232,21 +239,21 @@ async function downloadFileById(
           await sleep(1000 * Math.pow(2, attempt - 1));
           continue;
         }
-        return null;
+        return { attachment: null, rejected: 'download_failed', rejectedMessage: 'Failed to download image from Telegram.' };
       }
 
       // Check Content-Length header
       const contentLength = downloadRes.headers.get('content-length');
       if (contentLength && parseInt(contentLength, 10) > maxSize) {
         console.warn(`[telegram-media] Content-Length exceeds max: ${contentLength}`);
-        return null;
+        return { attachment: null, rejected: 'too_large', rejectedMessage: formatSizeError(parseInt(contentLength, 10), maxSize) };
       }
 
       // Step 3: Read buffer and validate actual size
       const buffer = Buffer.from(await downloadRes.arrayBuffer());
       if (buffer.length > maxSize) {
         console.warn(`[telegram-media] Downloaded buffer too large: ${buffer.length} bytes`);
-        return null;
+        return { attachment: null, rejected: 'too_large', rejectedMessage: formatSizeError(buffer.length, maxSize) };
       }
 
       // Step 4: Determine MIME type
@@ -256,15 +263,15 @@ async function downloadFileById(
       const base64 = buffer.toString('base64');
       const fileName = filePath.split('/').pop() || `image_${messageId}`;
 
-      const attachment: FileAttachment = {
-        id: `tg-${messageId}-${fileId.slice(0, 8)}`,
-        name: fileName,
-        type: mime,
-        size: buffer.length,
-        data: base64,
+      return {
+        attachment: {
+          id: `tg-${messageId}-${fileId.slice(0, 8)}`,
+          name: fileName,
+          type: mime,
+          size: buffer.length,
+          data: base64,
+        },
       };
-
-      return attachment;
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : String(err);
       console.warn(`[telegram-media] Download attempt ${attempt}/${MAX_RETRIES} failed:`, errMsg);
@@ -273,11 +280,18 @@ async function downloadFileById(
         await sleep(1000 * Math.pow(2, attempt - 1));
         continue;
       }
-      return null;
+      return { attachment: null, rejected: 'download_failed', rejectedMessage: 'Image download failed after retries.' };
     }
   }
 
-  return null;
+  return { attachment: null, rejected: 'download_failed', rejectedMessage: 'Image download failed after retries.' };
+}
+
+/** Format a human-readable size-exceeded error message. */
+function formatSizeError(actualBytes: number, limitBytes: number): string {
+  const actualMB = (actualBytes / (1024 * 1024)).toFixed(1);
+  const limitMB = (limitBytes / (1024 * 1024)).toFixed(0);
+  return `Image too large (${actualMB} MB, limit ${limitMB} MB). Please send as a photo instead of a file.`;
 }
 
 function sleep(ms: number): Promise<void> {
