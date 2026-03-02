@@ -211,13 +211,15 @@ jobs:
           CHANGELOG_INLINE_EOF
           fi
 
-          # Collect all release files
-          FILES=$(find artifacts -type f \( -name "*.dmg" -o -name "*.zip" -o -name "*.exe" -o -name "*.AppImage" -o -name "*.deb" -o -name "*.rpm" -o -name "*.blockmap" -o -name "*.yml" \) | sort)
+          # Collect all release files (handle filenames with spaces)
+          FILES=()
+          while IFS= read -r f; do
+            FILES+=("$f")
+          done < <(find artifacts -type f \( -name "*.dmg" -o -name "*.zip" -o -name "*.exe" -o -name "*.AppImage" -o -name "*.deb" -o -name "*.rpm" -o -name "*.blockmap" -o -name "*.yml" \) | sort)
 
           # Create release and upload all assets in one shot
-          # shellcheck disable=SC2086
           gh release create "${GITHUB_REF_NAME}" \
             --title "CodePilot v${VERSION}" \
             --notes-file release-notes.md \
             --latest \
-            $FILES
+            "${FILES[@]}"
