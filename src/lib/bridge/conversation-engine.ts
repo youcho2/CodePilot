@@ -6,6 +6,8 @@
  * and returns the response text for delivery.
  */
 
+import fs from 'fs';
+import path from 'path';
 import type { ChannelBinding } from './types';
 import type { SSEEvent, TokenUsage, MessageContentBlock, FileAttachment } from '@/types';
 import { streamClaude } from '../claude-client';
@@ -87,14 +89,39 @@ export async function processMessage(
   }, 60_000);
 
   try {
-    // Save user message (with image indicator if attachments present)
-    const userMsgText = files && files.length > 0
-      ? `[${files.length} image(s) attached] ${text}`
-      : text;
-    addMessage(sessionId, 'user', userMsgText);
+    // Resolve session early — needed for workingDirectory and provider resolution
+    const session = getSession(sessionId);
+
+    // Save user message — persist file attachments to disk using the same
+    // <!--files:JSON--> format as the desktop chat route, so the UI can render them.
+    let savedContent = text;
+    if (files && files.length > 0) {
+      const workDir = binding.workingDirectory || session?.working_directory || '';
+      if (workDir) {
+        try {
+          const uploadDir = path.join(workDir, '.codepilot-uploads');
+          if (!fs.existsSync(uploadDir)) {
+            fs.mkdirSync(uploadDir, { recursive: true });
+          }
+          const fileMeta = files.map((f) => {
+            const safeName = path.basename(f.name).replace(/[^a-zA-Z0-9._-]/g, '_');
+            const filePath = path.join(uploadDir, `${Date.now()}-${safeName}`);
+            const buffer = Buffer.from(f.data, 'base64');
+            fs.writeFileSync(filePath, buffer);
+            return { id: f.id, name: f.name, type: f.type, size: buffer.length, filePath };
+          });
+          savedContent = `<!--files:${JSON.stringify(fileMeta)}-->${text}`;
+        } catch (err) {
+          console.warn('[conversation-engine] Failed to persist file attachments:', err instanceof Error ? err.message : err);
+          savedContent = `[${files.length} image(s) attached] ${text}`;
+        }
+      } else {
+        savedContent = `[${files.length} image(s) attached] ${text}`;
+      }
+    }
+    addMessage(sessionId, 'user', savedContent);
 
     // Resolve provider
-    const session = getSession(sessionId);
     let resolvedProvider: import('@/types').ApiProvider | undefined;
     const providerId = session?.provider_id || '';
     if (providerId && providerId !== 'env') {
