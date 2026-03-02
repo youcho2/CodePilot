@@ -36,11 +36,13 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
   const [currentProviderId, setCurrentProviderId] = useState(providerId || (typeof window !== 'undefined' ? localStorage.getItem('codepilot:last-provider-id') : null) || '');
 
   // Sync model/provider when session data loads (props update after async fetch)
+  // Unconditional: when modelName is empty (old session with no saved model),
+  // fall back to localStorage or default to avoid stale values from previous session.
   useEffect(() => {
-    if (modelName) setCurrentModel(modelName);
+    setCurrentModel(modelName || (typeof window !== 'undefined' ? localStorage.getItem('codepilot:last-model') : null) || 'sonnet');
   }, [modelName]);
   useEffect(() => {
-    if (providerId) setCurrentProviderId(providerId);
+    setCurrentProviderId(providerId || (typeof window !== 'undefined' ? localStorage.getItem('codepilot:last-provider-id') : null) || '');
   }, [providerId]);
 
   // Stream snapshot from the manager — drives all streaming UI
