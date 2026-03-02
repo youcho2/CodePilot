@@ -70,8 +70,56 @@ jobs:
 
       - name: Package for macOS (x64 + arm64)
         env:
-          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+          CSC_LINK: ${{ secrets.MAC_CERT_P12_BASE64 }}
+          CSC_KEY_PASSWORD: ${{ secrets.MAC_CERT_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: npx electron-builder --mac --config electron-builder.yml --publish never
+
+      - name: Verify code signature
+        run: |
+          # Verify every .app bundle produced (arm64 + x64)
+          APPS=$(find release -name "CodePilot.app" -maxdepth 3)
+          if [ -z "$APPS" ]; then
+            echo "::warning::No CodePilot.app found, skipping signature verification"
+            exit 0
+          fi
+
+          FAILED=0
+          while IFS= read -r APP_PATH; do
+            echo "========== Verifying: $APP_PATH =========="
+
+            # Display signature details
+            codesign -dv --verbose=4 "$APP_PATH" 2>&1 | tee /tmp/codesign-info.txt || true
+
+            # Assert Developer ID authority
+            if ! grep -q 'Authority=Developer ID Application' /tmp/codesign-info.txt; then
+              echo "::error::$APP_PATH is NOT signed with Developer ID Application"
+              FAILED=1
+              continue
+            fi
+
+            # Assert correct Team Identifier
+            if ! grep -q 'TeamIdentifier=K9X599X9Q2' /tmp/codesign-info.txt; then
+              echo "::error::$APP_PATH has unexpected TeamIdentifier"
+              FAILED=1
+              continue
+            fi
+
+            # Strict verification (must pass)
+            codesign --verify --deep --strict --verbose=4 "$APP_PATH"
+
+            # Gatekeeper assessment (best-effort, does not fail the build)
+            spctl -a -vvv --type execute "$APP_PATH" || echo "::warning::spctl assessment did not pass for $APP_PATH (may be expected in CI)"
+
+            echo "✓ $APP_PATH passed all checks"
+          done <<< "$APPS"
+
+          if [ "$FAILED" -ne 0 ]; then
+            echo "::error::One or more .app bundles failed signature verification"
+            exit 1
+          fi
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
