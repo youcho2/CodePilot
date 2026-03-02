@@ -15,6 +15,10 @@ src/lib/bridge/
 ├── permission-broker.ts     # 权限请求转发到 IM 内联按钮，处理回调审批
 ├── delivery-layer.ts        # 出站消息分片、限流、重试退避、HTML 降级
 ├── bridge-manager.ts        # 生命周期编排，adapter 事件循环，/stop abort，命令路由
+├── markdown/
+│   ├── ir.ts                # Markdown → IR 中间表示解析器（基于 markdown-it）
+│   ├── render.ts            # IR → 格式化输出的通用标记渲染器
+│   └── telegram.ts          # Telegram HTML 渲染 + 文件引用保护 + render-first 分片
 ├── adapters/
 │   ├── index.ts             # Adapter 目录文件（side-effect import 自注册所有 adapter）
 │   ├── telegram-adapter.ts  # Telegram 长轮询 + offset 安全水位 + 图片/相册处理 + 自注册
@@ -43,7 +47,8 @@ Telegram 消息 → TelegramAdapter.pollLoop()
           → text/tool_use/tool_result → 累积内容块
           → result → 捕获 tokenUsage + sdkSessionId
         → addMessage() 保存到 DB
-      → DeliveryLayer.deliver() → 分片 + 限流 + 发送到 Telegram
+      → markdownToTelegramChunks() → Markdown→IR→HTML render-first 分片
+      → DeliveryLayer.deliverRendered() → 限流 + HTML/plain 双通道发送到 Telegram
     → finally: adapter.acknowledgeUpdate(updateId) → 推进 committedOffset 并持久化
 ```
 
@@ -92,6 +97,15 @@ PermissionBroker 在处理 IM 内联按钮回调时，验证 callbackData 中的
 
 **10. 图片消息 DB 格式统一**
 Bridge 和桌面端使用相同的消息存储格式：图片写入 `.codepilot-uploads/`，消息 content 以 `<!--files:[{id,name,type,size,filePath}]-->text` 格式保存。桌面 UI 的 `MessageItem.parseMessageFiles()` 解析后通过 `FileAttachmentDisplay` + `/api/uploads?path=` 渲染缩略图。`conversation-engine.ts` 中 `getSession()` 提前到文件持久化之前调用，确保 workingDirectory 可用。
+
+**11. Telegram 出站 Markdown 渲染**
+Claude 的回复是 Markdown 格式，Telegram 仅支持有限 HTML 标签（b/i/s/code/pre+code/blockquote/a）。采用三层架构将 Markdown 转换为 Telegram HTML：
+
+- **IR 层**（`markdown/ir.ts`）：使用 markdown-it 将 Markdown 解析为中间表示 `MarkdownIR = { text, styles[], links[] }`。text 是纯文本，styles 是 `{ start, end, style }` 区间标记。支持 bold/italic/strikethrough/code/code_block/blockquote/links/lists/headings/tables/hr。表格使用 code-block 模式渲染为 ASCII 表格（包裹在 `<pre><code>` 中保留对齐）。HTML 内联标签中的 `<br>` 被转换为换行符。
+- **渲染层**（`markdown/render.ts`）：通用标记渲染器 `renderMarkdownWithMarkers(ir, options)`，接受样式→标签映射表 + escapeText + buildLink 回调，输出格式化文本。使用 boundary tracking + LIFO stack 处理嵌套。
+- **Telegram 层**（`markdown/telegram.ts`）：组合 IR+渲染器，映射样式到 Telegram HTML 标签。`wrapFileReferencesInHtml()` 防止 `README.md`、`main.go` 等文件名被 Telegram linkify 误识别为 URL（用 `<code>` 包裹）。`markdownToTelegramChunks(text, limit)` 实现 render-first 分片：先按 IR text 长度分块，再渲染每块为 HTML，若 HTML 超出 4096 限制则按比例重新分割。
+
+`bridge-manager.ts` 对 Claude 回复调用 `markdownToTelegramChunks()`，通过 `deliverRendered()` 发送预渲染 chunks（每个 chunk 包含 html + text 双通道，HTML 解析失败自动降级纯文本）。命令响应和错误消息仍使用 `escapeHtml()` + `deliver()`。
 
 ## 设置项（settings 表）
 

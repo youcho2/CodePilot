@@ -15,7 +15,8 @@ import './adapters';
 import * as router from './channel-router';
 import * as engine from './conversation-engine';
 import * as broker from './permission-broker';
-import { deliver } from './delivery-layer';
+import { deliver, deliverRendered } from './delivery-layer';
+import { markdownToTelegramChunks } from './markdown/telegram';
 import { getSetting, insertAuditLog, updateChannelBinding } from '../db';
 import { setBridgeModeActive } from '../telegram-bot';
 import { escapeHtml } from './adapters/telegram-utils';
@@ -382,16 +383,14 @@ async function handleMessage(
       );
     }, taskAbort.signal, hasAttachments ? msg.attachments : undefined);
 
-    // Send response text
+    // Send response text — render Markdown to Telegram HTML
     if (result.responseText) {
-      const response: OutboundMessage = {
-        address: msg.address,
-        text: escapeHtml(result.responseText),
-        parseMode: 'HTML',
-      };
-      await deliver(adapter, response, {
-        sessionId: binding.codepilotSessionId,
-      });
+      const chunks = markdownToTelegramChunks(result.responseText, 4096);
+      if (chunks.length > 0) {
+        await deliverRendered(adapter, msg.address, chunks, {
+          sessionId: binding.codepilotSessionId,
+        });
+      }
     } else if (result.hasError) {
       const errorResponse: OutboundMessage = {
         address: msg.address,

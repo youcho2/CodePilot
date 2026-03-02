@@ -5,10 +5,12 @@
 
 import type {
   ChannelType,
+  ChannelAddress,
   OutboundMessage,
   SendResult,
   PLATFORM_LIMITS,
 } from './types';
+import type { TelegramChunk } from './markdown/telegram';
 import { PLATFORM_LIMITS as limits } from './types';
 import type { BaseChannelAdapter } from './channel-adapter';
 import {
@@ -222,6 +224,7 @@ export async function deliver(
 async function sendWithRetry(
   adapter: BaseChannelAdapter,
   message: OutboundMessage,
+  plainFallback?: string,
 ): Promise<SendResult> {
   let lastError: string | undefined;
 
@@ -234,8 +237,10 @@ async function sendWithRetry(
 
     // HTML parse error: immediately fallback to plain text (no retry needed)
     if (category === 'parse_error' && message.parseMode === 'HTML') {
+      const fallbackText = plainFallback || message.text;
       const plainResult = await adapter.send({
         ...message,
+        text: fallbackText,
         parseMode: 'plain',
       });
       if (plainResult.ok) return plainResult;
@@ -259,4 +264,74 @@ async function sendWithRetry(
   }
 
   return { ok: false, error: lastError || 'Max retries exceeded' };
+}
+
+/**
+ * Deliver pre-rendered chunks (from Markdown renderer).
+ * Each chunk already has HTML and plain text fallback.
+ */
+export async function deliverRendered(
+  adapter: BaseChannelAdapter,
+  address: ChannelAddress,
+  chunks: TelegramChunk[],
+  opts?: { sessionId?: string; dedupKey?: string },
+): Promise<SendResult> {
+  // Dedup check
+  if (opts?.dedupKey) {
+    if (checkDedup(opts.dedupKey)) {
+      return { ok: true, messageId: undefined };
+    }
+  }
+  if (Math.random() < 0.01) {
+    try { cleanupExpiredDedup(); } catch { /* best effort */ }
+  }
+
+  let lastMessageId: string | undefined;
+
+  for (let i = 0; i < chunks.length; i++) {
+    await rateLimiter.acquire(address.chatId);
+    if (i > 0) {
+      await new Promise(r => setTimeout(r, INTER_CHUNK_DELAY_MS));
+    }
+
+    const chunk = chunks[i];
+    const htmlMessage: OutboundMessage = {
+      address,
+      text: chunk.html,
+      parseMode: 'HTML',
+    };
+
+    // Try HTML first, fall back to plain text on parse error
+    const result = await sendWithRetry(adapter, htmlMessage, chunk.text);
+    if (!result.ok) return result;
+    lastMessageId = result.messageId;
+
+    if (result.messageId && opts?.sessionId) {
+      try {
+        insertOutboundRef({
+          channelType: adapter.channelType,
+          chatId: address.chatId,
+          codepilotSessionId: opts.sessionId,
+          platformMessageId: result.messageId,
+          purpose: 'response',
+        });
+      } catch { /* best effort */ }
+    }
+  }
+
+  if (opts?.dedupKey) {
+    try { insertDedup(opts.dedupKey); } catch { /* best effort */ }
+  }
+
+  try {
+    insertAuditLog({
+      channelType: adapter.channelType,
+      chatId: address.chatId,
+      direction: 'outbound',
+      messageId: lastMessageId || '',
+      summary: chunks.map(c => c.text).join('').slice(0, 200),
+    });
+  } catch { /* best effort */ }
+
+  return { ok: true, messageId: lastMessageId };
 }
