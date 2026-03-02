@@ -17,7 +17,8 @@ src/lib/bridge/
 ├── bridge-manager.ts        # 生命周期编排，adapter 事件循环，/stop abort，命令路由
 ├── adapters/
 │   ├── index.ts             # Adapter 目录文件（side-effect import 自注册所有 adapter）
-│   ├── telegram-adapter.ts  # Telegram 长轮询 + offset 安全水位 + 自注册
+│   ├── telegram-adapter.ts  # Telegram 长轮询 + offset 安全水位 + 图片/相册处理 + 自注册
+│   ├── telegram-media.ts    # Telegram 图片下载、尺寸选择、base64 转换
 │   └── telegram-utils.ts    # callTelegramApi / escapeHtml / splitMessage
 └── security/
     ├── rate-limiter.ts      # 按 chat 滑动窗口限流（20 条/分钟）
@@ -27,12 +28,16 @@ src/lib/bridge/
 ## 数据流
 
 ```
-Telegram 消息 → TelegramAdapter.pollLoop() → enqueue()
+Telegram 消息 → TelegramAdapter.pollLoop()
+  → 纯文本/caption → enqueue()
+  → 单图 → telegram-media.downloadPhoto() → base64 FileAttachment → enqueue(msg + attachments)
+  → 相册(media_group_id) → bufferMediaGroup() → 500ms 防抖 → flushMediaGroup() 批量下载 → enqueue()
   → BridgeManager.runAdapterLoop() → handleMessage()
     → 命令? → handleCommand() 处理 /new /bind /cwd /mode /stop 等
-    → 普通消息? → ChannelRouter.resolve() 获取 ChannelBinding
-      → ConversationEngine.processMessage()
-        → streamClaude() 获取 SSE 流
+    → 普通消息/图片? → ChannelRouter.resolve() 获取 ChannelBinding
+      → ConversationEngine.processMessage(binding, text, ..., files?)
+        → 有图片时：写入 .codepilot-uploads/ + <!--files:JSON-->text 格式存 DB（桌面 UI 可渲染）
+        → streamClaude({ prompt, files }) → Claude vision API
         → consumeStream() 服务端消费
           → permission_request → 立即回调 → PermissionBroker 转发到 IM
           → text/tool_use/tool_result → 累积内容块
@@ -59,7 +64,7 @@ Telegram 消息 → TelegramAdapter.pollLoop() → enqueue()
 SSE 流在 `permission_request` 事件处会阻塞等待审批。`consumeStream()` 通过 `onPermissionRequest` 回调在流消费过程中立即转发到 IM，而非等流结束后再转发。
 
 **2. Offset 安全水位**
-分离 `fetchOffset`（用于 getUpdates API）和 `committedOffset`（持久化到 DB）。消息入队时仅推进 fetchOffset，只有在 bridge-manager 完整处理完消息后（handleMessage 的 finally 块），才调用 `adapter.acknowledgeUpdate(updateId)` 推进 committedOffset 并持久化到 DB。这确保崩溃时未处理完的消息会被重新投递。内存 dedup set 防止重启后重复处理。
+分离 `fetchOffset`（用于 getUpdates API）和 `committedOffset`（持久化到 DB）。消息入队时仅推进 fetchOffset，只有在 bridge-manager 完整处理完消息后（handleMessage 的 finally 块），才调用 `adapter.acknowledgeUpdate(updateId)` 推进 committedOffset 并持久化到 DB。`markUpdateProcessed()` 使用连续水位推进（contiguous walk）：仅当 `recentUpdateIds` 中存在当前 committedOffset 时才前进，避免跳过仍在 media group buffer 中的相册更新 ID。相册 flush 时预注册所有 buffered ID 到 recentUpdateIds，保证 ack 时水位能连续推过。内存 dedup set 防止重启后重复处理。
 
 **2a. Bot 身份标识**
 Offset 的 DB key 使用 Telegram `getMe` API 返回的 bot user ID（如 `telegram:bot123456`），而非 token hash。好处是 token 轮换后 offset 不丢失。首次迁移时自动将旧 token-hash key 的值复制到新 bot-ID key。
@@ -82,6 +87,12 @@ PermissionBroker 在处理 IM 内联按钮回调时，验证 callbackData 中的
 **8. 出站限流**
 `security/rate-limiter.ts` 按 chatId 滑动窗口限流（默认 20 条/分钟）。`DeliveryLayer` 在每次发送前调用 `rateLimiter.acquire(chatId)` 阻塞等待配额，分片间额外加 300ms 节流。错误分类：429 尊重 `retry_after`、5xx 指数退避、4xx 不重试、解析错误降级纯文本。
 
+**9. Telegram 图片接收**
+复用已有 `streamClaude({ files })` vision 管道，不引入 sharp 等 native 依赖。`telegram-media.ts` 负责图片下载：`selectOptimalPhoto()` 从 Telegram 的 photo[] 多尺寸数组中选最小且长边 ≥ 1568px（Claude vision 最优值）的版本；`downloadFileById()` 含 3 次重试 + 指数退避 + 双重大小校验。统一返回 `MediaDownloadResult { attachment, rejected, rejectedMessage }`，拒绝时直接发 Telegram 通知，禁止静默丢弃。相册消息通过 500ms 防抖合并（`media_group_id` → `mediaGroupBuffers` Map）。`InboundMessage.attachments` 透传到 `conversation-engine` 和 `streamClaude`。
+
+**10. 图片消息 DB 格式统一**
+Bridge 和桌面端使用相同的消息存储格式：图片写入 `.codepilot-uploads/`，消息 content 以 `<!--files:[{id,name,type,size,filePath}]-->text` 格式保存。桌面 UI 的 `MessageItem.parseMessageFiles()` 解析后通过 `FileAttachmentDisplay` + `/api/uploads?path=` 渲染缩略图。`conversation-engine.ts` 中 `getSession()` 提前到文件持久化之前调用，确保 workingDirectory 可用。
+
 ## 设置项（settings 表）
 
 | Key | 说明 |
@@ -93,6 +104,8 @@ PermissionBroker 在处理 IM 内联按钮回调时，验证 callbackData 中的
 | bridge_default_model | 新建会话默认模型 |
 | bridge_default_provider_id | 新建会话默认服务商 |
 | telegram_bridge_allowed_users | 白名单用户 ID（逗号分隔） |
+| bridge_telegram_image_enabled | Telegram 图片接收开关（默认 true，设为 false 关闭） |
+| bridge_telegram_max_image_size | 图片大小上限（字节，默认 20MB） |
 
 ## API 路由
 
