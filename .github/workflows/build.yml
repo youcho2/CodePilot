@@ -74,7 +74,10 @@ jobs:
         if: ${{ env.HAS_CERT == 'true' }}
         env:
           MAC_CERT_P12_BASE64: ${{ secrets.MAC_CERT_P12_BASE64 }}
-        run: echo "$MAC_CERT_P12_BASE64" | base64 --decode > /tmp/cert.p12
+          MAC_CERT_PASSWORD: ${{ secrets.MAC_CERT_PASSWORD }}
+        run: |
+          printf '%s' "$MAC_CERT_P12_BASE64" | tr -d '\r\n' | base64 --decode > /tmp/cert.p12
+          openssl pkcs12 -in /tmp/cert.p12 -passin pass:"$MAC_CERT_PASSWORD" -noout
 
       - name: Package for macOS (x64 + arm64)
         env:
