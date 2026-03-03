@@ -28,18 +28,4 @@ contextBridge.exposeInMainWorld('electronAPI', {
   bridge: {
     isActive: () => ipcRenderer.invoke('bridge:is-active'),
   },
-  // Native updater: disabled on macOS x64 (Intel) — those users get browser-mode
-  // update check (download link to GitHub Releases) instead.
-  ...(process.platform === 'darwin' && process.arch === 'x64' ? {} : {
-    updater: {
-      checkForUpdates: () => ipcRenderer.invoke('updater:check'),
-      downloadUpdate: () => ipcRenderer.invoke('updater:download'),
-      quitAndInstall: () => ipcRenderer.invoke('updater:quit-and-install'),
-      onStatus: (callback: (data: unknown) => void) => {
-        const listener = (_event: unknown, data: unknown) => callback(data);
-        ipcRenderer.on('updater:status', listener);
-        return () => { ipcRenderer.removeListener('updater:status', listener); };
-      },
-    },
-  }),
 });

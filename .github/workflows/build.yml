@@ -13,15 +13,6 @@ on:
           - windows
           - macos
           - linux
-      mac_notarize:
-        description: "mac notarization mode (arm64 only)"
-        required: false
-        default: "auto"
-        type: choice
-        options:
-          - auto
-          - "on"
-          - "off"
   push:
     tags:
       - "v*"
@@ -56,8 +47,6 @@ jobs:
           name: build-windows
           path: |
             release/*.exe
-            release/*.exe.blockmap
-            release/latest.yml
           retention-days: 3
 
   build-macos:
@@ -80,154 +69,51 @@ jobs:
         run: npm run electron:build
 
       - name: Decode signing certificate
-        if: ${{ env.HAS_CERT == 'true' }}
         env:
           MAC_CERT_P12_BASE64: ${{ secrets.MAC_CERT_P12_BASE64 }}
           MAC_CERT_PASSWORD: ${{ secrets.MAC_CERT_PASSWORD }}
         run: |
+          if [ "${HAS_CERT}" != "true" ]; then
+            echo "::error::Missing signing certificate (MAC_CERT_P12_BASE64 secret not set)"
+            exit 1
+          fi
           printf '%s' "$MAC_CERT_P12_BASE64" | tr -d '\r\n' | base64 --decode > /tmp/cert.p12
           openssl pkcs12 -in /tmp/cert.p12 -passin pass:"$MAC_CERT_PASSWORD" -noout
+          echo "Certificate decoded and validated"
 
-      - name: Resolve arm64 notarization strategy
-        id: mac_mode
-        shell: bash
-        env:
-          MANUAL_MODE: ${{ github.event_name == 'workflow_dispatch' && inputs.mac_notarize || 'auto' }}
-          REF_NAME: ${{ github.ref_name }}
-        run: |
-          set -euo pipefail
-          MODE="${MANUAL_MODE:-auto}"
-          NOTARIZE=false
-
-          if [[ "$MODE" == "on" ]]; then
-            NOTARIZE=true
-          elif [[ "$MODE" == "off" ]]; then
-            NOTARIZE=false
-          else
-            # auto: vX.Y.0 公证；vX.Y.Z(Z>0) 只签名
-            if [[ "$REF_NAME" =~ ^v([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
-              PATCH="${BASH_REMATCH[3]}"
-              if [[ "$PATCH" == "0" ]]; then
-                NOTARIZE=true
-              fi
-            fi
-          fi
-
-          echo "mode=$MODE" >> "$GITHUB_OUTPUT"
-          echo "notarize=$NOTARIZE" >> "$GITHUB_OUTPUT"
-          echo "Resolved arm64 notarization: $NOTARIZE (mode=$MODE, ref=$REF_NAME)"
-
-      - name: Validate notarization credentials
-        if: ${{ env.HAS_CERT == 'true' && steps.mac_mode.outputs.notarize == 'true' }}
-        env:
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-        run: |
-          echo "APPLE_ID len=${#APPLE_ID}, TEAM=$APPLE_TEAM_ID, APP_PWD len=${#APPLE_APP_SPECIFIC_PASSWORD}"
-          xcrun notarytool history \
-            --apple-id "$APPLE_ID" \
-            --password "$APPLE_APP_SPECIFIC_PASSWORD" \
-            --team-id "$APPLE_TEAM_ID" >/dev/null
-
-      # ── x64: sign only, no notarization ──────────────────────────────────
-      - name: Package for macOS (x64, sign only)
+      - name: Package for macOS (x64 + arm64, sign only)
         timeout-minutes: 15
         env:
-          CSC_LINK: ${{ env.HAS_CERT == 'true' && '/tmp/cert.p12' || '' }}
+          CSC_LINK: /tmp/cert.p12
           CSC_KEY_PASSWORD: ${{ secrets.MAC_CERT_PASSWORD }}
-        run: |
-          set -euo pipefail
-          for i in 1 2 3; do
-            echo "electron-builder x64 attempt $i/3 (notarize=false)"
-            if npx electron-builder --mac --x64 --config electron-builder.yml -c.mac.notarize=false --publish never; then
-              exit 0
-            fi
-            if [ "$i" -lt 3 ]; then sleep $((i * 30)); fi
-          done
-          exit 1
-
-      # Move x64 artifacts aside so arm64 build produces clean latest-mac.yml
-      - name: Stash x64 artifacts
-        run: |
-          mkdir -p release/x64-stash
-          mv release/*.dmg release/*.zip release/*.blockmap release/x64-stash/ 2>/dev/null || true
-          rm -f release/latest-mac.yml
-
-      # ── arm64: sign + conditional notarization ───────────────────────────
-      - name: Package for macOS (arm64)
-        timeout-minutes: 35
-        env:
-          CSC_LINK: ${{ env.HAS_CERT == 'true' && '/tmp/cert.p12' || '' }}
-          CSC_KEY_PASSWORD: ${{ secrets.MAC_CERT_PASSWORD }}
-          APPLE_ID: ${{ steps.mac_mode.outputs.notarize == 'true' && secrets.APPLE_ID || '' }}
-          APPLE_APP_SPECIFIC_PASSWORD: ${{ steps.mac_mode.outputs.notarize == 'true' && secrets.APPLE_APP_SPECIFIC_PASSWORD || '' }}
-          APPLE_TEAM_ID: ${{ steps.mac_mode.outputs.notarize == 'true' && secrets.APPLE_TEAM_ID || '' }}
-          DEBUG: electron-notarize*
-        run: |
-          set -euo pipefail
-
-          NOTARIZE="${{ steps.mac_mode.outputs.notarize }}"
-
-          for i in 1 2 3; do
-            echo "electron-builder arm64 attempt $i/3 (notarize=$NOTARIZE)"
-
-            if [[ "$NOTARIZE" == "true" ]]; then
-              npx electron-builder --mac --arm64 --config electron-builder.yml --publish never
-            else
-              npx electron-builder --mac --arm64 --config electron-builder.yml -c.mac.notarize=false --publish never
-            fi
-
-            if [ $? -eq 0 ]; then
-              exit 0
-            fi
-
-            if [ "$i" -lt 3 ]; then sleep $((i * 60)); fi
-          done
-
-          exit 1
-
-      # Restore x64 artifacts alongside arm64 output
-      - name: Restore x64 artifacts
-        run: mv release/x64-stash/* release/ && rmdir release/x64-stash
+        run: npx electron-builder --mac --config electron-builder.yml --publish never
 
       - name: Verify code signature
-        if: ${{ env.HAS_CERT == 'true' }}
         run: |
-          # Verify every .app bundle produced (arm64 + x64)
           APPS=$(find release -name "CodePilot.app" -maxdepth 3)
           if [ -z "$APPS" ]; then
-            echo "::warning::No CodePilot.app found, skipping signature verification"
-            exit 0
+            echo "::error::No CodePilot.app found after build"
+            exit 1
           fi
 
           FAILED=0
           while IFS= read -r APP_PATH; do
             echo "========== Verifying: $APP_PATH =========="
-
-            # Display signature details
             codesign -dv --verbose=4 "$APP_PATH" 2>&1 | tee /tmp/codesign-info.txt || true
 
-            # Assert Developer ID authority
             if ! grep -q 'Authority=Developer ID Application' /tmp/codesign-info.txt; then
               echo "::error::$APP_PATH is NOT signed with Developer ID Application"
               FAILED=1
               continue
             fi
 
-            # Assert correct Team Identifier
             if ! grep -q 'TeamIdentifier=K9X599X9Q2' /tmp/codesign-info.txt; then
               echo "::error::$APP_PATH has unexpected TeamIdentifier"
               FAILED=1
               continue
             fi
 
-            # Strict verification (must pass)
             codesign --verify --deep --strict --verbose=4 "$APP_PATH"
-
-            # Gatekeeper assessment (best-effort, does not fail the build)
-            spctl -a -vvv --type execute "$APP_PATH" || echo "::warning::spctl assessment did not pass for $APP_PATH (may be expected in CI)"
-
             echo "✓ $APP_PATH passed all checks"
           done <<< "$APPS"
 
@@ -236,23 +122,13 @@ jobs:
             exit 1
           fi
 
-      - name: Print mac release mode
-        run: |
-          echo "mac_notarize_mode=${{ steps.mac_mode.outputs.mode }}"
-          echo "arm64_notarize=${{ steps.mac_mode.outputs.notarize }}"
-          echo "x64_notarize=false (always sign-only)"
-          echo "latest-mac.yml comes from arm64 build"
-
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
           name: build-macos
           path: |
             release/*.dmg
-            release/*.dmg.blockmap
             release/*.zip
-            release/*.zip.blockmap
-            release/latest-mac.yml
           retention-days: 3
 
   build-linux:
@@ -286,7 +162,6 @@ jobs:
             release/*.AppImage
             release/*.deb
             release/*.rpm
-            release/latest-linux*.yml
           retention-days: 3
 
   release:
@@ -381,13 +256,12 @@ jobs:
           CHANGELOG_INLINE_EOF
           fi
 
-          # Collect all release files (handle filenames with spaces)
+          # Collect release files: installers only (no blockmap / update metadata)
           FILES=()
           while IFS= read -r f; do
             FILES+=("$f")
-          done < <(find artifacts -type f \( -name "*.dmg" -o -name "*.zip" -o -name "*.exe" -o -name "*.AppImage" -o -name "*.deb" -o -name "*.rpm" -o -name "*.blockmap" -o -name "*.yml" \) | sort)
+          done < <(find artifacts -type f \( -name "*.dmg" -o -name "*.zip" -o -name "*.exe" -o -name "*.AppImage" -o -name "*.deb" -o -name "*.rpm" \) | sort)
 
-          # Create release and upload all assets in one shot
           gh release create "${GITHUB_REF_NAME}" \
             --title "CodePilot v${VERSION}" \
             --notes-file release-notes.md \

@@ -4,7 +4,6 @@ import { execFileSync, spawn, ChildProcess } from 'child_process';
 import fs from 'fs';
 import net from 'net';
 import os from 'os';
-import { initAutoUpdater, setUpdaterWindow } from './updater';
 
 let mainWindow: BrowserWindow | null = null;
 let serverProcess: Electron.UtilityProcess | null = null;
@@ -163,9 +162,6 @@ function createTray(): void {
       click: () => {
         if (BrowserWindow.getAllWindows().length === 0) {
           createWindow(`http://127.0.0.1:${serverPort || 3000}`);
-          if (!isDev && mainWindow) {
-            setUpdaterWindow(mainWindow);
-          }
         } else {
           mainWindow?.focus();
         }
@@ -194,9 +190,6 @@ function createTray(): void {
   tray.on('double-click', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
       createWindow(`http://127.0.0.1:${serverPort || 3000}`);
-      if (!isDev && mainWindow) {
-        setUpdaterWindow(mainWindow);
-      }
     } else {
       mainWindow?.focus();
     }
@@ -938,12 +931,6 @@ app.whenReady().then(async () => {
       autoStartReq.end();
     }
 
-    // Initialize auto-updater in packaged mode only.
-    // Disabled on macOS x64 (Intel) — those users get browser-mode update check.
-    const skipNativeUpdater = process.platform === 'darwin' && process.arch === 'x64';
-    if (!isDev && mainWindow && !skipNativeUpdater) {
-      initAutoUpdater(mainWindow);
-    }
   } catch (err) {
     console.error('Failed to start:', err);
     dialog.showErrorBox(
@@ -990,10 +977,6 @@ app.on('activate', async () => {
         createWindow(`http://127.0.0.1:${serverPort || 3000}`);
       }
 
-      // Re-attach updater to the new window
-      if (!isDev && mainWindow) {
-        setUpdaterWindow(mainWindow);
-      }
     } catch (err) {
       console.error('Failed to restart server:', err);
     }

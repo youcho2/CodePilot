@@ -1,70 +1,19 @@
-import { autoUpdater } from 'electron-updater';
-import { BrowserWindow, ipcMain } from 'electron';
+// =============================================================================
+// Native auto-updater (electron-updater) — DISABLED
+//
+// macOS builds are signed with Developer ID but not notarized. Users update by
+// downloading the latest DMG from GitHub Releases. The browser-mode update
+// check (/api/app/updates) in the frontend notifies users of new versions.
+// =============================================================================
 
-let win: BrowserWindow | null = null;
+import type { BrowserWindow } from 'electron';
 
-function sendStatus(data: {
-  status: string;
-  info?: unknown;
-  progress?: unknown;
-  error?: string;
-}) {
-  if (win && !win.isDestroyed()) {
-    win.webContents.send('updater:status', data);
-  }
-}
-
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 export function initAutoUpdater(_win: BrowserWindow) {
-  win = _win;
-
-  autoUpdater.autoDownload = false;
-  autoUpdater.autoInstallOnAppQuit = true;
-
-  autoUpdater.on('checking-for-update', () => {
-    sendStatus({ status: 'checking' });
-  });
-
-  autoUpdater.on('update-available', (info) => {
-    sendStatus({ status: 'available', info });
-  });
-
-  autoUpdater.on('update-not-available', (info) => {
-    sendStatus({ status: 'not-available', info });
-  });
-
-  autoUpdater.on('download-progress', (progress) => {
-    sendStatus({ status: 'downloading', progress });
-  });
-
-  autoUpdater.on('update-downloaded', (info) => {
-    sendStatus({ status: 'downloaded', info });
-  });
-
-  autoUpdater.on('error', (err) => {
-    sendStatus({ status: 'error', error: err?.message ?? String(err) });
-  });
-
-  // IPC handlers
-  ipcMain.handle('updater:check', async () => {
-    return autoUpdater.checkForUpdates();
-  });
-
-  ipcMain.handle('updater:download', async () => {
-    return autoUpdater.downloadUpdate();
-  });
-
-  ipcMain.handle('updater:quit-and-install', () => {
-    autoUpdater.quitAndInstall();
-  });
-
-  // Delayed initial check (10 seconds after launch)
-  setTimeout(() => {
-    autoUpdater.checkForUpdates().catch((err) => {
-      console.log('[updater] Initial update check failed:', err?.message ?? err);
-    });
-  }, 10_000);
+  console.log('[updater] Native auto-updater is disabled. Users should download updates from GitHub Releases.');
 }
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 export function setUpdaterWindow(_win: BrowserWindow) {
-  win = _win;
+  // no-op while native updater is disabled
 }
