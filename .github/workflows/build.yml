@@ -99,7 +99,19 @@ jobs:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-        run: npx electron-builder --mac --config electron-builder.yml --publish never
+          DEBUG: electron-notarize*
+        run: |
+          set -euo pipefail
+          for i in 1 2 3; do
+            echo "electron-builder attempt $i/3"
+            if npx electron-builder --mac --config electron-builder.yml --publish never; then
+              exit 0
+            fi
+            if [ "$i" -lt 3 ]; then
+              sleep $((i * 60))
+            fi
+          done
+          exit 1
 
       - name: Verify code signature
         if: ${{ env.HAS_CERT == 'true' }}
