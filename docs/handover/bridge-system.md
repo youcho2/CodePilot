@@ -11,10 +11,10 @@ src/lib/bridge/
 ├── types.ts                 # 共享类型（ChannelBinding, BridgeStatus, InboundMessage 等）
 ├── channel-adapter.ts       # 抽象基类 + adapter 注册表（registerAdapterFactory/createAdapter）
 ├── channel-router.ts        # (channel, user, thread) → session 映射，自动创建/绑定会话
-├── conversation-engine.ts   # 服务端消费 streamClaude() SSE 流，保存消息到 DB
+├── conversation-engine.ts   # 服务端消费 streamClaude() SSE 流，保存消息到 DB，onPartialText 流式回调
 ├── permission-broker.ts     # 权限请求转发到 IM 内联按钮，处理回调审批
 ├── delivery-layer.ts        # 出站消息分片、限流、重试退避、HTML 降级
-├── bridge-manager.ts        # 生命周期编排，adapter 事件循环，/stop abort，命令路由
+├── bridge-manager.ts        # 生命周期编排，adapter 事件循环，流式预览状态机，deliverResponse 渲染分发
 ├── markdown/
 │   ├── ir.ts                # Markdown → IR 中间表示解析器（基于 markdown-it）
 │   ├── render.ts            # IR → 格式化输出的通用标记渲染器
@@ -23,7 +23,7 @@ src/lib/bridge/
 │   ├── index.ts             # Adapter 目录文件（side-effect import 自注册所有 adapter）
 │   ├── telegram-adapter.ts  # Telegram 长轮询 + offset 安全水位 + 图片/相册处理 + 自注册
 │   ├── telegram-media.ts    # Telegram 图片下载、尺寸选择、base64 转换
-│   └── telegram-utils.ts    # callTelegramApi / escapeHtml / splitMessage
+│   └── telegram-utils.ts    # callTelegramApi / sendMessageDraft / escapeHtml / splitMessage
 └── security/
     ├── rate-limiter.ts      # 按 chat 滑动窗口限流（20 条/分钟）
     └── validators.ts        # 路径/SessionID/危险输入校验
@@ -39,16 +39,18 @@ Telegram 消息 → TelegramAdapter.pollLoop()
   → BridgeManager.runAdapterLoop() → handleMessage()
     → 命令? → handleCommand() 处理 /new /bind /cwd /mode /stop 等
     → 普通消息/图片? → ChannelRouter.resolve() 获取 ChannelBinding
-      → ConversationEngine.processMessage(binding, text, ..., files?)
+      → ConversationEngine.processMessage(binding, text, ..., files?, onPartialText?)
         → 有图片时：写入 .codepilot-uploads/ + <!--files:JSON-->text 格式存 DB（桌面 UI 可渲染）
         → streamClaude({ prompt, files }) → Claude vision API
         → consumeStream() 服务端消费
           → permission_request → 立即回调 → PermissionBroker 转发到 IM
-          → text/tool_use/tool_result → 累积内容块
+          → text → 累积 currentText + previewText → onPartialText(previewText) 回调
+          → tool_use/tool_result → 累积内容块（currentText 清零，previewText 不清零）
           → result → 捕获 tokenUsage + sdkSessionId
         → addMessage() 保存到 DB
-      → markdownToTelegramChunks() → Markdown→IR→HTML render-first 分片
-      → DeliveryLayer.deliverRendered() → 限流 + HTML/plain 双通道发送到 Telegram
+      → deliverResponse() 按 channelType 分发渲染:
+        → Telegram: markdownToTelegramChunks() → deliverRendered() → 限流 + HTML/plain 双通道
+        → 其他 IM: deliver() → 纯文本分块发送
     → finally: adapter.acknowledgeUpdate(updateId) → 推进 committedOffset 并持久化
 ```
 
@@ -105,7 +107,15 @@ Claude 的回复是 Markdown 格式，Telegram 仅支持有限 HTML 标签（b/i
 - **渲染层**（`markdown/render.ts`）：通用标记渲染器 `renderMarkdownWithMarkers(ir, options)`，接受样式→标签映射表 + escapeText + buildLink 回调，输出格式化文本。使用 boundary tracking + LIFO stack 处理嵌套。
 - **Telegram 层**（`markdown/telegram.ts`）：组合 IR+渲染器，映射样式到 Telegram HTML 标签。`wrapFileReferencesInHtml()` 防止 `README.md`、`main.go` 等文件名被 Telegram linkify 误识别为 URL（用 `<code>` 包裹）。`markdownToTelegramChunks(text, limit)` 实现 render-first 分片：先按 IR text 长度分块，再渲染每块为 HTML，若 HTML 超出 4096 限制则按比例重新分割。
 
-`bridge-manager.ts` 对 Claude 回复调用 `markdownToTelegramChunks()`，通过 `deliverRendered()` 发送预渲染 chunks（每个 chunk 包含 html + text 双通道，HTML 解析失败自动降级纯文本）。命令响应和错误消息仍使用 `escapeHtml()` + `deliver()`。
+`bridge-manager.ts` 通过 `deliverResponse()` 按 `adapter.channelType` 分发渲染：Telegram 走 `markdownToTelegramChunks()` + `deliverRendered()`（HTML/plain 双通道），其他 IM 走 `deliver()` 纯文本。`deliverRendered()` 在分块部分失败时继续投递剩余 chunk 并追发截断提示，最终返回 `ok: false` 标识不完整投递。命令响应和错误消息仍使用 `escapeHtml()` + `deliver()`。
+
+**12. Telegram 流式预览（sendMessageDraft）**
+利用 Telegram Bot API 9.5 的 `sendMessageDraft` 方法，在 Claude 生成过程中以草稿形式实时展示文本预览。架构上抽象为通道级可选能力（`BaseChannelAdapter` 的 `getPreviewCapabilities`/`sendPreview`/`endPreview` 三个可选方法），未实现这些方法的 adapter 自动跳过。
+
+- **引擎层**：`consumeStream()` 维护独立的 `previewText` 变量（只累积、不因 `tool_use` 清零），通过 `onPartialText` 回调同步传递完整预览文本。
+- **编排层**：`bridge-manager.handleMessage()` 检查 adapter 能力 → 分配 `draftId` → 构建节流闭包（间隔 700ms + 最小增量 20 字符 + trailing-edge timer）→ `flushPreview()` fire-and-forget 发送 → finally 清理 timer + `endPreview()`。
+- **降级**：`sendPreview` 返回 `'sent'|'skip'|'degrade'` 三态。400/404（API 不支持）→ 永久降级该 chatId；429/网络错误 → 仅跳过本次。`previewDegraded` Set 在 adapter `stop()` 时清空。
+- **线程安全**：`processWithSessionLock` 保证同 session 串行 → 同时刻只有一个 `previewState`。多个 in-flight `sendMessageDraft` 安全：Telegram 对同 `draft_id` last-write-wins。
 
 ## 设置项（settings 表）
 
@@ -120,6 +130,11 @@ Claude 的回复是 Markdown 格式，Telegram 仅支持有限 HTML 标签（b/i
 | telegram_bridge_allowed_users | 白名单用户 ID（逗号分隔） |
 | bridge_telegram_image_enabled | Telegram 图片接收开关（默认 true，设为 false 关闭） |
 | bridge_telegram_max_image_size | 图片大小上限（字节，默认 20MB） |
+| bridge_telegram_stream_enabled | 流式预览总开关（默认启用，设为 `false` 关闭） |
+| bridge_telegram_stream_interval_ms | 预览节流间隔（默认 700ms） |
+| bridge_telegram_stream_min_delta_chars | 最小增量字符数（默认 20） |
+| bridge_telegram_stream_max_chars | 草稿截断阈值（默认 3900） |
+| bridge_telegram_stream_private_only | 仅私聊启用预览（默认 true，群聊自动跳过） |
 
 ## API 路由
 

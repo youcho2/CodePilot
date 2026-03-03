@@ -43,6 +43,12 @@ export interface PermissionRequestInfo {
  */
 export type OnPermissionRequest = (perm: PermissionRequestInfo) => Promise<void>;
 
+/**
+ * Callback invoked on each `text` SSE event with the full accumulated text so far.
+ * Must return synchronously — the bridge-manager handles throttling and fire-and-forget.
+ */
+export type OnPartialText = (fullText: string) => void;
+
 export interface ConversationResult {
   responseText: string;
   tokenUsage: TokenUsage | null;
@@ -64,6 +70,7 @@ export async function processMessage(
   onPermissionRequest?: OnPermissionRequest,
   abortSignal?: AbortSignal,
   files?: FileAttachment[],
+  onPartialText?: OnPartialText,
 ): Promise<ConversationResult> {
   const sessionId = binding.codepilotSessionId;
 
@@ -179,7 +186,7 @@ export async function processMessage(
     // Consume the stream server-side (replicate collectStreamResponse pattern).
     // Permission requests are forwarded immediately via the callback during streaming
     // because the stream blocks until permission is resolved — we can't wait until after.
-    return await consumeStream(stream, sessionId, onPermissionRequest);
+    return await consumeStream(stream, sessionId, onPermissionRequest, onPartialText);
   } finally {
     clearInterval(renewalInterval);
     releaseSessionLock(sessionId, lockId);
@@ -195,10 +202,13 @@ async function consumeStream(
   stream: ReadableStream<string>,
   sessionId: string,
   onPermissionRequest?: OnPermissionRequest,
+  onPartialText?: OnPartialText,
 ): Promise<ConversationResult> {
   const reader = stream.getReader();
   const contentBlocks: MessageContentBlock[] = [];
   let currentText = '';
+  /** Monotonically accumulated text for streaming preview — never resets on tool_use. */
+  let previewText = '';
   let tokenUsage: TokenUsage | null = null;
   let hasError = false;
   let errorMessage = '';
@@ -225,6 +235,10 @@ async function consumeStream(
         switch (event.type) {
           case 'text':
             currentText += event.data;
+            if (onPartialText) {
+              previewText += event.data;
+              try { onPartialText(previewText); } catch { /* non-critical */ }
+            }
             break;
 
           case 'tool_use': {

@@ -67,6 +67,24 @@ export async function callTelegramApi(
 }
 
 /**
+ * Send a draft message preview via Telegram Bot API 9.5 sendMessageDraft.
+ * Plain text only (no parse_mode) — used for streaming preview.
+ */
+export async function sendMessageDraft(
+  botToken: string,
+  chatId: string,
+  text: string,
+  draftId: number,
+): Promise<TelegramSendResult> {
+  const truncated = text.length > 4096 ? text.slice(0, 4096) : text;
+  return callTelegramApi(botToken, 'sendMessageDraft', {
+    chat_id: chatId,
+    text: truncated,
+    draft_id: draftId,
+  });
+}
+
+/**
  * Escape special HTML characters for Telegram HTML mode.
  */
 export function escapeHtml(text: string): string {

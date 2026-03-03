@@ -287,6 +287,7 @@ export async function deliverRendered(
   }
 
   let lastMessageId: string | undefined;
+  let failedCount = 0;
 
   for (let i = 0; i < chunks.length; i++) {
     await rateLimiter.acquire(address.chatId);
@@ -303,7 +304,14 @@ export async function deliverRendered(
 
     // Try HTML first, fall back to plain text on parse error
     const result = await sendWithRetry(adapter, htmlMessage, chunk.text);
-    if (!result.ok) return result;
+    if (!result.ok) {
+      console.warn(
+        `[delivery-layer] Chunk ${i + 1}/${chunks.length} failed for chat ${address.chatId}: ${result.error}`,
+      );
+      failedCount++;
+      // Continue delivering remaining chunks instead of aborting
+      continue;
+    }
     lastMessageId = result.messageId;
 
     if (result.messageId && opts?.sessionId) {
@@ -317,6 +325,12 @@ export async function deliverRendered(
         });
       } catch { /* best effort */ }
     }
+  }
+
+  // Notify user about incomplete delivery
+  if (failedCount > 0 && lastMessageId) {
+    const notice = `[${failedCount}/${chunks.length} part(s) failed to send — response may be incomplete]`;
+    await adapter.send({ address, text: notice, parseMode: 'plain' }).catch(() => {});
   }
 
   if (opts?.dedupKey) {
@@ -333,5 +347,8 @@ export async function deliverRendered(
     });
   } catch { /* best effort */ }
 
+  if (failedCount > 0) {
+    return { ok: false, error: `${failedCount}/${chunks.length} chunk(s) failed`, messageId: lastMessageId };
+  }
   return { ok: true, messageId: lastMessageId };
 }

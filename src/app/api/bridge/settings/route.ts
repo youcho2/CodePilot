@@ -9,6 +9,11 @@ const BRIDGE_SETTING_KEYS = [
   'bridge_default_work_dir',
   'bridge_default_model',
   'bridge_default_provider_id',
+  'bridge_telegram_stream_enabled',
+  'bridge_telegram_stream_interval_ms',
+  'bridge_telegram_stream_min_delta_chars',
+  'bridge_telegram_stream_max_chars',
+  'bridge_telegram_stream_private_only',
 ] as const;
 
 export async function GET() {

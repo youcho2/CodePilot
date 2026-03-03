@@ -9,6 +9,7 @@ import type {
   ChannelType,
   InboundMessage,
   OutboundMessage,
+  PreviewCapabilities,
   SendResult,
 } from './types';
 
@@ -76,6 +77,25 @@ export abstract class BaseChannelAdapter {
    * Default is a no-op; override in adapters that need deferred offset tracking.
    */
   acknowledgeUpdate?(_updateId: number): void;
+
+  /**
+   * Return preview capabilities for a given chat.
+   * Returning null means streaming preview is not available for this chat.
+   */
+  getPreviewCapabilities?(_chatId: string): PreviewCapabilities | null;
+
+  /**
+   * Send (or update) a streaming preview draft.
+   * Returns 'sent' on success, 'skip' for transient failures (caller should
+   * retry later), or 'degrade' for permanent failures (caller should stop).
+   */
+  sendPreview?(_chatId: string, _text: string, _draftId: number): Promise<'sent' | 'skip' | 'degrade'>;
+
+  /**
+   * Signal the end of a preview cycle. The final message is sent via the
+   * normal delivery path, so this is typically a no-op.
+   */
+  endPreview?(_chatId: string, _draftId: number): void;
 }
 
 // ── Adapter Registry ────────────────────────────────────────────

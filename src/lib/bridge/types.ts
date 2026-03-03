@@ -145,6 +145,25 @@ export interface PermissionLink {
   createdAt: string;
 }
 
+// ── Streaming Preview ─────────────────────────────────────────
+
+/** Capabilities of a channel adapter's streaming preview support */
+export interface PreviewCapabilities {
+  supported: boolean;
+  privateOnly: boolean;
+}
+
+/** Mutable state for an in-flight streaming preview */
+export interface StreamingPreviewState {
+  draftId: number;           // non-zero 31-bit random integer, reused within one answer cycle
+  chatId: string;
+  lastSentText: string;      // last text actually sent as draft
+  lastSentAt: number;        // timestamp (ms) of last sent draft
+  degraded: boolean;         // set true after API failure → skip further previews
+  throttleTimer: ReturnType<typeof setTimeout> | null;
+  pendingText: string;       // latest accumulated text (may not yet be sent due to throttle)
+}
+
 // ── Config ─────────────────────────────────────────────────────
 
 /** Platform-specific message length limits */

@@ -7,7 +7,7 @@
  * Uses globalThis to survive Next.js HMR in development.
  */
 
-import type { BridgeStatus, InboundMessage, OutboundMessage } from './types';
+import type { BridgeStatus, InboundMessage, OutboundMessage, StreamingPreviewState } from './types';
 import { createAdapter, getRegisteredTypes } from './channel-adapter';
 import type { BaseChannelAdapter } from './channel-adapter';
 // Side-effect import: triggers self-registration of all adapter factories
@@ -29,6 +29,79 @@ import {
 } from './security/validators';
 
 const GLOBAL_KEY = '__bridge_manager__';
+
+// ── Streaming preview helpers ──────────────────────────────────
+
+/** Generate a non-zero random 31-bit integer for use as draft_id. */
+function generateDraftId(): number {
+  return (Math.floor(Math.random() * 0x7FFFFFFE) + 1); // 1 .. 2^31-1
+}
+
+interface StreamConfig {
+  intervalMs: number;
+  minDeltaChars: number;
+  maxChars: number;
+}
+
+function getStreamConfig(): StreamConfig {
+  const intervalMs = parseInt(getSetting('bridge_telegram_stream_interval_ms') || '', 10) || 700;
+  const minDeltaChars = parseInt(getSetting('bridge_telegram_stream_min_delta_chars') || '', 10) || 20;
+  const maxChars = parseInt(getSetting('bridge_telegram_stream_max_chars') || '', 10) || 3900;
+  return { intervalMs, minDeltaChars, maxChars };
+}
+
+/** Fire-and-forget: send a preview draft. Only degrades on permanent failure. */
+function flushPreview(
+  adapter: BaseChannelAdapter,
+  state: StreamingPreviewState,
+  config: StreamConfig,
+): void {
+  if (state.degraded || !adapter.sendPreview) return;
+
+  const text = state.pendingText.length > config.maxChars
+    ? state.pendingText.slice(0, config.maxChars) + '...'
+    : state.pendingText;
+
+  state.lastSentText = text;
+  state.lastSentAt = Date.now();
+
+  adapter.sendPreview(state.chatId, text, state.draftId).then(result => {
+    if (result === 'degrade') state.degraded = true;
+    // 'skip' — transient failure, next flush will retry naturally
+  }).catch(() => {
+    // Network error — transient, don't degrade
+  });
+}
+
+// ── Channel-aware rendering dispatch ──────────────────────────
+
+import type { ChannelAddress, SendResult } from './types';
+
+/**
+ * Render response text and deliver via the appropriate channel format.
+ * Telegram: Markdown → HTML chunks via deliverRendered.
+ * Other channels: plain text via deliver (no HTML).
+ */
+async function deliverResponse(
+  adapter: BaseChannelAdapter,
+  address: ChannelAddress,
+  responseText: string,
+  sessionId: string,
+): Promise<SendResult> {
+  if (adapter.channelType === 'telegram') {
+    const chunks = markdownToTelegramChunks(responseText, 4096);
+    if (chunks.length > 0) {
+      return deliverRendered(adapter, address, chunks, { sessionId });
+    }
+    return { ok: true };
+  }
+  // Generic fallback: deliver as plain text (deliver() handles chunking internally)
+  return deliver(adapter, {
+    address,
+    text: responseText,
+    parseMode: 'plain',
+  }, { sessionId });
+}
 
 interface AdapterMeta {
   lastMessageAt: string | null;
@@ -365,6 +438,67 @@ async function handleMessage(
   const state = getState();
   state.activeTasks.set(binding.codepilotSessionId, taskAbort);
 
+  // ── Streaming preview setup ──────────────────────────────────
+  let previewState: StreamingPreviewState | null = null;
+  const caps = adapter.getPreviewCapabilities?.(msg.address.chatId) ?? null;
+  if (caps?.supported) {
+    previewState = {
+      draftId: generateDraftId(),
+      chatId: msg.address.chatId,
+      lastSentText: '',
+      lastSentAt: 0,
+      degraded: false,
+      throttleTimer: null,
+      pendingText: '',
+    };
+  }
+
+  const streamCfg = previewState ? getStreamConfig() : null;
+
+  // Build the onPartialText callback (or undefined if preview not supported)
+  const onPartialText = (previewState && streamCfg) ? (fullText: string) => {
+    const ps = previewState!;
+    const cfg = streamCfg!;
+    if (ps.degraded) return;
+
+    // Truncate to maxChars + ellipsis
+    ps.pendingText = fullText.length > cfg.maxChars
+      ? fullText.slice(0, cfg.maxChars) + '...'
+      : fullText;
+
+    const delta = ps.pendingText.length - ps.lastSentText.length;
+    const elapsed = Date.now() - ps.lastSentAt;
+
+    if (delta < cfg.minDeltaChars && ps.lastSentAt > 0) {
+      // Not enough new content — schedule trailing-edge timer if not already set
+      if (!ps.throttleTimer) {
+        ps.throttleTimer = setTimeout(() => {
+          ps.throttleTimer = null;
+          if (!ps.degraded) flushPreview(adapter, ps, cfg);
+        }, cfg.intervalMs);
+      }
+      return;
+    }
+
+    if (elapsed < cfg.intervalMs && ps.lastSentAt > 0) {
+      // Too soon — schedule trailing-edge timer to ensure latest text is sent
+      if (!ps.throttleTimer) {
+        ps.throttleTimer = setTimeout(() => {
+          ps.throttleTimer = null;
+          if (!ps.degraded) flushPreview(adapter, ps, cfg);
+        }, cfg.intervalMs - elapsed);
+      }
+      return;
+    }
+
+    // Clear any pending trailing-edge timer and flush immediately
+    if (ps.throttleTimer) {
+      clearTimeout(ps.throttleTimer);
+      ps.throttleTimer = null;
+    }
+    flushPreview(adapter, ps, cfg);
+  } : undefined;
+
   try {
     // Pass permission callback so requests are forwarded to IM immediately
     // during streaming (the stream blocks until permission is resolved).
@@ -381,16 +515,11 @@ async function handleMessage(
         binding.codepilotSessionId,
         perm.suggestions,
       );
-    }, taskAbort.signal, hasAttachments ? msg.attachments : undefined);
+    }, taskAbort.signal, hasAttachments ? msg.attachments : undefined, onPartialText);
 
-    // Send response text — render Markdown to Telegram HTML
+    // Send response text — render via channel-appropriate format
     if (result.responseText) {
-      const chunks = markdownToTelegramChunks(result.responseText, 4096);
-      if (chunks.length > 0) {
-        await deliverRendered(adapter, msg.address, chunks, {
-          sessionId: binding.codepilotSessionId,
-        });
-      }
+      await deliverResponse(adapter, msg.address, result.responseText, binding.codepilotSessionId);
     } else if (result.hasError) {
       const errorResponse: OutboundMessage = {
         address: msg.address,
@@ -413,6 +542,15 @@ async function handleMessage(
       } catch { /* best effort */ }
     }
   } finally {
+    // Clean up preview state
+    if (previewState) {
+      if (previewState.throttleTimer) {
+        clearTimeout(previewState.throttleTimer);
+        previewState.throttleTimer = null;
+      }
+      adapter.endPreview?.(msg.address.chatId, previewState.draftId);
+    }
+
     state.activeTasks.delete(binding.codepilotSessionId);
     // Notify adapter that message processing ended
     adapter.onMessageEnd?.(msg.address.chatId);

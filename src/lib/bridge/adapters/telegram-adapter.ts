@@ -10,11 +10,12 @@ import type {
   ChannelType,
   InboundMessage,
   OutboundMessage,
+  PreviewCapabilities,
   SendResult,
 } from '../types';
 import type { FileAttachment } from '@/types';
 import { BaseChannelAdapter, registerAdapterFactory } from '../channel-adapter';
-import { callTelegramApi } from './telegram-utils';
+import { callTelegramApi, sendMessageDraft } from './telegram-utils';
 import {
   isImageEnabled,
   downloadPhoto,
@@ -79,6 +80,8 @@ export class TelegramAdapter extends BaseChannelAdapter {
   private waiters: Array<(msg: InboundMessage | null) => void> = [];
   private typingIntervals = new Map<string, ReturnType<typeof setInterval>>();
   private mediaGroupBuffers = new Map<string, MediaGroupBufferEntry>();
+  /** Chat IDs where sendMessageDraft has permanently failed (method not found / 400 / 404). */
+  private previewDegraded = new Set<string>();
 
   /** Committed offset — the highest update_id that has been safely enqueued or skipped. */
   private committedOffset = 0;
@@ -144,6 +147,9 @@ export class TelegramAdapter extends BaseChannelAdapter {
       clearTimeout(entry.timer);
     }
     this.mediaGroupBuffers.clear();
+
+    // Reset preview degradation state
+    this.previewDegraded.clear();
 
     console.log('[telegram-adapter] Stopped');
   }
@@ -278,6 +284,44 @@ export class TelegramAdapter extends BaseChannelAdapter {
   acknowledgeUpdate(updateId: number): void {
     this.markUpdateProcessed(updateId);
     this.persistCommittedOffset();
+  }
+
+  // ── Streaming preview ────────────────────────────────────────
+
+  getPreviewCapabilities(chatId: string): PreviewCapabilities | null {
+    // Global kill switch
+    if (getSetting('bridge_telegram_stream_enabled') === 'false') return null;
+
+    // Private-only check: positive chatId = private, negative = group/channel
+    const privateOnly = getSetting('bridge_telegram_stream_private_only') !== 'false';
+    if (privateOnly && parseInt(chatId, 10) < 0) return null;
+
+    // Already degraded for this chat
+    if (this.previewDegraded.has(chatId)) return null;
+
+    return { supported: true, privateOnly };
+  }
+
+  async sendPreview(chatId: string, text: string, draftId: number): Promise<'sent' | 'skip' | 'degrade'> {
+    const token = this.botToken;
+    if (!token) return 'skip';
+
+    const result = await sendMessageDraft(token, chatId, text, draftId);
+    if (result.ok) return 'sent';
+
+    // Classify failure
+    const status = result.httpStatus;
+    if (status === 400 || status === 404) {
+      // Method not found or bad request — permanent degradation
+      this.previewDegraded.add(chatId);
+      return 'degrade';
+    }
+    // 429 (rate limit) or transient — skip this update but don't degrade
+    return 'skip';
+  }
+
+  endPreview(_chatId: string, _draftId: number): void {
+    // No-op: the final sendMessage naturally replaces the draft
   }
 
   // ── Lifecycle hooks (called generically by bridge-manager) ───
