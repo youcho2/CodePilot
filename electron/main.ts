@@ -938,8 +938,10 @@ app.whenReady().then(async () => {
       autoStartReq.end();
     }
 
-    // Initialize auto-updater in packaged mode only
-    if (!isDev && mainWindow) {
+    // Initialize auto-updater in packaged mode only.
+    // Disabled on macOS x64 (Intel) — those users get browser-mode update check.
+    const skipNativeUpdater = process.platform === 'darwin' && process.arch === 'x64';
+    if (!isDev && mainWindow && !skipNativeUpdater) {
       initAutoUpdater(mainWindow);
     }
   } catch (err) {

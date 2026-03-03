@@ -14,7 +14,7 @@ on:
           - macos
           - linux
       mac_notarize:
-        description: "mac notarization mode"
+        description: "mac notarization mode (arm64 only)"
         required: false
         default: "auto"
         type: choice
@@ -88,7 +88,7 @@ jobs:
           printf '%s' "$MAC_CERT_P12_BASE64" | tr -d '\r\n' | base64 --decode > /tmp/cert.p12
           openssl pkcs12 -in /tmp/cert.p12 -passin pass:"$MAC_CERT_PASSWORD" -noout
 
-      - name: Resolve mac notarization strategy
+      - name: Resolve arm64 notarization strategy
         id: mac_mode
         shell: bash
         env:
@@ -115,7 +115,7 @@ jobs:
 
           echo "mode=$MODE" >> "$GITHUB_OUTPUT"
           echo "notarize=$NOTARIZE" >> "$GITHUB_OUTPUT"
-          echo "Resolved mac notarization: $NOTARIZE (mode=$MODE, ref=$REF_NAME)"
+          echo "Resolved arm64 notarization: $NOTARIZE (mode=$MODE, ref=$REF_NAME)"
 
       - name: Validate notarization credentials
         if: ${{ env.HAS_CERT == 'true' && steps.mac_mode.outputs.notarize == 'true' }}
@@ -130,7 +130,32 @@ jobs:
             --password "$APPLE_APP_SPECIFIC_PASSWORD" \
             --team-id "$APPLE_TEAM_ID" >/dev/null
 
-      - name: Package for macOS (x64 + arm64)
+      # ── x64: sign only, no notarization ──────────────────────────────────
+      - name: Package for macOS (x64, sign only)
+        timeout-minutes: 15
+        env:
+          CSC_LINK: ${{ env.HAS_CERT == 'true' && '/tmp/cert.p12' || '' }}
+          CSC_KEY_PASSWORD: ${{ secrets.MAC_CERT_PASSWORD }}
+        run: |
+          set -euo pipefail
+          for i in 1 2 3; do
+            echo "electron-builder x64 attempt $i/3 (notarize=false)"
+            if npx electron-builder --mac --x64 --config electron-builder.yml -c.mac.notarize=false --publish never; then
+              exit 0
+            fi
+            if [ "$i" -lt 3 ]; then sleep $((i * 30)); fi
+          done
+          exit 1
+
+      # Move x64 artifacts aside so arm64 build produces clean latest-mac.yml
+      - name: Stash x64 artifacts
+        run: |
+          mkdir -p release/x64-stash
+          mv release/*.dmg release/*.zip release/*.blockmap release/x64-stash/ 2>/dev/null || true
+          rm -f release/latest-mac.yml
+
+      # ── arm64: sign + conditional notarization ───────────────────────────
+      - name: Package for macOS (arm64)
         timeout-minutes: 35
         env:
           CSC_LINK: ${{ env.HAS_CERT == 'true' && '/tmp/cert.p12' || '' }}
@@ -148,15 +173,17 @@ jobs:
           fi
 
           for i in 1 2 3; do
-            echo "electron-builder attempt $i/3 (notarize=${{ steps.mac_mode.outputs.notarize }})"
-            if npx electron-builder --mac --config electron-builder.yml "${EXTRA_ARGS[@]}" --publish never; then
+            echo "electron-builder arm64 attempt $i/3 (notarize=${{ steps.mac_mode.outputs.notarize }})"
+            if npx electron-builder --mac --arm64 --config electron-builder.yml "${EXTRA_ARGS[@]}" --publish never; then
               exit 0
             fi
-            if [ "$i" -lt 3 ]; then
-              sleep $((i * 60))
-            fi
+            if [ "$i" -lt 3 ]; then sleep $((i * 60)); fi
           done
           exit 1
+
+      # Restore x64 artifacts alongside arm64 output
+      - name: Restore x64 artifacts
+        run: mv release/x64-stash/* release/ && rmdir release/x64-stash
 
       - name: Verify code signature
         if: ${{ env.HAS_CERT == 'true' }}
@@ -206,7 +233,9 @@ jobs:
       - name: Print mac release mode
         run: |
           echo "mac_notarize_mode=${{ steps.mac_mode.outputs.mode }}"
-          echo "mac_notarize=${{ steps.mac_mode.outputs.notarize }}"
+          echo "arm64_notarize=${{ steps.mac_mode.outputs.notarize }}"
+          echo "x64_notarize=false (always sign-only)"
+          echo "latest-mac.yml comes from arm64 build"
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
