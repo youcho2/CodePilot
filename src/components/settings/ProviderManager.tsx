@@ -77,16 +77,6 @@ function getProviderIcon(name: string, baseUrl: string): ReactNode {
   return <HugeiconsIcon icon={ServerStack01Icon} className="h-[18px] w-[18px] text-muted-foreground" />;
 }
 
-/** Resolve the key field name from extra_env JSON (e.g. ANTHROPIC_API_KEY, ANTHROPIC_AUTH_TOKEN) */
-function getKeyFieldFromExtraEnv(extraEnv: string): string | null {
-  try {
-    const parsed = JSON.parse(extraEnv);
-    if ("ANTHROPIC_AUTH_TOKEN" in parsed) return "ANTHROPIC_AUTH_TOKEN";
-    if ("ANTHROPIC_API_KEY" in parsed) return "ANTHROPIC_API_KEY";
-  } catch { /* ignore */ }
-  return null;
-}
-
 // ---------------------------------------------------------------------------
 // Quick-add preset definitions
 // ---------------------------------------------------------------------------
@@ -237,7 +227,7 @@ const QUICK_PRESETS: QuickPreset[] = [
     icon: <Bailian size={18} />,
     provider_type: "custom",
     base_url: "https://coding.dashscope.aliyuncs.com/apps/anthropic",
-    extra_env: '{"ANTHROPIC_AUTH_TOKEN":""}',
+    extra_env: '{"ANTHROPIC_API_KEY":""}',
     fields: ["api_key"],
   },
   {
@@ -349,16 +339,7 @@ function PresetConnectDialog({
     e.preventDefault();
     setError(null);
 
-    // Inject key into extra_env if needed
     let finalExtraEnv = extraEnv;
-    const keyField = getKeyFieldFromExtraEnv(preset.extra_env);
-    if (keyField && apiKey) {
-      try {
-        const envObj = JSON.parse(finalExtraEnv);
-        envObj[keyField] = apiKey;
-        finalExtraEnv = JSON.stringify(envObj);
-      } catch { /* use as-is */ }
-    }
 
     // Inject model name into extra_env if model_names field is used
     if (preset.fields.includes("model_names") && modelName.trim()) {
@@ -383,7 +364,7 @@ function PresetConnectDialog({
         name: name.trim() || preset.name,
         provider_type: preset.provider_type,
         base_url: baseUrl.trim(),
-        api_key: keyField ? "" : apiKey,
+        api_key: apiKey,
         extra_env: finalExtraEnv,
         notes: "",
       });
