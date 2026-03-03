@@ -167,18 +167,24 @@ jobs:
         run: |
           set -euo pipefail
 
-          EXTRA_ARGS=()
-          if [[ "${{ steps.mac_mode.outputs.notarize }}" != "true" ]]; then
-            EXTRA_ARGS=(-c.mac.notarize=false)
-          fi
+          NOTARIZE="${{ steps.mac_mode.outputs.notarize }}"
 
           for i in 1 2 3; do
-            echo "electron-builder arm64 attempt $i/3 (notarize=${{ steps.mac_mode.outputs.notarize }})"
-            if npx electron-builder --mac --arm64 --config electron-builder.yml "${EXTRA_ARGS[@]}" --publish never; then
+            echo "electron-builder arm64 attempt $i/3 (notarize=$NOTARIZE)"
+
+            if [[ "$NOTARIZE" == "true" ]]; then
+              npx electron-builder --mac --arm64 --config electron-builder.yml --publish never
+            else
+              npx electron-builder --mac --arm64 --config electron-builder.yml -c.mac.notarize=false --publish never
+            fi
+
+            if [ $? -eq 0 ]; then
               exit 0
             fi
+
             if [ "$i" -lt 3 ]; then sleep $((i * 60)); fi
           done
+
           exit 1
 
       # Restore x64 artifacts alongside arm64 output
