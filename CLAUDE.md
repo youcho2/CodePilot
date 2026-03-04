@@ -12,6 +12,12 @@ CodePilot — Claude Code 的桌面 GUI 客户端，基于 Electron + Next.js。
 - 涉及构建/打包的改动需要完整执行一次打包流程验证产物可用
 - 涉及多平台的改动需要考虑各平台的差异性
 
+**UI 改动必须用 CDP 验证（chrome-devtools MCP）：**
+- 修改组件、样式、布局后，必须通过 chrome-devtools MCP 实际验证效果
+- 验证流程：`npm run dev` 启动应用 → 用 CDP 打开 `http://localhost:3000` 对应页面 → 截图确认渲染正确 → 检查 console 无报错
+- 涉及交互的改动（按钮、表单、导航）需通过 CDP 模拟点击/输入并截图验证
+- 修改响应式布局时，用 CDP 的 device emulation 分别验证桌面和移动端视口
+
 **新增功能前必须详尽调研：**
 - 新增功能前必须充分调研相关技术方案、API 兼容性、社区最佳实践
 - 涉及 Electron API 需确认目标版本支持情况
