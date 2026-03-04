@@ -3,14 +3,15 @@
 import { useState, useCallback, useSyncExternalStore } from "react";
 import { HugeiconsIcon } from "@hugeicons/react";
 import type { IconSvgElement } from "@hugeicons/react";
-import { Wifi01Icon, TelegramIcon } from "@hugeicons/core-free-icons";
+import { Wifi01Icon, TelegramIcon, BubbleChatIcon } from "@hugeicons/core-free-icons";
 import { cn } from "@/lib/utils";
 import { BridgeSection } from "./BridgeSection";
 import { TelegramBridgeSection } from "./TelegramBridgeSection";
+import { FeishuBridgeSection } from "./FeishuBridgeSection";
 import { useTranslation } from "@/hooks/useTranslation";
 import type { TranslationKey } from "@/i18n";
 
-type Section = "bridge" | "telegram";
+type Section = "bridge" | "telegram" | "feishu";
 
 interface SidebarItem {
   id: Section;
@@ -21,6 +22,7 @@ interface SidebarItem {
 const sidebarItems: SidebarItem[] = [
   { id: "bridge", label: "Bridge", icon: Wifi01Icon },
   { id: "telegram", label: "Telegram", icon: TelegramIcon },
+  { id: "feishu", label: "Feishu", icon: BubbleChatIcon },
 ];
 
 function getSectionFromHash(): Section {
@@ -47,6 +49,7 @@ export function BridgeLayout() {
   const bridgeLabelKeys: Record<string, TranslationKey> = {
     'Bridge': 'bridge.title',
     'Telegram': 'bridge.telegramSettings',
+    'Feishu': 'bridge.feishuSettings',
   };
 
   const handleSectionChange = useCallback((section: Section) => {
@@ -86,6 +89,7 @@ export function BridgeLayout() {
         <div className="flex-1 overflow-auto p-6">
           {activeSection === "bridge" && <BridgeSection />}
           {activeSection === "telegram" && <TelegramBridgeSection />}
+          {activeSection === "feishu" && <FeishuBridgeSection />}
         </div>
       </div>
     </div>

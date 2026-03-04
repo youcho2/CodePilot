@@ -95,6 +95,14 @@ async function deliverResponse(
     }
     return { ok: true };
   }
+  if (adapter.channelType === 'feishu') {
+    // Feishu: pass markdown through for adapter to format as post/card
+    return deliver(adapter, {
+      address,
+      text: responseText,
+      parseMode: 'Markdown',
+    }, { sessionId });
+  }
   // Generic fallback: deliver as plain text (deliver() handles chunking internally)
   return deliver(adapter, {
     address,
@@ -608,6 +616,7 @@ async function handleCommand(
         '/status - Show current status',
         '/sessions - List recent sessions',
         '/stop - Stop current session',
+        '/perm allow|allow_session|deny &lt;id&gt; - Respond to permission',
         '/help - Show this help',
       ].join('\n');
       break;
@@ -714,6 +723,26 @@ async function handleCommand(
       break;
     }
 
+    case '/perm': {
+      // Text-based permission approval fallback (for channels without inline buttons)
+      // Usage: /perm allow <id> | /perm allow_session <id> | /perm deny <id>
+      const permParts = args.split(/\s+/);
+      const permAction = permParts[0];
+      const permId = permParts.slice(1).join(' ');
+      if (!permAction || !permId || !['allow', 'allow_session', 'deny'].includes(permAction)) {
+        response = 'Usage: /perm allow|allow_session|deny &lt;permission_id&gt;';
+        break;
+      }
+      const callbackData = `perm:${permAction}:${permId}`;
+      const handled = broker.handlePermissionCallback(callbackData, msg.address.chatId);
+      if (handled) {
+        response = `Permission ${permAction}: recorded.`;
+      } else {
+        response = `Permission not found or already resolved.`;
+      }
+      break;
+    }
+
     case '/help':
       response = [
         '<b>CodePilot Bridge Commands</b>',
@@ -725,6 +754,7 @@ async function handleCommand(
         '/status - Show current status',
         '/sessions - List recent sessions',
         '/stop - Stop current session',
+        '/perm allow|allow_session|deny &lt;id&gt; - Respond to permission request',
         '/help - Show this help',
       ].join('\n');
       break;

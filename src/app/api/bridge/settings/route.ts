@@ -14,6 +14,14 @@ const BRIDGE_SETTING_KEYS = [
   'bridge_telegram_stream_min_delta_chars',
   'bridge_telegram_stream_max_chars',
   'bridge_telegram_stream_private_only',
+  'bridge_feishu_enabled',
+  'bridge_feishu_app_id',
+  'bridge_feishu_app_secret',
+  'bridge_feishu_domain',
+  'bridge_feishu_allowed_users',
+  'bridge_feishu_group_policy',
+  'bridge_feishu_group_allow_from',
+  'bridge_feishu_require_mention',
 ] as const;
 
 export async function GET() {

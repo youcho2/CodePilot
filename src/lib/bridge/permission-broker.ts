@@ -18,6 +18,12 @@ import { resolvePendingPermission } from '../permission-registry';
 import { escapeHtml } from './adapters/telegram-utils';
 
 /**
+ * Dedup recent permission forwards to prevent duplicate cards.
+ * Key: permissionRequestId, value: timestamp. Entries expire after 30s.
+ */
+const recentPermissionForwards = new Map<string, number>();
+
+/**
  * Forward a permission request to an IM channel as an interactive message.
  */
 export async function forwardPermissionRequest(
@@ -29,6 +35,20 @@ export async function forwardPermissionRequest(
   sessionId?: string,
   suggestions?: unknown[],
 ): Promise<void> {
+  // Dedup: prevent duplicate forwarding of the same permission request
+  const now = Date.now();
+  if (recentPermissionForwards.has(permissionRequestId)) {
+    console.warn(`[permission-broker] Duplicate forward suppressed for ${permissionRequestId}`);
+    return;
+  }
+  recentPermissionForwards.set(permissionRequestId, now);
+  // Clean up old entries
+  for (const [id, ts] of recentPermissionForwards) {
+    if (now - ts > 30_000) recentPermissionForwards.delete(id);
+  }
+
+  console.log(`[permission-broker] Forwarding permission request: ${permissionRequestId} tool=${toolName} channel=${adapter.channelType}`);
+
   // Format the input summary (truncated)
   const inputStr = JSON.stringify(toolInput, null, 2);
   const truncatedInput = inputStr.length > 300

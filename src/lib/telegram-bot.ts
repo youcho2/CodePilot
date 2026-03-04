@@ -149,6 +149,7 @@ async function sendMessage(text: string, parseMode: 'HTML' | 'Markdown' = 'HTML'
 export async function notifySessionStart(opts?: TelegramNotifyOptions): Promise<void> {
   const config = getTelegramConfig();
   if (!config.enabled || !config.notifyStart) return;
+  if (isBridgeModeActive()) return;
 
   const header = formatSessionHeader(opts);
   const msg = `▶️ <b>Task Started</b>\n${header}`.trim();
@@ -168,6 +169,7 @@ export async function notifySessionComplete(
 ): Promise<void> {
   const config = getTelegramConfig();
   if (!config.enabled || !config.notifyComplete) return;
+  if (isBridgeModeActive()) return;
 
   const header = formatSessionHeader(opts);
   let msg = `✅ <b>Task Completed</b>\n${header}`.trim();
@@ -193,6 +195,7 @@ export async function notifySessionError(
 ): Promise<void> {
   const config = getTelegramConfig();
   if (!config.enabled || !config.notifyError) return;
+  if (isBridgeModeActive()) return;
 
   const header = formatSessionHeader(opts);
   const truncatedError = errorMessage.length > 500
@@ -216,6 +219,8 @@ export async function notifyPermissionRequest(
 ): Promise<void> {
   const config = getTelegramConfig();
   if (!config.enabled || !config.notifyPermission) return;
+  // Bridge system handles permission forwarding via its own adapters
+  if (isBridgeModeActive()) return;
 
   const header = formatSessionHeader(opts);
   const inputStr = JSON.stringify(toolInput, null, 2);

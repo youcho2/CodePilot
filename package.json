@@ -1,6 +1,6 @@
 {
   "name": "codepilot",
-  "version": "0.24.0",
+  "version": "0.25.0",
   "private": true,
   "author": {
     "name": "op7418",
@@ -28,6 +28,7 @@
     "@google/genai": "^1.43.0",
     "@hugeicons/core-free-icons": "^3.1.1",
     "@hugeicons/react": "^1.1.4",
+    "@larksuiteoapi/node-sdk": "^1.59.0",
     "@lobehub/icons": "^4.6.0",
     "@radix-ui/react-use-controllable-state": "^1.2.2",
     "@streamdown/cjk": "^1.0.1",
