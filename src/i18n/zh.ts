@@ -25,8 +25,8 @@ const zh: Record<TranslationKey, string> = {
   'chatList.threads': '对话列表',
 
   // ── Message list ────────────────────────────────────────────
-  'messageList.claudeChat': 'Claude 对话',
-  'messageList.emptyDescription': '开始与 Claude 对话。提问、获取代码帮助或探索想法。',
+  'messageList.claudeChat': 'CodePilot 对话',
+  'messageList.emptyDescription': '开始与 CodePilot 对话。提问、获取代码帮助或探索想法。',
   'messageList.loadEarlier': '加载更早的消息',
   'messageList.loading': '加载中...',
 

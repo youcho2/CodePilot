@@ -28,8 +28,8 @@ const en = {
   'chatList.threads': 'Threads',
 
   // ── Message list ────────────────────────────────────────────
-  'messageList.claudeChat': 'Claude Chat',
-  'messageList.emptyDescription': 'Start a conversation with Claude. Ask questions, get help with code, or explore ideas.',
+  'messageList.claudeChat': 'CodePilot Chat',
+  'messageList.emptyDescription': 'Start a conversation with CodePilot. Ask questions, get help with code, or explore ideas.',
   'messageList.loadEarlier': 'Load earlier messages',
   'messageList.loading': 'Loading...',
 
