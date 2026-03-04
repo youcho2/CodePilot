@@ -2,6 +2,8 @@
 
 CodePilot — Claude Code 的桌面 GUI 客户端，基于 Electron + Next.js。
 
+> 架构细节见 [ARCHITECTURE.md](./ARCHITECTURE.md)，本文件只包含规则和流程。
+
 ## 开发规则
 
 **提交前必须详尽测试：**
@@ -22,6 +24,24 @@ CodePilot — Claude Code 的桌面 GUI 客户端，基于 Electron + Next.js。
 - body 中按文件或功能分组，说明改了什么、为什么改、影响范围
 - 修复 bug 需说明根因；架构决策需简要说明理由
 
+## 自检命令
+
+**自检命令（pre-commit hook 会自动执行前三项）：**
+- `npm run test` — typecheck + 单元测试（~4s，无需 dev server）
+- `npm run test:smoke` — 冒烟测试（~15s，需要 dev server）
+- `npm run test:e2e` — 完整 E2E（~60s+，需要 dev server）
+
+修改代码后，commit 前至少确保 `npm run test` 通过。
+涉及 UI 改动时额外运行 `npm run test:smoke`。
+
+## 改动自查
+
+完成代码修改后，在提交前确认：
+1. 改动是否涉及 i18n — 是否需要同步 `src/i18n/en.ts` 和 `zh.ts`
+2. 改动是否涉及数据库 — 是否需要在 `src/lib/db.ts` 更新 schema 迁移
+3. 改动是否涉及类型 — 是否需要更新 `src/types/index.ts`
+4. 改动是否涉及已有文档 — 是否需要更新 `docs/handover/` 中的交接文档
+
 ## 发版
 
 **发版流程：** 更新 package.json version → `npm install` 同步 lock → 提交推送 → `git tag v{版本号} && git push origin v{版本号}` → CI 自动构建发布。不要手动创建 GitHub Release。
@@ -34,17 +54,8 @@ CodePilot — Claude Code 的桌面 GUI 客户端，基于 Electron + Next.js。
 
 ## 文档
 
+- [ARCHITECTURE.md](./ARCHITECTURE.md) — 项目架构、目录结构、数据流、新功能触及点
 - `docs/handover/` — 交接文档（架构、数据流、设计决策）
 - `docs/research/` — 调研文档（技术方案、可行性分析）
 
 **检索前先读对应目录的 README.md；增删文件后更新索引。**
-
-## 自检命令
-
-**自检命令（pre-commit hook 会自动执行前三项）：**
-- `npm run test` — typecheck + 单元测试（~4s，无需 dev server）
-- `npm run test:smoke` — 冒烟测试（~15s，需要 dev server）
-- `npm run test:e2e` — 完整 E2E（~60s+，需要 dev server）
-
-修改代码后，commit 前至少确保 `npm run test` 通过。
-涉及 UI 改动时额外运行 `npm run test:smoke`。
