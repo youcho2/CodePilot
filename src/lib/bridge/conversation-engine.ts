@@ -363,7 +363,7 @@ async function consumeStream(
         : contentBlocks
             .filter((b): b is Extract<MessageContentBlock, { type: 'text' }> => b.type === 'text')
             .map((b) => b.text)
-            .join('')
+            .join('\n\n')
             .trim();
 
       if (content) {
@@ -400,7 +400,7 @@ async function consumeStream(
         : contentBlocks
             .filter((b): b is Extract<MessageContentBlock, { type: 'text' }> => b.type === 'text')
             .map((b) => b.text)
-            .join('')
+            .join('\n\n')
             .trim();
       if (content) {
         addMessage(sessionId, 'assistant', content);
