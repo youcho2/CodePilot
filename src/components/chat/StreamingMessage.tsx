@@ -18,6 +18,13 @@ import {
   ConfirmationAction,
 } from '@/components/ai-elements/confirmation';
 import { Shimmer } from '@/components/ai-elements/shimmer';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from '@/components/ui/dialog';
 import { ImageGenConfirmation } from './ImageGenConfirmation';
 import { BatchPlanInlinePreview } from './batch-image-gen/BatchPlanInlinePreview';
 import { PENDING_KEY, buildReferenceImages } from '@/lib/image-ref-store';
@@ -114,7 +121,7 @@ interface StreamingMessageProps {
   streamingToolOutput?: string;
   statusText?: string;
   pendingPermission?: PermissionRequestEvent | null;
-  onPermissionResponse?: (decision: 'allow' | 'allow_session' | 'deny', updatedInput?: Record<string, unknown>) => void;
+  onPermissionResponse?: (decision: 'allow' | 'allow_session' | 'deny', updatedInput?: Record<string, unknown>, denyMessage?: string) => void;
   permissionResolved?: 'allow' | 'deny' | null;
   onForceStop?: () => void;
 }
@@ -269,15 +276,39 @@ function AskUserQuestionUI({
   );
 }
 
+function extractPlanFilePath(toolUses: ToolUseInfo[]): string | null {
+  // Walk backwards to find the most recent Write or Edit targeting a plans/*.md file
+  for (let i = toolUses.length - 1; i >= 0; i--) {
+    const tool = toolUses[i];
+    const input = tool.input as Record<string, unknown>;
+    if ((tool.name === 'Write' || tool.name === 'Edit') && typeof input.file_path === 'string') {
+      const fp = input.file_path;
+      if (fp.endsWith('.md') && (fp.includes('plans/') || fp.includes('plans\\'))) {
+        return fp;
+      }
+    }
+  }
+  return null;
+}
+
 function ExitPlanModeUI({
   toolInput,
+  toolUses,
   onApprove,
   onDeny,
+  onDenyWithMessage,
 }: {
   toolInput: Record<string, unknown>;
+  toolUses: ToolUseInfo[];
   onApprove: () => void;
   onDeny: () => void;
+  onDenyWithMessage: (message: string) => void;
 }) {
+  const [planOpen, setPlanOpen] = useState(false);
+  const [planContent, setPlanContent] = useState<string | null>(null);
+  const [planLoading, setPlanLoading] = useState(false);
+  const [feedback, setFeedback] = useState('');
+  const planFilePath = extractPlanFilePath(toolUses);
   const allowedPrompts = (toolInput.allowedPrompts || []) as Array<{
     tool: string;
     prompt: string;
@@ -309,6 +340,30 @@ function ExitPlanModeUI({
         >
           Reject
         </button>
+        {planFilePath && (
+          <button
+            onClick={async () => {
+              setPlanLoading(true);
+              try {
+                const res = await fetch(`/api/files/preview?path=${encodeURIComponent(planFilePath)}&maxLines=1000`);
+                if (res.ok) {
+                  const data = await res.json();
+                  setPlanContent(data.preview?.content || 'Failed to load plan');
+                } else {
+                  setPlanContent('Failed to load plan file');
+                }
+              } catch {
+                setPlanContent('Failed to load plan file');
+              }
+              setPlanLoading(false);
+              setPlanOpen(true);
+            }}
+            disabled={planLoading}
+            className="rounded-lg border border-primary/30 px-3 py-1.5 text-xs font-medium text-primary transition-colors hover:bg-primary/10 disabled:opacity-50"
+          >
+            {planLoading ? 'Loading...' : 'View Plan'}
+          </button>
+        )}
         <button
           onClick={onApprove}
           className="rounded-lg bg-primary px-4 py-1.5 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90"
@@ -316,6 +371,43 @@ function ExitPlanModeUI({
           Approve & Execute
         </button>
       </div>
+      <div className="flex gap-2">
+        <input
+          type="text"
+          placeholder="Provide feedback on the plan..."
+          value={feedback}
+          onChange={(e) => setFeedback(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && feedback.trim()) {
+              onDenyWithMessage(feedback.trim());
+            }
+          }}
+          className="flex-1 rounded-lg border border-border bg-background px-3 py-1.5 text-xs focus:border-primary focus:outline-none"
+        />
+        <button
+          onClick={() => {
+            if (feedback.trim()) onDenyWithMessage(feedback.trim());
+          }}
+          disabled={!feedback.trim()}
+          className="rounded-lg border border-border px-3 py-1.5 text-xs transition-colors hover:bg-muted disabled:opacity-40"
+        >
+          Do this instead
+        </button>
+      </div>
+
+      {planOpen && planContent && (
+        <Dialog open={planOpen} onOpenChange={setPlanOpen}>
+          <DialogContent className="max-w-4xl h-[80vh] flex flex-col">
+            <DialogHeader>
+              <DialogTitle>Plan</DialogTitle>
+            </DialogHeader>
+            <div className="overflow-y-auto flex-1 min-h-0">
+              <MessageResponse>{planContent}</MessageResponse>
+            </div>
+            <DialogFooter showCloseButton />
+          </DialogContent>
+        </Dialog>
+      )}
     </div>
   );
 }
@@ -443,8 +535,10 @@ export function StreamingMessage({
         {pendingPermission?.toolName === 'ExitPlanMode' && !permissionResolved && (
           <ExitPlanModeUI
             toolInput={pendingPermission.toolInput as Record<string, unknown>}
+            toolUses={toolUses}
             onApprove={() => onPermissionResponse?.('allow')}
             onDeny={() => onPermissionResponse?.('deny')}
+            onDenyWithMessage={(msg) => onPermissionResponse?.('deny', undefined, msg)}
           />
         )}
         {pendingPermission?.toolName === 'ExitPlanMode' && permissionResolved === 'allow' && (
