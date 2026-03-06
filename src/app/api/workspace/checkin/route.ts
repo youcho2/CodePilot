@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import fs from 'fs';
 import path from 'path';
-import { getSetting, getDefaultProviderId } from '@/lib/db';
-import { loadState, saveState } from '@/lib/assistant-workspace';
+import { getSetting, getDefaultProviderId, getSession } from '@/lib/db';
+import { loadState, saveState, writeDailyMemory } from '@/lib/assistant-workspace';
 import { generateTextFromProvider } from '@/lib/text-generator';
 
 const CHECK_IN_QUESTIONS = [
@@ -35,10 +35,18 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json();
-    const { answers } = body as { answers: Record<string, string> };
+    const { answers, sessionId } = body as { answers: Record<string, string>; sessionId?: string };
 
     if (!answers || typeof answers !== 'object') {
       return NextResponse.json({ error: 'Invalid answers format' }, { status: 400 });
+    }
+
+    // Validate that the calling session belongs to this workspace
+    if (sessionId) {
+      const session = getSession(sessionId);
+      if (session && session.working_directory !== workspacePath) {
+        return NextResponse.json({ error: 'Session does not belong to current workspace' }, { status: 403 });
+      }
     }
 
     const qaText = CHECK_IN_LABELS.map((q, i) => {
@@ -60,27 +68,98 @@ export async function POST(request: NextRequest) {
       const providerId = getDefaultProviderId() || '';
       const model = getSetting('default_model') || 'claude-sonnet-4-20250514';
 
-      const memoryPrompt = `You maintain a memory.md file for an AI assistant. Given the user's daily check-in answers and the existing memory file, generate an UPDATED memory.md. Add new facts, update changed information, remove outdated items. Keep it organized with markdown headers. Keep under 4000 characters.\n\nExisting memory.md:\n${existingMemory || '(empty)'}\n\nToday's check-in (${today}):\n${qaText}`;
+      // Generate daily memory entry (episodic, not destructive)
+      const dailyMemoryPrompt = `You maintain daily memory entries for an AI assistant. Given the user's daily check-in answers, generate a daily memory entry for ${today}.
 
-      const userPrompt = `You maintain a user.md profile for an AI assistant. Given the user's daily check-in answers and the existing profile, generate an UPDATED user.md. Only update sections affected by today's answers. Keep it organized with markdown headers. Keep under 2000 characters.\n\nExisting user.md:\n${existingUser || '(empty)'}\n\nToday's check-in (${today}):\n${qaText}`;
+Format it with these sections:
+## Work Log
+(What the user accomplished today)
 
-      const [newMemory, newUser] = await Promise.all([
-        generateTextFromProvider({ providerId, model, system: 'You maintain knowledge files for AI assistants. Output only the file content, no explanations.', prompt: memoryPrompt }),
+## Priority Changes
+(Any shifts in goals or priorities)
+
+## To Remember
+(Things the user wants remembered)
+
+## Candidate Long-Term Memory
+(Facts that seem stable enough to promote to long-term memory — only include genuinely persistent facts, not transient updates)
+
+Keep under 2000 characters.
+
+Today's check-in (${today}):
+${qaText}`;
+
+      // Generate promotion candidates: only stable facts to append to memory.md
+      const promotionPrompt = `You maintain a long-term memory file for an AI assistant. Given the user's check-in and the existing memory, output ONLY new stable facts that should be APPENDED to memory.md. These must be genuinely persistent facts (user preferences, recurring patterns, important relationships), NOT daily transients.
+
+If there's nothing worth promoting, output exactly: (nothing to promote)
+
+Existing memory.md:
+${existingMemory || '(empty)'}
+
+Today's check-in (${today}):
+${qaText}`;
+
+      // Generate incremental user.md updates
+      const userPrompt = `You maintain a user.md profile for an AI assistant. Given the user's daily check-in answers and the existing profile, generate an UPDATED user.md. Only update sections affected by today's answers. Keep it organized with markdown headers. Keep under 2000 characters.
+
+Existing user.md:
+${existingUser || '(empty)'}
+
+Today's check-in (${today}):
+${qaText}`;
+
+      const [dailyContent, promotionContent, newUser] = await Promise.all([
+        generateTextFromProvider({ providerId, model, system: 'You maintain knowledge files for AI assistants. Output only the file content, no explanations.', prompt: dailyMemoryPrompt }),
+        generateTextFromProvider({ providerId, model, system: 'You maintain knowledge files for AI assistants. Output only the content to append, no explanations.', prompt: promotionPrompt }),
         generateTextFromProvider({ providerId, model, system: 'You maintain user profile documents. Output only the file content, no explanations.', prompt: userPrompt }),
       ]);
 
-      if (!newMemory.trim()) {
-        throw new Error('AI returned empty memory content');
+      // Write daily memory file (episodic, per-day)
+      if (dailyContent.trim()) {
+        writeDailyMemory(workspacePath, today, dailyContent);
       }
-      fs.writeFileSync(memoryPath, newMemory, 'utf-8');
+
+      // Promote stable facts to memory.md (additive append, NOT rewrite)
+      // Dedup: skip if today's promotion already exists in memory.md
+      if (promotionContent.trim() && !promotionContent.includes('(nothing to promote)')) {
+        const currentMemory = fs.existsSync(memoryPath) ? fs.readFileSync(memoryPath, 'utf-8') : '';
+        if (!currentMemory.includes(`## Promoted from ${today}`)) {
+          const appendText = `\n\n## Promoted from ${today}\n${promotionContent.trim()}\n`;
+          fs.appendFileSync(memoryPath, appendText, 'utf-8');
+        }
+      }
+
+      // Incremental user.md update
       if (existingUser && newUser.trim()) {
         fs.writeFileSync(userPath, newUser, 'utf-8');
       }
+
+      // Archive old daily memories and promote candidates
+      try {
+        const { archiveDailyMemories, promoteDailyToLongTerm } = await import('@/lib/workspace-organizer');
+        archiveDailyMemories(workspacePath);
+
+        // Promote memories that are 7+ days old
+        const sevenDaysAgo = new Date();
+        sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+        const dailyDir = path.join(workspacePath, 'memory', 'daily');
+        if (fs.existsSync(dailyDir)) {
+          const oldFiles = fs.readdirSync(dailyDir)
+            .filter(f => /^\d{4}-\d{2}-\d{2}\.md$/.test(f))
+            .filter(f => f.replace('.md', '') <= sevenDaysAgo.toISOString().slice(0, 10));
+          for (const f of oldFiles) {
+            promoteDailyToLongTerm(workspacePath, f.replace('.md', ''));
+          }
+        }
+      } catch {
+        // organizer module not available, skip archival
+      }
     } catch (e) {
-      console.warn('[workspace/checkin] AI generation failed, appending raw answers:', e);
-      // Fallback: append raw answers to memory.md
-      const appendText = `\n\n## Check-in ${today}\n${qaText}\n`;
-      fs.appendFileSync(memoryPath, appendText, 'utf-8');
+      console.warn('[workspace/checkin] AI generation failed, writing raw daily entry:', e);
+      // Fallback: write raw answers as daily memory
+      const rawDailyContent = `# Daily Check-in ${today}\n\n${qaText}\n`;
+      writeDailyMemory(workspacePath, today, rawDailyContent);
     }
 
     // Update state

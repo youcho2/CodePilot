@@ -7,6 +7,7 @@ import type {
   HighlighterGeneric,
   ThemedToken,
 } from "shiki";
+import { bundledLanguages } from "shiki";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -32,10 +33,10 @@ import { createHighlighter } from "shiki";
 
 // Shiki uses bitflags for font styles: 1=italic, 2=bold, 4=underline
 // biome-ignore lint/suspicious/noBitwiseOperators: shiki bitflag check
-// eslint-disable-next-line no-bitwise -- shiki bitflag check
+ 
 const isItalic = (fontStyle: number | undefined) => fontStyle && fontStyle & 1;
 // biome-ignore lint/suspicious/noBitwiseOperators: shiki bitflag check
-// eslint-disable-next-line no-bitwise -- shiki bitflag check
+ 
 // oxlint-disable-next-line eslint(no-bitwise)
 const isBold = (fontStyle: number | undefined) => fontStyle && fontStyle & 2;
 const isUnderline = (fontStyle: number | undefined) =>
@@ -138,24 +139,30 @@ const getTokensCacheKey = (code: string, language: BundledLanguage) => {
   return `${language}:${code.length}:${start}:${end}`;
 };
 
+const isBundledLanguage = (lang: string): lang is BundledLanguage =>
+  lang in bundledLanguages || lang === "text" || lang === "plaintext";
+
 const getHighlighter = (
   language: BundledLanguage
 ): Promise<HighlighterGeneric<BundledLanguage, BundledTheme>> => {
-  const cached = highlighterCache.get(language);
+  // Normalize unknown languages to "text" before hitting Shiki
+  const safeLang = isBundledLanguage(language) ? language : ("text" as BundledLanguage);
+
+  const cached = highlighterCache.get(safeLang);
   if (cached) {
     return cached;
   }
 
   const highlighterPromise = createHighlighter({
-    langs: [language],
+    langs: [safeLang],
     themes: ["github-light", "github-dark"],
   }).catch(() => {
     // Language not supported by Shiki — fall back to plain text
-    highlighterCache.delete(language);
+    highlighterCache.delete(safeLang);
     return getHighlighter("text" as BundledLanguage);
   });
 
-  highlighterCache.set(language, highlighterPromise);
+  highlighterCache.set(safeLang, highlighterPromise);
   return highlighterPromise;
 };
 

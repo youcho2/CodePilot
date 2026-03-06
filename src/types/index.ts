@@ -460,6 +460,121 @@ export interface AssistantWorkspaceFiles {
   claude?: string;
 }
 
+export interface AssistantWorkspaceFilesV2 extends AssistantWorkspaceFiles {
+  dailyMemories?: string[];
+  rootReadme?: string;
+  rootPath?: string;
+  rootDir?: string;
+}
+
+// ==========================================
+// Workspace Inspect Types
+// ==========================================
+
+export interface WorkspaceInspectResult {
+  exists: boolean;
+  isDirectory: boolean;
+  readable: boolean;
+  writable: boolean;
+  hasAssistantData: boolean;
+  workspaceStatus: 'empty' | 'normal_directory' | 'existing_workspace' | 'partial_workspace' | 'invalid';
+  summary?: {
+    onboardingComplete: boolean;
+    lastCheckInDate: string | null;
+    fileCount: number;
+  };
+}
+
+// ==========================================
+// Workspace Config Types
+// ==========================================
+
+export interface AssistantWorkspaceConfig {
+  workspaceType: string;
+  organizationStyle: 'project' | 'time' | 'topic' | 'mixed';
+  captureDefault: string;
+  archivePolicy: {
+    completedTaskArchiveAfterDays: number;
+    closedProjectArchive: boolean;
+    dailyMemoryRetentionDays: number;
+  };
+  ignore: string[];
+  index: {
+    maxFileSizeKB: number;
+    chunkSize: number;
+    chunkOverlap: number;
+    maxDepth: number;
+    includeExtensions: string[];
+  };
+}
+
+// ==========================================
+// Taxonomy Types
+// ==========================================
+
+export interface TaxonomyCategory {
+  id: string;
+  label: string;
+  paths: string[];
+  role: string;
+  confidence: number;
+  source: 'user' | 'learned' | 'default';
+  description: string;
+  createdBy: string;
+}
+
+export interface TaxonomyFile {
+  version: number;
+  categories: TaxonomyCategory[];
+  evolutionRules: {
+    allowAutoCreateCategory: boolean;
+    allowAutoArchive: boolean;
+    requireConfirmationForMoves: boolean;
+  };
+}
+
+// ==========================================
+// Workspace Index Types
+// ==========================================
+
+export interface ManifestEntry {
+  noteId: string;
+  path: string;
+  title: string;
+  aliases: string[];
+  tags: string[];
+  headings: string[];
+  mtime: number;
+  size: number;
+  hash: string;
+  summary: string;
+  categoryIds: string[];
+}
+
+export interface ChunkEntry {
+  chunkId: string;
+  noteId: string;
+  path: string;
+  heading: string;
+  text: string;
+  startLine: number;
+  endLine: number;
+}
+
+export interface HotsetFile {
+  pinned: string[];
+  frequent: Array<{ path: string; count: number; lastAccessed: number }>;
+  lastUpdated: number;
+}
+
+export interface SearchResult {
+  path: string;
+  heading: string;
+  snippet: string;
+  score: number;
+  source: 'title' | 'heading' | 'tag' | 'content';
+}
+
 // ==========================================
 // Reference Image Types (for image generation)
 // ==========================================

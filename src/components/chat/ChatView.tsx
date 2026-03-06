@@ -1,10 +1,12 @@
 'use client';
 
 import { useState, useCallback, useEffect, useRef, useMemo } from 'react';
+import { useRouter } from 'next/navigation';
 import type { Message, MessagesResponse, FileAttachment, SessionStreamSnapshot } from '@/types';
 import { MessageList } from './MessageList';
 import { MessageInput } from './MessageInput';
 import { usePanel } from '@/hooks/usePanel';
+import { useTranslation } from '@/hooks/useTranslation';
 import { BatchExecutionDashboard, BatchContextSync } from './batch-image-gen';
 import { setLastGeneratedImages, transferPendingToMessage } from '@/lib/image-ref-store';
 import {
@@ -27,7 +29,12 @@ interface ChatViewProps {
 
 export function ChatView({ sessionId, initialMessages = [], initialHasMore = false, modelName, initialMode, providerId }: ChatViewProps) {
   const { setStreamingSessionId, workingDirectory, setWorkingDirectory, setPanelOpen, setPendingApprovalSessionId } = usePanel();
+  const { t } = useTranslation();
+  const router = useRouter();
   const [messages, setMessages] = useState<Message[]>(initialMessages);
+
+  // Workspace mismatch banner state
+  const [workspaceMismatchPath, setWorkspaceMismatchPath] = useState<string | null>(null);
   const [hasMore, setHasMore] = useState(initialHasMore);
   const [loadingMore, setLoadingMore] = useState(false);
   const loadingMoreRef = useRef(false);
@@ -203,6 +210,11 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
       const state = data.state;
       if (!state) return;
 
+      // Check hookTriggeredSessionId: if this session already has a trigger in progress
+      // AND there are existing messages (conversation started), skip to avoid re-triggering.
+      // If the session has no messages, the previous trigger may have failed — allow retry.
+      if (state.hookTriggeredSessionId === sessionId && initialMessages.length > 0) return;
+
       const today = new Date().toISOString().slice(0, 10);
       const needsOnboarding = !state.onboardingComplete;
       const needsCheckIn = state.onboardingComplete && state.lastCheckInDate !== today;
@@ -259,6 +271,73 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
     return () => clearTimeout(timer);
   }, [checkAssistantTrigger]);
 
+  // Detect workspace mismatch: only show banner when this session was previously
+  // an assistant workspace session (has .assistant data) but the path has since changed.
+  // Normal project chats should never see this banner.
+  useEffect(() => {
+    if (!workingDirectory) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch('/api/settings/workspace');
+        if (!res.ok || cancelled) return;
+        const data = await res.json();
+        if (cancelled) return;
+
+        if (data.path && workingDirectory !== data.path) {
+          // Only show banner if this session's workingDirectory was itself an assistant workspace
+          // (i.e., it has .assistant/state.json). Regular project chats skip the banner.
+          const inspectRes = await fetch(`/api/workspace/inspect?path=${encodeURIComponent(workingDirectory)}`);
+          if (!inspectRes.ok || cancelled) return;
+          const inspectData = await inspectRes.json();
+          if (inspectData.hasAssistantData) {
+            setWorkspaceMismatchPath(data.path);
+          } else {
+            setWorkspaceMismatchPath(null);
+          }
+        } else {
+          setWorkspaceMismatchPath(null);
+        }
+      } catch {
+        // ignore
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [workingDirectory]);
+
+  // Listen for workspace-switched events (from AssistantWorkspaceSection).
+  // Only show banner if this session's workingDirectory was the OLD assistant workspace.
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      if (detail?.newPath && workingDirectory && workingDirectory === detail.oldPath) {
+        setWorkspaceMismatchPath(detail.newPath);
+      }
+    };
+    window.addEventListener('assistant-workspace-switched', handler);
+    return () => window.removeEventListener('assistant-workspace-switched', handler);
+  }, [workingDirectory]);
+
+  const handleOpenNewAssistant = useCallback(async () => {
+    try {
+      const model = typeof window !== 'undefined' ? localStorage.getItem('codepilot:last-model') || '' : '';
+      const provider_id = typeof window !== 'undefined' ? localStorage.getItem('codepilot:last-provider-id') || '' : '';
+      // Prefer reusing the latest assistant session (checkin mode) rather than always creating a new onboarding session
+      const res = await fetch('/api/workspace/session', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mode: 'checkin', model, provider_id }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        window.dispatchEvent(new CustomEvent('session-created'));
+        router.push(`/chat/${data.session.id}`);
+      }
+    } catch (e) {
+      console.error('[ChatView] Failed to open assistant session:', e);
+    }
+  }, [router]);
+
   const loadEarlierMessages = useCallback(async () => {
     // Use ref as atomic lock to prevent double-fetch from rapid clicks
     if (loadingMoreRef.current || !hasMore || messages.length === 0) return;
@@ -296,8 +375,20 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
     [sessionId, setPendingApprovalSessionId]
   );
 
-  // Detect assistant project completion signals in final message content
+  // Detect assistant project completion signals in final message content.
+  // Only processes fences when this session's workingDirectory matches the current assistant workspace path.
   const detectAssistantCompletion = useCallback(async (content: string) => {
+    // Guard: only allow fence processing for the current assistant workspace session
+    if (!workingDirectory) return;
+    try {
+      const wsRes = await fetch('/api/settings/workspace');
+      if (!wsRes.ok) return;
+      const wsData = await wsRes.json();
+      if (!wsData.path || wsData.path !== workingDirectory) return;
+    } catch {
+      return;
+    }
+
     const clearHookTriggered = () =>
       fetch('/api/workspace/hook-triggered', {
         method: 'POST',
@@ -313,7 +404,7 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
         await fetch('/api/workspace/onboarding', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ answers }),
+          body: JSON.stringify({ answers, sessionId }),
         });
         await clearHookTriggered();
       } catch (e) {
@@ -330,14 +421,14 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
         await fetch('/api/workspace/checkin', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ answers }),
+          body: JSON.stringify({ answers, sessionId }),
         });
         await clearHookTriggered();
       } catch (e) {
         console.error('[ChatView] Check-in completion failed:', e);
       }
     }
-  }, []);
+  }, [sessionId, workingDirectory]);
 
   // Send message — delegates stream management to the manager
   const sendMessage = useCallback(
@@ -508,6 +599,20 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
 
   return (
     <div className="flex h-full min-h-0 flex-col">
+      {/* Workspace mismatch banner */}
+      {workspaceMismatchPath && (
+        <div className="flex items-center justify-between gap-3 border-b border-yellow-500/30 bg-yellow-500/10 px-4 py-2">
+          <span className="text-xs text-yellow-700 dark:text-yellow-400">
+            {t('assistant.switchedBanner', { path: workspaceMismatchPath })}
+          </span>
+          <button
+            onClick={handleOpenNewAssistant}
+            className="shrink-0 rounded-md bg-yellow-600 px-3 py-1 text-xs font-medium text-white hover:bg-yellow-700 transition-colors"
+          >
+            {t('assistant.openNewAssistant')}
+          </button>
+        </div>
+      )}
       <MessageList
         messages={messages}
         streamingContent={streamingContent}

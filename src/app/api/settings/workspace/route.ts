@@ -1,13 +1,48 @@
 import { NextRequest, NextResponse } from 'next/server';
 import fs from 'fs';
 import { getSetting, setSetting } from '@/lib/db';
-import { validateWorkspace, initializeWorkspace, loadState } from '@/lib/assistant-workspace';
+import { validateWorkspace, initializeWorkspace, loadState, saveState } from '@/lib/assistant-workspace';
 
 export async function GET() {
   try {
     const workspacePath = getSetting('assistant_workspace_path');
     if (!workspacePath) {
-      return NextResponse.json({ path: null, files: {}, state: null });
+      return NextResponse.json({ path: null, valid: false, reason: 'no_path_configured', files: {}, state: null });
+    }
+
+    // Check if the path is actually valid before proceeding
+    let pathExists = false;
+    let isDirectory = false;
+    let readable = false;
+    try {
+      const stat = fs.statSync(workspacePath);
+      pathExists = true;
+      isDirectory = stat.isDirectory();
+    } catch { /* path doesn't exist */ }
+
+    let writable = false;
+    if (pathExists && isDirectory) {
+      try {
+        fs.accessSync(workspacePath, fs.constants.R_OK);
+        readable = true;
+      } catch { /* not readable */ }
+      try {
+        fs.accessSync(workspacePath, fs.constants.W_OK);
+        writable = true;
+      } catch { /* not writable */ }
+    }
+
+    if (!pathExists) {
+      return NextResponse.json({ path: workspacePath, valid: false, reason: 'path_not_found', files: {}, state: null });
+    }
+    if (!isDirectory) {
+      return NextResponse.json({ path: workspacePath, valid: false, reason: 'not_a_directory', files: {}, state: null });
+    }
+    if (!readable) {
+      return NextResponse.json({ path: workspacePath, valid: false, reason: 'not_readable', files: {}, state: null });
+    }
+    if (!writable) {
+      return NextResponse.json({ path: workspacePath, valid: false, reason: 'not_writable', files: {}, state: null });
     }
 
     const validation = validateWorkspace(workspacePath);
@@ -30,11 +65,30 @@ export async function GET() {
       };
     }
 
+    // Load taxonomy for UI
+    let taxonomy: Array<{ id: string; label: string; role: string; confidence: number; source: string; paths: string[] }> = [];
+    try {
+      const { loadTaxonomy } = await import('@/lib/workspace-taxonomy');
+      const taxData = loadTaxonomy(workspacePath);
+      taxonomy = taxData.categories.map(c => ({
+        id: c.id,
+        label: c.label,
+        role: c.role,
+        confidence: c.confidence,
+        source: c.source,
+        paths: c.paths,
+      }));
+    } catch {
+      // taxonomy module not available
+    }
+
     return NextResponse.json({
       path: workspacePath,
+      valid: true,
       exists: validation.exists,
       files: fileStatus,
       state,
+      taxonomy,
     });
   } catch (e) {
     console.error('[settings/workspace] GET failed:', e);
@@ -45,18 +99,82 @@ export async function GET() {
 export async function PUT(request: NextRequest) {
   try {
     const body = await request.json();
-    const { path: workspacePath, initialize } = body as { path: string; initialize?: boolean };
+    const { path: workspacePath, initialize, resetOnboarding } = body as { path: string; initialize?: boolean; resetOnboarding?: boolean };
 
     if (!workspacePath || typeof workspacePath !== 'string') {
       return NextResponse.json({ error: 'Invalid workspace path' }, { status: 400 });
     }
 
-    setSetting('assistant_workspace_path', workspacePath);
+    // Validate the path before saving
+    let pathExists = false;
+    let isDirectory = false;
+    try {
+      const stat = fs.statSync(workspacePath);
+      pathExists = true;
+      isDirectory = stat.isDirectory();
+    } catch { /* path doesn't exist */ }
 
+    if (!pathExists) {
+      // Only create directory tree when user explicitly requests initialization
+      if (!initialize) {
+        return NextResponse.json(
+          { error: 'Path does not exist. Set initialize=true to create it.', code: 'path_not_found' },
+          { status: 400 }
+        );
+      }
+      // Create the directory for initialization
+      try {
+        fs.mkdirSync(workspacePath, { recursive: true });
+      } catch (mkdirErr) {
+        return NextResponse.json(
+          { error: `Failed to create directory: ${mkdirErr instanceof Error ? mkdirErr.message : 'unknown error'}`, code: 'mkdir_failed' },
+          { status: 400 }
+        );
+      }
+    } else if (!isDirectory) {
+      return NextResponse.json(
+        { error: 'Path exists but is not a directory.', code: 'not_a_directory' },
+        { status: 400 }
+      );
+    }
+
+    // Check read/write permissions (on existing or newly created directory)
+    try {
+      fs.accessSync(workspacePath, fs.constants.R_OK | fs.constants.W_OK);
+    } catch {
+      return NextResponse.json(
+        { error: 'Directory is not readable/writable.', code: 'permission_denied' },
+        { status: 400 }
+      );
+    }
+
+    // Perform initialization/reset BEFORE saving the setting (atomic: if init fails, setting is unchanged)
     let createdFiles: string[] = [];
     if (initialize) {
-      createdFiles = initializeWorkspace(workspacePath);
+      try {
+        createdFiles = initializeWorkspace(workspacePath);
+      } catch (initErr) {
+        return NextResponse.json(
+          { error: `Failed to initialize workspace: ${initErr instanceof Error ? initErr.message : 'unknown error'}`, code: 'init_failed' },
+          { status: 500 }
+        );
+      }
     }
+
+    if (resetOnboarding) {
+      try {
+        const state = loadState(workspacePath);
+        saveState(workspacePath, { ...state, onboardingComplete: false });
+      } catch (resetErr) {
+        return NextResponse.json(
+          { error: `Failed to reset onboarding: ${resetErr instanceof Error ? resetErr.message : 'unknown error'}`, code: 'reset_failed' },
+          { status: 500 }
+        );
+      }
+    }
+
+    // All side-effects succeeded — now commit the setting
+    setSetting('assistant_workspace_path', workspacePath);
 
     return NextResponse.json({ success: true, createdFiles });
   } catch (e) {

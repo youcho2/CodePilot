@@ -16,7 +16,7 @@ import {
 } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { cjk } from "@streamdown/cjk";
-import { code } from "@streamdown/code";
+import { createCodePlugin } from "@streamdown/code";
 import { math } from "@streamdown/math";
 import { mermaid } from "@streamdown/mermaid";
 import { ChevronLeftIcon, ChevronRightIcon } from "lucide-react";
@@ -322,7 +322,18 @@ export const MessageBranchPage = ({
 
 export type MessageResponseProps = ComponentProps<typeof Streamdown>;
 
-const streamdownPlugins = { cjk, code, math, mermaid };
+// Wrap @streamdown/code to silently skip unsupported languages instead of throwing
+const _codePlugin = createCodePlugin();
+const safeCode: typeof _codePlugin = {
+  ..._codePlugin,
+  highlight(params, callback) {
+    if (!_codePlugin.supportsLanguage(params.language)) {
+      return null; // Let Streamdown render as plain text
+    }
+    return _codePlugin.highlight(params, callback);
+  },
+};
+const streamdownPlugins = { cjk, code: safeCode, math, mermaid };
 
 export const MessageResponse = memo(
   ({ className, ...props }: MessageResponseProps) => (

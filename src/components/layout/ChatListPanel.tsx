@@ -567,7 +567,7 @@ export function ChatListPanel({ open, width }: ChatListPanelProps) {
                       {group.displayName}
                     </span>
                     {workspacePath && group.workingDirectory === workspacePath && (
-                      <HugeiconsIcon icon={AiUserIcon} className="h-3.5 w-3.5 shrink-0 text-violet-500" />
+                      <HugeiconsIcon icon={AiUserIcon} className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
                     )}
                     {/* New chat in project button (on hover) */}
                     {group.workingDirectory !== "" && (

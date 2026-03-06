@@ -180,8 +180,31 @@ export async function POST(request: NextRequest) {
         const isAssistantProject = sessionWd === workspacePath;
 
         if (isAssistantProject) {
+          // Incremental reindex BEFORE search so current turn sees latest content
+          try {
+            const { indexWorkspace } = await import('@/lib/workspace-indexer');
+            indexWorkspace(workspacePath);
+          } catch {
+            // indexer not available, skip
+          }
+
           const files = loadWorkspaceFiles(workspacePath);
-          workspacePrompt = assembleWorkspacePrompt(files);
+
+          // Retrieval: search workspace index for relevant context
+          let retrievalResults: import('@/types').SearchResult[] | undefined;
+          try {
+            const { searchWorkspace, updateHotset } = await import('@/lib/workspace-retrieval');
+            if (content.length > 10) {
+              retrievalResults = searchWorkspace(workspacePath, content, { limit: 5 });
+              if (retrievalResults.length > 0) {
+                updateHotset(workspacePath, retrievalResults.map(r => r.path));
+              }
+            }
+          } catch {
+            // retrieval module not available, skip
+          }
+
+          workspacePrompt = assembleWorkspacePrompt(files, retrievalResults);
 
           const state = loadState(workspacePath);
 
@@ -190,7 +213,7 @@ export async function POST(request: NextRequest) {
             assistantProjectInstructions = `<assistant-project-task type="onboarding">
 You are now in the assistant workspace onboarding session. Your task is to interview the user to build their profile.
 
-Ask the following 10 questions ONE AT A TIME. Wait for the user's answer before asking the next question. Be conversational and friendly.
+Ask the following 13 questions ONE AT A TIME. Wait for the user's answer before asking the next question. Be conversational and friendly.
 
 1. How should I address you?
 2. What name should I use for myself?
@@ -202,14 +225,17 @@ Ask the following 10 questions ONE AT A TIME. Wait for the user's answer before 
 8. What information may be written to long-term memory?
 9. What information must never be written to long-term memory?
 10. What three things should I do first when entering a project?
+11. How do you organize your materials? (by project / time / topic / mixed)
+12. Where should new information go by default?
+13. How should completed tasks be archived?
 
 After all questions are answered, output a summary of the collected answers in exactly this format — this is critical for the system to process your answers:
 
 \`\`\`onboarding-complete
-{"q1":"answer1","q2":"answer2","q3":"answer3","q4":"answer4","q5":"answer5","q6":"answer6","q7":"answer7","q8":"answer8","q9":"answer9","q10":"answer10"}
+{"q1":"answer1","q2":"answer2","q3":"answer3","q4":"answer4","q5":"answer5","q6":"answer6","q7":"answer7","q8":"answer8","q9":"answer9","q10":"answer10","q11":"answer11","q12":"answer12","q13":"answer13"}
 \`\`\`
 
-Do NOT try to write files yourself. The system will automatically generate soul.md and user.md from your collected answers.
+Do NOT try to write files yourself. The system will automatically generate soul.md, user.md, claude.md, memory.md, config.json, and taxonomy.json from your collected answers.
 
 Start by greeting the user and asking the first question.
 </assistant-project-task>`;
@@ -228,11 +254,12 @@ After collecting all 3 answers, output a summary in exactly this format:
 {"q1":"answer1","q2":"answer2","q3":"answer3"}
 \`\`\`
 
-Do NOT try to write files yourself. The system will automatically update memory.md and user.md from your collected answers.
+Do NOT try to write files yourself. The system will automatically write a daily memory entry and update user.md from your collected answers.
 
 Start by greeting the user and asking the first question.
 </assistant-project-task>`;
           }
+
         }
       }
     } catch (e) {

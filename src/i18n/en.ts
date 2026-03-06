@@ -656,6 +656,9 @@ const en = {
   'assistant.onboardingQ8': 'What information may be written to long-term memory?',
   'assistant.onboardingQ9': 'What information must never be written to long-term memory?',
   'assistant.onboardingQ10': 'What three things should I do first when entering a project?',
+  'assistant.onboardingQ11': 'How do you organize your materials? (by project / time / topic / mixed)',
+  'assistant.onboardingQ12': 'Where should new information go by default?',
+  'assistant.onboardingQ13': 'How should completed tasks be archived?',
   'assistant.checkInTitle': 'Daily Check-in',
   'assistant.checkInDesc': 'Quick daily update to keep your assistant current',
   'assistant.lastCheckIn': 'Last check-in',
@@ -668,6 +671,76 @@ const en = {
   'assistant.refreshDocs': 'Refresh Directory Docs',
   'assistant.refreshingDocs': 'Refreshing...',
   'assistant.docsRefreshed': 'Directory docs refreshed',
+
+  // ── Taxonomy ──────────────────────────────────────────
+  'assistant.taxonomyTitle': 'Taxonomy',
+  'assistant.taxonomyDesc': 'Categories learned from your workspace structure',
+  'assistant.taxonomyEmpty': 'No categories detected',
+  'assistant.taxonomyRole': 'Role',
+  'assistant.taxonomyConfidence': 'Confidence',
+  'assistant.taxonomySource': 'Source',
+  'assistant.taxonomyPaths': 'Paths',
+
+  // ── Index ─────────────────────────────────────────────
+  'assistant.indexTitle': 'File Index',
+  'assistant.indexDesc': 'Indexed files for search and retrieval',
+  'assistant.indexFiles': '{count} files indexed',
+  'assistant.indexChunks': '{count} chunks',
+  'assistant.indexStale': '{count} stale',
+  'assistant.indexLastIndexed': 'Last indexed',
+  'assistant.indexReindex': 'Reindex',
+  'assistant.indexReindexing': 'Reindexing...',
+
+  // ── Hotset ────────────────────────────────────────────
+  'assistant.hotsetTitle': 'Hotset',
+  'assistant.hotsetDesc': 'Frequently accessed files loaded into context',
+  'assistant.hotsetEmpty': 'No frequent files yet',
+  'assistant.hotsetPinned': 'Pinned',
+  'assistant.hotsetFrequent': 'Frequent',
+
+  // ── Organize ──────────────────────────────────────────
+  'assistant.organizeTitle': 'Organization',
+  'assistant.organizeDesc': 'Archive and organize workspace content',
+  'assistant.organizeArchive': 'Archive Old Memories',
+  'assistant.organizeArchiving': 'Archiving...',
+  'assistant.organizeArchived': '{count} memories archived',
+  'assistant.organizeSuggest': 'Suggest Evolution',
+  'assistant.organizeSuggesting': 'Analyzing...',
+
+  // ── Assistant Workspace Switch Banner ─────────────────
+  'assistant.switchedBanner': 'Assistant directory has been switched to {path}. This session is no longer bound to assistant features.',
+  'assistant.openNewAssistant': 'Open New Assistant Project',
+  'assistant.sessionUnbound': 'Session unbound from assistant',
+
+  // ── Workspace Inspect & Confirmation ──────────────────
+  'assistant.inspecting': 'Checking...',
+  'assistant.inspectFailed': 'Failed to inspect path',
+  'assistant.pathNotExist': 'Path does not exist',
+  'assistant.pathNotDirectory': 'Path is not a directory',
+  'assistant.pathNotReadable': 'Directory is not readable',
+  'assistant.pathNotWritable': 'Directory is not writable',
+  'assistant.pathInvalid': 'Invalid path',
+  'assistant.confirmEmptyTitle': 'Initialize New Workspace',
+  'assistant.confirmEmptyDesc': 'This is an empty directory. Initialize it as a new assistant workspace?',
+  'assistant.confirmNormalTitle': 'Initialize Workspace Here',
+  'assistant.confirmNormalDesc': 'This directory already contains files. Initialize assistant workspace here?',
+  'assistant.confirmNormalHint': 'An .assistant folder, soul.md, memory.md and other assistant files will be created.',
+  'assistant.confirmInitialize': 'Initialize',
+  'assistant.confirmExistingTitle': 'Existing Workspace Detected',
+  'assistant.confirmExistingDesc': 'This directory already contains an assistant workspace. How would you like to proceed?',
+  'assistant.summaryOnboarding': 'Onboarding',
+  'assistant.summaryLastCheckIn': 'Last Check-in',
+  'assistant.summaryFileCount': 'Files',
+  'assistant.summaryNever': 'Never',
+  'assistant.takeoverContinue': 'Continue with existing config',
+  'assistant.takeoverReonboard': 'Re-onboard (keep files, reset onboarding)',
+  'assistant.confirmPartialTitle': 'Partial Workspace Detected',
+  'assistant.confirmPartialDesc': 'Partial assistant data was found in this directory. Repair and continue using it?',
+  'assistant.confirmRepair': 'Repair & Continue',
+  'assistant.confirmNotFoundTitle': 'Create New Directory',
+  'assistant.confirmNotFoundDesc': 'This path does not exist yet. Create the directory and initialize it as a new assistant workspace?',
+  'assistant.confirmCreate': 'Create & Initialize',
+  'assistant.workspaceInvalid': 'Configured workspace path is invalid',
 } as const;
 
 export type TranslationKey = keyof typeof en;

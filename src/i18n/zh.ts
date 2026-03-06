@@ -653,6 +653,9 @@ const zh: Record<TranslationKey, string> = {
   'assistant.onboardingQ8': '哪些信息允许写入长期记忆？',
   'assistant.onboardingQ9': '哪些信息绝对不要写入长期记忆？',
   'assistant.onboardingQ10': '每次进入项目我应先做哪三件事？',
+  'assistant.onboardingQ11': '你如何组织材料？（按项目 / 时间 / 主题 / 混合）',
+  'assistant.onboardingQ12': '新信息默认存放在哪里？',
+  'assistant.onboardingQ13': '已完成的任务应如何归档？',
   'assistant.checkInTitle': '每日问询',
   'assistant.checkInDesc': '每日快速更新以保持助理信息同步',
   'assistant.lastCheckIn': '上次问询',
@@ -665,6 +668,76 @@ const zh: Record<TranslationKey, string> = {
   'assistant.refreshDocs': '刷新目录文档',
   'assistant.refreshingDocs': '刷新中...',
   'assistant.docsRefreshed': '目录文档已刷新',
+
+  // ── Taxonomy ──────────────────────────────────────────
+  'assistant.taxonomyTitle': '分类体系',
+  'assistant.taxonomyDesc': '从工作区结构学习的分类',
+  'assistant.taxonomyEmpty': '未检测到分类',
+  'assistant.taxonomyRole': '角色',
+  'assistant.taxonomyConfidence': '置信度',
+  'assistant.taxonomySource': '来源',
+  'assistant.taxonomyPaths': '路径',
+
+  // ── Index ─────────────────────────────────────────────
+  'assistant.indexTitle': '文件索引',
+  'assistant.indexDesc': '已索引的文件用于搜索和检索',
+  'assistant.indexFiles': '已索引 {count} 个文件',
+  'assistant.indexChunks': '{count} 个分块',
+  'assistant.indexStale': '{count} 个过期',
+  'assistant.indexLastIndexed': '上次索引',
+  'assistant.indexReindex': '重新索引',
+  'assistant.indexReindexing': '索引中...',
+
+  // ── Hotset ────────────────────────────────────────────
+  'assistant.hotsetTitle': '热点文件',
+  'assistant.hotsetDesc': '频繁访问的文件会加载到上下文中',
+  'assistant.hotsetEmpty': '暂无频繁访问的文件',
+  'assistant.hotsetPinned': '已固定',
+  'assistant.hotsetFrequent': '高频访问',
+
+  // ── Organize ──────────────────────────────────────────
+  'assistant.organizeTitle': '组织管理',
+  'assistant.organizeDesc': '归档和整理工作区内容',
+  'assistant.organizeArchive': '归档旧记忆',
+  'assistant.organizeArchiving': '归档中...',
+  'assistant.organizeArchived': '已归档 {count} 条记忆',
+  'assistant.organizeSuggest': '建议优化',
+  'assistant.organizeSuggesting': '分析中...',
+
+  // ── Assistant Workspace Switch Banner ─────────────────
+  'assistant.switchedBanner': '助理目录已切换到 {path}。当前会话不再绑定助理功能。',
+  'assistant.openNewAssistant': '打开新助理项目',
+  'assistant.sessionUnbound': '会话已与助理解绑',
+
+  // ── Workspace Inspect & Confirmation ──────────────────
+  'assistant.inspecting': '检查中...',
+  'assistant.inspectFailed': '检查路径失败',
+  'assistant.pathNotExist': '路径不存在',
+  'assistant.pathNotDirectory': '路径不是目录',
+  'assistant.pathNotReadable': '目录不可读',
+  'assistant.pathNotWritable': '目录不可写',
+  'assistant.pathInvalid': '无效路径',
+  'assistant.confirmEmptyTitle': '初始化新工作区',
+  'assistant.confirmEmptyDesc': '这是一个空目录，是否将其初始化为新的助理工作区？',
+  'assistant.confirmNormalTitle': '在此初始化工作区',
+  'assistant.confirmNormalDesc': '此目录中已有文件，是否在此初始化助理工作区？',
+  'assistant.confirmNormalHint': '将创建 .assistant 文件夹、soul.md、memory.md 等助理文件。',
+  'assistant.confirmInitialize': '初始化',
+  'assistant.confirmExistingTitle': '检测到已有工作区',
+  'assistant.confirmExistingDesc': '此目录已包含助理工作区，您希望如何处理？',
+  'assistant.summaryOnboarding': '引导状态',
+  'assistant.summaryLastCheckIn': '上次问询',
+  'assistant.summaryFileCount': '文件数',
+  'assistant.summaryNever': '从未',
+  'assistant.takeoverContinue': '继续使用已有配置',
+  'assistant.takeoverReonboard': '重新引导（保留文件，重置引导状态）',
+  'assistant.confirmPartialTitle': '检测到不完整工作区',
+  'assistant.confirmPartialDesc': '在此目录中发现了部分助理数据，是否修复并继续使用？',
+  'assistant.confirmRepair': '修复并继续',
+  'assistant.confirmNotFoundTitle': '创建新目录',
+  'assistant.confirmNotFoundDesc': '此路径尚不存在，是否创建目录并初始化为新的助理工作区？',
+  'assistant.confirmCreate': '创建并初始化',
+  'assistant.workspaceInvalid': '已配置的工作区路径无效',
 };
 
 export default zh;
