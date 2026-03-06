@@ -439,7 +439,26 @@ export const SETTING_KEYS = {
   THEME: 'theme',
   PERMISSION_MODE: 'permission_mode',
   MAX_THINKING_TOKENS: 'max_thinking_tokens',
+  ASSISTANT_WORKSPACE_PATH: 'assistant_workspace_path',
 } as const;
+
+// ==========================================
+// Assistant Workspace Types
+// ==========================================
+
+export interface AssistantWorkspaceState {
+  onboardingComplete: boolean;
+  lastCheckInDate: string | null;
+  schemaVersion: number;
+  hookTriggeredSessionId?: string;
+}
+
+export interface AssistantWorkspaceFiles {
+  soul?: string;
+  memory?: string;
+  user?: string;
+  claude?: string;
+}
 
 // ==========================================
 // Reference Image Types (for image generation)

@@ -701,6 +701,13 @@ export function createSession(
   return getSession(id)!;
 }
 
+export function getLatestSessionByWorkingDirectory(workingDirectory: string): ChatSession | undefined {
+  const db = getDb();
+  return db.prepare(
+    'SELECT * FROM chat_sessions WHERE working_directory = ? ORDER BY updated_at DESC LIMIT 1'
+  ).get(workingDirectory) as ChatSession | undefined;
+}
+
 export function deleteSession(id: string): boolean {
   const db = getDb();
   const result = db.prepare('DELETE FROM chat_sessions WHERE id = ?').run(id);

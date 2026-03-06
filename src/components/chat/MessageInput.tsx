@@ -97,6 +97,7 @@ interface MessageInputProps {
   workingDirectory?: string;
   mode?: string;
   onModeChange?: (mode: string) => void;
+  onAssistantTrigger?: () => void;
 }
 
 interface PopoverItem {
@@ -373,6 +374,7 @@ export function MessageInput({
   workingDirectory,
   mode = 'code',
   onModeChange,
+  onAssistantTrigger,
 }: MessageInputProps) {
   const { t } = useTranslation();
   const imageGen = useImageGen();
@@ -395,6 +397,16 @@ export function MessageInput({
   const [aiSearchLoading, setAiSearchLoading] = useState(false);
   const aiSearchAbortRef = useRef<AbortController | null>(null);
   const aiSearchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Assistant trigger on first focus
+  const assistantTriggerFired = useRef(false);
+
+  const handleAssistantFocus = useCallback(() => {
+    if (!assistantTriggerFired.current && onAssistantTrigger) {
+      assistantTriggerFired.current = true;
+      onAssistantTrigger();
+    }
+  }, [onAssistantTrigger]);
 
   // Fetch provider groups from API
   const fetchProviderModels = useCallback(() => {
@@ -1098,6 +1110,7 @@ export function MessageInput({
               value={inputValue}
               onChange={(e) => handleInputChange(e.currentTarget.value)}
               onKeyDown={handleKeyDown}
+              onFocus={handleAssistantFocus}
               disabled={disabled}
               className="min-h-10"
             />

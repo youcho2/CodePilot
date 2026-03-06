@@ -14,6 +14,7 @@ import {
   ArrowRight01Icon,
   PlusSignIcon,
   FolderOpenIcon,
+  AiUserIcon,
 } from "@hugeicons/core-free-icons";
 import { Columns2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -32,6 +33,7 @@ import { useNativeFolderPicker } from "@/hooks/useNativeFolderPicker";
 import { ConnectionStatus } from "./ConnectionStatus";
 import { ImportSessionDialog } from "./ImportSessionDialog";
 import { FolderPicker } from "@/components/chat/FolderPicker";
+import { useAssistantWorkspace } from "@/hooks/useAssistantWorkspace";
 import type { ChatSession } from "@/types";
 
 interface ChatListPanelProps {
@@ -130,6 +132,7 @@ export function ChatListPanel({ open, width }: ChatListPanelProps) {
   );
   const [hoveredFolder, setHoveredFolder] = useState<string | null>(null);
   const [creatingChat, setCreatingChat] = useState(false);
+  const { workspacePath } = useAssistantWorkspace();
 
   /** Read current model + provider_id from localStorage for new session creation */
   const getCurrentModelAndProvider = useCallback(() => {
@@ -376,7 +379,7 @@ export function ChatListPanel({ open, width }: ChatListPanelProps) {
       style={{ width: width ?? 240 }}
     >
       {/* Header - extra top padding for macOS traffic lights */}
-      <div className="flex h-12 shrink-0 items-center px-3 mt-5">
+      <div className="flex h-12 shrink-0 items-center justify-between px-3 mt-5">
         <ConnectionStatus />
       </div>
 
@@ -563,6 +566,9 @@ export function ChatListPanel({ open, width }: ChatListPanelProps) {
                     <span className="flex-1 truncate text-[13px] font-medium text-sidebar-foreground">
                       {group.displayName}
                     </span>
+                    {workspacePath && group.workingDirectory === workspacePath && (
+                      <HugeiconsIcon icon={AiUserIcon} className="h-3.5 w-3.5 shrink-0 text-violet-500" />
+                    )}
                     {/* New chat in project button (on hover) */}
                     {group.workingDirectory !== "" && (
                       <Tooltip>
@@ -735,6 +741,7 @@ export function ChatListPanel({ open, width }: ChatListPanelProps) {
         onOpenChange={setFolderPickerOpen}
         onSelect={handleFolderSelect}
       />
+
     </aside>
   );
 }

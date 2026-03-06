@@ -6,6 +6,7 @@ import type { IconSvgElement } from "@hugeicons/react";
 import {
   Settings02Icon,
   CodeIcon,
+  AiUserIcon,
 } from "@hugeicons/core-free-icons";
 import { Plug01Icon, Analytics02Icon } from "@hugeicons/core-free-icons";
 import { cn } from "@/lib/utils";
@@ -13,10 +14,11 @@ import { GeneralSection } from "./GeneralSection";
 import { ProviderManager } from "./ProviderManager";
 import { CliSettingsSection } from "./CliSettingsSection";
 import { UsageStatsSection } from "./UsageStatsSection";
+import { AssistantWorkspaceSection } from "./AssistantWorkspaceSection";
 import { useTranslation } from "@/hooks/useTranslation";
 import type { TranslationKey } from "@/i18n";
 
-type Section = "general" | "providers" | "cli" | "usage";
+type Section = "general" | "providers" | "cli" | "usage" | "assistant";
 
 interface SidebarItem {
   id: Section;
@@ -29,6 +31,7 @@ const sidebarItems: SidebarItem[] = [
   { id: "providers", label: "Providers", icon: Plug01Icon },
   { id: "cli", label: "Claude CLI", icon: CodeIcon },
   { id: "usage", label: "Usage", icon: Analytics02Icon },
+  { id: "assistant", label: "Assistant", icon: AiUserIcon },
 ];
 
 function getSectionFromHash(): Section {
@@ -61,6 +64,7 @@ export function SettingsLayout() {
     'Providers': 'settings.providers',
     'Claude CLI': 'settings.claudeCli',
     'Usage': 'settings.usage',
+    'Assistant': 'settings.assistant',
   };
 
   const handleSectionChange = useCallback((section: Section) => {
@@ -105,6 +109,7 @@ export function SettingsLayout() {
           {activeSection === "providers" && <ProviderManager />}
           {activeSection === "cli" && <CliSettingsSection />}
           {activeSection === "usage" && <UsageStatsSection />}
+          {activeSection === "assistant" && <AssistantWorkspaceSection />}
         </div>
       </div>
     </div>

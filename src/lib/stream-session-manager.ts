@@ -54,6 +54,8 @@ export interface StartStreamParams {
   files?: FileAttachment[];
   systemPromptAppend?: string;
   pendingImageNotices?: string[];
+  /** When true, backend skips saving user message and title update (assistant auto-trigger) */
+  autoTrigger?: boolean;
   /** Called when SDK mode changes (e.g. plan → code) */
   onModeChanged?: (mode: string) => void;
   /** Reference to the outer sendMessage so tool-timeout auto-retry works */
@@ -215,6 +217,7 @@ async function runStream(stream: ActiveStream, params: StartStreamParams): Promi
         provider_id: params.providerId,
         ...(params.files && params.files.length > 0 ? { files: params.files } : {}),
         ...(params.systemPromptAppend ? { systemPromptAppend: params.systemPromptAppend } : {}),
+        ...(params.autoTrigger ? { autoTrigger: true } : {}),
       }),
       signal: stream.abortController.signal,
     });

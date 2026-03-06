@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback, useEffect, useRef } from 'react';
+import { useState, useCallback, useEffect, useRef, useMemo } from 'react';
 import type { Message, MessagesResponse, FileAttachment, SessionStreamSnapshot } from '@/types';
 import { MessageList } from './MessageList';
 import { MessageInput } from './MessageInput';
@@ -136,6 +136,9 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
         // Append the final assistant message to the messages list
         const finalContent = event.snapshot.finalMessageContent;
         if (finalContent) {
+          // Check for assistant project completion signals
+          detectAssistantCompletion(finalContent);
+
           const assistantMessage: Message = {
             id: 'temp-assistant-' + Date.now(),
             session_id: sessionId,
@@ -180,6 +183,82 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
     setHasMore(initialHasMore);
   }, [initialHasMore]);
 
+  // Auto-trigger assistant project hooks (onboarding/check-in)
+  // Uses autoTrigger flag so the backend skips saving user message and title update.
+  // Works for both fresh sessions (onboarding) and reused sessions (check-in).
+  const assistantTriggerFiredRef = useRef(false);
+  const checkAssistantTrigger = useCallback(async () => {
+    // Don't trigger if already streaming or already triggered in this mount
+    if (isStreaming || assistantTriggerFiredRef.current) return;
+
+    try {
+      const res = await fetch('/api/settings/workspace');
+      if (!res.ok) return;
+      const data = await res.json();
+      if (!data.path) return;
+
+      // Check if this session's working directory matches workspace path
+      if (workingDirectory !== data.path) return;
+
+      const state = data.state;
+      if (!state) return;
+
+      const today = new Date().toISOString().slice(0, 10);
+      const needsOnboarding = !state.onboardingComplete;
+      const needsCheckIn = state.onboardingComplete && state.lastCheckInDate !== today;
+
+      if (!needsOnboarding && !needsCheckIn) return;
+
+      // For daily check-in, only trigger in the most recent session for this workspace.
+      // This prevents older sessions from hijacking the check-in when reopened.
+      if (needsCheckIn) {
+        const latestRes = await fetch(`/api/workspace/latest-session?workingDirectory=${encodeURIComponent(data.path)}`);
+        if (latestRes.ok) {
+          const { sessionId: latestSessionId } = await latestRes.json();
+          if (latestSessionId && latestSessionId !== sessionId) return;
+        }
+      }
+
+      // Mark fired so we don't re-trigger on focus/re-render
+      assistantTriggerFiredRef.current = true;
+
+      // Mark in persistent state to prevent duplicate triggers across page reloads
+      await fetch('/api/workspace/hook-triggered', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sessionId }),
+      });
+
+      // Use autoTrigger: the message is invisible (no user bubble, no title update)
+      const triggerMsg = needsOnboarding
+        ? '请开始助理引导设置。'
+        : '请开始每日问询。';
+      startStream({
+        sessionId,
+        content: triggerMsg,
+        mode,
+        model: currentModel,
+        providerId: currentProviderId,
+        autoTrigger: true,
+        onModeChanged: (sdkMode) => {
+          const uiMode = sdkMode === 'plan' ? 'plan' : 'code';
+          handleModeChange(uiMode);
+        },
+        sendMessageFn: (retryContent: string, retryFiles?: FileAttachment[]) => {
+          sendMessageRef.current?.(retryContent, retryFiles);
+        },
+      });
+    } catch (e) {
+      console.error('[ChatView] Assistant auto-trigger failed:', e);
+    }
+  }, [sessionId, workingDirectory, isStreaming, mode, currentModel, currentProviderId, handleModeChange]);
+
+  useEffect(() => {
+    // Small delay to let the session fully initialize
+    const timer = setTimeout(checkAssistantTrigger, 500);
+    return () => clearTimeout(timer);
+  }, [checkAssistantTrigger]);
+
   const loadEarlierMessages = useCallback(async () => {
     // Use ref as atomic lock to prevent double-fetch from rapid clicks
     if (loadingMoreRef.current || !hasMore || messages.length === 0) return;
@@ -216,6 +295,49 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
     },
     [sessionId, setPendingApprovalSessionId]
   );
+
+  // Detect assistant project completion signals in final message content
+  const detectAssistantCompletion = useCallback(async (content: string) => {
+    const clearHookTriggered = () =>
+      fetch('/api/workspace/hook-triggered', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sessionId: '__clear__' }),
+      }).catch(() => {});
+
+    // Check for onboarding completion
+    const onboardingMatch = content.match(/```onboarding-complete\n([\s\S]*?)\n```/);
+    if (onboardingMatch) {
+      try {
+        const answers = JSON.parse(onboardingMatch[1]);
+        await fetch('/api/workspace/onboarding', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ answers }),
+        });
+        await clearHookTriggered();
+      } catch (e) {
+        console.error('[ChatView] Onboarding completion failed:', e);
+      }
+      return;
+    }
+
+    // Check for check-in completion
+    const checkinMatch = content.match(/```checkin-complete\n([\s\S]*?)\n```/);
+    if (checkinMatch) {
+      try {
+        const answers = JSON.parse(checkinMatch[1]);
+        await fetch('/api/workspace/checkin', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ answers }),
+        });
+        await clearHookTriggered();
+      } catch (e) {
+        console.error('[ChatView] Check-in completion failed:', e);
+      }
+    }
+  }, []);
 
   // Send message — delegates stream management to the manager
   const sendMessage = useCallback(
@@ -420,6 +542,7 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
         workingDirectory={workingDirectory}
         mode={mode}
         onModeChange={handleModeChange}
+        onAssistantTrigger={checkAssistantTrigger}
       />
     </div>
   );

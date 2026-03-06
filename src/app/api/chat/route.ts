@@ -15,8 +15,8 @@ export async function POST(request: NextRequest) {
   let activeLockId: string | undefined;
 
   try {
-    const body: SendMessageRequest & { files?: FileAttachment[]; toolTimeout?: number; provider_id?: string; systemPromptAppend?: string } = await request.json();
-    const { session_id, content, model, mode, files, toolTimeout, provider_id, systemPromptAppend } = body;
+    const body: SendMessageRequest & { files?: FileAttachment[]; toolTimeout?: number; provider_id?: string; systemPromptAppend?: string; autoTrigger?: boolean } = await request.json();
+    const { session_id, content, model, mode, files, toolTimeout, provider_id, systemPromptAppend, autoTrigger } = body;
 
     console.log('[chat API] content length:', content.length, 'first 200 chars:', content.slice(0, 200));
     console.log('[chat API] systemPromptAppend:', systemPromptAppend ? `${systemPromptAppend.length} chars` : 'none');
@@ -58,29 +58,32 @@ export async function POST(request: NextRequest) {
     notifySessionStart(telegramNotifyOpts).catch(() => {});
 
     // Save user message — persist file metadata so attachments survive page reload
+    // Skip saving for autoTrigger messages (invisible system triggers for assistant hooks)
     let savedContent = content;
     let fileMeta: Array<{ id: string; name: string; type: string; size: number; filePath: string }> | undefined;
-    if (files && files.length > 0) {
-      const workDir = session.working_directory;
-      const uploadDir = path.join(workDir, '.codepilot-uploads');
-      if (!fs.existsSync(uploadDir)) {
-        fs.mkdirSync(uploadDir, { recursive: true });
+    if (!autoTrigger) {
+      if (files && files.length > 0) {
+        const workDir = session.working_directory;
+        const uploadDir = path.join(workDir, '.codepilot-uploads');
+        if (!fs.existsSync(uploadDir)) {
+          fs.mkdirSync(uploadDir, { recursive: true });
+        }
+        fileMeta = files.map((f) => {
+          const safeName = path.basename(f.name).replace(/[^a-zA-Z0-9._-]/g, '_');
+          const filePath = path.join(uploadDir, `${Date.now()}-${safeName}`);
+          const buffer = Buffer.from(f.data, 'base64');
+          fs.writeFileSync(filePath, buffer);
+          return { id: f.id, name: f.name, type: f.type, size: buffer.length, filePath };
+        });
+        savedContent = `<!--files:${JSON.stringify(fileMeta)}-->${content}`;
       }
-      fileMeta = files.map((f) => {
-        const safeName = path.basename(f.name).replace(/[^a-zA-Z0-9._-]/g, '_');
-        const filePath = path.join(uploadDir, `${Date.now()}-${safeName}`);
-        const buffer = Buffer.from(f.data, 'base64');
-        fs.writeFileSync(filePath, buffer);
-        return { id: f.id, name: f.name, type: f.type, size: buffer.length, filePath };
-      });
-      savedContent = `<!--files:${JSON.stringify(fileMeta)}-->${content}`;
-    }
-    addMessage(session_id, 'user', savedContent);
+      addMessage(session_id, 'user', savedContent);
 
-    // Auto-generate title from first message if still default
-    if (session.title === 'New Chat') {
-      const title = content.slice(0, 50) + (content.length > 50 ? '...' : '');
-      updateSessionTitle(session_id, title);
+      // Auto-generate title from first message if still default
+      if (session.title === 'New Chat') {
+        const title = content.slice(0, 50) + (content.length > 50 ? '...' : '');
+        updateSessionTitle(session_id, title);
+      }
     }
 
     // Determine model: request override > session model > default setting
@@ -164,10 +167,92 @@ export async function POST(request: NextRequest) {
         })
       : undefined;
 
+    // Load assistant workspace prompt if configured
+    let workspacePrompt = '';
+    let assistantProjectInstructions = '';
+    try {
+      const workspacePath = getSetting('assistant_workspace_path');
+      if (workspacePath) {
+        const { loadWorkspaceFiles, assembleWorkspacePrompt, loadState, needsDailyCheckIn } = await import('@/lib/assistant-workspace');
+
+        // Only inject workspace files for assistant project sessions
+        const sessionWd = session.working_directory || '';
+        const isAssistantProject = sessionWd === workspacePath;
+
+        if (isAssistantProject) {
+          const files = loadWorkspaceFiles(workspacePath);
+          workspacePrompt = assembleWorkspacePrompt(files);
+
+          const state = loadState(workspacePath);
+
+          if (!state.onboardingComplete) {
+            // First-time onboarding: instruct AI to ask onboarding questions
+            assistantProjectInstructions = `<assistant-project-task type="onboarding">
+You are now in the assistant workspace onboarding session. Your task is to interview the user to build their profile.
+
+Ask the following 10 questions ONE AT A TIME. Wait for the user's answer before asking the next question. Be conversational and friendly.
+
+1. How should I address you?
+2. What name should I use for myself?
+3. Do you prefer "concise and direct" or "detailed explanations"?
+4. Do you prefer "minimal interruptions" or "proactive suggestions"?
+5. What are your three hard boundaries?
+6. What are your three most important current goals?
+7. Do you prefer output as "lists", "reports", or "conversation summaries"?
+8. What information may be written to long-term memory?
+9. What information must never be written to long-term memory?
+10. What three things should I do first when entering a project?
+
+After all questions are answered, output a summary of the collected answers in exactly this format — this is critical for the system to process your answers:
+
+\`\`\`onboarding-complete
+{"q1":"answer1","q2":"answer2","q3":"answer3","q4":"answer4","q5":"answer5","q6":"answer6","q7":"answer7","q8":"answer8","q9":"answer9","q10":"answer10"}
+\`\`\`
+
+Do NOT try to write files yourself. The system will automatically generate soul.md and user.md from your collected answers.
+
+Start by greeting the user and asking the first question.
+</assistant-project-task>`;
+          } else if (needsDailyCheckIn(state)) {
+            // Daily check-in: instruct AI to ask 3 quick questions
+            assistantProjectInstructions = `<assistant-project-task type="daily-checkin">
+You are now in the assistant workspace daily check-in session. Ask the user these 3 questions ONE AT A TIME:
+
+1. What did you work on or accomplish today?
+2. Any changes to your current priorities or goals?
+3. Anything you'd like me to remember going forward?
+
+After collecting all 3 answers, output a summary in exactly this format:
+
+\`\`\`checkin-complete
+{"q1":"answer1","q2":"answer2","q3":"answer3"}
+\`\`\`
+
+Do NOT try to write files yourself. The system will automatically update memory.md and user.md from your collected answers.
+
+Start by greeting the user and asking the first question.
+</assistant-project-task>`;
+          }
+        }
+      }
+    } catch (e) {
+      console.warn('[chat API] Failed to load assistant workspace:', e);
+    }
+
     // Append per-request system prompt (e.g. skill injection for image generation)
     let finalSystemPrompt = systemPromptOverride || session.system_prompt || undefined;
     if (systemPromptAppend) {
       finalSystemPrompt = (finalSystemPrompt || '') + '\n\n' + systemPromptAppend;
+    }
+
+    // Workspace prompt goes first (base personality), session prompt after (task override)
+    if (workspacePrompt) {
+      finalSystemPrompt = workspacePrompt + '\n\n' + (finalSystemPrompt || '');
+    }
+
+    // Assistant project instructions go after workspace prompt
+    if (assistantProjectInstructions) {
+      finalSystemPrompt = (finalSystemPrompt || '') + '\n\n' + assistantProjectInstructions;
     }
 
     // Load recent conversation history from DB as fallback context.
