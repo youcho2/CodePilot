@@ -361,6 +361,7 @@ function getPort(): Promise<number> {
 
 async function waitForServer(port: number, timeout = 30000): Promise<void> {
   const start = Date.now();
+  let lastError = '';
   while (Date.now() - start < timeout) {
     // If the server process already exited, fail fast
     if (serverExited) {
@@ -371,23 +372,33 @@ async function waitForServer(port: number, timeout = 30000): Promise<void> {
     try {
       await new Promise<void>((resolve, reject) => {
         // eslint-disable-next-line @typescript-eslint/no-require-imports
-        const req = require('http').get(`http://127.0.0.1:${port}/api/health`, (res: { statusCode?: number }) => {
+        const http = require('http');
+        // Use options object with family:4 to force IPv4 — avoids Windows
+        // IPv6 resolution issues where 127.0.0.1 may fail to connect.
+        const req = http.get({
+          hostname: '127.0.0.1',
+          port,
+          path: '/api/health',
+          family: 4,
+          timeout: 2000,
+        }, (res: { statusCode?: number }) => {
           if (res.statusCode === 200) resolve();
           else reject(new Error(`Status ${res.statusCode}`));
         });
-        req.on('error', reject);
-        req.setTimeout(1000, () => {
+        req.on('error', (err: Error) => reject(err));
+        req.on('timeout', () => {
           req.destroy();
-          reject(new Error('timeout'));
+          reject(new Error('request timeout'));
         });
       });
       return;
-    } catch {
-      await new Promise(r => setTimeout(r, 200));
+    } catch (err) {
+      lastError = err instanceof Error ? err.message : String(err);
+      await new Promise(r => setTimeout(r, 300));
     }
   }
   throw new Error(
-    `Server startup timeout after ${timeout / 1000}s.\n\n${serverErrors.length > 0 ? 'Server output:\n' + serverErrors.slice(-10).join('\n') : 'No server output captured.'}`
+    `Server startup timeout after ${timeout / 1000}s.\n\nLast health-check error: ${lastError}\n\n${serverErrors.length > 0 ? 'Server output:\n' + serverErrors.slice(-10).join('\n') : 'No server output captured.'}`
   );
 }
 

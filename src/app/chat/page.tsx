@@ -42,15 +42,16 @@ export default function NewChatPage() {
     abortControllerRef.current = null;
   }, []);
 
-  const handlePermissionResponse = useCallback(async (decision: 'allow' | 'allow_session' | 'deny') => {
+  const handlePermissionResponse = useCallback(async (decision: 'allow' | 'allow_session' | 'deny', updatedInput?: Record<string, unknown>, denyMessage?: string) => {
     if (!pendingPermission) return;
 
-    const body: { permissionRequestId: string; decision: { behavior: 'allow'; updatedPermissions?: unknown[] } | { behavior: 'deny'; message?: string } } = {
+    const body: { permissionRequestId: string; decision: { behavior: 'allow'; updatedInput?: Record<string, unknown>; updatedPermissions?: unknown[] } | { behavior: 'deny'; message?: string } } = {
       permissionRequestId: pendingPermission.permissionRequestId,
       decision: decision === 'deny'
-        ? { behavior: 'deny', message: 'User denied permission' }
+        ? { behavior: 'deny', message: denyMessage || 'User denied permission' }
         : {
             behavior: 'allow',
+            ...(updatedInput ? { updatedInput } : {}),
             ...(decision === 'allow_session' && pendingPermission.suggestions
               ? { updatedPermissions: pendingPermission.suggestions }
               : {}),

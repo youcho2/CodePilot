@@ -118,18 +118,30 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
       if (existing.pendingPermission && !existing.permissionResolved) {
         setPendingApprovalSessionId(sessionId);
       }
-      // If stream completed while this ChatView was unmounted, consume finalMessageContent now
+      // If stream completed while this ChatView was unmounted, consume finalMessageContent now.
+      // Re-fetch messages from DB to avoid duplicates (backend already persisted the reply).
       if (existing.phase !== 'active' && existing.finalMessageContent) {
-        const assistantMessage: Message = {
-          id: 'temp-assistant-' + Date.now(),
-          session_id: sessionId,
-          role: 'assistant',
-          content: existing.finalMessageContent,
-          created_at: new Date().toISOString(),
-          token_usage: existing.tokenUsage ? JSON.stringify(existing.tokenUsage) : null,
-        };
-        transferPendingToMessage(assistantMessage.id);
-        setMessages((prev) => [...prev, assistantMessage]);
+        detectAssistantCompletion(existing.finalMessageContent);
+        fetch(`/api/chat/sessions/${sessionId}/messages?limit=50`)
+          .then(res => res.ok ? res.json() : null)
+          .then(data => {
+            if (data?.messages) {
+              setMessages(data.messages);
+            }
+          })
+          .catch(() => {
+            // Fallback: append locally if DB fetch fails
+            const assistantMessage: Message = {
+              id: 'temp-assistant-' + Date.now(),
+              session_id: sessionId,
+              role: 'assistant',
+              content: existing.finalMessageContent!,
+              created_at: new Date().toISOString(),
+              token_usage: existing.tokenUsage ? JSON.stringify(existing.tokenUsage) : null,
+            };
+            transferPendingToMessage(assistantMessage.id);
+            setMessages((prev) => [...prev, assistantMessage]);
+          });
         clearSnapshot(sessionId);
       }
     } else {
