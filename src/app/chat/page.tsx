@@ -5,6 +5,8 @@ import { useRouter } from 'next/navigation';
 import type { Message, SSEEvent, SessionResponse, TokenUsage, PermissionRequestEvent } from '@/types';
 import { MessageList } from '@/components/chat/MessageList';
 import { MessageInput } from '@/components/chat/MessageInput';
+import { ChatComposerActionBar } from '@/components/chat/ChatComposerActionBar';
+import { ImageGenToggle } from '@/components/chat/ImageGenToggle';
 import { PermissionPrompt } from '@/components/chat/PermissionPrompt';
 import { usePanel } from '@/hooks/usePanel';
 
@@ -383,6 +385,9 @@ export default function NewChatPage() {
         workingDirectory={workingDir}
         mode={mode}
         onModeChange={setMode}
+      />
+      <ChatComposerActionBar
+        left={<ImageGenToggle />}
       />
     </div>
   );

@@ -25,6 +25,7 @@ export default function ChatSessionPage({ params }: ChatSessionPageProps) {
   const [sessionModel, setSessionModel] = useState<string>('');
   const [sessionProviderId, setSessionProviderId] = useState<string>('');
   const [sessionMode, setSessionMode] = useState<string>('');
+  const [sessionPermissionProfile, setSessionPermissionProfile] = useState<'default' | 'full_access'>('default');
   const [projectName, setProjectName] = useState<string>('');
   const [sessionWorkingDir, setSessionWorkingDir] = useState<string>('');
   const [isEditingTitle, setIsEditingTitle] = useState(false);
@@ -101,6 +102,7 @@ export default function ChatSessionPage({ params }: ChatSessionPageProps) {
           setSessionModel(data.session.model || '');
           setSessionProviderId(data.session.provider_id || '');
           setSessionMode(data.session.mode || 'code');
+          setSessionPermissionProfile(data.session.permission_profile || 'default');
           setProjectName(data.session.project_name || '');
         }
       } catch {
@@ -239,7 +241,7 @@ export default function ChatSessionPage({ params }: ChatSessionPageProps) {
           )}
         </div>
       )}
-      <ChatView key={id} sessionId={id} initialMessages={messages} initialHasMore={hasMore} modelName={sessionModel} initialMode={sessionMode} providerId={sessionProviderId} />
+      <ChatView key={id} sessionId={id} initialMessages={messages} initialHasMore={hasMore} modelName={sessionModel} initialMode={sessionMode} providerId={sessionProviderId} initialPermissionProfile={sessionPermissionProfile} />
     </div>
   );
 }

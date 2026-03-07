@@ -5,6 +5,10 @@ import { useRouter } from 'next/navigation';
 import type { Message, MessagesResponse, FileAttachment, SessionStreamSnapshot } from '@/types';
 import { MessageList } from './MessageList';
 import { MessageInput } from './MessageInput';
+import { ChatComposerActionBar } from './ChatComposerActionBar';
+import { ChatPermissionSelector } from './ChatPermissionSelector';
+import { ContextUsageIndicator } from './ContextUsageIndicator';
+import { ImageGenToggle } from './ImageGenToggle';
 import { usePanel } from '@/hooks/usePanel';
 import { useTranslation } from '@/hooks/useTranslation';
 import { PermissionPrompt } from './PermissionPrompt';
@@ -26,13 +30,15 @@ interface ChatViewProps {
   modelName?: string;
   initialMode?: string;
   providerId?: string;
+  initialPermissionProfile?: 'default' | 'full_access';
 }
 
-export function ChatView({ sessionId, initialMessages = [], initialHasMore = false, modelName, initialMode, providerId }: ChatViewProps) {
+export function ChatView({ sessionId, initialMessages = [], initialHasMore = false, modelName, initialMode, providerId, initialPermissionProfile }: ChatViewProps) {
   const { setStreamingSessionId, workingDirectory, setWorkingDirectory, setPanelOpen, setPendingApprovalSessionId } = usePanel();
   const { t } = useTranslation();
   const router = useRouter();
   const [messages, setMessages] = useState<Message[]>(initialMessages);
+  const [permissionProfile, setPermissionProfile] = useState<'default' | 'full_access'>(initialPermissionProfile || 'default');
 
   // Workspace mismatch banner state
   const [workspaceMismatchPath, setWorkspaceMismatchPath] = useState<string | null>(null);
@@ -52,6 +58,11 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
   useEffect(() => {
     setCurrentProviderId(providerId || (typeof window !== 'undefined' ? localStorage.getItem('codepilot:last-provider-id') : null) || '');
   }, [providerId]);
+  useEffect(() => {
+    if (initialPermissionProfile) {
+      setPermissionProfile(initialPermissionProfile);
+    }
+  }, [initialPermissionProfile]);
 
   // Stream snapshot from the manager — drives all streaming UI
   const [streamSnapshot, setStreamSnapshot] = useState<SessionStreamSnapshot | null>(
@@ -659,6 +670,7 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
         permissionResolved={permissionResolved}
         onPermissionResponse={handlePermissionResponse}
         toolUses={toolUses}
+        permissionProfile={permissionProfile}
       />
       {/* Batch image generation panels — shown above the input area */}
       <BatchExecutionDashboard />
@@ -680,6 +692,22 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
         mode={mode}
         onModeChange={handleModeChange}
         onAssistantTrigger={checkAssistantTrigger}
+      />
+      <ChatComposerActionBar
+        left={<ImageGenToggle />}
+        center={
+          <ChatPermissionSelector
+            sessionId={sessionId}
+            permissionProfile={permissionProfile}
+            onPermissionChange={setPermissionProfile}
+          />
+        }
+        right={
+          <ContextUsageIndicator
+            messages={messages}
+            modelName={currentModel}
+          />
+        }
       />
     </div>
   );

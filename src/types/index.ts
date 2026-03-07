@@ -21,6 +21,7 @@ export interface ChatSession {
   runtime_status: string;
   runtime_updated_at: string;
   runtime_error: string;
+  permission_profile?: 'default' | 'full_access';
 }
 
 // ==========================================
@@ -122,7 +123,7 @@ export interface ProviderModelGroup {
   provider_id: string;       // provider DB id, or 'env' for environment variables
   provider_name: string;
   provider_type: string;
-  models: Array<{ value: string; label: string }>;
+  models: Array<{ value: string; label: string; contextWindow?: number }>;
 }
 
 export interface CreateProviderRequest {
@@ -813,4 +814,6 @@ export interface ClaudeStreamOptions {
   /** Recent conversation history from DB — used as fallback context when SDK resume is unavailable or fails */
   conversationHistory?: Array<{ role: 'user' | 'assistant'; content: string }>;
   onRuntimeStatusChange?: (status: string) => void;
+  /** Per-session bypass: when true, skip all permission checks for this session */
+  bypassPermissions?: boolean;
 }

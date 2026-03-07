@@ -1,5 +1,6 @@
 import { NextRequest } from 'next/server';
-import { deleteSession, getSession, updateSessionWorkingDirectory, updateSessionTitle, updateSessionMode, updateSessionModel, updateSessionProviderId, clearSessionMessages, updateSdkSessionId } from '@/lib/db';
+import { deleteSession, getSession, updateSessionWorkingDirectory, updateSessionTitle, updateSessionMode, updateSessionModel, updateSessionProviderId, clearSessionMessages, updateSdkSessionId, updateSessionPermissionProfile } from '@/lib/db';
+import { autoApprovePendingForSession } from '@/lib/bridge/permission-broker';
 
 export async function GET(
   _request: NextRequest,
@@ -48,6 +49,21 @@ export async function PATCH(
     }
     if (body.sdk_session_id !== undefined) {
       updateSdkSessionId(id, body.sdk_session_id);
+    }
+    if (body.permission_profile !== undefined) {
+      if (body.permission_profile !== 'default' && body.permission_profile !== 'full_access') {
+        return Response.json({ error: 'permission_profile must be "default" or "full_access"' }, { status: 400 });
+      }
+      // When switching to full_access, auto-approve any pending bridge permissions
+      const previousProfile = session.permission_profile || 'default';
+      updateSessionPermissionProfile(id, body.permission_profile);
+      if (previousProfile !== 'full_access' && body.permission_profile === 'full_access') {
+        try {
+          autoApprovePendingForSession(id);
+        } catch (err) {
+          console.warn('[session-api] Failed to auto-approve pending permissions:', err);
+        }
+      }
     }
     if (body.clear_messages) {
       clearSessionMessages(id);

@@ -13,7 +13,7 @@ import type { PermissionUpdate } from '@anthropic-ai/claude-agent-sdk';
 import type { ChannelAddress, OutboundMessage } from './types';
 import type { BaseChannelAdapter } from './channel-adapter';
 import { deliver } from './delivery-layer';
-import { insertPermissionLink, getPermissionLink, markPermissionLinkResolved } from '../db';
+import { insertPermissionLink, getPermissionLink, markPermissionLinkResolved, getSession, getDb } from '../db';
 import { resolvePendingPermission } from '../permission-registry';
 import { escapeHtml } from './adapters/telegram-utils';
 
@@ -35,6 +35,16 @@ export async function forwardPermissionRequest(
   sessionId?: string,
   suggestions?: unknown[],
 ): Promise<void> {
+  // Check if this session uses full_access permission profile — auto-approve without IM notification
+  if (sessionId) {
+    const session = getSession(sessionId);
+    if (session?.permission_profile === 'full_access') {
+      console.log(`[bridge] Auto-approved permission ${permissionRequestId} (tool=${toolName}) due to full_access profile`);
+      resolvePendingPermission(permissionRequestId, { behavior: 'allow' });
+      return;
+    }
+  }
+
   // Dedup: prevent duplicate forwarding of the same permission request
   const now = Date.now();
   if (recentPermissionForwards.has(permissionRequestId)) {
@@ -191,5 +201,36 @@ export function handlePermissionCallback(
       return false;
   }
 
+  return resolved;
+}
+
+/**
+ * Auto-approve all pending permission requests for a session.
+ * Called when a session switches from 'default' to 'full_access' profile.
+ * Resolves in-memory pending permissions and marks DB links as resolved.
+ */
+export function autoApprovePendingForSession(sessionId: string): number {
+  // The permission_requests DB table tracks pending permissions by session_id.
+  // Find all pending ones and resolve them via the in-memory registry.
+  const db = getDb();
+
+  const pendingRows = db.prepare(
+    "SELECT id FROM permission_requests WHERE session_id = ? AND status = 'pending'"
+  ).all(sessionId) as { id: string }[];
+
+  let resolved = 0;
+  for (const row of pendingRows) {
+    const ok = resolvePendingPermission(row.id, { behavior: 'allow' });
+    if (ok) {
+      resolved++;
+      console.log(`[bridge] Auto-approved pending permission ${row.id} for session ${sessionId} (profile switched to full_access)`);
+    }
+    // Also mark the IM link as resolved so the button becomes inoperative
+    try { markPermissionLinkResolved(row.id); } catch { /* best effort */ }
+  }
+
+  if (resolved > 0) {
+    console.log(`[bridge] Auto-approved ${resolved} pending permission(s) for session ${sessionId}`);
+  }
   return resolved;
 }

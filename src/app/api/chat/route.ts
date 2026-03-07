@@ -314,6 +314,7 @@ Start by greeting the user and asking the first question.
       toolTimeoutSeconds: toolTimeout || 300,
       provider: resolvedProvider,
       conversationHistory: historyMsgs,
+      bypassPermissions: session.permission_profile === 'full_access',
       onRuntimeStatusChange: (status: string) => {
         try { setSessionRuntimeStatus(session_id, status); } catch { /* best effort */ }
       },

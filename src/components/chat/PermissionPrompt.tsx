@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useTranslation } from '@/hooks/useTranslation';
 import {
   MessageResponse,
@@ -35,6 +35,7 @@ interface PermissionPromptProps {
   permissionResolved: 'allow' | 'deny' | null;
   onPermissionResponse: (decision: 'allow' | 'allow_session' | 'deny', updatedInput?: Record<string, unknown>, denyMessage?: string) => void;
   toolUses?: ToolUseInfo[];
+  permissionProfile?: 'default' | 'full_access';
 }
 
 function AskUserQuestionUI({
@@ -303,8 +304,26 @@ export function PermissionPrompt({
   permissionResolved,
   onPermissionResponse,
   toolUses = [],
+  permissionProfile,
 }: PermissionPromptProps) {
   const { t } = useTranslation();
+
+  // Auto-approve when full_access is active
+  const autoApprovedRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (
+      permissionProfile === 'full_access' &&
+      pendingPermission &&
+      !permissionResolved &&
+      autoApprovedRef.current !== pendingPermission.permissionRequestId
+    ) {
+      autoApprovedRef.current = pendingPermission.permissionRequestId;
+      onPermissionResponse('allow');
+    }
+  }, [permissionProfile, pendingPermission, permissionResolved, onPermissionResponse]);
+
+  // Don't render permission UI when full_access
+  if (permissionProfile === 'full_access') return null;
 
   // Nothing to show
   if (!pendingPermission && !permissionResolved) return null;

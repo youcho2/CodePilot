@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { getAllProviders, getDefaultProviderId } from '@/lib/db';
+import { getContextWindow } from '@/lib/model-context';
 import type { ErrorResponse, ProviderModelGroup } from '@/types';
 
 // Default Claude model options
@@ -89,7 +90,10 @@ export async function GET() {
       provider_id: 'env',
       provider_name: 'Claude Code',
       provider_type: 'anthropic',
-      models: DEFAULT_MODELS,
+      models: DEFAULT_MODELS.map(m => {
+        const cw = getContextWindow(m.value);
+        return cw != null ? { ...m, contextWindow: cw } : m;
+      }),
     });
 
     // Provider types that are not LLMs (e.g. image generation) — skip in chat model selector
@@ -112,7 +116,10 @@ export async function GET() {
         } catch { /* use default */ }
       }
 
-      const models = deduplicateModels(rawModels);
+      const models = deduplicateModels(rawModels).map(m => {
+        const cw = getContextWindow(m.value);
+        return cw != null ? { ...m, contextWindow: cw } : m;
+      });
 
       groups.push({
         provider_id: provider.id,

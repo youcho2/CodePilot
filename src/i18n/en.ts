@@ -741,6 +741,31 @@ const en = {
   'assistant.confirmNotFoundDesc': 'This path does not exist yet. Create the directory and initialize it as a new assistant workspace?',
   'assistant.confirmCreate': 'Create & Initialize',
   'assistant.workspaceInvalid': 'Configured workspace path is invalid',
+
+  // ── Composer ──────────────────────────────────────────────
+  'composer.slashCommand': 'Commands',
+  'composer.slashCommandTooltip': 'Insert slash command',
+  'composer.designAgent': 'Design Agent',
+  'composer.designAgentTooltip': 'Enable AI design & image generation',
+
+  // ── Permission ────────────────────────────────────────────
+  'permission.default': 'Default',
+  'permission.fullAccess': 'Full Access',
+  'permission.fullAccessWarning': 'Full Access mode will automatically approve all permission requests without confirmation. This includes file writes, shell commands, and network requests. Only enable this if you fully trust the current task.',
+  'permission.sessionPermission': 'Chat Permission',
+
+  // ── Context Usage ─────────────────────────────────────────
+  'context.usage': 'Context Usage',
+  'context.model': 'Model',
+  'context.used': 'Used',
+  'context.total': 'Total',
+  'context.percentage': 'Usage',
+  'context.cacheRead': 'Cache Read',
+  'context.cacheCreation': 'Cache Creation',
+  'context.outputTokens': 'Output Tokens',
+  'context.estimate': 'Estimated from the most recent response',
+  'context.noData': 'No context usage data yet',
+  'context.unknown': 'Unknown',
 } as const;
 
 export type TranslationKey = keyof typeof en;

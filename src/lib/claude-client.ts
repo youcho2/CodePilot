@@ -31,7 +31,7 @@ import path from 'path';
  * Removes null bytes and control characters that cause spawn EINVAL.
  */
 function sanitizeEnvValue(value: string): string {
-  // eslint-disable-next-line no-control-regex
+   
   return value.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '');
 }
 
@@ -280,6 +280,7 @@ export function streamClaude(options: ClaudeStreamOptions): ReadableStream<strin
     conversationHistory,
     onRuntimeStatusChange,
     imageAgentMode,
+    bypassPermissions: sessionBypassPermissions,
   } = options;
 
   return new ReadableStream<string>({
@@ -363,8 +364,9 @@ export function streamClaude(options: ClaudeStreamOptions): ReadableStream<strin
           }
         }
 
-        // Check if dangerously_skip_permissions is enabled in app settings
-        const skipPermissions = getSetting('dangerously_skip_permissions') === 'true';
+        // Check if dangerously_skip_permissions is enabled globally or per-session
+        const globalSkip = getSetting('dangerously_skip_permissions') === 'true';
+        const skipPermissions = globalSkip || !!sessionBypassPermissions;
 
         const queryOptions: Options = {
           cwd: workingDirectory || os.homedir(),

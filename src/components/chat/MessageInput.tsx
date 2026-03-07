@@ -35,7 +35,7 @@ import {
 import type { ChatStatus } from 'ai';
 import type { FileAttachment, ProviderModelGroup } from '@/types';
 import { nanoid } from 'nanoid';
-import { ImageGenToggle } from './ImageGenToggle';
+import { SlashCommandButton } from './SlashCommandButton';
 import { useImageGen } from '@/hooks/useImageGen';
 import { PENDING_KEY, setRefImages, deleteRefImages } from '@/lib/image-ref-store';
 
@@ -612,6 +612,23 @@ export function MessageInput({
     }
   }, [fetchFiles, fetchSkills, popoverMode, closePopover]);
 
+  // Insert `/` into textarea to trigger slash command popover
+  const handleInsertSlash = useCallback(() => {
+    const textarea = textareaRef.current;
+    if (!textarea) return;
+    const cursorPos = textarea.selectionStart;
+    const before = inputValue.slice(0, cursorPos);
+    const after = inputValue.slice(cursorPos);
+    const newValue = before + '/' + after;
+    setInputValue(newValue);
+    handleInputChange(newValue);
+    setTimeout(() => {
+      textarea.focus();
+      textarea.selectionStart = cursorPos + 1;
+      textarea.selectionEnd = cursorPos + 1;
+    }, 0);
+  }, [inputValue, handleInputChange]);
+
   const handleSubmit = useCallback(async (msg: { text: string; files: Array<{ type: string; url: string; filename?: string; mediaType?: string }> }, e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const content = inputValue.trim();
@@ -1119,27 +1136,6 @@ export function MessageInput({
                 {/* Attach file button */}
                 <AttachFileButton />
 
-                {/* Mode capsule toggle */}
-                <div className="flex items-center rounded-full border border-border/60 overflow-hidden h-7">
-                  {MODE_OPTIONS.map((opt) => {
-                    const isActive = opt.value === mode;
-                    return (
-                      <button
-                        key={opt.value}
-                        className={cn(
-                          "px-2.5 py-1 text-xs font-medium transition-colors",
-                          isActive
-                            ? "bg-accent text-accent-foreground"
-                            : "text-muted-foreground hover:text-foreground"
-                        )}
-                        onClick={() => onModeChange?.(opt.value)}
-                      >
-                        {opt.value === 'code' ? t('messageInput.modeCode') : opt.value === 'plan' ? t('messageInput.modePlan') : opt.label}
-                      </button>
-                    );
-                  })}
-                </div>
-
                 {/* Model selector */}
                 <div className="relative" ref={modelMenuRef}>
                   <PromptInputButton
@@ -1191,8 +1187,8 @@ export function MessageInput({
                   )}
                 </div>
 
-                {/* Image Agent toggle */}
-                <ImageGenToggle />
+                {/* Slash command button */}
+                <SlashCommandButton onInsertSlash={handleInsertSlash} />
               </PromptInputTools>
 
               <FileAwareSubmitButton

@@ -738,6 +738,31 @@ const zh: Record<TranslationKey, string> = {
   'assistant.confirmNotFoundDesc': '此路径尚不存在，是否创建目录并初始化为新的助理工作区？',
   'assistant.confirmCreate': '创建并初始化',
   'assistant.workspaceInvalid': '已配置的工作区路径无效',
+
+  // ── Composer ──────────────────────────────────────────────
+  'composer.slashCommand': '命令',
+  'composer.slashCommandTooltip': '插入斜杠命令',
+  'composer.designAgent': '设计 Agent',
+  'composer.designAgentTooltip': '启用 AI 设计与图片生成',
+
+  // ── Permission ────────────────────────────────────────────
+  'permission.default': '默认权限',
+  'permission.fullAccess': '完全访问',
+  'permission.fullAccessWarning': '完全访问模式将自动批准此对话的所有权限请求，包括文件写入、命令执行等潜在危险操作。确定要开启吗？',
+  'permission.sessionPermission': '对话权限',
+
+  // ── Context Usage ─────────────────────────────────────────
+  'context.usage': '上下文占用',
+  'context.model': '模型',
+  'context.used': '已用',
+  'context.total': '总计',
+  'context.percentage': '占用',
+  'context.cacheRead': '缓存读取',
+  'context.cacheCreation': '缓存创建',
+  'context.outputTokens': '输出 Token',
+  'context.estimate': '基于最近一轮响应估算',
+  'context.noData': '暂无上下文统计',
+  'context.unknown': '未知上下文窗口',
 };
 
 export default zh;

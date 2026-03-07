@@ -331,6 +331,9 @@ function migrateDb(db: Database.Database): void {
   if (!colNames.includes('runtime_error')) {
     db.exec("ALTER TABLE chat_sessions ADD COLUMN runtime_error TEXT NOT NULL DEFAULT ''");
   }
+  if (!colNames.includes('permission_profile')) {
+    db.exec("ALTER TABLE chat_sessions ADD COLUMN permission_profile TEXT NOT NULL DEFAULT 'default'");
+  }
   db.exec("CREATE INDEX IF NOT EXISTS idx_sessions_runtime_status ON chat_sessions(runtime_status)");
 
   // Migrate is_active provider to default_provider_id setting
@@ -762,6 +765,11 @@ export function updateSessionWorkingDirectory(id: string, workingDirectory: stri
 export function updateSessionMode(id: string, mode: string): void {
   const db = getDb();
   db.prepare('UPDATE chat_sessions SET mode = ? WHERE id = ?').run(mode, id);
+}
+
+export function updateSessionPermissionProfile(id: string, profile: string): void {
+  const db = getDb();
+  db.prepare('UPDATE chat_sessions SET permission_profile = ? WHERE id = ?').run(profile, id);
 }
 
 // ==========================================

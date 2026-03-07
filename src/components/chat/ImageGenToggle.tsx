@@ -31,11 +31,11 @@ export function ImageGenToggle() {
               : 'text-muted-foreground border-border/60 hover:text-foreground hover:border-foreground/30 hover:bg-accent/50'
           )}
         >
-          {t('imageGen.toggleLabel' as TranslationKey)}
+          {t('composer.designAgent' as TranslationKey)}
         </button>
       </TooltipTrigger>
       <TooltipContent>
-        {t('imageGen.toggleTooltip' as TranslationKey)}
+        {t('composer.designAgentTooltip' as TranslationKey)}
       </TooltipContent>
     </Tooltip>
   );

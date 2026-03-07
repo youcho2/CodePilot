@@ -150,6 +150,9 @@ export async function processMessage(
       default: permissionMode = 'acceptEdits'; break;
     }
 
+    // Bypass permissions entirely when session has full_access profile
+    const bypassPermissions = session?.permission_profile === 'full_access';
+
     // Load conversation history for context
     const { messages: recentMsgs } = getMessages(sessionId, { limit: 50 });
     const historyMsgs = recentMsgs.slice(0, -1).map(m => ({
@@ -178,6 +181,7 @@ export async function processMessage(
       provider: resolvedProvider,
       conversationHistory: historyMsgs,
       files,
+      bypassPermissions,
       onRuntimeStatusChange: (status: string) => {
         try { setSessionRuntimeStatus(sessionId, status); } catch { /* best effort */ }
       },
