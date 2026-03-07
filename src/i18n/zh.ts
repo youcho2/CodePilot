@@ -580,6 +580,10 @@ const zh: Record<TranslationKey, string> = {
   'bridge.discordChannelDesc': '通过 Discord Bot 接收和回复消息',
   'bridge.discordSettings': 'Discord 设置',
   'bridge.discordSettingsDesc': '配置桥接使用的 Discord Bot 凭据',
+  'bridge.qqChannel': 'QQ',
+  'bridge.qqChannelDesc': '通过 QQ 机器人接收和回复私聊消息',
+  'bridge.qqSettings': 'QQ 设置',
+  'bridge.qqSettingsDesc': '配置桥接使用的 QQ 机器人凭据',
 
   // ── Settings: Discord Bridge ─────────────────────────────────
   'discord.credentials': 'Bot 凭据',
@@ -621,6 +625,31 @@ const zh: Record<TranslationKey, string> = {
   'discord.stepUserId': '获取用户 ID：右键点击自己的头像或用户名 →「复制用户 ID」',
   'discord.stepChannelId': '获取频道 ID：右键点击左侧频道名称 →「复制频道 ID」',
   'discord.stepGuildId': '获取服务器 ID：右键点击左上角服务器名称 →「复制服务器 ID」',
+
+  // ── Settings: QQ Bridge ────────────────────────────────────
+  'qq.credentials': '机器人凭据',
+  'qq.credentialsDesc': '输入您的 QQ 机器人 App ID 和 App Secret',
+  'qq.appId': 'App ID',
+  'qq.appSecret': 'App Secret',
+  'qq.verify': '测试连接',
+  'qq.verified': '连接验证成功',
+  'qq.verifyFailed': '连接失败',
+  'qq.enterCredentialsFirst': '请先输入 App ID 和 App Secret',
+  'qq.allowedUsers': '允许的用户',
+  'qq.allowedUsersDesc': '允许使用桥接的 user_openid，逗号分隔',
+  'qq.allowedUsersHint': '留空则允许所有用户',
+  'qq.imageSettings': '图片设置',
+  'qq.imageSettingsDesc': '控制机器人如何处理 QQ 中的图片',
+  'qq.imageEnabled': '启用图片输入',
+  'qq.imageEnabledDesc': '允许接收和处理来自 QQ 的图片',
+  'qq.maxImageSize': '最大图片大小 (MB)',
+  'qq.maxImageSizeHint': '图片文件最大大小，单位 MB（默认：20）',
+  'qq.setupGuide': '设置指南',
+  'qq.step1': '前往 QQ 机器人快速创建页面 (q.qq.com/qqbot/openclaw) 创建机器人并生成 App ID 和 App Secret',
+  'qq.step2': '将 App ID 和 App Secret 粘贴到上方，点击「保存」',
+  'qq.step3': '点击「测试连接」验证凭据是否有效',
+  'qq.step4': '回到桥接主页，打开 QQ 渠道开关，启动桥接',
+  'qq.step5': '添加 QQ 机器人为好友并发送消息开始聊天',
 
   // ── Assistant Workspace ──────────────────────────────
   'settings.assistant': '助理',

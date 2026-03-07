@@ -34,6 +34,7 @@ export async function forwardPermissionRequest(
   toolInput: Record<string, unknown>,
   sessionId?: string,
   suggestions?: unknown[],
+  replyToMessageId?: string,
 ): Promise<void> {
   // Check if this session uses full_access permission profile — auto-approve without IM notification
   if (sessionId) {
@@ -65,26 +66,46 @@ export async function forwardPermissionRequest(
     ? inputStr.slice(0, 300) + '...'
     : inputStr;
 
-  const text = [
+  // Channels without inline button support (e.g. QQ) need text-based
+  // permission commands. Check if the adapter ignores inlineButtons.
+  const supportsButtons = adapter.channelType !== 'qq';
+
+  const textLines = [
     `<b>Permission Required</b>`,
     ``,
     `Tool: <code>${escapeHtml(toolName)}</code>`,
     `<pre>${escapeHtml(truncatedInput)}</pre>`,
     ``,
-    `Choose an action:`,
-  ].join('\n');
+  ];
+
+  if (supportsButtons) {
+    textLines.push(`Choose an action:`);
+  } else {
+    // Text-based permission commands for channels without inline buttons
+    textLines.push(
+      `Reply with one of:`,
+      `/perm allow ${permissionRequestId}`,
+      `/perm allow_session ${permissionRequestId}`,
+      `/perm deny ${permissionRequestId}`,
+    );
+  }
+
+  const text = textLines.join('\n');
 
   const message: OutboundMessage = {
     address,
     text,
-    parseMode: 'HTML',
-    inlineButtons: [
-      [
-        { text: 'Allow', callbackData: `perm:allow:${permissionRequestId}` },
-        { text: 'Allow Session', callbackData: `perm:allow_session:${permissionRequestId}` },
-        { text: 'Deny', callbackData: `perm:deny:${permissionRequestId}` },
-      ],
-    ],
+    parseMode: supportsButtons ? 'HTML' : 'plain',
+    inlineButtons: supportsButtons
+      ? [
+          [
+            { text: 'Allow', callbackData: `perm:allow:${permissionRequestId}` },
+            { text: 'Allow Session', callbackData: `perm:allow_session:${permissionRequestId}` },
+            { text: 'Deny', callbackData: `perm:deny:${permissionRequestId}` },
+          ],
+        ]
+      : undefined,
+    replyToMessageId,
   };
 
   const result = await deliver(adapter, message, { sessionId });

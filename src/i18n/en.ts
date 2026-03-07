@@ -583,6 +583,10 @@ const en = {
   'bridge.discordChannelDesc': 'Receive and respond to messages via Discord Bot',
   'bridge.discordSettings': 'Discord Settings',
   'bridge.discordSettingsDesc': 'Configure Discord Bot credentials for bridge',
+  'bridge.qqChannel': 'QQ',
+  'bridge.qqChannelDesc': 'Receive and respond to messages via QQ Bot (private chat)',
+  'bridge.qqSettings': 'QQ Settings',
+  'bridge.qqSettingsDesc': 'Configure QQ Bot credentials for bridge',
 
   // ── Settings: Discord Bridge ─────────────────────────────────
   'discord.credentials': 'Bot Credentials',
@@ -624,6 +628,31 @@ const en = {
   'discord.stepUserId': 'User ID: right-click your avatar or username → "Copy User ID"',
   'discord.stepChannelId': 'Channel ID: right-click a channel name in the sidebar → "Copy Channel ID"',
   'discord.stepGuildId': 'Server ID: right-click the server name at the top-left → "Copy Server ID"',
+
+  // ── Settings: QQ Bridge ────────────────────────────────────
+  'qq.credentials': 'Bot Credentials',
+  'qq.credentialsDesc': 'Enter your QQ Bot App ID and App Secret',
+  'qq.appId': 'App ID',
+  'qq.appSecret': 'App Secret',
+  'qq.verify': 'Test Connection',
+  'qq.verified': 'Connection verified',
+  'qq.verifyFailed': 'Connection failed',
+  'qq.enterCredentialsFirst': 'Enter App ID and App Secret first',
+  'qq.allowedUsers': 'Allowed Users',
+  'qq.allowedUsersDesc': 'Comma-separated user_openid values allowed to use bridge',
+  'qq.allowedUsersHint': 'Leave empty to allow all users',
+  'qq.imageSettings': 'Image Settings',
+  'qq.imageSettingsDesc': 'Control how the bot handles images from QQ',
+  'qq.imageEnabled': 'Enable Image Input',
+  'qq.imageEnabledDesc': 'Allow receiving and processing images from QQ',
+  'qq.maxImageSize': 'Max Image Size (MB)',
+  'qq.maxImageSizeHint': 'Maximum image file size in MB (default: 20)',
+  'qq.setupGuide': 'Setup Guide',
+  'qq.step1': 'Go to QQ Bot Quick Setup page (q.qq.com/qqbot/openclaw) to create a bot and generate App ID & App Secret',
+  'qq.step2': 'Paste the App ID and App Secret above and click "Save"',
+  'qq.step3': 'Click "Test Connection" to verify the credentials are valid',
+  'qq.step4': 'Go back to the Bridge page, enable the QQ channel toggle, and start the bridge',
+  'qq.step5': 'Add your QQ bot as a friend and send it a message to start chatting',
 
   // ── Assistant Workspace ──────────────────────────────
   'settings.assistant': 'Assistant',

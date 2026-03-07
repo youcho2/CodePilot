@@ -962,7 +962,9 @@ export function streamClaude(options: ClaudeStreamOptions): ReadableStream<strin
           } else if (rawMessage.includes('exited with code 1') || rawMessage.includes('exit code 1')) {
             const providerHint = activeProvider?.name ? ` (Provider: ${activeProvider.name})` : '';
             const detailHint = extraDetail ? `\n\nDetails: ${extraDetail}` : '';
-            errorMessage = `Claude Code process exited with an error${providerHint}. This is often caused by:\n• Invalid or missing API Key\n• Incorrect Base URL configuration\n• Network connectivity issues${detailHint}\n\nOriginal error: ${rawMessage}`;
+            const hasImages = files && files.some(f => isImageFile(f.type));
+            const imageHint = hasImages ? '\n• Provider may not support image/vision input' : '';
+            errorMessage = `Claude Code process exited with an error${providerHint}. This is often caused by:\n• Invalid or missing API Key\n• Incorrect Base URL configuration\n• Network connectivity issues${imageHint}${detailHint}\n\nOriginal error: ${rawMessage}`;
           } else if (rawMessage.includes('exited with code')) {
             const providerHint = activeProvider?.name ? ` (Provider: ${activeProvider.name})` : '';
             errorMessage = `Claude Code process crashed unexpectedly${providerHint}.\n\nOriginal error: ${rawMessage}`;
@@ -982,10 +984,11 @@ export function streamClaude(options: ClaudeStreamOptions): ReadableStream<strin
         controller.enqueue(formatSSE({ type: 'error', data: errorMessage }));
         controller.enqueue(formatSSE({ type: 'done', data: '' }));
 
-        // If we were resuming a session and it crashed mid-stream, clear the
-        // stale sdk_session_id so the next message starts a fresh SDK session
-        // instead of repeatedly hitting the same broken resume.
-        if (sdkSessionId && sessionId) {
+        // Always clear sdk_session_id on crash so the next message starts fresh.
+        // Even for fresh sessions — the SDK may emit a session_id via status
+        // event before crashing, which gets persisted by consumeStream/SSE
+        // handlers. Leaving it would cause repeated resume failures.
+        if (sessionId) {
           try {
             updateSdkSessionId(sessionId, '');
             console.warn('[claude-client] Cleared stale sdk_session_id for session', sessionId);

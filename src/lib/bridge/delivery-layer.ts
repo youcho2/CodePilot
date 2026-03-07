@@ -38,7 +38,7 @@ setInterval(() => { rateLimiter.cleanup(); }, 5 * 60_000);
  * Split text into chunks that fit within a platform's message size limit.
  * Tries to split at line boundaries when possible.
  */
-function chunkText(text: string, maxLength: number): string[] {
+export function chunkText(text: string, maxLength: number): string[] {
   if (text.length <= maxLength) return [text];
 
   const chunks: string[] = [];

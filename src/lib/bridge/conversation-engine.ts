@@ -101,6 +101,8 @@ export async function processMessage(
 
     // Save user message — persist file attachments to disk using the same
     // <!--files:JSON--> format as the desktop chat route, so the UI can render them.
+    // Also attach filePath to the file objects so streamClaude() can reuse
+    // on-disk copies (matching the desktop route behavior, preventing duplicate writes).
     let savedContent = text;
     if (files && files.length > 0) {
       const workDir = binding.workingDirectory || session?.working_directory || '';
@@ -115,6 +117,9 @@ export async function processMessage(
             const filePath = path.join(uploadDir, `${Date.now()}-${safeName}`);
             const buffer = Buffer.from(f.data, 'base64');
             fs.writeFileSync(filePath, buffer);
+            // Attach filePath to the original file object so streamClaude()
+            // can reference the on-disk copy via getUploadedFilePaths()
+            f.filePath = filePath;
             return { id: f.id, name: f.name, type: f.type, size: buffer.length, filePath };
           });
           savedContent = `<!--files:${JSON.stringify(fileMeta)}-->${text}`;

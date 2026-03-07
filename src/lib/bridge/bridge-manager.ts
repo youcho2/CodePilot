@@ -15,7 +15,8 @@ import './adapters';
 import * as router from './channel-router';
 import * as engine from './conversation-engine';
 import * as broker from './permission-broker';
-import { deliver, deliverRendered } from './delivery-layer';
+import { deliver, deliverRendered, chunkText } from './delivery-layer';
+import { PLATFORM_LIMITS as limits } from './types';
 import { markdownToTelegramChunks } from './markdown/telegram';
 import { markdownToDiscordChunks } from './markdown/discord';
 import { getSetting, insertAuditLog, updateChannelBinding } from '../db';
@@ -96,6 +97,7 @@ async function deliverResponse(
   address: ChannelAddress,
   responseText: string,
   sessionId: string,
+  replyToMessageId?: string,
 ): Promise<SendResult> {
   if (adapter.channelType === 'telegram') {
     const chunks = markdownToTelegramChunks(responseText, 4096);
@@ -112,6 +114,7 @@ async function deliverResponse(
         address,
         text: chunks[i].text,
         parseMode: 'Markdown',
+        replyToMessageId,
       }, { sessionId });
       if (!result.ok) return result;
     }
@@ -123,13 +126,39 @@ async function deliverResponse(
       address,
       text: responseText,
       parseMode: 'Markdown',
+      replyToMessageId,
     }, { sessionId });
   }
-  // Generic fallback: deliver as plain text (deliver() handles chunking internally)
+  if (adapter.channelType === 'qq') {
+    // QQ passive replies have a limited budget per msg_id (typically 5).
+    // Limit chunks to avoid exhausting the budget and failing mid-response.
+    const QQ_MAX_CHUNKS = 3;
+    const limit = limits.qq || 2000;
+    const fullText = responseText;
+    const chunks = chunkText(fullText, limit);
+
+    const effectiveChunks = chunks.length > QQ_MAX_CHUNKS
+      ? [...chunks.slice(0, QQ_MAX_CHUNKS - 1), chunks.slice(QQ_MAX_CHUNKS - 1).join('\n').slice(0, limit - 30) + '\n\n[... response truncated]']
+      : chunks;
+
+    for (let i = 0; i < effectiveChunks.length; i++) {
+      const result = await deliver(adapter, {
+        address,
+        text: effectiveChunks[i],
+        parseMode: 'plain',
+        replyToMessageId,
+      }, { sessionId });
+      if (!result.ok) return result;
+    }
+    return { ok: true };
+  }
+
+  // Generic fallback: deliver as plain text
   return deliver(adapter, {
     address,
     text: responseText,
     parseMode: 'plain',
+    replyToMessageId,
   }, { sessionId });
 }
 
@@ -424,6 +453,7 @@ async function handleMessage(
         address: msg.address,
         text: 'Permission response recorded.',
         parseMode: 'plain',
+        replyToMessageId: msg.messageId,
       };
       await deliver(adapter, confirmMsg);
     }
@@ -437,7 +467,7 @@ async function handleMessage(
 
   // Check for IM commands (before sanitization — commands are validated individually)
   if (rawText.startsWith('/')) {
-    await handleCommand(adapter, msg, rawText);
+    await handleCommand(adapter, msg, rawText, msg.messageId);
     ack();
     return;
   }
@@ -544,30 +574,33 @@ async function handleMessage(
         perm.toolInput,
         binding.codepilotSessionId,
         perm.suggestions,
+        msg.messageId,
       );
     }, taskAbort.signal, hasAttachments ? msg.attachments : undefined, onPartialText);
 
     // Send response text — render via channel-appropriate format
     if (result.responseText) {
-      await deliverResponse(adapter, msg.address, result.responseText, binding.codepilotSessionId);
+      await deliverResponse(adapter, msg.address, result.responseText, binding.codepilotSessionId, msg.messageId);
     } else if (result.hasError) {
       const errorResponse: OutboundMessage = {
         address: msg.address,
         text: `<b>Error:</b> ${escapeHtml(result.errorMessage)}`,
         parseMode: 'HTML',
+        replyToMessageId: msg.messageId,
       };
       await deliver(adapter, errorResponse);
     }
 
     // Persist the actual SDK session ID for future resume.
-    // If the result has an error and no session ID was captured, clear the
-    // stale ID so the next message starts fresh instead of retrying a broken resume.
+    // On error, ALWAYS clear — the SDK may emit a session_id before crashing,
+    // and saving that broken ID would cause all subsequent messages to fail
+    // by repeatedly trying to resume a corrupted session.
     if (binding.id) {
       try {
-        if (result.sdkSessionId) {
-          updateChannelBinding(binding.id, { sdkSessionId: result.sdkSessionId });
-        } else if (result.hasError && binding.sdkSessionId) {
+        if (result.hasError) {
           updateChannelBinding(binding.id, { sdkSessionId: '' });
+        } else if (result.sdkSessionId) {
+          updateChannelBinding(binding.id, { sdkSessionId: result.sdkSessionId });
         }
       } catch { /* best effort */ }
     }
@@ -596,6 +629,7 @@ async function handleCommand(
   adapter: BaseChannelAdapter,
   msg: InboundMessage,
   text: string,
+  replyToMessageId?: string,
 ): Promise<void> {
   // Extract command and args (handle /command@botname format)
   const parts = text.split(/\s+/);
@@ -617,6 +651,7 @@ async function handleCommand(
       address: msg.address,
       text: `Command rejected: invalid input detected.`,
       parseMode: 'plain',
+      replyToMessageId,
     });
     return;
   }
@@ -790,6 +825,7 @@ async function handleCommand(
       address: msg.address,
       text: response,
       parseMode: 'HTML',
+      replyToMessageId,
     });
   }
 }

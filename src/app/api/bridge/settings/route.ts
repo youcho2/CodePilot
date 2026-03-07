@@ -35,6 +35,12 @@ const BRIDGE_SETTING_KEYS = [
   'bridge_discord_stream_max_chars',
   'bridge_discord_max_attachment_size',
   'bridge_discord_image_enabled',
+  'bridge_qq_enabled',
+  'bridge_qq_app_id',
+  'bridge_qq_app_secret',
+  'bridge_qq_allowed_users',
+  'bridge_qq_image_enabled',
+  'bridge_qq_max_image_size',
 ] as const;
 
 export async function GET() {

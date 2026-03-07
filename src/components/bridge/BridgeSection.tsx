@@ -14,7 +14,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { Loading02Icon, CheckmarkCircle02Icon, Alert02Icon, TelegramIcon, BubbleChatIcon, GameController01Icon } from "@hugeicons/core-free-icons";
+import { Loading02Icon, CheckmarkCircle02Icon, Alert02Icon, TelegramIcon, BubbleChatIcon, GameController01Icon, MessageMultiple02Icon } from "@hugeicons/core-free-icons";
 import { useTranslation } from "@/hooks/useTranslation";
 import type { ProviderModelGroup } from "@/types";
 
@@ -37,6 +37,7 @@ interface BridgeSettings {
   bridge_telegram_enabled: string;
   bridge_feishu_enabled: string;
   bridge_discord_enabled: string;
+  bridge_qq_enabled: string;
   bridge_auto_start: string;
   bridge_default_work_dir: string;
   bridge_default_model: string;
@@ -48,6 +49,7 @@ const DEFAULT_SETTINGS: BridgeSettings = {
   bridge_telegram_enabled: "",
   bridge_feishu_enabled: "",
   bridge_discord_enabled: "",
+  bridge_qq_enabled: "",
   bridge_auto_start: "",
   bridge_default_work_dir: "",
   bridge_default_model: "",
@@ -169,6 +171,10 @@ export function BridgeSection() {
     saveSettings({ bridge_discord_enabled: checked ? "true" : "" });
   };
 
+  const handleToggleQQ = (checked: boolean) => {
+    saveSettings({ bridge_qq_enabled: checked ? "true" : "" });
+  };
+
   const handleSaveDefaults = () => {
     // Split composite "provider_id::model" value
     const parts = model.split("::");
@@ -240,6 +246,7 @@ export function BridgeSection() {
   const isTelegramEnabled = settings.bridge_telegram_enabled === "true";
   const isFeishuEnabled = settings.bridge_feishu_enabled === "true";
   const isDiscordEnabled = settings.bridge_discord_enabled === "true";
+  const isQQEnabled = settings.bridge_qq_enabled === "true";
   const isAutoStart = settings.bridge_auto_start === "true";
   const isRunning = bridgeStatus?.running ?? false;
   const adapterCount = bridgeStatus?.adapters?.length ?? 0;
@@ -405,6 +412,26 @@ export function BridgeSection() {
               <Switch
                 checked={isDiscordEnabled}
                 onCheckedChange={handleToggleDiscord}
+                disabled={saving}
+              />
+            </div>
+
+            <div className="flex items-center justify-between border-t border-border/30 pt-3">
+              <div className="flex items-center gap-3">
+                <HugeiconsIcon
+                  icon={MessageMultiple02Icon}
+                  className="h-4 w-4 text-muted-foreground"
+                />
+                <div>
+                  <p className="text-sm">{t("bridge.qqChannel")}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {t("bridge.qqChannelDesc")}
+                  </p>
+                </div>
+              </div>
+              <Switch
+                checked={isQQEnabled}
+                onCheckedChange={handleToggleQQ}
                 disabled={saving}
               />
             </div>
