@@ -50,7 +50,7 @@ export function RightPanel({ width }: RightPanelProps) {
 
   if (!panelOpen) {
     return (
-      <div className="flex flex-col items-center gap-2 bg-background p-2">
+      <div className="flex flex-col items-center gap-2 bg-background p-2 mt-5 border-l border-border/40">
         <Tooltip>
           <TooltipTrigger asChild>
             <Button

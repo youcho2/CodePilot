@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import type { Message, SSEEvent, SessionResponse, TokenUsage, PermissionRequestEvent } from '@/types';
 import { MessageList } from '@/components/chat/MessageList';
 import { MessageInput } from '@/components/chat/MessageInput';
+import { PermissionPrompt } from '@/components/chat/PermissionPrompt';
 import { usePanel } from '@/hooks/usePanel';
 
 interface ToolUseInfo {
@@ -358,9 +359,12 @@ export default function NewChatPage() {
         toolResults={toolResults}
         streamingToolOutput={streamingToolOutput}
         statusText={statusText}
+      />
+      <PermissionPrompt
         pendingPermission={pendingPermission}
-        onPermissionResponse={handlePermissionResponse}
         permissionResolved={permissionResolved}
+        onPermissionResponse={handlePermissionResponse}
+        toolUses={toolUses}
       />
       <MessageInput
         onSend={sendFirstMessage}

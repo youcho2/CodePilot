@@ -1,6 +1,7 @@
 "use client";
 
 import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -42,6 +43,7 @@ export function UpdateDialog() {
         {updateInfo.releaseNotes && (
           <div className="max-h-60 overflow-auto rounded-md border border-border/50 bg-muted/30 p-3 text-sm">
             <ReactMarkdown
+              remarkPlugins={[remarkGfm]}
               components={{
                 h1: ({ children }) => <h3 className="mb-1 text-sm font-semibold">{children}</h3>,
                 h2: ({ children }) => <h3 className="mb-1 text-sm font-semibold">{children}</h3>,
@@ -57,6 +59,18 @@ export function UpdateDialog() {
                 ),
                 code: ({ children }) => (
                   <code className="rounded bg-muted px-1 py-0.5 text-xs">{children}</code>
+                ),
+                table: ({ children }) => (
+                  <table className="mb-2 w-full border-collapse text-xs">{children}</table>
+                ),
+                thead: ({ children }) => (
+                  <thead className="border-b border-border">{children}</thead>
+                ),
+                th: ({ children }) => (
+                  <th className="px-2 py-1 text-left font-medium">{children}</th>
+                ),
+                td: ({ children }) => (
+                  <td className="px-2 py-1 border-t border-border/30">{children}</td>
                 ),
               }}
             >

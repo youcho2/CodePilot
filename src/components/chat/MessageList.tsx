@@ -3,7 +3,7 @@
 import { useRef, useEffect } from 'react';
 import { useTranslation } from '@/hooks/useTranslation';
 import { useStickToBottomContext } from 'use-stick-to-bottom';
-import type { Message, PermissionRequestEvent } from '@/types';
+import type { Message } from '@/types';
 import {
   Conversation,
   ConversationContent,
@@ -61,9 +61,6 @@ interface MessageListProps {
   toolResults?: ToolResultInfo[];
   streamingToolOutput?: string;
   statusText?: string;
-  pendingPermission?: PermissionRequestEvent | null;
-  onPermissionResponse?: (decision: 'allow' | 'allow_session' | 'deny', updatedInput?: Record<string, unknown>, denyMessage?: string) => void;
-  permissionResolved?: 'allow' | 'deny' | null;
   onForceStop?: () => void;
   hasMore?: boolean;
   loadingMore?: boolean;
@@ -78,9 +75,6 @@ export function MessageList({
   toolResults = [],
   streamingToolOutput,
   statusText,
-  pendingPermission,
-  onPermissionResponse,
-  permissionResolved,
   onForceStop,
   hasMore,
   loadingMore,
@@ -152,9 +146,6 @@ export function MessageList({
             toolResults={toolResults}
             streamingToolOutput={streamingToolOutput}
             statusText={statusText}
-            pendingPermission={pendingPermission}
-            onPermissionResponse={onPermissionResponse}
-            permissionResolved={permissionResolved}
             onForceStop={onForceStop}
           />
         )}

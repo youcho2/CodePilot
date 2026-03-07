@@ -7,6 +7,7 @@ import { MessageList } from './MessageList';
 import { MessageInput } from './MessageInput';
 import { usePanel } from '@/hooks/usePanel';
 import { useTranslation } from '@/hooks/useTranslation';
+import { PermissionPrompt } from './PermissionPrompt';
 import { BatchExecutionDashboard, BatchContextSync } from './batch-image-gen';
 import { setLastGeneratedImages, transferPendingToMessage } from '@/lib/image-ref-store';
 import {
@@ -116,6 +117,20 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
       }
       if (existing.pendingPermission && !existing.permissionResolved) {
         setPendingApprovalSessionId(sessionId);
+      }
+      // If stream completed while this ChatView was unmounted, consume finalMessageContent now
+      if (existing.phase !== 'active' && existing.finalMessageContent) {
+        const assistantMessage: Message = {
+          id: 'temp-assistant-' + Date.now(),
+          session_id: sessionId,
+          role: 'assistant',
+          content: existing.finalMessageContent,
+          created_at: new Date().toISOString(),
+          token_usage: existing.tokenUsage ? JSON.stringify(existing.tokenUsage) : null,
+        };
+        transferPendingToMessage(assistantMessage.id);
+        setMessages((prev) => [...prev, assistantMessage]);
+        clearSnapshot(sessionId);
       }
     } else {
       setStreamSnapshot(null);
@@ -621,19 +636,24 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
         toolResults={toolResults}
         streamingToolOutput={streamingToolOutput}
         statusText={statusText}
-        pendingPermission={pendingPermission}
-        onPermissionResponse={handlePermissionResponse}
-        permissionResolved={permissionResolved}
         onForceStop={stopStreaming}
         hasMore={hasMore}
         loadingMore={loadingMore}
         onLoadMore={loadEarlierMessages}
+      />
+      {/* Permission prompt — rendered outside MessageList so it's always visible at bottom */}
+      <PermissionPrompt
+        pendingPermission={pendingPermission}
+        permissionResolved={permissionResolved}
+        onPermissionResponse={handlePermissionResponse}
+        toolUses={toolUses}
       />
       {/* Batch image generation panels — shown above the input area */}
       <BatchExecutionDashboard />
       <BatchContextSync />
 
       <MessageInput
+        key={sessionId}
         onSend={sendMessage}
         onCommand={handleCommand}
         onStop={stopStreaming}

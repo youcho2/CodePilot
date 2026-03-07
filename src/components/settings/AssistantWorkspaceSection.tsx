@@ -320,12 +320,11 @@ export function AssistantWorkspaceSection() {
 
   const handleSelectFolder = useCallback(async () => {
     try {
-      const w = window as unknown as { electronAPI?: { selectFolder?: () => Promise<string | null> } };
-      if (w.electronAPI?.selectFolder) {
-        const selected = await w.electronAPI.selectFolder();
-        if (selected) {
-          setPathInput(selected);
-          validatePath(selected);
+      if (window.electronAPI?.dialog?.openFolder) {
+        const result = await window.electronAPI.dialog.openFolder({ title: t('assistant.selectFolder') });
+        if (!result.canceled && result.filePaths[0]) {
+          setPathInput(result.filePaths[0]);
+          validatePath(result.filePaths[0]);
         }
       } else {
         const input = prompt("Enter workspace directory path:");
@@ -337,7 +336,7 @@ export function AssistantWorkspaceSection() {
     } catch (e) {
       console.error("Failed to select folder:", e);
     }
-  }, [validatePath]);
+  }, [validatePath, t]);
 
   const handleRefreshDocs = useCallback(async () => {
     setRefreshingDocs(true);

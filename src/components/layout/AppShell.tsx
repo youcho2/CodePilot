@@ -578,7 +578,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
               {/* Electron draggable title bar region — matches side panels' mt-5 */}
               <div
-                className="h-5 w-full shrink-0"
+                className="h-10 w-full shrink-0"
                 style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}
               />
               <UpdateBanner />
