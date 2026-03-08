@@ -17,17 +17,17 @@
 
 ---
 
-## Why CodePilot
+## CodePilot を選ぶ理由
 
-**Multi-provider, one interface.** Connect to Anthropic, OpenRouter, Bedrock, Vertex, or any custom endpoint. Switch providers and models mid-conversation without losing context.
+**マルチプロバイダー、ひとつのインターフェース。** Anthropic、OpenRouter、Bedrock、Vertex、または任意のカスタムエンドポイントに接続。会話の途中でプロバイダーやモデルを切り替えても、コンテキストは維持されます。
 
-**MCP + Skills extensibility.** Add MCP servers (stdio / sse / http) with runtime status monitoring. Define reusable prompt-based skills and invoke them as slash commands. Browse community skills from skills.sh.
+**MCP + Skills で拡張。** MCP サーバー（stdio / sse / http）を追加し、ランタイム状態を監視。再利用可能なプロンプトベースのスキルを定義し、スラッシュコマンドとして呼び出せます。skills.sh からコミュニティスキルを閲覧・インストール可能。
 
-**Control from anywhere.** Bridge connects CodePilot to Telegram, Feishu, Discord, and QQ. Send a message from your phone, get the response on your desktop.
+**どこからでも制御。** Bridge で CodePilot を Telegram、Feishu、Discord、QQ に接続。スマートフォンからメッセージを送り、デスクトップで返答を受け取れます。
 
-**An assistant that knows your project.** The .assistant workspace stores persona files, onboarding flows, daily check-ins, and persistent memory.
+**プロジェクトを理解するアシスタント。** ワークスペースディレクトリにペルソナファイル（soul.md、user.md）、ルール（claude.md）、永続メモリ（memory.md）を配置。Claude はこれらを使い、プロジェクトの慣例に適応します。Onboarding フローやデイリーチェックインにも対応。
 
-**Built for daily use.** Pause, resume, and rewind sessions. Split-screen dual conversations. Token usage tracking. CLI session import. Dark and light themes.
+**日常使いのために設計。** セッションの一時停止、再開、チェックポイントへの巻き戻し。スプリットスクリーンで 2 つの会話を並行実行。トークン使用量の追跡。CLI セッション履歴のインポート。ダーク / ライトテーマ。
 
 ---
 
@@ -62,10 +62,10 @@ npm run electron:dev     # フルデスクトップアプリ
 ## 初回起動
 
 1. **Claude を認証** -- ターミナルで `claude login` を実行。
-2. **プロバイダーを設定** -- 設定 > Providers で API キーを追加するか、CLI のデフォルト認証を使用。
+2. **プロバイダーを設定** -- Anthropic のみ使用する場合（CLI 認証または `ANTHROPIC_API_KEY`）、プロバイダー設定は不要。OpenRouter、Bedrock、Vertex、カスタムエンドポイントを使用する場合は、先に **設定 > Providers** で認証情報を追加。
 3. **会話を作成** -- 作業ディレクトリ、モード（Code / Plan / Ask）、モデルを選択。
-4. **Assistant Workspace を設定**（任意）-- .assistant ディレクトリで Onboarding、デイリーチェックイン、ペルソナファイルを有効化。
-5. **MCP サーバーを追加**（任意）-- エクステンションページで外部ツールやサービスを接続。
+4. **Assistant Workspace を設定**（任意）-- **設定 > Assistant** でワークスペースディレクトリを選択し、Onboarding を有効化。CodePilot がワークスペースルートに `soul.md`、`user.md`、`claude.md`、`memory.md` を作成（状態は `.assistant/` サブディレクトリに保存）。
+5. **MCP サーバーを追加**（任意）-- サイドバーの **MCP** ページで MCP サーバーを追加・管理。カスタムスキルは **Skills** ページで管理。
 
 ---
 
@@ -99,7 +99,7 @@ npm run electron:dev     # フルデスクトップアプリ
 
 | 機能 | 詳細 |
 |---|---|
-| Assistant Workspace | .assistant ディレクトリ、ペルソナ、Onboarding、チェックイン、メモリ |
+| Assistant Workspace | ワークスペースルートファイル（soul.md、user.md、claude.md、memory.md）、.assistant/ 状態、Onboarding、チェックイン |
 | ファイルブラウザ | プロジェクトファイルツリー、シンタックスハイライトプレビュー |
 | 使用量分析 | トークン数、コスト見積もり、日次使用量チャート |
 | ローカルストレージ | SQLite（WAL モード）、全データはローカルに保存 |
@@ -118,10 +118,10 @@ npm run electron:dev     # フルデスクトップアプリ
 
 [Releases](https://github.com/op7418/CodePilot/releases) ページからダウンロードしてください。
 
-CodePilot はまだコード署名されていないため、初回起動時に OS がセキュリティ警告を表示します。
+macOS ビルドは Developer ID 証明書で署名済みですが、公証（notarize）は行われていないため、Gatekeeper が初回起動時に警告を表示する場合があります。Windows と Linux ビルドは未署名です。
 
 <details>
-<summary>macOS:「Apple はこのソフトウェアを確認できません」</summary>
+<summary>macOS: Gatekeeper の初回起動時警告</summary>
 
 **オプション 1** -- Finder で `CodePilot.app` を右クリック > 開く > 確認。
 
@@ -145,9 +145,59 @@ xattr -cr /Applications/CodePilot.app
 
 ## ドキュメント
 
+**はじめに:**
+- [クイックスタート](#クイックスタート) -- ダウンロードまたはソースからビルド
+- [初回起動](#初回起動) -- 認証、プロバイダー設定、ワークスペースセットアップ
+
+**ユーザーガイド:**
+- [Providers](#) -- Anthropic、OpenRouter、Bedrock、Vertex、カスタムエンドポイントの設定
+- [MCP サーバー](#) -- Model Context Protocol サーバーの追加と管理
+- [Bridge](#) -- Telegram、Feishu、Discord、QQ によるリモート制御
+- [Assistant Workspace](#) -- ペルソナファイル、Onboarding、メモリ、デイリーチェックイン
+- [FAQ](#faq) -- よくある質問と解決方法
+
+**開発者ドキュメント:**
 - [ARCHITECTURE.md](./ARCHITECTURE.md) -- アーキテクチャ、テックスタック、ディレクトリ構成、データフロー
 - [docs/handover/](./docs/handover/) -- 設計決定、引き継ぎドキュメント
 - [docs/exec-plans/](./docs/exec-plans/) -- 実行計画、技術的負債トラッカー
+
+---
+
+## FAQ
+
+<details>
+<summary><code>claude</code> コマンドが見つからない</summary>
+
+Claude Code CLI をグローバルにインストール:
+```bash
+npm install -g @anthropic-ai/claude-code
+```
+`claude login` で認証を完了し、`claude --version` が動作することを確認してから CodePilot を起動してください。
+</details>
+
+<details>
+<summary>プロバイダーを設定したがモデルが表示されない</summary>
+
+API キーが有効でエンドポイントに到達可能であることを確認してください。一部のプロバイダー（Bedrock、Vertex）では、API キー以外に追加の環境変数や IAM 設定が必要です。
+</details>
+
+<details>
+<summary><code>npm run dev</code> と <code>npm run electron:dev</code> の違い</summary>
+
+`npm run dev` は Next.js 開発サーバーのみを起動し、ブラウザで `http://localhost:3000` を使用します。`npm run electron:dev` は Next.js と Electron シェルの両方を起動し、ネイティブウィンドウコントロールを含むフルデスクトップアプリを提供します。
+</details>
+
+<details>
+<summary>ワークスペースファイルの場所</summary>
+
+ワークスペース設定後、CodePilot は**ワークスペースルートディレクトリ**に 4 つの Markdown ファイルを作成: `soul.md`（パーソナリティ）、`user.md`（ユーザープロファイル）、`claude.md`（ルール）、`memory.md`（長期メモ）。状態管理（Onboarding 進捗、チェックイン日付）は `.assistant/` サブディレクトリに保存。デイリーメモリは `memory/daily/` に保存。
+</details>
+
+<details>
+<summary>Bridge にはプラットフォームごとの追加設定が必要</summary>
+
+各 Bridge チャンネル（Telegram、Feishu、Discord、QQ）には独自の Bot トークンまたはアプリ認証情報が必要です。サイドバーの **Bridge** ページでチャンネルを設定してください。
+</details>
 
 ---
 

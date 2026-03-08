@@ -25,7 +25,7 @@
 
 **Control from anywhere.** Bridge connects CodePilot to Telegram, Feishu, Discord, and QQ. Send a message from your phone, get the response on your desktop.
 
-**An assistant that knows your project.** The .assistant workspace stores persona files, onboarding flows, daily check-ins, and persistent memory. Claude adapts to your project's conventions over time.
+**An assistant that knows your project.** Set up a workspace directory with persona files (soul.md, user.md), rules (claude.md), and persistent memory (memory.md). Claude uses these to adapt to your project's conventions over time, with onboarding flows and daily check-ins.
 
 **Built for daily use.** Pause, resume, and rewind sessions to any checkpoint. Work in split-screen with two conversations side by side. Track token usage and costs. Import CLI session history. Switch between dark and light themes.
 
@@ -62,10 +62,10 @@ npm run electron:dev     # full desktop app
 ## First Launch
 
 1. **Authenticate Claude** -- Run `claude login` in your terminal if you haven't already.
-2. **Configure a Provider** -- Open Settings > Providers. Add an API key or use the CLI's default authentication.
+2. **Configure a Provider** -- If you only use Anthropic via CLI authentication or `ANTHROPIC_API_KEY`, Providers setup is optional. For OpenRouter, Bedrock, Vertex, or custom endpoints, go to **Settings > Providers** and add the credentials first.
 3. **Create a conversation** -- Pick a working directory, select a mode (Code / Plan / Ask), and choose a model.
-4. **Set up Assistant Workspace** (optional) -- Enable Onboarding, daily check-ins, and persona files under the .assistant directory.
-5. **Add MCP servers** (optional) -- Go to the Extensions page to connect external tools and services.
+4. **Set up Assistant Workspace** (optional) -- Go to **Settings > Assistant**, choose a workspace directory, and enable Onboarding. CodePilot creates `soul.md`, `user.md`, `claude.md`, and `memory.md` at the workspace root (state is tracked in the `.assistant/` subdirectory).
+5. **Add MCP servers** (optional) -- Go to the **MCP** page in the sidebar to add and manage MCP servers. Custom skills are managed on the separate **Skills** page.
 
 ---
 
@@ -99,7 +99,7 @@ npm run electron:dev     # full desktop app
 
 | Capability | Details |
 |---|---|
-| Assistant Workspace | .assistant directory, persona, onboarding, check-in, memory |
+| Assistant Workspace | Workspace root files (soul.md, user.md, claude.md, memory.md), .assistant/ state, onboarding, check-in |
 | File browser | Project file tree with syntax-highlighted preview |
 | Usage analytics | Token counts, cost estimates, daily usage charts |
 | Local storage | SQLite (WAL mode), all data stays on your machine |
@@ -118,10 +118,10 @@ npm run electron:dev     # full desktop app
 
 Download from the [Releases](https://github.com/op7418/CodePilot/releases) page.
 
-CodePilot is not code-signed yet, so your OS will show a security warning on first launch.
+macOS builds are code-signed with a Developer ID certificate but not notarized, so Gatekeeper may still prompt on first launch. Windows and Linux builds are unsigned.
 
 <details>
-<summary>macOS: "Apple cannot check it for malicious software"</summary>
+<summary>macOS: Gatekeeper warning on first launch</summary>
 
 **Option 1** -- Right-click `CodePilot.app` in Finder > Open > confirm.
 
@@ -145,9 +145,59 @@ xattr -cr /Applications/CodePilot.app
 
 ## Documentation
 
+**Getting started:**
+- [Quick Start](#quick-start) -- Download or build from source
+- [First Launch](#first-launch) -- Authentication, providers, workspace setup
+
+**User guides:**
+- [Providers](#) -- Configuring Anthropic, OpenRouter, Bedrock, Vertex, and custom endpoints
+- [MCP Servers](#) -- Adding and managing Model Context Protocol servers
+- [Bridge](#) -- Remote control via Telegram, Feishu, Discord, QQ
+- [Assistant Workspace](#) -- Persona files, onboarding, memory, daily check-ins
+- [FAQ](#faq) -- Common issues and solutions
+
+**Developer docs:**
 - [ARCHITECTURE.md](./ARCHITECTURE.md) -- Architecture, tech stack, directory structure, data flow
 - [docs/handover/](./docs/handover/) -- Design decisions and handover documents
 - [docs/exec-plans/](./docs/exec-plans/) -- Execution plans and tech debt tracker
+
+---
+
+## FAQ
+
+<details>
+<summary><code>claude</code> command not found</summary>
+
+Install the Claude Code CLI globally:
+```bash
+npm install -g @anthropic-ai/claude-code
+```
+Then authenticate with `claude login`. Make sure `claude --version` works before launching CodePilot.
+</details>
+
+<details>
+<summary>Configured a Provider but no models appear</summary>
+
+Verify the API key is valid and the endpoint is reachable. Some providers (Bedrock, Vertex) require additional environment variables or IAM configuration beyond the API key. Check the provider's documentation for required setup.
+</details>
+
+<details>
+<summary>What is the difference between <code>npm run dev</code> and <code>npm run electron:dev</code>?</summary>
+
+`npm run dev` starts only the Next.js dev server -- you use CodePilot in your browser at `http://localhost:3000`. `npm run electron:dev` starts both Next.js and the Electron shell, giving you the full desktop app experience with native window controls.
+</details>
+
+<details>
+<summary>Where are the Assistant Workspace files?</summary>
+
+When you set up a workspace, CodePilot creates four Markdown files at the **workspace root directory**: `soul.md` (personality), `user.md` (user profile), `claude.md` (rules), and `memory.md` (long-term notes). State tracking (onboarding progress, check-in dates) is stored in the `.assistant/` subdirectory. Daily memories go to `memory/daily/`.
+</details>
+
+<details>
+<summary>Bridge requires additional setup per platform</summary>
+
+Each Bridge channel (Telegram, Feishu, Discord, QQ) requires its own bot token or app credentials. Go to the **Bridge** page in the sidebar to configure channels. You will need to create a bot on the target platform first and provide the token to CodePilot.
+</details>
 
 ---
 

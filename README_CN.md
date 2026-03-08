@@ -25,7 +25,7 @@
 
 **随时随地控制。** Bridge 连接 CodePilot 到 Telegram、飞书、Discord 和 QQ。在手机上发消息，在桌面上收回复。
 
-**了解你项目的助手。** .assistant 工作区存储人设文件、Onboarding 流程、每日签到和持久记忆。Claude 会随时间适应你的项目惯例。
+**了解你项目的助手。** 设置一个工作区目录，放入人设文件（soul.md、user.md）、规则（claude.md）和持久记忆（memory.md）。Claude 利用这些文件随时间适应你的项目惯例，支持 Onboarding 流程和每日签到。
 
 **为日常使用而建。** 暂停、恢复和回退会话到任意检查点。分屏并排运行两个对话。追踪 Token 用量和费用。导入 CLI 会话历史。深浅主题一键切换。
 
@@ -62,10 +62,10 @@ npm run electron:dev     # 完整桌面应用
 ## 首次使用
 
 1. **认证 Claude** -- 如果还没有，先在终端运行 `claude login`。
-2. **配置 Provider** -- 打开 设置 > Providers，添加 API Key 或使用 CLI 默认认证。
+2. **配置 Provider** -- 如果只使用 Anthropic（通过 CLI 认证或 `ANTHROPIC_API_KEY`），Provider 配置可跳过。使用 OpenRouter、Bedrock、Vertex 或自定义端点时，需要先在 **设置 > Providers** 中添加凭证。
 3. **创建对话** -- 选择工作目录、交互模式（Code / Plan / Ask）和模型。
-4. **设置 Assistant Workspace**（可选）-- 在 .assistant 目录下开启 Onboarding、每日签到和人设文件。
-5. **添加 MCP 服务器**（可选）-- 前往扩展页面连接外部工具和服务。
+4. **设置 Assistant Workspace**（可选）-- 前往 **设置 > Assistant**，选择工作区目录并开启 Onboarding。CodePilot 会在工作区根目录创建 `soul.md`、`user.md`、`claude.md` 和 `memory.md`（状态跟踪保存在 `.assistant/` 子目录中）。
+5. **添加 MCP 服务器**（可选）-- 在侧边栏的 **MCP** 页面添加和管理 MCP 服务器。自定义技能在单独的 **Skills** 页面管理。
 
 ---
 
@@ -99,7 +99,7 @@ npm run electron:dev     # 完整桌面应用
 
 | 能力 | 说明 |
 |---|---|
-| Assistant Workspace | .assistant 目录、人设、Onboarding、签到、记忆 |
+| Assistant Workspace | 工作区根目录文件（soul.md、user.md、claude.md、memory.md），.assistant/ 状态，Onboarding，签到 |
 | 文件浏览 | 项目文件树、语法高亮预览 |
 | 用量分析 | Token 计数、费用估算、日用量图表 |
 | 本地存储 | SQLite（WAL 模式），数据全部在本地 |
@@ -118,10 +118,10 @@ npm run electron:dev     # 完整桌面应用
 
 从 [Releases](https://github.com/op7418/CodePilot/releases) 页面下载。
 
-CodePilot 尚未进行代码签名，首次启动时操作系统会显示安全警告。
+macOS 构建已使用 Developer ID 证书签名，但未进行公证（notarize），因此 Gatekeeper 在首次启动时仍可能弹出提示。Windows 和 Linux 构建未签名。
 
 <details>
-<summary>macOS："无法验证开发者" / "Apple 无法检查其是否包含恶意软件"</summary>
+<summary>macOS：Gatekeeper 首次启动提示</summary>
 
 **方案一** -- 在访达中右键 `CodePilot.app` > 打开 > 确认。
 
@@ -145,9 +145,59 @@ xattr -cr /Applications/CodePilot.app
 
 ## 文档
 
+**入门指南：**
+- [快速开始](#快速开始) -- 下载或源码构建
+- [首次使用](#首次使用) -- 认证、Provider 配置、工作区设置
+
+**用户指南：**
+- [Providers](#) -- 配置 Anthropic、OpenRouter、Bedrock、Vertex 和自定义端点
+- [MCP 服务器](#) -- 添加和管理 Model Context Protocol 服务器
+- [Bridge](#) -- 通过 Telegram、飞书、Discord、QQ 远程控制
+- [Assistant Workspace](#) -- 人设文件、Onboarding、记忆、每日签到
+- [常见问题](#常见问题) -- 常见问题和解决方案
+
+**开发文档：**
 - [ARCHITECTURE.md](./ARCHITECTURE.md) -- 架构、技术栈、目录结构、数据流
 - [docs/handover/](./docs/handover/) -- 设计决策、交接文档
 - [docs/exec-plans/](./docs/exec-plans/) -- 执行计划、技术债务
+
+---
+
+## 常见问题
+
+<details>
+<summary><code>claude</code> 命令找不到</summary>
+
+全局安装 Claude Code CLI：
+```bash
+npm install -g @anthropic-ai/claude-code
+```
+然后运行 `claude login` 完成认证。确保 `claude --version` 能正常运行后再启动 CodePilot。
+</details>
+
+<details>
+<summary>配置了 Provider 但没有模型出现</summary>
+
+确认 API Key 有效且端点可访问。部分 Provider（Bedrock、Vertex）除 API Key 外还需要额外的环境变量或 IAM 配置。请查阅对应 Provider 的文档了解所需配置。
+</details>
+
+<details>
+<summary><code>npm run dev</code> 和 <code>npm run electron:dev</code> 的区别</summary>
+
+`npm run dev` 只启动 Next.js 开发服务器，在浏览器中访问 `http://localhost:3000` 使用 CodePilot。`npm run electron:dev` 同时启动 Next.js 和 Electron 外壳，提供完整的桌面应用体验，包含原生窗口控件。
+</details>
+
+<details>
+<summary>Workspace 文件到底在哪</summary>
+
+设置工作区后，CodePilot 在**工作区根目录**创建四个 Markdown 文件：`soul.md`（人设）、`user.md`（用户档案）、`claude.md`（规则）、`memory.md`（长期笔记）。状态跟踪（Onboarding 进度、签到日期）保存在 `.assistant/` 子目录中。每日记忆保存在 `memory/daily/` 中。
+</details>
+
+<details>
+<summary>Bridge 需要额外的平台配置</summary>
+
+每个 Bridge 通道（Telegram、飞书、Discord、QQ）都需要各自的 Bot Token 或应用凭证。在侧边栏的 **Bridge** 页面配置通道。你需要先在目标平台创建 Bot 并获取 Token，然后提供给 CodePilot。
+</details>
 
 ---
 
