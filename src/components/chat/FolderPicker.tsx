@@ -178,7 +178,7 @@ export function FolderPicker({ open, onOpenChange, onSelect, initialPath }: Fold
                     className="flex w-full items-center gap-2 rounded-md px-3 py-1.5 text-sm hover:bg-accent transition-colors text-left"
                     onClick={() => handleNavigate(dir.path)}
                   >
-                    <HugeiconsIcon icon={Folder01Icon} className="h-4 w-4 shrink-0 text-blue-500" />
+                    <HugeiconsIcon icon={Folder01Icon} className="h-4 w-4 shrink-0 text-primary" />
                     <span className="truncate">{dir.name}</span>
                     <HugeiconsIcon icon={ArrowRight01Icon} className="ml-auto h-3 w-3 shrink-0 text-muted-foreground" />
                   </button>

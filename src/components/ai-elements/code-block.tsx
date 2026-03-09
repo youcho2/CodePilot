@@ -18,6 +18,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
+import { useThemeFamily } from "@/lib/theme/context";
+import { resolveShikiTheme, resolveShikiThemes, SHIKI_DEFAULT_LIGHT, SHIKI_DEFAULT_DARK } from "@/lib/theme/code-themes";
 import { CheckIcon, CopyIcon } from "lucide-react";
 import {
   createContext,
@@ -121,7 +123,7 @@ const CodeBlockContext = createContext<CodeBlockContextType>({
   code: "",
 });
 
-// Highlighter cache (singleton per language)
+// Highlighter cache keyed by "lang:lightTheme:darkTheme"
 const highlighterCache = new Map<
   string,
   Promise<HighlighterGeneric<BundledLanguage, BundledTheme>>
@@ -133,36 +135,45 @@ const tokensCache = new Map<string, TokenizedCode>();
 // Subscribers for async token updates
 const subscribers = new Map<string, Set<(result: TokenizedCode) => void>>();
 
-const getTokensCacheKey = (code: string, language: BundledLanguage) => {
+const getTokensCacheKey = (code: string, language: BundledLanguage, lightTheme: BundledTheme, darkTheme: BundledTheme) => {
   const start = code.slice(0, 100);
   const end = code.length > 100 ? code.slice(-100) : "";
-  return `${language}:${code.length}:${start}:${end}`;
+  return `${language}:${lightTheme}:${darkTheme}:${code.length}:${start}:${end}`;
 };
 
 const isBundledLanguage = (lang: string): lang is BundledLanguage =>
   lang in bundledLanguages || lang === "text" || lang === "plaintext";
 
 const getHighlighter = (
-  language: BundledLanguage
+  language: BundledLanguage,
+  lightTheme: BundledTheme = SHIKI_DEFAULT_LIGHT,
+  darkTheme: BundledTheme = SHIKI_DEFAULT_DARK,
 ): Promise<HighlighterGeneric<BundledLanguage, BundledTheme>> => {
   // Normalize unknown languages to "text" before hitting Shiki
   const safeLang = isBundledLanguage(language) ? language : ("text" as BundledLanguage);
+  const cacheKey = `${safeLang}:${lightTheme}:${darkTheme}`;
 
-  const cached = highlighterCache.get(safeLang);
+  const cached = highlighterCache.get(cacheKey);
   if (cached) {
     return cached;
   }
 
   const highlighterPromise = createHighlighter({
     langs: [safeLang],
-    themes: ["github-light", "github-dark"],
+    themes: [lightTheme, darkTheme],
   }).catch(() => {
-    // Language not supported by Shiki — fall back to plain text
-    highlighterCache.delete(safeLang);
-    return getHighlighter("text" as BundledLanguage);
+    // Language or theme not supported — fall back to plain text + default themes.
+    // Using default themes avoids infinite retry if the *theme* was the problem.
+    highlighterCache.delete(cacheKey);
+    const useFallbackThemes =
+      lightTheme !== SHIKI_DEFAULT_LIGHT || darkTheme !== SHIKI_DEFAULT_DARK;
+    if (useFallbackThemes) {
+      return getHighlighter("text" as BundledLanguage, SHIKI_DEFAULT_LIGHT, SHIKI_DEFAULT_DARK);
+    }
+    return getHighlighter("text" as BundledLanguage, lightTheme, darkTheme);
   });
 
-  highlighterCache.set(safeLang, highlighterPromise);
+  highlighterCache.set(cacheKey, highlighterPromise);
   return highlighterPromise;
 };
 
@@ -187,9 +198,11 @@ export const highlightCode = (
   code: string,
   language: BundledLanguage,
   // oxlint-disable-next-line eslint-plugin-promise(prefer-await-to-callbacks)
-  callback?: (result: TokenizedCode) => void
+  callback?: (result: TokenizedCode) => void,
+  lightTheme: BundledTheme = SHIKI_DEFAULT_LIGHT,
+  darkTheme: BundledTheme = SHIKI_DEFAULT_DARK,
 ): TokenizedCode | null => {
-  const tokensCacheKey = getTokensCacheKey(code, language);
+  const tokensCacheKey = getTokensCacheKey(code, language, lightTheme, darkTheme);
 
   // Return cached result if available
   const cached = tokensCache.get(tokensCacheKey);
@@ -206,7 +219,7 @@ export const highlightCode = (
   }
 
   // Start highlighting in background - fire-and-forget async pattern
-  getHighlighter(language)
+  getHighlighter(language, lightTheme, darkTheme)
     // oxlint-disable-next-line eslint-plugin-promise(prefer-await-to-then)
     .then((highlighter) => {
       const availableLangs = highlighter.getLoadedLanguages();
@@ -215,8 +228,8 @@ export const highlightCode = (
       const result = highlighter.codeToTokens(code, {
         lang: langToUse,
         themes: {
-          dark: "github-dark",
-          light: "github-light",
+          dark: darkTheme,
+          light: lightTheme,
         },
       });
 
@@ -387,6 +400,13 @@ export const CodeBlockActions = ({
   </div>
 );
 
+/** Resolve Shiki theme pair from the current theme family. */
+function useShikiThemes(): { light: BundledTheme; dark: BundledTheme } {
+  const { family, families } = useThemeFamily();
+  const shikiTheme = resolveShikiTheme(families, family);
+  return resolveShikiThemes(shikiTheme);
+}
+
 export const CodeBlockContent = ({
   code,
   language,
@@ -396,18 +416,20 @@ export const CodeBlockContent = ({
   language: BundledLanguage;
   showLineNumbers?: boolean;
 }) => {
+  const { light: lightTheme, dark: darkTheme } = useShikiThemes();
+
   // Memoized raw tokens for immediate display
   const rawTokens = useMemo(() => createRawTokens(code), [code]);
 
   // Try to get cached result synchronously, otherwise use raw tokens
   const syncTokenized = useMemo(
-    () => highlightCode(code, language) ?? rawTokens,
-    [code, language, rawTokens]
+    () => highlightCode(code, language, undefined, lightTheme, darkTheme) ?? rawTokens,
+    [code, language, rawTokens, lightTheme, darkTheme]
   );
 
-  // Track async highlighting results keyed by code+language to avoid stale state
+  // Track async highlighting results keyed by code+language+themes to avoid stale state
   const [asyncResult, setAsyncResult] = useState<{ key: string; tokens: TokenizedCode } | null>(null);
-  const resultKey = `${code}:${language}`;
+  const resultKey = `${code}:${language}:${lightTheme}:${darkTheme}`;
 
   useEffect(() => {
     let cancelled = false;
@@ -415,16 +437,16 @@ export const CodeBlockContent = ({
     // Subscribe to async highlighting result
     highlightCode(code, language, (result) => {
       if (!cancelled) {
-        setAsyncResult({ key: `${code}:${language}`, tokens: result });
+        setAsyncResult({ key: `${code}:${language}:${lightTheme}:${darkTheme}`, tokens: result });
       }
-    });
+    }, lightTheme, darkTheme);
 
     return () => {
       cancelled = true;
     };
-  }, [code, language]);
+  }, [code, language, lightTheme, darkTheme]);
 
-  // Only use async result if it matches the current code+language
+  // Only use async result if it matches the current code+language+themes
   const tokenized = (asyncResult && asyncResult.key === resultKey) ? asyncResult.tokens : syncTokenized;
 
   return (

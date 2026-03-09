@@ -100,8 +100,8 @@ function StatusIndicator({ status }: { status: ToolStatus }) {
     case 'running':
       return (
         <span className="relative flex h-3.5 w-3.5 items-center justify-center">
-          <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-blue-400 opacity-30" />
-          <HugeiconsIcon icon={Loading02Icon} className="relative h-3.5 w-3.5 animate-spin text-blue-500" />
+          <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-primary opacity-30" />
+          <HugeiconsIcon icon={Loading02Icon} className="relative h-3.5 w-3.5 animate-spin text-primary" />
         </span>
       );
     case 'success':
@@ -282,13 +282,13 @@ export function ToolCallBlock({
   };
 
   const statusBorderColor = {
-    running: 'border-blue-500/70',
+    running: 'border-primary/70',
     success: 'border-green-500/50',
     error: 'border-red-500/60',
   }[status];
 
   const statusBgColor = {
-    running: 'bg-blue-500/[0.03] dark:bg-blue-500/[0.05]',
+    running: 'bg-primary/[0.03] dark:bg-primary/[0.05]',
     success: 'bg-transparent',
     error: 'bg-red-500/[0.03] dark:bg-red-500/[0.05]',
   }[status];
@@ -309,11 +309,11 @@ export function ToolCallBlock({
         )}
         <HugeiconsIcon icon={toolIconData} className={cn(
           "h-3.5 w-3.5 shrink-0",
-          category === 'read' && "text-blue-500",
+          category === 'read' && "text-primary",
           category === 'write' && "text-amber-500",
           category === 'bash' && "text-green-500",
-          category === 'search' && "text-indigo-500",
-          category === 'other' && "text-zinc-500",
+          category === 'search' && "text-primary",
+          category === 'other' && "text-muted-foreground",
         )} />
         <span className="font-mono text-xs truncate flex-1 text-foreground/80">{summary}</span>
         <div className="flex items-center gap-2 shrink-0 ml-2">

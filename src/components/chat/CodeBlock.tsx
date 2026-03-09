@@ -2,7 +2,10 @@
 
 import { useState, useMemo, useRef } from 'react';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
-import { oneDark, vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
+import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
+import { useThemeFamily } from '@/lib/theme/context';
+import { resolveCodeTheme, resolvePrismStyle } from '@/lib/theme/code-themes';
+import { useTheme } from 'next-themes';
 import { HugeiconsIcon } from "@hugeicons/react";
 import type { IconSvgElement } from "@hugeicons/react";
 import {
@@ -41,6 +44,14 @@ interface CodeBlockProps {
   maxCollapsedLines?: number;
 }
 
+/** Resolve the Prism syntax highlighting style for CodeBlock. */
+function useCodeBlockTheme(isTerminal: boolean, isDark: boolean) {
+  const { family, families } = useThemeFamily();
+  if (isTerminal) return vscDarkPlus;
+  const codeTheme = resolveCodeTheme(families, family);
+  return resolvePrismStyle(codeTheme, isDark);
+}
+
 export function CodeBlock({
   code,
   language = 'text',
@@ -53,6 +64,8 @@ export function CodeBlock({
   const [expanded, setExpanded] = useState(false);
   const codeContainerRef = useRef<HTMLDivElement>(null);
   const [animatingHeight, setAnimatingHeight] = useState<string | undefined>(undefined);
+  const { resolvedTheme } = useTheme();
+  const isDark = resolvedTheme === 'dark';
 
   const lines = useMemo(() => code.split('\n'), [code]);
   const totalLines = lines.length;
@@ -93,17 +106,14 @@ export function CodeBlock({
     }
     const currentHeight = container.scrollHeight;
     if (!expanded) {
-      // Expanding: set current height, then switch to auto after transition
       setAnimatingHeight(`${currentHeight}px`);
       setExpanded(true);
       requestAnimationFrame(() => {
-        // Measure the full height after content change
         const fullHeight = container.scrollHeight;
         setAnimatingHeight(`${fullHeight}px`);
         setTimeout(() => setAnimatingHeight(undefined), 300);
       });
     } else {
-      // Collapsing: set current height, then reduce
       setAnimatingHeight(`${currentHeight}px`);
       requestAnimationFrame(() => {
         const collapsedH = maxCollapsedLines * 1.5 + 1.5;
@@ -118,35 +128,50 @@ export function CodeBlock({
 
   const languageIconData = getLanguageIcon(language);
 
-  const theme = isTerminal ? vscDarkPlus : oneDark;
+  const theme = useCodeBlockTheme(isTerminal, isDark);
 
   return (
-    <div className="relative group not-prose my-3 rounded-lg overflow-hidden border border-zinc-700/50">
+    <div className={cn(
+      "relative group not-prose my-3 rounded-lg overflow-hidden",
+      isTerminal
+        ? "border border-zinc-700/50"
+        : "border border-border"
+    )}>
       {/* Header bar */}
       <div className={cn(
         "flex items-center justify-between px-4 py-1.5 text-xs",
         isTerminal
           ? "bg-zinc-950 text-zinc-400"
-          : "bg-zinc-800 dark:bg-zinc-900 text-zinc-400"
+          : "bg-muted text-muted-foreground"
       )}>
         <div className="flex items-center gap-2 min-w-0">
           <HugeiconsIcon icon={languageIconData} className={cn(
             "h-3.5 w-3.5 shrink-0",
-            isTerminal ? "text-green-400" : "text-zinc-400",
+            isTerminal ? "text-green-400" : "text-muted-foreground",
           )} />
           {filename && (
-            <span className="truncate text-zinc-300 font-medium">{filename}</span>
+            <span className={cn(
+              "truncate font-medium",
+              isTerminal ? "text-zinc-300" : "text-foreground"
+            )}>{filename}</span>
           )}
-          {filename && <span className="text-zinc-600">|</span>}
+          {filename && <span className="text-muted-foreground/50">|</span>}
           <span className={cn(
-            "bg-zinc-700/50 rounded px-1.5 py-0.5",
-            isTerminal && "text-green-400",
+            "rounded px-1.5 py-0.5",
+            isTerminal
+              ? "bg-zinc-700/50 text-green-400"
+              : "bg-accent text-accent-foreground"
           )}>{language.toUpperCase()}</span>
         </div>
         <div className="flex items-center gap-1 ml-2 shrink-0">
           <button
             onClick={handleCopy}
-            className="flex items-center gap-1 rounded px-1.5 py-0.5 text-zinc-400 hover:text-zinc-200 hover:bg-zinc-700/50 transition-colors"
+            className={cn(
+              "flex items-center gap-1 rounded px-1.5 py-0.5 transition-colors",
+              isTerminal
+                ? "text-zinc-400 hover:text-zinc-200 hover:bg-zinc-700/50"
+                : "text-muted-foreground hover:text-foreground hover:bg-accent"
+            )}
             title="Copy code"
           >
             {copied ? (
@@ -163,7 +188,12 @@ export function CodeBlock({
           </button>
           <button
             onClick={handleCopyMarkdown}
-            className="flex items-center gap-1 rounded px-1.5 py-0.5 text-zinc-400 hover:text-zinc-200 hover:bg-zinc-700/50 transition-colors"
+            className={cn(
+              "flex items-center gap-1 rounded px-1.5 py-0.5 transition-colors",
+              isTerminal
+                ? "text-zinc-400 hover:text-zinc-200 hover:bg-zinc-700/50"
+                : "text-muted-foreground hover:text-foreground hover:bg-accent"
+            )}
             title="Copy as Markdown"
           >
             {copiedMarkdown ? (
@@ -197,7 +227,8 @@ export function CodeBlock({
           lineNumberStyle={{
             minWidth: '2.5em',
             paddingRight: '1em',
-            color: '#3a3a48',
+            color: 'var(--muted-foreground)',
+            opacity: 0.4,
             userSelect: 'none',
           }}
           customStyle={{
@@ -220,7 +251,7 @@ export function CodeBlock({
             "absolute bottom-0 left-0 right-0 h-16 pointer-events-none",
             isTerminal
               ? "bg-gradient-to-t from-[#0a0a0a] to-transparent"
-              : "bg-gradient-to-t from-[#282c34] to-transparent"
+              : "bg-gradient-to-t from-muted to-transparent"
           )} />
         )}
       </div>
@@ -233,7 +264,7 @@ export function CodeBlock({
             "flex w-full items-center justify-center gap-1.5 py-1.5 text-xs transition-colors",
             isTerminal
               ? "bg-zinc-950 text-zinc-400 hover:text-zinc-200"
-              : "bg-zinc-800 dark:bg-zinc-900 text-zinc-400 hover:text-zinc-200"
+              : "bg-muted text-muted-foreground hover:text-foreground"
           )}
         >
           {expanded ? (

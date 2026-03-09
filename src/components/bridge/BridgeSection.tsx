@@ -257,7 +257,7 @@ export function BridgeSection() {
       <div
         className={`rounded-lg border p-4 transition-shadow hover:shadow-sm ${
           isEnabled
-            ? "border-blue-500/50 bg-blue-500/5"
+            ? "border-primary/50 bg-primary/5"
             : "border-border/50"
         }`}
       >
@@ -275,8 +275,8 @@ export function BridgeSection() {
           />
         </div>
         {isEnabled && (
-          <div className="mt-3 flex items-center gap-2 rounded-md bg-blue-500/10 px-3 py-2 text-xs text-blue-600 dark:text-blue-400">
-            <span className="h-2 w-2 shrink-0 rounded-full bg-blue-500" />
+          <div className="mt-3 flex items-center gap-2 rounded-md bg-primary/10 px-3 py-2 text-xs text-primary">
+            <span className="h-2 w-2 shrink-0 rounded-full bg-primary" />
             {t("bridge.activeHint")}
           </div>
         )}

@@ -70,7 +70,7 @@ function StepIcon({ status }: { status: string }) {
     case "success":
       return <HugeiconsIcon icon={Tick01Icon} className="size-4 text-emerald-500" />;
     case "running":
-      return <HugeiconsIcon icon={Loading02Icon} className="size-4 text-blue-500 animate-spin" />;
+      return <HugeiconsIcon icon={Loading02Icon} className="size-4 text-primary animate-spin" />;
     case "failed":
       return <HugeiconsIcon icon={Cancel01Icon} className="size-4 text-red-500" />;
     case "skipped":
@@ -223,11 +223,11 @@ export function InstallWizard({
   useEffect(() => {
     if (open) {
       setPhase("checking"); // eslint-disable-line react-hooks/set-state-in-effect -- reset state before async check
-      setLogs([]); // eslint-disable-line react-hooks/set-state-in-effect
-      setProgress(null); // eslint-disable-line react-hooks/set-state-in-effect
-      setCopied(false); // eslint-disable-line react-hooks/set-state-in-effect
-      setCopiedBrew(false); // eslint-disable-line react-hooks/set-state-in-effect
-      setPrereqs(null); // eslint-disable-line react-hooks/set-state-in-effect
+      setLogs([]);  
+      setProgress(null);  
+      setCopied(false);  
+      setCopiedBrew(false);  
+      setPrereqs(null);  
       checkPrereqs();
     }
     return () => {

@@ -82,6 +82,17 @@ const zh: Record<TranslationKey, string> = {
   'settings.languageDesc': '选择界面显示语言',
   'settings.usage': '用量统计',
 
+  // ── Settings: Appearance ──────────────────────────────────────
+  'settings.appearance': '外观',
+  'settings.appearanceDesc': '自定义 CodePilot 的外观和风格',
+  'settings.themeMode': '主题模式',
+  'settings.themeModeDesc': '选择浅色、深色或跟随系统',
+  'settings.themeFamily': '颜色主题',
+  'settings.themeFamilyDesc': '为界面选择一套配色方案',
+  'settings.modeLight': '浅色',
+  'settings.modeDark': '深色',
+  'settings.modeSystem': '跟随系统',
+
   // ── Settings: Usage Stats ───────────────────────────────────
   'usage.totalTokens': '总 Token',
   'usage.totalCost': '总费用',

@@ -13,7 +13,7 @@ export function BatchExecutionItem({ item }: BatchExecutionItemProps) {
 
   const statusColor = {
     pending: 'text-muted-foreground',
-    processing: 'text-blue-500',
+    processing: 'text-primary',
     completed: 'text-green-500',
     failed: 'text-red-500',
     cancelled: 'text-muted-foreground',
@@ -37,7 +37,7 @@ export function BatchExecutionItem({ item }: BatchExecutionItemProps) {
       {/* Status indicator */}
       <div className="shrink-0">
         {item.status === 'processing' ? (
-          <div className="w-4 h-4 rounded-full border-2 border-blue-500 border-t-transparent animate-spin" />
+          <div className="w-4 h-4 rounded-full border-2 border-primary border-t-transparent animate-spin" />
         ) : item.status === 'completed' ? (
           <div className="w-4 h-4 rounded-full bg-green-500/20 flex items-center justify-center">
             <svg className="w-2.5 h-2.5 text-green-500" viewBox="0 0 12 12" fill="none">

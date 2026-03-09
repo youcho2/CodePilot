@@ -36,6 +36,9 @@ extraResources:
   - from: public/
     to: standalone/public/
     filter: ["**/*"]
+  - from: themes/
+    to: standalone/themes/
+    filter: ["*.json"]
   - from: build/
     to: .
     filter: ["icon.*"]

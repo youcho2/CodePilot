@@ -53,7 +53,7 @@ export function UpdateDialog() {
                 ol: ({ children }) => <ol className="mb-2 list-decimal pl-4 text-sm">{children}</ol>,
                 li: ({ children }) => <li className="mb-0.5">{children}</li>,
                 a: ({ href, children }) => (
-                  <a href={href} target="_blank" rel="noopener noreferrer" className="text-blue-500 underline">
+                  <a href={href} target="_blank" rel="noopener noreferrer" className="text-primary underline">
                     {children}
                   </a>
                 ),
@@ -88,7 +88,7 @@ export function UpdateDialog() {
           <div className="space-y-1">
             <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
               <div
-                className="h-full rounded-full bg-blue-500 transition-all"
+                className="h-full rounded-full bg-primary transition-all"
                 style={{ width: `${Math.min(downloadProgress!, 100)}%` }}
               />
             </div>

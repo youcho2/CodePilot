@@ -27,7 +27,7 @@ export function ImageGenToggle() {
           className={cn(
             'inline-flex items-center justify-center rounded-full px-2.5 h-7 text-xs font-medium border transition-all',
             state.enabled
-              ? 'bg-blue-500/15 text-blue-600 dark:text-blue-400 border-blue-500/30'
+              ? 'bg-primary/15 text-primary border-primary/30'
               : 'text-muted-foreground border-border/60 hover:text-foreground hover:border-foreground/30 hover:bg-accent/50'
           )}
         >

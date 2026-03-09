@@ -134,7 +134,7 @@ export function CreateSkillDialog({
                 className={cn(
                   "flex-1 flex items-center gap-2 rounded-md border px-3 py-2 text-sm transition-colors",
                   scope === "project"
-                    ? "border-blue-500/50 bg-blue-500/10 text-blue-600 dark:text-blue-400"
+                    ? "border-primary/50 bg-primary/10 text-primary"
                     : "border-border hover:bg-accent"
                 )}
               >

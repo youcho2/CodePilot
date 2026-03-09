@@ -85,6 +85,17 @@ const en = {
   'settings.languageDesc': 'Choose the display language for the interface',
   'settings.usage': 'Usage',
 
+  // ── Settings: Appearance ──────────────────────────────────────
+  'settings.appearance': 'Appearance',
+  'settings.appearanceDesc': 'Customize the look and feel of CodePilot',
+  'settings.themeMode': 'Theme Mode',
+  'settings.themeModeDesc': 'Choose between light, dark, or system preference',
+  'settings.themeFamily': 'Color Theme',
+  'settings.themeFamilyDesc': 'Select a color palette for the interface',
+  'settings.modeLight': 'Light',
+  'settings.modeDark': 'Dark',
+  'settings.modeSystem': 'System',
+
   // ── Settings: Usage Stats ───────────────────────────────────
   'usage.totalTokens': 'Total Tokens',
   'usage.totalCost': 'Total Cost',

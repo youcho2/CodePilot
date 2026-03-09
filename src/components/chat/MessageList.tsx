@@ -106,7 +106,7 @@ function RewindButton({ sessionId, userMessageId }: { sessionId: string; userMes
         </span>
         <button
           onClick={handleRewind}
-          className="text-[10px] text-blue-600 dark:text-blue-400 hover:underline"
+          className="text-[10px] text-primary hover:underline"
         >
           {t('messageList.rewindConfirm' as TranslationKey)}
         </button>

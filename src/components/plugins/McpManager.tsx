@@ -277,7 +277,7 @@ export function McpManager() {
                   <span className={`h-2 w-2 rounded-full shrink-0 ${
                     s.status === 'connected' ? 'bg-green-500' :
                     s.status === 'failed' ? 'bg-red-500' :
-                    s.status === 'pending' ? 'bg-blue-500' :
+                    s.status === 'pending' ? 'bg-primary' :
                     s.status === 'disabled' ? 'bg-gray-400' :
                     'bg-yellow-500'
                   }`} />

@@ -11,7 +11,7 @@ export function UpdateBanner() {
   if (!updateInfo?.isNativeUpdate || !updateInfo.readyToInstall) return null;
 
   return (
-    <div className="flex items-center justify-center gap-3 border-b border-blue-500/20 bg-blue-500/10 px-4 py-1.5 text-sm">
+    <div className="flex items-center justify-center gap-3 border-b border-primary/20 bg-primary/10 px-4 py-1.5 text-sm">
       <span>{t('update.readyToInstall', { version: updateInfo.latestVersion })}</span>
       <Button size="sm" variant="outline" className="h-6 text-xs" onClick={quitAndInstall}>
         {t('update.restartNow')}

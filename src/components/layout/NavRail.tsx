@@ -2,8 +2,6 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useTheme } from "next-themes";
-import { useCallback, useSyncExternalStore } from "react";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
   Message02Icon,
@@ -12,8 +10,6 @@ import {
   Image01Icon,
   Settings02Icon,
   Wifi01Icon,
-  Moon02Icon,
-  Sun02Icon,
 } from "@hugeicons/core-free-icons";
 import { Button } from "@/components/ui/button";
 import {
@@ -40,13 +36,11 @@ const navItems = [
   { href: "/mcp", label: "MCP", icon: Plug01Icon },
   { href: "/gallery", label: "Gallery", icon: Image01Icon },
   { href: "/bridge", label: "Bridge", icon: Wifi01Icon },
-  { href: "/settings", label: "Settings", icon: Settings02Icon },
 ] as const;
 
 export function NavRail({ onToggleChatList, hasUpdate, readyToInstall, skipPermissionsActive }: NavRailProps) {
   const pathname = usePathname();
   const router = useRouter();
-  const { theme, setTheme } = useTheme();
   const { t } = useTranslation();
   const navLabelKeys: Record<string, TranslationKey> = {
     'Chats': 'nav.chats',
@@ -54,11 +48,9 @@ export function NavRail({ onToggleChatList, hasUpdate, readyToInstall, skipPermi
     'MCP': 'extensions.mcpServers',
     'Gallery': 'gallery.title',
     'Bridge': 'nav.bridge',
-    'Settings': 'nav.settings',
   };
-  const emptySubscribe = useCallback(() => () => {}, []);
-  const mounted = useSyncExternalStore(emptySubscribe, () => true, () => false);
   const isChatRoute = pathname === "/chat" || pathname.startsWith("/chat/");
+  const isSettingsActive = pathname === "/settings" || pathname.startsWith("/settings/");
 
   return (
     <aside className="flex w-14 shrink-0 flex-col items-center bg-sidebar pb-3 pt-10">
@@ -110,12 +102,6 @@ export function NavRail({ onToggleChatList, hasUpdate, readyToInstall, skipPermi
                         <span className="sr-only">{t(navLabelKeys[item.label] ?? item.label as TranslationKey)}</span>
                       </Link>
                     </Button>
-                    {item.href === "/settings" && hasUpdate && (
-                      <span className={cn(
-                        "absolute top-0.5 right-0.5 h-2 w-2 rounded-full",
-                        readyToInstall ? "bg-green-500 animate-pulse" : "bg-blue-500"
-                      )} />
-                    )}
                   </div>
                 )}
               </TooltipTrigger>
@@ -125,7 +111,7 @@ export function NavRail({ onToggleChatList, hasUpdate, readyToInstall, skipPermi
         })}
       </nav>
 
-      {/* Bottom: skip-permissions indicator + theme toggle */}
+      {/* Bottom: skip-permissions indicator + settings */}
       <div className="mt-auto flex flex-col items-center gap-2">
         {skipPermissionsActive && (
           <Tooltip>
@@ -140,28 +126,33 @@ export function NavRail({ onToggleChatList, hasUpdate, readyToInstall, skipPermi
             <TooltipContent side="right">{t('nav.autoApproveOn')}</TooltipContent>
           </Tooltip>
         )}
-        {mounted && (
-          <Tooltip>
-            <TooltipTrigger asChild>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <div className="relative">
               <Button
+                asChild
                 variant="ghost"
                 size="icon"
-                onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
-                className="h-8 w-8"
-              >
-                {theme === "dark" ? (
-                  <HugeiconsIcon icon={Sun02Icon} className="h-4 w-4" />
-                ) : (
-                  <HugeiconsIcon icon={Moon02Icon} className="h-4 w-4" />
+                className={cn(
+                  "h-9 w-9",
+                  isSettingsActive && "bg-sidebar-accent text-sidebar-accent-foreground"
                 )}
-                <span className="sr-only">{t('nav.toggleTheme')}</span>
+              >
+                <Link href="/settings">
+                  <HugeiconsIcon icon={Settings02Icon} className="h-4 w-4" />
+                  <span className="sr-only">{t('nav.settings')}</span>
+                </Link>
               </Button>
-            </TooltipTrigger>
-            <TooltipContent side="right">
-              {theme === "dark" ? t('nav.lightMode') : t('nav.darkMode')}
-            </TooltipContent>
-          </Tooltip>
-        )}
+              {hasUpdate && (
+                <span className={cn(
+                  "absolute top-0.5 right-0.5 h-2 w-2 rounded-full",
+                  readyToInstall ? "bg-green-500 animate-pulse" : "bg-primary"
+                )} />
+              )}
+            </div>
+          </TooltipTrigger>
+          <TooltipContent side="right">{t('nav.settings')}</TooltipContent>
+        </Tooltip>
       </div>
     </aside>
   );

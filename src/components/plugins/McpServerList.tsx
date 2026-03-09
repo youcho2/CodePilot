@@ -28,7 +28,7 @@ function getServerTypeInfo(server: MCPServer) {
   const type = server.type || 'stdio';
   switch (type) {
     case 'sse':
-      return { label: 'SSE', icon: Wifi01Icon, color: 'text-blue-500' };
+      return { label: 'SSE', icon: Wifi01Icon, color: 'text-primary' };
     case 'http':
       return { label: 'HTTP', icon: GlobeIcon, color: 'text-green-500' };
     default:
@@ -45,7 +45,7 @@ function getStatusBadge(status: McpRuntimeStatus['status']) {
     case 'needs-auth':
       return { label: 'Auth Required', className: 'bg-yellow-500/10 text-yellow-600 border-yellow-500/20' };
     case 'pending':
-      return { label: 'Pending', className: 'bg-blue-500/10 text-blue-600 border-blue-500/20' };
+      return { label: 'Pending', className: 'bg-primary/10 text-primary border-primary/20' };
     case 'disabled':
       return { label: 'Disabled', className: 'bg-gray-500/10 text-gray-500 border-gray-500/20' };
     default:

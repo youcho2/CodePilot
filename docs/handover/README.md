@@ -11,3 +11,4 @@
 | agent-tooling-todo-bridge.md | SDK → SSE → DB 事件流、TodoWrite 字段映射、去重策略 |
 | bridge-system.md | 多 IM 远程桥接系统架构（目录结构、数据流、设计决策） |
 | assistant-workspace.md | 助理工作区：人格/记忆文件、对话式引导、自动触发、确定性落盘 |
+| theme-system.md | 主题家族系统：两层架构、JSON schema、代码高亮三条渲染链、12 个主题清单 |

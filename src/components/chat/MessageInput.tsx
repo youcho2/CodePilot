@@ -1133,15 +1133,15 @@ export function MessageInput({
             {/* Command badge */}
             {badge && (
               <div className="flex w-full items-center gap-1.5 px-3 pt-2.5 pb-0 order-first">
-                <span className="inline-flex items-center gap-1.5 rounded-full bg-blue-500/10 text-blue-600 dark:text-blue-400 pl-2.5 pr-1.5 py-1 text-xs font-medium border border-blue-500/20">
+                <span className="inline-flex items-center gap-1.5 rounded-full bg-primary/10 text-primary pl-2.5 pr-1.5 py-1 text-xs font-medium border border-primary/20">
                   <span className="font-mono">{badge.command}</span>
                   {badge.description && (
-                    <span className="text-blue-500/60 dark:text-blue-400/60 text-[10px]">{badge.description}</span>
+                    <span className="text-primary/60 text-[10px]">{badge.description}</span>
                   )}
                   <button
                     type="button"
                     onClick={removeBadge}
-                    className="ml-0.5 rounded-full p-0.5 hover:bg-blue-500/20 transition-colors"
+                    className="ml-0.5 rounded-full p-0.5 hover:bg-primary/20 transition-colors"
                   >
                     <svg className="h-3 w-3" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2">
                       <path d="M3 3l6 6M9 3l-6 6" />

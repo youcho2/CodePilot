@@ -6,9 +6,19 @@ import { ArrowLeft01Icon, Copy01Icon, Tick01Icon, Loading02Icon } from "@hugeico
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { useTheme } from "next-themes";
 import { Light as SyntaxHighlighter } from "react-syntax-highlighter";
-import { atomOneDark } from "react-syntax-highlighter/dist/esm/styles/hljs";
+import { useThemeFamily } from "@/lib/theme/context";
+import { resolveCodeTheme, resolveHljsStyle } from "@/lib/theme/code-themes";
 import { usePanel } from "@/hooks/usePanel";
+
+function useFilePreviewCodeTheme() {
+  const { resolvedTheme } = useTheme();
+  const { family, families } = useThemeFamily();
+  const isDark = resolvedTheme === "dark";
+  const codeTheme = resolveCodeTheme(families, family);
+  return resolveHljsStyle(codeTheme, isDark);
+}
 import { useTranslation } from "@/hooks/useTranslation";
 import type { FilePreview as FilePreviewType } from "@/types";
 
@@ -20,6 +30,7 @@ interface FilePreviewProps {
 export function FilePreview({ filePath, onBack }: FilePreviewProps) {
   const { workingDirectory } = usePanel();
   const { t } = useTranslation();
+  const hljsStyle = useFilePreviewCodeTheme();
   const [preview, setPreview] = useState<FilePreviewType | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -119,7 +130,7 @@ export function FilePreview({ filePath, onBack }: FilePreviewProps) {
           <div className="rounded-md border border-border text-xs">
             <SyntaxHighlighter
               language={preview.language}
-              style={atomOneDark}
+              style={hljsStyle}
               showLineNumbers
               customStyle={{
                 margin: 0,
@@ -131,7 +142,8 @@ export function FilePreview({ filePath, onBack }: FilePreviewProps) {
               lineNumberStyle={{
                 minWidth: "2.5em",
                 paddingRight: "8px",
-                color: "#636d83",
+                color: "var(--muted-foreground)",
+                opacity: 0.5,
                 userSelect: "none",
               }}
             >

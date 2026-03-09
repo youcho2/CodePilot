@@ -6,8 +6,8 @@ import { HugeiconsIcon } from "@hugeicons/react";
 import { Cancel01Icon, Copy01Icon, Tick01Icon, Loading02Icon } from "@hugeicons/core-free-icons";
 import { Button } from "@/components/ui/button";
 import { Light as SyntaxHighlighter } from "react-syntax-highlighter";
-import { atomOneDark } from "react-syntax-highlighter/dist/esm/styles/hljs";
-import { atomOneLight } from "react-syntax-highlighter/dist/esm/styles/hljs";
+import { useThemeFamily } from "@/lib/theme/context";
+import { resolveCodeTheme, resolveHljsStyle } from "@/lib/theme/code-themes";
 import { Streamdown } from "streamdown";
 import { cjk } from "@streamdown/cjk";
 import { code } from "@streamdown/code";
@@ -216,13 +216,21 @@ function ViewModeToggle({
   );
 }
 
+/** Resolve hljs style from the current theme family + mode. */
+function useDocCodeTheme(isDark: boolean) {
+  const { family, families } = useThemeFamily();
+  const codeTheme = resolveCodeTheme(families, family);
+  return resolveHljsStyle(codeTheme, isDark);
+}
+
 /** Source code view using react-syntax-highlighter */
 function SourceView({ preview, isDark }: { preview: FilePreviewType; isDark: boolean }) {
+  const hljsStyle = useDocCodeTheme(isDark);
   return (
     <div className="text-xs">
       <SyntaxHighlighter
         language={preview.language}
-        style={isDark ? atomOneDark : atomOneLight}
+        style={hljsStyle}
         showLineNumbers
         customStyle={{
           margin: 0,
@@ -235,7 +243,8 @@ function SourceView({ preview, isDark }: { preview: FilePreviewType; isDark: boo
         lineNumberStyle={{
           minWidth: "2.5em",
           paddingRight: "8px",
-          color: isDark ? "#636d83" : "#9ca3af",
+          color: "var(--muted-foreground)",
+          opacity: 0.5,
           userSelect: "none",
         }}
       >

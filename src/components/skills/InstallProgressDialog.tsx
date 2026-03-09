@@ -140,7 +140,7 @@ export function InstallProgressDialog({
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             {phase === "running" && (
-              <HugeiconsIcon icon={Loading02Icon} className="h-5 w-5 animate-spin text-blue-500" />
+              <HugeiconsIcon icon={Loading02Icon} className="h-5 w-5 animate-spin text-primary" />
             )}
             {phase === "success" && (
               <HugeiconsIcon icon={CheckmarkCircle02Icon} className="h-5 w-5 text-green-500" />

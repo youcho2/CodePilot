@@ -287,7 +287,7 @@ export function ImageGenConfirmation({
                   'px-2.5 py-1 text-xs font-medium rounded-md border transition-colors',
                   'disabled:opacity-60 disabled:cursor-not-allowed',
                   aspectRatio === ratio
-                    ? 'border-blue-500 bg-blue-500/10 text-blue-600 dark:text-blue-400'
+                    ? 'border-primary bg-primary/10 text-primary'
                     : 'border-border/60 text-muted-foreground hover:text-foreground hover:border-foreground/30'
                 )}
               >
@@ -313,7 +313,7 @@ export function ImageGenConfirmation({
                   'px-3 py-1 text-xs font-medium rounded-md border transition-colors',
                   'disabled:opacity-60 disabled:cursor-not-allowed',
                   resolution === res
-                    ? 'border-blue-500 bg-blue-500/10 text-blue-600 dark:text-blue-400'
+                    ? 'border-primary bg-primary/10 text-primary'
                     : 'border-border/60 text-muted-foreground hover:text-foreground hover:border-foreground/30'
                 )}
               >

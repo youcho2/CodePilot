@@ -20,6 +20,7 @@ import { useTranslation } from "@/hooks/useTranslation";
 import { SUPPORTED_LOCALES, type Locale } from "@/i18n";
 import type { TranslationKey } from "@/i18n";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { AppearanceSection } from "./AppearanceSection";
 
 function UpdateCard() {
   const { updateInfo, checking, checkForUpdates, downloadUpdate, quitAndInstall, setShowDialog } = useUpdate();
@@ -75,7 +76,7 @@ function UpdateCard() {
           {updateInfo.updateAvailable ? (
             <div className="space-y-2">
               <div className="flex items-center gap-2">
-                <span className={`h-2 w-2 rounded-full ${updateInfo.readyToInstall ? 'bg-green-500' : isDownloading ? 'bg-yellow-500 animate-pulse' : 'bg-blue-500'}`} />
+                <span className={`h-2 w-2 rounded-full ${updateInfo.readyToInstall ? 'bg-green-500' : isDownloading ? 'bg-yellow-500 animate-pulse' : 'bg-primary'}`} />
                 <span className="text-sm">
                   {updateInfo.readyToInstall
                     ? t('update.readyToInstall', { version: updateInfo.latestVersion })
@@ -98,7 +99,7 @@ function UpdateCard() {
               {isDownloading && (
                 <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
                   <div
-                    className="h-full rounded-full bg-blue-500 transition-all"
+                    className="h-full rounded-full bg-primary transition-all"
                     style={{ width: `${Math.min(updateInfo.downloadProgress!, 100)}%` }}
                   />
                 </div>
@@ -209,8 +210,9 @@ export function GeneralSection() {
     <div className="max-w-3xl space-y-6">
       <UpdateCard />
 
-      {/* Auto-approve toggle */}
-      <div className={`rounded-lg border p-4 transition-shadow hover:shadow-sm ${skipPermissions ? "border-orange-500/50 bg-orange-500/5" : "border-border/50"}`}>
+      {/* General settings card */}
+      <div className={`rounded-lg border p-4 space-y-4 transition-shadow hover:shadow-sm ${skipPermissions ? "border-orange-500/50 bg-orange-500/5" : "border-border/50"}`}>
+        {/* Auto-approve toggle */}
         <div className="flex items-center justify-between">
           <div>
             <h2 className="text-sm font-medium">{t('settings.autoApproveTitle')}</h2>
@@ -225,15 +227,15 @@ export function GeneralSection() {
           />
         </div>
         {skipPermissions && (
-          <div className="mt-3 flex items-center gap-2 rounded-md bg-orange-500/10 px-3 py-2 text-xs text-orange-600 dark:text-orange-400">
+          <div className="flex items-center gap-2 rounded-md bg-orange-500/10 px-3 py-2 text-xs text-orange-600 dark:text-orange-400">
             <span className="h-2 w-2 shrink-0 rounded-full bg-orange-500" />
             {t('settings.autoApproveWarning')}
           </div>
         )}
-      </div>
 
-      {/* Language picker */}
-      <div className="rounded-lg border border-border/50 p-4 transition-shadow hover:shadow-sm">
+        <div className="border-t border-border/30" />
+
+        {/* Language picker */}
         <div className="flex items-center justify-between">
           <div>
             <h2 className="text-sm font-medium">{t('settings.language')}</h2>
@@ -250,10 +252,10 @@ export function GeneralSection() {
             </SelectContent>
           </Select>
         </div>
-      </div>
 
-      {/* Thinking mode */}
-      <div className="rounded-lg border border-border/50 p-4 transition-shadow hover:shadow-sm">
+        <div className="border-t border-border/30" />
+
+        {/* Thinking mode */}
         <div className="flex items-center justify-between">
           <div>
             <h2 className="text-sm font-medium">{t('settings.thinkingMode' as TranslationKey)}</h2>
@@ -271,6 +273,9 @@ export function GeneralSection() {
           </Select>
         </div>
       </div>
+
+      {/* Appearance */}
+      <AppearanceSection />
 
       {/* Account info */}
       {accountInfo && (
