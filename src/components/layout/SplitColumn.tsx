@@ -95,6 +95,9 @@ export function SplitColumn({ sessionId, isActive, onClose, onFocus }: SplitColu
       setWorkingDirectory(sessionWorkingDir);
       localStorage.setItem("codepilot:last-working-directory", sessionWorkingDir);
       window.dispatchEvent(new Event("refresh-file-tree"));
+    } else {
+      // Clear stale directory from previous column so FileTree doesn't show old project
+      setWorkingDirectory('');
     }
     setSessionId(sessionId);
     setPanelOpen(true);

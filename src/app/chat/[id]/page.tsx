@@ -80,6 +80,8 @@ export default function ChatSessionPage({ params }: ChatSessionPageProps) {
   // Load session info and set working directory
   useEffect(() => {
     let cancelled = false;
+    // Clear stale directory immediately so FileTree doesn't show old project
+    setWorkingDirectory('');
 
     async function loadSession() {
       try {

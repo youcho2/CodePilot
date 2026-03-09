@@ -506,6 +506,103 @@ describe('hotset boosts search results', () => {
   });
 });
 
+// ---------------------------------------------------------------------------
+// Issue 1: Onboarding stability fixes
+// ---------------------------------------------------------------------------
+
+describe('completion fence parsing tolerates formatting variations', () => {
+  // These test the regex patterns used in ChatView.tsx for parsing
+  // onboarding-complete and checkin-complete fences.
+
+  const onboardingRegex = /```onboarding-complete\s*\r?\n([\s\S]*?)\r?\n\s*```/;
+  const checkinRegex = /```checkin-complete\s*\r?\n([\s\S]*?)\r?\n\s*```/;
+
+  it('should match standard LF format', () => {
+    const content = '```onboarding-complete\n{"lang":"zh"}\n```';
+    const match = content.match(onboardingRegex);
+    assert.ok(match, 'Should match LF format');
+    assert.equal(JSON.parse(match![1].trim()).lang, 'zh');
+  });
+
+  it('should match CRLF format', () => {
+    const content = '```onboarding-complete\r\n{"lang":"zh"}\r\n```';
+    const match = content.match(onboardingRegex);
+    assert.ok(match, 'Should match CRLF format');
+    assert.equal(JSON.parse(match![1].trim()).lang, 'zh');
+  });
+
+  it('should match with trailing spaces after tag', () => {
+    const content = '```onboarding-complete   \n{"lang":"zh"}\n```';
+    const match = content.match(onboardingRegex);
+    assert.ok(match, 'Should match with trailing spaces');
+  });
+
+  it('should match with leading whitespace before closing fence', () => {
+    const content = '```onboarding-complete\n{"lang":"zh"}\n  ```';
+    const match = content.match(onboardingRegex);
+    assert.ok(match, 'Should match with leading whitespace before closing fence');
+  });
+
+  it('should match checkin-complete with CRLF', () => {
+    const content = '```checkin-complete\r\n{"mood":"good"}\r\n```';
+    const match = content.match(checkinRegex);
+    assert.ok(match, 'Should match checkin CRLF format');
+    assert.equal(JSON.parse(match![1].trim()).mood, 'good');
+  });
+
+  it('should handle JSON with whitespace padding', () => {
+    const content = '```onboarding-complete\n  {"lang":"zh"}  \n```';
+    const match = content.match(onboardingRegex);
+    assert.ok(match, 'Should match');
+    assert.equal(JSON.parse(match![1].trim()).lang, 'zh');
+  });
+});
+
+describe('saveState is atomic (write-then-rename)', () => {
+  let workDir2: string;
+
+  beforeEach(() => {
+    workDir2 = fs.mkdtempSync(path.join(os.tmpdir(), 'atomic-write-'));
+  });
+
+  afterEach(() => {
+    fs.rmSync(workDir2, { recursive: true, force: true });
+  });
+
+  it('should persist onboardingComplete = true reliably', () => {
+    initializeWorkspace(workDir2);
+    const state = loadState(workDir2);
+    state.onboardingComplete = true;
+    state.lastCheckInDate = getLocalDateString();
+    saveState(workDir2, state);
+
+    // Read raw file to verify it's valid JSON
+    const statePath = path.join(workDir2, '.assistant', 'state.json');
+    const raw = fs.readFileSync(statePath, 'utf-8');
+    const parsed = JSON.parse(raw);
+    assert.equal(parsed.onboardingComplete, true);
+  });
+
+  it('should not leave .tmp file after successful write', () => {
+    initializeWorkspace(workDir2);
+    const state = loadState(workDir2);
+    state.onboardingComplete = true;
+    saveState(workDir2, state);
+
+    const tmpPath = path.join(workDir2, '.assistant', 'state.json.tmp');
+    assert.ok(!fs.existsSync(tmpPath), 'Temp file should be removed after atomic rename');
+  });
+
+  it('loadState should return default when state.json is corrupted', () => {
+    const stateDir = path.join(workDir2, '.assistant');
+    fs.mkdirSync(stateDir, { recursive: true });
+    fs.writeFileSync(path.join(stateDir, 'state.json'), '{corrupted', 'utf-8');
+
+    const state = loadState(workDir2);
+    assert.equal(state.onboardingComplete, false, 'Corrupted state should fall back to default');
+  });
+});
+
 // Clean up DB
 describe('cleanup', () => {
   it('close db', () => {

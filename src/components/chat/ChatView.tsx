@@ -455,16 +455,20 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
       }).catch(() => {});
 
     // Check for onboarding completion
-    const onboardingMatch = content.match(/```onboarding-complete\n([\s\S]*?)\n```/);
+    const onboardingMatch = content.match(/```onboarding-complete\s*\r?\n([\s\S]*?)\r?\n\s*```/);
     if (onboardingMatch) {
       try {
-        const answers = JSON.parse(onboardingMatch[1]);
-        await fetch('/api/workspace/onboarding', {
+        const answers = JSON.parse(onboardingMatch[1].trim());
+        const resp = await fetch('/api/workspace/onboarding', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ answers, sessionId }),
         });
-        await clearHookTriggered();
+        if (resp.ok) {
+          await clearHookTriggered();
+        } else {
+          console.error('[ChatView] Onboarding API returned', resp.status);
+        }
       } catch (e) {
         console.error('[ChatView] Onboarding completion failed:', e);
       }
@@ -472,16 +476,20 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
     }
 
     // Check for check-in completion
-    const checkinMatch = content.match(/```checkin-complete\n([\s\S]*?)\n```/);
+    const checkinMatch = content.match(/```checkin-complete\s*\r?\n([\s\S]*?)\r?\n\s*```/);
     if (checkinMatch) {
       try {
-        const answers = JSON.parse(checkinMatch[1]);
-        await fetch('/api/workspace/checkin', {
+        const answers = JSON.parse(checkinMatch[1].trim());
+        const resp = await fetch('/api/workspace/checkin', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ answers, sessionId }),
         });
-        await clearHookTriggered();
+        if (resp.ok) {
+          await clearHookTriggered();
+        } else {
+          console.error('[ChatView] Check-in API returned', resp.status);
+        }
       } catch (e) {
         console.error('[ChatView] Check-in completion failed:', e);
       }

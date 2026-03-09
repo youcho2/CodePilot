@@ -1,7 +1,5 @@
 import { query } from '@anthropic-ai/claude-agent-sdk';
 import type {
-  NotificationHookInput,
-  PostToolUseHookInput,
   SDKAssistantMessage,
   SDKUserMessage,
   SDKResultMessage,
@@ -507,70 +505,11 @@ export function streamClaude(options: ClaudeStreamOptions): ReadableStream<strin
           workingDirectory,
         };
 
-        // Hooks: capture notifications and tool completion events
-        queryOptions.hooks = {
-          Notification: [{
-            hooks: [async (input) => {
-              const notif = input as NotificationHookInput;
-              controller.enqueue(formatSSE({
-                type: 'status',
-                data: JSON.stringify({
-                  notification: true,
-                  title: notif.title,
-                  message: notif.message,
-                }),
-              }));
-              // Forward to Telegram (fire-and-forget)
-              notifyGeneric(notif.title || '', notif.message || '', telegramOpts).catch(() => {});
-              return {};
-            }],
-          }],
-          PostToolUse: [{
-            hooks: [async (input) => {
-              const toolEvent = input as PostToolUseHookInput;
-              console.log('[claude-client] PostToolUse:', toolEvent.tool_name, 'id:', toolEvent.tool_use_id);
-              controller.enqueue(formatSSE({
-                type: 'tool_result',
-                data: JSON.stringify({
-                  tool_use_id: toolEvent.tool_use_id,
-                  content: typeof toolEvent.tool_response === 'string'
-                    ? toolEvent.tool_response
-                    : JSON.stringify(toolEvent.tool_response),
-                  is_error: false,
-                }),
-              }));
-
-              // Detect TodoWrite tool and emit task_update SSE for frontend sync
-              if (toolEvent.tool_name === 'TodoWrite') {
-                try {
-                  // SDK TodoWriteInput: { todos: { content, status, activeForm }[] }
-                  const toolInput = toolEvent.tool_input as {
-                    todos?: Array<{ content: string; status: string; activeForm?: string }>;
-                  };
-                  if (toolInput?.todos && Array.isArray(toolInput.todos)) {
-                    console.log('[claude-client] TodoWrite detected, syncing', toolInput.todos.length, 'tasks');
-                    controller.enqueue(formatSSE({
-                      type: 'task_update',
-                      data: JSON.stringify({
-                        session_id: sessionId,
-                        todos: toolInput.todos.map((t, i) => ({
-                          id: String(i),
-                          content: t.content,
-                          status: t.status,
-                          activeForm: t.activeForm || '',
-                        })),
-                      }),
-                    }));
-                  }
-                } catch (e) {
-                  console.warn('[claude-client] Failed to parse TodoWrite input:', e);
-                }
-              }
-
-              return {};
-            }],
-          }],
-        };
+        // No queryOptions.hooks — all hook types (Notification, PostToolUse) use
+        // the SDK's hook_callback control_request transport, which fails with
+        // "CLI output was not valid JSON" when the CLI mixes control frames with
+        // normal stdout. Notifications are derived from stream messages instead
+        // (task_notification, result). TodoWrite sync uses tool_use → tool_result.
 
         // Capture real-time stderr output from Claude Code process
         queryOptions.stderr = (data: string) => {
@@ -734,6 +673,8 @@ export function streamClaude(options: ClaudeStreamOptions): ReadableStream<strin
 
         let lastAssistantText = '';
         let tokenUsage: TokenUsage | null = null;
+        // Track pending TodoWrite tool_use_ids so we can sync after successful execution
+        const pendingTodoWrites = new Map<string, Array<{ content: string; status: string; activeForm?: string }>>();
 
         for await (const message of conversation) {
           if (abortController?.signal.aborted) {
@@ -761,6 +702,20 @@ export function streamClaude(options: ClaudeStreamOptions): ReadableStream<strin
                       input: block.input,
                     }),
                   }));
+
+                  // Track TodoWrite calls — sync deferred until tool_result confirms success
+                  if (block.name === 'TodoWrite') {
+                    try {
+                      const toolInput = block.input as {
+                        todos?: Array<{ content: string; status: string; activeForm?: string }>;
+                      };
+                      if (toolInput?.todos && Array.isArray(toolInput.todos)) {
+                        pendingTodoWrites.set(block.id, toolInput.todos);
+                      }
+                    } catch (e) {
+                      console.warn('[claude-client] Failed to parse TodoWrite input:', e);
+                    }
+                  }
                 }
               }
               break;
@@ -789,6 +744,24 @@ export function streamClaude(options: ClaudeStreamOptions): ReadableStream<strin
                         is_error: block.is_error || false,
                       }),
                     }));
+
+                    // Deferred TodoWrite sync: only emit task_update after successful execution
+                    if (!block.is_error && pendingTodoWrites.has(block.tool_use_id)) {
+                      const todos = pendingTodoWrites.get(block.tool_use_id)!;
+                      pendingTodoWrites.delete(block.tool_use_id);
+                      controller.enqueue(formatSSE({
+                        type: 'task_update',
+                        data: JSON.stringify({
+                          session_id: sessionId,
+                          todos: todos.map((t, i) => ({
+                            id: String(i),
+                            content: t.content,
+                            status: t.status,
+                            activeForm: t.activeForm || '',
+                          })),
+                        }),
+                      }));
+                    }
                   }
                 }
               }
@@ -843,6 +816,21 @@ export function streamClaude(options: ClaudeStreamOptions): ReadableStream<strin
                       data: statusMsg.permissionMode,
                     }));
                   }
+                } else if (sysMsg.subtype === 'task_notification') {
+                  // Agent task completed/failed/stopped — surface as notification
+                  const taskMsg = sysMsg as SDKSystemMessage & {
+                    status: string; summary: string; task_id: string;
+                  };
+                  const title = taskMsg.status === 'completed' ? 'Task completed' : `Task ${taskMsg.status}`;
+                  controller.enqueue(formatSSE({
+                    type: 'status',
+                    data: JSON.stringify({
+                      notification: true,
+                      title,
+                      message: taskMsg.summary || '',
+                    }),
+                  }));
+                  notifyGeneric(title, taskMsg.summary || '', telegramOpts).catch(() => {});
                 }
               }
               break;
@@ -887,6 +875,16 @@ export function streamClaude(options: ClaudeStreamOptions): ReadableStream<strin
                   session_id: resultMsg.session_id,
                 }),
               }));
+              // Notify on conversation-level errors (e.g. rate limit, auth failure)
+              if (resultMsg.is_error) {
+                const errTitle = 'Conversation error';
+                const errMsg = resultMsg.subtype || 'The conversation ended with an error';
+                controller.enqueue(formatSSE({
+                  type: 'status',
+                  data: JSON.stringify({ notification: true, title: errTitle, message: errMsg }),
+                }));
+                notifyGeneric(errTitle, errMsg, telegramOpts).catch(() => {});
+              }
               break;
             }
 

@@ -527,7 +527,9 @@ export function saveState(dir: string, state: AssistantWorkspaceState): void {
     fs.mkdirSync(stateDir, { recursive: true });
   }
   const statePath = path.join(stateDir, STATE_FILE);
-  fs.writeFileSync(statePath, JSON.stringify(state, null, 2), 'utf-8');
+  const tmpPath = statePath + '.tmp';
+  fs.writeFileSync(tmpPath, JSON.stringify(state, null, 2), 'utf-8');
+  fs.renameSync(tmpPath, statePath);
 }
 
 export function needsDailyCheckIn(state: AssistantWorkspaceState, now?: Date): boolean {
