@@ -5,6 +5,7 @@ import fs from 'fs';
 import os from 'os';
 import type { ChatSession, Message, SettingsMap, TaskItem, TaskStatus, ApiProvider, CreateProviderRequest, UpdateProviderRequest, MediaJob, MediaJobStatus, MediaJobItem, MediaJobItemStatus, MediaContextEvent, BatchConfig } from '@/types';
 import type { ChannelType, ChannelBinding } from './bridge/types';
+import { getLocalDateString, localDayStartAsUTC } from './utils';
 
 const dataDir = process.env.CLAUDE_GUI_DATA_DIR || path.join(os.homedir(), '.codepilot');
 const DB_PATH = path.join(dataDir, 'codepilot.db');
@@ -1084,7 +1085,7 @@ export function deactivateAllProviders(): void {
 // Token Usage Statistics
 // ==========================================
 
-export function getTokenUsageStats(days: number = 30): {
+export function getTokenUsageStats(days: number = 30, now?: Date): {
   summary: {
     total_input_tokens: number;
     total_output_tokens: number;
@@ -1103,6 +1104,10 @@ export function getTokenUsageStats(days: number = 30): {
 } {
   const db = getDb();
 
+  // Window boundary: localDayStartAsUTC computes the UTC equivalent of
+  // "local midnight N days ago" using Date methods, which are DST-aware.
+  const windowStartUTC = localDayStartAsUTC(days - 1, now);
+
   const summary = db.prepare(`
     SELECT
       COALESCE(SUM(json_extract(m.token_usage, '$.input_tokens')), 0) AS total_input_tokens,
@@ -1114,8 +1119,8 @@ export function getTokenUsageStats(days: number = 30): {
     FROM messages m
     WHERE m.token_usage IS NOT NULL
       AND json_valid(m.token_usage) = 1
-      AND m.created_at >= date('now', '-' || (? - 1) || ' days')
-  `).get(days) as {
+      AND m.created_at >= ?
+  `).get(windowStartUTC) as {
     total_input_tokens: number;
     total_output_tokens: number;
     total_cost: number;
@@ -1124,36 +1129,61 @@ export function getTokenUsageStats(days: number = 30): {
     cache_creation_tokens: number;
   };
 
-  const daily = db.prepare(`
+  // Daily bucketing: fetch raw rows and aggregate by local date in JS.
+  // This handles DST correctly because getLocalDateString uses Date's
+  // local-time methods, which account for the historical DST offset at
+  // each message's timestamp — unlike a single SQL offset modifier.
+  const rawRows = db.prepare(`
     SELECT
-      DATE(m.created_at) AS date,
+      m.created_at,
       CASE
         WHEN COALESCE(NULLIF(s.provider_name, ''), '') != ''
         THEN s.provider_name
         ELSE COALESCE(NULLIF(s.model, ''), 'unknown')
       END AS model,
-      COALESCE(SUM(json_extract(m.token_usage, '$.input_tokens')), 0) AS input_tokens,
-      COALESCE(SUM(json_extract(m.token_usage, '$.output_tokens')), 0) AS output_tokens,
-      COALESCE(SUM(json_extract(m.token_usage, '$.cost_usd')), 0) AS cost
+      COALESCE(json_extract(m.token_usage, '$.input_tokens'), 0) AS input_tokens,
+      COALESCE(json_extract(m.token_usage, '$.output_tokens'), 0) AS output_tokens,
+      COALESCE(json_extract(m.token_usage, '$.cost_usd'), 0) AS cost
     FROM messages m
     LEFT JOIN chat_sessions s ON m.session_id = s.id
     WHERE m.token_usage IS NOT NULL
       AND json_valid(m.token_usage) = 1
-      AND m.created_at >= date('now', '-' || (? - 1) || ' days')
-    GROUP BY DATE(m.created_at),
-      CASE
-        WHEN COALESCE(NULLIF(s.provider_name, ''), '') != ''
-        THEN s.provider_name
-        ELSE COALESCE(NULLIF(s.model, ''), 'unknown')
-      END
-    ORDER BY date ASC
-  `).all(days) as Array<{
-    date: string;
+      AND m.created_at >= ?
+  `).all(windowStartUTC) as Array<{
+    created_at: string;
     model: string;
     input_tokens: number;
     output_tokens: number;
     cost: number;
   }>;
+
+  // Aggregate by (local_date, model)
+  const buckets = new Map<string, { input_tokens: number; output_tokens: number; cost: number }>();
+  for (const row of rawRows) {
+    // Parse UTC timestamp → local date via Date methods (DST-aware per row)
+    const utcTs = new Date(row.created_at.replace(' ', 'T') + 'Z');
+    const localDate = getLocalDateString(utcTs);
+    const key = `${localDate}\0${row.model}`;
+    const existing = buckets.get(key);
+    if (existing) {
+      existing.input_tokens += row.input_tokens;
+      existing.output_tokens += row.output_tokens;
+      existing.cost += row.cost;
+    } else {
+      buckets.set(key, {
+        input_tokens: row.input_tokens,
+        output_tokens: row.output_tokens,
+        cost: row.cost,
+      });
+    }
+  }
+
+  const daily: Array<{ date: string; model: string; input_tokens: number; output_tokens: number; cost: number }> = [];
+  for (const [key, val] of buckets) {
+    const [date, model] = key.split('\0');
+    daily.push({ date, model, ...val });
+  }
+  daily.sort((a, b) => a.date.localeCompare(b.date));
 
   return { summary, daily };
 }

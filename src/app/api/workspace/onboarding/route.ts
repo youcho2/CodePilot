@@ -3,6 +3,7 @@ import fs from 'fs';
 import path from 'path';
 import { getSetting, getDefaultProviderId, getSession } from '@/lib/db';
 import { loadState, saveState, ensureDailyDir, generateRootDocs } from '@/lib/assistant-workspace';
+import { getLocalDateString } from '@/lib/utils';
 import { generateTextFromProvider } from '@/lib/text-generator';
 
 const QUESTIONS = [
@@ -179,11 +180,11 @@ Keep it under 2000 characters. Use markdown headers and bullet points.\n\n${qaTe
     generateRootDocs(workspacePath);
 
     // Update state
-    const today = new Date().toISOString().slice(0, 10);
+    const today = getLocalDateString();
     const state = loadState(workspacePath);
     state.onboardingComplete = true;
     state.lastCheckInDate = today; // Skip daily check-in on the day of onboarding
-    state.schemaVersion = 2;
+    state.schemaVersion = 3;
     saveState(workspacePath, state);
 
     return NextResponse.json({ success: true });

@@ -10,6 +10,7 @@ import { ChatPermissionSelector } from './ChatPermissionSelector';
 import { ContextUsageIndicator } from './ContextUsageIndicator';
 import { ImageGenToggle } from './ImageGenToggle';
 import { usePanel } from '@/hooks/usePanel';
+import { getLocalDateString } from '@/lib/utils';
 import { useTranslation } from '@/hooks/useTranslation';
 import { PermissionPrompt } from './PermissionPrompt';
 import { BatchExecutionDashboard, BatchContextSync } from './batch-image-gen';
@@ -271,7 +272,7 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
       // If the session has no messages, the previous trigger may have failed — allow retry.
       if (state.hookTriggeredSessionId === sessionId && initialMessages.length > 0) return;
 
-      const today = new Date().toISOString().slice(0, 10);
+      const today = getLocalDateString();
       const needsOnboarding = !state.onboardingComplete;
       const needsCheckIn = state.onboardingComplete && state.lastCheckInDate !== today;
 

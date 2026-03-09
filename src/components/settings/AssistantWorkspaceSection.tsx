@@ -2,6 +2,7 @@
 
 import { useState, useCallback, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
+import { getLocalDateString } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import {
   AlertDialog,
@@ -430,7 +431,7 @@ export function AssistantWorkspaceSection() {
     );
   }
 
-  const today = new Date().toISOString().slice(0, 10);
+  const today = getLocalDateString();
   const checkInDoneToday = workspace?.state?.lastCheckInDate === today;
 
   const tabs: Array<{ id: TabId; label: string }> = [

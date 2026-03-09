@@ -1,11 +1,12 @@
 import fs from 'fs';
 import path from 'path';
 import type { AssistantWorkspaceState, AssistantWorkspaceFiles, AssistantWorkspaceFilesV2, SearchResult } from '@/types';
+import { getLocalDateString } from '@/lib/utils';
 
 const DEFAULT_STATE: AssistantWorkspaceState = {
   onboardingComplete: false,
   lastCheckInDate: null,
-  schemaVersion: 2,
+  schemaVersion: 3,
 };
 
 const STATE_DIR = '.assistant';
@@ -114,6 +115,48 @@ export function migrateStateV1ToV2(dir: string): void {
 
   // Update schema version
   state.schemaVersion = 2;
+  saveState(dir, state);
+}
+
+/**
+ * Migrate schema v2 → v3: normalize lastCheckInDate from UTC to local.
+ *
+ * Before v3, lastCheckInDate was written as `new Date().toISOString().slice(0, 10)`
+ * which is a UTC date. After v3 it's written via `getLocalDateString()`.
+ *
+ * For users east/west of UTC, the old UTC date can differ from the local date
+ * by ±1 day. We only rewrite the stored date if it matches today's UTC date —
+ * meaning the user checked in "today" under the old semantics and the value
+ * just needs normalizing to local. Clearly-past dates are left as-is so the
+ * user correctly receives their next check-in.
+ *
+ * Edge cases that the migration cannot resolve (e.g. check-in written during
+ * the UTC/local day-boundary mismatch window, but migration runs after UTC
+ * midnight) are handled by a runtime compat fallback in needsDailyCheckIn.
+ */
+export function migrateStateV2ToV3(dir: string): void {
+  let state: AssistantWorkspaceState;
+  try {
+    const statePath = path.join(dir, STATE_DIR, STATE_FILE);
+    const raw = fs.readFileSync(statePath, 'utf-8');
+    state = JSON.parse(raw) as AssistantWorkspaceState;
+  } catch {
+    return;
+  }
+
+  if (state.schemaVersion >= 3) return;
+
+  if (state.lastCheckInDate) {
+    const utcToday = new Date().toISOString().slice(0, 10);
+    // Only normalize if the stored UTC date is "today" — the ambiguous case
+    // where the user checked in today but the UTC/local date may differ.
+    // Past dates are left untouched so needsDailyCheckIn triggers correctly.
+    if (state.lastCheckInDate === utcToday) {
+      state.lastCheckInDate = getLocalDateString();
+    }
+  }
+
+  state.schemaVersion = 3;
   saveState(dir, state);
 }
 
@@ -270,8 +313,9 @@ export function initializeWorkspace(dir: string): string[] {
   if (!fs.existsSync(statePath)) {
     saveState(dir, { ...DEFAULT_STATE });
   } else {
-    // Migrate existing v1 state
+    // Migrate existing state through all schema versions
     migrateStateV1ToV2(dir);
+    migrateStateV2ToV3(dir);
   }
 
   // For existing directories, generate root docs and infer taxonomy
@@ -458,8 +502,16 @@ export function loadState(dir: string): AssistantWorkspaceState {
     const state = JSON.parse(raw) as AssistantWorkspaceState;
 
     // Auto-migrate on load
+    let migrated = false;
     if (state.schemaVersion < 2) {
       migrateStateV1ToV2(dir);
+      migrated = true;
+    }
+    if (state.schemaVersion < 3) {
+      migrateStateV2ToV3(dir);
+      migrated = true;
+    }
+    if (migrated) {
       return loadState(dir); // Reload after migration
     }
 
@@ -478,9 +530,20 @@ export function saveState(dir: string, state: AssistantWorkspaceState): void {
   fs.writeFileSync(statePath, JSON.stringify(state, null, 2), 'utf-8');
 }
 
-export function needsDailyCheckIn(state: AssistantWorkspaceState): boolean {
+export function needsDailyCheckIn(state: AssistantWorkspaceState, now?: Date): boolean {
   if (!state.onboardingComplete) return false;
-  return state.lastCheckInDate !== new Date().toISOString().slice(0, 10);
+  const d = now ?? new Date();
+  const localToday = getLocalDateString(d);
+  if (state.lastCheckInDate === localToday) return false;
+
+  // Compat: before schema v3, lastCheckInDate was stored as a UTC date.
+  // If the stored value matches today's UTC date, the user checked in "today"
+  // under the old semantics. Accept it to avoid a spurious re-trigger.
+  // Once the next check-in writes a local date + v3, this path becomes inert.
+  const utcToday = d.toISOString().slice(0, 10);
+  if (state.lastCheckInDate === utcToday) return false;
+
+  return true;
 }
 
 // ==========================================

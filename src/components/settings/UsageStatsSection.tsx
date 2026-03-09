@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
+import { getLocalDateString } from "@/lib/utils";
 import {
   BarChart,
   Bar,
@@ -430,7 +431,7 @@ function deriveChartData(daily: UsageStatsResponse["daily"], days: number): {
   for (let i = days - 1; i >= 0; i--) {
     const d = new Date(today);
     d.setDate(d.getDate() - i);
-    allDates.push(d.toISOString().slice(0, 10));
+    allDates.push(getLocalDateString(d));
   }
 
   // Format for recharts, filling missing dates with zeros

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
+import { getLocalDateString } from "@/lib/utils";
 
 interface FileStatus {
   exists: boolean;
@@ -74,7 +75,7 @@ export function useAssistantWorkspace() {
     }
   }, [workspace?.path, refetch]);
 
-  const today = new Date().toISOString().slice(0, 10);
+  const today = getLocalDateString();
   const needsCheckIn = workspace?.path != null
     && workspace.state != null
     && workspace.state.lastCheckInDate !== today;

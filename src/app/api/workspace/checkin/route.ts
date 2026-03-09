@@ -3,6 +3,7 @@ import fs from 'fs';
 import path from 'path';
 import { getSetting, getDefaultProviderId, getSession } from '@/lib/db';
 import { loadState, saveState, writeDailyMemory } from '@/lib/assistant-workspace';
+import { getLocalDateString } from '@/lib/utils';
 import { generateTextFromProvider } from '@/lib/text-generator';
 
 const CHECK_IN_QUESTIONS = [
@@ -54,7 +55,7 @@ export async function POST(request: NextRequest) {
       return `Q: ${q}\nA: ${answers[key] || '(skipped)'}`;
     }).join('\n\n');
 
-    const today = new Date().toISOString().slice(0, 10);
+    const today = getLocalDateString();
 
     // Read existing files for context
     const memoryPath = path.join(workspacePath, 'memory.md');
@@ -147,7 +148,7 @@ ${qaText}`;
         if (fs.existsSync(dailyDir)) {
           const oldFiles = fs.readdirSync(dailyDir)
             .filter(f => /^\d{4}-\d{2}-\d{2}\.md$/.test(f))
-            .filter(f => f.replace('.md', '') <= sevenDaysAgo.toISOString().slice(0, 10));
+            .filter(f => f.replace('.md', '') <= getLocalDateString(sevenDaysAgo));
           for (const f of oldFiles) {
             promoteDailyToLongTerm(workspacePath, f.replace('.md', ''));
           }

@@ -16,6 +16,7 @@ import assert from 'node:assert/strict';
 import path from 'path';
 import os from 'os';
 import fs from 'fs';
+import { getLocalDateString } from '@/lib/utils';
 
 // Set a temp data dir before importing db module
 const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'codepilot-workspace-test-'));
@@ -59,7 +60,7 @@ describe('Assistant Workspace', () => {
       const state = JSON.parse(fs.readFileSync(statePath, 'utf-8'));
       assert.equal(state.onboardingComplete, false);
       assert.equal(state.lastCheckInDate, null);
-      assert.equal(state.schemaVersion, 2);
+      assert.equal(state.schemaVersion, 3);
     });
 
     it('should create all 4 template files', () => {
@@ -90,7 +91,7 @@ describe('Assistant Workspace', () => {
       initializeWorkspace(workDir);
       const state = loadState(workDir);
       state.onboardingComplete = true;
-      state.lastCheckInDate = new Date().toISOString().slice(0, 10);
+      state.lastCheckInDate = getLocalDateString();
       saveState(workDir, state);
 
       const reloaded = loadState(workDir);
@@ -133,13 +134,13 @@ describe('Assistant Workspace', () => {
     });
 
     it('should not trigger check-in if already done today', () => {
-      const today = new Date().toISOString().slice(0, 10);
+      const today = getLocalDateString();
       const state = { onboardingComplete: true, lastCheckInDate: today, schemaVersion: 2 };
       assert.equal(needsDailyCheckIn(state), false);
     });
 
     it('onboarding day should skip daily check-in (lastCheckInDate set)', () => {
-      const today = new Date().toISOString().slice(0, 10);
+      const today = getLocalDateString();
       const state = { onboardingComplete: true, lastCheckInDate: today, schemaVersion: 2 };
       assert.equal(needsDailyCheckIn(state), false);
     });
@@ -262,20 +263,20 @@ describe('Assistant Workspace', () => {
       migrateStateV1ToV2(workDir);
 
       const state = loadState(workDir);
-      assert.equal(state.schemaVersion, 2);
+      assert.equal(state.schemaVersion, 3);
       assert.ok(fs.existsSync(path.join(workDir, 'memory', 'daily')));
       assert.ok(fs.existsSync(path.join(workDir, 'Inbox')));
     });
 
-    it('should not re-migrate v2 state', () => {
+    it('should not re-migrate v3 state', () => {
       initializeWorkspace(workDir);
       const state = loadState(workDir);
-      assert.equal(state.schemaVersion, 2);
+      assert.equal(state.schemaVersion, 3);
 
       // Should not throw or change anything
       migrateStateV1ToV2(workDir);
       const reloaded = loadState(workDir);
-      assert.equal(reloaded.schemaVersion, 2);
+      assert.equal(reloaded.schemaVersion, 3);
     });
   });
 
