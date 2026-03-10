@@ -145,16 +145,20 @@ xattr -cr /Applications/CodePilot.app
 
 ## 文档
 
+📖 **完整文档：** [中文](https://www.codepilot.sh/zh/docs) | [English](https://www.codepilot.sh/docs)
+
 **入门指南：**
 - [快速开始](#快速开始) -- 下载或源码构建
 - [首次使用](#首次使用) -- 认证、Provider 配置、工作区设置
+- [安装指南](https://www.codepilot.sh/zh/docs/installation) -- 详细安装说明
 
 **用户指南：**
-- [Providers](#) -- 配置 Anthropic、OpenRouter、Bedrock、Vertex 和自定义端点
-- [MCP 服务器](#) -- 添加和管理 Model Context Protocol 服务器
-- [Bridge](#) -- 通过 Telegram、飞书、Discord、QQ 远程控制
-- [Assistant Workspace](#) -- 人设文件、Onboarding、记忆、每日签到
-- [常见问题](#常见问题) -- 常见问题和解决方案
+- [服务商配置](https://www.codepilot.sh/zh/docs/providers) -- 配置 Anthropic、OpenRouter、Bedrock、Vertex 和自定义端点
+- [MCP 服务器](https://www.codepilot.sh/zh/docs/mcp) -- 添加和管理 Model Context Protocol 服务器
+- [Skills 技能](https://www.codepilot.sh/zh/docs/skills) -- 自定义技能、项目技能和 skills.sh 市场
+- [Bridge 桥接](https://www.codepilot.sh/zh/docs/bridge) -- 通过 Telegram、飞书、Discord、QQ 远程控制
+- [Assistant Workspace](https://www.codepilot.sh/zh/docs/assistant-workspace) -- 人设文件、Onboarding、记忆、每日签到
+- [常见问题](https://www.codepilot.sh/zh/docs/faq) -- 常见问题和解决方案
 
 **开发文档：**
 - [ARCHITECTURE.md](./ARCHITECTURE.md) -- 架构、技术栈、目录结构、数据流

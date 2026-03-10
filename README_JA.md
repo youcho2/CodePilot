@@ -145,16 +145,20 @@ xattr -cr /Applications/CodePilot.app
 
 ## ドキュメント
 
+📖 **完全ドキュメント:** [English](https://www.codepilot.sh/docs) | [中文](https://www.codepilot.sh/zh/docs)
+
 **はじめに:**
 - [クイックスタート](#クイックスタート) -- ダウンロードまたはソースからビルド
 - [初回起動](#初回起動) -- 認証、プロバイダー設定、ワークスペースセットアップ
+- [インストールガイド](https://www.codepilot.sh/docs/installation) -- 詳細なセットアップ手順
 
 **ユーザーガイド:**
-- [Providers](#) -- Anthropic、OpenRouter、Bedrock、Vertex、カスタムエンドポイントの設定
-- [MCP サーバー](#) -- Model Context Protocol サーバーの追加と管理
-- [Bridge](#) -- Telegram、Feishu、Discord、QQ によるリモート制御
-- [Assistant Workspace](#) -- ペルソナファイル、Onboarding、メモリ、デイリーチェックイン
-- [FAQ](#faq) -- よくある質問と解決方法
+- [Providers](https://www.codepilot.sh/docs/providers) -- Anthropic、OpenRouter、Bedrock、Vertex、カスタムエンドポイントの設定
+- [MCP サーバー](https://www.codepilot.sh/docs/mcp) -- Model Context Protocol サーバーの追加と管理
+- [Skills](https://www.codepilot.sh/docs/skills) -- カスタムスキル、プロジェクトスキル、skills.sh マーケットプレイス
+- [Bridge](https://www.codepilot.sh/docs/bridge) -- Telegram、Feishu、Discord、QQ によるリモート制御
+- [Assistant Workspace](https://www.codepilot.sh/docs/assistant-workspace) -- ペルソナファイル、Onboarding、メモリ、デイリーチェックイン
+- [FAQ](https://www.codepilot.sh/docs/faq) -- よくある質問と解決方法
 
 **開発者ドキュメント:**
 - [ARCHITECTURE.md](./ARCHITECTURE.md) -- アーキテクチャ、テックスタック、ディレクトリ構成、データフロー

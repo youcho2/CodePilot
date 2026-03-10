@@ -145,16 +145,20 @@ xattr -cr /Applications/CodePilot.app
 
 ## Documentation
 
+📖 **Full documentation:** [English](https://www.codepilot.sh/docs) | [中文](https://www.codepilot.sh/zh/docs)
+
 **Getting started:**
 - [Quick Start](#quick-start) -- Download or build from source
 - [First Launch](#first-launch) -- Authentication, providers, workspace setup
+- [Installation Guide](https://www.codepilot.sh/docs/installation) -- Detailed setup instructions
 
 **User guides:**
-- [Providers](#) -- Configuring Anthropic, OpenRouter, Bedrock, Vertex, and custom endpoints
-- [MCP Servers](#) -- Adding and managing Model Context Protocol servers
-- [Bridge](#) -- Remote control via Telegram, Feishu, Discord, QQ
-- [Assistant Workspace](#) -- Persona files, onboarding, memory, daily check-ins
-- [FAQ](#faq) -- Common issues and solutions
+- [Providers](https://www.codepilot.sh/docs/providers) -- Configuring Anthropic, OpenRouter, Bedrock, Vertex, and custom endpoints
+- [MCP Servers](https://www.codepilot.sh/docs/mcp) -- Adding and managing Model Context Protocol servers
+- [Skills](https://www.codepilot.sh/docs/skills) -- Custom skills, project skills, and the skills.sh marketplace
+- [Bridge](https://www.codepilot.sh/docs/bridge) -- Remote control via Telegram, Feishu, Discord, QQ
+- [Assistant Workspace](https://www.codepilot.sh/docs/assistant-workspace) -- Persona files, onboarding, memory, daily check-ins
+- [FAQ](https://www.codepilot.sh/docs/faq) -- Common issues and solutions
 
 **Developer docs:**
 - [ARCHITECTURE.md](./ARCHITECTURE.md) -- Architecture, tech stack, directory structure, data flow
