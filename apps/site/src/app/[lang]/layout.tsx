@@ -1,13 +1,7 @@
 import { RootProvider } from 'fumadocs-ui/provider/next';
-import { Inter } from 'next/font/google';
 import type { ReactNode } from 'react';
 import { i18n } from '@/lib/i18n';
-
-const inter = Inter({
-  subsets: ['latin'],
-  variable: '--font-inter',
-  display: 'swap',
-});
+import { inter, geist } from '@/lib/fonts';
 
 export default async function LangLayout({
   params,
@@ -19,7 +13,7 @@ export default async function LangLayout({
   const { lang } = await params;
 
   return (
-    <html lang={lang} className={inter.variable} suppressHydrationWarning>
+    <html lang={lang} className={`${inter.variable} ${geist.variable}`} suppressHydrationWarning>
       <body className="font-sans">
         <RootProvider i18n={{
           locale: lang,

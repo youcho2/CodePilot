@@ -19,7 +19,7 @@
     "test:smoke": "npx playwright test --grep @smoke",
     "test:e2e": "npx playwright test",
     "test": "npm run typecheck && npm run test:unit",
-    "prepare": "husky",
+    "prepare": "node -e \"try{require('husky')()}catch(e){}\"",
     "electron:dev": "concurrently -k \"next dev\" \"wait-on http://localhost:3000 && electron .\"",
     "electron:build": "next build && node scripts/build-electron.mjs",
     "electron:pack": "npm run electron:build && electron-builder --config electron-builder.yml",
