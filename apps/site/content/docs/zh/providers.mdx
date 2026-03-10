@@ -50,7 +50,10 @@ export ANTHROPIC_API_KEY="sk-ant-..."
 
 连接兼容 Anthropic API 格式的第三方端点。
 
-- **认证**：API 密钥 + 自定义基础 URL
+- **认证**：API 密钥或 Auth Token + 自定义基础 URL。添加时需要选择认证类型：
+  - **API Key** — 服务商提供的密钥以 `sk-` 开头，或者文档中明确标注为 API Key。大多数服务商使用这种方式，对应环境变量 `ANTHROPIC_API_KEY`
+  - **Auth Token** — 服务商提供的是 OAuth Token 或其他形式的访问令牌，通常不以 `sk-` 开头。部分订阅制服务（如 Kimi Coding Plan、火山引擎 Ark）使用这种方式，对应环境变量 `ANTHROPIC_AUTH_TOKEN`
+  - 如果不确定，先尝试 API Key；如果认证失败，切换为 Auth Token 再试
 - **模型映射**：部分第三方服务商要求使用自己的模型名称（而非 Anthropic 原始模型名）。如果遇到模型不可用的错误，点击配置表单底部的 **更多选项**，在 **模型名称** 字段中填写该服务商要求的模型标识符
 
 ### 国内服务商
