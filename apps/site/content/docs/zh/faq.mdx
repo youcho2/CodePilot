@@ -3,68 +3,80 @@ title: 常见问题
 description: 关于 CodePilot 的常见问题解答。
 ---
 
-## 一般问题
+# 常见问题
+
+## 基本问题
 
 ### CodePilot 是什么？
 
-CodePilot 是 Claude Code 的原生桌面 GUI 客户端。它为 Claude Code CLI 提供图形界面，附带多提供商支持、插件系统、消息桥接和主题自定义等额外功能。
+CodePilot 是 Claude Code 的桌面工作区。它在 Claude Code CLI 的基础上提供图形界面，整合了多服务商管理、MCP 插件、技能、消息桥接和助理工作区等功能。基于 Electron + Next.js 构建。
+
+### CodePilot 和 Claude Code CLI 是什么关系？
+
+CodePilot 是 Claude Code CLI 的图形前端。它通过 Claude Agent SDK 调用 Claude Code CLI 的能力，同时在上层添加了 GUI 专属的功能（多服务商切换、桥接、素材库等）。使用 CodePilot 需要先安装 Claude Code CLI。
 
 ### CodePilot 免费吗？
 
-CodePilot 是开源且免费使用的。你需要自己的 API 密钥（来自 Anthropic、OpenAI、Google、AWS Bedrock 等支持的提供商）。
+CodePilot 本身开源且免费。你需要自备 API 密钥（来自 Anthropic、OpenRouter 或其他支持的服务商）。API 调用费用由服务商收取。
 
-### 支持哪些平台？
+### 支持哪些操作系统？
 
-CodePilot 支持 macOS（Apple Silicon 和 Intel）和 Windows。Linux 支持正在计划中。
+- macOS 12+（Apple Silicon 和 Intel）
+- Windows 10+（64 位）
 
-## 设置
+## 安装与配置
 
-### 出现"未找到 Node.js"错误
+### 首次启动提示找不到 Node.js
 
-CodePilot 需要 Node.js 18 或更高版本。设置向导会提供自动安装，你也可以从 [nodejs.org](https://nodejs.org) 手动安装。
+CodePilot 需要 Node.js 18+。首次启动的设置向导会检测并提供自动安装。你也可以从 [nodejs.org](https://nodejs.org) 手动安装。
 
 ### 如何获取 API 密钥？
 
-- **Anthropic**：在 [console.anthropic.com](https://console.anthropic.com) 注册并创建 API 密钥
-- **OpenAI**：在 [platform.openai.com](https://platform.openai.com) 注册并创建 API 密钥
-- **Google AI**：从 [aistudio.google.com](https://aistudio.google.com) 获取密钥
+- **Anthropic** — [console.anthropic.com](https://console.anthropic.com)
+- **OpenRouter** — [openrouter.ai](https://openrouter.ai)
+- **智谱 GLM** — [open.bigmodel.cn](https://open.bigmodel.cn)
+- **Kimi** — [platform.moonshot.cn](https://platform.moonshot.cn)
+- **火山引擎** — [console.volcengine.com](https://console.volcengine.com)
+- **阿里云百炼** — [dashscope.console.aliyun.com](https://dashscope.console.aliyun.com)
 
-### 可以使用本地 LLM 吗？
+### 可以使用本地大模型吗？
 
-可以，如果它提供 OpenAI 兼容的 API 端点。将其配置为 OpenAI 提供商，使用本地服务器的 URL 即可。
+可以。任何提供 OpenAI 兼容 API 的本地服务（Ollama、LM Studio、vLLM 等）都可以作为自定义 API 服务商接入。在服务商设置中选择自定义 API，填写本地服务的 URL。
 
-## 使用
+### macOS 提示"无法验证开发者"
 
-### 如何切换提供商？
+前往 **系统设置 > 隐私与安全性**，找到 CodePilot 相关提示，点击"仍要打开"。
 
-使用聊天头部的提供商选择器。每个对话会记住其提供商，你可以在对话中途切换。
+## 使用问题
 
-### 如何使用 MCP 插件？
+### 代码 / 计划 / 问答三种模式有什么区别？
 
-从侧边栏打开 **MCP** 添加 MCP 服务器。连接后，其工具会自动对 Claude 可用。
+- **代码** — Claude 可以读写文件、执行命令，适合日常开发
+- **计划** — Claude 只分析方案不执行操作，适合规划阶段
+- **问答** — Claude 只回答问题不使用工具，适合纯问答
 
-### 可以在手机上使用 CodePilot 吗？
+### 如何在手机上与 Claude 对话？
 
-不能直接使用，但你可以使用[消息桥接](/zh/docs/bridge)将对话桥接到 Discord、Telegram、飞书或 QQ，在手机上交互。
+使用 [消息桥接](/zh/docs/bridge) 功能，将 CodePilot 连接到 Telegram、Discord、飞书或 QQ。桌面端保持运行即可从手机上与 Claude 对话。
 
-## 故障排除
+### Claude 没有响应怎么办？
 
-### 应用无法启动
+1. 检查 API 密钥是否有效且有余额
+2. 检查网络连接
+3. 尝试切换到其他服务商
+4. 查看 MCP 页面是否有服务器报错
+5. 重启 CodePilot
 
-1. 确保已安装 Node.js 18+
-2. 尝试删除应用数据目录并重新启动
-3. 检查应用数据目录中的日志文件
+### 如何导入 CLI 的对话历史？
 
-### Claude 没有响应
+在对话页面使用导入功能，可以搜索并导入 Claude Code CLI 中的历史会话。
 
-1. 检查 API 密钥是否有效且有足够额度
-2. 验证网络连接
-3. 尝试切换到其他提供商以定位问题
-4. 检查侧边栏 **MCP** 页面是否有 MCP 服务器错误
+## 反馈与支持
 
 ### 如何报告 Bug？
 
-在 [GitHub](https://github.com/op7418/CodePilot/issues) 上创建 issue，包含：
-- 你的操作系统和 CodePilot 版本
+在 [GitHub Issues](https://github.com/op7418/CodePilot/issues) 提交，请包含：
+
+- 操作系统和 CodePilot 版本
 - 复现步骤
-- 日志中的相关错误信息
+- 相关错误日志
