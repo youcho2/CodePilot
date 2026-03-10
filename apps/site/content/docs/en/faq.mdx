@@ -3,68 +3,80 @@ title: FAQ
 description: Frequently asked questions about CodePilot.
 ---
 
+# FAQ
+
 ## General
 
 ### What is CodePilot?
 
-CodePilot is a native desktop GUI client for Claude Code. It provides a graphical interface for the Claude Code CLI, with additional features like multi-provider support, a plugin system, message bridging, and theme customization.
+CodePilot is a desktop workspace for Claude Code. It provides a graphical interface on top of the Claude Code CLI, integrating multi-provider management, MCP plugins, skills, message bridging, and the assistant workspace. Built with Electron + Next.js.
+
+### What is the relationship between CodePilot and Claude Code CLI?
+
+CodePilot is a graphical frontend for the Claude Code CLI. It calls Claude Code CLI capabilities through the Claude Agent SDK while adding GUI-exclusive features on top (multi-provider switching, bridging, gallery, etc.). You need to install the Claude Code CLI before using CodePilot.
 
 ### Is CodePilot free?
 
-CodePilot is open source and free to use. You need your own API key from a supported provider (Anthropic, OpenAI, Google, AWS Bedrock, etc.) to use it.
+CodePilot is open source and free to use. You need your own API key from a supported provider (Anthropic, OpenRouter, or others). API usage fees are charged by the provider.
 
-### What platforms are supported?
+### What operating systems are supported?
 
-CodePilot supports macOS (Apple Silicon and Intel) and Windows. Linux support is planned.
+- macOS 12+ (Apple Silicon and Intel)
+- Windows 10+ (64-bit)
 
-## Setup
+## Installation & Configuration
 
-### I get a "Node.js not found" error
+### "Node.js not found" on first launch
 
-CodePilot requires Node.js 18 or later. The setup wizard will offer to install it for you, or you can install it manually from [nodejs.org](https://nodejs.org).
+CodePilot requires Node.js 18+. The first-launch setup wizard will detect this and offer automatic installation. You can also install manually from [nodejs.org](https://nodejs.org).
 
 ### How do I get an API key?
 
-- **Anthropic**: Sign up at [console.anthropic.com](https://console.anthropic.com) and create an API key
-- **OpenAI**: Sign up at [platform.openai.com](https://platform.openai.com) and create an API key
-- **Google AI**: Get a key from [aistudio.google.com](https://aistudio.google.com)
+- **Anthropic** — [console.anthropic.com](https://console.anthropic.com)
+- **OpenRouter** — [openrouter.ai](https://openrouter.ai)
+- **GLM (Zhipu)** — [open.bigmodel.cn](https://open.bigmodel.cn)
+- **Kimi** — [platform.moonshot.cn](https://platform.moonshot.cn)
+- **Volcengine** — [console.volcengine.com](https://console.volcengine.com)
+- **Alibaba Cloud Bailian** — [dashscope.console.aliyun.com](https://dashscope.console.aliyun.com)
 
 ### Can I use a local LLM?
 
-Yes, if it provides an OpenAI-compatible API endpoint. Configure it as an OpenAI provider with your local server's URL.
+Yes. Any local service that provides an OpenAI-compatible API (Ollama, LM Studio, vLLM, etc.) can be connected as a custom API provider. Select Custom API in the provider settings and enter your local service URL.
+
+### macOS says "cannot verify the developer"
+
+Go to **System Settings > Privacy & Security**, find the CodePilot prompt, and click "Open Anyway".
 
 ## Usage
 
-### How do I switch between providers?
+### What are the differences between Code / Plan / Q&A modes?
 
-Use the provider selector in the chat header. Each conversation remembers its provider, and you can switch mid-conversation.
+- **Code** — Claude can read and write files and execute commands; suitable for everyday development
+- **Plan** — Claude only analyzes and proposes solutions without executing actions; suitable for the planning phase
+- **Q&A** — Claude only answers questions without using tools; suitable for pure Q&A
 
-### How do I use MCP plugins?
+### How do I chat with Claude from my phone?
 
-Open **MCP** from the sidebar to add MCP servers. Once connected, their tools are automatically available to Claude.
+Use the [Message Bridge](/docs/bridge) feature to connect CodePilot to Telegram, Discord, Feishu, or QQ. Keep the desktop app running and you can chat with Claude from your phone.
 
-### Can I use CodePilot on my phone?
+### What should I do if Claude isn't responding?
 
-Not directly, but you can use the [Message Bridge](/docs/bridge) to bridge conversations to Discord, Telegram, Feishu, or QQ and interact from your phone.
+1. Check that your API key is valid and has sufficient balance
+2. Check your internet connection
+3. Try switching to a different provider
+4. Check the MCP page for any server errors
+5. Restart CodePilot
 
-## Troubleshooting
+### How do I import CLI conversation history?
 
-### The app won't start
+Use the import feature on the chat page to search for and import historical sessions from the Claude Code CLI.
 
-1. Make sure Node.js 18+ is installed
-2. Try deleting the app data directory and relaunching
-3. Check the logs in the app data directory for error messages
-
-### Claude isn't responding
-
-1. Check that your API key is valid and has sufficient credits
-2. Verify your internet connection
-3. Try switching to a different provider to isolate the issue
-4. Check the **MCP** page in the sidebar for any MCP server errors that might be blocking
+## Feedback & Support
 
 ### How do I report a bug?
 
-Open an issue on [GitHub](https://github.com/op7418/CodePilot/issues) with:
+Open an issue on [GitHub Issues](https://github.com/op7418/CodePilot/issues). Please include:
+
 - Your OS and CodePilot version
-- Steps to reproduce the issue
-- Any relevant error messages from the logs
+- Steps to reproduce
+- Relevant error logs
