@@ -3,8 +3,7 @@
 import { useState, useCallback, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { HugeiconsIcon } from "@hugeicons/react";
-import { Loading02Icon, CheckmarkCircle02Icon, Alert02Icon } from "@hugeicons/core-free-icons";
+import { SpinnerGap, CheckCircle, Warning } from "@phosphor-icons/react";
 import { useTranslation } from "@/hooks/useTranslation";
 
 interface TelegramBridgeSettings {
@@ -214,9 +213,9 @@ export function TelegramBridgeSection() {
                 className="shrink-0"
               >
                 {detecting ? (
-                  <HugeiconsIcon
-                    icon={Loading02Icon}
-                    className="h-3.5 w-3.5 animate-spin mr-1.5"
+                  <SpinnerGap
+                    size={14}
+                    className="animate-spin mr-1.5"
                   />
                 ) : null}
                 {t("telegram.detectChatId")}
@@ -243,9 +242,9 @@ export function TelegramBridgeSection() {
             disabled={verifying || !botToken}
           >
             {verifying ? (
-              <HugeiconsIcon
-                icon={Loading02Icon}
-                className="h-3.5 w-3.5 animate-spin mr-1.5"
+              <SpinnerGap
+                size={14}
+                className="animate-spin mr-1.5"
               />
             ) : null}
             {t("telegram.verify")}
@@ -260,10 +259,7 @@ export function TelegramBridgeSection() {
                 : "bg-red-500/10 text-red-600 dark:text-red-400"
             }`}
           >
-            <HugeiconsIcon
-              icon={verifyResult.ok ? CheckmarkCircle02Icon : Alert02Icon}
-              className="h-4 w-4 shrink-0"
-            />
+            {verifyResult.ok ? <CheckCircle size={16} className="shrink-0" /> : <Warning size={16} className="shrink-0" />}
             {verifyResult.message}
           </div>
         )}

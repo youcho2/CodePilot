@@ -8,8 +8,7 @@ import {
   MessageResponse,
 } from '@/components/ai-elements/message';
 import { ToolActionsGroup } from '@/components/ai-elements/tool-actions-group';
-import { HugeiconsIcon } from "@hugeicons/react";
-import { Copy01Icon, Tick01Icon, ArrowDown01Icon, ArrowUp01Icon } from "@hugeicons/core-free-icons";
+import { Copy, Check, CaretDown, CaretUp } from "@phosphor-icons/react";
 import { FileAttachmentDisplay } from './FileAttachmentDisplay';
 import { ImageGenConfirmation } from './ImageGenConfirmation';
 import { ImageGenCard } from './ImageGenCard';
@@ -288,9 +287,9 @@ function CopyButton({ text }: { text: string }) {
       title="Copy"
     >
       {copied ? (
-        <HugeiconsIcon icon={Tick01Icon} className="h-3 w-3 text-green-500" />
+        <Check size={12} className="text-green-500" />
       ) : (
-        <HugeiconsIcon icon={Copy01Icon} className="h-3 w-3" />
+        <Copy size={12} />
       )}
     </button>
   );
@@ -340,11 +339,6 @@ export const MessageItem = memo(function MessageItem({ message }: MessageItemPro
     return { files: [] as FileAttachment[], displayText: text };
   }, [text, isUser]);
 
-  // Hide image-gen system notices — they exist in DB for Claude's context but shouldn't render
-  if (isUser && message.content.startsWith('[__IMAGE_GEN_NOTICE__')) {
-    return null;
-  }
-
   useEffect(() => {
     if (isUser && contentRef.current) {
       setIsOverflowing(contentRef.current.scrollHeight > COLLAPSE_HEIGHT);
@@ -360,6 +354,11 @@ export const MessageItem = memo(function MessageItem({ message }: MessageItemPro
       return null;
     }
   }, [message.token_usage]);
+
+  // Hide image-gen system notices — they exist in DB for Claude's context but shouldn't render
+  if (isUser && message.content.startsWith('[__IMAGE_GEN_NOTICE__')) {
+    return null;
+  }
 
   const timestamp = parseDBDate(message.created_at).toLocaleTimeString([], {
     hour: '2-digit',
@@ -413,12 +412,12 @@ export const MessageItem = memo(function MessageItem({ message }: MessageItemPro
                 >
                   {isExpanded ? (
                     <>
-                      <HugeiconsIcon icon={ArrowUp01Icon} className="h-3 w-3" />
+                      <CaretUp size={12} />
                       <span>收起</span>
                     </>
                   ) : (
                     <>
-                      <HugeiconsIcon icon={ArrowDown01Icon} className="h-3 w-3" />
+                      <CaretDown size={12} />
                       <span>展开</span>
                     </>
                   )}

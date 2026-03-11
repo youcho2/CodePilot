@@ -3,19 +3,18 @@
 import { usePathname, useRouter } from "next/navigation";
 import Link from "next/link";
 import { useEffect, useState, useCallback, useMemo, useRef } from "react";
-import { HugeiconsIcon } from "@hugeicons/react";
 import {
-  Delete02Icon,
-  Search01Icon,
-  Notification02Icon,
-  FileImportIcon,
-  Folder01Icon,
-  ArrowDown01Icon,
-  ArrowRight01Icon,
-  PlusSignIcon,
-  FolderOpenIcon,
-  AiUserIcon,
-} from "@hugeicons/core-free-icons";
+  Trash,
+  MagnifyingGlass,
+  Bell,
+  FileArrowDown,
+  Folder,
+  CaretDown,
+  CaretRight,
+  Plus,
+  FolderOpen,
+  UserCircle,
+} from "@phosphor-icons/react";
 import { Columns2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -392,7 +391,7 @@ export function ChatListPanel({ open, width }: ChatListPanelProps) {
           disabled={creatingChat}
           onClick={handleNewChat}
         >
-          <HugeiconsIcon icon={PlusSignIcon} className="h-3.5 w-3.5" />
+          <Plus size={14} />
           {t('chatList.newConversation')}
         </Button>
         <Tooltip>
@@ -403,7 +402,7 @@ export function ChatListPanel({ open, width }: ChatListPanelProps) {
               className="h-8 w-8 shrink-0"
               onClick={() => openFolderPicker()}
             >
-              <HugeiconsIcon icon={FolderOpenIcon} className="h-3.5 w-3.5" />
+              <FolderOpen size={14} />
               <span className="sr-only">{t('chatList.addProjectFolder')}</span>
             </Button>
           </TooltipTrigger>
@@ -414,9 +413,9 @@ export function ChatListPanel({ open, width }: ChatListPanelProps) {
       {/* Search */}
       <div className="px-3 pb-2">
         <div className="relative">
-          <HugeiconsIcon
-            icon={Search01Icon}
-            className="absolute left-2.5 top-1/2 h-3 w-3 -translate-y-1/2 text-muted-foreground"
+          <MagnifyingGlass
+            size={12}
+            className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground"
           />
           <Input
             placeholder={t('chatList.searchSessions')}
@@ -435,7 +434,7 @@ export function ChatListPanel({ open, width }: ChatListPanelProps) {
           className="w-full justify-start gap-2 h-7 text-xs text-muted-foreground hover:text-foreground"
           onClick={() => setImportDialogOpen(true)}
         >
-          <HugeiconsIcon icon={FileImportIcon} className="h-3 w-3" />
+          <FileArrowDown size={12} />
           {t('chatList.importFromCli')}
         </Button>
       </div>
@@ -487,7 +486,7 @@ export function ChatListPanel({ open, width }: ChatListPanelProps) {
                       )}
                       {needsApproval && (
                         <span className="flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-full bg-amber-500/10">
-                          <HugeiconsIcon icon={Notification02Icon} className="h-2.5 w-2.5 text-amber-500" />
+                          <Bell size={10} className="text-amber-500" />
                         </span>
                       )}
                       <div className="flex-1 min-w-0">
@@ -555,19 +554,21 @@ export function ChatListPanel({ open, width }: ChatListPanelProps) {
                         }
                         onMouseLeave={() => setHoveredFolder(null)}
                       >
-                    <HugeiconsIcon
-                      icon={isCollapsed ? ArrowRight01Icon : ArrowDown01Icon}
-                      className="h-3.5 w-3.5 shrink-0 text-muted-foreground"
-                    />
-                    <HugeiconsIcon
-                      icon={isCollapsed ? Folder01Icon : FolderOpenIcon}
-                      className="h-4 w-4 shrink-0 text-muted-foreground"
-                    />
+                    {isCollapsed ? (
+                      <CaretRight size={14} className="shrink-0 text-muted-foreground" />
+                    ) : (
+                      <CaretDown size={14} className="shrink-0 text-muted-foreground" />
+                    )}
+                    {isCollapsed ? (
+                      <Folder size={16} className="shrink-0 text-muted-foreground" />
+                    ) : (
+                      <FolderOpen size={16} className="shrink-0 text-muted-foreground" />
+                    )}
                     <span className="flex-1 truncate text-[13px] font-medium text-sidebar-foreground">
                       {group.displayName}
                     </span>
                     {workspacePath && group.workingDirectory === workspacePath && (
-                      <HugeiconsIcon icon={AiUserIcon} className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                      <UserCircle size={14} className="shrink-0 text-muted-foreground" />
                     )}
                     {/* New chat in project button (on hover) */}
                     {group.workingDirectory !== "" && (
@@ -588,10 +589,7 @@ export function ChatListPanel({ open, width }: ChatListPanelProps) {
                               )
                             }
                           >
-                            <HugeiconsIcon
-                              icon={PlusSignIcon}
-                              className="h-3.5 w-3.5"
-                            />
+                            <Plus size={14} />
                             <span className="sr-only">
                               New chat in {group.displayName}
                             </span>
@@ -681,7 +679,7 @@ export function ChatListPanel({ open, width }: ChatListPanelProps) {
                                     "flex h-3.5 w-3.5 items-center justify-center rounded-full bg-amber-500/10 transition-opacity",
                                     isHovered && canSplit ? "opacity-0" : "opacity-100"
                                   )}>
-                                    <HugeiconsIcon icon={Notification02Icon} className="h-2.5 w-2.5 text-amber-500" />
+                                    <Bell size={10} className="text-amber-500" />
                                   </span>
                                 )}
                               </span>
@@ -706,7 +704,7 @@ export function ChatListPanel({ open, width }: ChatListPanelProps) {
                                   onClick={(e) => handleDeleteSession(e, session.id)}
                                   disabled={isDeleting}
                                 >
-                                  <HugeiconsIcon icon={Delete02Icon} className="h-3.5 w-3.5" />
+                                  <Trash size={14} />
                                 </button>
                               </div>
                             </Link>

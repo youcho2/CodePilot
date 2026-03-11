@@ -4,8 +4,7 @@ import { useState, useEffect, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
-import { HugeiconsIcon } from "@hugeicons/react";
-import { PlusSignIcon, ListViewIcon, CodeIcon, Loading02Icon, RefreshIcon, Wifi01Icon } from "@hugeicons/core-free-icons";
+import { Plus, List, Code, SpinnerGap, ArrowsClockwise, WifiHigh } from "@phosphor-icons/react";
 import { McpServerList } from "@/components/plugins/McpServerList";
 import { McpServerEditor } from "@/components/plugins/McpServerEditor";
 import { ConfigEditor } from "@/components/plugins/ConfigEditor";
@@ -213,7 +212,7 @@ export function McpManager() {
           </p>
         </div>
         <Button size="sm" className="gap-1" onClick={handleAdd}>
-          <HugeiconsIcon icon={PlusSignIcon} className="h-3.5 w-3.5" />
+          <Plus size={14} />
           {t('mcp.addServer')}
         </Button>
       </div>
@@ -227,11 +226,11 @@ export function McpManager() {
       <Tabs value={tab} onValueChange={(v) => setTab(v as "list" | "json")}>
         <TabsList>
           <TabsTrigger value="list" className="gap-1.5">
-            <HugeiconsIcon icon={ListViewIcon} className="h-3.5 w-3.5" />
+            <List size={14} />
             {t('mcp.listTab')}
           </TabsTrigger>
           <TabsTrigger value="json" className="gap-1.5">
-            <HugeiconsIcon icon={CodeIcon} className="h-3.5 w-3.5" />
+            <Code size={14} />
             {t('mcp.jsonTab')}
           </TabsTrigger>
         </TabsList>
@@ -239,7 +238,7 @@ export function McpManager() {
         <TabsContent value="list" className="mt-4">
           {loading ? (
             <div className="flex items-center justify-center gap-2 py-12 text-muted-foreground">
-              <HugeiconsIcon icon={Loading02Icon} className="h-4 w-4 animate-spin" />
+              <SpinnerGap size={16} className="animate-spin" />
               <p className="text-sm">{t('mcp.loadingServers')}</p>
             </div>
           ) : (
@@ -283,7 +282,7 @@ export function McpManager() {
       <div className="mt-6 border-t pt-4">
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-2">
-            <HugeiconsIcon icon={Wifi01Icon} className="h-4 w-4 text-muted-foreground" />
+            <WifiHigh size={16} className="text-muted-foreground" />
             <h4 className="text-sm font-medium">{t('mcp.runtimeStatus' as TranslationKey)}</h4>
           </div>
           <Button
@@ -293,7 +292,7 @@ export function McpManager() {
             onClick={fetchRuntimeStatus}
             disabled={runtimeLoading}
           >
-            <HugeiconsIcon icon={runtimeLoading ? Loading02Icon : RefreshIcon} className={`h-3 w-3 ${runtimeLoading ? 'animate-spin' : ''}`} />
+            {runtimeLoading ? <SpinnerGap size={12} className="animate-spin" /> : <ArrowsClockwise size={12} />}
             {t('mcp.refresh' as TranslationKey)}
           </Button>
         </div>

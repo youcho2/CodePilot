@@ -4,8 +4,7 @@ import { useEffect, useState, useRef, useCallback, use } from 'react';
 import Link from 'next/link';
 import type { Message, MessagesResponse, ChatSession } from '@/types';
 import { ChatView } from '@/components/chat/ChatView';
-import { HugeiconsIcon } from "@hugeicons/react";
-import { Loading02Icon, PencilEdit01Icon } from "@hugeicons/core-free-icons";
+import { SpinnerGap, PencilSimple } from "@phosphor-icons/react";
 import { Input } from '@/components/ui/input';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { usePanel } from '@/hooks/usePanel';
@@ -156,7 +155,7 @@ export default function ChatSessionPage({ params }: ChatSessionPageProps) {
   if (loading) {
     return (
       <div className="flex h-full items-center justify-center">
-        <HugeiconsIcon icon={Loading02Icon} className="h-8 w-8 animate-spin text-muted-foreground" />
+        <SpinnerGap size={32} className="animate-spin text-muted-foreground" />
       </div>
     );
   }
@@ -237,7 +236,7 @@ export default function ChatSessionPage({ params }: ChatSessionPageProps) {
                 onClick={handleStartEditTitle}
                 className="opacity-0 group-hover:opacity-100 transition-opacity shrink-0 p-0.5 rounded hover:bg-muted"
               >
-                <HugeiconsIcon icon={PencilEdit01Icon} className="h-3 w-3 text-muted-foreground" />
+                <PencilSimple size={12} className="text-muted-foreground" />
               </button>
             </div>
           )}

@@ -4,8 +4,7 @@ import { useState } from 'react';
 import { Input } from '@/components/ui/input';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { PluginCard, type SkillInfo } from './PluginCard';
-import { HugeiconsIcon } from "@hugeicons/react";
-import { Search01Icon, GlobeIcon, FolderOpenIcon, Plug01Icon } from "@hugeicons/core-free-icons";
+import { MagnifyingGlass, Globe, FolderOpen, Plug } from "@phosphor-icons/react";
 
 interface PluginListProps {
   plugins: SkillInfo[];
@@ -31,7 +30,7 @@ export function PluginList({ plugins, onSelect }: PluginListProps) {
   return (
     <div className="space-y-4">
       <div className="relative">
-        <HugeiconsIcon icon={Search01Icon} className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+        <MagnifyingGlass size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
         <Input
           value={search}
           onChange={(e) => setSearch(e.target.value)}
@@ -49,16 +48,16 @@ export function PluginList({ plugins, onSelect }: PluginListProps) {
             All ({plugins.length})
           </TabsTrigger>
           <TabsTrigger value="global" className="gap-1.5">
-            <HugeiconsIcon icon={GlobeIcon} className="h-3.5 w-3.5" />
+            <Globe size={14} />
             Global ({globalCount})
           </TabsTrigger>
           <TabsTrigger value="project" className="gap-1.5">
-            <HugeiconsIcon icon={FolderOpenIcon} className="h-3.5 w-3.5" />
+            <FolderOpen size={14} />
             Project ({projectCount})
           </TabsTrigger>
           {pluginCount > 0 && (
             <TabsTrigger value="plugin" className="gap-1.5">
-              <HugeiconsIcon icon={Plug01Icon} className="h-3.5 w-3.5" />
+              <Plug size={14} />
               Plugin ({pluginCount})
             </TabsTrigger>
           )}

@@ -1,20 +1,19 @@
 'use client';
 
-import { useState } from 'react';
-import { HugeiconsIcon } from "@hugeicons/react";
-import type { IconSvgElement } from "@hugeicons/react";
+import { useState, createElement } from 'react';
+import type { Icon } from "@phosphor-icons/react";
 import {
-  File01Icon,
-  FileEditIcon,
-  CommandLineIcon,
-  Search01Icon,
-  Wrench01Icon,
-  ArrowDown01Icon,
-  ArrowRight01Icon,
-  Loading02Icon,
-  CheckmarkCircle02Icon,
-  CancelCircleIcon,
-} from "@hugeicons/core-free-icons";
+  File,
+  NotePencil,
+  Terminal,
+  MagnifyingGlass,
+  Wrench,
+  CaretDown,
+  CaretRight,
+  SpinnerGap,
+  CheckCircle,
+  XCircle,
+} from "@phosphor-icons/react";
 import { cn } from '@/lib/utils';
 import { CodeBlock } from './CodeBlock';
 
@@ -44,13 +43,13 @@ function getToolCategory(name: string): 'read' | 'write' | 'bash' | 'search' | '
   return 'other';
 }
 
-function getToolIcon(category: ReturnType<typeof getToolCategory>): IconSvgElement {
+function getToolIcon(category: ReturnType<typeof getToolCategory>): Icon {
   switch (category) {
-    case 'read': return File01Icon;
-    case 'write': return FileEditIcon;
-    case 'bash': return CommandLineIcon;
-    case 'search': return Search01Icon;
-    case 'other': return Wrench01Icon;
+    case 'read': return File;
+    case 'write': return NotePencil;
+    case 'bash': return Terminal;
+    case 'search': return MagnifyingGlass;
+    case 'other': return Wrench;
   }
 }
 
@@ -101,13 +100,13 @@ function StatusIndicator({ status }: { status: ToolStatus }) {
       return (
         <span className="relative flex h-3.5 w-3.5 items-center justify-center">
           <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-primary opacity-30" />
-          <HugeiconsIcon icon={Loading02Icon} className="relative h-3.5 w-3.5 animate-spin text-primary" />
+          <SpinnerGap size={14} className="relative animate-spin text-primary" />
         </span>
       );
     case 'success':
-      return <HugeiconsIcon icon={CheckmarkCircle02Icon} className="h-3.5 w-3.5 text-green-500" />;
+      return <CheckCircle size={14} className="text-green-500" />;
     case 'error':
-      return <HugeiconsIcon icon={CancelCircleIcon} className="h-3.5 w-3.5 text-red-500" />;
+      return <XCircle size={14} className="text-red-500" />;
   }
 }
 
@@ -152,7 +151,7 @@ export function ToolCallBlock({
 }: ToolCallBlockProps) {
   const [expanded, setExpanded] = useState(false);
   const category = getToolCategory(name);
-  const toolIconData = getToolIcon(category);
+  const toolIcon = getToolIcon(category);
   const summary = getToolSummary(name, input, category);
   const filePath = getFilePath(input);
 
@@ -173,7 +172,7 @@ export function ToolCallBlock({
             )}
             {!result && status === 'running' && (
               <div className="flex items-center gap-2 py-2 text-xs text-muted-foreground">
-                <HugeiconsIcon icon={Loading02Icon} className="h-3 w-3 animate-spin" />
+                <SpinnerGap size={12} className="animate-spin" />
                 Reading file...
               </div>
             )}
@@ -224,7 +223,7 @@ export function ToolCallBlock({
             )}
             {!result && status === 'running' && (
               <div className="flex items-center gap-2 py-2 text-xs text-muted-foreground">
-                <HugeiconsIcon icon={Loading02Icon} className="h-3 w-3 animate-spin" />
+                <SpinnerGap size={12} className="animate-spin" />
                 Executing...
               </div>
             )}
@@ -303,18 +302,18 @@ export function ToolCallBlock({
         )}
       >
         {expanded ? (
-          <HugeiconsIcon icon={ArrowDown01Icon} className="h-3 w-3 shrink-0 text-muted-foreground" />
+          <CaretDown size={12} className="shrink-0 text-muted-foreground" />
         ) : (
-          <HugeiconsIcon icon={ArrowRight01Icon} className="h-3 w-3 shrink-0 text-muted-foreground" />
+          <CaretRight size={12} className="shrink-0 text-muted-foreground" />
         )}
-        <HugeiconsIcon icon={toolIconData} className={cn(
-          "h-3.5 w-3.5 shrink-0",
+        {createElement(toolIcon, { size: 14, className: cn(
+          "shrink-0",
           category === 'read' && "text-primary",
           category === 'write' && "text-amber-500",
           category === 'bash' && "text-green-500",
           category === 'search' && "text-primary",
           category === 'other' && "text-muted-foreground",
-        )} />
+        ) })}
         <span className="font-mono text-xs truncate flex-1 text-foreground/80">{summary}</span>
         <div className="flex items-center gap-2 shrink-0 ml-2">
           {duration !== undefined && (

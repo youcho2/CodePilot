@@ -1,24 +1,23 @@
 'use client';
 
-import { useState, useMemo, useRef } from 'react';
+import { useState, useMemo, useRef, createElement } from 'react';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { useThemeFamily } from '@/lib/theme/context';
 import { resolveCodeTheme, resolvePrismStyle } from '@/lib/theme/code-themes';
 import { useTheme } from 'next-themes';
-import { HugeiconsIcon } from "@hugeicons/react";
-import type { IconSvgElement } from "@hugeicons/react";
+import type { Icon } from "@phosphor-icons/react";
 import {
-  Copy01Icon,
-  Tick01Icon,
-  ArrowDown01Icon,
-  ArrowUp01Icon,
-  SourceCodeIcon,
-  CommandLineIcon,
-  CodeIcon,
-  File01Icon,
-  HashtagIcon,
-} from "@hugeicons/core-free-icons";
+  Copy,
+  Check,
+  CaretDown,
+  CaretUp,
+  FileCode,
+  Terminal,
+  Code,
+  File,
+  Hash,
+} from "@phosphor-icons/react";
 import { cn } from '@/lib/utils';
 
 const COLLAPSE_THRESHOLD = 20;
@@ -26,14 +25,14 @@ const VISIBLE_LINES = 10;
 
 const TERMINAL_LANGUAGES = new Set(['bash', 'sh', 'shell', 'terminal', 'zsh', 'console']);
 
-function getLanguageIcon(language: string): IconSvgElement {
+function getLanguageIcon(language: string): Icon {
   const lower = language.toLowerCase();
-  if (TERMINAL_LANGUAGES.has(lower)) return CommandLineIcon;
-  if (['typescript', 'tsx', 'javascript', 'jsx'].includes(lower)) return CodeIcon;
-  if (['json', 'yaml', 'yml', 'toml', 'xml'].includes(lower)) return CodeIcon;
-  if (['python', 'ruby', 'go', 'rust', 'java', 'c', 'cpp'].includes(lower)) return HashtagIcon;
-  if (['css', 'scss', 'html'].includes(lower)) return File01Icon;
-  return SourceCodeIcon;
+  if (TERMINAL_LANGUAGES.has(lower)) return Terminal;
+  if (['typescript', 'tsx', 'javascript', 'jsx'].includes(lower)) return Code;
+  if (['json', 'yaml', 'yml', 'toml', 'xml'].includes(lower)) return Code;
+  if (['python', 'ruby', 'go', 'rust', 'java', 'c', 'cpp'].includes(lower)) return Hash;
+  if (['css', 'scss', 'html'].includes(lower)) return File;
+  return FileCode;
 }
 
 interface CodeBlockProps {
@@ -126,7 +125,7 @@ export function CodeBlock({
     }
   };
 
-  const languageIconData = getLanguageIcon(language);
+  const languageIcon = getLanguageIcon(language);
 
   const theme = useCodeBlockTheme(isTerminal, isDark);
 
@@ -145,10 +144,10 @@ export function CodeBlock({
           : "bg-muted text-muted-foreground"
       )}>
         <div className="flex items-center gap-2 min-w-0">
-          <HugeiconsIcon icon={languageIconData} className={cn(
-            "h-3.5 w-3.5 shrink-0",
+          {createElement(languageIcon, { size: 14, className: cn(
+            "shrink-0",
             isTerminal ? "text-green-400" : "text-muted-foreground",
-          )} />
+          ) })}
           {filename && (
             <span className={cn(
               "truncate font-medium",
@@ -176,12 +175,12 @@ export function CodeBlock({
           >
             {copied ? (
               <>
-                <HugeiconsIcon icon={Tick01Icon} className="h-3 w-3" />
+                <Check size={12} />
                 <span>Copied</span>
               </>
             ) : (
               <>
-                <HugeiconsIcon icon={Copy01Icon} className="h-3 w-3" />
+                <Copy size={12} />
                 <span>Copy</span>
               </>
             )}
@@ -198,12 +197,12 @@ export function CodeBlock({
           >
             {copiedMarkdown ? (
               <>
-                <HugeiconsIcon icon={Tick01Icon} className="h-3 w-3" />
+                <Check size={12} />
                 <span>Copied</span>
               </>
             ) : (
               <>
-                <HugeiconsIcon icon={SourceCodeIcon} className="h-3 w-3" />
+                <FileCode size={12} />
                 <span>Markdown</span>
               </>
             )}
@@ -269,12 +268,12 @@ export function CodeBlock({
         >
           {expanded ? (
             <>
-              <HugeiconsIcon icon={ArrowUp01Icon} className="h-3 w-3" />
+              <CaretUp size={12} />
               <span>Collapse</span>
             </>
           ) : (
             <>
-              <HugeiconsIcon icon={ArrowDown01Icon} className="h-3 w-3" />
+              <CaretDown size={12} />
               <span>Expand all {totalLines} lines</span>
             </>
           )}

@@ -79,6 +79,8 @@
   --sidebar-accent-foreground: oklch(0.216 0.006 56.043);
   --sidebar-border: oklch(0.923 0.003 48.717);
   --sidebar-ring: oklch(0.546 0.245 262.881);
+  --user-bubble: oklch(0.22 0.005 250);
+  --user-bubble-foreground: oklch(0.985 0.001 106.423);
 }
 
 .dark {
@@ -113,6 +115,8 @@
   --sidebar-accent-foreground: oklch(0.985 0.001 106.423);
   --sidebar-border: oklch(1 0 0 / 10%);
   --sidebar-ring: oklch(0.623 0.214 259.815);
+  --user-bubble: oklch(0.90 0.003 106);
+  --user-bubble-foreground: oklch(0.147 0.004 49.25);
 }
 
 @layer base {
@@ -196,14 +200,4 @@
   .prose table th {
     font-weight: 600;
   }
-}
-
-/* Global icon stroke weight — make Hugeicons strokes slightly thicker */
-svg.hugeicons,
-svg.hugeicons path,
-svg.hugeicons line,
-svg.hugeicons circle,
-svg.hugeicons polyline,
-svg.hugeicons rect {
-  stroke-width: 2;
 }

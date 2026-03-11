@@ -1,9 +1,8 @@
 "use client";
 
 import { useState, useCallback, useSyncExternalStore } from "react";
-import { HugeiconsIcon } from "@hugeicons/react";
-import type { IconSvgElement } from "@hugeicons/react";
-import { Wifi01Icon, TelegramIcon, BubbleChatIcon, GameController01Icon, MessageMultiple02Icon } from "@hugeicons/core-free-icons";
+import { WifiHigh, TelegramLogo, ChatTeardrop, GameController, ChatsCircle } from "@phosphor-icons/react";
+import type { Icon } from "@phosphor-icons/react";
 import { cn } from "@/lib/utils";
 import { BridgeSection } from "./BridgeSection";
 import { TelegramBridgeSection } from "./TelegramBridgeSection";
@@ -18,15 +17,15 @@ type Section = "bridge" | "telegram" | "feishu" | "discord" | "qq";
 interface SidebarItem {
   id: Section;
   label: string;
-  icon: IconSvgElement;
+  icon: Icon;
 }
 
 const sidebarItems: SidebarItem[] = [
-  { id: "bridge", label: "Bridge", icon: Wifi01Icon },
-  { id: "telegram", label: "Telegram", icon: TelegramIcon },
-  { id: "feishu", label: "Feishu", icon: BubbleChatIcon },
-  { id: "discord", label: "Discord", icon: GameController01Icon },
-  { id: "qq", label: "QQ", icon: MessageMultiple02Icon },
+  { id: "bridge", label: "Bridge", icon: WifiHigh },
+  { id: "telegram", label: "Telegram", icon: TelegramLogo },
+  { id: "feishu", label: "Feishu", icon: ChatTeardrop },
+  { id: "discord", label: "Discord", icon: GameController },
+  { id: "qq", label: "QQ", icon: ChatsCircle },
 ];
 
 function getSectionFromHash(): Section {
@@ -86,7 +85,7 @@ export function BridgeLayout() {
                   : "text-muted-foreground hover:bg-accent/50 hover:text-foreground"
               )}
             >
-              <HugeiconsIcon icon={item.icon} className="h-4 w-4 shrink-0" />
+              <item.icon size={16} className="shrink-0" />
               {t(bridgeLabelKeys[item.label])}
             </button>
           ))}

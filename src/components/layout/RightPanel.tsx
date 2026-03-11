@@ -1,8 +1,7 @@
 "use client";
 
 import { useCallback } from "react";
-import { HugeiconsIcon } from "@hugeicons/react";
-import { StructureFolderIcon, PanelRightCloseIcon } from "@hugeicons/core-free-icons";
+import { TreeStructure, SidebarSimple } from "@phosphor-icons/react";
 import { Button } from "@/components/ui/button";
 import {
   Tooltip,
@@ -58,7 +57,7 @@ export function RightPanel({ width }: RightPanelProps) {
               size="icon-sm"
               onClick={() => setPanelOpen(true)}
             >
-              <HugeiconsIcon icon={StructureFolderIcon} className="h-4 w-4" />
+              <TreeStructure size={16} />
               <span className="sr-only">{t('panel.openPanel')}</span>
             </Button>
           </TooltipTrigger>
@@ -82,7 +81,7 @@ export function RightPanel({ width }: RightPanelProps) {
               size="icon-sm"
               onClick={() => setPanelOpen(false)}
             >
-              <HugeiconsIcon icon={PanelRightCloseIcon} className="h-4 w-4" />
+              <SidebarSimple size={16} />
               <span className="sr-only">{t('panel.closePanel')}</span>
             </Button>
           </TooltipTrigger>

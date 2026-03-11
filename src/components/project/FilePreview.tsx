@@ -1,8 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { HugeiconsIcon } from "@hugeicons/react";
-import { ArrowLeft01Icon, Copy01Icon, Tick01Icon, Loading02Icon } from "@hugeicons/core-free-icons";
+import { ArrowLeft, Copy, Check, SpinnerGap } from "@phosphor-icons/react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -78,7 +77,7 @@ export function FilePreview({ filePath, onBack }: FilePreviewProps) {
       {/* Header */}
       <div className="flex items-center gap-2 pb-2">
         <Button variant="ghost" size="icon-sm" onClick={onBack}>
-          <HugeiconsIcon icon={ArrowLeft01Icon} className="h-3.5 w-3.5" />
+          <ArrowLeft size={14} />
           <span className="sr-only">{t('filePreview.backToTree')}</span>
         </Button>
         <div className="min-w-0 flex-1">
@@ -88,9 +87,9 @@ export function FilePreview({ filePath, onBack }: FilePreviewProps) {
         </div>
         <Button variant="ghost" size="icon-sm" onClick={handleCopyPath}>
           {copied ? (
-            <HugeiconsIcon icon={Tick01Icon} className="h-3.5 w-3.5 text-green-500" />
+            <Check size={14} className="text-green-500" />
           ) : (
-            <HugeiconsIcon icon={Copy01Icon} className="h-3.5 w-3.5" />
+            <Copy size={14} />
           )}
           <span className="sr-only">{t('filePreview.copyPath')}</span>
         </Button>
@@ -112,7 +111,7 @@ export function FilePreview({ filePath, onBack }: FilePreviewProps) {
       <ScrollArea className="flex-1">
         {loading ? (
           <div className="flex items-center justify-center py-8">
-            <HugeiconsIcon icon={Loading02Icon} className="h-4 w-4 animate-spin text-muted-foreground" />
+            <SpinnerGap size={16} className="animate-spin text-muted-foreground" />
           </div>
         ) : error ? (
           <div className="py-4 text-center">

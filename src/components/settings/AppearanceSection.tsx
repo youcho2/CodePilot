@@ -9,8 +9,7 @@ import {
   resolveShikiThemes,
 } from "@/lib/theme/code-themes";
 import { useTranslation } from "@/hooks/useTranslation";
-import { HugeiconsIcon } from "@hugeicons/react";
-import { Sun02Icon, Moon02Icon, ComputerDesk01Icon } from "@hugeicons/core-free-icons";
+import { Sun, Moon, Desktop } from "@phosphor-icons/react";
 import {
   Select,
   SelectContent,
@@ -23,9 +22,9 @@ import { cn } from "@/lib/utils";
 // ── Theme Mode Pill Selector ────────────────────────────────────────
 
 const MODE_OPTIONS = [
-  { value: "light", icon: Sun02Icon, labelKey: "settings.modeLight" as const },
-  { value: "dark", icon: Moon02Icon, labelKey: "settings.modeDark" as const },
-  { value: "system", icon: ComputerDesk01Icon, labelKey: "settings.modeSystem" as const },
+  { value: "light", icon: Sun, labelKey: "settings.modeLight" as const },
+  { value: "dark", icon: Moon, labelKey: "settings.modeDark" as const },
+  { value: "system", icon: Desktop, labelKey: "settings.modeSystem" as const },
 ] as const;
 
 function ThemeModePills({
@@ -54,7 +53,7 @@ function ThemeModePills({
                 : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
             )}
           >
-            <HugeiconsIcon icon={opt.icon} className="h-3.5 w-3.5" />
+            <opt.icon size={14} />
             {t(opt.labelKey)}
           </button>
         );

@@ -1,7 +1,6 @@
 "use client";
 
-import { HugeiconsIcon } from "@hugeicons/react";
-import { ZapIcon, Delete02Icon, GlobeIcon, Plug01Icon, Download04Icon } from "@hugeicons/core-free-icons";
+import { Lightning, Trash } from "@phosphor-icons/react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -66,7 +65,7 @@ export function SkillListItem({
         setConfirmDelete(false);
       }}
     >
-      <HugeiconsIcon icon={ZapIcon} className="h-4 w-4 shrink-0 text-muted-foreground" />
+      <Lightning size={16} className="shrink-0 text-muted-foreground" />
       <div className="flex-1 min-w-0">
         <span className="text-sm font-medium truncate block">/{skill.name}</span>
         <p className="text-xs text-muted-foreground truncate">
@@ -82,7 +81,7 @@ export function SkillListItem({
               className="shrink-0"
               onClick={handleDelete}
             >
-              <HugeiconsIcon icon={Delete02Icon} className="h-3 w-3" />
+              <Trash size={12} />
             </Button>
           </TooltipTrigger>
           <TooltipContent side="right">

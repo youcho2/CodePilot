@@ -31,15 +31,14 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { HugeiconsIcon } from "@hugeicons/react";
 import {
-  Loading02Icon,
-  PencilEdit01Icon,
-  ArrowDown01Icon,
-  ArrowUp01Icon,
-  ServerStack01Icon,
-  Settings02Icon,
-} from "@hugeicons/core-free-icons";
+  SpinnerGap,
+  PencilSimple,
+  CaretDown,
+  CaretUp,
+  HardDrives,
+  Gear,
+} from "@phosphor-icons/react";
 import { ProviderForm } from "./ProviderForm";
 import type { ProviderFormData } from "./ProviderForm";
 import type { ApiProvider } from "@/types";
@@ -81,7 +80,7 @@ function getProviderIcon(name: string, baseUrl: string): ReactNode {
   if (lower.includes("aws")) return <Aws size={18} />;
   if (lower.includes("anthropic") || url.includes("anthropic")) return <Anthropic size={18} />;
 
-  return <HugeiconsIcon icon={ServerStack01Icon} className="h-[18px] w-[18px] text-muted-foreground" />;
+  return <HardDrives size={18} className="text-muted-foreground" />;
 }
 
 // ---------------------------------------------------------------------------
@@ -113,7 +112,7 @@ const QUICK_PRESETS: QuickPreset[] = [
     name: "Custom API (OpenAI-compatible)",
     description: "OpenAI-compatible custom endpoint",
     descriptionZh: "自定义 OpenAI 兼容 API 端点",
-    icon: <HugeiconsIcon icon={Settings02Icon} className="h-[18px] w-[18px] text-muted-foreground" />,
+    icon: <Gear size={18} className="text-muted-foreground" />,
     provider_type: "custom",
     protocol: "openai-compatible",
     base_url: "",
@@ -284,7 +283,7 @@ const QUICK_PRESETS: QuickPreset[] = [
     name: "LiteLLM",
     description: "LiteLLM proxy — local or remote",
     descriptionZh: "LiteLLM 代理 — 本地或远程",
-    icon: <HugeiconsIcon icon={ServerStack01Icon} className="h-[18px] w-[18px] text-muted-foreground" />,
+    icon: <HardDrives size={18} className="text-muted-foreground" />,
     provider_type: "anthropic",
     protocol: "anthropic",
     base_url: "http://localhost:4000",
@@ -686,10 +685,7 @@ function PresetConnectDialog({
                 className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
                 onClick={() => setShowAdvanced(!showAdvanced)}
               >
-                <HugeiconsIcon
-                  icon={showAdvanced ? ArrowUp01Icon : ArrowDown01Icon}
-                  className="h-3 w-3"
-                />
+                {showAdvanced ? <CaretUp size={12} /> : <CaretDown size={12} />}
                 {t('provider.advancedOptions')}
               </button>
               {showAdvanced && (
@@ -793,7 +789,7 @@ function PresetConnectDialog({
               {t('common.cancel')}
             </Button>
             <Button type="submit" disabled={saving} className="gap-2">
-              {saving && <HugeiconsIcon icon={Loading02Icon} className="h-4 w-4 animate-spin" />}
+              {saving && <SpinnerGap size={16} className="animate-spin" />}
               {saving ? t('provider.saving') : isEdit ? t('provider.update') : t('provider.connect')}
             </Button>
           </DialogFooter>
@@ -983,7 +979,7 @@ export function ProviderManager() {
       {/* Loading */}
       {loading && (
         <div className="flex items-center justify-center gap-2 py-8 text-muted-foreground">
-          <HugeiconsIcon icon={Loading02Icon} className="h-4 w-4 animate-spin" />
+          <SpinnerGap size={16} className="animate-spin" />
           <p className="text-sm">{t('common.loading')}</p>
         </div>
       )}
@@ -1046,7 +1042,7 @@ export function ProviderManager() {
                       title="Edit"
                       onClick={() => handleEdit(provider)}
                     >
-                      <HugeiconsIcon icon={PencilEdit01Icon} className="h-3 w-3" />
+                      <PencilSimple size={12} />
                     </Button>
                     <Button
                       variant="ghost"

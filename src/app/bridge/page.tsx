@@ -1,8 +1,7 @@
 "use client";
 
 import { Suspense } from "react";
-import { HugeiconsIcon } from "@hugeicons/react";
-import { Loading02Icon } from "@hugeicons/core-free-icons";
+import { SpinnerGap } from "@phosphor-icons/react";
 import { BridgeLayout } from "@/components/bridge/BridgeLayout";
 
 export default function BridgePage() {
@@ -10,7 +9,7 @@ export default function BridgePage() {
     <Suspense
       fallback={
         <div className="flex h-full items-center justify-center">
-          <HugeiconsIcon icon={Loading02Icon} className="h-5 w-5 animate-spin text-muted-foreground" />
+          <SpinnerGap size={20} className="animate-spin text-muted-foreground" />
         </div>
       }
     >

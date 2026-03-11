@@ -1,25 +1,25 @@
 'use client';
 
 import { useRef, useState, useCallback, useEffect, type KeyboardEvent, type FormEvent } from 'react';
-import { HugeiconsIcon } from "@hugeicons/react";
 import {
-  AtIcon,
-  HelpCircleIcon,
-  ArrowDown01Icon,
-  ArrowUp02Icon,
-  CommandLineIcon,
-  PlusSignIcon,
-  Cancel01Icon,
-  Delete02Icon,
-  Coins01Icon,
-  FileZipIcon,
-  Stethoscope02Icon,
-  FileEditIcon,
-  SearchList01Icon,
-  BrainIcon,
-  GlobalIcon,
-  StopIcon,
-} from "@hugeicons/core-free-icons";
+  At,
+  Question,
+  CaretDown,
+  ArrowUp,
+  Terminal,
+  Plus,
+  X,
+  Trash,
+  Coins,
+  FileZip,
+  Stethoscope,
+  NotePencil,
+  ListMagnifyingGlass,
+  Brain,
+  GlobeSimple,
+  Stop,
+} from "@phosphor-icons/react";
+import type { Icon } from "@phosphor-icons/react";
 import { cn } from '@/lib/utils';
 import { useTranslation } from '@/hooks/useTranslation';
 import type { TranslationKey } from '@/i18n';
@@ -115,7 +115,7 @@ interface PopoverItem {
   installedSource?: "agents" | "claude";
   source?: "global" | "project" | "plugin" | "installed" | "sdk";
   kind?: SkillKind;
-  icon?: typeof CommandLineIcon;
+  icon?: Icon;
 }
 
 interface CommandBadge {
@@ -137,15 +137,15 @@ const COMMAND_PROMPTS: Record<string, string> = {
 };
 
 const BUILT_IN_COMMANDS: PopoverItem[] = [
-  { label: 'help', value: '/help', description: 'Show available commands and tips', descriptionKey: 'messageInput.helpDesc', builtIn: true, immediate: true, icon: HelpCircleIcon },
-  { label: 'clear', value: '/clear', description: 'Clear conversation history', descriptionKey: 'messageInput.clearDesc', builtIn: true, immediate: true, icon: Delete02Icon },
-  { label: 'cost', value: '/cost', description: 'Show token usage statistics', descriptionKey: 'messageInput.costDesc', builtIn: true, immediate: true, icon: Coins01Icon },
-  { label: 'compact', value: '/compact', description: 'Compress conversation context', descriptionKey: 'messageInput.compactDesc', builtIn: true, kind: 'sdk_command', icon: FileZipIcon },
-  { label: 'doctor', value: '/doctor', description: 'Diagnose project health', descriptionKey: 'messageInput.doctorDesc', builtIn: true, kind: 'codepilot_command', icon: Stethoscope02Icon },
-  { label: 'init', value: '/init', description: 'Initialize CLAUDE.md for project', descriptionKey: 'messageInput.initDesc', builtIn: true, kind: 'sdk_command', icon: FileEditIcon },
-  { label: 'review', value: '/review', description: 'Review code quality', descriptionKey: 'messageInput.reviewDesc', builtIn: true, kind: 'sdk_command', icon: SearchList01Icon },
-  { label: 'terminal-setup', value: '/terminal-setup', description: 'Configure terminal settings', descriptionKey: 'messageInput.terminalSetupDesc', builtIn: true, kind: 'codepilot_command', icon: CommandLineIcon },
-  { label: 'memory', value: '/memory', description: 'Edit project memory file', descriptionKey: 'messageInput.memoryDesc', builtIn: true, kind: 'codepilot_command', icon: BrainIcon },
+  { label: 'help', value: '/help', description: 'Show available commands and tips', descriptionKey: 'messageInput.helpDesc', builtIn: true, immediate: true, icon: Question },
+  { label: 'clear', value: '/clear', description: 'Clear conversation history', descriptionKey: 'messageInput.clearDesc', builtIn: true, immediate: true, icon: Trash },
+  { label: 'cost', value: '/cost', description: 'Show token usage statistics', descriptionKey: 'messageInput.costDesc', builtIn: true, immediate: true, icon: Coins },
+  { label: 'compact', value: '/compact', description: 'Compress conversation context', descriptionKey: 'messageInput.compactDesc', builtIn: true, kind: 'sdk_command', icon: FileZip },
+  { label: 'doctor', value: '/doctor', description: 'Diagnose project health', descriptionKey: 'messageInput.doctorDesc', builtIn: true, kind: 'codepilot_command', icon: Stethoscope },
+  { label: 'init', value: '/init', description: 'Initialize CLAUDE.md for project', descriptionKey: 'messageInput.initDesc', builtIn: true, kind: 'sdk_command', icon: NotePencil },
+  { label: 'review', value: '/review', description: 'Review code quality', descriptionKey: 'messageInput.reviewDesc', builtIn: true, kind: 'sdk_command', icon: ListMagnifyingGlass },
+  { label: 'terminal-setup', value: '/terminal-setup', description: 'Configure terminal settings', descriptionKey: 'messageInput.terminalSetupDesc', builtIn: true, kind: 'codepilot_command', icon: Terminal },
+  { label: 'memory', value: '/memory', description: 'Edit project memory file', descriptionKey: 'messageInput.memoryDesc', builtIn: true, kind: 'codepilot_command', icon: Brain },
 ];
 
 interface ModeOption {
@@ -216,9 +216,9 @@ function FileAwareSubmitButton({
       className="rounded-full"
     >
       {isStreaming ? (
-        <HugeiconsIcon icon={StopIcon} className="size-4" />
+        <Stop size={16} />
       ) : (
-        <HugeiconsIcon icon={ArrowUp02Icon} className="h-4 w-4" strokeWidth={2} />
+        <ArrowUp size={16} />
       )}
     </PromptInputSubmit>
   );
@@ -236,7 +236,7 @@ function AttachFileButton() {
       onClick={() => attachments.openFileDialog()}
       tooltip={t('messageInput.attachFiles')}
     >
-      <HugeiconsIcon icon={PlusSignIcon} className="h-3.5 w-3.5" />
+      <Plus size={14} />
     </PromptInputButton>
   );
 }
@@ -356,7 +356,7 @@ function FileAttachmentsCapsules() {
               onClick={() => attachments.remove(file.id)}
               className="ml-0.5 rounded-full p-0.5 hover:bg-emerald-500/20 transition-colors"
             >
-              <HugeiconsIcon icon={Cancel01Icon} className="h-3 w-3" />
+              <X size={12} />
             </button>
           </span>
         );
@@ -1053,17 +1053,17 @@ export function MessageInput({
                 onMouseEnter={() => setSelectedIndex(idx)}
               >
                 {popoverMode === 'file' ? (
-                  <HugeiconsIcon icon={AtIcon} className="h-4 w-4 shrink-0 text-muted-foreground" />
+                  <At size={16} className="shrink-0 text-muted-foreground" />
                 ) : item.builtIn && item.icon ? (
-                  <HugeiconsIcon icon={item.icon} className="h-4 w-4 shrink-0 text-muted-foreground" />
+                  (() => { const ItemIcon = item.icon; return <ItemIcon size={16} className="shrink-0 text-muted-foreground" />; })()
                 ) : item.kind === 'agent_skill' ? (
-                  <HugeiconsIcon icon={BrainIcon} className="h-4 w-4 shrink-0 text-muted-foreground" />
+                  <Brain size={16} className="shrink-0 text-muted-foreground" />
                 ) : item.kind === 'slash_command' ? (
-                  <HugeiconsIcon icon={FileEditIcon} className="h-4 w-4 shrink-0 text-muted-foreground" />
+                  <NotePencil size={16} className="shrink-0 text-muted-foreground" />
                 ) : !item.builtIn ? (
-                  <HugeiconsIcon icon={GlobalIcon} className="h-4 w-4 shrink-0 text-muted-foreground" />
+                  <GlobeSimple size={16} className="shrink-0 text-muted-foreground" />
                 ) : (
-                  <HugeiconsIcon icon={CommandLineIcon} className="h-4 w-4 shrink-0 text-muted-foreground" />
+                  <Terminal size={16} className="shrink-0 text-muted-foreground" />
                 )}
                 <span className="font-mono text-xs truncate">{item.label}</span>
                 {(item.descriptionKey || item.description) && (
@@ -1170,7 +1170,7 @@ export function MessageInput({
                       {(aiSuggestions.length > 0 || aiSearchLoading) && (
                         <>
                           <div className="px-3 py-1.5 text-xs font-medium text-muted-foreground flex items-center gap-1.5">
-                            <HugeiconsIcon icon={BrainIcon} className="h-3.5 w-3.5" />
+                            <Brain size={14} />
                             {t('messageInput.aiSuggested')}
                             {aiSearchLoading && (
                               <span className="inline-block h-3 w-3 animate-spin rounded-full border-2 border-current border-t-transparent" />
@@ -1243,7 +1243,7 @@ export function MessageInput({
                     onClick={() => setModelMenuOpen((prev) => !prev)}
                   >
                     <span className="text-xs font-mono">{currentModelOption.label}</span>
-                    <HugeiconsIcon icon={ArrowDown01Icon} className={cn("h-2.5 w-2.5 transition-transform duration-200", modelMenuOpen && "rotate-180")} />
+                    <CaretDown size={10} className={cn("transition-transform duration-200", modelMenuOpen && "rotate-180")} />
                   </PromptInputButton>
 
                   {modelMenuOpen && (
@@ -1295,7 +1295,7 @@ export function MessageInput({
                       onClick={() => setEffortMenuOpen((prev) => !prev)}
                     >
                       <span className="text-xs">{t(`messageInput.effort.${selectedEffort}` as TranslationKey)}</span>
-                      <HugeiconsIcon icon={ArrowDown01Icon} className={cn("h-2.5 w-2.5 transition-transform duration-200", effortMenuOpen && "rotate-180")} />
+                      <CaretDown size={10} className={cn("transition-transform duration-200", effortMenuOpen && "rotate-180")} />
                     </PromptInputButton>
 
                     {effortMenuOpen && (

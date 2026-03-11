@@ -9,8 +9,7 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { HugeiconsIcon } from "@hugeicons/react";
-import { Loading02Icon, CheckmarkCircle02Icon, Cancel01Icon } from "@hugeicons/core-free-icons";
+import { SpinnerGap, CheckCircle, X } from "@phosphor-icons/react";
 import { useTranslation } from "@/hooks/useTranslation";
 
 interface InstallProgressDialogProps {
@@ -140,13 +139,13 @@ export function InstallProgressDialog({
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             {phase === "running" && (
-              <HugeiconsIcon icon={Loading02Icon} className="h-5 w-5 animate-spin text-primary" />
+              <SpinnerGap size={20} className="animate-spin text-primary" />
             )}
             {phase === "success" && (
-              <HugeiconsIcon icon={CheckmarkCircle02Icon} className="h-5 w-5 text-green-500" />
+              <CheckCircle size={20} className="text-green-500" />
             )}
             {phase === "error" && (
-              <HugeiconsIcon icon={Cancel01Icon} className="h-5 w-5 text-red-500" />
+              <X size={20} className="text-red-500" />
             )}
             {phase === "running"
               ? t('skills.installing')

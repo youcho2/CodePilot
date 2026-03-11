@@ -1,20 +1,19 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, createElement } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { HugeiconsIcon } from "@hugeicons/react";
-import type { IconSvgElement } from "@hugeicons/react";
+import type { Icon } from "@phosphor-icons/react";
 import {
-  File01Icon,
-  FileEditIcon,
-  CommandLineIcon,
-  Search01Icon,
-  Wrench01Icon,
-  Loading02Icon,
-  CheckmarkCircle02Icon,
-  CancelCircleIcon,
-  ArrowRight01Icon,
-} from "@hugeicons/core-free-icons";
+  File,
+  NotePencil,
+  Terminal,
+  MagnifyingGlass,
+  Wrench,
+  SpinnerGap,
+  CheckCircle,
+  XCircle,
+  CaretRight,
+} from "@phosphor-icons/react";
 import { cn } from '@/lib/utils';
 
 // ---------------------------------------------------------------------------
@@ -61,13 +60,13 @@ function getToolCategory(name: string): ToolCategory {
   return 'other';
 }
 
-function getToolIcon(category: ToolCategory): IconSvgElement {
+function getToolIcon(category: ToolCategory): Icon {
   switch (category) {
-    case 'read':   return File01Icon;
-    case 'write':  return FileEditIcon;
-    case 'bash':   return CommandLineIcon;
-    case 'search': return Search01Icon;
-    case 'other':  return Wrench01Icon;
+    case 'read':   return File;
+    case 'write':  return NotePencil;
+    case 'bash':   return Terminal;
+    case 'search': return MagnifyingGlass;
+    case 'other':  return Wrench;
   }
 }
 
@@ -130,12 +129,12 @@ function StatusDot({ status }: { status: ToolStatus }) {
   switch (status) {
     case 'running':
       return (
-        <HugeiconsIcon icon={Loading02Icon} className="h-3.5 w-3.5 shrink-0 animate-spin text-muted-foreground/50" />
+        <SpinnerGap size={14} className="shrink-0 animate-spin text-muted-foreground/50" />
       );
     case 'success':
-      return <HugeiconsIcon icon={CheckmarkCircle02Icon} className="h-3.5 w-3.5 shrink-0 text-green-500" />;
+      return <CheckCircle size={14} className="shrink-0 text-green-500" />;
     case 'error':
-      return <HugeiconsIcon icon={CancelCircleIcon} className="h-3.5 w-3.5 shrink-0 text-red-500" />;
+      return <XCircle size={14} className="shrink-0 text-red-500" />;
   }
 }
 
@@ -145,7 +144,7 @@ function StatusDot({ status }: { status: ToolStatus }) {
 
 function ToolActionRow({ tool }: { tool: ToolAction }) {
   const category = getToolCategory(tool.name);
-  const icon = getToolIcon(category);
+  const toolIcon = getToolIcon(category);
   const summary = getToolSummary(tool.name, tool.input, category);
   const filePath = getFilePath(tool.input);
   const status = getStatus(tool);
@@ -154,7 +153,7 @@ function ToolActionRow({ tool }: { tool: ToolAction }) {
 
   return (
     <div className="flex items-center gap-2 px-2 py-1 min-h-[28px] text-xs hover:bg-muted/30 rounded-sm transition-colors">
-      <HugeiconsIcon icon={icon} className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+      {createElement(toolIcon, { size: 14, className: "shrink-0 text-muted-foreground" })}
 
       {label && (
         <span className="font-medium text-muted-foreground shrink-0">{label}</span>
@@ -229,10 +228,10 @@ export function ToolActionsGroup({
         onClick={handleToggle}
         className="flex w-full items-center gap-2 py-1 text-xs rounded-sm hover:bg-muted/30 transition-colors"
       >
-        <HugeiconsIcon
-          icon={ArrowRight01Icon}
+        <CaretRight
+          size={12}
           className={cn(
-            "h-3 w-3 shrink-0 text-muted-foreground/60 transition-transform duration-200",
+            "shrink-0 text-muted-foreground/60 transition-transform duration-200",
             expanded && "rotate-90"
           )}
         />

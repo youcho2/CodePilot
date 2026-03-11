@@ -3,8 +3,7 @@
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { HugeiconsIcon } from "@hugeicons/react";
-import { Delete02Icon, PencilIcon, ServerStack01Icon, Wifi01Icon, GlobeIcon, RefreshIcon, Loading02Icon } from "@hugeicons/core-free-icons";
+import { Trash, PencilSimple, HardDrives, WifiHigh, Globe, ArrowsClockwise, SpinnerGap } from "@phosphor-icons/react";
 import { useTranslation } from '@/hooks/useTranslation';
 import type { TranslationKey } from '@/i18n';
 import type { MCPServer } from '@/types';
@@ -28,11 +27,11 @@ function getServerTypeInfo(server: MCPServer) {
   const type = server.type || 'stdio';
   switch (type) {
     case 'sse':
-      return { label: 'SSE', icon: Wifi01Icon, color: 'text-primary' };
+      return { label: 'SSE', icon: WifiHigh, color: 'text-primary' };
     case 'http':
-      return { label: 'HTTP', icon: GlobeIcon, color: 'text-green-500' };
+      return { label: 'HTTP', icon: Globe, color: 'text-green-500' };
     default:
-      return { label: 'stdio', icon: ServerStack01Icon, color: 'text-muted-foreground' };
+      return { label: 'stdio', icon: HardDrives, color: 'text-muted-foreground' };
   }
 }
 
@@ -102,7 +101,7 @@ export function McpServerList({ servers, onEdit, onDelete, runtimeStatus, active
   if (entries.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
-        <HugeiconsIcon icon={ServerStack01Icon} className="h-10 w-10 mb-3 opacity-50" />
+        <HardDrives size={40} className="mb-3 opacity-50" />
         <p className="text-sm">{t('mcp.noServers')}</p>
         <p className="text-xs mt-1">
           {t('mcp.noServersDesc')}
@@ -133,7 +132,7 @@ export function McpServerList({ servers, onEdit, onDelete, runtimeStatus, active
             <CardHeader className="flex flex-row items-start justify-between space-y-0 pb-2">
               <div className="flex-1 min-w-0 mr-3">
                 <div className="flex items-center gap-2 mb-1">
-                  <HugeiconsIcon icon={typeInfo.icon} className={`h-4 w-4 shrink-0 ${typeInfo.color}`} />
+                  <typeInfo.icon size={16} className={`shrink-0 ${typeInfo.color}`} />
                   <CardTitle className="text-sm font-medium">{name}</CardTitle>
                   <Badge variant="outline" className="text-xs shrink-0">
                     {typeInfo.label}
@@ -171,9 +170,9 @@ export function McpServerList({ servers, onEdit, onDelete, runtimeStatus, active
                     title={t('mcp.reconnect' as TranslationKey)}
                   >
                     {isReconnecting ? (
-                      <HugeiconsIcon icon={Loading02Icon} className="h-3.5 w-3.5 animate-spin" />
+                      <SpinnerGap size={14} className="animate-spin" />
                     ) : (
-                      <HugeiconsIcon icon={RefreshIcon} className="h-3.5 w-3.5" />
+                      <ArrowsClockwise size={14} />
                     )}
                   </Button>
                 )}
@@ -187,7 +186,7 @@ export function McpServerList({ servers, onEdit, onDelete, runtimeStatus, active
                     onClick={() => handleToggle(name, true)}
                   >
                     {isToggling ? (
-                      <HugeiconsIcon icon={Loading02Icon} className="h-3.5 w-3.5 animate-spin mr-1" />
+                      <SpinnerGap size={14} className="animate-spin mr-1" />
                     ) : null}
                     {t('mcp.enable' as TranslationKey)}
                   </Button>
@@ -198,7 +197,7 @@ export function McpServerList({ servers, onEdit, onDelete, runtimeStatus, active
                   className="h-8 w-8"
                   onClick={() => onEdit(name, server)}
                 >
-                  <HugeiconsIcon icon={PencilIcon} className="h-3.5 w-3.5" />
+                  <PencilSimple size={14} />
                 </Button>
                 <Button
                   variant="ghost"
@@ -206,7 +205,7 @@ export function McpServerList({ servers, onEdit, onDelete, runtimeStatus, active
                   className="h-8 w-8 text-destructive hover:text-destructive"
                   onClick={() => onDelete(name)}
                 >
-                  <HugeiconsIcon icon={Delete02Icon} className="h-3.5 w-3.5" />
+                  <Trash size={14} />
                 </Button>
               </div>
             </CardHeader>

@@ -2,8 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import { Input } from "@/components/ui/input";
-import { HugeiconsIcon } from "@hugeicons/react";
-import { Search01Icon, Loading02Icon, Store01Icon } from "@hugeicons/core-free-icons";
+import { MagnifyingGlass, SpinnerGap, Storefront } from "@phosphor-icons/react";
 import { useTranslation } from "@/hooks/useTranslation";
 import { MarketplaceSkillCard } from "./MarketplaceSkillCard";
 import { MarketplaceSkillDetail } from "./MarketplaceSkillDetail";
@@ -72,9 +71,9 @@ export function MarketplaceBrowser({ onInstalled }: MarketplaceBrowserProps) {
       <div className="w-64 shrink-0 flex flex-col border border-border rounded-lg overflow-hidden">
         <div className="p-2 border-b border-border">
           <div className="relative">
-            <HugeiconsIcon
-              icon={Search01Icon}
-              className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground"
+            <MagnifyingGlass
+              size={14}
+              className="absolute left-2 top-1/2 -translate-y-1/2 text-muted-foreground"
             />
             <Input
               placeholder={t('skills.marketplaceSearch')}
@@ -88,7 +87,7 @@ export function MarketplaceBrowser({ onInstalled }: MarketplaceBrowserProps) {
           <div className="p-1">
             {loading && results.length === 0 && (
               <div className="flex items-center justify-center py-8">
-                <HugeiconsIcon icon={Loading02Icon} className="h-5 w-5 animate-spin text-muted-foreground" />
+                <SpinnerGap size={20} className="animate-spin text-muted-foreground" />
               </div>
             )}
             {error && (
@@ -99,7 +98,7 @@ export function MarketplaceBrowser({ onInstalled }: MarketplaceBrowserProps) {
             )}
             {!loading && !error && results.length === 0 && (
               <div className="flex flex-col items-center gap-2 py-8 text-muted-foreground">
-                <HugeiconsIcon icon={Store01Icon} className="h-8 w-8 opacity-40" />
+                <Storefront size={32} className="opacity-40" />
                 <p className="text-xs">{t('skills.searchNoResults')}</p>
               </div>
             )}
@@ -125,7 +124,7 @@ export function MarketplaceBrowser({ onInstalled }: MarketplaceBrowserProps) {
           />
         ) : (
           <div className="flex flex-col items-center justify-center h-full text-muted-foreground gap-3">
-            <HugeiconsIcon icon={Store01Icon} className="h-12 w-12 opacity-30" />
+            <Storefront size={48} className="opacity-30" />
             <div className="text-center">
               <p className="text-sm font-medium">{t('skills.marketplaceHint')}</p>
               <p className="text-xs">{t('skills.marketplaceHintDesc')}</p>

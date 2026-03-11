@@ -3,15 +3,14 @@
 import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { HugeiconsIcon } from "@hugeicons/react";
 import {
-  Download04Icon,
-  Delete02Icon,
-  CheckmarkCircle02Icon,
-  LinkSquare01Icon,
-  ZapIcon,
-  Loading02Icon,
-} from "@hugeicons/core-free-icons";
+  DownloadSimple,
+  Trash,
+  CheckCircle,
+  ArrowSquareOut,
+  Lightning,
+  SpinnerGap,
+} from "@phosphor-icons/react";
 import { useTranslation } from "@/hooks/useTranslation";
 import { InstallProgressDialog } from "./InstallProgressDialog";
 import ReactMarkdown from "react-markdown";
@@ -85,7 +84,7 @@ export function MarketplaceSkillDetail({
       <div className="border-b border-border px-6 py-4 shrink-0">
         <div className="flex items-start gap-3">
           <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-accent/50 shrink-0">
-            <HugeiconsIcon icon={ZapIcon} className="h-5 w-5 text-muted-foreground" />
+            <Lightning size={20} className="text-muted-foreground" />
           </div>
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2">
@@ -95,7 +94,7 @@ export function MarketplaceSkillDetail({
                   variant="outline"
                   className="text-[10px] px-1.5 py-0 border-green-500/40 text-green-600 dark:text-green-400 shrink-0"
                 >
-                  <HugeiconsIcon icon={CheckmarkCircle02Icon} className="h-2.5 w-2.5 mr-0.5" />
+                  <CheckCircle size={10} className="mr-0.5" />
                   {t('skills.installed')}
                 </Badge>
               )}
@@ -109,12 +108,12 @@ export function MarketplaceSkillDetail({
                   rel="noopener noreferrer"
                   className="text-muted-foreground hover:text-foreground transition-colors shrink-0"
                 >
-                  <HugeiconsIcon icon={LinkSquare01Icon} className="h-3.5 w-3.5" />
+                  <ArrowSquareOut size={14} />
                 </a>
               )}
               {skill.installs > 0 && (
                 <span className="flex items-center gap-0.5 text-xs text-muted-foreground shrink-0">
-                  <HugeiconsIcon icon={Download04Icon} className="h-3 w-3" />
+                  <DownloadSimple size={12} />
                   {skill.installs.toLocaleString()}
                 </span>
               )}
@@ -128,12 +127,12 @@ export function MarketplaceSkillDetail({
                 className="gap-1.5"
                 onClick={handleUninstall}
               >
-                <HugeiconsIcon icon={Delete02Icon} className="h-3.5 w-3.5" />
+                <Trash size={14} />
                 {t('skills.uninstall')}
               </Button>
             ) : (
               <Button size="sm" className="gap-1.5" onClick={handleInstall}>
-                <HugeiconsIcon icon={Download04Icon} className="h-3.5 w-3.5" />
+                <DownloadSimple size={14} />
                 {t('skills.install')}
               </Button>
             )}
@@ -145,7 +144,7 @@ export function MarketplaceSkillDetail({
       <div className="flex-1 overflow-y-auto min-h-0">
         {readmeLoading ? (
           <div className="flex items-center justify-center py-12">
-            <HugeiconsIcon icon={Loading02Icon} className="h-5 w-5 animate-spin text-muted-foreground" />
+            <SpinnerGap size={20} className="animate-spin text-muted-foreground" />
           </div>
         ) : displayContent ? (
           <div className="prose prose-sm dark:prose-invert max-w-none px-6 py-4">

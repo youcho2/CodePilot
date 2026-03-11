@@ -14,8 +14,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { HugeiconsIcon } from "@hugeicons/react";
-import { Loading02Icon, CheckmarkCircle02Icon, Cancel01Icon } from "@hugeicons/core-free-icons";
+import { SpinnerGap, CheckCircle, X } from "@phosphor-icons/react";
 import { useTranslation } from "@/hooks/useTranslation";
 import type { WorkspaceInspectResult } from "@/types";
 
@@ -426,7 +425,7 @@ export function AssistantWorkspaceSection() {
   if (loading) {
     return (
       <div className="flex items-center justify-center py-12">
-        <HugeiconsIcon icon={Loading02Icon} className="h-5 w-5 animate-spin text-muted-foreground" />
+        <SpinnerGap size={20} className="animate-spin text-muted-foreground" />
       </div>
     );
   }
@@ -445,11 +444,11 @@ export function AssistantWorkspaceSection() {
   const renderValidationIcon = () => {
     switch (pathValidation) {
       case 'checking':
-        return <HugeiconsIcon icon={Loading02Icon} className="h-4 w-4 animate-spin text-muted-foreground" />;
+        return <SpinnerGap size={16} className="animate-spin text-muted-foreground" />;
       case 'valid':
-        return <HugeiconsIcon icon={CheckmarkCircle02Icon} className="h-4 w-4 text-green-500" />;
+        return <CheckCircle size={16} className="text-green-500" />;
       case 'invalid':
-        return <HugeiconsIcon icon={Cancel01Icon} className="h-4 w-4 text-red-500" />;
+        return <X size={16} className="text-red-500" />;
       default:
         return null;
     }
@@ -489,7 +488,7 @@ export function AssistantWorkspaceSection() {
           >
             {inspecting ? (
               <>
-                <HugeiconsIcon icon={Loading02Icon} className="h-3.5 w-3.5 animate-spin mr-1" />
+                <SpinnerGap size={14} className="animate-spin mr-1" />
                 {t('assistant.inspecting')}
               </>
             ) : (
@@ -538,7 +537,7 @@ export function AssistantWorkspaceSection() {
               disabled={creatingSession}
             >
               {creatingSession ? (
-                <HugeiconsIcon icon={Loading02Icon} className="h-3.5 w-3.5 animate-spin" />
+                <SpinnerGap size={14} className="animate-spin" />
               ) : workspace.state?.onboardingComplete
                 ? t('assistant.redoOnboarding')
                 : t('assistant.startOnboarding')
@@ -575,7 +574,7 @@ export function AssistantWorkspaceSection() {
               disabled={creatingSession}
             >
               {creatingSession ? (
-                <HugeiconsIcon icon={Loading02Icon} className="h-3.5 w-3.5 animate-spin" />
+                <SpinnerGap size={14} className="animate-spin" />
               ) : (
                 t('assistant.startCheckIn')
               )}
@@ -639,7 +638,7 @@ export function AssistantWorkspaceSection() {
                 >
                   {refreshingDocs ? (
                     <>
-                      <HugeiconsIcon icon={Loading02Icon} className="h-3.5 w-3.5 animate-spin mr-1" />
+                      <SpinnerGap size={14} className="animate-spin mr-1" />
                       {t('assistant.refreshingDocs')}
                     </>
                   ) : (
@@ -714,7 +713,7 @@ export function AssistantWorkspaceSection() {
                 >
                   {reindexing ? (
                     <>
-                      <HugeiconsIcon icon={Loading02Icon} className="h-3.5 w-3.5 animate-spin mr-1" />
+                      <SpinnerGap size={14} className="animate-spin mr-1" />
                       {t('assistant.indexReindexing')}
                     </>
                   ) : (
@@ -738,7 +737,7 @@ export function AssistantWorkspaceSection() {
                 >
                   {archiving ? (
                     <>
-                      <HugeiconsIcon icon={Loading02Icon} className="h-3.5 w-3.5 animate-spin mr-1" />
+                      <SpinnerGap size={14} className="animate-spin mr-1" />
                       {t('assistant.organizeArchiving')}
                     </>
                   ) : (
@@ -767,7 +766,7 @@ export function AssistantWorkspaceSection() {
             <AlertDialogAction onClick={() => executeSave(true)} disabled={initializing}>
               {initializing ? (
                 <>
-                  <HugeiconsIcon icon={Loading02Icon} className="h-3.5 w-3.5 animate-spin mr-1" />
+                  <SpinnerGap size={14} className="animate-spin mr-1" />
                   {t('assistant.initializing')}
                 </>
               ) : (
@@ -792,7 +791,7 @@ export function AssistantWorkspaceSection() {
             <AlertDialogAction onClick={() => executeSave(true)} disabled={initializing}>
               {initializing ? (
                 <>
-                  <HugeiconsIcon icon={Loading02Icon} className="h-3.5 w-3.5 animate-spin mr-1" />
+                  <SpinnerGap size={14} className="animate-spin mr-1" />
                   {t('assistant.initializing')}
                 </>
               ) : (
@@ -820,7 +819,7 @@ export function AssistantWorkspaceSection() {
             <AlertDialogAction onClick={() => executeSave(true)} disabled={initializing}>
               {initializing ? (
                 <>
-                  <HugeiconsIcon icon={Loading02Icon} className="h-3.5 w-3.5 animate-spin mr-1" />
+                  <SpinnerGap size={14} className="animate-spin mr-1" />
                   {t('assistant.initializing')}
                 </>
               ) : (
@@ -868,7 +867,7 @@ export function AssistantWorkspaceSection() {
             <Button size="sm" variant="outline" onClick={() => executeSave(false, true, 'new')} disabled={initializing}>
               {initializing ? (
                 <>
-                  <HugeiconsIcon icon={Loading02Icon} className="h-3.5 w-3.5 animate-spin mr-1" />
+                  <SpinnerGap size={14} className="animate-spin mr-1" />
                   {t('assistant.initializing')}
                 </>
               ) : (
@@ -894,7 +893,7 @@ export function AssistantWorkspaceSection() {
             <AlertDialogAction onClick={() => executeSave(true)} disabled={initializing}>
               {initializing ? (
                 <>
-                  <HugeiconsIcon icon={Loading02Icon} className="h-3.5 w-3.5 animate-spin mr-1" />
+                  <SpinnerGap size={14} className="animate-spin mr-1" />
                   {t('assistant.initializing')}
                 </>
               ) : (

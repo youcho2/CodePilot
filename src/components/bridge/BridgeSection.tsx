@@ -13,8 +13,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { HugeiconsIcon } from "@hugeicons/react";
-import { Loading02Icon, CheckmarkCircle02Icon, Alert02Icon, TelegramIcon, BubbleChatIcon, GameController01Icon, MessageMultiple02Icon } from "@hugeicons/core-free-icons";
+import { SpinnerGap, CheckCircle, Warning, TelegramLogo, ChatTeardrop, GameController, ChatsCircle } from "@phosphor-icons/react";
 import { useTranslation } from "@/hooks/useTranslation";
 import type { ProviderModelGroup } from "@/types";
 
@@ -302,10 +301,7 @@ export function BridgeSection() {
                     : "bg-muted text-muted-foreground"
                 }`}
               >
-                <HugeiconsIcon
-                  icon={isRunning ? CheckmarkCircle02Icon : Alert02Icon}
-                  className="h-3.5 w-3.5 shrink-0"
-                />
+                {isRunning ? <CheckCircle size={14} className="shrink-0" /> : <Warning size={14} className="shrink-0" />}
                 {isRunning
                   ? t("bridge.statusConnected")
                   : t("bridge.statusDisconnected")}
@@ -318,9 +314,9 @@ export function BridgeSection() {
                   disabled={stopping}
                 >
                   {stopping ? (
-                    <HugeiconsIcon
-                      icon={Loading02Icon}
-                      className="h-3.5 w-3.5 animate-spin mr-1.5"
+                    <SpinnerGap
+                      size={14}
+                      className="animate-spin mr-1.5"
                     />
                   ) : null}
                   {stopping ? t("bridge.stopping") : t("bridge.stop")}
@@ -332,9 +328,9 @@ export function BridgeSection() {
                   disabled={starting}
                 >
                   {starting ? (
-                    <HugeiconsIcon
-                      icon={Loading02Icon}
-                      className="h-3.5 w-3.5 animate-spin mr-1.5"
+                    <SpinnerGap
+                      size={14}
+                      className="animate-spin mr-1.5"
                     />
                   ) : null}
                   {starting ? t("bridge.starting") : t("bridge.start")}
@@ -358,9 +354,9 @@ export function BridgeSection() {
           <div className="space-y-3">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
-                <HugeiconsIcon
-                  icon={TelegramIcon}
-                  className="h-4 w-4 text-muted-foreground"
+                <TelegramLogo
+                  size={16}
+                  className="text-muted-foreground"
                 />
                 <div>
                   <p className="text-sm">{t("bridge.telegramChannel")}</p>
@@ -378,9 +374,9 @@ export function BridgeSection() {
 
             <div className="flex items-center justify-between border-t border-border/30 pt-3">
               <div className="flex items-center gap-3">
-                <HugeiconsIcon
-                  icon={BubbleChatIcon}
-                  className="h-4 w-4 text-muted-foreground"
+                <ChatTeardrop
+                  size={16}
+                  className="text-muted-foreground"
                 />
                 <div>
                   <p className="text-sm">{t("bridge.feishuChannel")}</p>
@@ -398,9 +394,9 @@ export function BridgeSection() {
 
             <div className="flex items-center justify-between border-t border-border/30 pt-3">
               <div className="flex items-center gap-3">
-                <HugeiconsIcon
-                  icon={GameController01Icon}
-                  className="h-4 w-4 text-muted-foreground"
+                <GameController
+                  size={16}
+                  className="text-muted-foreground"
                 />
                 <div>
                   <p className="text-sm">{t("bridge.discordChannel")}</p>
@@ -418,9 +414,9 @@ export function BridgeSection() {
 
             <div className="flex items-center justify-between border-t border-border/30 pt-3">
               <div className="flex items-center gap-3">
-                <HugeiconsIcon
-                  icon={MessageMultiple02Icon}
-                  className="h-4 w-4 text-muted-foreground"
+                <ChatsCircle
+                  size={16}
+                  className="text-muted-foreground"
                 />
                 <div>
                   <p className="text-sm">{t("bridge.qqChannel")}</p>

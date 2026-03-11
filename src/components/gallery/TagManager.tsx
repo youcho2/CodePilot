@@ -1,8 +1,7 @@
 'use client';
 
 import { useState, useCallback, useEffect } from 'react';
-import { HugeiconsIcon } from '@hugeicons/react';
-import { PlusSignIcon, Cancel01Icon } from '@hugeicons/core-free-icons';
+import { Plus, X } from '@phosphor-icons/react';
 import { cn } from '@/lib/utils';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -94,7 +93,7 @@ export function TagManager({
                     }}
                     className="ml-0.5 rounded-full p-0.5 opacity-0 group-hover:opacity-100 hover:bg-foreground/10 transition-opacity"
                   >
-                    <HugeiconsIcon icon={Cancel01Icon} className="h-2.5 w-2.5" />
+                    <X size={10} />
                   </button>
                 )}
               </Badge>
@@ -109,7 +108,7 @@ export function TagManager({
             onClick={() => setAdding(true)}
             className="h-5 w-5"
           >
-            <HugeiconsIcon icon={PlusSignIcon} className="h-3 w-3" />
+            <Plus size={12} />
           </Button>
         )}
       </div>

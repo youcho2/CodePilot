@@ -8,14 +8,13 @@ import {
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
 import { cn } from "@/lib/utils";
-import { HugeiconsIcon } from "@hugeicons/react";
 import {
-  Folder01Icon,
-  FolderOpenIcon,
-  File01Icon,
-  ArrowRight01Icon,
-  PlusSignIcon,
-} from "@hugeicons/core-free-icons";
+  Folder,
+  FolderOpen,
+  File,
+  CaretRight,
+  Plus,
+} from "@phosphor-icons/react";
 import {
   createContext,
   useCallback,
@@ -155,10 +154,10 @@ export const FileTreeFolder = ({
                 className="shrink-0 rounded p-0.5 hover:bg-muted"
                 onClick={(e) => e.stopPropagation()}
               >
-                <HugeiconsIcon
-                  icon={ArrowRight01Icon}
+                <CaretRight
+                  size={16}
                   className={cn(
-                    "size-4 text-muted-foreground transition-transform",
+                    "text-muted-foreground transition-transform",
                     isExpanded && "rotate-90"
                   )}
                 />
@@ -166,9 +165,9 @@ export const FileTreeFolder = ({
             </CollapsibleTrigger>
             <FileTreeIcon>
               {isExpanded ? (
-                <HugeiconsIcon icon={FolderOpenIcon} className="size-4 text-muted-foreground" />
+                <FolderOpen size={16} className="text-muted-foreground" />
               ) : (
-                <HugeiconsIcon icon={Folder01Icon} className="size-4 text-muted-foreground" />
+                <Folder size={16} className="text-muted-foreground" />
               )}
             </FileTreeIcon>
             <FileTreeName>{name}</FileTreeName>
@@ -249,7 +248,7 @@ export const FileTreeFile = ({
         {children ?? (
           <>
             <FileTreeIcon>
-              {icon ?? <HugeiconsIcon icon={File01Icon} className="size-4 text-muted-foreground" />}
+              {icon ?? <File size={16} className="text-muted-foreground" />}
             </FileTreeIcon>
             <FileTreeName>{name}</FileTreeName>
             {onAdd && (
@@ -259,7 +258,7 @@ export const FileTreeFile = ({
                 onClick={handleAdd}
                 title="Add to chat"
               >
-                <HugeiconsIcon icon={PlusSignIcon} className="size-3 text-muted-foreground" />
+                <Plus size={12} className="text-muted-foreground" />
               </button>
             )}
           </>

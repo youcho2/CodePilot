@@ -2,15 +2,14 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { HugeiconsIcon } from "@hugeicons/react";
 import {
-  Message02Icon,
-  ZapIcon,
-  Plug01Icon,
-  Image01Icon,
-  Settings02Icon,
-  Wifi01Icon,
-} from "@hugeicons/core-free-icons";
+  ChatCircle,
+  Lightning,
+  Plug,
+  Image,
+  Gear,
+  WifiHigh,
+} from "@phosphor-icons/react";
 import { Button } from "@/components/ui/button";
 import {
   Tooltip,
@@ -31,11 +30,11 @@ interface NavRailProps {
 }
 
 const navItems = [
-  { href: "/chat", label: "Chats", icon: Message02Icon },
-  { href: "/skills", label: "Skills", icon: ZapIcon },
-  { href: "/mcp", label: "MCP", icon: Plug01Icon },
-  { href: "/gallery", label: "Gallery", icon: Image01Icon },
-  { href: "/bridge", label: "Bridge", icon: Wifi01Icon },
+  { href: "/chat", label: "Chats", icon: ChatCircle },
+  { href: "/skills", label: "Skills", icon: Lightning },
+  { href: "/mcp", label: "MCP", icon: Plug },
+  { href: "/gallery", label: "Gallery", icon: Image },
+  { href: "/bridge", label: "Bridge", icon: WifiHigh },
 ] as const;
 
 export function NavRail({ onToggleChatList, hasUpdate, readyToInstall, skipPermissionsActive }: NavRailProps) {
@@ -83,7 +82,7 @@ export function NavRail({ onToggleChatList, hasUpdate, readyToInstall, skipPermi
                       }
                     }}
                   >
-                    <HugeiconsIcon icon={item.icon} className="h-4 w-4" />
+                    <item.icon size={16} weight={isActive ? "fill" : "regular"} />
                     <span className="sr-only">{t(navLabelKeys[item.label] ?? item.label as TranslationKey)}</span>
                   </Button>
                 ) : (
@@ -98,7 +97,7 @@ export function NavRail({ onToggleChatList, hasUpdate, readyToInstall, skipPermi
                       )}
                     >
                       <Link href={item.href}>
-                        <HugeiconsIcon icon={item.icon} className="h-4 w-4" />
+                        <item.icon size={16} weight={isActive ? "fill" : "regular"} />
                         <span className="sr-only">{t(navLabelKeys[item.label] ?? item.label as TranslationKey)}</span>
                       </Link>
                     </Button>
@@ -139,7 +138,7 @@ export function NavRail({ onToggleChatList, hasUpdate, readyToInstall, skipPermi
                 )}
               >
                 <Link href="/settings">
-                  <HugeiconsIcon icon={Settings02Icon} className="h-4 w-4" />
+                  <Gear size={16} weight={isSettingsActive ? "fill" : "regular"} />
                   <span className="sr-only">{t('nav.settings')}</span>
                 </Link>
               </Button>

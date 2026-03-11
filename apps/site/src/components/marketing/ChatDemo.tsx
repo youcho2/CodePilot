@@ -2,23 +2,22 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
-import { HugeiconsIcon } from '@hugeicons/react';
 import {
-  Message02Icon,
-  ZapIcon,
-  Plug01Icon,
-  Image01Icon,
-  Wifi01Icon,
-  Settings02Icon,
-  Search01Icon,
-  PlusSignIcon,
-  FolderOpenIcon,
-  ArrowUp02Icon,
-  ArrowDown01Icon,
-  CommandLineIcon,
-  AiUserIcon,
-  SecurityCheckIcon,
-} from '@hugeicons/core-free-icons';
+  ChatCircle,
+  Lightning,
+  Plug,
+  Image,
+  WifiHigh,
+  Gear,
+  MagnifyingGlass,
+  Plus,
+  FolderOpen,
+  ArrowUp,
+  CaretDown,
+  Terminal,
+  UserCircle,
+  ShieldCheck,
+} from '@phosphor-icons/react';
 import { Check, FileText } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -135,10 +134,10 @@ const DEMO_THEME_VARS = {
 function BadgeIcon({ type }: { type: string }) {
   const cls = 'h-3 w-3';
   switch (type) {
-    case 'skill': return <HugeiconsIcon icon={ZapIcon} className={cls} />;
-    case 'mcp': return <HugeiconsIcon icon={Plug01Icon} className={cls} />;
-    case 'bridge': return <HugeiconsIcon icon={Wifi01Icon} className={cls} />;
-    case 'agent': return <HugeiconsIcon icon={AiUserIcon} className={cls} />;
+    case 'skill': return <Lightning size={12} />;
+    case 'mcp': return <Plug size={12} />;
+    case 'bridge': return <WifiHigh size={12} />;
+    case 'agent': return <UserCircle size={12} />;
     default: return null;
   }
 }
@@ -172,11 +171,11 @@ function TypingDots() {
 /* ------------------------------------------------------------------ */
 
 const NAV_ITEMS = [
-  { icon: Message02Icon, label: 'Chats', active: true },
-  { icon: ZapIcon, label: 'Skills', active: false },
-  { icon: Plug01Icon, label: 'MCP', active: false },
-  { icon: Image01Icon, label: 'Gallery', active: false },
-  { icon: Wifi01Icon, label: 'Bridge', active: false },
+  { icon: ChatCircle, label: 'Chats', active: true },
+  { icon: Lightning, label: 'Skills', active: false },
+  { icon: Plug, label: 'MCP', active: false },
+  { icon: Image, label: 'Gallery', active: false },
+  { icon: WifiHigh, label: 'Bridge', active: false },
 ];
 
 function IconSidebar() {
@@ -194,14 +193,14 @@ function IconSidebar() {
                 : 'text-muted-foreground/50'
             }`}
           >
-            <HugeiconsIcon icon={item.icon} className="h-4 w-4" />
+            <item.icon size={16} />
           </Button>
         ))}
       </nav>
       <div className="mt-auto flex flex-col items-center gap-2">
         <div className="relative">
           <Button variant="ghost" size="icon" className="h-9 w-9 text-muted-foreground/50">
-            <HugeiconsIcon icon={Settings02Icon} className="h-4 w-4" />
+            <Gear size={16} />
           </Button>
           <span className="pointer-events-none absolute right-0.5 top-0.5 h-2 w-2 rounded-full bg-primary" />
         </div>
@@ -223,20 +222,20 @@ function SessionSidebar() {
       {/* New chat button — real: h-8 outline with PlusSignIcon */}
       <div className="px-2.5">
         <Button variant="outline" size="sm" className="w-full justify-start gap-1.5 rounded-md pl-2 text-[10px]">
-          <HugeiconsIcon icon={PlusSignIcon} className="h-3 w-3" />
+          <Plus size={12} />
           New Chat
         </Button>
       </div>
 
       {/* Search */}
       <div className="relative mt-2 px-2.5">
-        <HugeiconsIcon icon={Search01Icon} className="absolute left-[1.15rem] top-1/2 z-10 h-3 w-3 -translate-y-1/2 text-muted-foreground/40" />
+        <MagnifyingGlass size={12} className="absolute left-[1.15rem] top-1/2 z-10 -translate-y-1/2 text-muted-foreground/40" />
         <Input className="h-7 rounded-md pl-7 !text-[10px]" placeholder="Search..." readOnly />
       </div>
 
       {/* Project folder — real: FolderOpenIcon, text-[13px] font-medium */}
       <div className="mt-3 flex items-center gap-1.5 px-3 py-1.5">
-        <HugeiconsIcon icon={FolderOpenIcon} className="h-4 w-4 text-muted-foreground/60" />
+        <FolderOpen size={16} className="text-muted-foreground/60" />
         <span className="text-[13px] font-medium text-sidebar-foreground">My-Project</span>
       </div>
 
@@ -465,21 +464,21 @@ export function ChatDemo() {
             <div className="flex items-center px-3.5 py-3">
               <span className="flex-1 text-xs text-muted-foreground/50">Message Claude...</span>
               <Button size="icon-xs" className="shrink-0 rounded-full bg-primary text-primary-foreground hover:bg-primary/80">
-                <HugeiconsIcon icon={ArrowUp02Icon} className="h-3.5 w-3.5" />
+                <ArrowUp size={14} />
               </Button>
             </div>
             {/* PromptInputFooter — real: gap-1, icon buttons h-6 w-6 */}
             <div className="flex items-center justify-between gap-1 px-2.5 pb-2.5">
               <div className="flex items-center gap-1">
                 <Button variant="ghost" size="icon-xs" className="text-muted-foreground/50">
-                  <HugeiconsIcon icon={PlusSignIcon} className="h-3.5 w-3.5" />
+                  <Plus size={14} />
                 </Button>
                 <Button variant="ghost" size="icon-xs" className="text-muted-foreground/50">
-                  <HugeiconsIcon icon={CommandLineIcon} className="h-3.5 w-3.5" />
+                  <Terminal size={14} />
                 </Button>
                 <div className="flex items-center gap-1 rounded-md px-1.5 py-1 font-mono text-[10px] text-muted-foreground/60">
                   claude-sonnet-4
-                  <HugeiconsIcon icon={ArrowDown01Icon} className="h-2.5 w-2.5" />
+                  <CaretDown size={10} />
                 </div>
               </div>
             </div>
@@ -487,11 +486,11 @@ export function ChatDemo() {
           {/* ChatComposerActionBar — below input */}
           <div className="flex items-center justify-between px-2 pb-1 pt-1.5">
             <span className="flex items-center gap-1.5 rounded-md px-2 py-1 text-[10px] text-muted-foreground/50">
-              <HugeiconsIcon icon={AiUserIcon} className="h-3.5 w-3.5" />
+              <UserCircle size={14} />
               Design Agent
             </span>
             <span className="flex items-center gap-1.5 rounded-md px-2 py-1 text-[10px] text-muted-foreground/50">
-              <HugeiconsIcon icon={SecurityCheckIcon} className="h-3.5 w-3.5" />
+              <ShieldCheck size={14} />
               Default
             </span>
           </div>

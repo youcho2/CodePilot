@@ -3,8 +3,7 @@
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
-import { HugeiconsIcon } from "@hugeicons/react";
-import { Cancel01Icon, ZapIcon } from "@hugeicons/core-free-icons";
+import { X, Lightning } from "@phosphor-icons/react";
 import type { SkillInfo } from './PluginCard';
 
 interface PluginDetailProps {
@@ -23,7 +22,7 @@ export function PluginDetail({ plugin, onClose }: PluginDetailProps) {
       <div className="flex items-start justify-between mb-3">
         <div>
           <div className="flex items-center gap-2">
-            <HugeiconsIcon icon={ZapIcon} className="h-4 w-4 text-muted-foreground" />
+            <Lightning size={16} className="text-muted-foreground" />
             <h3 className="text-lg font-semibold">/{displayName}</h3>
             <Badge variant={isProject ? 'secondary' : 'outline'}>
               {isProject ? 'Project' : 'Global'}
@@ -34,7 +33,7 @@ export function PluginDetail({ plugin, onClose }: PluginDetailProps) {
           </p>
         </div>
         <Button variant="ghost" size="icon" onClick={onClose}>
-          <HugeiconsIcon icon={Cancel01Icon} className="h-4 w-4" />
+          <X size={16} />
         </Button>
       </div>
 

@@ -13,8 +13,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { HugeiconsIcon } from "@hugeicons/react";
-import { ReloadIcon, Loading02Icon } from "@hugeicons/core-free-icons";
+import { ArrowClockwise, SpinnerGap } from "@phosphor-icons/react";
 import { useUpdate } from "@/hooks/useUpdate";
 import { useTranslation } from "@/hooks/useTranslation";
 import { SUPPORTED_LOCALES, type Locale } from "@/i18n";
@@ -62,9 +61,9 @@ function UpdateCard() {
             className="gap-2"
           >
             {checking ? (
-              <HugeiconsIcon icon={Loading02Icon} className="h-3.5 w-3.5 animate-spin" />
+              <SpinnerGap size={14} className="animate-spin" />
             ) : (
-              <HugeiconsIcon icon={ReloadIcon} className="h-3.5 w-3.5" />
+              <ArrowClockwise size={14} />
             )}
             {checking ? t('settings.checking') : t('settings.checkForUpdates')}
           </Button>
