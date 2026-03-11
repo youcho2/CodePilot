@@ -48,21 +48,30 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
   const [loadingMore, setLoadingMore] = useState(false);
   const loadingMoreRef = useRef(false);
   const [mode, setMode] = useState(initialMode || 'code');
-  const [currentModel, setCurrentModel] = useState(modelName || (typeof window !== 'undefined' ? localStorage.getItem('codepilot:last-model') : null) || 'sonnet');
-  const [currentProviderId, setCurrentProviderId] = useState(providerId || (typeof window !== 'undefined' ? localStorage.getItem('codepilot:last-provider-id') : null) || '');
+  // Parent components (page.tsx, SplitColumn) guarantee that session metadata is
+  // loaded before ChatView mounts, so modelName/providerId reflect the session's
+  // actual values.  Fall back to localStorage only when genuinely empty (old/imported
+  // sessions that never had a model saved).
+  const [currentModel, setCurrentModel] = useState(() => modelName || (typeof window !== 'undefined' ? localStorage.getItem('codepilot:last-model') : null) || 'sonnet');
+  const [currentProviderId, setCurrentProviderId] = useState(() => providerId || (typeof window !== 'undefined' ? localStorage.getItem('codepilot:last-provider-id') : null) || '');
   // Effort level selected in MessageInput — lifted here so it enters the stream chain
   const [selectedEffort, setSelectedEffort] = useState<string | undefined>(undefined);
   // Thinking mode from app settings
   const [thinkingMode, setThinkingMode] = useState<string>('adaptive');
 
-  // Sync model/provider when session data loads (props update after async fetch)
-  // Unconditional: when modelName is empty (old session with no saved model),
-  // fall back to localStorage or default to avoid stale values from previous session.
+  // Sync model/provider when session data loads (props update after async fetch).
+  // Only override when the session actually has a saved model/provider — empty string
+  // means "not yet loaded" or "old session without model"; in that case keep current
+  // value (which was properly initialized from localStorage on mount).
   useEffect(() => {
-    setCurrentModel(modelName || (typeof window !== 'undefined' ? localStorage.getItem('codepilot:last-model') : null) || 'sonnet');
+    if (modelName) {
+      setCurrentModel(modelName);
+    }
   }, [modelName]);
   useEffect(() => {
-    setCurrentProviderId(providerId || (typeof window !== 'undefined' ? localStorage.getItem('codepilot:last-provider-id') : null) || '');
+    if (providerId) {
+      setCurrentProviderId(providerId);
+    }
   }, [providerId]);
 
   // Fetch thinking mode from app settings

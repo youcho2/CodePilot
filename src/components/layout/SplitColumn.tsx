@@ -24,6 +24,7 @@ export function SplitColumn({ sessionId, isActive, onClose, onFocus }: SplitColu
   const [sessionTitle, setSessionTitle] = useState("");
   const [sessionModel, setSessionModel] = useState("");
   const [sessionProviderId, setSessionProviderId] = useState("");
+  const [sessionInfoLoaded, setSessionInfoLoaded] = useState(false);
   const [sessionMode, setSessionMode] = useState("");
   const [projectName, setProjectName] = useState("");
   const [sessionWorkingDir, setSessionWorkingDir] = useState("");
@@ -33,6 +34,9 @@ export function SplitColumn({ sessionId, isActive, onClose, onFocus }: SplitColu
   // Load session metadata
   useEffect(() => {
     let cancelled = false;
+    setSessionInfoLoaded(false);
+    setSessionModel("");
+    setSessionProviderId("");
     async function loadSession() {
       try {
         const res = await fetch(`/api/chat/sessions/${sessionId}`);
@@ -48,6 +52,8 @@ export function SplitColumn({ sessionId, isActive, onClose, onFocus }: SplitColu
         }
       } catch {
         // ignore
+      } finally {
+        if (!cancelled) setSessionInfoLoaded(true);
       }
     }
     loadSession();
@@ -111,7 +117,7 @@ export function SplitColumn({ sessionId, isActive, onClose, onFocus }: SplitColu
     onClose();
   }, [onClose]);
 
-  if (loading) {
+  if (loading || !sessionInfoLoaded) {
     return (
       <div
         className={cn(

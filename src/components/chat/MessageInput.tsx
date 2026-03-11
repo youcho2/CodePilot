@@ -242,78 +242,20 @@ function AttachFileButton() {
 }
 
 /**
- * Infer a MIME type from a filename extension so that files added from the
- * file tree pass the PromptInput accept-type validation.  Code / text files
- * are mapped to `text/*` subtypes; images and PDFs get their standard types.
- * Falls back to `application/octet-stream` for unknown extensions.
- */
-function mimeFromFilename(name: string): string {
-  const ext = name.split('.').pop()?.toLowerCase() || '';
-  const TEXT_EXTS: Record<string, string> = {
-    md: 'text/markdown', mdx: 'text/markdown',
-    txt: 'text/plain', csv: 'text/csv',
-    json: 'application/json',
-    ts: 'text/typescript', tsx: 'text/typescript',
-    js: 'text/javascript', jsx: 'text/javascript',
-    py: 'text/x-python', go: 'text/x-go', rs: 'text/x-rust',
-    rb: 'text/x-ruby', java: 'text/x-java', c: 'text/x-c',
-    cpp: 'text/x-c++', h: 'text/x-c', hpp: 'text/x-c++',
-    cs: 'text/x-csharp', swift: 'text/x-swift', kt: 'text/x-kotlin',
-    html: 'text/html', css: 'text/css', scss: 'text/css',
-    xml: 'text/xml', yaml: 'text/yaml', yml: 'text/yaml',
-    toml: 'text/plain', ini: 'text/plain', cfg: 'text/plain',
-    sh: 'text/x-shellscript', bash: 'text/x-shellscript', zsh: 'text/x-shellscript',
-    sql: 'text/x-sql', graphql: 'text/plain', gql: 'text/plain',
-    vue: 'text/plain', svelte: 'text/plain', astro: 'text/plain',
-    env: 'text/plain', gitignore: 'text/plain', dockerignore: 'text/plain',
-    dockerfile: 'text/plain', makefile: 'text/plain',
-    log: 'text/plain', lock: 'text/plain',
-  };
-  const IMAGE_EXTS: Record<string, string> = {
-    jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png',
-    gif: 'image/gif', webp: 'image/webp', svg: 'image/svg+xml',
-  };
-  if (TEXT_EXTS[ext]) return TEXT_EXTS[ext];
-  if (IMAGE_EXTS[ext]) return IMAGE_EXTS[ext];
-  if (ext === 'pdf') return 'application/pdf';
-  return 'application/octet-stream';
-}
-
-/**
  * Bridge component that listens for 'attach-file-to-chat' custom events
- * from the file tree and adds files as attachments. Must be rendered inside PromptInput.
+ * from the file tree and inserts `@filepath` into the textarea.
+ * Works identically on web and Electron (pure text, no fetch/blob).
  */
 function FileTreeAttachmentBridge() {
-  const attachments = usePromptInputAttachments();
-  const attachmentsRef = useRef(attachments);
-
   useEffect(() => {
-    attachmentsRef.current = attachments;
-  }, [attachments]);
-
-  useEffect(() => {
-    const handler = async (e: Event) => {
+    const handler = (e: Event) => {
       const customEvent = e as CustomEvent<{ path: string }>;
       const filePath = customEvent.detail?.path;
       if (!filePath) return;
 
-      try {
-        const res = await fetch(`/api/files/raw?path=${encodeURIComponent(filePath)}`);
-        if (!res.ok) {
-          console.warn(`[FileTreeAttachment] Failed to fetch file: ${res.status} ${res.statusText}`, filePath);
-          return;
-        }
-        const blob = await res.blob();
-        // Handle both Unix (/) and Windows (\) path separators
-        const filename = filePath.split(/[/\\]/).pop() || 'file';
-        // Use a proper MIME type derived from the extension so the file
-        // passes PromptInput's accept-type validation (text/* etc.)
-        const mime = mimeFromFilename(filename);
-        const file = new File([blob], filename, { type: mime });
-        attachmentsRef.current.add([file]);
-      } catch (err) {
-        console.warn('[FileTreeAttachment] Error attaching file:', filePath, err);
-      }
+      // Dispatch a second event that the outer MessageInput component listens for
+      // to insert the @-mention into the textarea
+      window.dispatchEvent(new CustomEvent('insert-file-mention', { detail: { path: filePath } }));
     };
 
     window.addEventListener('attach-file-to-chat', handler);
@@ -416,6 +358,23 @@ export function MessageInput({
       onAssistantTrigger();
     }
   }, [onAssistantTrigger]);
+
+  // Listen for file tree "+" button: insert @filepath into textarea
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const filePath = (e as CustomEvent<{ path: string }>).detail?.path;
+      if (!filePath) return;
+      const mention = `@${filePath} `;
+      setInputValue((prev) => {
+        // Insert at end, adding a space separator if needed
+        const needsSpace = prev.length > 0 && !prev.endsWith(' ') && !prev.endsWith('\n');
+        return prev + (needsSpace ? ' ' : '') + mention;
+      });
+      setTimeout(() => textareaRef.current?.focus(), 0);
+    };
+    window.addEventListener('insert-file-mention', handler);
+    return () => window.removeEventListener('insert-file-mention', handler);
+  }, []);
 
   // Fetch provider groups from API
   const fetchProviderModels = useCallback(() => {

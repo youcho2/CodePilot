@@ -127,12 +127,14 @@ export default function NewChatPage() {
       let sessionId = '';
 
       try {
-        // Create a new session with working directory
+        // Create a new session with working directory + model/provider
         const createBody: Record<string, string> = {
           title: content.slice(0, 50),
           mode,
           working_directory: workingDir.trim(),
           permission_profile: permissionProfile,
+          model: currentModel,
+          provider_id: currentProviderId,
         };
 
         const createRes = await fetch('/api/chat/sessions', {

@@ -24,6 +24,7 @@ export default function ChatSessionPage({ params }: ChatSessionPageProps) {
   const [sessionModel, setSessionModel] = useState<string>('');
   const [sessionProviderId, setSessionProviderId] = useState<string>('');
   const [sessionMode, setSessionMode] = useState<string>('');
+  const [sessionInfoLoaded, setSessionInfoLoaded] = useState(false);
   const [sessionPermissionProfile, setSessionPermissionProfile] = useState<'default' | 'full_access'>('default');
   const [projectName, setProjectName] = useState<string>('');
   const [sessionWorkingDir, setSessionWorkingDir] = useState<string>('');
@@ -79,8 +80,12 @@ export default function ChatSessionPage({ params }: ChatSessionPageProps) {
   // Load session info and set working directory
   useEffect(() => {
     let cancelled = false;
-    // Clear stale directory immediately so FileTree doesn't show old project
+    // Clear stale state immediately so ChatView doesn't inherit previous session's values
     setWorkingDirectory('');
+    setSessionModel('');
+    setSessionProviderId('');
+    setSessionMode('');
+    setSessionInfoLoaded(false);
 
     async function loadSession() {
       try {
@@ -108,6 +113,8 @@ export default function ChatSessionPage({ params }: ChatSessionPageProps) {
         }
       } catch {
         // Session info load failed - panel will still work without directory
+      } finally {
+        if (!cancelled) setSessionInfoLoaded(true);
       }
     }
 
@@ -152,7 +159,7 @@ export default function ChatSessionPage({ params }: ChatSessionPageProps) {
     return () => { cancelled = true; };
   }, [id]);
 
-  if (loading) {
+  if (loading || !sessionInfoLoaded) {
     return (
       <div className="flex h-full items-center justify-center">
         <SpinnerGap size={32} className="animate-spin text-muted-foreground" />
