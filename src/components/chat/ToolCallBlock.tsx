@@ -15,7 +15,7 @@ import {
   XCircle,
 } from "@phosphor-icons/react";
 import { cn } from '@/lib/utils';
-import { CodeBlock } from './CodeBlock';
+import { CodeBlock } from '@/components/ai-elements/code-block';
 
 type ToolStatus = 'running' | 'success' | 'error';
 
