@@ -16,6 +16,7 @@ import {
 import { ArrowClockwise, SpinnerGap } from "@phosphor-icons/react";
 import { useUpdate } from "@/hooks/useUpdate";
 import { useTranslation } from "@/hooks/useTranslation";
+import { useAccountInfo } from "@/hooks/useAccountInfo";
 import { SUPPORTED_LOCALES, type Locale } from "@/i18n";
 import type { TranslationKey } from "@/i18n";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -126,7 +127,7 @@ export function GeneralSection() {
   const [showSkipPermWarning, setShowSkipPermWarning] = useState(false);
   const [skipPermSaving, setSkipPermSaving] = useState(false);
   const [thinkingMode, setThinkingMode] = useState<string>('adaptive');
-  const [accountInfo, setAccountInfo] = useState<{ email?: string; organization?: string; subscriptionType?: string } | null>(null);
+  const { accountInfo } = useAccountInfo();
   const { t, locale, setLocale } = useTranslation();
 
   const fetchAppSettings = useCallback(async () => {
@@ -145,24 +146,9 @@ export function GeneralSection() {
     }
   }, []);
 
-  const fetchAccountInfo = useCallback(async () => {
-    try {
-      const res = await fetch("/api/sdk/account");
-      if (res.ok) {
-        const data = await res.json();
-        if (data.account) {
-          setAccountInfo(data.account);
-        }
-      }
-    } catch {
-      // Account info not available
-    }
-  }, []);
-
   useEffect(() => {
     fetchAppSettings();
-    fetchAccountInfo();
-  }, [fetchAppSettings, fetchAccountInfo]);
+  }, [fetchAppSettings]);
 
   const saveThinkingMode = async (mode: string) => {
     setThinkingMode(mode);

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useEffect, useRef } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Input } from "@/components/ui/input";
@@ -15,24 +15,11 @@ import {
 } from "@/components/ui/select";
 import { SpinnerGap, CheckCircle, Warning, TelegramLogo, ChatTeardrop, GameController, ChatsCircle } from "@phosphor-icons/react";
 import { useTranslation } from "@/hooks/useTranslation";
+import { useBridgeStatus } from "@/hooks/useBridgeStatus";
 import { SettingsCard } from "@/components/patterns/SettingsCard";
 import { FieldRow } from "@/components/patterns/FieldRow";
 import { StatusBanner } from "@/components/patterns/StatusBanner";
 import type { ProviderModelGroup } from "@/types";
-
-interface AdapterStatus {
-  channelType: string;
-  running: boolean;
-  connectedAt: string | null;
-  lastMessageAt: string | null;
-  error: string | null;
-}
-
-interface BridgeStatus {
-  running: boolean;
-  startedAt: string | null;
-  adapters: AdapterStatus[];
-}
 
 interface BridgeSettings {
   remote_bridge_enabled: string;
@@ -60,14 +47,11 @@ const DEFAULT_SETTINGS: BridgeSettings = {
 
 export function BridgeSection() {
   const [settings, setSettings] = useState<BridgeSettings>(DEFAULT_SETTINGS);
-  const [bridgeStatus, setBridgeStatus] = useState<BridgeStatus | null>(null);
   const [saving, setSaving] = useState(false);
-  const [starting, setStarting] = useState(false);
-  const [stopping, setStopping] = useState(false);
   const [workDir, setWorkDir] = useState("");
   const [model, setModel] = useState("");
   const [providerGroups, setProviderGroups] = useState<ProviderModelGroup[]>([]);
-  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const { bridgeStatus, starting, stopping, startBridge, stopBridge } = useBridgeStatus();
   const { t } = useTranslation();
 
   const fetchSettings = useCallback(async () => {
@@ -92,18 +76,6 @@ export function BridgeSection() {
     }
   }, []);
 
-  const fetchStatus = useCallback(async () => {
-    try {
-      const res = await fetch("/api/bridge");
-      if (res.ok) {
-        const data = await res.json();
-        setBridgeStatus(data);
-      }
-    } catch {
-      // ignore
-    }
-  }, []);
-
   const fetchModels = useCallback(async () => {
     try {
       const res = await fetch("/api/providers/models");
@@ -120,24 +92,8 @@ export function BridgeSection() {
 
   useEffect(() => {
     fetchSettings();
-    fetchStatus();
     fetchModels();
-  }, [fetchSettings, fetchStatus, fetchModels]);
-
-  // Poll bridge status while bridge is running
-  useEffect(() => {
-    if (bridgeStatus?.running) {
-      pollRef.current = setInterval(fetchStatus, 5000);
-    } else if (pollRef.current) {
-      clearInterval(pollRef.current);
-      pollRef.current = null;
-    }
-    return () => {
-      if (pollRef.current) {
-        clearInterval(pollRef.current);
-      }
-    };
-  }, [bridgeStatus?.running, fetchStatus]);
+  }, [fetchSettings, fetchModels]);
 
   const saveSettings = async (updates: Partial<BridgeSettings>) => {
     setSaving(true);
@@ -208,38 +164,6 @@ export function BridgeSection() {
     }
   };
 
-  const handleStartBridge = async () => {
-    setStarting(true);
-    try {
-      await fetch("/api/bridge", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "start" }),
-      });
-      await fetchStatus();
-    } catch {
-      // ignore
-    } finally {
-      setStarting(false);
-    }
-  };
-
-  const handleStopBridge = async () => {
-    setStopping(true);
-    try {
-      await fetch("/api/bridge", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "stop" }),
-      });
-      await fetchStatus();
-    } catch {
-      // ignore
-    } finally {
-      setStopping(false);
-    }
-  };
-
   const handleToggleAutoStart = (checked: boolean) => {
     saveSettings({ bridge_auto_start: checked ? "true" : "" });
   };
@@ -304,7 +228,7 @@ export function BridgeSection() {
                 <Button
                   size="sm"
                   variant="outline"
-                  onClick={handleStopBridge}
+                  onClick={stopBridge}
                   disabled={stopping}
                 >
                   {stopping ? (
@@ -318,7 +242,7 @@ export function BridgeSection() {
               ) : (
                 <Button
                   size="sm"
-                  onClick={handleStartBridge}
+                  onClick={startBridge}
                   disabled={starting}
                 >
                   {starting ? (
