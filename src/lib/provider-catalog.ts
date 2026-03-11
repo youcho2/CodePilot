@@ -101,6 +101,14 @@ export interface VendorPreset {
   category?: 'chat' | 'media';
   /** Icon key for UI */
   iconKey: string;
+  /**
+   * True for providers that only support the Claude Code SDK wire protocol
+   * (e.g. Kimi /coding/, GLM /api/anthropic).
+   * These providers cannot be used with the Vercel AI SDK text generation path
+   * (streamText / generateText) because they don't implement the standard
+   * Anthropic Messages API.
+   */
+  sdkProxyOnly?: boolean;
 }
 
 // ── Default Anthropic models ────────────────────────────────────
@@ -176,6 +184,7 @@ export const VENDOR_PRESETS: VendorPreset[] = [
     ],
     fields: ['api_key'],
     iconKey: 'zhipu',
+    sdkProxyOnly: true,
   },
 
   // ── Zhipu GLM (Global) ──
@@ -195,6 +204,7 @@ export const VENDOR_PRESETS: VendorPreset[] = [
     ],
     fields: ['api_key'],
     iconKey: 'zhipu',
+    sdkProxyOnly: true,
   },
 
   // ── Kimi ──
@@ -212,6 +222,7 @@ export const VENDOR_PRESETS: VendorPreset[] = [
     ],
     fields: ['api_key'],
     iconKey: 'kimi',
+    sdkProxyOnly: true,
   },
 
   // ── Moonshot ──
@@ -229,6 +240,7 @@ export const VENDOR_PRESETS: VendorPreset[] = [
     ],
     fields: ['api_key'],
     iconKey: 'moonshot',
+    sdkProxyOnly: true,
   },
 
   // ── MiniMax (China) ──
@@ -250,6 +262,7 @@ export const VENDOR_PRESETS: VendorPreset[] = [
     ],
     fields: ['api_key'],
     iconKey: 'minimax',
+    sdkProxyOnly: true,
   },
 
   // ── MiniMax (Global) ──
@@ -271,6 +284,7 @@ export const VENDOR_PRESETS: VendorPreset[] = [
     ],
     fields: ['api_key'],
     iconKey: 'minimax',
+    sdkProxyOnly: true,
   },
 
   // ── Volcengine Ark ──
@@ -286,6 +300,7 @@ export const VENDOR_PRESETS: VendorPreset[] = [
     defaultModels: [],  // User must specify model_names
     fields: ['api_key', 'model_names'],
     iconKey: 'volcengine',
+    sdkProxyOnly: true,
   },
 
   // ── Aliyun Bailian ──
@@ -309,6 +324,7 @@ export const VENDOR_PRESETS: VendorPreset[] = [
     ],
     fields: ['api_key'],
     iconKey: 'bailian',
+    sdkProxyOnly: true,
   },
 
   // ── AWS Bedrock ──

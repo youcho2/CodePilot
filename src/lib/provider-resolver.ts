@@ -254,8 +254,10 @@ export function toClaudeCodeEnv(
 export interface AiSdkConfig {
   /** Which AI SDK factory to use */
   sdkType: 'anthropic' | 'openai' | 'google' | 'bedrock' | 'vertex';
-  /** API key to pass to the SDK */
+  /** API key to pass to the SDK (mutually exclusive with authToken for Anthropic) */
   apiKey: string | undefined;
+  /** Auth token (Bearer) for Anthropic auth_token providers (mutually exclusive with apiKey) */
+  authToken: string | undefined;
   /** Base URL to pass to the SDK */
   baseUrl: string | undefined;
   /** The model ID to request (upstream/API model ID) */
@@ -300,21 +302,59 @@ export function toAiSdkConfig(
 
   const headers = resolved.headers;
 
+  // Resolve Anthropic auth credentials.
+  // @ai-sdk/anthropic supports apiKey (x-api-key header) and authToken (Bearer header),
+  // and they are mutually exclusive. We must pick the right one based on authStyle.
+  const resolveAnthropicAuth = (): { apiKey: string | undefined; authToken: string | undefined } => {
+    if (provider) {
+      // Configured provider — use authStyle to decide
+      if (resolved.authStyle === 'auth_token') {
+        return { apiKey: undefined, authToken: provider.api_key || undefined };
+      }
+      return { apiKey: provider.api_key || undefined, authToken: undefined };
+    }
+    // Env mode — check env vars and legacy DB settings.
+    // ANTHROPIC_AUTH_TOKEN takes precedence (it's the Claude Code SDK auth path).
+    const envAuthToken = process.env.ANTHROPIC_AUTH_TOKEN || getSetting('anthropic_auth_token');
+    if (envAuthToken) {
+      // If we also have an API key, prefer auth_token (matches Claude Code SDK behavior)
+      return { apiKey: undefined, authToken: envAuthToken };
+    }
+    const envApiKey = process.env.ANTHROPIC_API_KEY;
+    return { apiKey: envApiKey || undefined, authToken: undefined };
+  };
+
+  // @ai-sdk/anthropic builds request URLs as `${baseURL}/messages`.
+  // Its default is 'https://api.anthropic.com/v1', so if we pass
+  // 'https://api.anthropic.com' (without /v1) the request goes to
+  // /messages instead of /v1/messages and 404s.
+  // Normalise here so callers don't need to know about the SDK's URL scheme.
+  const normaliseAnthropicBaseUrl = (url: string | undefined): string | undefined => {
+    if (!url) return undefined;
+    const cleaned = url.replace(/\/+$/, '');
+    if (cleaned === 'https://api.anthropic.com') return 'https://api.anthropic.com/v1';
+    return cleaned;
+  };
+
   switch (protocol) {
-    case 'anthropic':
+    case 'anthropic': {
+      const auth = resolveAnthropicAuth();
+      const rawBaseUrl = provider?.base_url || process.env.ANTHROPIC_BASE_URL || getSetting('anthropic_base_url') || undefined;
       return {
         sdkType: 'anthropic',
-        apiKey: provider?.api_key || undefined,
-        baseUrl: provider?.base_url || undefined,
+        ...auth,
+        baseUrl: normaliseAnthropicBaseUrl(rawBaseUrl),
         modelId,
         headers,
         processEnvInjections,
       };
+    }
 
     case 'openrouter':
       return {
         sdkType: 'openai',
         apiKey: provider?.api_key || undefined,
+        authToken: undefined,
         baseUrl: provider?.base_url || 'https://openrouter.ai/api/v1',
         modelId,
         headers,
@@ -325,6 +365,7 @@ export function toAiSdkConfig(
       return {
         sdkType: 'openai',
         apiKey: provider?.api_key || undefined,
+        authToken: undefined,
         baseUrl: provider?.base_url || undefined,
         modelId,
         headers,
@@ -337,6 +378,7 @@ export function toAiSdkConfig(
         return {
           sdkType: 'openai',
           apiKey: provider.api_key || 'dummy',
+          authToken: undefined,
           baseUrl: provider.base_url,
           modelId,
           headers,
@@ -346,6 +388,7 @@ export function toAiSdkConfig(
       return {
         sdkType: 'bedrock',
         apiKey: undefined,
+        authToken: undefined,
         baseUrl: undefined,
         modelId,
         headers,
@@ -358,6 +401,7 @@ export function toAiSdkConfig(
         return {
           sdkType: 'openai',
           apiKey: provider.api_key || 'dummy',
+          authToken: undefined,
           baseUrl: provider.base_url,
           modelId,
           headers,
@@ -367,6 +411,7 @@ export function toAiSdkConfig(
       return {
         sdkType: 'vertex',
         apiKey: undefined,
+        authToken: undefined,
         baseUrl: undefined,
         modelId,
         headers,
@@ -378,21 +423,24 @@ export function toAiSdkConfig(
       return {
         sdkType: 'google',
         apiKey: provider?.api_key || undefined,
+        authToken: undefined,
         baseUrl: provider?.base_url || undefined,
         modelId,
         headers,
         processEnvInjections,
       };
 
-    default:
+    default: {
+      const auth = resolveAnthropicAuth();
       return {
         sdkType: 'anthropic',
-        apiKey: provider?.api_key || undefined,
-        baseUrl: provider?.base_url || undefined,
+        ...auth,
+        baseUrl: normaliseAnthropicBaseUrl(provider?.base_url),
         modelId,
         headers,
         processEnvInjections,
       };
+    }
   }
 }
 
@@ -410,18 +458,30 @@ function buildResolution(
       getSetting('anthropic_auth_token')
     );
     const model = opts.model || opts.sessionModel || getSetting('default_model') || undefined;
+
+    // Env mode uses short aliases (sonnet/opus/haiku) in the UI.
+    // Map them to full Anthropic model IDs so toAiSdkConfig can resolve correctly.
+    const envModels: CatalogModel[] = [
+      { modelId: 'sonnet', upstreamModelId: 'claude-sonnet-4-20250514', displayName: 'Sonnet 4.6' },
+      { modelId: 'opus', upstreamModelId: 'claude-opus-4-20250514', displayName: 'Opus 4.6' },
+      { modelId: 'haiku', upstreamModelId: 'claude-haiku-4-5-20251001', displayName: 'Haiku 4.5' },
+    ];
+
+    // Resolve upstream model from the alias table
+    const catalogEntry = model ? envModels.find(m => m.modelId === model) : undefined;
+
     return {
       provider: undefined,
       protocol: 'anthropic',
       authStyle: 'api_key',
       model,
-      upstreamModel: model, // identity mapping for env mode
-      modelDisplayName: undefined,
+      upstreamModel: catalogEntry?.upstreamModelId || model,
+      modelDisplayName: catalogEntry?.displayName,
       headers: {},
       envOverrides: {},
       roleModels: {},
       hasCredentials: envHasCredentials,
-      availableModels: [],
+      availableModels: envModels,
       settingSources: ['user', 'project', 'local'],
     };
   }

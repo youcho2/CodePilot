@@ -374,7 +374,7 @@ export function ChatListPanel({ open, width }: ChatListPanelProps) {
 
   return (
     <aside
-      className="hidden h-full shrink-0 flex-col overflow-hidden bg-sidebar lg:flex"
+      className="hidden h-full shrink-0 flex-col overflow-hidden bg-sidebar/80 backdrop-blur-xl lg:flex"
       style={{ width: width ?? 240 }}
     >
       {/* Header - extra top padding for macOS traffic lights */}

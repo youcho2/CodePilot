@@ -9,6 +9,7 @@ import {
   Image,
   Gear,
   WifiHigh,
+  Terminal,
 } from "@phosphor-icons/react";
 import { Button } from "@/components/ui/button";
 import {
@@ -33,6 +34,7 @@ const navItems = [
   { href: "/chat", label: "Chats", icon: ChatCircle },
   { href: "/skills", label: "Skills", icon: Lightning },
   { href: "/mcp", label: "MCP", icon: Plug },
+  { href: "/cli-tools", label: "CLI Tools", icon: Terminal },
   { href: "/gallery", label: "Gallery", icon: Image },
   { href: "/bridge", label: "Bridge", icon: WifiHigh },
 ] as const;
@@ -47,12 +49,13 @@ export function NavRail({ onToggleChatList, hasUpdate, readyToInstall, skipPermi
     'MCP': 'extensions.mcpServers',
     'Gallery': 'gallery.title',
     'Bridge': 'nav.bridge',
+    'CLI Tools': 'nav.cliTools',
   };
   const isChatRoute = pathname === "/chat" || pathname.startsWith("/chat/");
   const isSettingsActive = pathname === "/settings" || pathname.startsWith("/settings/");
 
   return (
-    <aside className="flex w-14 shrink-0 flex-col items-center bg-sidebar pb-3 pt-10">
+    <aside className="flex w-14 shrink-0 flex-col items-center bg-sidebar/80 backdrop-blur-xl pb-3 pt-10">
       {/* Nav icons */}
       <nav className="flex flex-1 flex-col items-center gap-1">
         {navItems.map((item) => {

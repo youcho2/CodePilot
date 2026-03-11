@@ -18,6 +18,8 @@ import {
   Brain,
   GlobeSimple,
   Stop,
+  Lightning,
+  Gear,
 } from "@phosphor-icons/react";
 import type { Icon } from "@phosphor-icons/react";
 import { cn } from '@/lib/utils';
@@ -36,6 +38,11 @@ import type { ChatStatus } from 'ai';
 import type { FileAttachment, ProviderModelGroup, SkillKind } from '@/types';
 import { nanoid } from 'nanoid';
 import { SlashCommandButton } from './SlashCommandButton';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
 import { useImageGen } from '@/hooks/useImageGen';
 import { PENDING_KEY, setRefImages, deleteRefImages } from '@/lib/image-ref-store';
 
@@ -126,7 +133,19 @@ interface CommandBadge {
   installedSource?: "agents" | "claude";
 }
 
-type PopoverMode = 'file' | 'skill' | null;
+interface CliBadge {
+  id: string;
+  name: string;
+}
+
+interface CliToolItem {
+  id: string;
+  name: string;
+  version: string | null;
+  summary: string;
+}
+
+type PopoverMode = 'file' | 'skill' | 'cli' | null;
 
 // Expansion prompts for CLI-only commands (not natively supported by SDK).
 // SDK-native commands (/compact, /init, /review) are sent as-is — the SDK handles them directly.
@@ -236,7 +255,7 @@ function AttachFileButton() {
       onClick={() => attachments.openFileDialog()}
       tooltip={t('messageInput.attachFiles')}
     >
-      <Plus size={14} />
+      <Plus size={16} />
     </PromptInputButton>
   );
 }
@@ -327,7 +346,7 @@ export function MessageInput({
   onEffortChange,
   sdkInitMeta,
 }: MessageInputProps) {
-  const { t } = useTranslation();
+  const { t, locale } = useTranslation();
   const imageGen = useImageGen();
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const popoverRef = useRef<HTMLDivElement>(null);
@@ -340,8 +359,13 @@ export function MessageInput({
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [triggerPos, setTriggerPos] = useState<number | null>(null);
   const [modelMenuOpen, setModelMenuOpen] = useState(false);
+  const [modelSearch, setModelSearch] = useState('');
   const [inputValue, setInputValue] = useState('');
   const [badge, setBadge] = useState<CommandBadge | null>(null);
+  const [cliBadge, setCliBadge] = useState<CliBadge | null>(null);
+  const [cliTools, setCliTools] = useState<CliToolItem[]>([]);
+  const [cliFilter, setCliFilter] = useState('');
+  const cliSearchRef = useRef<HTMLInputElement>(null);
   const [providerGroups, setProviderGroups] = useState<ProviderModelGroup[]>([]);
   const [defaultProviderId, setDefaultProviderId] = useState<string>('');
   const [aiSuggestions, setAiSuggestions] = useState<PopoverItem[]>([]);
@@ -525,6 +549,81 @@ export function MessageInput({
     return [...BUILT_IN_COMMANDS, ...uniqueSkills];
   }, [workingDirectory, sdkInitMeta]);
 
+  // Fetch CLI tools for CLI popover
+  const fetchCliTools = useCallback(async () => {
+    try {
+      const [installedRes, catalogRes] = await Promise.all([
+        fetch('/api/cli-tools/installed'),
+        fetch('/api/cli-tools/catalog'),
+      ]);
+      const installedData = await installedRes.json();
+      const catalogData = await catalogRes.json();
+
+      const catalogTools = catalogData.tools || [];
+      const runtimeInfos = installedData.tools || [];
+      const extraDetected = installedData.extra || [];
+
+      // Build lookup for catalog summaries
+      const catalogMap = new Map<string, { name: string; summaryZh: string; summaryEn: string }>();
+      for (const ct of catalogTools) {
+        catalogMap.set(ct.id, { name: ct.name, summaryZh: ct.summaryZh, summaryEn: ct.summaryEn });
+      }
+
+      // Extra well-known names lookup
+      const extraNames: Record<string, string> = {};
+      try {
+        const { EXTRA_WELL_KNOWN_BINS } = await import('@/lib/cli-tools-catalog');
+        for (const [id, name] of EXTRA_WELL_KNOWN_BINS) {
+          extraNames[id] = name;
+        }
+      } catch { /* ignore */ }
+
+      // Load cached AI descriptions
+      let autoDesc: Record<string, { zh: string; en: string }> = {};
+      try {
+        const cached = localStorage.getItem('cli-tools-auto-desc');
+        if (cached) autoDesc = JSON.parse(cached);
+      } catch { /* ignore */ }
+
+      const locale = document.documentElement.lang === 'zh' ? 'zh' : 'en';
+      const items: CliToolItem[] = [];
+
+      // Installed catalog tools
+      for (const ri of runtimeInfos) {
+        if (ri.status !== 'installed') continue;
+        const cat = catalogMap.get(ri.id);
+        const ad = autoDesc[ri.id];
+        const summary = ad
+          ? (locale === 'zh' ? ad.zh : ad.en)
+          : cat
+            ? (locale === 'zh' ? cat.summaryZh : cat.summaryEn)
+            : '';
+        items.push({
+          id: ri.id,
+          name: cat?.name || ri.id,
+          version: ri.version,
+          summary,
+        });
+      }
+
+      // Extra detected tools
+      for (const ri of extraDetected) {
+        const ad = autoDesc[ri.id];
+        const summary = ad ? (locale === 'zh' ? ad.zh : ad.en) : '';
+        items.push({
+          id: ri.id,
+          name: extraNames[ri.id] || ri.id,
+          version: ri.version,
+          summary,
+        });
+      }
+
+      setCliTools(items);
+    } catch {
+      setCliTools([]);
+    }
+  }, []);
+
   // Close popover
   const closePopover = useCallback(() => {
     setPopoverMode(null);
@@ -550,6 +649,52 @@ export function MessageInput({
     setBadge(null);
     setTimeout(() => textareaRef.current?.focus(), 0);
   }, []);
+
+  // Remove CLI badge
+  const removeCliBadge = useCallback(() => {
+    setCliBadge(null);
+    setTimeout(() => textareaRef.current?.focus(), 0);
+  }, []);
+
+  // Handle CLI tool selection from popover
+  const handleCliSelect = useCallback((tool: CliToolItem) => {
+    closePopover();
+    setCliFilter('');
+
+    if (!inputValue.trim()) {
+      // Empty input: prefill with prompt template
+      const prefix = locale === 'zh'
+        ? `我想用 ${tool.name} 工具完成：`
+        : `I want to use ${tool.name} to: `;
+      setInputValue(prefix);
+      setTimeout(() => {
+        const ta = textareaRef.current;
+        if (ta) {
+          ta.focus();
+          ta.selectionStart = ta.selectionEnd = prefix.length;
+        }
+      }, 0);
+    } else {
+      // Non-empty input: set CLI badge
+      setCliBadge({ id: tool.id, name: tool.name });
+      setTimeout(() => textareaRef.current?.focus(), 0);
+    }
+  }, [inputValue, locale, closePopover]);
+
+  // Open CLI popover
+  const handleOpenCliPopover = useCallback(async () => {
+    if (popoverMode === 'cli') {
+      closePopover();
+      return;
+    }
+    closePopover();
+    setPopoverMode('cli');
+    setCliFilter('');
+    setSelectedIndex(0);
+    // Focus search input on next render (before fetch completes)
+    setTimeout(() => cliSearchRef.current?.focus(), 0);
+    fetchCliTools();
+  }, [popoverMode, closePopover, fetchCliTools]);
 
   // Insert selected item
   const insertItem = useCallback((item: PopoverItem) => {
@@ -628,7 +773,8 @@ export function MessageInput({
       return;
     }
 
-    if (popoverMode) {
+    // Only auto-close text-triggered popovers (file/skill); CLI is button-triggered
+    if (popoverMode && popoverMode !== 'cli') {
       closePopover();
     }
   }, [fetchFiles, fetchSkills, popoverMode, closePopover]);
@@ -782,9 +928,15 @@ export function MessageInput({
       }
     }
 
-    onSend(content || 'Please review the attached file(s).', hasFiles ? files : undefined);
+    // If CLI badge is active, inject systemPromptAppend to guide model
+    const cliAppend = cliBadge
+      ? `The user wants to use the installed CLI tool "${cliBadge.name}" if appropriate for this task. Prefer using "${cliBadge.name}" when suitable.`
+      : undefined;
+    if (cliBadge) setCliBadge(null);
+
+    onSend(content || 'Please review the attached file(s).', hasFiles ? files : undefined, cliAppend);
     setInputValue('');
-  }, [inputValue, onSend, onImageGenerate, onCommand, disabled, isStreaming, closePopover, badge, imageGen]);
+  }, [inputValue, onSend, onImageGenerate, onCommand, disabled, isStreaming, closePopover, badge, cliBadge, imageGen]);
 
   const filteredItems = popoverItems.filter((item) => {
     const q = popoverFilter.toLowerCase();
@@ -891,8 +1043,8 @@ export function MessageInput({
 
   const handleKeyDown = useCallback(
     (e: KeyboardEvent<HTMLTextAreaElement>) => {
-      // Popover navigation
-      if (popoverMode && popoverItems.length > 0) {
+      // Popover navigation (skill/file mode)
+      if (popoverMode && popoverMode !== 'cli' && popoverItems.length > 0) {
         if (e.key === 'ArrowDown') {
           e.preventDefault();
           setSelectedIndex((prev) => (prev + 1) % allDisplayedItems.length);
@@ -917,21 +1069,51 @@ export function MessageInput({
         }
       }
 
+      // CLI popover keyboard navigation
+      if (popoverMode === 'cli') {
+        if (e.key === 'Escape') {
+          e.preventDefault();
+          closePopover();
+          return;
+        }
+        if (cliTools.length > 0) {
+          const q = cliFilter.toLowerCase();
+          const filtered = cliTools.filter(t =>
+            t.name.toLowerCase().includes(q) || t.summary.toLowerCase().includes(q)
+          );
+          if (filtered.length > 0) {
+            if (e.key === 'ArrowDown') {
+              e.preventDefault();
+              setSelectedIndex((prev) => Math.min(prev + 1, filtered.length - 1));
+              return;
+            }
+            if (e.key === 'ArrowUp') {
+              e.preventDefault();
+              setSelectedIndex((prev) => Math.max(prev - 1, 0));
+              return;
+            }
+            if (e.key === 'Enter') {
+              e.preventDefault();
+              if (filtered[selectedIndex]) handleCliSelect(filtered[selectedIndex]);
+              return;
+            }
+          }
+        }
+      }
+
       // Backspace removes badge when input is empty
-      if (e.key === 'Backspace' && badge && !inputValue) {
-        e.preventDefault();
-        removeBadge();
-        return;
+      if (e.key === 'Backspace' && !inputValue) {
+        if (badge) { e.preventDefault(); removeBadge(); return; }
+        if (cliBadge) { e.preventDefault(); removeCliBadge(); return; }
       }
 
       // Escape removes badge
-      if (e.key === 'Escape' && badge) {
-        e.preventDefault();
-        removeBadge();
-        return;
+      if (e.key === 'Escape') {
+        if (badge) { e.preventDefault(); removeBadge(); return; }
+        if (cliBadge) { e.preventDefault(); removeCliBadge(); return; }
       }
     },
-    [popoverMode, popoverItems, popoverFilter, selectedIndex, insertItem, closePopover, badge, inputValue, removeBadge, allDisplayedItems]
+    [popoverMode, popoverItems, popoverFilter, selectedIndex, insertItem, closePopover, badge, cliBadge, inputValue, removeBadge, removeCliBadge, allDisplayedItems, cliTools, cliFilter, handleCliSelect]
   );
 
   // Click outside to close popover
@@ -952,6 +1134,7 @@ export function MessageInput({
     const handler = (e: MouseEvent) => {
       if (modelMenuRef.current && !modelMenuRef.current.contains(e.target as Node)) {
         setModelMenuOpen(false);
+        setModelSearch('');
       }
     };
     document.addEventListener('mousedown', handler);
@@ -1041,7 +1224,7 @@ export function MessageInput({
             return (
               <div
                 ref={popoverRef}
-                className="absolute bottom-full left-0 right-0 mb-2 rounded-xl border bg-popover shadow-lg overflow-hidden z-50"
+                className="absolute bottom-full left-0 mb-2 w-full max-w-2xl rounded-xl border bg-popover shadow-lg overflow-hidden z-50"
               >
                 {popoverMode === 'skill' ? (
                   <div className="px-3 py-2 border-b">
@@ -1079,7 +1262,6 @@ export function MessageInput({
                         }
                       }}
                       className="w-full bg-transparent text-sm text-foreground placeholder:text-muted-foreground outline-none"
-                      autoFocus
                     />
                   </div>
                 ) : (
@@ -1144,6 +1326,105 @@ export function MessageInput({
                     </>
                   )}
                 </div>
+                {/* Footer: manage skills (skill mode only) */}
+                {popoverMode === 'skill' && (
+                  <div className="border-t px-3 py-1.5">
+                    <button
+                      className="flex w-full items-center gap-2 text-xs text-muted-foreground hover:text-foreground transition-colors py-1"
+                      onClick={() => { closePopover(); window.location.href = '/skills'; }}
+                    >
+                      <Lightning size={14} />
+                      {t('composer.manageSkills' as TranslationKey)}
+                    </button>
+                  </div>
+                )}
+              </div>
+            );
+          })()}
+
+          {/* CLI Tools Popover */}
+          {popoverMode === 'cli' && (() => {
+            const q = cliFilter.toLowerCase();
+            const filtered = cliTools.filter(t =>
+              t.name.toLowerCase().includes(q) || t.summary.toLowerCase().includes(q)
+            );
+
+            return (
+              <div
+                ref={popoverRef}
+                className="absolute bottom-full left-0 mb-2 w-full max-w-2xl rounded-xl border bg-popover shadow-lg overflow-hidden z-50"
+              >
+                <div className="px-3 py-2 border-b">
+                  <input
+                    ref={cliSearchRef}
+                    type="text"
+                    placeholder={t('cliTools.searchPlaceholder' as TranslationKey)}
+                    value={cliFilter}
+                    onChange={(e) => { setCliFilter(e.target.value); setSelectedIndex(0); }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'ArrowDown') {
+                        e.preventDefault();
+                        setSelectedIndex((prev) => Math.min(prev + 1, filtered.length - 1));
+                      } else if (e.key === 'ArrowUp') {
+                        e.preventDefault();
+                        setSelectedIndex((prev) => Math.max(prev - 1, 0));
+                      } else if (e.key === 'Enter') {
+                        e.preventDefault();
+                        if (filtered[selectedIndex]) handleCliSelect(filtered[selectedIndex]);
+                      } else if (e.key === 'Escape') {
+                        e.preventDefault();
+                        closePopover();
+                        textareaRef.current?.focus();
+                      }
+                    }}
+                    className="w-full bg-transparent text-sm text-foreground placeholder:text-muted-foreground outline-none"
+                  />
+                </div>
+                <div className="max-h-48 overflow-y-auto py-1">
+                  {filtered.length > 0 ? (
+                    filtered.map((tool, idx) => (
+                      <button
+                        key={tool.id}
+                        ref={idx === selectedIndex ? (el) => { el?.scrollIntoView({ block: 'nearest' }); } : undefined}
+                        className={cn(
+                          "flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm transition-colors",
+                          idx === selectedIndex ? "bg-accent text-accent-foreground" : "hover:bg-accent/50"
+                        )}
+                        onClick={() => handleCliSelect(tool)}
+                        onMouseEnter={() => setSelectedIndex(idx)}
+                      >
+                        <Terminal size={16} className="shrink-0 text-muted-foreground" />
+                        <span className="font-medium text-xs truncate">{tool.name}</span>
+                        {tool.version && (
+                          <span className="text-[10px] text-muted-foreground shrink-0">v{tool.version}</span>
+                        )}
+                        {tool.summary && (
+                          <span className="text-xs text-muted-foreground truncate ml-auto max-w-[200px]">{tool.summary}</span>
+                        )}
+                      </button>
+                    ))
+                  ) : (
+                    <div className="px-3 py-4 text-center">
+                      <p className="text-sm text-muted-foreground">{t('cliTools.noToolsDetected' as TranslationKey)}</p>
+                      <button
+                        className="mt-2 text-xs text-primary hover:underline"
+                        onClick={() => { closePopover(); window.location.href = '/cli-tools'; }}
+                      >
+                        {t('cliTools.goInstall' as TranslationKey)}
+                      </button>
+                    </div>
+                  )}
+                </div>
+                {/* Footer: manage CLI tools */}
+                <div className="border-t px-3 py-1.5">
+                  <button
+                    className="flex w-full items-center gap-2 text-xs text-muted-foreground hover:text-foreground transition-colors py-1"
+                    onClick={() => { closePopover(); window.location.href = '/cli-tools'; }}
+                  >
+                    <Terminal size={14} />
+                    {t('cliTools.manageCli' as TranslationKey)}
+                  </button>
+                </div>
               </div>
             );
           })()}
@@ -1176,11 +1457,29 @@ export function MessageInput({
                 </span>
               </div>
             )}
+            {/* CLI badge */}
+            {cliBadge && (
+              <div className="flex w-full items-center gap-1.5 px-3 pt-2.5 pb-0 order-first">
+                <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 pl-2.5 pr-1.5 py-1 text-xs font-medium border border-emerald-500/20">
+                  <Terminal size={12} />
+                  <span>CLI: {cliBadge.name}</span>
+                  <button
+                    type="button"
+                    onClick={removeCliBadge}
+                    className="ml-0.5 rounded-full p-0.5 hover:bg-emerald-500/20 transition-colors"
+                  >
+                    <svg className="h-3 w-3" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2">
+                      <path d="M3 3l6 6M9 3l-6 6" />
+                    </svg>
+                  </button>
+                </span>
+              </div>
+            )}
             {/* File attachment capsules */}
             <FileAttachmentsCapsules />
             <PromptInputTextarea
               ref={textareaRef}
-              placeholder={badge ? "Add details (optional), then press Enter..." : "Message Claude..."}
+              placeholder={badge ? "Add details (optional), then press Enter..." : cliBadge ? "Describe what you want to do..." : "Message Claude..."}
               value={inputValue}
               onChange={(e) => handleInputChange(e.currentTarget.value)}
               onKeyDown={handleKeyDown}
@@ -1196,6 +1495,18 @@ export function MessageInput({
                 {/* Slash command button */}
                 <SlashCommandButton onInsertSlash={handleInsertSlash} />
 
+                {/* CLI tools button */}
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <PromptInputButton onClick={handleOpenCliPopover}>
+                      <Terminal size={16} />
+                    </PromptInputButton>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    {t('cliTools.selectTool' as TranslationKey)}
+                  </TooltipContent>
+                </Tooltip>
+
                 {/* Model selector */}
                 <div className="relative" ref={modelMenuRef}>
                   <PromptInputButton
@@ -1205,46 +1516,90 @@ export function MessageInput({
                     <CaretDown size={10} className={cn("transition-transform duration-200", modelMenuOpen && "rotate-180")} />
                   </PromptInputButton>
 
-                  {modelMenuOpen && (
-                    <div className="absolute bottom-full left-0 mb-1.5 w-52 rounded-lg border bg-popover shadow-lg overflow-hidden z-50 max-h-80 overflow-y-auto">
-                      {providerGroups.map((group, groupIdx) => (
-                        <div key={group.provider_id}>
-                          {/* Group header */}
-                          <div className={cn(
-                            "px-3 py-1.5 text-[10px] font-medium text-muted-foreground",
-                            groupIdx > 0 && "border-t"
-                          )}>
-                            {group.provider_name}
-                          </div>
-                          {/* Models in group */}
-                          <div className="py-0.5">
-                            {group.models.map((opt) => {
-                              const isActive = opt.value === currentModelValue && group.provider_id === currentProviderIdValue;
-                              return (
-                                <button
-                                  key={`${group.provider_id}-${opt.value}`}
-                                  className={cn(
-                                    "flex w-full items-center justify-between gap-2 px-3 py-1.5 text-left text-sm transition-colors",
-                                    isActive ? "bg-accent text-accent-foreground" : "hover:bg-accent/50"
-                                  )}
-                                  onClick={() => {
-                                    onModelChange?.(opt.value);
-                                    onProviderModelChange?.(group.provider_id, opt.value);
-                                    localStorage.setItem('codepilot:last-model', opt.value);
-                                    localStorage.setItem('codepilot:last-provider-id', group.provider_id);
-                                    setModelMenuOpen(false);
-                                  }}
-                                >
-                                  <span className="font-mono text-xs">{opt.label}</span>
-                                  {isActive && <span className="text-xs">✓</span>}
-                                </button>
-                              );
-                            })}
-                          </div>
+                  {modelMenuOpen && (() => {
+                    const mq = modelSearch.toLowerCase();
+                    const filteredGroups = providerGroups.map(group => ({
+                      ...group,
+                      models: group.models.filter(opt =>
+                        !mq || opt.label.toLowerCase().includes(mq) || group.provider_name.toLowerCase().includes(mq)
+                      ),
+                    })).filter(group => group.models.length > 0);
+
+                    return (
+                      <div className="absolute bottom-full left-0 mb-1.5 w-64 rounded-xl border bg-popover shadow-lg overflow-hidden z-50">
+                        {/* Search */}
+                        <div className="px-3 py-2 border-b">
+                          <input
+                            type="text"
+                            placeholder={t('composer.searchModels' as TranslationKey)}
+                            value={modelSearch}
+                            onChange={(e) => setModelSearch(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Escape') {
+                                e.preventDefault();
+                                setModelMenuOpen(false);
+                                setModelSearch('');
+                              }
+                            }}
+                            className="w-full bg-transparent text-sm text-foreground placeholder:text-muted-foreground outline-none"
+                          />
                         </div>
-                      ))}
-                    </div>
-                  )}
+                        {/* Model list */}
+                        <div className="max-h-64 overflow-y-auto py-1">
+                          {filteredGroups.map((group, groupIdx) => (
+                            <div key={group.provider_id}>
+                              <div className={cn(
+                                "px-3 py-1.5 text-[10px] font-medium text-muted-foreground",
+                                groupIdx > 0 && "border-t"
+                              )}>
+                                {group.provider_name}
+                              </div>
+                              <div className="py-0.5">
+                                {group.models.map((opt) => {
+                                  const isActive = opt.value === currentModelValue && group.provider_id === currentProviderIdValue;
+                                  return (
+                                    <button
+                                      key={`${group.provider_id}-${opt.value}`}
+                                      className={cn(
+                                        "flex w-full items-center justify-between gap-2 px-3 py-1.5 text-left text-sm transition-colors",
+                                        isActive ? "bg-accent text-accent-foreground" : "hover:bg-accent/50"
+                                      )}
+                                      onClick={() => {
+                                        onModelChange?.(opt.value);
+                                        onProviderModelChange?.(group.provider_id, opt.value);
+                                        localStorage.setItem('codepilot:last-model', opt.value);
+                                        localStorage.setItem('codepilot:last-provider-id', group.provider_id);
+                                        setModelMenuOpen(false);
+                                        setModelSearch('');
+                                      }}
+                                    >
+                                      <span className="font-mono text-xs">{opt.label}</span>
+                                      {isActive && <span className="text-xs">✓</span>}
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          ))}
+                          {filteredGroups.length === 0 && (
+                            <div className="px-3 py-3 text-center text-xs text-muted-foreground">
+                              No models found
+                            </div>
+                          )}
+                        </div>
+                        {/* Footer: manage providers */}
+                        <div className="border-t px-3 py-1.5">
+                          <button
+                            className="flex w-full items-center gap-2 text-xs text-muted-foreground hover:text-foreground transition-colors py-1"
+                            onClick={() => { setModelMenuOpen(false); setModelSearch(''); window.location.href = '/settings'; }}
+                          >
+                            <Gear size={14} />
+                            {t('composer.manageProviders' as TranslationKey)}
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })()}
                 </div>
 
                 {/* Effort selector — only visible when model supports effort */}
@@ -1292,7 +1647,7 @@ export function MessageInput({
                 onStop={onStop}
                 disabled={disabled}
                 inputValue={inputValue}
-                hasBadge={!!badge}
+                hasBadge={!!badge || !!cliBadge}
               />
             </PromptInputFooter>
           </PromptInput>

@@ -479,7 +479,7 @@ describe('Provider Resolver', () => {
       const config = toAiSdkConfig(resolved);
       assert.equal(config.sdkType, 'anthropic');
       assert.equal(config.apiKey, 'key');
-      assert.equal(config.baseUrl, 'https://api.anthropic.com');
+      assert.equal(config.baseUrl, 'https://api.anthropic.com/v1');
       assert.equal(config.modelId, 'sonnet');
       assert.deepEqual(config.processEnvInjections, {});
     });

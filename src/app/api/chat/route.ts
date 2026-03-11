@@ -304,6 +304,17 @@ Start by greeting the user and asking the first question.
       finalSystemPrompt = (finalSystemPrompt || '') + '\n\n' + assistantProjectInstructions;
     }
 
+    // Inject available CLI tools context (best-effort, non-blocking)
+    try {
+      const { buildCliToolsContext } = await import('@/lib/cli-tools-context');
+      const cliToolsCtx = await buildCliToolsContext();
+      if (cliToolsCtx) {
+        finalSystemPrompt = (finalSystemPrompt || '') + '\n\n' + cliToolsCtx;
+      }
+    } catch {
+      // CLI tools context injection failed — don't block chat
+    }
+
     // Load recent conversation history from DB as fallback context.
     // This is used when SDK session resume is unavailable or fails,
     // so the model still has conversation context.

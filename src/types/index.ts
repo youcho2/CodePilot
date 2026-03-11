@@ -137,6 +137,8 @@ export interface ProviderModelGroup {
   provider_id: string;       // provider DB id, or 'env' for environment variables
   provider_name: string;
   provider_type: string;
+  /** True if this provider only supports Claude Code SDK wire protocol, not standard Messages API */
+  sdkProxyOnly?: boolean;
   models: Array<{
     value: string;           // internal/UI model ID
     label: string;           // display name
@@ -882,4 +884,53 @@ export interface ClaudeStreamOptions {
   enableFileCheckpointing?: boolean;
   /** When true, this is an auto-trigger turn (invisible to user) — skip rewind point emission */
   autoTrigger?: boolean;
+}
+
+// ==========================================
+// CLI Tools Types
+// ==========================================
+
+export type CliToolStatus = 'not_installed' | 'installed' | 'needs_auth' | 'ready';
+export type CliToolCategory = 'media' | 'data' | 'search' | 'download' | 'document' | 'productivity';
+export type InstallMethod = 'brew' | 'npm' | 'pipx' | 'cargo';
+
+export type CliToolPlatform = 'darwin' | 'linux' | 'win32';
+
+export interface CliToolInstallMethod {
+  method: InstallMethod;
+  command: string;
+  platforms: CliToolPlatform[];
+}
+
+export interface CliToolExamplePrompt {
+  label: string;
+  promptZh: string;
+  promptEn: string;
+}
+
+export interface CliToolDefinition {
+  id: string;
+  name: string;
+  binNames: string[];
+  summaryZh: string;
+  summaryEn: string;
+  categories: CliToolCategory[];
+  installMethods: CliToolInstallMethod[];
+  setupType: 'simple' | 'needs_auth';
+  detailIntro: { zh: string; en: string };
+  useCases: { zh: string[]; en: string[] };
+  guideSteps: { zh: string[]; en: string[] };
+  examplePrompts: CliToolExamplePrompt[];
+  homepage?: string;
+  repoUrl?: string;
+  officialDocsUrl?: string;
+  supportsAutoDescribe: boolean;
+}
+
+export interface CliToolRuntimeInfo {
+  id: string;
+  status: CliToolStatus;
+  version: string | null;
+  binPath: string | null;
+  autoDescription?: { zh: string; en: string } | null;
 }

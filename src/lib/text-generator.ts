@@ -22,6 +22,11 @@ export interface StreamTextParams {
  * Provider resolution is fully delegated to the unified resolver.
  * No fallback logic here — the resolver's chain (explicit → session → global default → env)
  * is the single source of truth, matching the Claude Code SDK path.
+ *
+ * NOTE: Do NOT expand model aliases (sonnet/opus/haiku) here.
+ * toAiSdkConfig() resolves model IDs through the provider's availableModels catalog,
+ * which uses the short alias as modelId. Expanding aliases would break that lookup
+ * for SDK proxy providers (Kimi, GLM, MiniMax, etc.) that expect short aliases.
  */
 export async function* streamTextFromProvider(params: StreamTextParams): AsyncIterable<string> {
   const resolved = resolveProviderUnified({ providerId: params.providerId });
@@ -44,7 +49,10 @@ export async function* streamTextFromProvider(params: StreamTextParams): AsyncIt
   switch (config.sdkType) {
     case 'anthropic': {
       const anthropic = createAnthropic({
-        apiKey: config.apiKey,
+        // apiKey and authToken are mutually exclusive in @ai-sdk/anthropic
+        ...(config.authToken
+          ? { authToken: config.authToken }
+          : { apiKey: config.apiKey }),
         baseURL: config.baseUrl,
         ...(hasHeaders ? { headers: config.headers } : {}),
       });

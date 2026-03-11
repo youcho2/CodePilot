@@ -8,6 +8,7 @@
     "providers",
     "mcp",
     "skills",
+    "cli-tools",
     "bridge",
     "assistant-workspace",
     "design-agent",

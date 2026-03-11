@@ -3,6 +3,7 @@ import type {
   SDKAssistantMessage,
   SDKUserMessage,
   SDKResultMessage,
+  SDKResultSuccess,
   SDKPartialAssistantMessage,
   SDKSystemMessage,
   SDKToolProgressMessage,
@@ -261,6 +262,101 @@ function buildPromptWithHistory(
   lines.push('');
   lines.push(prompt);
   return lines.join('\n');
+}
+
+/**
+ * Lightweight text generation via the Claude Code SDK subprocess.
+ * Uses the same provider/env resolution as streamClaude but without sessions,
+ * MCP, permissions, or conversation history. Suitable for simple tasks like
+ * generating tool descriptions.
+ */
+export async function generateTextViaSdk(params: {
+  providerId?: string;
+  model?: string;
+  system: string;
+  prompt: string;
+  abortSignal?: AbortSignal;
+}): Promise<string> {
+  const resolved = resolveForClaudeCode(undefined, {
+    providerId: params.providerId,
+  });
+
+  const sdkEnv: Record<string, string> = { ...process.env as Record<string, string> };
+  if (!sdkEnv.HOME) sdkEnv.HOME = os.homedir();
+  if (!sdkEnv.USERPROFILE) sdkEnv.USERPROFILE = os.homedir();
+  sdkEnv.PATH = getExpandedPath();
+  delete sdkEnv.CLAUDECODE;
+
+  if (process.platform === 'win32' && !process.env.CLAUDE_CODE_GIT_BASH_PATH) {
+    const gitBashPath = findGitBash();
+    if (gitBashPath) sdkEnv.CLAUDE_CODE_GIT_BASH_PATH = gitBashPath;
+  }
+
+  const resolvedEnv = toClaudeCodeEnv(sdkEnv, resolved);
+  Object.assign(sdkEnv, resolvedEnv);
+
+  const abortController = new AbortController();
+  if (params.abortSignal) {
+    params.abortSignal.addEventListener('abort', () => abortController.abort());
+  }
+
+  // Auto-timeout after 60s to prevent indefinite hangs
+  const timeoutId = setTimeout(() => abortController.abort(), 60_000);
+
+  const queryOptions: Options = {
+    cwd: os.homedir(),
+    abortController,
+    permissionMode: 'bypassPermissions',
+    allowDangerouslySkipPermissions: true,
+    env: sanitizeEnv(sdkEnv),
+    settingSources: resolved.settingSources as Options['settingSources'],
+    systemPrompt: params.system,
+    maxTurns: 1,
+  };
+
+  if (params.model) {
+    queryOptions.model = params.model;
+  }
+
+  const claudePath = findClaudePath();
+  if (claudePath) {
+    const ext = path.extname(claudePath).toLowerCase();
+    if (ext === '.cmd' || ext === '.bat') {
+      const scriptPath = resolveScriptFromCmd(claudePath);
+      if (scriptPath) queryOptions.pathToClaudeCodeExecutable = scriptPath;
+    } else {
+      queryOptions.pathToClaudeCodeExecutable = claudePath;
+    }
+  }
+
+  const conversation = query({
+    prompt: params.prompt,
+    options: queryOptions,
+  });
+
+  // Iterate through all messages; the last one with type 'result' has the answer
+  let resultText = '';
+  try {
+    for await (const msg of conversation) {
+      if (msg.type === 'result' && 'result' in msg) {
+        resultText = (msg as SDKResultSuccess).result || '';
+      }
+    }
+  } catch (err) {
+    clearTimeout(timeoutId);
+    if (abortController.signal.aborted && !(params.abortSignal?.aborted)) {
+      throw new Error('SDK query timed out after 60s');
+    }
+    throw err;
+  }
+
+  clearTimeout(timeoutId);
+
+  if (!resultText) {
+    throw new Error('SDK query returned no result');
+  }
+
+  return resultText;
 }
 
 export function streamClaude(options: ClaudeStreamOptions): ReadableStream<string> {

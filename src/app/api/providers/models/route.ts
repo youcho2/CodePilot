@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
-import { getAllProviders, getDefaultProviderId, getModelsForProvider } from '@/lib/db';
+import { getAllProviders, getDefaultProviderId, getModelsForProvider, getSetting } from '@/lib/db';
 import { getContextWindow } from '@/lib/model-context';
-import { getDefaultModelsForProvider, inferProtocolFromLegacy } from '@/lib/provider-catalog';
+import { getDefaultModelsForProvider, inferProtocolFromLegacy, findPresetForLegacy } from '@/lib/provider-catalog';
 import type { Protocol } from '@/lib/provider-catalog';
 import type { ErrorResponse, ProviderModelGroup } from '@/types';
 
@@ -45,10 +45,19 @@ export async function GET() {
     const groups: ProviderModelGroup[] = [];
 
     // Always show the built-in Claude Code provider group.
+    // Mark it as sdkProxyOnly if no direct API credentials exist — in that case
+    // the env provider only works through the Claude Code SDK subprocess, not the
+    // Vercel AI SDK text generation path used by features like AI Describe.
+    const envHasDirectCredentials = !!(
+      process.env.ANTHROPIC_API_KEY ||
+      process.env.ANTHROPIC_AUTH_TOKEN ||
+      getSetting('anthropic_auth_token')
+    );
     groups.push({
       provider_id: 'env',
       provider_name: 'Claude Code',
       provider_type: 'anthropic',
+      ...(!envHasDirectCredentials ? { sdkProxyOnly: true } : {}),
       models: DEFAULT_MODELS.map(m => {
         const cw = getContextWindow(m.value);
         return cw != null ? { ...m, contextWindow: cw } : m;
@@ -155,10 +164,15 @@ export async function GET() {
         };
       });
 
+      // Detect SDK-proxy-only providers via preset match
+      const preset = findPresetForLegacy(provider.base_url, provider.provider_type);
+      const sdkProxyOnly = preset?.sdkProxyOnly === true;
+
       groups.push({
         provider_id: provider.id,
         provider_name: provider.name,
         provider_type: provider.provider_type,
+        ...(sdkProxyOnly ? { sdkProxyOnly: true } : {}),
         models,
       });
     }
