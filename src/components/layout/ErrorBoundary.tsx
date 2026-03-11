@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
-import { CircleAlert } from "lucide-react";
+import { WarningCircle } from "@phosphor-icons/react";
 import { useTranslation } from "@/hooks/useTranslation";
 
 interface ErrorBoundaryProps {
@@ -30,7 +30,7 @@ function ErrorFallback({
     <div className="flex h-full w-full items-center justify-center bg-background p-8">
       <div className="flex max-w-md flex-col items-center gap-4 text-center">
         <div className="flex h-12 w-12 items-center justify-center rounded-full bg-destructive/10 text-destructive">
-          <CircleAlert size={24} />
+          <WarningCircle size={24} />
         </div>
 
         <h2 className="text-lg font-semibold text-foreground">

@@ -62,7 +62,7 @@ const eslintConfig = defineConfig([
     files: ["src/**/*.{ts,tsx}"],
     rules: {
       "no-restricted-imports": [
-        "warn",
+        "error",
         {
           patterns: [
             {
@@ -100,7 +100,7 @@ const eslintConfig = defineConfig([
               message: "Pattern components must be pure presentation — no hooks imports.",
             },
             {
-              group: ["@/lib/*", "@/lib"],
+              group: ["@/lib/*", "!@/lib/utils"],
               message: "Pattern components must be pure presentation — no lib imports. Use @/lib/utils for cn() only.",
             },
           ],

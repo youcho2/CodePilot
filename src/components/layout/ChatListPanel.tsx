@@ -14,8 +14,9 @@ import {
   Plus,
   FolderOpen,
   UserCircle,
+  Columns,
+  X,
 } from "@phosphor-icons/react";
-import { Columns2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -453,7 +454,7 @@ export function ChatListPanel({ open, width }: ChatListPanelProps) {
           {isSplitActive && (
             <div className="mb-2 rounded-lg border border-border/60 bg-muted/30 p-1.5">
               <div className="flex items-center gap-1.5 px-2 py-1">
-                <Columns2 className="h-3.5 w-3.5 text-muted-foreground" />
+                <Columns className="h-3.5 w-3.5 text-muted-foreground" />
                 <span className="text-xs font-medium text-muted-foreground">{t('split.splitGroup')}</span>
               </div>
               <div className="mt-0.5 flex flex-col gap-0.5">
@@ -660,7 +661,7 @@ export function ChatListPanel({ open, width }: ChatListPanelProps) {
                                       });
                                     }}
                                   >
-                                    <Columns2 className="h-3.5 w-3.5" />
+                                    <Columns className="h-3.5 w-3.5" />
                                   </button>
                                 )}
                                 {/* Streaming indicator: hidden when hover shows split icon */}

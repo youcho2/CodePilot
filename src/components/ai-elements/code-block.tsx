@@ -20,7 +20,7 @@ import {
 import { cn } from "@/lib/utils";
 import { useThemeFamily } from "@/lib/theme/context";
 import { resolveShikiTheme, resolveShikiThemes, SHIKI_DEFAULT_LIGHT, SHIKI_DEFAULT_DARK } from "@/lib/theme/code-themes";
-import { CheckIcon, CopyIcon } from "lucide-react";
+import { Check, Copy } from "@phosphor-icons/react";
 import {
   createContext,
   memo,
@@ -526,7 +526,7 @@ export const CodeBlockCopyButton = ({
     []
   );
 
-  const Icon = isCopied ? CheckIcon : CopyIcon;
+  const Icon = isCopied ? Check : Copy;
 
   return (
     <Button
