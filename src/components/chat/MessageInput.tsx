@@ -4,7 +4,6 @@ import { useRef, useState, useCallback, useEffect, type KeyboardEvent, type Form
 import {
   At,
   Question,
-  CaretDown,
   ArrowUp,
   Terminal,
   Plus,
@@ -19,6 +18,7 @@ import {
   GlobeSimple,
   Stop,
   Lightning,
+  CaretDown,
   Gear,
 } from "@phosphor-icons/react";
 import type { Icon } from "@phosphor-icons/react";
@@ -38,6 +38,12 @@ import type { ChatStatus } from 'ai';
 import type { FileAttachment, ProviderModelGroup, SkillKind } from '@/types';
 import { nanoid } from 'nanoid';
 import { SlashCommandButton } from './SlashCommandButton';
+import { SlashCommandPopover } from './SlashCommandPopover';
+import type { PopoverItem, PopoverMode } from './SlashCommandPopover';
+import { CliToolsPopover } from './CliToolsPopover';
+import type { CliToolItem } from './CliToolsPopover';
+import { ModelSelectorDropdown } from './ModelSelectorDropdown';
+import { EffortSelectorDropdown } from './EffortSelectorDropdown';
 import {
   Tooltip,
   TooltipContent,
@@ -112,19 +118,6 @@ interface MessageInputProps {
   sdkInitMeta?: { tools?: unknown; slash_commands?: unknown; skills?: unknown } | null;
 }
 
-interface PopoverItem {
-  label: string;
-  value: string;
-  description?: string;
-  descriptionKey?: TranslationKey;
-  builtIn?: boolean;
-  immediate?: boolean;
-  installedSource?: "agents" | "claude";
-  source?: "global" | "project" | "plugin" | "installed" | "sdk";
-  kind?: SkillKind;
-  icon?: Icon;
-}
-
 interface CommandBadge {
   command: string;
   label: string;
@@ -137,15 +130,6 @@ interface CliBadge {
   id: string;
   name: string;
 }
-
-interface CliToolItem {
-  id: string;
-  name: string;
-  version: string | null;
-  summary: string;
-}
-
-type PopoverMode = 'file' | 'skill' | 'cli' | null;
 
 // Expansion prompts for CLI-only commands (not natively supported by SDK).
 // SDK-native commands (/compact, /init, /review) are sent as-is — the SDK handles them directly.
@@ -351,15 +335,11 @@ export function MessageInput({
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const popoverRef = useRef<HTMLDivElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
-  const modelMenuRef = useRef<HTMLDivElement>(null);
-
   const [popoverMode, setPopoverMode] = useState<PopoverMode>(null);
   const [popoverItems, setPopoverItems] = useState<PopoverItem[]>([]);
   const [popoverFilter, setPopoverFilter] = useState('');
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [triggerPos, setTriggerPos] = useState<number | null>(null);
-  const [modelMenuOpen, setModelMenuOpen] = useState(false);
-  const [modelSearch, setModelSearch] = useState('');
   const [inputValue, setInputValue] = useState('');
   const [badge, setBadge] = useState<CommandBadge | null>(null);
   const [cliBadge, setCliBadge] = useState<CliBadge | null>(null);
@@ -372,6 +352,11 @@ export function MessageInput({
   const [aiSearchLoading, setAiSearchLoading] = useState(false);
   const aiSearchAbortRef = useRef<AbortController | null>(null);
   const aiSearchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const modelMenuRef = useRef<HTMLDivElement>(null);
+  const [modelMenuOpen, setModelMenuOpen] = useState(false);
+  const [modelSearch, setModelSearch] = useState('');
+  const effortMenuRef = useRef<HTMLDivElement>(null);
+  const [effortMenuOpen, setEffortMenuOpen] = useState(false);
 
   // Assistant trigger on first focus
   const assistantTriggerFired = useRef(false);
@@ -1128,19 +1113,6 @@ export function MessageInput({
     return () => document.removeEventListener('mousedown', handler);
   }, [popoverMode, closePopover]);
 
-  // Click outside to close model menu
-  useEffect(() => {
-    if (!modelMenuOpen) return;
-    const handler = (e: MouseEvent) => {
-      if (modelMenuRef.current && !modelMenuRef.current.contains(e.target as Node)) {
-        setModelMenuOpen(false);
-        setModelSearch('');
-      }
-    };
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
-  }, [modelMenuOpen]);
-
   const currentModelValue = modelName || 'sonnet';
   const currentModelOption = MODEL_OPTIONS.find((m) => m.value === currentModelValue) || MODEL_OPTIONS[0];
 
@@ -1154,21 +1126,6 @@ export function MessageInput({
     setLocalEffort(v);
     onEffortChange?.(v);
   }, [onEffortChange]);
-  const [effortMenuOpen, setEffortMenuOpen] = useState(false);
-  const effortMenuRef = useRef<HTMLDivElement>(null);
-
-  // Close effort menu on outside click
-  useEffect(() => {
-    if (!effortMenuOpen) return;
-    const handler = (e: MouseEvent) => {
-      if (effortMenuRef.current && !effortMenuRef.current.contains(e.target as Node)) {
-        setEffortMenuOpen(false);
-      }
-    };
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
-  }, [effortMenuOpen]);
-
   // Map isStreaming to ChatStatus for PromptInputSubmit
   const chatStatus: ChatStatus = isStreaming ? 'streaming' : 'ready';
 
