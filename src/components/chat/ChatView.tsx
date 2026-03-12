@@ -59,16 +59,20 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
   useEffect(() => { if (modelName) setCurrentModel(modelName); }, [modelName]);
   useEffect(() => { if (providerId) setCurrentProviderId(providerId); }, [providerId]);
 
-  // Fetch provider-specific options (thinking mode + 1M context)
+  // Fetch provider-specific options (with abort to prevent stale responses on fast switch)
   useEffect(() => {
     const pid = currentProviderId || 'env';
-    fetch(`/api/providers/options?providerId=${encodeURIComponent(pid)}`)
+    const controller = new AbortController();
+    fetch(`/api/providers/options?providerId=${encodeURIComponent(pid)}`, { signal: controller.signal })
       .then(r => r.ok ? r.json() : null)
       .then(data => {
-        setThinkingMode(data?.options?.thinking_mode || 'adaptive');
-        setContext1m(!!data?.options?.context_1m);
+        if (!controller.signal.aborted) {
+          setThinkingMode(data?.options?.thinking_mode || 'adaptive');
+          setContext1m(!!data?.options?.context_1m);
+        }
       })
       .catch(() => {});
+    return () => controller.abort();
   }, [currentProviderId]);
   useEffect(() => { if (initialPermissionProfile) setPermissionProfile(initialPermissionProfile); }, [initialPermissionProfile]);
 

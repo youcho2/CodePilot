@@ -641,16 +641,20 @@ async function processCompletionServerSide(
       console.log('[chat API] Server-side checkin completion succeeded');
     }
 
-    // Clear hookTriggeredSessionId directly (no HTTP needed)
+    // Clear hookTriggeredSessionId directly (no HTTP needed).
+    // CAS: only clear if we are still the owner — prevents wiping another
+    // tab's legitimate lock when completions arrive out of order.
     try {
       const { loadState, saveState } = await import('@/lib/assistant-workspace');
       const { getSetting: getSettingDirect } = await import('@/lib/db');
       const wsPath = getSettingDirect('assistant_workspace_path');
       if (wsPath) {
         const state = loadState(wsPath);
-        state.hookTriggeredSessionId = undefined;
-        state.hookTriggeredAt = undefined;
-        saveState(wsPath, state);
+        if (state.hookTriggeredSessionId === sessionId || !state.hookTriggeredSessionId) {
+          state.hookTriggeredSessionId = undefined;
+          state.hookTriggeredAt = undefined;
+          saveState(wsPath, state);
+        }
       }
     } catch {
       // Best effort

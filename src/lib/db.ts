@@ -893,7 +893,7 @@ export function updateMessageBySessionAndHint(
   // Strategy 1: Exact match on the raw ```image-gen-request...``` block content.
   // This is unambiguous even when multiple requests share the same prompt.
   if (rawRequestBlock) {
-    const escaped = rawRequestBlock.replace(/%/g, '\\%').replace(/_/g, '\\_');
+    const escaped = rawRequestBlock.replace(/\\/g, '\\\\').replace(/%/g, '\\%').replace(/_/g, '\\_');
     const row = db.prepare(
       "SELECT id FROM messages WHERE session_id = ? AND role = 'assistant' AND content LIKE ? ESCAPE '\\' AND content NOT LIKE '%image-gen-result%' ORDER BY created_at DESC LIMIT 1"
     ).get(sessionId, `%${escaped}%`) as { id: string } | undefined;

@@ -47,16 +47,20 @@ export default function NewChatPage() {
   const [thinkingMode, setThinkingMode] = useState<string>('adaptive');
   const [context1m, setContext1m] = useState(false);
 
-  // Fetch provider-specific options
+  // Fetch provider-specific options (with abort to prevent stale responses on fast switch)
   useEffect(() => {
     const pid = currentProviderId || 'env';
-    fetch(`/api/providers/options?providerId=${encodeURIComponent(pid)}`)
+    const controller = new AbortController();
+    fetch(`/api/providers/options?providerId=${encodeURIComponent(pid)}`, { signal: controller.signal })
       .then(r => r.ok ? r.json() : null)
       .then(data => {
-        setThinkingMode(data?.options?.thinking_mode || 'adaptive');
-        setContext1m(!!data?.options?.context_1m);
+        if (!controller.signal.aborted) {
+          setThinkingMode(data?.options?.thinking_mode || 'adaptive');
+          setContext1m(!!data?.options?.context_1m);
+        }
       })
       .catch(() => {});
+    return () => controller.abort();
   }, [currentProviderId]);
 
   const stopStreaming = useCallback(() => {

@@ -140,13 +140,24 @@ export function useAssistantTrigger({
         if (isOwnerAlive(state.hookTriggeredSessionId)) {
           return; // Owning tab is still open, don't interfere
         }
-        // Owner tab is gone — clear the stale lock and proceed
+        // Owner tab is gone — atomically clear the stale lock (CAS: only if owner
+        // is still the stale session we observed).  If another tab already swapped
+        // in, the server returns owner_mismatch and we bail out.
         try {
-          await fetch('/api/workspace/hook-triggered', {
+          const clearRes = await fetch('/api/workspace/hook-triggered', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ sessionId: '__clear__' }),
+            body: JSON.stringify({
+              sessionId: '__clear__',
+              expectedOwner: state.hookTriggeredSessionId,
+            }),
           });
+          if (clearRes.ok) {
+            const clearData = await clearRes.json();
+            if (!clearData.success) return; // Another tab won the race
+          } else {
+            return;
+          }
         } catch {
           return; // Can't clear, err on the safe side
         }
@@ -181,7 +192,10 @@ export function useAssistantTrigger({
                 await fetch('/api/workspace/hook-triggered', {
                   method: 'POST',
                   headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ sessionId: '__clear__' }),
+                  body: JSON.stringify({
+                    sessionId: '__clear__',
+                    expectedOwner: state.hookTriggeredSessionId || null,
+                  }),
                 }).catch(() => {});
                 console.log('[useAssistantTrigger] Onboarding compensation succeeded, skipping re-trigger');
                 return; // Don't re-trigger onboarding
@@ -212,12 +226,38 @@ export function useAssistantTrigger({
       stopHeartbeatRef.current?.();
       stopHeartbeatRef.current = startHeartbeat(sessionId);
 
-      // Mark in persistent state to prevent duplicate triggers across page reloads
-      await fetch('/api/workspace/hook-triggered', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sessionId }),
-      });
+      // Mark in persistent state to prevent duplicate triggers across page reloads.
+      // CAS: only set owner if currently unowned (null).  If another tab set itself
+      // as owner between our clear and this call, the server rejects and we bail.
+      try {
+        const setRes = await fetch('/api/workspace/hook-triggered', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ sessionId, expectedOwner: null }),
+        });
+        // Bail on any non-2xx (including 500) or CAS rejection — never
+        // proceed to startStream without a confirmed lock.
+        if (!setRes.ok) {
+          assistantTriggerFiredRef.current = false;
+          stopHeartbeatRef.current?.();
+          stopHeartbeatRef.current = null;
+          return;
+        }
+        const setData = await setRes.json();
+        if (!setData.success) {
+          // Lost race — another tab claimed ownership
+          assistantTriggerFiredRef.current = false;
+          stopHeartbeatRef.current?.();
+          stopHeartbeatRef.current = null;
+          return;
+        }
+      } catch {
+        // Network error — bail out
+        assistantTriggerFiredRef.current = false;
+        stopHeartbeatRef.current?.();
+        stopHeartbeatRef.current = null;
+        return;
+      }
 
       // Use autoTrigger: the message is invisible (no user bubble, no title update)
       const triggerMsg = needsOnboarding
