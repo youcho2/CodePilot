@@ -7,7 +7,6 @@ import {
   GitCommit,
   CloudArrowUp,
   TreeStructure,
-  Terminal,
   PencilSimple,
   DotOutline,
   CaretDown,
@@ -39,8 +38,6 @@ export function UnifiedTopBar() {
     setFileTreeOpen,
     gitPanelOpen,
     setGitPanelOpen,
-    terminalOpen,
-    setTerminalOpen,
     currentBranch,
     gitDirtyCount,
   } = usePanel();
@@ -289,21 +286,6 @@ export function UnifiedTopBar() {
                   </Button>
                 </TooltipTrigger>
                 <TooltipContent side="bottom">{t('topBar.git')}</TooltipContent>
-              </Tooltip>
-
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    variant={terminalOpen ? "secondary" : "ghost"}
-                    size="icon-sm"
-                    className={terminalOpen ? "" : "text-muted-foreground hover:text-foreground"}
-                    onClick={() => setTerminalOpen(!terminalOpen)}
-                  >
-                    <Terminal size={16} />
-                    <span className="sr-only">{t('topBar.terminal')}</span>
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent side="bottom">{t('topBar.terminal')}</TooltipContent>
               </Tooltip>
 
               <Tooltip>

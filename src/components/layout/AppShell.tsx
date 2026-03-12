@@ -17,7 +17,6 @@ import { ImageGenContext, useImageGenState } from "@/hooks/useImageGen";
 import { BatchImageGenContext, useBatchImageGenState } from "@/hooks/useBatchImageGen";
 import { SplitContext, type SplitSession } from "@/hooks/useSplit";
 import { SplitChatContainer } from "./SplitChatContainer";
-import { TerminalDrawer } from "@/components/terminal/TerminalDrawer";
 import { ErrorBoundary } from "./ErrorBoundary";
 import { getActiveSessionIds, getSnapshot } from "@/lib/stream-session-manager";
 import { useGitStatus } from "@/hooks/useGitStatus";
@@ -69,16 +68,25 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
 
-  const [chatListOpenRaw, setChatListOpenRaw] = useState(() => {
-    if (typeof window === "undefined") return false;
-    return window.matchMedia(`(min-width: ${LG_BREAKPOINT}px)`).matches;
-  });
+  const [chatListOpenRaw, setChatListOpenRaw] = useState(false);
+
+  // Sync with viewport after hydration to avoid SSR mismatch
+  /* eslint-disable react-hooks/set-state-in-effect */
+  useEffect(() => {
+    setChatListOpenRaw(window.matchMedia(`(min-width: ${LG_BREAKPOINT}px)`).matches);
+  }, []);
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   // Panel width state with localStorage persistence
-  const [chatListWidth, setChatListWidth] = useState(() => {
-    if (typeof window === "undefined") return 240;
-    return parseInt(localStorage.getItem("codepilot_chatlist_width") || "240");
-  });
+  const [chatListWidth, setChatListWidth] = useState(240);
+
+  // Restore persisted width after hydration
+  /* eslint-disable react-hooks/set-state-in-effect */
+  useEffect(() => {
+    const saved = localStorage.getItem("codepilot_chatlist_width");
+    if (saved) setChatListWidth(parseInt(saved));
+  }, []);
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   const handleChatListResize = useCallback((delta: number) => {
     setChatListWidth((w) => Math.min(CHATLIST_MAX, Math.max(CHATLIST_MIN, w + delta)));
@@ -305,17 +313,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     return () => mql.removeEventListener("change", handler);
   }, []);
 
-  // Ctrl+` / Cmd+` toggles terminal drawer
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === '`' && (e.ctrlKey || e.metaKey)) {
-        e.preventDefault();
-        setTerminalOpen((prev) => !prev);
-      }
-    };
-    window.addEventListener('keydown', handler);
-    return () => window.removeEventListener('keydown', handler);
-  }, []);
 
   // --- Skip-permissions indicator ---
   const [skipPermissionsActive, setSkipPermissionsActive] = useState(false);
@@ -417,7 +414,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                       <ErrorBoundary>{children}</ErrorBoundary>
                     )}
                   </main>
-                  {isChatDetailRoute && <TerminalDrawer />}
                 </div>
                 {isChatDetailRoute && <PanelZone />}
               </div>

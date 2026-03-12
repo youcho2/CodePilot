@@ -51,6 +51,8 @@ export class TerminalManager {
       COLUMNS: String(opts.cols),
       LINES: String(opts.rows),
     };
+    // Allow launching Claude Code inside the terminal
+    delete env.CLAUDECODE;
 
     const child = spawn(shell, shellArgs, {
       cwd: opts.cwd,
