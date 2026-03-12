@@ -413,6 +413,9 @@ function migrateDb(db: Database.Database): void {
     if (!provColNames.includes('role_models_json')) {
       db.exec("ALTER TABLE api_providers ADD COLUMN role_models_json TEXT NOT NULL DEFAULT '{}'");
     }
+    if (!provColNames.includes('options_json')) {
+      db.exec("ALTER TABLE api_providers ADD COLUMN options_json TEXT NOT NULL DEFAULT '{}'");
+    }
   }
 
   // Create provider_models table
@@ -872,25 +875,46 @@ export function updateMessageContent(messageId: string, content: string): number
 }
 
 /**
- * Find the most recent assistant message in a session that contains a given text snippet,
+ * Find the most recent assistant message in a session that contains an image-gen-request,
  * update its content, and return the real message ID. Used as fallback when the frontend
  * only has a temporary message ID.
+ *
+ * Prefers exact match on rawRequestBlock (the full ```image-gen-request...``` fence).
+ * Falls back to prompt hint prefix match if rawRequestBlock is unavailable or doesn't match.
  */
 export function updateMessageBySessionAndHint(
   sessionId: string,
-  promptHint: string,
   content: string,
+  rawRequestBlock?: string,
+  promptHint?: string,
 ): { changes: number; messageId?: string } {
   const db = getDb();
-  // Find the latest assistant message containing the prompt hint within an image-gen-request block
-  const row = db.prepare(
-    "SELECT id FROM messages WHERE session_id = ? AND role = 'assistant' AND content LIKE '%image-gen-request%' AND content LIKE ? ORDER BY created_at DESC LIMIT 1"
-  ).get(sessionId, `%${promptHint.slice(0, 60)}%`) as { id: string } | undefined;
 
-  if (!row) return { changes: 0 };
+  // Strategy 1: Exact match on the raw ```image-gen-request...``` block content.
+  // This is unambiguous even when multiple requests share the same prompt.
+  if (rawRequestBlock) {
+    const escaped = rawRequestBlock.replace(/%/g, '\\%').replace(/_/g, '\\_');
+    const row = db.prepare(
+      "SELECT id FROM messages WHERE session_id = ? AND role = 'assistant' AND content LIKE ? ESCAPE '\\' AND content NOT LIKE '%image-gen-result%' ORDER BY created_at DESC LIMIT 1"
+    ).get(sessionId, `%${escaped}%`) as { id: string } | undefined;
+    if (row) {
+      const result = db.prepare('UPDATE messages SET content = ? WHERE id = ?').run(content, row.id);
+      return { changes: result.changes, messageId: row.id };
+    }
+  }
 
-  const result = db.prepare('UPDATE messages SET content = ? WHERE id = ?').run(content, row.id);
-  return { changes: result.changes, messageId: row.id };
+  // Strategy 2: Fallback to prompt hint prefix match (legacy path).
+  if (promptHint) {
+    const row = db.prepare(
+      "SELECT id FROM messages WHERE session_id = ? AND role = 'assistant' AND content LIKE '%image-gen-request%' AND content NOT LIKE '%image-gen-result%' AND content LIKE ? ORDER BY created_at DESC LIMIT 1"
+    ).get(sessionId, `%${promptHint.slice(0, 60)}%`) as { id: string } | undefined;
+    if (row) {
+      const result = db.prepare('UPDATE messages SET content = ? WHERE id = ?').run(content, row.id);
+      return { changes: result.changes, messageId: row.id };
+    }
+  }
+
+  return { changes: 0 };
 }
 
 export function clearSessionMessages(sessionId: string): void {
@@ -1055,8 +1079,8 @@ export function createProvider(data: CreateProviderRequest): ApiProvider {
   const sortOrder = (maxRow.max_order ?? -1) + 1;
 
   db.prepare(
-    `INSERT INTO api_providers (id, name, provider_type, protocol, base_url, api_key, is_active, sort_order, extra_env, headers_json, env_overrides_json, role_models_json, notes, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    `INSERT INTO api_providers (id, name, provider_type, protocol, base_url, api_key, is_active, sort_order, extra_env, headers_json, env_overrides_json, role_models_json, options_json, notes, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).run(
     id,
     data.name,
@@ -1070,6 +1094,7 @@ export function createProvider(data: CreateProviderRequest): ApiProvider {
     data.headers_json || '{}',
     data.env_overrides_json || '',
     data.role_models_json || '{}',
+    data.options_json || '{}',
     data.notes || '',
     now,
     now,
@@ -1093,14 +1118,15 @@ export function updateProvider(id: string, data: UpdateProviderRequest): ApiProv
   const headersJson = data.headers_json ?? existing.headers_json;
   const envOverridesJson = data.env_overrides_json ?? existing.env_overrides_json;
   const roleModelsJson = data.role_models_json ?? existing.role_models_json;
+  const optionsJson = data.options_json ?? existing.options_json;
   const notes = data.notes ?? existing.notes;
   const sortOrder = data.sort_order ?? existing.sort_order;
 
   db.prepare(
     `UPDATE api_providers SET name = ?, provider_type = ?, protocol = ?, base_url = ?, api_key = ?,
-     extra_env = ?, headers_json = ?, env_overrides_json = ?, role_models_json = ?,
+     extra_env = ?, headers_json = ?, env_overrides_json = ?, role_models_json = ?, options_json = ?,
      notes = ?, sort_order = ?, updated_at = ? WHERE id = ?`
-  ).run(name, providerType, protocol, baseUrl, apiKey, extraEnv, headersJson, envOverridesJson, roleModelsJson, notes, sortOrder, now, id);
+  ).run(name, providerType, protocol, baseUrl, apiKey, extraEnv, headersJson, envOverridesJson, roleModelsJson, optionsJson, notes, sortOrder, now, id);
 
   return getProvider(id);
 }
@@ -1109,6 +1135,41 @@ export function deleteProvider(id: string): boolean {
   const db = getDb();
   const result = db.prepare('DELETE FROM api_providers WHERE id = ?').run(id);
   return result.changes > 0;
+}
+
+// ── Provider Options ────────────────────────────────────────────
+
+/**
+ * Get options for a provider. For 'env' provider, reads from settings table.
+ * For DB providers, reads from options_json column.
+ */
+export function getProviderOptions(providerId: string): import('@/types').ProviderOptions {
+  if (providerId === 'env') {
+    const thinkingMode = getSetting('thinking_mode') || 'adaptive';
+    const context1m = getSetting('context_1m') === 'true';
+    return { thinking_mode: thinkingMode as 'adaptive' | 'enabled' | 'disabled', context_1m: context1m };
+  }
+  const provider = getProvider(providerId);
+  if (!provider) return {};
+  try {
+    return JSON.parse(provider.options_json || '{}');
+  } catch { return {}; }
+}
+
+/**
+ * Set options for a provider. For 'env' provider, writes to settings table.
+ * For DB providers, writes to options_json column.
+ */
+export function setProviderOptions(providerId: string, options: import('@/types').ProviderOptions): void {
+  if (providerId === 'env') {
+    if (options.thinking_mode !== undefined) setSetting('thinking_mode', options.thinking_mode);
+    if (options.context_1m !== undefined) setSetting('context_1m', options.context_1m ? 'true' : '');
+    return;
+  }
+  const db = getDb();
+  const now = new Date().toISOString().replace('T', ' ').split('.')[0];
+  db.prepare('UPDATE api_providers SET options_json = ?, updated_at = ? WHERE id = ?')
+    .run(JSON.stringify(options), now, providerId);
 }
 
 // ── Provider Models ─────────────────────────────────────────────

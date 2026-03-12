@@ -26,7 +26,7 @@ interface ImageGenRequest {
   useLastGenerated?: boolean;
 }
 
-function parseImageGenRequest(text: string): { beforeText: string; request: ImageGenRequest; afterText: string } | null {
+function parseImageGenRequest(text: string): { beforeText: string; request: ImageGenRequest; afterText: string; rawBlock: string } | null {
   const regex = /```image-gen-request\s*\n?([\s\S]*?)\n?\s*```/;
   const match = text.match(regex);
   if (!match) return null;
@@ -55,6 +55,7 @@ function parseImageGenRequest(text: string): { beforeText: string; request: Imag
         useLastGenerated: json.useLastGenerated === true,
       },
       afterText,
+      rawBlock: match[0],
     };
   } catch {
     return null;
@@ -126,6 +127,7 @@ function parseBatchPlan(text: string): { beforeText: string; plan: PlannerOutput
 
 interface MessageItemProps {
   message: Message;
+  sessionId?: string;
 }
 
 interface ToolBlock {
@@ -317,7 +319,7 @@ function TokenUsageDisplay({ usage }: { usage: TokenUsage }) {
 
 const COLLAPSE_HEIGHT = 300;
 
-export const MessageItem = memo(function MessageItem({ message }: MessageItemProps) {
+export const MessageItem = memo(function MessageItem({ message, sessionId }: MessageItemProps) {
   const isUser = message.role === 'user';
 
   // Collapse/expand state for long user messages (hooks must be called unconditionally)
@@ -427,7 +429,7 @@ export const MessageItem = memo(function MessageItem({ message }: MessageItemPro
                 </Button>
               )}
             </div>
-          ) : <AssistantContent displayText={displayText} messageId={message.id} />
+          ) : <AssistantContent displayText={displayText} messageId={message.id} sessionId={sessionId} />
         )}
       </MessageContent>
 
@@ -445,7 +447,7 @@ export const MessageItem = memo(function MessageItem({ message }: MessageItemPro
  * Memoized assistant message content — avoids re-running parseBatchPlan / parseImageGenResult /
  * parseImageGenRequest on every render when only unrelated props change.
  */
-const AssistantContent = memo(function AssistantContent({ displayText, messageId }: { displayText: string; messageId: string }) {
+const AssistantContent = memo(function AssistantContent({ displayText, messageId, sessionId }: { displayText: string; messageId: string; sessionId?: string }) {
   return useMemo(() => {
     // Try batch-plan first (Image Agent batch mode)
     const batchPlanResult = parseBatchPlan(displayText);
@@ -512,6 +514,7 @@ const AssistantContent = memo(function AssistantContent({ displayText, messageId
     if (parsed) {
       const refs = buildReferenceImages(
         messageId,
+        sessionId || '',
         parsed.request.useLastGenerated || false,
         parsed.request.referenceImages,
       );
@@ -520,9 +523,11 @@ const AssistantContent = memo(function AssistantContent({ displayText, messageId
           {parsed.beforeText && <MessageResponse>{parsed.beforeText}</MessageResponse>}
           <ImageGenConfirmation
             messageId={messageId}
+            sessionId={sessionId}
             initialPrompt={parsed.request.prompt}
             initialAspectRatio={parsed.request.aspectRatio}
             initialResolution={parsed.request.resolution}
+            rawRequestBlock={parsed.rawBlock}
             referenceImages={refs.length > 0 ? refs : undefined}
           />
           {parsed.afterText && <MessageResponse>{parsed.afterText}</MessageResponse>}
@@ -535,5 +540,5 @@ const AssistantContent = memo(function AssistantContent({ displayText, messageId
       .replace(/```batch-plan[\s\S]*?```/g, '')
       .trim();
     return stripped ? <MessageResponse>{stripped}</MessageResponse> : null;
-  }, [displayText, messageId]);
+  }, [displayText, messageId, sessionId]);
 });

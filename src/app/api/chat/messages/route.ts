@@ -49,11 +49,12 @@ export async function POST(request: NextRequest) {
 export async function PUT(request: NextRequest) {
   try {
     const body = await request.json();
-    const { message_id, content, session_id, prompt_hint } = body as {
+    const { message_id, content, session_id, prompt_hint, raw_request_block } = body as {
       message_id: string;
       content: string;
       session_id?: string;
       prompt_hint?: string;
+      raw_request_block?: string;
     };
 
     if (!content) {
@@ -72,9 +73,9 @@ export async function PUT(request: NextRequest) {
       changes = updateMessageContent(message_id, content);
     }
 
-    // Fallback: search by session + prompt hint
-    if (changes === 0 && session_id && prompt_hint) {
-      const result = updateMessageBySessionAndHint(session_id, prompt_hint, content);
+    // Fallback: search by session + exact block or prompt hint
+    if (changes === 0 && session_id && (raw_request_block || prompt_hint)) {
+      const result = updateMessageBySessionAndHint(session_id, content, raw_request_block, prompt_hint);
       changes = result.changes;
       if (result.messageId) {
         updatedMessageId = result.messageId;

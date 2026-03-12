@@ -3,37 +3,47 @@
  *
  * Keys:
  *   PENDING_KEY          – images uploaded via the input bar, not yet bound to a message
- *   LAST_GENERATED_KEY   – file paths of the most recently generated images (sessionStorage-backed)
+ *   lastGenKey(sid)      – file paths of the most recently generated images, scoped per session
  *   <message-id>         – images bound to a specific assistant message
  */
 import type { ReferenceImage } from '@/types';
 
 export const PENDING_KEY = '__pending__';
-export const LAST_GENERATED_KEY = '__last_generated__';
 
 const store = new Map<string, ReferenceImage[]>();
 
 // ── sessionStorage persistence for last-generated paths ──
 
-const SS_KEY = 'imgref:last_generated';
+/** Build a session-scoped key for the in-memory store. */
+function lastGenKey(sessionId: string): string {
+  return `__last_generated__:${sessionId}`;
+}
 
-function loadLastGenerated(): void {
-  if (typeof window === 'undefined') return;
+/** Build a session-scoped sessionStorage key. */
+function ssKey(sessionId: string): string {
+  return `imgref:last_generated:${sessionId}`;
+}
+
+/**
+ * Restore last-generated images for a specific session from sessionStorage.
+ * Called when a ChatView mounts with a known sessionId.
+ */
+export function loadLastGenerated(sessionId: string): void {
+  if (typeof window === 'undefined' || !sessionId) return;
+  const key = lastGenKey(sessionId);
+  if (store.has(key)) return; // already loaded
   try {
-    const raw = sessionStorage.getItem(SS_KEY);
+    const raw = sessionStorage.getItem(ssKey(sessionId));
     if (raw) {
       const arr: ReferenceImage[] = JSON.parse(raw);
       if (Array.isArray(arr) && arr.length > 0) {
-        store.set(LAST_GENERATED_KEY, arr);
+        store.set(key, arr);
       }
     }
   } catch {
     // ignore
   }
 }
-
-// Auto-restore on module load (client only)
-loadLastGenerated();
 
 // ── Public helpers ──
 
@@ -69,15 +79,15 @@ export function transferPendingToMessage(messageId: string): void {
 }
 
 /**
- * Store generated image paths and persist to sessionStorage.
+ * Store generated image paths, scoped to a session, and persist to sessionStorage.
  * Called when image generation completes.
  */
-export function setLastGeneratedImages(paths: string[]): void {
+export function setLastGeneratedImages(sessionId: string, paths: string[]): void {
   const images: ReferenceImage[] = paths.map(p => ({ mimeType: 'image/png', localPath: p }));
-  store.set(LAST_GENERATED_KEY, images);
+  store.set(lastGenKey(sessionId), images);
   if (typeof window !== 'undefined') {
     try {
-      sessionStorage.setItem(SS_KEY, JSON.stringify(images));
+      sessionStorage.setItem(ssKey(sessionId), JSON.stringify(images));
     } catch {
       // storage full
     }
@@ -88,11 +98,13 @@ export function setLastGeneratedImages(paths: string[]): void {
  * Single merge entry-point: build a unified ReferenceImage[] for a given context.
  *
  * @param key              Store key (PENDING_KEY or message.id)
+ * @param sessionId        Session ID to scope last-generated lookup
  * @param useLastGenerated Whether the LLM requested editing last-generated images
  * @param extraPaths       Additional file paths from the parsed request (referenceImages field)
  */
 export function buildReferenceImages(
   key: string,
+  sessionId: string,
   useLastGenerated: boolean,
   extraPaths?: string[],
 ): ReferenceImage[] {
@@ -104,9 +116,9 @@ export function buildReferenceImages(
     result.push(...uploaded);
   }
 
-  // 2. Last-generated images (if LLM requested)
-  if (useLastGenerated) {
-    const lastGen = store.get(LAST_GENERATED_KEY);
+  // 2. Last-generated images (if LLM requested), scoped to this session
+  if (useLastGenerated && sessionId) {
+    const lastGen = store.get(lastGenKey(sessionId));
     if (lastGen) {
       result.push(...lastGen);
     }

@@ -19,29 +19,29 @@ const RESOLUTIONS = ['1K', '2K', '4K'] as const;
 
 interface ImageGenConfirmationProps {
   messageId?: string;
+  sessionId?: string;
   initialPrompt: string;
   initialAspectRatio: string;
   initialResolution: string;
+  /** The original raw ```image-gen-request...``` block — used for exact DB matching */
+  rawRequestBlock?: string;
   referenceImages?: ReferenceImage[];
 }
 
 type Status = 'idle' | 'generating' | 'completed' | 'error';
 
-/** Stable key for persisting generation results in localStorage */
-function storageKey(prompt: string, sessionId?: string): string {
-  const prefix = sessionId ? `${sessionId}:` : '';
-  return `imggen:${prefix}${prompt.slice(0, 80)}`;
-}
-
 export function ImageGenConfirmation({
   messageId,
+  sessionId: sessionIdProp,
   initialPrompt,
   initialAspectRatio,
   initialResolution,
+  rawRequestBlock,
   referenceImages,
 }: ImageGenConfirmationProps) {
   const { t } = useTranslation();
-  const { sessionId } = usePanel();
+  const { sessionId: panelSessionId } = usePanel();
+  const sessionId = sessionIdProp || panelSessionId;
   const [prompt, setPrompt] = useState(initialPrompt);
   const [aspectRatio, setAspectRatio] = useState(
     ASPECT_RATIOS.includes(initialAspectRatio as typeof ASPECT_RATIOS[number])
@@ -58,21 +58,6 @@ export function ImageGenConfirmation({
   const [error, setError] = useState<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
 
-  // Restore completed result from localStorage on mount
-  useEffect(() => {
-    try {
-      const saved = localStorage.getItem(storageKey(initialPrompt, sessionId));
-      if (saved) {
-        const parsed: ImageGenResult = JSON.parse(saved);
-        if (parsed.images && parsed.images.length > 0) {
-          setResult(parsed);
-          setStatus('completed');
-        }
-      }
-    } catch {
-      // ignore
-    }
-  }, [initialPrompt, sessionId]);
 
   const handleStop = useCallback(() => {
     if (abortRef.current) {
@@ -127,23 +112,9 @@ export function ImageGenConfirmation({
         setResult(genResult);
         setStatus('completed');
 
-        // Store lightweight version in localStorage
-        try {
-          const storable = {
-            id: genResult.id,
-            text: genResult.text,
-            images: genResult.images.map(img => ({
-              mimeType: img.mimeType,
-              localPath: img.localPath,
-              data: '',
-            })),
-          };
-          localStorage.setItem(storageKey(initialPrompt, sessionId), JSON.stringify(storable));
-        } catch {
-          // storage full
-        }
-
-        // Persist result to DB by replacing image-gen-request with image-gen-result
+        // Persist result to DB by replacing image-gen-request with image-gen-result.
+        // During streaming the assistant message may not yet be in DB (no messageId),
+        // so retry once after a short delay to give the stream time to complete.
         {
           const resultBlock = JSON.stringify({
             status: 'completed',
@@ -155,16 +126,29 @@ export function ImageGenConfirmation({
               localPath: img.localPath,
             })),
           });
-          fetch('/api/chat/messages', {
+          const persistBody = {
+            message_id: messageId || '',
+            content: '```image-gen-result\n' + resultBlock + '\n```',
+            session_id: sessionId,
+            prompt_hint: initialPrompt,
+            // Pass the raw block for exact content matching when messageId is unavailable
+            raw_request_block: rawRequestBlock,
+          };
+          const doPut = () => fetch('/api/chat/messages', {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              message_id: messageId || '',
-              content: '```image-gen-result\n' + resultBlock + '\n```',
-              session_id: sessionId,
-              prompt_hint: initialPrompt,
-            }),
-          }).catch(() => {});
+            body: JSON.stringify(persistBody),
+          });
+          doPut().then(r => {
+            if (!r.ok && !messageId) {
+              // Retry after 3s — message should be persisted by then
+              setTimeout(() => doPut().catch(() => {}), 3000);
+            }
+          }).catch(() => {
+            if (!messageId) {
+              setTimeout(() => doPut().catch(() => {}), 3000);
+            }
+          });
         }
 
         // Defer event dispatch so React commits setResult/setStatus before
@@ -199,12 +183,7 @@ export function ImageGenConfirmation({
   const handleRegenerate = useCallback(() => {
     setResult(null);
     setStatus('idle');
-    try {
-      localStorage.removeItem(storageKey(initialPrompt, sessionId));
-    } catch {
-      // ignore
-    }
-  }, [initialPrompt, sessionId]);
+  }, []);
 
   // ── Completed: show result only ──
   if (status === 'completed' && result && result.images.length > 0) {

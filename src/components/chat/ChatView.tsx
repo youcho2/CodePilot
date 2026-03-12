@@ -14,7 +14,7 @@ import { usePanel } from '@/hooks/usePanel';
 import { useTranslation } from '@/hooks/useTranslation';
 import { PermissionPrompt } from './PermissionPrompt';
 import { BatchExecutionDashboard, BatchContextSync } from './batch-image-gen';
-import { setLastGeneratedImages } from '@/lib/image-ref-store';
+import { setLastGeneratedImages, loadLastGenerated } from '@/lib/image-ref-store';
 import { useChatCommands } from '@/hooks/useChatCommands';
 import { useAssistantTrigger } from '@/hooks/useAssistantTrigger';
 import { useStreamSubscription } from '@/hooks/useStreamSubscription';
@@ -53,19 +53,27 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
   const [currentProviderId, setCurrentProviderId] = useState(() => providerId || (typeof window !== 'undefined' ? localStorage.getItem('codepilot:last-provider-id') : null) || '');
   const [selectedEffort, setSelectedEffort] = useState<string | undefined>(undefined);
   const [thinkingMode, setThinkingMode] = useState<string>('adaptive');
+  const [context1m, setContext1m] = useState(false);
 
   // Sync model/provider when session data loads
   useEffect(() => { if (modelName) setCurrentModel(modelName); }, [modelName]);
   useEffect(() => { if (providerId) setCurrentProviderId(providerId); }, [providerId]);
 
-  // Fetch thinking mode from app settings
+  // Fetch provider-specific options (thinking mode + 1M context)
   useEffect(() => {
-    fetch('/api/settings/app')
+    const pid = currentProviderId || 'env';
+    fetch(`/api/providers/options?providerId=${encodeURIComponent(pid)}`)
       .then(r => r.ok ? r.json() : null)
-      .then(data => { if (data?.settings?.thinking_mode) setThinkingMode(data.settings.thinking_mode); })
+      .then(data => {
+        setThinkingMode(data?.options?.thinking_mode || 'adaptive');
+        setContext1m(!!data?.options?.context_1m);
+      })
       .catch(() => {});
-  }, []);
+  }, [currentProviderId]);
   useEffect(() => { if (initialPermissionProfile) setPermissionProfile(initialPermissionProfile); }, [initialPermissionProfile]);
+
+  // Restore session-scoped last-generated images from sessionStorage
+  useEffect(() => { loadLastGenerated(sessionId); }, [sessionId]);
 
   // Stream snapshot from the manager — drives all streaming UI
   const [streamSnapshot, setStreamSnapshot] = useState<SessionStreamSnapshot | null>(
@@ -288,6 +296,7 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
         pendingImageNotices: notices,
         effort: selectedEffort,
         thinking: buildThinkingConfig(),
+        context1m,
         displayOverride,
         onModeChanged: (sdkMode) => {
           const uiMode = sdkMode === 'plan' ? 'plan' : 'code';
@@ -302,7 +311,7 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
         },
       });
     },
-    [sessionId, isStreaming, mode, currentModel, currentProviderId, selectedEffort, buildThinkingConfig, handleModeChange]
+    [sessionId, isStreaming, mode, currentModel, currentProviderId, selectedEffort, context1m, buildThinkingConfig, handleModeChange]
   );
 
   sendMessageRef.current = sendMessage;
@@ -321,7 +330,7 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
       const notice = `[Image generation completed]\n- Prompt: "${detail.prompt}"\n- Aspect ratio: ${detail.aspectRatio}\n- Resolution: ${detail.resolution}${pathInfo}`;
 
       if (paths.length > 0) {
-        setLastGeneratedImages(paths);
+        setLastGeneratedImages(sessionId, paths);
       }
 
       pendingImageNoticesRef.current.push(notice);

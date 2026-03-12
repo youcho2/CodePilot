@@ -23,7 +23,7 @@ interface ImageGenRequest {
   useLastGenerated?: boolean;
 }
 
-function parseImageGenRequest(text: string): { beforeText: string; request: ImageGenRequest; afterText: string } | null {
+function parseImageGenRequest(text: string): { beforeText: string; request: ImageGenRequest; afterText: string; rawBlock: string } | null {
   const regex = /```image-gen-request\s*\n?([\s\S]*?)\n?\s*```/;
   const match = text.match(regex);
   if (!match) return null;
@@ -52,6 +52,7 @@ function parseImageGenRequest(text: string): { beforeText: string; request: Imag
         useLastGenerated: json.useLastGenerated === true,
       },
       afterText,
+      rawBlock: match[0], // full ```image-gen-request...``` block for exact matching
     };
   } catch {
     return null;
@@ -100,6 +101,7 @@ interface ToolResultInfo {
 interface StreamingMessageProps {
   content: string;
   isStreaming: boolean;
+  sessionId?: string;
   toolUses?: ToolUseInfo[];
   toolResults?: ToolResultInfo[];
   streamingToolOutput?: string;
@@ -170,6 +172,7 @@ function StreamingStatusBar({ statusText, onForceStop }: { statusText?: string; 
 export function StreamingMessage({
   content,
   isStreaming,
+  sessionId,
   toolUses = [],
   toolResults = [],
   streamingToolOutput,
@@ -239,6 +242,7 @@ export function StreamingMessage({
           if (parsed) {
             const refs = buildReferenceImages(
               PENDING_KEY,
+              sessionId || '',
               parsed.request.useLastGenerated || false,
               parsed.request.referenceImages,
             );
@@ -246,9 +250,11 @@ export function StreamingMessage({
               <>
                 {parsed.beforeText && <MessageResponse>{parsed.beforeText}</MessageResponse>}
                 <ImageGenConfirmation
+                  sessionId={sessionId}
                   initialPrompt={parsed.request.prompt}
                   initialAspectRatio={parsed.request.aspectRatio}
                   initialResolution={parsed.request.resolution}
+                  rawRequestBlock={parsed.rawBlock}
                   referenceImages={refs.length > 0 ? refs : undefined}
                 />
                 {parsed.afterText && <MessageResponse>{parsed.afterText}</MessageResponse>}

@@ -39,23 +39,25 @@ export default function NewChatPage() {
   const [permissionResolved, setPermissionResolved] = useState<'allow' | 'deny' | null>(null);
   const [streamingToolOutput, setStreamingToolOutput] = useState('');
   const [permissionProfile, setPermissionProfile] = useState<'default' | 'full_access'>('default');
+  const [createdSessionId, setCreatedSessionId] = useState<string | undefined>();
   const abortControllerRef = useRef<AbortController | null>(null);
   // Effort level — lifted here so the first message includes it
   const [selectedEffort, setSelectedEffort] = useState<string | undefined>(undefined);
-  // Thinking mode from app settings
+  // Provider options (thinking mode + 1M context)
   const [thinkingMode, setThinkingMode] = useState<string>('adaptive');
+  const [context1m, setContext1m] = useState(false);
 
-  // Fetch thinking mode from app settings
+  // Fetch provider-specific options
   useEffect(() => {
-    fetch('/api/settings/app')
+    const pid = currentProviderId || 'env';
+    fetch(`/api/providers/options?providerId=${encodeURIComponent(pid)}`)
       .then(r => r.ok ? r.json() : null)
       .then(data => {
-        if (data?.settings?.thinking_mode) {
-          setThinkingMode(data.settings.thinking_mode);
-        }
+        setThinkingMode(data?.options?.thinking_mode || 'adaptive');
+        setContext1m(!!data?.options?.context_1m);
       })
       .catch(() => {});
-  }, []);
+  }, [currentProviderId]);
 
   const stopStreaming = useCallback(() => {
     abortControllerRef.current?.abort();
@@ -150,6 +152,7 @@ export default function NewChatPage() {
 
         const { session }: SessionResponse = await createRes.json();
         sessionId = session.id;
+        setCreatedSessionId(sessionId);
 
         // Notify ChatListPanel to refresh immediately
         window.dispatchEvent(new CustomEvent('session-created'));
@@ -183,6 +186,7 @@ export default function NewChatPage() {
             ...(systemPromptAppend ? { systemPromptAppend } : {}),
             ...(selectedEffort ? { effort: selectedEffort } : {}),
             ...(thinkingConfig ? { thinking: thinkingConfig } : {}),
+            ...(context1m ? { context_1m: true } : {}),
             ...(displayOverride ? { displayOverride } : {}),
           }),
           signal: controller.signal,
@@ -394,6 +398,7 @@ export default function NewChatPage() {
         messages={messages}
         streamingContent={streamingContent}
         isStreaming={isStreaming}
+        sessionId={createdSessionId}
         toolUses={toolUses}
         toolResults={toolResults}
         streamingToolOutput={streamingToolOutput}

@@ -256,7 +256,7 @@ export function MessageList({
 
           return (
             <div key={message.id} id={`msg-${message.id}`} className="group">
-              <MessageItem message={message} />
+              <MessageItem message={message} sessionId={sessionId} />
               {rewindSdkUuid && sessionId && !isStreaming && (
                 <RewindButton sessionId={sessionId} userMessageId={rewindSdkUuid} />
               )}
@@ -268,6 +268,7 @@ export function MessageList({
           <StreamingMessage
             content={streamingContent}
             isStreaming={isStreaming}
+            sessionId={sessionId}
             toolUses={toolUses}
             toolResults={toolResults}
             streamingToolOutput={streamingToolOutput}
