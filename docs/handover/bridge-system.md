@@ -258,3 +258,26 @@ Claude 回复按内容分流渲染（对齐 Openclaw 方案）：
 - `src/app/api/settings/feishu/verify/route.ts` — 飞书凭据验证 API（测试 token 获取 + bot info）
 - `electron/main.ts` — 窗口关闭时 bridge 活跃则保持后台运行；启动时通过 POST `auto-start` 触发桥接恢复
 - `src/app/api/settings/telegram/verify/route.ts` — 支持 `register_commands` action 注册 Telegram 命令菜单
+
+## V2 演进方向（2026-03）
+
+本文件描述的是当前 Bridge 系统现状。后续方案上，Bridge 不再只被视为“多 IM 会话桥接”，而应逐步演进成更通用的三层结构：
+
+- `Remote Core`
+  负责 Host / Controller / Session / Lease、流式事件、审批、结果摘要、多设备控制。
+- `Channel Plugin Layer`
+  负责 Telegram / Discord / Feishu / QQ 的 pairing、capabilities、status、policy、gateway。
+- `Platform Capability Layer`
+  负责飞书文档、消息搜索、资源下载、任务、日历等平台深度能力。
+
+这意味着当前 `src/lib/bridge/` 中的很多模块会继续保留，但语义会逐步收敛到“渠道层”：
+
+- `channel-adapter.ts` 将向更完整的 channel contract 演进
+- `bridge-manager.ts` 将向 channel runtime / gateway coordinator 演进
+- `permission-broker.ts` 将向统一 remote approval broker 演进
+
+在这个目标态下：
+
+- Android App、桌面 Controller 和 IM 渠道都将共享同一套 Remote Core
+- 飞书不再只是一个 adapter，而会逐步拆分成独立的渠道模块族
+- 当前 Bridge 仍是实现基础，但不再是远程能力的最终抽象边界

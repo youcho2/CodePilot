@@ -1,262 +1,410 @@
-# 移动端远程控制整体方案报告
+# 移动端远程控制整体方案报告（V2）
 
 > 创建时间：2026-03-12
-> 适用范围：CodePilot 桌面端 + Android Companion + 多设备控制
+> 最后更新：2026-03-13
+> 适用范围：CodePilot 桌面端 + Android Companion + 多设备控制 + Feishu 能力扩展
 
-## 一、结论
+## 一、这次更新后的结论
 
-CodePilot 的移动端方向应定义为：
+在引入 OpenClaw 官方飞书插件和 `claude-to-im-skill` 作为参考后，CodePilot 的远程方案应从“桌面 Bridge + 移动端控制器”升级为三层结构：
 
-- 桌面端继续作为 `Host`，负责真实执行、文件系统访问、Claude CLI 登录态、Provider 凭证、本地数据库和运行中的 session。
-- 手机端、平板端、其他桌面端作为 `Controller`，负责查看会话、发送消息、审批权限、切换控制权、查看产物与结果摘要。
-- 第一阶段不做“手机独立执行端”，也不做“运行中 session 跨 Host 迁移”。
+- `Remote Core`
+  负责 Host / Controller / Session / Lease、流式事件、审批、结果摘要、多设备接管。
+- `Channel Plugin Layer`
+  负责 Telegram / Discord / Feishu / QQ 的配对、策略、交互、状态、运维接口。
+- `Platform Capability Layer`
+  负责飞书文档、消息搜索、资源下载、任务、日历等平台深度能力。
 
-这不是重写桌面产品，而是在现有桌面产品旁边增加一层安全的远程控制基础设施。
+这意味着：
 
-## 二、背景与目标
+- 现有远程 App 方向是对的，不需要推翻。
+- 现有 Bridge 架构要升级，但不应该重写桌面 Chat 主链路。
+- `claude-to-im-skill` 仍然有参考价值，但应定位为“轻量守护进程包装层”，不是未来总架构本身。
+- OpenClaw 官方飞书插件值得重点借鉴，但要借的是接口模型、交互方案、权限编排和配置层，不是整套运行时。
 
-### 目标
+## 二、更新背景
 
-- 让手机端实时查看桌面端所有聊天和流式输出。
-- 让手机端远程执行 Chat 相关控制：发消息、补图片/语音、停止任务、审批权限、切换模式、空闲时切换工作目录。
-- 让用户在一个移动端中管理多个 CodePilot Host。
-- 保持桌面端当前本地体验不受影响。
+本次方案修订基于三条输入：
 
-### 非目标
+- 当前 CodePilot 已有桌面 Bridge、远程审批、流式输出、文件预览和多 IM 通道
+- `claude-to-im-skill` 已经验证了“守护进程 + 配置映射 + 轻量桥接”的落地方式
+- OpenClaw 官方飞书插件已经把 Feishu 从“消息桥接”提升成“完整渠道插件 + 平台能力工具集”
 
-- 不在第一阶段做完整文件树编辑器。
-- 不在第一阶段做完整桌面 UI 的移动端复刻。
-- 不在第一阶段做运行中 session 的跨 Host 迁移。
-- 不把手机端作为 Claude Agent SDK 的直接执行环境。
+其中最重要的新信息是：飞书这次官方插件已经暴露出一套更完整的渠道抽象和能力模型，远超传统 bot 适配器。
 
-## 三、现状与可复用资产
+## 三、现状与约束
 
-当前仓库已经具备移动端方案所需的大部分底层能力：
+### 3.1 当前项目已经有的能力
 
-- 聊天主链路已经存在：`src/app/api/chat/route.ts`
-- 会话读写已经存在：`src/app/api/chat/sessions/[id]/route.ts`
-- 权限审批已独立：`src/app/api/chat/permission/route.ts`
-- 文件预览与结果查看已有基础：`src/app/api/files/preview/route.ts`、`src/app/api/files/raw/route.ts`
-- 前端本来就支持切换会话后继续观察流：`src/lib/stream-session-manager.ts`
-- 服务端已经按 session 做互斥发送，避免同一会话并发提交：`src/app/api/chat/route.ts`
+当前仓库里，远程与移动方案所需的底层能力已经具备不少基础：
 
-当前最大的约束不是 Chat 能力本身，而是：
+- 聊天主链路：`src/app/api/chat/route.ts`
+- 会话读写：`src/app/api/chat/sessions/[id]/route.ts`
+- 权限审批：`src/app/api/chat/permission/route.ts`
+- 文件预览：`src/app/api/files/preview/route.ts`
+- 原始文件查看：`src/app/api/files/raw/route.ts`
+- 前端切换会话后继续追流：`src/lib/stream-session-manager.ts`
+- 现有多 IM Bridge：`src/lib/bridge/`
 
-- 桌面端服务目前只监听本地 `127.0.0.1`
-- API 默认是“本地可信 UI”模型
-- 还没有“远程设备身份、控制权 lease、Host 注册、跨设备事件分发”这些基础设施
+### 3.2 当前主要限制
 
-## 四、核心架构
+当前限制仍然成立：
 
-### 4.1 角色模型
+- 桌面服务默认只监听本地 `127.0.0.1`
+- API 默认假设调用方是本地可信桌面 UI
+- Bridge 现在更像“多 IM 远程会话层”，还不是“远程控制平台层”
+
+### 3.3 当前 Bridge 的定位需要调整
+
+当前 `docs/handover/bridge-system.md` 描述的是现状：多 IM 远程操控 Claude 会话。  
+这套系统已经很好，但目标态不应只停留在“消息桥接”，而应把它视为未来 `Channel Plugin Layer` 的雏形。
+
+## 四、参考输入的核心结论
+
+### 4.1 OpenClaw 官方飞书插件给出的启发
+
+OpenClaw 官方飞书插件最值得借的不是“功能数量”，而是能力组织方式。
+
+它不是简单 bot，而是完整插件协议：
+
+- pairing
+- capabilities
+- configSchema
+- security
+- setup / onboarding
+- messaging / actions
+- status / gateway
+- 平台工具集
+
+这说明飞书这条线在 CodePilot 中也不应继续停留在“一个 adapter 文件 + 几个设置项”的层级。
+
+此外，它已经证明以下能力组合是合理且有用户价值的：
+
+- 群聊 / 私聊策略分离
+- 多账号与按群精细配置
+- block streaming 卡片
+- 交互式卡片与回调
+- OAuth / Device Flow / App Scope 自动授权
+- 状态探测、诊断、运维入口
+- 消息读取、搜索、资源下载
+- 文档 / 表格 / 日历 / 任务等平台工具
+
+### 4.2 `claude-to-im-skill` 给出的启发
+
+`claude-to-im-skill` 的价值不在“提供新架构”，而在于它展示了一个非常实际的落地方式：
+
+- 它把桥接包装成一个本地守护进程
+- 它用简单配置文件和脚本完成安装、启动、诊断
+- 它用配置映射把自身配置转换成现有 bridge 设置
+- 它已经验证了多通道、SSE 流、权限等待、消息持久化这些基础机制
+
+这说明 CodePilot 后续在做远程能力升级时，应该把“桌面主产品”和“轻量守护进程/skill 包装层”视为两个不同交付面。
+
+## 五、修订后的目标架构
+
+## 5.1 三层结构
+
+### Layer 1: Remote Core
+
+这是 CodePilot 下一阶段应重点建设的核心层。
+
+职责：
+
+- Host / Controller / Session / Lease 建模
+- 流式事件总线
+- 权限审批统一协议
+- 结果产物 / run summary / changed files 统一表示
+- 多设备接管
+- 多 Host 管理
+- 远程 App 与 IM 渠道共享的会话控制协议
+
+### Layer 2: Channel Plugin Layer
+
+这一层吸收 OpenClaw 的渠道插件思路。
+
+每个渠道应显式建模：
+
+- pairing
+- capabilities
+- config schema
+- access policy
+- status / probe / doctor
+- onboarding / setup
+- messaging / actions
+- gateway lifecycle
+
+这样，飞书不再是 `feishu-adapter.ts` 的单文件逻辑，而是一个完整的渠道模块。
+
+### Layer 3: Platform Capability Layer
+
+这一层用于承载“飞书本身的能力”，而不是“远程控制能力”。
+
+例如：
+
+- IM 消息读取 / 搜索 / 资源下载
+- Doc / Wiki / Drive
+- Task / Calendar
+- Bitable / Sheets
+
+这层可以先对接飞书，未来也可对接 Slack / Notion / Google Workspace 等平台能力。
+
+## 六、角色模型保持不变，但职责更清晰
 
 定义四个核心对象：
 
 - `Host`
-  一台运行 CodePilot 的执行主机。持有本地工作目录、数据库、Claude CLI、Provider 凭证、活跃 session。
+  一台运行 CodePilot 的执行主机。负责工作目录、数据库、Claude CLI、Provider 凭证和会话运行。
 - `Controller`
-  一个远程控制端，可以是 Android App，也可以是另一台桌面设备。
+  一个远程控制端，可以是 Android App，也可以是另一台桌面设备或 IM 渠道。
 - `Session`
-  属于某个 Host 的对话单元。Session ID 在 Host 作用域内唯一。
+  某个 Host 上的对话单元。
 - `Lease`
   某个 Controller 对某个 Session 的临时写控制权。
 
-### 4.2 设计原则
+与 V1 相比，这里最重要的变化是：
 
-- 多端可读：多个 Controller 可同时查看同一 Host 的会话与流。
-- 单会话单写：同一 Session 的写操作一次只允许一个 Controller 持有控制权。
-- Host 是权威源：消息、状态、权限、文件产物都以 Host 本地状态为准。
-- 本地优先：远程控制层故障时，不影响桌面本地使用。
+- IM 渠道现在被视作 Controller 的一种
+- Android App 与 Feishu / Telegram / Discord 将共享同一套 Remote Core
 
-### 4.3 读写边界
+## 七、控制模型仍然成立，但要和渠道层解耦
 
-允许多端并行的操作：
+### 7.1 多读者、单写者
 
-- 查看会话列表
-- 查看消息历史
-- 订阅流式输出
-- 查看结果产物
-- 查看等待审批项
+继续坚持：
 
-需要 lease 的操作：
+- 多端可同时观察
+- 单 session 单写者
+- 写操作必须持有 lease
+- 另一个端如需控制，必须 `take over`
 
-- 发送消息
-- 中止运行
-- 切换 mode / model
-- 审批权限
-- 修改工作目录
-- 执行对会话状态有副作用的动作
+### 7.2 为什么这个模型更重要了
 
-## 五、控制模型
+因为一旦引入 Feishu 官方插件式能力，控制端不止手机：
 
-### 5.1 多读者、单写者
+- Android App
+- 另一台桌面 Controller
+- 飞书会话
+- Telegram / Discord / QQ
 
-推荐采用 `multi-reader / single-writer per session` 模型：
+只有把所有写操作统一收拢到 Lease 体系，后续 Feishu 深度能力接进来时才不会出现控制权失序。
 
-- 所有设备都可观察一个 Session
-- 持有 lease 的设备可以写
-- 未持有 lease 的设备只能读，或发起 `take over`
+## 八、Feishu 目标能力应拆成两组
 
-### 5.2 Take Over
+### 8.1 第一组：远程控制增强能力
 
-`take over` 必须是显式动作，不允许静默抢占。
+这组能力应纳入当前远程方案修订目标。
 
-典型流程：
+- pairing / onboarding
+- 群聊 / 私聊策略
+- allowlist / requireMention
+- status / probe / diagnose
+- 更完整的消息动作
+- 更完整的卡片流式展示
+- 审批卡片 / 回调机制
+- app scope / user scope 自动授权编排
 
-1. Controller A 正在控制 Session X
-2. Controller B 打开 Session X，默认只读观察
-3. Controller B 点击“接管”
-4. Host 撤销 A 的 lease，授予 B 新 lease
-5. A 收到“已被接管”事件，UI 切换成只读
+这组能力会直接影响：
 
-### 5.3 运行态保护
+- 现有 Bridge 抽象
+- 远程 App 协议
+- 控制权和审批模型
 
-运行中的 Session 不应允许执行高风险状态变更。
+### 8.2 第二组：飞书平台深度能力
 
-推荐规则：
+这组能力建议明确列为第二阶段或后续能力层目标，不要和远程 App MVP 绑死。
 
-- 运行中允许：观察、审批、停止任务、追加用户消息（若当前协议允许）
-- 运行中禁止：切工作目录、清空消息、重绑 Host
-- 若用户想改工作目录，推荐“在新目录创建新会话”
+- 历史消息读取
+- 消息搜索
+- 资源下载
+- 文档 / Wiki / Drive
+- Task / Calendar
+- Bitable / Sheets
 
-## 六、产品能力范围
+这些能力非常有价值，但它们更接近“飞书集成产品线”，而不只是“远程会话控制”。
 
-### 6.1 Android Companion 范围
+## 九、`claude-to-im-skill` 在新方案里的定位
 
-移动端聚焦 Chat 控制面，不承担桌面复杂展示。
+### 9.1 应保留的借鉴点
 
-首要功能：
+推荐明确借鉴以下点：
 
-- Host 列表
-- Session 列表
-- 流式消息查看
-- 发送文本、图片、语音
-- 任务停止与重试
-- 权限审批
-- 结果产物速览
-- 工作目录选择与“新会话到此目录”
-- 会话控制权接管
+- 守护进程入口结构
+- 配置文件与脚本化运维
+- 配置到桥接设置的映射方式
+- 权限等待网关的简洁接口
+- 本地 JSON store 的轻量交付模式
 
-### 6.2 产物速览
+### 9.2 不应继承的假设
 
-移动端不建议做通用文件树浏览器，而建议做 `Artifacts / 本轮产出` 视图。
+以下假设不适合作为 CodePilot 远程总架构：
 
-重点展示：
+- 单用户本地 daemon 是唯一运行模型
+- 无入站监听就是最终安全边界
+- 平台凭证 + allowlist 足以覆盖所有控制权问题
+- 权限等待只需本地 Map 即可
 
-- 本轮生成的图片、视频、音频、Markdown、PDF 等产物
-- 本轮变更过的文件
-- 结果摘要：这次做了什么、成功了什么、失败了什么、下一步需要用户做什么
+原因很简单：一旦我们做远程 App、多 Controller、多 Host，这些前提都不再成立。
 
-### 6.3 多 Host 管理
+### 9.3 推荐定位
 
-一个 Controller 应能管理多个 Host，例如：
+因此建议把 `claude-to-im-skill` 视为：
 
-- 办公室电脑
-- 家里电脑
-- 云主机上的 CodePilot
+- `Remote Core` 的一种轻量封装与运维入口
+- CLI / daemon 交付形态的参考实现
+- CodePilot 桌面产品之外的配套分发层
 
-移动端首页应优先展示：
+而不是未来总架构的主导来源。
 
-- Host 在线状态
-- 活跃会话数
-- 待审批数
-- 最近一次运行状态
+## 十、对现有项目方案的具体修订
 
-## 七、桌面端改动边界
+### 10.1 从“Bridge 系统”升级成“Remote + Channel Plugin”
 
-### 7.1 需要新增的部分
+当前项目的描述应从：
 
-建议新增独立的远程层，而不是重写现有本地聊天层。
+- “多 IM 远程会话桥接系统”
 
-新增模块建议：
+升级成：
+
+- “Remote Core + Channel Plugin + Platform Capability”
+
+其中当前 `src/lib/bridge/` 的很多模块仍可保留，但语义要调整：
+
+- `bridge-manager` 更接近 channel runtime / gateway coordinator
+- `permission-broker` 应向统一 remote approval broker 靠拢
+- `channel-adapter` 应逐步升级为 channel plugin contract
+
+### 10.2 Feishu 模块不应继续只做适配器
+
+飞书建议逐步拆出独立模块族，而不是把所有增长都继续堆在：
+
+- `src/lib/bridge/adapters/feishu-adapter.ts`
+
+建议目标结构：
+
+- `src/lib/channels/feishu/`
+  - plugin.ts
+  - config-schema.ts
+  - policy.ts
+  - status.ts
+  - onboarding.ts
+  - gateway.ts
+  - messaging/
+  - cards/
+  - auth/
+  - tools/
+
+### 10.3 远程 App 需要同步调整的点
+
+远程 App 不只是“看聊天内容”，后续必须适配以下统一协议：
+
+- Host 列表与在线状态
+- Session 列表与 lease 状态
+- 审批 inbox
+- 结果产物摘要
+- 渠道侧 pairing / onboarding 状态
+- 平台授权状态
+
+这意味着远程 App 要预留：
+
+- Host dashboard
+- approvals center
+- run summary / artifacts feed
+- multi-host routing
+- controller identity
+
+## 十一、桌面端改动边界（修订版）
+
+### 11.1 可以新增的区域
+
+建议优先新增而非重构：
 
 - `src/lib/remote/`
-  设备、配对、lease、Host 状态、事件分发
+  Remote Core
+- `src/lib/channels/`
+  渠道插件层
+- `src/lib/capabilities/`
+  平台能力层
 - `src/app/api/remote/`
-  远程专用入口
-- 设备管理与 Host 管理 UI
-- 少量桌面端状态提示 UI，例如“该 Session 正被远程设备控制”
+  远程专用 API
+- `src/app/api/channels/`
+  渠道状态 / 配置 / onboarding / pairing / probe
 
-### 7.2 尽量不改的部分
+### 11.2 尽量不动的区域
 
-为了降低回归风险，以下主链路应尽量保持原样：
+继续保持以下主链路稳定：
 
-- 现有本地桌面聊天入口
-- 现有本地流式消费方式
-- 现有权限解析与等待机制
-- 现有文件预览能力的本地使用路径
+- 本地桌面聊天入口
+- 本地流式 UI 逻辑
+- 本地权限执行链路
+- 现有文件预览基础能力
 
-### 7.3 必须坚持的兼容性原则
+### 11.3 兼容性原则不变
 
-定义一个强约束：
+必须继续坚持：
 
 - `remote disabled = current desktop behavior unchanged`
 
-这条原则必须贯穿整个实现、测试和发布流程。
+## 十二、远程 App 视角下的改动
 
-## 八、工程组织建议
+### 12.1 App 不再只是 Chat 页面
 
-### 8.1 仓库组织
+在 V2 架构下，远程 App 的首页不应只是 session list，而应包括：
 
-不建议拆成两个仓库。建议继续使用同仓 monorepo，按应用和共享包拆分。
+- Hosts
+- Active sessions
+- Pending approvals
+- Channel / pairing health
+- Recent runs / artifacts
+
+### 12.2 App 需要适配更多状态
+
+新增状态包括：
+
+- 当前 Host 是否在线
+- 当前 Session 是否被其他 Controller 接管
+- 渠道是否配置完成
+- Feishu app / user scope 是否缺失
+- 是否需要重新配对或重新授权
+
+### 12.3 App 的核心优势仍然是控制，不是重展示
+
+即使 V2 引入更多能力，移动端仍然不应承担：
+
+- 全功能文件树编辑
+- 全量复杂卡片构造
+- 平台工具配置与调试主入口
+
+复杂展示和复杂运维仍然更适合桌面端。
+
+## 十三、仓库组织建议（修订版）
+
+仍然建议同仓 monorepo，不建议拆成两个仓库。
 
 推荐结构：
 
-- 根目录现有桌面端保留
 - `apps/mobile`
   Android Companion
 - `packages/remote-contract`
-  共享类型、协议、事件 schema
+  Host / Controller / Session / Lease / events / approvals / artifacts 的共享协议
+- `packages/channel-contract`
+  pairing / capabilities / status / gateway / config schema 的共享接口
 - `packages/remote-client`
-  Controller 调用 Host 的 SDK
+  Controller 访问 SDK
+- `src/lib/remote/`
+  桌面端 Remote Core
+- `src/lib/channels/`
+  渠道插件层
 
-### 8.2 为什么不分仓
+这样最适合当前以 AI 协作为主的开发方式：
 
-对于当前“主要由 AI 协作生成”的开发方式，同仓库更有利：
+- 协议不漂移
+- 上下文集中
+- 变更边界清晰
+- 可以分层逐步迁移
 
-- 上下文集中，减少 AI 丢上下文
-- 协议、类型、事件定义不会在两个 repo 漂移
-- 共享测试更容易搭建
-- 权限控制可以通过目录和模块边界完成，不必靠仓库硬拆
+## 十四、数据模型建议（修订版）
 
-## 九、安全与权限模型
-
-### 9.1 设备身份
-
-需要引入 Controller 设备身份：
-
-- 设备 ID
-- 设备名称
-- 配对时间
-- 最后活跃时间
-- 可撤销状态
-
-### 9.2 配对方式
-
-推荐第一阶段采用：
-
-- 桌面端生成一次性配对码或二维码
-- 手机端扫码完成绑定
-- 绑定后保存设备级身份
-
-### 9.3 控制权限分级
-
-远程设备应至少支持以下权限等级：
-
-- 只读
-- 可聊天
-- 可审批
-- 完全控制
-
-高风险操作建议启用：
-
-- 生物识别确认
-- 二次确认
-- 设备审计日志
-
-## 十、数据模型建议
-
-建议新增以下远程控制相关对象：
+在 V1 数据模型基础上，建议新增或明确以下对象：
 
 - `hosts`
 - `paired_devices`
@@ -264,138 +412,111 @@ CodePilot 的移动端方向应定义为：
 - `session_leases`
 - `remote_audit_logs`
 - `host_presence`
+- `channel_accounts`
+- `channel_pairings`
+- `channel_authorizations`
+- `capability_credentials`
 
 其中：
 
-- `session_leases` 用于表达某个 Session 当前由谁控制
-- `host_presence` 用于表达 Host 在线状态与最后心跳
-- `remote_audit_logs` 用于记录设备侧写操作与审批操作
+- `session_leases` 负责控制权
+- `channel_accounts` 负责多账号渠道配置
+- `channel_pairings` 负责 Feishu / Telegram 等 pairing 状态
+- `channel_authorizations` 负责 app scope / user scope / device flow 状态
 
-## 十一、接口分层建议
+## 十五、实施顺序（修订版）
 
-### 11.1 远程专用 API
+### Phase 0：方案与边界重构
 
-建议新增远程专用接口，而不是直接暴露现有本地 API。
+- 明确三层结构
+- 抽出 `remote-contract`
+- 抽出 `channel-contract`
+- 修订 Bridge 与远程方案文档
 
-原因：
+### Phase 1：Remote Core 落地
 
-- 现有 API 假设调用方是本地可信桌面 UI
-- 远程控制需要设备鉴权
-- 远程控制需要 lease 检查
-- 远程控制需要更严格的作用域校验
+- Host / Controller / Session / Lease
+- 远程专用 API
+- 单 Host + 单移动端控制
+- 审批 / 结果摘要 / 流式统一事件
 
-### 11.2 远程接口能力
+### Phase 2：Feishu V2 渠道能力
 
-远程接口至少应覆盖：
+- pairing / onboarding
+- status / probe / diagnose
+- 群聊 / 私聊策略
+- 更完整卡片流式交互
+- 自动授权编排
 
-- Host 列表与详情
-- Session 列表与详情
-- 消息历史
-- 流式事件订阅
-- 会话控制权获取 / 释放 / 接管
-- 发送消息
-- 停止任务
-- 审批权限
-- 产物与结果摘要
+### Phase 3：多 Controller / 多 Host
 
-## 十二、阶段化落地方案
+- take over
+- 审批中心
+- 多 Host dashboard
+- 渠道 / Host 健康总览
 
-### Phase 0：架构准备
+### Phase 4：飞书平台能力层
 
-- 明确 Host / Controller / Lease 模型
-- 抽出共享协议包
-- 设计远程专用 API
-- 建立 feature flag
+- 消息读取 / 搜索 / 资源下载
+- 文档 / Drive / Wiki
+- Task / Calendar
 
-### Phase 1：单 Host + 单移动端
+## 十六、明确不做的事情
 
-- Android App 基础骨架
-- Host 配对
-- Session 列表
-- 流式查看
-- 远程发消息
-- 权限审批
-
-### Phase 2：结果与目录控制
-
-- 产物速览
-- 结果 summary
-- 工作目录选择
-- 在目标目录新建会话
-
-### Phase 3：单 Host + 多 Controller
-
-- Session lease
-- Take over
-- 控制权冲突提示
-- 桌面端“远程控制中”状态指示
-
-### Phase 4：多 Host
-
-- Host 注册与在线状态
-- 一个移动端控制多个 Host
-- 全局待审批与全局运行状态看板
-
-## 十三、明确不做的事情
-
-在本方案中，以下内容不进入第一阶段：
+本轮方案修订后，仍然不建议在第一阶段做：
 
 - 运行中 Session 跨 Host 迁移
-- 移动端完整复刻桌面复杂 UI
-- 把手机端做成执行端
-- 为远程功能重写桌面本地 Chat 主链路
+- 把飞书全部平台工具一次性塞进远程 App MVP
+- 重写当前桌面 Chat 主链路
+- 让 `claude-to-im-skill` 反向主导桌面产品架构
 
-## 十四、主要风险与控制策略
+## 十七、关键风险与控制策略
 
-### 风险一：破坏当前桌面端行为
-
-控制策略：
-
-- 本地桌面入口保持原样
-- 远程能力走新模块
-- feature flag 默认关闭
-- 保持 `remote disabled` 与当前行为一致
-
-### 风险二：同一 Session 多端并发写入
+### 风险一：把现有 Bridge 改坏
 
 控制策略：
 
-- 按 Session 发放 lease
-- 所有写操作必须验证 lease
-- Take over 显式化
+- 先抽象，再迁移
+- 旧 Bridge 行为保持可回退
+- 文档中区分“现状”和“目标态”
 
-### 风险三：文件与权限边界失控
-
-控制策略：
-
-- 不直接暴露本地 API
-- 引入远程专用鉴权与作用域检查
-- 审批与高风险操作增加二次确认
-
-### 风险四：AI 协作导致代码改动发散
+### 风险二：OpenClaw 参考范围过大，导致范围失控
 
 控制策略：
 
-- 同仓分应用、分包、分目录
-- 定义“尽量不动”的旧主链路边界
-- 用 feature flag 分阶段打开
+- 区分渠道能力与平台能力
+- 先借接口设计，再借高级工具
+- 先完成 Feishu V2 控制面，再做平台工具面
 
-## 十五、推荐决策
+### 风险三：`claude-to-im-skill` 的轻量假设和 CodePilot 主产品冲突
 
-建议当前就确认以下决策：
+控制策略：
 
-- 采用 Host / Controller 架构
-- 采用 `multi-reader / single-writer per session`
-- 同仓 monorepo，不分仓库
-- 新增远程层，不重写当前本地桌面层
-- 第一阶段只做单 Host + 单移动端
+- 借守护进程包装，不借总架构假设
+- 继续让桌面端作为权威状态源
 
-## 十六、下一步建议
+### 风险四：远程 App 和 IM 渠道各做一套协议
 
-如果确认推进，下一份文档应进入执行层面，建议输出：
+控制策略：
 
-- 信息架构与主要页面草图
-- 共享协议与事件清单
-- 桌面端改动边界清单
-- API 清单
-- Phase 0 / Phase 1 执行计划
+- 统一沉到底层 `remote-contract`
+- 所有 Controller 共享 Session / Lease / Approval / Artifact 协议
+
+## 十八、推荐决策
+
+建议当前确认以下决策：
+
+- 远程方案升级为三层结构
+- 现有 Bridge 作为 `Channel Plugin Layer` 前身继续演进
+- 飞书本轮先做“控制面增强”，平台工具列入下一阶段
+- `claude-to-im-skill` 继续作为轻量封装层参考，不作为总架构
+- 远程 App 与 IM 渠道共享同一套 Remote Core
+
+## 十九、下一步建议
+
+如果继续推进，下一份文档最值得做的是：
+
+- `远程方案 V2 执行计划`
+- `Remote Contract / Channel Contract 草案`
+- `Feishu V2 渠道模块拆分设计`
+- `Remote App 信息架构 + API 清单`
