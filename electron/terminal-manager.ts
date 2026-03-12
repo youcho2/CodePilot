@@ -12,21 +12,16 @@ interface TerminalInstance {
   cwd: string;
 }
 
-/**
- * TerminalManager — manages terminal processes.
- *
- * KNOWN LIMITATION: Uses child_process.spawn with stdio: 'pipe' instead of
- * a real PTY (node-pty). This means:
- *  - resize() is a no-op (COLUMNS/LINES env vars are set at creation only)
- *  - Full-screen programs (vim, htop) won't render correctly
- *  - readline line-editing may behave differently
- *
- * TODO: Upgrade to node-pty for full PTY support. Requires:
- *  1. npm install node-pty
- *  2. scripts/after-pack.js: add node-pty to rebuild list
- *  3. electron-builder.yml: add "**/node-pty/**" to asarUnpack
- *  4. scripts/build-electron.mjs: add node-pty to esbuild externals
- */
+// TerminalManager — manages terminal processes.
+//
+// KNOWN LIMITATION: Uses child_process.spawn with stdio: 'pipe' instead of
+// a real PTY. This means:
+//  - resize() is a no-op (COLUMNS/LINES env vars are set at creation only)
+//  - Full-screen programs (vim, htop) won't render correctly
+//  - readline line-editing may behave differently
+//
+// TODO: Upgrade to a real PTY library for full support. See
+// docs/handover/git-terminal-layout.md for the 4-step upgrade path.
 export class TerminalManager {
   private terminals = new Map<string, TerminalInstance>();
   private onData: ((id: string, data: string) => void) | null = null;
@@ -94,7 +89,7 @@ export class TerminalManager {
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   resize(id: string, _cols: number, _rows: number): void {
     // With spawn (non-PTY), resize is a no-op.
-    // Would use pty.resize() with node-pty.
+    // Would use pty.resize() with a real PTY library.
   }
 
   kill(id: string): void {

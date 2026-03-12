@@ -24,6 +24,14 @@ function resolveStandaloneSymlinks() {
 }
 
 async function buildElectron() {
+  // Clean dist-electron/ before every build to prevent stale artifacts
+  // from leaking into app.asar (caused v0.34 crash on upgrade).
+  if (fs.existsSync('dist-electron')) {
+    fs.rmSync('dist-electron', { recursive: true });
+    console.log('Cleaned dist-electron/');
+  }
+  fs.mkdirSync('dist-electron', { recursive: true });
+
   const shared = {
     bundle: true,
     platform: 'node',
