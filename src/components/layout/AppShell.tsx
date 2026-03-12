@@ -5,20 +5,22 @@ import { usePathname, useRouter } from "next/navigation";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { NavRail } from "./NavRail";
 import { ChatListPanel } from "./ChatListPanel";
-import { RightPanel } from "./RightPanel";
 import { ResizeHandle } from "./ResizeHandle";
 import { UpdateDialog } from "./UpdateDialog";
 import { UpdateBanner } from "./UpdateBanner";
-import { DocPreview } from "./DocPreview";
-import { PanelContext, type PanelContent, type PreviewViewMode } from "@/hooks/usePanel";
+import { UnifiedTopBar } from "./UnifiedTopBar";
+import { PanelZone } from "./PanelZone";
+import { PanelContext, type PreviewViewMode } from "@/hooks/usePanel";
 import { UpdateContext } from "@/hooks/useUpdate";
 import { useUpdateChecker } from "@/hooks/useUpdateChecker";
 import { ImageGenContext, useImageGenState } from "@/hooks/useImageGen";
 import { BatchImageGenContext, useBatchImageGenState } from "@/hooks/useBatchImageGen";
 import { SplitContext, type SplitSession } from "@/hooks/useSplit";
 import { SplitChatContainer } from "./SplitChatContainer";
+import { TerminalDrawer } from "@/components/terminal/TerminalDrawer";
 import { ErrorBoundary } from "./ErrorBoundary";
 import { getActiveSessionIds, getSnapshot } from "@/lib/stream-session-manager";
+import { useGitStatus } from "@/hooks/useGitStatus";
 
 const SPLIT_SESSIONS_KEY = "codepilot:split-sessions";
 const SPLIT_ACTIVE_COLUMN_KEY = "codepilot:split-active-column";
@@ -51,10 +53,6 @@ function loadActiveColumn(): string {
 const EMPTY_SET = new Set<string>();
 const CHATLIST_MIN = 180;
 const CHATLIST_MAX = 400;
-const RIGHTPANEL_MIN = 200;
-const RIGHTPANEL_MAX = 480;
-const DOCPREVIEW_MIN = 320;
-const DOCPREVIEW_MAX = 800;
 
 /** Extensions that default to "rendered" view mode */
 const RENDERED_EXTENSIONS = new Set([".md", ".mdx", ".html", ".htm"]);
@@ -81,10 +79,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     if (typeof window === "undefined") return 240;
     return parseInt(localStorage.getItem("codepilot_chatlist_width") || "240");
   });
-  const [rightPanelWidth, setRightPanelWidth] = useState(() => {
-    if (typeof window === "undefined") return 288;
-    return parseInt(localStorage.getItem("codepilot_rightpanel_width") || "288");
-  });
 
   const handleChatListResize = useCallback((delta: number) => {
     setChatListWidth((w) => Math.min(CHATLIST_MAX, Math.max(CHATLIST_MIN, w + delta)));
@@ -96,16 +90,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     });
   }, []);
 
-  const handleRightPanelResize = useCallback((delta: number) => {
-    setRightPanelWidth((w) => Math.min(RIGHTPANEL_MAX, Math.max(RIGHTPANEL_MIN, w - delta)));
-  }, []);
-  const handleRightPanelResizeEnd = useCallback(() => {
-    setRightPanelWidth((w) => {
-      localStorage.setItem("codepilot_rightpanel_width", String(w));
-      return w;
-    });
-  }, []);
-
   // Panel state — chatListOpen is derived: raw state gated by route
   const isChatRoute = pathname.startsWith("/chat/") || pathname === "/chat";
   const chatListOpen = chatListOpenRaw && isChatRoute;
@@ -113,13 +97,25 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const setChatListOpen = useCallback((open: boolean) => {
     setChatListOpenRaw(open);
   }, []);
-  const [panelOpenRaw, setPanelOpenRaw] = useState(false);
-  const [panelContent, setPanelContent] = useState<PanelContent>("files");
+
+  // --- New independent panel states ---
+  const [fileTreeOpen, setFileTreeOpen] = useState(false);
+  const [gitPanelOpen, setGitPanelOpen] = useState(false);
+  const [previewOpen, setPreviewOpen] = useState(false);
+  const [terminalOpen, setTerminalOpen] = useState(false);
+
+  // --- Git summary (derived from polling hook, no setState needed) ---
+  const [currentWorktreeLabel, setCurrentWorktreeLabel] = useState("");
+
   const [workingDirectory, setWorkingDirectory] = useState("");
   const [sessionId, setSessionId] = useState("");
   const [sessionTitle, setSessionTitle] = useState("");
   const [streamingSessionId, setStreamingSessionId] = useState("");
   const [pendingApprovalSessionId, setPendingApprovalSessionId] = useState("");
+
+  const { status: gitStatusFromHook } = useGitStatus(workingDirectory);
+  const currentBranch = gitStatusFromHook?.branch ?? "";
+  const gitDirtyCount = gitStatusFromHook?.changedFiles.filter(f => f.status !== 'untracked').length ?? 0;
 
   // --- Multi-session stream tracking (driven by stream-session-manager) ---
   const [activeStreamingSessions, setActiveStreamingSessions] = useState<Set<string>>(EMPTY_SET);
@@ -174,12 +170,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   const addToSplit = useCallback((session: SplitSession) => {
     setSplitSessions((prev) => {
-      // If already in split, don't add again
       if (prev.some((s) => s.sessionId === session.sessionId)) return prev;
 
       if (prev.length < 2) {
-        // First time entering split: add current active session + new session
-        // The current session info comes from PanelContext
         const currentSessionId = sessionId;
         if (currentSessionId && currentSessionId !== session.sessionId) {
           const currentSession: SplitSession = {
@@ -189,7 +182,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             projectName: "",
             mode: "code",
           };
-          // Check if current is already in the list
           const hasCurrentAlready = prev.some((s) => s.sessionId === currentSessionId);
           const next = hasCurrentAlready ? [...prev, session] : [...prev, currentSession, session];
           setActiveColumnIdRaw(session.sessionId);
@@ -197,7 +189,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         }
       }
 
-      // Append to existing split
       const next = [...prev, session];
       setActiveColumnIdRaw(session.sessionId);
       return next;
@@ -210,13 +201,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     setSplitSessions((prev) => {
       const next = prev.filter((s) => s.sessionId !== removeId);
       if (next.length <= 1) {
-        // Exit split mode — defer navigation to useEffect
         if (next.length === 1) {
           pendingNavigateRef.current = next[0].sessionId;
         }
         return [];
       }
-      // If removing active column, switch to first remaining
       setActiveColumnIdRaw((currentActive) =>
         currentActive === removeId ? next[0].sessionId : currentActive
       );
@@ -224,7 +213,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     });
   }, []);
 
-  // Deferred navigation after split exit (avoids setState-during-render)
   useEffect(() => {
     if (pendingNavigateRef.current) {
       const target = pendingNavigateRef.current;
@@ -246,21 +234,14 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     return splitSessions.some((s) => s.sessionId === sid);
   }, [splitSessions]);
 
-  // Handle delete of a session that's in split
   useEffect(() => {
     const handler = () => {
-      // Re-validate split sessions exist
-      setSplitSessions((prev) => {
-        // We don't remove here; deletion handler in ChatListPanel will call removeFromSplit
-        return prev;
-      });
+      setSplitSessions((prev) => prev);
     };
     window.addEventListener("session-deleted", handler);
     return () => window.removeEventListener("session-deleted", handler);
   }, []);
 
-  // Exit split when navigating to non-chat routes — setState is intentional here
-  // (derived-from-route-change pattern, not subscribing to external system)
   useEffect(() => {
     if (isSplitActive && !pathname.startsWith("/chat")) {
       // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -297,40 +278,24 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   // --- Doc Preview state ---
   const [previewFile, setPreviewFileRaw] = useState<string | null>(null);
   const [previewViewMode, setPreviewViewMode] = useState<PreviewViewMode>("source");
-  const [docPreviewWidth, setDocPreviewWidth] = useState(() => {
-    if (typeof window === "undefined") return 480;
-    return parseInt(localStorage.getItem("codepilot_docpreview_width") || "480");
-  });
 
   const setPreviewFile = useCallback((path: string | null) => {
     setPreviewFileRaw(path);
     if (path) {
       setPreviewViewMode(defaultViewMode(path));
+      setPreviewOpen(true);
+    } else {
+      setPreviewOpen(false);
     }
   }, []);
 
-  const handleDocPreviewResize = useCallback((delta: number) => {
-    setDocPreviewWidth((w) => Math.min(DOCPREVIEW_MAX, Math.max(DOCPREVIEW_MIN, w - delta)));
-  }, []);
-  const handleDocPreviewResizeEnd = useCallback(() => {
-    setDocPreviewWidth((w) => {
-      localStorage.setItem("codepilot_docpreview_width", String(w));
-      return w;
-    });
-  }, []);
-
-  // Sync panel state on route changes: open on chat detail, close otherwise.
-  // Reset doc preview when navigating between pages/sessions.
+  // Reset doc preview and panels when navigating between pages/sessions
+  /* eslint-disable react-hooks/set-state-in-effect */
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setPanelOpenRaw(isChatDetailRoute);
     setPreviewFileRaw(null);
-  }, [pathname, isChatDetailRoute]);
-  const panelOpen = panelOpenRaw;
-
-  const setPanelOpen = useCallback((open: boolean) => {
-    setPanelOpenRaw(open);
-  }, []);
+    setPreviewOpen(false);
+  }, [pathname]);
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   // Keep chat list state in sync when resizing across the breakpoint
   useEffect(() => {
@@ -340,10 +305,21 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     return () => mql.removeEventListener("change", handler);
   }, []);
 
+  // Ctrl+` / Cmd+` toggles terminal drawer
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === '`' && (e.ctrlKey || e.metaKey)) {
+        e.preventDefault();
+        setTerminalOpen((prev) => !prev);
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, []);
+
   // --- Skip-permissions indicator ---
   const [skipPermissionsActive, setSkipPermissionsActive] = useState(false);
 
-  // Fetch on mount + re-fetch when window gains focus / becomes visible
   useEffect(() => {
     let cancelled = false;
     const doFetch = async () => {
@@ -373,10 +349,18 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   const panelContextValue = useMemo(
     () => ({
-      panelOpen,
-      setPanelOpen,
-      panelContent,
-      setPanelContent,
+      fileTreeOpen,
+      setFileTreeOpen,
+      gitPanelOpen,
+      setGitPanelOpen,
+      previewOpen,
+      setPreviewOpen,
+      terminalOpen,
+      setTerminalOpen,
+      currentBranch,
+      gitDirtyCount,
+      currentWorktreeLabel,
+      setCurrentWorktreeLabel,
       workingDirectory,
       setWorkingDirectory,
       sessionId,
@@ -394,7 +378,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       previewViewMode,
       setPreviewViewMode,
     }),
-    [panelOpen, setPanelOpen, panelContent, workingDirectory, sessionId, sessionTitle, streamingSessionId, pendingApprovalSessionId, activeStreamingSessions, pendingApprovalSessionIds, previewFile, setPreviewFile, previewViewMode]
+    [fileTreeOpen, gitPanelOpen, previewOpen, terminalOpen, currentBranch, gitDirtyCount, currentWorktreeLabel, workingDirectory, sessionId, sessionTitle, streamingSessionId, pendingApprovalSessionId, activeStreamingSessions, pendingApprovalSessionIds, previewFile, setPreviewFile, previewViewMode]
   );
 
   const imageGenValue = useImageGenState();
@@ -422,42 +406,22 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               <ResizeHandle side="left" onResize={handleChatListResize} onResizeEnd={handleChatListResizeEnd} />
             )}
             <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
-              {/* Electron draggable title bar region — matches side panels' mt-5 */}
-              <div
-                className="h-10 w-full shrink-0"
-                style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}
-              />
+              <UnifiedTopBar />
               <UpdateBanner />
-              <main className="relative flex-1 overflow-hidden">
-                {isSplitActive ? (
-                  <SplitChatContainer />
-                ) : (
-                  <ErrorBoundary>{children}</ErrorBoundary>
-                )}
-              </main>
+              <div className="flex flex-1 min-h-0 overflow-hidden">
+                <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
+                  <main className="relative flex-1 overflow-hidden">
+                    {isSplitActive ? (
+                      <SplitChatContainer />
+                    ) : (
+                      <ErrorBoundary>{children}</ErrorBoundary>
+                    )}
+                  </main>
+                  {isChatDetailRoute && <TerminalDrawer />}
+                </div>
+                {isChatDetailRoute && <PanelZone />}
+              </div>
             </div>
-            {isChatDetailRoute && previewFile && (
-              <ResizeHandle side="right" onResize={handleDocPreviewResize} onResizeEnd={handleDocPreviewResizeEnd} />
-            )}
-            {isChatDetailRoute && previewFile && (
-              <ErrorBoundary>
-                <DocPreview
-                  filePath={previewFile}
-                  viewMode={previewViewMode}
-                  onViewModeChange={setPreviewViewMode}
-                  onClose={() => setPreviewFile(null)}
-                  width={docPreviewWidth}
-                />
-              </ErrorBoundary>
-            )}
-            {isChatDetailRoute && panelOpen && (
-              <ResizeHandle side="right" onResize={handleRightPanelResize} onResizeEnd={handleRightPanelResizeEnd} />
-            )}
-            {isChatDetailRoute && (
-              <ErrorBoundary>
-                <RightPanel width={rightPanelWidth} />
-              </ErrorBoundary>
-            )}
           </div>
           <UpdateDialog />
         </TooltipProvider>

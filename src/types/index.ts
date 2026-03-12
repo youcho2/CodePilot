@@ -1008,3 +1008,52 @@ export interface CliToolRuntimeInfo {
   binPath: string | null;
   autoDescription?: { zh: string; en: string } | null;
 }
+
+// ==========================================
+// Git Types
+// ==========================================
+
+export interface GitStatus {
+  isRepo: boolean;
+  repoRoot: string;
+  branch: string;
+  upstream: string;
+  ahead: number;
+  behind: number;
+  dirty: boolean;
+  changedFiles: GitChangedFile[];
+}
+
+export interface GitChangedFile {
+  path: string;
+  status: 'modified' | 'added' | 'deleted' | 'renamed' | 'copied' | 'untracked';
+  staged: boolean;
+}
+
+export interface GitBranch {
+  name: string;
+  isRemote: boolean;
+  upstream: string;
+  worktreePath: string;
+}
+
+export interface GitLogEntry {
+  sha: string;
+  authorName: string;
+  authorEmail: string;
+  timestamp: string;
+  message: string;
+}
+
+export interface GitCommitDetail extends GitLogEntry {
+  stats: string;
+  diff: string;
+}
+
+export interface GitWorktree {
+  path: string;
+  head: string;
+  branch: string;
+  bare: boolean;
+  dirty: boolean;
+}

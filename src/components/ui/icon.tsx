@@ -84,6 +84,9 @@ export {
   Wrench,
   X,
   XCircle,
+  GitCommit,
+  CloudArrowUp,
+  ArrowsInLineVertical,
 } from "@phosphor-icons/react";
 
 export type { Icon, IconProps } from "@phosphor-icons/react";

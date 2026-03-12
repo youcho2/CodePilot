@@ -158,37 +158,69 @@ export function settingsJsonTab(page: Page): Locator {
 }
 
 // ---------------------------------------------------------------------------
-// Right Panel locators (V2)
+// PanelZone locators (V3 — panels live in top PanelZone, not a right aside)
 // ---------------------------------------------------------------------------
 
-/** The right panel <aside> element (w-80, border-l). Distinct from sidebar. */
-export function rightPanel(page: Page): Locator {
-  return page.locator('aside.w-80');
+/** The PanelZone container (top panel area between UnifiedTopBar and main). */
+export function panelZone(page: Page): Locator {
+  return page.locator('div.shrink-0.border-b').first();
 }
 
-/** The collapsed right panel icon strip (when panel is closed). */
-export function rightPanelCollapsed(page: Page): Locator {
-  return page.locator('div.border-l button:has(.sr-only:text("Open panel"))');
+/** The FileTree panel inside PanelZone (280px wide div). */
+export function fileTreePanel(page: Page): Locator {
+  return page.locator('div[style*="width: 280"]');
 }
 
-/** The "Files" tab button in the right panel header. */
-export function panelFilesTab(page: Page): Locator {
-  return page.locator('aside.w-80 button:has-text("Files")');
+/** The Git panel inside PanelZone (360px wide div). */
+export function gitPanel(page: Page): Locator {
+  return page.locator('div[style*="width: 360"]');
 }
 
-/** The "Tasks" tab button in the right panel header. */
-export function panelTasksTab(page: Page): Locator {
-  return page.locator('aside.w-80 button:has-text("Tasks")');
+/** The Preview panel inside PanelZone (480px wide div). */
+export function previewPanel(page: Page): Locator {
+  return page.locator('div[style*="width: 480"]');
 }
 
-/** The close panel button (PanelRightClose icon with sr-only "Close panel"). */
+/** The "File Tree" toggle button in the UnifiedTopBar. */
+export function fileTreeToggleButton(page: Page): Locator {
+  return page.locator('button:has(.sr-only:text("File Tree"))');
+}
+
+/** The "Git" toggle button in the UnifiedTopBar. */
+export function gitToggleButton(page: Page): Locator {
+  return page.locator('button:has(.sr-only:text("Git"))');
+}
+
+/** The "Terminal" toggle button in the UnifiedTopBar. */
+export function terminalToggleButton(page: Page): Locator {
+  return page.locator('button:has(.sr-only:text("Terminal"))');
+}
+
+/** Close button inside the FileTree panel header (sr-only "Close panel"). */
 export function panelCloseButton(page: Page): Locator {
   return page.locator('button:has(.sr-only:text("Close panel"))');
 }
 
-/** The open panel button (FolderTree icon with sr-only "Open panel"). */
+// Legacy aliases for backward compatibility
+/** @deprecated Use fileTreePanel() instead */
+export function rightPanel(page: Page): Locator {
+  return fileTreePanel(page);
+}
+/** @deprecated Use fileTreeToggleButton() instead */
 export function panelOpenButton(page: Page): Locator {
-  return page.locator('button:has(.sr-only:text("Open panel"))');
+  return fileTreeToggleButton(page);
+}
+/** @deprecated Tabs no longer exist — FileTree panel always shows files */
+export function panelFilesTab(page: Page): Locator {
+  return fileTreeToggleButton(page);
+}
+/** @deprecated Tasks are always visible in FileTree panel, no separate tab */
+export function panelTasksTab(page: Page): Locator {
+  return fileTreeToggleButton(page);
+}
+/** @deprecated No separate collapsed state — use fileTreeToggleButton() */
+export function rightPanelCollapsed(page: Page): Locator {
+  return fileTreeToggleButton(page);
 }
 
 // ---------------------------------------------------------------------------
@@ -207,22 +239,22 @@ export function fileTreeRefreshButton(page: Page): Locator {
 
 /** All directory nodes in the file tree (buttons containing folder icons). */
 export function fileTreeDirectories(page: Page): Locator {
-  return page.locator('aside.w-80 button:has(svg.text-blue-500)');
+  return page.locator('div[style*="width: 280"] button:has(svg.text-blue-500)');
 }
 
 /** All file nodes in the file tree (buttons containing file icons). */
 export function fileTreeFiles(page: Page): Locator {
-  return page.locator('aside.w-80 button:has(svg.text-muted-foreground)');
+  return page.locator('div[style*="width: 280"] button:has(svg.text-muted-foreground)');
 }
 
 /** Click a file tree node by name. */
 export async function clickFileTreeNode(page: Page, name: string) {
-  await page.locator(`aside.w-80 button:has-text("${name}")`).click();
+  await page.locator(`div[style*="width: 280"] button:has-text("${name}")`).click();
 }
 
 /** Expand or collapse a directory node by name. */
 export async function toggleDirectory(page: Page, dirName: string) {
-  await page.locator(`aside.w-80 button:has-text("${dirName}")`).first().click();
+  await page.locator(`div[style*="width: 280"] button:has-text("${dirName}")`).first().click();
 }
 
 // ---------------------------------------------------------------------------
@@ -241,32 +273,32 @@ export function filePreviewCopyButton(page: Page): Locator {
 
 /** The language badge in file preview. */
 export function filePreviewLanguageBadge(page: Page): Locator {
-  return page.locator('aside.w-80 .text-\\[10px\\]').first();
+  return page.locator('div[style*="width: 480"] .text-\\[10px\\]').first();
 }
 
 /** The line count text in file preview. */
 export function filePreviewLineCount(page: Page): Locator {
-  return page.locator('aside.w-80 span:has-text("lines")');
+  return page.locator('div[style*="width: 480"] span:has-text("lines")');
 }
 
 /** The syntax highlighter container in file preview. */
 export function filePreviewCode(page: Page): Locator {
-  return page.locator('aside.w-80 code, aside.w-80 pre');
+  return page.locator('div[style*="width: 480"] code, div[style*="width: 480"] pre');
 }
 
 // ---------------------------------------------------------------------------
 // Task panel helpers (V2)
 // ---------------------------------------------------------------------------
 
-/** Switch the right panel to the Tasks tab. */
+/** @deprecated Tasks are always visible in FileTree panel. Opens file tree panel instead. */
 export async function switchToTasksTab(page: Page) {
-  await panelTasksTab(page).click();
+  await fileTreeToggleButton(page).click();
   await page.waitForTimeout(200);
 }
 
-/** Switch the right panel to the Files tab. */
+/** @deprecated Opens file tree panel. */
 export async function switchToFilesTab(page: Page) {
-  await panelFilesTab(page).click();
+  await fileTreeToggleButton(page).click();
   await page.waitForTimeout(200);
 }
 

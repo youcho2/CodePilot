@@ -28,7 +28,7 @@ export function SplitColumn({ sessionId, isActive, onClose, onFocus }: SplitColu
   const [sessionMode, setSessionMode] = useState("");
   const [projectName, setProjectName] = useState("");
   const [sessionWorkingDir, setSessionWorkingDir] = useState("");
-  const { setWorkingDirectory, setSessionId, setSessionTitle: setPanelSessionTitle, setPanelOpen } = usePanel();
+  const { setWorkingDirectory, setSessionId, setSessionTitle: setPanelSessionTitle } = usePanel();
   const { t } = useTranslation();
 
   // Load session metadata
@@ -106,11 +106,10 @@ export function SplitColumn({ sessionId, isActive, onClose, onFocus }: SplitColu
       setWorkingDirectory('');
     }
     setSessionId(sessionId);
-    setPanelOpen(true);
     if (sessionTitle) {
       setPanelSessionTitle(sessionTitle);
     }
-  }, [isActive, sessionId, sessionWorkingDir, sessionTitle, setWorkingDirectory, setSessionId, setPanelSessionTitle, setPanelOpen]);
+  }, [isActive, sessionId, sessionWorkingDir, sessionTitle, setWorkingDirectory, setSessionId, setPanelSessionTitle]);
 
   const handleClose = useCallback((e: React.MouseEvent) => {
     e.stopPropagation();

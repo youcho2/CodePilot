@@ -7,10 +7,23 @@ export type PanelContent = "files" | "tasks";
 export type PreviewViewMode = "source" | "rendered";
 
 export interface PanelContextValue {
-  panelOpen: boolean;
-  setPanelOpen: (open: boolean) => void;
-  panelContent: PanelContent;
-  setPanelContent: (content: PanelContent) => void;
+  // --- New independent panel states ---
+  fileTreeOpen: boolean;
+  setFileTreeOpen: (open: boolean) => void;
+  gitPanelOpen: boolean;
+  setGitPanelOpen: (open: boolean) => void;
+  previewOpen: boolean;
+  setPreviewOpen: (open: boolean) => void;
+  terminalOpen: boolean;
+  setTerminalOpen: (open: boolean) => void;
+
+  // --- Git summary (for top bar, derived — no setters) ---
+  currentBranch: string;
+  gitDirtyCount: number;
+  currentWorktreeLabel: string;
+  setCurrentWorktreeLabel: (label: string) => void;
+
+  // --- Preserved from old API ---
   workingDirectory: string;
   setWorkingDirectory: (dir: string) => void;
   sessionId: string;
