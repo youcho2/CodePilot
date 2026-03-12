@@ -28,6 +28,7 @@ interface ProviderCapabilityCache {
   commands: SlashCommand[];
   account: AccountInfo | null;
   mcpStatus: McpServerStatus[];
+  loadedPlugins: Array<{ name: string; path: string }>;
   capturedAt: number;
   sessionId: string;
 }
@@ -51,6 +52,7 @@ function getOrCreateCache(providerId: string): ProviderCapabilityCache {
       commands: [],
       account: null,
       mcpStatus: [],
+      loadedPlugins: [],
       capturedAt: 0,
       sessionId: '',
     };
@@ -145,6 +147,15 @@ export function getCachedAccountInfo(providerId: string = 'env'): AccountInfo | 
 
 export function getCachedMcpStatus(providerId: string = 'env'): McpServerStatus[] {
   return getOrCreateCache(providerId).mcpStatus;
+}
+
+export function getCachedPlugins(providerId: string = 'env'): Array<{ name: string; path: string }> {
+  return getOrCreateCache(providerId).loadedPlugins;
+}
+
+export function setCachedPlugins(providerId: string, plugins: Array<{ name: string; path: string }>): void {
+  const cache = getOrCreateCache(providerId);
+  cache.loadedPlugins = plugins;
 }
 
 export function getCapabilityCacheAge(providerId: string = 'env'): number {

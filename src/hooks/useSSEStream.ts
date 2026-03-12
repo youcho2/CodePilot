@@ -27,7 +27,14 @@ export interface SSECallbacks {
   onRewindPoint: (sdkUserMessageId: string) => void;
   onKeepAlive: () => void;
   onError: (accumulated: string) => void;
-  onInitMeta?: (meta: { tools?: unknown; slash_commands?: unknown; skills?: unknown }) => void;
+  onInitMeta?: (meta: {
+    tools?: unknown;
+    slash_commands?: unknown;
+    skills?: unknown;
+    plugins?: Array<{ name: string; path: string }>;
+    mcp_servers?: unknown;
+    output_style?: string;
+  }) => void;
 }
 
 /**
@@ -96,6 +103,9 @@ function handleSSEEvent(
             tools: statusData.tools,
             slash_commands: statusData.slash_commands,
             skills: statusData.skills,
+            plugins: statusData.plugins,
+            mcp_servers: statusData.mcp_servers,
+            output_style: statusData.output_style,
           });
         } else if (statusData.notification) {
           callbacks.onStatus(statusData.message || statusData.title || undefined);

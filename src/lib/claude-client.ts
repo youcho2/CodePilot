@@ -17,7 +17,7 @@ import type { ClaudeStreamOptions, SSEEvent, TokenUsage, MCPServerConfig, Permis
 import { isImageFile } from '@/types';
 import { registerPendingPermission } from './permission-registry';
 import { registerConversation, unregisterConversation } from './conversation-registry';
-import { captureCapabilities } from './agent-sdk-capabilities';
+import { captureCapabilities, setCachedPlugins } from './agent-sdk-capabilities';
 import { getSetting, updateSdkSessionId, createPermissionRequest } from './db';
 import { resolveForClaudeCode, toClaudeCodeEnv } from './provider-resolver';
 import { findClaudeBinary, findGitBash, getExpandedPath, invalidateClaudePathCache } from './platform';
@@ -533,6 +533,11 @@ export function streamClaude(options: ClaudeStreamOptions): ReadableStream<strin
           ];
         }
 
+        // Plugins: loaded by the SDK itself via enabledPlugins in ~/.claude/settings.json.
+        // CodePilot does NOT explicitly inject plugins — the SDK reads settingSources
+        // ['user', 'project', 'local'] and resolves enabledPlugins on its own,
+        // ensuring parity with Claude CLI.
+
         // Resume session if we have an SDK session ID from a previous conversation turn.
         // Pre-check: verify working_directory exists before attempting resume.
         // Resume depends on session context (cwd/project scope), so if the
@@ -905,7 +910,13 @@ export function streamClaude(options: ClaudeStreamOptions): ReadableStream<strin
               const sysMsg = message as SDKSystemMessage;
               if ('subtype' in sysMsg) {
                 if (sysMsg.subtype === 'init') {
-                  const initMsg = sysMsg as SDKSystemMessage & { slash_commands?: unknown; skills?: unknown };
+                  const initMsg = sysMsg as SDKSystemMessage & {
+                    slash_commands?: unknown;
+                    skills?: unknown;
+                    plugins?: Array<{ name: string; path: string }>;
+                    mcp_servers?: unknown;
+                    output_style?: string;
+                  };
                   controller.enqueue(formatSSE({
                     type: 'status',
                     data: JSON.stringify({
@@ -915,8 +926,17 @@ export function streamClaude(options: ClaudeStreamOptions): ReadableStream<strin
                       tools: sysMsg.tools,
                       slash_commands: initMsg.slash_commands,
                       skills: initMsg.skills,
+                      plugins: initMsg.plugins,
+                      mcp_servers: initMsg.mcp_servers,
+                      output_style: initMsg.output_style,
                     }),
                   }));
+
+                  // Cache loaded plugins from init meta for cross-reference in skills route.
+                  // Always set — including empty array — so stale data from a previous
+                  // session that had plugins doesn't leak into a session without plugins.
+                  // capProviderId is defined at line 786 in the same scope.
+                  setCachedPlugins(capProviderId, Array.isArray(initMsg.plugins) ? initMsg.plugins : []);
                 } else if (sysMsg.subtype === 'status') {
                   // SDK sends status messages when permission mode changes (e.g. ExitPlanMode)
                   const statusMsg = sysMsg as SDKSystemMessage & { permissionMode?: string };

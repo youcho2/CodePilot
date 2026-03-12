@@ -1,113 +1,101 @@
 import { NextRequest, NextResponse } from 'next/server';
-import fs from 'fs';
-import path from 'path';
-import os from 'os';
 import type { PluginInfo, ErrorResponse, SuccessResponse } from '@/types';
+import { getPluginInfoList, setPluginEnabled } from '@/lib/plugin-discovery';
 
-function getClaudeDir(): string {
-  return path.join(os.homedir(), '.claude');
+/**
+ * Plugin ID format: "name@marketplace" (URL-encoded in the path segment).
+ * This matches the official Claude enabledPlugins key format.
+ */
+function parsePluginId(rawId: string): { name: string; marketplace: string } | null {
+  const decoded = decodeURIComponent(rawId);
+  const atIdx = decoded.lastIndexOf('@');
+  if (atIdx <= 0) return null; // no @ or @ at start
+  return {
+    name: decoded.slice(0, atIdx),
+    marketplace: decoded.slice(atIdx + 1),
+  };
 }
 
-function getSettingsPath(): string {
-  return path.join(getClaudeDir(), 'settings.json');
-}
-
-function readSettings(): Record<string, unknown> {
-  const settingsPath = getSettingsPath();
-  if (!fs.existsSync(settingsPath)) return {};
-  try {
-    return JSON.parse(fs.readFileSync(settingsPath, 'utf-8'));
-  } catch {
-    return {};
-  }
-}
-
-function writeSettings(settings: Record<string, unknown>): void {
-  const settingsPath = getSettingsPath();
-  const dir = path.dirname(settingsPath);
-  if (!fs.existsSync(dir)) {
-    fs.mkdirSync(dir, { recursive: true });
-  }
-  fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2), 'utf-8');
+function findPlugin(plugins: PluginInfo[], name: string, marketplace: string): PluginInfo | undefined {
+  return plugins.find((p) => p.name === name && p.marketplace === marketplace);
 }
 
 export async function GET(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ): Promise<NextResponse<{ plugin: PluginInfo } | ErrorResponse>> {
   const { id } = await params;
-  const pluginName = decodeURIComponent(id);
+  const parsed = parsePluginId(id);
 
-  // Check in commands directory
-  const commandsDir = path.join(getClaudeDir(), 'commands');
-  const filePath = path.join(commandsDir, `${pluginName}.md`);
-
-  if (fs.existsSync(filePath)) {
-    const content = fs.readFileSync(filePath, 'utf-8');
-    const firstLine = content.split('\n')[0]?.trim() || '';
-    return NextResponse.json({
-      plugin: {
-        name: pluginName,
-        description: firstLine.startsWith('#')
-          ? firstLine.replace(/^#+\s*/, '')
-          : `Skill: /${pluginName}`,
-        enabled: true,
-      },
-    });
+  if (!parsed) {
+    return NextResponse.json(
+      { error: 'Invalid plugin ID format. Expected: name@marketplace' },
+      { status: 400 },
+    );
   }
 
-  // Check in settings customCommands
-  const settings = readSettings();
-  const customCommands = (settings.customCommands || {}) as Record<
-    string,
-    { description?: string; enabled?: boolean }
-  >;
-  if (customCommands[pluginName]) {
-    const cmd = customCommands[pluginName];
-    return NextResponse.json({
-      plugin: {
-        name: pluginName,
-        description: cmd.description || `Custom command: /${pluginName}`,
-        enabled: cmd.enabled !== false,
-      },
-    });
+  // Accept optional cwd for project/local settings layer resolution
+  const cwd = request.nextUrl.searchParams.get('cwd') || undefined;
+  const plugins = getPluginInfoList(cwd);
+  const plugin = findPlugin(plugins, parsed.name, parsed.marketplace);
+
+  if (!plugin) {
+    return NextResponse.json({ error: 'Plugin not found' }, { status: 404 });
   }
 
-  return NextResponse.json({ error: 'Plugin not found' }, { status: 404 });
+  return NextResponse.json({ plugin });
 }
 
 export async function PUT(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
-): Promise<NextResponse<SuccessResponse | ErrorResponse>> {
+): Promise<NextResponse<(SuccessResponse & { layer?: string; escalated?: boolean }) | ErrorResponse>> {
   try {
     const { id } = await params;
-    const pluginName = decodeURIComponent(id);
+    const parsed = parsePluginId(id);
+
+    if (!parsed) {
+      return NextResponse.json(
+        { error: 'Invalid plugin ID format. Expected: name@marketplace' },
+        { status: 400 },
+      );
+    }
+
     const body = await request.json();
-    const { enabled } = body as { enabled: boolean };
+    const { enabled, cwd } = body as { enabled: boolean; cwd?: string };
 
-    const settings = readSettings();
-    if (!settings.customCommands) {
-      settings.customCommands = {};
+    if (typeof enabled !== 'boolean') {
+      return NextResponse.json(
+        { error: 'enabled must be a boolean' },
+        { status: 400 },
+      );
     }
 
-    const customCommands = settings.customCommands as Record<
-      string,
-      { description?: string; enabled?: boolean }
-    >;
+    const plugins = getPluginInfoList(cwd);
+    const plugin = findPlugin(plugins, parsed.name, parsed.marketplace);
 
-    if (customCommands[pluginName]) {
-      customCommands[pluginName].enabled = enabled;
-    } else {
-      customCommands[pluginName] = { enabled };
+    if (!plugin) {
+      return NextResponse.json({ error: 'Plugin not found' }, { status: 404 });
     }
 
-    writeSettings(settings);
-    return NextResponse.json({ success: true });
+    if (plugin.blocked) {
+      return NextResponse.json(
+        { error: 'Plugin is blocked and cannot be enabled' },
+        { status: 403 },
+      );
+    }
+
+    const pluginKey = `${parsed.name}@${parsed.marketplace}`;
+    const result = setPluginEnabled(pluginKey, enabled, cwd);
+    return NextResponse.json({
+      success: true,
+      layer: result.layer,
+      escalated: result.escalated,
+    });
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : 'Failed to update plugin' },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }

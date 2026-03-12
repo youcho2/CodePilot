@@ -518,6 +518,14 @@ export interface PermissionResponseRequest {
 export interface PluginInfo {
   name: string;
   description: string;
+  author?: { name: string; url?: string };
+  path: string;
+  marketplace: string;
+  location: 'plugins' | 'external_plugins';
+  hasCommands: boolean;
+  hasSkills: boolean;
+  hasAgents: boolean;
+  blocked: boolean;
   enabled: boolean;
 }
 

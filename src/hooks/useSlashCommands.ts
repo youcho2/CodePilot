@@ -88,12 +88,20 @@ export function useSlashCommands(opts: {
   const fetchSkills = useCallback(async () => {
     let apiSkills: PopoverItem[] = [];
     try {
-      const cwdParam = workingDirectory ? `?cwd=${encodeURIComponent(workingDirectory)}` : '';
-      const res = await fetch(`/api/skills${cwdParam}`);
+      const params = new URLSearchParams();
+      if (workingDirectory) params.set('cwd', workingDirectory);
+      if (sessionId) params.set('sessionId', sessionId);
+      const qs = params.toString();
+      const res = await fetch(`/api/skills${qs ? `?${qs}` : ''}`);
       if (res.ok) {
         const data = await res.json();
         const skills = data.skills || [];
         apiSkills = skills
+          .filter((s: { source?: string; loaded?: boolean }) => {
+            // Exclude plugin-source skills that are not loaded in the current session
+            if (s.source === 'plugin' && s.loaded === false) return false;
+            return true;
+          })
           .map((s: { name: string; description: string; source?: "global" | "project" | "plugin" | "installed" | "sdk"; kind?: SkillKind; installedSource?: "agents" | "claude" }) => ({
             label: s.name,
             value: `/${s.name}`,
@@ -162,7 +170,7 @@ export function useSlashCommands(opts: {
     const uniqueSkills = apiSkills.filter(s => !builtInNames.has(s.label));
 
     return [...enrichedBuiltIns, ...uniqueSkills];
-  }, [workingDirectory, sdkInitMeta, enrichedBuiltIns]);
+  }, [sessionId, workingDirectory, sdkInitMeta, enrichedBuiltIns]);
 
   // Insert selected item
   const insertItem = useCallback((item: PopoverItem) => {

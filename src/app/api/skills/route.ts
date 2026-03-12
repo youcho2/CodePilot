@@ -32,26 +32,45 @@ function getProjectSkillsDir(cwd?: string): string {
 
 function getPluginCommandsDirs(): string[] {
   const dirs: string[] = [];
-  const marketplacesDir = path.join(os.homedir(), ".claude", "plugins", "marketplaces");
-  if (!fs.existsSync(marketplacesDir)) return dirs;
+  const pluginsRoot = path.join(os.homedir(), ".claude", "plugins");
 
-  try {
-    // Scan marketplaces -> each marketplace -> plugins -> each plugin -> commands
-    const marketplaces = fs.readdirSync(marketplacesDir);
-    for (const marketplace of marketplaces) {
-      const pluginsDir = path.join(marketplacesDir, marketplace, "plugins");
-      if (!fs.existsSync(pluginsDir)) continue;
-      const plugins = fs.readdirSync(pluginsDir);
-      for (const plugin of plugins) {
-        const commandsDir = path.join(pluginsDir, plugin, "commands");
+  // Scan marketplaces: ~/.claude/plugins/marketplaces/{mkt}/plugins/*/commands
+  const marketplacesDir = path.join(pluginsRoot, "marketplaces");
+  if (fs.existsSync(marketplacesDir)) {
+    try {
+      const marketplaces = fs.readdirSync(marketplacesDir);
+      for (const marketplace of marketplaces) {
+        const pluginsDir = path.join(marketplacesDir, marketplace, "plugins");
+        if (!fs.existsSync(pluginsDir)) continue;
+        const plugins = fs.readdirSync(pluginsDir);
+        for (const plugin of plugins) {
+          const commandsDir = path.join(pluginsDir, plugin, "commands");
+          if (fs.existsSync(commandsDir)) {
+            dirs.push(commandsDir);
+          }
+        }
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  // Scan external plugins: ~/.claude/plugins/external_plugins/*/commands
+  const externalDir = path.join(pluginsRoot, "external_plugins");
+  if (fs.existsSync(externalDir)) {
+    try {
+      const externals = fs.readdirSync(externalDir);
+      for (const plugin of externals) {
+        const commandsDir = path.join(externalDir, plugin, "commands");
         if (fs.existsSync(commandsDir)) {
           dirs.push(commandsDir);
         }
       }
+    } catch {
+      // ignore
     }
-  } catch {
-    // ignore
   }
+
   return dirs;
 }
 
@@ -272,6 +291,20 @@ export async function GET(request: NextRequest) {
   try {
     // Accept optional cwd query param for project-level skills
     const cwd = request.nextUrl.searchParams.get("cwd") || undefined;
+
+    // Resolve provider ID from session for correct capability cache lookup.
+    // Falls back to 'env' when no session is specified.
+    const sessionId = request.nextUrl.searchParams.get("sessionId");
+    let providerId = 'env';
+    if (sessionId) {
+      try {
+        const { getSession } = await import('@/lib/db');
+        const session = getSession(sessionId);
+        providerId = session?.provider_id || 'env';
+      } catch {
+        // DB not available, fall back to 'env'
+      }
+    }
     const globalDir = getGlobalCommandsDir();
     const projectDir = getProjectCommandsDir(cwd);
 
@@ -321,13 +354,43 @@ export async function GET(request: NextRequest) {
       pluginSkills.push(...scanDirectory(dir, "plugin"));
     }
 
-    const all = [...globalSkills, ...projectSkills, ...dedupedProjectSkills, ...installedSkills, ...pluginSkills];
+    // Cross-reference plugin skills with loaded plugins from SDK init meta.
+    // Uses provider-scoped cache so custom providers see their own plugin set.
+    let loadedPluginPaths: Set<string> | null = null;
+    try {
+      const { getCachedPlugins } = await import('@/lib/agent-sdk-capabilities');
+      const loaded = getCachedPlugins(providerId);
+      loadedPluginPaths = new Set(loaded.map(p => p.path));
+    } catch {
+      // SDK capabilities not available
+    }
+
+    // Annotate plugin skills with loaded status
+    const annotatedPluginSkills = pluginSkills.map(skill => ({
+      ...skill,
+      loaded: loadedPluginPaths ? loadedPluginPaths.has(
+        // The skill filePath is inside commands/ — check if any loaded plugin path is a parent
+        (() => {
+          // Walk up from skill filePath to find plugin root
+          let dir = path.dirname(skill.filePath);
+          while (dir && dir !== path.dirname(dir)) {
+            if (loadedPluginPaths!.has(dir)) return dir;
+            dir = path.dirname(dir);
+          }
+          return '';
+        })()
+      ) : false,
+    }));
+
+    const all: Array<SkillFile & { loaded?: boolean }> = [
+      ...globalSkills, ...projectSkills, ...dedupedProjectSkills, ...installedSkills, ...annotatedPluginSkills,
+    ];
     console.log(`[skills] Found: global=${globalSkills.length}, project=${projectSkills.length}, projectSkills=${dedupedProjectSkills.length}, installed=${installedSkills.length}, plugin=${pluginSkills.length}`);
 
     // Merge SDK slash commands if available
     try {
       const { getCachedCommands } = await import('@/lib/agent-sdk-capabilities');
-      const sdkCommands = getCachedCommands('env');
+      const sdkCommands = getCachedCommands(providerId);
       if (sdkCommands.length > 0) {
         const existingNames = new Set(all.map(s => s.name));
         for (const cmd of sdkCommands) {
