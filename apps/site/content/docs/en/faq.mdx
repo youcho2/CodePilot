@@ -30,6 +30,37 @@ CodePilot is open source and free to use. You need your own API key from a suppo
 
 CodePilot requires Node.js 18+. The first-launch setup wizard will detect this and offer automatic installation. You can also install manually from [nodejs.org](https://nodejs.org).
 
+### Claude Code CLI not detected
+
+If the Setup Center shows "Claude Code not found":
+
+1. Open a terminal and run `claude --version` to confirm it's installed
+2. If installed but not detected, the binary may not be in CodePilot's PATH. Try launching CodePilot from the terminal (`open /Applications/CodePilot.app` on macOS) so it inherits your shell environment
+3. If not installed, follow the Setup Center's instructions or run `curl -fsSL https://claude.ai/install.sh | bash`
+
+### Multiple Claude Code installations (conflicts)
+
+If you see a "Multiple installations detected" warning in the Setup Center, your system has more than one Claude Code binary. This commonly happens when:
+
+- You installed via npm **and** the native installer
+- An old npm installation was left behind after switching to native
+
+**To resolve:**
+
+1. Open the Setup Center (Settings > General > Initial Setup Guide)
+2. Click **View Cleanup** on the Claude Code card
+3. Run the provided uninstall commands for each extra installation:
+   - npm: `npm uninstall -g @anthropic-ai/claude-code`
+   - Bun: `bun remove -g @anthropic-ai/claude-code`
+   - Homebrew: `brew uninstall --cask claude-code`
+4. Click **Re-detect** to verify
+
+The native installer is recommended — it's independent of Node.js/npm and receives the fastest updates.
+
+### Setup Center keeps appearing on launch
+
+The Setup Center opens automatically until all three steps (CLI, provider, project directory) are completed or skipped. To dismiss it permanently, click **Skip and Enter** in the top-right corner. You can reopen it later from Settings > General > Initial Setup Guide.
+
 ### How do I get an API key?
 
 - **Anthropic** — [console.anthropic.com](https://console.anthropic.com)

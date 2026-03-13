@@ -13,7 +13,7 @@ CodePilot has two ways to obtain API credentials:
 
 ### 1. CLI Environment Authentication (Auto-Detected)
 
-If you have the `ANTHROPIC_API_KEY` environment variable set in your shell, CodePilot **automatically detects** it on startup and uses it as a built-in provider.
+If you have the `ANTHROPIC_API_KEY` or `ANTHROPIC_AUTH_TOKEN` environment variable set in your shell, CodePilot **automatically detects** it on startup and uses it as a built-in provider. The Setup Center also checks for these credentials and marks the provider step as complete if found.
 
 ```bash
 export ANTHROPIC_API_KEY="sk-ant-..."

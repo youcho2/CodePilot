@@ -36,13 +36,74 @@ Download the latest release for your platform from [GitHub Releases](https://git
 2. Run the installer and follow the prompts
 3. CodePilot will be available in your Start menu
 
-## First Launch
+## First Launch & Setup Center
 
-On first launch, CodePilot will:
+On first launch, CodePilot automatically opens the **Setup Center** — a guided setup overlay that walks you through three prerequisites:
 
-1. **Check for Node.js** — if not found, it will offer to install it automatically
-2. **Check for Claude Code CLI** — if not found, it will install it via npm
-3. **Open the Setup Wizard** — configure your API provider and preferences
+### 1. Claude Code CLI Detection
+
+The Setup Center checks whether the Claude Code CLI is installed and accessible.
+
+- **Detected** — Shows version, installation type (native/npm/bun/homebrew), and binary path. You're good to go.
+- **Not found** — Provides the install command for your platform:
+  - macOS/Linux: `curl -fsSL https://claude.ai/install.sh | bash`
+  - Windows: `irm https://claude.ai/install.ps1 | iex`
+  - After installing, click **Re-detect** to verify.
+- **Multiple installations detected** — If CodePilot finds more than one Claude Code binary (e.g., one installed via npm and another natively), it shows a warning with cleanup instructions. See [Claude Code Conflicts](#claude-code-conflicts) below.
+- **Git not found (Windows)** — Claude Code requires Git. The Setup Center provides step-by-step instructions for installing Git for Windows.
+
+You can **skip** any step and continue — the app will still work if the CLI is available in your PATH.
+
+### 2. API Provider Configuration
+
+The Setup Center checks for available API credentials in three locations:
+
+1. **Database providers** — Any providers you've manually configured in Settings
+2. **Environment variables** — `ANTHROPIC_API_KEY` or `ANTHROPIC_AUTH_TOKEN` set in your shell
+3. **App settings** — Legacy `anthropic_auth_token` stored from previous versions
+
+If credentials are found, the card is automatically marked as complete. Otherwise, you can click **Add Provider** to go to Settings, or **Skip** to configure later.
+
+> **Note:** Skipping the provider step doesn't mean you have a working provider. If you try to send a message without any configured provider, CodePilot will prompt you to set one up.
+
+### 3. Default Project Directory
+
+Select a default working directory for new conversations. The Setup Center shows your recent projects (if any) as quick-select chips, or you can browse for a folder.
+
+This directory is used as the fallback when creating new conversations. You can always change it per-conversation.
+
+### Reopening the Setup Center
+
+You can reopen the Setup Center anytime from **Settings > General > Initial Setup Guide**.
+
+## Claude Code Conflicts
+
+If multiple Claude Code installations exist on your system, they can cause version conflicts, unexpected behavior, or permission errors. Common scenarios:
+
+- Installed via `npm install -g` **and** the native installer
+- Old npm installation left behind after switching to the native installer
+- Multiple package managers (npm + homebrew, npm + bun)
+
+### How CodePilot detects conflicts
+
+When the Setup Center (or the connection status indicator) detects Claude Code, it also scans for other installations. If multiple are found, it shows:
+
+1. **Which binary is currently in use** — path, version, and installation type
+2. **Other installations found** — each with its path and type
+3. **Uninstall commands** — specific to each installation type:
+
+| Installation Type | Uninstall Command |
+|---|---|
+| npm | `npm uninstall -g @anthropic-ai/claude-code` |
+| Bun | `bun remove -g @anthropic-ai/claude-code` |
+| Homebrew | `brew uninstall --cask claude-code` |
+| Native | Remove the binary at the displayed path |
+
+After removing the conflicting installations, click **Re-detect** to verify only one remains.
+
+### Recommended installation method
+
+The **native installer** (`curl -fsSL https://claude.ai/install.sh | bash`) is recommended. It doesn't depend on Node.js/npm being in your PATH, avoids version conflicts with other npm packages, and receives the fastest updates.
 
 ## Configuring an API Provider
 
