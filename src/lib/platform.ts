@@ -143,6 +143,15 @@ export function findAllClaudeBinaries(): ClaudeInstallInfo[] {
       try { realPath = fs.realpathSync(p); } catch { realPath = p; }
       if (seenReal.has(realPath)) return;
 
+      // On Windows, installers create multiple variants in the same directory:
+      // native: claude.exe + claude (shell script), npm: claude.cmd + claude, etc.
+      // Deduplicate by dir + base name stripped of all executable extensions.
+      if (isWindows) {
+        const dirKey = path.join(path.dirname(realPath), path.basename(realPath).replace(/\.(exe|cmd|bat)$/i, '')).toLowerCase();
+        if (seenReal.has(dirKey)) return;
+        seenReal.add(dirKey);
+      }
+
       const out = execFileSync(p, ['--version'], {
         timeout: 3000,
         stdio: 'pipe',
