@@ -96,6 +96,12 @@ export abstract class BaseChannelAdapter {
    * normal delivery path, so this is typically a no-op.
    */
   endPreview?(_chatId: string, _draftId: number): void;
+
+  /**
+   * Get a card stream controller for streaming card updates.
+   * Returns null if not supported by this adapter.
+   */
+  getCardStreamController?(): import('../channels/types').CardStreamController | null;
 }
 
 // ── Adapter Registry ────────────────────────────────────────────

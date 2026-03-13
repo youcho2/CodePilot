@@ -698,6 +698,19 @@ function migrateDb(db: Database.Database): void {
   if (permLinkColNames.length > 0 && !permLinkColNames.includes('resolved')) {
     db.exec("ALTER TABLE channel_permission_links ADD COLUMN resolved INTEGER NOT NULL DEFAULT 0");
   }
+
+  // Channel configs table (structured config for channel plugins)
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS channel_configs (
+      id TEXT PRIMARY KEY,
+      channel_type TEXT NOT NULL,
+      account_id TEXT NOT NULL DEFAULT 'default',
+      config_json TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+      UNIQUE(channel_type, account_id)
+    );
+  `);
 }
 
 // ==========================================

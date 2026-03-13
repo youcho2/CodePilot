@@ -29,6 +29,16 @@ import {
   sanitizeInput,
   validateMode,
 } from './security/validators';
+import { ChannelPluginAdapter } from '../channels/channel-plugin-adapter';
+
+/**
+ * Extract the real platform chat_id from a potentially synthetic thread-session address.
+ * Thread-session mode encodes addresses as `{real_chat_id}:thread:{root_id}`.
+ */
+function extractRealChatId(chatId: string): string {
+  const threadIdx = chatId.indexOf(':thread:');
+  return threadIdx >= 0 ? chatId.slice(0, threadIdx) : chatId;
+}
 
 const GLOBAL_KEY = '__bridge_manager__';
 
@@ -370,6 +380,15 @@ export function registerAdapter(adapter: BaseChannelAdapter): void {
 }
 
 /**
+ * Get a running adapter by channel type.
+ * Returns null if the adapter is not registered.
+ */
+export function getAdapter(channelType: string): BaseChannelAdapter | null {
+  const state = getState();
+  return state.adapters.get(channelType) ?? null;
+}
+
+/**
  * Run the event loop for a single adapter.
  * Messages for different sessions are dispatched concurrently;
  * messages for the same session are serialized via session locks.
@@ -513,51 +532,90 @@ async function handleMessage(
     };
   }
 
+  // ── Card streaming setup (Feishu) ──────────────────────────────
+  let cardController: import('../channels/types').CardStreamController | null = null;
+  let cardMessageId: string | null = null;
+  let cardCreating = false;
+  let cardBufferedText = '';
+  let cardFinalized = false;
+
+  if (!previewState && adapter.getCardStreamController) {
+    cardController = adapter.getCardStreamController();
+  }
+
   const streamCfg = previewState ? getStreamConfig(adapter.channelType) : null;
 
-  // Build the onPartialText callback (or undefined if preview not supported)
-  const onPartialText = (previewState && streamCfg) ? (fullText: string) => {
-    const ps = previewState!;
-    const cfg = streamCfg!;
-    if (ps.degraded) return;
+  // Build the onPartialText callback — preview streaming OR card streaming
+  let onPartialText: ((fullText: string) => void) | undefined;
 
-    // Truncate to maxChars + ellipsis
-    ps.pendingText = fullText.length > cfg.maxChars
-      ? fullText.slice(0, cfg.maxChars) + '...'
-      : fullText;
+  if (previewState && streamCfg) {
+    // Preview-based streaming (Telegram, etc.)
+    const ps = previewState;
+    const cfg = streamCfg;
+    onPartialText = (fullText: string) => {
+      if (ps.degraded) return;
 
-    const delta = ps.pendingText.length - ps.lastSentText.length;
-    const elapsed = Date.now() - ps.lastSentAt;
+      ps.pendingText = fullText.length > cfg.maxChars
+        ? fullText.slice(0, cfg.maxChars) + '...'
+        : fullText;
 
-    if (delta < cfg.minDeltaChars && ps.lastSentAt > 0) {
-      // Not enough new content — schedule trailing-edge timer if not already set
-      if (!ps.throttleTimer) {
-        ps.throttleTimer = setTimeout(() => {
-          ps.throttleTimer = null;
-          if (!ps.degraded) flushPreview(adapter, ps, cfg);
-        }, cfg.intervalMs);
+      const delta = ps.pendingText.length - ps.lastSentText.length;
+      const elapsed = Date.now() - ps.lastSentAt;
+
+      if (delta < cfg.minDeltaChars && ps.lastSentAt > 0) {
+        if (!ps.throttleTimer) {
+          ps.throttleTimer = setTimeout(() => {
+            ps.throttleTimer = null;
+            if (!ps.degraded) flushPreview(adapter, ps, cfg);
+          }, cfg.intervalMs);
+        }
+        return;
       }
-      return;
-    }
 
-    if (elapsed < cfg.intervalMs && ps.lastSentAt > 0) {
-      // Too soon — schedule trailing-edge timer to ensure latest text is sent
-      if (!ps.throttleTimer) {
-        ps.throttleTimer = setTimeout(() => {
-          ps.throttleTimer = null;
-          if (!ps.degraded) flushPreview(adapter, ps, cfg);
-        }, cfg.intervalMs - elapsed);
+      if (elapsed < cfg.intervalMs && ps.lastSentAt > 0) {
+        if (!ps.throttleTimer) {
+          ps.throttleTimer = setTimeout(() => {
+            ps.throttleTimer = null;
+            if (!ps.degraded) flushPreview(adapter, ps, cfg);
+          }, cfg.intervalMs - elapsed);
+        }
+        return;
       }
-      return;
-    }
 
-    // Clear any pending trailing-edge timer and flush immediately
-    if (ps.throttleTimer) {
-      clearTimeout(ps.throttleTimer);
-      ps.throttleTimer = null;
-    }
-    flushPreview(adapter, ps, cfg);
-  } : undefined;
+      if (ps.throttleTimer) {
+        clearTimeout(ps.throttleTimer);
+        ps.throttleTimer = null;
+      }
+      flushPreview(adapter, ps, cfg);
+    };
+  } else if (cardController) {
+    // Card-based streaming (Feishu)
+    onPartialText = (fullText: string) => {
+      if (cardCreating) {
+        cardBufferedText = fullText;
+        return;
+      }
+
+      if (!cardMessageId) {
+        // First call — create the card
+        cardCreating = true;
+        cardBufferedText = fullText;
+        cardController!.create(msg.address.chatId, fullText, msg.messageId).then((msgId) => {
+          cardCreating = false;
+          cardMessageId = msgId || null;
+          // Flush any buffered text that arrived during creation
+          if (cardMessageId && cardBufferedText && cardBufferedText !== fullText) {
+            cardController!.update(cardMessageId, cardBufferedText).catch(() => {});
+          }
+        }).catch(() => {
+          cardCreating = false;
+        });
+        return;
+      }
+
+      cardController!.update(cardMessageId, fullText).catch(() => {});
+    };
+  }
 
   try {
     // Pass permission callback so requests are forwarded to IM immediately
@@ -580,7 +638,13 @@ async function handleMessage(
 
     // Send response text — render via channel-appropriate format
     if (result.responseText) {
-      await deliverResponse(adapter, msg.address, result.responseText, binding.codepilotSessionId, msg.messageId);
+      if (cardController && cardMessageId) {
+        // Finalize streaming card with final content
+        await cardController.finalize(cardMessageId, result.responseText);
+        cardFinalized = true;
+      } else {
+        await deliverResponse(adapter, msg.address, result.responseText, binding.codepilotSessionId, msg.messageId);
+      }
     } else if (result.hasError) {
       const errorResponse: OutboundMessage = {
         address: msg.address,
@@ -612,6 +676,11 @@ async function handleMessage(
         previewState.throttleTimer = null;
       }
       adapter.endPreview?.(msg.address.chatId, previewState.draftId);
+    }
+
+    // Clean up card streaming state
+    if (cardController && cardMessageId && !cardFinalized) {
+      cardController.finalize(cardMessageId, '⚠️ Response interrupted.').catch(() => {});
     }
 
     state.activeTasks.delete(binding.codepilotSessionId);
@@ -674,6 +743,8 @@ async function handleCommand(
         '/sessions - List recent sessions',
         '/stop - Stop current session',
         '/perm allow|allow_session|deny &lt;id&gt; - Respond to permission',
+        '/history [count] - Show recent messages',
+        '/search &lt;keyword&gt; - Search messages',
         '/help - Show this help',
       ].join('\n');
       break;
@@ -800,6 +871,94 @@ async function handleCommand(
       break;
     }
 
+    case '/history': {
+      // Fetch recent messages from the current chat
+      if (!(adapter instanceof ChannelPluginAdapter)) {
+        response = 'History is not supported for this channel type.';
+        break;
+      }
+      const plugin = adapter.getPlugin();
+      if (!plugin.getCardStreamController && !(plugin as any).meta?.channelType) {
+        response = 'History is not available.';
+        break;
+      }
+      // Use message-actions if the plugin has Feishu-type capabilities
+      try {
+        const { readMessages } = await import('../channels/feishu/message-actions');
+        const restClient = (plugin as any).gateway?.getRestClient?.();
+        if (!restClient) {
+          response = 'Channel not connected.';
+          break;
+        }
+        const pageSize = parseInt(args, 10) || 10;
+        const realChatId = extractRealChatId(msg.address.chatId);
+        const result = await readMessages(restClient, realChatId, { pageSize });
+        if (result.items.length === 0) {
+          response = 'No messages found.';
+        } else {
+          const lines = [`<b>Recent ${result.items.length} messages:</b>`, ''];
+          for (const item of result.items) {
+            const time = item.createTime ? new Date(parseInt(item.createTime, 10) * 1000).toLocaleString() : '?';
+            let content = '';
+            try {
+              const parsed = JSON.parse(item.content);
+              content = (parsed.text ?? '').slice(0, 80);
+            } catch {
+              content = item.content.slice(0, 80);
+            }
+            lines.push(`[${time}] ${escapeHtml(content)}`);
+          }
+          if (result.hasMore) lines.push('\n<i>(more messages available)</i>');
+          response = lines.join('\n');
+        }
+      } catch (err) {
+        response = `Failed to fetch history: ${err instanceof Error ? escapeHtml(err.message) : 'unknown error'}`;
+      }
+      break;
+    }
+
+    case '/search': {
+      if (!args) {
+        response = 'Usage: /search &lt;keyword&gt;';
+        break;
+      }
+      if (!(adapter instanceof ChannelPluginAdapter)) {
+        response = 'Search is not supported for this channel type.';
+        break;
+      }
+      try {
+        const { searchMessages } = await import('../channels/feishu/message-actions');
+        const plugin = adapter.getPlugin();
+        const restClient = (plugin as any).gateway?.getRestClient?.();
+        if (!restClient) {
+          response = 'Channel not connected.';
+          break;
+        }
+        const realChatId = extractRealChatId(msg.address.chatId);
+        const result = await searchMessages(restClient, realChatId, args, { pageSize: 10 });
+        if (result.items.length === 0) {
+          response = `No messages matching "<b>${escapeHtml(args)}</b>".`;
+        } else {
+          const lines = [`<b>${result.items.length} result(s) for "${escapeHtml(args)}":</b>`, ''];
+          for (const item of result.items) {
+            const time = item.createTime ? new Date(parseInt(item.createTime, 10) * 1000).toLocaleString() : '?';
+            let content = '';
+            try {
+              const parsed = JSON.parse(item.content);
+              content = (parsed.text ?? '').slice(0, 100);
+            } catch {
+              content = item.content.slice(0, 100);
+            }
+            lines.push(`[${time}] ${escapeHtml(content)}`);
+          }
+          response = lines.join('\n');
+        }
+      } catch (err) {
+        response = `Search failed: ${err instanceof Error ? escapeHtml(err.message) : 'unknown error'}`;
+      }
+      break;
+    }
+
     case '/help':
       response = [
         '<b>CodePilot Bridge Commands</b>',
@@ -812,6 +971,8 @@ async function handleCommand(
         '/sessions - List recent sessions',
         '/stop - Stop current session',
         '/perm allow|allow_session|deny &lt;id&gt; - Respond to permission request',
+        '/history [count] - Show recent messages',
+        '/search &lt;keyword&gt; - Search messages',
         '/help - Show this help',
       ].join('\n');
       break;

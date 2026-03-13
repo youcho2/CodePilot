@@ -37,10 +37,25 @@ function loadMcpServers(): Record<string, MCPServerConfig> | undefined {
     };
     const userConfig = readJson(path.join(os.homedir(), '.claude.json'));
     const settings = readJson(path.join(os.homedir(), '.claude', 'settings.json'));
+    // Also read project-level .mcp.json
+    const projectMcp = readJson(path.join(process.cwd(), '.mcp.json'));
     const merged = {
       ...((userConfig.mcpServers || {}) as Record<string, MCPServerConfig>),
       ...((settings.mcpServers || {}) as Record<string, MCPServerConfig>),
+      ...((projectMcp.mcpServers || {}) as Record<string, MCPServerConfig>),
     };
+    // Resolve ${...} placeholders in env values against DB settings
+    for (const server of Object.values(merged)) {
+      if (server.env) {
+        for (const [key, value] of Object.entries(server.env)) {
+          if (typeof value === 'string' && value.startsWith('${') && value.endsWith('}')) {
+            const settingKey = value.slice(2, -1);
+            const resolved = getSetting(settingKey);
+            server.env[key] = resolved || '';
+          }
+        }
+      }
+    }
     return Object.keys(merged).length > 0 ? merged : undefined;
   } catch {
     return undefined;

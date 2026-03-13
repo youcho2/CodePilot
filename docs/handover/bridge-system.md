@@ -281,3 +281,41 @@ Claude 回复按内容分流渲染（对齐 Openclaw 方案）：
 - Android App、桌面 Controller 和 IM 渠道都将共享同一套 Remote Core
 - 飞书不再只是一个 adapter，而会逐步拆分成独立的渠道模块族
 - 当前 Bridge 仍是实现基础，但不再是远程能力的最终抽象边界
+
+### V2 实施状态（codex/feishu-remote-v2）
+
+**已完成：**
+
+1. **Channel Plugin 合约** (`src/lib/channels/types.ts`)
+   - `ChannelPlugin<T>` 接口：config/capabilities/lifecycle/inbound/outbound/policy
+   - `ChannelCapabilities`：streaming、inlineButtons、reactions 等能力声明
+   - `ProbeResult`：健康检查结果
+   - `CardStreamController`：流式卡片接口（占位）
+
+2. **ChannelPluginAdapter** (`src/lib/channels/channel-plugin-adapter.ts`)
+   - 将 `ChannelPlugin<T>` 桥接为 `BaseChannelAdapter`
+   - bridge-manager 无需修改即可使用新插件
+
+3. **飞书模块拆分** (`src/lib/channels/feishu/`)
+   - `types.ts` — 内部类型 + 常量
+   - `config.ts` — `FeishuConfig` 结构化配置 + 校验 + `configFromSettings()`
+   - `gateway.ts` — WSClient 生命周期 + 连接状态机 + 指标 + probe
+   - `inbound.ts` — 入站消息处理 + 内容解析 + 资源下载
+   - `outbound.ts` — 出站消息渲染（card/post/text/permission）
+   - `identity.ts` — Bot 身份解析 + @mention 检测
+   - `policy.ts` — 用户授权 + 群聊策略
+   - `card-controller.ts` — CardStreamController 占位
+   - `index.ts` — `FeishuChannelPlugin` 组合入口
+
+4. **结构化配置** (`channel_configs` DB 表 + API 路由)
+   - `GET/PUT /api/channels/feishu/config` — 读写结构化配置
+   - 向后兼容：读 channel_configs → 回退到 settings
+
+5. **Status / Probe** (`/api/channels/feishu/status`)
+   - 连接状态、Bot 身份、指标、可选 probe
+
+6. **Remote Core 合约** (`src/lib/remote/`)
+   - `RemoteHost`/`RemoteController`/`SessionLease`/`RemoteEvent` 接口
+   - `RemoteManager` 轻量骨架
+
+7. **原 feishu-adapter.ts** 改为薄代理（~15 行）

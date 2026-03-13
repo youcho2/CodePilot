@@ -107,7 +107,32 @@ Schema 定义在 `src/lib/db.ts`，12 张表：
 - `bridge-manager.ts` — 生命周期编排
 - `markdown/` — Markdown → IR → 渠道特定格式（Telegram HTML / 飞书卡片）
 - `adapters/telegram-adapter.ts` — Telegram 长轮询
-- `adapters/feishu-adapter.ts` — 飞书 WebSocket + REST
+- `adapters/feishu-adapter.ts` — 飞书薄代理（委托给 Channel Plugin）
+
+### Channel Plugin 层
+
+`src/lib/channels/` — 结构化渠道插件，提供 `ChannelPlugin<T>` 合约。
+
+- `types.ts` — `ChannelPlugin`/`ChannelCapabilities`/`ProbeResult`/`CardStreamController` 接口
+- `channel-plugin-adapter.ts` — Plugin → `BaseChannelAdapter` 桥接适配器
+- `feishu/` — 飞书渠道插件（模块化拆分）
+  - `types.ts` — 飞书内部类型常量
+  - `config.ts` — `FeishuConfig` 结构化配置 + 校验
+  - `gateway.ts` — WSClient 生命周期 + 连接状态机 + probe
+  - `inbound.ts` — 入站消息处理 + 资源下载
+  - `outbound.ts` — 出站消息渲染（card/post/permission）
+  - `identity.ts` — Bot 身份解析 + @mention 检测
+  - `policy.ts` — 访问控制 + 群策略
+  - `card-controller.ts` — CardStreamController 接口 + 占位
+  - `index.ts` — `FeishuChannelPlugin` 入口
+
+### Remote Core 层
+
+`src/lib/remote/` — 远程 Host/Controller/Session/Lease 合约（接口 + 骨架）。
+
+- `types.ts` — `RemoteHost`/`RemoteController`/`SessionLease`/`RemoteEvent` 接口
+- `remote-manager.ts` — 轻量运行时骨架
+- `index.ts` — 公开导出
 
 详细文档：`docs/handover/bridge-system.md`
 
