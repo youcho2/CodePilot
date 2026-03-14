@@ -206,7 +206,7 @@ export class FeishuChannelPlugin implements ChannelPlugin<FeishuConfig> {
     const messageId = this.lastMessageIdByChat.get(chatId);
     if (!client || !messageId) return;
     // Fire-and-forget — don't block message processing
-    addReaction(client, messageId, 'OnIt').then((reactionId) => {
+    addReaction(client, messageId, 'Typing').then((reactionId) => {
       if (reactionId) {
         this.activeReactions.set(chatId, { messageId, reactionId });
       }

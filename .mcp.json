@@ -8,16 +8,6 @@
         "chrome-devtools-mcp@latest"
       ],
       "env": {}
-    },
-    "feishu": {
-      "command": "node",
-      "args": ["packages/feishu-mcp/dist/index.js"],
-      "env": {
-        "FEISHU_APP_ID": "${bridge_feishu_app_id}",
-        "FEISHU_APP_SECRET": "${bridge_feishu_app_secret}",
-        "FEISHU_DOMAIN": "${bridge_feishu_domain}",
-        "FEISHU_USER_ACCESS_TOKEN": "${bridge_feishu_user_token}"
-      }
     }
   }
 }

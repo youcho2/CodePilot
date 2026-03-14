@@ -25,7 +25,7 @@ const LOG_TAG = '[feishu/outbound]';
  * - Strip invalid image keys (prevent CardKit error 200570)
  * - Compress excessive newlines (3+ → 2)
  */
-function optimizeMarkdown(text: string): string {
+export function optimizeMarkdown(text: string): string {
   try {
     return _optimizeMarkdown(text);
   } catch {

@@ -10,6 +10,13 @@ import type { ChannelType, InboundMessage, OutboundMessage, SendResult } from '.
 // ── Card Stream Controller ──────────────────────────────────────
 
 /** Controls a streaming card lifecycle (create → update → finalize). */
+/** Tool call info for card display */
+export interface ToolCallInfo {
+  id: string;
+  name: string;
+  status: 'running' | 'complete' | 'error';
+}
+
 export interface CardStreamController {
   /**
    * Create a streaming card in the given chat.
@@ -31,6 +38,12 @@ export interface CardStreamController {
    * @param status 'completed' | 'interrupted' | 'error'
    */
   finalize(messageId: string, finalText: string, status?: 'completed' | 'interrupted' | 'error'): Promise<void>;
+
+  /** Optional: update tool call progress display */
+  updateToolCalls?(messageId: string, tools: ToolCallInfo[]): void;
+
+  /** Optional: set thinking state before text starts flowing */
+  setThinking?(messageId: string): void;
 }
 
 // ── Channel Capabilities ────────────────────────────────────────

@@ -83,6 +83,12 @@ export type OnPermissionRequest = (perm: PermissionRequestInfo) => Promise<void>
  */
 export type OnPartialText = (fullText: string) => void;
 
+/**
+ * Callback invoked on tool_use / tool_result SSE events.
+ * Used by card streaming to show tool progress indicators.
+ */
+export type OnToolEvent = (event: { type: 'tool_use'; id: string; name: string } | { type: 'tool_result'; tool_use_id: string; is_error: boolean }) => void;
+
 export interface ConversationResult {
   responseText: string;
   tokenUsage: TokenUsage | null;
@@ -105,6 +111,7 @@ export async function processMessage(
   abortSignal?: AbortSignal,
   files?: FileAttachment[],
   onPartialText?: OnPartialText,
+  onToolEvent?: OnToolEvent,
 ): Promise<ConversationResult> {
   const sessionId = binding.codepilotSessionId;
 
@@ -232,7 +239,7 @@ export async function processMessage(
     // Consume the stream server-side (replicate collectStreamResponse pattern).
     // Permission requests are forwarded immediately via the callback during streaming
     // because the stream blocks until permission is resolved — we can't wait until after.
-    return await consumeStream(stream, sessionId, onPermissionRequest, onPartialText);
+    return await consumeStream(stream, sessionId, onPermissionRequest, onPartialText, onToolEvent);
   } finally {
     clearInterval(renewalInterval);
     releaseSessionLock(sessionId, lockId);
@@ -249,6 +256,7 @@ async function consumeStream(
   sessionId: string,
   onPermissionRequest?: OnPermissionRequest,
   onPartialText?: OnPartialText,
+  onToolEvent?: OnToolEvent,
 ): Promise<ConversationResult> {
   const reader = stream.getReader();
   const contentBlocks: MessageContentBlock[] = [];
@@ -300,6 +308,9 @@ async function consumeStream(
                 name: toolData.name,
                 input: toolData.input,
               });
+              if (onToolEvent) {
+                try { onToolEvent({ type: 'tool_use', id: toolData.id, name: toolData.name }); } catch { /* non-critical */ }
+              }
             } catch { /* skip */ }
             break;
           }
@@ -321,6 +332,9 @@ async function consumeStream(
               } else {
                 seenToolResultIds.add(resultData.tool_use_id);
                 contentBlocks.push(newBlock);
+              }
+              if (onToolEvent) {
+                try { onToolEvent({ type: 'tool_result', tool_use_id: resultData.tool_use_id, is_error: resultData.is_error || false }); } catch { /* non-critical */ }
               }
             } catch { /* skip */ }
             break;

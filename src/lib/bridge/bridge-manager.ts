@@ -540,6 +540,8 @@ async function handleMessage(
   let cardCreating = false;
   let cardBufferedText = '';
   let cardFinalized = false;
+  /** Track tool calls for card progress display */
+  const cardToolCalls: import('../channels/types').ToolCallInfo[] = [];
 
   if (!previewState && adapter.getCardStreamController) {
     cardController = adapter.getCardStreamController();
@@ -619,6 +621,23 @@ async function handleMessage(
     };
   }
 
+  // Build onToolEvent callback for card tool progress
+  let onToolEvent: ((event: any) => void) | undefined;
+  if (cardController) {
+    onToolEvent = (event: any) => {
+      if (event.type === 'tool_use') {
+        cardToolCalls.push({ id: event.id, name: event.name, status: 'running' });
+      } else if (event.type === 'tool_result') {
+        const tc = cardToolCalls.find((t) => t.id === event.tool_use_id);
+        if (tc) tc.status = event.is_error ? 'error' : 'complete';
+      }
+      // Update card display if we have a message ID
+      if (cardMessageId && cardController?.updateToolCalls) {
+        cardController.updateToolCalls(cardMessageId, cardToolCalls);
+      }
+    };
+  }
+
   try {
     // Pass permission callback so requests are forwarded to IM immediately
     // during streaming (the stream blocks until permission is resolved).
@@ -636,25 +655,31 @@ async function handleMessage(
         perm.suggestions,
         msg.messageId,
       );
-    }, taskAbort.signal, hasAttachments ? msg.attachments : undefined, onPartialText);
+    }, taskAbort.signal, hasAttachments ? msg.attachments : undefined, onPartialText, onToolEvent);
 
     // Send response text — render via channel-appropriate format
     if (result.responseText) {
       if (cardController && cardMessageId) {
         // Finalize streaming card with final content
-        await cardController.finalize(cardMessageId, result.responseText);
+        const finalStatus = result.hasError ? 'error' : 'completed';
+        await cardController.finalize(cardMessageId, result.responseText, finalStatus);
         cardFinalized = true;
       } else {
         await deliverResponse(adapter, msg.address, result.responseText, binding.codepilotSessionId, msg.messageId);
       }
     } else if (result.hasError) {
-      const errorResponse: OutboundMessage = {
-        address: msg.address,
-        text: `<b>Error:</b> ${escapeHtml(result.errorMessage)}`,
-        parseMode: 'HTML',
-        replyToMessageId: msg.messageId,
-      };
-      await deliver(adapter, errorResponse);
+      if (cardController && cardMessageId) {
+        await cardController.finalize(cardMessageId, `❌ Error: ${result.errorMessage}`, 'error');
+        cardFinalized = true;
+      } else {
+        const errorResponse: OutboundMessage = {
+          address: msg.address,
+          text: `<b>Error:</b> ${escapeHtml(result.errorMessage)}`,
+          parseMode: 'HTML',
+          replyToMessageId: msg.messageId,
+        };
+        await deliver(adapter, errorResponse);
+      }
     }
 
     // Persist the actual SDK session ID for future resume.
@@ -682,7 +707,7 @@ async function handleMessage(
 
     // Clean up card streaming state
     if (cardController && cardMessageId && !cardFinalized) {
-      cardController.finalize(cardMessageId, '⚠️ Response interrupted.').catch(() => {});
+      cardController.finalize(cardMessageId, '⚠️ Response interrupted.', 'interrupted').catch(() => {});
     }
 
     state.activeTasks.delete(binding.codepilotSessionId);
@@ -735,20 +760,7 @@ async function handleCommand(
         '<b>CodePilot Bridge</b>',
         '',
         'Send any message to interact with Claude.',
-        '',
-        '<b>Commands:</b>',
-        '/new [path] - Start new session',
-        '/bind &lt;session_id&gt; - Bind to existing session',
-        '/cwd /path - Change working directory',
-        '/mode plan|code|ask - Change mode',
-        '/status - Show current status',
-        '/sessions - List recent sessions',
-        '/stop - Stop current session',
-        '/perm allow|allow_session|deny &lt;id&gt; - Respond to permission',
-        '/history [count] - Show recent messages',
-        '/search &lt;keyword&gt; - Search messages',
-        '/feishu &lt;subcommand&gt; - Feishu bridge management',
-        '/help - Show this help',
+        'Type /help for available commands.',
       ].join('\n');
       break;
 
@@ -1109,18 +1121,23 @@ async function handleCommand(
       response = [
         '<b>CodePilot Bridge Commands</b>',
         '',
-        '/new [path] - Start new session',
+        '<b>Session:</b>',
+        '/new [path] - Create new session (optional: specify CWD)',
+        '/cwd /path - Change CWD, reset context',
         '/bind &lt;session_id&gt; - Bind to existing session',
-        '/cwd /path - Change working directory',
         '/mode plan|code|ask - Change mode',
-        '/status - Show current status',
+        '/status - Show session / CWD / mode / model',
         '/sessions - List recent sessions',
-        '/stop - Stop current session',
-        '/perm allow|allow_session|deny &lt;id&gt; - Respond to permission request',
+        '/stop - Stop current task',
+        '',
+        '<b>Messages:</b>',
         '/history [count] - Show recent messages',
-        '/search &lt;keyword&gt; - Search messages',
-        '/feishu &lt;subcommand&gt; - Feishu bridge management',
-        '/help - Show this help',
+        '/search &lt;keyword&gt; - Search in current chat',
+        '/perm allow|deny &lt;id&gt; - Permission response',
+        '',
+        '<b>Feishu:</b>',
+        '/feishu doctor - Run diagnostics',
+        '/feishu auth - View auth status',
       ].join('\n');
       break;
 
