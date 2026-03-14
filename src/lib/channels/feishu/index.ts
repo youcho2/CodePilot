@@ -11,7 +11,7 @@ import type { FeishuConfig } from './types';
 import { loadFeishuConfig, validateFeishuConfig } from './config';
 import { FeishuGateway } from './gateway';
 import { parseInboundMessage } from './inbound';
-import { sendMessage } from './outbound';
+import { sendMessage, addReaction, removeReaction } from './outbound';
 import { isUserAuthorized } from './policy';
 import { createCardStreamController } from './card-controller';
 
@@ -25,6 +25,10 @@ export class FeishuChannelPlugin implements ChannelPlugin<FeishuConfig> {
   private gateway: FeishuGateway | null = null;
   private messageQueue: InboundMessage[] = [];
   private waitResolve: ((msg: InboundMessage | null) => void) | null = null;
+  /** Track last received messageId per chatId for reaction acknowledgment. */
+  private lastMessageIdByChat = new Map<string, string>();
+  /** Track active reaction IDs per chatId so we can remove them on completion. */
+  private activeReactions = new Map<string, { messageId: string; reactionId: string }>();
 
   loadConfig(): FeishuConfig | null {
     this.config = loadFeishuConfig();
@@ -163,6 +167,10 @@ export class FeishuChannelPlugin implements ChannelPlugin<FeishuConfig> {
   }
 
   private enqueueMessage(msg: InboundMessage): void {
+    // Track messageId for reaction acknowledgment (skip callback messages)
+    if (msg.messageId && !msg.callbackData) {
+      this.lastMessageIdByChat.set(msg.address.chatId, msg.messageId);
+    }
     if (this.waitResolve) {
       const resolve = this.waitResolve;
       this.waitResolve = null;
@@ -190,6 +198,28 @@ export class FeishuChannelPlugin implements ChannelPlugin<FeishuConfig> {
   isAuthorized(userId: string, chatId: string): boolean {
     if (!this.config) return false;
     return isUserAuthorized(this.config, userId, chatId);
+  }
+
+  /** Add emoji reaction to acknowledge message receipt. */
+  onMessageStart(chatId: string): void {
+    const client = this.gateway?.getRestClient();
+    const messageId = this.lastMessageIdByChat.get(chatId);
+    if (!client || !messageId) return;
+    // Fire-and-forget — don't block message processing
+    addReaction(client, messageId, 'OnIt').then((reactionId) => {
+      if (reactionId) {
+        this.activeReactions.set(chatId, { messageId, reactionId });
+      }
+    }).catch(() => {});
+  }
+
+  /** Remove the "processing" reaction after response is sent. */
+  onMessageEnd(chatId: string): void {
+    const client = this.gateway?.getRestClient();
+    const reaction = this.activeReactions.get(chatId);
+    if (!client || !reaction) return;
+    this.activeReactions.delete(chatId);
+    removeReaction(client, reaction.messageId, reaction.reactionId).catch(() => {});
   }
 
   getCardStreamController(): CardStreamController | null {
