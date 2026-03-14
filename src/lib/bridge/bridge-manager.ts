@@ -29,6 +29,16 @@ import {
   sanitizeInput,
   validateMode,
 } from './security/validators';
+import { ChannelPluginAdapter } from '../channels/channel-plugin-adapter';
+
+/**
+ * Extract the real platform chat_id from a potentially synthetic thread-session address.
+ * Thread-session mode encodes addresses as `{real_chat_id}:thread:{root_id}`.
+ */
+function extractRealChatId(chatId: string): string {
+  const threadIdx = chatId.indexOf(':thread:');
+  return threadIdx >= 0 ? chatId.slice(0, threadIdx) : chatId;
+}
 
 const GLOBAL_KEY = '__bridge_manager__';
 
@@ -313,6 +323,8 @@ export async function stop(): Promise<void> {
 
   state.adapters.clear();
   state.adapterMeta.clear();
+  state.sessionLocks.clear();
+  state.activeTasks.clear();
   state.startedAt = null;
 
   // Re-enable notification bot polling
@@ -367,6 +379,15 @@ export function getStatus(): BridgeStatus {
 export function registerAdapter(adapter: BaseChannelAdapter): void {
   const state = getState();
   state.adapters.set(adapter.channelType, adapter);
+}
+
+/**
+ * Get a running adapter by channel type.
+ * Returns null if the adapter is not registered.
+ */
+export function getAdapter(channelType: string): BaseChannelAdapter | null {
+  const state = getState();
+  return state.adapters.get(channelType) ?? null;
 }
 
 /**
@@ -444,11 +465,29 @@ async function handleMessage(
     }
   };
 
-  // Handle callback queries (permission buttons)
+  // Handle callback queries
   if (msg.callbackData) {
+    // CWD switch button callback
+    if (msg.callbackData.startsWith('cwd:')) {
+      const targetDir = msg.callbackData.slice(4);
+      const validated = validateWorkingDirectory(targetDir);
+      if (validated) {
+        const binding = router.resolve(msg.address);
+        router.updateBinding(binding.id, { workingDirectory: validated, sdkSessionId: '' });
+        await deliver(adapter, {
+          address: msg.address,
+          text: `Working directory switched to <code>${escapeHtml(validated)}</code>\n(Next message starts fresh context)`,
+          parseMode: 'HTML',
+          replyToMessageId: msg.messageId,
+        });
+      }
+      ack();
+      return;
+    }
+
+    // Permission buttons
     const handled = broker.handlePermissionCallback(msg.callbackData, msg.address.chatId, msg.callbackMessageId);
     if (handled) {
-      // Send confirmation
       const confirmMsg: OutboundMessage = {
         address: msg.address,
         text: 'Permission response recorded.',
@@ -513,51 +552,131 @@ async function handleMessage(
     };
   }
 
+  // ── Card streaming setup (Feishu) ──────────────────────────────
+  let cardController: import('../channels/types').CardStreamController | null = null;
+  let cardMessageId: string | null = null;
+  let cardCreating = false;
+  let cardBufferedText = '';
+  let cardFinalized = false;
+  /** Promise that resolves when card creation completes — await before finalize. */
+  let cardCreatePromise: Promise<void> | null = null;
+  /** Track tool calls for card progress display */
+  const cardToolCalls: import('../channels/types').ToolCallInfo[] = [];
+
+  if (!previewState && adapter.getCardStreamController) {
+    cardController = adapter.getCardStreamController();
+    console.log('[bridge-manager] Card stream controller:', cardController ? 'available' : 'null');
+  }
+
   const streamCfg = previewState ? getStreamConfig(adapter.channelType) : null;
 
-  // Build the onPartialText callback (or undefined if preview not supported)
-  const onPartialText = (previewState && streamCfg) ? (fullText: string) => {
-    const ps = previewState!;
-    const cfg = streamCfg!;
-    if (ps.degraded) return;
+  // Build the onPartialText callback — preview streaming OR card streaming
+  let onPartialText: ((fullText: string) => void) | undefined;
 
-    // Truncate to maxChars + ellipsis
-    ps.pendingText = fullText.length > cfg.maxChars
-      ? fullText.slice(0, cfg.maxChars) + '...'
-      : fullText;
+  if (previewState && streamCfg) {
+    // Preview-based streaming (Telegram, etc.)
+    const ps = previewState;
+    const cfg = streamCfg;
+    onPartialText = (fullText: string) => {
+      if (ps.degraded) return;
 
-    const delta = ps.pendingText.length - ps.lastSentText.length;
-    const elapsed = Date.now() - ps.lastSentAt;
+      ps.pendingText = fullText.length > cfg.maxChars
+        ? fullText.slice(0, cfg.maxChars) + '...'
+        : fullText;
 
-    if (delta < cfg.minDeltaChars && ps.lastSentAt > 0) {
-      // Not enough new content — schedule trailing-edge timer if not already set
-      if (!ps.throttleTimer) {
-        ps.throttleTimer = setTimeout(() => {
-          ps.throttleTimer = null;
-          if (!ps.degraded) flushPreview(adapter, ps, cfg);
-        }, cfg.intervalMs);
+      const delta = ps.pendingText.length - ps.lastSentText.length;
+      const elapsed = Date.now() - ps.lastSentAt;
+
+      if (delta < cfg.minDeltaChars && ps.lastSentAt > 0) {
+        if (!ps.throttleTimer) {
+          ps.throttleTimer = setTimeout(() => {
+            ps.throttleTimer = null;
+            if (!ps.degraded) flushPreview(adapter, ps, cfg);
+          }, cfg.intervalMs);
+        }
+        return;
       }
-      return;
-    }
 
-    if (elapsed < cfg.intervalMs && ps.lastSentAt > 0) {
-      // Too soon — schedule trailing-edge timer to ensure latest text is sent
-      if (!ps.throttleTimer) {
-        ps.throttleTimer = setTimeout(() => {
-          ps.throttleTimer = null;
-          if (!ps.degraded) flushPreview(adapter, ps, cfg);
-        }, cfg.intervalMs - elapsed);
+      if (elapsed < cfg.intervalMs && ps.lastSentAt > 0) {
+        if (!ps.throttleTimer) {
+          ps.throttleTimer = setTimeout(() => {
+            ps.throttleTimer = null;
+            if (!ps.degraded) flushPreview(adapter, ps, cfg);
+          }, cfg.intervalMs - elapsed);
+        }
+        return;
       }
-      return;
-    }
 
-    // Clear any pending trailing-edge timer and flush immediately
-    if (ps.throttleTimer) {
-      clearTimeout(ps.throttleTimer);
-      ps.throttleTimer = null;
-    }
-    flushPreview(adapter, ps, cfg);
-  } : undefined;
+      if (ps.throttleTimer) {
+        clearTimeout(ps.throttleTimer);
+        ps.throttleTimer = null;
+      }
+      flushPreview(adapter, ps, cfg);
+    };
+  } else if (cardController) {
+    // Card-based streaming (Feishu)
+    onPartialText = (fullText: string) => {
+      if (cardCreating) {
+        cardBufferedText = fullText;
+        return;
+      }
+
+      if (!cardMessageId) {
+        // First call — create the card
+        cardCreating = true;
+        cardBufferedText = fullText;
+        cardCreatePromise = cardController!.create(msg.address.chatId, fullText, msg.messageId).then((msgId) => {
+          cardCreating = false;
+          cardMessageId = msgId || null;
+          // Flush any buffered text that arrived during creation
+          if (cardMessageId && cardBufferedText && cardBufferedText !== fullText) {
+            cardController!.update(cardMessageId, cardBufferedText).catch(() => {});
+          }
+        }).catch(() => {
+          cardCreating = false;
+        });
+        return;
+      }
+
+      cardController!.update(cardMessageId, fullText).catch(() => {});
+    };
+  }
+
+  // Build onToolEvent callback for card tool progress
+  let onToolEvent: ((event: any) => void) | undefined;
+  if (cardController) {
+    onToolEvent = (event: any) => {
+      if (event.type === 'tool_use') {
+        cardToolCalls.push({ id: event.id, name: event.name, status: 'running' });
+      } else if (event.type === 'tool_result') {
+        const tc = cardToolCalls.find((t) => t.id === event.tool_use_id);
+        if (tc) tc.status = event.is_error ? 'error' : 'complete';
+      }
+
+      // Bootstrap card if tool event arrives before any text (tool-first turns).
+      // Without this, tool progress has nowhere to render.
+      if (!cardMessageId && !cardCreating) {
+        cardCreating = true;
+        cardCreatePromise = cardController!.create(msg.address.chatId, '', msg.messageId).then((msgId) => {
+          cardCreating = false;
+          cardMessageId = msgId || null;
+          if (cardMessageId && cardController?.updateToolCalls) {
+            cardController.updateToolCalls(cardMessageId, cardToolCalls);
+          }
+          // Flush any text that arrived while creating
+          if (cardMessageId && cardBufferedText) {
+            cardController!.update(cardMessageId, cardBufferedText).catch(() => {});
+          }
+        }).catch(() => { cardCreating = false; });
+        return;
+      }
+
+      // Update card display if we have a message ID
+      if (cardMessageId && cardController?.updateToolCalls) {
+        cardController.updateToolCalls(cardMessageId, cardToolCalls);
+      }
+    };
+  }
 
   try {
     // Pass permission callback so requests are forwarded to IM immediately
@@ -576,19 +695,37 @@ async function handleMessage(
         perm.suggestions,
         msg.messageId,
       );
-    }, taskAbort.signal, hasAttachments ? msg.attachments : undefined, onPartialText);
+    }, taskAbort.signal, hasAttachments ? msg.attachments : undefined, onPartialText, onToolEvent);
+
+    // Await any in-flight card creation before checking cardMessageId,
+    // preventing race where processMessage() returns before create() resolves.
+    if (cardCreatePromise) {
+      await cardCreatePromise;
+    }
 
     // Send response text — render via channel-appropriate format
     if (result.responseText) {
-      await deliverResponse(adapter, msg.address, result.responseText, binding.codepilotSessionId, msg.messageId);
+      if (cardController && cardMessageId) {
+        // Finalize streaming card with final content
+        const finalStatus = result.hasError ? 'error' : 'completed';
+        await cardController.finalize(cardMessageId, result.responseText, finalStatus);
+        cardFinalized = true;
+      } else {
+        await deliverResponse(adapter, msg.address, result.responseText, binding.codepilotSessionId, msg.messageId);
+      }
     } else if (result.hasError) {
-      const errorResponse: OutboundMessage = {
-        address: msg.address,
-        text: `<b>Error:</b> ${escapeHtml(result.errorMessage)}`,
-        parseMode: 'HTML',
-        replyToMessageId: msg.messageId,
-      };
-      await deliver(adapter, errorResponse);
+      if (cardController && cardMessageId) {
+        await cardController.finalize(cardMessageId, `❌ Error: ${result.errorMessage}`, 'error');
+        cardFinalized = true;
+      } else {
+        const errorResponse: OutboundMessage = {
+          address: msg.address,
+          text: `<b>Error:</b> ${escapeHtml(result.errorMessage)}`,
+          parseMode: 'HTML',
+          replyToMessageId: msg.messageId,
+        };
+        await deliver(adapter, errorResponse);
+      }
     }
 
     // Persist the actual SDK session ID for future resume.
@@ -612,6 +749,15 @@ async function handleMessage(
         previewState.throttleTimer = null;
       }
       adapter.endPreview?.(msg.address.chatId, previewState.draftId);
+    }
+
+    // Clean up card streaming state — await creation if still in flight
+    if (cardController && !cardFinalized) {
+      const pending = cardCreatePromise as Promise<void> | null;
+      if (pending) await pending.catch(() => {});
+      if (cardMessageId) {
+        cardController.finalize(cardMessageId, '⚠️ Response interrupted.', 'interrupted').catch(() => {});
+      }
     }
 
     state.activeTasks.delete(binding.codepilotSessionId);
@@ -664,17 +810,7 @@ async function handleCommand(
         '<b>CodePilot Bridge</b>',
         '',
         'Send any message to interact with Claude.',
-        '',
-        '<b>Commands:</b>',
-        '/new [path] - Start new session',
-        '/bind &lt;session_id&gt; - Bind to existing session',
-        '/cwd /path - Change working directory',
-        '/mode plan|code|ask - Change mode',
-        '/status - Show current status',
-        '/sessions - List recent sessions',
-        '/stop - Stop current session',
-        '/perm allow|allow_session|deny &lt;id&gt; - Respond to permission',
-        '/help - Show this help',
+        'Type /help for available commands.',
       ].join('\n');
       break;
 
@@ -687,6 +823,12 @@ async function handleCommand(
           break;
         }
         workDir = validated;
+      } else {
+        // No path specified — inherit CWD from current binding
+        const current = router.resolve(msg.address);
+        if (current.workingDirectory) {
+          workDir = current.workingDirectory;
+        }
       }
       const binding = router.createBinding(msg.address, workDir);
       response = `New session created.\nSession: <code>${binding.codepilotSessionId.slice(0, 8)}...</code>\nCWD: <code>${escapeHtml(binding.workingDirectory || '~')}</code>`;
@@ -712,19 +854,60 @@ async function handleCommand(
     }
 
     case '/cwd': {
-      if (!args) {
-        response = 'Usage: /cwd /path/to/directory';
+      if (args) {
+        // Direct path specified
+        const validatedPath = validateWorkingDirectory(args);
+        if (!validatedPath) {
+          response = 'Invalid path. Must be an absolute path without traversal sequences or special characters.';
+          break;
+        }
+        const binding = router.resolve(msg.address);
+        router.updateBinding(binding.id, { workingDirectory: validatedPath, sdkSessionId: '' });
+        response = `Working directory set to <code>${escapeHtml(validatedPath)}</code>\n(SDK session reset — next message starts fresh context)`;
         break;
       }
-      const validatedPath = validateWorkingDirectory(args);
-      if (!validatedPath) {
-        response = 'Invalid path. Must be an absolute path without traversal sequences or special characters.';
+
+      // No args — show project selector card with buttons.
+      // Design decision: /cwd picker is a "recent projects quick-switch" for
+      // a single-operator desktop app. It intentionally shows all active
+      // directories across this channel type (not isolated per chat).
+      // If multi-user / chat-level isolation is needed in the future,
+      // this should be scoped by userId or chatId instead.
+      const bindings = router.listBindings(msg.address.channelType as any);
+      const uniqueDirs = [...new Set(
+        bindings
+          .filter((b) => b.active)
+          .map((b) => b.workingDirectory)
+          .filter((d): d is string => !!d && d !== '~')
+      )].slice(0, 8); // Max 8 options
+
+      if (uniqueDirs.length === 0) {
+        response = 'No project directories found.\nUsage: /cwd /path/to/directory';
         break;
       }
-      const binding = router.resolve(msg.address);
-      router.updateBinding(binding.id, { workingDirectory: validatedPath, sdkSessionId: '' });
-      response = `Working directory set to <code>${escapeHtml(validatedPath)}</code>\n(SDK session reset — next message starts fresh context)`;
-      break;
+
+      // Send as interactive card with buttons (Feishu) or text list (other channels)
+      const currentBinding = router.resolve(msg.address);
+      const currentCwd = currentBinding.workingDirectory || '~';
+
+      // Build inline buttons for project selection
+      const inlineButtons = uniqueDirs.map((dir) => {
+        const label = dir === currentCwd ? `📍 ${dir.split('/').pop() || dir}` : (dir.split('/').pop() || dir);
+        return [{
+          text: label,
+          callbackData: `cwd:${dir}`,
+        }];
+      });
+
+      const cardMsg: OutboundMessage = {
+        address: msg.address,
+        text: `<b>Switch Working Directory</b>\n\nCurrent: <code>${escapeHtml(currentCwd)}</code>\n\nSelect a project:`,
+        parseMode: 'HTML',
+        replyToMessageId,
+        inlineButtons,
+      };
+      await deliver(adapter, cardMsg);
+      return; // Don't send response — card is already sent
     }
 
     case '/mode': {
@@ -800,19 +983,257 @@ async function handleCommand(
       break;
     }
 
+    case '/history': {
+      // Fetch recent messages from the current chat (or thread)
+      if (!(adapter instanceof ChannelPluginAdapter)) {
+        response = 'History is not supported for this channel type.';
+        break;
+      }
+      const plugin = adapter.getPlugin();
+      if (!plugin.getCardStreamController && !(plugin as any).meta?.channelType) {
+        response = 'History is not available.';
+        break;
+      }
+      // Use message-actions if the plugin has Feishu-type capabilities
+      try {
+        const { readMessages, readThreadMessages } = await import('../channels/feishu/message-actions');
+        const restClient = (plugin as any).gateway?.getRestClient?.();
+        if (!restClient) {
+          response = 'Channel not connected.';
+          break;
+        }
+        const pageSize = parseInt(args, 10) || 10;
+        const chatIdRaw = msg.address.chatId;
+        const threadIdx = chatIdRaw.indexOf(':thread:');
+
+        let result;
+        if (threadIdx >= 0) {
+          // Thread history: extract thread ID and use readThreadMessages
+          const threadId = chatIdRaw.slice(threadIdx + ':thread:'.length);
+          result = await readThreadMessages(restClient, threadId, { pageSize });
+        } else {
+          const realChatId = extractRealChatId(chatIdRaw);
+          result = await readMessages(restClient, realChatId, { pageSize });
+        }
+
+        if (result.items.length === 0) {
+          response = 'No messages found.';
+        } else {
+          const lines = [`<b>Recent ${result.items.length} messages:</b>`, ''];
+          for (const item of result.items) {
+            const time = item.createTime ? new Date(parseInt(item.createTime, 10) * 1000).toLocaleString() : '?';
+            let content = '';
+            try {
+              const parsed = JSON.parse(item.content);
+              content = (parsed.text ?? '').slice(0, 80);
+            } catch {
+              content = item.content.slice(0, 80);
+            }
+            lines.push(`[${time}] ${escapeHtml(content)}`);
+          }
+          if (result.hasMore) lines.push('\n<i>(more messages available)</i>');
+          response = lines.join('\n');
+        }
+      } catch (err) {
+        response = `Failed to fetch history: ${err instanceof Error ? escapeHtml(err.message) : 'unknown error'}`;
+      }
+      break;
+    }
+
+    case '/search': {
+      // Simplified local search — lists recent messages and filters client-side.
+      // This is NOT equivalent to OpenClaw's server-side search (search.message.create API
+      // with user_access_token). Results are limited to recent messages in the current chat.
+      if (!args) {
+        response = 'Usage: /search &lt;keyword&gt;';
+        break;
+      }
+      if (!(adapter instanceof ChannelPluginAdapter)) {
+        response = 'Search is not supported for this channel type.';
+        break;
+      }
+      try {
+        const { searchMessages } = await import('../channels/feishu/message-actions');
+        const plugin = adapter.getPlugin();
+        const restClient = (plugin as any).gateway?.getRestClient?.();
+        if (!restClient) {
+          response = 'Channel not connected.';
+          break;
+        }
+        const realChatId = extractRealChatId(msg.address.chatId);
+        const result = await searchMessages(restClient, realChatId, args, { pageSize: 10 });
+        if (result.items.length === 0) {
+          response = `No messages matching "<b>${escapeHtml(args)}</b>".`;
+        } else {
+          const lines = [`<b>${result.items.length} result(s) for "${escapeHtml(args)}":</b>`, ''];
+          for (const item of result.items) {
+            const time = item.createTime ? new Date(parseInt(item.createTime, 10) * 1000).toLocaleString() : '?';
+            let content = '';
+            try {
+              const parsed = JSON.parse(item.content);
+              content = (parsed.text ?? '').slice(0, 100);
+            } catch {
+              content = item.content.slice(0, 100);
+            }
+            lines.push(`[${time}] ${escapeHtml(content)}`);
+          }
+          response = lines.join('\n');
+        }
+      } catch (err) {
+        response = `Search failed: ${err instanceof Error ? escapeHtml(err.message) : 'unknown error'}`;
+      }
+      break;
+    }
+
+    case '/feishu': {
+      const subArgs = args.split(/\s+/);
+      const subcommand = subArgs[0]?.toLowerCase() || 'help';
+
+      switch (subcommand) {
+        case 'start': {
+          // Validate Feishu config
+          if (!(adapter instanceof ChannelPluginAdapter)) {
+            response = 'This command is only available in Feishu channels.';
+            break;
+          }
+          const plugin = adapter.getPlugin();
+          const config = (plugin as any).getConfig?.();
+          if (!config) {
+            response = '❌ Feishu plugin not configured.\n\nPlease set App ID and App Secret in CodePilot settings, or use /feishu auth.';
+            break;
+          }
+          const validationError = plugin.validateConfig();
+          if (validationError) {
+            response = `❌ Configuration error: ${validationError}`;
+            break;
+          }
+          const capabilities = plugin.getCapabilities();
+          const lines = [
+            '✅ Feishu Bridge is running',
+            '',
+            `Streaming: ${capabilities.streaming ? '✅ Enabled' : '❌ Disabled'}`,
+            `Thread Reply: ${capabilities.threadReply ? '✅' : '❌'}`,
+            `Search: ${capabilities.search ? '✅' : '❌'}`,
+            `History: ${capabilities.history ? '✅' : '❌'}`,
+          ];
+          response = lines.join('\n');
+          break;
+        }
+
+        case 'auth': {
+          // Show auth status and guidance
+          if (!(adapter instanceof ChannelPluginAdapter)) {
+            response = 'This command is only available in Feishu channels.';
+            break;
+          }
+          const plugin = adapter.getPlugin();
+          const config = (plugin as any).getConfig?.();
+          if (!config) {
+            response = '❌ App credentials not configured.\n\nPlease configure App ID and App Secret in CodePilot Settings → Bridge → Feishu.';
+            break;
+          }
+          // Note: CodePilot currently uses app-level bot tokens (no user OAuth)
+          // This is a simplified version compared to OpenClaw's full OAuth Device Flow
+          response = [
+            '🔐 Feishu Auth Status',
+            '',
+            `App ID: ${config.appId}`,
+            `DM Policy: ${config.dmPolicy}`,
+            `Allow From: ${(config.allowFrom || []).join(', ') || '(all)'}`,
+            '',
+            'ℹ️ CodePilot uses app-level bot tokens.',
+            'User-level OAuth (user_access_token) is not yet supported.',
+            'Some features requiring user identity (cross-chat search, sending as user) are unavailable.',
+          ].join('\n');
+          break;
+        }
+
+        case 'doctor': {
+          // Run diagnostics
+          if (!(adapter instanceof ChannelPluginAdapter)) {
+            response = 'This command is only available in Feishu channels.';
+            break;
+          }
+          const plugin = adapter.getPlugin();
+          const config = (plugin as any).getConfig?.();
+          const lines = ['🔍 Feishu Doctor', ''];
+
+          // Config check
+          if (!config) {
+            lines.push('❌ Configuration: Not configured');
+          } else {
+            lines.push('✅ Configuration: OK');
+            lines.push(`   App ID: ${config.appId}`);
+            lines.push(`   DM Policy: ${config.dmPolicy}`);
+            lines.push(`   Thread Session: ${config.threadSession ? 'Yes' : 'No'}`);
+            lines.push(`   Streaming: Enabled`);
+          }
+
+          // Connection check
+          if (plugin.isRunning()) {
+            lines.push('✅ Connection: WebSocket connected');
+          } else {
+            lines.push('❌ Connection: Not running');
+          }
+
+          // Capabilities
+          const caps = plugin.getCapabilities();
+          lines.push('');
+          lines.push('Capabilities:');
+          lines.push(`   Streaming Cards: ${caps.streaming ? '✅' : '❌'}`);
+          lines.push(`   Thread Reply: ${caps.threadReply ? '✅' : '❌'}`);
+          lines.push(`   Message Search: ${caps.search ? '✅' : '❌ (requires user_access_token)'}`);
+          lines.push(`   Message History: ${caps.history ? '✅' : '❌'}`);
+
+          // Known limitations
+          lines.push('');
+          lines.push('Known Limitations (CodePilot vs OpenClaw):');
+          lines.push('   • No user_access_token / OAuth Device Flow');
+          lines.push('   • No cross-chat search (search.message.create requires UAT)');
+          lines.push('   • No "send as user" capability');
+          lines.push('   • Simplified card streaming (no reasoning phase display)');
+
+          response = lines.join('\n');
+          break;
+        }
+
+        default: {
+          // /feishu help or unknown subcommand
+          response = [
+            'Feishu Bridge Commands',
+            '',
+            '/feishu start — Check plugin status and configuration',
+            '/feishu auth — View auth status and guidance',
+            '/feishu doctor — Run diagnostics',
+            '/feishu help — Show this help',
+          ].join('\n');
+          break;
+        }
+      }
+      break;
+    }
+
     case '/help':
       response = [
         '<b>CodePilot Bridge Commands</b>',
         '',
-        '/new [path] - Start new session',
+        '<b>Session:</b>',
+        '/new [path] - Create new session (optional: specify CWD)',
+        '/cwd /path - Change CWD, reset context',
         '/bind &lt;session_id&gt; - Bind to existing session',
-        '/cwd /path - Change working directory',
         '/mode plan|code|ask - Change mode',
-        '/status - Show current status',
+        '/status - Show session / CWD / mode / model',
         '/sessions - List recent sessions',
-        '/stop - Stop current session',
-        '/perm allow|allow_session|deny &lt;id&gt; - Respond to permission request',
-        '/help - Show this help',
+        '/stop - Stop current task',
+        '',
+        '<b>Messages:</b>',
+        '/history [count] - Show recent messages',
+        '/search &lt;keyword&gt; - Search in current chat',
+        '/perm allow|deny &lt;id&gt; - Permission response',
+        '',
+        '<b>Feishu:</b>',
+        '/feishu doctor - Run diagnostics',
+        '/feishu auth - View auth status',
       ].join('\n');
       break;
 

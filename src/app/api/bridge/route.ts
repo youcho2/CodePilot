@@ -5,7 +5,11 @@ export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 /**
- * GET /api/bridge — Return bridge status (pure query, no side effects)
+ * GET /api/bridge — Return bridge status (pure query, no side effects).
+ *
+ * Does NOT run probe — probe is an explicit action via the per-channel
+ * status endpoint (e.g. /api/channels/feishu/status?probe=true).
+ * This endpoint is polled every 5s by useBridgeStatus so it must stay cheap.
  */
 export async function GET() {
   try {

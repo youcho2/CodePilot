@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -21,7 +21,9 @@ interface FeishuBridgeSettings {
   bridge_feishu_app_id: string;
   bridge_feishu_app_secret: string;
   bridge_feishu_domain: string;
-  bridge_feishu_allowed_users: string;
+  bridge_feishu_allow_from: string;
+  bridge_feishu_dm_policy: string;
+  bridge_feishu_thread_session: string;
   bridge_feishu_group_policy: string;
   bridge_feishu_group_allow_from: string;
   bridge_feishu_require_mention: string;
@@ -31,23 +33,68 @@ const DEFAULT_SETTINGS: FeishuBridgeSettings = {
   bridge_feishu_app_id: "",
   bridge_feishu_app_secret: "",
   bridge_feishu_domain: "feishu",
-  bridge_feishu_allowed_users: "",
+  bridge_feishu_allow_from: "",
+  bridge_feishu_dm_policy: "open",
+  bridge_feishu_thread_session: "false",
   bridge_feishu_group_policy: "open",
   bridge_feishu_group_allow_from: "",
   bridge_feishu_require_mention: "false",
 };
 
+/** SaveButton: shows Save / Saving / Saved based on dirty + saving state. */
+function SaveButton({
+  dirty,
+  saving,
+  onClick,
+  label,
+  savedLabel,
+}: {
+  dirty: boolean;
+  saving: boolean;
+  onClick: () => void;
+  label: string;
+  savedLabel: string;
+}) {
+  return (
+    <Button size="sm" onClick={onClick} disabled={saving || !dirty}>
+      {saving ? (
+        <>
+          <SpinnerGap size={14} className="animate-spin mr-1.5" />
+          {label}
+        </>
+      ) : dirty ? (
+        label
+      ) : (
+        savedLabel
+      )}
+    </Button>
+  );
+}
+
 export function FeishuBridgeSection() {
-  const [, setSettings] =
-    useState<FeishuBridgeSettings>(DEFAULT_SETTINGS);
+  // ── Credentials state ──
   const [appId, setAppId] = useState("");
   const [appSecret, setAppSecret] = useState("");
   const [domain, setDomain] = useState("feishu");
-  const [allowedUsers, setAllowedUsers] = useState("");
+  const [credentialsSaving, setCredentialsSaving] = useState(false);
+  const [credentialsDirty, setCredentialsDirty] = useState(false);
+  const savedCredentials = useRef({ appId: "", appSecret: "", domain: "feishu" });
+
+  // ── Access & Behavior state ──
+  const [allowFrom, setAllowFrom] = useState("");
+  const [dmPolicy, setDmPolicy] = useState("open");
+  const [threadSession, setThreadSession] = useState(false);
   const [groupPolicy, setGroupPolicy] = useState("open");
   const [groupAllowFrom, setGroupAllowFrom] = useState("");
   const [requireMention, setRequireMention] = useState(false);
-  const [saving, setSaving] = useState(false);
+  const [behaviorSaving, setBehaviorSaving] = useState(false);
+  const [behaviorDirty, setBehaviorDirty] = useState(false);
+  const savedBehavior = useRef({
+    allowFrom: "", dmPolicy: "open", threadSession: false,
+    groupPolicy: "open", groupAllowFrom: "", requireMention: false,
+  });
+
+  // ── Verify state ──
   const [verifying, setVerifying] = useState(false);
   const [verifyResult, setVerifyResult] = useState<{
     ok: boolean;
@@ -55,20 +102,59 @@ export function FeishuBridgeSection() {
   } | null>(null);
   const { t } = useTranslation();
 
+  // ── Dirty tracking ──
+  useEffect(() => {
+    const s = savedCredentials.current;
+    setCredentialsDirty(
+      appId !== s.appId || appSecret !== s.appSecret || domain !== s.domain
+    );
+  }, [appId, appSecret, domain]);
+
+  useEffect(() => {
+    const s = savedBehavior.current;
+    setBehaviorDirty(
+      allowFrom !== s.allowFrom ||
+      dmPolicy !== s.dmPolicy ||
+      threadSession !== s.threadSession ||
+      groupPolicy !== s.groupPolicy ||
+      groupAllowFrom !== s.groupAllowFrom ||
+      requireMention !== s.requireMention
+    );
+  }, [allowFrom, dmPolicy, threadSession, groupPolicy, groupAllowFrom, requireMention]);
+
+  // ── Fetch ──
   const fetchSettings = useCallback(async () => {
     try {
       const res = await fetch("/api/settings/feishu");
       if (res.ok) {
         const data = await res.json();
         const s = { ...DEFAULT_SETTINGS, ...data.settings };
-        setSettings(s);
         setAppId(s.bridge_feishu_app_id);
         setAppSecret(s.bridge_feishu_app_secret);
         setDomain(s.bridge_feishu_domain || "feishu");
-        setAllowedUsers(s.bridge_feishu_allowed_users);
+        setAllowFrom(s.bridge_feishu_allow_from);
+        setDmPolicy(s.bridge_feishu_dm_policy || "open");
+        setThreadSession(s.bridge_feishu_thread_session === "true");
         setGroupPolicy(s.bridge_feishu_group_policy || "open");
         setGroupAllowFrom(s.bridge_feishu_group_allow_from);
         setRequireMention(s.bridge_feishu_require_mention === "true");
+
+        // Snapshot as "saved" baseline
+        savedCredentials.current = {
+          appId: s.bridge_feishu_app_id,
+          appSecret: s.bridge_feishu_app_secret,
+          domain: s.bridge_feishu_domain || "feishu",
+        };
+        savedBehavior.current = {
+          allowFrom: s.bridge_feishu_allow_from,
+          dmPolicy: s.bridge_feishu_dm_policy || "open",
+          threadSession: s.bridge_feishu_thread_session === "true",
+          groupPolicy: s.bridge_feishu_group_policy || "open",
+          groupAllowFrom: s.bridge_feishu_group_allow_from,
+          requireMention: s.bridge_feishu_require_mention === "true",
+        };
+        setCredentialsDirty(false);
+        setBehaviorDirty(false);
       }
     } catch {
       // ignore
@@ -79,42 +165,60 @@ export function FeishuBridgeSection() {
     fetchSettings();
   }, [fetchSettings]);
 
-  const saveSettings = async (updates: Partial<FeishuBridgeSettings>) => {
-    setSaving(true);
+  // ── Save helpers ──
+  const saveToApi = async (updates: Partial<FeishuBridgeSettings>) => {
+    const res = await fetch("/api/settings/feishu", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ settings: updates }),
+    });
+    return res.ok;
+  };
+
+  const handleSaveCredentials = async () => {
+    setCredentialsSaving(true);
     try {
-      const res = await fetch("/api/settings/feishu", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ settings: updates }),
-      });
-      if (res.ok) {
-        setSettings((prev) => ({ ...prev, ...updates }));
+      const updates: Partial<FeishuBridgeSettings> = {
+        bridge_feishu_app_id: appId,
+        bridge_feishu_domain: domain,
+      };
+      if (appSecret && !appSecret.startsWith("***")) {
+        updates.bridge_feishu_app_secret = appSecret;
+      }
+      if (await saveToApi(updates)) {
+        savedCredentials.current = { appId, appSecret, domain };
+        setCredentialsDirty(false);
       }
     } catch {
       // ignore
     } finally {
-      setSaving(false);
+      setCredentialsSaving(false);
     }
   };
 
-  const handleSaveCredentials = () => {
-    const updates: Partial<FeishuBridgeSettings> = {
-      bridge_feishu_app_id: appId,
-      bridge_feishu_domain: domain,
-    };
-    if (appSecret && !appSecret.startsWith("***")) {
-      updates.bridge_feishu_app_secret = appSecret;
+  const handleSaveBehavior = async () => {
+    setBehaviorSaving(true);
+    try {
+      const ok = await saveToApi({
+        bridge_feishu_allow_from: allowFrom,
+        bridge_feishu_dm_policy: dmPolicy,
+        bridge_feishu_thread_session: threadSession ? "true" : "false",
+        bridge_feishu_group_policy: groupPolicy,
+        bridge_feishu_group_allow_from: groupAllowFrom,
+        bridge_feishu_require_mention: requireMention ? "true" : "false",
+      });
+      if (ok) {
+        savedBehavior.current = {
+          allowFrom, dmPolicy, threadSession,
+          groupPolicy, groupAllowFrom, requireMention,
+        };
+        setBehaviorDirty(false);
+      }
+    } catch {
+      // ignore
+    } finally {
+      setBehaviorSaving(false);
     }
-    saveSettings(updates);
-  };
-
-  const handleSaveGroupSettings = () => {
-    saveSettings({
-      bridge_feishu_allowed_users: allowedUsers,
-      bridge_feishu_group_policy: groupPolicy,
-      bridge_feishu_group_allow_from: groupAllowFrom,
-      bridge_feishu_require_mention: requireMention ? "true" : "false",
-    });
   };
 
   const handleVerify = async () => {
@@ -162,7 +266,7 @@ export function FeishuBridgeSection() {
 
   return (
     <div className="max-w-3xl space-y-6">
-      {/* App Credentials */}
+      {/* ── App Credentials ── */}
       <SettingsCard
         title={t("feishu.credentials")}
         description={t("feishu.credentialsDesc")}
@@ -217,9 +321,13 @@ export function FeishuBridgeSection() {
         </div>
 
         <div className="flex items-center gap-2">
-          <Button size="sm" onClick={handleSaveCredentials} disabled={saving}>
-            {saving ? t("common.loading") : t("common.save")}
-          </Button>
+          <SaveButton
+            dirty={credentialsDirty}
+            saving={credentialsSaving}
+            onClick={handleSaveCredentials}
+            label={t("common.save")}
+            savedLabel={t("feishu.saved")}
+          />
           <Button
             size="sm"
             variant="outline"
@@ -246,32 +354,55 @@ export function FeishuBridgeSection() {
         )}
       </SettingsCard>
 
-      {/* Allowed Users */}
+      {/* ── Access & Behavior ── */}
       <SettingsCard
-        title={t("feishu.allowedUsers")}
-        description={t("feishu.allowedUsersDesc")}
+        title={t("feishu.accessBehavior")}
+        description={t("feishu.accessBehaviorDesc")}
       >
-        <div>
-          <Input
-            value={allowedUsers}
-            onChange={(e) => setAllowedUsers(e.target.value)}
-            placeholder="ou_xxxxxxxxxx, ou_yyyyyyyyyy"
-            className="font-mono text-sm"
-          />
-          <p className="text-xs text-muted-foreground mt-1">
-            {t("feishu.allowedUsersHint")}
-          </p>
-        </div>
-      </SettingsCard>
+        <div className="space-y-4">
+          {/* DM Policy */}
+          <div className="space-y-2">
+            <label className="text-xs font-semibold text-foreground block">
+              {t("feishu.dmPolicy")}
+            </label>
+            <Select value={dmPolicy} onValueChange={setDmPolicy}>
+              <SelectTrigger className="w-full text-sm">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="open">
+                  {t("feishu.dmPolicyOpen")}
+                </SelectItem>
+                <SelectItem value="pairing">
+                  {t("feishu.dmPolicyPairing")}
+                </SelectItem>
+                <SelectItem value="allowlist">
+                  {t("feishu.dmPolicyAllowlist")}
+                </SelectItem>
+                <SelectItem value="disabled">
+                  {t("feishu.dmPolicyDisabled")}
+                </SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
 
-      {/* Group Chat Settings */}
-      <SettingsCard
-        title={t("feishu.groupSettings")}
-        description={t("feishu.groupSettingsDesc")}
-      >
-        <div className="space-y-3">
           <div>
             <label className="text-xs font-medium text-muted-foreground mb-1 block">
+              {t("feishu.allowFrom")}
+            </label>
+            <Input
+              value={allowFrom}
+              onChange={(e) => setAllowFrom(e.target.value)}
+              placeholder="*, ou_xxxxxxxxxx, ou_yyyyyyyyyy"
+              className="font-mono text-sm"
+            />
+            <p className="text-xs text-muted-foreground mt-1">
+              {t("feishu.allowFromHint")}
+            </p>
+          </div>
+
+          <div className="border-t pt-3 space-y-2">
+            <label className="text-xs font-semibold text-foreground block">
               {t("feishu.groupPolicy")}
             </label>
             <Select value={groupPolicy} onValueChange={setGroupPolicy}>
@@ -309,23 +440,41 @@ export function FeishuBridgeSection() {
             </div>
           )}
 
-          <FieldRow
-            label={t("feishu.requireMention")}
-            description={t("feishu.requireMentionDesc")}
-          >
-            <Switch
-              checked={requireMention}
-              onCheckedChange={setRequireMention}
-            />
-          </FieldRow>
+          <div className="border-t pt-3">
+            <FieldRow
+              label={t("feishu.requireMention")}
+              description={t("feishu.requireMentionDesc")}
+            >
+              <Switch
+                checked={requireMention}
+                onCheckedChange={setRequireMention}
+              />
+            </FieldRow>
+          </div>
+
+          <div className="border-t pt-3">
+            <FieldRow
+              label={t("feishu.threadSession")}
+              description={t("feishu.threadSessionDesc")}
+            >
+              <Switch
+                checked={threadSession}
+                onCheckedChange={setThreadSession}
+              />
+            </FieldRow>
+          </div>
         </div>
 
-        <Button size="sm" onClick={handleSaveGroupSettings} disabled={saving}>
-          {saving ? t("common.loading") : t("common.save")}
-        </Button>
+        <SaveButton
+          dirty={behaviorDirty}
+          saving={behaviorSaving}
+          onClick={handleSaveBehavior}
+          label={t("common.save")}
+          savedLabel={t("feishu.saved")}
+        />
       </SettingsCard>
 
-      {/* Setup Guide */}
+      {/* ── Setup Guide ── */}
       <SettingsCard title={t("feishu.setupGuide")}>
         <ol className="text-xs text-muted-foreground space-y-1.5 list-decimal pl-4">
           <li>{t("feishu.step1")}</li>

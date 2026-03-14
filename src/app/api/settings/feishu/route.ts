@@ -11,7 +11,9 @@ const FEISHU_KEYS = [
   'bridge_feishu_app_id',
   'bridge_feishu_app_secret',
   'bridge_feishu_domain',
-  'bridge_feishu_allowed_users',
+  'bridge_feishu_allow_from',
+  'bridge_feishu_dm_policy',
+  'bridge_feishu_thread_session',
   'bridge_feishu_group_policy',
   'bridge_feishu_group_allow_from',
   'bridge_feishu_require_mention',
@@ -23,7 +25,7 @@ export async function GET() {
     for (const key of FEISHU_KEYS) {
       const value = getSetting(key);
       if (value !== undefined) {
-        // Mask app secret for security
+        // Mask sensitive fields for security
         if (key === 'bridge_feishu_app_secret' && value.length > 8) {
           result[key] = '***' + value.slice(-8);
         } else {
@@ -52,7 +54,7 @@ export async function PUT(request: NextRequest) {
       if (!FEISHU_KEYS.includes(key as typeof FEISHU_KEYS[number])) continue;
       const strValue = String(value ?? '').trim();
 
-      // Don't overwrite secret if user sent the masked version back
+      // Don't overwrite secrets if user sent the masked version back
       if (key === 'bridge_feishu_app_secret' && strValue.startsWith('***')) {
         continue;
       }
