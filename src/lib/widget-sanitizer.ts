@@ -1,115 +1,179 @@
 /**
- * Widget HTML sanitizer + script executor.
+ * Widget HTML sanitizer + iframe srcdoc builder.
  *
- * Follows the pi-generative-ui approach:
- * - Minimal manual sanitization (strip dangerous tags only, preserve event handlers)
- * - Clone-and-replace trick for script execution (innerHTML doesn't execute scripts)
- * - CDN whitelist enforced on external script sources
- * - Electron globals shielded via var shadowing
+ * Security model:
  *
- * We intentionally do NOT use DOMPurify — it strips inline event handlers
- * (onclick, oninput, etc.) which are essential for widget interactivity.
- * Security relies on: CDN whitelist + Electron contextIsolation.
+ * 1. **Streaming updates** (pushed to iframe via postMessage):
+ *    - Dangerous embedding tags stripped (iframe, object, embed, form, etc.)
+ *    - ALL on* handlers stripped (preview is purely visual)
+ *    - ALL script tags stripped
+ *    - javascript:/data: URLs in href/src/action stripped
+ *
+ * 2. **Finalized rendering** (pushed to iframe via postMessage):
+ *    - Only dangerous embedding tags stripped
+ *    - Scripts execute inside the sandboxed iframe (safe)
+ *    - Handlers execute inside the sandboxed iframe (safe)
+ *
+ * 3. **iframe sandbox** (set by WidgetRenderer):
+ *    - `sandbox="allow-scripts"` only
+ *    - No allow-same-origin, allow-top-navigation, allow-popups
+ *    - CSP meta tag: script-src limited to CDN whitelist + inline;
+ *      connect-src 'none' blocks fetch/XHR/WebSocket
+ *    - Links intercepted, forwarded to parent via postMessage
+ *    - Height synced via ResizeObserver + postMessage
  */
 
 // ── CDN whitelist ──────────────────────────────────────────────────────────
 
-const CDN_WHITELIST = [
+export const CDN_WHITELIST = [
   'cdnjs.cloudflare.com',
   'cdn.jsdelivr.net',
   'unpkg.com',
   'esm.sh',
-  'cdn.tailwindcss.com',
 ];
 
-function isAllowedCdnUrl(src: string): boolean {
-  try {
-    const url = new URL(src);
-    return CDN_WHITELIST.some((domain) => url.hostname === domain || url.hostname.endsWith('.' + domain));
-  } catch {
-    return false;
-  }
-}
+// ── HTML sanitization ────────────────────────────────────────────────────
 
-// ── Minimal sanitization ─────────────────────────────────────────────────
-
-/** Dangerous tags that are always stripped (with their content). */
-const DANGEROUS_TAGS = /<(iframe|object|embed|meta|link|base)[\s>][\s\S]*?<\/\1>/gi;
+const DANGEROUS_TAGS = /<(iframe|object|embed|meta|link|base|form)[\s>][\s\S]*?<\/\1>/gi;
 const DANGEROUS_VOID = /<(iframe|object|embed|meta|link|base)\b[^>]*\/?>/gi;
 
-/** Strip onerror only — all other on* handlers are intentionally preserved. */
-const ONERROR_ATTR = /\s+onerror\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]*)/gi;
-
 /**
- * Sanitize widget HTML — strip dangerous tags and onerror attributes.
- * Intentionally preserves onclick, oninput, onchange etc. for interactivity.
- * Scripts are kept in the HTML (they'll be cloned for execution later).
+ * Sanitize widget HTML for streaming preview (no interactivity).
+ * Strips: dangerous tags, ALL on* handlers, ALL scripts, js/data URLs.
  */
-export function sanitizeWidgetHtml(html: string): string {
+export function sanitizeForStreaming(html: string): string {
   return html
     .replace(DANGEROUS_TAGS, '')
     .replace(DANGEROUS_VOID, '')
-    .replace(ONERROR_ATTR, '');
-}
-
-// ── Script execution (clone-and-replace) ─────────────────────────────────
-
-/**
- * Execute scripts inside a widget container using the clone-and-replace trick.
- *
- * innerHTML does NOT execute <script> tags. The standard workaround is to
- * find all script elements, create fresh clones, and replace the originals.
- * The browser executes newly-inserted <script> elements.
- *
- * External scripts: only allowed from CDN whitelist domains.
- * Inline scripts: wrapped in a function scope to avoid `let`/`const`
- * redeclaration errors when multiple widgets are on the same page.
- * Electron globals are shadowed to prevent accidental access.
- */
-export function executeWidgetScripts(container: HTMLElement): void {
-  const scripts = container.querySelectorAll('script');
-  scripts.forEach((old) => {
-    const fresh = document.createElement('script');
-
-    if (old.src) {
-      // External script — enforce CDN whitelist
-      if (!isAllowedCdnUrl(old.src)) {
-        console.warn('[WidgetRenderer] blocked non-whitelisted script:', old.src);
-        old.remove();
-        return;
-      }
-      fresh.src = old.src;
-      // Preserve onload if present (e.g. onload="initChart()")
-      if (old.hasAttribute('onload')) {
-        fresh.setAttribute('onload', old.getAttribute('onload')!);
-      }
-    } else if (old.textContent) {
-      // Inline script — shield Electron globals, and convert top-level
-      // let/const to var to avoid redeclaration SyntaxError when multiple
-      // widgets declare the same variable (e.g. `let chart`).
-      // We only replace let/const that appear at statement boundaries
-      // (start of string, after ; or }) to avoid touching loop variables.
-      const code = old.textContent
-        .replace(/(^|[;}\n])\s*let\s+/g, '$1var ')
-        .replace(/(^|[;}\n])\s*const\s+/g, '$1var ');
-      fresh.textContent = `var electronAPI,require,process,module,exports,__dirname,__filename;\n${code}`;
-    }
-
-    // Copy type attribute if present (e.g. type="module")
-    if (old.type) fresh.type = old.type;
-
-    old.parentNode?.replaceChild(fresh, old);
-    console.log('[WidgetRenderer] script executed:', old.src || `inline (${old.textContent?.length || 0} chars)`);
-  });
+    .replace(/\s+on[a-z]+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>"']*)/gi, '')
+    .replace(/<script[\s\S]*?<\/script>/gi, '')
+    .replace(/<script\b[^>]*\/?>/gi, '')
+    .replace(
+      /\s+(href|src|action)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>"']*))/gi,
+      (match, _attr: string, dq?: string, sq?: string, uq?: string) => {
+        const url = (dq ?? sq ?? uq ?? '').trim();
+        if (/^\s*(javascript|data)\s*:/i.test(url)) return '';
+        return match;
+      },
+    );
 }
 
 /**
- * Add security attributes to all links inside a container.
+ * Light sanitization for finalized content inside iframe.
+ * Only strips tags that could nest/break out of the sandbox.
  */
-export function secureLinks(container: HTMLElement): void {
-  const links = container.querySelectorAll('a[href]');
-  links.forEach((link) => {
-    link.setAttribute('rel', 'noopener noreferrer');
-    link.setAttribute('target', '_blank');
-  });
+export function sanitizeForIframe(html: string): string {
+  return html
+    .replace(DANGEROUS_TAGS, '')
+    .replace(DANGEROUS_VOID, '');
+}
+
+// ── Receiver iframe srcdoc ────────────────────────────────────────────────
+
+/**
+ * Build the "receiver" iframe document.
+ *
+ * This iframe stays alive for the widget's entire lifetime. Content is
+ * pushed into it via postMessage in two phases:
+ *
+ * 1. **Streaming** (`widget:update`): sanitized HTML (no scripts/handlers)
+ *    is set as innerHTML. Height grows incrementally.
+ *
+ * 2. **Finalize** (`widget:finalize`): full HTML is set. Script elements
+ *    are cloned-and-replaced to trigger execution.
+ *
+ * Also handles: height sync, link interception, theme updates, sendMessage.
+ */
+export function buildReceiverSrcdoc(
+  styleBlock: string,
+  isDark: boolean,
+): string {
+  const cspDomains = CDN_WHITELIST.map(d => 'https://' + d).join(' ');
+  const csp = [
+    "default-src 'none'",
+    `script-src 'unsafe-inline' ${cspDomains}`,
+    "style-src 'unsafe-inline'",
+    "img-src * data: blob:",
+    "font-src * data:",
+    "connect-src 'none'",
+  ].join('; ');
+
+  const receiverScript = `(function(){
+var root=document.getElementById('__root');
+var _t=null,_first=true;
+function _h(){
+if(_t)clearTimeout(_t);
+_t=setTimeout(function(){
+var h=document.body.scrollHeight;
+if(h>0)parent.postMessage({type:'widget:resize',height:h,first:_first},'*');
+_first=false;
+},60);
+}
+var _ro=new ResizeObserver(_h);
+_ro.observe(document.body);
+
+function applyHtml(html,runScripts){
+root.innerHTML=html;
+if(runScripts){
+var ss=root.querySelectorAll('script');
+for(var i=0;i<ss.length;i++){
+var o=ss[i],n=document.createElement('script');
+for(var j=0;j<o.attributes.length;j++)n.setAttribute(o.attributes[j].name,o.attributes[j].value);
+if(!o.src&&o.textContent)n.textContent=o.textContent;
+o.parentNode.replaceChild(n,o);
+}
+}
+_h();
+}
+
+window.addEventListener('message',function(e){
+if(!e.data)return;
+switch(e.data.type){
+case 'widget:update':
+applyHtml(e.data.html,false);
+break;
+case 'widget:finalize':
+applyHtml(e.data.html,true);
+window.addEventListener('load',function(){setTimeout(_h,150);});
+break;
+case 'widget:theme':
+var r=document.documentElement,v=e.data.vars;
+if(v)for(var k in v)r.style.setProperty(k,v[k]);
+if(typeof e.data.isDark==='boolean')r.className=e.data.isDark?'dark':'';
+setTimeout(_h,100);
+break;
+}
+});
+
+document.addEventListener('click',function(e){
+var a=e.target&&e.target.closest?e.target.closest('a[href]'):null;
+if(!a)return;var h=a.getAttribute('href');
+if(!h||h.charAt(0)==='#')return;
+e.preventDefault();
+parent.postMessage({type:'widget:link',href:h},'*');
+});
+
+window.__widgetSendMessage=function(t){
+if(typeof t!=='string'||t.length>500)return;
+parent.postMessage({type:'widget:sendMessage',text:t},'*');
+};
+
+parent.postMessage({type:'widget:ready'},'*');
+})();`;
+
+  return `<!DOCTYPE html>
+<html class="${isDark ? 'dark' : ''}">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="${csp}">
+<style>
+${styleBlock}
+</style>
+</head>
+<body style="margin:0;padding:0;">
+<div id="__root"></div>
+<script>${receiverScript}</script>
+</body>
+</html>`;
 }

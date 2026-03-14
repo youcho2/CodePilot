@@ -322,11 +322,23 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
 
   // Expose widget drill-down bridge: widgets can call window.__widgetSendMessage(text)
   // to trigger follow-up questions (e.g. clicking a node to get deeper explanation)
+  // Hardened: type-checked, length-limited, rate-limited, sanitized.
   useEffect(() => {
-    const bridge = (text: string) => {
-      if (typeof text === 'string' && text.trim()) {
-        sendMessageRef.current?.(text.trim());
-      }
+    let lastCallTime = 0;
+    const RATE_LIMIT_MS = 2000;
+    const MAX_LENGTH = 500;
+
+    const bridge = (text: unknown) => {
+      if (typeof text !== 'string') return;
+      const trimmed = text.trim();
+      if (!trimmed || trimmed.length > MAX_LENGTH) return;
+
+      // Rate limit: max one message per 2 seconds
+      const now = Date.now();
+      if (now - lastCallTime < RATE_LIMIT_MS) return;
+      lastCallTime = now;
+
+      sendMessageRef.current?.(trimmed);
     };
     (window as unknown as Record<string, unknown>).__widgetSendMessage = bridge;
     return () => {

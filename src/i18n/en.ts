@@ -51,6 +51,9 @@ const en = {
 
   // ── Streaming message ───────────────────────────────────────
   'streaming.thinking': 'Thinking...',
+  'streaming.thinkingDeep': 'Thinking deeply...',
+  'streaming.preparing': 'Preparing response...',
+  'streaming.generating': 'Generating',
   'streaming.allowForSession': 'Allow for Session',
   'streaming.allowed': 'Allowed',
   'streaming.denied': 'Denied',
@@ -1057,6 +1060,8 @@ const en = {
 
   // ── Widget (Generative UI) ────────────────────────────────
   'widget.loading': 'Rendering widget...',
+  'widget.streaming': 'Rendering visualization',
+  'widget.addingInteractivity': 'Adding interactivity to visualization...',
   'widget.error': 'Widget render error',
   'widget.showCode': 'Show code',
   'widget.hideCode': 'Hide code',

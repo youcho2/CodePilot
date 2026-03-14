@@ -1,14 +1,9 @@
 'use client';
 
-import { useRef, useEffect, useCallback, useState } from 'react';
-import morphdom from 'morphdom';
+import { useRef, useEffect, useCallback, useState, useMemo } from 'react';
 import { useTranslation } from '@/hooks/useTranslation';
-import { getWidgetBridgeStyle, ensureTailwindCdn } from '@/lib/widget-css-bridge';
-import {
-  sanitizeWidgetHtml,
-  executeWidgetScripts,
-  secureLinks,
-} from '@/lib/widget-sanitizer';
+import { resolveThemeVars, getWidgetIframeStyleBlock } from '@/lib/widget-css-bridge';
+import { sanitizeForStreaming, sanitizeForIframe, buildReceiverSrcdoc } from '@/lib/widget-sanitizer';
 import { WidgetErrorBoundary } from './WidgetErrorBoundary';
 
 interface WidgetRendererProps {
@@ -17,114 +12,184 @@ interface WidgetRendererProps {
   title?: string;
 }
 
-/** Debounce delay for morphdom updates during streaming (ms). */
-const MORPH_DEBOUNCE = 150;
+/** Max iframe height to prevent runaway widgets. */
+const MAX_IFRAME_HEIGHT = 2000;
+
+/** Debounce delay for streaming updates (ms). */
+const STREAM_DEBOUNCE = 120;
+
+/** CDN hosts that indicate a complex widget needing load time. */
+const CDN_PATTERN = /cdnjs\.cloudflare\.com|cdn\.jsdelivr\.net|unpkg\.com|esm\.sh/;
 
 function WidgetRendererInner({ widgetCode, isStreaming, title }: WidgetRendererProps) {
   const { t } = useTranslation();
-  const containerRef = useRef<HTMLDivElement>(null);
+  const iframeRef = useRef<HTMLIFrameElement>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const lastHtmlRef = useRef<string>('');
-  const scriptsExecutedRef = useRef(false);
+  const lastSentRef = useRef<string>('');
+  const [iframeReady, setIframeReady] = useState(false);
+  const [iframeHeight, setIframeHeight] = useState(0);
   const [showCode, setShowCode] = useState(false);
+  const [finalized, setFinalized] = useState(false);
+  const finalizedRef = useRef(false);
+  const hasReceivedFirstHeight = useRef(false);
+  // Lock height during finalization to prevent flash (innerHTML swap briefly empties DOM)
+  const heightLockedRef = useRef(false);
 
-  const bridgeStyle = getWidgetBridgeStyle();
+  // Detect if this widget has CDN scripts (Chart.js, etc.) — only these get a loading overlay
+  const hasCDN = useMemo(() => CDN_PATTERN.test(widgetCode), [widgetCode]);
 
-  // Load Tailwind CDN once globally
+  // Build receiver srcdoc once
+  const srcdoc = useMemo(() => {
+    const isDark = typeof document !== 'undefined'
+      && document.documentElement.classList.contains('dark');
+    const resolvedVars = resolveThemeVars();
+    const styleBlock = getWidgetIframeStyleBlock(resolvedVars);
+    return buildReceiverSrcdoc(styleBlock, isDark);
+  }, []);
+
+  // ── postMessage handler ────────────────────────────────────────────────
   useEffect(() => {
-    ensureTailwindCdn();
-  }, []);
+    function handleMessage(e: MessageEvent) {
+      if (!e.data || typeof e.data.type !== 'string') return;
+      if (iframeRef.current && e.source !== iframeRef.current.contentWindow) return;
 
-  /** Strip <script> tags for streaming (we don't want to render inert script text) */
-  const stripScripts = useCallback((html: string) => {
-    return html.replace(/<script[\s\S]*?<\/script>/gi, '');
-  }, []);
+      switch (e.data.type) {
+        case 'widget:ready':
+          setIframeReady(true);
+          break;
 
-  const updateDom = useCallback(
-    (html: string, keepScripts: boolean) => {
-      const el = containerRef.current;
-      if (!el) return;
-
-      // During streaming, strip scripts (they'll be executed after streaming completes).
-      // In static mode, keep scripts in HTML so clone-and-replace can execute them.
-      const processedHtml = keepScripts ? html : stripScripts(html);
-      const fullHtml = `<div class="widget-root">${bridgeStyle}${processedHtml}</div>`;
-
-      if (lastHtmlRef.current === fullHtml) return;
-      lastHtmlRef.current = fullHtml;
-
-      try {
-        if (!el.firstElementChild) {
-          el.innerHTML = fullHtml;
-        } else {
-          const wrapper = document.createElement('div');
-          wrapper.innerHTML = fullHtml;
-          morphdom(el.firstElementChild, wrapper.firstElementChild!, {
-            onBeforeElUpdated: (fromEl, toEl) => {
-              if (fromEl.tagName === 'SCRIPT') return false;
-              if (fromEl.tagName === 'STYLE' && fromEl.hasAttribute('data-widget-bridge')) return false;
-              if (fromEl.isEqualNode(toEl)) return false;
-              return true;
-            },
-            onNodeAdded: (node) => {
-              if (isStreaming && node instanceof HTMLElement && node.nodeType === 1) {
-                node.style.animation = 'widgetFadeIn 0.3s ease both';
+        case 'widget:resize':
+          if (typeof e.data.height === 'number' && e.data.height > 0) {
+            const newH = Math.min(e.data.height + 2, MAX_IFRAME_HEIGHT);
+            // During finalization, only allow height to grow (innerHTML swap
+            // briefly empties DOM causing a near-zero resize report)
+            if (heightLockedRef.current) {
+              setIframeHeight(prev => Math.max(prev, newH));
+              break;
+            }
+            if (!hasReceivedFirstHeight.current) {
+              // First height report: set immediately (no transition) to avoid jarring jump
+              hasReceivedFirstHeight.current = true;
+              const el = iframeRef.current;
+              if (el) {
+                el.style.transition = 'none';
+                void el.offsetHeight;
               }
-              return node;
-            },
-          });
+              setIframeHeight(newH);
+              requestAnimationFrame(() => {
+                if (el) el.style.transition = 'height 0.3s ease-out';
+              });
+            } else {
+              setIframeHeight(newH);
+            }
+          }
+          break;
+
+        case 'widget:link': {
+          const href = String(e.data.href || '');
+          if (href && !/^\s*(javascript|data)\s*:/i.test(href)) {
+            window.open(href, '_blank', 'noopener,noreferrer');
+          }
+          break;
         }
-        secureLinks(el);
-      } catch (err) {
-        console.warn('[WidgetRenderer] morphdom error, falling back to innerHTML:', err);
-        el.innerHTML = fullHtml;
-        secureLinks(el);
+
+        case 'widget:sendMessage': {
+          const text = String(e.data.text || '');
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const fn = (window as any).__widgetSendMessage;
+          if (text && text.length <= 500 && typeof fn === 'function') {
+            fn(text);
+          }
+          break;
+        }
       }
-    },
-    [bridgeStyle, isStreaming, stripScripts],
-  );
+    }
 
-  // Streaming mode: debounced DOM diff (no scripts)
+    window.addEventListener('message', handleMessage);
+    return () => window.removeEventListener('message', handleMessage);
+  }, []);
+
+  // ── Streaming updates ──────────────────────────────────────────────────
+  const sendUpdate = useCallback((html: string) => {
+    const iframe = iframeRef.current;
+    if (!iframe?.contentWindow) return;
+    if (html === lastSentRef.current) return;
+    lastSentRef.current = html;
+    iframe.contentWindow.postMessage({ type: 'widget:update', html }, '*');
+  }, []);
+
   useEffect(() => {
-    if (!isStreaming) return;
-
-    const sanitized = sanitizeWidgetHtml(widgetCode);
+    if (!isStreaming || !iframeReady) return;
+    const sanitized = sanitizeForStreaming(widgetCode);
     if (debounceRef.current) clearTimeout(debounceRef.current);
-    debounceRef.current = setTimeout(() => updateDom(sanitized, false), MORPH_DEBOUNCE);
+    debounceRef.current = setTimeout(() => sendUpdate(sanitized), STREAM_DEBOUNCE);
+    return () => { if (debounceRef.current) clearTimeout(debounceRef.current); };
+  }, [widgetCode, isStreaming, iframeReady, sendUpdate]);
 
-    return () => {
-      if (debounceRef.current) clearTimeout(debounceRef.current);
-    };
-  }, [widgetCode, isStreaming, updateDom]);
-
-  // Static mode: one-shot render + script execution via clone-and-replace
+  // ── Finalize ───────────────────────────────────────────────────────────
   useEffect(() => {
-    if (isStreaming) {
-      scriptsExecutedRef.current = false;
-      return;
-    }
+    if (isStreaming || !iframeReady || finalizedRef.current) return;
+    const sanitized = sanitizeForIframe(widgetCode);
+    const iframe = iframeRef.current;
+    if (!iframe?.contentWindow) return;
+    finalizedRef.current = true;
+    lastSentRef.current = sanitized;
+    // Lock height to prevent flash: innerHTML swap briefly empties DOM,
+    // causing ResizeObserver to report near-zero height before scripts run.
+    heightLockedRef.current = true;
+    iframe.contentWindow.postMessage({ type: 'widget:finalize', html: sanitized }, '*');
+    // Unlock after scripts have had time to execute and resize
+    setTimeout(() => {
+      heightLockedRef.current = false;
+      setFinalized(true);
+    }, 400);
+  }, [isStreaming, iframeReady, widgetCode]);
 
-    const sanitized = sanitizeWidgetHtml(widgetCode);
-    updateDom(sanitized, true); // keep scripts in HTML
+  // ── Theme sync ─────────────────────────────────────────────────────────
+  useEffect(() => {
+    if (!iframeReady) return;
+    const observer = new MutationObserver(() => {
+      const nowDark = document.documentElement.classList.contains('dark');
+      const vars = resolveThemeVars();
+      iframeRef.current?.contentWindow?.postMessage(
+        { type: 'widget:theme', vars, isDark: nowDark }, '*',
+      );
+    });
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] });
+    return () => observer.disconnect();
+  }, [iframeReady]);
 
-    if (!scriptsExecutedRef.current && containerRef.current) {
-      scriptsExecutedRef.current = true;
-      // Clone-and-replace scripts after a frame so DOM is fully rendered
-      requestAnimationFrame(() => {
-        if (containerRef.current) {
-          executeWidgetScripts(containerRef.current);
-        }
-      });
-    }
-  }, [widgetCode, isStreaming, updateDom]);
+  // Show semi-transparent loading overlay ONLY for CDN-dependent widgets
+  // while scripts are loading (between iframe ready and finalize complete)
+  const showLoadingOverlay = hasCDN && !isStreaming && iframeReady && !finalized;
 
   return (
     <div className="group/widget relative my-1">
-      {!showCode && (
+      {/* iframe — always visible, no skeleton, no hiding */}
+      <iframe
+        ref={iframeRef}
+        sandbox="allow-scripts"
+        srcDoc={srcdoc}
+        title={title || 'Widget'}
+        style={{
+          width: '100%',
+          height: iframeHeight,
+          border: 'none',
+          display: showCode ? 'none' : 'block',
+          overflow: 'hidden',
+          colorScheme: 'auto',
+        }}
+      />
+
+      {/* Semi-transparent shimmer overlay — CDN widgets only, while scripts load */}
+      {showLoadingOverlay && (
         <div
-          ref={containerRef}
-          className="widget-container overflow-x-auto"
-          style={{ minHeight: isStreaming ? 40 : undefined }}
+          className="absolute inset-0 pointer-events-none rounded-lg"
+          style={{
+            background: 'linear-gradient(90deg, transparent 0%, var(--color-muted, rgba(128,128,128,0.08)) 50%, transparent 100%)',
+            backgroundSize: '200% 100%',
+            animation: 'widget-shimmer 1.5s ease-in-out infinite',
+          }}
         />
       )}
 
@@ -140,12 +205,6 @@ function WidgetRendererInner({ widgetCode, isStreaming, title }: WidgetRendererP
       >
         {showCode ? t('widget.hideCode') : t('widget.showCode')}
       </button>
-
-      {isStreaming && (
-        <div className="text-[11px] text-muted-foreground/60 animate-pulse mt-1">
-          {t('widget.loading')}
-        </div>
-      )}
     </div>
   );
 }
