@@ -1051,6 +1051,12 @@ const zh: Record<TranslationKey, string> = {
   'error.retry': '重试',
   'error.selectDirectory': '选择目录',
   'error.openSetup': '打开设置',
+
+  // ── Widget (Generative UI) ────────────────────────────────
+  'widget.loading': '渲染组件中...',
+  'widget.error': '组件渲染错误',
+  'widget.showCode': '显示代码',
+  'widget.hideCode': '隐藏代码',
 };
 
 export default zh;

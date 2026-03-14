@@ -1054,6 +1054,12 @@ const en = {
   'error.retry': 'Retry',
   'error.selectDirectory': 'Select Directory',
   'error.openSetup': 'Open Setup',
+
+  // ── Widget (Generative UI) ────────────────────────────────
+  'widget.loading': 'Rendering widget...',
+  'widget.error': 'Widget render error',
+  'widget.showCode': 'Show code',
+  'widget.hideCode': 'Hide code',
 } as const;
 
 export type TranslationKey = keyof typeof en;

@@ -12,6 +12,8 @@ import { Button } from '@/components/ui/button';
 import { Shimmer } from '@/components/ai-elements/shimmer';
 import { ImageGenConfirmation } from './ImageGenConfirmation';
 import { BatchPlanInlinePreview } from './batch-image-gen/BatchPlanInlinePreview';
+import { WidgetRenderer } from './WidgetRenderer';
+import { parseShowWidget, parseAllShowWidgets } from './MessageItem';
 import { PENDING_KEY, buildReferenceImages } from '@/lib/image-ref-store';
 import type { PlannerOutput } from '@/types';
 
@@ -225,7 +227,77 @@ export function StreamingMessage({
 
         {/* Streaming text content rendered via Streamdown */}
         {content && (() => {
-          // Try batch-plan first (Image Agent batch mode)
+          // Try show-widget first (Generative UI) — supports multiple widgets
+          const widgetSegments = parseAllShowWidgets(content);
+          if (widgetSegments.length > 0) {
+            return (
+              <>
+                {widgetSegments.map((seg, i) =>
+                  seg.type === 'text'
+                    ? <MessageResponse key={`t-${i}`}>{seg.content}</MessageResponse>
+                    : <WidgetRenderer key={`w-${i}`} widgetCode={seg.data.widget_code} isStreaming={false} title={seg.data.title} />
+                )}
+              </>
+            );
+          }
+
+          // Try streaming partial widget — detect incomplete show-widget fence
+          // Handles: completed widgets + one trailing partial fence being streamed
+          if (isStreaming && /```show-widget/.test(content)) {
+            const lastFenceStart = content.lastIndexOf('```show-widget');
+            const afterLastFence = content.slice(lastFenceStart);
+            const hasClosingFence = /```show-widget\s*\n?[\s\S]*?\n?\s*```/.test(afterLastFence);
+
+            if (!hasClosingFence) {
+              const beforePart = content.slice(0, lastFenceStart);
+              const completedSegments = parseAllShowWidgets(beforePart);
+
+              const fenceBody = content.slice(lastFenceStart + '```show-widget'.length).trim();
+              let partialCode: string | null = null;
+              const keyIdx = fenceBody.indexOf('"widget_code"');
+              if (keyIdx !== -1) {
+                const colonIdx = fenceBody.indexOf(':', keyIdx + 13);
+                if (colonIdx !== -1) {
+                  const quoteIdx = fenceBody.indexOf('"', colonIdx + 1);
+                  if (quoteIdx !== -1) {
+                    let raw = fenceBody.slice(quoteIdx + 1);
+                    raw = raw.replace(/"\s*\}\s*$/, '');
+                    if (raw.endsWith('\\')) raw = raw.slice(0, -1);
+                    try {
+                      partialCode = raw
+                        .replace(/\\\\/g, '\x00BACKSLASH\x00')
+                        .replace(/\\n/g, '\n')
+                        .replace(/\\t/g, '\t')
+                        .replace(/\\r/g, '\r')
+                        .replace(/\\"/g, '"')
+                        .replace(/\x00BACKSLASH\x00/g, '\\');
+                    } catch { partialCode = null; }
+                  }
+                }
+              }
+
+              let partialTitle: string | undefined;
+              const titleMatch = fenceBody.match(/"title"\s*:\s*"([^"]*?)"/);
+              if (titleMatch) partialTitle = titleMatch[1];
+
+              return (
+                <>
+                  {completedSegments.map((seg, i) =>
+                    seg.type === 'text'
+                      ? <MessageResponse key={`t-${i}`}>{seg.content}</MessageResponse>
+                      : <WidgetRenderer key={`w-${i}`} widgetCode={seg.data.widget_code} isStreaming={false} title={seg.data.title} />
+                  )}
+                  {partialCode && partialCode.length > 10 ? (
+                    <WidgetRenderer widgetCode={partialCode} isStreaming={true} title={partialTitle} />
+                  ) : (
+                    <Shimmer>{t('widget.loading')}</Shimmer>
+                  )}
+                </>
+              );
+            }
+          }
+
+          // Try batch-plan (Image Agent batch mode)
           const batchPlanResult = parseBatchPlan(content);
           if (batchPlanResult) {
             return (
@@ -268,6 +340,7 @@ export function StreamingMessage({
             const stripped = content
               .replace(/```image-gen-request[\s\S]*$/, '')
               .replace(/```batch-plan[\s\S]*$/, '')
+              .replace(/```show-widget[\s\S]*$/, '')
               .trim();
             if (stripped) return <MessageResponse>{stripped}</MessageResponse>;
             // Show shimmer while the structured block is being streamed
@@ -277,6 +350,7 @@ export function StreamingMessage({
           const stripped = content
             .replace(/```image-gen-request[\s\S]*?```/g, '')
             .replace(/```batch-plan[\s\S]*?```/g, '')
+            .replace(/```show-widget[\s\S]*?(```|$)/g, '')
             .trim();
           return stripped ? <MessageResponse>{stripped}</MessageResponse> : null;
         })()}

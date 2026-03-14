@@ -320,6 +320,20 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
 
   sendMessageRef.current = sendMessage;
 
+  // Expose widget drill-down bridge: widgets can call window.__widgetSendMessage(text)
+  // to trigger follow-up questions (e.g. clicking a node to get deeper explanation)
+  useEffect(() => {
+    const bridge = (text: string) => {
+      if (typeof text === 'string' && text.trim()) {
+        sendMessageRef.current?.(text.trim());
+      }
+    };
+    (window as unknown as Record<string, unknown>).__widgetSendMessage = bridge;
+    return () => {
+      delete (window as unknown as Record<string, unknown>).__widgetSendMessage;
+    };
+  }, []);
+
   const handleCommand = useChatCommands({ sessionId, messages, setMessages, sendMessage });
 
   // Listen for image generation completion
