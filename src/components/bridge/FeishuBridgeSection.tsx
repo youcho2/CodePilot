@@ -21,7 +21,15 @@ interface FeishuBridgeSettings {
   bridge_feishu_app_id: string;
   bridge_feishu_app_secret: string;
   bridge_feishu_domain: string;
-  bridge_feishu_allowed_users: string;
+  bridge_feishu_encrypt_key: string;
+  bridge_feishu_verification_token: string;
+  bridge_feishu_allow_from: string;
+  bridge_feishu_dm_policy: string;
+  bridge_feishu_render_mode: string;
+  bridge_feishu_thread_session: string;
+  bridge_feishu_block_streaming: string;
+  bridge_feishu_footer_status: string;
+  bridge_feishu_footer_elapsed: string;
   bridge_feishu_group_policy: string;
   bridge_feishu_group_allow_from: string;
   bridge_feishu_require_mention: string;
@@ -31,7 +39,15 @@ const DEFAULT_SETTINGS: FeishuBridgeSettings = {
   bridge_feishu_app_id: "",
   bridge_feishu_app_secret: "",
   bridge_feishu_domain: "feishu",
-  bridge_feishu_allowed_users: "",
+  bridge_feishu_encrypt_key: "",
+  bridge_feishu_verification_token: "",
+  bridge_feishu_allow_from: "",
+  bridge_feishu_dm_policy: "open",
+  bridge_feishu_render_mode: "auto",
+  bridge_feishu_thread_session: "false",
+  bridge_feishu_block_streaming: "false",
+  bridge_feishu_footer_status: "false",
+  bridge_feishu_footer_elapsed: "false",
   bridge_feishu_group_policy: "open",
   bridge_feishu_group_allow_from: "",
   bridge_feishu_require_mention: "false",
@@ -43,7 +59,15 @@ export function FeishuBridgeSection() {
   const [appId, setAppId] = useState("");
   const [appSecret, setAppSecret] = useState("");
   const [domain, setDomain] = useState("feishu");
-  const [allowedUsers, setAllowedUsers] = useState("");
+  const [encryptKey, setEncryptKey] = useState("");
+  const [verificationToken, setVerificationToken] = useState("");
+  const [allowFrom, setAllowFrom] = useState("");
+  const [dmPolicy, setDmPolicy] = useState("open");
+  const [renderMode, setRenderMode] = useState("auto");
+  const [threadSession, setThreadSession] = useState(false);
+  const [blockStreaming, setBlockStreaming] = useState(false);
+  const [footerStatus, setFooterStatus] = useState(false);
+  const [footerElapsed, setFooterElapsed] = useState(false);
   const [groupPolicy, setGroupPolicy] = useState("open");
   const [groupAllowFrom, setGroupAllowFrom] = useState("");
   const [requireMention, setRequireMention] = useState(false);
@@ -65,7 +89,15 @@ export function FeishuBridgeSection() {
         setAppId(s.bridge_feishu_app_id);
         setAppSecret(s.bridge_feishu_app_secret);
         setDomain(s.bridge_feishu_domain || "feishu");
-        setAllowedUsers(s.bridge_feishu_allowed_users);
+        setEncryptKey(s.bridge_feishu_encrypt_key || "");
+        setVerificationToken(s.bridge_feishu_verification_token || "");
+        setAllowFrom(s.bridge_feishu_allow_from);
+        setDmPolicy(s.bridge_feishu_dm_policy || "open");
+        setRenderMode(s.bridge_feishu_render_mode || "auto");
+        setThreadSession(s.bridge_feishu_thread_session === "true");
+        setBlockStreaming(s.bridge_feishu_block_streaming === "true");
+        setFooterStatus(s.bridge_feishu_footer_status === "true");
+        setFooterElapsed(s.bridge_feishu_footer_elapsed === "true");
         setGroupPolicy(s.bridge_feishu_group_policy || "open");
         setGroupAllowFrom(s.bridge_feishu_group_allow_from);
         setRequireMention(s.bridge_feishu_require_mention === "true");
@@ -101,16 +133,36 @@ export function FeishuBridgeSection() {
     const updates: Partial<FeishuBridgeSettings> = {
       bridge_feishu_app_id: appId,
       bridge_feishu_domain: domain,
+      bridge_feishu_verification_token: verificationToken,
     };
     if (appSecret && !appSecret.startsWith("***")) {
       updates.bridge_feishu_app_secret = appSecret;
     }
+    if (encryptKey && !encryptKey.startsWith("***")) {
+      updates.bridge_feishu_encrypt_key = encryptKey;
+    }
     saveSettings(updates);
+  };
+
+  const handleSaveDmSettings = () => {
+    saveSettings({
+      bridge_feishu_allow_from: allowFrom,
+      bridge_feishu_dm_policy: dmPolicy,
+    });
+  };
+
+  const handleSaveBehaviorSettings = () => {
+    saveSettings({
+      bridge_feishu_render_mode: renderMode,
+      bridge_feishu_thread_session: threadSession ? "true" : "false",
+      bridge_feishu_block_streaming: blockStreaming ? "true" : "false",
+      bridge_feishu_footer_status: footerStatus ? "true" : "false",
+      bridge_feishu_footer_elapsed: footerElapsed ? "true" : "false",
+    });
   };
 
   const handleSaveGroupSettings = () => {
     saveSettings({
-      bridge_feishu_allowed_users: allowedUsers,
       bridge_feishu_group_policy: groupPolicy,
       bridge_feishu_group_allow_from: groupAllowFrom,
       bridge_feishu_require_mention: requireMention ? "true" : "false",
@@ -214,6 +266,37 @@ export function FeishuBridgeSection() {
               {t("feishu.domainHint")}
             </p>
           </div>
+
+          <div>
+            <label className="text-xs font-medium text-muted-foreground mb-1 block">
+              {t("feishu.encryptKey")}
+            </label>
+            <Input
+              type="password"
+              value={encryptKey}
+              onChange={(e) => setEncryptKey(e.target.value)}
+              placeholder={t("feishu.encryptKeyPlaceholder")}
+              className="font-mono text-sm"
+            />
+            <p className="text-xs text-muted-foreground mt-1">
+              {t("feishu.encryptKeyHint")}
+            </p>
+          </div>
+
+          <div>
+            <label className="text-xs font-medium text-muted-foreground mb-1 block">
+              {t("feishu.verificationToken")}
+            </label>
+            <Input
+              value={verificationToken}
+              onChange={(e) => setVerificationToken(e.target.value)}
+              placeholder={t("feishu.verificationTokenPlaceholder")}
+              className="font-mono text-sm"
+            />
+            <p className="text-xs text-muted-foreground mt-1">
+              {t("feishu.verificationTokenHint")}
+            </p>
+          </div>
         </div>
 
         <div className="flex items-center gap-2">
@@ -246,22 +329,133 @@ export function FeishuBridgeSection() {
         )}
       </SettingsCard>
 
-      {/* Allowed Users */}
+      {/* DM Policy & Allow From */}
       <SettingsCard
-        title={t("feishu.allowedUsers")}
-        description={t("feishu.allowedUsersDesc")}
+        title={t("feishu.allowFrom")}
+        description={t("feishu.allowFromDesc")}
       >
-        <div>
-          <Input
-            value={allowedUsers}
-            onChange={(e) => setAllowedUsers(e.target.value)}
-            placeholder="ou_xxxxxxxxxx, ou_yyyyyyyyyy"
-            className="font-mono text-sm"
-          />
-          <p className="text-xs text-muted-foreground mt-1">
-            {t("feishu.allowedUsersHint")}
-          </p>
+        <div className="space-y-3">
+          <div>
+            <label className="text-xs font-medium text-muted-foreground mb-1 block">
+              {t("feishu.dmPolicy")}
+            </label>
+            <Select value={dmPolicy} onValueChange={setDmPolicy}>
+              <SelectTrigger className="w-full text-sm">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="open">
+                  {t("feishu.dmPolicyOpen")}
+                </SelectItem>
+                <SelectItem value="pairing">
+                  {t("feishu.dmPolicyPairing")}
+                </SelectItem>
+                <SelectItem value="allowlist">
+                  {t("feishu.dmPolicyAllowlist")}
+                </SelectItem>
+                <SelectItem value="disabled">
+                  {t("feishu.dmPolicyDisabled")}
+                </SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div>
+            <Input
+              value={allowFrom}
+              onChange={(e) => setAllowFrom(e.target.value)}
+              placeholder="*, ou_xxxxxxxxxx, ou_yyyyyyyyyy"
+              className="font-mono text-sm"
+            />
+            <p className="text-xs text-muted-foreground mt-1">
+              {t("feishu.allowFromHint")}
+            </p>
+          </div>
         </div>
+
+        <Button size="sm" onClick={handleSaveDmSettings} disabled={saving}>
+          {saving ? t("common.loading") : t("common.save")}
+        </Button>
+      </SettingsCard>
+
+      {/* Behavior Settings: Render Mode, Thread Session, Block Streaming, Footer */}
+      <SettingsCard
+        title={t("feishu.renderMode")}
+        description={t("feishu.renderModeDesc")}
+      >
+        <div className="space-y-3">
+          <div>
+            <label className="text-xs font-medium text-muted-foreground mb-1 block">
+              {t("feishu.renderMode")}
+            </label>
+            <Select value={renderMode} onValueChange={setRenderMode}>
+              <SelectTrigger className="w-full text-sm">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="auto">
+                  {t("feishu.renderModeAuto")}
+                </SelectItem>
+                <SelectItem value="static">
+                  {t("feishu.renderModeStatic")}
+                </SelectItem>
+                <SelectItem value="streaming">
+                  {t("feishu.renderModeStreaming")}
+                </SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          <FieldRow
+            label={t("feishu.threadSession")}
+            description={t("feishu.threadSessionDesc")}
+          >
+            <Switch
+              checked={threadSession}
+              onCheckedChange={setThreadSession}
+            />
+          </FieldRow>
+
+          <FieldRow
+            label={t("feishu.blockStreaming")}
+            description={t("feishu.blockStreamingDesc")}
+          >
+            <Switch
+              checked={blockStreaming}
+              onCheckedChange={setBlockStreaming}
+            />
+          </FieldRow>
+
+          <FieldRow
+            label={t("feishu.footer")}
+            description=""
+          >
+            <div className="flex flex-col gap-2">
+              <FieldRow
+                label={t("feishu.footerStatus")}
+                description=""
+              >
+                <Switch
+                  checked={footerStatus}
+                  onCheckedChange={setFooterStatus}
+                />
+              </FieldRow>
+              <FieldRow
+                label={t("feishu.footerElapsed")}
+                description=""
+              >
+                <Switch
+                  checked={footerElapsed}
+                  onCheckedChange={setFooterElapsed}
+                />
+              </FieldRow>
+            </div>
+          </FieldRow>
+        </div>
+
+        <Button size="sm" onClick={handleSaveBehaviorSettings} disabled={saving}>
+          {saving ? t("common.loading") : t("common.save")}
+        </Button>
       </SettingsCard>
 
       {/* Group Chat Settings */}

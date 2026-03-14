@@ -323,6 +323,8 @@ export async function stop(): Promise<void> {
 
   state.adapters.clear();
   state.adapterMeta.clear();
+  state.sessionLocks.clear();
+  state.activeTasks.clear();
   state.startedAt = null;
 
   // Re-enable notification bot polling
@@ -745,6 +747,7 @@ async function handleCommand(
         '/perm allow|allow_session|deny &lt;id&gt; - Respond to permission',
         '/history [count] - Show recent messages',
         '/search &lt;keyword&gt; - Search messages',
+        '/feishu &lt;subcommand&gt; - Feishu bridge management',
         '/help - Show this help',
       ].join('\n');
       break;
@@ -872,7 +875,7 @@ async function handleCommand(
     }
 
     case '/history': {
-      // Fetch recent messages from the current chat
+      // Fetch recent messages from the current chat (or thread)
       if (!(adapter instanceof ChannelPluginAdapter)) {
         response = 'History is not supported for this channel type.';
         break;
@@ -884,15 +887,26 @@ async function handleCommand(
       }
       // Use message-actions if the plugin has Feishu-type capabilities
       try {
-        const { readMessages } = await import('../channels/feishu/message-actions');
+        const { readMessages, readThreadMessages } = await import('../channels/feishu/message-actions');
         const restClient = (plugin as any).gateway?.getRestClient?.();
         if (!restClient) {
           response = 'Channel not connected.';
           break;
         }
         const pageSize = parseInt(args, 10) || 10;
-        const realChatId = extractRealChatId(msg.address.chatId);
-        const result = await readMessages(restClient, realChatId, { pageSize });
+        const chatIdRaw = msg.address.chatId;
+        const threadIdx = chatIdRaw.indexOf(':thread:');
+
+        let result;
+        if (threadIdx >= 0) {
+          // Thread history: extract thread ID and use readThreadMessages
+          const threadId = chatIdRaw.slice(threadIdx + ':thread:'.length);
+          result = await readThreadMessages(restClient, threadId, { pageSize });
+        } else {
+          const realChatId = extractRealChatId(chatIdRaw);
+          result = await readMessages(restClient, realChatId, { pageSize });
+        }
+
         if (result.items.length === 0) {
           response = 'No messages found.';
         } else {
@@ -918,6 +932,9 @@ async function handleCommand(
     }
 
     case '/search': {
+      // Simplified local search — lists recent messages and filters client-side.
+      // This is NOT equivalent to OpenClaw's server-side search (search.message.create API
+      // with user_access_token). Results are limited to recent messages in the current chat.
       if (!args) {
         response = 'Usage: /search &lt;keyword&gt;';
         break;
@@ -959,6 +976,135 @@ async function handleCommand(
       break;
     }
 
+    case '/feishu': {
+      const subArgs = args.split(/\s+/);
+      const subcommand = subArgs[0]?.toLowerCase() || 'help';
+
+      switch (subcommand) {
+        case 'start': {
+          // Validate Feishu config
+          if (!(adapter instanceof ChannelPluginAdapter)) {
+            response = 'This command is only available in Feishu channels.';
+            break;
+          }
+          const plugin = adapter.getPlugin();
+          const config = (plugin as any).getConfig?.();
+          if (!config) {
+            response = '❌ Feishu plugin not configured.\n\nPlease set App ID and App Secret in CodePilot settings, or use /feishu auth.';
+            break;
+          }
+          const validationError = plugin.validateConfig();
+          if (validationError) {
+            response = `❌ Configuration error: ${validationError}`;
+            break;
+          }
+          const capabilities = plugin.getCapabilities();
+          const lines = [
+            '✅ Feishu Bridge is running',
+            '',
+            `Streaming: ${capabilities.streaming ? '✅ Enabled' : '❌ Disabled'}`,
+            `Thread Reply: ${capabilities.threadReply ? '✅' : '❌'}`,
+            `Search: ${capabilities.search ? '✅' : '❌'}`,
+            `History: ${capabilities.history ? '✅' : '❌'}`,
+          ];
+          response = lines.join('\n');
+          break;
+        }
+
+        case 'auth': {
+          // Show auth status and guidance
+          if (!(adapter instanceof ChannelPluginAdapter)) {
+            response = 'This command is only available in Feishu channels.';
+            break;
+          }
+          const plugin = adapter.getPlugin();
+          const config = (plugin as any).getConfig?.();
+          if (!config) {
+            response = '❌ App credentials not configured.\n\nPlease configure App ID and App Secret in CodePilot Settings → Bridge → Feishu.';
+            break;
+          }
+          // Note: CodePilot currently uses app-level bot tokens (no user OAuth)
+          // This is a simplified version compared to OpenClaw's full OAuth Device Flow
+          response = [
+            '🔐 Feishu Auth Status',
+            '',
+            `App ID: ${config.appId}`,
+            `DM Policy: ${config.dmPolicy}`,
+            `Allow From: ${(config.allowFrom || []).join(', ') || '(all)'}`,
+            '',
+            'ℹ️ CodePilot uses app-level bot tokens.',
+            'User-level OAuth (user_access_token) is not yet supported.',
+            'Some features requiring user identity (cross-chat search, sending as user) are unavailable.',
+          ].join('\n');
+          break;
+        }
+
+        case 'doctor': {
+          // Run diagnostics
+          if (!(adapter instanceof ChannelPluginAdapter)) {
+            response = 'This command is only available in Feishu channels.';
+            break;
+          }
+          const plugin = adapter.getPlugin();
+          const config = (plugin as any).getConfig?.();
+          const lines = ['🔍 Feishu Doctor', ''];
+
+          // Config check
+          if (!config) {
+            lines.push('❌ Configuration: Not configured');
+          } else {
+            lines.push('✅ Configuration: OK');
+            lines.push(`   App ID: ${config.appId}`);
+            lines.push(`   DM Policy: ${config.dmPolicy}`);
+            lines.push(`   Render Mode: ${config.renderMode}`);
+            lines.push(`   Thread Session: ${config.threadSession ? 'Yes' : 'No'}`);
+            lines.push(`   Streaming: ${config.cardStreamConfig ? 'Enabled' : 'Disabled'}`);
+          }
+
+          // Connection check
+          if (plugin.isRunning()) {
+            lines.push('✅ Connection: WebSocket connected');
+          } else {
+            lines.push('❌ Connection: Not running');
+          }
+
+          // Capabilities
+          const caps = plugin.getCapabilities();
+          lines.push('');
+          lines.push('Capabilities:');
+          lines.push(`   Streaming Cards: ${caps.streaming ? '✅' : '❌'}`);
+          lines.push(`   Thread Reply: ${caps.threadReply ? '✅' : '❌'}`);
+          lines.push(`   Message Search: ${caps.search ? '✅' : '❌ (requires user_access_token)'}`);
+          lines.push(`   Message History: ${caps.history ? '✅' : '❌'}`);
+
+          // Known limitations
+          lines.push('');
+          lines.push('Known Limitations (CodePilot vs OpenClaw):');
+          lines.push('   • No user_access_token / OAuth Device Flow');
+          lines.push('   • No cross-chat search (search.message.create requires UAT)');
+          lines.push('   • No "send as user" capability');
+          lines.push('   • Simplified card streaming (no reasoning phase display)');
+
+          response = lines.join('\n');
+          break;
+        }
+
+        default: {
+          // /feishu help or unknown subcommand
+          response = [
+            'Feishu Bridge Commands',
+            '',
+            '/feishu start — Check plugin status and configuration',
+            '/feishu auth — View auth status and guidance',
+            '/feishu doctor — Run diagnostics',
+            '/feishu help — Show this help',
+          ].join('\n');
+          break;
+        }
+      }
+      break;
+    }
+
     case '/help':
       response = [
         '<b>CodePilot Bridge Commands</b>',
@@ -973,6 +1119,7 @@ async function handleCommand(
         '/perm allow|allow_session|deny &lt;id&gt; - Respond to permission request',
         '/history [count] - Show recent messages',
         '/search &lt;keyword&gt; - Search messages',
+        '/feishu &lt;subcommand&gt; - Feishu bridge management',
         '/help - Show this help',
       ].join('\n');
       break;
