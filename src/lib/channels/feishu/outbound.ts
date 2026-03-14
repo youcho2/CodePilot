@@ -42,6 +42,7 @@ function _optimizeMarkdown(text: string): string {
   });
 
   // 2. Heading demotion (only if H1-H3 exist)
+  // Feishu renders H1-H3 too large in post md tag
   const hasLargeHeadings = /^#{1,3} /m.test(r);
   if (hasLargeHeadings) {
     r = r.replace(/^#{2,6} (.+)$/gm, '##### $1'); // H2-H6 → H5
@@ -49,16 +50,16 @@ function _optimizeMarkdown(text: string): string {
   }
 
   // 3. Spacing between consecutive headings
-  r = r.replace(/^(#{4,5} .+)\n{1,2}(#{4,5} )/gm, '$1\n<br>\n$2');
+  r = r.replace(/^(#{4,5} .+)\n{1,2}(#{4,5} )/gm, '$1\n\n$2');
 
-  // 4. Table spacing — add <br> before/after table blocks
+  // 4. Table spacing — ensure blank line before/after table blocks
   r = r.replace(/^([^|\n].*)\n(\|.+\|)/gm, '$1\n\n$2');
-  r = r.replace(/\n\n((?:\|.+\|[^\S\n]*\n?)+)/g, '\n\n<br>\n\n$1');
-  r = r.replace(/((?:^\|.+\|[^\S\n]*\n?)+)/gm, '$1\n<br>\n');
+  r = r.replace(/((?:^\|.+\|[^\S\n]*\n?)+)/gm, '\n\n$1\n\n');
 
-  // 5. Restore code blocks with <br> padding
+  // 5. Restore code blocks with blank line padding
+  // Note: Feishu post md tag does NOT support <br> — use blank lines instead
   codeBlocks.forEach((block, i) => {
-    r = r.replace(`${MARK}${i}___`, `\n<br>\n${block}\n<br>\n`);
+    r = r.replace(`${MARK}${i}___`, `\n\n${block}\n\n`);
   });
 
   // 6. Strip invalid image keys (only allow img_xxx and http(s) URLs)
@@ -71,7 +72,7 @@ function _optimizeMarkdown(text: string): string {
     });
   }
 
-  // 7. Compress excessive newlines
+  // 7. Compress excessive newlines (3+ → 2)
   r = r.replace(/\n{3,}/g, '\n\n');
 
   return r;
@@ -174,20 +175,28 @@ async function sendAsInteractiveCard(
   try {
     const mdText = htmlToFeishuMarkdown(text);
 
-    // Build button columns — Schema V2 doesn't support 'action' tag,
-    // use column_set with individual button elements instead
-    const buttonColumns = inlineButtons.flat().map((btn) => {
+    // Detect card type from button callback data
+    const firstCallback = inlineButtons[0]?.[0]?.callbackData || '';
+    const isPermission = firstCallback.startsWith('perm:');
+    const isCwd = firstCallback.startsWith('cwd:');
+
+    // Build button elements
+    const allButtons = inlineButtons.flat();
+    const buttonColumns = allButtons.map((btn) => {
       let btnType: 'primary' | 'danger' | 'default' = 'default';
       const lowerText = btn.text.toLowerCase();
       if (lowerText.includes('deny') || lowerText.includes('拒绝')) {
         btnType = 'danger';
       } else if (lowerText.includes('allow') || lowerText.includes('允许')) {
         btnType = 'primary';
+      } else if (btn.text.startsWith('📍')) {
+        btnType = 'primary'; // Current project highlighted
       }
 
       return {
         tag: 'column' as const,
-        width: 'auto' as const,
+        width: isCwd ? 'weighted' as const : 'auto' as const,
+        weight: isCwd ? 1 : undefined,
         elements: [
           {
             tag: 'button' as const,
@@ -200,46 +209,60 @@ async function sendAsInteractiveCard(
       };
     });
 
+    // Card header based on type
+    const headerConfig = isPermission
+      ? { title: 'Permission Required', template: 'blue' as const, icon: 'lock-chat_filled' }
+      : isCwd
+        ? { title: 'Switch Project', template: 'turquoise' as const, icon: 'folder_outlined' }
+        : { title: 'Action Required', template: 'blue' as const, icon: 'info-circle_outlined' };
+
+    // Build body elements
+    const bodyElements: any[] = [
+      {
+        tag: 'markdown' as const,
+        content: mdText,
+        text_size: 'normal' as const,
+      },
+    ];
+
+    if (isPermission) {
+      bodyElements.push({
+        tag: 'markdown' as const,
+        content: '⏱ This request will expire in 5 minutes',
+        text_size: 'notation' as const,
+      });
+    }
+
+    bodyElements.push({ tag: 'hr' as const });
+
+    // CWD card: stack buttons vertically (one per row)
+    if (isCwd) {
+      for (const col of buttonColumns) {
+        bodyElements.push({
+          tag: 'column_set' as const,
+          flex_mode: 'none' as const,
+          columns: [col],
+        });
+      }
+    } else {
+      bodyElements.push({
+        tag: 'column_set' as const,
+        flex_mode: 'none' as const,
+        horizontal_align: 'left' as const,
+        columns: buttonColumns,
+      });
+    }
+
     const card = {
       schema: '2.0',
-      config: {
-        wide_screen_mode: true,
-        style: {
-          color: {
-            'light-orange-bg': {
-              light_mode: 'rgba(255, 214, 102, 0.12)',
-              dark_mode: 'rgba(255, 214, 102, 0.08)',
-            },
-          },
-        },
-      },
+      config: { wide_screen_mode: true },
       header: {
-        title: { tag: 'plain_text' as const, content: 'Permission Required' },
-        template: 'blue' as const,
-        icon: { tag: 'standard_icon' as const, token: 'lock-chat_filled' },
+        title: { tag: 'plain_text' as const, content: headerConfig.title },
+        template: headerConfig.template,
+        icon: { tag: 'standard_icon' as const, token: headerConfig.icon },
         padding: '12px 12px 12px 12px',
       },
-      body: {
-        elements: [
-          {
-            tag: 'markdown' as const,
-            content: mdText,
-            text_size: 'normal' as const,
-          },
-          {
-            tag: 'markdown' as const,
-            content: '⏱ This request will expire in 5 minutes',
-            text_size: 'notation' as const,
-          },
-          { tag: 'hr' as const },
-          {
-            tag: 'column_set' as const,
-            flex_mode: 'none' as const,
-            horizontal_align: 'left' as const,
-            columns: buttonColumns,
-          },
-        ],
-      },
+      body: { elements: bodyElements },
     };
 
     const cardContent = JSON.stringify(card);

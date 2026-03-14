@@ -19,41 +19,69 @@ src/lib/bridge/
 │   ├── ir.ts                # Markdown → IR 中间表示解析器（基于 markdown-it）
 │   ├── render.ts            # IR → 格式化输出的通用标记渲染器
 │   └── telegram.ts          # Telegram HTML 渲染 + 文件引用保护 + render-first 分片
-├── markdown/
-│   ├── ...                  # (见上)
-│   └── feishu.ts            # 飞书 Markdown 处理：hasComplexMarkdown / buildCardContent / buildPostContent / htmlToFeishuMarkdown
 ├── adapters/
 │   ├── index.ts             # Adapter 目录文件（side-effect import 自注册所有 adapter）
 │   ├── telegram-adapter.ts  # Telegram 长轮询 + offset 安全水位 + 图片/相册处理 + 自注册
 │   ├── telegram-media.ts    # Telegram 图片下载、尺寸选择、base64 转换
 │   ├── telegram-utils.ts    # callTelegramApi / sendMessageDraft / escapeHtml / splitMessage
-│   ├── feishu-adapter.ts    # 飞书 WSClient + REST 消息收发 + typing 指示器 + 自注册
+│   ├── feishu-adapter.ts    # 薄代理 → ChannelPluginAdapter(FeishuChannelPlugin)
 │   └── discord-adapter.ts   # Discord.js Client + Gateway intents + 按钮交互 + 流式预览 + 自注册
 ├── markdown/
 │   └── discord.ts           # Discord 消息分片（2000 字符限制）+ 代码围栏平衡
 └── security/
     ├── rate-limiter.ts      # 按 chat 滑动窗口限流（20 条/分钟）
     └── validators.ts        # 路径/SessionID/危险输入校验
+
+src/lib/channels/
+├── types.ts                 # ChannelPlugin / ChannelCapabilities / CardStreamController / ToolCallInfo 接口
+├── channel-plugin-adapter.ts # ChannelPlugin → BaseChannelAdapter 桥接
+└── feishu/
+    ├── index.ts             # FeishuChannelPlugin 组合入口
+    ├── types.ts             # FeishuConfig / CardStreamConfig / FeishuBotInfo 等内部类型
+    ├── config.ts            # 从 settings DB 加载配置 + 校验
+    ├── gateway.ts           # WSClient 生命周期 + card.action.trigger monkey-patch + 超时保护
+    ├── inbound.ts           # 入站消息解析 + 内容提取 + 资源下载
+    ├── outbound.ts          # 出站消息渲染（post md / interactive card / reaction）+ Markdown 优化
+    ├── policy.ts            # 用户授权 + DM/群聊策略
+    ├── identity.ts          # Bot 身份解析 + @mention 检测
+    └── card-controller.ts   # CardKit v2 流式卡片（create/update/finalize/thinking/toolCalls）
 ```
 
 ## 数据流
 
-### 飞书
+### 飞书（V2 — ChannelPlugin 架构 + 流式卡片）
 
 ```
 飞书消息 → WSClient(WebSocket) → EventDispatcher
-  → im.message.receive_v1 → handleIncomingEvent()
-    → 去重(message_id LRU 1000) → 授权检查 → 群策略过滤 → @提及检查
-    → text → parseTextContent() → enqueue()
-    → image → downloadResource(stream/writeFile) → base64 FileAttachment → enqueue()
-    → post → parsePostContent() 提取文本+图片 → enqueue()
-    → /perm 文本命令 → 构造 callbackData → enqueue()
+  → im.message.receive_v1 → FeishuGateway → messageHandler()
+    → parseInboundMessage() → 去重(message_id) → 授权检查(policy.ts) → 群策略过滤 → @提及检查
+    → text/image/post → enqueue()
+  → card.action.trigger → FeishuGateway.safeCardActionHandler() (2.5s 超时保护)
+    → FeishuChannelPlugin.cardActionHandler()
+      → callback_data (perm:allow/deny) → enqueue(callbackMsg)
+      → callback_data (cwd:/path) → enqueue(callbackMsg)
+      → action/operation_id → enqueue(syntheticCallback)
+      → 返回 toast 给飞书客户端
   → BridgeManager.runAdapterLoop() → handleMessage()
-    → deliverResponse():
-      → hasComplexMarkdown(代码块/表格)? → sendAsCard() [schema 2.0 markdown]
-      → 纯文本? → sendAsPost() [msg_type: post, md tag]
-    → 权限请求 → sendPermissionCard() [schema 2.0 卡片 + /perm 文本命令]
+    → 普通消息 → processMessage():
+      → CardStreamController.create() 创建流式卡片
+      → consumeStream() 服务端消费 SSE:
+        → text → onPartialText → CardStreamController.update() 流式推送
+        → tool_use/tool_result → onToolEvent → cardToolCalls 追踪 → updateToolCalls() 渲染 🔄/✅/❌
+        → permission_request → PermissionBroker 转发 → 内联按钮卡片(Schema V2 column_set)
+      → CardStreamController.finalize() 最终渲染 + 页脚(状态+耗时)
+    → 回调消息 → handlePermissionCallback() / handleCwdCallback()
+    → 命令 → handleCommand():
+      → /cwd 无参 → 项目选择器卡片(内联按钮, turquoise header)
+      → /new → 继承当前 binding 的 workingDirectory
 ```
+
+**飞书 V2 关键变化（相比初版 adapter）：**
+- **ChannelPlugin 架构**：`FeishuChannelPlugin` 实现 `ChannelPlugin<FeishuConfig>` 接口，通过 `ChannelPluginAdapter` 桥接为 `BaseChannelAdapter`，bridge-manager 无感知
+- **流式卡片**：使用 CardKit v2 API（`cardkit.v2.card.create/streamContent/setStreamingMode/update`），替代旧的 card/post 分流渲染
+- **WSClient 卡片回调**：通过 monkey-patch `handleEventData()` 将 `type:"card"` 重写为 `type:"event"`，使 SDK 的 EventDispatcher 能处理卡片交互事件
+- **配置简化**：移除 encryptKey/verificationToken（WSClient 不需要）、renderMode/blockStreaming（流式始终开启）、footer 开关（始终显示）
+- **卡片创建竞态保护**：`cardCreatePromise` 确保 finalize 路径不会在 create 完成前执行
 
 ### Discord
 
@@ -170,30 +198,31 @@ Claude 的回复是 Markdown 格式，Telegram 仅支持有限 HTML 标签（b/i
 - **降级**：`sendPreview` 返回 `'sent'|'skip'|'degrade'` 三态。400/404（API 不支持）→ 永久降级该 chatId；429/网络错误 → 仅跳过本次。`previewDegraded` Set 在 adapter `stop()` 时清空。
 - **线程安全**：`processWithSessionLock` 保证同 session 串行 → 同时刻只有一个 `previewState`。多个 in-flight `sendMessageDraft` 安全：Telegram 对同 `draft_id` last-write-wins。
 
-**13. 飞书适配器 — WSClient + 渲染分流**
-飞书使用 `@larksuiteoapi/node-sdk` 的 `WSClient`（长连接 WebSocket）接收事件，`Client`（REST）发送消息和下载资源。与 Telegram 的 HTTP 长轮询不同，WSClient 由 SDK 管理重连。消息去重使用内存 Map LRU（上限 1000），无需持久化 offset。
+**13. 飞书 ChannelPlugin 架构**
+飞书从原 `BaseChannelAdapter` 子类迁移为 `ChannelPlugin<FeishuConfig>` 实现。`src/lib/channels/feishu/` 拆分为独立模块：`gateway.ts`（WSClient 生命周期）、`inbound.ts`（消息解析）、`outbound.ts`（消息发送 + Markdown 优化）、`policy.ts`（授权策略）、`card-controller.ts`（流式卡片）、`config.ts`（配置加载）。通过 `ChannelPluginAdapter` 桥接为 `BaseChannelAdapter`，bridge-manager 无需修改。WSClient 由 SDK 管理重连，消息去重使用内存 LRU。
 
-**14. 飞书渲染策略 — Card vs Post**
-Claude 回复按内容分流渲染（对齐 Openclaw 方案）：
-- 含代码块（` ``` `）或表格 → `msg_type: 'interactive'`，schema 2.0 卡片（`{ tag: 'markdown', content }` 元素），代码高亮和表格正常渲染。
-- 纯文本 → `msg_type: 'post'`，`{ tag: 'md', text }` 格式，渲染粗体、斜体、行内代码、链接。
-- 每层发送失败自动降级：card → post → text。
+**14. 飞书流式卡片渲染**
+所有 Claude 回复通过 CardKit v2 流式卡片输出（替代旧的 card/post 分流）。流程：`cardController.create()` 创建卡片 → `update()` 节流推送文本（200ms）→ `finalize()` 停止流式 + 渲染最终内容 + 页脚。卡片支持：
+- **Thinking 状态**：文本到达前显示 `💭 Thinking...`
+- **Tool 进度**：`🔄 Running` / `✅ Complete` / `❌ Error` 实时显示
+- **Markdown 优化**：标题降级（H1→H4, H2-6→H5）、表格间距、代码块填充、无效图片 key 剥离
+- **页脚**：状态 emoji（✅/⚠️/❌）+ 耗时，始终显示
 
-`markdown/feishu.ts` 的 `hasComplexMarkdown()` 负责路由判断，`buildCardContent()` / `buildPostContent()` 构建消息体。
+非卡片消息（命令响应等）使用 `post` 格式 + `md` tag。注意：post md tag 不支持 HTML `<br>`（会渲染为字面文本），必须用空行 `\n\n` 代替。
 
-**15. 飞书权限交互 — 无按钮，文本命令兜底**
-**关键限制**：飞书卡片交互回调（card.action.trigger）需要 HTTP webhook 端点，不支持通过 WSClient 长连接接收。Openclaw 通过 `http.createServer()` + `Lark.adaptDefault()` 暴露公网 webhook 解决。CodePilot 是桌面应用无公网端点，因此：
-- Schema 2.0 不支持 `action` 标签（错误码 200861）
-- Schema 1.0 的 `action` 标签可渲染按钮，但点击报 200340（无 webhook 端点接收回调）
-- **最终方案**：权限卡片使用 schema 2.0 markdown 展示信息 + `/perm` 文本命令。用户复制命令发送即可审批。`processIncomingEvent()` 检测 `/perm` 前缀并构造 `callbackData`，走 `permission-broker.handlePermissionCallback()` 标准流程。
+**15. 飞书权限交互 — Schema V2 内联按钮**
+通过 monkey-patch WSClient 的 `handleEventData()` 方法，将 `type:"card"` 事件重写为 `type:"event"`，使 SDK 的 EventDispatcher 能接收 `card.action.trigger` 回调。这解决了之前的 200340 错误（无 webhook 端点）。Schema V2 卡片不支持 `action` tag（错误码 200861），按钮使用 `column_set` + `column` + `button` 布局。按钮 value 中嵌入 `chatId` 作为兜底（WSClient 回调的 context 字段可能缺失）。Gateway 层提供 2.5s 超时保护，确保 3s 内必定返回 toast 响应。
 
 **16. 飞书 Typing 指示器 — Emoji Reaction**
-飞书无 typing indicator API。使用 Openclaw 方案：`onMessageStart()` 在用户消息上添加 "Typing" emoji reaction（`im.messageReaction.create`），`onMessageEnd()` 删除。`lastIncomingMessageId` Map 追踪每个 chat 的最新消息 ID。非关键路径，fire-and-forget。
+`FeishuChannelPlugin.onMessageStart()` 在用户消息上添加 "Typing" emoji reaction（`im.messageReaction.create`），`onMessageEnd()` 删除。`lastMessageIdByChat` Map 追踪每个 chat 的最新消息 ID，`activeReactions` Map 追踪活跃 reaction ID。非关键路径，fire-and-forget。
 
 **17. 飞书 @提及检测**
-通过 `/bot/v3/info/` REST API 获取 bot 的 `open_id`/`bot_id`，存入 `botIds` Set。群聊消息检查 `event.message.mentions` 数组中是否有匹配的 ID。文本中的 `@_user_N` 占位符由 `stripMentionMarkers()` 清理。
+`inbound.ts` 解析 `event.message.mentions` 数组检测 bot 是否被 @。bot 身份通过 `identity.ts` 的 `/bot/v3/info/` REST API 获取（`open_id`/`bot_id`）。文本中的 `@_user_N` 占位符由 `stripMentionMarkers()` 清理。
 
-**18. Telegram 通知模式互斥**
+**18. 飞书 Bridge 单操作者模型**
+当前飞书 bridge 按「单操作者桌面应用」模型设计。虽然有 dmPolicy/groupPolicy/allowFrom 等多入口访问控制，但所有飞书聊天绑定共享同一操作者身份。`/cwd` 项目选择器展示同一 Feishu 渠道下所有活跃项目目录，作为「最近项目快捷切换」使用，不做 chat-level 隔离。如果未来需要多用户/多租户隔离，`/cwd` picker 应按 userId 或 chatId 进一步收窄数据源。
+
+**19. Telegram 通知模式互斥**
 `telegram-bot.ts` 的通知功能（UI 会话通知）与 bridge 模式互斥。通过 `globalThis.__codepilot_bridge_mode_active` 标志协调（存 globalThis 防 HMR 重置）。Bridge 启动时设 `true`，4 个 notify 函数检查此标志后提前返回。
 
 ## 设置项（settings 表）
@@ -218,10 +247,12 @@ Claude 回复按内容分流渲染（对齐 Openclaw 方案）：
 | bridge_feishu_app_id | 飞书应用 App ID |
 | bridge_feishu_app_secret | 飞书应用 App Secret（API 返回脱敏） |
 | bridge_feishu_domain | 平台域名：`feishu`（默认）或 `lark` |
-| bridge_feishu_allowed_users | 允许的 open_id/chat_id（逗号分隔，空=不限） |
+| bridge_feishu_allow_from | 允许的 open_id（逗号分隔，`*`=不限） |
+| bridge_feishu_dm_policy | 私信策略：`open`（默认）/ `pairing` / `allowlist` / `disabled` |
+| bridge_feishu_thread_session | 每话题独立上下文（默认 false） |
 | bridge_feishu_group_policy | 群消息策略：`open`（默认）/ `allowlist` / `disabled` |
 | bridge_feishu_group_allow_from | 群聊白名单 chat_id（逗号分隔） |
-| bridge_feishu_require_mention | 群聊需要 @bot 才触发（默认 true） |
+| bridge_feishu_require_mention | 群聊需要 @bot 才触发（默认 false） |
 
 ## API 路由
 
@@ -253,9 +284,10 @@ Claude 回复按内容分流渲染（对齐 Openclaw 方案）：
 - `src/components/bridge/BridgeSection.tsx` — Bridge 设置 UI（一级导航 /bridge），含 Telegram/飞书通道开关
 - `src/components/bridge/BridgeLayout.tsx` — 侧边栏导航（Telegram + Feishu 入口）
 - `src/components/bridge/TelegramBridgeSection.tsx` — Telegram 凭据 + 白名单设置 UI（/bridge#telegram）
-- `src/components/bridge/FeishuBridgeSection.tsx` — 飞书凭据 + 群聊策略 + 域名选择 UI（/bridge#feishu）
-- `src/app/api/settings/feishu/route.ts` — 飞书设置读写 API
+- `src/components/bridge/FeishuBridgeSection.tsx` — 飞书设置 UI：凭据 + 访问与行为（2 卡片 2 保存按钮 + 脏状态追踪）
+- `src/app/api/settings/feishu/route.ts` — 飞书设置读写 API（简化后 10 个 key）
 - `src/app/api/settings/feishu/verify/route.ts` — 飞书凭据验证 API（测试 token 获取 + bot info）
+- `src/lib/channels/` — V2 ChannelPlugin 架构（见目录结构）
 - `electron/main.ts` — 窗口关闭时 bridge 活跃则保持后台运行；启动时通过 POST `auto-start` 触发桥接恢复
 - `src/app/api/settings/telegram/verify/route.ts` — 支持 `register_commands` action 注册 Telegram 命令菜单
 
@@ -288,34 +320,44 @@ Claude 回复按内容分流渲染（对齐 Openclaw 方案）：
 
 1. **Channel Plugin 合约** (`src/lib/channels/types.ts`)
    - `ChannelPlugin<T>` 接口：config/capabilities/lifecycle/inbound/outbound/policy
-   - `ChannelCapabilities`：streaming、inlineButtons、reactions 等能力声明
-   - `ProbeResult`：健康检查结果
-   - `CardStreamController`：流式卡片接口（占位）
+   - `ChannelCapabilities`：streaming、threadReply、search、history、reactions 能力声明
+   - `CardStreamController`：流式卡片接口（create/update/finalize/setThinking/updateToolCalls）
+   - `ToolCallInfo`：工具调用进度追踪（id/name/status）
 
 2. **ChannelPluginAdapter** (`src/lib/channels/channel-plugin-adapter.ts`)
    - 将 `ChannelPlugin<T>` 桥接为 `BaseChannelAdapter`
+   - 自动代理 `getCardStreamController()`、`onMessageStart/End()` 等
    - bridge-manager 无需修改即可使用新插件
 
 3. **飞书模块拆分** (`src/lib/channels/feishu/`)
-   - `types.ts` — 内部类型 + 常量
-   - `config.ts` — `FeishuConfig` 结构化配置 + 校验 + `configFromSettings()`
-   - `gateway.ts` — WSClient 生命周期 + 连接状态机 + 指标 + probe
+   - `types.ts` — FeishuConfig、CardStreamConfig（简化后无 renderMode/blockStreaming/footer 开关）
+   - `config.ts` — 从 settings DB 加载配置，cardStreamConfig 始终启用（footer 始终显示）
+   - `gateway.ts` — WSClient 生命周期 + card.action.trigger monkey-patch + 2.5s 超时保护
    - `inbound.ts` — 入站消息处理 + 内容解析 + 资源下载
-   - `outbound.ts` — 出站消息渲染（card/post/text/permission）
+   - `outbound.ts` — 出站渲染（post md + interactive card）+ optimizeMarkdown() + 权限/CWD 卡片
    - `identity.ts` — Bot 身份解析 + @mention 检测
-   - `policy.ts` — 用户授权 + 群聊策略
-   - `card-controller.ts` — CardStreamController 占位
-   - `index.ts` — `FeishuChannelPlugin` 组合入口
+   - `policy.ts` — 用户授权 + DM/群聊策略
+   - `card-controller.ts` — CardKit v2 流式卡片（thinking/streaming/tool progress/footer）
+   - `index.ts` — FeishuChannelPlugin 组合入口 + Typing reaction 管理
 
-4. **结构化配置** (`channel_configs` DB 表 + API 路由)
-   - `GET/PUT /api/channels/feishu/config` — 读写结构化配置
-   - 向后兼容：读 channel_configs → 回退到 settings
+4. **流式卡片 + 工具进度** (`bridge-manager.ts` + `card-controller.ts`)
+   - `onPartialText` 回调 → CardStreamController.update() 节流推送
+   - `onToolEvent` 回调 → cardToolCalls[] 追踪 → updateToolCalls() 实时渲染
+   - Tool-first 回合（无文本直接调工具）：onToolEvent 自动 bootstrap 卡片
+   - `cardCreatePromise` 竞态保护：finalize 路径 await 创建完成后再执行
 
-5. **Status / Probe** (`/api/channels/feishu/status`)
-   - 连接状态、Bot 身份、指标、可选 probe
+5. **权限内联按钮**
+   - Schema V2 `column_set` + `column` + `button` 布局（`action` tag 已废弃 → 200861）
+   - 权限卡片：蓝色 header + lock icon + Allow(primary)/Deny(danger) 按钮 + 5 分钟过期提示
+   - CWD 选择器卡片：turquoise header + folder icon + 垂直堆叠按钮 + 📍 当前项目高亮
+   - 按钮 value 嵌入 chatId 兜底（WSClient 回调 context 可能缺失）
 
-6. **Remote Core 合约** (`src/lib/remote/`)
-   - `RemoteHost`/`RemoteController`/`SessionLease`/`RemoteEvent` 接口
-   - `RemoteManager` 轻量骨架
+6. **MCP 残留剥离**
+   - 移除 `.mcp.json` 中 feishu MCP 入口
+   - 移除 `@codepilot/feishu-mcp` workspace 依赖
+   - 原 feishu-adapter.ts 改为薄代理（~15 行）
 
-7. **原 feishu-adapter.ts** 改为薄代理（~15 行）
+7. **设置 UI 简化** (`FeishuBridgeSection.tsx`)
+   - 移除：encryptKey、verificationToken、renderMode、blockStreaming、footer 开关
+   - 合并为 2 个卡片：凭据 + 访问与行为
+   - 保存按钮脏状态追踪：修改后显示"保存"，保存后显示"已保存"

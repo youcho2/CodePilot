@@ -41,7 +41,7 @@ export class FeishuChannelPlugin implements ChannelPlugin<FeishuConfig> {
 
   getCapabilities(): ChannelCapabilities {
     return {
-      streaming: !!(this.config?.cardStreamConfig),
+      streaming: true,
       threadReply: true,
       search: false,  // True server-side search requires user_access_token; we only have local filtering
       history: true,
@@ -224,7 +224,14 @@ export class FeishuChannelPlugin implements ChannelPlugin<FeishuConfig> {
 
   getCardStreamController(): CardStreamController | null {
     const client = this.gateway?.getRestClient();
-    if (!client || !this.config?.cardStreamConfig) return null;
+    if (!client) {
+      console.log('[feishu/plugin] getCardStreamController: no client');
+      return null;
+    }
+    if (!this.config) {
+      console.log('[feishu/plugin] getCardStreamController: no config');
+      return null;
+    }
     return createCardStreamController(client, this.config.cardStreamConfig);
   }
 

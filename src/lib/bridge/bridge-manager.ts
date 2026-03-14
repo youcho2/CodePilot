@@ -465,11 +465,29 @@ async function handleMessage(
     }
   };
 
-  // Handle callback queries (permission buttons)
+  // Handle callback queries
   if (msg.callbackData) {
+    // CWD switch button callback
+    if (msg.callbackData.startsWith('cwd:')) {
+      const targetDir = msg.callbackData.slice(4);
+      const validated = validateWorkingDirectory(targetDir);
+      if (validated) {
+        const binding = router.resolve(msg.address);
+        router.updateBinding(binding.id, { workingDirectory: validated, sdkSessionId: '' });
+        await deliver(adapter, {
+          address: msg.address,
+          text: `Working directory switched to <code>${escapeHtml(validated)}</code>\n(Next message starts fresh context)`,
+          parseMode: 'HTML',
+          replyToMessageId: msg.messageId,
+        });
+      }
+      ack();
+      return;
+    }
+
+    // Permission buttons
     const handled = broker.handlePermissionCallback(msg.callbackData, msg.address.chatId, msg.callbackMessageId);
     if (handled) {
-      // Send confirmation
       const confirmMsg: OutboundMessage = {
         address: msg.address,
         text: 'Permission response recorded.',
@@ -540,11 +558,14 @@ async function handleMessage(
   let cardCreating = false;
   let cardBufferedText = '';
   let cardFinalized = false;
+  /** Promise that resolves when card creation completes — await before finalize. */
+  let cardCreatePromise: Promise<void> | null = null;
   /** Track tool calls for card progress display */
   const cardToolCalls: import('../channels/types').ToolCallInfo[] = [];
 
   if (!previewState && adapter.getCardStreamController) {
     cardController = adapter.getCardStreamController();
+    console.log('[bridge-manager] Card stream controller:', cardController ? 'available' : 'null');
   }
 
   const streamCfg = previewState ? getStreamConfig(adapter.channelType) : null;
@@ -604,7 +625,7 @@ async function handleMessage(
         // First call — create the card
         cardCreating = true;
         cardBufferedText = fullText;
-        cardController!.create(msg.address.chatId, fullText, msg.messageId).then((msgId) => {
+        cardCreatePromise = cardController!.create(msg.address.chatId, fullText, msg.messageId).then((msgId) => {
           cardCreating = false;
           cardMessageId = msgId || null;
           // Flush any buffered text that arrived during creation
@@ -631,6 +652,25 @@ async function handleMessage(
         const tc = cardToolCalls.find((t) => t.id === event.tool_use_id);
         if (tc) tc.status = event.is_error ? 'error' : 'complete';
       }
+
+      // Bootstrap card if tool event arrives before any text (tool-first turns).
+      // Without this, tool progress has nowhere to render.
+      if (!cardMessageId && !cardCreating) {
+        cardCreating = true;
+        cardCreatePromise = cardController!.create(msg.address.chatId, '', msg.messageId).then((msgId) => {
+          cardCreating = false;
+          cardMessageId = msgId || null;
+          if (cardMessageId && cardController?.updateToolCalls) {
+            cardController.updateToolCalls(cardMessageId, cardToolCalls);
+          }
+          // Flush any text that arrived while creating
+          if (cardMessageId && cardBufferedText) {
+            cardController!.update(cardMessageId, cardBufferedText).catch(() => {});
+          }
+        }).catch(() => { cardCreating = false; });
+        return;
+      }
+
       // Update card display if we have a message ID
       if (cardMessageId && cardController?.updateToolCalls) {
         cardController.updateToolCalls(cardMessageId, cardToolCalls);
@@ -656,6 +696,12 @@ async function handleMessage(
         msg.messageId,
       );
     }, taskAbort.signal, hasAttachments ? msg.attachments : undefined, onPartialText, onToolEvent);
+
+    // Await any in-flight card creation before checking cardMessageId,
+    // preventing race where processMessage() returns before create() resolves.
+    if (cardCreatePromise) {
+      await cardCreatePromise;
+    }
 
     // Send response text — render via channel-appropriate format
     if (result.responseText) {
@@ -705,9 +751,13 @@ async function handleMessage(
       adapter.endPreview?.(msg.address.chatId, previewState.draftId);
     }
 
-    // Clean up card streaming state
-    if (cardController && cardMessageId && !cardFinalized) {
-      cardController.finalize(cardMessageId, '⚠️ Response interrupted.', 'interrupted').catch(() => {});
+    // Clean up card streaming state — await creation if still in flight
+    if (cardController && !cardFinalized) {
+      const pending = cardCreatePromise as Promise<void> | null;
+      if (pending) await pending.catch(() => {});
+      if (cardMessageId) {
+        cardController.finalize(cardMessageId, '⚠️ Response interrupted.', 'interrupted').catch(() => {});
+      }
     }
 
     state.activeTasks.delete(binding.codepilotSessionId);
@@ -773,6 +823,12 @@ async function handleCommand(
           break;
         }
         workDir = validated;
+      } else {
+        // No path specified — inherit CWD from current binding
+        const current = router.resolve(msg.address);
+        if (current.workingDirectory) {
+          workDir = current.workingDirectory;
+        }
       }
       const binding = router.createBinding(msg.address, workDir);
       response = `New session created.\nSession: <code>${binding.codepilotSessionId.slice(0, 8)}...</code>\nCWD: <code>${escapeHtml(binding.workingDirectory || '~')}</code>`;
@@ -798,19 +854,60 @@ async function handleCommand(
     }
 
     case '/cwd': {
-      if (!args) {
-        response = 'Usage: /cwd /path/to/directory';
+      if (args) {
+        // Direct path specified
+        const validatedPath = validateWorkingDirectory(args);
+        if (!validatedPath) {
+          response = 'Invalid path. Must be an absolute path without traversal sequences or special characters.';
+          break;
+        }
+        const binding = router.resolve(msg.address);
+        router.updateBinding(binding.id, { workingDirectory: validatedPath, sdkSessionId: '' });
+        response = `Working directory set to <code>${escapeHtml(validatedPath)}</code>\n(SDK session reset — next message starts fresh context)`;
         break;
       }
-      const validatedPath = validateWorkingDirectory(args);
-      if (!validatedPath) {
-        response = 'Invalid path. Must be an absolute path without traversal sequences or special characters.';
+
+      // No args — show project selector card with buttons.
+      // Design decision: /cwd picker is a "recent projects quick-switch" for
+      // a single-operator desktop app. It intentionally shows all active
+      // directories across this channel type (not isolated per chat).
+      // If multi-user / chat-level isolation is needed in the future,
+      // this should be scoped by userId or chatId instead.
+      const bindings = router.listBindings(msg.address.channelType as any);
+      const uniqueDirs = [...new Set(
+        bindings
+          .filter((b) => b.active)
+          .map((b) => b.workingDirectory)
+          .filter((d): d is string => !!d && d !== '~')
+      )].slice(0, 8); // Max 8 options
+
+      if (uniqueDirs.length === 0) {
+        response = 'No project directories found.\nUsage: /cwd /path/to/directory';
         break;
       }
-      const binding = router.resolve(msg.address);
-      router.updateBinding(binding.id, { workingDirectory: validatedPath, sdkSessionId: '' });
-      response = `Working directory set to <code>${escapeHtml(validatedPath)}</code>\n(SDK session reset — next message starts fresh context)`;
-      break;
+
+      // Send as interactive card with buttons (Feishu) or text list (other channels)
+      const currentBinding = router.resolve(msg.address);
+      const currentCwd = currentBinding.workingDirectory || '~';
+
+      // Build inline buttons for project selection
+      const inlineButtons = uniqueDirs.map((dir) => {
+        const label = dir === currentCwd ? `📍 ${dir.split('/').pop() || dir}` : (dir.split('/').pop() || dir);
+        return [{
+          text: label,
+          callbackData: `cwd:${dir}`,
+        }];
+      });
+
+      const cardMsg: OutboundMessage = {
+        address: msg.address,
+        text: `<b>Switch Working Directory</b>\n\nCurrent: <code>${escapeHtml(currentCwd)}</code>\n\nSelect a project:`,
+        parseMode: 'HTML',
+        replyToMessageId,
+        inlineButtons,
+      };
+      await deliver(adapter, cardMsg);
+      return; // Don't send response — card is already sent
     }
 
     case '/mode': {
@@ -1068,9 +1165,8 @@ async function handleCommand(
             lines.push('✅ Configuration: OK');
             lines.push(`   App ID: ${config.appId}`);
             lines.push(`   DM Policy: ${config.dmPolicy}`);
-            lines.push(`   Render Mode: ${config.renderMode}`);
             lines.push(`   Thread Session: ${config.threadSession ? 'Yes' : 'No'}`);
-            lines.push(`   Streaming: ${config.cardStreamConfig ? 'Enabled' : 'Disabled'}`);
+            lines.push(`   Streaming: Enabled`);
           }
 
           // Connection check

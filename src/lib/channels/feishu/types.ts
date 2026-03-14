@@ -7,10 +7,6 @@ export interface FeishuConfig {
   appSecret: string;
   /** SDK domain: 'feishu' | 'lark' or a custom base URL. */
   domain: string;
-  /** Encrypt key from Feishu app (used by EventDispatcher for card callbacks). */
-  encryptKey: string;
-  /** Verification token from Feishu app (used by EventDispatcher for card callbacks). */
-  verificationToken: string;
   /** Allowed user IDs (open_id). ['*'] means all users. */
   allowFrom: string[];
   /** Allowed group chat IDs. */
@@ -19,18 +15,12 @@ export interface FeishuConfig {
   dmPolicy: 'open' | 'pairing' | 'allowlist' | 'disabled';
   /** Group policy: open / allowlist / disabled */
   groupPolicy: 'open' | 'allowlist' | 'disabled';
-  /** Rendering mode: auto / static / streaming */
-  renderMode: 'auto' | 'static' | 'streaming';
   /** Whether to require @mention in group chats */
   requireMention: boolean;
   /** Whether to use per-thread sessions */
   threadSession: boolean;
-  /** Card streaming config (null = disabled) */
-  cardStreamConfig: CardStreamConfig | null;
-  /** Block streaming coalesce config (null = disabled) */
-  blockStreamingCoalesce: BlockStreamingCoalesce | null;
-  /** Footer config (null = disabled) */
-  footer: FooterConfig | null;
+  /** Card streaming config (always enabled) */
+  cardStreamConfig: CardStreamConfig;
 }
 
 export interface CardStreamConfig {
@@ -41,17 +31,6 @@ export interface CardStreamConfig {
     status: boolean;
     elapsed: boolean;
   };
-}
-
-export interface BlockStreamingCoalesce {
-  minChars: number;
-  maxChars: number;
-  idleMs: number;
-}
-
-export interface FooterConfig {
-  status: boolean;
-  elapsed: boolean;
 }
 
 export interface FeishuBotInfo {

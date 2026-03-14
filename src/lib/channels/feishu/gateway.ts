@@ -2,8 +2,7 @@
  * Feishu WebSocket gateway — manages lark SDK client and WS connection lifecycle.
  *
  * Key design decisions:
- * - EventDispatcher receives encryptKey / verificationToken so card.action.trigger
- *   callbacks can be decrypted and verified by the SDK.
+ * - WSClient mode handles auth internally — no encryptKey/verificationToken needed.
  * - Client and WSClient receive the resolved SDK domain (Feishu vs Lark).
  * - card.action.trigger handler guarantees a valid response within 3 seconds,
  *   regardless of what the upper-layer handler does. Heavy logic is fire-and-forget.
@@ -45,11 +44,10 @@ export class FeishuGateway {
 
   constructor(config: FeishuConfig) {
     this.config = config;
-    // Pass encryptKey and verificationToken so the SDK can decrypt/verify
-    // card.action.trigger callbacks delivered over WebSocket.
+    // WSClient mode doesn't need encryptKey/verificationToken — pass empty strings.
     this.eventDispatcher = new lark.EventDispatcher({
-      encryptKey: config.encryptKey || '',
-      verificationToken: config.verificationToken || '',
+      encryptKey: '',
+      verificationToken: '',
     });
   }
 
