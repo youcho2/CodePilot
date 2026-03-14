@@ -25,6 +25,16 @@ CodePilot — Claude Code 的桌面 GUI 客户端，基于 Electron + Next.js。
 - 涉及 Claude Code SDK 需确认 SDK 实际支持的功能和调用方式
 - 对不确定的技术点先做 POC 验证，不要直接在主代码中试错
 
+**Worktree 隔离规则：**
+- 如果任务设置了 Worktree，所有代码改动只能在该 Worktree 内进行
+- 严格禁止跨 Worktree 提交（不得在主目录提交 Worktree 的改动，反之亦然）
+- 严格禁止 `git push`，除非用户主动提出
+- 启动测试服务（`npm run dev` 等）只从当前 Worktree 启动，不得在其他目录启动
+- 合并回主分支必须由用户主动发起，不得自动合并
+- **端口隔离**：Worktree 启动 dev server 时使用非默认端口（如 `PORT=3001`），避免与主目录冲突
+- **禁止跨目录编辑**：属于 Worktree 任务范围的文件，只在该 Worktree 内编辑，不得在主目录修改
+- **合并前检查 untracked 文件**：合并回主分支前先 `git status` 确认无调试残留、临时文件等
+
 **Commit 信息规范：**
 - 标题行使用 conventional commits 格式（feat/fix/refactor/chore 等）
 - body 中按文件或功能分组，说明改了什么、为什么改、影响范围
