@@ -23,17 +23,34 @@ const STREAM_DEBOUNCE = 120;
 /** CDN hosts that indicate a complex widget needing load time. */
 const CDN_PATTERN = /cdnjs\.cloudflare\.com|cdn\.jsdelivr\.net|unpkg\.com|esm\.sh/;
 
+/**
+ * Module-level height cache: preserves widget heights across component remounts.
+ * When StreamingMessage is replaced by MessageItem, the WidgetRenderer is remounted.
+ * Without this cache, iframe height would reset to 0 → scroll jump.
+ * Keyed by first 200 chars of widgetCode (stable across streaming→persisted).
+ */
+const _heightCache = new Map<string, number>();
+function getHeightCacheKey(code: string): string {
+  return code.slice(0, 200);
+}
+
 function WidgetRendererInner({ widgetCode, isStreaming, title, showOverlay }: WidgetRendererProps) {
   const { t } = useTranslation();
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastSentRef = useRef<string>('');
   const [iframeReady, setIframeReady] = useState(false);
-  const [iframeHeight, setIframeHeight] = useState(0);
+  const [iframeHeight, setIframeHeight] = useState(() => {
+    // Restore cached height to avoid 0→actual jump on remount
+    return _heightCache.get(getHeightCacheKey(widgetCode)) || 0;
+  });
   const [showCode, setShowCode] = useState(false);
   const [finalized, setFinalized] = useState(false);
   const finalizedRef = useRef(false);
-  const hasReceivedFirstHeight = useRef(false);
+  // If we restored from cache, treat as already having received first height
+  const hasReceivedFirstHeight = useRef(
+    (_heightCache.get(getHeightCacheKey(widgetCode)) || 0) > 0
+  );
   // Lock height during finalization to prevent flash (innerHTML swap briefly empties DOM)
   const heightLockedRef = useRef(false);
 
@@ -63,14 +80,20 @@ function WidgetRendererInner({ widgetCode, isStreaming, title, showOverlay }: Wi
         case 'widget:resize':
           if (typeof e.data.height === 'number' && e.data.height > 0) {
             const newH = Math.min(e.data.height + 2, MAX_IFRAME_HEIGHT);
+            const cacheKey = getHeightCacheKey(widgetCode);
             // During finalization, only allow height to grow (innerHTML swap
             // briefly empties DOM causing a near-zero resize report)
             if (heightLockedRef.current) {
-              setIframeHeight(prev => Math.max(prev, newH));
+              setIframeHeight(prev => {
+                const h = Math.max(prev, newH);
+                _heightCache.set(cacheKey, h);
+                return h;
+              });
               break;
             }
+            _heightCache.set(cacheKey, newH);
             if (!hasReceivedFirstHeight.current) {
-              // First height report: set immediately (no transition) to avoid jarring jump
+              // First height report on a fresh mount (no cache): skip transition
               hasReceivedFirstHeight.current = true;
               const el = iframeRef.current;
               if (el) {

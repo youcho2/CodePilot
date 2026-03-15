@@ -112,16 +112,35 @@ _first=false;
 var _ro=new ResizeObserver(_h);
 _ro.observe(document.body);
 
-function applyHtml(html,runScripts){
+function applyHtml(html){
 root.innerHTML=html;
-if(runScripts){
-var ss=root.querySelectorAll('script');
-for(var i=0;i<ss.length;i++){
-var o=ss[i],n=document.createElement('script');
-for(var j=0;j<o.attributes.length;j++)n.setAttribute(o.attributes[j].name,o.attributes[j].value);
-if(!o.src&&o.textContent)n.textContent=o.textContent;
-o.parentNode.replaceChild(n,o);
+_h();
 }
+
+function finalizeHtml(html){
+// Parse finalized HTML in a temp container to separate scripts from content
+var tmp=document.createElement('div');
+tmp.innerHTML=html;
+var ss=tmp.querySelectorAll('script');
+var scripts=[];
+for(var i=0;i<ss.length;i++){
+scripts.push({src:ss[i].src||'',text:ss[i].textContent||'',attrs:[]});
+for(var j=0;j<ss[i].attributes.length;j++){
+var a=ss[i].attributes[j];
+if(a.name!=='src')scripts[scripts.length-1].attrs.push({name:a.name,value:a.value});
+}
+ss[i].remove();
+}
+// Update non-script content only if it differs (avoids repaint flash)
+var visualHtml=tmp.innerHTML;
+if(root.innerHTML!==visualHtml)root.innerHTML=visualHtml;
+// Append and execute scripts without disturbing existing DOM
+for(var i=0;i<scripts.length;i++){
+var n=document.createElement('script');
+if(scripts[i].src)n.src=scripts[i].src;
+else if(scripts[i].text)n.textContent=scripts[i].text;
+for(var j=0;j<scripts[i].attrs.length;j++)n.setAttribute(scripts[i].attrs[j].name,scripts[i].attrs[j].value);
+root.appendChild(n);
 }
 _h();
 }
@@ -130,11 +149,11 @@ window.addEventListener('message',function(e){
 if(!e.data)return;
 switch(e.data.type){
 case 'widget:update':
-applyHtml(e.data.html,false);
+applyHtml(e.data.html);
 break;
 case 'widget:finalize':
-applyHtml(e.data.html,true);
-window.addEventListener('load',function(){setTimeout(_h,150);});
+finalizeHtml(e.data.html);
+setTimeout(_h,150);
 break;
 case 'widget:theme':
 var r=document.documentElement,v=e.data.vars;
