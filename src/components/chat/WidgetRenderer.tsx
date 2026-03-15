@@ -10,6 +10,8 @@ interface WidgetRendererProps {
   widgetCode: string;
   isStreaming: boolean;
   title?: string;
+  /** Show shimmer overlay (e.g. while scripts are still streaming). */
+  showOverlay?: boolean;
 }
 
 /** Max iframe height to prevent runaway widgets. */
@@ -21,7 +23,7 @@ const STREAM_DEBOUNCE = 120;
 /** CDN hosts that indicate a complex widget needing load time. */
 const CDN_PATTERN = /cdnjs\.cloudflare\.com|cdn\.jsdelivr\.net|unpkg\.com|esm\.sh/;
 
-function WidgetRendererInner({ widgetCode, isStreaming, title }: WidgetRendererProps) {
+function WidgetRendererInner({ widgetCode, isStreaming, title, showOverlay }: WidgetRendererProps) {
   const { t } = useTranslation();
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -171,6 +173,9 @@ function WidgetRendererInner({ widgetCode, isStreaming, title }: WidgetRendererP
         sandbox="allow-scripts"
         srcDoc={srcdoc}
         title={title || 'Widget'}
+        // Fallback for missed widget:ready postMessage (race with useEffect listener setup).
+        // By the time onLoad fires, the receiver script has executed and is ready.
+        onLoad={() => setIframeReady(true)}
         style={{
           width: '100%',
           height: iframeHeight,
@@ -181,8 +186,8 @@ function WidgetRendererInner({ widgetCode, isStreaming, title }: WidgetRendererP
         }}
       />
 
-      {/* Semi-transparent shimmer overlay — CDN widgets only, while scripts load */}
-      {showLoadingOverlay && (
+      {/* Shimmer overlay — shown for CDN script loading OR when parent requests it (script streaming phase) */}
+      {(showLoadingOverlay || showOverlay) && (
         <div
           className="absolute inset-0 pointer-events-none rounded-lg"
           style={{

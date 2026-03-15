@@ -349,20 +349,7 @@ export function StreamingMessage({
                     : <WidgetRenderer key={`w-${i}`} widgetCode={seg.data.widget_code} isStreaming={false} title={seg.data.title} />
                 )}
                 {partialCode && partialCode.length > 10 ? (
-                  <div className="relative" key={partialWidgetKey + '-wrap'}>
-                    <WidgetRenderer key={partialWidgetKey} widgetCode={partialCode} isStreaming={true} title={partialTitle} />
-                    {/* Shimmer overlay while scripts are still streaming */}
-                    {scriptsTruncated && (
-                      <div
-                        className="absolute inset-0 pointer-events-none rounded-lg"
-                        style={{
-                          background: 'linear-gradient(90deg, transparent 0%, var(--color-muted, rgba(128,128,128,0.06)) 50%, transparent 100%)',
-                          backgroundSize: '200% 100%',
-                          animation: 'widget-shimmer 1.5s ease-in-out infinite',
-                        }}
-                      />
-                    )}
-                  </div>
+                  <WidgetRenderer key={partialWidgetKey} widgetCode={partialCode} isStreaming={true} title={partialTitle} showOverlay={scriptsTruncated} />
                 ) : (
                   <Shimmer>{t('widget.loading')}</Shimmer>
                 )}
