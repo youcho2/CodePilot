@@ -313,6 +313,120 @@ describe('WIDGET_SYSTEM_PROMPT', () => {
   });
 });
 
+// ── Key stability: partial→complete must not remount ────────────────────
+//
+// Regression guard for P2 (iframe remount on fence close).
+// StreamingMessage.tsx computes a React key for the partial widget during
+// streaming. When the fence closes, parseAllShowWidgets produces segments
+// whose map-index key (`w-${i}`) must match the partial key exactly.
+// If they differ, React unmounts + remounts the WidgetRenderer → iframe
+// is destroyed → height collapses → scroll jump.
+//
+// This tests the actual key-computation invariant extracted from
+// StreamingMessage.tsx lines 284-337 and 268-279.
+
+describe('widget key stability (partial → complete transition)', () => {
+  // Reproduces the key-computation logic from StreamingMessage.tsx.
+  // This is the *actual* code path that determines whether React preserves
+  // the WidgetRenderer instance.
+
+  function computePartialWidgetKey(content: string): string {
+    const lastFenceStart = content.lastIndexOf('```show-widget');
+    const beforePart = content.slice(0, lastFenceStart).trim();
+    const hasCompletedFences = beforePart.length > 0 && /```show-widget/.test(beforePart);
+    const completedSegments = hasCompletedFences ? parseAllShowWidgets(beforePart) : [];
+    return `w-${hasCompletedFences ? completedSegments.length : (beforePart ? 1 : 0)}`;
+  }
+
+  function computeClosedWidgetKey(content: string, widgetIndex: number): string {
+    const allSegments = parseAllShowWidgets(content);
+    // Find the Nth widget (0-indexed) and return its map-index key
+    let widgetCount = 0;
+    for (let i = 0; i < allSegments.length; i++) {
+      if (allSegments[i].type === 'widget') {
+        if (widgetCount === widgetIndex) return `w-${i}`;
+        widgetCount++;
+      }
+    }
+    throw new Error(`Widget index ${widgetIndex} not found in ${allSegments.length} segments`);
+  }
+
+  it('single widget: key matches after fence closes', () => {
+    const widgetJson = '{"title":"chart","widget_code":"<div>Chart</div>"}';
+
+    // Streaming: fence is open (no closing ```)
+    const openContent = `Here is a chart:\n\`\`\`show-widget\n${widgetJson}`;
+    const partialKey = computePartialWidgetKey(openContent);
+
+    // Complete: fence is closed
+    const closedContent = `Here is a chart:\n\`\`\`show-widget\n${widgetJson}\n\`\`\``;
+    const closedKey = computeClosedWidgetKey(closedContent, 0);
+
+    assert.strictEqual(partialKey, closedKey,
+      `partial key "${partialKey}" must equal closed key "${closedKey}" to prevent remount`);
+  });
+
+  it('single widget with no preceding text: key matches', () => {
+    const widgetJson = '{"title":"solo","widget_code":"<svg></svg>"}';
+
+    const openContent = `\`\`\`show-widget\n${widgetJson}`;
+    const partialKey = computePartialWidgetKey(openContent);
+
+    const closedContent = `\`\`\`show-widget\n${widgetJson}\n\`\`\``;
+    const closedKey = computeClosedWidgetKey(closedContent, 0);
+
+    assert.strictEqual(partialKey, closedKey,
+      `partial key "${partialKey}" must equal closed key "${closedKey}" to prevent remount`);
+  });
+
+  it('second widget after a completed first widget: key matches', () => {
+    const w1Json = '{"title":"w1","widget_code":"<div>1</div>"}';
+    const w2Json = '{"title":"w2","widget_code":"<div>2</div>"}';
+
+    // Streaming: first widget complete, second widget open
+    const openContent = [
+      'Intro text.',
+      '```show-widget',
+      w1Json,
+      '```',
+      'Middle text.',
+      '```show-widget',
+      w2Json,
+    ].join('\n');
+    const partialKey = computePartialWidgetKey(openContent);
+
+    // Complete: both fences closed
+    const closedContent = openContent + '\n```';
+    const closedKey = computeClosedWidgetKey(closedContent, 1); // second widget
+
+    assert.strictEqual(partialKey, closedKey,
+      `partial key "${partialKey}" must equal closed key "${closedKey}" to prevent remount`);
+  });
+
+  it('third widget after two completed widgets: key matches', () => {
+    const wJson = (n: number) => `{"title":"w${n}","widget_code":"<div>${n}</div>"}`;
+
+    const openContent = [
+      'A', '```show-widget', wJson(1), '```',
+      'B', '```show-widget', wJson(2), '```',
+      'C', '```show-widget', wJson(3),
+    ].join('\n');
+    const partialKey = computePartialWidgetKey(openContent);
+
+    const closedContent = openContent + '\n```';
+    const closedKey = computeClosedWidgetKey(closedContent, 2); // third widget
+
+    assert.strictEqual(partialKey, closedKey,
+      `partial key "${partialKey}" must equal closed key "${closedKey}" to prevent remount`);
+  });
+
+  it('widget key is an actual map-index key (w-N format)', () => {
+    const openContent = 'Text\n```show-widget\n{"title":"x","widget_code":"<div>x</div>"}';
+    const key = computePartialWidgetKey(openContent);
+    assert.match(key, /^w-\d+$/, 'key must be w-N format');
+  });
+});
+
 // ── Streaming script truncation logic ───────────────────────────────────
 
 describe('streaming script truncation', () => {
