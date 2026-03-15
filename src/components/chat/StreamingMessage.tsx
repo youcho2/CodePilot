@@ -13,7 +13,7 @@ import { Shimmer } from '@/components/ai-elements/shimmer';
 import { ImageGenConfirmation } from './ImageGenConfirmation';
 import { BatchPlanInlinePreview } from './batch-image-gen/BatchPlanInlinePreview';
 import { WidgetRenderer } from './WidgetRenderer';
-import { parseAllShowWidgets } from './MessageItem';
+import { parseAllShowWidgets, computePartialWidgetKey } from './MessageItem';
 import { PENDING_KEY, buildReferenceImages } from '@/lib/image-ref-store';
 import type { PlannerOutput } from '@/types';
 
@@ -329,12 +329,10 @@ export function StreamingMessage({
             const titleMatch = fenceBody.match(/"title"\s*:\s*"([^"]*?)"/);
             if (titleMatch) partialTitle = titleMatch[1];
 
-            // The partial widget's key must match its eventual position in the
-            // allSegments array so React preserves the iframe across the
-            // "fence open → fence closed" transition (avoids remount & height collapse).
-            // When fence closes, parseAllShowWidgets produces segments where this widget
-            // will be at index = completedSegments.length (+ 1 if plain text precedes it).
-            const partialWidgetKey = `w-${hasCompletedFences ? completedSegments.length : (beforePart ? 1 : 0)}`;
+            // Key must match the map-index key that parseAllShowWidgets will produce
+            // once the fence closes, so React preserves the WidgetRenderer instance.
+            // See computePartialWidgetKey() for the invariant explanation.
+            const partialWidgetKey = computePartialWidgetKey(content);
 
             return (
               <>

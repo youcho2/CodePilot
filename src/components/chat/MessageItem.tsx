@@ -214,6 +214,22 @@ export function parseAllShowWidgets(text: string): WidgetSegment[] {
   return segments;
 }
 
+/**
+ * Compute the React key for a partial (still-streaming) widget so that it
+ * matches the key it will receive once its fence closes and the full content
+ * is parsed by parseAllShowWidgets → `.map((seg, i) => key={`w-${i}`})`.
+ *
+ * If these keys ever diverge, React will unmount + remount the WidgetRenderer
+ * → iframe destroyed → height collapse → scroll jump (P2 regression).
+ */
+export function computePartialWidgetKey(content: string): string {
+  const lastFenceStart = content.lastIndexOf('```show-widget');
+  const beforePart = content.slice(0, lastFenceStart).trim();
+  const hasCompletedFences = beforePart.length > 0 && /```show-widget/.test(beforePart);
+  const completedSegments = hasCompletedFences ? parseAllShowWidgets(beforePart) : [];
+  return `w-${hasCompletedFences ? completedSegments.length : (beforePart ? 1 : 0)}`;
+}
+
 /** Extract widget_code from truncated/incomplete JSON (no closing fence). */
 function extractTruncatedWidget(fenceBody: string): ShowWidgetData | null {
   // Try full JSON parse first

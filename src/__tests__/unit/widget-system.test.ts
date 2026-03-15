@@ -22,6 +22,7 @@ import {
 import {
   parseAllShowWidgets,
   parseShowWidget,
+  computePartialWidgetKey,
   type WidgetSegment,
 } from '../../components/chat/MessageItem';
 
@@ -326,17 +327,9 @@ describe('WIDGET_SYSTEM_PROMPT', () => {
 // StreamingMessage.tsx lines 284-337 and 268-279.
 
 describe('widget key stability (partial → complete transition)', () => {
-  // Reproduces the key-computation logic from StreamingMessage.tsx.
-  // This is the *actual* code path that determines whether React preserves
-  // the WidgetRenderer instance.
-
-  function computePartialWidgetKey(content: string): string {
-    const lastFenceStart = content.lastIndexOf('```show-widget');
-    const beforePart = content.slice(0, lastFenceStart).trim();
-    const hasCompletedFences = beforePart.length > 0 && /```show-widget/.test(beforePart);
-    const completedSegments = hasCompletedFences ? parseAllShowWidgets(beforePart) : [];
-    return `w-${hasCompletedFences ? completedSegments.length : (beforePart ? 1 : 0)}`;
-  }
+  // Uses the PRODUCTION computePartialWidgetKey from MessageItem.tsx —
+  // the same function that StreamingMessage.tsx calls. Any drift in the
+  // production code will be caught here.
 
   function computeClosedWidgetKey(content: string, widgetIndex: number): string {
     const allSegments = parseAllShowWidgets(content);
