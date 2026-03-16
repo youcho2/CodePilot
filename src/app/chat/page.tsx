@@ -44,8 +44,16 @@ export default function NewChatPage() {
   const [recentProjects, setRecentProjects] = useState<string[]>([]);
   const [hasProvider, setHasProvider] = useState(true); // assume true until checked
   const [mode] = useState('code');
-  const [currentModel, setCurrentModel] = useState('sonnet');
-  const [currentProviderId, setCurrentProviderId] = useState('');
+  const [currentModel, setCurrentModel] = useState(() =>
+    typeof window !== 'undefined'
+      ? localStorage.getItem('codepilot:last-model') || 'sonnet'
+      : 'sonnet'
+  );
+  const [currentProviderId, setCurrentProviderId] = useState(() =>
+    typeof window !== 'undefined'
+      ? localStorage.getItem('codepilot:last-provider-id') || ''
+      : ''
+  );
   const [pendingPermission, setPendingPermission] = useState<PermissionRequestEvent | null>(null);
   const [permissionResolved, setPermissionResolved] = useState<'allow' | 'deny' | null>(null);
   const [streamingToolOutput, setStreamingToolOutput] = useState('');
@@ -147,6 +155,11 @@ export default function NewChatPage() {
           }
         })
         .catch(() => {});
+      // Sync provider/model from localStorage when provider changes
+      const savedProviderId = localStorage.getItem('codepilot:last-provider-id');
+      const savedModel = localStorage.getItem('codepilot:last-model');
+      if (savedProviderId !== null) setCurrentProviderId(savedProviderId);
+      if (savedModel) setCurrentModel(savedModel);
     };
     checkProvider();
 
@@ -415,7 +428,31 @@ export default function NewChatPage() {
                   break;
                 }
                 case 'error': {
-                  accumulated += '\n\n**Error:** ' + event.data;
+                  // Try to parse structured error JSON from classifier
+                  let errorDisplay: string;
+                  try {
+                    const parsed = JSON.parse(event.data);
+                    if (parsed.category && parsed.userMessage) {
+                      errorDisplay = parsed.userMessage;
+                      if (parsed.actionHint) errorDisplay += `\n\n**What to do:** ${parsed.actionHint}`;
+                      if (parsed.details) errorDisplay += `\n\nDetails: ${parsed.details}`;
+                      // Add diagnostic guidance for provider/auth related errors
+                      const diagCategories = new Set([
+                        'AUTH_REJECTED', 'AUTH_FORBIDDEN', 'AUTH_STYLE_MISMATCH',
+                        'NO_CREDENTIALS', 'PROVIDER_NOT_APPLIED', 'MODEL_NOT_AVAILABLE',
+                        'NETWORK_UNREACHABLE', 'ENDPOINT_NOT_FOUND', 'PROCESS_CRASH',
+                        'CLI_NOT_FOUND', 'UNSUPPORTED_FEATURE',
+                      ]);
+                      if (diagCategories.has(parsed.category)) {
+                        errorDisplay += '\n\n💡 Go to **Settings → Providers → Run Diagnostics** for detailed troubleshooting.';
+                      }
+                    } else {
+                      errorDisplay = event.data;
+                    }
+                  } catch {
+                    errorDisplay = event.data;
+                  }
+                  accumulated += '\n\n**Error:** ' + errorDisplay;
                   setStreamingContent(accumulated);
                   break;
                 }
@@ -554,6 +591,8 @@ export default function NewChatPage() {
         onProviderModelChange={(pid, model) => {
           setCurrentProviderId(pid);
           setCurrentModel(model);
+          localStorage.setItem('codepilot:last-provider-id', pid);
+          localStorage.setItem('codepilot:last-model', model);
         }}
         workingDirectory={workingDir}
         effort={selectedEffort}

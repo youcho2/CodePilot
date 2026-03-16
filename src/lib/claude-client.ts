@@ -22,6 +22,7 @@ import { getSetting, updateSdkSessionId, createPermissionRequest } from './db';
 import { resolveForClaudeCode, toClaudeCodeEnv } from './provider-resolver';
 import { findClaudeBinary, findGitBash, getExpandedPath, invalidateClaudePathCache } from './platform';
 import { notifyPermissionRequest, notifyGeneric } from './telegram-bot';
+import { classifyError, formatClassifiedError } from './error-classifier';
 import os from 'os';
 import fs from 'fs';
 import path from 'path';
@@ -564,7 +565,8 @@ export function streamClaude(options: ClaudeStreamOptions): ReadableStream<strin
           controller.enqueue(formatSSE({
             type: 'status',
             data: JSON.stringify({
-              notification: true,
+              _internal: true,
+              resumeFallback: true,
               title: 'Session fallback',
               message: 'Original working directory no longer exists. Starting fresh conversation.',
             }),
@@ -777,7 +779,8 @@ export function streamClaude(options: ClaudeStreamOptions): ReadableStream<strin
             controller.enqueue(formatSSE({
               type: 'status',
               data: JSON.stringify({
-                notification: true,
+                _internal: true,
+                resumeFallback: true,
                 title: 'Session fallback',
                 message: 'Previous session could not be resumed. Starting fresh conversation.',
               }),
@@ -1044,49 +1047,44 @@ export function streamClaude(options: ClaudeStreamOptions): ReadableStream<strin
       } catch (error) {
         const rawMessage = error instanceof Error ? error.message : 'Unknown error';
         // Log full error details for debugging (visible in terminal / dev tools)
+        const stderrContent = error instanceof Error ? (error as { stderr?: string }).stderr : undefined;
         console.error('[claude-client] Stream error:', {
           message: rawMessage,
           stack: error instanceof Error ? error.stack : undefined,
           cause: error instanceof Error ? (error as { cause?: unknown }).cause : undefined,
-          stderr: error instanceof Error ? (error as { stderr?: string }).stderr : undefined,
+          stderr: stderrContent,
           code: error instanceof Error ? (error as NodeJS.ErrnoException).code : undefined,
         });
 
-        // Try to extract stderr or cause for more useful error messages
-        const stderr = error instanceof Error ? (error as { stderr?: string }).stderr : undefined;
-        const cause = error instanceof Error ? (error as { cause?: unknown }).cause : undefined;
-        const extraDetail = stderr || (cause instanceof Error ? cause.message : cause ? String(cause) : '');
+        // Classify the error using structured pattern matching
+        const classified = classifyError({
+          error,
+          stderr: stderrContent,
+          providerName: resolved.provider?.name,
+          baseUrl: resolved.provider?.base_url,
+          hasImages: files && files.some(f => isImageFile(f.type)),
+          thinkingEnabled: !!thinking,
+          context1mEnabled: !!context1m,
+          effortSet: !!effort,
+        });
 
-        let errorMessage = rawMessage;
-
-        // Provide more specific error messages based on error type
-        if (error instanceof Error) {
-          const code = (error as NodeJS.ErrnoException).code;
-          if (code === 'ENOENT' || rawMessage.includes('ENOENT') || rawMessage.includes('spawn')) {
-            errorMessage = `Claude Code CLI not found. Please ensure Claude Code is installed and available in your PATH.\n\nOriginal error: ${rawMessage}`;
-          } else if (rawMessage.includes('exited with code 1') || rawMessage.includes('exit code 1')) {
-            const providerHint = resolved.provider?.name ? ` (Provider: ${resolved.provider?.name})` : '';
-            const detailHint = extraDetail ? `\n\nDetails: ${extraDetail}` : '';
-            const hasImages = files && files.some(f => isImageFile(f.type));
-            const imageHint = hasImages ? '\n• Provider may not support image/vision input' : '';
-            errorMessage = `Claude Code process exited with an error${providerHint}. This is often caused by:\n• Invalid or missing API Key\n• Incorrect Base URL configuration\n• Network connectivity issues${imageHint}${detailHint}\n\nOriginal error: ${rawMessage}`;
-          } else if (rawMessage.includes('exited with code')) {
-            const providerHint = resolved.provider?.name ? ` (Provider: ${resolved.provider?.name})` : '';
-            errorMessage = `Claude Code process crashed unexpectedly${providerHint}.\n\nOriginal error: ${rawMessage}`;
-          } else if (code === 'ECONNREFUSED' || rawMessage.includes('ECONNREFUSED') || rawMessage.includes('fetch failed')) {
-            const baseUrl = resolved.provider?.base_url || 'default';
-            errorMessage = `Cannot connect to API endpoint (${baseUrl}). Please check your network connection and Base URL configuration.\n\nOriginal error: ${rawMessage}`;
-          } else if (rawMessage.includes('401') || rawMessage.includes('Unauthorized') || rawMessage.includes('authentication')) {
-            const providerHint = resolved.provider?.name ? ` for provider "${resolved.provider?.name}"` : '';
-            errorMessage = `Authentication failed${providerHint}. Please verify your API Key is correct and has not expired.\n\nOriginal error: ${rawMessage}`;
-          } else if (rawMessage.includes('403') || rawMessage.includes('Forbidden')) {
-            errorMessage = `Access denied. Your API Key may not have permission for this operation.\n\nOriginal error: ${rawMessage}`;
-          } else if (rawMessage.includes('429') || rawMessage.includes('rate limit') || rawMessage.includes('Rate limit')) {
-            errorMessage = `Rate limit exceeded. Please wait a moment before retrying.\n\nOriginal error: ${rawMessage}`;
-          }
-        }
-
-        controller.enqueue(formatSSE({ type: 'error', data: errorMessage }));
+        // Send structured error JSON so frontend can parse category + hints
+        // Falls back gracefully for older frontends that only read raw text
+        const errorMessage = formatClassifiedError(classified);
+        controller.enqueue(formatSSE({
+          type: 'error',
+          data: JSON.stringify({
+            category: classified.category,
+            userMessage: classified.userMessage,
+            actionHint: classified.actionHint,
+            retryable: classified.retryable,
+            providerName: classified.providerName,
+            details: classified.details,
+            rawMessage: classified.rawMessage,
+            // Include formatted text for backward compatibility
+            _formattedMessage: errorMessage,
+          }),
+        }));
         controller.enqueue(formatSSE({ type: 'done', data: '' }));
 
         // Always clear sdk_session_id on crash so the next message starts fresh.

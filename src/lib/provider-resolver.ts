@@ -493,7 +493,7 @@ function buildResolution(
   // Parse JSON fields
   const headers = safeParseJson(provider.headers_json);
   const envOverrides = safeParseJson(provider.env_overrides_json || provider.extra_env);
-  const roleModels = safeParseJson(provider.role_models_json) as RoleModels;
+  let roleModels = safeParseJson(provider.role_models_json) as RoleModels;
 
   // Get available models: DB provider_models take priority, then catalog defaults
   let availableModels = getDefaultModelsForProvider(protocol, provider.base_url);
@@ -540,6 +540,14 @@ function buildResolution(
   // If no catalog entry, upstream = model (identity mapping)
   if (!upstreamModel && model) {
     upstreamModel = model;
+  }
+
+  // Ensure roleModels.default reflects the upstream model for the current request,
+  // so toClaudeCodeEnv() sets ANTHROPIC_MODEL to the correct upstream ID.
+  // Only override when the request explicitly specifies a model (opts.model) and
+  // we found a different upstream ID via catalog lookup.
+  if (upstreamModel && opts.model && upstreamModel !== roleModels.default) {
+    roleModels = { ...roleModels, default: upstreamModel };
   }
 
   // Has credentials?

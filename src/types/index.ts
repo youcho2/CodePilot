@@ -747,6 +747,12 @@ export function formatFileSize(bytes: number): string {
 }
 
 // ==========================================
+// Classified Error Types (from error-classifier)
+// ==========================================
+
+export type { ClaudeErrorCategory, ClassifiedError } from '@/lib/error-classifier';
+
+// ==========================================
 // Claude Client Types
 // ==========================================
 
