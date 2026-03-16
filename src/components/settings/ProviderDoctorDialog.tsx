@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import {
   Dialog,
   DialogContent,
@@ -157,16 +157,21 @@ export function ProviderDoctorDialog({ open, onOpenChange }: ProviderDoctorDialo
   const [repairingActions, setRepairingActions] = useState<Set<string>>(new Set());
 
   const [liveProbeRunning, setLiveProbeRunning] = useState(false);
+  // Monotonic counter to discard stale live probe responses on re-run
+  const diagnosticRunRef = useRef(0);
 
   const fetchDiagnostics = useCallback(async () => {
+    const runId = ++diagnosticRunRef.current;
     setLoading(true);
     setError(null);
     setResult(null);
     setExpandedProbes(new Set());
+    setLiveProbeRunning(false);
     try {
       // Fast probes first (~1s) — renders immediately
       const res = await fetch("/api/doctor");
       if (!res.ok) throw new Error("Diagnostic request failed");
+      if (runId !== diagnosticRunRef.current) return; // stale
       const raw = await res.json();
       const data = transformApiResponse(raw, isZh);
       setResult(data);
@@ -177,36 +182,40 @@ export function ProviderDoctorDialog({ open, onOpenChange }: ProviderDoctorDialo
         }
       });
       setExpandedProbes(toExpand);
+      const fastProbeCount = data.probes.length;
 
       // Live probe runs separately (up to 15s) — appends when done
       setLiveProbeRunning(true);
       fetch("/api/doctor?live=true")
         .then((r) => r.ok ? r.json() : null)
         .then((liveRaw) => {
+          // Discard if a newer run started while we were waiting
+          if (runId !== diagnosticRunRef.current) return;
           if (!liveRaw) return;
           const liveData = transformApiResponse(liveRaw, isZh);
-          // Find the live probe (last one, not in initial result)
-          const liveProbe = liveData.probes.find((p) => p.name.includes("Live") || p.name.includes("运行"));
+          // Live probe is the extra probe beyond the fast probes
+          const liveProbe = liveData.probes.length > fastProbeCount
+            ? liveData.probes[liveData.probes.length - 1]
+            : undefined;
           if (liveProbe) {
             setResult((prev) => {
               if (!prev) return prev;
+              // Don't append if already has a live probe (guard against double-append)
+              if (prev.probes.length > fastProbeCount) return prev;
               const updated = { ...prev, probes: [...prev.probes, liveProbe] };
               if (liveProbe.status === "error") updated.overall = "error";
               else if (liveProbe.status === "warn" && prev.overall === "pass") updated.overall = "warn";
               return updated;
             });
             if (liveProbe.status !== "pass") {
-              setExpandedProbes((prev) => {
-                const next = new Set(prev);
-                // Live probe is the last one
-                setResult((r) => { if (r) next.add(r.probes.length - 1); return r; });
-                return next;
-              });
+              setExpandedProbes((prev) => new Set([...prev, fastProbeCount]));
             }
           }
         })
         .catch(() => {})
-        .finally(() => setLiveProbeRunning(false));
+        .finally(() => {
+          if (runId === diagnosticRunRef.current) setLiveProbeRunning(false);
+        });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unknown error");
     } finally {
