@@ -1,12 +1,29 @@
-import { NextResponse } from 'next/server';
-import { runDiagnosis } from '@/lib/provider-doctor';
+import { NextRequest, NextResponse } from 'next/server';
+import { runDiagnosis, runLiveProbe } from '@/lib/provider-doctor';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-export async function GET() {
+/**
+ * GET /api/doctor — run diagnostic probes.
+ * ?live=true — also run the live probe (spawns CLI, takes up to 15s).
+ * Without ?live, only runs fast static probes (~1s).
+ */
+export async function GET(request: NextRequest) {
   try {
     const result = await runDiagnosis();
+
+    // Live probe is opt-in to avoid blocking the Doctor UI
+    const wantLive = request.nextUrl.searchParams.get('live') === 'true';
+    if (wantLive) {
+      const liveResult = await runLiveProbe();
+      result.probes.push(liveResult);
+      // Recalculate overall severity
+      if (liveResult.severity === 'error') result.overallSeverity = 'error';
+      else if (liveResult.severity === 'warn' && result.overallSeverity === 'ok') result.overallSeverity = 'warn';
+      result.durationMs = Date.now() - new Date(result.timestamp).getTime();
+    }
+
     return NextResponse.json(result);
   } catch (error) {
     console.error('[doctor] Diagnosis failed:', error);

@@ -640,6 +640,13 @@ export function getLastLiveProbeError(): ClassifiedError | null {
   return lastLiveProbeError;
 }
 
+/** Cached last diagnosis result so export doesn't re-run (especially the live probe). */
+let lastDiagnosisResult: DiagnosisResult | null = null;
+
+export function getLastDiagnosisResult(): DiagnosisResult | null {
+  return lastDiagnosisResult;
+}
+
 /**
  * Sanitize env values: strip control chars and drop non-string values.
  */
@@ -973,6 +980,13 @@ function attachRepairsToFindings(probes: ProbeResult[]): void {
 /**
  * Run all diagnostic probes and return a unified diagnosis.
  */
+/**
+ * Run all diagnostic probes and return a unified diagnosis.
+ *
+ * The live probe (real CLI spawn) is run separately and NOT included by
+ * default because it takes up to 15s and would block the Doctor UI.
+ * Call runDiagnosisWithLiveProbe() or runLiveProbe() separately if needed.
+ */
 export async function runDiagnosis(): Promise<DiagnosisResult> {
   const start = Date.now();
 
@@ -982,7 +996,6 @@ export async function runDiagnosis(): Promise<DiagnosisResult> {
     runProviderProbe(),
     runFeaturesProbe(),
     runNetworkProbe(),
-    runLiveProbe(),
   ]);
 
   let overallSeverity: Severity = 'ok';
@@ -991,15 +1004,22 @@ export async function runDiagnosis(): Promise<DiagnosisResult> {
   }
 
   const repairs = computeRepairs(probes);
-
-  // Attach repair actions to individual findings for frontend rendering
   attachRepairsToFindings(probes);
 
-  return {
+  const result: DiagnosisResult = {
     overallSeverity,
     probes,
     repairs,
     timestamp: new Date().toISOString(),
     durationMs: Date.now() - start,
   };
+
+  lastDiagnosisResult = result;
+  return result;
 }
+
+/**
+ * Run the live probe separately. Returns the probe result which can be
+ * appended to an existing diagnosis. Does NOT re-run the other probes.
+ */
+export { runLiveProbe };

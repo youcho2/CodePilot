@@ -72,6 +72,7 @@ function transformApiResponse(raw: Record<string, unknown>, isZh: boolean): Diag
     provider: { en: "Provider/Model", zh: "服务商/模型" },
     features: { en: "Feature Compatibility", zh: "功能兼容性" },
     network: { en: "Network/Endpoint", zh: "网络/端点" },
+    live: { en: "Live Test", zh: "实际连通测试" },
   };
 
   const probes: Probe[] = rawProbes.map((p) => {
@@ -155,18 +156,20 @@ export function ProviderDoctorDialog({ open, onOpenChange }: ProviderDoctorDialo
   const [expandedProbes, setExpandedProbes] = useState<Set<number>>(new Set());
   const [repairingActions, setRepairingActions] = useState<Set<string>>(new Set());
 
+  const [liveProbeRunning, setLiveProbeRunning] = useState(false);
+
   const fetchDiagnostics = useCallback(async () => {
     setLoading(true);
     setError(null);
     setResult(null);
     setExpandedProbes(new Set());
     try {
+      // Fast probes first (~1s) — renders immediately
       const res = await fetch("/api/doctor");
       if (!res.ok) throw new Error("Diagnostic request failed");
       const raw = await res.json();
       const data = transformApiResponse(raw, isZh);
       setResult(data);
-      // Auto-expand probes that have findings
       const toExpand = new Set<number>();
       data.probes.forEach((probe, i) => {
         if (probe.status !== "pass" && probe.findings.length > 0) {
@@ -174,6 +177,36 @@ export function ProviderDoctorDialog({ open, onOpenChange }: ProviderDoctorDialo
         }
       });
       setExpandedProbes(toExpand);
+
+      // Live probe runs separately (up to 15s) — appends when done
+      setLiveProbeRunning(true);
+      fetch("/api/doctor?live=true")
+        .then((r) => r.ok ? r.json() : null)
+        .then((liveRaw) => {
+          if (!liveRaw) return;
+          const liveData = transformApiResponse(liveRaw, isZh);
+          // Find the live probe (last one, not in initial result)
+          const liveProbe = liveData.probes.find((p) => p.name.includes("Live") || p.name.includes("运行"));
+          if (liveProbe) {
+            setResult((prev) => {
+              if (!prev) return prev;
+              const updated = { ...prev, probes: [...prev.probes, liveProbe] };
+              if (liveProbe.status === "error") updated.overall = "error";
+              else if (liveProbe.status === "warn" && prev.overall === "pass") updated.overall = "warn";
+              return updated;
+            });
+            if (liveProbe.status !== "pass") {
+              setExpandedProbes((prev) => {
+                const next = new Set(prev);
+                // Live probe is the last one
+                setResult((r) => { if (r) next.add(r.probes.length - 1); return r; });
+                return next;
+              });
+            }
+          }
+        })
+        .catch(() => {})
+        .finally(() => setLiveProbeRunning(false));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unknown error");
     } finally {
@@ -340,6 +373,12 @@ export function ProviderDoctorDialog({ open, onOpenChange }: ProviderDoctorDialo
                   </div>
                 );
               })}
+              {liveProbeRunning && (
+                <div className="rounded-md border border-border/30 px-3 py-2 flex items-center gap-2 text-xs text-muted-foreground">
+                  <SpinnerGap size={12} className="animate-spin shrink-0" />
+                  {isZh ? "正在运行实际连通性测试..." : "Running live connectivity test..."}
+                </div>
+              )}
             </div>
           </div>
         )}
