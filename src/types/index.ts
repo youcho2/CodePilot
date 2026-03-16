@@ -587,6 +587,8 @@ export interface AssistantWorkspaceState {
   hookTriggeredSessionId?: string;
   /** ISO timestamp when hookTriggeredSessionId was set — used for staleness detection */
   hookTriggeredAt?: string;
+  /** When false, daily check-in auto-trigger is disabled (default: true) */
+  dailyCheckInEnabled?: boolean;
 }
 
 export interface AssistantWorkspaceFiles {
