@@ -43,10 +43,6 @@ export default function RootLayout({
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
-        {/* WebMCP tools: register structured tools for AI agent testing (dev only) */}
-        {process.env.NODE_ENV === 'development' && (
-          <script src="/webmcp-tools.js" defer />
-        )}
         <ThemeProvider>
           <ThemeFamilyProvider families={familiesMeta}>
             <I18nProvider>

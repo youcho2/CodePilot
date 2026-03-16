@@ -17,7 +17,6 @@ CodePilot — Claude Code 的桌面 GUI 客户端，基于 Electron + Next.js。
 - 验证流程：`npm run dev` 启动应用 → 用 CDP 打开 `http://localhost:3000` 对应页面 → 截图确认渲染正确 → 检查 console 无报错
 - 涉及交互的改动（按钮、表单、导航）需通过 CDP 模拟点击/输入并截图验证
 - 修改响应式布局时，用 CDP 的 device emulation 分别验证桌面和移动端视口
-- **WebMCP（Chrome 146+）：** dev 模式下 `public/webmcp-tools.js` 会通过 `navigator.modelContext` 注册 9 个结构化 tools（导航、发消息、切 provider、诊断等），支持 chrome-devtools-mcp 的 `call_website_tool` / `list_website_tools` 调用，比截图循环节省 ~90% token。需要 Chrome 开启 `chrome://flags/#web-mcp`。优先用 WebMCP tools，不支持时 fallback 到传统 CDP 截图流程。
 
 **新增功能前必须详尽调研：**
 - 新增功能前必须充分调研相关技术方案、API 兼容性、社区最佳实践
