@@ -16,9 +16,15 @@ import { resolveProvider } from '@/lib/provider-resolver';
 import {
   getAllProviders,
   getDefaultProviderId,
+  getModelsForProvider,
   getProvider,
   getSetting,
 } from '@/lib/db';
+import {
+  getDefaultModelsForProvider,
+  inferProtocolFromLegacy,
+  type Protocol,
+} from '@/lib/provider-catalog';
 
 // ── Types ───────────────────────────────────────────────────────
 
@@ -323,6 +329,41 @@ async function runProviderProbe(): Promise<ProbeResult> {
         code: 'provider.missing-base-url',
         message: `Provider "${p.name}" (${p.protocol}) has no base_url`,
         detail: `Provider ID: ${p.id}`,
+      });
+    }
+
+    // Check if the provider has any available models
+    const protocol: Protocol = (p.protocol as Protocol) ||
+      inferProtocolFromLegacy(p.provider_type, p.base_url);
+    let hasModels = false;
+    try {
+      const dbModels = getModelsForProvider(p.id);
+      if (dbModels.length > 0) hasModels = true;
+    } catch { /* table may not exist */ }
+    if (!hasModels) {
+      const catalogModels = getDefaultModelsForProvider(protocol, p.base_url);
+      if (catalogModels.length > 0) hasModels = true;
+    }
+    // Also check role_models_json.default — it synthesizes a model entry at runtime
+    let hasRoleDefault = false;
+    try {
+      const rm = JSON.parse(p.role_models_json || '{}');
+      if (rm.default) hasRoleDefault = true;
+    } catch { /* ignore */ }
+    // Also check ANTHROPIC_MODEL in env overrides
+    let hasEnvModel = false;
+    try {
+      const envOverrides = p.env_overrides_json || p.extra_env || '{}';
+      const envObj = JSON.parse(envOverrides);
+      if (envObj.ANTHROPIC_MODEL) hasEnvModel = true;
+    } catch { /* ignore */ }
+
+    if (!hasModels && !hasRoleDefault && !hasEnvModel) {
+      findings.push({
+        severity: 'warn',
+        code: 'provider.no-models',
+        message: `Provider "${p.name}" has no models configured — set a default model name in provider settings`,
+        detail: `Provider ID: ${p.id}. This provider's catalog has no default models. Add at least one model via role_models_json.default or provider model settings.`,
       });
     }
   }

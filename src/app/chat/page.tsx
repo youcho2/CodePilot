@@ -44,16 +44,25 @@ export default function NewChatPage() {
   const [recentProjects, setRecentProjects] = useState<string[]>([]);
   const [hasProvider, setHasProvider] = useState(true); // assume true until checked
   const [mode] = useState('code');
-  const [currentModel, setCurrentModel] = useState(() =>
-    typeof window !== 'undefined'
-      ? localStorage.getItem('codepilot:last-model') || 'sonnet'
-      : 'sonnet'
-  );
-  const [currentProviderId, setCurrentProviderId] = useState(() =>
-    typeof window !== 'undefined'
-      ? localStorage.getItem('codepilot:last-provider-id') || ''
-      : ''
-  );
+  const [currentModel, setCurrentModel] = useState(() => {
+    if (typeof window === 'undefined') return 'sonnet';
+    // One-time migration: clear stale model/provider from pre-0.38 installs
+    if (!localStorage.getItem('codepilot:migration-038')) {
+      localStorage.removeItem('codepilot:last-model');
+      localStorage.removeItem('codepilot:last-provider-id');
+      localStorage.setItem('codepilot:migration-038', '1');
+      return 'sonnet';
+    }
+    return localStorage.getItem('codepilot:last-model') || 'sonnet';
+  });
+  const [currentProviderId, setCurrentProviderId] = useState(() => {
+    if (typeof window === 'undefined') return '';
+    // Migration already ran above (or was already done), just read
+    if (!localStorage.getItem('codepilot:migration-038')) {
+      return '';
+    }
+    return localStorage.getItem('codepilot:last-provider-id') || '';
+  });
   const [pendingPermission, setPendingPermission] = useState<PermissionRequestEvent | null>(null);
   const [permissionResolved, setPermissionResolved] = useState<'allow' | 'deny' | null>(null);
   const [streamingToolOutput, setStreamingToolOutput] = useState('');
@@ -81,6 +90,38 @@ export default function NewChatPage() {
       .catch(() => {});
     return () => controller.abort();
   }, [currentProviderId]);
+
+  // Validate restored model/provider against actual available providers/models
+  useEffect(() => {
+    let cancelled = false;
+    fetch('/api/providers/models')
+      .then(r => r.ok ? r.json() : null)
+      .then(data => {
+        if (cancelled || !data?.groups || data.groups.length === 0) return;
+        const groups = data.groups as Array<{ provider_id: string; models: Array<{ value: string }> }>;
+
+        // Validate provider
+        const validProvider = groups.find(g => g.provider_id === currentProviderId);
+        if (currentProviderId && !validProvider) {
+          setCurrentProviderId('');
+          localStorage.removeItem('codepilot:last-provider-id');
+        }
+
+        // Validate model against the resolved provider's model list
+        const resolvedGroup = validProvider || groups[0];
+        if (resolvedGroup?.models && resolvedGroup.models.length > 0) {
+          const validModel = resolvedGroup.models.find(m => m.value === currentModel);
+          if (!validModel) {
+            const fallback = resolvedGroup.models[0].value;
+            setCurrentModel(fallback);
+            localStorage.setItem('codepilot:last-model', fallback);
+          }
+        }
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // Run once on mount to validate initial values
 
   // Initialize workingDir from localStorage (or setup default), validating the path exists
   useEffect(() => {
@@ -155,11 +196,47 @@ export default function NewChatPage() {
           }
         })
         .catch(() => {});
-      // Sync provider/model from localStorage when provider changes
+      // Sync provider/model from localStorage, validating against available providers
       const savedProviderId = localStorage.getItem('codepilot:last-provider-id');
       const savedModel = localStorage.getItem('codepilot:last-model');
-      if (savedProviderId !== null) setCurrentProviderId(savedProviderId);
-      if (savedModel) setCurrentModel(savedModel);
+      fetch('/api/providers/models')
+        .then(r => r.ok ? r.json() : null)
+        .then(data => {
+          if (!data?.groups || data.groups.length === 0) return;
+          const groups = data.groups as Array<{ provider_id: string; models: Array<{ value: string }> }>;
+
+          // Validate and apply provider
+          if (savedProviderId !== null) {
+            const validProvider = groups.find(g => g.provider_id === savedProviderId);
+            if (validProvider) {
+              setCurrentProviderId(savedProviderId);
+            } else {
+              setCurrentProviderId('');
+              localStorage.removeItem('codepilot:last-provider-id');
+            }
+          }
+
+          // Validate and apply model
+          const resolvedPid = savedProviderId && groups.find(g => g.provider_id === savedProviderId)
+            ? savedProviderId
+            : groups[0]?.provider_id || '';
+          const resolvedGroup = groups.find(g => g.provider_id === resolvedPid) || groups[0];
+          if (savedModel && resolvedGroup?.models?.length > 0) {
+            const validModel = resolvedGroup.models.find((m: { value: string }) => m.value === savedModel);
+            if (validModel) {
+              setCurrentModel(savedModel);
+            } else {
+              const fallback = resolvedGroup.models[0].value;
+              setCurrentModel(fallback);
+              localStorage.setItem('codepilot:last-model', fallback);
+            }
+          }
+        })
+        .catch(() => {
+          // On fetch failure, still apply localStorage values as-is (best effort)
+          if (savedProviderId !== null) setCurrentProviderId(savedProviderId);
+          if (savedModel) setCurrentModel(savedModel);
+        });
     };
     checkProvider();
 

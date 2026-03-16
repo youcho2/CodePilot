@@ -31,7 +31,9 @@ export async function GET() {
     const missingGit = isWindows && findGitBash() === null;
 
     if (!claudePath) {
-      return NextResponse.json({ connected: false, version: null, binaryPath: null, installType: null, otherInstalls: [], missingGit, features: {} });
+      const w: string[] = [];
+      if (missingGit) w.push('Git Bash not found — some features may not work');
+      return NextResponse.json({ connected: false, version: null, binaryPath: null, installType: null, otherInstalls: [], missingGit, warnings: w, features: {} });
     }
     const version = await getClaudeVersion(claudePath);
     const installType = classifyClaudePath(claudePath);
@@ -53,17 +55,28 @@ export async function GET() {
       }
     }
 
+    // Build warnings array for non-blocking issues
+    const warnings: string[] = [];
+    if (missingGit) {
+      warnings.push('Git Bash not found — some features may not work');
+    }
+    if (otherInstalls.length > 0) {
+      warnings.push(`${otherInstalls.length} other Claude CLI installation(s) detected`);
+    }
+
     return NextResponse.json({
-      // If Git Bash is missing on Windows, Claude is installed but not usable
-      connected: !!version && !missingGit,
+      // connected = CLI found and returns a version. Git Bash missing is a
+      // warning, not a blocker — the CLI itself is still usable for basic ops.
+      connected: !!version,
       version,
       binaryPath: claudePath,
       installType,
       otherInstalls,
       missingGit,
+      warnings,
       features,
     });
   } catch {
-    return NextResponse.json({ connected: false, version: null, binaryPath: null, installType: null, otherInstalls: [], missingGit: false, features: {} });
+    return NextResponse.json({ connected: false, version: null, binaryPath: null, installType: null, otherInstalls: [], missingGit: false, warnings: [], features: {} });
   }
 }

@@ -330,13 +330,15 @@ Start by greeting the user and asking the first question.
       // CLI tools context injection failed — don't block chat
     }
 
-    // Inject widget (generative UI) system prompt — gated by user setting (default: enabled)
+    // Generative UI: gated by user setting (default: enabled).
+    // Only a short hint is injected into the system prompt — full guidelines
+    // are loaded on-demand via the codepilot-widget MCP tool to save tokens.
     const generativeUISetting = getSetting('generative_ui_enabled');
     const generativeUIEnabled = generativeUISetting !== 'false';
     if (generativeUIEnabled) {
       try {
-        const { WIDGET_SYSTEM_PROMPT } = await import('@/lib/widget-guidelines');
-        finalSystemPrompt = (finalSystemPrompt || '') + '\n\n' + WIDGET_SYSTEM_PROMPT;
+        const { WIDGET_SYSTEM_PROMPT_HINT } = await import('@/lib/widget-guidelines');
+        finalSystemPrompt = (finalSystemPrompt || '') + '\n\n' + WIDGET_SYSTEM_PROMPT_HINT;
       } catch {
         // Widget prompt injection failed — don't block chat
       }
