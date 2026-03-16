@@ -445,6 +445,7 @@ export function streamClaude(options: ClaudeStreamOptions): ReadableStream<strin
           console.warn('[claude-client] No API key found: no active provider, no legacy settings, and no ANTHROPIC_API_KEY/ANTHROPIC_AUTH_TOKEN in environment');
         }
 
+
         // Check if dangerously_skip_permissions is enabled globally or per-session
         const globalSkip = getSetting('dangerously_skip_permissions') === 'true';
         const skipPermissions = globalSkip || !!sessionBypassPermissions;
@@ -509,15 +510,32 @@ export function streamClaude(options: ClaudeStreamOptions): ReadableStream<strin
           queryOptions.mcpServers = toSdkMcpConfig(mcpServers);
         }
 
-        // Widget guidelines: in-process MCP server for on-demand loading.
-        // Model calls codepilot_load_widget_guidelines before generating widgets.
+        // Widget guidelines: progressive loading strategy.
+        // The system prompt always includes WIDGET_SYSTEM_PROMPT with format rules.
+        // The MCP server (detailed design specs) is only registered when the
+        // conversation likely involves widget generation — detected by keywords in
+        // the user's prompt or existing show-widget output in conversation history.
+        // This avoids SDK tool discovery overhead (~1s) on plain text conversations.
         if (generativeUI !== false) {
-          const { createWidgetMcpServer } = await import('@/lib/widget-guidelines');
-          const widgetServer = createWidgetMcpServer();
-          queryOptions.mcpServers = {
-            ...(queryOptions.mcpServers || {}),
-            'codepilot-widget': widgetServer,
-          };
+          const needsWidgetSpecs = (() => {
+            const widgetKeywords = /可视化|图表|流程图|时间线|架构图|对比|visualiz|diagram|chart|flowchart|timeline|infographic|interactive|widget|show-widget|hierarchy|dashboard/i;
+            // Check current prompt
+            if (widgetKeywords.test(prompt)) return true;
+            // Check if conversation already has widgets (resume context)
+            if (conversationHistory?.some(m => m.content.includes('show-widget'))) return true;
+            // Check system prompt for image/widget agent mode
+            if (systemPrompt && widgetKeywords.test(systemPrompt)) return true;
+            return false;
+          })();
+
+          if (needsWidgetSpecs) {
+            const { createWidgetMcpServer } = await import('@/lib/widget-guidelines');
+            const widgetServer = createWidgetMcpServer();
+            queryOptions.mcpServers = {
+              ...(queryOptions.mcpServers || {}),
+              'codepilot-widget': widgetServer,
+            };
+          }
         }
 
         // Pass through SDK-specific options from ClaudeStreamOptions
@@ -806,7 +824,6 @@ export function streamClaude(options: ClaudeStreamOptions): ReadableStream<strin
         let tokenUsage: TokenUsage | null = null;
         // Track pending TodoWrite tool_use_ids so we can sync after successful execution
         const pendingTodoWrites = new Map<string, Array<{ content: string; status: string; activeForm?: string }>>();
-
         for await (const message of conversation) {
           if (abortController?.signal.aborted) {
             break;

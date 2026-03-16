@@ -4,23 +4,15 @@
  * Based on Anthropic's actual generative UI guidelines extracted from claude.ai,
  * adapted for CodePilot's code-fence trigger mechanism and CSS variable bridge.
  *
- * WIDGET_SYSTEM_PROMPT_HINT is a tiny capability declaration (~30 tokens),
- * always injected into the system prompt when generative UI is enabled.
- * The full WIDGET_SYSTEM_PROMPT (format + rules) and detailed module guidelines
- * are loaded on demand via the `codepilot_load_widget_guidelines` MCP tool,
- * saving ~90% system prompt tokens on conversations that don't involve widgets.
+ * The WIDGET_SYSTEM_PROMPT is a minimal capability declaration (~150 tokens),
+ * always injected into the system prompt. Full module guidelines are loaded
+ * on demand via the `codepilot_load_widget_guidelines` in-process MCP tool.
  */
 
 import { createSdkMcpServer, tool } from '@anthropic-ai/claude-agent-sdk';
 import { z } from 'zod';
 
-// ── System prompt hint (always injected — ultra-minimal) ────────────────────
-
-export const WIDGET_SYSTEM_PROMPT_HINT = `<widget-capability>
-You can create interactive visualizations. Call \`codepilot_load_widget_guidelines\` before generating your first widget to load the required format and design specs.
-</widget-capability>`;
-
-// ── Full widget rules (loaded on demand via MCP tool) ───────────────────────
+// ── System prompt (always injected — minimal version) ───────────────────────
 
 export const WIDGET_SYSTEM_PROMPT = `<widget-capability>
 You can create interactive visualizations using the \`show-widget\` code fence.
@@ -263,7 +255,7 @@ export function createWidgetMcpServer() {
         'Load detailed design guidelines for generating visual widgets. Call this before generating your first widget. Available modules: interactive (HTML controls), chart (Chart.js), mockup (UI mockups), art (SVG illustrations), diagram (flowcharts/timelines/hierarchies).',
         { modules: z.array(z.enum(['interactive', 'chart', 'mockup', 'art', 'diagram'])) },
         async ({ modules }) => ({
-          content: [{ type: 'text' as const, text: WIDGET_SYSTEM_PROMPT + '\n\n' + getGuidelines(modules) }],
+          content: [{ type: 'text' as const, text: getGuidelines(modules) }],
         }),
       ),
     ],

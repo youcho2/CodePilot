@@ -27,7 +27,7 @@ import {
 } from '../../components/chat/MessageItem';
 
 import { WIDGET_CSS_BRIDGE } from '../../lib/widget-css-bridge';
-import { WIDGET_SYSTEM_PROMPT, WIDGET_SYSTEM_PROMPT_HINT, getGuidelines, createWidgetMcpServer } from '../../lib/widget-guidelines';
+import { WIDGET_SYSTEM_PROMPT, getGuidelines, createWidgetMcpServer } from '../../lib/widget-guidelines';
 
 // ── Sanitization ────────────────────────────────────────────────────────
 
@@ -297,23 +297,7 @@ describe('WIDGET_CSS_BRIDGE', () => {
   });
 });
 
-// ── System prompt hint (injected into system prompt) ────────────────────
-
-describe('WIDGET_SYSTEM_PROMPT_HINT', () => {
-  it('references the codepilot_load_widget_guidelines tool', () => {
-    assert.ok(WIDGET_SYSTEM_PROMPT_HINT.includes('codepilot_load_widget_guidelines'));
-  });
-
-  it('is ultra-minimal to reduce per-request token overhead', () => {
-    assert.ok(WIDGET_SYSTEM_PROMPT_HINT.length < 250, `hint should be <250 chars, got ${WIDGET_SYSTEM_PROMPT_HINT.length}`);
-  });
-
-  it('mentions widget capability', () => {
-    assert.ok(WIDGET_SYSTEM_PROMPT_HINT.includes('widget-capability'));
-  });
-});
-
-// ── Full system prompt (loaded on demand via MCP tool) ──────────────────
+// ── System prompt ───────────────────────────────────────────────────────
 
 describe('WIDGET_SYSTEM_PROMPT', () => {
   it('includes show-widget fence format', () => {
