@@ -971,6 +971,8 @@ export interface ClaudeStreamOptions {
   autoTrigger?: boolean;
   /** Enable 1M context window (beta header: context-1m-2025-08-07) */
   context1m?: boolean;
+  /** Enable generative UI widget guidelines MCP server (default: true) */
+  generativeUI?: boolean;
 }
 
 // ==========================================

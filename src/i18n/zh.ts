@@ -82,6 +82,8 @@ const zh: Record<TranslationKey, string> = {
   'settings.autoApproveTrustWarning': '仅在您完全信任当前任务时才启用此选项。此设置适用于所有新的聊天会话。',
   'settings.cancel': '取消',
   'settings.enableAutoApprove': '启用自动批准',
+  'settings.generativeUITitle': '生成式 UI',
+  'settings.generativeUIDesc': '启用聊天中的交互式可视化功能（图表、流程图、原型图等）。关闭后可节省 token，但将无法生成可视化内容。',
   'settings.language': '语言',
   'settings.languageDesc': '选择界面显示语言',
   'settings.usage': '用量统计',

@@ -393,6 +393,7 @@ export function streamClaude(options: ClaudeStreamOptions): ReadableStream<strin
     enableFileCheckpointing,
     autoTrigger,
     context1m,
+    generativeUI,
   } = options;
 
   return new ReadableStream<string>({
@@ -505,6 +506,17 @@ export function streamClaude(options: ClaudeStreamOptions): ReadableStream<strin
         // is now automatically loaded by the SDK via settingSources: ['user', 'project', 'local'].
         if (mcpServers && Object.keys(mcpServers).length > 0) {
           queryOptions.mcpServers = toSdkMcpConfig(mcpServers);
+        }
+
+        // Widget guidelines: in-process MCP server for on-demand loading.
+        // Model calls codepilot_load_widget_guidelines before generating widgets.
+        if (generativeUI !== false) {
+          const { createWidgetMcpServer } = await import('@/lib/widget-guidelines');
+          const widgetServer = createWidgetMcpServer();
+          queryOptions.mcpServers = {
+            ...(queryOptions.mcpServers || {}),
+            'codepilot-widget': widgetServer,
+          };
         }
 
         // Pass through SDK-specific options from ClaudeStreamOptions
@@ -844,8 +856,8 @@ export function streamClaude(options: ClaudeStreamOptions): ReadableStream<strin
                       ? block.content
                       : Array.isArray(block.content)
                         ? block.content
-                            .filter((c: any) => c.type === 'text')
-                            .map((c: any) => c.text)
+                            .filter((c: { type: string }) => c.type === 'text')
+                            .map((c: { text?: string }) => c.text)
                             .join('\n')
                         : String(block.content ?? '');
                     controller.enqueue(formatSSE({

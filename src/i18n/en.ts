@@ -85,6 +85,8 @@ const en = {
   'settings.autoApproveTrustWarning': 'Only enable this if you fully trust the task at hand. This setting applies to all new chat sessions.',
   'settings.cancel': 'Cancel',
   'settings.enableAutoApprove': 'Enable Auto-approve',
+  'settings.generativeUITitle': 'Generative UI',
+  'settings.generativeUIDesc': 'Enable interactive visualizations (charts, diagrams, mockups) in chat responses. Disabling saves tokens but removes visual generation capability.',
   'settings.language': 'Language',
   'settings.languageDesc': 'Choose the display language for the interface',
   'settings.usage': 'Usage',
