@@ -402,7 +402,7 @@ export function ProviderDoctorDialog({ open, onOpenChange }: ProviderDoctorDialo
                   : "如果您仍然遇到问题，"}
                 请先点击「导出日志」，然后前往{" "}
                 <a
-                  href="https://github.com/anthropics/claude-code/issues"
+                  href="https://github.com/op7418/CodePilot/issues"
                   target="_blank"
                   rel="noopener noreferrer"
                   className="underline text-foreground hover:no-underline"
@@ -428,7 +428,7 @@ export function ProviderDoctorDialog({ open, onOpenChange }: ProviderDoctorDialo
                   : "If you're still experiencing problems, "}
                 click &ldquo;Export Logs&rdquo; first, then{" "}
                 <a
-                  href="https://github.com/anthropics/claude-code/issues"
+                  href="https://github.com/op7418/CodePilot/issues"
                   target="_blank"
                   rel="noopener noreferrer"
                   className="underline text-foreground hover:no-underline"
@@ -439,7 +439,7 @@ export function ProviderDoctorDialog({ open, onOpenChange }: ProviderDoctorDialo
                 <br />
                 📖 See the{" "}
                 <a
-                  href="https://www.codepilot.sh/zh/docs/providers"
+                  href="https://www.codepilot.sh/docs/providers"
                   target="_blank"
                   rel="noopener noreferrer"
                   className="underline text-foreground hover:no-underline"

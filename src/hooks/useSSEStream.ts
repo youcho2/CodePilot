@@ -207,7 +207,7 @@ function handleSSEEvent(
             'CLI_NOT_FOUND', 'UNSUPPORTED_FEATURE',
           ]);
           if (diagCategories.has(parsed.category)) {
-            errorDisplay += '\n\n💡 [Run Provider Diagnostics](/settings#providers) to troubleshoot, or check the [Provider Setup Guide](https://www.codepilot.sh/zh/docs/providers).';
+            errorDisplay += '\n\n💡 [Run Provider Diagnostics](/settings#providers) to troubleshoot, or check the [Provider Setup Guide](https://www.codepilot.sh/docs/providers).';
           }
         } else {
           errorDisplay = event.data;
