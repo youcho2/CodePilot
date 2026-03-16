@@ -11,8 +11,9 @@ import {
   findAllClaudeBinaries,
   isWindows,
   findGitBash,
+  getExpandedPath,
 } from '@/lib/platform';
-import { resolveProvider } from '@/lib/provider-resolver';
+import { resolveProvider, resolveForClaudeCode, toClaudeCodeEnv } from '@/lib/provider-resolver';
 import {
   getAllProviders,
   getDefaultProviderId,
@@ -23,8 +24,15 @@ import {
 import {
   getDefaultModelsForProvider,
   inferProtocolFromLegacy,
+  findPresetForLegacy,
   type Protocol,
 } from '@/lib/provider-catalog';
+import { classifyError, type ClassifiedError } from '@/lib/error-classifier';
+import { query } from '@anthropic-ai/claude-agent-sdk';
+import type { Options, SDKResultSuccess } from '@anthropic-ai/claude-agent-sdk';
+import os from 'os';
+import path from 'path';
+import fs from 'fs';
 
 // ── Types ───────────────────────────────────────────────────────
 
@@ -371,6 +379,44 @@ async function runProviderProbe(): Promise<ProbeResult> {
         detail: `Provider ID: ${p.id}. This provider's catalog has no default models. Add at least one model via role_models_json.default or provider model settings.`,
       });
     }
+
+    // Check A: Third-party Anthropic provider without explicit model
+    if (
+      protocol === 'anthropic' &&
+      p.base_url &&
+      p.base_url !== 'https://api.anthropic.com' &&
+      !hasRoleDefault &&
+      !hasEnvModel
+    ) {
+      // Check if a matched preset provides its own model names (not ANTHROPIC_DEFAULT_MODELS).
+      // If the preset has sdkProxyOnly or has its own models, the preset itself handles naming.
+      // But for generic anthropic-thirdparty or unmatched presets, warn.
+      const matchedPreset = findPresetForLegacy(p.base_url, p.provider_type);
+      const presetHandlesModels = matchedPreset && (
+        matchedPreset.key === 'anthropic-official' ||
+        matchedPreset.defaultRoleModels?.default ||
+        matchedPreset.defaultEnvOverrides?.ANTHROPIC_MODEL
+      );
+      if (!presetHandlesModels) {
+        findings.push({
+          severity: 'warn',
+          code: 'provider.no-explicit-model',
+          message: `Provider "${p.name}" uses a third-party Anthropic endpoint but relies on default model names (sonnet/opus/haiku) which may not be supported. Set an explicit model name in provider settings.`,
+          detail: `Provider ID: ${p.id}. Base URL: ${p.base_url}. Third-party endpoints often use different model identifiers. Configure role_models_json.default or set ANTHROPIC_MODEL in env overrides.`,
+        });
+      }
+    }
+
+    // Check B: sdkProxyOnly provider warning
+    const matchedPreset = findPresetForLegacy(p.base_url, p.provider_type);
+    if (matchedPreset?.sdkProxyOnly) {
+      findings.push({
+        severity: 'ok',
+        code: 'provider.sdk-proxy-only',
+        message: `Provider "${p.name}" uses an Anthropic-compatible proxy. Some Claude Code features (thinking, context1m, code mode) may not be fully supported.`,
+        detail: `Matched preset: ${matchedPreset.name}. This provider proxies requests through the Anthropic wire protocol but the upstream model may not support all features.`,
+      });
+    }
   }
 
   // Check resolve path
@@ -379,11 +425,20 @@ async function runProviderProbe(): Promise<ProbeResult> {
     const label = resolved.provider
       ? `"${resolved.provider.name}" (${resolved.protocol})`
       : 'environment variables';
+    const isEnvMode = !resolved.provider;
+    const isOfficialAnthropic = resolved.provider?.base_url === 'https://api.anthropic.com';
+    // Warn about missing model for non-env, non-official-Anthropic providers
+    const modelMissingSeverity: Severity =
+      !resolved.model && !isEnvMode && !isOfficialAnthropic ? 'warn' : 'ok';
     findings.push({
-      severity: 'ok',
+      severity: modelMissingSeverity,
       code: 'provider.resolve-ok',
       message: `Provider resolution path: ${label}`,
-      detail: resolved.model ? `Model: ${resolved.model}` : 'No model selected',
+      detail: resolved.model
+        ? `Model: ${resolved.model}`
+        : isEnvMode || isOfficialAnthropic
+          ? 'No model selected (will use provider defaults)'
+          : 'No model selected — third-party providers may require an explicit model name',
     });
   } catch (err) {
     findings.push({
@@ -576,6 +631,221 @@ async function runNetworkProbe(): Promise<ProbeResult> {
   };
 }
 
+// ── Live Probe ──────────────────────────────────────────────────
+
+/** Last classified error from the live probe, exposed for the export route. */
+let lastLiveProbeError: ClassifiedError | null = null;
+
+export function getLastLiveProbeError(): ClassifiedError | null {
+  return lastLiveProbeError;
+}
+
+/**
+ * Sanitize env values: strip control chars and drop non-string values.
+ */
+function sanitizeEnvForProbe(env: Record<string, string>): Record<string, string> {
+  const clean: Record<string, string> = {};
+  for (const [key, value] of Object.entries(env)) {
+    if (typeof value === 'string') {
+      clean[key] = value.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '');
+    }
+  }
+  return clean;
+}
+
+/**
+ * On Windows, resolve .cmd wrapper to the underlying .js script.
+ */
+function resolveScriptFromCmd(cmdPath: string): string | undefined {
+  try {
+    const content = fs.readFileSync(cmdPath, 'utf-8');
+    const cmdDir = path.dirname(cmdPath);
+    const patterns = [
+      /"%~dp0\\([^"]*claude[^"]*\.js)"/i,
+      /%~dp0\\(\S*claude\S*\.js)/i,
+      /"%dp0%\\([^"]*claude[^"]*\.js)"/i,
+    ];
+    for (const re of patterns) {
+      const m = content.match(re);
+      if (m) {
+        const resolved = path.normalize(path.join(cmdDir, m[1]));
+        if (fs.existsSync(resolved)) return resolved;
+      }
+    }
+  } catch {
+    // ignore read errors
+  }
+  return undefined;
+}
+
+/**
+ * Live probe — spawns a minimal Claude Code process to verify the
+ * provider actually works at runtime, not just in config.
+ */
+async function runLiveProbe(): Promise<ProbeResult> {
+  const findings: Finding[] = [];
+  const start = Date.now();
+  lastLiveProbeError = null;
+
+  // 1. Resolve the current provider
+  let resolved;
+  try {
+    resolved = resolveForClaudeCode();
+  } catch (err) {
+    findings.push({
+      severity: 'warn',
+      code: 'live.resolve-failed',
+      message: 'Live probe skipped — could not resolve provider',
+      detail: err instanceof Error ? err.message : String(err),
+    });
+    return { probe: 'live', severity: probeSeverity(findings), findings, durationMs: Date.now() - start };
+  }
+
+  // 2. Skip if no credentials
+  if (!resolved.hasCredentials) {
+    findings.push({
+      severity: 'ok',
+      code: 'live.skipped',
+      message: 'Live probe skipped — no credentials configured',
+    });
+    return { probe: 'live', severity: probeSeverity(findings), findings, durationMs: Date.now() - start };
+  }
+
+  // 3. Skip if no CLI binary
+  const claudePath = findClaudeBinary();
+  if (!claudePath) {
+    findings.push({
+      severity: 'warn',
+      code: 'live.no-cli',
+      message: 'Live probe skipped — Claude CLI binary not found',
+    });
+    return { probe: 'live', severity: probeSeverity(findings), findings, durationMs: Date.now() - start };
+  }
+
+  // 4. Build env
+  const sdkEnv: Record<string, string> = { ...process.env as Record<string, string> };
+  if (!sdkEnv.HOME) sdkEnv.HOME = os.homedir();
+  if (!sdkEnv.USERPROFILE) sdkEnv.USERPROFILE = os.homedir();
+  sdkEnv.PATH = getExpandedPath();
+  delete sdkEnv.CLAUDECODE;
+
+  if (process.platform === 'win32' && !process.env.CLAUDE_CODE_GIT_BASH_PATH) {
+    const gitBashPath = findGitBash();
+    if (gitBashPath) sdkEnv.CLAUDE_CODE_GIT_BASH_PATH = gitBashPath;
+  }
+
+  const resolvedEnv = toClaudeCodeEnv(sdkEnv, resolved);
+  Object.assign(sdkEnv, resolvedEnv);
+
+  // 5. Build query options
+  const LIVE_PROBE_TIMEOUT = 15_000;
+  const abortController = new AbortController();
+  const timeoutId = setTimeout(() => abortController.abort(), LIVE_PROBE_TIMEOUT);
+
+  // Capture stderr (last 500 chars)
+  let stderrBuf = '';
+  const stderrCallback = (data: string) => {
+    stderrBuf += data;
+    if (stderrBuf.length > 500) {
+      stderrBuf = stderrBuf.slice(-500);
+    }
+  };
+
+  const queryOptions: Options = {
+    cwd: os.tmpdir(),
+    abortController,
+    permissionMode: 'default',
+    env: sanitizeEnvForProbe(sdkEnv),
+    maxTurns: 1,
+    stderr: stderrCallback,
+  };
+
+  // Resolve executable path (handle Windows .cmd wrappers)
+  const ext = path.extname(claudePath).toLowerCase();
+  if (ext === '.cmd' || ext === '.bat') {
+    const scriptPath = resolveScriptFromCmd(claudePath);
+    if (scriptPath) queryOptions.pathToClaudeCodeExecutable = scriptPath;
+  } else {
+    queryOptions.pathToClaudeCodeExecutable = claudePath;
+  }
+
+  // 6. Run the probe
+  try {
+    const conversation = query({
+      prompt: 'Say OK',
+      options: queryOptions,
+    });
+
+    let gotResult = false;
+    for await (const msg of conversation) {
+      if (msg.type === 'result' && 'result' in msg) {
+        const result = (msg as SDKResultSuccess).result || '';
+        gotResult = !!result;
+      }
+    }
+
+    clearTimeout(timeoutId);
+
+    if (gotResult) {
+      findings.push({
+        severity: 'ok',
+        code: 'live.passed',
+        message: 'Live test passed — model responded',
+        detail: resolved.provider
+          ? `Provider: "${resolved.provider.name}" (${resolved.protocol})`
+          : `Environment mode (${resolved.protocol})`,
+      });
+    } else {
+      findings.push({
+        severity: 'warn',
+        code: 'live.empty-response',
+        message: 'Live test completed but model returned empty response',
+        detail: stderrBuf ? `stderr: ${stderrBuf}` : undefined,
+      });
+    }
+  } catch (err) {
+    clearTimeout(timeoutId);
+
+    // Check if it was our timeout
+    const wasTimeout = abortController.signal.aborted;
+
+    if (wasTimeout) {
+      findings.push({
+        severity: 'warn',
+        code: 'live.timeout',
+        message: `Live probe timed out after ${LIVE_PROBE_TIMEOUT / 1000}s`,
+        detail: stderrBuf ? `stderr: ${stderrBuf}` : 'The provider may be slow or unresponsive',
+      });
+    } else {
+      // Classify the error
+      const classified = classifyError({
+        error: err,
+        stderr: stderrBuf,
+        providerName: resolved.provider?.name,
+        baseUrl: resolved.provider?.base_url,
+      });
+      lastLiveProbeError = classified;
+
+      findings.push({
+        severity: 'error',
+        code: 'live.failed',
+        message: `Live test failed — ${classified.category}: ${classified.userMessage}`,
+        detail: [
+          classified.actionHint,
+          stderrBuf ? `stderr: ${stderrBuf}` : '',
+        ].filter(Boolean).join('\n'),
+      });
+    }
+  }
+
+  return {
+    probe: 'live',
+    severity: probeSeverity(findings),
+    findings,
+    durationMs: Date.now() - start,
+  };
+}
+
 // ── Repair Actions ──────────────────────────────────────────────
 
 const REPAIR_ACTIONS: RepairAction[] = [
@@ -712,6 +982,7 @@ export async function runDiagnosis(): Promise<DiagnosisResult> {
     runProviderProbe(),
     runFeaturesProbe(),
     runNetworkProbe(),
+    runLiveProbe(),
   ]);
 
   let overallSeverity: Severity = 'ok';

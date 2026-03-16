@@ -1,6 +1,6 @@
 import os from 'os';
 import { NextResponse } from 'next/server';
-import { runDiagnosis } from '@/lib/provider-doctor';
+import { runDiagnosis, getLastLiveProbeError } from '@/lib/provider-doctor';
 import { getRecentLogs } from '@/lib/runtime-log';
 import { resolveProvider } from '@/lib/provider-resolver';
 
@@ -109,6 +109,9 @@ export async function GET() {
     // Resolve current provider chain (no raw keys thanks to sanitization)
     const providerResolution = resolveProvider();
 
+    // Capture live probe error (if any) for debugging
+    const liveProbeError = getLastLiveProbeError();
+
     // Build the export package
     const exportPackage = {
       diagnosis: sanitizeValue(diagnosis),
@@ -125,6 +128,15 @@ export async function GET() {
         providerName: providerResolution.provider?.name,
         providerType: providerResolution.provider?.provider_type,
       }),
+      liveProbeError: liveProbeError ? sanitizeValue({
+        category: liveProbeError.category,
+        userMessage: liveProbeError.userMessage,
+        actionHint: liveProbeError.actionHint,
+        retryable: liveProbeError.retryable,
+        providerName: liveProbeError.providerName,
+        details: liveProbeError.details,
+        rawMessage: liveProbeError.rawMessage,
+      }) : null,
       exportedAt: new Date().toISOString(),
     };
 
