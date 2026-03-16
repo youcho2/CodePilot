@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { runDiagnosis, runLiveProbe } from '@/lib/provider-doctor';
+import { runDiagnosis, runLiveProbe, setLastDiagnosisResult } from '@/lib/provider-doctor';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -22,6 +22,8 @@ export async function GET(request: NextRequest) {
       if (liveResult.severity === 'error') result.overallSeverity = 'error';
       else if (liveResult.severity === 'warn' && result.overallSeverity === 'ok') result.overallSeverity = 'warn';
       result.durationMs = Date.now() - new Date(result.timestamp).getTime();
+      // Update cache so export includes the live probe result
+      setLastDiagnosisResult(result);
     }
 
     return NextResponse.json(result);

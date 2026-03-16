@@ -647,6 +647,10 @@ export function getLastDiagnosisResult(): DiagnosisResult | null {
   return lastDiagnosisResult;
 }
 
+export function setLastDiagnosisResult(result: DiagnosisResult): void {
+  lastDiagnosisResult = result;
+}
+
 /**
  * Sanitize env values: strip control chars and drop non-string values.
  */

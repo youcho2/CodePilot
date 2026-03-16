@@ -521,7 +521,7 @@ export default function NewChatPage() {
                         'CLI_NOT_FOUND', 'UNSUPPORTED_FEATURE',
                       ]);
                       if (diagCategories.has(parsed.category)) {
-                        errorDisplay += '\n\n💡 Go to **Settings → Providers → Run Diagnostics** for detailed troubleshooting.';
+                        errorDisplay += '\n\n💡 [Run Provider Diagnostics](/settings#providers) to troubleshoot, or check the [Provider Setup Guide](https://github.com/op7418/CodePilot/wiki/Provider-Setup).';
                       }
                     } else {
                       errorDisplay = event.data;

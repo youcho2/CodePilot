@@ -410,6 +410,16 @@ export function ProviderDoctorDialog({ open, onOpenChange }: ProviderDoctorDialo
                   GitHub Issues
                 </a>
                 {" "}提交问题报告，并附上导出的日志文件。
+                <br />
+                📖 查看{" "}
+                <a
+                  href="https://github.com/op7418/CodePilot/wiki/Provider-Setup"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="underline text-foreground hover:no-underline"
+                >
+                  服务商配置指南
+                </a>
               </>
             ) : (
               <>
@@ -426,6 +436,16 @@ export function ProviderDoctorDialog({ open, onOpenChange }: ProviderDoctorDialo
                   open a GitHub Issue
                 </a>
                 {" "}and attach the exported log file.
+                <br />
+                📖 See the{" "}
+                <a
+                  href="https://github.com/op7418/CodePilot/wiki/Provider-Setup"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="underline text-foreground hover:no-underline"
+                >
+                  Provider Setup Guide
+                </a>
               </>
             )}
           </div>
