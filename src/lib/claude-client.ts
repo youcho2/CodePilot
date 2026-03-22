@@ -23,6 +23,7 @@ import { resolveForClaudeCode, toClaudeCodeEnv } from './provider-resolver';
 import { findClaudeBinary, findGitBash, getExpandedPath, invalidateClaudePathCache } from './platform';
 import { notifyPermissionRequest, notifyGeneric } from './telegram-bot';
 import { classifyError, formatClassifiedError } from './error-classifier';
+import { resolveWorkingDirectory } from './working-directory';
 import os from 'os';
 import fs from 'fs';
 import path from 'path';
@@ -409,6 +410,16 @@ export function streamClaude(options: ClaudeStreamOptions): ReadableStream<strin
       });
 
       try {
+        const resolvedWorkingDirectory = resolveWorkingDirectory([
+          { path: workingDirectory, source: 'requested' },
+        ]);
+
+        if (workingDirectory && resolvedWorkingDirectory.source !== 'requested') {
+          console.warn(
+            `[claude-client] Working directory "${workingDirectory}" is unavailable, falling back to "${resolvedWorkingDirectory.path}"`,
+          );
+        }
+
         // Build env for the Claude Code subprocess.
         // Start with process.env (includes user shell env from Electron's loadUserShellEnv).
         // Then overlay any API config the user set in CodePilot settings (optional).
@@ -451,7 +462,7 @@ export function streamClaude(options: ClaudeStreamOptions): ReadableStream<strin
         const skipPermissions = globalSkip || !!sessionBypassPermissions;
 
         const queryOptions: Options = {
-          cwd: workingDirectory || os.homedir(),
+          cwd: resolvedWorkingDirectory.path,
           abortController,
           includePartialMessages: true,
           permissionMode: skipPermissions
@@ -575,8 +586,10 @@ export function streamClaude(options: ClaudeStreamOptions): ReadableStream<strin
         // Resume depends on session context (cwd/project scope), so if the
         // original working_directory no longer exists, resume will fail.
         let shouldResume = !!sdkSessionId;
-        if (shouldResume && workingDirectory && !fs.existsSync(workingDirectory)) {
-          console.warn(`[claude-client] Working directory "${workingDirectory}" does not exist, skipping resume`);
+        if (shouldResume && workingDirectory && resolvedWorkingDirectory.source !== 'requested') {
+          console.warn(
+            `[claude-client] Working directory "${workingDirectory}" does not exist, skipping resume`,
+          );
           shouldResume = false;
           if (sessionId) {
             try { updateSdkSessionId(sessionId, ''); } catch { /* best effort */ }
@@ -661,7 +674,7 @@ export function streamClaude(options: ClaudeStreamOptions): ReadableStream<strin
         const telegramOpts = {
           sessionId,
           sessionTitle: undefined as string | undefined,
-          workingDirectory,
+          workingDirectory: resolvedWorkingDirectory.path,
         };
 
         // No queryOptions.hooks — all hook types (Notification, PostToolUse) use
@@ -709,7 +722,7 @@ export function streamClaude(options: ClaudeStreamOptions): ReadableStream<strin
 
           let textPrompt = basePrompt;
           if (nonImageFiles.length > 0) {
-            const workDir = workingDirectory || os.homedir();
+            const workDir = resolvedWorkingDirectory.path;
             const savedPaths = getUploadedFilePaths(nonImageFiles, workDir);
             const fileReferences = savedPaths
               .map((p, i) => `[User attached file: ${p} (${nonImageFiles[i].name})]`)
@@ -726,7 +739,7 @@ export function streamClaude(options: ClaudeStreamOptions): ReadableStream<strin
             const textWithImageRefs = imageAgentMode
               ? textPrompt
               : (() => {
-                  const workDir = workingDirectory || os.homedir();
+                  const workDir = resolvedWorkingDirectory.path;
                   const imagePaths = getUploadedFilePaths(imageFiles, workDir);
                   const imageReferences = imagePaths
                     .map((p, i) => `[User attached image: ${p} (${imageFiles[i].name})]`)

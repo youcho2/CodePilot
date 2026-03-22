@@ -825,7 +825,9 @@ export function setDefaultProviderId(id: string): void {
 export function updateSessionWorkingDirectory(id: string, workingDirectory: string): void {
   const db = getDb();
   const projectName = path.basename(workingDirectory);
-  db.prepare('UPDATE chat_sessions SET working_directory = ?, project_name = ? WHERE id = ?').run(workingDirectory, projectName, id);
+  db.prepare(
+    'UPDATE chat_sessions SET working_directory = ?, sdk_cwd = ?, project_name = ? WHERE id = ?'
+  ).run(workingDirectory, workingDirectory, projectName, id);
 }
 
 export function updateSessionMode(id: string, mode: string): void {
