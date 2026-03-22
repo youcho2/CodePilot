@@ -42,8 +42,8 @@ const zh: Record<TranslationKey, string> = {
   'messageInput.reviewDesc': '审查代码质量',
   'messageInput.terminalSetupDesc': '配置终端设置',
   'messageInput.memoryDesc': '编辑项目记忆文件',
-  'messageInput.modeCode': '代码',
-  'messageInput.modePlan': '计划',
+  // 'messageInput.modeCode': '代码', // Reserved: mode UI removed in latency remediation
+  // 'messageInput.modePlan': '计划', // Reserved: mode UI removed in latency remediation
   'messageInput.aiSuggested': 'AI 推荐',
 
   // ── Streaming message ───────────────────────────────────────
@@ -914,6 +914,8 @@ const zh: Record<TranslationKey, string> = {
   'mcp.noRuntimeStatus': '暂无运行状态信息',
   'mcp.reconnect': '重连',
   'mcp.enable': '启用',
+  'mcp.enabled': '已启用',
+  'mcp.disabled': '已禁用',
 
   // ── SDK Capabilities: Thinking ────────────────────────────
   'settings.thinkingMode': '思考模式',

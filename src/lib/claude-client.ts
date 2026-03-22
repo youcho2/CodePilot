@@ -17,7 +17,7 @@ import type { ClaudeStreamOptions, SSEEvent, TokenUsage, MCPServerConfig, Permis
 import { isImageFile } from '@/types';
 import { registerPendingPermission } from './permission-registry';
 import { registerConversation, unregisterConversation } from './conversation-registry';
-import { captureCapabilities, setCachedPlugins } from './agent-sdk-capabilities';
+import { captureCapabilities, isCacheFresh, setCachedPlugins } from './agent-sdk-capabilities';
 import { getSetting, updateSdkSessionId, createPermissionRequest } from './db';
 import { resolveForClaudeCode, toClaudeCodeEnv } from './provider-resolver';
 import { findClaudeBinary, findGitBash, getExpandedPath, invalidateClaudePathCache } from './platform';
@@ -542,9 +542,10 @@ export function streamClaude(options: ClaudeStreamOptions): ReadableStream<strin
         if (thinking) {
           queryOptions.thinking = thinking;
         }
-        if (effort) {
-          queryOptions.effort = effort;
-        }
+        // Always set effort explicitly to prevent user-level ~/.claude/settings.json
+        // from injecting 'high' effort via settingSources inheritance.
+        // UI-selected effort takes priority; otherwise default to 'medium'.
+        queryOptions.effort = effort || 'medium';
         if (outputFormat) {
           queryOptions.outputFormat = outputFormat;
         }
@@ -591,6 +592,15 @@ export function streamClaude(options: ClaudeStreamOptions): ReadableStream<strin
           }));
         }
         if (shouldResume) {
+          // Emit visible status so the user sees feedback during resume initialization
+          controller.enqueue(formatSSE({
+            type: 'status',
+            data: JSON.stringify({
+              notification: true,
+              title: 'Resuming session',
+              message: 'Reconnecting to previous conversation...',
+            }),
+          }));
           queryOptions.resume = sdkSessionId;
         }
 
@@ -814,12 +824,10 @@ export function streamClaude(options: ClaudeStreamOptions): ReadableStream<strin
 
         registerConversation(sessionId, conversation);
 
-        // Fire-and-forget: capture SDK capabilities for UI consumption
-        // Scope to provider so different providers don't pollute each other's cache
+        // Defer capability capture until first assistant response to avoid
+        // competing with first-token latency. Skip entirely if cache is fresh.
         const capProviderId = resolved.provider?.api_key ? resolved.provider.id || 'custom' : 'env';
-        captureCapabilities(sessionId, conversation, capProviderId).catch((err) => {
-          console.warn('[claude-client] Capability capture failed:', err);
-        });
+        let capturePending = !isCacheFresh(capProviderId);
 
         let tokenUsage: TokenUsage | null = null;
         // Track pending TodoWrite tool_use_ids so we can sync after successful execution
@@ -831,6 +839,13 @@ export function streamClaude(options: ClaudeStreamOptions): ReadableStream<strin
 
           switch (message.type) {
             case 'assistant': {
+              // Deferred capability capture: trigger after first assistant message
+              if (capturePending) {
+                capturePending = false;
+                captureCapabilities(sessionId, conversation, capProviderId).catch((err) => {
+                  console.warn('[claude-client] Deferred capability capture failed:', err);
+                });
+              }
               const assistantMsg = message as SDKAssistantMessage;
               // Text deltas are handled by stream_event for real-time streaming.
               // Here we only process tool_use blocks.

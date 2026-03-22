@@ -95,6 +95,26 @@ export function McpManager() {
     setEditorOpen(true);
   }
 
+  const handlePersistentToggle = useCallback(async (name: string, enabled: boolean) => {
+    const updated = { ...servers };
+    updated[name] = { ...updated[name], enabled };
+    setServers(updated);
+    try {
+      const res = await fetch('/api/plugins/mcp', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mcpServers: updated }),
+      });
+      if (!res.ok) {
+        throw new Error(`Server returned ${res.status}`);
+      }
+    } catch (err) {
+      console.error('Failed to toggle MCP server:', err);
+      // Revert on failure
+      fetchServers();
+    }
+  }, [servers, fetchServers]);
+
   async function handleDelete(name: string) {
     try {
       const res = await fetch(`/api/plugins/mcp/${encodeURIComponent(name)}`, {
@@ -246,6 +266,7 @@ export function McpManager() {
               servers={servers}
               onEdit={handleEdit}
               onDelete={handleDelete}
+              onToggleEnabled={handlePersistentToggle}
               runtimeStatus={runtimeStatus}
               activeSessionId={activeSessionId || undefined}
             />
