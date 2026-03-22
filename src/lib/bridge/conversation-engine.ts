@@ -114,6 +114,17 @@ export interface ConversationResult {
 }
 
 /**
+ * Resolve and validate working directory from multiple candidates.
+ * Returns the first existing directory, or HOME as last resort.
+ */
+function resolveWorkingDirectory(...candidates: (string | undefined | null)[]): string {
+  for (const dir of candidates) {
+    if (dir && fs.existsSync(dir)) return dir;
+  }
+  return os.homedir();
+}
+
+/**
  * Process an inbound message: send to Claude, consume the response stream,
  * save to DB, and return the result.
  */
@@ -229,13 +240,30 @@ export async function processMessage(
     // user-level MCP tools, matching the desktop chat route behavior.
     const mcpServers = loadMcpServers();
 
+    // Resolve a valid working directory from multiple candidates
+    const effectiveCwd = resolveWorkingDirectory(
+      binding.workingDirectory,
+      session?.working_directory,
+      getSetting('bridge_default_work_dir'),
+    );
+
+    // If the effective cwd differs from what the binding/session had, the
+    // original directory is gone — clear sdkSessionId to prevent stale resume.
+    const originalCwd = binding.workingDirectory || session?.working_directory;
+    const cwdChanged = originalCwd && effectiveCwd !== originalCwd;
+    const effectiveSdkSessionId = cwdChanged ? undefined : (binding.sdkSessionId || undefined);
+
+    if (cwdChanged) {
+      console.log(`[conversation-engine] CWD changed from "${originalCwd}" to "${effectiveCwd}", clearing sdkSessionId`);
+    }
+
     const stream = streamClaude({
       prompt: text,
       sessionId,
-      sdkSessionId: binding.sdkSessionId || undefined,
+      sdkSessionId: effectiveSdkSessionId,
       model: effectiveModel,
       systemPrompt: session?.system_prompt || undefined,
-      workingDirectory: binding.workingDirectory || session?.working_directory || undefined,
+      workingDirectory: effectiveCwd,
       abortController,
       permissionMode,
       provider: resolvedProvider,
@@ -398,10 +426,17 @@ async function consumeStream(
             break;
           }
 
-          case 'error':
+          case 'error': {
             hasError = true;
-            errorMessage = event.data || 'Unknown error';
+            // Parse structured error JSON to extract a user-friendly message
+            try {
+              const errObj = JSON.parse(event.data);
+              errorMessage = errObj.userMessage || errObj._formattedMessage || errObj.message || event.data;
+            } catch {
+              errorMessage = event.data || 'Unknown error';
+            }
             break;
+          }
 
           case 'result': {
             try {
