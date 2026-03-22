@@ -228,7 +228,7 @@ export function McpManager() {
             )}
           </div>
           <p className="text-sm text-muted-foreground mt-0.5">
-            Configure Model Context Protocol servers for Claude
+            {t('mcp.managerDesc' as TranslationKey)}
           </p>
         </div>
         <Button size="sm" className="gap-1" onClick={handleAdd}>

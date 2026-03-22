@@ -519,12 +519,12 @@ export function streamClaude(options: ClaudeStreamOptions): ReadableStream<strin
         if (generativeUI !== false) {
           const needsWidgetSpecs = (() => {
             const widgetKeywords = /可视化|图表|流程图|时间线|架构图|对比|visualiz|diagram|chart|flowchart|timeline|infographic|interactive|widget|show-widget|hierarchy|dashboard/i;
-            // Check current prompt
+            // Check current user prompt
             if (widgetKeywords.test(prompt)) return true;
             // Check if conversation already has widgets (resume context)
             if (conversationHistory?.some(m => m.content.includes('show-widget'))) return true;
-            // Check system prompt for image/widget agent mode
-            if (systemPrompt && widgetKeywords.test(systemPrompt)) return true;
+            // Check explicit widget/image-agent mode
+            if (imageAgentMode) return true;
             return false;
           })();
 

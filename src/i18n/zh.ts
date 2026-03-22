@@ -916,6 +916,7 @@ const zh: Record<TranslationKey, string> = {
   'mcp.enable': '启用',
   'mcp.enabled': '已启用',
   'mcp.disabled': '已禁用',
+  'mcp.managerDesc': '开关控制 CodePilot 注入的 MCP 服务。Claude Code 配置（~/.claude.json）中的服务可能仍会被 SDK 自动加载。',
 
   // ── SDK Capabilities: Thinking ────────────────────────────
   'settings.thinkingMode': '思考模式',

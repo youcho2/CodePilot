@@ -919,6 +919,7 @@ const en = {
   'mcp.enable': 'Enable',
   'mcp.enabled': 'Enabled',
   'mcp.disabled': 'Disabled',
+  'mcp.managerDesc': 'Toggle controls CodePilot MCP injection. Servers in your Claude Code config (~/.claude.json) may still be loaded by the SDK independently.',
 
   // ── SDK Capabilities: Thinking ────────────────────────────
   'settings.thinkingMode': 'Thinking Mode',
