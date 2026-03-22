@@ -1084,3 +1084,27 @@ export interface GitWorktree {
   bare: boolean;
   dirty: boolean;
 }
+
+// ==========================================
+// WeChat Bridge Types
+// ==========================================
+
+export interface WeixinAccount {
+  accountId: string;
+  userId: string;
+  baseUrl: string;
+  cdnBaseUrl: string;
+  token: string;
+  name: string;
+  enabled: boolean;
+  lastLoginAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface WeixinContextTokenRecord {
+  accountId: string;
+  peerUserId: string;
+  contextToken: string;
+  updatedAt: string;
+}

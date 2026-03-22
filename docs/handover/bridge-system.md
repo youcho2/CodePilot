@@ -110,6 +110,40 @@ Discord 消息 → discord.js Client (Gateway WebSocket)
 - **授权默认拒绝**：空白允许列表 = 拒绝所有（安全优先，同飞书模式）
 - **`!` 命令别名**：在 adapter 层规范化为 `/` 命令后入队——bridge-manager 命令处理器无需改动
 
+### WeChat Adapter
+
+**Architecture**: Native `BaseChannelAdapter` implementation using HTTP long-polling.
+
+**Key files**:
+- `src/lib/bridge/adapters/weixin-adapter.ts` — Main adapter (multi-account worker model)
+- `src/lib/bridge/adapters/weixin/weixin-api.ts` — HTTP protocol client
+- `src/lib/bridge/adapters/weixin/weixin-auth.ts` — QR code login flow
+- `src/lib/bridge/adapters/weixin/weixin-media.ts` — AES-128-ECB media encryption/decryption
+- `src/lib/bridge/adapters/weixin/weixin-ids.ts` — Synthetic chatId encode/decode
+- `src/lib/bridge/adapters/weixin/weixin-session-guard.ts` — Account pause management
+
+**Multi-account model**: Each QR-linked WeChat account runs its own long-polling worker. Accounts are stored in the `weixin_accounts` table. The adapter uses synthetic chatId format `weixin::<accountId>::<peerUserId>` to isolate conversations across accounts without modifying the `channel_bindings` schema.
+
+**Data persistence**:
+- `weixin_accounts` — Bot credentials, base URLs, enabled status
+- `weixin_context_tokens` — Per-(account, peer) context tokens (required for sending messages)
+- `channel_offsets` with key `weixin:<accountId>` — Long-poll cursor (`get_updates_buf`)
+
+**Authentication**: QR code login via WeChat ilink bot API. The QR login flow is managed by `weixin-auth.ts` with active sessions stored in `globalThis` to survive Next.js HMR. Login results are persisted to `weixin_accounts`.
+
+**Message flow**:
+- Inbound: `getUpdates` long-poll → message standardization → context_token persistence → media decryption → `InboundMessage` queue
+- Outbound: Decode synthetic chatId → retrieve context_token from DB → `sendTextMessage` (plain text only)
+
+**Media**: AES-128-ECB encryption for CDN upload/download. Inbound media (images, files, videos, voice) is decrypted and converted to `FileAttachment`. Outbound media is text-only in this version.
+
+**Known limitations**:
+- Private chat only (no groups)
+- No streaming preview (WeChat doesn't support message editing)
+- No inline buttons (permissions use `/perm` text fallback)
+- Session expiry (errcode -14) pauses account for 60 minutes
+- Real QR code scanning requires a WeChat account with ilink bot access
+
 ### Telegram
 
 ```

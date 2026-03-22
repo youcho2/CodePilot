@@ -5,6 +5,7 @@
  * the corresponding ChannelBinding (and underlying chat_session).
  */
 
+import fs from 'fs';
 import type { ChannelAddress, ChannelBinding, ChannelType } from './types';
 import {
   getChannelBinding,
@@ -15,20 +16,61 @@ import {
   createSession,
   getSetting,
   updateSessionProviderId,
+  updateSessionWorkingDirectory,
+  updateSdkSessionId,
 } from '../db';
+
+/**
+ * Resolve the first existing directory from a list of candidates.
+ */
+function resolveValidCwd(...candidates: (string | undefined | null)[]): string {
+  for (const dir of candidates) {
+    if (dir && fs.existsSync(dir)) return dir;
+  }
+  return process.env.HOME || '';
+}
 
 /**
  * Resolve an inbound address to a ChannelBinding.
  * If no binding exists, auto-creates a new session and binding.
+ * Self-heals stale workingDirectory / sdkSessionId in existing bindings.
  */
 export function resolve(address: ChannelAddress): ChannelBinding {
   const existing = getChannelBinding(address.channelType, address.chatId);
   if (existing) {
-    // Verify the linked session still exists; if not, create a new one
     const session = getSession(existing.codepilotSessionId);
-    if (session) return existing;
-    // Session was deleted — recreate
-    return createBinding(address);
+    if (!session) {
+      // Session was deleted — recreate
+      return createBinding(address);
+    }
+
+    // Self-heal: validate workingDirectory and fix stale state
+    const currentCwd = existing.workingDirectory;
+    if (currentCwd && !fs.existsSync(currentCwd)) {
+      const validCwd = resolveValidCwd(
+        session.working_directory,
+        getSetting('bridge_default_work_dir'),
+      );
+      console.log(`[channel-router] Self-healing stale cwd "${currentCwd}" → "${validCwd}" for binding ${existing.id}`);
+
+      // Update binding
+      updateChannelBinding(existing.id, {
+        workingDirectory: validCwd,
+        sdkSessionId: '', // Clear resume — old session context is invalid
+      });
+
+      // Update session
+      updateSessionWorkingDirectory(existing.codepilotSessionId, validCwd);
+      updateSdkSessionId(existing.codepilotSessionId, '');
+
+      return {
+        ...existing,
+        workingDirectory: validCwd,
+        sdkSessionId: '',
+      };
+    }
+
+    return existing;
   }
   return createBinding(address);
 }
