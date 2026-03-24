@@ -372,6 +372,9 @@ const zh: Record<TranslationKey, string> = {
   'update.readyToInstall': 'CodePilot v{version} 已就绪 — 重启以完成更新',
   'update.installUpdate': '下载并安装',
   'update.later': '稍后',
+  'update.rosettaWarning': 'CodePilot 当前正通过 Rosetta 在这台 Apple Silicon Mac 上运行。安装 arm64 版本可获得更好的响应速度。',
+  'update.recommendedAsset': '推荐下载：{asset}',
+  'update.getRecommendedBuild': '下载推荐版本',
 
   // ── Image Generation ──────────────────────────────────────
   'imageGen.toggle': '图片生成',

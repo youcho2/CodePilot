@@ -375,6 +375,9 @@ const en = {
   'update.readyToInstall': 'CodePilot v{version} is ready — restart to update',
   'update.installUpdate': 'Download & Install',
   'update.later': 'Later',
+  'update.rosettaWarning': 'CodePilot is running through Rosetta on this Apple Silicon Mac. Install the arm64 build for better responsiveness.',
+  'update.recommendedAsset': 'Recommended download: {asset}',
+  'update.getRecommendedBuild': 'Get Recommended Build',
 
   // ── Image Generation ──────────────────────────────────────
   'imageGen.toggle': 'Image Generation',
