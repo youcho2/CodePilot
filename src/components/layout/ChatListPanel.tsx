@@ -292,23 +292,29 @@ export function ChatListPanel({ open, width }: ChatListPanelProps) {
 
   const handleRemoveProject = async (workingDirectory: string) => {
     if (!confirm(`Remove project "${workingDirectory.split('/').pop()}" and all its conversations?`)) return;
-    // Delete all sessions in this project
     const projectSessions = sessions.filter((s) => s.working_directory === workingDirectory);
+    const deletedIds = new Set<string>();
     for (const session of projectSessions) {
       try {
-        await fetch(`/api/chat/sessions/${session.id}`, { method: "DELETE" });
-        if (isInSplit(session.id)) {
-          removeFromSplit(session.id);
+        const res = await fetch(`/api/chat/sessions/${session.id}`, { method: "DELETE" });
+        if (res.ok) {
+          deletedIds.add(session.id);
+          if (isInSplit(session.id)) {
+            removeFromSplit(session.id);
+          }
         }
       } catch {
         // Continue with remaining
       }
     }
-    setSessions((prev) => prev.filter((s) => s.working_directory !== workingDirectory));
-    if (pathname?.startsWith('/chat/')) {
-      const currentSessionId = pathname.split('/chat/')[1];
-      if (projectSessions.some((s) => s.id === currentSessionId)) {
-        router.push("/chat");
+    // Only remove sessions that were successfully deleted from backend
+    if (deletedIds.size > 0) {
+      setSessions((prev) => prev.filter((s) => !deletedIds.has(s.id)));
+      if (pathname?.startsWith('/chat/')) {
+        const currentSessionId = pathname.split('/chat/')[1];
+        if (deletedIds.has(currentSessionId)) {
+          router.push("/chat");
+        }
       }
     }
   };
