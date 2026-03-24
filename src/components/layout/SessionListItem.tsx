@@ -68,7 +68,7 @@ export function SessionListItem({
       <Link
         href={`/chat/${session.id}`}
         className={cn(
-          "flex items-center gap-1.5 rounded-md pl-2 pr-8 py-1.5 transition-all duration-150 min-w-0",
+          "flex items-center gap-1.5 rounded-md pl-2 pr-2 py-1.5 transition-all duration-150 min-w-0",
           isActive
             ? "bg-sidebar-accent text-sidebar-accent-foreground"
             : "text-sidebar-foreground hover:bg-accent/50"
@@ -76,34 +76,33 @@ export function SessionListItem({
       >
         {/* Left icon area — streaming/approval indicators */}
         <span className="relative flex h-3.5 w-3.5 shrink-0 items-center justify-center">
-          {/* Streaming indicator */}
           {isSessionStreaming && (
             <span className="relative flex h-2 w-2">
               <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-status-success opacity-75" />
               <span className="relative inline-flex h-2 w-2 rounded-full bg-status-success" />
             </span>
           )}
-          {/* Approval indicator */}
           {needsApproval && !isSessionStreaming && (
             <span className="flex h-3.5 w-3.5 items-center justify-center rounded-full bg-status-warning-muted">
               <Bell size={10} className="text-status-warning-foreground" />
             </span>
           )}
         </span>
-        <div className="flex-1 min-w-0">
-          <span className="line-clamp-1 text-[13px] font-medium leading-tight break-all">
-            {session.title}
+        {/* Title — flex-1 + truncate ensures it shrinks */}
+        <span className="flex-1 min-w-0 line-clamp-1 text-[13px] font-medium leading-tight break-all">
+          {session.title}
+        </span>
+        {/* Right area — fixed width, time or dots swap via opacity */}
+        <span className="shrink-0 w-[38px] flex items-center justify-end">
+          <span className={cn(
+            "text-[11px] text-muted-foreground/40 truncate transition-opacity",
+            showActions ? "opacity-0" : "opacity-100"
+          )}>
+            {formatRelativeTime(session.updated_at, t)}
           </span>
-        </div>
-        {/* Timestamp (hidden when menu is showing) */}
-        <span className={cn(
-          "absolute right-2 text-[11px] text-muted-foreground/40 truncate transition-opacity",
-          showActions ? "opacity-0 pointer-events-none" : "opacity-100"
-        )}>
-          {formatRelativeTime(session.updated_at, t)}
         </span>
       </Link>
-      {/* Three-dot menu — positioned outside Link with higher z-index */}
+      {/* Three-dot menu — absolute over the right area */}
       <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
         <DropdownMenuTrigger asChild>
           <Button
