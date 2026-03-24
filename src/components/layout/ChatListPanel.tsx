@@ -272,6 +272,47 @@ export function ChatListPanel({ open, width }: ChatListPanelProps) {
     }
   };
 
+  const handleRenameSession = async (sessionId: string, newTitle: string) => {
+    try {
+      const res = await fetch(`/api/chat/sessions/${sessionId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title: newTitle }),
+      });
+      if (res.ok) {
+        setSessions((prev) =>
+          prev.map((s) => (s.id === sessionId ? { ...s, title: newTitle } : s))
+        );
+        window.dispatchEvent(new CustomEvent("session-updated"));
+      }
+    } catch {
+      // Silently fail
+    }
+  };
+
+  const handleRemoveProject = async (workingDirectory: string) => {
+    if (!confirm(`Remove project "${workingDirectory.split('/').pop()}" and all its conversations?`)) return;
+    // Delete all sessions in this project
+    const projectSessions = sessions.filter((s) => s.working_directory === workingDirectory);
+    for (const session of projectSessions) {
+      try {
+        await fetch(`/api/chat/sessions/${session.id}`, { method: "DELETE" });
+        if (isInSplit(session.id)) {
+          removeFromSplit(session.id);
+        }
+      } catch {
+        // Continue with remaining
+      }
+    }
+    setSessions((prev) => prev.filter((s) => s.working_directory !== workingDirectory));
+    if (pathname?.startsWith('/chat/')) {
+      const currentSessionId = pathname.split('/chat/')[1];
+      if (projectSessions.some((s) => s.id === currentSessionId)) {
+        router.push("/chat");
+      }
+    }
+  };
+
   const handleCreateSessionInProject = async (
     e: React.MouseEvent,
     workingDirectory: string
@@ -453,6 +494,7 @@ export function ChatListPanel({ open, width }: ChatListPanelProps) {
                     onMouseEnter={() => setHoveredFolder(group.workingDirectory)}
                     onMouseLeave={() => setHoveredFolder(null)}
                     onCreateSession={(e) => handleCreateSessionInProject(e, group.workingDirectory)}
+                    onRemoveProject={handleRemoveProject}
                   />
 
                   {/* Session items */}
@@ -477,6 +519,7 @@ export function ChatListPanel({ open, width }: ChatListPanelProps) {
                             onMouseEnter={() => setHoveredSession(session.id)}
                             onMouseLeave={() => setHoveredSession(null)}
                             onDelete={handleDeleteSession}
+                            onRename={handleRenameSession}
                             onAddToSplit={(s) => addToSplit({
                               sessionId: s.id,
                               title: s.title,
