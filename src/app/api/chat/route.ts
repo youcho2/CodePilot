@@ -120,11 +120,16 @@ export async function POST(request: NextRequest) {
       updateSessionProviderId(session_id, persistProviderId);
     }
 
-    // Resolve permission mode from session's mode setting.
-    // 'plan' → SDK plan mode (no tool execution, planning only)
-    // 'code' (default) → acceptEdits (auto-approve file edits)
-    const sessionMode = session.mode || 'code';
-    const permissionMode = sessionMode === 'plan' ? 'plan' : 'acceptEdits';
+    // Resolve permission mode from request body (sent by frontend on each message)
+    // or fall back to session's persisted mode from DB.
+    // Request body mode takes priority to avoid race condition: user switches mode
+    // then immediately sends — the PATCH may not have landed in DB yet.
+    const effectiveMode = mode || session.mode || 'code';
+    const permissionMode = effectiveMode === 'plan' ? 'plan' : 'acceptEdits';
+
+    // Plan mode takes precedence over full_access: if the user explicitly chose
+    // Plan, they expect no tool execution regardless of permission profile.
+    const bypassPermissions = session.permission_profile === 'full_access' && effectiveMode !== 'plan';
     const systemPromptOverride: string | undefined = undefined;
 
     const abortController = new AbortController();
@@ -204,7 +209,7 @@ export async function POST(request: NextRequest) {
       sessionProviderId: session.provider_id || undefined,
       mcpServers,
       conversationHistory: historyMsgs,
-      bypassPermissions: session.permission_profile === 'full_access',
+      bypassPermissions,
       thinking: thinking as ClaudeStreamOptions['thinking'],
       effort: effort as ClaudeStreamOptions['effort'],
       context1m: context_1m,
