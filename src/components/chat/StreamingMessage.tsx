@@ -15,7 +15,7 @@ import { BatchPlanInlinePreview } from './batch-image-gen/BatchPlanInlinePreview
 import { WidgetRenderer } from './WidgetRenderer';
 import { parseAllShowWidgets, computePartialWidgetKey } from './MessageItem';
 import { PENDING_KEY, buildReferenceImages } from '@/lib/image-ref-store';
-import type { PlannerOutput } from '@/types';
+import type { PlannerOutput, MediaBlock } from '@/types';
 
 interface ImageGenRequest {
   prompt: string;
@@ -98,6 +98,7 @@ interface ToolResultInfo {
   tool_use_id: string;
   content: string;
   is_error?: boolean;
+  media?: MediaBlock[];
 }
 
 interface StreamingMessageProps {
@@ -243,6 +244,7 @@ export function StreamingMessage({
                 input: tool.input,
                 result: result?.content,
                 isError: result?.is_error,
+                media: result?.media,
               };
             })}
             isStreaming={isStreaming}

@@ -13,7 +13,7 @@ import type {
   McpHttpServerConfig,
   McpServerConfig,
 } from '@anthropic-ai/claude-agent-sdk';
-import type { ClaudeStreamOptions, SSEEvent, TokenUsage, MCPServerConfig, PermissionRequestEvent, FileAttachment } from '@/types';
+import type { ClaudeStreamOptions, SSEEvent, TokenUsage, MCPServerConfig, PermissionRequestEvent, FileAttachment, MediaBlock } from '@/types';
 import { isImageFile } from '@/types';
 import { registerPendingPermission } from './permission-registry';
 import { registerConversation, unregisterConversation } from './conversation-registry';
@@ -908,13 +908,33 @@ export function streamClaude(options: ClaudeStreamOptions): ReadableStream<strin
                             .map((c: { text?: string }) => c.text)
                             .join('\n')
                         : String(block.content ?? '');
+
+                    // Extract media blocks (image/audio) from MCP tool results
+                    const mediaBlocks: MediaBlock[] = [];
+                    if (Array.isArray(block.content)) {
+                      for (const c of block.content) {
+                        const cb = c as { type: string; data?: string; mimeType?: string; media_type?: string };
+                        if ((cb.type === 'image' || cb.type === 'audio') && cb.data) {
+                          mediaBlocks.push({
+                            type: cb.type === 'audio' ? 'audio' : 'image',
+                            data: cb.data,
+                            mimeType: cb.mimeType || cb.media_type || (cb.type === 'image' ? 'image/png' : 'audio/wav'),
+                          });
+                        }
+                      }
+                    }
+
+                    const ssePayload: Record<string, unknown> = {
+                      tool_use_id: block.tool_use_id,
+                      content: resultContent,
+                      is_error: block.is_error || false,
+                    };
+                    if (mediaBlocks.length > 0) {
+                      ssePayload.media = mediaBlocks;
+                    }
                     controller.enqueue(formatSSE({
                       type: 'tool_result',
-                      data: JSON.stringify({
-                        tool_use_id: block.tool_use_id,
-                        content: resultContent,
-                        is_error: block.is_error || false,
-                      }),
+                      data: JSON.stringify(ssePayload),
                     }));
 
                     // Deferred TodoWrite sync: only emit task_update after successful execution

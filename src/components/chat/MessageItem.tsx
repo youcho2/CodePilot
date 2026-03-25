@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useCallback, useRef, useEffect, useMemo, memo } from 'react';
-import type { Message, TokenUsage, FileAttachment } from '@/types';
+import type { Message, TokenUsage, FileAttachment, MediaBlock } from '@/types';
 import {
   Message as AIMessage,
   MessageContent,
@@ -280,6 +280,7 @@ interface ToolBlock {
   input?: unknown;
   content?: string;
   is_error?: boolean;
+  media?: MediaBlock[];
 }
 
 function parseToolBlocks(content: string): { text: string; tools: ToolBlock[] } {
@@ -316,6 +317,7 @@ function parseToolBlocks(content: string): { text: string; tools: ToolBlock[] } 
             id: block.tool_use_id,
             content: block.content,
             is_error: block.is_error,
+            media: (block as { media?: MediaBlock[] }).media,
           });
         }
       }
@@ -359,12 +361,14 @@ function pairTools(tools: ToolBlock[]): Array<{
   input: unknown;
   result?: string;
   isError?: boolean;
+  media?: MediaBlock[];
 }> {
   const paired: Array<{
     name: string;
     input: unknown;
     result?: string;
     isError?: boolean;
+    media?: MediaBlock[];
   }> = [];
 
   const resultMap = new Map<string, ToolBlock>();
@@ -382,6 +386,7 @@ function pairTools(tools: ToolBlock[]): Array<{
         input: t.input,
         result: result?.content,
         isError: result?.is_error,
+        media: result?.media,
       });
     }
   }
@@ -393,6 +398,7 @@ function pairTools(tools: ToolBlock[]): Array<{
         input: {},
         result: t.content,
         isError: t.is_error,
+        media: t.media,
       });
     }
   }
@@ -529,6 +535,7 @@ export const MessageItem = memo(function MessageItem({ message, sessionId }: Mes
               input: tool.input,
               result: tool.result,
               isError: tool.isError,
+              media: tool.media,
             }))}
           />
         )}

@@ -63,6 +63,7 @@ export {
   PaintBrush,
   PencilLine,
   PencilSimple,
+  Play,
   Plug,
   Plus,
   Question,

@@ -5,6 +5,8 @@ import { type Icon, File, NotePencil, Terminal, MagnifyingGlass, Wrench, CaretDo
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { CodeBlock } from '@/components/ai-elements/code-block';
+import { MediaPreview } from './MediaPreview';
+import type { MediaBlock } from '@/types';
 
 type ToolStatus = 'running' | 'success' | 'error';
 
@@ -15,6 +17,7 @@ interface ToolCallBlockProps {
   isError?: boolean;
   status?: ToolStatus;
   duration?: number;
+  media?: MediaBlock[];
 }
 
 // Classify tools by name
@@ -137,8 +140,9 @@ export function ToolCallBlock({
   isError,
   status = result !== undefined ? (isError ? 'error' : 'success') : 'running',
   duration,
+  media,
 }: ToolCallBlockProps) {
-  const [expanded, setExpanded] = useState(false);
+  const [expanded, setExpanded] = useState(!!media?.length);
   const category = getToolCategory(name);
   const toolIcon = getToolIcon(category);
   const summary = getToolSummary(name, input, category);
@@ -319,6 +323,7 @@ export function ToolCallBlock({
         <div className="overflow-hidden">
           <div className="px-3 py-2">
             {renderContent()}
+            {media && media.length > 0 && <MediaPreview media={media} />}
           </div>
         </div>
       </div>
