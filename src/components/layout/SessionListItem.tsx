@@ -119,7 +119,7 @@ export function SessionListItem({
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="min-w-[160px]">
           <DropdownMenuItem
-            disabled={isActive}
+            disabled={isActive || !canSplit}
             onClick={() => onAddToSplit(session)}
           >
             <Columns size={14} />
