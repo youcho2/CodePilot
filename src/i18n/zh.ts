@@ -19,6 +19,12 @@ const zh: Record<TranslationKey, string> = {
   'chatList.daysAgo': '{n}天',
   'chatList.newConversation': '新对话',
   'chatList.delete': '删除',
+  'chatList.deleteConversation': '删除对话',
+  'chatList.copySessionId': '复制对话 ID',
+  'chatList.renameConversation': '重命名对话',
+  'chatList.removeProject': '移出项目',
+  'chatList.openFolder': '打开文件夹',
+  'chatList.copyFolderPath': '复制文件夹路径',
   'chatList.searchSessions': '搜索会话...',
   'chatList.noSessions': '暂无会话',
   'chatList.importFromCli': '从 Claude Code 导入',
@@ -42,8 +48,8 @@ const zh: Record<TranslationKey, string> = {
   'messageInput.reviewDesc': '审查代码质量',
   'messageInput.terminalSetupDesc': '配置终端设置',
   'messageInput.memoryDesc': '编辑项目记忆文件',
-  // 'messageInput.modeCode': '代码', // Reserved: mode UI removed in latency remediation
-  // 'messageInput.modePlan': '计划', // Reserved: mode UI removed in latency remediation
+  'messageInput.modeCode': '代码',
+  'messageInput.modePlan': '计划',
   'messageInput.aiSuggested': 'AI 推荐',
 
   // ── Streaming message ───────────────────────────────────────

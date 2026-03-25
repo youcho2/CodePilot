@@ -22,6 +22,12 @@ const en = {
   'chatList.daysAgo': '{n}d',
   'chatList.newConversation': 'New Conversation',
   'chatList.delete': 'Delete',
+  'chatList.deleteConversation': 'Delete Conversation',
+  'chatList.copySessionId': 'Copy Conversation ID',
+  'chatList.renameConversation': 'Rename Conversation',
+  'chatList.removeProject': 'Remove Project',
+  'chatList.openFolder': 'Open Folder',
+  'chatList.copyFolderPath': 'Copy Folder Path',
   'chatList.searchSessions': 'Search sessions...',
   'chatList.noSessions': 'No sessions yet',
   'chatList.importFromCli': 'Import from Claude Code',
@@ -45,8 +51,8 @@ const en = {
   'messageInput.reviewDesc': 'Review code quality',
   'messageInput.terminalSetupDesc': 'Configure terminal settings',
   'messageInput.memoryDesc': 'Edit project memory file',
-  // 'messageInput.modeCode': 'Code', // Reserved: mode UI removed in latency remediation
-  // 'messageInput.modePlan': 'Plan', // Reserved: mode UI removed in latency remediation
+  'messageInput.modeCode': 'Code',
+  'messageInput.modePlan': 'Plan',
   'messageInput.aiSuggested': 'AI Suggested',
 
   // ── Streaming message ───────────────────────────────────────

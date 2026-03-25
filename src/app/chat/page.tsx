@@ -6,6 +6,7 @@ import type { Message, SSEEvent, SessionResponse, TokenUsage, PermissionRequestE
 import { MessageList } from '@/components/chat/MessageList';
 import { MessageInput } from '@/components/chat/MessageInput';
 import { ChatComposerActionBar } from '@/components/chat/ChatComposerActionBar';
+import { ModeIndicator } from '@/components/chat/ModeIndicator';
 import { ChatPermissionSelector } from '@/components/chat/ChatPermissionSelector';
 import { ImageGenToggle } from '@/components/chat/ImageGenToggle';
 import { PermissionPrompt } from '@/components/chat/PermissionPrompt';
@@ -43,7 +44,7 @@ export default function NewChatPage() {
   const [errorBanner, setErrorBanner] = useState<{ message: string; description?: string } | null>(null);
   const [recentProjects, setRecentProjects] = useState<string[]>([]);
   const [hasProvider, setHasProvider] = useState(true); // assume true until checked
-  const [mode] = useState('code');
+  const [mode, setMode] = useState('code');
   // Model/provider start empty — populated by the async global-default fetch.
   // This prevents the race where a user sends before the fetch completes and
   // gets the stale localStorage model instead of the configured default.
@@ -773,7 +774,7 @@ export default function NewChatPage() {
         onEffortChange={setSelectedEffort}
       />
       <ChatComposerActionBar
-        left={<ImageGenToggle />}
+        left={<><ModeIndicator mode={mode} onModeChange={setMode} disabled={isStreaming} /><ImageGenToggle /></>}
         center={
           <ChatPermissionSelector
             permissionProfile={permissionProfile}

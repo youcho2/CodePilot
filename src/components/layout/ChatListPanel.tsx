@@ -272,6 +272,53 @@ export function ChatListPanel({ open, width }: ChatListPanelProps) {
     }
   };
 
+  const handleRenameSession = async (sessionId: string, newTitle: string) => {
+    try {
+      const res = await fetch(`/api/chat/sessions/${sessionId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title: newTitle }),
+      });
+      if (res.ok) {
+        setSessions((prev) =>
+          prev.map((s) => (s.id === sessionId ? { ...s, title: newTitle } : s))
+        );
+        window.dispatchEvent(new CustomEvent("session-updated"));
+      }
+    } catch {
+      // Silently fail
+    }
+  };
+
+  const handleRemoveProject = async (workingDirectory: string) => {
+    if (!confirm(`Remove project "${workingDirectory.split('/').pop()}" and all its conversations?`)) return;
+    const projectSessions = sessions.filter((s) => s.working_directory === workingDirectory);
+    const deletedIds = new Set<string>();
+    for (const session of projectSessions) {
+      try {
+        const res = await fetch(`/api/chat/sessions/${session.id}`, { method: "DELETE" });
+        if (res.ok) {
+          deletedIds.add(session.id);
+          if (isInSplit(session.id)) {
+            removeFromSplit(session.id);
+          }
+        }
+      } catch {
+        // Continue with remaining
+      }
+    }
+    // Only remove sessions that were successfully deleted from backend
+    if (deletedIds.size > 0) {
+      setSessions((prev) => prev.filter((s) => !deletedIds.has(s.id)));
+      if (pathname?.startsWith('/chat/')) {
+        const currentSessionId = pathname.split('/chat/')[1];
+        if (deletedIds.has(currentSessionId)) {
+          router.push("/chat");
+        }
+      }
+    }
+  };
+
   const handleCreateSessionInProject = async (
     e: React.MouseEvent,
     workingDirectory: string
@@ -405,7 +452,7 @@ export function ChatListPanel({ open, width }: ChatListPanelProps) {
       </div>
 
       {/* Session list grouped by project */}
-      <ScrollArea className="flex-1 min-h-0 px-3">
+      <ScrollArea className="flex-1 min-h-0 px-3 [&>[data-slot=scroll-area-viewport]>div]:!block">
         <div className="flex flex-col pb-3">
           {/* Section title */}
           <div className="px-2 pt-1 pb-1.5">
@@ -453,6 +500,7 @@ export function ChatListPanel({ open, width }: ChatListPanelProps) {
                     onMouseEnter={() => setHoveredFolder(group.workingDirectory)}
                     onMouseLeave={() => setHoveredFolder(null)}
                     onCreateSession={(e) => handleCreateSessionInProject(e, group.workingDirectory)}
+                    onRemoveProject={handleRemoveProject}
                   />
 
                   {/* Session items */}
@@ -477,6 +525,7 @@ export function ChatListPanel({ open, width }: ChatListPanelProps) {
                             onMouseEnter={() => setHoveredSession(session.id)}
                             onMouseLeave={() => setHoveredSession(null)}
                             onDelete={handleDeleteSession}
+                            onRename={handleRenameSession}
                             onAddToSplit={(s) => addToSplit({
                               sessionId: s.id,
                               title: s.title,

@@ -53,7 +53,7 @@ function loadActiveColumn(): string {
 
 const EMPTY_SET = new Set<string>();
 const CHATLIST_MIN = 180;
-const CHATLIST_MAX = 400;
+const CHATLIST_MAX = 300;
 
 /** Extensions that default to "rendered" view mode */
 const RENDERED_EXTENSIONS = new Set([".md", ".mdx", ".html", ".htm"]);
