@@ -452,7 +452,7 @@ export function ChatListPanel({ open, width }: ChatListPanelProps) {
       </div>
 
       {/* Session list grouped by project */}
-      <ScrollArea className="flex-1 min-h-0 px-3">
+      <ScrollArea className="flex-1 min-h-0 px-3 [&>[data-slot=scroll-area-viewport]>div]:!block">
         <div className="flex flex-col pb-3">
           {/* Section title */}
           <div className="px-2 pt-1 pb-1.5">
