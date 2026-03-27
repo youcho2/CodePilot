@@ -795,13 +795,28 @@ function migrateDb(db: Database.Database): void {
     }
   }
 
-  // Migration: remove OpenAI-compatible providers (SDK does not support them for streaming)
+  // Migration: remove explicitly openai-compatible providers (SDK does not support them)
+  // and backfill empty protocol for legacy custom providers using URL-based inference.
   try {
     const providerCols = db.prepare("PRAGMA table_info(api_providers)").all() as { name: string }[];
     if (providerCols.some(c => c.name === 'protocol')) {
       db.exec("DELETE FROM api_providers WHERE protocol = 'openai-compatible'");
-      // Also clean up custom providers with empty protocol (legacy, would be mis-inferred)
-      db.exec("DELETE FROM api_providers WHERE provider_type = 'custom' AND (protocol = '' OR protocol IS NULL)");
+
+      // Backfill empty protocol for legacy custom providers — infer from base_url.
+      // These are valid Anthropic-compatible providers (GLM, Kimi, MiniMax, etc.)
+      // that were created before the protocol column existed.
+      const legacyCustom = db.prepare(
+        "SELECT id, base_url FROM api_providers WHERE provider_type = 'custom' AND (protocol = '' OR protocol IS NULL)"
+      ).all() as { id: string; base_url: string }[];
+      if (legacyCustom.length > 0) {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports -- dynamic require to avoid circular import at module load
+        const { inferProtocolFromLegacy } = require('./provider-catalog');
+        const updateStmt = db.prepare("UPDATE api_providers SET protocol = ? WHERE id = ?");
+        for (const row of legacyCustom) {
+          const protocol = inferProtocolFromLegacy('custom', row.base_url || '');
+          updateStmt.run(protocol, row.id);
+        }
+      }
     }
   } catch { /* table may not exist yet */ }
 }
