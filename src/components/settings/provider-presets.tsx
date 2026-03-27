@@ -310,9 +310,7 @@ export function findMatchingPreset(provider: ApiProvider): QuickPreset | undefin
   if (provider.provider_type === "anthropic" && provider.base_url) {
     return QUICK_PRESETS.find(p => p.key === "anthropic-thirdparty");
   }
-  // Custom providers — match to anthropic third-party preset
-  if (provider.provider_type === "custom") {
-    return QUICK_PRESETS.find(p => p.key === "anthropic-thirdparty");
-  }
+  // Custom providers no longer have a matching preset (OpenAI-compatible removed).
+  // They are deleted during DB migration; any survivors use the generic edit form.
   return undefined;
 }

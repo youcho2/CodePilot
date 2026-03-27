@@ -794,6 +794,16 @@ function migrateDb(db: Database.Database): void {
       safeAddColumn(db, "ALTER TABLE cli_tools_custom ADD COLUMN install_package TEXT NOT NULL DEFAULT ''");
     }
   }
+
+  // Migration: remove OpenAI-compatible providers (SDK does not support them for streaming)
+  try {
+    const providerCols = db.prepare("PRAGMA table_info(api_providers)").all() as { name: string }[];
+    if (providerCols.some(c => c.name === 'protocol')) {
+      db.exec("DELETE FROM api_providers WHERE protocol = 'openai-compatible'");
+      // Also clean up custom providers with empty protocol (legacy, would be mis-inferred)
+      db.exec("DELETE FROM api_providers WHERE provider_type = 'custom' AND (protocol = '' OR protocol IS NULL)");
+    }
+  } catch { /* table may not exist yet */ }
 }
 
 // ==========================================
