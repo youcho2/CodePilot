@@ -81,7 +81,7 @@ CodePilot — Claude Code 的桌面 GUI 客户端，基于 Electron + Next.js。
 
 ## 发版
 
-**发版流程：** 更新 package.json version → `npm install` 同步 lock → 提交推送 → `git tag v{版本号} && git push origin v{版本号}` → CI 自动构建发布。不要手动创建 GitHub Release。
+**发版流程：** 更新 `RELEASE_NOTES.md` → 更新 package.json version → `npm install` 同步 lock → 提交推送 → `git tag v{版本号} && git push origin v{版本号}` → CI 自动构建发布并使用 `RELEASE_NOTES.md` 作为 Release 正文。不要手动创建 GitHub Release（CI 会自动创建并上传构建产物）。
 
 **发版纪律：** 禁止自动发版。`git push` + `git tag` 必须等用户明确指示后才执行。commit 可以正常进行。
 
