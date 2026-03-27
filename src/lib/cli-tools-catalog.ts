@@ -325,6 +325,37 @@ export const CLI_TOOLS_CATALOG: CliToolDefinition[] = [
     repoUrl: 'https://github.com/nicepkg/ncm-cli',
     supportsAutoDescribe: true,
   },
+  {
+    id: 'dreamina',
+    name: '即梦 Dreamina CLI',
+    binNames: ['dreamina'],
+    summaryZh: '即梦 AI 创作工具包，支持文生图、文生视频、图生图、图生视频',
+    summaryEn: 'Dreamina AI creation toolkit — text-to-image, text-to-video, image-to-image, image-to-video',
+    categories: ['media'],
+    installMethods: [
+      { method: 'brew', command: 'curl -fsSL https://jimeng.jianying.com/cli | bash', platforms: ['darwin', 'linux'] },
+    ],
+    setupType: 'needs_auth',
+    detailIntro: {
+      zh: '即梦 Dreamina CLI 是面向 AI Agent 的创作工具包，让你的 Agent 能够使用即梦的图片和视频生成能力。无需额外开通会员，Agent 可以自动使用你的即梦账号进行文生图、文生视频、图生图、图生视频等任务。支持异步任务轮询、结果下载、历史记录查询。',
+      en: 'Dreamina CLI is an AI agent-oriented creation toolkit that enables your agent to use Dreamina\'s image and video generation capabilities. No extra subscription needed — your agent can automatically use your Dreamina account for text-to-image, text-to-video, image-to-image, and image-to-video tasks. Supports async task polling, result downloading, and task history.',
+    },
+    useCases: {
+      zh: ['文字描述生成图片（text2image）', '文字描述生成视频（text2video）', '图片风格转换（image2image）', '静态图片转动态视频（image2video）', '批量自动化创作任务'],
+      en: ['Generate images from text (text2image)', 'Generate videos from text (text2video)', 'Image style transfer (image2image)', 'Animate static images to video (image2video)', 'Batch automated creation tasks'],
+    },
+    guideSteps: {
+      zh: ['安装：curl -fsSL https://jimeng.jianying.com/cli | bash', '运行 dreamina login 完成浏览器登录授权', '运行 dreamina user_credit 验证登录状态', '使用 dreamina text2image --prompt="描述" 开始生成'],
+      en: ['Install: curl -fsSL https://jimeng.jianying.com/cli | bash', 'Run dreamina login to authorize via browser', 'Run dreamina user_credit to verify login', 'Use dreamina text2image --prompt="description" to start generating'],
+    },
+    examplePrompts: [
+      { label: 'Generate image', promptZh: '用即梦生成一张赛博朋克风格的城市夜景图片', promptEn: 'Use Dreamina to generate a cyberpunk city nightscape image' },
+      { label: 'Generate video', promptZh: '用即梦把这段描述生成一个 5 秒的短视频', promptEn: 'Use Dreamina to generate a 5-second video from this description' },
+      { label: 'Image to video', promptZh: '用即梦把这张图片转成动态视频', promptEn: 'Use Dreamina to animate this image into a video' },
+    ],
+    homepage: 'https://jimeng.jianying.com',
+    supportsAutoDescribe: true,
+  },
 ];
 
 /**
