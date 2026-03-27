@@ -1064,6 +1064,8 @@ export interface CustomCliTool {
   binPath: string;
   binName: string;
   version: string | null;
+  installMethod: string;
+  installPackage: string;
   enabled: boolean;
   createdAt: string;
   updatedAt: string;

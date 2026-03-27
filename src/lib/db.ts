@@ -747,6 +747,8 @@ function migrateDb(db: Database.Database): void {
       bin_path TEXT NOT NULL,
       bin_name TEXT NOT NULL DEFAULT '',
       version TEXT,
+      install_method TEXT NOT NULL DEFAULT 'unknown',
+      install_package TEXT NOT NULL DEFAULT '',
       enabled INTEGER NOT NULL DEFAULT 1,
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
@@ -769,6 +771,17 @@ function migrateDb(db: Database.Database): void {
     const descCols = db.prepare("PRAGMA table_info(cli_tool_descriptions)").all() as { name: string }[];
     if (!descCols.some(c => c.name === 'structured_json')) {
       db.exec("ALTER TABLE cli_tool_descriptions ADD COLUMN structured_json TEXT NOT NULL DEFAULT ''");
+    }
+  }
+
+  // Migration: add install_method column to cli_tools_custom
+  {
+    const customCols = db.prepare("PRAGMA table_info(cli_tools_custom)").all() as { name: string }[];
+    if (!customCols.some(c => c.name === 'install_method')) {
+      db.exec("ALTER TABLE cli_tools_custom ADD COLUMN install_method TEXT NOT NULL DEFAULT 'unknown'");
+    }
+    if (!customCols.some(c => c.name === 'install_package')) {
+      db.exec("ALTER TABLE cli_tools_custom ADD COLUMN install_package TEXT NOT NULL DEFAULT ''");
     }
   }
 }
@@ -2300,7 +2313,7 @@ export function getAllCustomCliTools(): CustomCliTool[] {
   const db = getDb();
   const rows = db.prepare('SELECT * FROM cli_tools_custom WHERE enabled = 1 ORDER BY created_at DESC').all() as Array<{
     id: string; name: string; bin_path: string; bin_name: string; version: string | null;
-    enabled: number; created_at: string; updated_at: string;
+    install_method: string; install_package: string; enabled: number; created_at: string; updated_at: string;
   }>;
   return rows.map(r => ({
     id: r.id,
@@ -2308,6 +2321,8 @@ export function getAllCustomCliTools(): CustomCliTool[] {
     binPath: r.bin_path,
     binName: r.bin_name,
     version: r.version,
+    installMethod: r.install_method,
+    installPackage: r.install_package,
     enabled: r.enabled === 1,
     createdAt: r.created_at,
     updatedAt: r.updated_at,
@@ -2318,25 +2333,31 @@ export function getCustomCliTool(id: string): CustomCliTool | undefined {
   const db = getDb();
   const r = db.prepare('SELECT * FROM cli_tools_custom WHERE id = ?').get(id) as {
     id: string; name: string; bin_path: string; bin_name: string; version: string | null;
-    enabled: number; created_at: string; updated_at: string;
+    install_method: string; install_package: string; enabled: number; created_at: string; updated_at: string;
   } | undefined;
   if (!r) return undefined;
   return {
     id: r.id, name: r.name, binPath: r.bin_path, binName: r.bin_name,
-    version: r.version, enabled: r.enabled === 1, createdAt: r.created_at, updatedAt: r.updated_at,
+    version: r.version, installMethod: r.install_method, installPackage: r.install_package,
+    enabled: r.enabled === 1, createdAt: r.created_at, updatedAt: r.updated_at,
   };
 }
 
-export function createCustomCliTool(params: { name: string; binPath: string; binName: string; version?: string | null }): CustomCliTool {
+export function createCustomCliTool(params: { name: string; binPath: string; binName: string; version?: string | null; installMethod?: string; installPackage?: string }): CustomCliTool {
   const db = getDb();
   const now = new Date().toISOString().replace('T', ' ').split('.')[0];
 
   // Idempotency: if a tool with the same bin_path already exists, update and return it
   const existing = db.prepare('SELECT id FROM cli_tools_custom WHERE bin_path = ?').get(params.binPath) as { id: string } | undefined;
   if (existing) {
-    db.prepare(
-      'UPDATE cli_tools_custom SET name = ?, version = ?, updated_at = ? WHERE id = ?'
-    ).run(params.name, params.version ?? null, now, existing.id);
+    const method = params.installMethod || 'unknown';
+    const pkg = params.installPackage || '';
+    db.prepare(`
+      UPDATE cli_tools_custom SET name = ?,  version = ?,
+        install_method = CASE WHEN ? != 'unknown' THEN ? ELSE install_method END,
+        install_package = CASE WHEN ? != '' THEN ? ELSE install_package END,
+        updated_at = ? WHERE id = ?
+    `).run(params.name, params.version ?? null, method, method, pkg, pkg, now, existing.id);
     return getCustomCliTool(existing.id)!;
   }
 
@@ -2350,8 +2371,8 @@ export function createCustomCliTool(params: { name: string; binPath: string; bin
   }
 
   db.prepare(
-    'INSERT INTO cli_tools_custom (id, name, bin_path, bin_name, version, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
-  ).run(id, params.name, params.binPath, params.binName, params.version ?? null, now, now);
+    'INSERT INTO cli_tools_custom (id, name, bin_path, bin_name, version, install_method, install_package, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
+  ).run(id, params.name, params.binPath, params.binName, params.version ?? null, params.installMethod || 'unknown', params.installPackage || '', now, now);
 
   return getCustomCliTool(id)!;
 }

@@ -28,7 +28,11 @@ export async function GET() {
       detectBrew(),
     ]);
     const descriptions = getAllCliToolDescriptions();
-    const custom = getAllCustomCliTools();
+    const allCustom = getAllCustomCliTools();
+    // Filter out custom rows that shadow catalog tools (same binary path).
+    // These rows exist only to store install metadata for update commands.
+    const catalogBinPaths = new Set(catalog.filter(c => c.binPath).map(c => c.binPath!));
+    const custom = allCustom.filter(ct => !catalogBinPaths.has(ct.binPath));
     return NextResponse.json({
       tools: catalog,
       extra,

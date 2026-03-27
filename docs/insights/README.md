@@ -1,0 +1,11 @@
+# 产品思考文档
+
+记录功能设计背后的"为什么"——用户问题、设计理由、外部趋势、已知局限和未来方向。
+
+每份文档对应一个 `docs/handover/` 中的技术交接文档，文件名保持一致，互相反向链接。
+
+## 索引
+
+| 文档 | 对应交接文档 | 主题 |
+|------|------------|------|
+| [cli-tools.md](./cli-tools.md) | [handover/cli-tools.md](../handover/cli-tools.md) | CLI 工具管理的 MCP 化、Agent-first CLI 趋势、凭证管理痛点 |
