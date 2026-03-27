@@ -34,7 +34,6 @@ src/components/gallery/
 
 src/app/api/
 ├── media/serve/route.ts         # 媒体文件服务（canonical .codepilot-media 路径校验）
-├── media/import/route.ts        # CLI 工具媒体导入（REST 端点，保留兼容）
 ├── media/gallery/route.ts       # 视频 MIME 检测
 ├── files/serve/route.ts         # 工作目录文件服务（sessionId 从 DB 获取 cwd）
 ├── chat/route.ts                # collectStreamResponse 自动保存 media blocks
@@ -180,7 +179,7 @@ interface MediaBlock {
 | In-process MCP (`codepilot_import_media`) | MCP tool 内部 | `opts.source` e.g. `'dreamina'` | Claude 调用 MCP tool 时 |
 | In-process MCP (`codepilot_generate_image`) | `generateSingleImage()` 内部 | `'gemini'` | Claude 调用 MCP tool 时 |
 | 设计 Agent | `generateSingleImage()` 内部 | `'gemini'` | 用户在 ImageGenConfirmation 点击生成 |
-| REST 导入 (`/api/media/import`) | `importFileToLibrary()` | `opts.source` | 保留兼容，MCP tool 优先 |
+| ~~REST 导入 (`/api/media/import`)~~ | 已删除 | — | 被 `codepilot_import_media` MCP tool 替代 |
 
 ## MCP 工具详情
 
@@ -233,8 +232,11 @@ interface MediaBlock {
 
 `media-import-mcp.ts` 的 mediaType 判断从 mimeType 前缀派生（`mimeType.startsWith('video/')` / `'audio/'`），不再用扩展名逐个匹配。
 
-## 已知问题 / 技术债务
+## 已清理的技术债务
 
-- `ToolCallBlock.tsx` 有 `media` prop 和 `MediaPreview` 渲染，但未被任何组件引用（孤立代码）。可以清理或在未来接入
-- 设计 Agent 的 `ImageGenConfirmation` 仍通过 REST `/api/media/generate` 生成图片，结果以 `image-gen-result` markdown 块持久化，不走 `MediaPreview` 渲染。两套渲染路径并存
-- `/api/media/import` REST 端点保留兼容，但 `codepilot_import_media` MCP tool 是首选路径
+- ~~`ToolCallBlock.tsx` 孤立代码~~ — 已删除。媒体渲染由 `MessageItem` / `StreamingMessage` 直接处理
+- ~~`/api/media/import` REST 端点冗余~~ — 已删除。`codepilot_import_media` MCP tool 完全替代
+
+## 剩余技术债务
+
+- 设计 Agent 的 `ImageGenConfirmation` 通过 REST `/api/media/generate` 生成图片，结果以 `image-gen-result` markdown 块持久化，走 `ImageGenCard` 渲染。代码模式通过 MCP tool 生成图片，走 `MediaPreview` 渲染。两套渲染路径并存。原因：SDK `acceptEdits` 模式绕过 `canUseTool`，无法拦截 MCP 调用展示自定义确认 UI
