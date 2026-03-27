@@ -50,9 +50,13 @@ export async function GET(request: NextRequest) {
     });
   }
 
-  // Security: only allow files within .codepilot-media directories
+  // Security: only allow files within the canonical .codepilot-media directory.
+  // Use path.resolve to canonicalize, then verify it starts with the real media dir.
   const resolved = path.resolve(filePath);
-  if (!resolved.includes('.codepilot-media')) {
+  const os = await import('os');
+  const dataDir = process.env.CLAUDE_GUI_DATA_DIR || path.join(os.homedir(), '.codepilot');
+  const canonicalMediaDir = path.resolve(dataDir, '.codepilot-media');
+  if (!resolved.startsWith(canonicalMediaDir + path.sep) && resolved !== canonicalMediaDir) {
     return new Response(JSON.stringify({ error: 'Access denied' }), {
       status: 403,
       headers: { 'Content-Type': 'application/json' },

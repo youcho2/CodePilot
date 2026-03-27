@@ -8,6 +8,7 @@ import {
   MessageResponse,
 } from '@/components/ai-elements/message';
 import { ToolActionsGroup } from '@/components/ai-elements/tool-actions-group';
+import { MediaPreview } from './MediaPreview';
 import { Button } from '@/components/ui/button';
 import { Shimmer } from '@/components/ai-elements/shimmer';
 import { ImageGenConfirmation } from './ImageGenConfirmation';
@@ -251,6 +252,12 @@ export function StreamingMessage({
             streamingToolOutput={streamingToolOutput}
           />
         )}
+
+        {/* Media from tool results — rendered outside tool group so images stay visible */}
+        {(() => {
+          const allMedia = toolResults.flatMap(r => r.media || []);
+          return allMedia.length > 0 ? <MediaPreview media={allMedia} /> : null;
+        })()}
 
         {/* Streaming text content rendered via Streamdown */}
         {content && (() => {

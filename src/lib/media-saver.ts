@@ -15,12 +15,17 @@ const MIME_TO_EXT: Record<string, string> = {
   'image/webp': '.webp',
   'image/svg+xml': '.svg',
   'image/avif': '.avif',
+  'image/bmp': '.bmp',
   'video/mp4': '.mp4',
   'video/webm': '.webm',
   'video/quicktime': '.mov',
+  'video/x-msvideo': '.avi',
+  'video/x-matroska': '.mkv',
   'audio/mpeg': '.mp3',
   'audio/wav': '.wav',
   'audio/ogg': '.ogg',
+  'audio/flac': '.flac',
+  'audio/aac': '.aac',
 };
 
 const EXT_TO_MIME: Record<string, string> = {};
@@ -33,6 +38,9 @@ interface SaveMediaOptions {
   source?: string;   // e.g. 'mcp', 'jimeng-cli'
   prompt?: string;    // description / title
   tags?: string[];
+  model?: string;     // e.g. 'seedance-2.0', 'gemini-3.1-flash-image-preview'
+  aspectRatio?: string; // e.g. '1:1', '16:9'
+  imageSize?: string; // e.g. '1K', '2K', '4096x4096'
 }
 
 interface SaveMediaResult {
@@ -61,6 +69,9 @@ function insertDbRecord(opts: {
   sessionId?: string;
   tags: string[];
   metadata: Record<string, unknown>;
+  model?: string;
+  aspectRatio?: string;
+  imageSize?: string;
 }) {
   const db = getDb();
   const now = new Date().toISOString().replace('T', ' ').split('.')[0];
@@ -68,8 +79,8 @@ function insertDbRecord(opts: {
     `INSERT INTO media_generations (id, type, status, provider, model, prompt, aspect_ratio, image_size, local_path, thumbnail_path, session_id, message_id, tags, metadata, error, created_at, completed_at)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).run(
-    opts.id, opts.type, 'completed', opts.provider, '',
-    opts.prompt, '', '', opts.localPath, '',
+    opts.id, opts.type, 'completed', opts.provider, opts.model || '',
+    opts.prompt, opts.aspectRatio || '', opts.imageSize || '', opts.localPath, '',
     opts.sessionId || null, null,
     JSON.stringify(opts.tags), JSON.stringify(opts.metadata),
     null, now, now
@@ -111,11 +122,15 @@ export function saveMediaToLibrary(block: MediaBlock, opts: SaveMediaOptions = {
  */
 export function importFileToLibrary(
   filePath: string,
-  opts: SaveMediaOptions & { mimeType?: string } = {}
+  opts: SaveMediaOptions & { mimeType?: string; cwd?: string } = {}
 ): SaveMediaResult {
   ensureMediaDir();
 
-  const resolved = path.resolve(filePath);
+  // Resolve relative paths against the provided cwd (session working directory),
+  // not the app process cwd which is typically the project root.
+  const resolved = path.isAbsolute(filePath)
+    ? path.resolve(filePath)
+    : path.resolve(opts.cwd || process.cwd(), filePath);
   if (!fs.existsSync(resolved)) {
     throw new Error(`File not found: ${resolved}`);
   }
@@ -137,6 +152,9 @@ export function importFileToLibrary(
     sessionId: opts.sessionId,
     tags: opts.tags || [],
     metadata: { mimeType, source: opts.source || 'cli-import', originalPath: filePath },
+    model: opts.model,
+    aspectRatio: opts.aspectRatio,
+    imageSize: opts.imageSize,
   });
 
   return { localPath: destPath, mediaId: id };

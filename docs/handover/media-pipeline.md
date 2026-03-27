@@ -91,7 +91,7 @@ FileTreePanel — 不再被 NON_PREVIEWABLE 阻止
 PreviewPanel — isMediaPreview(filePath) 命中
   → 跳过 /api/files/preview (不需要文本内容)
   → 直接渲染 <img>/<video>/<audio>
-  → src = /api/files/serve?path=...&baseDir=...
+  → src = /api/files/serve?path=...&sessionId=... (或 fallback /api/files/raw)
 ```
 
 ## 关键类型
@@ -130,12 +130,50 @@ interface ToolResultInfo {
 
 ## 安全模型
 
-- **media/serve**: 仅允许 `.codepilot-media` 路径内的文件（`path.resolve` + `includes` 检查）
-- **files/serve**: 验证请求路径在 `baseDir`（工作目录）内（`startsWith` 检查，防止目录遍历）
-- **media/import**: 验证文件存在，复制到 `.codepilot-media/` 而非直接引用原路径
+- **media/serve**: 用 `path.resolve` 规范化后，校验路径必须以 `~/.codepilot/.codepilot-media/` 的真实绝对路径开头（`startsWith` 检查，不再用 `.includes` 子串判断）
+- **files/serve**: 必须传 `sessionId`，服务端从 DB 获取 `session.working_directory` 作为 baseDir（不信任客户端传入路径）；校验 resolved path 严格在 baseDir 子目录内。`sessionId` 为空时前端 fallback 到 `/api/files/raw`（限制在 home 目录内）
+- **media/import**: 验证文件存在，复制到 `.codepilot-media/` 而非直接引用原路径；相对路径基于 session working directory 解析（`cwd` 参数），非进程 cwd
 
-## 后续演进
+## 后续演进：MCP 媒体工具（代码模式专用）
 
-1. **codepilot-media MCP**：将 `import_media_to_library` 做成 in-process MCP tool，按需注入（关键词检测"图像/视频生成任务"时注册），替代 CLI curl 方式
-2. **设计模式 MCP 化**：将现有 Gemini 图片生成包装为 MCP Server，走标准 media pipeline 渲染 + 入库
-3. **两个 MCP 组合**：生成 MCP（codepilot-image-gen）+ 入库 MCP（codepilot-media），可组合覆盖设计模式、CLI 工具、第三方 MCP 等所有场景
+在代码模式下（非设计 Agent），通过关键词门控按需注入两个 in-process MCP 工具。设计 Agent 模式保持原有 `image-gen-request` 结构化块 + `ImageGenConfirmation` 确认 UI 的链路不变。
+
+### 双路径架构
+
+| 场景 | 路径 | 确认 UI |
+|------|------|---------|
+| **设计 Agent 模式** | Claude 输出 `image-gen-request` 块 → `ImageGenConfirmation` 确认 → `/api/media/generate` | 有（可编辑 prompt、比例、分辨率） |
+| **代码模式** | 关键词门控注入 MCP → Claude 调用 `codepilot_generate_image` / `codepilot_import_media` → 自动执行 → `MEDIA_RESULT_MARKER` → `MediaPreview` 内联渲染 | 无（自动执行） |
+
+### MCP 工具
+
+| 工具 | 文件 | 用途 |
+|------|------|------|
+| `codepilot_import_media` | `src/lib/media-import-mcp.ts` | 导入本地文件到素材库 + 聊天内联显示。CLI 工具生成媒体后调用 |
+| `codepilot_generate_image` | `src/lib/image-gen-mcp.ts` | 调用 Gemini 生成图片，保存到素材库 + 聊天内联显示 |
+
+### `MEDIA_RESULT_MARKER` 机制
+
+SDK 不会将 in-process MCP 的 image content block 透传到 conversation stream。解决方案：MCP tool 在返回文本中嵌入 `__MEDIA_RESULT__[{type,mimeType,localPath,mediaId}]`，`claude-client.ts` 检测后构造 `MediaBlock{localPath}` 注入 SSE event 的 `media` 字段，前端 `MediaPreview` 通过 `/api/media/serve?path=...` 渲染。marker 文本在注入前被 strip。
+
+### 关键词门控
+
+`needsMediaMcp`（`claude-client.ts`）匹配中文关键词（生成图片、画一、图像等）或历史消息中的 MCP tool 名。设计 Agent 模式（`imageAgentMode=true`）**不触发**，避免与旧链路冲突。
+
+### 改动文件
+
+| 文件 | 改动 |
+|------|------|
+| `src/lib/image-generator.ts` | 新增 `skipSave` 参数 + `rawData` 返回（预留，当前未使用） |
+| `src/lib/media-saver.ts` | `SaveMediaOptions` 新增 `model`, `aspectRatio`, `imageSize`, `cwd` 字段 |
+| `src/lib/claude-client.ts` | `needsMediaMcp` 门控 + MCP 注册 + `MEDIA_RESULT_MARKER` 检测 + 内部工具自动审批 |
+| `src/app/api/chat/route.ts` | `isImageAgentMode` 精确判断（仅设计 Agent prompt，非任意 systemPromptAppend） |
+| `src/components/chat/MessageItem.tsx` | 从 tool results 提取 media，在 tool group 外独立渲染 `MediaPreview` |
+| `src/components/chat/StreamingMessage.tsx` | 同上，streaming 状态下独立渲染 media |
+
+### 安全修复
+
+| 文件 | 修复 |
+|------|------|
+| `src/app/api/files/serve/route.ts` | 去掉客户端 `baseDir`，改为 `sessionId` 从 DB 获取真实 cwd；pre-session 状态前端 fallback 到 `/api/files/raw` |
+| `src/app/api/media/serve/route.ts` | 用 `path.resolve` + `startsWith` 校验真实 `.codepilot-media` 目录，替代 `.includes` 子串判断 |

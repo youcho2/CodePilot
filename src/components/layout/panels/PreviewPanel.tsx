@@ -65,7 +65,7 @@ const PREVIEW_DEFAULT_WIDTH = 480;
 
 export function PreviewPanel() {
   const { resolvedTheme } = useTheme();
-  const { workingDirectory, previewFile, setPreviewFile, previewViewMode, setPreviewViewMode, setPreviewOpen } = usePanel();
+  const { workingDirectory, sessionId, previewFile, setPreviewFile, previewViewMode, setPreviewViewMode, setPreviewOpen } = usePanel();
   const isDark = resolvedTheme === "dark";
   const [preview, setPreview] = useState<FilePreviewType | null>(null);
   const [loading, setLoading] = useState(true);
@@ -143,9 +143,13 @@ export function PreviewPanel() {
   const canRender = isRenderable(filePath);
   const isMedia = isMediaPreview(filePath);
 
-  // Build direct file serve URL for media files
+  // Build direct file serve URL for media files.
+  // Prefer /api/files/serve (session-scoped) when sessionId is available;
+  // fall back to /api/files/raw (home-scoped) for pre-session state.
   const fileServeUrl = filePath
-    ? `/api/files/serve?path=${encodeURIComponent(filePath)}${workingDirectory ? `&baseDir=${encodeURIComponent(workingDirectory)}` : ''}`
+    ? sessionId
+      ? `/api/files/serve?path=${encodeURIComponent(filePath)}&sessionId=${encodeURIComponent(sessionId)}`
+      : `/api/files/raw?path=${encodeURIComponent(filePath)}`
     : '';
 
   return (

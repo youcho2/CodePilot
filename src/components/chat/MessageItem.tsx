@@ -8,6 +8,7 @@ import {
   MessageResponse,
 } from '@/components/ai-elements/message';
 import { ToolActionsGroup } from '@/components/ai-elements/tool-actions-group';
+import { MediaPreview } from './MediaPreview';
 import { Button } from "@/components/ui/button";
 import { Copy, Check, CaretDown, CaretUp } from "@/components/ui/icon";
 import { FileAttachmentDisplay } from './FileAttachmentDisplay';
@@ -539,6 +540,12 @@ export const MessageItem = memo(function MessageItem({ message, sessionId }: Mes
             }))}
           />
         )}
+
+        {/* Media from tool results — rendered outside tool group so images stay visible regardless of collapse state */}
+        {!isUser && (() => {
+          const allMedia = pairedTools.flatMap(t => t.media || []);
+          return allMedia.length > 0 ? <MediaPreview media={allMedia} /> : null;
+        })()}
 
         {/* Text content */}
         {displayText && (

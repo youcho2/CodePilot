@@ -1,6 +1,7 @@
 import { NextRequest } from 'next/server';
 import fs from 'fs/promises';
 import path from 'path';
+import { getSession } from '@/lib/db';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -31,32 +32,40 @@ const MIME_TYPES: Record<string, string> = {
 };
 
 /**
- * Serve files from the session's working directory.
- * Security: validates the requested path is within the baseDir (working directory).
+ * Serve files from a session's working directory.
+ * Security: baseDir is derived from the session's DB record, NOT from client input.
+ * The client must provide a valid sessionId; the server resolves the working directory.
  */
 export async function GET(request: NextRequest) {
   const filePath = request.nextUrl.searchParams.get('path');
-  const baseDir = request.nextUrl.searchParams.get('baseDir');
+  const sessionId = request.nextUrl.searchParams.get('sessionId');
 
-  if (!filePath) {
-    return new Response(JSON.stringify({ error: 'path parameter is required' }), {
+  if (!filePath || !sessionId) {
+    return new Response(JSON.stringify({ error: 'path and sessionId parameters are required' }), {
       status: 400,
       headers: { 'Content-Type': 'application/json' },
     });
   }
 
-  // Resolve to absolute path
-  const resolved = path.resolve(filePath);
+  // Derive baseDir from the session's DB record — never trust client-provided paths
+  const session = getSession(sessionId);
+  if (!session?.working_directory) {
+    return new Response(JSON.stringify({ error: 'Session not found or has no working directory' }), {
+      status: 404,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  }
+  const resolvedBase = path.resolve(session.working_directory);
 
-  // Security: if baseDir provided, ensure the file is within it
-  if (baseDir) {
-    const resolvedBase = path.resolve(baseDir);
-    if (!resolved.startsWith(resolvedBase + path.sep) && resolved !== resolvedBase) {
-      return new Response(JSON.stringify({ error: 'Access denied: path outside working directory' }), {
-        status: 403,
-        headers: { 'Content-Type': 'application/json' },
-      });
-    }
+  // Resolve file path relative to session working directory
+  const resolved = path.resolve(resolvedBase, filePath);
+
+  // Security: ensure the resolved path is strictly within the session's working directory
+  if (!resolved.startsWith(resolvedBase + path.sep)) {
+    return new Response(JSON.stringify({ error: 'Access denied: path outside working directory' }), {
+      status: 403,
+      headers: { 'Content-Type': 'application/json' },
+    });
   }
 
   try {

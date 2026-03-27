@@ -167,6 +167,10 @@ export async function POST(request: NextRequest) {
       content: m.content,
     }));
 
+    // Detect actual image agent mode by checking for the specific design agent prompt,
+    // not just any systemPromptAppend (which could come from CLI badges or skills).
+    const isImageAgentMode = !!systemPromptAppend && systemPromptAppend.includes('image-gen-request');
+
     // Unified context assembly — extracts workspace, CLI tools, widget prompt
     const assembled = await assembleContext({
       session,
@@ -174,7 +178,7 @@ export async function POST(request: NextRequest) {
       userPrompt: content,
       systemPromptAppend,
       conversationHistory: historyMsgs,
-      imageAgentMode: !!systemPromptAppend,
+      imageAgentMode: isImageAgentMode,
     });
     const finalSystemPrompt = assembled.systemPrompt;
     const generativeUIEnabled = assembled.generativeUIEnabled;
@@ -203,7 +207,7 @@ export async function POST(request: NextRequest) {
       abortController,
       permissionMode,
       files: fileAttachments,
-      imageAgentMode: !!systemPromptAppend,
+      imageAgentMode: isImageAgentMode,
       toolTimeoutSeconds: toolTimeout || 300,
       provider: resolvedProvider,
       providerId: effectiveProviderId || undefined,

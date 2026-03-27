@@ -549,6 +549,34 @@ export function streamClaude(options: ClaudeStreamOptions): ReadableStream<strin
           }
         }
 
+        // Media MCP: import + generation tools (keyword-gated).
+        // Registered when the conversation involves media/image generation tasks
+        // in CODE mode. Design Agent mode uses the old image-gen-request flow
+        // and does NOT need these MCP tools.
+        const needsMediaMcp = (() => {
+          if (imageAgentMode) return false; // Design Agent uses its own flow
+          const mediaKeywords = /生成图片|画一|图像|图片|素材|保存.*素材|import.*library|save.*library|codepilot_import_media|codepilot_generate_image/i;
+          if (mediaKeywords.test(prompt)) return true;
+          if (conversationHistory?.some(m =>
+            mediaKeywords.test(m.content)
+          )) return true;
+          return false;
+        })();
+
+        if (needsMediaMcp) {
+          const { createMediaImportMcpServer, MEDIA_MCP_SYSTEM_PROMPT } = await import('@/lib/media-import-mcp');
+          const { createImageGenMcpServer } = await import('@/lib/image-gen-mcp');
+          queryOptions.mcpServers = {
+            ...(queryOptions.mcpServers || {}),
+            'codepilot-media': createMediaImportMcpServer(sessionId, resolvedWorkingDirectory.path),
+            'codepilot-image-gen': createImageGenMcpServer(sessionId, resolvedWorkingDirectory.path),
+          };
+          // Inject media capability hint into system prompt
+          if (queryOptions.systemPrompt && typeof queryOptions.systemPrompt === 'object' && 'append' in queryOptions.systemPrompt) {
+            queryOptions.systemPrompt.append = (queryOptions.systemPrompt.append || '') + '\n\n' + MEDIA_MCP_SYSTEM_PROMPT;
+          }
+        }
+
         // Pass through SDK-specific options from ClaudeStreamOptions
         if (thinking) {
           queryOptions.thinking = thinking;
@@ -619,6 +647,21 @@ export function streamClaude(options: ClaudeStreamOptions): ReadableStream<strin
 
         // Permission handler: sends SSE event and waits for user response
         queryOptions.canUseTool = async (toolName, input, opts) => {
+          // Auto-approve CodePilot's own in-process MCP tools — they are internal
+          // and the user has already opted in by enabling the relevant mode.
+          // Auto-approve CodePilot's own in-process MCP tools — they are internal
+          // and the user has already opted in by enabling the relevant mode.
+          // Note: SDK prefixes MCP tool names with mcp__<server>__, so we check
+          // both bare and prefixed names.
+          const autoApprovedTools = [
+            'codepilot_generate_image',
+            'codepilot_import_media',
+            'codepilot_load_widget_guidelines',
+          ];
+          if (autoApprovedTools.some(t => toolName === t || toolName.endsWith(`__${t}`))) {
+            return { behavior: 'allow' as const, updatedInput: input };
+          }
+
           const permissionRequestId = `perm-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
           const permEvent: PermissionRequestEvent = {
@@ -900,7 +943,7 @@ export function streamClaude(options: ClaudeStreamOptions): ReadableStream<strin
               if (Array.isArray(content)) {
                 for (const block of content) {
                   if (block.type === 'tool_result') {
-                    const resultContent = typeof block.content === 'string'
+                    let resultContent = typeof block.content === 'string'
                       ? block.content
                       : Array.isArray(block.content)
                         ? block.content
@@ -909,7 +952,11 @@ export function streamClaude(options: ClaudeStreamOptions): ReadableStream<strin
                             .join('\n')
                         : String(block.content ?? '');
 
-                    // Extract media blocks (image/audio) from MCP tool results
+                    // Extract media blocks (image/audio) from MCP tool results.
+                    // Two sources:
+                    // 1. SDK content array: image/audio blocks with base64 data (external MCP servers)
+                    // 2. MEDIA_RESULT_MARKER in text: localPath-based media from in-process MCP tools
+                    //    (SDK strips image blocks from in-process tool results, so we use a text marker)
                     const mediaBlocks: MediaBlock[] = [];
                     if (Array.isArray(block.content)) {
                       for (const c of block.content) {
@@ -922,6 +969,27 @@ export function streamClaude(options: ClaudeStreamOptions): ReadableStream<strin
                           });
                         }
                       }
+                    }
+                    // Detect MEDIA_RESULT_MARKER in text result (from codepilot-image-gen MCP)
+                    const MEDIA_MARKER = '__MEDIA_RESULT__';
+                    const markerIdx = resultContent.indexOf(MEDIA_MARKER);
+                    if (markerIdx >= 0) {
+                      try {
+                        const mediaJson = resultContent.slice(markerIdx + MEDIA_MARKER.length).trim();
+                        const parsed = JSON.parse(mediaJson) as Array<{ type: string; mimeType: string; localPath: string; mediaId?: string }>;
+                        for (const m of parsed) {
+                          mediaBlocks.push({
+                            type: (m.type as MediaBlock['type']) || 'image',
+                            mimeType: m.mimeType,
+                            localPath: m.localPath,
+                            mediaId: m.mediaId,
+                          });
+                        }
+                      } catch {
+                        // Malformed marker payload — ignore
+                      }
+                      // Strip marker from content so it's not shown in the UI
+                      resultContent = resultContent.slice(0, markerIdx).trim();
                     }
 
                     const ssePayload: Record<string, unknown> = {
