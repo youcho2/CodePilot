@@ -3,7 +3,7 @@ import path from 'path';
 import crypto from 'crypto';
 import fs from 'fs';
 import os from 'os';
-import type { ChatSession, Message, SettingsMap, TaskItem, TaskStatus, ApiProvider, CreateProviderRequest, UpdateProviderRequest, MediaJob, MediaJobStatus, MediaJobItem, MediaJobItemStatus, MediaContextEvent, BatchConfig } from '@/types';
+import type { ChatSession, Message, SettingsMap, TaskItem, TaskStatus, ApiProvider, CreateProviderRequest, UpdateProviderRequest, MediaJob, MediaJobStatus, MediaJobItem, MediaJobItemStatus, MediaContextEvent, BatchConfig, CustomCliTool } from '@/types';
 import type { ChannelType, ChannelBinding } from './bridge/types';
 import { getLocalDateString, localDayStartAsUTC } from './utils';
 
@@ -738,6 +738,39 @@ function migrateDb(db: Database.Database): void {
       PRIMARY KEY(account_id, peer_user_id)
     );
   `);
+
+  // CLI tools: user-added custom tools
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS cli_tools_custom (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      bin_path TEXT NOT NULL,
+      bin_name TEXT NOT NULL DEFAULT '',
+      version TEXT,
+      enabled INTEGER NOT NULL DEFAULT 1,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+  `);
+
+  // CLI tools: persisted AI-generated descriptions
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS cli_tool_descriptions (
+      tool_id TEXT PRIMARY KEY,
+      description_zh TEXT NOT NULL DEFAULT '',
+      description_en TEXT NOT NULL DEFAULT '',
+      structured_json TEXT NOT NULL DEFAULT '',
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+  `);
+
+  // Migration: add structured_json column if missing
+  {
+    const descCols = db.prepare("PRAGMA table_info(cli_tool_descriptions)").all() as { name: string }[];
+    if (!descCols.some(c => c.name === 'structured_json')) {
+      db.exec("ALTER TABLE cli_tool_descriptions ADD COLUMN structured_json TEXT NOT NULL DEFAULT ''");
+    }
+  }
 }
 
 // ==========================================
@@ -2257,6 +2290,129 @@ export function upsertWeixinContextToken(accountId: string, peerUserId: string, 
 export function deleteWeixinContextTokensByAccount(accountId: string): void {
   const db = getDb();
   db.prepare('DELETE FROM weixin_context_tokens WHERE account_id = ?').run(accountId);
+}
+
+// ==========================================
+// CLI Tools — Custom Tools
+// ==========================================
+
+export function getAllCustomCliTools(): CustomCliTool[] {
+  const db = getDb();
+  const rows = db.prepare('SELECT * FROM cli_tools_custom WHERE enabled = 1 ORDER BY created_at DESC').all() as Array<{
+    id: string; name: string; bin_path: string; bin_name: string; version: string | null;
+    enabled: number; created_at: string; updated_at: string;
+  }>;
+  return rows.map(r => ({
+    id: r.id,
+    name: r.name,
+    binPath: r.bin_path,
+    binName: r.bin_name,
+    version: r.version,
+    enabled: r.enabled === 1,
+    createdAt: r.created_at,
+    updatedAt: r.updated_at,
+  }));
+}
+
+export function getCustomCliTool(id: string): CustomCliTool | undefined {
+  const db = getDb();
+  const r = db.prepare('SELECT * FROM cli_tools_custom WHERE id = ?').get(id) as {
+    id: string; name: string; bin_path: string; bin_name: string; version: string | null;
+    enabled: number; created_at: string; updated_at: string;
+  } | undefined;
+  if (!r) return undefined;
+  return {
+    id: r.id, name: r.name, binPath: r.bin_path, binName: r.bin_name,
+    version: r.version, enabled: r.enabled === 1, createdAt: r.created_at, updatedAt: r.updated_at,
+  };
+}
+
+export function createCustomCliTool(params: { name: string; binPath: string; binName: string; version?: string | null }): CustomCliTool {
+  const db = getDb();
+  const now = new Date().toISOString().replace('T', ' ').split('.')[0];
+
+  // Idempotency: if a tool with the same bin_path already exists, update and return it
+  const existing = db.prepare('SELECT id FROM cli_tools_custom WHERE bin_path = ?').get(params.binPath) as { id: string } | undefined;
+  if (existing) {
+    db.prepare(
+      'UPDATE cli_tools_custom SET name = ?, version = ?, updated_at = ? WHERE id = ?'
+    ).run(params.name, params.version ?? null, now, existing.id);
+    return getCustomCliTool(existing.id)!;
+  }
+
+  const baseId = `custom-${params.binName}`;
+
+  // Handle id collisions
+  let id = baseId;
+  let counter = 2;
+  while (db.prepare('SELECT id FROM cli_tools_custom WHERE id = ?').get(id)) {
+    id = `${baseId}-${counter++}`;
+  }
+
+  db.prepare(
+    'INSERT INTO cli_tools_custom (id, name, bin_path, bin_name, version, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
+  ).run(id, params.name, params.binPath, params.binName, params.version ?? null, now, now);
+
+  return getCustomCliTool(id)!;
+}
+
+export function deleteCustomCliTool(id: string): boolean {
+  const db = getDb();
+  const result = db.prepare('DELETE FROM cli_tools_custom WHERE id = ?').run(id);
+  return result.changes > 0;
+}
+
+// ==========================================
+// CLI Tools — Descriptions
+// ==========================================
+
+export function getAllCliToolDescriptions(): Record<string, { zh: string; en: string; structured?: unknown }> {
+  const db = getDb();
+  const rows = db.prepare('SELECT tool_id, description_zh, description_en, structured_json FROM cli_tool_descriptions').all() as Array<{
+    tool_id: string; description_zh: string; description_en: string; structured_json: string;
+  }>;
+  const result: Record<string, { zh: string; en: string; structured?: unknown }> = {};
+  for (const r of rows) {
+    let structured: unknown = undefined;
+    if (r.structured_json) {
+      try { structured = JSON.parse(r.structured_json); } catch { /* ignore */ }
+    }
+    result[r.tool_id] = { zh: r.description_zh, en: r.description_en, ...(structured ? { structured } : {}) };
+  }
+  return result;
+}
+
+export function upsertCliToolDescription(toolId: string, zh: string, en: string, structuredJson?: string): void {
+  const db = getDb();
+  const now = new Date().toISOString().replace('T', ' ').split('.')[0];
+  db.prepare(`
+    INSERT INTO cli_tool_descriptions (tool_id, description_zh, description_en, structured_json, updated_at)
+    VALUES (?, ?, ?, ?, ?)
+    ON CONFLICT(tool_id) DO UPDATE SET
+      description_zh = excluded.description_zh,
+      description_en = excluded.description_en,
+      structured_json = excluded.structured_json,
+      updated_at = excluded.updated_at
+  `).run(toolId, zh, en, structuredJson || '', now);
+}
+
+export function bulkUpsertCliToolDescriptions(entries: Array<{ toolId: string; zh: string; en: string }>): void {
+  const db = getDb();
+  const now = new Date().toISOString().replace('T', ' ').split('.')[0];
+  const stmt = db.prepare(`
+    INSERT INTO cli_tool_descriptions (tool_id, description_zh, description_en, updated_at)
+    VALUES (?, ?, ?, ?)
+    ON CONFLICT(tool_id) DO UPDATE SET
+      description_zh = excluded.description_zh,
+      description_en = excluded.description_en,
+      updated_at = excluded.updated_at
+  `);
+  const tx = db.transaction((items: typeof entries) => {
+    for (const e of items) {
+      stmt.run(e.toolId, e.zh, e.en, now);
+    }
+  });
+  tx(entries);
 }
 
 // ==========================================

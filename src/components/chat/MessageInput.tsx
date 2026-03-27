@@ -53,6 +53,8 @@ interface MessageInputProps {
   onEffortChange?: (effort: string | undefined) => void;
   /** SDK init metadata — when available, used to validate command/skill availability */
   sdkInitMeta?: { tools?: unknown; slash_commands?: unknown; skills?: unknown } | null;
+  /** Initial value to prefill in the input */
+  initialValue?: string;
 }
 
 export function MessageInput({
@@ -71,13 +73,16 @@ export function MessageInput({
   effort: effortProp,
   onEffortChange,
   sdkInitMeta,
+  initialValue,
 }: MessageInputProps) {
   const { t, locale } = useTranslation();
   const imageGen = useImageGen();
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const cliSearchRef = useRef<HTMLInputElement>(null);
-  const [inputValue, setInputValue] = useState('');
+  // key={initialValue} on the parent would be the canonical React way to reset,
+  // but since this component remounts on navigation, useState(initialValue) is sufficient.
+  const [inputValue, setInputValue] = useState(initialValue || '');
 
   // --- Extracted hooks ---
   const popover = usePopoverState(modelName);

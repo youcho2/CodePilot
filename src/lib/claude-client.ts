@@ -577,6 +577,27 @@ export function streamClaude(options: ClaudeStreamOptions): ReadableStream<strin
           }
         }
 
+        // CLI tools MCP: tool management capabilities (keyword-gated).
+        // Wide regex to cover natural phrasing like "帮我装 jq", "install uv",
+        // "brew install", "pip install", "npm install -g", etc.
+        const needsCliToolsMcp = (() => {
+          const cliKeywords = /CLI\s*工具|cli.tool|安装.*工具|卸载.*工具|添加.*工具|工具库|tool\s*library|codepilot_cli_tools|帮我装|帮我安装|\binstall\s+\w+|\buninstall\s+\w+|brew\s+install|pip\s+install|pipx\s+install|npm\s+install\s+-g|cargo\s+install|apt\s+install|apt-get\s+install/i;
+          if (cliKeywords.test(prompt)) return true;
+          if (conversationHistory?.some(m => cliKeywords.test(m.content))) return true;
+          return false;
+        })();
+
+        if (needsCliToolsMcp) {
+          const { createCliToolsMcpServer, CLI_TOOLS_MCP_SYSTEM_PROMPT } = await import('@/lib/cli-tools-mcp');
+          queryOptions.mcpServers = {
+            ...(queryOptions.mcpServers || {}),
+            'codepilot-cli-tools': createCliToolsMcpServer(),
+          };
+          if (queryOptions.systemPrompt && typeof queryOptions.systemPrompt === 'object' && 'append' in queryOptions.systemPrompt) {
+            queryOptions.systemPrompt.append = (queryOptions.systemPrompt.append || '') + '\n\n' + CLI_TOOLS_MCP_SYSTEM_PROMPT;
+          }
+        }
+
         // Pass through SDK-specific options from ClaudeStreamOptions
         if (thinking) {
           queryOptions.thinking = thinking;
@@ -657,6 +678,9 @@ export function streamClaude(options: ClaudeStreamOptions): ReadableStream<strin
             'codepilot_generate_image',
             'codepilot_import_media',
             'codepilot_load_widget_guidelines',
+            'codepilot_cli_tools_list',
+            'codepilot_cli_tools_add',
+            'codepilot_cli_tools_remove',
           ];
           if (autoApprovedTools.some(t => toolName === t || toolName.endsWith(`__${t}`))) {
             return { behavior: 'allow' as const, updatedInput: input };

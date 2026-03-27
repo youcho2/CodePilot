@@ -119,19 +119,8 @@ export async function assembleContext(config: ContextAssemblyConfig): Promise<As
     finalSystemPrompt = (finalSystemPrompt || '') + '\n\n' + assistantProjectInstructions;
   }
 
-  // ── Layer 4: CLI tools context (always, both desktop and bridge) ──
-  const t1 = Date.now();
-  try {
-    const { buildCliToolsContext } = await import('@/lib/cli-tools-context');
-    const cliToolsCtx = await buildCliToolsContext();
-    const t2 = Date.now();
-    console.log(`[context-assembler] CLI tools detection: ${t2 - t1}ms`);
-    if (cliToolsCtx) {
-      finalSystemPrompt = (finalSystemPrompt || '') + '\n\n' + cliToolsCtx;
-    }
-  } catch {
-    // CLI tools context injection failed — don't block
-  }
+  // Layer 4 removed — CLI tools capability prompt is now injected in
+  // claude-client.ts only when the MCP server is also mounted (keyword-gated).
 
   // ── Layer 5: Widget system prompt (desktop only) ──────────────────
   const generativeUISetting = getSetting('generative_ui_enabled');

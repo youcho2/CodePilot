@@ -228,6 +228,103 @@ export const CLI_TOOLS_CATALOG: CliToolDefinition[] = [
     officialDocsUrl: 'https://github.com/googleworkspace/cli#readme',
     supportsAutoDescribe: true,
   },
+  {
+    id: 'elevenlabs',
+    name: 'ElevenLabs CLI',
+    binNames: ['elevenlabs'],
+    summaryZh: 'AI 语音代理管理工具，支持创建、配置、部署语音代理',
+    summaryEn: 'Manage AI voice agents as code — create, configure, push/pull sync, and deploy',
+    categories: ['productivity'],
+    installMethods: [
+      { method: 'npm', command: 'npm install -g @elevenlabs/cli', platforms: ['darwin', 'linux', 'win32'] },
+    ],
+    setupType: 'needs_auth',
+    detailIntro: {
+      zh: 'ElevenLabs CLI 让你通过命令行管理 AI 语音代理。支持创建代理模板、推送/拉取配置同步、监控状态、生成嵌入代码，以及 CI/CD 集成。编码代理可以直接管理你的语音代理。',
+      en: 'ElevenLabs CLI lets you manage AI voice agents from the terminal. Create agents from templates, push/pull sync configurations, monitor status, generate embed widgets, and integrate with CI/CD. Your coding agent can directly manage your voice agents.',
+    },
+    useCases: {
+      zh: ['创建和配置 AI 语音代理', '推送/拉取代理配置同步', '管理 Webhook 和客户端工具集成', '通过 CI/CD 自动部署语音代理', '生成网页嵌入代码'],
+      en: ['Create and configure AI voice agents', 'Push/pull agent configuration sync', 'Manage webhook and client tool integrations', 'Automate voice agent deployment via CI/CD', 'Generate web embed widgets'],
+    },
+    guideSteps: {
+      zh: ['安装：npm install -g @elevenlabs/cli', '运行 elevenlabs auth login 配置 API 密钥', '运行 elevenlabs agents add 从模板创建代理', '使用 elevenlabs agents push 同步到平台'],
+      en: ['Install: npm install -g @elevenlabs/cli', 'Run elevenlabs auth login to configure API key', 'Run elevenlabs agents add to create an agent from template', 'Use elevenlabs agents push to sync to the platform'],
+    },
+    examplePrompts: [
+      { label: 'Create agent', promptZh: '用 ElevenLabs CLI 创建一个客服语音代理', promptEn: 'Use ElevenLabs CLI to create a customer service voice agent' },
+      { label: 'Sync config', promptZh: '把本地的语音代理配置推送到 ElevenLabs 平台', promptEn: 'Push local voice agent config to ElevenLabs platform' },
+    ],
+    homepage: 'https://elevenlabs.io',
+    repoUrl: 'https://github.com/elevenlabs/cli',
+    officialDocsUrl: 'https://elevenlabs.io/docs/eleven-agents/operate/cli',
+    supportsAutoDescribe: true,
+  },
+  {
+    id: 'stripe',
+    name: 'Stripe CLI',
+    binNames: ['stripe'],
+    summaryZh: '支付集成命令行工具，支持资源管理、Webhook 调试、日志监控',
+    summaryEn: 'Build, test, and manage Stripe payment integrations from the command line',
+    categories: ['productivity'],
+    installMethods: [
+      { method: 'brew', command: 'brew install stripe/stripe-cli/stripe', platforms: ['darwin', 'linux'] },
+    ],
+    setupType: 'needs_auth',
+    detailIntro: {
+      zh: 'Stripe CLI 是 Stripe 官方命令行工具，支持在沙箱中创建/查询/更新支付资源、实时监控 API 日志、触发和转发 Webhook 事件到本地开发服务器。还可安装 Projects 插件统一管理第三方服务凭证和环境变量。',
+      en: 'Stripe CLI is the official command-line tool for Stripe. CRUD payment resources in sandbox, stream real-time API logs, trigger and forward webhook events to your local server. The Projects plugin adds unified credential management across third-party providers with automatic .env sync.',
+    },
+    useCases: {
+      zh: ['在沙箱中创建和管理支付资源', '实时监控 API 请求日志', '触发和转发 Webhook 事件到本地', '通过 Projects 插件管理多服务凭证和环境变量', '在 CI/CD 中自动化支付测试'],
+      en: ['Create and manage payment resources in sandbox', 'Stream real-time API request logs', 'Trigger and forward webhook events locally', 'Manage multi-service credentials via Projects plugin', 'Automate payment testing in CI/CD'],
+    },
+    guideSteps: {
+      zh: ['安装：brew install stripe/stripe-cli/stripe', '运行 stripe login 完成身份认证', '使用 stripe listen --forward-to localhost:4242/webhooks 转发事件'],
+      en: ['Install: brew install stripe/stripe-cli/stripe', 'Run stripe login to authenticate', 'Use stripe listen --forward-to localhost:4242/webhooks to forward events'],
+    },
+    examplePrompts: [
+      { label: 'Forward webhooks', promptZh: '用 Stripe CLI 把 Webhook 事件转发到我的本地服务器', promptEn: 'Use Stripe CLI to forward webhook events to my local server' },
+      { label: 'Trigger event', promptZh: '用 Stripe CLI 触发一个 checkout.session.completed 事件', promptEn: 'Use Stripe CLI to trigger a checkout.session.completed event' },
+      { label: 'View logs', promptZh: '用 Stripe CLI 实时查看 API 请求日志', promptEn: 'Use Stripe CLI to stream real-time API request logs' },
+    ],
+    homepage: 'https://stripe.com/docs/stripe-cli',
+    repoUrl: 'https://github.com/stripe/stripe-cli',
+    officialDocsUrl: 'https://docs.stripe.com/stripe-cli',
+    supportsAutoDescribe: true,
+  },
+  {
+    id: 'ncm-cli',
+    name: '网易云音乐 CLI',
+    binNames: ['ncm-cli'],
+    summaryZh: '网易云音乐命令行播放器，支持搜索、播放、歌单管理，专为 AI Agent 设计',
+    summaryEn: 'NetEase Cloud Music CLI player with search, playback, playlists — designed for AI agents',
+    categories: ['media'],
+    installMethods: [
+      { method: 'npm', command: 'npm install -g @music163/ncm-cli', platforms: ['darwin', 'linux', 'win32'] },
+    ],
+    setupType: 'needs_auth',
+    detailIntro: {
+      zh: 'ncm-cli 是网易云音乐的命令行客户端，支持音乐搜索、播放控制、歌单管理、每日推荐等功能，内置全屏 TUI 播放器。专为 AI Agent 设计，提供 Claude Code 技能和 OpenClaw 集成，支持自然语言控制音乐播放。需要 mpv 播放器和网易云音乐账号。',
+      en: 'ncm-cli is a command-line client for NetEase Cloud Music with search, playback, playlist management, daily recommendations, and a full-screen TUI player. Designed for AI agents with Claude Code skills and OpenClaw integration for natural language music control. Requires mpv player and a NetEase Cloud Music account.',
+    },
+    useCases: {
+      zh: ['搜索和播放网易云音乐', '管理和创建歌单', '获取每日推荐和个性化内容', '通过 AI Agent 自然语言控制音乐', 'TUI 全屏播放器体验'],
+      en: ['Search and play NetEase Cloud Music', 'Manage and create playlists', 'Get daily recommendations and personalized content', 'Control music via AI agent natural language', 'Full-screen TUI player experience'],
+    },
+    guideSteps: {
+      zh: ['安装：npm install -g @music163/ncm-cli', '确保系统已安装 mpv 播放器', '运行 ncm-cli 启动并扫码登录网易云音乐账号', '在对话中说"播放一首周杰伦的歌"即可控制播放'],
+      en: ['Install: npm install -g @music163/ncm-cli', 'Ensure mpv player is installed on your system', 'Run ncm-cli and scan QR code to log in', 'Say "play a song by Jay Chou" in chat to control playback'],
+    },
+    examplePrompts: [
+      { label: 'Play music', promptZh: '帮我播放一首轻松的音乐', promptEn: 'Play some relaxing music for me' },
+      { label: 'Search song', promptZh: '搜索周杰伦的晴天并播放', promptEn: 'Search for "Sunny Day" by Jay Chou and play it' },
+      { label: 'Daily picks', promptZh: '播放我的每日推荐歌曲', promptEn: 'Play my daily recommended songs' },
+    ],
+    homepage: 'https://www.npmjs.com/package/@music163/ncm-cli',
+    repoUrl: 'https://github.com/nicepkg/ncm-cli',
+    supportsAutoDescribe: true,
+  },
 ];
 
 /**

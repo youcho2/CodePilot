@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback, useRef, useEffect } from 'react';
+import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import type { Message, SSEEvent, SessionResponse, TokenUsage, PermissionRequestEvent } from '@/types';
 import { MessageList } from '@/components/chat/MessageList';
@@ -30,6 +30,12 @@ interface ToolResultInfo {
 
 export default function NewChatPage() {
   const router = useRouter();
+  // Read prefill from URL once on mount — avoids useSearchParams which requires Suspense boundary
+  const prefillText = useMemo(() => {
+    if (typeof window === 'undefined') return '';
+    const params = new URLSearchParams(window.location.search);
+    return params.get('prefill') || '';
+  }, []);
   const { setPendingApprovalSessionId } = usePanel();
   const { t } = useTranslation();
   const { isElectron, openNativePicker } = useNativeFolderPicker();
@@ -176,7 +182,7 @@ export default function NewChatPage() {
     });
 
     return () => { cancelled = true; };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+   
   }, []); // Run once on mount to validate initial values
 
   // Initialize workingDir from localStorage (or setup default), validating the path exists
@@ -772,6 +778,7 @@ export default function NewChatPage() {
         workingDirectory={workingDir}
         effort={selectedEffort}
         onEffortChange={setSelectedEffort}
+        initialValue={prefillText}
       />
       <ChatComposerActionBar
         left={<><ModeIndicator mode={mode} onModeChange={setMode} disabled={isStreaming} /><ImageGenToggle /></>}

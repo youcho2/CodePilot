@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import {
   Dialog,
   DialogContent,
@@ -9,8 +10,9 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Copy, ArrowSquareOut, Plus, CaretDown } from "@/components/ui/icon";
+import { Copy, ArrowSquareOut, Plus, CaretDown, Play } from "@/components/ui/icon";
 import { useTranslation } from "@/hooks/useTranslation";
+import type { TranslationKey } from "@/i18n";
 import type { CliToolDefinition, CliToolPlatform } from "@/types";
 
 interface CliToolDetailDialogProps {
@@ -32,6 +34,7 @@ export function CliToolDetailDialog({
   platform,
 }: CliToolDetailDialogProps) {
   const { t } = useTranslation();
+  const router = useRouter();
   const isZh = locale === 'zh';
   const [showMethodPicker, setShowMethodPicker] = useState(false);
 
@@ -53,12 +56,12 @@ export function CliToolDetailDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-lg max-h-[80vh] overflow-y-auto">
+      <DialogContent className="sm:max-w-lg max-h-[80vh] flex flex-col overflow-hidden">
         <DialogHeader>
           <DialogTitle>{tool.name}</DialogTitle>
         </DialogHeader>
 
-        <div className="flex flex-col gap-5">
+        <div className="flex flex-col gap-5 overflow-y-auto flex-1 min-h-0">
           {/* Intro */}
           <section>
             <h3 className="text-sm font-medium mb-2">{t('cliTools.detailIntro')}</h3>
@@ -157,38 +160,57 @@ export function CliToolDetailDialog({
           )}
         </div>
 
-        {/* Install button — only for recommended (not installed) tools */}
-        {onInstall && availableMethods.length > 0 && (
-          <DialogFooter className="relative">
+        <DialogFooter className="relative">
+          {/* "Try" button only for installed tools (no onInstall = already installed) */}
+          {!onInstall && (
             <Button
+              variant="outline"
               size="sm"
               className="gap-1.5"
-              onClick={handleInstallClick}
+              onClick={() => {
+                const prefill = isZh
+                  ? `我想用 ${tool.name} 工具完成：`
+                  : `I want to use ${tool.name} to: `;
+                router.push(`/chat?prefill=${encodeURIComponent(prefill)}`);
+                onOpenChange(false);
+              }}
             >
-              <Plus size={14} />
-              {t('cliTools.install')}
-              {availableMethods.length > 1 && <CaretDown size={12} />}
+              <Play size={14} />
+              {t('cliTools.tryTool' as TranslationKey)}
             </Button>
-            {showMethodPicker && availableMethods.length > 1 && (
-              <div className="absolute right-0 bottom-10 z-10 rounded-md border bg-popover p-1 shadow-md min-w-[180px]">
-                {availableMethods.map(m => (
-                  <Button
-                    key={m.method}
-                    variant="ghost"
-                    size="sm"
-                    className="w-full justify-start px-2 py-1.5 text-xs h-auto"
-                    onClick={() => {
-                      setShowMethodPicker(false);
-                      onInstall(tool, m.method);
-                    }}
-                  >
-                    {m.method}: {m.command}
-                  </Button>
-                ))}
-              </div>
-            )}
-          </DialogFooter>
-        )}
+          )}
+          {onInstall && availableMethods.length > 0 && (
+            <>
+              <Button
+                size="sm"
+                className="gap-1.5"
+                onClick={handleInstallClick}
+              >
+                <Plus size={14} />
+                {t('cliTools.install')}
+                {availableMethods.length > 1 && <CaretDown size={12} />}
+              </Button>
+              {showMethodPicker && availableMethods.length > 1 && (
+                <div className="absolute right-0 bottom-10 z-10 rounded-md border bg-popover p-1 shadow-md min-w-[180px]">
+                  {availableMethods.map(m => (
+                    <Button
+                      key={m.method}
+                      variant="ghost"
+                      size="sm"
+                      className="w-full justify-start px-2 py-1.5 text-xs h-auto"
+                      onClick={() => {
+                        setShowMethodPicker(false);
+                        onInstall(tool, m.method);
+                      }}
+                    >
+                      {m.method}: {m.command}
+                    </Button>
+                  ))}
+                </div>
+              )}
+            </>
+          )}
+        </DialogFooter>
       </DialogContent>
     </Dialog>
   );

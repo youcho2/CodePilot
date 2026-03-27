@@ -1058,6 +1058,24 @@ export interface CliToolRuntimeInfo {
   autoDescription?: { zh: string; en: string } | null;
 }
 
+export interface CustomCliTool {
+  id: string;
+  name: string;
+  binPath: string;
+  binName: string;
+  version: string | null;
+  enabled: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CliToolStructuredDesc {
+  intro: { zh: string; en: string };
+  useCases: { zh: string[]; en: string[] };
+  guideSteps: { zh: string[]; en: string[] };
+  examplePrompts: CliToolExamplePrompt[];
+}
+
 // ==========================================
 // Git Types
 // ==========================================
