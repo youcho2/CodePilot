@@ -438,21 +438,6 @@ export const VENDOR_PRESETS: VendorPreset[] = [
     iconKey: 'google',
   },
 
-  // ── Custom API (OpenAI-compatible) ──
-  {
-    key: 'custom-openai',
-    name: 'Custom API (OpenAI-compatible)',
-    description: 'OpenAI-compatible custom endpoint',
-    descriptionZh: '自定义 OpenAI 兼容 API 端点',
-    protocol: 'openai-compatible',
-    authStyle: 'api_key',
-    baseUrl: '',
-    defaultEnvOverrides: {},
-    defaultModels: [],
-    fields: ['name', 'api_key', 'base_url', 'env_overrides'],
-    iconKey: 'server',
-  },
-
 ];
 
 // ── Lookup helpers ──────────────────────────────────────────────
@@ -500,11 +485,11 @@ export function inferProtocolFromLegacy(
     if (urlLower.includes('/anthropic')) {
       return 'anthropic';
     }
-    // Default custom → openai-compatible
-    return 'openai-compatible';
+    // Default custom → anthropic (SDK only supports Anthropic-compatible endpoints)
+    return 'anthropic';
   }
 
-  return 'openai-compatible';
+  return 'anthropic';
 }
 
 /**

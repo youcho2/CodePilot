@@ -87,10 +87,9 @@ describe('Provider Catalog', () => {
       assert.equal(or.protocol, 'openrouter');
     });
 
-    it('custom-openai preset uses openai-compatible protocol', () => {
+    it('custom-openai preset has been removed', () => {
       const custom = VENDOR_PRESETS.find(p => p.key === 'custom-openai');
-      assert.ok(custom, 'custom-openai preset not found');
-      assert.equal(custom.protocol, 'openai-compatible');
+      assert.equal(custom, undefined, 'custom-openai preset should not exist');
     });
 
     it('anthropic-thirdparty preset uses anthropic protocol and has env_overrides field', () => {
@@ -149,8 +148,8 @@ describe('Provider Catalog', () => {
       assert.equal(inferProtocolFromLegacy('custom', 'https://coding.dashscope.aliyuncs.com/apps/anthropic'), 'anthropic');
     });
 
-    it('custom type + unknown URL → openai-compatible protocol', () => {
-      assert.equal(inferProtocolFromLegacy('custom', 'https://my-server.example.com/v1'), 'openai-compatible');
+    it('custom type + unknown URL → anthropic protocol', () => {
+      assert.equal(inferProtocolFromLegacy('custom', 'https://my-server.example.com/v1'), 'anthropic');
     });
 
     it('custom type + URL containing /anthropic → anthropic protocol', () => {
@@ -647,9 +646,9 @@ describe('Entry Point Consistency', () => {
     }
   });
 
-  it('legacy custom type with non-anthropic URL infers openai-compatible', () => {
+  it('legacy custom type with non-anthropic URL infers anthropic', () => {
     const protocol = inferProtocolFromLegacy('custom', 'https://my-ollama.local:11434/v1');
-    assert.equal(protocol, 'openai-compatible');
+    assert.equal(protocol, 'anthropic');
   });
 });
 
@@ -1032,7 +1031,8 @@ describe('Global Default Model', () => {
 
   it('DB provider uses global default model when it belongs to that provider', () => {
     setup();
-    const { createProvider, deleteProvider } = require('../../lib/db');
+    // eslint-disable-next-line @typescript-eslint/no-require-imports -- dynamic import in test to avoid top-level side effects
+const { createProvider, deleteProvider } = require('../../lib/db');
     const provider = createProvider({
       name: '__test_global_default__',
       provider_type: 'anthropic',
@@ -1054,7 +1054,8 @@ describe('Global Default Model', () => {
 
   it('DB provider ignores global default model when it belongs to a different provider', () => {
     setup();
-    const { createProvider, deleteProvider } = require('../../lib/db');
+    // eslint-disable-next-line @typescript-eslint/no-require-imports -- dynamic import in test to avoid top-level side effects
+const { createProvider, deleteProvider } = require('../../lib/db');
     const provider = createProvider({
       name: '__test_global_default_cross__',
       provider_type: 'anthropic',
@@ -1080,7 +1081,8 @@ describe('Global Default Model', () => {
 
   it('DB provider: session model overrides global default even when provider matches', () => {
     setup();
-    const { createProvider, deleteProvider } = require('../../lib/db');
+    // eslint-disable-next-line @typescript-eslint/no-require-imports -- dynamic import in test to avoid top-level side effects
+const { createProvider, deleteProvider } = require('../../lib/db');
     const provider = createProvider({
       name: '__test_global_default_session__',
       provider_type: 'anthropic',
