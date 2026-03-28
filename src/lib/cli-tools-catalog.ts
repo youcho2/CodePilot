@@ -228,7 +228,6 @@ export const CLI_TOOLS_CATALOG: CliToolDefinition[] = [
     ],
     postInstallCommands: [
       'gws --help',
-      '# Check available Skills, then install per user needs, e.g.: npx skills add https://github.com/googleworkspace/cli/tree/main/skills/gws-drive',
     ],
     agentFriendly: true,
     supportsJson: true,
@@ -337,6 +336,7 @@ export const CLI_TOOLS_CATALOG: CliToolDefinition[] = [
       { label: 'Daily picks', promptZh: '播放我的每日推荐歌曲', promptEn: 'Play my daily recommended songs' },
     ],
     agentFriendly: true,
+    healthCheckCommand: 'ncm-cli --version',
     homepage: 'https://www.npmjs.com/package/@music163/ncm-cli',
     repoUrl: 'https://github.com/nicepkg/ncm-cli',
     supportsAutoDescribe: true,
