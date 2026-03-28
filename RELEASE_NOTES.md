@@ -1,45 +1,36 @@
-## CodePilot v0.41.0
+## CodePilot v0.42.0
 
-> 本版本重点是**侧边栏导航重构**和**全局 UI 一致性优化**。左侧导航从两层图标栏简化为单层侧边栏，所有页面的标题样式统一，多处交互细节改进。
+> 本版本聚焦 **CLI 工具的 AI 化安装体验**和全新的 **Agent 友好度评分系统**。安装工具改为由 AI 全程协助，工具卡片新增 5 星评分帮你判断哪些工具最适合 AI 使用。
 
 ### 新增功能
 
-- **单层侧边栏导航**：移除左侧图标栏（NavRail），Skills、MCP、CLI 工具、素材库、远程桥接等入口整合到侧边栏内，设置固定在底部，所有页面始终可见
-- **对话列表搜索弹窗**：搜索改为弹窗形式，支持实时搜索会话并快速跳转
-- **项目文件夹动画**：文件夹展开/折叠增加平滑过渡动画
-- **对话列表自动截断**：超过 10 条对话的项目自动折叠，底部显示"展开更多"
-- **助理项目置顶**：设置了助理工作区的项目自动排在列表最前
-- **新增推荐 CLI 工具**：即梦 Dreamina CLI（AI 创作工具包）、飞书 Lark CLI（200+ 命令覆盖飞书全业务域）
-- **macOS 磨砂玻璃效果**：Electron 窗口启用 vibrancy，侧边栏支持原生毛玻璃效果
+- **AI 协助安装 CLI 工具**：点击安装按钮直接跳转聊天，AI 帮你执行安装命令、处理权限问题、引导认证配置、生成工具简介，全流程在对话中完成
+- **Agent 友好度 5 星评分**：工具卡片新增 ★★★★★ 评分，从 5 个维度评估工具对 AI 的友好程度（Agent 原生设计 / JSON 输出 / Schema 自省 / Dry Run / 上下文友好）
+- **AI 自动评估兼容度**：通过聊天添加的自定义工具，AI 会从 --help 输出自动评估 Agent 兼容度；批量生成简介时也会同步评估
+- **新增推荐 CLI 工具**：即梦 Dreamina CLI（AI 图片/视频生成）、飞书 Lark CLI（200+ 命令覆盖飞书全业务域）
+- **工具安装后自动配置**：需要认证的工具安装后，AI 自动引导完成登录和配置；需要 Skills 安装的工具（飞书、gws）会在安装提示中告知
 
 ### 修复问题
 
 - 修复斜杠命令（如 /review）发送时用户附加文本在气泡中不显示的问题
-- 修复窗口缩小到 1024px 以下时侧边栏消失且无法恢复的问题
-- 修复搜索弹窗关闭后隐形过滤条件仍生效的问题
-- 修复对话截断可能隐藏当前打开会话的问题
-- 修复 JSON 格式版本号（如 Dreamina CLI）显示为乱码的问题
-- 修复 OpenAI-compatible 类型 Provider 实际不可用但仍显示在选项中的问题
-- 移除 Custom API (OpenAI-compatible) Provider 选项（Claude Code SDK 不支持）
+- 修复 JSON 格式版本号（如 Dreamina CLI）在工具卡片上显示为乱码的问题
+- 移除不可用的 Custom API (OpenAI-compatible) Provider 选项
+- 修复旧版 custom provider 升级时可能误删有效配置的问题
 
 ### 优化改进
 
-- 所有非聊天页面标题样式统一：主标题 + 副标题 + 全宽分割线，操作按钮位置一致
-- Skills 页面左右分栏改为单线分割，去除嵌套圆角矩形边框
-- 非聊天页面顶部空白区域缩小
-- "添加项目文件夹"简化为"新建项目"
-- 更新指示点颜色跟随主题色
-- 导入 CLI 会话功能移至设置 > Claude CLI 区域
+- 工具详情弹窗新增"AI Agent 兼容度"区域，展示具体达标维度和评分
 - GLM 模型更新为 GLM-5-Turbo / GLM-5.1 / GLM-4.5-Air
+- MCP list 工具的 JSON 输出在所有工具类型中统一字段格式
 
 ## 下载地址
 
 ### macOS
-- [Apple Silicon (M1/M2/M3/M4)](https://github.com/op7418/CodePilot/releases/download/v0.41.0/CodePilot-0.41.0-arm64.dmg)
-- [Intel](https://github.com/op7418/CodePilot/releases/download/v0.41.0/CodePilot-0.41.0-x64.dmg)
+- [Apple Silicon (M1/M2/M3/M4)](https://github.com/op7418/CodePilot/releases/download/v0.42.0/CodePilot-0.42.0-arm64.dmg)
+- [Intel](https://github.com/op7418/CodePilot/releases/download/v0.42.0/CodePilot-0.42.0-x64.dmg)
 
 ### Windows
-- [Windows 安装包](https://github.com/op7418/CodePilot/releases/download/v0.41.0/CodePilot-Setup-0.41.0.exe)
+- [Windows 安装包](https://github.com/op7418/CodePilot/releases/download/v0.42.0/CodePilot-Setup-0.42.0.exe)
 
 ## 安装说明
 
