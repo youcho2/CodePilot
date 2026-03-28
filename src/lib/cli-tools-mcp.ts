@@ -107,6 +107,7 @@ You have CLI tool management capabilities via MCP tools:
 - codepilot_cli_tools_check_updates: Check which tools have available updates
 - codepilot_cli_tools_update: Update a tool to its latest version
 After installing or registering a tool, the --help output is automatically included in the result. Use it to generate an accurate bilingual description (zh/en) and call codepilot_cli_tools_add to save it. If the tool requires authentication, guide the user through the setup steps.
+When listing tools with format="json", each tool includes agentFriendly (designed for AI agents), supportsJson (has --json output), and healthCheckCommand (command to verify auth/health). Prefer agent-friendly tools when recommending, and use healthCheckCommand to verify tools work after install.
 </cli-tools-capability>`;
 
 // ── MCP server factory ───────────────────────────────────────────────
@@ -152,6 +153,9 @@ export function createCliToolsMcpServer() {
                     installMethod: shadow?.installMethod ?? def?.installMethods[0]?.method ?? null,
                     installPackage: shadow?.installPackage || null,
                     needsAuth: def?.setupType === 'needs_auth',
+                    agentFriendly: def?.agentFriendly || false,
+                    supportsJson: def?.supportsJson || false,
+                    healthCheckCommand: def?.healthCheckCommand || null,
                   };
                 }),
                 extra: extra.map(rt => {

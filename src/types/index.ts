@@ -1048,6 +1048,12 @@ export interface CliToolDefinition {
    *  These are injected into the chat prefill — only include machine-executable commands,
    *  not human-readable guidance. */
   postInstallCommands?: string[];
+  /** Tool is designed for AI agents (non-interactive flags, structured output, skills) */
+  agentFriendly?: boolean;
+  /** Tool supports --json or similar structured output flag */
+  supportsJson?: boolean;
+  /** Command to check auth/health status (e.g. "stripe status", "lark-cli auth status") */
+  healthCheckCommand?: string;
   homepage?: string;
   repoUrl?: string;
   officialDocsUrl?: string;
