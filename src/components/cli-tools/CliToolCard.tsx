@@ -91,7 +91,7 @@ export function CliToolCard({
             </span>
           )}
         </div>
-        <p className="text-xs text-muted-foreground mt-0.5 truncate">
+        <p className="text-xs text-muted-foreground mt-1.5 truncate">
           {summary || t('cliTools.noDescription' as TranslationKey)}
         </p>
         {/* Agent friendliness stars */}
@@ -99,7 +99,7 @@ export function CliToolCard({
           const score = computeAgentScore(tool);
           if (score === 0) return null;
           return (
-            <div className="flex items-center gap-1 mt-1">
+            <div className="flex items-center gap-1 mt-0.5">
               <span className="text-xs text-muted-foreground">{t('cliTools.agentFriendliness' as TranslationKey)}</span>
               <div className="flex gap-0.5">
                 {[1, 2, 3, 4, 5].map(i => (
