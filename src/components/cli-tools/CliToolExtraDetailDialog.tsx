@@ -1,5 +1,6 @@
 "use client";
 
+import { computeAgentScore } from "./CliToolCard";
 import {
   Dialog,
   DialogContent,
@@ -57,9 +58,18 @@ export function CliToolExtraDetailDialog({
 
         <div className="flex flex-col gap-5 overflow-y-auto flex-1 min-h-0">
           {/* Agent compatibility (from AI assessment in structured_json) */}
-          {structured?.agentCompat && Object.values(structured.agentCompat).some(Boolean) && (
+          {structured?.agentCompat && Object.values(structured.agentCompat).some(Boolean) && (() => {
+            const score = computeAgentScore(structured.agentCompat);
+            return (
             <section>
-              <h3 className="text-sm font-medium mb-2">{t('cliTools.agentCompat' as TranslationKey)}</h3>
+              <div className="flex items-center gap-2 mb-2">
+                <h3 className="text-sm font-medium">{t('cliTools.agentCompat' as TranslationKey)}</h3>
+                <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${
+                  score >= 4 ? 'bg-primary/10 text-primary' : score >= 2 ? 'bg-muted text-foreground' : 'bg-muted text-muted-foreground'
+                }`}>
+                  {score}/5
+                </span>
+              </div>
               <div className="flex flex-wrap gap-1.5">
                 {structured.agentCompat.agentFriendly && (
                   <span className="inline-flex items-center rounded-full bg-primary/10 px-2.5 py-1 text-xs text-primary font-medium">
@@ -88,7 +98,8 @@ export function CliToolExtraDetailDialog({
                 )}
               </div>
             </section>
-          )}
+            );
+          })()}
 
           {/* Intro */}
           {structured?.intro ? (

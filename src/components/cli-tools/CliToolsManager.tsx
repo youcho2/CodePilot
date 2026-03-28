@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { useTranslation } from "@/hooks/useTranslation";
 import type { TranslationKey } from "@/i18n";
 import type { CliToolDefinition, CliToolRuntimeInfo, CustomCliTool } from "@/types";
-import { CliToolCard } from "./CliToolCard";
+import { CliToolCard, computeAgentScore } from "./CliToolCard";
 import { CliToolDetailDialog } from "./CliToolDetailDialog";
 import { CliToolExtraDetailDialog } from "./CliToolExtraDetailDialog";
 // CliToolInstallDialog removed — install now goes through chat AI
@@ -247,11 +247,17 @@ export function CliToolsManager() {
                       <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground shrink-0">
                         {t('cliTools.systemDetected')}
                       </span>
-                      {compat?.agentFriendly && (
-                        <span className="inline-block rounded-full bg-primary/10 px-1.5 py-0.5 text-[10px] text-primary font-medium shrink-0">
-                          Agent {t('cliTools.friendly' as TranslationKey)}
-                        </span>
-                      )}
+                      {compat && (() => {
+                        const score = computeAgentScore(compat);
+                        if (score === 0) return null;
+                        return (
+                          <span className={`inline-block rounded-full px-1.5 py-0.5 text-[10px] font-medium shrink-0 ${
+                            score >= 4 ? 'bg-primary/10 text-primary' : score >= 2 ? 'bg-muted text-muted-foreground' : 'bg-muted text-muted-foreground/60'
+                          }`}>
+                            Agent {score}/5
+                          </span>
+                        );
+                      })()}
                       {info.version && (
                         <span className="text-xs text-muted-foreground shrink-0">
                           v{info.version}
@@ -286,11 +292,17 @@ export function CliToolsManager() {
                       <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground shrink-0">
                         {t('cliTools.customTool' as TranslationKey)}
                       </span>
-                      {compat?.agentFriendly && (
-                        <span className="inline-block rounded-full bg-primary/10 px-1.5 py-0.5 text-[10px] text-primary font-medium shrink-0">
-                          Agent {t('cliTools.friendly' as TranslationKey)}
-                        </span>
-                      )}
+                      {compat && (() => {
+                        const score = computeAgentScore(compat);
+                        if (score === 0) return null;
+                        return (
+                          <span className={`inline-block rounded-full px-1.5 py-0.5 text-[10px] font-medium shrink-0 ${
+                            score >= 4 ? 'bg-primary/10 text-primary' : score >= 2 ? 'bg-muted text-muted-foreground' : 'bg-muted text-muted-foreground/60'
+                          }`}>
+                            Agent {score}/5
+                          </span>
+                        );
+                      })()}
                       {ct.version && (
                         <span className="text-xs text-muted-foreground shrink-0">
                           v{ct.version}

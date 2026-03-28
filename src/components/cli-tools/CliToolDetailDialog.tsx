@@ -14,6 +14,7 @@ import { Copy, ArrowSquareOut, Plus, CaretDown, Play } from "@/components/ui/ico
 import { useTranslation } from "@/hooks/useTranslation";
 import type { TranslationKey } from "@/i18n";
 import type { CliToolDefinition, CliToolPlatform } from "@/types";
+import { computeAgentScore } from "./CliToolCard";
 
 interface CliToolDetailDialogProps {
   open: boolean;
@@ -63,9 +64,19 @@ export function CliToolDetailDialog({
 
         <div className="flex flex-col gap-5 overflow-y-auto flex-1 min-h-0">
           {/* Agent compatibility */}
-          {(tool.agentFriendly || tool.supportsJson || tool.supportsSchema || tool.supportsDryRun || tool.contextFriendly) && (
+          {(() => {
+            const score = computeAgentScore(tool);
+            if (score === 0) return null;
+            return (
             <section>
-              <h3 className="text-sm font-medium mb-2">{t('cliTools.agentCompat' as TranslationKey)}</h3>
+              <div className="flex items-center gap-2 mb-2">
+                <h3 className="text-sm font-medium">{t('cliTools.agentCompat' as TranslationKey)}</h3>
+                <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${
+                  score >= 4 ? 'bg-primary/10 text-primary' : score >= 2 ? 'bg-muted text-foreground' : 'bg-muted text-muted-foreground'
+                }`}>
+                  {score}/5
+                </span>
+              </div>
               <div className="flex flex-wrap gap-1.5">
                 {tool.agentFriendly && (
                   <span className="inline-flex items-center rounded-full bg-primary/10 px-2.5 py-1 text-xs text-primary font-medium">
@@ -99,7 +110,8 @@ export function CliToolDetailDialog({
                 )}
               </div>
             </section>
-          )}
+            );
+          })()}
 
           {/* Intro */}
           <section>

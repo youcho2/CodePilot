@@ -7,6 +7,17 @@ import { useTranslation } from "@/hooks/useTranslation";
 import type { TranslationKey } from "@/i18n";
 import type { CliToolDefinition, CliToolRuntimeInfo, CliToolPlatform } from "@/types";
 
+/** Compute agent compatibility score (0-5) from tool definition fields */
+export function computeAgentScore(tool: { agentFriendly?: boolean; supportsJson?: boolean; supportsSchema?: boolean; supportsDryRun?: boolean; contextFriendly?: boolean }): number {
+  let score = 0;
+  if (tool.agentFriendly) score++;
+  if (tool.supportsJson) score++;
+  if (tool.supportsSchema) score++;
+  if (tool.supportsDryRun) score++;
+  if (tool.contextFriendly) score++;
+  return score;
+}
+
 interface CliToolCardProps {
   tool: CliToolDefinition;
   runtimeInfo?: CliToolRuntimeInfo;
@@ -73,12 +84,18 @@ export function CliToolCard({
               {t(`cliTools.category.${cat}` as TranslationKey)}
             </span>
           ))}
-          {/* Agent-friendly badge */}
-          {tool.agentFriendly && (
-            <span className="inline-block rounded-full bg-primary/10 px-1.5 py-0.5 text-[10px] text-primary font-medium shrink-0">
-              Agent {t('cliTools.friendly' as TranslationKey)}
-            </span>
-          )}
+          {/* Agent score badge */}
+          {(() => {
+            const score = computeAgentScore(tool);
+            if (score === 0) return null;
+            return (
+              <span className={`inline-block rounded-full px-1.5 py-0.5 text-[10px] font-medium shrink-0 ${
+                score >= 4 ? 'bg-primary/10 text-primary' : score >= 2 ? 'bg-muted text-muted-foreground' : 'bg-muted text-muted-foreground/60'
+              }`}>
+                Agent {score}/5
+              </span>
+            );
+          })()}
           {/* Version for installed */}
           {variant === 'installed' && runtimeInfo?.version && (
             <span className="text-xs text-muted-foreground shrink-0">
