@@ -11,6 +11,7 @@ import { SkillEditor } from "./SkillEditor";
 import { CreateSkillDialog } from "./CreateSkillDialog";
 import { MarketplaceBrowser } from "./MarketplaceBrowser";
 import { useTranslation } from "@/hooks/useTranslation";
+import type { TranslationKey } from "@/i18n";
 import { cn } from "@/lib/utils";
 import type { SkillItem } from "./SkillListItem";
 
@@ -153,10 +154,21 @@ export function SkillsManager() {
   return (
     <div className="flex flex-col h-full">
       {/* Header */}
-      <div className="flex items-center gap-3 mb-4">
-        <h3 className="text-lg font-semibold">{t('extensions.skills')}</h3>
+      <div className="shrink-0 border-b border-border/50 pb-4 mb-4 -mx-6 px-6">
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-xl font-semibold">{t('extensions.skills')}</h1>
+            <p className="text-sm text-muted-foreground mt-1">{t('skills.description' as TranslationKey)}</p>
+          </div>
+          {viewTab === "local" && (
+            <Button size="sm" onClick={() => setShowCreate(true)} className="gap-1">
+              <Plus size={14} />
+              {t('skills.newSkill')}
+            </Button>
+          )}
+        </div>
         {/* Segmented control */}
-        <div className="flex items-center bg-muted rounded-md p-0.5">
+        <div className="flex items-center bg-muted rounded-md p-0.5 mt-3 w-fit">
           <Button
             variant="ghost"
             size="sm"
@@ -184,13 +196,6 @@ export function SkillsManager() {
             {t('skills.marketplace')}
           </Button>
         </div>
-        <div className="flex-1" />
-        {viewTab === "local" && (
-          <Button size="sm" onClick={() => setShowCreate(true)} className="gap-1">
-            <Plus size={14} />
-            {t('skills.newSkill')}
-          </Button>
-        )}
       </div>
 
       {/* Main content */}

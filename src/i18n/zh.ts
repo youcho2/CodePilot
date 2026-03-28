@@ -232,6 +232,7 @@ const zh: Record<TranslationKey, string> = {
   'skills.splitView': '分屏视图',
   'skills.deleteConfirm': '再次点击以确认',
   'skills.placeholder': '用 Markdown 编写技能提示词...',
+  'skills.description': '管理可复用的提示词模式和自动化技能',
   'skills.mySkills': '我的技能',
   'skills.marketplace': '技能市场',
   'skills.marketplaceSearch': '搜索 Skills.sh...',
@@ -464,6 +465,7 @@ const zh: Record<TranslationKey, string> = {
 
   // ── Gallery ─────────────────────────────────────────────────
   'gallery.title': '素材库',
+  'gallery.description': '管理 AI 生成和导入的图片、视频、音频素材',
   'gallery.empty': '暂无生成的图片',
   'gallery.emptyHint': '在对话中生成图片后即可在此查看。',
   'gallery.filterByTag': '按标签筛选',

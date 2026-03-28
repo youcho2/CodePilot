@@ -235,6 +235,7 @@ const en = {
   'skills.splitView': 'Split view',
   'skills.deleteConfirm': 'Click again to confirm',
   'skills.placeholder': 'Write your skill prompt in Markdown...',
+  'skills.description': 'Manage reusable prompt patterns and automation skills',
   'skills.mySkills': 'My Skills',
   'skills.marketplace': 'Marketplace',
   'skills.marketplaceSearch': 'Search Skills.sh...',
@@ -467,6 +468,7 @@ const en = {
 
   // ── Gallery ─────────────────────────────────────────────────
   'gallery.title': 'Gallery',
+  'gallery.description': 'Manage AI-generated and imported images, videos, and audio',
   'gallery.empty': 'No images generated yet',
   'gallery.emptyHint': 'Generate images in chat to see them here.',
   'gallery.filterByTag': 'Filter by tag',

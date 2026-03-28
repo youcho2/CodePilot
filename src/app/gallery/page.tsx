@@ -135,11 +135,14 @@ export default function GalleryPage() {
   return (
     <div className="flex h-full flex-col overflow-hidden">
       {/* Header */}
-      <div className="shrink-0 border-b border-border/50 px-4 py-3">
+      <div className="shrink-0 border-b border-border/50 px-6 py-4">
         <div className="flex items-center justify-between gap-3">
-          <h1 className="text-lg font-semibold">
-            {t('gallery.title' as TranslationKey)}
-          </h1>
+          <div>
+            <h1 className="text-xl font-semibold">
+              {t('gallery.title' as TranslationKey)}
+            </h1>
+            <p className="text-sm text-muted-foreground mt-1">{t('gallery.description' as TranslationKey)}</p>
+          </div>
           <div className="flex items-center gap-2">
             {/* Favorites toggle */}
             <Button

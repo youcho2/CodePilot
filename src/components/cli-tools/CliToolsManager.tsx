@@ -155,22 +155,24 @@ export function CliToolsManager() {
 
   return (
     <div className="flex flex-col gap-6 overflow-y-auto">
-      <div className="flex items-start justify-between">
-        <div>
-          <h1 className="text-xl font-semibold">{t('cliTools.title')}</h1>
-          <p className="text-sm text-muted-foreground mt-1">{t('cliTools.description')}</p>
-        </div>
-        {installedCatalogTools.length === 0 && extraDetected.length === 0 && customTools.length === 0 && (
-          <Button
-            variant="outline"
-            size="sm"
-            className="h-7 text-xs gap-1.5 shrink-0"
-            onClick={handleAddTool}
-          >
-            <Plus size={14} />
-            {t('cliTools.addTool' as TranslationKey)}
+      <div className="shrink-0 border-b border-border/50 pb-4 mb-4 -mx-6 px-6">
+        <div className="flex items-start justify-between">
+          <div>
+            <h1 className="text-xl font-semibold">{t('cliTools.title')}</h1>
+            <p className="text-sm text-muted-foreground mt-1">{t('cliTools.description')}</p>
+          </div>
+          {installedCatalogTools.length === 0 && extraDetected.length === 0 && customTools.length === 0 && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-7 text-xs gap-1.5 shrink-0"
+              onClick={handleAddTool}
+            >
+              <Plus size={14} />
+              {t('cliTools.addTool' as TranslationKey)}
           </Button>
         )}
+        </div>
       </div>
 
       {/* Installed — catalog tools + extra system-detected tools + custom tools */}

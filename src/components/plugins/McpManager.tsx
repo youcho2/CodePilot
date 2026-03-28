@@ -217,24 +217,26 @@ export function McpManager() {
 
   return (
     <div className="h-full overflow-auto">
-      <div className="flex items-center justify-between mb-4">
-        <div>
-          <div className="flex items-center gap-2">
-            <h3 className="text-lg font-semibold">{t('extensions.mcpServers')}</h3>
-            {serverCount > 0 && (
-              <span className="text-sm text-muted-foreground">
-                ({serverCount})
-              </span>
-            )}
+      <div className="shrink-0 border-b border-border/50 pb-4 mb-4 -mx-6 px-6">
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-xl font-semibold">
+              {t('extensions.mcpServers')}
+              {serverCount > 0 && (
+                <span className="text-sm font-normal text-muted-foreground ml-2">
+                  ({serverCount})
+                </span>
+              )}
+            </h1>
+            <p className="text-sm text-muted-foreground mt-1">
+              {t('mcp.managerDesc' as TranslationKey)}
+            </p>
           </div>
-          <p className="text-sm text-muted-foreground mt-0.5">
-            {t('mcp.managerDesc' as TranslationKey)}
-          </p>
+          <Button size="sm" className="gap-1" onClick={handleAdd}>
+            <Plus size={14} />
+            {t('mcp.addServer')}
+          </Button>
         </div>
-        <Button size="sm" className="gap-1" onClick={handleAdd}>
-          <Plus size={14} />
-          {t('mcp.addServer')}
-        </Button>
       </div>
 
       {error && (
