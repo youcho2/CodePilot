@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Plus, CaretDown } from "@/components/ui/icon";
+import { Plus, CaretDown, Star } from "@/components/ui/icon";
 import { Button } from "@/components/ui/button";
 import { useTranslation } from "@/hooks/useTranslation";
 import type { TranslationKey } from "@/i18n";
@@ -84,18 +84,6 @@ export function CliToolCard({
               {t(`cliTools.category.${cat}` as TranslationKey)}
             </span>
           ))}
-          {/* Agent score badge */}
-          {(() => {
-            const score = computeAgentScore(tool);
-            if (score === 0) return null;
-            return (
-              <span className={`inline-block rounded-full px-1.5 py-0.5 text-[10px] font-medium shrink-0 ${
-                score >= 4 ? 'bg-primary/10 text-primary' : score >= 2 ? 'bg-muted text-muted-foreground' : 'bg-muted text-muted-foreground/60'
-              }`}>
-                Agent {score}/5
-              </span>
-            );
-          })()}
           {/* Version for installed */}
           {variant === 'installed' && runtimeInfo?.version && (
             <span className="text-xs text-muted-foreground shrink-0">
@@ -106,6 +94,26 @@ export function CliToolCard({
         <p className="text-xs text-muted-foreground mt-0.5 truncate">
           {summary || t('cliTools.noDescription' as TranslationKey)}
         </p>
+        {/* Agent friendliness stars */}
+        {(() => {
+          const score = computeAgentScore(tool);
+          if (score === 0) return null;
+          return (
+            <div className="flex items-center gap-1 mt-1">
+              <span className="text-[10px] text-muted-foreground/60">{t('cliTools.agentFriendliness' as TranslationKey)}</span>
+              <div className="flex gap-0.5">
+                {[1, 2, 3, 4, 5].map(i => (
+                  <Star
+                    key={i}
+                    size={10}
+                    weight={i <= score ? 'fill' : 'regular'}
+                    className={i <= score ? 'text-primary' : 'text-muted-foreground/30'}
+                  />
+                ))}
+              </div>
+            </div>
+          );
+        })()}
       </div>
 
       {/* Right action */}

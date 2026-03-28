@@ -1064,6 +1064,7 @@ const en = {
   'cliTools.agentCompat': 'AI Agent Compatibility',
   'cliTools.agentNative': 'Agent Native',
   'cliTools.friendly': 'Friendly',
+  'cliTools.agentFriendliness': 'Agent Friendliness',
   'cliTools.output': 'Output',
   'cliTools.needsAuth': 'Auth Required',
   'cliTools.introspection': 'Introspection',

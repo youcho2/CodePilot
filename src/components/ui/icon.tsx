@@ -73,6 +73,7 @@ export {
   SortDescending,
   Sparkle,
   SpinnerGap,
+  Star,
   Stethoscope,
   Stop,
   Storefront,

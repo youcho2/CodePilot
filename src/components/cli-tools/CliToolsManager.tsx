@@ -10,7 +10,7 @@ import { CliToolDetailDialog } from "./CliToolDetailDialog";
 import { CliToolExtraDetailDialog } from "./CliToolExtraDetailDialog";
 // CliToolInstallDialog removed — install now goes through chat AI
 import { CliToolBatchDescribeDialog } from "./CliToolBatchDescribeDialog";
-import { SpinnerGap, Sparkle, ArrowSquareOut, Warning, Plus, Trash } from "@/components/ui/icon";
+import { SpinnerGap, Sparkle, ArrowSquareOut, Warning, Plus, Trash, Star } from "@/components/ui/icon";
 import { Button } from "@/components/ui/button";
 import { EXTRA_WELL_KNOWN_BINS } from "@/lib/cli-tools-catalog";
 
@@ -247,17 +247,6 @@ export function CliToolsManager() {
                       <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground shrink-0">
                         {t('cliTools.systemDetected')}
                       </span>
-                      {compat && (() => {
-                        const score = computeAgentScore(compat);
-                        if (score === 0) return null;
-                        return (
-                          <span className={`inline-block rounded-full px-1.5 py-0.5 text-[10px] font-medium shrink-0 ${
-                            score >= 4 ? 'bg-primary/10 text-primary' : score >= 2 ? 'bg-muted text-muted-foreground' : 'bg-muted text-muted-foreground/60'
-                          }`}>
-                            Agent {score}/5
-                          </span>
-                        );
-                      })()}
                       {info.version && (
                         <span className="text-xs text-muted-foreground shrink-0">
                           v{info.version}
@@ -269,6 +258,20 @@ export function CliToolsManager() {
                         ? (locale === 'zh' ? desc.zh : desc.en)
                         : t('cliTools.noDescription' as TranslationKey)}
                     </p>
+                    {compat && (() => {
+                      const score = computeAgentScore(compat);
+                      if (score === 0) return null;
+                      return (
+                        <div className="flex items-center gap-1 mt-1">
+                          <span className="text-[10px] text-muted-foreground/60">{t('cliTools.agentFriendliness' as TranslationKey)}</span>
+                          <div className="flex gap-0.5">
+                            {[1,2,3,4,5].map(i => (
+                              <Star key={i} size={10} weight={i <= score ? 'fill' : 'regular'} className={i <= score ? 'text-primary' : 'text-muted-foreground/30'} />
+                            ))}
+                          </div>
+                        </div>
+                      );
+                    })()}
                   </div>
                 </div>
               );
@@ -292,17 +295,6 @@ export function CliToolsManager() {
                       <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground shrink-0">
                         {t('cliTools.customTool' as TranslationKey)}
                       </span>
-                      {compat && (() => {
-                        const score = computeAgentScore(compat);
-                        if (score === 0) return null;
-                        return (
-                          <span className={`inline-block rounded-full px-1.5 py-0.5 text-[10px] font-medium shrink-0 ${
-                            score >= 4 ? 'bg-primary/10 text-primary' : score >= 2 ? 'bg-muted text-muted-foreground' : 'bg-muted text-muted-foreground/60'
-                          }`}>
-                            Agent {score}/5
-                          </span>
-                        );
-                      })()}
                       {ct.version && (
                         <span className="text-xs text-muted-foreground shrink-0">
                           v{ct.version}
@@ -314,6 +306,20 @@ export function CliToolsManager() {
                         ? (locale === 'zh' ? desc.zh : desc.en)
                         : ct.binPath}
                     </p>
+                    {compat && (() => {
+                      const score = computeAgentScore(compat);
+                      if (score === 0) return null;
+                      return (
+                        <div className="flex items-center gap-1 mt-1">
+                          <span className="text-[10px] text-muted-foreground/60">{t('cliTools.agentFriendliness' as TranslationKey)}</span>
+                          <div className="flex gap-0.5">
+                            {[1,2,3,4,5].map(i => (
+                              <Star key={i} size={10} weight={i <= score ? 'fill' : 'regular'} className={i <= score ? 'text-primary' : 'text-muted-foreground/30'} />
+                            ))}
+                          </div>
+                        </div>
+                      );
+                    })()}
                   </div>
                   <Button
                     variant="ghost"

@@ -1061,6 +1061,7 @@ const zh: Record<TranslationKey, string> = {
   'cliTools.agentCompat': 'AI Agent 兼容度',
   'cliTools.agentNative': 'Agent 原生设计',
   'cliTools.friendly': '友好',
+  'cliTools.agentFriendliness': 'Agent 友好度',
   'cliTools.output': '输出',
   'cliTools.needsAuth': '需要认证',
   'cliTools.introspection': '自省',
