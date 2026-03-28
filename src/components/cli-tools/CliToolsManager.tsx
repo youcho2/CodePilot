@@ -234,6 +234,7 @@ export function CliToolsManager() {
               const entry = EXTRA_WELL_KNOWN_BINS.find(([eid]) => eid === info.id);
               const displayName = entry?.[1] ?? info.id;
               const desc = autoDescriptions[info.id];
+              const compat = (desc?.structured as Record<string, unknown>)?.agentCompat as Record<string, boolean> | undefined;
               return (
                 <div
                   key={info.id}
@@ -246,6 +247,11 @@ export function CliToolsManager() {
                       <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground shrink-0">
                         {t('cliTools.systemDetected')}
                       </span>
+                      {compat?.agentFriendly && (
+                        <span className="inline-block rounded-full bg-primary/10 px-1.5 py-0.5 text-[10px] text-primary font-medium shrink-0">
+                          Agent {t('cliTools.friendly' as TranslationKey)}
+                        </span>
+                      )}
                       {info.version && (
                         <span className="text-xs text-muted-foreground shrink-0">
                           v{info.version}
@@ -264,6 +270,7 @@ export function CliToolsManager() {
             {/* Custom user-added tools */}
             {customTools.map(ct => {
               const desc = autoDescriptions[ct.id];
+              const compat = (desc?.structured as Record<string, unknown>)?.agentCompat as Record<string, boolean> | undefined;
               return (
                 <div
                   key={ct.id}
@@ -279,6 +286,11 @@ export function CliToolsManager() {
                       <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground shrink-0">
                         {t('cliTools.customTool' as TranslationKey)}
                       </span>
+                      {compat?.agentFriendly && (
+                        <span className="inline-block rounded-full bg-primary/10 px-1.5 py-0.5 text-[10px] text-primary font-medium shrink-0">
+                          Agent {t('cliTools.friendly' as TranslationKey)}
+                        </span>
+                      )}
                       {ct.version && (
                         <span className="text-xs text-muted-foreground shrink-0">
                           v{ct.version}
