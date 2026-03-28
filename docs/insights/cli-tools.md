@@ -150,35 +150,52 @@ Karpathy 在 MenuGen 文章里花了 1 小时调试 `.env.local` 没同步到 Ve
 
 ### 各 CLI 实现的具体分析
 
-**飞书 Lark CLI** — Agent-first 的典范
-- 19 个结构化 Skills（一个 Markdown 文件 = 一个业务域的完整使用指南）
-- 三层命令架构（快捷命令 `+agenda` → API 命令 → 通用调用 `api GET /...`）
-- `--format json/table/ndjson` 多格式输出
-- `--dry-run` 预览
-- `--as user/bot` 身份切换
-- 安全防护：输入净化、credential 加密存储（OS keyring）
-- Agent 友好度：★★★★★
+**飞书 Lark CLI** — Agent-first 但有隐患（★★★★★，实际体验约 ★★★★）
 
-**Google Workspace CLI (gws)** — Schema 自省的先驱
-- 不硬编码命令，从 Google Discovery Service 动态生成
-- `gws schema <method>` 在运行时查完整 API 签名
-- `--sanitize` 响应净化（Model Armor 防 prompt injection）
-- 100+ Agent Skills
-- NDJSON 分页流式输出
-- Agent 友好度：★★★★★
+*基于源码分析（github.com/larksuite/cli）：*
 
-**即梦 Dreamina CLI** — AI 创作工具的 Agent 化
+优点：
+- 19 个 Skills，hub-and-spoke 懒加载架构——`lark-shared` 作为基座（3.3KB），每个业务域 SKILL.md 只加载概览，详细命令文档在 `references/` 按需读取
+- 三层命令架构（快捷命令 `+agenda` → API 命令 → 通用调用 `api GET /...`），设计精巧
+- `--format json/table/ndjson` 多格式输出 + `--dry-run` 预览 + `--as user/bot` 身份切换
+- 统一的 Skill 模板（`skill-template/`），结构一致性好
+
+**问题（从源码发现）：**
+- **上下文炸弹**：lark-base 的 Skills 目录达 361KB（含 57KB 的公式指南），是 lark-wiki（1KB）的 350 倍。如果 Agent 不小心加载了整个 lark-base 目录，context window 直接爆炸
+- **语言混杂**：frontmatter description 和大部分内容是中文，但 lark-im 的 Core Concepts 和 Important Notes 全是英文，没有统一的语言策略
+- **Skills 质量参差**：lark-wiki 描述说"创建和管理知识空间、节点和文档"，实际只封装了 1 个 API 方法（`spaces.get_node`）。描述与实现不匹配
+- **版本号形同虚设**：18/19 个 Skills 都是 1.0.0，模板里有 `{{meta_version}}` 占位符但从不更新
+- **工作流 Skills 重复上下文**：standup-report 重复了 lark-calendar 和 lark-task 里的时间格式警告、RSVP 映射表等内容
+
+**Google Workspace CLI (gws)** — 目前最成熟的 Agent-first CLI（★★★★★）
+
+*基于源码分析（github.com/googleworkspace/cli）：*
+
+优点：
+- **Skills 自动生成**：`gws generate-skills` 从 Discovery Document 自动生成 95 个 Skills（19 服务 + 24 Helper + 10 Persona + 42 Recipe），保证与 API 表面同步
+- **Schema 自省**：838 行的 `schema.rs` 实现，支持类型查找 + 方法查找 + `--resolve-refs` 递归展开嵌套引用（带环检测），5 个单元测试覆盖
+- **输入防护堪称教科书**：838 行 `validate.rs`，40+ 测试用例，防护路径遍历、控制字符、零宽字符（ZWSP/ZWNJ/ZWJ/BOM）、双向文本注入（LRE/RLE/PDF/LRO/RLO）、百分号编码绕过（`%2e%2e`）。明确区分可信输入（环境变量）和不可信输入（CLI 参数/Agent 生成）
+- **三层上下文**：`CLAUDE.md`（1 行重定向）→ `AGENTS.md`（240 行开发者指南）→ `CONTEXT.md`（75 行操作指南）。开发者和使用者的文档分离
+- **安全护栏**：危险方法（`drive.files.delete`、`drive.files.emptyTrash`）从自动生成的 Skills 中排除
+- **Skills 精简**：95 个 Skills 合计 154KB，平均 1.6KB/个
+
+**问题（从源码发现）：**
+- **没有 MCP server**：纯 shell 调用模式，限制了与 MCP-native 框架的集成
+- **Recipe Skills 缺错误处理**：只描述 happy path，不说 step 2 失败怎么办
+- **Persona Skills 太薄**：列了可用命令但没有决策启发（如"收件箱 > 50 封未读时先按发件人优先级分流"）
+- **validate_resource_name 允许同形异义字符和 10K 字符输入**，可以进一步收紧
+
+**即梦 Dreamina CLI** — AI 创作工具的 Agent 化（★★★☆☆）
 - 异步任务模型（`--poll` 轮询结果）
 - JSON 输出（包括 `--version` 都输出 JSON）
 - `user_credit` 余额查询作为 health check
 - 面向 Agent 设计的文档（"以下内容只面向 Agent 阅读"）
-- Agent 友好度：★★★☆☆（缺 schema 自省和上下文友好）
+- 缺 schema 自省、缺 field masks / 分页
 
-**Stripe CLI** — 从第二代到第三代的过渡
+**Stripe CLI** — 从第二代到第三代的过渡（★★★☆☆）
 - `--json` 输出、`--api-key` 非交互认证
 - Projects 插件：`llm-context` 命令、`--no-interactive` flag
 - 但核心 CLI 仍然有大量交互式 prompt（webhook forwarding 等）
-- Agent 友好度：★★★☆☆
 
 ### getcli 的启示
 
