@@ -216,8 +216,9 @@ export function McpManager() {
   const serverCount = Object.keys(servers).length;
 
   return (
-    <div className="h-full overflow-auto">
-      <div className="shrink-0 border-b border-border/50 pb-4 mb-4 -mx-6 px-6">
+    <div className="flex h-full flex-col">
+      {/* Fixed header */}
+      <div className="shrink-0 border-b border-border/50 px-6 pt-4 pb-4">
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-xl font-semibold">
@@ -238,6 +239,9 @@ export function McpManager() {
           </Button>
         </div>
       </div>
+
+      {/* Scrollable content */}
+      <div className="flex-1 overflow-y-auto p-6">
 
       {error && (
         <div className="rounded-md bg-destructive/10 p-3 mb-4">
@@ -358,6 +362,7 @@ export function McpManager() {
         server={editingServer}
         onSave={handleSave}
       />
+      </div>
     </div>
   );
 }

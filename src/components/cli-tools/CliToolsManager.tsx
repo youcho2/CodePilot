@@ -154,26 +154,28 @@ export function CliToolsManager() {
   }
 
   return (
-    <div className="flex flex-col gap-6 overflow-y-auto">
-      <div className="shrink-0 border-b border-border/50 pb-4 mb-4 -mx-6 px-6">
+    <div className="flex h-full flex-col">
+      {/* Fixed header */}
+      <div className="shrink-0 border-b border-border/50 px-6 pt-4 pb-4">
         <div className="flex items-start justify-between">
           <div>
             <h1 className="text-xl font-semibold">{t('cliTools.title')}</h1>
             <p className="text-sm text-muted-foreground mt-1">{t('cliTools.description')}</p>
           </div>
-          {installedCatalogTools.length === 0 && extraDetected.length === 0 && customTools.length === 0 && (
-            <Button
-              variant="outline"
-              size="sm"
-              className="h-7 text-xs gap-1.5 shrink-0"
-              onClick={handleAddTool}
-            >
-              <Plus size={14} />
-              {t('cliTools.addTool' as TranslationKey)}
+          <Button
+            size="sm"
+            className="gap-1.5 shrink-0"
+            onClick={handleAddTool}
+          >
+            <Plus size={14} />
+            {t('cliTools.addTool' as TranslationKey)}
           </Button>
-        )}
         </div>
       </div>
+
+      {/* Scrollable content */}
+      <div className="flex-1 overflow-y-auto p-6">
+      <div className="flex flex-col gap-6">
 
       {/* Installed — catalog tools + extra system-detected tools + custom tools */}
       {(installedCatalogTools.length > 0 || extraDetected.length > 0 || customTools.length > 0) && (
@@ -181,15 +183,6 @@ export function CliToolsManager() {
           <div className="flex items-center justify-between mb-3">
             <h2 className="text-sm font-medium text-muted-foreground">{t('cliTools.installed')}</h2>
             <div className="flex items-center gap-2">
-              <Button
-                variant="outline"
-                size="sm"
-                className="h-7 text-xs gap-1.5"
-                onClick={handleAddTool}
-              >
-                <Plus size={14} />
-                {t('cliTools.addTool' as TranslationKey)}
-              </Button>
               <Button
                 variant="outline"
                 size="sm"
@@ -387,6 +380,8 @@ export function CliToolsManager() {
         onComplete={handleBatchDescribeComplete}
       />
 
+      </div>
+      </div>
     </div>
   );
 }
