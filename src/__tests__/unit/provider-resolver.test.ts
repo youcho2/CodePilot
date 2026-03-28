@@ -750,26 +750,26 @@ describe('Upstream Model ID Mapping', () => {
       protocol: 'anthropic',
       authStyle: 'api_key',
       model: 'sonnet',
-      upstreamModel: 'glm-4.7', // resolved from catalog
-      modelDisplayName: 'GLM-4.7',
+      upstreamModel: 'glm-5-turbo', // resolved from catalog
+      modelDisplayName: 'GLM-5-Turbo',
       headers: {},
       envOverrides: {},
       roleModels: {},
       hasCredentials: true,
       availableModels: [
-        { modelId: 'sonnet', upstreamModelId: 'glm-4.7', displayName: 'GLM-4.7' },
-        { modelId: 'opus', upstreamModelId: 'glm-5', displayName: 'GLM-5' },
+        { modelId: 'sonnet', upstreamModelId: 'glm-5-turbo', displayName: 'GLM-5-Turbo' },
+        { modelId: 'opus', upstreamModelId: 'glm-5.1', displayName: 'GLM-5.1' },
       ],
       settingSources: ['project', 'local'],
     };
 
     // Without override — uses resolved.upstreamModel
     const config1 = toAiSdkConfig(resolved);
-    assert.equal(config1.modelId, 'glm-4.7', 'should use upstream model ID from resolution');
+    assert.equal(config1.modelId, 'glm-5-turbo', 'should use upstream model ID from resolution');
 
     // With override matching an available model — should map to upstream
     const config2 = toAiSdkConfig(resolved, 'opus');
-    assert.equal(config2.modelId, 'glm-5', 'override "opus" should map to upstream "glm-5"');
+    assert.equal(config2.modelId, 'glm-5.1', 'override "opus" should map to upstream "glm-5.1"');
 
     // With override NOT in available models — passes through as-is
     const config3 = toAiSdkConfig(resolved, 'unknown-model');
@@ -782,26 +782,26 @@ describe('Upstream Model ID Mapping', () => {
         id: 'test', name: 'GLM', provider_type: 'custom', protocol: 'anthropic',
         base_url: 'https://open.bigmodel.cn/api/anthropic', api_key: 'key',
         is_active: 1, sort_order: 0, extra_env: '{}', headers_json: '{}',
-        env_overrides_json: '', role_models_json: '{"default":"glm-4.7","sonnet":"glm-4.7","opus":"glm-5"}',
+        env_overrides_json: '', role_models_json: '{"default":"glm-5-turbo","sonnet":"glm-5-turbo","opus":"glm-5.1"}',
         notes: '', created_at: '', updated_at: '', options_json: '{}',
       },
       protocol: 'anthropic',
       authStyle: 'api_key',
       model: 'sonnet',
-      upstreamModel: 'glm-4.7',
-      modelDisplayName: 'GLM-4.7',
+      upstreamModel: 'glm-5-turbo',
+      modelDisplayName: 'GLM-5-Turbo',
       headers: {},
       envOverrides: {},
-      roleModels: { default: 'glm-4.7', sonnet: 'glm-4.7', opus: 'glm-5' },
+      roleModels: { default: 'glm-5-turbo', sonnet: 'glm-5-turbo', opus: 'glm-5.1' },
       hasCredentials: true,
       availableModels: [],
       settingSources: ['project', 'local'],
     };
 
     const env = toClaudeCodeEnv({}, resolved);
-    assert.equal(env.ANTHROPIC_MODEL, 'glm-4.7', 'ANTHROPIC_MODEL should be set from roleModels.default');
-    assert.equal(env.ANTHROPIC_DEFAULT_SONNET_MODEL, 'glm-4.7');
-    assert.equal(env.ANTHROPIC_DEFAULT_OPUS_MODEL, 'glm-5');
+    assert.equal(env.ANTHROPIC_MODEL, 'glm-5-turbo', 'ANTHROPIC_MODEL should be set from roleModels.default');
+    assert.equal(env.ANTHROPIC_DEFAULT_SONNET_MODEL, 'glm-5-turbo');
+    assert.equal(env.ANTHROPIC_DEFAULT_OPUS_MODEL, 'glm-5.1');
   });
 });
 
@@ -922,31 +922,31 @@ describe('Entry Point Resolution Contract', () => {
         id: 'test', name: 'GLM', provider_type: 'custom', protocol: 'anthropic',
         base_url: 'https://open.bigmodel.cn/api/anthropic', api_key: 'key',
         is_active: 1, sort_order: 0, extra_env: '{}', headers_json: '{}',
-        env_overrides_json: '', role_models_json: '{"default":"glm-4.7"}',
+        env_overrides_json: '', role_models_json: '{"default":"glm-5-turbo"}',
         notes: '', created_at: '', updated_at: '', options_json: '{}',
       },
       protocol: 'anthropic',
       authStyle: 'api_key',
       model: 'sonnet',
-      upstreamModel: 'glm-4.7',
-      modelDisplayName: 'GLM-4.7',
+      upstreamModel: 'glm-5-turbo',
+      modelDisplayName: 'GLM-5-Turbo',
       headers: {},
       envOverrides: {},
-      roleModels: { default: 'glm-4.7' },
+      roleModels: { default: 'glm-5-turbo' },
       hasCredentials: true,
       availableModels: [
-        { modelId: 'sonnet', upstreamModelId: 'glm-4.7', displayName: 'GLM-4.7' },
+        { modelId: 'sonnet', upstreamModelId: 'glm-5-turbo', displayName: 'GLM-5-Turbo' },
       ],
       settingSources: ['project', 'local'],
     };
 
     // AI SDK path: toAiSdkConfig should use upstreamModel
     const aiConfig = toAiSdkConfig(resolved);
-    assert.equal(aiConfig.modelId, 'glm-4.7', 'AI SDK should use upstream model ID');
+    assert.equal(aiConfig.modelId, 'glm-5-turbo', 'AI SDK should use upstream model ID');
 
     // Claude Code path: toClaudeCodeEnv should set ANTHROPIC_MODEL from roleModels.default
     const ccEnv = toClaudeCodeEnv({}, resolved);
-    assert.equal(ccEnv.ANTHROPIC_MODEL, 'glm-4.7', 'Claude Code env should use upstream model ID');
+    assert.equal(ccEnv.ANTHROPIC_MODEL, 'glm-5-turbo', 'Claude Code env should use upstream model ID');
 
     // Both paths use the same upstream ID
     assert.equal(aiConfig.modelId, ccEnv.ANTHROPIC_MODEL, 'AI SDK and Claude Code must use same upstream model');
