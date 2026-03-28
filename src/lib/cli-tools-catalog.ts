@@ -225,7 +225,7 @@ export const CLI_TOOLS_CATALOG: CliToolDefinition[] = [
     ],
     postInstallCommands: [
       'gws --help',
-      '# 查看可用的 Skills 列表后，根据用户需求选择安装，例如：npx skills add https://github.com/googleworkspace/cli/tree/main/skills/gws-drive',
+      '# Check available Skills, then install per user needs, e.g.: npx skills add https://github.com/googleworkspace/cli/tree/main/skills/gws-drive',
     ],
     homepage: 'https://github.com/googleworkspace/cli',
     repoUrl: 'https://github.com/googleworkspace/cli',
