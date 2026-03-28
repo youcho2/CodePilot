@@ -3,8 +3,10 @@
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import Link from "next/link";
+import { motion, AnimatePresence } from "motion/react";
 import {
   MagnifyingGlass,
+  CaretDown,
   FileArrowDown,
   Plus,
   FolderOpen,
@@ -68,6 +70,8 @@ export function ChatListPanel({ open, width, hasUpdate, readyToInstall }: ChatLi
   const [deletingSession, setDeletingSession] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [searchDialogOpen, setSearchDialogOpen] = useState(false);
+  const [expandedSessionGroups, setExpandedSessionGroups] = useState<Set<string>>(new Set());
+  const SESSION_TRUNCATE_LIMIT = 10;
   const [importDialogOpen, setImportDialogOpen] = useState(false);
   const [folderPickerOpen, setFolderPickerOpen] = useState(false);
   const [collapsedProjects, setCollapsedProjects] = useState<Set<string>>(
@@ -543,6 +547,13 @@ export function ChatListPanel({ open, width, hasUpdate, readyToInstall }: ChatLi
               const isFolderHovered =
                 hoveredFolder === group.workingDirectory;
 
+              const isSessionsExpanded = expandedSessionGroups.has(group.workingDirectory);
+              const shouldTruncate = group.sessions.length > SESSION_TRUNCATE_LIMIT;
+              const visibleSessions = shouldTruncate && !isSessionsExpanded
+                ? group.sessions.slice(0, SESSION_TRUNCATE_LIMIT)
+                : group.sessions;
+              const hiddenCount = group.sessions.length - SESSION_TRUNCATE_LIMIT;
+
               return (
                 <div key={group.workingDirectory || "__no_project"} className="mt-1 first:mt-0">
                   {/* Folder header */}
@@ -559,41 +570,76 @@ export function ChatListPanel({ open, width, hasUpdate, readyToInstall }: ChatLi
                     onRemoveProject={handleRemoveProject}
                   />
 
-                  {/* Session items */}
-                  {!isCollapsed && (
-                    <div className="mt-0.5 flex flex-col gap-0.5">
-                      {group.sessions.map((session) => {
-                        const isActive = pathname === `/chat/${session.id}`;
-                        const canSplit = !isActive && !isInSplit(session.id);
+                  {/* Session items with animated collapse */}
+                  <AnimatePresence initial={false}>
+                    {!isCollapsed && (
+                      <motion.div
+                        initial={{ height: 0, opacity: 0 }}
+                        animate={{ height: 'auto', opacity: 1 }}
+                        exit={{ height: 0, opacity: 0 }}
+                        transition={{ duration: 0.2, ease: 'easeOut' }}
+                        style={{ overflow: 'hidden' }}
+                      >
+                        <div className="mt-0.5 flex flex-col gap-0.5">
+                          {visibleSessions.map((session) => {
+                            const isActive = pathname === `/chat/${session.id}`;
+                            const canSplit = !isActive && !isInSplit(session.id);
 
-                        return (
-                          <SessionListItem
-                            key={session.id}
-                            session={session}
-                            isActive={isActive}
-                            isHovered={hoveredSession === session.id}
-                            isDeleting={deletingSession === session.id}
-                            isSessionStreaming={activeStreamingSessions.has(session.id) || streamingSessionId === session.id}
-                            needsApproval={pendingApprovalSessionIds.has(session.id) || pendingApprovalSessionId === session.id}
-                            canSplit={canSplit}
-                            formatRelativeTime={formatRelativeTime}
-                            t={t}
-                            onMouseEnter={() => setHoveredSession(session.id)}
-                            onMouseLeave={() => setHoveredSession(null)}
-                            onDelete={handleDeleteSession}
-                            onRename={handleRenameSession}
-                            onAddToSplit={(s) => addToSplit({
-                              sessionId: s.id,
-                              title: s.title,
-                              workingDirectory: s.working_directory || "",
-                              projectName: s.project_name || "",
-                              mode: s.mode,
-                            })}
-                          />
-                        );
-                      })}
-                    </div>
-                  )}
+                            return (
+                              <SessionListItem
+                                key={session.id}
+                                session={session}
+                                isActive={isActive}
+                                isHovered={hoveredSession === session.id}
+                                isDeleting={deletingSession === session.id}
+                                isSessionStreaming={activeStreamingSessions.has(session.id) || streamingSessionId === session.id}
+                                needsApproval={pendingApprovalSessionIds.has(session.id) || pendingApprovalSessionId === session.id}
+                                canSplit={canSplit}
+                                formatRelativeTime={formatRelativeTime}
+                                t={t}
+                                onMouseEnter={() => setHoveredSession(session.id)}
+                                onMouseLeave={() => setHoveredSession(null)}
+                                onDelete={handleDeleteSession}
+                                onRename={handleRenameSession}
+                                onAddToSplit={(s) => addToSplit({
+                                  sessionId: s.id,
+                                  title: s.title,
+                                  workingDirectory: s.working_directory || "",
+                                  projectName: s.project_name || "",
+                                  mode: s.mode,
+                                })}
+                              />
+                            );
+                          })}
+
+                          {/* Show more / Show less toggle */}
+                          {shouldTruncate && (
+                            <button
+                              onClick={() => setExpandedSessionGroups(prev => {
+                                const next = new Set(prev);
+                                if (next.has(group.workingDirectory)) {
+                                  next.delete(group.workingDirectory);
+                                } else {
+                                  next.add(group.workingDirectory);
+                                }
+                                return next;
+                              })}
+                              className="flex items-center gap-1 px-2.5 py-1 text-[11px] text-muted-foreground/60 hover:text-muted-foreground transition-colors"
+                            >
+                              <CaretDown
+                                size={10}
+                                className={`transition-transform duration-200 ${isSessionsExpanded ? 'rotate-180' : ''}`}
+                              />
+                              {isSessionsExpanded
+                                ? t('chatList.showLess' as TranslationKey)
+                                : t('chatList.showMore' as TranslationKey, { count: String(hiddenCount) })
+                              }
+                            </button>
+                          )}
+                        </div>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
                 </div>
               );
             })

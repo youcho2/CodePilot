@@ -36,6 +36,8 @@ const en = {
   'chatList.importFromCli': 'Import from Claude Code',
   'chatList.addProjectFolder': 'Add project folder',
   'chatList.threads': 'Threads',
+  'chatList.showMore': 'Show {count} more',
+  'chatList.showLess': 'Show less',
 
   // ── Message list ────────────────────────────────────────────
   'messageList.claudeChat': 'CodePilot Chat',

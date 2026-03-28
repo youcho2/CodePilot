@@ -525,6 +525,7 @@ function createWindow(url?: string) {
 
   if (process.platform === 'darwin') {
     windowOptions.titleBarStyle = 'hiddenInset';
+    windowOptions.vibrancy = 'sidebar';
   } else if (process.platform === 'win32') {
     windowOptions.titleBarStyle = 'hidden';
     windowOptions.titleBarOverlay = {
