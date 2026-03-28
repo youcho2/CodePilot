@@ -1066,6 +1066,8 @@ const en = {
   'cliTools.friendly': 'Friendly',
   'cliTools.output': 'Output',
   'cliTools.needsAuth': 'Auth Required',
+  'cliTools.introspection': 'Introspection',
+  'cliTools.contextFriendly': 'Context Friendly',
   'cliTools.addTool': 'Add Tool',
   'cliTools.addToolTitle': 'Add CLI Tool',
   'cliTools.addToolBinPath': 'Executable Path',

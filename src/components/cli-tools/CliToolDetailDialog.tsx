@@ -63,22 +63,37 @@ export function CliToolDetailDialog({
 
         <div className="flex flex-col gap-5 overflow-y-auto flex-1 min-h-0">
           {/* Agent compatibility */}
-          {(tool.agentFriendly || tool.supportsJson) && (
+          {(tool.agentFriendly || tool.supportsJson || tool.supportsSchema || tool.supportsDryRun || tool.contextFriendly) && (
             <section>
               <h3 className="text-sm font-medium mb-2">{t('cliTools.agentCompat' as TranslationKey)}</h3>
               <div className="flex flex-wrap gap-1.5">
                 {tool.agentFriendly && (
-                  <span className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2.5 py-1 text-xs text-primary font-medium">
+                  <span className="inline-flex items-center rounded-full bg-primary/10 px-2.5 py-1 text-xs text-primary font-medium">
                     {t('cliTools.agentNative' as TranslationKey)}
                   </span>
                 )}
                 {tool.supportsJson && (
-                  <span className="inline-flex items-center gap-1 rounded-full bg-muted px-2.5 py-1 text-xs text-muted-foreground">
+                  <span className="inline-flex items-center rounded-full bg-muted px-2.5 py-1 text-xs text-muted-foreground">
                     JSON {t('cliTools.output' as TranslationKey)}
                   </span>
                 )}
+                {tool.supportsSchema && (
+                  <span className="inline-flex items-center rounded-full bg-muted px-2.5 py-1 text-xs text-muted-foreground">
+                    Schema {t('cliTools.introspection' as TranslationKey)}
+                  </span>
+                )}
+                {tool.supportsDryRun && (
+                  <span className="inline-flex items-center rounded-full bg-muted px-2.5 py-1 text-xs text-muted-foreground">
+                    Dry Run
+                  </span>
+                )}
+                {tool.contextFriendly && (
+                  <span className="inline-flex items-center rounded-full bg-muted px-2.5 py-1 text-xs text-muted-foreground">
+                    {t('cliTools.contextFriendly' as TranslationKey)}
+                  </span>
+                )}
                 {tool.setupType === 'needs_auth' && (
-                  <span className="inline-flex items-center gap-1 rounded-full bg-muted px-2.5 py-1 text-xs text-muted-foreground">
+                  <span className="inline-flex items-center rounded-full bg-muted px-2.5 py-1 text-xs text-muted-foreground">
                     {t('cliTools.needsAuth' as TranslationKey)}
                   </span>
                 )}

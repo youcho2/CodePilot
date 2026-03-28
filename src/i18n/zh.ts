@@ -1063,6 +1063,8 @@ const zh: Record<TranslationKey, string> = {
   'cliTools.friendly': '友好',
   'cliTools.output': '输出',
   'cliTools.needsAuth': '需要认证',
+  'cliTools.introspection': '自省',
+  'cliTools.contextFriendly': '上下文友好',
   'cliTools.addTool': '添加工具',
   'cliTools.addToolTitle': '添加 CLI 工具',
   'cliTools.addToolBinPath': '可执行文件路径',

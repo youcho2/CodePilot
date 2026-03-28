@@ -1052,6 +1052,12 @@ export interface CliToolDefinition {
   agentFriendly?: boolean;
   /** Tool supports --json or similar structured output flag */
   supportsJson?: boolean;
+  /** Tool supports runtime schema introspection (e.g. "gws schema", "--help --json") */
+  supportsSchema?: boolean;
+  /** Tool supports --dry-run for previewing destructive actions */
+  supportsDryRun?: boolean;
+  /** Tool supports field masks or pagination to reduce context window usage */
+  contextFriendly?: boolean;
   /** Command to check auth/health status (e.g. "stripe status", "lark-cli auth status") */
   healthCheckCommand?: string;
   homepage?: string;
