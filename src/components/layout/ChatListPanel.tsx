@@ -6,10 +6,9 @@ import Link from "next/link";
 import { motion, AnimatePresence } from "motion/react";
 import {
   MagnifyingGlass,
-  CaretDown,
   FileArrowDown,
   Plus,
-  FolderOpen,
+  FolderPlus,
   Lightning,
   Plug,
   Terminal,
@@ -497,29 +496,25 @@ export function ChatListPanel({ open, width, hasUpdate, readyToInstall }: ChatLi
       {/* Separator */}
       <div className="mx-3 border-t border-border/40" />
 
+      {/* Section title + add folder button (fixed, not scrolling) */}
+      <div className="flex items-center justify-between px-5 pt-2 pb-1.5 shrink-0">
+        <span className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground/60">
+          {t('chatList.threads')}
+        </span>
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-5 gap-1 px-1.5 text-[11px] text-muted-foreground/60 hover:text-foreground"
+          onClick={() => openFolderPicker()}
+        >
+          <FolderPlus size={12} />
+          {t('chatList.addProjectFolder')}
+        </Button>
+      </div>
+
       {/* Session list grouped by project */}
-      <ScrollArea className="flex-1 min-h-0 px-3 pt-2 [&>[data-slot=scroll-area-viewport]>div]:!block">
+      <ScrollArea className="flex-1 min-h-0 px-3 [&>[data-slot=scroll-area-viewport]>div]:!block">
         <div className="flex flex-col pb-3">
-          {/* Section title + add folder button */}
-          <div className="flex items-center justify-between px-2 pt-1 pb-1.5">
-            <span className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground/60">
-              {t('chatList.threads')}
-            </span>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="icon-sm"
-                  className="h-5 w-5 text-muted-foreground/60 hover:text-foreground"
-                  onClick={() => openFolderPicker()}
-                >
-                  <FolderOpen size={12} />
-                  <span className="sr-only">{t('chatList.addProjectFolder')}</span>
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent side="right">{t('chatList.addProjectFolder')}</TooltipContent>
-            </Tooltip>
-          </div>
 
           {/* Split group section */}
           {isSplitActive && (
@@ -624,12 +619,8 @@ export function ChatListPanel({ open, width, hasUpdate, readyToInstall }: ChatLi
                                 }
                                 return next;
                               })}
-                              className="flex items-center gap-1 px-2.5 py-1 text-[11px] text-muted-foreground/60 hover:text-muted-foreground transition-colors"
+                              className="w-full py-1.5 text-center text-[11px] text-muted-foreground/60 hover:text-muted-foreground transition-colors"
                             >
-                              <CaretDown
-                                size={10}
-                                className={`transition-transform duration-200 ${isSessionsExpanded ? 'rotate-180' : ''}`}
-                              />
                               {isSessionsExpanded
                                 ? t('chatList.showLess' as TranslationKey)
                                 : t('chatList.showMore' as TranslationKey, { count: String(hiddenCount) })
@@ -670,7 +661,7 @@ export function ChatListPanel({ open, width, hasUpdate, readyToInstall }: ChatLi
 
       {/* Search Dialog */}
       <Dialog open={searchDialogOpen} onOpenChange={setSearchDialogOpen}>
-        <DialogContent className="sm:max-w-md p-0 max-h-[60vh] flex flex-col overflow-hidden [&>button]:top-3.5 [&>button]:right-3">
+        <DialogContent className="sm:max-w-md p-0 max-h-[60vh] flex flex-col overflow-hidden" showCloseButton={false}>
           <div className="p-3 shrink-0">
             <div className="relative">
               <MagnifyingGlass

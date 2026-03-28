@@ -41,6 +41,7 @@ export {
   Folder,
   FolderMinus,
   FolderOpen,
+  FolderPlus,
   Funnel,
   GameController,
   Gear,
