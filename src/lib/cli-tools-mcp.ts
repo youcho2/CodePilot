@@ -163,13 +163,21 @@ export function createCliToolsMcpServer() {
                 }),
                 extra: extra.map(rt => {
                   const entry = EXTRA_WELL_KNOWN_BINS.find(([eid]) => eid === rt.id);
+                  const desc = descriptions[rt.id];
+                  const compat = (desc?.structured as Record<string, unknown>)?.agentCompat as Record<string, boolean> | undefined;
                   return {
                     id: rt.id,
                     name: entry?.[1] ?? rt.id,
                     status: rt.status,
                     version: rt.version,
                     binPath: rt.binPath,
-                    description: descriptions[rt.id]?.en ?? null,
+                    description: desc?.en ?? null,
+                    agentFriendly: compat?.agentFriendly || false,
+                    supportsJson: compat?.supportsJson || false,
+                    supportsSchema: compat?.supportsSchema || false,
+                    supportsDryRun: compat?.supportsDryRun || false,
+                    contextFriendly: compat?.contextFriendly || false,
+                    healthCheckCommand: null,
                   };
                 }),
                 custom: customTools.map(ct => {
@@ -188,6 +196,7 @@ export function createCliToolsMcpServer() {
                     supportsSchema: compat?.supportsSchema || false,
                     supportsDryRun: compat?.supportsDryRun || false,
                     contextFriendly: compat?.contextFriendly || false,
+                    healthCheckCommand: null,
                   };
                 }),
               };
