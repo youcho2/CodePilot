@@ -356,6 +356,38 @@ export const CLI_TOOLS_CATALOG: CliToolDefinition[] = [
     homepage: 'https://jimeng.jianying.com',
     supportsAutoDescribe: true,
   },
+  {
+    id: 'lark-cli',
+    name: '飞书 Lark CLI',
+    binNames: ['lark-cli'],
+    summaryZh: '飞书开放平台命令行工具，覆盖消息、文档、多维表格、日历、邮箱等 200+ 命令',
+    summaryEn: 'Lark/Feishu CLI — 200+ commands for messaging, docs, sheets, calendar, mail and more',
+    categories: ['productivity'],
+    installMethods: [
+      { method: 'npm', command: 'npm install -g @larksuite/cli', platforms: ['darwin', 'linux', 'win32'] },
+    ],
+    setupType: 'needs_auth',
+    detailIntro: {
+      zh: '飞书 Lark CLI 是飞书开放平台的命令行工具，为 AI Agent 原生设计。覆盖日历、即时通讯、云文档、多维表格、电子表格、任务、知识库、邮箱、视频会议等 11 大业务域，提供 200+ 命令和 19 个 AI Agent Skills。支持三层调用架构（快捷命令→API 命令→通用调用），内置结构化输出和 dry-run 预览。',
+      en: 'Lark CLI is the command-line tool for the Lark/Feishu open platform, designed natively for AI agents. Covers 11 business domains including calendar, messaging, docs, sheets, tasks, wiki, mail, and video conferencing with 200+ commands and 19 AI Agent Skills. Features a three-layer calling architecture (shortcuts→API commands→generic calls), structured output, and dry-run preview.',
+    },
+    useCases: {
+      zh: ['发送消息和管理群聊', '创建和编辑飞书文档', '操作多维表格和电子表格数据', '查看日历日程和管理任务', '搜索和阅读邮件'],
+      en: ['Send messages and manage group chats', 'Create and edit Lark documents', 'Operate on Bitable and spreadsheet data', 'View calendar events and manage tasks', 'Search and read emails'],
+    },
+    guideSteps: {
+      zh: ['安装：npm install -g @larksuite/cli', '运行 lark-cli config init 配置应用凭证', '运行 lark-cli auth login --recommend 完成登录授权', '使用 lark-cli calendar +agenda 查看今日日程'],
+      en: ['Install: npm install -g @larksuite/cli', 'Run lark-cli config init to configure app credentials', 'Run lark-cli auth login --recommend to authorize', 'Use lark-cli calendar +agenda to view today\'s agenda'],
+    },
+    examplePrompts: [
+      { label: 'Send message', promptZh: '用飞书 CLI 给某个群聊发一条消息', promptEn: 'Use Lark CLI to send a message to a group chat' },
+      { label: 'Create doc', promptZh: '用飞书 CLI 创建一个新文档并写入内容', promptEn: 'Use Lark CLI to create a new document with content' },
+      { label: 'View agenda', promptZh: '用飞书 CLI 查看我今天的日程安排', promptEn: 'Use Lark CLI to view my agenda for today' },
+    ],
+    homepage: 'https://github.com/larksuite/cli',
+    repoUrl: 'https://github.com/larksuite/cli',
+    supportsAutoDescribe: true,
+  },
 ];
 
 /**
