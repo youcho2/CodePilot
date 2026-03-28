@@ -34,7 +34,7 @@ const en = {
   'chatList.searchSessions': 'Search sessions...',
   'chatList.noSessions': 'No sessions yet',
   'chatList.importFromCli': 'Import from Claude Code',
-  'chatList.addProjectFolder': 'Add project folder',
+  'chatList.addProjectFolder': 'New Project',
   'chatList.threads': 'Threads',
   'chatList.showMore': 'Show {count} more',
   'chatList.showLess': 'Show less',

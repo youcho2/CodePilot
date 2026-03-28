@@ -653,7 +653,7 @@ export function ChatListPanel({ open, width, hasUpdate, readyToInstall }: ChatLi
             <Gear size={14} weight={pathname.startsWith("/settings") ? "fill" : "regular"} />
             {t('nav.settings' as TranslationKey)}
             {(hasUpdate || readyToInstall) && (
-              <span className={`ml-auto h-2 w-2 rounded-full ${readyToInstall ? "bg-green-500" : "bg-green-500 animate-pulse"}`} />
+              <span className={`ml-auto h-2 w-2 rounded-full ${readyToInstall ? "bg-primary" : "bg-primary animate-pulse"}`} />
             )}
           </Button>
         </Link>

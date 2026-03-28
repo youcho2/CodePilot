@@ -93,9 +93,10 @@ export function UnifiedTopBar() {
 
   // On non-chat routes, render only a thin drag region (no visible bar)
   if (!isChatRoute) {
+    // Thin drag region for macOS window dragging — just enough for traffic light area
     return (
       <div
-        className="h-8 shrink-0"
+        className="h-3 shrink-0"
         style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}
       />
     );
