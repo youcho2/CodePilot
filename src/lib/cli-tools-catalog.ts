@@ -376,8 +376,8 @@ export const CLI_TOOLS_CATALOG: CliToolDefinition[] = [
       en: ['Send messages and manage group chats', 'Create and edit Lark documents', 'Operate on Bitable and spreadsheet data', 'View calendar events and manage tasks', 'Search and read emails'],
     },
     guideSteps: {
-      zh: ['安装：npm install -g @larksuite/cli', '运行 lark-cli config init 配置应用凭证', '运行 lark-cli auth login --recommend 完成登录授权', '使用 lark-cli calendar +agenda 查看今日日程'],
-      en: ['Install: npm install -g @larksuite/cli', 'Run lark-cli config init to configure app credentials', 'Run lark-cli auth login --recommend to authorize', 'Use lark-cli calendar +agenda to view today\'s agenda'],
+      zh: ['安装：npm install -g @larksuite/cli', '安装 AI Agent Skills：npx skills add larksuite/cli -y', '运行 lark-cli config init --new 配置应用凭证（需在浏览器中完成授权）', '运行 lark-cli auth login --recommend 完成登录授权', '运行 lark-cli auth status 验证登录状态'],
+      en: ['Install: npm install -g @larksuite/cli', 'Install AI Agent Skills: npx skills add larksuite/cli -y', 'Run lark-cli config init --new to configure credentials (complete auth in browser)', 'Run lark-cli auth login --recommend to authorize', 'Run lark-cli auth status to verify login'],
     },
     examplePrompts: [
       { label: 'Send message', promptZh: '用飞书 CLI 给某个群聊发一条消息', promptEn: 'Use Lark CLI to send a message to a group chat' },

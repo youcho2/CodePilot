@@ -116,10 +116,30 @@ export function CliToolsManager() {
   const handleInstall = (tool: CliToolDefinition, method: string) => {
     const installMethod = tool.installMethods.find(m => m.method === method);
     const installCmd = installMethod?.command || `${method} install ${tool.id}`;
-    const prefill = locale === 'zh'
-      ? `帮我安装 ${tool.name} 并添加到工具库。\n安装命令：${installCmd}\n如果权限不足请用 sudo 重试。`
-      : `Install ${tool.name} and add it to the tool library.\nInstall command: ${installCmd}\nIf permission denied, retry with sudo.`;
-    window.location.href = `/chat?prefill=${encodeURIComponent(prefill)}`;
+    const isZh = locale === 'zh';
+
+    const lines: string[] = [];
+    lines.push(isZh
+      ? `帮我安装 ${tool.name} 并添加到工具库。`
+      : `Install ${tool.name} and add it to the tool library.`);
+    lines.push(isZh ? `安装命令：${installCmd}` : `Install command: ${installCmd}`);
+    lines.push(isZh ? '如果权限不足请用 sudo 重试。' : 'If permission denied, retry with sudo.');
+
+    // Include post-install setup steps for tools that need auth/config
+    if (tool.setupType === 'needs_auth') {
+      const steps = isZh ? tool.guideSteps.zh : tool.guideSteps.en;
+      // Skip the first step (usually the install command itself)
+      const setupSteps = steps.slice(1);
+      if (setupSteps.length > 0) {
+        lines.push('');
+        lines.push(isZh ? '安装完成后请帮我完成以下配置：' : 'After installation, help me complete these setup steps:');
+        setupSteps.forEach((step, i) => {
+          lines.push(`${i + 1}. ${step}`);
+        });
+      }
+    }
+
+    window.location.href = `/chat?prefill=${encodeURIComponent(lines.join('\n'))}`;
   };
 
   const handleAddTool = () => {
