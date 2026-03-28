@@ -12,6 +12,42 @@ const DB_PATH = path.join(dataDir, 'codepilot.db');
 
 let db: Database.Database | null = null;
 
+// File-based lock to prevent concurrent migration from multiple Next.js build workers.
+// Workers will retry for up to 10 seconds before giving up.
+function withMigrationLock(dbInstance: Database.Database, fn: (db: Database.Database) => void): void {
+  const lockPath = DB_PATH + '.migration-lock';
+  const maxWait = 10_000;
+  const start = Date.now();
+
+  while (true) {
+    try {
+      // O_EXCL fails if file already exists — atomic lock acquisition
+      const fd = fs.openSync(lockPath, fs.constants.O_CREAT | fs.constants.O_EXCL | fs.constants.O_WRONLY);
+      fs.closeSync(fd);
+      try {
+        fn(dbInstance);
+      } finally {
+        try { fs.unlinkSync(lockPath); } catch { /* ignore */ }
+      }
+      return;
+    } catch (err: unknown) {
+      if ((err as NodeJS.ErrnoException).code === 'EEXIST') {
+        if (Date.now() - start > maxWait) {
+          // Lock held too long — stale lock, force remove and retry once
+          try { fs.unlinkSync(lockPath); } catch { /* ignore */ }
+          continue;
+        }
+        // Wait a bit and retry
+        const waitMs = 50 + Math.random() * 100;
+        const waitUntil = Date.now() + waitMs;
+        while (Date.now() < waitUntil) { /* busy wait — better-sqlite3 is sync */ }
+        continue;
+      }
+      throw err;
+    }
+  }
+}
+
 export function getDb(): Database.Database {
   if (!db) {
     const dir = path.dirname(DB_PATH);
@@ -53,7 +89,7 @@ export function getDb(): Database.Database {
     db.pragma('journal_mode = WAL');
     db.pragma('busy_timeout = 5000');
     db.pragma('foreign_keys = ON');
-    initDb(db);
+    withMigrationLock(db, initDb);
   }
   return db;
 }
