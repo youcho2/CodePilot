@@ -6,7 +6,7 @@
 
 AI 工作流中 CLI 工具（ffmpeg、jq、ripgrep 等）是重要基础设施，但用户往往不知道装什么、怎么装。本功能提供：
 
-1. **UI 管理页面** — 浏览、管理、一键安装推荐工具，查看已安装工具详情
+1. **UI 管理页面** — 浏览、管理推荐工具，安装按钮跳转聊天由 AI 执行安装+入库
 2. **MCP 工具集成** — 模型通过 MCP 工具主动帮用户安装、注册、查询、更新 CLI 工具
 3. **AI 结构化简介** — 自动生成包含工具简介、适用场景、快速上手、示例提示词的完整描述
 4. **对话式添加工具** — "添加工具"按钮跳转聊天，模型全流程协助安装+注册+生成简介
@@ -30,7 +30,7 @@ src/app/api/cli-tools/
 │   └── [id]/route.ts          # DELETE — 删除自定义工具
 └── [id]/
     ├── status/route.ts        # GET — 单个工具状态 + 版本
-    ├── install/route.ts       # POST — SSE 流式安装日志
+    ├── install/route.ts       # POST — SSE 流式安装（保留但不再由 UI 调用，安装改走聊天 AI）
     ├── detail/route.ts        # GET — 详情弹窗数据
     └── describe/route.ts      # POST — AI 生成结构化双语工具描述
 
@@ -39,7 +39,7 @@ src/components/cli-tools/
 ├── CliToolCard.tsx            # 工具卡片（installed / recommended 两种 variant）
 ├── CliToolDetailDialog.tsx    # Catalog 工具详情弹窗（简介/场景/引导/示例 + 尝试使用按钮）
 ├── CliToolExtraDetailDialog.tsx  # Extra/Custom 工具详情弹窗（结构化简介 + 尝试使用按钮）
-├── CliToolInstallDialog.tsx   # SSE 安装进度弹窗
+├── CliToolInstallDialog.tsx   # SSE 安装进度弹窗（不再由 UI 使用，安装改走聊天 AI）
 ├── CliToolBatchDescribeDialog.tsx  # 批量 AI 描述生成
 ├── CliToolAddDialog.tsx       # 手动添加工具弹窗（保留备用，MCP 替代主流程）
 └── CliToolsPopover.tsx        # 聊天输入框的工具选择器
