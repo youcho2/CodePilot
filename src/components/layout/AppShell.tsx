@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { NavRail } from "./NavRail";
+// NavRail removed — navigation merged into ChatListPanel
 import { ChatListPanel } from "./ChatListPanel";
 import { ResizeHandle } from "./ResizeHandle";
 import { UpdateDialog } from "./UpdateDialog";
@@ -125,9 +125,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     });
   }, []);
 
-  // Panel state — chatListOpen is derived: raw state gated by route
+  // Panel state — chatListOpen is no longer gated by route (sidebar always visible)
   const isChatRoute = pathname.startsWith("/chat/") || pathname === "/chat";
-  const chatListOpen = chatListOpenRaw && isChatRoute;
+  const chatListOpen = chatListOpenRaw;
 
   const setChatListOpen = useCallback((open: boolean) => {
     setChatListOpenRaw(open);
@@ -416,15 +416,13 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         <BatchImageGenContext.Provider value={batchImageGenValue}>
         <TooltipProvider delayDuration={300}>
           <div className="flex h-screen overflow-hidden">
-            <NavRail
-              chatListOpen={chatListOpen}
-              onToggleChatList={() => setChatListOpen(!chatListOpen)}
-              hasUpdate={updateContextValue.updateInfo?.updateAvailable ?? false}
-              readyToInstall={updateContextValue.updateInfo?.readyToInstall ?? false}
-              skipPermissionsActive={skipPermissionsActive}
-            />
             <ErrorBoundary>
-              <ChatListPanel open={chatListOpen} width={chatListWidth} />
+              <ChatListPanel
+                open={chatListOpen}
+                width={chatListWidth}
+                hasUpdate={updateContextValue.updateInfo?.updateAvailable ?? false}
+                readyToInstall={updateContextValue.updateInfo?.readyToInstall ?? false}
+              />
             </ErrorBoundary>
             {chatListOpen && (
               <ResizeHandle side="left" onResize={handleChatListResize} onResizeEnd={handleChatListResizeEnd} />

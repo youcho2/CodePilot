@@ -9,8 +9,11 @@ const zh: Record<TranslationKey, string> = {
   'nav.lightMode': '浅色模式',
   'nav.darkMode': '深色模式',
   'nav.toggleTheme': '切换主题',
-  'nav.bridge': '桥接',
+  'nav.bridge': '远程桥接',
   'nav.cliTools': 'CLI 工具',
+  'nav.skills': 'Skills',
+  'nav.mcp': 'MCP',
+  'nav.gallery': '素材库',
 
   // ── Chat list panel ─────────────────────────────────────────
   'chatList.justNow': '刚刚',
