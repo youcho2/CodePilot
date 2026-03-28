@@ -34,9 +34,18 @@ export default function RootLayout({
   const themeFamilyCSS = renderThemeFamilyCSS(families);
   const validIds = families.map((f) => f.id);
 
-  // Read theme preferences from DB (persisted across sessions)
-  const dbThemeMode = getSetting('theme_mode') || undefined;
-  const dbThemeFamily = getSetting('theme_family') || undefined;
+  // Read theme preferences from DB (persisted across sessions).
+  // Wrapped in try-catch because during `next build`, multiple worker processes
+  // prerender pages concurrently through this layout, all hitting getDb().
+  // SQLite cannot handle parallel writes from separate processes ("database is locked").
+  let dbThemeMode: string | undefined;
+  let dbThemeFamily: string | undefined;
+  try {
+    dbThemeMode = getSetting('theme_mode') || undefined;
+    dbThemeFamily = getSetting('theme_family') || undefined;
+  } catch {
+    // Build-time or DB unavailable — fall back to localStorage-only theme
+  }
 
   return (
     <html lang="en" suppressHydrationWarning>
