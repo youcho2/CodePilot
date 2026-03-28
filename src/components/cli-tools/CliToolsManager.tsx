@@ -125,8 +125,14 @@ export function CliToolsManager() {
     lines.push(isZh ? `安装命令：${installCmd}` : `Install command: ${installCmd}`);
     lines.push(isZh ? '如果权限不足请用 sudo 重试。' : 'If permission denied, retry with sudo.');
 
-    // For tools that need auth, only hint that setup is needed — don't inject specific steps
-    // as they may be platform-specific or unsafe to auto-execute. Let the AI read --help.
+    // Include required post-install commands (e.g. skills install) that AI can't discover from --help
+    if (tool.postInstallCommands && tool.postInstallCommands.length > 0) {
+      lines.push('');
+      lines.push(isZh ? '安装后还需要执行：' : 'After installing, also run:');
+      tool.postInstallCommands.forEach(cmd => lines.push(cmd));
+    }
+
+    // For tools that need auth, hint that setup is needed — let AI determine steps from --help
     if (tool.setupType === 'needs_auth') {
       lines.push('');
       lines.push(isZh

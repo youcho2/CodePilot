@@ -1044,6 +1044,10 @@ export interface CliToolDefinition {
   useCases: { zh: string[]; en: string[] };
   guideSteps: { zh: string[]; en: string[] };
   examplePrompts: CliToolExamplePrompt[];
+  /** Commands that MUST be run after install (e.g. skills install, dependency install).
+   *  These are injected into the chat prefill — only include machine-executable commands,
+   *  not human-readable guidance. */
+  postInstallCommands?: string[];
   homepage?: string;
   repoUrl?: string;
   officialDocsUrl?: string;

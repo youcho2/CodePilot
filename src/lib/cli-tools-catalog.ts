@@ -384,6 +384,7 @@ export const CLI_TOOLS_CATALOG: CliToolDefinition[] = [
       { label: 'Create doc', promptZh: '用飞书 CLI 创建一个新文档并写入内容', promptEn: 'Use Lark CLI to create a new document with content' },
       { label: 'View agenda', promptZh: '用飞书 CLI 查看我今天的日程安排', promptEn: 'Use Lark CLI to view my agenda for today' },
     ],
+    postInstallCommands: ['npx skills add larksuite/cli -y'],
     homepage: 'https://github.com/larksuite/cli',
     repoUrl: 'https://github.com/larksuite/cli',
     supportsAutoDescribe: true,
