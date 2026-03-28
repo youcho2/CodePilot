@@ -1063,6 +1063,7 @@ const en = {
   'cliTools.systemDetected': 'System Detected',
   'cliTools.agentCompat': 'AI Agent Compatibility',
   'cliTools.agentNative': 'Agent Native',
+  'cliTools.friendly': 'Friendly',
   'cliTools.output': 'Output',
   'cliTools.needsAuth': 'Auth Required',
   'cliTools.addTool': 'Add Tool',

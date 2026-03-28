@@ -1060,6 +1060,7 @@ const zh: Record<TranslationKey, string> = {
   'cliTools.systemDetected': '系统已安装',
   'cliTools.agentCompat': 'AI Agent 兼容度',
   'cliTools.agentNative': 'Agent 原生设计',
+  'cliTools.friendly': '友好',
   'cliTools.output': '输出',
   'cliTools.needsAuth': '需要认证',
   'cliTools.addTool': '添加工具',
