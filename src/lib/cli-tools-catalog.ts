@@ -215,14 +215,15 @@ export const CLI_TOOLS_CATALOG: CliToolDefinition[] = [
       en: ['Manage Google Drive files (upload, download, search)', 'Read and send Gmail messages', 'Operate on Google Sheets data', 'Manage Google Calendar events', 'Automate Google Workspace operations in CI/scripts'],
     },
     guideSteps: {
-      zh: ['安装 gws：npm install -g @googleworkspace/cli', '运行 gws auth setup 配置 Google Cloud 项目并登录', '运行 gws auth login 完成 OAuth 认证', '使用 gws drive files list 等命令操作 Workspace 资源'],
-      en: ['Install gws: npm install -g @googleworkspace/cli', 'Run gws auth setup to configure Google Cloud project and log in', 'Run gws auth login to complete OAuth authentication', 'Use commands like gws drive files list to operate on Workspace resources'],
+      zh: ['安装 gws：npm install -g @googleworkspace/cli', '安装 AI Agent Skills：npx skills add https://github.com/googleworkspace/cli', '运行 gws auth setup 配置 Google Cloud 项目（需要 gcloud CLI 或手动配置 OAuth）', '运行 gws auth login -s drive,gmail,sheets 选择需要的 API 权限并登录', '使用 gws drive files list 等命令操作 Workspace 资源'],
+      en: ['Install gws: npm install -g @googleworkspace/cli', 'Install AI Agent Skills: npx skills add https://github.com/googleworkspace/cli', 'Run gws auth setup to configure Google Cloud project (requires gcloud CLI or manual OAuth setup)', 'Run gws auth login -s drive,gmail,sheets to select API scopes and log in', 'Use commands like gws drive files list to operate on Workspace resources'],
     },
     examplePrompts: [
       { label: 'List Drive files', promptZh: '用 gws 列出我 Google Drive 根目录下的文件', promptEn: 'Use gws to list files in my Google Drive root directory' },
       { label: 'Send email', promptZh: '用 gws 发送一封测试邮件', promptEn: 'Use gws to send a test email via Gmail' },
       { label: 'Read spreadsheet', promptZh: '用 gws 读取 Google Sheets 表格中的数据', promptEn: 'Use gws to read data from a Google Sheets spreadsheet' },
     ],
+    postInstallCommands: ['npx skills add https://github.com/googleworkspace/cli'],
     homepage: 'https://github.com/googleworkspace/cli',
     repoUrl: 'https://github.com/googleworkspace/cli',
     officialDocsUrl: 'https://github.com/googleworkspace/cli#readme',
