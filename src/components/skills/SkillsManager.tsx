@@ -198,17 +198,14 @@ export function SkillsManager() {
         </div>
       </div>
 
-      {/* Scrollable content */}
-      <div className="flex-1 overflow-y-auto p-6 flex flex-col min-h-0">
-
       {/* Main content */}
       {viewTab === "marketplace" ? (
         <MarketplaceBrowser onInstalled={fetchSkills} />
       ) : (
       <div className="flex flex-1 min-h-0">
         {/* Left: skill list */}
-        <div className="w-64 shrink-0 flex flex-col overflow-hidden">
-          <div className="p-2 border-b border-border">
+        <div className="w-64 shrink-0 flex flex-col overflow-hidden pl-4">
+          <div className="p-2">
             <div className="relative">
               <MagnifyingGlass size={14} className="absolute left-2 top-1/2 -translate-y-1/2 text-muted-foreground" />
               <Input
@@ -339,8 +336,6 @@ export function SkillsManager() {
         </div>
       </div>
       )}
-
-      </div>
 
       <CreateSkillDialog
         open={showCreate}
