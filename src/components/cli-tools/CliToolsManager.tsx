@@ -8,7 +8,7 @@ import type { CliToolDefinition, CliToolRuntimeInfo, CustomCliTool } from "@/typ
 import { CliToolCard } from "./CliToolCard";
 import { CliToolDetailDialog } from "./CliToolDetailDialog";
 import { CliToolExtraDetailDialog } from "./CliToolExtraDetailDialog";
-import { CliToolInstallDialog } from "./CliToolInstallDialog";
+// CliToolInstallDialog removed — install now goes through chat AI
 import { CliToolBatchDescribeDialog } from "./CliToolBatchDescribeDialog";
 import { SpinnerGap, Sparkle, ArrowSquareOut, Warning, Plus, Trash } from "@/components/ui/icon";
 import { Button } from "@/components/ui/button";
@@ -31,7 +31,7 @@ export function CliToolsManager() {
   // Dialog state
   const [detailTool, setDetailTool] = useState<{ tool: CliToolDefinition; canInstall: boolean } | null>(null);
   const [extraDetailTool, setExtraDetailTool] = useState<{ displayName: string; runtimeInfo: CliToolRuntimeInfo } | null>(null);
-  const [installTool, setInstallTool] = useState<{ tool: CliToolDefinition; method: string } | null>(null);
+  // installTool state removed — install now navigates to chat
   const [batchDescribeOpen, setBatchDescribeOpen] = useState(false);
 
   const fetchData = useCallback(async () => {
@@ -114,12 +114,12 @@ export function CliToolsManager() {
   ];
 
   const handleInstall = (tool: CliToolDefinition, method: string) => {
-    setInstallTool({ tool, method });
-  };
-
-  const handleInstallComplete = () => {
-    setInstallTool(null);
-    fetchData();
+    const installMethod = tool.installMethods.find(m => m.method === method);
+    const installCmd = installMethod?.command || `${method} install ${tool.id}`;
+    const prefill = locale === 'zh'
+      ? `帮我安装 ${tool.name} 并添加到工具库。\n安装命令：${installCmd}\n如果权限不足请用 sudo 重试。`
+      : `Install ${tool.name} and add it to the tool library.\nInstall command: ${installCmd}\nIf permission denied, retry with sudo.`;
+    window.location.href = `/chat?prefill=${encodeURIComponent(prefill)}`;
   };
 
   const handleAddTool = () => {
@@ -360,16 +360,6 @@ export function CliToolsManager() {
         />
       )}
 
-      {/* Install dialog */}
-      {installTool && (
-        <CliToolInstallDialog
-          open={!!installTool}
-          onOpenChange={(open) => !open && setInstallTool(null)}
-          tool={installTool.tool}
-          method={installTool.method}
-          onComplete={handleInstallComplete}
-        />
-      )}
 
       {/* Batch AI describe dialog */}
       <CliToolBatchDescribeDialog
