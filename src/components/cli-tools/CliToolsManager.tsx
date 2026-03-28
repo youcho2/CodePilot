@@ -263,7 +263,7 @@ export function CliToolsManager() {
                       if (score === 0) return null;
                       return (
                         <div className="flex items-center gap-1 mt-1">
-                          <span className="text-[10px] text-muted-foreground/60">{t('cliTools.agentFriendliness' as TranslationKey)}</span>
+                          <span className="text-xs text-muted-foreground">{t('cliTools.agentFriendliness' as TranslationKey)}</span>
                           <div className="flex gap-0.5">
                             {[1,2,3,4,5].map(i => (
                               <Star key={i} size={10} weight={i <= score ? 'fill' : 'regular'} className={i <= score ? 'text-primary' : 'text-muted-foreground/30'} />
@@ -311,7 +311,7 @@ export function CliToolsManager() {
                       if (score === 0) return null;
                       return (
                         <div className="flex items-center gap-1 mt-1">
-                          <span className="text-[10px] text-muted-foreground/60">{t('cliTools.agentFriendliness' as TranslationKey)}</span>
+                          <span className="text-xs text-muted-foreground">{t('cliTools.agentFriendliness' as TranslationKey)}</span>
                           <div className="flex gap-0.5">
                             {[1,2,3,4,5].map(i => (
                               <Star key={i} size={10} weight={i <= score ? 'fill' : 'regular'} className={i <= score ? 'text-primary' : 'text-muted-foreground/30'} />
