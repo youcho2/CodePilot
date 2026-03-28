@@ -125,18 +125,13 @@ export function CliToolsManager() {
     lines.push(isZh ? `安装命令：${installCmd}` : `Install command: ${installCmd}`);
     lines.push(isZh ? '如果权限不足请用 sudo 重试。' : 'If permission denied, retry with sudo.');
 
-    // Include post-install setup steps for tools that need auth/config
+    // For tools that need auth, only hint that setup is needed — don't inject specific steps
+    // as they may be platform-specific or unsafe to auto-execute. Let the AI read --help.
     if (tool.setupType === 'needs_auth') {
-      const steps = isZh ? tool.guideSteps.zh : tool.guideSteps.en;
-      // Skip the first step (usually the install command itself)
-      const setupSteps = steps.slice(1);
-      if (setupSteps.length > 0) {
-        lines.push('');
-        lines.push(isZh ? '安装完成后请帮我完成以下配置：' : 'After installation, help me complete these setup steps:');
-        setupSteps.forEach((step, i) => {
-          lines.push(`${i + 1}. ${step}`);
-        });
-      }
+      lines.push('');
+      lines.push(isZh
+        ? '注意：这个工具安装后需要登录或配置认证才能使用，请安装完成后引导我完成认证设置。'
+        : 'Note: This tool requires login or auth configuration after installation. Please guide me through the setup after installing.');
     }
 
     window.location.href = `/chat?prefill=${encodeURIComponent(lines.join('\n'))}`;
