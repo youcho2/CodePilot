@@ -336,7 +336,8 @@ export const CLI_TOOLS_CATALOG: CliToolDefinition[] = [
       { label: 'Daily picks', promptZh: '播放我的每日推荐歌曲', promptEn: 'Play my daily recommended songs' },
     ],
     agentFriendly: true,
-    healthCheckCommand: 'ncm-cli --version',
+    // ncm-cli has no auth status command — omit healthCheckCommand
+    // so AI won't falsely report "healthy" before configure+login
     homepage: 'https://www.npmjs.com/package/@music163/ncm-cli',
     repoUrl: 'https://github.com/nicepkg/ncm-cli',
     supportsAutoDescribe: true,
