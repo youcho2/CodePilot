@@ -639,7 +639,7 @@ export function ChatListPanel({ open, width, hasUpdate, readyToInstall }: ChatLi
       </ScrollArea>
 
       {/* Bottom: Settings */}
-      <div className="shrink-0 border-t border-border/40 px-3 py-2">
+      <div className="shrink-0 px-3 py-2">
         <Link href="/settings">
           <Button
             variant="ghost"
