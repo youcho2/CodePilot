@@ -56,6 +56,40 @@ export function CliToolExtraDetailDialog({
         </DialogHeader>
 
         <div className="flex flex-col gap-5 overflow-y-auto flex-1 min-h-0">
+          {/* Agent compatibility (from AI assessment in structured_json) */}
+          {structured?.agentCompat && Object.values(structured.agentCompat).some(Boolean) && (
+            <section>
+              <h3 className="text-sm font-medium mb-2">{t('cliTools.agentCompat' as TranslationKey)}</h3>
+              <div className="flex flex-wrap gap-1.5">
+                {structured.agentCompat.agentFriendly && (
+                  <span className="inline-flex items-center rounded-full bg-primary/10 px-2.5 py-1 text-xs text-primary font-medium">
+                    {t('cliTools.agentNative' as TranslationKey)}
+                  </span>
+                )}
+                {structured.agentCompat.supportsJson && (
+                  <span className="inline-flex items-center rounded-full bg-muted px-2.5 py-1 text-xs text-muted-foreground">
+                    JSON {t('cliTools.output' as TranslationKey)}
+                  </span>
+                )}
+                {structured.agentCompat.supportsSchema && (
+                  <span className="inline-flex items-center rounded-full bg-muted px-2.5 py-1 text-xs text-muted-foreground">
+                    Schema {t('cliTools.introspection' as TranslationKey)}
+                  </span>
+                )}
+                {structured.agentCompat.supportsDryRun && (
+                  <span className="inline-flex items-center rounded-full bg-muted px-2.5 py-1 text-xs text-muted-foreground">
+                    Dry Run
+                  </span>
+                )}
+                {structured.agentCompat.contextFriendly && (
+                  <span className="inline-flex items-center rounded-full bg-muted px-2.5 py-1 text-xs text-muted-foreground">
+                    {t('cliTools.contextFriendly' as TranslationKey)}
+                  </span>
+                )}
+              </div>
+            </section>
+          )}
+
           {/* Intro */}
           {structured?.intro ? (
             <section>

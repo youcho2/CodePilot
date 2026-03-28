@@ -106,7 +106,7 @@ You have CLI tool management capabilities via MCP tools:
 - codepilot_cli_tools_remove: Remove a custom tool
 - codepilot_cli_tools_check_updates: Check which tools have available updates
 - codepilot_cli_tools_update: Update a tool to its latest version
-After installing or registering a tool, the --help output is automatically included in the result. Use it to generate an accurate bilingual description (zh/en) and call codepilot_cli_tools_add to save it. If the tool requires authentication, guide the user through the setup steps.
+After installing or registering a tool, the --help output is automatically included in the result. Use it to generate an accurate bilingual description (zh/en) and assess agent compatibility (agentFriendly, supportsJson, supportsSchema, supportsDryRun, contextFriendly) from the help output. Then call codepilot_cli_tools_add with all fields to save them. If the tool requires authentication, guide the user through the setup steps.
 When listing tools with format="json", each tool includes: agentFriendly (designed for AI agents), supportsJson (structured JSON output), supportsSchema (runtime API schema introspection), supportsDryRun (preview before mutating), contextFriendly (field masks/pagination to save context window), and healthCheckCommand (verify auth/health). Prefer agent-friendly tools; use --dry-run before destructive actions; use field masks to limit response size; use healthCheckCommand after install.
 </cli-tools-capability>`;
 
@@ -172,15 +172,24 @@ export function createCliToolsMcpServer() {
                     description: descriptions[rt.id]?.en ?? null,
                   };
                 }),
-                custom: customTools.map(ct => ({
-                  id: ct.id,
-                  name: ct.name,
-                  status: 'installed',
-                  version: ct.version,
-                  binPath: ct.binPath,
-                  installMethod: ct.installMethod,
-                  description: descriptions[ct.id]?.en ?? null,
-                })),
+                custom: customTools.map(ct => {
+                  const desc = descriptions[ct.id];
+                  const compat = (desc?.structured as Record<string, unknown>)?.agentCompat as Record<string, boolean> | undefined;
+                  return {
+                    id: ct.id,
+                    name: ct.name,
+                    status: 'installed',
+                    version: ct.version,
+                    binPath: ct.binPath,
+                    installMethod: ct.installMethod,
+                    description: desc?.en ?? null,
+                    agentFriendly: compat?.agentFriendly || false,
+                    supportsJson: compat?.supportsJson || false,
+                    supportsSchema: compat?.supportsSchema || false,
+                    supportsDryRun: compat?.supportsDryRun || false,
+                    contextFriendly: compat?.contextFriendly || false,
+                  };
+                }),
               };
               return {
                 content: [{ type: 'text' as const, text: JSON.stringify(result, null, 2) }],
@@ -413,23 +422,32 @@ export function createCliToolsMcpServer() {
       // ── ADD ──────────────────────────────────────────────────────
       tool(
         'codepilot_cli_tools_add',
-        'Register an already-installed CLI tool by its binary path, and optionally save its bilingual description. Use this after codepilot_cli_tools_install to save the generated description, or to register a tool the user has already installed.',
+        'Register an already-installed CLI tool by its binary path, and optionally save its bilingual description and agent compatibility assessment. Use this after codepilot_cli_tools_install to save the generated description, or to register a tool the user has already installed. When providing descriptions, also assess the agent compatibility dimensions based on the --help output.',
         {
           binPath: z.string().optional().describe('Absolute path to the binary, e.g. /usr/local/bin/ffmpeg. Required when registering a new tool.'),
           name: z.string().optional().describe('Display name for the tool'),
           descriptionZh: z.string().optional().describe('Chinese description (2-3 sentences)'),
           descriptionEn: z.string().optional().describe('English description (2-3 sentences)'),
           toolId: z.string().optional().describe('If updating description for an existing tool, pass its tool ID instead of binPath'),
+          agentFriendly: z.boolean().optional().describe('Tool designed for AI agents (non-interactive flags, structured output, skills)'),
+          supportsJson: z.boolean().optional().describe('Tool produces or processes structured JSON data'),
+          supportsSchema: z.boolean().optional().describe('Tool supports runtime schema introspection (e.g. schema command)'),
+          supportsDryRun: z.boolean().optional().describe('Tool supports --dry-run for previewing destructive actions'),
+          contextFriendly: z.boolean().optional().describe('Tool supports field masks or pagination to reduce output size'),
         },
-        async ({ binPath, name, descriptionZh, descriptionEn, toolId }) => {
+        async ({ binPath, name, descriptionZh, descriptionEn, toolId, agentFriendly: af, supportsJson: sj, supportsSchema: ss, supportsDryRun: sdr, contextFriendly: cf }) => {
           try {
+            // Build agent compat object if any dimension is provided
+            const agentCompat = (af || sj || ss || sdr || cf) ? { agentFriendly: af, supportsJson: sj, supportsSchema: ss, supportsDryRun: sdr, contextFriendly: cf } : undefined;
+
             // If toolId is provided, treat as a description update for an existing tool.
             if (toolId && descriptionZh && descriptionEn) {
-              upsertCliToolDescription(toolId, descriptionZh, descriptionEn);
+              const structuredJson = agentCompat ? JSON.stringify({ agentCompat }) : undefined;
+              upsertCliToolDescription(toolId, descriptionZh, descriptionEn, structuredJson);
               return {
                 content: [{
                   type: 'text' as const,
-                  text: `Description saved for tool "${toolId}".`,
+                  text: `Description${agentCompat ? ' and agent compatibility assessment' : ''} saved for tool "${toolId}".`,
                 }],
               };
             }
@@ -476,7 +494,8 @@ export function createCliToolsMcpServer() {
             });
 
             if (descriptionZh && descriptionEn) {
-              upsertCliToolDescription(created.id, descriptionZh, descriptionEn);
+              const structuredJson = agentCompat ? JSON.stringify({ agentCompat }) : undefined;
+              upsertCliToolDescription(created.id, descriptionZh, descriptionEn, structuredJson);
             }
 
             const verStr = version ? ` v${version}` : '';

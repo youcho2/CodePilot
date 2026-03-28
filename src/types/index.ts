@@ -1087,11 +1087,20 @@ export interface CustomCliTool {
   updatedAt: string;
 }
 
+export interface CliToolAgentCompat {
+  agentFriendly?: boolean;
+  supportsJson?: boolean;
+  supportsSchema?: boolean;
+  supportsDryRun?: boolean;
+  contextFriendly?: boolean;
+}
+
 export interface CliToolStructuredDesc {
   intro: { zh: string; en: string };
   useCases: { zh: string[]; en: string[] };
   guideSteps: { zh: string[]; en: string[] };
   examplePrompts: CliToolExamplePrompt[];
+  agentCompat?: CliToolAgentCompat;
 }
 
 // ==========================================

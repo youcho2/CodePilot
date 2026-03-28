@@ -104,6 +104,7 @@ Provide the description in both Chinese and English with the following structure
 2. useCases: 3-5 practical use cases (short phrases)
 3. guideSteps: 2-3 quick start steps
 4. examplePrompts: 2-3 example prompts a user might say to an AI assistant to use this tool (each with a short label)
+5. agentCompat: assess AI agent compatibility based on the tool's help output and features
 
 Respond in this exact JSON format (no markdown, no code fences, just raw JSON):
 {
@@ -112,7 +113,14 @@ Respond in this exact JSON format (no markdown, no code fences, just raw JSON):
   "guideSteps": { "zh": ["步骤1", "步骤2"], "en": ["Step 1", "Step 2"] },
   "examplePrompts": [
     { "label": "Short label", "promptZh": "中文提示词", "promptEn": "English prompt" }
-  ]
+  ],
+  "agentCompat": {
+    "agentFriendly": false,
+    "supportsJson": false,
+    "supportsSchema": false,
+    "supportsDryRun": false,
+    "contextFriendly": false
+  }
 }`;
 
     // Retry loop: AI may produce invalid JSON on first attempt
@@ -187,7 +195,17 @@ Respond in this exact JSON format (no markdown, no code fences, just raw JSON):
           .map(p => ({ label: p.label, promptZh: p.promptZh || '', promptEn: p.promptEn || '' }))
       : [];
 
-    const normalized = { intro: { zh: intro.zh, en: intro.en }, useCases, guideSteps, examplePrompts };
+    // Normalize agentCompat booleans
+    const rawCompat = parsed.agentCompat as Record<string, unknown> | undefined;
+    const agentCompat = rawCompat ? {
+      agentFriendly: rawCompat.agentFriendly === true,
+      supportsJson: rawCompat.supportsJson === true,
+      supportsSchema: rawCompat.supportsSchema === true,
+      supportsDryRun: rawCompat.supportsDryRun === true,
+      contextFriendly: rawCompat.contextFriendly === true,
+    } : undefined;
+
+    const normalized = { intro: { zh: intro.zh, en: intro.en }, useCases, guideSteps, examplePrompts, ...(agentCompat ? { agentCompat } : {}) };
 
     // Build short summary from intro for card display
     const summaryZh = intro.zh;
