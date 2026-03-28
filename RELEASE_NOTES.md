@@ -1,42 +1,45 @@
-## CodePilot v0.40.0
+## CodePilot v0.41.0
 
-> 本次大版本聚焦两个方向：**素材库全面升级**和全新的 **CLI 工具 AI 管理**。素材库支持直接在聊天中生成和导入媒体文件，CLI 工具可以通过对话完成安装、注册、更新的全流程。
+> 本版本重点是**侧边栏导航重构**和**全局 UI 一致性优化**。左侧导航从两层图标栏简化为单层侧边栏，所有页面的标题样式统一，多处交互细节改进。
 
 ### 新增功能
 
-- **聊天内生成图片并自动保存**：在对话中直接生成图片，自动保存到素材库并内联展示，无需手动导入
-- **聊天内导入媒体文件**：通过对话将本地图片/视频/音频文件导入素材库，支持自动提取元数据（提示词、模型、分辨率）
-- **CLI 工具 AI 管理**：告诉 AI "帮我安装 ffmpeg" 或 "检查工具更新"，它会自动完成安装、注册、生成简介、检测更新的全流程
-- **CLI 工具版本更新检测**：AI 可以检查哪些已安装的 CLI 工具有可用更新，并帮你一键升级
-- **CLI 工具结构化简介**：AI 生成的工具简介升级为完整格式（工具介绍、适用场景、快速上手、示例提示词），与官方推荐工具一致
-- **新增 3 个推荐 CLI 工具**：ElevenLabs CLI（AI 语音代理管理）、Stripe CLI（支付集成）、网易云音乐 CLI（AI 音乐控制）
-- **官网更新公告区域**：首页新增最近 5 条版本更新卡片，可直接查看每个版本的更新内容
+- **单层侧边栏导航**：移除左侧图标栏（NavRail），Skills、MCP、CLI 工具、素材库、远程桥接等入口整合到侧边栏内，设置固定在底部，所有页面始终可见
+- **对话列表搜索弹窗**：搜索改为弹窗形式，支持实时搜索会话并快速跳转
+- **项目文件夹动画**：文件夹展开/折叠增加平滑过渡动画
+- **对话列表自动截断**：超过 10 条对话的项目自动折叠，底部显示"展开更多"
+- **助理项目置顶**：设置了助理工作区的项目自动排在列表最前
+- **新增推荐 CLI 工具**：即梦 Dreamina CLI（AI 创作工具包）、飞书 Lark CLI（200+ 命令覆盖飞书全业务域）
+- **macOS 磨砂玻璃效果**：Electron 窗口启用 vibrancy，侧边栏支持原生毛玻璃效果
 
 ### 修复问题
 
-- 修复 AI 生成的 CLI 工具简介关闭后丢失的问题（现在持久化到数据库）
-- 修复切换主题后重启应用会恢复默认主题的问题
-- 修复暗色模式下 Bash 代码块文字颜色与背景对比度不足、几乎看不清的问题
-- 修复未安装的工具详情弹窗错误显示"尝试使用"按钮的问题
-- 修复官网 FAQ 中错误描述为仅支持 macOS 的问题（实际已支持全平台）
+- 修复斜杠命令（如 /review）发送时用户附加文本在气泡中不显示的问题
+- 修复窗口缩小到 1024px 以下时侧边栏消失且无法恢复的问题
+- 修复搜索弹窗关闭后隐形过滤条件仍生效的问题
+- 修复对话截断可能隐藏当前打开会话的问题
+- 修复 JSON 格式版本号（如 Dreamina CLI）显示为乱码的问题
+- 修复 OpenAI-compatible 类型 Provider 实际不可用但仍显示在选项中的问题
+- 移除 Custom API (OpenAI-compatible) Provider 选项（Claude Code SDK 不支持）
 
 ### 优化改进
 
-- CLI 工具管理页面的"添加工具"改为对话式体验，跳转聊天由 AI 协助完成
-- 已安装工具详情弹窗新增"尝试使用"按钮，一键开启新对话
-- 额外检测到的系统工具和用户自定义工具分别显示"系统检测"/"自定义"标签
-- 自定义工具卡片支持点击查看详情
-- 终端/Bash 代码块使用主题感知 CSS 变量，适配所有主题的明暗模式
-- 官网下载按钮改为直接链接到 GitHub Releases 最新版本
+- 所有非聊天页面标题样式统一：主标题 + 副标题 + 全宽分割线，操作按钮位置一致
+- Skills 页面左右分栏改为单线分割，去除嵌套圆角矩形边框
+- 非聊天页面顶部空白区域缩小
+- "添加项目文件夹"简化为"新建项目"
+- 更新指示点颜色跟随主题色
+- 导入 CLI 会话功能移至设置 > Claude CLI 区域
+- GLM 模型更新为 GLM-5-Turbo / GLM-5.1 / GLM-4.5-Air
 
 ## 下载地址
 
 ### macOS
-- [Apple Silicon (M1/M2/M3/M4)](https://github.com/op7418/CodePilot/releases/download/v0.40.0/CodePilot-0.40.0-arm64.dmg)
-- [Intel](https://github.com/op7418/CodePilot/releases/download/v0.40.0/CodePilot-0.40.0-x64.dmg)
+- [Apple Silicon (M1/M2/M3/M4)](https://github.com/op7418/CodePilot/releases/download/v0.41.0/CodePilot-0.41.0-arm64.dmg)
+- [Intel](https://github.com/op7418/CodePilot/releases/download/v0.41.0/CodePilot-0.41.0-x64.dmg)
 
 ### Windows
-- [Windows 安装包](https://github.com/op7418/CodePilot/releases/download/v0.40.0/CodePilot-Setup-0.40.0.exe)
+- [Windows 安装包](https://github.com/op7418/CodePilot/releases/download/v0.41.0/CodePilot-Setup-0.41.0.exe)
 
 ## 安装说明
 
