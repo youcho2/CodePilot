@@ -138,6 +138,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const [gitPanelOpen, setGitPanelOpen] = useState(false);
   const [previewOpen, setPreviewOpen] = useState(false);
   const [terminalOpen, setTerminalOpen] = useState(false);
+  const [dashboardPanelOpen, setDashboardPanelOpen] = useState(false);
 
   // --- Git summary (derived from polling hook, no setState needed) ---
   const [currentWorktreeLabel, setCurrentWorktreeLabel] = useState("");
@@ -381,6 +382,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       setPreviewOpen,
       terminalOpen,
       setTerminalOpen,
+      dashboardPanelOpen,
+      setDashboardPanelOpen,
       currentBranch,
       gitDirtyCount,
       currentWorktreeLabel,
@@ -402,7 +405,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       previewViewMode,
       setPreviewViewMode,
     }),
-    [fileTreeOpen, gitPanelOpen, previewOpen, terminalOpen, currentBranch, gitDirtyCount, currentWorktreeLabel, workingDirectory, sessionId, sessionTitle, streamingSessionId, pendingApprovalSessionId, activeStreamingSessions, pendingApprovalSessionIds, previewFile, setPreviewFile, previewViewMode]
+    [fileTreeOpen, gitPanelOpen, previewOpen, terminalOpen, dashboardPanelOpen, currentBranch, gitDirtyCount, currentWorktreeLabel, workingDirectory, sessionId, sessionTitle, streamingSessionId, pendingApprovalSessionId, activeStreamingSessions, pendingApprovalSessionIds, previewFile, setPreviewFile, previewViewMode]
   );
 
   const imageGenValue = useImageGenState();

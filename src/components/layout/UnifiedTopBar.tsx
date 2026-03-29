@@ -7,6 +7,7 @@ import {
   TreeStructure,
   PencilSimple,
   DotOutline,
+  ChartBar,
 } from "@/components/ui/icon";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -30,6 +31,8 @@ export function UnifiedTopBar() {
     setFileTreeOpen,
     gitPanelOpen,
     setGitPanelOpen,
+    dashboardPanelOpen,
+    setDashboardPanelOpen,
     currentBranch,
     gitDirtyCount,
   } = usePanel();
@@ -224,6 +227,21 @@ export function UnifiedTopBar() {
                   </Button>
                 </TooltipTrigger>
                 <TooltipContent side="bottom">{t('topBar.fileTree')}</TooltipContent>
+              </Tooltip>
+
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant={dashboardPanelOpen ? "secondary" : "ghost"}
+                    size="icon-sm"
+                    className={dashboardPanelOpen ? "" : "text-muted-foreground hover:text-foreground"}
+                    onClick={() => setDashboardPanelOpen(!dashboardPanelOpen)}
+                  >
+                    <ChartBar size={16} />
+                    <span className="sr-only">{t('topBar.dashboard')}</span>
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom">{t('topBar.dashboard')}</TooltipContent>
               </Tooltip>
             </>
           )}

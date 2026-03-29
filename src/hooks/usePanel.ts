@@ -16,6 +16,8 @@ export interface PanelContextValue {
   setPreviewOpen: (open: boolean) => void;
   terminalOpen: boolean;
   setTerminalOpen: (open: boolean) => void;
+  dashboardPanelOpen: boolean;
+  setDashboardPanelOpen: (open: boolean) => void;
 
   // --- Git summary (for top bar, derived — no setters) ---
   currentBranch: string;

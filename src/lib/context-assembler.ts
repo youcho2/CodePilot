@@ -144,6 +144,22 @@ export async function assembleContext(config: ContextAssemblyConfig): Promise<As
     else if (imageAgentMode) needsWidgetMcp = true;
   }
 
+  // ── Layer 6: Dashboard context (desktop only) ─────────────────────
+  // Inject compact summary of pinned widgets so the AI knows what's on the dashboard.
+  if (entryPoint === 'desktop' && session.working_directory) {
+    try {
+      const { readDashboard } = await import('@/lib/dashboard-store');
+      const config = readDashboard(session.working_directory);
+      if (config.widgets.length > 0) {
+        const summary = config.widgets.map((w, i) => `${i + 1}. ${w.title} — ${w.dataContract}`).join('\n');
+        const trimmed = summary.length > 500 ? summary.slice(0, 500) + '...' : summary;
+        finalSystemPrompt = (finalSystemPrompt || '') + `\n\n<active-dashboard>\nThe user has ${config.widgets.length} widget(s) pinned to their project dashboard:\n${trimmed}\n</active-dashboard>`;
+      }
+    } catch {
+      // Dashboard read failed — don't block
+    }
+  }
+
   console.log(`[context-assembler] total: ${Date.now() - t0}ms (entry=${entryPoint}, prompt=${finalSystemPrompt?.length ?? 0} chars)`);
 
   return {

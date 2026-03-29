@@ -1087,9 +1087,29 @@ const en = {
   // ── Top Bar ───────────────────────────────────────────────────
   'topBar.fileTree': 'File Tree',
   'topBar.git': 'Git',
+  'topBar.dashboard': 'Dashboard',
   'topBar.commit': 'Commit All',
   'topBar.push': 'Push',
   'topBar.terminal': 'Terminal',
+
+  // ── Dashboard ─────────────────────────────────────────────────
+  'dashboard.title': 'Dashboard',
+  'dashboard.empty': 'No widgets pinned yet. Pin widgets from chat to build your dashboard.',
+  'dashboard.refresh': 'Refresh All',
+  'dashboard.refreshing': 'Refreshing...',
+  'dashboard.autoRefresh': 'Auto-refresh on open',
+  'dashboard.autoRefreshLabel': 'Auto refresh',
+  'dashboard.pinWidget': 'Pin to Dashboard',
+  'dashboard.pinning': 'Generating dashboard widget...',
+  'dashboard.pinSuccess': 'Widget pinned to dashboard',
+  'dashboard.pinError': 'Failed to pin widget',
+  'dashboard.deleteWidget': 'Remove from dashboard',
+  'dashboard.refreshWidget': 'Refresh widget',
+  'dashboard.moveUp': 'Move up',
+  'dashboard.moveDown': 'Move down',
+  'dashboard.drilldown': 'Click to analyze this widget',
+  'dashboard.exportWidget': 'Export as image',
+  'dashboard.commandPlaceholder': 'Ask about your dashboard...',
 
   // ── Git ───────────────────────────────────────────────────────
   'git.title': 'Git',

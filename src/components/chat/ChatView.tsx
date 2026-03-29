@@ -98,7 +98,7 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
 
   // Pending image generation notices
   const pendingImageNoticesRef = useRef<string[]>([]);
-  const sendMessageRef = useRef<(content: string, files?: FileAttachment[]) => Promise<void>>(undefined);
+  const sendMessageRef = useRef<(content: string, files?: FileAttachment[], systemPromptAppend?: string, displayOverride?: string) => Promise<void>>(undefined);
   const initMetaRef = useRef<{ tools?: unknown; slash_commands?: unknown; skills?: unknown } | null>(null);
 
   const handleModeChange = useCallback((newMode: string) => {
@@ -344,6 +344,47 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
     return () => {
       delete (window as unknown as Record<string, unknown>).__widgetSendMessage;
     };
+  }, []);
+
+  // Listen for widget pin requests from PinnableWidget buttons.
+  // The AI model receives the widget code + instructions and calls the
+  // codepilot_dashboard_pin MCP tool to complete the pin operation.
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const { widgetCode, title } = (e as CustomEvent).detail || {};
+      if (!widgetCode || !sendMessageRef.current) return;
+
+      const instruction = `请将下面的可视化组件固定到项目看板。\n\n标题建议：${title || 'Untitled'}\n\n组件代码：\n${widgetCode}`;
+      sendMessageRef.current(instruction, undefined, undefined, `📌 固定「${title || 'Widget'}」到看板`);
+    };
+    window.addEventListener('widget-pin-request', handler);
+    return () => window.removeEventListener('widget-pin-request', handler);
+  }, []);
+
+  // Listen for dashboard widget drilldown (click title → conversation)
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const { title, dataContract } = (e as CustomEvent).detail || {};
+      if (!title || !sendMessageRef.current) return;
+      sendMessageRef.current(
+        `请深入分析看板组件「${title}」的数据。\n数据契约：${dataContract || '无'}`,
+        undefined, undefined,
+        `🔍 分析「${title}」`,
+      );
+    };
+    window.addEventListener('dashboard-widget-drilldown', handler);
+    return () => window.removeEventListener('dashboard-widget-drilldown', handler);
+  }, []);
+
+  // Listen for dashboard command input
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const { text } = (e as CustomEvent).detail || {};
+      if (!text || !sendMessageRef.current) return;
+      sendMessageRef.current(text, undefined, undefined, text);
+    };
+    window.addEventListener('dashboard-command', handler);
+    return () => window.removeEventListener('dashboard-command', handler);
   }, []);
 
   const handleCommand = useChatCommands({ sessionId, messages, setMessages, sendMessage });

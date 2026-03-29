@@ -598,6 +598,25 @@ export function streamClaude(options: ClaudeStreamOptions): ReadableStream<strin
           }
         }
 
+        // Dashboard MCP: widget management capabilities (keyword-gated).
+        const needsDashboardMcp = (() => {
+          const dashboardKeywords = /dashboard|仪表盘|看板|pin.*widget|pinned.*widget|refresh.*widget|固定.*组件|刷新.*组件|codepilot_dashboard/i;
+          if (dashboardKeywords.test(prompt)) return true;
+          if (conversationHistory?.some(m => dashboardKeywords.test(m.content))) return true;
+          return false;
+        })();
+
+        if (needsDashboardMcp) {
+          const { createDashboardMcpServer, DASHBOARD_MCP_SYSTEM_PROMPT } = await import('@/lib/dashboard-mcp');
+          queryOptions.mcpServers = {
+            ...(queryOptions.mcpServers || {}),
+            'codepilot-dashboard': createDashboardMcpServer(sessionId, resolvedWorkingDirectory.path),
+          };
+          if (queryOptions.systemPrompt && typeof queryOptions.systemPrompt === 'object' && 'append' in queryOptions.systemPrompt) {
+            queryOptions.systemPrompt.append = (queryOptions.systemPrompt.append || '') + '\n\n' + DASHBOARD_MCP_SYSTEM_PROMPT;
+          }
+        }
+
         // Pass through SDK-specific options from ClaudeStreamOptions
         if (thinking) {
           queryOptions.thinking = thinking;
@@ -682,6 +701,11 @@ export function streamClaude(options: ClaudeStreamOptions): ReadableStream<strin
             'codepilot_cli_tools_add',
             'codepilot_cli_tools_remove',
             'codepilot_cli_tools_check_updates',
+            'codepilot_dashboard_pin',
+            'codepilot_dashboard_list',
+            'codepilot_dashboard_refresh',
+            'codepilot_dashboard_update',
+            'codepilot_dashboard_remove',
           ];
           if (autoApprovedTools.some(t => toolName === t || toolName.endsWith(`__${t}`))) {
             return { behavior: 'allow' as const, updatedInput: input };

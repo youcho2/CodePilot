@@ -1084,9 +1084,29 @@ const zh: Record<TranslationKey, string> = {
   // ── Top Bar ───────────────────────────────────────────────────
   'topBar.fileTree': '文件树',
   'topBar.git': 'Git',
+  'topBar.dashboard': '看板',
   'topBar.commit': '提交全部',
   'topBar.push': '推送',
   'topBar.terminal': '终端',
+
+  // ── Dashboard ─────────────────────────────────────────────────
+  'dashboard.title': '看板',
+  'dashboard.empty': '还没有固定的组件。在聊天中固定生成式 UI 组件来构建你的看板。',
+  'dashboard.refresh': '刷新全部',
+  'dashboard.refreshing': '刷新中...',
+  'dashboard.autoRefresh': '打开时自动刷新',
+  'dashboard.autoRefreshLabel': '自动刷新',
+  'dashboard.pinWidget': '固定到看板',
+  'dashboard.pinning': '正在生成看板组件...',
+  'dashboard.pinSuccess': '组件已固定到看板',
+  'dashboard.pinError': '固定组件失败',
+  'dashboard.deleteWidget': '从看板移除',
+  'dashboard.refreshWidget': '刷新组件',
+  'dashboard.moveUp': '上移',
+  'dashboard.moveDown': '下移',
+  'dashboard.drilldown': '点击分析此组件',
+  'dashboard.exportWidget': '导出为图片',
+  'dashboard.commandPlaceholder': '输入看板指令...',
 
   // ── Git ───────────────────────────────────────────────────────
   'git.title': 'Git',
