@@ -135,7 +135,7 @@ export function createDashboardMcpServer(sessionId?: string, workingDirectory?: 
       // ── Refresh (read source data) ─────────────────────────────────
       tool(
         'codepilot_dashboard_refresh',
-        'Read source data for a dashboard widget. For file sources, reads files and returns content. For MCP sources, tells you which tool to call. For CLI sources, executes the command. After getting data, generate updated HTML and call codepilot_dashboard_update.',
+        'Read source data for a dashboard widget. For file sources, reads files and returns content. For MCP sources, tells you which tool to call. For CLI sources, returns the command for you to run via bash. After getting data, generate updated HTML and call codepilot_dashboard_update.',
         {
           widgetId: z.string().describe('The widget ID to refresh'),
         },
