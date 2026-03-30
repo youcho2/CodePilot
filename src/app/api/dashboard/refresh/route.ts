@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { readDashboard, updateWidget } from '@/lib/dashboard-store';
 import { resolveGlobs, readSourceFiles } from '@/lib/dashboard-file-reader';
+import { executeCLISource } from '@/lib/dashboard-cli-reader';
 import { generateTextViaSdk } from '@/lib/claude-client';
 import type { DashboardWidget } from '@/types/dashboard';
 
@@ -16,10 +17,23 @@ async function refreshWidget(workDir: string, widget: DashboardWidget): Promise<
   // MCP tool data sources can only be refreshed via conversation MCP tools
   if (widget.dataSource.type === 'mcp_tool') return null;
 
-  // CLI data sources: skip automatic refresh for security.
-  // CLI commands can only be refreshed through conversation (MCP refresh tool)
-  // where the user can see and approve the command execution.
-  if (widget.dataSource.type === 'cli') return null;
+  // CLI data source: user approved this command when pinning the widget in conversation.
+  // Button-triggered refresh is safe — the command is already persisted and visible.
+  // (MCP auto-approval path doesn't execute commands — it delegates to bash tool.)
+  if (widget.dataSource.type === 'cli') {
+    const { content: cliOutput, exitCode } = executeCLISource(widget.dataSource.command, workDir);
+    if (exitCode !== 0) return null;
+    const prompt = `Original widget HTML:\n\`\`\`\n${widget.widgetCode.slice(0, 8000)}\n\`\`\`\n\nData contract: ${widget.dataContract}\n\nCurrent CLI output (${widget.dataSource.command}):\n${cliOutput.slice(0, 40000)}\n\nProduce the updated widget HTML. Output ONLY the raw HTML string.`;
+    const result = await generateTextViaSdk({ system: REFRESH_SYSTEM_PROMPT, prompt });
+    let updatedCode = result.trim();
+    if (updatedCode.startsWith('```')) {
+      updatedCode = updatedCode.replace(/^```(?:html)?\s*\n?/, '').replace(/\n?```\s*$/, '');
+    }
+    if (updatedCode.length < 10) return null;
+    const now = new Date().toISOString();
+    updateWidget(workDir, widget.id, { widgetCode: updatedCode, updatedAt: now });
+    return { ...widget, widgetCode: updatedCode, updatedAt: now };
+  }
 
   // File data source
   // No file paths → skip
