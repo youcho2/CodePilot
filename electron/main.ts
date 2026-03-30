@@ -537,6 +537,23 @@ function createWindow(url?: string) {
 
   mainWindow = new BrowserWindow(windowOptions);
 
+  // External links: open in system default browser instead of Electron
+  mainWindow.webContents.setWindowOpenHandler(({ url: targetUrl }) => {
+    if (targetUrl.startsWith('http://') || targetUrl.startsWith('https://')) {
+      shell.openExternal(targetUrl);
+      return { action: 'deny' };
+    }
+    return { action: 'deny' };
+  });
+  mainWindow.webContents.on('will-navigate', (event, targetUrl) => {
+    // Allow navigating within the app (localhost dev server)
+    const appOrigin = new URL(mainWindow!.webContents.getURL()).origin;
+    if (new URL(targetUrl).origin !== appOrigin) {
+      event.preventDefault();
+      shell.openExternal(targetUrl);
+    }
+  });
+
   mainWindow.loadURL(url || LOADING_HTML);
 
   if (isDev) {
