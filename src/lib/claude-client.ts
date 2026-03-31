@@ -762,8 +762,10 @@ export function streamClaude(options: ClaudeStreamOptions): ReadableStream<strin
             data: JSON.stringify(permEvent),
           }));
 
-          // Notify via Telegram (fire-and-forget)
-          notifyPermissionRequest(toolName, input as Record<string, unknown>, telegramOpts).catch(() => {});
+          // Notify via Telegram (fire-and-forget) — skip for auto-trigger turns
+          if (!autoTrigger) {
+            notifyPermissionRequest(toolName, input as Record<string, unknown>, telegramOpts).catch(() => {});
+          }
 
           // Notify runtime status change
           onRuntimeStatusChange?.('waiting_permission');
@@ -1226,7 +1228,10 @@ export function streamClaude(options: ClaudeStreamOptions): ReadableStream<strin
                   type: 'status',
                   data: JSON.stringify({ notification: true, title: errTitle, message: errMsg }),
                 }));
-                notifyGeneric(errTitle, errMsg, telegramOpts).catch(() => {});
+                // Skip Telegram for auto-trigger turns (onboarding/heartbeat)
+                if (!autoTrigger) {
+                  notifyGeneric(errTitle, errMsg, telegramOpts).catch(() => {});
+                }
               }
               break;
             }
