@@ -88,12 +88,13 @@ export function ChatListPanel({ open, width, hasUpdate, readyToInstall }: ChatLi
   } | null>(null);
   const [promoDismissed, setPromoDismissed] = useState(false);
 
+  // Reload assistant summary when sessions change (e.g. after onboarding/rename)
   useEffect(() => {
     fetch('/api/workspace/summary')
       .then(r => r.ok ? r.json() : null)
       .then(data => setAssistantSummary(data))
       .catch(() => {});
-  }, []);
+  }, [sessions.length]);
 
   /** Read current model + provider_id from localStorage for new session creation */
   const getCurrentModelAndProvider = useCallback(() => {

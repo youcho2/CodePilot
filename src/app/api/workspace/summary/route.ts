@@ -21,16 +21,27 @@ export async function GET() {
     const state = loadState(workspacePath);
 
     // Extract assistant name from soul.md
+    // Supports multiple formats:
+    //   - "My name is Toki" / "name is Toki" / "名字是 Toki" / "叫 Toki"
+    //   - "- name: Toki" / "name: Toki" (YAML-like)
+    //   - "# Toki" (first heading)
     let assistantName = '';
     const soulVariants = ['soul.md', 'Soul.md', 'SOUL.md'];
     for (const variant of soulVariants) {
       const soulPath = path.join(workspacePath, variant);
       if (fs.existsSync(soulPath)) {
         const content = fs.readFileSync(soulPath, 'utf-8');
-        // Look for "My name is XXX" or "name is XXX" pattern
-        const nameMatch = content.match(/(?:My name is|name is|名字是|叫)\s+([^.\n,]+)/i);
-        if (nameMatch) {
-          assistantName = nameMatch[1].trim().replace(/[.。]$/, '');
+        // Try YAML-like "- name: XXX" or "name: XXX"
+        const yamlMatch = content.match(/^[-*]?\s*name\s*[:：]\s*(.+)$/im);
+        if (yamlMatch) {
+          assistantName = yamlMatch[1].trim();
+          break;
+        }
+        // Try "My name is XXX"
+        const sentenceMatch = content.match(/(?:My name is|name is|名字是|叫)\s+([^.\n,]+)/i);
+        if (sentenceMatch) {
+          assistantName = sentenceMatch[1].trim().replace(/[.。]$/, '');
+          break;
         }
         break;
       }
