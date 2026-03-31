@@ -88,8 +88,10 @@ function WidgetRendererInner({ widgetCode, isStreaming, title, showOverlay, extr
           })
             .then(r => r.json())
             .then(data => {
-              // Send result back to widget so it can update its UI
-              iframeRef.current?.contentWindow?.postMessage({ type: 'hatch-buddy:result', buddy: data.buddy }, '*');
+              if (data.buddy) {
+                // Reload to show the celebration message + new widget that the API inserted into chat
+                setTimeout(() => window.location.reload(), 500);
+              }
             })
             .catch(() => {});
           break;

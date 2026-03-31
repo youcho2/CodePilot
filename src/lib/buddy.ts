@@ -16,6 +16,22 @@ export const SPECIES = [
 
 export type Species = typeof SPECIES[number];
 
+// Species → boring-avatars variant for unique visual identity
+export const SPECIES_AVATAR_VARIANT: Record<Species, 'beam' | 'marble' | 'pixel' | 'sunset' | 'ring' | 'bauhaus'> = {
+  cat: 'beam', duck: 'sunset', dragon: 'marble', owl: 'bauhaus', penguin: 'pixel',
+  turtle: 'ring', octopus: 'marble', ghost: 'sunset', axolotl: 'beam', capybara: 'ring',
+  robot: 'pixel', rabbit: 'beam', mushroom: 'bauhaus', fox: 'sunset', panda: 'ring', whale: 'marble',
+};
+
+// Rarity → avatar color palette (higher rarity = richer colors)
+export const RARITY_AVATAR_COLORS: Record<Rarity, string[]> = {
+  common: ['#A0AEC0', '#CBD5E0', '#E2E8F0', '#EDF2F7', '#F7FAFC'],
+  uncommon: ['#48BB78', '#68D391', '#9AE6B4', '#C6F6D5', '#F0FFF4'],
+  rare: ['#4299E1', '#63B3ED', '#90CDF4', '#BEE3F8', '#EBF8FF'],
+  epic: ['#9F7AEA', '#B794F4', '#D6BCFA', '#E9D8FD', '#FAF5FF'],
+  legendary: ['#F6AD55', '#FBD38D', '#FEFCBF', '#F6E05E', '#ECC94B'],
+};
+
 export const SPECIES_EMOJI: Record<Species, string> = {
   cat: '🐱', duck: '🦆', dragon: '🐉', owl: '🦉', penguin: '🐧',
   turtle: '🐢', octopus: '🐙', ghost: '👻', axolotl: '🦎', capybara: '🦫',

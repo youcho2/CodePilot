@@ -58,19 +58,36 @@ export async function POST(request: Request) {
       }
     }
 
-    // Insert celebration message into chat
+    // Insert celebration message with show-widget card into chat
     try {
       const { addMessage, getLatestSessionByWorkingDirectory } = await import('@/lib/db');
-      const { SPECIES_LABEL, RARITY_DISPLAY, STAT_LABEL } = await import('@/lib/buddy');
+      const { SPECIES_LABEL, RARITY_DISPLAY, STAT_LABEL, getBuddyTitle, rarityColor: getRarityColorClass } = await import('@/lib/buddy');
       const session = getLatestSessionByWorkingDirectory(workspacePath);
       if (session) {
         const speciesName = SPECIES_LABEL[buddy.species as keyof typeof SPECIES_LABEL]?.zh || buddy.species;
         const rarityInfo = RARITY_DISPLAY[buddy.rarity as keyof typeof RARITY_DISPLAY];
-        const statsText = Object.entries(buddy.stats)
-          .map(([stat, val]) => `${STAT_LABEL[stat as keyof typeof STAT_LABEL]?.zh || stat}: ${val}`)
-          .join(' \u00B7 ');
+        const title = getBuddyTitle(buddy as Parameters<typeof getBuddyTitle>[0]);
+        const buddyDisplayName = buddy.buddyName || speciesName;
 
-        const message = `\uD83C\uDF89 **\u4F60\u7684\u52A9\u7406\u4F19\u4F34\u5B75\u5316\u4E86\uFF01**\n\n${buddy.emoji} **${speciesName}** ${rarityInfo?.stars || ''} ${rarityInfo?.label.zh || buddy.rarity}\n\n${statsText}\n\n\u4ECE\u73B0\u5728\u5F00\u59CB\uFF0C\u8FD9\u4E2A ${speciesName} \u5C06\u4F5C\u4E3A\u4F60\u7684\u52A9\u7406\u4F19\u4F34\uFF0C\u966A\u4F34\u4F60\u7684\u6BCF\u4E00\u6B21\u5BF9\u8BDD\u3002`;
+        // Build stat bars HTML for the widget
+        const statEntries = Object.entries(buddy.stats) as [string, number][];
+        const statBarsHtml = statEntries.map(([stat, val]) => {
+          const label = STAT_LABEL[stat as keyof typeof STAT_LABEL]?.zh || stat;
+          const isPeak = stat === buddy.peakStat;
+          const barColor = isPeak ? '#6C5CE7' : '#ccc';
+          return `<div style="display:flex;align-items:center;gap:8px;margin:4px 0"><span style="width:32px;font-size:11px;color:#888">${label}</span><div style="flex:1;height:6px;border-radius:3px;background:#eee;overflow:hidden"><div style="height:100%;border-radius:3px;background:${barColor};width:${val}%"></div></div><span style="width:24px;text-align:right;font-size:11px;color:#888">${val}</span></div>`;
+        }).join('');
+
+        // Rarity color
+        const rarityColorMap: Record<string, string> = { common: '#888', uncommon: '#22c55e', rare: '#3b82f6', epic: '#a855f7', legendary: '#f59e0b' };
+        const rarityHexColor = rarityColorMap[buddy.rarity] || '#888';
+        const rarityBorder = buddy.rarity === 'legendary' ? 'border:2px solid #f59e0b;box-shadow:0 0 12px rgba(245,158,11,0.3)' : `border:1px solid ${rarityHexColor}33`;
+
+        // Widget HTML
+        const widgetHtml = `<div style="text-align:center;padding:24px 16px;font-family:system-ui;${rarityBorder};border-radius:12px"><div style="font-size:56px;margin-bottom:8px">${buddy.emoji}</div><div style="font-size:18px;font-weight:600">${buddyDisplayName}</div>${title ? `<div style="font-size:12px;color:#888;margin-top:2px">"${title}"</div>` : ''}<div style="font-size:12px;color:${rarityHexColor};font-weight:500;margin:4px 0">${rarityInfo?.stars || ''} ${rarityInfo?.label.zh || buddy.rarity} · ${speciesName}</div><div style="max-width:240px;margin:16px auto 0">${statBarsHtml}</div></div>`;
+
+        const widgetJson = JSON.stringify({ title: 'buddy_reveal', widget_code: widgetHtml });
+        const message = `🎉 **孵化成功！**\n\n你的助理伙伴诞生了！来认识一下吧：\n\n\`\`\`show-widget\n${widgetJson}\n\`\`\`\n\n${buddy.emoji} **${buddyDisplayName}** 是一只${title ? `"${title}"的` : ''}${speciesName}，稀有度为 ${rarityInfo?.stars || ''} ${rarityInfo?.label.zh || buddy.rarity}。\n\n从现在开始，${buddyDisplayName} 将作为你的助理伙伴，陪伴你的每一次对话。随着你们互动越多，它还会成长和进化哦！`;
 
         addMessage(session.id, 'assistant', message);
       }
