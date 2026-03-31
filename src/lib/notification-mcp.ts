@@ -69,9 +69,47 @@ export function createNotificationMcpServer() {
           schedule_value: z.string().describe('cron: "0 9 * * *", interval: "30m"/"2h", once: ISO timestamp like "2026-03-31T15:00:00"'),
           priority: z.enum(['low', 'normal', 'urgent']).optional().default('normal'),
           notify_on_complete: z.boolean().optional().default(true),
+          durable: z.boolean().optional().default(true).describe('true=persists across restart, false=session-only'),
         },
-        async ({ name, prompt, schedule_type, schedule_value, priority, notify_on_complete }) => {
+        async ({ name, prompt, schedule_type, schedule_value, priority, notify_on_complete, durable }) => {
           try {
+            // Session-only tasks: stored in memory, not persisted to DB
+            if (!durable) {
+              const crypto = await import('crypto');
+              const { addSessionTask } = await import('@/lib/task-scheduler');
+              const id = crypto.randomBytes(8).toString('hex');
+              const now = new Date();
+
+              let next_run: string;
+              if (schedule_type === 'once') {
+                next_run = schedule_value; // ISO timestamp
+              } else if (schedule_type === 'interval') {
+                const { parseInterval } = await import('@/lib/task-scheduler');
+                next_run = new Date(now.getTime() + parseInterval(schedule_value)).toISOString();
+              } else {
+                const { getNextCronTime } = await import('@/lib/task-scheduler');
+                next_run = getNextCronTime(schedule_value).toISOString();
+              }
+
+              const task = {
+                id,
+                name,
+                prompt,
+                schedule_type,
+                schedule_value,
+                next_run,
+                consecutive_errors: 0,
+                status: 'active' as const,
+                priority: priority || 'normal',
+                notify_on_complete: notify_on_complete ? 1 : 0,
+                permanent: 0,
+                created_at: now.toISOString(),
+                updated_at: now.toISOString(),
+              };
+              addSessionTask(task);
+              return { content: [{ type: 'text' as const, text: `Session task "${name}" scheduled (non-durable). ID: ${id}, next run: ${next_run}` }] };
+            }
+
             const res = await fetch('http://localhost:3000/api/tasks/schedule', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },

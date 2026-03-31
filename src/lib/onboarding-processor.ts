@@ -174,12 +174,36 @@ Only include explicitly stated information.`;
     memoryContent = `# Memory\n\n## From Onboarding\n${fallbackEntries}\n`;
   }
 
-  // Write all core files
-  fs.writeFileSync(path.join(workspacePath, 'soul.md'), soulContent, 'utf-8');
-  fs.writeFileSync(path.join(workspacePath, 'user.md'), userContent, 'utf-8');
-  if (claudeContent.trim()) {
-    fs.writeFileSync(path.join(workspacePath, 'claude.md'), claudeContent, 'utf-8');
+  // Validate generated content quality before writing
+  function validateGeneratedContent(content: string, expectedSections: string[]): boolean {
+    if (!content || content.trim().length < 50) return false;
+    // Check that at least one expected section header exists
+    return expectedSections.some(s => content.includes(s));
   }
+
+  // Write all core files (with quality validation)
+  if (validateGeneratedContent(soulContent, ['##', 'Personality', 'Style', 'Boundaries', '性格', '风格'])) {
+    fs.writeFileSync(path.join(workspacePath, 'soul.md'), soulContent, 'utf-8');
+  } else {
+    console.warn('[onboarding] soul.md generation quality too low, using template');
+    const fallbackSoul = `# Soul\n\n## Core Personality\nI am your personal assistant.\n\n## Communication Style\nConcise and direct.\n\n## Behavioral Boundaries\nRespect user preferences.\n`;
+    fs.writeFileSync(path.join(workspacePath, 'soul.md'), fallbackSoul, 'utf-8');
+  }
+
+  if (validateGeneratedContent(userContent, ['##', 'Info', 'Goals', 'Preferences', '信息', '目标'])) {
+    fs.writeFileSync(path.join(workspacePath, 'user.md'), userContent, 'utf-8');
+  } else {
+    console.warn('[onboarding] user.md generation quality too low, using template');
+    const fallbackUser = `# User Profile\n\n## Basic Info\n(To be filled)\n\n## Current Goals\n(To be filled during conversations)\n\n## Preferences\n(Will be learned over time)\n`;
+    fs.writeFileSync(path.join(workspacePath, 'user.md'), fallbackUser, 'utf-8');
+  }
+
+  if (claudeContent.trim() && validateGeneratedContent(claudeContent, ['##', 'Rules', 'Memory', 'Safety', '规则', '记忆'])) {
+    fs.writeFileSync(path.join(workspacePath, 'claude.md'), claudeContent, 'utf-8');
+  } else if (claudeContent.trim()) {
+    console.warn('[onboarding] claude.md generation quality too low, skipping write');
+  }
+
   if (memoryContent.trim()) {
     fs.writeFileSync(path.join(workspacePath, 'memory.md'), memoryContent, 'utf-8');
   }

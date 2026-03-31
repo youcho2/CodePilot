@@ -890,6 +890,21 @@ function migrateDb(db: Database.Database): void {
 
   // Migration: add permanent column for existing databases
   safeAddColumn(db, "ALTER TABLE scheduled_tasks ADD COLUMN permanent INTEGER NOT NULL DEFAULT 0");
+
+  // Task execution history
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS task_run_logs (
+      id TEXT PRIMARY KEY,
+      task_id TEXT NOT NULL,
+      status TEXT NOT NULL,
+      result TEXT,
+      error TEXT,
+      duration_ms INTEGER,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      FOREIGN KEY (task_id) REFERENCES scheduled_tasks(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_task_run_logs_task_id ON task_run_logs(task_id);
+  `);
 }
 
 // ==========================================
@@ -2601,6 +2616,14 @@ export function updateScheduledTask(id: string, updates: Partial<ScheduledTask>)
   fields.push("updated_at = datetime('now')");
   values.push(id);
   db.prepare(`UPDATE scheduled_tasks SET ${fields.join(', ')} WHERE id = ?`).run(...values);
+}
+
+export function insertTaskRunLog(log: { task_id: string; status: string; result?: string; error?: string; duration_ms: number }): void {
+  const db = getDb();
+  const id = crypto.randomBytes(8).toString('hex');
+  db.prepare('INSERT INTO task_run_logs (id, task_id, status, result, error, duration_ms) VALUES (?, ?, ?, ?, ?, ?)').run(
+    id, log.task_id, log.status, log.result || null, log.error || null, log.duration_ms
+  );
 }
 
 export function deleteScheduledTask(id: string): boolean {

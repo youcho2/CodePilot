@@ -10,12 +10,31 @@
  */
 
 import type { ScheduledTask } from '@/types';
+import crypto from 'crypto';
 
 const POLL_INTERVAL = 10_000; // 10s
 const GLOBAL_KEY = '__codepilot_scheduler__';
 const BACKOFF_DELAYS = [30000, 60000, 300000, 900000]; // 30s, 1m, 5m, 15m
 const MAX_CONSECUTIVE_ERRORS = 10;
 const RECURRING_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
+
+// ── Session-only tasks (in-memory, not persisted) ────────────────
+const SESSION_TASKS_KEY = '__codepilot_session_tasks__';
+
+function getSessionTasks(): Map<string, ScheduledTask> {
+  if (!(globalThis as Record<string, unknown>)[SESSION_TASKS_KEY]) {
+    (globalThis as Record<string, unknown>)[SESSION_TASKS_KEY] = new Map();
+  }
+  return (globalThis as Record<string, unknown>)[SESSION_TASKS_KEY] as Map<string, ScheduledTask>;
+}
+
+export function addSessionTask(task: ScheduledTask): void {
+  getSessionTasks().set(task.id, task);
+}
+
+export function removeSessionTask(id: string): void {
+  getSessionTasks().delete(id);
+}
 
 /**
  * Ensure the scheduler polling loop is running.
@@ -45,6 +64,20 @@ export function ensureSchedulerRunning(): void {
           console.error(`[scheduler] Task ${task.id} (${task.name}) failed:`, err)
         );
       }
+
+      // Check session-only tasks too
+      const sessionTasks = getSessionTasks();
+      for (const [id, task] of sessionTasks) {
+        if (task.status === 'active' && new Date(task.next_run) <= new Date()) {
+          executeDueTask(task).catch(err =>
+            console.error(`[scheduler] Session task ${id} failed:`, err)
+          );
+          // One-shot session tasks: remove after fire
+          if (task.schedule_type === 'once') {
+            sessionTasks.delete(id);
+          }
+        }
+      }
     } catch (err) {
       console.error('[scheduler] Poll error:', err);
     }
@@ -70,7 +103,8 @@ export function stopScheduler(): void {
  * Execute a single due task.
  */
 async function executeDueTask(task: ScheduledTask): Promise<void> {
-  const { updateScheduledTask } = await import('@/lib/db');
+  const { updateScheduledTask, insertTaskRunLog } = await import('@/lib/db');
+  const startTime = Date.now();
 
   // Mark as running
   updateScheduledTask(task.id, { last_status: 'running' });
@@ -101,6 +135,11 @@ async function executeDueTask(task: ScheduledTask): Promise<void> {
       last_error: undefined,
       consecutive_errors: 0,
     });
+
+    // Log successful execution
+    try {
+      insertTaskRunLog({ task_id: task.id, status: 'success', result: result.slice(0, 2000), duration_ms: Date.now() - startTime });
+    } catch { /* best effort logging */ }
 
     // Compute next run (for recurring tasks) or mark completed (for once)
     computeNextRun(task);
@@ -142,6 +181,11 @@ async function executeDueTask(task: ScheduledTask): Promise<void> {
       consecutive_errors: errors,
     });
 
+    // Log failed execution
+    try {
+      insertTaskRunLog({ task_id: task.id, status: 'error', error: errorMsg, duration_ms: Date.now() - startTime });
+    } catch { /* best effort logging */ }
+
     // Exponential backoff
     applyBackoff(task.id, errors);
 
@@ -175,6 +219,16 @@ async function executeDueTask(task: ScheduledTask): Promise<void> {
 }
 
 /**
+ * Deterministic jitter: same task always gets the same jitter offset.
+ * Prevents thundering-herd when many tasks share the same interval.
+ */
+function getJitter(taskId: string, intervalMs: number): number {
+  const hash = parseInt(taskId.slice(0, 8), 16) / 0xFFFFFFFF;
+  const maxJitter = Math.min(intervalMs * 0.1, 15 * 60 * 1000); // 10% of interval, max 15min
+  return Math.floor(hash * maxJitter);
+}
+
+/**
  * Compute and set the next_run time for a recurring task.
  */
 async function computeNextRun(task: ScheduledTask): Promise<void> {
@@ -192,6 +246,8 @@ async function computeNextRun(task: ScheduledTask): Promise<void> {
       let nextRun = new Date(lastRun.getTime() + ms);
       // Anchor-based: skip past missed runs
       while (nextRun <= now) nextRun = new Date(nextRun.getTime() + ms);
+      // Apply deterministic jitter to avoid thundering-herd
+      nextRun = new Date(nextRun.getTime() + getJitter(task.id, ms));
       updateScheduledTask(task.id, { next_run: nextRun.toISOString() });
       break;
     }

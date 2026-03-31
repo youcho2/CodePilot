@@ -28,6 +28,15 @@ export async function POST(request: NextRequest) {
     // Ensure workspace is initialized (creates dirs + default template files)
     initializeWorkspace(workspacePath);
 
+    // Don't overwrite existing files (respect user customizations)
+    const writeIfMissing = (filePath: string, content: string): boolean => {
+      if (!fs.existsSync(filePath)) {
+        fs.writeFileSync(filePath, content, 'utf-8');
+        return true;
+      }
+      return false; // File already exists, preserved
+    };
+
     // Write user.md
     const userContent = `# User Profile
 
@@ -44,7 +53,7 @@ export async function POST(request: NextRequest) {
 ## Workspace Organization
 (Will be configured during use)
 `;
-    fs.writeFileSync(path.join(workspacePath, 'user.md'), userContent, 'utf-8');
+    writeIfMissing(path.join(workspacePath, 'user.md'), userContent);
 
     // Write soul.md
     const styleMap: Record<string, string> = {
@@ -66,7 +75,7 @@ ${boundaries || 'No specific boundaries set. Will respect user preferences as th
 ## Relationship
 ${userName ? `I address the user as ${userName}.` : 'I use a friendly, respectful tone.'} I proactively help but don't over-explain.
 `;
-    fs.writeFileSync(path.join(workspacePath, 'soul.md'), soulContent, 'utf-8');
+    writeIfMissing(path.join(workspacePath, 'soul.md'), soulContent);
 
     // claude.md is already created by initializeWorkspace with system preset rules
     // memory.md is already created by initializeWorkspace
