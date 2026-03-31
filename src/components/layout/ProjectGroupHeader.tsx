@@ -138,28 +138,26 @@ export function ProjectGroupHeader({
       statusParts.push(t('assistant.lastHeartbeat' as TranslationKey, { date: lastHeartbeatDate }));
     }
 
-    // Format: "助理名字 / 文件夹名"
     const folderName = displayName;
     const nameDisplay = assistantName || t('assistant.defaultName' as TranslationKey);
 
     return (
       <div
         className={cn(
-          "flex items-center gap-1.5 rounded-md px-2 py-1 cursor-pointer select-none transition-colors",
-          "hover:bg-accent/50"
+          "flex items-center gap-2 rounded-lg px-2 py-1.5 cursor-pointer select-none transition-colors",
+          isCollapsed
+            ? "hover:bg-accent/50"
+            : "bg-primary/[0.06] hover:bg-primary/[0.10]"
         )}
         onClick={onToggle}
         onMouseEnter={onMouseEnter}
         onMouseLeave={onMouseLeave}
       >
-        <AssistantAvatar name={assistantName || 'assistant'} size={20} className="shrink-0" />
+        <AssistantAvatar name={assistantName || 'assistant'} size={24} className="shrink-0" />
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-1">
             <span className="truncate text-[13px] font-medium text-sidebar-foreground">
               {nameDisplay}
-            </span>
-            <span className="text-[11px] text-muted-foreground/60 truncate">
-              / {folderName}
             </span>
             {isCollapsed ? (
               <CaretRight size={12} className="shrink-0 text-muted-foreground" />
@@ -167,6 +165,9 @@ export function ProjectGroupHeader({
               <CaretDown size={12} className="shrink-0 text-muted-foreground" />
             )}
           </div>
+          <span className="block truncate text-[11px] text-muted-foreground/50 leading-tight">
+            / {folderName}
+          </span>
         </div>
         {actionButtons}
       </div>

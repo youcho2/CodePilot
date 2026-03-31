@@ -46,6 +46,7 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
 
   // Whether this session's working directory matches the configured assistant workspace
   const [isAssistantProject, setIsAssistantProject] = useState(false);
+  const [assistantName, setAssistantName] = useState('');
 
   // Workspace mismatch banner state
   const [workspaceMismatchPath, setWorkspaceMismatchPath] = useState<string | null>(null);
@@ -199,6 +200,16 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
           // workingDirectory matches assistant workspace path
           setIsAssistantProject(!!data.path);
           setWorkspaceMismatchPath(null);
+          // Load assistant name for avatar display
+          if (data.path) {
+            try {
+              const summaryRes = await fetch('/api/workspace/summary');
+              if (summaryRes.ok && !cancelled) {
+                const summary = await summaryRes.json();
+                setAssistantName(summary.name || '');
+              }
+            } catch { /* ignore */ }
+          }
         }
       } catch {
         // ignore
@@ -453,6 +464,8 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
         onLoadMore={loadEarlierMessages}
         rewindPoints={rewindPoints}
         sessionId={sessionId}
+        isAssistantProject={isAssistantProject}
+        assistantName={assistantName}
       />
       {/* Permission prompt */}
       <PermissionPrompt
