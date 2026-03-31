@@ -39,6 +39,7 @@ interface ProjectGroupHeaderProps {
   assistantMemoryCount?: number;
   lastHeartbeatDate?: string;
   buddyEmoji?: string;
+  buddyName?: string;
 }
 
 export function ProjectGroupHeader({
@@ -56,6 +57,7 @@ export function ProjectGroupHeader({
   assistantMemoryCount,
   lastHeartbeatDate,
   buddyEmoji,
+  buddyName,
 }: ProjectGroupHeaderProps) {
   const { t } = useTranslation();
   const [menuOpen, setMenuOpen] = useState(false);
@@ -141,7 +143,7 @@ export function ProjectGroupHeader({
 
     const folderName = displayName;
     const nameDisplay = buddyEmoji
-      ? (assistantName || t('assistant.defaultName' as TranslationKey))
+      ? (buddyName || assistantName || t('assistant.defaultName' as TranslationKey))
       : t('buddy.adoptPrompt' as TranslationKey);
 
     return (

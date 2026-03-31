@@ -109,6 +109,7 @@ export function OnboardingWizard({ workspacePath, onComplete }: OnboardingWizard
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [buddy, setBuddy] = useState<BuddyData | null>(null);
+  const [buddyName, setBuddyName] = useState('');
   const [completionResult, setCompletionResult] = useState<{ session: { id: string }; assistantName: string } | null>(null);
   const [data, setData] = useState<WizardData>({
     userName: '',
@@ -307,6 +308,18 @@ export function OnboardingWizard({ workspacePath, onComplete }: OnboardingWizard
                   </div>
                 ))}
               </div>
+              {/* Buddy name input */}
+              <div className="max-w-xs mx-auto mt-4">
+                <Input
+                  placeholder={t('buddy.namePlaceholder' as TranslationKey)}
+                  value={buddyName}
+                  onChange={e => setBuddyName(e.target.value)}
+                  className="text-center"
+                />
+                <p className="text-[10px] text-muted-foreground mt-1 text-center">
+                  {t('buddy.nameHint' as TranslationKey)}
+                </p>
+              </div>
             </div>
           )}
           {step === 2 && !buddy && (
@@ -357,7 +370,19 @@ export function OnboardingWizard({ workspacePath, onComplete }: OnboardingWizard
               {t('wizard.next' as TranslationKey)}
             </Button>
           ) : buddy && completionResult ? (
-            <Button onClick={() => onComplete(completionResult.session, completionResult.assistantName)}>
+            <Button onClick={async () => {
+              // Save buddy name if provided
+              if (buddyName.trim()) {
+                try {
+                  await fetch('/api/workspace/hatch-buddy', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ buddyName: buddyName.trim() }),
+                  });
+                } catch { /* best effort */ }
+              }
+              onComplete(completionResult.session, completionResult.assistantName);
+            }}>
               {t('wizard.startChatting' as TranslationKey)}
             </Button>
           ) : (

@@ -513,7 +513,7 @@ function AssistantStatusCard({ summary, t }: {
           <div className="flex items-center gap-2">
             <span className="text-sm font-medium truncate">
               {buddy
-                ? (summary.name || t('assistant.defaultName' as TranslationKey))
+                ? (buddy.buddyName || summary.name || t('assistant.defaultName' as TranslationKey))
                 : t('buddy.adoptPrompt' as TranslationKey)}
             </span>
             {buddy && (

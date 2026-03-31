@@ -116,6 +116,7 @@ export async function GET() {
       fileHealth,
       taskCount,
       buddy: state.buddy || null,
+      buddyName: state.buddy?.buddyName || '',
     });
   } catch (e) {
     console.error('[workspace/summary] GET failed:', e);

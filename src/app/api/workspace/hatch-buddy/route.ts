@@ -6,13 +6,16 @@ import { NextResponse } from 'next/server';
  * Generate a buddy for an existing assistant workspace that doesn't have one.
  * Uses workspace path + current timestamp as seed for deterministic generation.
  */
-export async function POST() {
+export async function POST(request: Request) {
   try {
     const { getSetting } = await import('@/lib/db');
     const workspacePath = getSetting('assistant_workspace_path');
     if (!workspacePath) {
       return NextResponse.json({ error: 'No workspace configured' }, { status: 400 });
     }
+
+    const body = await request.json().catch(() => ({}));
+    const { buddyName } = body as { buddyName?: string };
 
     const fs = await import('fs');
     const path = await import('path');
@@ -21,14 +24,21 @@ export async function POST() {
 
     const state = loadState(workspacePath);
 
-    // Don't regenerate if buddy already exists
+    // If buddy already exists, update name if provided
     if (state.buddy) {
+      if (buddyName) {
+        state.buddy.buddyName = buddyName;
+        saveState(workspacePath, state);
+      }
       return NextResponse.json({ buddy: state.buddy, alreadyHatched: true });
     }
 
     // Generate buddy
     const seed = workspacePath + ':' + new Date().toISOString();
     const buddy = generateBuddy(seed);
+
+    // Set buddy name if provided
+    if (buddyName) buddy.buddyName = buddyName;
 
     // Save to state
     state.buddy = buddy;

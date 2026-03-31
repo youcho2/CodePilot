@@ -84,6 +84,7 @@ export interface BuddyData {
   emoji: string;
   peakStat: StatName;
   hatchedAt: string;
+  buddyName?: string;  // User-given name for the buddy
 }
 
 // ── PRNG (Mulberry32, same as Claude Code) ─────────────────────────

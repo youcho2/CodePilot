@@ -116,6 +116,30 @@ If nothing is worth remembering, output exactly: NOTHING`,
     fs.appendFileSync(dailyPath, `${separator}## Auto-extracted (${timestamp})\n${result.trim()}\n`, 'utf-8');
 
     console.log(`[memory-extractor] Extracted memories to ${dailyPath}`);
+
+    // Check memory milestones
+    try {
+      const dailyFiles = fs.readdirSync(dailyDir).filter((f: string) => f.endsWith('.md'));
+      const milestones = [10, 50, 100, 200];
+      const count = dailyFiles.length;
+
+      for (const milestone of milestones) {
+        if (count === milestone) {
+          const { addMessage, getLatestSessionByWorkingDirectory } = await import('@/lib/db');
+          const session = getLatestSessionByWorkingDirectory(workspacePath);
+          if (session) {
+            const { loadState } = await import('./assistant-workspace');
+            const st = loadState(workspacePath);
+            const emoji = st.buddy?.emoji || '🎉';
+            const name = st.buddy?.buddyName || '';
+            addMessage(session.id, 'assistant',
+              `${emoji} ${name ? name + '：' : ''}**里程碑！** 我们一起积累了 ${milestone} 条记忆！🎉\n\n感谢你的信任，让我们继续创造更多美好的记忆。`
+            );
+          }
+          break; // Only one milestone per extraction
+        }
+      }
+    } catch { /* best effort */ }
   } catch (err) {
     console.error('[memory-extractor] Extraction failed:', err);
   }

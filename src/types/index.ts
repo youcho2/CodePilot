@@ -616,6 +616,7 @@ export interface AssistantWorkspaceState {
     emoji: string;
     peakStat: string;
     hatchedAt: string;
+    buddyName?: string;
   };
 }
 

@@ -111,6 +111,29 @@ export async function assembleContext(config: ContextAssemblyConfig): Promise<As
           // If no buddy yet, prepend a welcome + adoption prompt
           if (!state.buddy) {
             assistantProjectInstructions = buildNoBuddyWelcome() + '\n\n' + assistantProjectInstructions;
+          } else {
+            // Inject buddy personality prompt before progressive update instructions
+            const buddyPersonality = buildBuddyPersonalityPrompt(state.buddy);
+            assistantProjectInstructions = buddyPersonality + '\n\n' + assistantProjectInstructions;
+
+            // Check evolution readiness
+            try {
+              const { checkEvolution } = await import('@/lib/buddy');
+              const fs = await import('fs');
+              const path = await import('path');
+              let memCount = 0;
+              try {
+                const dailyDir = path.join(workspacePath, 'memory', 'daily');
+                if (fs.existsSync(dailyDir)) {
+                  memCount = fs.readdirSync(dailyDir).filter((f: string) => f.endsWith('.md')).length;
+                }
+              } catch {}
+
+              const evoCheck = checkEvolution(state.buddy as Parameters<typeof checkEvolution>[0], memCount);
+              if (evoCheck.canEvolve) {
+                assistantProjectInstructions += '\n\n<evolution-ready>你的进化条件已满足！在合适的时机告诉用户："我好像准备好进化了！你可以在看板面板点击检查进化。"</evolution-ready>';
+              }
+            } catch {}
           }
         }
       }
@@ -188,6 +211,40 @@ export async function assembleContext(config: ContextAssemblyConfig): Promise<As
 }
 
 // ── Instruction templates ────────────────────────────────────────────
+
+function buildBuddyPersonalityPrompt(buddy: {
+  species: string;
+  rarity: string;
+  emoji: string;
+  peakStat: string;
+  buddyName?: string;
+}): string {
+  // Dynamic imports are not available in sync functions, so we inline the data we need
+  const SPECIES_LABEL_ZH: Record<string, string> = {
+    cat: '猫咪', duck: '鸭子', dragon: '龙', owl: '猫头鹰', penguin: '企鹅',
+    turtle: '海龟', octopus: '章鱼', ghost: '幽灵', axolotl: '六角龙', capybara: '水豚',
+    robot: '机器人', rabbit: '兔子', mushroom: '蘑菇', fox: '狐狸', panda: '熊猫', whale: '鲸鱼',
+  };
+  const PERSONALITY_ZH: Record<string, string> = {
+    creativity: '你擅长给出创意方案和意想不到的建议。',
+    patience: '你非常耐心，善于一步步解释清楚。',
+    insight: '你善于分析问题的本质。',
+    humor: '你会适当加入幽默，让交流更轻松。',
+    precision: '你注重细节和准确性。',
+  };
+
+  const species = SPECIES_LABEL_ZH[buddy.species] || buddy.species;
+  const peakHint = PERSONALITY_ZH[buddy.peakStat] || '';
+  const name = buddy.buddyName || '';
+
+  return `<buddy-personality>
+你是用户的助理伙伴${name ? `，名叫"${name}"` : ''}。
+你的形象是一只${species} ${buddy.emoji}。
+${peakHint}
+你的对话风格应该自然地体现你的物种性格和属性特点。
+${buddy.rarity === 'legendary' ? '作为传说级伙伴，你的表现应该特别出色和令人印象深刻。' : ''}
+</buddy-personality>`;
+}
 
 function buildOnboardingInstructions(): string {
   return `<assistant-project-task type="onboarding">

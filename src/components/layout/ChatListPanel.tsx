@@ -85,7 +85,7 @@ export function ChatListPanel({ open, width, hasUpdate, readyToInstall }: ChatLi
     memoryCount: number;
     lastHeartbeatDate: string;
     configured: boolean;
-    buddy?: { emoji: string };
+    buddy?: { emoji: string; buddyName?: string };
   } | null>(null);
   const [promoDismissed, setPromoDismissed] = useState(false);
 
@@ -601,6 +601,7 @@ export function ChatListPanel({ open, width, hasUpdate, readyToInstall }: ChatLi
                     assistantMemoryCount={assistantSummary?.memoryCount}
                     lastHeartbeatDate={assistantSummary?.lastHeartbeatDate}
                     buddyEmoji={assistantSummary?.buddy?.emoji}
+                    buddyName={assistantSummary?.buddy?.buddyName}
                   />
 
                   {/* Session items with animated collapse */}

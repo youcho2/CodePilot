@@ -165,7 +165,18 @@ async function executeDueTask(task: ScheduledTask): Promise<void> {
       }
 
       if (targetSessionId) {
-        addMessage(targetSessionId, 'assistant', `📋 **${task.name}** (定时任务)\n\n${result}`);
+        // Load buddy info for personalized notification
+        let buddyPrefix = '📋';
+        try {
+          const { loadState } = await import('@/lib/assistant-workspace');
+          if (workspacePath) {
+            const st = loadState(workspacePath);
+            if (st.buddy) {
+              buddyPrefix = `${st.buddy.emoji} ${st.buddy.buddyName || ''}`.trim();
+            }
+          }
+        } catch {}
+        addMessage(targetSessionId, 'assistant', `${buddyPrefix} **${task.name}**\n\n${result}`);
       }
     } catch { /* best effort */ }
 
@@ -210,7 +221,18 @@ async function executeDueTask(task: ScheduledTask): Promise<void> {
       }
 
       if (targetSessionId) {
-        addMessage(targetSessionId, 'assistant', `❌ **${task.name}** (定时任务失败)\n\n${errorMsg}`);
+        // Load buddy info for personalized error notification
+        let buddyPrefix = '❌';
+        try {
+          const { loadState } = await import('@/lib/assistant-workspace');
+          if (workspacePath) {
+            const st = loadState(workspacePath);
+            if (st.buddy) {
+              buddyPrefix = `${st.buddy.emoji} ${st.buddy.buddyName || ''}`.trim();
+            }
+          }
+        } catch {}
+        addMessage(targetSessionId, 'assistant', `${buddyPrefix} ❌ **${task.name}** (定时任务失败)\n\n${errorMsg}`);
       }
     } catch { /* best effort */ }
 

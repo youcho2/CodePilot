@@ -1341,6 +1341,8 @@ const zh: Record<TranslationKey, string> = {
   'buddy.checkEvolution': '检查进化',
   'buddy.evolved': '进化成功！',
   'buddy.title': '称号',
+  'buddy.namePlaceholder': '给你的伙伴起个名字...',
+  'buddy.nameHint': '这将是你的伙伴的名字',
 };
 
 export default zh;

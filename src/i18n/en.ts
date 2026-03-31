@@ -1344,6 +1344,8 @@ const en = {
   'buddy.checkEvolution': 'Check Evolution',
   'buddy.evolved': 'Evolution successful!',
   'buddy.title': 'Title',
+  'buddy.namePlaceholder': 'Give your buddy a name...',
+  'buddy.nameHint': 'This will be your buddy\'s name',
 } as const;
 
 export type TranslationKey = keyof typeof en;
