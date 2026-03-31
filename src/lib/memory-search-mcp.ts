@@ -94,7 +94,11 @@ export function createMemorySearchMcpServer(workspacePath: string) {
               return { content: [{ type: 'text' as const, text: 'No matching memories found.' }] };
             }
 
-            const formattedParts = await Promise.all(decayed.map(async (r, i) => {
+            // Optional AI reranking: use small model to select most relevant results
+            const reranked = await rerankWithAI(query, decayed, workspacePath);
+            const finalResults = reranked || decayed;
+
+            const formattedParts = await Promise.all(finalResults.map(async (r, i) => {
               const tagInfo = await getFileTags(workspacePath, r.path);
               const tagStr = tagInfo.length > 0 ? ` [${tagInfo.map(t => '#' + t).join(' ')}]` : '';
               return `${i + 1}. [${r.path}]${tagStr} (score: ${r.score.toFixed(2)})\n   ${r.heading || ''}\n   ${(r.snippet || '').slice(0, 200)}`;
@@ -281,4 +285,56 @@ function applyTemporalDecay(results: SearchResult[]): SearchResult[] {
     const decayFactor = Math.exp(-LAMBDA * ageInDays);
     return { ...r, score: r.score * decayFactor };
   }).sort((a, b) => b.score - a.score);
+}
+
+/**
+ * AI-driven reranking of search results using a small model.
+ * Falls back to original results if reranking fails or takes too long (5s timeout).
+ */
+async function rerankWithAI(
+  query: string,
+  results: SearchResult[],
+  _workspacePath: string,
+): Promise<SearchResult[] | null> {
+  if (results.length <= 2) return null; // Not worth reranking few results
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 5000);
+
+  try {
+    const { generateTextFromProvider } = await import('./text-generator');
+    const { resolveProvider } = await import('./provider-resolver');
+    const resolved = resolveProvider({ useCase: 'small' });
+
+    if (!resolved.hasCredentials) return null;
+
+    const manifest = results.map((r, i) =>
+      `${i}: [${r.path}] ${r.heading || ''} — ${(r.snippet || '').slice(0, 100)}`
+    ).join('\n');
+
+    const response = await generateTextFromProvider({
+      providerId: resolved.provider?.id || '',
+      model: resolved.upstreamModel || resolved.model || 'haiku',
+      system: 'You select the most relevant search results. Return ONLY a JSON array of indices (e.g. [2, 0, 4]).',
+      prompt: `Query: "${query}"\n\nResults:\n${manifest}\n\nSelect the most relevant results, ordered by relevance. Return JSON array of indices.`,
+      maxTokens: 50,
+      abortSignal: controller.signal,
+    });
+
+    // Parse the JSON array
+    const match = response.match(/\[[\d,\s]+\]/);
+    if (!match) return null;
+
+    const indices: number[] = JSON.parse(match[0]);
+    const reranked = indices
+      .filter(i => i >= 0 && i < results.length)
+      .map(i => results[i])
+      .filter(Boolean);
+
+    return reranked.length > 0 ? reranked : null;
+  } catch {
+    return null; // Fallback to original order
+  } finally {
+    clearTimeout(timeout);
+  }
 }

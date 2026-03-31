@@ -544,6 +544,32 @@ async function collectStreamResponse(
       console.error('[chat API] Server-side completion detection failed:', e);
     }
 
+    // Memory extraction: auto-extract durable memories every N turns (assistant projects only)
+    if (!opts?.isHeartbeatTurn && !opts?.suppressNotifications) {
+      try {
+        const workspacePath = getSetting('assistant_workspace_path');
+        const session = getSession(sessionId);
+        if (workspacePath && session && session.working_directory === workspacePath) {
+          const { shouldExtractMemory, hasMemoryWritesInResponse, extractMemories } = await import('@/lib/memory-extractor');
+
+          const fullTextForMemory = contentBlocks
+            .filter((b): b is Extract<MessageContentBlock, { type: 'text' }> => b.type === 'text')
+            .map((b) => b.text)
+            .join('');
+
+          // Only extract if: interval met + AI didn't already write memory this turn
+          if (shouldExtractMemory() && !hasMemoryWritesInResponse(fullTextForMemory)) {
+            const { getMessages: getMsgs } = await import('@/lib/db');
+            const { messages: recent } = getMsgs(sessionId, { limit: 6, excludeHeartbeatAck: true });
+            const recentForExtraction = recent.map(m => ({ role: m.role, content: m.content }));
+
+            // Fire-and-forget: don't block the response
+            extractMemories(recentForExtraction, workspacePath).catch(() => {});
+          }
+        }
+      } catch { /* best effort */ }
+    }
+
     // Telegram notifications: completion or error (fire-and-forget)
     // Suppressed for auto-trigger turns (onboarding/heartbeat) — invisible system flows
     if (!opts?.suppressNotifications) {
