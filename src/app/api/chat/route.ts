@@ -279,6 +279,7 @@ async function collectStreamResponse(
   let tokenUsage: TokenUsage | null = null;
   let hasError = false;
   let errorMessage = '';
+  let lastSavedAssistantMsgId: string | null = null;
   // Dedup layer: skip duplicate tool_result events by tool_use_id
   const seenToolResultIds = new Set<string>();
 
@@ -442,12 +443,13 @@ async function collectStreamResponse(
             .trim();
 
       if (content) {
-        addMessage(
+        const savedMsg = addMessage(
           sessionId,
           'assistant',
           content,
           tokenUsage ? JSON.stringify(tokenUsage) : null,
         );
+        lastSavedAssistantMsgId = savedMsg.id;
       }
     }
   } catch (e) {
@@ -493,8 +495,8 @@ async function collectStreamResponse(
         }
       }
 
-      // 2. Heartbeat state update — ONLY for actual heartbeat turns (autoTrigger + heartbeat content)
-      if (opts?.isHeartbeatTurn) {
+      // 2. Heartbeat state update — ONLY for actual heartbeat turns, and ONLY on success
+      if (opts?.isHeartbeatTurn && !hasError && fullText.trim().length > 0) {
         try {
           const workspacePath = getSetting('assistant_workspace_path');
           const session = getSession(sessionId);
@@ -502,24 +504,19 @@ async function collectStreamResponse(
             const { stripHeartbeatToken } = await import('@/lib/heartbeat');
             const { loadState, saveState } = await import('@/lib/assistant-workspace');
             const { getLocalDateString } = await import('@/lib/utils');
-            const { updateMessageHeartbeatAck } = await import('@/lib/db');
             const stripped = stripHeartbeatToken(fullText);
 
-            // Always update lastHeartbeatDate for heartbeat turns (prevents re-trigger today)
             const st = loadState(workspacePath);
             st.lastHeartbeatDate = getLocalDateString();
 
-            if (stripped.shouldSkip) {
-              // Pure HEARTBEAT_OK — mark persisted messages as ack so they're excluded
-              // from fallback history and hidden in UI
+            if (stripped.shouldSkip && lastSavedAssistantMsgId) {
+              // Pure HEARTBEAT_OK — mark ONLY the assistant reply as ack
+              // (auto-trigger messages are not persisted, so we only have the reply)
               try {
-                const { getMessages: getMsgs } = await import('@/lib/db');
-                const { messages: recent } = getMsgs(sessionId, { limit: 2 });
-                for (const msg of recent) {
-                  updateMessageHeartbeatAck(msg.id, true);
-                }
+                const { updateMessageHeartbeatAck } = await import('@/lib/db');
+                updateMessageHeartbeatAck(lastSavedAssistantMsgId, true);
               } catch { /* best effort */ }
-            } else {
+            } else if (!stripped.shouldSkip) {
               // Has real content — record for dedup
               st.lastHeartbeatText = stripped.text;
               st.lastHeartbeatSentAt = Date.now();
