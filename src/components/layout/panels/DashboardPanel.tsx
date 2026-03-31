@@ -499,7 +499,9 @@ function AssistantStatusCard({ summary, t }: {
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2">
             <span className="text-sm font-medium truncate">
-              {summary.name || t('assistant.defaultName' as TranslationKey)}
+              {buddy
+                ? (summary.name || t('assistant.defaultName' as TranslationKey))
+                : t('buddy.adoptPrompt' as TranslationKey)}
             </span>
             {buddy && (
               <span className={cn('text-[10px] font-medium', rarityColor(buddy.rarity))}>
