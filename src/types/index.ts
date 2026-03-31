@@ -609,6 +609,14 @@ export interface AssistantWorkspaceState {
   schemaVersion: number;
   hookTriggeredSessionId?: string;
   hookTriggeredAt?: string;
+  buddy?: {
+    species: string;
+    rarity: string;
+    stats: Record<string, number>;
+    emoji: string;
+    peakStat: string;
+    hatchedAt: string;
+  };
 }
 
 export interface AssistantWorkspaceFiles {

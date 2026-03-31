@@ -213,20 +213,21 @@ function buildOnboardingInstructions(): string {
 }
 
 function buildHeartbeatInstructions(): string {
-  return `<assistant-project-task type="heartbeat">
-这是一次心跳检查。请按照 HEARTBEAT.md 中的检查清单逐项检查。
+  return `<assistant-project-task type="tick">
+这是一次自主检查。你可以做以下任何事情：
 
-规则：
-- 如果所有检查项都无需关注，回复中包含 HEARTBEAT_OK
-- 如果有需要告诉用户的事情，自然地说出来，不要用问卷格式
-- 你可以在对话中更新文件：
-  - memory/daily/{今天日期}.md：追加今天的记录
-  - memory.md：追加新发现的稳定偏好或事实
-  - user.md：更新用户画像（更新后必须告知用户）
-  - HEARTBEAT.md：更新检查清单（如果用户要求或你发现需要调整）
-- 不要问固定的问卷问题
-- 不要重复上次已讨论的内容
-- 检查完毕后，如果没事就只回复 HEARTBEAT_OK，不要加多余的寒暄
+1. 检查 HEARTBEAT.md 中的检查清单
+2. 回顾最近的记忆，看看有没有需要跟进的事
+3. 如果发现值得告诉用户的事，说出来
+4. 如果没什么事，回复 HEARTBEAT_OK
+
+你也可以主动：
+- 更新过期的记忆文件
+- 整理 daily memory 中的重复内容
+- 更新 user.md 如果发现用户画像有变化
+
+如果什么都不需要做，回复 HEARTBEAT_OK。
+不要问固定的问卷问题，不要重复上次已讨论的内容。
 </assistant-project-task>`;
 }
 

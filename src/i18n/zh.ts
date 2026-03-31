@@ -1315,6 +1315,23 @@ const zh: Record<TranslationKey, string> = {
   'widget.error': '组件渲染错误',
   'widget.showCode': '显示代码',
   'widget.hideCode': '隐藏代码',
+
+  // ── Buddy (AI Pet Companion) ─────────────────────────────────
+  'buddy.species': '物种',
+  'buddy.rarity': '稀有度',
+  'buddy.stats': '属性',
+  'buddy.hatched': '孵化于',
+  'buddy.common': '普通',
+  'buddy.uncommon': '稀有',
+  'buddy.rare': '精良',
+  'buddy.epic': '史诗',
+  'buddy.legendary': '传说',
+  'buddy.creativity': '创意',
+  'buddy.patience': '耐心',
+  'buddy.insight': '洞察',
+  'buddy.humor': '幽默',
+  'buddy.precision': '精确',
+  'buddy.reveal': '你的助理伙伴！',
 };
 
 export default zh;

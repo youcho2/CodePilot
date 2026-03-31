@@ -12,6 +12,8 @@ import { WidgetRenderer } from "@/components/chat/WidgetRenderer";
 import { AssistantAvatar } from "@/components/ui/AssistantAvatar";
 import type { DashboardConfig, DashboardWidget } from "@/types/dashboard";
 import type { TranslationKey } from "@/i18n";
+import { cn } from "@/lib/utils";
+import { RARITY_DISPLAY, STAT_LABEL, rarityColor, type BuddyData } from "@/lib/buddy";
 
 const DASHBOARD_MIN_WIDTH = 320;
 const DASHBOARD_MAX_WIDTH = 800;
@@ -28,6 +30,7 @@ interface AssistantSummary {
   recentDailyDates?: string[];
   fileHealth?: Record<string, boolean>;
   taskCount?: number;
+  buddy?: BuddyData;
 }
 
 export function DashboardPanel() {
@@ -474,15 +477,27 @@ function AssistantStatusCard({ summary, t }: {
   t: (key: TranslationKey, params?: Record<string, string | number>) => string;
 }) {
   const router = useRouter();
+  const buddy = summary.buddy;
 
   return (
     <div className="rounded-lg border border-primary/10 bg-primary/[0.03] p-3 space-y-3">
-      {/* Header */}
+      {/* Header: Emoji + Name + Rarity (when buddy exists) or plain avatar */}
       <div className="flex items-center gap-2">
-        <AssistantAvatar name={summary.name || 'assistant'} size={24} />
+        {buddy ? (
+          <span className="text-2xl">{buddy.emoji}</span>
+        ) : (
+          <AssistantAvatar name={summary.name || 'assistant'} size={24} />
+        )}
         <div className="flex-1 min-w-0">
-          <div className="text-sm font-medium truncate">
-            {summary.name || t('assistant.defaultName' as TranslationKey)}
+          <div className="flex items-center gap-2">
+            <span className="text-sm font-medium truncate">
+              {summary.name || t('assistant.defaultName' as TranslationKey)}
+            </span>
+            {buddy && (
+              <span className={cn('text-[10px] font-medium', rarityColor(buddy.rarity))}>
+                {RARITY_DISPLAY[buddy.rarity]?.stars} {RARITY_DISPLAY[buddy.rarity]?.label.zh}
+              </span>
+            )}
           </div>
           {summary.styleHint && (
             <div className="text-[10px] text-muted-foreground italic truncate">
@@ -491,6 +506,24 @@ function AssistantStatusCard({ summary, t }: {
           )}
         </div>
       </div>
+
+      {/* Stats bars (when buddy exists) */}
+      {buddy && (
+        <div className="space-y-1.5 mt-3">
+          {Object.entries(buddy.stats).map(([stat, value]) => (
+            <div key={stat} className="flex items-center gap-2 text-[11px]">
+              <span className="w-8 text-muted-foreground truncate">{STAT_LABEL[stat]?.zh || stat}</span>
+              <div className="flex-1 h-1.5 rounded-full bg-muted overflow-hidden">
+                <div
+                  className={cn('h-full rounded-full', stat === buddy.peakStat ? 'bg-primary' : 'bg-muted-foreground/40')}
+                  style={{ width: `${value}%` }}
+                />
+              </div>
+              <span className="w-5 text-right text-muted-foreground">{value}</span>
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* Status rows */}
       <div className="space-y-1.5">

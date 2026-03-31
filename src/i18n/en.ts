@@ -1318,6 +1318,23 @@ const en = {
   'widget.error': 'Widget render error',
   'widget.showCode': 'Show code',
   'widget.hideCode': 'Hide code',
+
+  // ── Buddy (AI Pet Companion) ─────────────────────────────────
+  'buddy.species': 'Species',
+  'buddy.rarity': 'Rarity',
+  'buddy.stats': 'Stats',
+  'buddy.hatched': 'Hatched',
+  'buddy.common': 'Common',
+  'buddy.uncommon': 'Uncommon',
+  'buddy.rare': 'Rare',
+  'buddy.epic': 'Epic',
+  'buddy.legendary': 'Legendary',
+  'buddy.creativity': 'Creativity',
+  'buddy.patience': 'Patience',
+  'buddy.insight': 'Insight',
+  'buddy.humor': 'Humor',
+  'buddy.precision': 'Precision',
+  'buddy.reveal': 'Your assistant buddy!',
 } as const;
 
 export type TranslationKey = keyof typeof en;

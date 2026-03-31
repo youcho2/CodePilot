@@ -93,6 +93,22 @@ ${userName ? `I address the user as ${userName}.` : 'I use a friendly, respectfu
     state.lastHeartbeatDate = today;
     state.heartbeatEnabled = true;
     state.schemaVersion = 5;
+    // Generate buddy companion
+    const { generateBuddy, getPeakStatHint } = await import('@/lib/buddy');
+    const buddySeed = workspacePath + ':' + new Date().toISOString();
+    const buddy = generateBuddy(buddySeed);
+    state.buddy = buddy;
+
+    // Append peak stat personality hint to soul.md
+    const soulPath = path.join(workspacePath, 'soul.md');
+    if (fs.existsSync(soulPath)) {
+      const existingSoul = fs.readFileSync(soulPath, 'utf-8');
+      if (!existingSoul.includes('## Buddy Trait')) {
+        const hint = getPeakStatHint(buddy.peakStat as Parameters<typeof getPeakStatHint>[0]);
+        fs.appendFileSync(soulPath, `\n\n## Buddy Trait\n${hint}\n`, 'utf-8');
+      }
+    }
+
     saveState(workspacePath, state);
 
     // Create session
@@ -102,6 +118,7 @@ ${userName ? `I address the user as ${userName}.` : 'I use a friendly, respectfu
       success: true,
       session,
       assistantName: assistantName || 'Personal Assistant',
+      buddy,
     });
   } catch (e) {
     console.error('[workspace/wizard] POST failed:', e);

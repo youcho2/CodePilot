@@ -8,6 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { AssistantAvatar } from '@/components/ui/AssistantAvatar';
 import { useTranslation } from '@/hooks/useTranslation';
 import type { TranslationKey } from '@/i18n';
+import { SPECIES_LABEL, RARITY_DISPLAY, STAT_LABEL, rarityColor, type BuddyData } from '@/lib/buddy';
 
 // ── Types ──
 
@@ -107,6 +108,8 @@ export function OnboardingWizard({ workspacePath, onComplete }: OnboardingWizard
   const [step, setStep] = useState(0);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [buddy, setBuddy] = useState<BuddyData | null>(null);
+  const [completionResult, setCompletionResult] = useState<{ session: { id: string }; assistantName: string } | null>(null);
   const [data, setData] = useState<WizardData>({
     userName: '',
     userRole: '',
@@ -153,7 +156,12 @@ export function OnboardingWizard({ workspacePath, onComplete }: OnboardingWizard
         throw new Error('api_error');
       }
       const result = await res.json();
-      onComplete(result.session, result.assistantName);
+      setCompletionResult({ session: result.session, assistantName: result.assistantName });
+      if (result.buddy) {
+        setBuddy(result.buddy);
+      } else {
+        onComplete(result.session, result.assistantName);
+      }
     } catch (e) {
       console.error('[OnboardingWizard] Failed:', e);
       setError(t('wizard.error' as TranslationKey));
@@ -274,8 +282,34 @@ export function OnboardingWizard({ workspacePath, onComplete }: OnboardingWizard
             </div>
           )}
 
-          {/* ── Step 3: Completion ── */}
-          {step === 2 && (
+          {/* ── Step 3: Completion / Buddy Reveal ── */}
+          {step === 2 && buddy && (
+            <div className="text-center space-y-4 py-6">
+              <span className="text-6xl block">{buddy.emoji}</span>
+              <div>
+                <h3 className="text-lg font-semibold">{t('buddy.reveal' as TranslationKey)}</h3>
+                <p className="text-sm text-muted-foreground mt-1">
+                  {buddy.emoji} {SPECIES_LABEL[buddy.species]?.zh || buddy.species}
+                </p>
+                <span className={cn('text-xs font-medium mt-1 inline-block', rarityColor(buddy.rarity))}>
+                  {RARITY_DISPLAY[buddy.rarity]?.stars} {RARITY_DISPLAY[buddy.rarity]?.label.zh}
+                </span>
+              </div>
+              {/* Stats */}
+              <div className="space-y-1.5 max-w-xs mx-auto text-left">
+                {Object.entries(buddy.stats).map(([stat, value]) => (
+                  <div key={stat} className="flex items-center gap-2 text-xs">
+                    <span className="w-10 text-muted-foreground">{STAT_LABEL[stat]?.zh || stat}</span>
+                    <div className="flex-1 h-1.5 rounded-full bg-muted overflow-hidden">
+                      <div className={cn('h-full rounded-full', stat === buddy.peakStat ? 'bg-primary' : 'bg-muted-foreground/40')} style={{ width: `${value}%` }} />
+                    </div>
+                    <span className="w-5 text-right text-muted-foreground text-[10px]">{value}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+          {step === 2 && !buddy && (
             <div className="flex flex-col items-center gap-5 py-2">
               <AssistantAvatar
                 name={data.assistantName || t('wizard.defaultFallbackName' as TranslationKey)}
@@ -321,6 +355,10 @@ export function OnboardingWizard({ workspacePath, onComplete }: OnboardingWizard
           {step < TOTAL_STEPS - 1 ? (
             <Button onClick={() => setStep(s => s + 1)} disabled={!canNext}>
               {t('wizard.next' as TranslationKey)}
+            </Button>
+          ) : buddy && completionResult ? (
+            <Button onClick={() => onComplete(completionResult.session, completionResult.assistantName)}>
+              {t('wizard.startChatting' as TranslationKey)}
             </Button>
           ) : (
             <Button onClick={handleComplete} disabled={submitting}>
