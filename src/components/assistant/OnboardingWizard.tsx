@@ -144,16 +144,19 @@ export function OnboardingWizard({ workspacePath, onComplete }: OnboardingWizard
       const res = await fetch('/api/workspace/wizard', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...data, workspacePath }),
+        body: JSON.stringify(data),
       });
       if (!res.ok) {
+        // Log server error for debugging, show i18n message to user
         const errData = await res.json().catch(() => ({}));
-        throw new Error(errData.error || `Request failed (${res.status})`);
+        console.error('[OnboardingWizard] API error:', errData.error);
+        throw new Error('api_error');
       }
       const result = await res.json();
       onComplete(result.session, result.assistantName);
     } catch (e) {
-      setError(e instanceof Error ? e.message : t('wizard.error' as TranslationKey));
+      console.error('[OnboardingWizard] Failed:', e);
+      setError(t('wizard.error' as TranslationKey));
     } finally {
       setSubmitting(false);
     }
