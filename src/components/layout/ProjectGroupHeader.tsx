@@ -138,33 +138,35 @@ export function ProjectGroupHeader({
       statusParts.push(t('assistant.lastHeartbeat' as TranslationKey, { date: lastHeartbeatDate }));
     }
 
+    // Format: "助理名字 / 文件夹名"
+    const folderName = displayName;
+    const nameDisplay = assistantName || t('assistant.defaultName' as TranslationKey);
+
     return (
       <div
         className={cn(
-          "flex items-center gap-2 rounded-md px-2 py-1.5 cursor-pointer select-none transition-colors",
-          "bg-primary/5 border border-primary/10 hover:bg-primary/10"
+          "flex items-center gap-1.5 rounded-md px-2 py-1 cursor-pointer select-none transition-colors",
+          "hover:bg-accent/50"
         )}
         onClick={onToggle}
         onMouseEnter={onMouseEnter}
         onMouseLeave={onMouseLeave}
       >
-        <AssistantAvatar name={assistantName || 'assistant'} size={28} />
+        <AssistantAvatar name={assistantName || 'assistant'} size={20} className="shrink-0" />
         <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-1.5">
-            <span className="text-sm font-medium text-primary truncate">
-              {assistantName || t('assistant.defaultName' as TranslationKey)}
+          <div className="flex items-center gap-1">
+            <span className="truncate text-[13px] font-medium text-sidebar-foreground">
+              {nameDisplay}
+            </span>
+            <span className="text-[11px] text-muted-foreground/60 truncate">
+              / {folderName}
             </span>
             {isCollapsed ? (
-              <CaretRight size={12} className="shrink-0 text-primary/60" />
+              <CaretRight size={12} className="shrink-0 text-muted-foreground" />
             ) : (
-              <CaretDown size={12} className="shrink-0 text-primary/60" />
+              <CaretDown size={12} className="shrink-0 text-muted-foreground" />
             )}
           </div>
-          {statusParts.length > 0 && (
-            <span className="text-[10px] text-muted-foreground">
-              {statusParts.join(' \u00b7 ')}
-            </span>
-          )}
         </div>
         {actionButtons}
       </div>
