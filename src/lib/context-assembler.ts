@@ -105,8 +105,13 @@ export async function assembleContext(config: ContextAssemblyConfig): Promise<As
         } else if (shouldRunHeartbeat(state)) {
           assistantProjectInstructions = buildHeartbeatInstructions();
         } else {
-          // Phase 3: Progressive file update guidance for completed onboarding
+          // Progressive file update guidance for completed onboarding
           assistantProjectInstructions = buildProgressiveUpdateInstructions();
+
+          // If no buddy yet, prepend a welcome + adoption prompt
+          if (!state.buddy) {
+            assistantProjectInstructions = buildNoBuddyWelcome() + '\n\n' + assistantProjectInstructions;
+          }
         }
       }
     }
@@ -229,6 +234,24 @@ function buildHeartbeatInstructions(): string {
 如果什么都不需要做，回复 HEARTBEAT_OK。
 不要问固定的问卷问题，不要重复上次已讨论的内容。
 </assistant-project-task>`;
+}
+
+function buildNoBuddyWelcome(): string {
+  return `<assistant-buddy-welcome>
+如果这是用户打开助理后的第一轮对话，请先做一个简短的自我介绍和伙伴领养引导：
+
+1. 打个招呼，介绍你是用户的个人助理
+2. 简要说明你能做什么：
+   - 记住用户的偏好和重要信息（跨对话长期记忆）
+   - 管理定时任务和提醒（"5 分钟后提醒我"）
+   - 主动检查待办事项（心跳机制）
+   - 帮助整理笔记和文档（Obsidian 风格）
+3. 告诉用户他们还没有领养伙伴 🥚，引导他们去看板面板或设置页点击"孵化"按钮
+4. 简要介绍伙伴系统：每个助理都有一个专属伙伴，有不同的物种和稀有度，会随着使用时间成长和进化
+5. 保持简短友好，不要超过 5 行
+
+只在第一轮对话时做这个介绍。如果用户直接提问，优先回答问题，介绍可以简化为一句话提及伙伴领养。
+</assistant-buddy-welcome>`;
 }
 
 function buildProgressiveUpdateInstructions(): string {
