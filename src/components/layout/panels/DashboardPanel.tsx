@@ -271,8 +271,10 @@ export function DashboardPanel() {
               <span className="text-base">{assistantSummary?.buddy?.emoji || '🥚'}</span>
             ) : null}
             <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-              {isAssistantWorkspace && assistantSummary?.name
-                ? assistantSummary.name
+              {isAssistantWorkspace
+                ? (assistantSummary?.buddy
+                    ? (assistantSummary.name || t('assistant.defaultName'))
+                    : t('buddy.adoptPrompt'))
                 : t('dashboard.title')}
             </span>
           </div>
