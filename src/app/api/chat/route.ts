@@ -56,12 +56,15 @@ export async function POST(request: NextRequest) {
     setSessionRuntimeStatus(session_id, 'running');
 
     // Telegram notification: session started (fire-and-forget)
+    // Skip for auto-trigger turns (onboarding/heartbeat) — these are invisible system triggers
     const telegramNotifyOpts = {
       sessionId: session_id,
       sessionTitle: session.title !== 'New Chat' ? session.title : content.slice(0, 50),
       workingDirectory: session.working_directory,
     };
-    notifySessionStart(telegramNotifyOpts).catch(() => {});
+    if (!autoTrigger) {
+      notifySessionStart(telegramNotifyOpts).catch(() => {});
+    }
 
     // Save user message — persist file metadata so attachments survive page reload
     // Skip saving for autoTrigger messages (invisible system triggers for assistant hooks)
@@ -240,7 +243,7 @@ export async function POST(request: NextRequest) {
       clearInterval(lockRenewalInterval);
       releaseSessionLock(session_id, lockId);
       setSessionRuntimeStatus(session_id, 'idle');
-    }, { isHeartbeatTurn });
+    }, { isHeartbeatTurn, suppressNotifications: !!autoTrigger });
 
     return new Response(streamForClient, {
       headers: {
@@ -271,7 +274,7 @@ async function collectStreamResponse(
   sessionId: string,
   telegramOpts: { sessionId?: string; sessionTitle?: string; workingDirectory?: string },
   onComplete?: () => void,
-  opts?: { isHeartbeatTurn?: boolean },
+  opts?: { isHeartbeatTurn?: boolean; suppressNotifications?: boolean },
 ) {
   const reader = stream.getReader();
   const contentBlocks: MessageContentBlock[] = [];
@@ -538,16 +541,18 @@ async function collectStreamResponse(
     }
 
     // Telegram notifications: completion or error (fire-and-forget)
-    if (hasError) {
-      notifySessionError(errorMessage, telegramOpts).catch(() => {});
-    } else {
-      // Extract text summary for the completion notification
-      const textSummary = contentBlocks
-        .filter((b): b is Extract<MessageContentBlock, { type: 'text' }> => b.type === 'text')
-        .map((b) => b.text)
-        .join('')
-        .trim();
-      notifySessionComplete(textSummary || undefined, telegramOpts).catch(() => {});
+    // Suppressed for auto-trigger turns (onboarding/heartbeat) — invisible system flows
+    if (!opts?.suppressNotifications) {
+      if (hasError) {
+        notifySessionError(errorMessage, telegramOpts).catch(() => {});
+      } else {
+        const textSummary = contentBlocks
+          .filter((b): b is Extract<MessageContentBlock, { type: 'text' }> => b.type === 'text')
+          .map((b) => b.text)
+          .join('')
+          .trim();
+        notifySessionComplete(textSummary || undefined, telegramOpts).catch(() => {});
+      }
     }
     onComplete?.();
   }
