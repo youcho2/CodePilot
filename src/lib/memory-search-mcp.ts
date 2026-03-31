@@ -1,10 +1,12 @@
 /**
  * codepilot-memory MCP — in-process MCP server for memory search/retrieval.
  *
- * Provides 2 tools:
- * - codepilot_memory_search: Search workspace memory files with temporal decay
- * - codepilot_memory_get: Read a specific file from the assistant workspace
+ * Provides 3 tools:
+ * - codepilot_memory_search: Search with temporal decay + optional tag/type filters
+ * - codepilot_memory_get: Read a specific file (path-safe, truncated)
+ * - codepilot_memory_recent: Get recent daily memories without search (for context)
  *
+ * Obsidian-aware: parses YAML frontmatter for tags, supports [[wikilinks]].
  * Always-on in assistant mode (not keyword-gated).
  */
 
@@ -17,13 +19,21 @@ import type { SearchResult } from '@/types';
 const HALF_LIFE_DAYS = 30;
 const LAMBDA = Math.log(2) / HALF_LIFE_DAYS;
 const MAX_SNIPPET_CHARS = 3000;
+const RECENT_MEMORY_DAYS = 3;
 
 export const MEMORY_SEARCH_SYSTEM_PROMPT = `## 记忆检索
 
+**每次对话的第一轮，必须先调用 codepilot_memory_recent 回顾最近记忆。**
+
 在回答任何关于过去工作、决策、日期、人物、偏好或待办的问题前：
-1. 先用 codepilot_memory_search 搜索相关记忆
+1. 用 codepilot_memory_search 搜索相关记忆（支持按 tags 过滤）
 2. 如果搜到相关结果，用 codepilot_memory_get 获取详细内容
 3. 如果搜索后仍不确定，告知用户你已检查但未找到相关记录
+
+工作区使用 Obsidian 风格组织：
+- 文件间用 [[文件名]] 双向链接
+- 用 #标签 分类，搜索时可用 tags 参数过滤
+- 文件顶部有 YAML frontmatter 元数据
 
 不要凭记忆猜测过去发生的事，始终先搜索再回答。`;
 
@@ -34,27 +44,59 @@ export function createMemorySearchMcpServer(workspacePath: string) {
     tools: [
       tool(
         'codepilot_memory_search',
-        'Search assistant workspace memory files (memory.md, daily memories, workspace docs). Use before answering questions about past work, decisions, dates, people, preferences, or todos.',
+        'Search assistant workspace memory files with keyword matching and temporal decay. Supports filtering by tags (Obsidian-style #tags from YAML frontmatter) and file type.',
         {
           query: z.string().describe('Search keywords'),
-          limit: z.number().optional().default(5).describe('Max number of results'),
+          tags: z.array(z.string()).optional().describe('Filter by YAML frontmatter tags (e.g. ["project", "design"])'),
+          file_type: z.enum(['all', 'daily', 'longterm', 'notes']).optional().default('all')
+            .describe('Filter by type: "daily" = memory/daily/*.md, "longterm" = memory.md, "notes" = other workspace files'),
+          limit: z.number().optional().default(5).describe('Max results'),
         },
-        async ({ query, limit }) => {
+        async ({ query, tags, file_type, limit }) => {
           try {
-            // Dynamic import to avoid circular deps
             const { searchWorkspace } = await import('./workspace-retrieval');
-            const results = searchWorkspace(workspacePath, query, { limit: limit || 5 });
+            let results = searchWorkspace(workspacePath, query, { limit: (limit || 5) * 3 });
 
-            // Apply temporal decay to dated files
-            const decayed = applyTemporalDecay(results);
+            // Filter by file type
+            if (file_type && file_type !== 'all') {
+              results = results.filter(r => {
+                if (file_type === 'daily') return r.path.startsWith('memory/daily/');
+                if (file_type === 'longterm') return r.path === 'memory.md' || r.path === 'MEMORY.md';
+                if (file_type === 'notes') return !r.path.startsWith('memory/') && r.path !== 'memory.md' && r.path !== 'MEMORY.md';
+                return true;
+              });
+            }
+
+            // Filter by tags (from manifest entry)
+            if (tags && tags.length > 0) {
+              const tagsLower = tags.map(t => t.toLowerCase().replace(/^#/, ''));
+              try {
+                const { loadManifest } = await import('./workspace-indexer');
+                const manifest = loadManifest(workspacePath);
+                results = results.filter(r => {
+                  const entry = manifest.find((e: { path: string; tags?: string[] }) => e.path === r.path);
+                  if (!entry?.tags?.length) return false;
+                  const entryTagsLower = entry.tags.map((t: string) => t.toLowerCase());
+                  return tagsLower.some(t => entryTagsLower.includes(t));
+                });
+              } catch {
+                // if manifest unavailable, skip tag filtering
+              }
+            }
+
+            // Apply temporal decay and take limit
+            const decayed = applyTemporalDecay(results).slice(0, limit || 5);
 
             if (decayed.length === 0) {
               return { content: [{ type: 'text' as const, text: 'No matching memories found.' }] };
             }
 
-            const formatted = decayed.map((r, i) =>
-              `${i + 1}. [${r.path}] (score: ${r.score.toFixed(2)})\n   ${r.heading || ''}\n   ${(r.snippet || '').slice(0, 200)}`
-            ).join('\n\n');
+            const formattedParts = await Promise.all(decayed.map(async (r, i) => {
+              const tagInfo = await getFileTags(workspacePath, r.path);
+              const tagStr = tagInfo.length > 0 ? ` [${tagInfo.map(t => '#' + t).join(' ')}]` : '';
+              return `${i + 1}. [${r.path}]${tagStr} (score: ${r.score.toFixed(2)})\n   ${r.heading || ''}\n   ${(r.snippet || '').slice(0, 200)}`;
+            }));
+            const formatted = formattedParts.join('\n\n');
 
             return { content: [{ type: 'text' as const, text: formatted }] };
           } catch (err) {
@@ -65,14 +107,13 @@ export function createMemorySearchMcpServer(workspacePath: string) {
 
       tool(
         'codepilot_memory_get',
-        'Read a specific file from the assistant workspace. Use after memory_search finds relevant files. Paths must be relative to the workspace root.',
+        'Read a specific file from the assistant workspace. Use after memory_search finds relevant files. Paths must be relative to the workspace root. Also extracts Obsidian [[wikilinks]] as related files.',
         {
           file_path: z.string().describe('File path relative to workspace root (e.g. "memory.md", "memory/daily/2026-03-30.md")'),
           line_start: z.number().optional().describe('Start line number (1-based)'),
           line_end: z.number().optional().describe('End line number (inclusive)'),
         },
         async ({ file_path, line_start, line_end }) => {
-          // Security: resolve and check path is within workspace
           const resolved = path.resolve(workspacePath, file_path);
           if (!resolved.startsWith(path.resolve(workspacePath))) {
             return { content: [{ type: 'text' as const, text: 'Access denied: path is outside workspace.' }] };
@@ -85,7 +126,11 @@ export function createMemorySearchMcpServer(workspacePath: string) {
 
             let content = fs.readFileSync(resolved, 'utf-8');
 
-            // Optional line range
+            // Extract [[wikilinks]] for related file discovery
+            const wikilinks = [...content.matchAll(/\[\[([^\]|]+)(?:\|[^\]]+)?\]\]/g)]
+              .map(m => m[1].trim())
+              .filter((v, i, a) => a.indexOf(v) === i);
+
             if (line_start || line_end) {
               const lines = content.split('\n');
               const start = Math.max(0, (line_start || 1) - 1);
@@ -93,19 +138,89 @@ export function createMemorySearchMcpServer(workspacePath: string) {
               content = lines.slice(start, end).join('\n');
             }
 
-            // Truncate to MAX_SNIPPET_CHARS
             if (content.length > MAX_SNIPPET_CHARS) {
               content = content.slice(0, MAX_SNIPPET_CHARS) + '\n\n[...truncated...]';
             }
 
-            return { content: [{ type: 'text' as const, text: content || '(empty file)' }] };
+            let result = content || '(empty file)';
+            if (wikilinks.length > 0) {
+              result += `\n\n---\nLinked files: ${wikilinks.map(l => `[[${l}]]`).join(', ')}`;
+            }
+
+            return { content: [{ type: 'text' as const, text: result }] };
           } catch (err) {
             return { content: [{ type: 'text' as const, text: `Read failed: ${err instanceof Error ? err.message : 'unknown error'}` }] };
           }
         },
       ),
+
+      tool(
+        'codepilot_memory_recent',
+        'Get recent daily memories (last 3 days) and long-term memory summary. Call this at the START of each conversation to review recent context before engaging.',
+        {},
+        async () => {
+          try {
+            const parts: string[] = [];
+
+            // Long-term memory summary (first 500 chars)
+            const memoryPath = path.join(workspacePath, 'memory.md');
+            if (fs.existsSync(memoryPath)) {
+              const memContent = fs.readFileSync(memoryPath, 'utf-8').trim();
+              if (memContent) {
+                const summary = memContent.length > 500
+                  ? memContent.slice(0, 500) + '...'
+                  : memContent;
+                parts.push(`## Long-term Memory\n${summary}`);
+              }
+            }
+
+            // Recent daily memories
+            const dailyDir = path.join(workspacePath, 'memory', 'daily');
+            if (fs.existsSync(dailyDir)) {
+              const files = fs.readdirSync(dailyDir)
+                .filter(f => /^\d{4}-\d{2}-\d{2}\.md$/.test(f))
+                .sort()
+                .reverse()
+                .slice(0, RECENT_MEMORY_DAYS);
+
+              for (const file of files) {
+                const content = fs.readFileSync(path.join(dailyDir, file), 'utf-8').trim();
+                if (content) {
+                  const date = file.replace('.md', '');
+                  const truncated = content.length > 800
+                    ? content.slice(0, 800) + '...'
+                    : content;
+                  parts.push(`## ${date}\n${truncated}`);
+                }
+              }
+            }
+
+            if (parts.length === 0) {
+              return { content: [{ type: 'text' as const, text: 'No recent memories found.' }] };
+            }
+
+            return { content: [{ type: 'text' as const, text: parts.join('\n\n') }] };
+          } catch (err) {
+            return { content: [{ type: 'text' as const, text: `Failed to load recent memories: ${err instanceof Error ? err.message : 'unknown error'}` }] };
+          }
+        },
+      ),
     ],
   });
+}
+
+/**
+ * Get tags for a file from the workspace index manifest.
+ */
+async function getFileTags(workspacePath: string, filePath: string): Promise<string[]> {
+  try {
+    const { loadManifest } = await import('./workspace-indexer');
+    const manifest = loadManifest(workspacePath);
+    const entry = manifest.find((e: { path: string; tags?: string[] }) => e.path === filePath);
+    return entry?.tags || [];
+  } catch {
+    return [];
+  }
 }
 
 /**

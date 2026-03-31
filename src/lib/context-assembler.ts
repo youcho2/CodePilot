@@ -74,10 +74,23 @@ export async function assembleContext(config: ContextAssemblyConfig): Promise<As
 
         const files = loadWorkspaceFiles(workspacePath);
 
-        // Memory/retrieval is now handled by codepilot_memory_search MCP tool
-        // (registered in claude-client.ts for assistant mode).
+        // Memory/retrieval is handled by codepilot_memory_search MCP tool.
         // assembleWorkspacePrompt only includes identity files (soul/user/claude).
+        // We also inject a lightweight "memory availability hint" so AI knows
+        // what's available without loading full content.
         workspacePrompt = assembleWorkspacePrompt(files);
+
+        // Memory availability hint: tell AI what daily memories exist
+        try {
+          const { loadDailyMemories } = await import('@/lib/assistant-workspace');
+          const recentDays = loadDailyMemories(workspacePath, 5);
+          if (recentDays.length > 0) {
+            const dateList = recentDays.map(d => d.date).join(', ');
+            workspacePrompt += `\n\n<memory-hint>Recent daily memories available: ${dateList}. Use codepilot_memory_recent to review them.</memory-hint>`;
+          }
+        } catch {
+          // skip if daily memories unavailable
+        }
 
         const state = loadState(workspacePath);
 

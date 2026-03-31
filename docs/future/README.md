@@ -10,3 +10,4 @@
 - [scheduled-tasks-and-notifications.md](scheduled-tasks-and-notifications.md) — 定时任务 + 通知：心跳系统、cron 调度、多渠道投递
 - [voice-assistant.md](voice-assistant.md) — 语音助手：浮窗 + MCP 架构，复用 ElevenLabs UI 组件
 - [agent-friends.md](agent-friends.md) — Agent 好友系统：跨用户 Agent 共享频道，项目驱动的权限控制
+- [memory-enhancements.md](memory-enhancements.md) — 记忆增强：GUI 管理面板、Widget 可视化、本地向量搜索、硬 Flush
