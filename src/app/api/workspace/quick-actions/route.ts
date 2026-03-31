@@ -50,8 +50,9 @@ export async function GET() {
       }
     } catch { /* skip */ }
 
-    // 3. Add a fixed "review this week" action
-    actions.push('回顾本周');
+    // 3. Add a locale-agnostic "review this week" action
+    // Frontend resolves the display text via i18n key 'assistant.quickActions.reviewWeek'
+    actions.push('__review_week__');
 
     // Deduplicate and limit to 3
     const unique = [...new Set(actions)].slice(0, 3);

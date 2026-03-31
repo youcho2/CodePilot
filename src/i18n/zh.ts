@@ -1097,6 +1097,7 @@ const zh: Record<TranslationKey, string> = {
   // ── Dashboard ─────────────────────────────────────────────────
   'dashboard.title': '看板',
   'dashboard.empty': '还没有固定的组件。在聊天中固定生成式 UI 组件来构建你的看板。',
+  'dashboard.exportFailed': '导出失败',
   'dashboard.refresh': '刷新全部',
   'dashboard.refreshing': '刷新中...',
   'dashboard.autoRefresh': '打开时自动刷新',

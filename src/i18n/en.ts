@@ -1100,6 +1100,7 @@ const en = {
   // ── Dashboard ─────────────────────────────────────────────────
   'dashboard.title': 'Dashboard',
   'dashboard.empty': 'No widgets pinned yet. Pin widgets from chat to build your dashboard.',
+  'dashboard.exportFailed': 'Export failed',
   'dashboard.refresh': 'Refresh All',
   'dashboard.refreshing': 'Refreshing...',
   'dashboard.autoRefresh': 'Auto-refresh on open',

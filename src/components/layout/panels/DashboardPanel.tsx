@@ -325,7 +325,7 @@ export function DashboardPanel() {
         <div className="flex-1 min-h-0 overflow-y-auto">
           {loading ? (
             <div className="flex items-center justify-center h-32 text-sm text-muted-foreground">
-              Loading...
+              {t('common.loading' as TranslationKey)}
             </div>
           ) : widgets.length === 0 ? (
             <div className="flex flex-col h-full px-3 pt-3">
@@ -434,7 +434,7 @@ function DashboardWidgetCard({ widget, refreshing, isFirst, isLast, style, onRef
                 downloadBlob(blob, `${widget.title.replace(/[^a-zA-Z0-9\u4e00-\u9fff]/g, '_')}.png`);
               } catch (e) {
                 console.error('[DashboardPanel] Export failed:', e);
-                showToast({ type: 'error', message: 'Export failed' });
+                showToast({ type: 'error', message: t('dashboard.exportFailed' as TranslationKey) });
               }
             }}
             title={t('dashboard.exportWidget')}
