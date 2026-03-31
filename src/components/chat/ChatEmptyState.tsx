@@ -1,7 +1,9 @@
 'use client';
 
+import { useState } from 'react';
 import { Button } from '@/components/ui/button';
-import { FolderOpen } from '@/components/ui/icon';
+import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from '@/components/ui/card';
+import { FolderOpen, Brain, X } from '@/components/ui/icon';
 import { useTranslation } from '@/hooks/useTranslation';
 
 interface ChatEmptyStateProps {
@@ -10,6 +12,8 @@ interface ChatEmptyStateProps {
   onSelectFolder: () => void;
   recentProjects?: string[];
   onSelectProject?: (path: string) => void;
+  assistantConfigured?: boolean;
+  onOpenAssistant?: () => void;
 }
 
 export function ChatEmptyState({
@@ -18,6 +22,8 @@ export function ChatEmptyState({
   onSelectFolder,
   recentProjects,
   onSelectProject,
+  assistantConfigured,
+  onOpenAssistant,
 }: ChatEmptyStateProps) {
   const { t } = useTranslation();
 
@@ -31,43 +37,59 @@ export function ChatEmptyState({
 
   return (
     <div className="flex flex-1 items-center justify-center p-8">
-      <div className="max-w-sm space-y-4 text-center">
-        {!hasDirectory && (
-          <div className="space-y-2">
-            <p className="text-sm font-medium">{t('chat.empty.noDirectory')}</p>
-            <div className="flex flex-col items-center gap-2">
+      <div className="max-w-2xl w-full space-y-6">
+        {/* Dual entry point cards */}
+        <div className="flex flex-col sm:flex-row gap-4">
+          {/* Project Chat card */}
+          <Card className="flex-1 cursor-pointer transition-colors hover:border-primary/40">
+            <CardHeader>
+              <div className="flex items-center gap-2">
+                <FolderOpen size={20} className="text-primary" />
+                <CardTitle className="text-base">{t('chat.empty.projectChat.title')}</CardTitle>
+              </div>
+              <CardDescription>{t('chat.empty.projectChat.description')}</CardDescription>
+            </CardHeader>
+            <CardFooter>
               <Button size="sm" className="gap-1.5" onClick={onSelectFolder}>
                 <FolderOpen size={14} />
                 {t('chat.empty.selectFolder')}
               </Button>
-              {recentProjects && recentProjects.length > 0 && onSelectProject && (
-                <div className="space-y-1.5 mt-2">
-                  <p className="text-xs text-muted-foreground">{t('chat.empty.recentProjects')}</p>
-                  <div className="flex flex-wrap justify-center gap-1.5">
-                    {recentProjects.slice(0, 5).map(p => {
-                      const name = p.split(/[\\/]/).filter(Boolean).pop() || p;
-                      return (
-                        <Button
-                          key={p}
-                          variant="outline"
-                          size="sm"
-                          className="h-6 px-2 text-[11px] font-mono"
-                          onClick={() => onSelectProject(p)}
-                          title={p}
-                        >
-                          {name}
-                        </Button>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
-        )}
+            </CardFooter>
+          </Card>
 
+          {/* Personal Assistant card */}
+          <Card className="flex-1 cursor-pointer transition-colors hover:border-primary/40">
+            <CardHeader>
+              <div className="flex items-center gap-2">
+                <Brain size={20} className="text-primary" />
+                <CardTitle className="text-base">{t('chat.empty.assistant.title')}</CardTitle>
+              </div>
+              <CardDescription>{t('chat.empty.assistant.description')}</CardDescription>
+            </CardHeader>
+            <CardFooter>
+              {assistantConfigured ? (
+                <Button size="sm" className="gap-1.5" onClick={onOpenAssistant}>
+                  <Brain size={14} />
+                  {t('chat.empty.assistant.open')}
+                </Button>
+              ) : (
+                <Button size="sm" variant="outline" className="gap-1.5" onClick={onOpenAssistant}>
+                  <Brain size={14} />
+                  {t('chat.empty.assistant.setup')}
+                </Button>
+              )}
+            </CardFooter>
+          </Card>
+        </div>
+
+        {/* Explanation text */}
+        <p className="text-xs text-center text-muted-foreground px-4">
+          {t('chat.empty.explanation')}
+        </p>
+
+        {/* Provider setup prompt */}
         {!hasProvider && (
-          <div className="space-y-2">
+          <div className="space-y-2 text-center">
             <p className="text-sm font-medium">{t('chat.empty.noProvider')}</p>
             <Button
               size="sm"
@@ -78,7 +100,79 @@ export function ChatEmptyState({
             </Button>
           </div>
         )}
+
+        {/* Recent projects */}
+        {recentProjects && recentProjects.length > 0 && onSelectProject && (
+          <div className="space-y-1.5 text-center">
+            <p className="text-xs text-muted-foreground">{t('chat.empty.recentProjects')}</p>
+            <div className="flex flex-wrap justify-center gap-1.5">
+              {recentProjects.slice(0, 5).map(p => {
+                const name = p.split(/[\\/]/).filter(Boolean).pop() || p;
+                return (
+                  <Button
+                    key={p}
+                    variant="outline"
+                    size="sm"
+                    className="h-6 px-2 text-[11px] font-mono"
+                    onClick={() => onSelectProject(p)}
+                    title={p}
+                  >
+                    {name}
+                  </Button>
+                );
+              })}
+            </div>
+          </div>
+        )}
       </div>
     </div>
+  );
+}
+
+/* ─── Sidebar promo card ─────────────────────────────────────────── */
+
+interface AssistantPromoCardProps {
+  onSetup: () => void;
+  onDismiss: () => void;
+}
+
+export function AssistantPromoCard({ onSetup, onDismiss }: AssistantPromoCardProps) {
+  const { t } = useTranslation();
+  const [dismissed, setDismissed] = useState(() => {
+    if (typeof window === 'undefined') return false;
+    return localStorage.getItem('codepilot:assistant-promo-dismissed') === '1';
+  });
+
+  if (dismissed) return null;
+
+  const handleDismiss = () => {
+    localStorage.setItem('codepilot:assistant-promo-dismissed', '1');
+    setDismissed(true);
+    onDismiss();
+  };
+
+  return (
+    <Card className="mx-2 mb-2">
+      <CardContent className="relative py-3 px-3">
+        <button
+          onClick={handleDismiss}
+          className="absolute top-1.5 right-1.5 p-0.5 rounded-sm text-muted-foreground hover:text-foreground transition-colors"
+          aria-label="Dismiss"
+        >
+          <X size={12} />
+        </button>
+        <div className="flex items-start gap-2 pr-4">
+          <Brain size={16} className="text-primary mt-0.5 shrink-0" />
+          <div className="space-y-1.5">
+            <p className="text-xs font-medium leading-snug">
+              {t('chat.empty.assistant.promo')}
+            </p>
+            <Button size="xs" variant="outline" onClick={onSetup}>
+              {t('chat.empty.assistant.setup')}
+            </Button>
+          </div>
+        </div>
+      </CardContent>
+    </Card>
   );
 }

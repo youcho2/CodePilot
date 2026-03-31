@@ -917,6 +917,10 @@ const en = {
   'assistant.summaryLastCheckIn': 'Last Check-in',
   'assistant.summaryFileCount': 'Files',
   'assistant.summaryNever': 'Never',
+  'assistant.defaultName': 'Personal Assistant',
+  'assistant.memoryCount': '{count} memories',
+  'assistant.lastHeartbeat': 'Heartbeat {date}',
+  'assistant.notConfigured': 'Not configured',
   'assistant.takeoverContinue': 'Continue with existing config',
   'assistant.takeoverReonboard': 'Re-onboard (keep files, reset onboarding)',
   'assistant.confirmPartialTitle': 'Partial Workspace Detected',
@@ -926,6 +930,7 @@ const en = {
   'assistant.confirmNotFoundDesc': 'This path does not exist yet. Create the directory and initialize it as a new assistant workspace?',
   'assistant.confirmCreate': 'Create & Initialize',
   'assistant.workspaceInvalid': 'Configured workspace path is invalid',
+  'assistant.quickActions.reviewWeek': 'Review this week',
 
   // ── Composer ──────────────────────────────────────────────
   'composer.slashCommand': 'Commands',
@@ -1215,6 +1220,14 @@ const en = {
   'chat.empty.skipForNow': 'Skip for now',
   'chat.empty.ready': 'Ready to chat. Type a message to get started.',
   'chat.empty.recentProjects': 'Recent Projects',
+  'chat.empty.projectChat.title': 'Project Chat',
+  'chat.empty.projectChat.description': 'Open a project folder, AI helps you code, debug and refactor',
+  'chat.empty.assistant.title': 'Personal Assistant',
+  'chat.empty.assistant.description': 'Set up an AI that remembers you, manages schedule, assists creation',
+  'chat.empty.assistant.setup': 'Set Up Assistant',
+  'chat.empty.assistant.open': 'Open Assistant',
+  'chat.empty.assistant.promo': 'Set up your personal assistant — remembers your preferences, manages schedule, assists creation',
+  'chat.empty.explanation': 'Project Chat works within a codebase folder. Personal Assistant works across all your tasks without a specific project.',
 
   // Platform
   'platform.openInFileManager': 'Double-click to open in {fileManager}',

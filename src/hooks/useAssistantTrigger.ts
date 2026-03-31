@@ -169,45 +169,11 @@ export function useAssistantTrigger({
       const lastDate = state.lastHeartbeatDate ?? state.lastCheckInDate;
       const needsHeartbeat = state.onboardingComplete && state.heartbeatEnabled === true && lastDate !== today;
 
-      if (!needsOnboarding && !needsHeartbeat) return;
+      // Onboarding is now handled by the frontend Wizard component (OnboardingWizard.tsx).
+      // Only auto-trigger heartbeat check-ins here.
+      if (needsOnboarding) return;
 
-      // ── Compensation: check if a past message already contains a completion fence ──
-      // This handles the case where the server-side detection also missed (e.g. crash/restart)
-      // and the frontend is about to re-trigger onboarding unnecessarily.
-      if (needsOnboarding && initialMessages.length > 0) {
-        try {
-          const { extractCompletion } = await import('@/lib/onboarding-completion');
-          // Scan assistant messages from newest to oldest for an unprocessed completion
-          for (let i = initialMessages.length - 1; i >= 0; i--) {
-            const msg = initialMessages[i];
-            if (msg.role !== 'assistant') continue;
-            const completion = extractCompletion(msg.content);
-            if (completion?.type === 'onboarding') {
-              console.log('[useAssistantTrigger] Found unprocessed onboarding completion in message history, compensating...');
-              const resp = await fetch('/api/workspace/onboarding', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ answers: completion.answers, sessionId }),
-              });
-              if (resp.ok) {
-                await fetch('/api/workspace/hook-triggered', {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({
-                    sessionId: '__clear__',
-                    expectedOwner: state.hookTriggeredSessionId || null,
-                  }),
-                }).catch(() => {});
-                console.log('[useAssistantTrigger] Onboarding compensation succeeded, skipping re-trigger');
-                return; // Don't re-trigger onboarding
-              }
-              break; // Found fence but processing failed — fall through to re-trigger
-            }
-          }
-        } catch (e) {
-          console.error('[useAssistantTrigger] Onboarding compensation check failed:', e);
-        }
-      }
+      if (!needsHeartbeat) return;
 
       // For heartbeat, only trigger in the most recent session for this workspace.
       // This prevents older sessions from hijacking the heartbeat when reopened.
@@ -261,9 +227,7 @@ export function useAssistantTrigger({
       }
 
       // Use autoTrigger: the message is invisible (no user bubble, no title update)
-      const triggerMsg = needsOnboarding
-        ? '请开始助理引导设置。'
-        : '请进行心跳检查。';
+      const triggerMsg = '请进行心跳检查。';
       startStream({
         sessionId,
         content: triggerMsg,

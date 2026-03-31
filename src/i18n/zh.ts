@@ -914,6 +914,10 @@ const zh: Record<TranslationKey, string> = {
   'assistant.summaryLastCheckIn': '上次问询',
   'assistant.summaryFileCount': '文件数',
   'assistant.summaryNever': '从未',
+  'assistant.defaultName': '个人助理',
+  'assistant.memoryCount': '记忆 {count} 条',
+  'assistant.lastHeartbeat': '心跳 {date}',
+  'assistant.notConfigured': '未配置',
   'assistant.takeoverContinue': '继续使用已有配置',
   'assistant.takeoverReonboard': '重新引导（保留文件，重置引导状态）',
   'assistant.confirmPartialTitle': '检测到不完整工作区',
@@ -923,6 +927,7 @@ const zh: Record<TranslationKey, string> = {
   'assistant.confirmNotFoundDesc': '此路径尚不存在，是否创建目录并初始化为新的助理工作区？',
   'assistant.confirmCreate': '创建并初始化',
   'assistant.workspaceInvalid': '已配置的工作区路径无效',
+  'assistant.quickActions.reviewWeek': '回顾本周',
 
   // ── Composer ──────────────────────────────────────────────
   'composer.slashCommand': '命令',
@@ -1212,6 +1217,14 @@ const zh: Record<TranslationKey, string> = {
   'chat.empty.skipForNow': '暂时跳过',
   'chat.empty.ready': '准备就绪。输入消息开始对话。',
   'chat.empty.recentProjects': '最近的项目',
+  'chat.empty.projectChat.title': '项目对话',
+  'chat.empty.projectChat.description': '打开项目文件夹，AI 帮你编码、调试和重构',
+  'chat.empty.assistant.title': '个人助理',
+  'chat.empty.assistant.description': '设置一个记住你偏好、管理日程、辅助创作的 AI',
+  'chat.empty.assistant.setup': '设置助理',
+  'chat.empty.assistant.open': '打开助理',
+  'chat.empty.assistant.promo': '设置你的个人助理 — 记住你的偏好、管理日程、辅助创作',
+  'chat.empty.explanation': '项目对话在代码目录中工作。个人助理跨所有任务工作，无需特定项目。',
 
   // Platform
   'platform.openInFileManager': '双击在{fileManager}中打开',

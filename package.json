@@ -65,6 +65,7 @@
     "dompurify": "^3.3.3",
     "electron-updater": "^6.8.3",
     "html-to-image": "^1.11.13",
+    "jdenticon": "^3.3.0",
     "markdown-it": "^14.1.1",
     "morphdom": "^2.7.8",
     "motion": "^12.33.0",

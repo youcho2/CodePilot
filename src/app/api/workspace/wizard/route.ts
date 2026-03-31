@@ -1,0 +1,100 @@
+import { NextRequest, NextResponse } from 'next/server';
+
+export async function POST(request: NextRequest) {
+  try {
+    const body = await request.json();
+    const { userName, userRole, assistantName, style, boundaries, workspacePath } = body as {
+      userName: string;
+      userRole: string;
+      assistantName: string;
+      style: string;
+      boundaries: string;
+      workspacePath: string;
+    };
+
+    if (!workspacePath) {
+      return NextResponse.json({ error: 'No workspace path' }, { status: 400 });
+    }
+
+    const fs = await import('fs');
+    const path = await import('path');
+    const { initializeWorkspace, loadState, saveState } = await import('@/lib/assistant-workspace');
+    const { HEARTBEAT_TEMPLATE } = await import('@/lib/heartbeat');
+    const { getLocalDateString } = await import('@/lib/utils');
+    const { createSession } = await import('@/lib/db');
+
+    // Ensure workspace is initialized (creates dirs + default template files)
+    initializeWorkspace(workspacePath);
+
+    // Write user.md
+    const userContent = `# User Profile
+
+## Basic Info
+- Name: ${userName || 'User'}
+- Role: ${userRole || 'General'}
+
+## Current Goals
+(To be filled during conversations)
+
+## Preferences
+(Will be learned over time)
+
+## Workspace Organization
+(Will be configured during use)
+`;
+    fs.writeFileSync(path.join(workspacePath, 'user.md'), userContent, 'utf-8');
+
+    // Write soul.md
+    const styleMap: Record<string, string> = {
+      concise: '简洁直接，不啰嗦，直奔主题。回答问题先给结论再展开。',
+      detailed: '详细耐心，步骤清晰，适当举例。确保用户完全理解。',
+      casual: '轻松友好，语气自然，像朋友聊天。适当使用口语化表达。',
+    };
+    const soulContent = `# Soul
+
+## Core Personality
+${assistantName ? `My name is ${assistantName}.` : 'I am your personal assistant.'} I help you manage tasks, organize information, and think through problems.
+
+## Communication Style
+${styleMap[style] || styleMap.concise}
+
+## Behavioral Boundaries
+${boundaries || 'No specific boundaries set. Will respect user preferences as they emerge.'}
+
+## Relationship
+${userName ? `I address the user as ${userName}.` : 'I use a friendly, respectful tone.'} I proactively help but don't over-explain.
+`;
+    fs.writeFileSync(path.join(workspacePath, 'soul.md'), soulContent, 'utf-8');
+
+    // claude.md is already created by initializeWorkspace with system preset rules
+    // memory.md is already created by initializeWorkspace
+
+    // Write HEARTBEAT.md if not exists
+    const heartbeatPath = path.join(workspacePath, 'HEARTBEAT.md');
+    if (!fs.existsSync(heartbeatPath)) {
+      fs.writeFileSync(heartbeatPath, HEARTBEAT_TEMPLATE, 'utf-8');
+    }
+
+    // Update state
+    const today = getLocalDateString();
+    const state = loadState(workspacePath);
+    state.onboardingComplete = true;
+    state.lastHeartbeatDate = today;
+    state.heartbeatEnabled = true;
+    state.schemaVersion = 5;
+    saveState(workspacePath, state);
+
+    // Create session
+    const session = createSession(undefined, '', undefined, workspacePath, 'code', '');
+
+    return NextResponse.json({
+      success: true,
+      session,
+      assistantName: assistantName || 'Personal Assistant',
+    });
+  } catch (e) {
+    console.error('[workspace/wizard] POST failed:', e);
+    const message = e instanceof Error ? e.message : 'Wizard setup failed';
+    return NextResponse.json({ error: message }, { status: 500 });
+  }
+}
