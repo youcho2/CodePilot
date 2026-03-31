@@ -198,6 +198,12 @@ export async function PATCH(request: NextRequest) {
     if ('heartbeatEnabled' in body && typeof body.heartbeatEnabled === 'boolean') {
       state.heartbeatEnabled = body.heartbeatEnabled;
     }
+    // Reset heartbeat date to force re-trigger on next session open
+    if (body.resetHeartbeat === true) {
+      state.lastHeartbeatDate = null;
+      state.hookTriggeredSessionId = undefined;
+      state.hookTriggeredAt = undefined;
+    }
 
     saveState(workspacePath, state);
     return NextResponse.json({ success: true, state });
