@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef } from 'react';
 import type { Message, FileAttachment } from '@/types';
-import { getLocalDateString } from '@/lib/utils';
+// getLocalDateString removed — heartbeat no longer auto-triggers
 import { startStream } from '@/lib/stream-session-manager';
 
 // ── localStorage heartbeat for cross-tab liveness detection ──
@@ -164,28 +164,17 @@ export function useAssistantTrigger({
       }
       if (state.hookTriggeredSessionId === sessionId && initialMessages.length > 0) return;
 
-      const today = getLocalDateString();
       const needsOnboarding = !state.onboardingComplete;
-      const lastDate = state.lastHeartbeatDate ?? state.lastCheckInDate;
-      const needsHeartbeat = state.onboardingComplete && state.heartbeatEnabled === true && lastDate !== today;
 
       // Onboarding is now handled by the frontend Wizard component (OnboardingWizard.tsx).
       if (needsOnboarding) return;
 
-      // Check if buddy welcome is needed (no buddy + empty session)
+      // Only auto-trigger for buddy welcome (no buddy + empty session).
+      // Heartbeat no longer auto-triggers — it's guidance in the system prompt,
+      // the AI acts on it when the user opens a conversation naturally.
       const needsBuddyWelcome = state.onboardingComplete && !state.buddy && initialMessages.length === 0;
 
-      if (!needsHeartbeat && !needsBuddyWelcome) return;
-
-      // For heartbeat, only trigger in the most recent session for this workspace.
-      // Buddy welcome triggers in ANY empty session (not restricted to latest).
-      if (needsHeartbeat && !needsBuddyWelcome) {
-        const latestRes = await fetch(`/api/workspace/latest-session?workingDirectory=${encodeURIComponent(data.path)}`);
-        if (latestRes.ok) {
-          const { sessionId: latestSessionId } = await latestRes.json();
-          if (latestSessionId && latestSessionId !== sessionId) return;
-        }
-      }
+      if (!needsBuddyWelcome) return;
 
       // Mark fired so we don't re-trigger on focus/re-render
       assistantTriggerFiredRef.current = true;
@@ -229,9 +218,7 @@ export function useAssistantTrigger({
       }
 
       // Use autoTrigger: the message is invisible (no user bubble, no title update)
-      const triggerMsg = needsBuddyWelcome
-        ? '请做自我介绍并引导用户领养伙伴。'
-        : '请进行心跳检查。';
+      const triggerMsg = '请做自我介绍并引导用户领养伙伴。';
       startStream({
         sessionId,
         content: triggerMsg,
