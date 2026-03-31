@@ -537,6 +537,19 @@ export function streamClaude(options: ClaudeStreamOptions): ReadableStream<strin
           }
         }
 
+        // Notification + Schedule MCP: globally available in all contexts
+        {
+          const { createNotificationMcpServer, NOTIFICATION_MCP_SYSTEM_PROMPT } =
+            await import('@/lib/notification-mcp');
+          queryOptions.mcpServers = {
+            ...(queryOptions.mcpServers || {}),
+            'codepilot-notify': createNotificationMcpServer(),
+          };
+          if (queryOptions.systemPrompt && typeof queryOptions.systemPrompt === 'object' && 'append' in queryOptions.systemPrompt) {
+            queryOptions.systemPrompt.append = (queryOptions.systemPrompt.append || '') + '\n\n' + NOTIFICATION_MCP_SYSTEM_PROMPT;
+          }
+        }
+
         // Widget guidelines: progressive loading strategy.
         // The system prompt always includes WIDGET_SYSTEM_PROMPT with format rules.
         // The MCP server (detailed design specs) is only registered when the

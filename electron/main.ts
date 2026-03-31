@@ -1,4 +1,4 @@
-import { app, BrowserWindow, nativeImage, dialog, session, utilityProcess, ipcMain, shell, Tray, Menu } from 'electron';
+import { app, BrowserWindow, Notification, nativeImage, dialog, session, utilityProcess, ipcMain, shell, Tray, Menu } from 'electron';
 import path from 'path';
 import { execFileSync, spawn, ChildProcess } from 'child_process';
 import fs from 'fs';
@@ -1096,6 +1096,32 @@ app.whenReady().then(async () => {
   });
 
   // --- End terminal IPC handlers ---
+
+  // --- Notification IPC handler ---
+  ipcMain.handle('notification:show', async (_event, options: {
+    title: string;
+    body: string;
+    onClick?: { type: string; payload: string };
+  }) => {
+    try {
+      const notification = new Notification({
+        title: options.title,
+        body: options.body || '',
+      });
+      if (options.onClick) {
+        notification.on('click', () => {
+          mainWindow?.show();
+          mainWindow?.focus();
+          mainWindow?.webContents.send('notification:click', options.onClick);
+        });
+      }
+      notification.show();
+      return true;
+    } catch (err) {
+      console.error('[notification] Failed to show:', err);
+      return false;
+    }
+  });
 
   try {
     let port: number;

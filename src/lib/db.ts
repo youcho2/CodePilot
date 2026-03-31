@@ -3,7 +3,7 @@ import path from 'path';
 import crypto from 'crypto';
 import fs from 'fs';
 import os from 'os';
-import type { ChatSession, Message, SettingsMap, TaskItem, TaskStatus, ApiProvider, CreateProviderRequest, UpdateProviderRequest, MediaJob, MediaJobStatus, MediaJobItem, MediaJobItemStatus, MediaContextEvent, BatchConfig, CustomCliTool } from '@/types';
+import type { ChatSession, Message, SettingsMap, TaskItem, TaskStatus, ApiProvider, CreateProviderRequest, UpdateProviderRequest, MediaJob, MediaJobStatus, MediaJobItem, MediaJobItemStatus, MediaContextEvent, BatchConfig, CustomCliTool, ScheduledTask } from '@/types';
 import type { ChannelType, ChannelBinding } from './bridge/types';
 import { getLocalDateString, localDayStartAsUTC } from './utils';
 
@@ -860,6 +860,32 @@ function migrateDb(db: Database.Database): void {
       }
     }
   } catch { /* table may not exist yet */ }
+
+  // Ensure scheduled_tasks table exists
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS scheduled_tasks (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      prompt TEXT NOT NULL,
+      schedule_type TEXT NOT NULL CHECK(schedule_type IN ('cron', 'interval', 'once')),
+      schedule_value TEXT NOT NULL,
+      next_run TEXT NOT NULL,
+      last_run TEXT,
+      last_status TEXT CHECK(last_status IN ('success', 'error', 'skipped', 'running')),
+      last_error TEXT,
+      last_result TEXT,
+      consecutive_errors INTEGER NOT NULL DEFAULT 0,
+      status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active', 'paused', 'completed', 'disabled')),
+      priority TEXT NOT NULL DEFAULT 'normal' CHECK(priority IN ('low', 'normal', 'urgent')),
+      notify_on_complete INTEGER NOT NULL DEFAULT 1,
+      session_id TEXT,
+      working_directory TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_scheduled_tasks_status ON scheduled_tasks(status);
+    CREATE INDEX IF NOT EXISTS idx_scheduled_tasks_next_run ON scheduled_tasks(next_run);
+  `);
 }
 
 // ==========================================
@@ -2527,6 +2553,58 @@ export function bulkUpsertCliToolDescriptions(entries: Array<{ toolId: string; z
  * In WAL mode, this ensures the WAL is checkpointed and the
  * -wal/-shm files are cleaned up properly.
  */
+// ==========================================
+// Scheduled Tasks
+// ==========================================
+
+export function createScheduledTask(task: Omit<ScheduledTask, 'id' | 'created_at' | 'updated_at'>): ScheduledTask {
+  const db = getDb();
+  const id = crypto.randomBytes(8).toString('hex');
+  db.prepare(`INSERT INTO scheduled_tasks (id, name, prompt, schedule_type, schedule_value, next_run, status, priority, notify_on_complete, session_id, working_directory, consecutive_errors) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`).run(
+    id, task.name, task.prompt, task.schedule_type, task.schedule_value, task.next_run, task.status || 'active', task.priority || 'normal', task.notify_on_complete ?? 1, task.session_id || null, task.working_directory || null
+  );
+  return getScheduledTask(id)!;
+}
+
+export function getScheduledTask(id: string): ScheduledTask | undefined {
+  const db = getDb();
+  return db.prepare('SELECT * FROM scheduled_tasks WHERE id = ?').get(id) as ScheduledTask | undefined;
+}
+
+export function listScheduledTasks(opts?: { status?: string }): ScheduledTask[] {
+  const db = getDb();
+  if (opts?.status) {
+    return db.prepare('SELECT * FROM scheduled_tasks WHERE status = ? ORDER BY next_run ASC').all(opts.status) as ScheduledTask[];
+  }
+  return db.prepare('SELECT * FROM scheduled_tasks ORDER BY created_at DESC').all() as ScheduledTask[];
+}
+
+export function getDueTasks(): ScheduledTask[] {
+  const db = getDb();
+  return db.prepare("SELECT * FROM scheduled_tasks WHERE next_run <= datetime('now') AND status = 'active' AND (last_status IS NULL OR last_status != 'running')").all() as ScheduledTask[];
+}
+
+export function updateScheduledTask(id: string, updates: Partial<ScheduledTask>): void {
+  const db = getDb();
+  const fields: string[] = [];
+  const values: unknown[] = [];
+  for (const [key, value] of Object.entries(updates)) {
+    if (key === 'id' || key === 'created_at') continue;
+    fields.push(`${key} = ?`);
+    values.push(value);
+  }
+  if (fields.length === 0) return;
+  fields.push("updated_at = datetime('now')");
+  values.push(id);
+  db.prepare(`UPDATE scheduled_tasks SET ${fields.join(', ')} WHERE id = ?`).run(...values);
+}
+
+export function deleteScheduledTask(id: string): boolean {
+  const db = getDb();
+  const result = db.prepare('DELETE FROM scheduled_tasks WHERE id = ?').run(id);
+  return result.changes > 0;
+}
+
 export function closeDb(): void {
   if (db) {
     try {

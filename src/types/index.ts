@@ -1183,3 +1183,28 @@ export interface WeixinContextTokenRecord {
   contextToken: string;
   updatedAt: string;
 }
+
+// ==========================================
+// Scheduled Tasks
+// ==========================================
+
+export interface ScheduledTask {
+  id: string;
+  name: string;
+  prompt: string;
+  schedule_type: 'cron' | 'interval' | 'once';
+  schedule_value: string;
+  next_run: string;
+  last_run?: string;
+  last_status?: 'success' | 'error' | 'skipped' | 'running';
+  last_error?: string;
+  last_result?: string;
+  consecutive_errors: number;
+  status: 'active' | 'paused' | 'completed' | 'disabled';
+  priority: 'low' | 'normal' | 'urgent';
+  notify_on_complete: number;
+  session_id?: string;
+  working_directory?: string;
+  created_at: string;
+  updated_at: string;
+}
