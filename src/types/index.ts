@@ -1205,6 +1205,7 @@ export interface ScheduledTask {
   notify_on_complete: number;
   session_id?: string;
   working_directory?: string;
+  permanent: number;
   created_at: string;
   updated_at: string;
 }

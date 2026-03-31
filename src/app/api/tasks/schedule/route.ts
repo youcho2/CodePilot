@@ -31,6 +31,7 @@ export async function POST(request: NextRequest) {
       priority: priority || 'normal',
       notify_on_complete: notify_on_complete ?? 1,
       consecutive_errors: 0,
+      permanent: 0,
       session_id, working_directory,
     });
 

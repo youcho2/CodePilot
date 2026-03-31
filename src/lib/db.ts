@@ -880,12 +880,16 @@ function migrateDb(db: Database.Database): void {
       notify_on_complete INTEGER NOT NULL DEFAULT 1,
       session_id TEXT,
       working_directory TEXT,
+      permanent INTEGER NOT NULL DEFAULT 0,
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
     CREATE INDEX IF NOT EXISTS idx_scheduled_tasks_status ON scheduled_tasks(status);
     CREATE INDEX IF NOT EXISTS idx_scheduled_tasks_next_run ON scheduled_tasks(next_run);
   `);
+
+  // Migration: add permanent column for existing databases
+  safeAddColumn(db, "ALTER TABLE scheduled_tasks ADD COLUMN permanent INTEGER NOT NULL DEFAULT 0");
 }
 
 // ==========================================

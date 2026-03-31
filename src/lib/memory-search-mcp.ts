@@ -20,6 +20,8 @@ const HALF_LIFE_DAYS = 30;
 const LAMBDA = Math.log(2) / HALF_LIFE_DAYS;
 const MAX_SNIPPET_CHARS = 3000;
 const RECENT_MEMORY_DAYS = 3;
+const MAX_MEMORY_LINES = 200;
+const MAX_MEMORY_BYTES = 25000;
 
 export const MEMORY_SEARCH_SYSTEM_PROMPT = `## 记忆检索
 
@@ -131,6 +133,11 @@ export function createMemorySearchMcpServer(workspacePath: string) {
 
             let content = fs.readFileSync(resolved, 'utf-8');
 
+            // Cap memory.md at 200 lines / 25KB
+            if (/^memory\.md$/i.test(path.basename(file_path))) {
+              content = capMemoryContent(content);
+            }
+
             // Extract [[wikilinks]] for related file discovery
             const wikilinks = [...content.matchAll(/\[\[([^\]|]+)(?:\|[^\]]+)?\]\]/g)]
               .map(m => m[1].trim())
@@ -173,7 +180,7 @@ export function createMemorySearchMcpServer(workspacePath: string) {
             for (const variant of memoryVariants) {
               const memoryPath = path.join(workspacePath, variant);
               if (fs.existsSync(memoryPath)) {
-                const memContent = fs.readFileSync(memoryPath, 'utf-8').trim();
+                const memContent = capMemoryContent(fs.readFileSync(memoryPath, 'utf-8').trim());
                 if (memContent) {
                   const summary = memContent.length > 500
                     ? memContent.slice(0, 500) + '...'
@@ -217,6 +224,27 @@ export function createMemorySearchMcpServer(workspacePath: string) {
       ),
     ],
   });
+}
+
+/**
+ * Cap memory content at MAX_MEMORY_LINES and MAX_MEMORY_BYTES.
+ */
+function capMemoryContent(content: string): string {
+  let result = content;
+  const lines = result.split('\n');
+  if (lines.length > MAX_MEMORY_LINES) {
+    result = lines.slice(0, MAX_MEMORY_LINES).join('\n') + '\n\n[...truncated at 200 lines]';
+  }
+  if (Buffer.byteLength(result) > MAX_MEMORY_BYTES) {
+    // Truncate at last newline before byte limit
+    while (Buffer.byteLength(result) > MAX_MEMORY_BYTES) {
+      const lastNewline = result.lastIndexOf('\n');
+      if (lastNewline <= 0) break;
+      result = result.slice(0, lastNewline);
+    }
+    result += '\n\n[...truncated at 25KB]';
+  }
+  return result;
 }
 
 /**

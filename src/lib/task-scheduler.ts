@@ -15,6 +15,7 @@ const POLL_INTERVAL = 10_000; // 10s
 const GLOBAL_KEY = '__codepilot_scheduler__';
 const BACKOFF_DELAYS = [30000, 60000, 300000, 900000]; // 30s, 1m, 5m, 15m
 const MAX_CONSECUTIVE_ERRORS = 10;
+const RECURRING_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 
 /**
  * Ensure the scheduler polling loop is running.
@@ -23,6 +24,16 @@ const MAX_CONSECUTIVE_ERRORS = 10;
 export function ensureSchedulerRunning(): void {
   if ((globalThis as Record<string, unknown>)[GLOBAL_KEY]) return;
   (globalThis as Record<string, unknown>)[GLOBAL_KEY] = true;
+
+  // One-time missed task recovery on startup
+  handleMissedTasks().catch(err => console.error('[scheduler] Missed task recovery failed:', err));
+
+  // Auto-expire recurring tasks on startup + hourly
+  checkExpiredTasks().catch(() => {});
+  const expiryIntervalId = setInterval(() => checkExpiredTasks().catch(() => {}), 3600_000); // hourly
+  if (expiryIntervalId && typeof expiryIntervalId === 'object' && 'unref' in expiryIntervalId) {
+    (expiryIntervalId as NodeJS.Timeout).unref();
+  }
 
   const intervalId = setInterval(async () => {
     try {
@@ -221,6 +232,72 @@ async function sendTaskNotification(title: string, body: string, priority: 'low'
     });
   } catch {
     // Best effort — don't let notification failure affect task execution
+  }
+}
+
+// ── Missed task recovery ──────────────────────────────────────────
+
+/**
+ * One-time recovery for tasks that were missed while the app was closed.
+ * Finds past-due one-shot tasks and executes them immediately with a notification.
+ */
+async function handleMissedTasks(): Promise<void> {
+  const { getDueTasks, getSetting, getLatestSessionByWorkingDirectory, addMessage } = await import('@/lib/db');
+
+  // Find one-shot tasks that are past due (missed while app was closed)
+  const dueTasks = getDueTasks();
+  const missedOnce = dueTasks.filter(t => t.schedule_type === 'once');
+
+  if (missedOnce.length === 0) return;
+
+  console.log(`[scheduler] Found ${missedOnce.length} missed one-shot task(s)`);
+
+  const workspacePath = getSetting('assistant_workspace_path');
+
+  for (const task of missedOnce) {
+    // Notify user about missed task
+    const message = `⏰ **过期提醒: ${task.name}**\n\n你有一个定时任务在 app 关闭期间到期了：\n\n> ${task.prompt}\n\n这个任务将立即执行。`;
+
+    try {
+      let targetSessionId = task.session_id;
+      if (!targetSessionId && workspacePath) {
+        const session = getLatestSessionByWorkingDirectory(workspacePath);
+        if (session) targetSessionId = session.id;
+      }
+      if (targetSessionId) {
+        addMessage(targetSessionId, 'assistant', message);
+      }
+    } catch { /* best effort */ }
+
+    // Execute the missed task immediately
+    executeDueTask(task).catch(err =>
+      console.error(`[scheduler] Missed task ${task.id} execution failed:`, err)
+    );
+  }
+}
+
+/**
+ * Auto-expire recurring tasks older than 7 days (unless marked permanent).
+ */
+async function checkExpiredTasks(): Promise<void> {
+  const { listScheduledTasks, updateScheduledTask } = await import('@/lib/db');
+  const now = Date.now();
+  const activeTasks = listScheduledTasks({ status: 'active' });
+
+  for (const task of activeTasks) {
+    if (task.schedule_type === 'once') continue; // once tasks complete themselves
+    if (task.permanent) continue; // permanent tasks never expire
+
+    const age = now - new Date(task.created_at).getTime();
+    if (age > RECURRING_MAX_AGE_MS) {
+      updateScheduledTask(task.id, { status: 'disabled' });
+      console.log(`[scheduler] Task ${task.id} (${task.name}) auto-expired after 7 days`);
+
+      // Notify
+      try {
+        await sendTaskNotification(`⏰ ${task.name}`, 'This recurring task has auto-expired after 7 days. Recreate it if needed.', 'low');
+      } catch { /* best effort */ }
+    }
   }
 }
 
