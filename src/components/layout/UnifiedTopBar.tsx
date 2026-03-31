@@ -233,23 +233,6 @@ export function UnifiedTopBar() {
                 <TooltipContent side="bottom">{t('topBar.fileTree')}</TooltipContent>
               </Tooltip>
 
-              {isAssistantWorkspace && (
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      variant={assistantPanelOpen ? "secondary" : "ghost"}
-                      size="icon-sm"
-                      className={assistantPanelOpen ? "" : "text-muted-foreground hover:text-foreground"}
-                      onClick={() => setAssistantPanelOpen(!assistantPanelOpen)}
-                    >
-                      <Brain size={16} />
-                      <span className="sr-only">Assistant</span>
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent side="bottom">Assistant</TooltipContent>
-                </Tooltip>
-              )}
-
               <Tooltip>
                 <TooltipTrigger asChild>
                   <Button
@@ -258,11 +241,13 @@ export function UnifiedTopBar() {
                     className={dashboardPanelOpen ? "" : "text-muted-foreground hover:text-foreground"}
                     onClick={() => setDashboardPanelOpen(!dashboardPanelOpen)}
                   >
-                    <ChartBar size={16} />
+                    {isAssistantWorkspace ? <Brain size={16} /> : <ChartBar size={16} />}
                     <span className="sr-only">{t('topBar.dashboard')}</span>
                   </Button>
                 </TooltipTrigger>
-                <TooltipContent side="bottom">{t('topBar.dashboard')}</TooltipContent>
+                <TooltipContent side="bottom">
+                  {isAssistantWorkspace ? 'Assistant' : t('topBar.dashboard')}
+                </TooltipContent>
               </Tooltip>
             </>
           )}

@@ -1,21 +1,36 @@
 "use client";
 
 import { useState, useCallback, useEffect, useRef, useMemo } from "react";
-import { X, ArrowClockwise, CaretUp, CaretDown, ChartBar, Trash, DownloadSimple } from "@/components/ui/icon";
+import { useRouter } from "next/navigation";
+import { X, ArrowClockwise, CaretUp, CaretDown, ChartBar, Trash, DownloadSimple, Heart, Brain, Clock, Check, Warning, Gear } from "@/components/ui/icon";
 import { showToast } from "@/hooks/useToast";
 import { Button } from "@/components/ui/button";
 import { usePanel } from "@/hooks/usePanel";
 import { useTranslation } from "@/hooks/useTranslation";
 import { ResizeHandle } from "@/components/layout/ResizeHandle";
 import { WidgetRenderer } from "@/components/chat/WidgetRenderer";
+import { AssistantAvatar } from "@/components/ui/AssistantAvatar";
 import type { DashboardConfig, DashboardWidget } from "@/types/dashboard";
+import type { TranslationKey } from "@/i18n";
 
 const DASHBOARD_MIN_WIDTH = 320;
 const DASHBOARD_MAX_WIDTH = 800;
 const DASHBOARD_DEFAULT_WIDTH = 640;
 
+interface AssistantSummary {
+  configured: boolean;
+  name: string;
+  styleHint?: string;
+  onboardingComplete: boolean;
+  lastHeartbeatDate: string | null;
+  heartbeatEnabled: boolean;
+  memoryCount: number;
+  recentDailyDates?: string[];
+  fileHealth?: Record<string, boolean>;
+}
+
 export function DashboardPanel() {
-  const { setDashboardPanelOpen, workingDirectory } = usePanel();
+  const { setDashboardPanelOpen, workingDirectory, isAssistantWorkspace } = usePanel();
   const { t } = useTranslation();
   const [width, setWidth] = useState(DASHBOARD_DEFAULT_WIDTH);
   const [config, setConfig] = useState<DashboardConfig | null>(null);
@@ -24,6 +39,16 @@ export function DashboardPanel() {
   const [refreshingIds, setRefreshingIds] = useState<Set<string>>(new Set());
   const [autoRefresh, setAutoRefresh] = useState(false);
   const initialLoadDone = useRef(false);
+  const [assistantSummary, setAssistantSummary] = useState<AssistantSummary | null>(null);
+
+  // Load assistant summary for assistant workspace dashboards
+  useEffect(() => {
+    if (!isAssistantWorkspace) { setAssistantSummary(null); return; }
+    fetch('/api/workspace/summary')
+      .then(r => r.ok ? r.json() : null)
+      .then(data => setAssistantSummary(data))
+      .catch(() => {});
+  }, [isAssistantWorkspace]);
 
   const handleResize = useCallback((delta: number) => {
     setWidth((w) => Math.min(DASHBOARD_MAX_WIDTH, Math.max(DASHBOARD_MIN_WIDTH, w - delta)));
@@ -238,9 +263,16 @@ export function DashboardPanel() {
       >
         {/* Header */}
         <div className="flex h-10 shrink-0 items-center justify-between px-3">
-          <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-            {t('dashboard.title')}
-          </span>
+          <div className="flex items-center gap-2">
+            {isAssistantWorkspace && assistantSummary?.name ? (
+              <AssistantAvatar name={assistantSummary.name} size={18} />
+            ) : null}
+            <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+              {isAssistantWorkspace && assistantSummary?.name
+                ? assistantSummary.name
+                : t('dashboard.title')}
+            </span>
+          </div>
           <div className="flex items-center gap-1">
             {widgets.length > 0 && (
               <>
@@ -287,12 +319,23 @@ export function DashboardPanel() {
               Loading...
             </div>
           ) : widgets.length === 0 ? (
-            <div className="flex flex-col items-center justify-center h-full text-center text-muted-foreground px-4">
-              <ChartBar size={32} className="mb-3 opacity-40" />
-              <p className="text-sm">{t('dashboard.empty')}</p>
+            <div className="flex flex-col h-full px-3 pt-3">
+              {isAssistantWorkspace && assistantSummary?.configured && (
+                <AssistantStatusCard summary={assistantSummary} t={t} />
+              )}
+              {!(isAssistantWorkspace && assistantSummary?.configured) && (
+                <div className="flex flex-col items-center justify-center flex-1 text-center text-muted-foreground">
+                  <ChartBar size={32} className="mb-3 opacity-40" />
+                  <p className="text-sm">{t('dashboard.empty')}</p>
+                </div>
+              )}
             </div>
           ) : (
             <div className="flex flex-col gap-4 p-3">
+              {/* Assistant status card — always first in assistant workspace */}
+              {isAssistantWorkspace && assistantSummary?.configured && (
+                <AssistantStatusCard summary={assistantSummary} t={t} />
+              )}
               {stableWidgets.map((widget) => {
                 const displayIdx = orderMap.get(widget.id) ?? 0;
                 return (
@@ -411,6 +454,81 @@ function DashboardWidgetCard({ widget, refreshing, isFirst, isLast, style, onRef
 
       {/* Widget render */}
       <WidgetRenderer widgetCode={widget.widgetCode} isStreaming={false} title={widget.title} />
+    </div>
+  );
+}
+
+/** Built-in assistant status card — injected at the top of assistant workspace dashboards. */
+function AssistantStatusCard({ summary, t }: {
+  summary: AssistantSummary;
+  t: (key: TranslationKey, params?: Record<string, string | number>) => string;
+}) {
+  const router = useRouter();
+
+  return (
+    <div className="rounded-lg border border-primary/10 bg-primary/[0.03] p-3 space-y-3">
+      {/* Header */}
+      <div className="flex items-center gap-2">
+        <AssistantAvatar name={summary.name || 'assistant'} size={24} />
+        <div className="flex-1 min-w-0">
+          <div className="text-sm font-medium truncate">
+            {summary.name || t('assistant.defaultName' as TranslationKey)}
+          </div>
+          {summary.styleHint && (
+            <div className="text-[10px] text-muted-foreground italic truncate">
+              {summary.styleHint}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Status rows */}
+      <div className="space-y-1.5">
+        <div className="flex items-center gap-2 text-xs">
+          <Heart size={12} className="text-muted-foreground" />
+          <span className="flex-1 text-muted-foreground">{t('assistant.panel.heartbeat' as TranslationKey)}</span>
+          <span className={`h-1.5 w-1.5 rounded-full ${summary.heartbeatEnabled ? 'bg-status-success' : 'bg-muted-foreground/30'}`} />
+          <span className="text-foreground">
+            {summary.heartbeatEnabled
+              ? summary.lastHeartbeatDate || t('assistant.panel.enabled' as TranslationKey)
+              : t('assistant.panel.disabled' as TranslationKey)}
+          </span>
+        </div>
+        <div className="flex items-center gap-2 text-xs">
+          <Brain size={12} className="text-muted-foreground" />
+          <span className="flex-1 text-muted-foreground">{t('assistant.panel.memories' as TranslationKey)}</span>
+          <span className="text-foreground">{summary.memoryCount}</span>
+        </div>
+      </div>
+
+      {/* File health */}
+      {summary.fileHealth && (
+        <div className="flex flex-wrap gap-x-3 gap-y-1">
+          {Object.entries(summary.fileHealth).map(([key, exists]) => (
+            <div key={key} className="flex items-center gap-1 text-[10px]">
+              {exists ? (
+                <Check size={10} className="text-status-success" />
+              ) : (
+                <Warning size={10} className="text-status-warning" />
+              )}
+              <span className={exists ? 'text-muted-foreground' : 'text-status-warning'}>
+                {key}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Settings link */}
+      <Button
+        variant="ghost"
+        size="sm"
+        className="w-full justify-start gap-2 text-xs h-7 text-muted-foreground"
+        onClick={() => router?.push('/settings?tab=assistant')}
+      >
+        <Gear size={12} />
+        {t('assistant.panel.assistantSettings' as TranslationKey)}
+      </Button>
     </div>
   );
 }

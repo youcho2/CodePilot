@@ -38,7 +38,7 @@ interface ChatViewProps {
 }
 
 export function ChatView({ sessionId, initialMessages = [], initialHasMore = false, modelName, providerId, initialPermissionProfile, initialMode }: ChatViewProps) {
-  const { setStreamingSessionId, workingDirectory, setPendingApprovalSessionId, setAssistantPanelOpen, setFileTreeOpen, setIsAssistantWorkspace } = usePanel();
+  const { setStreamingSessionId, workingDirectory, setPendingApprovalSessionId, setDashboardPanelOpen, setFileTreeOpen, setIsAssistantWorkspace } = usePanel();
   const { t } = useTranslation();
   const router = useRouter();
   const [messages, setMessages] = useState<Message[]>(initialMessages);
@@ -202,11 +202,11 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
           const isAssistant = !!data.path;
           setIsAssistantProject(isAssistant);
           setWorkspaceMismatchPath(null);
-          // Assistant project: show assistant panel instead of file tree
+          // Assistant project: show dashboard (with assistant status card) instead of file tree
           setIsAssistantWorkspace(isAssistant);
           if (isAssistant) {
             setFileTreeOpen(false);
-            setAssistantPanelOpen(true);
+            setDashboardPanelOpen(true);
           }
           // Load assistant name for avatar display
           if (data.path) {
