@@ -160,7 +160,7 @@ export async function POST(request: NextRequest) {
     // Load recent conversation history from DB as fallback context.
     // This is used when SDK session resume is unavailable or fails,
     // so the model still has conversation context.
-    const { messages: recentMsgs } = getMessages(session_id, { limit: 50 });
+    const { messages: recentMsgs } = getMessages(session_id, { limit: 50, excludeHeartbeatAck: true });
     // Exclude the user message we just saved (last in the list) — it's already the prompt
     const historyMsgs = recentMsgs.slice(0, -1).map(m => ({
       role: m.role as 'user' | 'assistant',
@@ -400,6 +400,12 @@ async function collectStreamResponse(
                 // Also capture session_id from result if we missed it from init
                 if (resultData.session_id) {
                   updateSdkSessionId(sessionId, resultData.session_id);
+                }
+                // Memory flush tracking: log high turn counts for assistant sessions.
+                // The progressive update instructions already tell the model to
+                // proactively write important info to daily memory files.
+                if (resultData.num_turns >= 25) {
+                  console.log(`[chat API] High turn count (${resultData.num_turns}) for session ${sessionId}`);
                 }
               } catch {
                 // skip malformed result data

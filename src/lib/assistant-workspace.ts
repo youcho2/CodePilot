@@ -485,7 +485,10 @@ interface PromptSection {
 export function assembleWorkspacePrompt(files: AssistantWorkspaceFilesV2, retrievalResults?: SearchResult[]): string {
   const sections: PromptSection[] = [];
 
-  // Priority 1: Identity (claude + soul + user) — never drop claude
+  // Identity layer only (claude + soul + user) — never drop claude
+  // Memory, daily memories, root docs, and retrieval results are now
+  // accessed via codepilot_memory_search / codepilot_memory_get MCP tools
+  // instead of being stuffed into the system prompt.
   if (files.claude) {
     sections.push({ tag: 'claude', content: files.claude, priority: 1, maxSize: PER_FILE_LIMIT });
   }
@@ -494,45 +497,6 @@ export function assembleWorkspacePrompt(files: AssistantWorkspaceFilesV2, retrie
   }
   if (files.user) {
     sections.push({ tag: 'user', content: files.user, priority: 1, maxSize: PER_FILE_LIMIT });
-  }
-
-  // Priority 2: Long-term memory
-  if (files.memory) {
-    sections.push({ tag: 'memory', content: files.memory, priority: 2, maxSize: PER_FILE_LIMIT });
-  }
-
-  // Priority 3: Daily memories
-  if (files.dailyMemories && files.dailyMemories.length > 0) {
-    for (let i = 0; i < files.dailyMemories.length; i++) {
-      sections.push({
-        tag: `daily-memory-${i}`,
-        content: files.dailyMemories[i],
-        priority: 3,
-        maxSize: DAILY_MEMORY_LIMIT,
-      });
-    }
-  }
-
-  // Priority 4: Root docs
-  if (files.rootReadme) {
-    sections.push({ tag: 'workspace-readme', content: files.rootReadme, priority: 4, maxSize: ROOT_DOC_LIMIT });
-  }
-  if (files.rootPath) {
-    sections.push({ tag: 'workspace-path', content: files.rootPath, priority: 4, maxSize: ROOT_DOC_LIMIT });
-  }
-
-  // Priority 5: Retrieval results
-  if (retrievalResults && retrievalResults.length > 0) {
-    const results = retrievalResults.slice(0, MAX_RETRIEVAL_RESULTS);
-    for (const result of results) {
-      const content = `**${result.path}** (${result.source}, score: ${result.score.toFixed(1)})\n${result.heading ? `### ${result.heading}\n` : ''}${result.snippet}`;
-      sections.push({
-        tag: 'retrieval-result',
-        content: truncateContent(content, RETRIEVAL_RESULT_LIMIT),
-        priority: 5,
-        maxSize: RETRIEVAL_RESULT_LIMIT,
-      });
-    }
   }
 
   if (sections.length === 0) return '';

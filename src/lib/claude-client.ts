@@ -521,6 +521,22 @@ export function streamClaude(options: ClaudeStreamOptions): ReadableStream<strin
           queryOptions.mcpServers = toSdkMcpConfig(mcpServers);
         }
 
+        // Memory MCP: always registered in assistant mode for memory search/retrieval.
+        // Unlike other MCPs which are keyword-gated, memory search is a core assistant capability.
+        {
+          const assistantWorkspacePath = getSetting('assistant_workspace_path');
+          if (assistantWorkspacePath && resolvedWorkingDirectory.path === assistantWorkspacePath) {
+            const { createMemorySearchMcpServer, MEMORY_SEARCH_SYSTEM_PROMPT } = await import('@/lib/memory-search-mcp');
+            queryOptions.mcpServers = {
+              ...(queryOptions.mcpServers || {}),
+              'codepilot-memory': createMemorySearchMcpServer(assistantWorkspacePath),
+            };
+            if (queryOptions.systemPrompt && typeof queryOptions.systemPrompt === 'object' && 'append' in queryOptions.systemPrompt) {
+              queryOptions.systemPrompt.append = (queryOptions.systemPrompt.append || '') + '\n\n' + MEMORY_SEARCH_SYSTEM_PROMPT;
+            }
+          }
+        }
+
         // Widget guidelines: progressive loading strategy.
         // The system prompt always includes WIDGET_SYSTEM_PROMPT with format rules.
         // The MCP server (detailed design specs) is only registered when the

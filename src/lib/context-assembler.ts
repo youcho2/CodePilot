@@ -10,7 +10,7 @@
  *   Bridge:  workspace + session + assistant instructions + CLI tools (no widget)
  */
 
-import type { ChatSession, SearchResult } from '@/types';
+import type { ChatSession } from '@/types';
 import { getSetting } from '@/lib/db';
 
 // ── Types ────────────────────────────────────────────────────────────
@@ -64,7 +64,7 @@ export async function assembleContext(config: ContextAssemblyConfig): Promise<As
         const { loadWorkspaceFiles, assembleWorkspacePrompt, loadState, shouldRunHeartbeat } =
           await import('@/lib/assistant-workspace');
 
-        // Incremental reindex BEFORE search so current turn sees latest content
+        // Incremental reindex BEFORE MCP search so tool calls see latest content
         try {
           const { indexWorkspace } = await import('@/lib/workspace-indexer');
           indexWorkspace(workspacePath);
@@ -74,21 +74,10 @@ export async function assembleContext(config: ContextAssemblyConfig): Promise<As
 
         const files = loadWorkspaceFiles(workspacePath);
 
-        // Retrieval: search workspace index for relevant context
-        let retrievalResults: SearchResult[] | undefined;
-        try {
-          const { searchWorkspace, updateHotset } = await import('@/lib/workspace-retrieval');
-          if (userPrompt.length > 10) {
-            retrievalResults = searchWorkspace(workspacePath, userPrompt, { limit: 5 });
-            if (retrievalResults.length > 0) {
-              updateHotset(workspacePath, retrievalResults.map(r => r.path));
-            }
-          }
-        } catch {
-          // retrieval module not available, skip
-        }
-
-        workspacePrompt = assembleWorkspacePrompt(files, retrievalResults);
+        // Memory/retrieval is now handled by codepilot_memory_search MCP tool
+        // (registered in claude-client.ts for assistant mode).
+        // assembleWorkspacePrompt only includes identity files (soul/user/claude).
+        workspacePrompt = assembleWorkspacePrompt(files);
 
         const state = loadState(workspacePath);
 

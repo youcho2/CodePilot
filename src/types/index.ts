@@ -133,6 +133,7 @@ export interface Message {
   content: string; // JSON string of MessageContentBlock[] for structured content
   created_at: string;
   token_usage: string | null; // JSON string of TokenUsage
+  is_heartbeat_ack?: number; // 1 = heartbeat ack (prunable from transcript), 0 = normal
 }
 
 // Media content block (MCP-compatible: image/audio/video in tool results)

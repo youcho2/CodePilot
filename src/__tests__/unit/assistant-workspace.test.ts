@@ -286,7 +286,7 @@ describe('Assistant Workspace', () => {
   });
 
   describe('budget-aware prompt assembly', () => {
-    it('should include daily memories in prompt', () => {
+    it('should only include identity files in prompt (memory accessed via MCP)', () => {
       initializeWorkspace(workDir);
       fs.writeFileSync(path.join(workDir, 'soul.md'), '# Soul\nI am helpful.', 'utf-8');
       writeDailyMemory(workDir, '2024-03-06', '# Today\nDid coding.');
@@ -295,11 +295,12 @@ describe('Assistant Workspace', () => {
       const prompt = assembleWorkspacePrompt(files);
 
       assert.ok(prompt.includes('<assistant-workspace>'));
-      assert.ok(prompt.includes('I am helpful'));
-      assert.ok(prompt.includes('Did coding'));
+      assert.ok(prompt.includes('I am helpful'), 'soul.md should be in prompt');
+      // Daily memories are no longer in system prompt — accessed via codepilot_memory_search MCP
+      assert.ok(!prompt.includes('Did coding'), 'daily memories should NOT be in prompt');
     });
 
-    it('should include retrieval results in prompt', () => {
+    it('should not include retrieval results in prompt (accessed via MCP)', () => {
       initializeWorkspace(workDir);
       fs.writeFileSync(path.join(workDir, 'soul.md'), '# Soul\nI am helpful.', 'utf-8');
 
@@ -307,10 +308,12 @@ describe('Assistant Workspace', () => {
       const results = [
         { path: 'notes/test.md', heading: 'Test', snippet: 'Some test content', score: 15, source: 'title' as const },
       ];
-      const prompt = assembleWorkspacePrompt(files, results);
+      // assembleWorkspacePrompt no longer accepts retrieval results
+      const prompt = assembleWorkspacePrompt(files);
 
-      assert.ok(prompt.includes('retrieval-result'));
-      assert.ok(prompt.includes('Some test content'));
+      assert.ok(!prompt.includes('retrieval-result'), 'retrieval results should NOT be in prompt');
+      assert.ok(!prompt.includes('Some test content'), 'retrieval content should NOT be in prompt');
+      void results; // suppress unused variable warning
     });
 
     it('should respect total prompt limit', () => {
