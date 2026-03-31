@@ -11,6 +11,7 @@ import type { WorkspaceInspectResult } from "@/types";
 import { FilesTabPanel, TaxonomyTabPanel, IndexTabPanel, OrganizeTabPanel } from "./WorkspaceTabPanels";
 import { WorkspaceConfirmDialogs, type ConfirmDialogType } from "./WorkspaceConfirmDialogs";
 import { OnboardingCard, CheckInCard } from "./WorkspaceStatusCards";
+import { OnboardingWizard } from "@/components/assistant/OnboardingWizard";
 import type { TaxonomyCategoryInfo, IndexStats, WorkspaceInfo, TabId, PathValidationStatus } from "./workspace-types";
 
 export function AssistantWorkspaceSection() {
@@ -32,6 +33,7 @@ export function AssistantWorkspaceSection() {
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [confirmDialog, setConfirmDialog] = useState<ConfirmDialogType | null>(null);
   const [inspecting, setInspecting] = useState(false);
+  const [showWizard, setShowWizard] = useState(false);
 
   const fetchWorkspace = useCallback(async () => {
     try {
@@ -297,7 +299,11 @@ export function AssistantWorkspaceSection() {
     }
   }, [workspace?.path, router]);
 
-  const handleStartOnboarding = useCallback(() => handleStartSession('onboarding'), [handleStartSession]);
+  const handleStartOnboarding = useCallback(() => {
+    if (workspace?.path) {
+      setShowWizard(true);
+    }
+  }, [workspace?.path]);
   const handleStartCheckIn = useCallback(() => handleStartSession('checkin'), [handleStartSession]);
 
   const handleReindex = useCallback(async () => {
@@ -509,6 +515,18 @@ export function AssistantWorkspaceSection() {
         onClose={() => setConfirmDialog(null)}
         onExecuteSave={executeSave}
       />
+
+      {/* Onboarding Wizard Overlay */}
+      {showWizard && workspace?.path && (
+        <OnboardingWizard
+          workspacePath={workspace.path}
+          onComplete={(session) => {
+            setShowWizard(false);
+            fetchWorkspace(); // reload workspace state
+            router.push(`/chat/${session.id}`);
+          }}
+        />
+      )}
     </div>
   );
 }
