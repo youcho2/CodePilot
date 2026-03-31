@@ -12,3 +12,4 @@
 - [agent-friends.md](agent-friends.md) — Agent 好友系统：跨用户 Agent 共享频道，项目驱动的权限控制
 - [memory-enhancements.md](memory-enhancements.md) — 记忆增强：GUI 管理面板、Widget 可视化、本地向量搜索、硬 Flush
 - [assistant-ux-upgrade.md](assistant-ux-upgrade.md) — 助理体验升级：Identicon 头像、侧栏重设计、Onboarding Wizard、Quick Actions
+- [context-management-optimization.md](context-management-optimization.md) — 上下文管理优化：三级压缩体系、Token 预算感知、Prompt Cache 控制、前端可视化

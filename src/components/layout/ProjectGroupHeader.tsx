@@ -155,11 +155,7 @@ export function ProjectGroupHeader({
         onMouseEnter={onMouseEnter}
         onMouseLeave={onMouseLeave}
       >
-        {buddyEmoji ? (
-          <span className="text-base shrink-0">{buddyEmoji}</span>
-        ) : (
-          <AssistantAvatar name={assistantName || 'assistant'} size={24} className="shrink-0" />
-        )}
+        <span className="text-base shrink-0">{buddyEmoji || '🥚'}</span>
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-1">
             <span className="truncate text-[13px] font-medium text-sidebar-foreground">

@@ -1335,6 +1335,8 @@ const en = {
   'buddy.humor': 'Humor',
   'buddy.precision': 'Precision',
   'buddy.reveal': 'Your assistant buddy!',
+  'buddy.hatch': 'Hatch your buddy!',
+  'buddy.egg': 'Not hatched yet',
 } as const;
 
 export type TranslationKey = keyof typeof en;

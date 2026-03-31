@@ -44,13 +44,14 @@ export function UnifiedTopBar() {
   const { t } = useTranslation();
   const { isWindows } = useClientPlatform();
   const [assistantName, setAssistantName] = useState('');
+  const [buddyEmoji, setBuddyEmoji] = useState('');
 
   useEffect(() => {
     if (!isAssistantWorkspace) return;
     let cancelled = false;
     fetch('/api/workspace/summary')
       .then(r => r.ok ? r.json() : null)
-      .then(data => { if (!cancelled) setAssistantName(data?.name || ''); })
+      .then(data => { if (!cancelled) { setAssistantName(data?.name || ''); setBuddyEmoji(data?.buddy?.emoji || ''); } })
       .catch(() => {});
     return () => { cancelled = true; };
   }, [isAssistantWorkspace]);
@@ -254,7 +255,7 @@ export function UnifiedTopBar() {
                     onClick={() => setDashboardPanelOpen(!dashboardPanelOpen)}
                   >
                     {isAssistantWorkspace
-                      ? <AssistantAvatar name={assistantName || 'assistant'} size={16} />
+                      ? <span className="text-sm">{buddyEmoji || '🥚'}</span>
                       : <ChartBar size={16} />}
                     <span className="sr-only">{t('topBar.dashboard')}</span>
                   </Button>

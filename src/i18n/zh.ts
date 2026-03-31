@@ -1332,6 +1332,8 @@ const zh: Record<TranslationKey, string> = {
   'buddy.humor': '幽默',
   'buddy.precision': '精确',
   'buddy.reveal': '你的助理伙伴！',
+  'buddy.hatch': '孵化你的伙伴！',
+  'buddy.egg': '还未孵化',
 };
 
 export default zh;

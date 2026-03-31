@@ -483,11 +483,7 @@ function AssistantStatusCard({ summary, t }: {
     <div className="rounded-lg border border-primary/10 bg-primary/[0.03] p-3 space-y-3">
       {/* Header: Emoji + Name + Rarity (when buddy exists) or plain avatar */}
       <div className="flex items-center gap-2">
-        {buddy ? (
-          <span className="text-2xl">{buddy.emoji}</span>
-        ) : (
-          <AssistantAvatar name={summary.name || 'assistant'} size={24} />
-        )}
+        <span className="text-2xl">{buddy?.emoji || '🥚'}</span>
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2">
             <span className="text-sm font-medium truncate">
@@ -565,6 +561,26 @@ function AssistantStatusCard({ summary, t }: {
             </div>
           ))}
         </div>
+      )}
+
+      {/* Hatch buddy button (when no buddy yet) */}
+      {!buddy && (
+        <Button
+          variant="outline"
+          size="sm"
+          className="w-full justify-center gap-2 text-xs h-8"
+          onClick={async () => {
+            try {
+              const res = await fetch('/api/workspace/hatch-buddy', { method: 'POST' });
+              if (res.ok) {
+                // Reload summary to get new buddy data
+                window.location.reload();
+              }
+            } catch { /* ignore */ }
+          }}
+        >
+          🥚 {t('buddy.hatch' as TranslationKey)}
+        </Button>
       )}
 
       {/* Settings link */}
