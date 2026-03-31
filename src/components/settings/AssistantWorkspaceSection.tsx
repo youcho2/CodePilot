@@ -304,35 +304,7 @@ export function AssistantWorkspaceSection() {
       setShowWizard(true);
     }
   }, [workspace?.path]);
-  const handleStartCheckIn = useCallback(async () => {
-    if (!workspace?.path) return;
-    setCreatingSession(true);
-    try {
-      // Reset lastHeartbeatDate so the heartbeat auto-trigger fires on session open
-      await fetch('/api/settings/workspace', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ resetHeartbeat: true }),
-      });
-      // Create/reuse session and navigate
-      const model = typeof window !== 'undefined' ? localStorage.getItem('codepilot:last-model') || '' : '';
-      const provider_id = typeof window !== 'undefined' ? localStorage.getItem('codepilot:last-provider-id') || '' : '';
-      const res = await fetch('/api/workspace/session', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ mode: 'checkin', model, provider_id }),
-      });
-      if (res.ok) {
-        const data = await res.json();
-        window.dispatchEvent(new CustomEvent('session-created'));
-        router.push(`/chat/${data.session.id}`);
-      }
-    } catch (e) {
-      console.error('Failed to start heartbeat:', e);
-    } finally {
-      setCreatingSession(false);
-    }
-  }, [workspace?.path, router]);
+  // handleStartCheckIn removed — heartbeat triggers automatically on session open
 
   const handleReindex = useCallback(async () => {
     setReindexing(true);
@@ -469,9 +441,7 @@ export function AssistantWorkspaceSection() {
         <CheckInCard
           lastCheckInDate={workspace.state?.lastHeartbeatDate ?? null}
           checkInDoneToday={checkInDoneToday}
-          creatingSession={creatingSession}
           autoTriggerEnabled={workspace.state?.heartbeatEnabled === true}
-          onStartCheckIn={handleStartCheckIn}
           onAutoTriggerChange={async (enabled) => {
             try {
               const res = await fetch('/api/settings/workspace', {

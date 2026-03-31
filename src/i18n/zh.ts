@@ -846,7 +846,6 @@ const zh: Record<TranslationKey, string> = {
   'assistant.lastHeartbeatLabel': '上次心跳',
   'assistant.heartbeatOk': '一切正常',
   'assistant.heartbeatNeeded': '可执行心跳',
-  'assistant.startHeartbeat': '执行心跳',
   'assistant.refreshDocs': '刷新目录文档',
   'assistant.refreshingDocs': '刷新中...',
   'assistant.docsRefreshed': '目录文档已刷新',

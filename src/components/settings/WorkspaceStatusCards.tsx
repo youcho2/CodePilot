@@ -52,13 +52,11 @@ export function OnboardingCard({ onboardingComplete, creatingSession, onStartOnb
 interface CheckInCardProps {
   lastCheckInDate: string | null;
   checkInDoneToday: boolean;
-  creatingSession: boolean;
   autoTriggerEnabled: boolean;
-  onStartCheckIn: () => void;
   onAutoTriggerChange: (enabled: boolean) => void;
 }
 
-export function CheckInCard({ lastCheckInDate, checkInDoneToday, creatingSession, autoTriggerEnabled, onStartCheckIn, onAutoTriggerChange }: CheckInCardProps) {
+export function CheckInCard({ lastCheckInDate, checkInDoneToday, autoTriggerEnabled, onAutoTriggerChange }: CheckInCardProps) {
   const { t } = useTranslation();
   const isZh = t('nav.chats') === '对话';
 
@@ -81,28 +79,11 @@ export function CheckInCard({ lastCheckInDate, checkInDoneToday, creatingSession
             }
           </p>
         </div>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={onStartCheckIn}
-          disabled={creatingSession}
-        >
-          {creatingSession ? (
-            <SpinnerGap size={14} className="animate-spin" />
-          ) : (
-            t('assistant.startHeartbeat')
-          )}
-        </Button>
-      </div>
-      <div className="flex items-center justify-between border-t border-border/30 pt-2">
-        <div>
-          <p className="text-xs font-medium">{isZh ? '启用心跳检测' : 'Enable heartbeat'}</p>
-          <p className="text-[11px] text-muted-foreground">
-            {isZh ? '启用后，助理每次访问时检查 HEARTBEAT.md 并按需汇报' : 'When enabled, the assistant checks HEARTBEAT.md on each visit and reports if needed'}
-          </p>
-        </div>
         <Switch checked={autoTriggerEnabled} onCheckedChange={onAutoTriggerChange} />
       </div>
+      <p className="text-[11px] text-muted-foreground">
+        {isZh ? '启用后，助理每次访问时检查 HEARTBEAT.md 并按需汇报' : 'When enabled, the assistant checks HEARTBEAT.md on each visit and reports if needed'}
+      </p>
     </div>
   );
 }

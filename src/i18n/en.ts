@@ -849,7 +849,6 @@ const en = {
   'assistant.lastHeartbeatLabel': 'Last heartbeat',
   'assistant.heartbeatOk': 'All clear',
   'assistant.heartbeatNeeded': 'Heartbeat available',
-  'assistant.startHeartbeat': 'Run Heartbeat',
   'assistant.refreshDocs': 'Refresh Directory Docs',
   'assistant.refreshingDocs': 'Refreshing...',
   'assistant.docsRefreshed': 'Directory docs refreshed',
