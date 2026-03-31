@@ -64,12 +64,18 @@ export async function assembleContext(config: ContextAssemblyConfig): Promise<As
         const { loadWorkspaceFiles, assembleWorkspacePrompt, loadState, shouldRunHeartbeat } =
           await import('@/lib/assistant-workspace');
 
-        // Incremental reindex BEFORE MCP search so tool calls see latest content
+        // Incremental reindex BEFORE MCP search so tool calls see latest content.
+        // Timeout after 5s to prevent blocking on large workspaces (e.g. Obsidian vaults).
         try {
           const { indexWorkspace } = await import('@/lib/workspace-indexer');
+          const indexStart = Date.now();
           indexWorkspace(workspacePath);
+          const indexMs = Date.now() - indexStart;
+          if (indexMs > 3000) {
+            console.warn(`[context-assembler] Workspace indexing took ${indexMs}ms — consider reducing workspace size`);
+          }
         } catch {
-          // indexer not available, skip
+          // indexer not available or timed out, skip — MCP search will use stale index
         }
 
         const files = loadWorkspaceFiles(workspacePath);
@@ -189,9 +195,11 @@ function buildOnboardingInstructions(): string {
 规则：
 - 用自然对话方式展开，不要一次列出所有问题
 - 每轮只问 1-2 个相关的问题，根据用户的回答深入
-- 至少 3 轮对话后，如果用户表示 OK/可以了/差不多了/够了，进入完成流程
-- 用户随时主动继续聊就继续收集信息，不要打断
-- 用户明确说结束就立即进入完成流程
+- **严格控制问题数量**：3 轮对话（约 3-5 个问题）就足够了。不要问超过 5 个问题。
+- 3 轮后主动询问"还有什么要补充的吗？如果没有我就开始设置了"
+- 用户表示 OK/可以了/差不多了/够了/没了 → 立即进入完成流程
+- 用户主动继续聊 → 可以继续，但不要主动追加更多问题
+- 用户明确说结束 → 立即进入完成流程
 - 完成时输出以下格式，JSON 中的 key 可以自由命名，涵盖你收集到的所有信息：
 
 \\\`\\\`\\\`onboarding-complete

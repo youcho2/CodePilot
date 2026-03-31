@@ -480,6 +480,8 @@ async function collectStreamResponse(
         .filter((b): b is Extract<MessageContentBlock, { type: 'text' }> => b.type === 'text')
         .map((b) => b.text)
         .join('');
+
+      // 1. Check for onboarding-complete fence
       const completion = extractCompletion(fullText);
       if (completion) {
         const workspacePath = getSetting('assistant_workspace_path');
@@ -487,6 +489,38 @@ async function collectStreamResponse(
         if (workspacePath && session && session.working_directory === workspacePath) {
           await processCompletionServerSide(completion, workspacePath, sessionId);
         }
+      }
+
+      // 2. Check for heartbeat HEARTBEAT_OK — update state + clear lock
+      try {
+        const workspacePath = getSetting('assistant_workspace_path');
+        const session = getSession(sessionId);
+        if (workspacePath && session && session.working_directory === workspacePath) {
+          const { stripHeartbeatToken } = await import('@/lib/heartbeat');
+          const { shouldSkip } = stripHeartbeatToken(fullText);
+          // If the reply contains HEARTBEAT_OK (or is a heartbeat turn),
+          // update lastHeartbeatDate so it doesn't re-trigger today.
+          // We detect heartbeat turns by checking if the trigger message was a heartbeat.
+          if (shouldSkip || fullText.includes('HEARTBEAT_OK')) {
+            const { loadState, saveState } = await import('@/lib/assistant-workspace');
+            const { getLocalDateString } = await import('@/lib/utils');
+            const st = loadState(workspacePath);
+            st.lastHeartbeatDate = getLocalDateString();
+            if (!shouldSkip) {
+              // Has real content alongside HEARTBEAT_OK — record for dedup
+              st.lastHeartbeatText = fullText.replace(/HEARTBEAT_OK/g, '').trim();
+              st.lastHeartbeatSentAt = Date.now();
+            }
+            // Clear hookTriggeredSessionId
+            if (st.hookTriggeredSessionId === sessionId || !st.hookTriggeredSessionId) {
+              st.hookTriggeredSessionId = undefined;
+              st.hookTriggeredAt = undefined;
+            }
+            saveState(workspacePath, st);
+          }
+        }
+      } catch {
+        // best effort heartbeat state update
       }
     } catch (e) {
       console.error('[chat API] Server-side completion detection failed:', e);

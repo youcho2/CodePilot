@@ -237,7 +237,9 @@ Only include explicitly stated information.`;
   const today = getLocalDateString();
   const state = loadState(workspacePath);
   state.onboardingComplete = true;
+  state.lastHeartbeatDate = today;
+  // Keep legacy field in sync for backward compat
   state.lastCheckInDate = today;
-  state.schemaVersion = 4;
+  state.schemaVersion = 5;
   saveState(workspacePath, state);
 }

@@ -57,12 +57,13 @@ export function createMemorySearchMcpServer(workspacePath: string) {
             const { searchWorkspace } = await import('./workspace-retrieval');
             let results = searchWorkspace(workspacePath, query, { limit: (limit || 5) * 3 });
 
-            // Filter by file type
+            // Filter by file type (case-insensitive for memory.md variants)
             if (file_type && file_type !== 'all') {
+              const isMemoryFile = (p: string) => /^memory\.md$/i.test(p);
               results = results.filter(r => {
                 if (file_type === 'daily') return r.path.startsWith('memory/daily/');
-                if (file_type === 'longterm') return r.path === 'memory.md' || r.path === 'MEMORY.md';
-                if (file_type === 'notes') return !r.path.startsWith('memory/') && r.path !== 'memory.md' && r.path !== 'MEMORY.md';
+                if (file_type === 'longterm') return isMemoryFile(r.path);
+                if (file_type === 'notes') return !r.path.startsWith('memory/') && !isMemoryFile(r.path);
                 return true;
               });
             }
@@ -114,8 +115,9 @@ export function createMemorySearchMcpServer(workspacePath: string) {
           line_end: z.number().optional().describe('End line number (inclusive)'),
         },
         async ({ file_path, line_start, line_end }) => {
+          const resolvedWorkspace = path.resolve(workspacePath) + path.sep;
           const resolved = path.resolve(workspacePath, file_path);
-          if (!resolved.startsWith(path.resolve(workspacePath))) {
+          if (!resolved.startsWith(resolvedWorkspace) && resolved !== path.resolve(workspacePath)) {
             return { content: [{ type: 'text' as const, text: 'Access denied: path is outside workspace.' }] };
           }
 
@@ -163,14 +165,19 @@ export function createMemorySearchMcpServer(workspacePath: string) {
             const parts: string[] = [];
 
             // Long-term memory summary (first 500 chars)
-            const memoryPath = path.join(workspacePath, 'memory.md');
-            if (fs.existsSync(memoryPath)) {
-              const memContent = fs.readFileSync(memoryPath, 'utf-8').trim();
-              if (memContent) {
-                const summary = memContent.length > 500
-                  ? memContent.slice(0, 500) + '...'
-                  : memContent;
-                parts.push(`## Long-term Memory\n${summary}`);
+            // Support all case variants: memory.md, Memory.md, MEMORY.md
+            const memoryVariants = ['memory.md', 'Memory.md', 'MEMORY.md'];
+            for (const variant of memoryVariants) {
+              const memoryPath = path.join(workspacePath, variant);
+              if (fs.existsSync(memoryPath)) {
+                const memContent = fs.readFileSync(memoryPath, 'utf-8').trim();
+                if (memContent) {
+                  const summary = memContent.length > 500
+                    ? memContent.slice(0, 500) + '...'
+                    : memContent;
+                  parts.push(`## Long-term Memory\n${summary}`);
+                }
+                break; // Use first found variant
               }
             }
 
