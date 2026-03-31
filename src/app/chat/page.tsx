@@ -762,7 +762,7 @@ export default function NewChatPage() {
             } else if (assistantWorkspacePath) {
               setShowWizard(true);
             } else {
-              router.push('/settings?tab=assistant');
+              router.push('/settings#assistant');
             }
           }}
         />

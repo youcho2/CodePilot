@@ -64,7 +64,7 @@ export function AssistantPanel() {
           <div className="text-center py-8 space-y-3">
             <Brain size={32} className="mx-auto text-muted-foreground/40" />
             <p className="text-sm text-muted-foreground">{t('assistant.panel.notConfigured' as TranslationKey)}</p>
-            <Button size="sm" onClick={() => router.push('/settings?tab=assistant')}>
+            <Button size="sm" onClick={() => router.push('/settings#assistant')}>
               {t('assistant.panel.setup' as TranslationKey)}
             </Button>
           </div>
@@ -152,7 +152,7 @@ export function AssistantPanel() {
                   variant="ghost"
                   size="sm"
                   className="w-full justify-start gap-2 text-xs h-7"
-                  onClick={() => router.push('/settings?tab=assistant')}
+                  onClick={() => router.push('/settings#assistant')}
                 >
                   <Gear size={13} />
                   {t('assistant.panel.assistantSettings' as TranslationKey)}
@@ -161,7 +161,7 @@ export function AssistantPanel() {
                   variant="ghost"
                   size="sm"
                   className="w-full justify-start gap-2 text-xs h-7"
-                  onClick={() => router.push('/settings?tab=assistant&section=heartbeat')}
+                  onClick={() => router.push('/settings#assistant')}
                 >
                   <Clock size={13} />
                   {t('assistant.panel.editHeartbeat' as TranslationKey)}

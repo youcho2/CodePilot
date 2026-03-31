@@ -533,7 +533,7 @@ function AssistantStatusCard({ summary, t }: {
         variant="ghost"
         size="sm"
         className="w-full justify-start gap-2 text-xs h-7 text-muted-foreground"
-        onClick={() => router?.push('/settings?tab=assistant')}
+        onClick={() => router?.push('/settings#assistant')}
       >
         <Gear size={12} />
         {t('assistant.panel.assistantSettings' as TranslationKey)}

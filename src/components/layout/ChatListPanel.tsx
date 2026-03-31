@@ -550,7 +550,7 @@ export function ChatListPanel({ open, width, hasUpdate, readyToInstall }: ChatLi
           {/* Assistant promo card for unconfigured users */}
           {assistantSummary && !assistantSummary.configured && !promoDismissed && (
             <AssistantPromoCard
-              onSetup={() => router.push('/settings?tab=assistant')}
+              onSetup={() => router.push('/settings#assistant')}
               onDismiss={() => setPromoDismissed(true)}
             />
           )}
