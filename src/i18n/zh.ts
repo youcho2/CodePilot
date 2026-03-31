@@ -946,6 +946,16 @@ const zh: Record<TranslationKey, string> = {
   'assistant.confirmCreate': '创建并初始化',
   'assistant.workspaceInvalid': '已配置的工作区路径无效',
   'assistant.quickActions.reviewWeek': '回顾本周',
+  'assistant.configured': '已设置',
+  'assistant.reconfigure': '重新设置',
+  'assistant.personality': '助理人格',
+  'assistant.scheduledTasks': '定时任务',
+  'assistant.noTasks': '没有定时任务。可以让助理创建。',
+  'assistant.editHeartbeatHint': '编辑工作区中的 HEARTBEAT.md 来自定义检查内容',
+  'assistant.advanced': '高级选项',
+  'assistant.editSoulHint': '编辑工作区中的 soul.md 来自定义人格',
+  'assistant.taskDelete': '删除',
+  'assistant.taskNextRun': '下次执行',
 
   // ── Composer ──────────────────────────────────────────────
   'composer.slashCommand': '命令',

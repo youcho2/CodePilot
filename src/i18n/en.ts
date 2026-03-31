@@ -949,6 +949,16 @@ const en = {
   'assistant.confirmCreate': 'Create & Initialize',
   'assistant.workspaceInvalid': 'Configured workspace path is invalid',
   'assistant.quickActions.reviewWeek': 'Review this week',
+  'assistant.configured': 'Configured',
+  'assistant.reconfigure': 'Reconfigure',
+  'assistant.personality': 'Personality',
+  'assistant.scheduledTasks': 'Scheduled Tasks',
+  'assistant.noTasks': 'No scheduled tasks. Ask the assistant to create one.',
+  'assistant.editHeartbeatHint': 'Edit HEARTBEAT.md in your workspace to customize checks',
+  'assistant.advanced': 'Advanced',
+  'assistant.editSoulHint': 'Edit soul.md in your workspace to customize personality',
+  'assistant.taskDelete': 'Delete',
+  'assistant.taskNextRun': 'Next run',
 
   // ── Composer ──────────────────────────────────────────────
   'composer.slashCommand': 'Commands',

@@ -2,7 +2,7 @@
 
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
-import { SpinnerGap } from "@/components/ui/icon";
+import { SpinnerGap, CheckCircle } from "@/components/ui/icon";
 import { useTranslation } from "@/hooks/useTranslation";
 
 // ── Onboarding Status Card ──
@@ -16,6 +16,32 @@ interface OnboardingCardProps {
 export function OnboardingCard({ onboardingComplete, creatingSession, onStartOnboarding }: OnboardingCardProps) {
   const { t } = useTranslation();
 
+  // When complete: compact one-line status
+  if (onboardingComplete) {
+    return (
+      <div className="rounded-lg border border-border/50 px-4 py-2.5 flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <CheckCircle size={14} className="text-status-success-foreground" />
+          <span className="text-xs text-status-success-foreground">{t('assistant.configured')}</span>
+        </div>
+        <Button
+          variant="ghost"
+          size="sm"
+          className="text-xs text-muted-foreground hover:text-foreground underline underline-offset-2 h-auto p-0"
+          onClick={onStartOnboarding}
+          disabled={creatingSession}
+        >
+          {creatingSession ? (
+            <SpinnerGap size={12} className="animate-spin" />
+          ) : (
+            t('assistant.reconfigure')
+          )}
+        </Button>
+      </div>
+    );
+  }
+
+  // When not complete: full card with Wizard button
   return (
     <div className="rounded-lg border border-border/50 p-4">
       <div className="flex items-center justify-between">
@@ -23,10 +49,7 @@ export function OnboardingCard({ onboardingComplete, creatingSession, onStartOnb
           <h2 className="text-sm font-medium">{t('assistant.onboardingTitle')}</h2>
           <p className="text-xs text-muted-foreground mt-1">{t('assistant.onboardingDesc')}</p>
           <p className="text-xs mt-1">
-            {onboardingComplete
-              ? <span className="text-status-success-foreground">{t('assistant.onboardingComplete')}</span>
-              : <span className="text-status-warning-foreground">{t('assistant.onboardingNotStarted')}</span>
-            }
+            <span className="text-status-warning-foreground">{t('assistant.onboardingNotStarted')}</span>
           </p>
         </div>
         <Button
@@ -37,10 +60,9 @@ export function OnboardingCard({ onboardingComplete, creatingSession, onStartOnb
         >
           {creatingSession ? (
             <SpinnerGap size={14} className="animate-spin" />
-          ) : onboardingComplete
-            ? t('assistant.redoOnboarding')
-            : t('assistant.startOnboarding')
-          }
+          ) : (
+            t('assistant.startOnboarding')
+          )}
         </Button>
       </div>
     </div>
@@ -58,7 +80,6 @@ interface CheckInCardProps {
 
 export function CheckInCard({ lastCheckInDate, checkInDoneToday, autoTriggerEnabled, onAutoTriggerChange }: CheckInCardProps) {
   const { t } = useTranslation();
-  const isZh = t('nav.chats') === '对话';
 
   return (
     <div className="rounded-lg border border-border/50 p-4 space-y-3">
@@ -82,7 +103,7 @@ export function CheckInCard({ lastCheckInDate, checkInDoneToday, autoTriggerEnab
         <Switch checked={autoTriggerEnabled} onCheckedChange={onAutoTriggerChange} />
       </div>
       <p className="text-[11px] text-muted-foreground">
-        {isZh ? '启用后，助理每次访问时检查 HEARTBEAT.md 并按需汇报' : 'When enabled, the assistant checks HEARTBEAT.md on each visit and reports if needed'}
+        {t('assistant.editHeartbeatHint')}
       </p>
     </div>
   );
