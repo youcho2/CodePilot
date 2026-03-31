@@ -8,6 +8,7 @@ import {
   PencilSimple,
   DotOutline,
   ChartBar,
+  Brain,
 } from "@/components/ui/icon";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -33,6 +34,8 @@ export function UnifiedTopBar() {
     setGitPanelOpen,
     dashboardPanelOpen,
     setDashboardPanelOpen,
+    assistantPanelOpen,
+    setAssistantPanelOpen,
     currentBranch,
     gitDirtyCount,
   } = usePanel();
@@ -227,6 +230,21 @@ export function UnifiedTopBar() {
                   </Button>
                 </TooltipTrigger>
                 <TooltipContent side="bottom">{t('topBar.fileTree')}</TooltipContent>
+              </Tooltip>
+
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant={assistantPanelOpen ? "secondary" : "ghost"}
+                    size="icon-sm"
+                    className={assistantPanelOpen ? "" : "text-muted-foreground hover:text-foreground"}
+                    onClick={() => setAssistantPanelOpen(!assistantPanelOpen)}
+                  >
+                    <Brain size={16} />
+                    <span className="sr-only">Assistant</span>
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom">Assistant</TooltipContent>
               </Tooltip>
 
               <Tooltip>
