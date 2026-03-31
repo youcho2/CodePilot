@@ -579,6 +579,8 @@ export function ChatListPanel({ open, width, hasUpdate, readyToInstall }: ChatLi
               }
               const hiddenCount = group.sessions.length - visibleSessions.length;
 
+              const groupIsWorkspace = !!(workspacePath && group.workingDirectory === workspacePath);
+
               return (
                 <div key={group.workingDirectory || "__no_project"} className="mt-1 first:mt-0">
                   {/* Folder header */}
@@ -587,7 +589,7 @@ export function ChatListPanel({ open, width, hasUpdate, readyToInstall }: ChatLi
                     displayName={group.displayName}
                     isCollapsed={isCollapsed}
                     isFolderHovered={isFolderHovered}
-                    isWorkspace={!!(workspacePath && group.workingDirectory === workspacePath)}
+                    isWorkspace={groupIsWorkspace}
                     onToggle={() => toggleProject(group.workingDirectory)}
                     onMouseEnter={() => setHoveredFolder(group.workingDirectory)}
                     onMouseLeave={() => setHoveredFolder(null)}
@@ -623,6 +625,7 @@ export function ChatListPanel({ open, width, hasUpdate, readyToInstall }: ChatLi
                                 isSessionStreaming={activeStreamingSessions.has(session.id) || streamingSessionId === session.id}
                                 needsApproval={pendingApprovalSessionIds.has(session.id) || pendingApprovalSessionId === session.id}
                                 canSplit={canSplit}
+                                isWorkspace={groupIsWorkspace}
                                 formatRelativeTime={formatRelativeTime}
                                 t={t}
                                 onMouseEnter={() => setHoveredSession(session.id)}
