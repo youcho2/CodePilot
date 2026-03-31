@@ -97,6 +97,13 @@ export async function GET() {
     }
     fileHealth['heartbeat'] = fs.existsSync(path.join(workspacePath, 'HEARTBEAT.md'));
 
+    // Count active scheduled tasks
+    let taskCount = 0;
+    try {
+      const { listScheduledTasks } = await import('@/lib/db');
+      taskCount = listScheduledTasks({ status: 'active' }).length;
+    } catch { /* scheduled_tasks table may not exist yet */ }
+
     return NextResponse.json({
       configured: true,
       name: assistantName || '',
@@ -107,6 +114,7 @@ export async function GET() {
       memoryCount,
       recentDailyDates,
       fileHealth,
+      taskCount,
     });
   } catch (e) {
     console.error('[workspace/summary] GET failed:', e);

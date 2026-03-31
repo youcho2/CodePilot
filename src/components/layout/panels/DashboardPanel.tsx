@@ -27,6 +27,7 @@ interface AssistantSummary {
   memoryCount: number;
   recentDailyDates?: string[];
   fileHealth?: Record<string, boolean>;
+  taskCount?: number;
 }
 
 export function DashboardPanel() {
@@ -507,6 +508,11 @@ function AssistantStatusCard({ summary, t }: {
           <Brain size={12} className="text-muted-foreground" />
           <span className="flex-1 text-muted-foreground">{t('assistant.panel.memories' as TranslationKey)}</span>
           <span className="text-foreground">{summary.memoryCount}</span>
+        </div>
+        <div className="flex items-center gap-2 text-xs">
+          <Clock size={12} className="text-muted-foreground" />
+          <span className="flex-1 text-muted-foreground">{t('tasks.title' as TranslationKey)}</span>
+          <span className="text-foreground">{summary.taskCount || 0}</span>
         </div>
       </div>
 

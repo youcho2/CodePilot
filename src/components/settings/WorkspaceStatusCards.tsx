@@ -47,7 +47,7 @@ export function OnboardingCard({ onboardingComplete, creatingSession, onStartOnb
   );
 }
 
-// ── Daily Check-in Card ──
+// ── Heartbeat Card ──
 
 interface CheckInCardProps {
   lastCheckInDate: string | null;
@@ -66,18 +66,18 @@ export function CheckInCard({ lastCheckInDate, checkInDoneToday, creatingSession
     <div className="rounded-lg border border-border/50 p-4 space-y-3">
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-sm font-medium">{t('assistant.checkInTitle')}</h2>
-          <p className="text-xs text-muted-foreground mt-1">{t('assistant.checkInDesc')}</p>
+          <h2 className="text-sm font-medium">{t('assistant.heartbeatTitle')}</h2>
+          <p className="text-xs text-muted-foreground mt-1">{t('assistant.heartbeatDesc')}</p>
           <p className="text-xs mt-1">
             {lastCheckInDate && (
               <span className="text-muted-foreground">
-                {t('assistant.lastCheckIn')}: {lastCheckInDate}
+                {t('assistant.lastHeartbeatLabel')}: {lastCheckInDate}
               </span>
             )}
             {" "}
             {checkInDoneToday
-              ? <span className="text-status-success-foreground">{t('assistant.checkInToday')}</span>
-              : <span className="text-status-warning-foreground">{t('assistant.checkInNeeded')}</span>
+              ? <span className="text-status-success-foreground">{t('assistant.heartbeatOk')}</span>
+              : <span className="text-status-warning-foreground">{t('assistant.heartbeatNeeded')}</span>
             }
           </p>
         </div>
@@ -90,15 +90,15 @@ export function CheckInCard({ lastCheckInDate, checkInDoneToday, creatingSession
           {creatingSession ? (
             <SpinnerGap size={14} className="animate-spin" />
           ) : (
-            t('assistant.startCheckIn')
+            t('assistant.startHeartbeat')
           )}
         </Button>
       </div>
       <div className="flex items-center justify-between border-t border-border/30 pt-2">
         <div>
-          <p className="text-xs font-medium">{isZh ? '自动每日询问' : 'Auto daily check-in'}</p>
+          <p className="text-xs font-medium">{isZh ? '启用心跳检测' : 'Enable heartbeat'}</p>
           <p className="text-[11px] text-muted-foreground">
-            {isZh ? '打开助理项目对话时自动触发每日询问' : 'Automatically trigger daily check-in when opening assistant project'}
+            {isZh ? '启用后，助理每次访问时检查 HEARTBEAT.md 并按需汇报' : 'When enabled, the assistant checks HEARTBEAT.md on each visit and reports if needed'}
           </p>
         </div>
         <Switch checked={autoTriggerEnabled} onCheckedChange={onAutoTriggerChange} />

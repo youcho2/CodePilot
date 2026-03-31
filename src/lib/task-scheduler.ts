@@ -103,6 +103,22 @@ async function executeDueTask(task: ScheduledTask): Promise<void> {
       );
     }
 
+    // Insert result as assistant message in the task's session (or latest assistant session)
+    try {
+      const { addMessage, getSetting, getLatestSessionByWorkingDirectory } = await import('@/lib/db');
+      const workspacePath = getSetting('assistant_workspace_path');
+      let targetSessionId = task.session_id;
+
+      if (!targetSessionId && workspacePath) {
+        const session = getLatestSessionByWorkingDirectory(workspacePath);
+        if (session) targetSessionId = session.id;
+      }
+
+      if (targetSessionId) {
+        addMessage(targetSessionId, 'assistant', `📋 **${task.name}** (定时任务)\n\n${result}`);
+      }
+    } catch { /* best effort */ }
+
     console.log(`[scheduler] Task ${task.id} (${task.name}) completed`);
   } catch (err) {
     const errorMsg = err instanceof Error ? err.message : 'Unknown error';
@@ -126,6 +142,22 @@ async function executeDueTask(task: ScheduledTask): Promise<void> {
         'urgent',
       );
     }
+
+    // Insert error as assistant message in the task's session
+    try {
+      const { addMessage, getSetting, getLatestSessionByWorkingDirectory } = await import('@/lib/db');
+      const workspacePath = getSetting('assistant_workspace_path');
+      let targetSessionId = task.session_id;
+
+      if (!targetSessionId && workspacePath) {
+        const session = getLatestSessionByWorkingDirectory(workspacePath);
+        if (session) targetSessionId = session.id;
+      }
+
+      if (targetSessionId) {
+        addMessage(targetSessionId, 'assistant', `❌ **${task.name}** (定时任务失败)\n\n${errorMsg}`);
+      }
+    } catch { /* best effort */ }
 
     console.error(`[scheduler] Task ${task.id} (${task.name}) error (${errors}x):`, errorMsg);
   }
