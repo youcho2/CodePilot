@@ -224,7 +224,7 @@ export function AssistantWorkspaceSection() {
         case 'existing_workspace':
           setConfirmDialog({
             kind: 'existing_workspace',
-            summary: data.summary || { onboardingComplete: false, lastCheckInDate: null, fileCount: 0 },
+            summary: data.summary || { onboardingComplete: false, lastHeartbeatDate: null, fileCount: 0 },
           });
           break;
         case 'partial_workspace':
@@ -336,7 +336,7 @@ export function AssistantWorkspaceSection() {
   }
 
   const today = getLocalDateString();
-  const checkInDoneToday = workspace?.state?.lastCheckInDate === today;
+  const checkInDoneToday = workspace?.state?.lastHeartbeatDate === today;
 
   const tabs: Array<{ id: TabId; label: string }> = [
     { id: 'files', label: t('assistant.fileStatus') },
@@ -433,22 +433,22 @@ export function AssistantWorkspaceSection() {
       {/* Daily Check-in Card */}
       {workspace?.path && workspace.valid !== false && workspace.state?.onboardingComplete && (
         <CheckInCard
-          lastCheckInDate={workspace.state?.lastCheckInDate ?? null}
+          lastCheckInDate={workspace.state?.lastHeartbeatDate ?? null}
           checkInDoneToday={checkInDoneToday}
           creatingSession={creatingSession}
-          autoTriggerEnabled={workspace.state?.dailyCheckInEnabled === true}
+          autoTriggerEnabled={workspace.state?.heartbeatEnabled === true}
           onStartCheckIn={handleStartCheckIn}
           onAutoTriggerChange={async (enabled) => {
             try {
               const res = await fetch('/api/settings/workspace', {
                 method: 'PATCH',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ dailyCheckInEnabled: enabled }),
+                body: JSON.stringify({ heartbeatEnabled: enabled }),
               });
               if (!res.ok) return; // don't flip UI on failure
               setWorkspace((prev) => prev && prev.state ? {
                 ...prev,
-                state: { ...prev.state, dailyCheckInEnabled: enabled },
+                state: { ...prev.state, heartbeatEnabled: enabled },
               } : prev);
             } catch { /* network error — leave UI unchanged */ }
           }}

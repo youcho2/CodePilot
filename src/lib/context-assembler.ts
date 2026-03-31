@@ -61,7 +61,7 @@ export async function assembleContext(config: ContextAssemblyConfig): Promise<As
       isAssistantProject = sessionWd === workspacePath;
 
       if (isAssistantProject) {
-        const { loadWorkspaceFiles, assembleWorkspacePrompt, loadState, needsDailyCheckIn } =
+        const { loadWorkspaceFiles, assembleWorkspacePrompt, loadState, shouldRunHeartbeat } =
           await import('@/lib/assistant-workspace');
 
         // Incremental reindex BEFORE search so current turn sees latest content
@@ -94,8 +94,11 @@ export async function assembleContext(config: ContextAssemblyConfig): Promise<As
 
         if (!state.onboardingComplete) {
           assistantProjectInstructions = buildOnboardingInstructions();
-        } else if (needsDailyCheckIn(state)) {
-          assistantProjectInstructions = buildCheckinInstructions();
+        } else if (shouldRunHeartbeat(state)) {
+          assistantProjectInstructions = buildHeartbeatInstructions();
+        } else {
+          // Phase 3: Progressive file update guidance for completed onboarding
+          assistantProjectInstructions = buildProgressiveUpdateInstructions();
         }
       }
     }
@@ -175,61 +178,73 @@ export async function assembleContext(config: ContextAssemblyConfig): Promise<As
 
 function buildOnboardingInstructions(): string {
   return `<assistant-project-task type="onboarding">
-You are now in the assistant workspace onboarding session. Your task is to interview the user to build their profile.
+你正在进行助理工作区的首次设置。通过自然对话了解用户，围绕以下主题展开：
 
-Ask the following 13 questions ONE AT A TIME. Wait for the user's answer before asking the next question. Be conversational and friendly.
+1. 关于你：怎么称呼你？你的角色和主要工作是什么？有什么偏好？
+2. 关于我：你希望我是什么风格？有什么边界和禁区？
+3. 关于工作区：你的文件和笔记怎么组织？有什么习惯？
 
-1. How should I address you?
-2. What name should I use for myself?
-3. Do you prefer "concise and direct" or "detailed explanations"?
-4. Do you prefer "minimal interruptions" or "proactive suggestions"?
-5. What are your three hard boundaries?
-6. What are your three most important current goals?
-7. Do you prefer output as "lists", "reports", or "conversation summaries"?
-8. What information may be written to long-term memory?
-9. What information must never be written to long-term memory?
-10. What three things should I do first when entering a project?
-11. How do you organize your materials? (by project / time / topic / mixed)
-12. Where should new information go by default?
-13. How should completed tasks be archived?
+规则：
+- 用自然对话方式展开，不要一次列出所有问题
+- 每轮只问 1-2 个相关的问题，根据用户的回答深入
+- 至少 3 轮对话后，如果用户表示 OK/可以了/差不多了/够了，进入完成流程
+- 用户随时主动继续聊就继续收集信息，不要打断
+- 用户明确说结束就立即进入完成流程
+- 完成时输出以下格式，JSON 中的 key 可以自由命名，涵盖你收集到的所有信息：
 
-After the user answers the LAST question (Q13), you MUST immediately output the completion block below. Do NOT wait for the user to say anything else. Do NOT ask for confirmation. Just output the block right after your response to Q13.
+\\\`\\\`\\\`onboarding-complete
+{"name":"用户称呼","assistant_name":"助理名字","style":"沟通风格偏好","boundaries":"边界和禁区","goals":"当前目标","organization":"工作区组织方式","preferences":"其他偏好"}
+\\\`\\\`\\\`
 
-CRITICAL FORMATTING RULES for the completion block:
-- Each value must be a single line (replace any newlines with spaces)
-- Escape all double quotes inside values with backslash: \\"
-- Do NOT use single quotes for JSON keys or values
-- Do NOT add trailing commas
-- The JSON must be on a SINGLE line
-
-\`\`\`onboarding-complete
-{"q1":"answer1","q2":"answer2","q3":"answer3","q4":"answer4","q5":"answer5","q6":"answer6","q7":"answer7","q8":"answer8","q9":"answer9","q10":"answer10","q11":"answer11","q12":"answer12","q13":"answer13"}
-\`\`\`
-
-After outputting the completion block, tell the user that the setup is complete and the system is now initializing their workspace. Keep this message brief and friendly.
-
-Do NOT try to write files yourself. The system will automatically generate soul.md, user.md, claude.md, memory.md, config.json, and taxonomy.json from your collected answers.
-
-Start by greeting the user and asking the first question.
+- 输出 fence 后，明确告知用户："初始设置完成！我已经根据我们的对话生成了配置文件。从现在开始，我会按照这些设置来帮你。"
+- 不要自己写文件，系统会自动从你收集的信息生成 soul.md、user.md、claude.md 和 memory.md
+- 整个过程保持友好、自然，像两个人第一次认识在聊天
 </assistant-project-task>`;
 }
 
-function buildCheckinInstructions(): string {
-  return `<assistant-project-task type="daily-checkin">
-You are now in the assistant workspace daily check-in session. Ask the user these 3 questions ONE AT A TIME:
+function buildHeartbeatInstructions(): string {
+  return `<assistant-project-task type="heartbeat">
+这是一次心跳检查。请按照 HEARTBEAT.md 中的检查清单逐项检查。
 
-1. What did you work on or accomplish today?
-2. Any changes to your current priorities or goals?
-3. Anything you'd like me to remember going forward?
-
-After collecting all 3 answers, output a summary in exactly this format:
-
-\`\`\`checkin-complete
-{"q1":"answer1","q2":"answer2","q3":"answer3"}
-\`\`\`
-
-Do NOT try to write files yourself. The system will automatically write a daily memory entry and update user.md from your collected answers.
-
-Start by greeting the user and asking the first question.
+规则：
+- 如果所有检查项都无需关注，回复中包含 HEARTBEAT_OK
+- 如果有需要告诉用户的事情，自然地说出来，不要用问卷格式
+- 你可以在对话中更新文件：
+  - memory/daily/{今天日期}.md：追加今天的记录
+  - memory.md：追加新发现的稳定偏好或事实
+  - user.md：更新用户画像（更新后必须告知用户）
+  - HEARTBEAT.md：更新检查清单（如果用户要求或你发现需要调整）
+- 不要问固定的问卷问题
+- 不要重复上次已讨论的内容
+- 检查完毕后，如果没事就只回复 HEARTBEAT_OK，不要加多余的寒暄
 </assistant-project-task>`;
+}
+
+function buildProgressiveUpdateInstructions(): string {
+  return `<assistant-memory-guidance>
+## 记忆与文件更新
+
+你可以在对话中随时更新 workspace 文件来记住重要信息：
+
+### 身份文件（修改后必须告知用户）
+- soul.md：你的风格和行为规则变化时更新
+- user.md：用户画像变化时更新
+- claude.md：执行规则变化时更新
+
+### 记忆文件（可以静默更新）
+- memory.md：追加稳定的事实和偏好（只追加，不覆写）
+- memory/daily/{日期}.md：记录今天的工作和决策
+
+### 更新判断标准
+- 用户明确要求记住/修改某规则 → 立即更新
+- 用户连续表达同一偏好 → 写入 user.md 或 soul.md
+- 重要决策或经验总结 → 写入 memory.md
+- 日常工作记录 → 写入 daily memory
+- 不确定是否值得记录 → 先不写，多观察
+
+### 禁止
+- 不要在身份文件中存储敏感信息（密码、API key）
+- 不要覆写 memory.md 已有内容（只追加）
+- 不要在没有告知用户的情况下修改 soul/user/claude.md
+</assistant-memory-guidance>`;
 }

@@ -597,13 +597,17 @@ export interface SetupState {
 
 export interface AssistantWorkspaceState {
   onboardingComplete: boolean;
-  lastCheckInDate: string | null;
+  /** @deprecated Use lastHeartbeatDate instead */
+  lastCheckInDate?: string | null;
+  lastHeartbeatDate: string | null;
+  lastHeartbeatText?: string;
+  lastHeartbeatSentAt?: number;
+  /** @deprecated Use heartbeatEnabled instead */
+  dailyCheckInEnabled?: boolean;
+  heartbeatEnabled: boolean;
   schemaVersion: number;
   hookTriggeredSessionId?: string;
-  /** ISO timestamp when hookTriggeredSessionId was set — used for staleness detection */
   hookTriggeredAt?: string;
-  /** When false, daily check-in auto-trigger is disabled (default: true) */
-  dailyCheckInEnabled?: boolean;
 }
 
 export interface AssistantWorkspaceFiles {
@@ -618,6 +622,7 @@ export interface AssistantWorkspaceFilesV2 extends AssistantWorkspaceFiles {
   rootReadme?: string;
   rootPath?: string;
   rootDir?: string;
+  heartbeatMd?: string;
 }
 
 // ==========================================
@@ -633,7 +638,9 @@ export interface WorkspaceInspectResult {
   workspaceStatus: 'empty' | 'normal_directory' | 'existing_workspace' | 'partial_workspace' | 'invalid';
   summary?: {
     onboardingComplete: boolean;
-    lastCheckInDate: string | null;
+    lastHeartbeatDate: string | null;
+    /** @deprecated Use lastHeartbeatDate instead */
+    lastCheckInDate?: string | null;
     fileCount: number;
   };
 }

@@ -166,9 +166,10 @@ export function useAssistantTrigger({
 
       const today = getLocalDateString();
       const needsOnboarding = !state.onboardingComplete;
-      const needsCheckIn = state.onboardingComplete && state.dailyCheckInEnabled === true && state.lastCheckInDate !== today;
+      const lastDate = state.lastHeartbeatDate ?? state.lastCheckInDate;
+      const needsHeartbeat = state.onboardingComplete && state.heartbeatEnabled === true && lastDate !== today;
 
-      if (!needsOnboarding && !needsCheckIn) return;
+      if (!needsOnboarding && !needsHeartbeat) return;
 
       // ── Compensation: check if a past message already contains a completion fence ──
       // This handles the case where the server-side detection also missed (e.g. crash/restart)
@@ -208,9 +209,9 @@ export function useAssistantTrigger({
         }
       }
 
-      // For daily check-in, only trigger in the most recent session for this workspace.
-      // This prevents older sessions from hijacking the check-in when reopened.
-      if (needsCheckIn) {
+      // For heartbeat, only trigger in the most recent session for this workspace.
+      // This prevents older sessions from hijacking the heartbeat when reopened.
+      if (needsHeartbeat) {
         const latestRes = await fetch(`/api/workspace/latest-session?workingDirectory=${encodeURIComponent(data.path)}`);
         if (latestRes.ok) {
           const { sessionId: latestSessionId } = await latestRes.json();
@@ -262,7 +263,7 @@ export function useAssistantTrigger({
       // Use autoTrigger: the message is invisible (no user bubble, no title update)
       const triggerMsg = needsOnboarding
         ? '请开始助理引导设置。'
-        : '请开始每日问询。';
+        : '请进行心跳检查。';
       startStream({
         sessionId,
         content: triggerMsg,

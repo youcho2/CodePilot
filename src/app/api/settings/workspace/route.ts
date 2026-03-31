@@ -183,7 +183,7 @@ export async function PUT(request: NextRequest) {
   }
 }
 
-/** PATCH — update individual state fields (e.g. dailyCheckInEnabled toggle) */
+/** PATCH — update individual state fields (e.g. heartbeatEnabled toggle) */
 export async function PATCH(request: NextRequest) {
   try {
     const body = await request.json();
@@ -195,8 +195,8 @@ export async function PATCH(request: NextRequest) {
     const state = loadState(workspacePath);
 
     // Apply supported state patches
-    if ('dailyCheckInEnabled' in body && typeof body.dailyCheckInEnabled === 'boolean') {
-      state.dailyCheckInEnabled = body.dailyCheckInEnabled;
+    if ('heartbeatEnabled' in body && typeof body.heartbeatEnabled === 'boolean') {
+      state.heartbeatEnabled = body.heartbeatEnabled;
     }
 
     saveState(workspacePath, state);
