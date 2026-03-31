@@ -170,14 +170,16 @@ export function useAssistantTrigger({
       const needsHeartbeat = state.onboardingComplete && state.heartbeatEnabled === true && lastDate !== today;
 
       // Onboarding is now handled by the frontend Wizard component (OnboardingWizard.tsx).
-      // Only auto-trigger heartbeat check-ins here.
       if (needsOnboarding) return;
 
-      if (!needsHeartbeat) return;
+      // Check if buddy welcome is needed (no buddy + empty session)
+      const needsBuddyWelcome = state.onboardingComplete && !state.buddy && initialMessages.length === 0;
+
+      if (!needsHeartbeat && !needsBuddyWelcome) return;
 
       // For heartbeat, only trigger in the most recent session for this workspace.
-      // This prevents older sessions from hijacking the heartbeat when reopened.
-      if (needsHeartbeat) {
+      // Buddy welcome triggers in ANY empty session (not restricted to latest).
+      if (needsHeartbeat && !needsBuddyWelcome) {
         const latestRes = await fetch(`/api/workspace/latest-session?workingDirectory=${encodeURIComponent(data.path)}`);
         if (latestRes.ok) {
           const { sessionId: latestSessionId } = await latestRes.json();
@@ -227,7 +229,9 @@ export function useAssistantTrigger({
       }
 
       // Use autoTrigger: the message is invisible (no user bubble, no title update)
-      const triggerMsg = '请进行心跳检查。';
+      const triggerMsg = needsBuddyWelcome
+        ? '请做自我介绍并引导用户领养伙伴。'
+        : '请进行心跳检查。';
       startStream({
         sessionId,
         content: triggerMsg,
