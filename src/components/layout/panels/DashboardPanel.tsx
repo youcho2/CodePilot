@@ -274,7 +274,7 @@ export function DashboardPanel() {
             </span>
           </div>
           <div className="flex items-center gap-1">
-            {widgets.length > 0 && (
+            {(widgets.length > 0 || isAssistantWorkspace) && (
               <>
                 {/* Auto-refresh toggle */}
                 <button
@@ -291,7 +291,16 @@ export function DashboardPanel() {
                 <Button
                   variant="ghost"
                   size="icon-sm"
-                  onClick={handleRefreshAll}
+                  onClick={() => {
+                    // Refresh widgets + assistant status
+                    handleRefreshAll();
+                    if (isAssistantWorkspace) {
+                      fetch('/api/workspace/summary')
+                        .then(r => r.ok ? r.json() : null)
+                        .then(data => setAssistantSummary(data))
+                        .catch(() => {});
+                    }
+                  }}
                   disabled={refreshingAll}
                   title={t('dashboard.refresh')}
                 >
