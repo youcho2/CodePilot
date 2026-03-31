@@ -4,20 +4,26 @@ import { useEffect, useState } from 'react';
 import { usePanel } from '@/hooks/usePanel';
 import { Button } from '@/components/ui/button';
 import { AssistantAvatar } from '@/components/ui/AssistantAvatar';
-import { X, Gear, Brain, Heart, Clock, File } from '@/components/ui/icon';
+import { X, Gear, Brain, Heart, Clock, File, Check, Warning } from '@/components/ui/icon';
+import { useTranslation } from '@/hooks/useTranslation';
 import { useRouter } from 'next/navigation';
+import type { TranslationKey } from '@/i18n';
 
 interface AssistantSummary {
   configured: boolean;
   name: string;
+  styleHint?: string;
   onboardingComplete: boolean;
   lastHeartbeatDate: string | null;
   heartbeatEnabled: boolean;
   memoryCount: number;
+  recentDailyDates?: string[];
+  fileHealth?: Record<string, boolean>;
 }
 
 export function AssistantPanel() {
   const { setAssistantPanelOpen } = usePanel();
+  const { t } = useTranslation();
   const router = useRouter();
   const [summary, setSummary] = useState<AssistantSummary | null>(null);
   const [loading, setLoading] = useState(true);
@@ -36,9 +42,9 @@ export function AssistantPanel() {
       {/* Header */}
       <div className="flex items-center justify-between border-b border-border px-3 py-2">
         <div className="flex items-center gap-2">
-          {summary?.name && <AssistantAvatar name={summary.name} size={20} />}
+          <AssistantAvatar name={summary?.name || 'assistant'} size={20} />
           <span className="text-sm font-medium">
-            {summary?.name || 'Assistant'}
+            {summary?.name || t('assistant.defaultName' as TranslationKey)}
           </span>
         </div>
         <Button
@@ -51,67 +57,114 @@ export function AssistantPanel() {
       </div>
 
       {/* Content */}
-      <div className="flex-1 overflow-y-auto p-3 space-y-4">
+      <div className="flex-1 overflow-y-auto p-3 space-y-5">
         {loading ? (
-          <div className="text-sm text-muted-foreground">Loading...</div>
+          <div className="text-sm text-muted-foreground">{t('assistant.panel.loading' as TranslationKey)}</div>
         ) : !summary?.configured ? (
-          <div className="text-sm text-muted-foreground">
-            Assistant not configured.
+          <div className="text-center py-8 space-y-3">
+            <Brain size={32} className="mx-auto text-muted-foreground/40" />
+            <p className="text-sm text-muted-foreground">{t('assistant.panel.notConfigured' as TranslationKey)}</p>
+            <Button size="sm" onClick={() => router.push('/settings?tab=assistant')}>
+              {t('assistant.panel.setup' as TranslationKey)}
+            </Button>
           </div>
         ) : (
           <>
-            {/* Status Section */}
+            {/* Personality Hint */}
+            {summary.styleHint && (
+              <section>
+                <p className="text-xs text-muted-foreground italic leading-relaxed">
+                  &ldquo;{summary.styleHint}&rdquo;
+                </p>
+              </section>
+            )}
+
+            {/* Status */}
             <section>
-              <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-2">
-                Status
+              <h3 className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider mb-2">
+                {t('assistant.panel.status' as TranslationKey)}
               </h3>
-              <div className="space-y-2">
+              <div className="space-y-1.5">
                 <StatusRow
-                  icon={<Heart size={14} />}
-                  label="Heartbeat"
+                  icon={<Heart size={13} />}
+                  label={t('assistant.panel.heartbeat' as TranslationKey)}
                   value={summary.heartbeatEnabled
-                    ? summary.lastHeartbeatDate || 'Enabled'
-                    : 'Disabled'}
+                    ? summary.lastHeartbeatDate || t('assistant.panel.enabled' as TranslationKey)
+                    : t('assistant.panel.disabled' as TranslationKey)}
                   status={summary.heartbeatEnabled ? 'ok' : 'off'}
                 />
                 <StatusRow
-                  icon={<Brain size={14} />}
-                  label="Memories"
-                  value={`${summary.memoryCount} files`}
+                  icon={<Brain size={13} />}
+                  label={t('assistant.panel.memories' as TranslationKey)}
+                  value={`${summary.memoryCount}`}
                   status="ok"
-                />
-                <StatusRow
-                  icon={<File size={14} />}
-                  label="Onboarding"
-                  value={summary.onboardingComplete ? 'Complete' : 'Not done'}
-                  status={summary.onboardingComplete ? 'ok' : 'warn'}
                 />
               </div>
             </section>
 
+            {/* Recent Memories */}
+            {summary.recentDailyDates && summary.recentDailyDates.length > 0 && (
+              <section>
+                <h3 className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider mb-2">
+                  {t('assistant.panel.recentMemories' as TranslationKey)}
+                </h3>
+                <div className="space-y-1">
+                  {summary.recentDailyDates.map(date => (
+                    <div key={date} className="flex items-center gap-2 text-xs text-muted-foreground">
+                      <Clock size={12} />
+                      <span>{date}</span>
+                    </div>
+                  ))}
+                </div>
+              </section>
+            )}
+
+            {/* Workspace Files */}
+            {summary.fileHealth && (
+              <section>
+                <h3 className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider mb-2">
+                  {t('assistant.panel.files' as TranslationKey)}
+                </h3>
+                <div className="space-y-1">
+                  {Object.entries(summary.fileHealth).map(([key, exists]) => (
+                    <div key={key} className="flex items-center gap-2 text-xs">
+                      {exists ? (
+                        <Check size={12} className="text-status-success" />
+                      ) : (
+                        <Warning size={12} className="text-status-warning" />
+                      )}
+                      <span className={exists ? 'text-muted-foreground' : 'text-status-warning'}>
+                        {key}.md
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </section>
+            )}
+
             {/* Quick Links */}
             <section>
-              <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-2">
-                Settings
+              <h3 className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider mb-2">
+                {t('assistant.panel.settings' as TranslationKey)}
               </h3>
               <div className="space-y-1">
                 <Button
                   variant="ghost"
                   size="sm"
-                  className="w-full justify-start gap-2 text-xs"
+                  className="w-full justify-start gap-2 text-xs h-7"
                   onClick={() => router.push('/settings?tab=assistant')}
                 >
-                  <Gear size={14} />
-                  Assistant Settings
+                  <Gear size={13} />
+                  {t('assistant.panel.assistantSettings' as TranslationKey)}
                 </Button>
                 <Button
                   variant="ghost"
                   size="sm"
-                  className="w-full justify-start gap-2 text-xs"
+                  className="w-full justify-start gap-2 text-xs h-7"
                   onClick={() => router.push('/settings?tab=assistant&section=heartbeat')}
                 >
-                  <Clock size={14} />
-                  Edit HEARTBEAT.md
+                  <Clock size={13} />
+                  {t('assistant.panel.editHeartbeat' as TranslationKey)}
                 </Button>
               </div>
             </section>
