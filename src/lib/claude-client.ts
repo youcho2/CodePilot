@@ -1175,7 +1175,9 @@ export function streamClaude(options: ClaudeStreamOptions): ReadableStream<strin
                       message: taskMsg.summary || '',
                     }),
                   }));
-                  notifyGeneric(title, taskMsg.summary || '', telegramOpts).catch(() => {});
+                  if (!autoTrigger) {
+                    notifyGeneric(title, taskMsg.summary || '', telegramOpts).catch(() => {});
+                  }
                 }
               }
               break;
