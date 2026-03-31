@@ -8,10 +8,14 @@
 
 | Phase | 内容 | 状态 | 备注 |
 |-------|------|------|------|
-| Phase 1 | Onboarding 重写（对话式 bootstrap） | 📋 待开始 | |
-| Phase 2 | Check-in → Heartbeat | 📋 待开始 | |
-| Phase 3 | 渐进式文件更新 | 📋 待开始 | |
-| Phase 4 | Memory Flush（压缩前自动写盘） | 📋 待开始 | 依赖 SDK 能力确认 |
+| Phase 1 | Onboarding 重写（对话式 bootstrap） | ✅ 已完成 | commit `93fd470` |
+| Phase 2 | Check-in → Heartbeat | ✅ 已完成 | commit `93fd470` + 4 轮 Codex 审核修复 |
+| Phase 3 | 渐进式文件更新 | ✅ 已完成 | commit `93fd470` |
+| Phase 4 | Memory Flush（压缩前自动写盘） | 📋 待开始 | 依赖 SDK compaction hook |
+| V3.1 | Memory Search MCP + 记忆移出 prompt | ✅ 已完成 | commit `c92ea99` |
+| V3.1 | 时间衰减 + Obsidian 感知 | ✅ 已完成 | commit `1c5c349` |
+| V3.1 | Transcript 裁剪 (is_heartbeat_ack) | ✅ 已完成 | commit `c92ea99` + 修复 `d4b30eb` |
+| V3.1 | Telegram 通知静默 | ✅ 已完成 | commit `8933001` + `72c27f2` + `c87a3bb` |
 
 ## 背景
 
