@@ -11,7 +11,6 @@ import {
   Copy,
   ArrowSquareOut,
 } from "@/components/ui/icon";
-import { AssistantAvatar } from "@/components/ui/AssistantAvatar";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -141,7 +140,9 @@ export function ProjectGroupHeader({
     }
 
     const folderName = displayName;
-    const nameDisplay = assistantName || t('assistant.defaultName' as TranslationKey);
+    const nameDisplay = buddyEmoji
+      ? (assistantName || t('assistant.defaultName' as TranslationKey))
+      : t('buddy.adoptPrompt' as TranslationKey);
 
     return (
       <div

@@ -9,11 +9,10 @@ import { usePanel } from "@/hooks/usePanel";
 import { useTranslation } from "@/hooks/useTranslation";
 import { ResizeHandle } from "@/components/layout/ResizeHandle";
 import { WidgetRenderer } from "@/components/chat/WidgetRenderer";
-import { AssistantAvatar } from "@/components/ui/AssistantAvatar";
 import type { DashboardConfig, DashboardWidget } from "@/types/dashboard";
 import type { TranslationKey } from "@/i18n";
 import { cn } from "@/lib/utils";
-import { RARITY_DISPLAY, STAT_LABEL, rarityColor, type BuddyData } from "@/lib/buddy";
+import { RARITY_DISPLAY, STAT_LABEL, SPECIES_LABEL, rarityColor, type BuddyData } from "@/lib/buddy";
 
 const DASHBOARD_MIN_WIDTH = 320;
 const DASHBOARD_MAX_WIDTH = 800;
@@ -268,8 +267,8 @@ export function DashboardPanel() {
         {/* Header */}
         <div className="flex h-10 shrink-0 items-center justify-between px-3">
           <div className="flex items-center gap-2">
-            {isAssistantWorkspace && assistantSummary?.name ? (
-              <AssistantAvatar name={assistantSummary.name} size={18} />
+            {isAssistantWorkspace ? (
+              <span className="text-base">{assistantSummary?.buddy?.emoji || '🥚'}</span>
             ) : null}
             <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
               {isAssistantWorkspace && assistantSummary?.name
@@ -471,6 +470,16 @@ function DashboardWidgetCard({ widget, refreshing, isFirst, isLast, style, onRef
   );
 }
 
+function rarityBorderClass(rarity: string): string {
+  switch (rarity) {
+    case 'legendary': return 'border-amber-500/30 shadow-amber-500/10 shadow-md';
+    case 'epic': return 'border-purple-500/30';
+    case 'rare': return 'border-blue-500/30';
+    case 'uncommon': return 'border-green-500/30';
+    default: return 'border-primary/10';
+  }
+}
+
 /** Built-in assistant status card — injected at the top of assistant workspace dashboards. */
 function AssistantStatusCard({ summary, t }: {
   summary: AssistantSummary;
@@ -478,10 +487,13 @@ function AssistantStatusCard({ summary, t }: {
 }) {
   const router = useRouter();
   const buddy = summary.buddy;
+  const cardBorder = buddy
+    ? rarityBorderClass(buddy.rarity)
+    : 'border-primary/10';
 
   return (
-    <div className="rounded-lg border border-primary/10 bg-primary/[0.03] p-3 space-y-3">
-      {/* Header: Emoji + Name + Rarity (when buddy exists) or plain avatar */}
+    <div className={cn('rounded-lg border bg-primary/[0.03] p-3 space-y-3', cardBorder)}>
+      {/* Header: Emoji + Name + Species + Rarity (when buddy exists) or plain avatar */}
       <div className="flex items-center gap-2">
         <span className="text-2xl">{buddy?.emoji || '🥚'}</span>
         <div className="flex-1 min-w-0">
@@ -495,9 +507,19 @@ function AssistantStatusCard({ summary, t }: {
               </span>
             )}
           </div>
-          {summary.styleHint && (
+          {buddy && (
+            <div className="text-[10px] text-muted-foreground truncate">
+              {SPECIES_LABEL[buddy.species]?.zh || buddy.species}
+            </div>
+          )}
+          {!buddy && summary.styleHint && (
             <div className="text-[10px] text-muted-foreground italic truncate">
               {summary.styleHint}
+            </div>
+          )}
+          {buddy?.hatchedAt && (
+            <div className="text-[10px] text-muted-foreground/60 truncate">
+              {t('buddy.hatchedOn' as TranslationKey, { date: new Date(buddy.hatchedAt).toLocaleDateString() })}
             </div>
           )}
         </div>
@@ -508,7 +530,9 @@ function AssistantStatusCard({ summary, t }: {
         <div className="space-y-1.5 mt-3">
           {Object.entries(buddy.stats).map(([stat, value]) => (
             <div key={stat} className="flex items-center gap-2 text-[11px]">
-              <span className="w-8 text-muted-foreground truncate">{STAT_LABEL[stat]?.zh || stat}</span>
+              <span className="w-8 text-muted-foreground truncate">
+                {t(`buddy.${stat}` as TranslationKey) || STAT_LABEL[stat]?.zh || stat}
+              </span>
               <div className="flex-1 h-1.5 rounded-full bg-muted overflow-hidden">
                 <div
                   className={cn('h-full rounded-full', stat === buddy.peakStat ? 'bg-primary' : 'bg-muted-foreground/40')}

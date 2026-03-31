@@ -112,7 +112,22 @@ ${userName ? `I address the user as ${userName}.` : 'I use a friendly, respectfu
     saveState(workspacePath, state);
 
     // Create session
+    const { addMessage } = await import('@/lib/db');
     const session = createSession(undefined, '', undefined, workspacePath, 'code', '');
+
+    // Insert celebration message into the newly created session
+    try {
+      const { SPECIES_LABEL, RARITY_DISPLAY, STAT_LABEL } = await import('@/lib/buddy');
+      const speciesName = SPECIES_LABEL[buddy.species as keyof typeof SPECIES_LABEL]?.zh || buddy.species;
+      const rarityInfo = RARITY_DISPLAY[buddy.rarity as keyof typeof RARITY_DISPLAY];
+      const statsText = Object.entries(buddy.stats)
+        .map(([stat, val]) => `${STAT_LABEL[stat as keyof typeof STAT_LABEL]?.zh || stat}: ${val}`)
+        .join(' \u00B7 ');
+
+      const message = `\uD83C\uDF89 **\u4F60\u7684\u52A9\u7406\u4F19\u4F34\u5B75\u5316\u4E86\uFF01**\n\n${buddy.emoji} **${speciesName}** ${rarityInfo?.stars || ''} ${rarityInfo?.label.zh || buddy.rarity}\n\n${statsText}\n\n\u4ECE\u73B0\u5728\u5F00\u59CB\uFF0C\u8FD9\u4E2A ${speciesName} \u5C06\u4F5C\u4E3A\u4F60\u7684\u52A9\u7406\u4F19\u4F34\uFF0C\u966A\u4F34\u4F60\u7684\u6BCF\u4E00\u6B21\u5BF9\u8BDD\u3002`;
+
+      addMessage(session.id, 'assistant', message);
+    } catch { /* best effort */ }
 
     return NextResponse.json({
       success: true,
