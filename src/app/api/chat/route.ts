@@ -557,8 +557,16 @@ async function collectStreamResponse(
             .map((b) => b.text)
             .join('');
 
+          // Load buddy rarity for extraction interval
+          let buddyRarity: string | undefined;
+          try {
+            const { loadState } = await import('@/lib/assistant-workspace');
+            const st = loadState(workspacePath);
+            buddyRarity = st.buddy?.rarity;
+          } catch { /* ignore */ }
+
           // Only extract if: interval met + AI didn't already write memory this turn
-          if (shouldExtractMemory() && !hasMemoryWritesInResponse(fullTextForMemory)) {
+          if (shouldExtractMemory(buddyRarity) && !hasMemoryWritesInResponse(fullTextForMemory)) {
             const { getMessages: getMsgs } = await import('@/lib/db');
             const { messages: recent } = getMsgs(sessionId, { limit: 6, excludeHeartbeatAck: true });
             const recentForExtraction = recent.map(m => ({ role: m.role, content: m.content }));

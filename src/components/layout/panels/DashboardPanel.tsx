@@ -12,7 +12,7 @@ import { WidgetRenderer } from "@/components/chat/WidgetRenderer";
 import type { DashboardConfig, DashboardWidget } from "@/types/dashboard";
 import type { TranslationKey } from "@/i18n";
 import { cn } from "@/lib/utils";
-import { RARITY_DISPLAY, STAT_LABEL, SPECIES_LABEL, rarityColor, type BuddyData } from "@/lib/buddy";
+import { RARITY_DISPLAY, STAT_LABEL, SPECIES_LABEL, rarityColor, getBuddyTitle, type BuddyData } from "@/lib/buddy";
 
 const DASHBOARD_MIN_WIDTH = 320;
 const DASHBOARD_MAX_WIDTH = 800;
@@ -472,6 +472,17 @@ function DashboardWidgetCard({ widget, refreshing, isFirst, isLast, style, onRef
   );
 }
 
+function getNextRarity(rarity: string): string {
+  const order = ['common', 'uncommon', 'rare', 'epic', 'legendary'];
+  const idx = order.indexOf(rarity);
+  return idx < order.length - 1 ? order[idx + 1]! : rarity;
+}
+
+function getRequiredMemories(rarity: string): number {
+  const reqs: Record<string, number> = { common: 10, uncommon: 30, rare: 60, epic: 100 };
+  return reqs[rarity] || 100;
+}
+
 function rarityBorderClass(rarity: string): string {
   switch (rarity) {
     case 'legendary': return 'border-amber-500/30 shadow-amber-500/10 shadow-md';
@@ -511,6 +522,11 @@ function AssistantStatusCard({ summary, t }: {
               </span>
             )}
           </div>
+          {buddy && getBuddyTitle(buddy as BuddyData) && (
+            <span className="text-[10px] text-muted-foreground italic">
+              &ldquo;{getBuddyTitle(buddy as BuddyData)}&rdquo;
+            </span>
+          )}
           {buddy && (
             <div className="text-[10px] text-muted-foreground truncate">
               {SPECIES_LABEL[buddy.species]?.zh || buddy.species}
@@ -584,6 +600,37 @@ function AssistantStatusCard({ summary, t }: {
               </span>
             </div>
           ))}
+        </div>
+      )}
+
+      {/* Evolution progress (when buddy exists and can potentially evolve) */}
+      {buddy && buddy.rarity !== 'legendary' && (
+        <div className="border-t border-border/30 pt-2 mt-2">
+          <div className="flex items-center justify-between text-[10px] text-muted-foreground mb-1">
+            <span>{t('buddy.evolutionProgress' as TranslationKey)}</span>
+            <span>{t('buddy.nextRarity' as TranslationKey)}: {RARITY_DISPLAY[getNextRarity(buddy.rarity) as keyof typeof RARITY_DISPLAY]?.label.zh}</span>
+          </div>
+          {/* Simple progress indicator based on memory count vs requirement */}
+          <div className="h-1 rounded-full bg-muted overflow-hidden">
+            <div className="h-full rounded-full bg-primary/60" style={{ width: `${Math.min(100, (summary.memoryCount / getRequiredMemories(buddy.rarity)) * 100)}%` }} />
+          </div>
+          {/* Check + evolve button when ready */}
+          <Button
+            variant="ghost"
+            size="sm"
+            className="w-full mt-1.5 gap-1 text-[10px] h-6 text-muted-foreground"
+            onClick={async () => {
+              const res = await fetch('/api/workspace/evolve-buddy', { method: 'POST' });
+              if (res.ok) {
+                const data = await res.json();
+                if (data.evolved) {
+                  window.location.reload();
+                }
+              }
+            }}
+          >
+            {'\u{1F31F}'} {t('buddy.checkEvolution' as TranslationKey)}
+          </Button>
         </div>
       )}
 

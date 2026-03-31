@@ -8,18 +8,28 @@
  * wrote to memory files in this turn (mutual exclusion like Claude Code's hasMemoryWritesSince).
  */
 
-const EXTRACTION_INTERVAL = 3; // Extract every 3 turns
+const DEFAULT_EXTRACTION_INTERVAL = 3; // Extract every 3 turns
 const GLOBAL_KEY = '__memory_extraction_counter__';
 
 /**
- * Check if memory extraction should run for this turn.
- * Returns true every EXTRACTION_INTERVAL assistant turns.
+ * Get extraction interval based on buddy rarity.
+ * Epic+ buddies extract every 2 turns instead of 3.
  */
-export function shouldExtractMemory(): boolean {
+export function getExtractionInterval(buddyRarity?: string): number {
+  if (buddyRarity === 'epic' || buddyRarity === 'legendary') return 2;
+  return DEFAULT_EXTRACTION_INTERVAL;
+}
+
+/**
+ * Check if memory extraction should run for this turn.
+ * Returns true every N assistant turns (interval depends on buddy rarity).
+ */
+export function shouldExtractMemory(buddyRarity?: string): boolean {
+  const interval = getExtractionInterval(buddyRarity);
   const counter = ((globalThis as Record<string, unknown>)[GLOBAL_KEY] as number) || 0;
   const next = counter + 1;
   (globalThis as Record<string, unknown>)[GLOBAL_KEY] = next;
-  return next % EXTRACTION_INTERVAL === 0;
+  return next % interval === 0;
 }
 
 /**

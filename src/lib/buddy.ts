@@ -191,3 +191,174 @@ export function rarityColor(rarity: string): string {
   };
   return colors[rarity] ?? 'text-muted-foreground';
 }
+
+// ── Titles (Uncommon+) ──────────────────────────────────────────
+
+export const TITLE_POOL: Record<string, { en: string; zh: string }[]> = {
+  creativity: [
+    { en: 'Imaginative', zh: '富有想象力的' },
+    { en: 'Inventive', zh: '善于创造的' },
+  ],
+  patience: [
+    { en: 'Diligent', zh: '勤奋的' },
+    { en: 'Warm', zh: '温暖的' },
+  ],
+  insight: [
+    { en: 'Perceptive', zh: '敏锐的' },
+    { en: 'Wise', zh: '睿智的' },
+  ],
+  humor: [
+    { en: 'Witty', zh: '机智的' },
+    { en: 'Cheerful', zh: '开朗的' },
+  ],
+  precision: [
+    { en: 'Meticulous', zh: '细致的' },
+    { en: 'Precise', zh: '精准的' },
+  ],
+};
+
+/**
+ * Get the title prefix for a buddy based on rarity and peak stat.
+ * Common = no title, Uncommon+ = title from peak stat pool.
+ */
+export function getBuddyTitle(buddy: BuddyData, lang: 'en' | 'zh' = 'zh'): string {
+  if (buddy.rarity === 'common') return '';
+  const pool = TITLE_POOL[buddy.peakStat];
+  if (!pool || pool.length === 0) return '';
+  // Deterministic: use species index to pick from pool
+  const idx = SPECIES.indexOf(buddy.species as Species) % pool.length;
+  return pool[idx]?.[lang] || '';
+}
+
+// ── Rarity Abilities ────────────────────────────────────────────
+
+export interface RarityAbilities {
+  title: boolean;              // Uncommon+: has title prefix
+  enhancedPersonality: boolean; // Rare+: stronger soul.md traits
+  memoryBoost: boolean;        // Epic+: faster auto-extraction (every 2 turns instead of 3)
+  legendaryPerks: boolean;     // Legendary: shimmer effect + auto dream
+}
+
+export function getRarityAbilities(rarity: Rarity): RarityAbilities {
+  const rarityOrder: Rarity[] = ['common', 'uncommon', 'rare', 'epic', 'legendary'];
+  const level = rarityOrder.indexOf(rarity);
+  return {
+    title: level >= 1,           // uncommon+
+    enhancedPersonality: level >= 2, // rare+
+    memoryBoost: level >= 3,     // epic+
+    legendaryPerks: level >= 4,  // legendary
+  };
+}
+
+// ── Enhanced Personality (Rare+) ────────────────────────────────
+
+export function getEnhancedPersonalityTraits(buddy: BuddyData, lang: 'en' | 'zh' = 'zh'): string[] {
+  const abilities = getRarityAbilities(buddy.rarity);
+  const traits: string[] = [];
+
+  // Base trait from peak stat (all rarities)
+  traits.push(STAT_PERSONALITY_HINTS[buddy.peakStat][lang]);
+
+  if (abilities.enhancedPersonality) {
+    // Rare+: add secondary stat trait
+    const sortedStats = Object.entries(buddy.stats).sort((a, b) => b[1] - a[1]);
+    const secondStat = sortedStats[1]?.[0] as StatName | undefined;
+    if (secondStat && secondStat !== buddy.peakStat) {
+      traits.push(STAT_PERSONALITY_HINTS[secondStat][lang]);
+    }
+  }
+
+  return traits;
+}
+
+// ── Evolution ───────────────────────────────────────────────────
+
+export interface EvolutionCheck {
+  canEvolve: boolean;
+  currentRarity: Rarity;
+  nextRarity: Rarity | null;
+  memoryCount: number;
+  requiredMemories: number;
+  daysActive: number;
+  requiredDays: number;
+  conversationCount: number;
+  requiredConversations: number;
+}
+
+const EVOLUTION_REQUIREMENTS: Record<Rarity, { memories: number; days: number; conversations: number } | null> = {
+  common: { memories: 10, days: 7, conversations: 20 },       // -> uncommon
+  uncommon: { memories: 30, days: 21, conversations: 50 },     // -> rare
+  rare: { memories: 60, days: 45, conversations: 100 },        // -> epic
+  epic: { memories: 100, days: 90, conversations: 200 },       // -> legendary
+  legendary: null,  // max rarity
+};
+
+const RARITY_ORDER: Rarity[] = ['common', 'uncommon', 'rare', 'epic', 'legendary'];
+
+/**
+ * Check if a buddy can evolve to the next rarity.
+ * Evolution is based on: memory file count + days since hatching + conversation approximation.
+ */
+export function checkEvolution(buddy: BuddyData, memoryCount: number): EvolutionCheck {
+  const currentIdx = RARITY_ORDER.indexOf(buddy.rarity);
+  const nextRarity = currentIdx < RARITY_ORDER.length - 1 ? RARITY_ORDER[currentIdx + 1]! : null;
+  const req = EVOLUTION_REQUIREMENTS[buddy.rarity];
+
+  if (!req || !nextRarity) {
+    return {
+      canEvolve: false,
+      currentRarity: buddy.rarity,
+      nextRarity: null,
+      memoryCount,
+      requiredMemories: 0,
+      daysActive: 0,
+      requiredDays: 0,
+      conversationCount: 0,
+      requiredConversations: 0,
+    };
+  }
+
+  const hatchedAt = new Date(buddy.hatchedAt).getTime();
+  const daysActive = Math.floor((Date.now() - hatchedAt) / (24 * 60 * 60 * 1000));
+  // Approximate conversations from memory count (rough: 3 conversations per memory file)
+  const conversationCount = memoryCount * 3;
+
+  const canEvolve = memoryCount >= req.memories && daysActive >= req.days && conversationCount >= req.conversations;
+
+  return {
+    canEvolve,
+    currentRarity: buddy.rarity,
+    nextRarity,
+    memoryCount,
+    requiredMemories: req.memories,
+    daysActive,
+    requiredDays: req.days,
+    conversationCount,
+    requiredConversations: req.conversations,
+  };
+}
+
+/**
+ * Evolve a buddy to the next rarity. Returns new BuddyData with upgraded rarity + boosted stats.
+ */
+export function evolveBuddy(buddy: BuddyData): BuddyData {
+  const currentIdx = RARITY_ORDER.indexOf(buddy.rarity);
+  if (currentIdx >= RARITY_ORDER.length - 1) return buddy; // already max
+
+  const newRarity = RARITY_ORDER[currentIdx + 1]!;
+  const newFloor = RARITY_FLOORS[newRarity];
+  const oldFloor = RARITY_FLOORS[buddy.rarity];
+  const boost = newFloor - oldFloor; // stat boost from floor increase
+
+  // Boost all stats by the floor difference, cap at 100
+  const newStats = { ...buddy.stats };
+  for (const stat of STAT_NAMES) {
+    newStats[stat] = Math.min(100, (newStats[stat] || 0) + boost);
+  }
+
+  return {
+    ...buddy,
+    rarity: newRarity,
+    stats: newStats,
+  };
+}

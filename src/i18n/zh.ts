@@ -1336,6 +1336,11 @@ const zh: Record<TranslationKey, string> = {
   'buddy.egg': '还未孵化',
   'buddy.adoptPrompt': '领养你的伙伴！',
   'buddy.hatchedOn': '孵化于 {date}',
+  'buddy.evolutionProgress': '进化进度',
+  'buddy.nextRarity': '下一级',
+  'buddy.checkEvolution': '检查进化',
+  'buddy.evolved': '进化成功！',
+  'buddy.title': '称号',
 };
 
 export default zh;

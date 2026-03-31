@@ -1339,6 +1339,11 @@ const en = {
   'buddy.egg': 'Not hatched yet',
   'buddy.adoptPrompt': 'Adopt your buddy!',
   'buddy.hatchedOn': 'Hatched on {date}',
+  'buddy.evolutionProgress': 'Evolution Progress',
+  'buddy.nextRarity': 'Next',
+  'buddy.checkEvolution': 'Check Evolution',
+  'buddy.evolved': 'Evolution successful!',
+  'buddy.title': 'Title',
 } as const;
 
 export type TranslationKey = keyof typeof en;
