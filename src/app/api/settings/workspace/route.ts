@@ -198,6 +198,10 @@ export async function PATCH(request: NextRequest) {
     if ('heartbeatEnabled' in body && typeof body.heartbeatEnabled === 'boolean') {
       state.heartbeatEnabled = body.heartbeatEnabled;
     }
+    // Reset buddy so user can hatch a new one
+    if (body.resetBuddy === true) {
+      state.buddy = undefined;
+    }
     // Reset heartbeat date to force re-trigger on next session open
     if (body.resetHeartbeat === true) {
       state.lastHeartbeatDate = null;

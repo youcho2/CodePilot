@@ -1343,6 +1343,7 @@ const zh: Record<TranslationKey, string> = {
   'buddy.title': '称号',
   'buddy.namePlaceholder': '给你的伙伴起个名字...',
   'buddy.nameHint': '这将是你的伙伴的名字',
+  'buddy.reset': '重置伙伴',
 };
 
 export default zh;

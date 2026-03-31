@@ -13,6 +13,7 @@ import { WorkspaceConfirmDialogs, type ConfirmDialogType } from "./WorkspaceConf
 import { OnboardingCard, CheckInCard } from "./WorkspaceStatusCards";
 import { OnboardingWizard } from "@/components/assistant/OnboardingWizard";
 import { AssistantAvatar } from "@/components/ui/AssistantAvatar";
+import type { TranslationKey } from "@/i18n/en";
 import type { TaxonomyCategoryInfo, IndexStats, WorkspaceInfo, TabId, PathValidationStatus } from "./workspace-types";
 
 interface WorkspaceSummary {
@@ -483,6 +484,27 @@ export function AssistantWorkspaceSection() {
                   <span className="text-[10px] text-muted-foreground">
                     {summary.buddy.rarity === 'common' ? '★' : summary.buddy.rarity === 'uncommon' ? '★★' : summary.buddy.rarity === 'rare' ? '★★★' : summary.buddy.rarity === 'epic' ? '★★★★' : '★★★★★'}
                   </span>
+                )}
+                {summary?.buddy && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="text-[10px] text-muted-foreground hover:text-destructive h-auto p-0 underline"
+                    onClick={async () => {
+                      if (!confirm('Reset your buddy? You will be able to hatch a new one.')) return;
+                      try {
+                        await fetch('/api/settings/workspace', {
+                          method: 'PATCH',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({ resetBuddy: true }),
+                        });
+                        fetchSummary();
+                        fetchWorkspace();
+                      } catch {}
+                    }}
+                  >
+                    {t('buddy.reset' as TranslationKey)}
+                  </Button>
                 )}
               </div>
               {summary.styleHint && (

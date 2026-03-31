@@ -1346,6 +1346,7 @@ const en = {
   'buddy.title': 'Title',
   'buddy.namePlaceholder': 'Give your buddy a name...',
   'buddy.nameHint': 'This will be your buddy\'s name',
+  'buddy.reset': 'Reset buddy',
 } as const;
 
 export type TranslationKey = keyof typeof en;

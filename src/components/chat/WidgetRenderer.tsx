@@ -96,6 +96,16 @@ function WidgetRendererInner({ widgetCode, isStreaming, title, showOverlay, extr
             .catch(() => {});
           break;
 
+        case 'widget:name-buddy':
+          fetch('/api/workspace/hatch-buddy', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ buddyName: e.data.buddyName || '' }),
+          })
+            .then(() => setTimeout(() => window.location.reload(), 500))
+            .catch(() => {});
+          break;
+
         case 'widget:resize':
           if (typeof e.data.height === 'number' && e.data.height > 0) {
             const newH = Math.min(e.data.height + 2, MAX_IFRAME_HEIGHT);
