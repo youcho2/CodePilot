@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useCallback, useEffect, useRef } from "react";
+import { AssistantAvatar } from "@/components/ui/AssistantAvatar";
 import { usePathname } from "next/navigation";
 import {
   GitBranch,
@@ -42,6 +43,17 @@ export function UnifiedTopBar() {
   } = usePanel();
   const { t } = useTranslation();
   const { isWindows } = useClientPlatform();
+  const [assistantName, setAssistantName] = useState('');
+
+  useEffect(() => {
+    if (!isAssistantWorkspace) return;
+    let cancelled = false;
+    fetch('/api/workspace/summary')
+      .then(r => r.ok ? r.json() : null)
+      .then(data => { if (!cancelled) setAssistantName(data?.name || ''); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [isAssistantWorkspace]);
   const pathname = usePathname();
 
   // Only show Git/terminal/panel controls on chat detail routes (/chat/[id]),
@@ -241,7 +253,9 @@ export function UnifiedTopBar() {
                     className={dashboardPanelOpen ? "" : "text-muted-foreground hover:text-foreground"}
                     onClick={() => setDashboardPanelOpen(!dashboardPanelOpen)}
                   >
-                    {isAssistantWorkspace ? <Brain size={16} /> : <ChartBar size={16} />}
+                    {isAssistantWorkspace
+                      ? <AssistantAvatar name={assistantName || 'assistant'} size={16} />
+                      : <ChartBar size={16} />}
                     <span className="sr-only">{t('topBar.dashboard')}</span>
                   </Button>
                 </TooltipTrigger>
