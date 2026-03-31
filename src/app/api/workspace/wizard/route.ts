@@ -3,17 +3,19 @@ import { NextRequest, NextResponse } from 'next/server';
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { userName, userRole, assistantName, style, boundaries, workspacePath } = body as {
+    const { userName, userRole, assistantName, style, boundaries } = body as {
       userName: string;
       userRole: string;
       assistantName: string;
       style: string;
       boundaries: string;
-      workspacePath: string;
     };
 
+    // Always use the configured workspace path from settings — never trust client input
+    const { getSetting } = await import('@/lib/db');
+    const workspacePath = getSetting('assistant_workspace_path');
     if (!workspacePath) {
-      return NextResponse.json({ error: 'No workspace path' }, { status: 400 });
+      return NextResponse.json({ error: 'No workspace path configured. Set it in Settings → Assistant.' }, { status: 400 });
     }
 
     const fs = await import('fs');

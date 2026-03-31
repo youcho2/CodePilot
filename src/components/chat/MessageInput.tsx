@@ -387,11 +387,9 @@ export function MessageInput({
             isAssistantProject={!!isAssistantProject}
             hasMessages={!!hasMessages}
             onAction={(text) => {
-              setInputValue(text);
-              // Auto-submit after a tick so the state update propagates
-              setTimeout(() => {
-                onSend(text);
-              }, 0);
+              onSend(text);
+              // Clear input after send to avoid stale text
+              setInputValue('');
             }}
           />
 

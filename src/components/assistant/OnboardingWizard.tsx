@@ -1,11 +1,13 @@
 'use client';
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useMemo } from 'react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { AssistantAvatar } from '@/components/ui/AssistantAvatar';
+import { useTranslation } from '@/hooks/useTranslation';
+import type { TranslationKey } from '@/i18n';
 
 // ── Types ──
 
@@ -22,20 +24,30 @@ interface WizardData {
   boundaries: string;
 }
 
-const ROLES = [
-  { id: 'developer', label: 'Developer' },
-  { id: 'designer', label: 'Designer' },
-  { id: 'product', label: 'Product Manager' },
-  { id: 'researcher', label: 'Researcher' },
-  { id: 'student', label: 'Student' },
-  { id: 'general', label: 'General' },
-] as const;
+const ROLE_IDS = ['developer', 'designer', 'product', 'researcher', 'student', 'general'] as const;
 
-const STYLES = [
-  { id: 'concise', label: 'Concise', desc: 'Short and direct answers' },
-  { id: 'detailed', label: 'Detailed', desc: 'Thorough explanations with examples' },
-  { id: 'casual', label: 'Casual', desc: 'Friendly and conversational' },
-] as const;
+const ROLE_LABEL_KEYS: Record<typeof ROLE_IDS[number], TranslationKey> = {
+  developer: 'wizard.roleDeveloper',
+  designer: 'wizard.roleDesigner',
+  product: 'wizard.roleProduct',
+  researcher: 'wizard.roleResearcher',
+  student: 'wizard.roleStudent',
+  general: 'wizard.roleGeneral',
+};
+
+const STYLE_IDS = ['concise', 'detailed', 'casual'] as const;
+
+const STYLE_LABEL_KEYS: Record<typeof STYLE_IDS[number], TranslationKey> = {
+  concise: 'wizard.styleConcise',
+  detailed: 'wizard.styleDetailed',
+  casual: 'wizard.styleCasual',
+};
+
+const STYLE_DESC_KEYS: Record<typeof STYLE_IDS[number], TranslationKey> = {
+  concise: 'wizard.styleConciseDesc',
+  detailed: 'wizard.styleDetailedDesc',
+  casual: 'wizard.styleCasualDesc',
+};
 
 const TOTAL_STEPS = 3;
 
@@ -91,6 +103,7 @@ function StepIndicator({ current, total }: { current: number; total: number }) {
 // ── Main Component ──
 
 export function OnboardingWizard({ workspacePath, onComplete }: OnboardingWizardProps) {
+  const { t } = useTranslation();
   const [step, setStep] = useState(0);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -112,6 +125,18 @@ export function OnboardingWizard({ workspacePath, onComplete }: OnboardingWizard
       ? data.style.length > 0
       : true;
 
+  const resolvedRoleLabel = useMemo(() => {
+    const roleId = data.userRole as typeof ROLE_IDS[number];
+    const key = ROLE_LABEL_KEYS[roleId];
+    return key ? t(key) : t('wizard.roleGeneral' as TranslationKey);
+  }, [data.userRole, t]);
+
+  const resolvedStyleLabel = useMemo(() => {
+    const styleId = data.style as typeof STYLE_IDS[number];
+    const key = STYLE_LABEL_KEYS[styleId];
+    return key ? t(key) : t('wizard.styleConcise' as TranslationKey);
+  }, [data.style, t]);
+
   const handleComplete = useCallback(async () => {
     setSubmitting(true);
     setError(null);
@@ -128,11 +153,11 @@ export function OnboardingWizard({ workspacePath, onComplete }: OnboardingWizard
       const result = await res.json();
       onComplete(result.session, result.assistantName);
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Setup failed');
+      setError(e instanceof Error ? e.message : t('wizard.error' as TranslationKey));
     } finally {
       setSubmitting(false);
     }
-  }, [data, workspacePath, onComplete]);
+  }, [data, workspacePath, onComplete, t]);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm">
@@ -142,14 +167,14 @@ export function OnboardingWizard({ workspacePath, onComplete }: OnboardingWizard
             <StepIndicator current={step} total={TOTAL_STEPS} />
           </div>
           <CardTitle className="text-center text-lg">
-            {step === 0 && 'About You'}
-            {step === 1 && 'Your Assistant'}
-            {step === 2 && 'All Set!'}
+            {step === 0 && t('wizard.step1Title' as TranslationKey)}
+            {step === 1 && t('wizard.step2Title' as TranslationKey)}
+            {step === 2 && t('wizard.step3Title' as TranslationKey)}
           </CardTitle>
           <CardDescription className="text-center">
-            {step === 0 && 'Tell us a bit about yourself so your assistant can personalize the experience.'}
-            {step === 1 && 'Customize how your assistant communicates.'}
-            {step === 2 && 'Review your setup and get started.'}
+            {step === 0 && t('wizard.step1Subtitle' as TranslationKey)}
+            {step === 1 && t('wizard.step2Subtitle' as TranslationKey)}
+            {step === 2 && t('wizard.step3Subtitle' as TranslationKey)}
           </CardDescription>
         </CardHeader>
 
@@ -159,11 +184,11 @@ export function OnboardingWizard({ workspacePath, onComplete }: OnboardingWizard
             <div className="space-y-5">
               <div className="space-y-2">
                 <label htmlFor="wizard-name" className="text-sm font-medium">
-                  Your Name
+                  {t('wizard.nameLabel' as TranslationKey)}
                 </label>
                 <Input
                   id="wizard-name"
-                  placeholder="e.g. Alex"
+                  placeholder={t('wizard.namePlaceholder' as TranslationKey)}
                   value={data.userName}
                   onChange={e => update('userName', e.target.value)}
                   autoFocus
@@ -171,15 +196,15 @@ export function OnboardingWizard({ workspacePath, onComplete }: OnboardingWizard
               </div>
 
               <div className="space-y-2">
-                <label className="text-sm font-medium">Your Role</label>
+                <label className="text-sm font-medium">{t('wizard.roleLabel' as TranslationKey)}</label>
                 <div className="flex flex-wrap gap-2">
-                  {ROLES.map(role => (
+                  {ROLE_IDS.map(roleId => (
                     <Chip
-                      key={role.id}
-                      selected={data.userRole === role.id}
-                      onClick={() => update('userRole', role.id)}
+                      key={roleId}
+                      selected={data.userRole === roleId}
+                      onClick={() => update('userRole', roleId)}
                     >
-                      {role.label}
+                      {t(ROLE_LABEL_KEYS[roleId])}
                     </Chip>
                   ))}
                 </div>
@@ -192,11 +217,12 @@ export function OnboardingWizard({ workspacePath, onComplete }: OnboardingWizard
             <div className="space-y-5">
               <div className="space-y-2">
                 <label htmlFor="wizard-assistant-name" className="text-sm font-medium">
-                  Assistant Name <span className="text-muted-foreground">(optional)</span>
+                  {t('wizard.assistantNameLabel' as TranslationKey)}{' '}
+                  <span className="text-muted-foreground">{t('wizard.assistantNameOptional' as TranslationKey)}</span>
                 </label>
                 <Input
                   id="wizard-assistant-name"
-                  placeholder="e.g. Aria"
+                  placeholder={t('wizard.assistantNamePlaceholder' as TranslationKey)}
                   value={data.assistantName}
                   onChange={e => update('assistantName', e.target.value)}
                   autoFocus
@@ -204,21 +230,21 @@ export function OnboardingWizard({ workspacePath, onComplete }: OnboardingWizard
               </div>
 
               <div className="space-y-2">
-                <label className="text-sm font-medium">Communication Style</label>
+                <label className="text-sm font-medium">{t('wizard.styleLabel' as TranslationKey)}</label>
                 <div className="flex flex-wrap gap-2">
-                  {STYLES.map(s => (
+                  {STYLE_IDS.map(styleId => (
                     <Chip
-                      key={s.id}
-                      selected={data.style === s.id}
-                      onClick={() => update('style', s.id)}
+                      key={styleId}
+                      selected={data.style === styleId}
+                      onClick={() => update('style', styleId)}
                     >
                       <span className="flex flex-col items-start">
-                        <span>{s.label}</span>
+                        <span>{t(STYLE_LABEL_KEYS[styleId])}</span>
                         <span className={cn(
                           'text-xs font-normal',
-                          data.style === s.id ? 'text-primary-foreground/70' : 'text-muted-foreground',
+                          data.style === styleId ? 'text-primary-foreground/70' : 'text-muted-foreground',
                         )}>
-                          {s.desc}
+                          {t(STYLE_DESC_KEYS[styleId])}
                         </span>
                       </span>
                     </Chip>
@@ -228,7 +254,8 @@ export function OnboardingWizard({ workspacePath, onComplete }: OnboardingWizard
 
               <div className="space-y-2">
                 <label htmlFor="wizard-boundaries" className="text-sm font-medium">
-                  Boundaries <span className="text-muted-foreground">(optional)</span>
+                  {t('wizard.boundariesLabel' as TranslationKey)}{' '}
+                  <span className="text-muted-foreground">{t('wizard.assistantNameOptional' as TranslationKey)}</span>
                 </label>
                 <textarea
                   id="wizard-boundaries"
@@ -236,7 +263,7 @@ export function OnboardingWizard({ workspacePath, onComplete }: OnboardingWizard
                     'placeholder:text-muted-foreground dark:bg-input/30 border-input min-h-[80px] w-full rounded-md border bg-transparent px-3 py-2 text-sm shadow-xs transition-[color,box-shadow] outline-none',
                     'focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px]',
                   )}
-                  placeholder="e.g. Don't modify files without asking first"
+                  placeholder={t('wizard.boundariesPlaceholder' as TranslationKey)}
                   value={data.boundaries}
                   onChange={e => update('boundaries', e.target.value)}
                 />
@@ -248,23 +275,23 @@ export function OnboardingWizard({ workspacePath, onComplete }: OnboardingWizard
           {step === 2 && (
             <div className="flex flex-col items-center gap-5 py-2">
               <AssistantAvatar
-                name={data.assistantName || 'Assistant'}
+                name={data.assistantName || t('wizard.defaultFallbackName' as TranslationKey)}
                 size={80}
                 className="ring-2 ring-primary/20"
               />
               <div className="text-center space-y-1">
                 <p className="font-semibold text-base">
-                  {data.assistantName || 'Your Assistant'}
+                  {data.assistantName || t('wizard.defaultAssistantName' as TranslationKey)}
                 </p>
                 <p className="text-sm text-muted-foreground">
-                  Ready to help {data.userName || 'you'}
+                  {t('wizard.readyToHelp' as TranslationKey).replace('{name}', data.userName || 'you')}
                 </p>
               </div>
               <div className="w-full rounded-md bg-muted/50 p-4 text-sm space-y-1">
-                <p><span className="text-muted-foreground">Role:</span> {ROLES.find(r => r.id === data.userRole)?.label || 'General'}</p>
-                <p><span className="text-muted-foreground">Style:</span> {STYLES.find(s => s.id === data.style)?.label || 'Concise'}</p>
+                <p><span className="text-muted-foreground">{t('wizard.summaryRole' as TranslationKey)}</span> {resolvedRoleLabel}</p>
+                <p><span className="text-muted-foreground">{t('wizard.summaryStyle' as TranslationKey)}</span> {resolvedStyleLabel}</p>
                 {data.boundaries && (
-                  <p><span className="text-muted-foreground">Boundaries:</span> {data.boundaries}</p>
+                  <p><span className="text-muted-foreground">{t('wizard.summaryBoundaries' as TranslationKey)}</span> {data.boundaries}</p>
                 )}
               </div>
               {error && (
@@ -282,7 +309,7 @@ export function OnboardingWizard({ workspacePath, onComplete }: OnboardingWizard
               onClick={() => setStep(s => s - 1)}
               disabled={submitting}
             >
-              Back
+              {t('wizard.back' as TranslationKey)}
             </Button>
           ) : (
             <div />
@@ -290,11 +317,11 @@ export function OnboardingWizard({ workspacePath, onComplete }: OnboardingWizard
 
           {step < TOTAL_STEPS - 1 ? (
             <Button onClick={() => setStep(s => s + 1)} disabled={!canNext}>
-              Next
+              {t('wizard.next' as TranslationKey)}
             </Button>
           ) : (
             <Button onClick={handleComplete} disabled={submitting}>
-              {submitting ? 'Setting up...' : 'Complete'}
+              {submitting ? t('wizard.completing' as TranslationKey) : t('wizard.complete' as TranslationKey)}
             </Button>
           )}
         </div>
