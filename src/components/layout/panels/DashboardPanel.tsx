@@ -16,7 +16,7 @@ import { RARITY_DISPLAY, STAT_LABEL, SPECIES_LABEL, rarityColor, getBuddyTitle, 
 
 const DASHBOARD_MIN_WIDTH = 320;
 const DASHBOARD_MAX_WIDTH = 800;
-const DASHBOARD_DEFAULT_WIDTH = 640;
+const DASHBOARD_DEFAULT_WIDTH = 480;
 
 interface AssistantSummary {
   configured: boolean;
