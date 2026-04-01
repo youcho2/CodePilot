@@ -37,11 +37,7 @@ export default function ChatSessionPage({ params }: ChatSessionPageProps) {
 
     async function loadSession() {
       try {
-        // Fetch session info and global default model in parallel
-        const [sessionRes, globalRes] = await Promise.all([
-          fetch(`/api/chat/sessions/${id}`),
-          fetch('/api/providers/options?providerId=__global__').catch(() => null),
-        ]);
+        const sessionRes = await fetch(`/api/chat/sessions/${id}`);
         if (cancelled) return;
         if (sessionRes.ok) {
           const data: { session: ChatSession } = await sessionRes.json();
@@ -55,25 +51,13 @@ export default function ChatSessionPage({ params }: ChatSessionPageProps) {
           const title = data.session.title || t('chat.newConversation');
           setPanelSessionTitle(title);
 
-          // Resolve model: session value → global default → localStorage → 'sonnet'
-          let model = data.session.model || '';
-          let provider = data.session.provider_id || '';
-          if (!model) {
-            const globalData = globalRes && 'ok' in globalRes && globalRes.ok
-              ? await globalRes.json().catch(() => null) : null;
-            const gm = globalData?.options?.default_model;
-            const gp = globalData?.options?.default_model_provider;
-            if (gm) {
-              model = gm;
-              if (gp) provider = gp;
-            } else {
-              // Fall back to localStorage (cross-session last-used)
-              model = (typeof window !== 'undefined' ? localStorage.getItem('codepilot:last-model') : null) || 'sonnet';
-              provider = (typeof window !== 'undefined' ? localStorage.getItem('codepilot:last-provider-id') : null) || '';
-            }
-          }
-          setSessionModel(model);
-          setSessionProviderId(provider);
+          // Resolve model: session → global default → provider's first → localStorage → 'sonnet'
+          const { resolveSessionModel } = await import('@/lib/resolve-session-model');
+          if (cancelled) return;
+          const resolved = await resolveSessionModel(data.session.model || '', data.session.provider_id || '');
+          if (cancelled) return;
+          setSessionModel(resolved.model);
+          setSessionProviderId(resolved.providerId);
           setSessionPermissionProfile(data.session.permission_profile || 'default');
           setSessionMode((data.session.mode as 'code' | 'plan') || 'code');
         }
