@@ -37,10 +37,14 @@ export default function ChatSessionPage({ params }: ChatSessionPageProps) {
 
     async function loadSession() {
       try {
-        const res = await fetch(`/api/chat/sessions/${id}`);
+        // Fetch session info and global default model in parallel
+        const [sessionRes, globalRes] = await Promise.all([
+          fetch(`/api/chat/sessions/${id}`),
+          fetch('/api/providers/options?providerId=__global__').catch(() => null),
+        ]);
         if (cancelled) return;
-        if (res.ok) {
-          const data: { session: ChatSession } = await res.json();
+        if (sessionRes.ok) {
+          const data: { session: ChatSession } = await sessionRes.json();
           if (cancelled) return;
           if (data.session.working_directory) {
             setWorkingDirectory(data.session.working_directory);
@@ -50,8 +54,26 @@ export default function ChatSessionPage({ params }: ChatSessionPageProps) {
           setSessionId(id);
           const title = data.session.title || t('chat.newConversation');
           setPanelSessionTitle(title);
-          setSessionModel(data.session.model || '');
-          setSessionProviderId(data.session.provider_id || '');
+
+          // Resolve model: session value → global default → localStorage → 'sonnet'
+          let model = data.session.model || '';
+          let provider = data.session.provider_id || '';
+          if (!model) {
+            const globalData = globalRes && 'ok' in globalRes && globalRes.ok
+              ? await globalRes.json().catch(() => null) : null;
+            const gm = globalData?.options?.default_model;
+            const gp = globalData?.options?.default_model_provider;
+            if (gm) {
+              model = gm;
+              if (gp) provider = gp;
+            } else {
+              // Fall back to localStorage (cross-session last-used)
+              model = (typeof window !== 'undefined' ? localStorage.getItem('codepilot:last-model') : null) || 'sonnet';
+              provider = (typeof window !== 'undefined' ? localStorage.getItem('codepilot:last-provider-id') : null) || '';
+            }
+          }
+          setSessionModel(model);
+          setSessionProviderId(provider);
           setSessionPermissionProfile(data.session.permission_profile || 'default');
           setSessionMode((data.session.mode as 'code' | 'plan') || 'code');
         }
