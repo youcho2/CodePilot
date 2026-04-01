@@ -485,27 +485,6 @@ export function AssistantWorkspaceSection() {
                     {summary.buddy.rarity === 'common' ? '★' : summary.buddy.rarity === 'uncommon' ? '★★' : summary.buddy.rarity === 'rare' ? '★★★' : summary.buddy.rarity === 'epic' ? '★★★★' : '★★★★★'}
                   </span>
                 )}
-                {summary?.buddy && (
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="text-[10px] text-muted-foreground hover:text-destructive h-auto p-0 underline"
-                    onClick={async () => {
-                      if (!confirm('Reset your buddy? You will be able to hatch a new one.')) return;
-                      try {
-                        await fetch('/api/settings/workspace', {
-                          method: 'PATCH',
-                          headers: { 'Content-Type': 'application/json' },
-                          body: JSON.stringify({ resetBuddy: true }),
-                        });
-                        fetchSummary();
-                        fetchWorkspace();
-                      } catch {}
-                    }}
-                  >
-                    {t('buddy.reset' as TranslationKey)}
-                  </Button>
-                )}
               </div>
               {summary.styleHint && (
                 <p className="text-xs text-muted-foreground mt-0.5 truncate">{summary.styleHint}</p>
