@@ -1,7 +1,7 @@
 # CodePilot 个人助理 — 产品规格文档
 
-> 版本：v0.44（待发布）
-> 上次更新：2026-03-31
+> 版本：v0.44.0
+> 上次更新：2026-04-01
 > 技术交接：[docs/handover/memory-system-v3.md](memory-system-v3.md)
 
 ---
@@ -149,29 +149,33 @@ workspace/
 - 90 天前的笔记只剩 ~12.5% 权重
 - memory.md 等常青文件不衰减
 
-### 3.3 心跳系统（Tick 模式）
+### 3.3 心跳系统（双模式）
 
-**触发条件（全部满足才触发）：**
-1. onboarding 完成
-2. heartbeat 开关已启用
-3. 今天还没做过
-4. 在 Active Hours 内（可配）
-5. 无活跃 stream（用户消息优先）
-6. HEARTBEAT.md 内容非空
+> 详细设计决策见 [docs/insights/buddy-gamification.md](../insights/buddy-gamification.md)
 
-**行为：**
-- AI 不只检查 HEARTBEAT.md，而是自主判断"现在应该做什么"
-- 可以主动：更新过期记忆、整理 daily memory、更新 user.md
+心跳有两种模式，根据用户是否主动发消息自动选择：
+
+**模式 1：完整心跳（autoTrigger）**
+
+触发条件：空会话 + Buddy 存在 + 服务端 `needsHeartbeat = true`（`shouldRunHeartbeat()` + `!!state.buddy`）。
+
+流程：`useAssistantTrigger` → 发送不可见消息 `'心跳检查'` → `context-assembler` 检测 `userPrompt.includes('心跳检查')` → 注入 `buildHeartbeatInstructions()` → AI 自主检查 HEARTBEAT.md、回顾记忆、整理文件。
+
 - 没事做 → 回复 HEARTBEAT_OK → 静默（不打扰用户）
 - 有事说 → 自然对话告知
 
-**HEARTBEAT_OK 协议：**
-- HTML/Markdown 解包
-- ≤300 chars 附带内容也算静默
-- 静默消息标记 `is_heartbeat_ack`
-- 不显示在聊天历史
-- 不出现在 fallback context（50 条）
-- 不触发 Telegram 通知
+HEARTBEAT_OK 协议：HTML/Markdown 解包 · ≤300 chars 也算静默 · 标记 `is_heartbeat_ack` · 不显示在聊天历史 · 不触发 Telegram
+
+**模式 2：软心跳（系统 prompt hint）**
+
+触发条件：用户主动发消息 + 心跳过期（`!autoTrigger && shouldRunHeartbeat(state)`）。
+
+流程：`context-assembler` 在 prompt 末尾追加 `buildSoftHeartbeatHint()` → AI 在回答用户问题的同时顺带检查 → 完成后在回复末尾输出 `<!-- heartbeat-done -->` → 后端检测标记并更新 `lastHeartbeatDate` → 标记从所有 contentBlock text 中清除后再持久化。
+
+**互斥守卫：**
+- Buddy-welcome（`!state.buddy`）和 heartbeat（`!!state.buddy`）天然互斥
+- `needsHeartbeat` 字段由服务端 `GET /api/settings/workspace` 计算（单一数据源）
+- `context-assembler` 通过 `userPrompt` 内容区分 heartbeat 和 buddy-welcome，不仅依赖 `autoTrigger` flag
 
 **Telegram 完全静默：**
 - 所有 auto-trigger turns（心跳 + 入职）的 5 条 Telegram 出口全部守卫
@@ -334,9 +338,11 @@ workspace/
 | normal | ✅ | ✅ | ❌ |
 | urgent | ✅ | ✅ | ✅ |
 
-- Electron Notification API（系统通知栏）
-- 点击通知 → 窗口前置 + 跳转
-- Telegram 复用已有 `telegram-bot.ts`（5 个通知函数）
+**通知流（服务端 → 用户）：**
+- `sendNotification()` → 服务端 globalThis ring buffer（50 条上限）+ Telegram（urgent）
+- 前端 `useNotificationPoll`（5 秒轮询 `GET /api/tasks/notify`）→ Toast + Electron IPC 原生通知
+- 后台 tray-only 模式：`electron/main.ts` 中 `startBgNotifyPoll()` 直接 HTTP 轮询 + `new Notification()`
+- 点击通知 → 窗口前置（前台）或重新创建窗口（后台）
 - auto-trigger turns 全部静默（不推送心跳/入职的通知）
 
 ---
@@ -362,8 +368,10 @@ workspace/
 | `src/lib/memory-search-mcp.ts` | Memory Search MCP（3 工具） |
 | `src/lib/memory-extractor.ts` | 自动记忆提取 |
 | `src/lib/notification-mcp.ts` | 通知 + 定时任务 MCP（4 工具） |
-| `src/lib/notification-manager.ts` | 多渠道通知分发 |
+| `src/lib/notification-manager.ts` | 多渠道通知分发 + 服务端通知队列 |
 | `src/lib/task-scheduler.ts` | 定时任务调度器 |
+| `src/lib/bg-notify-parser.ts` | 后台通知解析（Electron main process 共用） |
+| `src/hooks/useNotificationPoll.ts` | 前端通知轮询 + Toast + Electron IPC 通知 |
 | `src/lib/identicon.ts` | boring-avatars 配置 |
 | `src/components/ui/AssistantAvatar.tsx` | 头像组件 |
 | `src/components/assistant/OnboardingWizard.tsx` | 3 步入职 Wizard |
@@ -385,10 +393,10 @@ workspace/
 
 | 文件 | 改动 |
 |------|------|
-| `src/lib/context-assembler.ts` | 6 层上下文 + tick prompt + 渐进式更新 |
+| `src/lib/context-assembler.ts` | 6 层上下文 + 双模式心跳（完整 tick + 软 hint）+ 渐进式更新 |
 | `src/lib/assistant-workspace.ts` | shouldRunHeartbeat + HEARTBEAT.md + V4→V5 迁移 + Buddy state |
 | `src/lib/claude-client.ts` | Memory MCP + Notification MCP 全局注册 + Telegram 静默 |
-| `src/app/api/chat/route.ts` | heartbeat ack + 自动记忆提取 + Telegram 静默 |
+| `src/app/api/chat/route.ts` | heartbeat ack + 软心跳检测/清理 + 自动记忆提取 + Telegram 静默 |
 | `src/lib/db.ts` | scheduled_tasks + task_run_logs 表 + is_heartbeat_ack 列 |
 | `src/components/layout/panels/DashboardPanel.tsx` | Buddy 卡片 + 进化 + 状态 |
 | `src/components/layout/ProjectGroupHeader.tsx` | Buddy emoji + 两行布局 |
@@ -397,5 +405,5 @@ workspace/
 | `src/components/chat/MessageItem.tsx` | AI 消息 Buddy 头像 |
 | `src/components/chat/MessageInput.tsx` | QuickActions 集成 |
 | `src/components/settings/AssistantWorkspaceSection.tsx` | 设置页重构 |
-| `electron/main.ts` | 通知 IPC + 外链拦截 |
+| `electron/main.ts` | 通知 IPC + 外链拦截 + 后台 tray-only 通知轮询 |
 | `electron/preload.ts` | 通知 API 暴露 |
