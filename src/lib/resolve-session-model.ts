@@ -11,37 +11,31 @@
  *
  * The session's provider_id is never overwritten by a different provider's global default.
  */
-export async function resolveSessionModel(
+
+type ModelGroup = { provider_id: string; models: Array<{ value: string }> };
+
+interface ResolveContext {
+  globalModel: string;
+  globalProvider: string;
+  groups: ModelGroup[];
+  lsModel: string;
+  lsProvider: string;
+}
+
+/**
+ * Pure resolution logic — no I/O, fully testable.
+ */
+export function resolveSessionModelPure(
   sessionModel: string,
   sessionProviderId: string,
-): Promise<{ model: string; providerId: string }> {
+  ctx: ResolveContext,
+): { model: string; providerId: string } {
   // Session already has a model — use it as-is
   if (sessionModel) {
     return { model: sessionModel, providerId: sessionProviderId };
   }
 
-  // Fetch global default and provider model lists in parallel
-  let globalModel = '';
-  let globalProvider = '';
-  type ModelGroup = { provider_id: string; models: Array<{ value: string }> };
-  let groups: ModelGroup[] = [];
-
-  try {
-    const [globalRes, modelsRes] = await Promise.all([
-      fetch('/api/providers/options?providerId=__global__').catch(() => null),
-      fetch('/api/providers/models').catch(() => null),
-    ]);
-
-    if (globalRes && 'ok' in globalRes && globalRes.ok) {
-      const globalData = await globalRes.json().catch(() => null);
-      globalModel = globalData?.options?.default_model || '';
-      globalProvider = globalData?.options?.default_model_provider || '';
-    }
-    if (modelsRes && 'ok' in modelsRes && modelsRes.ok) {
-      const data = await modelsRes.json().catch(() => null);
-      groups = (data?.groups as ModelGroup[]) || [];
-    }
-  } catch { /* best effort */ }
+  const { globalModel, globalProvider, groups, lsModel, lsProvider } = ctx;
 
   // Case 1: Session has a provider — resolve model within that provider
   if (sessionProviderId) {
@@ -67,10 +61,53 @@ export async function resolveSessionModel(
   }
 
   // Case 3: No global default either — localStorage last-used
-  const lsModel = typeof window !== 'undefined' ? localStorage.getItem('codepilot:last-model') : null;
-  const lsProvider = typeof window !== 'undefined' ? localStorage.getItem('codepilot:last-provider-id') : null;
   return {
     model: lsModel || 'sonnet',
     providerId: lsProvider || '',
   };
+}
+
+/**
+ * Fetch-based wrapper for use in components. Gathers context then delegates to pure function.
+ */
+export async function resolveSessionModel(
+  sessionModel: string,
+  sessionProviderId: string,
+): Promise<{ model: string; providerId: string }> {
+  // Session already has a model — skip fetches
+  if (sessionModel) {
+    return { model: sessionModel, providerId: sessionProviderId };
+  }
+
+  let globalModel = '';
+  let globalProvider = '';
+  let groups: ModelGroup[] = [];
+
+  try {
+    const [globalRes, modelsRes] = await Promise.all([
+      fetch('/api/providers/options?providerId=__global__').catch(() => null),
+      fetch('/api/providers/models').catch(() => null),
+    ]);
+
+    if (globalRes && 'ok' in globalRes && globalRes.ok) {
+      const globalData = await globalRes.json().catch(() => null);
+      globalModel = globalData?.options?.default_model || '';
+      globalProvider = globalData?.options?.default_model_provider || '';
+    }
+    if (modelsRes && 'ok' in modelsRes && modelsRes.ok) {
+      const data = await modelsRes.json().catch(() => null);
+      groups = (data?.groups as ModelGroup[]) || [];
+    }
+  } catch { /* best effort */ }
+
+  const lsModel = typeof window !== 'undefined' ? localStorage.getItem('codepilot:last-model') : null;
+  const lsProvider = typeof window !== 'undefined' ? localStorage.getItem('codepilot:last-provider-id') : null;
+
+  return resolveSessionModelPure(sessionModel, sessionProviderId, {
+    globalModel,
+    globalProvider,
+    groups,
+    lsModel: lsModel || '',
+    lsProvider: lsProvider || '',
+  });
 }
