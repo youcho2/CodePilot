@@ -987,6 +987,13 @@ const en = {
   'context.estimate': 'Estimated from the most recent response',
   'context.noData': 'No context usage data yet',
   'context.unknown': 'Unknown',
+  'context.summary': 'Context Summary',
+  'context.summaryActive': 'Active',
+  'context.warningHint': 'Context nearing limit, auto-compression will activate',
+  'context.criticalHint': 'Context nearly full — start a new chat or type /compact',
+  'context.compressing': 'Compressing context...',
+  'context.compressed': 'Context compressed',
+  'context.compactManual': 'Context manually compressed',
 
   // ── SDK Capabilities: Effort ──────────────────────────────
   'messageInput.effort.label': 'Effort Level',

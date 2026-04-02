@@ -984,6 +984,13 @@ const zh: Record<TranslationKey, string> = {
   'context.estimate': '基于最近一轮响应估算',
   'context.noData': '暂无上下文统计',
   'context.unknown': '未知上下文窗口',
+  'context.summary': '上下文摘要',
+  'context.summaryActive': '已启用',
+  'context.warningHint': '上下文接近上限，系统将自动压缩',
+  'context.criticalHint': '上下文即将满载，建议开始新对话或输入 /compact',
+  'context.compressing': '正在压缩上下文...',
+  'context.compressed': '上下文已压缩',
+  'context.compactManual': '上下文已手动压缩',
 
   // ── SDK Capabilities: Effort ──────────────────────────────
   'messageInput.effort.label': '推理力度',

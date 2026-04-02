@@ -298,6 +298,13 @@ async function runStream(stream: ActiveStream, params: StartStreamParams): Promi
       },
       onStatus: (text) => {
         markActive();
+        // Detect auto-compression notification and broadcast a window event
+        if (text === 'context_compressed') {
+          if (typeof window !== 'undefined') {
+            window.dispatchEvent(new CustomEvent('context-compressed', { detail: { sessionId: params.sessionId } }));
+          }
+          return; // Don't show this as a status line — it's a metadata signal
+        }
         if (text?.startsWith('Connected (')) {
           stream.snapshot = { ...stream.snapshot, statusText: text };
           emit(stream, 'snapshot-updated');

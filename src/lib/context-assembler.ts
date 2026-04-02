@@ -38,8 +38,6 @@ export interface AssembledContext {
   systemPrompt: string | undefined;
   /** Whether generative UI is enabled (affects widget MCP server + streamClaude param) */
   generativeUIEnabled: boolean;
-  /** Whether widget MCP server should be registered (keyword-gated) */
-  needsWidgetMcp: boolean;
   /** Onboarding/checkin instructions (route.ts uses this for server-side completion detection) */
   assistantProjectInstructions: string;
   /** Whether this session is in the assistant workspace */
@@ -190,14 +188,8 @@ export async function assembleContext(config: ContextAssemblyConfig): Promise<As
     }
   }
 
-  // ── Widget MCP keyword detection (desktop only) ───────────────────
-  let needsWidgetMcp = false;
-  if (generativeUIEnabled) {
-    const widgetKeywords = /可视化|图表|流程图|时间线|架构图|对比|visualiz|diagram|chart|flowchart|timeline|infographic|interactive|widget|show-widget|hierarchy|dashboard/i;
-    if (widgetKeywords.test(userPrompt)) needsWidgetMcp = true;
-    else if (conversationHistory?.some(m => m.content.includes('show-widget'))) needsWidgetMcp = true;
-    else if (imageAgentMode) needsWidgetMcp = true;
-  }
+  // Widget MCP keyword detection is handled solely in claude-client.ts
+  // where the actual MCP server registration happens.
 
   // ── Layer 6: Dashboard context (desktop only) ─────────────────────
   // Inject compact summary of pinned widgets so the AI knows what's on the dashboard.
@@ -220,7 +212,6 @@ export async function assembleContext(config: ContextAssemblyConfig): Promise<As
   return {
     systemPrompt: finalSystemPrompt,
     generativeUIEnabled,
-    needsWidgetMcp,
     assistantProjectInstructions,
     isAssistantProject,
   };

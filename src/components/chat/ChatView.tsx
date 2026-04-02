@@ -35,9 +35,10 @@ interface ChatViewProps {
   providerId?: string;
   initialPermissionProfile?: 'default' | 'full_access';
   initialMode?: 'code' | 'plan';
+  initialHasSummary?: boolean;
 }
 
-export function ChatView({ sessionId, initialMessages = [], initialHasMore = false, modelName, providerId, initialPermissionProfile, initialMode }: ChatViewProps) {
+export function ChatView({ sessionId, initialMessages = [], initialHasMore = false, modelName, providerId, initialPermissionProfile, initialMode, initialHasSummary }: ChatViewProps) {
   const { setStreamingSessionId, workingDirectory, setPendingApprovalSessionId, setDashboardPanelOpen, setFileTreeOpen, setIsAssistantWorkspace } = usePanel();
   const { t } = useTranslation();
   const router = useRouter();
@@ -59,6 +60,7 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
   const [selectedEffort, setSelectedEffort] = useState<string | undefined>(undefined);
   const [thinkingMode, setThinkingMode] = useState<string>('adaptive');
   const [context1m, setContext1m] = useState(false);
+  const [hasSummary, setHasSummary] = useState(initialHasSummary || false);
 
   // Sync model/provider when session data loads
   useEffect(() => { if (modelName) setCurrentModel(modelName); }, [modelName]);
@@ -153,6 +155,26 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
   }, [initialMessages]);
 
   useEffect(() => { setHasMore(initialHasMore); }, [initialHasMore]);
+
+  // Detect compression from multiple sources:
+  // 1. Auto-compression: stream-session-manager dispatches 'context-compressed' event
+  // 2. Manual /compact: response message contains the compression marker
+  useEffect(() => {
+    if (!hasSummary && messages.some(m => m.role === 'assistant' && m.content.includes('上下文已压缩'))) {
+      setHasSummary(true);
+    }
+  }, [messages, hasSummary]);
+
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      if (detail?.sessionId === sessionId) {
+        setHasSummary(true);
+      }
+    };
+    window.addEventListener('context-compressed', handler);
+    return () => window.removeEventListener('context-compressed', handler);
+  }, [sessionId]);
 
   const buildThinkingConfig = useCallback((): { type: string } | undefined => {
     if (!thinkingMode || thinkingMode === 'adaptive') return { type: 'adaptive' };
@@ -525,6 +547,8 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
           <ContextUsageIndicator
             messages={messages}
             modelName={currentModel}
+            context1m={context1m}
+            hasSummary={hasSummary}
           />
         }
       />

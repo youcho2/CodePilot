@@ -5,17 +5,27 @@ import { getContextWindow } from '@/lib/model-context';
 export interface ContextUsageData {
   modelName: string;
   contextWindow: number | null;
+  /** Actual token usage from the last API response */
   used: number;
+  /** Ratio of actual usage to context window */
   ratio: number;
   cacheReadTokens: number;
   cacheCreationTokens: number;
   outputTokens: number;
   hasData: boolean;
+  /** Warning state based on the higher of actual/estimated ratio */
+  state: 'normal' | 'warning' | 'critical';
+  /** Whether a session summary (compression) is active */
+  hasSummary: boolean;
 }
 
-export function useContextUsage(messages: Message[], modelName: string): ContextUsageData {
+export function useContextUsage(
+  messages: Message[],
+  modelName: string,
+  options?: { context1m?: boolean; hasSummary?: boolean },
+): ContextUsageData {
   return useMemo(() => {
-    const contextWindow = getContextWindow(modelName);
+    const contextWindow = getContextWindow(modelName, { context1m: options?.context1m });
     const noData: ContextUsageData = {
       modelName,
       contextWindow,
@@ -25,6 +35,8 @@ export function useContextUsage(messages: Message[], modelName: string): Context
       cacheCreationTokens: 0,
       outputTokens: 0,
       hasData: false,
+      state: 'normal',
+      hasSummary: options?.hasSummary || false,
     };
 
     // Find the last assistant message with token_usage
@@ -42,16 +54,23 @@ export function useContextUsage(messages: Message[], modelName: string): Context
         const cacheCreation = usage.cache_creation_input_tokens || 0;
         const outputTokens = usage.output_tokens || 0;
         const used = inputTokens + cacheRead + cacheCreation;
+        const ratio = contextWindow ? used / contextWindow : 0;
+
+        let state: 'normal' | 'warning' | 'critical' = 'normal';
+        if (ratio >= 0.95) state = 'critical';
+        else if (ratio >= 0.8) state = 'warning';
 
         return {
           modelName,
           contextWindow,
           used,
-          ratio: contextWindow ? used / contextWindow : 0,
+          ratio,
           cacheReadTokens: cacheRead,
           cacheCreationTokens: cacheCreation,
           outputTokens,
           hasData: true,
+          state,
+          hasSummary: options?.hasSummary || false,
         };
       } catch {
         continue;
@@ -59,5 +78,5 @@ export function useContextUsage(messages: Message[], modelName: string): Context
     }
 
     return noData;
-  }, [messages, modelName]);
+  }, [messages, modelName, options?.context1m, options?.hasSummary]);
 }

@@ -18,6 +18,8 @@ import { isImageFile } from '@/types';
 import { registerPendingPermission } from './permission-registry';
 import { registerConversation, unregisterConversation } from './conversation-registry';
 import { captureCapabilities, isCacheFresh, setCachedPlugins } from './agent-sdk-capabilities';
+import { normalizeMessageContent } from './message-normalizer';
+import { roughTokenEstimate } from './context-estimator';
 import { getSetting, updateSdkSessionId, createPermissionRequest } from './db';
 import { resolveForClaudeCode, toClaudeCodeEnv } from './provider-resolver';
 import { findClaudeBinary, findGitBash, getExpandedPath, invalidateClaudePathCache } from './platform';
@@ -236,38 +238,65 @@ function getUploadedFilePaths(files: FileAttachment[], workDir: string): string[
   return paths;
 }
 
-/**
- * Build a context-enriched prompt by prepending conversation history.
- * Used when SDK session resume is unavailable or fails.
- */
-function buildPromptWithHistory(
-  prompt: string,
-  history?: Array<{ role: 'user' | 'assistant'; content: string }>,
-): string {
-  if (!history || history.length === 0) return prompt;
+// Message normalization is in message-normalizer.ts (shared with context-compressor.ts).
+// Imported dynamically in buildFallbackContext to avoid circular deps at module level.
 
-  const lines: string[] = [
-    '<conversation_history>',
-    '(This is a summary of earlier conversation turns for context. Tool calls shown here were already executed — do not repeat them or output their markers as text.)',
-  ];
-  for (const msg of history) {
-    // For assistant messages with tool blocks (JSON arrays), extract only the text portions.
-    // Tool-use and tool-result blocks are omitted to avoid Claude parroting them as plain text.
-    let content = msg.content;
-    if (msg.role === 'assistant' && content.startsWith('[')) {
-      try {
-        const blocks = JSON.parse(content);
-        const parts: string[] = [];
-        for (const b of blocks) {
-          if (b.type === 'text' && b.text) parts.push(b.text);
-          // Skip tool_use and tool_result — they were already executed
-        }
-        content = parts.length > 0 ? parts.join('\n') : '(assistant used tools)';
-      } catch {
-        // Not JSON, use as-is
-      }
+/**
+ * Build fallback context from conversation history with token-budget awareness.
+ *
+ * Instead of a fixed message count, walks backward from the newest message
+ * and includes as many as fit within the token budget. Optionally prepends
+ * a session summary as a context skeleton for the full conversation.
+ */
+function buildFallbackContext(params: {
+  prompt: string;
+  history?: Array<{ role: 'user' | 'assistant'; content: string }>;
+  sessionSummary?: string;
+  tokenBudget?: number;
+}): string {
+  const { prompt, history, sessionSummary, tokenBudget } = params;
+  if (!history || history.length === 0) {
+    if (sessionSummary) {
+      return `<session-summary>\n${sessionSummary}\n</session-summary>\n\n${prompt}`;
     }
-    lines.push(`${msg.role === 'user' ? 'Human' : 'Assistant'}: ${content}`);
+    return prompt;
+  }
+
+  // Normalize all messages first (strip metadata, summarize tool blocks)
+  const normalized = history.map(msg => ({
+    role: msg.role,
+    content: normalizeMessageContent(msg.role, msg.content),
+  }));
+
+  // Select messages within token budget (walk backward from newest)
+  let selected: typeof normalized;
+  if (tokenBudget && tokenBudget > 0) {
+    selected = [];
+    let accumulated = 0;
+    for (let i = normalized.length - 1; i >= 0; i--) {
+      const msgTokens = roughTokenEstimate(normalized[i].content) + 10; // role label overhead
+      if (accumulated + msgTokens > tokenBudget) break;
+      selected.unshift(normalized[i]);
+      accumulated += msgTokens;
+    }
+  } else {
+    selected = normalized;
+  }
+
+  // Build the output
+  const lines: string[] = [];
+
+  if (sessionSummary) {
+    lines.push('<session-summary>');
+    lines.push(sessionSummary);
+    lines.push('</session-summary>');
+    lines.push('');
+  }
+
+  lines.push('<conversation_history>');
+  lines.push('(This is a summary of earlier conversation turns for context. Tool calls shown here were already executed — do not repeat them or output their markers as text.)');
+  for (const msg of selected) {
+    lines.push(`${msg.role === 'user' ? 'Human' : 'Assistant'}: ${msg.content}`);
   }
   lines.push('</conversation_history>');
   lines.push('');
@@ -835,7 +864,12 @@ export function streamClaude(options: ClaudeStreamOptions): ReadableStream<strin
         // When NOT resuming (fresh or fallback), prepend DB history for context.
         function buildFinalPrompt(useHistory: boolean): string | AsyncIterable<SDKUserMessage> {
           const basePrompt = useHistory
-            ? buildPromptWithHistory(prompt, conversationHistory)
+            ? buildFallbackContext({
+                prompt,
+                history: conversationHistory,
+                sessionSummary: options.sessionSummary,
+                tokenBudget: options.fallbackTokenBudget,
+              })
             : prompt;
 
           if (!files || files.length === 0) return basePrompt;
