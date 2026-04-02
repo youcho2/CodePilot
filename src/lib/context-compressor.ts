@@ -24,6 +24,8 @@ export interface CompressParams {
   messages: Array<{ role: string; content: string }>;
   existingSummary?: string;
   providerId?: string;
+  /** Session model to use as fallback if small/haiku is unavailable */
+  sessionModel?: string;
 }
 
 // ── Circuit breaker ─────────────────────────────────────────────────
@@ -74,7 +76,7 @@ export function needsCompression(
  * them. If an existing summary exists, incorporates it as prior context.
  */
 export async function compressConversation(params: CompressParams): Promise<CompressionResult> {
-  const { sessionId, messages, existingSummary, providerId } = params;
+  const { sessionId, messages, existingSummary, providerId, sessionModel } = params;
 
   if (messages.length === 0) {
     return { summary: existingSummary || '', messagesCompressed: 0, estimatedTokensSaved: 0 };
@@ -85,12 +87,22 @@ export async function compressConversation(params: CompressParams): Promise<Comp
     const { resolveProvider } = await import('./provider-resolver');
     const { normalizeMessageContent } = await import('./message-normalizer');
 
-    // Resolve provider with the session's providerId so custom providers are checked
+    // Resolve provider: try session's provider first, then fall back to default
     const resolved = resolveProvider({ useCase: 'small', providerId });
 
     if (!resolved.hasCredentials) {
-      throw new Error('No credentials available for compression LLM call');
+      // Try again without providerId in case the session's provider lacks credentials
+      const fallback = resolveProvider({ useCase: 'small' });
+      if (!fallback.hasCredentials) {
+        throw new Error('No credentials available for compression LLM call');
+      }
+      // Use fallback provider
+      Object.assign(resolved, fallback);
     }
+
+    // Prefer resolved small model, fall back to session model, then haiku
+    const effectiveModel = resolved.upstreamModel || resolved.model || sessionModel || 'haiku';
+    const effectiveProviderId = providerId || resolved.provider?.id || '';
 
     // Clean messages before summarizing: strip file metadata, extract tool summaries
     const formatted = messages.map(m => {
@@ -118,15 +130,18 @@ ${formatted}
 
 Summary:`;
 
+    console.log(`[context-compressor] Calling LLM: model=${effectiveModel}, providerId=${effectiveProviderId}, promptLen=${prompt.length}`);
+
     const result = await generateTextFromProvider({
-      providerId: providerId || resolved.provider?.id || '',
-      model: resolved.upstreamModel || resolved.model || 'haiku',
+      providerId: effectiveProviderId,
+      model: effectiveModel,
       system,
       prompt,
       maxTokens: 1500,
     });
 
-    if (!result || result.trim().length < 20) {
+    if (!result || result.trim().length < 10) {
+      console.warn('[context-compressor] Summary too short:', result?.trim().length, 'chars');
       throw new Error('Compression produced empty or too-short summary');
     }
 

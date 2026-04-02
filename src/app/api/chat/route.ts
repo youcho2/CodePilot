@@ -84,6 +84,7 @@ export async function POST(request: NextRequest) {
           messages: msgData,
           existingSummary: existingSummary || undefined,
           providerId: provider_id || session.provider_id || undefined,
+          sessionModel: session.model || undefined,
         });
 
         updateDbSummary(session_id, result.summary);
@@ -290,6 +291,7 @@ export async function POST(request: NextRequest) {
               messages: messagesToCompress,
               existingSummary: activeSessionSummary,
               providerId: effectiveProviderId || undefined,
+              sessionModel: effectiveModel || undefined,
             });
             activeSessionSummary = result.summary;
             updateSessionSummary(session_id, result.summary);
