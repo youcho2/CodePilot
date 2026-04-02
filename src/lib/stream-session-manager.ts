@@ -298,12 +298,18 @@ async function runStream(stream: ActiveStream, params: StartStreamParams): Promi
       },
       onStatus: (text) => {
         markActive();
-        // Detect auto-compression notification and broadcast a window event
+        // Detect compression notifications and broadcast window events
         if (text === 'context_compressed') {
           if (typeof window !== 'undefined') {
             window.dispatchEvent(new CustomEvent('context-compressed', { detail: { sessionId: params.sessionId } }));
           }
           return; // Don't show this as a status line — it's a metadata signal
+        }
+        if (text === 'context_compressing_retry') {
+          // Show a brief status while PTL auto-retry is in progress
+          stream.snapshot = { ...stream.snapshot, statusText: 'Compressing context...' };
+          emit(stream, 'snapshot-updated');
+          return;
         }
         if (text?.startsWith('Connected (')) {
           stream.snapshot = { ...stream.snapshot, statusText: text };

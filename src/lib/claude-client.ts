@@ -18,7 +18,7 @@ import { isImageFile } from '@/types';
 import { registerPendingPermission } from './permission-registry';
 import { registerConversation, unregisterConversation } from './conversation-registry';
 import { captureCapabilities, isCacheFresh, setCachedPlugins } from './agent-sdk-capabilities';
-import { normalizeMessageContent } from './message-normalizer';
+import { normalizeMessageContent, microCompactMessage } from './message-normalizer';
 import { roughTokenEstimate } from './context-estimator';
 import { getSetting, updateSdkSessionId, createPermissionRequest } from './db';
 import { resolveForClaudeCode, toClaudeCodeEnv } from './provider-resolver';
@@ -262,10 +262,14 @@ function buildFallbackContext(params: {
     return prompt;
   }
 
-  // Normalize all messages first (strip metadata, summarize tool blocks)
-  const normalized = history.map(msg => ({
+  // Normalize + microcompact: strip metadata, summarize tool blocks, truncate old messages
+  const normalized = history.map((msg, i) => ({
     role: msg.role,
-    content: normalizeMessageContent(msg.role, msg.content),
+    content: microCompactMessage(
+      msg.role,
+      normalizeMessageContent(msg.role, msg.content),
+      history.length - 1 - i, // ageFromEnd: 0 = newest
+    ),
   }));
 
   // Select messages within token budget (walk backward from newest)
@@ -429,6 +433,9 @@ export function streamClaude(options: ClaudeStreamOptions): ReadableStream<strin
 
   return new ReadableStream<string>({
     async start(controller) {
+      // Flag to prevent infinite PTL retry loops (at most one retry per request)
+      let ptlRetryAttempted = false;
+
       // Resolve provider via the unified resolver. The caller may pass an explicit
       // provider (from resolveProvider().provider), or undefined when 'env' mode is
       // intended. We do NOT fall back to getActiveProvider() here — that's handled
@@ -1319,6 +1326,108 @@ export function streamClaude(options: ClaudeStreamOptions): ReadableStream<strin
           context1mEnabled: !!context1m,
           effortSet: !!effort,
         });
+
+        // ── Reactive compact: auto-compress and retry on CONTEXT_TOO_LONG ──
+        if (classified.category === 'CONTEXT_TOO_LONG' && !ptlRetryAttempted && conversationHistory && conversationHistory.length > 4) {
+          ptlRetryAttempted = true;
+          try {
+            console.log('[claude-client] CONTEXT_TOO_LONG detected — attempting auto-compress + retry');
+            controller.enqueue(formatSSE({ type: 'status', data: JSON.stringify({ notification: true, message: 'context_compressing_retry' }) }));
+
+            const { compressConversation } = await import('./context-compressor');
+            const { updateSessionSummary: updateSummary } = await import('@/lib/db');
+            const compResult = await compressConversation({
+              sessionId,
+              messages: conversationHistory,
+              existingSummary: options.sessionSummary,
+              providerId: options.providerId || options.sessionProviderId,
+              sessionModel: model,
+            });
+            updateSummary(sessionId, compResult.summary);
+            options.sessionSummary = compResult.summary;
+            console.log(`[claude-client] Compressed ${compResult.messagesCompressed} messages for PTL retry`);
+
+            // Clear stale session so retry starts fresh
+            if (sessionId) {
+              try { updateSdkSessionId(sessionId, ''); } catch { /* best effort */ }
+            }
+
+            // Build retry prompt using compressed context (buildFallbackContext picks up new sessionSummary)
+            const retryPrompt = buildFallbackContext({
+              prompt,
+              history: conversationHistory,
+              sessionSummary: options.sessionSummary,
+              tokenBudget: options.fallbackTokenBudget,
+            });
+
+            // Rebuild minimal query options from closure variables
+            // (queryOptions is scoped to the try block and not accessible here)
+            const retryOptions: Options = {
+              cwd: options.workingDirectory || os.homedir(),
+              abortController,
+              permissionMode: 'bypassPermissions' as Options['permissionMode'],
+              allowDangerouslySkipPermissions: true,
+              env: { ...process.env as Record<string, string> },
+              maxTurns: undefined,
+            };
+            if (model) retryOptions.model = model;
+            if (systemPrompt) {
+              retryOptions.systemPrompt = { type: 'preset', preset: 'claude_code', append: systemPrompt };
+            }
+
+            const retryConversation = query({ prompt: retryPrompt, options: retryOptions });
+
+            // Forward retry stream events (simplified — covers the critical path)
+            for await (const msg of retryConversation) {
+              if (abortController?.signal.aborted) break;
+              switch (msg.type) {
+                case 'assistant': {
+                  const aMsg = msg as SDKAssistantMessage;
+                  for (const block of aMsg.message.content) {
+                    if (block.type === 'tool_use') {
+                      controller.enqueue(formatSSE({ type: 'tool_use', data: JSON.stringify({ id: block.id, name: block.name, input: block.input }) }));
+                    }
+                  }
+                  break;
+                }
+                case 'user': {
+                  const uMsg = msg as { type: 'user'; message: { content: Array<{ type: string; content?: string; tool_use_id?: string }> } };
+                  for (const block of uMsg.message.content) {
+                    if (block.type === 'tool_result' && typeof block.content === 'string') {
+                      controller.enqueue(formatSSE({ type: 'tool_result', data: JSON.stringify({ tool_use_id: block.tool_use_id, output: block.content.slice(0, 2000) }) }));
+                    }
+                  }
+                  break;
+                }
+                case 'stream_event': {
+                  const se = msg as { type: 'stream_event'; event: { type: string; delta?: { text?: string }; index?: number } };
+                  if (se.event.type === 'content_block_delta' && se.event.delta?.text) {
+                    controller.enqueue(formatSSE({ type: 'text', data: se.event.delta.text }));
+                  }
+                  break;
+                }
+                case 'result': {
+                  const rMsg = msg as SDKResultMessage;
+                  if ('result' in rMsg) {
+                    const usage = extractTokenUsage(rMsg as SDKResultSuccess);
+                    if (usage) {
+                      controller.enqueue(formatSSE({ type: 'result', data: JSON.stringify(usage) }));
+                    }
+                  }
+                  // Emit compression notification so frontend updates hasSummary
+                  controller.enqueue(formatSSE({ type: 'status', data: JSON.stringify({ notification: true, message: 'context_compressed' }) }));
+                  break;
+                }
+              }
+            }
+            controller.enqueue(formatSSE({ type: 'done', data: '' }));
+            controller.close();
+            return; // Retry succeeded — skip normal error path
+          } catch (retryErr) {
+            console.warn('[claude-client] PTL retry failed, falling through to error display:', retryErr);
+            // Fall through to normal error handling below
+          }
+        }
 
         // Send structured error JSON so frontend can parse category + hints
         // Falls back gracefully for older frontends that only read raw text
