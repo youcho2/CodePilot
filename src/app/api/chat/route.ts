@@ -258,28 +258,40 @@ export async function POST(request: NextRequest) {
       const modelForWindow = resolved.upstreamModel || resolved.model || effectiveModel || 'sonnet';
       const contextWindow = getContextWindow(modelForWindow, { context1m: context_1m }) || 200000;
 
+      // Estimate using normalized content (matches what buildFallbackContext actually sends).
+      // Raw transcript overestimates tool-heavy conversations because normalize + microcompact
+      // strip metadata and truncate old tool results significantly.
+      const { normalizeMessageContent, microCompactMessage } = await import('@/lib/message-normalizer');
+      const { roughTokenEstimate } = await import('@/lib/context-estimator');
+      const normalizedHistory = historyMsgs.map((m, i) => ({
+        role: m.role,
+        content: microCompactMessage(m.role, normalizeMessageContent(m.role, m.content), historyMsgs.length - 1 - i),
+      }));
+
       const estimate = estimateContextTokens({
         systemPrompt: finalSystemPrompt,
-        history: historyMsgs,
+        history: normalizedHistory,
         currentUserMessage: content,
         sessionSummary: activeSessionSummary,
       });
 
-      // Set fallback token budget to 70% of context window minus system prompt
-      fallbackTokenBudget = Math.floor(contextWindow * 0.7 - estimate.breakdown.system);
+      // Budget for history = 70% of window minus system prompt, summary, and current user message.
+      // buildFallbackContext adds summary + prompt on top of the history, so we must account for them.
+      fallbackTokenBudget = Math.floor(
+        contextWindow * 0.7 - estimate.breakdown.system - estimate.breakdown.summary - estimate.breakdown.userMessage
+      );
 
       if (needsCompression(estimate.total, contextWindow, session_id)) {
         console.log(`[chat API] Context at ${((estimate.total / contextWindow) * 100).toFixed(1)}% — triggering compression`);
 
-        // Determine which messages to compress (those beyond the token budget)
-        const { roughTokenEstimate } = await import('@/lib/context-estimator');
-        const recentBudget = Math.floor(contextWindow * 0.5); // Keep recent 50% worth
+        // Determine which messages to compress using normalized sizes (consistent with estimate)
+        const recentBudget = Math.floor(contextWindow * 0.5);
         const messagesToKeep: typeof historyMsgs = [];
         let keptTokens = 0;
-        for (let i = historyMsgs.length - 1; i >= 0; i--) {
-          const msgTokens = roughTokenEstimate(historyMsgs[i].content) + 10;
+        for (let i = normalizedHistory.length - 1; i >= 0; i--) {
+          const msgTokens = roughTokenEstimate(normalizedHistory[i].content) + 10;
           if (keptTokens + msgTokens > recentBudget) break;
-          messagesToKeep.unshift(historyMsgs[i]);
+          messagesToKeep.unshift(historyMsgs[i]); // Keep raw msg for compression input
           keptTokens += msgTokens;
         }
         const messagesToCompress = historyMsgs.slice(0, historyMsgs.length - messagesToKeep.length);
