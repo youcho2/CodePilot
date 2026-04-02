@@ -93,10 +93,20 @@ export function ContextUsageIndicator({ messages, modelName, context1m, hasSumma
               </span>
             </div>
             {usage.contextWindow && (
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">{t('context.percentage')}</span>
-                <span className="font-medium">{(usage.ratio * 100).toFixed(1)}%</span>
-              </div>
+              <>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">{t('context.percentage')}</span>
+                  <span className="font-medium">{(usage.ratio * 100).toFixed(1)}%</span>
+                </div>
+                {usage.estimatedNextTurn > 0 && (
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">{t('context.nextEstimate')}</span>
+                    <span className={`font-medium ${usage.estimatedNextRatio >= 0.8 ? 'text-status-warning-foreground' : ''}`}>
+                      ~{formatTokens(usage.estimatedNextTurn)} ({(usage.estimatedNextRatio * 100).toFixed(1)}%)
+                    </span>
+                  </div>
+                )}
+              </>
             )}
             <div className="border-t border-border pt-1.5 mt-1.5 space-y-1">
               <div className="flex justify-between">

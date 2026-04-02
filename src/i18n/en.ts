@@ -984,6 +984,7 @@ const en = {
   'context.cacheRead': 'Cache Read',
   'context.cacheCreation': 'Cache Creation',
   'context.outputTokens': 'Output Tokens',
+  'context.nextEstimate': 'Next Turn Est.',
   'context.estimate': 'Estimated from the most recent response',
   'context.noData': 'No context usage data yet',
   'context.unknown': 'Unknown',

@@ -918,7 +918,11 @@ export function streamClaude(options: ClaudeStreamOptions): ReadableStream<strin
               | { type: 'text'; text: string }
             > = [];
 
-            for (const img of imageFiles) {
+            // Limit media items to avoid exceeding API constraints
+            const MAX_MEDIA_ITEMS = 100;
+            const limitedImages = imageFiles.slice(0, MAX_MEDIA_ITEMS);
+
+            for (const img of limitedImages) {
               contentBlocks.push({
                 type: 'image',
                 source: {
@@ -929,6 +933,9 @@ export function streamClaude(options: ClaudeStreamOptions): ReadableStream<strin
               });
             }
 
+            if (imageFiles.length > MAX_MEDIA_ITEMS) {
+              contentBlocks.push({ type: 'text', text: `[Note: ${imageFiles.length - MAX_MEDIA_ITEMS} additional image(s) were omitted due to the ${MAX_MEDIA_ITEMS}-image limit per request.]` });
+            }
             contentBlocks.push({ type: 'text', text: textWithImageRefs });
 
             const userMessage: SDKUserMessage = {

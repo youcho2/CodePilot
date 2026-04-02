@@ -314,63 +314,48 @@ function DANGEROUS_uncachedSystemPromptSection(content: string): string
 
 ---
 
-## 实施建议路线图（第三版，整合 Codex 优先级建议）
+## 实施状态（最终版 2026-04-02）
 
-> 核心思路：**先测量，再压缩**。不知道上下文有多满，做压缩也是盲打。
+> 所有计划项均已完成评估。✅ 已实现 / 🔧 SDK 处理 / ⏭ 不做（含原因）
 
 ```
-Phase 0 (前置清理 + 止血) — 1-2 天
-├── 修复 fallback history 元数据泄漏（strip <!--files:...-->）
-├── 修复 model-context.ts 对 context_1m 的感知
-├── 清理 needsWidgetMcp 双份判断（统一到一处）
-├── 清理 loadWorkspaceFiles 的 V2 残留死读取
-└── 更新 core-system-guardrails.md 使其反映 V3.1 实际架构
+Phase 0 (前置清理 + 止血) — ✅ 全部完成
+├── ✅ 修复 fallback history 元数据泄漏（strip <!--files:...-->）
+├── ✅ 修复 model-context.ts 对 context_1m 的感知
+├── ✅ 清理 needsWidgetMcp 双份判断（统一到一处）
+├── ✅ 清理 loadWorkspaceFiles 的 V2 残留死读取
+└── ✅ 更新 core-system-guardrails.md 使其反映 V3.1 实际架构
 
-Phase 1 (上下文测量) — 3-5 天
-├── 统一的 estimateContextTokens() 函数
-│   ├── 拆分计算：system prompt / fallback history / attachments / tool results / MCP 增量
-│   └── 粗估 4B/tok，JSON 2B/tok
-├── 前端 ContextUsageIndicator 改为双指标：
-│   ├── 上一轮 usage（已有，保留）
-│   └── 下一轮预估 context 占用（新增，从 estimateContextTokens 获取）
-├── PTL 错误的基本处理（错误提示 + 建议新建会话）
-└── 媒体项数量限制（max 100）
+Phase 1 (上下文测量) — ✅ 全部完成
+├── ✅ estimateContextTokens()（粗估 4B/tok，JSON 2B/tok）
+├── ✅ ContextUsageIndicator 双指标（上一轮 usage + 下一轮预估）
+├── ✅ PTL reactive compact（后端自动压缩 + 重试）
+└── ✅ 媒体项数量限制（max 100）
 
-Phase 2 (Fallback 质量提升) — 3-5 天
-├── Fallback 从"最近 50 条"改为"摘要 + 最近 token 窗口"
-│   ├── 利用现有 daily memory 作为压缩骨架
-│   └── 按 token 预算动态截断，不是按消息条数
-├── Fallback 中 assistant 消息保留关键 tool 摘要（不再全部丢弃）
-├── 消息归一化管线（孤立 tool_use/tool_result 修复 + 字段清理）
-└── History fallback 中旧工具结果裁剪
+Phase 2 (Fallback 质量提升) — ✅ 全部完成
+├── ✅ Fallback 改为 token 预算截断（200 条 + 动态 budget）
+├── ✅ 工具摘要保留（normalizeMessageContent）
+├── ✅ 孤立 tool_use 已被 normalizer 消解（变为文本摘要）
+└── ✅ Microcompaction 裁剪旧工具结果
 
-Phase 3 (Microcompaction + Prompt 优化) — 5-8 天
-├── Microcompaction 引擎
-│   ├── 按工具类型裁剪旧结果（Read/Bash/Grep/Web 等）
-│   ├── 单文件 5K token 上限
-│   └── 图片 block 上限 2K token
-├── System prompt 静态/动态分离
-│   ├── 稳定层：identity files + 基础指令（可缓存）
-│   └── 易变层：dashboard summary + memory hint + heartbeat（每轮重算）
-└── 普通项目 CLAUDE.md 自动发现
+Phase 3 (Microcompaction + Prompt 优化) — ✅ 全部完成
+├── ✅ Microcompaction 引擎（年龄分级 5K/1K）
+├── ✅ System prompt 静态/动态分离
+└── 🔧 普通项目 CLAUDE.md — SDK settingSources: ['project'] 已自动发现
 
-Phase 4 (完整压缩体系) — 8-12 天
-├── Auto compaction 触发器
-│   ├── 阈值 = 有效窗口 - 13K buffer
-│   ├── Warning 阈值 = -20K
-│   └── Blocking 阈值 = -3K
-├── 熔断器（连续 3 次失败停止）
-├── Compact 后上下文恢复（文件 + dashboard + MCP 状态）
-├── /compact 手动命令
-├── Reactive compact（API PTL 时自动重试）
-└── Session memory compaction（利用现有 memory-extractor）
+Phase 4 (完整压缩体系) — ✅ 核心全部完成
+├── ✅ Auto compaction 80% 阈值 + 熔断器
+├── ⏭ Compact 后恢复 — fallback 已有 summary 骨架，SDK resume 有完整上下文
+├── ✅ /compact 手动命令
+├── ✅ Reactive compact（PTL 自动压缩重试）
+└── ⏭ Session memory compaction — memory-extractor 已有每 3 轮自动提取
 
-Phase 5 (高级优化) — 按需
-├── Prompt cache 精细控制（cache_control 标记 + 1h TTL）
-├── Token 精确计数（countTokens API）
-├── Context 使用分析（按类型统计 token 占比 + 重复文件检测）
-├── Cached microcompact（增量截断避免缓存失效）
-└── Claude session import 完整上下文迁移
+Phase 5 (高级优化) — ⏭ 暂不实施
+├── ⏭ Prompt cache 精细控制 — SDK preset append 模式不暴露 cache_control API
+├── ⏭ Token 精确计数 — 粗估已满足需求，精确计数增加延迟+费用
+├── ⏭ Context 使用分析 — 开发者调试工具，不影响用户体验
+├── ⏭ Cached microcompact — 需要 SDK cache_edits API 支持
+└── ⏭ Claude session import — 独立功能，不属于上下文管理
 ```
 
 ---

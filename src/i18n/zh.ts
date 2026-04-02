@@ -981,6 +981,7 @@ const zh: Record<TranslationKey, string> = {
   'context.cacheRead': '缓存读取',
   'context.cacheCreation': '缓存创建',
   'context.outputTokens': '输出 Token',
+  'context.nextEstimate': '下一轮预估',
   'context.estimate': '基于最近一轮响应估算',
   'context.noData': '暂无上下文统计',
   'context.unknown': '未知上下文窗口',

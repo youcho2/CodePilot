@@ -9,6 +9,10 @@ export interface ContextUsageData {
   used: number;
   /** Ratio of actual usage to context window */
   ratio: number;
+  /** Estimated next-turn token usage (input + output + ~200 for new message overhead) */
+  estimatedNextTurn: number;
+  /** Ratio of estimated next-turn usage to context window */
+  estimatedNextRatio: number;
   cacheReadTokens: number;
   cacheCreationTokens: number;
   outputTokens: number;
@@ -31,6 +35,8 @@ export function useContextUsage(
       contextWindow,
       used: 0,
       ratio: 0,
+      estimatedNextTurn: 0,
+      estimatedNextRatio: 0,
       cacheReadTokens: 0,
       cacheCreationTokens: 0,
       outputTokens: 0,
@@ -56,15 +62,23 @@ export function useContextUsage(
         const used = inputTokens + cacheRead + cacheCreation;
         const ratio = contextWindow ? used / contextWindow : 0;
 
+        // Estimate next turn: current input context + this turn's output + ~200 token overhead for a new user message
+        const estimatedNextTurn = used + outputTokens + 200;
+        const estimatedNextRatio = contextWindow ? estimatedNextTurn / contextWindow : 0;
+
+        // Warning state uses the higher of actual and estimated ratios
+        const effectiveRatio = Math.max(ratio, estimatedNextRatio);
         let state: 'normal' | 'warning' | 'critical' = 'normal';
-        if (ratio >= 0.95) state = 'critical';
-        else if (ratio >= 0.8) state = 'warning';
+        if (effectiveRatio >= 0.95) state = 'critical';
+        else if (effectiveRatio >= 0.8) state = 'warning';
 
         return {
           modelName,
           contextWindow,
           used,
           ratio,
+          estimatedNextTurn,
+          estimatedNextRatio,
           cacheReadTokens: cacheRead,
           cacheCreationTokens: cacheCreation,
           outputTokens,
