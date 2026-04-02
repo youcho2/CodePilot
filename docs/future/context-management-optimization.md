@@ -2,25 +2,29 @@
 
 > 参考 Claude Code 源码的上下文管理体系，与 CodePilot 对比分析，提炼可借鉴和优化的方向。
 > 技术实现跟踪见 [docs/exec-plans/active/context-storage-migration.md](../exec-plans/active/context-storage-migration.md)
-> 最后更新：2026-04-02（第三轮深度调研，整合 Codex 交叉审计结果）
+> 最后更新：2026-04-02（实施完成）
 
-## 架构对比总览
+## 架构对比总览（实施后）
 
-| 维度 | Claude Code | CodePilot (当前) |
-|------|-------------|-----------------|
-| 上下文窗口管理 | 精细的多级 token 预算系统 | 依赖 SDK 自动管理，无显式预算 |
-| 压缩策略 | 4 级：Micro → Session Memory → Auto Compact → Context Collapse | 无主动压缩，依赖 SDK resume |
-| System Prompt | 模块化 section 系统 + 静态/动态分离 + cache_control 精细标记 | 6 层拼接，append 模式，无缓存控制 |
-| 消息归一化 | normalizeMessagesForAPI + 工具字段剥离 + 媒体限制 + 孤立修复 | 简单的 role+content 映射 |
-| 记忆系统 | CLAUDE.md 4 级层级 + session memory 自动提取 | Workspace 文件 + 每 3 轮自动提取 + MCP 搜索 |
-| Token 计数 | 精确 API 计数 + Haiku fallback + 粗估 (4B/tok) | 仅记录 API 返回的 usage |
-| 缓存策略 | Prompt cache 精细控制（静态/动态边界 + 1h TTL） | 依赖 API 自动缓存 |
-| 工具上下文 | Microcompact 去重 + token 预算裁剪 + tool deferral | keyword-gated MCP + last-wins 去重 |
-| 上下文可视化 | Warning/Error/Blocking 三级阈值 + percentLeft | ContextUsageIndicator 只显示上一轮 usage（非下一轮预估） |
-| 熔断与恢复 | 连续 3 次失败停止 + PTL 回退裁剪 + reactive compact | resume 失败后 50 条 fallback |
-| Fallback 质量 | compact boundary + 摘要 + 文件恢复 | 文本化降质 + 内部标记泄漏 + 固定条数 |
+| 维度 | Claude Code | CodePilot (已实现) |
+|------|-------------|-------------------|
+| 上下文窗口管理 | 精细的多级 token 预算系统 | `estimateContextTokens` 粗估 + 80% 阈值自动压缩 + token 预算截断 |
+| 压缩策略 | 4 级：Micro → Session Memory → Auto Compact → Context Collapse | 3 级：Microcompaction → Auto Compact (80%) → Reactive Compact (PTL) |
+| System Prompt | 模块化 section 系统 + 静态/动态分离 + cache_control 精细标记 | 静态前缀 + 动态后缀分离（widget→session→identity→volatile） |
+| 消息归一化 | normalizeMessagesForAPI + 工具字段剥离 + 媒体限制 + 孤立修复 | `normalizeMessageContent` + `microCompactMessage` + 媒体限制 (100) |
+| 记忆系统 | CLAUDE.md 4 级层级 + session memory 自动提取 | Workspace 文件 + 每 3 轮自动提取 + MCP 搜索 + session summary |
+| Token 计数 | 精确 API 计数 + Haiku fallback + 粗估 (4B/tok) | `roughTokenEstimate` 粗估 (4B/tok, JSON 2B/tok) + API usage 记录 |
+| 缓存策略 | Prompt cache 精细控制（静态/动态边界 + 1h TTL） | 静态/动态分离提高缓存命中率（无显式 cache_control） |
+| 工具上下文 | Microcompact 去重 + token 预算裁剪 + tool deferral | keyword-gated MCP + microcompaction (年龄分级 5K/1K) |
+| 上下文可视化 | Warning/Error/Blocking 三级阈值 + percentLeft | 双指标（实际 + 下一轮预估）+ warning/critical 状态 |
+| 熔断与恢复 | 连续 3 次失败停止 + PTL 回退裁剪 + reactive compact | 熔断器 (3 次) + PTL reactive compact + 预算自动重算 |
+| Fallback 质量 | compact boundary + 摘要 + 文件恢复 | token 预算截断 + 工具摘要保留 + session summary 骨架 |
 
 ---
+
+## 原始分析记录
+
+> **注意**：以下 P0-P11 章节是实施前的原始分析，描述的是当时的缺口。实施后的最终状态见文末「实施状态（最终版）」章节。保留原始分析是为了记录"为什么要做这些"的决策依据。
 
 ## 第一轮分析：核心能力缺口（P0-P5）
 

@@ -897,18 +897,26 @@ export function streamClaude(options: ClaudeStreamOptions): ReadableStream<strin
           }
 
           if (imageFiles.length > 0) {
+            // Limit media items: keep the MOST RECENT images (drop oldest first),
+            // consistent with "preserve recent context" strategy.
+            const MAX_MEDIA_ITEMS = 100;
+            const limitedImages = imageFiles.length > MAX_MEDIA_ITEMS
+              ? imageFiles.slice(-MAX_MEDIA_ITEMS)
+              : imageFiles;
+            const droppedCount = imageFiles.length - limitedImages.length;
+
             // In imageAgentMode, skip file path references so Claude doesn't
             // try to use built-in tools to analyze images from disk. It will
             // see the images via vision (base64 content blocks) and follow the
             // IMAGE_AGENT_SYSTEM_PROMPT to output image-gen-request blocks.
-            // In normal mode, append disk paths so skills can reference them.
+            // In normal mode, append disk paths — only for the images actually included.
             const textWithImageRefs = imageAgentMode
               ? textPrompt
               : (() => {
                   const workDir = resolvedWorkingDirectory.path;
-                  const imagePaths = getUploadedFilePaths(imageFiles, workDir);
+                  const imagePaths = getUploadedFilePaths(limitedImages, workDir);
                   const imageReferences = imagePaths
-                    .map((p, i) => `[User attached image: ${p} (${imageFiles[i].name})]`)
+                    .map((p, i) => `[User attached image: ${p} (${limitedImages[i].name})]`)
                     .join('\n');
                   return `${imageReferences}\n\n${textPrompt}`;
                 })();
@@ -917,10 +925,6 @@ export function streamClaude(options: ClaudeStreamOptions): ReadableStream<strin
               | { type: 'image'; source: { type: 'base64'; media_type: 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp'; data: string } }
               | { type: 'text'; text: string }
             > = [];
-
-            // Limit media items to avoid exceeding API constraints
-            const MAX_MEDIA_ITEMS = 100;
-            const limitedImages = imageFiles.slice(0, MAX_MEDIA_ITEMS);
 
             for (const img of limitedImages) {
               contentBlocks.push({
@@ -933,8 +937,8 @@ export function streamClaude(options: ClaudeStreamOptions): ReadableStream<strin
               });
             }
 
-            if (imageFiles.length > MAX_MEDIA_ITEMS) {
-              contentBlocks.push({ type: 'text', text: `[Note: ${imageFiles.length - MAX_MEDIA_ITEMS} additional image(s) were omitted due to the ${MAX_MEDIA_ITEMS}-image limit per request.]` });
+            if (droppedCount > 0) {
+              contentBlocks.push({ type: 'text', text: `[Note: ${droppedCount} older image(s) were omitted due to the ${MAX_MEDIA_ITEMS}-image limit per request.]` });
             }
             contentBlocks.push({ type: 'text', text: textWithImageRefs });
 
