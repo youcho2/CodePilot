@@ -84,7 +84,12 @@ export async function compressConversation(params: CompressParams): Promise<Comp
 
   try {
     const { generateTextViaSdk } = await import('./claude-client');
+    const { resolveProvider } = await import('./provider-resolver');
     const { normalizeMessageContent } = await import('./message-normalizer');
+
+    // Resolve model via provider-aware chain: roleModels.small → catalog upstreamModelId → fallback
+    const resolved = resolveProvider({ useCase: 'small', providerId, sessionModel });
+    const effectiveModel = resolved.upstreamModel || resolved.model || sessionModel || 'haiku';
 
     // Clean messages before summarizing: strip file metadata, extract tool summaries
     const formatted = messages.map(m => {
@@ -112,12 +117,11 @@ ${formatted}
 
 Summary:`;
 
-    // Use the SDK subprocess path (same as main chat) for maximum provider compatibility.
-    // The @ai-sdk/anthropic streamText path in text-generator.ts returns empty streams
-    // with some third-party Anthropic proxies; the SDK subprocess handles them correctly.
+    // SDK subprocess for transport (compatible with third-party proxies),
+    // but model selected via provider resolver (respects roleModels.small + upstreamModelId).
     const result = await generateTextViaSdk({
       providerId: providerId || undefined,
-      model: sessionModel || 'haiku',
+      model: effectiveModel,
       system,
       prompt,
     });

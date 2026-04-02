@@ -84,7 +84,7 @@ export async function POST(request: NextRequest) {
           messages: msgData,
           existingSummary: existingSummary || undefined,
           providerId: provider_id || session.provider_id || undefined,
-          sessionModel: session.model || undefined,
+          sessionModel: model || session.model || undefined,
         });
 
         updateDbSummary(session_id, result.summary);
