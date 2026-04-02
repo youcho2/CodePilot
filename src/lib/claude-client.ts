@@ -1351,8 +1351,10 @@ export function streamClaude(options: ClaudeStreamOptions): ReadableStream<strin
             const newSummaryTokens = roughTokenEstimate(compResult.summary);
             const promptTokens = roughTokenEstimate(prompt);
             const systemTokens = roughTokenEstimate(systemPrompt || '');
-            // Use a conservative 50% budget for retry (PTL means we were already at the edge)
-            const retryBudget = Math.max(10000, Math.floor(200000 * 0.5 - systemTokens - newSummaryTokens - promptTokens));
+            // Use a conservative 50% of actual context window for retry
+            const { getContextWindow } = await import('./model-context');
+            const ctxWindow = getContextWindow(model || 'sonnet', { context1m: !!context1m }) || 200000;
+            const retryBudget = Math.max(10000, Math.floor(ctxWindow * 0.5 - systemTokens - newSummaryTokens - promptTokens));
             console.log(`[claude-client] Compressed ${compResult.messagesCompressed} messages for PTL retry, budget=${retryBudget}`);
 
             // Clear stale session so retry starts fresh
