@@ -307,6 +307,12 @@ export async function POST(request: NextRequest) {
             });
             activeSessionSummary = result.summary;
             updateSessionSummary(session_id, result.summary);
+            // Recalculate budget with new (larger) summary
+            const newSummaryTokens = roughTokenEstimate(result.summary);
+            const userMsgTokens = roughTokenEstimate(content);
+            fallbackTokenBudget = Math.floor(
+              contextWindow * 0.7 - estimate.breakdown.system - newSummaryTokens - userMsgTokens
+            );
             // Flag so we can notify frontend via a leading SSE event
             compressionOccurred = true;
             console.log(`[chat API] Compressed ${result.messagesCompressed} messages, saved ~${result.estimatedTokensSaved} tokens`);

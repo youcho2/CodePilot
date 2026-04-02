@@ -272,14 +272,16 @@ function buildFallbackContext(params: {
     ),
   }));
 
-  // Select messages within token budget (walk backward from newest)
+  // Select messages within token budget (walk backward from newest).
+  // Floor at 10K tokens so even extreme sessions keep some recent context.
+  const effectiveBudget = tokenBudget != null ? Math.max(tokenBudget, 10000) : undefined;
   let selected: typeof normalized;
-  if (tokenBudget && tokenBudget > 0) {
+  if (effectiveBudget) {
     selected = [];
     let accumulated = 0;
     for (let i = normalized.length - 1; i >= 0; i--) {
       const msgTokens = roughTokenEstimate(normalized[i].content) + 10; // role label overhead
-      if (accumulated + msgTokens > tokenBudget) break;
+      if (accumulated + msgTokens > effectiveBudget) break;
       selected.unshift(normalized[i]);
       accumulated += msgTokens;
     }
@@ -1345,19 +1347,25 @@ export function streamClaude(options: ClaudeStreamOptions): ReadableStream<strin
             });
             updateSummary(sessionId, compResult.summary);
             options.sessionSummary = compResult.summary;
-            console.log(`[claude-client] Compressed ${compResult.messagesCompressed} messages for PTL retry`);
+            // Recalculate fallback budget with new summary size
+            const newSummaryTokens = roughTokenEstimate(compResult.summary);
+            const promptTokens = roughTokenEstimate(prompt);
+            const systemTokens = roughTokenEstimate(systemPrompt || '');
+            // Use a conservative 50% budget for retry (PTL means we were already at the edge)
+            const retryBudget = Math.max(10000, Math.floor(200000 * 0.5 - systemTokens - newSummaryTokens - promptTokens));
+            console.log(`[claude-client] Compressed ${compResult.messagesCompressed} messages for PTL retry, budget=${retryBudget}`);
 
             // Clear stale session so retry starts fresh
             if (sessionId) {
               try { updateSdkSessionId(sessionId, ''); } catch { /* best effort */ }
             }
 
-            // Build retry prompt using compressed context (buildFallbackContext picks up new sessionSummary)
+            // Build retry prompt using compressed context with recalculated budget
             const retryPrompt = buildFallbackContext({
               prompt,
               history: conversationHistory,
               sessionSummary: options.sessionSummary,
-              tokenBudget: options.fallbackTokenBudget,
+              tokenBudget: retryBudget,
             });
 
             // Rebuild minimal query options from closure variables
