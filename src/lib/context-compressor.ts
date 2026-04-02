@@ -83,26 +83,8 @@ export async function compressConversation(params: CompressParams): Promise<Comp
   }
 
   try {
-    const { generateTextFromProvider } = await import('./text-generator');
-    const { resolveProvider } = await import('./provider-resolver');
+    const { generateTextViaSdk } = await import('./claude-client');
     const { normalizeMessageContent } = await import('./message-normalizer');
-
-    // Resolve provider: try session's provider first, then fall back to default
-    const resolved = resolveProvider({ useCase: 'small', providerId });
-
-    if (!resolved.hasCredentials) {
-      // Try again without providerId in case the session's provider lacks credentials
-      const fallback = resolveProvider({ useCase: 'small' });
-      if (!fallback.hasCredentials) {
-        throw new Error('No credentials available for compression LLM call');
-      }
-      // Use fallback provider
-      Object.assign(resolved, fallback);
-    }
-
-    // Prefer resolved small model, fall back to session model, then haiku
-    const effectiveModel = resolved.upstreamModel || resolved.model || sessionModel || 'haiku';
-    const effectiveProviderId = providerId || resolved.provider?.id || '';
 
     // Clean messages before summarizing: strip file metadata, extract tool summaries
     const formatted = messages.map(m => {
@@ -130,14 +112,14 @@ ${formatted}
 
 Summary:`;
 
-    console.log(`[context-compressor] Calling LLM: model=${effectiveModel}, providerId=${effectiveProviderId}, promptLen=${prompt.length}`);
-
-    const result = await generateTextFromProvider({
-      providerId: effectiveProviderId,
-      model: effectiveModel,
+    // Use the SDK subprocess path (same as main chat) for maximum provider compatibility.
+    // The @ai-sdk/anthropic streamText path in text-generator.ts returns empty streams
+    // with some third-party Anthropic proxies; the SDK subprocess handles them correctly.
+    const result = await generateTextViaSdk({
+      providerId: providerId || undefined,
+      model: sessionModel || 'haiku',
       system,
       prompt,
-      maxTokens: 1500,
     });
 
     if (!result || result.trim().length < 10) {
