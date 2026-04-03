@@ -33,26 +33,26 @@ export const RARITY_AVATAR_COLORS: Record<Rarity, string[]> = {
 };
 
 export const SPECIES_IMAGE_URL: Record<Species, string> = {
-  cat: 'https://cdn.jsdelivr.net/gh/microsoft/fluentui-emoji/assets/Cat/3D/cat_3d.png',
-  duck: 'https://cdn.jsdelivr.net/gh/microsoft/fluentui-emoji/assets/Duck/3D/duck_3d.png',
-  dragon: 'https://cdn.jsdelivr.net/gh/microsoft/fluentui-emoji/assets/Dragon/3D/dragon_3d.png',
-  owl: 'https://cdn.jsdelivr.net/gh/microsoft/fluentui-emoji/assets/Owl/3D/owl_3d.png',
-  penguin: 'https://cdn.jsdelivr.net/gh/microsoft/fluentui-emoji/assets/Penguin/3D/penguin_3d.png',
-  turtle: 'https://cdn.jsdelivr.net/gh/microsoft/fluentui-emoji/assets/Turtle/3D/turtle_3d.png',
-  octopus: 'https://cdn.jsdelivr.net/gh/microsoft/fluentui-emoji/assets/Octopus/3D/octopus_3d.png',
-  ghost: 'https://cdn.jsdelivr.net/gh/microsoft/fluentui-emoji/assets/Ghost/3D/ghost_3d.png',
-  axolotl: 'https://cdn.jsdelivr.net/gh/microsoft/fluentui-emoji/assets/Lizard/3D/lizard_3d.png',
-  capybara: 'https://cdn.jsdelivr.net/gh/microsoft/fluentui-emoji/assets/Beaver/3D/beaver_3d.png',
-  robot: 'https://cdn.jsdelivr.net/gh/microsoft/fluentui-emoji/assets/Robot/3D/robot_3d.png',
-  rabbit: 'https://cdn.jsdelivr.net/gh/microsoft/fluentui-emoji/assets/Rabbit/3D/rabbit_3d.png',
-  mushroom: 'https://cdn.jsdelivr.net/gh/microsoft/fluentui-emoji/assets/Mushroom/3D/mushroom_3d.png',
-  fox: 'https://cdn.jsdelivr.net/gh/microsoft/fluentui-emoji/assets/Fox/3D/fox_3d.png',
-  panda: 'https://cdn.jsdelivr.net/gh/microsoft/fluentui-emoji/assets/Panda/3D/panda_3d.png',
-  whale: 'https://cdn.jsdelivr.net/gh/microsoft/fluentui-emoji/assets/Whale/3D/whale_3d.png',
+  cat: '/buddy/cat.png',
+  duck: '/buddy/duck.png',
+  dragon: '/buddy/dragon.png',
+  owl: '/buddy/owl.png',
+  penguin: '/buddy/penguin.png',
+  turtle: '/buddy/turtle.png',
+  octopus: '/buddy/octopus.png',
+  ghost: '/buddy/ghost.png',
+  axolotl: '/buddy/lizard.png',
+  capybara: '/buddy/beaver.png',
+  robot: '/buddy/robot.png',
+  rabbit: '/buddy/rabbit.png',
+  mushroom: '/buddy/mushroom.png',
+  fox: '/buddy/fox.png',
+  panda: '/buddy/panda.png',
+  whale: '/buddy/whale.png',
 };
 
 // Egg image for unhatched state
-export const EGG_IMAGE_URL = 'https://cdn.jsdelivr.net/gh/microsoft/fluentui-emoji/assets/Egg/3D/egg_3d.png';
+export const EGG_IMAGE_URL = '/buddy/egg.png';
 
 export const RARITY_BG_GRADIENT: Record<Rarity, string> = {
   common: 'linear-gradient(135deg, #e2e8f0, #f1f5f9)',
