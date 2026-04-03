@@ -51,6 +51,8 @@ export interface FilePreview {
   content: string;
   language: string;
   line_count: number;
+  /** When true, line_count is exact; when false it is a best-effort estimate. */
+  line_count_exact: boolean;
 }
 
 // ==========================================

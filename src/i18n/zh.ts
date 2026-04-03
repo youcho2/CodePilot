@@ -196,6 +196,7 @@ const zh: Record<TranslationKey, string> = {
   // ── File preview ────────────────────────────────────────────
   'filePreview.backToTree': '返回文件树',
   'filePreview.lines': '{count} 行',
+  'filePreview.linesApprox': '约 {count} 行',
   'filePreview.copyPath': '复制路径',
   'filePreview.failedToLoad': '加载文件失败',
 

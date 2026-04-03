@@ -201,7 +201,7 @@ export async function POST(request: NextRequest) {
             name: f.name,
             type: f.type,
             size: f.size,
-            data: (meta?.filePath && !f.type.startsWith('image/')) ? '' : f.data, // Keep base64 for images (needed for vision); clear for non-images (read from disk)
+            data: meta?.filePath ? '' : f.data, // Clear base64 once written to disk — claude-client reads from filePath on demand
             filePath: meta?.filePath,
           };
         })

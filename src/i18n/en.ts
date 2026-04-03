@@ -199,6 +199,7 @@ const en = {
   // ── File preview ────────────────────────────────────────────
   'filePreview.backToTree': 'Back to file tree',
   'filePreview.lines': '{count} lines',
+  'filePreview.linesApprox': '~{count} lines',
   'filePreview.copyPath': 'Copy path',
   'filePreview.failedToLoad': 'Failed to load file',
 

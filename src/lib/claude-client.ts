@@ -927,12 +927,22 @@ export function streamClaude(options: ClaudeStreamOptions): ReadableStream<strin
             > = [];
 
             for (const img of limitedImages) {
+              // Read base64 from disk if the data was cleared after upload
+              let imgData = img.data;
+              if (!imgData && img.filePath) {
+                try {
+                  imgData = fs.readFileSync(img.filePath).toString('base64');
+                } catch {
+                  continue; // Skip images whose files are missing
+                }
+              }
+              if (!imgData) continue;
               contentBlocks.push({
                 type: 'image',
                 source: {
                   type: 'base64',
                   media_type: (img.type || 'image/png') as 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp',
-                  data: img.data,
+                  data: imgData,
                 },
               });
             }
