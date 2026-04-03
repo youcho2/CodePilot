@@ -185,6 +185,7 @@ export function toClaudeCodeEnv(
       switch (resolved.authStyle) {
         case 'auth_token':
           env.ANTHROPIC_AUTH_TOKEN = apiKey;
+          env.ANTHROPIC_API_KEY = '';  // Explicitly empty — required by Ollama and other auth_token providers
           break;
         case 'api_key':
         default:

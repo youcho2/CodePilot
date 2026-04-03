@@ -429,6 +429,25 @@ export const VENDOR_PRESETS: VendorPreset[] = [
     iconKey: 'google',
   },
 
+  // ── Ollama ──
+  {
+    key: 'ollama',
+    name: 'Ollama',
+    description: 'Ollama — run local models with Anthropic-compatible API',
+    descriptionZh: 'Ollama — 本地运行模型，Anthropic 兼容 API',
+    protocol: 'anthropic',
+    authStyle: 'auth_token',
+    baseUrl: 'http://localhost:11434',
+    defaultEnvOverrides: {
+      ANTHROPIC_AUTH_TOKEN: 'ollama',
+      ANTHROPIC_API_KEY: '',
+    },
+    defaultModels: [],  // User must specify — depends on pulled models
+    fields: ['base_url', 'model_names'],
+    iconKey: 'ollama',
+    sdkProxyOnly: true,
+  },
+
   // ── LiteLLM ──
   {
     key: 'litellm',
@@ -502,6 +521,7 @@ export function inferProtocolFromLegacy(
       'volces.com', 'volcengine.com',   // Volcengine
       'dashscope.aliyuncs.com',         // Bailian
       'xiaomimimo.com',                 // Xiaomi MiMo
+      'localhost:11434',                // Ollama
     ];
     const urlLower = baseUrl.toLowerCase();
     if (anthropicUrls.some(u => urlLower.includes(u))) {

@@ -338,8 +338,8 @@ describe('Provider Resolver', () => {
 
       const env = toClaudeCodeEnv({ PATH: '/usr/bin', ANTHROPIC_API_KEY: 'old-key' }, resolved);
       assert.equal(env.ANTHROPIC_AUTH_TOKEN, 'kimi-key');
-      // auth_token style should NOT set ANTHROPIC_API_KEY
-      assert.equal(env.ANTHROPIC_API_KEY, undefined);
+      // auth_token style explicitly clears ANTHROPIC_API_KEY (required by Ollama etc.)
+      assert.equal(env.ANTHROPIC_API_KEY, '');
     });
 
     it('applies env overrides with empty-string deletion', () => {
