@@ -897,6 +897,11 @@ function migrateDb(db: Database.Database): void {
   // Migration: add permanent column for existing databases
   safeAddColumn(db, "ALTER TABLE scheduled_tasks ADD COLUMN permanent INTEGER NOT NULL DEFAULT 0");
 
+  // Migration: set default_panel to 'file_tree' only if not already configured
+  db.prepare(
+    "INSERT OR IGNORE INTO settings (key, value) VALUES ('default_panel', 'file_tree')"
+  ).run();
+
   // Task execution history
   db.exec(`
     CREATE TABLE IF NOT EXISTS task_run_logs (

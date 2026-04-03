@@ -284,8 +284,8 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
           const isAssistant = !!data.path;
           setIsAssistantProject(isAssistant);
           setWorkspaceMismatchPath(null);
-          // Assistant project: show dashboard (with assistant status card) instead of file tree
           setIsAssistantWorkspace(isAssistant);
+          // Assistant project: show dashboard (with assistant status card) instead of file tree
           if (isAssistant) {
             setFileTreeOpen(false);
             setDashboardPanelOpen(true);
