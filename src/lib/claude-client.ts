@@ -1558,3 +1558,152 @@ export function streamClaude(options: ClaudeStreamOptions): ReadableStream<strin
     },
   });
 }
+
+// ── Provider Connection Test ─────────────────────────────────────
+
+export interface ConnectionTestResult {
+  success: boolean;
+  error?: {
+    code: string;
+    message: string;
+    suggestion: string;
+    recoveryActions?: Array<{ label: string; url?: string; action?: string }>;
+  };
+}
+
+/**
+ * Test a provider connection by sending a minimal SDK query.
+ * Does NOT require saving the provider to DB first.
+ */
+export async function testProviderConnection(config: {
+  apiKey: string;
+  baseUrl: string;
+  protocol: string;
+  authStyle: string;
+  envOverrides?: Record<string, string>;
+  providerName?: string;
+  providerMeta?: { apiKeyUrl?: string; docsUrl?: string; pricingUrl?: string };
+}): Promise<ConnectionTestResult> {
+  const { resolveProvider, toClaudeCodeEnv: buildEnv } = await import('./provider-resolver');
+  const { getPreset } = await import('./provider-catalog');
+
+  // Build a minimal ResolvedProvider without DB
+  const resolved = resolveProvider({ providerId: 'env' });
+
+  // Override with test config
+  const testProvider = {
+    id: '__test__',
+    name: config.providerName || 'Test',
+    provider_type: 'anthropic',
+    protocol: config.protocol,
+    base_url: config.baseUrl,
+    api_key: config.apiKey,
+    is_active: 0,
+    sort_order: 0,
+    extra_env: '{}',
+    headers_json: '{}',
+    env_overrides_json: JSON.stringify(config.envOverrides || {}),
+    role_models_json: '{}',
+    options_json: '{}',
+    notes: '',
+    created_at: '',
+    updated_at: '',
+  };
+
+  const testResolved = {
+    ...resolved,
+    provider: testProvider,
+    protocol: config.protocol as typeof resolved.protocol,
+    authStyle: config.authStyle as typeof resolved.authStyle,
+    envOverrides: config.envOverrides || {},
+    hasCredentials: !!config.apiKey,
+    settingSources: [] as string[],
+  };
+
+  const baseEnv: Record<string, string> = {};
+  for (const [k, v] of Object.entries(process.env)) {
+    if (typeof v === 'string') baseEnv[k] = v;
+  }
+
+  const sdkEnv = buildEnv(baseEnv, testResolved);
+
+  const abortController = new AbortController();
+  const timeoutId = setTimeout(() => abortController.abort(), 30_000);
+
+  try {
+    const claudePath = findClaudePath();
+    const queryOptions: Options = {
+      cwd: os.homedir(),
+      abortController,
+      permissionMode: 'bypassPermissions',
+      allowDangerouslySkipPermissions: true,
+      env: sanitizeEnv(sdkEnv),
+      settingSources: [],
+      systemPrompt: 'Reply with exactly: OK',
+      maxTurns: 1,
+    };
+
+    if (claudePath) {
+      const ext = path.extname(claudePath).toLowerCase();
+      if (ext === '.cmd' || ext === '.bat') {
+        const scriptPath = resolveScriptFromCmd(claudePath);
+        if (scriptPath) queryOptions.pathToClaudeCodeExecutable = scriptPath;
+      } else {
+        queryOptions.pathToClaudeCodeExecutable = claudePath;
+      }
+    }
+
+    const conversation = query({ prompt: 'ping', options: queryOptions });
+
+    for await (const event of conversation) {
+      if (event.type === 'assistant') {
+        // Got a response — connection works
+        clearTimeout(timeoutId);
+        abortController.abort(); // Stop the conversation early
+        return { success: true };
+      }
+      if (event.type === 'result') {
+        clearTimeout(timeoutId);
+        const result = event as SDKResultMessage;
+        if ('error' in result) {
+          const classified = classifyError({
+            error: new Error(String((result as { error?: string }).error)),
+            providerName: config.providerName,
+            baseUrl: config.baseUrl,
+            providerMeta: config.providerMeta,
+          });
+          return {
+            success: false,
+            error: {
+              code: classified.category,
+              message: classified.userMessage,
+              suggestion: classified.actionHint,
+              recoveryActions: classified.recoveryActions,
+            },
+          };
+        }
+        return { success: true };
+      }
+    }
+
+    clearTimeout(timeoutId);
+    return { success: true };
+  } catch (err) {
+    clearTimeout(timeoutId);
+    const classified = classifyError({
+      error: err,
+      providerName: config.providerName,
+      baseUrl: config.baseUrl,
+      providerMeta: config.providerMeta,
+    });
+    return {
+      success: false,
+      error: {
+        code: classified.category,
+        message: classified.userMessage,
+        suggestion: classified.actionHint,
+        recoveryActions: classified.recoveryActions,
+      },
+    };
+  }
+}

@@ -28,6 +28,16 @@ export type ClaudeErrorCategory =
   | 'PROCESS_CRASH'
   | 'UNKNOWN';
 
+/** A concrete action the user can take to recover from an error */
+export interface RecoveryAction {
+  /** Button label */
+  label: string;
+  /** URL to open (external link) */
+  url?: string;
+  /** Internal action type */
+  action?: 'open_settings' | 'retry' | 'new_conversation';
+}
+
 export interface ClassifiedError {
   category: ClaudeErrorCategory;
   /** User-facing message explaining what went wrong */
@@ -42,6 +52,8 @@ export interface ClassifiedError {
   details?: string;
   /** Whether this error is likely transient and retryable */
   retryable: boolean;
+  /** Structured recovery actions for UI buttons */
+  recoveryActions?: RecoveryAction[];
 }
 
 // ── Classification context ──────────────────────────────────────
@@ -63,6 +75,12 @@ export interface ErrorContext {
   context1mEnabled?: boolean;
   /** Whether effort was set */
   effortSet?: boolean;
+  /** Provider meta info from preset (for recovery action URLs) */
+  providerMeta?: {
+    apiKeyUrl?: string;
+    docsUrl?: string;
+    pricingUrl?: string;
+  };
 }
 
 // ── Pattern definitions ─────────────────────────────────────────
@@ -318,6 +336,7 @@ export function classifyError(ctx: ErrorContext): ClassifiedError {
             providerName: ctx.providerName,
             details: extraDetail || undefined,
             retryable: true,
+            recoveryActions: buildRecoveryActions('SESSION_STATE_ERROR', ctx),
           };
         }
       }
@@ -334,7 +353,47 @@ export function classifyError(ctx: ErrorContext): ClassifiedError {
     providerName: ctx.providerName,
     details: extraDetail || undefined,
     retryable: false,
+    recoveryActions: buildRecoveryActions('UNKNOWN', ctx),
   };
+}
+
+function buildRecoveryActions(category: ClaudeErrorCategory, ctx: ErrorContext): RecoveryAction[] {
+  const actions: RecoveryAction[] = [];
+  const meta = ctx.providerMeta;
+
+  switch (category) {
+    case 'AUTH_REJECTED':
+    case 'AUTH_FORBIDDEN':
+    case 'AUTH_STYLE_MISMATCH':
+    case 'NO_CREDENTIALS':
+      if (meta?.apiKeyUrl) actions.push({ label: 'Get API Key', url: meta.apiKeyUrl });
+      actions.push({ label: 'Open Settings', action: 'open_settings' });
+      break;
+    case 'RATE_LIMITED':
+      actions.push({ label: 'Retry', action: 'retry' });
+      if (meta?.pricingUrl) actions.push({ label: 'Upgrade Plan', url: meta.pricingUrl });
+      break;
+    case 'MODEL_NOT_AVAILABLE':
+    case 'ENDPOINT_NOT_FOUND':
+    case 'NETWORK_UNREACHABLE':
+      if (meta?.docsUrl) actions.push({ label: 'View Docs', url: meta.docsUrl });
+      actions.push({ label: 'Open Settings', action: 'open_settings' });
+      break;
+    case 'RESUME_FAILED':
+    case 'SESSION_STATE_ERROR':
+      actions.push({ label: 'New Conversation', action: 'new_conversation' });
+      break;
+    case 'PROCESS_CRASH':
+      if (meta?.apiKeyUrl) actions.push({ label: 'Check API Key', url: meta.apiKeyUrl });
+      if (meta?.docsUrl) actions.push({ label: 'View Docs', url: meta.docsUrl });
+      actions.push({ label: 'Open Settings', action: 'open_settings' });
+      break;
+    default:
+      actions.push({ label: 'Open Settings', action: 'open_settings' });
+      break;
+  }
+
+  return actions;
 }
 
 function buildResult(
@@ -343,14 +402,16 @@ function buildResult(
   rawMessage: string,
   extraDetail: string,
 ): ClassifiedError {
+  const category = pattern.category;
   return {
-    category: pattern.category,
+    category,
     userMessage: pattern.userMessage(ctx),
     actionHint: pattern.actionHint(ctx),
     rawMessage,
     providerName: ctx.providerName,
     details: extraDetail || undefined,
     retryable: pattern.retryable,
+    recoveryActions: buildRecoveryActions(category, ctx),
   };
 }
 
@@ -384,5 +445,6 @@ export function serializeClassifiedError(err: ClassifiedError): string {
     providerName: err.providerName,
     details: err.details,
     rawMessage: err.rawMessage,
+    recoveryActions: err.recoveryActions,
   });
 }
