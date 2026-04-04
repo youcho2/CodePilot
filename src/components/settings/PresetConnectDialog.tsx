@@ -123,6 +123,8 @@ export function PresetConnectDialog({
     if (!open || !preset) return;
     setError(null);
     setSaving(false);
+    setTesting(false);
+    setTestResult(null);
 
     if (isEdit && editProvider) {
       // Edit mode — pre-fill from existing provider
