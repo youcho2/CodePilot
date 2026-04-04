@@ -108,7 +108,7 @@ export function ModelSelectorDropdown({
       </PromptInputButton>
 
       {modelMenuOpen && (
-        <CommandList className="w-64 mb-1.5 overflow-x-hidden">
+        <CommandList className="w-64 mb-1.5">
           <CommandListSearch
             placeholder={t('composer.searchModels' as TranslationKey)}
             value={modelSearch}
