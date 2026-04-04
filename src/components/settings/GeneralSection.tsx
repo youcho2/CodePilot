@@ -3,6 +3,7 @@
 import { useState, useCallback, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
+import { Label } from "@/components/ui/label";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -365,6 +366,31 @@ export function GeneralSection() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* ── Error Reporting ─────────────────────────────────────── */}
+      <div className="space-y-1.5 pt-2 border-t border-border/50">
+        <Label className="text-sm font-medium">{t('settings.errorReporting' as TranslationKey)}</Label>
+        <p className="text-xs text-muted-foreground">
+          {t('settings.errorReportingDesc' as TranslationKey)}
+        </p>
+        <div className="flex items-center gap-2 pt-1">
+          <Switch
+            checked={(() => {
+              try { return localStorage.getItem('codepilot:sentry-disabled') !== 'true'; } catch { return true; }
+            })()}
+            onCheckedChange={(checked) => {
+              try { localStorage.setItem('codepilot:sentry-disabled', checked ? 'false' : 'true'); } catch { /* ignore */ }
+              // Force re-render
+              window.dispatchEvent(new Event('storage'));
+            }}
+          />
+          <span className="text-xs text-muted-foreground">
+            {(() => {
+              try { return localStorage.getItem('codepilot:sentry-disabled') !== 'true'; } catch { return true; }
+            })() ? (locale === 'zh' ? '已启用' : 'Enabled') : (locale === 'zh' ? '已禁用' : 'Disabled')}
+          </span>
+        </div>
+      </div>
     </div>
   );
 }
