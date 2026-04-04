@@ -569,7 +569,7 @@ export const VENDOR_PRESETS: VendorPreset[] = [
     fields: ['env_overrides'],
     iconKey: 'google',
     meta: {
-      docsUrl: 'https://ai.google.dev/gemini-api/docs/gemini-3',
+      docsUrl: 'https://cloud.google.com/vertex-ai/generative-ai/docs/partner-models/use-claude',
       billingModel: 'pay_as_you_go',
       notes: ['需启用 Vertex AI 并在 Model Garden 订阅 Claude 模型'],
     },

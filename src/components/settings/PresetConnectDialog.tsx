@@ -103,7 +103,7 @@ export function PresetConnectDialog({
           apiKey: apiKey || undefined,
           baseUrl: baseUrl || preset?.base_url || '',
           protocol: preset?.protocol || 'anthropic',
-          authStyle: preset?.authStyle || authStyle,
+          authStyle: preset?.key === 'anthropic-thirdparty' ? authStyle : (preset?.authStyle || authStyle),
           envOverrides,
           modelName: modelName || undefined,
           providerName: name || preset?.name,

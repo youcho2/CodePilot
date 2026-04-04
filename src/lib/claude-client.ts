@@ -1648,9 +1648,13 @@ export async function testProviderConnection(config: {
     settingSources: [] as string[],
   };
 
+  // Build a clean base env — strip all ANTHROPIC_* and managed auth vars
+  // to prevent process.env credentials from masking test config issues
   const baseEnv: Record<string, string> = {};
   for (const [k, v] of Object.entries(process.env)) {
-    if (typeof v === 'string') baseEnv[k] = v;
+    if (typeof v === 'string' && !k.startsWith('ANTHROPIC_') && !k.startsWith('CLAUDE_CODE_') && !k.startsWith('AWS_') && k !== 'CLOUD_ML_REGION') {
+      baseEnv[k] = v;
+    }
   }
 
   const sdkEnv = buildEnv(baseEnv, testResolved);
@@ -1682,12 +1686,14 @@ export async function testProviderConnection(config: {
     }
 
     const conversation = query({ prompt: 'ping', options: queryOptions });
+    let gotAssistantMessage = false;
 
     for await (const event of conversation) {
       if (event.type === 'assistant') {
-        // Got a response — connection works
+        // Got an actual model response — connection confirmed working
+        gotAssistantMessage = true;
         clearTimeout(timeoutId);
-        abortController.abort(); // Stop the conversation early
+        abortController.abort();
         return { success: true };
       }
       if (event.type === 'result') {
@@ -1710,12 +1716,31 @@ export async function testProviderConnection(config: {
             },
           };
         }
-        return { success: true };
+        // Result without error but also without assistant message — treat as success
+        // only if we actually got a response from the model
+        if (gotAssistantMessage) return { success: true };
+        // Otherwise the SDK process may have exited without reaching the provider
+        return {
+          success: false,
+          error: {
+            code: 'UNKNOWN',
+            message: 'Connection test completed but no model response was received',
+            suggestion: 'Verify your API key and endpoint configuration',
+          },
+        };
       }
     }
 
     clearTimeout(timeoutId);
-    return { success: true };
+    // Stream ended without assistant message or result — likely a process failure
+    return {
+      success: false,
+      error: {
+        code: 'UNKNOWN',
+        message: gotAssistantMessage ? 'Connection successful' : 'No response received from provider',
+        suggestion: 'Check your API key, endpoint URL, and network connection',
+      },
+    };
   } catch (err) {
     clearTimeout(timeoutId);
     const classified = classifyError({
