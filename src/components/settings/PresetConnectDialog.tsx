@@ -650,10 +650,9 @@ export function PresetConnectDialog({
           <DialogFooter className="flex items-center justify-between sm:justify-between">
             <Button
               type="button"
-              variant="ghost"
+              variant="outline"
               onClick={() => onOpenChange(false)}
               disabled={saving || testing}
-              className="text-muted-foreground"
             >
               {t('common.cancel')}
             </Button>
