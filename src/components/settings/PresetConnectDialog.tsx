@@ -647,29 +647,32 @@ export function PresetConnectDialog({
             </div>
           )}
 
-          <DialogFooter className="gap-2 sm:gap-0">
+          <DialogFooter className="flex items-center justify-between sm:justify-between">
             <Button
               type="button"
-              variant="outline"
+              variant="ghost"
               onClick={() => onOpenChange(false)}
               disabled={saving || testing}
+              className="text-muted-foreground"
             >
               {t('common.cancel')}
             </Button>
-            <Button
-              type="button"
-              variant="outline"
-              onClick={handleTestConnection}
-              disabled={saving || testing || (!apiKey && preset.fields.includes("api_key"))}
-              className="gap-1.5"
-            >
-              {testing ? <SpinnerGap size={14} className="animate-spin" /> : <Lightning size={14} />}
-              {testing ? (isZh ? '测试中...' : 'Testing...') : (isZh ? '测试连接' : 'Test')}
-            </Button>
-            <Button type="submit" disabled={saving || testing} className="gap-2">
-              {saving && <SpinnerGap size={16} className="animate-spin" />}
-              {saving ? t('provider.saving') : isEdit ? t('provider.update') : t('provider.connect')}
-            </Button>
+            <div className="flex items-center gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={handleTestConnection}
+                disabled={saving || testing || (!apiKey && preset.fields.includes("api_key"))}
+                className="gap-1.5"
+              >
+                {testing ? <SpinnerGap size={14} className="animate-spin" /> : <Lightning size={14} />}
+                {testing ? (isZh ? '测试中...' : 'Testing...') : (isZh ? '测试连接' : 'Test')}
+              </Button>
+              <Button type="submit" disabled={saving || testing} className="gap-2">
+                {saving && <SpinnerGap size={16} className="animate-spin" />}
+                {saving ? t('provider.saving') : isEdit ? t('provider.update') : t('provider.connect')}
+              </Button>
+            </div>
           </DialogFooter>
         </form>
       </DialogContent>
