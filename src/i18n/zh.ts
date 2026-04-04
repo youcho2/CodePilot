@@ -94,7 +94,7 @@ const zh: Record<TranslationKey, string> = {
   'settings.cancel': '取消',
   'settings.enableAutoApprove': '启用自动批准',
   'settings.errorReporting': '匿名错误上报',
-  'settings.errorReportingDesc': '帮助改进 CodePilot：匿名上报错误信息，不包含对话内容和 API Key。',
+  'settings.errorReportingDesc': '帮助改进 CodePilot：匿名上报错误信息，不包含对话内容和 API Key。更改后需重启应用才能完全生效。',
   'settings.generativeUITitle': '生成式 UI',
   'settings.generativeUIDesc': '启用聊天中的交互式可视化功能（图表、流程图、原型图等）。关闭后可节省 token，但将无法生成可视化内容。',
   'settings.defaultPanelTitle': '默认侧边面板',
