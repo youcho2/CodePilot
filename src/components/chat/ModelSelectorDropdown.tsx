@@ -108,7 +108,7 @@ export function ModelSelectorDropdown({
       </PromptInputButton>
 
       {modelMenuOpen && (
-        <CommandList className="w-64 mb-1.5">
+        <CommandList className="w-64 mb-1.5 overflow-x-hidden">
           <CommandListSearch
             placeholder={t('composer.searchModels' as TranslationKey)}
             value={modelSearch}
@@ -166,7 +166,7 @@ export function ModelSelectorDropdown({
             )}
           </CommandListItems>
           <CommandListFooter>
-            <CommandListFooterAction onClick={() => { setModelMenuOpen(false); setModelSearch(''); window.location.href = '/settings'; }}>
+            <CommandListFooterAction onClick={() => { setModelMenuOpen(false); setModelSearch(''); window.location.href = '/settings#providers'; }}>
               <Gear size={14} />
               {t('composer.manageProviders' as TranslationKey)}
             </CommandListFooterAction>
