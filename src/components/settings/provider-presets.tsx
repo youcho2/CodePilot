@@ -61,6 +61,8 @@ export interface QuickPreset {
   icon: ReactNode;
   provider_type: string;
   protocol: string;
+  /** Auth style from catalog — frontend should use this instead of inferring from extra_env */
+  authStyle: string;
   base_url: string;
   extra_env: string;
   fields: ("name" | "api_key" | "base_url" | "extra_env" | "model_names" | "model_mapping")[];
@@ -103,6 +105,7 @@ function toQuickPreset(vp: VendorPreset): QuickPreset {
       : vp.protocol === 'gemini-image' ? 'gemini-image'
       : 'anthropic',
     protocol: vp.protocol,
+    authStyle: vp.authStyle,
     base_url: vp.baseUrl,
     extra_env: JSON.stringify(vp.defaultEnvOverrides),
     fields: vp.fields as QuickPreset['fields'],

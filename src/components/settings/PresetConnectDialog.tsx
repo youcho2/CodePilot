@@ -28,7 +28,7 @@ import type { ApiProvider } from "@/types";
 import { useTranslation } from "@/hooks/useTranslation";
 import type { TranslationKey } from "@/i18n";
 
-/** Infer auth style from base URL by fuzzy-matching VENDOR_PRESETS hostnames */
+/** Infer auth style from base URL by fuzzy-matching preset hostnames */
 function inferAuthStyleFromUrl(url: string): "api_key" | "auth_token" | null {
   if (!url) return null;
   const urlLower = url.toLowerCase();
@@ -37,10 +37,7 @@ function inferAuthStyleFromUrl(url: string): "api_key" | "auth_token" | null {
     try {
       const presetHost = new URL(p.base_url).hostname;
       if (urlLower.includes(presetHost)) {
-        // Map preset's known auth style
-        const env = JSON.parse(p.extra_env || '{}');
-        if ('ANTHROPIC_AUTH_TOKEN' in env) return 'auth_token';
-        return 'api_key';
+        return p.authStyle as "api_key" | "auth_token";
       }
     } catch { /* skip invalid URLs */ }
   }
@@ -106,8 +103,9 @@ export function PresetConnectDialog({
           apiKey: apiKey || undefined,
           baseUrl: baseUrl || preset?.base_url || '',
           protocol: preset?.protocol || 'anthropic',
-          authStyle,
+          authStyle: preset?.authStyle || authStyle,
           envOverrides,
+          modelName: modelName || undefined,
           providerName: name || preset?.name,
         }),
       });
@@ -131,12 +129,15 @@ export function PresetConnectDialog({
       setName(editProvider.name);
       setBaseUrl(editProvider.base_url);
       setExtraEnv(editProvider.extra_env || preset.extra_env);
-      // Detect auth style from existing extra_env
-      let detected: 'auth_token' | 'api_key' = 'api_key';
-      try {
-        const env = JSON.parse(editProvider.extra_env || "{}");
-        detected = "ANTHROPIC_AUTH_TOKEN" in env ? "auth_token" : "api_key";
-      } catch { /* keep default */ }
+      // Use preset authStyle as source of truth; fall back to extra_env inference for legacy records
+      let detected: 'auth_token' | 'api_key' = preset.authStyle === 'auth_token' ? 'auth_token' : 'api_key';
+      if (preset.key === 'anthropic-thirdparty') {
+        // Thirdparty presets: infer from stored extra_env since user chose the style
+        try {
+          const env = JSON.parse(editProvider.extra_env || "{}");
+          detected = "ANTHROPIC_AUTH_TOKEN" in env ? "auth_token" : "api_key";
+        } catch { /* keep preset default */ }
+      }
       setAuthStyle(detected);
       setInitialAuthStyle(detected);
       // If api_key field isn't shown and stored key is empty, use preset default
@@ -193,12 +194,12 @@ export function PresetConnectDialog({
       setName(preset.name);
       setExtraEnv(preset.extra_env);
       setModelName("");
-      // Auto-detect auth style from preset's extra_env
-      const presetEnv = (() => { try { return JSON.parse(preset.extra_env || '{}'); } catch { return {}; } })();
-      const detectedStyle = 'ANTHROPIC_AUTH_TOKEN' in presetEnv ? 'auth_token' as const : 'api_key' as const;
+      // Use authStyle directly from preset (single source of truth)
+      const detectedStyle = (preset.authStyle === 'auth_token' ? 'auth_token' : 'api_key') as 'api_key' | 'auth_token';
       // If preset doesn't expose api_key field, pre-fill from extra_env default
       // (e.g. Ollama needs ANTHROPIC_AUTH_TOKEN='ollama' without user input)
       if (!preset.fields.includes("api_key")) {
+        const presetEnv = (() => { try { return JSON.parse(preset.extra_env || '{}'); } catch { return {}; } })();
         const defaultToken = detectedStyle === 'auth_token'
           ? (presetEnv['ANTHROPIC_AUTH_TOKEN'] || '')
           : (presetEnv['ANTHROPIC_API_KEY'] || '');

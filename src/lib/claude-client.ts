@@ -1592,11 +1592,27 @@ export async function testProviderConnection(config: {
   protocol: string;
   authStyle: string;
   envOverrides?: Record<string, string>;
+  modelName?: string;
+  presetKey?: string;
   providerName?: string;
   providerMeta?: { apiKeyUrl?: string; docsUrl?: string; pricingUrl?: string };
 }): Promise<ConnectionTestResult> {
   const { resolveProvider, toClaudeCodeEnv: buildEnv } = await import('./provider-resolver');
-  const { getPreset } = await import('./provider-catalog');
+  const { getPreset, findPresetForLegacy } = await import('./provider-catalog');
+
+  // Look up preset for default models and role-models
+  const preset = config.presetKey
+    ? getPreset(config.presetKey)
+    : (config.baseUrl ? findPresetForLegacy(config.baseUrl, 'custom', config.protocol as import('./provider-catalog').Protocol) : undefined);
+
+  // Build role models from preset defaults + user model name
+  const roleModels: Record<string, string> = {};
+  if (preset?.defaultRoleModels) {
+    Object.assign(roleModels, preset.defaultRoleModels);
+  }
+  if (config.modelName) {
+    roleModels.default = config.modelName;
+  }
 
   // Build a minimal ResolvedProvider without DB
   const resolved = resolveProvider({ providerId: 'env' });
@@ -1614,7 +1630,7 @@ export async function testProviderConnection(config: {
     extra_env: '{}',
     headers_json: '{}',
     env_overrides_json: JSON.stringify(config.envOverrides || {}),
-    role_models_json: '{}',
+    role_models_json: JSON.stringify(roleModels),
     options_json: '{}',
     notes: '',
     created_at: '',
@@ -1627,6 +1643,7 @@ export async function testProviderConnection(config: {
     protocol: config.protocol as typeof resolved.protocol,
     authStyle: config.authStyle as typeof resolved.authStyle,
     envOverrides: config.envOverrides || {},
+    roleModels,
     hasCredentials: !!config.apiKey,
     settingSources: [] as string[],
   };

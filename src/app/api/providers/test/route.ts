@@ -12,7 +12,7 @@ import type { ErrorResponse } from '@/types';
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { presetKey, apiKey, baseUrl, protocol, authStyle, envOverrides, providerName } = body;
+    const { presetKey, apiKey, baseUrl, protocol, authStyle, envOverrides, providerName, modelName } = body;
 
     if (!apiKey && authStyle !== 'env_only') {
       return NextResponse.json({ success: false, error: { code: 'NO_CREDENTIALS', message: 'API Key is required', suggestion: 'Please enter your API key' } });
@@ -28,6 +28,8 @@ export async function POST(request: NextRequest) {
       protocol: protocol || 'anthropic',
       authStyle: authStyle || 'api_key',
       envOverrides: envOverrides || {},
+      modelName: modelName || undefined,
+      presetKey: presetKey || undefined,
       providerName: providerName || preset?.name || 'Unknown',
       providerMeta: meta ? { apiKeyUrl: meta.apiKeyUrl, docsUrl: meta.docsUrl, pricingUrl: meta.pricingUrl } : undefined,
     });

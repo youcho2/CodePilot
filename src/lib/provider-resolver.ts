@@ -189,7 +189,10 @@ export function toClaudeCodeEnv(
           break;
         case 'api_key':
         default:
-          env.ANTHROPIC_AUTH_TOKEN = apiKey;
+          // Only set ANTHROPIC_API_KEY (X-Api-Key header).
+          // Do NOT set ANTHROPIC_AUTH_TOKEN — upstream Claude Code adds
+          // Authorization: Bearer when it sees AUTH_TOKEN, which conflicts
+          // with providers that expect API-key-only auth (e.g. Kimi).
           env.ANTHROPIC_API_KEY = apiKey;
           break;
       }

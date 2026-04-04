@@ -300,7 +300,9 @@ describe('Provider Resolver', () => {
 
       const env = toClaudeCodeEnv({ PATH: '/usr/bin' }, resolved);
       assert.equal(env.ANTHROPIC_API_KEY, 'sk-test-key');
-      assert.equal(env.ANTHROPIC_AUTH_TOKEN, 'sk-test-key');
+      // api_key mode must NOT set ANTHROPIC_AUTH_TOKEN — upstream adds Bearer header
+      // when AUTH_TOKEN is present, which conflicts with API-key-only providers (Kimi)
+      assert.equal(env.ANTHROPIC_AUTH_TOKEN, undefined);
       assert.equal(env.ANTHROPIC_BASE_URL, 'https://api.anthropic.com');
     });
 
