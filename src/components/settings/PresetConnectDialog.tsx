@@ -368,13 +368,6 @@ export function PresetConnectDialog({
                   {isZh ? '获取 API Key' : 'Get API Key'}
                 </a>
               )}
-              {preset.meta.docsUrl && (
-                <a href={preset.meta.docsUrl} target="_blank" rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground hover:underline">
-                  <ArrowSquareOut size={12} />
-                  {isZh ? '配置文档' : 'Docs'}
-                </a>
-              )}
             </div>
             {preset.meta.notes && preset.meta.notes.length > 0 && (
               <div className="rounded-md bg-amber-500/10 border border-amber-500/20 px-3 py-2 space-y-1">
