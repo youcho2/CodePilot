@@ -322,7 +322,7 @@ export const VENDOR_PRESETS: VendorPreset[] = [
       apiKeyUrl: 'https://www.kimi.com/code/console',
       docsUrl: 'https://www.kimi.com/code/docs/more/third-party-agents.html',
       billingModel: 'pay_as_you_go',
-      notes: ['必须关闭 tool_search，否则会触发 400 错误'],
+      notes: [],
     },
   },
 
@@ -462,7 +462,7 @@ export const VENDOR_PRESETS: VendorPreset[] = [
       apiKeyUrl: 'https://platform.xiaomimimo.com/#/console/api-keys',
       docsUrl: 'https://platform.xiaomimimo.com/#/docs/integration/claudecode',
       billingModel: 'pay_as_you_go',
-      notes: ['不支持 Thinking 模式，请在设置中关闭'],
+      notes: [],
     },
   },
 
@@ -492,7 +492,7 @@ export const VENDOR_PRESETS: VendorPreset[] = [
       apiKeyUrl: 'https://platform.xiaomimimo.com/#/console/plan-manage',
       docsUrl: 'https://platform.xiaomimimo.com/#/docs/integration/claudecode',
       billingModel: 'token_plan',
-      notes: ['不支持 Thinking 模式，请在设置中关闭'],
+      notes: [],
     },
   },
 
