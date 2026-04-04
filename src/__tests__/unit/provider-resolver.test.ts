@@ -39,11 +39,11 @@ describe('Provider Catalog', () => {
       }
     });
 
-    it('Kimi preset uses anthropic protocol', () => {
+    it('Kimi preset uses anthropic protocol with api_key auth', () => {
       const kimi = VENDOR_PRESETS.find(p => p.key === 'kimi');
       assert.ok(kimi, 'Kimi preset not found');
       assert.equal(kimi.protocol, 'anthropic');
-      assert.equal(kimi.authStyle, 'auth_token');
+      assert.equal(kimi.authStyle, 'api_key');
     });
 
     it('MiniMax presets use anthropic protocol', () => {
