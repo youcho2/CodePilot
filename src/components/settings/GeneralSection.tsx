@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useSyncExternalStore } from "react";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
@@ -375,10 +375,17 @@ export function GeneralSection() {
 
 /* ── Sentry opt-out toggle (isolated state) ──────────────────── */
 
+const sentrySubscribe = (cb: () => void) => {
+  window.addEventListener('storage', cb);
+  return () => window.removeEventListener('storage', cb);
+};
+const getSentryEnabled = () => {
+  try { return localStorage.getItem('codepilot:sentry-disabled') !== 'true'; } catch { return true; }
+};
+const getSentryEnabledServer = () => true; // SSR default
+
 function SentryToggle({ locale, t }: { locale: string; t: (key: TranslationKey) => string }) {
-  const [enabled, setEnabled] = useState(() => {
-    try { return localStorage.getItem('codepilot:sentry-disabled') !== 'true'; } catch { return true; }
-  });
+  const enabled = useSyncExternalStore(sentrySubscribe, getSentryEnabled, getSentryEnabledServer);
 
   return (
     <div className="space-y-1.5 pt-2 border-t border-border/50">
@@ -390,9 +397,12 @@ function SentryToggle({ locale, t }: { locale: string; t: (key: TranslationKey) 
         <Switch
           checked={enabled}
           onCheckedChange={(checked) => {
-            setEnabled(checked);
             const disabled = !checked;
-            try { localStorage.setItem('codepilot:sentry-disabled', disabled ? 'true' : 'false'); } catch { /* ignore */ }
+            try {
+              localStorage.setItem('codepilot:sentry-disabled', disabled ? 'true' : 'false');
+              // Trigger useSyncExternalStore to re-read
+              window.dispatchEvent(new StorageEvent('storage'));
+            } catch { /* ignore */ }
             // Also persist to file for Electron main process opt-out
             fetch('/api/settings/sentry', {
               method: 'POST',
