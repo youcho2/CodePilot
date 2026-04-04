@@ -1614,8 +1614,8 @@ export async function testProviderConnection(config: {
   // For bedrock/vertex/env_only protocols, we can't do a simple HTTP test
   if (config.protocol === 'bedrock' || config.protocol === 'vertex' || config.authStyle === 'env_only') {
     return {
-      success: true,
-      error: { code: 'SKIPPED', message: 'Connection test skipped for cloud providers (requires IAM/OAuth)', suggestion: 'Verify credentials by sending a message' },
+      success: false,
+      error: { code: 'SKIPPED', message: 'Cloud providers (Bedrock/Vertex) require IAM or OAuth credentials — connection test is not available for this provider type', suggestion: 'Save the configuration and send a message to verify' },
     };
   }
 

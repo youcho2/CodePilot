@@ -621,30 +621,40 @@ export function PresetConnectDialog({
           {error && <p className="text-sm text-destructive">{error}</p>}
 
           {/* Connection test result */}
-          {testResult && (
-            <div className={`rounded-md px-3 py-2 text-sm ${testResult.success ? 'bg-emerald-500/10 border border-emerald-500/20' : 'bg-destructive/10 border border-destructive/20'}`}>{/* lint-allow-raw-color */}
-              <div className="flex items-center gap-2">
-                {testResult.success
-                  ? <><CheckCircle size={16} className="text-emerald-500 shrink-0" />{/* lint-allow-raw-color */}<span className="text-emerald-600 dark:text-emerald-400">{/* lint-allow-raw-color */}{isZh ? '连接成功' : 'Connection successful'}</span></>
-                  : <><XCircle size={16} className="text-destructive shrink-0" /><span className="text-destructive">{testResult.error?.message || 'Connection failed'}</span></>
-                }
-              </div>
-              {!testResult.success && testResult.error?.suggestion && (
-                <p className="text-xs text-muted-foreground mt-1">{testResult.error.suggestion}</p>
-              )}
-              {!testResult.success && testResult.error?.recoveryActions && testResult.error.recoveryActions.length > 0 && (
-                <div className="flex gap-2 mt-2 flex-wrap">
-                  {testResult.error.recoveryActions.filter(a => a.url).map((action, i) => (
-                    <a key={i} href={action.url} target="_blank" rel="noopener noreferrer"
-                      className="inline-flex items-center gap-1 text-xs text-primary hover:underline">
-                      <ArrowSquareOut size={10} />
-                      {action.label}
-                    </a>
-                  ))}
+          {testResult && (() => {
+            const isSkipped = testResult.error?.code === 'SKIPPED';
+            const bgClass = testResult.success
+              ? 'bg-emerald-500/10 border border-emerald-500/20' // lint-allow-raw-color
+              : isSkipped
+                ? 'bg-muted border border-border'
+                : 'bg-destructive/10 border border-destructive/20';
+            return (
+              <div className={`rounded-md px-3 py-2 text-sm ${bgClass}`}>
+                <div className="flex items-center gap-2">
+                  {testResult.success
+                    ? <><CheckCircle size={16} className="text-emerald-500 shrink-0" />{/* lint-allow-raw-color */}<span className="text-emerald-600 dark:text-emerald-400">{/* lint-allow-raw-color */}{isZh ? '连接成功' : 'Connection successful'}</span></>
+                    : isSkipped
+                      ? <><Warning size={16} className="text-muted-foreground shrink-0" /><span className="text-muted-foreground">{isZh ? '此服务商类型无法进行连接测试' : 'Connection test not available for this provider type'}</span></>
+                      : <><XCircle size={16} className="text-destructive shrink-0" /><span className="text-destructive">{testResult.error?.message || 'Connection failed'}</span></>
+                  }
                 </div>
-              )}
-            </div>
-          )}
+                {!testResult.success && testResult.error?.suggestion && (
+                  <p className="text-xs text-muted-foreground mt-1">{testResult.error.suggestion}</p>
+                )}
+                {!testResult.success && !isSkipped && testResult.error?.recoveryActions && testResult.error.recoveryActions.length > 0 && (
+                  <div className="flex gap-2 mt-2 flex-wrap">
+                    {testResult.error.recoveryActions.filter(a => a.url).map((action, i) => (
+                      <a key={i} href={action.url} target="_blank" rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1 text-xs text-primary hover:underline">
+                        <ArrowSquareOut size={10} />
+                        {action.label}
+                      </a>
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })()}
 
           <DialogFooter className="flex items-center justify-between sm:justify-between">
             <Button
