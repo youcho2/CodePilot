@@ -636,11 +636,11 @@ export function PresetConnectDialog({
                   {testResult.success
                     ? <><CheckCircle size={16} className="text-emerald-500 shrink-0" />{/* lint-allow-raw-color */}<span className="text-emerald-600 dark:text-emerald-400">{/* lint-allow-raw-color */}{isZh ? '连接成功' : 'Connection successful'}</span></>
                     : isSkipped
-                      ? <><Warning size={16} className="text-muted-foreground shrink-0" /><span className="text-muted-foreground">{isZh ? '此服务商类型无法进行连接测试' : 'Connection test not available for this provider type'}</span></>
+                      ? <><Warning size={16} className="text-muted-foreground shrink-0" /><span className="text-muted-foreground">{isZh ? '此服务商类型无法进行连接测试，请保存配置后发送消息验证' : 'Connection test not available for this provider type'}</span></>
                       : <><XCircle size={16} className="text-destructive shrink-0" /><span className="text-destructive">{testResult.error?.message || 'Connection failed'}</span></>
                   }
                 </div>
-                {!testResult.success && testResult.error?.suggestion && (
+                {!testResult.success && !isSkipped && testResult.error?.suggestion && (
                   <p className="text-xs text-muted-foreground mt-1">{testResult.error.suggestion}</p>
                 )}
                 {!testResult.success && !isSkipped && testResult.error?.recoveryActions && testResult.error.recoveryActions.length > 0 && (
