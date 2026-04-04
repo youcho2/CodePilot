@@ -1583,8 +1583,9 @@ export interface ConnectionTestResult {
 }
 
 /**
- * Test a provider connection by sending a minimal SDK query.
- * Does NOT require saving the provider to DB first.
+ * Test a provider connection by sending a direct HTTP request to the API endpoint.
+ * Bypasses the Claude Code SDK subprocess entirely to avoid false positives
+ * from keychain/OAuth credentials leaking into the test.
  */
 export async function testProviderConnection(config: {
   apiKey: string;
@@ -1597,158 +1598,104 @@ export async function testProviderConnection(config: {
   providerName?: string;
   providerMeta?: { apiKeyUrl?: string; docsUrl?: string; pricingUrl?: string };
 }): Promise<ConnectionTestResult> {
-  const { resolveProvider, toClaudeCodeEnv: buildEnv } = await import('./provider-resolver');
   const { getPreset, findPresetForLegacy } = await import('./provider-catalog');
 
-  // Look up preset for default models and role-models
+  // Look up preset for default model
   const preset = config.presetKey
     ? getPreset(config.presetKey)
     : (config.baseUrl ? findPresetForLegacy(config.baseUrl, 'custom', config.protocol as import('./provider-catalog').Protocol) : undefined);
 
-  // Build role models from preset defaults + user model name
-  const roleModels: Record<string, string> = {};
-  if (preset?.defaultRoleModels) {
-    Object.assign(roleModels, preset.defaultRoleModels);
+  // Determine model to use in test request
+  const model = config.modelName
+    || preset?.defaultRoleModels?.default
+    || (preset?.defaultModels?.[0]?.upstreamModelId || preset?.defaultModels?.[0]?.modelId)
+    || 'sonnet';
+
+  // For bedrock/vertex/env_only protocols, we can't do a simple HTTP test
+  if (config.protocol === 'bedrock' || config.protocol === 'vertex' || config.authStyle === 'env_only') {
+    return {
+      success: true,
+      error: { code: 'SKIPPED', message: 'Connection test skipped for cloud providers (requires IAM/OAuth)', suggestion: 'Verify credentials by sending a message' },
+    };
   }
-  if (config.modelName) {
-    roleModels.default = config.modelName;
-  }
 
-  // Build a minimal ResolvedProvider without DB
-  const resolved = resolveProvider({ providerId: 'env' });
-
-  // Override with test config
-  const testProvider = {
-    id: '__test__',
-    name: config.providerName || 'Test',
-    provider_type: 'anthropic',
-    protocol: config.protocol,
-    base_url: config.baseUrl,
-    api_key: config.apiKey,
-    is_active: 0,
-    sort_order: 0,
-    extra_env: '{}',
-    headers_json: '{}',
-    env_overrides_json: JSON.stringify(config.envOverrides || {}),
-    role_models_json: JSON.stringify(roleModels),
-    options_json: '{}',
-    notes: '',
-    created_at: '',
-    updated_at: '',
-  };
-
-  const testResolved = {
-    ...resolved,
-    provider: testProvider,
-    protocol: config.protocol as typeof resolved.protocol,
-    authStyle: config.authStyle as typeof resolved.authStyle,
-    envOverrides: config.envOverrides || {},
-    roleModels,
-    hasCredentials: !!config.apiKey,
-    settingSources: [] as string[],
-  };
-
-  // Build a clean base env — strip all ANTHROPIC_* and managed auth vars
-  // to prevent process.env credentials from masking test config issues
-  const baseEnv: Record<string, string> = {};
-  for (const [k, v] of Object.entries(process.env)) {
-    if (typeof v === 'string' && !k.startsWith('ANTHROPIC_') && !k.startsWith('CLAUDE_CODE_') && !k.startsWith('AWS_') && k !== 'CLOUD_ML_REGION') {
-      baseEnv[k] = v;
+  // Build the API URL — Anthropic-compatible endpoint
+  let apiUrl = config.baseUrl || 'https://api.anthropic.com';
+  // Ensure URL ends with /v1/messages for Anthropic-compatible providers
+  if (!apiUrl.endsWith('/v1/messages')) {
+    apiUrl = apiUrl.replace(/\/+$/, '');
+    if (!apiUrl.endsWith('/v1')) {
+      apiUrl += '/v1';
     }
+    apiUrl += '/messages';
   }
 
-  const sdkEnv = buildEnv(baseEnv, testResolved);
+  // Build headers based on auth style
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    'anthropic-version': '2023-06-01',
+  };
+  if (config.authStyle === 'auth_token') {
+    headers['Authorization'] = `Bearer ${config.apiKey}`;
+  } else {
+    headers['x-api-key'] = config.apiKey;
+  }
 
-  const abortController = new AbortController();
-  const timeoutId = setTimeout(() => abortController.abort(), 30_000);
+  // Minimal request body — just enough to verify auth + endpoint
+  const body = JSON.stringify({
+    model,
+    max_tokens: 1,
+    messages: [{ role: 'user', content: 'ping' }],
+  });
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 15_000);
 
   try {
-    const claudePath = findClaudePath();
-    const queryOptions: Options = {
-      cwd: os.homedir(),
-      abortController,
-      permissionMode: 'bypassPermissions',
-      allowDangerouslySkipPermissions: true,
-      env: sanitizeEnv(sdkEnv),
-      settingSources: [],
-      systemPrompt: 'Reply with exactly: OK',
-      maxTurns: 1,
-    };
-
-    if (claudePath) {
-      const ext = path.extname(claudePath).toLowerCase();
-      if (ext === '.cmd' || ext === '.bat') {
-        const scriptPath = resolveScriptFromCmd(claudePath);
-        if (scriptPath) queryOptions.pathToClaudeCodeExecutable = scriptPath;
-      } else {
-        queryOptions.pathToClaudeCodeExecutable = claudePath;
-      }
-    }
-
-    const conversation = query({ prompt: 'ping', options: queryOptions });
-    let gotAssistantMessage = false;
-
-    for await (const event of conversation) {
-      if (event.type === 'assistant') {
-        // Got an actual model response — connection confirmed working
-        gotAssistantMessage = true;
-        clearTimeout(timeoutId);
-        abortController.abort();
-        return { success: true };
-      }
-      if (event.type === 'result') {
-        clearTimeout(timeoutId);
-        const result = event as SDKResultMessage;
-        if ('error' in result) {
-          const classified = classifyError({
-            error: new Error(String((result as { error?: string }).error)),
-            providerName: config.providerName,
-            baseUrl: config.baseUrl,
-            providerMeta: config.providerMeta,
-          });
-          return {
-            success: false,
-            error: {
-              code: classified.category,
-              message: classified.userMessage,
-              suggestion: classified.actionHint,
-              recoveryActions: classified.recoveryActions,
-            },
-          };
-        }
-        // Result without error but also without assistant message — treat as success
-        // only if we actually got a response from the model
-        if (gotAssistantMessage) return { success: true };
-        // Otherwise the SDK process may have exited without reaching the provider
-        return {
-          success: false,
-          error: {
-            code: 'UNKNOWN',
-            message: 'Connection test completed but no model response was received',
-            suggestion: 'Verify your API key and endpoint configuration',
-          },
-        };
-      }
-    }
-
+    const response = await fetch(apiUrl, {
+      method: 'POST',
+      headers,
+      body,
+      signal: controller.signal,
+    });
     clearTimeout(timeoutId);
-    // Stream ended without assistant message or result — likely a process failure
+
+    // 2xx = success (even if model returns an error in body, auth works)
+    if (response.ok) {
+      return { success: true };
+    }
+
+    // Parse error response
+    let errorBody = '';
+    try { errorBody = await response.text(); } catch { /* ignore */ }
+
+    const classified = classifyError({
+      error: new Error(`HTTP ${response.status}: ${errorBody.slice(0, 500)}`),
+      providerName: config.providerName,
+      baseUrl: config.baseUrl,
+      providerMeta: config.providerMeta,
+    });
+
     return {
       success: false,
       error: {
-        code: 'UNKNOWN',
-        message: gotAssistantMessage ? 'Connection successful' : 'No response received from provider',
-        suggestion: 'Check your API key, endpoint URL, and network connection',
+        code: classified.category,
+        message: classified.userMessage,
+        suggestion: classified.actionHint,
+        recoveryActions: classified.recoveryActions,
       },
     };
   } catch (err) {
     clearTimeout(timeoutId);
+
+    // Network errors (ECONNREFUSED, ENOTFOUND, timeout, etc.)
     const classified = classifyError({
       error: err,
       providerName: config.providerName,
       baseUrl: config.baseUrl,
       providerMeta: config.providerMeta,
     });
+
     return {
       success: false,
       error: {
