@@ -9,7 +9,7 @@
   ],
   "author": {
     "name": "op7418",
-    "email": "7418@openclaw.ai"
+    "url": "https://x.com/op7418"
   },
   "description": "A multi-model AI agent desktop client",
   "main": "dist-electron/main.js",

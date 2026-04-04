@@ -282,5 +282,5 @@ npm run electron:pack:linux    # Linux AppImage、deb、rpm
 [Business Source License 1.1 (BSL-1.1)](LICENSE)
 
 - **个人 / 学术 / 非营利用途**：免费且无限制
-- **商业用途**：需要单独许可 — 联系 7418@openclaw.ai
+- **商业用途**：需要单独许可 — 联系 [@op7418 on X](https://x.com/op7418)
 - **变更日期**：2029-03-16 — 届时代码转为 Apache 2.0
