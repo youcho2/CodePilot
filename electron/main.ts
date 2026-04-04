@@ -1,11 +1,8 @@
 // Sentry must be initialized before all other imports to catch early crashes
 import * as Sentry from '@sentry/electron/main';
-const sentryDsn = process.env.NEXT_PUBLIC_SENTRY_DSN;
-if (sentryDsn) {
-  Sentry.init({
-    dsn: sentryDsn,
-  });
-}
+Sentry.init({
+  dsn: 'https://245dc3525425bcd8eb99dd4b9a2ca5cd@o4511161899548672.ingest.us.sentry.io/4511161904791552',
+});
 
 import { app, BrowserWindow, Notification, nativeImage, dialog, session, utilityProcess, ipcMain, shell, Tray, Menu } from 'electron';
 import path from 'path';
