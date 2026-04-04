@@ -368,28 +368,42 @@ export function GeneralSection() {
       </AlertDialog>
 
       {/* ── Error Reporting ─────────────────────────────────────── */}
-      <div className="space-y-1.5 pt-2 border-t border-border/50">
-        <Label className="text-sm font-medium">{t('settings.errorReporting' as TranslationKey)}</Label>
-        <p className="text-xs text-muted-foreground">
-          {t('settings.errorReportingDesc' as TranslationKey)}
-        </p>
-        <div className="flex items-center gap-2 pt-1">
-          <Switch
-            checked={(() => {
-              try { return localStorage.getItem('codepilot:sentry-disabled') !== 'true'; } catch { return true; }
-            })()}
-            onCheckedChange={(checked) => {
-              try { localStorage.setItem('codepilot:sentry-disabled', checked ? 'false' : 'true'); } catch { /* ignore */ }
-              // Force re-render
-              window.dispatchEvent(new Event('storage'));
-            }}
-          />
-          <span className="text-xs text-muted-foreground">
-            {(() => {
-              try { return localStorage.getItem('codepilot:sentry-disabled') !== 'true'; } catch { return true; }
-            })() ? (locale === 'zh' ? '已启用' : 'Enabled') : (locale === 'zh' ? '已禁用' : 'Disabled')}
-          </span>
-        </div>
+      <SentryToggle locale={locale} t={t} />
+    </div>
+  );
+}
+
+/* ── Sentry opt-out toggle (isolated state) ──────────────────── */
+
+function SentryToggle({ locale, t }: { locale: string; t: (key: TranslationKey) => string }) {
+  const [enabled, setEnabled] = useState(() => {
+    try { return localStorage.getItem('codepilot:sentry-disabled') !== 'true'; } catch { return true; }
+  });
+
+  return (
+    <div className="space-y-1.5 pt-2 border-t border-border/50">
+      <Label className="text-sm font-medium">{t('settings.errorReporting' as TranslationKey)}</Label>
+      <p className="text-xs text-muted-foreground">
+        {t('settings.errorReportingDesc' as TranslationKey)}
+      </p>
+      <div className="flex items-center gap-2 pt-1">
+        <Switch
+          checked={enabled}
+          onCheckedChange={(checked) => {
+            setEnabled(checked);
+            const disabled = !checked;
+            try { localStorage.setItem('codepilot:sentry-disabled', disabled ? 'true' : 'false'); } catch { /* ignore */ }
+            // Also persist to file for Electron main process opt-out
+            fetch('/api/settings/sentry', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ disabled }),
+            }).catch(() => { /* ignore */ });
+          }}
+        />
+        <span className="text-xs text-muted-foreground">
+          {enabled ? (locale === 'zh' ? '已启用' : 'Enabled') : (locale === 'zh' ? '已禁用' : 'Disabled')}
+        </span>
       </div>
     </div>
   );

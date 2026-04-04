@@ -4,6 +4,26 @@
  */
 export async function register() {
   if (process.env.NEXT_RUNTIME === 'nodejs') {
+    // Initialize Sentry for server-side error capture
+    const dsn = process.env.NEXT_PUBLIC_SENTRY_DSN;
+    if (dsn) {
+      const Sentry = await import('@sentry/node');
+      Sentry.init({
+        dsn,
+        environment: process.env.NODE_ENV,
+        release: `codepilot@${process.env.NEXT_PUBLIC_APP_VERSION}`,
+        tracesSampleRate: 0,
+        beforeSend(event) {
+          if (event.request?.headers) {
+            delete event.request.headers['x-api-key'];
+            delete event.request.headers['authorization'];
+            delete event.request.headers['anthropic-api-key'];
+          }
+          return event;
+        },
+      });
+    }
+
     const { initRuntimeLog } = await import('@/lib/runtime-log');
     initRuntimeLog();
 
