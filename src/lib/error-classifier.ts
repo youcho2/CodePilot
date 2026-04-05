@@ -8,7 +8,8 @@
 // ── Sentry integration (lazy, no-op when unavailable) ───────────
 
 const SENTRY_REPORTABLE: Set<string> = new Set([
-  'PROCESS_CRASH', 'UNKNOWN', 'CLI_NOT_FOUND', 'CLI_INSTALL_CONFLICT',
+  // PROCESS_CRASH removed — too noisy (136+ events/day), mostly user config issues
+  'UNKNOWN', 'CLI_NOT_FOUND', 'CLI_INSTALL_CONFLICT',
   'MISSING_GIT_BASH', 'PROVIDER_NOT_APPLIED', 'SESSION_STATE_ERROR',
 ]);
 
