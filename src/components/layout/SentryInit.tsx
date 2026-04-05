@@ -31,6 +31,16 @@ export function SentryInit() {
           if (breadcrumb.category === "ui.input") return null;
           return breadcrumb;
         },
+        ignoreErrors: [
+          // Expected/non-actionable errors — don't waste Sentry quota
+          'AbortError',
+          'Operation aborted',
+          'The operation was aborted',
+          'signal is aborted',
+          'prompt() is not supported',        // Electron doesn't support window.prompt
+          'ResizeObserver loop',               // Browser quirk, not a real error
+          /^Object \[object Object\] has no method/,  // Sentry's own frontend bug
+        ],
         beforeSend(event) {
           // Respect opt-out
           try {
@@ -44,6 +54,12 @@ export function SentryInit() {
             delete event.request.headers["authorization"];
             delete event.request.headers["anthropic-api-key"];
           }
+          // Add useful context tags
+          event.tags = {
+            ...event.tags,
+            platform: navigator.platform,
+            electron: typeof window !== 'undefined' && 'electronAPI' in window ? 'yes' : 'no',
+          };
           return event;
         },
       });

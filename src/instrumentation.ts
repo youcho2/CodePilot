@@ -19,12 +19,27 @@ export async function register() {
           environment: process.env.NODE_ENV,
           release: `codepilot@${process.env.NEXT_PUBLIC_APP_VERSION}`,
           tracesSampleRate: 0,
+          ignoreErrors: [
+            'AbortError',
+            'Operation aborted',
+            'The operation was aborted',
+            'signal is aborted',
+          ],
           beforeSend(event) {
+            // Strip auth headers
             if (event.request?.headers) {
               delete event.request.headers['x-api-key'];
               delete event.request.headers['authorization'];
               delete event.request.headers['anthropic-api-key'];
             }
+            // Add server context
+            event.tags = {
+              ...event.tags,
+              runtime: 'server',
+              'os.platform': process.platform,
+              'os.arch': process.arch,
+              'node.version': process.version,
+            };
             return event;
           },
         });

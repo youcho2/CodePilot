@@ -14,11 +14,19 @@ const SENTRY_REPORTABLE: Set<string> = new Set([
 
 function reportToSentry(category: string, error: unknown, extra?: Record<string, unknown>) {
   if (!SENTRY_REPORTABLE.has(category)) return;
+  // Skip aborted operations — these are user-initiated cancellations
+  const msg = error instanceof Error ? error.message : String(error);
+  if (/abort|cancel/i.test(msg)) return;
+
   // Fire-and-forget async import — never blocks the classifier
   import('@sentry/node').then((Sentry) => {
     Sentry.withScope((scope) => {
       scope.setTag('error.category', category);
+      scope.setTag('error.provider', (extra?.providerName as string) || 'unknown');
+      if (extra?.baseUrl) scope.setTag('provider.baseUrl', extra.baseUrl as string);
       if (extra) scope.setExtras(extra);
+      // Add the raw error message as fingerprint component for better grouping
+      scope.setFingerprint([category, msg.slice(0, 100)]);
       if (error instanceof Error) {
         Sentry.captureException(error);
       } else {
