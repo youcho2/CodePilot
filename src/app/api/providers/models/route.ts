@@ -4,6 +4,19 @@ import { getContextWindow } from '@/lib/model-context';
 import { getDefaultModelsForProvider, inferProtocolFromLegacy, findPresetForLegacy } from '@/lib/provider-catalog';
 import type { Protocol } from '@/lib/provider-catalog';
 import type { ErrorResponse, ProviderModelGroup } from '@/types';
+import { getOAuthStatus } from '@/lib/openai-oauth-manager';
+
+// OpenAI models available through ChatGPT Plus/Pro OAuth (Codex API)
+const OPENAI_OAUTH_MODELS = [
+  { value: 'gpt-5.4', label: 'GPT-5.4' },
+  { value: 'gpt-5.4-mini', label: 'GPT-5.4-Mini' },
+  { value: 'gpt-5.3-codex', label: 'GPT-5.3-Codex' },
+  { value: 'gpt-5.3-codex-spark', label: 'GPT-5.3-Codex-Spark' },
+  { value: 'gpt-5.2-codex', label: 'GPT-5.2-Codex' },
+  { value: 'gpt-5.2', label: 'GPT-5.2' },
+  { value: 'gpt-5.1-codex-max', label: 'GPT-5.1-Codex-Max' },
+  { value: 'gpt-5.1-codex-mini', label: 'GPT-5.1-Codex-Mini' },
+];
 
 // Default Claude model options (for the built-in 'env' provider)
 const DEFAULT_MODELS = [
@@ -44,46 +57,54 @@ export async function GET() {
     const providers = getAllProviders();
     const groups: ProviderModelGroup[] = [];
 
-    // Always show the built-in Claude Code provider group.
-    // Mark it as sdkProxyOnly if no direct API credentials exist — in that case
-    // the env provider only works through the Claude Code SDK subprocess, not the
-    // Vercel AI SDK text generation path used by features like AI Describe.
-    const envHasDirectCredentials = !!(
-      process.env.ANTHROPIC_API_KEY ||
-      process.env.ANTHROPIC_AUTH_TOKEN ||
-      getSetting('anthropic_auth_token')
-    );
-    groups.push({
-      provider_id: 'env',
-      provider_name: 'Claude Code',
-      provider_type: 'anthropic',
-      ...(!envHasDirectCredentials ? { sdkProxyOnly: true } : {}),
-      models: DEFAULT_MODELS.map(m => {
-        const cw = getContextWindow(m.value);
-        return cw != null ? { ...m, contextWindow: cw } : m;
-      }),
-    });
+    // Show the built-in Claude Code provider group only when CLI is enabled.
+    // When cli_enabled=false, user chose Native AI SDK — Claude Code models
+    // are not applicable and should not appear in the model selector.
+    const cliEnabled = getSetting('cli_enabled') !== 'false';
+
+    if (cliEnabled) {
+      // Mark as sdkProxyOnly if no direct API credentials exist — in that case
+      // the env provider only works through the Claude Code SDK subprocess.
+      const envHasDirectCredentials = !!(
+        process.env.ANTHROPIC_API_KEY ||
+        process.env.ANTHROPIC_AUTH_TOKEN ||
+        getSetting('anthropic_auth_token')
+      );
+      groups.push({
+        provider_id: 'env',
+        provider_name: 'Claude Code',
+        provider_type: 'anthropic',
+        ...(!envHasDirectCredentials ? { sdkProxyOnly: true } : {}),
+        models: DEFAULT_MODELS.map(m => {
+          const cw = getContextWindow(m.value);
+          return cw != null ? { ...m, contextWindow: cw } : m;
+        }),
+      });
+    }
 
     // If SDK has discovered models, use them for the env group
-    try {
-      const { getCachedModels } = await import('@/lib/agent-sdk-capabilities');
-      const sdkModels = getCachedModels('env');
-      if (sdkModels.length > 0) {
-        groups[0].models = sdkModels.map(m => {
-          const cw = getContextWindow(m.value);
-          return {
-            value: m.value,
-            label: m.displayName,
-            description: m.description,
-            supportsEffort: m.supportsEffort,
-            supportedEffortLevels: m.supportedEffortLevels,
-            supportsAdaptiveThinking: m.supportsAdaptiveThinking,
-            ...(cw != null ? { contextWindow: cw } : {}),
-          };
-        });
+    const envGroup = groups.find(g => g.provider_id === 'env');
+    if (envGroup) {
+      try {
+        const { getCachedModels } = await import('@/lib/agent-sdk-capabilities');
+        const sdkModels = getCachedModels('env');
+        if (sdkModels.length > 0) {
+          envGroup.models = sdkModels.map(m => {
+            const cw = getContextWindow(m.value);
+            return {
+              value: m.value,
+              label: m.displayName,
+              description: m.description,
+              supportsEffort: m.supportsEffort,
+              supportedEffortLevels: m.supportedEffortLevels,
+              supportsAdaptiveThinking: m.supportsAdaptiveThinking,
+              ...(cw != null ? { contextWindow: cw } : {}),
+            };
+          });
+        }
+      } catch {
+        // SDK capabilities not available, keep defaults
       }
-    } catch {
-      // SDK capabilities not available, keep defaults
     }
 
     // Build a group for each configured provider
@@ -189,6 +210,19 @@ export async function GET() {
         models,
       });
     }
+
+    // Add OpenAI OAuth virtual provider when authenticated
+    try {
+      const oauthStatus = getOAuthStatus();
+      if (oauthStatus.authenticated) {
+        groups.push({
+          provider_id: 'openai-oauth',
+          provider_name: `OpenAI${oauthStatus.plan ? ` (${oauthStatus.plan})` : ''}`,
+          provider_type: 'openai-oauth',
+          models: OPENAI_OAUTH_MODELS,
+        });
+      }
+    } catch { /* OpenAI OAuth module not available */ }
 
     // Determine default provider — auto-heal stale references on read
     let defaultProviderId = getDefaultProviderId();
