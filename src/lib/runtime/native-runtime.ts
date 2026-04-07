@@ -26,6 +26,7 @@ export const nativeRuntime: AgentRuntime = {
     const systemPrompt = buildSystemPrompt({
       userPrompt: options.systemPrompt,
       workingDirectory: cwd,
+      modelId: options.model,
     });
 
     // Create or reuse abort controller
