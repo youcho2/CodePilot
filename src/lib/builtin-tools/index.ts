@@ -1,0 +1,128 @@
+/**
+ * builtin-tools/index.ts — Registry of built-in MCP-equivalent tools for Native Runtime.
+ *
+ * These tools provide the same capabilities as the 7 built-in MCP servers
+ * (notification, memory, dashboard, cli-tools, media, image-gen, widget)
+ * but packaged as Vercel AI SDK tools for the Native Runtime.
+ *
+ * Migration status:
+ * ✅ notification (4 tools) — fully migrated
+ * ✅ memory-search (3 tools) — fully migrated
+ * ✅ dashboard (5 tools) — fully migrated
+ * ✅ media (2 tools: import + generate) — fully migrated
+ * ✅ widget-guidelines (1 tool) — fully migrated
+ * ✅ cli-tools (6 tools) — fully migrated
+ */
+
+import type { ToolSet } from 'ai';
+
+export interface BuiltinToolGroup {
+  name: string;
+  systemPrompt: string;
+  condition: 'always' | 'workspace' | { keywords: RegExp };
+  tools: ToolSet;
+}
+
+/**
+ * Get all built-in tools that should be registered for the current context.
+ */
+export function getBuiltinTools(options: {
+  workspacePath?: string;
+  prompt?: string;
+}): { tools: ToolSet; systemPrompts: string[] } {
+  const tools: ToolSet = {};
+  const systemPrompts: string[] = [];
+
+  for (const group of getToolGroups(options)) {
+    // Check condition
+    if (group.condition === 'always') {
+      // Always include
+    } else if (group.condition === 'workspace') {
+      if (!options.workspacePath) continue;
+    } else if (typeof group.condition === 'object' && group.condition.keywords) {
+      const text = (options.prompt || '').toLowerCase();
+      if (!group.condition.keywords.test(text)) continue;
+    }
+
+    Object.assign(tools, group.tools);
+    if (group.systemPrompt) {
+      systemPrompts.push(group.systemPrompt);
+    }
+  }
+
+  return { tools, systemPrompts };
+}
+
+function getToolGroups(options: { workspacePath?: string }): BuiltinToolGroup[] {
+  const groups: BuiltinToolGroup[] = [];
+
+  // Notification tools — always available
+  try {
+    const { createNotificationTools, NOTIFICATION_SYSTEM_PROMPT } = require('./notification');
+    groups.push({
+      name: 'codepilot-notify',
+      systemPrompt: NOTIFICATION_SYSTEM_PROMPT,
+      condition: 'always',
+      tools: createNotificationTools(),
+    });
+  } catch { /* notification module not available */ }
+
+  // Widget guidelines — keyword-gated
+  try {
+    const { createWidgetGuidelinesTools, WIDGET_SYSTEM_PROMPT } = require('./widget-guidelines');
+    groups.push({
+      name: 'codepilot-widget-guidelines',
+      systemPrompt: WIDGET_SYSTEM_PROMPT,
+      condition: { keywords: /可视化|图表|流程图|时间线|架构图|visualiz|diagram|chart|flowchart|timeline|widget|show-widget|dashboard/i },
+      tools: createWidgetGuidelinesTools(),
+    });
+  } catch { /* module not available */ }
+
+  // Dashboard tools — keyword-gated
+  try {
+    const { createDashboardTools, DASHBOARD_SYSTEM_PROMPT } = require('./dashboard');
+    groups.push({
+      name: 'codepilot-dashboard',
+      systemPrompt: DASHBOARD_SYSTEM_PROMPT,
+      condition: { keywords: /dashboard|仪表盘|看板|pin.*widget|固定.*组件|codepilot_dashboard/i },
+      tools: createDashboardTools(),
+    });
+  } catch { /* module not available */ }
+
+  // Media tools — keyword-gated
+  try {
+    const { createMediaTools, MEDIA_SYSTEM_PROMPT } = require('./media');
+    groups.push({
+      name: 'codepilot-media',
+      systemPrompt: MEDIA_SYSTEM_PROMPT,
+      condition: { keywords: /生成图片|画一|图像|图片|素材|import.*media|codepilot_import_media|codepilot_generate_image/i },
+      tools: createMediaTools(),
+    });
+  } catch { /* module not available */ }
+
+  // Memory search tools — workspace-gated
+  if (options.workspacePath) {
+    try {
+      const { createMemorySearchTools, MEMORY_SEARCH_SYSTEM_PROMPT } = require('./memory-search');
+      groups.push({
+        name: 'codepilot-memory',
+        systemPrompt: MEMORY_SEARCH_SYSTEM_PROMPT,
+        condition: 'workspace',
+        tools: createMemorySearchTools(options.workspacePath),
+      });
+    } catch { /* module not available */ }
+  }
+
+  // CLI tools — keyword-gated
+  try {
+    const { createCliToolsTools, CLI_TOOLS_SYSTEM_PROMPT } = require('./cli-tools');
+    groups.push({
+      name: 'codepilot-cli-tools',
+      systemPrompt: CLI_TOOLS_SYSTEM_PROMPT,
+      condition: { keywords: /cli.tool|安装.*工具|install.*tool|brew|npm.*install|pip.*install|cargo.*install|工具管理|codepilot_cli_tools/i },
+      tools: createCliToolsTools(),
+    });
+  } catch { /* module not available */ }
+
+  return groups;
+}
