@@ -12,7 +12,13 @@
  * - Third-party proxy safety: disable adaptive thinking (not widely supported by proxies)
  */
 
-import type { LanguageModel } from 'ai';
+import {
+  type LanguageModel,
+  type LanguageModelMiddleware,
+  wrapLanguageModel,
+  defaultSettingsMiddleware,
+  extractReasoningMiddleware,
+} from 'ai';
 import { createAnthropic } from '@ai-sdk/anthropic';
 import { createOpenAI } from '@ai-sdk/openai';
 import { createGoogleGenerativeAI } from '@ai-sdk/google';
@@ -92,7 +98,10 @@ export function createModel(opts: CreateModelOptions = {}): CreateModelResult {
   const isThirdPartyProxy = config.sdkType === 'anthropic' &&
     !!config.baseUrl && !isOfficialAnthropicUrl(config.baseUrl);
 
-  const languageModel = createLanguageModel(config, isThirdPartyProxy);
+  const rawModel = createLanguageModel(config, isThirdPartyProxy);
+
+  // Apply middleware pipeline
+  const languageModel = applyMiddleware(rawModel, config, isThirdPartyProxy);
 
   return { languageModel, modelId: config.modelId, config, resolved, isThirdPartyProxy };
 }
@@ -257,4 +266,75 @@ function createLanguageModel(config: AiSdkConfig, isThirdPartyProxy: boolean): L
       return anthropic(config.modelId);
     }
   }
+}
+
+// ── Middleware pipeline ────────────────────────────────────────
+
+/**
+ * Logging middleware — logs model calls for debugging.
+ * Only active in development (NODE_ENV !== 'production').
+ */
+const loggingMiddleware: LanguageModelMiddleware = {
+  specificationVersion: 'v3',
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  wrapGenerate: async ({ doGenerate }: any) => {
+    const start = Date.now();
+    const result = await doGenerate();
+    console.log(`[ai-provider] generate: ${Date.now() - start}ms, tokens: ${result.usage?.inputTokens ?? '?'}→${result.usage?.outputTokens ?? '?'}`);
+    return result;
+  },
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  wrapStream: async ({ doStream }: any) => {
+    const start = Date.now();
+    const result = await doStream();
+    console.log(`[ai-provider] stream started: ${Date.now() - start}ms`);
+    return result;
+  },
+};
+
+/**
+ * Apply middleware pipeline to a language model.
+ *
+ * Middleware stack (applied in order):
+ * 1. defaultSettingsMiddleware — consistent defaults across providers
+ * 2. extractReasoningMiddleware — DeepSeek R1 / <think> tag models
+ * 3. loggingMiddleware — dev-only request/response logging
+ */
+function applyMiddleware(
+  model: LanguageModel,
+  config: AiSdkConfig,
+  _isThirdPartyProxy: boolean,
+): LanguageModel {
+  const middlewares: LanguageModelMiddleware[] = [];
+
+  // 1. Default settings — ensure consistent temperature across providers
+  middlewares.push(defaultSettingsMiddleware({
+    settings: {
+      // Don't set temperature for reasoning models (o3, o4-mini, etc.)
+      // as they ignore it or error
+    },
+  }));
+
+  // 2. Reasoning extraction — for DeepSeek R1 and similar models that use <think> tags
+  //    Only apply to OpenAI-compatible providers (not Anthropic, which has native thinking)
+  if (config.sdkType === 'openai' && !config.useResponsesApi) {
+    middlewares.push(extractReasoningMiddleware({
+      tagName: 'think',
+    }));
+  }
+
+  // 3. Logging (dev only)
+  if (process.env.NODE_ENV !== 'production') {
+    middlewares.push(loggingMiddleware);
+  }
+
+  // Apply middleware chain
+  if (middlewares.length === 0) return model;
+
+  // wrapLanguageModel expects LanguageModelV3, cast through any for union type compat
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return wrapLanguageModel({
+    model: model as any,
+    middleware: middlewares,
+  }) as unknown as LanguageModel;
 }

@@ -13,7 +13,7 @@
 import { streamText, type LanguageModel, type ToolSet, type ModelMessage } from 'ai';
 import type { SSEEvent, TokenUsage } from '@/types';
 import { createModel } from './ai-provider';
-import { assembleTools } from './agent-tools';
+import { assembleTools, READ_ONLY_TOOLS } from './agent-tools';
 import { pruneOldToolResults } from './context-pruner';
 import { emit as emitEvent } from './runtime/event-bus';
 import { createCheckpoint } from './file-checkpoint';
@@ -237,20 +237,65 @@ export function runAgentLoop(options: AgentLoopOptions): ReadableStream<string> 
           // Prune old tool results to reduce token usage
           const prunedMessages = pruneOldToolResults(messages);
 
+          // Determine activeTools based on mode (plan = read-only subset)
+          const isPlanMode = permissionMode === 'plan';
+          const hasTools = tools && Object.keys(tools).length > 0;
+          const activeToolNames = isPlanMode && hasTools
+            ? Object.keys(tools).filter(name => READ_ONLY_TOOLS.includes(name as typeof READ_ONLY_TOOLS[number]))
+            : undefined; // undefined = all tools active
+
           // Call streamText (single step — we control the loop)
           const result = streamText({
             model: languageModel,
             system: systemPrompt,
             messages: prunedMessages,
-            tools: Object.keys(tools || {}).length > 0 ? tools : undefined,
+            tools: hasTools ? tools : undefined,
+            // activeTools: limit available tools in plan mode (AI SDK feature)
+            ...(activeToolNames ? { activeTools: activeToolNames } : {}),
+            // toolChoice: auto by default, none if no tools
+            toolChoice: hasTools ? 'auto' : 'none',
             providerOptions,
             abortSignal: abortController.signal,
             // Codex API doesn't support max_output_tokens
             ...(config.useResponsesApi ? {} : { maxOutputTokens: 16384 }),
+
+            // onStepFinish: token tracking per step
+            onStepFinish: ({ usage: stepUsage, finishReason, toolCalls }) => {
+              if (stepUsage) {
+                totalUsage.input_tokens += stepUsage.inputTokens || 0;
+                totalUsage.output_tokens += stepUsage.outputTokens || 0;
+              }
+              // Emit step progress for frontend token display
+              controller.enqueue(formatSSE({
+                type: 'status',
+                data: JSON.stringify({
+                  subtype: 'step_complete',
+                  step,
+                  usage: totalUsage,
+                  finishReason,
+                  toolsUsed: toolCalls?.map(tc => tc.toolName) || [],
+                }),
+              }));
+            },
+
+            // onAbort: cleanup on interruption
+            onAbort: () => {
+              onRuntimeStatusChange?.('idle');
+              emitEvent('session:end', { sessionId, steps: step, aborted: true });
+            },
+
+            // repairToolCall: auto-fix invalid tool calls before failing
+            experimental_repairToolCall: async ({ toolCall, tools: availableTools, error }) => {
+              // Log the repair attempt for debugging
+              console.warn(`[agent-loop] Repairing tool call "${toolCall.toolName}": ${error.message}`);
+              // Return null to let the SDK retry with the model
+              // (the model sees the error and can fix the call)
+              return null;
+            },
+
             onError: (event) => {
               const err = event.error;
               console.error('[agent-loop] streamText error:', err instanceof Error ? err.message : err);
-              // Log full error details for debugging API rejections
               if (err && typeof err === 'object') {
                 const anyErr = err as Record<string, unknown>;
                 if (anyErr.responseBody) console.error('[agent-loop] Response body:', anyErr.responseBody);
@@ -314,12 +359,7 @@ export function runAgentLoop(options: AgentLoopOptions): ReadableStream<string> 
             }
           }
 
-          // Accumulate usage
-          const stepUsage = await result.usage;
-          if (stepUsage) {
-            totalUsage.input_tokens += stepUsage.inputTokens || 0;
-            totalUsage.output_tokens += stepUsage.outputTokens || 0;
-          }
+          // Usage is accumulated in onStepFinish callback above
 
           // If no tool calls, the model is done
           if (!hasToolCalls) {
