@@ -170,26 +170,27 @@ export function runAgentLoop(options: AgentLoopOptions): ReadableStream<string> 
         const { messages: dbMessages } = getMessages(sessionId, { limit: 200, excludeHeartbeatAck: true });
         const historyMessages = buildCoreMessages(dbMessages);
 
-        // Append the new user message ONLY if it's not already the last message
-        // (the chat route may have already persisted it to DB before calling us)
+        // Append the new user message ONLY if it's not already the last message.
+        // The chat route persists the message to DB before calling us, so it's
+        // usually already in historyMessages. We need to detect this even when
+        // buildUserMessage() converted the DB record into multi-part content
+        // (e.g. with file attachments).
         const lastMsg = historyMessages[historyMessages.length - 1];
-        const alreadyInHistory = lastMsg?.role === 'user' &&
-          typeof lastMsg.content === 'string' && lastMsg.content === prompt;
-        if (!alreadyInHistory) {
-          // Build user message content — text + optional file attachments (images, etc.)
-          if (files && files.length > 0) {
-            const parts: Array<{ type: 'text'; text: string } | { type: 'file'; data: string; mediaType: string }> = [
-              { type: 'text', text: prompt },
-            ];
-            for (const file of files) {
-              if (file.data && file.type) {
-                parts.push({ type: 'file', data: file.data, mediaType: file.type });
-              }
-            }
-            historyMessages.push({ role: 'user' as const, content: parts as any });
-          } else {
-            historyMessages.push({ role: 'user' as const, content: prompt });
+        const alreadyInHistory = lastMsg?.role === 'user' && (() => {
+          if (typeof lastMsg.content === 'string') {
+            return lastMsg.content === prompt;
           }
+          // Multi-part content (from buildUserMessage with attachments):
+          // check if any text part contains the prompt
+          if (Array.isArray(lastMsg.content)) {
+            return (lastMsg.content as Array<{ type: string; text?: string }>).some(
+              part => part.type === 'text' && part.text === prompt.trim()
+            );
+          }
+          return false;
+        })();
+        if (!alreadyInHistory) {
+          historyMessages.push({ role: 'user' as const, content: prompt });
         }
 
         // Debug: uncomment to trace message assembly issues
