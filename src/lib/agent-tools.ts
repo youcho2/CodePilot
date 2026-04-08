@@ -95,8 +95,10 @@ function wrapWithPermissions(
   const wrapped: ToolSet = {};
 
   for (const [name, t] of Object.entries(tools)) {
-    // Read-only tools skip permission checks for performance
-    if (['Read', 'Glob', 'Grep'].includes(name)) {
+    // Skip permission checks for safe tools:
+    // - Read-only core tools (Read, Glob, Grep, Skill)
+    // - All CodePilot built-in tools (codepilot_*) — trusted internal tools
+    if (['Read', 'Glob', 'Grep', 'Skill'].includes(name) || name.startsWith('codepilot_')) {
       wrapped[name] = t;
       continue;
     }
