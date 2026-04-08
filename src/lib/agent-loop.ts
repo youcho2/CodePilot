@@ -229,13 +229,21 @@ export function runAgentLoop(options: AgentLoopOptions): ReadableStream<string> 
             }
           }
 
-          // OpenAI Responses API (Codex) — pass system prompt as instructions
-          if (config.useResponsesApi && systemPrompt) {
+          // OpenAI Responses API (Codex) — pass system prompt + reasoning + verbosity
+          if (config.useResponsesApi) {
+            // Map Anthropic effort levels to OpenAI reasoning.effort
+            // Anthropic: low/medium/high/max → OpenAI: low/medium/high
+            const openaiEffort = effort && effort !== 'max' ? effort : effort === 'max' ? 'high' : undefined;
+
             providerOptions = {
               ...providerOptions,
               openai: {
-                instructions: systemPrompt,
+                ...(systemPrompt ? { instructions: systemPrompt } : {}),
                 store: false,
+                // Reasoning effort (for reasoning models like o-series)
+                ...(openaiEffort ? { reasoningEffort: openaiEffort } : {}),
+                // Text verbosity — maps effort to output detail level
+                textVerbosity: openaiEffort || 'medium',
               },
             };
           }

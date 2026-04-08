@@ -256,7 +256,9 @@ export async function POST(request: NextRequest) {
     // - SDK Runtime: only needs servers with ${...} env placeholders (SDK loads the rest via settingSources)
     // - Native Runtime: needs ALL servers (it manages MCP connections independently)
     const runtimeSetting = getSetting('agent_runtime') || 'auto';
-    const isNativeRuntime = runtimeSetting === 'native' ||
+    const isNonAnthropicProvider = effectiveProviderId === 'openai-oauth';
+    const isNativeRuntime = isNonAnthropicProvider ||
+      runtimeSetting === 'native' ||
       (runtimeSetting === 'auto' && getSetting('cli_enabled') === 'false');
     const mcpServers = isNativeRuntime ? loadAllMcpServers() : loadCodePilotMcpServers();
 

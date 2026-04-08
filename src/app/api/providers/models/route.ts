@@ -7,14 +7,15 @@ import type { ErrorResponse, ProviderModelGroup } from '@/types';
 import { getOAuthStatus } from '@/lib/openai-oauth-manager';
 
 // OpenAI models available through ChatGPT Plus/Pro OAuth (Codex API)
+// Effort levels follow OpenAI's reasoning.effort parameter (low/medium/high)
 const OPENAI_OAUTH_MODELS = [
-  { value: 'gpt-5.4', label: 'GPT-5.4' },
-  { value: 'gpt-5.4-mini', label: 'GPT-5.4-Mini' },
-  { value: 'gpt-5.3-codex', label: 'GPT-5.3-Codex' },
+  { value: 'gpt-5.4', label: 'GPT-5.4', supportsEffort: true, supportedEffortLevels: ['low', 'medium', 'high'] },
+  { value: 'gpt-5.4-mini', label: 'GPT-5.4-Mini', supportsEffort: true, supportedEffortLevels: ['low', 'medium', 'high'] },
+  { value: 'gpt-5.3-codex', label: 'GPT-5.3-Codex', supportsEffort: true, supportedEffortLevels: ['low', 'medium', 'high'] },
   { value: 'gpt-5.3-codex-spark', label: 'GPT-5.3-Codex-Spark' },
-  { value: 'gpt-5.2-codex', label: 'GPT-5.2-Codex' },
+  { value: 'gpt-5.2-codex', label: 'GPT-5.2-Codex', supportsEffort: true, supportedEffortLevels: ['low', 'medium', 'high'] },
   { value: 'gpt-5.2', label: 'GPT-5.2' },
-  { value: 'gpt-5.1-codex-max', label: 'GPT-5.1-Codex-Max' },
+  { value: 'gpt-5.1-codex-max', label: 'GPT-5.1-Codex-Max', supportsEffort: true, supportedEffortLevels: ['low', 'medium', 'high'] },
   { value: 'gpt-5.1-codex-mini', label: 'GPT-5.1-Codex-Mini' },
 ];
 
