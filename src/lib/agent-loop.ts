@@ -229,24 +229,16 @@ export function runAgentLoop(options: AgentLoopOptions): ReadableStream<string> 
             }
           }
 
-          // OpenAI Responses API (Codex) — pass system prompt + reasoning + verbosity
+          // OpenAI Responses API (Codex) — pass system prompt + reasoning
+          // Follows OpenCode's approach: default effort=medium, verbosity=medium
           if (config.useResponsesApi) {
-            // Map Anthropic effort levels to OpenAI reasoning.effort
-            // Anthropic: low/medium/high/max → OpenAI: low/medium/high
-            const openaiEffort = effort && effort !== 'max' ? effort : effort === 'max' ? 'high' : undefined;
-
             providerOptions = {
               ...providerOptions,
               openai: {
                 ...(systemPrompt ? { instructions: systemPrompt } : {}),
                 store: false,
-                // Reasoning effort (for reasoning models like o-series)
-                ...(openaiEffort ? { reasoningEffort: openaiEffort } : {}),
-                // Reasoning summary — enables thinking process visibility
-                // 'auto' returns reasoning when the model uses it
-                reasoningSummary: 'auto',
-                // Text verbosity — maps effort to output detail level
-                textVerbosity: openaiEffort || 'medium',
+                reasoningEffort: 'medium',
+                textVerbosity: 'medium',
               },
             };
           }

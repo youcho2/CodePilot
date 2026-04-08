@@ -212,7 +212,6 @@ function createLanguageModel(config: AiSdkConfig, isThirdPartyProxy: boolean): L
               headers.set('chatgpt-account-id', accountId);
             }
 
-            console.log(`[openai-codex] Fetching: ${targetUrl.toString()} model=${config.modelId}`);
             const resp = await fetch(targetUrl, { ...init, headers });
             if (!resp.ok) {
               const body = await resp.clone().text().catch(() => '');
