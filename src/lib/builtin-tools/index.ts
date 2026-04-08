@@ -73,7 +73,7 @@ function getToolGroups(options: { workspacePath?: string }): BuiltinToolGroup[] 
     groups.push({
       name: 'codepilot-widget-guidelines',
       systemPrompt: WIDGET_SYSTEM_PROMPT,
-      condition: { keywords: /可视化|图表|流程图|时间线|架构图|visualiz|diagram|chart|flowchart|timeline|widget|show-widget|dashboard/i },
+      condition: 'always',
       tools: createWidgetGuidelinesTools(),
     });
   } catch { /* module not available */ }
@@ -84,7 +84,7 @@ function getToolGroups(options: { workspacePath?: string }): BuiltinToolGroup[] 
     groups.push({
       name: 'codepilot-dashboard',
       systemPrompt: DASHBOARD_SYSTEM_PROMPT,
-      condition: { keywords: /dashboard|仪表盘|看板|pin.*widget|固定.*组件|codepilot_dashboard/i },
+      condition: 'always',
       tools: createDashboardTools(),
     });
   } catch { /* module not available */ }
@@ -95,7 +95,7 @@ function getToolGroups(options: { workspacePath?: string }): BuiltinToolGroup[] 
     groups.push({
       name: 'codepilot-media',
       systemPrompt: MEDIA_SYSTEM_PROMPT,
-      condition: { keywords: /生成图片|画一|图像|图片|素材|import.*media|codepilot_import_media|codepilot_generate_image/i },
+      condition: 'always',
       tools: createMediaTools(),
     });
   } catch { /* module not available */ }
@@ -119,7 +119,7 @@ function getToolGroups(options: { workspacePath?: string }): BuiltinToolGroup[] 
     groups.push({
       name: 'codepilot-cli-tools',
       systemPrompt: CLI_TOOLS_SYSTEM_PROMPT,
-      condition: { keywords: /cli.tool|安装.*工具|install.*tool|brew|npm.*install|pip.*install|cargo.*install|工具管理|codepilot_cli_tools/i },
+      condition: 'always',
       tools: createCliToolsTools(),
     });
   } catch { /* module not available */ }

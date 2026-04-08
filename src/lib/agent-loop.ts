@@ -126,6 +126,7 @@ export function runAgentLoop(options: AgentLoopOptions): ReadableStream<string> 
         // When bypassPermissions is true (full_access profile), skip permission wrapping entirely.
         const tools = toolsOverride || assembleTools({
           workingDirectory: workingDirectory || process.cwd(),
+          prompt,
           mode: permissionMode,
           permissionContext: bypassPermissions ? undefined : {
             sessionId,
