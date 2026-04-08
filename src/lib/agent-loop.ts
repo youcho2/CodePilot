@@ -111,12 +111,15 @@ export function runAgentLoop(options: AgentLoopOptions): ReadableStream<string> 
       try {
         // 0. Sync MCP servers before assembling tools (await to avoid race condition)
         if (mcpServers && Object.keys(mcpServers).length > 0) {
+          console.log(`[agent-loop] Syncing ${Object.keys(mcpServers).length} MCP servers: ${Object.keys(mcpServers).join(', ')}`);
           try {
             const { syncMcpConnections } = await import('./mcp-connection-manager');
             await syncMcpConnections(mcpServers);
           } catch (err) {
             console.warn('[agent-loop] MCP sync error:', err instanceof Error ? err.message : err);
           }
+        } else {
+          console.log('[agent-loop] No MCP servers to sync');
         }
 
         // 0b. Assemble tools with permission context (needs controller for SSE emission)
@@ -159,13 +162,15 @@ export function runAgentLoop(options: AgentLoopOptions): ReadableStream<string> 
         // console.log(`[agent-loop] Messages: ${historyMessages.map(m => `${m.role}:${typeof m.content === 'string' ? m.content.slice(0, 30) : 'array'}`).join(' | ')}`);
 
         // 3. Emit status init event
+        const toolNames = tools ? Object.keys(tools) : [];
+        console.log(`[agent-loop] Session ${sessionId}: model=${modelId}, tools=[${toolNames.join(', ')}] (${toolNames.length} total)`);
         controller.enqueue(formatSSE({
           type: 'status',
           data: JSON.stringify({
             session_id: sessionId,
             model: modelId,
             requested_model: modelOverride || sessionModel || modelId,
-            tools: tools ? Object.keys(tools) : [],
+            tools: toolNames,
             output_style: 'native',
           }),
         }));
