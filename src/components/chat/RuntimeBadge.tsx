@@ -18,22 +18,22 @@ type RuntimeMode = 'auto' | 'native' | 'claude-code-sdk';
 
 const LABELS: Record<RuntimeMode, { en: string; zh: string }> = {
   auto: { en: 'Agent: Auto', zh: 'Agent 内核：自动' },
-  native: { en: 'Agent: Native', zh: 'Agent 内核：原生' },
+  native: { en: 'Agent: AI SDK', zh: 'Agent 内核：AI SDK' },
   'claude-code-sdk': { en: 'Agent: Claude Code', zh: 'Agent 内核：Claude Code' },
 };
 
 const DESCRIPTIONS: Record<RuntimeMode, { en: string; zh: string }> = {
   auto: {
-    en: 'Auto-detect: uses Claude Code SDK if installed, otherwise Native Runtime',
-    zh: '自动检测：安装了 Claude Code 则使用 SDK，否则使用原生 Runtime',
+    en: 'Auto: uses Claude Code when installed, otherwise AI SDK',
+    zh: '自动：安装了 Claude Code 则使用 Claude Code，否则使用 AI SDK',
   },
   native: {
-    en: 'Native Runtime: built-in AI SDK engine, no CLI required',
-    zh: '原生 Runtime：内置 AI SDK 引擎，无需安装 CLI',
+    en: 'AI SDK: built-in multi-model engine, no CLI required',
+    zh: 'AI SDK：内置多模型引擎，无需安装 CLI',
   },
   'claude-code-sdk': {
-    en: 'Claude Code SDK: full CLI capabilities via subprocess',
-    zh: 'Claude Code SDK：通过 CLI 子进程获得完整能力',
+    en: 'Claude Code: full CLI capabilities via subprocess',
+    zh: 'Claude Code：通过 CLI 子进程获得完整能力',
   },
 };
 
@@ -76,7 +76,7 @@ export function RuntimeBadge({ providerId }: RuntimeBadgeProps) {
         <p>{isZh ? desc.zh : desc.en}</p>
         {isNonAnthropicProvider && (
           <p className="mt-1.5 text-muted-foreground">
-            {isZh ? 'OpenAI 模型始终使用原生 Runtime' : 'OpenAI models always use Native Runtime'}
+            {isZh ? 'OpenAI 模型始终使用 AI SDK 引擎' : 'OpenAI models always use AI SDK engine'}
           </p>
         )}
         <p className="mt-1.5 text-muted-foreground">

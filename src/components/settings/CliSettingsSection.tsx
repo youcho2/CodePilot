@@ -168,12 +168,16 @@ export function CliSettingsSection() {
 
   const handleRuntimeChange = async (value: string) => {
     setAgentRuntime(value);
+    // Sync cli_enabled for backward compatibility:
+    // native → disable CLI; claude-code-sdk → enable CLI; auto → enable CLI
+    const cliEnabledValue = value === 'native' ? 'false' : 'true';
+    setCliEnabled(cliEnabledValue === 'true');
     try {
       await fetch("/api/settings/app", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          settings: { agent_runtime: value },
+          settings: { agent_runtime: value, cli_enabled: cliEnabledValue },
         }),
       });
     } catch { /* ignore */ }
@@ -286,31 +290,32 @@ export function CliSettingsSection() {
   return (
     <div className="max-w-3xl space-y-6">
 
-      {/* ════════ Card 1: Agent Runtime 选择 ════════ */}
-      <SettingsCard title={t('cli.cliCardTitle')} description={t('cli.cliCardDesc')}>
-        <FieldRow label={isZh ? 'Agent Runtime' : 'Agent Runtime'} description={isZh ? '选择 AI 交互的执行引擎。自动模式会根据 CLI 是否安装自动选择。' : 'Choose the execution engine for AI interactions. Auto mode selects based on CLI availability.'}>
+      {/* ════════ Card 1: Agent 内核 选择 ════════ */}
+      <SettingsCard
+        title={isZh ? 'Agent 内核' : 'Agent Engine'}
+        description={isZh ? '选择 AI 交互使用的执行引擎' : 'Choose the execution engine for AI interactions'}
+      >
+        <FieldRow
+          label={isZh ? '执行引擎' : 'Engine'}
+          description={isZh
+            ? '自动：安装了 Claude Code 时用 Claude Code，否则用 AI SDK。选择 Claude Code 需要安装 CLI。'
+            : 'Auto: uses Claude Code when installed, otherwise AI SDK. Claude Code requires CLI installation.'}
+        >
           <Select value={agentRuntime} onValueChange={handleRuntimeChange}>
             <SelectTrigger className="w-[180px] h-8 text-xs">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="auto">{isZh ? '自动' : 'Auto'}</SelectItem>
-              <SelectItem value="native">{isZh ? '原生 Runtime (AI SDK)' : 'Native Runtime (AI SDK)'}</SelectItem>
-              <SelectItem value="claude-code-sdk">{isZh ? 'Claude Code SDK' : 'Claude Code SDK'}</SelectItem>
+              <SelectItem value="native">{isZh ? 'AI SDK' : 'AI SDK'}</SelectItem>
+              <SelectItem value="claude-code-sdk">{isZh ? 'Claude Code' : 'Claude Code'}</SelectItem>
             </SelectContent>
           </Select>
         </FieldRow>
 
-        <FieldRow label={t('cli.enableClaude')} description={t('cli.enableClaudeDesc')} separator>
-          <Switch
-            checked={cliEnabled}
-            onCheckedChange={handleCliToggle}
-            disabled={cliToggling}
-          />
-        </FieldRow>
-
-        {cliEnabled && (
-          <FieldRow label={t('cli.cliStatus')} separator>
+        {/* Claude Code 状态 — 选了 Claude Code 或自动时显示 */}
+        {agentRuntime !== 'native' && (
+          <FieldRow label={isZh ? 'Claude Code 状态' : 'Claude Code Status'} separator>
             <div className="flex items-center gap-2">
               {connected ? (
                 <>
@@ -335,7 +340,7 @@ export function CliSettingsSection() {
               ) : (
                 <>
                   <XCircle size={14} className="text-status-error-foreground" />
-                  <span className="text-xs text-muted-foreground">{t('cli.notInstalled')}</span>
+                  <span className="text-xs text-muted-foreground">{isZh ? '未安装' : 'Not installed'}</span>
                   <Button
                     variant="outline"
                     size="sm"
@@ -353,7 +358,7 @@ export function CliSettingsSection() {
           </FieldRow>
         )}
 
-        {cliEnabled && claudeStatus?.warnings && claudeStatus.warnings.length > 0 && (
+        {agentRuntime !== 'native' && claudeStatus?.warnings && claudeStatus.warnings.length > 0 && (
           <div className="rounded-md border border-status-warning-muted bg-status-warning-muted/30 px-3 py-2">
             <div className="flex items-start gap-2">
               <Warning size={14} className="text-status-warning-foreground mt-0.5 flex-shrink-0" />
@@ -365,8 +370,8 @@ export function CliSettingsSection() {
         )}
       </SettingsCard>
 
-      {/* ════════ Card 2: 模型选项（CLI 启用时显示）════════ */}
-      {cliEnabled && (
+      {/* ════════ Card 2: 模型选项（Claude Code 模式时显示）════════ */}
+      {agentRuntime !== 'native' && connected && (
         <SettingsCard title={t('cli.modelOptions')} description={t('cli.modelOptionsDesc')}>
           <FieldRow label={t('cli.thinkingMode')} description={t('cli.thinkingModeDesc')}>
             <Select value={thinkingMode} onValueChange={(v) => saveModelOption('thinking_mode', v)}>
