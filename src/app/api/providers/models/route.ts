@@ -54,10 +54,10 @@ export async function GET() {
     const providers = getAllProviders();
     const groups: ProviderModelGroup[] = [];
 
-    // Show the built-in Claude Code provider group only when CLI is enabled.
-    // When cli_enabled=false, user chose Native AI SDK — Claude Code models
-    // are not applicable and should not appear in the model selector.
-    const cliEnabled = getSetting('cli_enabled') !== 'false';
+    // Show the built-in Claude Code provider group unless user explicitly chose AI SDK only.
+    // Auto and Claude Code modes both need Claude Code models visible.
+    const runtimeSetting = getSetting('agent_runtime') || 'auto';
+    const cliEnabled = runtimeSetting !== 'native';
 
     if (cliEnabled) {
       // Mark as sdkProxyOnly if no direct API credentials exist — in that case

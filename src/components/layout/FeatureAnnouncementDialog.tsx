@@ -1,13 +1,13 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
   DialogContent,
   DialogHeader,
   DialogTitle,
-  DialogDescription,
   DialogFooter,
 } from '@/components/ui/dialog';
 import { useTranslation } from '@/hooks/useTranslation';
@@ -17,13 +17,12 @@ const ANNOUNCEMENT_KEY = 'codepilot:announcement:v0.48-agent-engine';
 
 export function FeatureAnnouncementDialog() {
   const [open, setOpen] = useState(false);
+  const router = useRouter();
   const { t } = useTranslation();
   const isZh = t('nav.chats') === '对话';
 
   useEffect(() => {
-    // Only show once per announcement
     if (typeof window !== 'undefined' && !localStorage.getItem(ANNOUNCEMENT_KEY)) {
-      // Small delay so it doesn't flash on initial load
       const timer = setTimeout(() => setOpen(true), 800);
       return () => clearTimeout(timer);
     }
@@ -34,46 +33,47 @@ export function FeatureAnnouncementDialog() {
     localStorage.setItem(ANNOUNCEMENT_KEY, '1');
   };
 
+  const handleGoToSettings = () => {
+    handleDismiss();
+    router.push('/settings#cli');
+  };
+
   return (
     <Dialog open={open} onOpenChange={(v) => { if (!v) handleDismiss(); }}>
-      <DialogContent className="sm:max-w-lg">
+      <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>
-            {isZh ? '新功能：独立 Agent 内核 + OpenAI 支持' : 'New: Independent Agent Engine + OpenAI Support'}
+            {isZh ? '全新 Agent 内核' : 'New Agent Engine'}
           </DialogTitle>
-          <DialogDescription>
-            {isZh ? 'CodePilot 现在可以脱离 Claude Code CLI 独立运行' : 'CodePilot can now run independently without Claude Code CLI'}
-          </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-3 text-sm">
-          <div>
-            <p className="font-medium mb-1">{isZh ? 'Agent 内核选择' : 'Agent Engine Selection'}</p>
-            <p className="text-muted-foreground">
-              {isZh
-                ? '在设置页可以选择 Agent 内核：AI SDK（无需安装任何 CLI，支持多模型）或 Claude Code（需安装 CLI，完整 CLI 能力）。默认自动模式会根据 CLI 是否安装自动选择。'
-                : 'In Settings, choose your Agent engine: AI SDK (no CLI needed, multi-model) or Claude Code (requires CLI, full CLI capabilities). Auto mode selects based on CLI availability.'}
-            </p>
-          </div>
-
-          <div>
-            <p className="font-medium mb-1">{isZh ? 'OpenAI 授权登录' : 'OpenAI OAuth Login'}</p>
-            <p className="text-muted-foreground">
-              {isZh
-                ? 'ChatGPT Plus/Pro 用户可以在设置 → 服务商页面通过 OAuth 登录 OpenAI，直接使用 GPT-5.4 等模型。选择 OpenAI 模型时会自动使用 AI SDK 内核。'
-                : 'ChatGPT Plus/Pro users can log in via OAuth in Settings → Providers to use GPT-5.4 and other models. OpenAI models automatically use the AI SDK engine.'}
-            </p>
-          </div>
-
-          <div className="rounded-md bg-muted/50 p-2.5 text-xs text-muted-foreground">
-            {isZh
-              ? '设置位置：设置 → Agent 内核（第一张卡片）'
-              : 'Settings location: Settings → Agent Engine (first card)'}
-          </div>
+        <div className="space-y-4 text-sm">
+          {isZh ? (
+            <>
+              <p>CodePilot 现在无需安装 Claude Code CLI 也能完整运行。</p>
+              <div className="space-y-2 text-muted-foreground">
+                <p><span className="text-foreground font-medium">AI SDK 内核</span> — 内置多模型引擎，开箱即用，支持所有已配置的服务商</p>
+                <p><span className="text-foreground font-medium">Claude Code 内核</span> — 通过 Claude Code CLI 驱动，获得完整的 CLI 能力</p>
+              </div>
+              <p>同时支持 <span className="font-medium">OpenAI 授权登录</span>，ChatGPT Plus/Pro 用户可在服务商设置中登录后直接使用 GPT-5.4 等模型。</p>
+            </>
+          ) : (
+            <>
+              <p>CodePilot now runs fully without the Claude Code CLI.</p>
+              <div className="space-y-2 text-muted-foreground">
+                <p><span className="text-foreground font-medium">AI SDK engine</span> — built-in multi-model engine, works out of the box with all configured providers</p>
+                <p><span className="text-foreground font-medium">Claude Code engine</span> — driven by Claude Code CLI for full CLI capabilities</p>
+              </div>
+              <p>Also supports <span className="font-medium">OpenAI OAuth login</span> — ChatGPT Plus/Pro users can sign in under Providers to use GPT-5.4 and more.</p>
+            </>
+          )}
         </div>
 
-        <DialogFooter>
-          <Button onClick={handleDismiss} size="sm">
+        <DialogFooter className="gap-3">
+          <Button variant="outline" size="sm" onClick={handleGoToSettings}>
+            {isZh ? '前往设置' : 'Go to Settings'}
+          </Button>
+          <Button size="sm" onClick={handleDismiss}>
             {isZh ? '知道了' : 'Got it'}
           </Button>
         </DialogFooter>
