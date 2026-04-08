@@ -564,10 +564,6 @@ const OPENAI_CODEX_MODELS: CatalogModel[] = [
   { modelId: 'gpt-5.4-mini', displayName: 'GPT-5.4-Mini' },
   { modelId: 'gpt-5.3-codex', displayName: 'GPT-5.3-Codex' },
   { modelId: 'gpt-5.3-codex-spark', displayName: 'GPT-5.3-Codex-Spark' },
-  { modelId: 'gpt-5.2-codex', displayName: 'GPT-5.2-Codex' },
-  { modelId: 'gpt-5.2', displayName: 'GPT-5.2' },
-  { modelId: 'gpt-5.1-codex-max', displayName: 'GPT-5.1-Codex-Max' },
-  { modelId: 'gpt-5.1-codex-mini', displayName: 'GPT-5.1-Codex-Mini' },
 ];
 
 /**
