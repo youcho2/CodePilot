@@ -31,7 +31,9 @@ export function RuntimeBadge({ providerId }: RuntimeBadgeProps) {
   // OpenAI models can't use Claude Code SDK — forced to AI SDK
   const isNonAnthropicProvider = providerId === 'openai-oauth';
   const effectiveRuntime: RuntimeMode = isNonAnthropicProvider ? 'native' : runtimeSetting;
-  const isOverridden = isNonAnthropicProvider && runtimeSetting !== 'native';
+  // Only flag as "overridden" when the user explicitly chose Claude Code
+  // (not auto, since auto would fall back to AI SDK anyway if CLI is unavailable)
+  const isOverridden = isNonAnthropicProvider && runtimeSetting === 'claude-code-sdk';
 
   useEffect(() => {
     const loadRuntime = () => {
