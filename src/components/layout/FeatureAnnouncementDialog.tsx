@@ -8,6 +8,7 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
+  DialogDescription,
   DialogFooter,
 } from '@/components/ui/dialog';
 import { useTranslation } from '@/hooks/useTranslation';
@@ -21,10 +22,22 @@ export function FeatureAnnouncementDialog() {
   const isZh = t('nav.chats') === '对话';
 
   useEffect(() => {
-    if (typeof window !== 'undefined' && !localStorage.getItem(ANNOUNCEMENT_KEY)) {
-      const timer = setTimeout(() => setOpen(true), 800);
-      return () => clearTimeout(timer);
-    }
+    if (typeof window === 'undefined') return;
+    // Don't show if already dismissed
+    if (localStorage.getItem(ANNOUNCEMENT_KEY)) return;
+    // Don't show if setup hasn't been completed — avoid stacking with onboarding
+    fetch('/api/setup')
+      .then(r => r.ok ? r.json() : null)
+      .then(data => {
+        if (!data) return;
+        const done = [data.claude, data.provider, data.project]
+          .filter((s: string) => s === 'completed' || s === 'skipped').length;
+        // Only show announcement to users who have completed setup (existing users)
+        if (done >= 3) {
+          setTimeout(() => setOpen(true), 800);
+        }
+      })
+      .catch(() => {});
   }, []);
 
   const handleDismiss = () => {
@@ -44,13 +57,16 @@ export function FeatureAnnouncementDialog() {
           <DialogTitle>
             {isZh ? '新功能：独立 Agent 引擎 + OpenAI 支持' : 'New: Independent Agent Engine + OpenAI Support'}
           </DialogTitle>
+          <DialogDescription>
+            {isZh ? '本次更新带来了底层架构变更' : 'This update includes architectural changes'}
+          </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-3 text-sm">
           <div className="rounded-md bg-amber-500/10 border border-amber-500/20 px-3 py-2 text-xs text-amber-700 dark:text-amber-400">
             {isZh
-              ? <>本次更新涉及底层架构变更，如遇问题请到 <a href="https://github.com/op7418/CodePilot/issues" target="_blank" rel="noopener noreferrer" className="underline font-medium">GitHub Issues</a> 反馈。</>
-              : <>This update involves architectural changes. Report issues on <a href="https://github.com/op7418/CodePilot/issues" target="_blank" rel="noopener noreferrer" className="underline font-medium">GitHub Issues</a>.</>
+              ? <>如遇问题请到 <a href="https://github.com/op7418/CodePilot/issues" target="_blank" rel="noopener noreferrer" className="underline font-medium">GitHub Issues</a> 反馈。</>
+              : <>Report issues on <a href="https://github.com/op7418/CodePilot/issues" target="_blank" rel="noopener noreferrer" className="underline font-medium">GitHub Issues</a>.</>
             }
           </div>
 
