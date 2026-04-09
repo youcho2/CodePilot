@@ -1,9 +1,18 @@
+/**
+ * Tests for agent-loop message handling and message-builder logic.
+ *
+ * message-builder tests import the REAL module to lock actual implementation.
+ * agent-loop dedup logic is inlined because agent-loop.ts depends on
+ * DB/streaming infrastructure that can't run in pure unit test context.
+ */
+
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
+import os from 'node:os';
 
-// ---------------------------------------------------------------------------
-// Inline simplified logic — no imports from src/lib
-// ---------------------------------------------------------------------------
+// ── Suite 1: message dedup (inlined — agent-loop needs DB to test directly) ──
 
 function shouldAppendPrompt(
   historyMessages: Array<{ role: string; content: unknown }>,
@@ -15,190 +24,108 @@ function shouldAppendPrompt(
   return false;
 }
 
-function mergeUserContent(a: unknown, b: unknown): unknown {
-  const norm = (v: unknown) =>
-    typeof v === 'string'
-      ? [{ type: 'text', text: v }]
-      : Array.isArray(v)
-        ? v
-        : [{ type: 'text', text: String(v) }];
-  const merged = [...norm(a), ...norm(b)];
-  if (merged.every((p: { type: string }) => p.type === 'text'))
-    return merged
-      .map((p: { text?: string }) => p.text || '')
-      .join('\n\n')
-      .trim();
-  return merged;
-}
-
-function buildUserMessage(
-  content: string,
-): { role: string; content: unknown } {
-  const match = content.match(/^<!--files:(\[.*?\])-->([\s\S]*)$/);
-  if (!match) return { role: 'user', content };
-  const text = match[2] || '';
-  let files: Array<{ name: string; type: string; filePath?: string }> = [];
-  try {
-    files = JSON.parse(match[1]);
-  } catch {
-    /* ignore */
-  }
-  if (files.length === 0) return { role: 'user', content: text };
-  const parts: Array<{
-    type: string;
-    text?: string;
-    data?: string;
-    mediaType?: string;
-  }> = [];
-  if (text.trim()) parts.push({ type: 'text', text: text.trim() });
-  for (const f of files) {
-    if (f.type?.startsWith('image/')) {
-      parts.push({ type: 'file', data: 'base64data', mediaType: f.type });
-    } else {
-      parts.push({ type: 'text', text: `[File: ${f.name}]` });
-    }
-  }
-  if (parts.length === 1 && parts[0].type === 'text')
-    return { role: 'user', content: parts[0].text };
-  return { role: 'user', content: parts };
-}
-
-// ---------------------------------------------------------------------------
-// Suite 1: shouldAppendPrompt
-// ---------------------------------------------------------------------------
-
-describe('shouldAppendPrompt', () => {
-  it('returns false when last message is user (normal message already in DB)', () => {
-    const history = [
-      { role: 'user', content: 'hello' },
-      { role: 'assistant', content: 'hi' },
-      { role: 'user', content: 'follow-up' },
-    ];
-    assert.equal(shouldAppendPrompt(history, false), false);
+describe('agent-loop message dedup (inlined)', () => {
+  it('does not append when last message is user (normal flow)', () => {
+    assert.equal(shouldAppendPrompt([{ role: 'user', content: 'hi' }], false), false);
   });
 
-  it('returns true when autoTrigger is set, even if last is user', () => {
-    const history = [{ role: 'user', content: 'hello' }];
-    assert.equal(shouldAppendPrompt(history, true), true);
+  it('always appends for autoTrigger even if last is user', () => {
+    assert.equal(shouldAppendPrompt([{ role: 'user', content: 'hi' }], true), true);
   });
 
-  it('returns true when history is empty', () => {
+  it('appends when history is empty', () => {
     assert.equal(shouldAppendPrompt([], false), true);
   });
 
-  it('returns true when last message is assistant', () => {
-    const history = [
-      { role: 'user', content: 'hello' },
-      { role: 'assistant', content: 'hi there' },
-    ];
-    assert.equal(shouldAppendPrompt(history, false), true);
+  it('appends when last message is assistant', () => {
+    assert.equal(shouldAppendPrompt([{ role: 'assistant', content: 'ok' }], false), true);
   });
 
-  it('returns false when last is user with multipart content array (role check only)', () => {
-    const history = [
-      {
-        role: 'user',
-        content: [
-          { type: 'text', text: 'look at this' },
-          { type: 'image', data: 'base64...' },
-        ],
-      },
-    ];
-    assert.equal(shouldAppendPrompt(history, false), false);
+  it('does not append when last is user with multipart content', () => {
+    const multipart = [{ type: 'text', text: 'hi' }, { type: 'file', data: 'abc' }];
+    assert.equal(shouldAppendPrompt([{ role: 'user', content: multipart }], false), false);
   });
 });
 
-// ---------------------------------------------------------------------------
-// Suite 2: mergeUserContent
-// ---------------------------------------------------------------------------
+// ── Suite 2: buildCoreMessages (REAL import from @/lib/message-builder) ──
 
-describe('mergeUserContent', () => {
-  it('merges string + string into a single joined string', () => {
-    const result = mergeUserContent('hello', 'world');
-    assert.equal(typeof result, 'string');
-    assert.equal(result, 'hello\n\nworld');
+describe('message-builder buildCoreMessages (real import)', () => {
+  it('converts plain user messages', async () => {
+    const { buildCoreMessages } = await import('@/lib/message-builder');
+    const result = buildCoreMessages([
+      { id: '1', session_id: 's', role: 'user', content: 'hello', created_at: '', is_heartbeat_ack: 0, token_usage: '' },
+    ]);
+    assert.equal(result.length, 1);
+    assert.equal(result[0].role, 'user');
+    assert.equal(result[0].content, 'hello');
   });
 
-  it('returns array when string + multipart with file part', () => {
-    const filePart = { type: 'file', data: 'abc123', mediaType: 'image/png' };
-    const result = mergeUserContent('describe this', [filePart]);
-    assert.ok(Array.isArray(result));
-    const arr = result as Array<{ type: string }>;
-    assert.equal(arr.length, 2);
-    assert.equal(arr[0].type, 'text');
-    assert.equal(arr[1].type, 'file');
+  it('rebuilds user message with image attachment', async () => {
+    const { buildCoreMessages } = await import('@/lib/message-builder');
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mb-test-'));
+    const imgPath = path.join(tmpDir, 'test.png');
+    fs.writeFileSync(imgPath, Buffer.from('fakepng'));
+    try {
+      const fileMeta = JSON.stringify([{ id: '1', name: 'test.png', type: 'image/png', size: 7, filePath: imgPath }]);
+      const content = `<!--files:${fileMeta}-->describe the image`;
+      const result = buildCoreMessages([
+        { id: '1', session_id: 's', role: 'user', content, created_at: '', is_heartbeat_ack: 0, token_usage: '' },
+      ]);
+      assert.equal(result.length, 1);
+      assert.ok(Array.isArray(result[0].content), 'content should be multipart array');
+      const parts = result[0].content as Array<{ type: string }>;
+      assert.ok(parts.some(p => p.type === 'text'));
+      assert.ok(parts.some(p => p.type === 'file'));
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
   });
 
-  it('combines multipart + multipart into a single array', () => {
-    const a = [{ type: 'text', text: 'part A' }];
-    const b = [{ type: 'image', data: 'img' }];
-    const result = mergeUserContent(a, b);
-    assert.ok(Array.isArray(result));
-    assert.equal((result as unknown[]).length, 2);
+  it('falls back when attached file is missing', async () => {
+    const { buildCoreMessages } = await import('@/lib/message-builder');
+    const fileMeta = JSON.stringify([{ id: '1', name: 'gone.png', type: 'image/png', size: 0, filePath: '/nonexistent/gone.png' }]);
+    const result = buildCoreMessages([
+      { id: '1', session_id: 's', role: 'user', content: `<!--files:${fileMeta}-->text`, created_at: '', is_heartbeat_ack: 0, token_usage: '' },
+    ]);
+    assert.equal(result[0].role, 'user');
   });
 
-  it('collapses all-text parts into a single string', () => {
-    const a = [{ type: 'text', text: 'one' }];
-    const b = [{ type: 'text', text: 'two' }];
-    const result = mergeUserContent(a, b);
-    assert.equal(typeof result, 'string');
-    assert.equal(result, 'one\n\ntwo');
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Suite 3: buildUserMessage
-// ---------------------------------------------------------------------------
-
-describe('buildUserMessage', () => {
-  it('returns plain string content for text without files prefix', () => {
-    const msg = buildUserMessage('just a question');
-    assert.equal(msg.role, 'user');
-    assert.equal(msg.content, 'just a question');
+  it('skips heartbeat-ack messages', async () => {
+    const { buildCoreMessages } = await import('@/lib/message-builder');
+    const result = buildCoreMessages([
+      { id: '1', session_id: 's', role: 'user', content: 'hello', created_at: '', is_heartbeat_ack: 1, token_usage: '' },
+    ]);
+    assert.equal(result.length, 0);
   });
 
-  it('returns multipart with file part for image attachment', () => {
-    const raw =
-      '<!--files:[{"name":"photo.png","type":"image/png","filePath":"/tmp/photo.png"}]-->describe this';
-    const msg = buildUserMessage(raw);
-    assert.equal(msg.role, 'user');
-    assert.ok(Array.isArray(msg.content));
-    const parts = msg.content as Array<{
-      type: string;
-      text?: string;
-      data?: string;
-      mediaType?: string;
-    }>;
-    assert.equal(parts.length, 2);
-    assert.equal(parts[0].type, 'text');
-    assert.equal(parts[0].text, 'describe this');
-    assert.equal(parts[1].type, 'file');
-    assert.equal(parts[1].mediaType, 'image/png');
+  it('merges consecutive user messages to string', async () => {
+    const { buildCoreMessages } = await import('@/lib/message-builder');
+    const result = buildCoreMessages([
+      { id: '1', session_id: 's', role: 'user', content: 'first', created_at: '', is_heartbeat_ack: 0, token_usage: '' },
+      { id: '2', session_id: 's', role: 'user', content: 'second', created_at: '', is_heartbeat_ack: 0, token_usage: '' },
+    ]);
+    assert.equal(result.length, 1);
+    assert.ok(typeof result[0].content === 'string');
+    assert.ok((result[0].content as string).includes('first'));
+    assert.ok((result[0].content as string).includes('second'));
   });
 
-  it('adds text placeholder for non-image file', () => {
-    const raw =
-      '<!--files:[{"name":"report.pdf","type":"application/pdf"}]-->review this';
-    const msg = buildUserMessage(raw);
-    assert.ok(Array.isArray(msg.content));
-    const parts = msg.content as Array<{ type: string; text?: string }>;
-    const filePart = parts.find((p) => p.text?.includes('[File:'));
-    assert.ok(filePart);
-    assert.ok(filePart!.text!.includes('report.pdf'));
-  });
-
-  it('returns just text content when files array is empty', () => {
-    const raw = '<!--files:[]-->some text';
-    const msg = buildUserMessage(raw);
-    assert.equal(msg.role, 'user');
-    assert.equal(msg.content, 'some text');
-  });
-
-  it('returns plain string when input has no <!--files: prefix', () => {
-    const raw = 'no special prefix here';
-    const msg = buildUserMessage(raw);
-    assert.equal(msg.role, 'user');
-    assert.equal(typeof msg.content, 'string');
-    assert.equal(msg.content, 'no special prefix here');
+  it('merges consecutive user messages preserving multipart', async () => {
+    const { buildCoreMessages } = await import('@/lib/message-builder');
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mb-merge-'));
+    const imgPath = path.join(tmpDir, 'img.png');
+    fs.writeFileSync(imgPath, Buffer.from('png'));
+    try {
+      const fileMeta = JSON.stringify([{ id: '1', name: 'img.png', type: 'image/png', size: 3, filePath: imgPath }]);
+      const result = buildCoreMessages([
+        { id: '1', session_id: 's', role: 'user', content: 'plain text', created_at: '', is_heartbeat_ack: 0, token_usage: '' },
+        { id: '2', session_id: 's', role: 'user', content: `<!--files:${fileMeta}-->with image`, created_at: '', is_heartbeat_ack: 0, token_usage: '' },
+      ]);
+      assert.equal(result.length, 1);
+      // Merged content should be array (has file part)
+      assert.ok(Array.isArray(result[0].content), 'merged with file should be array');
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
   });
 });

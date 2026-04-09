@@ -112,3 +112,40 @@ Codex API endpoint: `https://chatgpt.com/backend-api/codex/responses`（从 Code
 | `RuntimeBadge` | 输入框下方显示当前 Agent 内核，hover 解释，点击跳转设置 |
 | `ProviderManager` | OpenAI OAuth 登录/登出 + 错误反馈 |
 | `FeatureAnnouncementDialog` | 首次更新通知，解释新功能 |
+
+## 验证边界
+
+### 已验证（单测覆盖，738 tests passing）
+
+| 模块 | 覆盖方式 | 说明 |
+|------|---------|------|
+| file-checkpoint | 真实导入测试 | create/record/restore/clear 全路径 |
+| message-builder | 真实导入测试 | buildCoreMessages 含附件重建、轮替合并 |
+| structured-output | 真实导入测试 | AI SDK Output.object 提取 + 回退 |
+| provider-resolver | 真实导入测试 | 多 provider 场景解析（原有 test） |
+| runtime-selection | 镜像逻辑测试 | predictNativeRuntime + resolveRuntime 决策树 |
+| message-dedup | 镜像逻辑测试 | autoTrigger / 空历史 / multipart 边界 |
+| OAuth status | 镜像逻辑测试 | 过期/刷新/buffer 边界（真实 getOAuthStatus 依赖宿主 DB 状态，不可作为稳定单测） |
+
+### 未验证（需 smoke/e2e/CDP 补齐）
+
+| 场景 | 风险等级 | 说明 |
+|------|---------|------|
+| Runtime 切换后立即生效 | P1 | 设置页切换 → 下条消息用正确 runtime |
+| OpenAI OAuth 完整流程 | P1 | 登录 → 选模型 → 对话 → 工具调用 |
+| MCP enable/disable 即时重连 | P1 | toggle 路由 → 下条消息有/没有 MCP 工具 |
+| 带附件消息多轮 native | P1 | 上传图片 → 追问 → 历史回放含附件 |
+| SDK ↔ Native 切换后 rewind | P2 | 切换 runtime 后 rewind 走对路径 |
+| SDK 会话 interrupt | P2 | Claude Code 运行中 → 点停止 → CLI 进程实际停 |
+| Bridge + native + MCP | P2 | Telegram 通道 → native runtime → 完整 MCP 工具 |
+| 设置页 UI 交互 | P2 | CliSettingsSection / ProviderManager / RuntimeBadge 渲染 |
+
+## 剩余风险
+
+| 风险 | 说明 | 缓解 |
+|------|------|------|
+| **镜像测试失真** | agent-loop 去重、runtime 选择的测试是镜像逻辑，非真实导入 | 标注了 "mirrors X — update if source changes"，后续应补集成测试 |
+| **Codex API reasoning** | 当前传 `reasoningEffort: 'medium'` + `textVerbosity: 'medium'`，未传 `reasoningSummary`，thinking 展示未调通 | 需确认 Codex endpoint 的 reasoning summary 返回格式，或改用 Codex CLI 的 endpoint 路径 |
+| **Plugin 系统未对齐** | Native 路径没有 Claude Code 的 plugin loader | builtin-tools + MCP 覆盖了已知 plugin 能力，但未显式验证 |
+| **连续两个 user turn** | enforceAlternation 合并逻辑已修复 multipart，但极端场景（3+ 连续 user）未专项测试 | 实际场景不太可能出现 |
+| **SDK 路由双路径** | interrupt/rewind 有双路径，SDK path 依赖 conversation-registry | SDK 路径是原有逻辑未改动，回归风险低 |
