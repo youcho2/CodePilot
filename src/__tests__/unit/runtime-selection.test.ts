@@ -86,7 +86,7 @@ describe('resolveRuntime (mirrors registry.ts)', () => {
   });
 });
 
-// ── Suite 3: OpenAI OAuth status (REAL import) ──
+// ── Suite 3: OpenAI OAuth status (inlined — real impl reads host DB) ──
 
 describe('OpenAI OAuth status (inlined logic)', () => {
   // All OAuth status tests are inlined because the real getOAuthStatus()
