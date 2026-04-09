@@ -25,15 +25,13 @@ export function FeatureAnnouncementDialog() {
     if (typeof window === 'undefined') return;
     // Don't show if already dismissed
     if (localStorage.getItem(ANNOUNCEMENT_KEY)) return;
-    // Don't show if setup hasn't been completed — avoid stacking with onboarding
+    // Only show to users who finished setup — keyed off the same `completed`
+    // flag that AppShell uses to decide whether to open SetupCenter.
+    // This guarantees announcement and setup never appear together.
     fetch('/api/setup')
       .then(r => r.ok ? r.json() : null)
       .then(data => {
-        if (!data) return;
-        const done = [data.claude, data.provider, data.project]
-          .filter((s: string) => s === 'completed' || s === 'skipped').length;
-        // Only show announcement to users who have completed setup (existing users)
-        if (done >= 3) {
+        if (data?.completed) {
           setTimeout(() => setOpen(true), 800);
         }
       })
