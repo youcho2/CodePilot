@@ -14,6 +14,7 @@ import { streamText, type LanguageModel, type ToolSet, type ModelMessage } from 
 import type { SSEEvent, TokenUsage } from '@/types';
 import { createModel } from './ai-provider';
 import { assembleTools, READ_ONLY_TOOLS } from './agent-tools';
+import { reportNativeError } from './error-classifier';
 import { pruneOldToolResults } from './context-pruner';
 import { emit as emitEvent } from './runtime/event-bus';
 import { createCheckpoint } from './file-checkpoint';
@@ -120,6 +121,7 @@ export function runAgentLoop(options: AgentLoopOptions): ReadableStream<string> 
             await syncMcpConnections(mcpServers);
           } catch (err) {
             console.warn('[agent-loop] MCP sync error:', err instanceof Error ? err.message : err);
+            reportNativeError('MCP_CONNECTION_ERROR', err, { sessionId });
           }
         } else {
           console.log('[agent-loop] No MCP servers to sync');
@@ -327,14 +329,19 @@ export function runAgentLoop(options: AgentLoopOptions): ReadableStream<string> 
 
             onError: (event) => {
               const err = event.error;
-              console.error('[agent-loop] streamText error:', err instanceof Error ? err.message : err);
+              const msg = err instanceof Error ? err.message : String(err);
+              console.error('[agent-loop] streamText error:', msg);
               if (err && typeof err === 'object') {
                 const anyErr = err as Record<string, unknown>;
                 if (anyErr.responseBody) console.error('[agent-loop] Response body:', anyErr.responseBody);
                 if (anyErr.statusCode) console.error('[agent-loop] Status code:', anyErr.statusCode);
-                if (anyErr.url) console.error('[agent-loop] Request URL:', anyErr.url);
-                if (anyErr.cause) console.error('[agent-loop] Cause:', anyErr.cause);
               }
+              // Classify and report to Sentry
+              const isAuthError = /unauthorized|forbidden|401|403/i.test(msg);
+              const category = config.useResponsesApi && isAuthError
+                ? 'OPENAI_AUTH_FAILED' as const
+                : 'NATIVE_STREAM_ERROR' as const;
+              reportNativeError(category, err, { modelId, sessionId });
             },
           });
 
@@ -399,6 +406,7 @@ export function runAgentLoop(options: AgentLoopOptions): ReadableStream<string> 
             if (eventCount <= 3) {
               const finishReason = await result.finishReason;
               console.error(`[agent-loop] Empty response: ${eventCount} events, finishReason=${finishReason}, model=${modelId}`);
+              reportNativeError('EMPTY_RESPONSE', new Error(`Empty response: finishReason=${finishReason}`), { modelId, sessionId });
               controller.enqueue(formatSSE({
                 type: 'error',
                 data: JSON.stringify({
@@ -447,6 +455,7 @@ export function runAgentLoop(options: AgentLoopOptions): ReadableStream<string> 
 
         if (!isAbort) {
           console.error('[agent-loop] Error:', err instanceof Error ? err.message : err);
+          reportNativeError('NATIVE_STREAM_ERROR', err, { sessionId });
           controller.enqueue(formatSSE({
             type: 'error',
             data: JSON.stringify({
