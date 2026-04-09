@@ -48,6 +48,12 @@ export function FeatureAnnouncementDialog() {
         </DialogHeader>
 
         <div className="space-y-4 text-sm">
+          <div className="rounded-md bg-amber-500/10 border border-amber-500/20 px-3 py-2 text-xs text-amber-700 dark:text-amber-400">
+            {isZh
+              ? <>本次更新涉及底层架构变更，虽已详细测试但仍可能存在问题。如遇异常请到 <a href="https://github.com/op7418/CodePilot/issues" target="_blank" rel="noopener noreferrer" className="underline font-medium">GitHub Issues</a> 反馈。</>
+              : <>This update involves significant architectural changes. While thoroughly tested, issues may still occur. Please report any problems on <a href="https://github.com/op7418/CodePilot/issues" target="_blank" rel="noopener noreferrer" className="underline font-medium">GitHub Issues</a>.</>
+            }
+          </div>
           {isZh ? (
             <>
               <p>CodePilot 现在无需安装 Claude Code CLI 也能完整运行。</p>

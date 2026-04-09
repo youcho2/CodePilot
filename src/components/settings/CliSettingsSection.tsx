@@ -180,6 +180,7 @@ export function CliSettingsSection() {
           settings: { agent_runtime: value, cli_enabled: cliEnabledValue },
         }),
       });
+      window.dispatchEvent(new Event('provider-changed'));
     } catch { /* ignore */ }
   };
 
