@@ -255,6 +255,7 @@ export async function POST(request: NextRequest) {
     // Load MCP servers for the predicted runtime:
     // - SDK Runtime: only needs servers with ${...} env placeholders (SDK loads the rest via settingSources)
     // - Native Runtime: needs ALL servers (it manages MCP connections independently)
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { predictNativeRuntime } = require('@/lib/runtime') as typeof import('@/lib/runtime');
     const mcpServers = predictNativeRuntime(effectiveProviderId)
       ? loadAllMcpServers()

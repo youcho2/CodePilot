@@ -218,7 +218,7 @@ export function runAgentLoop(options: AgentLoopOptions): ReadableStream<string> 
         emitEvent('session:start', { sessionId, model: modelId });
         onRuntimeStatusChange?.('streaming');
         let step = 0;
-        let totalUsage: TokenUsage = { input_tokens: 0, output_tokens: 0 };
+        const totalUsage: TokenUsage = { input_tokens: 0, output_tokens: 0 };
         let lastToolNames: string[] = []; // for doom loop detection
         let messages = historyMessages;
 

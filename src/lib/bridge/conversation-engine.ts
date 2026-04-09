@@ -213,6 +213,7 @@ export async function processMessage(
     }
 
     // Load MCP servers using shared runtime prediction (same logic as chat route)
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { predictNativeRuntime } = require('../runtime') as typeof import('../runtime');
     const mcpServers = predictNativeRuntime(effectiveProviderId)
       ? loadAllMcpServers()

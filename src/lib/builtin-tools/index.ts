@@ -58,6 +58,7 @@ function getToolGroups(options: { workspacePath?: string }): BuiltinToolGroup[] 
 
   // Notification tools — always available
   try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { createNotificationTools, NOTIFICATION_SYSTEM_PROMPT } = require('./notification');
     groups.push({
       name: 'codepilot-notify',
@@ -69,6 +70,7 @@ function getToolGroups(options: { workspacePath?: string }): BuiltinToolGroup[] 
 
   // Widget guidelines — keyword-gated
   try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { createWidgetGuidelinesTools, WIDGET_SYSTEM_PROMPT } = require('./widget-guidelines');
     groups.push({
       name: 'codepilot-widget-guidelines',
@@ -80,6 +82,7 @@ function getToolGroups(options: { workspacePath?: string }): BuiltinToolGroup[] 
 
   // Dashboard tools — keyword-gated
   try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { createDashboardTools, DASHBOARD_SYSTEM_PROMPT } = require('./dashboard');
     groups.push({
       name: 'codepilot-dashboard',
@@ -91,6 +94,7 @@ function getToolGroups(options: { workspacePath?: string }): BuiltinToolGroup[] 
 
   // Media tools — keyword-gated
   try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { createMediaTools, MEDIA_SYSTEM_PROMPT } = require('./media');
     groups.push({
       name: 'codepilot-media',
@@ -103,6 +107,7 @@ function getToolGroups(options: { workspacePath?: string }): BuiltinToolGroup[] 
   // Memory search tools — workspace-gated
   if (options.workspacePath) {
     try {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
       const { createMemorySearchTools, MEMORY_SEARCH_SYSTEM_PROMPT } = require('./memory-search');
       groups.push({
         name: 'codepilot-memory',
@@ -115,6 +120,7 @@ function getToolGroups(options: { workspacePath?: string }): BuiltinToolGroup[] 
 
   // CLI tools — keyword-gated
   try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { createCliToolsTools, CLI_TOOLS_SYSTEM_PROMPT } = require('./cli-tools');
     groups.push({
       name: 'codepilot-cli-tools',

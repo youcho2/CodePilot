@@ -119,7 +119,7 @@ function wrapWithPermissions(
     }
 
     // Wrap execute with permission check
-    const original = t as { description?: string; inputSchema?: unknown; execute?: Function };
+    const original = t as { description?: string; inputSchema?: unknown; execute?: (...args: unknown[]) => unknown };
     wrapped[name] = tool({
       description: original.description || name,
       inputSchema: (original.inputSchema || z.object({})) as z.ZodType,

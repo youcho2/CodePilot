@@ -168,6 +168,7 @@ function createLanguageModel(config: AiSdkConfig, isThirdPartyProxy: boolean): L
     }
 
     case 'claude-code-compat': {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
       const { createClaudeCodeCompatModel } = require('./claude-code-compat') as typeof import('./claude-code-compat');
       return createClaudeCodeCompatModel({
         apiKey: config.apiKey,
@@ -331,8 +332,8 @@ function applyMiddleware(
   if (middlewares.length === 0) return model;
 
   // wrapLanguageModel expects LanguageModelV3, cast through any for union type compat
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   return wrapLanguageModel({
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     model: model as any,
     middleware: middlewares,
   }) as unknown as LanguageModel;
