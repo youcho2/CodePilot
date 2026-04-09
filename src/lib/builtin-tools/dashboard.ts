@@ -31,6 +31,7 @@ export function createDashboardTools(workDir?: string) {
         try {
           const { addWidget, generateWidgetId } = await import('@/lib/dashboard-store');
           const id = generateWidgetId();
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
           await addWidget(cwd, { id, widgetCode, title, dataContract, dataSourceType, dataSourcePaths, cliCommand } as any);
           return `Widget "${title}" pinned to dashboard (id: ${id})`;
         } catch (err) { return `Failed: ${err instanceof Error ? err.message : 'unknown'}`; }
@@ -84,6 +85,7 @@ export function createDashboardTools(workDir?: string) {
           const { readDashboard, updateWidget } = await import('@/lib/dashboard-store');
           const db = await readDashboard(cwd);
           if (!db?.widgets?.find((w: { id: string }) => w.id === widgetId)) return `Widget ${widgetId} not found.`;
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
           await updateWidget(cwd, widgetId, { widgetCode, title, dataContract } as any);
           return `Widget ${widgetId} updated.`;
         } catch (err) { return `Failed: ${err instanceof Error ? err.message : 'unknown'}`; }

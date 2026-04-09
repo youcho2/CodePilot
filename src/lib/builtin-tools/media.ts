@@ -32,6 +32,7 @@ export function createMediaTools(options?: { sessionId?: string; workingDirector
             source,
             model,
             tags,
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
           } as any);
           return `Media imported: ${typeof result === 'string' ? result : filePath}`;
         } catch (err) { return `Failed: ${err instanceof Error ? err.message : 'unknown'}`; }
@@ -55,6 +56,7 @@ export function createMediaTools(options?: { sessionId?: string; workingDirector
             imageSize,
             referenceImagePaths,
           });
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
           return `Image generated: ${'localPath' in result ? (result as any).localPath : 'success'}`;
         } catch (err) { return `Failed: ${err instanceof Error ? err.message : 'unknown'}`; }
       },

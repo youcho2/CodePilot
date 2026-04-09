@@ -69,8 +69,10 @@ export function useClaudeStatus() {
   }, [checkStatus]);
 
   useEffect(() => {
-    checkStatus();
+    // Schedule initial check on next tick to avoid synchronous setState in effect
+    const timer = setTimeout(() => checkStatus(), 0);
     return () => {
+      clearTimeout(timer);
       if (timerRef.current) clearTimeout(timerRef.current);
     };
   }, [checkStatus]);

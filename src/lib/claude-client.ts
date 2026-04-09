@@ -413,7 +413,9 @@ export async function generateTextViaSdk(params: {
  * the appropriate runtime, and delegates.
  */
 export function streamClaude(options: ClaudeStreamOptions): ReadableStream<string> {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
   const { resolveRuntime, getRuntime } = require('./runtime') as typeof import('./runtime');
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
   const { detectTransport, isNativeCompatible } = require('./provider-transport') as typeof import('./provider-transport');
 
   // ── Capability-aware routing ────────────────────────────────

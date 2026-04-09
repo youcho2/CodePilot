@@ -21,6 +21,7 @@ export const sdkRuntime: AgentRuntime = {
 
   stream(options: RuntimeStreamOptions): ReadableStream<string> {
     // Lazy import to avoid loading SDK when not needed
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { streamClaudeSdk } = require('../claude-client') as {
       streamClaudeSdk: (options: ClaudeStreamOptions) => ReadableStream<string>;
     };
