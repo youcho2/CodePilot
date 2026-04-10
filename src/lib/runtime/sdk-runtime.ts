@@ -87,11 +87,16 @@ export const sdkRuntime: AgentRuntime = {
       getSetting('anthropic_auth_token')
     ) return true;
 
-    // Check DB providers — any active provider with an API key works
-    // (toClaudeCodeEnv injects its key as ANTHROPIC_API_KEY/AUTH_TOKEN)
+    // Check DB providers — active provider with api_key OR env_only auth
+    // (Bedrock/Vertex use env_only: no api_key, but SDK supports them natively)
     try {
       const provider = getActiveProvider();
-      if (provider?.api_key) return true;
+      if (provider) {
+        if (provider.api_key) return true;
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const { inferAuthStyleFromLegacy } = require('../provider-catalog') as typeof import('../provider-catalog');
+        if (inferAuthStyleFromLegacy(provider.provider_type, provider.extra_env) === 'env_only') return true;
+      }
     } catch { /* DB not ready */ }
 
     return false;
