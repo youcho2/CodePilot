@@ -55,15 +55,18 @@ function hasCredentialsForRequest(providerId?: string): boolean {
   // 'env' provider: only env credentials matter (checked above)
   if (providerId === 'env') return false;
 
-  // Specific DB provider requested: check THAT provider's credentials
+  // Specific DB provider requested: check THAT provider's credentials.
+  // If provider doesn't exist (stale binding), fall through to check all —
+  // mirrors resolveProvider()'s fallback to default/active provider.
   if (providerId && providerId !== 'env') {
     try {
       const p = getProvider(providerId);
       if (p?.api_key) return true;
       if (p?.extra_env?.includes('CLAUDE_CODE_USE_BEDROCK')) return true;
       if (p?.extra_env?.includes('CLAUDE_CODE_USE_VERTEX')) return true;
+      if (p) return false; // provider exists but has no credentials
+      // provider doesn't exist → fall through to check all (fallback chain)
     } catch { /* DB not ready */ }
-    return false;
   }
 
   // No specific provider — check all (covers session-level provider resolution)
