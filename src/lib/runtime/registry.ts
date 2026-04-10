@@ -6,7 +6,7 @@
  */
 
 import type { AgentRuntime } from './types';
-import { getSetting, getAllProviders } from '../db';
+import { getSetting, getAllProviders, getProvider } from '../db';
 
 const runtimes = new Map<string, AgentRuntime>();
 
@@ -48,17 +48,27 @@ export function getAvailableRuntimes(): AgentRuntime[] {
  * When no providerId, checks all providers (any credential = true).
  */
 function hasCredentialsForRequest(providerId?: string): boolean {
-  // Env vars and legacy DB — always checked (covers 'env' provider)
+  // Env vars and legacy DB — always checked
   if (process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN) return true;
   if (getSetting('anthropic_auth_token')) return true;
 
-  // If request explicitly uses 'env' provider, only env credentials matter
+  // 'env' provider: only env credentials matter (checked above)
   if (providerId === 'env') return false;
 
-  // Check DB providers
+  // Specific DB provider requested: check THAT provider's credentials
+  if (providerId && providerId !== 'env') {
+    try {
+      const p = getProvider(providerId);
+      if (p?.api_key) return true;
+      if (p?.extra_env?.includes('CLAUDE_CODE_USE_BEDROCK')) return true;
+      if (p?.extra_env?.includes('CLAUDE_CODE_USE_VERTEX')) return true;
+    } catch { /* DB not ready */ }
+    return false;
+  }
+
+  // No specific provider — check all (covers session-level provider resolution)
   try {
-    const providers = getAllProviders();
-    for (const p of providers) {
+    for (const p of getAllProviders()) {
       if (p.api_key) return true;
       if (p.extra_env?.includes('CLAUDE_CODE_USE_BEDROCK')) return true;
       if (p.extra_env?.includes('CLAUDE_CODE_USE_VERTEX')) return true;
