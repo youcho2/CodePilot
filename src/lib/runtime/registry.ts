@@ -6,7 +6,7 @@
  */
 
 import type { AgentRuntime } from './types';
-import { getSetting } from '../db';
+import { getSetting, getActiveProvider } from '../db';
 
 const runtimes = new Map<string, AgentRuntime>();
 
@@ -24,6 +24,28 @@ export function getAllRuntimes(): AgentRuntime[] {
 
 export function getAvailableRuntimes(): AgentRuntime[] {
   return getAllRuntimes().filter(r => r.isAvailable());
+}
+
+/**
+ * Check if Anthropic-compatible credentials exist (for auto-mode SDK preference).
+ * This is intentionally broad — CLI manages its own auth in many ways.
+ */
+function hasAnthropicCredentials(): boolean {
+  // Env vars
+  if (process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN) return true;
+  // Legacy DB setting
+  if (getSetting('anthropic_auth_token')) return true;
+  // Any active provider with an API key (CLI can use it via toClaudeCodeEnv)
+  try {
+    const provider = getActiveProvider();
+    if (provider?.api_key) return true;
+    // env_only providers (Bedrock/Vertex) are valid without api_key
+    if (provider) {
+      const extraEnv = provider.extra_env || '{}';
+      if (extraEnv.includes('CLAUDE_CODE_USE_BEDROCK') || extraEnv.includes('CLAUDE_CODE_USE_VERTEX')) return true;
+    }
+  } catch { /* DB not ready */ }
+  return false;
 }
 
 /**
@@ -58,9 +80,14 @@ export function resolveRuntime(overrideId?: string): AgentRuntime {
     if (r?.isAvailable()) return r;
   }
 
-  // 3. Auto: prefer SDK when available (full CLI capabilities), fallback to native
+  // 3. Auto: prefer SDK only if CLI exists AND Anthropic credentials are available.
+  //    Without Anthropic creds (e.g. user only has GLM/OpenAI), SDK subprocess
+  //    will fail — use native runtime instead (#456).
+  //    Note: isAvailable() only checks CLI binary. The credential check is here
+  //    because CLI manages its own auth in many ways (OAuth, env, provider),
+  //    and we only need this guard for AUTO mode, not explicit selection.
   const sdk = getRuntime('claude-code-sdk');
-  if (sdk?.isAvailable()) return sdk;
+  if (sdk?.isAvailable() && hasAnthropicCredentials()) return sdk;
 
   const native = getRuntime('native');
   if (native?.isAvailable()) return native;
@@ -92,9 +119,9 @@ export function predictNativeRuntime(providerId?: string): boolean {
   if (settingId === 'native') return true;
   if (settingId === 'claude-code-sdk') return false;
 
-  // Auto: prefer SDK if available, else native
+  // Auto: prefer SDK if CLI exists AND has Anthropic credentials
   const sdk = getRuntime('claude-code-sdk');
-  if (sdk?.isAvailable()) return false;
+  if (sdk?.isAvailable() && hasAnthropicCredentials()) return false;
 
-  return true; // SDK not available → native
+  return true; // SDK not available or no Anthropic creds → native
 }
