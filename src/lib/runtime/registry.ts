@@ -30,17 +30,21 @@ export function getAvailableRuntimes(): AgentRuntime[] {
  * Check if Anthropic-compatible credentials exist (for auto-mode SDK preference).
  * This is intentionally broad — CLI manages its own auth in many ways.
  */
+// Protocols that the Claude Code SDK subprocess can actually serve
+const SDK_COMPATIBLE_PROTOCOLS = new Set(['anthropic', 'bedrock', 'vertex']);
+
 function hasAnthropicCredentials(): boolean {
-  // Env vars
+  // Env vars (always Anthropic-targeted)
   if (process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN) return true;
   // Legacy DB setting
   if (getSetting('anthropic_auth_token')) return true;
-  // Any active provider with an API key (CLI can use it via toClaudeCodeEnv)
+  // Active provider with SDK-compatible protocol (not GLM, Kimi, OpenAI etc.)
   try {
     const provider = getActiveProvider();
-    if (provider?.api_key) return true;
-    // env_only providers (Bedrock/Vertex) are valid without api_key
     if (provider) {
+      const protocol = provider.protocol || provider.provider_type || '';
+      if (SDK_COMPATIBLE_PROTOCOLS.has(protocol) && provider.api_key) return true;
+      // Bedrock/Vertex: env_only auth, no api_key needed
       const extraEnv = provider.extra_env || '{}';
       if (extraEnv.includes('CLAUDE_CODE_USE_BEDROCK') || extraEnv.includes('CLAUDE_CODE_USE_VERTEX')) return true;
     }
@@ -114,10 +118,14 @@ export function predictNativeRuntime(providerId?: string): boolean {
   // cli_enabled=false → always native
   if (getSetting('cli_enabled') === 'false') return true;
 
-  // Explicit setting
+  // Explicit setting — but verify SDK is actually usable
   const settingId = getSetting('agent_runtime');
   if (settingId === 'native') return true;
-  if (settingId === 'claude-code-sdk') return false;
+  if (settingId === 'claude-code-sdk') {
+    // If CLI doesn't exist, explicit selection will fallback to native at runtime
+    const sdk = getRuntime('claude-code-sdk');
+    return !sdk?.isAvailable();
+  }
 
   // Auto: prefer SDK if CLI exists AND has Anthropic credentials
   const sdk = getRuntime('claude-code-sdk');
