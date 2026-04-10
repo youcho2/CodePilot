@@ -6,7 +6,7 @@
 import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  getSetting, setSetting,
+  getSetting, setSetting, getDb,
   createProvider, deleteProvider, getAllProviders,
 } from '@/lib/db';
 
@@ -48,7 +48,6 @@ function cleanupTestProviders() {
 }
 
 function deactivateNonTestProviders(): string[] {
-  const { getDb } = require('@/lib/db') as typeof import('@/lib/db');
   const db = getDb();
   const deactivated: string[] = [];
   for (const p of getAllProviders()) {
@@ -61,7 +60,6 @@ function deactivateNonTestProviders(): string[] {
 }
 
 function reactivateProviders(ids: string[]) {
-  const { getDb } = require('@/lib/db') as typeof import('@/lib/db');
   const db = getDb();
   for (const id of ids) {
     db.prepare('UPDATE api_providers SET is_active = 1 WHERE id = ?').run(id);
