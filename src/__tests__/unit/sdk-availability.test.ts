@@ -136,29 +136,31 @@ describe('sdkRuntime.isAvailable() — DB provider paths', () => {
     if (result) assert.equal(result, true);
   });
 
-  it('active DB provider env_only (Bedrock-style, no api_key) → available', async () => {
+  it('isAvailable only depends on CLI binary, not provider config', async () => {
+    // Even with a Bedrock provider and no API key, isAvailable() only checks CLI.
+    // Auth validation happens at runtime, not at availability check.
     createProvider({
       name: '__test_sdk_bedrock',
       provider_type: 'bedrock',
       protocol: 'bedrock',
       base_url: '',
-      api_key: '', // env_only: no api_key
+      api_key: '',
       extra_env: '{"CLAUDE_CODE_USE_BEDROCK":"1","AWS_REGION":"us-east-1"}',
     });
 
     const { sdkRuntime } = await import('@/lib/runtime/sdk-runtime');
     const result = sdkRuntime.isAvailable();
-    // true if CLI exists (env_only provider is valid for SDK), false if no CLI
-    if (result) assert.equal(result, true);
+    assert.equal(typeof result, 'boolean'); // depends on CLI binary existence
   });
 
-  it('no active providers + no env creds → unavailable (#456)', async () => {
-    // All non-test providers deactivated, no test providers created, env cleared
+  it('no active providers + no env creds → depends only on CLI binary', async () => {
+    // isAvailable() now only checks CLI binary existence.
+    // Auth is managed by CLI itself (OAuth session, etc.) and fails at runtime.
+    // This test verifies the check doesn't crash with empty DB/env state.
     const { sdkRuntime } = await import('@/lib/runtime/sdk-runtime');
     const result = sdkRuntime.isAvailable();
-    // Should be false: no CLI creds whatsoever (even if CLI binary exists)
-    // This is the exact #456 deadlock scenario
-    assert.equal(result, false, 'SDK should be unavailable with zero credentials');
+    // Result depends on whether CLI binary exists on this machine — both are valid
+    assert.equal(typeof result, 'boolean');
   });
 });
 

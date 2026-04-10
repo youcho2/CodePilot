@@ -74,32 +74,15 @@ export const sdkRuntime: AgentRuntime = {
   },
 
   isAvailable(): boolean {
-    // SDK requires both CLI binary AND Anthropic-compatible credentials.
-    // Without creds, auto mode falls through to native runtime (#456).
-    // Credentials can come from: env vars, legacy DB setting, OR a configured
-    // Anthropic provider in api_providers (injected via toClaudeCodeEnv).
-    if (!findClaudeBinary()) return false;
-
-    // Check env vars + legacy setting
-    if (
-      process.env.ANTHROPIC_API_KEY ||
-      process.env.ANTHROPIC_AUTH_TOKEN ||
-      getSetting('anthropic_auth_token')
-    ) return true;
-
-    // Check DB providers — active provider with api_key OR env_only auth
-    // (Bedrock/Vertex use env_only: no api_key, but SDK supports them natively)
-    try {
-      const provider = getActiveProvider();
-      if (provider) {
-        if (provider.api_key) return true;
-        // eslint-disable-next-line @typescript-eslint/no-require-imports
-        const { inferAuthStyleFromLegacy } = require('../provider-catalog') as typeof import('../provider-catalog');
-        if (inferAuthStyleFromLegacy(provider.provider_type, provider.extra_env) === 'env_only') return true;
-      }
-    } catch { /* DB not ready */ }
-
-    return false;
+    // SDK is available if the CLI binary exists. Authentication is managed
+    // by the CLI itself (OAuth session, env vars, provider config, etc.)
+    // and should fail at runtime with a clear error, not be pre-filtered here.
+    //
+    // Previous approach tried to check credentials in isAvailable(), but
+    // this couldn't cover all auth paths (CLI OAuth, ~/.claude session, etc.)
+    // and caused false negatives — users with valid CLI auth were routed
+    // to native runtime unexpectedly.
+    return !!findClaudeBinary();
   },
 
   dispose(): void {

@@ -141,74 +141,19 @@ describe('OpenAI OAuth status (inlined logic)', () => {
 
 describe('SDK isAvailable matrix (inlined logic)', () => {
   // Mirrors the 3-layer check in sdk-runtime.ts:76-97.
-  // LIMITATION: inlined helper, not the real isAvailable(). The real function
-  // reads process.env, findClaudeBinary(), getActiveProvider(), and
-  // inferAuthStyleFromLegacy() at call time — these cannot be stably controlled
-  // in a pure unit test. A smoke/e2e test should exercise the real path.
-  // If the real code drifts, these tests may give false confidence.
+  // Mirrors sdk-runtime.ts isAvailable() — now a simple CLI binary check.
+  // Auth is managed by the CLI itself; availability only depends on binary.
 
-  function sdkIsAvailable(opts: {
-    cliBinaryExists: boolean;
-    envApiKey?: boolean;
-    envAuthToken?: boolean;
-    legacySetting?: boolean;
-    activeProviderApiKey?: boolean;
-    activeProviderAuthStyle?: string; // 'api_key' | 'env_only' | etc.
-  }): boolean {
-    if (!opts.cliBinaryExists) return false;
-
-    // Layer 1: env vars + legacy DB setting
-    if (opts.envApiKey || opts.envAuthToken || opts.legacySetting) return true;
-
-    // Layer 2: active DB provider
-    if (opts.activeProviderApiKey) return true;
-
-    // Layer 3: env_only provider (Bedrock/Vertex)
-    if (opts.activeProviderAuthStyle === 'env_only') return true;
-
-    return false;
+  function sdkIsAvailable(cliBinaryExists: boolean): boolean {
+    return cliBinaryExists;
   }
 
-  it('no CLI binary → unavailable regardless of credentials', () => {
-    assert.equal(sdkIsAvailable({ cliBinaryExists: false, envApiKey: true }), false);
+  it('no CLI binary → unavailable', () => {
+    assert.equal(sdkIsAvailable(false), false);
   });
 
-  it('CLI + ANTHROPIC_API_KEY env → available', () => {
-    assert.equal(sdkIsAvailable({ cliBinaryExists: true, envApiKey: true }), true);
-  });
-
-  it('CLI + ANTHROPIC_AUTH_TOKEN env → available', () => {
-    assert.equal(sdkIsAvailable({ cliBinaryExists: true, envAuthToken: true }), true);
-  });
-
-  it('CLI + legacy DB anthropic_auth_token → available', () => {
-    assert.equal(sdkIsAvailable({ cliBinaryExists: true, legacySetting: true }), true);
-  });
-
-  it('CLI + active DB provider with api_key → available', () => {
-    assert.equal(sdkIsAvailable({
-      cliBinaryExists: true,
-      activeProviderApiKey: true,
-    }), true);
-  });
-
-  it('CLI + Bedrock/Vertex env_only provider (no api_key) → available', () => {
-    assert.equal(sdkIsAvailable({
-      cliBinaryExists: true,
-      activeProviderAuthStyle: 'env_only',
-    }), true);
-  });
-
-  it('CLI + no credentials at all → unavailable (#456 deadlock prevention)', () => {
-    assert.equal(sdkIsAvailable({ cliBinaryExists: true }), false);
-  });
-
-  it('CLI + third-party provider with api_key but no Anthropic env → available', () => {
-    // User has configured a provider in DB (e.g. Anthropic via UI), has api_key
-    assert.equal(sdkIsAvailable({
-      cliBinaryExists: true,
-      activeProviderApiKey: true,
-    }), true);
+  it('CLI binary exists → available', () => {
+    assert.equal(sdkIsAvailable(true), true);
   });
 });
 
