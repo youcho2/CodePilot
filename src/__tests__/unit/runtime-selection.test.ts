@@ -141,7 +141,11 @@ describe('OpenAI OAuth status (inlined logic)', () => {
 
 describe('SDK isAvailable matrix (inlined logic)', () => {
   // Mirrors the 3-layer check in sdk-runtime.ts:76-97.
-  // Cannot import directly because it reads process.env and DB at call time.
+  // LIMITATION: inlined helper, not the real isAvailable(). The real function
+  // reads process.env, findClaudeBinary(), getActiveProvider(), and
+  // inferAuthStyleFromLegacy() at call time — these cannot be stably controlled
+  // in a pure unit test. A smoke/e2e test should exercise the real path.
+  // If the real code drifts, these tests may give false confidence.
 
   function sdkIsAvailable(opts: {
     cliBinaryExists: boolean;
@@ -212,7 +216,9 @@ describe('SDK isAvailable matrix (inlined logic)', () => {
 
 describe('Announcement dismiss persistence (inlined logic)', () => {
   // Mirrors the dismiss check in FeatureAnnouncementDialog.tsx:24-39.
-  // The real component reads localStorage + DB; we test the decision logic.
+  // LIMITATION: tests the decision matrix only, not the actual API persistence
+  // path (settings/app whitelist, localStorage sync). The whitelist regression
+  // we fixed requires a running Next.js server to exercise — belongs in smoke/e2e.
 
   function shouldShowAnnouncement(opts: {
     localStorageDismissed: boolean;
