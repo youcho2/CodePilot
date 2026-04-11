@@ -114,7 +114,30 @@ export function PresetConnectDialog({
     }
   };
 
+  // Whether the "Test connection" button can meaningfully run with the
+  // current form state. Four cases:
+  //   1. Preset doesn't use api_key (Bedrock / Vertex / extra_env) → always OK.
+  //   2. User typed a replacement key → test with it directly.
+  //   3. Edit mode with an untouched stored key → backend back-fills via providerId.
+  //   4. Edit mode with a pending clear and no replacement → test would
+  //      use the DB key that's about to be deleted, giving a misleading
+  //      success. Block it — the user must either enter a new key or
+  //      undo the clear first. This is the Codex P2 clear-and-test
+  //      defense; without it, clicking Test in the pending-clear state
+  //      reports success with credentials the saved config won't have.
+  const canTest = (() => {
+    if (!preset?.fields.includes("api_key")) return true;
+    if (apiKey) return true;
+    if (isEdit && hasStoredKey && !clearStoredKey) return true;
+    return false;
+  })();
+
   const handleTestConnection = async () => {
+    // Belt-and-suspenders: the button disabled state already enforces
+    // this, but guard here in case something bypasses the UI (keyboard
+    // event, third-party DOM manipulation).
+    if (!canTest) return;
+
     setTesting(true);
     setTestResult(null);
     try {
@@ -771,7 +794,7 @@ export function PresetConnectDialog({
                 type="button"
                 variant="outline"
                 onClick={handleTestConnection}
-                disabled={saving || testing || (!apiKey && preset.fields.includes("api_key"))}
+                disabled={saving || testing || !canTest}
                 className="gap-1.5"
               >
                 {testing ? <SpinnerGap size={14} className="animate-spin" /> : <Lightning size={14} />}

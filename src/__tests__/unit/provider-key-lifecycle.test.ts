@@ -119,7 +119,46 @@ describe('Provider key lifecycle — Codex follow-ups', () => {
     });
   });
 
-  // ── P2b: clearStoredKey explicit clear action ──────────────────
+  // ── P2b: Test connection guard when a clear is pending ─────────
+  describe('PresetConnectDialog: test-connection respects pending clear', () => {
+    const source = readSource('src/components/settings/PresetConnectDialog.tsx');
+
+    it('derives canTest covering all four credential states', () => {
+      // canTest must handle: no-key preset, new apiKey, stored-key
+      // intact, and pending-clear-with-no-replacement. The last case
+      // is the Codex P2 hole (testing with a key that's about to be
+      // deleted would return misleading success).
+      const canTestBlock = source.match(
+        /const canTest[\s\S]*?isEdit\s*&&\s*hasStoredKey\s*&&\s*!clearStoredKey/,
+      );
+      assert.ok(
+        canTestBlock,
+        'canTest derivation must include "edit + hasStoredKey + !clearStoredKey" branch',
+      );
+    });
+
+    it('handleTestConnection short-circuits when canTest is false', () => {
+      assert.ok(
+        source.match(/handleTestConnection\s*=\s*async[\s\S]*?if\s*\(!canTest\)\s*return/),
+        'handleTestConnection should early-return when canTest is false',
+      );
+    });
+
+    it('test button disabled prop references canTest', () => {
+      assert.ok(
+        source.match(/disabled=\{saving \|\| testing \|\| !canTest\}/),
+        'test button disabled prop must include !canTest',
+      );
+      // Guard against the regression of the old disable rule that
+      // only blocked create-mode empty inputs.
+      assert.ok(
+        !source.match(/disabled=\{saving \|\| testing \|\| \(!apiKey && preset\.fields\.includes/),
+        'old "!apiKey && api_key field" rule should be removed',
+      );
+    });
+  });
+
+  // ── P2c: clearStoredKey explicit clear action ──────────────────
   describe('Explicit "clear stored key" intent (hasStoredKey escape hatch)', () => {
     for (const file of [
       'src/components/settings/PresetConnectDialog.tsx',
