@@ -62,6 +62,13 @@ export function PresetConnectDialog({
 }: PresetConnectDialogProps) {
   const isEdit = !!editProvider;
   const [apiKey, setApiKey] = useState("");
+  // Edit-mode flag: DB already has a stored key for this provider. When true
+  // and apiKey is empty, the UI shows a "keep existing" placeholder and
+  // test/save requests OMIT the apiKey field so the backend falls back to the
+  // stored value. This is the fix for #449 — the old code shoved the masked
+  // key string into state and sent it back, which tried to auth with "***"
+  // against upstream APIs. See docs/exec-plans/active/v0.48-post-release-issues.md §5.5.
+  const [hasStoredKey, setHasStoredKey] = useState(false);
   const [baseUrl, setBaseUrl] = useState("");
   const [name, setName] = useState("");
   const [extraEnv, setExtraEnv] = useState("{}");
@@ -95,19 +102,30 @@ export function PresetConnectDialog({
         const parsed = JSON.parse(extraEnv || '{}');
         Object.assign(envOverrides, parsed);
       } catch { /* ignore */ }
+      // #449 fix: in edit mode, send providerId so the backend can look up the
+      // real key from DB when the user hasn't touched the placeholder. Omit
+      // apiKey entirely in that case — never send the masked value.
+      const body: Record<string, unknown> = {
+        presetKey: preset?.key,
+        baseUrl: baseUrl || preset?.base_url || '',
+        protocol: preset?.protocol || 'anthropic',
+        authStyle: preset?.key === 'anthropic-thirdparty' ? authStyle : (preset?.authStyle || authStyle),
+        envOverrides,
+        modelName: modelName || undefined,
+        providerName: name || preset?.name,
+      };
+      if (isEdit && editProvider) {
+        body.providerId = editProvider.id;
+      }
+      if (apiKey) {
+        body.apiKey = apiKey;
+      }
+      // If edit mode + empty apiKey + hasStoredKey → body has providerId but
+      // no apiKey field, backend will back-fill from DB.
       const res = await fetch('/api/providers/test', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          presetKey: preset?.key,
-          apiKey: apiKey || undefined,
-          baseUrl: baseUrl || preset?.base_url || '',
-          protocol: preset?.protocol || 'anthropic',
-          authStyle: preset?.key === 'anthropic-thirdparty' ? authStyle : (preset?.authStyle || authStyle),
-          envOverrides,
-          modelName: modelName || undefined,
-          providerName: name || preset?.name,
-        }),
+        body: JSON.stringify(body),
       });
       const data = await res.json();
       setTestResult(data);
@@ -142,16 +160,22 @@ export function PresetConnectDialog({
       }
       setAuthStyle(detected);
       setInitialAuthStyle(detected);
-      // If api_key field isn't shown and stored key is empty, use preset default
-      // (e.g. Ollama needs ANTHROPIC_AUTH_TOKEN='ollama' without user input)
+      // #449 fix: DO NOT put the (possibly masked) stored key into apiKey state.
+      // Instead, set hasStoredKey=true and keep apiKey empty. The input will
+      // show a "keep existing" placeholder; test/save will omit the apiKey
+      // field and backend back-fills from DB.
       if (!preset.fields.includes("api_key") && !editProvider.api_key) {
+        // Preset doesn't expose api_key field AND stored is empty → pre-fill
+        // from preset extra_env default (e.g. Ollama uses 'ollama' token).
         const presetEnv = (() => { try { return JSON.parse(preset.extra_env || '{}'); } catch { return {}; } })();
         const defaultToken = detected === 'auth_token'
           ? (presetEnv['ANTHROPIC_AUTH_TOKEN'] || '')
           : (presetEnv['ANTHROPIC_API_KEY'] || '');
         setApiKey(defaultToken);
+        setHasStoredKey(false);
       } else {
-        setApiKey(editProvider.api_key || "");
+        setApiKey("");
+        setHasStoredKey(!!editProvider.api_key);
       }
       // Pre-fill advanced fields
       setHeadersJson(editProvider.headers_json || "{}");
@@ -209,6 +233,7 @@ export function PresetConnectDialog({
       } else {
         setApiKey("");
       }
+      setHasStoredKey(false);
       setAuthStyle(detectedStyle);
       setInitialAuthStyle(detectedStyle);
       setMapSonnet("");
@@ -227,8 +252,11 @@ export function PresetConnectDialog({
     e.preventDefault();
     setError(null);
 
-    // If auth style changed in edit mode, require a new key
-    if (isEdit && authStyle !== initialAuthStyle && (!apiKey || apiKey.startsWith("***"))) {
+    // If auth style changed in edit mode, require a new key.
+    // hasStoredKey is cleared when the user switches away from the stored
+    // style (see auth style onValueChange), so checking !apiKey alone is
+    // sufficient — masked values no longer enter state.
+    if (isEdit && authStyle !== initialAuthStyle && !apiKey) {
       setError(isZh
         ? '切换认证方式后需要重新输入密钥'
         : 'Please re-enter the key after changing auth style');
@@ -317,12 +345,17 @@ export function PresetConnectDialog({
 
     setSaving(true);
     try {
+      // #449 fix: omit api_key when user hasn't touched the stored-key
+      // placeholder (edit mode, no new input). Undefined → PUT body skips
+      // the field → backend updateProvider() uses `?? existing.api_key`.
+      const apiKeyForSave: string | undefined =
+        isEdit && hasStoredKey && !apiKey ? undefined : apiKey;
       await onSave({
         name: name.trim() || preset.name,
         provider_type: preset.provider_type,
         protocol: preset.protocol,
         base_url: baseUrl.trim(),
-        api_key: apiKey,
+        api_key: apiKeyForSave,
         extra_env: finalExtraEnv,
         role_models_json: roleModelsJson,
         headers_json: isEdit ? headersJson.trim() || "{}" : undefined,
@@ -434,9 +467,16 @@ export function PresetConnectDialog({
                       setAuthStyle(newStyle);
                       if (isEdit && editProvider?.api_key) {
                         if (newStyle !== initialAuthStyle) {
+                          // Switching away from stored style — user must
+                          // re-enter a key for the new style.
                           setApiKey("");
+                          setHasStoredKey(false);
                         } else {
-                          setApiKey(editProvider.api_key);
+                          // Switching back to stored style — restore the
+                          // "keep existing" placeholder state instead of
+                          // leaking the masked key string.
+                          setApiKey("");
+                          setHasStoredKey(true);
                         }
                       }
                     }}
@@ -454,7 +494,11 @@ export function PresetConnectDialog({
                   type="password"
                   value={apiKey}
                   onChange={(e) => setApiKey(e.target.value)}
-                  placeholder={authStyle === "auth_token" ? "token-..." : "sk-..."}
+                  placeholder={
+                    hasStoredKey
+                      ? (isZh ? "已保存，留空则沿用原密钥" : "Saved — leave blank to keep existing")
+                      : (authStyle === "auth_token" ? "token-..." : "sk-...")
+                  }
                   className="text-sm font-mono flex-1"
                   autoFocus
                 />

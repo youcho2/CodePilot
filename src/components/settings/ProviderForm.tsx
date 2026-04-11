@@ -54,7 +54,19 @@ export interface ProviderFormData {
   provider_type: string;
   protocol?: string;
   base_url: string;
-  api_key: string;
+  /**
+   * API key.
+   *
+   * - `string` → new value (including empty string for providers that don't
+   *   need a key, e.g. env_only).
+   * - `undefined` → "unchanged" signal for edit mode. The backend PUT route
+   *   (src/app/api/providers/[id]/route.ts) will omit the field so
+   *   updateProvider()'s `data.api_key ?? existing.api_key` preserves the
+   *   stored key. This is how the UI represents "user did not touch the
+   *   masked-key placeholder" without leaking the mask back to the server.
+   *   See docs/exec-plans/active/v0.48-post-release-issues.md §5.5.
+   */
+  api_key?: string;
   extra_env: string;
   headers_json?: string;
   env_overrides_json?: string;
@@ -74,6 +86,12 @@ export function ProviderForm({
   const [providerType, setProviderType] = useState("anthropic");
   const [baseUrl, setBaseUrl] = useState("");
   const [apiKey, setApiKey] = useState("");
+  // #449 fix: edit-mode flag indicating DB has a stored key. We never put the
+  // (masked) stored key string into apiKey state; instead the input shows a
+  // "keep existing" placeholder and the save request omits api_key so the
+  // backend preserves the DB value. Same pattern as PresetConnectDialog.
+  // See docs/exec-plans/active/v0.48-post-release-issues.md §5.5.
+  const [hasStoredKey, setHasStoredKey] = useState(false);
   const [extraEnv, setExtraEnv] = useState("{}");
   const [notes, setNotes] = useState("");
   const [headersJson, setHeadersJson] = useState("{}");
@@ -94,8 +112,11 @@ export function ProviderForm({
       setName(provider.name);
       setProviderType(provider.provider_type);
       setBaseUrl(provider.base_url);
-      // Show masked key so user sees dots indicating a key exists
-      setApiKey(provider.api_key || "");
+      // #449 fix: do NOT put (masked) stored key into state. Flag it instead
+      // so the input shows a "keep existing" placeholder and save omits the
+      // field when the user leaves it blank.
+      setApiKey("");
+      setHasStoredKey(!!provider.api_key);
       setExtraEnv(provider.extra_env || "{}");
       setHeadersJson(provider.headers_json || "{}");
       setEnvOverridesJson(provider.env_overrides_json || "");
@@ -116,6 +137,7 @@ export function ProviderForm({
       setProviderType(initialPreset.provider_type);
       setBaseUrl(initialPreset.base_url);
       setApiKey("");
+      setHasStoredKey(false);
       // Use extra_env from preset if provided, otherwise look up by type
       const envStr = initialPreset.extra_env || PROVIDER_PRESETS[initialPreset.provider_type]?.extra_env || "{}";
       setExtraEnv(envStr);
@@ -131,6 +153,7 @@ export function ProviderForm({
       setProviderType("anthropic");
       setBaseUrl(PROVIDER_PRESETS.anthropic.base_url);
       setApiKey("");
+      setHasStoredKey(false);
       setExtraEnv("{}");
       setHeadersJson("{}");
       setEnvOverridesJson("");
@@ -182,12 +205,17 @@ export function ProviderForm({
       // Always sync protocol with provider_type to prevent stale protocol after edits
       const derivedProtocol = PROVIDER_PRESETS[providerType]?.protocol || providerType;
 
+      // #449 fix: omit api_key when editing with an untouched stored-key
+      // placeholder. undefined → JSON.stringify drops the field → backend
+      // updateProvider() preserves DB value via `?? existing.api_key`.
+      const apiKeyForSave: string | undefined =
+        mode === "edit" && hasStoredKey && !apiKey ? undefined : apiKey;
       await onSave({
         name: name.trim(),
         provider_type: providerType,
         protocol: derivedProtocol,
         base_url: baseUrl.trim(),
-        api_key: apiKey,
+        api_key: apiKeyForSave,
         extra_env: extraEnv,
         headers_json: headersJson.trim() || "{}",
         env_overrides_json: envOverridesJson.trim() || "",
@@ -202,7 +230,11 @@ export function ProviderForm({
     }
   };
 
-  const isMaskedKey = mode === "edit" && apiKey?.startsWith("***");
+  // Show "keep existing" placeholder when the DB has a stored key and the
+  // user hasn't typed anything yet. Replaces the old isMaskedKey derivation
+  // which was based on detecting "***" in apiKey state — we no longer load
+  // masked values into state at all.
+  const showStoredKeyPlaceholder = mode === "edit" && hasStoredKey && !apiKey;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -270,7 +302,7 @@ export function ProviderForm({
             <Input
               id="provider-api-key"
               type="password"
-              placeholder={isMaskedKey ? "Leave empty to keep current key" : "sk-ant-..."}
+              placeholder={showStoredKeyPlaceholder ? "Leave empty to keep current key" : "sk-ant-..."}
               value={apiKey}
               onChange={(e) => setApiKey(e.target.value)}
               className="font-mono text-sm"
