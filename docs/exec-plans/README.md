@@ -52,6 +52,7 @@
 | active/provider-governance.md | 服务商系统治理：Preset Schema 校验、宿主接管、连通性验证、引导 UX、错误治理 | Phase 0 完成，Phase 1-6 待开始 |
 | active/decouple-claude-code.md | 脱离 Claude Code 依赖 — 自建 Agent Runtime（Provider/Loop/Tools/MCP/Permission/Session/Skills/SubAgent） | Phase 0 完成，Phase 1-8 待开始 |
 | active/v0.48-post-release-issues.md | v0.48.0/0.48.1 发版后问题追查与修复进度（Sentry 按 release 拆分 + #447/#448/#449/#456/#457 修复状态） | v0.48.1 已发，v0.48.2 计划中 |
+| active/hermes-inspired-runtime-upgrade.md | Hermes 借鉴的 6 项 Runtime 能力升级（并行安全、辅助模型、子目录 hint、session 搜索、LLM 压缩、Skill nudge） | 2026-04-12 08:00 autonomous schedule 执行，worktree 隔离 |
 
 ### Completed
 
