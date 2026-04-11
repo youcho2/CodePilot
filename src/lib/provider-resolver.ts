@@ -161,16 +161,21 @@ export function resolveProvider(opts: ResolveOptions = {}): ResolvedProvider {
  *
  * Important: if resolveProvider() intentionally returned provider=undefined (e.g. user
  * selected 'env'), we respect that and do NOT fall back to getActiveProvider().
+ *
+ * NOTE: When the caller already resolved a provider upstream and hands it to
+ * us, we trust it unconditionally. `is_active` is a radio-button "currently
+ * selected" marker in the DB (see activateProvider in db.ts), not an
+ * enable/disable flag — second-guessing the caller here would undo the
+ * upstream resolution and surface false-positive "inactive, re-resolving"
+ * warnings in doctor logs. Stale-session defense lives in resolveProvider()'s
+ * session-provider branch, not here.
  */
 export function resolveForClaudeCode(
   explicitProvider?: ApiProvider,
   opts: ResolveOptions = {},
 ): ResolvedProvider {
-  if (explicitProvider && explicitProvider.is_active) {
+  if (explicitProvider) {
     return buildResolution(explicitProvider, opts);
-  }
-  if (explicitProvider && !explicitProvider.is_active) {
-    console.warn(`[provider-resolver] Explicit provider "${explicitProvider.name}" is inactive, re-resolving`);
   }
   const resolved = resolveProvider(opts);
   // Only fall back to getActiveProvider() when NO provider resolution was attempted
