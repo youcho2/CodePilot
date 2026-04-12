@@ -73,3 +73,39 @@ export function buildSkillNudgePayload(stats: AgentRunStats): SkillNudgePayload 
     },
   };
 }
+
+/**
+ * The JSON-serializable data body for the SSE `status` event that
+ * carries the skill nudge. Shape is designed to be consumed by both
+ * the web SSE parser and the bridge conversation engine:
+ *
+ *   - Web parser (useSSEStream.ts:109-135): `notification: true` +
+ *     `message` routes through `callbacks.onStatus(message)` so the
+ *     nudge shows in the status bar.
+ *   - Bridge parser (conversation-engine.ts:411-433): `subtype:
+ *     'skill_nudge'` triggers a dedicated handler that appends the
+ *     nudge to the assistant reply as a separated text block.
+ *   - Future dedicated UI: `subtype` + full `payload` provide
+ *     structured data for a rich nudge card.
+ */
+export interface SkillNudgeStatusEvent {
+  notification: true;
+  message: string;
+  subtype: 'skill_nudge';
+  payload: SkillNudgePayload;
+}
+
+/**
+ * Build the SSE status event body for a skill nudge. Extracted into a
+ * helper so the agent loop emits consistent shape and unit tests can
+ * verify the contract without standing up the full loop.
+ */
+export function buildSkillNudgeStatusEvent(stats: AgentRunStats): SkillNudgeStatusEvent {
+  const payload = buildSkillNudgePayload(stats);
+  return {
+    notification: true,
+    message: payload.message,
+    subtype: 'skill_nudge',
+    payload,
+  };
+}

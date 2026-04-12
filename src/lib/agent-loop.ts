@@ -16,7 +16,7 @@ import { createModel } from './ai-provider';
 import { assembleTools, READ_ONLY_TOOLS } from './agent-tools';
 import { reportNativeError } from './error-classifier';
 import { pruneOldToolResults } from './context-pruner';
-import { shouldSuggestSkill, buildSkillNudgePayload } from './skill-nudge';
+import { shouldSuggestSkill, buildSkillNudgeStatusEvent } from './skill-nudge';
 import { emit as emitEvent } from './runtime/event-bus';
 import { createCheckpoint } from './file-checkpoint';
 import type { PermissionMode } from './permission-checker';
@@ -441,11 +441,20 @@ export function runAgentLoop(options: AgentLoopOptions): ReadableStream<string> 
 
         // 6a. Emit skill-nudge if the run was complex enough to warrant saving as a Skill.
         // Heuristic: >= 8 agent steps AND >= 3 distinct tools used. See skill-nudge.ts.
+        //
+        // Event shape is designed to be consumed by BOTH web and bridge:
+        //   - Web SSE parser (useSSEStream.ts): `notification: true` + `message`
+        //     routes through the status/notification branch so the message
+        //     shows in the status bar.
+        //   - Bridge parser (conversation-engine.ts): `subtype: 'skill_nudge'`
+        //     routes through a dedicated handler that appends the nudge to
+        //     the assistant message as a separated text block.
+        //   - Future dedicated UI: `subtype: 'skill_nudge'` + full `payload`
+        //     provides structured data for a rich nudge card.
         if (shouldSuggestSkill({ step, distinctTools })) {
-          const payload = buildSkillNudgePayload({ step, distinctTools });
           controller.enqueue(formatSSE({
             type: 'status',
-            data: JSON.stringify({ subtype: 'skill_nudge', ...payload }),
+            data: JSON.stringify(buildSkillNudgeStatusEvent({ step, distinctTools })),
           }));
         }
 

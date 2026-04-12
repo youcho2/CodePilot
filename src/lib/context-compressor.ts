@@ -104,7 +104,16 @@ export async function compressConversation(params: CompressParams): Promise<Comp
     // anywhere, so compression will run on the main model (at main-model
     // cost). This is an intentional floor so compression never silently
     // fails just because no cheap model is configured.
-    const auxiliary = resolveAuxiliaryModel('compact');
+    //
+    // **Session context is critical**: pass providerId + sessionModel so
+    // that "main" resolves to THIS session's active provider, not the
+    // global default. Without this, a session that overrides the default
+    // provider would get auxiliary models from the wrong credentials.
+    const auxiliary = resolveAuxiliaryModel('compact', {
+      providerId,
+      sessionProviderId: providerId,
+      sessionModel,
+    });
 
     // Prefer the task-level override's provider/model when it gave us one
     // that matches neither null nor the main. Otherwise we keep the

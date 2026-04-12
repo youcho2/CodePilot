@@ -943,9 +943,28 @@ export function routeAuxiliaryModel(
  * **Never returns null.** When no cheap auxiliary model is available, falls
  * back to the main provider + main model (source: 'main_floor') so callers
  * can always make a valid model call — even if it doesn't save cost.
+ *
+ * **Session context**: callers MUST pass the session's provider context
+ * (providerId / sessionProviderId / sessionModel) so that "main" means
+ * "the provider backing this chat session", not "the global default".
+ * Without this, an auxiliary task from a session that overrides the
+ * default provider would compress against unrelated credentials/models.
+ * See exec plan decision log 2026-04-12 ~04:00 for the Codex review
+ * that caught this.
+ *
+ * @param task The auxiliary task type (compact, vision, summarize, web_extract)
+ * @param opts Session context forwarded to `resolveProvider()`. Omitting
+ *   this falls back to the global default provider — intentionally kept
+ *   for callers that don't have a session (e.g. background jobs).
  */
-export function resolveAuxiliaryModel(task: AuxiliaryTask): AuxiliaryModelResolution {
-  const main = resolveProvider();
+export function resolveAuxiliaryModel(
+  task: AuxiliaryTask,
+  opts: ResolveOptions = {},
+): AuxiliaryModelResolution {
+  // Resolve the main provider with session context. Passing opts through
+  // is critical — otherwise auxiliary routing targets the global default
+  // instead of the session's active provider.
+  const main = resolveProvider(opts);
 
   // Determine if main provider is sdkProxyOnly via preset lookup.
   let isMainSdkProxyOnly = false;
@@ -969,7 +988,7 @@ export function resolveAuxiliaryModel(task: AuxiliaryTask): AuxiliaryModelResolu
         const preset = findPresetForLegacy(p.base_url, p.provider_type, protocol);
         others.push({
           id: p.id,
-          roleModels: safeParseRoleModels(p.role_models_json),
+          roleModels: computeEffectiveRoleModels(p, preset, protocol),
           isSdkProxyOnly: preset?.sdkProxyOnly ?? false,
         });
       }
@@ -995,6 +1014,34 @@ export function resolveAuxiliaryModel(task: AuxiliaryTask): AuxiliaryModelResolu
       modelId: envModel,
     },
   });
+}
+
+/**
+ * Merge a provider's persisted `role_models_json` with its catalog
+ * preset's `defaultRoleModels`, matching the same "fallback when no
+ * default/sonnet is set" rule used by `buildResolution()` (see :664-675).
+ *
+ * Extracting this ensures the tier-4 auxiliary fallback sees the same
+ * effective role models as the main provider resolution — without it,
+ * providers that rely on preset defaults (instead of user-persisted JSON)
+ * would appear to have no small/haiku slot, silently downgrading the
+ * auxiliary fallback chain to `main_floor`.
+ */
+function computeEffectiveRoleModels(
+  provider: ApiProvider,
+  preset: ReturnType<typeof findPresetForLegacy>,
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  _protocol: Protocol,
+): RoleModels {
+  let roleModels = safeParseRoleModels(provider.role_models_json);
+  // Same fallback condition as buildResolution(): only pull preset defaults
+  // when the user hasn't persisted a default or sonnet slot. Avoids
+  // overriding user customizations while still giving preset-backed
+  // providers their documented slots.
+  if (!roleModels.default && !roleModels.sonnet && preset?.defaultRoleModels) {
+    roleModels = { ...preset.defaultRoleModels, ...roleModels };
+  }
+  return roleModels;
 }
 
 function safeParseRoleModels(json: string | undefined | null): RoleModels {

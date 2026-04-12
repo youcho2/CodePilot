@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import {
   shouldSuggestSkill,
   buildSkillNudgePayload,
+  buildSkillNudgeStatusEvent,
   SKILL_NUDGE_STEP_THRESHOLD,
   SKILL_NUDGE_DISTINCT_TOOL_THRESHOLD,
 } from '../../lib/skill-nudge';
@@ -85,5 +86,46 @@ describe('buildSkillNudgePayload', () => {
     const payload = buildSkillNudgePayload(stats);
     assert.ok(payload.message.includes('12'));
     assert.ok(payload.message.includes('5'));
+  });
+});
+
+describe('buildSkillNudgeStatusEvent (fix 3 — SSE shape for web + bridge)', () => {
+  const stats = { step: 10, distinctTools: new Set(['Read', 'Write', 'Grep']) };
+
+  it('sets notification: true for web SSE parser branch', () => {
+    // useSSEStream.ts:126 routes `statusData.notification` to
+    // callbacks.onStatus(message) which renders in the status bar.
+    // Without this flag, the event falls into the default branch and
+    // shows raw JSON text.
+    const event = buildSkillNudgeStatusEvent(stats);
+    assert.equal(event.notification, true);
+  });
+
+  it('includes a human-readable message at top level', () => {
+    const event = buildSkillNudgeStatusEvent(stats);
+    assert.ok(typeof event.message === 'string');
+    assert.ok(event.message.length > 0);
+  });
+
+  it('includes subtype: skill_nudge for bridge and future UI handlers', () => {
+    // conversation-engine.ts's status case dispatches on subtype to
+    // append the nudge to the assistant reply. Without subtype=="skill_nudge"
+    // the bridge silently drops the event.
+    const event = buildSkillNudgeStatusEvent(stats);
+    assert.equal(event.subtype, 'skill_nudge');
+  });
+
+  it('embeds the full structured payload for telemetry/rich UIs', () => {
+    const event = buildSkillNudgeStatusEvent(stats);
+    assert.ok(event.payload);
+    assert.equal(event.payload.type, 'skill_nudge');
+    assert.equal(event.payload.reason.step, 10);
+    assert.equal(event.payload.reason.distinctToolCount, 3);
+    assert.deepEqual(event.payload.reason.toolNames, ['Grep', 'Read', 'Write']);
+  });
+
+  it('top-level message matches payload.message', () => {
+    const event = buildSkillNudgeStatusEvent(stats);
+    assert.equal(event.message, event.payload.message);
   });
 });
