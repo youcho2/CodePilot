@@ -371,6 +371,16 @@ async function runStream(stream: ActiveStream, params: StartStreamParams): Promi
         stream.snapshot = { ...stream.snapshot, statusText: `Running ${toolName}... (${elapsed}s)` };
         emit(stream, 'snapshot-updated');
       },
+      onSkillNudge: (data) => {
+        // Broadcast as window event — ChatView listens and renders a
+        // persistent banner. We don't use the snapshot because the nudge
+        // should persist after the stream completes (snapshot gets cleared).
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('skill-nudge', {
+            detail: { sessionId: params.sessionId, ...data },
+          }));
+        }
+      },
       onStatus: (text) => {
         markActive();
         // Detect compression notifications and broadcast window events

@@ -14,6 +14,13 @@ interface ToolResultInfo {
   media?: MediaBlock[];
 }
 
+export interface SkillNudgeData {
+  message: string;
+  step: number;
+  distinctToolCount: number;
+  toolNames: string[];
+}
+
 export interface SSECallbacks {
   onText: (accumulated: string) => void;
   onToolUse: (tool: ToolUseInfo) => void;
@@ -30,6 +37,7 @@ export interface SSECallbacks {
   onThinking?: (delta: string) => void;
   onKeepAlive: () => void;
   onError: (accumulated: string) => void;
+  onSkillNudge?: (data: SkillNudgeData) => void;
   onInitMeta?: (meta: {
     tools?: unknown;
     slash_commands?: unknown;
@@ -111,6 +119,16 @@ function handleSSEEvent(
         const statusData = JSON.parse(event.data);
         // Skip internal-only status events (e.g. resume fallback notifications)
         if (statusData._internal) {
+          return accumulated;
+        }
+        // Skill nudge — dedicated handler for persistent UI banner
+        if (statusData.subtype === 'skill_nudge' && statusData.payload) {
+          callbacks.onSkillNudge?.({
+            message: statusData.message || statusData.payload.message || '',
+            step: statusData.payload.reason?.step || 0,
+            distinctToolCount: statusData.payload.reason?.distinctToolCount || 0,
+            toolNames: statusData.payload.reason?.toolNames || [],
+          });
           return accumulated;
         }
         if (statusData.session_id) {
