@@ -1442,13 +1442,14 @@ describe('resolveAuxiliaryModel (live wrapper)', () => {
     // The `source` field is the unambiguous discriminator. Asserting
     // source !== 'main_small' catches the exact pre-fix regression.
 
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    /* eslint-disable @typescript-eslint/no-require-imports */
     const {
       createProvider,
       deleteProvider,
       getSetting,
       setSetting,
     } = require('../../lib/db');
+    /* eslint-enable @typescript-eslint/no-require-imports */
 
     const savedDefaultId = getSetting('default_provider_id') || '';
 
