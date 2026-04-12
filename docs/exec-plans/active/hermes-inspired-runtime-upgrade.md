@@ -62,7 +62,7 @@
 | 3.2 | 辅助模型解析 | ✅ 已完成 | (本 commit) | 纯函数 `routeAuxiliaryModel` + 薄 wrapper `resolveAuxiliaryModel`；5 层解析链；never null 主模型兜底；20+ 测试全通过 |
 | 3.3 | 渐进子目录 hint | ✅ 已完成 | (本 commit) | 完整 port，包含自写 shell tokenizer；20+ 测试（含真实文件系统 fixture）全通过；集成到 agent-tools.ts 推后到独立 follow-up |
 | 3.4 | Session 历史搜索 | ✅ 已完成 | (本 commit) | `searchMessages` DB 函数 + `codepilot_session_search` 工具 + builtin-tools 注册；12 测试含真实 SQLite DB fixture 全通过；**已完整 wire up**（与 memory-search 平级） |
-| 3.5a | 长对话压缩 - 接线 + token 预算 | 📋 待开始 | — | — |
+| 3.5a | 长对话压缩 - 接线 + token 预算 | ✅ 已完成 | (本 commit) | **重定位**：发现宏观 LLM 压缩已 wire 在 chat/route.ts。新增 `pruneOldToolResultsByBudget` 作为可选升级模块；`shouldAutoCompact` 标记 `@deprecated` 指向 `needsCompression` |
 | 3.5b | 长对话压缩 - LLM 摘要 | 📋 待开始 | — | — |
 | 3.6 | Skill 自动创建 nudge | 📋 待开始 | — | — |
 
@@ -77,6 +77,15 @@
 - 2026-04-12 00:55 [初始] 本计划由主会话在 2026-04-12 00:55 创建
 - 2026-04-12 01:00 [全局] Schedule trigger 方案因云端远程会话无法访问本地 worktree 和 Hermes 本地副本而放弃；改为本地 autonomous 当场执行
 - 2026-04-12 01:10 [任务 3.1] AI SDK 的 `tool({execute})` 没有 batch 级 hook，无法在 streamText 外层拦截 batch 判定。保守选择：落地为独立模块 + 测试，agent-tools.ts 集成推后到独立 follow-up。理由：run_agent.py 是 Python 自管 loop，每步显式拿到 tool_calls 列表；我们用 AI SDK 则 tool.execute 是被 Promise.all 同时触发的，无法 pre-batch 拦截。独立模块至少保留 4 层判定逻辑供未来 wire up。
+- 2026-04-12 02:30 [任务 3.5 全局重大发现] **LLM 驱动的宏观上下文压缩已经存在且完整 wire up**：
+  - `src/lib/context-compressor.ts` 含 `compressConversation()` + `needsCompression()` + 失败熔断（MAX_CONSECUTIVE_FAILURES=3）+ 80% 触发阈值
+  - 在 `src/app/api/chat/route.ts:273-341` 已接入：聊天路由入口估算 token → 超阈值时分裂历史为"保留最近 50%" + "压缩更早"→ 调用 `compressConversation` 生成摘要 → 存 `chat_sessions.context_summary`
+  - `compressConversation` 内部用 `resolveProvider({ useCase: 'small' })` 选小模型 + `generateTextViaSdk` 走 SDK 路径
+  - 这套已经在 prod 跑了一段时间
+  - 研究稿 §2.3 误判 "shouldAutoCompact 是死代码 → LLM 压缩未接线"：`shouldAutoCompact` 确实是死代码，但它被 `needsCompression`（在 context-compressor.ts 里）取代，语义等价，并非"没人管"
+- 2026-04-12 02:35 [任务 3.5a/3.5b 重定位] 鉴于上述发现，3.5a/3.5b 的原计划（接线 + 做 LLM 摘要）已经被现有代码做完。重定位为增量改进：
+  - **3.5a**：在 context-pruner.ts 新增 `pruneOldToolResultsByBudget(messages, opts)` 函数（token 预算 + 保护前 N + 保留 tool-call summary），作为未来可选的升级；同时把 `shouldAutoCompact` 标 `@deprecated` 指向 `needsCompression`。**不动 agent-loop.ts**（避免与现有宏观压缩路径冲突）
+  - **3.5b**：把 context-compressor.ts 的 `resolveProvider({ useCase: 'small' })` 升级为 `resolveAuxiliaryModel('compact')`（Task 3.2 的成果），让现有 LLM 压缩享受 5 层 fallback 链（包括 sdkProxyOnly 跨 provider fallback 和主模型兜底）。这才是 3.2 + 3.5 的真实价值点
 
 ---
 
