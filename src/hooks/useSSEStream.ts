@@ -38,6 +38,7 @@ export interface SSECallbacks {
   onKeepAlive: () => void;
   onError: (accumulated: string) => void;
   onSkillNudge?: (data: SkillNudgeData) => void;
+  onContextCompressed?: (data: { message: string; messagesCompressed: number; tokensSaved: number }) => void;
   onInitMeta?: (meta: {
     tools?: unknown;
     slash_commands?: unknown;
@@ -128,6 +129,21 @@ function handleSSEEvent(
             step: statusData.payload.reason?.step || 0,
             distinctToolCount: statusData.payload.reason?.distinctToolCount || 0,
             toolNames: statusData.payload.reason?.toolNames || [],
+          });
+          return accumulated;
+        }
+        // Context compressed — dedicated handler so stream-session-manager
+        // dispatches the 'context-compressed' window event (drives hasSummary
+        // state in ChatView). Before the human-readable message change,
+        // onStatus received the literal string 'context_compressed' and the
+        // manager matched it directly. Now the SSE payload has subtype +
+        // structured stats, so we intercept here before it hits the generic
+        // notification branch which would pass the full message string.
+        if (statusData.subtype === 'context_compressed') {
+          callbacks.onContextCompressed?.({
+            message: statusData.message || '',
+            messagesCompressed: statusData.stats?.messagesCompressed || 0,
+            tokensSaved: statusData.stats?.tokensSaved || 0,
           });
           return accumulated;
         }

@@ -381,15 +381,31 @@ async function runStream(stream: ActiveStream, params: StartStreamParams): Promi
           }));
         }
       },
+      onContextCompressed: (data) => {
+        markActive();
+        // Dispatch the 'context-compressed' window event that ChatView
+        // uses to flip hasSummary state and show the context indicator.
+        // Also show a brief human-readable status line so the user knows
+        // compression happened.
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('context-compressed', {
+            detail: { sessionId: params.sessionId, ...data },
+          }));
+        }
+        // Show the compression message briefly in the status bar
+        if (data.message) {
+          stream.snapshot = { ...stream.snapshot, statusText: data.message };
+          emit(stream, 'snapshot-updated');
+          streamTimeout(stream, () => {
+            if (stream.snapshot.statusText === data.message) {
+              stream.snapshot = { ...stream.snapshot, statusText: undefined };
+              emit(stream, 'snapshot-updated');
+            }
+          }, 5000); // Show for 5s so user can read it
+        }
+      },
       onStatus: (text) => {
         markActive();
-        // Detect compression notifications and broadcast window events
-        if (text === 'context_compressed') {
-          if (typeof window !== 'undefined') {
-            window.dispatchEvent(new CustomEvent('context-compressed', { detail: { sessionId: params.sessionId } }));
-          }
-          return; // Don't show this as a status line — it's a metadata signal
-        }
         if (text === 'context_compressing_retry') {
           // Show a brief status while PTL auto-retry is in progress
           stream.snapshot = { ...stream.snapshot, statusText: 'Compressing context...' };
