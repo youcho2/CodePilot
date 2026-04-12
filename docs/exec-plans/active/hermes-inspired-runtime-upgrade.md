@@ -86,6 +86,12 @@
 - 2026-04-12 02:35 [任务 3.5a/3.5b 重定位] 鉴于上述发现，3.5a/3.5b 的原计划（接线 + 做 LLM 摘要）已经被现有代码做完。重定位为增量改进：
   - **3.5a**：在 context-pruner.ts 新增 `pruneOldToolResultsByBudget(messages, opts)` 函数（token 预算 + 保护前 N + 保留 tool-call summary），作为未来可选的升级；同时把 `shouldAutoCompact` 标 `@deprecated` 指向 `needsCompression`。**不动 agent-loop.ts**（避免与现有宏观压缩路径冲突）
   - **3.5b**：把 context-compressor.ts 的 `resolveProvider({ useCase: 'small' })` 升级为 `resolveAuxiliaryModel('compact')`（Task 3.2 的成果），让现有 LLM 压缩享受 5 层 fallback 链（包括 sdkProxyOnly 跨 provider fallback 和主模型兜底）。这才是 3.2 + 3.5 的真实价值点
+- 2026-04-12 04:15 [Codex review cycle] 首版交付后 Codex 审查指出三个缺陷，全部修复：
+  - **[P1] `resolveAuxiliaryModel()` 忽略 session provider 上下文**：原实现调用 `resolveProvider()` 不带参数 → 解析到全局默认 provider，而不是当前 session 的 provider。修：函数签名加 `opts: ResolveOptions = {}` 并转发到 `resolveProvider(opts)`；`context-compressor.ts` 的调用点传入 `{ providerId, sessionProviderId, sessionModel }`
+  - **[P2] Tier-4 fallback 只读 `role_models_json`，忽略 preset defaults**：原实现只看 DB 列的 JSON，不像 `buildResolution` 那样 merge `preset.defaultRoleModels`，导致依赖 preset 默认 roleModels 的 provider 在 tier-4 扫描时"看起来没槽位"，被错误跳过。修：提取 `computeEffectiveRoleModels(provider, preset, protocol)` 私有 helper，复用 `buildResolution` 相同的 merge 规则（当 `!default && !sonnet` 时从 preset 注入）
+  - **[P2] `skill_nudge` SSE shape 前端和 bridge 都不认**：原实现用 `status` + `subtype` 发射，`useSSEStream.ts` 落到 default 分支显示原始 JSON，`conversation-engine.ts` 静默丢弃。修：新增 `buildSkillNudgeStatusEvent()` helper 产出 `{notification:true, message, subtype:'skill_nudge', payload}` —— 浏览器走 notification 分支显示到 status 栏，bridge 加专用 handler（先 flush 当前 text 再 push 一个分隔过的 text block）让 IM 用户看到 `--- Skill suggestion: ...`
+  - 这次 review cycle 新增 8 个回归测试（3 个 provider-resolver + 5 个 skill-nudge），测试总数 922 → 930，全部通过
+  - 修复提交：`a5149cc fix(hermes-upgrade): address Codex review ...`
 
 ---
 
@@ -548,16 +554,17 @@ Port Hermes 的 `SubdirectoryHintTracker` 到 TS。在 tool call 完成后根据
 
 ---
 
-## Final Report — 2026-04-12 03:50
+## Final Report — 2026-04-12 03:50（首版）+ 04:15（Codex review 修复）
 
 ### 执行概览
 
 - **启动时间**：2026-04-12 00:55 CST（用户决定放弃 schedule trigger 后立即开始本地 autonomous 执行）
-- **完成时间**：2026-04-12 约 03:50 CST（~3 小时）
+- **首版完成**：2026-04-12 约 03:50 CST（~3 小时）
+- **Review 修复完成**：2026-04-12 约 04:15 CST（Codex 提出 3 个缺陷后 ~25 分钟闭环）
 - **执行环境**：本地 worktree `/Users/op7418/Documents/code/opus-4.6-test-hermes-impl`，分支 `feat/hermes-inspired-runtime-upgrade`
 - **Git 纪律遵守情况**：✅ 无 push / tag / PR / 合并到主分支；所有改动仅在 worktree 内
-- **最终测试结果**：`npm run test` — **922 passing, 0 failing**（从基线 844 增加到 922，新增 78 个测试用例）
-- **累计改动**：18 files changed, 3215 insertions(+), 11 deletions(-)
+- **最终测试结果**：`npm run test` — **930 passing, 0 failing**（从基线 844 增加到 930，新增 86 个测试用例）
+- **累计改动**：20 files changed, ~3490 insertions(+), ~18 deletions(-)
 
 ### 任务状态总结
 
@@ -576,29 +583,29 @@ Port Hermes 的 `SubdirectoryHintTracker` 到 TS。在 tool call 完成后根据
 ### Commit 列表（按时间顺序）
 
 ```
-1ef893b docs(exec-plan): add hermes-inspired runtime upgrade autonomous plan
-28853ac feat(runtime): add parallel-safe tool execution judgment module
-e51c9d5 feat(provider): add resolveAuxiliaryModel with sdkProxyOnly fallback
-8e36d49 feat(runtime): add progressive subdirectory hint discovery
-c567534 feat(tools): add codepilot_session_search builtin tool
-1b1a6a4 feat(runtime): add token-budget pruning + deprecate shouldAutoCompact
-f125e0e refactor(context-compressor): route via resolveAuxiliaryModel 5-tier chain
+a5149cc fix(hermes-upgrade): address Codex review — session context, preset merge, SSE shape
+bd2c595 docs: finalize hermes-inspired-runtime-upgrade execution log
 5d50e03 feat(runtime): add skill-nudge heuristic for multi-step workflows
+f125e0e refactor(context-compressor): route via resolveAuxiliaryModel 5-tier chain
+1b1a6a4 feat(runtime): add token-budget pruning + deprecate shouldAutoCompact
+c567534 feat(tools): add codepilot_session_search builtin tool
+8e36d49 feat(runtime): add progressive subdirectory hint discovery
+e51c9d5 feat(provider): add resolveAuxiliaryModel with sdkProxyOnly fallback
+28853ac feat(runtime): add parallel-safe tool execution judgment module
+1ef893b docs(exec-plan): add hermes-inspired runtime upgrade autonomous plan
 ```
-
-（Final report commit 会追加，预期 sha 待生成）
 
 ### 测试结果
 
-**最后一次 `npm run test` 输出摘要**：
+**最后一次 `npm run test` 输出摘要**（含 Codex review 修复后）：
 ```
-# tests 922
-# suites 224
-# pass 922
+# tests 930
+# suites 225
+# pass 930
 # fail 0
 # cancelled 0
 # skipped 0
-# duration_ms ~2700
+# duration_ms ~2330
 ```
 
 **新增测试覆盖**：
