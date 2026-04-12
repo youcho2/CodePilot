@@ -16,6 +16,7 @@ import { createModel } from './ai-provider';
 import { assembleTools, READ_ONLY_TOOLS } from './agent-tools';
 import { reportNativeError } from './error-classifier';
 import { pruneOldToolResults } from './context-pruner';
+import { shouldSuggestSkill, buildSkillNudgePayload } from './skill-nudge';
 import { emit as emitEvent } from './runtime/event-bus';
 import { createCheckpoint } from './file-checkpoint';
 import type { PermissionMode } from './permission-checker';
@@ -220,6 +221,7 @@ export function runAgentLoop(options: AgentLoopOptions): ReadableStream<string> 
         let step = 0;
         const totalUsage: TokenUsage = { input_tokens: 0, output_tokens: 0 };
         let lastToolNames: string[] = []; // for doom loop detection
+        const distinctTools = new Set<string>(); // for skill-nudge heuristic
         let messages = historyMessages;
 
         while (step < maxSteps) {
@@ -365,6 +367,7 @@ export function runAgentLoop(options: AgentLoopOptions): ReadableStream<string> 
               case 'tool-call':
                 hasToolCalls = true;
                 stepToolNames.push(event.toolName);
+                distinctTools.add(event.toolName);
                 controller.enqueue(formatSSE({
                   type: 'tool_use',
                   data: JSON.stringify({
@@ -434,6 +437,16 @@ export function runAgentLoop(options: AgentLoopOptions): ReadableStream<string> 
           // Use response.messages which contains properly typed ModelMessage[].
           const responseData = await result.response;
           messages = [...messages, ...responseData.messages] as ModelMessage[];
+        }
+
+        // 6a. Emit skill-nudge if the run was complex enough to warrant saving as a Skill.
+        // Heuristic: >= 8 agent steps AND >= 3 distinct tools used. See skill-nudge.ts.
+        if (shouldSuggestSkill({ step, distinctTools })) {
+          const payload = buildSkillNudgePayload({ step, distinctTools });
+          controller.enqueue(formatSSE({
+            type: 'status',
+            data: JSON.stringify({ subtype: 'skill_nudge', ...payload }),
+          }));
         }
 
         // 6. Emit result event
