@@ -92,6 +92,11 @@
   - **[P2] `skill_nudge` SSE shape 前端和 bridge 都不认**：原实现用 `status` + `subtype` 发射，`useSSEStream.ts` 落到 default 分支显示原始 JSON，`conversation-engine.ts` 静默丢弃。修：新增 `buildSkillNudgeStatusEvent()` helper 产出 `{notification:true, message, subtype:'skill_nudge', payload}` —— 浏览器走 notification 分支显示到 status 栏，bridge 加专用 handler（先 flush 当前 text 再 push 一个分隔过的 text block）让 IM 用户看到 `--- Skill suggestion: ...`
   - 这次 review cycle 新增 8 个回归测试（3 个 provider-resolver + 5 个 skill-nudge），测试总数 922 → 930，全部通过
   - 修复提交：`a5149cc fix(hermes-upgrade): address Codex review ...`
+- 2026-04-12 05:00 [Codex review round 2] 对上一轮三个修复再审。运行时实现确认没问题，但指出 Fix 1 和 Fix 2 的 regression 测试断言太松——即使原 bug 回归，测试也能通过：
+  - **[P3] Fix 1 测试**：原断言只检查 `providerId` truthy 且 source 不是 env_override。pre-fix 行为（忽略 opts 返回 global default）也能满足这两条。修：重写测试设置 default_provider_id 到一个有 small slot 的 `globalDefault`，session provider 不设 small/haiku，然后断言 `source !== 'main_small'` 和 `source !== 'main_haiku'`——这两个 enum 值是 pre-fix 会产出的，严格拒绝
+  - **[P3] Fix 2 测试**：原测试用 anthropic-official + Kimi-coding 构造场景，但 anthropic-official **没有** `defaultRoleModels` 字段（全仓只有 MiniMax / MiMo 这 4 个预设有，而且全是 sdkProxyOnly）。所以 tier-4 扫描永远命中不到 preset defaults，main_floor 是合法输出——测试不得不接受 main_floor，等于没卡住。修：**导出 `computeEffectiveRoleModels`** 并直接单元测 5 个分支（空 json + preset → merge / 自带 slot → 自己的赢 / 无 preset / default 已设 → guard 抑制 / sonnet 已设 → 同 guard）。外加一个 lightweight integration smoke 验证 tier-4 wire-up 没断
+  - 修复提交：`be8b4cf test(hermes-upgrade): tighten Fix 1 + Fix 2 regression assertions`
+  - **重要洞察**：Fix 2 虽然修复是对的、防御性的，但实际修复范围目前是空集——全仓没有非 sdkProxyOnly 预设会用 `defaultRoleModels` 字段。这个 fix 是为未来添加此类预设时准备的
 
 ---
 
@@ -583,6 +588,8 @@ Port Hermes 的 `SubdirectoryHintTracker` 到 TS。在 tool call 完成后根据
 ### Commit 列表（按时间顺序）
 
 ```
+be8b4cf test(hermes-upgrade): tighten Fix 1 + Fix 2 regression assertions (round 2 review)
+b05ad63 docs(exec-plan): record Codex review cycle in decision log + final report
 a5149cc fix(hermes-upgrade): address Codex review — session context, preset merge, SSE shape
 bd2c595 docs: finalize hermes-inspired-runtime-upgrade execution log
 5d50e03 feat(runtime): add skill-nudge heuristic for multi-step workflows
@@ -597,15 +604,15 @@ e51c9d5 feat(provider): add resolveAuxiliaryModel with sdkProxyOnly fallback
 
 ### 测试结果
 
-**最后一次 `npm run test` 输出摘要**（含 Codex review 修复后）：
+**最后一次 `npm run test` 输出摘要**（含 Codex round 2 review 修复后）：
 ```
-# tests 930
+# tests 931
 # suites 225
-# pass 930
+# pass 931
 # fail 0
 # cancelled 0
 # skipped 0
-# duration_ms ~2330
+# duration_ms ~2660
 ```
 
 **新增测试覆盖**：
