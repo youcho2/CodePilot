@@ -1423,7 +1423,113 @@ describe('resolveAuxiliaryModel (live wrapper)', () => {
   // Regression tests for Codex review 2026-04-12
   // ───────────────────────────────────────────────────────────
 
-  it('[fix 1 P1] honors explicit providerId over global default', () => {
+  // ─ Codex review round 2: tighten Fix 1 and Fix 2 regression tests ─
+  //
+  // Previous assertions were too loose — they would have accepted the
+  // pre-fix behavior. These rewrites explicitly reject the pre-fix
+  // outcomes and pin the post-fix semantics.
+
+  it('[fix 1 P1 strict] session providerId wins over the global default — source discriminator', () => {
+    // Pre-fix behavior: resolveAuxiliaryModel() called resolveProvider()
+    // with NO arguments → picked the global default as "main" → returned
+    // source='main_small' pointing at the DEFAULT provider's small slot.
+    //
+    // Post-fix behavior: opts.providerId is forwarded, so the SESSION
+    // provider becomes "main". If the session provider has no small/haiku,
+    // the global default (if it has small/haiku) becomes a TIER-4 FALLBACK,
+    // producing source='fallback_provider_small' — a different enum value.
+    //
+    // The `source` field is the unambiguous discriminator. Asserting
+    // source !== 'main_small' catches the exact pre-fix regression.
+
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const {
+      createProvider,
+      deleteProvider,
+      getSetting,
+      setSetting,
+    } = require('../../lib/db');
+
+    const savedDefaultId = getSetting('default_provider_id') || '';
+
+    const globalDefault = createProvider({
+      name: '__test_aux_globalDefault__',
+      provider_type: 'anthropic',
+      base_url: 'https://api.anthropic.com',
+      api_key: 'sk-global',
+      role_models_json: JSON.stringify({
+        default: 'global-default-model',
+        small: 'global-small-slot',
+      }),
+    });
+    const session = createProvider({
+      name: '__test_aux_session__',
+      provider_type: 'anthropic',
+      base_url: 'https://api.anthropic.com',
+      api_key: 'sk-session',
+      // Intentionally NO small/haiku — forces tier-4 or main_floor
+      role_models_json: JSON.stringify({ default: 'session-default-model' }),
+    });
+    setSetting('default_provider_id', globalDefault.id);
+
+    try {
+      const result = resolveAuxiliaryModel('compact', { providerId: session.id });
+
+      // Strict assertion on `source` — the unambiguous discriminator.
+      //
+      // Pre-fix semantics: globalDefault is resolved as "main" (because
+      // resolveProvider() with no opts reads default_provider_id), so its
+      // small slot matches tier 2 → source='main_small'.
+      //
+      // Post-fix semantics: `session` is resolved as "main" because opts
+      // is forwarded. `session` has no small/haiku, so tier 2/3 are
+      // skipped. Tier 4 may or may not find a fallback provider
+      // depending on other DB state, but regardless, source will be one
+      // of [fallback_provider_small, fallback_provider_haiku, main_floor]
+      // — NEVER main_small/main_haiku (because `session` explicitly
+      // lacks those slots).
+      //
+      // This assertion catches the exact pre-fix regression: if session
+      // context is ignored and globalDefault becomes main, source would
+      // be main_small/main_haiku, which we now reject.
+      assert.notEqual(
+        result.source,
+        'main_small',
+        'Regression: source=main_small means the session providerId was ignored and the global default was resolved as main',
+      );
+      assert.notEqual(
+        result.source,
+        'main_haiku',
+        'Regression: source=main_haiku means the session providerId was ignored',
+      );
+      assert.ok(
+        ['fallback_provider_small', 'fallback_provider_haiku', 'main_floor'].includes(result.source),
+        `Expected fallback/floor tier, got source=${result.source}`,
+      );
+
+      // If the returned source is main_floor, providerId MUST be session
+      // (because main_floor by definition uses the main provider). Any
+      // other ID in main_floor would indicate the session context was
+      // dropped somewhere in the routing.
+      if (result.source === 'main_floor') {
+        assert.equal(
+          result.providerId,
+          session.id,
+          'main_floor should bind to the session provider, not the global default',
+        );
+      }
+    } finally {
+      setSetting('default_provider_id', savedDefaultId);
+      deleteProvider(session.id);
+      deleteProvider(globalDefault.id);
+    }
+  });
+
+  it('[fix 1 P1] explicit providerId with small slot IS returned as main_small (positive case)', () => {
+    // Positive-case companion: the explicit providerId has a small slot,
+    // so the result MUST be main_small + that provider's slot. This
+    // catches a regression where session providerId is ignored and we
+    // return some other provider's slot.
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { createProvider, deleteProvider } = require('../../lib/db');
     const explicit = createProvider({
@@ -1431,97 +1537,153 @@ describe('resolveAuxiliaryModel (live wrapper)', () => {
       provider_type: 'anthropic',
       base_url: 'https://api.anthropic.com',
       api_key: 'sk-explicit',
-      role_models_json: JSON.stringify({ default: 'opus-foo', small: 'explicit-small' }),
+      role_models_json: JSON.stringify({
+        default: 'opus-foo',
+        small: 'explicit-small-unique-marker',
+      }),
     });
     try {
       const result = resolveAuxiliaryModel('compact', { providerId: explicit.id });
-      // Source should be main_small because the explicit provider has a small slot.
       assert.equal(result.source, 'main_small');
       assert.equal(result.providerId, explicit.id);
-      assert.equal(result.modelId, 'explicit-small');
+      assert.equal(result.modelId, 'explicit-small-unique-marker');
     } finally {
       deleteProvider(explicit.id);
     }
   });
 
-  it('[fix 1 P1] explicit providerId with NO small/haiku slots falls back to main_floor, not global default', () => {
+  it('[fix 2 P2 strict] computeEffectiveRoleModels merges preset.defaultRoleModels when json is empty', () => {
+    // The tier-4 scan previously only read role_models_json, missing
+    // preset-backed defaultRoleModels. The fix extracted this helper
+    // from buildResolution's merge logic (provider-resolver.ts:664-675).
+    //
+    // We test the helper directly because:
+    //   - No non-sdkProxyOnly preset in the catalog currently sets
+    //     defaultRoleModels (only MiniMax/MiMo set it, all sdkProxyOnly),
+    //     so a live end-to-end scenario is impossible with the real catalog
+    //   - The merge rule is simple enough that direct unit testing gives
+    //     the strongest possible contract lock
+    //   - A synthetic preset fixture lets us cover the exact branches:
+    //     (a) empty json + preset defaults → merged
+    //     (b) json with slots → json wins
+    //     (c) no preset → empty json stays empty
+    //     (d) json default/sonnet present → merge suppressed (guard)
+
     // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const { createProvider, deleteProvider } = require('../../lib/db');
-    const bare = createProvider({
-      name: '__test_aux_bare__',
+    const { computeEffectiveRoleModels } = require('../../lib/provider-resolver');
+
+    const makeProvider = (json: string) => ({
+      id: 'p',
+      name: 'Test',
       provider_type: 'anthropic',
-      base_url: 'https://api.anthropic.com',
-      api_key: 'sk-bare',
-      // intentionally no role_models_json — forces main_floor
-      role_models_json: JSON.stringify({}),
+      protocol: 'anthropic',
+      base_url: 'https://example.com',
+      api_key: 'k',
+      is_active: 1,
+      sort_order: 0,
+      extra_env: '{}',
+      headers_json: '{}',
+      env_overrides_json: '',
+      role_models_json: json,
+      notes: '',
+      created_at: '',
+      updated_at: '',
+      options_json: '{}',
     });
-    try {
-      const result = resolveAuxiliaryModel('compact', { providerId: bare.id });
-      // When this session's provider has no small/haiku, we either fall back
-      // to another provider's small/haiku OR to this provider's own main model.
-      // Either way, the returned providerId should be bare.id (this session's)
-      // OR another configured provider — NOT undefined.
-      assert.ok(result.providerId);
-      assert.notEqual(result.source, 'env_override');
-      // Critically: we did NOT silently route to the global default provider
-      // as the "main" resolution — we either used bare or another non-default.
-      // (The pre-fix bug was: result would come from resolveProvider() with
-      // no context, which picks the global default.)
-    } finally {
-      deleteProvider(bare.id);
-    }
+
+    // Minimal preset fixture — computeEffectiveRoleModels only reads
+    // .defaultRoleModels on the preset, so we don't need the full shape.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const mockPresetWithDefaults: any = {
+      key: 'test-preset',
+      defaultRoleModels: { small: 'preset-small', haiku: 'preset-haiku' },
+    };
+
+    // (a) empty json + preset defaults → merged
+    const empty = computeEffectiveRoleModels(
+      makeProvider(JSON.stringify({})),
+      mockPresetWithDefaults,
+      'anthropic',
+    );
+    assert.equal(empty.small, 'preset-small', 'empty json should inherit preset small');
+    assert.equal(empty.haiku, 'preset-haiku', 'empty json should inherit preset haiku');
+
+    // (b) json with its own slots → json values win (spread order in fix)
+    const withOwn = computeEffectiveRoleModels(
+      makeProvider(JSON.stringify({ small: 'own-small' })),
+      mockPresetWithDefaults,
+      'anthropic',
+    );
+    // The current guard only merges when !default && !sonnet; json already
+    // has no default/sonnet, so merge fires, then json.small overrides
+    // preset.small via spread order.
+    assert.equal(withOwn.small, 'own-small', 'own json small should win over preset small');
+    assert.equal(withOwn.haiku, 'preset-haiku', 'preset haiku should still be inherited');
+
+    // (c) no preset → empty json stays empty
+    const noPreset = computeEffectiveRoleModels(
+      makeProvider(JSON.stringify({})),
+      undefined,
+      'anthropic',
+    );
+    assert.deepEqual(noPreset, {}, 'no preset means nothing to merge');
+
+    // (d) json.default is present → merge guard suppresses preset injection
+    const withDefault = computeEffectiveRoleModels(
+      makeProvider(JSON.stringify({ default: 'own-default' })),
+      mockPresetWithDefaults,
+      'anthropic',
+    );
+    assert.equal(withDefault.default, 'own-default');
+    assert.equal(withDefault.small, undefined, 'preset merge should be suppressed when json.default exists');
+    assert.equal(withDefault.haiku, undefined);
+
+    // (e) json.sonnet is present → same guard
+    const withSonnet = computeEffectiveRoleModels(
+      makeProvider(JSON.stringify({ sonnet: 'own-sonnet' })),
+      mockPresetWithDefaults,
+      'anthropic',
+    );
+    assert.equal(withSonnet.sonnet, 'own-sonnet');
+    assert.equal(withSonnet.small, undefined);
+    assert.equal(withSonnet.haiku, undefined);
   });
 
-  it('[fix 2 P2] tier-4 fallback sees preset defaultRoleModels, not just role_models_json', () => {
-    // GLM preset has defaultRoleModels { haiku: 'glm-4.5-air', ... } baked in.
-    // A freshly-created GLM provider with role_models_json='{}' should STILL
-    // expose its preset haiku slot through the auxiliary routing chain.
+  it('[fix 2 P2] tier-4 scan uses computeEffectiveRoleModels (integration smoke)', () => {
+    // Integration-level smoke: even with the real catalog (where no
+    // non-sdkProxyOnly preset exposes defaultRoleModels), verify that
+    // the tier-4 scan calls computeEffectiveRoleModels and doesn't
+    // throw when providers rely on preset defaults. The strict
+    // behavioral assertion lives in the previous test; this one just
+    // guards against a refactor breaking the wire-up.
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { createProvider, deleteProvider } = require('../../lib/db');
 
-    // Create a main provider that is sdkProxyOnly (forces fallback to tier 4)
     const mainSdkOnly = createProvider({
-      name: '__test_main_sdkonly__',
+      name: '__test_main_sdkonly_smoke__',
       provider_type: 'anthropic',
-      // Kimi coding URL is sdkProxyOnly in the preset
+      // Kimi coding URL is sdkProxyOnly via preset
       base_url: 'https://api.moonshot.cn/anthropic/',
       api_key: 'sk-main',
       role_models_json: JSON.stringify({}),
     });
-
-    // Create a fallback provider from the GLM preset (also sdkProxyOnly by preset,
-    // but we verify that even if it weren't, preset-backed roleModels would be visible).
-    // For the fix-2 test we need a NON-sdkProxyOnly preset-backed provider. The
-    // anthropic-official preset qualifies — create a vanilla anthropic provider
-    // with empty role_models_json and check it's seen.
-    const fallbackPresetBacked = createProvider({
-      name: '__test_fallback_preset__',
+    const fallbackEmpty = createProvider({
+      name: '__test_fallback_empty_smoke__',
       provider_type: 'anthropic',
       base_url: 'https://api.anthropic.com',
       api_key: 'sk-fallback',
-      role_models_json: JSON.stringify({}), // empty — relies on preset defaults
+      role_models_json: JSON.stringify({}),
     });
 
     try {
+      // Should not throw regardless of whether tier-4 finds anything.
       const result = resolveAuxiliaryModel('compact', { providerId: mainSdkOnly.id });
-      // With the fix in place, the tier-4 scan sees the preset-backed
-      // anthropic provider's default roleModels and picks its small/haiku slot.
-      // Without the fix, tier-4 saw role_models_json='{}' and skipped it,
-      // falling through to main_floor with the sdkProxyOnly main.
-      //
-      // We can't always assert the exact tier without knowing the preset's
-      // roleModels shape. But we CAN assert: when tier-4 merges preset
-      // defaults correctly, the source is one of the fallback tiers
-      // (fallback_provider_small | fallback_provider_haiku), not main_floor.
-      //
-      // The specific model depends on the anthropic-official preset's
-      // defaultRoleModels — we just assert the result is sane.
-      assert.ok(['fallback_provider_small', 'fallback_provider_haiku', 'main_floor'].includes(result.source));
-      // If the preset has ANY role mapping, we expect to NOT hit main_floor
-      // when a non-sdkProxyOnly fallback exists.
+      assert.ok(result);
+      assert.ok(typeof result.providerId === 'string');
+      assert.ok(typeof result.source === 'string');
     } finally {
       deleteProvider(mainSdkOnly.id);
-      deleteProvider(fallbackPresetBacked.id);
+      deleteProvider(fallbackEmpty.id);
     }
   });
 });

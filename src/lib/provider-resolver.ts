@@ -1026,8 +1026,16 @@ export function resolveAuxiliaryModel(
  * providers that rely on preset defaults (instead of user-persisted JSON)
  * would appear to have no small/haiku slot, silently downgrading the
  * auxiliary fallback chain to `main_floor`.
+ *
+ * **Exported for unit testing.** The merge rule is simple but the logic
+ * is load-bearing — the pre-fix auxiliary path diverged from the main
+ * path by skipping this merge, and a direct unit test is the cheapest
+ * way to lock the contract down. Callers inside this file use this
+ * helper at the tier-4 scan site; external callers should prefer the
+ * higher-level `resolveAuxiliaryModel()` unless they specifically need
+ * to replicate the merge.
  */
-function computeEffectiveRoleModels(
+export function computeEffectiveRoleModels(
   provider: ApiProvider,
   preset: ReturnType<typeof findPresetForLegacy>,
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
