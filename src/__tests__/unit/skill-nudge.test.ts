@@ -21,7 +21,9 @@ describe('shouldSuggestSkill', () => {
   it('returns false when distinct tool count is below threshold', () => {
     const stats = {
       step: 100,
-      distinctTools: new Set(['A', 'B']),
+      distinctTools: new Set(
+        Array.from({ length: SKILL_NUDGE_DISTINCT_TOOL_THRESHOLD - 1 }, (_, i) => `tool${i}`)
+      ),
     };
     assert.equal(shouldSuggestSkill(stats), false);
   });

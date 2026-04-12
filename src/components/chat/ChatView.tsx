@@ -619,7 +619,9 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
         <div className="mx-auto w-full max-w-3xl border-t border-border bg-background px-4 py-3">
           <div className="flex items-center justify-between gap-3">
             <p className="flex-1 text-sm text-muted-foreground">
-              {skillNudge.message}
+              {t('skillNudge.message')
+                .replace('{step}', String(skillNudge.step))
+                .replace('{toolCount}', String(skillNudge.distinctToolCount))}
             </p>
             <div className="flex items-center gap-2 shrink-0">
               <Button
@@ -628,10 +630,10 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
                 className="text-xs"
                 onClick={() => {
                   setSkillNudge(null);
-                  sendMessageRef.current?.('Please help me save the workflow from this conversation as a reusable Skill.');
+                  sendMessageRef.current?.(t('skillNudge.savePrompt'));
                 }}
               >
-                Save as Skill
+                {t('skillNudge.saveButton')}
               </Button>
               <button
                 type="button"
