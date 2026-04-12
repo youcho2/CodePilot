@@ -384,22 +384,33 @@ export function PermissionPrompt({
 }: PermissionPromptProps) {
   const { t } = useTranslation();
 
-  // Auto-approve when full_access is active
+  // Tools that require user interaction even in full_access mode.
+  // AskUserQuestion's entire purpose is to get user input — auto-approving
+  // would return empty answers, defeating the purpose.
+  const NEVER_AUTO_APPROVE = new Set(['AskUserQuestion']);
+
+  // Auto-approve when full_access is active — except for interactive tools
   const autoApprovedRef = useRef<string | null>(null);
   useEffect(() => {
     if (
       permissionProfile === 'full_access' &&
       pendingPermission &&
       !permissionResolved &&
-      autoApprovedRef.current !== pendingPermission.permissionRequestId
+      autoApprovedRef.current !== pendingPermission.permissionRequestId &&
+      !NEVER_AUTO_APPROVE.has(pendingPermission.toolName)
     ) {
       autoApprovedRef.current = pendingPermission.permissionRequestId;
       onPermissionResponse('allow');
     }
   }, [permissionProfile, pendingPermission, permissionResolved, onPermissionResponse]);
 
-  // Don't render permission UI when full_access
-  if (permissionProfile === 'full_access') return null;
+  // Don't render permission UI when full_access — EXCEPT for interactive tools
+  if (
+    permissionProfile === 'full_access' &&
+    (!pendingPermission || !NEVER_AUTO_APPROVE.has(pendingPermission.toolName))
+  ) {
+    return null;
+  }
 
   // Nothing to show
   if (!pendingPermission && !permissionResolved) return null;
