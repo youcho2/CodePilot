@@ -36,6 +36,21 @@ export async function forwardPermissionRequest(
   suggestions?: unknown[],
   replyToMessageId?: string,
 ): Promise<void> {
+  // Interactive tools that require structured user input (option picking,
+  // form filling) cannot be handled by the bridge's Allow/Deny card flow.
+  // Instead of silently executing with empty answers (which gives the model
+  // garbage data), deny with a clear reason so the model can fall back to
+  // asking via plain text.
+  const BRIDGE_UNSUPPORTED_INTERACTIVE_TOOLS = new Set(['AskUserQuestion']);
+  if (BRIDGE_UNSUPPORTED_INTERACTIVE_TOOLS.has(toolName)) {
+    console.log(`[bridge] Denied ${toolName} (${permissionRequestId}) — interactive tools not supported in bridge sessions`);
+    resolvePendingPermission(permissionRequestId, {
+      behavior: 'deny',
+      message: `${toolName} is not supported in IM/bridge sessions because the chat interface cannot render interactive option selection. Please ask your question as plain text instead.`,
+    });
+    return;
+  }
+
   // Check if this session uses full_access permission profile — auto-approve without IM notification
   if (sessionId) {
     const session = getSession(sessionId);
