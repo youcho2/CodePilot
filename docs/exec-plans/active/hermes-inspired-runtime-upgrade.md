@@ -58,7 +58,7 @@
 
 | # | 任务 | 状态 | Commit | Notes |
 |---|------|------|--------|-------|
-| 3.1 | 并行安全调度器 | 📋 待开始 | — | — |
+| 3.1 | 并行安全调度器 | ✅ 已完成 | (本 commit) | 最小可行版：模块 + 测试全通过，未 wire 进 agent-tools.ts。AI SDK `tool({execute})` 没有 batch 级 hook，完整 wiring 需要独立 follow-up。详见 parallel-safety.ts 文件头。|
 | 3.2 | 辅助模型解析 | 📋 待开始 | — | — |
 | 3.3 | 渐进子目录 hint | 📋 待开始 | — | — |
 | 3.4 | Session 历史搜索 | 📋 待开始 | — | — |
@@ -74,7 +74,9 @@
 
 （执行过程中遇到歧义决策时在这里追加记录，格式：`- YYYY-MM-DD HH:MM [任务 X.Y] 决策内容 + 选择理由`）
 
-- 2026-04-12 00:xx [初始] 本计划由主会话在 2026-04-12 00:55 创建，通过 schedule trigger 在 2026-04-12 08:00 启动 autonomous 执行
+- 2026-04-12 00:55 [初始] 本计划由主会话在 2026-04-12 00:55 创建
+- 2026-04-12 01:00 [全局] Schedule trigger 方案因云端远程会话无法访问本地 worktree 和 Hermes 本地副本而放弃；改为本地 autonomous 当场执行
+- 2026-04-12 01:10 [任务 3.1] AI SDK 的 `tool({execute})` 没有 batch 级 hook，无法在 streamText 外层拦截 batch 判定。保守选择：落地为独立模块 + 测试，agent-tools.ts 集成推后到独立 follow-up。理由：run_agent.py 是 Python 自管 loop，每步显式拿到 tool_calls 列表；我们用 AI SDK 则 tool.execute 是被 Promise.all 同时触发的，无法 pre-batch 拦截。独立模块至少保留 4 层判定逻辑供未来 wire up。
 
 ---
 
