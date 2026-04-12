@@ -1104,3 +1104,318 @@ const { createProvider, deleteProvider } = require('../../lib/db');
     }
   });
 });
+
+// ────────────────────────────────────────────────────────────────
+// routeAuxiliaryModel — pure function tests
+// ────────────────────────────────────────────────────────────────
+
+describe('routeAuxiliaryModel (pure routing)', () => {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { routeAuxiliaryModel } = require('../../lib/provider-resolver');
+
+  // Helper: build a minimal ResolvedProvider for testing
+  function mockMain(opts: {
+    id?: string;
+    roleModels?: { small?: string; haiku?: string; default?: string };
+    model?: string;
+    upstreamModel?: string;
+    envMode?: boolean;
+  }): ResolvedProvider {
+    const roleModels = opts.roleModels || {};
+    if (opts.envMode) {
+      return {
+        provider: undefined,
+        protocol: 'anthropic',
+        authStyle: 'api_key',
+        model: opts.model,
+        upstreamModel: opts.upstreamModel,
+        modelDisplayName: undefined,
+        headers: {},
+        envOverrides: {},
+        roleModels,
+        hasCredentials: false,
+        availableModels: [],
+        settingSources: ['project', 'local'],
+      };
+    }
+    return {
+      provider: {
+        id: opts.id || 'main-prov',
+        name: 'Test Main',
+        provider_type: 'anthropic',
+        protocol: 'anthropic',
+        base_url: 'https://api.anthropic.com',
+        api_key: 'sk-test',
+        is_active: 1,
+        sort_order: 0,
+        extra_env: '{}',
+        headers_json: '{}',
+        env_overrides_json: '',
+        role_models_json: JSON.stringify(roleModels),
+        notes: '',
+        created_at: '',
+        updated_at: '', options_json: '{}',
+      },
+      protocol: 'anthropic',
+      authStyle: 'api_key',
+      model: opts.model || 'claude-sonnet-4-6',
+      upstreamModel: opts.upstreamModel || opts.model || 'claude-sonnet-4-6',
+      modelDisplayName: undefined,
+      headers: {},
+      envOverrides: {},
+      roleModels,
+      hasCredentials: true,
+      availableModels: [],
+      settingSources: ['project', 'local'],
+    };
+  }
+
+  describe('Tier 1 — env override', () => {
+    it('env override with both provider and model wins everything', () => {
+      const result = routeAuxiliaryModel('compact', {
+        main: mockMain({ roleModels: { small: 'haiku-4.5' } }),
+        isMainSdkProxyOnly: false,
+        others: [],
+        envOverride: { providerId: 'custom-prov', modelId: 'custom-model' },
+      });
+      assert.equal(result.providerId, 'custom-prov');
+      assert.equal(result.modelId, 'custom-model');
+      assert.equal(result.source, 'env_override');
+    });
+
+    it('env override missing modelId does NOT apply (needs both)', () => {
+      const result = routeAuxiliaryModel('compact', {
+        main: mockMain({ roleModels: { small: 'haiku-4.5' } }),
+        isMainSdkProxyOnly: false,
+        others: [],
+        envOverride: { providerId: 'custom-prov' }, // missing modelId
+      });
+      assert.equal(result.source, 'main_small');
+      assert.equal(result.modelId, 'haiku-4.5');
+    });
+
+    it('env override missing providerId does NOT apply', () => {
+      const result = routeAuxiliaryModel('compact', {
+        main: mockMain({ roleModels: { small: 'haiku-4.5' } }),
+        isMainSdkProxyOnly: false,
+        others: [],
+        envOverride: { modelId: 'custom-model' }, // missing providerId
+      });
+      assert.equal(result.source, 'main_small');
+    });
+  });
+
+  describe('Tier 2 — main provider small slot', () => {
+    it('main small slot is preferred when main is not sdkProxyOnly', () => {
+      const result = routeAuxiliaryModel('compact', {
+        main: mockMain({ roleModels: { small: 'haiku-4.5', haiku: 'haiku-4.5-alt' } }),
+        isMainSdkProxyOnly: false,
+        others: [],
+      });
+      assert.equal(result.source, 'main_small');
+      assert.equal(result.modelId, 'haiku-4.5');
+    });
+
+    it('main small slot is SKIPPED when main is sdkProxyOnly', () => {
+      const result = routeAuxiliaryModel('compact', {
+        main: mockMain({ id: 'kimi', roleModels: { small: 'kimi-small' } }),
+        isMainSdkProxyOnly: true,
+        others: [],
+      });
+      // falls through to main_floor since no other providers
+      assert.equal(result.source, 'main_floor');
+      assert.equal(result.providerId, 'kimi');
+    });
+  });
+
+  describe('Tier 3 — main provider haiku slot', () => {
+    it('main haiku used when small is absent', () => {
+      const result = routeAuxiliaryModel('compact', {
+        main: mockMain({ roleModels: { haiku: 'haiku-only' } }),
+        isMainSdkProxyOnly: false,
+        others: [],
+      });
+      assert.equal(result.source, 'main_haiku');
+      assert.equal(result.modelId, 'haiku-only');
+    });
+  });
+
+  describe('Tier 4 — fallback provider', () => {
+    it('fallback provider small used when main is sdkProxyOnly', () => {
+      const result = routeAuxiliaryModel('compact', {
+        main: mockMain({ id: 'kimi', roleModels: { small: 'kimi-small' } }),
+        isMainSdkProxyOnly: true,
+        others: [
+          {
+            id: 'anthropic',
+            roleModels: { small: 'claude-haiku-4-5' },
+            isSdkProxyOnly: false,
+          },
+        ],
+      });
+      assert.equal(result.source, 'fallback_provider_small');
+      assert.equal(result.providerId, 'anthropic');
+      assert.equal(result.modelId, 'claude-haiku-4-5');
+    });
+
+    it('fallback provider haiku used when no small anywhere', () => {
+      const result = routeAuxiliaryModel('compact', {
+        main: mockMain({ id: 'kimi', roleModels: {} }),
+        isMainSdkProxyOnly: true,
+        others: [
+          {
+            id: 'anthropic',
+            roleModels: { haiku: 'claude-haiku-4-5' },
+            isSdkProxyOnly: false,
+          },
+        ],
+      });
+      assert.equal(result.source, 'fallback_provider_haiku');
+      assert.equal(result.providerId, 'anthropic');
+    });
+
+    it('fallback skips other providers that are also sdkProxyOnly', () => {
+      const result = routeAuxiliaryModel('compact', {
+        main: mockMain({ id: 'kimi', roleModels: {} }),
+        isMainSdkProxyOnly: true,
+        others: [
+          {
+            id: 'glm',
+            roleModels: { small: 'glm-air' },
+            isSdkProxyOnly: true, // skipped
+          },
+          {
+            id: 'anthropic',
+            roleModels: { small: 'claude-haiku-4-5' },
+            isSdkProxyOnly: false,
+          },
+        ],
+      });
+      assert.equal(result.source, 'fallback_provider_small');
+      assert.equal(result.providerId, 'anthropic');
+    });
+  });
+
+  describe('Tier 5 — main floor (ultimate fallback)', () => {
+    it('falls back to main + main model when no small/haiku anywhere', () => {
+      const result = routeAuxiliaryModel('compact', {
+        main: mockMain({
+          id: 'main',
+          roleModels: {},
+          model: 'main-model',
+          upstreamModel: 'upstream-main-model',
+        }),
+        isMainSdkProxyOnly: false,
+        others: [],
+      });
+      assert.equal(result.source, 'main_floor');
+      assert.equal(result.providerId, 'main');
+      // upstreamModel is preferred over model when both are set
+      assert.equal(result.modelId, 'upstream-main-model');
+    });
+
+    it('falls back to main_floor when all other providers are sdkProxyOnly', () => {
+      const result = routeAuxiliaryModel('compact', {
+        main: mockMain({ id: 'main-kimi', roleModels: {} }),
+        isMainSdkProxyOnly: true,
+        others: [
+          { id: 'glm', roleModels: { small: 'glm' }, isSdkProxyOnly: true },
+          { id: 'minimax', roleModels: { small: 'minimax' }, isSdkProxyOnly: true },
+        ],
+      });
+      assert.equal(result.source, 'main_floor');
+      assert.equal(result.providerId, 'main-kimi');
+    });
+
+    it('env mode with undefined provider still returns main_floor with providerId=env', () => {
+      const result = routeAuxiliaryModel('compact', {
+        main: mockMain({ envMode: true, roleModels: {}, upstreamModel: 'env-model' }),
+        isMainSdkProxyOnly: false,
+        others: [],
+      });
+      assert.equal(result.source, 'main_floor');
+      assert.equal(result.providerId, 'env');
+      assert.equal(result.modelId, 'env-model');
+    });
+
+    it('never returns null/undefined modelId (empty string fallback)', () => {
+      const result = routeAuxiliaryModel('compact', {
+        main: mockMain({ envMode: true, roleModels: {} }),
+        isMainSdkProxyOnly: false,
+        others: [],
+      });
+      assert.equal(result.source, 'main_floor');
+      assert.equal(typeof result.modelId, 'string');
+    });
+  });
+
+  describe('task parameter', () => {
+    it('task parameter does not affect routing for the same ctx', () => {
+      const ctx = {
+        main: mockMain({ roleModels: { small: 'haiku-4.5' } }),
+        isMainSdkProxyOnly: false,
+        others: [],
+      };
+      const compact = routeAuxiliaryModel('compact', ctx);
+      const vision = routeAuxiliaryModel('vision', ctx);
+      const summarize = routeAuxiliaryModel('summarize', ctx);
+      const webExtract = routeAuxiliaryModel('web_extract', ctx);
+      assert.equal(compact.modelId, 'haiku-4.5');
+      assert.equal(vision.modelId, 'haiku-4.5');
+      assert.equal(summarize.modelId, 'haiku-4.5');
+      assert.equal(webExtract.modelId, 'haiku-4.5');
+    });
+  });
+});
+
+// ────────────────────────────────────────────────────────────────
+// resolveAuxiliaryModel — integration with real DB state
+// ────────────────────────────────────────────────────────────────
+
+describe('resolveAuxiliaryModel (live wrapper)', () => {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { resolveAuxiliaryModel } = require('../../lib/provider-resolver');
+
+  it('returns a well-formed result without throwing', () => {
+    const result = resolveAuxiliaryModel('compact');
+    assert.ok(result);
+    assert.equal(typeof result.providerId, 'string');
+    assert.equal(typeof result.modelId, 'string');
+    assert.ok(
+      ['env_override', 'main_small', 'main_haiku', 'fallback_provider_small',
+       'fallback_provider_haiku', 'main_floor'].includes(result.source),
+      `unexpected source: ${result.source}`,
+    );
+  });
+
+  it('env override applies when AUXILIARY_COMPACT_PROVIDER+MODEL are set', () => {
+    process.env.AUXILIARY_COMPACT_PROVIDER = 'test-prov';
+    process.env.AUXILIARY_COMPACT_MODEL = 'test-model';
+    try {
+      const result = resolveAuxiliaryModel('compact');
+      assert.equal(result.source, 'env_override');
+      assert.equal(result.providerId, 'test-prov');
+      assert.equal(result.modelId, 'test-model');
+    } finally {
+      delete process.env.AUXILIARY_COMPACT_PROVIDER;
+      delete process.env.AUXILIARY_COMPACT_MODEL;
+    }
+  });
+
+  it('each task type reads its own env var (AUXILIARY_<TASK>_*)', () => {
+    process.env.AUXILIARY_VISION_PROVIDER = 'vision-prov';
+    process.env.AUXILIARY_VISION_MODEL = 'vision-model';
+    try {
+      const vision = resolveAuxiliaryModel('vision');
+      assert.equal(vision.source, 'env_override');
+      assert.equal(vision.modelId, 'vision-model');
+
+      // compact should NOT pick up vision env vars
+      const compact = resolveAuxiliaryModel('compact');
+      assert.notEqual(compact.source, 'env_override');
+    } finally {
+      delete process.env.AUXILIARY_VISION_PROVIDER;
+      delete process.env.AUXILIARY_VISION_MODEL;
+    }
+  });
+});
