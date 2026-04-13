@@ -74,6 +74,10 @@ const en = {
   'skillNudge.saveButton': 'Save as Skill',
   'skillNudge.savePrompt': 'Please help me save the workflow from this conversation as a reusable Skill.',
 
+  // ── Message queue ────────────────────────────────────────────
+  'messageQueue.queued': 'Queued',
+  'messageQueue.cancel': 'Cancel queued message',
+
   // ── Chat view / session page ────────────────────────────────
   'chat.newConversation': 'New Conversation',
 

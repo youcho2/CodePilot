@@ -71,6 +71,10 @@ const zh: Record<TranslationKey, string> = {
   'skillNudge.saveButton': '保存为 Skill',
   'skillNudge.savePrompt': '请帮我把这次对话中的工作流程保存为一个可复用的 Skill。',
 
+  // ── Message queue ────────────────────────────────────────────
+  'messageQueue.queued': '已排队',
+  'messageQueue.cancel': '取消排队消息',
+
   // ── Chat view / session page ────────────────────────────────
   'chat.newConversation': '新对话',
 
