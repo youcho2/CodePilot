@@ -55,24 +55,47 @@ interface AskUserQuestionInput {
   questions: AskUserQuestion[];
 }
 
+export type AskUserQuestionRejectReason =
+  | 'multi_question'
+  | 'multi_select'
+  | 'no_options';
+
+/**
+ * Check whether the AskUserQuestion input can be represented with a single
+ * option-button card. Returns a reject reason for forms the bridge can't
+ * faithfully render, rather than silently truncating.
+ */
+function validateAskUserQuestion(toolInput: Record<string, unknown>): {
+  ok: true;
+  question: AskUserQuestion;
+} | {
+  ok: false;
+  reason: AskUserQuestionRejectReason;
+} {
+  const input = toolInput as unknown as AskUserQuestionInput;
+  const questions = Array.isArray(input?.questions) ? input.questions : [];
+
+  if (questions.length === 0) return { ok: false, reason: 'no_options' };
+  // Multi-question: refuse rather than dropping questions 2..N.
+  if (questions.length > 1) return { ok: false, reason: 'multi_question' };
+
+  const q = questions[0];
+  // Multi-select: single callback_data button can't encode multiple choices.
+  if (q.multiSelect === true) return { ok: false, reason: 'multi_select' };
+  if (!Array.isArray(q.options) || q.options.length === 0) {
+    return { ok: false, reason: 'no_options' };
+  }
+  return { ok: true, question: q };
+}
+
 /**
  * Build an interactive AskUserQuestion card for bridge channels that support buttons.
- * Returns null if the tool input doesn't look like AskUserQuestion (fall back to default).
- *
- * Limitation: only the FIRST question is rendered interactively — multi-question calls
- * are rare and would bloat the card. If more are needed, the first answer can be
- * followed by another AskUserQuestion call.
+ * Call only after validateAskUserQuestion() returned ok.
  */
 function buildAskUserQuestionCard(
   permissionRequestId: string,
-  toolInput: Record<string, unknown>,
-): { text: string; inlineButtons: { text: string; callbackData: string }[][] } | null {
-  const input = toolInput as unknown as AskUserQuestionInput;
-  const question = input?.questions?.[0];
-  if (!question || !Array.isArray(question.options) || question.options.length === 0) {
-    return null;
-  }
-
+  question: AskUserQuestion,
+): { text: string; inlineButtons: { text: string; callbackData: string }[][] } {
   const lines: string[] = [];
   if (question.header) lines.push(`<b>${escapeHtml(question.header)}</b>`);
   lines.push(escapeHtml(question.question));
@@ -93,6 +116,20 @@ function buildAskUserQuestionCard(
 
   return { text: lines.join('\n'), inlineButtons: [buttons] };
 }
+
+/** Human-readable rejection messages for unsupported AskUserQuestion forms. */
+const ASK_REJECT_MESSAGES: Record<AskUserQuestionRejectReason, string> = {
+  multi_question:
+    'AskUserQuestion with multiple questions is not supported in IM/bridge sessions. ' +
+    'Please ask one question at a time (call AskUserQuestion once per question, or ' +
+    'collapse into a single question).',
+  multi_select:
+    'AskUserQuestion with multiSelect is not supported in IM/bridge sessions because ' +
+    'the chat card only accepts a single option tap. Please rephrase as a single-choice ' +
+    'question, or ask the user to reply with their selections in plain text.',
+  no_options:
+    'AskUserQuestion requires at least one option. Please rephrase as a plain-text question.',
+};
 
 export async function forwardPermissionRequest(
   adapter: BaseChannelAdapter,
@@ -156,11 +193,30 @@ export async function forwardPermissionRequest(
     return;
   }
 
+  // Validate AskUserQuestion shape — refuse multi-question / multi-select /
+  // empty forms rather than silently truncating to a partial answer.
+  if (toolName === 'AskUserQuestion') {
+    const validation = validateAskUserQuestion(toolInput);
+    if (!validation.ok) {
+      console.log(`[bridge] Denied AskUserQuestion (${permissionRequestId}) — ${validation.reason}`);
+      resolvePendingPermission(permissionRequestId, {
+        behavior: 'deny',
+        message: ASK_REJECT_MESSAGES[validation.reason],
+      });
+      return;
+    }
+  }
+
   let message: OutboundMessage;
 
-  // AskUserQuestion: render as question card with option buttons (#282)
-  const askCard = toolName === 'AskUserQuestion'
-    ? buildAskUserQuestionCard(permissionRequestId, toolInput)
+  // AskUserQuestion: render as question card with option buttons (#282).
+  // At this point validateAskUserQuestion() has confirmed a single single-select
+  // question, so the card payload is always representable.
+  const validatedAsk = toolName === 'AskUserQuestion'
+    ? validateAskUserQuestion(toolInput)
+    : null;
+  const askCard = validatedAsk?.ok
+    ? buildAskUserQuestionCard(permissionRequestId, validatedAsk.question)
     : null;
 
   if (askCard) {

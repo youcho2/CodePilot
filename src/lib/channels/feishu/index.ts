@@ -52,6 +52,8 @@ export class FeishuChannelPlugin implements ChannelPlugin<FeishuConfig> {
   private activeReactions = new Map<string, { messageId: string; reactionId: string }>();
   /** Bot's open_id, resolved after gateway starts. Used for @mention detection (#384). */
   private botOpenId = '';
+  /** Periodic retry timer for resolveBotIdentity when the initial probe fails. */
+  private identityRetryTimer: ReturnType<typeof setInterval> | null = null;
 
   loadConfig(): FeishuConfig | null {
     this.config = loadFeishuConfig();
@@ -199,10 +201,14 @@ export class FeishuChannelPlugin implements ChannelPlugin<FeishuConfig> {
   /**
    * Fetch bot open_id with retry so mention features degrade gracefully.
    *
-   * Note: until this resolves successfully, the requireMention gate fails open
-   * (see inbound.ts) — un-mentioned group messages are NOT dropped during the
-   * startup gap. This avoids making the bot look completely broken on startup
-   * at the cost of a brief permissive window (~1-5s typically).
+   * Behavior:
+   * - 3 quick attempts on startup (2s/4s/6s backoff)
+   * - If all startup attempts fail, schedule a slow periodic retry every 60s
+   *   so a transient API outage doesn't permanently disable requireMention
+   *   for the rest of the process lifetime.
+   * - Until resolved, requireMention fails open (inbound.ts gate checks
+   *   botOpenId truthiness). This avoids dropping every group message during
+   *   startup but does mean un-mentioned messages slip through the gap.
    */
   private async resolveBotIdentity(maxRetries = 3): Promise<void> {
     const client = this.gateway?.getRestClient();
@@ -220,11 +226,41 @@ export class FeishuChannelPlugin implements ChannelPlugin<FeishuConfig> {
         await new Promise((r) => setTimeout(r, 2000 * attempt));
       }
     }
-    const warning = 'Could not resolve bot identity — mention detection disabled (requireMention will fail open until resolved)';
-    console.warn('[feishu/plugin]', warning);
+    console.warn(
+      '[feishu/plugin]',
+      'Could not resolve bot identity — mention detection disabled; will retry every 60s'
+    );
+    this.startIdentityRetryTimer();
+  }
+
+  /**
+   * Slow background retry to recover from transient bot identity failures.
+   * Polls every 60s until identity resolves, then stops. Canceled on stop().
+   */
+  private startIdentityRetryTimer(): void {
+    if (this.identityRetryTimer) return;
+    this.identityRetryTimer = setInterval(async () => {
+      const client = this.gateway?.getRestClient();
+      if (!client) return;
+      const info = await getBotInfo(client);
+      if (info?.openId) {
+        this.botOpenId = info.openId;
+        if (this.identityRetryTimer) {
+          clearInterval(this.identityRetryTimer);
+          this.identityRetryTimer = null;
+        }
+        if (this.config?.requireMention) {
+          console.log('[feishu/plugin]', 'Bot identity resolved via background retry; requireMention gate now active');
+        }
+      }
+    }, 60_000);
   }
 
   async stop(): Promise<void> {
+    if (this.identityRetryTimer) {
+      clearInterval(this.identityRetryTimer);
+      this.identityRetryTimer = null;
+    }
     if (this.gateway) {
       await this.gateway.stop();
       this.gateway = null;
