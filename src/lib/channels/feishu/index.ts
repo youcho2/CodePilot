@@ -105,6 +105,24 @@ export class FeishuChannelPlugin implements ChannelPlugin<FeishuConfig> {
     this.gateway.registerMessageHandler((data: unknown) => {
       const parsed = parseMessageWithResources(data, this.config!, this.botOpenId);
       if (!parsed) return;
+
+      // Access control gate: enforce dmPolicy / groupPolicy / allowFrom /
+      // groupAllowFrom before enqueuing. Without this check these settings
+      // were dead config on Feishu — unlike Telegram/Discord/QQ adapters.
+      //
+      // Must use the RAW chat_id (before thread-session wrapping). When
+      // threadSession is enabled, parseMessageWithResources encodes
+      // "oc_xxx:thread:<root>" into address.chatId for routing, but groupAllowFrom
+      // stores plain oc_xxx values, so matching against the wrapped address
+      // would drop every legitimate thread message on allowlisted groups.
+      const addrUserId = parsed.message.address.userId || '';
+      const rawChatId = parsed.message.address.chatId.split(':thread:')[0];
+      if (!isUserAuthorized(this.config!, addrUserId, rawChatId)) {
+        console.log('[feishu/plugin]', 'Dropping unauthorized message from',
+          addrUserId, 'in', rawChatId);
+        return;
+      }
+
       if (parsed.resources.length === 0) {
         this.enqueueMessage(parsed.message);
         return;
@@ -136,6 +154,15 @@ export class FeishuChannelPlugin implements ChannelPlugin<FeishuConfig> {
       const chatId = event?.context?.open_chat_id || value.chatId || '';
       const messageId = event?.context?.open_message_id || event?.open_message_id || '';
       const userId = event?.operator?.open_id || event?.open_id || '';
+
+      // Access control gate: reject card clicks from unauthorized users.
+      // Required to prevent a non-whitelisted user from approving permissions
+      // or switching projects via buttons on an existing bot card.
+      if (chatId && !isUserAuthorized(this.config!, userId, chatId)) {
+        console.log('[feishu/plugin]', 'Rejecting card action from unauthorized user',
+          userId, 'in', chatId);
+        return { toast: { type: 'warning' as const, content: '无权限操作' } };
+      }
 
       // Format 1: callback_data (permission buttons)
       const callbackData = value.callback_data;
@@ -259,32 +286,47 @@ export class FeishuChannelPlugin implements ChannelPlugin<FeishuConfig> {
    *
    * The timer callback checks the generation so an interval scheduled by a
    * previous start() cycle can't mutate state on a fresh plugin instance.
+   *
+   * Each callback captures its own handle (`myTimer`) so a stale callback
+   * can only clear its own timer, never a timer belonging to a later
+   * generation. Without this capture, a queued stale callback would see the
+   * generation mismatch and then clearInterval(this.identityRetryTimer),
+   * which might point at the fresh timer of a subsequent start() cycle,
+   * silently killing recovery for the new session.
    */
   private startIdentityRetryTimer(generation: number): void {
     if (this.identityRetryTimer) return;
-    this.identityRetryTimer = setInterval(async () => {
+    // eslint-disable-next-line prefer-const
+    let myTimer: ReturnType<typeof setInterval>;
+    const clearSelf = () => {
+      clearInterval(myTimer);
+      // Only detach the shared field if it still points at our timer —
+      // otherwise we'd clear a newer generation's recovery timer.
+      if (this.identityRetryTimer === myTimer) {
+        this.identityRetryTimer = null;
+      }
+    };
+    myTimer = setInterval(async () => {
       if (this.identityGeneration !== generation) {
-        if (this.identityRetryTimer) {
-          clearInterval(this.identityRetryTimer);
-          this.identityRetryTimer = null;
-        }
+        clearSelf();
         return;
       }
       const client = this.gateway?.getRestClient();
       if (!client) return;
       const info = await getBotInfo(client);
-      if (this.identityGeneration !== generation) return; // stopped during await
+      if (this.identityGeneration !== generation) {
+        clearSelf();
+        return;
+      }
       if (info?.openId) {
         this.botOpenId = info.openId;
-        if (this.identityRetryTimer) {
-          clearInterval(this.identityRetryTimer);
-          this.identityRetryTimer = null;
-        }
+        clearSelf();
         if (this.config?.requireMention) {
           console.log('[feishu/plugin]', 'Bot identity resolved via background retry; requireMention gate now active');
         }
       }
     }, 60_000);
+    this.identityRetryTimer = myTimer;
   }
 
   async stop(): Promise<void> {

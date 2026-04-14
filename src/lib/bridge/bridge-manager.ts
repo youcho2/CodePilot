@@ -345,6 +345,19 @@ export async function stop(): Promise<void> {
 
   state.running = false;
 
+  // Abort all active tool/stream tasks so in-flight Claude sessions stop
+  // writing to DB and release session locks cleanly. Without this, `/stop`
+  // had "interrupt current task" semantics per-session but global stop()
+  // would let running tasks finish in the background uncounted.
+  for (const [sessionId, taskAbort] of state.activeTasks) {
+    try {
+      taskAbort.abort();
+    } catch (err) {
+      console.warn(`[bridge-manager] Error aborting task ${sessionId}:`, err);
+    }
+  }
+  state.activeTasks.clear();
+
   // Abort all event loops
   for (const [, abort] of state.loopAborts) {
     abort.abort();
@@ -364,7 +377,6 @@ export async function stop(): Promise<void> {
   state.adapters.clear();
   state.adapterMeta.clear();
   state.sessionLocks.clear();
-  state.activeTasks.clear();
   state.startedAt = null;
 
   // Re-enable notification bot polling
