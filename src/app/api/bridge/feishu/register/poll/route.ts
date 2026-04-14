@@ -47,9 +47,10 @@ export async function POST(request: Request) {
 
     const session = await pollRegistration(sessionId);
 
-    // Clean up terminal sessions after a delay
+    // Clean up terminal sessions after a delay. unref() so the timer doesn't
+    // hold the event loop alive in tests.
     if (session.status === 'completed' || session.status === 'failed' || session.status === 'expired') {
-      setTimeout(() => cancelRegistration(sessionId), 30_000);
+      setTimeout(() => cancelRegistration(sessionId), 30_000).unref();
     }
 
     // On success: verify credentials and optionally restart bridge

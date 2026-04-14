@@ -104,8 +104,11 @@ export async function startRegistration(): Promise<{ sessionId: string; verifica
   const sessions = getSessions();
   sessions.set(sessionId, session);
 
-  // Auto-cleanup after TTL
-  setTimeout(() => { sessions.delete(sessionId); }, SESSION_CLEANUP_MS);
+  // Auto-cleanup after TTL. unref() so the timer doesn't block Node from
+  // exiting — in production the process is long-lived so this is a no-op,
+  // but in tests each session would otherwise keep the event loop alive
+  // for the full 10 minutes.
+  setTimeout(() => { sessions.delete(sessionId); }, SESSION_CLEANUP_MS).unref();
 
   return { sessionId, verificationUrl: data.verification_uri_complete };
 }
