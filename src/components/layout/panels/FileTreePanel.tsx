@@ -18,6 +18,10 @@ export function FileTreePanel() {
   const { t } = useTranslation();
   const [width, setWidth] = useState(TREE_DEFAULT_WIDTH);
 
+  const highlightPath = typeof window !== 'undefined'
+    ? new URLSearchParams(window.location.search).get('file') || undefined
+    : undefined;
+
   const handleResize = useCallback((delta: number) => {
     setWidth((w) => Math.min(TREE_MAX_WIDTH, Math.max(TREE_MIN_WIDTH, w - delta)));
   }, []);
@@ -84,6 +88,7 @@ export function FileTreePanel() {
               workingDirectory={workingDirectory}
               onFileSelect={handleFileSelect}
               onFileAdd={handleFileAdd}
+              highlightPath={highlightPath}
             />
           </div>
         </div>

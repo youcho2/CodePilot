@@ -39,11 +39,25 @@ const en = {
   'chatList.showMore': 'Show {count} more',
   'chatList.showLess': 'Show less',
 
+  // ── Global search ───────────────────────────────────────────
+  'globalSearch.placeholder': 'Search... (try session:, message:, file:)',
+  'globalSearch.hint': 'Type to search across sessions and messages',
+  'globalSearch.hintPrefix': 'Prefix with',
+  'globalSearch.toNarrowScope': 'to narrow scope',
+  'globalSearch.noResults': 'No results found',
+  'globalSearch.searching': 'Searching...',
+  'globalSearch.sessions': 'Sessions',
+  'globalSearch.messages': 'Messages',
+  'globalSearch.files': 'Files',
+  'globalSearch.toolLabel': 'Tool',
+
   // ── Message list ────────────────────────────────────────────
   'messageList.claudeChat': 'CodePilot Chat',
   'messageList.emptyDescription': 'Start a conversation with CodePilot. Ask questions, get help with code, or explore ideas.',
   'messageList.loadEarlier': 'Load earlier messages',
   'messageList.loading': 'Loading...',
+  'messageList.userLabel': 'User',
+  'messageList.assistantLabel': 'Assistant',
 
   // ── Message input ───────────────────────────────────────────
   'messageInput.attachFiles': 'Attach files',

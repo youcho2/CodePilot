@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { useTranslation } from '@/hooks/useTranslation';
 import {
@@ -11,8 +11,9 @@ import {
   CommandGroup,
   CommandItem,
 } from '@/components/ui/command';
-import { MagnifyingGlass, ChatCircleText, NotePencil, Folder } from '@/components/ui/icon';
+import { ChatCircleText, NotePencil, Folder, FolderOpen, File, UserCircle, Sparkle, Wrench, CaretDown, CaretRight } from '@/components/ui/icon';
 import type { IconComponent } from '@/types';
+import type { TranslationKey } from '@/i18n';
 
 interface SearchResultSession {
   type: 'session';
@@ -30,6 +31,7 @@ interface SearchResultMessage {
   role: 'user' | 'assistant';
   snippet: string;
   createdAt: string;
+  contentType: 'user' | 'assistant' | 'tool';
 }
 
 interface SearchResultFile {
@@ -38,6 +40,7 @@ interface SearchResultFile {
   sessionTitle: string;
   path: string;
   name: string;
+  nodeType: 'file' | 'directory';
 }
 
 interface SearchResponse {
@@ -57,10 +60,16 @@ const TYPE_ICONS: Record<string, IconComponent> = {
   files: Folder,
 };
 
-const TYPE_LABELS: Record<string, string> = {
-  sessions: 'Sessions',
-  messages: 'Messages',
-  files: 'Files',
+const TYPE_LABEL_KEYS: Record<keyof SearchResponse, TranslationKey> = {
+  sessions: 'globalSearch.sessions',
+  messages: 'globalSearch.messages',
+  files: 'globalSearch.files',
+};
+
+const CONTENT_TYPE_ICONS: Record<SearchResultMessage['contentType'], IconComponent> = {
+  user: UserCircle,
+  assistant: Sparkle,
+  tool: Wrench,
 };
 
 export function GlobalSearchDialog({ open, onOpenChange }: GlobalSearchDialogProps) {
@@ -69,9 +78,12 @@ export function GlobalSearchDialog({ open, onOpenChange }: GlobalSearchDialogPro
   const [query, setQuery] = useState('');
   const [loading, setLoading] = useState(false);
   const [results, setResults] = useState<SearchResponse>({ sessions: [], messages: [], files: [] });
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
   const abortRef = useRef<AbortController | null>(null);
+  const composingRef = useRef(false);
 
   const performSearch = useCallback(async (q: string) => {
+    if (composingRef.current) return;
     if (abortRef.current) {
       abortRef.current.abort();
     }
@@ -116,22 +128,35 @@ export function GlobalSearchDialog({ open, onOpenChange }: GlobalSearchDialogPro
     if (!open) {
       setQuery('');
       setResults({ sessions: [], messages: [], files: [] });
+      setCollapsedGroups(new Set());
     }
   }, [open]);
+
+  const toggleGroup = useCallback((sessionId: string) => {
+    setCollapsedGroups(prev => {
+      const next = new Set(prev);
+      if (next.has(sessionId)) {
+        next.delete(sessionId);
+      } else {
+        next.add(sessionId);
+      }
+      return next;
+    });
+  }, []);
 
   const handleSelect = useCallback(
     (item: SearchResultSession | SearchResultMessage | SearchResultFile) => {
       onOpenChange(false);
+      const qParam = query.trim() ? `&q=${encodeURIComponent(query.trim())}` : '';
       if (item.type === 'session') {
         router.push(`/chat/${item.id}`);
       } else if (item.type === 'message') {
-        router.push(`/chat/${item.sessionId}`);
+        router.push(`/chat/${item.sessionId}?message=${item.messageId}${qParam}`);
       } else if (item.type === 'file') {
-        // For files, navigate to the session and let the file tree show it
-        router.push(`/chat/${item.sessionId}`);
+        router.push(`/chat/${item.sessionId}?file=${encodeURIComponent(item.path)}${qParam}`);
       }
     },
-    [router, onOpenChange],
+    [router, onOpenChange, query],
   );
 
   const hasResults =
@@ -139,43 +164,71 @@ export function GlobalSearchDialog({ open, onOpenChange }: GlobalSearchDialogPro
     results.messages.length > 0 ||
     results.files.length > 0;
 
+  const groupedMessages = useMemo(() => {
+    const groups: Record<string, { sessionTitle: string; messages: SearchResultMessage[] }> = {};
+    for (const msg of results.messages) {
+      if (!groups[msg.sessionId]) {
+        groups[msg.sessionId] = { sessionTitle: msg.sessionTitle, messages: [] };
+      }
+      groups[msg.sessionId].messages.push(msg);
+    }
+    return Object.values(groups);
+  }, [results.messages]);
+
+  const renderHighlightedSnippet = (snippet: string, searchTerm: string) => {
+    if (!searchTerm) return <span>{snippet}</span>;
+    const lowerSnippet = snippet.toLowerCase();
+    const lowerTerm = searchTerm.toLowerCase();
+    const idx = lowerSnippet.indexOf(lowerTerm);
+    if (idx === -1) return <span>{snippet}</span>;
+    return (
+      <span>
+        {snippet.slice(0, idx)}
+        <mark className="rounded bg-primary/25 px-0.5 text-foreground">
+          {snippet.slice(idx, idx + searchTerm.length)}
+        </mark>
+        {snippet.slice(idx + searchTerm.length)}
+      </span>
+    );
+  };
+
   const renderGroup = (
     key: keyof SearchResponse,
-    items: (SearchResultSession | SearchResultMessage | SearchResultFile)[],
+    items: (SearchResultSession | SearchResultFile)[],
   ) => {
     if (items.length === 0) return null;
     const Icon = TYPE_ICONS[key];
     return (
-      <CommandGroup key={key} heading={TYPE_LABELS[key]}>
+      <CommandGroup key={key} heading={t(TYPE_LABEL_KEYS[key])}>
         {items.map((item, idx) => (
           <CommandItem
             key={`${key}-${idx}`}
-            value={`${key}-${idx}-${item.type === 'session' ? item.id : item.type === 'message' ? item.messageId : item.path}`}
+            value={`${key}-${idx}-${item.type === 'session' ? item.id : item.path}`}
             onSelect={() => handleSelect(item)}
             className="flex items-start gap-2 py-2"
           >
-            <Icon size={16} className="mt-0.5 shrink-0 text-muted-foreground" />
+            {item.type === 'file' ? (
+              item.nodeType === 'directory' ? (
+                <Folder size={16} className="mt-0.5 shrink-0 text-muted-foreground" />
+              ) : (
+                <File size={16} className="mt-0.5 shrink-0 text-muted-foreground" />
+              )
+            ) : (
+              <Icon size={16} className="mt-0.5 shrink-0 text-muted-foreground" />
+            )}
             <div className="min-w-0 flex-1">
               {item.type === 'session' && (
                 <>
-                  <p className="truncate text-sm">{item.title}</p>
+                  <p className="truncate text-sm max-w-[360px]">{item.title}</p>
                   {item.projectName && (
-                    <p className="truncate text-xs text-muted-foreground">{item.projectName}</p>
+                    <p className="truncate text-xs text-muted-foreground max-w-[360px]">{item.projectName}</p>
                   )}
-                </>
-              )}
-              {item.type === 'message' && (
-                <>
-                  <p className="truncate text-xs text-muted-foreground">
-                    {item.sessionTitle} · {item.role === 'user' ? 'User' : 'Assistant'}
-                  </p>
-                  <p className="truncate text-sm">{item.snippet}</p>
                 </>
               )}
               {item.type === 'file' && (
                 <>
-                  <p className="truncate text-sm">{item.name}</p>
-                  <p className="truncate text-xs text-muted-foreground">{item.sessionTitle}</p>
+                  <p className="truncate text-sm max-w-[360px]">{item.name}</p>
+                  <p className="truncate text-xs text-muted-foreground max-w-[360px]">{item.sessionTitle}</p>
                 </>
               )}
             </div>
@@ -191,34 +244,102 @@ export function GlobalSearchDialog({ open, onOpenChange }: GlobalSearchDialogPro
       onOpenChange={onOpenChange}
       title="Global Search"
       description="Search across sessions, messages, and files"
-      className="sm:max-w-lg"
+      className="sm:max-w-3xl flex flex-col overflow-hidden overflow-y-hidden"
       showCloseButton={false}
+      shouldFilter={false}
     >
       <CommandInput
-        placeholder="Search... (try sessions:, messages:, files:)"
+        placeholder={t('globalSearch.placeholder')}
         value={query}
         onValueChange={setQuery}
-        className="h-12"
+        className="h-12 shrink-0"
+        onCompositionStart={() => { composingRef.current = true; }}
+        onCompositionEnd={(e) => {
+          composingRef.current = false;
+          const value = (e.target as HTMLInputElement).value;
+          setQuery(value);
+          performSearch(value);
+        }}
       />
-      <CommandList className="max-h-[60vh]">
+      <CommandList className="flex-1 min-h-0 overflow-y-auto max-h-[600px]">
         {!query && !loading && (
           <div className="py-6 text-center text-sm text-muted-foreground">
-            <p>Type to search across sessions and messages</p>
+            <p>{t('globalSearch.hint')}</p>
             <p className="mt-1 text-xs">
-              Prefix with <code className="rounded bg-muted px-1">sessions:</code>{' '}
-              <code className="rounded bg-muted px-1">messages:</code>{' '}
-              <code className="rounded bg-muted px-1">files:</code> to narrow scope
+              {t('globalSearch.hintPrefix')}{' '}
+              <code className="rounded bg-muted px-1">session:</code>{' '}
+              <code className="rounded bg-muted px-1">message:</code>{' '}
+              <code className="rounded bg-muted px-1">file:</code>{' '}
+              {t('globalSearch.toNarrowScope')}
             </p>
           </div>
         )}
         {query && !loading && !hasResults && (
-          <CommandEmpty>No results found</CommandEmpty>
+          <CommandEmpty>{t('globalSearch.noResults')}</CommandEmpty>
         )}
         {renderGroup('sessions', results.sessions)}
-        {renderGroup('messages', results.messages)}
+
+        {groupedMessages.map((group, groupIdx) => {
+          const isCollapsed = collapsedGroups.has(group.messages[0]?.sessionId || `group-${groupIdx}`);
+          const sessionId = group.messages[0]?.sessionId || `group-${groupIdx}`;
+          return (
+            <CommandGroup
+              key={`msg-group-${groupIdx}`}
+              heading={
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    toggleGroup(sessionId);
+                  }}
+                  className="flex w-full items-center gap-1.5 py-1 text-left outline-none"
+                >
+                  {isCollapsed ? (
+                    <CaretRight size={14} className="shrink-0 text-muted-foreground" />
+                  ) : (
+                    <CaretDown size={14} className="shrink-0 text-muted-foreground" />
+                  )}
+                  <NotePencil size={14} className="shrink-0 text-muted-foreground" />
+                  <span className="truncate max-w-[280px]" title={group.sessionTitle.replace(/\n/g, ' ')}>
+                    {group.sessionTitle.replace(/\n/g, ' ')}
+                  </span>
+                  <span className="ml-1 rounded-full bg-muted px-1.5 py-0 text-[10px] text-muted-foreground">
+                    {group.messages.length}
+                  </span>
+                </button>
+              }
+            >
+              {!isCollapsed && group.messages.map((item, idx) => {
+                const Icon = CONTENT_TYPE_ICONS[item.contentType];
+                const labelKey: TranslationKey =
+                  item.contentType === 'user'
+                    ? 'messageList.userLabel'
+                    : item.contentType === 'tool'
+                      ? ('globalSearch.toolLabel' as TranslationKey)
+                      : 'messageList.assistantLabel';
+                return (
+                  <CommandItem
+                    key={`message-${groupIdx}-${idx}`}
+                    value={`message-${groupIdx}-${idx}-${item.messageId}`}
+                    onSelect={() => handleSelect(item)}
+                    className="flex items-start gap-2 py-2"
+                  >
+                    <Icon size={16} className="mt-0.5 shrink-0 text-muted-foreground" />
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm">{renderHighlightedSnippet(item.snippet, query)}</p>
+                      <p className="truncate text-xs text-muted-foreground">{t(labelKey)}</p>
+                    </div>
+                  </CommandItem>
+                );
+              })}
+            </CommandGroup>
+          );
+        })}
+
         {renderGroup('files', results.files)}
         {loading && (
-          <div className="py-4 text-center text-sm text-muted-foreground">Searching...</div>
+          <div className="py-4 text-center text-sm text-muted-foreground">{t('globalSearch.searching')}</div>
         )}
       </CommandList>
     </CommandDialog>

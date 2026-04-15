@@ -25,6 +25,9 @@ export default function ChatSessionPage({ params }: ChatSessionPageProps) {
   const [sessionMode, setSessionMode] = useState<'code' | 'plan'>('code');
   const [sessionHasSummary, setSessionHasSummary] = useState(false);
   const { setWorkingDirectory, setSessionId, setSessionTitle: setPanelSessionTitle, setFileTreeOpen, setGitPanelOpen, setDashboardPanelOpen } = usePanel();
+  const targetFilePath = typeof window !== 'undefined'
+    ? new URLSearchParams(window.location.search).get('file') || undefined
+    : undefined;
   const { t } = useTranslation();
   const defaultPanelAppliedRef = useRef(false);
 
@@ -112,6 +115,13 @@ export default function ChatSessionPage({ params }: ChatSessionPageProps) {
 
     return () => { cancelled = true; };
   }, [id]);
+
+  // Auto-open file tree when jumping from a file search result
+  useEffect(() => {
+    if (targetFilePath) {
+      setFileTreeOpen(true);
+    }
+  }, [targetFilePath, setFileTreeOpen]);
 
   // Auto-open default panel the first time a session is ever opened.
   // Uses sessionStorage to track which sessions have already been initialized,

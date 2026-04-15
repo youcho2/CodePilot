@@ -22,6 +22,7 @@ interface SearchResultMessage {
   role: 'user' | 'assistant';
   snippet: string;
   createdAt: string;
+  contentType: 'user' | 'assistant' | 'tool';
 }
 
 interface SearchResultFile {
@@ -30,6 +31,7 @@ interface SearchResultFile {
   sessionTitle: string;
   path: string;
   name: string;
+  nodeType: 'file' | 'directory';
 }
 
 export interface SearchResponse {
@@ -40,14 +42,18 @@ export interface SearchResponse {
 
 function parseQuery(raw: string): { scope: 'all' | 'sessions' | 'messages' | 'files'; query: string } {
   const trimmed = raw.trim();
-  if (trimmed.toLowerCase().startsWith('sessions:')) {
-    return { scope: 'sessions', query: trimmed.slice(9).trim() };
+  const lower = trimmed.toLowerCase();
+  if (lower.startsWith('session:') || lower.startsWith('sessions:')) {
+    const prefixLen = lower.startsWith('session:') ? 8 : 9;
+    return { scope: 'sessions', query: trimmed.slice(prefixLen).trim() };
   }
-  if (trimmed.toLowerCase().startsWith('messages:')) {
-    return { scope: 'messages', query: trimmed.slice(9).trim() };
+  if (lower.startsWith('message:') || lower.startsWith('messages:')) {
+    const prefixLen = lower.startsWith('message:') ? 8 : 9;
+    return { scope: 'messages', query: trimmed.slice(prefixLen).trim() };
   }
-  if (trimmed.toLowerCase().startsWith('files:')) {
-    return { scope: 'files', query: trimmed.slice(6).trim() };
+  if (lower.startsWith('file:') || lower.startsWith('files:')) {
+    const prefixLen = lower.startsWith('file:') ? 5 : 6;
+    return { scope: 'files', query: trimmed.slice(prefixLen).trim() };
   }
   return { scope: 'all', query: trimmed };
 }
@@ -70,7 +76,7 @@ function filterSessions(sessions: ChatSession[], query: string): SearchResultSes
     }));
 }
 
-function collectFiles(
+function collectNodes(
   tree: FileTreeNode[],
   sessionId: string,
   sessionTitle: string,
@@ -81,17 +87,18 @@ function collectFiles(
   const q = query.toLowerCase();
   for (const node of tree) {
     if (results.length >= MAX_RESULTS_PER_TYPE) break;
-    if (node.type === 'file' && node.name.toLowerCase().includes(q)) {
+    if (node.name.toLowerCase().includes(q)) {
       results.push({
         type: 'file',
         sessionId,
         sessionTitle,
         path: node.path,
         name: node.name,
+        nodeType: node.type,
       });
     }
     if (node.type === 'directory' && node.children) {
-      collectFiles(node.children, sessionId, sessionTitle, query, results);
+      collectNodes(node.children, sessionId, sessionTitle, query, results);
     }
   }
 }
@@ -123,6 +130,7 @@ export async function GET(request: NextRequest) {
         role: r.role,
         snippet: r.snippet,
         createdAt: r.createdAt,
+        contentType: r.contentType,
       }));
     }
 
@@ -130,7 +138,7 @@ export async function GET(request: NextRequest) {
       for (const session of allSessions) {
         if (!session.working_directory) continue;
         const tree = await scanDirectory(session.working_directory, FILE_SCAN_DEPTH);
-        collectFiles(tree, session.id, session.title, query, result.files);
+        collectNodes(tree, session.id, session.title, query, result.files);
         if (result.files.length >= MAX_RESULTS_PER_TYPE) break;
       }
     }

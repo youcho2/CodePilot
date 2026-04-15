@@ -36,11 +36,25 @@ const zh: Record<TranslationKey, string> = {
   'chatList.showMore': '展开更多（{count} 条）',
   'chatList.showLess': '收起',
 
+  // ── Global search ───────────────────────────────────────────
+  'globalSearch.placeholder': '搜索...（尝试 session: / message: / file:）',
+  'globalSearch.hint': '输入关键词搜索会话和消息',
+  'globalSearch.hintPrefix': '使用前缀',
+  'globalSearch.toNarrowScope': '限定搜索范围',
+  'globalSearch.noResults': '未找到结果',
+  'globalSearch.searching': '搜索中...',
+  'globalSearch.sessions': '会话',
+  'globalSearch.messages': '消息',
+  'globalSearch.files': '文件',
+  'globalSearch.toolLabel': '工具',
+
   // ── Message list ────────────────────────────────────────────
   'messageList.claudeChat': 'CodePilot 对话',
   'messageList.emptyDescription': '开始与 CodePilot 对话。提问、获取代码帮助或探索想法。',
   'messageList.loadEarlier': '加载更早的消息',
   'messageList.loading': '加载中...',
+  'messageList.userLabel': '用户',
+  'messageList.assistantLabel': '助手',
 
   // ── Message input ───────────────────────────────────────────
   'messageInput.attachFiles': '附加文件',

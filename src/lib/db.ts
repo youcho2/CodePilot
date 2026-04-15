@@ -1203,6 +1203,8 @@ export interface SessionSearchResult {
   createdAt: string;
   /** Snippet extracted from content with query context (up to ~200 chars). */
   snippet: string;
+  /** Derived message type for search UI icons/filtering. */
+  contentType: 'user' | 'assistant' | 'tool';
 }
 
 /**
@@ -1282,10 +1284,26 @@ export function searchMessages(
     role: row.role,
     createdAt: row.createdAt,
     snippet: buildSnippet(row.content, lowerQuery),
+    contentType: deriveContentType(row.role, row.content),
   }));
 }
 
-/** Extract a ~200-char snippet around the first match (case-insensitive). */
+function deriveContentType(role: 'user' | 'assistant', content: string): 'user' | 'assistant' | 'tool' {
+  if (role === 'user') return 'user';
+  try {
+    const parsed = JSON.parse(content);
+    if (Array.isArray(parsed)) {
+      if (parsed.some((b: unknown) => typeof b === 'object' && b !== null && (b as { type?: string }).type === 'tool_use')) {
+        return 'tool';
+      }
+    }
+  } catch {
+    // fallback to plain text assistant
+  }
+  return 'assistant';
+}
+
+/** Extract a ~140-char snippet with the match near the front so it survives single-line truncation in UI lists. */
 function buildSnippet(content: string, lowerQuery: string): string {
   if (!content) return '';
   const lowerContent = content.toLowerCase();
@@ -1295,8 +1313,10 @@ function buildSnippet(content: string, lowerQuery: string): string {
     // and the query matches bytes inside quoted strings.
     return content.length > 200 ? content.slice(0, 200) + '…' : content;
   }
-  const start = Math.max(0, idx - 80);
-  const end = Math.min(content.length, idx + lowerQuery.length + 120);
+  const LEADING = 28;
+  const TAIL = 100;
+  const start = Math.max(0, idx - LEADING);
+  const end = Math.min(content.length, idx + lowerQuery.length + TAIL);
   const prefix = start > 0 ? '…' : '';
   const suffix = end < content.length ? '…' : '';
   return prefix + content.slice(start, end) + suffix;
