@@ -42,6 +42,10 @@ beforeEach(async () => {
   const { getAllProviders, deleteProvider, setSetting } = await import('@/lib/db');
   for (const p of getAllProviders()) deleteProvider(p.id);
   setSetting('anthropic_auth_token', '');
+  // Clear OAuth tokens so earlier tests can't leak credentials into later ones
+  setSetting('openai_oauth_access_token', '');
+  setSetting('openai_oauth_refresh_token', '');
+  setSetting('openai_oauth_expires_at', '');
 });
 
 afterEach(() => {
@@ -122,10 +126,10 @@ describe('hasCodePilotProvider', () => {
     assert.equal(hasCodePilotProvider(), false);
   });
 
-  it('returns true for a Bedrock-configured DB provider (no api_key needed)', async () => {
+  it('returns true for a Bedrock provider configured via legacy extra_env', async () => {
     const { createProvider } = await import('@/lib/db');
     createProvider({
-      name: 'Bedrock',
+      name: 'Bedrock (legacy)',
       provider_type: 'anthropic',
       base_url: '',
       api_key: '',
@@ -133,5 +137,54 @@ describe('hasCodePilotProvider', () => {
     });
     const { hasCodePilotProvider } = await import('../../lib/provider-presence');
     assert.equal(hasCodePilotProvider(), true);
+  });
+
+  it('returns true for a Bedrock provider configured via env_overrides_json (current UI)', async () => {
+    const { createProvider } = await import('@/lib/db');
+    createProvider({
+      name: 'Bedrock (current)',
+      provider_type: 'anthropic',
+      base_url: '',
+      api_key: '',
+      env_overrides_json: JSON.stringify({ CLAUDE_CODE_USE_BEDROCK: '1', AWS_REGION: 'us-east-1' }),
+    });
+    const { hasCodePilotProvider } = await import('../../lib/provider-presence');
+    assert.equal(hasCodePilotProvider(), true);
+  });
+
+  it('returns true for a Vertex provider configured via env_overrides_json', async () => {
+    const { createProvider } = await import('@/lib/db');
+    createProvider({
+      name: 'Vertex',
+      provider_type: 'anthropic',
+      base_url: '',
+      api_key: '',
+      env_overrides_json: JSON.stringify({ CLAUDE_CODE_USE_VERTEX: 'true', ANTHROPIC_VERTEX_PROJECT_ID: 'p1' }),
+    });
+    const { hasCodePilotProvider } = await import('../../lib/provider-presence');
+    assert.equal(hasCodePilotProvider(), true);
+  });
+
+  it('returns true when a valid OpenAI OAuth session exists', async () => {
+    const { setSetting } = await import('@/lib/db');
+    setSetting('openai_oauth_access_token', 'ya29.a0Test');
+    // expiresAt in the future so isOAuthUsable() returns true
+    setSetting('openai_oauth_expires_at', String(Date.now() + 60 * 60 * 1000));
+    const { hasCodePilotProvider } = await import('../../lib/provider-presence');
+    assert.equal(hasCodePilotProvider(), true);
+  });
+
+  it('returns true when OAuth access token is expired but a refresh token exists', async () => {
+    const { setSetting } = await import('@/lib/db');
+    setSetting('openai_oauth_access_token', 'ya29.expired');
+    setSetting('openai_oauth_expires_at', String(Date.now() - 60 * 1000));
+    setSetting('openai_oauth_refresh_token', 'refresh-token');
+    const { hasCodePilotProvider } = await import('../../lib/provider-presence');
+    assert.equal(hasCodePilotProvider(), true);
+  });
+
+  it('returns false when OAuth is logged out (no access token)', async () => {
+    const { hasCodePilotProvider } = await import('../../lib/provider-presence');
+    assert.equal(hasCodePilotProvider(), false);
   });
 });
