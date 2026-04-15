@@ -176,7 +176,8 @@ export function GlobalSearchDialog({ open, onOpenChange }: GlobalSearchDialogPro
       } else if (item.type === 'message') {
         router.push(`/chat/${item.sessionId}?message=${item.messageId}${qParam}`);
       } else if (item.type === 'file') {
-        router.push(`/chat/${item.sessionId}?file=${encodeURIComponent(item.path)}${qParam}`);
+        const seek = Date.now().toString(36);
+        router.push(`/chat/${item.sessionId}?file=${encodeURIComponent(item.path)}&seek=${seek}${qParam}`);
       }
     },
     [router, onOpenChange, query],

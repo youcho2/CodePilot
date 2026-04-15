@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useRef, use } from 'react';
 import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
 import type { Message, MessagesResponse, ChatSession } from '@/types';
 import { ChatView } from '@/components/chat/ChatView';
 import { SpinnerGap } from "@/components/ui/icon";
@@ -14,6 +15,7 @@ interface ChatSessionPageProps {
 
 export default function ChatSessionPage({ params }: ChatSessionPageProps) {
   const { id } = use(params);
+  const searchParams = useSearchParams();
   const [messages, setMessages] = useState<Message[]>([]);
   const [hasMore, setHasMore] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -25,9 +27,7 @@ export default function ChatSessionPage({ params }: ChatSessionPageProps) {
   const [sessionMode, setSessionMode] = useState<'code' | 'plan'>('code');
   const [sessionHasSummary, setSessionHasSummary] = useState(false);
   const { setWorkingDirectory, setSessionId, setSessionTitle: setPanelSessionTitle, setFileTreeOpen, setGitPanelOpen, setDashboardPanelOpen } = usePanel();
-  const targetFilePath = typeof window !== 'undefined'
-    ? new URLSearchParams(window.location.search).get('file') || undefined
-    : undefined;
+  const targetFilePath = searchParams.get('file') || undefined;
   const { t } = useTranslation();
   const defaultPanelAppliedRef = useRef(false);
 

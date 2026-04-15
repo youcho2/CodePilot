@@ -19,6 +19,7 @@ interface FileTreeProps {
   onFileSelect: (path: string) => void;
   onFileAdd?: (path: string) => void;
   highlightPath?: string;
+  highlightSeek?: string;
 }
 
 function getFileIcon(extension?: string): ReactNode {
@@ -128,7 +129,7 @@ function getParentPaths(filePath: string): string[] {
   return parents;
 }
 
-export function FileTree({ workingDirectory, onFileSelect, onFileAdd, highlightPath }: FileTreeProps) {
+export function FileTree({ workingDirectory, onFileSelect, onFileAdd, highlightPath, highlightSeek }: FileTreeProps) {
   const [tree, setTree] = useState<FileTreeNode[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -218,14 +219,15 @@ export function FileTree({ workingDirectory, onFileSelect, onFileAdd, highlightP
     } else {
       setExpandedPaths(new Set());
     }
-  }, [highlightPath]);
+  }, [highlightPath, highlightSeek]);
 
   // Scroll to and flash highlighted file from search results.
   // Guarded by seekKeyRef so tree auto-refreshes don't re-trigger the scroll.
   useEffect(() => {
     if (!highlightPath || tree.length === 0) return;
-    if (seekKeyRef.current === highlightPath) return;
-    seekKeyRef.current = highlightPath;
+    const seekTargetKey = `${highlightPath}::${highlightSeek || ''}`;
+    if (seekKeyRef.current === seekTargetKey) return;
+    seekKeyRef.current = seekTargetKey;
 
     let attempts = 0;
     const maxAttempts = 15;
@@ -240,7 +242,7 @@ export function FileTree({ workingDirectory, onFileSelect, onFileAdd, highlightP
       }
     }, 100);
     return () => clearInterval(interval);
-  }, [highlightPath, tree]);
+  }, [highlightPath, highlightSeek, tree]);
 
   return (
     <div className="flex flex-col h-full min-h-0">
