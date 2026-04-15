@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef, useMemo } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { ArrowsClockwise, MagnifyingGlass, FileCode, Code, File } from "@/components/ui/icon";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -203,30 +203,46 @@ export function FileTree({ workingDirectory, onFileSelect, onFileAdd, highlightP
     return () => window.removeEventListener('refresh-file-tree', handler);
   }, [fetchTree]);
 
+  // Controlled expansion state for search-driven highlighting
+  const [expandedPaths, setExpandedPaths] = useState<Set<string>>(new Set());
+
+  // Sync expanded paths when highlightPath changes
+  useEffect(() => {
+    if (highlightPath) {
+      const next = new Set<string>();
+      for (const parent of getParentPaths(highlightPath)) {
+        next.add(parent);
+      }
+      next.add(highlightPath);
+      setExpandedPaths(next);
+    } else {
+      setExpandedPaths(new Set());
+    }
+  }, [highlightPath]);
+
+  // Reset flash tracker when highlightPath changes
+  useEffect(() => {
+    hasFlashedRef.current = false;
+  }, [highlightPath]);
+
   // Scroll to and flash highlighted file from search results
   useEffect(() => {
-    if (!highlightPath || hasFlashedRef.current) return;
-    const timer = setTimeout(() => {
+    if (!highlightPath || hasFlashedRef.current || tree.length === 0) return;
+    let attempts = 0;
+    const maxAttempts = 15;
+    const interval = setInterval(() => {
+      attempts++;
       const el = document.getElementById('file-tree-highlight');
       if (el) {
         hasFlashedRef.current = true;
         el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        clearInterval(interval);
+      } else if (attempts >= maxAttempts) {
+        clearInterval(interval);
       }
-    }, 300);
-    return () => clearTimeout(timer);
+    }, 100);
+    return () => clearInterval(interval);
   }, [highlightPath, tree, loading]);
-
-  // Default to all directories collapsed; expand parents and the target itself
-  const defaultExpanded = useMemo(() => {
-    const expanded = new Set<string>();
-    if (highlightPath) {
-      for (const parent of getParentPaths(highlightPath)) {
-        expanded.add(parent);
-      }
-      expanded.add(highlightPath);
-    }
-    return expanded;
-  }, [highlightPath]);
 
   return (
     <div className="flex flex-col h-full min-h-0">
@@ -265,7 +281,8 @@ export function FileTree({ workingDirectory, onFileSelect, onFileAdd, highlightP
           </p>
         ) : (
           <AIFileTree
-            defaultExpanded={defaultExpanded}
+            expanded={expandedPaths}
+            onExpandedChange={setExpandedPaths}
             // eslint-disable-next-line @typescript-eslint/no-explicit-any -- AI Elements FileTree onSelect type conflicts with HTMLAttributes.onSelect
             onSelect={onFileSelect as any}
             onAdd={onFileAdd}
