@@ -1,35 +1,42 @@
-## CodePilot v0.50.2
+## CodePilot v0.50.3
 
-> 稳定性与凭据隔离专项修复版。重点修复 cc-switch 用户切换 provider 后被默默改路由、OpenAI OAuth 在部分网络环境下 403、Turbopack 生产路径报 "streamClaudeSdk is not a function"、内置 Memory/Widget 等 MCP 不该弹权限还弹的问题，以及 v0.49.0 后新增的长对话 AI_MissingToolResultsError 回归。强烈建议所有 cc-switch / 第三方 API / OpenAI OAuth 用户升级。
+> Agent 引擎选择简化 + 入口引导收敛。此版本把 0.50.2 后冒出的 FileTree 崩溃、OpenAI OAuth 用户被错误拦截、阿里云百炼缺 Qwen 3.6 Plus 等问题一次性清掉；同时落地了之前积累已久的改动：Agent 引擎去掉"自动"选项、发消息时没配置服务商直接引导去设置中心。cc-switch 纯用户升级后首次发消息会被引导去添加 CodePilot 服务商，这是本版的**主要行为变化**，见下方说明。
+
+### 新增功能
+
+- **阿里云百炼增加 Qwen 3.6 Plus 模型**（#483）：替换原有 Qwen 3.5 Plus。已经在会话里显式选过旧模型名的用户，下次发消息时模型选择器会自动回到默认，手动重选即可
+- **没配置服务商时自动打开引导**：首次安装或没在 CodePilot 里添加过任何服务商的用户，发消息时不会再出一条莫名其妙的"No provider credentials"错误，而是直接弹出 SetupCenter 的服务商卡片引导添加
+
+### 改进体验
+
+- **Agent 引擎选择从三项变两项**：设置页的"Agent 内核"下拉只剩 **Claude Code** 和 **AI SDK** 两项，删掉了原先含义模糊的"自动"选项。原先选"自动"的用户，首次打开设置页时会按当前环境自动迁移到具体值（装了 Claude Code CLI → Claude Code，没装 → AI SDK），持久化写回，之后不再变动
+- **聊天页引擎标识同步**：右侧聊天页的引擎 badge 不再出现"Agent: Auto"，读到 legacy 'auto' 值会立即按同一规则折算显示具体引擎
+- **错误提示统一引导到"设置 → 服务商"**：Claude Code CLI 的 "Not logged in · Please run /login" 和 CodePilot 自己的"No provider credentials available"两种错误，现在统一归类为"未配置服务商"，文案一致、都带"打开设置"按钮，不再让用户看到 `/login` 这种在 CodePilot 里走不通的引导
+- **OpenAI OAuth 登录 / 登出同步 SetupCenter**：之前 OAuth 登录成功、设置面板的 Provider 卡片不会实时翻绿；登出后也不会回灰。现在两条路径都立即更新
 
 ### 修复问题
 
-- **cc-switch 切换 provider 后请求被默默改路由**（#461/#478/#476/#457/#470/#474）：显式选择 Kimi/GLM/OpenRouter 等第三方 provider 时，`~/.claude/settings.json` 里 cc-switch 写入的 `ANTHROPIC_*` 环境变量不再覆盖你选的 provider 凭据；env group（无显式 provider）则继续完整尊重 cc-switch 配置。每个请求建临时 shadow HOME 做隔离，不影响任何原有文件
-- **OpenAI OAuth 登录 "Token exchange failed: 403 - [object Object]"**（#464）：macOS/Windows 用户在边缘节点 propagation 延迟时登录失败。现加 3 次指数退避重试（1s/2s/4s），对 403、408、429、5xx、网络级失败（ECONNRESET/ETIMEDOUT/ECONNREFUSED/ENOTFOUND）自动重试；错误消息不再出现 `[object Object]`
-- **升级后 localStorage 配置全丢（主题 / 默认模型 / 工作目录记忆）**（#465/#466/#477）：Electron 每次启动 renderer origin 变化导致 localStorage 整体作废。改用 47823-47830 稳定端口范围，并修复"探测后释放再绑定"的 TOCTOU race（两实例同时启动不再相互踢掉）
-- **v0.49.0+ 长对话卡死 "AI_MissingToolResultsError"**：v0.49.0 Hermes 升级把上下文窗口的近期轮次数从 16 降到 6，导致工具密集对话中 `tool_use` 块还在窗口内、配对的 `tool_result` 被截断，Vercel AI SDK 抛错卡死。恢复为 16 轮，截断标记改为 `[Pruned <toolName> result: ...]` 让模型仍能配对
-- **第三方 provider 发消息报 "streamClaudeSdk is not a function"**：Next.js 16 + Turbopack 的 CJS↔ESM interop 问题，影响 chat 主路径。把 5 处内部 lazy `require()` 改为静态 ES import 修复
-- **内置 Memory / Widget / Notify 等 MCP 被反复弹权限确认**：cc-switch 桥接工作上线后被误触发。7 个 CodePilot 内置 MCP 现通过 `allowedTools` 自动批准（用户自装的 MCP 仍按原权限模式走）
-- **Windows 报 "Claude Code executable not found"**：247 events/14d 的 Sentry 顶部错误。SDK cli.js 之前没被复制到 standalone bundle，现加入 `serverExternalPackages` 让 SDK 随 `extraResources` 完整保留
-- **切换会话后计时器归零**（#480/#484）：`ElapsedTimer` 之前 mount 时用 `Date.now()` 当起点，session 切换 remount 归零。改为从 stream-session-manager 透传起点时间，remount 后基于真实起点恢复
-- **选 slash 命令清空已输入文本**（#479/#486）：弹窗选命令时触发位前后的用户已输入内容会被清掉。现在保留文本，光标定位到末尾
-- **Skills 弹窗误触发 / 不能多选 / badge 占地方**：输入框里带单斜杠路径（`src/app`、`foo/bar`、`~/bin`）不再误触发弹窗；点击斜杠按钮时如前面是非空白字符会自动补空格，`hello` → `hello /` 正常弹出 Skills 选择器；支持同时选多个 Skills（按 command 去重），发送时合并为一条 prompt；badge 显示只保留命令名，去掉占地方的描述文字
-- **findClaudeBinary 首次启动误报**：WSL2 / 跨境 VPN 用户 timeout 3s 改 5s；两遍策略先找存在路径再做 `--version` 校验，校验超时但文件存在仍返回该路径
-- **OpenAI OAuth 误重试浪费时间**：token exchange 的真实 auth 错误（400/401/404/422）不再参与重试
+- **打开聊天页时 FileTree 崩溃**（0.50.2 回归）：Next.js 16 + Turbopack 生产构建在某种编译模式下会对解构默认参数里的 `new Set()` 报 `ReferenceError: defaultExpanded is not defined`。将默认值提到模块顶层常量
+- **OpenAI OAuth 用户发消息被 412 拦截**：本版新加的"入口拦截"最初漏识别 OpenAI OAuth 这个虚拟服务商，导致用 OAuth 登录的用户一律被错误引导去配服务商。现补上 OAuth 存在性判定
+- **Bedrock / Vertex 供应商被误判为"未配置"**：新 UI 把路由 flag 存到 `env_overrides_json`，旧代码只读 `extra_env`。改成和 resolver 一样的 `env_overrides_json || extra_env` 优先级 + JSON 解析
+- **SetupCenter 对只装了 Claude Code CLI 的用户显示"服务商已配置"**：这些用户被新的入口拦截挡住，但 SetupCenter 还告诉他们"provider 已完成"，陷入无可操作的死循环。现在两边判定口径对齐
+- **OAuth 登出后 Provider 卡片不降级**：之前只能升 completed 不能降 not-configured，登出后 SetupCenter 继续显示绿色假态
+- **legacy 'auto' 迁移可能把装了 CLI 的用户错写成 AI SDK**：迁移逻辑之前依赖异步 hook 状态，首次加载时 hook 还是 null 会被误判为 "CLI 未装"。改为迁移分支内直接查一次 `/api/claude-status`，状态查询失败时不持久化，保留旧值待下次重试
 
-### 优化改进
+### 重要行为变化（cc-switch 用户必读）
 
-- Sentry 服务端 `ignoreErrors` 补齐 `prompt() is not supported`（Electron 未实现）和 `ResizeObserver loop` 两条规则，与 client 端同步（368 events/14d 噪声清理）
-- 内置 MCP 启动失败错误提示更清晰
+从 0.50.3 起，CodePilot 的"有没有可用服务商"判定**不再**把 `~/.claude/settings.json`（cc-switch / 手动编辑）视作有效服务商。如果你之前纯靠 cc-switch 管理 Claude Code 凭据、**从未在 CodePilot 设置里添加过任何服务商**，升级后首次发消息会被引导去"设置 → 服务商"添加一个 CodePilot 自己的服务商记录。
+
+这是为了让 CodePilot 的每个请求都能精确地知道该走哪个服务商的凭据，避免之前 cc-switch 代理模式下占位符 token 被错当成真凭据而导致的各种诡异失败。你仍可以继续用 cc-switch 管理 Claude Code CLI 本身的凭据——两者是独立的。
 
 ## 下载地址
 
 ### macOS
-- [Apple Silicon (M1/M2/M3/M4)](https://github.com/op7418/CodePilot/releases/download/v0.50.2/CodePilot-0.50.2-arm64.dmg)
-- [Intel](https://github.com/op7418/CodePilot/releases/download/v0.50.2/CodePilot-0.50.2-x64.dmg)
+- [Apple Silicon (M1/M2/M3/M4)](https://github.com/op7418/CodePilot/releases/download/v0.50.3/CodePilot-0.50.3-arm64.dmg)
+- [Intel](https://github.com/op7418/CodePilot/releases/download/v0.50.3/CodePilot-0.50.3-x64.dmg)
 
 ### Windows
-- [Windows 安装包](https://github.com/op7418/CodePilot/releases/download/v0.50.2/CodePilot.Setup.0.50.2.exe)
+- [Windows 安装包](https://github.com/op7418/CodePilot/releases/download/v0.50.3/CodePilot.Setup.0.50.3.exe)
 
 ## 安装说明
 
