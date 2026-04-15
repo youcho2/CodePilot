@@ -134,7 +134,7 @@ export async function GET(request: NextRequest) {
       }));
     }
 
-    if (scope === 'files') {
+    if (scope === 'all' || scope === 'files') {
       for (const session of allSessions) {
         if (!session.working_directory) continue;
         const tree = await scanDirectory(session.working_directory, FILE_SCAN_DEPTH);

@@ -81,6 +81,18 @@ export function GlobalSearchDialog({ open, onOpenChange }: GlobalSearchDialogPro
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
   const abortRef = useRef<AbortController | null>(null);
   const composingRef = useRef(false);
+  const normalizedQuery = query.trim();
+  const searchTerm = useMemo(() => {
+    const trimmed = query.trim();
+    const lower = trimmed.toLowerCase();
+    if (lower.startsWith('session:')) return trimmed.slice(8).trim();
+    if (lower.startsWith('sessions:')) return trimmed.slice(9).trim();
+    if (lower.startsWith('message:')) return trimmed.slice(8).trim();
+    if (lower.startsWith('messages:')) return trimmed.slice(9).trim();
+    if (lower.startsWith('file:')) return trimmed.slice(5).trim();
+    if (lower.startsWith('files:')) return trimmed.slice(6).trim();
+    return trimmed;
+  }, [query]);
 
   const performSearch = useCallback(async (q: string) => {
     if (composingRef.current) return;
@@ -88,6 +100,7 @@ export function GlobalSearchDialog({ open, onOpenChange }: GlobalSearchDialogPro
       abortRef.current.abort();
     }
     if (!q.trim()) {
+      abortRef.current = null;
       setResults({ sessions: [], messages: [], files: [] });
       setLoading(false);
       return;
@@ -112,6 +125,7 @@ export function GlobalSearchDialog({ open, onOpenChange }: GlobalSearchDialogPro
       }
     } finally {
       if (!controller.signal.aborted) {
+        abortRef.current = null;
         setLoading(false);
       }
     }
@@ -126,11 +140,20 @@ export function GlobalSearchDialog({ open, onOpenChange }: GlobalSearchDialogPro
 
   useEffect(() => {
     if (!open) {
+      abortRef.current?.abort();
+      abortRef.current = null;
       setQuery('');
       setResults({ sessions: [], messages: [], files: [] });
       setCollapsedGroups(new Set());
+      setLoading(false);
     }
   }, [open]);
+
+  useEffect(() => {
+    return () => {
+      abortRef.current?.abort();
+    };
+  }, []);
 
   const toggleGroup = useCallback((sessionId: string) => {
     setCollapsedGroups(prev => {
@@ -258,7 +281,6 @@ export function GlobalSearchDialog({ open, onOpenChange }: GlobalSearchDialogPro
           composingRef.current = false;
           const value = (e.target as HTMLInputElement).value;
           setQuery(value);
-          performSearch(value);
         }}
       />
       <CommandList className="flex-1 min-h-0 overflow-y-auto max-h-none">
@@ -274,26 +296,23 @@ export function GlobalSearchDialog({ open, onOpenChange }: GlobalSearchDialogPro
             </p>
           </div>
         )}
-        {query && !loading && !hasResults && (
+        {normalizedQuery && !loading && !hasResults && (
           <CommandEmpty>{t('globalSearch.noResults')}</CommandEmpty>
         )}
-        {renderGroup('sessions', results.sessions)}
+        {normalizedQuery && renderGroup('sessions', results.sessions)}
 
-        {groupedMessages.map((group, groupIdx) => {
+        {normalizedQuery && groupedMessages.map((group, groupIdx) => {
           const isCollapsed = collapsedGroups.has(group.messages[0]?.sessionId || `group-${groupIdx}`);
           const sessionId = group.messages[0]?.sessionId || `group-${groupIdx}`;
           return (
-            <CommandGroup
-              key={`msg-group-${groupIdx}`}
-              heading={
-                <div
-                  onClick={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    toggleGroup(sessionId);
-                  }}
-                  className="flex w-full cursor-pointer items-center gap-1.5 rounded bg-muted/40 px-1 py-1 text-left font-medium text-foreground outline-none"
-                >
+            <CommandGroup key={`msg-group-${groupIdx}`}>
+              <CommandItem
+                value={`message-group-${sessionId}`}
+                onSelect={() => toggleGroup(sessionId)}
+                className="flex w-full items-center gap-1.5 rounded bg-muted/40 px-1 py-1 text-left font-medium text-foreground"
+                aria-expanded={!isCollapsed}
+              >
+                <div className="flex min-w-0 items-center gap-1.5">
                   {isCollapsed ? (
                     <CaretRight size={14} className="shrink-0 text-muted-foreground" />
                   ) : (
@@ -307,8 +326,7 @@ export function GlobalSearchDialog({ open, onOpenChange }: GlobalSearchDialogPro
                     {group.messages.length}
                   </span>
                 </div>
-              }
-            >
+              </CommandItem>
               {!isCollapsed && group.messages.map((item, idx) => {
                 const Icon = CONTENT_TYPE_ICONS[item.contentType];
                 const labelKey: TranslationKey =
@@ -326,7 +344,7 @@ export function GlobalSearchDialog({ open, onOpenChange }: GlobalSearchDialogPro
                   >
                     <Icon size={16} className="mt-0.5 shrink-0 text-muted-foreground" />
                     <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm">{renderHighlightedSnippet(item.snippet, query)}</p>
+                      <p className="truncate text-sm">{renderHighlightedSnippet(item.snippet, searchTerm)}</p>
                       <p className="truncate text-xs text-muted-foreground">{t(labelKey)}</p>
                     </div>
                   </CommandItem>
@@ -336,7 +354,7 @@ export function GlobalSearchDialog({ open, onOpenChange }: GlobalSearchDialogPro
           );
         })}
 
-        {renderGroup('files', results.files)}
+        {normalizedQuery && renderGroup('files', results.files)}
         {loading && (
           <div className="py-4 text-center text-sm text-muted-foreground">{t('globalSearch.searching')}</div>
         )}

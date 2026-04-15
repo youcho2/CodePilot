@@ -139,6 +139,11 @@ export default function ChatSessionPage({ params }: ChatSessionPageProps) {
 
     (async () => {
       try {
+        if (targetFilePath) {
+          // Preserve explicit deep-link intent from global search.
+          setFileTreeOpen(true);
+          return;
+        }
         const res = await fetch('/api/settings/app');
         if (!res.ok) return;
         const data = await res.json();
@@ -156,7 +161,7 @@ export default function ChatSessionPage({ params }: ChatSessionPageProps) {
         setFileTreeOpen(true);
       }
     })();
-  }, [id, setFileTreeOpen, setGitPanelOpen, setDashboardPanelOpen]);
+  }, [id, targetFilePath, setFileTreeOpen, setGitPanelOpen, setDashboardPanelOpen]);
 
   if (loading || !sessionInfoLoaded) {
     return (
