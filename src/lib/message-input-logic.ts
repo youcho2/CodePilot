@@ -58,7 +58,12 @@ export function detectPopoverTrigger(
     };
   }
 
-  // Check for / trigger (only at start of line or after space)
+  // Check for / trigger. Only fires when `/` is at the start of input or
+  // immediately after whitespace — regex alone can't tell "hello/skill" from
+  // "src/app" or "foo/bar", so we accept the trade-off: typing `/` mid-word
+  // does NOT open the picker (it would false-positive on every single-slash
+  // path). Users who want to invoke a command mid-sentence use the slash
+  // button, which auto-inserts a leading space (see handleInsertSlash).
   const slashMatch = beforeCursor.match(/(^|\s)\/([^\s]*)$/);
   if (slashMatch) {
     return {
@@ -143,10 +148,34 @@ export function resolveItemSelection(
 /**
  * Badge dispatch logic — what prompt is sent for each badge kind.
  * Used by handleSubmit in MessageInput.
+ *
+ * Accepts a single badge or an array. Multi-badge is only meaningful for
+ * `agent_skill` kind (user can stack multiple skills); other kinds always
+ * arrive as a single-element array because addBadge() replaces on non-skill.
  */
-export function dispatchBadge(badge: CommandBadge, userContent: string): BadgeDispatchResult {
+export function dispatchBadge(
+  badgeOrBadges: CommandBadge | CommandBadge[],
+  userContent: string,
+): BadgeDispatchResult {
+  const badges = Array.isArray(badgeOrBadges) ? badgeOrBadges : [badgeOrBadges];
+  if (badges.length === 0) {
+    return { prompt: userContent, displayLabel: userContent };
+  }
+
+  // Multi-skill path: combine labels into one prompt, join display labels.
+  if (badges.length > 1 && badges.every((b) => b.kind === 'agent_skill')) {
+    const skillNames = badges.map((b) => b.label).join(', ');
+    const displayLabel = userContent
+      ? `${badges.map((b) => `/${b.label}`).join(' ')}\n${userContent}`
+      : badges.map((b) => `/${b.label}`).join(' ');
+    const agentPrompt = userContent
+      ? `Use the ${skillNames} skills. User context: ${userContent}`
+      : `Please use the ${skillNames} skills.`;
+    return { prompt: agentPrompt, displayLabel };
+  }
+
+  const badge = badges[0];
   const baseLabel = `/${badge.label}`;
-  // Show user's text in the chat bubble so it's not "swallowed"
   const displayLabel = userContent ? `${baseLabel}\n${userContent}` : baseLabel;
 
   switch (badge.kind) {
