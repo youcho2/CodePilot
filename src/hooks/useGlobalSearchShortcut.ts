@@ -5,17 +5,9 @@ export function useGlobalSearchShortcut(onOpen: () => void) {
     (e: KeyboardEvent) => {
       const isModifier = e.metaKey || e.ctrlKey;
       if (isModifier && e.key.toLowerCase() === 'k') {
-        // Avoid intercepting when an input/textarea is focused
-        const active = document.activeElement;
-        const isEditing =
-          active instanceof HTMLInputElement ||
-          active instanceof HTMLTextAreaElement ||
-          active?.getAttribute('contenteditable') === 'true';
-        // Still allow shortcut when focus is on body or non-editable elements
-        if (!isEditing) {
-          e.preventDefault();
-          onOpen();
-        }
+        // Global search should be reachable from anywhere, including the chat input.
+        e.preventDefault();
+        onOpen();
       }
     },
     [onOpen],
