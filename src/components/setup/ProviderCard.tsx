@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { Button } from '@/components/ui/button';
 import { SetupCard } from './SetupCard';
 import { useTranslation } from '@/hooks/useTranslation';
@@ -16,6 +16,11 @@ export function ProviderCard({ status, onStatusChange }: ProviderCardProps) {
   const [providers, setProviders] = useState<ApiProvider[]>([]);
   const [envDetected, setEnvDetected] = useState(false);
   const [loading, setLoading] = useState(true);
+  // Track current status in a ref so fetchProviders can consult it without
+  // taking `status` as a dep (which would recreate the callback every render
+  // and defeat the useEffect identity check).
+  const statusRef = useRef(status);
+  useEffect(() => { statusRef.current = status; }, [status]);
 
   const fetchProviders = useCallback(async () => {
     setLoading(true);
@@ -61,8 +66,15 @@ export function ProviderCard({ status, onStatusChange }: ProviderCardProps) {
       // /api/setup covers OAuth (virtual provider), DB providers covers the
       // configured list, hasEnv covers the env-detected path — we keep all
       // three so a stale/offline /api/setup can't regress the UX.
-      if (providerReady || dbProviderList.length > 0 || hasEnv) {
+      const anyReady = providerReady || dbProviderList.length > 0 || hasEnv;
+      if (anyReady) {
         onStatusChange('completed');
+      } else if (statusRef.current === 'completed') {
+        // Downgrade when the last provider source is gone (e.g. user was
+        // OAuth-only and just logged out while SetupCenter was open). Never
+        // stomp 'skipped' — that's the user's explicit choice and fetching
+        // provider state should not resurrect the card they dismissed.
+        onStatusChange('not-configured');
       }
     } catch { /* ignore */ }
     finally { setLoading(false); }
