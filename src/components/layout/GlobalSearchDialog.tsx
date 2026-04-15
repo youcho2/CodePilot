@@ -292,7 +292,7 @@ export function GlobalSearchDialog({ open, onOpenChange }: GlobalSearchDialogPro
                     e.stopPropagation();
                     toggleGroup(sessionId);
                   }}
-                  className="flex w-full cursor-pointer items-center gap-1.5 py-1 text-left outline-none"
+                  className="flex w-full cursor-pointer items-center gap-1.5 rounded bg-muted/40 px-1 py-1 text-left font-medium text-foreground outline-none"
                 >
                   {isCollapsed ? (
                     <CaretRight size={14} className="shrink-0 text-muted-foreground" />
