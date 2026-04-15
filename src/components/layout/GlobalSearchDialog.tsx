@@ -11,7 +11,7 @@ import {
   CommandGroup,
   CommandItem,
 } from '@/components/ui/command';
-import { ChatCircleText, NotePencil, Folder, FolderOpen, File, UserCircle, Sparkle, Wrench, CaretDown, CaretRight } from '@/components/ui/icon';
+import { ChatCircleText, NotePencil, Folder, File, UserCircle, Sparkle, Wrench, CaretDown, CaretRight } from '@/components/ui/icon';
 import type { IconComponent } from '@/types';
 import type { TranslationKey } from '@/i18n';
 
@@ -244,7 +244,7 @@ export function GlobalSearchDialog({ open, onOpenChange }: GlobalSearchDialogPro
       onOpenChange={onOpenChange}
       title="Global Search"
       description="Search across sessions, messages, and files"
-      className="sm:max-w-3xl sm:h-[520px] h-[80vh] flex flex-col overflow-hidden"
+      className="sm:max-w-3xl h-[min(80vh,520px)] flex flex-col overflow-hidden"
       showCloseButton={false}
       shouldFilter={false}
     >
@@ -261,7 +261,7 @@ export function GlobalSearchDialog({ open, onOpenChange }: GlobalSearchDialogPro
           performSearch(value);
         }}
       />
-      <CommandList className="flex-1 min-h-0 overflow-y-auto">
+      <CommandList className="flex-1 min-h-0 overflow-y-auto max-h-none">
         {!query && !loading && (
           <div className="py-6 text-center text-sm text-muted-foreground">
             <p>{t('globalSearch.hint')}</p>
@@ -286,14 +286,13 @@ export function GlobalSearchDialog({ open, onOpenChange }: GlobalSearchDialogPro
             <CommandGroup
               key={`msg-group-${groupIdx}`}
               heading={
-                <button
-                  type="button"
+                <div
                   onClick={(e) => {
                     e.preventDefault();
                     e.stopPropagation();
                     toggleGroup(sessionId);
                   }}
-                  className="flex w-full items-center gap-1.5 py-1 text-left outline-none"
+                  className="flex w-full cursor-pointer items-center gap-1.5 py-1 text-left outline-none"
                 >
                   {isCollapsed ? (
                     <CaretRight size={14} className="shrink-0 text-muted-foreground" />
@@ -307,7 +306,7 @@ export function GlobalSearchDialog({ open, onOpenChange }: GlobalSearchDialogPro
                   <span className="ml-1 rounded-full bg-muted px-1.5 py-0 text-[10px] text-muted-foreground">
                     {group.messages.length}
                   </span>
-                </button>
+                </div>
               }
             >
               {!isCollapsed && group.messages.map((item, idx) => {
