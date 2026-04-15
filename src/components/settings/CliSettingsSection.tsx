@@ -68,8 +68,11 @@ export function CliSettingsSection() {
   // ── App settings (DB) ──
   const [cliEnabled, setCliEnabled] = useState(true);
   const [cliToggling, setCliToggling] = useState(false);
-  // Runtime selector: 'auto' | 'native' | 'claude-code-sdk'
-  const [agentRuntime, setAgentRuntime] = useState<string>('auto');
+  // Runtime selector: 'native' | 'claude-code-sdk'.
+  // The legacy 'auto' value still exists in old DB rows and will be migrated
+  // in-place on first load (see fetchSettings below) to whichever concrete
+  // runtime matches the user's current environment.
+  const [agentRuntime, setAgentRuntime] = useState<string>('claude-code-sdk');
 
   // ── CLI status ──
   const { status: claudeStatus, refresh: refreshStatus, invalidateAndRefresh } = useClaudeStatus();
@@ -119,8 +122,25 @@ export function CliSettingsSection() {
         const appSettings = appData.settings || {};
         // cli_enabled defaults to true (backward compat)
         setCliEnabled(appSettings.cli_enabled !== "false");
-        // agent_runtime: 'auto' (default) | 'native' | 'claude-code-sdk'
-        setAgentRuntime(appSettings.agent_runtime || 'auto');
+        // agent_runtime is now a two-value switch: 'claude-code-sdk' | 'native'.
+        // Pre-0.50.3 default was 'auto'; migrate legacy rows in-place to the
+        // runtime that matches the current environment (CLI installed → SDK,
+        // otherwise Native). Saved back so the UI and backend stay aligned.
+        const saved = appSettings.agent_runtime;
+        if (!saved || saved === 'auto') {
+          const cliInstalled = !!(claudeStatus?.connected);
+          const migrated = cliInstalled ? 'claude-code-sdk' : 'native';
+          setAgentRuntime(migrated);
+          // Fire-and-forget persist; handler failure just leaves the old
+          // 'auto' value which the backend still tolerates in resolveRuntime.
+          fetch('/api/settings/app', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ settings: { agent_runtime: migrated } }),
+          }).catch(() => { /* ignore */ });
+        } else {
+          setAgentRuntime(saved);
+        }
       }
 
       if (optRes.ok) {
@@ -169,7 +189,7 @@ export function CliSettingsSection() {
   const handleRuntimeChange = async (value: string) => {
     setAgentRuntime(value);
     // Sync cli_enabled for backward compatibility:
-    // native → disable CLI; claude-code-sdk → enable CLI; auto → enable CLI
+    // native → disable CLI; claude-code-sdk → enable CLI
     const cliEnabledValue = value === 'native' ? 'false' : 'true';
     setCliEnabled(cliEnabledValue === 'true');
     try {
@@ -299,23 +319,22 @@ export function CliSettingsSection() {
         <FieldRow
           label={isZh ? '执行引擎' : 'Engine'}
           description={isZh
-            ? '自动：安装了 Claude Code 时用 Claude Code，否则用 AI SDK。选择 Claude Code 需要安装 CLI。'
-            : 'Auto: uses Claude Code when installed, otherwise AI SDK. Claude Code requires CLI installation.'}
+            ? '选择执行 AI 任务的引擎。Claude Code 需要先安装 CLI；AI SDK 直接调用服务商 API，无需 CLI。'
+            : 'Choose the engine that runs AI tasks. Claude Code requires the CLI; AI SDK calls provider APIs directly with no CLI.'}
         >
           <Select value={agentRuntime} onValueChange={handleRuntimeChange}>
             <SelectTrigger className="w-[180px] h-8 text-xs">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="auto">{isZh ? '自动' : 'Auto'}</SelectItem>
-              <SelectItem value="native">{isZh ? 'AI SDK' : 'AI SDK'}</SelectItem>
               <SelectItem value="claude-code-sdk">{isZh ? 'Claude Code' : 'Claude Code'}</SelectItem>
+              <SelectItem value="native">{isZh ? 'AI SDK' : 'AI SDK'}</SelectItem>
             </SelectContent>
           </Select>
         </FieldRow>
 
         {/* Claude Code 状态 — 选了 Claude Code 或自动时显示 */}
-        {agentRuntime !== 'native' && (
+        {agentRuntime === 'claude-code-sdk' && (
           <FieldRow label={isZh ? 'Claude Code 状态' : 'Claude Code Status'} separator>
             <div className="flex items-center gap-2">
               {connected ? (
@@ -359,7 +378,7 @@ export function CliSettingsSection() {
           </FieldRow>
         )}
 
-        {agentRuntime !== 'native' && claudeStatus?.warnings && claudeStatus.warnings.length > 0 && (
+        {agentRuntime === 'claude-code-sdk' && claudeStatus?.warnings && claudeStatus.warnings.length > 0 && (
           <div className="rounded-md border border-status-warning-muted bg-status-warning-muted/30 px-3 py-2">
             <div className="flex items-start gap-2">
               <Warning size={14} className="text-status-warning-foreground mt-0.5 flex-shrink-0" />
@@ -372,7 +391,7 @@ export function CliSettingsSection() {
       </SettingsCard>
 
       {/* ════════ Card 2: 模型选项（Claude Code 模式时显示）════════ */}
-      {agentRuntime !== 'native' && connected && (
+      {agentRuntime === 'claude-code-sdk' && connected && (
         <SettingsCard title={t('cli.modelOptions')} description={t('cli.modelOptionsDesc')}>
           <FieldRow label={t('cli.thinkingMode')} description={t('cli.thinkingModeDesc')}>
             <Select value={thinkingMode} onValueChange={(v) => saveModelOption('thinking_mode', v)}>
