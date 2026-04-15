@@ -20,14 +20,29 @@ export function ProviderCard({ status, onStatusChange }: ProviderCardProps) {
   const fetchProviders = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch('/api/providers');
-      if (res.ok) {
-        const data = await res.json();
-        setProviders(data.providers || []);
-        // Only count actual credential keys, not just ANTHROPIC_BASE_URL
+      // /api/setup is the single source of truth for "can CodePilot dispatch a
+      // chat?" — it delegates to hasCodePilotProvider() which includes the
+      // OpenAI OAuth virtual provider that /api/providers does not surface.
+      // We still fetch /api/providers in parallel purely for display detail
+      // (count, env-detected badge).
+      const [setupRes, providersRes] = await Promise.all([
+        fetch('/api/setup').catch(() => null),
+        fetch('/api/providers').catch(() => null),
+      ]);
+
+      let providerReady = false;
+      if (setupRes?.ok) {
+        const setup = await setupRes.json();
+        providerReady = setup?.provider === 'completed';
+      }
+
+      let dbProviderList: ApiProvider[] = [];
+      let hasEnv = false;
+      if (providersRes?.ok) {
+        const data = await providersRes.json();
+        dbProviderList = data.providers || [];
         const credentialKeys = ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN'];
-        let hasEnv = data.env_detected && credentialKeys.some(k => k in data.env_detected);
-        // Also check legacy app-settings token
+        hasEnv = !!(data.env_detected && credentialKeys.some((k) => k in data.env_detected));
         if (!hasEnv) {
           try {
             const settingsRes = await fetch('/api/settings/app');
@@ -38,10 +53,16 @@ export function ProviderCard({ status, onStatusChange }: ProviderCardProps) {
             }
           } catch { /* ignore */ }
         }
-        setEnvDetected(hasEnv);
-        if ((data.providers?.length ?? 0) > 0 || hasEnv) {
-          onStatusChange('completed');
-        }
+      }
+
+      setProviders(dbProviderList);
+      setEnvDetected(hasEnv);
+      // Promote to completed whenever ANY authoritative source agrees.
+      // /api/setup covers OAuth (virtual provider), DB providers covers the
+      // configured list, hasEnv covers the env-detected path — we keep all
+      // three so a stale/offline /api/setup can't regress the UX.
+      if (providerReady || dbProviderList.length > 0 || hasEnv) {
+        onStatusChange('completed');
       }
     } catch { /* ignore */ }
     finally { setLoading(false); }
