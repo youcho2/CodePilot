@@ -21,11 +21,14 @@ import { captureCapabilities, isCacheFresh, setCachedPlugins } from './agent-sdk
 import { normalizeMessageContent, microCompactMessage } from './message-normalizer';
 import { roughTokenEstimate } from './context-estimator';
 import { getSetting, updateSdkSessionId, createPermissionRequest } from './db';
-import { resolveForClaudeCode, toClaudeCodeEnv } from './provider-resolver';
-import { findClaudeBinary, findGitBash, getExpandedPath, invalidateClaudePathCache } from './platform';
+import { resolveForClaudeCode } from './provider-resolver';
+import { findClaudeBinary, invalidateClaudePathCache } from './platform';
 import { notifyPermissionRequest, notifyGeneric } from './telegram-bot';
 import { classifyError, formatClassifiedError } from './error-classifier';
 import { resolveWorkingDirectory } from './working-directory';
+import { wrapController } from './safe-stream';
+import { type ShadowHome } from './claude-home-shadow';
+import { prepareSdkSubprocessEnv } from './sdk-subprocess-env';
 import os from 'os';
 import fs from 'fs';
 import path from 'path';
@@ -327,19 +330,12 @@ export async function generateTextViaSdk(params: {
     providerId: params.providerId,
   });
 
-  const sdkEnv: Record<string, string> = { ...process.env as Record<string, string> };
-  if (!sdkEnv.HOME) sdkEnv.HOME = os.homedir();
-  if (!sdkEnv.USERPROFILE) sdkEnv.USERPROFILE = os.homedir();
-  sdkEnv.PATH = getExpandedPath();
-  delete sdkEnv.CLAUDECODE;
-
-  if (process.platform === 'win32' && !process.env.CLAUDE_CODE_GIT_BASH_PATH) {
-    const gitBashPath = findGitBash();
-    if (gitBashPath) sdkEnv.CLAUDE_CODE_GIT_BASH_PATH = gitBashPath;
-  }
-
-  const resolvedEnv = toClaudeCodeEnv(sdkEnv, resolved);
-  Object.assign(sdkEnv, resolvedEnv);
+  // Same provider-owned auth isolation as the main streaming path: when an
+  // explicit DB provider is selected, this auxiliary call must NOT pick up
+  // cc-switch credentials from ~/.claude/settings.json or ~/.claude.json.
+  // See src/lib/sdk-subprocess-env.ts.
+  const setup = prepareSdkSubprocessEnv(resolved);
+  const sdkEnv = setup.env;
 
   const abortController = new AbortController();
   if (params.abortSignal) {
@@ -375,14 +371,14 @@ export async function generateTextViaSdk(params: {
     }
   }
 
-  const conversation = query({
-    prompt: params.prompt,
-    options: queryOptions,
-  });
-
-  // Iterate through all messages; the last one with type 'result' has the answer
   let resultText = '';
   try {
+    const conversation = query({
+      prompt: params.prompt,
+      options: queryOptions,
+    });
+
+    // Iterate through all messages; the last one with type 'result' has the answer
     for await (const msg of conversation) {
       if (msg.type === 'result' && 'result' in msg) {
         resultText = (msg as SDKResultSuccess).result || '';
@@ -390,6 +386,7 @@ export async function generateTextViaSdk(params: {
     }
   } catch (err) {
     clearTimeout(timeoutId);
+    setup.shadow.cleanup();
     if (abortController.signal.aborted && !(params.abortSignal?.aborted)) {
       throw new Error('SDK query timed out after 60s');
     }
@@ -397,6 +394,7 @@ export async function generateTextViaSdk(params: {
   }
 
   clearTimeout(timeoutId);
+  setup.shadow.cleanup();
 
   if (!resultText) {
     throw new Error('SDK query returned no result');
@@ -524,9 +522,19 @@ export function streamClaudeSdk(options: ClaudeStreamOptions): ReadableStream<st
   } = options;
 
   return new ReadableStream<string>({
-    async start(controller) {
+    async start(controllerRaw) {
+      // Wrap controller so async callbacks (keep-alive timer, late tool-result
+      // handlers, post-abort message processing) can call enqueue() without
+      // crashing when the consumer aborts. See src/lib/safe-stream.ts.
+      const controller = wrapController(controllerRaw, (kind) => {
+        console.warn(`[claude-client] late ${kind} after stream close — silently dropped`);
+      });
       // Flag to prevent infinite PTL retry loops (at most one retry per request)
       let ptlRetryAttempted = false;
+      // Per-request shadow ~/.claude/ for DB-provider isolation. Built lazily
+      // below once we know whether we have an explicit DB provider; cleaned up
+      // in the outer finally block. See src/lib/claude-home-shadow.ts.
+      let shadowHome: ShadowHome | null = null;
 
       // Resolve provider via the unified resolver. The caller may pass an explicit
       // provider (from resolveProvider().provider), or undefined when 'env' mode is
@@ -548,36 +556,14 @@ export function streamClaudeSdk(options: ClaudeStreamOptions): ReadableStream<st
           );
         }
 
-        // Build env for the Claude Code subprocess.
-        // Start with process.env (includes user shell env from Electron's loadUserShellEnv).
-        // Then overlay any API config the user set in CodePilot settings (optional).
-        const sdkEnv: Record<string, string> = { ...process.env as Record<string, string> };
-
-        // Ensure HOME/USERPROFILE are set so Claude Code can find ~/.claude/commands/
-        if (!sdkEnv.HOME) sdkEnv.HOME = os.homedir();
-        if (!sdkEnv.USERPROFILE) sdkEnv.USERPROFILE = os.homedir();
-        // Ensure SDK subprocess has expanded PATH (consistent with Electron mode)
-        sdkEnv.PATH = getExpandedPath();
-
-        // Remove CLAUDECODE env var to prevent "nested session" detection.
-        // When CodePilot is launched from within a Claude Code CLI session
-        // (e.g. during development), the child process inherits this variable
-        // and the SDK refuses to start.
-        delete sdkEnv.CLAUDECODE;
-
-        // On Windows, auto-detect Git Bash if not already configured
-        if (process.platform === 'win32' && !process.env.CLAUDE_CODE_GIT_BASH_PATH) {
-          const gitBashPath = findGitBash();
-          if (gitBashPath) {
-            sdkEnv.CLAUDE_CODE_GIT_BASH_PATH = gitBashPath;
-          }
-        }
-
-        // Build env from resolved provider
-        const resolvedEnv = toClaudeCodeEnv(sdkEnv, resolved);
-        // toClaudeCodeEnv returns a full env — merge back into sdkEnv
-        // (preserves HOME, USERPROFILE, PATH, Git Bash detection set above)
-        Object.assign(sdkEnv, resolvedEnv);
+        // Build env for the Claude Code subprocess via the shared helper —
+        // every SDK entry point (this stream, generateTextViaSdk, provider
+        // doctor live probe) goes through `prepareSdkSubprocessEnv` so the
+        // provider-group ownership rule is applied uniformly. See
+        // src/lib/sdk-subprocess-env.ts.
+        const setup = prepareSdkSubprocessEnv(resolved);
+        const sdkEnv = setup.env;
+        shadowHome = setup.shadow;
 
         // Warn if no credentials found at all
         if (!resolved.hasCredentials && !sdkEnv.ANTHROPIC_API_KEY && !sdkEnv.ANTHROPIC_AUTH_TOKEN) {
@@ -642,11 +628,34 @@ export function streamClaudeSdk(options: ClaudeStreamOptions): ReadableStream<st
           };
         }
 
-        // MCP servers: only pass explicitly provided config (e.g. from CodePilot UI).
+        // MCP servers: pass explicitly provided config (e.g. from CodePilot UI).
         // User-level MCP config from ~/.claude.json and ~/.claude/settings.json
-        // is now automatically loaded by the SDK via settingSources: ['user', 'project', 'local'].
+        // is automatically loaded by the SDK via settingSources: ['user'] (DB
+        // providers) or ['user', 'project', 'local'] (env mode).
         if (mcpServers && Object.keys(mcpServers).length > 0) {
           queryOptions.mcpServers = toSdkMcpConfig(mcpServers);
+        }
+
+        // For DB-provider requests, settingSources is ['user'] only (project
+        // and local layers are dropped to prevent <cwd>/.claude/settings.json
+        // env from overriding the explicit provider's auth — see
+        // provider-resolver.ts ~800). That also disables SDK auto-loading of
+        // `<cwd>/.mcp.json`, which is normally an auth-neutral file team
+        // members commit to share project MCP servers. Re-inject it here so
+        // those servers don't silently disappear for DB-provider users.
+        if (resolved.provider) {
+          const { loadProjectMcpServers } = await import('@/lib/mcp-loader');
+          const projectMcps = loadProjectMcpServers(resolvedWorkingDirectory.path);
+          if (projectMcps) {
+            const sdkProjectMcps = toSdkMcpConfig(projectMcps);
+            // Existing entries (CodePilot UI / placeholder-managed) take
+            // precedence on name collision — they're the user's currently-
+            // chosen config layer, project file is the team default.
+            queryOptions.mcpServers = {
+              ...sdkProjectMcps,
+              ...(queryOptions.mcpServers || {}),
+            };
+          }
         }
 
         // Memory MCP: always registered in assistant mode for memory search/retrieval.
@@ -1652,6 +1661,12 @@ export function streamClaudeSdk(options: ClaudeStreamOptions): ReadableStream<st
         controller.close();
       } finally {
         unregisterConversation(sessionId);
+        // Tear down shadow ~/.claude/ if we built one. Best-effort — the OS
+        // will eventually GC tmpdir even if this fails.
+        if (shadowHome) {
+          shadowHome.cleanup();
+          shadowHome = null;
+        }
       }
     },
 

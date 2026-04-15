@@ -8,6 +8,7 @@ import { loadCodePilotMcpServers, loadAllMcpServers } from '@/lib/mcp-loader';
 import { assembleContext } from '@/lib/context-assembler';
 import type { SendMessageRequest, SSEEvent, TokenUsage, MessageContentBlock, FileAttachment, ClaudeStreamOptions, MediaBlock } from '@/types';
 import { saveMediaToLibrary } from '@/lib/media-saver';
+import { wrapController } from '@/lib/safe-stream';
 import { ensureSchedulerRunning } from '@/lib/task-scheduler';
 
 // Start the task scheduler on first API call
@@ -408,7 +409,8 @@ export async function POST(request: NextRequest) {
     // meaningful, and includes structured data for future rich UI handling.
     const responseStream = compressionOccurred
       ? new ReadableStream<string>({
-          async start(controller) {
+          async start(controllerRaw) {
+            const controller = wrapController(controllerRaw);
             const msgCount = compressionStats?.messagesCompressed ?? 0;
             const tokensSaved = compressionStats?.tokensSaved ?? 0;
             const displayMessage = tokensSaved > 0
@@ -429,6 +431,7 @@ export async function POST(request: NextRequest) {
                 const { done, value } = await reader.read();
                 if (done) break;
                 controller.enqueue(value);
+                if (controller.closed) break; // consumer aborted
               }
             } finally {
               controller.close();
