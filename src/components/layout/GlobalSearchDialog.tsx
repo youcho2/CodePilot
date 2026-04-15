@@ -244,7 +244,7 @@ export function GlobalSearchDialog({ open, onOpenChange }: GlobalSearchDialogPro
       onOpenChange={onOpenChange}
       title="Global Search"
       description="Search across sessions, messages, and files"
-      className="sm:max-w-3xl flex flex-col overflow-hidden overflow-y-hidden"
+      className="sm:max-w-3xl sm:h-[520px] h-[80vh] flex flex-col overflow-hidden"
       showCloseButton={false}
       shouldFilter={false}
     >
@@ -261,7 +261,7 @@ export function GlobalSearchDialog({ open, onOpenChange }: GlobalSearchDialogPro
           performSearch(value);
         }}
       />
-      <CommandList className="flex-1 min-h-0 overflow-y-auto max-h-[600px]">
+      <CommandList className="flex-1 min-h-0 overflow-y-auto">
         {!query && !loading && (
           <div className="py-6 text-center text-sm text-muted-foreground">
             <p>{t('globalSearch.hint')}</p>
