@@ -86,6 +86,8 @@ test.describe('Global Search modes UX', () => {
       await page.getByRole('button', { name: /(搜索会话|Search sessions|Search)/i }).first().click();
       await expect(searchInput).toBeVisible({ timeout: 10_000 });
       await searchInput.fill(`file:${fileNameA}`);
+      await expect(page.getByText(/(Searching in|当前搜索范围)/)).toBeVisible({ timeout: 10_000 });
+      await expect(page.getByText('file:')).toBeVisible({ timeout: 10_000 });
       await expect(page.getByText(fileNameA)).toBeVisible({ timeout: 10_000 });
       await page.getByText(fileNameA).first().click();
       await expect(page).toHaveURL(new RegExp(`/chat/${sessionA}\\?file=`), { timeout: 10_000 });

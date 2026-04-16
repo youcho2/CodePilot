@@ -49,6 +49,7 @@ const en = {
   'globalSearch.sessions': 'Sessions',
   'globalSearch.messages': 'Messages',
   'globalSearch.files': 'Files',
+  'globalSearch.activeScope': 'Searching in {scope}',
   'globalSearch.toolLabel': 'Tool',
 
   // ── Message list ────────────────────────────────────────────

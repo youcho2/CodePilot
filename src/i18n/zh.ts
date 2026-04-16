@@ -46,6 +46,7 @@ const zh: Record<TranslationKey, string> = {
   'globalSearch.sessions': '会话',
   'globalSearch.messages': '消息',
   'globalSearch.files': '文件',
+  'globalSearch.activeScope': '当前搜索范围：{scope}',
   'globalSearch.toolLabel': '工具',
 
   // ── Message list ────────────────────────────────────────────

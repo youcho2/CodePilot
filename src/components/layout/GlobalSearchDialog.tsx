@@ -54,6 +54,8 @@ interface GlobalSearchDialogProps {
   onOpenChange: (open: boolean) => void;
 }
 
+type SearchScope = 'all' | 'sessions' | 'messages' | 'files';
+
 const TYPE_ICONS: Record<string, IconComponent> = {
   sessions: ChatCircleText,
   messages: NotePencil,
@@ -82,17 +84,30 @@ export function GlobalSearchDialog({ open, onOpenChange }: GlobalSearchDialogPro
   const abortRef = useRef<AbortController | null>(null);
   const composingRef = useRef(false);
   const normalizedQuery = query.trim();
-  const searchTerm = useMemo(() => {
+  const parsedQuery = useMemo<{ scope: SearchScope; term: string; prefix: string | null }>(() => {
     const trimmed = query.trim();
     const lower = trimmed.toLowerCase();
-    if (lower.startsWith('session:')) return trimmed.slice(8).trim();
-    if (lower.startsWith('sessions:')) return trimmed.slice(9).trim();
-    if (lower.startsWith('message:')) return trimmed.slice(8).trim();
-    if (lower.startsWith('messages:')) return trimmed.slice(9).trim();
-    if (lower.startsWith('file:')) return trimmed.slice(5).trim();
-    if (lower.startsWith('files:')) return trimmed.slice(6).trim();
-    return trimmed;
+
+    const parsePrefix = (single: string, plural: string, scope: Exclude<SearchScope, 'all'>) => {
+      if (lower.startsWith(`${single}:`)) {
+        return { scope, term: trimmed.slice(single.length + 1).trim(), prefix: `${single}:` };
+      }
+      if (lower.startsWith(`${plural}:`)) {
+        return { scope, term: trimmed.slice(plural.length + 1).trim(), prefix: `${single}:` };
+      }
+      return null;
+    };
+
+    return (
+      parsePrefix('session', 'sessions', 'sessions') ??
+      parsePrefix('message', 'messages', 'messages') ??
+      parsePrefix('file', 'files', 'files') ??
+      { scope: 'all', term: trimmed, prefix: null }
+    );
   }, [query]);
+  const searchTerm = parsedQuery.term;
+  const activeScope = parsedQuery.scope;
+  const activePrefix = parsedQuery.prefix;
 
   const performSearch = useCallback(async (q: string) => {
     if (composingRef.current) return;
@@ -284,6 +299,17 @@ export function GlobalSearchDialog({ open, onOpenChange }: GlobalSearchDialogPro
           setQuery(value);
         }}
       />
+      {normalizedQuery && activeScope !== 'all' && (
+        <div className="flex items-center justify-between border-b border-primary/20 bg-primary/5 px-3 py-1.5 text-xs">
+          <span className="inline-flex items-center gap-1.5 text-primary">
+            <span className="size-1.5 rounded-full bg-primary" />
+            {t('globalSearch.activeScope', { scope: t(TYPE_LABEL_KEYS[activeScope]) })}
+          </span>
+          <code className="rounded border border-primary/25 bg-primary/10 px-1.5 py-0.5 font-mono text-[11px] text-primary">
+            {activePrefix}
+          </code>
+        </div>
+      )}
       <CommandList className="flex-1 min-h-0 overflow-y-auto max-h-none">
         {!query && !loading && (
           <div className="py-6 text-center text-sm text-muted-foreground">
