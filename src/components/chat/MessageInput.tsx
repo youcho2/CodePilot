@@ -131,7 +131,6 @@ export function MessageInput({
     if (initialValue) return initialValue;
     try { return sessionStorage.getItem(draftKey) || ''; } catch { return ''; }
   });
-  const [mentions, setMentions] = useState<MentionRef[]>([]);
   const [mentionNodeTypes, setMentionNodeTypes] = useState<Record<string, 'file' | 'directory'>>({});
   const [badgeOrder, setBadgeOrder] = useState<Record<string, number>>({});
   const [mentionOrder, setMentionOrder] = useState<Record<string, number>>({});
@@ -144,10 +143,9 @@ export function MessageInput({
     });
   }, [draftKey]);
 
-  useEffect(() => {
-    const parsed = parseMentionRefs(inputValue, mentionNodeTypes);
+  const mentions = useMemo(() => {
     // Render chips only for explicitly inserted/known mentions.
-    setMentions(parsed.filter((m) => !!mentionNodeTypes[m.path]));
+    return parseMentionRefs(inputValue, mentionNodeTypes).filter((m) => !!mentionNodeTypes[m.path]);
   }, [inputValue, mentionNodeTypes]);
 
   const nextOrder = useCallback(() => {
