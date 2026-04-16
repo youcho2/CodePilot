@@ -365,7 +365,10 @@ export function MessageInput({
     };
 
     const resolveMentionPayload = async () => {
-      const parsedMentions = parseMentionRefs(inputValue, mentionNodeTypes);
+      // Only treat mentions inserted/confirmed by the picker (or file-tree bridge)
+      // as structured mentions. Plain typed "@foo" should remain plain text.
+      const parsedMentions = parseMentionRefs(inputValue, mentionNodeTypes)
+        .filter((m) => !!mentionNodeTypes[m.path]);
       const dedupedMentions = dedupeMentionsByPath(parsedMentions);
       if (dedupedMentions.length === 0) {
         return {
