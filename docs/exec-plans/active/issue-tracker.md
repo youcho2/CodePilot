@@ -260,6 +260,28 @@
 | ~~B-F10~~ | #347 默认模型回退 | v0.38.4 | global default model |
 | ~~B-F11~~ | FeatureAnnouncement 重启后重现 | v0.49.0 | DB + localStorage 双写 |
 | ~~B-F12~~ | OpenAI OAuth 基础流程 | v0.48.2 | commit 38fe566 |
+| ~~B-F13~~ | 长对话中模型"幻觉调用工具"（假 tool_use，文件未动用户却被告知已改）| v0.50.2 | `context-pruner.ts` RECENT_TURNS 6→16 + `[Pruned <toolName> result: <摘录>]` marker |
+
+### B-F13 症状识别（便于未来快速判断类似现象）
+
+**用户可见症状:**
+- 长时间任务进行到后段，AI 回复里出现 "I used Bash / Edit / Write..." 等工具调用描述
+- 界面把这些文本渲染成了工具卡片样式，但实际**文件没变 / git 没提交 / 命令未执行**
+- 用户被迫反复提醒"你都没调用 git"、"文件没改"等；AI 回复一轮通常会"恢复"（真的去执行），但下次长任务又复现
+
+**根因链:**
+1. v0.49.0 Hermes 升级把 `context-pruner.ts` 的 `RECENT_TURNS_TO_KEEP` 从 **16 降到 6**
+2. 旧 `tool_result` 被替换为裸 `[truncated]` 占位（没有工具名、没有摘录）
+3. 长对话中一个工具密集轮次（多个 `tool_use` block）的 `tool_result` 很快被挤出 recent 窗口
+4. 模型看到"我曾经调用过什么但看不到结果"的残缺上下文，**开始生成文本形式的"假"工具调用描述**（不是真正的 `tool_use` block）
+5. 前端 Markdown/SSE 渲染层会把 `(used Bash: {...})` 这种格式**当成**工具调用卡片展示（尤其是从别的 Agent 回放来的历史），但实际上 `agent-loop` 并未向 Vercel AI SDK 发出 `tool_use` request
+
+**漏洞窗口:** v0.49.0 ~ v0.50.1（含），v0.50.2 恢复 16 轮 + 工具名+200 字摘录的 Pruned marker 后**不再复发**
+
+**未来类似现象的判断清单:**
+- 是否 v0.49.0 ~ v0.50.1 区间的用户？→ 引导升级到 0.50.2+
+- 仍在 v0.50.2+ 发生？→ 可能是**超长任务导致 recent 16 轮也覆盖不住**，需要考虑把 `tool_use`/`tool_result` 的保留优先级提到最高（永不 prune 配对的 block），或给 UI 加"context 已压缩"告警让用户主动续接
+- 相关代码位置: `src/lib/context-pruner.ts:28,52-77`
 
 ---
 
