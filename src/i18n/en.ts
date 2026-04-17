@@ -1089,6 +1089,7 @@ const en = {
 
   // ── SDK Capabilities: Effort ──────────────────────────────
   'messageInput.effort.label': 'Effort Level',
+  'messageInput.effort.auto': 'Auto',
   'messageInput.effort.low': 'Low',
   'messageInput.effort.medium': 'Medium',
   'messageInput.effort.high': 'High',

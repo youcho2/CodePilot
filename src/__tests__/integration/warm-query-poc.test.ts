@@ -37,26 +37,36 @@ const HAS_CREDS = !!(process.env.ANTHROPIC_API_KEY || process.env.CLAUDE_CODE_OA
  * Codex note: only firstTextMs is a valid end-user latency proxy; firstEventMs
  * is logged for diagnostic reasons but not used for the p50 assertion.
  */
-async function measureLatencies(run: () => AsyncIterable<unknown>): Promise<{ firstEventMs: number; firstTextMs: number }> {
+type FirstTextSource = 'delta' | 'assistant_message' | 'fallback';
+
+async function measureLatencies(
+  run: () => AsyncIterable<unknown>,
+): Promise<{ firstEventMs: number; firstTextMs: number; firstTextSource: FirstTextSource }> {
   const start = Date.now();
   let firstEventMs = 0;
   let firstTextMs = 0;
+  let firstTextSource: FirstTextSource = 'fallback';
   for await (const msg of run()) {
     if (!firstEventMs) firstEventMs = Date.now() - start;
     const m = msg as { type?: string; message?: { content?: unknown }; event?: { delta?: { text?: string } } };
-    // Accept either assistant message with content or a stream_event carrying
-    // a text delta. Break as soon as real user-visible text arrives.
-    if (m.type === 'assistant' && m.message?.content) {
-      firstTextMs = Date.now() - start;
-      break;
-    }
+    // Prefer stream_event text deltas — those are true first-character
+    // latency. Requires includePartialMessages: true on the options.
     if (m.event?.delta?.text) {
       firstTextMs = Date.now() - start;
+      firstTextSource = 'delta';
+      break;
+    }
+    // Fallback to full assistant message. This is time-to-message, not
+    // time-to-first-text. If all samples land here, the `includePartial
+    // Messages` flag probably got dropped — treat the p50 skeptically.
+    if (m.type === 'assistant' && m.message?.content) {
+      firstTextMs = Date.now() - start;
+      firstTextSource = 'assistant_message';
       break;
     }
   }
   if (!firstTextMs) firstTextMs = Date.now() - start;
-  return { firstEventMs, firstTextMs };
+  return { firstEventMs, firstTextMs, firstTextSource };
 }
 
 test('warm-query POC — prewarm reduces first-token latency by ≥30% (p50)', { skip: !POC_ENABLED || !HAS_CREDS }, async () => {
@@ -65,26 +75,38 @@ test('warm-query POC — prewarm reduces first-token latency by ≥30% (p50)', {
     return;
   }
 
-  const baseOptions = { model: 'claude-opus-4-7' as const, maxTurns: 1 };
+  // includePartialMessages must be true for stream_event deltas to be
+  // emitted (SDK typings require it; CodePilot's production code also
+  // sets it). Without this, measureLatencies falls through to the final
+  // assistant message, which is time-to-message not time-to-first-text.
+  const baseOptions = {
+    model: 'claude-opus-4-7' as const,
+    maxTurns: 1,
+    includePartialMessages: true,
+  };
   const N = 3; // small N, narrow scope; upshift if signal is noisy
 
   // Cold baseline: fresh query each time
   const coldEventSamples: number[] = [];
   const coldTextSamples: number[] = [];
+  const coldTextSources: FirstTextSource[] = [];
   for (let i = 0; i < N; i++) {
-    const { firstEventMs, firstTextMs } = await measureLatencies(() => query({ prompt: 'Reply with just "ok".', options: baseOptions }));
-    coldEventSamples.push(firstEventMs);
-    coldTextSamples.push(firstTextMs);
+    const r = await measureLatencies(() => query({ prompt: 'Reply with just "ok".', options: baseOptions }));
+    coldEventSamples.push(r.firstEventMs);
+    coldTextSamples.push(r.firstTextMs);
+    coldTextSources.push(r.firstTextSource);
   }
 
   // Warm path: startup() then query once per WarmQuery
   const warmEventSamples: number[] = [];
   const warmTextSamples: number[] = [];
+  const warmTextSources: FirstTextSource[] = [];
   for (let i = 0; i < N; i++) {
     const warm = await startup({ options: baseOptions });
-    const { firstEventMs, firstTextMs } = await measureLatencies(() => warm.query('Reply with just "ok".'));
-    warmEventSamples.push(firstEventMs);
-    warmTextSamples.push(firstTextMs);
+    const r = await measureLatencies(() => warm.query('Reply with just "ok".'));
+    warmEventSamples.push(r.firstEventMs);
+    warmTextSamples.push(r.firstTextMs);
+    warmTextSources.push(r.firstTextSource);
   }
 
   const p50 = (arr: number[]) => [...arr].sort((a, b) => a - b)[Math.floor(arr.length / 2)];
@@ -97,6 +119,16 @@ test('warm-query POC — prewarm reduces first-token latency by ≥30% (p50)', {
   console.log(`[warm-query-poc] cold first-text p50=${coldTextP50}ms warm first-text p50=${warmTextP50}ms reduction=${(textReduction * 100).toFixed(1)}%`);
   console.log('[warm-query-poc] cold text samples:', coldTextSamples);
   console.log('[warm-query-poc] warm text samples:', warmTextSamples);
+  console.log('[warm-query-poc] cold first-text sources:', coldTextSources);
+  console.log('[warm-query-poc] warm first-text sources:', warmTextSources);
+
+  // Phase 3 decision loses confidence if firstTextMs was measured from
+  // the final assistant message instead of a streaming delta. Warn loudly
+  // so the adoption plan's go/no-go can factor it in.
+  const fallthroughCount = [...coldTextSources, ...warmTextSources].filter(s => s !== 'delta').length;
+  if (fallthroughCount > 0) {
+    console.warn(`[warm-query-poc] ⚠ ${fallthroughCount}/${N * 2} samples did NOT come from a stream delta — metric is time-to-message, not time-to-first-text. Verify includePartialMessages on the options.`);
+  }
 
   // Decision criterion uses user-visible first-text latency, not init overhead.
   // If this fails, Phase 3 is NOT worth shipping.

@@ -1086,6 +1086,7 @@ const zh: Record<TranslationKey, string> = {
 
   // ── SDK Capabilities: Effort ──────────────────────────────
   'messageInput.effort.label': '推理力度',
+  'messageInput.effort.auto': '默认',
   'messageInput.effort.low': '低',
   'messageInput.effort.medium': '中',
   'messageInput.effort.high': '高',

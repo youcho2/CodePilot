@@ -444,7 +444,9 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
         files,
         systemPromptAppend,
         pendingImageNotices: notices,
-        effort: selectedEffort,
+        // 'auto' sentinel means "no explicit effort" — filter it here so
+        // the CLI applies its per-model default (Opus 4.7 → xhigh, etc.)
+        effort: selectedEffort && selectedEffort !== 'auto' ? selectedEffort : undefined,
         thinking: buildThinkingConfig(),
         context1m,
         displayOverride,

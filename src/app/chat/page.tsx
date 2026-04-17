@@ -515,7 +515,9 @@ export default function NewChatPage() {
             model: currentModel,
             provider_id: currentProviderId,
             ...(systemPromptAppend ? { systemPromptAppend } : {}),
-            ...(selectedEffort ? { effort: selectedEffort } : {}),
+            // 'auto' sentinel means "no explicit effort" — omit so Claude
+            // Code CLI applies its per-model default (Opus 4.7 → xhigh).
+            ...(selectedEffort && selectedEffort !== 'auto' ? { effort: selectedEffort } : {}),
             ...(thinkingConfig ? { thinking: thinkingConfig } : {}),
             ...(context1m ? { context_1m: true } : {}),
             ...(displayOverride ? { displayOverride } : {}),
