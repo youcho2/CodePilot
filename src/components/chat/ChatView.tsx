@@ -140,6 +140,26 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
       .catch(() => {});
     return () => controller.abort();
   }, [currentProviderId]);
+
+  // Resolve upstream model ID for the current model/provider so the context
+  // indicator can disambiguate alias windows (first-party opus = 1M vs
+  // Bedrock/Vertex opus = 200K). /api/providers/models already returns
+  // upstreamModelId per model on the returned groups.
+  const [currentModelUpstream, setCurrentModelUpstream] = useState<string | undefined>(undefined);
+  useEffect(() => {
+    const pid = currentProviderId || 'env';
+    const controller = new AbortController();
+    fetch('/api/providers/models', { signal: controller.signal })
+      .then(r => r.ok ? r.json() : null)
+      .then(data => {
+        if (controller.signal.aborted) return;
+        const group = data?.groups?.find((g: { provider_id: string }) => g.provider_id === pid);
+        const model = group?.models?.find((m: { value: string }) => m.value === currentModel);
+        setCurrentModelUpstream(model?.upstreamModelId);
+      })
+      .catch(() => {});
+    return () => controller.abort();
+  }, [currentProviderId, currentModel]);
   useEffect(() => { if (initialPermissionProfile) setPermissionProfile(initialPermissionProfile); }, [initialPermissionProfile]);
 
   // Restore session-scoped last-generated images from sessionStorage
@@ -766,6 +786,7 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
               modelName={currentModel}
               context1m={context1m}
               hasSummary={hasSummary}
+              upstreamModelId={currentModelUpstream}
             />
           </div>
         }

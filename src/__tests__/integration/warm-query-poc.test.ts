@@ -123,12 +123,16 @@ test('warm-query POC — prewarm reduces first-token latency by ≥30% (p50)', {
   console.log('[warm-query-poc] warm first-text sources:', warmTextSources);
 
   // Phase 3 decision loses confidence if firstTextMs was measured from
-  // the final assistant message instead of a streaming delta. Warn loudly
-  // so the adoption plan's go/no-go can factor it in.
-  const fallthroughCount = [...coldTextSources, ...warmTextSources].filter(s => s !== 'delta').length;
-  if (fallthroughCount > 0) {
-    console.warn(`[warm-query-poc] ⚠ ${fallthroughCount}/${N * 2} samples did NOT come from a stream delta — metric is time-to-message, not time-to-first-text. Verify includePartialMessages on the options.`);
-  }
+  // the final assistant message instead of a streaming delta. Treat this
+  // as a hard failure — the plan gates on first-text latency, so a POC
+  // that measured time-to-message silently would produce a misleading
+  // go/no-go signal.
+  const fallthroughSources = [...coldTextSources, ...warmTextSources].filter(s => s !== 'delta');
+  assert.equal(
+    fallthroughSources.length,
+    0,
+    `[warm-query-poc] ${fallthroughSources.length}/${N * 2} samples fell back to time-to-message (sources: ${JSON.stringify(fallthroughSources)}). Verify includePartialMessages: true on baseOptions and that the SDK actually emits stream_event deltas — the Phase 3 p50 assertion only means something when every sample came from a delta.`,
+  );
 
   // Decision criterion uses user-visible first-text latency, not init overhead.
   // If this fails, Phase 3 is NOT worth shipping.
