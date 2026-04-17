@@ -978,6 +978,13 @@ export interface SessionStreamSnapshot {
   error: string | null;
   /** Final message content built at stream completion for ChatView to consume */
   finalMessageContent: string | null;
+  /**
+   * Optional terminal reason emitted by SDK 0.2.111 on SDKResultMessage.
+   * Used by ChatView to render a contextual end-of-turn chip (Phase 1 of
+   * agent-sdk-0-2-111-adoption). Absent for error paths without a result
+   * message — those continue to flow through error-classifier.ts.
+   */
+  terminalReason?: string;
 }
 
 export interface StreamEvent {

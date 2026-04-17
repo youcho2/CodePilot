@@ -28,7 +28,7 @@ export interface SSECallbacks {
   onToolOutput: (data: string) => void;
   onToolProgress: (toolName: string, elapsedSeconds: number) => void;
   onStatus: (text: string | undefined) => void;
-  onResult: (usage: TokenUsage | null) => void;
+  onResult: (usage: TokenUsage | null, meta?: { terminalReason?: string }) => void;
   onPermissionRequest: (data: PermissionRequestEvent) => void;
   onToolTimeout: (toolName: string, elapsedSeconds: number) => void;
   onModeChanged: (mode: string) => void;
@@ -171,7 +171,8 @@ function handleSSEEvent(
     case 'result': {
       try {
         const resultData = JSON.parse(event.data);
-        callbacks.onResult(resultData.usage || null);
+        const meta = resultData.terminal_reason ? { terminalReason: resultData.terminal_reason as string } : undefined;
+        callbacks.onResult(resultData.usage || null, meta);
       } catch {
         callbacks.onResult(null);
       }
@@ -298,9 +299,9 @@ export async function consumeSSEStream(
 
   const wrappedCallbacks: SSECallbacks = {
     ...callbacks,
-    onResult: (usage) => {
+    onResult: (usage, meta) => {
       tokenUsage = usage;
-      callbacks.onResult(usage);
+      callbacks.onResult(usage, meta);
     },
   };
 
@@ -349,7 +350,7 @@ export function useSSEStream() {
         onToolOutput: (d) => callbacksRef.current?.onToolOutput(d),
         onToolProgress: (n, s) => callbacksRef.current?.onToolProgress(n, s),
         onStatus: (t) => callbacksRef.current?.onStatus(t),
-        onResult: (u) => callbacksRef.current?.onResult(u),
+        onResult: (u, meta) => callbacksRef.current?.onResult(u, meta),
         onPermissionRequest: (d) => callbacksRef.current?.onPermissionRequest(d),
         onToolTimeout: (n, s) => callbacksRef.current?.onToolTimeout(n, s),
         onModeChanged: (m) => callbacksRef.current?.onModeChanged(m),

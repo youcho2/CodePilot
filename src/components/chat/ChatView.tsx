@@ -4,6 +4,7 @@ import { useState, useCallback, useEffect, useRef, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import type { Message, MessagesResponse, FileAttachment, SessionStreamSnapshot } from '@/types';
 import { MessageList } from './MessageList';
+import { TerminalReasonChip } from './TerminalReasonChip';
 import { MessageInput } from './MessageInput';
 import { ChatComposerActionBar } from './ChatComposerActionBar';
 import { ModeIndicator } from './ModeIndicator';
@@ -655,6 +656,8 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
         isAssistantProject={isAssistantProject}
         assistantName={assistantName}
       />
+      {/* End-of-turn terminal reason chip (only shown when stream is not active) */}
+      {!isStreaming && <TerminalReasonChip reason={streamSnapshot?.terminalReason} />}
       {/* Permission prompt */}
       <PermissionPrompt
         pendingPermission={pendingPermission}
