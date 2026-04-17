@@ -16,10 +16,29 @@ const OPENAI_OAUTH_MODELS = [
 ];
 
 // Default Claude model options (for the built-in 'env' provider)
+// Capability metadata ensures `xhigh` appears in the effort dropdown even
+// before SDK capability discovery populates getCachedModels('env').
 const DEFAULT_MODELS = [
-  { value: 'sonnet', label: 'Sonnet 4.6' },
-  { value: 'opus', label: 'Opus 4.6' },
-  { value: 'haiku', label: 'Haiku 4.5' },
+  {
+    value: 'sonnet',
+    label: 'Sonnet 4.6',
+    supportsEffort: true,
+    supportedEffortLevels: ['low', 'medium', 'high', 'max'],
+    supportsAdaptiveThinking: true,
+  },
+  {
+    value: 'opus',
+    label: 'Opus 4.7',
+    supportsEffort: true,
+    supportedEffortLevels: ['low', 'medium', 'high', 'xhigh', 'max'],
+    supportsAdaptiveThinking: true,
+  },
+  {
+    value: 'haiku',
+    label: 'Haiku 4.5',
+    supportsEffort: true,
+    supportedEffortLevels: ['low', 'medium', 'high'],
+  },
 ];
 
 interface ModelEntry {
@@ -189,8 +208,17 @@ export async function GET() {
 
       const models = deduplicateModels(rawModels).map(m => {
         const cw = getContextWindow(m.value);
+        // Lift effort/thinking capability flags from nested `capabilities` to top-level
+        // so MessageInput / EffortSelectorDropdown can read them without unwrapping.
+        const caps = (m.capabilities || {}) as Record<string, unknown>;
+        const effortLift = {
+          ...(caps.supportsEffort != null ? { supportsEffort: caps.supportsEffort as boolean } : {}),
+          ...(caps.supportedEffortLevels != null ? { supportedEffortLevels: caps.supportedEffortLevels as string[] } : {}),
+          ...(caps.supportsAdaptiveThinking != null ? { supportsAdaptiveThinking: caps.supportsAdaptiveThinking as boolean } : {}),
+        };
         return {
           ...m,
+          ...effortLift,
           ...(cw != null ? { contextWindow: cw } : {}),
         };
       });

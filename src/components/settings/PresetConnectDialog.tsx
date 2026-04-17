@@ -678,7 +678,7 @@ export function PresetConnectDialog({
                         <Input
                           value={mapOpus}
                           onChange={(e) => setMapOpus(e.target.value)}
-                          placeholder="claude-opus-4-6"
+                          placeholder="claude-opus-4-7"
                           className="text-sm font-mono h-8"
                         />
                         <span className="text-xs text-muted-foreground text-right">Haiku</span>

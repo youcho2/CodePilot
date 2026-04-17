@@ -4,6 +4,7 @@ export const MODEL_CONTEXT_WINDOWS: Record<string, number> = {
   'haiku': 200000,
   'claude-sonnet-4-20250514': 200000,
   'claude-opus-4-20250514': 200000,
+  'claude-opus-4-7': 200000,
   'claude-haiku-4-5-20251001': 200000,
 };
 

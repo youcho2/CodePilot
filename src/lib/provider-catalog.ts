@@ -59,6 +59,12 @@ export interface CatalogModel {
     vision?: boolean;
     pdf?: boolean;
     contextWindow?: number;
+    /** Whether this model supports effort levels (reasoning effort) */
+    supportsEffort?: boolean;
+    /** Allowed effort levels for this model (Opus 4.7 adds 'xhigh') */
+    supportedEffortLevels?: ('low' | 'medium' | 'high' | 'xhigh' | 'max')[];
+    /** Whether this model supports adaptive thinking */
+    supportsAdaptiveThinking?: boolean;
   };
 }
 
@@ -187,9 +193,35 @@ export const PresetSchema = z.object({
 // ── Default Anthropic models ────────────────────────────────────
 
 const ANTHROPIC_DEFAULT_MODELS: CatalogModel[] = [
-  { modelId: 'sonnet', displayName: 'Sonnet 4.6', role: 'sonnet' },
-  { modelId: 'opus', displayName: 'Opus 4.6', role: 'opus' },
-  { modelId: 'haiku', displayName: 'Haiku 4.5', role: 'haiku' },
+  {
+    modelId: 'sonnet',
+    displayName: 'Sonnet 4.6',
+    role: 'sonnet',
+    capabilities: {
+      supportsEffort: true,
+      supportedEffortLevels: ['low', 'medium', 'high', 'max'],
+      supportsAdaptiveThinking: true,
+    },
+  },
+  {
+    modelId: 'opus',
+    displayName: 'Opus 4.7',
+    role: 'opus',
+    capabilities: {
+      supportsEffort: true,
+      supportedEffortLevels: ['low', 'medium', 'high', 'xhigh', 'max'],
+      supportsAdaptiveThinking: true,
+    },
+  },
+  {
+    modelId: 'haiku',
+    displayName: 'Haiku 4.5',
+    role: 'haiku',
+    capabilities: {
+      supportsEffort: true,
+      supportedEffortLevels: ['low', 'medium', 'high'],
+    },
+  },
 ];
 
 // ── Vendor presets ──────────────────────────────────────────────

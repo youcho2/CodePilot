@@ -27,7 +27,7 @@ export function EffortSelectorDropdown({
   const effortMenuRef = useRef<HTMLDivElement>(null);
   const [effortMenuOpen, setEffortMenuOpen] = useState(false);
 
-  const levels = supportedEffortLevels || ['low', 'medium', 'high', 'max'];
+  const levels = supportedEffortLevels || ['low', 'medium', 'high', 'xhigh', 'max'];
 
   // Close effort menu on outside click
   useEffect(() => {

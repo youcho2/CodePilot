@@ -670,9 +670,35 @@ function buildResolution(
     // Env mode uses short aliases (sonnet/opus/haiku) in the UI.
     // Map them to full Anthropic model IDs so toAiSdkConfig can resolve correctly.
     const envModels: CatalogModel[] = [
-      { modelId: 'sonnet', upstreamModelId: 'claude-sonnet-4-20250514', displayName: 'Sonnet 4.6' },
-      { modelId: 'opus', upstreamModelId: 'claude-opus-4-20250514', displayName: 'Opus 4.6' },
-      { modelId: 'haiku', upstreamModelId: 'claude-haiku-4-5-20251001', displayName: 'Haiku 4.5' },
+      {
+        modelId: 'sonnet',
+        upstreamModelId: 'claude-sonnet-4-20250514',
+        displayName: 'Sonnet 4.6',
+        capabilities: {
+          supportsEffort: true,
+          supportedEffortLevels: ['low', 'medium', 'high', 'max'],
+          supportsAdaptiveThinking: true,
+        },
+      },
+      {
+        modelId: 'opus',
+        upstreamModelId: 'claude-opus-4-7',
+        displayName: 'Opus 4.7',
+        capabilities: {
+          supportsEffort: true,
+          supportedEffortLevels: ['low', 'medium', 'high', 'xhigh', 'max'],
+          supportsAdaptiveThinking: true,
+        },
+      },
+      {
+        modelId: 'haiku',
+        upstreamModelId: 'claude-haiku-4-5-20251001',
+        displayName: 'Haiku 4.5',
+        capabilities: {
+          supportsEffort: true,
+          supportedEffortLevels: ['low', 'medium', 'high'],
+        },
+      },
     ];
 
     // Resolve upstream model from the alias table
