@@ -28,12 +28,35 @@ import { query, startup } from '@anthropic-ai/claude-agent-sdk';
 const POC_ENABLED = process.env.CLAUDE_SDK_POC === '1';
 const HAS_CREDS = !!(process.env.ANTHROPIC_API_KEY || process.env.CLAUDE_CODE_OAUTH_TOKEN);
 
-async function measureFirstTokenMs(run: () => AsyncIterable<unknown>): Promise<number> {
+/**
+ * Returns { firstEventMs, firstTextMs }:
+ *   - firstEventMs: ms until the first SDK stream event of any kind (system/
+ *     init/control). Proxies initialize+handshake latency.
+ *   - firstTextMs: ms until the first assistant text delta / content token.
+ *     Proxies what the user actually perceives as first-character latency.
+ * Codex note: only firstTextMs is a valid end-user latency proxy; firstEventMs
+ * is logged for diagnostic reasons but not used for the p50 assertion.
+ */
+async function measureLatencies(run: () => AsyncIterable<unknown>): Promise<{ firstEventMs: number; firstTextMs: number }> {
   const start = Date.now();
-  for await (const _msg of run()) {
-    return Date.now() - start;
+  let firstEventMs = 0;
+  let firstTextMs = 0;
+  for await (const msg of run()) {
+    if (!firstEventMs) firstEventMs = Date.now() - start;
+    const m = msg as { type?: string; message?: { content?: unknown }; event?: { delta?: { text?: string } } };
+    // Accept either assistant message with content or a stream_event carrying
+    // a text delta. Break as soon as real user-visible text arrives.
+    if (m.type === 'assistant' && m.message?.content) {
+      firstTextMs = Date.now() - start;
+      break;
+    }
+    if (m.event?.delta?.text) {
+      firstTextMs = Date.now() - start;
+      break;
+    }
   }
-  return Date.now() - start;
+  if (!firstTextMs) firstTextMs = Date.now() - start;
+  return { firstEventMs, firstTextMs };
 }
 
 test('warm-query POC — prewarm reduces first-token latency by ≥30% (p50)', { skip: !POC_ENABLED || !HAS_CREDS }, async () => {
@@ -46,31 +69,38 @@ test('warm-query POC — prewarm reduces first-token latency by ≥30% (p50)', {
   const N = 3; // small N, narrow scope; upshift if signal is noisy
 
   // Cold baseline: fresh query each time
-  const coldSamples: number[] = [];
+  const coldEventSamples: number[] = [];
+  const coldTextSamples: number[] = [];
   for (let i = 0; i < N; i++) {
-    const ms = await measureFirstTokenMs(() => query({ prompt: 'Reply with just "ok".', options: baseOptions }));
-    coldSamples.push(ms);
+    const { firstEventMs, firstTextMs } = await measureLatencies(() => query({ prompt: 'Reply with just "ok".', options: baseOptions }));
+    coldEventSamples.push(firstEventMs);
+    coldTextSamples.push(firstTextMs);
   }
 
   // Warm path: startup() then query once per WarmQuery
-  const warmSamples: number[] = [];
+  const warmEventSamples: number[] = [];
+  const warmTextSamples: number[] = [];
   for (let i = 0; i < N; i++) {
     const warm = await startup({ options: baseOptions });
-    const ms = await measureFirstTokenMs(() => warm.query('Reply with just "ok".'));
-    warmSamples.push(ms);
+    const { firstEventMs, firstTextMs } = await measureLatencies(() => warm.query('Reply with just "ok".'));
+    warmEventSamples.push(firstEventMs);
+    warmTextSamples.push(firstTextMs);
   }
 
   const p50 = (arr: number[]) => [...arr].sort((a, b) => a - b)[Math.floor(arr.length / 2)];
-  const coldP50 = p50(coldSamples);
-  const warmP50 = p50(warmSamples);
-  const reduction = 1 - warmP50 / coldP50;
+  const coldTextP50 = p50(coldTextSamples);
+  const warmTextP50 = p50(warmTextSamples);
+  const textReduction = 1 - warmTextP50 / coldTextP50;
 
-  console.log(`[warm-query-poc] cold p50=${coldP50}ms warm p50=${warmP50}ms reduction=${(reduction * 100).toFixed(1)}%`);
-  console.log('[warm-query-poc] cold samples:', coldSamples);
-  console.log('[warm-query-poc] warm samples:', warmSamples);
+  // Diagnostic only — first-event latency measures control/init overhead, not UX.
+  console.log(`[warm-query-poc] cold first-event p50=${p50(coldEventSamples)}ms warm first-event p50=${p50(warmEventSamples)}ms`);
+  console.log(`[warm-query-poc] cold first-text p50=${coldTextP50}ms warm first-text p50=${warmTextP50}ms reduction=${(textReduction * 100).toFixed(1)}%`);
+  console.log('[warm-query-poc] cold text samples:', coldTextSamples);
+  console.log('[warm-query-poc] warm text samples:', warmTextSamples);
 
-  // Decision criterion — if this fails, Phase 3 is NOT worth shipping
-  assert.ok(reduction >= 0.3, `warm prewarm should cut p50 latency by ≥30% (got ${(reduction * 100).toFixed(1)}%)`);
+  // Decision criterion uses user-visible first-text latency, not init overhead.
+  // If this fails, Phase 3 is NOT worth shipping.
+  assert.ok(textReduction >= 0.3, `warm prewarm should cut first-text p50 latency by ≥30% (got ${(textReduction * 100).toFixed(1)}%)`);
 });
 
 test('warm-query POC — WarmQuery cannot be reused after option mutation', { skip: !POC_ENABLED || !HAS_CREDS }, async () => {

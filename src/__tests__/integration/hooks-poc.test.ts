@@ -44,8 +44,11 @@ test('hooks POC — real queryOptions combination does not trigger CLI control-f
   const hookInvocations: { event: string; tool?: string }[] = [];
   const stderrChunks: string[] = [];
 
+  // Ask the model to call two tools: ping (should be allowed) and
+  // fail_always (will be denied by canUseTool → triggers PermissionDenied
+  // hook). This exercises all three hook surfaces the plan promises.
   const q = query({
-    prompt: 'Call the fixture-poc ping tool exactly once, then reply with its output.',
+    prompt: 'Call the fixture-poc ping tool, then call the fixture-poc fail_always tool. Report what happens with each.',
     options: {
       model: 'claude-opus-4-7',
       mcpServers: { 'fixture-poc': fixtureMcpServer },
@@ -64,9 +67,20 @@ test('hooks POC — real queryOptions combination does not trigger CLI control-f
             return { continue: true };
           }],
         }],
+        PermissionDenied: [{
+          hooks: [async (input) => {
+            const toolName = 'tool_name' in input ? input.tool_name : undefined;
+            hookInvocations.push({ event: 'PermissionDenied', tool: toolName });
+            return { continue: true };
+          }],
+        }],
       },
       canUseTool: async (toolName) => {
         hookInvocations.push({ event: 'canUseTool', tool: toolName });
+        // Deny fail_always specifically so PermissionDenied hook fires.
+        if (toolName.includes('fail_always')) {
+          return { behavior: 'deny', message: 'intentionally denied by POC' };
+        }
         return { behavior: 'allow', updatedInput: {} };
       },
       stderr: (data: string) => {
@@ -95,7 +109,14 @@ test('hooks POC — real queryOptions combination does not trigger CLI control-f
   assert.equal(resultSeen, true, 'should receive a result message');
   assert.equal(jsonErrors.length, 0, 'should not emit "CLI output was not valid JSON" errors');
   assert.ok(hookInvocations.length > 0, 'hook callbacks should fire');
+  // Sanity: all three hook types should have been exercised. If any is
+  // missing, Phase 6 go/no-go should flag this as coverage gap.
+  const byEvent = new Set(hookInvocations.map(i => i.event));
+  assert.ok(byEvent.has('PreToolUse'), 'PreToolUse hook should fire at least once');
+  assert.ok(byEvent.has('canUseTool'), 'canUseTool permission callback should fire at least once');
+  assert.ok(byEvent.has('PermissionDenied'), 'PermissionDenied hook should fire when canUseTool returns deny');
   console.log('[hooks-poc] invocations:', hookInvocations);
+  console.log('[hooks-poc] events covered:', [...byEvent]);
   console.log('[hooks-poc] terminal_reason:', terminalReason);
   console.log('[hooks-poc] stderr bytes:', stderrChunks.reduce((n, c) => n + c.length, 0));
 });

@@ -35,6 +35,21 @@ const TONE_BY_REASON: Record<string, Tone> = {
 // (they cancelled) or the turn completed normally.
 const SILENT_REASONS = new Set(['completed', 'aborted_streaming', 'aborted_tools']);
 
+// Whitelist of reasons we have explicit i18n labels for. Anything else
+// (e.g. a future SDK value we haven't translated yet) renders under the
+// 'unknown' key so the UI never leaks the raw reason string.
+const KNOWN_REASONS = new Set([
+  'max_turns',
+  'prompt_too_long',
+  'blocking_limit',
+  'rapid_refill_breaker',
+  'image_error',
+  'model_error',
+  'stop_hook_prevented',
+  'hook_stopped',
+  'tool_deferred',
+]);
+
 const TONE_CLASSES: Record<Tone, string> = {
   warning: 'bg-status-warning-muted text-status-warning-foreground border-status-warning-muted',
   error: 'bg-status-error-muted text-status-error-foreground border-status-error-muted',
@@ -47,10 +62,14 @@ export function TerminalReasonChip({ reason }: Props) {
 
   if (!reason || SILENT_REASONS.has(reason)) return null;
 
+  // Use whitelist rather than `t(key) || t(fallback)` because translate()
+  // returns the raw key when missing, so the `||` branch would never fire
+  // and a new SDK reason would leak a "terminal.new_reason" string to the UI.
+  const isKnown = KNOWN_REASONS.has(reason);
   const tone = TONE_BY_REASON[reason] ?? 'warning';
-  const i18nKey = `terminal.${reason}` as TranslationKey;
-  const fallbackKey = 'terminal.unknown' as TranslationKey;
-  const label = t(i18nKey) || t(fallbackKey);
+  const label = isKnown
+    ? t(`terminal.${reason}` as TranslationKey)
+    : t('terminal.unknown' as TranslationKey);
 
   return (
     <div className="mx-auto mt-2 flex w-full max-w-3xl justify-start px-4">
