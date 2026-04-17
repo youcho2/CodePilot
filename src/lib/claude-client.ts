@@ -1220,8 +1220,8 @@ export function streamClaudeSdk(options: ClaudeStreamOptions): ReadableStream<st
                       ? block.content
                       : Array.isArray(block.content)
                         ? block.content
-                            .filter((c: { type: string }) => c.type === 'text')
-                            .map((c: { text?: string }) => c.text)
+                            .filter((c): c is { type: 'text'; text: string } => c.type === 'text')
+                            .map((c) => c.text)
                             .join('\n')
                         : String(block.content ?? '');
 
@@ -1420,6 +1420,10 @@ export function streamClaudeSdk(options: ClaudeStreamOptions): ReadableStream<st
             case 'result': {
               const resultMsg = message as SDKResultMessage;
               tokenUsage = extractTokenUsage(resultMsg);
+              // terminal_reason is an optional field added in SDK 0.2.111.
+              // When present, it enriches the end-of-turn UI chip (Phase 1 of
+              // agent-sdk-0-2-111-adoption) without replacing error-classifier.
+              const terminalReason = (resultMsg as SDKResultMessage & { terminal_reason?: string }).terminal_reason;
               controller.enqueue(formatSSE({
                 type: 'result',
                 data: JSON.stringify({
@@ -1429,6 +1433,7 @@ export function streamClaudeSdk(options: ClaudeStreamOptions): ReadableStream<st
                   duration_ms: resultMsg.duration_ms,
                   usage: tokenUsage,
                   session_id: resultMsg.session_id,
+                  ...(terminalReason ? { terminal_reason: terminalReason } : {}),
                 }),
               }));
               // Notify on conversation-level errors (e.g. rate limit, auth failure)
