@@ -207,7 +207,11 @@ export async function GET() {
       } catch { /* ignore */ }
 
       const models = deduplicateModels(rawModels).map(m => {
-        const cw = getContextWindow(m.value);
+        // Pass upstream so alias windows resolve per provider:
+        // first-party opus → 1M (Opus 4.7) vs Bedrock/Vertex opus → 200K
+        // (Opus 4.6). The model API is per-provider, so the correct
+        // upstream is whatever catalog declared for this provider group.
+        const cw = getContextWindow(m.value, { upstream: m.upstreamModelId });
         // Lift effort/thinking capability flags from nested `capabilities` to top-level
         // so MessageInput / EffortSelectorDropdown can read them without unwrapping.
         const caps = (m.capabilities || {}) as Record<string, unknown>;

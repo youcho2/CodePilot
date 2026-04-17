@@ -206,6 +206,16 @@ const ANTHROPIC_DEFAULT_MODELS: CatalogModel[] = [
   },
   {
     modelId: 'opus',
+    // Pin opus alias to the explicit first-party model id so DB-backed
+    // Anthropic providers (anthropic-official / anthropic-thirdparty /
+    // openrouter / ollama / litellm) send "claude-opus-4-7" upstream
+    // instead of the raw "opus" alias. Without this, provider-resolver
+    // leaves resolved.upstreamModel === 'opus', which the native path
+    // forwards verbatim to @ai-sdk/anthropic and the 4.7 sanitizer
+    // regex in agent-loop.ts never matches. env provider has its own
+    // inline alias table (provider-resolver.ts:~674) which already
+    // points opus at claude-opus-4-7.
+    upstreamModelId: 'claude-opus-4-7',
     displayName: 'Opus 4.7',
     role: 'opus',
     capabilities: {

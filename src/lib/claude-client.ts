@@ -22,6 +22,7 @@ import { normalizeMessageContent, microCompactMessage } from './message-normaliz
 import { roughTokenEstimate } from './context-estimator';
 import { getSetting, updateSdkSessionId, createPermissionRequest } from './db';
 import { resolveForClaudeCode } from './provider-resolver';
+import { sanitizeClaudeModelOptions } from './claude-model-options';
 import { findClaudeBinary, invalidateClaudePathCache } from './platform';
 import { notifyPermissionRequest, notifyGeneric } from './telegram-bot';
 import { classifyError, formatClassifiedError } from './error-classifier';
@@ -812,9 +813,20 @@ export function streamClaudeSdk(options: ClaudeStreamOptions): ReadableStream<st
           }
         }
 
-        // Pass through SDK-specific options from ClaudeStreamOptions
-        if (thinking) {
-          queryOptions.thinking = thinking;
+        // Pass through SDK-specific options from ClaudeStreamOptions.
+        // Shared sanitizer runs the same Opus 4.7 migration guards as the
+        // native agent-loop path — manual extended thinking becomes
+        // adaptive, and the context-1m beta header is dropped since 4.7
+        // ships 1M by default.
+        const sanitized = sanitizeClaudeModelOptions({
+          model,
+          thinking,
+          effort,
+          context1m,
+        });
+
+        if (sanitized.thinking) {
+          queryOptions.thinking = sanitized.thinking;
         }
         // SDK-runtime effort policy: when the UI doesn't explicitly pick a
         // level, leave `effort` unset so Claude Code CLI applies its
@@ -827,8 +839,8 @@ export function streamClaudeSdk(options: ClaudeStreamOptions): ReadableStream<st
         // than both queryOptions.effort and settingSources, so an explicit
         // UI choice still wins and a missing one doesn't silently escalate
         // to 'high'.
-        if (effort) {
-          queryOptions.effort = effort;
+        if (sanitized.effort) {
+          queryOptions.effort = sanitized.effort as Options['effort'];
         }
         if (outputFormat) {
           queryOptions.outputFormat = outputFormat;
@@ -842,7 +854,7 @@ export function streamClaudeSdk(options: ClaudeStreamOptions): ReadableStream<st
         if (enableFileCheckpointing) {
           queryOptions.enableFileCheckpointing = true;
         }
-        if (context1m) {
+        if (sanitized.applyContext1mBeta) {
           queryOptions.betas = [
             ...(queryOptions.betas || []),
             'context-1m-2025-08-07',
