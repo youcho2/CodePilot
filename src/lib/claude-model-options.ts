@@ -62,10 +62,19 @@ export function sanitizeClaudeModelOptions(
   const isOpus47 = isOpus47Model(input.model);
 
   let thinking = input.thinking;
-  // Opus 4.7 rejects manual extended thinking. Convert to adaptive so the
-  // user's "thinking enabled" intent survives without triggering a 400.
-  if (isOpus47 && thinking && thinking.type === 'enabled') {
-    thinking = { type: 'adaptive' };
+  if (isOpus47 && thinking) {
+    // Opus 4.7 rejects manual extended thinking. Convert to adaptive so
+    // the user's "thinking enabled" intent survives without triggering
+    // a 400.
+    if (thinking.type === 'enabled') {
+      thinking = { type: 'adaptive', display: 'summarized' };
+    } else if (thinking.type === 'adaptive' && !thinking.display) {
+      // Opus 4.7 adaptive thinking defaults display to 'omitted', which
+      // means the SDK will not emit thinking deltas and CodePilot's
+      // reasoning block disappears. Explicitly request 'summarized' so
+      // users still see the reasoning UI they saw on 4.6.
+      thinking = { ...thinking, display: 'summarized' };
+    }
   }
 
   // Opus 4.7 ships 1M by default — the beta header is unnecessary and
