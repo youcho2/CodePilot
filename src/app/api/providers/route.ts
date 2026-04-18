@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAllProviders, createProvider, getSetting } from '@/lib/db';
-import { getEffectiveProviderProtocol } from '@/lib/provider-catalog';
+import { getEffectiveProviderProtocol, isValidProtocol } from '@/lib/provider-catalog';
 import type { ProviderResponse, ErrorResponse, CreateProviderRequest, ApiProvider } from '@/types';
 
 function maskApiKey(provider: ApiProvider): ApiProvider {
@@ -59,6 +59,23 @@ export async function POST(request: NextRequest) {
     if (!body.name) {
       return NextResponse.json<ErrorResponse>(
         { error: 'Missing required field: name' },
+        { status: 400 }
+      );
+    }
+
+    // Reject raw protocol strings we don't recognize — otherwise a stray
+    // 'random-garbage' protocol would survive in the DB, bypass the legacy
+    // inference path in resolver/models, and mis-route capability metadata.
+    // Undefined/empty is fine: getEffectiveProviderProtocol() will infer
+    // from provider_type below.
+    if (body.protocol !== undefined && body.protocol !== '' && !isValidProtocol(body.protocol)) {
+      return NextResponse.json<ErrorResponse>(
+        {
+          error: `Unknown protocol '${body.protocol}'. Supported protocols: ${[...[...new Set([
+            'anthropic', 'openai-compatible', 'openrouter', 'bedrock', 'vertex', 'google', 'gemini-image',
+          ])]].join(', ')}.`,
+          code: 'INVALID_PROTOCOL',
+        },
         { status: 400 }
       );
     }

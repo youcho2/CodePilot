@@ -15,6 +15,7 @@ import {
   inferProtocolFromLegacy,
   inferAuthStyleFromLegacy,
   getDefaultModelsForProvider,
+  getEffectiveProviderProtocol,
   findPresetForLegacy,
 } from './provider-catalog';
 import {
@@ -869,15 +870,17 @@ function buildResolution(
 
 /**
  * Determine protocol from a provider record.
- * Uses the new `protocol` field if present, otherwise infers from legacy fields.
+ * Delegates to the shared getEffectiveProviderProtocol() so raw values that
+ * aren't valid Protocol union members (legacy garbage, future unknown
+ * strings) fall back to legacy inference instead of silently poisoning
+ * downstream capability lookups.
  */
 function inferProtocolFromProvider(provider: ApiProvider): Protocol {
-  // New field takes precedence
-  if (provider.protocol) {
-    return provider.protocol as Protocol;
-  }
-  // Legacy inference
-  return inferProtocolFromLegacy(provider.provider_type, provider.base_url);
+  return getEffectiveProviderProtocol(
+    provider.provider_type,
+    provider.protocol,
+    provider.base_url,
+  );
 }
 
 function inferAuthStyleFromProvider(provider: ApiProvider): AuthStyle {

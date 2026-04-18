@@ -778,7 +778,7 @@ export function getPresetsByCategory(category: 'chat' | 'media' = 'chat'): Vendo
 }
 
 /** All valid Protocol union values — used for raw-field validation. */
-const VALID_PROTOCOLS = new Set<Protocol>([
+export const VALID_PROTOCOLS = new Set<Protocol>([
   'anthropic',
   'openai-compatible',
   'openrouter',
@@ -787,6 +787,11 @@ const VALID_PROTOCOLS = new Set<Protocol>([
   'google',
   'gemini-image',
 ]);
+
+/** Type guard for raw protocol strings coming from API bodies or legacy DB. */
+export function isValidProtocol(value: unknown): value is Protocol {
+  return typeof value === 'string' && VALID_PROTOCOLS.has(value as Protocol);
+}
 
 /**
  * Compute the effective protocol for a provider — prefer the raw protocol

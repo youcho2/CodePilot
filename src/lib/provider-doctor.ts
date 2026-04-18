@@ -368,7 +368,13 @@ async function runProviderProbe(): Promise<ProbeResult> {
       p.base_url,
     );
 
-    if (!p.base_url && protocol !== 'anthropic') {
+    // Protocols that legitimately have no base_url:
+    //   - anthropic: ambiguous (separate diagnostic below)
+    //   - bedrock / vertex: IAM / gcloud ADC auth, no HTTP endpoint
+    //     configured by the user (matches testProviderConnection's
+    //     SKIPPED branch for cloud providers)
+    const protocolsWithoutUrl = new Set(['anthropic', 'bedrock', 'vertex']);
+    if (!p.base_url && !protocolsWithoutUrl.has(protocol)) {
       findings.push({
         severity: 'warn',
         code: 'provider.missing-base-url',

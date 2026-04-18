@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getProvider, updateProvider, deleteProvider, getDefaultProviderId, setDefaultProviderId, getAllProviders } from '@/lib/db';
-import { getEffectiveProviderProtocol } from '@/lib/provider-catalog';
+import { getEffectiveProviderProtocol, isValidProtocol } from '@/lib/provider-catalog';
 import type { ProviderResponse, ErrorResponse, UpdateProviderRequest, ApiProvider } from '@/types';
 
 interface RouteContext {
@@ -53,6 +53,17 @@ export async function PUT(request: NextRequest, context: RouteContext) {
     // If api_key starts with ***, the client sent back a masked value — don't update it
     if (body.api_key && body.api_key.startsWith('***')) {
       delete body.api_key;
+    }
+
+    // Reject unknown raw protocol updates (mirrors POST validation).
+    if (body.protocol !== undefined && body.protocol !== '' && !isValidProtocol(body.protocol)) {
+      return NextResponse.json<ErrorResponse>(
+        {
+          error: `Unknown protocol '${body.protocol}'`,
+          code: 'INVALID_PROTOCOL',
+        },
+        { status: 400 }
+      );
     }
 
     // Anthropic-protocol providers must declare a base URL on update.

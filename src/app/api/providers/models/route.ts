@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getAllProviders, getDefaultProviderId, setDefaultProviderId, getProvider, getModelsForProvider, getSetting } from '@/lib/db';
 import { getContextWindow } from '@/lib/model-context';
-import { getDefaultModelsForProvider, inferProtocolFromLegacy, findPresetForLegacy } from '@/lib/provider-catalog';
+import { getDefaultModelsForProvider, getEffectiveProviderProtocol, findPresetForLegacy } from '@/lib/provider-catalog';
 import type { Protocol } from '@/lib/provider-catalog';
 import type { ErrorResponse, ProviderModelGroup } from '@/types';
 import { getOAuthStatus } from '@/lib/openai-oauth-manager';
@@ -148,8 +148,11 @@ export async function GET() {
     // Build a group for each configured provider
     for (const provider of providers) {
       // Determine protocol — use new field if present, otherwise infer from legacy
-      const protocol: Protocol = (provider.protocol as Protocol) ||
-        inferProtocolFromLegacy(provider.provider_type, provider.base_url);
+      const protocol: Protocol = getEffectiveProviderProtocol(
+        provider.provider_type,
+        provider.protocol,
+        provider.base_url,
+      );
 
       // Skip media-only providers in chat model selector
       if (MEDIA_PROTOCOLS.has(protocol) || MEDIA_PROVIDER_TYPES.has(provider.provider_type)) continue;

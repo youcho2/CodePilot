@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { VENDOR_PRESETS, PresetSchema, getDefaultModelsForProvider, getEffectiveProviderProtocol } from '../../lib/provider-catalog';
+import { VENDOR_PRESETS, PresetSchema, getDefaultModelsForProvider, getEffectiveProviderProtocol, isValidProtocol } from '../../lib/provider-catalog';
 
 describe('Preset Schema Validation', () => {
   for (const preset of VENDOR_PRESETS) {
@@ -257,6 +257,24 @@ describe('getDefaultModelsForProvider — provider-catalog flow', () => {
       getEffectiveProviderProtocol('anthropic', 'random-garbage', ''),
       'anthropic',
     );
+  });
+
+  it('isValidProtocol: accepts every Protocol union member and rejects garbage', () => {
+    // Used by POST/PUT to block invalid protocol strings from ever landing
+    // in the DB. If the Protocol union grows, this test will naturally
+    // pair with the VALID_PROTOCOLS set update in provider-catalog.ts.
+    const members: string[] = [
+      'anthropic', 'openai-compatible', 'openrouter',
+      'bedrock', 'vertex', 'google', 'gemini-image',
+    ];
+    for (const m of members) {
+      assert.equal(isValidProtocol(m), true, `'${m}' must be valid`);
+    }
+    assert.equal(isValidProtocol('random-garbage'), false);
+    assert.equal(isValidProtocol(''), false);
+    assert.equal(isValidProtocol(undefined), false);
+    assert.equal(isValidProtocol(null), false);
+    assert.equal(isValidProtocol(123), false);
   });
 
   it('missing providerType with empty baseUrl stays alias-only (no accidental first-party promotion)', () => {
