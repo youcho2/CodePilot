@@ -39,9 +39,13 @@ test.describe('Layout', () => {
       await expect(newChatButton(page)).toBeVisible();
     });
 
-    test('sidebar has Recent Chats section', async ({ page }) => {
+    test('sidebar has chat list section', async ({ page }) => {
       await goToChat(page);
-      await expect(page.locator('aside:has-text("Recent Chats")')).toBeVisible();
+      // "Recent Chats" was shortened to "Chats" / "对话". Match either
+      // locale so the assertion stays stable across zh/en builds.
+      await expect(
+        page.locator('aside').filter({ hasText: /(Chats|对话)/i }).first(),
+      ).toBeVisible();
     });
   });
 
