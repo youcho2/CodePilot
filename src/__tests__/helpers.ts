@@ -114,16 +114,16 @@ export function stopButton(page: Page): Locator {
 }
 
 /**
- * The "New Chat" link in the sidebar.
+ * The "New Chat" link or button in the sidebar.
  *
  * Copy rotates between "New Chat" / "新对话" / "+ 新对话" depending on
- * locale and whether the leading `+` glyph is baked into the string, so
- * the helper matches either language rather than pinning to English.
+ * locale. The current sidebar renders it as a <button>, not an <a>, so
+ * the helper accepts either and matches both zh and en copy.
  */
 export function newChatButton(page: Page): Locator {
   return page
-    .locator('aside')
-    .getByRole('link', { name: /(New Chat|新对话)/i })
+    .locator('aside button, aside a')
+    .filter({ hasText: /^(New Chat|新对话)$/ })
     .first();
 }
 
