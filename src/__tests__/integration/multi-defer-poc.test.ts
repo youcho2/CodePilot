@@ -28,6 +28,7 @@
 import { test } from 'node:test';
 import { query } from '@anthropic-ai/claude-agent-sdk';
 import { fixtureMcpServer } from '../fixtures/fixture-mcp-server';
+import { recordPocResult } from './poc-record';
 
 const POC_ENABLED = process.env.CLAUDE_SDK_POC === '1';
 const HAS_CREDS = !!(process.env.ANTHROPIC_API_KEY || process.env.CLAUDE_CODE_OAUTH_TOKEN);
@@ -80,6 +81,13 @@ test('multi-defer POC — classify SDK behavior on concurrent defer attempts', {
   console.log('[multi-defer-poc] result count:', resultMessages.length);
   console.log('[multi-defer-poc] deferred count:', deferredSeen.length);
   console.log('[multi-defer-poc] classification:', classification);
+
+  recordPocResult('multi_defer', {
+    resultCount: resultMessages.length,
+    deferredCount: deferredSeen.length,
+    classification,
+    concurrentSupported: classification === 'concurrent_supported',
+  });
 
   // Intentionally no assert — this POC is a classifier, not a pass/fail gate.
   // Phase 7b-future unlocks iff classification === 'concurrent_supported'.

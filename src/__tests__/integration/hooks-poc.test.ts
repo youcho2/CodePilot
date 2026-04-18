@@ -27,6 +27,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { query } from '@anthropic-ai/claude-agent-sdk';
 import { fixtureMcpServer } from '../fixtures/fixture-mcp-server';
+import { recordPocResult } from './poc-record';
 
 const POC_ENABLED = process.env.CLAUDE_SDK_POC === '1';
 const HAS_CREDS = !!(process.env.ANTHROPIC_API_KEY || process.env.CLAUDE_CODE_OAUTH_TOKEN);
@@ -119,4 +120,13 @@ test('hooks POC — real queryOptions combination does not trigger CLI control-f
   console.log('[hooks-poc] events covered:', [...byEvent]);
   console.log('[hooks-poc] terminal_reason:', terminalReason);
   console.log('[hooks-poc] stderr bytes:', stderrChunks.reduce((n, c) => n + c.length, 0));
+
+  recordPocResult('hooks', {
+    eventsCovered: [...byEvent],
+    invocationCount: hookInvocations.length,
+    terminalReason,
+    stderrBytes: stderrChunks.reduce((n, c) => n + c.length, 0),
+    jsonErrorCount: jsonErrors.length,
+    cliControlFrameBugPresent: jsonErrors.length > 0,
+  });
 });

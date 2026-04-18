@@ -24,6 +24,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { query, startup } from '@anthropic-ai/claude-agent-sdk';
+import { recordPocResult } from './poc-record';
 
 const POC_ENABLED = process.env.CLAUDE_SDK_POC === '1';
 const HAS_CREDS = !!(process.env.ANTHROPIC_API_KEY || process.env.CLAUDE_CODE_OAUTH_TOKEN);
@@ -121,6 +122,17 @@ test('warm-query POC — prewarm reduces first-token latency by ≥30% (p50)', {
   console.log('[warm-query-poc] warm text samples:', warmTextSamples);
   console.log('[warm-query-poc] cold first-text sources:', coldTextSources);
   console.log('[warm-query-poc] warm first-text sources:', warmTextSources);
+
+  recordPocResult('warm_query', {
+    sampleCount: N,
+    coldFirstEventP50Ms: p50(coldEventSamples),
+    warmFirstEventP50Ms: p50(warmEventSamples),
+    coldFirstTextP50Ms: coldTextP50,
+    warmFirstTextP50Ms: warmTextP50,
+    textReductionPct: +(textReduction * 100).toFixed(1),
+    coldTextSources,
+    warmTextSources,
+  });
 
   // Phase 3 decision loses confidence if firstTextMs was measured from
   // the final assistant message instead of a streaming delta. Treat this
