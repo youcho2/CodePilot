@@ -15,6 +15,7 @@
 | 5 | Bridge 的 `/mode plan` 在会话权限档位为 `full_access` 时仍会被 `bypassPermissions` 覆盖，导致 Plan 语义失效；需让 bridge 与桌面聊天一致，显式以 Plan 优先于 full_access | 中 | Bridge 远程会话的权限/安全语义 | 2026-03-25 |
 | 6 | Electron 主进程行为（外链拦截、窗口管理等）无自动化测试覆盖。现有 Playwright 测试只覆盖 Next.js web 层，需要搭建 `@playwright/test` + `_electron.launch()` 的 Electron E2E 测试框架 | 低 | Electron 主进程回归风险 | 2026-03-30 |
 | 7 | `claude-settings-credentials.test.ts` 的 "DB provider WITHOUT api_key" 和 `project-mcp-injection.test.ts` 的 "resolves ${...} env placeholders" 两条 regression test 在 CI（ubuntu/node 20）上用 `process.env.CI ? it.skip : it` 跳过了。根因疑似 tsx 对 `@/lib/db` 与 `../../lib/db` 动态 import 的 module identity 去重在 linux 上行为与 macOS 不一致：`createProvider` / `setSetting`（测试侧）写的 db 和 prod 代码里 `getProvider` / `getSetting`（registry / mcp-loader）读的 db 不是同一个句柄。本地两套都通过。需要深入排查 tsx + node 20 的 ESM 模块解析差异，或者改用依赖注入让测试不依赖真实 DB | 中 | 丢失一条 provider-ownership 边界断言 + 一条 env placeholder 解析断言的 CI 覆盖；其他测试仍覆盖相近路径 | 2026-04-15 |
+| 8 | `@file`/`@directory` mention 无法识别带空格的路径（如 `docs/Product Spec.md`、`My Folder`）。插入文本是裸 `@${path}`，但 `parseMentionRefs` 用 `/@([^\s@]+)/` 分词，遇到空格就截断；`mentionNodeTypes[path]` 查不到，chip 消失、结构化 mention 不发送、目录 summary / 文件附件路径全部跳过。影响 PR #508 picker 插入 和 07eb5a9 目录拖拽两条链路。修复需要同时改 插入 token（转义或引号）+ `parseMentionRefs` 解析 + Backspace 整块删除逻辑；建议单开小 PR 处理并补测试 | 中 | 任何含空格的路径都无法走结构化 mention 流程；仅纯文本可达 LLM | 2026-04-18 |
 
 ## 已解决
 
