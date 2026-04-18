@@ -102,8 +102,8 @@ export function SlashCommandPopover({
     >
       {popoverMode === 'file' ? (
         item.nodeType === 'directory'
-          ? <Folder size={16} className="shrink-0 text-primary/80" />
-          : <File size={16} className="shrink-0 text-primary/80" />
+          ? <Folder size={16} className="shrink-0 text-muted-foreground" />
+          : <File size={16} className="shrink-0 text-muted-foreground" />
       ) : item.builtIn && item.icon ? (
         (() => { const ItemIcon = item.icon; return <ItemIcon size={16} className="shrink-0 text-muted-foreground" />; })()
       ) : item.kind === 'agent_skill' ? (
@@ -135,21 +135,20 @@ export function SlashCommandPopover({
   return (
     <div ref={popoverRef}>
       <CommandList className="w-full max-w-2xl">
-        {popoverMode === 'skill' ? (
-          <CommandListSearch
-            inputRef={searchInputRef}
-            value={popoverFilter}
-            onChange={handleFilterChange}
-            onKeyDown={handleSearchKeyDown}
-          />
-        ) : (
-          <div className="px-3 py-2 text-xs font-medium text-primary border-b border-primary/20 bg-primary/5">
-            Files
-          </div>
-        )}
+        <CommandListSearch
+          inputRef={searchInputRef}
+          placeholder={popoverMode === 'file'
+            ? t('composer.searchFiles' as TranslationKey)
+            : undefined}
+          value={popoverFilter}
+          onChange={handleFilterChange}
+          onKeyDown={handleSearchKeyDown}
+        />
         <CommandListItems className="max-h-48">
           {popoverMode === 'file' ? (
-            filteredItems.map((item, i) => renderItem(item, i))
+            <CommandListGroup label={t('globalSearch.files' as TranslationKey)}>
+              {filteredItems.map((item, i) => renderItem(item, i))}
+            </CommandListGroup>
           ) : (
             <>
               {builtInItems.length > 0 && (

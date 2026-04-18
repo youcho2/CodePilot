@@ -1068,6 +1068,7 @@ const zh: Record<TranslationKey, string> = {
   'composer.slashCommandTooltip': '插入斜杠命令',
   'composer.manageSkills': '管理技能',
   'composer.searchModels': '搜索模型...',
+  'composer.searchFiles': '搜索文件和文件夹...',
   'composer.manageProviders': '管理服务商',
   'composer.designAgent': '设计 Agent',
   'composer.designAgentTooltip': '启用 AI 设计与图片生成',

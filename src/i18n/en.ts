@@ -1071,6 +1071,7 @@ const en = {
   'composer.slashCommandTooltip': 'Insert slash command',
   'composer.manageSkills': 'Manage skills',
   'composer.searchModels': 'Search models...',
+  'composer.searchFiles': 'Search files and folders...',
   'composer.manageProviders': 'Manage providers',
   'composer.designAgent': 'Design Agent',
   'composer.designAgentTooltip': 'Enable AI design & image generation',
