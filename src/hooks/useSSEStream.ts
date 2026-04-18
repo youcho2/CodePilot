@@ -29,6 +29,9 @@ export interface SSECallbacks {
   onToolProgress: (toolName: string, elapsedSeconds: number) => void;
   onStatus: (text: string | undefined) => void;
   onResult: (usage: TokenUsage | null, meta?: { terminalReason?: string }) => void;
+  /** SDK 0.2.111 subscription rate-limit telemetry. Fires only on
+   *  claude.ai subscription paths; absent for API-key sessions. */
+  onRateLimit?: (info: RateLimitInfo) => void;
   onPermissionRequest: (data: PermissionRequestEvent) => void;
   onToolTimeout: (toolName: string, elapsedSeconds: number) => void;
   onModeChanged: (mode: string) => void;
@@ -47,6 +50,21 @@ export interface SSECallbacks {
     mcp_servers?: unknown;
     output_style?: string;
   }) => void;
+}
+
+/**
+ * Subscription rate-limit info payload mirroring SDKRateLimitInfo.
+ * Forwarded verbatim from the server for Phase 2 of agent-sdk-0-2-111.
+ */
+export interface RateLimitInfo {
+  status: 'allowed' | 'allowed_warning' | 'rejected';
+  resetsAt?: number;
+  rateLimitType?: 'five_hour' | 'seven_day' | 'seven_day_opus' | 'seven_day_sonnet' | 'overage';
+  utilization?: number;
+  overageStatus?: 'allowed' | 'allowed_warning' | 'rejected';
+  overageResetsAt?: number;
+  overageDisabledReason?: string;
+  isUsingOverage?: boolean;
 }
 
 /**
@@ -209,6 +227,19 @@ function handleSSEEvent(
         callbacks.onResult(null);
       }
       callbacks.onStatus(undefined);
+      return accumulated;
+    }
+
+    case 'rate_limit': {
+      // SDK 0.2.111 subscription rate-limit event. Structured payload
+      // forwarded from claude-client.ts verbatim.
+      try {
+        const info = JSON.parse(event.data) as RateLimitInfo;
+        callbacks.onRateLimit?.(info);
+      } catch {
+        // skip malformed payload — better to miss a rate-limit update
+        // than to crash the stream
+      }
       return accumulated;
     }
 
@@ -392,6 +423,7 @@ export function useSSEStream() {
         onKeepAlive: () => callbacksRef.current?.onKeepAlive(),
         onError: (a) => callbacksRef.current?.onError(a),
         onInitMeta: (m) => callbacksRef.current?.onInitMeta?.(m),
+        onRateLimit: (info) => callbacksRef.current?.onRateLimit?.(info),
       };
 
       return consumeSSEStream(reader, proxied);

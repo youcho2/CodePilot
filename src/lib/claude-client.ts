@@ -1475,8 +1475,34 @@ export function streamClaudeSdk(options: ClaudeStreamOptions): ReadableStream<st
             }
 
             default: {
-              if ((message as { type: string }).type === 'keep_alive') {
+              const mType = (message as { type: string }).type;
+              if (mType === 'keep_alive') {
                 controller.enqueue(formatSSE({ type: 'keep_alive', data: '' }));
+              } else if (mType === 'rate_limit_event') {
+                // SDK 0.2.111+ — subscription rate limit telemetry. SDK
+                // only emits these for claude.ai subscription paths, so
+                // API-key / third-party provider sessions won't see this
+                // branch. Forward verbatim so the UI can render a
+                // warning banner (allowed_warning) or a closable recovery
+                // panel (rejected) per Phase 2 of agent-sdk-0-2-111.
+                const rlEvent = message as {
+                  type: 'rate_limit_event';
+                  rate_limit_info: {
+                    status: 'allowed' | 'allowed_warning' | 'rejected';
+                    resetsAt?: number;
+                    rateLimitType?: string;
+                    utilization?: number;
+                    overageStatus?: string;
+                    overageResetsAt?: number;
+                    overageDisabledReason?: string;
+                    isUsingOverage?: boolean;
+                  };
+                  session_id: string;
+                };
+                controller.enqueue(formatSSE({
+                  type: 'rate_limit',
+                  data: JSON.stringify(rlEvent.rate_limit_info),
+                }));
               }
               break;
             }

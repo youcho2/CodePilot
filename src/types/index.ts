@@ -494,6 +494,7 @@ export type SSEEventType =
   | 'task_update'        // SDK TodoWrite task sync
   | 'keep_alive'         // SDK keep-alive heartbeat (resets idle timer)
   | 'rewind_point'       // SDK user message with rewind checkpoint
+  | 'rate_limit'         // SDK 0.2.111 subscription rate-limit telemetry
   | 'done';              // stream complete
 
 export interface SSEEvent {
@@ -989,6 +990,22 @@ export interface SessionStreamSnapshot {
    * message — those continue to flow through error-classifier.ts.
    */
   terminalReason?: string;
+  /**
+   * SDK 0.2.111 subscription rate-limit telemetry (Phase 2 of
+   * agent-sdk-0-2-111-adoption). Populated from rate_limit_event
+   * stream messages; only present on claude.ai subscription paths.
+   * ChatView consumes this to render warning / rejected UIs.
+   */
+  rateLimitInfo?: {
+    status: 'allowed' | 'allowed_warning' | 'rejected';
+    resetsAt?: number;
+    rateLimitType?: 'five_hour' | 'seven_day' | 'seven_day_opus' | 'seven_day_sonnet' | 'overage';
+    utilization?: number;
+    overageStatus?: 'allowed' | 'allowed_warning' | 'rejected';
+    overageResetsAt?: number;
+    overageDisabledReason?: string;
+    isUsingOverage?: boolean;
+  };
 }
 
 export interface StreamEvent {

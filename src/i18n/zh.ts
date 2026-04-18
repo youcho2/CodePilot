@@ -1125,6 +1125,20 @@ const zh: Record<TranslationKey, string> = {
   'terminalAction.confirmCta': '确认',
   'terminalAction.confirmCancel': '取消',
 
+  // ── Subscription rate limit (Phase 2) ──
+  'rateLimit.warningTitle': '订阅额度预警',
+  'rateLimit.rejectedTitle': '订阅额度已用尽',
+  'rateLimit.utilization': '已用',
+  'rateLimit.resetsIn': '还剩',
+  'rateLimit.switchToSonnet': '切换到 Sonnet',
+  'rateLimit.dismiss': '关闭',
+  'rateLimit.bucket.five_hour': '5 小时窗口',
+  'rateLimit.bucket.seven_day': '7 天窗口',
+  'rateLimit.bucket.seven_day_opus': '7 天 Opus 窗口',
+  'rateLimit.bucket.seven_day_sonnet': '7 天 Sonnet 窗口',
+  'rateLimit.bucket.overage': '超额窗口',
+  'rateLimit.bucket.unknown': '订阅额度',
+
   // ── SDK Capabilities: Rewind ──────────────────────────────
   'messageList.rewindToHere': '回滚到此处',
   'messageList.rewindConfirm': '确认回滚',

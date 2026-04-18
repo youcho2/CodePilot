@@ -1128,6 +1128,20 @@ const en = {
   'terminalAction.confirmCta': 'Confirm',
   'terminalAction.confirmCancel': 'Cancel',
 
+  // ── Subscription rate limit (Phase 2) ──
+  'rateLimit.warningTitle': 'Subscription quota warning',
+  'rateLimit.rejectedTitle': 'Subscription quota exhausted',
+  'rateLimit.utilization': 'Used',
+  'rateLimit.resetsIn': 'Resets in',
+  'rateLimit.switchToSonnet': 'Switch to Sonnet',
+  'rateLimit.dismiss': 'Dismiss',
+  'rateLimit.bucket.five_hour': '5-hour bucket',
+  'rateLimit.bucket.seven_day': '7-day bucket',
+  'rateLimit.bucket.seven_day_opus': '7-day Opus bucket',
+  'rateLimit.bucket.seven_day_sonnet': '7-day Sonnet bucket',
+  'rateLimit.bucket.overage': 'Overage bucket',
+  'rateLimit.bucket.unknown': 'Subscription bucket',
+
   // ── SDK Capabilities: Rewind ──────────────────────────────
   'messageList.rewindToHere': 'Rewind to here',
   'messageList.rewindConfirm': 'Confirm rewind',

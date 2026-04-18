@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import type { Message, MessagesResponse, FileAttachment, SessionStreamSnapshot } from '@/types';
 import { MessageList } from './MessageList';
 import { TerminalReasonChip } from './TerminalReasonChip';
+import { RateLimitBanner } from './RateLimitBanner';
 import { MessageInput } from './MessageInput';
 import { ChatComposerActionBar } from './ChatComposerActionBar';
 import { ModeIndicator } from './ModeIndicator';
@@ -334,6 +335,11 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
     actionId: import('./TerminalReasonChip').TerminalActionId;
     lastUserMessage: string;
   } | null>(null);
+  // Phase 2 — user can dismiss the rate-limit banner; keeps it from
+  // re-rendering on snapshot updates within the same session. Resets on
+  // session switch because the snapshot state itself resets.
+  const [rateLimitDismissed, setRateLimitDismissed] = useState(false);
+  useEffect(() => { setRateLimitDismissed(false); }, [sessionId]);
 
   // Find the most recent user message — replay target for retry actions.
   const findLastUserMessage = useCallback((): string | null => {
@@ -890,6 +896,21 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
         </div>
       )}
 
+      {/* Phase 2 — subscription rate-limit banner (allowed_warning / rejected) */}
+      {!rateLimitDismissed && streamSnapshot?.rateLimitInfo && streamSnapshot.rateLimitInfo.status !== 'allowed' && (
+        <RateLimitBanner
+          info={streamSnapshot.rateLimitInfo}
+          onRequestSwitchToSonnet={() => {
+            const lastUserMessage = findLastUserMessage();
+            if (lastUserMessage) {
+              setPendingTerminalAction({ actionId: 'switch_to_sonnet', lastUserMessage });
+            } else {
+              setCurrentModel('sonnet');
+            }
+          }}
+          onDismiss={() => setRateLimitDismissed(true)}
+        />
+      )}
       <MessageInput
         key={sessionId}
         onSend={sendMessage}

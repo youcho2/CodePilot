@@ -125,6 +125,7 @@ function buildSnapshot(stream: ActiveStream): SessionStreamSnapshot {
     error: stream.snapshot.error,
     finalMessageContent: stream.snapshot.finalMessageContent,
     terminalReason: stream.snapshot.terminalReason,
+    rateLimitInfo: stream.snapshot.rateLimitInfo,
   };
 }
 
@@ -440,6 +441,11 @@ async function runStream(stream: ActiveStream, params: StartStreamParams): Promi
           tokenUsage: usage,
           ...(meta?.terminalReason ? { terminalReason: meta.terminalReason } : {}),
         };
+      },
+      onRateLimit: (info) => {
+        markActive();
+        stream.snapshot = { ...stream.snapshot, rateLimitInfo: info };
+        emit(stream, 'snapshot-updated');
       },
       onPermissionRequest: (permData) => {
         markActive();
