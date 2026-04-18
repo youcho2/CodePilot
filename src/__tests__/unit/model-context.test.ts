@@ -29,6 +29,39 @@ describe('getContextWindow — alias disambiguation', () => {
     );
   });
 
+  it('opus alias with vendor-prefixed upstream resolves to 1M', () => {
+    // Regression: the previous guard (`MODEL_CONTEXT_WINDOWS[upstream] != null`)
+    // required an exact key match on `upstream` before using it. A vendor-
+    // prefixed full name like `us.anthropic.claude-opus-4-7-v1:0` failed that
+    // check and the helper silently fell back to the bare 'opus' alias (200K).
+    // resolveWindow must now substring-match the upstream first.
+    assert.equal(
+      getContextWindow('opus', { upstream: 'us.anthropic.claude-opus-4-7-v1:0' }),
+      1_000_000,
+    );
+  });
+
+  it('unknown upstream falls back to model alias instead of returning null', () => {
+    // When the caller supplies an upstream we don't recognize, we should
+    // not drop to null — we should honor the alias the caller also knows.
+    // Example: some third-party proxy passes an opaque upstream ID we've
+    // never seen, but the UI model is still 'opus'.
+    assert.equal(
+      getContextWindow('opus', { upstream: 'proxy-specific-opaque-name' }),
+      200_000,
+    );
+  });
+
+  it('unknown upstream does not poison a known model key', () => {
+    // The failing-upstream path must not shadow a valid exact match on
+    // the model itself. If model='claude-opus-4-7' and upstream is garbage,
+    // the result should still be 1M (from the model), not null.
+    assert.equal(
+      getContextWindow('claude-opus-4-7', { upstream: 'not-in-the-table' }),
+      1_000_000,
+    );
+  });
+
   it('context1m beta toggle upgrades to 1M regardless of base', () => {
     assert.equal(
       getContextWindow('claude-opus-4-20250514', { context1m: true }),

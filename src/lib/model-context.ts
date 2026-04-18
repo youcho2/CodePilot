@@ -28,19 +28,30 @@ const CONTEXT_LOOKUP_KEYS_BY_LENGTH = Object.keys(MODEL_CONTEXT_WINDOWS)
   .slice()
   .sort((a, b) => b.length - a.length);
 
+/**
+ * Try to resolve a single key via exact match first, then longest-suffix
+ * substring. Returns null when neither strategy finds anything so callers
+ * can chain with ?? to a different key.
+ */
+function resolveWindow(key: string): number | null {
+  if (!key) return null;
+  if (MODEL_CONTEXT_WINDOWS[key] != null) return MODEL_CONTEXT_WINDOWS[key];
+  const match = CONTEXT_LOOKUP_KEYS_BY_LENGTH.find(k => key.includes(k));
+  return match ? MODEL_CONTEXT_WINDOWS[match] : null;
+}
+
 export function getContextWindow(
   model: string,
   options?: { context1m?: boolean; upstream?: string },
 ): number | null {
   // Prefer the upstream model ID when known — it unambiguously selects
   // between alias variants (e.g. `opus` on first-party Anthropic is
-  // claude-opus-4-7 but on Bedrock/Vertex it's Opus 4.6).
-  const lookupKey = options?.upstream && MODEL_CONTEXT_WINDOWS[options.upstream] != null
-    ? options.upstream
-    : model;
-  const base = MODEL_CONTEXT_WINDOWS[lookupKey]
-    ?? MODEL_CONTEXT_WINDOWS[CONTEXT_LOOKUP_KEYS_BY_LENGTH.find(k => lookupKey.includes(k)) ?? '']
-    ?? null;
+  // claude-opus-4-7 but on Bedrock/Vertex it's Opus 4.6). Fall through
+  // to the model alias when upstream is absent OR when it resolves
+  // to nothing (e.g. unknown vendor-prefixed name that doesn't substring-
+  // match any known key).
+  const base = (options?.upstream ? resolveWindow(options.upstream) : null)
+    ?? resolveWindow(model);
   if (base === null) return null;
   // When 1M context beta is enabled, all supported models get 1M window.
   // (Opus 4.7 already defaults to 1M so the toggle is a no-op there.)
