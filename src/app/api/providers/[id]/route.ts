@@ -54,6 +54,23 @@ export async function PUT(request: NextRequest, context: RouteContext) {
       delete body.api_key;
     }
 
+    // Anthropic-protocol providers must declare a base URL on update.
+    // A PUT that clears base_url on an anthropic provider would regress
+    // to the same ambiguous state as a blank third-party provider
+    // (silently proxies to api.anthropic.com and gets first-party
+    // catalog). The effective protocol after merge is what counts.
+    const effectiveProtocol = (body.protocol !== undefined ? body.protocol : existing.protocol) || existing.protocol;
+    const effectiveBaseUrl = body.base_url !== undefined ? body.base_url : existing.base_url;
+    if (effectiveProtocol === 'anthropic' && !effectiveBaseUrl?.trim()) {
+      return NextResponse.json<ErrorResponse>(
+        {
+          error: 'Anthropic-protocol providers must specify a base URL (use https://api.anthropic.com for the official API, or your third-party endpoint)',
+          code: 'ANTHROPIC_BASE_URL_REQUIRED',
+        },
+        { status: 400 }
+      );
+    }
+
     const updated = updateProvider(id, body);
     if (!updated) {
       return NextResponse.json<ErrorResponse>(

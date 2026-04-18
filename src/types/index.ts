@@ -426,6 +426,10 @@ export interface SuccessResponse {
 
 export interface ErrorResponse {
   error: string;
+  /** Machine-readable error code for client-side branching */
+  code?: string;
+  /** Extra recovery hints surfaced in UI */
+  initialCard?: string;
 }
 
 export interface SettingsResponse {

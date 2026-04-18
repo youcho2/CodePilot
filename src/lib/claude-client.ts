@@ -1781,7 +1781,27 @@ export async function testProviderConnection(config: {
     };
   }
 
-  // Build the API URL — Anthropic-compatible endpoint
+  // Reject third-party / custom Anthropic providers without a base URL.
+  // Otherwise the fallback to https://api.anthropic.com would test the
+  // official endpoint, giving a misleading green signal before saving a
+  // provider that in production would also resolve to api.anthropic.com
+  // via the same fallback and silently inherit first-party catalog.
+  // Users who genuinely want official Anthropic must pass the URL
+  // explicitly (or choose the anthropic-official preset).
+  if (config.protocol === 'anthropic' && !config.baseUrl?.trim()) {
+    return {
+      success: false,
+      error: {
+        code: 'MISSING_BASE_URL',
+        message: 'Base URL is required for Anthropic-protocol providers',
+        suggestion: 'Use https://api.anthropic.com for the official API or your third-party endpoint',
+      },
+    };
+  }
+
+  // Build the API URL — Anthropic-compatible endpoint.
+  // baseUrl is guaranteed non-empty above for protocol='anthropic';
+  // other protocols retain the historical fallback behavior.
   let apiUrl = config.baseUrl || 'https://api.anthropic.com';
   // Ensure URL ends with /v1/messages for Anthropic-compatible providers
   if (!apiUrl.endsWith('/v1/messages')) {

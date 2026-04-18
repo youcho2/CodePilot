@@ -62,6 +62,23 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Anthropic-protocol providers must declare a base URL. Empty base_url
+    // has an ambiguous meaning (legacy "Default" providers migrated from
+    // older settings vs third-party presets that forgot to fill the URL),
+    // and the latter would silently get promoted to first-party catalog +
+    // routed to api.anthropic.com by the native SDK. Require explicit URL
+    // on the write path so third-party configurations don't leak there.
+    // Users wanting official Anthropic must pass 'https://api.anthropic.com'.
+    if (body.protocol === 'anthropic' && !body.base_url?.trim()) {
+      return NextResponse.json<ErrorResponse>(
+        {
+          error: 'Anthropic-protocol providers must specify a base URL (use https://api.anthropic.com for the official API, or your third-party endpoint)',
+          code: 'ANTHROPIC_BASE_URL_REQUIRED',
+        },
+        { status: 400 }
+      );
+    }
+
     const provider = createProvider(body);
     return NextResponse.json<ProviderResponse>(
       { provider: maskApiKey(provider) },
