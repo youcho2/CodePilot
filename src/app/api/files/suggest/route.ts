@@ -1,8 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import path from 'path';
-import os from 'os';
 import { getSession } from '@/lib/db';
-import { scanDirectory, isPathSafe, isRootPath } from '@/lib/files';
+import { scanDirectory, isRootPath } from '@/lib/files';
 import type { MentionNodeType } from '@/types';
 
 interface SuggestItem {
@@ -76,14 +75,15 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'Missing sessionId or workingDirectory' }, { status: 400 });
   }
 
+  // The workspace chosen by the user IS the trust boundary — same model
+  // /api/files uses. Filesystem-root paths (/, C:\) would greenlight a
+  // full-disk scan, so reject those. Otherwise accept, including workspaces
+  // on external volumes, /tmp, or mounts outside $HOME — a common case
+  // that the earlier HOME-only check rejected only on the new-chat first
+  // message (sessions had no such restriction), making the same project
+  // fail intermittently.
   if (isRootPath(baseDir)) {
     return NextResponse.json({ error: 'Invalid working directory' }, { status: 403 });
-  }
-  if (!sessionId) {
-    const homeDir = os.homedir();
-    if (!isPathSafe(homeDir, baseDir)) {
-      return NextResponse.json({ error: 'Working directory is outside the allowed scope' }, { status: 403 });
-    }
   }
 
   const tree = await scanDirectory(baseDir, SCAN_DEPTH);

@@ -35,12 +35,26 @@ describe('/api/files/suggest route', () => {
     assert.equal(res.status, 403);
   });
 
-  it('rejects workingDirectory outside home when sessionId is not provided', async () => {
-    const outsideHome = process.platform === 'win32' ? 'C:\\Windows' : '/tmp';
-    const res = await GET(
-      req(`http://localhost/api/files/suggest?workingDirectory=${encodeURIComponent(outsideHome)}`),
-    );
-    assert.equal(res.status, 403);
+  it('accepts workingDirectory outside $HOME when sessionId is not provided', async () => {
+    // Before: new-chat @ suggestions rejected anything outside os.homedir(),
+    // breaking valid projects on external volumes, /tmp, or mounted
+    // workspaces. The workspace the user selected is the trust boundary —
+    // only filesystem-root paths should be rejected.
+    const outsideHome = path.join(os.tmpdir(), 'codepilot-non-home-' + randomUUID());
+    fs.mkdirSync(outsideHome, { recursive: true });
+    try {
+      fs.writeFileSync(path.join(outsideHome, 'entry.ts'), '// smoke\n');
+      const res = await GET(
+        req(`http://localhost/api/files/suggest?workingDirectory=${encodeURIComponent(outsideHome)}`),
+      );
+      assert.equal(res.status, 200);
+      const data = await res.json() as {
+        items: Array<{ path: string; type: 'file' | 'directory' }>;
+      };
+      assert.ok(data.items.some((item) => item.path === 'entry.ts'));
+    } finally {
+      fs.rmSync(outsideHome, { recursive: true, force: true });
+    }
   });
 
   it('returns relative paths with node type and respects limit', async () => {

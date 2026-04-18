@@ -6,6 +6,7 @@ import os from 'os';
 import type { ChatSession, Message, SettingsMap, TaskItem, TaskStatus, ApiProvider, CreateProviderRequest, UpdateProviderRequest, MediaJob, MediaJobStatus, MediaJobItem, MediaJobItemStatus, MediaContextEvent, BatchConfig, CustomCliTool, ScheduledTask } from '@/types';
 import type { ChannelType, ChannelBinding } from './bridge/types';
 import { getLocalDateString, localDayStartAsUTC } from './utils';
+import { inferProtocolFromLegacy } from './provider-catalog';
 
 const dataDir = process.env.CLAUDE_GUI_DATA_DIR || path.join(os.homedir(), '.codepilot');
 const DB_PATH = path.join(dataDir, 'codepilot.db');
@@ -862,8 +863,9 @@ function migrateDb(db: Database.Database): void {
         "SELECT id, base_url FROM api_providers WHERE provider_type = 'custom' AND (protocol = '' OR protocol IS NULL)"
       ).all() as { id: string; base_url: string }[];
       if (legacyCustom.length > 0) {
-        // eslint-disable-next-line @typescript-eslint/no-require-imports -- dynamic require to avoid circular import at module load
-        const { inferProtocolFromLegacy } = require('./provider-catalog');
+        // Use the top-level static import; no circular-import risk since
+        // provider-catalog doesn't depend on db. The previous dynamic
+        // require tripped Turbopack's NFT into tracing the whole project.
         const updateStmt = db.prepare("UPDATE api_providers SET protocol = ? WHERE id = ?");
         for (const row of legacyCustom) {
           const protocol = inferProtocolFromLegacy('custom', row.base_url || '');
