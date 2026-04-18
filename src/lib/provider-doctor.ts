@@ -367,6 +367,23 @@ async function runProviderProbe(): Promise<ProbeResult> {
       });
     }
 
+    // Empty base_url on an anthropic-protocol provider is genuinely
+    // ambiguous: it could be a legacy "Default" row migrated from older
+    // settings (which we route to first-party catalog so the user gets
+    // Opus 4.7 / xhigh / 1M), OR a third-party preset that forgot to
+    // fill the URL (which would silently proxy to api.anthropic.com).
+    // We can't tell them apart without a persisted preset_key, so we
+    // surface a warn + actionable suggestion either way. Write-path
+    // validation (/api/providers) blocks new occurrences of this state.
+    if (!p.base_url && p.protocol === 'anthropic') {
+      findings.push({
+        severity: 'warn',
+        code: 'provider.anthropic-empty-base-url',
+        message: `Provider "${p.name}" uses Anthropic protocol but has no base_url`,
+        detail: `Provider ID: ${p.id}. If this is the official Anthropic API, set base_url to https://api.anthropic.com. If it's a third-party proxy, set its endpoint URL. Empty base_url silently proxies to the official Anthropic endpoint and inherits first-party capabilities, which is almost never what a third-party configuration intends.`,
+      });
+    }
+
     // Check if the provider has any available models
     const protocol: Protocol = (p.protocol as Protocol) ||
       inferProtocolFromLegacy(p.provider_type, p.base_url);

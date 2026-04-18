@@ -283,6 +283,24 @@ export function runAgentLoop(options: AgentLoopOptions): ReadableStream<string> 
               // Other models keep the existing effort plumbing.
               if (sanitized.effort && !isOpus47) {
                 anthropicOpts.effort = sanitized.effort;
+              } else if (sanitized.effort && isOpus47 && step === 1) {
+                // Tell the user the explicit effort they picked is being
+                // dropped for this session. Only emit on the first step so
+                // we don't spam multi-turn conversations. The UI surfaces
+                // this via the status event pipeline; ChatView can treat
+                // code=RUNTIME_EFFORT_IGNORED as a one-shot toast.
+                console.warn(
+                  `[agent-loop] Opus 4.7 on native runtime: dropping explicit effort='${sanitized.effort}' — @ai-sdk/anthropic still attaches deprecated effort-2025-11-24 beta. Switch to SDK runtime for explicit effort control on 4.7.`,
+                );
+                controller.enqueue(formatSSE({
+                  type: 'status',
+                  data: JSON.stringify({
+                    notification: true,
+                    code: 'RUNTIME_EFFORT_IGNORED',
+                    title: 'Effort ignored on this runtime',
+                    message: `Opus 4.7 on the native runtime can't send explicit effort yet (would ship a deprecated beta header). Using API default — switch to SDK runtime to control effort.`,
+                  }),
+                }));
               }
             }
 
