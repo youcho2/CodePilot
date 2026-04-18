@@ -268,9 +268,28 @@ export function runAgentLoop(options: AgentLoopOptions): ReadableStream<string> 
 
             if (isThirdPartyProxy) {
               // Proxies: only pass thinking if explicitly enabled (not adaptive),
-              // skip effort (requires beta header proxies may not support)
+              // skip effort (requires beta header proxies may not support).
+              // UI currently still shows Effort selector for these providers
+              // (supportsEffort is a model-level catalog flag, not per
+              // provider-runtime), so an explicit pick silently evaporates.
+              // Surface a one-shot toast on the first step so users know
+              // their Low/High/XHigh/Max choice didn't reach the wire.
               if (sanitized.thinking && sanitized.thinking.type === 'enabled') {
                 anthropicOpts.thinking = sanitized.thinking;
+              }
+              if (sanitized.effort && step === 1) {
+                console.warn(
+                  `[agent-loop] Third-party Anthropic proxy: dropping explicit effort='${sanitized.effort}' — effort GA beta header may not be supported by proxies. Switch to SDK runtime or the official Anthropic endpoint to control effort.`,
+                );
+                controller.enqueue(formatSSE({
+                  type: 'status',
+                  data: JSON.stringify({
+                    notification: true,
+                    code: 'RUNTIME_EFFORT_IGNORED',
+                    title: 'Effort ignored on this runtime',
+                    message: `Third-party Anthropic proxies may not support the effort parameter — your "${sanitized.effort}" choice wasn't sent. Switch to SDK runtime or an official Anthropic provider to control effort explicitly.`,
+                  }),
+                }));
               }
               // Don't pass effort or adaptive thinking for proxies
             } else {
