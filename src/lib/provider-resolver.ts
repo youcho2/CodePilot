@@ -1092,7 +1092,11 @@ export function resolveAuxiliaryModel(
       const allProviders = getAllProviders();
       for (const p of allProviders) {
         if (p.id === main.provider.id) continue;
-        const protocol = (p.protocol as Protocol) || inferProtocolFromLegacy(p.provider_type, p.base_url);
+        // Match the main-path resolver: fall back through legacy inference
+        // whenever raw protocol isn't a valid Protocol union member, so a
+        // stray 'random-garbage' row can't silently drive preset / role-model
+        // lookup into a different code path than the main provider got.
+        const protocol = getEffectiveProviderProtocol(p.provider_type, p.protocol, p.base_url);
         const preset = findPresetForLegacy(p.base_url, p.provider_type, protocol);
         others.push({
           id: p.id,
