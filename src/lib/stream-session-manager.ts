@@ -126,6 +126,7 @@ function buildSnapshot(stream: ActiveStream): SessionStreamSnapshot {
     finalMessageContent: stream.snapshot.finalMessageContent,
     terminalReason: stream.snapshot.terminalReason,
     rateLimitInfo: stream.snapshot.rateLimitInfo,
+    contextUsageSnapshot: stream.snapshot.contextUsageSnapshot,
   };
 }
 
@@ -445,6 +446,11 @@ async function runStream(stream: ActiveStream, params: StartStreamParams): Promi
       onRateLimit: (info) => {
         markActive();
         stream.snapshot = { ...stream.snapshot, rateLimitInfo: info };
+        emit(stream, 'snapshot-updated');
+      },
+      onContextUsage: (snap) => {
+        markActive();
+        stream.snapshot = { ...stream.snapshot, contextUsageSnapshot: snap };
         emit(stream, 'snapshot-updated');
       },
       onPermissionRequest: (permData) => {

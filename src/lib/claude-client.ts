@@ -1471,6 +1471,44 @@ export function streamClaudeSdk(options: ClaudeStreamOptions): ReadableStream<st
                   notifyGeneric(errTitle, errMsg, telegramOpts).catch(() => {});
                 }
               }
+
+              // Phase 5 — take a context-usage snapshot while the Query
+              // is still live. The UI uses this to replace the crude
+              // char:token estimator on the chat-page indicator. 2s
+              // timeout keeps a hung control channel from delaying the
+              // 'done' event. Any failure is silently swallowed — the
+              // estimator remains authoritative; this is pure enhancement.
+              try {
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                const conv = conversation as any;
+                if (typeof conv.getContextUsage === 'function') {
+                  const usage = await Promise.race([
+                    conv.getContextUsage() as Promise<{
+                      totalTokens: number;
+                      maxTokens: number;
+                      rawMaxTokens: number;
+                      percentage: number;
+                      model: string;
+                    }>,
+                    new Promise<never>((_, reject) =>
+                      setTimeout(() => reject(new Error('context-usage-timeout')), 2000),
+                    ),
+                  ]);
+                  controller.enqueue(formatSSE({
+                    type: 'context_usage',
+                    data: JSON.stringify({
+                      totalTokens: usage.totalTokens,
+                      maxTokens: usage.maxTokens,
+                      rawMaxTokens: usage.rawMaxTokens,
+                      percentage: usage.percentage,
+                      model: usage.model,
+                      capturedAt: Date.now(),
+                    }),
+                  }));
+                }
+              } catch {
+                // ignore — estimator remains the fallback
+              }
               break;
             }
 

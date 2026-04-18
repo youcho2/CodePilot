@@ -21,7 +21,19 @@ export interface ContextUsageData {
   state: 'normal' | 'warning' | 'critical';
   /** Whether a session summary (compression) is active */
   hasSummary: boolean;
+  /**
+   * Data source the caller should render next to the number.
+   * Phase 5 of agent-sdk-0-2-111:
+   *   - 'snapshot': SDK.getContextUsage() capture <60s old (📌)
+   *   - 'estimated': char-based estimator fallback (~)
+   *   - 'none': no token data yet
+   */
+  source: 'snapshot' | 'estimated' | 'none';
+  /** When the snapshot was taken (epoch ms). Undefined for estimator source. */
+  snapshotCapturedAt?: number;
 }
+
+const SNAPSHOT_FRESHNESS_MS = 60_000;
 
 export function useContextUsage(
   messages: Message[],
@@ -33,6 +45,16 @@ export function useContextUsage(
      *  Required for aliases whose window depends on provider (first-party
      *  opus = 1M, Bedrock/Vertex opus = 200K). */
     upstreamModelId?: string;
+    /**
+     * Phase 5: SDK-authoritative snapshot from Query.getContextUsage().
+     * When fresh (<60s), its totalTokens / maxTokens win over the
+     * char-based estimator.
+     */
+    snapshot?: {
+      totalTokens: number;
+      maxTokens: number;
+      capturedAt: number;
+    };
   },
 ): ContextUsageData {
   return useMemo(() => {
@@ -40,6 +62,38 @@ export function useContextUsage(
       context1m: options?.context1m,
       upstream: options?.upstreamModelId,
     });
+
+    // Phase 5 — prefer a fresh SDK snapshot over the char:token estimator.
+    // Freshness window matches the plan (60s). Beyond that, the estimator
+    // takes over and the `source` flag flips so the UI can signal the
+    // change to the user.
+    const snap = options?.snapshot;
+    const snapFresh = snap && (Date.now() - snap.capturedAt) < SNAPSHOT_FRESHNESS_MS;
+    if (snap && snapFresh) {
+      const used = snap.totalTokens;
+      const max = snap.maxTokens || contextWindow || used;
+      const ratio = max ? used / max : 0;
+      // No estimated-next-turn from the snapshot — we assume next turn is
+      // similar to current (snapshot is authoritative on "used now" but
+      // can't project future output).
+      return {
+        modelName,
+        contextWindow: max,
+        used,
+        ratio,
+        estimatedNextTurn: used,
+        estimatedNextRatio: ratio,
+        cacheReadTokens: 0,
+        cacheCreationTokens: 0,
+        outputTokens: 0,
+        hasData: true,
+        state: ratio >= 0.95 ? 'critical' : ratio >= 0.8 ? 'warning' : 'normal',
+        hasSummary: options?.hasSummary || false,
+        source: 'snapshot',
+        snapshotCapturedAt: snap.capturedAt,
+      };
+    }
+
     const noData: ContextUsageData = {
       modelName,
       contextWindow,
@@ -53,6 +107,7 @@ export function useContextUsage(
       hasData: false,
       state: 'normal',
       hasSummary: options?.hasSummary || false,
+      source: 'none',
     };
 
     // Find the last assistant message with token_usage
@@ -95,6 +150,7 @@ export function useContextUsage(
           hasData: true,
           state,
           hasSummary: options?.hasSummary || false,
+          source: 'estimated',
         };
       } catch {
         continue;
@@ -102,5 +158,5 @@ export function useContextUsage(
     }
 
     return noData;
-  }, [messages, modelName, options?.context1m, options?.hasSummary, options?.upstreamModelId]);
+  }, [messages, modelName, options?.context1m, options?.hasSummary, options?.upstreamModelId, options?.snapshot]);
 }

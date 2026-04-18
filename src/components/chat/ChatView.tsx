@@ -949,6 +949,7 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
               context1m={context1m}
               hasSummary={hasSummary}
               upstreamModelId={currentModelUpstream}
+              contextUsageSnapshot={streamSnapshot?.contextUsageSnapshot}
             />
           </div>
         }
