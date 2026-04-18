@@ -252,17 +252,23 @@ export function MessageInput({
     }
   }, [onAssistantTrigger]);
 
-  // Listen for file tree "+" button: insert @filepath into textarea
+  // Listen for file tree "+" button and drop-router: insert @path into the
+  // textarea. `nodeType` defaults to 'file' so older callers still work; when
+  // it's 'directory', the difference is stored in mentionNodeTypes (not in the
+  // text token) to match the picker's convention (see resolveItemSelection).
   useEffect(() => {
     const handler = (e: Event) => {
-      const filePath = (e as CustomEvent<{ path: string }>).detail?.path;
-      if (!filePath) return;
-      const mention = `@${filePath} `;
-      setMentionNodeTypes((prev) => ({ ...prev, [filePath]: 'file' }));
-      ensureMentionOrder(filePath);
+      const detail = (e as CustomEvent<{ path: string; nodeType?: 'file' | 'directory' }>).detail;
+      const rawPath = detail?.path;
+      if (!rawPath) return;
+      const normalizedPath = rawPath.replace(/\/+$/, '');
+      if (!normalizedPath) return;
+      const nodeType = detail.nodeType ?? 'file';
+      setMentionNodeTypes((prev) => ({ ...prev, [normalizedPath]: nodeType }));
+      ensureMentionOrder(normalizedPath);
       setInputValue((prev) => {
         const needsSpace = prev.length > 0 && !prev.endsWith(' ') && !prev.endsWith('\n');
-        return prev + (needsSpace ? ' ' : '') + mention;
+        return prev + (needsSpace ? ' ' : '') + `@${normalizedPath} `;
       });
       setTimeout(() => textareaRef.current?.focus(), 0);
     };
@@ -681,6 +687,25 @@ export function MessageInput({
     }
   }, [setInputValue, mentionNodeTypes]);
 
+  // Drop-router for folders: browsers hand us directory drops as 0-size File
+  // entries whose mediaType is ''. Default behavior in PromptInput would insert
+  // them as bogus attachments. Route them to the existing @mention pipeline as
+  // directory references instead — matching what the picker produces.
+  const handleDirectoriesDropped = useCallback((dirs: File[]) => {
+    const resolver = typeof window !== 'undefined' ? window.electronAPI?.fs?.getPathForFile : undefined;
+    for (const dir of dirs) {
+      const absolute = resolver ? resolver(dir) : '';
+      // Without an absolute path (non-Electron or resolver missing), fall back
+      // to the folder name — the LLM can still act on the name as a hint.
+      const rawPath = absolute || dir.name;
+      if (!rawPath) continue;
+      const normalized = normalizeMentionPath(rawPath);
+      window.dispatchEvent(new CustomEvent('insert-file-mention', {
+        detail: { path: normalized, nodeType: 'directory' },
+      }));
+    }
+  }, [normalizeMentionPath]);
+
   // Effort selector state — guard against undefined when model not found in current provider's list
   const currentModelMeta = currentModelOption as (typeof currentModelOption & { supportsEffort?: boolean; supportedEffortLevels?: string[] }) | undefined;
   const showEffortSelector = currentModelMeta?.supportsEffort === true;
@@ -760,6 +785,7 @@ export function MessageInput({
             onSubmit={handleSubmit}
             accept=""
             multiple
+            onDirectoriesDropped={handleDirectoriesDropped}
           >
             {/* Bridge: listens for file tree "+" button events */}
             <FileTreeAttachmentBridge />
