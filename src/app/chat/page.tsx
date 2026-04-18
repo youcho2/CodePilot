@@ -45,6 +45,7 @@ export default function NewChatPage() {
   const { isElectron, openNativePicker } = useNativeFolderPicker();
   const [messages, setMessages] = useState<Message[]>([]);
   const [streamingContent, setStreamingContent] = useState('');
+  const [streamingThinkingContent, setStreamingThinkingContent] = useState('');
   const [isStreaming, setIsStreaming] = useState(false);
   const [toolUses, setToolUses] = useState<ToolUseInfo[]>([]);
   const [toolResults, setToolResults] = useState<ToolResultInfo[]>([]);
@@ -663,11 +664,16 @@ export default function NewChatPage() {
                   break;
                 }
                 case 'thinking': {
-                  // Thinking deltas are relevant to the redirected view's
-                  // full-thinking accumulator; the first-message flow
-                  // doesn't render a reasoning block itself (it redirects
-                  // before the block would meaningfully display), so we
-                  // just keep the parser honest and drop the frames.
+                  // Opus 4.7 with display: 'summarized' streams reasoning
+                  // as thinking deltas. Accumulate them into the same
+                  // streamingThinkingContent surface that ChatView's
+                  // MessageList already renders, so the first-turn UI
+                  // shows the reasoning block as it streams in. Backend
+                  // /api/chat/route.ts separately persists thinking as a
+                  // content-block JSON on the assistant message, so the
+                  // redirected ChatView gets a fully-formed message from
+                  // DB — this branch is for the pre-redirect live view.
+                  setStreamingThinkingContent((prev) => prev + event.data);
                   break;
                 }
                 case 'permission_request': {
@@ -747,6 +753,7 @@ export default function NewChatPage() {
       } finally {
         setIsStreaming(false);
         setStreamingContent('');
+        setStreamingThinkingContent('');
         setToolUses([]);
         setToolResults([]);
         setStreamingToolOutput('');
@@ -826,6 +833,7 @@ export default function NewChatPage() {
         <MessageList
           messages={messages}
           streamingContent={streamingContent}
+          streamingThinkingContent={streamingThinkingContent}
           isStreaming={isStreaming}
           sessionId={createdSessionId}
           toolUses={toolUses}
