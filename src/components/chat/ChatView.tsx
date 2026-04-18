@@ -336,6 +336,13 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
   /** Timeout handle so we don't leak a pending retry if /compact never
    *  emits context-compressed (e.g. network error, user cancels). */
   const pendingRetryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** True for the synchronous window where compress_and_retry is arming
+   *  its own /compact call. Used by the sendMessage wrapper to avoid
+   *  clearing the pending state we just set. Resets to false right after
+   *  the sendMessageRef call returns (sendMessage runs its synchronous
+   *  prefix — including the wrapper's stale-retry check — before the
+   *  control returns here). */
+  const retryArmingInProgressRef = useRef(false);
 
   const clearPendingRetry = useCallback(() => {
     pendingRetryAfterCompactRef.current = false;
@@ -374,10 +381,14 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
     switch (actionId) {
       case 'compress_and_retry': {
         if (!lastUserMessage) return;
-        // Arm the retry. Three safety nets for stale-replay:
+        // Arm the retry. Safety nets for stale-replay:
         //   - 45s timeout (in case /compact never emits context-compressed)
         //   - session switch clears it (useEffect with clearPendingRetry)
-        //   - user-initiated sendMessage clears it (wrapper below)
+        //   - any subsequent user-initiated sendMessage clears it
+        //     (including manual /compact or compress_only — per round-13
+        //     Codex review: we can't rely on content equality to
+        //     distinguish internal vs manual /compact since a user can
+        //     type /compact themselves)
         pendingRetryAfterCompactRef.current = true;
         pendingRetryMessageRef.current = lastUserMessage;
         if (pendingRetryTimerRef.current) clearTimeout(pendingRetryTimerRef.current);
@@ -385,10 +396,24 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
           console.warn('[chat] compress-and-retry timed out — pending retry cleared');
           clearPendingRetry();
         }, 45_000);
-        sendMessageRef.current?.('/compact');
+        // Mark the synchronous arming window so the sendMessage wrapper
+        // below skips its stale-retry clear on THIS call. The wrapper's
+        // check is synchronous (runs before the first await in
+        // sendMessage), so resetting the flag right after the call is
+        // sufficient — no microtask deferral needed.
+        retryArmingInProgressRef.current = true;
+        try {
+          sendMessageRef.current?.('/compact');
+        } finally {
+          retryArmingInProgressRef.current = false;
+        }
         break;
       }
       case 'compress_only':
+        // User chose "just compress, don't replay" — drop any previously
+        // armed compress_and_retry so its pendingRetryMessage can't ride
+        // on THIS compact's context-compressed event.
+        clearPendingRetry();
         sendMessageRef.current?.('/compact');
         break;
       case 'enable_1m_and_retry':
@@ -639,11 +664,19 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
         displayContent = `<!--files:${JSON.stringify(fileMeta)}-->${displayUserContent}`;
       }
 
-      // Phase 1b safety: if the user sends a non-/compact message while a
-      // compress-and-retry is armed, treat that as the user moving on and
-      // drop the pending retry. Prevents a stale auto-compact from later
-      // replaying their previous message out of order.
-      if (pendingRetryAfterCompactRef.current && content.trim() !== '/compact') {
+      // Phase 1b safety: if a compress_and_retry is armed, drop it
+      // whenever the user sends ANY new content — including a manual
+      // /compact typed themselves or a "仅压缩" click. Without this, a
+      // retry queued by Action Chip would piggyback on a later
+      // user-initiated /compact's context-compressed event and replay
+      // the old lastUserMessage out of order.
+      //
+      // The retryArmingInProgressRef flag excludes the one
+      // synchronous call the compress_and_retry action itself makes
+      // through this wrapper — that call must NOT clear the state it
+      // just set. runTerminalAction flips the flag on before calling
+      // sendMessageRef and off again right after.
+      if (pendingRetryAfterCompactRef.current && !retryArmingInProgressRef.current) {
         clearPendingRetry();
       }
 
