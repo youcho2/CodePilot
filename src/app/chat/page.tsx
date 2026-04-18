@@ -18,6 +18,7 @@ import { useNativeFolderPicker } from '@/hooks/useNativeFolderPicker';
 import { useTranslation } from '@/hooks/useTranslation';
 import { usePanel } from '@/hooks/usePanel';
 import { maybeShowStatusToast } from '@/hooks/useSSEStream';
+import { seedSnapshotPatch } from '@/lib/stream-session-manager';
 
 interface ToolUseInfo {
   id: string;
@@ -625,8 +626,48 @@ export default function NewChatPage() {
                   try {
                     const resultData = JSON.parse(event.data);
                     if (resultData.usage) tokenUsage = resultData.usage;
+                    // Phase 1: seed terminal_reason into the snapshot the
+                    // redirected ChatView will read so first-turn
+                    // prompt_too_long / blocking_limit / max_turns /
+                    // hook_stopped can still surface the chip + action
+                    // buttons in the post-redirect view.
+                    if (resultData.terminal_reason && session?.id) {
+                      seedSnapshotPatch(session.id, {
+                        terminalReason: resultData.terminal_reason as string,
+                      });
+                    }
                   } catch { /* skip */ }
                   setStatusText(undefined);
+                  break;
+                }
+                case 'rate_limit': {
+                  // Phase 2: subscription rate-limit telemetry. Seed the
+                  // snapshot so RateLimitBanner renders after redirect.
+                  try {
+                    const info = JSON.parse(event.data);
+                    if (session?.id) {
+                      seedSnapshotPatch(session.id, { rateLimitInfo: info });
+                    }
+                  } catch { /* skip */ }
+                  break;
+                }
+                case 'context_usage': {
+                  // Phase 5 extension-point; no producer currently (see
+                  // b65c6ac). Seed the snapshot for forward compatibility.
+                  try {
+                    const snap = JSON.parse(event.data);
+                    if (session?.id) {
+                      seedSnapshotPatch(session.id, { contextUsageSnapshot: snap });
+                    }
+                  } catch { /* skip */ }
+                  break;
+                }
+                case 'thinking': {
+                  // Thinking deltas are relevant to the redirected view's
+                  // full-thinking accumulator; the first-message flow
+                  // doesn't render a reasoning block itself (it redirects
+                  // before the block would meaningfully display), so we
+                  // just keep the parser honest and drop the frames.
                   break;
                 }
                 case 'permission_request': {
