@@ -5,6 +5,13 @@ import type { ChatSession, FileTreeNode } from '@/types';
 
 const FILE_SCAN_DEPTH = 2;
 const MAX_RESULTS_PER_TYPE = 10;
+// Each file-branch iteration does a recursive fs.readdir(depth=2) on the
+// session's working_directory, so unbounded iteration is a latency tax on
+// every keystroke (~150ms debounce) once the DB has more than a handful of
+// sessions. Cap how many sessions we touch so the default all-mode search
+// stays snappy; file: / files: scope explicitly opts into a wider fan-out.
+const ALL_MODE_FILE_SESSION_LIMIT = 5;
+const FILE_SCOPE_SESSION_LIMIT = 15;
 
 interface SearchResultSession {
   type: 'session';
@@ -135,8 +142,17 @@ export async function GET(request: NextRequest) {
     }
 
     if (scope === 'all' || scope === 'files') {
-      for (const session of allSessions) {
-        if (!session.working_directory) continue;
+      // allSessions comes back sorted by updated_at DESC. In all-mode we
+      // prioritise the current/most-recent workspaces so the keystroke
+      // stays responsive; file: scope opts into a wider sweep but still
+      // bounded so a pathological DB can't stall the request.
+      const sessionLimit = scope === 'files'
+        ? FILE_SCOPE_SESSION_LIMIT
+        : ALL_MODE_FILE_SESSION_LIMIT;
+      const scanSessions = allSessions
+        .filter((s) => !!s.working_directory)
+        .slice(0, sessionLimit);
+      for (const session of scanSessions) {
         try {
           const tree = await scanDirectory(session.working_directory, FILE_SCAN_DEPTH);
           collectNodes(tree, session.id, session.title, query, result.files);

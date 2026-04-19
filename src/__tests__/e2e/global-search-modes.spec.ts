@@ -65,15 +65,13 @@ test.describe('Global Search modes UX', () => {
       await page.getByRole('button', { name: /(搜索会话|Search sessions|Search)/i }).first().click();
       await expect(searchInput).toBeVisible({ timeout: 10_000 });
 
-      // Default all-mode can find sessions, messages and files. The file
-      // branch iterates every session's workspace via scanDirectory and
-      // is the slow path — on a populated DB with ~30 pre-existing
-      // sessions the POST to /api/search can take 10-15s before the file
-      // result shows up, so bump the timeout specifically for that
-      // assertion rather than relying on the default 5s toBeVisible.
+      // Default all-mode caps its file-branch scan at the N most-recent
+      // workspaces (see ALL_MODE_FILE_SESSION_LIMIT in /api/search) so the
+      // POST stays under ~1s even on a populated DB — the earlier 30s
+      // timeout was masking the unbounded-scan latency that Codex flagged.
       await searchInput.fill(suffix);
       await expect(page.getByText(sessionTitleA).first()).toBeVisible();
-      await expect(page.getByText(fileNameA).first()).toBeVisible({ timeout: 30_000 });
+      await expect(page.getByText(fileNameA).first()).toBeVisible();
       await expect(page.getByText(messageTokenA).first()).toBeVisible();
 
       // session: prefix narrows to session result.
