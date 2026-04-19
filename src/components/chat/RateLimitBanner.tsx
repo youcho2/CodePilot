@@ -59,19 +59,17 @@ function formatResetCountdown(resetsAt: number | undefined): string {
 
 export function RateLimitBanner({ info, onRequestSwitchToSonnet, onDismiss }: Props) {
   const { t } = useTranslation();
-  const [countdown, setCountdown] = useState(() => formatResetCountdown(info?.resetsAt));
-
-  // Tick the countdown once per minute so the rendered text stays fresh
-  // without re-rendering every second. Effect re-arms whenever resetsAt
-  // changes (e.g. a new snapshot with a different rate bucket).
+  // tick just forces a re-render every minute — the countdown text itself
+  // is derived from info.resetsAt, not stored state, so we avoid the
+  // setState-during-effect lint ping. resetsAt changes naturally trigger
+  // a re-render through the caller, so we don't need to reset tick here.
+  const [, setTick] = useState(0);
   useEffect(() => {
     if (!info?.resetsAt) return;
-    setCountdown(formatResetCountdown(info.resetsAt));
-    const timer = setInterval(() => {
-      setCountdown(formatResetCountdown(info.resetsAt));
-    }, 60_000);
+    const timer = setInterval(() => setTick((n) => n + 1), 60_000);
     return () => clearInterval(timer);
   }, [info?.resetsAt]);
+  const countdown = formatResetCountdown(info?.resetsAt);
 
   if (!info || info.status === 'allowed') return null;
 
