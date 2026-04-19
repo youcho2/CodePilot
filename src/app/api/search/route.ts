@@ -1,4 +1,5 @@
 import { NextRequest } from 'next/server';
+import path from 'path';
 import { getAllSessions, searchMessages } from '@/lib/db';
 import { scanDirectory } from '@/lib/files';
 import type { ChatSession, FileTreeNode } from '@/types';
@@ -8,10 +9,12 @@ const MAX_RESULTS_PER_TYPE = 10;
 // Each file-branch iteration does a recursive fs.readdir(depth=2) on the
 // session's working_directory, so unbounded iteration is a latency tax on
 // every keystroke (~150ms debounce) once the DB has more than a handful of
-// sessions. Cap how many sessions we touch so the default all-mode search
-// stays snappy; file: / files: scope explicitly opts into a wider fan-out.
-const ALL_MODE_FILE_SESSION_LIMIT = 5;
-const FILE_SCOPE_SESSION_LIMIT = 15;
+// sessions. Cap how many distinct *workspaces* we scan — not sessions —
+// since one project often has many recent chats pointing at the same path
+// (scanning the same directory 5× both wastes budget and hides other
+// projects). file: / files: scope opts into a wider fan-out.
+const ALL_MODE_WORKSPACE_LIMIT = 5;
+const FILE_SCOPE_WORKSPACE_LIMIT = 15;
 
 interface SearchResultSession {
   type: 'session';
@@ -142,23 +145,36 @@ export async function GET(request: NextRequest) {
     }
 
     if (scope === 'all' || scope === 'files') {
-      // allSessions comes back sorted by updated_at DESC. In all-mode we
-      // prioritise the current/most-recent workspaces so the keystroke
-      // stays responsive; file: scope opts into a wider sweep but still
-      // bounded so a pathological DB can't stall the request.
-      const sessionLimit = scope === 'files'
-        ? FILE_SCOPE_SESSION_LIMIT
-        : ALL_MODE_FILE_SESSION_LIMIT;
-      const scanSessions = allSessions
-        .filter((s) => !!s.working_directory)
-        .slice(0, sessionLimit);
-      for (const session of scanSessions) {
+      // allSessions comes back sorted by updated_at DESC. Dedupe by the
+      // resolved working_directory before slicing — otherwise a user with
+      // five recent chats in the same project gets that one workspace
+      // scanned five times and every other project skipped. Keep the
+      // most-recent session id/title per workspace as the navigation
+      // target so clicking a file result still lands on a real session.
+      const workspaceLimit = scope === 'files'
+        ? FILE_SCOPE_WORKSPACE_LIMIT
+        : ALL_MODE_WORKSPACE_LIMIT;
+      const seenWorkspaces = new Set<string>();
+      const scanWorkspaces: { workingDirectory: string; sessionId: string; sessionTitle: string }[] = [];
+      for (const session of allSessions) {
+        if (scanWorkspaces.length >= workspaceLimit) break;
+        if (!session.working_directory) continue;
+        const resolved = path.resolve(session.working_directory);
+        if (seenWorkspaces.has(resolved)) continue;
+        seenWorkspaces.add(resolved);
+        scanWorkspaces.push({
+          workingDirectory: session.working_directory,
+          sessionId: session.id,
+          sessionTitle: session.title,
+        });
+      }
+      for (const ws of scanWorkspaces) {
         try {
-          const tree = await scanDirectory(session.working_directory, FILE_SCAN_DEPTH);
-          collectNodes(tree, session.id, session.title, query, result.files);
+          const tree = await scanDirectory(ws.workingDirectory, FILE_SCAN_DEPTH);
+          collectNodes(tree, ws.sessionId, ws.sessionTitle, query, result.files);
           if (result.files.length >= MAX_RESULTS_PER_TYPE) break;
         } catch {
-          // Skip inaccessible/invalid session directories instead of failing the whole search.
+          // Skip inaccessible/invalid workspaces instead of failing the whole search.
           continue;
         }
       }

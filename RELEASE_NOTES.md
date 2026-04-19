@@ -36,7 +36,7 @@
 - **`@file` / `@directory` mention 不识别含空格的路径**。picker 插入和拖拽目录都会失败——`parseMentionRefs` 用空格分词，`docs/Product Spec.md` 只会读成 `docs/Product`，chip 消失、结构化 mention 不发送。tech-debt #8，下个小 PR 单独修（同步改 token 转义 + parser + Backspace）
 - **E2E gate 覆盖收窄**。`npm run test:e2e` 仍然绿，但 layout / plugins / settings / skills / project-panel / visual-regression 等 describe 块被明确 `test.describe.skip` 掉（~110 个测试）。这些 spec 都在测已被重写的旧版 UI（sr-only "Toggle sidebar"、"Plugins & Skills" 落地页、pre-PanelZone 右侧面板、旧 settings tab 结构），在新 UI 下不再可用。单元测试 1084 条、smoke 6 条全绿，能用的集成覆盖仍在；但 **layout / plugins / settings 的回归目前只能靠手动或 CDP 抽查**，不能指望 E2E 挡住。tech-debt #9，下一轮按当前 UI 重写
 - **`npm run build` 剩一条 Turbopack NFT warning**。构建通过，指向 `instrumentation.js` 与 `/api/files/suggest` route chunk 共享的情况。已经把 `outputFileTracingExcludes` + 静态 JSON import 把 16 条降到 1 条；这最后一条要等 Turbopack 侧修好或者 instrumentation 完全独立于用户路径扫描才能清掉。不影响 Electron 打包（NFT 清单在桌面端不消费）
-- **全局搜索默认 all-mode 只扫最近 5 个 session**。过去 `/api/search` 在 all-mode 下会顺序扫描所有历史 session 的 working_directory（每次递归 fs.readdir），DB 一旦积累到 ~30 个 session，150ms debounce 后的每一次请求都能跑到 10-15s。本版把 all-mode 的文件扫描上限收到 5 个最近 session，`file:` / `files:` 前缀放宽到 15 个；超出范围的历史 session 要通过明确的 `file:` 前缀才触发扫描。**副作用**：用户跨 10+ 项目找文件时，必须先输入 `file:` 才能覆盖更广；不加前缀默认只在最近 workspace 里找。未来计划用文件索引替代递归 fs 扫描（tech-debt #10）
+- **全局搜索默认 all-mode 只扫最近 5 个唯一 workspace**。过去 `/api/search` 在 all-mode 下会顺序扫描所有历史 session 的 working_directory（每次递归 fs.readdir），DB 一旦积累到 ~30 个 session，150ms debounce 后的每一次请求都能跑到 10-15s。本版按 resolved 路径去重、只扫最近 5 个唯一 workspace（一个项目下开了多少聊天不重复计入）；`file:` / `files:` 前缀放宽到 15 个唯一 workspace；超出范围的旧项目要通过明确的 `file:` 前缀才触发扫描。**副作用**：跨 10+ 项目找文件必须先输入 `file:` 才能覆盖更广；不加前缀默认只在最近 workspace 里找。未来计划用文件索引替代递归 fs 扫描（tech-debt #10）
 
 ## 下载地址
 
