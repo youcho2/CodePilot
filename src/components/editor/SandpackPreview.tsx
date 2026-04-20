@@ -180,10 +180,21 @@ function PreviewSkeleton() {
 }
 
 function PreviewError() {
-  const { t } = useTranslation();
+  // Human-readable explanation of the MVP scope boundary. Phase 5.8
+  // product decision — when Sandpack fails, the most common cause in
+  // this product is "user's snippet uses a feature outside our first-
+  // version support envelope" (multi-file, @ alias, CSS import). The
+  // ErrorBoundary trip itself is rare; most failures show up inside
+  // Sandpack's own error overlay, but this fallback catches the
+  // catastrophic cases and still frames them in product terms.
   return (
-    <div className="flex h-full min-h-[480px] items-center justify-center p-8 text-center text-sm text-muted-foreground">
-      {t("filePreview.sandpackError", { error: "SandpackPreview failed to load" })}
+    <div className="flex h-full min-h-[480px] flex-col items-center justify-center gap-2 p-8 text-center text-sm text-muted-foreground">
+      <p className="font-medium">Preview unavailable</p>
+      <p className="text-xs max-w-sm">
+        Single-file React preview only — multi-file imports, <code>@/</code>{" "}
+        path aliases, CSS imports, and custom tsconfig aren’t supported in
+        this version.
+      </p>
     </div>
   );
 }
