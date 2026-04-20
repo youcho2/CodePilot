@@ -21,11 +21,11 @@
 |-------|------|------|---------|------|
 | Phase 0 | 前置 POC + 实测（9 项 POC，覆盖所有未确定技术路径与产品决策） | 🔄 进行中 | C 基建 | 7/9 已完成（0.2 / 0.3 / 0.4 / 0.5 / 0.6 / 0.7 / 0.8；其中 0.3/0.4/0.5 是深度调研产出代码草案，非真实装包）；剩 0.1 CDP 实测（需用户配合）+ 0.9 汇总 |
 | Phase 1 | 文件树 Markdown 预览放开截断 + 性能验证 + API 合同闭合 | ✅ 已完成 | A 可见 | commit `8313b2a`：EXTENSION_LINE_CAPS 分档 + 10MB 字节上限 + 二进制检测 + truncated/bytes_read/bytes_total 字段 + TruncationBanner UI + 4 条 i18n + FilePreviewError 映射 HTTP 状态 |
-| Phase 1.5 | PreviewPanel 数据模型迁移（`{filePath? \| inlineContent? + kind}` 双通道） | 🔄 进行中 | C 基建 | Phase 2/5.4 共同依赖 |
-| Phase 2 | Artifact 网页预览扩展（工具结果落点 + 卡片 UI + PreviewPanel 扩展 .jsx/.tsx） | 📋 待开始 | A 可见 | 核心诉求 1 |
-| Phase 3 | Artifact 网页一键导出长图（复用隐藏 BrowserWindow 通道） | 📋 待开始 | A 可见 | 核心诉求 4 |
-| Phase 4 | 文件树新建 `.md` + 通用 CodeMirror 编辑器（+ 写入 API 规范）+ Obsidian 兼容 | 📋 待开始 | A 可见 | 核心诉求 3 |
-| Phase 5 | 配套增强（ShikiThemeContext / Collapsible / 表格 Artifact + 导出 / LRU 核对） | 📋 待开始 | 混合 | 可与 Phase 1-4 并行 |
+| Phase 1.5 | PreviewPanel 数据模型迁移（`{filePath? \| inlineContent? + kind}` 双通道） | ✅ 已完成 | C 基建 | commit `3c8482a`：PreviewSource 联合 + AppShell state 迁移 + PanelZone R1 gate 同步 + PreviewPanel 内容区 kind switch + InlineHtmlView + FileTreePanel 零改动（adapter 透明） |
+| Phase 2 | Artifact 网页预览扩展（工具结果落点 + 卡片 UI + PreviewPanel 扩展 .jsx/.tsx） | ✅ 已完成 | A 可见 | commits `812f905`/`151932d`/`6cfd28f`/`7fb7c17`：DiffSummary 抽组件（4 处改造）+ Artifact 卡片样式 + PreviewPanel 加 .jsx/.tsx 分支 + Sandpack 集成（s4 默认 sandbox）+ 5 个 i18n key |
+| Phase 3 | Artifact 网页一键导出长图（复用隐藏 BrowserWindow 通道） | ✅ 已完成 | A 可见 | commit `19adaae`：新 IPC artifact:export-long-shot + CDP captureBeyondViewport + 独立 session + module-level 导出锁 + PreviewPanel header 按钮 + DiffSummary 行按钮 + base64 Blob 下载。Markdown/JSX 的 render-to-HTML 预处理 + pngjs 回退为 follow-up |
+| Phase 4 | 文件树新建 `.md` + 通用 CodeMirror 编辑器（+ 写入 API 规范）+ Obsidian 兼容 | ✅ 已完成（P1 范围） | A 可见 | commits `8a54c56`/`20edd61`：`/api/files/write/mkdir/rename/delete` 四同级 API + FileIOError + path safety helpers + trash 包接系统回收站 + CodeMirror 6 MarkdownEditor（Compartment 主题切换）+ SkillEditor textarea 替换 + FileTreePanel "+" 新建 Markdown。frontmatter 高亮 / 图片粘贴 / 文件树右键菜单为 follow-up |
+| Phase 5 | 配套增强（ShikiThemeContext / Collapsible / 表格 Artifact + 导出 / LRU 核对） | 📋 待开始 | 混合 | 全部作为后续增强 |
 
 **状态符号：** 📋 待开始 / 🔄 进行中 / ✅ 已完成 / ⏸ blocked / ❌ 放弃
 
