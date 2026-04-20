@@ -87,7 +87,7 @@ const PREVIEW_DEFAULT_WIDTH = 480;
 
 export function PreviewPanel() {
   const { resolvedTheme } = useTheme();
-  const { workingDirectory, sessionId, previewFile, setPreviewFile, previewViewMode, setPreviewViewMode, setPreviewOpen } = usePanel();
+  const { workingDirectory, sessionId, previewSource, previewFile, setPreviewFile, previewViewMode, setPreviewViewMode, setPreviewOpen } = usePanel();
   const isDark = resolvedTheme === "dark";
   const [preview, setPreview] = useState<FilePreviewType | null>(null);
   const [loading, setLoading] = useState(true);
@@ -164,14 +164,23 @@ export function PreviewPanel() {
     setPreviewOpen(false);
   };
 
-  const fileName = filePath.split("/").pop() || filePath;
+  // Header title: file uses basename; inline-* sources use virtualName or
+  // a kind-appropriate default ("preview.html", "preview.jsx", "table").
+  const fileName =
+    previewSource?.kind === "inline-html" ? (previewSource.virtualName ?? "preview.html") :
+    previewSource?.kind === "inline-jsx" ? (previewSource.virtualName ?? "preview.jsx") :
+    previewSource?.kind === "inline-datatable" ? (previewSource.virtualName ?? "table") :
+    filePath.split("/").pop() || filePath;
 
   const breadcrumb = useMemo(() => {
+    // Inline sources have no filesystem path — show a zero-width breadcrumb
+    // so the row layout stays consistent without misleading virtual paths.
+    if (previewSource && previewSource.kind !== "file") return "";
     const segments = filePath.split("/").filter(Boolean);
     const display = segments.slice(-3);
     const prefix = display.length < segments.length ? ".../" : "";
     return prefix + display.join("/");
-  }, [filePath]);
+  }, [filePath, previewSource]);
 
   const canRender = isRenderable(filePath);
   const isMedia = isMediaPreview(filePath);
@@ -228,9 +237,19 @@ export function PreviewPanel() {
         )}
       </div>
 
-      {/* Content */}
+      {/* Content — dispatch on previewSource.kind. The file branch preserves
+          the pre-Phase-1.5 behavior (fetch via API + render via
+          MediaView/RenderedView/SourceView). inline-html delegates to a
+          sandboxed iframe. inline-jsx / inline-datatable render placeholders
+          that Phase 2.1 / Phase 5.4 will fill in with real renderers. */}
       <div className="flex-1 min-h-0 overflow-auto">
-        {isMedia ? (
+        {previewSource?.kind === "inline-html" ? (
+          <InlineHtmlView html={previewSource.html} />
+        ) : previewSource?.kind === "inline-jsx" ? (
+          <InlinePlaceholder phase="Phase 2.1 (Sandpack)" kind="inline-jsx" />
+        ) : previewSource?.kind === "inline-datatable" ? (
+          <InlinePlaceholder phase="Phase 5.4 (DataTable)" kind="inline-datatable" />
+        ) : isMedia ? (
           <MediaView filePath={filePath} fileServeUrl={fileServeUrl} />
         ) : loading ? (
           <div className="flex items-center justify-center py-12">
@@ -350,6 +369,48 @@ function SourceView({ preview, isDark }: { preview: FilePreviewType; isDark: boo
       >
         {preview.content}
       </SyntaxHighlighter>
+    </div>
+  );
+}
+
+/**
+ * Inline HTML preview — Phase 1.5.
+ *
+ * Renders a caller-provided HTML string inside a fully sandboxed iframe.
+ * `sandbox=""` (empty) disables scripts, plugins, forms, and same-origin
+ * access — the strictest setting. If Phase 2 needs to relax this for
+ * interactive HTML artifacts, do it at the caller level by switching to
+ * `inline-jsx` (Sandpack) instead, not by loosening the sandbox here.
+ */
+function InlineHtmlView({ html }: { html: string }) {
+  const { t } = useTranslation();
+  return (
+    <iframe
+      srcDoc={html}
+      sandbox=""
+      className="h-full w-full border-0"
+      title={t("docPreview.htmlPreview")}
+    />
+  );
+}
+
+/**
+ * Placeholder for preview kinds whose real renderer lands in a later Phase.
+ *
+ * Showing a visible "coming soon" block (rather than null) makes two things
+ * observable in Phase 1.5 smoke tests: (1) PanelZone gate actually mounts
+ * the panel for inline-* sources (R1 regression detector), and (2) the
+ * caller wired up setPreviewSource correctly.
+ */
+function InlinePlaceholder({ phase, kind }: { phase: string; kind: string }) {
+  return (
+    <div className="flex h-full flex-col items-center justify-center gap-2 p-8 text-center">
+      <p className="text-sm font-medium text-muted-foreground">
+        {kind} preview lands in {phase}
+      </p>
+      <p className="text-xs text-muted-foreground/60">
+        The data channel (PreviewSource → PreviewPanel) is wired; renderer is pending.
+      </p>
     </div>
   );
 }
