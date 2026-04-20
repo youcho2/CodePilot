@@ -30,12 +30,6 @@ interface FileTreeContextType {
   onSelect?: (path: string) => void;
   onAdd?: (path: string) => void;
   /**
-   * Fired when the user clicks the "+" button that appears on a folder row
-   * hover. The receiver (FileTreePanel) opens its new-file input pre-
-   * targeted at this folder instead of the workspace root.
-   */
-  onCreateChild?: (folderPath: string) => void;
-  /**
    * Separate selected-folder channel from selectedPath so folder and file
    * selection can coexist without one stomping the other. Folder
    * selection is what drives the "create in this folder" default target.
@@ -65,7 +59,6 @@ export type FileTreeProps = HTMLAttributes<HTMLDivElement> & {
   selectedPath?: string;
   onSelect?: (path: string) => void;
   onAdd?: (path: string) => void;
-  onCreateChild?: (folderPath: string) => void;
   selectedFolderPath?: string;
   onSelectFolder?: (folderPath: string) => void;
   onExpandedChange?: (expanded: Set<string>) => void;
@@ -77,7 +70,6 @@ export const FileTree = ({
   selectedPath,
   onSelect,
   onAdd,
-  onCreateChild,
   selectedFolderPath,
   onSelectFolder,
   onExpandedChange,
@@ -103,8 +95,8 @@ export const FileTree = ({
   );
 
   const contextValue = useMemo(
-    () => ({ expandedPaths, onAdd, onCreateChild, onSelect, selectedPath, togglePath, selectedFolderPath, onSelectFolder }),
-    [expandedPaths, onAdd, onCreateChild, onSelect, selectedPath, togglePath, selectedFolderPath, onSelectFolder]
+    () => ({ expandedPaths, onAdd, onSelect, selectedPath, togglePath, selectedFolderPath, onSelectFolder }),
+    [expandedPaths, onAdd, onSelect, selectedPath, togglePath, selectedFolderPath, onSelectFolder]
   );
 
   return (
@@ -147,7 +139,7 @@ export const FileTreeFolder = ({
   children,
   ...props
 }: FileTreeFolderProps) => {
-  const { expandedPaths, togglePath, onCreateChild, selectedFolderPath, onSelectFolder } =
+  const { expandedPaths, togglePath, selectedFolderPath, onSelectFolder } =
     useContext(FileTreeContext);
   const isExpanded = expandedPaths.has(path);
   const isSelected = selectedFolderPath === path;
@@ -160,14 +152,6 @@ export const FileTreeFolder = ({
     // new-item flow.
     onSelectFolder?.(path);
   }, [togglePath, onSelectFolder, path]);
-
-  const handleCreateChild = useCallback(
-    (e: React.MouseEvent) => {
-      e.stopPropagation();
-      onCreateChild?.(path);
-    },
-    [onCreateChild, path],
-  );
 
   const folderContextValue = useMemo(
     () => ({ isExpanded, name, path }),
@@ -185,7 +169,7 @@ export const FileTreeFolder = ({
           <CollapsibleTrigger asChild>
             <div
               className={cn(
-                "group/folder flex w-full cursor-pointer items-center gap-1 rounded px-2 py-1 text-left transition-colors hover:bg-muted/50",
+                "flex w-full cursor-pointer items-center gap-1 rounded px-2 py-1 text-left transition-colors hover:bg-muted/50",
                 isSelected && "bg-muted",
               )}
               role="button"
@@ -214,16 +198,6 @@ export const FileTreeFolder = ({
                 )}
               </FileTreeIcon>
               <FileTreeName>{name}</FileTreeName>
-              {onCreateChild && (
-                <button
-                  type="button"
-                  className="ml-auto flex size-5 shrink-0 items-center justify-center rounded opacity-0 transition-opacity hover:bg-muted group-hover/folder:opacity-100"
-                  onClick={handleCreateChild}
-                  title="New Markdown file in this folder"
-                >
-                  <Plus size={12} className="text-muted-foreground" />
-                </button>
-              )}
             </div>
           </CollapsibleTrigger>
           <CollapsibleContent>

@@ -155,19 +155,6 @@ export function FileTreePanel() {
     }
   }, [newItemMode, newItemName, newItemTargetDir, workingDirectory, t, setPreviewFile, setPreviewOpen]);
 
-  /**
-   * Called when a hover "+" inside the tree row is clicked. Maps to the
-   * unified new-item flow in 'file' mode — we don't surface a folder-
-   * hover "+" for mkdir yet because the ambient Actions Bar already
-   * covers that path.
-   */
-  const handleOpenNewFileInFolder = useCallback(
-    (folderPath: string) => {
-      openNewItem("file", folderPath);
-    },
-    [openNewItem],
-  );
-
   const handleFileSelect = useCallback((path: string) => {
     const ext = path.split(".").pop()?.toLowerCase() || "";
     const NON_PREVIEWABLE = new Set([
@@ -317,7 +304,6 @@ export function FileTreePanel() {
               workingDirectory={workingDirectory}
               onFileSelect={handleFileSelect}
               onFileAdd={handleFileAdd}
-              onCreateChild={handleOpenNewFileInFolder}
               selectedFolderPath={selectedFolderPath ?? undefined}
               onSelectFolder={handleSelectFolder}
               selectedFilePath={previewFile ?? undefined}

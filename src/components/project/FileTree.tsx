@@ -18,13 +18,6 @@ interface FileTreeProps {
   workingDirectory: string;
   onFileSelect: (path: string) => void;
   onFileAdd?: (path: string) => void;
-  /**
-   * Called when the hover "+" button on a folder row is clicked. The
-   * receiver opens its new-file input pre-targeted at this folder path,
-   * so users can create a .md file inside a nested folder without
-   * navigating up to the workspace root.
-   */
-  onCreateChild?: (folderPath: string) => void;
   /** Path of the currently-selected folder (for highlight + create target). */
   selectedFolderPath?: string;
   /** Called when the user clicks a folder row — selects the folder + toggles. */
@@ -142,7 +135,7 @@ function getParentPaths(filePath: string): string[] {
   return parents;
 }
 
-export function FileTree({ workingDirectory, onFileSelect, onFileAdd, onCreateChild, selectedFolderPath, onSelectFolder, selectedFilePath, highlightPath, highlightSeek }: FileTreeProps) {
+export function FileTree({ workingDirectory, onFileSelect, onFileAdd, selectedFolderPath, onSelectFolder, selectedFilePath, highlightPath, highlightSeek }: FileTreeProps) {
   const [tree, setTree] = useState<FileTreeNode[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -306,7 +299,6 @@ export function FileTree({ workingDirectory, onFileSelect, onFileAdd, onCreateCh
             // eslint-disable-next-line @typescript-eslint/no-explicit-any -- AI Elements FileTree onSelect type conflicts with HTMLAttributes.onSelect
             onSelect={onFileSelect as any}
             onAdd={onFileAdd}
-            onCreateChild={onCreateChild}
             selectedPath={selectedFilePath}
             selectedFolderPath={selectedFolderPath}
             onSelectFolder={onSelectFolder}
