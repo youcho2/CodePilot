@@ -165,13 +165,12 @@ export function PreviewPanel() {
     setLoading(true);
     setPreview(null);
     setError(null);
-    // Detach the edit buffer from the outgoing file before the fetch
-    // completes. Without this, editContent (still holding the previous
-    // file's dirty text) plus a refreshed previewSource.filePath would
-    // let the debounced autosave write the wrong body to the new file.
-    // loadPreview() reseeds this below once the new preview is in hand.
-    setEditContentFile(null);
-    setError(null);
+    // Detach every "loaded-path"-dependent consumer from the outgoing
+    // file synchronously, before the fetch even starts. editContent
+    // still holds the previous file's bytes until loadPreview reseeds
+    // it — that's fine as long as loadedPath is null, because editDirty
+    // and every other fresh check short-circuits on loadedMatchesActive.
+    setLoadedPath(null);
 
     async function loadPreview() {
       setError(null);
@@ -222,16 +221,25 @@ export function PreviewPanel() {
   };
 
   // Whether the current preview source is an HTML document we can ship
-  // to the Phase 3 long-shot IPC. Only lit up when there's real HTML
-  // content to send — file branches need preview.content loaded, inline
-  // branches use source.html directly.
+  // to the Phase 3 long-shot IPC. Only lit up when:
+  //   • inline-html kind (html lives on the source itself), or
+  //   • file kind, extension is HTML, AND the loaded-path anchor
+  //     confirms preview.content belongs to the active filePath.
+  // The second clause is what stops a stale Export click — e.g. user
+  // clicks the button during a mid-switch frame — from shipping the
+  // previous file's content to the IPC under the new file's name.
   const exportableHtml: string | null = useMemo(() => {
     if (previewSource?.kind === 'inline-html') return previewSource.html;
-    if (previewSource?.kind === 'file' && isHtml(filePath) && preview?.content) {
+    if (
+      previewSource?.kind === 'file' &&
+      isHtml(filePath) &&
+      preview?.content &&
+      loadedPath === previewSource.filePath
+    ) {
       return preview.content;
     }
     return null;
-  }, [previewSource, filePath, preview?.content]);
+  }, [previewSource, filePath, preview?.content, loadedPath]);
 
   const [exporting, setExporting] = useState(false);
 
@@ -245,35 +253,34 @@ export function PreviewPanel() {
   const [savedContent, setSavedContent] = useState<string>("");
   const [savingEdit, setSavingEdit] = useState(false);
   const [editJustSaved, setEditJustSaved] = useState(false);
-  // Tracks which file path the editContent buffer actually belongs to.
-  // Starts null until loadPreview succeeds and seeds the buffer; flips
-  // back to null synchronously when filePath changes so stale dirty
-  // content from the previous file can never be persisted to the new
-  // one's path. (Codex P1: autosave cross-file write.)
-  const [editContentFile, setEditContentFile] = useState<string | null>(null);
+  // Phase 5.6 — the "loaded path" anchor for every stale-content check in
+  // this panel. Populated when loadPreview successfully seats a new
+  // preview.content; cleared synchronously on filePath changes before
+  // the fetch starts. Every consumer that derives from preview.content
+  // (editor buffer, export button, source/render fallbacks) gates on
+  // `loadedPath === previewSource.filePath` so a freshly-mounted
+  // previewSource can never be paired with the previous file's
+  // content — catches autosave cross-file writes, stale Sandpack first
+  // frames, and export-button-during-switch races in one place.
+  const [loadedPath, setLoadedPath] = useState<string | null>(null);
+  const loadedMatchesActive =
+    previewSource?.kind === "file" && loadedPath === previewSource.filePath;
   useEffect(() => {
     if (preview?.content !== undefined && preview.path) {
       setEditContent(preview.content);
       setSavedContent(preview.content);
-      setEditContentFile(preview.path);
+      setLoadedPath(preview.path);
     }
   }, [preview?.content, preview?.path]);
-  // editDirty must also check that the buffer belongs to the file
-  // currently in previewSource — not just that content != savedContent.
-  // After a switch, buffer is stale until loadPreview reseeds it; we
-  // don't want autosave or the Save button firing in that window.
-  const editDirty =
-    editContent !== savedContent &&
-    previewSource?.kind === "file" &&
-    editContentFile === previewSource.filePath;
+  const editDirty = editContent !== savedContent && loadedMatchesActive;
 
   const handleSaveEdit = useCallback(async () => {
     if (!editDirty || savingEdit) return;
     if (previewSource?.kind !== "file") return;
-    // Double-check the buffer still targets the active file. editDirty
-    // already enforces this, but the save path is sensitive enough that
-    // a second hard gate is cheap insurance against future refactors.
-    if (editContentFile !== previewSource.filePath) return;
+    // Second hard gate — editDirty already bakes this in, but the save
+    // path is sensitive enough that duplicating the check against
+    // loadedPath is cheap insurance for future refactors.
+    if (loadedPath !== previewSource.filePath) return;
     const targetPath = previewSource.filePath;
     setSavingEdit(true);
     try {
@@ -310,7 +317,7 @@ export function PreviewPanel() {
     } finally {
       setSavingEdit(false);
     }
-  }, [editDirty, savingEdit, previewSource, editContent, editContentFile, workingDirectory]);
+  }, [editDirty, savingEdit, previewSource, editContent, loadedPath, workingDirectory]);
 
   // Debounced autosave. Fires 1 second after the user stops typing, as
   // long as the buffer is dirty, we're not already saving, and the
