@@ -273,6 +273,9 @@ const en = {
   'filePreview.tooLarge': 'File too large to preview (>10 MB)',
   'filePreview.binaryNotPreviewable': 'Binary file, cannot preview',
   'filePreview.notFound': 'File not found',
+  'filePreview.sandpackLoading': 'Loading sandbox…',
+  'filePreview.sandpackError': 'Sandbox failed to load: {error}',
+  'filePreview.aliasNotSupported': 'This file uses `@/` path aliases; preview compiles external npm deps only.',
 
   // ── Doc preview ─────────────────────────────────────────────
   'docPreview.htmlPreview': 'HTML Preview',

@@ -270,6 +270,9 @@ const zh: Record<TranslationKey, string> = {
   'filePreview.tooLarge': '文件过大，无法预览（上限 10 MB）',
   'filePreview.binaryNotPreviewable': '二进制文件，无法预览',
   'filePreview.notFound': '文件不存在',
+  'filePreview.sandpackLoading': '正在加载沙箱…',
+  'filePreview.sandpackError': '沙箱加载失败：{error}',
+  'filePreview.aliasNotSupported': '此文件使用了 `@/` 路径别名，预览仅编译外部 npm 依赖。',
 
   // ── Doc preview ─────────────────────────────────────────────
   'docPreview.htmlPreview': 'HTML 预览',
