@@ -278,12 +278,14 @@ const en = {
   'filePreview.aliasNotSupported': 'This file uses `@/` path aliases; preview compiles external npm deps only.',
 
   // ── File tree actions (Phase 4) ─────────────────────────────
+  'fileTree.sectionTitle': 'Files',
   'fileTree.newMarkdown': 'New Markdown file',
+  'fileTree.newFolder': 'New folder',
   'fileTree.createButton': 'Create',
   'fileTree.newFileHint': 'Enter ⏎ to create · Esc to cancel',
-  'fileTree.newFileErrorEmpty': 'Filename cannot be empty',
+  'fileTree.newFileErrorEmpty': 'Name cannot be empty',
   'fileTree.newFileErrorNoWorkspace': 'No workspace selected for this session',
-  'fileTree.newFileErrorGeneric': 'Failed to create file',
+  'fileTree.newFileErrorGeneric': 'Failed to create',
 
   // ── Doc preview ─────────────────────────────────────────────
   'docPreview.htmlPreview': 'HTML Preview',

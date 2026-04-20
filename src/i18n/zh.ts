@@ -275,12 +275,14 @@ const zh: Record<TranslationKey, string> = {
   'filePreview.aliasNotSupported': '此文件使用了 `@/` 路径别名，预览仅编译外部 npm 依赖。',
 
   // ── File tree actions (Phase 4) ─────────────────────────────
+  'fileTree.sectionTitle': '文件',
   'fileTree.newMarkdown': '新建 Markdown 文件',
+  'fileTree.newFolder': '新建文件夹',
   'fileTree.createButton': '创建',
   'fileTree.newFileHint': '回车创建 · Esc 取消',
-  'fileTree.newFileErrorEmpty': '文件名不能为空',
+  'fileTree.newFileErrorEmpty': '名称不能为空',
   'fileTree.newFileErrorNoWorkspace': '当前会话未选择 workspace',
-  'fileTree.newFileErrorGeneric': '创建文件失败',
+  'fileTree.newFileErrorGeneric': '创建失败',
 
   // ── Doc preview ─────────────────────────────────────────────
   'docPreview.htmlPreview': 'HTML 预览',
