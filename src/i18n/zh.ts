@@ -266,6 +266,10 @@ const zh: Record<TranslationKey, string> = {
   'filePreview.linesApprox': '约 {count} 行',
   'filePreview.copyPath': '复制路径',
   'filePreview.failedToLoad': '加载文件失败',
+  'filePreview.truncated': '已显示前 {lines} 行（{bytesReadMb} MB / 共 {bytesTotalMb} MB）',
+  'filePreview.tooLarge': '文件过大，无法预览（上限 10 MB）',
+  'filePreview.binaryNotPreviewable': '二进制文件，无法预览',
+  'filePreview.notFound': '文件不存在',
 
   // ── Doc preview ─────────────────────────────────────────────
   'docPreview.htmlPreview': 'HTML 预览',

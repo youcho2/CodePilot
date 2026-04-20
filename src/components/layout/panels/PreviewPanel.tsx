@@ -92,6 +92,7 @@ export function PreviewPanel() {
   const [preview, setPreview] = useState<FilePreviewType | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const { t } = useTranslation();
   const [copied, setCopied] = useState(false);
   const [width, setWidth] = useState(PREVIEW_DEFAULT_WIDTH);
 
@@ -113,12 +114,22 @@ export function PreviewPanel() {
       setLoading(true);
       setError(null);
       try {
+        // maxLines is omitted so the API picks a per-extension cap
+        // (50k lines for Markdown/text/log/csv, 1k for code).
+        // See src/lib/files.ts EXTENSION_LINE_CAPS.
         const res = await fetch(
-          `/api/files/preview?path=${encodeURIComponent(filePath)}&maxLines=500${workingDirectory ? `&baseDir=${encodeURIComponent(workingDirectory)}` : ''}`
+          `/api/files/preview?path=${encodeURIComponent(filePath)}${workingDirectory ? `&baseDir=${encodeURIComponent(workingDirectory)}` : ''}`
         );
         if (!res.ok) {
           const data = await res.json();
-          throw new Error(data.error || "Failed to load file");
+          // Map structured error codes from /api/files/preview to friendly
+          // i18n strings. Falls back to raw API message when code is unknown.
+          const friendly =
+            data.code === 'file_too_large' ? t('filePreview.tooLarge') :
+            data.code === 'binary_not_previewable' ? t('filePreview.binaryNotPreviewable') :
+            data.code === 'not_found' ? t('filePreview.notFound') :
+            (data.error || t('filePreview.failedToLoad'));
+          throw new Error(friendly);
         }
         const data = await res.json();
         if (!cancelled) {
@@ -126,7 +137,7 @@ export function PreviewPanel() {
         }
       } catch (err) {
         if (!cancelled) {
-          setError(err instanceof Error ? err.message : "Failed to load file");
+          setError(err instanceof Error ? err.message : t('filePreview.failedToLoad'));
         }
       } finally {
         if (!cancelled) {
@@ -230,14 +241,39 @@ export function PreviewPanel() {
             <p className="text-sm text-destructive">{error}</p>
           </div>
         ) : preview ? (
-          previewViewMode === "rendered" && canRender ? (
-            <RenderedView content={preview.content} filePath={filePath} />
-          ) : (
-            <SourceView preview={preview} isDark={isDark} />
-          )
+          <>
+            {previewViewMode === "rendered" && canRender ? (
+              <RenderedView content={preview.content} filePath={filePath} />
+            ) : (
+              <SourceView preview={preview} isDark={isDark} />
+            )}
+            {preview.truncated && <TruncationBanner preview={preview} />}
+          </>
         ) : null}
       </div>
       </div>
+    </div>
+  );
+}
+
+/**
+ * Banner shown at the bottom of a truncated preview.
+ *
+ * The API enforces per-extension line caps + a 10MB byte ceiling (see
+ * src/lib/files.ts). When a file exceeds either, `preview.truncated` is true
+ * and this banner tells the user what they got vs what the file actually
+ * contains, so they don't silently act on partial content.
+ */
+function TruncationBanner({ preview }: { preview: FilePreviewType }) {
+  const { t } = useTranslation();
+  const mb = (bytes: number) => (bytes / 1024 / 1024).toFixed(2);
+  return (
+    <div className="sticky bottom-0 border-t border-border/40 bg-muted/80 px-3 py-2 text-[11px] text-muted-foreground backdrop-blur">
+      {t('filePreview.truncated', {
+        lines: preview.line_count,
+        bytesReadMb: mb(preview.bytes_read),
+        bytesTotalMb: mb(preview.bytes_total),
+      })}
     </div>
   );
 }

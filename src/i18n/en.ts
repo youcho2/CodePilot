@@ -269,6 +269,10 @@ const en = {
   'filePreview.linesApprox': '~{count} lines',
   'filePreview.copyPath': 'Copy path',
   'filePreview.failedToLoad': 'Failed to load file',
+  'filePreview.truncated': 'Showing first {lines} lines ({bytesReadMb} MB of {bytesTotalMb} MB)',
+  'filePreview.tooLarge': 'File too large to preview (>10 MB)',
+  'filePreview.binaryNotPreviewable': 'Binary file, cannot preview',
+  'filePreview.notFound': 'File not found',
 
   // ── Doc preview ─────────────────────────────────────────────
   'docPreview.htmlPreview': 'HTML Preview',
