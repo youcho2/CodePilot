@@ -69,7 +69,7 @@ const CHATLIST_MAX = 300;
  * which made the DiffSummary "Open preview" button surface source code
  * when the user clicked a TSX card.
  */
-const RENDERED_EXTENSIONS = new Set([".md", ".mdx", ".html", ".htm", ".jsx", ".tsx"]);
+const RENDERED_EXTENSIONS = new Set([".md", ".mdx", ".html", ".htm", ".jsx", ".tsx", ".csv", ".tsv"]);
 
 function defaultViewMode(filePath: string): PreviewViewMode {
   const dot = filePath.lastIndexOf(".");

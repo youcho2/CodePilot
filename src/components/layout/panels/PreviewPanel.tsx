@@ -235,7 +235,7 @@ export function PreviewPanel() {
   }, [filePath, workingDirectory]);
 
   const handleCopyContent = async () => {
-    const text = preview?.content || filePath;
+    const text = freshPreview?.content || filePath;
     await navigator.clipboard.writeText(text);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
@@ -274,6 +274,21 @@ export function PreviewPanel() {
   }, [preview?.content, preview?.path]);
   const editDirty = editContent !== savedContent && loadedMatchesActive;
 
+  // Codex P1 follow-up. The render path below used to read `preview`
+  // directly, which meant on the first frame after a file switch React
+  // saw a fresh filePath paired with the *previous* file's preview.content
+  // (setPreview(null) inside the effect hasn't run yet). That stale pair
+  // got handed to MarkdownEditor / RenderedView / SourceView / Sandpack
+  // and we re-created the same "new TSX key + old content" class of bug
+  // the loadedPath anchor was introduced to prevent.
+  //
+  // `freshPreview` is the only shape the render path should consume:
+  // non-null only when the loaded content actually belongs to the
+  // currently-active file. Any time freshPreview is null we fall through
+  // to the loading branch, so the UI shows a spinner instead of a
+  // cross-file frankenstate.
+  const freshPreview = loadedMatchesActive ? preview : null;
+
   // Whether the current preview source is an HTML document we can ship
   // to the Phase 3 long-shot IPC. Lit up when:
   //   • inline-html kind (html lives on the source itself), or
@@ -287,13 +302,12 @@ export function PreviewPanel() {
     if (
       previewSource?.kind === 'file' &&
       isHtml(filePath) &&
-      preview?.content &&
-      loadedPath === previewSource.filePath
+      freshPreview?.content
     ) {
-      return preview.content;
+      return freshPreview.content;
     }
     return null;
-  }, [previewSource, filePath, preview?.content, loadedPath]);
+  }, [previewSource, filePath, freshPreview]);
 
   const handleSaveEdit = useCallback(async () => {
     if (!editDirty || savingEdit) return;
@@ -507,9 +521,9 @@ export function PreviewPanel() {
         <p className="min-w-0 flex-1 truncate text-[11px] text-muted-foreground/60">
           {breadcrumb}
         </p>
-        {preview && !isMedia && (
+        {freshPreview && !isMedia && (
           <span className="shrink-0 text-[10px] text-muted-foreground/50">
-            {preview.language}
+            {freshPreview.language}
           </span>
         )}
       </div>
@@ -547,7 +561,7 @@ export function PreviewPanel() {
           <div className="px-4 py-8 text-center">
             <p className="text-sm text-destructive">{error}</p>
           </div>
-        ) : preview ? (
+        ) : freshPreview ? (
           <>
             {isEditable(filePath) && (previewViewMode === "edit" || previewViewMode === "source") ? (
               // Editable files: Source and Edit both route to the
@@ -561,14 +575,24 @@ export function PreviewPanel() {
                 filename={filePath}
               />
             ) : previewViewMode === "rendered" && canRender ? (
-              <RenderedView content={preview.content} filePath={filePath} />
+              <RenderedView content={freshPreview.content} filePath={filePath} />
             ) : (
-              <SourceView preview={preview} isDark={isDark} />
+              <SourceView preview={freshPreview} isDark={isDark} />
             )}
             {!(isEditable(filePath) && (previewViewMode === "edit" || previewViewMode === "source")) &&
-              preview.truncated && <TruncationBanner preview={preview} />}
+              freshPreview.truncated && <TruncationBanner preview={freshPreview} />}
           </>
-        ) : null}
+        ) : (
+          // When previewSource is a file but loadedPath hasn't caught up
+          // yet (mid-switch frame — loading is already set true by the
+          // synchronous effect below, but React may render once more with
+          // stale state between the event and the effect). Fall back to
+          // the spinner instead of rendering stale content to the
+          // editor/renderer/Sandpack.
+          <div className="flex items-center justify-center py-12">
+            <SpinnerGap size={20} className="animate-spin text-muted-foreground" />
+          </div>
+        )}
       </div>
       </div>
     </div>
