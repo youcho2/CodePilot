@@ -22,6 +22,14 @@ const SandpackPreview = dynamic(
   { ssr: false, loading: () => <div className="flex h-full items-center justify-center py-12"><SpinnerGap size={20} className="animate-spin text-muted-foreground" /></div> },
 );
 
+// CodeMirror Markdown editor (Phase 4.3 surface). Only reached when the
+// user flips viewMode to "edit" on an EDITABLE_EXTENSIONS file, so the
+// ~135 KB chunk stays out of first paint just like Sandpack does.
+const MarkdownEditor = dynamic(
+  () => import("@/components/editor/MarkdownEditor").then((m) => m.MarkdownEditor),
+  { ssr: false, loading: () => <div className="flex h-full items-center justify-center py-12"><SpinnerGap size={20} className="animate-spin text-muted-foreground" /></div> },
+);
+
 // Lazy-load Streamdown and plugins — only loaded when rendered markdown is needed
 let _StreamdownComponent: typeof import("streamdown").Streamdown | null = null;
 let _streamdownPlugins: Record<string, unknown> | null = null;
@@ -51,7 +59,7 @@ function loadStreamdown(): Promise<void> {
   return _streamdownPromise;
 }
 
-type ViewMode = "source" | "rendered";
+type ViewMode = "source" | "rendered" | "edit";
 
 /** Extensions that support a rendered preview */
 const RENDERABLE_EXTENSIONS = new Set([".md", ".mdx", ".html", ".htm", ".jsx", ".tsx"]);
@@ -59,8 +67,24 @@ const RENDERABLE_EXTENSIONS = new Set([".md", ".mdx", ".html", ".htm", ".jsx", "
 /** Extensions rendered through Sandpack (React-in-iframe) */
 const SANDPACK_EXTENSIONS = new Set([".jsx", ".tsx"]);
 
+/**
+ * Extensions that can be edited via the CodeMirror MarkdownEditor surface.
+ *
+ * Gated to plain-text formats CodeMirror's markdown grammar handles well.
+ * .mdx is included because lang-markdown tolerates JSX fragments fine at
+ * the source level. Code extensions (.ts, .js, .json, ...) are excluded
+ * because they'd want proper language grammars; adding them would also
+ * invite confusion about the Save-writes-to-disk contract on files that
+ * might be part of the running app.
+ */
+const EDITABLE_EXTENSIONS = new Set([".md", ".mdx", ".txt"]);
+
 function isSandpack(filePath: string): boolean {
   return SANDPACK_EXTENSIONS.has(getExtension(filePath));
+}
+
+function isEditable(filePath: string): boolean {
+  return EDITABLE_EXTENSIONS.has(getExtension(filePath));
 }
 
 /** Media file extensions that get direct preview (no API fetch needed) */
@@ -189,6 +213,57 @@ export function PreviewPanel() {
   }, [previewSource, filePath, preview?.content]);
 
   const [exporting, setExporting] = useState(false);
+
+  // Editor state for Phase 4.3 edit mode. editContent is the in-memory
+  // buffer the CodeMirror surface writes to; saving pushes it to
+  // /api/files/write and overwrites the on-disk content. The buffer is
+  // reseeded whenever the loaded preview changes (switching files, or
+  // the on-disk version updating via another path) so the editor always
+  // starts from the latest source of truth.
+  const [editContent, setEditContent] = useState<string>("");
+  const [savedContent, setSavedContent] = useState<string>("");
+  const [savingEdit, setSavingEdit] = useState(false);
+  const [editJustSaved, setEditJustSaved] = useState(false);
+  useEffect(() => {
+    if (preview?.content !== undefined) {
+      setEditContent(preview.content);
+      setSavedContent(preview.content);
+    }
+  }, [preview?.content]);
+  const editDirty = editContent !== savedContent;
+
+  const handleSaveEdit = useCallback(async () => {
+    if (!editDirty || savingEdit) return;
+    if (previewSource?.kind !== "file") return;
+    setSavingEdit(true);
+    try {
+      const res = await fetch("/api/files/write", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          path: previewSource.filePath,
+          baseDir: workingDirectory || undefined,
+          content: editContent,
+          overwrite: true,
+          createParents: false,
+        }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        alert(`Save failed: ${data.error || res.statusText}`);
+        return;
+      }
+      // Success — sync savedContent so the dirty indicator clears, plus
+      // flash a 2s "Saved" label in the toolbar.
+      setSavedContent(editContent);
+      setEditJustSaved(true);
+      setTimeout(() => setEditJustSaved(false), 2000);
+    } catch (err) {
+      alert(`Save failed: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setSavingEdit(false);
+    }
+  }, [editDirty, savingEdit, previewSource, editContent, workingDirectory]);
   const handleExportLongShot = useCallback(async () => {
     if (!exportableHtml) return;
     setExporting(true);
@@ -265,7 +340,37 @@ export function PreviewPanel() {
         </div>
 
         {canRender && !isMedia && (
-          <ViewModeToggle value={previewViewMode} onChange={setPreviewViewMode} />
+          <ViewModeToggle
+            value={previewViewMode}
+            onChange={setPreviewViewMode}
+            showEdit={previewSource?.kind === "file" && isEditable(filePath)}
+          />
+        )}
+
+        {/* Save button — only visible in edit mode. Mirrors the unsaved-
+            dot + label affordance from SkillEditor so the two editing
+            surfaces feel consistent. Cmd+S inside the editor triggers the
+            same handler, so this is an alternate path for mouse users. */}
+        {previewViewMode === "edit" && previewSource?.kind === "file" && isEditable(filePath) && (
+          <>
+            {editDirty && (
+              <span
+                className="h-2 w-2 rounded-full bg-status-warning shrink-0"
+                title="Unsaved changes"
+              />
+            )}
+            <Button
+              size="xs"
+              onClick={handleSaveEdit}
+              disabled={!editDirty || savingEdit}
+              className="gap-1"
+            >
+              {savingEdit ? (
+                <SpinnerGap size={12} className="animate-spin" />
+              ) : null}
+              {savingEdit ? "Saving" : editJustSaved ? "Saved" : "Save"}
+            </Button>
+          </>
         )}
 
         {!isMedia && (
@@ -349,12 +454,23 @@ export function PreviewPanel() {
           </div>
         ) : preview ? (
           <>
-            {previewViewMode === "rendered" && canRender ? (
+            {previewViewMode === "edit" && isEditable(filePath) ? (
+              // Phase 4.3: CodeMirror editor for .md/.mdx/.txt. Cmd+S calls
+              // handleSaveEdit through the editor's keymap; the external
+              // Save button in the toolbar is a second path to the same
+              // handler for people who prefer clicking.
+              <MarkdownEditor
+                value={editContent}
+                onChange={setEditContent}
+                onSave={handleSaveEdit}
+                filename={filePath}
+              />
+            ) : previewViewMode === "rendered" && canRender ? (
               <RenderedView content={preview.content} filePath={filePath} />
             ) : (
               <SourceView preview={preview} isDark={isDark} />
             )}
-            {preview.truncated && <TruncationBanner preview={preview} />}
+            {previewViewMode !== "edit" && preview.truncated && <TruncationBanner preview={preview} />}
           </>
         ) : null}
       </div>
@@ -385,40 +501,42 @@ function TruncationBanner({ preview }: { preview: FilePreviewType }) {
   );
 }
 
-/** Capsule toggle for Source / Preview view mode */
+/**
+ * Capsule toggle for Source / Preview / Edit view modes.
+ *
+ * `showEdit` hides the Edit pill for file types without a matching
+ * editor — we don't want users to click "Edit" on .ts files and get
+ * confused when Save doesn't materialize (EDITABLE_EXTENSIONS gates
+ * actual save behavior too, but hiding the button is the UX-level fix).
+ */
 function ViewModeToggle({
   value,
   onChange,
+  showEdit,
 }: {
   value: ViewMode;
   onChange: (v: ViewMode) => void;
+  showEdit: boolean;
 }) {
+  const pill = (mode: ViewMode, label: string) => (
+    <Button
+      variant="ghost"
+      size="sm"
+      className={`rounded-full px-2 py-0.5 font-medium h-auto ${
+        value === mode
+          ? "bg-background text-foreground shadow-sm"
+          : "text-muted-foreground hover:text-foreground"
+      }`}
+      onClick={() => onChange(mode)}
+    >
+      {label}
+    </Button>
+  );
   return (
     <div className="flex h-6 items-center rounded-full bg-muted p-0.5 text-[11px]">
-      <Button
-        variant="ghost"
-        size="sm"
-        className={`rounded-full px-2 py-0.5 font-medium h-auto ${
-          value === "source"
-            ? "bg-background text-foreground shadow-sm"
-            : "text-muted-foreground hover:text-foreground"
-        }`}
-        onClick={() => onChange("source")}
-      >
-        Source
-      </Button>
-      <Button
-        variant="ghost"
-        size="sm"
-        className={`rounded-full px-2 py-0.5 font-medium h-auto ${
-          value === "rendered"
-            ? "bg-background text-foreground shadow-sm"
-            : "text-muted-foreground hover:text-foreground"
-        }`}
-        onClick={() => onChange("rendered")}
-      >
-        Preview
-      </Button>
+      {showEdit && pill("edit", "Edit")}
+      {pill("source", "Source")}
+      {pill("rendered", "Preview")}
     </div>
   );
 }
