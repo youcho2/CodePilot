@@ -60,8 +60,16 @@ const EMPTY_SET = new Set<string>();
 const CHATLIST_MIN = 180;
 const CHATLIST_MAX = 300;
 
-/** Extensions that default to "rendered" view mode */
-const RENDERED_EXTENSIONS = new Set([".md", ".mdx", ".html", ".htm"]);
+/**
+ * Extensions that default to "rendered" view mode when a file is opened
+ * via setPreviewSource / setPreviewFile. Keeping this list aligned with
+ * PreviewPanel's RENDERABLE_EXTENSIONS so anything we can actually
+ * render in Preview mode also lands there by default — previously .jsx
+ * / .tsx fell through to Source even though Sandpack can render them,
+ * which made the DiffSummary "Open preview" button surface source code
+ * when the user clicked a TSX card.
+ */
+const RENDERED_EXTENSIONS = new Set([".md", ".mdx", ".html", ".htm", ".jsx", ".tsx"]);
 
 function defaultViewMode(filePath: string): PreviewViewMode {
   const dot = filePath.lastIndexOf(".");
