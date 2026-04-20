@@ -675,17 +675,27 @@ export const MessageItem = memo(function MessageItem({ message, sessionId, isAss
       {/* Diff summary for assistant messages with file modifications */}
       {!isUser && (() => {
         const WRITE_TOOLS = new Set(['write', 'edit', 'writefile', 'write_file', 'create_file', 'createfile', 'notebookedit', 'notebook_edit']);
+        // Tools whose semantics are "new file"; everything else in WRITE_TOOLS
+        // counts as "modify an existing file" (edit + notebookedit variants).
+        // This is a heuristic — some tools (e.g. write) do upsert — but the
+        // label is surfaced to the user only as a hint, not a correctness claim.
+        const CREATE_TOOLS = new Set(['write', 'writefile', 'write_file', 'create_file', 'createfile']);
         const modifiedFiles = pairedTools
           .filter(t => WRITE_TOOLS.has(t.name.toLowerCase()) && !t.isError)
           .map(t => {
             const inp = t.input as Record<string, unknown> | undefined;
             const filePath = (inp?.file_path || inp?.path || inp?.filePath || '') as string;
             const parts = filePath.split('/');
-            return { path: filePath, name: parts[parts.length - 1] || filePath };
+            const toolName = t.name.toLowerCase();
+            const operation: 'created' | 'modified' = CREATE_TOOLS.has(toolName) ? 'created' : 'modified';
+            return { path: filePath, name: parts[parts.length - 1] || filePath, operation };
           })
           .filter(f => f.path);
         if (modifiedFiles.length === 0) return null;
-        // Deduplicate by path
+        // Deduplicate by path. When the same file appears multiple times (e.g.
+        // created then edited in one turn), the last tool wins — callers see
+        // "Modified" rather than "Created" which matches the file's final
+        // state at the end of the turn.
         const unique = [...new Map(modifiedFiles.map(f => [f.path, f])).values()];
         return (
           <DiffSummary
