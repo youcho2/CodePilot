@@ -4,6 +4,7 @@ import path from 'path';
 import {
   FileIOError,
   assertNoSymlinkInChain,
+  assertRealPathInBase,
   assertWritablePath,
   isPathSafe,
   isValidFilename,
@@ -66,6 +67,13 @@ export async function POST(request: NextRequest) {
     assertWritablePath(resolvedTo, baseDir);
     await assertNoSymlinkInChain(resolvedFrom);
     await assertNoSymlinkInChain(path.dirname(resolvedTo));
+    // Real-path check on both endpoints — the from side must not resolve
+    // outside baseDir (no cross-root rename via a planted symlink), and
+    // the to side must not either (when we're overwriting an existing
+    // target). allowMissing=true for `to` because a brand-new target
+    // path is the usual case.
+    await assertRealPathInBase(resolvedFrom, baseDir, { rejectIfSymlink: true });
+    await assertRealPathInBase(resolvedTo, baseDir, { rejectIfSymlink: true, allowMissing: true });
 
     // If a baseDir is provided, both endpoints must stay inside it. Without
     // this, rename('/workspace/foo', '~/Downloads/foo') would pass each

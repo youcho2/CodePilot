@@ -5,6 +5,7 @@ import trash from 'trash';
 import {
   FileIOError,
   assertNoSymlinkInChain,
+  assertRealPathInBase,
   assertWritablePath,
 } from '@/lib/files';
 import type { ErrorResponse } from '@/types';
@@ -60,17 +61,10 @@ export async function POST(request: NextRequest) {
   try {
     assertWritablePath(resolvedPath, baseDir);
     await assertNoSymlinkInChain(resolvedPath);
+    await assertRealPathInBase(resolvedPath, baseDir, { rejectIfSymlink: true });
 
-    // Must exist.
-    let stat;
-    try {
-      stat = await fs.lstat(resolvedPath);
-    } catch {
-      throw new FileIOError('not_found', `Path does not exist: ${target}`);
-    }
-    if (stat.isSymbolicLink()) {
-      throw new FileIOError('symlink_detected', `Refusing to delete a symlink: ${target}`);
-    }
+    // Must exist; lstat again for entry-count read below.
+    const stat = await fs.lstat(resolvedPath);
 
     // For directories, require explicit recursive=true when non-empty.
     // This mirrors the `rm -r` contract — one click can move a whole

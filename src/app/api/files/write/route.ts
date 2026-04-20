@@ -4,6 +4,7 @@ import path from 'path';
 import {
   FileIOError,
   assertNoSymlinkInChain,
+  assertRealPathInBase,
   assertWritablePath,
   isValidFilename,
 } from '@/lib/files';
@@ -71,30 +72,14 @@ export async function POST(request: NextRequest) {
     assertWritablePath(resolvedPath, baseDir);
     await assertNoSymlinkInChain(path.dirname(resolvedPath));
 
-    // Existence check. fs.access returns without throwing iff the file exists.
-    // Use fs.lstat (not access + stat) so we can detect a symlink without
-    // dereferencing it — critical for the overwrite case: a symlink
-    // link.md → /tmp/outside would otherwise make fs.writeFile follow the
-    // link and write outside baseDir despite the parent-chain symlink
-    // check passing. (Codex P1.)
-    let exists = false;
-    try {
-      const targetStat = await fs.lstat(resolvedPath);
-      exists = true;
-      if (targetStat.isSymbolicLink()) {
-        throw new FileIOError(
-          'symlink_detected',
-          `Refusing to write through a symlink: ${filePath}`,
-        );
-      }
-    } catch (err) {
-      if (err instanceof FileIOError) throw err;
-      const code = (err as NodeJS.ErrnoException)?.code;
-      if (code !== 'ENOENT') {
-        throw new FileIOError('write_failed', `Failed to lstat target: ${String(err)}`);
-      }
-      exists = false;
-    }
+    // Target-side check: symlinks refused, real path must live in real
+    // baseDir. Unified helper so this path matches preview/mkdir/rename/
+    // delete — no more per-route symlink drift.
+    const realTarget = await assertRealPathInBase(resolvedPath, baseDir, {
+      rejectIfSymlink: true,
+      allowMissing: true,
+    });
+    const exists = realTarget !== null;
     if (exists && !overwrite) {
       throw new FileIOError('already_exists', `File already exists: ${filePath}`);
     }

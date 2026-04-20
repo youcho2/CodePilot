@@ -4,6 +4,7 @@ import path from 'path';
 import {
   FileIOError,
   assertNoSymlinkInChain,
+  assertRealPathInBase,
   assertWritablePath,
   isValidFilename,
 } from '@/lib/files';
@@ -59,14 +60,15 @@ export async function POST(request: NextRequest) {
     assertWritablePath(resolvedPath, baseDir);
     await assertNoSymlinkInChain(path.dirname(resolvedPath));
 
-    let exists = false;
-    try {
-      await fs.access(resolvedPath);
-      exists = true;
-    } catch {
-      exists = false;
-    }
-    if (exists) {
+    // Target must not already exist (mkdir semantics); real-path check
+    // guards against a symlink-at-target edge case that could otherwise
+    // slip past because `fs.mkdir(recursive:true)` treats existing links
+    // as success even if they point outside baseDir.
+    const realTarget = await assertRealPathInBase(resolvedPath, baseDir, {
+      rejectIfSymlink: true,
+      allowMissing: true,
+    });
+    if (realTarget !== null) {
       throw new FileIOError('already_exists', `Directory already exists: ${dirPath}`);
     }
 

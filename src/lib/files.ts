@@ -372,6 +372,92 @@ export function assertWritablePath(resolvedPath: string, baseDir?: string): void
  *
  * Caller is responsible for resolving path before calling.
  */
+/**
+ * Verify the *real* target of `resolvedPath` still lives under the real
+ * `baseDir`. This covers the symlink-escape class of bugs that plain
+ * `isPathSafe` misses, because the textual path can stay inside baseDir
+ * while the symlink it points to sits outside.
+ *
+ * Both the target and the base are `realpath`'d so the check is
+ * resilient when the *workspace itself* is a symlink (common on macOS
+ * project folders placed inside ~/Library symlinks etc.) — without the
+ * base-side realpath, legitimate workspace reads get falsely flagged.
+ *
+ * Returns the resolved real target. Callers that still want to read
+ * via the original path should do so (the file system will walk the
+ * same link chain anyway); the return value is mainly for logging /
+ * response payloads.
+ *
+ * Throws FileIOError with code `path_unsafe` on escape, `symlink_detected`
+ * if `rejectIfSymlink` is true and the target is a symlink, or
+ * `not_found` when target doesn't exist and `allowMissing` isn't set.
+ */
+export async function assertRealPathInBase(
+  resolvedPath: string,
+  baseDir: string | undefined,
+  opts: { rejectIfSymlink?: boolean; allowMissing?: boolean } = {},
+): Promise<string | null> {
+  const base = baseDir ? path.resolve(baseDir) : os.homedir();
+  let realBase: string;
+  try {
+    realBase = await fs.realpath(base);
+  } catch {
+    // Base dir not existing shouldn't bring the whole check down;
+    // fall back to the textual base so the downstream isPathSafe
+    // still rejects anything obviously outside.
+    realBase = base;
+  }
+
+  // When rejectIfSymlink is set we also need to know whether the target
+  // itself is a symlink (distinct from whether any parent is). lstat
+  // doesn't follow the final link, so we can inspect that first.
+  if (opts.rejectIfSymlink) {
+    try {
+      const linkStat = await fs.lstat(resolvedPath);
+      if (linkStat.isSymbolicLink()) {
+        throw new FileIOError(
+          'symlink_detected',
+          `Refusing to operate on a symlink: ${resolvedPath}`,
+        );
+      }
+    } catch (err) {
+      if (err instanceof FileIOError) throw err;
+      const code = (err as NodeJS.ErrnoException)?.code;
+      if (code !== 'ENOENT') {
+        throw new FileIOError('write_failed', `lstat failed: ${String(err)}`);
+      }
+      // ENOENT: target doesn't exist yet. If allowMissing, continue; else
+      // bail out as not_found below.
+      if (!opts.allowMissing) {
+        throw new FileIOError('not_found', `Path does not exist: ${resolvedPath}`);
+      }
+      return null;
+    }
+  }
+
+  let realTarget: string;
+  try {
+    realTarget = await fs.realpath(resolvedPath);
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException)?.code;
+    if (code === 'ENOENT') {
+      if (opts.allowMissing) return null;
+      throw new FileIOError('not_found', `Path does not exist: ${resolvedPath}`);
+    }
+    throw new FileIOError('write_failed', `realpath failed: ${String(err)}`);
+  }
+
+  if (!isPathSafe(realBase, realTarget)) {
+    throw new FileIOError(
+      'path_unsafe',
+      `Real path escapes base directory: real=${realTarget} realBase=${realBase}`,
+      { realTarget, realBase },
+    );
+  }
+
+  return realTarget;
+}
+
 export async function assertNoSymlinkInChain(resolvedPath: string): Promise<void> {
   let cursor = resolvedPath;
   while (cursor && cursor !== path.parse(cursor).root) {

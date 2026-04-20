@@ -1,8 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
-import fs from 'fs/promises';
 import path from 'path';
 import os from 'os';
-import { readFilePreview, isPathSafe, isRootPath, FilePreviewError } from '@/lib/files';
+import { readFilePreview, isPathSafe, isRootPath, FilePreviewError, assertRealPathInBase, FileIOError } from '@/lib/files';
 import type { FilePreviewResponse, ErrorResponse } from '@/types';
 
 export async function GET(request: NextRequest) {
@@ -42,36 +41,29 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  // Symlink defense (Codex P1 follow-up).
-  //
-  // The textual isPathSafe check above validates `resolvedPath` alone —
-  // but every downstream fs call (stat / open / createReadStream) follows
-  // symlinks. Without this extra gate, a file `workspace/leak.md →
-  // /etc/passwd` passes isPathSafe as a workspace path and then serves
-  // the symlink target's contents. fs.realpath resolves symlinks + `..`
-  // and gives us the real backing location; we re-check that real
-  // location still sits inside resolvedBase before reading anything.
-  //
-  // ENOENT here means the path doesn't exist yet (e.g. user typed a name
-  // into the URL). Let readFilePreview handle it — its FilePreviewError
-  // path produces a proper 404.
+  // Real-path scope check — delegated to the single shared helper so read
+  // / write / mkdir / rename / delete all enforce identical symlink
+  // semantics. allowMissing=true because nonexistent files are a valid
+  // case here (readFilePreview's own FilePreviewError('not_found') will
+  // produce the 404).
   try {
-    const realPath = await fs.realpath(resolvedPath);
-    if (!isPathSafe(resolvedBase, realPath)) {
-      return NextResponse.json<ErrorResponse>(
-        { error: 'Symlink target escapes base directory', code: 'symlink_escape' },
-        { status: 403 }
-      );
-    }
+    await assertRealPathInBase(resolvedPath, baseDir ?? undefined, { allowMissing: true });
   } catch (err) {
-    const code = (err as NodeJS.ErrnoException)?.code;
-    if (code !== 'ENOENT') {
+    if (err instanceof FileIOError) {
+      const status = err.code === 'path_unsafe' ? 403 : 500;
       return NextResponse.json<ErrorResponse>(
-        { error: 'Failed to resolve real path', code: 'realpath_failed' },
-        { status: 500 }
+        {
+          error: err.message,
+          code: err.code === 'path_unsafe' ? 'symlink_escape' : err.code,
+          ...err.meta,
+        },
+        { status }
       );
     }
-    // ENOENT → fall through, readFilePreview will 404.
+    return NextResponse.json<ErrorResponse>(
+      { error: err instanceof Error ? err.message : 'Path validation failed' },
+      { status: 500 }
+    );
   }
 
   try {
