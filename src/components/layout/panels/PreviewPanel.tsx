@@ -220,27 +220,6 @@ export function PreviewPanel() {
     setTimeout(() => setCopied(false), 2000);
   };
 
-  // Whether the current preview source is an HTML document we can ship
-  // to the Phase 3 long-shot IPC. Only lit up when:
-  //   • inline-html kind (html lives on the source itself), or
-  //   • file kind, extension is HTML, AND the loaded-path anchor
-  //     confirms preview.content belongs to the active filePath.
-  // The second clause is what stops a stale Export click — e.g. user
-  // clicks the button during a mid-switch frame — from shipping the
-  // previous file's content to the IPC under the new file's name.
-  const exportableHtml: string | null = useMemo(() => {
-    if (previewSource?.kind === 'inline-html') return previewSource.html;
-    if (
-      previewSource?.kind === 'file' &&
-      isHtml(filePath) &&
-      preview?.content &&
-      loadedPath === previewSource.filePath
-    ) {
-      return preview.content;
-    }
-    return null;
-  }, [previewSource, filePath, preview?.content, loadedPath]);
-
   const [exporting, setExporting] = useState(false);
 
   // Editor state for Phase 4.3 edit mode. editContent is the in-memory
@@ -273,6 +252,27 @@ export function PreviewPanel() {
     }
   }, [preview?.content, preview?.path]);
   const editDirty = editContent !== savedContent && loadedMatchesActive;
+
+  // Whether the current preview source is an HTML document we can ship
+  // to the Phase 3 long-shot IPC. Lit up when:
+  //   • inline-html kind (html lives on the source itself), or
+  //   • file kind, extension is HTML, AND the loaded-path anchor
+  //     confirms preview.content belongs to the active filePath.
+  // The second clause prevents a stale Export click during a mid-switch
+  // frame from shipping the outgoing file's content under the incoming
+  // file's name.
+  const exportableHtml: string | null = useMemo(() => {
+    if (previewSource?.kind === 'inline-html') return previewSource.html;
+    if (
+      previewSource?.kind === 'file' &&
+      isHtml(filePath) &&
+      preview?.content &&
+      loadedPath === previewSource.filePath
+    ) {
+      return preview.content;
+    }
+    return null;
+  }, [previewSource, filePath, preview?.content, loadedPath]);
 
   const handleSaveEdit = useCallback(async () => {
     if (!editDirty || savingEdit) return;
