@@ -40,14 +40,21 @@ function loadStreamdown(): Promise<void> {
   _streamdownPromise = Promise.all([
     import("streamdown"),
     import("@streamdown/cjk"),
-    import("@streamdown/code"),
     import("@streamdown/math"),
     import("@streamdown/mermaid"),
-  ]).then(([sd, cjkMod, codeMod, mathMod, mermaidMod]) => {
+    import("@/components/ai-elements/code-block"),
+  ]).then(([sd, cjkMod, mathMod, mermaidMod, codeBlockMod]) => {
     _StreamdownComponent = sd.Streamdown;
+    // Phase 5.5 — rendered-markdown preview uses the same shared code
+    // plugin the chat path uses (createSharedCodePlugin from
+    // code-block.tsx). Previous implementation imported @streamdown/code
+    // and used its default plugin, which maintains its own unbounded
+    // module-level LRU; opening a preview after a long chat session
+    // effectively doubled the Shiki highlighter footprint. Now both
+    // consumers share the bounded LRUMap in code-block.tsx.
     _streamdownPlugins = {
       cjk: cjkMod.cjk,
-      code: codeMod.code,
+      code: codeBlockMod.createSharedCodePlugin(),
       math: mathMod.math,
       mermaid: mermaidMod.mermaid,
     };
