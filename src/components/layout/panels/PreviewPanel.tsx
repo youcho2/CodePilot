@@ -327,7 +327,14 @@ export function PreviewPanel() {
         {previewSource?.kind === "inline-html" ? (
           <InlineHtmlView html={previewSource.html} />
         ) : previewSource?.kind === "inline-jsx" ? (
-          <SandpackPreview content={previewSource.jsx} filePath={previewSource.virtualName} />
+          // key forces remount when the inline JSX source changes, so
+          // Sandpack boots fresh instead of recompiling on top of the
+          // previous iframe state.
+          <SandpackPreview
+            key={`inline-${previewSource.virtualName ?? "jsx"}-${previewSource.jsx.length}`}
+            content={previewSource.jsx}
+            filePath={previewSource.virtualName}
+          />
         ) : previewSource?.kind === "inline-datatable" ? (
           <InlinePlaceholder phase="Phase 5.4 (DataTable)" kind="inline-datatable" />
         ) : isMedia ? (
@@ -561,8 +568,12 @@ function RenderedView({
   // .jsx / .tsx → Sandpack (React in iframe). See POC 0.5 for the s4
   // default-sandbox security posture and the upgrade path to s2 if
   // Phase 2.5 demands stricter iframe isolation.
+  //
+  // key ties the SandpackPreview instance to the concrete file path, so
+  // clicking a different .tsx from the same folder rebuilds the preview
+  // from scratch instead of serving the previously-compiled one.
   if (isSandpack(filePath)) {
-    return <SandpackPreview filePath={filePath} content={content} />;
+    return <SandpackPreview key={filePath} filePath={filePath} content={content} />;
   }
 
   // Markdown / MDX — wait for Streamdown to load

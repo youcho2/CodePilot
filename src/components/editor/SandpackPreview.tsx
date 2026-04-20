@@ -88,7 +88,7 @@ function inferMountPath(filePath?: string): string {
 }
 
 export function SandpackPreview({ filePath, content, bundlerURL }: SandpackPreviewProps) {
-  const { files, setup, activeFile } = useMemo(() => {
+  const { files, setup, activeFile, providerKey } = useMemo(() => {
     const mount = inferMountPath(filePath);
     const files: SandpackFiles = {
       [mount]: {
@@ -97,12 +97,21 @@ export function SandpackPreview({ filePath, content, bundlerURL }: SandpackPrevi
       },
     };
     const setup: SandpackSetup = { dependencies: ALLOWED_DEPS };
-    return { files, setup, activeFile: mount };
+    // Force a SandpackProvider remount when either the file or its content
+    // changes. Without this, switching from App.tsx → Counter.tsx inside an
+    // already-mounted PreviewPanel just hands new `files` to the provider,
+    // but Sandpack's bundler keeps serving the previously-compiled entry
+    // because its iframe + bundler worker are still alive. Remounting
+    // tears the iframe down and reboots compilation from scratch so each
+    // TSX preview starts clean.
+    const providerKey = `${mount}::${content?.length ?? 0}`;
+    return { files, setup, activeFile: mount, providerKey };
   }, [filePath, content]);
 
   return (
     <ErrorBoundary fallback={<PreviewError />}>
       <SandpackProvider
+        key={providerKey}
         template="react-ts"
         files={files}
         customSetup={setup}
@@ -114,13 +123,26 @@ export function SandpackPreview({ filePath, content, bundlerURL }: SandpackPrevi
           recompileDelay: 400,
           autorun: true,
         }}
+        // Fill the parent panel height + kill the default card border that
+        // made the preview occupy only half the panel. SandpackLayout's
+        // default CSS wraps children in a bordered 480px-min-height box;
+        // stretching the root div + removing border visually aligns the
+        // preview with the rest of PreviewPanel's content area.
+        style={{ height: "100%", display: "flex", flexDirection: "column" }}
       >
-        <SandpackLayout style={{ height: "100%" }}>
+        <SandpackLayout
+          style={{
+            height: "100%",
+            flex: 1,
+            border: "none",
+            borderRadius: 0,
+          }}
+        >
           <SandpackPreviewInner
             showOpenInCodeSandbox={false}
             showRefreshButton
             showSandpackErrorOverlay
-            style={{ height: "100%", minHeight: 480 }}
+            style={{ flex: 1, height: "100%" }}
           />
         </SandpackLayout>
       </SandpackProvider>
