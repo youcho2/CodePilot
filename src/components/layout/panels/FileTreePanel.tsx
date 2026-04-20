@@ -36,6 +36,13 @@ export function FileTreePanel() {
   const [treeReloadKey, setTreeReloadKey] = useState(0);
   const newItemInputRef = useRef<HTMLInputElement | null>(null);
 
+  // Folder selection drives the "create inside this folder" default when
+  // the user clicks the top-level New File / New Folder icons — if a
+  // folder is selected, new items go inside it; otherwise they go at
+  // the workspace root. Independent of file selection so clicking a
+  // file doesn't clobber the current folder target.
+  const [selectedFolderPath, setSelectedFolderPath] = useState<string | null>(null);
+
   // On open: focus the input and pre-select the stem (everything before
   // the last dot) for file mode, or the whole name for folder mode.
   useEffect(() => {
@@ -71,7 +78,11 @@ export function FileTreePanel() {
    */
   const openNewItem = useCallback(
     (mode: NewItemMode, targetDir?: string) => {
-      const effectiveTarget = targetDir ?? workingDirectory;
+      // Precedence: explicit targetDir (from hover "+" on a folder row) →
+      // currently-selected folder (from click on folder row) → workspace
+      // root. This matches the VS-Code feel: click folder, then click
+      // New File, new file lands in that folder.
+      const effectiveTarget = targetDir ?? selectedFolderPath ?? workingDirectory;
       setNewItemMode((cur) => {
         const sameAsCurrent =
           cur === mode && newItemTargetDir === effectiveTarget;
@@ -82,7 +93,7 @@ export function FileTreePanel() {
       setNewItemName(mode === "file" ? "untitled.md" : "new-folder");
       setNewItemError(null);
     },
-    [workingDirectory, newItemTargetDir],
+    [workingDirectory, selectedFolderPath, newItemTargetDir],
   );
 
   /**
@@ -167,6 +178,10 @@ export function FileTreePanel() {
       "flv", "wmv", "wma",
     ]);
     if (NON_PREVIEWABLE.has(ext)) return;
+    // Selecting a file clears folder selection so the next New File /
+    // New Folder click lands at workspace root (not the previously-
+    // selected folder) unless the user reselects one.
+    setSelectedFolderPath(null);
     if (previewFile === path) {
       setPreviewFile(null);
       setPreviewOpen(false);
@@ -175,6 +190,12 @@ export function FileTreePanel() {
       setPreviewOpen(true);
     }
   }, [previewFile, setPreviewFile, setPreviewOpen]);
+
+  const handleSelectFolder = useCallback((folderPath: string) => {
+    // Clicking the same folder again deselects (easy way to reset the
+    // create target back to workspace root without clicking away).
+    setSelectedFolderPath((cur) => (cur === folderPath ? null : folderPath));
+  }, []);
 
   // Relative path hint for the new-item breadcrumb. When target is the
   // workspace root we show "./", otherwise the relative nested path.
@@ -297,6 +318,9 @@ export function FileTreePanel() {
               onFileSelect={handleFileSelect}
               onFileAdd={handleFileAdd}
               onCreateChild={handleOpenNewFileInFolder}
+              selectedFolderPath={selectedFolderPath ?? undefined}
+              onSelectFolder={handleSelectFolder}
+              selectedFilePath={previewFile ?? undefined}
               highlightPath={highlightPath}
               highlightSeek={highlightSeek}
             />

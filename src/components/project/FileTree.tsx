@@ -25,6 +25,12 @@ interface FileTreeProps {
    * navigating up to the workspace root.
    */
   onCreateChild?: (folderPath: string) => void;
+  /** Path of the currently-selected folder (for highlight + create target). */
+  selectedFolderPath?: string;
+  /** Called when the user clicks a folder row — selects the folder + toggles. */
+  onSelectFolder?: (folderPath: string) => void;
+  /** Path of the currently-selected file (for highlight). */
+  selectedFilePath?: string;
   highlightPath?: string;
   highlightSeek?: string;
 }
@@ -136,7 +142,7 @@ function getParentPaths(filePath: string): string[] {
   return parents;
 }
 
-export function FileTree({ workingDirectory, onFileSelect, onFileAdd, onCreateChild, highlightPath, highlightSeek }: FileTreeProps) {
+export function FileTree({ workingDirectory, onFileSelect, onFileAdd, onCreateChild, selectedFolderPath, onSelectFolder, selectedFilePath, highlightPath, highlightSeek }: FileTreeProps) {
   const [tree, setTree] = useState<FileTreeNode[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -301,6 +307,9 @@ export function FileTree({ workingDirectory, onFileSelect, onFileAdd, onCreateCh
             onSelect={onFileSelect as any}
             onAdd={onFileAdd}
             onCreateChild={onCreateChild}
+            selectedPath={selectedFilePath}
+            selectedFolderPath={selectedFolderPath}
+            onSelectFolder={onSelectFolder}
             className="border-0 rounded-none"
           >
             <RenderTreeNodes nodes={tree} searchQuery={searchQuery} highlightPath={highlightPath} />
