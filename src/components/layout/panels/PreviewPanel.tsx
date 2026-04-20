@@ -30,6 +30,14 @@ const MarkdownEditor = dynamic(
   { ssr: false, loading: () => <div className="flex h-full items-center justify-center py-12"><SpinnerGap size={20} className="animate-spin text-muted-foreground" /></div> },
 );
 
+// DataTable viewer (Phase 5.4 surface). Papaparse pulls in ~15 KB gzipped
+// so the dynamic boundary is cheap insurance against shipping it in
+// first paint for users who never view a .csv.
+const DataTableViewer = dynamic(
+  () => import("@/components/editor/DataTableViewer").then((m) => m.DataTableViewer),
+  { ssr: false, loading: () => <div className="flex h-full items-center justify-center py-12"><SpinnerGap size={20} className="animate-spin text-muted-foreground" /></div> },
+);
+
 // Lazy-load Streamdown and plugins — only loaded when rendered markdown is needed
 let _StreamdownComponent: typeof import("streamdown").Streamdown | null = null;
 let _streamdownPlugins: Record<string, unknown> | null = null;
@@ -518,7 +526,11 @@ export function PreviewPanel() {
             filePath={previewSource.virtualName}
           />
         ) : previewSource?.kind === "inline-datatable" ? (
-          <InlinePlaceholder phase="Phase 5.4 (DataTable)" kind="inline-datatable" />
+          <DataTableViewer
+            rows={previewSource.rows}
+            header={previewSource.header}
+            filename={previewSource.virtualName ?? "table"}
+          />
         ) : isMedia ? (
           <MediaView filePath={filePath} fileServeUrl={fileServeUrl} />
         ) : loading ? (
@@ -775,6 +787,15 @@ function RenderedView({
   // from scratch instead of serving the previously-compiled one.
   if (isSandpack(filePath)) {
     return <SandpackPreview key={filePath} filePath={filePath} content={content} />;
+  }
+
+  // .csv / .tsv → DataTable viewer (Phase 5.4-B). papaparse inside the
+  // viewer handles column detection + delimiter sniffing; we just pass
+  // the raw text and pick the delimiter from the extension.
+  if (isDataTable(filePath)) {
+    const delimiter = getExtension(filePath) === ".tsv" ? "\t" : ",";
+    const basename = filePath.split("/").pop() || filePath;
+    return <DataTableViewer key={filePath} csv={content} delimiter={delimiter} filename={basename} />;
   }
 
   // Markdown / MDX — wait for Streamdown to load
