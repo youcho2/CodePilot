@@ -953,6 +953,67 @@ Response: { path, trashed: true } | { error: 'path_unsafe' | 'not_found' | 'dir_
 
 **成本：** 1-2 人时。
 
+### 5.6 PreviewPanel "loaded path" 抽象 — B 静默（Codex 复盘新增）
+
+**触发：** 2026-04-20 Codex 第 N 轮审查定位的 autosave 跨文件错写 bug（9d3d459 已打补丁），连同先前的"Sandpack 首帧用旧 content 编译"、"切文件时 stale preview 闪烁"三类问题，根因都是 **"PreviewPanel 的各块状态没有一个统一的 'currently loaded file' 锚"**。9d3d459 用 `editContentFile` 给 editor 侧加了锚，但 render 侧、export 侧、header 侧各自判断是否 fresh — 散在各个 useMemo 里，下次加新 inline kind 很容易漏。
+
+**改造动作：**
+
+- 引入 `loadedPath: { kind: 'file'; path: string } | { kind: 'inline-*'; id: string } | null` state（或 reducer）
+- 所有"读 preview/content"的派生值（exportableHtml、MarkdownEditor 的 value、SourceView 的 content、RenderedView）都 require `loadedPath` 匹配当前 `previewSource`，否则一律走 loading 分支
+- `setPreview(data.preview)` 的同时 `setLoadedPath({ kind: 'file', path: preview.path })`
+- `filePath` 变化的 useEffect 中同步 `setLoadedPath(null)`（`setPreview(null)` 已有，同级）
+- handleSaveEdit、handleExportLongShot 的第一行都加 `if (loadedPath?.path !== previewSource.filePath) return;`
+- 抽一个 `useLoadedPreview()` hook 把这些碎片封装起来，对外只暴露一个 `fresh: boolean` + `content: string | null`
+
+**收益：**
+- autosave 错写、TSX 首帧旧内容、PreviewPanel 短暂显示旧内容 — 三类边缘 bug 一次收敛
+- 后续加 inline-datatable（Phase 5.4）不会重踩"新 kind 没接上 fresh 校验"
+
+**成本：** 0.5-1 人天（主要是把现有 8 处派生值收拢到同一个 gate）
+
+### 5.7 文件 I/O 安全合同收到单一 helper — C 基建（Codex 复盘新增）
+
+**触发：** 2026-04-20/21 Codex 连续两轮审查连续抓到 API 路径安全漏洞：
+- write 路由的 symlink 防护只查 parent chain，漏了 target（ba35fd7 打补丁）
+- preview 路由的 isPathSafe 只做文本检查，fs.* 仍跟随 symlink 跳出 baseDir（9d3d459 打补丁）
+
+两次都是同一类 bug 在不同路由上复现。当前实现让每条路由各自拼 `assertWritablePath` + `assertNoSymlinkInChain` + `fs.realpath` 检查 — 容易漏、难审计。
+
+**改造动作：**
+
+- 把 `assertWritablePath / assertNoSymlinkInChain / isValidFilename / BLOCKED_SEGMENTS` 和新的 `assertRealPathInBase` 收到 `src/lib/files.ts` 的一个 `validateFsAccess(resolvedPath, { baseDir, mode: 'read' | 'write' | 'mkdir' | 'rename-source' | 'rename-target' | 'delete' })` 统一入口
+- 内部按 mode 组合需要的检查项（read 不查 parent-chain symlink 但必须 realpath 重检；write/mkdir 两者都查；rename-target 跟 write 同样；delete 走 write + lstat target 是否 symlink）
+- 所有五条 `/api/files/*` 路由改为单行调用 `await validateFsAccess(...)`，删除各自的碎片检查
+- 写一个 symlink-attack unit test suite 覆盖每条路由：workspace 内 symlink 指向外部 + overwrite=true → 都应 403；workspace 内合法 symlink（指回 workspace 内） → 200
+- 把 writeFileSync/readFile/readdir 的符号链接语义也审一遍（rename 依赖 fs.rename 不跟 symlink → OK；delete 走 shell.trashItem 有没有 follow 需要再看）
+
+**收益：**
+- 下一个类似 bug 只需在 helper 改一次，不会再让 Codex 重复抓
+- 路由代码可读性上升（业务逻辑不被安全样板遮盖）
+- 有了 test suite，未来加 API 复制 helper 模板即可，合规默认继承
+
+**成本：** 1 人天（helper + 迁移 5 条路由 + 测试套件）
+
+### 5.8 产品边界文档：TSX 预览叫"单文件 React 预览" — C 基建（Codex 复盘新增）
+
+**触发：** Phase 2.1 Sandpack 集成后连续踩坑：入口路径（ba35fd7）、多文件 alias 未支持（已记为已知限制）、潜在的 CSS import / 相对 import 边界都不明确。Codex 建议产品边界一次说清。
+
+**改造动作：**
+
+- 在 `docs/insights/markdown-artifact-overhaul.md` 产品思考文档里明确定义第一版能力：
+  - **能做：** 单文件 `.jsx`/`.tsx`，自包含的 React 组件（hooks + 白名单 npm 依赖）
+  - **不能做：** 多文件项目（`import './Counter'`）、CSS import、项目别名（`@/...`）、图片/字体 import、自定义 tsconfig
+  - **未来演进：** Phase 5.8 后续迭代（非本期）可做虚拟文件系统、alias resolver、CSS inline
+- 同步在 UI 层：SandpackPreview 的 ErrorBoundary fallback 给"这个文件引用了多文件/别名/CSS，预览暂不支持"的友好提示，而不是让用户看到 bundler 的原生 404 stack
+- DiffSummary 的 TSX 卡片 description 行加一行小字说明"单文件预览"（可选，确认不会噪音后再加）
+
+**收益：**
+- 用户心智清晰，不会对失败场景投射 bug 归属（bundler 错 ≠ 我们的渲染错）
+- 下一轮需求讨论（多文件、alias）有基线文档可参考
+
+**成本：** 0.5 人天（文档 + 2 处 UI 友好化）
+
 ---
 
 ## 依赖图
