@@ -165,6 +165,13 @@ export function PreviewPanel() {
     setLoading(true);
     setPreview(null);
     setError(null);
+    // Detach the edit buffer from the outgoing file before the fetch
+    // completes. Without this, editContent (still holding the previous
+    // file's dirty text) plus a refreshed previewSource.filePath would
+    // let the debounced autosave write the wrong body to the new file.
+    // loadPreview() reseeds this below once the new preview is in hand.
+    setEditContentFile(null);
+    setError(null);
 
     async function loadPreview() {
       setError(null);
@@ -238,24 +245,43 @@ export function PreviewPanel() {
   const [savedContent, setSavedContent] = useState<string>("");
   const [savingEdit, setSavingEdit] = useState(false);
   const [editJustSaved, setEditJustSaved] = useState(false);
+  // Tracks which file path the editContent buffer actually belongs to.
+  // Starts null until loadPreview succeeds and seeds the buffer; flips
+  // back to null synchronously when filePath changes so stale dirty
+  // content from the previous file can never be persisted to the new
+  // one's path. (Codex P1: autosave cross-file write.)
+  const [editContentFile, setEditContentFile] = useState<string | null>(null);
   useEffect(() => {
-    if (preview?.content !== undefined) {
+    if (preview?.content !== undefined && preview.path) {
       setEditContent(preview.content);
       setSavedContent(preview.content);
+      setEditContentFile(preview.path);
     }
-  }, [preview?.content]);
-  const editDirty = editContent !== savedContent;
+  }, [preview?.content, preview?.path]);
+  // editDirty must also check that the buffer belongs to the file
+  // currently in previewSource — not just that content != savedContent.
+  // After a switch, buffer is stale until loadPreview reseeds it; we
+  // don't want autosave or the Save button firing in that window.
+  const editDirty =
+    editContent !== savedContent &&
+    previewSource?.kind === "file" &&
+    editContentFile === previewSource.filePath;
 
   const handleSaveEdit = useCallback(async () => {
     if (!editDirty || savingEdit) return;
     if (previewSource?.kind !== "file") return;
+    // Double-check the buffer still targets the active file. editDirty
+    // already enforces this, but the save path is sensitive enough that
+    // a second hard gate is cheap insurance against future refactors.
+    if (editContentFile !== previewSource.filePath) return;
+    const targetPath = previewSource.filePath;
     setSavingEdit(true);
     try {
       const res = await fetch("/api/files/write", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          path: previewSource.filePath,
+          path: targetPath,
           baseDir: workingDirectory || undefined,
           content: editContent,
           overwrite: true,
@@ -267,7 +293,16 @@ export function PreviewPanel() {
         alert(`Save failed: ${data.error || res.statusText}`);
         return;
       }
-      setSavedContent(editContent);
+      // Only mark clean if the current previewSource is still the file
+      // we were saving. A mid-save file switch would otherwise leave
+      // savedContent pointing at content that belongs to the previous
+      // file — benign for persistence (the target file on disk is
+      // correct) but would mislabel dirty state on the new file.
+      setSavedContent((prev) =>
+        previewSource?.kind === "file" && previewSource.filePath === targetPath
+          ? editContent
+          : prev,
+      );
       setEditJustSaved(true);
       setTimeout(() => setEditJustSaved(false), 2000);
     } catch (err) {
@@ -275,13 +310,14 @@ export function PreviewPanel() {
     } finally {
       setSavingEdit(false);
     }
-  }, [editDirty, savingEdit, previewSource, editContent, workingDirectory]);
+  }, [editDirty, savingEdit, previewSource, editContent, editContentFile, workingDirectory]);
 
   // Debounced autosave. Fires 1 second after the user stops typing, as
-  // long as the buffer is dirty and we're not already saving. Cmd+S is
-  // still wired through handleSaveEdit for users who want immediate
-  // persistence, but the primary save path is now ambient so people
-  // don't lose work by forgetting to hit the shortcut.
+  // long as the buffer is dirty, we're not already saving, and the
+  // buffer still belongs to the active file. `editDirty` already has
+  // the editContentFile === previewSource.filePath gate baked in, so
+  // switching files short-circuits autosave immediately — no race
+  // where the new filePath + old content could land in /api/files/write.
   useEffect(() => {
     if (!editDirty || savingEdit) return;
     if (previewSource?.kind !== "file") return;

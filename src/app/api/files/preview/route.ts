@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import fs from 'fs/promises';
 import path from 'path';
 import os from 'os';
 import { readFilePreview, isPathSafe, isRootPath, FilePreviewError } from '@/lib/files';
@@ -27,29 +28,50 @@ export async function GET(request: NextRequest) {
   // baseDir may be on a different drive than homeDir on Windows.
   // Only reject root paths as baseDir to prevent full-disk access.
   const baseDir = searchParams.get('baseDir');
-  if (baseDir) {
-    const resolvedBase = path.resolve(baseDir);
-    if (isRootPath(resolvedBase)) {
+  const resolvedBase = baseDir ? path.resolve(baseDir) : homeDir;
+  if (baseDir && isRootPath(resolvedBase)) {
+    return NextResponse.json<ErrorResponse>(
+      { error: 'Cannot use filesystem root as base directory' },
+      { status: 403 }
+    );
+  }
+  if (!isPathSafe(resolvedBase, resolvedPath)) {
+    return NextResponse.json<ErrorResponse>(
+      { error: baseDir ? 'File is outside the project scope' : 'File is outside the allowed scope' },
+      { status: 403 }
+    );
+  }
+
+  // Symlink defense (Codex P1 follow-up).
+  //
+  // The textual isPathSafe check above validates `resolvedPath` alone —
+  // but every downstream fs call (stat / open / createReadStream) follows
+  // symlinks. Without this extra gate, a file `workspace/leak.md →
+  // /etc/passwd` passes isPathSafe as a workspace path and then serves
+  // the symlink target's contents. fs.realpath resolves symlinks + `..`
+  // and gives us the real backing location; we re-check that real
+  // location still sits inside resolvedBase before reading anything.
+  //
+  // ENOENT here means the path doesn't exist yet (e.g. user typed a name
+  // into the URL). Let readFilePreview handle it — its FilePreviewError
+  // path produces a proper 404.
+  try {
+    const realPath = await fs.realpath(resolvedPath);
+    if (!isPathSafe(resolvedBase, realPath)) {
       return NextResponse.json<ErrorResponse>(
-        { error: 'Cannot use filesystem root as base directory' },
+        { error: 'Symlink target escapes base directory', code: 'symlink_escape' },
         { status: 403 }
       );
     }
-    if (!isPathSafe(resolvedBase, resolvedPath)) {
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException)?.code;
+    if (code !== 'ENOENT') {
       return NextResponse.json<ErrorResponse>(
-        { error: 'File is outside the project scope' },
-        { status: 403 }
+        { error: 'Failed to resolve real path', code: 'realpath_failed' },
+        { status: 500 }
       );
     }
-  } else {
-    // Fallback: without a baseDir, restrict to the user's home directory
-    // to prevent reading arbitrary system files like /etc/passwd
-    if (!isPathSafe(homeDir, resolvedPath)) {
-      return NextResponse.json<ErrorResponse>(
-        { error: 'File is outside the allowed scope' },
-        { status: 403 }
-      );
-    }
+    // ENOENT → fall through, readFilePreview will 404.
   }
 
   try {
