@@ -3,7 +3,8 @@
 import { useState, useEffect, useMemo, useCallback } from "react";
 import dynamic from "next/dynamic";
 import { useTheme } from "next-themes";
-import { X, Copy, Check, SpinnerGap } from "@/components/ui/icon";
+import { X, Copy, Check, SpinnerGap, Image as ImageIcon } from "@/components/ui/icon";
+import { exportHtmlAsLongShot, ArtifactExportError } from "@/lib/artifact-export";
 import { Button } from "@/components/ui/button";
 import { Light as SyntaxHighlighter } from "react-syntax-highlighter";
 import { useThemeFamily } from "@/lib/theme/context";
@@ -175,6 +176,49 @@ export function PreviewPanel() {
     setTimeout(() => setCopied(false), 2000);
   };
 
+  // Whether the current preview source is an HTML document we can ship
+  // to the Phase 3 long-shot IPC. Only lit up when there's real HTML
+  // content to send — file branches need preview.content loaded, inline
+  // branches use source.html directly.
+  const exportableHtml: string | null = useMemo(() => {
+    if (previewSource?.kind === 'inline-html') return previewSource.html;
+    if (previewSource?.kind === 'file' && isHtml(filePath) && preview?.content) {
+      return preview.content;
+    }
+    return null;
+  }, [previewSource, filePath, preview?.content]);
+
+  const [exporting, setExporting] = useState(false);
+  const handleExportLongShot = useCallback(async () => {
+    if (!exportableHtml) return;
+    setExporting(true);
+    try {
+      // Compute basename locally so this callback doesn't depend on the
+      // `fileName` variable declared later in the component — avoids
+      // a TDZ (let/const before initialization) error at mount time.
+      const virtualName =
+        previewSource?.kind === 'inline-html' ? previewSource.virtualName ?? 'preview.html' :
+        previewSource?.kind === 'file' ? (filePath.split('/').pop() || filePath) :
+        'artifact';
+      await exportHtmlAsLongShot({
+        html: exportableHtml,
+        filename: virtualName.replace(/\.[^.]+$/, '') || 'artifact',
+        width: 1024,
+      });
+    } catch (err) {
+      if (err instanceof ArtifactExportError) {
+        // Surface the code so users know whether it was a transient busy
+        // state or a hard limit. Full toast/i18n wiring is Phase 3
+        // polish — for now, alert() is acceptable for this short flow.
+        alert(`Export failed: ${err.code} — ${err.message}`);
+      } else {
+        alert(`Export failed: ${String(err)}`);
+      }
+    } finally {
+      setExporting(false);
+    }
+  }, [exportableHtml, filePath, previewSource]);
+
   const handleClose = () => {
     setPreviewFile(null);
     setPreviewOpen(false);
@@ -232,6 +276,27 @@ export function PreviewPanel() {
               <Copy size={14} />
             )}
             <span className="sr-only">Copy content</span>
+          </Button>
+        )}
+
+        {/* Phase 3 long-shot export — only surfaces when we have concrete
+            HTML to ship to the IPC. Markdown and Sandpack/JSX variants
+            need a serialization step (Streamdown -> HTML, or
+            Sandpack files -> esbuild -> HTML) that's Phase 3 follow-up. */}
+        {exportableHtml && (
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            onClick={handleExportLongShot}
+            disabled={exporting}
+            title="Export long screenshot"
+          >
+            {exporting ? (
+              <SpinnerGap size={14} className="animate-spin" />
+            ) : (
+              <ImageIcon size={14} />
+            )}
+            <span className="sr-only">Export long screenshot</span>
           </Button>
         )}
 

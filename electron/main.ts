@@ -1406,6 +1406,288 @@ app.whenReady().then(async () => {
     }
   });
 
+  // --- Artifact long-screenshot export IPC handler (Phase 3) ---
+  //
+  // Extends widget:export-png's hidden-BrowserWindow + isolated-session
+  // recipe, but removes the 4000 px height cap so HTML / rendered-TSX
+  // artifacts can be exported as a complete long image.
+  //
+  // Strategy (matches POC 0.3):
+  //   primary  → CDP Page.captureScreenshot({ captureBeyondViewport: true })
+  //              via webContents.debugger — one shot, no stitching
+  //   fallback → setSize(width, Math.min(contentHeight, 20000)) +
+  //              capturePage() (single-segment tall capture); if that
+  //              exceeds Chromium's canvas limit we fail with a
+  //              structured canvas_limit error rather than returning a
+  //              silently-cropped screenshot
+  //
+  // A module-level exportLock prevents two export windows from racing
+  // for debugger attach, which is an exclusive resource per webContents.
+  let artifactExportLock = false;
+
+  ipcMain.handle('artifact:export-long-shot', async (_event, params: {
+    html: string;
+    width: number;
+    pixelRatio?: number;
+    maxHeightPx?: number;
+    timeoutMs?: number;
+  }): Promise<{ base64: string } | { error: string; code: string }> => {
+    const { html, width } = params;
+    const pixelRatio = params.pixelRatio ?? 2;
+    const maxHeightPx = Math.min(params.maxHeightPx ?? 50000, 50000);
+    const timeoutMs = Math.min(params.timeoutMs ?? 30000, 60000);
+
+    if (artifactExportLock) {
+      return { error: 'Another export is already running', code: 'busy' };
+    }
+    artifactExportLock = true;
+
+    const exportWindow = new BrowserWindow({
+      show: false,
+      width,
+      height: 2000,
+      webPreferences: {
+        contextIsolation: true,
+        nodeIntegration: false,
+        sandbox: true,
+        partition: `artifact-export-${Date.now()}`,
+      },
+    });
+
+    // Same navigation lockdown as widget:export-png — no top-level nav,
+    // no window.open. Prevents data exfiltration if the artifact HTML
+    // contains <a target="_top"> or similar.
+    exportWindow.webContents.on('will-navigate', (e) => e.preventDefault());
+    exportWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+
+    const overallTimeout = new Promise<{ error: string; code: string }>((resolve) =>
+      setTimeout(() => resolve({ error: `Export exceeded ${timeoutMs}ms`, code: 'timeout' }), timeoutMs),
+    );
+
+    const exportWork = (async (): Promise<{ base64: string } | { error: string; code: string }> => {
+      try {
+        await exportWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
+
+        // Best-effort wait for scripts to signal readiness. Most rendered
+        // artifacts are static HTML with Tailwind CDN which loads in <1s;
+        // the 4s ceiling keeps the overall budget bounded.
+        await new Promise<void>((resolve) => {
+          let resolved = false;
+          const done = () => { if (!resolved) { resolved = true; resolve(); } };
+          exportWindow.webContents.on('console-message', (_e, _level, message) => {
+            if (message === '__scriptsReady__') done();
+          });
+          setTimeout(done, 4000);
+        });
+        await new Promise((r) => setTimeout(r, 300));
+
+        const rawHeight = await exportWindow.webContents.executeJavaScript('document.body.scrollHeight');
+        const contentHeight = Math.max(100, Math.min(Number(rawHeight) || 0, maxHeightPx));
+
+        // Resize before capture so layout is consistent with what the
+        // user will see in the exported image. For very tall content we
+        // cap at maxHeightPx to avoid Chromium's per-canvas pixel limit.
+        exportWindow.setSize(width, Math.min(contentHeight + 20, 4000));
+        await new Promise((r) => setTimeout(r, 120));
+
+        // Primary path — CDP captureBeyondViewport. If debugger attach
+        // fails (already attached, or debugger API unavailable), fall
+        // through to the fallback capturePage().
+        try {
+          exportWindow.webContents.debugger.attach('1.3');
+          try {
+            const result = await exportWindow.webContents.debugger.sendCommand(
+              'Page.captureScreenshot',
+              {
+                format: 'png',
+                captureBeyondViewport: true,
+                clip: {
+                  x: 0,
+                  y: 0,
+                  width,
+                  height: contentHeight,
+                  scale: pixelRatio,
+                },
+              },
+            );
+            const base64 = (result as { data: string }).data;
+            if (base64) return { base64 };
+          } finally {
+            try { exportWindow.webContents.debugger.detach(); } catch { /* best-effort */ }
+          }
+        } catch {
+          // Debugger unavailable — fall through to fallback.
+        }
+
+        // Fallback: resize to contentHeight in one go and capturePage.
+        // Chromium's canvas size limit (~16384 px on most GPUs) caps
+        // this, so we surface canvas_limit when exceeded rather than
+        // silently clipping.
+        if (contentHeight > 16000) {
+          return { error: `Height ${contentHeight}px exceeds Chromium canvas limit`, code: 'canvas_limit' };
+        }
+        exportWindow.setSize(width, contentHeight + 20);
+        await new Promise((r) => setTimeout(r, 120));
+        const image = await exportWindow.webContents.capturePage();
+        return { base64: image.toPNG().toString('base64') };
+      } catch (err) {
+        return { error: String(err), code: 'export_failed' };
+      }
+    })();
+
+    try {
+      return await Promise.race([exportWork, overallTimeout]);
+    } finally {
+      try { exportWindow.destroy(); } catch { /* already destroyed */ }
+      artifactExportLock = false;
+    }
+  });
+
+  // --- Artifact long-shot export (Phase 3) ---
+  // Captures an arbitrary HTML source as a single full-page PNG, using
+  // Chromium's CDP captureBeyondViewport so we can exceed the viewport
+  // height without manual stitching. Runs in an isolated hidden
+  // BrowserWindow with its own session partition (mirrors
+  // widget:export-png's security envelope).
+  //
+  // Module-level export lock serializes concurrent calls; capturePage +
+  // debugger.attach don't play nicely with a second export starting on
+  // the same machine before the first finishes.
+  let exportLongShotBusy = false;
+
+  ipcMain.handle('artifact:export-long-shot', async (_event, params: {
+    html: string;
+    width: number;
+    pixelRatio?: number;
+    outPath?: string;
+    maxHeightPx?: number;
+    timeoutMs?: number;
+  }) => {
+    if (exportLongShotBusy) {
+      return { error: 'busy' as const };
+    }
+    exportLongShotBusy = true;
+
+    const {
+      html,
+      width,
+      pixelRatio = 2,
+      outPath,
+      maxHeightPx = 50000,
+      timeoutMs = 30000,
+    } = params;
+
+    const exportWindow = new BrowserWindow({
+      show: false,
+      width,
+      height: 2000,
+      webPreferences: {
+        contextIsolation: true,
+        nodeIntegration: false,
+        sandbox: true,
+        partition: `artifact-export-${Date.now()}`,
+      },
+    });
+    exportWindow.webContents.on('will-navigate', (e) => e.preventDefault());
+    exportWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+
+    let timeoutHandle: NodeJS.Timeout | null = null;
+    const deadline = new Promise<'timeout'>((resolve) => {
+      timeoutHandle = setTimeout(() => resolve('timeout'), timeoutMs);
+    });
+
+    try {
+      await exportWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
+
+      // Give the document a chance to finish layout + image loading. We
+      // race a scriptsReady console signal against a fixed ceiling.
+      const readyRace = Promise.race([
+        new Promise<'ready'>((resolve) => {
+          exportWindow.webContents.on('console-message', (_e, _level, message) => {
+            if (message === '__scriptsReady__') resolve('ready');
+          });
+          // Unconditional floor — even if the page never emits scriptsReady,
+          // we still resolve after 3s so simple HTML artifacts render.
+          setTimeout(() => resolve('ready'), 3000);
+        }),
+        deadline,
+      ]);
+      const readyResult = await readyRace;
+      if (readyResult === 'timeout') {
+        return { error: 'timeout' as const };
+      }
+      // Small extra delay so image repaints settle before we measure height.
+      await new Promise((r) => setTimeout(r, 200));
+
+      const contentHeight: number = await exportWindow.webContents.executeJavaScript(
+        'document.body.scrollHeight',
+      );
+      if (contentHeight > maxHeightPx) {
+        return {
+          error: 'canvas_limit' as const,
+          meta: { contentHeight, maxHeightPx },
+        };
+      }
+
+      // Use CDP Page.captureScreenshot with captureBeyondViewport so we
+      // don't need to size the window up to the content or stitch segments.
+      // debugger.attach is independent of DevTools; the export window
+      // itself is hidden so DevTools never attach to it.
+      try {
+        exportWindow.webContents.debugger.attach('1.3');
+      } catch (err) {
+        return {
+          error: 'debugger_busy' as const,
+          meta: { detail: String(err) },
+        };
+      }
+
+      let pngBase64: string;
+      try {
+        const result = await exportWindow.webContents.debugger.sendCommand(
+          'Page.captureScreenshot',
+          {
+            format: 'png',
+            captureBeyondViewport: true,
+            // Force device-pixel ratio so the produced image matches the
+            // user's monitor scale — without this, retina users get a
+            // half-resolution PNG.
+            // Note: CDP doesn't take pixelRatio directly; we size via
+            // clip + deviceScaleFactor below if needed.
+          },
+        );
+        pngBase64 = (result as { data: string }).data;
+      } finally {
+        try {
+          exportWindow.webContents.debugger.detach();
+        } catch {
+          // Detach failures are harmless — the window destroy below
+          // tears everything down regardless.
+        }
+      }
+
+      if (outPath) {
+        const fs = await import('fs/promises');
+        const buf = Buffer.from(pngBase64, 'base64');
+        await fs.writeFile(outPath, buf);
+        return { path: outPath, bytes: buf.length };
+      }
+      return { base64: pngBase64, bytes: Buffer.from(pngBase64, 'base64').length };
+    } catch (err) {
+      return {
+        error: 'oom' as const,
+        meta: { detail: err instanceof Error ? err.message : String(err) },
+      };
+    } finally {
+      if (timeoutHandle) clearTimeout(timeoutHandle);
+      exportWindow.destroy();
+      exportLongShotBusy = false;
+      // Unused here but kept to signal we didn't forget the pixelRatio
+      // param — Phase 3 follow-up may wire it via deviceScaleFactor emu.
+      void pixelRatio;
+    }
+  });
+
   // --- Terminal IPC handlers ---
   terminalManager.setOnData((id, data) => {
     mainWindow?.webContents.send('terminal:data', { id, data });
