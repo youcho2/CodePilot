@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useEffect } from "react";
+import { useMemo, useState } from "react";
 import Papa from "papaparse";
 import { Button } from "@/components/ui/button";
 import { DownloadSimple, CaretUp, CaretDown } from "@/components/ui/icon";
@@ -17,28 +17,16 @@ import { cn } from "@/lib/utils";
  * MVP scope: sortable columns (click header), export CSV / JSON. Deferred
  * to follow-up: column filter inputs, virtualization for >10k rows,
  * xlsx-style freeze panes, row selection.
- *
- * Why no virtualization yet: 50k-row CSVs are rare in practice for this
- * product (the user opens a workspace .csv or clicks through an AI table,
- * both of which usually sit under 5k rows). When a real >10k case
- * shows up we'll add @tanstack/react-virtual.
  */
 
 export interface DataTableViewerProps {
-  /**
-   * Pre-parsed rows + header. When provided, `csv` is ignored. Used for
-   * the inline-datatable PreviewSource where the chat renderer has
-   * already pulled the table structure from a GFM table AST.
-   */
+  /** Pre-parsed rows + header. When provided, `csv` is ignored. */
   rows?: unknown[][];
   header?: string[];
-  /**
-   * Raw CSV / TSV text. When provided without `rows`, the component
-   * parses it with papaparse. Pass delimiter='\t' for TSV.
-   */
+  /** Raw CSV / TSV text. Pass delimiter='\t' for TSV. */
   csv?: string;
   delimiter?: string;
-  /** Filename for the download affordances. Extension is added. */
+  /** Filename stem used by export CSV / JSON affordances. */
   filename?: string;
 }
 
@@ -64,52 +52,44 @@ export function DataTableViewer({
 }: DataTableViewerProps) {
   const [sortKey, setSortKey] = useState<string | null>(null);
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
-  const [parseError, setParseError] = useState<string | null>(null);
-  const [parsed, setParsed] = useState<{ header: string[]; rows: Row[] }>({ header: [], rows: [] });
 
-  useEffect(() => {
-    // Structured-input path: rows + header already provided.
+  // Derived (via useMemo) — not state — so we don't hit React's
+  // "setState in effect" lint rule. Switching between rows+header and
+  // csv-text input is a prop change; useMemo recomputes reactively.
+  const { header, rows, parseError } = useMemo<{
+    header: string[];
+    rows: Row[];
+    parseError: string | null;
+  }>(() => {
     if (rowsProp && headerProp) {
-      const rows: Row[] = rowsProp.map((row) => {
+      const structured = rowsProp.map((row) => {
         const obj: Row = {};
         headerProp.forEach((col, i) => {
           obj[col] = (row as unknown[])[i];
         });
         return obj;
       });
-      setParsed({ header: headerProp, rows });
-      setParseError(null);
-      return;
+      return { header: headerProp, rows: structured, parseError: null };
     }
-    // CSV-text path.
     if (csv !== undefined) {
       const result = Papa.parse<Row>(csv, {
         header: true,
         skipEmptyLines: true,
         delimiter: delimiter ?? "",
       });
-      if (result.errors.length > 0) {
-        // papaparse still hands back rows on recoverable errors — keep
-        // them but surface the first error as a non-fatal banner.
-        setParseError(result.errors[0]?.message ?? "CSV parse error");
-      } else {
-        setParseError(null);
-      }
-      const inferredHeader =
-        (result.meta?.fields as string[] | undefined) ?? [];
-      setParsed({ header: inferredHeader, rows: result.data });
-      return;
+      const err = result.errors[0]?.message ?? null;
+      const inferredHeader = (result.meta?.fields as string[] | undefined) ?? [];
+      return { header: inferredHeader, rows: result.data, parseError: err };
     }
-    setParsed({ header: [], rows: [] });
+    return { header: [], rows: [], parseError: null };
   }, [rowsProp, headerProp, csv, delimiter]);
 
   const sortedRows = useMemo(() => {
-    if (!sortKey) return parsed.rows;
-    const copy = [...parsed.rows];
+    if (!sortKey) return rows;
+    const copy = [...rows];
     copy.sort((a, b) => {
       const av = stringifyCell(a[sortKey]);
       const bv = stringifyCell(b[sortKey]);
-      // Try numeric compare first; fall back to string.
       const an = Number(av);
       const bn = Number(bv);
       const numeric = !Number.isNaN(an) && !Number.isNaN(bn);
@@ -117,7 +97,7 @@ export function DataTableViewer({
       return sortDir === "asc" ? cmp : -cmp;
     });
     return copy;
-  }, [parsed.rows, sortKey, sortDir]);
+  }, [rows, sortKey, sortDir]);
 
   const onHeaderClick = (col: string) => {
     if (sortKey === col) {
@@ -140,16 +120,16 @@ export function DataTableViewer({
   };
 
   const exportCsv = () => {
-    const csvText = Papa.unparse({ fields: parsed.header, data: parsed.rows });
+    const csvText = Papa.unparse({ fields: header, data: rows });
     download(new Blob([csvText], { type: "text/csv;charset=utf-8" }), "csv");
   };
 
   const exportJson = () => {
-    const jsonText = JSON.stringify(parsed.rows, null, 2);
+    const jsonText = JSON.stringify(rows, null, 2);
     download(new Blob([jsonText], { type: "application/json;charset=utf-8" }), "json");
   };
 
-  if (parsed.header.length === 0 && parsed.rows.length === 0) {
+  if (header.length === 0 && rows.length === 0) {
     return (
       <div className="flex h-full items-center justify-center p-8 text-sm text-muted-foreground">
         No tabular data to display
@@ -161,7 +141,7 @@ export function DataTableViewer({
     <div className="flex h-full flex-col">
       <div className="flex shrink-0 items-center justify-between gap-2 border-b border-border/40 px-3 py-2">
         <p className="text-[11px] text-muted-foreground">
-          {parsed.rows.length} rows · {parsed.header.length} columns
+          {rows.length} rows · {header.length} columns
           {parseError && (
             <span className="ml-2 text-amber-600 dark:text-amber-400">
               · {parseError}
@@ -183,7 +163,7 @@ export function DataTableViewer({
         <table className="w-full text-xs">
           <thead className="sticky top-0 bg-background">
             <tr>
-              {parsed.header.map((col) => (
+              {header.map((col) => (
                 <th
                   key={col}
                   className="cursor-pointer select-none border-b border-border/40 px-3 py-1.5 text-left font-medium text-muted-foreground hover:bg-muted/50"
@@ -211,7 +191,7 @@ export function DataTableViewer({
                   i % 2 === 1 && "bg-muted/10",
                 )}
               >
-                {parsed.header.map((col) => (
+                {header.map((col) => (
                   <td key={col} className="truncate px-3 py-1 font-mono text-[11px]" title={stringifyCell(row[col])}>
                     {stringifyCell(row[col])}
                   </td>

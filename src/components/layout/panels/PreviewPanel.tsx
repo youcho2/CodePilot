@@ -30,6 +30,13 @@ const MarkdownEditor = dynamic(
   { ssr: false, loading: () => <div className="flex h-full items-center justify-center py-12"><SpinnerGap size={20} className="animate-spin text-muted-foreground" /></div> },
 );
 
+// DataTable viewer (Phase 5.4). Papaparse (~15 KB gzipped) gets its own
+// dynamic boundary so users who never open a .csv don't pay for it.
+const DataTableViewer = dynamic(
+  () => import("@/components/editor/DataTableViewer").then((m) => m.DataTableViewer),
+  { ssr: false, loading: () => <div className="flex h-full items-center justify-center py-12"><SpinnerGap size={20} className="animate-spin text-muted-foreground" /></div> },
+);
+
 // DataTable viewer (Phase 5.4 surface). Papaparse pulls in ~15 KB gzipped
 // so the dynamic boundary is cheap insurance against shipping it in
 // first paint for users who never view a .csv.
@@ -77,10 +84,13 @@ function loadStreamdown(): Promise<void> {
 type ViewMode = "source" | "rendered" | "edit";
 
 /** Extensions that support a rendered preview */
-const RENDERABLE_EXTENSIONS = new Set([".md", ".mdx", ".html", ".htm", ".jsx", ".tsx"]);
+const RENDERABLE_EXTENSIONS = new Set([".md", ".mdx", ".html", ".htm", ".jsx", ".tsx", ".csv", ".tsv"]);
 
 /** Extensions rendered through Sandpack (React-in-iframe) */
 const SANDPACK_EXTENSIONS = new Set([".jsx", ".tsx"]);
+
+/** Extensions rendered through the DataTable viewer (Phase 5.4). */
+const DATATABLE_EXTENSIONS = new Set([".csv", ".tsv"]);
 
 /**
  * Extensions that can be edited via the CodeMirror MarkdownEditor surface.
@@ -96,6 +106,10 @@ const EDITABLE_EXTENSIONS = new Set([".md", ".mdx", ".txt"]);
 
 function isSandpack(filePath: string): boolean {
   return SANDPACK_EXTENSIONS.has(getExtension(filePath));
+}
+
+function isDataTable(filePath: string): boolean {
+  return DATATABLE_EXTENSIONS.has(getExtension(filePath));
 }
 
 function isEditable(filePath: string): boolean {
@@ -787,6 +801,14 @@ function RenderedView({
   // from scratch instead of serving the previously-compiled one.
   if (isSandpack(filePath)) {
     return <SandpackPreview key={filePath} filePath={filePath} content={content} />;
+  }
+
+  // .csv / .tsv → DataTable viewer (Phase 5.4). Delimiter picked from
+  // the extension so tab-separated files get the right split behavior.
+  if (isDataTable(filePath)) {
+    const delimiter = getExtension(filePath) === ".tsv" ? "\t" : ",";
+    const basename = filePath.split("/").pop() || filePath;
+    return <DataTableViewer key={filePath} csv={content} delimiter={delimiter} filename={basename} />;
   }
 
   // .csv / .tsv → DataTable viewer (Phase 5.4-B). papaparse inside the
