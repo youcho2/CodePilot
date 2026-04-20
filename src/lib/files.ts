@@ -2,6 +2,7 @@ import fs from 'fs/promises';
 import { createReadStream } from 'fs';
 import { createInterface } from 'readline';
 import path from 'path';
+import os from 'os';
 import type { FileTreeNode, FilePreview } from '@/types';
 
 const IGNORED_DIRS = new Set([
@@ -228,6 +229,172 @@ export class FilePreviewError extends Error {
   constructor(public code: 'not_found' | 'not_a_file' | 'file_too_large' | 'binary_not_previewable' | 'read_failed', message: string, public meta?: Record<string, unknown>) {
     super(message);
     this.name = 'FilePreviewError';
+  }
+}
+
+// ---------------------------------------------------------------------------
+// File I/O helpers shared by write / mkdir / rename / delete API routes.
+// Kept here so every write path enforces the same path-safety contract —
+// callers cannot accidentally create an "almost the same" validator that
+// misses a bypass.
+// ---------------------------------------------------------------------------
+
+/**
+ * Directory/file names that must never be written, renamed, moved to, or
+ * deleted through the file I/O API. The check runs against every path
+ * segment so e.g. `foo/.git/bar` is also rejected, not just top-level .git.
+ *
+ * `.env*` is matched by prefix in `isBlockedPath`; everything else is an
+ * exact basename match.
+ */
+const BLOCKED_SEGMENTS = new Set([
+  '.git',
+  'node_modules',
+  '.next',
+  'dist',
+  'build',
+  '.turbo',
+  '.cache',
+  // macOS system dirs
+  'Library',
+  'System',
+  // Windows reserved dirs
+  'Windows',
+  'Program Files',
+  'Program Files (x86)',
+  'System32',
+]);
+
+/** Filenames Windows refuses (reserved device names, case-insensitive). */
+const WINDOWS_RESERVED = new Set([
+  'CON', 'PRN', 'AUX', 'NUL',
+  'COM1', 'COM2', 'COM3', 'COM4', 'COM5', 'COM6', 'COM7', 'COM8', 'COM9',
+  'LPT1', 'LPT2', 'LPT3', 'LPT4', 'LPT5', 'LPT6', 'LPT7', 'LPT8', 'LPT9',
+]);
+
+export type FileIOErrorCode =
+  | 'path_unsafe'
+  | 'root_path'
+  | 'symlink_detected'
+  | 'blocked_directory'
+  | 'already_exists'
+  | 'not_found'
+  | 'parent_not_exists'
+  | 'not_a_file'
+  | 'not_a_directory'
+  | 'dir_not_empty'
+  | 'cross_base_dir'
+  | 'trash_unavailable'
+  | 'invalid_filename'
+  | 'write_failed';
+
+/**
+ * Structured errors thrown by the file I/O API helpers (write / mkdir /
+ * rename / delete). The API routes map `.code` to appropriate HTTP status
+ * codes (400 / 403 / 404 / 409 / 500) and surface the i18n-keyed messages
+ * to the client.
+ */
+export class FileIOError extends Error {
+  constructor(
+    public code: FileIOErrorCode,
+    message: string,
+    public meta?: Record<string, unknown>,
+  ) {
+    super(message);
+    this.name = 'FileIOError';
+  }
+}
+
+/**
+ * Returns true if any segment of the resolved path matches our blocked
+ * directory set (exact match) OR starts with `.env` (covers .env, .env.local,
+ * .env.production etc.). The check intentionally runs on the *resolved*
+ * path so `./../.git` is caught after normalization.
+ */
+export function isBlockedPath(resolvedPath: string): boolean {
+  const segments = resolvedPath.split(path.sep).filter(Boolean);
+  return segments.some(
+    (seg) => BLOCKED_SEGMENTS.has(seg) || seg.startsWith('.env'),
+  );
+}
+
+/**
+ * Reject filenames the OS or UX layer cannot handle safely: empty string,
+ * Windows reserved device names, names containing NUL, or paths with
+ * embedded directory separators (callers must pass names, not paths).
+ *
+ * This is stricter than strictly necessary on macOS/Linux but keeps the
+ * cross-platform contract uniform.
+ */
+export function isValidFilename(name: string): boolean {
+  if (!name || name.length === 0) return false;
+  if (name.includes('\0')) return false;
+  if (name.includes('/') || name.includes('\\')) return false;
+  const withoutExt = name.split('.')[0].toUpperCase();
+  if (WINDOWS_RESERVED.has(withoutExt)) return false;
+  return true;
+}
+
+/**
+ * Assert that a resolved target path is safe to write/modify relative to
+ * an optional baseDir. Throws FileIOError with a specific code the API
+ * route can map to the right HTTP status — never returns a generic
+ * "path unsafe" without detail, so the UI can show actionable messages.
+ *
+ * Throws for: root paths (`/`, `C:\`), blocked directories (.git, node_modules,
+ * .env*, system dirs), paths that resolve outside `baseDir` (defaulting to
+ * the user's home directory when `baseDir` is absent).
+ */
+export function assertWritablePath(resolvedPath: string, baseDir?: string): void {
+  if (isRootPath(resolvedPath)) {
+    throw new FileIOError('root_path', `Refusing to operate on filesystem root: ${resolvedPath}`);
+  }
+  if (isBlockedPath(resolvedPath)) {
+    throw new FileIOError(
+      'blocked_directory',
+      `Path is inside a protected directory: ${resolvedPath}`,
+    );
+  }
+  const base = baseDir ? path.resolve(baseDir) : os.homedir();
+  if (!isPathSafe(base, resolvedPath)) {
+    throw new FileIOError(
+      'path_unsafe',
+      `Path escapes base directory: ${resolvedPath} (base ${base})`,
+    );
+  }
+}
+
+/**
+ * Walk the path chain and throw if any segment is a symlink. This prevents
+ * attackers from tricking the API into writing through a symlink pointing
+ * outside `baseDir` (TOCTOU-resistant to a reasonable degree — a racing
+ * attacker could still swap a segment after check, but covers the common case).
+ *
+ * Caller is responsible for resolving path before calling.
+ */
+export async function assertNoSymlinkInChain(resolvedPath: string): Promise<void> {
+  let cursor = resolvedPath;
+  while (cursor && cursor !== path.parse(cursor).root) {
+    try {
+      const stat = await fs.lstat(/*turbopackIgnore: true*/ cursor);
+      if (stat.isSymbolicLink()) {
+        throw new FileIOError(
+          'symlink_detected',
+          `Path contains a symlink: ${cursor}`,
+        );
+      }
+    } catch (err) {
+      if (err instanceof FileIOError) throw err;
+      // ENOENT for not-yet-created paths is fine — the final write will
+      // create it, and its parent has already been walked.
+      const code = (err as NodeJS.ErrnoException)?.code;
+      if (code !== 'ENOENT') {
+        throw new FileIOError('write_failed', `Failed to lstat ${cursor}: ${String(err)}`);
+      }
+    }
+    const parent = path.dirname(cursor);
+    if (parent === cursor) break;
+    cursor = parent;
   }
 }
 
