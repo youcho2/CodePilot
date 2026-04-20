@@ -72,11 +72,27 @@ export async function POST(request: NextRequest) {
     await assertNoSymlinkInChain(path.dirname(resolvedPath));
 
     // Existence check. fs.access returns without throwing iff the file exists.
+    // Use fs.lstat (not access + stat) so we can detect a symlink without
+    // dereferencing it — critical for the overwrite case: a symlink
+    // link.md → /tmp/outside would otherwise make fs.writeFile follow the
+    // link and write outside baseDir despite the parent-chain symlink
+    // check passing. (Codex P1.)
     let exists = false;
     try {
-      await fs.access(resolvedPath);
+      const targetStat = await fs.lstat(resolvedPath);
       exists = true;
-    } catch {
+      if (targetStat.isSymbolicLink()) {
+        throw new FileIOError(
+          'symlink_detected',
+          `Refusing to write through a symlink: ${filePath}`,
+        );
+      }
+    } catch (err) {
+      if (err instanceof FileIOError) throw err;
+      const code = (err as NodeJS.ErrnoException)?.code;
+      if (code !== 'ENOENT') {
+        throw new FileIOError('write_failed', `Failed to lstat target: ${String(err)}`);
+      }
       exists = false;
     }
     if (exists && !overwrite) {

@@ -52,12 +52,18 @@ export interface DiffSummaryProps {
 const PREVIEWABLE = new Set(['.md', '.mdx', '.html', '.htm', '.jsx', '.tsx']);
 
 /**
- * Extensions that additionally support long-screenshot export. Phase 3
- * will gate the button on these; for now the button only renders when
- * the caller passes onExportLongShot (which MessageItem currently does
- * not — Phase 3 flips that).
+ * Extensions where "Export long shot" is a meaningful action *today*.
+ *
+ * Only HTML is here because the current export pipeline sends the raw
+ * file contents to the hidden-BrowserWindow → PNG path. For .jsx/.tsx,
+ * the raw content is source code, not a rendered page — letting that
+ * through would hand users a PNG of their TSX source instead of the
+ * Sandpack preview they're looking at. (Codex P2.)
+ *
+ * Re-adds .jsx/.tsx once a Sandpack-to-HTML or iframe-capture path
+ * (POC 0.3 §X-jsx-1 / X-jsx-2) ships in a later phase.
  */
-const LONGSHOT = new Set(['.html', '.htm', '.jsx', '.tsx']);
+const LONGSHOT = new Set(['.html', '.htm']);
 
 function getExt(name: string): string {
   const i = name.lastIndexOf('.');

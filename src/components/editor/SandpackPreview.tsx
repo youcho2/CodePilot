@@ -77,15 +77,21 @@ export interface SandpackPreviewProps {
 }
 
 /**
- * Normalize an arbitrary source path to Sandpack's virtual filesystem.
- * Sandpack requires the entry file to have a known JSX/TSX extension so its
- * template configuration picks the right transform.
+ * Small string hash for provider-key disambiguation. djb2 variant — fast,
+ * good enough for "are these two payloads the same" in a React key, not
+ * intended for any security purpose.
  */
-function inferMountPath(filePath?: string): string {
-  if (!filePath) return "/App.tsx";
-  const base = filePath.split("/").pop() ?? "App.tsx";
-  return base.endsWith(".tsx") || base.endsWith(".jsx") ? `/${base}` : "/App.tsx";
+function hashString(str: string): string {
+  let hash = 5381;
+  for (let i = 0; i < str.length; i++) {
+    hash = ((hash << 5) + hash) + str.charCodeAt(i);
+    hash = hash & 0xffffffff;
+  }
+  return Math.abs(hash).toString(36);
 }
+
+/** Sandpack's react-ts template hard-codes /index.tsx → `import App from './App'`. */
+const MOUNT_PATH = "/App.tsx";
 
 export function SandpackPreview({ filePath, content, bundlerURL }: SandpackPreviewProps) {
   // Per-mount random token. Because PreviewPanel passes key={filePath} at
@@ -95,31 +101,32 @@ export function SandpackPreview({ filePath, content, bundlerURL }: SandpackPrevi
   // defeats any internal Sandpack / bundler / service-worker cache keyed
   // on "previously seen this provider" — the Provider looks unique on
   // every file swap, so cached compilation results can't cross over.
-  //
-  // Why not also base it on content? Because when the same file is
-  // re-opened, filePath unchanged → this component doesn't remount →
-  // token stays stable → no redundant recompile on identical content.
-  // Only the path change triggers a fresh token.
   const [mountToken] = useState(() => Math.random().toString(36).slice(2));
 
   const { files, setup, activeFile, providerKey } = useMemo(() => {
-    const mount = inferMountPath(filePath);
+    // Codex P1: the user's source ALWAYS goes to /App.tsx, not to a
+    // basename-derived path. Sandpack's react-ts template is wired so
+    // /index.tsx (template default) imports from './App', which resolves
+    // to /App.tsx. If we write user code to /Counter.tsx and set
+    // activeFile=/Counter.tsx, activeFile only moves the editor cursor —
+    // the runtime still renders whatever lives at /App.tsx, which for
+    // non-first-file cases was the template's default stub.
+    //
+    // File switch identity lives in providerKey now: (realFilePath +
+    // content hash + mountToken). The real path is preserved in the
+    // key / data-filename so callers can still see which file they're
+    // looking at, without letting the path leak into the runtime entry.
     const files: SandpackFiles = {
-      [mount]: {
+      [MOUNT_PATH]: {
         code: content ?? "export default () => null;\n",
         active: true,
       },
     };
     const setup: SandpackSetup = { dependencies: ALLOWED_DEPS };
-    // Namespace the provider key (not the mount path — that broke
-    // Sandpack's react-ts template entry resolution) with mountToken,
-    // which useState seeds once per SandpackPreview mount. Every file
-    // switch remounts the component (key={filePath} at call site) so
-    // the token changes, producing a brand-new providerKey Sandpack's
-    // bundler has never seen — keeps the cache-bust without mangling
-    // the virtual filesystem.
-    const providerKey = `${mount}::${mountToken}::${content?.length ?? 0}`;
-    return { files, setup, activeFile: mount, providerKey };
+    const pathKey = filePath ?? "inline";
+    const contentHash = hashString(content ?? "");
+    const providerKey = `${pathKey}::${mountToken}::${contentHash}`;
+    return { files, setup, activeFile: MOUNT_PATH, providerKey };
   }, [filePath, content, mountToken]);
 
   return (

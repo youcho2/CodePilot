@@ -680,15 +680,33 @@ export const MessageItem = memo(function MessageItem({ message, sessionId, isAss
         // This is a heuristic — some tools (e.g. write) do upsert — but the
         // label is surfaced to the user only as a hint, not a correctness claim.
         const CREATE_TOOLS = new Set(['write', 'writefile', 'write_file', 'create_file', 'createfile']);
+
+        // Assistant tools can emit either absolute paths ("/home/.../foo.md")
+        // or workspace-relative ones ("src/foo.md"). We treat the latter as
+        // relative to workingDirectory so the preview API's path-safety check
+        // and /api/files/write's baseDir enforcement both resolve to the
+        // right file. Windows drive paths (C:\...) are absolute too.
+        // (Codex P2.)
+        const isAbsolute = (p: string): boolean =>
+          p.startsWith('/') || /^[A-Za-z]:[/\\]/.test(p);
+        const resolveToolPath = (p: string): string => {
+          if (!p) return p;
+          if (isAbsolute(p)) return p;
+          if (!workingDirectory) return p;
+          const sep = workingDirectory.includes('\\') ? '\\' : '/';
+          return `${workingDirectory}${sep}${p}`;
+        };
+
         const modifiedFiles = pairedTools
           .filter(t => WRITE_TOOLS.has(t.name.toLowerCase()) && !t.isError)
           .map(t => {
             const inp = t.input as Record<string, unknown> | undefined;
-            const filePath = (inp?.file_path || inp?.path || inp?.filePath || '') as string;
-            const parts = filePath.split('/');
+            const rawPath = (inp?.file_path || inp?.path || inp?.filePath || '') as string;
+            const resolvedPath = resolveToolPath(rawPath);
+            const parts = resolvedPath.split(/[/\\]/);
             const toolName = t.name.toLowerCase();
             const operation: 'created' | 'modified' = CREATE_TOOLS.has(toolName) ? 'created' : 'modified';
-            return { path: filePath, name: parts[parts.length - 1] || filePath, operation };
+            return { path: resolvedPath, name: parts[parts.length - 1] || resolvedPath, operation };
           })
           .filter(f => f.path);
         if (modifiedFiles.length === 0) return null;
