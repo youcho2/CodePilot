@@ -19,7 +19,7 @@
 
 | Phase | 内容 | 状态 | 价值形态 | 备注 |
 |-------|------|------|---------|------|
-| Phase 0 | 前置 POC + 实测（8 项 POC，覆盖所有未确定技术路径与产品决策） | 📋 待开始 | C 基建 | 决定 Phase 1-5 的具体路径 |
+| Phase 0 | 前置 POC + 实测（9 项 POC，覆盖所有未确定技术路径与产品决策） | 🔄 进行中 | C 基建 | 4/9 已完成（0.2 / 0.6 / 0.7 / 0.8 静态 POC）；剩 0.1 / 0.3 / 0.4 / 0.5 / 0.9 |
 | Phase 1 | 文件树 Markdown 预览放开截断 + 性能验证 + API 合同闭合 | 📋 待开始 | A 可见 | 核心诉求 2 |
 | Phase 1.5 | PreviewPanel 数据模型迁移（`{filePath? \| inlineContent? + kind}` 双通道） | 📋 待开始 | C 基建 | Phase 2/5.4 共同依赖 |
 | Phase 2 | Artifact 网页预览扩展（工具结果落点 + 卡片 UI + PreviewPanel 扩展 .jsx/.tsx） | 📋 待开始 | A 可见 | 核心诉求 1 |
@@ -67,6 +67,11 @@
   - **离线 bundler fallback 写成了不存在的 npm 包**：npm registry 无 `@codesandbox/sandpack-bundler` 包，不能 `npm i`。正解 = 克隆 GitHub 仓库 `codesandbox/sandpack-bundler` → `yarn dev` 或 `yarn build && yarn start` 启服务 → `options.bundlerURL` 指本地服务。4 处相关描述已全部修正（Phase 0.5 POC 要点 + Phase 2.1 Bundler 配置 + Phase 2.5 若 CSP 不可控切换本地 bundler + 风险表）
   - **rename/delete API 无安全合同**：原 Phase 4.1 只规定了 write，rename/delete 仅出现在右键菜单描述里。现扩展为 4.1.a-d 四个 API 同等规范，rename 额外有 `cross_base_dir` / 两端 path safety / 类型校验，**delete 改用 Electron `shell.trashItem` 走系统回收站**（不 `fs.unlink`/`rm`）+ 回收站不可用时返回 `trash_unavailable` 拒绝降级真删 + 文件夹 delete 必须 `recursive=true` + UI 文案"可在回收站恢复"（不是"不可恢复"）。相应 i18n 键更新（`deleteConfirmFile` / `deleteConfirmDir` / `deleteTrashUnavailable`）+ 验收标准新增 4 条
   - Phase 2.8 验收文案"2.5 的 5 个安全攻击样本…若 2.1 选 (a)"已拆为两条：主路径验收 Sandpack 的 4 个 iframe 样本、snippet-only 回退路径验收 `react-jsx-parser` 的 5 个样本
+- 2026-04-19 [Phase 0 静态 POC 四项完成] 0.2 / 0.6 / 0.7 / 0.8 产出独立文档在 `docs/research/phase-0-pocs/`，结论汇总：
+  - **0.2 Streamdown LRU 核对 → 未复用**。`code-block.tsx:164-170` 的 LRU 仅被同文件 `highlightCode()` / `CodeBlockContent` 消费，跨仓库 grep 无 import，在聊天路径上是死代码。聊天路径走 `@streamdown/code`，其 `node_modules/@streamdown/code/dist/index.js` 自建**无上限**模块级 Map 并独立 `shiki.createHighlighter`。Phase 5.5 改造方向：用 `code-block.tsx` 的 `highlightCode()` 实现自定义 `CodeHighlighterPlugin`（接口在 `@streamdown/code/dist/index.d.ts:18-39`）替换 `createCodePlugin()`；需 shim `TokenizedCode → TokensResult` 补 `themeName`/`rootStyle`
+  - **0.6 DiffSummary 改造接口 → 抽组件**。耦合度为零：仅用 `files` prop + 本地 `useState(open)`，不读 MessageItem closure。Props `{ files, onPreview?, onExportLongShot? }` 缺省不渲染按钮。扩展名规则：`.md/.mdx` 仅预览；`.html/.htm/.jsx/.tsx` 预览+导出；其他扩展名无按钮。改造 4 处：新建 `src/components/chat/DiffSummary.tsx` / 删 `MessageItem.tsx:531-572` / 改 `:727` 调用点 + `:13` import / 按需清理 `NotePencil` 导入（`CaretRight` 保留）。与 ToolActionsGroup 独立互补，不改 `TOOL_REGISTRY`
+  - **0.7 PreviewSource 迁移 → 5 文件触点 + 12 风险点**。`usePanel.ts:47-48` / `AppShell.tsx:355-452`（唯一 state 所有者）/ `PanelZone.tsx:13,15,22`（**R1 最高风险：gate 漏改导致 inline-\* 挂不上**）/ `PreviewPanel.tsx:90,103,152` / `FileTreePanel.tsx:18,48-55`（adapter 透明兼容零改动）。adapter 策略可行：主 state = `previewSource`，`previewFile` 变派生（`previewSource?.kind === 'file' ? previewSource.filePath : null`）。smoke test 覆盖 `inline-html` + `inline-datatable` 专压 R1
+  - **0.8 Streamdown 接 remark → 走 `remarkPlugins` prop 不走 `plugins` 对象链**。Streamdown `Options` 同时暴露 `remarkPlugins?: PluggableList`（标准 unified）和 `plugins?: PluginConfig`（自定义四槽 code/mermaid/math/cjk）。Phase 5.2 `remarkCollapsibleSections` 走 `remarkPlugins`。顺序固定：`plugins.cjk.remarkPluginsBefore` 在前，`...After` 和 `math.remarkPlugin` 在后。`mode="streaming"` 下按 block 切片，折叠插件需对 heading-only / 空 section 单 block 鲁棒。无需降级方案
 
 ---
 
@@ -329,7 +334,17 @@
 
 **用户痛点：** 无直接用户价值，但 Phase 2（.jsx/.tsx 预览）/ Phase 5.4（表格 Artifact）都需要 `PreviewPanel` 能接受 inline 内容。如果不独立做这件事，两个 Phase 会各自拼一套机制，产生契约分裂。
 
-**依赖：** Phase 0.7 POC 结论
+**依赖：** Phase 0.7 POC 结论 — **已完成**，全仓触点锁定 5 文件 + 12 个风险点；完整清单见 [`docs/research/phase-0-pocs/0.7-preview-source-migration.md`](../../research/phase-0-pocs/0.7-preview-source-migration.md)。
+
+**5 文件触点（按改造优先级）：**
+
+1. `src/hooks/usePanel.ts:47-48` — 类型定义（新增 `PreviewSource` 联合 + adapter 字段）
+2. `src/components/layout/AppShell.tsx:355-452` — 唯一 state 所有者，`useState`+`useCallback`+`useMemo`+路由清理 effect 全部迁移
+3. `src/components/layout/PanelZone.tsx:13,15,22` — **R1 最高风险**：gate 条件 + 挂载条件必须同步改为 `!!previewSource`，否则 inline-\* 面板永远挂不上
+4. `src/components/layout/panels/PreviewPanel.tsx:90,103,105-142,151-154,156,158-163,165-175,186-238` — 主消费端按 `previewSource.kind` switch 分派渲染；`useEffect(loadPreview)` 加 `kind === 'file'` guard
+5. `src/components/layout/panels/FileTreePanel.tsx:18,48-55` — **通过 adapter 透明兼容，零改动**
+
+**12 风险点（R1-R12）：** R1 gate 漏改 / R2 扩展名判断对 inline-\* 无意义 / R3 `loadPreview` guard / R4 `ViewModeToggle` 对 inline-\* 语义 / R5 FileTreePanel adapter 互动 / R6 路由切换清理 / R7 `useMemo` 依赖 / R8 不持久化 / R9 `setPreviewSource(null)` 与 `setPreviewFile(null)+setPreviewOpen(false)` 等价 / R10 adapter 单向 / R11 实施前重跑 grep / R12 smoke test 覆盖 `inline-html` + `inline-datatable` 专压 R1
 
 ### 1.5.1 `PreviewSource` 类型引入
 
@@ -430,26 +445,63 @@ if (!anyOpen) return null;                                                // L17
 - `RenderedView` 内追加分支：扩展名为 `.jsx` / `.tsx` 时，用 `<SandpackPreview>` 渲染（若 2.1 回退到 snippet-only，则用 `<JSXPreview>`）
 - `.jsx` / `.tsx` 文件走 file 分支（读取文件内容）；未来若有 inline .tsx snippet（AI 直接内联生成而非写入文件）通过 Phase 1.5 的 `inline-jsx` 通道
 
-### 2.3 工具结果落点：升级 DiffSummary（Q2 已选定）
+### 2.3 工具结果落点：升级 DiffSummary（Q2 已选定 / 0.6 POC 已落定）
 
-**前置：** Phase 0.6 POC 产出的 DiffSummary 改造接口 + 按钮可见性规则。
+**Phase 0.6 POC 结论：抽独立组件，改造 4 处，耦合度为零。**
 
-- 定位 `src/components/chat/MessageItem.tsx:712-728` 的 DiffSummary 渲染块
-- 按 Phase 0.6 POC 的新 props 契约改造 `DiffSummary` 组件：
-  ```tsx
-  <DiffSummary
-    files={modifiedFiles}
-    onPreview={(file) => setPreviewSource({ kind: 'file', filePath: file.path })}
-    onExportLongShot={(file) => /* Phase 3 */}
-  />
-  ```
-- `DiffSummary` 内部每行按扩展名判断（来自 0.6 POC 的可见性规则表）：
-  - `.md` / `.mdx` / `.html` / `.htm` / `.jsx` / `.tsx` → 行内显示"预览"按钮（文字或图标）
-  - `.html` / `.htm` / `.jsx` / `.tsx` → 追加"导出长图"按钮（依赖 Phase 3 完成后生效）
-  - 其他扩展（`.ts` / `.yaml` / `.json` / `.py` / ...）→ 保留原 diff 摘要样式，不加按钮
+**改造步骤（共 4 处）：**
+
+1. **新建** `src/components/chat/DiffSummary.tsx`：
+   - 迁移 `MessageItem.tsx:535-572` 实现
+   - 在每个 `files.map` 行（原 `:560-565`）右侧追加按钮槽（条件渲染）
+   - 导出 `DiffSummary` 组件 + `DiffFile` / `DiffSummaryProps` 类型
+2. **删除** `src/components/chat/MessageItem.tsx:531-572` 原内联定义
+3. **修改** `src/components/chat/MessageItem.tsx:727` 调用点 + `:13` 附近新增 `import { DiffSummary } from './DiffSummary'`
+4. **按需清理** `MessageItem.tsx:15` 中未再使用的 `NotePencil` 导入（`CaretRight` 仍被 `:696-701` 用户消息展开复用，保留）
+
+**Props 契约：**
+
+```ts
+export type DiffFile = { path: string; name: string };
+
+export interface DiffSummaryProps {
+  files: DiffFile[];
+  /** 点击"预览"，宿主负责打开 artifact 面板 */
+  onPreview?: (file: DiffFile) => void;
+  /** 点击"导出长图"，宿主负责渲染 + 下载 */
+  onExportLongShot?: (file: DiffFile) => void;
+}
+```
+
+**按扩展名的按钮可见性规则（组件内私有辅助）：**
+
+```ts
+function getExt(name: string): string {
+  const i = name.lastIndexOf('.');
+  return i >= 0 ? name.slice(i).toLowerCase() : '';
+}
+const PREVIEWABLE = new Set(['.md', '.mdx', '.html', '.htm', '.jsx', '.tsx']);
+const LONGSHOT    = new Set(['.html', '.htm', '.jsx', '.tsx']);
+```
+
+- `onPreview && PREVIEWABLE.has(ext)` → 显示"预览"
+- `onExportLongShot && LONGSHOT.has(ext)` → 显示"导出长图"
+- 回调未传时**一律不渲染按钮**（保证宿主未接线时零视觉变化，便于分阶段上线）
+
+**调用点（`MessageItem.tsx:727`）：**
+
+```tsx
+<DiffSummary
+  files={unique}
+  onPreview={(file) => setPreviewSource({ kind: 'file', filePath: file.path })}
+  onExportLongShot={(file) => /* Phase 3 导出 IPC */}
+/>
+```
+
+**其他约束：**
 - 行本体可点击（整行 click 区域 = "预览"），与按钮等价
-- **禁止自动拉起**：DiffSummary 出现时不调用 `setPreviewSource`，由用户点击触发
-- **回退：** 若 Phase 0.6 POC 发现改造点 > 20 处或接口冲突严重 → 保留原 DiffSummary + 新增 lightweight Artifact 行（视觉明显区分，如缩进 / 不同背景色），明确两者分工；更新决策日志
+- **禁止自动拉起**：DiffSummary 挂载时不调用 `setPreviewSource`，仅由用户点击触发
+- 与 `ToolActionsGroup`（`tool-actions-group.tsx:500-628`）**独立互补**：后者是动作时间线，DiffSummary 是本轮产出物汇总；按钮**只**落 DiffSummary，不改 `TOOL_REGISTRY`
 
 ### 2.4 Artifact 行 UI（在 DiffSummary 行内实现）
 
@@ -829,16 +881,16 @@ Response: { path, trashed: true } | { error: 'path_unsafe' | 'not_found' | 'dir_
 
 **用户痛点：** 聊天里的长 AI 报告没法折叠，每次都要滚动
 
-- 若 Phase 0.8 POC 证明 Streamdown 能接 remark 插件：
-  - 自建 `remarkCollapsibleSections` 插件，按 heading 层级包 `<details>` 语义
-  - 挂到 `_streamdownPlugins`（`PreviewPanel.tsx:30-35` 的 plugin 对象）
-- 若不能接：
-  - 降级方案：仅在 PreviewPanel 打开 .md 文件时用 react-markdown 渲染 + 折叠；聊天消息不支持
-  - 或：在 Streamdown 渲染后用 DOM post-processor（MutationObserver）注入折叠 UI
-- 应用范围：聊天消息（若 0.8 允许）+ PreviewPanel `RenderedView`（确定支持）
-- **成本：** 1 人天（若 0.8 允许）/ 2 人天（若走降级）
+**Phase 0.8 POC 已确认 → 走 `remarkPlugins` prop（不走 `plugins` 对象链）。**
+
+- 自建 `remarkCollapsibleSections` 插件，按 heading 层级包 `<details>` 语义（标准 `function (): Transformer { return (tree) => ... }`）
+- 挂到 **`<Streamdown remarkPlugins={[remarkCollapsibleSections]} plugins={_streamdownPlugins} ... />`** —— 不要塞进 `plugins` 对象，那里只认 `code/mermaid/math/cjk` 四个具名槽
+- 顺序约束（固定不可调）：`plugins.cjk.remarkPluginsBefore` 排在 `props.remarkPlugins` **之前**，`...After` 和 `math.remarkPlugin` 排在之后；折叠插件放 `remarkPlugins` 末尾即可
+- `mode="streaming"` 下 Streamdown 按 block 切片，插件**必须**对 heading-only / 空 section 单 block 鲁棒（否则流式追加中途会崩）
+- 应用范围：聊天消息（`src/components/ai-elements/message.tsx` 的 `MessageResponse`）+ PreviewPanel `RenderedView`
+- **成本：** 1 人天
 - **i18n：** `markdown.collapseSection` / `markdown.expandSection`
-- **验收：** AI 回复含 5 个 `##` 的长报告，每个 `##` 旁有折叠三角，点击生效；嵌套 `###` 也能分层折叠
+- **验收：** AI 回复含 5 个 `##` 的长报告，每个 `##` 旁有折叠三角，点击生效；嵌套 `###` 也能分层折叠；流式追加期间不崩
 
 ### 5.3 Safe HTML Proxy（已按用户决策移除）
 
@@ -880,9 +932,22 @@ Response: { path, trashed: true } | { error: 'path_unsafe' | 'not_found' | 'dir_
 - 导出 CSV 用 Excel 打开内容正确
 - 小表格（5 × 10）不出按钮，保持内联渲染
 
-### 5.5 Streamdown 代码块 LRU 核对 — C 基建
+### 5.5 Streamdown 代码块 LRU 对齐 — B 静默
 
-依赖 Phase 0.2 结论。若未复用：30 分钟改造；若已复用：本项移除。
+**Phase 0.2 POC 已确认 → 未复用**（`code-block.tsx:164-170` 的 LRU 仅被同文件 `highlightCode()` 消费，跨仓库 grep 无 import；聊天路径走 `@streamdown/code`，后者在 `node_modules/@streamdown/code/dist/index.js` 自建**无上限**模块级 Map 并独立 `shiki.createHighlighter`）。
+
+**改造动作：**
+- 在 `src/components/ai-elements/message.tsx` 中封装自定义 `CodeHighlighterPlugin`（接口在 `@streamdown/code/dist/index.d.ts:18-39`），取代 `createCodePlugin()` 的默认实例
+- `highlight()` 内部转发到 `code-block.tsx` 的 `highlightCode()`，复用既有 `highlighterCache`(10) + `tokensCache`(200)
+- Shim `TokenizedCode → TokensResult`：补 `themeName`（用当前 lightTheme name）、构造 `rootStyle`（`` `background: ${bg}; color: ${fg};` ``）
+- `PreviewPanel.tsx:25,32` 的 `_streamdownPlugins.code` 同步替换为新实例
+
+**验收：**
+- DevTools Memory 快照：Shiki highlighter 实例数在语言 ≤10 时稳定为 1 份/(lang,theme) 组合
+- 长会话（100+ 条含代码块消息）下聊天路径的内存占用线性增长被抑制
+- 现有 `code-block.tsx` 的直接调用场景（如 UI 折叠/复制按钮）保持不变
+
+**成本：** 1-2 人时。
 
 ---
 
