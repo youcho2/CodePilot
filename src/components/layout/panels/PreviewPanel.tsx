@@ -820,16 +820,8 @@ function RenderedView({
   }
 
   // .csv / .tsv → DataTable viewer (Phase 5.4). Delimiter picked from
-  // the extension so tab-separated files get the right split behavior.
-  if (isDataTable(filePath)) {
-    const delimiter = getExtension(filePath) === ".tsv" ? "\t" : ",";
-    const basename = filePath.split("/").pop() || filePath;
-    return <DataTableViewer key={filePath} csv={content} delimiter={delimiter} filename={basename} />;
-  }
-
-  // .csv / .tsv → DataTable viewer (Phase 5.4-B). papaparse inside the
-  // viewer handles column detection + delimiter sniffing; we just pass
-  // the raw text and pick the delimiter from the extension.
+  // the extension so tab-separated files get the right split behavior;
+  // papaparse inside the viewer handles column detection.
   if (isDataTable(filePath)) {
     const delimiter = getExtension(filePath) === ".tsv" ? "\t" : ",";
     const basename = filePath.split("/").pop() || filePath;
