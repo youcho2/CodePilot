@@ -266,6 +266,23 @@ const zh: Record<TranslationKey, string> = {
   'filePreview.linesApprox': '约 {count} 行',
   'filePreview.copyPath': '复制路径',
   'filePreview.failedToLoad': '加载文件失败',
+  'filePreview.truncated': '已显示前 {lines} 行（{bytesReadMb} MB / 共 {bytesTotalMb} MB）',
+  'filePreview.tooLarge': '文件过大，无法预览（上限 10 MB）',
+  'filePreview.binaryNotPreviewable': '二进制文件，无法预览',
+  'filePreview.notFound': '文件不存在',
+  'filePreview.sandpackLoading': '正在加载沙箱…',
+  'filePreview.sandpackError': '沙箱加载失败：{error}',
+  'filePreview.aliasNotSupported': '此文件使用了 `@/` 路径别名，预览仅编译外部 npm 依赖。',
+
+  // ── File tree actions (Phase 4) ─────────────────────────────
+  'fileTree.sectionTitle': '文件',
+  'fileTree.newMarkdown': '新建 Markdown 文件',
+  'fileTree.newFolder': '新建文件夹',
+  'fileTree.createButton': '创建',
+  'fileTree.newFileHint': '回车创建 · Esc 取消',
+  'fileTree.newFileErrorEmpty': '名称不能为空',
+  'fileTree.newFileErrorNoWorkspace': '当前会话未选择 workspace',
+  'fileTree.newFileErrorGeneric': '创建失败',
 
   // ── Doc preview ─────────────────────────────────────────────
   'docPreview.htmlPreview': 'HTML 预览',

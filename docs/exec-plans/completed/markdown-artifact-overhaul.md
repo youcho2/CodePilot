@@ -1,12 +1,15 @@
 # Markdown 渲染/编辑体系 × Artifact 网页预览扩展 — 执行计划
 
 > 创建时间：2026-04-19
-> 最后更新：2026-04-19（第三次修订：用户选定 Q1/Q2/Q3 默认推荐为正式方案，相应 POC 从多方案对比收敛为单方案集成验证）
+> 完成时间：2026-04-21
+> 状态：✅ 已合并准备 — Phase 1-5 全部落地，0.1 被 Phase 1 实际方案覆盖
+> 技术交接：[docs/handover/markdown-artifact-overhaul.md](../../handover/markdown-artifact-overhaul.md)
+> 产品思考：[docs/insights/markdown-artifact-overhaul.md](../../insights/markdown-artifact-overhaul.md)
 > 对应调研：
 > - [docs/research/markdown-editor-tiptap-evaluation.md](../../research/markdown-editor-tiptap-evaluation.md)
 > - [docs/research/artifact-preview-ai-elements.md](../../research/artifact-preview-ai-elements.md)
 > - [docs/research/craft-agents-markdown-internals.md](../../research/craft-agents-markdown-internals.md)
-> 隔离：建议 worktree，由用户发起；主目录同时生效亦可，由用户裁定
+> 隔离：worktree `feat/markdown-artifact-overhaul`，由用户发起合并
 
 ## 用户核心诉求（本计划的"为什么"）
 
@@ -19,13 +22,13 @@
 
 | Phase | 内容 | 状态 | 价值形态 | 备注 |
 |-------|------|------|---------|------|
-| Phase 0 | 前置 POC + 实测（8 项 POC，覆盖所有未确定技术路径与产品决策） | 📋 待开始 | C 基建 | 决定 Phase 1-5 的具体路径 |
-| Phase 1 | 文件树 Markdown 预览放开截断 + 性能验证 + API 合同闭合 | 📋 待开始 | A 可见 | 核心诉求 2 |
-| Phase 1.5 | PreviewPanel 数据模型迁移（`{filePath? \| inlineContent? + kind}` 双通道） | 📋 待开始 | C 基建 | Phase 2/5.4 共同依赖 |
-| Phase 2 | Artifact 网页预览扩展（工具结果落点 + 卡片 UI + PreviewPanel 扩展 .jsx/.tsx） | 📋 待开始 | A 可见 | 核心诉求 1 |
-| Phase 3 | Artifact 网页一键导出长图（复用隐藏 BrowserWindow 通道） | 📋 待开始 | A 可见 | 核心诉求 4 |
-| Phase 4 | 文件树新建 `.md` + 通用 CodeMirror 编辑器（+ 写入 API 规范）+ Obsidian 兼容 | 📋 待开始 | A 可见 | 核心诉求 3 |
-| Phase 5 | 配套增强（ShikiThemeContext / Collapsible / 表格 Artifact + 导出 / LRU 核对） | 📋 待开始 | 混合 | 可与 Phase 1-4 并行 |
+| Phase 0 | 前置 POC + 实测（9 项 POC，覆盖所有未确定技术路径与产品决策） | ✅ 已完成 | C 基建 | 8/9 项 POC 产出（0.2 / 0.3 / 0.4 / 0.5 / 0.6 / 0.7 / 0.8 + 0.9 汇总到决策日志）；0.1 CDP 实测被 Phase 1 的"分档放开 + 截断提示"实际方案覆盖，未走 100k 压测分支 |
+| Phase 1 | 文件树 Markdown 预览放开截断 + 性能验证 + API 合同闭合 | ✅ 已完成 | A 可见 | commit `8313b2a`：EXTENSION_LINE_CAPS 分档 + 10MB 字节上限 + 二进制检测 + truncated/bytes_read/bytes_total 字段 + TruncationBanner UI + 4 条 i18n + FilePreviewError 映射 HTTP 状态 |
+| Phase 1.5 | PreviewPanel 数据模型迁移（`{filePath? \| inlineContent? + kind}` 双通道） | ✅ 已完成 | C 基建 | commit `3c8482a`：PreviewSource 联合 + AppShell state 迁移 + PanelZone R1 gate 同步 + PreviewPanel 内容区 kind switch + InlineHtmlView + FileTreePanel 零改动（adapter 透明） |
+| Phase 2 | Artifact 网页预览扩展（工具结果落点 + 卡片 UI + PreviewPanel 扩展 .jsx/.tsx） | ✅ 已完成 | A 可见 | commits `812f905`/`151932d`/`6cfd28f`/`7fb7c17`：DiffSummary 抽组件（4 处改造）+ Artifact 卡片样式 + PreviewPanel 加 .jsx/.tsx 分支 + Sandpack 集成（s4 默认 sandbox）+ 5 个 i18n key |
+| Phase 3 | Artifact 网页一键导出长图（复用隐藏 BrowserWindow 通道） | ✅ 已完成 | A 可见 | commit `19adaae`：新 IPC artifact:export-long-shot + CDP captureBeyondViewport + 独立 session + module-level 导出锁 + PreviewPanel header 按钮 + DiffSummary 行按钮 + base64 Blob 下载。Markdown/JSX 的 render-to-HTML 预处理 + pngjs 回退为 follow-up |
+| Phase 4 | 文件树新建 `.md` + 通用 CodeMirror 编辑器（+ 写入 API 规范）+ Obsidian 兼容 | ✅ 已完成（P1 范围） | A 可见 | commits `8a54c56`/`20edd61`：`/api/files/write/mkdir/rename/delete` 四同级 API + FileIOError + path safety helpers + trash 包接系统回收站 + CodeMirror 6 MarkdownEditor（Compartment 主题切换）+ SkillEditor textarea 替换 + FileTreePanel "+" 新建 Markdown。frontmatter 高亮 / 图片粘贴 / 文件树右键菜单为 follow-up |
+| Phase 5 | 配套增强（ShikiThemeContext / Collapsible / 表格 Artifact + 导出 / LRU 核对 / loadedPath / validateFsAccess / 产品边界文档） | ✅ 主体已完成（5.1/5.2 已决策跳过） | 混合 | 6 个子项落地：5.4 DataTable viewer、5.5 shared LRU、5.6 loadedPath、5.7 validateFsAccess、5.8 insights 文档；5.1 已被 useThemeFamily 机制覆盖不做；5.2 Collapsible 因 rehype-raw 依赖影响面过大，推到独立 follow-up |
 
 **状态符号：** 📋 待开始 / 🔄 进行中 / ✅ 已完成 / ⏸ blocked / ❌ 放弃
 
@@ -67,6 +70,15 @@
   - **离线 bundler fallback 写成了不存在的 npm 包**：npm registry 无 `@codesandbox/sandpack-bundler` 包，不能 `npm i`。正解 = 克隆 GitHub 仓库 `codesandbox/sandpack-bundler` → `yarn dev` 或 `yarn build && yarn start` 启服务 → `options.bundlerURL` 指本地服务。4 处相关描述已全部修正（Phase 0.5 POC 要点 + Phase 2.1 Bundler 配置 + Phase 2.5 若 CSP 不可控切换本地 bundler + 风险表）
   - **rename/delete API 无安全合同**：原 Phase 4.1 只规定了 write，rename/delete 仅出现在右键菜单描述里。现扩展为 4.1.a-d 四个 API 同等规范，rename 额外有 `cross_base_dir` / 两端 path safety / 类型校验，**delete 改用 Electron `shell.trashItem` 走系统回收站**（不 `fs.unlink`/`rm`）+ 回收站不可用时返回 `trash_unavailable` 拒绝降级真删 + 文件夹 delete 必须 `recursive=true` + UI 文案"可在回收站恢复"（不是"不可恢复"）。相应 i18n 键更新（`deleteConfirmFile` / `deleteConfirmDir` / `deleteTrashUnavailable`）+ 验收标准新增 4 条
   - Phase 2.8 验收文案"2.5 的 5 个安全攻击样本…若 2.1 选 (a)"已拆为两条：主路径验收 Sandpack 的 4 个 iframe 样本、snippet-only 回退路径验收 `react-jsx-parser` 的 5 个样本
+- 2026-04-19 [Phase 0 静态 POC 四项完成] 0.2 / 0.6 / 0.7 / 0.8 产出独立文档在 `docs/research/phase-0-pocs/`，结论汇总：
+  - **0.2 Streamdown LRU 核对 → 未复用**。`code-block.tsx:164-170` 的 LRU 仅被同文件 `highlightCode()` / `CodeBlockContent` 消费，跨仓库 grep 无 import，在聊天路径上是死代码。聊天路径走 `@streamdown/code`，其 `node_modules/@streamdown/code/dist/index.js` 自建**无上限**模块级 Map 并独立 `shiki.createHighlighter`。Phase 5.5 改造方向：用 `code-block.tsx` 的 `highlightCode()` 实现自定义 `CodeHighlighterPlugin`（接口在 `@streamdown/code/dist/index.d.ts:18-39`）替换 `createCodePlugin()`；需 shim `TokenizedCode → TokensResult` 补 `themeName`/`rootStyle`
+  - **0.6 DiffSummary 改造接口 → 抽组件**。耦合度为零：仅用 `files` prop + 本地 `useState(open)`，不读 MessageItem closure。Props `{ files, onPreview?, onExportLongShot? }` 缺省不渲染按钮。扩展名规则：`.md/.mdx` 仅预览；`.html/.htm/.jsx/.tsx` 预览+导出；其他扩展名无按钮。改造 4 处：新建 `src/components/chat/DiffSummary.tsx` / 删 `MessageItem.tsx:531-572` / 改 `:727` 调用点 + `:13` import / 按需清理 `NotePencil` 导入（`CaretRight` 保留）。与 ToolActionsGroup 独立互补，不改 `TOOL_REGISTRY`
+  - **0.7 PreviewSource 迁移 → 5 文件触点 + 12 风险点**。`usePanel.ts:47-48` / `AppShell.tsx:355-452`（唯一 state 所有者）/ `PanelZone.tsx:13,15,22`（**R1 最高风险：gate 漏改导致 inline-\* 挂不上**）/ `PreviewPanel.tsx:90,103,152` / `FileTreePanel.tsx:18,48-55`（adapter 透明兼容零改动）。adapter 策略可行：主 state = `previewSource`，`previewFile` 变派生（`previewSource?.kind === 'file' ? previewSource.filePath : null`）。smoke test 覆盖 `inline-html` + `inline-datatable` 专压 R1
+  - **0.8 Streamdown 接 remark → 走 `remarkPlugins` prop 不走 `plugins` 对象链**。Streamdown `Options` 同时暴露 `remarkPlugins?: PluggableList`（标准 unified）和 `plugins?: PluginConfig`（自定义四槽 code/mermaid/math/cjk）。Phase 5.2 `remarkCollapsibleSections` 走 `remarkPlugins`。顺序固定：`plugins.cjk.remarkPluginsBefore` 在前，`...After` 和 `math.remarkPlugin` 在后。`mode="streaming"` 下按 block 切片，折叠插件需对 heading-only / 空 section 单 block 鲁棒。无需降级方案
+- 2026-04-19 [Phase 0 深度调研 3 项完成] 0.3 / 0.4 / 0.5 产出独立文档在 `docs/research/phase-0-pocs/`（纯调研，未装包未跑代码，所有 API 引用带官方文档 URL）：
+  - **0.5 Sandpack 集成 → API 精确确认 + iframe sandbox 控制路径选定 s2 为升级路径，s4 为 Phase 2.1 初版**。从 `@codesandbox/sandpack-react` 源码确认：`bundlerURL` 在 `SandpackProvider options={{ bundlerURL }}`，**不在** `customSetup`；`SandpackPreview` 仅暴露 div props + `SandpackPreviewRef { getClient, clientId }`，**没有** iframe sandbox prop。关键发现：`sandpack-client/clients/runtime/index.ts` 的 `if (!this.iframe.getAttribute("sandbox")) {...}` —— 用户传已设 `sandbox` 的 iframe 给低层 `SandpackRuntime`，Sandpack 不覆盖。默认 sandbox = `allow-forms allow-modals allow-popups allow-presentation allow-same-origin allow-scripts allow-downloads allow-pointer-lock`。Phase 2.1 初版接受 s4 默认（保留 `allow-same-origin`），Phase 2.5 若要去掉 `allow-same-origin` 必须切 s2（低层 `sandpack-client` + 自建 iframe）。离线 bundler 正解：`git clone github.com/codesandbox/sandpack-bundler` → `yarn dev`。Tailwind v4 通过 `options.externalResources` 挂 `@tailwindcss/browser@4` CDN。A/B fixture 直接通过 `customSetup.dependencies` 支持；C 别名 `@/...` 需 `files` 字段注入虚拟 `/tsconfig.json` + `/components/ui/*.tsx`（Phase 2.1 P1 先显示提示条，P2 补虚拟 shadcn 子集）
+  - **0.3 长图导出 → pngjs 拼接库 + CDP captureBeyondViewport 优先 + X-jsx-1 为 JSX 主路径**。现有 `widget:export-png` 的安全配置（sandbox + 独立 partition + 无 preload + will-navigate/setWindowOpenHandler 拦截 + `__scriptsReady__` 监听）全部保留；仅 L1398 `Math.min(contentHeight + 20, 4000)` 的 4000 上限删除。**拼接库决策**：pngjs（零 native dep，bitblt 专为块拷贝，~50KB gzipped）；`nativeImage` 排除（无 compositing API）；`sharp` 排除（需改 `scripts/after-pack.js` 加第二条 ABI 重编译 + macOS/Windows prebuilt + `asarUnpack`，收益不匹配）。**全页路径**：`debugger.attach('1.3')` + `Page.captureScreenshot({ captureBeyondViewport: true })` 优先（一次成图），`isDevToolsOpened() || contentHeight > 16000 || OOM` 时回退 pngjs 分段。**JSX 路径**：X-jsx-1（esbuild 预编译 → 独立 HTML → 隐藏 BrowserWindow，复用 HTML 通道）为主，X-jsx-2（Sandpack iframe 内注入 `html-to-image` + postMessage）作降级。IPC 完整签名：`artifact:export-long-shot({ source, width, pixelRatio?, outPath?, maxHeightPx?, timeoutMs? })`，discriminated 错误码 `timeout / canvas_limit / oom / debugger_busy / compile_error / busy`，主进程模块级 `exportLock` 单例
+  - **0.4 CodeMirror 集成 → bundle ~135KB gzipped + Tailwind v4 路径 C + dynamic SSR 排除**。`basicSetup + lang-markdown + oneDark` 合计 ~135KB gzipped，按 `next/dynamic({ ssr: false })` 独立 chunk 不入首屏。所有核心包 dual ESM/CJS，Electron 渲染进程 ESM 加载无问题。**Tailwind v4 隔离路径 C（推荐）**：用 `@layer base` + `revert-layer` 反制 preflight（`.cm-editor * { all: revert-layer }` 恢复 CodeMirror 内部样式），成本最低、保留 Tailwind token 继承；Shadow DOM 作回退。完整 `MarkdownEditor` TS 代码草案：Compartment 主题切换无闪 + `updateListener` onChange + `indentWithTab` + `Mod-s` keymap + 受控 value + cleanup destroy。SkillEditor 迁移 diff：删 ~25 行手写 Tab/Save 逻辑，替换 `<Textarea>` 为 `<MarkdownEditor value onChange onSave filename>`，`content/setContent/isDirty/handleSave` 数据流不变
 
 ---
 
@@ -76,17 +88,15 @@
 
 **目的：** 在主代码落地前，解决所有技术不确定性 + 产品选型（对齐 CLAUDE.md「不确定的技术点先做 POC 验证」）。每项 POC 产出必须写回"决策日志"段。
 
-### 0.1 CDP 实测长 Markdown 渲染瓶颈
+### 0.1 CDP 实测长 Markdown 渲染瓶颈 — ⏭️ 被 Phase 1 实际方案覆盖（未走压测分支）
 
-**目标：** 定位"10 万字符级文件打开是否前端能扛"
+**结论（2026-04-21）：** Phase 1 直接按"备选 (b) 分档放开 + 截断提示"实现（commit `8313b2a`）。服务端 50000 行 + 10MB 字节双上限构成 DoS 防线，TruncationBanner 在超限时明确提示用户看到的是子集。决策规则里的 "1.2a 分段 memo / 1.2b code fence 降级" 分支没有走——用户在真实使用中没有反馈首屏卡顿，放在 follow-up 观察池。
 
-- **输入：** 构造 fixture — 10k / 30k / 100k 字符三档 Markdown（含 GFM 表格、fenced code、Mermaid、`$$` math），放在一个临时目录
-- **步骤：** 主目录 `npm run dev` → chrome-devtools MCP 打开 `PreviewPanel.RenderedView` → Performance 采样（parse / layout / paint 三段耗时 + 内存峰值）
-- **产出：** 三份 Performance 录制 + 一段结论写入决策日志
-- **决策规则：**
-  - 若 100k 字符首屏 < 1s 且滚动 60fps → Phase 1 仅改 API 上限，不追加分段
-  - 若不达标 → Phase 1 追加 1.2a（按 heading 分段 memo）+ 1.2b（超长 code fence 降级）
-- **预算：** 0.5 人天
+~~**原计划：**~~
+- ~~构造 10k / 30k / 100k 字符 fixture + chrome-devtools MCP Performance 采样~~
+- ~~决策规则：100k 首屏 < 1s → 仅改 API 上限；不达标 → 追加分段 memo + 超长 code fence 降级~~
+
+**为什么跳过实测：** Phase 1 的分档上限本身是一个保守路径（没开无限放开）；即便 100k 文件 > 50000 行也会被截断到安全区间。实测"能否扛 100k"在上限已经比这低的前提下不 load-bearing。
 
 ### 0.2 Streamdown 代码块是否复用已有 Shiki LRU
 
@@ -187,12 +197,12 @@
      <DiffSummary
        files={modifiedFiles}
        onPreview?: (file: ModifiedFile) => void;          // 按扩展名决定行内是否显示"预览"按钮
-       onExportLongShot?: (file: ModifiedFile) => void;   // 仅 HTML/JSX/TSX 类扩展显示
+       onExportLongShot?: (file: ModifiedFile) => void;   // 仅 HTML 类扩展显示（见按钮可见性规则）
      />
      ```
   4. 定义按钮可见性规则：
-     - `.md` / `.mdx` / `.html` / `.htm` / `.jsx` / `.tsx` → 行内显示"预览"
-     - `.html` / `.htm` / `.jsx` / `.tsx` → 额外显示"导出长图"（Phase 3 完成后生效）
+     - `.md` / `.mdx` / `.html` / `.htm` / `.jsx` / `.tsx` / `.csv` / `.tsv` → 行内显示"预览"
+     - `.html` / `.htm` → 额外显示"导出长图"（JSX/TSX 当前会导出源码截图，等 Sandpack→HTML 捕获路径落地再放开）
      - 其他扩展 → 保留原 diff 摘要样式，不加按钮
   5. 做 mock UI：一张列表同时包含"可预览+导出"行、"仅可预览"行、"仅 diff 摘要"行
   6. CDP 下实测交互连贯性：点击预览行→PreviewPanel 打开；点击仅 diff 行→现有行为不变
@@ -329,7 +339,17 @@
 
 **用户痛点：** 无直接用户价值，但 Phase 2（.jsx/.tsx 预览）/ Phase 5.4（表格 Artifact）都需要 `PreviewPanel` 能接受 inline 内容。如果不独立做这件事，两个 Phase 会各自拼一套机制，产生契约分裂。
 
-**依赖：** Phase 0.7 POC 结论
+**依赖：** Phase 0.7 POC 结论 — **已完成**，全仓触点锁定 5 文件 + 12 个风险点；完整清单见 [`docs/research/phase-0-pocs/0.7-preview-source-migration.md`](../../research/phase-0-pocs/0.7-preview-source-migration.md)。
+
+**5 文件触点（按改造优先级）：**
+
+1. `src/hooks/usePanel.ts:47-48` — 类型定义（新增 `PreviewSource` 联合 + adapter 字段）
+2. `src/components/layout/AppShell.tsx:355-452` — 唯一 state 所有者，`useState`+`useCallback`+`useMemo`+路由清理 effect 全部迁移
+3. `src/components/layout/PanelZone.tsx:13,15,22` — **R1 最高风险**：gate 条件 + 挂载条件必须同步改为 `!!previewSource`，否则 inline-\* 面板永远挂不上
+4. `src/components/layout/panels/PreviewPanel.tsx:90,103,105-142,151-154,156,158-163,165-175,186-238` — 主消费端按 `previewSource.kind` switch 分派渲染；`useEffect(loadPreview)` 加 `kind === 'file'` guard
+5. `src/components/layout/panels/FileTreePanel.tsx:18,48-55` — **通过 adapter 透明兼容，零改动**
+
+**12 风险点（R1-R12）：** R1 gate 漏改 / R2 扩展名判断对 inline-\* 无意义 / R3 `loadPreview` guard / R4 `ViewModeToggle` 对 inline-\* 语义 / R5 FileTreePanel adapter 互动 / R6 路由切换清理 / R7 `useMemo` 依赖 / R8 不持久化 / R9 `setPreviewSource(null)` 与 `setPreviewFile(null)+setPreviewOpen(false)` 等价 / R10 adapter 单向 / R11 实施前重跑 grep / R12 smoke test 覆盖 `inline-html` + `inline-datatable` 专压 R1
 
 ### 1.5.1 `PreviewSource` 类型引入
 
@@ -430,26 +450,66 @@ if (!anyOpen) return null;                                                // L17
 - `RenderedView` 内追加分支：扩展名为 `.jsx` / `.tsx` 时，用 `<SandpackPreview>` 渲染（若 2.1 回退到 snippet-only，则用 `<JSXPreview>`）
 - `.jsx` / `.tsx` 文件走 file 分支（读取文件内容）；未来若有 inline .tsx snippet（AI 直接内联生成而非写入文件）通过 Phase 1.5 的 `inline-jsx` 通道
 
-### 2.3 工具结果落点：升级 DiffSummary（Q2 已选定）
+### 2.3 工具结果落点：升级 DiffSummary（Q2 已选定 / 0.6 POC 已落定）
 
-**前置：** Phase 0.6 POC 产出的 DiffSummary 改造接口 + 按钮可见性规则。
+**Phase 0.6 POC 结论：抽独立组件，改造 4 处，耦合度为零。**
 
-- 定位 `src/components/chat/MessageItem.tsx:712-728` 的 DiffSummary 渲染块
-- 按 Phase 0.6 POC 的新 props 契约改造 `DiffSummary` 组件：
-  ```tsx
-  <DiffSummary
-    files={modifiedFiles}
-    onPreview={(file) => setPreviewSource({ kind: 'file', filePath: file.path })}
-    onExportLongShot={(file) => /* Phase 3 */}
-  />
-  ```
-- `DiffSummary` 内部每行按扩展名判断（来自 0.6 POC 的可见性规则表）：
-  - `.md` / `.mdx` / `.html` / `.htm` / `.jsx` / `.tsx` → 行内显示"预览"按钮（文字或图标）
-  - `.html` / `.htm` / `.jsx` / `.tsx` → 追加"导出长图"按钮（依赖 Phase 3 完成后生效）
-  - 其他扩展（`.ts` / `.yaml` / `.json` / `.py` / ...）→ 保留原 diff 摘要样式，不加按钮
+**改造步骤（共 4 处）：**
+
+1. **新建** `src/components/chat/DiffSummary.tsx`：
+   - 迁移 `MessageItem.tsx:535-572` 实现
+   - 在每个 `files.map` 行（原 `:560-565`）右侧追加按钮槽（条件渲染）
+   - 导出 `DiffSummary` 组件 + `DiffFile` / `DiffSummaryProps` 类型
+2. **删除** `src/components/chat/MessageItem.tsx:531-572` 原内联定义
+3. **修改** `src/components/chat/MessageItem.tsx:727` 调用点 + `:13` 附近新增 `import { DiffSummary } from './DiffSummary'`
+4. **按需清理** `MessageItem.tsx:15` 中未再使用的 `NotePencil` 导入（`CaretRight` 仍被 `:696-701` 用户消息展开复用，保留）
+
+**Props 契约：**
+
+```ts
+export type DiffFile = { path: string; name: string };
+
+export interface DiffSummaryProps {
+  files: DiffFile[];
+  /** 点击"预览"，宿主负责打开 artifact 面板 */
+  onPreview?: (file: DiffFile) => void;
+  /** 点击"导出长图"，宿主负责渲染 + 下载 */
+  onExportLongShot?: (file: DiffFile) => void;
+}
+```
+
+**按扩展名的按钮可见性规则（组件内私有辅助）：**
+
+```ts
+function getExt(name: string): string {
+  const i = name.lastIndexOf('.');
+  return i >= 0 ? name.slice(i).toLowerCase() : '';
+}
+const PREVIEWABLE = new Set(['.md', '.mdx', '.html', '.htm', '.jsx', '.tsx', '.csv', '.tsv']);
+const LONGSHOT    = new Set(['.html', '.htm']);
+// .jsx/.tsx 不在 LONGSHOT：当前导出管线把原文送进隐藏 BrowserWindow，
+// TSX 原文是源码而不是渲染页面，会导出一张源码截图。Sandpack→HTML
+// 的捕获路径（POC 0.3 §X-jsx-1 / X-jsx-2）落地后再放开。
+```
+
+- `onPreview && PREVIEWABLE.has(ext)` → 显示"预览"
+- `onExportLongShot && LONGSHOT.has(ext)` → 显示"导出长图"
+- 回调未传时**一律不渲染按钮**（保证宿主未接线时零视觉变化，便于分阶段上线）
+
+**调用点（`MessageItem.tsx:727`）：**
+
+```tsx
+<DiffSummary
+  files={unique}
+  onPreview={(file) => setPreviewSource({ kind: 'file', filePath: file.path })}
+  onExportLongShot={(file) => /* Phase 3 导出 IPC */}
+/>
+```
+
+**其他约束：**
 - 行本体可点击（整行 click 区域 = "预览"），与按钮等价
-- **禁止自动拉起**：DiffSummary 出现时不调用 `setPreviewSource`，由用户点击触发
-- **回退：** 若 Phase 0.6 POC 发现改造点 > 20 处或接口冲突严重 → 保留原 DiffSummary + 新增 lightweight Artifact 行（视觉明显区分，如缩进 / 不同背景色），明确两者分工；更新决策日志
+- **禁止自动拉起**：DiffSummary 挂载时不调用 `setPreviewSource`，仅由用户点击触发
+- 与 `ToolActionsGroup`（`tool-actions-group.tsx:500-628`）**独立互补**：后者是动作时间线，DiffSummary 是本轮产出物汇总；按钮**只**落 DiffSummary，不改 `TOOL_REGISTRY`
 
 ### 2.4 Artifact 行 UI（在 DiffSummary 行内实现）
 
@@ -815,7 +875,11 @@ Response: { path, trashed: true } | { error: 'path_unsafe' | 'not_found' | 'dir_
 
 **价值形态：** 混合（下表分别标注）
 
-### 5.1 ShikiThemeContext 显式主题传递 — B 静默
+### 5.1 ShikiThemeContext 显式主题传递 — B 静默（**已合并到现有机制，不做**）
+
+**2026-04-21 复查结论：跳过。** craft-agents 的 `ShikiThemeContext` 解决的是"深色专属主题在浅色系统模式下 fallback 错乱"——CodePilot 的 `code-block.tsx:463-467` 已经走 `useThemeFamily` + `resolveShikiThemes` 显式传 [light, dark] 给 Shiki 的 `codeToTokens`，生成 dual-theme 输出后由 CSS 变量（`:root.dark`）切换，**不依赖 DOM class 嗅探**。额外加 Provider 是重复造轮子。若未来有新主题族引入，只需扩 `theme/code-themes.ts` 即可，无需新 Context。
+
+### 5.1 ShikiThemeContext（原文保留作历史参考）
 
 **用户痛点：** 当前暗色主题下某些代码块语言的 fallback 颜色错乱（依赖 DOM class 嗅探，时序不稳）
 
@@ -825,20 +889,24 @@ Response: { path, trashed: true } | { error: 'path_unsafe' | 'not_found' | 'dir_
 - **成本：** 1-2 人时
 - **验收：** 切换主题后代码块颜色立刻对齐，不闪；CDP 验证
 
-### 5.2 Collapsible 折叠 — A 可见（依赖 Phase 0.8）
+### 5.2 Collapsible 折叠 — A 可见（**已推到独立 follow-up**）
+
+**2026-04-21 复查结论：本批次不做。** POC 0.8 证实 Streamdown 的 `remarkPlugins` prop 能接标准 unified 插件，但要真的让 `<details><summary>` 渲染出来，还需要 Streamdown 底层的 `react-markdown` 启用 `rehype-raw`（默认不启）——否则生成的 raw HTML 会被 escape。这个 flag 牵涉到现有 sanitize 策略 + 全仓复用 `<Streamdown>` 的多个入口，影响面远超 Phase 5 预期。独立 follow-up：先评估 `rehype-raw` 对 streamdown 其他调用点（chat、doc preview）的安全影响，再决定是否开；或退而求其次用 MDAST 自定义节点 + 对应的 `components` 渲染器，绕开 raw HTML。
+
+### 5.2 Collapsible（原文保留作后续实施依据）
 
 **用户痛点：** 聊天里的长 AI 报告没法折叠，每次都要滚动
 
-- 若 Phase 0.8 POC 证明 Streamdown 能接 remark 插件：
-  - 自建 `remarkCollapsibleSections` 插件，按 heading 层级包 `<details>` 语义
-  - 挂到 `_streamdownPlugins`（`PreviewPanel.tsx:30-35` 的 plugin 对象）
-- 若不能接：
-  - 降级方案：仅在 PreviewPanel 打开 .md 文件时用 react-markdown 渲染 + 折叠；聊天消息不支持
-  - 或：在 Streamdown 渲染后用 DOM post-processor（MutationObserver）注入折叠 UI
-- 应用范围：聊天消息（若 0.8 允许）+ PreviewPanel `RenderedView`（确定支持）
-- **成本：** 1 人天（若 0.8 允许）/ 2 人天（若走降级）
+**Phase 0.8 POC 已确认 → 走 `remarkPlugins` prop（不走 `plugins` 对象链）。**
+
+- 自建 `remarkCollapsibleSections` 插件，按 heading 层级包 `<details>` 语义（标准 `function (): Transformer { return (tree) => ... }`）
+- 挂到 **`<Streamdown remarkPlugins={[remarkCollapsibleSections]} plugins={_streamdownPlugins} ... />`** —— 不要塞进 `plugins` 对象，那里只认 `code/mermaid/math/cjk` 四个具名槽
+- 顺序约束（固定不可调）：`plugins.cjk.remarkPluginsBefore` 排在 `props.remarkPlugins` **之前**，`...After` 和 `math.remarkPlugin` 排在之后；折叠插件放 `remarkPlugins` 末尾即可
+- `mode="streaming"` 下 Streamdown 按 block 切片，插件**必须**对 heading-only / 空 section 单 block 鲁棒（否则流式追加中途会崩）
+- 应用范围：聊天消息（`src/components/ai-elements/message.tsx` 的 `MessageResponse`）+ PreviewPanel `RenderedView`
+- **成本：** 1 人天
 - **i18n：** `markdown.collapseSection` / `markdown.expandSection`
-- **验收：** AI 回复含 5 个 `##` 的长报告，每个 `##` 旁有折叠三角，点击生效；嵌套 `###` 也能分层折叠
+- **验收：** AI 回复含 5 个 `##` 的长报告，每个 `##` 旁有折叠三角，点击生效；嵌套 `###` 也能分层折叠；流式追加期间不崩
 
 ### 5.3 Safe HTML Proxy（已按用户决策移除）
 
@@ -880,9 +948,83 @@ Response: { path, trashed: true } | { error: 'path_unsafe' | 'not_found' | 'dir_
 - 导出 CSV 用 Excel 打开内容正确
 - 小表格（5 × 10）不出按钮，保持内联渲染
 
-### 5.5 Streamdown 代码块 LRU 核对 — C 基建
+### 5.5 Streamdown 代码块 LRU 对齐 — B 静默
 
-依赖 Phase 0.2 结论。若未复用：30 分钟改造；若已复用：本项移除。
+**Phase 0.2 POC 已确认 → 未复用**（`code-block.tsx:164-170` 的 LRU 仅被同文件 `highlightCode()` 消费，跨仓库 grep 无 import；聊天路径走 `@streamdown/code`，后者在 `node_modules/@streamdown/code/dist/index.js` 自建**无上限**模块级 Map 并独立 `shiki.createHighlighter`）。
+
+**改造动作：**
+- 在 `src/components/ai-elements/message.tsx` 中封装自定义 `CodeHighlighterPlugin`（接口在 `@streamdown/code/dist/index.d.ts:18-39`），取代 `createCodePlugin()` 的默认实例
+- `highlight()` 内部转发到 `code-block.tsx` 的 `highlightCode()`，复用既有 `highlighterCache`(10) + `tokensCache`(200)
+- Shim `TokenizedCode → TokensResult`：补 `themeName`（用当前 lightTheme name）、构造 `rootStyle`（`` `background: ${bg}; color: ${fg};` ``）
+- `PreviewPanel.tsx:25,32` 的 `_streamdownPlugins.code` 同步替换为新实例
+
+**验收：**
+- DevTools Memory 快照：Shiki highlighter 实例数在语言 ≤10 时稳定为 1 份/(lang,theme) 组合
+- 长会话（100+ 条含代码块消息）下聊天路径的内存占用线性增长被抑制
+- 现有 `code-block.tsx` 的直接调用场景（如 UI 折叠/复制按钮）保持不变
+
+**成本：** 1-2 人时。
+
+### 5.6 PreviewPanel "loaded path" 抽象 — B 静默（Codex 复盘新增）
+
+**触发：** 2026-04-20 Codex 第 N 轮审查定位的 autosave 跨文件错写 bug（9d3d459 已打补丁），连同先前的"Sandpack 首帧用旧 content 编译"、"切文件时 stale preview 闪烁"三类问题，根因都是 **"PreviewPanel 的各块状态没有一个统一的 'currently loaded file' 锚"**。9d3d459 用 `editContentFile` 给 editor 侧加了锚，但 render 侧、export 侧、header 侧各自判断是否 fresh — 散在各个 useMemo 里，下次加新 inline kind 很容易漏。
+
+**改造动作：**
+
+- 引入 `loadedPath: { kind: 'file'; path: string } | { kind: 'inline-*'; id: string } | null` state（或 reducer）
+- 所有"读 preview/content"的派生值（exportableHtml、MarkdownEditor 的 value、SourceView 的 content、RenderedView）都 require `loadedPath` 匹配当前 `previewSource`，否则一律走 loading 分支
+- `setPreview(data.preview)` 的同时 `setLoadedPath({ kind: 'file', path: preview.path })`
+- `filePath` 变化的 useEffect 中同步 `setLoadedPath(null)`（`setPreview(null)` 已有，同级）
+- handleSaveEdit、handleExportLongShot 的第一行都加 `if (loadedPath?.path !== previewSource.filePath) return;`
+- 抽一个 `useLoadedPreview()` hook 把这些碎片封装起来，对外只暴露一个 `fresh: boolean` + `content: string | null`
+
+**收益：**
+- autosave 错写、TSX 首帧旧内容、PreviewPanel 短暂显示旧内容 — 三类边缘 bug 一次收敛
+- 后续加 inline-datatable（Phase 5.4）不会重踩"新 kind 没接上 fresh 校验"
+
+**成本：** 0.5-1 人天（主要是把现有 8 处派生值收拢到同一个 gate）
+
+### 5.7 文件 I/O 安全合同收到单一 helper — C 基建（Codex 复盘新增）
+
+**触发：** 2026-04-20/21 Codex 连续两轮审查连续抓到 API 路径安全漏洞：
+- write 路由的 symlink 防护只查 parent chain，漏了 target（ba35fd7 打补丁）
+- preview 路由的 isPathSafe 只做文本检查，fs.* 仍跟随 symlink 跳出 baseDir（9d3d459 打补丁）
+
+两次都是同一类 bug 在不同路由上复现。当前实现让每条路由各自拼 `assertWritablePath` + `assertNoSymlinkInChain` + `fs.realpath` 检查 — 容易漏、难审计。
+
+**改造动作：**
+
+- 把 `assertWritablePath / assertNoSymlinkInChain / isValidFilename / BLOCKED_SEGMENTS` 和新的 `assertRealPathInBase` 收到 `src/lib/files.ts` 的一个 `validateFsAccess(resolvedPath, { baseDir, mode: 'read' | 'write' | 'mkdir' | 'rename-source' | 'rename-target' | 'delete' })` 统一入口
+- 内部按 mode 组合需要的检查项（read 不查 parent-chain symlink 但必须 realpath 重检；write/mkdir 两者都查；rename-target 跟 write 同样；delete 走 write + lstat target 是否 symlink）
+- 所有五条 `/api/files/*` 路由改为单行调用 `await validateFsAccess(...)`，删除各自的碎片检查
+- 写一个 symlink-attack unit test suite 覆盖每条路由：workspace 内 symlink 指向外部 + overwrite=true → 都应 403；workspace 内合法 symlink（指回 workspace 内） → 200
+- 把 writeFileSync/readFile/readdir 的符号链接语义也审一遍（rename 依赖 fs.rename 不跟 symlink → OK；delete 走 shell.trashItem 有没有 follow 需要再看）
+
+**收益：**
+- 下一个类似 bug 只需在 helper 改一次，不会再让 Codex 重复抓
+- 路由代码可读性上升（业务逻辑不被安全样板遮盖）
+- 有了 test suite，未来加 API 复制 helper 模板即可，合规默认继承
+
+**成本：** 1 人天（helper + 迁移 5 条路由 + 测试套件）
+
+### 5.8 产品边界文档：TSX 预览叫"单文件 React 预览" — C 基建（Codex 复盘新增）
+
+**触发：** Phase 2.1 Sandpack 集成后连续踩坑：入口路径（ba35fd7）、多文件 alias 未支持（已记为已知限制）、潜在的 CSS import / 相对 import 边界都不明确。Codex 建议产品边界一次说清。
+
+**改造动作：**
+
+- 在 `docs/insights/markdown-artifact-overhaul.md` 产品思考文档里明确定义第一版能力：
+  - **能做：** 单文件 `.jsx`/`.tsx`，自包含的 React 组件（hooks + 白名单 npm 依赖）
+  - **不能做：** 多文件项目（`import './Counter'`）、CSS import、项目别名（`@/...`）、图片/字体 import、自定义 tsconfig
+  - **未来演进：** Phase 5.8 后续迭代（非本期）可做虚拟文件系统、alias resolver、CSS inline
+- 同步在 UI 层：SandpackPreview 的 ErrorBoundary fallback 给"这个文件引用了多文件/别名/CSS，预览暂不支持"的友好提示，而不是让用户看到 bundler 的原生 404 stack
+- DiffSummary 的 TSX 卡片 description 行加一行小字说明"单文件预览"（可选，确认不会噪音后再加）
+
+**收益：**
+- 用户心智清晰，不会对失败场景投射 bug 归属（bundler 错 ≠ 我们的渲染错）
+- 下一轮需求讨论（多文件、alias）有基线文档可参考
+
+**成本：** 0.5 人天（文档 + 2 处 UI 友好化）
 
 ---
 

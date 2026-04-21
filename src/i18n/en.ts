@@ -269,6 +269,23 @@ const en = {
   'filePreview.linesApprox': '~{count} lines',
   'filePreview.copyPath': 'Copy path',
   'filePreview.failedToLoad': 'Failed to load file',
+  'filePreview.truncated': 'Showing first {lines} lines ({bytesReadMb} MB of {bytesTotalMb} MB)',
+  'filePreview.tooLarge': 'File too large to preview (>10 MB)',
+  'filePreview.binaryNotPreviewable': 'Binary file, cannot preview',
+  'filePreview.notFound': 'File not found',
+  'filePreview.sandpackLoading': 'Loading sandbox…',
+  'filePreview.sandpackError': 'Sandbox failed to load: {error}',
+  'filePreview.aliasNotSupported': 'This file uses `@/` path aliases; preview compiles external npm deps only.',
+
+  // ── File tree actions (Phase 4) ─────────────────────────────
+  'fileTree.sectionTitle': 'Files',
+  'fileTree.newMarkdown': 'New Markdown file',
+  'fileTree.newFolder': 'New folder',
+  'fileTree.createButton': 'Create',
+  'fileTree.newFileHint': 'Enter ⏎ to create · Esc to cancel',
+  'fileTree.newFileErrorEmpty': 'Name cannot be empty',
+  'fileTree.newFileErrorNoWorkspace': 'No workspace selected for this session',
+  'fileTree.newFileErrorGeneric': 'Failed to create',
 
   // ── Doc preview ─────────────────────────────────────────────
   'docPreview.htmlPreview': 'HTML Preview',
