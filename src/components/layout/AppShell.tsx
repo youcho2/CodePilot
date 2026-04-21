@@ -120,10 +120,15 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   // markdown links as fallback when the frontend cannot directly dispatch the
   // open-setup-center event (e.g. rendering inside the SSE text stream). When
   // such a link is clicked the hash changes to `#providers`, and we surface
-  // the SetupCenter Provider card here.
+  // the SetupCenter Provider card here — EXCEPT on /settings itself, where
+  // SettingsLayout owns the #providers hash for its own section routing
+  // (see SettingsLayout.tsx `getSectionFromHash`). If we swallowed the hash
+  // there, clicking "Add Provider" inside SetupCenter would ping-pong the
+  // user back into SetupCenter instead of reaching the providers tab.
   useEffect(() => {
     const maybeOpenFromHash = () => {
       if (typeof window === 'undefined') return;
+      if (window.location.pathname === '/settings') return;
       if (window.location.hash === '#providers') {
         setSetupInitialCard('provider');
         setSetupOpen(true);

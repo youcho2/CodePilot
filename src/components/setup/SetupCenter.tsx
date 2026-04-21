@@ -20,9 +20,23 @@ export function SetupCenter({ onClose, initialCard }: SetupCenterProps) {
   const [providerStatus, setProviderStatus] = useState<SetupCardStatus>('not-configured');
   const [projectStatus, setProjectStatus] = useState<SetupCardStatus>('not-configured');
   const [defaultProject, setDefaultProject] = useState<string | undefined>();
-  // Track the initial completedCount from the server so we only auto-close
-  // when the user completes the last card during this session, not on reopen.
-  const initialCompletedCountRef = useRef<number | null>(null);
+  // Tracks whether the initial GET /api/setup has landed. Auto-close waits on
+  // this so we don't fire before we know what the user actually had.
+  const initialLoadedRef = useRef(false);
+
+  // Single helper that every "close the setup center" path goes through.
+  // Persists setup_completed=true (fire-and-forget — failure is already
+  // handled server-side by the GET normalization on next open) and calls
+  // onClose. De-duped so the "skip and enter" button, auto-close, and any
+  // future close trigger all write the same flag.
+  const persistAndClose = useCallback(() => {
+    fetch('/api/setup', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ card: 'completed', status: 'completed' }),
+    }).catch(() => {});
+    onClose();
+  }, [onClose]);
 
   // Load initial status
   useEffect(() => {
@@ -34,36 +48,27 @@ export function SetupCenter({ onClose, initialCard }: SetupCenterProps) {
           setProviderStatus(data.provider);
           setProjectStatus(data.project);
           if (data.defaultProject) setDefaultProject(data.defaultProject);
-          // Record how many were already done when we opened
-          const initial = [data.claude, data.provider, data.project]
-            .filter((s: string) => s === 'completed' || s === 'skipped').length;
-          initialCompletedCountRef.current = initial;
         }
+        initialLoadedRef.current = true;
       })
-      .catch(() => {});
+      .catch(() => {
+        initialLoadedRef.current = true;
+      });
   }, []);
 
   const completedCount = [claudeStatus, providerStatus, projectStatus]
     .filter(s => s === 'completed' || s === 'skipped').length;
 
-  // Auto-close when all done — but only if user made progress during this session
+  // Auto-close whenever all three cards land in a done/skipped state. Backend
+  // GET /api/setup also normalizes this so stale 3/3 states get patched on
+  // next open — but we still persist + close here to give the user immediate
+  // UI feedback without a reload.
   useEffect(() => {
-    if (
-      completedCount === 3 &&
-      initialCompletedCountRef.current !== null &&
-      initialCompletedCountRef.current < 3
-    ) {
-      // Mark as completed
-      fetch('/api/setup', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ card: 'completed', status: 'completed' }),
-      }).catch(() => {});
-      // Brief delay before closing
-      const timer = setTimeout(onClose, 800);
+    if (completedCount === 3 && initialLoadedRef.current) {
+      const timer = setTimeout(persistAndClose, 800);
       return () => clearTimeout(timer);
     }
-  }, [completedCount, onClose]);
+  }, [completedCount, persistAndClose]);
 
   // Scroll to initial card
   useEffect(() => {
@@ -90,15 +95,7 @@ export function SetupCenter({ onClose, initialCard }: SetupCenterProps) {
             <span className="text-xs text-muted-foreground">
               {t('setup.progress', { completed: String(completedCount) })}
             </span>
-            <Button variant="ghost" size="sm" className="text-xs" onClick={() => {
-              // Persist skip so setup center doesn't reopen on next launch
-              fetch('/api/setup', {
-                method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ card: 'completed', status: 'completed' }),
-              }).catch(() => {});
-              onClose();
-            }}>
+            <Button variant="ghost" size="sm" className="text-xs" onClick={persistAndClose}>
               {t('setup.skipAndEnter')}
             </Button>
           </div>
@@ -119,6 +116,7 @@ export function SetupCenter({ onClose, initialCard }: SetupCenterProps) {
             <ProviderCard
               status={providerStatus}
               onStatusChange={setProviderStatus}
+              onBeforeNavigate={persistAndClose}
             />
           </div>
 

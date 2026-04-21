@@ -9,9 +9,17 @@ import type { SetupCardStatus, ApiProvider } from '@/types';
 interface ProviderCardProps {
   status: SetupCardStatus;
   onStatusChange: (status: SetupCardStatus) => void;
+  /**
+   * Invoked before navigating away to /settings#providers. SetupCenter passes
+   * its `persistAndClose` so clicking "Add Provider" / "Open provider
+   * settings" closes the modal + marks setup_completed=true atomically,
+   * avoiding the historical ping-pong where /settings re-opened SetupCenter
+   * on arrival.
+   */
+  onBeforeNavigate?: () => void;
 }
 
-export function ProviderCard({ status, onStatusChange }: ProviderCardProps) {
+export function ProviderCard({ status, onStatusChange, onBeforeNavigate }: ProviderCardProps) {
   const { t } = useTranslation();
   const [providers, setProviders] = useState<ApiProvider[]>([]);
   const [envDetected, setEnvDetected] = useState(false);
@@ -100,9 +108,13 @@ export function ProviderCard({ status, onStatusChange }: ProviderCardProps) {
   }, [onStatusChange]);
 
   const handleOpenProviders = useCallback(() => {
+    // Close SetupCenter first so /settings doesn't re-open it on arrival.
+    // Without this, AppShell's setupOpen check would race against the
+    // navigation and the user would see the modal flicker on the new page.
+    onBeforeNavigate?.();
     // Navigate to settings providers section (SettingsLayout uses hash routing)
     window.location.href = '/settings#providers';
-  }, []);
+  }, [onBeforeNavigate]);
 
   const description = status === 'completed'
     ? t('setup.provider.configured')
@@ -125,6 +137,18 @@ export function ProviderCard({ status, onStatusChange }: ProviderCardProps) {
               ? 'Using Claude Code environment'
               : ''}
         </p>
+      ) : status === 'skipped' ? (
+        <div className="space-y-2">
+          <p className="text-xs text-muted-foreground">{t('setup.provider.skipped')}</p>
+          <Button
+            size="sm"
+            variant="ghost"
+            className="text-xs h-auto p-0 text-muted-foreground hover:text-foreground"
+            onClick={handleOpenProviders}
+          >
+            {t('setup.provider.openSettings')} →
+          </Button>
+        </div>
       ) : (
         <div className="space-y-2">
           {envDetected ? (

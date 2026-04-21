@@ -1422,6 +1422,8 @@ const zh: Record<TranslationKey, string> = {
   'setup.provider.noProvider': '未配置服务商。选择一个预设开始。',
   'setup.provider.configured': '服务商已配置',
   'setup.provider.skip': '跳过',
+  'setup.provider.skipped': '已跳过，可在 设置 › 服务商 里随时添加。',
+  'setup.provider.openSettings': '打开服务商设置',
 
   // Setup: Project directory card
   'setup.project.title': '项目目录',

@@ -1425,6 +1425,8 @@ const en = {
   'setup.provider.noProvider': 'No provider configured. Select a preset to get started.',
   'setup.provider.configured': 'Provider configured',
   'setup.provider.skip': 'Skip',
+  'setup.provider.skipped': 'Skipped. Add a provider anytime in Settings › Providers.',
+  'setup.provider.openSettings': 'Open provider settings',
 
   // Setup: Project directory card
   'setup.project.title': 'Project Directory',
