@@ -276,6 +276,18 @@ const en = {
   'filePreview.sandpackLoading': 'Loading sandbox…',
   'filePreview.sandpackError': 'Sandbox failed to load: {error}',
   'filePreview.aliasNotSupported': 'This file uses `@/` path aliases; preview compiles external npm deps only.',
+  'filePreview.viewMode.edit': 'Edit',
+  'filePreview.viewMode.source': 'Source',
+  'filePreview.viewMode.preview': 'Preview',
+  'filePreview.save.idle': 'Save',
+  'filePreview.save.saving': 'Saving',
+  'filePreview.save.saved': 'Saved',
+  'filePreview.save.unsaved': 'Unsaved changes',
+  'filePreview.copyContent': 'Copy content',
+  'filePreview.exportLongScreenshot': 'Export long screenshot',
+  'filePreview.closePreview': 'Close preview',
+  'diffSummary.openPreview': 'Open preview',
+  'diffSummary.exportLongShot': 'Export long shot',
 
   // ── File tree actions (Phase 4) ─────────────────────────────
   'fileTree.sectionTitle': 'Files',

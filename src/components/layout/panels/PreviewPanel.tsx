@@ -461,7 +461,7 @@ export function PreviewPanel() {
             {editDirty && (
               <span
                 className="h-2 w-2 rounded-full bg-status-warning shrink-0"
-                title="Unsaved changes"
+                title={t("filePreview.save.unsaved")}
               />
             )}
             <Button
@@ -473,7 +473,11 @@ export function PreviewPanel() {
               {savingEdit ? (
                 <SpinnerGap size={12} className="animate-spin" />
               ) : null}
-              {savingEdit ? "Saving" : editJustSaved ? "Saved" : "Save"}
+              {savingEdit
+                ? t("filePreview.save.saving")
+                : editJustSaved
+                ? t("filePreview.save.saved")
+                : t("filePreview.save.idle")}
             </Button>
           </>
         )}
@@ -485,7 +489,7 @@ export function PreviewPanel() {
             ) : (
               <Copy size={14} />
             )}
-            <span className="sr-only">Copy content</span>
+            <span className="sr-only">{t("filePreview.copyContent")}</span>
           </Button>
         )}
 
@@ -499,20 +503,20 @@ export function PreviewPanel() {
             size="icon-sm"
             onClick={handleExportLongShot}
             disabled={exporting}
-            title="Export long screenshot"
+            title={t("filePreview.exportLongScreenshot")}
           >
             {exporting ? (
               <SpinnerGap size={14} className="animate-spin" />
             ) : (
               <ImageIcon size={14} />
             )}
-            <span className="sr-only">Export long screenshot</span>
+            <span className="sr-only">{t("filePreview.exportLongScreenshot")}</span>
           </Button>
         )}
 
         <Button variant="ghost" size="icon-sm" onClick={handleClose}>
           <X size={14} />
-          <span className="sr-only">Close preview</span>
+          <span className="sr-only">{t("filePreview.closePreview")}</span>
         </Button>
       </div>
 
@@ -642,6 +646,7 @@ function ViewModeToggle({
   onChange: (v: ViewMode) => void;
   editable: boolean;
 }) {
+  const { t } = useTranslation();
   const pill = (mode: ViewMode, label: string, highlighted: boolean) => (
     <Button
       variant="ghost"
@@ -659,9 +664,9 @@ function ViewModeToggle({
   return (
     <div className="flex h-6 items-center rounded-full bg-muted p-0.5 text-[11px]">
       {editable
-        ? pill("edit", "Edit", value === "edit" || value === "source")
-        : pill("source", "Source", value === "source")}
-      {pill("rendered", "Preview", value === "rendered")}
+        ? pill("edit", t("filePreview.viewMode.edit"), value === "edit" || value === "source")
+        : pill("source", t("filePreview.viewMode.source"), value === "source")}
+      {pill("rendered", t("filePreview.viewMode.preview"), value === "rendered")}
     </div>
   );
 }

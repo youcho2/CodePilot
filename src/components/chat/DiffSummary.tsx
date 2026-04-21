@@ -10,6 +10,7 @@ import {
   ArtifactDescription,
   ArtifactContent,
 } from '@/components/ai-elements/artifact';
+import { useTranslation } from '@/hooks/useTranslation';
 
 /**
  * Per-row metadata produced by MessageItem when an assistant turn writes or
@@ -87,6 +88,7 @@ function ArtifactFileCard({
   onPreview?: (file: DiffFile) => void;
   onExportLongShot?: (file: DiffFile) => void;
 }) {
+  const { t } = useTranslation();
   const ext = getExt(file.name);
   const canPreview = !!onPreview && PREVIEWABLE.has(ext);
   const canExport = !!onExportLongShot && LONGSHOT.has(ext);
@@ -129,7 +131,7 @@ function ArtifactFileCard({
               className="gap-1.5"
             >
               <Eye size={14} />
-              Open preview
+              {t('diffSummary.openPreview')}
             </Button>
           )}
           {canExport && (
@@ -140,7 +142,7 @@ function ArtifactFileCard({
               className="gap-1.5"
             >
               <Image size={14} />
-              Export long shot
+              {t('diffSummary.exportLongShot')}
             </Button>
           )}
         </ArtifactContent>

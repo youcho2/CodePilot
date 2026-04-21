@@ -273,6 +273,18 @@ const zh: Record<TranslationKey, string> = {
   'filePreview.sandpackLoading': '正在加载沙箱…',
   'filePreview.sandpackError': '沙箱加载失败：{error}',
   'filePreview.aliasNotSupported': '此文件使用了 `@/` 路径别名，预览仅编译外部 npm 依赖。',
+  'filePreview.viewMode.edit': '编辑',
+  'filePreview.viewMode.source': '源码',
+  'filePreview.viewMode.preview': '预览',
+  'filePreview.save.idle': '保存',
+  'filePreview.save.saving': '保存中',
+  'filePreview.save.saved': '已保存',
+  'filePreview.save.unsaved': '未保存修改',
+  'filePreview.copyContent': '复制内容',
+  'filePreview.exportLongScreenshot': '导出长图',
+  'filePreview.closePreview': '关闭预览',
+  'diffSummary.openPreview': '预览',
+  'diffSummary.exportLongShot': '导出长图',
 
   // ── File tree actions (Phase 4) ─────────────────────────────
   'fileTree.sectionTitle': '文件',
