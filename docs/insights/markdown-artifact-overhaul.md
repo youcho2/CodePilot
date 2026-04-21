@@ -1,7 +1,7 @@
 # Markdown / Artifact 体系重构 — 产品思考
 
-> 对应执行计划：[docs/exec-plans/active/markdown-artifact-overhaul.md](../exec-plans/active/markdown-artifact-overhaul.md)
-> 对应交接文档：[docs/handover/markdown-artifact-overhaul.md](../handover/markdown-artifact-overhaul.md)（Phase 5 结束后补写）
+> 技术实现见 [docs/handover/markdown-artifact-overhaul.md](../handover/markdown-artifact-overhaul.md)
+> 执行计划归档于 [docs/exec-plans/completed/markdown-artifact-overhaul.md](../exec-plans/completed/markdown-artifact-overhaul.md)
 
 这份文档回答"为什么这样做，而不是其他方式"。技术细节看执行计划；本文只写思路。
 

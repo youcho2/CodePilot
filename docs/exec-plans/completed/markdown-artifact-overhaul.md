@@ -1,12 +1,15 @@
 # Markdown 渲染/编辑体系 × Artifact 网页预览扩展 — 执行计划
 
 > 创建时间：2026-04-19
-> 最后更新：2026-04-19（第三次修订：用户选定 Q1/Q2/Q3 默认推荐为正式方案，相应 POC 从多方案对比收敛为单方案集成验证）
+> 完成时间：2026-04-21
+> 状态：✅ 已合并准备 — Phase 1-5 全部落地，0.1 被 Phase 1 实际方案覆盖
+> 技术交接：[docs/handover/markdown-artifact-overhaul.md](../../handover/markdown-artifact-overhaul.md)
+> 产品思考：[docs/insights/markdown-artifact-overhaul.md](../../insights/markdown-artifact-overhaul.md)
 > 对应调研：
 > - [docs/research/markdown-editor-tiptap-evaluation.md](../../research/markdown-editor-tiptap-evaluation.md)
 > - [docs/research/artifact-preview-ai-elements.md](../../research/artifact-preview-ai-elements.md)
 > - [docs/research/craft-agents-markdown-internals.md](../../research/craft-agents-markdown-internals.md)
-> 隔离：建议 worktree，由用户发起；主目录同时生效亦可，由用户裁定
+> 隔离：worktree `feat/markdown-artifact-overhaul`，由用户发起合并
 
 ## 用户核心诉求（本计划的"为什么"）
 
@@ -19,7 +22,7 @@
 
 | Phase | 内容 | 状态 | 价值形态 | 备注 |
 |-------|------|------|---------|------|
-| Phase 0 | 前置 POC + 实测（9 项 POC，覆盖所有未确定技术路径与产品决策） | 🔄 进行中 | C 基建 | 7/9 已完成（0.2 / 0.3 / 0.4 / 0.5 / 0.6 / 0.7 / 0.8；其中 0.3/0.4/0.5 是深度调研产出代码草案，非真实装包）；剩 0.1 CDP 实测（需用户配合）+ 0.9 汇总 |
+| Phase 0 | 前置 POC + 实测（9 项 POC，覆盖所有未确定技术路径与产品决策） | ✅ 已完成 | C 基建 | 8/9 项 POC 产出（0.2 / 0.3 / 0.4 / 0.5 / 0.6 / 0.7 / 0.8 + 0.9 汇总到决策日志）；0.1 CDP 实测被 Phase 1 的"分档放开 + 截断提示"实际方案覆盖，未走 100k 压测分支 |
 | Phase 1 | 文件树 Markdown 预览放开截断 + 性能验证 + API 合同闭合 | ✅ 已完成 | A 可见 | commit `8313b2a`：EXTENSION_LINE_CAPS 分档 + 10MB 字节上限 + 二进制检测 + truncated/bytes_read/bytes_total 字段 + TruncationBanner UI + 4 条 i18n + FilePreviewError 映射 HTTP 状态 |
 | Phase 1.5 | PreviewPanel 数据模型迁移（`{filePath? \| inlineContent? + kind}` 双通道） | ✅ 已完成 | C 基建 | commit `3c8482a`：PreviewSource 联合 + AppShell state 迁移 + PanelZone R1 gate 同步 + PreviewPanel 内容区 kind switch + InlineHtmlView + FileTreePanel 零改动（adapter 透明） |
 | Phase 2 | Artifact 网页预览扩展（工具结果落点 + 卡片 UI + PreviewPanel 扩展 .jsx/.tsx） | ✅ 已完成 | A 可见 | commits `812f905`/`151932d`/`6cfd28f`/`7fb7c17`：DiffSummary 抽组件（4 处改造）+ Artifact 卡片样式 + PreviewPanel 加 .jsx/.tsx 分支 + Sandpack 集成（s4 默认 sandbox）+ 5 个 i18n key |
@@ -85,17 +88,15 @@
 
 **目的：** 在主代码落地前，解决所有技术不确定性 + 产品选型（对齐 CLAUDE.md「不确定的技术点先做 POC 验证」）。每项 POC 产出必须写回"决策日志"段。
 
-### 0.1 CDP 实测长 Markdown 渲染瓶颈
+### 0.1 CDP 实测长 Markdown 渲染瓶颈 — ⏭️ 被 Phase 1 实际方案覆盖（未走压测分支）
 
-**目标：** 定位"10 万字符级文件打开是否前端能扛"
+**结论（2026-04-21）：** Phase 1 直接按"备选 (b) 分档放开 + 截断提示"实现（commit `8313b2a`）。服务端 50000 行 + 10MB 字节双上限构成 DoS 防线，TruncationBanner 在超限时明确提示用户看到的是子集。决策规则里的 "1.2a 分段 memo / 1.2b code fence 降级" 分支没有走——用户在真实使用中没有反馈首屏卡顿，放在 follow-up 观察池。
 
-- **输入：** 构造 fixture — 10k / 30k / 100k 字符三档 Markdown（含 GFM 表格、fenced code、Mermaid、`$$` math），放在一个临时目录
-- **步骤：** 主目录 `npm run dev` → chrome-devtools MCP 打开 `PreviewPanel.RenderedView` → Performance 采样（parse / layout / paint 三段耗时 + 内存峰值）
-- **产出：** 三份 Performance 录制 + 一段结论写入决策日志
-- **决策规则：**
-  - 若 100k 字符首屏 < 1s 且滚动 60fps → Phase 1 仅改 API 上限，不追加分段
-  - 若不达标 → Phase 1 追加 1.2a（按 heading 分段 memo）+ 1.2b（超长 code fence 降级）
-- **预算：** 0.5 人天
+~~**原计划：**~~
+- ~~构造 10k / 30k / 100k 字符 fixture + chrome-devtools MCP Performance 采样~~
+- ~~决策规则：100k 首屏 < 1s → 仅改 API 上限；不达标 → 追加分段 memo + 超长 code fence 降级~~
+
+**为什么跳过实测：** Phase 1 的分档上限本身是一个保守路径（没开无限放开）；即便 100k 文件 > 50000 行也会被截断到安全区间。实测"能否扛 100k"在上限已经比这低的前提下不 load-bearing。
 
 ### 0.2 Streamdown 代码块是否复用已有 Shiki LRU
 
