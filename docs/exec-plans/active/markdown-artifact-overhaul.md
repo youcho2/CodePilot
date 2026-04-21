@@ -196,12 +196,12 @@
      <DiffSummary
        files={modifiedFiles}
        onPreview?: (file: ModifiedFile) => void;          // 按扩展名决定行内是否显示"预览"按钮
-       onExportLongShot?: (file: ModifiedFile) => void;   // 仅 HTML/JSX/TSX 类扩展显示
+       onExportLongShot?: (file: ModifiedFile) => void;   // 仅 HTML 类扩展显示（见按钮可见性规则）
      />
      ```
   4. 定义按钮可见性规则：
-     - `.md` / `.mdx` / `.html` / `.htm` / `.jsx` / `.tsx` → 行内显示"预览"
-     - `.html` / `.htm` / `.jsx` / `.tsx` → 额外显示"导出长图"（Phase 3 完成后生效）
+     - `.md` / `.mdx` / `.html` / `.htm` / `.jsx` / `.tsx` / `.csv` / `.tsv` → 行内显示"预览"
+     - `.html` / `.htm` → 额外显示"导出长图"（JSX/TSX 当前会导出源码截图，等 Sandpack→HTML 捕获路径落地再放开）
      - 其他扩展 → 保留原 diff 摘要样式，不加按钮
   5. 做 mock UI：一张列表同时包含"可预览+导出"行、"仅可预览"行、"仅 diff 摘要"行
   6. CDP 下实测交互连贯性：点击预览行→PreviewPanel 打开；点击仅 diff 行→现有行为不变
@@ -484,8 +484,11 @@ function getExt(name: string): string {
   const i = name.lastIndexOf('.');
   return i >= 0 ? name.slice(i).toLowerCase() : '';
 }
-const PREVIEWABLE = new Set(['.md', '.mdx', '.html', '.htm', '.jsx', '.tsx']);
-const LONGSHOT    = new Set(['.html', '.htm', '.jsx', '.tsx']);
+const PREVIEWABLE = new Set(['.md', '.mdx', '.html', '.htm', '.jsx', '.tsx', '.csv', '.tsv']);
+const LONGSHOT    = new Set(['.html', '.htm']);
+// .jsx/.tsx 不在 LONGSHOT：当前导出管线把原文送进隐藏 BrowserWindow，
+// TSX 原文是源码而不是渲染页面，会导出一张源码截图。Sandpack→HTML
+// 的捕获路径（POC 0.3 §X-jsx-1 / X-jsx-2）落地后再放开。
 ```
 
 - `onPreview && PREVIEWABLE.has(ext)` → 显示"预览"
