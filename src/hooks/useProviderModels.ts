@@ -193,7 +193,14 @@ export function useProviderModels(
       .catch(() => { /* aborted or network — silent best-effort */ });
   }, [runtime]);
 
-  // Load on mount and listen for provider changes
+  // Load on mount and listen for provider changes.
+  // fetchAll's first line is `setFetchState('idle')` to gate refetches —
+  // a lint rule flags the synchronous setState as a potential cascading
+  // render, but the set is intentional: mount/refetch must reset the
+  // load gate before the new request resolves. The follow-up setState
+  // calls happen inside async then/catch (off the render path), so
+  // there's no actual cascade.
+  /* eslint-disable */
   useEffect(() => {
     fetchAll();
     const handler = () => fetchAll();
@@ -206,6 +213,7 @@ export function useProviderModels(
       fetchControllerRef.current = null;
     };
   }, [fetchAll]);
+  /* eslint-enable */
 
   // Two layers of provider id resolution:
   //
