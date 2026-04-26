@@ -33,6 +33,7 @@ import { setLastGeneratedImages, loadLastGenerated } from '@/lib/image-ref-store
 import { useChatCommands } from '@/hooks/useChatCommands';
 import { useAssistantTrigger } from '@/hooks/useAssistantTrigger';
 import { useStreamSubscription } from '@/hooks/useStreamSubscription';
+import { useProviderModels } from '@/hooks/useProviderModels';
 import {
   startStream,
   stopStream,
@@ -127,15 +128,60 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
   }, []);
   const [mode, setMode] = useState<string>(initialMode || 'code');
   const [currentModel, setCurrentModel] = useState(() => modelName || (typeof window !== 'undefined' ? localStorage.getItem('codepilot:last-model') : null) || 'sonnet');
-  const [currentProviderId, setCurrentProviderId] = useState(() => providerId || (typeof window !== 'undefined' ? localStorage.getItem('codepilot:last-provider-id') : null) || '');
+  // providerId='' is a LEGITIMATE historic env-mode session value — only
+  // fall back to localStorage when the prop wasn't supplied at all
+  // (undefined). Treating '' as falsy here would let localStorage's
+  // last-used provider hijack a saved env session.
+  const [currentProviderId, setCurrentProviderId] = useState(() =>
+    providerId !== undefined
+      ? providerId
+      : (typeof window !== 'undefined' ? localStorage.getItem('codepilot:last-provider-id') : null) || ''
+  );
   const [selectedEffort, setSelectedEffort] = useState<string | undefined>(undefined);
   const [thinkingMode, setThinkingMode] = useState<string>('adaptive');
   const [context1m, setContext1m] = useState(false);
   const [hasSummary, setHasSummary] = useState(initialHasSummary || false);
 
-  // Sync model/provider when session data loads
+  // Sync model/provider when session data loads. providerId='' is a
+  // valid env-mode session value (Codex P1 review) — guard with
+  // `!== undefined` rather than truthiness so an env session prop can
+  // overwrite a localStorage-seeded non-empty currentProviderId.
   useEffect(() => { if (modelName) setCurrentModel(modelName); }, [modelName]);
-  useEffect(() => { if (providerId) setCurrentProviderId(providerId); }, [providerId]);
+  useEffect(() => { if (providerId !== undefined) setCurrentProviderId(providerId); }, [providerId]);
+
+  // Single runtime-filtered source of truth. We don't just check
+  // noCompatibleProvider — we also use the resolved pair so the saved
+  // session's (provider, model) flows through the runtime gate even
+  // when the gate produced a fallback group (e.g. session saved
+  // OpenRouter but runtime=claude_code drops it; resolver routes to
+  // env). Sending the raw currentProviderId/currentModel in that case
+  // would let the backend re-resolve and silently use env defaults —
+  // exactly the cross-wire we're closing.
+  const {
+    noCompatibleProvider,
+    fetchState: providerFetchState,
+    resolvedProviderId,
+    resolvedModel,
+    providerWasFilteredOut,
+  } = useProviderModels(currentProviderId, currentModel);
+
+  // When the runtime filter substituted a different provider for the
+  // saved one, sync DB + local state so picker label, send wire, and
+  // chat_sessions row all agree. Only after fetch is `loaded` (skip on
+  // failure to avoid stomping saved state when API is briefly down).
+  useEffect(() => {
+    if (providerFetchState !== 'loaded') return;
+    if (!providerWasFilteredOut) return;
+    if (!resolvedProviderId || !resolvedModel) return;
+    if (resolvedProviderId === currentProviderId && resolvedModel === currentModel) return;
+    setCurrentProviderId(resolvedProviderId);
+    setCurrentModel(resolvedModel);
+    fetch(`/api/chat/sessions/${sessionId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model: resolvedModel, provider_id: resolvedProviderId }),
+    }).catch(() => {});
+  }, [providerFetchState, providerWasFilteredOut, resolvedProviderId, resolvedModel, currentProviderId, currentModel, sessionId]);
 
   // Fetch provider-specific options (with abort to prevent stale responses on fast switch)
   useEffect(() => {
@@ -486,8 +532,10 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
     workingDirectory,
     isStreaming,
     mode,
-    currentModel,
-    currentProviderId,
+    resolvedModel,
+    resolvedProviderId,
+    noCompatibleProvider,
+    fetchState: providerFetchState,
     initialMessages,
     handleModeChange,
     buildThinkingConfig,
@@ -622,17 +670,48 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
   /** Start an API stream for the given content. Does NOT add a user message to the list. */
   const doStartStream = useCallback(
     (content: string, files?: FileAttachment[], systemPromptAppend?: string, displayOverride?: string, mentions?: MentionRef[]) => {
+      // Guard 1: idle = picker feed hasn't loaded yet. We don't know
+      // what the runtime gate would have done with the saved pair, so
+      // we can't safely fire — letting it through with raw values
+      // would let a stale incompatible pair reach /api/chat where it
+      // gets re-resolved against env defaults. Block until loaded.
+      if (providerFetchState === 'idle') {
+        console.warn('[ChatView] startStream suppressed: provider feed still loading');
+        return;
+      }
+      // Guard 2: refuse when the active runtime has no compatible
+      // provider at all (catch-all for empty filtered set).
+      if (noCompatibleProvider) {
+        console.warn('[ChatView] startStream suppressed: no provider compatible with active runtime');
+        return;
+      }
+      // Guard 3: only after fetch settles, refuse when resolved pair is
+      // empty. failed branch (API down) still has the synthetic env
+      // group from the catch path, so resolved pair stays populated.
+      if (providerFetchState === 'loaded' && (!resolvedProviderId || !resolvedModel)) {
+        console.warn('[ChatView] startStream suppressed: resolved provider/model is empty');
+        return;
+      }
       const notices = pendingImageNoticesRef.current.length > 0
         ? [...pendingImageNoticesRef.current]
         : undefined;
       if (notices) pendingImageNoticesRef.current = [];
 
+      // Wire decision:
+      //   - loaded → use resolved pair (runtime-filtered truth).
+      //   - failed → fall back to raw currentModel/currentProviderId.
+      //     The catch-branch env synthetic also surfaces via resolved,
+      //     so this fallback only triggers in the rare case where the
+      //     resolved fields haven't populated yet on a failure path.
+      // (idle is already gated above, never reaches here.)
+      const sendModel = providerFetchState === 'loaded' ? resolvedModel : (resolvedModel || currentModel);
+      const sendProviderId = providerFetchState === 'loaded' ? resolvedProviderId : (resolvedProviderId || currentProviderId);
       startStream({
         sessionId,
         content,
         mode,
-        model: currentModel,
-        providerId: currentProviderId,
+        model: sendModel,
+        providerId: sendProviderId,
         files,
         systemPromptAppend,
         pendingImageNotices: notices,
@@ -656,11 +735,26 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
         },
       });
     },
-    [sessionId, mode, currentModel, currentProviderId, selectedEffort, context1m, buildThinkingConfig, handleModeChange]
+    [sessionId, mode, currentModel, currentProviderId, selectedEffort, context1m, buildThinkingConfig, handleModeChange, noCompatibleProvider, providerFetchState, resolvedProviderId, resolvedModel]
   );
 
   const sendMessage = useCallback(
     async (content: string, files?: FileAttachment[], systemPromptAppend?: string, displayOverride?: string, mentions?: MentionRef[]) => {
+      // Hoist provider-state guards above message append. Without this
+      // sendMessage would write a user bubble into the local list and
+      // *then* doStartStream would refuse to fire — leaving the user
+      // staring at their own message with no response. Auto-trigger /
+      // command paths can reach this even when MessageInput is disabled,
+      // so the early-outs have to live here too.
+      if (providerFetchState === 'idle') {
+        console.warn('[ChatView] sendMessage suppressed: provider feed still loading');
+        return;
+      }
+      if (noCompatibleProvider) {
+        console.warn('[ChatView] sendMessage suppressed: no provider compatible with active runtime');
+        return;
+      }
+
       const displayUserContent = displayOverride || content;
       let displayContent = displayUserContent;
       if (files && files.length > 0) {
@@ -701,7 +795,7 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
       cappedSetMessages((prev) => [...prev, userMessage]);
       doStartStream(content, files, systemPromptAppend, displayOverride, mentions);
     },
-    [sessionId, isStreaming, doStartStream, cappedSetMessages]
+    [sessionId, isStreaming, doStartStream, cappedSetMessages, noCompatibleProvider, providerFetchState]
   );
 
   sendMessageRef.current = sendMessage;
@@ -709,6 +803,17 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
   // ── Dequeue: when streaming finishes and queue is non-empty, send next ──
   useEffect(() => {
     if (!isStreaming && messageQueue.length > 0 && !dequeuingRef.current) {
+      // Same hoisted guards as sendMessage. Idle = wait (re-runs when
+      // fetchState transitions). noCompatible = drop the queue so it
+      // doesn't loop on a provider that's never coming back.
+      if (providerFetchState === 'idle') {
+        return;
+      }
+      if (noCompatibleProvider) {
+        console.warn('[ChatView] dequeue suppressed: no provider compatible with active runtime');
+        setMessageQueue([]);
+        return;
+      }
       dequeuingRef.current = true;
       const [next, ...rest] = messageQueue;
       setMessageQueue(rest);
@@ -733,7 +838,7 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
     if (isStreaming) {
       dequeuingRef.current = false;
     }
-  }, [isStreaming, messageQueue, doStartStream, cappedSetMessages, sessionId]);
+  }, [isStreaming, messageQueue, doStartStream, cappedSetMessages, sessionId, noCompatibleProvider, providerFetchState]);
 
   // Expose widget drill-down bridge: widgets can call window.__widgetSendMessage(text)
   // to trigger follow-up questions (e.g. clicking a node to get deeper explanation)
@@ -991,7 +1096,7 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
         onSend={sendMessage}
         onCommand={handleCommand}
         onStop={stopStreaming}
-        disabled={false}
+        disabled={noCompatibleProvider || providerFetchState === 'idle'}
         isStreaming={isStreaming}
         sessionId={sessionId}
         modelName={currentModel}

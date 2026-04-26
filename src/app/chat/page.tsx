@@ -55,6 +55,11 @@ export default function NewChatPage() {
   const [errorBanner, setErrorBanner] = useState<{ message: string; description?: string } | null>(null);
   const [recentProjects, setRecentProjects] = useState<string[]>([]);
   const [hasProvider, setHasProvider] = useState(true); // assume true until checked
+  // True when the runtime-filtered /api/providers/models call succeeded
+  // but returned an empty list — i.e. user has providers configured but
+  // none are compatible with the active runtime. Distinct from
+  // !hasProvider (no provider at all). Send is gated, picker shows empty.
+  const [noCompatibleProvider, setNoCompatibleProvider] = useState(false);
   const [showWizard, setShowWizard] = useState(false);
   const [assistantConfigured, setAssistantConfigured] = useState(false);
   const [assistantWorkspacePath, setAssistantWorkspacePath] = useState('');
@@ -114,13 +119,27 @@ export default function NewChatPage() {
   useEffect(() => {
     let cancelled = false;
 
-    // Fetch models and global default in parallel
-    const modelsP = fetch('/api/providers/models').then(r => r.ok ? r.json() : null);
+    // Fetch models (runtime-filtered) and global default in parallel.
+    // `?runtime=auto` lets the server resolve the active runtime + filter
+    // out groups/models the chat path can't reach. Without this, the new-
+    // session validation below could lock onto a CodePilot-only provider
+    // while the active runtime is Claude Code, then race with the
+    // composer hook's auto-correct.
+    const modelsP = fetch('/api/providers/models?runtime=auto').then(r => r.ok ? r.json() : null);
     const globalP = fetch('/api/providers/options?providerId=__global__').then(r => r.ok ? r.json() : null);
 
     Promise.all([modelsP, globalP]).then(([modelsData, globalData]) => {
-      if (cancelled || !modelsData?.groups || modelsData.groups.length === 0) {
-        // No provider data — fall back to localStorage best-effort
+      if (cancelled) return;
+      // Three outcomes from a runtime-filtered fetch:
+      //   1. API unreachable / malformed → fall back to localStorage so
+      //      the picker still has *something* to show.
+      //   2. Groups present → run validation chain below.
+      //   3. Groups present but empty array → meaningful "no provider
+      //      compatible with the active runtime" state. Don't restore
+      //      the saved provider/model from localStorage — that would
+      //      put back the very combination the runtime gate just
+      //      filtered out. Clear and let the empty-state UI surface.
+      if (!modelsData?.groups) {
         const savedModel = localStorage.getItem('codepilot:last-model') || 'sonnet';
         const savedProvider = localStorage.getItem('codepilot:last-provider-id') || '';
         setCurrentModel(savedModel);
@@ -128,6 +147,16 @@ export default function NewChatPage() {
         setModelReady(true);
         return;
       }
+      if (modelsData.groups.length === 0) {
+        setCurrentModel('');
+        setCurrentProviderId('');
+        setNoCompatibleProvider(true);
+        setModelReady(true);
+        return;
+      }
+      // Non-empty result — clear any previously-set noCompatibleProvider
+      // flag in case the user just connected / enabled a compatible model.
+      setNoCompatibleProvider(false);
       const groups = modelsData.groups as Array<{ provider_id: string; models: Array<{ value: string }> }>;
       const globalDefaultModel = globalData?.options?.default_model || '';
       const globalDefaultProvider = globalData?.options?.default_model_provider || '';
@@ -284,15 +313,33 @@ export default function NewChatPage() {
       // Sync provider/model, applying global default model for new conversations.
       const savedProviderId = localStorage.getItem('codepilot:last-provider-id');
 
-      // Fetch models + global default in parallel
-      const modelsP = fetch('/api/providers/models').then(r => r.ok ? r.json() : null);
+      // Fetch models + global default in parallel. Same runtime gating as
+      // the initial-load branch above: server resolves active runtime so
+      // the saved provider/model only validate against what the chat path
+      // can actually reach.
+      const modelsP = fetch('/api/providers/models?runtime=auto').then(r => r.ok ? r.json() : null);
       const globalP = fetch('/api/providers/options?providerId=__global__').then(r => r.ok ? r.json() : null);
 
       Promise.all([modelsP, globalP]).then(([modelsData, globalData]) => {
-        if (!modelsData?.groups || modelsData.groups.length === 0) {
+        // Distinguish failure (modelsData null) from valid empty result.
+        // Failure → keep existing state, just unlock send. Valid empty
+        // (runtime filter dropped every group) → clear stale provider/
+        // model so we don't leak the just-filtered-out combination back
+        // into the picker; UI's empty state surfaces "no compatible
+        // provider for this runtime".
+        if (!modelsData?.groups) {
           setModelReady(true);
           return;
         }
+        if (modelsData.groups.length === 0) {
+          setCurrentProviderId('');
+          setCurrentModel('');
+          setNoCompatibleProvider(true);
+          setModelReady(true);
+          return;
+        }
+        // Non-empty result — clear stale noCompatibleProvider flag.
+        setNoCompatibleProvider(false);
         const groups = modelsData.groups as Array<{ provider_id: string; models: Array<{ value: string }> }>;
         const globalDefaultModel = globalData?.options?.default_model || '';
         const globalDefaultProvider = globalData?.options?.default_model_provider || '';
@@ -436,6 +483,20 @@ export default function NewChatPage() {
       // Wait for model/provider to be resolved from the global default before allowing send
       if (!modelReady) return;
 
+      // Block send when the runtime-filtered API returned an empty group
+      // list — user has providers but none are compatible with the
+      // active runtime. Without this gate, sendFirstMessage would post
+      // `model: '', provider_id: ''` to /api/chat/sessions and the server
+      // would resolve them via the env-default chain, silently bypassing
+      // the runtime gate that just hid every option in the picker.
+      if (noCompatibleProvider) {
+        setErrorBanner({
+          message: t('error.providerUnavailable'),
+          description: t('chat.empty.noProvider'),
+        });
+        return;
+      }
+
       // Require a project directory before sending
       if (!workingDir.trim()) {
         setErrorBanner({ message: t('chat.empty.noDirectory') });
@@ -444,6 +505,17 @@ export default function NewChatPage() {
 
       // Require a provider before sending
       if (!hasProvider) {
+        setErrorBanner({
+          message: t('error.providerUnavailable'),
+          description: t('chat.empty.noProvider'),
+        });
+        return;
+      }
+
+      // Defense in depth: even if other gates pass, never POST an empty
+      // model+provider pair — the server would fall back to env defaults
+      // and re-introduce the cross-wire we're trying to prevent.
+      if (!currentModel || !currentProviderId) {
         setErrorBanner({
           message: t('error.providerUnavailable'),
           description: t('chat.empty.noProvider'),
@@ -770,7 +842,7 @@ export default function NewChatPage() {
         abortControllerRef.current = null;
       }
     },
-    [isStreaming, router, workingDir, mode, currentModel, currentProviderId, permissionProfile, selectedEffort, thinkingMode, context1m, setPendingApprovalSessionId, t, hasProvider, modelReady]
+    [isStreaming, router, workingDir, mode, currentModel, currentProviderId, permissionProfile, selectedEffort, thinkingMode, context1m, setPendingApprovalSessionId, t, hasProvider, modelReady, noCompatibleProvider]
   );
 
   const handleCommand = useCallback((command: string) => {
@@ -869,7 +941,7 @@ export default function NewChatPage() {
         onSend={sendFirstMessage}
         onCommand={handleCommand}
         onStop={stopStreaming}
-        disabled={!modelReady}
+        disabled={!modelReady || noCompatibleProvider}
         isStreaming={isStreaming}
         modelName={currentModel}
         onModelChange={setCurrentModel}

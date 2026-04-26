@@ -19,7 +19,18 @@
  *     'auto' through and lets the server decide
  */
 
-import { resolveRuntime } from './runtime/registry';
+// Import from `./runtime` (the barrel index), NOT `./runtime/registry`
+// directly. The barrel performs `registerRuntime(nativeRuntime)` and
+// `registerRuntime(sdkRuntime)` as import-time side effects; pulling
+// resolveRuntime from `./runtime/registry` skips that registration and
+// makes resolveRuntime() throw "No agent runtime registered" on any
+// caller that hasn't already imported the barrel transitively.
+//
+// This bit `/api/providers/models?runtime=auto` (500 in dev): the route
+// only imports chat-runtime, not the barrel, so the registry was empty
+// when getActiveChatRuntime() fired. Routing every consumer through the
+// barrel guarantees registration before resolution.
+import { resolveRuntime } from './runtime';
 
 /** Two-state chat-side runtime label, aligned with ModelRuntimeCompat flags. */
 export type ChatRuntime = 'claude_code' | 'codepilot_runtime';

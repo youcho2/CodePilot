@@ -87,23 +87,6 @@ export function getModelCompat(args: {
     compat.thinking_capable = true;
   }
 
-  // Runtime gate. Anthropic-style aliases (sonnet/opus/haiku/claude-*) are
-  // first-class for Claude Code regardless of provider; everything else
-  // follows provider compat.
-  //
-  // The `includes('claude-')` branch covers OpenRouter / relay path forms
-  // like `anthropic/claude-3-opus` or `claude-sonnet-4-6@org`. Pure
-  // `startsWith` would miss those, leaving Anthropic models on aggregator
-  // providers wrongly gated out of the Claude Code runtime even though
-  // those aggregators do route to the Anthropic API. False-positive risk
-  // (a custom model with `-claude-` in its name) is acceptable given the
-  // alternative — silently hiding Anthropic models from Claude Code users.
-  const id = (modelId || '').toLowerCase();
-  const upstream = (upstreamModelId || '').toLowerCase();
-  const looksClaudeAlias = id === 'sonnet' || id === 'opus' || id === 'haiku'
-    || id.startsWith('claude-') || id.includes('/claude-')
-    || upstream.startsWith('claude-') || upstream.includes('/claude-');
-
   switch (providerCompat) {
     case 'claude_code_ready':
       // Anthropic official / Bedrock / Vertex — `@ai-sdk/anthropic` can also
@@ -126,11 +109,21 @@ export function getModelCompat(args: {
       compat.claude_code_compatible = true;
       break;
     case 'codepilot_only':
+      // Provider-layer codepilot_only means the provider doesn't speak the
+      // Claude Code wire format, period. We deliberately do NOT lift
+      // `anthropic/claude-*` rows back into `claude_code_compatible` here
+      // even though some aggregators (OpenRouter) expose an
+      // anthropic-compat endpoint — that exposes a hidden contradiction:
+      // the Provider Card / Models page label this provider "OpenAI 兼容"
+      // and the tooltip says "不进入 Claude Code 流程", but a smuggled
+      // claude alias would still surface in the Claude Code picker and
+      // route through a path the user didn't ask for.
+      // Users who want to use Claude models through OpenRouter / a relay
+      // should configure an explicit `anthropic-thirdparty` preset
+      // pointing at the relay's anthropic-compat endpoint — that maps to
+      // claude_code_experimental and is a single, coherent provider
+      // identity in the UI.
       compat.codepilot_runtime_compatible = true;
-      // Some OpenRouter / relay surfaces also expose Claude through their
-      // own SDK; mark Claude-alias rows as Claude-Code-compatible too so
-      // they don't get hidden when the user is on the Claude runtime.
-      if (looksClaudeAlias) compat.claude_code_compatible = true;
       break;
     case 'unknown':
       // We don't know the right answer — let the user verify. Both

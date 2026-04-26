@@ -47,6 +47,15 @@ import { prepareSdkSubprocessEnv } from './sdk-subprocess-env';
 // registry.ts only imports types/db/claude-settings — no cycle. The actual
 // runtime registration still happens elsewhere (runtime/index is imported
 // via its own entry points at app startup).
+// Import directly from registry — DO NOT switch this to the barrel
+// (`./runtime`). sdk-runtime.ts imports `streamClaudeSdk` from this
+// file; if claude-client also imports the barrel, the chain becomes
+// runtime/index.ts → sdk-runtime.ts → claude-client.ts → runtime/index.ts
+// (circular), and sdk-runtime is still mid-init when registerRuntime
+// reads it, surfacing as "Cannot access 'sdkRuntime' before initialization".
+// Safe because every caller of claude-client (chat route, bridge) imports
+// the barrel themselves, so the registry is already populated by the time
+// resolveRuntime() fires here.
 import { resolveRuntime, getRuntime } from './runtime/registry';
 import { detectTransport, isNativeCompatible } from './provider-transport';
 import os from 'os';

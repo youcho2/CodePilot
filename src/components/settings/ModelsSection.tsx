@@ -35,7 +35,7 @@ import {
 } from "@/components/ui/icon";
 import { useTranslation } from "@/hooks/useTranslation";
 import { getProviderIcon } from "./provider-presets";
-import { getProviderCompat, compatLabel, compatTone, compatTooltip } from "@/lib/runtime-compat";
+import { getProviderCompat, getModelCompat, compatLabel, compatTone, compatTooltip } from "@/lib/runtime-compat";
 import {
   Select,
   SelectContent,
@@ -289,14 +289,42 @@ export function ModelsSection() {
       }
       return { provider, models };
     });
-    // Runtime filter — drop entire provider sections that don't match. We
-    // gate at the provider level (not per-row) because compat is a provider
-    // attribute right now; per-model compat overlays will land later.
+    // Runtime filter — applied per row via getModelCompat. Provider compat
+    // and model compat are not the same thing: a `codepilot_only` provider
+    // could in principle hold a row whose catalog capability flags shift
+    // its model-layer compat (most don't today, but the data model allows
+    // it), and per-row evaluation keeps the filter honest as catalog
+    // capabilities get filled in. Empty bundles are dropped from the
+    // result so the page doesn't render a section header for a provider
+    // with zero matching rows.
     if (runtimeFilter !== 'all') {
-      bundlesOut = bundlesOut.filter(b => getProviderCompat({
-        provider_type: b.provider.provider_type,
-        base_url: b.provider.base_url,
-      }) === runtimeFilter);
+      bundlesOut = bundlesOut
+        .map(b => {
+          const providerCompat = getProviderCompat({
+            provider_type: b.provider.provider_type,
+            base_url: b.provider.base_url,
+          });
+          // Filter rows by checking each model's compat against the
+          // selected provider tier. The `runtimeFilter` value is a
+          // provider-tier label (e.g. `claude_code_verified`); a row
+          // belongs to the visible set when its provider lives in that
+          // tier AND `getModelCompat` doesn't strip it for being media.
+          const filteredModels = b.models.filter(m => {
+            if (providerCompat !== runtimeFilter) return false;
+            const cap = getModelCompat({
+              modelId: m.model_id,
+              upstreamModelId: m.upstream_model_id || undefined,
+              providerCompat,
+            });
+            // Drop media-only rows and rows that have no chat-side flag
+            // (a defensive zero-flag check; today this matches if a
+            // future capability ever marks a row entirely non-chat).
+            if (cap.media) return false;
+            return !!cap.claude_code_compatible || !!cap.codepilot_runtime_compatible;
+          });
+          return { provider: b.provider, models: filteredModels };
+        })
+        .filter(b => b.models.length > 0);
     }
     return bundlesOut;
   }, [providers, bundles, search, viewFilter, runtimeFilter]);
@@ -870,12 +898,20 @@ export function ModelsSection() {
                           </SelectTrigger>
                           <SelectContent>
                             <SelectItem value="__unset__">{isZh ? '未设置' : 'Not set'}</SelectItem>
-                            {allModels.map(m => (
-                              <SelectItem key={m.id} value={m.model_id}>
-                                {m.display_name || m.model_id}
-                                {m.enabled === 0 && (isZh ? ' (已隐藏)' : ' (hidden)')}
-                              </SelectItem>
-                            ))}
+                            {/* Enabled rows first, hidden rows after — order
+                                within each bucket follows the DB sort_order
+                                already returned by getAllModelsForProvider.
+                                Stable sort keeps the original ordering when
+                                `enabled` ties, so users still see their own
+                                Models-page reordering reflected here. */}
+                            {[...allModels]
+                              .sort((a, b) => (b.enabled ?? 0) - (a.enabled ?? 0))
+                              .map(m => (
+                                <SelectItem key={m.id} value={m.model_id}>
+                                  {m.display_name || m.model_id}
+                                  {m.enabled === 0 && (isZh ? ' (已隐藏)' : ' (hidden)')}
+                                </SelectItem>
+                              ))}
                           </SelectContent>
                         </Select>
                       </div>

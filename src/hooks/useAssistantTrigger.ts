@@ -73,8 +73,17 @@ interface UseAssistantTriggerOpts {
   workingDirectory?: string;
   isStreaming: boolean;
   mode: string;
-  currentModel: string;
-  currentProviderId: string;
+  /**
+   * Runtime-filtered resolved pair from useProviderModels. Auto-trigger
+   * uses these (not the raw currentModel/currentProviderId) so welcome /
+   * heartbeat messages flow through the same runtime gate as user-typed
+   * sends — otherwise a stale saved provider would silently route past
+   * the gate via env-default re-resolution at /api/chat.
+   */
+  resolvedModel: string;
+  resolvedProviderId: string;
+  noCompatibleProvider: boolean;
+  fetchState: 'idle' | 'loaded' | 'failed';
   initialMessages: Message[];
   handleModeChange: (mode: string) => void;
   buildThinkingConfig: () => { type: string } | undefined;
@@ -87,8 +96,10 @@ export function useAssistantTrigger({
   workingDirectory,
   isStreaming,
   mode,
-  currentModel,
-  currentProviderId,
+  resolvedModel,
+  resolvedProviderId,
+  noCompatibleProvider,
+  fetchState,
   initialMessages,
   handleModeChange,
   buildThinkingConfig,
@@ -118,6 +129,14 @@ export function useAssistantTrigger({
   const checkAssistantTrigger = useCallback(async () => {
     // Don't trigger if already streaming or already triggered in this mount
     if (isStreaming || assistantTriggerFiredRef.current) return;
+    // Don't trigger before the runtime-filtered picker feed has loaded —
+    // resolved pair would be the raw saved values, defeating the gate.
+    if (fetchState !== 'loaded') return;
+    // Don't trigger when no provider is compatible with the active runtime.
+    // Welcome / heartbeat would post a stale provider/model that the
+    // backend would silently re-resolve to env defaults.
+    if (noCompatibleProvider) return;
+    if (!resolvedProviderId || !resolvedModel) return;
 
     try {
       const res = await fetch('/api/settings/workspace');
@@ -229,8 +248,11 @@ export function useAssistantTrigger({
         sessionId,
         content: triggerMsg,
         mode,
-        model: currentModel,
-        providerId: currentProviderId,
+        // Use the runtime-filtered resolved pair, not the raw saved
+        // currentModel/currentProviderId — same contract as ChatView's
+        // user-typed send path.
+        model: resolvedModel,
+        providerId: resolvedProviderId,
         autoTrigger: true,
         thinking: buildThinkingConfig(),
         onModeChanged: (sdkMode) => {
@@ -248,7 +270,7 @@ export function useAssistantTrigger({
     } catch (e) {
       console.error('[useAssistantTrigger] Assistant auto-trigger failed:', e);
     }
-  }, [sessionId, workingDirectory, isStreaming, mode, currentModel, currentProviderId, handleModeChange, buildThinkingConfig, initialMessages, sendMessageRef, initMetaRef]);
+  }, [sessionId, workingDirectory, isStreaming, mode, resolvedModel, resolvedProviderId, noCompatibleProvider, fetchState, handleModeChange, buildThinkingConfig, initialMessages, sendMessageRef, initMetaRef]);
 
   // Fire with a small delay to let the session fully initialize
   useEffect(() => {

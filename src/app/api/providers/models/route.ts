@@ -323,14 +323,18 @@ export async function GET(request: NextRequest) {
     //      (their wire format requires the SDK subprocess), and never let
     //      media_only through (also caught at row layer below).
     //   2. Row layer: getModelCompat per model — drop media flags, drop
-    //      rows whose runtime flag isn't set. Keeps the alias lift behavior
-    //      (claude-* on codepilot_only providers stays claude_code_compatible).
+    //      rows whose runtime flag isn't set.
     //
-    // Empty groups are kept (`models: []`) so the picker can still surface
-    // the provider chip — caller decides whether to render an empty section.
-    // This matches `design.md` §"Filter precedence": hidden gates win first
-    // (already applied above), runtime filter narrows next, media never
-    // reaches chat surfaces.
+    // Empty groups are dropped from the response (not kept as `models: []`).
+    // Earlier behavior left them in so callers could still surface the
+    // provider chip, but `useProviderModels` would then fall back to the
+    // built-in DEFAULT_MODEL_OPTIONS for an empty currentGroup, silently
+    // cross-wiring an OpenRouter-selected provider with `sonnet` as the
+    // displayed model. Drop the empty group server-side; the picker simply
+    // won't render the provider that has zero compatible models in the
+    // active runtime. (Settings > Providers' global default selector calls
+    // /api/providers/models without `?runtime=`, so it still sees the
+    // unfiltered catalog — that path is unaffected.)
     let outGroups = groups;
     if (runtimeFilter) {
       outGroups = groups.map(g => {
@@ -355,7 +359,7 @@ export async function GET(request: NextRequest) {
             : !!cap.codepilot_runtime_compatible;
         });
         return { ...g, models: filteredModels };
-      });
+      }).filter(g => g.models.length > 0);
     }
 
     // Determine default provider — auto-heal stale references on read

@@ -1347,6 +1347,68 @@ describe('getProviderCompat tier mapping', () => {
 });
 
 // ────────────────────────────────────────────────────────────────
+// getModelCompat — model-layer flags
+// ────────────────────────────────────────────────────────────────
+//
+// Covers the alias-lift removal: codepilot_only providers no longer
+// re-flag their `claude-*` rows as claude_code_compatible. The provider
+// is "OpenAI 兼容" / "不进入 Claude Code 流程" at the UI layer; smuggling
+// claude aliases back into the Claude Code runtime would contradict that.
+
+describe('getModelCompat alias-lift removal (P2a regression)', () => {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { getModelCompat } = require('../../lib/runtime-compat');
+
+  it('codepilot_only + claude alias model id → NOT claude_code_compatible', () => {
+    const cap = getModelCompat({
+      modelId: 'anthropic/claude-3-opus',
+      providerCompat: 'codepilot_only',
+    });
+    assert.equal(cap.claude_code_compatible, undefined,
+      'no alias lift — codepilot_only provider keeps claude alias OFF the Claude Code runtime');
+    assert.equal(cap.codepilot_runtime_compatible, true,
+      'still reachable from the CodePilot runtime');
+  });
+
+  it('codepilot_only + bare sonnet alias → NOT claude_code_compatible', () => {
+    const cap = getModelCompat({
+      modelId: 'sonnet',
+      providerCompat: 'codepilot_only',
+    });
+    assert.equal(cap.claude_code_compatible, undefined);
+  });
+
+  it('claude_code_ready + any model → claude_code_compatible AND codepilot_runtime_compatible', () => {
+    const cap = getModelCompat({
+      modelId: 'claude-sonnet-4-6',
+      providerCompat: 'claude_code_ready',
+    });
+    assert.equal(cap.claude_code_compatible, true);
+    assert.equal(cap.codepilot_runtime_compatible, true);
+  });
+
+  it('claude_code_verified + any model → claude_code_compatible only', () => {
+    const cap = getModelCompat({
+      modelId: 'glm-5-turbo',
+      providerCompat: 'claude_code_verified',
+    });
+    assert.equal(cap.claude_code_compatible, true);
+    assert.equal(cap.codepilot_runtime_compatible, undefined,
+      'verified anthropic-compat presets are SDK-bound; not reachable from native runtime');
+  });
+
+  it('media_only → media flag, no chat flags', () => {
+    const cap = getModelCompat({
+      modelId: 'gemini-2.0-flash-exp-image-generation',
+      providerCompat: 'media_only',
+    });
+    assert.equal(cap.media, true);
+    assert.equal(cap.claude_code_compatible, undefined);
+    assert.equal(cap.codepilot_runtime_compatible, undefined);
+  });
+});
+
+// ────────────────────────────────────────────────────────────────
 // Runtime Compatibility Matrix — provider-resolver gating
 // ────────────────────────────────────────────────────────────────
 //
@@ -1371,12 +1433,18 @@ describe('provider-resolver runtime gate', () => {
     setSetting('default_model', savedDefaultModel || '');
   };
 
-  it('codepilot_runtime mode skips claude-code-only role default in fallback chain', () => {
+  it('codepilot_only provider in claude_code mode → final-final fallback (alias lift removed)', () => {
     setup();
-    // OpenRouter is `codepilot_only`. A claude-* alias on it is still
-    // claude_code_compatible (alias lift), but a non-Anthropic model id
-    // is `codepilot_runtime_compatible` only. With `runtime='claude_code'`
-    // the resolver must skip the role default and pick the visible alias.
+    // OpenRouter (`codepilot_only`) — after the alias lift was removed in
+    // runtime-compat.ts, NO row on this provider satisfies the
+    // `claude_code` runtime gate. The resolver's runtime-filtered chain
+    // (globalDefault → roleModels.default → setting → runtimeFilteredAvailable[0])
+    // therefore yields nothing, and falls through to the final-final
+    // `availableModels[0]` (without runtime gating) so the resolution is
+    // never empty. The wire-format mismatch surfaces at the chat route /
+    // SDK layer instead of inside the resolver. This keeps the resolver
+    // total — chat routes can still produce a usable ResolvedProvider
+    // even when there's no runtime-compatible candidate.
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { createProvider, deleteProvider, upsertProviderModel } = require('../../lib/db');
     const provider = createProvider({
@@ -1392,26 +1460,19 @@ describe('provider-resolver runtime gate', () => {
         upstream_model_id: 'meta-llama/llama-3.1-70b', display_name: 'Llama 3.1 70B',
         enabled: 1, source: 'manual', user_edited: 1, sort_order: 0,
       });
-      upsertProviderModel({
-        provider_id: provider.id, model_id: 'anthropic/claude-sonnet-4-6',
-        upstream_model_id: 'anthropic/claude-sonnet-4-6', display_name: 'Sonnet 4.6 via OR',
-        enabled: 1, source: 'manual', user_edited: 1, sort_order: 1,
-      });
 
       // No runtime gate → role default wins (legacy behavior).
       const noGate = resolveProvider({ providerId: provider.id });
       assert.equal(noGate.model, 'meta-llama/llama-3.1-70b',
         'without runtime gate, role default is honored');
 
-      // claude_code runtime → llama is codepilot_runtime_compatible only,
-      // skipped; claude-* alias picked as fallback.
+      // claude_code runtime → no compat candidate → final-final fallback to
+      // availableModels[0] (still gated by enabled=1, just not by runtime).
       const ccGate = resolveProvider({ providerId: provider.id, runtime: 'claude_code' });
-      assert.notEqual(ccGate.model, 'meta-llama/llama-3.1-70b',
-        'role default that is not claude_code_compatible must be skipped');
-      assert.equal(ccGate.model, 'anthropic/claude-sonnet-4-6',
-        'fallback picks the runtime-compatible model');
+      assert.equal(ccGate.model, 'meta-llama/llama-3.1-70b',
+        'final-final fallback when no row is claude_code_compatible');
 
-      // codepilot_runtime → llama works fine.
+      // codepilot_runtime → llama is codepilot_runtime_compatible, gate passes.
       const cpGate = resolveProvider({ providerId: provider.id, runtime: 'codepilot_runtime' });
       assert.equal(cpGate.model, 'meta-llama/llama-3.1-70b',
         'codepilot runtime keeps the codepilot_only role default');
@@ -1452,26 +1513,31 @@ describe('provider-resolver runtime gate', () => {
     }
   });
 
-  it('hidden + runtime guards stack in the fallback chain', () => {
+  it('hidden role slot stripped under claude_code runtime (experimental tier)', () => {
     setup();
-    // Hidden default + runtime-incompatible role default → both skipped,
-    // resolver lands on the runtime-compatible visible fallback.
+    // Use a generic anthropic-thirdparty wildcard provider — provider tier
+    // is `claude_code_experimental`, so EVERY model row is
+    // `claude_code_compatible` at the model layer. That isolates the
+    // hidden-slot strip behaviour from the runtime-incompat strip
+    // behaviour (which we cover with the codepilot_only test above):
+    // here the only thing that should remove a role slot is the hidden
+    // gate, and the runtime gate should be transparent.
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { createProvider, deleteProvider, upsertProviderModel } = require('../../lib/db');
     const provider = createProvider({
       name: '__test_runtime_stacked_guards__',
-      provider_type: 'openrouter',
-      base_url: 'https://openrouter.ai/api',
+      provider_type: 'anthropic',
+      base_url: 'https://generic-anthropic-thirdparty.example.com',
       api_key: 'test-key',
       role_models_json: JSON.stringify({
-        default: 'meta-llama/llama-3.1-70b', // codepilot_only — runtime-incompatible for claude_code
-        sonnet: 'hidden-row',                // hidden — both guards block
+        default: 'visible-default',
+        sonnet: 'hidden-row', // hidden — should be stripped from roleModels
       }),
     });
     try {
       upsertProviderModel({
-        provider_id: provider.id, model_id: 'meta-llama/llama-3.1-70b',
-        upstream_model_id: 'meta-llama/llama-3.1-70b', display_name: 'Llama',
+        provider_id: provider.id, model_id: 'visible-default',
+        upstream_model_id: 'visible-default', display_name: 'Visible',
         enabled: 1, source: 'manual', user_edited: 1, sort_order: 0,
       });
       upsertProviderModel({
@@ -1479,30 +1545,23 @@ describe('provider-resolver runtime gate', () => {
         upstream_model_id: 'hidden-row', display_name: 'Hidden Row',
         enabled: 0, source: 'manual', user_edited: 1, sort_order: 1,
       });
-      upsertProviderModel({
-        provider_id: provider.id, model_id: 'anthropic/claude-haiku-4-5',
-        upstream_model_id: 'anthropic/claude-haiku-4-5', display_name: 'Haiku',
-        enabled: 1, source: 'manual', user_edited: 1, sort_order: 2,
-      });
 
       const resolved = resolveProvider({
         providerId: provider.id,
         runtime: 'claude_code',
       });
-      assert.equal(resolved.model, 'anthropic/claude-haiku-4-5',
-        'hidden sonnet AND runtime-incompatible default both skipped');
+      assert.equal(resolved.model, 'visible-default',
+        'visible default is honored under runtime gate (experimental tier passes)');
       assert.equal(resolved.roleModels.sonnet, undefined,
         'hidden sonnet slot stripped from roleModels');
-      assert.notEqual(resolved.roleModels.default, 'meta-llama/llama-3.1-70b',
-        'runtime-incompatible default slot stripped from roleModels');
+      assert.equal(resolved.roleModels.default, 'visible-default',
+        'visible default slot preserved');
 
       const env = toClaudeCodeEnv({}, resolved);
-      assert.notEqual(env.ANTHROPIC_DEFAULT_SONNET_MODEL, 'hidden-row',
+      assert.equal(env.ANTHROPIC_DEFAULT_SONNET_MODEL, undefined,
         'hidden sonnet does NOT leak into ANTHROPIC_DEFAULT_SONNET_MODEL');
-      assert.notEqual(env.ANTHROPIC_MODEL, 'meta-llama/llama-3.1-70b',
-        'runtime-incompatible default does NOT leak into ANTHROPIC_MODEL');
-      assert.equal(env.ANTHROPIC_MODEL, 'anthropic/claude-haiku-4-5',
-        'ANTHROPIC_MODEL takes the picked fallback');
+      assert.equal(env.ANTHROPIC_MODEL, 'visible-default',
+        'ANTHROPIC_MODEL takes the visible default');
     } finally {
       deleteProvider(provider.id);
       teardown();
