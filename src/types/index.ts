@@ -225,6 +225,13 @@ export interface ProviderModelGroup {
   provider_type: string;
   /** True if this provider only supports Claude Code SDK wire protocol, not standard Messages API */
   sdkProxyOnly?: boolean;
+  /** Total models known for this provider (enabled + hidden in provider_models,
+   * or catalog size when DB is empty). The Provider card surfaces this so the
+   * user sees "synced model count" rather than the picker-visible subset. */
+  total_count?: number;
+  /** Provider-layer runtime compat. Computed from preset + protocol; a single
+   * source of truth across Provider Card / Models page / chat picker. */
+  compat?: ProviderRuntimeCompat;
   models: Array<{
     value: string;           // internal/UI model ID
     label: string;           // display name
@@ -239,6 +246,68 @@ export interface ProviderModelGroup {
   }>;
 }
 
+/**
+ * Runtime compatibility matrix — Provider layer.
+ *
+ * Drives consumer behavior across Provider Card / Models page / chat picker
+ * / resolver:
+ *  - `claude_code_ready`        Anthropic official + Bedrock/Vertex with
+ *                               CLAUDE_CODE_USE_* env. Stable Claude Code path.
+ *  - `claude_code_verified`     Anthropic-compat brand presets we have
+ *                               actually verified end-to-end (GLM / Kimi /
+ *                               Volcengine / MiniMax / Bailian / Xiaomi MiMo
+ *                               / DeepSeek Coding Plans). Same wire path as
+ *                               experimental, but tool calling / thinking /
+ *                               alias mapping have been confirmed in practice.
+ *                               UI uses "Claude Code 兼容" + info tone.
+ *  - `claude_code_experimental` Anthropic-compat protocol but no verified
+ *                               flag — generic third-party templates and
+ *                               unverified custom URLs. UI uses "Claude Code
+ *                               实验" + warning tone to flag uncertainty
+ *                               around tool / thinking / alias behavior.
+ *  - `codepilot_only`           Non-Anthropic protocol (OpenRouter,
+ *                               OpenAI-compat chat, Google chat). Only flows
+ *                               through CodePilot Runtime.
+ *  - `media_only`               Image / video / embedding services. Never enters
+ *                               the chat picker.
+ *  - `unknown`                  Custom URL with no matched preset. UI uses
+ *                               "需验证" copy — not "不可用".
+ */
+export type ProviderRuntimeCompat =
+  | 'claude_code_ready'
+  | 'claude_code_verified'
+  | 'claude_code_experimental'
+  | 'codepilot_only'
+  | 'media_only'
+  | 'unknown';
+
+/**
+ * Runtime compatibility matrix — Model layer. A bag of capability flags;
+ * a model can carry several at once.
+ */
+export interface ModelRuntimeCompat {
+  /** Usable as a chat / coding model. */
+  chat?: boolean;
+  /** Known to support tool calling. */
+  tool_capable?: boolean;
+  /** Known to support thinking / reasoning. */
+  thinking_capable?: boolean;
+  /** Surfaceable when current runtime is Claude Code. */
+  claude_code_compatible?: boolean;
+  /** Surfaceable when current runtime is CodePilot Runtime. */
+  codepilot_runtime_compatible?: boolean;
+  /** Image / video / embedding only — does NOT belong in chat pickers. */
+  media?: boolean;
+}
+
+/** Where this model entry came from. Drives display badges + refresh policy. */
+export type ProviderModelSource =
+  | 'api'           // discovered via /discover-models live probe
+  | 'catalog'       // shipped from VENDOR_PRESETS / role_models
+  | 'manual'        // user hand-entered
+  | 'role_mapping'  // implied by anthropic-thirdparty role_mapping
+  | 'sdk_default';  // hard-coded SDK fallback (e.g. Claude Code env)
+
 export interface ProviderModel {
   id: string;
   provider_id: string;
@@ -250,6 +319,11 @@ export interface ProviderModel {
   sort_order: number;
   enabled: number; // SQLite boolean
   created_at: string;
+  source: ProviderModelSource;
+  last_refreshed_at: string | null;
+  /** 1 = user touched display_name/capabilities/enabled after import.
+   *  Refresh apply must preserve those fields when this flag is set. */
+  user_edited: number;
 }
 
 export interface CreateProviderRequest {

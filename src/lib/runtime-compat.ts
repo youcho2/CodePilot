@@ -9,11 +9,12 @@
  *   - Model layer: a bag of capability flags per `ModelRuntimeCompat`.
  *
  * Heuristics (deliberately simple — explicit list rather than inference):
- *   image-image protocols                        → media_only
- *   anthropic-official / bedrock / vertex preset → claude_code_ready
- *   anthropic protocol w/ any other preset       → claude_code_experimental
- *   openrouter / openai-compatible / google chat → codepilot_only
- *   no matched preset                            → unknown
+ *   image-image protocols                          → media_only
+ *   anthropic-official / bedrock / vertex preset   → claude_code_ready
+ *   anthropic protocol + meta.claudeCodeVerified   → claude_code_verified
+ *   anthropic protocol w/ any other preset         → claude_code_experimental
+ *   openrouter / openai-compatible / google chat   → codepilot_only
+ *   no matched preset                              → unknown
  */
 import type { ApiProvider, ProviderRuntimeCompat, ModelRuntimeCompat } from '@/types';
 import { findMatchingPresetForRecord, type VendorPreset } from '@/lib/provider-catalog';
@@ -33,7 +34,14 @@ export function getProviderCompat(record: ProviderCompatRecord): ProviderRuntime
   const preset: VendorPreset | undefined = findMatchingPresetForRecord(record);
   if (!preset) return 'unknown';
   if (CLAUDE_CODE_READY_PRESETS.has(preset.key)) return 'claude_code_ready';
-  if (preset.protocol === 'anthropic') return 'claude_code_experimental';
+  if (preset.protocol === 'anthropic') {
+    // Verified Code Plan / Coding presets get a distinct tier so users
+    // can tell "GLM Coding Plan that we've tested end-to-end" apart from
+    // "generic anthropic-thirdparty wrapper that may or may not work".
+    return preset.meta?.claudeCodeVerified
+      ? 'claude_code_verified'
+      : 'claude_code_experimental';
+  }
   if (preset.protocol === 'openrouter'
       || preset.protocol === 'openai-compatible'
       || preset.protocol === 'google') {
@@ -105,6 +113,7 @@ export function getModelCompat(args: {
       compat.claude_code_compatible = true;
       compat.codepilot_runtime_compatible = true;
       break;
+    case 'claude_code_verified':
     case 'claude_code_experimental':
       // Anthropic-compat brand presets (Kimi / GLM / MiniMax / etc.) — many
       // are `sdkProxyOnly` and can only be reached via the Claude Code
@@ -112,6 +121,8 @@ export function getModelCompat(args: {
       // sdkProxyOnly constraint; at the model layer we conservatively flag
       // claude_code only so picker filtering doesn't silently let CodePilot
       // Runtime route to a proxy that won't accept its requests.
+      // Verified is the same gate as experimental — the difference is
+      // purely UI tone / copy ("兼容" vs "实验"), not routing.
       compat.claude_code_compatible = true;
       break;
     case 'codepilot_only':
@@ -140,7 +151,8 @@ export function getModelCompat(args: {
 export function compatLabel(compat: ProviderRuntimeCompat, isZh: boolean): string {
   switch (compat) {
     case 'claude_code_ready':        return isZh ? 'Claude Code 直连' : 'Claude Code direct';
-    case 'claude_code_experimental': return isZh ? 'Claude Code 兼容' : 'Claude Code compat';
+    case 'claude_code_verified':     return isZh ? 'Claude Code 兼容' : 'Claude Code compat';
+    case 'claude_code_experimental': return isZh ? 'Claude Code 实验' : 'Claude Code experimental';
     case 'codepilot_only':           return isZh ? 'OpenAI 兼容' : 'OpenAI compat';
     case 'media_only':               return isZh ? '图片生成' : 'Image gen';
     case 'unknown':                  return isZh ? '需验证' : 'Needs verification';
@@ -154,10 +166,14 @@ export function compatTooltip(compat: ProviderRuntimeCompat, isZh: boolean): str
       return isZh
         ? '官方 Anthropic API / Bedrock / Vertex，Claude Code 直接接入，工具 / thinking 完整支持'
         : 'Official Anthropic API / Bedrock / Vertex — Claude Code talks to it directly, full tool + thinking support';
+    case 'claude_code_verified':
+      return isZh
+        ? '已实测的 Anthropic 兼容厂商（GLM / Kimi / Volcengine / MiniMax / 百炼 / 小米 MiMo / DeepSeek 等 Code Plan / Coding 套餐），工具调用 / thinking / 模型别名行为已验证'
+        : 'Verified Anthropic-compatible vendor (GLM / Kimi / Volcengine / MiniMax / Bailian / Xiaomi MiMo / DeepSeek Coding Plans) — tool calling, thinking, and alias mapping confirmed in practice';
     case 'claude_code_experimental':
       return isZh
-        ? 'Anthropic 兼容第三方网关，可在 Claude Code 中使用，但工具调用 / thinking / 模型别名取决于供应商实现'
-        : 'Anthropic-compatible third-party gateway — works through Claude Code, but tool / thinking / aliases depend on the vendor';
+        ? '通用 Anthropic 兼容第三方模板或自定义网关，工具调用 / thinking / 模型别名行为取决于该网关实现，建议测试后再用于关键场景'
+        : 'Generic Anthropic-compatible template or custom gateway — tool / thinking / aliases depend on the vendor implementation, test before relying on it for critical work';
     case 'codepilot_only':
       return isZh
         ? 'OpenAI 兼容协议，CodePilot 自己的聊天路径会处理它；不进入 Claude Code 流程'
@@ -177,6 +193,7 @@ export function compatTooltip(compat: ProviderRuntimeCompat, isZh: boolean): str
 export function compatTone(compat: ProviderRuntimeCompat): string {
   switch (compat) {
     case 'claude_code_ready':        return 'bg-status-success-muted text-status-success-foreground';
+    case 'claude_code_verified':     return 'bg-status-info-muted text-status-info-foreground';
     case 'claude_code_experimental': return 'bg-status-warning-muted text-status-warning-foreground';
     case 'codepilot_only':           return 'bg-primary/10 text-primary';
     case 'media_only':               return 'bg-muted text-muted-foreground';

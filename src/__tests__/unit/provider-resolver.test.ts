@@ -1279,6 +1279,74 @@ describe('Hidden role models do not leak into Claude Code env', () => {
 });
 
 // ────────────────────────────────────────────────────────────────
+// Runtime Compatibility Matrix — Provider compat tier mapping
+// ────────────────────────────────────────────────────────────────
+
+describe('getProviderCompat tier mapping', () => {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { getProviderCompat } = require('../../lib/runtime-compat');
+
+  it('Anthropic official → claude_code_ready', () => {
+    assert.equal(
+      getProviderCompat({ provider_type: 'anthropic', base_url: 'https://api.anthropic.com' }),
+      'claude_code_ready',
+    );
+  });
+
+  it('verified Coding Plan preset (GLM CN) → claude_code_verified', () => {
+    assert.equal(
+      getProviderCompat({ provider_type: 'anthropic', base_url: 'https://open.bigmodel.cn/api/anthropic' }),
+      'claude_code_verified',
+    );
+  });
+
+  it('verified Coding Plan preset (Volcengine) → claude_code_verified', () => {
+    assert.equal(
+      getProviderCompat({ provider_type: 'anthropic', base_url: 'https://ark.cn-beijing.volces.com/api/coding' }),
+      'claude_code_verified',
+    );
+  });
+
+  it('verified Coding Plan preset (Kimi) → claude_code_verified', () => {
+    assert.equal(
+      getProviderCompat({ provider_type: 'anthropic', base_url: 'https://api.kimi.com/coding/' }),
+      'claude_code_verified',
+    );
+  });
+
+  it('OpenRouter → codepilot_only', () => {
+    assert.equal(
+      getProviderCompat({ provider_type: 'openrouter', base_url: 'https://openrouter.ai/api' }),
+      'codepilot_only',
+    );
+  });
+
+  it('image preset → media_only', () => {
+    assert.equal(
+      getProviderCompat({ provider_type: 'gemini-image', base_url: 'https://generativelanguage.googleapis.com' }),
+      'media_only',
+    );
+  });
+
+  it('anthropic-thirdparty fallback (any anthropic URL with no brand match) → claude_code_experimental', () => {
+    // The `anthropic-thirdparty` preset is a wildcard (empty baseUrl) that
+    // catches any anthropic-protocol record not matched by a brand preset.
+    // Without `claudeCodeVerified`, it lands on the experimental tier.
+    assert.equal(
+      getProviderCompat({ provider_type: 'anthropic', base_url: 'https://nobody-knows-this.example.com' }),
+      'claude_code_experimental',
+    );
+  });
+
+  it('truly unrecognized provider_type with custom URL → unknown', () => {
+    assert.equal(
+      getProviderCompat({ provider_type: 'definitely-not-a-protocol', base_url: 'https://x.example.com' }),
+      'unknown',
+    );
+  });
+});
+
+// ────────────────────────────────────────────────────────────────
 // Runtime Compatibility Matrix — provider-resolver gating
 // ────────────────────────────────────────────────────────────────
 //

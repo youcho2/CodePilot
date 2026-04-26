@@ -133,6 +133,15 @@ export interface VendorPreset {
     billingModel: 'pay_as_you_go' | 'coding_plan' | 'token_plan' | 'free' | 'self_hosted';
     /** Notes/warnings shown during provider configuration */
     notes?: string[];
+    /**
+     * Whether this anthropic-compat preset has been verified end-to-end:
+     * tool calling, thinking, model aliases, and `/v1/messages` quirks all
+     * confirmed to work. Drives the `claude_code_verified` runtime compat
+     * tier (info tone, "Claude Code 兼容") instead of the default
+     * `claude_code_experimental` (warning tone, "Claude Code 实验").
+     * Only meaningful for `protocol: 'anthropic'` presets.
+     */
+    claudeCodeVerified?: boolean;
   };
 }
 
@@ -145,6 +154,7 @@ const PresetMetaSchema = z.object({
   statusPageUrl: z.string().optional(),
   billingModel: z.enum(['pay_as_you_go', 'coding_plan', 'token_plan', 'free', 'self_hosted']),
   notes: z.array(z.string()).optional(),
+  claudeCodeVerified: z.boolean().optional(),
 });
 
 export const PresetSchema = z.object({
@@ -213,11 +223,11 @@ const ANTHROPIC_DEFAULT_MODELS: CatalogModel[] = [
   },
   {
     modelId: 'opus',
-    displayName: 'Opus',
+    displayName: 'Opus 4.7',
     role: 'opus',
     capabilities: {
       supportsEffort: true,
-      supportedEffortLevels: ['low', 'medium', 'high', 'max'],
+      supportedEffortLevels: ['low', 'medium', 'high', 'xhigh', 'max'],
       supportsAdaptiveThinking: true,
     },
   },
@@ -241,6 +251,7 @@ const ANTHROPIC_DEFAULT_MODELS: CatalogModel[] = [
 const ANTHROPIC_FIRST_PARTY_MODELS: CatalogModel[] = [
   {
     modelId: 'sonnet',
+    upstreamModelId: 'claude-sonnet-4-6',
     displayName: 'Sonnet 4.6',
     role: 'sonnet',
     capabilities: {
@@ -262,6 +273,7 @@ const ANTHROPIC_FIRST_PARTY_MODELS: CatalogModel[] = [
   },
   {
     modelId: 'haiku',
+    upstreamModelId: 'claude-haiku-4-5-20251001',
     displayName: 'Haiku 4.5',
     role: 'haiku',
     capabilities: {
@@ -389,6 +401,7 @@ export const VENDOR_PRESETS: VendorPreset[] = [
       docsUrl: 'https://docs.bigmodel.cn/cn/coding-plan/tool/claude',
       billingModel: 'coding_plan',
       notes: ['高峰时段（14:00-18:00 UTC+8）消耗 3 倍积分'],
+      claudeCodeVerified: true,
     },
   },
 
@@ -415,6 +428,7 @@ export const VENDOR_PRESETS: VendorPreset[] = [
       docsUrl: 'https://docs.z.ai/devpack/tool/claude',
       billingModel: 'coding_plan',
       notes: ['高峰时段（14:00-18:00 UTC+8）消耗 3 倍积分'],
+      claudeCodeVerified: true,
     },
   },
 
@@ -439,6 +453,7 @@ export const VENDOR_PRESETS: VendorPreset[] = [
       docsUrl: 'https://www.kimi.com/code/docs/more/third-party-agents.html',
       billingModel: 'pay_as_you_go',
       notes: [],
+      claudeCodeVerified: true,
     },
   },
 
@@ -463,6 +478,7 @@ export const VENDOR_PRESETS: VendorPreset[] = [
       docsUrl: 'https://platform.moonshot.cn/docs/guide/agent-support',
       billingModel: 'pay_as_you_go',
       notes: ['建议设置每日消费上限，防止 agentic 循环快速消耗 token'],
+      claudeCodeVerified: true,
     },
   },
 
@@ -495,6 +511,7 @@ export const VENDOR_PRESETS: VendorPreset[] = [
       apiKeyUrl: 'https://platform.minimaxi.com/user-center/payment/token-plan',
       docsUrl: 'https://platform.minimaxi.com/docs/token-plan/claude-code',
       billingModel: 'token_plan',
+      claudeCodeVerified: true,
     },
   },
 
@@ -527,6 +544,7 @@ export const VENDOR_PRESETS: VendorPreset[] = [
       apiKeyUrl: 'https://platform.minimax.io/user-center/payment/token-plan',
       docsUrl: 'https://platform.minimax.io/docs/token-plan/opencode',
       billingModel: 'token_plan',
+      claudeCodeVerified: true,
     },
   },
 
@@ -549,6 +567,7 @@ export const VENDOR_PRESETS: VendorPreset[] = [
       docsUrl: 'https://www.volcengine.com/docs/82379/1928262',
       billingModel: 'coding_plan',
       notes: ['需先在控制台激活 Endpoint', 'API Key 为临时凭证'],
+      claudeCodeVerified: true,
     },
   },
 
@@ -579,6 +598,7 @@ export const VENDOR_PRESETS: VendorPreset[] = [
       docsUrl: 'https://platform.xiaomimimo.com/#/docs/integration/claudecode',
       billingModel: 'pay_as_you_go',
       notes: [],
+      claudeCodeVerified: true,
     },
   },
 
@@ -609,6 +629,7 @@ export const VENDOR_PRESETS: VendorPreset[] = [
       docsUrl: 'https://platform.xiaomimimo.com/#/docs/integration/claudecode',
       billingModel: 'token_plan',
       notes: [],
+      claudeCodeVerified: true,
     },
   },
 
@@ -639,6 +660,35 @@ export const VENDOR_PRESETS: VendorPreset[] = [
       docsUrl: 'https://help.aliyun.com/zh/model-studio/coding-plan',
       billingModel: 'coding_plan',
       notes: ['必须使用 Coding Plan 专用 Key（以 sk-sp- 开头）', '普通 DashScope Key 无法使用', '禁止用于自动化脚本'],
+      claudeCodeVerified: true,
+    },
+  },
+
+  // ── DeepSeek ──
+  {
+    key: 'deepseek',
+    name: 'DeepSeek',
+    description: 'DeepSeek Anthropic-compatible API — fixed model lineup',
+    descriptionZh: 'DeepSeek Anthropic 兼容 API — 模型清单固定',
+    protocol: 'anthropic',
+    authStyle: 'auth_token',
+    baseUrl: 'https://api.deepseek.com/anthropic',
+    defaultEnvOverrides: {
+      CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1',
+      CLAUDE_CODE_DISABLE_NONSTREAMING_FALLBACK: '1',
+    },
+    defaultModels: [
+      { modelId: 'deepseek-v4-pro', upstreamModelId: 'deepseek-v4-pro', displayName: 'DeepSeek V4 Pro', role: 'default' },
+      { modelId: 'deepseek-v3.2-exp', upstreamModelId: 'deepseek-v3.2-exp', displayName: 'DeepSeek V3.2 Exp' },
+    ],
+    fields: ['api_key'],
+    iconKey: 'deepseek',
+    sdkProxyOnly: true,
+    meta: {
+      apiKeyUrl: 'https://platform.deepseek.com/api_keys',
+      docsUrl: 'https://api-docs.deepseek.com',
+      billingModel: 'pay_as_you_go',
+      claudeCodeVerified: true,
     },
   },
 
@@ -845,6 +895,62 @@ export function getPreset(key: string): VendorPreset | undefined {
 /** Get all presets for a given category (defaults to 'chat'). */
 export function getPresetsByCategory(category: 'chat' | 'media' = 'chat'): VendorPreset[] {
   return VENDOR_PRESETS.filter(p => (p.category || 'chat') === category);
+}
+
+/**
+ * Catalog defaults for a provider. Used by the Models page as a fallback
+ * when discovery isn't possible (404 on /v1/models, OAuth/SDK-only families,
+ * etc.) — the curated list is shipped in VENDOR_PRESETS.
+ *
+ * Returns [] if no preset matches; the caller should treat that as
+ * "manual entry only" (user must add models themselves).
+ */
+export function getCatalogDefaultModelsForRecord(record: {
+  provider_type: string;
+  base_url: string;
+}): CatalogModel[] {
+  const matched = findMatchingPresetForRecord(record);
+  return matched?.defaultModels ?? [];
+}
+
+/**
+ * Server-safe preset matcher — equivalent to the renderer's
+ * `findMatchingPreset` (in `components/settings/provider-presets.tsx`)
+ * but operates on a plain {provider_type, base_url} record so it can be
+ * called from API routes without React imports.
+ */
+export function findMatchingPresetForRecord(record: {
+  provider_type: string;
+  base_url: string;
+}): VendorPreset | undefined {
+  if (record.base_url) {
+    const exact = VENDOR_PRESETS.find(p => p.baseUrl && p.baseUrl === record.base_url);
+    if (exact) return exact;
+  }
+  if (record.provider_type === 'bedrock') return getPreset('bedrock');
+  if (record.provider_type === 'vertex') return getPreset('vertex');
+  if (record.provider_type === 'openrouter') return getPreset('openrouter');
+  if (record.provider_type === 'gemini-image') {
+    const official = getPreset('gemini-image');
+    if (official && record.base_url && record.base_url !== official.baseUrl) {
+      return getPreset('gemini-image-thirdparty');
+    }
+    return official;
+  }
+  if (record.provider_type === 'openai-image') {
+    const official = getPreset('openai-image');
+    if (official && record.base_url && record.base_url !== official.baseUrl) {
+      return getPreset('openai-image-thirdparty');
+    }
+    return official;
+  }
+  // Generic Anthropic-compat with a custom URL (PipeLLM / Aiberm / DeepSeek
+  // /anthropic / etc.) — fall back to the `anthropic-thirdparty` preset so
+  // they pick up its defaults (sonnet/opus/haiku as enabled baseline).
+  if (record.provider_type === 'anthropic') {
+    return getPreset('anthropic-thirdparty');
+  }
+  return undefined;
 }
 
 /** All valid Protocol union values — used for raw-field validation. */
