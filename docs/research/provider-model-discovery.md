@@ -2,29 +2,41 @@
 
 > **范围**：状态管理 + 模型发现这条主线，不涉及订阅额度 / 计费。
 > **目标**：Provider 详情页「刷新模型」按钮 + Settings > Models 独立管理页。
-> **写入策略（最终版）**：刷新走 **diff 预览 → 用户确认 → apply** 两步流；**不再静默写入**。Apply 阶段保留用户编辑过的字段（display_name / capabilities / enabled），不会把隐藏模型重新启用。
+> **当前写入策略（Phase B 起）**：probe 仍 read-only，apply 层在 `manual_enabled` / `manual_hidden` 守卫下做**保守自动应用**。**Add Service 成功后自动发现 + 单服务商刷新 + 刷新全部**都默认走自动 apply；只有**按推荐整理**和高级 diff 对话框走预览-then-apply。
+>
+> 关键不变量：`applyDiscoveryDiff` 永远不会翻动 `enable_source IN ('manual_enabled','manual_hidden')` 或 `user_edited=1` 的行——只 `upstream_model_id` 和 `last_refreshed_at` 会推进。这一层数据保护是"静默 apply 也安全"的根基。
 
 ## 演进历史
 
-这份文档先前经历了三个语义状态，避免后人混淆，记录如下：
+这份文档经历了四个语义状态，记录下来避免后续 agent 把当前的自动 apply 误判成回归：
 
-1. **初版（已淘汰）**：纯只读 spike — `POST /discover-models` 返回探测结果，不动 DB
-2. **第二版（已淘汰）**：成功时**自动 upsert** 全部模型到 `provider_models`，dialog 显示「已写入 N 个模型」
-3. **当前版**：refresh 路由返回 **diff**（包含 status: `new` / `will-update` / `preserve-edited` / `hidden-but-upstream` / `unchanged` / `orphan`），用户在 dialog 看完点 **Apply** 才走单独的 `POST /discover-models/apply` 写入
+1. **Phase 1 初版（已淘汰）**：纯只读 spike — `POST /discover-models` 返回探测结果，不动 DB
+2. **Phase 1 第二版（已淘汰）**：成功时**无差别 upsert** 全部模型到 `provider_models`，dialog 显示「已写入 N 个模型」。问题：再次刷新会回滚用户改名 / 隐藏，违反用户预期。
+3. **Phase A：preview-only**：refresh 路由返回 **diff**，用户在 dialog 看完点 **Apply** 才单独 POST `/discover-models/apply`。"任何写入都要预览"作为强护栏存在。问题：日常刷新 + 新增服务商场景下，dialog 步骤过重，把"看一眼模型列表更新了没"变成了 5 次点击。
+4. **Phase B 当前版（自动 apply + manual_* 守卫）**：probe 仍只读；apply 加了 5 态 `enable_source` 列（`recommended` / `manual_enabled` / `manual_hidden` / `discovered` / `catalog`）。`applyDiscoveryDiff` 在写入时**强制忽略** `manual_enabled` / `manual_hidden` 行的 `enabled` / `enable_source` 翻动；仅 system-managed (`recommended` / `discovered` / `catalog`) 行允许按当次 catalog 重新评估。
 
-第二版"自动写入"违反了用户改名 / 隐藏的预期（再次刷新会回滚用户编辑），因此回退为 diff-first；diff 让用户既能感知上游变化又能保留自己改过的状态。
+为什么从 Phase A 回到自动 apply 是安全的：差别在于"是否信任数据层守卫"。Phase A 把保护放在 UI 步骤里（必须看预览才能 apply），但用户其实并不在乎大多数刷新的内容（一个新模型多一个旧模型少一个）。Phase B 把保护下沉到 `applyDiscoveryDiff` 自身——只要存在 manual_* 标记就跳过翻动，即使前端"忘了" preview 用户选择也不会被回滚。这让保守自动应用既安全又轻量。
+
+**仍需要 preview 的场景**（保留 dialog）：
+- **按推荐整理（`alignEnabledWithCatalog`）**：会主动启用 / 隐藏 / 删除多行，影响范围大，必须显示 dryRun 计数后再写入。
+- **高级 diff 对话框（`ProviderManager.handleDiscoverModels`）**：保留为 orphan 复盘 / 强制重置入口，普通用户用不到。
 
 ## 代码出口
 
 | 模块 | 路径 |
 |---|---|
-| 探针 + 分类 | `src/lib/model-discovery.ts` |
+| 探针 + 分类（read-only） | `src/lib/model-discovery.ts` |
 | 刷新（返回 diff，不写库） | `POST /api/providers/[id]/discover-models` |
 | 静态分类（不联网） | `GET /api/providers/[id]/discover-models` |
-| 应用 diff（写库，保留用户编辑） | `POST /api/providers/[id]/discover-models/apply` |
-| Diff 应用核心 | `applyDiscoveryDiff()` in `src/lib/db.ts` |
-| Provider 卡片入口 | `ProviderCard` kebab → 「刷新模型」 → Dialog |
-| Models 管理页 | `src/components/settings/ModelsSection.tsx` |
+| 应用 diff（写库，manual_* 受保护） | `POST /api/providers/[id]/discover-models/apply` |
+| Diff 应用核心（含 5 态 enable_source 守卫） | `applyDiscoveryDiff()` in `src/lib/db.ts` |
+| Recommendation 判定（catalog + Claude alias） | `isRecommendedModel()` in `src/lib/catalog-recommend.ts` |
+| 自动 apply 共享 helper | `src/lib/auto-discover-models.ts` (`runAutoDiscoverForProvider` + `probeAndApplyProvider`) |
+| Add Service 成功 → 自动发现 | `ProviderManager.handlePresetAdd` |
+| Models 页单服务商刷新 | `ModelsSection` section header `刷新` 按钮 |
+| Models 页批量刷新 | `ModelsSection` 顶部 `刷新全部 (N)` 按钮 |
+| 高级 diff 对话框（preview-first，保留为 orphan 复盘） | `ProviderManager.handleDiscoverModels` |
+| 按推荐整理（preview-first，主动重置） | `ModelsSection` `按推荐整理` → `alignEnabledWithCatalog()` |
 
 ## 安全约束
 
@@ -35,17 +47,22 @@
 
 ## 写入语义（apply）
 
-`applyDiscoveryDiff(providerId, upstreamModels)` 在 `provider_models` 上执行：
+`applyDiscoveryDiff(providerId, upstreamModels, isRecommended)` 在 `provider_models` 上执行。`isRecommended` 是 caller 注入的 `(modelId) => boolean` 谓词（由 `isRecommendedModel` 基于 catalog + provider compat 计算），用来判定新行 / 待重新评估行的目标 enabled 状态。
 
 | DB 当前状态 | 上游本次返回 | 行为 |
 |---|---|---|
-| 不存在 | 出现 | INSERT，`source='api'`、`user_edited=0`、`enabled=1`、display_name = model_id |
-| 存在 + `user_edited=0` | 出现 | UPDATE upstream_model_id / source='api' / last_refreshed_at / display_name = upstream id |
-| 存在 + `user_edited=1` | 出现 | UPDATE upstream_model_id + last_refreshed_at + source（manual 保留为 manual，否则切 'api'）；display_name / capabilities / enabled / sort_order 全保留 |
-| 存在 + `enabled=0`（隐藏） | 出现 | 同「user_edited=1」分支；**不会被重新启用** |
+| 不存在 | 出现 | INSERT，`source='api'`、`user_edited=0`、`enabled=isRecommended()`、`enable_source='recommended'` 或 `'discovered'`、display_name = model_id |
+| 存在 + system-managed (`enable_source IN ('recommended','discovered','catalog')` 且 `user_edited=0`) | 出现 | 走 `updatePristineStmt`：按当次 `isRecommended` 重新评估 enabled + enable_source；同步 upstream_model_id / source='api' / last_refreshed_at / display_name = upstream id |
+| 存在 + user-managed (`enable_source IN ('manual_enabled','manual_hidden')` 或 `user_edited=1`) | 出现 | 走 `updatePreservedStmt`：仅 UPDATE `upstream_model_id` + `last_refreshed_at` + source；**`enabled` / `enable_source` / `display_name` / `capabilities` / `sort_order` 全部不动** |
 | 存在 | 不出现（orphan） | 不动；UI 在 Models 页提示用户决定是否删除 |
 
-`updateProviderModelUserFields` 是 Models 页编辑入口，触发后强制 `user_edited=1`，确保下次 apply 不会回滚。
+返回 stats：`{ inserted, refreshedPristine, refreshedPreserved, recommendedEnabled, discoveredHidden }`。`recommendedEnabled` / `discoveredHidden` 目前只在 INSERT 路径递增（pristine flip 不计入；见 `tech-debt-tracker.md` 行 11）。
+
+**两路用户标记机制**（任意一个就能保护行）：
+- `user_edited=1`：任何 PATCH 行编辑（重命名 / 改 capabilities）触发，legacy 信号
+- `enable_source IN ('manual_enabled','manual_hidden')`：用户在 Models 页切 enabled 开关时由 `updateProviderModelUserFields` 自动写入，Phase B 标准信号
+
+`updateProviderModelUserFields` 触发后既写 `user_edited=1` 也根据本次 toggle 写 `enable_source`，所以 Phase A 之前的 legacy 行（`user_edited=1` 但 `enable_source='recommended'`）和 Phase B 之后的新行（双重打标）都受保护。
 
 ## 三类划分（静态）
 

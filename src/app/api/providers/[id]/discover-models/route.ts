@@ -42,13 +42,30 @@ interface DiffEntry {
  * POST /api/providers/[id]/discover-models
  *
  * Probes the upstream for its model list and returns a **diff** against
- * `provider_models` — the route does NOT write. Callers (the Models page +
- * the per-card "Refresh models" dialog) review the diff and POST it to
- * `/discover-models/apply` if they want it applied.
+ * `provider_models`. This route itself is strictly read-only — no write
+ * to provider_models happens here. The companion `/apply` route is the
+ * write path.
  *
- * This intentionally reverses the earlier auto-write behaviour: a refresh
- * must never silently overwrite renames, hidden flags, or capabilities the
- * user touched. See docs/research/provider-model-discovery.md.
+ * Different callers use the diff differently:
+ *
+ *   - **Conservative auto-apply (default)** — `runAutoDiscoverForProvider`
+ *     and the batch `刷新全部` driver (in `src/lib/auto-discover-models.ts`)
+ *     filter the diff to writeable buckets and POST `/apply` immediately,
+ *     no preview dialog. Safe because `applyDiscoveryDiff` consults
+ *     `enable_source` and refuses to flip `manual_enabled` /
+ *     `manual_hidden`. Used by Add Service success, per-provider
+ *     `刷新` button, and the page-top `刷新全部 (N)` button.
+ *
+ *   - **Preview-then-apply (legacy / advanced)** — `ProviderManager.handleDiscoverModels`
+ *     opens a dialog showing the diff bucket counts, lets the user
+ *     review orphans, then POSTs `/apply` only if they confirm. Kept
+ *     for the rare reset / orphan-review case.
+ *
+ * The route stays preview-friendly (returns the full diff with status
+ * categories) so both flows can share it. See
+ * `docs/research/provider-model-discovery.md` for the evolution from
+ * preview-only (Phase A) to conservative auto-apply (Phase B) and why
+ * the latter is safe.
  */
 export async function POST(
   _request: NextRequest,
