@@ -282,6 +282,12 @@ const en = {
   'provider.autoDiscover.probeFailed': '{name}: could not reach upstream to discover models',
   'provider.autoDiscover.applyFailed': '{name}: discovered models but failed to save — try Refresh on the card',
 
+  // ── Models page batch refresh (page-top "Refresh all") ──────
+  'models.refreshAll.progress': 'Refreshing {done}/{total} · {name}',
+  'models.refreshAll.summaryOk': '{ok} updated · {enabled} enabled · {hidden} hidden',
+  'models.refreshAll.summaryNoChange': '{n} no change',
+  'models.refreshAll.summaryFailed': '{n} failed: {names}',
+
   // ── Right panel / Files ─────────────────────────────────────
   'panel.files': 'Files',
   'panel.tasks': 'Tasks',

@@ -279,6 +279,12 @@ const zh: Record<TranslationKey, string> = {
   'provider.autoDiscover.probeFailed': '{name}：无法连接上游获取模型列表',
   'provider.autoDiscover.applyFailed': '{name}：模型已发现但保存失败，请到卡片点击刷新重试',
 
+  // ── Models page batch refresh (page-top "刷新全部") ──────────
+  'models.refreshAll.progress': '正在刷新 {done}/{total} · {name}',
+  'models.refreshAll.summaryOk': '{ok} 个成功 · 启用 {enabled} · 隐藏 {hidden}',
+  'models.refreshAll.summaryNoChange': '{n} 个无更新',
+  'models.refreshAll.summaryFailed': '{n} 个失败：{names}',
+
   // ── Right panel / Files ─────────────────────────────────────
   'panel.files': '文件',
   'panel.tasks': '任务',

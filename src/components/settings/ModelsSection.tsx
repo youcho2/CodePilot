@@ -35,7 +35,9 @@ import {
   ArrowsClockwise,
 } from "@/components/ui/icon";
 import { useTranslation } from "@/hooks/useTranslation";
-import { runAutoDiscoverForProvider } from "@/lib/auto-discover-models";
+import { runAutoDiscoverForProvider, probeAndApplyProvider, type AutoDiscoverResult } from "@/lib/auto-discover-models";
+import { showToast, updateToast } from "@/hooks/useToast";
+import type { TranslationKey } from "@/i18n";
 import { getProviderIcon } from "./provider-presets";
 import { getProviderCompat, getModelCompat, compatLabel, compatTone, compatTooltip } from "@/lib/runtime-compat";
 import {
@@ -159,6 +161,34 @@ function formatRefreshedAt(iso: string | null, isZh: boolean): string {
   return isZh ? `${diffD} 天前` : `${diffD}d ago`;
 }
 
+/**
+ * Whether a provider supports the discover-models probe at all. Image
+ * providers are already filtered out upstream; this guards OAuth-only
+ * (no /v1/models endpoint) and providers that lack credentials (probe
+ * would 401 immediately, wasting the round-trip + adding a misleading
+ * "probe failed" toast in batch mode).
+ *
+ * The batch "刷新全部" button uses this to filter the iteration set;
+ * the per-provider button uses it to disable the action with a hint.
+ */
+function isSyncableProvider(provider: ApiProvider): { ok: boolean; reasonZh?: string; reasonEn?: string } {
+  if (provider.provider_type === 'openai-oauth') {
+    return {
+      ok: false,
+      reasonZh: '通过 OAuth 授权登录的服务商不暴露模型列表接口，请使用内置目录',
+      reasonEn: 'OAuth-only providers do not expose a model list endpoint — built-in catalog only',
+    };
+  }
+  if (!provider.api_key) {
+    return {
+      ok: false,
+      reasonZh: '此服务商缺少 API Key，请先在「服务商」页填写后再刷新',
+      reasonEn: 'No API key configured — set one in Providers first',
+    };
+  }
+  return { ok: true };
+}
+
 export function ModelsSection() {
   const { t } = useTranslation();
   const isZh = t('nav.chats') === '对话';
@@ -169,6 +199,9 @@ export function ModelsSection() {
   // Per-provider in-flight refresh — gates the row-section button so a user
   // can't fire two probes against the same upstream while one is in flight.
   const [refreshingProviderId, setRefreshingProviderId] = useState<string | null>(null);
+  // Page-top "刷新全部" in-flight. Disables every per-provider refresh too
+  // (no point letting a single refresh race the batch driver).
+  const [refreshingAll, setRefreshingAll] = useState(false);
   type ViewFilter = 'enabled' | 'hidden' | 'all';
   const [viewFilter, setViewFilter] = useState<ViewFilter>('enabled');
   type RuntimeFilter = 'all' | 'claude_code_ready' | 'claude_code_verified' | 'claude_code_experimental' | 'codepilot_only' | 'unknown';
@@ -311,7 +344,7 @@ export function ModelsSection() {
   // already looking at the model list, and the diff dialog isn't needed
   // because the conservative apply policy already protects user choices.
   const handleRefreshProvider = useCallback(async (provider: ApiProvider) => {
-    if (refreshingProviderId) return; // gate concurrent refreshes
+    if (refreshingProviderId || refreshingAll) return; // gate concurrent refreshes
     setRefreshingProviderId(provider.id);
     try {
       await runAutoDiscoverForProvider({
@@ -323,7 +356,134 @@ export function ModelsSection() {
     } finally {
       setRefreshingProviderId(null);
     }
-  }, [refreshingProviderId, refetchProviderBundle, t]);
+  }, [refreshingProviderId, refreshingAll, refetchProviderBundle, t]);
+
+  // Page-top "刷新全部可同步服务商" — sequential probe of every syncable
+  // provider with one rolling progress toast. Sequential (not Promise.all)
+  // so:
+  //   - the rolling toast actually reads as a progression rather than a
+  //     blink-and-done
+  //   - we don't fan out N parallel probes against shared upstreams
+  //     (some Code Plan endpoints rate-limit on bursts)
+  //   - if the user navigates away mid-batch, the in-flight one finishes
+  //     and the rest is naturally aborted (state guard)
+  //
+  // Final summary toast lists totals + per-provider failures so the user
+  // can tell which one needs attention. We deliberately don't auto-open
+  // the Providers page; the user is on Models for a reason.
+  const handleRefreshAll = useCallback(async () => {
+    if (refreshingAll || refreshingProviderId) return;
+    const targets = providers.filter(p => isSyncableProvider(p).ok);
+    if (targets.length === 0) {
+      showToast({
+        type: 'info',
+        message: isZh ? '没有可同步的服务商' : 'No syncable providers to refresh',
+        duration: 4000,
+      });
+      return;
+    }
+
+    setRefreshingAll(true);
+    const toastId = showToast({
+      type: 'loading',
+      message: t('models.refreshAll.progress' as TranslationKey, {
+        done: '0',
+        total: String(targets.length),
+        name: targets[0].name,
+      }),
+      duration: 0,
+    });
+
+    let okCount = 0;
+    let noChangeCount = 0;
+    let failCount = 0;
+    const failures: { name: string; reason: string }[] = [];
+    let totalEnabled = 0;
+    let totalHidden = 0;
+
+    for (let i = 0; i < targets.length; i++) {
+      const p = targets[i];
+      // Update the rolling status to "[i+1]/N · current name"
+      updateToast(toastId, {
+        type: 'loading',
+        message: t('models.refreshAll.progress' as TranslationKey, {
+          done: String(i + 1),
+          total: String(targets.length),
+          name: p.name,
+        }),
+        duration: 0,
+      });
+      let result: AutoDiscoverResult;
+      try {
+        result = await probeAndApplyProvider({ providerId: p.id, providerName: p.name });
+      } catch (err) {
+        result = { outcome: 'error', errorMessage: err instanceof Error ? err.message : String(err) };
+      }
+
+      switch (result.outcome) {
+        case 'success':
+          okCount++;
+          totalEnabled += result.recommendedEnabled ?? 0;
+          totalHidden += result.discoveredHidden ?? 0;
+          break;
+        case 'no-models':
+          noChangeCount++;
+          break;
+        case 'unsupported':
+          // Should be rare here since isSyncableProvider already filtered;
+          // include in failures so the user knows it was skipped silently.
+          failCount++;
+          failures.push({
+            name: p.name,
+            reason: isZh ? '不支持自动同步' : 'Discovery not supported',
+          });
+          break;
+        case 'probe-failed':
+        case 'apply-failed':
+        case 'error':
+        default:
+          failCount++;
+          failures.push({ name: p.name, reason: result.errorMessage ?? 'unknown' });
+          break;
+      }
+    }
+
+    // Refetch all bundles in one shot — cheaper than per-provider since
+    // the number of providers is small and the round trip is local.
+    await fetchAll();
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new Event('provider-changed'));
+    }
+
+    // Summary toast — surface failures inline so the user can act without
+    // expanding anything. Truncate to 3 names; "+N more" for the rest.
+    const failNames = failures.slice(0, 3).map(f => f.name).join(', ');
+    const failMore = failures.length > 3 ? (isZh ? `等 ${failures.length} 个` : `+${failures.length - 3} more`) : '';
+    const summaryParts: string[] = [];
+    summaryParts.push(t('models.refreshAll.summaryOk' as TranslationKey, {
+      ok: String(okCount),
+      enabled: String(totalEnabled),
+      hidden: String(totalHidden),
+    }));
+    if (noChangeCount > 0) {
+      summaryParts.push(t('models.refreshAll.summaryNoChange' as TranslationKey, { n: String(noChangeCount) }));
+    }
+    if (failCount > 0) {
+      summaryParts.push(t('models.refreshAll.summaryFailed' as TranslationKey, {
+        n: String(failCount),
+        names: failMore ? `${failNames} ${failMore}` : failNames,
+      }));
+    }
+    updateToast(toastId, {
+      type: failCount > 0 ? 'warning' : 'success',
+      message: summaryParts.join(' · '),
+      duration: failCount > 0 ? 8000 : 6000,
+    });
+
+    setRefreshingAll(false);
+  }, [refreshingAll, refreshingProviderId, providers, isZh, t, fetchAll]);
+
+  const syncableCount = useMemo(() => providers.filter(p => isSyncableProvider(p).ok).length, [providers]);
 
   // Persist edited role mappings via PUT /api/providers/[id] (the existing
   // provider PUT route already handles role_models_json). Defined here
@@ -613,11 +773,35 @@ export function ModelsSection() {
           <h2 className="text-sm font-medium">{isZh ? '模型管理' : 'Model management'}</h2>
           <p className="text-[11px] text-muted-foreground mt-0.5">
             {isZh
-              ? '控制每个服务商对外暴露哪些模型、它们的显示名和顺序。模型来源由 Provider 卡片的「刷新模型」获取，这里只决定如何展示。'
-              : 'Control which models each provider exposes, plus their display names and order. Sourcing is driven by the Provider cards\' "Refresh models"; this page decides presentation.'}
+              ? '控制每个服务商对外暴露哪些模型、它们的显示名和顺序。每个服务商区段右上角的「刷新」按钮可重新拉取上游列表，刷新不会覆盖你手动启用 / 隐藏的选择。'
+              : 'Control which models each provider exposes, plus their display names and order. Use the per-section "Refresh" button to re-probe upstream — refresh never overrides your manual enable / hide choices.'}
           </p>
         </div>
-        <div className="shrink-0">
+        <div className="shrink-0 flex items-center gap-2">
+          {/* "刷新全部" — secondary batch action. Per-provider refresh
+              lives on each section header for the common case ("I just
+              changed this provider's key"); this button is for periodic
+              maintenance ("re-check every upstream"). Disabled when
+              there's nothing to sync or another refresh is in flight. */}
+          <Button
+            variant="ghost"
+            size="sm"
+            className="gap-1.5 text-muted-foreground hover:text-foreground"
+            onClick={handleRefreshAll}
+            disabled={refreshingAll || refreshingProviderId !== null || syncableCount === 0}
+            title={syncableCount === 0
+              ? (isZh ? '没有支持自动同步的服务商' : 'No syncable providers')
+              : (isZh
+                  ? `挨个刷新 ${syncableCount} 个支持同步的服务商，最后会汇总成功 / 失败 / 无更新`
+                  : `Probe ${syncableCount} syncable providers in sequence; final toast summarizes outcomes`)}
+          >
+            {refreshingAll ? (
+              <SpinnerGap size={12} className="animate-spin" />
+            ) : (
+              <ArrowsClockwise size={12} />
+            )}
+            {isZh ? `刷新全部 (${syncableCount})` : `Refresh all (${syncableCount})`}
+          </Button>
           <Button
             variant="outline"
             size="sm"
@@ -736,90 +920,78 @@ export function ModelsSection() {
           id={`provider-section-${provider.id}`}
           className="space-y-3 scroll-mt-4"
         >
-          <div className="flex items-center justify-between gap-2">
-            <div className="flex items-center gap-2 min-w-0 flex-wrap">
-              <div className="shrink-0 size-7 rounded-md bg-muted/60 flex items-center justify-center">
-                {getProviderIcon(provider.name, provider.base_url)}
-              </div>
-              <h3 className="text-sm font-medium truncate">{provider.name}</h3>
-              {/* Compat pill — channel-level; one per provider section, not
-                  per-row. Same vocabulary as Provider Card so users get a
-                  consistent mental model across pages. */}
-              <span
-                className={cn(
-                  'inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium cursor-help whitespace-nowrap',
-                  compatTone(providerCompat),
-                )}
-                title={compatTooltip(providerCompat, isZh)}
-              >
-                {compatLabel(providerCompat, isZh)}
-              </span>
-              <span className="text-[11px] text-muted-foreground">
-                {isSearching
-                  ? (isZh
-                      ? `${models.length} / ${fullModels.length} 匹配`
-                      : `${models.length} / ${fullModels.length} match`)
-                  : (isZh
-                      ? `${enabledCount} / ${fullModels.length} 启用`
-                      : `${enabledCount} / ${fullModels.length} enabled`)}
-              </span>
-              {/* Inline default-model chip — answers "运行时默认模型是谁"
-                  at a glance, with a hidden-warning tone when the default
-                  has been disabled in this same page. */}
-              {defaultRoleId && (
-                <span
-                  className={cn(
-                    "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium cursor-help",
-                    defaultRoleHidden ? "bg-status-warning-muted text-status-warning-foreground" : "bg-muted text-muted-foreground",
-                  )}
-                  title={defaultRoleHidden
+          {/* Section header — split across two rows so the actions stay
+              aligned with the title regardless of how many secondary
+              chips ride along.
+
+              Row 1: icon + name + 启用计数 + 上次同步  ← actions
+              Row 2: Compat pill + 默认模型 chip (only when present)
+
+              The split keeps the "刷新 / 全部启用 / 全部关闭 / 角色映射 /
+              添加模型" cluster pinned to the right of the same baseline
+              as the provider name; without it those buttons drift down
+              when row 1 wraps. */}
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2 min-w-0">
+                <div className="shrink-0 size-7 rounded-md bg-muted/60 flex items-center justify-center">
+                  {getProviderIcon(provider.name, provider.base_url)}
+                </div>
+                <h3 className="text-sm font-medium truncate">{provider.name}</h3>
+                <span className="text-[11px] text-muted-foreground shrink-0">
+                  {isSearching
                     ? (isZh
-                        ? `默认模型「${defaultRoleId}」已隐藏，运行时会回退到第一个启用的模型`
-                        : `Default "${defaultRoleId}" is hidden — runtime falls back to the first enabled model`)
+                        ? `${models.length} / ${fullModels.length} 匹配`
+                        : `${models.length} / ${fullModels.length} match`)
                     : (isZh
-                        ? `没有指定模型时使用：${defaultRoleModel?.display_name || defaultRoleId}`
-                        : `Used when no model is specified: ${defaultRoleModel?.display_name || defaultRoleId}`)}
-                >
-                  {isZh ? '默认' : 'Default'}: {defaultRoleModel?.display_name || defaultRoleId}
-                  {defaultRoleHidden && ' ⚠'}
+                        ? `${enabledCount} / ${fullModels.length} 启用`
+                        : `${enabledCount} / ${fullModels.length} enabled`)}
                 </span>
-              )}
-              {/* Section-level "上次同步" — aggregate of the latest
-                  last_refreshed_at across this provider's models. Saves
-                  users from scanning every row. Hidden if no row has
-                  ever synced (manual-only providers). */}
-              {lastSyncAggregate && (
-                <span
-                  className="text-[11px] text-muted-foreground"
-                  title={isZh
-                    ? `这个服务商最近一次成功刷新模型的时间。点右边「刷新」按钮重新拉取上游列表。`
-                    : `This provider's most recent successful model refresh. Click "Refresh" to re-probe upstream.`}
-                >
-                  {isZh ? '上次同步: ' : 'Last sync: '}
-                  {formatRefreshedAt(lastSyncAggregate, isZh)}
-                </span>
-              )}
-            </div>
-            <div className="flex items-center gap-1.5 shrink-0">
+                {/* Section-level "上次同步" — aggregate of the latest
+                    last_refreshed_at across this provider's models.
+                    Hidden if no row has ever synced (manual-only providers). */}
+                {lastSyncAggregate && (
+                  <span
+                    className="text-[11px] text-muted-foreground shrink-0"
+                    title={isZh
+                      ? `这个服务商最近一次成功刷新模型的时间。点右边「刷新」按钮重新拉取上游列表。`
+                      : `This provider's most recent successful model refresh. Click "Refresh" to re-probe upstream.`}
+                  >
+                    {isZh ? '上次同步: ' : 'Last sync: '}
+                    {formatRefreshedAt(lastSyncAggregate, isZh)}
+                  </span>
+                )}
+              </div>
+              <div className="flex items-center gap-1.5 shrink-0">
               {/* In-place refresh — uses the same conservative-apply helper
                   as the Add Service success path. No diff dialog: the
                   enable_source guard rails ensure user choices survive,
-                  so the user doesn't need to preview each refresh. */}
-              <Button
-                variant="ghost"
-                size="sm"
-                className="text-muted-foreground hover:text-foreground gap-1.5"
-                disabled={refreshingProviderId === provider.id}
-                onClick={() => handleRefreshProvider(provider)}
-                title={isZh ? '重新从上游拉取模型列表（不会覆盖你手动启用/隐藏的行）' : 'Re-fetch model list from upstream (will not override your manual enable/hide choices)'}
-              >
-                {refreshingProviderId === provider.id ? (
-                  <SpinnerGap size={12} className="animate-spin" />
-                ) : (
-                  <ArrowsClockwise size={12} />
-                )}
-                {isZh ? '刷新' : 'Refresh'}
-              </Button>
+                  so the user doesn't need to preview each refresh.
+                  Disabled (with explanatory tooltip) for providers that
+                  can't be probed at all — OAuth-only or missing key. */}
+              {(() => {
+                const sync = isSyncableProvider(provider);
+                const inFlight = refreshingProviderId === provider.id || refreshingAll;
+                return (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="text-muted-foreground hover:text-foreground gap-1.5"
+                    disabled={inFlight || !sync.ok}
+                    onClick={() => handleRefreshProvider(provider)}
+                    title={!sync.ok
+                      ? (isZh ? sync.reasonZh : sync.reasonEn)
+                      : (isZh ? '重新从上游拉取模型列表（不会覆盖你手动启用/隐藏的行）' : 'Re-fetch model list from upstream (will not override your manual enable/hide choices)')}
+                  >
+                    {refreshingProviderId === provider.id ? (
+                      <SpinnerGap size={12} className="animate-spin" />
+                    ) : (
+                      <ArrowsClockwise size={12} />
+                    )}
+                    {isZh ? '刷新' : 'Refresh'}
+                  </Button>
+                );
+              })()}
               {fullModels.length > 0 && (
                 <Button
                   variant="ghost"
@@ -868,7 +1040,43 @@ export function ModelsSection() {
                 <Plus size={12} weight="bold" />
                 {isZh ? '添加模型' : 'Add model'}
               </Button>
+              </div>
             </div>
+            {/* Row 2 — secondary identity chips. Indented to align with the
+                provider name (icon=size-7 + gap-2 → 36px). Hidden when
+                neither chip applies to keep manual-only providers from
+                rendering an empty row. */}
+            {(defaultRoleId || providerCompat) && (
+              <div className="flex items-center gap-1.5 flex-wrap pl-9">
+                <span
+                  className={cn(
+                    'inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium cursor-help whitespace-nowrap',
+                    compatTone(providerCompat),
+                  )}
+                  title={compatTooltip(providerCompat, isZh)}
+                >
+                  {compatLabel(providerCompat, isZh)}
+                </span>
+                {defaultRoleId && (
+                  <span
+                    className={cn(
+                      "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium cursor-help",
+                      defaultRoleHidden ? "bg-status-warning-muted text-status-warning-foreground" : "bg-muted text-muted-foreground",
+                    )}
+                    title={defaultRoleHidden
+                      ? (isZh
+                          ? `默认模型「${defaultRoleId}」已隐藏，运行时会回退到第一个启用的模型`
+                          : `Default "${defaultRoleId}" is hidden — runtime falls back to the first enabled model`)
+                      : (isZh
+                          ? `没有指定模型时使用：${defaultRoleModel?.display_name || defaultRoleId}`
+                          : `Used when no model is specified: ${defaultRoleModel?.display_name || defaultRoleId}`)}
+                  >
+                    {isZh ? '默认' : 'Default'}: {defaultRoleModel?.display_name || defaultRoleId}
+                    {defaultRoleHidden && ' ⚠'}
+                  </span>
+                )}
+              </div>
+            )}
           </div>
 
           {models.length === 0 ? (
@@ -1013,10 +1221,6 @@ export function ModelsSection() {
                           </div>
                         );
                       })()}
-                      <div className="mt-0.5 text-[10px] text-muted-foreground">
-                        <span>{isZh ? '上次同步: ' : 'Last synced: '}</span>
-                        {formatRefreshedAt(model.last_refreshed_at, isZh)}
-                      </div>
                     </div>
 
                     {/* Enabled toggle */}

@@ -1,33 +1,23 @@
 /**
- * runAutoDiscoverForProvider — silent probe → apply → toast for one provider.
+ * Provider model auto-discovery — shared probe → apply → outcome flow.
  *
- * Extracted so both the Add Service success path (`ProviderManager.handlePresetAdd`)
- * and the Models page per-provider "刷新模型" button can share the same flow.
+ * Two entry points:
+ *   - `runAutoDiscoverForProvider`  — single provider, surfaces a single
+ *     toast (loading → success/warning/info). Used by Add Service success
+ *     and the per-provider "刷新" button on the Models page.
+ *   - `probeAndApplyProvider`       — pure result, no toast. Building
+ *     block for the Models page "刷新全部" path that aggregates many
+ *     providers under one rolling progress toast.
  *
- * Behavior:
- *   - probe `/api/providers/[id]/discover-models`
- *   - filter to writeable diff buckets (new / will-update / preserve-edited /
- *     hidden-but-upstream)
- *   - POST to `/discover-models/apply` with the filtered list
- *   - update one toast through loading → success/warning/info
- *   - dispatch `provider-changed` so listeners refetch (Models page row list,
- *     Provider card stats, etc.)
- *
- * Failure modes degrade silently — provider state is intact, user can retry.
- * No diff-preview UI is shown; that's the dedicated `handleDiscoverModels`
- * dialog flow in ProviderManager. This helper is the "I trust the conservative
- * apply policy, just do it" path.
+ * Both share the same conservative apply policy: enable_source guards
+ * in `applyDiscoveryDiff` ensure user manual_enabled / manual_hidden
+ * choices are never overwritten, so neither entry point shows a diff
+ * preview dialog. The dedicated diff-preview UI is kept in
+ * ProviderManager.handleDiscoverModels for the rare advanced user.
  */
 
 import { showToast, updateToast } from '@/hooks/useToast';
 import type { TranslationKey } from '@/i18n';
-
-interface AutoDiscoverArgs {
-  providerId: string;
-  providerName: string;
-  /** Translator from useTranslation(). Caller passes its bound `t`. */
-  t: (key: TranslationKey, params?: Record<string, string | number>) => string;
-}
 
 interface DiscoverProbeResponse {
   ok?: boolean;
@@ -45,46 +35,70 @@ interface ApplyStatsResponse {
 }
 
 /**
- * Returns void — outcomes are surfaced via toast + the global
- * `provider-changed` event. Callers should await the returned promise
- * if they need to await UI settle, but most fire-and-forget.
+ * Outcome of one provider's discovery cycle. Drives the rolling-summary
+ * toast in batch mode and the single-provider toast in interactive mode.
+ *
+ * - `success`        — apply ran, stats reflect the actual write
+ * - `no-models`      — probe ok, but nothing to write (already up to date)
+ * - `unsupported`    — provider type can't be probed (image / OAuth / env)
+ * - `probe-failed`   — HTTP/network error reaching upstream model list
+ * - `apply-failed`   — probe succeeded, apply route returned non-2xx
+ * - `error`          — uncaught exception
  */
-export async function runAutoDiscoverForProvider({
+export type AutoDiscoverOutcome =
+  | 'success'
+  | 'no-models'
+  | 'unsupported'
+  | 'probe-failed'
+  | 'apply-failed'
+  | 'error';
+
+export interface AutoDiscoverResult {
+  outcome: AutoDiscoverOutcome;
+  /** Total upstream model count (modelCount from probe). */
+  total?: number;
+  /** Counts from the apply step — only populated when outcome=success. */
+  recommendedEnabled?: number;
+  discoveredHidden?: number;
+  /** Free-form error detail; used for batch error log. */
+  errorMessage?: string;
+}
+
+interface ProbeArgs {
+  providerId: string;
+  providerName: string;
+}
+
+/**
+ * Runs probe + apply, returns the typed result. No toast. No global event.
+ *
+ * Caller is responsible for surfacing UI (toast / status row) and for
+ * dispatching `provider-changed` if the local view should refresh.
+ */
+export async function probeAndApplyProvider({
   providerId,
   providerName,
-  t,
-}: AutoDiscoverArgs): Promise<void> {
-  const loadingToastId = showToast({
-    type: 'loading',
-    message: t('provider.autoDiscover.loading' as TranslationKey, { name: providerName }),
-    duration: 0,
-  });
-
+}: ProbeArgs): Promise<AutoDiscoverResult> {
   try {
     const probeRes = await fetch(`/api/providers/${providerId}/discover-models`, { method: 'POST' });
     if (!probeRes.ok) {
-      updateToast(loadingToastId, {
-        type: 'warning',
-        message: t('provider.autoDiscover.probeFailed' as TranslationKey, { name: providerName }),
-        duration: 5000,
-      });
-      return;
+      return {
+        outcome: 'probe-failed',
+        errorMessage: `${probeRes.status} ${probeRes.statusText}`,
+      };
     }
     const probe = await probeRes.json() as DiscoverProbeResponse;
 
     if (!probe.ok) {
-      updateToast(loadingToastId, {
-        type: 'warning',
-        message: probe.classification === 'unsupported'
-          ? t('provider.autoDiscover.unsupported' as TranslationKey, { name: providerName })
-          : t('provider.autoDiscover.probeFailed' as TranslationKey, { name: providerName }),
-        duration: 5000,
-      });
-      return;
+      if (probe.classification === 'unsupported') {
+        return { outcome: 'unsupported' };
+      }
+      return {
+        outcome: 'probe-failed',
+        errorMessage: probe.error?.message ?? `${providerName}: probe rejected`,
+      };
     }
 
-    // Same filter as the manual diff dialog — only buckets that result
-    // in a write are forwarded to apply.
     const applicable = (probe.diff || []).filter((e) =>
       e.status === 'new'
       || e.status === 'will-update'
@@ -93,12 +107,7 @@ export async function runAutoDiscoverForProvider({
     );
 
     if (applicable.length === 0) {
-      updateToast(loadingToastId, {
-        type: 'info',
-        message: t('provider.autoDiscover.noModels' as TranslationKey, { name: providerName }),
-        duration: 5000,
-      });
-      return;
+      return { outcome: 'no-models', total: probe.modelCount ?? 0 };
     }
 
     const applyRes = await fetch(`/api/providers/${providerId}/discover-models/apply`, {
@@ -109,37 +118,98 @@ export async function runAutoDiscoverForProvider({
       }),
     });
     if (!applyRes.ok) {
+      return {
+        outcome: 'apply-failed',
+        errorMessage: `${applyRes.status} ${applyRes.statusText}`,
+      };
+    }
+    const stats = await applyRes.json() as ApplyStatsResponse;
+
+    return {
+      outcome: 'success',
+      total: probe.modelCount ?? applicable.length,
+      recommendedEnabled: stats.recommendedEnabled,
+      discoveredHidden: stats.discoveredHidden,
+    };
+  } catch (err) {
+    return {
+      outcome: 'error',
+      errorMessage: err instanceof Error ? err.message : String(err),
+    };
+  }
+}
+
+interface ToastArgs extends ProbeArgs {
+  /** Translator from useTranslation(). Caller passes its bound `t`. */
+  t: (key: TranslationKey, params?: Record<string, string | number>) => string;
+}
+
+/**
+ * Single-provider entry: shows a toast through loading → outcome and
+ * dispatches `provider-changed` on success. Returns the result so
+ * callers can chain (e.g. trigger a local refetch even when batch
+ * mode owns the toast).
+ */
+export async function runAutoDiscoverForProvider(args: ToastArgs): Promise<AutoDiscoverResult> {
+  const { providerId, providerName, t } = args;
+  const loadingToastId = showToast({
+    type: 'loading',
+    message: t('provider.autoDiscover.loading' as TranslationKey, { name: providerName }),
+    duration: 0,
+  });
+
+  const result = await probeAndApplyProvider({ providerId, providerName });
+
+  switch (result.outcome) {
+    case 'success': {
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new Event('provider-changed'));
+      }
+      updateToast(loadingToastId, {
+        type: 'success',
+        message: t('provider.autoDiscover.success' as TranslationKey, {
+          name: providerName,
+          total: String(result.total ?? 0),
+          enabled: String(result.recommendedEnabled ?? 0),
+          hidden: String(result.discoveredHidden ?? 0),
+        }),
+        duration: 6000,
+      });
+      break;
+    }
+    case 'no-models':
+      updateToast(loadingToastId, {
+        type: 'info',
+        message: t('provider.autoDiscover.noModels' as TranslationKey, { name: providerName }),
+        duration: 5000,
+      });
+      break;
+    case 'unsupported':
+      updateToast(loadingToastId, {
+        type: 'warning',
+        message: t('provider.autoDiscover.unsupported' as TranslationKey, { name: providerName }),
+        duration: 5000,
+      });
+      break;
+    case 'apply-failed':
       updateToast(loadingToastId, {
         type: 'warning',
         message: t('provider.autoDiscover.applyFailed' as TranslationKey, { name: providerName }),
         duration: 5000,
       });
-      return;
-    }
-    const stats = await applyRes.json() as ApplyStatsResponse;
-
-    if (typeof window !== 'undefined') {
-      window.dispatchEvent(new Event('provider-changed'));
-    }
-
-    const total = probe.modelCount ?? applicable.length;
-    updateToast(loadingToastId, {
-      type: 'success',
-      message: t('provider.autoDiscover.success' as TranslationKey, {
-        name: providerName,
-        total: String(total),
-        enabled: String(stats.recommendedEnabled),
-        hidden: String(stats.discoveredHidden),
-      }),
-      duration: 6000,
-    });
-  } catch (err) {
-    updateToast(loadingToastId, {
-      type: 'warning',
-      message: err instanceof Error
-        ? `${providerName}: ${err.message}`
-        : t('provider.autoDiscover.probeFailed' as TranslationKey, { name: providerName }),
-      duration: 5000,
-    });
+      break;
+    case 'probe-failed':
+    case 'error':
+    default:
+      updateToast(loadingToastId, {
+        type: 'warning',
+        message: result.errorMessage
+          ? `${providerName}: ${result.errorMessage}`
+          : t('provider.autoDiscover.probeFailed' as TranslationKey, { name: providerName }),
+        duration: 5000,
+      });
+      break;
   }
+
+  return result;
 }
