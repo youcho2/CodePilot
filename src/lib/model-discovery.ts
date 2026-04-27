@@ -51,7 +51,15 @@ export interface DiscoveryResult {
   /** Did the probe succeed? Only meaningful when classification !== 'unsupported'. */
   ok?: boolean;
   modelCount?: number;
-  /** Sample of model ids — capped to keep responses small. */
+  /** Complete list of upstream model ids — used by `/discover-models` to
+   *  build the apply/diff payload. NEVER read this from a UI (it can run
+   *  to thousands of entries on aggregator providers); use `sampleModels`
+   *  for display. Empty when `ok=false`. */
+  fullModelIds?: string[];
+  /** Capped slice of `fullModelIds` (first SAMPLE_CAP entries) for UI
+   *  display — the diff dialog header, classification log, etc. The cap
+   *  is just for response size; never use this slice as an authoritative
+   *  set when computing what to write to DB or what counts as orphan. */
   sampleModels?: string[];
   error?: DiscoveryError;
   /** Human-readable hint for fallback / next step. */
@@ -408,6 +416,11 @@ async function fetchAndParse(
       endpoint: url,
       ok: true,
       modelCount: ids.length,
+      // `fullModelIds` is the apply/diff source of truth — never trim it.
+      // `sampleModels` is just the UI-visible cap so the JSON response
+      // doesn't bloat for aggregators (OpenRouter ≈ 280, future ones may
+      // exceed SAMPLE_CAP).
+      fullModelIds: ids,
       sampleModels: ids.slice(0, SAMPLE_CAP),
     };
   } catch (err) {

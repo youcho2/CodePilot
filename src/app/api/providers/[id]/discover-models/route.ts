@@ -78,9 +78,12 @@ export async function POST(
     presetKey: matched?.key,
   });
 
-  // Build the diff against current DB state. Every upstream id gets one of
-  // the upstream-side statuses; existing DB rows that don't appear in the
-  // upstream this round are emitted as `orphan` so the UI can flag them.
+  // Build the diff against current DB state. The diff and the seen set
+  // MUST be built from `fullModelIds` (the complete upstream list), NOT
+  // `sampleModels` (a 500-cap UI display slice). If we used the capped
+  // slice, an aggregator with > 500 ids would have its tail entries
+  // missing from DB writes AND its existing DB rows misclassified as
+  // orphans because they weren't in `seenInUpstream`.
   const dbModels = getAllModelsForProvider(id);
   const dbByModelId = new Map<string, ProviderModel>();
   for (const m of dbModels) dbByModelId.set(m.model_id, m);
@@ -88,8 +91,17 @@ export async function POST(
   const diff: DiffEntry[] = [];
   const seenInUpstream = new Set<string>();
 
-  if (result.ok && result.sampleModels && result.sampleModels.length > 0) {
-    for (const raw of result.sampleModels) {
+  // Fall back to sampleModels only for legacy callers / unit-test fixtures
+  // that haven't been updated to populate fullModelIds. Production probes
+  // always populate both.
+  const upstreamIds = result.ok
+    ? (result.fullModelIds && result.fullModelIds.length > 0
+        ? result.fullModelIds
+        : (result.sampleModels ?? []))
+    : [];
+
+  if (upstreamIds.length > 0) {
+    for (const raw of upstreamIds) {
       const modelId = normalizeModelId(raw);
       seenInUpstream.add(modelId);
       const existing = dbByModelId.get(modelId);
@@ -149,6 +161,9 @@ export async function POST(
     endpoint: result.endpoint,
     ok: result.ok,
     modelCount: result.modelCount,
+    // `sampleModels` is the UI-visible slice. The full list lives in
+    // `diff` (each entry pairs modelId + upstreamModelId), so callers
+    // that want to apply don't need fullModelIds in the response.
     sampleModels: result.sampleModels,
     error: result.error,
     notes: result.notes,

@@ -1685,21 +1685,30 @@ export function getAllModelsForProvider(providerId: string): import('@/types').P
 }
 
 /**
- * Align `enabled` per the catalog default list — non-destructive for user
- * data, but does prune stale catalog seeds.
+ * Align `enabled` per the catalog default list — i.e. "reset every
+ * SYSTEM-MANAGED row to the recommended set". Manual choices are never
+ * touched; this is the central invariant.
  *
- *   - Catalog defaults missing from DB → INSERT (source='catalog', enabled=1)
- *   - DB rows whose model_id is in catalog → enabled=1; if user_edited=0,
- *     also refresh display_name + upstream_model_id from catalog (so a
- *     catalog-side rename like "Opus" → "Opus 4.7" propagates without
- *     stomping over user-renamed rows)
- *   - DB rows whose model_id is NOT in catalog →
- *       · `source='catalog'` AND `user_edited=0`: DELETE (stale seed left
- *         over from when the provider matched a different preset, e.g.
- *         DeepSeek transitioning from anthropic-thirdparty fallback to
- *         its own preset). Safe — these rows were seeded by us.
- *       · everything else (api/manual or user-touched): just `enabled=0`,
- *         keep the row so user choices survive.
+ * A row is SYSTEM-MANAGED iff `user_edited=0` AND
+ * `enable_source NOT IN ('manual_enabled','manual_hidden')`. Anything
+ * else is USER-MANAGED and counts as `unchanged` (no decision emitted).
+ *
+ * For system-managed rows:
+ *
+ *   - Catalog defaults missing from DB → INSERT (source='catalog',
+ *     enabled=1, enable_source='recommended')
+ *   - In catalog, currently disabled → ENABLE + sync display_name /
+ *     upstream / enable_source='recommended' so the badge matches
+ *   - In catalog, currently enabled with stale display_name/upstream →
+ *     refresh those fields (catalog-side rename propagation)
+ *   - Not in catalog, source='catalog' → DELETE (stale catalog seed
+ *     from when the provider matched a different preset)
+ *   - Not in catalog, source='api'/'manual' → DISABLE +
+ *     enable_source='discovered' (we found it but it isn't recommended)
+ *
+ * Critical: the `enabled` flag and `enable_source` MUST update together.
+ * A row with `enabled=0, enable_source='recommended'` is internally
+ * inconsistent — the badge would say "system enabled" while it's hidden.
  */
 export function alignEnabledWithCatalog(
   providerId: string,
@@ -1712,16 +1721,26 @@ export function alignEnabledWithCatalog(
   const db = getDb();
   const catalogByModelId = new Map(catalogModels.map(m => [m.modelId, m]));
   const rows = db
-    .prepare('SELECT model_id, enabled, display_name, upstream_model_id, user_edited, source FROM provider_models WHERE provider_id = ?')
-    .all(providerId) as { model_id: string; enabled: number; display_name: string; upstream_model_id: string; user_edited: number; source: string }[];
+    .prepare('SELECT model_id, enabled, display_name, upstream_model_id, user_edited, source, enable_source FROM provider_models WHERE provider_id = ?')
+    .all(providerId) as {
+      model_id: string;
+      enabled: number;
+      display_name: string;
+      upstream_model_id: string;
+      user_edited: number;
+      source: string;
+      enable_source: import('@/types').ModelEnableSource;
+    }[];
   const existingIds = new Set(rows.map(r => r.model_id));
 
   // Phase 1 — compute every decision without writing. Same logic in dry-run
   // and apply paths so the preview shown to the user matches reality.
+  //
+  // `kind: 'enable'` always carries the next enable_source so we never
+  // produce a row whose enabled/enable_source disagree.
   type Decision =
     | { kind: 'insert'; modelId: string; upstreamModelId: string; displayName: string; sort_order: number }
-    | { kind: 'enable-and-refresh'; modelId: string; displayName: string; upstreamModelId: string }
-    | { kind: 'enable-only'; modelId: string }
+    | { kind: 'enable'; modelId: string; displayName: string; upstreamModelId: string }
     | { kind: 'disable'; modelId: string }
     | { kind: 'prune'; modelId: string };
   const decisions: Decision[] = [];
@@ -1746,37 +1765,42 @@ export function alignEnabledWithCatalog(
   }
 
   for (const row of rows) {
+    // Hard guard: any sign that the user has chosen for this row → leave
+    // alone. user_edited is the legacy signal; enable_source manual_*
+    // is the canonical Phase B signal. Either is enough to opt out of
+    // the system-managed reset.
+    const isUserManaged = row.user_edited === 1
+      || row.enable_source === 'manual_enabled'
+      || row.enable_source === 'manual_hidden';
+    if (isUserManaged) {
+      unchanged++;
+      continue;
+    }
+
     const catEntry = catalogByModelId.get(row.model_id);
     const shouldEnable = !!catEntry;
-    const targetEnabled = shouldEnable ? 1 : 0;
     const targetDisplay = catEntry?.displayName || row.model_id;
     const targetUpstream = catEntry?.upstreamModelId || row.model_id;
 
     if (shouldEnable) {
-      const isPristine = row.user_edited === 0;
-      const fieldsAlreadyMatch = isPristine
-        && row.enabled === 1
+      const fieldsAlreadyMatch = row.enabled === 1
+        && row.enable_source === 'recommended'
         && row.display_name === targetDisplay
         && row.upstream_model_id === targetUpstream;
       if (fieldsAlreadyMatch) {
         unchanged++;
-      } else if (isPristine) {
-        decisions.push({ kind: 'enable-and-refresh', modelId: row.model_id, displayName: targetDisplay, upstreamModelId: targetUpstream });
+      } else {
+        decisions.push({ kind: 'enable', modelId: row.model_id, displayName: targetDisplay, upstreamModelId: targetUpstream });
         if (row.enabled === 1) unchanged++;
         else enabled++;
-      } else {
-        if (row.enabled === 1) {
-          unchanged++;
-        } else {
-          decisions.push({ kind: 'enable-only', modelId: row.model_id });
-          enabled++;
-        }
       }
     } else {
-      if (row.source === 'catalog' && row.user_edited === 0) {
+      if (row.source === 'catalog') {
+        // Stale catalog seed — safe to remove (user_edited=0 already proven
+        // by the isUserManaged guard above).
         decisions.push({ kind: 'prune', modelId: row.model_id });
         pruned++;
-      } else if (row.enabled === targetEnabled) {
+      } else if (row.enabled === 0 && row.enable_source === 'discovered') {
         unchanged++;
       } else {
         decisions.push({ kind: 'disable', modelId: row.model_id });
@@ -1789,20 +1813,30 @@ export function alignEnabledWithCatalog(
     return { enabled, disabled, unchanged, inserted, pruned };
   }
 
-  // Phase 2 — execute decisions in one transaction.
-  const enableAndRefreshStmt = db.prepare(
+  // Phase 2 — execute decisions in one transaction. The WHERE clauses
+  // re-assert the user-managed guard at write time so a row that flipped
+  // to manual_* between phase 1 and phase 2 (race-free in practice
+  // because we're in a single sync pass, but cheap belt-and-suspenders)
+  // stays untouched.
+  const enableStmt = db.prepare(
     `UPDATE provider_models
-     SET enabled = 1, display_name = ?, upstream_model_id = ?
-     WHERE provider_id = ? AND model_id = ? AND user_edited = 0`
-  );
-  const enableOnlyStmt = db.prepare(
-    'UPDATE provider_models SET enabled = 1 WHERE provider_id = ? AND model_id = ?'
+     SET enabled = 1, display_name = ?, upstream_model_id = ?, enable_source = 'recommended'
+     WHERE provider_id = ? AND model_id = ?
+       AND user_edited = 0
+       AND enable_source NOT IN ('manual_enabled', 'manual_hidden')`
   );
   const disableStmt = db.prepare(
-    'UPDATE provider_models SET enabled = 0 WHERE provider_id = ? AND model_id = ?'
+    `UPDATE provider_models
+     SET enabled = 0, enable_source = 'discovered'
+     WHERE provider_id = ? AND model_id = ?
+       AND user_edited = 0
+       AND enable_source NOT IN ('manual_enabled', 'manual_hidden')`
   );
   const deleteStmt = db.prepare(
-    'DELETE FROM provider_models WHERE provider_id = ? AND model_id = ?'
+    `DELETE FROM provider_models
+     WHERE provider_id = ? AND model_id = ?
+       AND user_edited = 0
+       AND enable_source NOT IN ('manual_enabled', 'manual_hidden')`
   );
   const insertStmt = db.prepare(
     `INSERT INTO provider_models (id, provider_id, model_id, upstream_model_id, display_name, capabilities_json, variants_json, sort_order, enabled, created_at, source, last_refreshed_at, user_edited, enable_source)
@@ -1819,11 +1853,8 @@ export function alignEnabledWithCatalog(
             providerId, d.modelId, d.upstreamModelId, d.displayName, d.sort_order, now,
           );
           break;
-        case 'enable-and-refresh':
-          enableAndRefreshStmt.run(d.displayName, d.upstreamModelId, providerId, d.modelId);
-          break;
-        case 'enable-only':
-          enableOnlyStmt.run(providerId, d.modelId);
+        case 'enable':
+          enableStmt.run(d.displayName, d.upstreamModelId, providerId, d.modelId);
           break;
         case 'disable':
           disableStmt.run(providerId, d.modelId);

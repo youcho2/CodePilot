@@ -47,8 +47,15 @@ export async function GET(
 /**
  * POST /api/providers/[id]/models
  *
- * Add a manual model. Always marks `source='manual'` + `user_edited=1` so a
- * later refresh can recognize the row as user-owned.
+ * Add a manual model. Sets:
+ *   - `source='manual'`         — data origin: hand-entered, not API
+ *   - `user_edited=1`           — legacy "this row is user-owned" signal
+ *   - `enable_source='manual_enabled'` — Phase B intent signal
+ *
+ * Both `user_edited` and `enable_source='manual_enabled'` independently
+ * gate the row out of refresh apply / catalog align (defense in depth);
+ * setting both keeps the badge in the Models page accurate ("手动启用"
+ * tone instead of the silent default "recommended").
  */
 export async function POST(
   request: NextRequest,
@@ -76,6 +83,7 @@ export async function POST(
     sort_order: sort_order ?? 0,
     source: 'manual',
     user_edited: 1,
+    enable_source: 'manual_enabled',
   });
 
   const models = getAllModelsForProvider(id);

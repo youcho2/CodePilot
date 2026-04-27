@@ -277,6 +277,43 @@ describe('applyDiscoveryDiff', () => {
   });
 });
 
+describe('manual-add via upsertProviderModel', () => {
+  beforeEach(cleanup);
+  afterEach(cleanup);
+
+  it('row added with enable_source=manual_enabled is protected from refresh re-evaluation', () => {
+    // Mirrors what POST /api/providers/[id]/models does for "添加模型".
+    const providerId = createScratchProvider();
+    upsertProviderModel({
+      provider_id: providerId,
+      model_id: 'my-custom-model',
+      upstream_model_id: 'my-custom-model',
+      display_name: 'My Custom Model',
+      capabilities_json: '{}',
+      sort_order: 0,
+      source: 'manual',
+      user_edited: 1,
+      enable_source: 'manual_enabled',
+    });
+
+    const seeded = getAllModelsForProvider(providerId).find(r => r.model_id === 'my-custom-model')!;
+    assert.equal(seeded.enable_source, 'manual_enabled',
+      'manual-add must land as manual_enabled (not the default "recommended")');
+
+    // Refresh that says "this is not recommended" — must still leave
+    // the row enabled because the user added it on purpose.
+    applyDiscoveryDiff(
+      providerId,
+      [{ modelId: 'my-custom-model', upstreamModelId: 'my-custom-model' }],
+      () => false,
+    );
+
+    const after = getAllModelsForProvider(providerId).find(r => r.model_id === 'my-custom-model')!;
+    assert.equal(after.enabled, 1, 'manually-added row stays enabled across refresh');
+    assert.equal(after.enable_source, 'manual_enabled', 'enable_source intact');
+  });
+});
+
 describe('updateProviderModelUserFields auto-marks manual_*', () => {
   beforeEach(cleanup);
   afterEach(cleanup);
