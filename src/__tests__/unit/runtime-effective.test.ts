@@ -26,18 +26,32 @@ import {
 // ---------------------------------------------------------------------------
 
 describe("computeEffectiveRuntime", () => {
-  it("returns stored agent_runtime when cli_enabled is true", () => {
+  it("returns stored agent_runtime when cli_enabled is true and CLI is connected", () => {
     assert.equal(computeEffectiveRuntime("claude-code-sdk", true, true), "claude-code-sdk");
     assert.equal(computeEffectiveRuntime("native", true, true), "native");
   });
 
   it("forces 'native' when cli_enabled is false (highest priority)", () => {
-    // This is the drift case the refactor exists to prevent: the user's
-    // stored preference says Claude Code, but cli_enabled=false routes
-    // chat to AI SDK regardless. The settings panel + the chat badge
-    // must both see this consistently.
+    // Drift case: stored preference says Claude Code but cli_enabled=false
+    // routes chat to AI SDK regardless. Settings panel + chat badge must
+    // both see this consistently.
     assert.equal(computeEffectiveRuntime("claude-code-sdk", false, true), "native");
     assert.equal(computeEffectiveRuntime("native", false, true), "native");
+  });
+
+  it("falls back to 'native' when stored is claude-code-sdk but CLI not connected", () => {
+    // This is the second drift case (the user-reported P2): registry's
+    // resolveRuntime gates step 2 on `r?.isAvailable()`. If the user
+    // picked Claude Code but CLI isn't installed/detected, registry
+    // falls through to native — the helper must too, so the badge in
+    // the chat header doesn't claim Claude Code is running.
+    assert.equal(computeEffectiveRuntime("claude-code-sdk", true, false), "native");
+  });
+
+  it("native is always available regardless of CLI connection state", () => {
+    // CodePilot Runtime ships in-app; cliConnected is irrelevant for it.
+    assert.equal(computeEffectiveRuntime("native", true, false), "native");
+    assert.equal(computeEffectiveRuntime("native", true, true), "native");
   });
 
   it("treats string 'false' the same as boolean false (DB stores strings)", () => {

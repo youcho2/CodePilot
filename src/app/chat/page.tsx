@@ -19,6 +19,7 @@ import { useTranslation } from '@/hooks/useTranslation';
 import { usePanel } from '@/hooks/usePanel';
 import { maybeShowStatusToast } from '@/hooks/useSSEStream';
 import { seedSnapshotPatch } from '@/lib/stream-session-manager';
+import { resolveNewChatDefault } from '@/lib/runtime/effective';
 
 interface ToolUseInfo {
   id: string;
@@ -157,56 +158,31 @@ export default function NewChatPage() {
       // Non-empty result — clear any previously-set noCompatibleProvider
       // flag in case the user just connected / enabled a compatible model.
       setNoCompatibleProvider(false);
-      const groups = modelsData.groups as Array<{ provider_id: string; models: Array<{ value: string }> }>;
-      const globalDefaultModel = globalData?.options?.default_model || '';
-      const globalDefaultProvider = globalData?.options?.default_model_provider || '';
 
-      // Apply global default for new conversations
-      // Case 1: both provider and model are set and valid
-      if (globalDefaultModel && globalDefaultProvider) {
-        const targetGroup = groups.find(g => g.provider_id === globalDefaultProvider);
-        const modelValid = targetGroup?.models.some(m => m.value === globalDefaultModel);
-        if (modelValid) {
-          setCurrentModel(globalDefaultModel);
-          setCurrentProviderId(globalDefaultProvider);
-          setModelReady(true);
-          return;
-        }
-      }
-      // Case 2: provider is set but model was cleared (e.g. after doctor repair / provider delete)
-      // → use that provider's first available model
-      if (globalDefaultProvider && !globalDefaultModel) {
-        const targetGroup = groups.find(g => g.provider_id === globalDefaultProvider);
-        if (targetGroup?.models?.length) {
-          setCurrentModel(targetGroup.models[0].value);
-          setCurrentProviderId(globalDefaultProvider);
-          setModelReady(true);
-          return;
-        }
-      }
+      // Delegate the new-chat resolution chain to the shared helper so
+      // this surface, Settings → Runtime's session explainer, and any
+      // future caller all answer "what will a new chat use?" the same
+      // way. The chain is: global pair → provider-only fallback →
+      // saved (localStorage) pair → API default → first compatible.
+      const resolved = resolveNewChatDefault({
+        groups: modelsData.groups,
+        apiDefaultProviderId: modelsData.default_provider_id,
+        globalDefaultModel: globalData?.options?.default_model || '',
+        globalDefaultProvider: globalData?.options?.default_model_provider || '',
+        savedProviderId: localStorage.getItem('codepilot:last-provider-id') || '',
+        savedModel: localStorage.getItem('codepilot:last-model') || '',
+      });
 
-      // No global default — use localStorage, validate against provider's list
-      const savedProvider = localStorage.getItem('codepilot:last-provider-id') || '';
-      const savedModel = localStorage.getItem('codepilot:last-model') || '';
-      const validProvider = groups.find(g => g.provider_id === savedProvider);
-      const resolvedGroup = validProvider || groups[0];
-      const resolvedPid = resolvedGroup?.provider_id || '';
-
-      if (validProvider) {
-        setCurrentProviderId(savedProvider);
+      if (resolved) {
+        setCurrentProviderId(resolved.providerId);
+        setCurrentModel(resolved.modelValue);
       } else {
-        setCurrentProviderId(resolvedPid);
-      }
-
-      if (resolvedGroup?.models && resolvedGroup.models.length > 0) {
-        const validModel = savedModel && resolvedGroup.models.some(m => m.value === savedModel);
-        if (validModel) {
-          setCurrentModel(savedModel);
-        } else {
-          setCurrentModel(resolvedGroup.models[0].value);
-        }
-      } else {
-        setCurrentModel(savedModel || 'sonnet');
+        // groups was non-empty but the resolver still returned null —
+        // shouldn't happen with the chain above, but fall back to the
+        // legacy "first model in first group" rather than leaving the
+        // composer locked.
+        setCurrentProviderId('');
+        setCurrentModel('sonnet');
       }
       setModelReady(true);
     }).catch(() => {
@@ -340,62 +316,33 @@ export default function NewChatPage() {
         }
         // Non-empty result — clear stale noCompatibleProvider flag.
         setNoCompatibleProvider(false);
-        const groups = modelsData.groups as Array<{ provider_id: string; models: Array<{ value: string }> }>;
-        const globalDefaultModel = globalData?.options?.default_model || '';
-        const globalDefaultProvider = globalData?.options?.default_model_provider || '';
 
-        // Validate and apply provider
-        if (savedProviderId !== null) {
-          const validProvider = groups.find(g => g.provider_id === savedProviderId);
-          if (validProvider) {
-            setCurrentProviderId(savedProviderId);
-          } else {
-            setCurrentProviderId('');
+        // Use the same shared resolver as the initial-load branch above.
+        // It already handles the validate-and-fallback chain that the
+        // previous inline code re-implemented.
+        const resolved = resolveNewChatDefault({
+          groups: modelsData.groups,
+          apiDefaultProviderId: modelsData.default_provider_id,
+          globalDefaultModel: globalData?.options?.default_model || '',
+          globalDefaultProvider: globalData?.options?.default_model_provider || '',
+          savedProviderId: savedProviderId || '',
+          savedModel: localStorage.getItem('codepilot:last-model') || '',
+        });
+
+        if (resolved) {
+          setCurrentProviderId(resolved.providerId);
+          setCurrentModel(resolved.modelValue);
+          // Side effect specific to this call site: keep localStorage in
+          // sync so the next mount doesn't try to restore a saved value
+          // that's no longer in any compatible group. The initial-load
+          // branch doesn't write back because the user might still have
+          // valid state pending a different fetch.
+          if (savedProviderId !== null && savedProviderId !== resolved.providerId) {
             localStorage.removeItem('codepilot:last-provider-id');
           }
-        }
-
-        // Apply global default for new conversations
-        // Case 1: both provider and model are set and valid
-        if (globalDefaultModel && globalDefaultProvider) {
-          const targetGroup = groups.find(g => g.provider_id === globalDefaultProvider);
-          const modelValid = targetGroup?.models.some(m => m.value === globalDefaultModel);
-          if (modelValid) {
-            setCurrentModel(globalDefaultModel);
-            setCurrentProviderId(globalDefaultProvider);
-            setModelReady(true);
-            return;
-          }
-        }
-        // Case 2: provider is set but model was cleared (e.g. after doctor repair / provider delete)
-        // → use that provider's first available model
-        if (globalDefaultProvider && !globalDefaultModel) {
-          const targetGroup = groups.find(g => g.provider_id === globalDefaultProvider);
-          if (targetGroup?.models?.length) {
-            setCurrentModel(targetGroup.models[0].value);
-            setCurrentProviderId(globalDefaultProvider);
-            setModelReady(true);
-            return;
-          }
-        }
-
-        // No global default — validate current model
-        const resolvedPid = savedProviderId && groups.find(g => g.provider_id === savedProviderId)
-          ? savedProviderId
-          : groups[0]?.provider_id || '';
-        const resolvedGroup = groups.find(g => g.provider_id === resolvedPid) || groups[0];
-        setCurrentProviderId(resolvedPid);
-        if (resolvedGroup?.models?.length > 0) {
           const savedModel = localStorage.getItem('codepilot:last-model');
-          const validModel = savedModel && resolvedGroup.models.some(
-            (m: { value: string }) => m.value === savedModel
-          );
-          if (validModel) {
-            setCurrentModel(savedModel);
-          } else {
-            const fallback = resolvedGroup.models[0].value;
-            setCurrentModel(fallback);
-            localStorage.setItem('codepilot:last-model', fallback);
+          if (savedModel !== resolved.modelValue) {
+            localStorage.setItem('codepilot:last-model', resolved.modelValue);
           }
         }
         setModelReady(true);

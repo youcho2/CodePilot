@@ -28,7 +28,7 @@
  * their inputs and feeds them in.
  */
 
-import { resolveLegacyRuntimeForDisplay, isConcreteRuntime } from "./legacy";
+import { resolveLegacyRuntimeForDisplay } from "./legacy";
 
 export type AgentRuntime = "claude-code-sdk" | "native";
 
@@ -43,21 +43,33 @@ export function runtimeDisplayLabel(runtime: AgentRuntime): "Claude Code" | "AI 
  * Compute the *effective* runtime — what the chat path will actually
  * route to. Mirrors the priority chain in `registry.ts:resolveRuntime`:
  *
- *   1. `cli_enabled === false` → 'native' (highest priority)
- *   2. otherwise → the stored `agent_runtime`
+ *   1. `cli_enabled === false` → 'native' (highest-priority constraint)
+ *   2. Stored `agent_runtime` if available — but **availability is
+ *      checked**: if the user picked `'claude-code-sdk'` and the CLI
+ *      isn't currently connected, fall through to native (matches
+ *      `registry.ts` line 67-68 where `r?.isAvailable()` gates the
+ *      explicit setting).
+ *   3. Auto / legacy / null → coerce to whichever concrete runtime
+ *      matches the current CLI state.
  *
- * `agent_runtime='auto'` (legacy) is coerced to a concrete value via
- * `resolveLegacyRuntimeForDisplay`. Callers that already store concrete
- * values can pass them through unchanged.
+ * `agent_runtime='auto'` (legacy) is coerced via
+ * `resolveLegacyRuntimeForDisplay`. Callers that already store
+ * concrete values can pass them through unchanged.
+ *
+ * Why availability matters: without this check the badge in the chat
+ * header could read "Claude Code" while the chat actually ran on AI
+ * SDK because `sdk.isAvailable()` returned false in the registry.
+ * Three surfaces (Settings panel, chat badge, registry) MUST agree.
  *
  * @param storedAgentRuntime  raw value from `settings.agent_runtime` —
  *   may be `'claude-code-sdk'` / `'native'` / `'auto'` (legacy) / null.
  * @param cliEnabled  raw value from `settings.cli_enabled`. Stored as
  *   string `'true' | 'false'`; the helper accepts both string and
- *   boolean for caller convenience.
+ *   boolean for caller convenience. `null` / `undefined` defaults to
+ *   enabled.
  * @param cliConnected  whether Claude Code CLI is currently detected.
- *   Only used to disambiguate the legacy `'auto'` value; ignored for
- *   concrete inputs.
+ *   Used both to disambiguate legacy `'auto'` AND to gate the explicit
+ *   `'claude-code-sdk'` choice — same as registry.
  */
 export function computeEffectiveRuntime(
   storedAgentRuntime: string | null | undefined,
@@ -78,8 +90,14 @@ export function computeEffectiveRuntime(
   // SDK because the registry won't spawn the CLI subprocess.
   if (!cliEnabledBool) return "native";
 
-  if (isConcreteRuntime(storedAgentRuntime)) {
-    return storedAgentRuntime as AgentRuntime;
+  // Stored `'native'` is always available (it's bundled). Stored
+  // `'claude-code-sdk'` requires the CLI to be present — same gate as
+  // registry's `r?.isAvailable()`. A user who chose Claude Code but
+  // doesn't have CLI installed is functionally on AI SDK, not Claude
+  // Code; the badge / explainer must reflect that.
+  if (storedAgentRuntime === "native") return "native";
+  if (storedAgentRuntime === "claude-code-sdk") {
+    return cliConnected ? "claude-code-sdk" : "native";
   }
 
   // Legacy `'auto'` or `null` — coerce to whichever concrete runtime
