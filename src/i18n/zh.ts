@@ -278,6 +278,7 @@ const zh: Record<TranslationKey, string> = {
   'provider.autoDiscover.unsupported': '{name}：该服务商不支持模型发现，请到 Models 页手动添加',
   'provider.autoDiscover.probeFailed': '{name}：无法连接上游获取模型列表',
   'provider.autoDiscover.applyFailed': '{name}：模型已发现但保存失败，请到卡片点击刷新重试',
+  'provider.autoDiscover.upToDate': '{name}：列表已是最新（{total} 个），刷新时间已更新',
 
   // ── Models page batch refresh (page-top "刷新全部") ──────────
   'models.refreshAll.progress': '正在刷新 {done}/{total} · {name}',

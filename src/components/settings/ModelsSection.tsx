@@ -170,11 +170,16 @@ function formatRefreshedAt(iso: string | null, isZh: boolean): string {
  * (401 / 404 / etc.), the resulting toast carries the real reason
  * instead of a misleading pre-emptive "no key, can't try".
  *
- * In particular, missing api_key is NOT a disqualifier: local providers
- * (Ollama, LiteLLM with no auth) can be probed without a key, and the
- * earlier api_key gate was wrongly excluding them from the batch
- * refresh. Image providers are already filtered out one layer up
- * (`fetchAll` skips gemini-image / openai-image entirely).
+ * In particular, missing api_key is NOT a disqualifier: Ollama's
+ * `/api/tags` probe doesn't take a key (the `auth_token` in its
+ * preset's defaultEnvOverrides is a fixed pseudo-value, not a real
+ * credential). Other providers — including LiteLLM, which routes
+ * through `probeOpenAICompat` — still need a key today; their probe
+ * will return `missing-credentials` and the batch summary will list
+ * them as failed. That's accurate behaviour, not a pre-emptive block.
+ *
+ * Image providers are already filtered out one layer up (`fetchAll`
+ * skips gemini-image / openai-image entirely).
  */
 function isSyncableProvider(provider: ApiProvider): { ok: boolean; reasonZh?: string; reasonEn?: string } {
   if (provider.provider_type === 'openai-oauth') {
@@ -432,12 +437,20 @@ export function ModelsSection() {
             totalHidden += result.discoveredHidden ?? 0;
             succeededIds.push(p.id);
             break;
+          case 'up-to-date':
+            // Probe + apply ran; nothing changed substantively but
+            // last_refreshed_at advanced. Count as a successful refresh
+            // (the user did get a fresh check) and refetch so the row
+            // last_refreshed_at column reflects the new timestamp.
+            okCount++;
+            succeededIds.push(p.id);
+            break;
           case 'no-models':
+            // Truly empty upstream — apply didn't run, so no bundle
+            // refetch needed. Counted in summary so the user knows the
+            // probe didn't fail; they may want to investigate why
+            // upstream returned 0 models.
             noChangeCount++;
-            // Even no-change runs may have updated `last_refreshed_at`
-            // server-side via the apply route's preserved bucket — but
-            // for "no applicable" we skip the apply entirely, so the
-            // bundle doesn't need refetch. Saves one round-trip per row.
             break;
           case 'unsupported':
             // Should be rare here since isSyncableProvider already

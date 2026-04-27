@@ -38,8 +38,15 @@ interface ApplyStatsResponse {
  * Outcome of one provider's discovery cycle. Drives the rolling-summary
  * toast in batch mode and the single-provider toast in interactive mode.
  *
- * - `success`        — apply ran, stats reflect the actual write
- * - `no-models`      — probe ok, but nothing to write (already up to date)
+ * - `success`        — apply ran with at least one writeable row
+ * - `up-to-date`     — probe ok and upstream returned models, but every
+ *                      row was already in the unchanged bucket. We still
+ *                      send them through apply so `last_refreshed_at`
+ *                      advances and the section's "上次同步" reflects
+ *                      this probe.
+ * - `no-models`      — probe ok but upstream returned an empty model
+ *                      list (legitimate empty state — caller should
+ *                      treat as "this provider has nothing to expose")
  * - `unsupported`    — provider type can't be probed (image / OAuth / env)
  * - `probe-failed`   — HTTP/network error reaching upstream model list
  * - `apply-failed`   — probe succeeded, apply route returned non-2xx
@@ -47,6 +54,7 @@ interface ApplyStatsResponse {
  */
 export type AutoDiscoverOutcome =
   | 'success'
+  | 'up-to-date'
   | 'no-models'
   | 'unsupported'
   | 'probe-failed'
@@ -99,14 +107,27 @@ export async function probeAndApplyProvider({
       };
     }
 
+    // Two upstream-side buckets:
+    //   - `applicable`  — diff entries that result in a substantive write
+    //                     (new / will-update / preserve-edited / hidden-but-upstream)
+    //   - `unchangedUpstream` — rows that already match upstream exactly
+    //
+    // We send BOTH through apply so `last_refreshed_at` advances even when
+    // nothing changed substantively. Without this, a periodic refresh
+    // against an unchanged upstream would leave "上次同步" frozen at the
+    // earlier probe time, making the user think the refresh never ran.
     const applicable = (probe.diff || []).filter((e) =>
       e.status === 'new'
       || e.status === 'will-update'
       || e.status === 'preserve-edited'
       || e.status === 'hidden-but-upstream',
     );
+    const unchangedUpstream = (probe.diff || []).filter((e) => e.status === 'unchanged');
+    const applySet = [...applicable, ...unchangedUpstream];
 
-    if (applicable.length === 0) {
+    if (applySet.length === 0) {
+      // Truly empty upstream — no entries on either side. Distinct from
+      // up-to-date (which has rows, just nothing to write).
       return { outcome: 'no-models', total: probe.modelCount ?? 0 };
     }
 
@@ -114,7 +135,7 @@ export async function probeAndApplyProvider({
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        upstreamModels: applicable.map((e) => ({ modelId: e.modelId, upstreamModelId: e.upstreamModelId })),
+        upstreamModels: applySet.map((e) => ({ modelId: e.modelId, upstreamModelId: e.upstreamModelId })),
       }),
     });
     if (!applyRes.ok) {
@@ -125,9 +146,13 @@ export async function probeAndApplyProvider({
     }
     const stats = await applyRes.json() as ApplyStatsResponse;
 
+    // `applicable.length === 0` means apply only touched unchanged rows
+    // — last_refreshed_at advanced but nothing else moved. Surfaces as
+    // a distinct outcome so the UI can say "up-to-date" rather than the
+    // less-accurate "X enabled / Y hidden" with all-zero counts.
     return {
-      outcome: 'success',
-      total: probe.modelCount ?? applicable.length,
+      outcome: applicable.length === 0 ? 'up-to-date' : 'success',
+      total: probe.modelCount ?? applySet.length,
       recommendedEnabled: stats.recommendedEnabled,
       discoveredHidden: stats.discoveredHidden,
     };
@@ -174,6 +199,23 @@ export async function runAutoDiscoverForProvider(args: ToastArgs): Promise<AutoD
           hidden: String(result.discoveredHidden ?? 0),
         }),
         duration: 6000,
+      });
+      break;
+    }
+    case 'up-to-date': {
+      // Refresh succeeded, nothing changed substantively. We still
+      // dispatch provider-changed because last_refreshed_at moved and
+      // the section's "上次同步" timestamp needs to repaint.
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new Event('provider-changed'));
+      }
+      updateToast(loadingToastId, {
+        type: 'success',
+        message: t('provider.autoDiscover.upToDate' as TranslationKey, {
+          name: providerName,
+          total: String(result.total ?? 0),
+        }),
+        duration: 5000,
       });
       break;
     }

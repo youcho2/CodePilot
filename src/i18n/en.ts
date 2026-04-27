@@ -281,6 +281,7 @@ const en = {
   'provider.autoDiscover.unsupported': '{name}: this provider does not expose a model list — open Models to add manually',
   'provider.autoDiscover.probeFailed': '{name}: could not reach upstream to discover models',
   'provider.autoDiscover.applyFailed': '{name}: discovered models but failed to save — try Refresh on the card',
+  'provider.autoDiscover.upToDate': '{name}: already up to date ({total} models) — last sync timestamp refreshed',
 
   // ── Models page batch refresh (page-top "Refresh all") ──────
   'models.refreshAll.progress': 'Refreshing {done}/{total} · {name}',

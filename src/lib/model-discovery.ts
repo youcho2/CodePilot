@@ -1,21 +1,35 @@
 /**
- * Read-only model discovery — Phase 2 spike.
+ * Model-discovery probe layer.
  *
- * Goal: probe a configured provider for its model catalogue without writing
- * anything to user state. Backs the upcoming Provider detail page + a
- * "refresh models" button. No schema changes; no auto-application of results.
+ * THIS file is still the read-only side of the discovery pipeline:
+ * `discoverModels()` reaches out to the upstream catalog endpoint, returns
+ * a typed `DiscoveryResult`, and never writes to provider_models. The
+ * write path is layered on top via `/api/providers/[id]/discover-models/apply`
+ * (which calls `applyDiscoveryDiff` in db.ts).
  *
- * Safety contract (matches the spike brief):
+ * Probe-layer safety contract (still in effect):
  *   - never echoes the API key in the response
  *   - every fetch has an explicit timeout
- *   - no follow-on writes / silent updates to provider_models
  *   - protocols without a public/known model endpoint return
  *     `experimental` or `unsupported` instead of inventing a probe
+ *   - `fullModelIds` carries the uncapped upstream list (apply/diff
+ *     source); `sampleModels` is a 500-cap UI-display slice
  *
- * Expected callers:
- *   - `POST /api/providers/[id]/discover-models` (server route)
- *   - future "Refresh models" button on Provider detail page (still optional;
- *     UI must surface failures, not silently override stored models).
+ * Apply-layer policy (Phase B — DOES write silently when invoked from
+ * the new conservative-apply helpers):
+ *   - `runAutoDiscoverForProvider` (single-provider) and the page-top
+ *     `刷新全部` driver (batch) both probe → apply without a preview
+ *     dialog. Safe because `applyDiscoveryDiff` consults each row's
+ *     `enable_source` and refuses to flip `manual_enabled` /
+ *     `manual_hidden`. So "silent write" never overrides a user choice.
+ *   - The legacy diff-preview dialog (ProviderManager.handleDiscoverModels)
+ *     is still preview-first, kept for the advanced reset / orphan-review
+ *     case.
+ *
+ * If you're tempted to "fix" a caller that auto-applies after probing,
+ * read `docs/research/provider-model-discovery.md` first — auto-apply
+ * is the intended design, not a regression. The protection lives in
+ * `applyDiscoveryDiff`'s manual_* guard, not at the discovery layer.
  */
 
 export type DiscoveryClassification =
