@@ -19,7 +19,11 @@
  *   4. Session-level read-only explainer — what a new chat will use
  *   5. Utility: import past chat sessions
  *
- * 2B.6 (`session_events.runtime.selected` minimal write) still pending.
+ * 2B.6 (`session_events.runtime.selected` minimal write) is deferred to a
+ * separate commit — the read-only session-level explainer below derives
+ * the same answer client-side from `/api/providers/models?runtime=auto`
+ * + `runtime_applied` + the global default pair, so 2B can ship without
+ * the persisted event log. Phase 3 Run Cockpit picks it up.
  */
 
 import { useState, useEffect, useCallback, useMemo } from "react";
@@ -58,7 +62,6 @@ import {
   CheckCircle,
   Circle,
   Code,
-  FileArrowDown,
   FloppyDisk,
   Lightning,
   SlidersHorizontal,
@@ -66,7 +69,6 @@ import {
   Warning,
   XCircle,
 } from "@/components/ui/icon";
-import { ImportSessionDialog } from "@/components/layout/ImportSessionDialog";
 import { useClaudeStatus } from "@/hooks/useClaudeStatus";
 import { useTranslation } from "@/hooks/useTranslation";
 import {
@@ -321,8 +323,16 @@ export function RuntimePanel() {
   const isZh = t("nav.chats") === "对话";
 
   // ── Runtime selection (DB setting) ──
+  // `agentRuntime` is the *stored* preference from the DB. The effective
+  // runtime that the chat path actually uses is computed below as
+  // `effectiveRuntime` — `cli_enabled=false` is the highest-priority
+  // override in `lib/runtime/registry.ts:resolveRuntime`, so even if
+  // `agent_runtime='claude-code-sdk'` is stored, AI SDK is what runs
+  // when CLI is disabled. The picker writes both fields together (via
+  // `handleRuntimeChange`), so new state stays consistent; this guard
+  // only fires for legacy DBs where the two fields drifted apart.
   const [agentRuntime, setAgentRuntime] = useState<AgentRuntime>("claude-code-sdk");
-  const [, setCliEnabled] = useState(true);
+  const [cliEnabled, setCliEnabled] = useState(true);
 
   // ── Claude Code status (subprocess detection) ──
   const { status: claudeStatus, refresh: refreshStatus, invalidateAndRefresh } = useClaudeStatus();
@@ -333,8 +343,18 @@ export function RuntimePanel() {
   const [context1m, setContext1m] = useState(false);
 
   // ── Session-level fields (for the read-only explainer) ──
+  // Sourced from /api/providers/models?runtime=auto + the __global__
+  // options (default_model + default_model_provider). This MUST mirror
+  // chat/page.tsx's resolution chain — otherwise we tell the user "new
+  // chats use X" and the chat init silently picks Y. See P1 fix below.
   const [defaultProviderName, setDefaultProviderName] = useState<string | null>(null);
   const [defaultModelLabel, setDefaultModelLabel] = useState<string | null>(null);
+  /** What the server actually resolved when filtering by runtime=auto.
+   *  Echoes `runtime_applied` from the API; null when fetch failed. */
+  const [resolvedRuntimeFromApi, setResolvedRuntimeFromApi] = useState<string | null>(null);
+  /** True when /api/providers/models?runtime=auto returned an empty
+   *  groups list — i.e. no provider/model is currently runtime-compatible. */
+  const [noCompatibleProvider, setNoCompatibleProvider] = useState(false);
 
   // ── Claude settings.json editor state ──
   const [settings, setSettings] = useState<SettingsData>({});
@@ -347,7 +367,6 @@ export function RuntimePanel() {
   const [pendingSaveAction, setPendingSaveAction] = useState<"form" | "json" | null>(null);
 
   // ── Dialogs ──
-  const [importDialogOpen, setImportDialogOpen] = useState(false);
   const [installWizardOpen, setInstallWizardOpen] = useState(false);
 
   // ── Loading ──
@@ -367,11 +386,24 @@ export function RuntimePanel() {
   // ── Fetch all data ──
   const fetchAll = useCallback(async () => {
     try {
-      const [cliRes, appRes, optRes, modelsRes] = await Promise.all([
+      // `?runtime=auto` makes the server filter groups/models the chat
+      // path can't reach. Without this filter, the explainer below could
+      // confidently report "new chats will use Claude Code / Sonnet 4.6"
+      // while chat init actually rejects that combination because the
+      // active runtime requires a different provider compat — the two
+      // surfaces would disagree and the user would lose trust.
+      //
+      // The __global__ options carry the user's chosen default model +
+      // provider. We reuse the same resolution chain as `chat/page.tsx`
+      // (validate global pair → fall back to provider-only → fall back
+      // to first compatible group) so this page is the single source of
+      // truth for "what does a new chat actually look like."
+      const [cliRes, appRes, optRes, modelsRes, globalOptRes] = await Promise.all([
         fetch("/api/settings"),
         fetch("/api/settings/app"),
         fetch("/api/providers/options?providerId=env"),
-        fetch("/api/providers/models"),
+        fetch("/api/providers/models?runtime=auto"),
+        fetch("/api/providers/options?providerId=__global__"),
       ]);
 
       if (cliRes.ok) {
@@ -424,17 +456,80 @@ export function RuntimePanel() {
       }
 
       if (modelsRes.ok) {
-        const data = await modelsRes.json();
-        const groups = data.groups || [];
-        const defaultProviderId = data.default_provider_id;
-        const matched = groups.find(
-          (g: { provider_id: string; provider_name: string; models: { value: string; label: string }[] }) =>
-            g.provider_id === defaultProviderId,
-        );
-        if (matched) {
-          setDefaultProviderName(matched.provider_name);
-          setDefaultModelLabel(matched.models[0]?.label ?? null);
+        const data = await modelsRes.json() as {
+          groups?: Array<{
+            provider_id: string;
+            provider_name: string;
+            models: Array<{ value: string; label: string }>;
+          }>;
+          default_provider_id?: string;
+          runtime_applied?: string;
+        };
+        setResolvedRuntimeFromApi(data.runtime_applied ?? null);
+        const groups = data.groups ?? [];
+
+        if (groups.length === 0) {
+          setNoCompatibleProvider(true);
+          setDefaultProviderName(null);
+          setDefaultModelLabel(null);
+        } else {
+          setNoCompatibleProvider(false);
+          // Pull global default pair from the second options request.
+          let globalDefaultModel = "";
+          let globalDefaultProvider = "";
+          if (globalOptRes.ok) {
+            const globalData = await globalOptRes.json() as {
+              options?: { default_model?: string; default_model_provider?: string };
+            };
+            globalDefaultModel = globalData.options?.default_model ?? "";
+            globalDefaultProvider = globalData.options?.default_model_provider ?? "";
+          }
+
+          // Same resolution chain as `chat/page.tsx`:
+          //   1. Both global default model + provider set AND model is
+          //      present in the runtime-filtered group → use that pair.
+          //   2. Only provider set → use that provider's first model.
+          //   3. Otherwise → fall back to the per-API `default_provider_id`
+          //      and that group's first model. This mirrors the implicit
+          //      "first valid" used at chat init.
+          let chosenGroup: typeof groups[number] | undefined;
+          let chosenModelValue = "";
+
+          if (globalDefaultModel && globalDefaultProvider) {
+            const targetGroup = groups.find((g) => g.provider_id === globalDefaultProvider);
+            const modelInGroup = targetGroup?.models.find((m) => m.value === globalDefaultModel);
+            if (targetGroup && modelInGroup) {
+              chosenGroup = targetGroup;
+              chosenModelValue = modelInGroup.value;
+            }
+          }
+          if (!chosenGroup && globalDefaultProvider) {
+            const targetGroup = groups.find((g) => g.provider_id === globalDefaultProvider);
+            if (targetGroup?.models?.length) {
+              chosenGroup = targetGroup;
+              chosenModelValue = targetGroup.models[0].value;
+            }
+          }
+          if (!chosenGroup) {
+            const apiDefault = data.default_provider_id
+              ? groups.find((g) => g.provider_id === data.default_provider_id)
+              : undefined;
+            chosenGroup = apiDefault ?? groups[0];
+            chosenModelValue = chosenGroup?.models[0]?.value ?? "";
+          }
+
+          if (chosenGroup) {
+            setDefaultProviderName(chosenGroup.provider_name);
+            const labelMatch = chosenGroup.models.find((m) => m.value === chosenModelValue);
+            setDefaultModelLabel(labelMatch?.label ?? chosenGroup.models[0]?.label ?? null);
+          }
         }
+      } else {
+        // API itself unreachable — clear the explainer rather than show stale data.
+        setResolvedRuntimeFromApi(null);
+        setNoCompatibleProvider(false);
+        setDefaultProviderName(null);
+        setDefaultModelLabel(null);
       }
     } catch {
       setSettings({});
@@ -568,6 +663,25 @@ export function RuntimePanel() {
   const hasWarnings = !!claudeStatus?.warnings && claudeStatus.warnings.length > 0;
 
   /**
+   * What the chat runtime registry will *actually* pick. Mirrors the
+   * priority chain in `src/lib/runtime/registry.ts:resolveRuntime`:
+   *
+   *   1. cli_enabled === false  → 'native' (highest priority override)
+   *   2. agent_runtime === 'native' or 'claude-code-sdk' → that
+   *
+   * Without this guard, a legacy DB row where `agent_runtime` and
+   * `cli_enabled` drifted apart (e.g. `cli_enabled=false` from an
+   * earlier opt-out + `agent_runtime='claude-code-sdk'` set later)
+   * would show "Claude Code is the default" on this page while the
+   * chat path silently runs on AI SDK.
+   *
+   * `handleRuntimeChange` keeps the two fields in sync going forward,
+   * so this only fires for legacy state on first load.
+   */
+  const effectiveRuntime: AgentRuntime = !cliEnabled ? "native" : agentRuntime;
+  const driftWarning = effectiveRuntime !== agentRuntime;
+
+  /**
    * Compute Claude Code Runtime status info from current data. Five-state
    * decision tree:
    *
@@ -614,7 +728,7 @@ export function RuntimePanel() {
             : "Run `claude --version` in a terminal to check the version against SDK compatibility",
       };
     }
-    if (agentRuntime === "claude-code-sdk") {
+    if (effectiveRuntime === "claude-code-sdk") {
       return {
         state: "selected",
         reason: isZh
@@ -634,14 +748,14 @@ export function RuntimePanel() {
         ? "想切回 Claude Code 内核，把上方「默认引擎」切到 Claude Code 即可"
         : 'Switch the "Default engine" selector above to use Claude Code',
     };
-  }, [connected, hasWarnings, updateAvailable, agentRuntime, isZh]);
+  }, [connected, hasWarnings, updateAvailable, effectiveRuntime, isZh]);
 
   /**
    * CodePilot Runtime is bundled and always available; the only thing
    * that can change is whether it's selected as default.
    */
   const codepilotStatus: RuntimeStatusInfo = useMemo(() => {
-    if (agentRuntime === "native") {
+    if (effectiveRuntime === "native") {
       return {
         state: "selected",
         reason: isZh
@@ -661,15 +775,29 @@ export function RuntimePanel() {
         ? "想切到 AI SDK 内核，把上方「默认引擎」切到 AI SDK 即可"
         : 'Switch the "Default engine" selector above to use AI SDK',
     };
-  }, [agentRuntime, isZh]);
+  }, [effectiveRuntime, isZh]);
 
-  /** Session-level resolved engine string for the read-only explainer. */
+  /**
+   * Session-level resolved engine string for the read-only explainer.
+   * Authoritative when the API echoes back `runtime_applied`; otherwise
+   * fall back to the locally-computed `effectiveRuntime`. The
+   * "fallback — Claude Code unavailable" annotation only shows when
+   * the stored preference says Claude Code but the effective runtime
+   * routed elsewhere.
+   */
   const resolvedEngineLabel = useMemo(() => {
-    if (agentRuntime === "claude-code-sdk" && !connected) {
-      return isZh ? "AI SDK（Claude Code 不可用，自动降级）" : "AI SDK (fallback — Claude Code unavailable)";
+    const apiSaid = resolvedRuntimeFromApi;
+    const local = effectiveRuntime;
+    const labelFor = (r: string) => (r === "claude_code" || r === "claude-code-sdk" ? "Claude Code" : "AI SDK");
+    const resolvedLabel = apiSaid ? labelFor(apiSaid) : labelFor(local);
+
+    if (agentRuntime === "claude-code-sdk" && resolvedLabel !== "Claude Code") {
+      return isZh
+        ? `${resolvedLabel}（Claude Code 不可用，自动降级）`
+        : `${resolvedLabel} (fallback — Claude Code unavailable)`;
     }
-    return agentRuntime === "claude-code-sdk" ? "Claude Code" : "AI SDK";
-  }, [agentRuntime, connected, isZh]);
+    return resolvedLabel;
+  }, [resolvedRuntimeFromApi, effectiveRuntime, agentRuntime, isZh]);
 
   if (loading) {
     return (
@@ -705,13 +833,24 @@ export function RuntimePanel() {
         </div>
         <p className="text-[11px] text-muted-foreground mb-3">
           {isZh
-            ? "选择新会话默认使用哪个 Runtime。已开始的会话保持原有引擎不变。"
-            : "Choose which runtime new chats use by default. In-flight chats keep the engine they were started with."}
+            ? "选择新会话默认使用哪个 Runtime。当前正在运行的回复不受影响；后续每条新消息会按"
+              + "「默认 Runtime + Provider」重新解析。"
+            : "Choose which runtime new chats use by default. Replies already streaming aren't interrupted; every subsequent message re-resolves the default runtime + provider on send."}
         </p>
+        {driftWarning && (
+          <div className="mb-3 rounded-md border border-status-warning-muted bg-status-warning-muted/30 px-3 py-2 text-[11px] text-status-warning-foreground flex items-start gap-1.5">
+            <Warning size={14} weight="fill" className="mt-0.5 shrink-0" />
+            <span>
+              {isZh
+                ? "检测到旧设置不一致：你保存的偏好是 Claude Code，但 CLI 已被关闭，运行时实际走 AI SDK。点上面任一卡片可一次写齐两边。"
+                : "Legacy state mismatch: stored preference is Claude Code but CLI is disabled, so runtime actually routes to AI SDK. Click either card to rewrite both fields together."}
+            </span>
+          </div>
+        )}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
           <EnginePickerCard
             engine="claude-code-sdk"
-            selected={agentRuntime === "claude-code-sdk"}
+            selected={effectiveRuntime === "claude-code-sdk"}
             onSelect={() => handleRuntimeChange("claude-code-sdk")}
             title="Claude Code"
             tagline={isZh ? "Anthropic 官方 CLI" : "Anthropic official CLI"}
@@ -726,7 +865,7 @@ export function RuntimePanel() {
           />
           <EnginePickerCard
             engine="native"
-            selected={agentRuntime === "native"}
+            selected={effectiveRuntime === "native"}
             onSelect={() => handleRuntimeChange("native")}
             title="AI SDK"
             tagline={isZh ? "CodePilot 自带内核" : "CodePilot built-in"}
@@ -816,7 +955,7 @@ export function RuntimePanel() {
         )}
 
         {/* Model options — only meaningful when Claude Code is selected and connected */}
-        {agentRuntime === "claude-code-sdk" && connected && (
+        {effectiveRuntime === "claude-code-sdk" && connected && (
           <div className="rounded-md bg-muted/40 px-3.5 divide-y divide-border/50">
             <div className="py-2.5 flex items-center justify-between gap-3">
               <div className="flex flex-col gap-0.5">
@@ -1061,63 +1200,65 @@ export function RuntimePanel() {
         </h3>
         <p className="text-[11px] text-muted-foreground">
           {isZh
-            ? "下面是按当前默认设置启动一个新会话时的解析结果。已开始的会话不受影响。"
-            : "What a fresh chat would resolve to with the current defaults. In-flight chats are unaffected."}
+            ? "下面四行就是 chat init 跑的解析链：?runtime=auto 过滤后选择服务商和模型。每条新消息发送时会重新走一次同样的解析；不持久绑定到某个会话。"
+            : "These four rows are exactly what chat init runs: the runtime-filtered ?runtime=auto query picks a provider + model. Every new message re-runs the same resolution on send; nothing is pinned to a session."}
         </p>
-        <div className="rounded-md bg-muted/40 px-3.5 divide-y divide-border/50">
-          <div className="py-2.5 flex items-center justify-between gap-3">
-            <span className="text-[11px] text-muted-foreground shrink-0">
-              {isZh ? "Runtime" : "Runtime"}
-            </span>
-            <span className="text-xs text-foreground/85 text-right">{resolvedEngineLabel}</span>
-          </div>
-          <div className="py-2.5 flex items-center justify-between gap-3">
-            <span className="text-[11px] text-muted-foreground shrink-0">
-              {isZh ? "默认 Provider" : "Default provider"}
-            </span>
-            <span className="text-xs text-foreground/85 text-right truncate">
-              {defaultProviderName ?? (isZh ? "未配置" : "Not configured")}
+        {noCompatibleProvider ? (
+          <div className="rounded-md border border-status-warning-muted bg-status-warning-muted/30 px-3 py-2 text-xs text-status-warning-foreground flex items-start gap-1.5">
+            <Warning size={14} weight="fill" className="mt-0.5 shrink-0" />
+            <span>
+              {isZh
+                ? `当前 Runtime（${resolvedEngineLabel}）下没有可用的 provider/model。新会话会进入"无兼容服务"状态，需要先在「服务商 / 模型」里启用一个匹配 Runtime 的模型。`
+                : `No provider/model is compatible with the current runtime (${resolvedEngineLabel}). New chats land in the "no compatible provider" state until you enable a matching model in Providers / Models.`}
             </span>
           </div>
-          <div className="py-2.5 flex items-center justify-between gap-3">
-            <span className="text-[11px] text-muted-foreground shrink-0">
-              {isZh ? "默认模型" : "Default model"}
-            </span>
-            <span className="text-xs text-foreground/85 text-right truncate">
-              {defaultModelLabel ?? (isZh ? "未配置" : "Not configured")}
-            </span>
-          </div>
-          {agentRuntime === "claude-code-sdk" && !connected && (
+        ) : (
+          <div className="rounded-md bg-muted/40 px-3.5 divide-y divide-border/50">
             <div className="py-2.5 flex items-center justify-between gap-3">
               <span className="text-[11px] text-muted-foreground shrink-0">
-                {isZh ? "降级路径" : "Fallback"}
+                {isZh ? "Runtime" : "Runtime"}
               </span>
-              <span className="text-xs text-status-warning-foreground text-right">
-                {isZh
-                  ? "Claude Code 不可用 → 自动用 AI SDK"
-                  : "Claude Code unavailable → falls back to AI SDK"}
+              <span className="text-xs text-foreground/85 text-right">{resolvedEngineLabel}</span>
+            </div>
+            <div className="py-2.5 flex items-center justify-between gap-3">
+              <span className="text-[11px] text-muted-foreground shrink-0">
+                {isZh ? "默认 Provider" : "Default provider"}
+              </span>
+              <span className="text-xs text-foreground/85 text-right truncate">
+                {defaultProviderName ?? (isZh ? "未配置" : "Not configured")}
               </span>
             </div>
-          )}
-        </div>
-      </div>
-
-      {/* ── Import past chat sessions ──────────────────────────────────── */}
-      <div className="rounded-lg bg-card border border-border/50 p-5 flex items-center justify-between gap-3">
-        <div className="flex flex-col gap-0.5">
-          <h3 className="text-sm font-semibold leading-tight">{t("cli.importTitle")}</h3>
-          <p className="text-[11px] text-muted-foreground">{t("cli.importDesc")}</p>
-        </div>
-        <Button
-          variant="outline"
-          size="sm"
-          className="gap-1.5 shrink-0"
-          onClick={() => setImportDialogOpen(true)}
-        >
-          <FileArrowDown size={14} />
-          {t("cli.importButton")}
-        </Button>
-        <ImportSessionDialog open={importDialogOpen} onOpenChange={setImportDialogOpen} />
+            <div className="py-2.5 flex items-center justify-between gap-3">
+              <span className="text-[11px] text-muted-foreground shrink-0">
+                {isZh ? "默认模型" : "Default model"}
+              </span>
+              <span className="text-xs text-foreground/85 text-right truncate">
+                {defaultModelLabel ?? (isZh ? "未配置" : "Not configured")}
+              </span>
+            </div>
+            {/* Fallback row: shows when the user's stored preference is Claude
+                Code but the effective runtime routed to AI SDK (CLI missing
+                OR cli_enabled=false). Both branches are user-relevant; we
+                gate on agentRuntime !== effectiveRuntime so we don't show a
+                "fallback" when the user picked AI SDK on purpose. */}
+            {agentRuntime === "claude-code-sdk" && effectiveRuntime !== "claude-code-sdk" && (
+              <div className="py-2.5 flex items-center justify-between gap-3">
+                <span className="text-[11px] text-muted-foreground shrink-0">
+                  {isZh ? "降级路径" : "Fallback"}
+                </span>
+                <span className="text-xs text-status-warning-foreground text-right">
+                  {!cliEnabled
+                    ? (isZh
+                        ? "CLI 已禁用 → 走 AI SDK"
+                        : "CLI disabled → routes to AI SDK")
+                    : (isZh
+                        ? "Claude Code 不可用 → 自动用 AI SDK"
+                        : "Claude Code unavailable → falls back to AI SDK")}
+                </span>
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Confirmation dialog for settings.json saves */}

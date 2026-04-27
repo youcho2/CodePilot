@@ -55,7 +55,7 @@ export function FeatureAnnouncementDialog() {
 
   const handleGoToSettings = () => {
     handleDismiss();
-    router.push('/settings#cli');
+    router.push('/settings#runtime');
   };
 
   return (

@@ -64,7 +64,7 @@ export function RuntimeBadge({ providerId }: RuntimeBadgeProps) {
         <Badge
           variant="outline"
           className="text-[10px] px-1.5 py-0 cursor-pointer hover:bg-accent"
-          onClick={() => router.push('/settings#cli')}
+          onClick={() => router.push('/settings#runtime')}
         >
           {isZh ? label.zh : label.en}
         </Badge>

@@ -13,7 +13,8 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { ArrowClockwise, SpinnerGap } from "@/components/ui/icon";
+import { ArrowClockwise, FileArrowDown, SpinnerGap } from "@/components/ui/icon";
+import { ImportSessionDialog } from "@/components/layout/ImportSessionDialog";
 import { useUpdate } from "@/hooks/useUpdate";
 import { useTranslation } from "@/hooks/useTranslation";
 import { useAccountInfo } from "@/hooks/useAccountInfo";
@@ -129,6 +130,7 @@ export function GeneralSection() {
   const [generativeUI, setGenerativeUI] = useState(true);
   const [generativeUISaving, setGenerativeUISaving] = useState(false);
   const [defaultPanel, setDefaultPanel] = useState('file_tree');
+  const [importDialogOpen, setImportDialogOpen] = useState(false);
   const { accountInfo } = useAccountInfo();
   const { t, locale, setLocale } = useTranslation();
 
@@ -216,7 +218,7 @@ export function GeneralSection() {
   };
 
   return (
-    <div className="max-w-3xl space-y-6">
+    <div className="max-w-4xl mx-auto space-y-6">
       <UpdateCard />
 
       {/* General settings card */}
@@ -312,6 +314,26 @@ export function GeneralSection() {
 
       {/* Appearance */}
       <AppearanceSection />
+
+      {/* Chat history import — moved here from the Runtime page so the
+          Runtime surface stays focused on runtime trust. Importing past
+          conversations is a one-off setup convenience that doesn't
+          belong on the runtime page. */}
+      <SettingsCard
+        title={t('cli.importTitle' as TranslationKey)}
+        description={t('cli.importDesc' as TranslationKey)}
+      >
+        <Button
+          variant="outline"
+          size="sm"
+          className="gap-1.5"
+          onClick={() => setImportDialogOpen(true)}
+        >
+          <FileArrowDown size={14} />
+          {t('cli.importButton' as TranslationKey)}
+        </Button>
+        <ImportSessionDialog open={importDialogOpen} onOpenChange={setImportDialogOpen} />
+      </SettingsCard>
 
       {/* Account info */}
       {accountInfo && (

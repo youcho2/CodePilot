@@ -38,6 +38,7 @@
 - 2026-04-26: **Models 页是 chat picker 暴露范围的单一控制点**。Provider 卡片（资产）+ Models 页（暴露范围）+ Setup Center（入门诊断）三层职责完全分离；Provider 卡片不显示模型清单，Models 页不出现 Key 表单，Setup Center 不承载完整管理。Chat picker `/api/providers/models` 的过滤链：`enable_source IN (manual_hidden) → 永远剔除` → runtime filter（claude_code_compatible / codepilot_runtime_compatible）→ 用户搜索。
 - 2026-04-27: **Phase 2 拆为 2A（Provider Trust + Models Control）+ 2B（Runtime Trust）**。2A 已阶段性完成，验收点：Add Service 五桶分组 + Provider 卡片三栏（icon 可用模型 / 上次刷新 / 接入方式）+ Models 页双行 section header + 5-state badge + 刷新全部 (N) 批量；测试 1223 通过；CDP 验证 6 项交互无状态错位。下一步进入 2B：Claude Code Runtime / CodePilot Runtime 平级展示，session-level "本次会用谁 + 为什么" 数据源到位。Run Cockpit (Phase 3) 在 2B 之后做；Runtime Trust 给 Cockpit 顶部状态条提供数据基础。
 - 2026-04-27: **Phase 2B 范围拍板，4 条决策**：① Runtime 提到 Settings 侧栏顶级入口（不再藏在 Setup Center 内）— 确立"Providers / Models / Runtime"三层心智，Runtime 必须以"运行环境"而非"安装配置项"被理解；② Session-level 解释先在 Settings 内做**只读解释块**（"当前默认走谁 / 为什么 / 用什么 provider+model / 不可用时降级到什么"），完整的 session 控制由 Phase 3 Run Cockpit 在 chat 顶部承载；③ CodePilot Runtime 描述用**中等粒度三类**："能力 / 权限 / 上下文"，回答"它能替我做什么、会不会乱动、为什么和 Claude Code 不一样"；④ `session_events.runtime.selected` **Phase 2B 就最小落库**（runtime / reason / provider / model / fallback / session_id / timestamp），Runtime Trust 的核心是"可解释轨迹"而不是"当前状态 UI"，埋点必须先于面板，否则 Phase 3 / Phase 4 没有上游。
+- 2026-04-27: **2B.6 调整为 deferred**。原计划要求 `session_events.runtime.selected` 在 Phase 2B 落库；评审发现 RuntimePanel 的 read-only 解释块可以直接从 `/api/providers/models?runtime=auto` + `runtime_applied` + 全局默认推导出"新会话会用谁"，并不强依赖事件落库。埋点是 DB schema + provider-resolver 改动，和本阶段的 UX 整改风险面不同，单独一个 commit 更干净。下游消费者是 Phase 3 Cockpit，做埋点跟 Cockpit 同期能更明确 schema。如果 Phase 3 推进时仍未落，重新提为 P0。
 
 ## 事实边界
 
@@ -1093,7 +1094,7 @@ UI 规则:
 | 2B.3 | Claude Code Runtime 状态卡：CLI 安装 / 登录态 / settings.json 来源 / 当前会话是否选用 + reason / impact / recovery | 复用 `provider-doctor.ts` + `claude-settings.ts` 产物 |
 | 2B.4 | CodePilot Runtime 状态卡：能力 / 权限 / 上下文三类（中等粒度） | 新组件，描述静态，capability 探测复用现有 |
 | 2B.5 | Session-level 只读解释块：当前默认 runtime + reason + 会用 provider/model + 降级路径 | `RuntimePanel` 内一个 sub-card，数据源接 `provider-resolver.ts` |
-| 2B.6 | `session_events` 表 + `runtime.selected` 事件最小写入 | 新 schema + `provider-resolver.ts` 在 resolve 完成时埋点 |
+| 2B.6 | ⏸️ **deferred** — `session_events` 表 + `runtime.selected` 事件最小写入 | 新 schema + `provider-resolver.ts` 在 resolve 完成时埋点 |
 | 2B.7 | Setup Center 收敛：移除 runtime 完整解释，保留入门诊断 + 跳到 Settings → Runtime 的链接 | `SetupCenter.tsx` |
 
 > 原 Phase 2.2 / 2.3 / 2.4 的设计稿（在 Phase 2A 块下方 §"Phase 2.2 Runtime State Model" 等）写于 2026-04-25。其中 RuntimeState 五态、Claude Code 状态字段、CodePilot Runtime 状态字段大体可复用，但要按上面拍板的"中等粒度三类描述" + "Settings 顶级入口 + 只读 session 解释" 重新校准；动手前再扫一遍那段，把和本轮决策冲突的部分覆盖掉。
@@ -1103,8 +1104,13 @@ UI 规则:
 - 用户在 Settings 侧栏看到 Runtime 顶级入口，里面 Claude Code Runtime / CodePilot Runtime 卡片平级
 - 每个 Runtime 卡片明确告诉用户：现在状态、为什么是这个状态、影响是什么、怎么恢复
 - 任意会话进入 Settings → Runtime 能看到一个只读解释块，告诉"本次默认会走 X，因为 Y，会用 provider Z + model W；如果 X 不可用降级到 V"
-- `session_events` 表里查询某 session_id 能看到 runtime.selected 事件，字段齐
+- ⏸️ ~~`session_events` 表里查询某 session_id 能看到 runtime.selected 事件，字段齐~~ — **deferred**：见下方 2B.6 注记
 - 测试 + CDP 跟 2A 同标准
+
+> **2B.6 deferred 原因**（2026-04-27）：埋点是 DB schema 工作（新建表 + ALTER + provider-resolver 埋点 hook），与本阶段的 UX 整改 commit 风险面不同。先把 Settings → Runtime 的 read-only 体验跑稳，下一个独立 commit 再落埋点：
+>   - 当前 RuntimePanel 的 session-level 解释块在不依赖 `session_events` 的前提下，已能从 `/api/providers/models?runtime=auto` + `runtime_applied` + 全局默认派生出"新会话会用谁"的客观结果，对用户来说先够用
+>   - Phase 3 Run Cockpit 在 chat 顶部展示"本次会话用谁 + 为什么"才是 `runtime.selected` 真正的下游消费方，做埋点和 Cockpit 同期会更明确事件 schema 的契约
+>   - 计划 §决策日志 2026-04-27 那条"Phase 2B 就最小落库"暂时先看作目标，本阶段的 commit 范围把它移到 Phase 2B 收尾或 Phase 3 起手；如果 Phase 3 推进时仍未落地，重新提为 P0
 
 #### 不做（边界守卫）
 

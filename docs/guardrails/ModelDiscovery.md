@@ -1,6 +1,15 @@
 # Model Discovery — 护栏
 
-模型发现 (`/api/providers/[id]/discover-models`) 是 Provider Management 和 Composer 之间的桥梁：从上游拉模型列表，让用户决定哪些进 picker。这块第一版曾自动写库导致用户改名 / 隐藏被覆盖；现在是 diff-first 两步流。任何"为了简化加快"想跳过 diff 直接 apply 的改动都会回到原 P0 教训。
+模型发现 (`/api/providers/[id]/discover-models`) 是 Provider Management 和 Composer 之间的桥梁：从上游拉模型列表，让用户决定哪些进 picker。
+
+**当前 (Phase B) 写入模型**：probe 路由 read-only，apply 路由保守自动写入并由 `enable_source` 守卫保护用户选择：
+
+- **Add Service 成功 / 单服务商刷新 / 刷新全部**：自动 probe + apply，无 dialog；保护层是 `applyDiscoveryDiff` 拒绝翻动 `enable_source IN ('manual_enabled','manual_hidden')` 或 `user_edited=1` 的行
+- **按推荐整理 (`alignEnabledWithCatalog`) / 高级 diff 对话框**：preview-first，dryRun 显示影响范围后才写入；保留给会主动翻动多行或做删除的"扫荡"操作
+
+**演进路径**：第一版纯只读 spike → 第二版无差别 upsert（已淘汰，会回滚用户编辑）→ Phase A "diff-first 必须人确认"（保护放在 UI 步骤，但日常刷新太重）→ **Phase B 当前版**（保护下沉到数据层，UI 可以静默 apply）。详见 `docs/research/provider-model-discovery.md` §"演进历史"。
+
+任何想去掉 `enable_source` / `user_edited` 守卫"简化逻辑"的改动会回到原 P0 教训：用户改名 / 隐藏被刷新覆盖。守卫不变，UI 可以变。
 
 ## 1. 词汇表
 
@@ -15,41 +24,61 @@
 | Source | `provider_models.source`：`api` / `catalog` / `manual` / `role_mapping` / `sdk_default` | DB schema |
 | user_edited | `provider_models.user_edited` 1=用户改过显示名/启用/能力，0=纯净 | DB schema |
 
-## 2. Diff-first 契约（核心）
+## 2. Apply 契约（核心）
 
-### 2.1 三步流 — 不能跳
+### 2.1 两条 apply 路径，按场景选
 
-每次 refresh 必须走：
+**Path A — Conservative auto-apply（默认，多数刷新走这条）**
 
 ```
-1. Probe         — POST /api/providers/[id]/discover-models
-                   返回 { classification, sampleModels, diff }；不写库
-2. User Confirm  — Dialog 显示 diff 计数；用户点 Apply
-3. Apply         — POST /api/providers/[id]/discover-models/apply
-                   body: { upstreamModels: filteredDiff }；写库（保留 user_edited）
+1. Probe   — POST /api/providers/[id]/discover-models       （read-only，永不写库）
+2. Filter  — 客户端把 diff 过滤到 writeable bucket
+3. Apply   — POST /api/providers/[id]/discover-models/apply  （写库；manual_* 受保护）
+4. Toast   — 单 toast 报告 enabled / hidden 计数（无 dialog）
 ```
 
-**不变量**：第 1 步**绝对不写库**。`POST /discover-models` 是 read-only。`POST /discover-models/apply` 是唯一的写入入口。
+入口：Add Service 成功后自动触发、Models 页 section "刷新" 按钮、Models 页顶部 "刷新全部 (N)"。共享 helper 在 `src/lib/auto-discover-models.ts` (`runAutoDiscoverForProvider` / `probeAndApplyProvider`)。
 
-为什么：第二版（已淘汰）"探测成功自动 upsert 全部模型"违反了用户改名 / 隐藏的预期。再次刷新会回滚用户编辑，等于 backseat-driving。docs 第 1-15 行已明确淘汰。
+**Path B — Preview-then-apply（保留给"扫荡"操作）**
 
-### 2.2 Apply 必须保留 user_edited 行
+```
+1. Probe       — POST /discover-models（read-only）
+2. Diff dryRun — 计数 + 每行类型显示给用户
+3. User Confirm — 用户在 dialog 看完点 Apply
+4. Apply       — POST /discover-models/apply
+```
 
-`db.applyDiscoveryDiff(providerId, upstreamModels)` 对每个上游 model：
+入口：Models 页 "按推荐整理"（`alignEnabledWithCatalog` dryRun → confirm → apply）、ProviderManager.handleDiscoverModels 的高级 diff 对话框（保留给 orphan 复盘 / 强制重置）。
+
+### 2.2 不变量
+
+- **`POST /discover-models` 永不写库** — read-only，仅返回 diff。`POST /discover-models/apply` 是唯一写入入口。
+- **`applyDiscoveryDiff` 拒绝翻动用户管理行** — 满足以下任一即"用户管理"，永远不被改：
+  - `enable_source IN ('manual_enabled', 'manual_hidden')`（Phase B 标准信号）
+  - `user_edited = 1`（legacy 信号，保护 Phase B 之前的行）
+- **新行的 enabled 由 caller 注入的 `isRecommended()` 决定** — 不在数据层硬编码白名单。
+- **orphan 行不动** — 上游临时下线 ≠ 用户想删，永远人工确认。
+
+### 2.3 为什么从 Phase A "必须 preview" 回到自动 apply 安全
+
+差别在保护放哪一层。Phase A 把保护放在 UI 步骤里（必须看预览才能 apply），但用户其实并不在乎大多数刷新的具体内容（一个新模型多 / 一个旧模型少）。Phase B 把保护下沉到 `applyDiscoveryDiff` 自身——只要存在 manual_* / user_edited 标记就跳过翻动，**即使前端"忘了" preview 用户选择也不会被回滚**。这让保守自动应用既安全又轻量。
+
+### 2.4 Apply 写库行为（按 `enable_source` 分支）
+
+`db.applyDiscoveryDiff(providerId, upstreamModels, isRecommended)` 对每个上游 model：
 
 | DB 现状 | 上游本次返回 | 写库行为 |
 |---|---|---|
-| 不存在 | 出现 | INSERT；source='api'，user_edited=0，enabled=1，display_name=upstream id |
-| 存在 + user_edited=0 | 出现 | UPDATE upstream_model_id / source='api' / last_refreshed_at；display_name=upstream id |
-| 存在 + user_edited=1 | 出现 | UPDATE upstream_model_id + last_refreshed_at + source；**保留** display_name / capabilities / enabled / sort_order |
-| 存在 + enabled=0（隐藏） | 出现 | 同 user_edited=1 分支；**绝对不重新启用** |
-| 存在 | 不出现（orphan） | **不动**；UI 在 Models 页提示用户决定是否删除 |
+| 不存在 | 出现 | INSERT；source='api'，user_edited=0，enabled=isRecommended()，enable_source='recommended' 或 'discovered' |
+| system-managed (`enable_source IN ('recommended','discovered','catalog')` AND `user_edited=0`) | 出现 | `updatePristineStmt`：按 isRecommended 重新评估 enabled + enable_source；同步 upstream_model_id / source='api' / last_refreshed_at / display_name |
+| user-managed (`enable_source IN ('manual_enabled','manual_hidden')` OR `user_edited=1`) | 出现 | `updatePreservedStmt`：仅 UPDATE upstream_model_id + last_refreshed_at + source；**enabled / enable_source / display_name / capabilities / sort_order 全部不动** |
+| 任何 | 不出现（orphan） | **不动**；UI 在 Models 页提示用户决定是否删除 |
 
-**不变量**：apply 流程**绝对不能**重置 enabled=0 / user_edited=1 行的用户字段。这是 P0 教训。
+**不变量**：apply 流程**绝对不能**重置 user-managed 行的 enabled / enable_source。这是 P0 教训。两条信号（manual_* 和 user_edited=1）任一即触发保护，是为了让 Phase B 之前的 legacy 行也受保护。
 
-### 2.3 UI 只挑用户实际想动的 diff 条目
+### 2.5 UI filter — apply 只发会写的桶
 
-`ProviderManager.tsx` 的 `handleApplyDiff` 必须 filter：
+`ProviderManager.tsx` 的 `handleApplyDiff` 和 `auto-discover-models.ts` 的 `probeAndApplyProvider` 都 filter：
 
 ```ts
 const applicable = diff.filter(e =>
@@ -60,9 +89,7 @@ const applicable = diff.filter(e =>
 );
 ```
 
-跳过 `unchanged` 和 `orphan`：
-- `unchanged` 没差异，apply 是 no-op，浪费 DB 写
-- `orphan` 上游已下线，用户要决定是否删除，**不**自动删（误判 = 数据丢失）
+注意 `unchanged` 现在也会发到 apply（让 `last_refreshed_at` 推进，"上次同步"才会刷新），但走 `updatePreservedStmt` 不改 enabled。`orphan` 永不发。`probeAndApplyProvider` 见 `apply-discovery-diff.test.ts` 的 up-to-date case。
 
 ## 3. Classification 分类规则
 
@@ -166,15 +193,17 @@ availableModels = [
 
 ## 8. 常见坑
 
-1. **POST /discover-models 写库** — 直接回到第二版灾难。这个 route 必须 read-only
-2. **apply 默认重置 enabled** — 用户隐藏的模型刷新后被启用。`applyDiscoveryDiff` 五种 case 都不能改 enabled，仅 INSERT 默认 enabled=1
-3. **orphan 自动删** — 上游临时下线（地区切换 / 维护）会 false-positive，用户的 manual 加的同名行被误删。orphan 必须**人工确认**
-4. **probe 不超时** — 慢上游让请求 hang，front-end 转圈一直转。`AbortSignal.timeout(8000)` 必须保留
-5. **响应回显 key** — Gemini probe 把 `?key=` 写进 endpoint 字段返给前端 → log 泄漏。`probeGemini` 用占位符替换
-6. **`SAMPLE_CAP` 设太低** — 大 catalog provider (OpenRouter / Aiberm) 截断模型，用户问"为什么少了"。500 够当前用
-7. **catalog seed 不抑制 hidden** — 用户隐藏的 catalog 模型 catalog tail 又加回，picker 又显示。必须 `filter(m => !dbHiddenIds.has(m.modelId))`
-8. **Apply 没过 filter** — 把 unchanged / orphan 也发到 apply route 浪费写 + 可能误删 orphan
-9. **OAuth provider 误展示 refresh 按钮** — OAuth 没 DB row，refresh 无意义且会 404。`ProviderCard` 仅当 `onRefreshModels` 传入才渲染按钮，OAuth 路径不传
+1. **POST /discover-models 写库** — probe 路由必须 read-only。写入只能从 `/apply` 走。
+2. **apply 翻动 manual_* / user_edited 行** — 用户隐藏的模型刷新后被启用。`applyDiscoveryDiff` 三个分支必须严格按 `enable_source` + `user_edited` 守卫，user-managed 行只动 `upstream_model_id` / `last_refreshed_at`。
+3. **新加的 caller "为简化"绕过 isRecommended 谓词** — 如果直接 `enabled=1` 硬编码而不走 caller 注入的判定，新行会全部默认开启，违反"保守自动 apply"原则。
+4. **orphan 自动删** — 上游临时下线（地区切换 / 维护）会 false-positive，用户的 manual 加的同名行被误删。orphan 必须**人工确认**。
+5. **probe 不超时** — 慢上游让请求 hang，front-end 转圈一直转。`AbortSignal.timeout(8000)` 必须保留。
+6. **响应回显 key** — Gemini probe 把 `?key=` 写进 endpoint 字段返给前端 → log 泄漏。`probeGemini` 用占位符替换。
+7. **`fullModelIds` vs `sampleModels` 用错** — 大 catalog provider 超过 SAMPLE_CAP=500 时，apply / diff / seen 集合**必须**用 `fullModelIds`；`sampleModels` 是 UI 截断版本，混用会让 500 名以后的真实模型变成 orphan。
+8. **catalog seed 不抑制 hidden** — 用户隐藏的 catalog 模型 catalog tail 又加回，picker 又显示。必须 `filter(m => !dbHiddenIds.has(m.modelId))`。
+9. **Apply 没过 filter** — 把 orphan 也发到 apply route 可能误删；`unchanged` 现在 OK 发（让 `last_refreshed_at` 推进），但 `orphan` 永远不发。
+10. **OAuth provider 误展示 refresh 按钮** — OAuth 没 DB row，refresh 无意义且会 404。`ProviderCard` 仅当 `onRefreshModels` 传入才渲染按钮，OAuth 路径不传。
+11. **批量驱动忘了 try/catch/finally** — `刷新全部` 必须 try/finally 保护 `setRefreshingAll(false)`，否则单个 throw 让按钮永久卡 loading。`auto-discover-models.ts` 的 `probeAndApplyProvider` 是纯结果版本，专门给批量驱动用以便外层独占 toast。
 
 ## 9. 测试覆盖
 

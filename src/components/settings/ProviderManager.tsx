@@ -995,7 +995,7 @@ export function ProviderManager() {
                           }}
                           primaryAction={
                             <Button asChild variant="ghost" size="sm" className="h-8 px-3 text-xs">
-                              <a href="/settings#cli">{t('provider.goToClaudeCodeSettings')}</a>
+                              <a href="/settings#runtime">{t('provider.goToClaudeCodeSettings')}</a>
                             </Button>
                           }
                         />
