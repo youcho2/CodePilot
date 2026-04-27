@@ -32,8 +32,10 @@ import {
   SpinnerGap,
   Check,
   X,
+  ArrowsClockwise,
 } from "@/components/ui/icon";
 import { useTranslation } from "@/hooks/useTranslation";
+import { runAutoDiscoverForProvider } from "@/lib/auto-discover-models";
 import { getProviderIcon } from "./provider-presets";
 import { getProviderCompat, getModelCompat, compatLabel, compatTone, compatTooltip } from "@/lib/runtime-compat";
 import {
@@ -164,6 +166,9 @@ export function ModelsSection() {
   const [providers, setProviders] = useState<ApiProvider[]>([]);
   const [bundles, setBundles] = useState<Record<string, ProviderModel[]>>({});
   const [loading, setLoading] = useState(true);
+  // Per-provider in-flight refresh — gates the row-section button so a user
+  // can't fire two probes against the same upstream while one is in flight.
+  const [refreshingProviderId, setRefreshingProviderId] = useState<string | null>(null);
   type ViewFilter = 'enabled' | 'hidden' | 'all';
   const [viewFilter, setViewFilter] = useState<ViewFilter>('enabled');
   type RuntimeFilter = 'all' | 'claude_code_ready' | 'claude_code_verified' | 'claude_code_experimental' | 'codepilot_only' | 'unknown';
@@ -284,6 +289,41 @@ export function ModelsSection() {
       setLoading(false);
     }
   }, []);
+
+  // Refetch a single provider's bundle without re-fetching the world.
+  // Used after the in-place "刷新" so the user's scroll position only
+  // shifts because that one section's row count changed, not because
+  // every other section also reloaded.
+  const refetchProviderBundle = useCallback(async (providerId: string) => {
+    try {
+      const r = await fetch(`/api/providers/${providerId}/models?all=1`);
+      if (r.ok) {
+        const d = await r.json();
+        setBundles((prev) => ({ ...prev, [providerId]: d.models || [] }));
+      }
+    } catch { /* ignore — toast already covered failure case */ }
+  }, []);
+
+  // In-place "刷新模型" — uses the same probe → conservative apply → toast
+  // helper as the Add Service success path, then re-fetches just this
+  // provider's bundle so the row list reflects the new state. We don't
+  // want to send users to the Providers page for a refresh; they're
+  // already looking at the model list, and the diff dialog isn't needed
+  // because the conservative apply policy already protects user choices.
+  const handleRefreshProvider = useCallback(async (provider: ApiProvider) => {
+    if (refreshingProviderId) return; // gate concurrent refreshes
+    setRefreshingProviderId(provider.id);
+    try {
+      await runAutoDiscoverForProvider({
+        providerId: provider.id,
+        providerName: provider.name,
+        t,
+      });
+      await refetchProviderBundle(provider.id);
+    } finally {
+      setRefreshingProviderId(null);
+    }
+  }, [refreshingProviderId, refetchProviderBundle, t]);
 
   // Persist edited role mappings via PUT /api/providers/[id] (the existing
   // provider PUT route already handles role_models_json). Defined here
@@ -577,7 +617,7 @@ export function ModelsSection() {
               : 'Control which models each provider exposes, plus their display names and order. Sourcing is driven by the Provider cards\' "Refresh models"; this page decides presentation.'}
           </p>
         </div>
-        <div className="flex flex-col items-end shrink-0 gap-0.5">
+        <div className="shrink-0">
           <Button
             variant="outline"
             size="sm"
@@ -586,9 +626,6 @@ export function ModelsSection() {
           >
             {isZh ? '按推荐整理' : 'Tidy by recommended'}
           </Button>
-          <span className="text-[10px] text-muted-foreground">
-            {isZh ? '会先预览再写入' : 'preview before write'}
-          </span>
         </div>
       </div>
 
@@ -755,8 +792,8 @@ export function ModelsSection() {
                 <span
                   className="text-[11px] text-muted-foreground"
                   title={isZh
-                    ? `这个服务商最近一次成功刷新模型的时间。点右边「去刷新」回到服务商页执行刷新。`
-                    : `This provider's most recent successful model refresh. Use "Refresh" to go to the Providers page and run it.`}
+                    ? `这个服务商最近一次成功刷新模型的时间。点右边「刷新」按钮重新拉取上游列表。`
+                    : `This provider's most recent successful model refresh. Click "Refresh" to re-probe upstream.`}
                 >
                   {isZh ? '上次同步: ' : 'Last sync: '}
                   {formatRefreshedAt(lastSyncAggregate, isZh)}
@@ -764,22 +801,24 @@ export function ModelsSection() {
               )}
             </div>
             <div className="flex items-center gap-1.5 shrink-0">
-              {/* Cross-link to ProviderManager: model refresh lives there
-                  because the diff dialog is owned by ProviderManager; we
-                  hand the user back so they're not stranded mid-task. */}
+              {/* In-place refresh — uses the same conservative-apply helper
+                  as the Add Service success path. No diff dialog: the
+                  enable_source guard rails ensure user choices survive,
+                  so the user doesn't need to preview each refresh. */}
               <Button
                 variant="ghost"
                 size="sm"
-                className="text-muted-foreground hover:text-foreground"
-                title={isZh ? '回到服务商页刷新模型 / 编辑凭据' : 'Open Providers page to refresh models / edit credentials'}
-                onClick={() => {
-                  if (typeof window !== 'undefined') {
-                    sessionStorage.setItem('codepilot:providers-focus-provider', provider.id);
-                    window.location.hash = '#providers';
-                  }
-                }}
+                className="text-muted-foreground hover:text-foreground gap-1.5"
+                disabled={refreshingProviderId === provider.id}
+                onClick={() => handleRefreshProvider(provider)}
+                title={isZh ? '重新从上游拉取模型列表（不会覆盖你手动启用/隐藏的行）' : 'Re-fetch model list from upstream (will not override your manual enable/hide choices)'}
               >
-                {isZh ? '去刷新' : 'Open Providers'}
+                {refreshingProviderId === provider.id ? (
+                  <SpinnerGap size={12} className="animate-spin" />
+                ) : (
+                  <ArrowsClockwise size={12} />
+                )}
+                {isZh ? '刷新' : 'Refresh'}
               </Button>
               {fullModels.length > 0 && (
                 <Button
