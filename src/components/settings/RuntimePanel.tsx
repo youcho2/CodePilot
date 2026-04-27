@@ -868,12 +868,29 @@ export function RuntimePanel() {
             : "Choose which runtime new chats use by default. Replies already streaming aren't interrupted; every subsequent message re-resolves the default runtime + provider on send."}
         </p>
         {driftWarning && (
+          // Two distinct reasons can drive this warning, with different
+          // recovery paths. Don't conflate them — Runtime is the trust
+          // page, getting the *cause* wrong (and pointing at the wrong
+          // fix) is exactly what we're trying to avoid.
+          //
+          //   1. cli_enabled=false  → user explicitly turned off CLI in
+          //      a previous build. Recovery: click either card so
+          //      handleRuntimeChange writes both fields atomically.
+          //   2. !cliConnected      → CLI never installed (or OAuth
+          //      expired, or `which claude` no longer resolves).
+          //      Recovery: the Claude Code card below has an Install
+          //      button + warning details — point the user there
+          //      instead of asking them to "click either card."
           <div className="mb-3 rounded-md border border-status-warning-muted bg-status-warning-muted/30 px-3 py-2 text-[11px] text-status-warning-foreground flex items-start gap-1.5">
             <Warning size={14} weight="fill" className="mt-0.5 shrink-0" />
             <span>
-              {isZh
-                ? "检测到旧设置不一致：你保存的偏好是 Claude Code，但 CLI 已被关闭，运行时实际走 AI SDK。点上面任一卡片可一次写齐两边。"
-                : "Legacy state mismatch: stored preference is Claude Code but CLI is disabled, so runtime actually routes to AI SDK. Click either card to rewrite both fields together."}
+              {!cliEnabled
+                ? (isZh
+                    ? "保存的偏好是 Claude Code，但 CLI 在「设置」里被显式关闭过，运行时实际走 AI SDK。点上面任一卡片可一次写齐两边设置。"
+                    : "Stored preference is Claude Code but CLI was explicitly disabled in a previous setting, so runtime actually routes to AI SDK. Click either card above to rewrite both fields together.")
+                : (isZh
+                    ? "保存的偏好是 Claude Code，但当前没有检测到 Claude Code CLI（可能未安装或登录失效），运行时实际走 AI SDK。下方 Claude Code Runtime 卡片提供安装入口；或者改选 AI SDK 作为默认。"
+                    : "Stored preference is Claude Code but the CLI isn't currently detected (not installed or OAuth expired), so runtime actually routes to AI SDK. Use the Install button on the Claude Code Runtime card below — or pick AI SDK as your default instead.")}
             </span>
           </div>
         )}
