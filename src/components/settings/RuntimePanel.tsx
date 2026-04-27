@@ -56,6 +56,7 @@ import {
   ArrowsClockwise,
   CaretDown,
   CheckCircle,
+  Circle,
   Code,
   FileArrowDown,
   FloppyDisk,
@@ -195,6 +196,110 @@ function RuntimeCard({
       </div>
       {children}
     </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Engine picker card — large, click-anywhere card used at the page top to
+// pick the default runtime. Two cards render side by side; the selected
+// one carries a primary-tinted border + ring + bg-tint and a filled check
+// indicator in the top-right corner. Unselected stays muted with a hollow
+// circle indicator that fills on hover so the affordance is obvious.
+// ---------------------------------------------------------------------------
+
+function EnginePickerCard({
+  engine: _engine, // kept for future telemetry; not read in render today
+  selected,
+  onSelect,
+  title,
+  tagline,
+  pitch,
+  statusKind,
+  statusText,
+  isZh,
+}: {
+  engine: AgentRuntime;
+  selected: boolean;
+  onSelect: () => void;
+  title: string;
+  tagline: string;
+  pitch: string;
+  /** `ok` → success-tone status row; `warning` → warning-tone (e.g. CLI not installed). */
+  statusKind: "ok" | "warning";
+  statusText: string;
+  isZh: boolean;
+}) {
+  void _engine;
+  return (
+    <button
+      type="button"
+      onClick={onSelect}
+      aria-pressed={selected}
+      className={cn(
+        "relative w-full text-left rounded-lg border p-5 flex flex-col gap-3 transition-all",
+        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 focus-visible:ring-offset-2",
+        selected
+          ? "border-primary/40 bg-primary/5 ring-1 ring-primary/30 shadow-sm"
+          : "border-border/50 bg-card hover:border-border hover:bg-muted/30",
+      )}
+    >
+      {/* Top-right indicator. Filled CheckCircle when selected; hollow Circle
+          otherwise with a faint hover boost so the click affordance reads. */}
+      <span className="absolute top-4 right-4 text-muted-foreground">
+        {selected ? (
+          <CheckCircle size={18} weight="fill" className="text-primary" />
+        ) : (
+          <Circle size={18} className="text-muted-foreground/60" />
+        )}
+      </span>
+
+      {/* Title block — engine name + small subtitle so the card has a
+          micro-headline distinct from the body pitch. */}
+      <div className="pr-8">
+        <h4 className={cn("text-sm font-semibold", selected ? "text-primary" : "text-foreground")}>
+          {title}
+        </h4>
+        <p className="text-[11px] text-muted-foreground mt-0.5">{tagline}</p>
+      </div>
+
+      {/* Pitch text — 2-3 sentences max. Mid-card so it's the visual focus. */}
+      <p className="text-xs text-foreground/85 leading-relaxed">{pitch}</p>
+
+      {/* Status row — bottom-anchored. Color-coded at a glance:
+            ok      → success-foreground (Claude Code installed / AI SDK ready)
+            warning → warning-foreground (CLI missing, would fall back) */}
+      <div className="mt-auto flex items-center gap-1.5 text-[11px]">
+        {statusKind === "ok" ? (
+          <CheckCircle
+            size={12}
+            weight="fill"
+            className="text-status-success-foreground shrink-0"
+          />
+        ) : (
+          <Warning
+            size={12}
+            weight="fill"
+            className="text-status-warning-foreground shrink-0"
+          />
+        )}
+        <span
+          className={cn(
+            "truncate",
+            statusKind === "ok"
+              ? "text-status-success-foreground"
+              : "text-status-warning-foreground",
+          )}
+        >
+          {statusText}
+        </span>
+        {/* Right-side reminder — when not selected, hint the click action. */}
+        {!selected && (
+          <span className="ml-auto text-muted-foreground/70 shrink-0">
+            {isZh ? "点击切换" : "Click to switch"}
+          </span>
+        )}
+      </div>
+    </button>
   );
 }
 
@@ -587,30 +692,51 @@ export function RuntimePanel() {
         </p>
       </div>
 
-      {/* ── Default-engine selector ───────────────────────────────────── */}
-      <div className="rounded-lg bg-card border border-border/50 p-5 flex flex-col gap-3">
-        <div className="flex items-center gap-2">
+      {/* ── Default-engine picker (two large cards, mutually exclusive) ──
+          Each card is the entire click target. Selected card carries
+          primary-tinted border + bg + ring; unselected stays muted.
+          The status hint at the bottom of each card flips based on
+          actual reachability (Claude Code: install / OAuth state;
+          AI SDK: always ready since it ships in-app). */}
+      <div>
+        <div className="flex items-center gap-2 mb-2">
           <Lightning size={16} weight="fill" className="text-status-success-foreground" />
           <h3 className="text-sm font-semibold">{isZh ? "默认引擎" : "Default engine"}</h3>
         </div>
-        <p className="text-[11px] text-muted-foreground">
+        <p className="text-[11px] text-muted-foreground mb-3">
           {isZh
             ? "选择新会话默认使用哪个 Runtime。已开始的会话保持原有引擎不变。"
             : "Choose which runtime new chats use by default. In-flight chats keep the engine they were started with."}
         </p>
-        <div className="flex items-center justify-between gap-3">
-          <span className="text-xs text-muted-foreground">
-            {isZh ? "新会话用..." : "New chats run on..."}
-          </span>
-          <Select value={agentRuntime} onValueChange={(v) => handleRuntimeChange(v as AgentRuntime)}>
-            <SelectTrigger className="w-[180px] h-8 text-xs">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="claude-code-sdk">Claude Code</SelectItem>
-              <SelectItem value="native">AI SDK</SelectItem>
-            </SelectContent>
-          </Select>
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+          <EnginePickerCard
+            engine="claude-code-sdk"
+            selected={agentRuntime === "claude-code-sdk"}
+            onSelect={() => handleRuntimeChange("claude-code-sdk")}
+            title="Claude Code"
+            tagline={isZh ? "Anthropic 官方 CLI" : "Anthropic official CLI"}
+            pitch={isZh
+              ? "用 Anthropic 官方 CLI 跑 Agent，完整兼容 Claude Code 生态：~/.claude/settings.json、hooks、MCP server 直接可用。"
+              : "Runs the Agent through Anthropic's official Claude Code CLI. Fully compatible with the Claude Code ecosystem — ~/.claude/settings.json, hooks, and MCP servers all work as-is."}
+            statusKind={connected ? "ok" : "warning"}
+            statusText={connected
+              ? `${isZh ? "已安装" : "Installed"} v${claudeStatus?.version ?? ""}${claudeStatus?.installType ? ` · ${claudeStatus.installType}` : ""}`
+              : (isZh ? "未安装 — 选用后会自动降级到 AI SDK" : "Not installed — selecting it falls back to AI SDK")}
+            isZh={isZh}
+          />
+          <EnginePickerCard
+            engine="native"
+            selected={agentRuntime === "native"}
+            onSelect={() => handleRuntimeChange("native")}
+            title="AI SDK"
+            tagline={isZh ? "CodePilot 自带内核" : "CodePilot built-in"}
+            pitch={isZh
+              ? "CodePilot 直连 provider API 跑 Agent。多 provider、权限与上下文由 CodePilot 自管，不依赖外部 CLI。"
+              : "CodePilot calls provider APIs directly. Multi-provider, with permissions and context managed in-app — no external CLI required."}
+            statusKind="ok"
+            statusText={isZh ? "随应用自带，始终可用" : "Bundled with the app, always available"}
+            isZh={isZh}
+          />
         </div>
       </div>
 
