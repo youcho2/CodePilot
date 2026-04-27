@@ -691,8 +691,15 @@ export function RuntimePanel() {
    * the stored preference).
    *
    * `handleRuntimeChange` keeps both DB fields in sync on every write,
-   * so the drift warning below only fires for legacy DB rows where
-   * the two settings were saved apart by an earlier build.
+   * so the drift warning below has two known causes:
+   *   1. Legacy DB rows where `agent_runtime='claude-code-sdk'` and
+   *      `cli_enabled='false'` were saved apart by an earlier build.
+   *   2. Stored preference is `'claude-code-sdk'` but CLI isn't
+   *      currently detected (never installed / `which claude`
+   *      stopped resolving / OAuth expired). The helper falls back
+   *      to `'native'` to match registry's `r?.isAvailable()` gate.
+   * The conditional render below branches on `cliEnabled` to give the
+   * correct cause + recovery path for each.
    */
   const effectiveRuntime: AgentRuntime = computeEffectiveRuntime(
     agentRuntime,
