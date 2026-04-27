@@ -162,14 +162,19 @@ function formatRefreshedAt(iso: string | null, isZh: boolean): string {
 }
 
 /**
- * Whether a provider supports the discover-models probe at all. Image
- * providers are already filtered out upstream; this guards OAuth-only
- * (no /v1/models endpoint) and providers that lack credentials (probe
- * would 401 immediately, wasting the round-trip + adding a misleading
- * "probe failed" toast in batch mode).
+ * Whether a provider can be sent through the discover-models probe.
  *
- * The batch "刷新全部" button uses this to filter the iteration set;
- * the per-provider button uses it to disable the action with a hint.
+ * Only filters cases that are guaranteed to fail BEFORE any network
+ * call — currently just OAuth-only providers (no /v1/models endpoint
+ * exists). Anything else gets the chance to probe; if upstream rejects
+ * (401 / 404 / etc.), the resulting toast carries the real reason
+ * instead of a misleading pre-emptive "no key, can't try".
+ *
+ * In particular, missing api_key is NOT a disqualifier: local providers
+ * (Ollama, LiteLLM with no auth) can be probed without a key, and the
+ * earlier api_key gate was wrongly excluding them from the batch
+ * refresh. Image providers are already filtered out one layer up
+ * (`fetchAll` skips gemini-image / openai-image entirely).
  */
 function isSyncableProvider(provider: ApiProvider): { ok: boolean; reasonZh?: string; reasonEn?: string } {
   if (provider.provider_type === 'openai-oauth') {
@@ -177,13 +182,6 @@ function isSyncableProvider(provider: ApiProvider): { ok: boolean; reasonZh?: st
       ok: false,
       reasonZh: '通过 OAuth 授权登录的服务商不暴露模型列表接口，请使用内置目录',
       reasonEn: 'OAuth-only providers do not expose a model list endpoint — built-in catalog only',
-    };
-  }
-  if (!provider.api_key) {
-    return {
-      ok: false,
-      reasonZh: '此服务商缺少 API Key，请先在「服务商」页填写后再刷新',
-      reasonEn: 'No API key configured — set one in Providers first',
     };
   }
   return { ok: true };
@@ -394,94 +392,124 @@ export function ModelsSection() {
       duration: 0,
     });
 
-    let okCount = 0;
-    let noChangeCount = 0;
-    let failCount = 0;
-    const failures: { name: string; reason: string }[] = [];
-    let totalEnabled = 0;
-    let totalHidden = 0;
+    // try/finally guarantees `setRefreshingAll(false)` even if anything
+    // in the loop or the post-loop refetch throws — without it, the
+    // page-top button would stay "Refreshing..." forever after a single
+    // unexpected failure (the original /api/providers throw was the
+    // canonical case before we switched away from `fetchAll`).
+    try {
+      let okCount = 0;
+      let noChangeCount = 0;
+      let failCount = 0;
+      const failures: { name: string; reason: string }[] = [];
+      let totalEnabled = 0;
+      let totalHidden = 0;
+      const succeededIds: string[] = [];
 
-    for (let i = 0; i < targets.length; i++) {
-      const p = targets[i];
-      // Update the rolling status to "[i+1]/N · current name"
-      updateToast(toastId, {
-        type: 'loading',
-        message: t('models.refreshAll.progress' as TranslationKey, {
-          done: String(i + 1),
-          total: String(targets.length),
-          name: p.name,
-        }),
-        duration: 0,
-      });
-      let result: AutoDiscoverResult;
-      try {
-        result = await probeAndApplyProvider({ providerId: p.id, providerName: p.name });
-      } catch (err) {
-        result = { outcome: 'error', errorMessage: err instanceof Error ? err.message : String(err) };
-      }
-
-      switch (result.outcome) {
-        case 'success':
-          okCount++;
-          totalEnabled += result.recommendedEnabled ?? 0;
-          totalHidden += result.discoveredHidden ?? 0;
-          break;
-        case 'no-models':
-          noChangeCount++;
-          break;
-        case 'unsupported':
-          // Should be rare here since isSyncableProvider already filtered;
-          // include in failures so the user knows it was skipped silently.
-          failCount++;
-          failures.push({
+      for (let i = 0; i < targets.length; i++) {
+        const p = targets[i];
+        // Update the rolling status to "[i+1]/N · current name"
+        updateToast(toastId, {
+          type: 'loading',
+          message: t('models.refreshAll.progress' as TranslationKey, {
+            done: String(i + 1),
+            total: String(targets.length),
             name: p.name,
-            reason: isZh ? '不支持自动同步' : 'Discovery not supported',
-          });
-          break;
-        case 'probe-failed':
-        case 'apply-failed':
-        case 'error':
-        default:
-          failCount++;
-          failures.push({ name: p.name, reason: result.errorMessage ?? 'unknown' });
-          break;
+          }),
+          duration: 0,
+        });
+        let result: AutoDiscoverResult;
+        try {
+          result = await probeAndApplyProvider({ providerId: p.id, providerName: p.name });
+        } catch (err) {
+          result = { outcome: 'error', errorMessage: err instanceof Error ? err.message : String(err) };
+        }
+
+        switch (result.outcome) {
+          case 'success':
+            okCount++;
+            totalEnabled += result.recommendedEnabled ?? 0;
+            totalHidden += result.discoveredHidden ?? 0;
+            succeededIds.push(p.id);
+            break;
+          case 'no-models':
+            noChangeCount++;
+            // Even no-change runs may have updated `last_refreshed_at`
+            // server-side via the apply route's preserved bucket — but
+            // for "no applicable" we skip the apply entirely, so the
+            // bundle doesn't need refetch. Saves one round-trip per row.
+            break;
+          case 'unsupported':
+            // Should be rare here since isSyncableProvider already
+            // filtered; include in failures so the user knows it was
+            // skipped silently.
+            failCount++;
+            failures.push({
+              name: p.name,
+              reason: isZh ? '不支持自动同步' : 'Discovery not supported',
+            });
+            break;
+          case 'probe-failed':
+          case 'apply-failed':
+          case 'error':
+          default:
+            failCount++;
+            failures.push({ name: p.name, reason: result.errorMessage ?? 'unknown' });
+            break;
+        }
       }
-    }
 
-    // Refetch all bundles in one shot — cheaper than per-provider since
-    // the number of providers is small and the round trip is local.
-    await fetchAll();
-    if (typeof window !== 'undefined') {
-      window.dispatchEvent(new Event('provider-changed'));
-    }
+      // Soft refetch — only the providers whose bundles actually changed.
+      // We deliberately avoid the global `fetchAll` because it flips
+      // `loading=true`, which would unmount the entire list and lose the
+      // user's scroll position. `refetchProviderBundle` updates one
+      // bucket of `bundles` in place, leaving every other section
+      // (and the scroll) untouched.
+      await Promise.all(succeededIds.map(id => refetchProviderBundle(id)));
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new Event('provider-changed'));
+      }
 
-    // Summary toast — surface failures inline so the user can act without
-    // expanding anything. Truncate to 3 names; "+N more" for the rest.
-    const failNames = failures.slice(0, 3).map(f => f.name).join(', ');
-    const failMore = failures.length > 3 ? (isZh ? `等 ${failures.length} 个` : `+${failures.length - 3} more`) : '';
-    const summaryParts: string[] = [];
-    summaryParts.push(t('models.refreshAll.summaryOk' as TranslationKey, {
-      ok: String(okCount),
-      enabled: String(totalEnabled),
-      hidden: String(totalHidden),
-    }));
-    if (noChangeCount > 0) {
-      summaryParts.push(t('models.refreshAll.summaryNoChange' as TranslationKey, { n: String(noChangeCount) }));
-    }
-    if (failCount > 0) {
-      summaryParts.push(t('models.refreshAll.summaryFailed' as TranslationKey, {
-        n: String(failCount),
-        names: failMore ? `${failNames} ${failMore}` : failNames,
+      // Summary toast — surface failures inline so the user can act
+      // without expanding anything. Truncate to 3 names; "+N more"
+      // suffix for the rest.
+      const failNames = failures.slice(0, 3).map(f => f.name).join(', ');
+      const failMore = failures.length > 3 ? (isZh ? `等 ${failures.length} 个` : `+${failures.length - 3} more`) : '';
+      const summaryParts: string[] = [];
+      summaryParts.push(t('models.refreshAll.summaryOk' as TranslationKey, {
+        ok: String(okCount),
+        enabled: String(totalEnabled),
+        hidden: String(totalHidden),
       }));
+      if (noChangeCount > 0) {
+        summaryParts.push(t('models.refreshAll.summaryNoChange' as TranslationKey, { n: String(noChangeCount) }));
+      }
+      if (failCount > 0) {
+        summaryParts.push(t('models.refreshAll.summaryFailed' as TranslationKey, {
+          n: String(failCount),
+          names: failMore ? `${failNames} ${failMore}` : failNames,
+        }));
+      }
+      updateToast(toastId, {
+        type: failCount > 0 ? 'warning' : 'success',
+        message: summaryParts.join(' · '),
+        duration: failCount > 0 ? 8000 : 6000,
+      });
+    } catch (err) {
+      // Unexpected exception — turn the rolling toast into an error
+      // banner so the user sees something happened, instead of a
+      // permanent "loading" spinner.
+      updateToast(toastId, {
+        type: 'warning',
+        message: isZh
+          ? `刷新过程异常: ${err instanceof Error ? err.message : String(err)}`
+          : `Batch refresh threw: ${err instanceof Error ? err.message : String(err)}`,
+        duration: 6000,
+      });
+    } finally {
+      setRefreshingAll(false);
     }
-    updateToast(toastId, {
-      type: failCount > 0 ? 'warning' : 'success',
-      message: summaryParts.join(' · '),
-      duration: failCount > 0 ? 8000 : 6000,
-    });
-
-    setRefreshingAll(false);
-  }, [refreshingAll, refreshingProviderId, providers, isZh, t, fetchAll]);
+  }, [refreshingAll, refreshingProviderId, providers, isZh, t, refetchProviderBundle]);
 
   const syncableCount = useMemo(() => providers.filter(p => isSyncableProvider(p).ok).length, [providers]);
 
