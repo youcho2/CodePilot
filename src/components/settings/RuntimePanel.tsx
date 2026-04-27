@@ -906,14 +906,21 @@ export function RuntimePanel() {
             engine="claude-code-sdk"
             selected={effectiveRuntime === "claude-code-sdk"}
             onSelect={() => handleRuntimeChange("claude-code-sdk")}
-            title="Claude Code"
+            // Both cards now end in "Runtime" so the picker reads as
+            // two parallel agent engines, not "a Claude product vs an
+            // SDK." The vendor name moves into the subtitle.
+            title="Claude Code Runtime"
             tagline={isZh ? "Anthropic 官方 CLI" : "Anthropic official CLI"}
             pitch={isZh
               ? "用 Anthropic 官方 CLI 跑 Agent，完整兼容 Claude Code 生态：~/.claude/settings.json、hooks、MCP server 直接可用。"
               : "Runs the Agent through Anthropic's official Claude Code CLI. Fully compatible with the Claude Code ecosystem — ~/.claude/settings.json, hooks, and MCP servers all work as-is."}
             statusKind={connected ? "ok" : "warning"}
+            // installType ("native" / "npm" / etc.) is intentionally
+            // omitted here — the word "native" collides with the AI
+            // SDK runtime which is internally called `native`, and the
+            // install method isn't actionable for the user.
             statusText={connected
-              ? `${isZh ? "已安装" : "Installed"} v${claudeStatus?.version ?? ""}${claudeStatus?.installType ? ` · ${claudeStatus.installType}` : ""}`
+              ? `${isZh ? "已安装" : "Installed"} v${claudeStatus?.version ?? ""}`
               : (isZh ? "未安装 — 选用后会自动降级到 AI SDK" : "Not installed — selecting it falls back to AI SDK")}
             isZh={isZh}
           />
@@ -921,16 +928,88 @@ export function RuntimePanel() {
             engine="native"
             selected={effectiveRuntime === "native"}
             onSelect={() => handleRuntimeChange("native")}
-            title="AI SDK"
-            tagline={isZh ? "CodePilot 自带内核" : "CodePilot built-in"}
+            title="CodePilot Runtime"
+            tagline={isZh ? "CodePilot 自带内核 (AI SDK)" : "CodePilot built-in (AI SDK)"}
             pitch={isZh
-              ? "CodePilot 直连 provider API 跑 Agent。多 provider、权限与上下文由 CodePilot 自管，不依赖外部 CLI。"
-              : "CodePilot calls provider APIs directly. Multi-provider, with permissions and context managed in-app — no external CLI required."}
+              ? "CodePilot 直连 provider API 跑 Agent。适合多 provider、可观察、可恢复，由 CodePilot 自管上下文和权限，不依赖外部 CLI。"
+              : "CodePilot calls provider APIs directly. Built for multi-provider, observable, recoverable runs — context and permissions stay inside CodePilot, no external CLI required."}
             statusKind="ok"
             statusText={isZh ? "随应用自带，始终可用" : "Bundled with the app, always available"}
             isZh={isZh}
           />
         </div>
+      </div>
+
+      {/* ── Session-level read-only explainer ──────────────────────────────
+          Sits BETWEEN the picker and the Runtime detail cards on
+          purpose: this is the answer most users come here for ("what
+          will my next chat actually use?"). Putting it below the
+          picker means they see the consequence of their selection
+          without scrolling, and the detail cards below explain *why*
+          if they want to dig deeper. */}
+      <div className="rounded-lg bg-card border border-border/50 p-5 flex flex-col gap-3">
+        <h3 className="text-sm font-semibold leading-tight">
+          {isZh ? "新会话会用什么" : "What a new chat will use"}
+        </h3>
+        <p className="text-[11px] text-muted-foreground">
+          {isZh
+            ? "按当前默认设置，下一条新消息会解析为以下运行组合。每次发送前都会重新检查 Runtime、Provider 和模型兼容性 — 不持久绑定到某个会话。"
+            : "With the current defaults, your next new message resolves to the combination below. Runtime, provider, and model compatibility are re-checked on every send — nothing is pinned to a session."}
+        </p>
+        {noCompatibleProvider ? (
+          <div className="rounded-md border border-status-warning-muted bg-status-warning-muted/30 px-3 py-2 text-xs text-status-warning-foreground flex items-start gap-1.5">
+            <Warning size={14} weight="fill" className="mt-0.5 shrink-0" />
+            <span>
+              {isZh
+                ? `当前 Runtime（${resolvedEngineLabel}）下没有可用的 provider/model。新会话会进入"无兼容服务"状态，需要先在「服务商 / 模型」里启用一个匹配 Runtime 的模型。`
+                : `No provider/model is compatible with the current runtime (${resolvedEngineLabel}). New chats land in the "no compatible provider" state until you enable a matching model in Providers / Models.`}
+            </span>
+          </div>
+        ) : (
+          <div className="rounded-md bg-muted/40 px-3.5 divide-y divide-border/50">
+            <div className="py-2.5 flex items-center justify-between gap-3">
+              <span className="text-[11px] text-muted-foreground shrink-0">
+                {isZh ? "Runtime" : "Runtime"}
+              </span>
+              <span className="text-xs text-foreground/85 text-right">{resolvedEngineLabel}</span>
+            </div>
+            <div className="py-2.5 flex items-center justify-between gap-3">
+              <span className="text-[11px] text-muted-foreground shrink-0">
+                {isZh ? "默认 Provider" : "Default provider"}
+              </span>
+              <span className="text-xs text-foreground/85 text-right truncate">
+                {defaultProviderName ?? (isZh ? "未配置" : "Not configured")}
+              </span>
+            </div>
+            <div className="py-2.5 flex items-center justify-between gap-3">
+              <span className="text-[11px] text-muted-foreground shrink-0">
+                {isZh ? "默认模型" : "Default model"}
+              </span>
+              <span className="text-xs text-foreground/85 text-right truncate">
+                {defaultModelLabel ?? (isZh ? "未配置" : "Not configured")}
+              </span>
+            </div>
+            {/* Fallback row — shown when stored preference is Claude
+                Code but effective runtime routed elsewhere (CLI
+                missing OR cli_enabled=false). */}
+            {agentRuntime === "claude-code-sdk" && effectiveRuntime !== "claude-code-sdk" && (
+              <div className="py-2.5 flex items-center justify-between gap-3">
+                <span className="text-[11px] text-muted-foreground shrink-0">
+                  {isZh ? "降级路径" : "Fallback"}
+                </span>
+                <span className="text-xs text-status-warning-foreground text-right">
+                  {!cliEnabled
+                    ? (isZh
+                        ? "CLI 已禁用 → 走 AI SDK"
+                        : "CLI disabled → routes to AI SDK")
+                    : (isZh
+                        ? "Claude Code 不可用 → 自动用 AI SDK"
+                        : "Claude Code unavailable → falls back to AI SDK")}
+                </span>
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {/* ── Claude Code Runtime card ──────────────────────────────────── */}
@@ -949,7 +1028,6 @@ export function RuntimePanel() {
                   <CheckCircle size={14} className="text-status-success-foreground" />
                   <span className="text-xs text-muted-foreground">
                     v{claudeStatus?.version}
-                    {claudeStatus?.installType ? ` (${claudeStatus.installType})` : ""}
                   </span>
                   {updateAvailable && (
                     <Button
@@ -1246,74 +1324,6 @@ export function RuntimePanel() {
           </div>
         </div>
       </RuntimeCard>
-
-      {/* ── Session-level read-only explainer ──────────────────────────── */}
-      <div className="rounded-lg bg-card border border-border/50 p-5 flex flex-col gap-3">
-        <h3 className="text-sm font-semibold leading-tight">
-          {isZh ? "新会话会用什么" : "What a new chat will use"}
-        </h3>
-        <p className="text-[11px] text-muted-foreground">
-          {isZh
-            ? "按当前默认设置，下一条新消息会解析为以下运行组合。每次发送前都会重新检查 Runtime、Provider 和模型兼容性 — 不持久绑定到某个会话。"
-            : "With the current defaults, your next new message resolves to the combination below. Runtime, provider, and model compatibility are re-checked on every send — nothing is pinned to a session."}
-        </p>
-        {noCompatibleProvider ? (
-          <div className="rounded-md border border-status-warning-muted bg-status-warning-muted/30 px-3 py-2 text-xs text-status-warning-foreground flex items-start gap-1.5">
-            <Warning size={14} weight="fill" className="mt-0.5 shrink-0" />
-            <span>
-              {isZh
-                ? `当前 Runtime（${resolvedEngineLabel}）下没有可用的 provider/model。新会话会进入"无兼容服务"状态，需要先在「服务商 / 模型」里启用一个匹配 Runtime 的模型。`
-                : `No provider/model is compatible with the current runtime (${resolvedEngineLabel}). New chats land in the "no compatible provider" state until you enable a matching model in Providers / Models.`}
-            </span>
-          </div>
-        ) : (
-          <div className="rounded-md bg-muted/40 px-3.5 divide-y divide-border/50">
-            <div className="py-2.5 flex items-center justify-between gap-3">
-              <span className="text-[11px] text-muted-foreground shrink-0">
-                {isZh ? "Runtime" : "Runtime"}
-              </span>
-              <span className="text-xs text-foreground/85 text-right">{resolvedEngineLabel}</span>
-            </div>
-            <div className="py-2.5 flex items-center justify-between gap-3">
-              <span className="text-[11px] text-muted-foreground shrink-0">
-                {isZh ? "默认 Provider" : "Default provider"}
-              </span>
-              <span className="text-xs text-foreground/85 text-right truncate">
-                {defaultProviderName ?? (isZh ? "未配置" : "Not configured")}
-              </span>
-            </div>
-            <div className="py-2.5 flex items-center justify-between gap-3">
-              <span className="text-[11px] text-muted-foreground shrink-0">
-                {isZh ? "默认模型" : "Default model"}
-              </span>
-              <span className="text-xs text-foreground/85 text-right truncate">
-                {defaultModelLabel ?? (isZh ? "未配置" : "Not configured")}
-              </span>
-            </div>
-            {/* Fallback row: shows when the user's stored preference is Claude
-                Code but the effective runtime routed to AI SDK (CLI missing
-                OR cli_enabled=false). Both branches are user-relevant; we
-                gate on agentRuntime !== effectiveRuntime so we don't show a
-                "fallback" when the user picked AI SDK on purpose. */}
-            {agentRuntime === "claude-code-sdk" && effectiveRuntime !== "claude-code-sdk" && (
-              <div className="py-2.5 flex items-center justify-between gap-3">
-                <span className="text-[11px] text-muted-foreground shrink-0">
-                  {isZh ? "降级路径" : "Fallback"}
-                </span>
-                <span className="text-xs text-status-warning-foreground text-right">
-                  {!cliEnabled
-                    ? (isZh
-                        ? "CLI 已禁用 → 走 AI SDK"
-                        : "CLI disabled → routes to AI SDK")
-                    : (isZh
-                        ? "Claude Code 不可用 → 自动用 AI SDK"
-                        : "Claude Code unavailable → falls back to AI SDK")}
-                </span>
-              </div>
-            )}
-          </div>
-        )}
-      </div>
 
       {/* Confirmation dialog for settings.json saves */}
       <AlertDialog open={showConfirmDialog} onOpenChange={setShowConfirmDialog}>
