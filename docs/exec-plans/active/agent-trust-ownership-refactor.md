@@ -37,6 +37,7 @@
 - 2026-04-26: **5-state `enable_source` 列**作为 `provider_models` 行的"为什么是当前状态"标记，distinct from `source`（数据来源）。状态值：`recommended` / `manual_enabled` / `manual_hidden` / `discovered` / `catalog`。用户在 Models 页 toggle enabled 时由 `updateProviderModelUserFields` 自动写 `manual_*`；refresh apply 读 `enable_source` 决定是否允许翻动。Models 页徽章直接对应这个标记。
 - 2026-04-26: **Models 页是 chat picker 暴露范围的单一控制点**。Provider 卡片（资产）+ Models 页（暴露范围）+ Setup Center（入门诊断）三层职责完全分离；Provider 卡片不显示模型清单，Models 页不出现 Key 表单，Setup Center 不承载完整管理。Chat picker `/api/providers/models` 的过滤链：`enable_source IN (manual_hidden) → 永远剔除` → runtime filter（claude_code_compatible / codepilot_runtime_compatible）→ 用户搜索。
 - 2026-04-27: **Phase 2 拆为 2A（Provider Trust + Models Control）+ 2B（Runtime Trust）**。2A 已阶段性完成，验收点：Add Service 五桶分组 + Provider 卡片三栏（icon 可用模型 / 上次刷新 / 接入方式）+ Models 页双行 section header + 5-state badge + 刷新全部 (N) 批量；测试 1223 通过；CDP 验证 6 项交互无状态错位。下一步进入 2B：Claude Code Runtime / CodePilot Runtime 平级展示，session-level "本次会用谁 + 为什么" 数据源到位。Run Cockpit (Phase 3) 在 2B 之后做；Runtime Trust 给 Cockpit 顶部状态条提供数据基础。
+- 2026-04-27: **Phase 2B 范围拍板，4 条决策**：① Runtime 提到 Settings 侧栏顶级入口（不再藏在 Setup Center 内）— 确立"Providers / Models / Runtime"三层心智，Runtime 必须以"运行环境"而非"安装配置项"被理解；② Session-level 解释先在 Settings 内做**只读解释块**（"当前默认走谁 / 为什么 / 用什么 provider+model / 不可用时降级到什么"），完整的 session 控制由 Phase 3 Run Cockpit 在 chat 顶部承载；③ CodePilot Runtime 描述用**中等粒度三类**："能力 / 权限 / 上下文"，回答"它能替我做什么、会不会乱动、为什么和 Claude Code 不一样"；④ `session_events.runtime.selected` **Phase 2B 就最小落库**（runtime / reason / provider / model / fallback / session_id / timestamp），Runtime Trust 的核心是"可解释轨迹"而不是"当前状态 UI"，埋点必须先于面板，否则 Phase 3 / Phase 4 没有上游。
 
 ## 事实边界
 
@@ -1028,34 +1029,90 @@ UI 规则:
 - Gate 统一后单测覆盖：4 个原 keyword-gated MCP 在 SDK + Native 两条路径都默认注册
 - `session_events` 至少接入 `runtime.selected` / `provider.tested` / `provider.error` 三种类型（Phase 4 扩展剩余事件）
 
-### Phase 2B：Runtime Trust（📋 下一步，待用户认可范围后展开）
+### Phase 2B：Runtime Trust（📋 范围已确认 2026-04-27，待动手）
 
-> **本节目前是范围占位，不展开实施细节。**前置 Phase 2A 已落地，下一步把 Runtime 这一层从 setup 子节点抽到产品级。Run Cockpit (Phase 3) 在 2B 之后做——Cockpit 顶部状态条要展示的"本次会话在用谁"必须先有数据源。
+#### 心智模型
 
-**用户提的范围（2026-04-27）**：
-- Claude Code Runtime / CodePilot Runtime **平级展示**（不是"高级选项"，不一前一后）
-- 当前 Runtime **可用 / 不可用** + 原因（CLI 缺失 / 凭据过期 / 配置冲突 / 仅 CodePilot 模型 / etc.）
-- **影响是什么**（不可用 / degraded 状态下哪些功能受影响）
-- 用户**怎么恢复**（直接给恢复路径，不只报错）
-- 当前会话**会用哪个 provider / model / env**（session-level 解释）
+把 Runtime 从 Setup 子节点抽到 Settings 顶级入口，确立三层心智：
 
-**Phase 2B 与 Phase 2A 的边界**：
+1. **Providers**（资产）— 我拥有哪些服务 / 凭据 / 订阅
+2. **Models**（暴露）— 哪些模型暴露给聊天和运行时
+3. **Runtime**（运行环境）— **这次 Agent 到底由谁运行**
+
+> Runtime 留在 Setup Center 内部会让用户继续把它理解成"安装配置项"，而不是"运行环境"。提级是这一阶段的核心设计动作。
+
+#### 已确认决策（2026-04-27 用户拍板）
+
+**1. Runtime → Settings 侧栏顶级入口**
+- 与 Providers / Models / Claude Code / 用量统计 / 助理同级
+- 替代当前 "Claude Code" 那个偏 setup 的子节点（不是删，是重组）
+- Setup Center 保留为新用户入门诊断；不再承担 runtime 状态的完整解释
+
+**2. Session-level 解释先 Settings 只读，Cockpit 再常驻化**
+- Phase 2B：Settings 内一个**只读解释块**："当前默认会走哪个 Runtime / 为什么 / 会使用哪个 provider+model / 不可用时降级到什么"
+- Phase 3：Run Cockpit 才把"本次运行正在用谁"做成 chat 顶部常驻状态条
+- 不在 Settings 里做完整 session 控制（避免和 Cockpit 重复，也避免 Settings 长出运行时控制台）
+
+**3. CodePilot Runtime 描述：中等粒度，三类**
+- **能力**：内置工具、MCP、文件 / 终端 / 浏览器能力
+- **权限**：哪些动作需要确认、哪些可自动执行
+- **上下文**：CodePilot 管理的项目 / 会话 / 模型选择 / 本地状态
+
+> 用户关心的是"它能替我做什么、会不会乱动、为什么和 Claude Code 不一样"。三类正好答这三件事。不要写成技术文档（builtin tools 列表 + 版本号 + AI SDK 依赖），也不要太抽象（"开放架构 / 可扩展"）。
+
+**4. `session_events.runtime.selected` Phase 2B 就落库**
+- Runtime Trust 的核心**不是一个面板**，而是**可解释轨迹**
+- Phase 3 Cockpit 要消费它；Phase 4 memory/context 也会用
+- 现在落最小事件就够，不做完整事件系统：
+  - `selected_runtime`（claude_code | codepilot_runtime）
+  - `reason`（why this runtime, e.g. user-chosen / runtime-setting / fallback-from-X）
+  - `provider_id` + `model_id`
+  - `fallback_from` + `degraded_reason`（如果是降级路径）
+  - `session_id` + `timestamp`
+- 即使 Phase 2B 面板上只读消费，落库也要做——埋点先于面板，否则 2B 做完还是"当前状态 UI"，不是"可追踪运行决策"
+
+#### Phase 2B 与 Phase 2A 的边界
+
 - 2A 是用户对**资产**的掌控（哪些 provider 配了、哪些模型暴露给 picker）
 - 2B 是用户对**运行环境**的掌控（这次会话靠谁跑、为什么、能不能跑得起来）
 - 共用数据源：`provider-resolver.ts` 的 resolve 逻辑、`runtime-compat.ts` 的兼容矩阵
+- 共用产物：Provider 卡片的 compat 标签 / Models 页的 runtime filter dropdown 已经预埋了 2B 需要的 RuntimeCompat 类型；2B 把它升级成"为什么 + 影响 + 恢复" UI
 
-**Phase 2B 与 Phase 3 (Run Cockpit) 的边界**：
-- 2B 在 **Settings 内**做——Setup Center 改造、CliSettingsSection 重组、新建 RuntimePanel；落地"用户主动去看 runtime 状态"的场景
-- 3 在 **chat surface** 做——顶部状态条 + 抽屉；落地"用户在跑会话时被动看到状态"的场景
-- 数据契约一致：Phase 2B 的 RuntimeState (`available` / `selected` / `degraded` / `blocked` / `disabled`) 和 reason / impact / recovery 三件套，要让 Phase 3 直接消费
+#### Phase 2B 与 Phase 3 (Run Cockpit) 的边界
 
-**实施前需要回答的问题**（待用户讨论）：
-1. Runtime panel 放在 Setup Center 顶部，还是侧栏顶级新建一个 "Runtime" 入口？
-2. Session-level "本次会用谁" 在哪里展示（Settings 内的 read-only 解释 / 还是 Run Cockpit 内）？
-3. CodePilot Runtime 的 capability 描述（builtin tools / 权限模式 / context 管理）粒度多深？
-4. `session_events` 的 `runtime.selected` 是否在 2B 落库（驱动 Phase 3）还是 2B 只做内存态、Phase 4 才落库？
+- **2B 落 Settings 内**——Runtime 顶级入口、CliSettingsSection 重组、新建 RuntimePanel；用户**主动去看** runtime 状态的场景
+- **3 落 chat surface**——顶部状态条 + 抽屉；用户**在跑会话时被动看到**状态的场景
+- 数据契约一致：2B 定义的 RuntimeState (`available` / `selected` / `degraded` / `blocked` / `disabled`) 和 `reason / impact / recovery` 三件套，让 Phase 3 直接消费，不重新定义
 
-> 🟡 上面 4 个问题需要用户在动手前确认（per "Discuss before record"），避免 Claude Code 自填决策。原 Phase 2.2 / 2.3 / 2.4 的设计稿已经写在本文档下方（§Phase 2.2 Runtime State Model / §2.3 Claude Code 状态面板 / §2.4 CodePilot Runtime 状态面板），但**那是 2026-04-25 的初稿**，要按本轮新增的"用户提的范围"重新校准。
+#### 任务草稿（待动手前再细化）
+
+| # | 任务 | 触及 |
+|---|------|------|
+| 2B.1 | Settings 侧栏加 Runtime 顶级入口；CliSettingsSection 内容拆到新 RuntimePanel | `SettingsLayout.tsx` + `SettingsSidebar.tsx` + 新 `RuntimePanel.tsx` |
+| 2B.2 | Runtime state model：扩展 `isAvailable()` 为 `getState(): RuntimeState` 五态，每态附 reason / impact / recovery | `src/lib/runtime/types.ts` + 各 runtime 实现 |
+| 2B.3 | Claude Code Runtime 状态卡：CLI 安装 / 登录态 / settings.json 来源 / 当前会话是否选用 + reason / impact / recovery | 复用 `provider-doctor.ts` + `claude-settings.ts` 产物 |
+| 2B.4 | CodePilot Runtime 状态卡：能力 / 权限 / 上下文三类（中等粒度） | 新组件，描述静态，capability 探测复用现有 |
+| 2B.5 | Session-level 只读解释块：当前默认 runtime + reason + 会用 provider/model + 降级路径 | `RuntimePanel` 内一个 sub-card，数据源接 `provider-resolver.ts` |
+| 2B.6 | `session_events` 表 + `runtime.selected` 事件最小写入 | 新 schema + `provider-resolver.ts` 在 resolve 完成时埋点 |
+| 2B.7 | Setup Center 收敛：移除 runtime 完整解释，保留入门诊断 + 跳到 Settings → Runtime 的链接 | `SetupCenter.tsx` |
+
+> 原 Phase 2.2 / 2.3 / 2.4 的设计稿（在 Phase 2A 块下方 §"Phase 2.2 Runtime State Model" 等）写于 2026-04-25。其中 RuntimeState 五态、Claude Code 状态字段、CodePilot Runtime 状态字段大体可复用，但要按上面拍板的"中等粒度三类描述" + "Settings 顶级入口 + 只读 session 解释" 重新校准；动手前再扫一遍那段，把和本轮决策冲突的部分覆盖掉。
+
+#### 验收（草稿）
+
+- 用户在 Settings 侧栏看到 Runtime 顶级入口，里面 Claude Code Runtime / CodePilot Runtime 卡片平级
+- 每个 Runtime 卡片明确告诉用户：现在状态、为什么是这个状态、影响是什么、怎么恢复
+- 任意会话进入 Settings → Runtime 能看到一个只读解释块，告诉"本次默认会走 X，因为 Y，会用 provider Z + model W；如果 X 不可用降级到 V"
+- `session_events` 表里查询某 session_id 能看到 runtime.selected 事件，字段齐
+- 测试 + CDP 跟 2A 同标准
+
+#### 不做（边界守卫）
+
+- ❌ 在 Settings 内做 session 级 runtime 切换控制（那是 Run Cockpit 在 chat 顶部的事）
+- ❌ 完整 session_events 事件系统（只埋 runtime.selected 一种；其它事件类型 Phase 4 扩展）
+- ❌ Runtime panel 编辑 `~/.claude/settings.json`（只读显示，编辑用系统编辑器）
+- ❌ Claude Code 升级 / 降级动作（提示用户 brew / npm 升级即可，链接到 docs）
+- ❌ runtime fallback 自动决策权下放（fallback 由 resolver 决定，UI 只解释）
 
 ### Phase 3：Run Cockpit 第一版
 
