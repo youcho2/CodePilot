@@ -105,6 +105,7 @@ const en = {
   'settings.general': 'General',
   'settings.providers': 'Providers',
   'settings.models': 'Models',
+  'settings.runtime': 'Runtime',
   'settings.claudeCli': 'Claude Code',
   'settings.codepilot': 'CodePilot',
   'settings.version': 'Version {version}',

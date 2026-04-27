@@ -1,18 +1,20 @@
 "use client";
 
 import { useState, useCallback, useSyncExternalStore } from "react";
-import { type Icon, Gear, Code, UserCircle, Plug, ChartBar } from "@/components/ui/icon";
+import { type Icon, Gear, Code, UserCircle, Plug, ChartBar, Brain, Lightning } from "@/components/ui/icon";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { GeneralSection } from "./GeneralSection";
 import { ProviderManager } from "./ProviderManager";
+import { ModelsSection } from "./ModelsSection";
+import { RuntimePanel } from "./RuntimePanel";
 import { CliSettingsSection } from "./CliSettingsSection";
 import { UsageStatsSection } from "./UsageStatsSection";
 import { AssistantWorkspaceSection } from "./AssistantWorkspaceSection";
 import { useTranslation } from "@/hooks/useTranslation";
 import type { TranslationKey } from "@/i18n";
 
-type Section = "general" | "providers" | "cli" | "usage" | "assistant";
+type Section = "general" | "providers" | "models" | "runtime" | "cli" | "usage" | "assistant";
 
 interface SidebarItem {
   id: Section;
@@ -20,9 +22,16 @@ interface SidebarItem {
   icon: Icon;
 }
 
+// Order: General / Providers / Models / Runtime / Claude CLI / Usage / Assistant.
+// Runtime sits between Models and Claude CLI to surface the three-layer
+// mental model (assets → exposure → environment) in nav order. Claude CLI
+// stays distinct for now — it owns its own settings + sync flow; Phase 2B.7
+// will trim it once Runtime owns runtime state explanation.
 const sidebarItems: SidebarItem[] = [
   { id: "general", label: "General", icon: Gear },
   { id: "providers", label: "Providers", icon: Plug },
+  { id: "models", label: "Models", icon: Brain },
+  { id: "runtime", label: "Runtime", icon: Lightning },
   { id: "cli", label: "Claude CLI", icon: Code },
   { id: "usage", label: "Usage", icon: ChartBar },
   { id: "assistant", label: "Assistant", icon: UserCircle },
@@ -56,6 +65,8 @@ export function SettingsLayout() {
   const settingsLabelKeys: Record<string, TranslationKey> = {
     'General': 'settings.general',
     'Providers': 'settings.providers',
+    'Models': 'settings.models',
+    'Runtime': 'settings.runtime',
     'Claude CLI': 'settings.claudeCli',
     'Usage': 'settings.usage',
     'Assistant': 'settings.assistant',
@@ -69,39 +80,40 @@ export function SettingsLayout() {
   }, []);
 
   return (
-    <div className="flex h-full flex-col">
-      <div className="border-b border-border/50 px-6 pt-4 pb-4">
-        <h1 className="text-xl font-semibold">{t('settings.title')}</h1>
-        <p className="text-sm text-muted-foreground">
-          {t('settings.description')}
-        </p>
-      </div>
+    <div className="flex h-full min-h-0 flex-col">
+      {/* Narrow viewport fallback: horizontal tab strip.
+          On lg+ the section navigation lives in AppShell's <SettingsSidebar/> instead. */}
+      <nav
+        className={cn(
+          "shrink-0 flex flex-row gap-1 overflow-x-auto border-b border-border/50 px-3 py-2",
+          "lg:hidden",
+        )}
+      >
+        {sidebarItems.map((item) => (
+          <Button
+            key={item.id}
+            variant="ghost"
+            onClick={() => handleSectionChange(item.id)}
+            className={cn(
+              "shrink-0 gap-2 px-3 py-1.5 text-sm font-medium rounded-full",
+              activeSection === item.id
+                ? "bg-sidebar-accent text-sidebar-accent-foreground"
+                : "text-muted-foreground hover:bg-sidebar-accent hover:text-foreground"
+            )}
+          >
+            <item.icon size={16} className="shrink-0" />
+            {t(settingsLabelKeys[item.label])}
+          </Button>
+        ))}
+      </nav>
 
+      {/* Content */}
       <div className="flex min-h-0 flex-1">
-        {/* Sidebar */}
-        <nav className="flex w-52 shrink-0 flex-col gap-1 border-r border-border/50 p-3">
-          {sidebarItems.map((item) => (
-            <Button
-              key={item.id}
-              variant="ghost"
-              onClick={() => handleSectionChange(item.id)}
-              className={cn(
-                "justify-start gap-3 px-3 py-2 text-sm font-medium text-left w-full",
-                activeSection === item.id
-                  ? "bg-accent text-accent-foreground"
-                  : "text-muted-foreground hover:bg-accent/50 hover:text-foreground"
-              )}
-            >
-              <item.icon size={16} className="shrink-0" />
-              {t(settingsLabelKeys[item.label])}
-            </Button>
-          ))}
-        </nav>
-
-        {/* Content */}
-        <div className="flex-1 overflow-auto p-6">
+        <div className="flex-1 overflow-auto p-4 lg:p-6">
           {activeSection === "general" && <GeneralSection />}
           {activeSection === "providers" && <ProviderManager />}
+          {activeSection === "models" && <ModelsSection />}
+          {activeSection === "runtime" && <RuntimePanel />}
           {activeSection === "cli" && <CliSettingsSection />}
           {activeSection === "usage" && <UsageStatsSection />}
           {activeSection === "assistant" && <AssistantWorkspaceSection />}

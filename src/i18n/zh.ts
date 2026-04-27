@@ -102,6 +102,7 @@ const zh: Record<TranslationKey, string> = {
   'settings.general': '通用',
   'settings.providers': '服务商',
   'settings.models': '模型',
+  'settings.runtime': 'Runtime',
   'settings.claudeCli': 'Claude Code',
   'settings.codepilot': 'CodePilot',
   'settings.version': '版本 {version}',
