@@ -17,7 +17,7 @@ import { ProviderForm } from "./ProviderForm";
 import { ProviderDoctorDialog } from "./ProviderDoctorDialog";
 import type { ProviderFormData } from "./ProviderForm";
 import { PresetConnectDialog } from "./PresetConnectDialog";
-import { ProviderCard, type ProviderCardStatus } from "./ProviderCard";
+import { ProviderCard, type ProviderCardStatus, type ProviderCardInfoRow } from "./ProviderCard";
 import {
   Dialog,
   DialogContent,
@@ -38,6 +38,7 @@ import {
 import type { ApiProvider, ProviderModelGroup } from "@/types";
 import { useTranslation } from "@/hooks/useTranslation";
 import type { TranslationKey } from "@/i18n";
+import { showToast, updateToast } from "@/hooks/useToast";
 import { ProviderOptionsSection } from "./ProviderOptionsSection";
 import { cn } from "@/lib/utils";
 import { getProviderCompat } from "@/lib/runtime-compat";
@@ -65,6 +66,30 @@ const CODING_PLAN_KEYS = new Set([
   'minimax-cn', 'minimax-global', 'volcengine',
   'xiaomi-mimo', 'xiaomi-mimo-token-plan', 'bailian',
 ]);
+
+/**
+ * Coarse relative-time formatter for the Provider card "Last refresh" row.
+ *
+ * Buckets: "just now" (<60s) → minutes → hours → days → ISO date.
+ * SQLite stores `last_refreshed_at` as `'YYYY-MM-DD HH:MM:SS'` (no timezone)
+ * — that's UTC by convention here, so append `Z` before parsing.
+ */
+function formatRelativeTime(value: string, isZh: boolean): string {
+  const iso = value.includes('T') ? value : value.replace(' ', 'T') + 'Z';
+  const t = Date.parse(iso);
+  if (Number.isNaN(t)) return value;
+  const diffSec = Math.max(0, Math.floor((Date.now() - t) / 1000));
+  if (diffSec < 60) return isZh ? '刚刚' : 'just now';
+  const diffMin = Math.floor(diffSec / 60);
+  if (diffMin < 60) return isZh ? `${diffMin} 分钟前` : `${diffMin} min ago`;
+  const diffHr = Math.floor(diffMin / 60);
+  if (diffHr < 24) return isZh ? `${diffHr} 小时前` : `${diffHr}h ago`;
+  const diffDay = Math.floor(diffHr / 24);
+  if (diffDay < 30) return isZh ? `${diffDay} 天前` : `${diffDay}d ago`;
+  // Older than ~a month — show the date in YYYY-MM-DD; relative numbers
+  // start to mislead at this scale ("3 months ago" is unhelpful precision).
+  return iso.slice(0, 10);
+}
 
 // ---------------------------------------------------------------------------
 // Main component
@@ -361,7 +386,111 @@ export function ProviderManager() {
     setProviders((prev) => [...prev, newProvider]);
 
     window.dispatchEvent(new Event("provider-changed"));
+
+    // Auto-discover the new provider's models. The user just typed an API
+    // key; the implicit expectation is "show me what I can use", not "now
+    // open a dialog and click Refresh". Conservative apply policy means
+    // only catalog-recommended ids land enabled, so the picker stays clean.
+    void runAutoDiscoverAfterAdd(newProvider);
   };
+
+  // Best-effort auto-discover after Add Service success. Failures degrade
+  // silently (toast only) — the provider was still created and the user can
+  // hit "Refresh models" on the card if they care about the model list.
+  const runAutoDiscoverAfterAdd = useCallback(async (provider: ApiProvider) => {
+    const loadingToastId = showToast({
+      type: 'loading',
+      message: t('provider.autoDiscover.loading' as TranslationKey, { name: provider.name }),
+      duration: 0,
+    });
+    try {
+      const probeRes = await fetch(`/api/providers/${provider.id}/discover-models`, { method: 'POST' });
+      if (!probeRes.ok) {
+        updateToast(loadingToastId, {
+          type: 'warning',
+          message: t('provider.autoDiscover.probeFailed' as TranslationKey, { name: provider.name }),
+          duration: 5000,
+        });
+        return;
+      }
+      const probe = await probeRes.json() as {
+        ok?: boolean;
+        modelCount?: number;
+        diff?: { modelId: string; upstreamModelId: string; status: string }[];
+        classification?: string;
+        error?: { message?: string };
+      };
+
+      if (!probe.ok) {
+        // Probe ran but upstream rejected (401 / 404 / OAuth-only family etc.)
+        updateToast(loadingToastId, {
+          type: 'warning',
+          message: probe.classification === 'unsupported'
+            ? t('provider.autoDiscover.unsupported' as TranslationKey, { name: provider.name })
+            : t('provider.autoDiscover.probeFailed' as TranslationKey, { name: provider.name }),
+          duration: 5000,
+        });
+        return;
+      }
+
+      // Apply only the writeable buckets (same filter as the manual diff dialog).
+      const applicable = (probe.diff || []).filter((e) =>
+        e.status === 'new' || e.status === 'will-update' || e.status === 'preserve-edited' || e.status === 'hidden-but-upstream',
+      );
+
+      if (applicable.length === 0) {
+        updateToast(loadingToastId, {
+          type: 'info',
+          message: t('provider.autoDiscover.noModels' as TranslationKey, { name: provider.name }),
+          duration: 5000,
+        });
+        return;
+      }
+
+      const applyRes = await fetch(`/api/providers/${provider.id}/discover-models/apply`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          upstreamModels: applicable.map((e) => ({ modelId: e.modelId, upstreamModelId: e.upstreamModelId })),
+        }),
+      });
+      if (!applyRes.ok) {
+        updateToast(loadingToastId, {
+          type: 'warning',
+          message: t('provider.autoDiscover.applyFailed' as TranslationKey, { name: provider.name }),
+          duration: 5000,
+        });
+        return;
+      }
+      const stats = await applyRes.json() as {
+        inserted: number;
+        refreshedPristine: number;
+        recommendedEnabled: number;
+        discoveredHidden: number;
+      };
+      window.dispatchEvent(new Event('provider-changed'));
+
+      const total = (probe.modelCount ?? applicable.length);
+      updateToast(loadingToastId, {
+        type: 'success',
+        message: t('provider.autoDiscover.success' as TranslationKey, {
+          name: provider.name,
+          total: String(total),
+          enabled: String(stats.recommendedEnabled),
+          hidden: String(stats.discoveredHidden),
+        }),
+        duration: 6000,
+      });
+    } catch (err) {
+      updateToast(loadingToastId, {
+        type: 'warning',
+        message: err instanceof Error
+          ? `${provider.name}: ${err.message}`
+          : t('provider.autoDiscover.probeFailed' as TranslationKey, { name: provider.name }),
+        duration: 5000,
+      });
+    }
+  }, [t]);
 
   const handleOpenPresetDialog = (preset: QuickPreset) => {
     setConnectPreset(preset);
@@ -675,6 +804,8 @@ export function ProviderManager() {
         };
         const getEnabledModelCount = (providerId: string) =>
           providerGroups.find(g => g.provider_id === providerId)?.models.length ?? null;
+        const getLastRefreshedAt = (providerId: string) =>
+          providerGroups.find(g => g.provider_id === providerId)?.last_refreshed_at ?? null;
 
         // LLM 第三方 (DB API key) provider card — keeps Anthropic-official options block beneath
         const renderLlmDbProviderCard = (provider: ApiProvider) => {
@@ -683,7 +814,8 @@ export function ProviderManager() {
           const authMethod = matched?.authStyle === 'auth_token' ? 'Auth Token' : 'API Key';
           const totalCount = getTotalModelCount(provider.id);
           const enabledCount = getEnabledModelCount(provider.id);
-          const info: { label: string; value: string }[] = [];
+          const lastRefreshedAt = getLastRefreshedAt(provider.id);
+          const info: ProviderCardInfoRow[] = [];
           if (totalCount !== null) {
             // Show "已启用 / 总数" so the card carries both the runtime
             // exposure and the synced inventory at a glance.
@@ -692,6 +824,15 @@ export function ProviderManager() {
               value: isZh
                 ? `${enabledCount ?? 0} / ${totalCount} 启用`
                 : `${enabledCount ?? 0} / ${totalCount} enabled`,
+            });
+          }
+          if (lastRefreshedAt) {
+            // Relative time so the card stays a glance — exact timestamp goes
+            // in the title attr for users who need precision.
+            info.push({
+              label: isZh ? '上次刷新' : 'Last refresh',
+              value: formatRelativeTime(lastRefreshedAt, isZh),
+              title: lastRefreshedAt + ' UTC',
             });
           }
           info.push({ label: isZh ? '接入方式' : 'Auth', value: authMethod });

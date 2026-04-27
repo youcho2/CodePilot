@@ -507,11 +507,43 @@ function migrateDb(db: Database.Database): void {
       sort_order INTEGER NOT NULL DEFAULT 0,
       enabled INTEGER NOT NULL DEFAULT 1,
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      source TEXT NOT NULL DEFAULT 'manual',
+      last_refreshed_at TEXT,
+      user_edited INTEGER NOT NULL DEFAULT 0,
+      enable_source TEXT NOT NULL DEFAULT 'recommended',
       FOREIGN KEY (provider_id) REFERENCES api_providers(id) ON DELETE CASCADE
     );
     CREATE INDEX IF NOT EXISTS idx_provider_models_provider_id ON provider_models(provider_id);
     CREATE UNIQUE INDEX IF NOT EXISTS idx_provider_models_provider_model ON provider_models(provider_id, model_id);
   `);
+
+  // Backfill columns for databases that existed before the source/refresh
+  // tracking migration. Keeps untouched user data — pre-existing rows default
+  // to source='manual' since we can't retroactively know if they were
+  // discovered or hand-entered.
+  const provModelCols = db.prepare("PRAGMA table_info(provider_models)").all() as Array<{ name: string }>;
+  const provModelColNames = new Set(provModelCols.map(c => c.name));
+  if (!provModelColNames.has('source')) {
+    db.exec("ALTER TABLE provider_models ADD COLUMN source TEXT NOT NULL DEFAULT 'manual'");
+  }
+  if (!provModelColNames.has('last_refreshed_at')) {
+    db.exec("ALTER TABLE provider_models ADD COLUMN last_refreshed_at TEXT");
+  }
+  if (!provModelColNames.has('user_edited')) {
+    db.exec("ALTER TABLE provider_models ADD COLUMN user_edited INTEGER NOT NULL DEFAULT 0");
+  }
+  if (!provModelColNames.has('enable_source')) {
+    // Pre-existing rows: those with user_edited=1 are user choices we
+    // must respect — backfill to 'manual_enabled' / 'manual_hidden' so
+    // future refreshes don't flip them. Pristine rows backfill to
+    // 'recommended' (their enabled state was set by the system).
+    db.exec("ALTER TABLE provider_models ADD COLUMN enable_source TEXT NOT NULL DEFAULT 'recommended'");
+    db.exec(`UPDATE provider_models SET enable_source = CASE
+        WHEN user_edited = 1 AND enabled = 1 THEN 'manual_enabled'
+        WHEN user_edited = 1 AND enabled = 0 THEN 'manual_hidden'
+        ELSE 'recommended'
+      END`);
+  }
 
   // Ensure media_generations table exists for databases created before this migration
   db.exec(`
@@ -1636,11 +1668,226 @@ export function setProviderOptions(providerId: string, options: import('@/types'
 
 // ── Provider Models ─────────────────────────────────────────────
 
+/** Active models only (enabled = 1) — back-compat for existing consumers. */
 export function getModelsForProvider(providerId: string): import('@/types').ProviderModel[] {
   const db = getDb();
   return db.prepare(
     'SELECT * FROM provider_models WHERE provider_id = ? AND enabled = 1 ORDER BY sort_order ASC, created_at ASC'
   ).all(providerId) as import('@/types').ProviderModel[];
+}
+
+/** All models including hidden — used by the Models management page. */
+export function getAllModelsForProvider(providerId: string): import('@/types').ProviderModel[] {
+  const db = getDb();
+  return db.prepare(
+    'SELECT * FROM provider_models WHERE provider_id = ? ORDER BY sort_order ASC, created_at ASC'
+  ).all(providerId) as import('@/types').ProviderModel[];
+}
+
+/**
+ * Align `enabled` per the catalog default list — non-destructive for user
+ * data, but does prune stale catalog seeds.
+ *
+ *   - Catalog defaults missing from DB → INSERT (source='catalog', enabled=1)
+ *   - DB rows whose model_id is in catalog → enabled=1; if user_edited=0,
+ *     also refresh display_name + upstream_model_id from catalog (so a
+ *     catalog-side rename like "Opus" → "Opus 4.7" propagates without
+ *     stomping over user-renamed rows)
+ *   - DB rows whose model_id is NOT in catalog →
+ *       · `source='catalog'` AND `user_edited=0`: DELETE (stale seed left
+ *         over from when the provider matched a different preset, e.g.
+ *         DeepSeek transitioning from anthropic-thirdparty fallback to
+ *         its own preset). Safe — these rows were seeded by us.
+ *       · everything else (api/manual or user-touched): just `enabled=0`,
+ *         keep the row so user choices survive.
+ */
+export function alignEnabledWithCatalog(
+  providerId: string,
+  catalogModels: { modelId: string; upstreamModelId?: string; displayName: string }[],
+  options: { dryRun?: boolean } = {},
+): { enabled: number; disabled: number; unchanged: number; inserted: number; pruned: number } {
+  if (catalogModels.length === 0) {
+    return { enabled: 0, disabled: 0, unchanged: 0, inserted: 0, pruned: 0 };
+  }
+  const db = getDb();
+  const catalogByModelId = new Map(catalogModels.map(m => [m.modelId, m]));
+  const rows = db
+    .prepare('SELECT model_id, enabled, display_name, upstream_model_id, user_edited, source FROM provider_models WHERE provider_id = ?')
+    .all(providerId) as { model_id: string; enabled: number; display_name: string; upstream_model_id: string; user_edited: number; source: string }[];
+  const existingIds = new Set(rows.map(r => r.model_id));
+
+  // Phase 1 — compute every decision without writing. Same logic in dry-run
+  // and apply paths so the preview shown to the user matches reality.
+  type Decision =
+    | { kind: 'insert'; modelId: string; upstreamModelId: string; displayName: string; sort_order: number }
+    | { kind: 'enable-and-refresh'; modelId: string; displayName: string; upstreamModelId: string }
+    | { kind: 'enable-only'; modelId: string }
+    | { kind: 'disable'; modelId: string }
+    | { kind: 'prune'; modelId: string };
+  const decisions: Decision[] = [];
+  let enabled = 0, disabled = 0, unchanged = 0, inserted = 0, pruned = 0;
+
+  const maxSort = (db
+    .prepare('SELECT MAX(sort_order) AS m FROM provider_models WHERE provider_id = ?')
+    .get(providerId) as { m: number | null }).m ?? -1;
+  let nextSort = maxSort;
+  for (const m of catalogModels) {
+    if (!existingIds.has(m.modelId)) {
+      nextSort++;
+      decisions.push({
+        kind: 'insert',
+        modelId: m.modelId,
+        upstreamModelId: m.upstreamModelId || m.modelId,
+        displayName: m.displayName || m.modelId,
+        sort_order: nextSort,
+      });
+      inserted++;
+    }
+  }
+
+  for (const row of rows) {
+    const catEntry = catalogByModelId.get(row.model_id);
+    const shouldEnable = !!catEntry;
+    const targetEnabled = shouldEnable ? 1 : 0;
+    const targetDisplay = catEntry?.displayName || row.model_id;
+    const targetUpstream = catEntry?.upstreamModelId || row.model_id;
+
+    if (shouldEnable) {
+      const isPristine = row.user_edited === 0;
+      const fieldsAlreadyMatch = isPristine
+        && row.enabled === 1
+        && row.display_name === targetDisplay
+        && row.upstream_model_id === targetUpstream;
+      if (fieldsAlreadyMatch) {
+        unchanged++;
+      } else if (isPristine) {
+        decisions.push({ kind: 'enable-and-refresh', modelId: row.model_id, displayName: targetDisplay, upstreamModelId: targetUpstream });
+        if (row.enabled === 1) unchanged++;
+        else enabled++;
+      } else {
+        if (row.enabled === 1) {
+          unchanged++;
+        } else {
+          decisions.push({ kind: 'enable-only', modelId: row.model_id });
+          enabled++;
+        }
+      }
+    } else {
+      if (row.source === 'catalog' && row.user_edited === 0) {
+        decisions.push({ kind: 'prune', modelId: row.model_id });
+        pruned++;
+      } else if (row.enabled === targetEnabled) {
+        unchanged++;
+      } else {
+        decisions.push({ kind: 'disable', modelId: row.model_id });
+        disabled++;
+      }
+    }
+  }
+
+  if (options.dryRun) {
+    return { enabled, disabled, unchanged, inserted, pruned };
+  }
+
+  // Phase 2 — execute decisions in one transaction.
+  const enableAndRefreshStmt = db.prepare(
+    `UPDATE provider_models
+     SET enabled = 1, display_name = ?, upstream_model_id = ?
+     WHERE provider_id = ? AND model_id = ? AND user_edited = 0`
+  );
+  const enableOnlyStmt = db.prepare(
+    'UPDATE provider_models SET enabled = 1 WHERE provider_id = ? AND model_id = ?'
+  );
+  const disableStmt = db.prepare(
+    'UPDATE provider_models SET enabled = 0 WHERE provider_id = ? AND model_id = ?'
+  );
+  const deleteStmt = db.prepare(
+    'DELETE FROM provider_models WHERE provider_id = ? AND model_id = ?'
+  );
+  const insertStmt = db.prepare(
+    `INSERT INTO provider_models (id, provider_id, model_id, upstream_model_id, display_name, capabilities_json, variants_json, sort_order, enabled, created_at, source, last_refreshed_at, user_edited, enable_source)
+     VALUES (?, ?, ?, ?, ?, '{}', '{}', ?, 1, ?, 'catalog', NULL, 0, 'recommended')`
+  );
+  const now = new Date().toISOString().replace('T', ' ').split('.')[0];
+
+  const txn = db.transaction(() => {
+    for (const d of decisions) {
+      switch (d.kind) {
+        case 'insert':
+          insertStmt.run(
+            crypto.randomBytes(16).toString('hex'),
+            providerId, d.modelId, d.upstreamModelId, d.displayName, d.sort_order, now,
+          );
+          break;
+        case 'enable-and-refresh':
+          enableAndRefreshStmt.run(d.displayName, d.upstreamModelId, providerId, d.modelId);
+          break;
+        case 'enable-only':
+          enableOnlyStmt.run(providerId, d.modelId);
+          break;
+        case 'disable':
+          disableStmt.run(providerId, d.modelId);
+          break;
+        case 'prune':
+          deleteStmt.run(providerId, d.modelId);
+          break;
+      }
+    }
+  });
+  txn();
+  return { enabled, disabled, unchanged, inserted, pruned };
+}
+
+/**
+ * Seed catalog defaults into provider_models when the row count is 0. Used
+ * as a backfill for providers that can't be discovered (Xiaomi MiMo /
+ * MiniMax / DeepSeek with `/anthropic` subpath etc.) — the catalog ships
+ * curated lists per preset and we surface them as `source='catalog'` rows.
+ *
+ * Idempotent: only inserts when the table is empty for this provider, so a
+ * later refresh / manual edit won't be re-seeded.
+ */
+export function seedCatalogModelsIfEmpty(
+  providerId: string,
+  catalogModels: { modelId: string; upstreamModelId?: string; displayName: string }[],
+): number {
+  if (catalogModels.length === 0) return 0;
+  const db = getDb();
+  const existing = (db
+    .prepare('SELECT COUNT(*) AS c FROM provider_models WHERE provider_id = ?')
+    .get(providerId) as { c: number }).c;
+  if (existing > 0) return 0;
+
+  const now = new Date().toISOString().replace('T', ' ').split('.')[0];
+  const stmt = db.prepare(
+    `INSERT INTO provider_models (id, provider_id, model_id, upstream_model_id, display_name, capabilities_json, variants_json, sort_order, enabled, created_at, source, last_refreshed_at, user_edited, enable_source)
+     VALUES (?, ?, ?, ?, ?, '{}', '{}', ?, 1, ?, 'catalog', NULL, 0, 'catalog')`
+  );
+  const txn = db.transaction(() => {
+    catalogModels.forEach((m, i) => {
+      stmt.run(
+        crypto.randomBytes(16).toString('hex'),
+        providerId,
+        m.modelId,
+        m.upstreamModelId || m.modelId,
+        m.displayName || m.modelId,
+        i,
+        now,
+      );
+    });
+  });
+  txn();
+  return catalogModels.length;
+}
+
+export function getProviderModel(
+  providerId: string,
+  modelId: string,
+): import('@/types').ProviderModel | undefined {
+  const db = getDb();
+  return db.prepare(
+    'SELECT * FROM provider_models WHERE provider_id = ? AND model_id = ?'
+  ).get(providerId, modelId) as import('@/types').ProviderModel | undefined;
 }
 
 export function upsertProviderModel(data: {
@@ -1652,20 +1899,32 @@ export function upsertProviderModel(data: {
   variants_json?: string;
   sort_order?: number;
   enabled?: number;
+  source?: import('@/types').ProviderModelSource;
+  last_refreshed_at?: string | null;
+  user_edited?: number;
+  enable_source?: import('@/types').ModelEnableSource;
 }): void {
   const db = getDb();
   const id = crypto.randomBytes(16).toString('hex');
   const now = new Date().toISOString().replace('T', ' ').split('.')[0];
+  // ON CONFLICT preserves user_edited and enabled by default — those are the
+  // user's own state; only the API-derived fields (upstream_model_id,
+  // last_refreshed_at, source) update on a re-import. Use the dedicated
+  // applyDiscoveryDiff helper for the refresh path so user edits stay safe.
   db.prepare(
-    `INSERT INTO provider_models (id, provider_id, model_id, upstream_model_id, display_name, capabilities_json, variants_json, sort_order, enabled, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `INSERT INTO provider_models (id, provider_id, model_id, upstream_model_id, display_name, capabilities_json, variants_json, sort_order, enabled, created_at, source, last_refreshed_at, user_edited, enable_source)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(provider_id, model_id) DO UPDATE SET
        upstream_model_id = excluded.upstream_model_id,
        display_name = excluded.display_name,
        capabilities_json = excluded.capabilities_json,
        variants_json = excluded.variants_json,
        sort_order = excluded.sort_order,
-       enabled = excluded.enabled`
+       enabled = excluded.enabled,
+       source = excluded.source,
+       last_refreshed_at = excluded.last_refreshed_at,
+       user_edited = excluded.user_edited,
+       enable_source = excluded.enable_source`
   ).run(
     id,
     data.provider_id,
@@ -1677,13 +1936,176 @@ export function upsertProviderModel(data: {
     data.sort_order ?? 0,
     data.enabled ?? 1,
     now,
+    data.source || 'manual',
+    data.last_refreshed_at ?? null,
+    data.user_edited ?? 0,
+    data.enable_source || 'recommended',
   );
+}
+
+/** Update fields the user can edit. Sets user_edited=1 so the refresh path
+ *  knows to preserve display_name / capabilities / enabled on re-import. */
+export function updateProviderModelUserFields(
+  providerId: string,
+  modelId: string,
+  fields: { display_name?: string; capabilities_json?: string; enabled?: number; sort_order?: number },
+): boolean {
+  const existing = getProviderModel(providerId, modelId);
+  if (!existing) return false;
+  const db = getDb();
+  const next = {
+    display_name: fields.display_name ?? existing.display_name,
+    capabilities_json: fields.capabilities_json ?? existing.capabilities_json,
+    enabled: fields.enabled ?? existing.enabled,
+    sort_order: fields.sort_order ?? existing.sort_order,
+  };
+  // When the user is explicitly toggling the row's enabled state, mark
+  // enable_source as the corresponding manual_* state so future
+  // refreshes never flip it back to recommended/discovered. Other
+  // edits (display_name / capabilities / sort_order) leave
+  // enable_source alone — those don't carry "I want this on/off"
+  // semantics.
+  let nextEnableSource: import('@/types').ModelEnableSource = existing.enable_source;
+  if (fields.enabled !== undefined && fields.enabled !== existing.enabled) {
+    nextEnableSource = fields.enabled === 1 ? 'manual_enabled' : 'manual_hidden';
+  }
+  const result = db.prepare(
+    `UPDATE provider_models
+     SET display_name = ?, capabilities_json = ?, enabled = ?, sort_order = ?, user_edited = 1, enable_source = ?
+     WHERE provider_id = ? AND model_id = ?`
+  ).run(
+    next.display_name,
+    next.capabilities_json,
+    next.enabled,
+    next.sort_order,
+    nextEnableSource,
+    providerId,
+    modelId,
+  );
+  return result.changes > 0;
 }
 
 export function deleteProviderModel(providerId: string, modelId: string): boolean {
   const db = getDb();
   const result = db.prepare('DELETE FROM provider_models WHERE provider_id = ? AND model_id = ?').run(providerId, modelId);
   return result.changes > 0;
+}
+
+/**
+ * Apply an upstream discovery diff to provider_models with the
+ * "auto-discover, conservatively enable" contract: materialize every
+ * upstream model so users CAN find them, but only auto-enable the
+ * ones a recommendation predicate accepts. Hidden / manually-set rows
+ * are never re-flipped.
+ *
+ * Behaviour per upstream id:
+ *   - new (no DB row):
+ *       INSERT with source='api', user_edited=0
+ *       enabled = isRecommended(modelId) ? 1 : 0
+ *       enable_source = isRecommended(modelId) ? 'recommended' : 'discovered'
+ *   - existing user_edited=0 + enable_source IN ('recommended','discovered','catalog'):
+ *       UPDATE upstream/source/last_refreshed_at + display_name = upstream id
+ *       AND re-evaluate enabled / enable_source per the recommendation
+ *       (so a model that was system-enabled but is now blacklisted
+ *       gets disabled on refresh, and vice versa)
+ *   - existing user_edited=1 OR enable_source IN ('manual_enabled','manual_hidden'):
+ *       UPDATE upstream_model_id + last_refreshed_at + source ONLY
+ *       Never touch enabled / enable_source — that's a user choice
+ *   - DB-only (not in upstream): leave alone, caller surfaces as orphan
+ *
+ * `isRecommended` callback: caller (discover-models route) computes
+ * recommendation from preset + provider compat. Allowing the caller to
+ * inject the predicate keeps db.ts free of catalog imports + makes
+ * unit testing trivial.
+ */
+export function applyDiscoveryDiff(
+  providerId: string,
+  upstreamModels: { modelId: string; upstreamModelId: string }[],
+  isRecommended: (modelId: string) => boolean,
+): {
+  inserted: number;
+  refreshedPristine: number;
+  refreshedPreserved: number;
+  recommendedEnabled: number;
+  discoveredHidden: number;
+} {
+  const db = getDb();
+  const now = new Date().toISOString().replace('T', ' ').split('.')[0];
+  let inserted = 0;
+  let refreshedPristine = 0;
+  let refreshedPreserved = 0;
+  let recommendedEnabled = 0;
+  let discoveredHidden = 0;
+
+  const insertStmt = db.prepare(
+    `INSERT INTO provider_models (id, provider_id, model_id, upstream_model_id, display_name, capabilities_json, variants_json, sort_order, enabled, created_at, source, last_refreshed_at, user_edited, enable_source)
+     VALUES (?, ?, ?, ?, ?, '{}', '{}', ?, ?, ?, 'api', ?, 0, ?)`
+  );
+  const updatePristineStmt = db.prepare(
+    `UPDATE provider_models
+     SET upstream_model_id = ?, display_name = ?, source = 'api', last_refreshed_at = ?,
+         enabled = ?, enable_source = ?
+     WHERE provider_id = ? AND model_id = ?
+       AND user_edited = 0
+       AND enable_source NOT IN ('manual_enabled', 'manual_hidden')`
+  );
+  const updatePreservedStmt = db.prepare(
+    `UPDATE provider_models
+     SET upstream_model_id = ?, source = CASE WHEN source = 'manual' THEN 'manual' ELSE 'api' END, last_refreshed_at = ?
+     WHERE provider_id = ? AND model_id = ?
+       AND (user_edited = 1 OR enable_source IN ('manual_enabled', 'manual_hidden'))`
+  );
+
+  const txn = db.transaction(() => {
+    let nextSort = (db
+      .prepare('SELECT MAX(sort_order) AS m FROM provider_models WHERE provider_id = ?')
+      .get(providerId) as { m: number | null }).m ?? -1;
+
+    for (const { modelId, upstreamModelId } of upstreamModels) {
+      const existing = getProviderModel(providerId, modelId);
+      const recommended = isRecommended(modelId);
+      const enabledOnInsert = recommended ? 1 : 0;
+      const enableSourceOnInsert = recommended ? 'recommended' : 'discovered';
+
+      if (!existing) {
+        nextSort++;
+        insertStmt.run(
+          crypto.randomBytes(16).toString('hex'),
+          providerId,
+          modelId,
+          upstreamModelId,
+          modelId, // fresh display_name = id (user can rename later)
+          nextSort,
+          enabledOnInsert,
+          now,
+          now,
+          enableSourceOnInsert,
+        );
+        inserted++;
+        if (recommended) recommendedEnabled++;
+        else discoveredHidden++;
+      } else if (
+        existing.user_edited === 0
+        && existing.enable_source !== 'manual_enabled'
+        && existing.enable_source !== 'manual_hidden'
+      ) {
+        // System-managed row — re-evaluate against current recommendation.
+        updatePristineStmt.run(
+          upstreamModelId, modelId, now,
+          enabledOnInsert, enableSourceOnInsert,
+          providerId, modelId,
+        );
+        refreshedPristine++;
+      } else {
+        // User has touched this row — never flip enabled / enable_source.
+        updatePreservedStmt.run(upstreamModelId, now, providerId, modelId);
+        refreshedPreserved++;
+      }
+    }
+  });
+  txn();
+
+  return { inserted, refreshedPristine, refreshedPreserved, recommendedEnabled, discoveredHidden };
 }
 
 export function activateProvider(id: string): boolean {

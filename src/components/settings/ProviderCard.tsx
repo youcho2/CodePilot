@@ -34,6 +34,10 @@ export type ProviderCardStatus =
 export interface ProviderCardInfoRow {
   label: string;
   value: string;
+  /** Optional hover-tooltip on the value cell. Use when the value is a
+   *  bucketed/relative form (e.g. "5 min ago") and the absolute form
+   *  belongs in the tooltip ("2026-04-26 14:32:01 UTC"). */
+  title?: string;
 }
 
 export interface ProviderCardData {
@@ -245,7 +249,12 @@ export function ProviderCard({
                 className="py-2.5 flex items-center justify-between gap-3"
               >
                 <span className="text-[11px] text-muted-foreground shrink-0">{row.label}</span>
-                <span className="text-xs text-foreground/85 truncate text-right">{row.value}</span>
+                <span
+                  className="text-xs text-foreground/85 truncate text-right"
+                  title={row.title}
+                >
+                  {row.value}
+                </span>
               </div>
             ))}
           </div>

@@ -180,10 +180,17 @@ export async function GET(request: NextRequest) {
       const dbModels: { value: string; label: string; upstreamModelId?: string; capabilities?: Record<string, unknown>; variants?: Record<string, unknown> }[] = [];
       const dbHiddenIds = new Set<string>();
       let dbHasAnyRow = false;
+      // Track the most-recent `last_refreshed_at` across rows so the Provider
+      // card can show "刷新于 N 分钟前" — the user needs to tell whether a
+      // surprising picker reflects a stale catalog vs an actual upstream change.
+      let lastRefreshedAt: string | null = null;
       try {
         const provModelsAll = getAllModelsForProvider(provider.id);
         dbHasAnyRow = provModelsAll.length > 0;
         for (const m of provModelsAll) {
+          if (m.last_refreshed_at && (!lastRefreshedAt || m.last_refreshed_at > lastRefreshedAt)) {
+            lastRefreshedAt = m.last_refreshed_at;
+          }
           if (m.enabled === 0) {
             dbHiddenIds.add(m.model_id);
             continue;
@@ -296,6 +303,7 @@ export async function GET(request: NextRequest) {
         provider_type: provider.provider_type,
         ...(sdkProxyOnly ? { sdkProxyOnly: true } : {}),
         total_count: totalCount,
+        last_refreshed_at: lastRefreshedAt,
         compat: getProviderCompat({
           provider_type: provider.provider_type,
           base_url: provider.base_url,

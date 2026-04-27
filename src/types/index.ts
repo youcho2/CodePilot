@@ -229,6 +229,11 @@ export interface ProviderModelGroup {
    * or catalog size when DB is empty). The Provider card surfaces this so the
    * user sees "synced model count" rather than the picker-visible subset. */
   total_count?: number;
+  /** Most recent `last_refreshed_at` across this provider's `provider_models`
+   *  rows. The Provider card formats this as a relative timestamp ("3 minutes
+   *  ago") so the user can tell whether a stale picker reflects a stale
+   *  refresh. Null/undefined = no rows (catalog-only) or refresh never run. */
+  last_refreshed_at?: string | null;
   /** Provider-layer runtime compat. Computed from preset + protocol; a single
    * source of truth across Provider Card / Models page / chat picker. */
   compat?: ProviderRuntimeCompat;
@@ -308,6 +313,25 @@ export type ProviderModelSource =
   | 'role_mapping'  // implied by anthropic-thirdparty role_mapping
   | 'sdk_default';  // hard-coded SDK fallback (e.g. Claude Code env)
 
+/**
+ * Why this model row is currently `enabled` / hidden. Distinct from
+ * `ProviderModelSource` (which records data origin) — this records the
+ * intent layer: did the system pick this row for the user, or did the
+ * user override it?
+ *
+ * Refresh apply uses this to decide what's safe to flip:
+ *   - `recommended` / `discovered` / `catalog` → system-managed, may
+ *     be re-evaluated on each refresh
+ *   - `manual_enabled` / `manual_hidden` → user-managed, never touched
+ *     by refresh (would otherwise silently undo the user's choice)
+ */
+export type ModelEnableSource =
+  | 'recommended'      // system auto-enabled per catalog recommendation
+  | 'manual_enabled'   // user explicitly toggled on
+  | 'manual_hidden'    // user explicitly toggled off — never auto-enable again
+  | 'discovered'       // discovery probe found it but recommended logic said "not by default"
+  | 'catalog';         // initial seed from preset's defaultModels
+
 export interface ProviderModel {
   id: string;
   provider_id: string;
@@ -324,6 +348,9 @@ export interface ProviderModel {
   /** 1 = user touched display_name/capabilities/enabled after import.
    *  Refresh apply must preserve those fields when this flag is set. */
   user_edited: number;
+  /** Reason the row is in its current enabled state. Drives the "respect
+   *  user overrides" rule in applyDiscoveryDiff. See ModelEnableSource. */
+  enable_source: ModelEnableSource;
 }
 
 export interface CreateProviderRequest {

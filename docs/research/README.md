@@ -8,6 +8,7 @@
 
 | 文件 | 主题 |
 |------|------|
+| harness-and-ux-refactor.md | **[事实输入归档]** 排期已收束至 `exec-plans/active/agent-trust-ownership-refactor.md`;本文仅保留事实速览(Harness 各层、记忆 V3、Hermes 进度)+ Google design.md 调研 + 讨论日志,作为新计划 Phase 0-4 输入 |
 | chat-latency-investigation-2026-03-20.md | 聊天响应变慢问题排查报告（用户设置 / MCP / resume 链路） |
 | chat-sdk-integration-feasibility.md | Vercel Chat SDK 集成可行性调研 |
 | context-storage-migration-plan.md | 上下文共享与存储迁移设计（详细方案；执行跟踪见 `docs/exec-plans/active/context-storage-migration.md`） |
@@ -29,6 +30,7 @@
 | pi-framework-analysis.md | Pi AI 框架调研 — 多 Provider 抽象（17+ Provider + OAuth）、Agent Loop、Extension 系统 |
 | hermes-agent-analysis.md | Hermes Agent 分析 — 三段式对比（外部事实 / 本仓库 file:line / 推断）：并行安全调度、辅助 provider + sdkProxyOnly fallback、渐进式子目录 hint、session 搜索等借鉴路线图 |
 | provider-registry-comparison.md | Provider 注册表对比 — Hermes 三层合并（models.dev + overlay + user）vs CodePilot 硬编码 VENDOR_PRESETS，改进路线图 |
+| provider-model-discovery.md | Provider 模型发现 spike — 三类划分（可 API 获取 / 实验性 / 不可获取需手动）、`src/lib/model-discovery.ts` + `POST /api/providers/[id]/discover-models` 只读路由、安全约束（无写入 / 无回显 key / 必带 timeout） |
 | feishu-cli-one-click-bot.md | 飞书 CLI 一键创建机器人逆向调研 — App Registration Device Flow API、PersonalAgent 模板 POC 已通过（全链路验证：凭据→WSClient→消息接收）、集成方案设计 |
 | markdown-editor-tiptap-evaluation.md | Markdown 渲染/编辑体系调研 — Tiptap 不推荐作主栈（ProseMirror 无虚拟化、往返有损）；长文档卡死根因指向 `MessageResponse` 整串重渲；编辑器推荐 CodeMirror 6 |
 | artifact-preview-ai-elements.md | Artifact 预览组件调研 — 确认 Vercel AI Elements 身份（shadcn registry），现有 `artifact.tsx` 仅 UI 壳未接入；建议加 `web-preview`/`jsx-preview` 并扩 `PreviewPanel` 支持 inline 内容与 JSX |

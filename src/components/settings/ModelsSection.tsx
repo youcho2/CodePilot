@@ -45,7 +45,7 @@ import {
 } from "@/components/ui/select";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
-import type { ApiProvider, ProviderModel, ProviderModelSource } from "@/types";
+import type { ApiProvider, ProviderModel, ProviderModelSource, ModelEnableSource } from "@/types";
 
 /**
  * Settings > Models
@@ -92,6 +92,54 @@ const SOURCE_TONE: Record<ProviderModelSource, string> = {
   manual: 'bg-primary/10 text-primary',
   role_mapping: 'bg-status-warning-muted text-status-warning-foreground',
   sdk_default: 'bg-muted text-muted-foreground',
+};
+
+/**
+ * `enable_source` badge — explains *why* a row is in its current
+ * enabled/hidden state. Differs from `source` (which says "where the row
+ * came from"); together they answer:
+ *   "API found this model" + "and we hid it because it isn't recommended".
+ *
+ * `recommended` and `catalog` map to undefined — they're the boring default
+ * and would just add noise to the list. The user-touched and discovered-
+ * but-hidden states are the ones worth surfacing.
+ */
+const ENABLE_SOURCE_LABEL_ZH: Record<ModelEnableSource, string | undefined> = {
+  recommended: undefined,
+  catalog: undefined,
+  manual_enabled: '手动启用',
+  manual_hidden: '手动隐藏',
+  discovered: '未推荐',
+};
+const ENABLE_SOURCE_LABEL_EN: Record<ModelEnableSource, string | undefined> = {
+  recommended: undefined,
+  catalog: undefined,
+  manual_enabled: 'Manually enabled',
+  manual_hidden: 'Manually hidden',
+  discovered: 'Off-catalog',
+};
+const ENABLE_SOURCE_TONE: Record<ModelEnableSource, string> = {
+  recommended: '',
+  catalog: '',
+  manual_enabled: 'bg-primary/10 text-primary',
+  manual_hidden: 'bg-muted text-muted-foreground',
+  // Discovered-but-hidden uses the same orange tone as the discover-models
+  // dialog's "will-be-hidden" preview so the two surfaces feel coherent.
+  discovered: 'bg-status-warning-muted text-status-warning-foreground',
+};
+const ENABLE_SOURCE_TOOLTIP_ZH: Record<ModelEnableSource, string> = {
+  recommended: '系统按推荐目录自动启用',
+  catalog: '内置目录默认',
+  manual_enabled: '你在 Models 页主动启用，刷新不会覆盖',
+  manual_hidden: '你在 Models 页主动隐藏，刷新不会覆盖',
+  discovered: '上游有这个模型，但不在推荐目录里 — 默认不在 Picker 中显示',
+};
+const ENABLE_SOURCE_TOOLTIP_EN: Record<ModelEnableSource, string> = {
+  recommended: 'System auto-enabled per the recommended catalog',
+  catalog: 'Built-in catalog default',
+  manual_enabled: 'You enabled this in Models — refresh will not override',
+  manual_hidden: 'You hid this in Models — refresh will not override',
+  discovered: 'Upstream offers this but it is not on the recommended list — hidden from the picker by default',
 };
 
 function formatRefreshedAt(iso: string | null, isZh: boolean): string {
@@ -798,6 +846,9 @@ export function ModelsSection() {
                 const editing = editingDisplay === `${provider.id}::${model.model_id}`;
                 const sourceTone = SOURCE_TONE[model.source as ProviderModelSource] || SOURCE_TONE.manual;
                 const sourceLabel = (isZh ? SOURCE_LABEL_ZH : SOURCE_LABEL_EN)[model.source as ProviderModelSource] || model.source;
+                const enableSourceLabel = (isZh ? ENABLE_SOURCE_LABEL_ZH : ENABLE_SOURCE_LABEL_EN)[model.enable_source];
+                const enableSourceTone = ENABLE_SOURCE_TONE[model.enable_source];
+                const enableSourceTooltip = (isZh ? ENABLE_SOURCE_TOOLTIP_ZH : ENABLE_SOURCE_TOOLTIP_EN)[model.enable_source];
                 return (
                   <div key={model.id} className="px-4 py-3 flex items-center gap-3">
                     {/* Sort buttons — disabled while searching, since the
@@ -872,12 +923,18 @@ export function ModelsSection() {
                             </Button>
                           </>
                         )}
-                        <span className={cn('inline-flex items-center rounded-full px-1.5 py-0.5 text-[10px] font-medium', sourceTone)}>
+                        <span
+                          className={cn('inline-flex items-center rounded-full px-1.5 py-0.5 text-[10px] font-medium', sourceTone)}
+                          title={isZh ? '该模型行的来源（数据从哪里来）' : 'Where this row originated'}
+                        >
                           {sourceLabel}
                         </span>
-                        {model.user_edited === 1 && (
-                          <span className="inline-flex items-center rounded-full bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary">
-                            {isZh ? '已编辑' : 'Edited'}
+                        {enableSourceLabel && (
+                          <span
+                            className={cn('inline-flex items-center rounded-full px-1.5 py-0.5 text-[10px] font-medium cursor-help', enableSourceTone)}
+                            title={enableSourceTooltip}
+                          >
+                            {enableSourceLabel}
                           </span>
                         )}
                       </div>
