@@ -151,9 +151,9 @@ Two distinct dialects, same shape, different intent.
 | `error` | `bg-status-error-muted text-status-error-foreground` | error-foreground |
 | `unknown` | `bg-muted text-muted-foreground` | muted-foreground |
 
-### Source badge — model lineage
+### Source badge — data origin (`source`)
 
-Smaller (`text-[10px]`), no dot. Used on every row in `Settings > Models`.
+Smaller (`text-[10px]`), no dot. Used on every row in `Settings > Models`. Answers **"where did this row come from"** — purely a lineage marker.
 
 | Source | Tone | When |
 |---|---|---|
@@ -163,22 +163,52 @@ Smaller (`text-[10px]`), no dot. Used on every row in `Settings > Models`.
 | `role_mapping` | `bg-status-warning-muted text-status-warning-foreground` | implied by `model_mapping` |
 | `sdk_default` | `bg-muted text-muted-foreground` | hard-coded SDK fallback |
 
-### `已编辑` chip
+### Enable-source badge — current-state intent (`enable_source`)
 
-`bg-primary/10 text-primary` — same tone as `manual`. Signals "user touched this row, refresh will preserve user-controllable fields".
+A **second** badge that sits next to the source badge on Models-page rows. Same shape, different question: **"why is this row enabled / hidden right now?"** Distinct from `source` (where it came from). Both can render side-by-side because they answer orthogonal questions:
+
+> `API 同步 · 手动启用` = "we got this row from /v1/models, AND the user explicitly turned it on"
+
+Render rule: only show the badge when the state is non-trivially different from the system default. `recommended` and `catalog` stay silent (they're the boring default and would just add visual noise). Three states are visible:
+
+| Enable source | Label (zh / en) | Tone | Tooltip |
+|---|---|---|---|
+| `manual_enabled` | 手动启用 / Manually enabled | `bg-primary/10 text-primary` | "你在 Models 页主动启用，刷新不会覆盖" |
+| `manual_hidden` | 手动隐藏 / Manually hidden | `bg-muted text-muted-foreground` | "你在 Models 页主动隐藏，刷新不会覆盖" |
+| `discovered` | 未推荐 / Off-catalog | `bg-status-warning-muted text-status-warning-foreground` | "上游有这个模型，但不在推荐目录里 — 默认不在 picker 中显示" |
+
+The two manual states are user-promises: they tell the user "your toggle stuck, refresh is no longer going to flip this." The discovered state is a recommendation-system signal: it tells the user "we found this but didn't think it belonged in the picker; you can turn it on if you want."
+
+The `discovered` warning tone is intentional — it pairs with the same orange used in the discover-models diff dialog's "will-be-hidden" preview, so the two surfaces feel coherent.
+
+`recommended` and `catalog` are never tooltip-explained inline because they're the implicit default; explaining them everywhere would dilute the signal of the three that do display.
 
 ## Header rhythm
 
-Provider section header (count + bulk + add):
+### One row vs two rows
+
+The **Provider card header** (in Settings > Providers) packs identity + status pills + actions. It uses the existing two-row scheme already in `ProviderCard.tsx`:
+  - Row 1: icon + name + inline actions (right side)
+  - Row 2: status pill + compat pill (full inner width, never wraps mid-character)
+
+The **Models-page section header** went through the same evolution. Single-row was packing 6 chips and made action buttons drift down whenever the row wrapped. Two-row split:
 
 ```
-[icon] Provider Name   3 / 10 启用                        [全部关闭] [全部启用] [+ 添加模型]
+Row 1: [icon] Provider Name   3 / 10 启用    上次同步: N 分钟前      → [刷新] [全部关闭] [全部启用] [角色映射] [+ 添加模型]
+Row 2: [Compat pill] [默认: model]
 ```
 
-Rules:
-- **Counts go next to the title**, not on the right. Bulk actions live on the right.
+Row-split rules:
+- **Row 1 = operational**: counts that change (enabled/total), freshness (last sync), and the action cluster. Action buttons stay pinned to the right of the title's baseline regardless of how many secondary chips ride along.
+- **Row 2 = identity**: chips that don't change with usage (compat tag, default-model chip). Indented to align with the provider name (`pl-9` to clear icon + gap).
+- Row 2 is **omitted entirely** when neither chip applies (manual-only providers with no compat info) — don't render an empty row.
+
+### Counts + freshness rules
+
 - **`X / Y 启用`** when not searching, **`X / Y 匹配`** when searching. Switch the suffix, not the format.
 - **Bulk-toggle and reorder are disabled while searching** + tooltip — would otherwise hit the unfiltered list.
+- **"上次同步" / "上次刷新"** uses bucketed relative time (just-now / N-min / N-hour / N-day / absolute date for >30d). Always pair with a `title` attribute carrying the absolute UTC timestamp for users who need precision.
+- Hide the freshness row entirely when `last_refreshed_at` is null (catalog-only providers, never probed) — don't render "从未同步" placeholders inline; the absence IS the signal.
 - **Primary "Add" button on the far right**, outline variant. Adding is distinct from the muted bulk-toggles.
 
 ## Visible vs kebab actions
@@ -280,6 +310,103 @@ Rules:
 - Counts are surfaced as a 4-row sub-card (Insert / Enable / Hide / Prune). Per-target deltas use ASCII glyphs (`+ ↑ ↓ −`) in monospace for scan-ability.
 - Skipped targets (no catalog, no upstream support) get a plain text footnote, not their own row.
 
+## Batch action button (page-top, secondary)
+
+Pattern for "do this across every applicable target" actions where the per-target version exists somewhere on the page (e.g. "刷新全部" sits at the top of Models, while each section has its own "刷新").
+
+```tsx
+<Button
+  variant="ghost"
+  size="sm"
+  className="gap-1.5 text-muted-foreground hover:text-foreground"
+  onClick={handleRefreshAll}
+  disabled={inFlight || syncableCount === 0}
+  title={syncableCount === 0
+    ? "没有可同步的服务商"
+    : `挨个刷新 ${syncableCount} 个支持同步的服务商，最后会汇总成功 / 失败 / 无更新`}
+>
+  {inFlight ? <SpinnerGap className="animate-spin" /> : <ArrowsClockwise />}
+  刷新全部 ({syncableCount})
+</Button>
+```
+
+Rules:
+- **Ghost variant**, not outline. Outline is reserved for the heavier sweep action sitting next to it ("按推荐整理"). The ghost batch reads as "convenience over the per-target version" rather than "third major action."
+- **Count in the label** (`(N)`). It tells the user how much work the click is buying — also doubles as a disabled-when-zero affordance.
+- **Disable when zero** rather than hide. Hiding makes the user wonder where it went; disabled-with-tooltip explains why.
+- Per-target buttons stay enabled while batch is idle, but **mutually gate** while either is in flight (no double-fire).
+
+## Sequential batch with rolling progress toast
+
+When a batch executes per-target probes (network), prefer **sequential + single rolling toast** over `Promise.all` + per-target toasts. Reasons:
+
+- The progress toast actually reads as a progression instead of a blink-and-done.
+- Doesn't fan-burst against shared upstreams (some Code Plan endpoints rate-limit on parallel hits).
+- One toast lifecycle is easier to mentally track than N stacked toasts.
+
+```ts
+const toastId = showToast({ type: 'loading', message: t('batch.progress', { done: '0', total: String(N), name: targets[0].name }), duration: 0 });
+try {
+  for (let i = 0; i < targets.length; i++) {
+    updateToast(toastId, { type: 'loading', message: t('batch.progress', { done: String(i + 1), total: String(N), name: targets[i].name }), duration: 0 });
+    const result = await runOne(targets[i]); // pure; no toast inside
+    // ... aggregate counters ...
+  }
+  // … post-loop refetch …
+  updateToast(toastId, { type: failCount > 0 ? 'warning' : 'success', message: summary, duration: failCount > 0 ? 8000 : 6000 });
+} catch (err) {
+  updateToast(toastId, { type: 'warning', message: `批量过程异常: ${err.message}`, duration: 6000 });
+} finally {
+  setInFlight(false); // ALWAYS reset, regardless of throw
+}
+```
+
+Rules:
+- **`try / finally` is non-negotiable** — without it, an unexpected throw mid-loop leaves the page-top button stuck in "Refreshing..." forever. The reset MUST happen in `finally`.
+- **`catch` turns the rolling toast into a warning** instead of letting it disappear silently — users need to see something happened.
+- **Pure helper inside the loop** — extract a no-toast variant (e.g. `probeAndApplyProvider`) so the outer driver owns the toast story; per-target helpers only return typed results.
+- **Final summary** lists successes + no-change + failures with up to 3 failure names inline (`+M more` suffix when more). Warning tone if any failed, success tone otherwise.
+
+## Soft refetch (preserve scroll position)
+
+When a partial state change should reflect on screen but the page lists many sections (Models page, project list, etc.), don't reuse a global `fetchAll()` that flips `loading=true` — that unmounts the entire list and loses scroll. Instead, refetch only the affected slice in place:
+
+```ts
+// Soft per-id refetch — updates one bucket of state, leaves the rest untouched
+const refetchProviderBundle = useCallback(async (providerId: string) => {
+  try {
+    const r = await fetch(`/api/providers/${providerId}/models?all=1`);
+    if (r.ok) {
+      const d = await r.json();
+      setBundles(prev => ({ ...prev, [providerId]: d.models || [] }));
+    }
+  } catch { /* ignore — toast already covers failure */ }
+}, []);
+```
+
+Use it after a single-target action completes, or after a batch via `Promise.all(succeededIds.map(refetchProviderBundle))`. The point: only the section whose row count actually changed re-renders.
+
+## Disable with explanatory tooltip
+
+When an action genuinely cannot succeed for the current state of a target, **disable + tooltip the reason** rather than letting the user click and read a failure toast.
+
+```tsx
+const sync = isSyncableProvider(provider);
+return (
+  <Button
+    disabled={!sync.ok}
+    title={!sync.ok ? sync.reason : "重新从上游拉取模型列表（不会覆盖你手动启用/隐藏的行）"}
+  >
+    刷新
+  </Button>
+);
+```
+
+Rules:
+- **Only disable when 100% certain it won't work** (e.g. OAuth-only provider, no /v1/models endpoint exists). When a probe might 401 / 404 but the user could fix it (set a key, reconnect), let the click happen — accurate failure beats accurate-sounding pre-filter.
+- **Reason as the tooltip body**, not a separate help icon. The user is already hovering the disabled control.
+- **Filter out disabled targets from batch operations** via the same predicate. The batch button label should show the count of *eligible* targets, not all targets.
+
 ## Empty states
 
 ```tsx
@@ -357,9 +484,11 @@ The Models page is the source of truth for "which models reach the chat picker /
 
 Hard rules baked into the implementation:
 - Hiding a model in Models page **must** suppress it in `/api/providers/models` (the picker feed) and in `provider-resolver.ts` (the runtime). The catalog fallback respects user-set hidden ids.
-- Refresh from a Provider card never auto-applies — it shows a diff and waits for the user.
-- Align-with-catalog is preview-first too; same dryRun → confirm → apply contract.
-- User-edited rows (`user_edited=1`) survive every refresh / align: display_name, capabilities, and especially `enabled=0` are preserved.
+- The **section-level "刷新" button** on the Models page silently auto-applies (probe → conservative apply → toast). The data layer's `enable_source` guard makes this safe: `manual_enabled` / `manual_hidden` rows are never flipped by refresh, regardless of the apply path.
+- The **page-top "刷新全部 (N)"** button runs the same flow sequentially across every syncable provider, with a rolling progress toast and a final summary listing successes / failures / no-change.
+- The **"按推荐整理" button** (`alignEnabledWithCatalog`) stays preview-first: it's a sweeping reset that intentionally flips many rows + can prune deletes, so the user needs to see scope before committing.
+- The **legacy diff dialog** on Provider Card kebab → "刷新模型" stays preview-first too, kept for orphan review and forced resets. Two refresh entry points by intent — section "刷新" for routine maintenance, kebab for advanced inspection.
+- User-edited rows (`user_edited=1`) and rows with `enable_source IN ('manual_enabled','manual_hidden')` survive every refresh / align — display_name, capabilities, and especially `enabled=0` are preserved.
 
 ## Counts on the Provider card
 
@@ -400,13 +529,22 @@ Don't display only the enabled count — users hide things and need to remember 
 | Page-level container width (5 sub-pages) | `src/components/settings/{ProviderManager,ModelsSection,GeneralSection,CliSettingsSection,UsageStatsSection,AssistantWorkspaceSection}.tsx` |
 | Outer card | `ProviderCard.tsx` (`rounded-lg bg-card border border-border/50 p-5`) |
 | Inset divider sub-card | `ProviderCard.tsx` info section (`rounded-md bg-muted/40` + `px-3.5 divide-y divide-border/50`) |
+| Sub-card row with relative-time + tooltip | `ProviderCard.tsx` ("Last refresh" row uses `formatRelativeTime` + `title` for absolute UTC) |
 | Section 0 stacked card | `ProviderManager.tsx` 「服务设置」block |
 | Status pill with dot | `ProviderCard.tsx` header |
-| Source badge | `ModelsSection.tsx` (`SOURCE_TONE`) |
+| Source badge (data origin) | `ModelsSection.tsx` (`SOURCE_TONE`) |
+| Enable-source badge (intent) | `ModelsSection.tsx` (`ENABLE_SOURCE_TONE` / `ENABLE_SOURCE_LABEL_*` / `ENABLE_SOURCE_TOOLTIP_*`) |
+| Two-row section header (Models page) | `ModelsSection.tsx` (per-provider section header — row 1 ops, row 2 identity chips) |
 | Filter segmented control | `ModelsSection.tsx` (Models page header) |
 | Search input | `ModelsSection.tsx` |
 | Bulk-action header | `ModelsSection.tsx` (per-provider header) |
-| Confirm-then-apply (diff) | `ProviderManager.tsx` (refresh dialog) + `ModelsSection.tsx` (align dialog) |
+| Page-top batch action button (ghost) | `ModelsSection.tsx` ("刷新全部 (N)" next to "按推荐整理") |
+| Sequential batch + rolling toast | `ModelsSection.tsx` (`handleRefreshAll`) + `src/lib/auto-discover-models.ts` (`probeAndApplyProvider`) |
+| Soft refetch (preserve scroll) | `ModelsSection.tsx` (`refetchProviderBundle`) |
+| Disable-with-explanatory-tooltip | `ModelsSection.tsx` (`isSyncableProvider` gate on per-section "刷新") |
+| Confirm-then-apply (diff) | `ProviderManager.tsx` (legacy preview dialog) + `ModelsSection.tsx` (align dialog) |
+| Conservative auto-apply (no preview) | `src/lib/auto-discover-models.ts` (`runAutoDiscoverForProvider`) — used by Add Service success + section "刷新" |
+| Apply-side manual override guard | `src/lib/db.ts` (`applyDiscoveryDiff` + `alignEnabledWithCatalog` — both check `enable_source IN ('manual_*')` AND `user_edited=1`) |
 | Empty state | `ProviderManager.tsx` (no providers connected) |
 | Fullscreen dialog | `src/components/ui/dialog.tsx` (`fullscreen` prop) + `PresetConnectDialog.tsx`, `ProviderForm.tsx` |
 | Visible inline kebab demotion | `ProviderCard.tsx` (Refresh promoted out, Diagnose stays in) |
