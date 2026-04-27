@@ -1,20 +1,19 @@
 "use client";
 
 import { useState, useCallback, useSyncExternalStore } from "react";
-import { type Icon, Gear, Code, UserCircle, Plug, ChartBar, Brain, Lightning } from "@/components/ui/icon";
+import { type Icon, Gear, UserCircle, Plug, ChartBar, Brain, Lightning } from "@/components/ui/icon";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { GeneralSection } from "./GeneralSection";
 import { ProviderManager } from "./ProviderManager";
 import { ModelsSection } from "./ModelsSection";
 import { RuntimePanel } from "./RuntimePanel";
-import { CliSettingsSection } from "./CliSettingsSection";
 import { UsageStatsSection } from "./UsageStatsSection";
 import { AssistantWorkspaceSection } from "./AssistantWorkspaceSection";
 import { useTranslation } from "@/hooks/useTranslation";
 import type { TranslationKey } from "@/i18n";
 
-type Section = "general" | "providers" | "models" | "runtime" | "cli" | "usage" | "assistant";
+type Section = "general" | "providers" | "models" | "runtime" | "usage" | "assistant";
 
 interface SidebarItem {
   id: Section;
@@ -22,17 +21,17 @@ interface SidebarItem {
   icon: Icon;
 }
 
-// Order: General / Providers / Models / Runtime / Claude CLI / Usage / Assistant.
-// Runtime sits between Models and Claude CLI to surface the three-layer
-// mental model (assets → exposure → environment) in nav order. Claude CLI
-// stays distinct for now — it owns its own settings + sync flow; Phase 2B.7
-// will trim it once Runtime owns runtime state explanation.
+// Order: General / Providers / Models / Runtime / Usage / Assistant.
+// Runtime sits between Models and Usage to surface the three-layer mental
+// model (assets → exposure → environment) in nav order. The previous
+// "Claude CLI" sidebar entry was folded into Runtime — Claude Code Runtime
+// is now a co-equal card alongside CodePilot Runtime, with the CLI status,
+// model options, and settings.json editor reachable from there.
 const sidebarItems: SidebarItem[] = [
   { id: "general", label: "General", icon: Gear },
   { id: "providers", label: "Providers", icon: Plug },
   { id: "models", label: "Models", icon: Brain },
   { id: "runtime", label: "Runtime", icon: Lightning },
-  { id: "cli", label: "Claude CLI", icon: Code },
   { id: "usage", label: "Usage", icon: ChartBar },
   { id: "assistant", label: "Assistant", icon: UserCircle },
 ];
@@ -67,7 +66,6 @@ export function SettingsLayout() {
     'Providers': 'settings.providers',
     'Models': 'settings.models',
     'Runtime': 'settings.runtime',
-    'Claude CLI': 'settings.claudeCli',
     'Usage': 'settings.usage',
     'Assistant': 'settings.assistant',
   };
@@ -114,7 +112,6 @@ export function SettingsLayout() {
           {activeSection === "providers" && <ProviderManager />}
           {activeSection === "models" && <ModelsSection />}
           {activeSection === "runtime" && <RuntimePanel />}
-          {activeSection === "cli" && <CliSettingsSection />}
           {activeSection === "usage" && <UsageStatsSection />}
           {activeSection === "assistant" && <AssistantWorkspaceSection />}
         </div>

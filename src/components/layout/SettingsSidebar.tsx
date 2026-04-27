@@ -2,7 +2,7 @@
 
 import { useCallback, useSyncExternalStore } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, type Icon, Gear, Code, UserCircle, Plug, ChartBar, Brain, Lightning } from "@/components/ui/icon";
+import { ArrowLeft, type Icon, Gear, UserCircle, Plug, ChartBar, Brain, Lightning } from "@/components/ui/icon";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { useTranslation } from "@/hooks/useTranslation";
@@ -13,7 +13,7 @@ interface SettingsSidebarProps {
   width?: number;
 }
 
-type Section = "general" | "providers" | "models" | "runtime" | "cli" | "usage" | "assistant";
+type Section = "general" | "providers" | "models" | "runtime" | "usage" | "assistant";
 
 interface SidebarItem {
   id: Section;
@@ -21,15 +21,15 @@ interface SidebarItem {
   icon: Icon;
 }
 
-// Mirror SettingsLayout — Runtime sits between Models and Claude CLI so the
-// nav order encodes the three-layer mental model (Providers → Models →
-// Runtime: assets → exposure → environment).
+// Mirror SettingsLayout — Runtime sits between Models and Usage. Claude
+// Code's CLI status, model options, and settings.json editor are folded
+// into Runtime as a co-equal card alongside CodePilot Runtime, so the
+// previous "Claude CLI" entry is gone.
 const sidebarItems: SidebarItem[] = [
   { id: "general", label: "General", icon: Gear },
   { id: "providers", label: "Providers", icon: Plug },
   { id: "models", label: "Models", icon: Brain },
   { id: "runtime", label: "Runtime", icon: Lightning },
-  { id: "cli", label: "Claude CLI", icon: Code },
   { id: "usage", label: "Usage", icon: ChartBar },
   { id: "assistant", label: "Assistant", icon: UserCircle },
 ];
@@ -39,7 +39,6 @@ const settingsLabelKeys: Record<string, TranslationKey> = {
   Providers: "settings.providers",
   Models: "settings.models",
   Runtime: "settings.runtime",
-  "Claude CLI": "settings.claudeCli",
   Usage: "settings.usage",
   Assistant: "settings.assistant",
 };

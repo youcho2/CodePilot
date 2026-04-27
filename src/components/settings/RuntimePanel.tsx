@@ -1,64 +1,1075 @@
 "use client";
 
 /**
- * Settings → Runtime — Phase 2B home for Runtime Trust.
+ * Settings → Runtime
  *
- * Three-layer mental model the user should walk away with:
- *   - Providers (assets) — what services / credentials you own
- *   - Models    (exposure) — which models reach the chat picker
- *   - Runtime   (this surface) — who actually runs the Agent right now,
- *     why, what's its impact, how to recover
+ * The single home for runtime explanation. Folds in everything that used
+ * to live under the "Claude CLI" sidebar entry plus a parallel CodePilot
+ * Runtime card. Sits at the third tier of the user mental model:
  *
- * Phase 2B.1 (this commit) lands the navigation entry + page shell only.
- * Subsequent tasks fill it in:
+ *   Providers (assets) → Models (exposure) → Runtime (environment)
  *
- *   2B.2 — RuntimeState five-state model (extend `isAvailable` → `getState`)
- *   2B.3 — Claude Code Runtime status card (CLI / login / settings.json /
- *          current session selection — with reason / impact / recovery)
- *   2B.4 — CodePilot Runtime status card (Capabilities / Permissions /
- *          Context — medium granularity, three buckets)
- *   2B.5 — Session-level read-only explainer (default runtime + reason +
- *          provider/model + degradation path)
- *   2B.6 — `session_events.runtime.selected` minimal write
- *   2B.7 — Trim Setup Center / CliSettingsSection so Runtime is the
- *          single home for runtime explanation
+ * Phase 2B layout, top to bottom:
+ *   1. Default-engine selector — which runtime owns the next chat
+ *   2. Claude Code Runtime card — status / reason / impact / recovery,
+ *      plus model options (thinking / 1M) and the settings.json editor
+ *      (expandable advanced section)
+ *   3. CodePilot Runtime card — capabilities / permissions / context
+ *      (medium granularity, three buckets)
+ *   4. Session-level read-only explainer — what a new chat will use
+ *   5. Utility: import past chat sessions
  *
- * See `docs/exec-plans/active/agent-trust-ownership-refactor.md`
- * §"Phase 2B：Runtime Trust" for the full scope + 4 confirmed decisions.
+ * 2B.6 (`session_events.runtime.selected` minimal write) still pending.
  */
 
+import { useState, useEffect, useCallback, useMemo } from "react";
+import { Button } from "@/components/ui/button";
+import { Textarea } from "@/components/ui/textarea";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import {
+  Tabs,
+  TabsContent,
+  TabsList,
+  TabsTrigger,
+} from "@/components/ui/tabs";
+import {
+  ArrowClockwise,
+  ArrowsClockwise,
+  CaretDown,
+  CheckCircle,
+  Code,
+  FileArrowDown,
+  FloppyDisk,
+  Lightning,
+  SlidersHorizontal,
+  SpinnerGap,
+  Warning,
+  XCircle,
+} from "@/components/ui/icon";
+import { ImportSessionDialog } from "@/components/layout/ImportSessionDialog";
+import { useClaudeStatus } from "@/hooks/useClaudeStatus";
 import { useTranslation } from "@/hooks/useTranslation";
+import {
+  resolveLegacyRuntimeForDisplay,
+  isConcreteRuntime,
+} from "@/lib/runtime/legacy";
 import type { TranslationKey } from "@/i18n";
+import type { ProviderOptions } from "@/types";
+import { cn } from "@/lib/utils";
+
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
+
+type AgentRuntime = "claude-code-sdk" | "native";
+
+/**
+ * Five-state runtime status. Each state pairs with reason / impact /
+ * recovery so the panel can answer "why is it this way / what does it
+ * mean / what do I do about it" without the user reading source.
+ */
+type RuntimeState =
+  | "selected" // currently the default (active for new chats)
+  | "available" // ready, not currently default
+  | "degraded" // works but with caveats (version mismatch, warnings, etc.)
+  | "blocked" // cannot run (CLI missing / login expired)
+  | "disabled"; // user explicitly turned off (cli_enabled=false)
+
+interface RuntimeStatusInfo {
+  state: RuntimeState;
+  reason: string;
+  impact: string;
+  recovery?: string; // omitted when no recovery is needed
+}
+
+// ---------------------------------------------------------------------------
+// Status pill (mirrors design.md "Status pill — provider runtime state")
+// ---------------------------------------------------------------------------
+
+function RuntimeStatusPill({
+  state,
+  isZh,
+}: {
+  state: RuntimeState;
+  isZh: boolean;
+}) {
+  const tone: Record<RuntimeState, string> = {
+    selected: "bg-status-success-muted text-status-success-foreground",
+    available: "bg-muted text-muted-foreground",
+    degraded: "bg-status-warning-muted text-status-warning-foreground",
+    blocked: "bg-status-error-muted text-status-error-foreground",
+    disabled: "bg-muted text-muted-foreground",
+  };
+  const dot: Record<RuntimeState, string> = {
+    selected: "bg-status-success-foreground",
+    available: "bg-muted-foreground",
+    degraded: "bg-status-warning-foreground",
+    blocked: "bg-status-error-foreground",
+    disabled: "bg-muted-foreground",
+  };
+  const label: Record<RuntimeState, [string, string]> = {
+    selected: ["当前默认", "Current default"],
+    available: ["可用", "Available"],
+    degraded: ["可用但有提示", "Available with warnings"],
+    blocked: ["不可用", "Blocked"],
+    disabled: ["已关闭", "Disabled"],
+  };
+  return (
+    <span
+      className={cn(
+        "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium",
+        tone[state],
+      )}
+    >
+      <span className={cn("size-1.5 rounded-full", dot[state])} />
+      {isZh ? label[state][0] : label[state][1]}
+    </span>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Reason / impact / recovery block — three labelled rows, render only what
+// has content. Reason is mandatory; impact/recovery are conditional.
+// ---------------------------------------------------------------------------
+
+function RuntimeStatusExplanation({ info, isZh }: { info: RuntimeStatusInfo; isZh: boolean }) {
+  const rows: { label: string; value: string }[] = [
+    { label: isZh ? "原因" : "Reason", value: info.reason },
+    { label: isZh ? "影响" : "Impact", value: info.impact },
+  ];
+  if (info.recovery) {
+    rows.push({ label: isZh ? "怎么恢复" : "Recovery", value: info.recovery });
+  }
+  return (
+    <div className="rounded-md bg-muted/40 px-3.5 divide-y divide-border/50">
+      {rows.map((r) => (
+        <div key={r.label} className="py-2.5 flex items-start justify-between gap-3">
+          <span className="text-[11px] text-muted-foreground shrink-0">{r.label}</span>
+          <span className="text-xs text-foreground/85 text-right">{r.value}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Outer card shell — same border weight + radius as Provider Card so the
+// page reads as one family.
+// ---------------------------------------------------------------------------
+
+function RuntimeCard({
+  name,
+  state,
+  isZh,
+  children,
+}: {
+  name: string;
+  state: RuntimeState;
+  isZh: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="rounded-lg bg-card border border-border/50 p-5 flex flex-col gap-4">
+      <div className="flex items-center gap-2 flex-wrap">
+        <h3 className="text-sm font-semibold leading-tight">{name}</h3>
+        <RuntimeStatusPill state={state} isZh={isZh} />
+      </div>
+      {children}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Main component
+// ---------------------------------------------------------------------------
+
+interface SettingsData {
+  [key: string]: unknown;
+}
+
+const KNOWN_FIELDS = [
+  { key: "permissions", label: "Permissions", type: "object" as const },
+  { key: "env", label: "Environment Variables", type: "object" as const },
+] as const;
 
 export function RuntimePanel() {
   const { t } = useTranslation();
-  const isZh = t('nav.chats') === '对话';
+  const isZh = t("nav.chats") === "对话";
+
+  // ── Runtime selection (DB setting) ──
+  const [agentRuntime, setAgentRuntime] = useState<AgentRuntime>("claude-code-sdk");
+  const [, setCliEnabled] = useState(true);
+
+  // ── Claude Code status (subprocess detection) ──
+  const { status: claudeStatus, refresh: refreshStatus, invalidateAndRefresh } = useClaudeStatus();
+  const [upgrading, setUpgrading] = useState(false);
+
+  // ── Model options (env provider) — applies when Claude Code Runtime selected ──
+  const [thinkingMode, setThinkingMode] = useState("adaptive");
+  const [context1m, setContext1m] = useState(false);
+
+  // ── Session-level fields (for the read-only explainer) ──
+  const [defaultProviderName, setDefaultProviderName] = useState<string | null>(null);
+  const [defaultModelLabel, setDefaultModelLabel] = useState<string | null>(null);
+
+  // ── Claude settings.json editor state ──
+  const [settings, setSettings] = useState<SettingsData>({});
+  const [originalSettings, setOriginalSettings] = useState<SettingsData>({});
+  const [jsonText, setJsonText] = useState("");
+  const [jsonError, setJsonError] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [saveSuccess, setSaveSuccess] = useState(false);
+  const [showConfirmDialog, setShowConfirmDialog] = useState(false);
+  const [pendingSaveAction, setPendingSaveAction] = useState<"form" | "json" | null>(null);
+
+  // ── Dialogs ──
+  const [importDialogOpen, setImportDialogOpen] = useState(false);
+  const [installWizardOpen, setInstallWizardOpen] = useState(false);
+
+  // ── Loading ──
+  const [loading, setLoading] = useState(true);
+
+  // i18n key lookup tables for the settings.json form fields
+  const knownFieldKeys: Record<string, { label: TranslationKey; description: TranslationKey }> = {
+    permissions: { label: "cli.permissions", description: "cli.permissionsDesc" },
+    env: { label: "cli.envVars", description: "cli.envVarsDesc" },
+  };
+  const dynamicFieldLabels: Record<string, TranslationKey> = {
+    skipDangerousModePermissionPrompt: "cli.field.skipDangerousModePermissionPrompt",
+    verbose: "cli.field.verbose",
+    theme: "cli.field.theme",
+  };
+
+  // ── Fetch all data ──
+  const fetchAll = useCallback(async () => {
+    try {
+      const [cliRes, appRes, optRes, modelsRes] = await Promise.all([
+        fetch("/api/settings"),
+        fetch("/api/settings/app"),
+        fetch("/api/providers/options?providerId=env"),
+        fetch("/api/providers/models"),
+      ]);
+
+      if (cliRes.ok) {
+        const data = await cliRes.json();
+        const s = data.settings || {};
+        setSettings(s);
+        setOriginalSettings(s);
+        setJsonText(JSON.stringify(s, null, 2));
+      }
+
+      if (appRes.ok) {
+        const appData = await appRes.json();
+        const appSettings = appData.settings || {};
+        setCliEnabled(appSettings.cli_enabled !== "false");
+        // agent_runtime: 'claude-code-sdk' | 'native'. Migrate legacy 'auto'
+        // values in-place — same flow as the legacy CliSettingsSection used.
+        const saved = appSettings.agent_runtime;
+        if (!isConcreteRuntime(saved)) {
+          let cliConnected: boolean | null = null;
+          try {
+            const statusRes = await fetch("/api/claude-status");
+            if (statusRes.ok) {
+              const s = await statusRes.json();
+              cliConnected = !!s?.connected;
+            }
+          } catch {
+            /* ignore — cliConnected stays null */
+          }
+          if (cliConnected !== null) {
+            const migrated = resolveLegacyRuntimeForDisplay(saved, cliConnected);
+            setAgentRuntime(migrated as AgentRuntime);
+            fetch("/api/settings/app", {
+              method: "PUT",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ settings: { agent_runtime: migrated } }),
+            }).catch(() => undefined);
+          } else {
+            setAgentRuntime("claude-code-sdk");
+          }
+        } else {
+          setAgentRuntime(saved as AgentRuntime);
+        }
+      }
+
+      if (optRes.ok) {
+        const optData = await optRes.json();
+        const opts: ProviderOptions = optData.options || {};
+        setThinkingMode(opts.thinking_mode || "adaptive");
+        setContext1m(opts.context_1m || false);
+      }
+
+      if (modelsRes.ok) {
+        const data = await modelsRes.json();
+        const groups = data.groups || [];
+        const defaultProviderId = data.default_provider_id;
+        const matched = groups.find(
+          (g: { provider_id: string; provider_name: string; models: { value: string; label: string }[] }) =>
+            g.provider_id === defaultProviderId,
+        );
+        if (matched) {
+          setDefaultProviderName(matched.provider_name);
+          setDefaultModelLabel(matched.models[0]?.label ?? null);
+        }
+      }
+    } catch {
+      setSettings({});
+      setOriginalSettings({});
+      setJsonText("{}");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchAll();
+  }, [fetchAll]);
+
+  // ── Engine selector handler ──
+  const handleRuntimeChange = async (value: AgentRuntime) => {
+    setAgentRuntime(value);
+    const cliEnabledValue = value === "native" ? "false" : "true";
+    setCliEnabled(cliEnabledValue === "true");
+    try {
+      await fetch("/api/settings/app", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          settings: { agent_runtime: value, cli_enabled: cliEnabledValue },
+        }),
+      });
+      window.dispatchEvent(new Event("provider-changed"));
+    } catch {
+      /* ignore */
+    }
+  };
+
+  // ── Claude Code Runtime install / upgrade ──
+  const handleUpgrade = async () => {
+    if (!claudeStatus?.installType) return;
+    setUpgrading(true);
+    try {
+      const res = await fetch("/api/claude-upgrade", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ installType: claudeStatus.installType }),
+      });
+      const data = await res.json();
+      if (data.success) await invalidateAndRefresh();
+    } finally {
+      setUpgrading(false);
+    }
+  };
+
+  // ── Model options (Claude Code only) ──
+  const saveModelOption = async (key: string, value: string | boolean) => {
+    if (key === "thinking_mode") setThinkingMode(value as string);
+    if (key === "context_1m") setContext1m(value as boolean);
+    try {
+      await fetch("/api/providers/options", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ providerId: "env", options: { [key]: value } }),
+      });
+    } catch {
+      /* ignore */
+    }
+  };
+
+  // ── settings.json editor handlers ──
+  const hasChanges = JSON.stringify(settings) !== JSON.stringify(originalSettings);
+
+  const handleSave = async (source: "form" | "json") => {
+    let dataToSave: SettingsData;
+    if (source === "json") {
+      try {
+        dataToSave = JSON.parse(jsonText);
+        setJsonError("");
+      } catch {
+        setJsonError("Invalid JSON format");
+        return;
+      }
+    } else {
+      dataToSave = settings;
+    }
+    setSaving(true);
+    try {
+      const res = await fetch("/api/settings", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ settings: dataToSave }),
+      });
+      if (res.ok) {
+        setSettings(dataToSave);
+        setOriginalSettings(dataToSave);
+        setJsonText(JSON.stringify(dataToSave, null, 2));
+        setSaveSuccess(true);
+        setTimeout(() => setSaveSuccess(false), 2000);
+      }
+    } finally {
+      setSaving(false);
+      setShowConfirmDialog(false);
+      setPendingSaveAction(null);
+    }
+  };
+
+  const handleReset = () => {
+    setSettings(originalSettings);
+    setJsonText(JSON.stringify(originalSettings, null, 2));
+    setJsonError("");
+  };
+
+  const handleFormatJson = () => {
+    try {
+      const parsed = JSON.parse(jsonText);
+      setJsonText(JSON.stringify(parsed, null, 2));
+      setJsonError("");
+    } catch {
+      setJsonError(t("cli.formatError"));
+    }
+  };
+
+  const confirmSave = (source: "form" | "json") => {
+    setPendingSaveAction(source);
+    setShowConfirmDialog(true);
+  };
+
+  const updateField = (key: string, value: unknown) => {
+    setSettings((prev) => ({ ...prev, [key]: value }));
+  };
+
+  // ── Derived state ──
+  const connected = claudeStatus?.connected ?? false;
+  const updateAvailable = claudeStatus?.updateAvailable ?? false;
+  const hasWarnings = !!claudeStatus?.warnings && claudeStatus.warnings.length > 0;
+
+  /**
+   * Compute Claude Code Runtime status info from current data. Five-state
+   * decision tree:
+   *
+   *   not connected → blocked    (CLI missing / OAuth expired)
+   *   connected + warnings → degraded    (version mismatch etc.)
+   *   connected + selected → selected
+   *   connected + not selected → available
+   *
+   * The `disabled` state isn't surfaced for Claude Code in this build —
+   * `cli_enabled=false` only flips when the user picks AI SDK as engine,
+   * in which case Claude Code reads as `available` + the AI SDK card
+   * reads as `selected`.
+   */
+  const claudeCodeStatus: RuntimeStatusInfo = useMemo(() => {
+    if (!connected) {
+      return {
+        state: "blocked",
+        reason: isZh
+          ? "未检测到 Claude Code CLI（或 OAuth 登录已过期）"
+          : "Claude Code CLI not detected (or OAuth login has expired)",
+        impact: isZh
+          ? "无法用 Claude Code 内核跑会话；选用此 Runtime 的会话会回退到 AI SDK"
+          : "Sessions cannot run on the Claude Code engine; selecting this runtime falls back to AI SDK",
+        recovery: isZh
+          ? "下方点「安装」启动一键安装向导，或先在系统终端 `claude /login` 完成授权"
+          : "Click Install below to launch the wizard, or run `claude /login` in a terminal",
+      };
+    }
+    if (hasWarnings) {
+      return {
+        state: "degraded",
+        reason: isZh
+          ? "Claude Code 已安装但有兼容性提示（详见下方警告列表）"
+          : "Claude Code is installed but reports compatibility warnings (see below)",
+        impact: isZh
+          ? "可以运行，但部分功能行为可能与新版本不一致；建议升级"
+          : "Sessions still run, but some behavior may diverge from the latest version. Upgrade recommended.",
+        recovery: updateAvailable
+          ? isZh
+            ? "下方点「升级」一键更新到最新版本"
+            : "Click Upgrade below to update to the latest version"
+          : isZh
+            ? "在系统终端运行 `claude --version` 检查版本与 SDK 兼容性"
+            : "Run `claude --version` in a terminal to check the version against SDK compatibility",
+      };
+    }
+    if (agentRuntime === "claude-code-sdk") {
+      return {
+        state: "selected",
+        reason: isZh
+          ? "Claude Code 已安装并被设为默认引擎"
+          : "Claude Code is installed and set as the default engine",
+        impact: isZh
+          ? "新会话默认走 Claude Code 内核，使用 ~/.claude/settings.json 中的环境与权限"
+          : "New chats run on the Claude Code engine, honoring ~/.claude/settings.json",
+      };
+    }
+    return {
+      state: "available",
+      reason: isZh
+        ? "Claude Code 已安装但未被设为默认引擎"
+        : "Claude Code is installed but isn't the default engine",
+      impact: isZh
+        ? "想切回 Claude Code 内核，把上方「默认引擎」切到 Claude Code 即可"
+        : 'Switch the "Default engine" selector above to use Claude Code',
+    };
+  }, [connected, hasWarnings, updateAvailable, agentRuntime, isZh]);
+
+  /**
+   * CodePilot Runtime is bundled and always available; the only thing
+   * that can change is whether it's selected as default.
+   */
+  const codepilotStatus: RuntimeStatusInfo = useMemo(() => {
+    if (agentRuntime === "native") {
+      return {
+        state: "selected",
+        reason: isZh
+          ? "AI SDK 是默认内核（无需 CLI，直连 provider API）"
+          : "AI SDK is the default engine (no CLI required, direct provider API)",
+        impact: isZh
+          ? "新会话默认用 AI SDK；工具、权限和上下文由 CodePilot 自己管理"
+          : "New chats run on the AI SDK engine; tools, permissions, and context managed by CodePilot itself",
+      };
+    }
+    return {
+      state: "available",
+      reason: isZh
+        ? "AI SDK 内核随应用自带，始终可用"
+        : "AI SDK engine ships with the app and is always available",
+      impact: isZh
+        ? "想切到 AI SDK 内核，把上方「默认引擎」切到 AI SDK 即可"
+        : 'Switch the "Default engine" selector above to use AI SDK',
+    };
+  }, [agentRuntime, isZh]);
+
+  /** Session-level resolved engine string for the read-only explainer. */
+  const resolvedEngineLabel = useMemo(() => {
+    if (agentRuntime === "claude-code-sdk" && !connected) {
+      return isZh ? "AI SDK（Claude Code 不可用，自动降级）" : "AI SDK (fallback — Claude Code unavailable)";
+    }
+    return agentRuntime === "claude-code-sdk" ? "Claude Code" : "AI SDK";
+  }, [agentRuntime, connected, isZh]);
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-12">
+        <SpinnerGap size={20} className="animate-spin text-muted-foreground" />
+        <span className="ml-2 text-sm text-muted-foreground">{t("cli.loadingSettings")}</span>
+      </div>
+    );
+  }
 
   return (
     <div className="max-w-4xl mx-auto space-y-6">
+      {/* ── Page header ──────────────────────────────────────────────── */}
       <div>
-        <h2 className="text-sm font-medium">
-          {t('settings.runtime' as TranslationKey)}
-        </h2>
+        <h2 className="text-sm font-medium">{t("settings.runtime" as TranslationKey)}</h2>
         <p className="text-[11px] text-muted-foreground mt-0.5">
           {isZh
-            ? '查看当前 Agent 由谁运行、为什么是这个状态、影响是什么、怎么恢复。Providers 管资产，Models 管暴露，Runtime 管运行环境。'
-            : 'Inspect which runtime is currently in charge of the Agent — why it\'s in this state, what its impact is, and how to recover. Providers govern assets, Models govern exposure, Runtime governs environment.'}
+            ? "查看当前 Agent 由谁运行、为什么是这个状态、影响是什么、怎么恢复。Providers 管资产，Models 管暴露，Runtime 管运行环境。"
+            : "Inspect which runtime is currently in charge of the Agent — why it's in this state, what the impact is, and how to recover. Providers govern assets, Models govern exposure, Runtime governs environment."}
         </p>
       </div>
 
-      {/* Phase 2B.1: skeleton — empty placeholder.
-          Populated by 2B.3 / 2B.4 with two parallel runtime cards. */}
-      <div className="rounded-lg border border-dashed border-border/50 bg-card/50 p-10 flex flex-col items-center text-center gap-2">
-        <div className="text-sm font-medium text-muted-foreground">
-          {isZh ? 'Runtime 状态面板（即将到来）' : 'Runtime status panels (coming soon)'}
+      {/* ── Default-engine selector ───────────────────────────────────── */}
+      <div className="rounded-lg bg-card border border-border/50 p-5 flex flex-col gap-3">
+        <div className="flex items-center gap-2">
+          <Lightning size={16} weight="fill" className="text-status-success-foreground" />
+          <h3 className="text-sm font-semibold">{isZh ? "默认引擎" : "Default engine"}</h3>
         </div>
-        <div className="text-xs text-muted-foreground/80 max-w-md">
+        <p className="text-[11px] text-muted-foreground">
           {isZh
-            ? '本面板将平级展示 Claude Code Runtime 与 CodePilot Runtime — 当前状态、为什么是这个状态、影响、恢复路径，以及当前默认会话会用哪个 provider / model。'
-            : 'This panel will show Claude Code Runtime and CodePilot Runtime in parallel — current state, why, impact, recovery, and which provider/model the default session will run through.'}
+            ? "选择新会话默认使用哪个 Runtime。已开始的会话保持原有引擎不变。"
+            : "Choose which runtime new chats use by default. In-flight chats keep the engine they were started with."}
+        </p>
+        <div className="flex items-center justify-between gap-3">
+          <span className="text-xs text-muted-foreground">
+            {isZh ? "新会话用..." : "New chats run on..."}
+          </span>
+          <Select value={agentRuntime} onValueChange={(v) => handleRuntimeChange(v as AgentRuntime)}>
+            <SelectTrigger className="w-[180px] h-8 text-xs">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="claude-code-sdk">Claude Code</SelectItem>
+              <SelectItem value="native">AI SDK</SelectItem>
+            </SelectContent>
+          </Select>
         </div>
       </div>
+
+      {/* ── Claude Code Runtime card ──────────────────────────────────── */}
+      <RuntimeCard name="Claude Code Runtime" state={claudeCodeStatus.state} isZh={isZh}>
+        <RuntimeStatusExplanation info={claudeCodeStatus} isZh={isZh} />
+
+        {/* CLI install / version / upgrade row */}
+        <div className="rounded-md bg-muted/40 px-3.5 divide-y divide-border/50">
+          <div className="py-2.5 flex items-center justify-between gap-3">
+            <span className="text-[11px] text-muted-foreground shrink-0">
+              {isZh ? "CLI 状态" : "CLI status"}
+            </span>
+            <div className="flex items-center gap-2">
+              {connected ? (
+                <>
+                  <CheckCircle size={14} className="text-status-success-foreground" />
+                  <span className="text-xs text-muted-foreground">
+                    v{claudeStatus?.version}
+                    {claudeStatus?.installType ? ` (${claudeStatus.installType})` : ""}
+                  </span>
+                  {updateAvailable && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-6 text-xs gap-1"
+                      onClick={handleUpgrade}
+                      disabled={upgrading}
+                    >
+                      {upgrading ? (
+                        <SpinnerGap size={12} className="animate-spin" />
+                      ) : (
+                        <ArrowsClockwise size={12} />
+                      )}
+                      {t("cli.update")}
+                    </Button>
+                  )}
+                </>
+              ) : (
+                <>
+                  <XCircle size={14} className="text-status-error-foreground" />
+                  <span className="text-xs text-muted-foreground">
+                    {isZh ? "未安装" : "Not installed"}
+                  </span>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-6 text-xs gap-1"
+                    onClick={() => setInstallWizardOpen(true)}
+                  >
+                    {t("cli.install")}
+                  </Button>
+                </>
+              )}
+              <Button variant="ghost" size="sm" className="h-6 w-6 p-0" onClick={refreshStatus}>
+                <ArrowClockwise size={12} />
+              </Button>
+            </div>
+          </div>
+        </div>
+
+        {/* Warnings (only when present) */}
+        {hasWarnings && (
+          <div className="rounded-md border border-status-warning-muted bg-status-warning-muted/30 px-3 py-2">
+            <div className="flex items-start gap-2">
+              <Warning
+                size={14}
+                className="text-status-warning-foreground mt-0.5 flex-shrink-0"
+              />
+              <div className="text-xs text-status-warning-foreground space-y-0.5">
+                {claudeStatus!.warnings!.map((w, i) => (
+                  <p key={i}>{w}</p>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Model options — only meaningful when Claude Code is selected and connected */}
+        {agentRuntime === "claude-code-sdk" && connected && (
+          <div className="rounded-md bg-muted/40 px-3.5 divide-y divide-border/50">
+            <div className="py-2.5 flex items-center justify-between gap-3">
+              <div className="flex flex-col gap-0.5">
+                <span className="text-xs font-medium">{t("cli.thinkingMode")}</span>
+                <span className="text-[11px] text-muted-foreground">{t("cli.thinkingModeDesc")}</span>
+              </div>
+              <Select value={thinkingMode} onValueChange={(v) => saveModelOption("thinking_mode", v)}>
+                <SelectTrigger className="w-[140px] h-8 text-xs">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="adaptive">{t("settings.thinkingAdaptive" as TranslationKey)}</SelectItem>
+                  <SelectItem value="enabled">{t("settings.thinkingEnabled" as TranslationKey)}</SelectItem>
+                  <SelectItem value="disabled">{t("settings.thinkingDisabled" as TranslationKey)}</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="py-2.5 flex items-center justify-between gap-3">
+              <div className="flex flex-col gap-0.5">
+                <span className="text-xs font-medium">{t("cli.context1m")}</span>
+                <span className="text-[11px] text-muted-foreground">{t("cli.context1mDesc")}</span>
+              </div>
+              <Switch
+                checked={context1m}
+                onCheckedChange={(c) => saveModelOption("context_1m", c)}
+              />
+            </div>
+          </div>
+        )}
+
+        {/* settings.json editor (collapsed by default — advanced) */}
+        <details className="rounded-md bg-muted/40 px-3.5 py-2 group">
+          <summary className="flex items-center justify-between gap-2 cursor-pointer text-xs font-medium select-none list-none">
+            <span className="flex items-center gap-1.5">
+              <Code size={12} className="text-muted-foreground" />
+              {t("cli.cliConfig")}
+            </span>
+            <CaretDown
+              size={12}
+              className="text-muted-foreground transition-transform group-open:rotate-180"
+            />
+          </summary>
+          <p className="mt-1 mb-3 text-[11px] text-muted-foreground">{t("cli.cliConfigDesc")}</p>
+          <Tabs defaultValue="form">
+            <TabsList className="mb-3">
+              <TabsTrigger value="form" className="gap-2 text-xs">
+                <SlidersHorizontal size={14} />
+                {t("cli.form")}
+              </TabsTrigger>
+              <TabsTrigger value="json" className="gap-2 text-xs">
+                <Code size={14} />
+                {t("cli.json")}
+              </TabsTrigger>
+            </TabsList>
+            <TabsContent value="form">
+              <div className="space-y-3">
+                {KNOWN_FIELDS.map((field) => (
+                  <div key={field.key}>
+                    <Label className="text-xs font-medium">
+                      {t(knownFieldKeys[field.key]?.label ?? (field.label as TranslationKey))}
+                    </Label>
+                    <p className="mb-1.5 text-[11px] text-muted-foreground">
+                      {t(knownFieldKeys[field.key]?.description ?? ("" as TranslationKey))}
+                    </p>
+                    <Textarea
+                      value={
+                        typeof settings[field.key] === "object"
+                          ? JSON.stringify(settings[field.key], null, 2)
+                          : String(settings[field.key] ?? "")
+                      }
+                      onChange={(e) => {
+                        try {
+                          const parsed = JSON.parse(e.target.value);
+                          updateField(field.key, parsed);
+                        } catch {
+                          updateField(field.key, e.target.value);
+                        }
+                      }}
+                      className="font-mono text-xs"
+                      rows={4}
+                    />
+                  </div>
+                ))}
+                {Object.entries(settings)
+                  .filter(([key]) => !KNOWN_FIELDS.some((f) => f.key === key))
+                  .map(([key, value]) => (
+                    <div key={key}>
+                      <Label className="text-xs font-medium">
+                        {dynamicFieldLabels[key] ? t(dynamicFieldLabels[key]) : key}
+                      </Label>
+                      {typeof value === "boolean" ? (
+                        <div className="mt-1.5 flex items-center gap-2">
+                          <Switch checked={value} onCheckedChange={(c) => updateField(key, c)} />
+                          <span className="text-xs text-muted-foreground">
+                            {value ? t("common.enabled") : t("common.disabled")}
+                          </span>
+                        </div>
+                      ) : typeof value === "string" ? (
+                        <Input
+                          value={value}
+                          onChange={(e) => updateField(key, e.target.value)}
+                          className="mt-1.5 text-xs"
+                        />
+                      ) : (
+                        <Textarea
+                          value={JSON.stringify(value, null, 2)}
+                          onChange={(e) => {
+                            try {
+                              updateField(key, JSON.parse(e.target.value));
+                            } catch {
+                              updateField(key, e.target.value);
+                            }
+                          }}
+                          className="mt-1.5 font-mono text-xs"
+                          rows={4}
+                        />
+                      )}
+                    </div>
+                  ))}
+                <div className="flex items-center gap-2">
+                  <Button
+                    onClick={() => confirmSave("form")}
+                    disabled={!hasChanges || saving}
+                    size="sm"
+                    className="gap-1.5"
+                  >
+                    {saving ? <SpinnerGap size={14} className="animate-spin" /> : <FloppyDisk size={14} />}
+                    {saving ? t("provider.saving") : t("cli.save")}
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleReset}
+                    disabled={!hasChanges}
+                    className="gap-1.5"
+                  >
+                    <ArrowClockwise size={14} />
+                    {t("cli.reset")}
+                  </Button>
+                  {saveSuccess && (
+                    <span className="text-xs text-status-success-foreground">
+                      {t("cli.settingsSaved")}
+                    </span>
+                  )}
+                </div>
+              </div>
+            </TabsContent>
+            <TabsContent value="json">
+              <div className="space-y-3">
+                <Textarea
+                  value={jsonText}
+                  onChange={(e) => {
+                    setJsonText(e.target.value);
+                    setJsonError("");
+                  }}
+                  className="min-h-[300px] font-mono text-xs"
+                  placeholder='{"key": "value"}'
+                />
+                {jsonError && <p className="text-xs text-destructive">{jsonError}</p>}
+                <div className="flex items-center gap-2">
+                  <Button
+                    onClick={() => confirmSave("json")}
+                    disabled={saving}
+                    size="sm"
+                    className="gap-1.5"
+                  >
+                    {saving ? <SpinnerGap size={14} className="animate-spin" /> : <FloppyDisk size={14} />}
+                    {saving ? t("provider.saving") : t("cli.save")}
+                  </Button>
+                  <Button variant="outline" size="sm" onClick={handleFormatJson} className="gap-1.5">
+                    <Code size={14} />
+                    {t("cli.format")}
+                  </Button>
+                  <Button variant="outline" size="sm" onClick={handleReset} className="gap-1.5">
+                    <ArrowClockwise size={14} />
+                    {t("cli.reset")}
+                  </Button>
+                  {saveSuccess && (
+                    <span className="text-xs text-status-success-foreground">
+                      {t("cli.settingsSaved")}
+                    </span>
+                  )}
+                </div>
+              </div>
+            </TabsContent>
+          </Tabs>
+        </details>
+      </RuntimeCard>
+
+      {/* ── CodePilot Runtime card ────────────────────────────────────── */}
+      <RuntimeCard name="CodePilot Runtime (AI SDK)" state={codepilotStatus.state} isZh={isZh}>
+        <RuntimeStatusExplanation info={codepilotStatus} isZh={isZh} />
+
+        {/* Capabilities / Permissions / Context — three medium-granularity blocks */}
+        <div className="rounded-md bg-muted/40 px-3.5 divide-y divide-border/50">
+          <div className="py-2.5 flex items-start justify-between gap-3">
+            <div className="flex flex-col gap-0.5 max-w-[55%]">
+              <span className="text-xs font-medium">{isZh ? "能力" : "Capabilities"}</span>
+              <span className="text-[11px] text-muted-foreground leading-snug">
+                {isZh
+                  ? "内置工具（Read / Edit / Bash 等），MCP 工具集（Chrome DevTools / 自定义 Server），文件 / 终端 / 浏览器全套支持"
+                  : "Built-in tools (Read / Edit / Bash / etc.), MCP toolsets (Chrome DevTools / custom servers), full file / terminal / browser stack"}
+              </span>
+            </div>
+            <span className="text-[10px] text-muted-foreground/70">
+              {isZh ? "随应用更新" : "ships with app"}
+            </span>
+          </div>
+          <div className="py-2.5 flex items-start justify-between gap-3">
+            <div className="flex flex-col gap-0.5 max-w-[55%]">
+              <span className="text-xs font-medium">{isZh ? "权限" : "Permissions"}</span>
+              <span className="text-[11px] text-muted-foreground leading-snug">
+                {isZh
+                  ? "默认 explore（读 + 安全命令自动；写 / 删 / 网络需确认），可切到 normal / trust / plan"
+                  : "Defaults to Explore (auto for reads + safe commands; confirm before write / delete / network). Switchable to Normal / Trust / Plan."}
+              </span>
+            </div>
+            <span className="text-[10px] text-muted-foreground/70">
+              {isZh ? "会话级控制" : "per-session"}
+            </span>
+          </div>
+          <div className="py-2.5 flex items-start justify-between gap-3">
+            <div className="flex flex-col gap-0.5 max-w-[55%]">
+              <span className="text-xs font-medium">{isZh ? "上下文" : "Context"}</span>
+              <span className="text-[11px] text-muted-foreground leading-snug">
+                {isZh
+                  ? "CodePilot 管理项目工作区、会话历史、模型选择和本地状态；自动按 token 预算修剪 / 压缩"
+                  : "CodePilot owns project workspace, session history, model choice, and local state; automatic token-budget prune + compress."}
+              </span>
+            </div>
+            <span className="text-[10px] text-muted-foreground/70">
+              {isZh ? "本地存储" : "local"}
+            </span>
+          </div>
+        </div>
+      </RuntimeCard>
+
+      {/* ── Session-level read-only explainer ──────────────────────────── */}
+      <div className="rounded-lg bg-card border border-border/50 p-5 flex flex-col gap-3">
+        <h3 className="text-sm font-semibold leading-tight">
+          {isZh ? "新会话会用什么" : "What a new chat will use"}
+        </h3>
+        <p className="text-[11px] text-muted-foreground">
+          {isZh
+            ? "下面是按当前默认设置启动一个新会话时的解析结果。已开始的会话不受影响。"
+            : "What a fresh chat would resolve to with the current defaults. In-flight chats are unaffected."}
+        </p>
+        <div className="rounded-md bg-muted/40 px-3.5 divide-y divide-border/50">
+          <div className="py-2.5 flex items-center justify-between gap-3">
+            <span className="text-[11px] text-muted-foreground shrink-0">
+              {isZh ? "Runtime" : "Runtime"}
+            </span>
+            <span className="text-xs text-foreground/85 text-right">{resolvedEngineLabel}</span>
+          </div>
+          <div className="py-2.5 flex items-center justify-between gap-3">
+            <span className="text-[11px] text-muted-foreground shrink-0">
+              {isZh ? "默认 Provider" : "Default provider"}
+            </span>
+            <span className="text-xs text-foreground/85 text-right truncate">
+              {defaultProviderName ?? (isZh ? "未配置" : "Not configured")}
+            </span>
+          </div>
+          <div className="py-2.5 flex items-center justify-between gap-3">
+            <span className="text-[11px] text-muted-foreground shrink-0">
+              {isZh ? "默认模型" : "Default model"}
+            </span>
+            <span className="text-xs text-foreground/85 text-right truncate">
+              {defaultModelLabel ?? (isZh ? "未配置" : "Not configured")}
+            </span>
+          </div>
+          {agentRuntime === "claude-code-sdk" && !connected && (
+            <div className="py-2.5 flex items-center justify-between gap-3">
+              <span className="text-[11px] text-muted-foreground shrink-0">
+                {isZh ? "降级路径" : "Fallback"}
+              </span>
+              <span className="text-xs text-status-warning-foreground text-right">
+                {isZh
+                  ? "Claude Code 不可用 → 自动用 AI SDK"
+                  : "Claude Code unavailable → falls back to AI SDK"}
+              </span>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* ── Import past chat sessions ──────────────────────────────────── */}
+      <div className="rounded-lg bg-card border border-border/50 p-5 flex items-center justify-between gap-3">
+        <div className="flex flex-col gap-0.5">
+          <h3 className="text-sm font-semibold leading-tight">{t("cli.importTitle")}</h3>
+          <p className="text-[11px] text-muted-foreground">{t("cli.importDesc")}</p>
+        </div>
+        <Button
+          variant="outline"
+          size="sm"
+          className="gap-1.5 shrink-0"
+          onClick={() => setImportDialogOpen(true)}
+        >
+          <FileArrowDown size={14} />
+          {t("cli.importButton")}
+        </Button>
+        <ImportSessionDialog open={importDialogOpen} onOpenChange={setImportDialogOpen} />
+      </div>
+
+      {/* Confirmation dialog for settings.json saves */}
+      <AlertDialog open={showConfirmDialog} onOpenChange={setShowConfirmDialog}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t("cli.confirmSaveTitle")}</AlertDialogTitle>
+            <AlertDialogDescription>{t("cli.confirmSaveDesc")}</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
+            <AlertDialogAction onClick={() => pendingSaveAction && handleSave(pendingSaveAction)}>
+              {t("common.save")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Install wizard for Claude Code CLI */}
+      {installWizardOpen && (
+        <InstallWizardDialog
+          open={installWizardOpen}
+          onOpenChange={(open) => {
+            setInstallWizardOpen(open);
+            if (!open) invalidateAndRefresh();
+          }}
+          onInstallComplete={async () => {
+            await invalidateAndRefresh();
+            await fetch("/api/settings/app", {
+              method: "PUT",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ settings: { cli_enabled: "true" } }),
+            });
+            setInstallWizardOpen(false);
+          }}
+        />
+      )}
     </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Install wizard — instructions dialog (matches the legacy implementation).
+// Shows the official install command for the user's platform; user runs it
+// in their terminal, then clicks "Done" to re-detect.
+// ---------------------------------------------------------------------------
+
+function InstallWizardDialog({
+  open,
+  onOpenChange,
+  onInstallComplete,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onInstallComplete: () => void;
+}) {
+  const { t } = useTranslation();
+  const isWindows = typeof navigator !== "undefined" && /Win/.test(navigator.userAgent);
+  const installCommand = isWindows
+    ? "irm https://claude.ai/install.ps1 | iex"
+    : "curl -fsSL https://claude.ai/install.sh | bash";
+
+  return (
+    <AlertDialog open={open} onOpenChange={onOpenChange}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>{t("cli.installTitle")}</AlertDialogTitle>
+          <AlertDialogDescription>{t("cli.installDesc")}</AlertDialogDescription>
+        </AlertDialogHeader>
+        <div className="my-3 rounded-md bg-muted p-3">
+          <code className="text-xs font-mono select-all">{installCommand}</code>
+        </div>
+        <p className="text-xs text-muted-foreground">{t("cli.installAfter")}</p>
+        <AlertDialogFooter>
+          <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
+          <AlertDialogAction onClick={onInstallComplete}>{t("cli.installDone")}</AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   );
 }
