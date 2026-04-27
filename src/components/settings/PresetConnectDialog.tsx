@@ -455,9 +455,11 @@ export function PresetConnectDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-[28rem]">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2.5">
+      <DialogContent fullscreen>
+        <div className="min-h-full flex items-center justify-center px-6 py-16">
+        <div className="w-full max-w-md">
+        <DialogHeader className="mb-6">
+          <DialogTitle className="flex items-center gap-2.5 text-xl">
             {preset.icon}
             {isEdit ? t('provider.editProvider') : t('provider.connect')} {preset.name}
           </DialogTitle>
@@ -506,7 +508,7 @@ export function PresetConnectDialog({
           </div>
         )}
 
-        <form onSubmit={handleSubmit} className="space-y-4 min-w-0">
+        <form onSubmit={handleSubmit} className="space-y-4 min-w-0 mt-6">
           {/* Name field — custom/thirdparty */}
           {preset.fields.includes("name") && (
             <div className="space-y-2">
@@ -575,12 +577,6 @@ export function PresetConnectDialog({
                   autoFocus
                 />
               </div>
-              {/* Show auth style badge for non-thirdparty presets (auto-determined) */}
-              {preset.key !== "anthropic-thirdparty" && (
-                <p className="text-[11px] text-muted-foreground">
-                  Auth: <span className="font-mono">{authStyle === "auth_token" ? "Authorization: Bearer ..." : "X-Api-Key: ..."}</span>
-                </p>
-              )}
               {/* Explicit "clear stored key" action — only visible in edit
                   mode when a stored key exists and the user hasn't typed a
                   replacement. Without this, hasStoredKey + empty input was
@@ -654,21 +650,50 @@ export function PresetConnectDialog({
             </div>
           )}
 
-          {/* Extra env — bedrock/vertex/custom always shown */}
-          {preset.fields.includes("extra_env") && (
+          {/* Model mapping — surfaced inline (was previously buried behind
+              "Advanced options"). Only `anthropic-thirdparty` carries this
+              field; flagged as 选填 since defaults work for most users. */}
+          {preset.fields.includes("model_mapping") && (
             <div className="space-y-2">
-              <Label className="text-xs text-muted-foreground">{t('provider.extraEnvVars')} (JSON)</Label>
-              <Textarea
-                value={extraEnv}
-                onChange={(e) => setExtraEnv(e.target.value)}
-                className="text-sm font-mono min-h-[80px]"
-                rows={3}
-              />
+              <Label className="text-xs text-muted-foreground">
+                {isZh ? '模型名称映射（选填）' : 'Model name mapping (optional)'}
+              </Label>
+              <p className="text-[11px] text-muted-foreground leading-relaxed">
+                {isZh
+                  ? '如果服务商使用不同的模型名称（如 claude-sonnet-4-6），在此映射。留空则使用默认名称（sonnet / opus / haiku）。'
+                  : 'Map model names if the provider uses different IDs (e.g. claude-sonnet-4-6). Leave empty to use defaults (sonnet / opus / haiku).'}
+              </p>
+              <div className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-2 items-center">
+                <span className="text-xs text-muted-foreground text-right">Sonnet</span>
+                <Input
+                  value={mapSonnet}
+                  onChange={(e) => setMapSonnet(e.target.value)}
+                  placeholder="claude-sonnet-4-6"
+                  className="text-sm font-mono h-8"
+                />
+                <span className="text-xs text-muted-foreground text-right">Opus</span>
+                <Input
+                  value={mapOpus}
+                  onChange={(e) => setMapOpus(e.target.value)}
+                  placeholder="claude-opus-4-7"
+                  className="text-sm font-mono h-8"
+                />
+                <span className="text-xs text-muted-foreground text-right">Haiku</span>
+                <Input
+                  value={mapHaiku}
+                  onChange={(e) => setMapHaiku(e.target.value)}
+                  placeholder="claude-haiku-4-5-20251001"
+                  className="text-sm font-mono h-8"
+                />
+              </div>
             </div>
           )}
 
-          {/* Advanced options — for presets that don't normally show extra_env */}
-          {!preset.fields.includes("extra_env") && (
+          {/* Advanced options — edit-mode only.
+              Create mode has nothing to show after the extra_env JSON input
+              was removed and model_mapping was hoisted out, so the toggle
+              would expand into emptiness; hide it entirely. */}
+          {isEdit && (
             <>
               <Button
                 type="button"
@@ -681,89 +706,37 @@ export function PresetConnectDialog({
                 {t('provider.advancedOptions')}
               </Button>
               {showAdvanced && (
-                <div className="space-y-4 border-t border-border/50 pt-3">
-                  {/* Model mapping (sonnet/opus/haiku → API model IDs) */}
-                  {preset.fields.includes("model_mapping") && (
-                    <div className="space-y-2">
-                      <Label className="text-xs text-muted-foreground">
-                        {isZh ? '模型名称映射' : 'Model Name Mapping'}
-                      </Label>
-                      <p className="text-[11px] text-muted-foreground leading-relaxed">
-                        {isZh
-                          ? '如果服务商使用不同的模型名称（如 claude-sonnet-4-6），在此映射。留空则使用默认名称（sonnet / opus / haiku）。'
-                          : 'Map model names if the provider uses different IDs (e.g. claude-sonnet-4-6). Leave empty to use defaults (sonnet / opus / haiku).'}
-                      </p>
-                      <div className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-2 items-center">
-                        <span className="text-xs text-muted-foreground text-right">Sonnet</span>
-                        <Input
-                          value={mapSonnet}
-                          onChange={(e) => setMapSonnet(e.target.value)}
-                          placeholder="claude-sonnet-4-6"
-                          className="text-sm font-mono h-8"
-                        />
-                        <span className="text-xs text-muted-foreground text-right">Opus</span>
-                        <Input
-                          value={mapOpus}
-                          onChange={(e) => setMapOpus(e.target.value)}
-                          placeholder="claude-opus-4-7"
-                          className="text-sm font-mono h-8"
-                        />
-                        <span className="text-xs text-muted-foreground text-right">Haiku</span>
-                        <Input
-                          value={mapHaiku}
-                          onChange={(e) => setMapHaiku(e.target.value)}
-                          placeholder="claude-haiku-4-5-20251001"
-                          className="text-sm font-mono h-8"
-                        />
-                      </div>
-                    </div>
-                  )}
-
+                <div className="space-y-4 pt-2">
                   <div className="space-y-2">
-                    <Label className="text-xs text-muted-foreground">{t('provider.extraEnvVars')} (JSON)</Label>
+                    <Label className="text-xs text-muted-foreground">Headers (JSON)</Label>
                     <Textarea
-                      value={extraEnv}
-                      onChange={(e) => setExtraEnv(e.target.value)}
+                      value={headersJson}
+                      onChange={(e) => setHeadersJson(e.target.value)}
+                      placeholder='{"X-Custom-Header": "value"}'
                       className="text-sm font-mono min-h-[60px]"
-                      rows={3}
+                      rows={2}
                     />
                   </div>
-
-                  {/* Edit-mode only: headers, env overrides, notes */}
-                  {isEdit && (
-                    <>
-                      <div className="space-y-2">
-                        <Label className="text-xs text-muted-foreground">Headers (JSON)</Label>
-                        <Textarea
-                          value={headersJson}
-                          onChange={(e) => setHeadersJson(e.target.value)}
-                          placeholder='{"X-Custom-Header": "value"}'
-                          className="text-sm font-mono min-h-[60px]"
-                          rows={2}
-                        />
-                      </div>
-                      <div className="space-y-2">
-                        <Label className="text-xs text-muted-foreground">Env Overrides (JSON)</Label>
-                        <Textarea
-                          value={envOverridesJson}
-                          onChange={(e) => setEnvOverridesJson(e.target.value)}
-                          placeholder='{"CLAUDE_CODE_USE_BEDROCK": "1"}'
-                          className="text-sm font-mono min-h-[60px]"
-                          rows={2}
-                        />
-                      </div>
-                      <div className="space-y-2">
-                        <Label className="text-xs text-muted-foreground">{t('provider.notes')}</Label>
-                        <Textarea
-                          value={notes}
-                          onChange={(e) => setNotes(e.target.value)}
-                          placeholder={t('provider.notesPlaceholder')}
-                          className="text-sm"
-                          rows={2}
-                        />
-                      </div>
-                    </>
-                  )}
+                  <div className="space-y-2">
+                    <Label className="text-xs text-muted-foreground">Env Overrides (JSON)</Label>
+                    <Textarea
+                      value={envOverridesJson}
+                      onChange={(e) => setEnvOverridesJson(e.target.value)}
+                      placeholder='{"CLAUDE_CODE_USE_BEDROCK": "1"}'
+                      className="text-sm font-mono min-h-[60px]"
+                      rows={2}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="text-xs text-muted-foreground">{t('provider.notes')}</Label>
+                    <Textarea
+                      value={notes}
+                      onChange={(e) => setNotes(e.target.value)}
+                      placeholder={t('provider.notesPlaceholder')}
+                      className="text-sm"
+                      rows={2}
+                    />
+                  </div>
                 </div>
               )}
             </>
@@ -827,13 +800,20 @@ export function PresetConnectDialog({
                 {testing ? <SpinnerGap size={14} className="animate-spin" /> : <Lightning size={14} />}
                 {testing ? (isZh ? '测试中...' : 'Testing...') : (isZh ? '测试连接' : 'Test')}
               </Button>
-              <Button type="submit" disabled={saving || testing} className="gap-2">
+              <Button
+                type="submit"
+                disabled={saving || testing || !canTest}
+                className="gap-2"
+                title={!canTest ? (isZh ? '请先填写 API Key 再连接' : 'Fill the API Key before connecting') : undefined}
+              >
                 {saving && <SpinnerGap size={16} className="animate-spin" />}
                 {saving ? t('provider.saving') : isEdit ? t('provider.update') : t('provider.connect')}
               </Button>
             </div>
           </DialogFooter>
         </form>
+        </div>
+        </div>
       </DialogContent>
     </Dialog>
   );

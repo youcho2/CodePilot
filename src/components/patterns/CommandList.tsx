@@ -116,7 +116,10 @@ export function CommandListItem({
 // ── Group with optional label and separator ─────────────────────────
 
 interface CommandListGroupProps {
-  label?: string;
+  /** Group header. Pass a string for the common case or a ReactNode
+   *  when you need inline elements (e.g. a compat badge next to the
+   *  group name in the chat picker dropdown). */
+  label?: ReactNode;
   separator?: boolean;
   children: ReactNode;
 }

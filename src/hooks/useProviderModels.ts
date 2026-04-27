@@ -33,6 +33,13 @@ export const DEFAULT_MODEL_OPTIONS: DefaultModelOption[] = [
 
 export interface UseProviderModelsReturn {
   providerGroups: ProviderModelGroup[];
+  /**
+   * The runtime the server actually filtered against, when the hook
+   * was called with `runtime: 'auto'`. UI uses this to surface
+   * "showing models for X runtime" in the picker. Undefined when
+   * caller passed `runtime: null` (Settings full-catalog mode).
+   */
+  runtimeApplied?: 'claude_code' | 'codepilot_runtime';
   currentProviderIdValue: string;
   modelOptions: typeof DEFAULT_MODEL_OPTIONS;
   currentModelOption: (typeof DEFAULT_MODEL_OPTIONS)[number];
@@ -107,6 +114,7 @@ export function useProviderModels(
   const [defaultProviderId, setDefaultProviderId] = useState<string>('');
   const [globalDefaultModel, setGlobalDefaultModel] = useState<string | undefined>();
   const [globalDefaultProvider, setGlobalDefaultProvider] = useState<string | undefined>();
+  const [runtimeApplied, setRuntimeApplied] = useState<'claude_code' | 'codepilot_runtime' | undefined>(undefined);
   // Tri-state load tracking. `noCompatibleProvider` is meaningful only
   // after a successful response — the initial empty `providerGroups`
   // array is NOT a "no compatible provider" signal, it's just "fetch
@@ -161,6 +169,7 @@ export function useProviderModels(
         if (data && Array.isArray(data.groups)) {
           setProviderGroups(data.groups);
           setDefaultProviderId(data.default_provider_id || '');
+          setRuntimeApplied(data.runtime_applied || undefined);
           setFetchState('loaded');
         } else {
           // Malformed response — same handling as a network failure.
@@ -315,6 +324,7 @@ export function useProviderModels(
 
   return {
     providerGroups,
+    runtimeApplied,
     currentProviderIdValue,
     modelOptions,
     currentModelOption,

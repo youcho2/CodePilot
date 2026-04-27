@@ -146,7 +146,7 @@ export function compatLabel(compat: ProviderRuntimeCompat, isZh: boolean): strin
     case 'claude_code_ready':        return isZh ? 'Claude Code 直连' : 'Claude Code direct';
     case 'claude_code_verified':     return isZh ? 'Claude Code 兼容' : 'Claude Code compat';
     case 'claude_code_experimental': return isZh ? 'Claude Code 实验' : 'Claude Code experimental';
-    case 'codepilot_only':           return isZh ? 'OpenAI 兼容' : 'OpenAI compat';
+    case 'codepilot_only':           return isZh ? '仅 CodePilot Runtime' : 'CodePilot Runtime only';
     case 'media_only':               return isZh ? '图片生成' : 'Image gen';
     case 'unknown':                  return isZh ? '需验证' : 'Needs verification';
   }
@@ -169,8 +169,8 @@ export function compatTooltip(compat: ProviderRuntimeCompat, isZh: boolean): str
         : 'Generic Anthropic-compatible template or custom gateway — tool / thinking / aliases depend on the vendor implementation, test before relying on it for critical work';
     case 'codepilot_only':
       return isZh
-        ? 'OpenAI 兼容协议，CodePilot 自己的聊天路径会处理它；不进入 Claude Code 流程'
-        : 'OpenAI-compatible protocol — handled by CodePilot\'s own chat path, not routed through Claude Code';
+        ? 'OpenAI 兼容协议，仅在 CodePilot Runtime 下可用（不会出现在 Claude Code Runtime 的模型选择器中）'
+        : 'OpenAI-compatible protocol — only reachable from CodePilot Runtime; never shown in the Claude Code Runtime picker';
     case 'media_only':
       return isZh
         ? '图片生成服务，只用于媒体创作功能，不出现在聊天模型选择器'

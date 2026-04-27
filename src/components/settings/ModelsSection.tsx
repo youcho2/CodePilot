@@ -130,6 +130,12 @@ export function ModelsSection() {
   // Delete confirmation
   const [deleteTarget, setDeleteTarget] = useState<{ providerId: string; modelId: string; name: string } | null>(null);
 
+  // Bulk toggle confirmation. "全部启用 / 全部关闭" can flip 100+ models
+  // in one click on big providers; without confirm the action looks too
+  // light for what it does. Show an AlertDialog summarising affected
+  // count before executing.
+  const [bulkConfirm, setBulkConfirm] = useState<{ providerId: string; providerName: string; target: 0 | 1; affected: number } | null>(null);
+
   // Inline rename state — keyed by `${providerId}::${modelId}`
   const [editingDisplay, setEditingDisplay] = useState<string | null>(null);
   const [draftDisplay, setDraftDisplay] = useState('');
@@ -273,6 +279,22 @@ export function ModelsSection() {
   // unmounts the list, and loses the user's scroll position. The chat-side
   // listeners still pick up the event so the global default-model selector
   // refreshes; this page just stays put.
+
+  // Focus signal from ProviderCard's "管理模型" jump. ModelsSection scrolls
+  // the matching section into view once data has loaded, then clears the
+  // sessionStorage signal so re-opening the page later doesn't re-trigger.
+  useEffect(() => {
+    if (loading) return;
+    if (typeof window === 'undefined') return;
+    const focusId = sessionStorage.getItem('codepilot:models-focus-provider');
+    if (!focusId) return;
+    sessionStorage.removeItem('codepilot:models-focus-provider');
+    // Defer to next paint so DOM is in place after data loaded.
+    requestAnimationFrame(() => {
+      const el = document.getElementById(`provider-section-${focusId}`);
+      if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+  }, [loading, providers]);
 
   const visibleBundles: ProviderModelsBundle[] = useMemo(() => {
     const sorted = [...providers].sort((a, b) => a.sort_order - b.sort_order);
@@ -507,15 +529,19 @@ export function ModelsSection() {
               : 'Control which models each provider exposes, plus their display names and order. Sourcing is driven by the Provider cards\' "Refresh models"; this page decides presentation.'}
           </p>
         </div>
-        <Button
-          variant="outline"
-          size="sm"
-          className="shrink-0"
-          onClick={openAlignDialog}
-          title={isZh ? '只保留每个服务商的推荐模型为启用，其余隐藏' : 'Keep each provider\'s recommended models enabled, hide the rest'}
-        >
-          {isZh ? '整理模型列表' : 'Tidy model list'}
-        </Button>
+        <div className="flex flex-col items-end shrink-0 gap-0.5">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={openAlignDialog}
+            title={isZh ? '按内置推荐清单收紧每个服务商：保留推荐模型为启用、其余隐藏，操作前会先显示预览' : 'Tighten each provider to the built-in recommended list — preview shown before write'}
+          >
+            {isZh ? '按推荐整理' : 'Tidy by recommended'}
+          </Button>
+          <span className="text-[10px] text-muted-foreground">
+            {isZh ? '会先预览再写入' : 'preview before write'}
+          </span>
+        </div>
       </div>
 
       <div className="flex items-center gap-3">
@@ -611,8 +637,20 @@ export function ModelsSection() {
           provider_type: provider.provider_type,
           base_url: provider.base_url,
         });
+        // Aggregate latest sync time across this provider's models so the
+        // section header shows "上次同步" without users having to scan
+        // every row. Excludes nulls (manual / never-synced rows).
+        const lastSyncedTimes = fullModels
+          .map(m => m.last_refreshed_at)
+          .filter((t): t is string => !!t)
+          .sort();
+        const lastSyncAggregate = lastSyncedTimes.length > 0 ? lastSyncedTimes[lastSyncedTimes.length - 1] : null;
         return (
-        <section key={provider.id} className="space-y-3">
+        <section
+          key={provider.id}
+          id={`provider-section-${provider.id}`}
+          className="space-y-3 scroll-mt-4"
+        >
           <div className="flex items-center justify-between gap-2">
             <div className="flex items-center gap-2 min-w-0 flex-wrap">
               <div className="shrink-0 size-7 rounded-md bg-muted/60 flex items-center justify-center">
@@ -661,15 +699,50 @@ export function ModelsSection() {
                   {defaultRoleHidden && ' ⚠'}
                 </span>
               )}
+              {/* Section-level "上次同步" — aggregate of the latest
+                  last_refreshed_at across this provider's models. Saves
+                  users from scanning every row. Hidden if no row has
+                  ever synced (manual-only providers). */}
+              {lastSyncAggregate && (
+                <span
+                  className="text-[11px] text-muted-foreground"
+                  title={isZh
+                    ? `这个服务商最近一次成功刷新模型的时间。点右边「去刷新」回到服务商页执行刷新。`
+                    : `This provider's most recent successful model refresh. Use "Refresh" to go to the Providers page and run it.`}
+                >
+                  {isZh ? '上次同步: ' : 'Last sync: '}
+                  {formatRefreshedAt(lastSyncAggregate, isZh)}
+                </span>
+              )}
             </div>
             <div className="flex items-center gap-1.5 shrink-0">
+              {/* Cross-link to ProviderManager: model refresh lives there
+                  because the diff dialog is owned by ProviderManager; we
+                  hand the user back so they're not stranded mid-task. */}
+              <Button
+                variant="ghost"
+                size="sm"
+                className="text-muted-foreground hover:text-foreground"
+                title={isZh ? '回到服务商页刷新模型 / 编辑凭据' : 'Open Providers page to refresh models / edit credentials'}
+                onClick={() => {
+                  if (typeof window !== 'undefined') {
+                    sessionStorage.setItem('codepilot:providers-focus-provider', provider.id);
+                    window.location.hash = '#providers';
+                  }
+                }}
+              >
+                {isZh ? '去刷新' : 'Open Providers'}
+              </Button>
               {fullModels.length > 0 && (
                 <Button
                   variant="ghost"
                   size="sm"
                   className="text-muted-foreground hover:text-foreground"
                   disabled={allDisabled || isSearching}
-                  onClick={() => handleBulkToggle(provider.id, 0)}
+                  onClick={() => {
+                    const affected = fullModels.filter(m => m.enabled !== 0).length;
+                    setBulkConfirm({ providerId: provider.id, providerName: provider.name, target: 0, affected });
+                  }}
                   title={isSearching ? (isZh ? '搜索中暂不可用' : 'Disabled while searching') : undefined}
                 >
                   {isZh ? '全部关闭' : 'Disable all'}
@@ -681,7 +754,10 @@ export function ModelsSection() {
                   size="sm"
                   className="text-muted-foreground hover:text-foreground"
                   disabled={isSearching}
-                  onClick={() => handleBulkToggle(provider.id, 1)}
+                  onClick={() => {
+                    const affected = fullModels.filter(m => m.enabled !== 1).length;
+                    setBulkConfirm({ providerId: provider.id, providerName: provider.name, target: 1, affected });
+                  }}
                   title={isSearching ? (isZh ? '搜索中暂不可用' : 'Disabled while searching') : undefined}
                 >
                   {isZh ? '全部启用' : 'Enable all'}
@@ -805,13 +881,44 @@ export function ModelsSection() {
                           </span>
                         )}
                       </div>
-                      <div className="mt-0.5 flex items-center gap-3 text-[11px] text-muted-foreground font-mono truncate">
-                        <span className="truncate">{model.model_id}</span>
-                        {model.upstream_model_id && model.upstream_model_id !== model.model_id && (
-                          <span className="truncate">→ {model.upstream_model_id}</span>
-                        )}
-                      </div>
+                      {/* Three-concept identity rows. Without explicit
+                          labels the bare strings (e.g. plain `sonnet`)
+                          look like a model name; users couldn't tell
+                          short aliases apart from real model IDs. Row
+                          structure now distinguishes:
+                            - upstream model ID  → what's actually sent
+                              to the API
+                            - Claude Code alias  → labelled when the
+                              model_id is `sonnet` / `opus` / `haiku`
+                            - last refresh       → when this row was
+                              last synced from upstream */}
+                      {(() => {
+                        const isAlias = model.model_id === 'sonnet' || model.model_id === 'opus' || model.model_id === 'haiku';
+                        const upstreamDiffers = !!model.upstream_model_id && model.upstream_model_id !== model.model_id;
+                        return (
+                          <div className="mt-0.5 flex items-center gap-3 text-[11px] text-muted-foreground truncate">
+                            {isAlias ? (
+                              <span className="truncate">
+                                <span>{isZh ? 'Claude Code 别名: ' : 'Claude Code alias: '}</span>
+                                <span className="font-mono">{model.model_id}</span>
+                              </span>
+                            ) : (
+                              <span className="truncate">
+                                <span>{isZh ? '上游模型 ID: ' : 'Upstream ID: '}</span>
+                                <span className="font-mono">{model.model_id}</span>
+                              </span>
+                            )}
+                            {upstreamDiffers && (
+                              <span className="truncate">
+                                <span>{isZh ? '实际请求: ' : 'Actual: '}</span>
+                                <span className="font-mono">{model.upstream_model_id}</span>
+                              </span>
+                            )}
+                          </div>
+                        );
+                      })()}
                       <div className="mt-0.5 text-[10px] text-muted-foreground">
+                        <span>{isZh ? '上次同步: ' : 'Last synced: '}</span>
                         {formatRefreshedAt(model.last_refreshed_at, isZh)}
                       </div>
                     </div>
@@ -990,6 +1097,41 @@ export function ModelsSection() {
               className="bg-destructive text-white hover:bg-destructive/90"
             >
               {isZh ? '删除' : 'Delete'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Bulk toggle confirmation — large providers can have 100+ models;
+          a single click to flip them all needs an explicit confirm so the
+          action's weight matches its visual prominence. */}
+      <AlertDialog open={!!bulkConfirm} onOpenChange={(open) => { if (!open) setBulkConfirm(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {bulkConfirm?.target === 1
+                ? (isZh ? '启用全部模型' : 'Enable all models')
+                : (isZh ? '关闭全部模型' : 'Disable all models')}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {isZh
+                ? `这会${bulkConfirm?.target === 1 ? '启用' : '关闭'}「${bulkConfirm?.providerName}」下的 ${bulkConfirm?.affected ?? 0} 个模型，操作可在每行单独还原。`
+                : `This will ${bulkConfirm?.target === 1 ? 'enable' : 'disable'} ${bulkConfirm?.affected ?? 0} models under "${bulkConfirm?.providerName}". You can revert per row afterwards.`}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                if (bulkConfirm) {
+                  handleBulkToggle(bulkConfirm.providerId, bulkConfirm.target);
+                  setBulkConfirm(null);
+                }
+              }}
+            >
+              {bulkConfirm?.target === 1
+                ? (isZh ? '全部启用' : 'Enable all')
+                : (isZh ? '全部关闭' : 'Disable all')}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

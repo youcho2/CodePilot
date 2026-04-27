@@ -375,6 +375,12 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({
       groups: outGroups,
       default_provider_id: defaultProviderId,
+      // Echo back which runtime the server actually used to filter so
+      // the chat picker can surface "showing models for Claude Code
+      // Runtime" without recomputing the resolution client-side. Only
+      // populated when caller asked for filtering — Settings's global
+      // default selector (no ?runtime=) gets undefined here.
+      runtime_applied: runtimeFilter ?? undefined,
     });
   } catch (error) {
     return NextResponse.json<ErrorResponse>(

@@ -60,6 +60,10 @@ interface ProviderCardProps {
   /* Inline header actions (right side) */
   onEdit?: () => void;
   onDelete?: () => void;
+  /** Jump to Models page anchored at this provider's section. Surfaced
+   *  inline (not in kebab) — managing this provider's model list is a
+   *  high-frequency follow-up to "I just connected this service". */
+  onManageModels?: () => void;
 
   /* Collapsed into kebab */
   onDiagnose?: () => void;
@@ -95,6 +99,7 @@ export function ProviderCard({
   children,
   onEdit,
   onDelete,
+  onManageModels,
   onDiagnose,
   onRefreshModels,
   onSyncToClaudeCode,
@@ -127,6 +132,17 @@ export function ProviderCard({
             <h3 className="flex-1 min-w-0 text-sm font-semibold truncate leading-tight">{data.name}</h3>
             <div className="shrink-0 flex items-center gap-1">
               {primaryAction}
+              {onManageModels && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={onManageModels}
+                  className="h-8 px-2.5 text-xs text-muted-foreground hover:text-foreground"
+                  title={isZh ? '到模型页编辑此服务商对外暴露的模型 / 角色映射' : 'Open Models page anchored at this provider'}
+                >
+                  {isZh ? '管理模型' : 'Manage'}
+                </Button>
+              )}
               {onRefreshModels && (
                 <Button
                   variant="ghost"

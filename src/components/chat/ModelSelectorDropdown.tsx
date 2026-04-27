@@ -7,6 +7,7 @@ import { useTranslation } from '@/hooks/useTranslation';
 import type { TranslationKey } from '@/i18n';
 import { PromptInputButton } from '@/components/ai-elements/prompt-input';
 import type { ProviderModelGroup } from '@/types';
+import { compatLabel, compatTone } from '@/lib/runtime-compat';
 import {
   CommandList,
   CommandListSearch,
@@ -35,6 +36,11 @@ interface ModelSelectorDropdownProps {
   globalDefaultModel?: string;
   /** Global default model's provider ID */
   globalDefaultProvider?: string;
+  /** Which runtime the picker feed was filtered against (server-resolved
+   *  when caller passed `?runtime=auto`). Surfaced as a small status row
+   *  inside the dropdown so users understand why some configured
+   *  providers may not appear. */
+  runtimeApplied?: 'claude_code' | 'codepilot_runtime';
 }
 
 export function ModelSelectorDropdown({
@@ -46,6 +52,7 @@ export function ModelSelectorDropdown({
   onProviderModelChange,
   globalDefaultModel,
   globalDefaultProvider,
+  runtimeApplied,
 }: ModelSelectorDropdownProps) {
   const { t } = useTranslation();
   const isZh = t('nav.chats') === '对话';
@@ -121,11 +128,41 @@ export function ModelSelectorDropdown({
               }
             }}
           />
+          {/* Runtime context strip — explains why some configured
+              providers may not appear in the list. Quiet enough not
+              to dominate the header but visible enough to answer the
+              "where are my OpenAI/OpenRouter providers?" question. */}
+          {runtimeApplied && (
+            <div className="px-3 py-1.5 text-[10px] text-muted-foreground border-b border-border/40">
+              {isZh ? '当前按 ' : 'Showing models for '}
+              <span className="font-medium text-foreground/85">
+                {runtimeApplied === 'claude_code' ? (isZh ? 'Claude Code Runtime' : 'Claude Code Runtime') : (isZh ? 'CodePilot Runtime' : 'CodePilot Runtime')}
+              </span>
+              {isZh ? ' 筛选，其它服务商在另一 Runtime 下才会出现' : ' — providers from the other runtime are hidden'}
+            </div>
+          )}
           <CommandListItems>
             {filteredGroups.map((group, groupIdx) => (
               <CommandListGroup
                 key={group.provider_id}
-                label={group.provider_name}
+                label={
+                  <span className="flex items-center gap-1.5">
+                    <span>{group.provider_name}</span>
+                    {/* Channel-level compat mini badge — same vocabulary
+                        as Provider Card / Models page so the user has a
+                        single mental model for "which runtime is this". */}
+                    {group.compat && (
+                      <span
+                        className={cn(
+                          'inline-flex items-center rounded-full px-1.5 py-px text-[9px] font-medium',
+                          compatTone(group.compat),
+                        )}
+                      >
+                        {compatLabel(group.compat, isZh)}
+                      </span>
+                    )}
+                  </span>
+                }
                 separator={groupIdx > 0}
               >
                 <div className="py-0.5">
