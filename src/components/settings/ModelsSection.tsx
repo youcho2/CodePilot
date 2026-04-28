@@ -631,15 +631,43 @@ export function ModelsSection() {
       && pinnedModel === modelId;
   }, [defaultMode, pinnedProviderId, pinnedModel]);
 
-  // Pin a specific provider+model as the global default. Cross-Runtime
-  // pins are explicitly *allowed* — the user might be committing for a
-  // future Runtime switch — but the resolver will return 'invalid-default'
-  // immediately and the chat banner / Runtime banner (2C.3) will surface
-  // the broken state until they switch Runtime or re-pin.
+  // Pin a specific provider+model as the global default.
+  //
+  // Two intents converge into this one action:
+  //   - "Pin a visible (enabled) model" — straight write.
+  //   - "Pin a hidden model" — without enabling the row first, the new
+  //     pin would land in 'invalid-default' instantly because the chat
+  //     picker filters on `enabled=1`. So when the user clicks pin on a
+  //     hidden row we treat it as "enable AND pin" and say so in the
+  //     toast. This matches the user's mental model better than
+  //     disabling the icon ("why can't I pin this?").
+  //
+  // Cross-Runtime pins are explicitly *allowed* — the user might be
+  // committing for a future Runtime switch — but the resolver will
+  // return 'invalid-default' immediately and the chat banner / Runtime
+  // banner (2C.3) will surface the broken state until they switch
+  // Runtime or re-pin.
   const handleSetAsDefault = useCallback(async (providerId: string, modelId: string) => {
     if (savingDefault) return;
     setSavingDefault(true);
     try {
+      const modelRow = (bundles[providerId] || []).find(m => m.model_id === modelId);
+      const wasHidden = !!modelRow && modelRow.enabled === 0;
+      if (wasHidden) {
+        // Inline the enable-row PATCH so this function can stay above
+        // `updateModel`'s declaration (closure-time TDZ otherwise). The
+        // PATCH dispatches `provider-changed` itself so listeners see
+        // both the enable AND the new pin from a single user action.
+        const enableRes = await fetch(`/api/providers/${providerId}/models`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ model_id: modelId, enabled: 1 }),
+        });
+        if (enableRes.ok) {
+          const d = await enableRes.json();
+          setBundles((prev) => ({ ...prev, [providerId]: d.models || [] }));
+        }
+      }
       const res = await fetch('/api/providers/options', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
@@ -659,10 +687,22 @@ export function ModelsSection() {
       setPinnedModel(modelId);
       window.dispatchEvent(new Event('provider-changed'));
       const compat = isRuntimeCompat(providerId, modelId);
+      const messageZh = wasHidden
+        ? (compat
+            ? '已启用并设为默认模型'
+            : '已启用并固定，但当前 Runtime 不可执行')
+        : (compat
+            ? '已设为默认模型'
+            : '已固定，但当前 Runtime 不可执行');
+      const messageEn = wasHidden
+        ? (compat
+            ? 'Enabled and set as default'
+            : 'Enabled and pinned, but not executable under current Runtime')
+        : (compat
+            ? 'Set as default model'
+            : 'Pinned, but not executable under current Runtime');
       showToast({
-        message: compat
-          ? (isZh ? '已设为默认模型' : 'Set as default model')
-          : (isZh ? '已固定，但当前 Runtime 不可执行' : 'Pinned, but not executable under current Runtime'),
+        message: isZh ? messageZh : messageEn,
         type: compat ? 'success' : 'warning',
       });
     } catch {
@@ -670,7 +710,7 @@ export function ModelsSection() {
     } finally {
       setSavingDefault(false);
     }
-  }, [savingDefault, isZh, isRuntimeCompat]);
+  }, [savingDefault, isZh, isRuntimeCompat, bundles]);
 
   const handleRevertToAuto = useCallback(async () => {
     if (savingDefault) return;
@@ -724,19 +764,56 @@ export function ModelsSection() {
   // listeners still pick up the event so the global default-model selector
   // refreshes; this page just stays put.
 
-  // Focus signal from ProviderCard's "管理模型" jump. ModelsSection scrolls
-  // the matching section into view once data has loaded, then clears the
-  // sessionStorage signal so re-opening the page later doesn't re-trigger.
+  // Highlight target row briefly after a deep-link jump. Cleared by the
+  // focus effect's setTimeout so the highlight disappears once the user
+  // has had time to spot what was scrolled to.
+  const [highlightedModelKey, setHighlightedModelKey] = useState<string | null>(null);
+
+  // Focus signal from ProviderCard's "管理模型" jump or RuntimePanel's
+  // "去启用此模型" recovery action. Three sessionStorage keys:
+  //   codepilot:models-focus-provider  → provider id (required)
+  //   codepilot:models-focus-model     → model id (optional, scroll to row)
+  //   codepilot:models-focus-filter    → 'all' | 'hidden' (optional, switch filter)
+  // ModelsSection consumes all three, then clears them so re-opening the
+  // page later doesn't re-trigger.
   useEffect(() => {
     if (loading) return;
     if (typeof window === 'undefined') return;
-    const focusId = sessionStorage.getItem('codepilot:models-focus-provider');
-    if (!focusId) return;
+    const focusProviderId = sessionStorage.getItem('codepilot:models-focus-provider');
+    if (!focusProviderId) return;
+    const focusModelId = sessionStorage.getItem('codepilot:models-focus-model');
+    const focusFilter = sessionStorage.getItem('codepilot:models-focus-filter');
     sessionStorage.removeItem('codepilot:models-focus-provider');
-    // Defer to next paint so DOM is in place after data loaded.
+    sessionStorage.removeItem('codepilot:models-focus-model');
+    sessionStorage.removeItem('codepilot:models-focus-filter');
+
+    // Filter switch must happen synchronously — the row only renders
+    // when the filter exposes it. Without this, scroll-to-row would
+    // fail on a hidden-filtered model since the row wouldn't be in the
+    // DOM yet.
+    if (focusFilter === 'all' || focusFilter === 'hidden') {
+      setViewFilter(focusFilter);
+    }
+
+    // Defer scroll + highlight to next paint so the DOM has the
+    // re-rendered (filter-switched) row in place.
     requestAnimationFrame(() => {
-      const el = document.getElementById(`provider-section-${focusId}`);
-      if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      if (focusModelId) {
+        const rowEl = document.querySelector(
+          `[data-model-row="${CSS.escape(`${focusProviderId}::${focusModelId}`)}"]`,
+        );
+        if (rowEl) {
+          rowEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          const key = `${focusProviderId}::${focusModelId}`;
+          setHighlightedModelKey(key);
+          setTimeout(() => {
+            setHighlightedModelKey((cur) => (cur === key ? null : cur));
+          }, 2400);
+          return;
+        }
+      }
+      const sectionEl = document.getElementById(`provider-section-${focusProviderId}`);
+      if (sectionEl) sectionEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
     });
   }, [loading, providers]);
 
@@ -964,8 +1041,8 @@ export function ModelsSection() {
 
   return (
     <div className="max-w-4xl mx-auto space-y-6">
-      <div className="flex items-start justify-between gap-3">
-        <div>
+      <div className="flex flex-col sm:flex-row items-start sm:justify-between gap-3">
+        <div className="min-w-0">
           <h2 className="text-sm font-medium">{isZh ? '模型管理' : 'Model management'}</h2>
           <p className="text-[11px] text-muted-foreground mt-0.5">
             {isZh
@@ -973,7 +1050,7 @@ export function ModelsSection() {
               : 'Control which models each provider exposes, plus their display names and order. Use the per-section "Refresh" button to re-probe upstream — refresh never overrides your manual enable / hide choices.'}
           </p>
         </div>
-        <div className="shrink-0 flex items-center gap-2">
+        <div className="shrink-0 flex items-center gap-2 flex-wrap">
           {/* "刷新全部" — secondary batch action. Per-provider refresh
               lives on each section header for the common case ("I just
               changed this provider's key"); this button is for periodic
@@ -1364,7 +1441,15 @@ export function ModelsSection() {
                 const enableSourceTone = ENABLE_SOURCE_TONE[model.enable_source];
                 const enableSourceTooltip = (isZh ? ENABLE_SOURCE_TOOLTIP_ZH : ENABLE_SOURCE_TOOLTIP_EN)[model.enable_source];
                 return (
-                  <div key={model.id} className="px-4 py-3 flex items-center gap-3">
+                  <div
+                    key={model.id}
+                    data-model-row={`${provider.id}::${model.model_id}`}
+                    className={cn(
+                      'px-4 py-3 flex items-center gap-3 transition-colors duration-700',
+                      highlightedModelKey === `${provider.id}::${model.model_id}`
+                        && 'bg-status-warning-muted/40',
+                    )}
+                  >
                     {/* Sort buttons — disabled while searching, since the
                         visible `models` is a filtered slice and swapping
                         sort_order between filtered neighbors would feel
@@ -1544,7 +1629,9 @@ export function ModelsSection() {
                       )}
                       title={isCurrentDefault(provider.id, model.model_id)
                         ? (isZh ? '当前默认模型' : 'Current default model')
-                        : (isZh ? '设为默认模型' : 'Set as default')}
+                        : model.enabled === 0
+                          ? (isZh ? '启用并设为默认模型' : 'Enable and set as default')
+                          : (isZh ? '设为默认模型' : 'Set as default')}
                     >
                       <PushPin
                         size={14}

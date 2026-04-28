@@ -638,14 +638,20 @@ export function RuntimePanel() {
     await handleRuntimeChange(target);
   }, [agentRuntime, cliEnabled, claudeStatus]);
 
-  /** Deep-link to Models page focused on the broken pin's provider so
-   *  the user can flip the model row's enable switch. Uses the same
-   *  sessionStorage signal ProviderCard's "manage models" jump uses.
-   *  We're already on /settings, so navigate via hash to avoid a full
-   *  router round-trip. */
+  /** Deep-link to Models page focused on the broken pin — provider AND
+   *  model. Without the model id, Models would only scroll to the
+   *  provider section; if the broken pin is `enabled=0`, the default
+   *  Enabled filter would hide the row entirely and the user would
+   *  have to find it themselves. With both signals + a `filter=all`
+   *  hint, Models can flip its filter, scroll to the exact row, and
+   *  briefly highlight it. */
   const handleEnableInModels = useCallback(() => {
     if (!invalidDefault?.providerId || typeof window === "undefined") return;
     sessionStorage.setItem("codepilot:models-focus-provider", invalidDefault.providerId);
+    if (invalidDefault.modelValue) {
+      sessionStorage.setItem("codepilot:models-focus-model", invalidDefault.modelValue);
+    }
+    sessionStorage.setItem("codepilot:models-focus-filter", "all");
     window.location.hash = "#models";
   }, [invalidDefault]);
 
