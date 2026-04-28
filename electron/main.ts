@@ -860,7 +860,10 @@ function setupPersistentMainLog() {
     // at it.
     const liveFileExisted = fs.existsSync(logFile);
     const markerExisted = fs.existsSync(sanitizedMarker);
-    let rotationCompleted = !liveFileExisted; // nothing to rotate is success
+    // Rotation is "completed" when there's nothing to rotate (fresh
+    // install) or a previous run already wrote the marker. Otherwise
+    // it stays false until the rename / append succeeds *this* run.
+    let rotationCompleted = !liveFileExisted || markerExisted;
 
     if (liveFileExisted && !markerExisted) {
       try {
@@ -892,8 +895,23 @@ function setupPersistentMainLog() {
       } catch { /* marker write failures are tolerable */ }
     }
 
-    const stream = fs.createWriteStream(logFile, { flags: 'a' });
-    stream.write(`\n=== session start ${new Date().toISOString()} (sanitized) ===\n`);
+    // Decide where THIS session writes. If rotation failed this run
+    // the live `codepilot-main.log` may still contain pre-sanitizer
+    // raw lines; appending sanitized output to it would produce a
+    // mixed file that contradicts About's "已脱敏" promise. Switch
+    // to a parallel `codepilot-main-sanitized.log` instead — the
+    // user opens the folder via About and sees both files (the old
+    // mixed one + the new clean one). Once a future launch
+    // successfully rotates, this fallback is no longer needed and
+    // writes go back to the canonical filename.
+    const sanitizedFallbackFile = path.join(logsDir, 'codepilot-main-sanitized.log');
+    const activeLogFile = rotationCompleted ? logFile : sanitizedFallbackFile;
+
+    const stream = fs.createWriteStream(activeLogFile, { flags: 'a' });
+    const sessionMarker = rotationCompleted
+      ? `\n=== session start ${new Date().toISOString()} (sanitized) ===\n`
+      : `\n=== session start ${new Date().toISOString()} (sanitized — fallback file; rotation pending) ===\n`;
+    stream.write(sessionMarker);
 
     const origLog = console.log.bind(console);
     const origWarn = console.warn.bind(console);
