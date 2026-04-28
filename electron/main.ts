@@ -840,6 +840,44 @@ function setupPersistentMainLog() {
     const logsDir = app.getPath('logs');
     fs.mkdirSync(logsDir, { recursive: true });
     const logFile = path.join(logsDir, 'codepilot-main.log');
+    const sanitizedMarker = path.join(logsDir, '.codepilot-sanitized');
+    const legacyFile = path.join(logsDir, 'codepilot-main.unsanitized-legacy.log');
+
+    // One-time rotation. Pre-sanitizer builds appended raw lines to
+    // `codepilot-main.log`. Now that About promotes the file as the
+    // headline support entry and tells users it's auto-scrubbed, we
+    // must not point that promise at a file with mixed history.
+    // First time the sanitizer runs in a given logs dir, rename the
+    // existing live file to `.unsanitized-legacy.log` and start a
+    // fresh, fully-sanitized `codepilot-main.log`. The marker file
+    // pins this as a one-shot — subsequent starts skip rotation.
+    if (fs.existsSync(logFile) && !fs.existsSync(sanitizedMarker)) {
+      try {
+        if (fs.existsSync(legacyFile)) {
+          // Defensive: legacy file already exists from some earlier
+          // partial rotation. Append the suspect content to it then
+          // unlink the live file so we still start clean.
+          const buf = fs.readFileSync(logFile);
+          fs.appendFileSync(legacyFile, buf);
+          fs.unlinkSync(logFile);
+        } else {
+          fs.renameSync(logFile, legacyFile);
+        }
+      } catch {
+        // Best-effort: if rotation fails (FS readonly / permission),
+        // we still write the marker so we don't keep retrying. Worst
+        // case the live file retains some mixed content; the marker
+        // ensures we don't leak the promise across restarts forever.
+      }
+      try {
+        fs.writeFileSync(
+          sanitizedMarker,
+          `Sanitizer activated at ${new Date().toISOString()}.\n` +
+          `Pre-sanitizer log content rotated to ${legacyFile}.\n`,
+        );
+      } catch { /* marker write failures are tolerable */ }
+    }
+
     const stream = fs.createWriteStream(logFile, { flags: 'a' });
     stream.write(`\n=== session start ${new Date().toISOString()} (sanitized) ===\n`);
 

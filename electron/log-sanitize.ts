@@ -82,6 +82,62 @@ const QUERY_SECRET_REGEX = /([?&])(api_key|api-key|apikey|access_token|access-to
 const AUTH_HEADER_REGEX = /(["']?Authorization["']?\s*[:=]\s*["']?)(?:Bearer\s+)?([^\s"'<>,]+)/gi;
 
 /**
+ * Sensitive field names — every JSON property *value* under these names
+ * gets stripped to `***`, regardless of whether the value looks like a
+ * vendor-prefixed token, a long opaque blob, or just a short string. We
+ * can't rely on value-shape rules alone: AWS access keys are short and
+ * look like ordinary uppercase strings; arbitrary self-hosted
+ * provider tokens may be plain alphabetic strings that the big-blob
+ * heuristic skips. The field name is the strongest signal that the
+ * adjacent value is sensitive.
+ *
+ * Underscore / hyphen / no-separator variants are all matched via
+ * `[_-]?` in the compiled regex, so this list stays canonical.
+ */
+const SENSITIVE_FIELDS_CANONICAL = [
+  'api_key', 'apikey',
+  'token', 'auth_token', 'access_token', 'refresh_token',
+  'secret', 'secret_key', 'client_secret',
+  'password', 'pwd',
+  'authorization',
+  'x_api_key',
+  'aws_access_key_id', 'aws_secret_access_key',
+  'bearer',
+];
+
+function buildFieldAlternation(): string {
+  return SENSITIVE_FIELDS_CANONICAL
+    // Allow `[_-]` between segments and accept either separator (so `api_key`
+    // / `api-key` / `apikey` all match).
+    .map((f) => f.replace(/_/g, '[_-]?'))
+    .join('|');
+}
+
+const FIELD_ALT = buildFieldAlternation();
+
+/**
+ * JSON-quoted: `"api_key":"value"`. Strips the value's content while
+ * keeping the surrounding quote structure so the line still parses.
+ */
+const JSON_FIELD_REGEX = new RegExp(
+  `("(?:${FIELD_ALT})"\\s*:\\s*")([^"\\\\]+)(")`,
+  'gi',
+);
+
+/**
+ * Env / key=value: `AWS_SECRET_ACCESS_KEY=AKIA...`, `api_key=abc`.
+ * Also catches plain word-boundary key=value pairs in log lines that
+ * aren't already in URL query position (the URL rule above handles
+ * `?key=...` first). Stop at whitespace / comma / semicolon / quote
+ * AND at `&` / `}` / `]` so the value doesn't swallow neighbouring
+ * pairs in URL queries or JSON fragments.
+ */
+const ENV_FIELD_REGEX = new RegExp(
+  `\\b(${FIELD_ALT})\\s*=\\s*([^\\s,;"'&}\\])]+)`,
+  'gi',
+);
+
+/**
  * Big-blob heuristic: 32+ char alphanumerics that aren't already
  * masked or wrapped in known structure. We conservatively only fire
  * on substrings that look base64-ish (mix of upper/lower/digits) so
@@ -115,6 +171,17 @@ export function sanitizeLogLine(line: string): string {
 
   // 4. Authorization-style header values.
   out = out.replace(AUTH_HEADER_REGEX, (_m, prefix: string, val: string) => `${prefix}${maskTail(val)}`);
+
+  // 4b. JSON sensitive-field values. Field name decides — the value
+  // may be a short uppercase string (AWS access key id), a plain
+  // alphanumeric token, or anything else that wouldn't trip the
+  // vendor-prefix or big-blob rules above.
+  out = out.replace(JSON_FIELD_REGEX, (_m, prefix: string, _value: string, suffix: string) => `${prefix}***${suffix}`);
+
+  // 4c. Env-style key=value (e.g. `AWS_SECRET_ACCESS_KEY=...`,
+  // `api_key=abc`). Stops at whitespace / comma / semicolon / quote
+  // so other tokens on the same line aren't accidentally swallowed.
+  out = out.replace(ENV_FIELD_REGEX, (_m, key: string) => `${key}=***`);
 
   // 5. Big opaque blobs (defensive). Skip if already masked.
   out = out.replace(BIG_BLOB_REGEX, (m) => {

@@ -124,6 +124,91 @@ describe("sanitizeLogLine — opaque blob heuristic", () => {
   });
 });
 
+describe("sanitizeLogLine — sensitive field names", () => {
+  // Field-name-based rules catch values that don't fit any value-shape
+  // heuristic — short AWS access keys, lowercase opaque tokens,
+  // arbitrary self-hosted-provider strings. The field name is the only
+  // strong signal, so these tests pin the rule.
+
+  it("masks AWS access key in a JSON field even though the value isn't sk-/Bearer/long-mixed-case", () => {
+    const out = sanitizeLogLine(
+      '{"AWS_ACCESS_KEY_ID":"AKIAIOSFODNN7EXAMPLE","model":"gpt-4"}',
+    );
+    assert.ok(!out.includes("AKIAIOSFODNN7EXAMPLE"));
+    assert.match(out, /"AWS_ACCESS_KEY_ID":"\*\*\*"/);
+    // Non-secret field stays.
+    assert.ok(out.includes('"model":"gpt-4"'));
+  });
+
+  it("masks lowercase opaque token in a JSON 'secret' field", () => {
+    const out = sanitizeLogLine(
+      '{"secret":"lowercaseopaquevaluexx"}',
+    );
+    assert.ok(!out.includes("lowercaseopaquevaluexx"));
+    assert.match(out, /"secret":"\*\*\*"/);
+  });
+
+  it("masks env-style assignment (AWS_SECRET_ACCESS_KEY=...)", () => {
+    const out = sanitizeLogLine(
+      "AWS_SECRET_ACCESS_KEY=wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY model=gpt-4",
+    );
+    assert.ok(!out.includes("wJalrXUtnFEMI"));
+    assert.match(out, /AWS_SECRET_ACCESS_KEY=\*\*\*/);
+    assert.ok(out.includes("model=gpt-4"));
+  });
+
+  it("masks api_key / apikey / api-key variants (separator-insensitive)", () => {
+    const variants = [
+      '{"api_key":"abc123def456ghi789"}',
+      '{"apikey":"abc123def456ghi789"}',
+      '{"api-key":"abc123def456ghi789"}',
+    ];
+    for (const v of variants) {
+      const out = sanitizeLogLine(v);
+      assert.ok(!out.includes("abc123def456ghi789"), `Unmasked variant: ${v}`);
+      assert.match(out, /:"\*\*\*"/);
+    }
+  });
+
+  it("masks token / access_token / refresh_token JSON fields", () => {
+    const out = sanitizeLogLine(
+      '{"access_token":"shortAccess","refresh_token":"shortRefresh","token":"shortPlain"}',
+    );
+    assert.ok(!out.includes("shortAccess"));
+    assert.ok(!out.includes("shortRefresh"));
+    assert.ok(!out.includes("shortPlain"));
+    assert.match(out, /"access_token":"\*\*\*"/);
+    assert.match(out, /"refresh_token":"\*\*\*"/);
+    assert.match(out, /"token":"\*\*\*"/);
+  });
+
+  it("does NOT mask non-secret JSON fields nearby", () => {
+    const out = sanitizeLogLine(
+      '{"provider":"openai","model":"gpt-4","prompt":"hello world","duration_ms":1234}',
+    );
+    // None of these field names are sensitive — the line should round-trip
+    // unchanged (modulo no other rules firing).
+    assert.equal(out, '{"provider":"openai","model":"gpt-4","prompt":"hello world","duration_ms":1234}');
+  });
+
+  it("password / pwd field values both masked", () => {
+    const out = sanitizeLogLine(
+      'pwd=hunter2 password=anotherpw',
+    );
+    assert.match(out, /pwd=\*\*\*/);
+    assert.match(out, /password=\*\*\*/);
+  });
+
+  it("client_secret field masked", () => {
+    const out = sanitizeLogLine(
+      '{"client_id":"abc","client_secret":"verysecretvalue123"}',
+    );
+    assert.ok(!out.includes("verysecretvalue123"));
+    assert.match(out, /"client_secret":"\*\*\*"/);
+    assert.ok(out.includes('"client_id":"abc"'));
+  });
+});
+
 describe("sanitizeLogLine — idempotence", () => {
   it("running twice doesn't double-mask or expand masked output", () => {
     const original = "[auth] Bearer eyJhbGciOiJIUzI1NiIs.payload.sig1234";
