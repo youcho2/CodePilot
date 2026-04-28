@@ -4,12 +4,14 @@
  * Overview → Token usage heatmap.
  *
  * GitHub-contribution-style 7×N grid summarising daily token consumption
- * over the chosen window (30 / 90 / 365 days). Reuses the existing
- * `/api/usage/stats?days=N` endpoint — no new backend.
+ * over the past 365 days. Reuses the existing `/api/usage/stats?days=365`
+ * endpoint — no new backend.
  *
- * Layout: range pills + month-labelled grid + stats row + jump-to-Usage
- * link. Stats below: total tokens / most-active day / longest streak /
- * current streak — derived in-memory from the same response.
+ * Layout: title + month-labelled grid + day-of-week axis + stats row +
+ * jump-to-Usage link. The grid is fluid: cell width tracks the card's
+ * available width via `aspect-ratio: cols / 7` + `1fr` columns, so the
+ * heatmap fills whatever space the parent gives it (no fixed 12px cells,
+ * no horizontal scroll).
  *
  * Bucket scaling is relative to the window's max non-zero day, so users
  * with low overall volume still see contrast (a "good day" lights up
@@ -43,11 +45,8 @@ interface UsageStatsResponse {
   daily: DailyRow[];
 }
 
-const RANGE_OPTIONS = [
-  { label: "30D", days: 30 },
-  { label: "90D", days: 90 },
-  { label: "365D", days: 365 },
-] as const;
+/** Fixed 365-day window — the only sensible heatmap horizon. */
+const WINDOW_DAYS = 365;
 
 type GridCell = {
   col: number;
@@ -131,20 +130,27 @@ function buildGrid(days: number, dataByDate: Map<string, number>): {
 /**
  * Pick column indices where the month label should appear: the first
  * column whose first in-window cell starts a new month (or is column 0).
+ *
+ * Min-spacing filter: when two month labels would land in adjacent
+ * columns (happens at the start of the window when it falls mid-week
+ * straddling a month boundary), drop the earlier one — its label would
+ * collide with the next month's text. We keep the later label because
+ * it's closer to "today" and more useful as orientation.
  */
+const MIN_MONTH_LABEL_SPACING = 3;
+
 function buildMonthLabels(cells: GridCell[], cols: number, isZh: boolean): {
   col: number;
   label: string;
 }[] {
-  const labels: { col: number; label: string }[] = [];
+  const candidates: { col: number; label: string }[] = [];
   let lastMonth = -1;
   for (let col = 0; col < cols; col++) {
-    // Use the first in-window cell in this column as the column's month.
     const firstInWindow = cells.find((c) => c.col === col && c.inWindow);
     if (!firstInWindow) continue;
     const m = firstInWindow.date.getMonth();
     if (m !== lastMonth) {
-      labels.push({
+      candidates.push({
         col,
         label: firstInWindow.date.toLocaleDateString(
           isZh ? "zh-CN" : "en-US",
@@ -154,7 +160,18 @@ function buildMonthLabels(cells: GridCell[], cols: number, isZh: boolean): {
       lastMonth = m;
     }
   }
-  return labels;
+
+  const filtered: { col: number; label: string }[] = [];
+  for (const cand of candidates) {
+    while (
+      filtered.length > 0 &&
+      cand.col - filtered[filtered.length - 1].col < MIN_MONTH_LABEL_SPACING
+    ) {
+      filtered.pop();
+    }
+    filtered.push(cand);
+  }
+  return filtered;
 }
 
 interface DerivedStats {
@@ -166,18 +183,15 @@ interface DerivedStats {
 }
 
 function deriveStats(daily: DailyRow[], days: number): DerivedStats {
-  // Aggregate by date.
   const byDate = new Map<string, number>();
   for (const row of daily) {
     const t = (row.input_tokens || 0) + (row.output_tokens || 0);
     byDate.set(row.date, (byDate.get(row.date) ?? 0) + t);
   }
 
-  // Total tokens in window.
   let totalTokens = 0;
   for (const t of byDate.values()) totalTokens += t;
 
-  // Most active day.
   let mostActiveDate: string | null = null;
   let mostActiveTokens = 0;
   for (const [date, t] of byDate.entries()) {
@@ -187,7 +201,6 @@ function deriveStats(daily: DailyRow[], days: number): DerivedStats {
     }
   }
 
-  // Current streak — walk backwards from today.
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   let currentStreak = 0;
@@ -199,7 +212,6 @@ function deriveStats(daily: DailyRow[], days: number): DerivedStats {
     else break;
   }
 
-  // Longest streak — walk through window forward.
   let longestStreak = 0;
   let running = 0;
   const windowStart = new Date(today);
@@ -226,18 +238,17 @@ interface HeatmapProps {
 
 export function OverviewHeatmap({ isZh, onJumpToDetails }: HeatmapProps) {
   const { t } = useTranslation();
-  const [days, setDays] = useState<number>(365);
   const [data, setData] = useState<UsageStatsResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const abortRef = useRef<AbortController | null>(null);
 
-  const fetchStats = useCallback(async (d: number) => {
+  const fetchStats = useCallback(async () => {
     abortRef.current?.abort();
     const controller = new AbortController();
     abortRef.current = controller;
     setLoading(true);
     try {
-      const res = await fetch(`/api/usage/stats?days=${d}`, {
+      const res = await fetch(`/api/usage/stats?days=${WINDOW_DAYS}`, {
         signal: controller.signal,
       });
       if (res.ok) setData(await res.json());
@@ -251,11 +262,13 @@ export function OverviewHeatmap({ isZh, onJumpToDetails }: HeatmapProps) {
   }, []);
 
   useEffect(() => {
-    fetchStats(days);
+    // setState lands on a microtask after `await fetch()` — the
+    // `react-hooks/set-state-in-effect` rule false-flags fetch-on-mount.
+     
+    fetchStats();
     return () => abortRef.current?.abort();
-  }, [days, fetchStats]);
+  }, [fetchStats]);
 
-  // Build per-day token totals once.
   const dataByDate = useMemo(() => {
     const m = new Map<string, number>();
     for (const row of data?.daily ?? []) {
@@ -271,23 +284,28 @@ export function OverviewHeatmap({ isZh, onJumpToDetails }: HeatmapProps) {
     return max;
   }, [dataByDate]);
 
-  const { cells, cols } = useMemo(() => buildGrid(days, dataByDate), [days, dataByDate]);
-  const monthLabels = useMemo(() => buildMonthLabels(cells, cols, isZh), [cells, cols, isZh]);
-  const stats = useMemo(() => deriveStats(data?.daily ?? [], days), [data, days]);
+  const { cells, cols } = useMemo(
+    () => buildGrid(WINDOW_DAYS, dataByDate),
+    [dataByDate],
+  );
+  const monthLabels = useMemo(
+    () => buildMonthLabels(cells, cols, isZh),
+    [cells, cols, isZh],
+  );
+  const stats = useMemo(() => deriveStats(data?.daily ?? [], WINDOW_DAYS), [data]);
 
   const empty = !loading && stats.totalTokens === 0;
 
   // Single accessible summary for the whole heatmap so screen readers don't
   // walk through 365 cells. Pairs with `role="img"` + `aria-hidden` on the
-  // visual grid below — the stats row underneath stays in the a11y tree
-  // separately as plain text.
+  // visual grid below.
   const heatmapAriaLabel = isZh
-    ? `Token 用量活跃度图，过去 ${days} 天。总用量 ${formatTokens(stats.totalTokens)} tokens。${
+    ? `Token 用量活跃度图，过去 ${WINDOW_DAYS} 天。总用量 ${formatTokens(stats.totalTokens)} tokens。${
         stats.mostActiveDate
           ? `最活跃 ${localiseDate(new Date(stats.mostActiveDate + "T00:00:00"), true)}，${formatTokens(stats.mostActiveTokens)} tokens。`
           : ""
       }最长连续 ${stats.longestStreak} 天，当前连续 ${stats.currentStreak} 天。`
-    : `Token usage activity heatmap, past ${days} days. Total ${formatTokens(stats.totalTokens)} tokens. ${
+    : `Token usage activity heatmap, past ${WINDOW_DAYS} days. Total ${formatTokens(stats.totalTokens)} tokens. ${
         stats.mostActiveDate
           ? `Most active ${localiseDate(new Date(stats.mostActiveDate + "T00:00:00"), false)} with ${formatTokens(stats.mostActiveTokens)} tokens. `
           : ""
@@ -295,71 +313,67 @@ export function OverviewHeatmap({ isZh, onJumpToDetails }: HeatmapProps) {
 
   return (
     <div className="rounded-lg border border-border/50 bg-card p-5">
-      {/* Header — title + range pills + view-details */}
-      <div className="flex items-start justify-between gap-3 flex-wrap">
-        <div>
-          <h3 className="text-sm font-semibold">
-            {t("overview.heatmapTitle" as TranslationKey)}
-          </h3>
-          <p className="text-[11px] text-muted-foreground mt-0.5">
-            {isZh
-              ? `过去 ${days} 天的每日 token 消耗`
-              : `Daily token usage over the past ${days} days`}
-          </p>
-        </div>
-        <div className="flex items-center gap-1">
-          {RANGE_OPTIONS.map((opt) => (
-            <Button
-              key={opt.days}
-              variant={days === opt.days ? "default" : "ghost"}
-              size="sm"
-              className="h-7 px-2.5 text-[11px]"
-              onClick={() => setDays(opt.days)}
-            >
-              {opt.label}
-            </Button>
-          ))}
-        </div>
+      {/* Header — title only (range fixed at 365 days) */}
+      <div>
+        <h3 className="text-sm font-semibold">
+          {t("overview.heatmapTitle" as TranslationKey)}
+        </h3>
+        <p className="text-[11px] text-muted-foreground mt-0.5">
+          {isZh
+            ? `过去 ${WINDOW_DAYS} 天的每日 token 消耗`
+            : `Daily token usage over the past ${WINDOW_DAYS} days`}
+        </p>
       </div>
 
-      {/* Grid — horizontally scrollable on narrow viewports so 365D never clips.
-          `role="img"` + a single aria-label collapses 365 cells / month labels /
-          day axis / legend into one image for assistive tech, while sighted
-          users still see (and hover) every cell. */}
-      <div
-        className="mt-4 overflow-x-auto"
-        role="img"
-        aria-label={heatmapAriaLabel}
-      >
-        <div className="inline-block min-w-full" aria-hidden="true">
-          {/* Month labels */}
+      {/* Grid — fluid: cells size to fill the card width.
+          `role="img"` + a single aria-label collapses 365 cells / month
+          labels / day axis / legend into one image for assistive tech,
+          while sighted users still see (and hover) every cell. */}
+      <div className="mt-4" role="img" aria-label={heatmapAriaLabel}>
+        <div aria-hidden="true">
+          {/* Month labels — same column template as the cell grid below
+              so each label sits on top of the column it belongs to. */}
           <div
-            className="grid pl-7 mb-1.5"
-            style={{
-              gridTemplateColumns: `repeat(${cols}, 12px)`,
-              columnGap: "2px",
-            }}
+            className="flex gap-1.5 mb-1.5"
           >
-            {Array.from({ length: cols }, (_, col) => {
-              const lbl = monthLabels.find((m) => m.col === col);
-              return (
-                <span
-                  key={col}
-                  className="text-[10px] text-muted-foreground leading-none"
-                >
-                  {lbl?.label ?? ""}
-                </span>
-              );
-            })}
+            <div className="w-5 shrink-0" />
+            <div
+              className="flex-1 grid"
+              style={{
+                gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))`,
+                columnGap: "2px",
+              }}
+            >
+              {Array.from({ length: cols }, (_, col) => {
+                const lbl = monthLabels.find((m) => m.col === col);
+                return (
+                  // No truncate / overflow-hidden — let the label flow into
+                  // the next (empty) column's span. GitHub does the same.
+                  <span
+                    key={col}
+                    className="text-[10px] text-muted-foreground leading-none whitespace-nowrap"
+                  >
+                    {lbl?.label ?? ""}
+                  </span>
+                );
+              })}
+            </div>
           </div>
 
           <div className="flex gap-1.5">
-            {/* Day-of-week axis */}
-            <div className="flex flex-col gap-[2px] pt-[1px]">
+            {/* Day-of-week axis — flex-stretches to match the cell grid's
+                computed height (which depends on width via aspect-ratio). */}
+            <div
+              className="w-5 shrink-0 grid"
+              style={{
+                gridTemplateRows: "repeat(7, minmax(0, 1fr))",
+                rowGap: "2px",
+              }}
+            >
               {[0, 1, 2, 3, 4, 5, 6].map((row) => (
                 <span
                   key={row}
-                  className="h-[12px] text-[9px] text-muted-foreground leading-[12px] w-5 text-right"
+                  className="text-[9px] text-muted-foreground text-right leading-none flex items-center justify-end"
                 >
                   {row === 1
                     ? isZh ? "一" : "M"
@@ -372,14 +386,17 @@ export function OverviewHeatmap({ isZh, onJumpToDetails }: HeatmapProps) {
               ))}
             </div>
 
-            {/* Cell grid */}
+            {/* Cell grid — fluid. `aspect-ratio: cols / 7` makes the grid's
+                height track `width * 7 / cols`, and `1fr` columns/rows make
+                each cell a square that scales with the card width. */}
             <div
-              className="grid"
+              className="flex-1 grid"
               style={{
-                gridTemplateRows: "repeat(7, 12px)",
-                gridTemplateColumns: `repeat(${cols}, 12px)`,
+                gridTemplateRows: "repeat(7, minmax(0, 1fr))",
+                gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))`,
                 gridAutoFlow: "column",
                 gap: "2px",
+                aspectRatio: `${cols} / 7`,
               }}
             >
               {cells.map((cell) => (
@@ -391,7 +408,7 @@ export function OverviewHeatmap({ isZh, onJumpToDetails }: HeatmapProps) {
                   )}
                   title={
                     cell.inWindow
-                      ? `${cell.dateStr} · ${formatTokens(cell.tokens)} ${isZh ? "tokens" : "tokens"}`
+                      ? `${cell.dateStr} · ${formatTokens(cell.tokens)} tokens`
                       : undefined
                   }
                 />
@@ -432,7 +449,7 @@ export function OverviewHeatmap({ isZh, onJumpToDetails }: HeatmapProps) {
             }
             sub={
               !loading && stats.mostActiveTokens > 0
-                ? formatTokens(stats.mostActiveTokens) + (isZh ? " tokens" : " tokens")
+                ? formatTokens(stats.mostActiveTokens) + " tokens"
                 : undefined
             }
           />
