@@ -360,6 +360,22 @@ export function RuntimePanel() {
   /** True when /api/providers/models?runtime=auto returned an empty
    *  groups list — i.e. no provider/model is currently runtime-compatible. */
   const [noCompatibleProvider, setNoCompatibleProvider] = useState(false);
+  /** Phase 2C: Pinned default not reachable under effective Runtime.
+   *  Drives the recovery banner with 4 CTAs (switch Runtime / enable
+   *  model / pick another default / revert to Auto). Raw provider/model
+   *  ids from resolver so the banner can a) name what's broken and
+   *  b) deep-link the "enable this model" action to the right row. */
+  const [invalidDefault, setInvalidDefault] = useState<
+    | {
+        providerId: string;
+        providerName: string | null;
+        modelValue: string;
+        modelLabel: string | null;
+        reason: 'provider-missing' | 'model-missing' | 'pin-incomplete';
+      }
+    | null
+  >(null);
+  const [revertingToAuto, setRevertingToAuto] = useState(false);
 
   // ── Claude settings.json editor state ──
   const [settings, setSettings] = useState<SettingsData>({});
@@ -515,22 +531,26 @@ export function RuntimePanel() {
           setNoCompatibleProvider(true);
           setDefaultProviderName(null);
           setDefaultModelLabel(null);
+          setInvalidDefault(null);
+        } else if (resolved.status === "invalid-default") {
+          // Pinned + unreachable. Drive the recovery banner with raw
+          // ids so "enable this model" can deep-link, and friendly
+          // labels (when present) so the banner copy still reads well.
+          setNoCompatibleProvider(false);
+          setDefaultProviderName(resolved.providerName ?? resolved.providerId ?? null);
+          setDefaultModelLabel(resolved.modelLabel ?? resolved.modelValue ?? null);
+          setInvalidDefault({
+            providerId: resolved.providerId ?? "",
+            providerName: resolved.providerName ?? null,
+            modelValue: resolved.modelValue ?? "",
+            modelLabel: resolved.modelLabel ?? null,
+            reason: resolved.reason ?? "pin-incomplete",
+          });
         } else {
           setNoCompatibleProvider(false);
-          // For 'invalid-default' we still surface the (broken) pinned
-          // values so the explainer block names what's wrong. Resolver
-          // returns providerId / modelValue (raw) for provider-missing /
-          // model-missing — the friendly name fields aren't populated
-          // because the provider isn't even in the runtime-filtered
-          // group list. Fall back to the raw ids so the user sees
-          // what they pinned, not "未配置". The dedicated banner +
-          // recovery actions land in Phase 2C.3.
-          setDefaultProviderName(
-            resolved.providerName ?? resolved.providerId ?? null,
-          );
-          setDefaultModelLabel(
-            resolved.modelLabel ?? resolved.modelValue ?? null,
-          );
+          setDefaultProviderName(resolved.providerName ?? null);
+          setDefaultModelLabel(resolved.modelLabel ?? null);
+          setInvalidDefault(null);
         }
       } else {
         // API itself unreachable — clear the explainer rather than show stale data.
@@ -597,6 +617,66 @@ export function RuntimePanel() {
       /* ignore — next user action will refetch */
     }
   };
+
+  // ── Phase 2C.3: invalid-default recovery handlers ──
+  /**
+   * Switch to the alternate Runtime so the broken pin (provider+model)
+   * has a chance of becoming valid. We don't try to deduce *which*
+   * Runtime the pinned model would actually work in (that requires
+   * provider compat lookups + model-level checks); we just toggle
+   * away from the current effective Runtime. The user can see the
+   * banner re-render after the switch — if pin became valid, the
+   * banner disappears; otherwise it stays and the user picks a
+   * different recovery path.
+   */
+  const handleSwitchToAlternateRuntime = useCallback(async () => {
+    // Recompute effective runtime locally so the handler doesn't capture
+    // a forward-referenced variable (TS temporal dead zone). Cheap call.
+    const isConnected = claudeStatus?.connected ?? false;
+    const current = computeEffectiveRuntime(agentRuntime, cliEnabled, isConnected);
+    const target: AgentRuntime = current === "claude-code-sdk" ? "native" : "claude-code-sdk";
+    await handleRuntimeChange(target);
+  }, [agentRuntime, cliEnabled, claudeStatus]);
+
+  /** Deep-link to Models page focused on the broken pin's provider so
+   *  the user can flip the model row's enable switch. Uses the same
+   *  sessionStorage signal ProviderCard's "manage models" jump uses.
+   *  We're already on /settings, so navigate via hash to avoid a full
+   *  router round-trip. */
+  const handleEnableInModels = useCallback(() => {
+    if (!invalidDefault?.providerId || typeof window === "undefined") return;
+    sessionStorage.setItem("codepilot:models-focus-provider", invalidDefault.providerId);
+    window.location.hash = "#models";
+  }, [invalidDefault]);
+
+  /** Jump to Models page so the user can pin a different model. The
+   *  Models page top status row is already showing this same broken
+   *  pin (Phase 2C.2 added that), so the user lands somewhere they
+   *  can act without re-reading the problem. */
+  const handlePickAnotherDefault = useCallback(() => {
+    if (typeof window !== "undefined") window.location.hash = "#models";
+  }, []);
+
+  /** Revert to Auto. Single PUT — storage layer's auto-clears the
+   *  pinned values (Phase 2C.1 short-circuit). Same call shape as
+   *  Models page + Providers selector for now. */
+  const handleRevertToAuto = useCallback(async () => {
+    if (revertingToAuto) return;
+    setRevertingToAuto(true);
+    try {
+      await fetch("/api/providers/options", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          providerId: "__global__",
+          options: { default_mode: "auto", legacy_default_provider_id: "" },
+        }),
+      });
+      window.dispatchEvent(new Event("provider-changed"));
+    } finally {
+      setRevertingToAuto(false);
+    }
+  }, [revertingToAuto]);
 
   // ── Claude Code Runtime install / upgrade ──
   const handleUpgrade = async () => {
@@ -978,6 +1058,92 @@ export function RuntimePanel() {
                 ? `当前 Runtime（${resolvedEngineLabel}）下没有可用的 provider/model。新会话会进入"无兼容服务"状态，需要先在「服务商 / 模型」里启用一个匹配 Runtime 的模型。`
                 : `No provider/model is compatible with the current runtime (${resolvedEngineLabel}). New chats land in the "no compatible provider" state until you enable a matching model in Providers / Models.`}
             </span>
+          </div>
+        ) : invalidDefault ? (
+          /* Phase 2C.3: Pinned default unreachable. The banner names the
+             broken pin (raw ids if no friendly labels available) and
+             offers four explicit recovery paths — never substitute
+             silently. */
+          <div className="rounded-md border border-status-warning-border bg-status-warning-muted/30 p-3 flex flex-col gap-2.5">
+            <div className="flex items-start gap-2">
+              <Warning size={14} weight="fill" className="mt-0.5 shrink-0 text-status-warning-foreground" />
+              <div className="flex-1 min-w-0">
+                <p className="text-xs font-semibold text-status-warning-foreground">
+                  {isZh ? "默认模型在当前 Runtime 下不可用" : "Pinned default model unavailable"}
+                </p>
+                <p className="text-[11px] text-foreground/80 mt-1 leading-relaxed">
+                  {(() => {
+                    const provDisplay = invalidDefault.providerName ?? invalidDefault.providerId;
+                    const modelDisplay = invalidDefault.modelLabel ?? invalidDefault.modelValue;
+                    if (isZh) {
+                      const reasonNote = invalidDefault.reason === "provider-missing"
+                        ? `「${provDisplay}」不在当前 Runtime（${resolvedEngineLabel}）的兼容列表中。`
+                        : invalidDefault.reason === "model-missing"
+                          ? `「${modelDisplay}」未对当前 Runtime 暴露（可能被隐藏或筛掉）。`
+                          : "默认模型设置不完整。";
+                      return `已固定到 ${provDisplay} / ${modelDisplay}，但 ${reasonNote} 新会话不会自动替换 — 请选择下方一种恢复方式。`;
+                    }
+                    const reasonNote = invalidDefault.reason === "provider-missing"
+                      ? `Provider "${provDisplay}" isn't compatible with the current Runtime (${resolvedEngineLabel}).`
+                      : invalidDefault.reason === "model-missing"
+                        ? `Model "${modelDisplay}" isn't exposed under the current Runtime (hidden or filtered).`
+                        : "Pinned default is incomplete.";
+                    return `Pinned to ${provDisplay} / ${modelDisplay}, but ${reasonNote} New chats will not silently substitute — pick a recovery path below.`;
+                  })()}
+                </p>
+              </div>
+            </div>
+            <div className="flex flex-wrap gap-2 pt-0.5">
+              <Button
+                variant="default"
+                size="sm"
+                onClick={handleSwitchToAlternateRuntime}
+                className="text-xs gap-1.5"
+                title={isZh
+                  ? `切换默认引擎至 ${effectiveRuntime === "claude-code-sdk" ? "CodePilot Runtime" : "Claude Code Runtime"}，然后重新检查这个 pin 是否可用`
+                  : `Flip the default engine to ${effectiveRuntime === "claude-code-sdk" ? "CodePilot Runtime" : "Claude Code Runtime"} and re-check pin compatibility`}
+              >
+                {isZh
+                  ? `切到 ${effectiveRuntime === "claude-code-sdk" ? "CodePilot Runtime" : "Claude Code Runtime"}`
+                  : `Switch to ${effectiveRuntime === "claude-code-sdk" ? "CodePilot Runtime" : "Claude Code Runtime"}`}
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleEnableInModels}
+                className="text-xs"
+                disabled={!invalidDefault.providerId}
+                title={isZh
+                  ? "跳到「模型」页并定位到这个服务商，启用对应模型"
+                  : "Jump to Models and focus the pinned provider so you can enable the row"}
+              >
+                {isZh ? "去启用此模型" : "Enable this model"}
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handlePickAnotherDefault}
+                className="text-xs"
+                title={isZh
+                  ? "去「模型」页挑一个其他模型作为新的固定默认"
+                  : "Open Models to pin a different model as the new default"}
+              >
+                {isZh ? "选另一个默认" : "Pick another default"}
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={handleRevertToAuto}
+                disabled={revertingToAuto}
+                className="text-xs gap-1.5"
+                title={isZh
+                  ? "切回 Auto — 系统按当前 Runtime 自动选第一个合适模型，不再固定到某个具体 pin"
+                  : "Revert to Auto — system auto-picks the first compatible model under the current Runtime, drops the pin"}
+              >
+                {revertingToAuto ? <SpinnerGap size={12} className="animate-spin" /> : null}
+                {isZh ? "改回 Auto" : "Revert to Auto"}
+              </Button>
+            </div>
           </div>
         ) : (
           <div className="rounded-md bg-muted/40 px-3.5 divide-y divide-border/50">
