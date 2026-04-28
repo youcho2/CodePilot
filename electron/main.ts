@@ -821,7 +821,58 @@ function createWindow(url?: string) {
   });
 }
 
+/**
+ * Phase 2C.6 follow-up: persistent log file for the main process.
+ * `app.getPath('logs')` resolves to `~/Library/Logs/{appName}` on macOS,
+ * `%APPDATA%\{appName}\logs` on Windows, `~/.config/{appName}/logs` on
+ * Linux. Electron creates the dir lazily; we create + write to a single
+ * append-only `codepilot-main.log` file there, capturing console.log /
+ * console.warn / console.error output so users can grab the file when
+ * filing an issue. About → "打开日志文件夹" opens this directory.
+ *
+ * No rotation in v1: the file size is bounded by user session length,
+ * not by retention. Rotation can land later if the file grows large in
+ * practice.
+ */
+function setupPersistentMainLog() {
+  try {
+    const logsDir = app.getPath('logs');
+    fs.mkdirSync(logsDir, { recursive: true });
+    const logFile = path.join(logsDir, 'codepilot-main.log');
+    const stream = fs.createWriteStream(logFile, { flags: 'a' });
+    stream.write(`\n=== session start ${new Date().toISOString()} ===\n`);
+
+    const origLog = console.log.bind(console);
+    const origWarn = console.warn.bind(console);
+    const origError = console.error.bind(console);
+
+    const fmt = (level: string, args: unknown[]): string => {
+      const ts = new Date().toISOString();
+      const msg = args
+        .map((a) => {
+          if (typeof a === 'string') return a;
+          if (a instanceof Error) return a.stack || a.message;
+          try { return JSON.stringify(a); } catch { return String(a); }
+        })
+        .join(' ');
+      return `${ts} [${level}] ${msg}\n`;
+    };
+
+    console.log = (...args: unknown[]) => { stream.write(fmt('log', args)); origLog(...args); };
+    console.warn = (...args: unknown[]) => { stream.write(fmt('warn', args)); origWarn(...args); };
+    console.error = (...args: unknown[]) => { stream.write(fmt('error', args)); origError(...args); };
+  } catch (err) {
+    // Logging is best-effort — don't block app startup if disk is full / readonly.
+     
+    console.warn('Failed to set up persistent main log:', err);
+  }
+}
+
 app.whenReady().then(async () => {
+  // Set up persistent main-process log first so subsequent startup
+  // logs (env load, ABI check, server boot) are captured.
+  setupPersistentMainLog();
+
   // Load user's full shell environment (API keys, PATH, etc.)
   userShellEnv = loadUserShellEnv();
 
@@ -1335,6 +1386,18 @@ app.whenReady().then(async () => {
   // Open a folder in the system file manager (Finder / Explorer)
   ipcMain.handle('shell:open-path', async (_event: Electron.IpcMainInvokeEvent, folderPath: string) => {
     return shell.openPath(folderPath);
+  });
+
+  // Phase 2C.6 follow-up: expose the persistent log directory to the
+  // renderer so About → "打开日志文件夹" can route the user there. The
+  // path is platform-specific; resolved lazily on first call so it
+  // matches whatever `setupPersistentMainLog` actually wrote to.
+  ipcMain.handle('app:get-log-path', async () => {
+    try {
+      return app.getPath('logs');
+    } catch {
+      return null;
+    }
   });
 
   // Bridge status IPC

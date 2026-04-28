@@ -27,9 +27,11 @@ import {
   FileArrowDown,
   Stethoscope,
   SpinnerGap,
+  Folder,
 } from "@/components/ui/icon";
 import { SettingsCard } from "@/components/patterns/SettingsCard";
 import { ImportSessionDialog } from "@/components/layout/ImportSessionDialog";
+import { showToast } from "@/hooks/useToast";
 import type { TranslationKey } from "@/i18n";
 
 const APP_VERSION = process.env.NEXT_PUBLIC_APP_VERSION || "0.0.0";
@@ -70,10 +72,39 @@ export function AboutSection() {
     channel: "—",
   });
   const [exportingDiagnostics, setExportingDiagnostics] = useState(false);
+  const [logPath, setLogPath] = useState<string | null>(null);
 
   useEffect(() => {
     setPlatform(detectPlatform());
   }, []);
+
+  // Resolve the persistent log path lazily on mount. Browser / dev
+  // contexts (no Electron preload) leave this null and we hide the
+  // "Open log folder" button; the diagnostic-bundle export is the
+  // fallback action there.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const api = window.electronAPI?.app?.getLogPath;
+    if (!api) return;
+    api()
+      .then((p) => setLogPath(p))
+      .catch(() => setLogPath(null));
+  }, []);
+
+  const isElectron = typeof window !== "undefined" && !!window.electronAPI;
+  const canOpenLogFolder = isElectron && !!logPath;
+
+  const handleOpenLogFolder = async () => {
+    if (!logPath) return;
+    try {
+      await window.electronAPI?.shell?.openPath(logPath);
+    } catch {
+      showToast({
+        message: isZh ? "打开日志文件夹失败" : "Failed to open log folder",
+        type: "error",
+      });
+    }
+  };
 
   const isDownloading =
     updateInfo?.isNativeUpdate &&
@@ -110,7 +141,19 @@ export function AboutSection() {
       a.remove();
       URL.revokeObjectURL(url);
     } catch {
-      // Silent on failure — user can retry; no toast plumbing on this page.
+      // Support is the user's last escape hatch — silent failure here is
+      // worse than the noise. Surface a toast that points at the
+      // alternative action ("打开日志文件夹") so the user has a way out.
+      showToast({
+        message: isZh
+          ? (canOpenLogFolder
+              ? "导出失败，请打开日志文件夹或稍后重试"
+              : "导出失败，请稍后重试")
+          : (canOpenLogFolder
+              ? "Export failed — open the log folder or try again"
+              : "Export failed — please retry"),
+        type: "error",
+      });
     } finally {
       setExportingDiagnostics(false);
     }
@@ -293,11 +336,23 @@ export function AboutSection() {
         title={isZh ? "支持与日志" : "Support & logs"}
         description={
           isZh
-            ? "导出诊断包用于排查和反馈、运行设置向导、从其他客户端导入历史会话"
-            : "Export a diagnostic bundle to investigate or share, run the setup wizard, import past chat sessions"
+            ? "打开持久日志文件夹查看 / 反馈，导出诊断包作为补充，运行设置向导，从其他客户端导入历史会话"
+            : "Open the persistent log folder for inspection / issue filing, export a diagnostic bundle as a fallback, run the setup wizard, import chat history"
         }
       >
         <div className="flex flex-wrap items-center gap-2">
+          {canOpenLogFolder && (
+            <Button
+              variant="default"
+              size="sm"
+              className="text-xs gap-1.5"
+              onClick={handleOpenLogFolder}
+              title={logPath ?? undefined}
+            >
+              <Folder size={14} />
+              {isZh ? "打开日志文件夹" : "Open log folder"}
+            </Button>
+          )}
           <Button
             variant="outline"
             size="sm"

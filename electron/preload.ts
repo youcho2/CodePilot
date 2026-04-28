@@ -22,6 +22,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   shell: {
     openPath: (folderPath: string) => ipcRenderer.invoke('shell:open-path', folderPath),
   },
+  app: {
+    getLogPath: () => ipcRenderer.invoke('app:get-log-path') as Promise<string | null>,
+  },
   dialog: {
     openFolder: (options?: { defaultPath?: string; title?: string }) =>
       ipcRenderer.invoke('dialog:open-folder', options),

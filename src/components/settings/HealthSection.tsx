@@ -126,7 +126,12 @@ export function HealthSection() {
       reason: isZh
         ? `已配置 ${count} 个 provider`
         : `${count} provider${count === 1 ? "" : "s"} configured`,
-      ctaLabel: isZh ? "运行诊断" : "Run Diagnostics",
+      // Phase 2C.6 follow-up: the CTA was "运行诊断" but it just
+      // navigated to #providers (Provider Doctor lives behind a
+      // separate button there). Renaming to match the actual destination
+      // — the doctor flow is no longer the headline action since
+      // health/issue-filing is now log-driven, not auto-diagnose-driven.
+      ctaLabel: isZh ? "查看 Providers" : "Open Providers",
       ctaOnClick: () => navTo("#providers"),
     };
   })());

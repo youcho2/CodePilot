@@ -70,6 +70,12 @@ interface ElectronAPI {
   shell: {
     openPath: (path: string) => Promise<string>;
   };
+  app?: {
+    /** Resolve the persistent log directory used by main process logging.
+     *  Returns null when Electron can't surface a path (e.g. permission
+     *  error). Renderer must guard for absence in non-Electron / web contexts. */
+    getLogPath: () => Promise<string | null>;
+  };
   fs: {
     /** Resolve a File's absolute filesystem path (via Electron webUtils). Empty string if unavailable. */
     getPathForFile: (file: File) => string;
