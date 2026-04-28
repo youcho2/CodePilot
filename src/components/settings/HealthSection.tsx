@@ -32,9 +32,9 @@ import {
   Brain,
   Lightning,
   UserCircle,
-  Stethoscope,
   CaretRight,
   Heart,
+  Info,
 } from "@/components/ui/icon";
 import { cn } from "@/lib/utils";
 import { useOverviewData } from "./useOverviewData";
@@ -375,18 +375,25 @@ export function HealthSection() {
         ))}
       </div>
 
-      {/* Setup Center entry — separate, not a row */}
+      {/* "Need to investigate further?" — Phase 2C.6 reframing. The
+          previous wording ("深度诊断与修复") promised auto-detection of
+          root causes and an auto-repair path; in practice the doctor
+          can't always identify the root cause and "repair" sometimes
+          misleads. Honest framing: Health gives status; if status
+          doesn't explain it, grab a diagnostic bundle and inspect /
+          share. Setup Center stays an entry on the About page (as the
+          install / wizard flow), not the headline action here. */}
       <div className="rounded-lg border border-border/50 bg-card p-4 flex flex-col sm:flex-row items-start sm:items-center sm:justify-between gap-3">
         <div className="min-w-0 flex items-start gap-3">
-          <Stethoscope size={16} className="text-foreground/60 shrink-0 mt-0.5" />
+          <Info size={16} className="text-foreground/60 shrink-0 mt-0.5" />
           <div className="min-w-0">
             <h3 className="text-sm font-medium">
-              {isZh ? "深度诊断与修复" : "Deep diagnostics & repair"}
+              {isZh ? "需要进一步排查？" : "Need to investigate further?"}
             </h3>
             <p className="text-[11px] text-muted-foreground mt-0.5 leading-relaxed">
               {isZh
-                ? "Setup Center 提供完整诊断流程：环境检查、CLI 安装与升级、Provider 连接探测、修复建议。"
-                : "Setup Center runs the full diagnostic flow: environment, CLI install/upgrade, Provider probes, and repair suggestions."}
+                ? "如果上方状态没有解释你遇到的问题，去 关于 页面导出诊断包，里面包含运行日志、provider 解析链与连接探测结果，便于本地排查或随 issue 一起反馈。"
+                : "If the rows above don't explain what you're seeing, head to About to export a diagnostic bundle — it includes runtime logs, the provider-resolution chain, and probe results for local investigation or issue filing."}
             </p>
           </div>
         </div>
@@ -394,10 +401,10 @@ export function HealthSection() {
           variant="outline"
           size="sm"
           className="shrink-0 gap-1.5"
-          onClick={() => window.dispatchEvent(new CustomEvent("open-setup-center"))}
+          onClick={() => navTo("#about")}
         >
-          <Stethoscope size={14} />
-          {isZh ? "打开 Setup Center" : "Open Setup Center"}
+          {isZh ? "去 About" : "Open About"}
+          <CaretRight size={12} weight="bold" />
         </Button>
       </div>
     </div>

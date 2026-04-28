@@ -146,12 +146,19 @@ export function useOverviewData(): OverviewState {
           next.noCompatibleProvider = true;
         } else if (resolved.status === "invalid-default") {
           // Pinned + unreachable. Don't fill in a fallback — that's the
-          // contract. Leave defaultProviderName/Label null and flag the
-          // card so Overview can show the broken pin without pretending
-          // a substitute is "the new default".
+          // contract. Surface what *was* pinned so downstream surfaces
+          // (Overview Runtime card, Health page) can name the broken
+          // pin instead of showing "未配置". For 'provider-missing' /
+          // 'pin-incomplete' the resolver only fills providerId /
+          // modelValue (the friendly fields aren't populated when the
+          // target isn't in the runtime-filtered group list). Mirror
+          // RuntimePanel's fallback rule: providerName ?? providerId,
+          // modelLabel ?? modelValue.
           next.defaultInvalid = true;
-          next.defaultProviderName = resolved.providerName ?? null;
-          next.defaultModelLabel = resolved.modelValue ?? null;
+          next.defaultProviderName =
+            resolved.providerName ?? resolved.providerId ?? null;
+          next.defaultModelLabel =
+            resolved.modelLabel ?? resolved.modelValue ?? null;
         } else {
           next.defaultProviderName = resolved.providerName ?? null;
           next.defaultModelLabel = resolved.modelLabel ?? null;

@@ -69,6 +69,7 @@ export function AboutSection() {
     os: "—",
     channel: "—",
   });
+  const [exportingDiagnostics, setExportingDiagnostics] = useState(false);
 
   useEffect(() => {
     setPlatform(detectPlatform());
@@ -78,6 +79,42 @@ export function AboutSection() {
     updateInfo?.isNativeUpdate &&
     !updateInfo.readyToInstall &&
     updateInfo.downloadProgress != null;
+
+  /**
+   * Phase 2C.6: download a sanitized diagnostic bundle. The /api/doctor/export
+   * endpoint already exists and includes the cached diagnosis + recent runtime
+   * logs + provider resolution chain, with API keys / URLs / paths sanitized.
+   * UI just fetches it and triggers a JSON download — no new backend.
+   *
+   * This replaces the previous "导出运行日志" copy that didn't have a real
+   * action behind it; everything the user wants for issue-filing or local
+   * inspection is in the bundle.
+   */
+  const handleExportDiagnostics = async () => {
+    if (exportingDiagnostics) return;
+    setExportingDiagnostics(true);
+    try {
+      const res = await fetch("/api/doctor/export");
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      const blob = new Blob([JSON.stringify(data, null, 2)], {
+        type: "application/json",
+      });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      const stamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
+      a.download = `codepilot-diagnostics-${stamp}.json`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch {
+      // Silent on failure — user can retry; no toast plumbing on this page.
+    } finally {
+      setExportingDiagnostics(false);
+    }
+  };
 
   return (
     <div className="max-w-4xl mx-auto space-y-6">
@@ -244,15 +281,20 @@ export function AboutSection() {
         </SettingsCard>
       )}
 
-      {/* Diagnostic + Chat-history import. Both are utility entries
-          that don't fit "application behavior" or "specific section
-          management" — they live in About as one-shot affordances. */}
+      {/* Support & logs (Phase 2C.6 rename).
+          The previous wording was "诊断与维护 — 运行连接诊断、导出运行日志…"
+          which over-promised: the existing diagnostic flow doesn't always
+          identify root causes and the auto-repair path can mislead. The
+          honest framing is: Health gives you status; if status doesn't
+          explain it, grab a diagnostic bundle and inspect / share. Setup
+          Center stays as the install / wizard entry, not a "fix anything"
+          button. */}
       <SettingsCard
-        title={isZh ? "诊断与维护" : "Diagnostics & maintenance"}
+        title={isZh ? "支持与日志" : "Support & logs"}
         description={
           isZh
-            ? "运行连接诊断、导出运行日志、从其他客户端导入历史会话"
-            : "Run connectivity diagnosis, export logs, import past chat sessions from other clients"
+            ? "导出诊断包用于排查和反馈、运行设置向导、从其他客户端导入历史会话"
+            : "Export a diagnostic bundle to investigate or share, run the setup wizard, import past chat sessions"
         }
       >
         <div className="flex flex-wrap items-center gap-2">
@@ -260,10 +302,24 @@ export function AboutSection() {
             variant="outline"
             size="sm"
             className="text-xs gap-1.5"
+            onClick={handleExportDiagnostics}
+            disabled={exportingDiagnostics}
+          >
+            {exportingDiagnostics ? (
+              <SpinnerGap size={14} className="animate-spin" />
+            ) : (
+              <FileArrowDown size={14} />
+            )}
+            {isZh ? "导出诊断包" : "Export diagnostic bundle"}
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            className="text-xs gap-1.5"
             onClick={() => window.dispatchEvent(new CustomEvent("open-setup-center"))}
           >
             <Stethoscope size={14} />
-            {isZh ? "运行设置 / 诊断" : "Run setup / diagnose"}
+            {isZh ? "运行设置向导" : "Run setup wizard"}
           </Button>
           <Button
             variant="outline"
