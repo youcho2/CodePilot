@@ -851,7 +851,18 @@ function setupPersistentMainLog() {
     // existing live file to `.unsanitized-legacy.log` and start a
     // fresh, fully-sanitized `codepilot-main.log`. The marker file
     // pins this as a one-shot — subsequent starts skip rotation.
-    if (fs.existsSync(logFile) && !fs.existsSync(sanitizedMarker)) {
+    //
+    // **Marker is only written on success.** If rename / append /
+    // unlink fails (permission denied, readonly FS), do NOT write
+    // the marker — next launch will retry. Writing the marker after
+    // a failed rotation would permanently strand the live file in a
+    // mixed-content state while About's "已脱敏" copy still points
+    // at it.
+    const liveFileExisted = fs.existsSync(logFile);
+    const markerExisted = fs.existsSync(sanitizedMarker);
+    let rotationCompleted = !liveFileExisted; // nothing to rotate is success
+
+    if (liveFileExisted && !markerExisted) {
       try {
         if (fs.existsSync(legacyFile)) {
           // Defensive: legacy file already exists from some earlier
@@ -863,17 +874,20 @@ function setupPersistentMainLog() {
         } else {
           fs.renameSync(logFile, legacyFile);
         }
+        rotationCompleted = true;
       } catch {
-        // Best-effort: if rotation fails (FS readonly / permission),
-        // we still write the marker so we don't keep retrying. Worst
-        // case the live file retains some mixed content; the marker
-        // ensures we don't leak the promise across restarts forever.
+        // Rotation failed. Skip marker write; next launch retries.
       }
+    }
+
+    if (rotationCompleted && !markerExisted) {
       try {
         fs.writeFileSync(
           sanitizedMarker,
           `Sanitizer activated at ${new Date().toISOString()}.\n` +
-          `Pre-sanitizer log content rotated to ${legacyFile}.\n`,
+          (liveFileExisted
+            ? `Pre-sanitizer log content rotated to ${legacyFile}.\n`
+            : `Started with no prior log file.\n`),
         );
       } catch { /* marker write failures are tolerable */ }
     }
