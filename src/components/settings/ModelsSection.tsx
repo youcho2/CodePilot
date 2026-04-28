@@ -655,18 +655,21 @@ export function ModelsSection() {
       const wasHidden = !!modelRow && modelRow.enabled === 0;
       if (wasHidden) {
         // Inline the enable-row PATCH so this function can stay above
-        // `updateModel`'s declaration (closure-time TDZ otherwise). The
-        // PATCH dispatches `provider-changed` itself so listeners see
-        // both the enable AND the new pin from a single user action.
+        // `updateModel`'s declaration (closure-time TDZ otherwise). If
+        // PATCH fails, abort BEFORE writing the default — pinning a
+        // model that's still hidden would land the user back in
+        // 'invalid-default' with the same broken pin we tried to fix.
+        // Better to surface the enable failure and leave default alone.
         const enableRes = await fetch(`/api/providers/${providerId}/models`, {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ model_id: modelId, enabled: 1 }),
         });
-        if (enableRes.ok) {
-          const d = await enableRes.json();
-          setBundles((prev) => ({ ...prev, [providerId]: d.models || [] }));
+        if (!enableRes.ok) {
+          throw new Error('enable-failed');
         }
+        const d = await enableRes.json();
+        setBundles((prev) => ({ ...prev, [providerId]: d.models || [] }));
       }
       const res = await fetch('/api/providers/options', {
         method: 'PUT',
@@ -681,12 +684,32 @@ export function ModelsSection() {
           },
         }),
       });
-      if (!res.ok) throw new Error('save failed');
+      if (!res.ok) throw new Error('save-failed');
       setDefaultMode('pinned');
       setPinnedProviderId(providerId);
       setPinnedModel(modelId);
       window.dispatchEvent(new Event('provider-changed'));
-      const compat = isRuntimeCompat(providerId, modelId);
+      // Refetch runtime-filtered groups for fresh compat. The
+      // `runtimeCompatModels` map we hold in state was built from a
+      // pre-enable response (a hidden row is filtered out at the
+      // server's `enabled=1` gate), so reading it for the toast would
+      // mis-classify a model we *just* enabled as still incompatible.
+      // Refetch + decide compat from the fresh response, then update
+      // state so the rest of the page sees the same truth.
+      let compat = isRuntimeCompat(providerId, modelId);
+      try {
+        const r = await fetch('/api/providers/models?runtime=auto');
+        if (r.ok) {
+          const data = await r.json();
+          const group = (data.groups || []).find((g: { provider_id: string }) => g.provider_id === providerId);
+          compat = !!group?.models?.some((m: { value: string }) => m.value === modelId);
+          const compatMap = new Map<string, Set<string>>();
+          for (const g of data.groups || []) {
+            compatMap.set(g.provider_id, new Set(g.models.map((m: { value: string }) => m.value)));
+          }
+          setRuntimeCompatModels(compatMap);
+        }
+      } catch { /* fall back to stale isRuntimeCompat result */ }
       const messageZh = wasHidden
         ? (compat
             ? '已启用并设为默认模型'
@@ -705,8 +728,15 @@ export function ModelsSection() {
         message: isZh ? messageZh : messageEn,
         type: compat ? 'success' : 'warning',
       });
-    } catch {
-      showToast({ message: isZh ? '保存默认模型失败' : 'Failed to save default', type: 'error' });
+    } catch (err) {
+      // Branch the failure copy: an enable-step failure is the more
+      // informative case ("we didn't change your default") and avoids
+      // implying the pin was actually written.
+      const isEnableFailure = err instanceof Error && err.message === 'enable-failed';
+      const message = isEnableFailure
+        ? (isZh ? '启用模型失败，未修改默认模型' : 'Failed to enable model — default unchanged')
+        : (isZh ? '保存默认模型失败' : 'Failed to save default');
+      showToast({ message, type: 'error' });
     } finally {
       setSavingDefault(false);
     }
