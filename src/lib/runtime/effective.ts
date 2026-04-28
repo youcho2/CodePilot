@@ -106,14 +106,62 @@ export function computeEffectiveRuntime(
 }
 
 // ---------------------------------------------------------------------------
-// New-chat default resolver
+// New-chat default resolver — Phase 2C contract
 // ---------------------------------------------------------------------------
+//
+// The Phase 2C principle: *Pinned default is a hard promise — Auto is the
+// only mode allowed to fallback.* The resolver returns a tagged status so
+// callers can enforce that:
+//
+//   - 'ok'              Pinned mode resolved cleanly to provider+model.
+//   - 'auto-resolved'   Auto mode found something via the fallback chain.
+//   - 'invalid-default' Pinned mode, but the pinned target isn't reachable
+//                       under the current Runtime. **Callers MUST NOT
+//                       silently substitute another provider/model.** They
+//                       must surface the state and block sends until the
+//                       user resolves it (recovery actions live in 2C.3
+//                       Runtime banner / 2C.5 Health page).
+//   - 'no-compatible'   Empty `groups`; no compatible provider at all.
+//                       Higher-priority than mode — even Pinned with a
+//                       valid pin returns this when groups is empty.
 
-export interface ResolvedNewChatDefault {
-  providerId: string;
-  providerName: string;
-  modelValue: string;
-  modelLabel: string | null;
+/** Status tag for the resolver's return value. See file header. */
+export type NewChatDefaultStatus =
+  | "ok"
+  | "auto-resolved"
+  | "invalid-default"
+  | "no-compatible";
+
+/**
+ * Why a Pinned default is invalid. Drives the Runtime banner copy + which
+ * recovery action is most prominent.
+ *
+ * - `'provider-missing'` — pinned provider isn't in the runtime-filtered
+ *   group list. Most likely the user pinned an OpenAI model but is on
+ *   Claude Code Runtime (or vice versa).
+ * - `'model-missing'` — pinned provider IS reachable but the pinned model
+ *   isn't in its filtered list (model disabled / filtered out by runtime
+ *   compat).
+ * - `'pin-incomplete'` — defensive: storage somehow has mode='pinned' but
+ *   one of provider/model is empty. Shouldn't happen post-migration but
+ *   we surface it instead of silently coercing to Auto.
+ */
+export type InvalidDefaultReason =
+  | "provider-missing"
+  | "model-missing"
+  | "pin-incomplete";
+
+export interface NewChatDefaultResolution {
+  status: NewChatDefaultStatus;
+  /** Resolved provider id. Present for 'ok' / 'auto-resolved'. May be
+   *  present for 'invalid-default' to expose the user's pinned choice
+   *  (so the banner can name what's broken). */
+  providerId?: string;
+  providerName?: string;
+  modelValue?: string;
+  modelLabel?: string | null;
+  /** Reason — only meaningful when status === 'invalid-default'. */
+  reason?: InvalidDefaultReason;
 }
 
 interface ProviderGroup {
@@ -122,86 +170,106 @@ interface ProviderGroup {
   models: Array<{ value: string; label: string }>;
 }
 
-interface NewChatResolveInput {
+export interface NewChatResolveInput {
   /** The runtime-filtered groups from `/api/providers/models?runtime=auto`. */
   groups: ProviderGroup[];
-  /** Server-suggested default provider id (the response's
-   *  `default_provider_id` field). Used as a tertiary fallback after
-   *  global pair + provider-only fallbacks fail. */
+  /** Default mode — Phase 2C contract. 'pinned' enforces an exact match
+   *  against `pinnedProviderId` + `pinnedModel`; 'auto' walks the
+   *  fallback chain (savedPair → apiDefault → first). */
+  mode: "auto" | "pinned";
+  /** User's committed pinned provider — required when mode='pinned'. */
+  pinnedProviderId?: string;
+  /** User's committed pinned model — required when mode='pinned'. */
+  pinnedModel?: string;
+  /** Server-suggested default provider id (response's `default_provider_id`
+   *  field). Used as a fallback in Auto mode; ignored in Pinned mode. */
   apiDefaultProviderId?: string;
-  /** Global default pair from `/api/providers/options?providerId=__global__`. */
-  globalDefaultModel?: string;
-  globalDefaultProvider?: string;
   /** Per-tab last-used pair (chat/page reads this from localStorage).
-   *  Settings can pass undefined if it wants the system default rather
-   *  than the user's last-pick. */
+   *  Used in Auto mode only. */
   savedProviderId?: string;
   savedModel?: string;
 }
 
 /**
- * Mirror of `chat/page.tsx`'s resolution chain. The same code path
- * Settings uses to predict "what will a new chat use" runs in chat/page
- * to actually pick — so the two surfaces always agree.
+ * Resolve which provider/model a new chat should use.
  *
- * Resolution order:
+ * Pinned mode (status: 'ok' | 'invalid-default'):
+ *   Exact match against `pinnedProviderId` + `pinnedModel` in the filtered
+ *   groups. Anything missing → 'invalid-default' with a reason. **No
+ *   fallback chain** — that's the entire point of pinning.
  *
- *   1. Global pair both set AND model is present in the (runtime-filtered)
- *      target provider's group → use that pair.
- *   2. Global provider set (but model is unset / filtered out) → use
- *      that provider's first runtime-compatible model.
- *   3. Saved (localStorage) pair, validated against a runtime-compatible
- *      group's models → use that pair.
- *   4. API-suggested default provider id, first model.
- *   5. First compatible group, first model.
+ * Auto mode (status: 'auto-resolved'):
+ *   Fallback chain:
+ *     1. Saved (localStorage) pair, validated.
+ *     2. Saved provider with first available model.
+ *     3. API-suggested default provider, first model.
+ *     4. First compatible group, first model.
+ *   Stored pinned values are intentionally ignored — Auto means Auto.
  *
- * Returns null when `groups` is empty (no compatible provider at all).
+ * Empty groups always returns 'no-compatible' regardless of mode.
  */
-export function resolveNewChatDefault(input: NewChatResolveInput): ResolvedNewChatDefault | null {
-  const {
-    groups,
-    apiDefaultProviderId,
-    globalDefaultModel,
-    globalDefaultProvider,
-    savedProviderId,
-    savedModel,
-  } = input;
-
-  if (groups.length === 0) return null;
-
-  // 1. Global pair both set + model valid in the filtered group.
-  if (globalDefaultModel && globalDefaultProvider) {
-    const targetGroup = groups.find((g) => g.provider_id === globalDefaultProvider);
-    const modelInGroup = targetGroup?.models.find((m) => m.value === globalDefaultModel);
-    if (targetGroup && modelInGroup) {
-      return {
-        providerId: targetGroup.provider_id,
-        providerName: targetGroup.provider_name,
-        modelValue: modelInGroup.value,
-        modelLabel: modelInGroup.label,
-      };
-    }
-    // Global model was set but is missing from the runtime-filtered group
-    // (most likely the user's chosen model is incompatible with the
-    // currently-effective runtime). Fall through to the saved/first
-    // chain — `chat/page.tsx` does the same.
+export function resolveNewChatDefault(input: NewChatResolveInput): NewChatDefaultResolution {
+  if (input.groups.length === 0) {
+    return { status: "no-compatible" };
   }
-
-  // 2. Provider set, but model unset.
-  if (globalDefaultProvider && !globalDefaultModel) {
-    const targetGroup = groups.find((g) => g.provider_id === globalDefaultProvider);
-    if (targetGroup?.models?.length) {
-      const first = targetGroup.models[0];
-      return {
-        providerId: targetGroup.provider_id,
-        providerName: targetGroup.provider_name,
-        modelValue: first.value,
-        modelLabel: first.label,
-      };
-    }
+  if (input.mode === "pinned") {
+    return resolvePinned(input.groups, input.pinnedProviderId, input.pinnedModel);
   }
+  return resolveAuto(
+    input.groups,
+    input.apiDefaultProviderId,
+    input.savedProviderId,
+    input.savedModel,
+  );
+}
 
-  // 3. Saved (localStorage) pair, validated.
+function resolvePinned(
+  groups: ProviderGroup[],
+  pinnedProviderId: string | undefined,
+  pinnedModel: string | undefined,
+): NewChatDefaultResolution {
+  if (!pinnedProviderId || !pinnedModel) {
+    return {
+      status: "invalid-default",
+      providerId: pinnedProviderId,
+      modelValue: pinnedModel,
+      reason: "pin-incomplete",
+    };
+  }
+  const targetGroup = groups.find((g) => g.provider_id === pinnedProviderId);
+  if (!targetGroup) {
+    return {
+      status: "invalid-default",
+      providerId: pinnedProviderId,
+      modelValue: pinnedModel,
+      reason: "provider-missing",
+    };
+  }
+  const modelInGroup = targetGroup.models.find((m) => m.value === pinnedModel);
+  if (!modelInGroup) {
+    return {
+      status: "invalid-default",
+      providerId: targetGroup.provider_id,
+      providerName: targetGroup.provider_name,
+      modelValue: pinnedModel,
+      reason: "model-missing",
+    };
+  }
+  return {
+    status: "ok",
+    providerId: targetGroup.provider_id,
+    providerName: targetGroup.provider_name,
+    modelValue: modelInGroup.value,
+    modelLabel: modelInGroup.label,
+  };
+}
+
+function resolveAuto(
+  groups: ProviderGroup[],
+  apiDefaultProviderId: string | undefined,
+  savedProviderId: string | undefined,
+  savedModel: string | undefined,
+): NewChatDefaultResolution {
   if (savedProviderId) {
     const savedGroup = groups.find((g) => g.provider_id === savedProviderId);
     if (savedGroup) {
@@ -210,6 +278,7 @@ export function resolveNewChatDefault(input: NewChatResolveInput): ResolvedNewCh
         : undefined;
       if (savedModelInGroup) {
         return {
+          status: "auto-resolved",
           providerId: savedGroup.provider_id,
           providerName: savedGroup.provider_name,
           modelValue: savedModelInGroup.value,
@@ -219,6 +288,7 @@ export function resolveNewChatDefault(input: NewChatResolveInput): ResolvedNewCh
       if (savedGroup.models?.length) {
         const first = savedGroup.models[0];
         return {
+          status: "auto-resolved",
           providerId: savedGroup.provider_id,
           providerName: savedGroup.provider_name,
           modelValue: first.value,
@@ -227,16 +297,13 @@ export function resolveNewChatDefault(input: NewChatResolveInput): ResolvedNewCh
       }
     }
   }
-
-  // 4. API-suggested default + 5. first compatible group.
   const apiDefault = apiDefaultProviderId
     ? groups.find((g) => g.provider_id === apiDefaultProviderId)
     : undefined;
   const fallbackGroup = apiDefault ?? groups[0];
-  if (!fallbackGroup) return null;
-
   const firstModel = fallbackGroup.models[0];
   return {
+    status: "auto-resolved",
     providerId: fallbackGroup.provider_id,
     providerName: fallbackGroup.provider_name,
     modelValue: firstModel?.value ?? "",

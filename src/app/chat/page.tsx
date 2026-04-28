@@ -61,6 +61,22 @@ export default function NewChatPage() {
   // none are compatible with the active runtime. Distinct from
   // !hasProvider (no provider at all). Send is gated, picker shows empty.
   const [noCompatibleProvider, setNoCompatibleProvider] = useState(false);
+  // Phase 2C contract: when global_default_mode='pinned' AND the pinned
+  // provider/model isn't reachable under the effective Runtime, we set
+  // this state to block sends. We DO NOT silently substitute another
+  // provider/model — that's the entire point of pinning. Recovery
+  // actions (switch Runtime / enable model / pick new / revert to Auto)
+  // live on the Runtime page banner (Phase 2C.3) + Health page (2C.5);
+  // here we just gate send + surface a minimal inline notice.
+  const [invalidDefault, setInvalidDefault] = useState<
+    | {
+        providerId?: string;
+        providerName?: string;
+        modelValue?: string;
+        reason?: 'provider-missing' | 'model-missing' | 'pin-incomplete';
+      }
+    | null
+  >(null);
   const [showWizard, setShowWizard] = useState(false);
   const [assistantConfigured, setAssistantConfigured] = useState(false);
   const [assistantWorkspacePath, setAssistantWorkspacePath] = useState('');
@@ -148,41 +164,43 @@ export default function NewChatPage() {
         setModelReady(true);
         return;
       }
-      if (modelsData.groups.length === 0) {
-        setCurrentModel('');
-        setCurrentProviderId('');
-        setNoCompatibleProvider(true);
-        setModelReady(true);
-        return;
-      }
-      // Non-empty result — clear any previously-set noCompatibleProvider
-      // flag in case the user just connected / enabled a compatible model.
-      setNoCompatibleProvider(false);
-
-      // Delegate the new-chat resolution chain to the shared helper so
-      // this surface, Settings → Runtime's session explainer, and any
-      // future caller all answer "what will a new chat use?" the same
-      // way. The chain is: global pair → provider-only fallback →
-      // saved (localStorage) pair → API default → first compatible.
+      // Phase 2C: resolver branches on default_mode (Auto vs Pinned).
+      // Auto walks the savedPair → apiDefault → first chain; Pinned
+      // demands an exact match and returns 'invalid-default' otherwise.
+      // No silent substitution for Pinned — see invalidDefault state.
+      const opts = globalData?.options;
       const resolved = resolveNewChatDefault({
         groups: modelsData.groups,
         apiDefaultProviderId: modelsData.default_provider_id,
-        globalDefaultModel: globalData?.options?.default_model || '',
-        globalDefaultProvider: globalData?.options?.default_model_provider || '',
+        mode: opts?.default_mode === 'pinned' ? 'pinned' : 'auto',
+        pinnedProviderId: opts?.default_model_provider || '',
+        pinnedModel: opts?.default_model || '',
         savedProviderId: localStorage.getItem('codepilot:last-provider-id') || '',
         savedModel: localStorage.getItem('codepilot:last-model') || '',
       });
 
-      if (resolved) {
-        setCurrentProviderId(resolved.providerId);
-        setCurrentModel(resolved.modelValue);
-      } else {
-        // groups was non-empty but the resolver still returned null —
-        // shouldn't happen with the chain above, but fall back to the
-        // legacy "first model in first group" rather than leaving the
-        // composer locked.
+      if (resolved.status === 'no-compatible') {
+        setCurrentModel('');
         setCurrentProviderId('');
-        setCurrentModel('sonnet');
+        setNoCompatibleProvider(true);
+        setInvalidDefault(null);
+      } else if (resolved.status === 'invalid-default') {
+        // Pinned + unreachable — block, surface, do not substitute.
+        setCurrentModel('');
+        setCurrentProviderId('');
+        setNoCompatibleProvider(false);
+        setInvalidDefault({
+          providerId: resolved.providerId,
+          providerName: resolved.providerName,
+          modelValue: resolved.modelValue,
+          reason: resolved.reason,
+        });
+      } else {
+        // 'ok' (Pinned valid) or 'auto-resolved' (Auto chain found one).
+        setCurrentProviderId(resolved.providerId ?? '');
+        setCurrentModel(resolved.modelValue ?? '');
+        setNoCompatibleProvider(false);
+        setInvalidDefault(null);
       }
       setModelReady(true);
     }).catch(() => {
@@ -307,42 +325,53 @@ export default function NewChatPage() {
           setModelReady(true);
           return;
         }
-        if (modelsData.groups.length === 0) {
-          setCurrentProviderId('');
-          setCurrentModel('');
-          setNoCompatibleProvider(true);
-          setModelReady(true);
-          return;
-        }
-        // Non-empty result — clear stale noCompatibleProvider flag.
-        setNoCompatibleProvider(false);
-
-        // Use the same shared resolver as the initial-load branch above.
-        // It already handles the validate-and-fallback chain that the
-        // previous inline code re-implemented.
+        // Phase 2C: same shared resolver as the initial-load branch.
+        // 'no-compatible' / 'invalid-default' / 'ok' / 'auto-resolved' —
+        // no silent substitution for Pinned (see invalidDefault state).
+        const opts = globalData?.options;
         const resolved = resolveNewChatDefault({
           groups: modelsData.groups,
           apiDefaultProviderId: modelsData.default_provider_id,
-          globalDefaultModel: globalData?.options?.default_model || '',
-          globalDefaultProvider: globalData?.options?.default_model_provider || '',
+          mode: opts?.default_mode === 'pinned' ? 'pinned' : 'auto',
+          pinnedProviderId: opts?.default_model_provider || '',
+          pinnedModel: opts?.default_model || '',
           savedProviderId: savedProviderId || '',
           savedModel: localStorage.getItem('codepilot:last-model') || '',
         });
 
-        if (resolved) {
-          setCurrentProviderId(resolved.providerId);
-          setCurrentModel(resolved.modelValue);
+        if (resolved.status === 'no-compatible') {
+          setCurrentProviderId('');
+          setCurrentModel('');
+          setNoCompatibleProvider(true);
+          setInvalidDefault(null);
+        } else if (resolved.status === 'invalid-default') {
+          setCurrentProviderId('');
+          setCurrentModel('');
+          setNoCompatibleProvider(false);
+          setInvalidDefault({
+            providerId: resolved.providerId,
+            providerName: resolved.providerName,
+            modelValue: resolved.modelValue,
+            reason: resolved.reason,
+          });
+        } else {
+          setNoCompatibleProvider(false);
+          setInvalidDefault(null);
+          const resolvedProviderId = resolved.providerId ?? '';
+          const resolvedModelValue = resolved.modelValue ?? '';
+          setCurrentProviderId(resolvedProviderId);
+          setCurrentModel(resolvedModelValue);
           // Side effect specific to this call site: keep localStorage in
           // sync so the next mount doesn't try to restore a saved value
           // that's no longer in any compatible group. The initial-load
           // branch doesn't write back because the user might still have
           // valid state pending a different fetch.
-          if (savedProviderId !== null && savedProviderId !== resolved.providerId) {
+          if (savedProviderId !== null && savedProviderId !== resolvedProviderId) {
             localStorage.removeItem('codepilot:last-provider-id');
           }
           const savedModel = localStorage.getItem('codepilot:last-model');
-          if (savedModel !== resolved.modelValue) {
-            localStorage.setItem('codepilot:last-model', resolved.modelValue);
+          if (savedModel !== resolvedModelValue) {
+            localStorage.setItem('codepilot:last-model', resolvedModelValue);
           }
         }
         setModelReady(true);
@@ -440,6 +469,22 @@ export default function NewChatPage() {
         setErrorBanner({
           message: t('error.providerUnavailable'),
           description: t('chat.empty.noProvider'),
+        });
+        return;
+      }
+
+      // Phase 2C: pinned default unavailable under effective Runtime →
+      // hard block. No silent substitution. Surface the broken pin so
+      // the user can resolve it (Runtime page banner has the recovery
+      // actions in Phase 2C.3 — until then this minimal banner names
+      // the problem and points at /settings#runtime).
+      if (invalidDefault) {
+        const pinnedLabel = invalidDefault.modelValue
+          ? `${invalidDefault.providerName ?? invalidDefault.providerId ?? '?'} / ${invalidDefault.modelValue}`
+          : (invalidDefault.providerId ?? '?');
+        setErrorBanner({
+          message: t('error.invalidDefault'),
+          description: t('error.invalidDefaultDesc', { pinned: pinnedLabel }),
         });
         return;
       }
@@ -789,7 +834,7 @@ export default function NewChatPage() {
         abortControllerRef.current = null;
       }
     },
-    [isStreaming, router, workingDir, mode, currentModel, currentProviderId, permissionProfile, selectedEffort, thinkingMode, context1m, setPendingApprovalSessionId, t, hasProvider, modelReady, noCompatibleProvider]
+    [isStreaming, router, workingDir, mode, currentModel, currentProviderId, permissionProfile, selectedEffort, thinkingMode, context1m, setPendingApprovalSessionId, t, hasProvider, modelReady, noCompatibleProvider, invalidDefault]
   );
 
   const handleCommand = useCallback((command: string) => {
@@ -888,7 +933,7 @@ export default function NewChatPage() {
         onSend={sendFirstMessage}
         onCommand={handleCommand}
         onStop={stopStreaming}
-        disabled={!modelReady || noCompatibleProvider}
+        disabled={!modelReady || noCompatibleProvider || !!invalidDefault}
         isStreaming={isStreaming}
         modelName={currentModel}
         onModelChange={setCurrentModel}

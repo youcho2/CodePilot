@@ -535,18 +535,22 @@ export function ProviderManager() {
 
   const sorted = [...providers].sort((a, b) => a.sort_order - b.sort_order);
 
-  // Save global default model — also syncs default_provider_id for backend consumers
+  // Save global default model — also syncs default_provider_id for backend
+  // consumers and (Phase 2C) writes default_mode so the new resolver
+  // contract honours the user's intent. Picking a real provider+model
+  // here means "pin to this"; picking Auto means "no commitment, let the
+  // system pick". This selector is being removed in Phase 2C.4 in favour
+  // of the Models page; keeping it consistent with the contract until then.
   const handleGlobalDefaultModelChange = useCallback(async (compositeValue: string) => {
     if (compositeValue === '__auto__') {
       setGlobalDefaultModel('');
       setGlobalDefaultProvider('');
-      // Clear both global default model AND legacy default_provider_id in one call
       await fetch('/api/providers/options', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           providerId: '__global__',
-          options: { default_model: '', default_model_provider: '', legacy_default_provider_id: '' },
+          options: { default_mode: 'auto', legacy_default_provider_id: '' },
         }),
       }).catch(() => {});
     } else {
@@ -556,13 +560,17 @@ export function ProviderManager() {
       const model = compositeValue.slice(sepIdx + 2);
       setGlobalDefaultModel(model);
       setGlobalDefaultProvider(pid);
-      // Write global default model + sync legacy default_provider_id in one call
       await fetch('/api/providers/options', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           providerId: '__global__',
-          options: { default_model: model, default_model_provider: pid, legacy_default_provider_id: pid },
+          options: {
+            default_mode: 'pinned',
+            default_model: model,
+            default_model_provider: pid,
+            legacy_default_provider_id: pid,
+          },
         }),
       }).catch(() => {});
     }

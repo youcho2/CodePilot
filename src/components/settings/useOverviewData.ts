@@ -43,8 +43,13 @@ export interface OverviewState {
   agentRuntime: string;
   cliEnabled: boolean;
   resolvedRuntimeFromApi: string | null;
+  defaultMode: "auto" | "pinned";
   defaultProviderName: string | null;
   defaultModelLabel: string | null;
+  /** Phase 2C: pinned default not reachable under effective Runtime.
+   *  Surfaced on the Overview Runtime card so the dashboard names the
+   *  problem the same way Settings → Runtime does. */
+  defaultInvalid: boolean;
   noCompatibleProvider: boolean;
   providersConfigured: number;
   modelsTotal: number;
@@ -60,8 +65,10 @@ const initialState: OverviewState = {
   agentRuntime: "claude-code-sdk",
   cliEnabled: true,
   resolvedRuntimeFromApi: null,
+  defaultMode: "auto",
   defaultProviderName: null,
   defaultModelLabel: null,
+  defaultInvalid: false,
   noCompatibleProvider: false,
   providersConfigured: 0,
   modelsTotal: 0,
@@ -106,34 +113,48 @@ export function useOverviewData(): OverviewState {
         };
         next.resolvedRuntimeFromApi = data.runtime_applied ?? null;
         const groups = data.groups ?? [];
-        if (groups.length === 0) {
+
+        let defaultMode: "auto" | "pinned" = "auto";
+        let pinnedProviderId = "";
+        let pinnedModel = "";
+        if (globalOptRes.ok) {
+          const globalData = await globalOptRes.json();
+          defaultMode = globalData?.options?.default_mode === "pinned" ? "pinned" : "auto";
+          pinnedProviderId = globalData?.options?.default_model_provider ?? "";
+          pinnedModel = globalData?.options?.default_model ?? "";
+        }
+        next.defaultMode = defaultMode;
+
+        let savedProviderId = "";
+        let savedModel = "";
+        if (typeof window !== "undefined") {
+          savedProviderId = localStorage.getItem("codepilot:last-provider-id") ?? "";
+          savedModel = localStorage.getItem("codepilot:last-model") ?? "";
+        }
+
+        const resolved = resolveNewChatDefault({
+          groups,
+          apiDefaultProviderId: data.default_provider_id,
+          mode: defaultMode,
+          pinnedProviderId,
+          pinnedModel,
+          savedProviderId,
+          savedModel,
+        });
+
+        if (resolved.status === "no-compatible") {
           next.noCompatibleProvider = true;
+        } else if (resolved.status === "invalid-default") {
+          // Pinned + unreachable. Don't fill in a fallback — that's the
+          // contract. Leave defaultProviderName/Label null and flag the
+          // card so Overview can show the broken pin without pretending
+          // a substitute is "the new default".
+          next.defaultInvalid = true;
+          next.defaultProviderName = resolved.providerName ?? null;
+          next.defaultModelLabel = resolved.modelValue ?? null;
         } else {
-          let globalDefaultModel = "";
-          let globalDefaultProvider = "";
-          if (globalOptRes.ok) {
-            const globalData = await globalOptRes.json();
-            globalDefaultModel = globalData?.options?.default_model ?? "";
-            globalDefaultProvider = globalData?.options?.default_model_provider ?? "";
-          }
-          let savedProviderId = "";
-          let savedModel = "";
-          if (typeof window !== "undefined") {
-            savedProviderId = localStorage.getItem("codepilot:last-provider-id") ?? "";
-            savedModel = localStorage.getItem("codepilot:last-model") ?? "";
-          }
-          const resolved = resolveNewChatDefault({
-            groups,
-            apiDefaultProviderId: data.default_provider_id,
-            globalDefaultModel,
-            globalDefaultProvider,
-            savedProviderId,
-            savedModel,
-          });
-          if (resolved) {
-            next.defaultProviderName = resolved.providerName;
-            next.defaultModelLabel = resolved.modelLabel;
-          }
+          next.defaultProviderName = resolved.providerName ?? null;
+          next.defaultModelLabel = resolved.modelLabel ?? null;
         }
       }
 

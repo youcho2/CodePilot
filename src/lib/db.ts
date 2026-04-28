@@ -960,6 +960,19 @@ function migrateDb(db: Database.Database): void {
     "INSERT OR IGNORE INTO settings (key, value) VALUES ('default_panel', 'file_tree')"
   ).run();
 
+  // Migration (Phase 2C): backfill `global_default_mode` for existing rows.
+  // Rule: if both pinned values are present at migration time → 'pinned'
+  // (preserves what these users had before — a committed default), else
+  // 'auto'. After this migration runs once, the mode is authoritative;
+  // subsequent setProviderOptions writes update it directly.
+  const existingMode = db.prepare("SELECT value FROM settings WHERE key = 'global_default_mode'").get() as { value: string } | undefined;
+  if (!existingMode) {
+    const m = db.prepare("SELECT value FROM settings WHERE key = 'global_default_model'").get() as { value: string } | undefined;
+    const p = db.prepare("SELECT value FROM settings WHERE key = 'global_default_model_provider'").get() as { value: string } | undefined;
+    const mode = (m?.value && p?.value) ? 'pinned' : 'auto';
+    db.prepare("INSERT INTO settings (key, value) VALUES ('global_default_mode', ?)").run(mode);
+  }
+
   // Task execution history
   db.exec(`
     CREATE TABLE IF NOT EXISTS task_run_logs (
@@ -1621,7 +1634,14 @@ export function getProviderOptions(providerId: string): import('@/types').Provid
   if (providerId === '__global__') {
     const defaultModel = getSetting('global_default_model') || undefined;
     const defaultModelProvider = getSetting('global_default_model_provider') || undefined;
+    // default_mode is the Phase 2C source of truth for "did the user pin this?".
+    // The init migration (see below) backfills it for existing rows so this
+    // accessor always sees a coherent value: pre-2C users with a stored model
+    // see 'pinned'; everyone else sees 'auto'.
+    const rawMode = getSetting('global_default_mode');
+    const defaultMode: 'auto' | 'pinned' = rawMode === 'pinned' ? 'pinned' : 'auto';
     return {
+      default_mode: defaultMode,
       ...(defaultModel ? { default_model: defaultModel } : {}),
       ...(defaultModelProvider ? { default_model_provider: defaultModelProvider } : {}),
     };
@@ -1647,6 +1667,24 @@ export function getProviderOptions(providerId: string): import('@/types').Provid
  */
 export function setProviderOptions(providerId: string, options: import('@/types').ProviderOptions): void {
   if (providerId === '__global__') {
+    // Mode is authoritative. Setting mode='auto' must clear pinned values
+    // unconditionally — and we must short-circuit before the per-field
+    // writes below, because the API route merges incoming options with
+    // existing storage. Without the early return, a `{ default_mode: 'auto' }`
+    // request gets merged with stored `default_model_provider`, the merged
+    // blob then re-writes the provider id we just cleared. Net result: no
+    // clear. Same bug used to manifest as "I picked Auto but the resolver
+    // still saw a pinned provider".
+    if (options.default_mode === 'auto') {
+      setSetting('global_default_mode', 'auto');
+      setSetting('global_default_model', '');
+      setSetting('global_default_model_provider', '');
+      if ((options as Record<string, unknown>).legacy_default_provider_id !== undefined) {
+        setSetting('default_provider_id', (options as Record<string, unknown>).legacy_default_provider_id as string);
+      }
+      return;
+    }
+    if (options.default_mode === 'pinned') setSetting('global_default_mode', 'pinned');
     if (options.default_model !== undefined) setSetting('global_default_model', options.default_model);
     if (options.default_model_provider !== undefined) setSetting('global_default_model_provider', options.default_model_provider);
     // Sync legacy default_provider_id so backend consumers (doctor, repair, etc.) stay consistent

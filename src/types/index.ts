@@ -386,9 +386,23 @@ export interface UpdateProviderRequest {
 export interface ProviderOptions {
   thinking_mode?: 'adaptive' | 'enabled' | 'disabled';
   context_1m?: boolean;
-  /** Global default model ID — used for new sessions */
+  /**
+   * Global default mode (Phase 2C contract).
+   *
+   * - `'auto'`  — system picks via the resolver's fallback chain. `default_model`
+   *               and `default_model_provider` are unused; UI may show the
+   *               last-resolved auto pick but it is not a promise.
+   * - `'pinned'` — user explicitly committed to `default_model` + `default_model_provider`.
+   *                If unavailable under the effective Runtime, the resolver
+   *                returns `'invalid-default'` and chat must block the send;
+   *                no silent substitution is allowed.
+   *
+   * Only meaningful for `__global__` provider id. Stored in `settings.global_default_mode`.
+   */
+  default_mode?: 'auto' | 'pinned';
+  /** Global default model ID — used when `default_mode === 'pinned'`. */
   default_model?: string;
-  /** Global default model's provider ID — which provider the default model belongs to */
+  /** Global default model's provider ID — used when `default_mode === 'pinned'`. */
   default_model_provider?: string;
 }
 

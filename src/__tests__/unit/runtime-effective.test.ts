@@ -4,9 +4,12 @@
  *   1. `computeEffectiveRuntime` mirrors `registry.ts:resolveRuntime`'s
  *      priority chain — `cli_enabled=false` is the highest-priority
  *      override, beating the stored `agent_runtime` value.
- *   2. `resolveNewChatDefault` mirrors `chat/page.tsx`'s resolution
- *      chain — global pair → provider-only → saved (localStorage)
- *      pair → API default → first compatible group.
+ *   2. `resolveNewChatDefault` enforces the Phase 2C contract:
+ *      - **Pinned mode** demands an exact match; missing target →
+ *        `'invalid-default'` with a reason. **No fallback.**
+ *      - **Auto mode** walks the saved → apiDefault → first chain and
+ *        always lands on `'auto-resolved'` when groups is non-empty.
+ *      - Empty groups → `'no-compatible'` regardless of mode.
  *
  * Both helpers run on the Settings Runtime page AND the chat header
  * RuntimeBadge AND the chat init path. Drift between any of those
@@ -111,103 +114,170 @@ const groupB = {
   ],
 };
 
-describe("resolveNewChatDefault", () => {
-  it("returns null when no compatible groups", () => {
-    assert.equal(
-      resolveNewChatDefault({
-        groups: [],
-        globalDefaultProvider: "anthropic-official",
-        globalDefaultModel: "sonnet",
-      }),
-      null,
-    );
-  });
-
-  it("global pair wins when both set and the model exists in the filtered group", () => {
+describe("resolveNewChatDefault — empty groups (precedence over mode)", () => {
+  it("Pinned + valid pin still returns 'no-compatible' when groups is empty", () => {
+    // 'no-compatible' wins over Pinned validity — empty groups means the
+    // current Runtime can't run anything; "fix runtime" comes before
+    // "fix pin" in the user's mental order.
     const result = resolveNewChatDefault({
-      groups: [groupA, groupB],
-      globalDefaultProvider: "anthropic-official",
-      globalDefaultModel: "opus",
+      groups: [],
+      mode: "pinned",
+      pinnedProviderId: "anthropic-official",
+      pinnedModel: "sonnet",
     });
-    assert.equal(result?.providerId, "anthropic-official");
-    assert.equal(result?.modelValue, "opus");
-    assert.equal(result?.modelLabel, "Opus 4.7");
+    assert.equal(result.status, "no-compatible");
   });
 
-  it("provider-only fallback when global model is unset", () => {
+  it("Auto + empty groups returns 'no-compatible'", () => {
     const result = resolveNewChatDefault({
-      groups: [groupA, groupB],
-      globalDefaultProvider: "anthropic-official",
-      globalDefaultModel: "",
+      groups: [],
+      mode: "auto",
+      savedProviderId: "anthropic-official",
+      savedModel: "sonnet",
     });
-    // First model in target group (sonnet, not opus).
-    assert.equal(result?.providerId, "anthropic-official");
-    assert.equal(result?.modelValue, "sonnet");
+    assert.equal(result.status, "no-compatible");
   });
+});
 
-  it("when global model is set but invalid (not in filtered group), falls through to saved pair", () => {
-    // This is the divergence the refactor closes: chat/page.tsx walks
-    // through to localStorage in this case rather than the provider-only
-    // fallback. The shared helper now matches.
+describe("resolveNewChatDefault — Pinned mode", () => {
+  it("'ok' when pinned provider + model both valid in the runtime-filtered group", () => {
     const result = resolveNewChatDefault({
       groups: [groupA, groupB],
-      globalDefaultProvider: "anthropic-official",
-      globalDefaultModel: "non-existent-model",
-      savedProviderId: "openrouter",
-      savedModel: "anthropic/claude-3-opus",
+      mode: "pinned",
+      pinnedProviderId: "anthropic-official",
+      pinnedModel: "opus",
     });
-    assert.equal(result?.providerId, "openrouter");
-    assert.equal(result?.modelValue, "anthropic/claude-3-opus");
+    assert.equal(result.status, "ok");
+    assert.equal(result.providerId, "anthropic-official");
+    assert.equal(result.modelValue, "opus");
+    assert.equal(result.modelLabel, "Opus 4.7");
   });
 
-  it("when global model is set but invalid AND saved pair is missing, falls through to API default", () => {
+  it("'invalid-default' with reason='provider-missing' when pinned provider not in groups", () => {
+    // Most likely: user pinned an OpenAI model while on Claude Code
+    // Runtime, so the provider is filtered out entirely.
     const result = resolveNewChatDefault({
-      groups: [groupA, groupB],
-      globalDefaultProvider: "anthropic-official",
-      globalDefaultModel: "non-existent-model",
-      apiDefaultProviderId: "openrouter",
+      groups: [groupA],
+      mode: "pinned",
+      pinnedProviderId: "openrouter",
+      pinnedModel: "anthropic/claude-3-opus",
     });
-    assert.equal(result?.providerId, "openrouter");
-    assert.equal(result?.modelValue, "anthropic/claude-3-opus");
+    assert.equal(result.status, "invalid-default");
+    assert.equal(result.reason, "provider-missing");
+    // Pinned values returned so UI can name what's broken.
+    assert.equal(result.providerId, "openrouter");
+    assert.equal(result.modelValue, "anthropic/claude-3-opus");
   });
 
-  it("falls through to first compatible group when nothing else matches", () => {
+  it("'invalid-default' with reason='model-missing' when provider OK but model not in its group", () => {
     const result = resolveNewChatDefault({
-      groups: [groupA, groupB],
+      groups: [groupA],
+      mode: "pinned",
+      pinnedProviderId: "anthropic-official",
+      pinnedModel: "deprecated-model",
     });
-    assert.equal(result?.providerId, "anthropic-official"); // first in list
-    assert.equal(result?.modelValue, "sonnet");
+    assert.equal(result.status, "invalid-default");
+    assert.equal(result.reason, "model-missing");
+    assert.equal(result.providerId, "anthropic-official");
+    assert.equal(result.providerName, "Anthropic");
+    assert.equal(result.modelValue, "deprecated-model");
   });
 
-  it("saved pair wins over API default when global pair is unusable and saved is valid", () => {
+  it("'invalid-default' with reason='pin-incomplete' when mode='pinned' but pin values empty", () => {
+    // Defensive — migration shouldn't create this state, but if it
+    // exists we surface it instead of silently coercing to Auto.
+    const result = resolveNewChatDefault({
+      groups: [groupA],
+      mode: "pinned",
+      pinnedProviderId: "",
+      pinnedModel: "",
+    });
+    assert.equal(result.status, "invalid-default");
+    assert.equal(result.reason, "pin-incomplete");
+  });
+
+  it("Pinned mode does NOT fall through to savedPair / apiDefault / first when pin is invalid", () => {
+    // The whole point of the contract: even when a sensible substitute
+    // exists, Pinned must fail loudly so the user knows their explicit
+    // commitment isn't being honored.
     const result = resolveNewChatDefault({
       groups: [groupA, groupB],
+      mode: "pinned",
+      pinnedProviderId: "openrouter",
+      pinnedModel: "non-existent",
+      // Plenty of fallback signals — all should be ignored:
       apiDefaultProviderId: "anthropic-official",
+      savedProviderId: "anthropic-official",
+      savedModel: "sonnet",
+    });
+    assert.equal(result.status, "invalid-default");
+    assert.equal(result.reason, "model-missing");
+    // None of the fallback hints leak into the resolved fields.
+    assert.notEqual(result.providerId, "anthropic-official");
+  });
+});
+
+describe("resolveNewChatDefault — Auto mode", () => {
+  it("'auto-resolved' via saved pair when validated against a runtime-compatible group", () => {
+    const result = resolveNewChatDefault({
+      groups: [groupA, groupB],
+      mode: "auto",
       savedProviderId: "openrouter",
       savedModel: "anthropic/claude-3-opus",
     });
-    assert.equal(result?.providerId, "openrouter",
-      "saved pair takes precedence over API default when no global pair");
+    assert.equal(result.status, "auto-resolved");
+    assert.equal(result.providerId, "openrouter");
+    assert.equal(result.modelValue, "anthropic/claude-3-opus");
   });
 
   it("saved provider with invalid saved model uses that provider's first model", () => {
     const result = resolveNewChatDefault({
       groups: [groupA, groupB],
+      mode: "auto",
       savedProviderId: "anthropic-official",
       savedModel: "deprecated-model-id",
     });
-    assert.equal(result?.providerId, "anthropic-official");
-    assert.equal(result?.modelValue, "sonnet",
-      "saved provider valid but saved model invalid → first model in that provider");
+    assert.equal(result.status, "auto-resolved");
+    assert.equal(result.providerId, "anthropic-official");
+    assert.equal(result.modelValue, "sonnet");
   });
 
-  it("saved provider entirely missing from filtered groups falls through to API default", () => {
+  it("saved provider missing → falls through to API default", () => {
     const result = resolveNewChatDefault({
       groups: [groupA, groupB],
+      mode: "auto",
       apiDefaultProviderId: "openrouter",
       savedProviderId: "deleted-provider",
       savedModel: "x",
     });
-    assert.equal(result?.providerId, "openrouter");
+    assert.equal(result.status, "auto-resolved");
+    assert.equal(result.providerId, "openrouter");
+  });
+
+  it("no saved + no API default → falls through to first compatible group", () => {
+    const result = resolveNewChatDefault({
+      groups: [groupA, groupB],
+      mode: "auto",
+    });
+    assert.equal(result.status, "auto-resolved");
+    assert.equal(result.providerId, "anthropic-official");
+    assert.equal(result.modelValue, "sonnet");
+  });
+
+  it("Auto ignores stored pinned hints (those belong to Pinned mode)", () => {
+    // If the user has stale pinned values in storage but flipped to Auto,
+    // the resolver must NOT honour them. Auto is Auto.
+    const result = resolveNewChatDefault({
+      groups: [groupA, groupB],
+      mode: "auto",
+      pinnedProviderId: "openrouter",
+      pinnedModel: "anthropic/claude-3-opus",
+      // Saved pair points elsewhere — this should win, not the pin.
+      savedProviderId: "anthropic-official",
+      savedModel: "sonnet",
+    });
+    assert.equal(result.status, "auto-resolved");
+    assert.equal(result.providerId, "anthropic-official");
+    assert.equal(result.modelValue, "sonnet");
   });
 });

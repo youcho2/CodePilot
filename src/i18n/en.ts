@@ -1530,6 +1530,8 @@ const en = {
   'error.pushFailed': 'Push failed',
   'error.directoryInvalid': 'Directory no longer exists',
   'error.providerUnavailable': 'No API provider available',
+  'error.invalidDefault': 'Pinned default model unavailable',
+  'error.invalidDefaultDesc': 'Your pinned default ({pinned}) cannot run under the current Runtime. Open Settings → Runtime to switch Runtime, enable the model, pick another default, or revert to Auto.',
   'error.retry': 'Retry',
   'error.selectDirectory': 'Select Directory',
   'error.openSetup': 'Open Setup',

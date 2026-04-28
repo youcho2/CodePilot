@@ -473,50 +473,55 @@ export function RuntimePanel() {
         setResolvedRuntimeFromApi(data.runtime_applied ?? null);
         const groups = data.groups ?? [];
 
-        if (groups.length === 0) {
+        // Pull global default mode + pin from the second options request.
+        // Phase 2C: 'pinned' demands exact-match resolution, 'auto' walks
+        // the chain. The Settings panel must read mode honestly — Pinned
+        // failures here surface as "default invalid" rather than "look,
+        // here's a fallback that isn't what you asked for".
+        let defaultMode: "auto" | "pinned" = "auto";
+        let pinnedProviderId = "";
+        let pinnedModel = "";
+        if (globalOptRes.ok) {
+          const globalData = (await globalOptRes.json()) as {
+            options?: {
+              default_mode?: "auto" | "pinned";
+              default_model?: string;
+              default_model_provider?: string;
+            };
+          };
+          defaultMode = globalData.options?.default_mode === "pinned" ? "pinned" : "auto";
+          pinnedProviderId = globalData.options?.default_model_provider ?? "";
+          pinnedModel = globalData.options?.default_model ?? "";
+        }
+
+        let savedProviderId = "";
+        let savedModel = "";
+        if (typeof window !== "undefined") {
+          savedProviderId = localStorage.getItem("codepilot:last-provider-id") ?? "";
+          savedModel = localStorage.getItem("codepilot:last-model") ?? "";
+        }
+
+        const resolved = resolveNewChatDefault({
+          groups,
+          apiDefaultProviderId: data.default_provider_id,
+          mode: defaultMode,
+          pinnedProviderId,
+          pinnedModel,
+          savedProviderId,
+          savedModel,
+        });
+
+        if (resolved.status === "no-compatible") {
           setNoCompatibleProvider(true);
           setDefaultProviderName(null);
           setDefaultModelLabel(null);
         } else {
           setNoCompatibleProvider(false);
-
-          // Pull global default pair from the second options request,
-          // plus localStorage saved pair (mirrors what chat/page.tsx
-          // reads at chat init). Together they let `resolveNewChatDefault`
-          // produce the exact same result chat init would.
-          let globalDefaultModel = "";
-          let globalDefaultProvider = "";
-          if (globalOptRes.ok) {
-            const globalData = await globalOptRes.json() as {
-              options?: { default_model?: string; default_model_provider?: string };
-            };
-            globalDefaultModel = globalData.options?.default_model ?? "";
-            globalDefaultProvider = globalData.options?.default_model_provider ?? "";
-          }
-
-          let savedProviderId = "";
-          let savedModel = "";
-          if (typeof window !== "undefined") {
-            savedProviderId = localStorage.getItem("codepilot:last-provider-id") ?? "";
-            savedModel = localStorage.getItem("codepilot:last-model") ?? "";
-          }
-
-          const resolved = resolveNewChatDefault({
-            groups,
-            apiDefaultProviderId: data.default_provider_id,
-            globalDefaultModel,
-            globalDefaultProvider,
-            savedProviderId,
-            savedModel,
-          });
-
-          if (resolved) {
-            setDefaultProviderName(resolved.providerName);
-            setDefaultModelLabel(resolved.modelLabel);
-          } else {
-            setDefaultProviderName(null);
-            setDefaultModelLabel(null);
-          }
+          // For 'invalid-default' we still surface the (broken) pinned
+          // values so the explainer block names what's wrong. The
+          // dedicated banner + recovery actions land in Phase 2C.3.
+          setDefaultProviderName(resolved.providerName ?? null);
+          setDefaultModelLabel(resolved.modelLabel ?? null);
         }
       } else {
         // API itself unreachable — clear the explainer rather than show stale data.
