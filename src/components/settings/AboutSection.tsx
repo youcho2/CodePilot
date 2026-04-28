@@ -97,8 +97,25 @@ export function AboutSection() {
   const handleOpenLogFolder = async () => {
     if (!logPath) return;
     try {
-      await window.electronAPI?.shell?.openPath(logPath);
+      // Electron's `shell.openPath` resolves with a *string* — empty
+      // means success, non-empty is the OS-level error message
+      // ("no such file", permission denied, etc). It rarely throws.
+      // Without checking the returned string the user's last escape
+      // hatch silently does nothing on failure; the OS error is more
+      // useful to surface in the toast than a generic failure message.
+      const error = await window.electronAPI?.shell?.openPath(logPath);
+      if (error) {
+        showToast({
+          message: isZh
+            ? `打开日志文件夹失败：${error}`
+            : `Failed to open log folder: ${error}`,
+          type: "error",
+        });
+      }
     } catch {
+      // Truly thrown (rare). Generic toast is the best we can do —
+      // the OS-level reason is in the rejected error but we don't
+      // surface raw exception copy to end users.
       showToast({
         message: isZh ? "打开日志文件夹失败" : "Failed to open log folder",
         type: "error",
@@ -336,8 +353,8 @@ export function AboutSection() {
         title={isZh ? "支持与日志" : "Support & logs"}
         description={
           isZh
-            ? "打开持久日志文件夹查看 / 反馈，导出诊断包作为补充，运行设置向导，从其他客户端导入历史会话"
-            : "Open the persistent log folder for inspection / issue filing, export a diagnostic bundle as a fallback, run the setup wizard, import chat history"
+            ? "打开持久日志文件夹查看 / 反馈（已自动脱敏 API key、token、Bearer、URL 凭证、本地路径）；导出诊断包作为补充；运行设置向导；从其他客户端导入历史会话"
+            : "Open the persistent log folder for inspection / issue filing — API keys, tokens, Bearer/Authorization values, URL credentials, and home paths are automatically scrubbed. Export a diagnostic bundle as a fallback, run the setup wizard, import chat history."
         }
       >
         <div className="flex flex-wrap items-center gap-2">

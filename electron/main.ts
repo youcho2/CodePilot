@@ -25,6 +25,7 @@ import fs from 'fs';
 import net from 'net';
 import os from 'os';
 import { TerminalManager } from './terminal-manager';
+import { sanitizeLogLine } from './log-sanitize';
 
 /**
  * Return a copy of process.env without __NEXT_PRIVATE_* variables.
@@ -840,7 +841,7 @@ function setupPersistentMainLog() {
     fs.mkdirSync(logsDir, { recursive: true });
     const logFile = path.join(logsDir, 'codepilot-main.log');
     const stream = fs.createWriteStream(logFile, { flags: 'a' });
-    stream.write(`\n=== session start ${new Date().toISOString()} ===\n`);
+    stream.write(`\n=== session start ${new Date().toISOString()} (sanitized) ===\n`);
 
     const origLog = console.log.bind(console);
     const origWarn = console.warn.bind(console);
@@ -855,7 +856,14 @@ function setupPersistentMainLog() {
           try { return JSON.stringify(a); } catch { return String(a); }
         })
         .join(' ');
-      return `${ts} [${level}] ${msg}\n`;
+      // Phase 2C.6 follow-up: scrub before append. About promotes
+      // this file as the primary support entry, so leaking a key /
+      // bearer token / home path here would be a credential leak
+      // channel. Stdout (terminal output the dev sees) stays raw —
+      // only the on-disk copy that the user might attach to an
+      // issue gets sanitized.
+      const sanitized = sanitizeLogLine(msg);
+      return `${ts} [${level}] ${sanitized}\n`;
     };
 
     console.log = (...args: unknown[]) => { stream.write(fmt('log', args)); origLog(...args); };
@@ -863,7 +871,7 @@ function setupPersistentMainLog() {
     console.error = (...args: unknown[]) => { stream.write(fmt('error', args)); origError(...args); };
   } catch (err) {
     // Logging is best-effort — don't block app startup if disk is full / readonly.
-     
+
     console.warn('Failed to set up persistent main log:', err);
   }
 }
