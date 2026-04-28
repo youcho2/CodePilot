@@ -151,6 +151,26 @@ const zh: Record<TranslationKey, string> = {
   'settings.modeDark': '深色',
   'settings.modeSystem': '跟随系统',
 
+  // ── Settings: Overview (dashboard) ───────────────────────────
+  'overview.gettingStarted': '起步指南',
+  'overview.completed': '{done}/{total} 已完成',
+  'overview.checklistConnectProvider': '连接服务商',
+  'overview.checklistConnectProviderDesc': '至少添加一个 provider，picker 才有可对话的对象。',
+  'overview.checklistEnableModels': '启用模型',
+  'overview.checklistEnableModelsDesc': '在模型页里把你想用的那些打开。',
+  'overview.checklistVerifyRuntime': '验证 Runtime',
+  'overview.checklistVerifyRuntimeDesc': '当前运行环境处于降级路径，请检查并恢复。',
+  'overview.checklistConfigureWorkspace': '配置助理工作空间',
+  'overview.checklistConfigureWorkspaceDesc': '为助理设定一个本地工作目录。',
+  'overview.actionGoConfigure': '去配置',
+  'overview.heatmapTitle': 'Token 用量活跃度',
+  'overview.heatmapTotal': 'Token 总用量',
+  'overview.heatmapMostActive': '最活跃的一天',
+  'overview.heatmapCurrentStreak': '当前连续天数',
+  'overview.heatmapLongestStreak': '最长连续天数',
+  'overview.heatmapEmpty': '尚无用量数据 — 开始一段对话即可看到。',
+  'overview.heatmapViewDetails': '查看完整用量统计',
+
   // ── Settings: Usage Stats ───────────────────────────────────
   'usage.totalTokens': '总 Token',
   'usage.totalCost': '总费用',

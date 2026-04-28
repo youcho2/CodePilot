@@ -80,7 +80,7 @@ Every Settings sub-page uses the same outer container:
 </div>
 ```
 
-- **`max-w-4xl`** = 896px. All Settings sub-pages share this — **Overview** / General / Appearance / Providers / Models / Runtime / Usage / Assistant / **About**. Overview at the top is a *status dashboard*, not a config page — five cards (Runtime / new-chat default / models exposure / assistant workspace / system) each with one primary jump button. About at the bottom carries version + update check + platform info + account + diagnostics + external links. The middle stays the three-layer mental model: Providers (assets) → Models (exposure) → Runtime (environment). General is strictly application behavior; visual customization is its own page (Appearance).
+- **`max-w-4xl`** = 896px for config pages; **`max-w-5xl`** = 1024px for **Overview** (it carries a 2-col card grid + a 365-day heatmap and needs the extra width). Page list: **Overview** / General / Appearance / Providers / Models / Runtime / Usage / Assistant / **About**. Overview at the top is a *status dashboard*, not a config page — three layers: (1) a "Getting started" checklist that auto-hides once 4/4 items are done (provider connected / models enabled / runtime verified / workspace configured); (2) a 2-col grid of 6 status cards — Runtime / Providers / Models / Assistant Workspace / Update & About / Setup & Diagnostics — where attention-needed cards pick up `status-warning-muted` accent and configured cards stay flat (so the page reads as a status dashboard, not a wall of black tiles); (3) GitHub-contribution-style token-usage heatmap with 30/90/365D range pills + total / most-active day / longest streak / current streak summary. About at the bottom carries version + update check + platform info + account + diagnostics + external links. The middle stays the three-layer mental model: Providers (assets) → Models (exposure) → Runtime (environment). General is strictly application behavior; visual customization is its own page (Appearance).
 - **`mx-auto`** centers horizontally. Don't left-align.
 - **`space-y-10`** (40px) between top-level sections gives Luma-style breathing room.
 - Within a section: `space-y-6` (24px) for header → body, `space-y-3` (12px) for sub-blocks.
@@ -527,7 +527,7 @@ Don't display only the enabled count — users hide things and need to remember 
 |---|---|
 | Settings shell + nav | `src/components/settings/SettingsLayout.tsx` |
 | Page-level container width (Settings sub-pages) | `src/components/settings/{OverviewSection,GeneralSection,AppearanceSection,ProviderManager,ModelsSection,RuntimePanel,UsageStatsSection,AssistantWorkspaceSection,AboutSection}.tsx` |
-| Status-dashboard cards | `OverviewSection.tsx` (`OverviewCard` sub-component, 5 cards each with one primary jump action) |
+| Status-dashboard cards | `OverviewSection.tsx` — `GettingStartedBar` (top checklist, auto-hides at 4/4) + 6 `OverviewCard` in `lg:grid-cols-2` (Runtime / Providers / Models / Assistant Workspace / Update & About / Setup & Diagnostics; warning-tone cards pick up `status-warning-muted` accent) + `OverviewHeatmap.tsx` (365-day grid + 30/90/365D pills, reuses `/api/usage/stats`) |
 | Outer card | `ProviderCard.tsx` (`rounded-lg bg-card border border-border/50 p-5`) |
 | Inset divider sub-card | `ProviderCard.tsx` info section (`rounded-md bg-muted/40` + `px-3.5 divide-y divide-border/50`) |
 | Sub-card row with relative-time + tooltip | `ProviderCard.tsx` ("Last refresh" row uses `formatRelativeTime` + `title` for absolute UTC) |

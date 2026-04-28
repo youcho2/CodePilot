@@ -3,17 +3,18 @@
 /**
  * Settings → Overview — the dashboard of the Settings shell.
  *
- * Not "another settings page": a status summary that lets the user see
- * the whole Agent stack at a glance and jump to whichever section they
- * actually need.
+ * Three layers, top to bottom:
  *
- * Five cards, one per concern, each with a single primary action:
- *
- *   1. Runtime              → "去 Runtime"   (status, fallback, why)
- *   2. New-chat default     → "去服务商" / "去模型"
- *   3. Models exposure      → "去模型"       (enabled / total / manual)
- *   4. Assistant Workspace  → "去助理"
- *   5. System               → "运行诊断"     (updates + warnings)
+ *   1. Getting Started checklist — 4 items (provider / models / runtime
+ *      / workspace). Hidden once 4/4 done. Each pending item carries its
+ *      own jump button so the user can pick whichever step they want.
+ *   2. 6 status cards in a 2-col grid: Runtime, Providers, Models,
+ *      Assistant Workspace, Update / About, Setup / Diagnostics. Cards
+ *      that need attention pick up an accent (`status-warning-muted`),
+ *      already-configured cards stay flat — so the page no longer reads
+ *      as "all uniform black tiles".
+ *   3. Token usage heatmap — GitHub-style 7×N grid + summary stats over
+ *      the chosen 30 / 90 / 365 day window. Reuses `/api/usage/stats`.
  *
  * Resolution helpers (`computeEffectiveRuntime`, `resolveNewChatDefault`)
  * are reused from `src/lib/runtime/effective.ts` so this surface and
@@ -21,7 +22,7 @@
  * effect and what the next chat would resolve to.
  */
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { useTranslation } from "@/hooks/useTranslation";
 import { useAccountInfo } from "@/hooks/useAccountInfo";
 import { useUpdate } from "@/hooks/useUpdate";
@@ -34,9 +35,11 @@ import {
   UserCircle,
   Stethoscope,
   CheckCircle,
+  Circle,
   Warning,
   CaretRight,
   ArrowsClockwise,
+  Info,
 } from "@/components/ui/icon";
 import { cn } from "@/lib/utils";
 import {
@@ -46,6 +49,7 @@ import {
   type AgentRuntime,
 } from "@/lib/runtime/effective";
 import type { TranslationKey } from "@/i18n";
+import { OverviewHeatmap } from "./OverviewHeatmap";
 
 interface ProviderModelGroup {
   provider_id: string;
@@ -62,20 +66,17 @@ interface ModelRow {
 
 interface OverviewState {
   loading: boolean;
-  // Runtime
   agentRuntime: string;
   cliEnabled: boolean;
-  // Resolved new-chat default
   resolvedRuntimeFromApi: string | null;
   defaultProviderName: string | null;
   defaultModelLabel: string | null;
   noCompatibleProvider: boolean;
-  // Models aggregate
+  providersConfigured: number;
   modelsTotal: number;
   modelsEnabled: number;
   modelsManualEnabled: number;
   modelsManualHidden: number;
-  // Workspace
   workspaceConfigured: boolean;
   workspaceName: string | null;
 }
@@ -88,6 +89,7 @@ const initialState: OverviewState = {
   defaultProviderName: null,
   defaultModelLabel: null,
   noCompatibleProvider: false,
+  providersConfigured: 0,
   modelsTotal: 0,
   modelsEnabled: 0,
   modelsManualEnabled: 0,
@@ -100,14 +102,107 @@ const initialState: OverviewState = {
 // Sub-components
 // ---------------------------------------------------------------------------
 
+interface ChecklistItem {
+  id: string;
+  label: string;
+  desc: string;
+  done: boolean;
+  actionLabel: string;
+  onAction: () => void;
+}
+
+function GettingStartedBar({
+  items,
+  isZh,
+  t,
+}: {
+  items: ChecklistItem[];
+  isZh: boolean;
+  t: (key: TranslationKey, vars?: Record<string, string | number>) => string;
+}) {
+  const total = items.length;
+  const done = items.filter((i) => i.done).length;
+
+  return (
+    <div className="rounded-lg border border-border/50 bg-card overflow-hidden">
+      {/* Header — title + N/M completed counter */}
+      <div className="flex items-center justify-between gap-3 px-4 py-3 border-b border-border/40">
+        <h3 className="text-sm font-semibold">
+          {t("overview.gettingStarted" as TranslationKey)}
+        </h3>
+        <span className="text-[11px] text-muted-foreground tabular-nums">
+          {t("overview.completed" as TranslationKey, { done, total })}
+        </span>
+      </div>
+
+      {/* Items — pending first (so the user sees what's left), then done */}
+      <ul className="divide-y divide-border/40">
+        {[...items].sort((a, b) => Number(a.done) - Number(b.done)).map((item) => (
+          <li
+            key={item.id}
+            className={cn(
+              "flex items-center gap-3 px-4 py-2.5",
+              item.done ? "bg-transparent" : "bg-status-warning-muted/20",
+            )}
+          >
+            <span className="shrink-0">
+              {item.done ? (
+                <CheckCircle
+                  size={16}
+                  weight="fill"
+                  className="text-status-success-foreground"
+                />
+              ) : (
+                <Circle size={16} className="text-muted-foreground" />
+              )}
+            </span>
+            <div className="min-w-0 flex-1">
+              <p
+                className={cn(
+                  "text-xs font-medium leading-tight",
+                  item.done ? "text-muted-foreground" : "text-foreground",
+                )}
+              >
+                {item.label}
+              </p>
+              {!item.done && (
+                <p className="text-[11px] text-muted-foreground mt-0.5">
+                  {item.desc}
+                </p>
+              )}
+            </div>
+            {!item.done && (
+              <Button
+                size="sm"
+                onClick={item.onAction}
+                className="h-7 px-3 text-[11px] shrink-0"
+              >
+                {item.actionLabel}
+              </Button>
+            )}
+          </li>
+        ))}
+      </ul>
+
+      {/* Optional footer when all done — but the bar is hidden in that case */}
+      {done === total && (
+        <div className="px-4 py-2.5 text-[11px] text-status-success-foreground bg-status-success-muted/30">
+          {isZh ? "✓ 全部就绪" : "✓ All set"}
+        </div>
+      )}
+    </div>
+  );
+}
+
 interface OverviewCardProps {
   icon: React.ReactNode;
   title: string;
-  /** Tone of the leading status dot; matches design.md status pill colors. */
+  /** Tone of the leading status dot + card accent. */
   tone: "success" | "warning" | "muted";
   children: React.ReactNode;
   primaryActionLabel: string;
   onPrimaryAction: () => void;
+  footer?: React.ReactNode;
 }
 
 function OverviewCard({
@@ -117,32 +212,47 @@ function OverviewCard({
   children,
   primaryActionLabel,
   onPrimaryAction,
+  footer,
 }: OverviewCardProps) {
   const dotTone: Record<typeof tone, string> = {
     success: "bg-status-success-foreground",
     warning: "bg-status-warning-foreground",
-    muted: "bg-muted-foreground",
+    muted: "bg-muted-foreground/40",
   };
+  const needsAttention = tone === "warning";
   return (
-    <div className="rounded-lg bg-card border border-border/50 p-5 flex flex-col gap-3">
+    <div
+      className={cn(
+        "rounded-lg border p-5 flex flex-col gap-3 h-full",
+        needsAttention
+          ? "border-status-warning-border bg-status-warning-muted/30"
+          : "border-border/50 bg-card",
+      )}
+    >
       <div className="flex items-center gap-2">
-        <div className="size-7 rounded-md bg-muted/60 flex items-center justify-center shrink-0">
-          {icon}
-        </div>
-        <h3 className="text-sm font-semibold leading-tight flex-1 min-w-0">{title}</h3>
+        <span className="shrink-0 text-foreground/65">{icon}</span>
+        <h3 className="text-sm font-semibold leading-tight flex-1 min-w-0">
+          {title}
+        </h3>
         <span className={cn("size-1.5 rounded-full shrink-0", dotTone[tone])} />
       </div>
-      <div className="text-xs text-foreground/85 space-y-1.5">{children}</div>
-      <div className="pt-1">
+      <div className="text-xs text-foreground/85 space-y-1.5 flex-1">
+        {children}
+      </div>
+      <div className="pt-1 flex items-center gap-2 flex-wrap">
         <Button
-          variant="ghost"
+          variant={needsAttention ? "default" : "ghost"}
           size="sm"
-          className="-ml-2 gap-1 text-xs text-muted-foreground hover:text-foreground"
+          className={cn(
+            "gap-1 text-xs",
+            needsAttention ? "h-7 px-3" : "-ml-2 text-muted-foreground hover:text-foreground",
+          )}
           onClick={onPrimaryAction}
         >
           {primaryActionLabel}
-          <CaretRight size={12} weight="bold" />
+          {!needsAttention && <CaretRight size={12} weight="bold" />}
         </Button>
+        {footer}
       </div>
     </div>
   );
@@ -223,25 +333,20 @@ export function OverviewSection() {
       }
 
       // Unfiltered group list — used for the models aggregate counts.
-      // We need per-row enable_source to count manual_enabled / manual_hidden,
-      // which the picker-feed endpoint doesn't expose. Fall back to per-
-      // provider /models?all=1 fetches to get those counts.
       if (modelsAllRes.ok) {
         const data = (await modelsAllRes.json()) as { groups?: ProviderModelGroup[] };
         const groups = data.groups ?? [];
+        next.providersConfigured = groups.length;
         let total = 0;
         let enabled = 0;
         for (const g of groups) {
           total += g.total_count ?? g.models.length;
-          enabled += g.models.length; // groups returned here are picker-feed (enabled-only)
+          enabled += g.models.length;
         }
         next.modelsTotal = total;
         next.modelsEnabled = enabled;
 
         // Per-provider deep fetch for manual_enabled / manual_hidden counts.
-        // These tell the user "you've made N decisions that survive every
-        // refresh" — a useful proxy for "have I actually customized this".
-        // Skip the env / openai-oauth synthetic groups (no DB rows).
         const dbGroups = groups.filter(
           (g) => g.provider_id !== "env" && g.provider_id !== "openai-oauth",
         );
@@ -283,20 +388,17 @@ export function OverviewSection() {
     fetchAll();
   }, [fetchAll]);
 
-  // Listener — refetch when the user changes provider / models / runtime
-  // settings in another section. The dashboard should reflect their
-  // changes when they bounce back here.
   useEffect(() => {
     const handler = () => { fetchAll(); };
     window.addEventListener("provider-changed", handler);
     return () => window.removeEventListener("provider-changed", handler);
   }, [fetchAll]);
 
-  const navTo = (hash: string) => {
+  const navTo = useCallback((hash: string) => {
     if (typeof window !== "undefined") {
       window.location.hash = hash;
     }
-  };
+  }, []);
 
   const cliConnected = !!claudeStatus?.connected;
   const effectiveRuntime: AgentRuntime = computeEffectiveRuntime(
@@ -307,11 +409,59 @@ export function OverviewSection() {
   const runtimeIsFallback =
     state.agentRuntime === "claude-code-sdk" && effectiveRuntime !== "claude-code-sdk";
   const runtimeLabel = runtimeDisplayLabel(effectiveRuntime);
-  const claudeWarnings = claudeStatus?.warnings && claudeStatus.warnings.length > 0;
+  const claudeWarnings = !!(claudeStatus?.warnings && claudeStatus.warnings.length > 0);
+
+  // Build the checklist. Tasks resolve once per render; once a task is
+  // done it stays "done" until the underlying state changes — no stuck-
+  // checked rows.
+  const checklist: ChecklistItem[] = useMemo(() => [
+    {
+      id: "connect-provider",
+      label: t("overview.checklistConnectProvider" as TranslationKey),
+      desc: t("overview.checklistConnectProviderDesc" as TranslationKey),
+      done: state.providersConfigured > 0,
+      actionLabel: t("overview.actionGoConfigure" as TranslationKey),
+      onAction: () => navTo("#providers"),
+    },
+    {
+      id: "enable-models",
+      label: t("overview.checklistEnableModels" as TranslationKey),
+      desc: t("overview.checklistEnableModelsDesc" as TranslationKey),
+      // Only ask once a provider exists; "no provider" is covered above.
+      done: state.providersConfigured === 0 || state.modelsEnabled > 0,
+      actionLabel: t("overview.actionGoConfigure" as TranslationKey),
+      onAction: () => navTo("#models"),
+    },
+    {
+      id: "verify-runtime",
+      label: t("overview.checklistVerifyRuntime" as TranslationKey),
+      desc: t("overview.checklistVerifyRuntimeDesc" as TranslationKey),
+      done: !runtimeIsFallback && !claudeWarnings,
+      actionLabel: t("overview.actionGoConfigure" as TranslationKey),
+      onAction: () => navTo("#runtime"),
+    },
+    {
+      id: "configure-workspace",
+      label: t("overview.checklistConfigureWorkspace" as TranslationKey),
+      desc: t("overview.checklistConfigureWorkspaceDesc" as TranslationKey),
+      done: state.workspaceConfigured,
+      actionLabel: t("overview.actionGoConfigure" as TranslationKey),
+      onAction: () => navTo("#assistant"),
+    },
+  ], [
+    t, navTo,
+    state.providersConfigured,
+    state.modelsEnabled,
+    runtimeIsFallback,
+    claudeWarnings,
+    state.workspaceConfigured,
+  ]);
+
+  const allDone = checklist.every((c) => c.done);
 
   if (state.loading) {
     return (
-      <div className="max-w-4xl mx-auto space-y-6">
+      <div className="max-w-5xl mx-auto space-y-6">
         <div>
           <h2 className="text-sm font-medium">{t("settings.overview" as TranslationKey)}</h2>
           <p className="text-[11px] text-muted-foreground mt-0.5">
@@ -326,7 +476,7 @@ export function OverviewSection() {
   }
 
   return (
-    <div className="max-w-4xl mx-auto space-y-6">
+    <div className="max-w-5xl mx-auto space-y-6">
       <div>
         <h2 className="text-sm font-medium">{t("settings.overview" as TranslationKey)}</h2>
         <p className="text-[11px] text-muted-foreground mt-0.5">
@@ -334,177 +484,229 @@ export function OverviewSection() {
         </p>
       </div>
 
-      {/* Card 1 — Runtime status. The single most-asked question on this
-          page is "what's running my Agent right now"; surface it first. */}
-      <OverviewCard
-        icon={<Lightning size={14} weight="fill" className="text-status-success-foreground" />}
-        title={isZh ? "运行环境" : "Runtime"}
-        tone={runtimeIsFallback ? "warning" : "success"}
-        primaryActionLabel={isZh ? "管理 Runtime" : "Manage Runtime"}
-        onPrimaryAction={() => navTo("#runtime")}
-      >
-        <p>
-          <span className="text-muted-foreground">
-            {isZh ? "当前默认：" : "Current default: "}
-          </span>
-          <span className="font-medium">{runtimeLabel}</span>
-          {runtimeIsFallback && (
-            <span className="ml-1 text-status-warning-foreground">
-              {!state.cliEnabled
-                ? (isZh ? "（CLI 已禁用，自动降级）" : "(CLI disabled, fallback)")
-                : (isZh ? "（Claude Code 不可用，自动降级）" : "(Claude Code unavailable, fallback)")}
-            </span>
-          )}
-        </p>
-        {claudeWarnings && (
-          <p className="text-status-warning-foreground flex items-start gap-1">
-            <Warning size={12} weight="fill" className="mt-0.5 shrink-0" />
-            <span>{isZh ? "Claude Code 有兼容性提示" : "Claude Code reports compatibility warnings"}</span>
-          </p>
-        )}
-      </OverviewCard>
+      {/* Top — Getting Started checklist (hidden once everything done) */}
+      {!allDone && <GettingStartedBar items={checklist} isZh={isZh} t={t} />}
 
-      {/* Card 2 — New chat default. Quick "if I open a new chat right
-          now, who's it talking to?" — bridges Runtime and Providers. */}
-      <OverviewCard
-        icon={<Plug size={14} className="text-foreground/70" />}
-        title={isZh ? "新会话默认" : "New chat default"}
-        tone={state.noCompatibleProvider ? "warning" : "muted"}
-        primaryActionLabel={isZh ? "管理服务商" : "Manage providers"}
-        onPrimaryAction={() => navTo("#providers")}
-      >
-        {state.noCompatibleProvider ? (
-          <p className="text-status-warning-foreground">
-            {isZh
-              ? `当前 Runtime（${runtimeLabel}）下没有可用的 provider/model。新会话将进入"无兼容服务"状态。`
-              : `No provider / model is compatible with the current runtime (${runtimeLabel}). New chats will land in the "no compatible provider" state.`}
-          </p>
-        ) : (
-          <>
-            <p>
-              <span className="text-muted-foreground">{isZh ? "Provider：" : "Provider: "}</span>
-              <span className="font-medium">
-                {state.defaultProviderName ?? (isZh ? "未配置" : "Not configured")}
-              </span>
-            </p>
-            <p>
-              <span className="text-muted-foreground">{isZh ? "模型：" : "Model: "}</span>
-              <span className="font-medium">
-                {state.defaultModelLabel ?? (isZh ? "未配置" : "Not configured")}
-              </span>
-            </p>
-          </>
-        )}
-      </OverviewCard>
-
-      {/* Card 3 — Models exposure. enabled / total + manual_* counts so
-          the user sees both raw inventory and how customized they've made it. */}
-      <OverviewCard
-        icon={<Brain size={14} className="text-foreground/70" />}
-        title={isZh ? "模型暴露" : "Models exposure"}
-        tone="muted"
-        primaryActionLabel={isZh ? "管理模型" : "Manage models"}
-        onPrimaryAction={() => navTo("#models")}
-      >
-        <p>
-          <span className="text-muted-foreground">
-            {isZh ? "可见 / 全部：" : "Visible / total: "}
-          </span>
-          <span className="font-medium">
-            {state.modelsEnabled} / {state.modelsTotal}
-          </span>
-        </p>
-        {(state.modelsManualEnabled > 0 || state.modelsManualHidden > 0) && (
-          <p className="text-muted-foreground">
-            {isZh
-              ? `手动启用 ${state.modelsManualEnabled} · 手动隐藏 ${state.modelsManualHidden}（刷新不会覆盖）`
-              : `${state.modelsManualEnabled} manually enabled · ${state.modelsManualHidden} manually hidden (preserved on refresh)`}
-          </p>
-        )}
-      </OverviewCard>
-
-      {/* Card 4 — Assistant Workspace. Just configured / not yet —
-          deep config lives on the dedicated page. */}
-      <OverviewCard
-        icon={<UserCircle size={14} className="text-foreground/70" />}
-        title={isZh ? "助理工作空间" : "Assistant Workspace"}
-        tone={state.workspaceConfigured ? "success" : "muted"}
-        primaryActionLabel={isZh ? "管理助理" : "Manage assistant"}
-        onPrimaryAction={() => navTo("#assistant")}
-      >
-        {state.workspaceConfigured ? (
+      {/* Middle — 6 status cards in a 2-col grid */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        {/* Card 1 — Runtime status */}
+        <OverviewCard
+          icon={<Lightning size={16} weight={runtimeIsFallback ? "regular" : "fill"} />}
+          title={isZh ? "运行环境" : "Runtime"}
+          tone={runtimeIsFallback ? "warning" : "success"}
+          primaryActionLabel={
+            runtimeIsFallback
+              ? isZh ? "去 Runtime 修复" : "Fix in Runtime"
+              : isZh ? "管理 Runtime" : "Manage Runtime"
+          }
+          onPrimaryAction={() => navTo("#runtime")}
+        >
           <p>
-            <CheckCircle
-              size={12}
-              weight="fill"
-              className="inline-block text-status-success-foreground mr-1 -mt-0.5"
-            />
-            {state.workspaceName
-              ? (isZh ? `已配置：${state.workspaceName}` : `Configured: ${state.workspaceName}`)
-              : (isZh ? "已配置工作空间" : "Workspace configured")}
+            <span className="text-muted-foreground">
+              {isZh ? "当前默认：" : "Current default: "}
+            </span>
+            <span className="font-medium">{runtimeLabel}</span>
+            {runtimeIsFallback && (
+              <span className="ml-1 text-status-warning-foreground">
+                {!state.cliEnabled
+                  ? (isZh ? "（CLI 已禁用，自动降级）" : "(CLI disabled, fallback)")
+                  : (isZh ? "（Claude Code 不可用，自动降级）" : "(Claude Code unavailable, fallback)")}
+              </span>
+            )}
           </p>
-        ) : (
-          <p className="text-muted-foreground">
-            {isZh
-              ? "尚未配置 — 设定一个本地工作目录开始使用助理"
-              : "Not yet configured — pick a local working directory to start"}
-          </p>
-        )}
-      </OverviewCard>
+          {claudeWarnings && (
+            <p className="text-status-warning-foreground flex items-start gap-1">
+              <Warning size={12} weight="fill" className="mt-0.5 shrink-0" />
+              <span>{isZh ? "Claude Code 有兼容性提示" : "Claude Code reports compatibility warnings"}</span>
+            </p>
+          )}
+        </OverviewCard>
 
-      {/* Card 5 — System status. Updates / diagnose / Setup Center
-          entry. Replaces what used to live in General. */}
-      <OverviewCard
-        icon={<Stethoscope size={14} className="text-foreground/70" />}
-        title={isZh ? "系统" : "System"}
-        tone={updateInfo?.updateAvailable ? "warning" : "success"}
-        primaryActionLabel={isZh ? "查看 / 关于" : "View / About"}
-        onPrimaryAction={() => navTo("#about")}
-      >
-        {updateInfo?.updateAvailable ? (
-          <p className="text-status-warning-foreground flex items-start gap-1">
-            <Warning size={12} weight="fill" className="mt-0.5 shrink-0" />
-            <span>
+        {/* Card 2 — Providers (provider count + new-chat default) */}
+        <OverviewCard
+          icon={<Plug size={16} />}
+          title={isZh ? "服务商" : "Providers"}
+          tone={state.noCompatibleProvider ? "warning" : "muted"}
+          primaryActionLabel={isZh ? "管理服务商" : "Manage providers"}
+          onPrimaryAction={() => navTo("#providers")}
+        >
+          <p>
+            <span className="text-muted-foreground">
+              {isZh ? "已接入：" : "Configured: "}
+            </span>
+            <span className="font-medium">{state.providersConfigured}</span>
+          </p>
+          {state.noCompatibleProvider ? (
+            <p className="text-status-warning-foreground">
               {isZh
-                ? `有新版本 v${updateInfo.latestVersion} 可用`
-                : `Update available: v${updateInfo.latestVersion}`}
+                ? `当前 Runtime（${runtimeLabel}）下没有可用的 provider/model。`
+                : `No provider / model is compatible with the current runtime (${runtimeLabel}).`}
+            </p>
+          ) : (
+            <>
+              <p>
+                <span className="text-muted-foreground">{isZh ? "默认服务商：" : "Default provider: "}</span>
+                <span className="font-medium">
+                  {state.defaultProviderName ?? (isZh ? "未配置" : "Not configured")}
+                </span>
+              </p>
+              <p>
+                <span className="text-muted-foreground">{isZh ? "默认模型：" : "Default model: "}</span>
+                <span className="font-medium">
+                  {state.defaultModelLabel ?? (isZh ? "未配置" : "Not configured")}
+                </span>
+              </p>
+            </>
+          )}
+        </OverviewCard>
+
+        {/* Card 3 — Models exposure */}
+        <OverviewCard
+          icon={<Brain size={16} />}
+          title={isZh ? "模型暴露" : "Models exposure"}
+          tone={state.modelsEnabled === 0 && state.providersConfigured > 0 ? "warning" : "muted"}
+          primaryActionLabel={isZh ? "管理模型" : "Manage models"}
+          onPrimaryAction={() => navTo("#models")}
+        >
+          <p>
+            <span className="text-muted-foreground">
+              {isZh ? "可见 / 全部：" : "Visible / total: "}
+            </span>
+            <span className="font-medium">
+              {state.modelsEnabled} / {state.modelsTotal}
             </span>
           </p>
-        ) : (
-          <p className="text-muted-foreground">
-            {checking
-              ? (isZh ? "正在检查更新…" : "Checking for updates…")
-              : (isZh ? "已是最新版本" : "Up to date")}
-          </p>
-        )}
-        {accountInfo?.email && (
-          <p className="text-muted-foreground">
-            {isZh ? "账户：" : "Account: "}
-            <span className="text-foreground/85">{accountInfo.email}</span>
-          </p>
-        )}
-        <div className="flex items-center gap-2 pt-1">
-          <Button
-            variant="outline"
-            size="sm"
-            className="text-xs gap-1.5"
-            onClick={() => window.dispatchEvent(new CustomEvent("open-setup-center"))}
-          >
-            <Stethoscope size={12} />
-            {isZh ? "运行设置向导" : "Run setup wizard"}
-          </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            className="text-xs gap-1.5 text-muted-foreground hover:text-foreground"
-            onClick={checkForUpdates}
-            disabled={checking}
-          >
-            <ArrowsClockwise size={12} className={checking ? "animate-spin" : undefined} />
-            {isZh ? "检查更新" : "Check updates"}
-          </Button>
-        </div>
-      </OverviewCard>
+          {state.modelsEnabled === 0 && state.providersConfigured > 0 ? (
+            <p className="text-status-warning-foreground">
+              {isZh
+                ? "你已经接入了服务商，但没有任何模型对 picker 可见。"
+                : "You've connected a provider, but no models are visible to the picker."}
+            </p>
+          ) : (state.modelsManualEnabled > 0 || state.modelsManualHidden > 0) ? (
+            <p className="text-muted-foreground">
+              {isZh
+                ? `手动启用 ${state.modelsManualEnabled} · 手动隐藏 ${state.modelsManualHidden}（刷新不会覆盖）`
+                : `${state.modelsManualEnabled} manually enabled · ${state.modelsManualHidden} manually hidden (preserved on refresh)`}
+            </p>
+          ) : null}
+        </OverviewCard>
+
+        {/* Card 4 — Assistant Workspace */}
+        <OverviewCard
+          icon={<UserCircle size={16} />}
+          title={isZh ? "助理工作空间" : "Assistant Workspace"}
+          tone={state.workspaceConfigured ? "success" : "warning"}
+          primaryActionLabel={
+            state.workspaceConfigured
+              ? isZh ? "管理助理" : "Manage assistant"
+              : isZh ? "去配置" : "Configure"
+          }
+          onPrimaryAction={() => navTo("#assistant")}
+        >
+          {state.workspaceConfigured ? (
+            <p>
+              <CheckCircle
+                size={12}
+                weight="fill"
+                className="inline-block text-status-success-foreground mr-1 -mt-0.5"
+              />
+              {state.workspaceName
+                ? (isZh ? `已配置：${state.workspaceName}` : `Configured: ${state.workspaceName}`)
+                : (isZh ? "已配置工作空间" : "Workspace configured")}
+            </p>
+          ) : (
+            <p className="text-muted-foreground">
+              {isZh
+                ? "尚未配置 — 设定一个本地工作目录开始使用助理"
+                : "Not yet configured — pick a local working directory to start"}
+            </p>
+          )}
+        </OverviewCard>
+
+        {/* Card 5 — Update / About */}
+        <OverviewCard
+          icon={<Info size={16} />}
+          title={isZh ? "版本与账户" : "Update & About"}
+          tone={updateInfo?.updateAvailable ? "warning" : "success"}
+          primaryActionLabel={isZh ? "查看关于" : "View About"}
+          onPrimaryAction={() => navTo("#about")}
+          footer={
+            <Button
+              variant="ghost"
+              size="sm"
+              className="-ml-2 gap-1 text-xs text-muted-foreground hover:text-foreground"
+              onClick={checkForUpdates}
+              disabled={checking}
+            >
+              <ArrowsClockwise size={12} className={checking ? "animate-spin" : undefined} />
+              {checking ? (isZh ? "检查中…" : "Checking…") : (isZh ? "检查更新" : "Check updates")}
+            </Button>
+          }
+        >
+          {updateInfo?.updateAvailable ? (
+            <p className="text-status-warning-foreground flex items-start gap-1">
+              <Warning size={12} weight="fill" className="mt-0.5 shrink-0" />
+              <span>
+                {isZh
+                  ? `有新版本 v${updateInfo.latestVersion} 可用`
+                  : `Update available: v${updateInfo.latestVersion}`}
+              </span>
+            </p>
+          ) : (
+            <p className="text-muted-foreground">
+              {checking
+                ? (isZh ? "正在检查更新…" : "Checking for updates…")
+                : (isZh ? "已是最新版本" : "Up to date")}
+            </p>
+          )}
+          {accountInfo?.email && (
+            <p className="text-muted-foreground">
+              {isZh ? "账户：" : "Account: "}
+              <span className="text-foreground/85">{accountInfo.email}</span>
+            </p>
+          )}
+        </OverviewCard>
+
+        {/* Card 6 — Setup Center / Diagnostics */}
+        <OverviewCard
+          icon={<Stethoscope size={16} />}
+          title={isZh ? "设置 / 诊断" : "Setup / Diagnostics"}
+          tone={claudeWarnings ? "warning" : "muted"}
+          primaryActionLabel={isZh ? "运行设置向导" : "Run setup wizard"}
+          onPrimaryAction={() => window.dispatchEvent(new CustomEvent("open-setup-center"))}
+          footer={
+            <Button
+              variant="ghost"
+              size="sm"
+              className="-ml-2 gap-1 text-xs text-muted-foreground hover:text-foreground"
+              onClick={() => navTo("#about")}
+            >
+              {isZh ? "导出日志" : "Export logs"}
+              <CaretRight size={12} weight="bold" />
+            </Button>
+          }
+        >
+          {claudeWarnings ? (
+            <p className="text-status-warning-foreground flex items-start gap-1">
+              <Warning size={12} weight="fill" className="mt-0.5 shrink-0" />
+              <span>
+                {isZh
+                  ? "检测到 Claude Code 兼容性提示，建议运行诊断"
+                  : "Claude Code compatibility warnings detected — run diagnose"}
+              </span>
+            </p>
+          ) : (
+            <p className="text-muted-foreground">
+              {isZh
+                ? "运行连接诊断、导出运行日志、重新跑安装向导"
+                : "Run connectivity diagnose, export logs, replay setup wizard"}
+            </p>
+          )}
+        </OverviewCard>
+      </div>
+
+      {/* Bottom — Token usage activity heatmap */}
+      <OverviewHeatmap isZh={isZh} onJumpToDetails={() => navTo("#usage")} />
     </div>
   );
 }

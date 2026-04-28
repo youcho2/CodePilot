@@ -154,6 +154,26 @@ const en = {
   'settings.modeDark': 'Dark',
   'settings.modeSystem': 'System',
 
+  // ── Settings: Overview (dashboard) ───────────────────────────
+  'overview.gettingStarted': 'Getting started',
+  'overview.completed': '{done}/{total} completed',
+  'overview.checklistConnectProvider': 'Connect a provider',
+  'overview.checklistConnectProviderDesc': 'Add at least one provider so the chat picker has something to talk to.',
+  'overview.checklistEnableModels': 'Enable models',
+  'overview.checklistEnableModelsDesc': 'Turn on the models you actually want to surface in the picker.',
+  'overview.checklistVerifyRuntime': 'Verify Runtime',
+  'overview.checklistVerifyRuntimeDesc': 'The current runtime is on a fallback path — check and recover.',
+  'overview.checklistConfigureWorkspace': 'Configure Assistant workspace',
+  'overview.checklistConfigureWorkspaceDesc': 'Pick a local working directory for the Assistant.',
+  'overview.actionGoConfigure': 'Configure',
+  'overview.heatmapTitle': 'Token usage activity',
+  'overview.heatmapTotal': 'Total tokens',
+  'overview.heatmapMostActive': 'Most active day',
+  'overview.heatmapCurrentStreak': 'Current streak',
+  'overview.heatmapLongestStreak': 'Longest streak',
+  'overview.heatmapEmpty': 'No usage data yet — start a conversation to see it here.',
+  'overview.heatmapViewDetails': 'View full usage stats',
+
   // ── Settings: Usage Stats ───────────────────────────────────
   'usage.totalTokens': 'Total Tokens',
   'usage.totalCost': 'Total Cost',

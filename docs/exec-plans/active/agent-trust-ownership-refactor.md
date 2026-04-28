@@ -1,7 +1,7 @@
 # Agent Trust & Ownership Refactor
 
 > 创建时间：2026-04-25
-> 最后更新：2026-04-27
+> 最后更新：2026-04-28
 > 工作区：`/Users/op7418/Documents/code/opus-4.6-test/.claude/worktrees/product-refactor-research`
 > 关联调研：`docs/research/harness-and-ux-refactor.md`
 
@@ -13,8 +13,8 @@
 | Phase 1 | UI 基线、Provider 样板页、设计原则沉淀 | 🔄 进行中 | shadcn Style 已切 radix-luma;`docs/design.md` **partial v1 已写**(0 lint error)含 sidebar/button/input/select/switch/card/tabs spec + 颜色 3 层 + Do/Don't + Confirm-vs-auto-apply 双路径;Provider 样板页 + design.md 完整版待 Phase 1.3-1.6 推进 |
 | Phase 2A | **Provider Trust + Models Control** | ✅ **2026-04-27 阶段性完成** | Provider 卡片三栏、Add Service 五桶分类、保守自动刷新 + manual_* 保护、Models 页是 picker 暴露范围的单一控制点；详见下方 Phase 2A 决策日志 |
 | Phase 2B | Runtime Trust | 📋 **下一步** | Claude Code Runtime + CodePilot Runtime 平级状态展示、可用/不可用原因、影响、用户恢复路径；session-level "本次会用谁" |
-| Phase 3 | Run Cockpit 第一版 | 📋 待开始 | 会话运行状态、context fragments、tools/permissions/errors 可观测 |
-| Phase 4 | Session / Context / Memory 基础设施 | 📋 待开始 | 事件日志、fragment ledger、护栏文档、必要 schema/API |
+| Phase 3 | Run Cockpit 第一版 | 📋 待开始 | 会话运行状态、session-level Runtime 切换、context fragments、tools/permissions/errors 可观测 |
+| Phase 4 | Session / Context / Memory 基础设施 | 📋 待开始 | 事件日志、fragment ledger、Local Agent Adapter Registry、护栏文档、必要 schema/API |
 | Phase 5 | 长期 Agent 最小闭环 | 📋 待开始 | 通知/定时任务只做服务长期助理叙事的最小闭环 |
 | Phase 6 | 回归、CDP 验证、测试包 | 📋 待开始 | `npm run test`、UI CDP、smoke、Electron 包验证 |
 
@@ -39,6 +39,9 @@
 - 2026-04-27: **Phase 2 拆为 2A（Provider Trust + Models Control）+ 2B（Runtime Trust）**。2A 已阶段性完成，验收点：Add Service 五桶分组 + Provider 卡片三栏（icon 可用模型 / 上次刷新 / 接入方式）+ Models 页双行 section header + 5-state badge + 刷新全部 (N) 批量；测试 1223 通过；CDP 验证 6 项交互无状态错位。下一步进入 2B：Claude Code Runtime / CodePilot Runtime 平级展示，session-level "本次会用谁 + 为什么" 数据源到位。Run Cockpit (Phase 3) 在 2B 之后做；Runtime Trust 给 Cockpit 顶部状态条提供数据基础。
 - 2026-04-27: **Phase 2B 范围拍板，4 条决策**：① Runtime 提到 Settings 侧栏顶级入口（不再藏在 Setup Center 内）— 确立"Providers / Models / Runtime"三层心智，Runtime 必须以"运行环境"而非"安装配置项"被理解；② Session-level 解释先在 Settings 内做**只读解释块**（"当前默认走谁 / 为什么 / 用什么 provider+model / 不可用时降级到什么"），完整的 session 控制由 Phase 3 Run Cockpit 在 chat 顶部承载；③ CodePilot Runtime 描述用**中等粒度三类**："能力 / 权限 / 上下文"，回答"它能替我做什么、会不会乱动、为什么和 Claude Code 不一样"；④ `session_events.runtime.selected` **Phase 2B 就最小落库**（runtime / reason / provider / model / fallback / session_id / timestamp），Runtime Trust 的核心是"可解释轨迹"而不是"当前状态 UI"，埋点必须先于面板，否则 Phase 3 / Phase 4 没有上游。
 - 2026-04-27: **2B.6 调整为 deferred**。原计划要求 `session_events.runtime.selected` 在 Phase 2B 落库；评审发现 RuntimePanel 的 read-only 解释块可以直接从 `/api/providers/models?runtime=auto` + `runtime_applied` + 全局默认推导出"新会话会用谁"，并不强依赖事件落库。埋点是 DB schema + provider-resolver 改动，和本阶段的 UX 整改风险面不同，单独一个 commit 更干净。下游消费者是 Phase 3 Cockpit，做埋点跟 Cockpit 同期能更明确 schema。如果 Phase 3 推进时仍未落，重新提为 P0。
+- 2026-04-27: **Session-level Runtime switching 纳入 Phase 3**。全局 Runtime 只作为"新会话默认值"；每个 chat session 应拥有自己的 Agent 引擎选择，用户可以在会话开始前选择，也可以在会话过程中切换。第一版不做运行中热迁移：正在 stream 时禁用切换或要求先停止；切换只对下一轮消息生效。切换后必须重新按目标 runtime 解析 provider/model，若当前组合不兼容，应给出可解释 fallback，并写入 `session_events.runtime.selected` / `runtime.changed`（from / to / reason / provider / model / fallback）。
+- 2026-04-27: **Runtime 长期形态升级为 Local Agent Adapter Registry**。Claude Code / CodePilot Runtime 只是第一批内置 adapter；后续可把 Codex、OpenClaw、其它本地 Agent CLI、自定义 command 作为候选 adapter 纳入同一层管理。适配不要求一开始全能力 UI 化，按能力分层：可检测（installed/version/health）→ 可拉起（cwd/prompt/session）→ 可观察（running/waiting/failed/completed + output/log）→ 可恢复（stop/retry/open native session）→ 深度集成（tools/permissions/model/context/session resume）。UI 必须明确"哪些由 CodePilot 管，哪些由外部 Agent 自管"，避免把外部 Agent 自己的模型/工具/上下文错误拆进 CodePilot 的 Providers / Models 管理。
+- 2026-04-28: **Settings IA Phase 2.5：Overview redesign（dashboard 三层）**。原 Phase 2 Overview 是单列 5 卡，全用同样的 muted 卡片底色——视觉上是"配置页又一个"，没有 dashboard 的体感。本轮按"GitHub Settings / Cursor 计费页"的层级模式重做：① 顶部 Getting Started checklist（4 项：连接服务商 / 启用模型 / 验证 Runtime / 配置助理工作空间），未完成项展示深色 jump 按钮一直挂着，4/4 全完即整条隐藏（不留视觉噪音）；② 中部由 5 卡升为 6 卡 + 改 `lg:grid-cols-2`：把原"系统"拆成"版本与账户" + "设置 / 诊断"，"新会话默认"按用户心智改名为"服务商"，warning-tone 卡片用 `status-warning-muted` 浅色 accent + 深色 CTA 引导，已配置卡片去掉图标 bg 走 flat 背景——配置好的项不再"全黑亮"；③ 底部加 GitHub-style token 用量热力图：复用现成 `/api/usage/stats?days=N`（接口已支持到 365 天，无需后端改动），30/90/365D 切换 + 总用量 / 最活跃日 / 最长连续天数 / 当前连续天数 stats，"查看完整用量统计"跳 #usage。新增文件：`OverviewHeatmap.tsx`；OverviewSection 容器从 `max-w-4xl` 提到 `max-w-5xl` 给 2 列卡 + 365 天热力图留宽度。i18n 加 19 个 `overview.*` 键。CDP 验证：1440×900 桌面 + 800×900 窄屏均无溢出；checklist 在 force-show 模式下 2 pending + 2 done 行展示正确；热力图在窄屏靠 `overflow-x-auto` 兜住，stats 行 `sm:grid-cols-4` 自适应。
 
 ## 事实边界
 
@@ -1125,10 +1128,18 @@ UI 规则:
 任务：
 - 建立轻量顶部状态条。
 - 建立可展开详情面板。
+- 建立 session-level Runtime 选择器：新会话默认继承 Settings → Runtime 的全局默认，但会话创建后持久化自己的 runtime。
+- Runtime 选择器按 adapter registry 思路设计，不把 UI / 类型 / 数据结构写死为 Claude Code + CodePilot 两项；第一版可只渲染这两个内置 adapter。
+- 支持会话过程中切换 Agent 引擎：切换只影响下一轮消息；当前正在生成时禁用切换或引导用户先停止当前回复。
+- Runtime 切换后重新解析 provider/model：若当前 provider/model 与目标 runtime 不兼容，自动切到兼容组合，并在 UI 中说明原因和影响。
+- 记录最小事件：`runtime.selected`（会话创建 / 首次解析）和 `runtime.changed`（用户切换），payload 至少包含 from / to / reason / provider / model / fallback。
 - 接入 provider/model/runtime/tool/permission/context/memory/error 状态。
 
 验收：
 - 用户能一眼看出当前会话运行状态。
+- 用户能在会话开始前选择 Agent 引擎，并在会话过程中切换到另一个引擎；切换语义明确为“下一轮消息生效”。
+- 切换后 picker 与实际发送路径使用同一组 runtime-filtered provider/model；不会出现 UI 选了 A、wire 发到 B 的错位。
+- 不兼容切换有明确解释，例如“当前模型不支持 Claude Code Runtime，已切到第一个兼容模型”。
 - 工具、权限、上下文、记忆事件可展开查看。
 - 按钮克制，不干扰聊天。
 
@@ -1137,12 +1148,14 @@ UI 规则:
 任务：
 - 设计并实现 `session_events`。
 - 设计并实现 `context_fragments` 或同等 ledger。
+- 设计 Local Agent Adapter Registry 草案：adapter id / display name / detect command / launch command / capability flags / limitations / ownership boundary。
 - 接入 context assembler、runtime registry、provider test、tool/permission flow、memory retrieval。
 - 写 guardrails docs 并更新 `AGENTS.md` / `CLAUDE.md` 索引。
 
 验收：
 - Run Cockpit 由结构化事件驱动。
 - context fragments 可用于调试和 UI 展示。
+- 本地 Agent adapter 有最小契约文档：候选 adapter 可以只声明 detect / launch / observe，不要求一开始支持所有工具、权限、模型和上下文 UI。
 - guardrails 能指导后续开发。
 
 ### Phase 5：长期 Agent 最小闭环
@@ -1205,6 +1218,7 @@ UI 规则:
 | 范围再次膨胀 | 一周内无法稳定交付 | Phase 0 冻结不做项；半成品只选一个最小闭环 |
 | Luma Style 切换引发大量 UI 回归 | 影响可用性 | 只深改核心页面；非关键页面 token 对齐 |
 | Runtime 状态建模牵动旧逻辑 | 聊天链路回归 | 先只读状态和解释原因，再改行为 |
+| Local Agent adapter 范围膨胀 | Runtime 层变成多个 Agent 的完整复刻 UI | 分层适配：先 detect / launch / observe；外部 Agent 自管的模型、工具、权限不强行 UI 化 |
 | Session event schema 设计过重 | 阻塞 UI | 第一版只记录 Run Cockpit 需要的事件 |
 | Context fragment 保存敏感内容 | 隐私风险 | 默认保存 metadata，正文限制长度并脱敏 |
 | Provider 余额/用量需求被误纳入本轮 | 范围爆炸 | 本轮只做链接、状态和错误恢复，不做全 provider billing API |
@@ -1213,5 +1227,6 @@ UI 规则:
 
 - `Gate` 已收束为 Phase 2.5 的 SDK 路径 keyword gating 统一问题；如出现新的 Gate 含义，另开小节，不混入本术语。
 - Runtime 状态已确定同时进入 Setup Center 和 session 级展示：Setup Center 解释 runtime 健康度，Run Cockpit 解释本会话选择原因。
+- Local Agent Adapter Registry 第一批除 Claude Code / CodePilot 外是否选 Codex、OpenClaw 或自定义 command，要等 Phase 3 的 session-level Runtime switcher 跑稳后再定；当前只锁适配层抽象，不承诺具体第三方能力。
 - Long-running Agent 最小闭环优先通知还是定时任务。
 - Luma Style 是否已有完整 CSS 片段，还是需要从 shadcn preset 导出。
