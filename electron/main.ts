@@ -823,17 +823,43 @@ function createWindow(url?: string) {
 }
 
 /**
- * Phase 2C.6 follow-up: persistent log file for the main process.
+ * Phase 2C.6 + follow-ups: persistent log file for the main process.
  * `app.getPath('logs')` resolves to `~/Library/Logs/{appName}` on macOS,
  * `%APPDATA%\{appName}\logs` on Windows, `~/.config/{appName}/logs` on
- * Linux. Electron creates the dir lazily; we create + write to a single
- * append-only `codepilot-main.log` file there, capturing console.log /
- * console.warn / console.error output so users can grab the file when
- * filing an issue. About → "打开日志文件夹" opens this directory.
+ * Linux. Electron creates the dir lazily; we capture console.log /
+ * console.warn / console.error output, run each line through
+ * `sanitizeLogLine`, and append to a file in that dir so users can
+ * grab it when filing an issue. About → "打开日志文件夹" opens the
+ * directory (not a specific file) so all of the below are visible.
  *
- * No rotation in v1: the file size is bounded by user session length,
- * not by retention. Rotation can land later if the file grows large in
- * practice.
+ * Three filenames live in the directory:
+ *   - `codepilot-main.log`
+ *       Canonical, fully-sanitized log. About promises this is the
+ *       safe-to-share file. Used as the active stream when rotation
+ *       has either already completed (marker present) or completes
+ *       successfully this run.
+ *   - `codepilot-main.unsanitized-legacy.log`
+ *       Pre-sanitizer raw history rotated out on first activation.
+ *       Kept for forensic / archive purposes; never appended to once
+ *       rotation completes. Users can delete it manually.
+ *   - `codepilot-main-sanitized.log`
+ *       Per-session fallback used when rotation FAILS this run (FS
+ *       readonly, permission denied, etc). The canonical filename
+ *       still contains pre-sanitizer content in that case, so we
+ *       open the stream on this parallel file instead — the user's
+ *       "已脱敏" promise stays honest. Once a future launch rotates
+ *       successfully, writes go back to canonical and this file is
+ *       no longer used (left in place for the user to clean up or
+ *       attach as needed).
+ *
+ * Rotation marker — `.codepilot-sanitized` — pins the migration as
+ * a one-shot. Written ONLY when rotation completed (or no rotation
+ * was needed). On rotation failure the marker is intentionally NOT
+ * written, so the next launch retries from scratch.
+ *
+ * No size-based rotation: the file is bounded by user session length
+ * + how often they restart, not by retention. Add log4js-style
+ * rotation later if real-world files grow uncomfortably large.
  */
 function setupPersistentMainLog() {
   try {
