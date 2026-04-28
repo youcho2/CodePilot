@@ -473,19 +473,12 @@ export default function NewChatPage() {
         return;
       }
 
-      // Phase 2C: pinned default unavailable under effective Runtime →
-      // hard block. No silent substitution. Surface the broken pin so
-      // the user can resolve it (Runtime page banner has the recovery
-      // actions in Phase 2C.3 — until then this minimal banner names
-      // the problem and points at /settings#runtime).
+      // Phase 2C: pinned default unreachable under effective Runtime →
+      // hard block. The persistent banner above MessageInput already
+      // names the broken pin and exposes a "Go to Runtime" action; the
+      // composer is also disabled so this branch is currently
+      // unreachable, but keep the gate as a defensive backstop.
       if (invalidDefault) {
-        const pinnedLabel = invalidDefault.modelValue
-          ? `${invalidDefault.providerName ?? invalidDefault.providerId ?? '?'} / ${invalidDefault.modelValue}`
-          : (invalidDefault.providerId ?? '?');
-        setErrorBanner({
-          message: t('error.invalidDefault'),
-          description: t('error.invalidDefaultDesc', { pinned: pinnedLabel }),
-        });
         return;
       }
 
@@ -920,6 +913,29 @@ export default function NewChatPage() {
           onDismiss={() => setErrorBanner(null)}
           actions={[
             { label: t('error.retry'), onClick: () => setErrorBanner(null) },
+          ]}
+        />
+      )}
+      {/* Phase 2C: persistent banner when the user's Pinned default isn't
+          reachable under the current Runtime. No dismiss — the state
+          stands until the user resolves it via /settings#runtime, where
+          the full recovery actions live (Phase 2C.3). The composer is
+          already disabled separately; this is the user-facing reason. */}
+      {invalidDefault && !noCompatibleProvider && (
+        <ErrorBanner
+          message={t('error.invalidDefault')}
+          description={t('error.invalidDefaultDesc', {
+            pinned: invalidDefault.modelValue
+              ? `${invalidDefault.providerName ?? invalidDefault.providerId ?? '?'} / ${invalidDefault.modelValue}`
+              : (invalidDefault.providerId ?? '?'),
+          })}
+          className="mx-4 mb-2"
+          actions={[
+            {
+              label: t('error.invalidDefaultGoRuntime'),
+              variant: 'default',
+              onClick: () => router.push('/settings#runtime'),
+            },
           ]}
         />
       )}

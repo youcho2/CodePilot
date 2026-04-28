@@ -1137,14 +1137,16 @@ export function getDefaultProviderId(): string | undefined {
 }
 
 export function setDefaultProviderId(id: string): void {
-  // Write legacy setting
+  // Phase 2C: this writes the *legacy* `default_provider_id` only. It must
+  // NOT touch `global_default_model` / `global_default_model_provider` —
+  // those are the user's Pin commitment now (`global_default_mode='pinned'`),
+  // and silently rewriting them is the exact silent-substitution the new
+  // contract forbids. Auto-heal callers (like /api/providers/models when
+  // the pin points at a deleted provider) still need a usable backend
+  // hint, which `default_provider_id` provides; the user's pin stays
+  // visible to the resolver as `'invalid-default'` so the UI can prompt
+  // for explicit recovery.
   setSetting('default_provider_id', id);
-  // Also write the primary key so getDefaultProviderId() sees the change.
-  // Clear global_default_model at the same time — the old model belonged to
-  // the previous provider and is no longer valid. The UI will fall back to
-  // the provider's first model until the user picks a new default.
-  setSetting('global_default_model_provider', id);
-  setSetting('global_default_model', '');
 }
 
 export function updateSessionWorkingDirectory(id: string, workingDirectory: string): void {

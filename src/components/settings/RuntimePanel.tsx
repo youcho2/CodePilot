@@ -518,10 +518,19 @@ export function RuntimePanel() {
         } else {
           setNoCompatibleProvider(false);
           // For 'invalid-default' we still surface the (broken) pinned
-          // values so the explainer block names what's wrong. The
-          // dedicated banner + recovery actions land in Phase 2C.3.
-          setDefaultProviderName(resolved.providerName ?? null);
-          setDefaultModelLabel(resolved.modelLabel ?? null);
+          // values so the explainer block names what's wrong. Resolver
+          // returns providerId / modelValue (raw) for provider-missing /
+          // model-missing — the friendly name fields aren't populated
+          // because the provider isn't even in the runtime-filtered
+          // group list. Fall back to the raw ids so the user sees
+          // what they pinned, not "未配置". The dedicated banner +
+          // recovery actions land in Phase 2C.3.
+          setDefaultProviderName(
+            resolved.providerName ?? resolved.providerId ?? null,
+          );
+          setDefaultModelLabel(
+            resolved.modelLabel ?? resolved.modelValue ?? null,
+          );
         }
       } else {
         // API itself unreachable — clear the explainer rather than show stale data.

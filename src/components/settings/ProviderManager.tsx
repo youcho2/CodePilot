@@ -318,13 +318,22 @@ export function ProviderManager() {
         if (data?.groups) setProviderGroups(data.groups);
       })
       .catch(() => {});
-    // Load current global default model
+    // Load current global default model. Phase 2C: always sync to the
+    // server response — when mode='auto' (or no pinned model), the
+    // selector must reflect that and clear local state. The previous
+    // "only update when default_model is set" pattern would leave the
+    // picker showing the old pin even after another surface (Models /
+    // Runtime / future Health) flipped the user back to Auto.
     fetch('/api/providers/options?providerId=__global__')
       .then(r => r.ok ? r.json() : null)
       .then(data => {
-        if (data?.options?.default_model) {
-          setGlobalDefaultModel(data.options.default_model);
-          setGlobalDefaultProvider(data.options.default_model_provider || '');
+        const opts = data?.options;
+        if (opts?.default_mode === 'pinned' && opts?.default_model) {
+          setGlobalDefaultModel(opts.default_model);
+          setGlobalDefaultProvider(opts.default_model_provider || '');
+        } else {
+          setGlobalDefaultModel('');
+          setGlobalDefaultProvider('');
         }
       })
       .catch(() => {});
