@@ -12,7 +12,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { SpinnerGap, Stethoscope, Plus } from "@/components/ui/icon";
+import { SpinnerGap, Stethoscope, Plus, CaretRight } from "@/components/ui/icon";
 import { ProviderForm } from "./ProviderForm";
 import { ProviderDoctorDialog } from "./ProviderDoctorDialog";
 import type { ProviderFormData } from "./ProviderForm";
@@ -234,8 +234,9 @@ export function ProviderManager() {
 
   // Global default model state
   const [providerGroups, setProviderGroups] = useState<ProviderModelGroup[]>([]);
-  const [globalDefaultModel, setGlobalDefaultModel] = useState('');
-  const [globalDefaultProvider, setGlobalDefaultProvider] = useState('');
+  // Phase 2C.4: globalDefault* state + handleGlobalDefaultModelChange
+  // removed alongside the inline picker. Models page is now the single
+  // write surface for new-chat default.
 
   // Active media-generation provider id. Persisted server-side in the
   // `active_image_provider_id` setting. Used by the image-generator to break
@@ -318,25 +319,9 @@ export function ProviderManager() {
         if (data?.groups) setProviderGroups(data.groups);
       })
       .catch(() => {});
-    // Load current global default model. Phase 2C: always sync to the
-    // server response — when mode='auto' (or no pinned model), the
-    // selector must reflect that and clear local state. The previous
-    // "only update when default_model is set" pattern would leave the
-    // picker showing the old pin even after another surface (Models /
-    // Runtime / future Health) flipped the user back to Auto.
-    fetch('/api/providers/options?providerId=__global__')
-      .then(r => r.ok ? r.json() : null)
-      .then(data => {
-        const opts = data?.options;
-        if (opts?.default_mode === 'pinned' && opts?.default_model) {
-          setGlobalDefaultModel(opts.default_model);
-          setGlobalDefaultProvider(opts.default_model_provider || '');
-        } else {
-          setGlobalDefaultModel('');
-          setGlobalDefaultProvider('');
-        }
-      })
-      .catch(() => {});
+    // Phase 2C.4: removed the global-default fetch — the inline picker
+    // it powered is gone. Models page now reads the same `__global__`
+    // options endpoint and is the single write surface.
   }, []);
 
   useEffect(() => {
@@ -544,47 +529,8 @@ export function ProviderManager() {
 
   const sorted = [...providers].sort((a, b) => a.sort_order - b.sort_order);
 
-  // Save global default model — also syncs default_provider_id for backend
-  // consumers and (Phase 2C) writes default_mode so the new resolver
-  // contract honours the user's intent. Picking a real provider+model
-  // here means "pin to this"; picking Auto means "no commitment, let the
-  // system pick". This selector is being removed in Phase 2C.4 in favour
-  // of the Models page; keeping it consistent with the contract until then.
-  const handleGlobalDefaultModelChange = useCallback(async (compositeValue: string) => {
-    if (compositeValue === '__auto__') {
-      setGlobalDefaultModel('');
-      setGlobalDefaultProvider('');
-      await fetch('/api/providers/options', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          providerId: '__global__',
-          options: { default_mode: 'auto', legacy_default_provider_id: '' },
-        }),
-      }).catch(() => {});
-    } else {
-      // compositeValue format: "providerId::modelValue"
-      const sepIdx = compositeValue.indexOf('::');
-      const pid = compositeValue.slice(0, sepIdx);
-      const model = compositeValue.slice(sepIdx + 2);
-      setGlobalDefaultModel(model);
-      setGlobalDefaultProvider(pid);
-      await fetch('/api/providers/options', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          providerId: '__global__',
-          options: {
-            default_mode: 'pinned',
-            default_model: model,
-            default_model_provider: pid,
-            legacy_default_provider_id: pid,
-          },
-        }),
-      }).catch(() => {});
-    }
-    window.dispatchEvent(new Event('provider-changed'));
-  }, []);
+  // Phase 2C.4: handleGlobalDefaultModelChange removed. Default-model
+  // writes happen via the Models page status row + per-row pin button.
 
   return (
     <div className="max-w-4xl mx-auto space-y-10">
@@ -625,43 +571,35 @@ export function ProviderManager() {
               </Button>
             </div>
 
+            {/* Phase 2C.4: default-model selector moved to Models page.
+                Providers is now strictly an asset page (connect / configure
+                services); committing one provider+model as the new-chat
+                default lives where the picker exposure is also decided —
+                Models, top status row. Keeping this row as a one-line
+                pointer so users who land here looking for "set default"
+                don't think the option disappeared. */}
             <div className="py-4 flex items-center justify-between gap-4">
               <div className="min-w-0">
-                <h4 className="text-sm font-medium">{t('settings.defaultModel' as TranslationKey)}</h4>
+                <h4 className="text-sm font-medium">
+                  {isZh ? '默认模型' : 'Default Model'}
+                </h4>
                 <p className="text-xs text-muted-foreground mt-0.5">
-                  {t('settings.defaultModelDesc' as TranslationKey)}
+                  {isZh
+                    ? '已迁至「模型」页：可切换 Auto / Pinned，也可把具体模型固定为新会话默认。'
+                    : 'Moved to Models page — flip Auto / Pinned and pin a specific model as the new-chat default there.'}
                 </p>
               </div>
-              {providerGroups.length > 0 && (
-                <Select
-                  value={globalDefaultModel ? `${globalDefaultProvider}::${globalDefaultModel}` : '__auto__'}
-                  onValueChange={handleGlobalDefaultModelChange}
-                >
-                  <SelectTrigger className="w-[180px] shrink-0">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="__auto__">
-                      {t('settings.defaultModelAuto' as TranslationKey)}
-                    </SelectItem>
-                    {providerGroups.map(group => (
-                      <SelectGroup key={group.provider_id}>
-                        <SelectLabel className="text-[10px] text-muted-foreground">
-                          {group.provider_name}
-                        </SelectLabel>
-                        {group.models.map(m => (
-                          <SelectItem
-                            key={`${group.provider_id}::${m.value}`}
-                            value={`${group.provider_id}::${m.value}`}
-                          >
-                            {m.label}
-                          </SelectItem>
-                        ))}
-                      </SelectGroup>
-                    ))}
-                  </SelectContent>
-                </Select>
-              )}
+              <Button
+                variant="outline"
+                size="sm"
+                className="gap-1.5 shrink-0"
+                onClick={() => {
+                  if (typeof window !== 'undefined') window.location.hash = '#models';
+                }}
+              >
+                {isZh ? '去模型页' : 'Open Models'}
+                <CaretRight size={12} weight="bold" />
+              </Button>
             </div>
           </div>
         </div>
