@@ -80,7 +80,7 @@ Every Settings sub-page uses the same outer container:
 </div>
 ```
 
-- **`max-w-4xl`** = 896px. All Settings sub-pages share this — General / **Appearance** / Providers / Models / Runtime / Usage / Assistant. Appearance lives at the sidebar top level (sibling of General, not nested inside it) so application-behavior settings and visual customization stay in distinct surfaces.
+- **`max-w-4xl`** = 896px. All Settings sub-pages share this — **Overview** / General / Appearance / Providers / Models / Runtime / Usage / Assistant / **About**. Overview at the top is a *status dashboard*, not a config page — five cards (Runtime / new-chat default / models exposure / assistant workspace / system) each with one primary jump button. About at the bottom carries version + update check + platform info + account + diagnostics + external links. The middle stays the three-layer mental model: Providers (assets) → Models (exposure) → Runtime (environment). General is strictly application behavior; visual customization is its own page (Appearance).
 - **`mx-auto`** centers horizontally. Don't left-align.
 - **`space-y-10`** (40px) between top-level sections gives Luma-style breathing room.
 - Within a section: `space-y-6` (24px) for header → body, `space-y-3` (12px) for sub-blocks.
@@ -526,7 +526,8 @@ Don't display only the enabled count — users hide things and need to remember 
 | Pattern | File |
 |---|---|
 | Settings shell + nav | `src/components/settings/SettingsLayout.tsx` |
-| Page-level container width (Settings sub-pages) | `src/components/settings/{GeneralSection,AppearanceSection,ProviderManager,ModelsSection,RuntimePanel,UsageStatsSection,AssistantWorkspaceSection}.tsx` |
+| Page-level container width (Settings sub-pages) | `src/components/settings/{OverviewSection,GeneralSection,AppearanceSection,ProviderManager,ModelsSection,RuntimePanel,UsageStatsSection,AssistantWorkspaceSection,AboutSection}.tsx` |
+| Status-dashboard cards | `OverviewSection.tsx` (`OverviewCard` sub-component, 5 cards each with one primary jump action) |
 | Outer card | `ProviderCard.tsx` (`rounded-lg bg-card border border-border/50 p-5`) |
 | Inset divider sub-card | `ProviderCard.tsx` info section (`rounded-md bg-muted/40` + `px-3.5 divide-y divide-border/50`) |
 | Sub-card row with relative-time + tooltip | `ProviderCard.tsx` ("Last refresh" row uses `formatRelativeTime` + `title` for absolute UTC) |

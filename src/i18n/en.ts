@@ -102,7 +102,11 @@ const en = {
   // ── Settings: General ───────────────────────────────────────
   'settings.title': 'Settings',
   'settings.description': 'Manage CodePilot and Claude Code settings',
+  'settings.overview': 'Overview',
+  'settings.overviewDesc': 'See the current Runtime / Provider / Model / Assistant workspace / system status at a glance — one primary entry per block to jump to its dedicated page',
   'settings.general': 'General',
+  'settings.about': 'About',
+  'settings.aboutDesc': 'CodePilot version, platform info, account, diagnostics & maintenance, documentation & feedback',
   'settings.providers': 'Providers',
   'settings.models': 'Models',
   'settings.runtime': 'Runtime',

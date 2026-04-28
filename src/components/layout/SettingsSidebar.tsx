@@ -2,7 +2,7 @@
 
 import { useCallback, useSyncExternalStore } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, type Icon, Gear, UserCircle, Plug, ChartBar, Brain, Lightning, PaintBrush } from "@/components/ui/icon";
+import { ArrowLeft, type Icon, Gear, UserCircle, Plug, ChartBar, Brain, Lightning, PaintBrush, Eye, Info } from "@/components/ui/icon";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { useTranslation } from "@/hooks/useTranslation";
@@ -13,7 +13,16 @@ interface SettingsSidebarProps {
   width?: number;
 }
 
-type Section = "general" | "appearance" | "providers" | "models" | "runtime" | "usage" | "assistant";
+type Section =
+  | "overview"
+  | "general"
+  | "appearance"
+  | "providers"
+  | "models"
+  | "runtime"
+  | "usage"
+  | "assistant"
+  | "about";
 
 interface SidebarItem {
   id: Section;
@@ -21,11 +30,11 @@ interface SidebarItem {
   icon: Icon;
 }
 
-// Mirror SettingsLayout — Appearance sits between General and Providers as
-// a sibling top-level page (was an inline section inside General before).
-// Application behavior in General; visual / theme customization in
-// Appearance; both feed into the rest of the three-layer mental model.
+// Mirror SettingsLayout — Overview is the dashboard at top, About is the
+// metadata page at bottom. Middle is the three-layer mental model:
+// Providers (assets) → Models (exposure) → Runtime (environment).
 const sidebarItems: SidebarItem[] = [
+  { id: "overview", label: "Overview", icon: Eye },
   { id: "general", label: "General", icon: Gear },
   { id: "appearance", label: "Appearance", icon: PaintBrush },
   { id: "providers", label: "Providers", icon: Plug },
@@ -33,9 +42,11 @@ const sidebarItems: SidebarItem[] = [
   { id: "runtime", label: "Runtime", icon: Lightning },
   { id: "usage", label: "Usage", icon: ChartBar },
   { id: "assistant", label: "Assistant", icon: UserCircle },
+  { id: "about", label: "About", icon: Info },
 ];
 
 const settingsLabelKeys: Record<string, TranslationKey> = {
+  Overview: "settings.overview",
   General: "settings.general",
   Appearance: "settings.appearance",
   Providers: "settings.providers",
@@ -43,15 +54,16 @@ const settingsLabelKeys: Record<string, TranslationKey> = {
   Runtime: "settings.runtime",
   Usage: "settings.usage",
   Assistant: "settings.assistant",
+  About: "settings.about",
 };
 
 function getSectionFromHash(): Section {
-  if (typeof window === "undefined") return "general";
+  if (typeof window === "undefined") return "overview";
   const hash = window.location.hash.replace("#", "");
   if (sidebarItems.some((item) => item.id === hash)) {
     return hash as Section;
   }
-  return "general";
+  return "overview";
 }
 
 function subscribeToHash(callback: () => void) {

@@ -99,7 +99,11 @@ const zh: Record<TranslationKey, string> = {
   // ── Settings: General ───────────────────────────────────────
   'settings.title': '设置',
   'settings.description': '管理 CodePilot 和 Claude Code 设置',
+  'settings.overview': '概览',
+  'settings.overviewDesc': '一眼看清当前 Runtime / Provider / Model / 助理工作空间 / 系统状态，每块只给一个主入口跳转',
   'settings.general': '通用',
+  'settings.about': '关于',
+  'settings.aboutDesc': 'CodePilot 版本、平台信息、账户、诊断 / 维护、文档与反馈',
   'settings.providers': '服务商',
   'settings.models': '模型',
   'settings.runtime': 'Runtime',

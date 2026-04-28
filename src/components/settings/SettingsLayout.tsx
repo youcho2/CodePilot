@@ -1,9 +1,10 @@
 "use client";
 
 import { useState, useCallback, useSyncExternalStore } from "react";
-import { type Icon, Gear, UserCircle, Plug, ChartBar, Brain, Lightning, PaintBrush } from "@/components/ui/icon";
+import { type Icon, Gear, UserCircle, Plug, ChartBar, Brain, Lightning, PaintBrush, Eye, Info } from "@/components/ui/icon";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import { OverviewSection } from "./OverviewSection";
 import { GeneralSection } from "./GeneralSection";
 import { AppearanceSection } from "./AppearanceSection";
 import { ProviderManager } from "./ProviderManager";
@@ -11,10 +12,20 @@ import { ModelsSection } from "./ModelsSection";
 import { RuntimePanel } from "./RuntimePanel";
 import { UsageStatsSection } from "./UsageStatsSection";
 import { AssistantWorkspaceSection } from "./AssistantWorkspaceSection";
+import { AboutSection } from "./AboutSection";
 import { useTranslation } from "@/hooks/useTranslation";
 import type { TranslationKey } from "@/i18n";
 
-type Section = "general" | "appearance" | "providers" | "models" | "runtime" | "usage" | "assistant";
+type Section =
+  | "overview"
+  | "general"
+  | "appearance"
+  | "providers"
+  | "models"
+  | "runtime"
+  | "usage"
+  | "assistant"
+  | "about";
 
 interface SidebarItem {
   id: Section;
@@ -22,13 +33,13 @@ interface SidebarItem {
   icon: Icon;
 }
 
-// Order: General / Appearance / Providers / Models / Runtime / Usage / Assistant.
-// Appearance was an inline section at the bottom of General; promoting it to
-// a top-level page so application behavior (General) and visual customization
-// (Appearance) live as siblings rather than parent-child. Sequence still
-// encodes the three-layer mental model after Appearance: Providers (assets)
-// → Models (exposure) → Runtime (environment).
+// Order: Overview / General / Appearance / Providers / Models / Runtime /
+// Usage / Assistant / About. Settings IA Phase 2 added Overview at the top
+// (status dashboard, not "another settings page") and About at the bottom
+// (version + docs + utilities). The middle stays the three-layer mental
+// model: Providers (assets) → Models (exposure) → Runtime (environment).
 const sidebarItems: SidebarItem[] = [
+  { id: "overview", label: "Overview", icon: Eye },
   { id: "general", label: "General", icon: Gear },
   { id: "appearance", label: "Appearance", icon: PaintBrush },
   { id: "providers", label: "Providers", icon: Plug },
@@ -36,15 +47,19 @@ const sidebarItems: SidebarItem[] = [
   { id: "runtime", label: "Runtime", icon: Lightning },
   { id: "usage", label: "Usage", icon: ChartBar },
   { id: "assistant", label: "Assistant", icon: UserCircle },
+  { id: "about", label: "About", icon: Info },
 ];
 
 function getSectionFromHash(): Section {
-  if (typeof window === "undefined") return "general";
+  if (typeof window === "undefined") return "overview";
   const hash = window.location.hash.replace("#", "");
   if (sidebarItems.some((item) => item.id === hash)) {
     return hash as Section;
   }
-  return "general";
+  // Settings IA Phase 2: Overview is the new default landing — a status
+  // dashboard for "what's the state of my setup right now". Direct hash
+  // links (#general / #providers / etc.) still resolve as before.
+  return "overview";
 }
 
 function subscribeToHash(callback: () => void) {
@@ -55,7 +70,7 @@ function subscribeToHash(callback: () => void) {
 export function SettingsLayout() {
   // useSyncExternalStore subscribes to hash changes without triggering
   // the react-hooks/set-state-in-effect lint rule.
-  const hashSection = useSyncExternalStore(subscribeToHash, getSectionFromHash, () => "general" as Section);
+  const hashSection = useSyncExternalStore(subscribeToHash, getSectionFromHash, () => "overview" as Section);
 
   // Local state allows immediate UI update on click before the hash updates.
   const [overrideSection, setOverrideSection] = useState<Section | null>(null);
@@ -64,6 +79,7 @@ export function SettingsLayout() {
   const { t } = useTranslation();
 
   const settingsLabelKeys: Record<string, TranslationKey> = {
+    'Overview': 'settings.overview',
     'General': 'settings.general',
     'Appearance': 'settings.appearance',
     'Providers': 'settings.providers',
@@ -71,6 +87,7 @@ export function SettingsLayout() {
     'Runtime': 'settings.runtime',
     'Usage': 'settings.usage',
     'Assistant': 'settings.assistant',
+    'About': 'settings.about',
   };
 
   const handleSectionChange = useCallback((section: Section) => {
@@ -111,6 +128,7 @@ export function SettingsLayout() {
       {/* Content */}
       <div className="flex min-h-0 flex-1">
         <div className="flex-1 overflow-auto p-4 lg:p-6">
+          {activeSection === "overview" && <OverviewSection />}
           {activeSection === "general" && <GeneralSection />}
           {activeSection === "appearance" && <AppearanceSection />}
           {activeSection === "providers" && <ProviderManager />}
@@ -118,6 +136,7 @@ export function SettingsLayout() {
           {activeSection === "runtime" && <RuntimePanel />}
           {activeSection === "usage" && <UsageStatsSection />}
           {activeSection === "assistant" && <AssistantWorkspaceSection />}
+          {activeSection === "about" && <AboutSection />}
         </div>
       </div>
     </div>
