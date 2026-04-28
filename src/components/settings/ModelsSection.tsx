@@ -33,6 +33,8 @@ import {
   Check,
   X,
   ArrowsClockwise,
+  PushPin,
+  Warning,
 } from "@/components/ui/icon";
 import { useTranslation } from "@/hooks/useTranslation";
 import { runAutoDiscoverForProvider, probeAndApplyProvider, type AutoDiscoverResult } from "@/lib/auto-discover-models";
@@ -210,6 +212,24 @@ export function ModelsSection() {
   type RuntimeFilter = 'all' | 'claude_code_ready' | 'claude_code_verified' | 'claude_code_experimental' | 'codepilot_only' | 'unknown';
   const [runtimeFilter, setRuntimeFilter] = useState<RuntimeFilter>('all');
   const [search, setSearch] = useState('');
+
+  // Phase 2C: Models page is the canonical entry for "what's the default".
+  // We hold:
+  //   - `defaultMode` / `pinnedProviderId` / `pinnedModel`: the user's
+  //     committed state, read from `/api/providers/options?providerId=__global__`.
+  //   - `runtimeCompatModels`: per-provider Set<modelValue> reachable
+  //     under the *current* effective Runtime (read from
+  //     `/api/providers/models?runtime=auto`). Used to (a) show the
+  //     "available in another Runtime" badge on cross-runtime rows and
+  //     (b) compute whether the current pin is invalid right now.
+  //   - `pinnedIsValid` derives from the above two — null when not in
+  //     pinned mode or pin incomplete; boolean otherwise.
+  const [defaultMode, setDefaultMode] = useState<'auto' | 'pinned'>('auto');
+  const [pinnedProviderId, setPinnedProviderId] = useState('');
+  const [pinnedModel, setPinnedModel] = useState('');
+  const [runtimeCompatModels, setRuntimeCompatModels] = useState<Map<string, Set<string>>>(new Map());
+  const [runtimeApplied, setRuntimeApplied] = useState<string>('');
+  const [savingDefault, setSavingDefault] = useState(false);
 
   // Add-model dialog state
   const [addDialog, setAddDialog] = useState<{ providerId: string; providerName: string } | null>(null);
@@ -563,6 +583,141 @@ export function ModelsSection() {
   }, [roleDialog, providers, roleDraft, fetchAll, ROLE_KEYS]);
 
   useEffect(() => { fetchAll(); }, [fetchAll]);
+
+  // Phase 2C: read default mode + runtime-compatible groups so the page
+  // can render the "new chat default" status row + cross-runtime badges.
+  // Refetched on `provider-changed` because flipping mode or pinning a
+  // row in another tab shouldn't leave this page stale.
+  const fetchDefaultMeta = useCallback(async () => {
+    try {
+      const [optsRes, modelsRes] = await Promise.all([
+        fetch('/api/providers/options?providerId=__global__'),
+        fetch('/api/providers/models?runtime=auto'),
+      ]);
+      if (optsRes.ok) {
+        const data = await optsRes.json();
+        const opts = data?.options || {};
+        setDefaultMode(opts.default_mode === 'pinned' ? 'pinned' : 'auto');
+        setPinnedProviderId(opts.default_model_provider || '');
+        setPinnedModel(opts.default_model || '');
+      }
+      if (modelsRes.ok) {
+        const data = await modelsRes.json();
+        const compatMap = new Map<string, Set<string>>();
+        for (const g of data.groups || []) {
+          compatMap.set(g.provider_id, new Set(g.models.map((m: { value: string }) => m.value)));
+        }
+        setRuntimeCompatModels(compatMap);
+        setRuntimeApplied(data.runtime_applied || '');
+      }
+    } catch { /* ignore — best-effort dashboard fetch */ }
+  }, []);
+
+  useEffect(() => {
+    fetchDefaultMeta();
+    const handler = () => { fetchDefaultMeta(); };
+    window.addEventListener('provider-changed', handler);
+    return () => window.removeEventListener('provider-changed', handler);
+  }, [fetchDefaultMeta]);
+
+  // Helpers shared between the top status row and per-row pin button.
+  const isRuntimeCompat = useCallback((providerId: string, modelId: string) => {
+    return runtimeCompatModels.get(providerId)?.has(modelId) ?? false;
+  }, [runtimeCompatModels]);
+
+  const isCurrentDefault = useCallback((providerId: string, modelId: string) => {
+    return defaultMode === 'pinned'
+      && pinnedProviderId === providerId
+      && pinnedModel === modelId;
+  }, [defaultMode, pinnedProviderId, pinnedModel]);
+
+  // Pin a specific provider+model as the global default. Cross-Runtime
+  // pins are explicitly *allowed* — the user might be committing for a
+  // future Runtime switch — but the resolver will return 'invalid-default'
+  // immediately and the chat banner / Runtime banner (2C.3) will surface
+  // the broken state until they switch Runtime or re-pin.
+  const handleSetAsDefault = useCallback(async (providerId: string, modelId: string) => {
+    if (savingDefault) return;
+    setSavingDefault(true);
+    try {
+      const res = await fetch('/api/providers/options', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          providerId: '__global__',
+          options: {
+            default_mode: 'pinned',
+            default_model_provider: providerId,
+            default_model: modelId,
+            legacy_default_provider_id: providerId,
+          },
+        }),
+      });
+      if (!res.ok) throw new Error('save failed');
+      setDefaultMode('pinned');
+      setPinnedProviderId(providerId);
+      setPinnedModel(modelId);
+      window.dispatchEvent(new Event('provider-changed'));
+      const compat = isRuntimeCompat(providerId, modelId);
+      showToast({
+        message: compat
+          ? (isZh ? '已设为默认模型' : 'Set as default model')
+          : (isZh ? '已固定，但当前 Runtime 不可执行' : 'Pinned, but not executable under current Runtime'),
+        type: compat ? 'success' : 'warning',
+      });
+    } catch {
+      showToast({ message: isZh ? '保存默认模型失败' : 'Failed to save default', type: 'error' });
+    } finally {
+      setSavingDefault(false);
+    }
+  }, [savingDefault, isZh, isRuntimeCompat]);
+
+  const handleRevertToAuto = useCallback(async () => {
+    if (savingDefault) return;
+    setSavingDefault(true);
+    try {
+      const res = await fetch('/api/providers/options', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          providerId: '__global__',
+          options: { default_mode: 'auto', legacy_default_provider_id: '' },
+        }),
+      });
+      if (!res.ok) throw new Error('save failed');
+      setDefaultMode('auto');
+      setPinnedProviderId('');
+      setPinnedModel('');
+      window.dispatchEvent(new Event('provider-changed'));
+      showToast({ message: isZh ? '已切回自动' : 'Reverted to Auto', type: 'success' });
+    } catch {
+      showToast({ message: isZh ? '切换失败' : 'Failed to switch', type: 'error' });
+    } finally {
+      setSavingDefault(false);
+    }
+  }, [savingDefault, isZh]);
+
+  // Resolved display name + label for the current pin. Falls back to the
+  // raw ids when the pinned target isn't reachable under the current
+  // runtime (so the status row names what's broken instead of showing
+  // "未配置"). Same fallback rule as Settings → Runtime explainer
+  // (RuntimePanel.tsx) so the two surfaces never drift.
+  const pinnedDisplay = useMemo(() => {
+    if (defaultMode !== 'pinned' || !pinnedProviderId || !pinnedModel) return null;
+    const provider = providers.find(p => p.id === pinnedProviderId);
+    const modelRow = provider ? (bundles[provider.id] || []).find(m => m.model_id === pinnedModel) : undefined;
+    return {
+      providerName: provider?.name ?? pinnedProviderId,
+      modelLabel: modelRow?.display_name ?? modelRow?.model_id ?? pinnedModel,
+    };
+  }, [defaultMode, pinnedProviderId, pinnedModel, providers, bundles]);
+
+  const pinnedIsValid: boolean | null = useMemo(() => {
+    if (defaultMode !== 'pinned') return null;
+    if (!pinnedProviderId || !pinnedModel) return false; // pin-incomplete
+    return isRuntimeCompat(pinnedProviderId, pinnedModel);
+  }, [defaultMode, pinnedProviderId, pinnedModel, isRuntimeCompat]);
+
   // Don't listen to `provider-changed` — local edits already update bundles
   // from the PATCH response, and a full refetch flips the `loading` flag,
   // unmounts the list, and loses the user's scroll position. The chat-side
@@ -852,6 +1007,77 @@ export function ModelsSection() {
             {isZh ? '按推荐整理' : 'Tidy by recommended'}
           </Button>
         </div>
+      </div>
+
+      {/* Phase 2C: "New chat default" status row. The Models page is now
+          the canonical entry for setting / clearing the default. This row
+          shows the current commitment (Auto vs Pinned) and surfaces the
+          broken-pin state inline when the pinned target isn't reachable
+          under the current Runtime — same wording rule as the chat
+          banner + Settings → Runtime explainer (resolver name fallback
+          to provider id / model value when friendly labels are absent). */}
+      <div
+        className={cn(
+          'rounded-lg border p-4 flex items-start justify-between gap-3',
+          pinnedIsValid === false
+            ? 'border-status-warning-border bg-status-warning-muted/30'
+            : 'border-border/50 bg-card',
+        )}
+      >
+        <div className="min-w-0 flex-1">
+          <h3 className="text-sm font-medium flex items-center gap-2">
+            {isZh ? '新会话默认' : 'New chat default'}
+            <span
+              className={cn(
+                'inline-flex items-center rounded-full px-1.5 py-0.5 text-[10px] font-medium',
+                defaultMode === 'pinned'
+                  ? 'bg-foreground text-background'
+                  : 'bg-muted text-muted-foreground',
+              )}
+              title={defaultMode === 'pinned'
+                ? (isZh ? '已固定到具体的 provider + model；不会被自动 fallback。' : 'Pinned to a specific provider + model; never silently fallback.')
+                : (isZh ? '系统按当前 Runtime 自动选择第一个合适模型。' : 'System auto-picks the first suitable model under the current Runtime.')}
+            >
+              {defaultMode === 'pinned' ? (isZh ? '已固定' : 'Pinned') : (isZh ? '自动' : 'Auto')}
+            </span>
+          </h3>
+          <p className="text-xs text-muted-foreground mt-1.5 leading-relaxed">
+            {defaultMode === 'auto' ? (
+              isZh
+                ? '系统按当前 Runtime 自动选择第一个合适模型。点击下方任何模型行右侧的图钉，可固定为默认。'
+                : 'System auto-picks the first suitable model for the current Runtime. Pin any model row below to commit.'
+            ) : pinnedIsValid === true ? (
+              isZh
+                ? `已固定：${pinnedDisplay?.providerName} / ${pinnedDisplay?.modelLabel}`
+                : `Pinned: ${pinnedDisplay?.providerName} / ${pinnedDisplay?.modelLabel}`
+            ) : pinnedIsValid === false ? (
+              <>
+                <Warning size={12} weight="fill" className="inline-block text-status-warning-foreground mr-1 -mt-0.5" />
+                {isZh
+                  ? `已固定：${pinnedDisplay?.providerName ?? pinnedProviderId} / ${pinnedDisplay?.modelLabel ?? pinnedModel} — 当前 Runtime 下无法执行。`
+                  : `Pinned: ${pinnedDisplay?.providerName ?? pinnedProviderId} / ${pinnedDisplay?.modelLabel ?? pinnedModel} — not executable under current Runtime.`}
+              </>
+            ) : (
+              isZh
+                ? '尚未选择默认模型 — 点击下方任意模型行的图钉。'
+                : 'No default selected — pin any model row below.'
+            )}
+          </p>
+        </div>
+        {defaultMode === 'pinned' && (
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={handleRevertToAuto}
+            disabled={savingDefault}
+            className="shrink-0 gap-1.5 text-xs"
+          >
+            {savingDefault ? (
+              <SpinnerGap size={12} className="animate-spin" />
+            ) : null}
+            {isZh ? '改回自动' : 'Revert to Auto'}
+          </Button>
+        )}
       </div>
 
       <div className="flex items-center gap-3">
@@ -1225,6 +1451,38 @@ export function ModelsSection() {
                             {enableSourceLabel}
                           </span>
                         )}
+                        {/* Phase 2C: "Default" pill on the currently-pinned row.
+                            Helps the user spot their commitment without
+                            scanning all the pin icons. Persistent visual
+                            independent of hover state. */}
+                        {isCurrentDefault(provider.id, model.model_id) && (
+                          <span
+                            className="inline-flex items-center gap-1 rounded-full bg-foreground text-background px-1.5 py-0.5 text-[10px] font-medium"
+                            title={isZh
+                              ? '当前固定的默认模型 — 新会话将使用这个'
+                              : 'Currently pinned default — used by new chats'}
+                          >
+                            <PushPin size={9} weight="fill" />
+                            {isZh ? '默认' : 'Default'}
+                          </span>
+                        )}
+                        {/* Phase 2C: cross-Runtime tag — this model isn't
+                            in the runtime-filtered list, so a chat under
+                            the *current* Runtime can't reach it. Pinning
+                            it is still allowed (user may be committing
+                            for a future Runtime switch); the resolver
+                            will return 'invalid-default' and the chat
+                            banner / Runtime banner will surface that. */}
+                        {model.enabled === 1 && !isRuntimeCompat(provider.id, model.model_id) && (
+                          <span
+                            className="inline-flex items-center rounded-full px-1.5 py-0.5 text-[10px] font-medium bg-status-warning-muted text-status-warning-foreground cursor-help"
+                            title={isZh
+                              ? `当前 Runtime（${runtimeApplied || '未知'}）下不可执行 — 切换 Runtime 才能用`
+                              : `Not executable under current Runtime (${runtimeApplied || 'unknown'}) — switch Runtime to use`}
+                          >
+                            {isZh ? '当前 Runtime 不可用' : 'Other Runtime only'}
+                          </span>
+                        )}
                       </div>
                       {/* Three-concept identity rows. Without explicit
                           labels the bare strings (e.g. plain `sonnet`)
@@ -1263,6 +1521,36 @@ export function ModelsSection() {
                         );
                       })()}
                     </div>
+
+                    {/* Phase 2C: pin-as-default. Filled icon when this row
+                        is the current pin, ghost otherwise. Click commits
+                        provider+model as the global default (writes
+                        default_mode='pinned' alongside the pair). To clear,
+                        use the "Revert to Auto" button on the top status
+                        row — clearing via row-toggle would make every pin
+                        click feel two-stage. Cross-Runtime models can be
+                        pinned (allowed but immediately invalid; warned in
+                        the top status row). */}
+                    <Button
+                      variant="ghost"
+                      size="icon-sm"
+                      onClick={() => handleSetAsDefault(provider.id, model.model_id)}
+                      disabled={savingDefault || isCurrentDefault(provider.id, model.model_id)}
+                      className={cn(
+                        'shrink-0 h-7 w-7',
+                        isCurrentDefault(provider.id, model.model_id)
+                          ? 'text-status-warning-foreground'
+                          : 'text-muted-foreground hover:text-foreground',
+                      )}
+                      title={isCurrentDefault(provider.id, model.model_id)
+                        ? (isZh ? '当前默认模型' : 'Current default model')
+                        : (isZh ? '设为默认模型' : 'Set as default')}
+                    >
+                      <PushPin
+                        size={14}
+                        weight={isCurrentDefault(provider.id, model.model_id) ? 'fill' : 'regular'}
+                      />
+                    </Button>
 
                     {/* Enabled toggle */}
                     <div className="flex items-center gap-2 shrink-0">
