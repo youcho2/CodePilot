@@ -139,6 +139,8 @@ const zh: Record<TranslationKey, string> = {
   'settings.language': '语言',
   'settings.languageDesc': '选择界面显示语言',
   'settings.usage': '用量统计',
+  'settings.health': '健康检查',
+  'settings.healthDesc': '日常健康概览 — 一眼看清服务商连接、Runtime、默认模型、模型暴露、工作空间状态',
 
   // ── Settings: Appearance ──────────────────────────────────────
   'settings.appearance': '外观',

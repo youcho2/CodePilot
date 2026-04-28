@@ -33,7 +33,7 @@ import {
   Plug,
   Brain,
   UserCircle,
-  Stethoscope,
+  Heart,
   CheckCircle,
   Warning,
   ArrowsClockwise,
@@ -343,28 +343,33 @@ export function OverviewSection() {
           )}
         </OverviewCard>
 
-        {/* Card 6 — Setup Center / Diagnostics */}
+        {/* Card 6 — Health entry. Phase 2C.5 redirects this card from
+            Setup Center to the new Health page, which is now the single
+            "is anything wrong?" surface. Setup Center is still the
+            wizard / repair flow but reaches it via Health, not directly
+            from Overview, so the Overview index has one consistent
+            answer for "where do I check status?". */}
         <OverviewCard
-          icon={<Stethoscope size={16} />}
-          title={isZh ? "设置 / 诊断" : "Setup / Diagnostics"}
+          icon={<Heart size={16} weight={claudeWarnings ? "regular" : "fill"} />}
+          title={isZh ? "健康检查" : "Health"}
           tone={claudeWarnings ? "warning" : "muted"}
-          primaryActionLabel={isZh ? "运行设置向导" : "Run setup wizard"}
-          onPrimaryAction={() => window.dispatchEvent(new CustomEvent("open-setup-center"))}
+          primaryActionLabel={isZh ? "去健康检查" : "Open Health"}
+          onPrimaryAction={() => navTo("#health")}
         >
           {claudeWarnings ? (
             <p className="text-status-warning-foreground flex items-start gap-1">
               <Warning size={12} weight="fill" className="mt-0.5 shrink-0" />
               <span>
                 {isZh
-                  ? "检测到 Claude Code 兼容性提示，建议运行诊断"
-                  : "Claude Code compatibility warnings detected — run diagnose"}
+                  ? "检测到 Claude Code 兼容性提示，建议在健康检查页查看"
+                  : "Claude Code compatibility warnings detected — see Health"}
               </span>
             </p>
           ) : (
             <p className="text-muted-foreground">
               {isZh
-                ? "运行连接诊断、导出运行日志、重新跑安装向导"
-                : "Run connectivity diagnose, export logs, replay setup wizard"}
+                ? "服务商连接、Runtime、默认模型、模型暴露、工作空间状态一站式总览"
+                : "One-page overview of provider connectivity, runtime, default model, exposure, and workspace"}
             </p>
           )}
         </OverviewCard>

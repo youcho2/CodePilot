@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useCallback, useSyncExternalStore } from "react";
-import { type Icon, Gear, UserCircle, Plug, ChartBar, Brain, Lightning, PaintBrush, Eye, Info } from "@/components/ui/icon";
+import { type Icon, Gear, UserCircle, Plug, ChartBar, Brain, Lightning, PaintBrush, Eye, Info, Heart } from "@/components/ui/icon";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { OverviewSection } from "./OverviewSection";
@@ -10,6 +10,7 @@ import { AppearanceSection } from "./AppearanceSection";
 import { ProviderManager } from "./ProviderManager";
 import { ModelsSection } from "./ModelsSection";
 import { RuntimePanel } from "./RuntimePanel";
+import { HealthSection } from "./HealthSection";
 import { UsageStatsSection } from "./UsageStatsSection";
 import { AssistantWorkspaceSection } from "./AssistantWorkspaceSection";
 import { AboutSection } from "./AboutSection";
@@ -23,6 +24,7 @@ type Section =
   | "providers"
   | "models"
   | "runtime"
+  | "health"
   | "usage"
   | "assistant"
   | "about";
@@ -34,10 +36,10 @@ interface SidebarItem {
 }
 
 // Order: Overview / General / Appearance / Providers / Models / Runtime /
-// Usage / Assistant / About. Settings IA Phase 2 added Overview at the top
-// (status dashboard, not "another settings page") and About at the bottom
-// (version + docs + utilities). The middle stays the three-layer mental
-// model: Providers (assets) → Models (exposure) → Runtime (environment).
+// Health / Usage / Assistant / About. Phase 2C.5 inserted Health between
+// Runtime and Usage so the "build run conditions → check runs → see
+// usage" flow reads top-down. Health is the daily-issue locator (read-
+// only); deep diagnostics + repair stay with Setup Center.
 const sidebarItems: SidebarItem[] = [
   { id: "overview", label: "Overview", icon: Eye },
   { id: "general", label: "General", icon: Gear },
@@ -45,6 +47,7 @@ const sidebarItems: SidebarItem[] = [
   { id: "providers", label: "Providers", icon: Plug },
   { id: "models", label: "Models", icon: Brain },
   { id: "runtime", label: "Runtime", icon: Lightning },
+  { id: "health", label: "Health", icon: Heart },
   { id: "usage", label: "Usage", icon: ChartBar },
   { id: "assistant", label: "Assistant", icon: UserCircle },
   { id: "about", label: "About", icon: Info },
@@ -85,6 +88,7 @@ export function SettingsLayout() {
     'Providers': 'settings.providers',
     'Models': 'settings.models',
     'Runtime': 'settings.runtime',
+    'Health': 'settings.health',
     'Usage': 'settings.usage',
     'Assistant': 'settings.assistant',
     'About': 'settings.about',
@@ -134,6 +138,7 @@ export function SettingsLayout() {
           {activeSection === "providers" && <ProviderManager />}
           {activeSection === "models" && <ModelsSection />}
           {activeSection === "runtime" && <RuntimePanel />}
+          {activeSection === "health" && <HealthSection />}
           {activeSection === "usage" && <UsageStatsSection />}
           {activeSection === "assistant" && <AssistantWorkspaceSection />}
           {activeSection === "about" && <AboutSection />}

@@ -1,0 +1,434 @@
+"use client";
+
+/**
+ * Settings → Health — read-only daily health overview.
+ *
+ * Phase 2C.5. Health is the *日常问题定位* page, not a wizard. It does
+ * not run probes on its own and does not write anything; instead it
+ * reuses the data the rest of Settings already pulls (`useOverviewData`,
+ * `useClaudeStatus`, the runtime resolver) and surfaces five concerns
+ * in one place:
+ *
+ *   1. Provider connectivity
+ *   2. Runtime / CLI
+ *   3. Default model validity
+ *   4. Models exposure
+ *   5. Assistant workspace / local environment
+ *
+ * Each row shows status + 原因 + 影响 + a single primary CTA. Live
+ * probes / repair flows stay with Setup Center; Provider Doctor stays
+ * with Providers. Health is the index — it points the user at the
+ * right specialist surface, it doesn't try to be one.
+ */
+
+import { useTranslation } from "@/hooks/useTranslation";
+import { useClaudeStatus } from "@/hooks/useClaudeStatus";
+import { Button } from "@/components/ui/button";
+import {
+  CheckCircle,
+  Warning,
+  XCircle,
+  Plug,
+  Brain,
+  Lightning,
+  UserCircle,
+  Stethoscope,
+  CaretRight,
+  Heart,
+} from "@/components/ui/icon";
+import { cn } from "@/lib/utils";
+import { useOverviewData } from "./useOverviewData";
+import type { TranslationKey } from "@/i18n";
+
+type Severity = "ok" | "warn" | "error";
+
+interface HealthRow {
+  id: string;
+  icon: React.ReactNode;
+  title: string;
+  severity: Severity;
+  reason: string;
+  impact?: string;
+  ctaLabel: string;
+  ctaOnClick: () => void;
+}
+
+function navTo(hash: string) {
+  if (typeof window !== "undefined") window.location.hash = hash;
+}
+
+const SEVERITY_DOT: Record<Severity, string> = {
+  ok: "bg-status-success-foreground",
+  warn: "bg-status-warning-foreground",
+  error: "bg-destructive",
+};
+
+const SEVERITY_ICON: Record<Severity, React.ReactNode> = {
+  ok: <CheckCircle size={14} weight="fill" className="text-status-success-foreground shrink-0" />,
+  warn: <Warning size={14} weight="fill" className="text-status-warning-foreground shrink-0" />,
+  error: <XCircle size={14} weight="fill" className="text-destructive shrink-0" />,
+};
+
+export function HealthSection() {
+  const { t } = useTranslation();
+  const isZh = t("nav.chats") === "对话";
+  const state = useOverviewData();
+  const { status: claudeStatus } = useClaudeStatus();
+
+  // While `useOverviewData` is still hydrating its first fetch, every
+  // counter sits at the initial-state default (0). Rendering health
+  // rows on those zeros would falsely report "no providers / no
+  // models" for ~200ms after mount; show a loading shell until the
+  // first fetch resolves.
+  if (state.loading) {
+    return (
+      <div className="max-w-4xl mx-auto space-y-6">
+        <div>
+          <h2 className="text-sm font-medium flex items-center gap-2">
+            <Heart size={14} weight="fill" className="text-status-success-foreground shrink-0" />
+            {t("settings.health" as TranslationKey)}
+          </h2>
+          <p className="text-[11px] text-muted-foreground mt-0.5">
+            {t("settings.healthDesc" as TranslationKey)}
+          </p>
+        </div>
+        <div className="rounded-lg border border-dashed border-border/50 bg-card/50 p-10 text-center">
+          <p className="text-xs text-muted-foreground">{isZh ? "加载中…" : "Loading…"}</p>
+        </div>
+      </div>
+    );
+  }
+
+  const rows: HealthRow[] = [];
+
+  // ── 1. Provider connectivity ─────────────────────────────────
+  rows.push((() => {
+    const count = state.providersConfigured;
+    if (count === 0) {
+      return {
+        id: "providers",
+        icon: <Plug size={16} />,
+        title: isZh ? "服务商连接" : "Provider connectivity",
+        severity: "error",
+        reason: isZh ? "尚未配置任何 provider" : "No providers configured",
+        impact: isZh
+          ? "chat 无法发送 — 需要至少添加一个 provider"
+          : "Chat cannot start without a connected provider",
+        ctaLabel: isZh ? "去 Providers" : "Open Providers",
+        ctaOnClick: () => navTo("#providers"),
+      };
+    }
+    return {
+      id: "providers",
+      icon: <Plug size={16} />,
+      title: isZh ? "服务商连接" : "Provider connectivity",
+      severity: "ok",
+      reason: isZh
+        ? `已配置 ${count} 个 provider`
+        : `${count} provider${count === 1 ? "" : "s"} configured`,
+      ctaLabel: isZh ? "运行诊断" : "Run Diagnostics",
+      ctaOnClick: () => navTo("#providers"),
+    };
+  })());
+
+  // ── 2. Runtime / CLI ─────────────────────────────────────────
+  rows.push((() => {
+    const cliConnected = !!claudeStatus?.connected;
+    const cliEnabled = state.cliEnabled;
+    const warnCount = claudeStatus?.warnings?.length ?? 0;
+
+    if (state.agentRuntime === "claude-code-sdk" && !cliEnabled) {
+      return {
+        id: "runtime",
+        icon: <Lightning size={16} />,
+        title: isZh ? "Runtime / CLI" : "Runtime / CLI",
+        severity: "warn",
+        reason: isZh
+          ? "Claude Code CLI 已禁用，运行时已降级到 AI SDK"
+          : "Claude Code CLI disabled — runtime fell back to AI SDK",
+        impact: isZh
+          ? "仅 CodePilot Runtime 兼容的 provider/model 可执行"
+          : "Only CodePilot Runtime providers/models will run",
+        ctaLabel: isZh ? "去 Runtime" : "Open Runtime",
+        ctaOnClick: () => navTo("#runtime"),
+      };
+    }
+    if (state.agentRuntime === "claude-code-sdk" && !cliConnected) {
+      return {
+        id: "runtime",
+        icon: <Lightning size={16} />,
+        title: isZh ? "Runtime / CLI" : "Runtime / CLI",
+        severity: "error",
+        reason: isZh
+          ? "Claude Code CLI 未检测到，运行时已降级"
+          : "Claude Code CLI not detected — runtime fell back",
+        impact: isZh
+          ? "新会话使用 AI SDK，但 Claude Code 专属能力不可用"
+          : "New chats use AI SDK; Claude Code-only features are unavailable",
+        ctaLabel: isZh ? "去 Runtime" : "Open Runtime",
+        ctaOnClick: () => navTo("#runtime"),
+      };
+    }
+    if (warnCount > 0) {
+      return {
+        id: "runtime",
+        icon: <Lightning size={16} />,
+        title: isZh ? "Runtime / CLI" : "Runtime / CLI",
+        severity: "warn",
+        reason: isZh
+          ? `Claude Code 报告 ${warnCount} 条兼容性提示`
+          : `Claude Code reports ${warnCount} compatibility warning${warnCount === 1 ? "" : "s"}`,
+        ctaLabel: isZh ? "去 Runtime" : "Open Runtime",
+        ctaOnClick: () => navTo("#runtime"),
+      };
+    }
+    return {
+      id: "runtime",
+      icon: <Lightning size={16} weight="fill" />,
+      title: isZh ? "Runtime / CLI" : "Runtime / CLI",
+      severity: "ok",
+      reason: state.agentRuntime === "claude-code-sdk"
+        ? (isZh ? "Claude Code Runtime 已就绪" : "Claude Code Runtime ready")
+        : (isZh ? "CodePilot Runtime（AI SDK）已就绪" : "CodePilot Runtime (AI SDK) ready"),
+      ctaLabel: isZh ? "去 Runtime" : "Open Runtime",
+      ctaOnClick: () => navTo("#runtime"),
+    };
+  })());
+
+  // ── 3. Default model validity ────────────────────────────────
+  rows.push((() => {
+    if (state.noCompatibleProvider) {
+      return {
+        id: "default-model",
+        icon: <Brain size={16} />,
+        title: isZh ? "默认模型有效性" : "Default model validity",
+        severity: "error",
+        reason: isZh
+          ? "当前 Runtime 下没有可用 provider/model"
+          : "No compatible provider under current Runtime",
+        impact: isZh
+          ? "新会话进入'无兼容服务'状态，无法发送"
+          : "New chats land in the 'no compatible provider' state",
+        ctaLabel: isZh ? "去 Runtime" : "Open Runtime",
+        ctaOnClick: () => navTo("#runtime"),
+      };
+    }
+    if (state.defaultInvalid) {
+      const provDisplay = state.defaultProviderName ?? "?";
+      const modelDisplay = state.defaultModelLabel ?? "?";
+      return {
+        id: "default-model",
+        icon: <Brain size={16} />,
+        title: isZh ? "默认模型有效性" : "Default model validity",
+        severity: "error",
+        reason: isZh
+          ? `已固定 ${provDisplay} / ${modelDisplay} — 当前 Runtime 下不可执行`
+          : `Pinned ${provDisplay} / ${modelDisplay} — not executable under current Runtime`,
+        impact: isZh
+          ? "新消息会被阻断，需切换 Runtime、启用模型、改 Pin 或切回 Auto"
+          : "New messages are blocked until Runtime / pin / mode is changed",
+        ctaLabel: isZh ? "去 Runtime" : "Open Runtime",
+        ctaOnClick: () => navTo("#runtime"),
+      };
+    }
+    if (state.defaultMode === "pinned") {
+      return {
+        id: "default-model",
+        icon: <Brain size={16} />,
+        title: isZh ? "默认模型有效性" : "Default model validity",
+        severity: "ok",
+        reason: isZh
+          ? `已固定 ${state.defaultProviderName ?? "?"} / ${state.defaultModelLabel ?? "?"}`
+          : `Pinned ${state.defaultProviderName ?? "?"} / ${state.defaultModelLabel ?? "?"}`,
+        ctaLabel: isZh ? "去 Models" : "Open Models",
+        ctaOnClick: () => navTo("#models"),
+      };
+    }
+    return {
+      id: "default-model",
+      icon: <Brain size={16} />,
+      title: isZh ? "默认模型有效性" : "Default model validity",
+      severity: "ok",
+      reason: isZh
+        ? `Auto — 当前解析到 ${state.defaultProviderName ?? "?"} / ${state.defaultModelLabel ?? "?"}`
+        : `Auto — currently resolves to ${state.defaultProviderName ?? "?"} / ${state.defaultModelLabel ?? "?"}`,
+      ctaLabel: isZh ? "去 Models" : "Open Models",
+      ctaOnClick: () => navTo("#models"),
+    };
+  })());
+
+  // ── 4. Models exposure ───────────────────────────────────────
+  rows.push((() => {
+    if (state.providersConfigured === 0) {
+      return {
+        id: "models-exposure",
+        icon: <Brain size={16} />,
+        title: isZh ? "模型暴露" : "Models exposure",
+        severity: "ok",
+        reason: isZh
+          ? "尚未配置 provider — 详见上方"
+          : "No providers configured yet — see above",
+        ctaLabel: isZh ? "去 Models" : "Open Models",
+        ctaOnClick: () => navTo("#models"),
+      };
+    }
+    if (state.modelsEnabled === 0) {
+      return {
+        id: "models-exposure",
+        icon: <Brain size={16} />,
+        title: isZh ? "模型暴露" : "Models exposure",
+        severity: "error",
+        reason: isZh
+          ? "已接入 provider，但没有任何模型对 picker 可见"
+          : "Providers connected, but no models visible to the picker",
+        impact: isZh
+          ? "chat picker 为空，无法选择模型"
+          : "Chat picker is empty",
+        ctaLabel: isZh ? "去 Models" : "Open Models",
+        ctaOnClick: () => navTo("#models"),
+      };
+    }
+    const manualNote = (state.modelsManualEnabled > 0 || state.modelsManualHidden > 0)
+      ? (isZh
+          ? `（手动启用 ${state.modelsManualEnabled} · 手动隐藏 ${state.modelsManualHidden}）`
+          : ` (${state.modelsManualEnabled} manual on · ${state.modelsManualHidden} manual off)`)
+      : "";
+    return {
+      id: "models-exposure",
+      icon: <Brain size={16} />,
+      title: isZh ? "模型暴露" : "Models exposure",
+      severity: "ok",
+      reason: isZh
+        ? `${state.modelsEnabled} / ${state.modelsTotal} 个模型已对 picker 暴露${manualNote}`
+        : `${state.modelsEnabled} of ${state.modelsTotal} models exposed to picker${manualNote}`,
+      ctaLabel: isZh ? "去 Models" : "Open Models",
+      ctaOnClick: () => navTo("#models"),
+    };
+  })());
+
+  // ── 5. Assistant workspace / local environment ───────────────
+  rows.push((() => {
+    if (state.workspaceConfigured) {
+      return {
+        id: "workspace",
+        icon: <UserCircle size={16} />,
+        title: isZh ? "助理工作空间" : "Assistant workspace",
+        severity: "ok",
+        reason: state.workspaceName
+          ? (isZh ? `已配置：${state.workspaceName}` : `Configured: ${state.workspaceName}`)
+          : (isZh ? "已配置工作空间" : "Workspace configured"),
+        ctaLabel: isZh ? "去助理" : "Open Assistant",
+        ctaOnClick: () => navTo("#assistant"),
+      };
+    }
+    return {
+      id: "workspace",
+      icon: <UserCircle size={16} />,
+      title: isZh ? "助理工作空间" : "Assistant workspace",
+      severity: "warn",
+      reason: isZh ? "尚未配置助理工作空间" : "Assistant workspace not configured",
+      impact: isZh
+        ? "助理无法在本地目录上协作"
+        : "Assistant cannot collaborate on local files",
+      ctaLabel: isZh ? "去助理" : "Open Assistant",
+      ctaOnClick: () => navTo("#assistant"),
+    };
+  })());
+
+  // Overall severity = max across rows.
+  const overallSeverity: Severity = rows.reduce<Severity>((acc, r) => {
+    if (r.severity === "error") return "error";
+    if (r.severity === "warn" && acc === "ok") return "warn";
+    return acc;
+  }, "ok");
+
+  const overallTone =
+    overallSeverity === "ok"
+      ? (isZh ? "一切正常" : "All systems healthy")
+      : overallSeverity === "warn"
+        ? (isZh ? "存在 1 项以上提示" : "One or more warnings")
+        : (isZh ? "存在阻塞问题" : "Blocking issues detected");
+
+  return (
+    <div className="max-w-4xl mx-auto space-y-6">
+      {/* Header */}
+      <div className="flex flex-col sm:flex-row items-start sm:justify-between gap-3">
+        <div className="min-w-0">
+          <h2 className="text-sm font-medium flex items-center gap-2">
+            <Heart size={14} weight="fill" className="text-status-success-foreground shrink-0" />
+            {t("settings.health" as TranslationKey)}
+          </h2>
+          <p className="text-[11px] text-muted-foreground mt-0.5">
+            {t("settings.healthDesc" as TranslationKey)}
+          </p>
+        </div>
+        <div className="shrink-0 flex items-center gap-2">
+          <span className={cn("size-1.5 rounded-full", SEVERITY_DOT[overallSeverity])} />
+          <span className="text-[11px] text-muted-foreground">{overallTone}</span>
+        </div>
+      </div>
+
+      {/* 5 rows of health checks */}
+      <div className="rounded-lg border border-border/50 bg-card divide-y divide-border/50">
+        {rows.map((row) => (
+          <HealthRowItem key={row.id} row={row} />
+        ))}
+      </div>
+
+      {/* Setup Center entry — separate, not a row */}
+      <div className="rounded-lg border border-border/50 bg-card p-4 flex flex-col sm:flex-row items-start sm:items-center sm:justify-between gap-3">
+        <div className="min-w-0 flex items-start gap-3">
+          <Stethoscope size={16} className="text-foreground/60 shrink-0 mt-0.5" />
+          <div className="min-w-0">
+            <h3 className="text-sm font-medium">
+              {isZh ? "深度诊断与修复" : "Deep diagnostics & repair"}
+            </h3>
+            <p className="text-[11px] text-muted-foreground mt-0.5 leading-relaxed">
+              {isZh
+                ? "Setup Center 提供完整诊断流程：环境检查、CLI 安装与升级、Provider 连接探测、修复建议。"
+                : "Setup Center runs the full diagnostic flow: environment, CLI install/upgrade, Provider probes, and repair suggestions."}
+            </p>
+          </div>
+        </div>
+        <Button
+          variant="outline"
+          size="sm"
+          className="shrink-0 gap-1.5"
+          onClick={() => window.dispatchEvent(new CustomEvent("open-setup-center"))}
+        >
+          <Stethoscope size={14} />
+          {isZh ? "打开 Setup Center" : "Open Setup Center"}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+function HealthRowItem({ row }: { row: HealthRow }) {
+  return (
+    <div className="px-4 py-3.5 flex items-start gap-3">
+      <span className="shrink-0 mt-1 text-foreground/60">{row.icon}</span>
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center gap-2">
+          {SEVERITY_ICON[row.severity]}
+          <h3 className="text-sm font-medium leading-tight">{row.title}</h3>
+        </div>
+        <p className="text-xs text-foreground/85 mt-1 leading-relaxed">{row.reason}</p>
+        {row.impact && (
+          <p className="text-[11px] text-muted-foreground mt-0.5 leading-relaxed">
+            {row.impact}
+          </p>
+        )}
+      </div>
+      <Button
+        variant="ghost"
+        size="sm"
+        className="shrink-0 gap-1 text-xs text-muted-foreground hover:text-foreground"
+        onClick={row.ctaOnClick}
+      >
+        {row.ctaLabel}
+        <CaretRight size={12} weight="bold" />
+      </Button>
+    </div>
+  );
+}

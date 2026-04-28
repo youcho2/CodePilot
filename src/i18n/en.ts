@@ -142,6 +142,8 @@ const en = {
   'settings.language': 'Language',
   'settings.languageDesc': 'Choose the display language for the interface',
   'settings.usage': 'Usage',
+  'settings.health': 'Health',
+  'settings.healthDesc': 'Daily health overview — connectivity, runtime, default model, model exposure, and workspace at a glance',
 
   // ── Settings: Appearance ──────────────────────────────────────
   'settings.appearance': 'Appearance',

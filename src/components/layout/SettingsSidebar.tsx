@@ -2,7 +2,7 @@
 
 import { useCallback, useSyncExternalStore } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, type Icon, Gear, UserCircle, Plug, ChartBar, Brain, Lightning, PaintBrush, Eye, Info } from "@/components/ui/icon";
+import { ArrowLeft, type Icon, Gear, UserCircle, Plug, ChartBar, Brain, Lightning, PaintBrush, Eye, Info, Heart } from "@/components/ui/icon";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { useTranslation } from "@/hooks/useTranslation";
@@ -20,6 +20,7 @@ type Section =
   | "providers"
   | "models"
   | "runtime"
+  | "health"
   | "usage"
   | "assistant"
   | "about";
@@ -40,6 +41,7 @@ const sidebarItems: SidebarItem[] = [
   { id: "providers", label: "Providers", icon: Plug },
   { id: "models", label: "Models", icon: Brain },
   { id: "runtime", label: "Runtime", icon: Lightning },
+  { id: "health", label: "Health", icon: Heart },
   { id: "usage", label: "Usage", icon: ChartBar },
   { id: "assistant", label: "Assistant", icon: UserCircle },
   { id: "about", label: "About", icon: Info },
@@ -52,6 +54,7 @@ const settingsLabelKeys: Record<string, TranslationKey> = {
   Providers: "settings.providers",
   Models: "settings.models",
   Runtime: "settings.runtime",
+  Health: "settings.health",
   Usage: "settings.usage",
   Assistant: "settings.assistant",
   About: "settings.about",
