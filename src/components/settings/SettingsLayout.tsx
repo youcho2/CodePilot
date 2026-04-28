@@ -1,10 +1,11 @@
 "use client";
 
 import { useState, useCallback, useSyncExternalStore } from "react";
-import { type Icon, Gear, UserCircle, Plug, ChartBar, Brain, Lightning } from "@/components/ui/icon";
+import { type Icon, Gear, UserCircle, Plug, ChartBar, Brain, Lightning, PaintBrush } from "@/components/ui/icon";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { GeneralSection } from "./GeneralSection";
+import { AppearanceSection } from "./AppearanceSection";
 import { ProviderManager } from "./ProviderManager";
 import { ModelsSection } from "./ModelsSection";
 import { RuntimePanel } from "./RuntimePanel";
@@ -13,7 +14,7 @@ import { AssistantWorkspaceSection } from "./AssistantWorkspaceSection";
 import { useTranslation } from "@/hooks/useTranslation";
 import type { TranslationKey } from "@/i18n";
 
-type Section = "general" | "providers" | "models" | "runtime" | "usage" | "assistant";
+type Section = "general" | "appearance" | "providers" | "models" | "runtime" | "usage" | "assistant";
 
 interface SidebarItem {
   id: Section;
@@ -21,14 +22,15 @@ interface SidebarItem {
   icon: Icon;
 }
 
-// Order: General / Providers / Models / Runtime / Usage / Assistant.
-// Runtime sits between Models and Usage to surface the three-layer mental
-// model (assets → exposure → environment) in nav order. The previous
-// "Claude CLI" sidebar entry was folded into Runtime — Claude Code Runtime
-// is now a co-equal card alongside CodePilot Runtime, with the CLI status,
-// model options, and settings.json editor reachable from there.
+// Order: General / Appearance / Providers / Models / Runtime / Usage / Assistant.
+// Appearance was an inline section at the bottom of General; promoting it to
+// a top-level page so application behavior (General) and visual customization
+// (Appearance) live as siblings rather than parent-child. Sequence still
+// encodes the three-layer mental model after Appearance: Providers (assets)
+// → Models (exposure) → Runtime (environment).
 const sidebarItems: SidebarItem[] = [
   { id: "general", label: "General", icon: Gear },
+  { id: "appearance", label: "Appearance", icon: PaintBrush },
   { id: "providers", label: "Providers", icon: Plug },
   { id: "models", label: "Models", icon: Brain },
   { id: "runtime", label: "Runtime", icon: Lightning },
@@ -63,6 +65,7 @@ export function SettingsLayout() {
 
   const settingsLabelKeys: Record<string, TranslationKey> = {
     'General': 'settings.general',
+    'Appearance': 'settings.appearance',
     'Providers': 'settings.providers',
     'Models': 'settings.models',
     'Runtime': 'settings.runtime',
@@ -109,6 +112,7 @@ export function SettingsLayout() {
       <div className="flex min-h-0 flex-1">
         <div className="flex-1 overflow-auto p-4 lg:p-6">
           {activeSection === "general" && <GeneralSection />}
+          {activeSection === "appearance" && <AppearanceSection />}
           {activeSection === "providers" && <ProviderManager />}
           {activeSection === "models" && <ModelsSection />}
           {activeSection === "runtime" && <RuntimePanel />}

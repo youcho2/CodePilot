@@ -24,7 +24,6 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { SettingsCard } from "@/components/patterns/SettingsCard";
 import { FieldRow } from "@/components/patterns/FieldRow";
 import { StatusBanner } from "@/components/patterns/StatusBanner";
-import { AppearanceSection } from "./AppearanceSection";
 
 function UpdateCard() {
   const { updateInfo, checking, checkForUpdates, downloadUpdate, quitAndInstall, setShowDialog } = useUpdate();
@@ -311,9 +310,6 @@ export function GeneralSection() {
         <SentryToggle locale={locale} t={t} />
 
       </SettingsCard>
-
-      {/* Appearance */}
-      <AppearanceSection />
 
       {/* Chat history import — moved here from the Runtime page so the
           Runtime surface stays focused on runtime trust. Importing past

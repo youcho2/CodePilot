@@ -169,7 +169,11 @@ export function AppearanceSection() {
   if (!mounted) return null;
 
   return (
-    <div className="space-y-4">
+    // Top-level Settings page wrapper — matches RuntimePanel / ModelsSection
+    // / GeneralSection. AppearanceSection used to render inline at the
+    // bottom of GeneralSection; promotion to a sibling sidebar entry needs
+    // its own page-shell width + spacing so it doesn't read as half-width.
+    <div className="max-w-4xl mx-auto space-y-6">
       {/* Section header — outside card */}
       <div>
         <h2 className="text-sm font-medium">{t("settings.appearance")}</h2>
@@ -226,7 +230,7 @@ export function AppearanceSection() {
       </FieldRow>
 
       {/* Preview */}
-      <div className="border-t border-border/30 pt-4 space-y-3">
+      <div className="mt-6 space-y-3">
         <h3 className="text-xs font-medium text-muted-foreground">Preview</h3>
         <UIPreview />
         <ShikiCodePreview isDark={isDark} />

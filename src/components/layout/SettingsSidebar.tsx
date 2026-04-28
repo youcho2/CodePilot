@@ -2,7 +2,7 @@
 
 import { useCallback, useSyncExternalStore } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, type Icon, Gear, UserCircle, Plug, ChartBar, Brain, Lightning } from "@/components/ui/icon";
+import { ArrowLeft, type Icon, Gear, UserCircle, Plug, ChartBar, Brain, Lightning, PaintBrush } from "@/components/ui/icon";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { useTranslation } from "@/hooks/useTranslation";
@@ -13,7 +13,7 @@ interface SettingsSidebarProps {
   width?: number;
 }
 
-type Section = "general" | "providers" | "models" | "runtime" | "usage" | "assistant";
+type Section = "general" | "appearance" | "providers" | "models" | "runtime" | "usage" | "assistant";
 
 interface SidebarItem {
   id: Section;
@@ -21,12 +21,13 @@ interface SidebarItem {
   icon: Icon;
 }
 
-// Mirror SettingsLayout — Runtime sits between Models and Usage. Claude
-// Code's CLI status, model options, and settings.json editor are folded
-// into Runtime as a co-equal card alongside CodePilot Runtime, so the
-// previous "Claude CLI" entry is gone.
+// Mirror SettingsLayout — Appearance sits between General and Providers as
+// a sibling top-level page (was an inline section inside General before).
+// Application behavior in General; visual / theme customization in
+// Appearance; both feed into the rest of the three-layer mental model.
 const sidebarItems: SidebarItem[] = [
   { id: "general", label: "General", icon: Gear },
+  { id: "appearance", label: "Appearance", icon: PaintBrush },
   { id: "providers", label: "Providers", icon: Plug },
   { id: "models", label: "Models", icon: Brain },
   { id: "runtime", label: "Runtime", icon: Lightning },
@@ -36,6 +37,7 @@ const sidebarItems: SidebarItem[] = [
 
 const settingsLabelKeys: Record<string, TranslationKey> = {
   General: "settings.general",
+  Appearance: "settings.appearance",
   Providers: "settings.providers",
   Models: "settings.models",
   Runtime: "settings.runtime",
