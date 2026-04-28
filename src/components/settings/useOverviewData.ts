@@ -1,0 +1,210 @@
+"use client";
+
+/**
+ * Aggregate the data needed by Settings → Overview into one hook.
+ *
+ * Three sources, fanned out in parallel on mount:
+ *   - `/api/settings/app`              → agent_runtime + cli_enabled
+ *   - `/api/providers/models?runtime=auto` → runtime-filtered groups
+ *     (used to resolve "what does a new chat actually run?" via the
+ *     same `resolveNewChatDefault` chain Settings → Runtime + chat init
+ *     also use, so the three surfaces never disagree)
+ *   - `/api/providers/models`          → unfiltered group totals
+ *     (so the Models card's enabled / total + manual_* counts reflect
+ *     the *whole* inventory, not just the runtime-compatible slice)
+ *
+ * Plus per-provider `?all=1` fetches to pull `enable_source` rows and
+ * count manual decisions — picker-feed groups don't carry that field.
+ *
+ * Refetches when another section dispatches `provider-changed`, so the
+ * dashboard reflects the user's edits when they bounce back here.
+ */
+
+import { useState, useEffect, useCallback } from "react";
+import {
+  resolveNewChatDefault,
+} from "@/lib/runtime/effective";
+
+interface ProviderModelGroup {
+  provider_id: string;
+  provider_name: string;
+  models: Array<{ value: string; label: string }>;
+  total_count?: number;
+}
+
+interface ModelRow {
+  model_id: string;
+  enabled: number;
+  enable_source: string;
+}
+
+export interface OverviewState {
+  loading: boolean;
+  agentRuntime: string;
+  cliEnabled: boolean;
+  resolvedRuntimeFromApi: string | null;
+  defaultProviderName: string | null;
+  defaultModelLabel: string | null;
+  noCompatibleProvider: boolean;
+  providersConfigured: number;
+  modelsTotal: number;
+  modelsEnabled: number;
+  modelsManualEnabled: number;
+  modelsManualHidden: number;
+  workspaceConfigured: boolean;
+  workspaceName: string | null;
+}
+
+const initialState: OverviewState = {
+  loading: true,
+  agentRuntime: "claude-code-sdk",
+  cliEnabled: true,
+  resolvedRuntimeFromApi: null,
+  defaultProviderName: null,
+  defaultModelLabel: null,
+  noCompatibleProvider: false,
+  providersConfigured: 0,
+  modelsTotal: 0,
+  modelsEnabled: 0,
+  modelsManualEnabled: 0,
+  modelsManualHidden: 0,
+  workspaceConfigured: false,
+  workspaceName: null,
+};
+
+export function useOverviewData(): OverviewState {
+  const [state, setState] = useState<OverviewState>(initialState);
+
+  const fetchAll = useCallback(async () => {
+    try {
+      const [appRes, modelsAutoRes, modelsAllRes, globalOptRes, workspaceRes, workspaceSummaryRes] =
+        await Promise.all([
+          fetch("/api/settings/app"),
+          fetch("/api/providers/models?runtime=auto"),
+          fetch("/api/providers/models"),
+          fetch("/api/providers/options?providerId=__global__"),
+          fetch("/api/settings/workspace"),
+          fetch("/api/workspace/summary"),
+        ]);
+
+      const next = { ...initialState, loading: false };
+
+      if (appRes.ok) {
+        const appData = await appRes.json();
+        const appSettings = appData.settings || {};
+        next.agentRuntime = appSettings.agent_runtime || "claude-code-sdk";
+        next.cliEnabled = appSettings.cli_enabled !== "false";
+      }
+
+      // Runtime-filtered groups → resolve new-chat default via the same
+      // chain Settings → Runtime + chat init both use.
+      if (modelsAutoRes.ok) {
+        const data = (await modelsAutoRes.json()) as {
+          groups?: ProviderModelGroup[];
+          default_provider_id?: string;
+          runtime_applied?: string;
+        };
+        next.resolvedRuntimeFromApi = data.runtime_applied ?? null;
+        const groups = data.groups ?? [];
+        if (groups.length === 0) {
+          next.noCompatibleProvider = true;
+        } else {
+          let globalDefaultModel = "";
+          let globalDefaultProvider = "";
+          if (globalOptRes.ok) {
+            const globalData = await globalOptRes.json();
+            globalDefaultModel = globalData?.options?.default_model ?? "";
+            globalDefaultProvider = globalData?.options?.default_model_provider ?? "";
+          }
+          let savedProviderId = "";
+          let savedModel = "";
+          if (typeof window !== "undefined") {
+            savedProviderId = localStorage.getItem("codepilot:last-provider-id") ?? "";
+            savedModel = localStorage.getItem("codepilot:last-model") ?? "";
+          }
+          const resolved = resolveNewChatDefault({
+            groups,
+            apiDefaultProviderId: data.default_provider_id,
+            globalDefaultModel,
+            globalDefaultProvider,
+            savedProviderId,
+            savedModel,
+          });
+          if (resolved) {
+            next.defaultProviderName = resolved.providerName;
+            next.defaultModelLabel = resolved.modelLabel;
+          }
+        }
+      }
+
+      // Unfiltered group list — for the Models aggregate + provider count.
+      if (modelsAllRes.ok) {
+        const data = (await modelsAllRes.json()) as { groups?: ProviderModelGroup[] };
+        const groups = data.groups ?? [];
+        next.providersConfigured = groups.length;
+        let total = 0;
+        let enabled = 0;
+        for (const g of groups) {
+          total += g.total_count ?? g.models.length;
+          enabled += g.models.length;
+        }
+        next.modelsTotal = total;
+        next.modelsEnabled = enabled;
+
+        // Per-provider deep fetch for manual_enabled / manual_hidden counts.
+        const dbGroups = groups.filter(
+          (g) => g.provider_id !== "env" && g.provider_id !== "openai-oauth",
+        );
+        await Promise.all(
+          dbGroups.map(async (g) => {
+            try {
+              const r = await fetch(`/api/providers/${g.provider_id}/models?all=1`);
+              if (!r.ok) return;
+              const j = (await r.json()) as { models?: ModelRow[] };
+              for (const m of j.models ?? []) {
+                if (m.enable_source === "manual_enabled") next.modelsManualEnabled += 1;
+                else if (m.enable_source === "manual_hidden") next.modelsManualHidden += 1;
+              }
+            } catch {
+              /* ignore */
+            }
+          }),
+        );
+      }
+
+      // Assistant Workspace status — boolean configured + optional name.
+      if (workspaceRes.ok) {
+        const wsData = await workspaceRes.json();
+        if (wsData?.path) next.workspaceConfigured = true;
+      }
+      if (workspaceSummaryRes.ok) {
+        const summary = await workspaceSummaryRes.json();
+        if (summary?.name) next.workspaceName = summary.name;
+        if (summary?.configured) next.workspaceConfigured = true;
+      }
+
+      setState(next);
+    } catch {
+      setState((prev) => ({ ...prev, loading: false }));
+    }
+  }, []);
+
+  useEffect(() => {
+    // setState lands on a microtask after `await fetch(...)`, not
+    // synchronously — but the `react-hooks/set-state-in-effect` rule
+    // can't see through async closures and false-flags this fetch-on-
+    // mount pattern. Disabling here is intentional; the canonical
+    // alternatives (TanStack Query / React.use(Promise)) are too heavy
+    // for a Settings dashboard.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    fetchAll();
+  }, [fetchAll]);
+
+  useEffect(() => {
+    const handler = () => { fetchAll(); };
+    window.addEventListener("provider-changed", handler);
+    return () => window.removeEventListener("provider-changed", handler);
+  }, [fetchAll]);
+
+  return state;
+}

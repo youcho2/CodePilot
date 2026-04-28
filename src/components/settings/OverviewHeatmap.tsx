@@ -277,6 +277,22 @@ export function OverviewHeatmap({ isZh, onJumpToDetails }: HeatmapProps) {
 
   const empty = !loading && stats.totalTokens === 0;
 
+  // Single accessible summary for the whole heatmap so screen readers don't
+  // walk through 365 cells. Pairs with `role="img"` + `aria-hidden` on the
+  // visual grid below — the stats row underneath stays in the a11y tree
+  // separately as plain text.
+  const heatmapAriaLabel = isZh
+    ? `Token 用量活跃度图，过去 ${days} 天。总用量 ${formatTokens(stats.totalTokens)} tokens。${
+        stats.mostActiveDate
+          ? `最活跃 ${localiseDate(new Date(stats.mostActiveDate + "T00:00:00"), true)}，${formatTokens(stats.mostActiveTokens)} tokens。`
+          : ""
+      }最长连续 ${stats.longestStreak} 天，当前连续 ${stats.currentStreak} 天。`
+    : `Token usage activity heatmap, past ${days} days. Total ${formatTokens(stats.totalTokens)} tokens. ${
+        stats.mostActiveDate
+          ? `Most active ${localiseDate(new Date(stats.mostActiveDate + "T00:00:00"), false)} with ${formatTokens(stats.mostActiveTokens)} tokens. `
+          : ""
+      }Longest streak ${stats.longestStreak} days, current streak ${stats.currentStreak} days.`;
+
   return (
     <div className="rounded-lg border border-border/50 bg-card p-5">
       {/* Header — title + range pills + view-details */}
@@ -306,9 +322,16 @@ export function OverviewHeatmap({ isZh, onJumpToDetails }: HeatmapProps) {
         </div>
       </div>
 
-      {/* Grid — horizontally scrollable on narrow viewports so 365D never clips */}
-      <div className="mt-4 overflow-x-auto">
-        <div className="inline-block min-w-full">
+      {/* Grid — horizontally scrollable on narrow viewports so 365D never clips.
+          `role="img"` + a single aria-label collapses 365 cells / month labels /
+          day axis / legend into one image for assistive tech, while sighted
+          users still see (and hover) every cell. */}
+      <div
+        className="mt-4 overflow-x-auto"
+        role="img"
+        aria-label={heatmapAriaLabel}
+      >
+        <div className="inline-block min-w-full" aria-hidden="true">
           {/* Month labels */}
           <div
             className="grid pl-7 mb-1.5"
