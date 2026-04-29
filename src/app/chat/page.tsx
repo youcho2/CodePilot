@@ -871,8 +871,9 @@ export default function NewChatPage() {
           message-list views, so the user sees what they're about to
           route through before composing the first message. Read-only
           summary; recovery / pin / runtime actions live on the
-          existing Settings pages it links to. */}
-      <RunCockpit />
+          existing Settings pages it links to. providerId carries the
+          session-level runtime override (OpenAI OAuth → native). */}
+      <RunCockpit providerId={currentProviderId} />
       {messages.length === 0 && !isStreaming && (!workingDir.trim() || !hasProvider) ? (
         <ChatEmptyState
           hasDirectory={!!workingDir.trim()}

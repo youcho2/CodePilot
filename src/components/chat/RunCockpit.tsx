@@ -54,18 +54,34 @@ function navTo(hash: string) {
   }
 }
 
-export function RunCockpit() {
+interface RunCockpitProps {
+  /** Current chat's selected provider id. Used to apply session-level
+   *  runtime overrides (e.g. OpenAI OAuth providers can't run under
+   *  Claude Code SDK and force native regardless of the global setting),
+   *  matching the legacy `RuntimeBadge` behaviour the cockpit replaces. */
+  providerId?: string;
+}
+
+export function RunCockpit({ providerId }: RunCockpitProps = {}) {
   const { t } = useTranslation();
   const isZh = t("nav.chats") === "对话";
   const state = useOverviewData();
   const { status: claudeStatus } = useClaudeStatus();
 
   const cliConnected = !!claudeStatus?.connected;
-  const effectiveRuntime: AgentRuntime = computeEffectiveRuntime(
+  const settingRuntime: AgentRuntime = computeEffectiveRuntime(
     state.agentRuntime,
     state.cliEnabled,
     cliConnected,
   );
+  // Session-level override: providers that are structurally incompatible
+  // with Claude Code SDK (OpenAI OAuth, future non-Anthropic non-AI-SDK
+  // bridges) force native regardless of the global preference. Same gate
+  // the legacy RuntimeBadge applied on the chat header.
+  const isNonAnthropicProvider = providerId === "openai-oauth";
+  const effectiveRuntime: AgentRuntime = isNonAnthropicProvider
+    ? "native"
+    : settingRuntime;
   const runtimeLabel = runtimeDisplayLabel(effectiveRuntime);
   const runtimeFallback =
     state.agentRuntime === "claude-code-sdk" && effectiveRuntime !== "claude-code-sdk";
@@ -100,11 +116,15 @@ export function RunCockpit() {
   // Tooltip lines per segment. Keep the cockpit chrome itself tiny —
   // tooltip is where the explanation goes, click is where the action
   // lives.
-  const runtimeTip = runtimeFallback
+  const runtimeTip = isNonAnthropicProvider
     ? (isZh
-        ? `运行环境：${runtimeLabel}（已自动降级）`
-        : `Runtime: ${runtimeLabel} (auto-fallback)`)
-    : (isZh ? `运行环境：${runtimeLabel}` : `Runtime: ${runtimeLabel}`);
+        ? `本次走 ${runtimeLabel}（OpenAI 模型不支持 Claude Code 引擎，已自动切换）`
+        : `Routing through ${runtimeLabel} (OpenAI models can't use Claude Code, auto-switched)`)
+    : runtimeFallback
+      ? (isZh
+          ? `运行环境：${runtimeLabel}（已自动降级）`
+          : `Runtime: ${runtimeLabel} (auto-fallback)`)
+      : (isZh ? `运行环境：${runtimeLabel}` : `Runtime: ${runtimeLabel}`);
 
   const defaultModeTip = state.defaultInvalid
     ? (isZh

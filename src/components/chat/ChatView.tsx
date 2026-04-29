@@ -11,7 +11,6 @@ import { ChatComposerActionBar } from './ChatComposerActionBar';
 import { ModeIndicator } from './ModeIndicator';
 import { ChatPermissionSelector } from './ChatPermissionSelector';
 import { ContextUsageIndicator } from './ContextUsageIndicator';
-import { RuntimeBadge } from './RuntimeBadge';
 import { RunCockpit } from './RunCockpit';
 import { ImageGenToggle } from './ImageGenToggle';
 import { Button } from '@/components/ui/button';
@@ -944,8 +943,11 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
           message list summarising what THIS chat is routed through —
           Runtime, provider/model, Auto/Pinned mode, health dot. Each
           segment routes to the canonical Settings page; the cockpit
-          itself does not write state. */}
-      <RunCockpit />
+          itself does not write state. Providers like openai-oauth
+          force runtime=native at the session level — pass providerId
+          so cockpit reflects that override (replaces the legacy
+          RuntimeBadge that used to live on the composer action bar). */}
+      <RunCockpit providerId={currentProviderId} />
       {/* Workspace mismatch banner */}
       {workspaceMismatchPath && (
         <div className="flex items-center justify-between gap-3 border-b border-status-warning/30 bg-status-warning-muted px-4 py-2">
@@ -1128,17 +1130,14 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
           />
         }
         right={
-          <div className="flex items-center gap-1">
-            <RuntimeBadge providerId={currentProviderId} />
-            <ContextUsageIndicator
-              messages={messages}
-              modelName={currentModel}
-              context1m={context1m}
-              hasSummary={hasSummary}
-              upstreamModelId={currentModelUpstream}
-              contextUsageSnapshot={streamSnapshot?.contextUsageSnapshot}
-            />
-          </div>
+          <ContextUsageIndicator
+            messages={messages}
+            modelName={currentModel}
+            context1m={context1m}
+            hasSummary={hasSummary}
+            upstreamModelId={currentModelUpstream}
+            contextUsageSnapshot={streamSnapshot?.contextUsageSnapshot}
+          />
         }
       />
     </div>
