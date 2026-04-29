@@ -25,6 +25,7 @@
 import { useMemo } from "react";
 import { useTranslation } from "@/hooks/useTranslation";
 import { useClaudeStatus } from "@/hooks/useClaudeStatus";
+import { Button } from "@/components/ui/button";
 import {
   Lightning,
   Plug,
@@ -123,37 +124,50 @@ export function RunCockpit() {
       ? (isZh ? "存在 1 项以上提示" : "One or more warnings")
       : (isZh ? "存在阻塞问题" : "Blocking issues detected");
 
+  // Cockpit follows luma `<Button size="xs">` for every clickable
+  // segment (no hand-rolled `px-* py-*` wrappers) so radius / hover
+  // / focus ring all come from the shared token system. Pinned /
+  // Auto pill uses design.md §Status badges colour pairs:
+  //   Pinned  → `bg-primary text-primary-foreground` — neutral
+  //              "user-elected" tone, distinct from
+  //              success/warning/error which are reserved for
+  //              abnormal states.
+  //   Pinned + invalid → status-warning-muted pair, matching the
+  //              chat banner / Health row's invalid state.
+  //   Auto    → muted pair.
   return (
     <div
-      className="flex items-center gap-2.5 border-b border-border/40 bg-card/40 px-3 py-1 text-[11px] text-muted-foreground"
+      className="flex items-center gap-1 border-b border-border/40 bg-card/40 px-3 py-1 text-[11px] text-muted-foreground"
       role="status"
       aria-label={isZh ? "本会话运行状态" : "This session's run status"}
     >
       {/* Runtime */}
-      <button
-        type="button"
+      <Button
+        variant="ghost"
+        size="xs"
         onClick={() => navTo("#runtime")}
         title={runtimeTip}
         className={cn(
-          "flex items-center gap-1 rounded px-1 py-0.5 hover:bg-accent hover:text-foreground transition-colors",
-          runtimeFallback && "text-status-warning-foreground",
+          "text-[11px] font-normal text-muted-foreground hover:text-foreground",
+          runtimeFallback && "text-status-warning-foreground hover:text-status-warning-foreground",
         )}
       >
         <Lightning size={11} weight={runtimeFallback ? "regular" : "fill"} />
         <span className="font-medium">{runtimeLabel}</span>
-      </button>
+      </Button>
 
-      <span aria-hidden className="text-border">·</span>
+      <span aria-hidden className="text-border px-0.5">·</span>
 
       {/* Provider · Model — single segment because picking provider
           and model are co-decided on the Models page anyway. */}
-      <button
-        type="button"
+      <Button
+        variant="ghost"
+        size="xs"
         onClick={() => navTo("#models")}
         title={defaultModeTip}
         className={cn(
-          "flex items-center gap-1 rounded px-1 py-0.5 hover:bg-accent hover:text-foreground transition-colors min-w-0",
-          state.defaultInvalid && "text-status-warning-foreground",
+          "text-[11px] font-normal text-muted-foreground hover:text-foreground min-w-0",
+          state.defaultInvalid && "text-status-warning-foreground hover:text-status-warning-foreground",
         )}
       >
         <Plug size={11} />
@@ -161,23 +175,23 @@ export function RunCockpit() {
         <span aria-hidden className="opacity-50">/</span>
         <Brain size={11} />
         <span className="truncate max-w-[140px]">{modelLabel}</span>
-      </button>
+      </Button>
 
-      <span aria-hidden className="text-border">·</span>
+      <span aria-hidden className="text-border px-0.5">·</span>
 
-      {/* Default mode tag. Distinct visual: Pinned uses inverted
-          chip (foreground → background) so it stands out the way the
-          Models page status row does. Auto stays muted. */}
+      {/* Default mode tag (Pinned / Auto). Stays a non-button
+          inline element so the status pill geometry matches design.md
+          §Status badges (rounded-full, two-colour token pair). */}
       <button
         type="button"
         onClick={() => navTo("#models")}
         title={defaultModeTip}
         className={cn(
-          "inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] font-medium hover:opacity-80 transition-opacity",
+          "inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] font-medium transition-opacity hover:opacity-80",
           modeIsPinned
             ? state.defaultInvalid
-              ? "bg-status-warning-foreground text-background"
-              : "bg-foreground text-background"
+              ? "bg-status-warning-muted text-status-warning-foreground"
+              : "bg-primary text-primary-foreground"
             : "bg-muted text-muted-foreground",
         )}
       >
@@ -186,16 +200,17 @@ export function RunCockpit() {
       </button>
 
       {/* Right-aligned health dot. Click → Health page. */}
-      <button
-        type="button"
+      <Button
+        variant="ghost"
+        size="xs"
         onClick={() => navTo("#health")}
         title={healthTip}
-        className="ml-auto flex items-center gap-1 rounded px-1 py-0.5 hover:bg-accent hover:text-foreground transition-colors"
         aria-label={healthTip}
+        className="ml-auto text-[10px] font-normal text-muted-foreground hover:text-foreground"
       >
         <span className={cn("size-1.5 rounded-full shrink-0", SEVERITY_DOT[severity])} />
-        <span className="text-[10px]">{isZh ? "健康" : "Health"}</span>
-      </button>
+        <span>{isZh ? "健康" : "Health"}</span>
+      </Button>
     </div>
   );
 }
