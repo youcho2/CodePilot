@@ -11,6 +11,7 @@ import { ChatPermissionSelector } from '@/components/chat/ChatPermissionSelector
 import { ImageGenToggle } from '@/components/chat/ImageGenToggle';
 import { PermissionPrompt } from '@/components/chat/PermissionPrompt';
 import { ChatEmptyState } from '@/components/chat/ChatEmptyState';
+import { RunCockpit } from '@/components/chat/RunCockpit';
 import { OnboardingWizard } from '@/components/assistant/OnboardingWizard';
 import { ErrorBanner } from '@/components/ui/error-banner';
 import { FolderPicker } from '@/components/chat/FolderPicker';
@@ -866,6 +867,12 @@ export default function NewChatPage() {
 
   return (
     <div className="flex h-full min-h-0 flex-col">
+      {/* Phase 3.1 v1: Run Cockpit lives above both empty-state and
+          message-list views, so the user sees what they're about to
+          route through before composing the first message. Read-only
+          summary; recovery / pin / runtime actions live on the
+          existing Settings pages it links to. */}
+      <RunCockpit />
       {messages.length === 0 && !isStreaming && (!workingDir.trim() || !hasProvider) ? (
         <ChatEmptyState
           hasDirectory={!!workingDir.trim()}

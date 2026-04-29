@@ -12,6 +12,7 @@ import { ModeIndicator } from './ModeIndicator';
 import { ChatPermissionSelector } from './ChatPermissionSelector';
 import { ContextUsageIndicator } from './ContextUsageIndicator';
 import { RuntimeBadge } from './RuntimeBadge';
+import { RunCockpit } from './RunCockpit';
 import { ImageGenToggle } from './ImageGenToggle';
 import { Button } from '@/components/ui/button';
 import { usePanel } from '@/hooks/usePanel';
@@ -939,6 +940,12 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
 
   return (
     <div className="flex h-full min-h-0 flex-col">
+      {/* Phase 3.1 v1: Run Cockpit. Single thin row above the
+          message list summarising what THIS chat is routed through —
+          Runtime, provider/model, Auto/Pinned mode, health dot. Each
+          segment routes to the canonical Settings page; the cockpit
+          itself does not write state. */}
+      <RunCockpit />
       {/* Workspace mismatch banner */}
       {workspaceMismatchPath && (
         <div className="flex items-center justify-between gap-3 border-b border-status-warning/30 bg-status-warning-muted px-4 py-2">
