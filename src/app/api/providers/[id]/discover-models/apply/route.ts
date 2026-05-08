@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getProvider, applyDiscoveryDiff } from '@/lib/db';
-import { findMatchingPresetForRecord } from '@/lib/provider-catalog';
+import { findMatchingPresetForRecord, isOpenRouterProviderRecord } from '@/lib/provider-catalog';
 import { getProviderCompatFromApi } from '@/lib/runtime-compat';
 import { isRecommendedModel } from '@/lib/catalog-recommend';
 import type { ErrorResponse } from '@/types';
@@ -43,6 +43,20 @@ export async function POST(
   const provider = getProvider(id);
   if (!provider) {
     return NextResponse.json<ErrorResponse>({ error: 'Provider not found' }, { status: 404 });
+  }
+
+  // OpenRouter 防御纵深：discover-models already returns `unsupported`
+  // for OpenRouter so the apply path is unreachable through normal flows.
+  // This block guards old front-end code or external scripts that might
+  // POST upstream models directly. Reject with a pointer to the right route.
+  if (isOpenRouterProviderRecord(provider)) {
+    return NextResponse.json<ErrorResponse>(
+      {
+        error: 'OpenRouter providers do not support apply — use /search-models to add individual SKUs.',
+        code: 'OPENROUTER_APPLY_DISABLED',
+      },
+      { status: 400 },
+    );
   }
 
   const body = await request.json().catch(() => null) as

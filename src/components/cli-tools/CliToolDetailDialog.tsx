@@ -57,12 +57,12 @@ export function CliToolDetailDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-lg max-h-[80vh] flex flex-col overflow-hidden">
-        <DialogHeader>
+      <DialogContent className="sm:max-w-2xl max-h-[85vh] flex flex-col gap-0 overflow-hidden">
+        <DialogHeader className="shrink-0">
           <DialogTitle>{tool.name}</DialogTitle>
         </DialogHeader>
 
-        <div className="flex flex-col gap-5 overflow-y-auto flex-1 min-h-0">
+        <div className="flex-1 min-h-0 overflow-y-auto mt-4 flex flex-col gap-5">
           {/* Agent compatibility */}
           {(() => {
             const score = computeAgentScore(tool);
@@ -213,7 +213,7 @@ export function CliToolDetailDialog({
           )}
         </div>
 
-        <DialogFooter className="relative">
+        <DialogFooter className="shrink-0 border-t border-border/50 pt-3 mt-2 relative">
           {/* "Try" button only for installed tools (no onInstall = already installed) */}
           {!onInstall && (
             <Button

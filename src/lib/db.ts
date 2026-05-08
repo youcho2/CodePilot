@@ -366,6 +366,17 @@ function migrateDb(db: Database.Database): void {
   if (!colNames.includes('provider_id')) {
     safeAddColumn(db, "ALTER TABLE chat_sessions ADD COLUMN provider_id TEXT NOT NULL DEFAULT ''");
   }
+  // Phase 2 Step 2 (2026-05-06): per-session execution-engine pin so
+  // chats stop drifting when the user changes the global agent_runtime
+  // setting. Empty string = "follow global"; 'claude_code' /
+  // 'codepilot_runtime' = "this session is pinned to that runtime".
+  // The send route / streamClaude / picker hook will be migrated to
+  // read this in subsequent Phase 2 steps; this column is the data-
+  // layer prerequisite. See docs/exec-plans/active/refactor-closeout.md
+  // Phase 2 Step 2 + src/__tests__/unit/session-runtime-immunity.test.ts.
+  if (!colNames.includes('runtime_pin')) {
+    safeAddColumn(db, "ALTER TABLE chat_sessions ADD COLUMN runtime_pin TEXT NOT NULL DEFAULT ''");
+  }
   if (!colNames.includes('sdk_cwd')) {
     safeAddColumn(db, "ALTER TABLE chat_sessions ADD COLUMN sdk_cwd TEXT NOT NULL DEFAULT ''");
     // Backfill sdk_cwd from working_directory for existing sessions
@@ -1126,6 +1137,21 @@ export function updateSessionProvider(id: string, providerName: string): void {
 export function updateSessionProviderId(id: string, providerId: string): void {
   const db = getDb();
   db.prepare('UPDATE chat_sessions SET provider_id = ? WHERE id = ?').run(providerId, id);
+}
+
+/**
+ * Phase 2 Step 2: write the per-session execution-engine pin. The
+ * caller is responsible for keeping this empty when the user wants
+ * "follow global", or one of `'claude_code'` / `'codepilot_runtime'`
+ * when they explicitly pin the session. See
+ * `resolveRuntimeForSession` in `lib/chat-runtime.ts` for the read
+ * side; nothing reads this column today outside that helper, so
+ * Phase 2 Step 3+ will progressively migrate consumers (chat route /
+ * streamClaude / picker hook).
+ */
+export function updateSessionRuntime(id: string, runtimePin: string): void {
+  const db = getDb();
+  db.prepare('UPDATE chat_sessions SET runtime_pin = ? WHERE id = ?').run(runtimePin, id);
 }
 
 export function getDefaultProviderId(): string | undefined {
@@ -2060,6 +2086,72 @@ export function deleteProviderModel(providerId: string, modelId: string): boolea
   const db = getDb();
   const result = db.prepare('DELETE FROM provider_models WHERE provider_id = ? AND model_id = ?').run(providerId, modelId);
   return result.changes > 0;
+}
+
+/**
+ * Bulk update of `last_refreshed_at` for all rows of one provider, without
+ * touching any business field (enabled / source / display_name / etc.).
+ * Used by the OpenRouter `/validate-models` route — refresh there is
+ * read-only validation against upstream, and only the timestamp moves.
+ *
+ * Returns the number of rows updated. Use the same wall-clock format as
+ * the seed/upsert paths so timestamps sort consistently.
+ */
+export function touchProviderModelsRefreshed(providerId: string): number {
+  const db = getDb();
+  const now = new Date().toISOString().replace('T', ' ').split('.')[0];
+  const result = db
+    .prepare('UPDATE provider_models SET last_refreshed_at = ? WHERE provider_id = ?')
+    .run(now, providerId);
+  return result.changes;
+}
+
+/**
+ * "Recommended-but-not-user-edited" rows for a provider — used by the
+ * OpenRouter "整理早期导入的目录" entry to preview what would be hidden
+ * by a one-click cleanup. The WHERE clause guarantees:
+ *   - never touches `enable_source IN ('manual_enabled', 'manual_hidden')`
+ *   - never touches `user_edited = 1`
+ *   - only currently-enabled rows (hiding an already-hidden row is a no-op
+ *     but cluttering the preview is misleading)
+ *
+ * Returned rows are full `ProviderModel` objects so the dialog can show
+ * model_id + display_name + source label without a follow-up fetch.
+ */
+export function getRecommendedNotEditedRows(providerId: string): import('@/types').ProviderModel[] {
+  const db = getDb();
+  return db.prepare(
+    `SELECT * FROM provider_models
+     WHERE provider_id = ?
+       AND enable_source = 'recommended'
+       AND user_edited = 0
+       AND enabled = 1
+     ORDER BY sort_order ASC, model_id ASC`
+  ).all(providerId) as import('@/types').ProviderModel[];
+}
+
+/**
+ * Bulk-hide "recommended-not-edited" rows. Same WHERE as
+ * `getRecommendedNotEditedRows`, plus sets `enable_source='manual_hidden'`
+ * and `user_edited=1` so future OpenRouter validates / hypothetical
+ * future refreshes can never flip them back on.
+ *
+ * Single SQL statement — no per-row loop, safe for the 300+ row case
+ * that's the whole reason this entry exists.
+ *
+ * Returns the count of rows hidden.
+ */
+export function hideRecommendedNotEditedRows(providerId: string): number {
+  const db = getDb();
+  const result = db.prepare(
+    `UPDATE provider_models
+     SET enabled = 0, user_edited = 1, enable_source = 'manual_hidden'
+     WHERE provider_id = ?
+       AND enable_source = 'recommended'
+       AND user_edited = 0
+       AND enabled = 1`
+  ).run(providerId);
+  return result.changes;
 }
 
 /**

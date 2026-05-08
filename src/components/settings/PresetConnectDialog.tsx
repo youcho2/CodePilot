@@ -174,7 +174,14 @@ export function PresetConnectDialog({
       const data = await res.json();
       setTestResult(data);
     } catch (err) {
-      setTestResult({ success: false, error: { code: 'NETWORK_ERROR', message: 'Failed to reach test endpoint', suggestion: 'Check if the app is running' } });
+      setTestResult({
+        success: false,
+        error: {
+          code: 'NETWORK_ERROR',
+          message: t('provider.form.errorTestEndpoint' as TranslationKey),
+          suggestion: t('provider.form.errorTestEndpointHint' as TranslationKey),
+        },
+      });
     } finally {
       setTesting(false);
     }
@@ -402,14 +409,26 @@ export function PresetConnectDialog({
       }
     }
 
-    // Validate JSON fields
-    for (const [label, val] of [
-      ["Extra environment variables", finalExtraEnv],
-      ...(isEdit ? [["Headers", headersJson]] : []),
-    ] as const) {
+    // Validate JSON fields. Reuses the same i18n keys as ProviderForm so
+    // both surfaces ("manual" vs "preset" path) emit consistent error
+    // copy in zh/en. Field labels go through `t(...)` so the error reads
+    // as "<the field you just looked at> must be valid JSON".
+    // Headers and Env Overrides are only saved on the edit path
+    // (`env_overrides_json: isEdit ? … : undefined`), so we only validate
+    // them when isEdit. envOverridesJson was historically missing from
+    // this list — invalid JSON would silently slip past the front end and
+    // surface as a runtime parse failure later.
+    const jsonFields: Array<[TranslationKey, string]> = [
+      ['provider.extraEnvVars' as TranslationKey, finalExtraEnv],
+    ];
+    if (isEdit) {
+      jsonFields.push(['provider.form.headersJson' as TranslationKey, headersJson]);
+      jsonFields.push(['provider.form.envOverridesJson' as TranslationKey, envOverridesJson]);
+    }
+    for (const [labelKey, val] of jsonFields) {
       if (val && val.trim()) {
         try { JSON.parse(val); } catch {
-          setError(`${label} must be valid JSON`);
+          setError(t('provider.form.errorJsonInvalid' as TranslationKey, { field: t(labelKey) }));
           return;
         }
       }
@@ -447,7 +466,9 @@ export function PresetConnectDialog({
       });
       onOpenChange(false);
     } catch (err) {
-      setError(err instanceof Error ? err.message : (isEdit ? "Failed to update provider" : "Failed to add provider"));
+      setError(err instanceof Error ? err.message : (isEdit
+        ? t('provider.form.errorUpdateFailed' as TranslationKey)
+        : t('provider.form.errorAddFailed' as TranslationKey)));
     } finally {
       setSaving(false);
     }
@@ -708,7 +729,9 @@ export function PresetConnectDialog({
               {showAdvanced && (
                 <div className="space-y-4 pt-2">
                   <div className="space-y-2">
-                    <Label className="text-xs text-muted-foreground">Headers (JSON)</Label>
+                    <Label className="text-xs text-muted-foreground">
+                      {t('provider.form.headersJson' as TranslationKey)}
+                    </Label>
                     <Textarea
                       value={headersJson}
                       onChange={(e) => setHeadersJson(e.target.value)}
@@ -718,7 +741,9 @@ export function PresetConnectDialog({
                     />
                   </div>
                   <div className="space-y-2">
-                    <Label className="text-xs text-muted-foreground">Env Overrides (JSON)</Label>
+                    <Label className="text-xs text-muted-foreground">
+                      {t('provider.form.envOverridesJson' as TranslationKey)}
+                    </Label>
                     <Textarea
                       value={envOverridesJson}
                       onChange={(e) => setEnvOverridesJson(e.target.value)}

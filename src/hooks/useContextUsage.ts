@@ -1,6 +1,7 @@
 import { useMemo } from 'react';
 import type { Message } from '@/types';
 import { getContextWindow } from '@/lib/model-context';
+import { walkContextUsage } from '@/lib/context-usage-walk';
 
 export interface ContextUsageData {
   modelName: string;
@@ -63,7 +64,15 @@ export function useContextUsage(
   },
 ): ContextUsageData {
   return useMemo(() => {
-    const contextWindow = getContextWindow(modelName, {
+    // Catalog window — the static fallback. Plain `getContextWindow`
+    // result; may be `null` for models the catalog doesn't enumerate
+    // (GLM / Bailian / Volcengine / MiniMax / Kimi / DeepSeek / etc.).
+    // We deliberately don't whitelist those — instead we let the SDK
+    // tell us via `token_usage.context_window` (extracted from
+    // `SDKResultMessage.modelUsage` in claude-client.ts). This local
+    // fallback is what `noData` returns and what we use when the
+    // matched message has no SDK-reported window.
+    const catalogContextWindow = getContextWindow(modelName, {
       context1m: options?.context1m,
       upstream: options?.upstreamModelId,
     });
@@ -81,7 +90,7 @@ export function useContextUsage(
     const snapFresh = snap && (Date.now() - snap.capturedAt) < SNAPSHOT_FRESHNESS_MS;
     if (snap && snapFresh) {
       const used = snap.totalTokens;
-      const max = snap.maxTokens || contextWindow || used;
+      const max = snap.maxTokens || catalogContextWindow || used;
       const ratio = max ? used / max : 0;
       // No estimated-next-turn from the snapshot — we assume next turn is
       // similar to current (snapshot is authoritative on "used now" but
@@ -104,9 +113,67 @@ export function useContextUsage(
       };
     }
 
-    const noData: ContextUsageData = {
+    // Walk assistant token_usage records from the end. The pure
+    // logic — including the output-only skip + the
+    // latestSdkContextWindow capture — lives in
+    // `lib/context-usage-walk.ts` so it can be tested without React.
+    // See that module's doc-block for the two non-obvious rules
+    // (output-only baseline skip + context_window preservation).
+    const { baseline, latestSdkContextWindow } = walkContextUsage(messages);
+
+    if (baseline) {
+      // Resolve contextWindow priority:
+      //   1. This baseline record's own SDK-reported window.
+      //   2. The newest SDK window seen anywhere in the walk —
+      //      typically a more-recent output-only tail.
+      //   3. The static `getContextWindow()` catalog fallback.
+      // Older DB rows without `context_window` correctly fall
+      // through to (2) and (3).
+      const sdkContextWindow = baseline.sdkContextWindow;
+      const contextWindow = sdkContextWindow
+        ?? latestSdkContextWindow
+        ?? catalogContextWindow;
+
+      const used = baseline.used;
+      const outputTokens = baseline.outputTokens;
+      const ratio = contextWindow ? used / contextWindow : 0;
+
+      // Estimate next turn: current input context + this turn's output + ~200 token overhead for a new user message
+      const estimatedNextTurn = used + outputTokens + 200;
+      const estimatedNextRatio = contextWindow ? estimatedNextTurn / contextWindow : 0;
+
+      // Warning state uses the higher of actual and estimated ratios
+      const effectiveRatio = Math.max(ratio, estimatedNextRatio);
+      let state: 'normal' | 'warning' | 'critical' = 'normal';
+      if (effectiveRatio >= 0.95) state = 'critical';
+      else if (effectiveRatio >= 0.8) state = 'warning';
+
+      return {
+        modelName,
+        contextWindow,
+        used,
+        ratio,
+        estimatedNextTurn,
+        estimatedNextRatio,
+        cacheReadTokens: baseline.cacheReadTokens,
+        cacheCreationTokens: baseline.cacheCreationTokens,
+        outputTokens,
+        hasData: true,
+        state,
+        hasSummary: options?.hasSummary || false,
+        source: 'result_usage',
+      };
+    }
+
+    // No meaningful baseline found. Still surface the SDK-reported
+    // capacity if we saw one during the walk — a brand-new session
+    // whose first assistant turn was output-only shouldn't lose the
+    // capacity badge. `hasData` stays false because we have no real
+    // `used` to draw a percent from; RunCockpit's fallback path
+    // renders the breakdown without the ratio bar in that case.
+    return {
       modelName,
-      contextWindow,
+      contextWindow: latestSdkContextWindow ?? catalogContextWindow,
       used: 0,
       ratio: 0,
       estimatedNextTurn: 0,
@@ -119,54 +186,5 @@ export function useContextUsage(
       hasSummary: options?.hasSummary || false,
       source: 'none' as const,
     };
-
-    // Find the last assistant message with token_usage
-    for (let i = messages.length - 1; i >= 0; i--) {
-      const msg = messages[i];
-      if (msg.role !== 'assistant' || !msg.token_usage) continue;
-
-      try {
-        const usage = typeof msg.token_usage === 'string'
-          ? JSON.parse(msg.token_usage)
-          : msg.token_usage;
-
-        const inputTokens = usage.input_tokens || 0;
-        const cacheRead = usage.cache_read_input_tokens || 0;
-        const cacheCreation = usage.cache_creation_input_tokens || 0;
-        const outputTokens = usage.output_tokens || 0;
-        const used = inputTokens + cacheRead + cacheCreation;
-        const ratio = contextWindow ? used / contextWindow : 0;
-
-        // Estimate next turn: current input context + this turn's output + ~200 token overhead for a new user message
-        const estimatedNextTurn = used + outputTokens + 200;
-        const estimatedNextRatio = contextWindow ? estimatedNextTurn / contextWindow : 0;
-
-        // Warning state uses the higher of actual and estimated ratios
-        const effectiveRatio = Math.max(ratio, estimatedNextRatio);
-        let state: 'normal' | 'warning' | 'critical' = 'normal';
-        if (effectiveRatio >= 0.95) state = 'critical';
-        else if (effectiveRatio >= 0.8) state = 'warning';
-
-        return {
-          modelName,
-          contextWindow,
-          used,
-          ratio,
-          estimatedNextTurn,
-          estimatedNextRatio,
-          cacheReadTokens: cacheRead,
-          cacheCreationTokens: cacheCreation,
-          outputTokens,
-          hasData: true,
-          state,
-          hasSummary: options?.hasSummary || false,
-          source: 'result_usage',
-        };
-      } catch {
-        continue;
-      }
-    }
-
-    return noData;
   }, [messages, modelName, options?.context1m, options?.hasSummary, options?.upstreamModelId, options?.snapshot]);
 }

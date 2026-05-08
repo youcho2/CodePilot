@@ -85,7 +85,7 @@
 |---|---|---|
 | `anthropic-official` | anthropic | api.anthropic.com /v1/models 分页 + 与 org billing scope 绑定 |
 | `anthropic-thirdparty` | anthropic | 多数兼容网关同时暴露 /v1/models，但不保证 |
-| `glm-cn` / `glm-global` / `kimi` / `moonshot` / `minimax-*` / `volcengine` / `xiaomi-mimo*` / `bailian` | anthropic（品牌 Code Plan）| anthropic-compat 域名是否同时挂 OpenAI-compat /v1/models 看 vendor 各自实现 |
+| `kimi` / `moonshot` / `xiaomi-mimo` / `deepseek` | anthropic（按量付费品牌）| anthropic-compat 域名是否同时挂 OpenAI-compat /v1/models 看 vendor 各自实现；按量付费时整张目录就是其真实可用集合，所以保留 probe |
 | `bedrock` / `vertex` | bedrock / vertex | 需要 SigV4 / GCP ADC，不能用普通 fetch |
 | `gemini-image-thirdparty` / `openai-image-thirdparty` | (image) | 第三方网关协议不一致 |
 
@@ -96,25 +96,126 @@
 | OpenAI OAuth | 浏览器 web session，不暴露 OAuth 端点的模型列表 | SDK 内置默认 |
 | Claude Code env | 环境变量驱动，模型由 SDK 内置定义 | SDK / catalog 内置默认 |
 | 没匹配上预设、用户自填 base_url 的 custom 行 | 没有协议线索 | catalog + 手动 `provider_models` 表 |
+| Coding Plan / Token Plan 套餐型（见下表） | 套餐白名单 ≠ 上游全量推理目录 | catalog 内置白名单 + 「添加自定义模型」补 SKU |
+
+### 类别 D — Coding Plan / Token Plan 套餐型（probe = `unsupported`）
+
+判定条件：`preset.sdkProxyOnly && preset.meta.billingModel ∈ {coding_plan, token_plan}`。代码出口在 `src/lib/model-discovery.ts:classifyProvider` — gate 在 OAuth 检查之后、`switch (protocol)` 之前。
+
+| 预设 key | 协议 | 套餐类型 | 套餐白名单（catalog 已内置） |
+|---|---|---|---|
+| `volcengine` | anthropic | coding_plan | doubao-seed-2.0-{code,pro,lite} / doubao-seed-code / minimax-m2.5 / glm-4.7 / deepseek-v3.2 / kimi-k2.5 / ark-code-latest（控制台管理 / Auto） |
+| `bailian` | anthropic | coding_plan | qwen3.6-plus / qwen3.5-plus / qwen3-max-2026-01-23 / qwen3-coder-{next,plus} / kimi-k2.5 / glm-{5,4.7} / MiniMax-M2.5 |
+| `bailian-token-plan-cn` | anthropic | token_plan | qwen3.6-plus / glm-5 / MiniMax-M2.5（DeepSeek V3.2 文档明确不支持 Anthropic 协议，故不入 preset）|
+| `glm-cn` / `glm-global` | anthropic | coding_plan | catalog 内置 |
+| `minimax-cn` / `minimax-global` | anthropic | token_plan | MiniMax-M2.7 |
+| `xiaomi-mimo-token-plan` | anthropic | token_plan | MiMo-V2-Pro |
+
+**为什么这些 vendor 不能 probe-and-write？**
+
+- **套餐白名单 ≠ 上游全量目录**：火山官方文档明确区分 "Coding Plan Model Name"（写进 ANTHROPIC_MODEL）与 Ark 在线推理 Model ID（同 host `/v1/models` 返回的 100+ 模型空间，含 image/embedding/audio/被废弃的旧版本）。百炼 FAQ 也说"非支持列表模型会报错"。
+- **probe 出来的模型用不了**：用户选了套餐外的 SKU 调用即返回 4xx + 可能产生额外计费。
+- **vendor 自己也在改名**：Bailian 当前推荐 `MiniMax-M2.5`，独立 MiniMax 已升至 `MiniMax-M2.7`；前者由阿里云套餐定义，后者由 MiniMax 自己维护。catalog 必须按各自官方页对应。
+
+按量付费的 anthropic-compat 品牌（`kimi` / `moonshot` / `xiaomi-mimo` / `deepseek`）不在 gate 范围内 — 整张推理目录就是它们真实可用的集合，probe 是合理的。
 
 ## 实测（本机 dev DB 已配置的 10 家）
 
-经过 diff → apply 闭环验证：
+经过 diff → apply 闭环验证（2026-05-06 版本，类别 D gate 已生效后）：
 
 | Provider | 分类 | 探测结果 | 应用后行为 |
 |---|---|---|---|
 | Google Gemini (Image) | api | 200 OK，50 个模型 | 全部 INSERT（首次）/ refresh（再次刷新） |
-| Volcengine Ark | experimental | 200 OK，116 个模型 | 同上 |
-| GLM (CN) | experimental | 200 OK，7 个模型 | 同上 |
-| Kimi Coding Plan | experimental | 200 OK，1 个模型 | 同上 |
+| Volcengine Ark | unsupported (类别 D) | 不发起 probe | 走 catalog 套餐白名单（9 个 SKU）|
+| GLM (CN) | unsupported (类别 D) | 不发起 probe | 走 catalog |
+| Kimi Coding Plan | — | 注：Kimi 当前预设 `kimi` 是 pay_as_you_go，仍走 experimental probe | — |
 | PipeLLM | experimental | 200 OK，5 个模型 | 同上 |
 | Aiberm | experimental | 200 OK，131 个模型 | 同上 |
-| Xiaomi MiMo Token Plan | experimental | 404（同 host 无 /v1/models）| 不写库 |
-| MiniMax (Global) | experimental | 404 | 不写库 |
+| Xiaomi MiMo Token Plan | unsupported (类别 D) | 不发起 probe | 走 catalog（MiMo-V2-Pro）|
+| MiniMax (Global) | unsupported (类别 D) | 不发起 probe | 走 catalog（MiniMax-M2.7）|
 | OpenAI (Image) | api | 401（key 无效） | 不写库 |
-| DeepSeek | experimental | 404 | 不写库 |
+| DeepSeek | experimental | （pay_as_you_go，仍 probe；catalog 已升级到 v4 系列）| 同上 |
 
-**结论**：6/10 真能拿到。"anthropic-compat 同 host 同时暴露 /v1/models" 的启发式有效；不暴露的 vendor（Xiaomi / MiniMax / DeepSeek 的 `/anthropic` 子路径）走手动维护。
+**结论**：类别 D gate 让 Coding/Token Plan 走 catalog 而非 probe → 不再把上游 100+ 推理目录误写到 Models 页。剩下的 anthropic-compat 按量付费（`kimi` / `moonshot` / `xiaomi-mimo` / `deepseek`）保留 probe，因为整张目录就是其真实可用集合。
+
+## 全 preset 拉取可靠性审计（Phase 1 Step 2 收敛，2026-05-06）
+
+> Codex「Models / Providers 体验收敛」要求"如果服务商本身不支持可靠拉取模型，就不要显示「刷新模型」按钮"。这张表是单一事实基线：每个 preset 当前 `classifyProvider` 的归类 + Codex 4-category 框架下的位置 + 是否应显示「刷新模型」+ 用户添加路径。
+>
+> **结论**：22 个 preset 中，有 9 个能可靠拉取（ollama / litellm / openrouter / 三家 image official / 几家可发现的 anthropic-compat），13 个不能或不应拉取。原本所有 `experimental` 都展示「刷新模型」按钮，会让用户误以为按一下就有新结果——本轮对应收敛是只在 `reliable=true` 的 preset 上展示按钮。
+
+| Preset key | classifyProvider | Codex 类别 | 拉取可靠？ | 刷新按钮 | 用户添加路径 |
+|---|---|---|---|---|---|
+| `anthropic-official` | experimental (anthropic) | 不可发现 | ❌ /v1/models 分页且绑定 org billing；catalog 是 truth | ❌ 不显示 | catalog（sonnet/opus/haiku 三联）+ 手动 |
+| `anthropic-thirdparty` | experimental (openai-compatible) | 普通可发现 | ⚠️ 多数支持 /v1/models 但覆盖不均 | ✅ 仅在用户首次配 Key/URL 时尝试一次 | 拉到列表则搜索；拉不到则手动 |
+| `openrouter` | unsupported (search-and-add) | 大目录聚合 | ❌ 300+ 全量物化是反 UX；走独立 `/search-models` | ❌ 不显示「刷新」（有独立「校验」入口） | 「添加模型」→ 远程搜索 |
+| `glm-cn` / `glm-global` | unsupported (类别 D 套餐) | 套餐型 / CodePlan | ❌ 套餐白名单 ≠ 上游 `/v1/models` 全量 | ❌ 不显示 | 「添加模型」补 SKU（catalog 三别名 + 手动） |
+| `kimi` | experimental (anthropic-compat) | Codex 框架: 套餐型 / 实测: PAYG 启动种子 | ❌ catalog 仅 1 alias，/v1/models 行为未实测 | ❌ 不显示（按 Codex 类别归套餐型） | 「添加模型」补 SKU |
+| `moonshot` | experimental | 同 Kimi | ❌ 同 Kimi | ❌ 不显示 | 同 Kimi |
+| `minimax-cn` / `minimax-global` | unsupported (类别 D 套餐 token_plan) | 套餐型 / CodePlan | ❌ token plan 白名单 ≠ 上游全量 | ❌ 不显示 | 「添加模型」补 SKU |
+| `volcengine` | unsupported (类别 D 套餐 coding_plan) | 套餐型 / CodePlan | ❌ Ark `/v1/models` 含 100+ 文本/音频/embedding，套餐外调用 4xx | ❌ 不显示 | 「添加模型」补 SKU（9 个套餐 SKU） |
+| `xiaomi-mimo` | experimental (PAYG) | Codex: 套餐型 / 实测: PAYG | ❌ 同 Kimi | ❌ 不显示 | 「添加模型」补 SKU |
+| `xiaomi-mimo-token-plan` | unsupported (类别 D token_plan) | 套餐型 / CodePlan | ❌ 套餐白名单 | ❌ 不显示 | 「添加模型」补 SKU |
+| `bailian` | unsupported (类别 D 套餐 coding_plan) | 套餐型 / CodePlan | ❌ 同 Volcengine 逻辑 | ❌ 不显示 | 「添加模型」补 SKU |
+| `bailian-token-plan-cn` | unsupported (类别 D 套餐 token_plan) | 套餐型 / CodePlan | ❌ 团队版 Key 不安全做共享 probe；与 Coding Plan 不通用 | ❌ 不显示 | 「添加模型」补 SKU |
+| `deepseek` | experimental (PAYG, fixedCatalog) | 不可发现（catalog 是官方阵容） | ❌ catalog v4 family 即官方阵容；/v1/models 会暴露 v3.x 旧 SKU | ❌ 不显示 | catalog 三 SKU + 手动 |
+| `bedrock` | experimental | 不可发现（SDK only） | ❌ SigV4 签名 + AWS SDK；不能从渲染端 HTTP probe | ❌ 不显示 | catalog（Bedrock 区域阵容）+ 手动 |
+| `vertex` | experimental | 不可发现（SDK only） | ❌ ADC + project/region；同样需 SDK | ❌ 不显示 | catalog + 手动 |
+| `ollama` | api (本地) | 普通可发现 | ✅ /api/tags 公开免认证 | ✅ 显示 | 拉取可搜索列表 |
+| `litellm` | api (openai-compatible) | 普通可发现 | ✅ 多数 LiteLLM 部署 /v1/models 可用 | ✅ 显示 | 拉取可搜索列表 |
+| `gemini-image` / `gemini-image-thirdparty` | unsupported (image catalog) | 不可发现 | ❌ 上游模型表混 text/embedding/audio，过滤脆弱 | ❌ 不显示 | catalog（4 个 image SKU）chips |
+| `openai-image` / `openai-image-thirdparty` | unsupported (image catalog) | 不可发现 | ❌ 同 gemini-image | ❌ 不显示 | catalog chips |
+| `openai-oauth` | unsupported (OAuth) | 不可发现 | ❌ Web session，没有 model list endpoint | ❌ 不显示 | SDK 内置默认 + 不允许添加 |
+
+### 政策助手
+
+`canReliablyFetchModels(record): { reliable: boolean; reason: string }`（位于 `src/lib/provider-catalog.ts`）封装上述决策，是 ProviderManager / ModelsSection / 任何展示「刷新模型」按钮的 UI 调用点的**单一**真相源。Phase 1 Step 2 收敛后所有 UI gate 走这个 helper，不再各自判断。
+
+### 套餐型 / 白名单型服务商 — 来源指针清单（Phase 1 Step 2 — UI 已落地、catalog 主动复核待补）
+
+> ⚠️ **本轮没有逐 provider 复访官方页面**。下表给出的是当前代码内置 `defaultModels` + 各 preset `meta.docsUrl` / `meta.apiKeyUrl` 中可访问的官方入口指针，没有"今天对照过官方公告"。Phase 1 Step 2 的 UI 工作（"已不在当前推荐目录"行级徽章 + Add Model dialog 套餐型文案 + Refresh All summary 跳过提示）已落地；catalog 阵容本身的主动核准列入待补 — 见下方"未做、待跟踪"段。
+>
+> 工程现状：catalog 阵容最近一次代码层修订是 Round 215（commit `0be0eab` "feat(provider-models): auto-discover after Add Service + 5-state enable_source"，2026-05-06 之前），那一轮对 DeepSeek、Volcengine、Bailian 的 `defaultModels` 做了升级。Step 2 没有再改 catalog 数据，只是把它当作 UI 徽章的判定依据使用。
+>
+> 国内套餐型官方页多为 JS 渲染中文页，本会话内的 fetch 工具无法稳定抓到当前白名单文本；仅靠 docsUrl 做指针不能等同于"今天复核"。强行打"已核准"标会把"沿用上一轮资料"伪装成事实核准，所以本轮明确**不**这么标。
+
+| Provider | preset key | 官方入口（preset.meta） | 当前内置 `defaultModels` | UI 徽章范围 | 自定义添加 |
+|---|---|---|---|---|---|
+| 火山方舟 Coding Plan | `volcengine` | docsUrl: docs.bigmodel.cn 体系 / apiKeyUrl: volcengine.com 控制台 | `doubao-seed-2.0-{code,pro,lite}` / `doubao-seed-code` / `minimax-m2.5` / `glm-4.7` / `deepseek-v3.2` / `kimi-k2.5` + `ark-code-latest`（控制台管理 / Auto） | ✓ 套餐型 → `shouldShowLegacyCatalogBadge` 命中 | ✓ Models 页 "添加模型" → 套餐型 dialog |
+| 阿里云百炼 Coding Plan | `bailian` | docsUrl: bailian.console.aliyun.com / apiKeyUrl: dashscope-coding 文档 | `qwen3.6-plus` / `qwen3.5-plus` / `qwen3-max-2026-01-23` / `qwen3-coder-{next,plus}` / `kimi-k2.5` / `glm-{5,4.7}` / `MiniMax-M2.5` | ✓ 套餐型 | ✓ |
+| 阿里云百炼 Token Plan 团队版 | `bailian-token-plan-cn` | docsUrl: help.aliyun.com/zh/model-studio/token-plan / apiKeyUrl: bailian.console.aliyun.com（团队版 Key 与 Coding Plan / 普通 DashScope Key 不通用，host 走 `token-plan.cn-beijing.maas.aliyuncs.com`，仅华北2北京）| `qwen3.6-plus` / `glm-5` / `MiniMax-M2.5`（DeepSeek V3.2 不支持 Anthropic 协议，故不列入 preset）| ✓ 套餐型 | ✓ |
+| 智谱 GLM Coding Plan（CN） | `glm-cn` | docs.bigmodel.cn/cn/coding-plan/tool/claude / bigmodel.cn API Keys | 3 alias：sonnet→GLM-5-Turbo, opus→GLM-5.1, haiku→GLM-4.5-Air | ✓ 套餐型 | ✓ |
+| 智谱 GLM Coding Plan（Global） | `glm-global` | docs.z.ai/devpack/tool/claude / z.ai apikey | 同 GLM CN | ✓ 套餐型 | ✓ |
+| MiniMax Coding（CN） | `minimax-cn` | platform.minimaxi.com / agent.minimaxi.com | 1 SKU：`MiniMax-M2.7` | ✓ 套餐型 | ✓ |
+| MiniMax Coding（Global） | `minimax-global` | minimax.io | 1 SKU：`MiniMax-M2.7` | ✓ 套餐型 | ✓ |
+| 小米 MiMo Token Plan | `xiaomi-mimo-token-plan` | xiaomimimo.com / token-plan-cn 文档 | 1 SKU：`MiMo-V2-Pro` | ✓ 套餐型 | ✓ |
+| DeepSeek（按量，固定阵容） | `deepseek` | api.deepseek.com/anthropic + api-docs.deepseek.com | 3 SKU：`deepseek-v4-pro[1m]` / `deepseek-v4-pro` / `deepseek-v4-flash` | ✓ `meta.fixedCatalog: true` opt-in（catalog 即官方阵容，旧 v3.x 显示徽章） | ✓ |
+| Kimi Coding Plan | `kimi` | kimi.com/code/console / kimi.com/code/docs | 1 alias：`sonnet`→Kimi K2.5（其余 SKU 走 probe） | ✗ 启动型 catalog，徽章不应在用户手动加 SKU 时误报 | ✓ |
+| Moonshot | `moonshot` | platform.moonshot.cn | 1 alias：`sonnet`→Kimi K2.5 | ✗ 启动型 catalog | ✓ |
+| 小米 MiMo（按量） | `xiaomi-mimo` | xiaomimimo.com | 1 alias：`sonnet`→MiMo-V2-Pro | ✗ 启动型 catalog | ✓ |
+
+**UI 徽章范围更正（Phase 1 Step 2 review 修订）**：徽章 gate 由 `shouldShowLegacyCatalogBadge(record, modelId)` 控制，仅在两类 provider 上生效——(1) 套餐型 (`isCatalogOnlyPlanProviderRecord`)；(2) `meta.fixedCatalog: true` opt-in（目前只 DeepSeek）。Kimi / Moonshot / Xiaomi MiMo PAYG / 自定义 anthropic-thirdparty 网关 / OpenRouter 都明确**不**触发徽章 — 它们的 `defaultModels` 是启动型种子而非"truth-of-record"，用户手动加 SKU 是正常使用，不是 drift。
+
+### 未做、待跟踪
+
+1. **catalog 主动核准（建议下一轮专门做）**：逐个 provider 对照官方 Coding Plan / Token Plan 文档（视情况用浏览器抓取或人工读图）核对当前白名单 SKU，更新代码内置 `defaultModels` 并在本节"当前内置"列旁添加"最后核对 YYYY-MM-DD + 来源 URL 截图"。触发条件：(a) 多用户反馈某 SKU 不可用 / 不见了；(b) 某 provider 公告新模型超过 30 天未跟进；(c) 进入下一个 release 前的 catalog 收尾。tech-debt tracker 已开 #16 跟踪。
+2. **Kimi / Moonshot / Xiaomi MiMo PAYG 的 catalog 启动种子是否调整为更宽**：目前 1 alias 偏窄，是否要改成更友好的"先发现一次"启动 UX，留给 Step 4「授权登录与自定义模型入口」一起评估。
+
+## OpenRouter — search-and-add（已实现，2026-05-06）
+
+`openrouter` 不再走类别 A 的 probe + 全量物化路径。现在是独立路由 + 独立 UI：
+
+- **`POST /api/providers/[id]/search-models`** — 列出上游全量候选（5 分钟服务端缓存），不写库；前端 dialog 内打字客户端过滤。
+- **`POST /api/providers/[id]/validate-models`** — 强制 refetch 上游 `/v1/models`、与本地 `provider_models` 对比、只更新 `last_refreshed_at`；不写新行、不动 enable_source/source/enabled/display_name。
+- **`POST /api/providers/[id]/discover-models`** 对 OpenRouter 直接返回 `classification: 'unsupported'`，没有非常规 shape；`/discover-models/apply` 对 OpenRouter 返回 400（防御纵深）。
+- **Add Service**：POST /api/providers 创建 OpenRouter provider 后立即 `seedCatalogModelsIfEmpty(...)`，DB 出现确切 3 条 catalog seed（sonnet/opus/haiku 别名），再不调用 auto-discover。
+- **历史 300+ 行**：OpenRouter section header 出现「整理早期导入的目录」入口，`POST /api/providers/[id]/openrouter-legacy-cleanup` 预览 + 确认隐藏 `enable_source='recommended' AND user_edited=0` 的旧行；manual_* / 已编辑行被 WHERE 子句直接排除。
+
+判定走 `isOpenRouterProviderRecord({provider_type, base_url})`（与 `isCatalogOnlyPlanProviderRecord` 同源），所有调用点用同一 helper 避免 protocol 字段缺失漏判。
+
+为什么不复用类别 D gate（套餐型）：OpenRouter 不是套餐型（pay_as_you_go），全量目录里每个模型都"理论可用"，只是数量级失控。"套餐白名单 ≠ 上游目录"的语义不适用 — gate 条件不同，共用同一开关以后维护会出错。
+
+详见 `docs/exec-plans/active/openrouter-search-and-add.md`。
 
 ## API 形状
 

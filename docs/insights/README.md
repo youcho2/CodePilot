@@ -16,5 +16,9 @@
 | [tool-call-ux.md](./tool-call-ux.md) | [handover/tool-call-ux.md](../handover/tool-call-ux.md) | 工具调用 UX：thinking 展示设计决策、注册表 vs if/else、归组阈值、缓冲旁路、竞品对比 |
 | [performance-memory.md](./performance-memory.md) | [handover/performance-memory.md](../handover/performance-memory.md) | 内存优化：LRU vs 定期清理、300 条上限 + reconciliation、定时器泄漏、大文件流式读取 |
 | [user-audience-analysis.md](./user-audience-analysis.md) | [handover/provider-architecture.md](../handover/provider-architecture.md) | 用户受众分析：画像、需求优先级、竞品格局、品牌定位路线取舍（2026-04-04 数据快照） |
+| [agentic-architecture-map.md](./agentic-architecture-map.md) | [handover/agentic-architecture-map.md](../handover/agentic-architecture-map.md) | Agentic 架构图对 CodePilot 重构的启发：工具 vs Agent、Provider 事实地基、Health/Logs 取证、半成品能力分层 |
+| [models-provider-experience.md](./models-provider-experience.md) | [handover/models-provider-experience.md](../handover/models-provider-experience.md) | Models / Providers 体验收敛：只保留默认模型、可用模型、添加模型三条主路径，模型刷新和迁移状态降级为高级操作 |
 | [decouple-native-runtime.md](./decouple-native-runtime.md) | [handover/decouple-native-runtime.md](../handover/decouple-native-runtime.md) | 脱离 Claude Code：用户痛点（安装门槛/单一锁定）、双 Runtime 设计理由、OpenAI 集成、参考项目对比 |
 | [markdown-artifact-overhaul.md](./markdown-artifact-overhaul.md) | [handover/markdown-artifact-overhaul.md](../handover/markdown-artifact-overhaul.md) | Markdown/Artifact 重构：卡片点击 vs 自动弹、升级 DiffSummary、分档 50000 行 + 截断提示、PreviewPanel 编辑即核心能力、单文件 React 产品边界、长图走隐藏窗口复用、两段失败路径复盘 |
+| [chat-composer-redesign.md](./chat-composer-redesign.md) | [handover/chat-composer-redesign.md](../handover/chat-composer-redesign.md) | Chat 页从"工具集合"收敛到"Agent 工作入口"：按钮越少越好、出问题才显示、Run 状态聚合 vs 散落 chip、外部 review 防过拟合、Codex 决策日志 |
+| [chat-run-checkpoint.md](./chat-run-checkpoint.md) | [handover/chat-run-checkpoint.md](../handover/chat-run-checkpoint.md) | 发送前信任层 Round 1：为什么 inline banner 而不是 modal、为什么不能"在 settings 里关掉"、统一视觉=统一认知、Round 1 取舍（先做配置异常，最后做危险工具调用） |

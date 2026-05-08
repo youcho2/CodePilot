@@ -13,7 +13,8 @@
  *   anthropic-official / bedrock / vertex preset   → claude_code_ready
  *   anthropic protocol + meta.claudeCodeVerified   → claude_code_verified
  *   anthropic protocol w/ any other preset         → claude_code_experimental
- *   openrouter / openai-compatible / google chat   → codepilot_only
+ *   openrouter Anthropic Skin (no /v1)             → openrouter_anthropic_skin
+ *   openrouter OpenAI Skin (/v1) / openai-compat / google chat → codepilot_only
  *   no matched preset                              → unknown
  */
 import type { ApiProvider, ProviderRuntimeCompat, ModelRuntimeCompat } from '@/types';
@@ -25,6 +26,43 @@ export interface ProviderCompatRecord {
 }
 
 const CLAUDE_CODE_READY_PRESETS = new Set(['anthropic-official', 'bedrock', 'vertex']);
+
+/**
+ * OpenRouter exposes two HTTP "skins" off the same domain:
+ *   - `https://openrouter.ai/api`      — Anthropic-compatible (`/v1/messages`),
+ *                                        the path OpenRouter's own Claude Code
+ *                                        integration doc recommends. Reaches
+ *                                        Claude Code Runtime.
+ *   - `https://openrouter.ai/api/v1`   — OpenAI-compatible (`/chat/completions`).
+ *                                        CodePilot Runtime only.
+ *
+ * The default OpenRouter preset shipped in `provider-catalog.ts` uses the
+ * Anthropic skin. Users editing the URL or pasting from OpenAI tutorials
+ * can land on the `/v1` form, which we route as `codepilot_only`.
+ *
+ * Detection is intentionally URL-shape based: the path either ends with
+ * `/api` (Anthropic skin) or includes `/api/v1` / ends with `/v1`
+ * (OpenAI-compatible skin). Trailing slashes are normalized so
+ * `https://openrouter.ai/api/` still matches.
+ */
+function isOpenRouterAnthropicSkinUrl(baseUrl: string): boolean {
+  const trimmed = baseUrl.replace(/\/+$/, '').toLowerCase();
+  if (!trimmed.includes('openrouter.ai')) return false;
+  // Anthropic skin: ends with `/api`, NOT `/api/v1`.
+  return /\/api$/.test(trimmed);
+}
+
+/**
+ * True for OpenRouter providers whose base_url is the Anthropic skin
+ * (`https://openrouter.ai/api`). Exported so call sites that want the
+ * fact-check (e.g. resolver behavior) can reuse the same predicate as
+ * the compat tier.
+ */
+export function isOpenRouterAnthropicSkinRecord(record: ProviderCompatRecord): boolean {
+  const preset = findMatchingPresetForRecord(record);
+  if (preset?.key !== 'openrouter') return false;
+  return isOpenRouterAnthropicSkinUrl(record.base_url);
+}
 
 export function getProviderCompat(record: ProviderCompatRecord): ProviderRuntimeCompat {
   // Image protocols short-circuit — never participate in chat-side runtimes.
@@ -42,9 +80,16 @@ export function getProviderCompat(record: ProviderCompatRecord): ProviderRuntime
       ? 'claude_code_verified'
       : 'claude_code_experimental';
   }
-  if (preset.protocol === 'openrouter'
-      || preset.protocol === 'openai-compatible'
-      || preset.protocol === 'google') {
+  if (preset.protocol === 'openrouter') {
+    // OpenRouter's `https://openrouter.ai/api` skin speaks Anthropic wire
+    // protocol per their Claude Code integration doc; route it as a
+    // distinct claude_code-capable tier rather than codepilot_only. The
+    // `/v1` skin (OpenAI-compatible) keeps the codepilot_only path.
+    return isOpenRouterAnthropicSkinUrl(record.base_url)
+      ? 'openrouter_anthropic_skin'
+      : 'codepilot_only';
+  }
+  if (preset.protocol === 'openai-compatible' || preset.protocol === 'google') {
     return 'codepilot_only';
   }
   return 'unknown';
@@ -98,14 +143,29 @@ export function getModelCompat(args: {
       break;
     case 'claude_code_verified':
     case 'claude_code_experimental':
-      // Anthropic-compat brand presets (Kimi / GLM / MiniMax / etc.) — many
-      // are `sdkProxyOnly` and can only be reached via the Claude Code
-      // subprocess wire format. Group-layer filtering enforces the
-      // sdkProxyOnly constraint; at the model layer we conservatively flag
-      // claude_code only so picker filtering doesn't silently let CodePilot
-      // Runtime route to a proxy that won't accept its requests.
-      // Verified is the same gate as experimental — the difference is
-      // purely UI tone / copy ("兼容" vs "实验"), not routing.
+      // Anthropic-compat brand presets (Kimi / GLM / MiniMax / Volcengine /
+      // Xiaomi MiMo / Bailian / DeepSeek Coding Plan / etc.). These are
+      // mostly `sdkProxyOnly` historically, but `ClaudeCodeCompatAdapter`
+      // (src/lib/claude-code-compat/) now lets CodePilot Runtime speak the
+      // same Anthropic wire format as the Claude Code subprocess — see
+      // `provider-transport.ts::isNativeCompatible('claude-code-compat')`
+      // and `provider-resolver.ts` routing third-party Anthropic proxies
+      // to sdkType='claude-code-compat'. So both runtimes can reach these
+      // providers; we mark both flags. Verified vs experimental still
+      // differ only in UI tone ("兼容" vs "实验"), not in routing.
+      compat.claude_code_compatible = true;
+      compat.codepilot_runtime_compatible = true;
+      break;
+    case 'openrouter_anthropic_skin':
+      // OpenRouter Anthropic skin (`/api`, no `/v1`). Reachable from
+      // Claude Code Runtime per OpenRouter's own integration doc; mark
+      // claude_code_compatible so the runtime filter keeps these rows in
+      // the Claude Code picker. We do NOT also flag
+      // codepilot_runtime_compatible — CodePilot Runtime expects the
+      // OpenAI-compat `/v1` skin URL form, and silently accepting an
+      // Anthropic-shaped URL would route CodePilot through the wrong
+      // path. Users wanting both runtimes should configure two providers
+      // (one per skin URL).
       compat.claude_code_compatible = true;
       break;
     case 'codepilot_only':
@@ -146,6 +206,8 @@ export function compatLabel(compat: ProviderRuntimeCompat, isZh: boolean): strin
     case 'claude_code_ready':        return isZh ? 'Claude Code 直连' : 'Claude Code direct';
     case 'claude_code_verified':     return isZh ? 'Claude Code 兼容' : 'Claude Code compat';
     case 'claude_code_experimental': return isZh ? 'Claude Code 实验' : 'Claude Code experimental';
+    case 'openrouter_anthropic_skin':
+      return isZh ? 'OpenRouter · Claude Code 兼容' : 'OpenRouter · Claude Code compat';
     case 'codepilot_only':           return isZh ? '仅 CodePilot Runtime' : 'CodePilot Runtime only';
     case 'media_only':               return isZh ? '图片生成' : 'Image gen';
     case 'unknown':                  return isZh ? '需验证' : 'Needs verification';
@@ -167,6 +229,10 @@ export function compatTooltip(compat: ProviderRuntimeCompat, isZh: boolean): str
       return isZh
         ? '通用 Anthropic 兼容第三方模板或自定义网关，工具调用 / thinking / 模型别名行为取决于该网关实现，建议测试后再用于关键场景'
         : 'Generic Anthropic-compatible template or custom gateway — tool / thinking / aliases depend on the vendor implementation, test before relying on it for critical work';
+    case 'openrouter_anthropic_skin':
+      return isZh
+        ? '通过 OpenRouter Anthropic Skin 接入 Claude Code；建议优先使用 anthropic/claude-* 模型。其它厂商的模型仍可通过 OpenRouter 调用，但工具调用 / thinking 行为取决于具体上游。'
+        : 'Reaches Claude Code via the OpenRouter Anthropic skin — best suited to anthropic/claude-* models. Other models route through OpenRouter too, but tool calling / thinking behavior depends on the upstream vendor.';
     case 'codepilot_only':
       return isZh
         ? 'OpenAI 兼容协议，仅在 CodePilot Runtime 下可用（不会出现在 Claude Code Runtime 的模型选择器中）'
@@ -182,14 +248,42 @@ export function compatTooltip(compat: ProviderRuntimeCompat, isZh: boolean): str
   }
 }
 
-/** Tone for badges — matches the design system status palette. */
+/** Tone for badges — matches the design system status palette.
+ *
+ *  Phase 1 Step 2 收敛 round 4 (2026-05-06): keep this for callers that
+ *  still want the full-background pill (e.g. select-item pickers where
+ *  the colored chip helps comprehension). For inline status tags in
+ *  card / section headers prefer `compatDotColor` + plain label —
+ *  Codex's spec calls out that full-bg pills are visually loud when
+ *  there's only 1-2 tags on a row.
+ */
 export function compatTone(compat: ProviderRuntimeCompat): string {
   switch (compat) {
     case 'claude_code_ready':        return 'bg-status-success-muted text-status-success-foreground';
     case 'claude_code_verified':     return 'bg-status-info-muted text-status-info-foreground';
     case 'claude_code_experimental': return 'bg-status-warning-muted text-status-warning-foreground';
+    case 'openrouter_anthropic_skin':
+      // Same tone as `claude_code_verified` — the runtime guarantee is
+      // the same (Anthropic skin works with Claude Code per OpenRouter
+      // docs); only the brand-name flavor differs.
+      return 'bg-status-info-muted text-status-info-foreground';
     case 'codepilot_only':           return 'bg-primary/10 text-primary';
     case 'media_only':               return 'bg-muted text-muted-foreground';
     case 'unknown':                  return 'bg-muted text-muted-foreground';
+  }
+}
+
+/** Just the dot color — for "colored dot + plain text" inline status
+ *  tags. Caller renders e.g. `<span class="size-1.5 rounded-full {dot}" />`
+ *  next to a muted-foreground label. */
+export function compatDotColor(compat: ProviderRuntimeCompat): string {
+  switch (compat) {
+    case 'claude_code_ready':        return 'bg-status-success-foreground';
+    case 'claude_code_verified':     return 'bg-status-info-foreground';
+    case 'claude_code_experimental': return 'bg-status-warning-foreground';
+    case 'openrouter_anthropic_skin': return 'bg-status-info-foreground';
+    case 'codepilot_only':           return 'bg-primary';
+    case 'media_only':               return 'bg-muted-foreground';
+    case 'unknown':                  return 'bg-muted-foreground';
   }
 }

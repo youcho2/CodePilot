@@ -143,9 +143,12 @@ CodePilot — 多模型 AI Agent 桌面客户端，基于 Electron + Next.js。
 - 发现技术债务时记录到 `docs/exec-plans/tech-debt-tracker.md`
 - 模板和规范见 `docs/exec-plans/README.md`
 
+**修复闭环：** 接手 P1/P2 review finding、用户反馈、CDP 失败或测试失败时，按 `Signal → Triage → Fix → Verify → Guardrail` 处理；修复说明必须包含根因、改动、验证和防回归。不要只在聊天里关闭问题；需要沉淀的同类问题写入执行计划、tech-debt tracker 或 guardrail。
+
 ## 文档
 
 - [ARCHITECTURE.md](./ARCHITECTURE.md) — 项目架构、目录结构、数据流、新功能触及点
+- [docs/design.md](./docs/design.md) — UI 设计规范（卡片 / 分割线 / 徽章 / preview 流程等模式；新做 Settings / 同类页面前先读）
 - `docs/exec-plans/` — 执行计划（进度状态 + 决策日志 + 技术债务）
 - `docs/handover/` — 技术交接文档（架构、数据流、设计决策）
 - `docs/insights/` — 产品思考文档（用户问题、设计理由、趋势洞察）

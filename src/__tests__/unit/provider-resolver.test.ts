@@ -1314,10 +1314,34 @@ describe('getProviderCompat tier mapping', () => {
     );
   });
 
-  it('OpenRouter → codepilot_only', () => {
+  it('OpenRouter Anthropic skin (`/api`) → openrouter_anthropic_skin', () => {
+    // OpenRouter's `/api` endpoint speaks Anthropic wire protocol per
+    // their Claude Code integration docs; it must NOT classify as
+    // codepilot_only or the Claude Code Runtime picker hides every
+    // OpenRouter row.
     assert.equal(
       getProviderCompat({ provider_type: 'openrouter', base_url: 'https://openrouter.ai/api' }),
+      'openrouter_anthropic_skin',
+    );
+  });
+
+  it('OpenRouter OpenAI-compat skin (`/api/v1`) → codepilot_only', () => {
+    // The `/v1` skin is OpenAI-compatible (`/chat/completions`) and only
+    // reachable from CodePilot Runtime. Users editing the URL or pasting
+    // from OpenAI tutorials can land here.
+    assert.equal(
+      getProviderCompat({ provider_type: 'openrouter', base_url: 'https://openrouter.ai/api/v1' }),
       'codepilot_only',
+    );
+  });
+
+  it('OpenRouter Anthropic skin trailing slash → openrouter_anthropic_skin', () => {
+    // Defensive: matcher must normalize trailing slash so
+    // `https://openrouter.ai/api/` still classifies as the Anthropic
+    // skin, not as `codepilot_only`.
+    assert.equal(
+      getProviderCompat({ provider_type: 'openrouter', base_url: 'https://openrouter.ai/api/' }),
+      'openrouter_anthropic_skin',
     );
   });
 
@@ -1387,14 +1411,35 @@ describe('getModelCompat alias-lift removal (P2a regression)', () => {
     assert.equal(cap.codepilot_runtime_compatible, true);
   });
 
-  it('claude_code_verified + any model → claude_code_compatible only', () => {
+  it('claude_code_verified + any model → claude_code_compatible AND codepilot_runtime_compatible', () => {
+    // Phase 2 Step 4c follow-up (2026-05-07): with
+    // `ClaudeCodeCompatAdapter` (src/lib/claude-code-compat/), CodePilot
+    // Runtime now speaks the same Anthropic wire format the SDK
+    // subprocess does, so verified anthropic-compat presets (GLM / Kimi /
+    // MiniMax / Volcengine / Xiaomi MiMo / Bailian / DeepSeek Coding
+    // Plan) are reachable from BOTH runtimes. The previous "SDK-bound"
+    // assumption hid these from the AISDK picker, leaving only OpenAI
+    // OAuth GPT — fixed at the model layer here and at the route's
+    // group-layer filter (no more sdkProxyOnly group drop).
     const cap = getModelCompat({
       modelId: 'glm-5-turbo',
       providerCompat: 'claude_code_verified',
     });
     assert.equal(cap.claude_code_compatible, true);
-    assert.equal(cap.codepilot_runtime_compatible, undefined,
-      'verified anthropic-compat presets are SDK-bound; not reachable from native runtime');
+    assert.equal(cap.codepilot_runtime_compatible, true,
+      'ClaudeCodeCompatAdapter makes verified anthropic-compat presets reachable from CodePilot Runtime');
+  });
+
+  it('claude_code_experimental + any model → claude_code_compatible AND codepilot_runtime_compatible', () => {
+    // Same reasoning as the verified case — verified vs experimental
+    // differ only in UI tone (info vs warning) and copy ("兼容" vs
+    // "实验"), not in routing capability.
+    const cap = getModelCompat({
+      modelId: 'some-anthropic-thirdparty-model',
+      providerCompat: 'claude_code_experimental',
+    });
+    assert.equal(cap.claude_code_compatible, true);
+    assert.equal(cap.codepilot_runtime_compatible, true);
   });
 
   it('media_only → media flag, no chat flags', () => {
@@ -1405,6 +1450,32 @@ describe('getModelCompat alias-lift removal (P2a regression)', () => {
     assert.equal(cap.media, true);
     assert.equal(cap.claude_code_compatible, undefined);
     assert.equal(cap.codepilot_runtime_compatible, undefined);
+  });
+
+  it('openrouter_anthropic_skin + any model → claude_code_compatible only', () => {
+    // OpenRouter `/api` skin speaks Anthropic wire protocol per
+    // OpenRouter docs; surface every row in the Claude Code Runtime
+    // picker (otherwise the user sees the whole provider greyed out as
+    // "当前执行引擎不可用"). codepilot_runtime_compatible is left
+    // unset — CodePilot Runtime expects the OpenAI-shape `/v1` URL, so
+    // routing it through the Anthropic-shape URL would silently fail.
+    const cap = getModelCompat({
+      modelId: 'anthropic/claude-sonnet-4-6',
+      providerCompat: 'openrouter_anthropic_skin',
+    });
+    assert.equal(cap.claude_code_compatible, true);
+    assert.equal(cap.codepilot_runtime_compatible, undefined);
+  });
+
+  it('openrouter_anthropic_skin + non-anthropic model → still claude_code_compatible (no per-id alias-lift gate)', () => {
+    // Don't restore old "only `claude-*` ids visible" alias-lift logic.
+    // Provider tier alone decides reachability; the Models page badge
+    // disappears for the whole OpenRouter group, not per-row.
+    const cap = getModelCompat({
+      modelId: 'meta-llama/llama-4-scout',
+      providerCompat: 'openrouter_anthropic_skin',
+    });
+    assert.equal(cap.claude_code_compatible, true);
   });
 });
 

@@ -11,18 +11,22 @@ import {
 import {
   DotsThree,
   Stethoscope,
-  ArrowsClockwise,
 } from "@/components/ui/icon";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
-import { compatLabel, compatTone, compatTooltip } from "@/lib/runtime-compat";
+import { compatLabel, compatDotColor, compatTooltip } from "@/lib/runtime-compat";
 
 /**
  * Provider Card v3 — compact pattern.
  *
  * Header carries name + status pill on the left, primary/edit/delete actions
  * inline on the right (no separate footer). Sub-info renders as a single
- * combined sub-card with divider lines between rows — same shape as the
- * "服务设置" card in Section 0.
+ * combined sub-card with divider lines between rows — same compact
+ * info-card pattern used across provider cards.
  */
 
 export type ProviderCardStatus =
@@ -61,17 +65,19 @@ interface ProviderCardProps {
   /** Custom slot rendered below info rows (e.g. image-family sub-rows). */
   children?: ReactNode;
 
-  /* Inline header actions (right side) */
+  /* Inline header actions (right side).
+   *
+   * Phase 1 Step 2 收敛 (2026-05-06): "Manage models" / "Refresh models"
+   * inline actions removed per Codex's Models / Providers experience
+   * spec — Provider cards are for connecting services, not managing
+   * models. Model management lives on the Models page; refresh decisions
+   * are made there too (and only shown for providers where
+   * `canReliablyFetchModels` returns true). */
   onEdit?: () => void;
   onDelete?: () => void;
-  /** Jump to Models page anchored at this provider's section. Surfaced
-   *  inline (not in kebab) — managing this provider's model list is a
-   *  high-frequency follow-up to "I just connected this service". */
-  onManageModels?: () => void;
 
   /* Collapsed into kebab */
   onDiagnose?: () => void;
-  onRefreshModels?: () => void;
   onSyncToClaudeCode?: () => void;
 }
 
@@ -103,9 +109,7 @@ export function ProviderCard({
   children,
   onEdit,
   onDelete,
-  onManageModels,
   onDiagnose,
-  onRefreshModels,
   onSyncToClaudeCode,
 }: ProviderCardProps) {
   const [menuOpen, setMenuOpen] = useState(false);
@@ -113,10 +117,6 @@ export function ProviderCard({
   const statusLabel =
     data.statusLabel ?? (isZh ? STATUS_LABEL_ZH[data.status] : STATUS_LABEL_EN[data.status]);
 
-  // `onRefreshModels` is promoted to a visible button — it's the most-used
-  // ancillary action on a connected card, and burying it in the kebab made
-  // the "we now do diff-first refresh" flow hard to discover. Kebab keeps
-  // the lower-frequency actions (Diagnose / Sync to Claude Code).
   const hasKebabActions = !!(onDiagnose || onSyncToClaudeCode);
 
   return (
@@ -136,29 +136,6 @@ export function ProviderCard({
             <h3 className="flex-1 min-w-0 text-sm font-semibold truncate leading-tight">{data.name}</h3>
             <div className="shrink-0 flex items-center gap-1">
               {primaryAction}
-              {onManageModels && (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={onManageModels}
-                  className="h-8 px-2.5 text-xs text-muted-foreground hover:text-foreground"
-                  title={isZh ? '到模型页编辑此服务商对外暴露的模型 / 角色映射' : 'Open Models page anchored at this provider'}
-                >
-                  {isZh ? '管理模型' : 'Manage'}
-                </Button>
-              )}
-              {onRefreshModels && (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={onRefreshModels}
-                  className="h-8 px-2.5 text-xs text-muted-foreground hover:text-foreground gap-1.5"
-                  title={isZh ? '从上游获取模型列表' : 'Fetch model list from upstream'}
-                >
-                  <ArrowsClockwise size={12} />
-                  {isZh ? '刷新模型' : 'Refresh'}
-                </Button>
-              )}
               {onEdit && (
                 <Button
                   variant="ghost"
@@ -224,16 +201,24 @@ export function ProviderCard({
               )} />
               {statusLabel}
             </span>
+            {/* Phase 1 Step 2 收敛 round 4 + 5 (2026-05-06): compat tag
+                keeps the pill shape (rounded-full + padding + small
+                font) but uses a neutral muted background — the compat
+                tier is conveyed by a small colored dot inside the pill
+                rather than a full colored fill. Status pill above
+                follows the same pattern but stays on its colored bg
+                because status (available / needs-config / error) is a
+                stronger signal that earns the louder treatment. */}
             {data.compat && (
-              <span
-                className={cn(
-                  "inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium cursor-help whitespace-nowrap",
-                  compatTone(data.compat),
-                )}
-                title={compatTooltip(data.compat, isZh)}
-              >
-                {compatLabel(data.compat, isZh)}
-              </span>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span className="inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground cursor-help whitespace-nowrap">
+                    <span className={cn("size-1.5 rounded-full", compatDotColor(data.compat))} aria-hidden />
+                    {compatLabel(data.compat, isZh)}
+                  </span>
+                </TooltipTrigger>
+                <TooltipContent>{compatTooltip(data.compat, isZh)}</TooltipContent>
+              </Tooltip>
             )}
           </div>
         </div>

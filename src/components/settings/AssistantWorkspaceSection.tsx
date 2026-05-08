@@ -6,8 +6,10 @@ import { getLocalDateString } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { PromptDialog } from "@/components/ui/prompt-dialog";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { SpinnerGap, CheckCircle, X, Trash } from "@/components/ui/icon";
 import { useTranslation } from "@/hooks/useTranslation";
+import { SettingsCard } from "@/components/patterns/SettingsCard";
 import type { WorkspaceInspectResult, ScheduledTask } from "@/types";
 import { FilesTabPanel, TaxonomyTabPanel, IndexTabPanel, OrganizeTabPanel } from "./WorkspaceTabPanels";
 import { WorkspaceConfirmDialogs, type ConfirmDialogType } from "./WorkspaceConfirmDialogs";
@@ -406,12 +408,13 @@ export function AssistantWorkspaceSection() {
   const assistantName = summary?.name || t('assistant.defaultName');
 
   return (
-    <div className="space-y-4">
+    <div className="max-w-4xl mx-auto space-y-6">
       {/* Workspace Path Card */}
-      <div className="rounded-lg border border-border/50 p-4">
-        <h2 className="text-sm font-medium">{t('assistant.workspacePath')}</h2>
-        <p className="text-xs text-muted-foreground mt-1">{t('assistant.workspacePathHint')}</p>
-        <div className="flex items-center gap-2 mt-3">
+      <SettingsCard
+        title={t('assistant.workspacePath')}
+        description={t('assistant.workspacePathHint')}
+      >
+        <div className="flex items-center gap-2">
           <div className="relative flex-1">
             <Input
               type="text"
@@ -431,7 +434,7 @@ export function AssistantWorkspaceSection() {
         {pathError && (
           <p className="text-xs text-status-error-foreground mt-1">{pathError}</p>
         )}
-        <div className="flex items-center gap-2 mt-2">
+        <div className="flex items-center gap-2">
           <Button
             size="sm"
             onClick={handleSaveClick}
@@ -447,7 +450,7 @@ export function AssistantWorkspaceSection() {
             )}
           </Button>
         </div>
-      </div>
+      </SettingsCard>
 
       {/* Invalid workspace path warning */}
       {workspace?.path && workspace.valid === false && (
@@ -478,8 +481,7 @@ export function AssistantWorkspaceSection() {
 
       {/* Personality / Buddy Preview */}
       {workspace?.path && workspace.valid !== false && summary?.configured && (
-        <div className="rounded-lg border border-border/50 p-4">
-          <h2 className="text-sm font-medium mb-3">{t('assistant.personality')}</h2>
+        <SettingsCard title={t('assistant.personality')}>
           <div className="flex items-center gap-3">
             <span className="text-3xl">{summary?.buddy?.emoji || '🥚'}</span>
             <div className="flex-1 min-w-0">
@@ -511,10 +513,10 @@ export function AssistantWorkspaceSection() {
               🥚 {t('buddy.hatch')}
             </Button>
           )}
-          <p className="text-[11px] text-muted-foreground mt-2">
+          <p className="text-[11px] text-muted-foreground">
             {t('assistant.editSoulHint')}
           </p>
-        </div>
+        </SettingsCard>
       )}
 
       {/* Daily Check-in Card */}
@@ -542,83 +544,71 @@ export function AssistantWorkspaceSection() {
 
       {/* Scheduled Tasks */}
       {workspace?.path && workspace.valid !== false && (
-        <div className="rounded-lg border border-border/50 p-4">
-          <h2 className="text-sm font-medium mb-2">{t('assistant.scheduledTasks')}</h2>
+        <SettingsCard title={t('assistant.scheduledTasks')}>
           {tasks.length === 0 ? (
             <p className="text-xs text-muted-foreground">{t('assistant.noTasks')}</p>
           ) : (
-            <div className="space-y-2">
-              {tasks.map((task) => (
-                <div key={task.id} className="flex items-center justify-between text-xs border border-border/30 rounded px-3 py-2">
-                  <div className="flex-1 min-w-0">
-                    <span className="font-medium truncate block">{task.name}</span>
-                    <span className="text-muted-foreground">
-                      {task.schedule_value}
-                      {task.next_run && (
-                        <> &middot; {t('assistant.taskNextRun')}: {new Date(task.next_run).toLocaleString()}</>
-                      )}
-                    </span>
+            // Inset-divider sub-card per design.md § Sub-card.
+            <div className="rounded-md bg-muted/40">
+              <div className="px-3.5 divide-y divide-border/50">
+                {tasks.map((task) => (
+                  <div key={task.id} className="flex items-center justify-between gap-2 py-2.5 text-xs">
+                    <div className="flex-1 min-w-0">
+                      <span className="font-medium truncate block">{task.name}</span>
+                      <span className="text-muted-foreground">
+                        {task.schedule_value}
+                        {task.next_run && (
+                          <> &middot; {t('assistant.taskNextRun')}: {new Date(task.next_run).toLocaleString()}</>
+                        )}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium ${
+                        task.status === 'active' ? 'bg-status-success-muted text-status-success-foreground' :
+                        task.status === 'paused' ? 'bg-status-warning-muted text-status-warning-foreground' :
+                        'bg-muted text-muted-foreground'
+                      }`}>
+                        {task.status}
+                      </span>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-7 w-7 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
+                        onClick={() => handleDeleteTask(task.id)}
+                        aria-label={`${t('assistant.taskDelete')} ${task.name}`}
+                        title={`${t('assistant.taskDelete')} ${task.name}`}
+                      >
+                        <Trash size={14} />
+                      </Button>
+                    </div>
                   </div>
-                  <div className="flex items-center gap-2 ml-2 shrink-0">
-                    <span className={`px-1.5 py-0.5 rounded text-[10px] ${
-                      task.status === 'active' ? 'bg-status-success-muted text-status-success-foreground' :
-                      task.status === 'paused' ? 'bg-status-warning-muted text-status-warning-foreground' :
-                      'bg-muted text-muted-foreground'
-                    }`}>
-                      {task.status}
-                    </span>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="h-auto p-1 text-muted-foreground hover:text-status-error-foreground"
-                      onClick={() => handleDeleteTask(task.id)}
-                      title={t('assistant.taskDelete')}
-                    >
-                      <Trash size={14} />
-                    </Button>
-                  </div>
-                </div>
-              ))}
+                ))}
+              </div>
             </div>
           )}
-        </div>
+        </SettingsCard>
       )}
 
-      {/* Tabbed Section: Files (default) + Advanced (Taxonomy / Index / Organize) */}
+      {/* Tabbed Section: Files (default) + Advanced (Taxonomy / Index / Organize).
+          Uses shadcn <Tabs> with controlled value so the existing
+          `setActiveTab` state still drives which panel renders. The
+          previous hand-rolled tab bar (`border-b-2 border-primary` on
+          active button) is now the project-standard rounded-full pill. */}
       {workspace?.path && workspace.valid !== false && (
-        <div className="rounded-lg border border-border/50 p-4">
-          <div className="flex gap-1 border-b border-border/50 mb-3">
+        <SettingsCard>
+          <div className="flex items-center gap-2 mb-1">
+            <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as typeof activeTab)} className="flex-1">
+              <TabsList>
+                <TabsTrigger value="files">{defaultTab.label}</TabsTrigger>
+                {showAdvanced && advancedTabs.map(tab => (
+                  <TabsTrigger key={tab.id} value={tab.id}>{tab.label}</TabsTrigger>
+                ))}
+              </TabsList>
+            </Tabs>
             <Button
               variant="ghost"
               size="sm"
-              onClick={() => setActiveTab('files')}
-              className={`px-3 py-1.5 text-xs font-medium rounded-t rounded-b-none h-auto ${
-                activeTab === 'files'
-                  ? 'bg-background text-foreground border-b-2 border-primary'
-                  : 'text-muted-foreground hover:text-foreground'
-              }`}
-            >
-              {defaultTab.label}
-            </Button>
-            {showAdvanced && advancedTabs.map(tab => (
-              <Button
-                key={tab.id}
-                variant="ghost"
-                size="sm"
-                onClick={() => setActiveTab(tab.id)}
-                className={`px-3 py-1.5 text-xs font-medium rounded-t rounded-b-none h-auto ${
-                  activeTab === tab.id
-                    ? 'bg-background text-foreground border-b-2 border-primary'
-                    : 'text-muted-foreground hover:text-foreground'
-                }`}
-              >
-                {tab.label}
-              </Button>
-            ))}
-            <Button
-              variant="ghost"
-              size="sm"
-              className="ml-auto text-[11px] text-muted-foreground hover:text-foreground px-2 py-1 h-auto"
+              className="text-[11px] text-muted-foreground hover:text-foreground h-7"
               onClick={() => {
                 setShowAdvanced((prev) => !prev);
                 if (showAdvanced && activeTab !== 'files') setActiveTab('files');
@@ -651,7 +641,7 @@ export function AssistantWorkspaceSection() {
               onArchive={handleArchive}
             />
           )}
-        </div>
+        </SettingsCard>
       )}
 
       {/* Confirmation Dialogs */}

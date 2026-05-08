@@ -56,7 +56,6 @@ function detectPlatform(): { os: string; channel: string } {
 
 export function AboutSection() {
   const { t } = useTranslation();
-  const isZh = t("nav.chats") === "对话";
   const {
     updateInfo,
     checking,
@@ -106,9 +105,7 @@ export function AboutSection() {
       const error = await window.electronAPI?.shell?.openPath(logPath);
       if (error) {
         showToast({
-          message: isZh
-            ? `打开日志文件夹失败：${error}`
-            : `Failed to open log folder: ${error}`,
+          message: t("about.support.openLogsFailedWith", { error }),
           type: "error",
         });
       }
@@ -117,7 +114,7 @@ export function AboutSection() {
       // the OS-level reason is in the rejected error but we don't
       // surface raw exception copy to end users.
       showToast({
-        message: isZh ? "打开日志文件夹失败" : "Failed to open log folder",
+        message: t("about.support.openLogsFailed"),
         type: "error",
       });
     }
@@ -162,13 +159,9 @@ export function AboutSection() {
       // worse than the noise. Surface a toast that points at the
       // alternative action ("打开日志文件夹") so the user has a way out.
       showToast({
-        message: isZh
-          ? (canOpenLogFolder
-              ? "导出失败，请打开日志文件夹或稍后重试"
-              : "导出失败，请稍后重试")
-          : (canOpenLogFolder
-              ? "Export failed — open the log folder or try again"
-              : "Export failed — please retry"),
+        message: canOpenLogFolder
+          ? t("about.support.exportFailedWithLogFolder")
+          : t("about.support.exportFailed"),
         type: "error",
       });
     } finally {
@@ -281,25 +274,25 @@ export function AboutSection() {
       {/* Platform info — "what build am I running" surfaces here so a
           user filing a bug report can copy the exact line. */}
       <SettingsCard
-        title={isZh ? "平台信息" : "Platform"}
-        description={isZh ? "当前运行环境" : "Current build environment"}
+        title={t("about.platform.title")}
+        description={t("about.platform.desc")}
       >
         <div className="rounded-md bg-muted/40 px-3.5 divide-y divide-border/50">
           <div className="py-2.5 flex items-center justify-between gap-3">
             <span className="text-[11px] text-muted-foreground shrink-0">
-              {isZh ? "操作系统" : "OS"}
+              {t("about.platform.os")}
             </span>
             <span className="text-xs text-foreground/85">{platform.os}</span>
           </div>
           <div className="py-2.5 flex items-center justify-between gap-3">
             <span className="text-[11px] text-muted-foreground shrink-0">
-              {isZh ? "运行模式" : "Channel"}
+              {t("about.platform.channel")}
             </span>
             <span className="text-xs text-foreground/85">{platform.channel}</span>
           </div>
           <div className="py-2.5 flex items-center justify-between gap-3">
             <span className="text-[11px] text-muted-foreground shrink-0">
-              {isZh ? "应用版本" : "App version"}
+              {t("about.platform.appVersion")}
             </span>
             <span className="text-xs text-foreground/85">v{APP_VERSION}</span>
           </div>
@@ -350,12 +343,8 @@ export function AboutSection() {
           Center stays as the install / wizard entry, not a "fix anything"
           button. */}
       <SettingsCard
-        title={isZh ? "支持与日志" : "Support & logs"}
-        description={
-          isZh
-            ? "打开持久日志文件夹查看 / 反馈（已自动脱敏 API key、token、Bearer、URL 凭证、本地路径）；导出诊断包作为补充；运行设置向导；从其他客户端导入历史会话"
-            : "Open the persistent log folder for inspection / issue filing — API keys, tokens, Bearer/Authorization values, URL credentials, and home paths are automatically scrubbed. Export a diagnostic bundle as a fallback, run the setup wizard, import chat history."
-        }
+        title={t("about.support.title")}
+        description={t("about.support.desc")}
       >
         <div className="flex flex-wrap items-center gap-2">
           {canOpenLogFolder && (
@@ -367,7 +356,7 @@ export function AboutSection() {
               title={logPath ?? undefined}
             >
               <Folder size={14} />
-              {isZh ? "打开日志文件夹" : "Open log folder"}
+              {t("about.support.openLogs")}
             </Button>
           )}
           <Button
@@ -382,7 +371,7 @@ export function AboutSection() {
             ) : (
               <FileArrowDown size={14} />
             )}
-            {isZh ? "导出诊断包" : "Export diagnostic bundle"}
+            {t("about.support.exportDiagnostics")}
           </Button>
           <Button
             variant="outline"
@@ -391,7 +380,7 @@ export function AboutSection() {
             onClick={() => window.dispatchEvent(new CustomEvent("open-setup-center"))}
           >
             <Stethoscope size={14} />
-            {isZh ? "运行设置向导" : "Run setup wizard"}
+            {t("about.support.runSetupWizard")}
           </Button>
           <Button
             variant="outline"
@@ -408,8 +397,8 @@ export function AboutSection() {
 
       {/* External links. Fixed URLs, opened in new tab. */}
       <SettingsCard
-        title={isZh ? "文档与反馈" : "Documentation & feedback"}
-        description={isZh ? "了解更多或报告问题" : "Learn more or report an issue"}
+        title={t("about.docs.title")}
+        description={t("about.docs.desc")}
       >
         <div className="flex flex-wrap items-center gap-2">
           <Button
@@ -428,7 +417,7 @@ export function AboutSection() {
             onClick={() => window.open("https://github.com/op7418/CodePilot/issues", "_blank")}
           >
             <ArrowSquareOut size={14} />
-            {isZh ? "提交反馈" : "Submit feedback"}
+            {t("about.docs.submitFeedback")}
           </Button>
           <Button
             variant="outline"
@@ -437,7 +426,7 @@ export function AboutSection() {
             onClick={() => window.open("https://github.com/op7418/CodePilot/releases", "_blank")}
           >
             <ArrowSquareOut size={14} />
-            {isZh ? "Release Notes" : "Release notes"}
+            {t("about.docs.releaseNotes")}
           </Button>
         </div>
       </SettingsCard>

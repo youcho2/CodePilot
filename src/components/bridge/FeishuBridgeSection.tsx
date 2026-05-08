@@ -407,7 +407,7 @@ export function FeishuBridgeSection() {
   };
 
   return (
-    <div className="max-w-3xl space-y-6">
+    <div className="max-w-3xl mx-auto space-y-6">
       {/* ── Feishu App Binding ── */}
       <SettingsCard
         title={t("feishu.quickCreate")}
@@ -417,7 +417,7 @@ export function FeishuBridgeSection() {
           /* ── Bound state: show app info + rebind option ── */
           <div className="space-y-3">
             <div className="flex items-center gap-3">
-              <CheckCircle size={18} className="shrink-0 text-green-500" />
+              <CheckCircle size={18} className="shrink-0 text-status-success-foreground" />
               <div className="flex-1 min-w-0">
                 <div className="text-sm font-medium">{t("feishu.appId")}: <span className="font-mono text-muted-foreground">{appId}</span></div>
                 <div className="text-xs text-muted-foreground">
@@ -605,7 +605,7 @@ export function FeishuBridgeSection() {
             </p>
           </div>
 
-          <div className="border-t pt-3 space-y-2">
+          <div className="pt-3 space-y-2">
             <label className="text-xs font-semibold text-foreground block">
               {t("feishu.groupPolicy")}
             </label>
@@ -644,7 +644,7 @@ export function FeishuBridgeSection() {
             </div>
           )}
 
-          <div className="border-t pt-3">
+          <div className="pt-3">
             <FieldRow
               label={t("feishu.requireMention")}
               description={t("feishu.requireMentionDesc")}
@@ -656,7 +656,7 @@ export function FeishuBridgeSection() {
             </FieldRow>
           </div>
 
-          <div className="border-t pt-3">
+          <div className="pt-3">
             <FieldRow
               label={t("feishu.threadSession")}
               description={t("feishu.threadSessionDesc")}

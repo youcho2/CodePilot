@@ -2,7 +2,6 @@
 
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Separator } from '@/components/ui/separator';
 import { X, Lightning } from "@/components/ui/icon";
 import type { SkillInfo } from './PluginCard';
 
@@ -37,9 +36,7 @@ export function PluginDetail({ plugin, onClose }: PluginDetailProps) {
         </Button>
       </div>
 
-      <Separator className="my-3" />
-
-      <div className="space-y-3">
+      <div className="mt-3 space-y-3">
         <div>
           <p className="text-sm font-medium mb-1">Source</p>
           <p className="text-xs text-muted-foreground font-mono break-all">
@@ -54,9 +51,7 @@ export function PluginDetail({ plugin, onClose }: PluginDetailProps) {
           </p>
         </div>
 
-        <Separator />
-
-        <div>
+        <div className="pt-2">
           <p className="text-sm font-medium mb-2">Content</p>
           <div className="rounded-md bg-muted p-3 max-h-80 overflow-auto">
             <pre className="text-xs font-mono whitespace-pre-wrap break-words">

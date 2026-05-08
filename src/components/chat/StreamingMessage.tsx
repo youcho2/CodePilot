@@ -173,10 +173,15 @@ function useBufferedContent(rawContent: string, isStreaming: boolean): string {
 }
 
 /**
- * Thinking phase label that evolves over time to reduce perceived wait.
- * 0-5s: "思考中..." / "Thinking..."
- * 5-15s: "深度思考中..." / "Thinking deeply..."
- * 15s+: "组织回复中..." / "Preparing response..."
+ * Wait-phase label shown while waiting for the first content token.
+ * Pure UX-comfort progression — NOT tied to model thinking/reasoning state.
+ * Real reasoning content is rendered separately by ToolActionsGroup's ThinkingRow.
+ *   0-5s:  "生成中..." / "Generating..."
+ *   5-15s: "回复中..." / "Responding..."
+ *   15s+:  "组织回复中..." / "Preparing response..."
+ * Wording deliberately avoids "thinking" because users read it as the model
+ * actually reasoning hard — misleading for short prompts where the model
+ * just hasn't streamed first byte yet.
  */
 function ThinkingPhaseLabel() {
   const { t } = useTranslation();

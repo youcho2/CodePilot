@@ -31,6 +31,8 @@ interface ProjectGroupHeaderProps {
   isCollapsed: boolean;
   isFolderHovered: boolean;
   isWorkspace: boolean;
+  /** Hide the caret/chevron prefix (Codex-style flat folders, expansion indicated by Folder/FolderOpen icon swap only). */
+  hideCaret?: boolean;
   onToggle: () => void;
   onMouseEnter: () => void;
   onMouseLeave: () => void;
@@ -50,6 +52,7 @@ export function ProjectGroupHeader({
   isCollapsed,
   isFolderHovered,
   isWorkspace,
+  hideCaret = false,
   onToggle,
   onMouseEnter,
   onMouseLeave,
@@ -193,24 +196,26 @@ export function ProjectGroupHeader({
   return (
     <div
       className={cn(
-        "flex items-center gap-1 rounded-md px-2 py-1 cursor-pointer select-none transition-colors",
-        "hover:bg-accent/50"
+        "flex items-center gap-2 rounded-xl px-3 h-8 cursor-pointer select-none transition-colors",
+        "hover:bg-sidebar-accent"
       )}
       onClick={onToggle}
       onMouseEnter={onMouseEnter}
       onMouseLeave={onMouseLeave}
     >
-      {isCollapsed ? (
-        <CaretRight size={14} className="shrink-0 text-muted-foreground" />
-      ) : (
-        <CaretDown size={14} className="shrink-0 text-muted-foreground" />
+      {!hideCaret && (
+        isCollapsed ? (
+          <CaretRight size={14} className="shrink-0 text-muted-foreground" />
+        ) : (
+          <CaretDown size={14} className="shrink-0 text-muted-foreground" />
+        )
       )}
       {isCollapsed ? (
         <Folder size={16} className="shrink-0 text-muted-foreground" />
       ) : (
         <FolderOpen size={16} className="shrink-0 text-muted-foreground" />
       )}
-      <span className="flex-1 truncate text-[13px] font-medium text-sidebar-foreground">
+      <span className="flex-1 truncate text-[13px] font-normal text-sidebar-foreground/70">
         {displayName}
       </span>
       {actionButtons}

@@ -4,6 +4,7 @@ import "./globals.css";
 import { ThemeProvider } from "@/components/layout/ThemeProvider";
 import { ThemeFamilyProvider } from "@/components/layout/ThemeFamilyProvider";
 import { I18nProvider } from "@/components/layout/I18nProvider";
+import { IconProvider } from "@/components/layout/IconProvider";
 import { AppShell } from "@/components/layout/AppShell";
 import { getAllThemeFamilies, getThemeFamilyMetas } from "@/lib/theme/loader";
 import { renderThemeFamilyCSS } from "@/lib/theme/render-css";
@@ -64,7 +65,9 @@ export default function RootLayout({
         <ThemeProvider>
           <ThemeFamilyProvider families={familiesMeta}>
             <I18nProvider>
-              <AppShell>{children}</AppShell>
+              <IconProvider>
+                <AppShell>{children}</AppShell>
+              </IconProvider>
             </I18nProvider>
           </ThemeFamilyProvider>
         </ThemeProvider>

@@ -11,7 +11,7 @@
  *
  * Phase 2B layout, top to bottom:
  *   1. Default-engine selector — which runtime owns the next chat
- *   2. Claude Code Runtime card — status / reason / impact / recovery,
+ *   2. Claude Code 引擎 card — status / reason / impact / recovery,
  *      plus model options (thinking / 1M) and the settings.json editor
  *      (expandable advanced section)
  *   3. CodePilot Runtime card — capabilities / permissions / context
@@ -242,12 +242,13 @@ function EnginePickerCard({
       type="button"
       onClick={onSelect}
       aria-pressed={selected}
+      aria-label={`${title} — ${tagline}`}
       className={cn(
-        "relative w-full text-left rounded-lg border p-5 flex flex-col gap-3 transition-all",
-        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 focus-visible:ring-offset-2",
+        "relative w-full text-left rounded-lg border p-5 flex flex-col gap-3 transition-colors",
+        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
         selected
-          ? "border-primary/40 bg-primary/5 ring-1 ring-primary/30 shadow-sm"
-          : "border-border/50 bg-card hover:border-border hover:bg-muted/30",
+          ? "border-primary/40 bg-primary/5 ring-1 ring-primary/30"
+          : "border-border/50 bg-card hover:bg-muted/40",
       )}
     >
       {/* Top-right indicator. Filled CheckCircle when selected; hollow Circle
@@ -343,7 +344,7 @@ export function RuntimePanel() {
   const { status: claudeStatus, refresh: refreshStatus, invalidateAndRefresh } = useClaudeStatus();
   const [upgrading, setUpgrading] = useState(false);
 
-  // ── Model options (env provider) — applies when Claude Code Runtime selected ──
+  // ── Model options (env provider) — applies when Claude Code 引擎 selected ──
   const [thinkingMode, setThinkingMode] = useState("adaptive");
   const [context1m, setContext1m] = useState(false);
 
@@ -684,7 +685,7 @@ export function RuntimePanel() {
     }
   }, [revertingToAuto]);
 
-  // ── Claude Code Runtime install / upgrade ──
+  // ── Claude Code 引擎 install / upgrade ──
   const handleUpgrade = async () => {
     if (!claudeStatus?.installType) return;
     setUpgrading(true);
@@ -809,7 +810,7 @@ export function RuntimePanel() {
   const driftWarning = effectiveRuntime !== agentRuntime;
 
   /**
-   * Compute Claude Code Runtime status info from current data. Five-state
+   * Compute Claude Code 引擎 status info from current data. Five-state
    * decision tree:
    *
    *   not connected → blocked    (CLI missing / OAuth expired)
@@ -996,12 +997,12 @@ export function RuntimePanel() {
                     ? "保存的偏好是 Claude Code，但 CLI 在「设置」里被显式关闭过，运行时实际走 AI SDK。点上面任一卡片可一次写齐两边设置。"
                     : "Stored preference is Claude Code but CLI was explicitly disabled in a previous setting, so runtime actually routes to AI SDK. Click either card above to rewrite both fields together.")
                 : (isZh
-                    ? "保存的偏好是 Claude Code，但当前没有检测到 Claude Code CLI（可能未安装或登录失效），运行时实际走 AI SDK。下方 Claude Code Runtime 卡片提供安装入口；或者改选 AI SDK 作为默认。"
-                    : "Stored preference is Claude Code but the CLI isn't currently detected (not installed or OAuth expired), so runtime actually routes to AI SDK. Use the Install button on the Claude Code Runtime card below — or pick AI SDK as your default instead.")}
+                    ? "保存的偏好是 Claude Code，但当前没有检测到 Claude Code CLI（可能未安装或登录失效），运行时实际走 AI SDK。下方 Claude Code 引擎 卡片提供安装入口；或者改选 AI SDK 作为默认。"
+                    : "Stored preference is Claude Code but the CLI isn't currently detected (not installed or OAuth expired), so runtime actually routes to AI SDK. Use the Install button on the Claude Code 引擎 card below — or pick AI SDK as your default instead.")}
             </span>
           </div>
         )}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <EnginePickerCard
             engine="claude-code-sdk"
             selected={effectiveRuntime === "claude-code-sdk"}
@@ -1009,7 +1010,7 @@ export function RuntimePanel() {
             // Both cards now end in "Runtime" so the picker reads as
             // two parallel agent engines, not "a Claude product vs an
             // SDK." The vendor name moves into the subtitle.
-            title="Claude Code Runtime"
+            title="Claude Code 引擎"
             tagline={isZh ? "Anthropic 官方 CLI" : "Anthropic official CLI"}
             pitch={isZh
               ? "用 Anthropic 官方 CLI 跑 Agent，完整兼容 Claude Code 生态：~/.claude/settings.json、hooks、MCP server 直接可用。"
@@ -1061,7 +1062,7 @@ export function RuntimePanel() {
             <Warning size={14} weight="fill" className="mt-0.5 shrink-0" />
             <span>
               {isZh
-                ? `当前 Runtime（${resolvedEngineLabel}）下没有可用的 provider/model。新会话会进入"无兼容服务"状态，需要先在「服务商 / 模型」里启用一个匹配 Runtime 的模型。`
+                ? `当前执行引擎（${resolvedEngineLabel}）下没有可用的 provider/model。新会话会进入"无兼容服务"状态，需要先在「服务商 / 模型」里启用一个匹配 Runtime 的模型。`
                 : `No provider/model is compatible with the current runtime (${resolvedEngineLabel}). New chats land in the "no compatible provider" state until you enable a matching model in Providers / Models.`}
             </span>
           </div>
@@ -1075,7 +1076,7 @@ export function RuntimePanel() {
               <Warning size={14} weight="fill" className="mt-0.5 shrink-0 text-status-warning-foreground" />
               <div className="flex-1 min-w-0">
                 <p className="text-xs font-semibold text-status-warning-foreground">
-                  {isZh ? "默认模型在当前 Runtime 下不可用" : "Pinned default model unavailable"}
+                  {isZh ? "默认模型在当前执行引擎 下不可用" : "Pinned default model unavailable"}
                 </p>
                 <p className="text-[11px] text-foreground/80 mt-1 leading-relaxed">
                   {(() => {
@@ -1083,9 +1084,9 @@ export function RuntimePanel() {
                     const modelDisplay = invalidDefault.modelLabel ?? invalidDefault.modelValue;
                     if (isZh) {
                       const reasonNote = invalidDefault.reason === "provider-missing"
-                        ? `「${provDisplay}」不在当前 Runtime（${resolvedEngineLabel}）的兼容列表中。`
+                        ? `「${provDisplay}」不在当前执行引擎（${resolvedEngineLabel}）的兼容列表中。`
                         : invalidDefault.reason === "model-missing"
-                          ? `「${modelDisplay}」未对当前 Runtime 暴露（可能被隐藏或筛掉）。`
+                          ? `「${modelDisplay}」未对当前执行引擎 暴露（可能被隐藏或筛掉）。`
                           : "默认模型设置不完整。";
                       return `已固定到 ${provDisplay} / ${modelDisplay}，但 ${reasonNote} 新会话不会自动替换 — 请选择下方一种恢复方式。`;
                     }
@@ -1106,12 +1107,12 @@ export function RuntimePanel() {
                 onClick={handleSwitchToAlternateRuntime}
                 className="text-xs gap-1.5"
                 title={isZh
-                  ? `切换默认引擎至 ${effectiveRuntime === "claude-code-sdk" ? "CodePilot Runtime" : "Claude Code Runtime"}，然后重新检查这个 pin 是否可用`
-                  : `Flip the default engine to ${effectiveRuntime === "claude-code-sdk" ? "CodePilot Runtime" : "Claude Code Runtime"} and re-check pin compatibility`}
+                  ? `切换默认引擎至 ${effectiveRuntime === "claude-code-sdk" ? "CodePilot Runtime" : "Claude Code 引擎"}，然后重新检查这个 pin 是否可用`
+                  : `Flip the default engine to ${effectiveRuntime === "claude-code-sdk" ? "CodePilot Runtime" : "Claude Code 引擎"} and re-check pin compatibility`}
               >
                 {isZh
-                  ? `切到 ${effectiveRuntime === "claude-code-sdk" ? "CodePilot Runtime" : "Claude Code Runtime"}`
-                  : `Switch to ${effectiveRuntime === "claude-code-sdk" ? "CodePilot Runtime" : "Claude Code Runtime"}`}
+                  ? `切到 ${effectiveRuntime === "claude-code-sdk" ? "CodePilot Runtime" : "Claude Code 引擎"}`
+                  : `Switch to ${effectiveRuntime === "claude-code-sdk" ? "CodePilot Runtime" : "Claude Code 引擎"}`}
               </Button>
               <Button
                 variant="outline"
@@ -1143,7 +1144,7 @@ export function RuntimePanel() {
                 disabled={revertingToAuto}
                 className="text-xs gap-1.5"
                 title={isZh
-                  ? "切回 Auto — 系统按当前 Runtime 自动选第一个合适模型，不再固定到某个具体 pin"
+                  ? "切回 Auto — 系统按当前执行引擎 自动选第一个合适模型，不再固定到某个具体 pin"
                   : "Revert to Auto — system auto-picks the first compatible model under the current Runtime, drops the pin"}
               >
                 {revertingToAuto ? <SpinnerGap size={12} className="animate-spin" /> : null}
@@ -1198,8 +1199,8 @@ export function RuntimePanel() {
         )}
       </div>
 
-      {/* ── Claude Code Runtime card ──────────────────────────────────── */}
-      <RuntimeCard name="Claude Code Runtime" state={claudeCodeStatus.state} isZh={isZh}>
+      {/* ── Claude Code 引擎 card ──────────────────────────────────── */}
+      <RuntimeCard name="Claude Code 引擎" state={claudeCodeStatus.state} isZh={isZh}>
         <RuntimeStatusExplanation info={claudeCodeStatus} isZh={isZh} />
 
         {/* CLI install / version / upgrade row */}
@@ -1464,7 +1465,7 @@ export function RuntimePanel() {
       </RuntimeCard>
 
       {/* ── CodePilot Runtime card ────────────────────────────────────── */}
-      <RuntimeCard name="CodePilot Runtime (AI SDK)" state={codepilotStatus.state} isZh={isZh}>
+      <RuntimeCard name={isZh ? "CodePilot 引擎 (AI SDK)" : "CodePilot Runtime (AI SDK)"} state={codepilotStatus.state} isZh={isZh}>
         <RuntimeStatusExplanation info={codepilotStatus} isZh={isZh} />
 
         {/* Capabilities / Permissions / Context — three medium-granularity blocks */}

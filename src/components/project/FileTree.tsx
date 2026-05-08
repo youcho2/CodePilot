@@ -2,7 +2,6 @@
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import { ArrowsClockwise, MagnifyingGlass, FileCode, Code, File } from "@/components/ui/icon";
-import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import type { FileTreeNode } from "@/types";
@@ -12,12 +11,13 @@ import {
   FileTreeFile,
 } from "@/components/ai-elements/file-tree";
 import { useTranslation } from "@/hooks/useTranslation";
+import type { TranslationKey } from "@/i18n";
 import type { ReactNode } from "react";
 
 interface FileTreeProps {
   workingDirectory: string;
   onFileSelect: (path: string) => void;
-  onFileAdd?: (path: string) => void;
+  onFileAdd?: (path: string, nodeType: 'file' | 'directory') => void;
   /** Path of the currently-selected folder (for highlight + create target). */
   selectedFolderPath?: string;
   /** Called when the user clicks a folder row — selects the folder + toggles. */
@@ -259,9 +259,12 @@ export function FileTree({ workingDirectory, onFileSelect, onFileAdd, selectedFo
 
   return (
     <div className="flex flex-col h-full min-h-0">
-      {/* Search + Refresh */}
-      <div className="flex items-center gap-1.5 px-4 py-2 shrink-0">
-        <div className="relative flex-1 min-w-0">
+      {/* Search row — full-width, dedicated. The Refresh button used to
+          live here on the right; it moved up to the action icons row in
+          FileTreePanel, which now dispatches `filetree-refresh` window
+          events that the effect below catches. */}
+      <div className="px-3 pb-2 shrink-0">
+        <div className="relative">
           <MagnifyingGlass size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
           <Input
             placeholder={t('fileTree.filterFiles')}
@@ -270,16 +273,6 @@ export function FileTree({ workingDirectory, onFileSelect, onFileAdd, selectedFo
             className="h-7 pl-7 text-xs"
           />
         </div>
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          onClick={fetchTree}
-          disabled={loading}
-          className="h-7 w-7 shrink-0"
-        >
-          <ArrowsClockwise size={12} className={cn(loading && "animate-spin")} />
-          <span className="sr-only">{t('fileTree.refresh')}</span>
-        </Button>
       </div>
 
       {/* Tree */}
@@ -299,6 +292,7 @@ export function FileTree({ workingDirectory, onFileSelect, onFileAdd, selectedFo
             // eslint-disable-next-line @typescript-eslint/no-explicit-any -- AI Elements FileTree onSelect type conflicts with HTMLAttributes.onSelect
             onSelect={onFileSelect as any}
             onAdd={onFileAdd}
+            addLabel={t('fileTree.addToChat' as TranslationKey)}
             selectedPath={selectedFilePath}
             selectedFolderPath={selectedFolderPath}
             onSelectFolder={onSelectFolder}

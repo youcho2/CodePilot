@@ -10,7 +10,7 @@
  * in one place:
  *
  *   1. Provider connectivity
- *   2. Runtime / CLI
+ *   2. 执行引擎 / CLI
  *   3. Default model validity
  *   4. Models exposure
  *   5. Assistant workspace / local environment
@@ -136,7 +136,7 @@ export function HealthSection() {
     };
   })());
 
-  // ── 2. Runtime / CLI ─────────────────────────────────────────
+  // ── 2. 执行引擎 / CLI ─────────────────────────────────────────
   rows.push((() => {
     const cliConnected = !!claudeStatus?.connected;
     const cliEnabled = state.cliEnabled;
@@ -146,15 +146,15 @@ export function HealthSection() {
       return {
         id: "runtime",
         icon: <Lightning size={16} />,
-        title: isZh ? "Runtime / CLI" : "Runtime / CLI",
+        title: isZh ? "执行引擎 / CLI" : "执行引擎 / CLI",
         severity: "warn",
         reason: isZh
           ? "Claude Code CLI 已禁用，运行时已降级到 AI SDK"
           : "Claude Code CLI disabled — runtime fell back to AI SDK",
         impact: isZh
-          ? "仅 CodePilot Runtime 兼容的 provider/model 可执行"
+          ? "仅 CodePilot 引擎兼容的服务商/模型可执行"
           : "Only CodePilot Runtime providers/models will run",
-        ctaLabel: isZh ? "去 Runtime" : "Open Runtime",
+        ctaLabel: isZh ? "去执行引擎" : "Open Runtime",
         ctaOnClick: () => navTo("#runtime"),
       };
     }
@@ -162,7 +162,7 @@ export function HealthSection() {
       return {
         id: "runtime",
         icon: <Lightning size={16} />,
-        title: isZh ? "Runtime / CLI" : "Runtime / CLI",
+        title: isZh ? "执行引擎 / CLI" : "执行引擎 / CLI",
         severity: "error",
         reason: isZh
           ? "Claude Code CLI 未检测到，运行时已降级"
@@ -170,7 +170,7 @@ export function HealthSection() {
         impact: isZh
           ? "新会话使用 AI SDK，但 Claude Code 专属能力不可用"
           : "New chats use AI SDK; Claude Code-only features are unavailable",
-        ctaLabel: isZh ? "去 Runtime" : "Open Runtime",
+        ctaLabel: isZh ? "去执行引擎" : "Open Runtime",
         ctaOnClick: () => navTo("#runtime"),
       };
     }
@@ -178,24 +178,24 @@ export function HealthSection() {
       return {
         id: "runtime",
         icon: <Lightning size={16} />,
-        title: isZh ? "Runtime / CLI" : "Runtime / CLI",
+        title: isZh ? "执行引擎 / CLI" : "执行引擎 / CLI",
         severity: "warn",
         reason: isZh
           ? `Claude Code 报告 ${warnCount} 条兼容性提示`
           : `Claude Code reports ${warnCount} compatibility warning${warnCount === 1 ? "" : "s"}`,
-        ctaLabel: isZh ? "去 Runtime" : "Open Runtime",
+        ctaLabel: isZh ? "去执行引擎" : "Open Runtime",
         ctaOnClick: () => navTo("#runtime"),
       };
     }
     return {
       id: "runtime",
       icon: <Lightning size={16} weight="fill" />,
-      title: isZh ? "Runtime / CLI" : "Runtime / CLI",
+      title: isZh ? "执行引擎 / CLI" : "执行引擎 / CLI",
       severity: "ok",
       reason: state.agentRuntime === "claude-code-sdk"
-        ? (isZh ? "Claude Code Runtime 已就绪" : "Claude Code Runtime ready")
-        : (isZh ? "CodePilot Runtime（AI SDK）已就绪" : "CodePilot Runtime (AI SDK) ready"),
-      ctaLabel: isZh ? "去 Runtime" : "Open Runtime",
+        ? (isZh ? "Claude Code 引擎 已就绪" : "Claude Code 引擎 ready")
+        : (isZh ? "CodePilot 引擎（AI SDK）已就绪" : "CodePilot Runtime (AI SDK) ready"),
+      ctaLabel: isZh ? "去执行引擎" : "Open Runtime",
       ctaOnClick: () => navTo("#runtime"),
     };
   })());
@@ -209,12 +209,12 @@ export function HealthSection() {
         title: isZh ? "默认模型有效性" : "Default model validity",
         severity: "error",
         reason: isZh
-          ? "当前 Runtime 下没有可用 provider/model"
+          ? "当前执行引擎 下没有可用 provider/model"
           : "No compatible provider under current Runtime",
         impact: isZh
           ? "新会话进入'无兼容服务'状态，无法发送"
           : "New chats land in the 'no compatible provider' state",
-        ctaLabel: isZh ? "去 Runtime" : "Open Runtime",
+        ctaLabel: isZh ? "去执行引擎" : "Open Runtime",
         ctaOnClick: () => navTo("#runtime"),
       };
     }
@@ -227,12 +227,12 @@ export function HealthSection() {
         title: isZh ? "默认模型有效性" : "Default model validity",
         severity: "error",
         reason: isZh
-          ? `已固定 ${provDisplay} / ${modelDisplay} — 当前 Runtime 下不可执行`
+          ? `已固定 ${provDisplay} / ${modelDisplay} — 当前执行引擎 下不可执行`
           : `Pinned ${provDisplay} / ${modelDisplay} — not executable under current Runtime`,
         impact: isZh
-          ? "新消息会被阻断，需切换 Runtime、启用模型、改 Pin 或切回 Auto"
+          ? "新消息会被阻断，需切换执行引擎、启用模型、改 Pin 或切回 Auto"
           : "New messages are blocked until Runtime / pin / mode is changed",
-        ctaLabel: isZh ? "去 Runtime" : "Open Runtime",
+        ctaLabel: isZh ? "去执行引擎" : "Open Runtime",
         ctaOnClick: () => navTo("#runtime"),
       };
     }
@@ -374,7 +374,7 @@ export function HealthSection() {
       </div>
 
       {/* 5 rows of health checks */}
-      <div className="rounded-lg border border-border/50 bg-card divide-y divide-border/50">
+      <div className="rounded-lg border border-border/50 bg-card divide-y divide-border/50 overflow-hidden">
         {rows.map((row) => (
           <HealthRowItem key={row.id} row={row} />
         ))}
@@ -388,7 +388,7 @@ export function HealthSection() {
           doesn't explain it, grab a diagnostic bundle and inspect /
           share. Setup Center stays an entry on the About page (as the
           install / wizard flow), not the headline action here. */}
-      <div className="rounded-lg border border-border/50 bg-card p-4 flex flex-col sm:flex-row items-start sm:items-center sm:justify-between gap-3">
+      <div className="rounded-lg border border-border/50 bg-card p-5 flex flex-col sm:flex-row items-start sm:items-center sm:justify-between gap-3">
         <div className="min-w-0 flex items-start gap-3">
           <Info size={16} className="text-foreground/60 shrink-0 mt-0.5" />
           <div className="min-w-0">

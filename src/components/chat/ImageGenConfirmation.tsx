@@ -10,7 +10,20 @@ import { useTranslation } from '@/hooks/useTranslation';
 import { usePanel } from '@/hooks/usePanel';
 import type { TranslationKey } from '@/i18n';
 import type { ReferenceImage } from '@/types';
-import type { ImageGenResult } from '@/hooks/useImageGen';
+
+/**
+ * Render-side type for image generation results, kept here after the
+ * Design Agent ghost feature cleanup (Phase 2D.0). The previous home was
+ * the now-deleted hooks/useImageGen module, which carried a dead toggle
+ * that was never user-reachable. The shape mirrors the response of
+ * `/api/media/generate`, which is what `ImageGenConfirmation` actually
+ * fetches — no React context needed.
+ */
+export interface ImageGenResult {
+  id: string;
+  text?: string;
+  images: Array<{ data: string; mimeType: string; localPath?: string }>;
+}
 
 /** What the active-image endpoint returns when a usable media provider is set. */
 interface ActiveImageInfo {

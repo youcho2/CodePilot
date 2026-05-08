@@ -8,12 +8,19 @@ import { MessageInput } from '@/components/chat/MessageInput';
 import { ChatComposerActionBar } from '@/components/chat/ChatComposerActionBar';
 import { ModeIndicator } from '@/components/chat/ModeIndicator';
 import { ChatPermissionSelector } from '@/components/chat/ChatPermissionSelector';
-import { ImageGenToggle } from '@/components/chat/ImageGenToggle';
+import { RuntimeSelector } from '@/components/chat/RuntimeSelector';
+import { chatRuntimeParamForSession } from '@/lib/chat-runtime-shared';
+import type { ChatRuntime } from '@/lib/chat-runtime-shared';
 import { PermissionPrompt } from '@/components/chat/PermissionPrompt';
 import { ChatEmptyState } from '@/components/chat/ChatEmptyState';
 import { RunCockpit } from '@/components/chat/RunCockpit';
+import { RunCheckpoint } from '@/components/chat/RunCheckpoint';
 import { OnboardingWizard } from '@/components/assistant/OnboardingWizard';
 import { ErrorBanner } from '@/components/ui/error-banner';
+import { buildCheckpoints } from '@/lib/run-checkpoint';
+import { useOverviewData } from '@/components/settings/useOverviewData';
+import { computeEffectiveRuntime } from '@/lib/runtime/effective';
+import { useClaudeStatus } from '@/hooks/useClaudeStatus';
 import { FolderPicker } from '@/components/chat/FolderPicker';
 import { useNativeFolderPicker } from '@/hooks/useNativeFolderPicker';
 import { useTranslation } from '@/hooks/useTranslation';
@@ -107,6 +114,131 @@ export default function NewChatPage() {
   const [permissionResolved, setPermissionResolved] = useState<'allow' | 'deny' | null>(null);
   const [streamingToolOutput, setStreamingToolOutput] = useState('');
   const [permissionProfile, setPermissionProfile] = useState<'default' | 'full_access'>('default');
+  const [pendingContextTokens, setPendingContextTokens] = useState(0);
+
+  // Round 2 — permission-elevation confirmation, scoped to this
+  // session. `null` while the user hasn't ack'd; `'full_access'` once
+  // they confirm via the banner. Auto-resets to `null` whenever the
+  // permission profile leaves full_access, so toggling back ON
+  // re-arms the banner.
+  const [permissionElevationConfirmedFor, setPermissionElevationConfirmedFor] =
+    useState<'full_access' | null>(null);
+  useEffect(() => {
+    if (permissionProfile !== 'full_access') {
+      setPermissionElevationConfirmedFor(null);
+    }
+  }, [permissionProfile]);
+
+  // Phase 2 Step 4c — runtime pin for the not-yet-created session.
+  // RuntimeSelector writes here; on first send we PATCH the new
+  // session row with this value before the chat POST runs (so the
+  // chat route's lazy-seed sees the user's choice instead of falling
+  // through to the global default). Empty string = follow global.
+  // **Hoisted above checkpointReasons** because round-2 review needs
+  // the value inside the checkpoint memo (suppressing stale
+  // overview.defaultInvalid under explicit override) AND inside the
+  // resolver effects (mode override) — declaring it after would TDZ.
+  const [runtimePin, setRuntimePin] = useState<string>('');
+  // Round-1 review fix — derive the chat-runtime param up front so
+  // the default-resolver fetches and effect deps can both stay in
+  // sync when the user switches runtime mid-page. Hardcoded `'auto'`
+  // would lock the validation to mount-time runtime even after a
+  // pick, leaving invalidDefault / noCompatibleProvider stale and
+  // the red RunCheckpoint banner up after the model picker had
+  // already corrected itself.
+  const sessionRuntimeParam = chatRuntimeParamForSession(runtimePin);
+
+  // Run Checkpoint signals — pulled from the same `useOverviewData` snapshot
+  // that drives RunCockpit so the inline banner above the composer and the
+  // status row below it can never disagree. `runtimeFallback` is derived
+  // here (not in the hook) because it depends on whether the bridged
+  // Claude Code CLI is currently reachable — see `useClaudeStatus`.
+  // Round 2 adds context-cost and permission-elevation triggers; the
+  // first reads `pendingContextTokens` (already lifted from MessageInput)
+  // plus `usedContextTokens` derived from session messages.
+  const overview = useOverviewData();
+  const { status: claudeStatus } = useClaudeStatus();
+  // /chat (new conversation page) hasn't accumulated messages yet, so
+  // usedContextTokens is 0 — the context-cost trigger collapses to the
+  // 10K hard cap on the pending side.
+  const usedContextTokens = 0;
+  const checkpointReasons = useMemo(() => {
+    if (overview.loading) return [];
+    const cliConnected = !!claudeStatus?.connected;
+    const settingRuntime = computeEffectiveRuntime(
+      overview.agentRuntime,
+      overview.cliEnabled,
+      cliConnected,
+    );
+    const isOpenAiOauth = currentProviderId === 'openai-oauth';
+    const effectiveRuntime = isOpenAiOauth ? 'native' : settingRuntime;
+    const runtimeFallback =
+      overview.agentRuntime === 'claude-code-sdk' && effectiveRuntime !== 'claude-code-sdk';
+    const pinnedDescriptor = invalidDefault?.modelValue
+      ? `${invalidDefault.providerName ?? invalidDefault.providerId ?? '?'} / ${invalidDefault.modelValue}`
+      : (invalidDefault?.providerId ?? overview.defaultProviderName ?? undefined);
+    const permissionElevationPending =
+      permissionProfile === 'full_access' &&
+      permissionElevationConfirmedFor !== 'full_access';
+    // Step 4c round 2 — `overview.defaultInvalid` is computed against the
+    // GLOBAL default (independent of session runtime), so under an
+    // explicit runtimePin override it's stale: the user's pick has
+    // already routed around the broken global pin, the local resolver
+    // has confirmed a valid pair under the new runtime, and continuing
+    // to OR this in keeps the red checkpoint up + composer disabled
+    // even though the path is unblocked. Suppress the global flag in
+    // that case; the local `invalidDefault` (which IS runtime-aware,
+    // since the resolver fetched against `sessionRuntimeParam`) is the
+    // source of truth here. When the user is following the global
+    // runtime (`runtimePin === ''`), keep the OR — the global pinned
+    // gate still applies per the "pinned default is a hard promise"
+    // rule.
+    //
+    // **Step 4c round 3** extends the same rule to `runtimeFallback`:
+    // that flag is computed entirely from `overview.agentRuntime`
+    // (global setting) + Claude CLI reachability, so it fires "执行
+    // 引擎已降级" whenever the global pin is `claude-code-sdk` but the
+    // CLI isn't there — even when the user has explicitly opted out
+    // of Claude Code for this session via RuntimeSelector. Under an
+    // override, the global SDK→native fallback is none of this
+    // session's business; the user's pick already runs natively. Same
+    // suppression shape: gate on `overrideGlobalPinnedGate`.
+    const overrideGlobalPinnedGate = !!runtimePin;
+    return buildCheckpoints({
+      noCompatibleProvider,
+      defaultInvalid: !!invalidDefault || (!overrideGlobalPinnedGate && overview.defaultInvalid),
+      runtimeFallback: overrideGlobalPinnedGate ? false : runtimeFallback,
+      pinnedDescriptor,
+      pendingContextTokens,
+      usedContextTokens,
+      permissionElevationPending,
+    });
+  }, [
+    overview,
+    claudeStatus?.connected,
+    currentProviderId,
+    invalidDefault,
+    noCompatibleProvider,
+    pendingContextTokens,
+    usedContextTokens,
+    permissionProfile,
+    permissionElevationConfirmedFor,
+    runtimePin,
+  ]);
+  const blockingReasonIds = useMemo(
+    () => checkpointReasons.filter((r) => r.requiresConfirm).map((r) => r.id),
+    [checkpointReasons],
+  );
+  const handleCheckpointAction = useCallback((actionId: string) => {
+    if (actionId === 'confirm-permission-elevation') {
+      setPermissionElevationConfirmedFor('full_access');
+    }
+    // Both Round 2 confirms unblock the pending send; MessageInput
+    // listens for this event and re-runs submit with bypass=true.
+    if (actionId === 'confirm-context-cost' || actionId === 'confirm-permission-elevation') {
+      window.dispatchEvent(new Event('run-checkpoint-confirm-send'));
+    }
+  }, []);
   const [createdSessionId, setCreatedSessionId] = useState<string | undefined>();
   const abortControllerRef = useRef<AbortController | null>(null);
   // Effort level — lifted here so the first message includes it
@@ -137,13 +269,20 @@ export default function NewChatPage() {
   useEffect(() => {
     let cancelled = false;
 
-    // Fetch models (runtime-filtered) and global default in parallel.
-    // `?runtime=auto` lets the server resolve the active runtime + filter
-    // out groups/models the chat path can't reach. Without this, the new-
-    // session validation below could lock onto a CodePilot-only provider
-    // while the active runtime is Claude Code, then race with the
-    // composer hook's auto-correct.
-    const modelsP = fetch('/api/providers/models?runtime=auto').then(r => r.ok ? r.json() : null);
+    // Step 4c round 1 review — re-run on `sessionRuntimeParam` change
+    // (was `[]` before, runtime-pin flips just updated the picker hook
+    // and left the rest stale: red RunCheckpoint stayed up, send button
+    // stayed disabled). Reset `modelReady` for the duration of the new
+    // fetch so consumers see a definite "still resolving" beat instead
+    // of the previous run's verdict.
+    setModelReady(false);
+
+    // Fetch models filtered by the **current** session runtime param —
+    // empty pin → 'auto' (server resolves), explicit pin → that value
+    // exactly. Without this the user-picked runtime never feeds back
+    // into invalidDefault / noCompatibleProvider, and the resolved pair
+    // could lock onto a provider the new runtime can't reach.
+    const modelsP = fetch(`/api/providers/models?runtime=${sessionRuntimeParam}`).then(r => r.ok ? r.json() : null);
     const globalP = fetch('/api/providers/options?providerId=__global__').then(r => r.ok ? r.json() : null);
 
     Promise.all([modelsP, globalP]).then(([modelsData, globalData]) => {
@@ -169,11 +308,28 @@ export default function NewChatPage() {
       // Auto walks the savedPair → apiDefault → first chain; Pinned
       // demands an exact match and returns 'invalid-default' otherwise.
       // No silent substitution for Pinned — see invalidDefault state.
+      //
+      // Step 4c round 2 — when the user has explicitly switched runtime
+      // via RuntimeSelector (`runtimePin !== ''`), the global pinned
+      // policy no longer reflects their intent for THIS conversation:
+      // they've actively asked for a different runtime, so blocking
+      // them on a global pinned default that's incompatible with that
+      // runtime forces them to "fix global settings" when the right
+      // answer is "use the picker's auto-resolved pair under the new
+      // runtime". Treat this case as 'auto' mode so the resolver
+      // walks savedPair → apiDefault → first instead of demanding the
+      // global pinned. When `runtimePin === ''` (still following the
+      // global runtime), keep the strict pinned semantics — the
+      // memory rule "pinned default is a hard promise" still holds
+      // for that path.
       const opts = globalData?.options;
+      const effectiveMode: 'pinned' | 'auto' = runtimePin
+        ? 'auto'
+        : (opts?.default_mode === 'pinned' ? 'pinned' : 'auto');
       const resolved = resolveNewChatDefault({
         groups: modelsData.groups,
         apiDefaultProviderId: modelsData.default_provider_id,
-        mode: opts?.default_mode === 'pinned' ? 'pinned' : 'auto',
+        mode: effectiveMode,
         pinnedProviderId: opts?.default_model_provider || '',
         pinnedModel: opts?.default_model || '',
         savedProviderId: localStorage.getItem('codepilot:last-provider-id') || '',
@@ -214,8 +370,8 @@ export default function NewChatPage() {
     });
 
     return () => { cancelled = true; };
-   
-  }, []); // Run once on mount to validate initial values
+
+  }, [sessionRuntimeParam]); // Re-validate whenever the runtime selector flips
 
   // Initialize workingDir from localStorage (or setup default), validating the path exists
   useEffect(() => {
@@ -309,10 +465,11 @@ export default function NewChatPage() {
       const savedProviderId = localStorage.getItem('codepilot:last-provider-id');
 
       // Fetch models + global default in parallel. Same runtime gating as
-      // the initial-load branch above: server resolves active runtime so
-      // the saved provider/model only validate against what the chat path
-      // can actually reach.
-      const modelsP = fetch('/api/providers/models?runtime=auto').then(r => r.ok ? r.json() : null);
+      // the initial-load branch above: server filters by the **current**
+      // session runtime param (Step 4c round 1 review fix — was hardcoded
+      // 'auto'; that locked the saved-provider validation to whatever
+      // runtime resolved at mount even after the user switched it).
+      const modelsP = fetch(`/api/providers/models?runtime=${sessionRuntimeParam}`).then(r => r.ok ? r.json() : null);
       const globalP = fetch('/api/providers/options?providerId=__global__').then(r => r.ok ? r.json() : null);
 
       Promise.all([modelsP, globalP]).then(([modelsData, globalData]) => {
@@ -329,11 +486,18 @@ export default function NewChatPage() {
         // Phase 2C: same shared resolver as the initial-load branch.
         // 'no-compatible' / 'invalid-default' / 'ok' / 'auto-resolved' —
         // no silent substitution for Pinned (see invalidDefault state).
+        //
+        // Step 4c round 2 — same `runtimePin` override as the
+        // initial-load branch above: explicit runtime pick → 'auto'
+        // mode, no global-pinned enforcement.
         const opts = globalData?.options;
+        const effectiveMode: 'pinned' | 'auto' = runtimePin
+          ? 'auto'
+          : (opts?.default_mode === 'pinned' ? 'pinned' : 'auto');
         const resolved = resolveNewChatDefault({
           groups: modelsData.groups,
           apiDefaultProviderId: modelsData.default_provider_id,
-          mode: opts?.default_mode === 'pinned' ? 'pinned' : 'auto',
+          mode: effectiveMode,
           pinnedProviderId: opts?.default_model_provider || '',
           pinnedModel: opts?.default_model || '',
           savedProviderId: savedProviderId || '',
@@ -388,7 +552,7 @@ export default function NewChatPage() {
 
     window.addEventListener('provider-changed', checkProvider);
     return () => window.removeEventListener('provider-changed', checkProvider);
-  }, []);
+  }, [sessionRuntimeParam]); // Step 4c round 1 — re-run on runtime pin flip
 
   const handleSelectFolder = useCallback(async () => {
     if (isElectron) {
@@ -546,13 +710,34 @@ export default function NewChatPage() {
         sessionId = session.id;
         setCreatedSessionId(sessionId);
 
+        // Phase 2 Step 4c — if the user explicitly picked a runtime in
+        // the composer's RuntimeSelector before sending, persist it now
+        // (before the chat POST runs). This way the chat route's
+        // lazy-seed sees `session.runtime_pin` already set and skips the
+        // global-default fallback. Awaited so we don't race with /api/chat.
+        if (runtimePin) {
+          try {
+            await fetch(`/api/chat/sessions/${sessionId}`, {
+              method: 'PATCH',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ runtime_pin: runtimePin }),
+            });
+          } catch {
+            // Non-fatal — the lazy-seed will still pin to the global
+            // default; the user can re-pick from /chat/[id] after redirect.
+          }
+        }
+
         // Notify ChatListPanel to refresh immediately
         window.dispatchEvent(new CustomEvent('session-created'));
 
         // Add user message to UI — use displayOverride for chat bubble if provided
         const displayUserContent = displayOverride || content;
+        // Optimistic save preserves base64 `data` so images can render
+        // their thumbnail immediately (see ChatView for the full
+        // explanation; backend still strips `data` before persistence).
         const contentWithFileMeta = files && files.length > 0
-          ? `<!--files:${JSON.stringify(files.map(f => ({ id: f.id, name: f.name, type: f.type, size: f.size })))}-->${displayUserContent}`
+          ? `<!--files:${JSON.stringify(files.map(f => ({ id: f.id, name: f.name, type: f.type, size: f.size, data: f.data })))}-->${displayUserContent}`
           : displayUserContent;
         const userMessage: Message = {
           id: 'temp-' + Date.now(),
@@ -867,13 +1052,6 @@ export default function NewChatPage() {
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      {/* Phase 3.1 v1: Run Cockpit lives above both empty-state and
-          message-list views, so the user sees what they're about to
-          route through before composing the first message. Read-only
-          summary; recovery / pin / runtime actions live on the
-          existing Settings pages it links to. providerId carries the
-          session-level runtime override (OpenAI OAuth → native). */}
-      <RunCockpit providerId={currentProviderId} />
       {messages.length === 0 && !isStreaming && (!workingDir.trim() || !hasProvider) ? (
         <ChatEmptyState
           hasDirectory={!!workingDir.trim()}
@@ -924,29 +1102,14 @@ export default function NewChatPage() {
           ]}
         />
       )}
-      {/* Phase 2C: persistent banner when the user's Pinned default isn't
-          reachable under the current Runtime. No dismiss — the state
-          stands until the user resolves it via /settings#runtime, where
-          the full recovery actions live (Phase 2C.3). The composer is
-          already disabled separately; this is the user-facing reason. */}
-      {invalidDefault && !noCompatibleProvider && (
-        <ErrorBanner
-          message={t('error.invalidDefault')}
-          description={t('error.invalidDefaultDesc', {
-            pinned: invalidDefault.modelValue
-              ? `${invalidDefault.providerName ?? invalidDefault.providerId ?? '?'} / ${invalidDefault.modelValue}`
-              : (invalidDefault.providerId ?? '?'),
-          })}
-          className="mx-4 mb-2"
-          actions={[
-            {
-              label: t('error.invalidDefaultGoRuntime'),
-              variant: 'default',
-              onClick: () => router.push('/settings#runtime'),
-            },
-          ]}
-        />
-      )}
+      {/* Run Checkpoint — inline trust layer right above the composer.
+          Round 1 wires Pinned-invalid / Runtime fallback / no-compatible-
+          provider; later rounds add context-cost / permission-elevation /
+          dangerous-tool. See `docs/exec-plans/active/chat-run-checkpoint.md`.
+          The composer is gated separately via `disabled` so this banner
+          is purely informative — but it's the only place we explain *why*
+          send is blocked. */}
+      <RunCheckpoint reasons={checkpointReasons} className="mb-2" onAction={handleCheckpointAction} />
       <PermissionPrompt
         pendingPermission={pendingPermission}
         permissionResolved={permissionResolved}
@@ -962,6 +1125,11 @@ export default function NewChatPage() {
         modelName={currentModel}
         onModelChange={setCurrentModel}
         providerId={currentProviderId}
+        // /chat is the new-conversation entry — no session yet, so the
+        // picker follows the global agent_runtime via 'auto'. The
+        // session-pinned `runtime_pin` only applies to /chat/[id]
+        // (existing conversations).
+        runtime={sessionRuntimeParam}
         onProviderModelChange={(pid, model) => {
           setCurrentProviderId(pid);
           setCurrentModel(model);
@@ -972,13 +1140,33 @@ export default function NewChatPage() {
         effort={selectedEffort}
         onEffortChange={setSelectedEffort}
         initialValue={prefillText}
+        onPendingContextTokensChange={setPendingContextTokens}
+        blockingReasonIds={blockingReasonIds}
       />
       <ChatComposerActionBar
-        left={<><ModeIndicator mode={mode} onModeChange={setMode} disabled={isStreaming} /><ImageGenToggle /></>}
-        center={
-          <ChatPermissionSelector
+        left={
+          <>
+            <ModeIndicator mode={mode} onModeChange={setMode} disabled={isStreaming} />
+            <RuntimeSelector
+              runtimePin={runtimePin}
+              effectiveRuntime={overview.agentRuntime === 'claude-code-sdk' ? 'claude_code' : 'codepilot_runtime'}
+              onRuntimePinChange={(pin: ChatRuntime) => setRuntimePin(pin)}
+              disabled={isStreaming}
+            />
+            <ChatPermissionSelector
+              permissionProfile={permissionProfile}
+              onPermissionChange={setPermissionProfile}
+            />
+          </>
+        }
+        right={
+          <RunCockpit
+            providerId={currentProviderId}
+            messages={[]}
+            modelName={currentModel}
             permissionProfile={permissionProfile}
-            onPermissionChange={setPermissionProfile}
+            pendingContextTokens={pendingContextTokens}
+            sessionRuntimePin={runtimePin}
           />
         }
       />

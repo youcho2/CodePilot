@@ -23,25 +23,30 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import {
   Plus,
   Trash,
   PencilSimple,
-  CaretUp,
-  CaretDown,
   MagnifyingGlass,
   SpinnerGap,
   Check,
   X,
-  ArrowsClockwise,
   PushPin,
   Warning,
 } from "@/components/ui/icon";
 import { useTranslation } from "@/hooks/useTranslation";
 import { runAutoDiscoverForProvider, probeAndApplyProvider, type AutoDiscoverResult } from "@/lib/auto-discover-models";
+import { canReliablyFetchModels, canSearchUpstreamModels, isCatalogOnlyPlanProviderRecord, isOpenRouterProviderRecord, shouldShowLegacyCatalogBadge } from "@/lib/provider-catalog";
+import { OpenRouterSearchDialog } from "./OpenRouterSearchDialog";
+import { OpenRouterCleanupDialog } from "./OpenRouterCleanupDialog";
 import { showToast, updateToast } from "@/hooks/useToast";
 import type { TranslationKey } from "@/i18n";
 import { getProviderIcon } from "./provider-presets";
-import { getProviderCompat, getModelCompat, compatLabel, compatTone, compatTooltip } from "@/lib/runtime-compat";
+import { getProviderCompat, getModelCompat, compatLabel, compatTone, compatDotColor, compatTooltip } from "@/lib/runtime-compat";
 import {
   Select,
   SelectContent,
@@ -57,20 +62,27 @@ import type { ApiProvider, ProviderModel, ProviderModelSource, ModelEnableSource
  * Settings > Models
  *
  * Single source of truth for what shows up in chat-side model pickers.
- * Grouped by provider. V1 surface (per spec):
+ * Grouped by provider. Surface:
  *   - enable / hide toggle
  *   - search across model_id + display_name (all providers)
- *   - reorder via up/down (no drag-drop)
  *   - rename display_name
  *   - manually add a model
  *   - delete a manual model
  *
- * Out of scope (V1): capability auto-detection, drag-drop sort, capability
- * editing UI. Those land in a follow-up.
+ * Row order is server-driven (`sort_order` from
+ * `getAllModelsForProvider`); there is no user-facing reorder UI here.
+ * The DB column stays so future admin / drag-drop tooling can ship
+ * without a schema change. Capability auto-detection / editing remain
+ * out of scope.
  *
- * Refresh / discovery happens elsewhere (Provider card kebab → "刷新模型")
- * and goes through the diff-preview flow; this page surfaces the resulting
- * `provider_models` rows but doesn't probe upstream itself.
+ * Upstream pulls are NOT a primary action on this page. They happen
+ * exclusively when the user opens (or retries) the "添加模型" dialog
+ * — which auto-fetches via `canSearchUpstreamModels` for searchable
+ * vendors and falls back to manual SKU entry for non-searchable ones
+ * (Bailian / Volcengine / DeepSeek / xiaomi-mimo-token-plan / etc.).
+ * Provider-card flows still trigger a one-shot probe after Key /
+ * Base URL changes; the Models page just renders the resulting
+ * `provider_models` rows.
  */
 
 interface ProviderModelsBundle {
@@ -148,29 +160,24 @@ const ENABLE_SOURCE_TOOLTIP_EN: Record<ModelEnableSource, string> = {
   discovered: 'Upstream offers this but it is not on the recommended list — hidden from the picker by default',
 };
 
-function formatRefreshedAt(iso: string | null, isZh: boolean): string {
-  if (!iso) return isZh ? '从未同步' : 'Never refreshed';
-  // The DB stores "YYYY-MM-DD HH:MM:SS" UTC-ish. Render relative-ish form.
-  const d = new Date(iso.replace(' ', 'T') + 'Z');
-  if (Number.isNaN(d.getTime())) return iso;
-  const diffMs = Date.now() - d.getTime();
-  const diffMin = Math.floor(diffMs / 60_000);
-  if (diffMin < 1) return isZh ? '刚刚' : 'just now';
-  if (diffMin < 60) return isZh ? `${diffMin} 分钟前` : `${diffMin}m ago`;
-  const diffH = Math.floor(diffMin / 60);
-  if (diffH < 24) return isZh ? `${diffH} 小时前` : `${diffH}h ago`;
-  const diffD = Math.floor(diffH / 24);
-  return isZh ? `${diffD} 天前` : `${diffD}d ago`;
-}
-
 /**
  * Whether a provider can be sent through the discover-models probe.
  *
- * Only filters cases that are guaranteed to fail BEFORE any network
- * call — currently just OAuth-only providers (no /v1/models endpoint
- * exists). Anything else gets the chance to probe; if upstream rejects
- * (401 / 404 / etc.), the resulting toast carries the real reason
- * instead of a misleading pre-emptive "no key, can't try".
+ * Filters cases that are guaranteed to fail or mislead BEFORE any network
+ * call:
+ *   1. OAuth-only providers (no /v1/models endpoint exists).
+ *   2. Coding/Token Plan providers (火山, 百炼, GLM CN/Global, MiniMax CN/Global,
+ *      Xiaomi MiMo Token Plan) — these vendors sell a SKU whitelist that's
+ *      already shipped in the preset catalog. Their `/v1/models` returns
+ *      the much wider Ark / DashScope inference catalogue (text + image +
+ *      embedding + deprecated variants) which would 4xx + bill out-of-plan.
+ *      The single source of truth is `isCatalogOnlyPlanProvider` in
+ *      provider-catalog.ts — same condition that gates the discovery layer
+ *      itself; both layers must use it so a probe never slips through.
+ *
+ * Anything else gets the chance to probe; if upstream rejects (401 / 404
+ * / etc.), the resulting toast carries the real reason instead of a
+ * misleading pre-emptive "no key, can't try".
  *
  * In particular, missing api_key is NOT a disqualifier: Ollama's
  * `/api/tags` probe doesn't take a key (the `auth_token` in its
@@ -184,14 +191,17 @@ function formatRefreshedAt(iso: string | null, isZh: boolean): string {
  * skips gemini-image / openai-image entirely).
  */
 function isSyncableProvider(provider: ApiProvider): { ok: boolean; reasonZh?: string; reasonEn?: string } {
-  if (provider.provider_type === 'openai-oauth') {
-    return {
-      ok: false,
-      reasonZh: '通过 OAuth 授权登录的服务商不暴露模型列表接口，请使用内置目录',
-      reasonEn: 'OAuth-only providers do not expose a model list endpoint — built-in catalog only',
-    };
-  }
-  return { ok: true };
+  // Phase 1 Step 2 收敛 round 3 (2026-05-06): single source of truth is
+  // `canReliablyFetchModels` (in `provider-catalog.ts`). OpenRouter is
+  // explicitly NOT special-cased anymore — its per-section "Refresh"
+  // (which mapped to /validate-models) is gone too. OpenRouter users'
+  // primary task is search-and-add, not maintenance of upstream-state
+  // bookkeeping; the search dialog auto-fetches on open and lives
+  // entirely inside the Add Model flow now.
+  const record = { provider_type: provider.provider_type, base_url: provider.base_url };
+  const policy = canReliablyFetchModels(record);
+  if (policy.reliable) return { ok: true };
+  return { ok: false, reasonZh: policy.reasonZh, reasonEn: policy.reasonEn };
 }
 
 export function ModelsSection() {
@@ -204,12 +214,23 @@ export function ModelsSection() {
   // Per-provider in-flight refresh — gates the row-section button so a user
   // can't fire two probes against the same upstream while one is in flight.
   const [refreshingProviderId, setRefreshingProviderId] = useState<string | null>(null);
+  // OpenRouter validate-models: per-provider Set of model_ids that the
+  // last refresh found missing upstream. Component state only — these
+  // never enter the DB so the manual_* protection contract isn't muddied.
+  // Cleared per-provider on every successful validate.
+  const [openRouterMissing, setOpenRouterMissing] = useState<Record<string, Set<string>>>({});
+  // OpenRouter search-and-add dialog state: the provider row whose
+  // "添加模型" was clicked. Closing resets to null.
+  const [openRouterSearchTarget, setOpenRouterSearchTarget] = useState<{ id: string; name: string } | null>(null);
+  // OpenRouter "整理早期导入的目录" target — opens the preview dialog for
+  // the chosen provider. Closing resets to null.
+  const [openRouterCleanupTarget, setOpenRouterCleanupTarget] = useState<string | null>(null);
   // Page-top "刷新全部" in-flight. Disables every per-provider refresh too
   // (no point letting a single refresh race the batch driver).
   const [refreshingAll, setRefreshingAll] = useState(false);
   type ViewFilter = 'enabled' | 'hidden' | 'all';
   const [viewFilter, setViewFilter] = useState<ViewFilter>('enabled');
-  type RuntimeFilter = 'all' | 'claude_code_ready' | 'claude_code_verified' | 'claude_code_experimental' | 'codepilot_only' | 'unknown';
+  type RuntimeFilter = 'all' | 'claude_code_ready' | 'claude_code_verified' | 'claude_code_experimental' | 'openrouter_anthropic_skin' | 'codepilot_only' | 'unknown';
   const [runtimeFilter, setRuntimeFilter] = useState<RuntimeFilter>('all');
   const [search, setSearch] = useState('');
 
@@ -232,7 +253,11 @@ export function ModelsSection() {
   const [savingDefault, setSavingDefault] = useState(false);
 
   // Add-model dialog state
-  const [addDialog, setAddDialog] = useState<{ providerId: string; providerName: string } | null>(null);
+  // Phase 1 Step 2: dialog kind drives the title / description copy.
+  // Plan providers describe their Add Model action as "补充 SKU" so the
+  // user understands the relationship to the subscription whitelist;
+  // generic providers keep the original "manual add" framing.
+  const [addDialog, setAddDialog] = useState<{ providerId: string; providerName: string; kind: 'plan' | 'manual' } | null>(null);
   const [newModelId, setNewModelId] = useState('');
   const [newDisplayName, setNewDisplayName] = useState('');
 
@@ -366,20 +391,51 @@ export function ModelsSection() {
   // want to send users to the Providers page for a refresh; they're
   // already looking at the model list, and the diff dialog isn't needed
   // because the conservative apply policy already protects user choices.
-  const handleRefreshProvider = useCallback(async (provider: ApiProvider) => {
-    if (refreshingProviderId || refreshingAll) return; // gate concurrent refreshes
+  // OpenRouter providers route refresh to /validate-models — read-only
+  // diff against upstream, no INSERTs, no enable-state changes, only
+  // last_refreshed_at moves. Missing modelIds get stashed in component
+  // state so each row can show a "已不在上游" badge until next refresh.
+  const handleValidateOpenRouter = useCallback(async (provider: ApiProvider) => {
     setRefreshingProviderId(provider.id);
     try {
-      await runAutoDiscoverForProvider({
-        providerId: provider.id,
-        providerName: provider.name,
-        t,
-      });
+      const res = await fetch(`/api/providers/${provider.id}/validate-models`, { method: 'POST' });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body?.error || `${res.status} ${res.statusText}`);
+      }
+      const data = await res.json() as { verified: number; missing: string[]; cachedAt: string };
+      setOpenRouterMissing(prev => ({ ...prev, [provider.id]: new Set(data.missing) }));
       await refetchProviderBundle(provider.id);
+      if (data.missing.length === 0) {
+        showToast({
+          type: 'success',
+          message: t('provider.validate.openrouter.allOk' as TranslationKey, {
+            verified: String(data.verified),
+          }),
+          duration: 5000,
+        });
+      } else {
+        showToast({
+          type: 'warning',
+          message: t('provider.validate.openrouter.someMissing' as TranslationKey, {
+            verified: String(data.verified),
+            missing: String(data.missing.length),
+          }),
+          duration: 6000,
+        });
+      }
+    } catch (err) {
+      showToast({
+        type: 'error',
+        message: t('provider.validate.openrouter.error' as TranslationKey, {
+          error: err instanceof Error ? err.message : String(err),
+        }),
+        duration: 5000,
+      });
     } finally {
       setRefreshingProviderId(null);
     }
-  }, [refreshingProviderId, refreshingAll, refetchProviderBundle, t]);
+  }, [refetchProviderBundle, t]);
 
   // Page-top "刷新全部可同步服务商" — sequential probe of every syncable
   // provider with one rolling progress toast. Sequential (not Promise.all)
@@ -397,6 +453,15 @@ export function ModelsSection() {
   const handleRefreshAll = useCallback(async () => {
     if (refreshingAll || refreshingProviderId) return;
     const targets = providers.filter(p => isSyncableProvider(p).ok);
+    // Plan-based providers (sdkProxyOnly + coding/token plan) are
+    // intentionally not in `targets` — refreshing them would 404 against
+    // /v1/models or pollute the user's list with off-plan SKUs. Surface
+    // the skip count in the summary so the user can see "we did the
+    // right thing on N plan providers" instead of those rows looking
+    // mysteriously absent from the toast bookkeeping.
+    const skippedPlanCount = providers.filter(p =>
+      isCatalogOnlyPlanProviderRecord({ provider_type: p.provider_type, base_url: p.base_url })
+    ).length;
     if (targets.length === 0) {
       showToast({
         type: 'info',
@@ -429,6 +494,15 @@ export function ModelsSection() {
       const failures: { name: string; reason: string }[] = [];
       let totalEnabled = 0;
       let totalHidden = 0;
+      // OpenRouter validate counts kept separate from the enable/hide
+      // bookkeeping above. Validate doesn't enable or hide anything —
+      // verified just means "still present upstream", missing means
+      // "your local row no longer matches an upstream id". Mixing them
+      // into totalEnabled produced a "启用 N" line in the summary that
+      // misled users into thinking refresh changed switches.
+      let validatedProviders = 0;
+      let validatedTotal = 0;
+      let validatedMissingTotal = 0;
       const succeededIds: string[] = [];
 
       for (let i = 0; i < targets.length; i++) {
@@ -443,6 +517,41 @@ export function ModelsSection() {
           }),
           duration: 0,
         });
+
+        // OpenRouter providers have their own refresh shape (validate-models
+        // — read-only, no INSERT). Without this branch the loop would
+        // hand them to `probeAndApplyProvider` → /discover-models → the
+        // OpenRouter `unsupported` short-circuit → counted as a failure
+        // in the summary. We track validate outcomes in their own
+        // counters (validatedProviders / validatedTotal / validatedMissingTotal)
+        // and skip the success/up-to-date switch — those map "enabled"
+        // and "hidden" into the summary toast, which would lie about
+        // what validate actually did (it changes no enable state, only
+        // verifies presence upstream).
+        if (isOpenRouterProviderRecord({ provider_type: p.provider_type, base_url: p.base_url })) {
+          try {
+            const res = await fetch(`/api/providers/${p.id}/validate-models`, { method: 'POST' });
+            if (!res.ok) {
+              const body = await res.json().catch(() => ({}));
+              throw new Error(body?.error || `${res.status} ${res.statusText}`);
+            }
+            const data = await res.json() as { verified: number; missing: string[]; cachedAt: string };
+            setOpenRouterMissing(prev => ({ ...prev, [p.id]: new Set(data.missing) }));
+            okCount += 1;
+            validatedProviders += 1;
+            validatedTotal += data.verified;
+            validatedMissingTotal += data.missing.length;
+            succeededIds.push(p.id);
+          } catch (err) {
+            failCount += 1;
+            failures.push({
+              name: p.name,
+              reason: err instanceof Error ? err.message : String(err),
+            });
+          }
+          continue;
+        }
+
         let result: AutoDiscoverResult;
         try {
           result = await probeAndApplyProvider({ providerId: p.id, providerName: p.name });
@@ -509,18 +618,52 @@ export function ModelsSection() {
       const failNames = failures.slice(0, 3).map(f => f.name).join(', ');
       const failMore = failures.length > 3 ? (isZh ? `等 ${failures.length} 个` : `+${failures.length - 3} more`) : '';
       const summaryParts: string[] = [];
-      summaryParts.push(t('models.refreshAll.summaryOk' as TranslationKey, {
-        ok: String(okCount),
-        enabled: String(totalEnabled),
-        hidden: String(totalHidden),
-      }));
+      // Probe-and-apply successes (catalog refreshes that genuinely
+      // touched enable/hide state). Skip this line when the only
+      // successes were OpenRouter validates — the validated line below
+      // already carries the full story, and "0 enabled · 0 hidden" on
+      // an OpenRouter-only refresh reads as a bug.
+      const probedSuccess = okCount - validatedProviders;
+      if (probedSuccess > 0) {
+        summaryParts.push(t('models.refreshAll.summaryOk' as TranslationKey, {
+          ok: String(probedSuccess),
+          enabled: String(totalEnabled),
+          hidden: String(totalHidden),
+        }));
+      }
       if (noChangeCount > 0) {
         summaryParts.push(t('models.refreshAll.summaryNoChange' as TranslationKey, { n: String(noChangeCount) }));
+      }
+      if (validatedProviders > 0) {
+        // Validate summary speaks in "verified / missing" terms — never
+        // "enabled / hidden" — because validate changes no enable state.
+        // Use a missing-aware variant when there's at least one missing,
+        // so the toast directs the user to the per-row badges; otherwise
+        // a clean "verified N" reads simpler.
+        summaryParts.push(
+          validatedMissingTotal > 0
+            ? t('models.refreshAll.summaryValidatedSomeMissing' as TranslationKey, {
+                providers: String(validatedProviders),
+                verified: String(validatedTotal),
+                missing: String(validatedMissingTotal),
+              })
+            : t('models.refreshAll.summaryValidated' as TranslationKey, {
+                providers: String(validatedProviders),
+                verified: String(validatedTotal),
+              }),
+        );
       }
       if (failCount > 0) {
         summaryParts.push(t('models.refreshAll.summaryFailed' as TranslationKey, {
           n: String(failCount),
           names: failMore ? `${failNames} ${failMore}` : failNames,
+        }));
+      }
+      // Phase 1 Step 2: surface the plan-provider skip count last so
+      // the success/no-change/validate/fail story stays the lead.
+      if (skippedPlanCount > 0) {
+        summaryParts.push(t('models.refreshAll.summarySkippedPlan' as TranslationKey, {
+          n: String(skippedPlanCount),
         }));
       }
       updateToast(toastId, {
@@ -543,8 +686,6 @@ export function ModelsSection() {
       setRefreshingAll(false);
     }
   }, [refreshingAll, refreshingProviderId, providers, isZh, t, refetchProviderBundle]);
-
-  const syncableCount = useMemo(() => providers.filter(p => isSyncableProvider(p).ok).length, [providers]);
 
   // Persist edited role mappings via PUT /api/providers/[id] (the existing
   // provider PUT route already handles role_models_json). Defined here
@@ -713,10 +854,10 @@ export function ModelsSection() {
       const messageZh = wasHidden
         ? (compat
             ? '已启用并设为默认模型'
-            : '已启用并固定，但当前 Runtime 不可执行')
+            : '已启用并固定，但当前执行引擎 不可执行')
         : (compat
             ? '已设为默认模型'
-            : '已固定，但当前 Runtime 不可执行');
+            : '已固定，但当前执行引擎 不可执行');
       const messageEn = wasHidden
         ? (compat
             ? 'Enabled and set as default'
@@ -787,6 +928,40 @@ export function ModelsSection() {
     if (!pinnedProviderId || !pinnedModel) return false; // pin-incomplete
     return isRuntimeCompat(pinnedProviderId, pinnedModel);
   }, [defaultMode, pinnedProviderId, pinnedModel, isRuntimeCompat]);
+
+  // Phase 1 Step 2 收敛 round 2 (2026-05-06): when defaultMode='auto', the
+  // status row must show "Auto · 服务商 · 模型" — telling the user *which*
+  // provider+model a new chat would actually land on under the current
+  // execution engine. Spec point 4 ("Auto 模式必须透明"): an Auto label
+  // by itself is a black box.
+  //
+  // Resolution rule: walk providers in their persisted order; for each,
+  // pick the first row that's enabled AND runtime-compatible. If nothing
+  // matches, return null and the status row falls back to a "未找到可用
+  // 模型" notice (also from the spec — "如果当前自动解析结果不可用，再
+  // 显示原因和修复入口").
+  //
+  // We deliberately don't replicate the full chat-side fallback chain
+  // (savedPair from localStorage → apiDefaultProviderId → first) because
+  // those concerns belong to chat-init; on Models we just need to
+  // explain "what would Auto pick right now under the current engine".
+  // The chat-side resolver remains the source of truth at send time.
+  const autoResolved = useMemo(() => {
+    if (defaultMode !== 'auto') return null;
+    for (const p of providers) {
+      const rows = bundles[p.id] ?? [];
+      const compatSet = runtimeCompatModels.get(p.id);
+      if (!compatSet || compatSet.size === 0) continue;
+      const first = rows.find(m => m.enabled === 1 && compatSet.has(m.model_id));
+      if (first) {
+        return {
+          providerName: p.name,
+          modelLabel: first.display_name || first.model_id,
+        };
+      }
+    }
+    return null;
+  }, [defaultMode, providers, bundles, runtimeCompatModels]);
 
   // Don't listen to `provider-changed` — local edits already update bundles
   // from the PATCH response, and a full refetch flips the `loading` flag,
@@ -1008,19 +1183,6 @@ export function ModelsSection() {
     window.dispatchEvent(new Event('provider-changed'));
   }, [bundles]);
 
-  const handleMove = useCallback((providerId: string, models: ProviderModel[], idx: number, direction: -1 | 1) => {
-    const target = idx + direction;
-    if (target < 0 || target >= models.length) return;
-    const a = models[idx];
-    const b = models[target];
-    // Swap sort_order between the pair. Both rows are PATCHed; the optimistic
-    // re-sort happens server-side via getAllModelsForProvider.
-    Promise.all([
-      updateModel(providerId, a.model_id, { sort_order: b.sort_order }),
-      updateModel(providerId, b.model_id, { sort_order: a.sort_order }),
-    ]);
-  }, [updateModel]);
-
   const beginRename = (providerId: string, model: ProviderModel) => {
     setEditingDisplay(`${providerId}::${model.model_id}`);
     setDraftDisplay(model.display_name || model.model_id);
@@ -1076,45 +1238,22 @@ export function ModelsSection() {
           <h2 className="text-sm font-medium">{isZh ? '模型管理' : 'Model management'}</h2>
           <p className="text-[11px] text-muted-foreground mt-0.5">
             {isZh
-              ? '控制每个服务商对外暴露哪些模型、它们的显示名和顺序。每个服务商区段右上角的「刷新」按钮可重新拉取上游列表，刷新不会覆盖你手动启用 / 隐藏的选择。'
-              : 'Control which models each provider exposes, plus their display names and order. Use the per-section "Refresh" button to re-probe upstream — refresh never overrides your manual enable / hide choices.'}
+              ? '选择每个服务商要在聊天里出现的模型，并补充自定义显示名。'
+              : 'Choose which models each provider exposes in chat, with optional display-name overrides.'}
           </p>
         </div>
-        <div className="shrink-0 flex items-center gap-2 flex-wrap">
-          {/* "刷新全部" — secondary batch action. Per-provider refresh
-              lives on each section header for the common case ("I just
-              changed this provider's key"); this button is for periodic
-              maintenance ("re-check every upstream"). Disabled when
-              there's nothing to sync or another refresh is in flight. */}
-          <Button
-            variant="ghost"
-            size="sm"
-            className="gap-1.5 text-muted-foreground hover:text-foreground"
-            onClick={handleRefreshAll}
-            disabled={refreshingAll || refreshingProviderId !== null || syncableCount === 0}
-            title={syncableCount === 0
-              ? (isZh ? '没有支持自动同步的服务商' : 'No syncable providers')
-              : (isZh
-                  ? `挨个刷新 ${syncableCount} 个支持同步的服务商，最后会汇总成功 / 失败 / 无更新`
-                  : `Probe ${syncableCount} syncable providers in sequence; final toast summarizes outcomes`)}
-          >
-            {refreshingAll ? (
-              <SpinnerGap size={12} className="animate-spin" />
-            ) : (
-              <ArrowsClockwise size={12} />
-            )}
-            {isZh ? `刷新全部 (${syncableCount})` : `Refresh all (${syncableCount})`}
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={openAlignDialog}
-            title={isZh ? '按内置推荐清单收紧每个服务商：保留推荐模型为启用、其余隐藏，操作前会先显示预览' : 'Tighten each provider to the built-in recommended list — preview shown before write'}
-          >
-            {isZh ? '按推荐整理' : 'Tidy by recommended'}
-          </Button>
-        </div>
       </div>
+
+      {/* Phase 1 Step 2 收敛 round 2 (2026-05-06): 「刷新全部」+「按推荐整理」
+          完全从主路径移除。理由（来自 insights/models-provider-experience.md）：
+          - "刷新全部" 把套餐型 / OpenRouter / 本地 / API 全混在一起，summary
+            必须解释跳过/校验/失败/启用，不是用户主路径动作。检测应只在新增
+            服务商 / 改 Key / 改 Base URL / 用户在 Add Model 里主动检测时触发。
+          - "按推荐整理" 是迁移期维护工具，针对旧版本污染数据；普通用户日常
+            不需要。OpenRouter 旧版本 300+ 模型污染走单独的「整理旧版本模型
+            目录」入口（仅在检测到污染时显示，见 OpenRouter section header）。
+          handleRefreshAll / openAlignDialog 这两个回调函数仍保留供测试 + 隐藏
+          维护用，但 UI 不再有触发入口。 */}
 
       {/* Phase 2C: "New chat default" status row. The Models page is now
           the canonical entry for setting / clearing the default. This row
@@ -1136,23 +1275,32 @@ export function ModelsSection() {
             {isZh ? '新会话默认' : 'New chat default'}
             <span
               className={cn(
-                'inline-flex items-center rounded-full px-1.5 py-0.5 text-[10px] font-medium',
+                'inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium',
                 defaultMode === 'pinned'
                   ? 'bg-foreground text-background'
                   : 'bg-muted text-muted-foreground',
               )}
               title={defaultMode === 'pinned'
                 ? (isZh ? '已固定到具体的 provider + model；不会被自动 fallback。' : 'Pinned to a specific provider + model; never silently fallback.')
-                : (isZh ? '系统按当前 Runtime 自动选择第一个合适模型。' : 'System auto-picks the first suitable model under the current Runtime.')}
+                : (isZh ? '系统按当前执行引擎自动选择第一个合适模型。' : 'System auto-picks the first suitable model under the current Runtime.')}
             >
               {defaultMode === 'pinned' ? (isZh ? '已固定' : 'Pinned') : (isZh ? '自动' : 'Auto')}
             </span>
           </h3>
           <p className="text-xs text-muted-foreground mt-1.5 leading-relaxed">
             {defaultMode === 'auto' ? (
-              isZh
-                ? '系统按当前 Runtime 自动选择第一个合适模型。点击下方任何模型行右侧的图钉，可固定为默认。'
-                : 'System auto-picks the first suitable model for the current Runtime. Pin any model row below to commit.'
+              autoResolved ? (
+                isZh
+                  ? `当前会用：${autoResolved.providerName} · ${autoResolved.modelLabel}。点击下方任何模型行右侧的图钉可固定为默认。`
+                  : `Currently resolves to: ${autoResolved.providerName} · ${autoResolved.modelLabel}. Pin any model row below to commit.`
+              ) : (
+                <>
+                  <Warning size={12} weight="fill" className="inline-block text-status-warning-foreground mr-1 -mt-0.5" />
+                  {isZh
+                    ? '当前执行引擎下没有可用模型 — 请到「服务商」连接一个，或在下方添加 / 启用模型。'
+                    : 'No usable model under the current execution engine — connect one in Providers, or enable / add a model below.'}
+                </>
+              )
             ) : pinnedIsValid === true ? (
               isZh
                 ? `已固定：${pinnedDisplay?.providerName} / ${pinnedDisplay?.modelLabel}`
@@ -1161,7 +1309,7 @@ export function ModelsSection() {
               <>
                 <Warning size={12} weight="fill" className="inline-block text-status-warning-foreground mr-1 -mt-0.5" />
                 {isZh
-                  ? `已固定：${pinnedDisplay?.providerName ?? pinnedProviderId} / ${pinnedDisplay?.modelLabel ?? pinnedModel} — 当前 Runtime 下无法执行。`
+                  ? `已固定：${pinnedDisplay?.providerName ?? pinnedProviderId} / ${pinnedDisplay?.modelLabel ?? pinnedModel} — 当前执行引擎 下无法执行。`
                   : `Pinned: ${pinnedDisplay?.providerName ?? pinnedProviderId} / ${pinnedDisplay?.modelLabel ?? pinnedModel} — not executable under current Runtime.`}
               </>
             ) : (
@@ -1228,6 +1376,7 @@ export function ModelsSection() {
             <SelectItem value="claude_code_ready">{compatLabel('claude_code_ready', isZh)}</SelectItem>
             <SelectItem value="claude_code_verified">{compatLabel('claude_code_verified', isZh)}</SelectItem>
             <SelectItem value="claude_code_experimental">{compatLabel('claude_code_experimental', isZh)}</SelectItem>
+            <SelectItem value="openrouter_anthropic_skin">{compatLabel('openrouter_anthropic_skin', isZh)}</SelectItem>
             <SelectItem value="codepilot_only">{compatLabel('codepilot_only', isZh)}</SelectItem>
             <SelectItem value="unknown">{compatLabel('unknown', isZh)}</SelectItem>
           </SelectContent>
@@ -1236,6 +1385,8 @@ export function ModelsSection() {
         <div className="relative flex-1">
           <MagnifyingGlass size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
           <Input
+            id="models-search"
+            name="models-search"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder={isZh ? '搜索模型 id 或显示名…' : 'Search model id or display name…'}
@@ -1261,9 +1412,9 @@ export function ModelsSection() {
 
       {!loading && visibleBundles.map(({ provider, models }) => {
         // Counts/availability are computed on the FULL provider model list,
-        // not the search-filtered slice. Bulk-toggle and reorder operate on
-        // the full list too — see the disabled flag tied to `isSearching`
-        // below, which prevents accidental mass actions on filtered views.
+        // not the search-filtered slice. Bulk-toggle operates on the full
+        // list too — see the disabled flag tied to `isSearching` below,
+        // which prevents accidental mass actions on filtered views.
         const fullModels = bundles[provider.id] || [];
         const enabledCount = fullModels.filter(m => m.enabled === 1).length;
         const allEnabled = fullModels.length > 0 && enabledCount === fullModels.length;
@@ -1280,14 +1431,6 @@ export function ModelsSection() {
           provider_type: provider.provider_type,
           base_url: provider.base_url,
         });
-        // Aggregate latest sync time across this provider's models so the
-        // section header shows "上次同步" without users having to scan
-        // every row. Excludes nulls (manual / never-synced rows).
-        const lastSyncedTimes = fullModels
-          .map(m => m.last_refreshed_at)
-          .filter((t): t is string => !!t)
-          .sort();
-        const lastSyncAggregate = lastSyncedTimes.length > 0 ? lastSyncedTimes[lastSyncedTimes.length - 1] : null;
         return (
         <section
           key={provider.id}
@@ -1298,12 +1441,13 @@ export function ModelsSection() {
               aligned with the title regardless of how many secondary
               chips ride along.
 
-              Row 1: icon + name + 启用计数 + 上次同步  ← actions
+              Row 1: icon + name + 启用计数 (+ OpenRouter cleanup link
+                     when applicable)  ← actions
               Row 2: Compat pill + 默认模型 chip (only when present)
 
-              The split keeps the "刷新 / 全部启用 / 全部关闭 / 角色映射 /
-              添加模型" cluster pinned to the right of the same baseline
-              as the provider name; without it those buttons drift down
+              The split keeps the "角色映射 / 添加模型" cluster pinned to
+              the right of the same baseline as the provider name;
+              without it those buttons drift down
               when row 1 wraps. */}
           <div className="space-y-1.5">
             <div className="flex items-center justify-between gap-2">
@@ -1321,87 +1465,113 @@ export function ModelsSection() {
                         ? `${enabledCount} / ${fullModels.length} 启用`
                         : `${enabledCount} / ${fullModels.length} enabled`)}
                 </span>
-                {/* Section-level "上次同步" — aggregate of the latest
-                    last_refreshed_at across this provider's models.
-                    Hidden if no row has ever synced (manual-only providers). */}
-                {lastSyncAggregate && (
-                  <span
-                    className="text-[11px] text-muted-foreground shrink-0"
-                    title={isZh
-                      ? `这个服务商最近一次成功刷新模型的时间。点右边「刷新」按钮重新拉取上游列表。`
-                      : `This provider's most recent successful model refresh. Click "Refresh" to re-probe upstream.`}
-                  >
-                    {isZh ? '上次同步: ' : 'Last sync: '}
-                    {formatRefreshedAt(lastSyncAggregate, isZh)}
-                  </span>
+                {/* Phase 1 Step 2 收敛 round 4 + 5 (2026-05-06): compat
+                    tag moved onto the same line as the count, kept as
+                    a pill shape (rounded-full + padding + small font)
+                    but with a neutral muted background instead of the
+                    full colored fill. The compat tier is conveyed by a
+                    small colored dot inside the pill — same idea as
+                    the status pill on ProviderCard, just neutral bg. */}
+                {providerCompat && (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <span className="inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground cursor-help shrink-0">
+                        <span className={cn('size-1.5 rounded-full', compatDotColor(providerCompat))} aria-hidden />
+                        {compatLabel(providerCompat, isZh)}
+                      </span>
+                    </TooltipTrigger>
+                    <TooltipContent>{compatTooltip(providerCompat, isZh)}</TooltipContent>
+                  </Tooltip>
                 )}
+                {/* "默认" role indicator — also lifted up from Row 2.
+                    Stays as a muted-bg chip (not a dot) because it's
+                    an actionable warning when the default is hidden:
+                    the ⚠ flips on real misconfiguration, and a plain
+                    text label wouldn't carry the warning tone strong
+                    enough for "your default model is hidden". */}
+                {defaultRoleId && (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <span
+                        className={cn(
+                          "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium cursor-help shrink-0",
+                          defaultRoleHidden ? "bg-status-warning-muted text-status-warning-foreground" : "bg-muted text-muted-foreground",
+                        )}
+                      >
+                        {isZh ? '默认' : 'Default'}: {defaultRoleModel?.display_name || defaultRoleId}
+                        {defaultRoleHidden && ' ⚠'}
+                      </span>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      {defaultRoleHidden
+                        ? (isZh
+                            ? `默认模型「${defaultRoleId}」已隐藏，运行时会回退到第一个启用的模型`
+                            : `Default "${defaultRoleId}" is hidden — runtime falls back to the first enabled model`)
+                        : (isZh
+                            ? `没有指定模型时使用：${defaultRoleModel?.display_name || defaultRoleId}`
+                            : `Used when no model is specified: ${defaultRoleModel?.display_name || defaultRoleId}`)}
+                    </TooltipContent>
+                  </Tooltip>
+                )}
+                {/* Phase 1 Step 2 收敛 round 8 (2026-05-06): the section-
+                    level "上次同步" timestamp was paired with the per-
+                    section Refresh button. With Refresh gone (search/Add
+                    Model is the only upstream-pull entry now), the
+                    timestamp had no actionable meaning and its tooltip
+                    still pointed at a button that no longer exists, so
+                    it's removed entirely. */}
+                {/* Phase 1 Step 2 收敛 round 2 (2026-05-06): only show the
+                    "整理旧版本模型目录" entry when there's actually legacy
+                    pollution to clean. The cleanup heuristic
+                    (`enable_source='recommended' AND user_edited=0`) is
+                    cheap to compute client-side from the already-loaded
+                    `bundles` — no extra fetch. When the count is 0 the
+                    link disappears entirely; the dialog's "nothing to
+                    tidy" empty state never shows for normal users. The
+                    server-side WHERE clause still guarantees `manual_*`
+                    / `user_edited` rows are never touched. */}
+                {isOpenRouterProviderRecord({ provider_type: provider.provider_type, base_url: provider.base_url })
+                  && (bundles[provider.id] ?? []).some(m => m.enable_source === 'recommended' && m.user_edited === 0) && (
+                    <button
+                      type="button"
+                      onClick={() => setOpenRouterCleanupTarget(provider.id)}
+                      className="text-[11px] text-muted-foreground hover:text-foreground underline underline-offset-2 shrink-0"
+                      title={t('provider.cleanup.openrouter.entryLinkTooltip' as TranslationKey)}
+                    >
+                      {t('provider.cleanup.openrouter.entryLink' as TranslationKey)}
+                    </button>
+                  )}
               </div>
               <div className="flex items-center gap-1.5 shrink-0">
-              {/* In-place refresh — uses the same conservative-apply helper
-                  as the Add Service success path. No diff dialog: the
-                  enable_source guard rails ensure user choices survive,
-                  so the user doesn't need to preview each refresh.
-                  Disabled (with explanatory tooltip) for providers that
-                  can't be probed at all — OAuth-only or missing key. */}
-              {(() => {
-                const sync = isSyncableProvider(provider);
-                const inFlight = refreshingProviderId === provider.id || refreshingAll;
-                return (
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="text-muted-foreground hover:text-foreground gap-1.5"
-                    disabled={inFlight || !sync.ok}
-                    onClick={() => handleRefreshProvider(provider)}
-                    title={!sync.ok
-                      ? (isZh ? sync.reasonZh : sync.reasonEn)
-                      : (isZh ? '重新从上游拉取模型列表（不会覆盖你手动启用/隐藏的行）' : 'Re-fetch model list from upstream (will not override your manual enable/hide choices)')}
-                  >
-                    {refreshingProviderId === provider.id ? (
-                      <SpinnerGap size={12} className="animate-spin" />
-                    ) : (
-                      <ArrowsClockwise size={12} />
-                    )}
-                    {isZh ? '刷新' : 'Refresh'}
-                  </Button>
-                );
-              })()}
-              {fullModels.length > 0 && (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="text-muted-foreground hover:text-foreground"
-                  disabled={allDisabled || isSearching}
-                  onClick={() => {
-                    const affected = fullModels.filter(m => m.enabled !== 0).length;
-                    setBulkConfirm({ providerId: provider.id, providerName: provider.name, target: 0, affected });
-                  }}
-                  title={isSearching ? (isZh ? '搜索中暂不可用' : 'Disabled while searching') : undefined}
-                >
-                  {isZh ? '全部关闭' : 'Disable all'}
-                </Button>
-              )}
-              {fullModels.length > 0 && !allEnabled && (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="text-muted-foreground hover:text-foreground"
-                  disabled={isSearching}
-                  onClick={() => {
-                    const affected = fullModels.filter(m => m.enabled !== 1).length;
-                    setBulkConfirm({ providerId: provider.id, providerName: provider.name, target: 1, affected });
-                  }}
-                  title={isSearching ? (isZh ? '搜索中暂不可用' : 'Disabled while searching') : undefined}
-                >
-                  {isZh ? '全部启用' : 'Enable all'}
-                </Button>
-              )}
+              {/* Phase 1 Step 2 收敛 round 8 (2026-05-06): per-section
+                  "Refresh" button removed entirely. Earlier rounds hid
+                  it for plan/OpenRouter/image/SDK-only providers; this
+                  round drops it for the remaining set (ollama / litellm
+                  / anthropic-thirdparty / kimi / moonshot / xiaomi-mimo
+                  PAYG) too. Reasoning (review feedback): every provider
+                  in that set ALSO has a working `canSearchUpstreamModels`
+                  path, so there are now two near-duplicate ways to pull
+                  upstream — Refresh and Add Model — and the latter is
+                  the one the page is built around. Upstream pulls now
+                  happen exclusively when the Add Model dialog opens or
+                  is retried (or invisibly after Key/Base URL change in
+                  the provider's own card flow). */}
+              {/* Phase 1 Step 2 收敛 round 3 (2026-05-06): "全部启用" /
+                  "全部关闭" 批量操作从 section header 移除。理由：这两条
+                  来自旧的全量同步时代（一次拉 100+ 模型，需要批量裁剪到
+                  日常用得上的几个）。当前方向是 catalog 默认启用 + 用户
+                  按需手动添加 / 隐藏，单条操作即可，不再需要批量治理。
+                  历史污染由「整理旧版本模型目录」迁移工具按条件出现处理。
+                  bulkConfirm state + AlertDialog 实现保留供测试和编程
+                  调用，但 UI 不再有触发入口。 */}
               <Button
                 variant="ghost"
                 size="sm"
                 className="text-muted-foreground hover:text-foreground"
                 onClick={() => openRoleDialog(provider)}
-                title={isZh ? '设置每个角色（默认 / Sonnet / Opus / Haiku / 推理 / 小模型）实际跑哪个模型' : 'Set which model fills each role (default / sonnet / opus / haiku / reasoning / small)'}
+                title={isZh
+                  ? '设置 Claude Code 引擎的别名映射（Sonnet / Opus / Haiku 等）实际跑哪个模型；只对 Claude Code 引擎生效，其它执行引擎按你直接选择的模型运行'
+                  : "Set the Claude Code engine alias mapping (Sonnet / Opus / Haiku) — only Claude Code uses these aliases, other engines run whichever model you pick directly"}
               >
                 {isZh ? '角色映射' : 'Roles'}
               </Button>
@@ -1409,48 +1579,35 @@ export function ModelsSection() {
                 variant="outline"
                 size="sm"
                 className="gap-1.5"
-                onClick={() => { setAddDialog({ providerId: provider.id, providerName: provider.name }); setNewModelId(''); setNewDisplayName(''); }}
+                onClick={() => {
+                  // Phase 1 Step 2 收敛 round 6 (2026-05-06): search-add
+                  // path extended beyond OpenRouter. Any provider where
+                  // /v1/models reliably returns a real catalog
+                  // (`canReliablyFetchModels`) gets the search dialog —
+                  // ollama, litellm, anthropic-thirdparty, generic
+                  // openai-compatible. Plan providers (Volcengine
+                  // included), image providers, Bedrock/Vertex, PAYG
+                  // anthropic-compat brands and Anthropic official all
+                  // fall to the manual dialog where users type
+                  // modelId + displayName by hand.
+                  const record = { provider_type: provider.provider_type, base_url: provider.base_url };
+                  if (canSearchUpstreamModels(record).reliable) {
+                    setOpenRouterSearchTarget({ id: provider.id, name: provider.name });
+                  } else {
+                    const isPlan = isCatalogOnlyPlanProviderRecord(record);
+                    setAddDialog({ providerId: provider.id, providerName: provider.name, kind: isPlan ? 'plan' : 'manual' });
+                    setNewModelId('');
+                    setNewDisplayName('');
+                  }
+                }}
               >
                 <Plus size={12} weight="bold" />
                 {isZh ? '添加模型' : 'Add model'}
               </Button>
               </div>
             </div>
-            {/* Row 2 — secondary identity chips. Indented to align with the
-                provider name (icon=size-7 + gap-2 → 36px). Hidden when
-                neither chip applies to keep manual-only providers from
-                rendering an empty row. */}
-            {(defaultRoleId || providerCompat) && (
-              <div className="flex items-center gap-1.5 flex-wrap pl-9">
-                <span
-                  className={cn(
-                    'inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium cursor-help whitespace-nowrap',
-                    compatTone(providerCompat),
-                  )}
-                  title={compatTooltip(providerCompat, isZh)}
-                >
-                  {compatLabel(providerCompat, isZh)}
-                </span>
-                {defaultRoleId && (
-                  <span
-                    className={cn(
-                      "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium cursor-help",
-                      defaultRoleHidden ? "bg-status-warning-muted text-status-warning-foreground" : "bg-muted text-muted-foreground",
-                    )}
-                    title={defaultRoleHidden
-                      ? (isZh
-                          ? `默认模型「${defaultRoleId}」已隐藏，运行时会回退到第一个启用的模型`
-                          : `Default "${defaultRoleId}" is hidden — runtime falls back to the first enabled model`)
-                      : (isZh
-                          ? `没有指定模型时使用：${defaultRoleModel?.display_name || defaultRoleId}`
-                          : `Used when no model is specified: ${defaultRoleModel?.display_name || defaultRoleId}`)}
-                  >
-                    {isZh ? '默认' : 'Default'}: {defaultRoleModel?.display_name || defaultRoleId}
-                    {defaultRoleHidden && ' ⚠'}
-                  </span>
-                )}
-              </div>
-            )}
+            {/* Row 2 removed — compat + default role chips moved up onto
+                Row 1 (next to the count) per Codex round-4 review. */}
           </div>
 
           {models.length === 0 ? (
@@ -1458,7 +1615,7 @@ export function ModelsSection() {
               <p className="text-xs text-muted-foreground">
                 {search.trim()
                   ? (isZh ? '无匹配结果' : 'No matches')
-                  : (isZh ? '该服务商暂无模型 — 刷新或手动添加' : 'No models yet — refresh from Provider card or add manually')}
+                  : (isZh ? '该服务商暂无模型 — 点右上方「添加模型」补充' : 'No models yet — use "Add model" above to add one')}
               </p>
             </div>
           ) : (
@@ -1480,40 +1637,6 @@ export function ModelsSection() {
                         && 'bg-status-warning-muted/40',
                     )}
                   >
-                    {/* Sort buttons — disabled while searching, since the
-                        visible `models` is a filtered slice and swapping
-                        sort_order between filtered neighbors would feel
-                        random against the unfiltered list. */}
-                    {(() => {
-                      const fullIdx = fullModels.findIndex(m => m.id === model.id);
-                      const canMoveUp = !isSearching && fullIdx > 0;
-                      const canMoveDown = !isSearching && fullIdx >= 0 && fullIdx < fullModels.length - 1;
-                      return (
-                        <div className="flex flex-col shrink-0">
-                          <Button
-                            variant="ghost"
-                            size="icon-xs"
-                            className="h-4 w-4 -my-px"
-                            disabled={!canMoveUp}
-                            onClick={() => handleMove(provider.id, fullModels, fullIdx, -1)}
-                            title={isSearching ? (isZh ? '搜索中暂不可用' : 'Disabled while searching') : undefined}
-                          >
-                            <CaretUp size={10} weight="bold" />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="icon-xs"
-                            className="h-4 w-4 -my-px"
-                            disabled={!canMoveDown}
-                            onClick={() => handleMove(provider.id, fullModels, fullIdx, 1)}
-                            title={isSearching ? (isZh ? '搜索中暂不可用' : 'Disabled while searching') : undefined}
-                          >
-                            <CaretDown size={10} weight="bold" />
-                          </Button>
-                        </div>
-                      );
-                    })()}
-
                     {/* Identity column */}
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 flex-wrap">
@@ -1552,27 +1675,36 @@ export function ModelsSection() {
                             </Button>
                           </>
                         )}
-                        <span
-                          className={cn('inline-flex items-center rounded-full px-1.5 py-0.5 text-[10px] font-medium', sourceTone)}
-                          title={isZh ? '该模型行的来源（数据从哪里来）' : 'Where this row originated'}
-                        >
-                          {sourceLabel}
-                        </span>
-                        {enableSourceLabel && (
-                          <span
-                            className={cn('inline-flex items-center rounded-full px-1.5 py-0.5 text-[10px] font-medium cursor-help', enableSourceTone)}
-                            title={enableSourceTooltip}
-                          >
-                            {enableSourceLabel}
-                          </span>
-                        )}
+                        {/* Phase 1 Step 2 收敛 round 2 (2026-05-06): 主路径
+                            上不再展示工程感的 source / enable_source pill。
+                            这两个 pill 在迁移期是调试 catalog vs manual vs
+                            recommended 来源用的；普通用户看到的是噪音 ——
+                            "API 同步" / "手动启用" / "已不再推荐" 这套词
+                            对他们没有可执行含义。`sourceLabel`、
+                            `enableSourceLabel`、`enableSourceTooltip` 等
+                            计算逻辑保留供未来"详情"展开使用，但默认行 UI
+                            不渲染。actionable 的 pill 只剩三类：默认标记、
+                            OpenRouter validate「已不在上游」（用户能行动 —
+                            隐藏这一行）、当前执行引擎不可用。 */}
+                        {/* Phase 1 Step 2 收敛 round 3 (2026-05-06):
+                            OpenRouter "Not on upstream" badge removed
+                            from primary path. Reason: validate-models
+                            UI trigger is gone; "已添加模型不常驻显示
+                            still upstream / missing upstream 这类上游
+                            校验状态" per Codex's spec — that bookkeeping
+                            is not the user's primary concern after they
+                            search-and-add a model. `openRouterMissing`
+                            state remains in the component tree but
+                            never gets populated from main UI now;
+                            keeping the state for tests / future
+                            "details" view doesn't surface a badge. */}
                         {/* Phase 2C: "Default" pill on the currently-pinned row.
                             Helps the user spot their commitment without
                             scanning all the pin icons. Persistent visual
                             independent of hover state. */}
                         {isCurrentDefault(provider.id, model.model_id) && (
                           <span
-                            className="inline-flex items-center gap-1 rounded-full bg-foreground text-background px-1.5 py-0.5 text-[10px] font-medium"
+                            className="inline-flex items-center gap-1 rounded-full bg-foreground text-background px-2 py-0.5 text-[10px] font-medium"
                             title={isZh
                               ? '当前固定的默认模型 — 新会话将使用这个'
                               : 'Currently pinned default — used by new chats'}
@@ -1590,14 +1722,26 @@ export function ModelsSection() {
                             banner / Runtime banner will surface that. */}
                         {model.enabled === 1 && !isRuntimeCompat(provider.id, model.model_id) && (
                           <span
-                            className="inline-flex items-center rounded-full px-1.5 py-0.5 text-[10px] font-medium bg-status-warning-muted text-status-warning-foreground cursor-help"
+                            className="inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium bg-status-warning-muted text-status-warning-foreground cursor-help"
                             title={isZh
-                              ? `当前 Runtime（${runtimeApplied || '未知'}）下不可执行 — 切换 Runtime 才能用`
-                              : `Not executable under current Runtime (${runtimeApplied || 'unknown'}) — switch Runtime to use`}
+                              ? `当前执行引擎（${runtimeApplied || '未知'}）不支持这个模型。聊天发送时会被跳过；切换到另一个执行引擎，或在下方选其他模型。这与「角色映射」无关 — 角色映射只对 Claude Code 引擎生效。`
+                              : `The current execution engine (${runtimeApplied || 'unknown'}) does not run this model. Chat will skip it; switch engine, or pick a different model below. This is unrelated to role mapping — those aliases only apply to the Claude Code engine.`}
                           >
-                            {isZh ? '当前 Runtime 不可用' : 'Other Runtime only'}
+                            {isZh ? '当前执行引擎不可用' : 'Other engine only'}
                           </span>
                         )}
+                        {/* Phase 1 Step 2 收敛 round 2 (2026-05-06):
+                            "已不在当前推荐目录" badge moved off the
+                            primary path. Reason: even when narrowed to
+                            authoritative-catalog providers it's catalog-
+                            history information, not an actionable user
+                            state — users can't fix "this SKU isn't in
+                            the recommended list anymore" except by
+                            hiding the row, which they can already do
+                            without the badge. `shouldShowLegacyCatalogBadge`
+                            stays in `provider-catalog.ts` for tests and
+                            future "details / 更多" use, but no row UI
+                            renders it. */}
                       </div>
                       {/* Three-concept identity rows. Without explicit
                           labels the bare strings (e.g. plain `sonnet`)
@@ -1613,6 +1757,18 @@ export function ModelsSection() {
                       {(() => {
                         const isAlias = model.model_id === 'sonnet' || model.model_id === 'opus' || model.model_id === 'haiku';
                         const upstreamDiffers = !!model.upstream_model_id && model.upstream_model_id !== model.model_id;
+                        // Phase 1 Step 2 收敛 round 4 (2026-05-06): when a
+                        // provider has a custom role mapping set (via the
+                        // role-mapping dialog → role_models_json) for this
+                        // alias, surface the target inline so users can
+                        // tell at a glance what "Sonnet" resolves to under
+                        // the Claude Code engine. Shown only on alias
+                        // rows; a non-alias row's `role_models_json` entry
+                        // doesn't apply to its own row identity.
+                        const roleMappingTarget = isAlias
+                          ? (providerRoles[model.model_id as keyof typeof providerRoles] || '')
+                          : '';
+                        const showRoleMapping = !!roleMappingTarget && roleMappingTarget !== model.model_id;
                         return (
                           <div className="mt-0.5 flex items-center gap-3 text-[11px] text-muted-foreground truncate">
                             {isAlias ? (
@@ -1624,6 +1780,17 @@ export function ModelsSection() {
                               <span className="truncate">
                                 <span>{isZh ? '上游模型 ID: ' : 'Upstream ID: '}</span>
                                 <span className="font-mono">{model.model_id}</span>
+                              </span>
+                            )}
+                            {showRoleMapping && (
+                              <span
+                                className="truncate"
+                                title={isZh
+                                  ? `Claude Code 引擎下，「${model.model_id}」会调用 ${roleMappingTarget}（在「角色映射」里设置）`
+                                  : `Under the Claude Code engine, "${model.model_id}" routes to ${roleMappingTarget} (set in Role mapping)`}
+                              >
+                                <span>{isZh ? '映射到: ' : 'Maps to: '}</span>
+                                <span className="font-mono">{roleMappingTarget}</span>
                               </span>
                             )}
                             {upstreamDiffers && (
@@ -1669,16 +1836,12 @@ export function ModelsSection() {
                       />
                     </Button>
 
-                    {/* Enabled toggle */}
-                    <div className="flex items-center gap-2 shrink-0">
-                      <Switch
-                        checked={model.enabled === 1}
-                        onCheckedChange={() => handleToggleEnabled(provider.id, model)}
-                      />
-                    </div>
-
-                    {/* Delete (manual only) */}
-                    {model.source === 'manual' ? (
+                    {/* Delete (manual only) — sits LEFT of the Switch so
+                        the toggle stays anchored to the right edge whether
+                        or not this row is deletable. No placeholder
+                        reservation: rows without delete should close the
+                        gap, not leave a ghost slot. */}
+                    {model.source === 'manual' && (
                       <Button
                         variant="ghost"
                         size="icon-sm"
@@ -1688,9 +1851,15 @@ export function ModelsSection() {
                       >
                         <Trash size={14} />
                       </Button>
-                    ) : (
-                      <div className="size-8 shrink-0" />
                     )}
+
+                    {/* Enabled toggle — always rightmost */}
+                    <div className="flex items-center gap-2 shrink-0">
+                      <Switch
+                        checked={model.enabled === 1}
+                        onCheckedChange={() => handleToggleEnabled(provider.id, model)}
+                      />
+                    </div>
                   </div>
                 );
               })}
@@ -1705,15 +1874,15 @@ export function ModelsSection() {
           show hidden models in the dropdown too (greyed out) so the user
           can see what they previously picked even if it's now hidden. */}
       <Dialog open={!!roleDialog} onOpenChange={(open) => { if (!open) setRoleDialog(null); }}>
-        <DialogContent className="sm:max-w-lg">
-          <DialogHeader>
+        <DialogContent className="sm:max-w-2xl max-h-[85vh] flex flex-col gap-0 overflow-hidden">
+          <DialogHeader className="shrink-0">
             <DialogTitle>
-              {isZh ? `${roleDialog?.providerName} · 角色映射` : `${roleDialog?.providerName} · Role mapping`}
+              {isZh ? `${roleDialog?.providerName} · 角色映射（Claude Code 引擎）` : `${roleDialog?.providerName} · Role mapping (Claude Code engine)`}
             </DialogTitle>
             <DialogDescription>
               {isZh
-                ? '决定每个角色实际跑哪个模型。聊天里选「Sonnet」时这里指向谁就跑谁；留空表示这个角色没有专属模型。'
-                : 'Decide which model fills each role. When chat picks "Sonnet" the runtime uses whatever you map here; leave blank to skip a role.'}
+                ? '这是 Claude Code 引擎使用的别名映射 —— 聊天里选「Sonnet / Opus / Haiku」时实际跑这里指定的模型。其它执行引擎不使用这套别名，按你直接选择的模型运行。留空表示这个角色没有专属映射。'
+                : 'This alias mapping is used by the Claude Code engine — when chat picks "Sonnet / Opus / Haiku", it runs whatever you map here. Other execution engines ignore these aliases and run whichever model you pick directly. Leave blank to skip a role.'}
             </DialogDescription>
           </DialogHeader>
           {(() => {
@@ -1722,7 +1891,7 @@ export function ModelsSection() {
             if (!provider) return null;
             const allModels = bundles[provider.id] || [];
             return (
-              <div className="space-y-3 mt-2 max-h-[60vh] overflow-y-auto">
+              <div className="flex-1 min-h-0 overflow-y-auto mt-4 space-y-3">
                 {ROLE_KEYS.map((role) => {
                   const value = roleDraft[role] || '';
                   const valueIsHidden = !!value && allModels.some(m => m.model_id === value && m.enabled === 0);
@@ -1733,7 +1902,7 @@ export function ModelsSection() {
                           <div className="text-xs font-medium">
                             {isZh ? ROLE_LABEL_ZH[role] : ROLE_LABEL_EN[role]}
                             {valueIsHidden && (
-                              <span className="ml-2 inline-flex items-center rounded-full bg-status-warning-muted px-1.5 py-0.5 text-[10px] font-medium text-status-warning-foreground">
+                              <span className="ml-2 inline-flex items-center rounded-full bg-status-warning-muted px-2 py-0.5 text-[10px] font-medium text-status-warning-foreground">
                                 {isZh ? '已隐藏' : 'Hidden'}
                               </span>
                             )}
@@ -1754,9 +1923,10 @@ export function ModelsSection() {
                             {/* Enabled rows first, hidden rows after — order
                                 within each bucket follows the DB sort_order
                                 already returned by getAllModelsForProvider.
-                                Stable sort keeps the original ordering when
-                                `enabled` ties, so users still see their own
-                                Models-page reordering reflected here. */}
+                                The Models page no longer exposes a manual
+                                reorder UI; this stable sort just preserves
+                                whatever ordering the catalog / discovery
+                                produced. */}
                             {[...allModels]
                               .sort((a, b) => (b.enabled ?? 0) - (a.enabled ?? 0))
                               .map(m => (
@@ -1785,17 +1955,100 @@ export function ModelsSection() {
         </DialogContent>
       </Dialog>
 
-      {/* Add manual model */}
+      {/* OpenRouter search-and-add dialog. Mounted as a sibling to the
+          generic "manual add" dialog below; the "添加模型" button opens
+          one or the other based on whether the provider is OpenRouter. */}
+      {openRouterSearchTarget && (
+        <OpenRouterSearchDialog
+          open={!!openRouterSearchTarget}
+          onOpenChange={(open) => { if (!open) setOpenRouterSearchTarget(null); }}
+          providerId={openRouterSearchTarget.id}
+          providerName={openRouterSearchTarget.name}
+          onModelAdded={() => refetchProviderBundle(openRouterSearchTarget.id)}
+          onManualFallback={() => {
+            // Search hit a runtime error (key invalid, upstream 5xx,
+            // network); the contract is "search if possible, fall back
+            // to manual otherwise". Hand the user the same manual-add
+            // dialog the deny-listed providers get. Plan vs generic
+            // copy is decided here just like in the per-section "添加
+            // 模型" button click handler.
+            const target = openRouterSearchTarget;
+            const provider = providers.find(p => p.id === target.id);
+            const isPlan = provider
+              ? isCatalogOnlyPlanProviderRecord({ provider_type: provider.provider_type, base_url: provider.base_url })
+              : false;
+            setOpenRouterSearchTarget(null);
+            setAddDialog({ providerId: target.id, providerName: target.name, kind: isPlan ? 'plan' : 'manual' });
+            setNewModelId('');
+            setNewDisplayName('');
+          }}
+        />
+      )}
+
+      {/* OpenRouter "整理早期导入的目录" preview/confirm dialog. */}
+      {openRouterCleanupTarget && (
+        <OpenRouterCleanupDialog
+          open={!!openRouterCleanupTarget}
+          onOpenChange={(open) => { if (!open) setOpenRouterCleanupTarget(null); }}
+          providerId={openRouterCleanupTarget}
+          onCleaned={() => refetchProviderBundle(openRouterCleanupTarget)}
+        />
+      )}
+
+      {/* Add manual model — title / description branch on dialog kind so
+          plan-provider users see "补充 SKU / Add SKU" framing while
+          generic providers keep the original "manual add" copy. Both
+          flows write the same row shape (manual_enabled + source=manual).
+
+          Phase 1 Step 2 收敛 round 2 (2026-05-06): for providers that can
+          reliably fetch upstream models (`canReliablyFetchModels`), the
+          dialog also offers an inline "重新检测模型" link that triggers
+          the same single-provider discovery used by Add Service success
+          and the per-section refresh button. Users who picked Add Model
+          but actually wanted "show me what upstream offers" don't have
+          to back out and find another button. */}
       <Dialog open={!!addDialog} onOpenChange={(open) => { if (!open) setAddDialog(null); }}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>{isZh ? `为「${addDialog?.providerName}」手动添加模型` : `Add model to ${addDialog?.providerName}`}</DialogTitle>
+            <DialogTitle>
+              {addDialog?.kind === 'plan'
+                ? t('provider.add.titlePlan' as TranslationKey, { name: addDialog?.providerName ?? '' })
+                : t('provider.add.titleManual' as TranslationKey, { name: addDialog?.providerName ?? '' })}
+            </DialogTitle>
             <DialogDescription>
-              {isZh
-                ? '手动添加的模型来源标为「manual」，不会被刷新覆盖。'
-                : 'Manually added models are tagged "manual" and survive future refreshes.'}
+              {addDialog?.kind === 'plan'
+                ? t('provider.add.descriptionPlan' as TranslationKey)
+                : t('provider.add.descriptionManual' as TranslationKey)}
             </DialogDescription>
           </DialogHeader>
+          {(() => {
+            if (!addDialog || addDialog.kind !== 'manual') return null;
+            const provider = providers.find(p => p.id === addDialog.providerId);
+            if (!provider) return null;
+            const policy = canReliablyFetchModels({
+              provider_type: provider.provider_type,
+              base_url: provider.base_url,
+            });
+            if (!policy.reliable) return null;
+            return (
+              <div className="mt-2 -mb-1 text-[11px] text-muted-foreground">
+                {isZh ? '不知道要填什么 ID？' : 'Not sure what ID to type?'}
+                {' '}
+                <button
+                  type="button"
+                  className="underline underline-offset-2 hover:text-foreground"
+                  onClick={async () => {
+                    const target = { id: provider.id, name: provider.name };
+                    setAddDialog(null);
+                    await runAutoDiscoverForProvider({ providerId: target.id, providerName: target.name, t });
+                    refetchProviderBundle(target.id);
+                  }}
+                >
+                  {isZh ? '让 CodePilot 重新检测一次该服务商的模型列表' : 'Re-detect this provider\'s upstream models'}
+                </button>
+              </div>
+            );
+          })()}
           <div className="space-y-3 mt-2">
             <div className="space-y-1.5">
               <label className="text-xs text-muted-foreground">{isZh ? '模型 ID' : 'Model ID'}</label>

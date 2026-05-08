@@ -1,5 +1,7 @@
 # Agent Trust & Ownership Refactor
 
+> ⚠️ **Superseded by [refactor-closeout.md](./refactor-closeout.md)** — 不再单独推进，保留作历史参考。Phase 2A/2B/2C 已完成；剩余 Run Cockpit + session-level Runtime + 事件日志并入 refactor-closeout 的 **Phase 2（Runtime 与会话执行）**，长期助理叙事并入 **Phase 3（助理、定时任务、心跳通知）**。
+
 > 创建时间：2026-04-25
 > 最后更新：2026-04-29
 > 工作区：`/Users/op7418/Documents/code/opus-4.6-test/.claude/worktrees/product-refactor-research`
@@ -43,6 +45,7 @@
 - 2026-04-27: **Session-level Runtime switching 纳入 Phase 3**。全局 Runtime 只作为"新会话默认值"；每个 chat session 应拥有自己的 Agent 引擎选择，用户可以在会话开始前选择，也可以在会话过程中切换。第一版不做运行中热迁移：正在 stream 时禁用切换或要求先停止；切换只对下一轮消息生效。切换后必须重新按目标 runtime 解析 provider/model，若当前组合不兼容，应给出可解释 fallback，并写入 `session_events.runtime.selected` / `runtime.changed`（from / to / reason / provider / model / fallback）。
 - 2026-04-27: **Runtime 长期形态升级为 Local Agent Adapter Registry**。Claude Code / CodePilot Runtime 只是第一批内置 adapter；后续可把 Codex、OpenClaw、其它本地 Agent CLI、自定义 command 作为候选 adapter 纳入同一层管理。适配不要求一开始全能力 UI 化，按能力分层：可检测（installed/version/health）→ 可拉起（cwd/prompt/session）→ 可观察（running/waiting/failed/completed + output/log）→ 可恢复（stop/retry/open native session）→ 深度集成（tools/permissions/model/context/session resume）。UI 必须明确"哪些由 CodePilot 管，哪些由外部 Agent 自管"，避免把外部 Agent 自己的模型/工具/上下文错误拆进 CodePilot 的 Providers / Models 管理。
 - 2026-04-29: **多 Agent 协作方向记录：主 Agent + 显式 `@agent` 调度**。未来聊天里仍保留一个主 Runtime / 主 Agent 负责理解用户意图、拆任务和汇总结果；Codex、Claude Code、OpenClaw、自定义命令等本地/外部 Agent 作为可被显式 `@codex` / `@claude-code` / `@openclaw` 调用的执行者。第一版不做自动多 Agent 编排，也不把所有外部能力 UI 化；先依赖 Local Agent Adapter Registry 提供 detect / launch / observe / log / ownership boundary，再在 Chat 中支持显式调用、结构化结果回写和 `session_events` 轨迹。主 Agent 可以在后续 preview 中建议"这个子任务适合交给 X"，但用户确认前不自动派发。
+- 2026-04-29: **Self-Healing Agent Harness 转译**。该材料不直接变成"自动诊断 / 自动修复"功能清单，而是拆成两层：① 产品层把 CodePilot 从"运行前配置面板"推进到"Agent 运行质量闭环"：Health 是失败信号路由器，Run Cockpit 关注 outcome / fallback / recovery，`session_events` 记录结果信号，多 Agent 协作必须可追踪；② 开发流程层把 Codex review findings / 用户反馈 / CDP 失败 / 测试失败视为 signal，进入 `Signal → Triage → Fix → Verify → Guardrail` 闭环。Claude Code 是带护栏的执行者，不是自由扩范围的自动修复器。
 - 2026-04-28: **Settings IA Phase 2.5：Overview redesign（dashboard 三层）**。原 Phase 2 Overview 是单列 5 卡，全用同样的 muted 卡片底色——视觉上是"配置页又一个"，没有 dashboard 的体感。本轮按"GitHub Settings / Cursor 计费页"的层级模式重做：① 顶部 Getting Started checklist（4 项：连接服务商 / 启用模型 / 验证 Runtime / 配置助理工作空间），未完成项展示深色 jump 按钮一直挂着，4/4 全完即整条隐藏（不留视觉噪音）；② 中部由 5 卡升为 6 卡 + 改 `lg:grid-cols-2`：把原"系统"拆成"版本与账户" + "设置 / 诊断"，"新会话默认"按用户心智改名为"服务商"，warning-tone 卡片用 `status-warning-muted` 浅色 accent + 深色 CTA 引导，已配置卡片去掉图标 bg 走 flat 背景——配置好的项不再"全黑亮"；③ 底部加 GitHub-style token 用量热力图：复用现成 `/api/usage/stats?days=N`（接口已支持到 365 天，无需后端改动），30/90/365D 切换 + 总用量 / 最活跃日 / 最长连续天数 / 当前连续天数 stats，"查看完整用量统计"跳 #usage。新增文件：`OverviewHeatmap.tsx`；OverviewSection 容器从 `max-w-4xl` 提到 `max-w-5xl` 给 2 列卡 + 365 天热力图留宽度。i18n 加 19 个 `overview.*` 键。CDP 验证：1440×900 桌面 + 800×900 窄屏均无溢出；checklist 在 force-show 模式下 2 pending + 2 done 行展示正确；热力图在窄屏靠 `overflow-x-auto` 兜住，stats 行 `sm:grid-cols-4` 自适应。
 - 2026-04-29: **Phase 2C 阶段完成 + 诊断承诺降档为"Health + Logs"**。**全 7 块落地**：① 默认模型契约（`9a39d42` / `7e74200`）：`global_default_mode` schema + `resolveNewChatDefault` 返回 tagged status + 5 个调用方过新 shape + 13 单元测试；同 commit 修了 `setDefaultProviderId` 静默改写 user pin 的根因 bug，加 2 个回归测试。② Models 页默认入口（`a075670` / `90e64ff`）：顶部 Auto/Pinned 状态卡 + "改回自动" + 行级 PushPin（hidden 行原子两步"启用并设为默认" + 启用步失败回滚不写默认）+ 跨 Runtime "Other Runtime only" badge。③ Runtime 页 invalid-default banner（`4824a03`）：4 个 explicit recovery CTA — 切到对面 Runtime / 去启用此模型（deep-link 带 provider+model+filter='all' + 高亮目标行）/ 选别的默认 / 改回 Auto。④ Providers 页 default selector 删除（`f33b3b1`）：净减 95 行，pointer 卡引导去 Models 页。⑤ Settings → Health 顶级页（`3dc6c74`）：5 行只读 health（providers connectivity / runtime CLI / default model validity / models exposure / workspace），复用 useOverviewData 不造平行诊断管线。⑥ 旧诊断入口收敛（`d4c16dd`）：Overview Setup-Diagnostics 卡 → Health 入口；Health 底部从"深度诊断与修复"降为"需要进一步排查？ → 去 About"；About 卡名 "诊断与维护" → "支持与日志"。⑦ 持久日志支持（`9bf5856` / `748e457` / `f00a403` / `7821313` / `f3a42ed` / `5aafa87`）：Electron `app.getPath('logs')` 下的 `codepilot-main.log`，写盘前每行过 `electron/log-sanitize.ts` 脱敏（vendor 前缀 / Bearer / URL 凭证 / Authorization / **字段名规则** 覆盖 AWS / api_key / secret / password / `$HOME` 等），17 单元测试锁住每条规则；首次升级一次性 rotate 旧未脱敏文件为 `*.unsanitized-legacy.log`，rotation 失败时本会话写到 `codepilot-main-sanitized.log` fallback 不污染 canonical；marker 仅在成功时写。**产品定位调整（用户 2026-04-29 拍板）**：旧"诊断 / 修复"承诺被弱化——*Health 是日常状态索引，不是 wizard；问题排查靠 logs + issue。* Setup Center 留作 install / wizard 入口而不是"修复一切"按钮；ProviderDoctor 留在 Providers 页作为单 provider 探测工具，但不再是头条诊断动作。**收尾验证（2026-04-29）**：`npm run test` 1268/1268；CDP 6 页（Overview / Providers / Models / Runtime / Health / About）总体扫一遍 + 1440×900 / 560×900 两组视口 + 0 console error；6 重点用户路径走通（Auto/Pinned 默认切换、隐藏模型设默认、Runtime 切换、cross-Runtime pin → invalid-default、Open log folder Web 模式正确隐藏、Health → About logs deep-link）；旧"运行诊断"假动作 CTA 全部改名为真实导航。
 - 2026-04-28: **Phase 2C 拍板：Default Model Contract + Settings → Health**。Phase 2A/2B 把 Providers / Models / Runtime 三层心智立起来了，但默认模型还跨层泄漏——存于 `settings` 表的 `global_default_model` / `global_default_model_provider`，**唯一写入点是 Providers 页**（资产页）；`resolveNewChatDefault` 不区分模式，不可达就 null + 调用方各自 fallback。结果：用户在 Providers 页设了 default，刷新 / 切 Runtime 后系统"半静默"替他跑别的，"我设了默认但系统不听"是长期 bug 的根。Phase 2C 把契约重立。**核心原则（用户 2026-04-28 拍板）**：*Pinned default is a hard promise — Auto is the only mode allowed to fallback.* `global_default_mode='pinned'` + 当前 effective Runtime 下 pinned provider/model 不可执行 → 必须曝光 invalid-default + **阻断新消息发送** 直到用户解决。chat 入口不允许为 pinned default 静默替代任何 provider/model。**6 个独立 commit**：① 2C.1 数据契约 + resolver 形状（schema migration、`resolveNewChatDefault` 返回 `{ status: 'ok' \| 'auto-resolved' \| 'invalid-default' \| 'no-compatible', provider?, model?, reason? }`、5 个调用方 + 单元测试改）；② 2C.2 Models 页成默认入口（行级"设为默认"、Auto/Pinned toggle、跨 Runtime 模型显式 badge）；③ 2C.3 Runtime 页 invalid-default banner + 4 恢复 CTA（切 Runtime / 启用模型 / 选别的默认 / 改 Auto）；④ 2C.4 Providers 页移除 default selector + "在 Models 页管理 →" 引导；⑤ 2C.5 Settings → Health 顶级页（侧栏放 Runtime 与 Usage 之间，聚合 Providers connectivity / Runtime CLI / Default-model validity / Models exposure / Workspace 5 个 section，Setup Center 仍是 wizard 模态保留）；⑥ 2C.6 旧诊断入口收敛（Overview Setup-Diagnostics 卡 → Health 入口卡，chat header 连接失败 → Health，About 仍是 Setup Center）。**4 条决策**：⒜ invalid-default 时**阻断发送**（不临时 first-compatible）— 半静默 fallback 是 bug 根源；⒝ 跨 Runtime 模型可被 Pin（用户可能在为切 Runtime 准备），但立刻进 invalid-default 可见状态，UI 写清"已固定，但当前 Runtime 不可执行"；⒞ Health 放 Runtime 与 Usage 之间（先建运行条件，再查健康，再看消耗——放 About 上面会让它退化为"维护杂项"）；⒟ 6 commit 节奏（不合并：2C.1 动契约、2C.5 动 IA，单独 review 单独回滚）。
@@ -169,6 +172,34 @@ CodePilot 自己的本轮重构就是第一批 dogfood：
 8. Permission pending 时，用户能看见卡点、风险和可选动作。
 9. 项目会话和长期助理入口不会混淆，空状态文案能说明区别。
 10. Luma Style 切换后 6 个核心页面 CDP 验证无明显溢出、遮挡和 console error。
+
+### Self-Healing Harness 转译
+
+`自愈代理框架`材料对本计划的启发分为产品和开发流程两层，避免把"自愈"误解成一个能自动修好一切的按钮。
+
+**产品层**
+
+- **CodePilot 要从运行前控制面推进到运行质量闭环。** Providers / Models / Runtime / Health / Logs 已经解释"能不能跑、用谁跑、坏了去哪看"；Phase 3/4 要继续解释"这一轮跑得好不好、为什么失败、下次怎么避免"。
+- **Health 是 Triage Center，不是万能 Doctor。** Health 只承诺确定性状态、影响范围、证据和下一步入口；无法判断根因时引导用户打开日志文件夹 / 导出诊断包 / 提交 issue，不承诺自动修复。
+- **Run Cockpit 优先评价 outcome，不堆过程噪音。** 第一屏回答 runtime / provider / model / default source / fallback / blocked reason / recovery action；工具轨迹和上下文细节放在展开层。
+- **多 Agent 协作必须先可追踪。** `@agent` 显式调用前置于自动派发；每次调用记录谁被调用、输入边界、输出摘要、失败原因、日志位置和恢复动作。
+- **发布前的核心风险不只看编译。** 模型、prompt、context、tool contract、provider resolver、runtime fallback、默认模型契约都可能让用户看到"坏答案"；这些要进入 golden path，而不只是普通单测。
+
+**开发流程层**
+
+- **Review finding / 用户反馈 / CDP 失败 / 测试失败都是 signal。** Signal 不应只停在聊天里；P1/P2 必须变成修复 commit、tech-debt tracker 条目或 guardrail。
+- **Claude Code 是带护栏的执行者。** 每次改动必须绑定具体 finding / exec-plan task；说明根因、改动文件、验证方式；不把小修复扩成无关重构。
+- **修复必须闭环。** 采用 `Signal → Triage → Fix → Verify → Guardrail`：先描述信号，再归因，再做最小修复，再跑测试 / CDP，再判断是否需要文档或 guardrail。
+- **同类问题第二次出现就升级为 guardrail。** 例如 runtime-filtered provider/model 错位、hidden model 泄漏、诊断承诺过度、日志脱敏遗漏，都应沉淀到 `docs/guardrails/` 或 `CLAUDE.md` 索引。
+- **Golden path 是我们的轻量 Grader。** 不急着做三模型评审团，先用 10-15 条稳定用户路径做回归评估；每次 Phase 收口必须重新跑相关路径并记录结果。
+
+### 文档状态契约
+
+这套文档要服务"下一次修复"，不只服务本次讨论。本计划先采用轻量三层，后续再推广到执行计划模板：
+
+- **文件夹管生命周期**：`active/` 表示正在推进，`completed/` 表示已完成归档，`research/` 放事实输入，`guardrails/` 放复发防线，`tech-debt-tracker.md` 放暂缓问题。
+- **状态块 / YAML 管机器可读状态**：本计划后续收口时补 front matter，记录 `status`、`current_phase`、`last_verified`、`open_p1/open_p2`、`next_action`、相关 guardrails 和 golden paths。
+- **Repair Ledger 管闭环**：P1/P2 finding 修复后不只留在聊天里，要在本计划或 tracker 中记录 `Signal / Triage / Fix / Verify / Guardrail / Status`。同类问题第二次出现时，必须升级为 guardrail 或 CLAUDE 索引。
 
 ## 用户心智模型
 

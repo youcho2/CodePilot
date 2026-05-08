@@ -317,7 +317,34 @@ async function runStream(stream: ActiveStream, params: StartStreamParams): Promi
           detail: { initialCard: err.initialCard ?? 'provider' },
         }));
       }
-      throw new Error(err?.error || 'Failed to send message');
+      // Phase 2 Step 4b — `INVALID_SESSION_PROVIDER` 409: chat route
+      // refuses to send because the session points at a deleted
+      // provider. Surface as a typed window event ChatView listens
+      // for, so the user gets an inline banner ("your saved provider
+      // was deleted — pick another in the composer below") instead
+      // of a generic toast.
+      //
+      // **Step 4b review**: also tag the thrown Error with a `code`
+      // marker AND mark the stream so the catch block at the bottom
+      // of this function knows to take the SILENT error path —
+      // otherwise the `**Error:** Session points at...` text would
+      // get serialized into `finalMessageContent` and render as an
+      // assistant bubble in the transcript, contradicting the "red
+      // banner is the only signal" UX. Generic Error is still
+      // thrown so external callers' onError still fires — they just
+      // can no longer rely on stream.snapshot carrying error text.
+      if (err?.code === 'INVALID_SESSION_PROVIDER' && typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('chat-invalid-session-provider', {
+          detail: {
+            sessionId: params.sessionId,
+            sessionProviderId: err.sessionProviderId ?? '',
+            reason: err.reason ?? 'provider-missing',
+          },
+        }));
+      }
+      const e = new Error(err?.error || 'Failed to send message');
+      if (err?.code) (e as Error & { code?: string }).code = err.code;
+      throw e;
     }
 
     const reader = response.body?.getReader();
@@ -674,12 +701,24 @@ async function runStream(stream: ActiveStream, params: StartStreamParams): Promi
     } else {
       // Non-abort error
       const errMsg = error instanceof Error ? error.message : 'Unknown error';
+      // Phase 2 Step 4b review — silent error path for
+      // `INVALID_SESSION_PROVIDER`: the inline banner ChatView shows
+      // (driven by the window event we dispatched in the !response.ok
+      // branch above) is the canonical user-facing surface for this
+      // failure mode. Building a `**Error:** Session points at a
+      // provider that no longer exists.` assistant bubble on top of
+      // the banner triples the noise (banner + error bubble + leftover
+      // optimistic user message). ChatView removes the optimistic user
+      // message itself; here we just keep `finalMessageContent: null`
+      // so no error bubble lands in the transcript.
+      const errorCode = (error as Error & { code?: string })?.code;
+      const silentError = errorCode === 'INVALID_SESSION_PROVIDER';
       stream.snapshot = {
         ...buildSnapshot(stream),
         phase: 'error',
         completedAt: Date.now(),
         error: errMsg,
-        finalMessageContent: buildFinalContent(`**Error:** ${errMsg}`),
+        finalMessageContent: silentError ? null : buildFinalContent(`**Error:** ${errMsg}`),
         statusText: undefined,
         pendingPermission: null,
         permissionResolved: null,

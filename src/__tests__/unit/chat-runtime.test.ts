@@ -19,7 +19,7 @@
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { getActiveChatRuntime, isChatRuntimeParam, resolveChatRuntimeParam } from '../../lib/chat-runtime';
+import { getActiveChatRuntime, isChatRuntimeParam, resolveChatRuntimeParam, chatRuntimeParamForSession } from '../../lib/chat-runtime';
 import { getSetting, setSetting } from '../../lib/db';
 
 describe('chat-runtime registry side effects', () => {
@@ -81,5 +81,28 @@ describe('chat-runtime param helpers', () => {
     assert.equal(resolveChatRuntimeParam('codepilot_runtime'), 'codepilot_runtime');
     const auto = resolveChatRuntimeParam('auto');
     assert.ok(auto === 'claude_code' || auto === 'codepilot_runtime');
+  });
+});
+
+describe('chatRuntimeParamForSession (Phase 2 Step 3b)', () => {
+  it('valid pin → that pin (immune to global)', () => {
+    assert.equal(chatRuntimeParamForSession('claude_code'), 'claude_code');
+    assert.equal(chatRuntimeParamForSession('codepilot_runtime'), 'codepilot_runtime');
+  });
+
+  it('empty / undefined / null → "auto" (follow global)', () => {
+    assert.equal(chatRuntimeParamForSession(''), 'auto');
+    assert.equal(chatRuntimeParamForSession(undefined), 'auto');
+    assert.equal(chatRuntimeParamForSession(null), 'auto');
+  });
+
+  it('legacy / corrupt unknown value → "auto" (defensive)', () => {
+    // If a future legacy row holds a stale label form ('sdk', 'claude-code'),
+    // we'd rather fall through to global than route the picker into an
+    // unrecognized state. The downstream useProviderModels server filter
+    // is the second line of defense.
+    assert.equal(chatRuntimeParamForSession('sdk'), 'auto');
+    assert.equal(chatRuntimeParamForSession('claude-code'), 'auto');
+    assert.equal(chatRuntimeParamForSession('CLAUDE_CODE'), 'auto');
   });
 });

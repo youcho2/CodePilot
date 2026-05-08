@@ -1,6 +1,8 @@
 'use client';
 
 import { PaintBrush, Heart, Play } from '@/components/ui/icon';
+import { useTranslation } from '@/hooks/useTranslation';
+import type { TranslationKey } from '@/i18n';
 
 export interface GalleryItem {
   id: string;
@@ -41,6 +43,7 @@ function isVideoItem(item: GalleryItem): boolean {
 }
 
 export function GalleryGrid({ items, onSelect }: GalleryGridProps) {
+  const { t } = useTranslation();
   return (
     <div
       className="gap-3"
@@ -52,13 +55,32 @@ export function GalleryGrid({ items, onSelect }: GalleryGridProps) {
       {items.map((item) => {
         const url = thumbnailUrl(item);
         const isVideo = isVideoItem(item);
+        const promptPreview = item.prompt.length > 80
+          ? `${item.prompt.slice(0, 80)}…`
+          : item.prompt;
+        const ariaKey: TranslationKey = isVideo
+          ? 'gallery.playVideoAria'
+          : 'gallery.openItemAria';
 
         return (
+          // role="button" + tabIndex + Enter/Space handler — image
+          // tiles are the primary activator on this page; without
+          // these the a11y tree only exposes them as "image" and
+          // keyboard / screen-reader users have no way in.
           <div
             key={item.id}
-            className="mb-3 cursor-pointer rounded-lg overflow-hidden ring-0 hover:ring-2 hover:ring-border transition-all"
+            role="button"
+            tabIndex={0}
+            aria-label={t(ariaKey, { prompt: promptPreview })}
+            className="mb-3 cursor-pointer rounded-lg overflow-hidden ring-0 hover:ring-2 hover:ring-border focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring transition-all"
             style={{ breakInside: 'avoid' }}
             onClick={() => onSelect(item)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                onSelect(item);
+              }
+            }}
           >
             <div className="relative bg-muted/30">
               {url ? (

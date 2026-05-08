@@ -172,8 +172,8 @@ export function OverviewSection() {
           tone={runtimeIsFallback ? "warning" : "success"}
           primaryActionLabel={
             runtimeIsFallback
-              ? isZh ? "去 Runtime 修复" : "Fix in Runtime"
-              : isZh ? "管理 Runtime" : "Manage Runtime"
+              ? isZh ? "去执行引擎修复" : "Fix in Runtime"
+              : isZh ? "管理执行引擎" : "Manage Runtime"
           }
           onPrimaryAction={() => navTo("#runtime")}
         >
@@ -215,7 +215,7 @@ export function OverviewSection() {
           {state.noCompatibleProvider ? (
             <p className="text-status-warning-foreground">
               {isZh
-                ? `当前 Runtime（${runtimeLabel}）下没有可用的 provider/model。`
+                ? `当前执行引擎（${runtimeLabel}）下没有可用的 provider/model。`
                 : `No provider / model is compatible with the current runtime (${runtimeLabel}).`}
             </p>
           ) : (

@@ -233,10 +233,15 @@ function deriveStats(daily: DailyRow[], days: number): DerivedStats {
 
 interface HeatmapProps {
   isZh: boolean;
-  onJumpToDetails: () => void;
+  /** Optional — Overview page passes this to drive the bottom CTA. When the
+   *  component is embedded in `/settings#usage` (which IS the details page),
+   *  the host omits the handler and `hideViewDetails` is set to true. */
+  onJumpToDetails?: () => void;
+  /** When true, the bottom "View details →" link is hidden. */
+  hideViewDetails?: boolean;
 }
 
-export function OverviewHeatmap({ isZh, onJumpToDetails }: HeatmapProps) {
+export function OverviewHeatmap({ isZh, onJumpToDetails, hideViewDetails = false }: HeatmapProps) {
   const { t } = useTranslation();
   const [data, setData] = useState<UsageStatsResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -464,18 +469,20 @@ export function OverviewHeatmap({ isZh, onJumpToDetails }: HeatmapProps) {
         </div>
       )}
 
-      {/* Jump-to-details */}
-      <div className="mt-4 pt-3 border-t border-border/40">
-        <Button
-          variant="ghost"
-          size="sm"
-          className="-ml-2 gap-1 text-xs text-muted-foreground hover:text-foreground"
-          onClick={onJumpToDetails}
-        >
-          {t("overview.heatmapViewDetails" as TranslationKey)}
-          <CaretRight size={12} weight="bold" />
-        </Button>
-      </div>
+      {/* Jump-to-details — only when not already on the details page */}
+      {!hideViewDetails && onJumpToDetails && (
+        <div className="mt-4 pt-3 border-t border-border/40">
+          <Button
+            variant="ghost"
+            size="sm"
+            className="-ml-2 gap-1 text-xs text-muted-foreground hover:text-foreground"
+            onClick={onJumpToDetails}
+          >
+            {t("overview.heatmapViewDetails" as TranslationKey)}
+            <CaretRight size={12} weight="bold" />
+          </Button>
+        </div>
+      )}
     </div>
   );
 }

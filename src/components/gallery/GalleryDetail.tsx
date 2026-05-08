@@ -254,7 +254,7 @@ export function GalleryDetail({
             </div>
 
             {/* Actions */}
-            <div className="flex items-center gap-2 pt-2 border-t border-border/50 flex-wrap">
+            <div className="flex items-center gap-2 pt-3 flex-wrap">
               {item.session_id && (
                 <Button
                   variant="outline"

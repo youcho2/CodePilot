@@ -1,6 +1,10 @@
 import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import type { ProviderModelGroup } from '@/types';
-import type { ChatRuntimeParam } from '@/lib/chat-runtime';
+// `chat-runtime-shared` (not `chat-runtime`) — even type-only imports
+// from the server-side module muddy the boundary; keeping all hook /
+// component imports pointed at the shared module makes "client-safe"
+// the local rule for this hook too.
+import type { ChatRuntimeParam } from '@/lib/chat-runtime-shared';
 
 // Default Claude model options — used as fallback when API is unavailable
 export interface DefaultModelOption {
@@ -96,19 +100,25 @@ export interface UseProviderModelsReturn {
 }
 
 /**
- * @param runtime  Runtime gate for the picker feed.
- *   - `'auto'` (default): server resolves the active runtime and filters
- *     to compatible models — chat picker behavior; user shouldn't see
- *     models the active runtime can't reach.
- *   - explicit `'claude_code'` / `'codepilot_runtime'`: server uses that
- *     value directly. Useful for previewing the other runtime's catalog.
- *   - `null`: skip the filter entirely — caller wants the full catalog
- *     (e.g. Settings > Providers' global default-model selector).
+ * @param runtime  Runtime gate for the picker feed. **Required as of
+ * Phase 2 Step 3b** — the previous `'auto'` default made every chat-side
+ * caller silently re-filter on global `agent_runtime` change, so any
+ * open chat could "lose" its provider when the user flipped Settings.
+ * Callers must now choose deliberately:
+ *   - `'auto'`: server resolves the active runtime via global setting
+ *     and filters. **Only** appropriate for new-chat / Settings flows
+ *     where there is no session intent yet.
+ *   - `'claude_code'` / `'codepilot_runtime'`: explicit pin. The chat
+ *     view computes this from the session's `runtime_pin` via
+ *     `chatRuntimeParamForSession()`, so the picker reflects what THIS
+ *     session can actually reach — global flips don't cascade.
+ *   - `null`: skip the filter entirely — full catalog (e.g. Settings >
+ *     Providers' global default-model selector).
  */
 export function useProviderModels(
-  providerId?: string,
-  modelName?: string,
-  runtime: ChatRuntimeParam | null = 'auto',
+  providerId: string | undefined,
+  modelName: string | undefined,
+  runtime: ChatRuntimeParam | null,
 ): UseProviderModelsReturn {
   const [providerGroups, setProviderGroups] = useState<ProviderModelGroup[]>([]);
   const [defaultProviderId, setDefaultProviderId] = useState<string>('');
@@ -272,8 +282,14 @@ export function useProviderModels(
   const matchedGroup = providerGroups.find(g => g.provider_id === preferredProviderId);
   const currentGroup = matchedGroup ?? providerGroups[0];
   // currentProviderIdValue tracks currentGroup. If the preferred id was
-  // filtered out, this surfaces the fallback group's id so caller's
-  // session-write callback persists a consistent (provider, model) pair.
+  // filtered out, this surfaces a runtime-compatible fallback id so the
+  // picker has *something* live to render. **The hook does NOT persist
+  // this back to the session** — Phase 2 Step 3b removed the silent
+  // PATCH effect in ChatView that used to do that. Persistence now
+  // requires an explicit user action through `onProviderModelChange`
+  // (model picker), which is why the caller pairs this value with the
+  // `providerWasFilteredOut` signal below to surface an inline notice
+  // and gate send.
   const currentProviderIdValue = currentGroup?.provider_id ?? preferredProviderId;
   // DEFAULT_MODEL_OPTIONS (sonnet/opus/haiku) is reserved for the env
   // provider only — when the user is genuinely on the built-in Claude
@@ -313,11 +329,12 @@ export function useProviderModels(
   // route somewhere different from what the caller semantically
   // requested? Compare requestedProviderId (semantic intent) NOT
   // preferredProviderId (which already absorbs the env→groups[0]
-  // fallback). Without that distinction, a user with a saved env
-  // session under a runtime that filters env out would never get
-  // PATCH-synced back to the actual fallback provider.
-  // Skipped during load / failure so we don't write against an
-  // unreliable view.
+  // fallback). The flag is purely informational — the hook does not
+  // act on it. Phase 2 Step 3b: the consumer (ChatView) reads this to
+  // render an inline notice and disable send until the user picks a
+  // new provider via the picker; persistence to the session row is
+  // gated behind that explicit user action, never silent. Skipped
+  // during load / failure so consumers don't act on an unreliable view.
   const providerWasFilteredOut = fetchState === 'loaded'
     && requestedProviderId !== undefined
     && requestedProviderId !== resolvedProviderId;

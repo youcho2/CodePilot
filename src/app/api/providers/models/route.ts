@@ -327,9 +327,18 @@ export async function GET(request: NextRequest) {
     } catch { /* OpenAI OAuth module not available */ }
 
     // Apply runtime filter — only when caller asked for it. Two layers:
-    //   1. Group layer: drop sdkProxyOnly groups in codepilot_runtime mode
-    //      (their wire format requires the SDK subprocess), and never let
-    //      media_only through (also caught at row layer below).
+    //   1. Group layer: drop media_only groups (also caught at row layer below).
+    //      We deliberately do NOT drop `sdkProxyOnly` groups in
+    //      `codepilot_runtime` mode any more. `ClaudeCodeCompatAdapter`
+    //      (src/lib/claude-code-compat/) lets CodePilot Runtime speak the
+    //      same Anthropic wire format the Claude Code subprocess does, and
+    //      `provider-transport.ts::isNativeCompatible('claude-code-compat')`
+    //      already returns true. The old group-level drop here was a stale
+    //      relic of pre-adapter assumptions and was hiding GLM / Kimi /
+    //      MiniMax / Volcengine / Xiaomi MiMo / Bailian / DeepSeek Coding
+    //      Plan from AISDK pickers — leaving only OpenAI OAuth GPT models.
+    //      Reachability is now decided at the row layer via
+    //      `getModelCompat(...).codepilot_runtime_compatible`.
     //   2. Row layer: getModelCompat per model — drop media flags, drop
     //      rows whose runtime flag isn't set.
     //
@@ -348,12 +357,6 @@ export async function GET(request: NextRequest) {
       outGroups = groups.map(g => {
         const providerCompat = g.compat ?? 'unknown';
         if (providerCompat === 'media_only') return { ...g, models: [] };
-        // sdkProxyOnly providers (MiniMax / Xiaomi-MiMo / some Code Plan
-        // brands) only accept the SDK wire format — CodePilot Runtime can't
-        // route to them, so the entire group disappears in that mode.
-        if (runtimeFilter === 'codepilot_runtime' && g.sdkProxyOnly) {
-          return { ...g, models: [] };
-        }
         const filteredModels = g.models.filter(m => {
           const cap = getModelCompat({
             modelId: m.value,

@@ -304,11 +304,11 @@ function ExitPlanModeUI({
 
       {planOpen && planContent && (
         <Dialog open={planOpen} onOpenChange={setPlanOpen}>
-          <DialogContent className="max-w-4xl h-[80vh] flex flex-col">
-            <DialogHeader>
+          <DialogContent className="max-w-4xl max-h-[85vh] flex flex-col gap-0 overflow-hidden">
+            <DialogHeader className="shrink-0">
               <DialogTitle>Plan</DialogTitle>
             </DialogHeader>
-            <div className="overflow-y-auto flex-1 min-h-0">
+            <div className="flex-1 min-h-0 overflow-y-auto mt-4">
               <MessageResponse>{planContent}</MessageResponse>
             </div>
             <DialogFooter showCloseButton />
@@ -370,7 +370,7 @@ function ToolInputDisplay({ input }: { input: Record<string, unknown> }) {
         <button
           type="button"
           onClick={() => setExpanded(!expanded)}
-          className="w-full border-t border-border/30 px-3 py-1 text-[10px] text-muted-foreground hover:bg-muted/80 transition-colors"
+          className="w-full px-3 py-1 text-[10px] text-muted-foreground hover:bg-muted/80 transition-colors"
         >
           {expanded ? '▲ Collapse' : '▼ Show more'}
         </button>

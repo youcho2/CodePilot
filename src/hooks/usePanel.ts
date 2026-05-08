@@ -40,17 +40,22 @@ export type PreviewSource =
     };
 
 export interface PanelContextValue {
-  // --- New independent panel states ---
+  // --- Left sidebar (chat list / nav) state ---
+  // Lives in AppShell but exposed here so the in-sidebar collapse
+  // button and the UnifiedTopBar reopen button can both flip it.
+  chatListOpen: boolean;
+  setChatListOpen: (open: boolean) => void;
+
+  // --- Right-side panel states ---
+  // Phase 2 (2026-04-30): gitPanelOpen / dashboardPanelOpen / previewOpen
+  // were removed — those surfaces moved into the Workspace Sidebar
+  // (Git + Widget fixed Tabs, Markdown / Artifact / file preview as
+  // dynamic Tabs). fileTreeOpen stays as the lightweight file tree's
+  // independent topbar entry; assistantPanelOpen is its own concern.
   fileTreeOpen: boolean;
   setFileTreeOpen: (open: boolean) => void;
-  gitPanelOpen: boolean;
-  setGitPanelOpen: (open: boolean) => void;
-  previewOpen: boolean;
-  setPreviewOpen: (open: boolean) => void;
   terminalOpen: boolean;
   setTerminalOpen: (open: boolean) => void;
-  dashboardPanelOpen: boolean;
-  setDashboardPanelOpen: (open: boolean) => void;
   assistantPanelOpen: boolean;
   setAssistantPanelOpen: (open: boolean) => void;
   isAssistantWorkspace: boolean;

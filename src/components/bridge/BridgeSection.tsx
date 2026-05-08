@@ -202,7 +202,7 @@ export function BridgeSection() {
   const adapterCount = bridgeStatus?.adapters?.length ?? 0;
 
   return (
-    <div className="max-w-3xl space-y-6">
+    <div className="max-w-3xl mx-auto space-y-6">
       {/* Enable/Disable Master Toggle */}
       <SettingsCard className={isEnabled ? "border-primary/50 bg-primary/5" : undefined}>
         <FieldRow
@@ -215,7 +215,18 @@ export function BridgeSection() {
             disabled={saving}
           />
         </FieldRow>
-        {isEnabled && (
+        {/* Two-state banner: distinguish "enabled in config" from
+            "service is actually running". The previous single-message
+            banner conflated the two and made users assume external
+            channels were already usable just because the master
+            switch was on. (2026-05-05 P2 fix.) */}
+        {isEnabled && !isRunning && (
+          <StatusBanner variant="warning">
+            <Warning size={14} className="shrink-0" />
+            {t("bridge.enabledNotRunningHint")}
+          </StatusBanner>
+        )}
+        {isEnabled && isRunning && (
           <StatusBanner variant="info" className="bg-primary/10 text-primary">
             <span className="h-2 w-2 shrink-0 rounded-full bg-primary inline-block mr-1" />
             {t("bridge.activeHint")}
@@ -236,18 +247,22 @@ export function BridgeSection() {
               </p>
             </div>
             <div className="flex items-center gap-3">
-              <div
-                className={`flex items-center gap-2 rounded-md px-3 py-1.5 text-xs ${
+              <span
+                className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium ${
                   isRunning
                     ? "bg-status-success-muted text-status-success-foreground"
                     : "bg-muted text-muted-foreground"
                 }`}
               >
-                {isRunning ? <CheckCircle size={14} className="shrink-0" /> : <Warning size={14} className="shrink-0" />}
+                <span
+                  className={`size-1.5 rounded-full ${
+                    isRunning ? "bg-status-success-foreground" : "bg-muted-foreground"
+                  }`}
+                />
                 {isRunning
                   ? t("bridge.statusConnected")
                   : t("bridge.statusDisconnected")}
-              </div>
+              </span>
               {isRunning ? (
                 <Button
                   size="sm"
@@ -289,93 +304,61 @@ export function BridgeSection() {
           title={t("bridge.channels")}
           description={t("bridge.channelsDesc")}
         >
-          <div className="space-y-3">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <TelegramLogo size={16} className="text-muted-foreground" />
-                <div>
-                  <p className="text-sm">{t("bridge.telegramChannel")}</p>
-                  <p className="text-xs text-muted-foreground">{t("bridge.telegramChannelDesc")}</p>
-                </div>
-              </div>
-              <Switch
+          {/* All 6 toggles use the inset-divider sub-card pattern from
+              `docs/design.md` § Sub-card so the rows share a single
+              container with built-in dividers — replaces 5 hand-rolled
+              `flex justify-between` rows that had inconsistent
+              `pt-3`-based spacing. */}
+          <div className="rounded-md bg-muted/40 -mx-1">
+            <div className="px-3.5 divide-y divide-border/50">
+              <ChannelToggleRow
+                icon={<TelegramLogo size={16} className="text-muted-foreground" />}
+                title={t("bridge.telegramChannel")}
+                description={t("bridge.telegramChannelDesc")}
                 checked={isTelegramEnabled}
                 onCheckedChange={handleToggleTelegram}
                 disabled={saving}
               />
-            </div>
-
-            <div className="flex items-center justify-between border-t border-border/30 pt-3">
-              <div className="flex items-center gap-3">
-                <ChatTeardrop size={16} className="text-muted-foreground" />
-                <div>
-                  <p className="text-sm">{t("bridge.feishuChannel")}</p>
-                  <p className="text-xs text-muted-foreground">{t("bridge.feishuChannelDesc")}</p>
-                </div>
-              </div>
-              <Switch
+              <ChannelToggleRow
+                icon={<ChatTeardrop size={16} className="text-muted-foreground" />}
+                title={t("bridge.feishuChannel")}
+                description={t("bridge.feishuChannelDesc")}
                 checked={isFeishuEnabled}
                 onCheckedChange={handleToggleFeishu}
                 disabled={saving}
               />
-            </div>
-
-            <div className="flex items-center justify-between border-t border-border/30 pt-3">
-              <div className="flex items-center gap-3">
-                <GameController size={16} className="text-muted-foreground" />
-                <div>
-                  <p className="text-sm">{t("bridge.discordChannel")}</p>
-                  <p className="text-xs text-muted-foreground">{t("bridge.discordChannelDesc")}</p>
-                </div>
-              </div>
-              <Switch
+              <ChannelToggleRow
+                icon={<GameController size={16} className="text-muted-foreground" />}
+                title={t("bridge.discordChannel")}
+                description={t("bridge.discordChannelDesc")}
                 checked={isDiscordEnabled}
                 onCheckedChange={handleToggleDiscord}
                 disabled={saving}
               />
-            </div>
-
-            <div className="flex items-center justify-between border-t border-border/30 pt-3">
-              <div className="flex items-center gap-3">
-                <ChatsCircle size={16} className="text-muted-foreground" />
-                <div>
-                  <p className="text-sm">{t("bridge.qqChannel")}</p>
-                  <p className="text-xs text-muted-foreground">{t("bridge.qqChannelDesc")}</p>
-                </div>
-              </div>
-              <Switch
+              <ChannelToggleRow
+                icon={<ChatsCircle size={16} className="text-muted-foreground" />}
+                title={t("bridge.qqChannel")}
+                description={t("bridge.qqChannelDesc")}
                 checked={isQQEnabled}
                 onCheckedChange={handleToggleQQ}
                 disabled={saving}
               />
-            </div>
-
-            <div className="flex items-center justify-between border-t border-border/30 pt-3">
-              <div className="flex items-center gap-3">
-                <ChatTeardrop size={16} className="text-muted-foreground" />
-                <div>
-                  <p className="text-sm">{t("bridge.weixinChannel")}</p>
-                  <p className="text-xs text-muted-foreground">{t("bridge.weixinChannelDesc")}</p>
-                </div>
-              </div>
-              <Switch
+              <ChannelToggleRow
+                icon={<ChatTeardrop size={16} className="text-muted-foreground" />}
+                title={t("bridge.weixinChannel")}
+                description={t("bridge.weixinChannelDesc")}
                 checked={isWeixinEnabled}
                 onCheckedChange={handleToggleWeixin}
                 disabled={saving}
               />
-            </div>
-
-            <FieldRow
-              label={t("bridge.autoStart")}
-              description={t("bridge.autoStartDesc")}
-              separator
-            >
-              <Switch
+              <ChannelToggleRow
+                title={t("bridge.autoStart")}
+                description={t("bridge.autoStartDesc")}
                 checked={isAutoStart}
                 onCheckedChange={handleToggleAutoStart}
                 disabled={saving}
               />
-            </FieldRow>
+            </div>
           </div>
         </SettingsCard>
       )}
@@ -390,23 +373,28 @@ export function BridgeSection() {
             {bridgeStatus?.adapters.map((adapter) => (
               <div
                 key={adapter.channelType}
-                className="rounded-md border border-border/30 px-3 py-2 space-y-1"
+                className="rounded-md border border-border/50 bg-muted/40 px-3 py-2 space-y-1"
               >
                 <div className="flex items-center justify-between">
                   <span className="text-xs font-medium capitalize">
                     {adapter.channelType}
                   </span>
-                  <div
-                    className={`rounded px-2 py-0.5 text-xs ${
+                  <span
+                    className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium ${
                       adapter.running
                         ? "bg-status-success-muted text-status-success-foreground"
                         : "bg-muted text-muted-foreground"
                     }`}
                   >
+                    <span
+                      className={`size-1.5 rounded-full ${
+                        adapter.running ? "bg-status-success-foreground" : "bg-muted-foreground"
+                      }`}
+                    />
                     {adapter.running
                       ? t("bridge.adapterRunning")
                       : t("bridge.adapterStopped")}
-                  </div>
+                  </span>
                 </div>
                 {adapter.lastMessageAt && (
                   <p className="text-xs text-muted-foreground">
@@ -504,6 +492,45 @@ export function BridgeSection() {
           </Button>
         </SettingsCard>
       )}
+    </div>
+  );
+}
+
+/**
+ * Single channel/auto-start toggle row inside the channels card. Matches
+ * the inset-divider sub-card row pattern from `docs/design.md` § Sub-card
+ * — `py-2.5 flex items-center justify-between`. Icon is optional (the
+ * auto-start row at the bottom doesn't have one).
+ */
+function ChannelToggleRow({
+  icon,
+  title,
+  description,
+  checked,
+  onCheckedChange,
+  disabled,
+}: {
+  icon?: React.ReactNode;
+  title: string;
+  description: string;
+  checked: boolean;
+  onCheckedChange: (next: boolean) => void;
+  disabled?: boolean;
+}) {
+  return (
+    <div className="flex items-center justify-between gap-3 py-2.5">
+      <div className="flex items-center gap-3 min-w-0 flex-1">
+        {icon}
+        <div className="min-w-0">
+          <p className="text-sm">{title}</p>
+          <p className="text-xs text-muted-foreground">{description}</p>
+        </div>
+      </div>
+      <Switch
+        checked={checked}
+        onCheckedChange={onCheckedChange}
+        disabled={disabled}
+      />
     </div>
   );
 }

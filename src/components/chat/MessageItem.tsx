@@ -645,7 +645,7 @@ export const MessageItem = memo(function MessageItem({ message, sessionId, isAss
                 {displayText}
               </div>
               {isOverflowing && !isExpanded && (
-                <div className="absolute bottom-0 left-0 right-0 h-16 bg-gradient-to-t from-secondary to-transparent pointer-events-none" />
+                <div className="absolute bottom-0 left-0 right-0 h-16 bg-gradient-to-t from-muted to-transparent pointer-events-none" />
               )}
               {isOverflowing && (
                 <Button
@@ -873,7 +873,7 @@ const AssistantContent = memo(function AssistantContent({ displayText, messageId
         return (
           <>
             {genResult.beforeText && <MessageResponse>{genResult.beforeText}</MessageResponse>}
-            <div className="rounded-md border border-red-200 bg-red-50 dark:border-red-800 dark:bg-red-950/30 p-3">
+            <div className="rounded-md border border-status-error-border bg-status-error-muted p-3">
               <p className="text-sm text-status-error-foreground">{result.error || 'Image generation failed'}</p>
             </div>
             {genResult.afterText && <MessageResponse>{genResult.afterText}</MessageResponse>}

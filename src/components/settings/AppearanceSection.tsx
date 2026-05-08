@@ -93,7 +93,7 @@ function ShikiCodePreview({ isDark }: { isDark: boolean }) {
   }, [theme]);
 
   return (
-    <div className="rounded-md border border-border overflow-hidden">
+    <div className="rounded-md border border-border/50 overflow-hidden">
       <div className="flex items-center justify-between px-3 py-1.5 text-xs bg-muted text-muted-foreground">
         <span className="font-medium">preview.ts</span>
         <span className="rounded bg-accent px-1.5 py-0.5 text-accent-foreground">TypeScript</span>
@@ -123,7 +123,7 @@ function UIPreview() {
       <span className="inline-flex items-center rounded-full bg-accent px-2.5 py-0.5 text-[10px] font-medium text-accent-foreground">
         Badge
       </span>
-      <span className="inline-flex items-center rounded-full border border-border bg-card px-2.5 py-0.5 text-[10px] text-card-foreground">
+      <span className="inline-flex items-center rounded-full border border-border/50 bg-card px-2.5 py-0.5 text-[10px] text-card-foreground">
         Card
       </span>
       <span className="inline-flex items-center rounded-full bg-muted px-2.5 py-0.5 text-[10px] text-muted-foreground">

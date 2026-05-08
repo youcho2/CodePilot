@@ -147,9 +147,20 @@ const PREVIEW_MIN_WIDTH = 320;
 const PREVIEW_MAX_WIDTH = 800;
 const PREVIEW_DEFAULT_WIDTH = 480;
 
-export function PreviewPanel() {
+/**
+ * Markdown / Artifact / file preview surface — rendered exclusively
+ * as a Workspace Sidebar dynamic Tab. The shell owns resize and the
+ * Tab strip's X owns close, so this component renders just the
+ * header (filename / breadcrumb / view-mode toggle / save / copy /
+ * export) and the content body.
+ *
+ * The unused `variant` param is kept on the signature so the existing
+ * `<PreviewPanel variant="sidebar" />` call site in the TabPanel
+ * router still type-checks; behaviour does not branch on it.
+ */
+export function PreviewPanel(_: { variant?: 'sidebar' } = {}) {
   const { resolvedTheme } = useTheme();
-  const { workingDirectory, sessionId, previewSource, previewFile, setPreviewFile, previewViewMode, setPreviewViewMode, setPreviewOpen } = usePanel();
+  const { workingDirectory, sessionId, previewSource, previewFile, setPreviewFile, previewViewMode, setPreviewViewMode } = usePanel();
   const isDark = resolvedTheme === "dark";
   const [preview, setPreview] = useState<FilePreviewType | null>(null);
   const [loading, setLoading] = useState(true);
@@ -399,10 +410,9 @@ export function PreviewPanel() {
     }
   }, [exportableHtml, filePath, previewSource]);
 
-  const handleClose = () => {
-    setPreviewFile(null);
-    setPreviewOpen(false);
-  };
+  // No `handleClose` here — the Workspace Sidebar Tab strip's X owns
+  // close, and there's no panel chrome on this surface for the user
+  // to close from.
 
   // Header title: file uses basename; inline-* sources use virtualName or
   // a kind-appropriate default ("preview.html", "preview.jsx", "table").
@@ -434,14 +444,39 @@ export function PreviewPanel() {
       : `/api/files/raw?path=${encodeURIComponent(filePath)}`
     : '';
 
+  // Outer wrapper — fills the Workspace Sidebar's Tab body. Resize +
+  // width are owned by the sidebar shell so we don't ResizeHandle here.
+  const Outer = ({ children }: { children: React.ReactNode }) => (
+    <div className="flex h-full w-full flex-col overflow-hidden">{children}</div>
+  );
+
   return (
-    <div className="flex h-full shrink-0 overflow-hidden">
-      <ResizeHandle side="left" onResize={handleResize} />
-      <div className="flex h-full flex-1 flex-col overflow-hidden border-r border-border/40 bg-background" style={{ width }}>
-      {/* Header */}
-      <div className="flex h-10 shrink-0 items-center gap-2 px-3">
-        <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-medium">{fileName}</p>
+    <Outer>
+      {/* Header — Luma style (April 2026):
+          - Single row instead of two (filename row + breadcrumb row).
+            Filename + dimmer breadcrumb stack vertically inside one
+            min-w-0 column so long paths truncate without pushing the
+            action buttons off-screen.
+          - NO `border-b` here — the Workspace Sidebar TabBar above
+            this header already draws a divider. A second border 8px
+            below the first looked cluttered (user feedback). The
+            header just floats on the same `bg-background` surface as
+            the content, so the only horizontal rule in the right rail
+            is the one under the Tab strip.
+          - Action buttons all `text-muted-foreground/80 hover:text-foreground
+            hover:bg-muted/50` — same hover idiom as the Tab strip and
+            chat composer (no border, no fill, surfaces only on hover). */}
+      <div className="flex h-10 shrink-0 items-center gap-1 bg-background px-3">
+        <div className="min-w-0 flex-1 leading-tight">
+          <p className="truncate text-xs font-medium text-foreground">{fileName}</p>
+          {breadcrumb && (
+            <p className="truncate text-[10px] text-muted-foreground/60">
+              {breadcrumb}
+              {freshPreview && !isMedia && freshPreview.language ? (
+                <span className="ml-1.5 text-muted-foreground/40">· {freshPreview.language}</span>
+              ) : null}
+            </p>
+          )}
         </div>
 
         {canRender && !isMedia && (
@@ -460,15 +495,16 @@ export function PreviewPanel() {
           <>
             {editDirty && (
               <span
-                className="h-2 w-2 rounded-full bg-status-warning shrink-0"
+                className="h-1.5 w-1.5 rounded-full bg-status-warning shrink-0"
                 title={t("filePreview.save.unsaved")}
               />
             )}
             <Button
               size="xs"
+              variant="ghost"
               onClick={handleSaveEdit}
               disabled={!editDirty || savingEdit}
-              className="gap-1"
+              className="h-7 gap-1 rounded-full px-2.5 text-[11px]"
             >
               {savingEdit ? (
                 <SpinnerGap size={12} className="animate-spin" />
@@ -483,20 +519,25 @@ export function PreviewPanel() {
         )}
 
         {!isMedia && (
-          <Button variant="ghost" size="icon-sm" onClick={handleCopyContent}>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            onClick={handleCopyContent}
+            className="h-7 w-7 text-muted-foreground/80 hover:text-foreground hover:bg-muted/50"
+            title={t("filePreview.copyContent")}
+            aria-label={t("filePreview.copyContent")}
+          >
             {copied ? (
               <Check size={14} className="text-status-success-foreground" />
             ) : (
               <Copy size={14} />
             )}
-            <span className="sr-only">{t("filePreview.copyContent")}</span>
           </Button>
         )}
 
-        {/* Phase 3 long-shot export — only surfaces when we have concrete
-            HTML to ship to the IPC. Markdown and Sandpack/JSX variants
-            need a serialization step (Streamdown -> HTML, or
-            Sandpack files -> esbuild -> HTML) that's Phase 3 follow-up. */}
+        {/* Long-shot export — only surfaces when we have concrete HTML
+            to ship to the IPC. Markdown and Sandpack/JSX variants need
+            a serialization step (Phase 3 follow-up). */}
         {exportableHtml && (
           <Button
             variant="ghost"
@@ -504,32 +545,18 @@ export function PreviewPanel() {
             onClick={handleExportLongShot}
             disabled={exporting}
             title={t("filePreview.exportLongScreenshot")}
+            aria-label={t("filePreview.exportLongScreenshot")}
+            className="h-7 w-7 text-muted-foreground/80 hover:text-foreground hover:bg-muted/50"
           >
             {exporting ? (
               <SpinnerGap size={14} className="animate-spin" />
             ) : (
               <ImageIcon size={14} />
             )}
-            <span className="sr-only">{t("filePreview.exportLongScreenshot")}</span>
           </Button>
         )}
 
-        <Button variant="ghost" size="icon-sm" onClick={handleClose}>
-          <X size={14} />
-          <span className="sr-only">{t("filePreview.closePreview")}</span>
-        </Button>
-      </div>
-
-      {/* Breadcrumb + language */}
-      <div className="flex shrink-0 items-center gap-2 px-3 pb-2">
-        <p className="min-w-0 flex-1 truncate text-[11px] text-muted-foreground/60">
-          {breadcrumb}
-        </p>
-        {freshPreview && !isMedia && (
-          <span className="shrink-0 text-[10px] text-muted-foreground/50">
-            {freshPreview.language}
-          </span>
-        )}
+        {/* No close button here — the Tab strip's X owns close. */}
       </div>
 
       {/* Content — dispatch on previewSource.kind. The file branch preserves
@@ -598,8 +625,7 @@ export function PreviewPanel() {
           </div>
         )}
       </div>
-      </div>
-    </div>
+    </Outer>
   );
 }
 

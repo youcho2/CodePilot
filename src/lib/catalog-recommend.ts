@@ -95,15 +95,21 @@ export function isRecommendedModel(
 
   // (3) Claude alias fallback — only for anthropic-protocol providers.
   //     OpenAI-compat / OpenRouter relays that happen to expose
-  //     `anthropic/claude-*` would also fall here, but they're
-  //     `codepilot_only` and the alias-lift exception in runtime-compat
-  //     keeps them visible in the Claude Code picker. Auto-enabling
+  //     `anthropic/claude-*` would also fall here. Auto-enabling
   //     them as recommended makes "switch to OpenRouter, add → see
-  //     claude opus appear" feel natural.
+  //     claude opus appear" feel natural. Both OpenRouter skins qualify
+  //     here:
+  //       - `openrouter_anthropic_skin` (`/api`) routes through Claude
+  //         Code Runtime; `claude-*` aliases are the documented best
+  //         path.
+  //       - `codepilot_only` (`/v1` skin and other OpenAI-compat relays)
+  //         keeps the historical alias-lift so chats under CodePilot
+  //         Runtime can still pin `anthropic/claude-*` names.
   if (isAnthropicTier(providerCompat) && looksLikeClaudeAlias(id)) {
     return true;
   }
-  if (providerCompat === 'codepilot_only' && looksLikeClaudeAlias(id)) {
+  if ((providerCompat === 'codepilot_only' || providerCompat === 'openrouter_anthropic_skin')
+      && looksLikeClaudeAlias(id)) {
     return true;
   }
 

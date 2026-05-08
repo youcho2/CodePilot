@@ -160,7 +160,7 @@ export function DiscordBridgeSection() {
   };
 
   return (
-    <div className="max-w-3xl space-y-6">
+    <div className="max-w-3xl mx-auto space-y-6">
       {/* Bot Token */}
       <SettingsCard
         title={t("discord.credentials")}
@@ -333,7 +333,7 @@ export function DiscordBridgeSection() {
           </ol>
         </div>
 
-        <div className="border-t border-border/30 pt-3">
+        <div className="pt-3">
           <h3 className="text-xs font-medium mb-1.5">
             {t("discord.setupIdTitle")}
           </h3>

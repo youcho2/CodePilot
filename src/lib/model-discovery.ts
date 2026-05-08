@@ -32,6 +32,8 @@
  * `applyDiscoveryDiff`'s manual_* guard, not at the discovery layer.
  */
 
+import { isCatalogOnlyPlanProvider, isOpenRouterProviderRecord } from './provider-catalog';
+
 export type DiscoveryClassification =
   /** Reliable public/compat endpoint we can probe with provided creds. */
   | 'api'
@@ -97,6 +99,21 @@ export interface DiscoveryInput {
   presetKey?: string;
   /** Per-call timeout. Defaults to 8s. */
   timeoutMs?: number;
+  /**
+   * Bypass the static `classifyProvider` "unsupported" gate and probe
+   * upstream anyway. Read-only callers (e.g. the search-and-add dialog
+   * via `/search-models`) use this when they know the upstream returns
+   * a clean catalog even though the gate marks the provider as
+   * unsupported for *write* paths. Empirically GLM, MiniMax, etc.
+   * return clean GLM-only / MiniMax-only model lists from their plan
+   * `/v1/models` — the gate exists to protect the auto-write apply
+   * path from polluting DB with mixed Ark / DashScope catalogs
+   * (Volcengine / Bailian), not because every plan provider lacks an
+   * endpoint. The `canReliablyFetchModels` helper in `provider-catalog`
+   * is the source of truth for which presets the read path should
+   * honour vs. block.
+   */
+  bypassUnsupportedGate?: boolean;
 }
 
 const DEFAULT_TIMEOUT = 8_000;
@@ -128,6 +145,56 @@ export function classifyProvider(input: Pick<DiscoveryInput, 'protocol' | 'prese
       protocol: 'unknown',
       notes: 'OAuth web session / env-driven entry — no public model list endpoint.',
       suggestedFallback: 'Use SDK-built-in model defaults or curated catalog entries.',
+    };
+  }
+
+  // Coding Plan / Token Plan gate. These vendors (火山 Coding Plan, 百炼
+  // Coding Plan, GLM CN/Global, MiniMax CN/Global, Xiaomi MiMo Token Plan)
+  // sell access to a SKU whitelist, which is NOT the same set as what
+  // their `/v1/models` returns at the same domain — that endpoint exposes
+  // the full upstream inference catalogue (text + embedding + audio + image
+  // + deprecated variants). Probing and writing that list silently into
+  // provider_models would surface non-plan models on the Models page,
+  // and any user that selects one gets a 4xx + potentially extra billing.
+  // Volcengine is the most explicit about this split: their docs distinguish
+  // "Coding Plan Model Name" (what goes in ANTHROPIC_MODEL) from the much
+  // larger online-inference Model ID set.
+  //
+  // Trigger: `sdkProxyOnly && billingModel ∈ {coding_plan, token_plan}`,
+  // exposed through `isCatalogOnlyPlanProvider` so the same condition
+  // drives Add-Service success-toast suppression and Models-page refresh
+  // filtering — drift between layers would re-create the original symptom
+  // (probe writes 100+ inference SKUs into a Coding Plan provider).
+  // Pay-as-you-go anthropic-compat (kimi, moonshot, xiaomi-mimo, deepseek)
+  // is NOT gated — their full inference catalogue is the genuine offering.
+  // OpenRouter sits outside this gate too: 300+ aggregator entries are
+  // legitimately on offer; the search-and-add UX is tracked as a separate
+  // tech-debt item in `docs/exec-plans/tech-debt-tracker.md`.
+  if (isCatalogOnlyPlanProvider(key)) {
+    return {
+      classification: 'unsupported',
+      protocol: 'unknown',
+      notes: 'Coding/Token Plan exposes a SKU whitelist, not the full upstream catalog. Probing /v1/models would return non-plan models that error on use.',
+      suggestedFallback: 'Use the curated catalog list shipped with the preset; surface "Add custom model" for SKU-whitelist additions.',
+    };
+  }
+
+  // OpenRouter gate — same answer as `isOpenRouterProviderRecord`, by-key
+  // because callers of `discoverModels` already pass `presetKey` derived
+  // from `findMatchingPresetForRecord`. OpenRouter ships 300+ aggregator
+  // entries through /v1/models; auto-materializing them was the original
+  // tech-debt #13 — Models page got drowned. New flow is search-and-add
+  // (`POST /search-models`) for additions and a separate validate route
+  // (`POST /validate-models`) for refresh; this branch ensures any caller
+  // that *would* have probed and applied the full list now bails out
+  // early. UI sites short-circuit before reaching here, so this is
+  // primarily defense-in-depth.
+  if (key === 'openrouter') {
+    return {
+      classification: 'unsupported',
+      protocol: 'unknown',
+      notes: 'OpenRouter — full /v1/models materialization is no longer the auto-discover path. Use /search-models for additions, /validate-models for refresh.',
+      suggestedFallback: 'Open Models page → 添加模型 to search OpenRouter\'s catalog.',
     };
   }
 
@@ -236,9 +303,17 @@ export function classifyProvider(input: Pick<DiscoveryInput, 'protocol' | 'prese
 export async function discoverModels(input: DiscoveryInput): Promise<DiscoveryResult> {
   const { classification, protocol, notes, suggestedFallback } = classifyProvider(input);
 
-  if (classification === 'unsupported') {
+  if (classification === 'unsupported' && !input.bypassUnsupportedGate) {
     return { classification, protocol, notes, suggestedFallback };
   }
+  // bypassUnsupportedGate path: caller asserts read-only intent and
+  // wants the actual probe outcome, not the static gate verdict.
+  // Resolve a probe-able protocol from the catalog match. If the
+  // preset's protocol still doesn't dispatch, fall through to the
+  // 'unsupported' early-return below.
+  const effectiveProtocol = (classification === 'unsupported' && input.bypassUnsupportedGate)
+    ? (input.protocol === 'anthropic' ? 'anthropic' : protocol)
+    : protocol;
 
   const timeoutMs = input.timeoutMs ?? DEFAULT_TIMEOUT;
   const baseUrl = input.baseUrl.replace(/\/+$/, '');
@@ -246,7 +321,7 @@ export async function discoverModels(input: DiscoveryInput): Promise<DiscoveryRe
 
   try {
     let probe: Partial<DiscoveryResult>;
-    switch (protocol) {
+    switch (effectiveProtocol) {
       case 'ollama':
         probe = await probeOllama(baseUrl, timeoutMs);
         break;

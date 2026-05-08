@@ -43,7 +43,7 @@ export function OnboardingCard({ onboardingComplete, creatingSession, onStartOnb
 
   // When not complete: full card with Wizard button
   return (
-    <div className="rounded-lg border border-border/50 p-4">
+    <div className="rounded-lg bg-card border border-border/50 p-5">
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-sm font-medium">{t('assistant.onboardingTitle')}</h2>
@@ -82,7 +82,7 @@ export function CheckInCard({ lastCheckInDate, checkInDoneToday, autoTriggerEnab
   const { t } = useTranslation();
 
   return (
-    <div className="rounded-lg border border-border/50 p-4 space-y-3">
+    <div className="rounded-lg bg-card border border-border/50 p-5 space-y-3">
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-sm font-medium">{t('assistant.heartbeatTitle')}</h2>

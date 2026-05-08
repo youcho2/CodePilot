@@ -2,6 +2,8 @@
 
 中大型功能的执行计划，包含分阶段目标、进度状态和决策日志。
 
+> **本轮重构总控：[active/refactor-closeout.md](active/refactor-closeout.md)**。后续 ClaudeCode / Codex 只从这一个计划领取任务，不再从下方"被接管 / 暂缓"清单里的旧 active 计划自行开支线。
+
 **AI 须知：**
 - 新建执行计划放在 `active/`，完成后移至 `completed/`
 - 纯调研/可行性分析仍放 `docs/research/`
@@ -14,6 +16,31 @@
 - 跨 3 个以上模块的功能
 - 需要分阶段交付的中大型功能
 - 重构或迁移类任务
+
+## Signal → Triage → Fix → Verify → Guardrail
+
+中大型功能进入执行后，所有 P1/P2 review finding、用户反馈、CDP 失败、测试失败、日志暴露的问题，都按同一个闭环处理，避免问题只停留在聊天记录里。
+
+| 阶段 | 要求 | 产物 |
+|------|------|------|
+| Signal | 记录触发信号：review finding、用户反馈、CDP 截图、测试失败、日志证据 | finding / issue / plan note |
+| Triage | 判断根因、影响范围、是否阻断用户路径、是否已有同类历史 | 修复范围 + 优先级 |
+| Fix | 做最小必要改动；Claude Code 不得借小修复扩成无关重构 | commit / patch summary |
+| Verify | 跑相关测试；UI 改动必须 CDP 验证；说明验证场景 | test output / CDP notes |
+| Guardrail | 同类问题第二次出现，或涉及 schema/runtime/default/log/security，必须沉淀防线 | guardrail doc / tech-debt tracker / plan update |
+
+**Claude Code 交付说明必须包含：**
+
+- 根因：为什么会出错。
+- 改动：按文件或模块说明改了什么。
+- 验证：跑了哪些测试 / CDP 路径。
+- 防回归：新增测试、文档、guardrail，或说明为什么暂不需要。
+
+**Codex review 规则：**
+
+- P1/P2 finding 不能只用聊天确认关闭，必须有修复、测试证据或 tech-debt tracker 条目。
+- 涉及 Runtime resolver、默认模型、Provider/Models 暴露、日志脱敏、权限边界、DB schema 的改动，优先要求回归测试。
+- 文案承诺类问题也算产品 bug：如果按钮/页面承诺了"诊断、修复、导出、安全"，实现必须真的支持，否则降级文案。
 
 ## 执行计划模板
 
@@ -38,28 +65,66 @@
 （目标、技术方案、拆分步骤、依赖项、验收标准）
 ```
 
+每个新阶段必须先写清楚：**用户会看到什么变化 / 哪个页面或按钮可以验收 / 本阶段明确不做什么**。说不清用户结果就不能开工（来自 refactor-closeout 审批原则）。
+
 ## 索引
 
-### Active
+### Active — 当前推进
 
 | 文件 | 主题 | 状态 |
 |------|------|------|
-| active/chat-latency-remediation.md | 聊天链路提速 + 模式入口收敛 + MCP 持久开关 | Phase 0 完成，Phase 1-4 待开始 |
-| active/context-storage-migration.md | 上下文共享与存储迁移 | Phase 0 部分完成，Phase 1-3 待开始 |
-| active/site-and-docs.md | 官网 + 文档站（apps/site） | Phase 0-1 进行中 |
-| active/weixin-bridge-channel.md | 微信 Bridge 通道一次性交付方案 | One Shot 待开始 |
-| active/unified-context-layer.md | 统一上下文层 + 浮窗助理 + 产品架构演进 | Phase 1-3 已完成，Phase 4-5 待开始 |
-| active/provider-governance.md | 服务商系统治理：Preset Schema 校验、宿主接管、连通性验证、引导 UX、错误治理 | Phase 0 完成，Phase 1-6 待开始 |
-| active/decouple-claude-code.md | 脱离 Claude Code 依赖 — 自建 Agent Runtime（Provider/Loop/Tools/MCP/Permission/Session/Skills/SubAgent） | Phase 0 完成，Phase 1-8 待开始 |
-| active/runtime-auto-and-onboarding.md | Runtime auto 简化（CLI binary check 代替凭据推断）+ Chat 入口拦截 + 错误归一翻译（复用现有 SetupCenter）+ FileTree hotfix + 百炼 catalog 替换 | Phase 0-4 已完成（commits bc308e9/2d06f50/d1fac18/3e03919/a32837e），Phase 5 待发版 |
-| active/issue-tracker.md | **统一问题跟踪** — 合并所有 Bug / Feature Request / Sentry 监控，持续更新（替代 open-issues + v0.48-post-release） | 持续维护 |
-| active/opus-4-7-upgrade.md | Opus 4.7 模型升级：双 SDK 升级（agent-sdk + ai-sdk/anthropic）、`xhigh` effort + catalog 能力元数据回填、Native 路径 thinking/display/beta header 清理、tokenizer + vision 预算复核、prompt 字面化回归 | Phase 0 部分完成，Phase 1-6 待开始 |
-| active/agent-sdk-0-2-111-adoption.md | Agent SDK 0.2.111 能力采纳（Codex 审核后双层化 + 用户视角推进路线图）：Layer A 已完成 Phase 1 chip + Phase 2b 类型适配 / 待做 Phase 1b chip 按钮 + Phase 2 限流 UI；Layer B 待 POC 后推进 WarmQuery / session fork / getContextUsage / 新 hooks / Elicitation / Deferred tools | SDK 升级已完成，下一步阶段 1（chip 按钮 + 限流 UI）1-2 周可发版 |
-| active/v0.48-post-release-issues.md | v0.48.0/0.48.1 发版后问题追查（已归档至 issue-tracker.md，保留原始记录） | 已归档 |
+| [active/refactor-closeout.md](active/refactor-closeout.md) | **重构收口总控（唯一总控板）**：把剩余工作压成 6 条用户可感知主线（计划收敛 / 模型与渠道 / Runtime 与会话 / 助理后台 / 多 Agent / 上下文可视化 / 视觉锚点） | Phase 0 ✅；Phase 1 Step 1-3 ✅；Step 5 Browser smoke ✅；Step 4 / catalog 主动核准待补；Phase 2 详细方案待审核 |
+| [active/issue-tracker.md](active/issue-tracker.md) | **统一问题跟踪**：所有 Bug / Feature Request / Sentry 监控的活动看板 | 持续维护 |
+
+### 被 refactor-closeout 接管（保留作历史参考）
+
+文件已加 `Superseded by refactor-closeout.md` 顶部标注，不再单独推进；相关工作并入 refactor-closeout 对应 Phase。
+
+| 文件 | 原主题 | 接管至 |
+|------|--------|--------|
+| [active/opus-4-7-upgrade.md](active/opus-4-7-upgrade.md) | Opus 4.7 模型升级（双 SDK / `xhigh` / tokenizer / 字面化回归） | Phase 1（模型同步与渠道扩展） |
+| [active/agent-sdk-0-2-111-adoption.md](active/agent-sdk-0-2-111-adoption.md) | SDK 0.2.111 能力采纳（chip / 限流 UI / WarmQuery / session fork / context usage） | Phase 2（Runtime 与会话执行）+ Phase 5（上下文可视化） |
+| [active/scheduled-tasks-notifications.md](active/scheduled-tasks-notifications.md) | 定时任务 + 通知（Notification MCP / TaskScheduler / Electron 系统通知 / 管理 UI） | Phase 3（助理、定时任务、心跳通知） |
+| [active/chat-latency-remediation.md](active/chat-latency-remediation.md) | 聊天链路提速（模式入口收敛 / MCP 持久 / 首包优化） | Phase 2（Runtime 与会话执行）+ Phase 3 |
+| [active/context-storage-migration.md](active/context-storage-migration.md) | 上下文共享与存储迁移（`message_parts` / `session_runtime_state` / 压缩摘要） | Phase 5（上下文可视化）+ Phase 2 |
+| [active/agent-runtime-abstraction-revision.md](active/agent-runtime-abstraction-revision.md) | Runtime 可插拔抽象层（薄接口、Native / SDK / 未来 Codex / Gemini） | Phase 2（Runtime 与会话执行） |
+| [active/agent-trust-ownership-refactor.md](active/agent-trust-ownership-refactor.md) | Agent Trust & Ownership Refactor（剩余 Run Cockpit + session-level Runtime + 事件日志） | Phase 2（Runtime 与会话执行）+ Phase 3 |
+
+### 暂缓（本轮不开工，等收口完成后再评估）
+
+文件已加 ⏸ 暂缓顶部标注，与 refactor-closeout 的"暂缓清单"对齐。
+
+| 文件 | 原主题 | 暂缓原因 |
+|------|--------|----------|
+| [active/chat-run-checkpoint.md](active/chat-run-checkpoint.md) | Chat Run Checkpoint（Round 1+2 已完成；Round 3 PermissionPrompt 视觉收编） | Run Checkpoint Round 3（用户 2026-04-30 决定） |
+| [active/memory-system-v3.md](active/memory-system-v3.md) | 记忆系统 V3（Phase 1-3 + V3.1 已完成；Phase 4 Memory Flush + Memory 管理面板） | Memory 管理面板 |
+| [active/site-and-docs.md](active/site-and-docs.md) | 官网 + 文档站（Phase 0-3 已完成；Phase 4-5 packages/ui + 桌面端适配） | 大规模官网 / 文档站 |
+| [active/weixin-bridge-channel.md](active/weixin-bridge-channel.md) | 微信 Bridge 通道一次性交付 | 更多 Bridge 渠道 |
+| [active/qq-bridge-channel.md](active/qq-bridge-channel.md) | QQ Bridge Channel | 更多 Bridge 渠道 |
+| [active/unified-context-layer.md](active/unified-context-layer.md) | 统一上下文层 + 浮窗助理（Phase 1-3 已完成；Phase 4-5 浮窗 + 通知） | 浮窗助理；Phase 5 若启动走 closeout Phase 3 |
+| [active/git-terminal-integration.md](active/git-terminal-integration.md) | Git + 终端集成 | 不在本轮 6 条主线 |
+
 ### Completed
 
 | 文件 | 主题 | 完成日期 |
 |------|------|----------|
-| completed/markdown-artifact-overhaul.md | Markdown 渲染/编辑 × Artifact 网页预览扩展（DiffSummary 卡片 + Sandpack TSX + 长图导出 + 文件树新建 .md + CodeMirror 编辑 + DataTable + 文件 I/O API） | 2026-04-21 |
-| completed/hermes-inspired-runtime-upgrade.md | Hermes 借鉴的 Runtime 能力升级：6 核心模块 + 12 额外交付（并行安全、辅助模型、子目录 hint、session 搜索、Skill nudge UI、AskUserQuestion、压缩通知） | 2026-04-12 |
-| completed/engineering-quality-assurance.md | 工程质量保障体系（Harness Engineering）— 验证闭环、AI 文档、CDP、执行计划 | 2026-03-04 |
+| [completed/openrouter-search-and-add.md](completed/openrouter-search-and-add.md) | OpenRouter 取消全量目录物化 → 独立 search-models + validate-models 路由 + 「整理早期导入的目录」opt-in 入口；关闭 tech-debt #13 | 2026-05-06 |
+| [completed/tooling-assistant-surface-cleanup.md](completed/tooling-assistant-surface-cleanup.md) | Phase 2D Skills / MCP / CLI 三入口收敛到 `/plugins`（2D.0 + 2D.1 + 2D.2 + 2D.4 完成；2D.3 推迟、2D.5 独立） | 2026-05-01 |
+| [completed/markdown-artifact-overhaul.md](completed/markdown-artifact-overhaul.md) | Markdown 渲染/编辑 × Artifact 网页预览扩展 | 2026-04-21 |
+| [completed/composer-refactor.md](completed/composer-refactor.md) | Composer 重构 + 单聊天权限 + 远程桥接联动 | 2026-04-29 |
+| [completed/context-chips-phase-1.md](completed/context-chips-phase-1.md) | Chat composer 显式上下文 chips Phase 1 | 2026-04-29 |
+| [completed/workspace-sidebar-tabs.md](completed/workspace-sidebar-tabs.md) | Workspace Sidebar Tabs（Git / Widget 固定 + Markdown / Artifact / 文件预览动态） | 2026-04-30 |
+| [completed/runtime-auto-and-onboarding.md](completed/runtime-auto-and-onboarding.md) | Runtime auto 简化 + 错误归一翻译 + 入口拦截 + 百炼 catalog 替换 | 2026-04-15（已发布 v0.50.x） |
+| [completed/cc-switch-credential-bridge.md](completed/cc-switch-credential-bridge.md) | cc-switch 凭据桥接（per-request shadow `~/.claude/`） | 2026-04-15（已发布 v0.50.2） |
+| [completed/electron-port-stability.md](completed/electron-port-stability.md) | Electron 端口稳定化（修主题 / 默认模型 / dismiss 状态重启失效） | 2026-04-15（已发布 v0.50.2） |
+| [completed/decouple-claude-code.md](completed/decouple-claude-code.md) | 脱离 Claude Code 依赖 — 自建 Agent Runtime（Provider/Loop/Tools/MCP/Permission/Session/Skills/SubAgent） | 2026-04-07（Phase 0-7 + 4 闭环 + Phase 8 ✅） |
+| [completed/decouple-test-plan.md](completed/decouple-test-plan.md) | 脱离 Claude Code 功能测试方案（配套 decouple-claude-code） | 2026-04-07 |
+| [completed/provider-governance.md](completed/provider-governance.md) | 服务商系统治理（Preset 声明式 + Schema 校验 + 连通性验证 + meta 引导 + 错误恢复 + 模型目录动态化） | 2026-04 |
+| [completed/provider-resolver-refactor.md](completed/provider-resolver-refactor.md) | Provider Resolver 统一（Phase 1-5 完成） | 2026-03 |
+| [completed/v0.48-post-release-issues.md](completed/v0.48-post-release-issues.md) | v0.48.0/0.48.1 发版后问题追查（已归档至 issue-tracker.md） | 2026-04 |
+| [completed/open-issues-2026-03-12.md](completed/open-issues-2026-03-12.md) | 早期 GitHub Issues triage 快照（已合并至 issue-tracker.md） | 2026-04 |
+| [completed/hermes-inspired-runtime-upgrade.md](completed/hermes-inspired-runtime-upgrade.md) | Hermes 借鉴的 Runtime 能力升级（6 核心 + 12 额外） | 2026-04-12 |
+| [completed/engineering-quality-assurance.md](completed/engineering-quality-assurance.md) | 工程质量保障体系（Harness Engineering） | 2026-03-04 |
+| [completed/skills-mcp-tooling-fix.md](completed/skills-mcp-tooling-fix.md) | Skills / MCP / Tooling 修复 | 早期 |
+| [completed/cli-upgrade-proxy.md](completed/cli-upgrade-proxy.md) | CLI 升级代理 | 早期 |
+| [completed/assistant-workspace.md](completed/assistant-workspace.md) | 助理工作区 | 早期 |

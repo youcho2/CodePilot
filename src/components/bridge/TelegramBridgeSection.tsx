@@ -172,7 +172,7 @@ export function TelegramBridgeSection() {
   };
 
   return (
-    <div className="max-w-3xl space-y-6">
+    <div className="max-w-3xl mx-auto space-y-6">
       {/* Bot Credentials */}
       <SettingsCard
         title={t("telegram.credentials")}

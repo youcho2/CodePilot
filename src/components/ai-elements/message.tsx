@@ -55,8 +55,14 @@ export const MessageContent = ({
 }: MessageContentProps) => (
   <div
     className={cn(
-      "is-user:dark flex w-fit min-w-0 max-w-full flex-col gap-2 overflow-hidden text-sm",
-      "group-[.is-user]:ml-auto group-[.is-user]:rounded-lg group-[.is-user]:bg-(--user-bubble) group-[.is-user]:px-4 group-[.is-user]:py-3 group-[.is-user]:text-(--user-bubble-foreground)",
+      "flex w-fit min-w-0 max-w-full flex-col gap-2 overflow-hidden break-words text-sm",
+      // User bubble: Luma-light styling per April 2026 user feedback —
+      // soft muted bg + default foreground, 24px radius matching the
+      // composer input box. Drops the prior `is-user:dark` inversion
+      // (dark bubble in light mode) which fought the rest of the chat
+      // surface. `break-words` keeps very long URLs / unbreakable
+      // tokens contained inside the bubble.
+      "group-[.is-user]:ml-auto group-[.is-user]:rounded-2xl group-[.is-user]:bg-muted group-[.is-user]:px-4 group-[.is-user]:py-3 group-[.is-user]:text-foreground",
       "group-[.is-assistant]:w-full group-[.is-assistant]:text-foreground",
       className
     )}

@@ -62,6 +62,23 @@ export interface ResolvedProvider {
   settingSources: string[];
   /** Internal: true when resolved as OpenAI OAuth (Codex API) virtual provider */
   _openaiOAuth?: boolean;
+  /**
+   * Phase 2 Step 2 — invalid-session signal. Set ONLY by
+   * `resolveProviderForSession` when the session's stored
+   * `provider_id` is non-empty but no longer points at a real DB
+   * provider (deleted by the user, lost in import, etc.). The send
+   * route must check this field and refuse to send rather than
+   * silently routing through the env fallback the resolver picks
+   * for the same input shape today. Frontend already has the
+   * matching gate via `RunCheckpoint`; this is the resolver-side
+   * surface so the route can't be reached with a stale session.
+   *
+   * Other callers (`resolveProvider` directly, anything not session-
+   * scoped) do NOT set this — they keep the legacy "fall through to
+   * env" behaviour, because they don't have a session intent to
+   * compare against.
+   */
+  invalidReason?: 'provider-missing' | 'model-missing' | 'runtime-incompatible';
 }
 
 // ── Public API ──────────────────────────────────────────────────
@@ -1310,4 +1327,120 @@ function safeParseRoleModels(json: string | undefined | null): RoleModels {
     if (typeof parsed === 'object' && parsed !== null) return parsed as RoleModels;
   } catch { /* ignore */ }
   return {};
+}
+
+// ── Phase 2 Step 2 — session-aware wrapper ───────────────────────────
+
+/**
+ * Minimal shape consumed from a `ChatSession`. Avoids importing the
+ * full DB type so the wrapper stays callable from anywhere a session
+ * record is in scope (route handlers, resolver tests, future bridge
+ * adapters) without dragging the DB module into client bundles.
+ */
+export interface SessionRuntimeIntent {
+  /** Stored session provider id ('' = "no commitment yet, follow global"). */
+  provider_id: string;
+  /** Stored session model id ('' = "no commitment yet, follow global"). */
+  model: string;
+  /**
+   * Per-message provider from the request body.
+   *
+   * **Important**: this can be either (a) a *real* user override (the
+   * user just picked a different provider in the composer) or (b) just
+   * the session's current provider echoed back through the wire — the
+   * default `ChatView` send path includes `provider_id` on every
+   * request. The wrapper does NOT use this field to decide "skip
+   * validation"; it validates whichever provider will actually be sent
+   * to (override if it differs from session, otherwise the session
+   * value). See the `effectiveProviderId` logic below.
+   *
+   * If a future caller wants to explicitly mark "user just clicked
+   * switch", surface that intent through a separate flag — don't piggy-
+   * back on the request body, because the request body looks the same
+   * for "user override" and "normal echo".
+   */
+  requestProviderId?: string;
+  /** Per-message model override (same caveat as `requestProviderId`). */
+  requestModel?: string;
+}
+
+/**
+ * Phase 2 Step 2: session-aware provider resolver.
+ *
+ * Wraps `resolveProvider` and adds **one** behavior on top: when the
+ * session committed to a specific provider id but that provider no
+ * longer exists in the DB (deleted, lost in import, never created),
+ * the wrapper returns a `ResolvedProvider` carrying
+ * `invalidReason: 'provider-missing'`. Callers (chat send route,
+ * future RunCheckpoint signal) can then refuse to send instead of
+ * silently falling through to the env provider — which is what the
+ * raw `resolveProvider` does today and what the user is afraid of.
+ *
+ * Everything else delegates straight to `resolveProvider` with the
+ * session's data plumbed in: per-message request overrides win, then
+ * session.model / session.provider_id, then global defaults. This is
+ * the same priority chain the existing resolver enforces — we are
+ * not changing it, just labelling the missing-provider case.
+ *
+ * Caller contract:
+ *   - Pass the session's stored fields explicitly. The wrapper does
+ *     NOT call `getSession()` — keeps the function pure and testable,
+ *     and avoids accidental coupling to DB mocks.
+ *   - To opt out of the invalid-session check (e.g. legacy paths
+ *     that still want silent env fallback), call `resolveProvider`
+ *     directly. Phase 2 Step 3 will progressively migrate callers.
+ */
+export function resolveProviderForSession(
+  intent: SessionRuntimeIntent,
+  extras: Pick<ResolveOptions, 'useCase' | 'runtime'> = {},
+): ResolvedProvider {
+  const sessionProviderId = intent.provider_id;
+  const requestProviderId = intent.requestProviderId;
+  // Validate whichever provider id will *actually* be sent to. We
+  // can't use the request body's mere presence as a "user explicitly
+  // overrode, so trust it" signal — the chat composer wires the
+  // session's current provider id into every send, so `requestProviderId
+  // === sessionProviderId === <ghost id>` is a perfectly normal echo,
+  // and gating on `!requestProviderId` would let a deleted session
+  // provider quietly slip past this check (Step 2 review caught this).
+  //
+  // Effective id rule (matches `resolveProvider`'s own priority):
+  //   - request override differs from session → override is the real
+  //     destination; validate THAT one.
+  //   - request matches session OR no request → session value is the
+  //     destination; validate it.
+  // Either way, if the destination doesn't resolve to a DB row, surface
+  // `invalidReason: 'provider-missing'` so the send route can refuse
+  // instead of silently rerouting through env.
+  const isExplicitOverride = !!requestProviderId && requestProviderId !== sessionProviderId;
+  const effectiveProviderId = isExplicitOverride ? requestProviderId : sessionProviderId;
+  if (
+    effectiveProviderId
+    && effectiveProviderId !== 'env'
+    && effectiveProviderId !== 'openai-oauth'
+    && !getProvider(effectiveProviderId)
+  ) {
+    // Still produce a ResolvedProvider shape so destructuring callers
+    // don't crash; the env-fallback fields are populated so a route
+    // that forgets to check `invalidReason` at least doesn't behave
+    // worse than the resolver did pre-Step-2.
+    const fallback = resolveProvider({
+      providerId: undefined,
+      sessionProviderId: undefined,
+      model: intent.requestModel,
+      sessionModel: intent.model || undefined,
+      useCase: extras.useCase,
+      runtime: extras.runtime,
+    });
+    return { ...fallback, invalidReason: 'provider-missing' };
+  }
+  // Healthy path — same priority chain as the legacy resolver.
+  return resolveProvider({
+    providerId: requestProviderId || undefined,
+    sessionProviderId: sessionProviderId || undefined,
+    model: intent.requestModel,
+    sessionModel: intent.model || undefined,
+    useCase: extras.useCase,
+    runtime: extras.runtime,
+  });
 }

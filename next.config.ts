@@ -3,6 +3,21 @@ import pkg from "./package.json" with { type: "json" };
 
 const nextConfig: NextConfig = {
   output: 'standalone',
+  // Pin Turbopack's workspace root to THIS directory.
+  //
+  // Without this, Next walks upward looking for the nearest lockfile
+  // and lands on the parent repo when we're running from a worktree
+  // under `.claude/worktrees/<name>/`. The symptom: dev server prints
+  // "Next.js inferred your workspace root … selected
+  // …/opus-4.6-test/package-lock.json" and serves the *parent's*
+  // src/ for any file the worktree hasn't touched, so smoke tests
+  // fail against stale code (directory chip / data-message-input-submit
+  // mismatches that aren't real regressions). `import.meta.dirname` is
+  // available on Node ≥ 20.11 and is the worktree-correct anchor —
+  // resolves to the actual config file's directory regardless of cwd.
+  turbopack: {
+    root: import.meta.dirname,
+  },
   // serverExternalPackages: keep these in node_modules at runtime instead of bundling.
   // - better-sqlite3 / zlib-sync: native modules, can't be bundled
   // - discord.js / @discordjs/ws: dynamic require chain

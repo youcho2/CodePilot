@@ -98,6 +98,16 @@ const en = {
 
   // ── Chat view / session page ────────────────────────────────
   'chat.newConversation': 'New Conversation',
+  // Phase 2 Step 3b: inline notice that replaces the silent PATCH
+  // when the session's saved provider isn't reachable under the
+  // current execution engine. User picks a new one in the composer
+  // below; no auto-rewrite of session state.
+  'chat.sessionProviderIncompatible.message': 'This session\'s saved provider isn\'t reachable under the current execution engine. Pick another provider in the composer below, or switch the engine in Settings.',
+  // Phase 2 Step 4b: 409 INVALID_SESSION_PROVIDER banner — the session's
+  // saved provider was deleted right before send, server refused to
+  // continue. The picker below already only lists real providers, so
+  // picking one and sending again will route through the new choice.
+  'chat.invalidSessionProvider.message': 'This session\'s saved provider "{providerId}" was deleted and the message could not be sent. Pick another provider in the composer below, or return to Settings to reconnect it.',
 
   // ── Settings: General ───────────────────────────────────────
   'settings.title': 'Settings',
@@ -265,6 +275,46 @@ const en = {
   'provider.notesPlaceholder': 'Optional notes about this provider...',
   'provider.saving': 'Saving...',
   'provider.update': 'Update',
+  // Provider Card 「接入方式」(Step 4 copy round, 2026-05-06): user-facing
+  // taxonomy that replaces the raw `Auth Token / API Key` authStyle dump.
+  // Keys derive from preset.meta.billingModel + a few special-case checks
+  // (env_only → cloud creds, anthropic-thirdparty → relay gateway, etc.).
+  'provider.accessType.subscriptionToken': 'Subscription token',
+  'provider.accessType.apiKey': 'API key',
+  'provider.accessType.oauth': 'OAuth login',
+  'provider.accessType.local': 'Local service',
+  'provider.accessType.gateway': 'Relay gateway',
+  'provider.accessType.cloudCredentials': 'Cloud credentials',
+  // Provider form / preset-connect dialog validation + error i18n
+  // (Step 4 copy round). These were hardcoded English and leaked into the
+  // Chinese UI when a save failed.
+  'provider.form.errorNameRequired': 'Name is required',
+  'provider.form.errorJsonInvalid': '{field} must be valid JSON',
+  'provider.form.errorSaveFailed': 'Failed to save provider',
+  'provider.form.errorUpdateFailed': 'Failed to update provider',
+  'provider.form.errorAddFailed': 'Failed to add provider',
+  'provider.form.errorTestEndpoint': 'Failed to reach test endpoint',
+  'provider.form.errorTestEndpointHint': 'Check that the app is running',
+  'provider.form.editDesc': 'Update the API provider configuration.',
+  'provider.form.addDesc': 'Configure a new API provider for Claude Code.',
+  // Field-level placeholders used by the manual ProviderForm dialog
+  'provider.form.headersJson': 'Custom headers (JSON)',
+  'provider.form.envOverridesJson': 'Environment overrides (JSON)',
+  'provider.form.roleModelsJson': 'Role mapping (JSON)',
+  // Provider card endpoint sanitization (Step 4 round, P1 follow-up):
+  // some users have accidentally pasted an API key into the base_url
+  // field. The card was rendering the value verbatim — leaking secrets
+  // in screenshots / screen recordings. Suspicious values are masked.
+  'provider.endpoint.suspicious': 'Suspicious endpoint (…{tail})',
+  'provider.endpoint.suspiciousTooltip': "This value doesn't look like a valid URL — it's masked here. Open Edit and check whether the endpoint field was filled with a key by mistake.",
+  // Field-level: stored-key affordances. Were hardcoded English in
+  // ProviderForm even though PresetConnectDialog already has both
+  // languages — this aligns the manual form with the preset dialog.
+  'provider.form.keepKeyPlaceholder': 'Leave empty to keep current key',
+  'provider.form.clearKeyPlaceholder': 'Stored key will be cleared on save',
+  'provider.form.clearKeyAction': 'Clear stored key',
+  'provider.form.clearKeyPending': 'The stored key will be cleared on save.',
+  'provider.form.undo': 'Undo',
   'provider.envDetected': 'Detected from environment',
   'provider.default': 'Default',
   'provider.setDefault': 'Set as Default',
@@ -282,8 +332,6 @@ const en = {
   'provider.addProviderSection': 'Add Provider',
   'provider.addProviderDesc': 'Select a provider to connect. Most presets only require an API key.',
   'provider.connectedServices': 'Connected services',
-  'provider.serviceSettings': 'Service settings',
-  'provider.serviceSettingsDesc': 'Check connectivity and pick the global default model so every service stays usable',
   'provider.llmServices': 'LLM providers',
   'provider.imageServices': 'Image providers',
   'provider.categoryOAuth': 'OAuth',
@@ -1620,6 +1668,302 @@ const en = {
   'buddy.namePlaceholder': 'Give your buddy a name...',
   'buddy.nameHint': 'This will be your buddy\'s name',
   'buddy.reset': 'Reset buddy',
+
+  // ─── Recovery block (i18n keys re-added after accidental git checkout) ───
+  // Grouped by section. All recovered keys live here so the diff stays
+  // localized; some keys may belong to historical sections above but are
+  // appended at the end to avoid disturbing the rest of the file's order.
+
+  // about.* — AboutSection
+  'about.platform.title': 'Platform',
+  'about.platform.desc': 'Build details to copy into bug reports',
+  'about.platform.os': 'OS',
+  'about.platform.channel': 'Release channel',
+  'about.platform.appVersion': 'App version',
+  'about.support.title': 'Support & logs',
+  'about.support.desc': 'Open the logs folder, export a diagnostic bundle, or rerun setup',
+  'about.support.openLogs': 'Open logs folder',
+  'about.support.openLogsFailed': 'Could not open the logs folder',
+  'about.support.openLogsFailedWith': 'Could not open the logs folder: {error}',
+  'about.support.exportDiagnostics': 'Export diagnostics',
+  'about.support.exportFailed': 'Failed to export diagnostics',
+  'about.support.exportFailedWithLogFolder': 'Failed to export diagnostics. Try the open-logs button instead.',
+  'about.support.runSetupWizard': 'Run setup wizard',
+  'about.docs.title': 'Help & links',
+  'about.docs.desc': 'GitHub repo, feedback, and release notes',
+  'about.docs.submitFeedback': 'Submit feedback',
+  'about.docs.releaseNotes': 'Release notes',
+
+  // bridge.*
+  'bridge.enabledNotRunningHint': 'Bridge is enabled but not running yet — start the service to allow external channels to reach Claude.',
+
+  // gallery.* — GalleryGrid a11y
+  'gallery.openItemAria': 'Open item: {prompt}',
+  'gallery.playVideoAria': 'Play video: {prompt}',
+
+  // mcp.builtin.trigger.* — BuiltInMcpSection pill labels
+  'mcp.builtin.trigger.always': 'Always on',
+  'mcp.builtin.trigger.workspace': 'Workspace-scoped',
+  'mcp.builtin.trigger.keyword': 'Keyword-triggered',
+
+  // messageInput.* — ModeIndicator dropdown descriptions
+  'messageInput.modeCodeDesc': 'Run tools, edit files, and execute changes in the current workspace.',
+  'messageInput.modePlanDesc': 'Discuss and plan without writing files or running tools.',
+
+  // nav.*
+  'nav.plugins': 'Plugins',
+
+  // common.*
+  'common.edit': 'Edit',
+
+  // plugins.* — /plugins page tabs and search placeholders
+  'plugins.tab.skills': 'Skills',
+  'plugins.tab.mcp': 'MCP',
+  'plugins.tab.cli': 'CLI tools',
+  'plugins.search.placeholder.skills': 'Search skills...',
+  'plugins.search.placeholder.mcp': 'Search MCP servers...',
+  'plugins.search.placeholder.cli': 'Search CLI tools...',
+
+  // skills.source.* — pill labels for skill row source attribution
+  'skills.source.global': 'Global',
+  'skills.source.project': 'Project',
+  'skills.source.installed': 'From marketplace',
+  'skills.source.plugin': 'From plugin',
+  'skills.source.sdk': 'SDK built-in',
+
+  // skills.readOnlyReason.* — Lock badge tooltip on read-only skill rows
+  'skills.readOnlyReason.sdk': 'Read-only — provided by the SDK runtime',
+  'skills.readOnlyReason.fileNotWritable': 'Read-only — file is not writable',
+  'skills.readOnlyReason.outOfCwd': 'Read-only — outside the current workspace',
+
+  // usage.*
+  'usage.costChart': 'Daily cost',
+
+  // provider.add.* — ModelsSection manual-add dialog (plan vs. manual flow)
+  // Title aligned with the trigger button copy ("Add model") — drop the
+  // "SKU" jargon. Plan vs generic distinction now lives in the
+  // description only.
+  'provider.add.titlePlan': 'Add a model to {name}',
+  'provider.add.titleManual': 'Add a model to {name}',
+  'provider.add.descriptionPlan': "Plan-based provider — the model list is defined by your subscription whitelist. Use this dialog to add a model that's visible in your console but not yet listed here. Tagged \"manual\" — refresh won't overwrite it.",
+  'provider.add.descriptionManual': 'Enter the upstream model ID. Display name is optional and defaults to the ID.',
+
+  // provider.legacy.* — "Not in current catalog" badge + tooltip
+  'provider.legacy.notInCatalogBadge': 'Not in current catalog',
+  'provider.legacy.notInCatalogTooltip': 'This model is no longer in the recommended catalog. It still works — your settings are preserved.',
+
+  // provider.autoDiscover.* — ProviderManager Add Service success path
+  'provider.autoDiscover.catalogOnly': 'Added {name}. Models come from the plan whitelist; use Add model on the Models page to add custom SKUs.',
+  'provider.autoDiscover.openrouterAddOnly': 'Added {name}. OpenRouter starts with the 3 alias models — use Add model on the Models page to search and add more.',
+
+  // provider.refresh.* — Models page per-card refresh tooltip
+  'provider.refresh.catalogOnlyTooltip': 'Plan-based providers do not need a refresh — the model list is defined by your subscription whitelist.',
+
+  // provider.validate.openrouter.* — OpenRouter validate-models toasts + per-row badge
+  'provider.validate.openrouter.allOk': 'All {verified} models are still available upstream.',
+  'provider.validate.openrouter.someMissing': 'Verified {verified}; {missing} are no longer upstream.',
+  'provider.validate.openrouter.error': 'Validation failed: {error}',
+  'provider.validate.openrouter.missingBadge': 'Not on upstream',
+  'provider.validate.openrouter.missingTooltip': 'This model is no longer returned by OpenRouter. The badge clears on the next successful refresh.',
+
+  // provider.search.openrouter.* — OpenRouterSearchDialog
+  'provider.search.openrouter.dialogTitle': 'Search OpenRouter models',
+  'provider.search.dialogDescription': 'Pick from the model list this provider currently publishes. Use "Reload" if you suspect the list is stale.',
+  'provider.search.openrouter.placeholder': 'Filter by name or ID...',
+  'provider.search.openrouter.fetchError': 'Failed to load model list: {error}',
+  'provider.search.openrouter.noResults': 'No matching models',
+  'provider.search.openrouter.matchCount': '{count} of {total} models match',
+  'provider.search.openrouter.totalCount': '{total} models available',
+  'provider.search.openrouter.contextWindow': 'Context: {ctx}',
+  'provider.search.openrouter.pricing': '${prompt} in / ${completion} out per 1M tokens',
+  'provider.search.openrouter.alreadyAdded': 'Added',
+  'provider.search.openrouter.adding': 'Adding...',
+  'provider.search.openrouter.addButton': 'Add',
+  'provider.search.openrouter.addError': 'Could not add model: {error}',
+  'provider.search.openrouter.manualFallback': 'Or type a model ID manually',
+  'provider.search.openrouter.reload': 'Reload',
+  'provider.search.openrouter.reloading': 'Loading...',
+  'provider.search.openrouter.fetchErrorFallback': 'If loading keeps failing, you can still type a model ID manually.',
+  'provider.search.openrouter.fallbackToManual': 'Type model ID manually',
+
+  // provider.cleanup.openrouter.* — OpenRouterCleanupDialog + ModelsSection entry link
+  'provider.cleanup.openrouter.entryLink': 'Tidy legacy model list',
+  'provider.cleanup.openrouter.entryLinkTooltip': "Hides only auto-imported rows you haven't toggled yet — manually added, edited, or hidden models stay untouched. Preview shown before commit.",
+  'provider.cleanup.openrouter.dialogTitle': 'Tidy legacy OpenRouter entries',
+  'provider.cleanup.openrouter.description': 'Hide auto-imported OpenRouter rows you never enabled. Models you manually enabled, hid, or edited are skipped automatically — they stay untouched in the database.',
+  'provider.cleanup.openrouter.fetchError': 'Failed to load preview: {error}',
+  'provider.cleanup.openrouter.empty': 'Nothing to tidy — no auto-imported rows are eligible.',
+  'provider.cleanup.openrouter.previewCount': '{count} entries will be hidden',
+  'provider.cleanup.openrouter.cancel': 'Cancel',
+  'provider.cleanup.openrouter.confirm': 'Hide entries',
+  'provider.cleanup.openrouter.confirming': 'Hiding...',
+  'provider.cleanup.openrouter.success': 'Hidden {count} legacy entries',
+  'provider.cleanup.openrouter.error': 'Tidy failed: {error}',
+
+  // models.refreshAll.* — only new keys here; progress/summaryOk/summaryNoChange/summaryFailed already exist near line 314.
+  'models.refreshAll.summaryValidated': 'Validated {providers} OpenRouter providers · {verified} models still upstream',
+  'models.refreshAll.summaryValidatedSomeMissing': 'Validated {providers} OpenRouter providers · {verified} verified · {missing} no longer upstream',
+  'models.refreshAll.summarySkippedPlan': 'Skipped {n} plan-based providers (refresh isn\'t applicable)',
+
+  // ─── Recovery block 2 (keys referenced after chat/sidebar/plugins consolidation) ───
+  // chat list / top bar
+  'chatList.expandSidebar': 'Expand sidebar',
+  'chatList.collapseSidebar': 'Collapse sidebar',
+  'chatList.moreActions': 'More conversation actions',
+
+  // composer / message input
+  'composer.modelLoading': 'Loading models...',
+  'composer.recentModels': 'Recent models',
+  'messageInput.placeholderLoading': 'Preparing runtime...',
+  'messageInput.placeholderWithBadges': 'Add optional details, then press Enter...',
+  'messageInput.placeholderCli': 'Describe what you want this tool to do...',
+  'messageInput.placeholderDefault': 'What should CodePilot do?',
+  'messageInput.actionMenuTooltip': 'Add context or command',
+  'messageInput.actionAddContext': 'Add file context',
+  'messageInput.actionInsertCommand': 'Insert command',
+  'messageInput.actionCallCli': 'Call CLI tool',
+  'messageInput.removeChipAriaLabel': 'Remove {name}',
+  'messageInput.submitAriaLabel': 'Send message',
+  'permission.defaultDesc': 'Follow confirmation rules',
+  'permission.fullAccessDesc': 'Fewer confirmations; trusted projects only',
+  // Phase 2 Step 4c — composer runtime selector (between mode and permission).
+  'runtimeSelector.triggerAria': 'Switch this session\'s execution runtime',
+  'runtimeSelector.claudeCode': 'Claude Code',
+  'runtimeSelector.claudeCodeDesc': 'Routes through Claude Code SDK with full tools, plans, and permissions',
+  'runtimeSelector.codepilotRuntime': 'CodePilot Runtime',
+  'runtimeSelector.codepilotRuntimeDesc': 'Built-in runtime; works with any OpenAI-compatible provider',
+  'runtimeSelector.pinnedBadge': 'session-pinned',
+  // Step 4c R6 — transcript marker when user flips RuntimeSelector mid-chat.
+  'runtimeSwitchMarker.changedFromTo': 'Switched runtime: {from} → {to}',
+  'runtimeSwitchMarker.switchedTo': 'Switched to {to}',
+  'runtimeSwitchMarker.followGlobal': 'Follow global',
+
+  // context usage / run status
+  'context.unknownCapacity': 'Capacity unknown',
+  'context.unknownCapacityHint': 'This model does not provide a context length. CodePilot can only count tokens already used.',
+  'runStatus.loading': 'Loading run status...',
+  'runStatus.notConfigured': 'Not configured',
+  'runStatus.runtimeFallback': 'Fallback',
+  'runStatus.modePinnedInvalid': 'Pinned unavailable',
+  'runStatus.modePinned': 'Pinned',
+  'runStatus.contextPrefix': 'Context',
+  'runStatus.pendingSuffix': 'pending',
+  'runStatus.fixIssue': 'Fix',
+  'runStatus.triggerLabel': 'View this run',
+  'runStatus.title': 'This run',
+  'runStatus.settings': 'Settings',
+  'runStatus.switch': 'Switch',
+  'runStatus.modeAuto': 'Auto',
+  'runStatus.modify': 'Modify',
+  'runStatus.permissionFullAccess': 'Full access',
+  'runStatus.permissionDefault': 'Default permissions',
+  'runStatus.runtime': 'Runtime',
+  'runStatus.model': 'Model',
+  'runStatus.defaultMode': 'Default',
+  'runStatus.permission': 'Permission',
+  'runStatus.context': 'Context',
+  'runStatus.contextCapacityUnknown': 'Capacity unknown',
+  'runStatus.contextUsed': 'Used',
+  'runStatus.contextInput': 'Input',
+  'runStatus.contextOutput': 'Output',
+  'runStatus.contextCache': 'Cache',
+  'runStatus.issuesHeader': 'Needs attention',
+
+  // run checkpoint
+  'runCheckpoint.noProvider.title': 'No compatible provider',
+  'runCheckpoint.noProvider.description': 'Add or enable a provider before sending this message.',
+  'runCheckpoint.noProvider.action': 'Open providers',
+  'runCheckpoint.pinnedInvalid.title': 'Pinned default model is unavailable',
+  'runCheckpoint.pinnedInvalid.description': 'The pinned default model cannot be used with the current runtime.',
+  'runCheckpoint.pinnedInvalid.action': 'Fix default',
+  'runCheckpoint.runtimeFallback.title': 'Runtime fallback in effect',
+  'runCheckpoint.runtimeFallback.description': 'The selected runtime is unavailable, so CodePilot will use the available fallback for this message.',
+  'runCheckpoint.runtimeFallback.action': 'Review runtime',
+  'runCheckpoint.contextCost.title': 'This message adds substantial context',
+  'runCheckpoint.contextCost.description': 'The attached context is large enough to noticeably change this run. Confirm before sending.',
+  'runCheckpoint.contextCost.action': 'Continue sending',
+  'runCheckpoint.permissionElevation.title': 'Full access is enabled',
+  'runCheckpoint.permissionElevation.description': 'This message will run with fewer confirmations. Use it only for trusted projects.',
+  'runCheckpoint.permissionElevation.action': 'Continue sending',
+
+  // task checkpoint
+  'taskCheckpoint.summary': '{completed}/{total} tasks completed',
+  'taskCheckpoint.expand': 'Expand task checkpoint',
+  'taskCheckpoint.minimize': 'Minimize task checkpoint',
+
+  // workspace sidebar / file tree
+  'workspaceSidebar.toggle': 'Workspace sidebar',
+  'workspaceSidebar.collapse': 'Collapse workspace sidebar',
+  'workspaceSidebar.closeTabNamed': 'Close {name}',
+  'workspaceSidebar.tab.git': 'Git',
+  'workspaceSidebar.tab.widget': 'Dashboard',
+  'workspaceSidebar.tab.files': 'Files',
+  'workspaceSidebar.pinFiles': 'Pin files to workspace sidebar',
+  'fileTree.addToChat': 'Add to chat',
+
+  // plugins page actions
+  'common.preview': 'Preview',
+  'plugins.create.newSkill': 'New skill',
+  'plugins.create.addMcp': 'Add MCP server',
+  'plugins.create.addCli': 'Add CLI tool',
+  'plugins.more.mcpJson': 'MCP JSON config',
+  'plugins.more.mcpJson.description': 'Edit the MCP JSON configuration directly. Saving updates the external MCP server list.',
+  'plugins.search.noResults': 'No matching results',
+
+  // built-in MCP catalog
+  'mcp.builtin.sectionTitle': 'Built-in capabilities',
+  'mcp.builtin.sectionDescription': 'CodePilot includes these MCP capabilities. They are injected only when relevant to the current message; this list does not mean every message has them enabled.',
+  'mcp.builtin.toolCount': 'tools',
+  'mcp.builtin.triggerHeading': 'When it appears',
+  'mcp.builtin.toolsHeading': 'Tools',
+  'mcp.builtin.notify.description': 'Send notifications, task reminders, and Buddy-related updates.',
+  'mcp.builtin.memory.description': 'Search, read, and inspect workspace memory.',
+  'mcp.builtin.memory.triggerHint': 'Available when the current conversation has a workspace.',
+  'mcp.builtin.imageGen.description': 'Generate images or handle image-generation requests.',
+  'mcp.builtin.imageGen.triggerHint': 'Enabled when the message asks for drawing, image generation, or image work.',
+  'mcp.builtin.media.description': 'Import media into the gallery or conversation context.',
+  'mcp.builtin.media.triggerHint': 'Enabled when the message mentions images, video, audio, or media import.',
+  'mcp.builtin.widget.description': 'Load generative UI and dashboard component capabilities.',
+  'mcp.builtin.widget.triggerHint': 'Enabled when the message involves components, dashboards, visualizations, or artifacts.',
+  'mcp.builtin.cliTools.description': 'List, install, add, remove, and update CLI tools.',
+  'mcp.builtin.cliTools.triggerHint': 'Enabled when the message involves command-line tools, CLI installation, or tool execution.',
+  'mcp.builtin.dashboard.description': 'Pin, list, refresh, update, and remove dashboard widgets.',
+  'mcp.builtin.dashboard.triggerHint': 'Enabled when the message involves dashboards, pinned widgets, or workspace boards.',
+
+  // MCP management
+  'mcp.reconnectPreviewTooltip': 'Experimental reconnect. If it fails, check the server configuration and try again.',
+  'mcp.toolCount': '{count} tools',
+  'mcp.installed.sectionTitle': 'Installed',
+  'mcp.installed.sectionDescription': 'External MCP servers you have added.',
+  'mcp.editorDescription': 'Configure the launch mode, URL, environment variables, and headers for this MCP server.',
+  'mcp.claudeJsonNotice': 'Edit MCP JSON directly. Saving updates the external MCP server list.',
+  'mcp.editor.editMode': 'Edit mode',
+  'mcp.editor.serverConfig': 'Server config',
+  'mcp.editor.error.nameRequired': 'Server name is required',
+  'mcp.editor.error.jsonNotObject': 'JSON config must be an object',
+  'mcp.editor.error.jsonInvalid': 'Invalid JSON',
+  'mcp.editor.error.commandRequired': 'Stdio mode requires a command',
+  'mcp.editor.error.urlRequired': 'HTTP mode requires a URL',
+  'mcp.editor.error.envNotObject': 'Environment variables must be an object',
+  'mcp.editor.error.envInvalidJson': 'Invalid environment JSON',
+  'mcp.editor.error.headersNotObject': 'Headers must be an object',
+  'mcp.editor.error.headersInvalidJson': 'Invalid headers JSON',
+  'mcp.detail.deleteConfirm.title': 'Delete MCP server?',
+  'mcp.detail.deleteConfirm.description': 'This removes the MCP server configuration. You can add it again later if needed.',
+  'mcp.detail.commandHeading': 'Command',
+  'mcp.detail.disabled': 'Disabled',
+  'mcp.detail.toolsHeading': 'Tools',
+  'mcp.detail.toolsUnavailable': 'No tools available yet',
+
+  // skills marketplace / details
+  'skills.marketplaceDescription': 'Browse and install available skill extensions.',
+  'skills.marketplaceBack': 'Back to marketplace',
+  'skills.contentHeading': 'Content',
+  'skills.filePathHeading': 'File path',
+  'skills.noContentBody': 'This skill has no readable content yet.',
+
+  // onboarding
+  'wizard.startChatting': 'Start chatting',
 } as const;
 
 export type TranslationKey = keyof typeof en;

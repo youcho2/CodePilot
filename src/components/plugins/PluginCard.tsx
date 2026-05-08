@@ -29,7 +29,7 @@ export function PluginCard({ plugin, onSelect }: PluginCardProps) {
     : plugin.name;
 
   return (
-    <Card className="transition-colors hover:bg-accent/50">
+    <Card>
       <CardHeader
         className="flex flex-row items-start justify-between space-y-0 pb-3 cursor-pointer"
         onClick={() => onSelect(plugin)}

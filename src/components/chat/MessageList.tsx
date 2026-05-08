@@ -13,6 +13,7 @@ import {
   ConversationEmptyState,
 } from '@/components/ai-elements/conversation';
 import { MessageItem } from './MessageItem';
+import { RuntimeSwitchMarker, parseRuntimeSwitchMarker } from './RuntimeSwitchMarker';
 import { StreamingMessage } from './StreamingMessage';
 import { CodePilotLogo } from './CodePilotLogo';
 import { SPECIES_IMAGE_URL, EGG_IMAGE_URL, RARITY_BG_GRADIENT, type Species, type Rarity } from '@/lib/buddy';
@@ -290,6 +291,24 @@ export function MessageList({
           </div>
         )}
         {messages.map((message) => {
+          // Step 4c R6 — runtime-switch transcript marker. ChatView
+          // appends a marker message (`role='user'` carrying a
+          // `[__RUNTIME_SWITCH__ from=X to=Y]` sentinel) whenever the
+          // user flips RuntimeSelector mid-conversation. Detect and
+          // render as an inline checkpoint instead of a normal user
+          // bubble — same idea as `[__IMAGE_GEN_NOTICE__ ...]` already
+          // does for image-gen events.
+          if (message.role === 'user') {
+            const switchPayload = parseRuntimeSwitchMarker(message.content);
+            if (switchPayload) {
+              return (
+                <div key={message.id} id={`msg-${message.id}`}>
+                  <RuntimeSwitchMarker payload={switchPayload} />
+                </div>
+              );
+            }
+          }
+
           // Map rewind points to visible user messages by position:
           // Backend only emits rewind_point for prompt-level user messages
           // (not tool results, not auto-trigger), so they're 1:1 with visible user messages.

@@ -128,6 +128,110 @@ The same inset-divider rule applies to outer cards that host stacked rows (e.g. 
 </div>
 ```
 
+### Catalogue card (clickable, opens detail dialog)
+
+For lists of installable / configurable items (Skills, MCP servers, CLI tools, marketplace skills) the card is a button that opens a detail dialog. It inherits the outer-card chrome above and adds:
+
+```tsx
+<div
+  role="button"
+  tabIndex={0}
+  onClick={onOpen}
+  onKeyDown={(e) => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      onOpen();
+    }
+  }}
+  aria-label={`${item.name} — ${item.description}`}
+  className="rounded-lg bg-card border border-border/50 p-5 cursor-pointer transition-colors hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+>
+  …
+</div>
+```
+
+- **`role="button"` + `tabIndex={0}` + Enter/Space `onKeyDown`** — keyboard + screen-reader parity. The whole card is one activatable target; never split "click name to view, click pencil to edit" — that's the anti-pattern that triggered the MCP card unification work in 2026-05.
+- **`hover:bg-muted/40`** — the only hover affordance. No border-color shift, no shadow.
+- **`focus-visible:ring-2 focus-visible:ring-ring`** — required for keyboard discovery.
+- **`aria-label` includes name + a short description** — icon-only or short-name cards are illegible to screen readers without it.
+- **Inner action buttons** (toggle switch, delete-confirm, install) must `e.stopPropagation()` so they don't trigger the card-level open.
+
+Card body layout convention (top-to-bottom, all sections optional except name):
+
+1. **Identity row** — `flex items-center gap-2 flex-wrap`. Name + inline pills (transport / source / status / Preview tag) + `tool count` tail. Pills are inline next to the name, **never on a separate row** — that's the rule that aligned built-in MCP and user-installed MCP cards.
+2. **Description** — `text-xs text-muted-foreground mt-2 leading-relaxed line-clamp-3`. Three lines is the max; if a card needs more, it belongs in the detail dialog.
+3. **Footer row** (optional) — `flex items-center justify-between mt-3 gap-2`. Left: secondary metric (agent-friendliness stars, last-used time). Right: shrink-0 action button (install / delete / reconnect). Footer only renders when at least one of those is present.
+
+### Catalogue grid
+
+```tsx
+<div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+  {items.map(item => <CatalogueCard … />)}
+</div>
+```
+
+- **`md:grid-cols-2`** is the canonical breakpoint. Don't add `lg:grid-cols-3` — at three columns the description gets line-clamped to oblivion and the page reads like a table-of-tables.
+- **`gap-4`** matches the outer card's `p-5`; tighter gaps make adjacent cards bleed visually.
+- The same grid string applies to Skills sources, MCP built-in catalog, MCP installed servers, CLI installed/recommended, and marketplace results — all four MCP/CLI/Skills lists keep the same density on every breakpoint.
+
+### Click-card → detail dialog
+
+The canonical detail-dialog `DialogContent` className:
+
+```tsx
+<DialogContent className="sm:max-w-2xl max-h-[85vh] flex flex-col gap-0 overflow-hidden">
+  <DialogHeader className="shrink-0">
+    <DialogTitle>{item.name}</DialogTitle>
+    <DialogDescription>{metaLine}</DialogDescription>
+  </DialogHeader>
+  <div className="flex-1 min-h-0 overflow-y-auto mt-4 space-y-4">
+    {/* sections — see body conventions */}
+  </div>
+  <DialogFooter className="shrink-0 border-t border-border/50 pt-3 mt-2">
+    {/* primary actions */}
+  </DialogFooter>
+</DialogContent>
+```
+
+- **`sm:max-w-2xl`** is the unified width across Skills / MCP (built-in + user-installed) / CLI / Marketplace dialogs. Earlier we had `max-w-md` / `max-w-lg` / `max-w-2xl` mixed across the four families — that read as inconsistency, not as content-sized variation.
+- **`max-h-[85vh] flex flex-col gap-0 overflow-hidden`** is non-negotiable. Without `gap-0` the default DialogContent gap leaks visible whitespace between header / body / footer; without `overflow-hidden` the dialog itself starts scrolling instead of just the body.
+- **Body is the only scroll region** — `flex-1 min-h-0 overflow-y-auto`. Header and footer are `shrink-0`. Pulling header/footer out of the scroll keeps the title + actions anchored when the user scrolls long content (Skills README, CLI use-cases).
+- **Footer separator** — `border-t border-border/50 pt-3 mt-2`. Visible boundary between content and actions; matches the same border weight used on cards.
+- **Section heading dialect** inside the body — `<h5 className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground mb-1.5">`. Use `· N` after the heading when the section is a counted list ("工具 · 7").
+- **Inline list as sub-card** — when a section is a list of mono-spaced strings (tool names, server URLs), use the same inset-divider sub-card from above (`rounded-md bg-muted/40` + `px-3.5 divide-y`).
+
+#### Two-mode dialog (detail / edit) — same dialog, swap body
+
+When a detail dialog also offers edit, **swap the body in-place — never open a second Dialog**. Stacked dialogs ("弹窗叠弹窗") were called out as a UX regression in 2026-05; the same single-dialog-with-mode-state pattern is used by `<MarketplaceBrowser>` (list ↔ detail) and `<McpServerDetailDialog>` (detail ↔ edit):
+
+```tsx
+const [mode, setMode] = useState<'detail' | 'edit'>('detail');
+<DialogContent className="…">
+  <DialogHeader className="shrink-0">…name + pills…</DialogHeader>
+  <div className="flex-1 min-h-0 overflow-y-auto mt-4 …">
+    {mode === 'detail' ? <DetailBody … /> : <EditForm … />}
+  </div>
+  <DialogFooter className="shrink-0 border-t border-border/50 pt-3 mt-2 sm:justify-between">
+    {mode === 'detail' ? (
+      <>
+        <Button variant="ghost" className="text-destructive …" onClick={confirmDelete}>{t('common.delete')}</Button>
+        <Button onClick={() => setMode('edit')}>{t('common.edit')}</Button>
+      </>
+    ) : (
+      <>
+        <Button variant="outline" onClick={() => setMode('detail')}>{t('common.cancel')}</Button>
+        <Button onClick={submit}>{t('mcp.saveChanges')}</Button>
+      </>
+    )}
+  </DialogFooter>
+</DialogContent>
+```
+
+- **One Dialog, header stays mounted** through the mode switch — the user sees they're still in the same context, no flicker, no focus loss.
+- **List ↔ detail variant** uses a back button at the top of the detail panel instead of `onClose` (`<MarketplaceBrowser>` is the reference). The Dialog wrapper stays open; only the inner panel swaps.
+- **Destructive confirm** (delete) goes through `<AlertDialog>` — that's the one place stacking is fine, because it's a transient confirm, not navigation.
+- **Form extraction**: when the same form is reachable from both an "Add" Dialog and a Detail Dialog edit-mode, extract the form fields into a headless component with imperative `submit()` ref, so the two wrappers can place buttons in their own footers without duplicating validation. `<McpServerEditorForm>` is the reference.
+
 ## Status & source badges
 
 Two distinct dialects, same shape, different intent.
@@ -434,6 +538,135 @@ Two flavors via the shared `DialogContent` component:
 
 Both flavors render a circular close button top-right (built in to `DialogContent`).
 
+### Dialog width ladder
+
+Three named tiers. Pick by content type, not by gut feeling:
+
+| Tier | className | Use for |
+|---|---|---|
+| **md** | `sm:max-w-md` | Single-purpose confirms, tiny forms (≤2 fields), feature-announcement / update dialogs. The width that says "one decision." |
+| **lg** | `sm:max-w-lg` | Medium forms (3–6 fields), connection wizards step bodies, install / progress dialogs. |
+| **2xl (canonical detail)** | `sm:max-w-2xl max-h-[85vh] flex flex-col gap-0 overflow-hidden` | All "click-card → detail" dialogs (Skills, MCP, CLI tools, Marketplace, server detail/edit). Full-readme / structured detail / two-mode (detail↔edit) flows live here. |
+
+Pixel widths (`sm:max-w-[550px]` etc.) are not allowed. If the tier doesn't fit, the content is fighting the dialog; rethink either the content or the tier before reaching for a custom width.
+
+The 2xl tier carries three rules together — body is the only scroll region, header/footer are pinned:
+- Header: `<DialogHeader className="shrink-0">`
+- Body: `<div className="flex-1 min-h-0 overflow-y-auto mt-4 …">`
+- Footer: `<DialogFooter className="shrink-0 border-t border-border/50 pt-3 mt-2">`
+
+Don't put `overflow-y-auto` on the `DialogContent` itself — that scrolls the whole dialog including the title, which loses the user's place. Reserve raw `overflow-y-auto` for tier md/lg dialogs that are short enough not to need a sticky header.
+
+### Service "enabled vs running" — two-banner pattern
+
+When a feature has both an **enabled** config toggle AND a separate **running** runtime state (Bridge, future webhooks, scheduled jobs), the surface MUST distinguish the two with two banners, never one:
+
+```tsx
+{isEnabled && !isRunning && (
+  <StatusBanner variant="warning">
+    <Warning size={14} className="shrink-0" />
+    {t("…enabledNotRunningHint")}  {/* "Enabled, but service is not running yet" */}
+  </StatusBanner>
+)}
+{isEnabled && isRunning && (
+  <StatusBanner variant="info" className="bg-primary/10 text-primary">
+    <span className="size-2 rounded-full bg-primary inline-block" />
+    {t("…activeHint")}  {/* "Service is running. External channels can send tasks" */}
+  </StatusBanner>
+)}
+```
+
+- The 2026-05-05 fix in BridgeSection is the cautionary tale: a single banner that fires on `isEnabled` told users their phone could send tasks when the service wasn't actually running. Don't conflate the two states ever.
+- `isEnabled && !isRunning` is **warning** tone (yellow) — it's a "you're not done yet" signal, not an error.
+- `isEnabled && isRunning` uses `bg-primary/10 text-primary` — it's a positive confirmation, not a status-success (which we reserve for "verified healthy" not "currently active").
+- Active-state copy must mention what runtime ability the user gains ("外部渠道可以发送任务"), not just "active" / "已激活" — "active" is a config word, "running" is a runtime word.
+
+### Service start / stop button pattern
+
+Symmetric pair of buttons in the status row:
+
+- **Start** — `<Button size="sm">` (default variant). The user is opting in.
+- **Stop** — `<Button variant="outline" size="sm">`. The user is opting out — outline keeps it visible without competing for attention.
+- Both show `<SpinnerGap size={14} className="animate-spin mr-1.5" />` while the action is in flight; label switches to the gerund i18n key (`bridge.starting` / `bridge.stopping`).
+- **Disable** the button while in-flight, don't hide it. Letting it disappear creates layout shift and looks broken.
+
+Reference: `BridgeSection.tsx:267-300`.
+
+### Destructive vs warning AlertDialog tone
+
+`<AlertDialog>` is for any confirm-then-act flow. The action button's color encodes severity:
+
+- **`bg-destructive`** — the action is permanent and irreversible (delete a server, remove a tool). Reaches the user as red.
+- **`bg-status-warning hover:bg-status-warning/80 text-white`** — the action is reversible-but-risky (enable auto-approve, run a sweeping refresh). Reaches the user as amber.
+- **Default (no override)** — the action is benign-but-needs-confirmation (regenerate skill from template, install). Standard primary tone.
+
+Footer always pairs `<AlertDialogCancel>` (left) with `<AlertDialogAction>` (right, with the colored class). Never single-button — the cancel must always exist.
+
+Reference: `McpServerDetailDialog.tsx:268-285` (destructive); `GeneralSection.tsx:234-238` (warning).
+
+### Settings page-shell widths
+
+Two named widths, one rule: container width follows content density.
+
+- **`max-w-4xl mx-auto space-y-6`** — catalogue / management pages: Providers (cards grid), Models (table), Overview (dashboard cards). Wider so cards or table columns breathe.
+- **`max-w-3xl mx-auto space-y-6`** — config pages: Bridge channels, Telegram / Feishu / Discord / QQ / WeChat credentials, Appearance, About. Narrower so 1-column form rhythm feels intentional, not floaty.
+
+`mx-auto` is non-negotiable — without it the page anchors left on wide screens and reads as "this column is the whole page" instead of "this card sits in a column."
+
+### `FieldRow` vs raw `<label>` — when to pick which
+
+`FieldRow` is the canonical row for a single label + control. Use it whenever you'd write:
+
+```tsx
+<div className="flex items-center justify-between">
+  <div>
+    <Label>…</Label>
+    <p className="text-xs text-muted-foreground">…</p>
+  </div>
+  <Switch ... />
+</div>
+```
+
+Use raw `<Label htmlFor={...}>` + `<Input>` (stacked, label above) only when:
+- The control is a **multi-line input** (Textarea) where horizontal layout doesn't work.
+- The label sits **inline** with the input on the same baseline (date-range filters: `gallery/page.tsx:185-203`).
+- A single card holds **a form-style cluster** of inputs that need a tighter visual relationship than `FieldRow` allows (e.g. Bot Token + Webhook URL stacked under one heading).
+
+Never roll your own `flex justify-between + Switch` row — that's the BridgeSection regression that 2026-05-05 fixed by migrating 5 channel toggles back to `FieldRow`.
+
+### Loading skeletons
+
+Two acceptable patterns:
+
+1. **Inline spinner** (preferred when content area < 50% of viewport): `<SpinnerGap size={20} className="animate-spin text-muted-foreground" />` centered in the slot. Use this for cards / sub-cards / dialog bodies.
+2. **Dashed-border placeholder card** (when the card itself is loading): `rounded-lg border border-dashed border-border/50 bg-card/50 p-10 text-center` with a one-line `text-muted-foreground` copy. Reference: `OverviewSection.tsx`, `HealthSection.tsx` loading shells.
+
+Don't use raw `animate-pulse` divs. Don't switch from "no card chrome" (loading) to "full card chrome" (loaded) — the layout shift looks broken; pick one structure for both states.
+
+### Empty state — chrome rule
+
+Two patterns by context. The 2026-05 audit found 6 places each rolling their own; converge on:
+
+1. **Inline empty (replaces a list)** — `<div className="rounded-lg border border-border/50 bg-card p-10 flex flex-col items-center text-center gap-3">` with icon (size 32, `opacity-40 text-muted-foreground`) + heading + description + optional primary action. Use when the list lives inside a Tab / Section that always renders.
+2. **Full-page empty** — same chrome but `py-12` instead of `p-10`, no card border (parent is the whole route). Use only when the page itself is empty (`/gallery` with no items).
+
+The bordered card variant is the default — only drop the border for full-route empties.
+
+### Catalogue grid — break at md, never lg
+
+The two-column responsive rule for catalogue grids is `grid grid-cols-1 md:grid-cols-2 gap-4`. Both `md:grid-cols-2 lg:grid-cols-3` AND `lg:grid-cols-2` (no md breakpoint) are wrong:
+
+- `lg:grid-cols-3` → too dense; 3-col card descriptions get line-clamped to oblivion. Anchor implementations stay 2-col.
+- `lg:grid-cols-2` (skipping md) → the typical Settings panel width is 768–900px and never hits `lg` (1024px+), so the grid stays single-column where it should already be split. The 2026-05-05 audit caught this in `RuntimePanel.tsx`; engine cards never went two-up because the breakpoint was wrong.
+
+Engine pickers, model lists, server cards, marketplace cards — all `md:grid-cols-2`. If you need three columns, content is too dense; split into two grids or reduce per-card content.
+
+### Chart card
+
+Same chrome as outer card (`rounded-lg border border-border/50 p-5`), heading is `text-sm font-medium` (no uppercase tracking — the body of the chart already provides visual structure). Stat tiles below the chart use `rounded-md bg-muted/30 px-3 py-2` (lighter than the canonical sub-card `bg-muted/40` so they read as quick reference, not a separate panel).
+
+Reference: `OverviewHeatmap.tsx` (heatmap + 4 streak stats), `UsageStatsSection.tsx` (daily-tokens bar chart).
+
 ## Runtime Compatibility Matrix
 
 Single source of truth for "where does this model belong": `src/lib/runtime-compat.ts`. Provider-layer compat is computed once via `getProviderCompat()` and consumed by:
@@ -530,6 +763,21 @@ Don't display only the enabled count — users hide things and need to remember 
 | Status-dashboard cards | `OverviewSection.tsx` — `GettingStartedBar` (top checklist, auto-hides at 4/4) + 6 `OverviewCard` in `lg:grid-cols-2` (Runtime / Providers / Models / Assistant Workspace / Update & About / Setup & Diagnostics; warning-tone cards pick up `status-warning-muted` accent) + `OverviewHeatmap.tsx` (365-day grid + 30/90/365D pills, reuses `/api/usage/stats`) |
 | Outer card | `ProviderCard.tsx` (`rounded-lg bg-card border border-border/50 p-5`) |
 | Inset divider sub-card | `ProviderCard.tsx` info section (`rounded-md bg-muted/40` + `px-3.5 divide-y divide-border/50`) |
+| Catalogue card (clickable, opens detail) | `src/components/skills/SkillsManager.tsx` (`SkillCard`), `src/components/plugins/BuiltInMcpSection.tsx` (`BuiltInMcpCard`), `src/components/plugins/McpServerList.tsx` (user-installed card), `src/components/cli-tools/CliToolCard.tsx` |
+| Catalogue 2-col grid | All four files above use `grid grid-cols-1 md:grid-cols-2 gap-4` |
+| Click-card → detail dialog (canonical) | `src/components/skills/SkillDetailDialog.tsx`, `src/components/plugins/BuiltInMcpSection.tsx` (`BuiltInMcpDetailDialog`), `src/components/plugins/McpServerDetailDialog.tsx`, `src/components/cli-tools/CliToolDetailDialog.tsx`, `CliToolExtraDetailDialog.tsx` — all use `sm:max-w-2xl max-h-[85vh] flex flex-col gap-0 overflow-hidden` |
+| Two-mode dialog (detail ↔ edit, same dialog) | `src/components/plugins/McpServerDetailDialog.tsx` (mode swap + shared form via `McpServerEditorForm.tsx`) |
+| List ↔ detail dialog (same dialog, back button) | `src/components/skills/MarketplaceBrowser.tsx` + `src/components/skills/MarketplaceSkillDetail.tsx` (inline panel, no nested Dialog) |
+| Headless form for shared edit | `src/components/plugins/McpServerEditorForm.tsx` (imperative `submit()` ref; consumed by `McpServerEditor` Dialog and `McpServerDetailDialog` edit-mode) |
+| `SettingsCard` + `FieldRow` patterns | `src/components/patterns/SettingsCard.tsx` (`p-5`, optional title/description) + `src/components/patterns/FieldRow.tsx` (label + control row, optional `separator`) |
+| Sub-card list of toggles inside card | `src/components/bridge/BridgeSection.tsx` `ChannelToggleRow` — channels card uses `rounded-md bg-muted/40` + `px-3.5 divide-y divide-border/50` for 5 channel rows + auto-start row |
+| Inset-divider list inside card | `src/components/settings/WorkspaceTabPanels.tsx` (FilesTabPanel + TaxonomyTabPanel) |
+| Service enable/disable + start/stop | `src/components/bridge/BridgeSection.tsx:218-300` (two-banner `enabledNotRunning` / `activeHint` pair + Start/Stop button pair) |
+| Settings page width tiers | `max-w-4xl` for catalogue/dashboard pages (`OverviewSection.tsx`, `ProviderManager.tsx`, `ModelsSection.tsx`); `max-w-3xl mx-auto` for config sub-pages (`bridge/*Section.tsx`, `AppearanceSection.tsx`, `AboutSection.tsx`) |
+| Status pill canonical (rounded-full + dot) | `src/components/settings/ProviderDoctorDialog.tsx` `StatusBadge` (post 2026-05 fix); `src/components/bridge/BridgeSection.tsx:251` (Bridge Connected/Disconnected); `WorkspaceTabPanels.tsx` (file exists/missing pills) |
+| Destructive AlertDialog | `src/components/plugins/McpServerDetailDialog.tsx:268-285` (`bg-destructive` action) |
+| Two-banner enabled-vs-running | `src/components/bridge/BridgeSection.tsx:218-234` |
+| Chart card | `src/components/settings/OverviewHeatmap.tsx` (heatmap + 4 streak/active stats), `src/components/settings/UsageStatsSection.tsx` (recharts bar) |
 | Sub-card row with relative-time + tooltip | `ProviderCard.tsx` ("Last refresh" row uses `formatRelativeTime` + `title` for absolute UTC) |
 | Section 0 stacked card | `ProviderManager.tsx` 「服务设置」block |
 | Status pill with dot | `ProviderCard.tsx` header |

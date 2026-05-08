@@ -17,6 +17,16 @@ export interface ChatSession {
   needs_approval?: boolean;
   provider_name: string;
   provider_id: string;
+  /**
+   * Phase 2 Step 2: per-session execution-engine pin. Empty string =
+   * "follow global agent_runtime setting" (the today-default behavior).
+   * `'claude_code'` / `'codepilot_runtime'` = "this session is locked
+   * to that runtime regardless of subsequent global changes". The
+   * send route / streamClaude / picker hook will start consuming this
+   * in subsequent Phase 2 steps; today only the schema, accessor, and
+   * `resolveRuntimeForSession` wrapper read it.
+   */
+  runtime_pin: string;
   sdk_cwd: string;
   runtime_status: string;
   runtime_updated_at: string;
@@ -270,9 +280,19 @@ export interface ProviderModelGroup {
  *                               unverified custom URLs. UI uses "Claude Code
  *                               实验" + warning tone to flag uncertainty
  *                               around tool / thinking / alias behavior.
- *  - `codepilot_only`           Non-Anthropic protocol (OpenRouter,
- *                               OpenAI-compat chat, Google chat). Only flows
- *                               through CodePilot Runtime.
+ *  - `openrouter_anthropic_skin` OpenRouter base_url WITHOUT `/v1`
+ *                               (`https://openrouter.ai/api`). Per OpenRouter's
+ *                               own Claude Code integration docs, this skin
+ *                               speaks the Anthropic wire protocol — so it is
+ *                               reachable from Claude Code Runtime even
+ *                               though `protocol === 'openrouter'`. Keep it
+ *                               distinct from `claude_code_verified` so the
+ *                               label can mention OpenRouter explicitly and
+ *                               nudge users toward `anthropic/claude-*` SKUs
+ *                               (the skin is most reliable for those).
+ *  - `codepilot_only`           Non-Anthropic protocol (OpenRouter `/v1`
+ *                               OpenAI-compat skin, OpenAI-compat chat, Google
+ *                               chat). Only flows through CodePilot Runtime.
  *  - `media_only`               Image / video / embedding services. Never enters
  *                               the chat picker.
  *  - `unknown`                  Custom URL with no matched preset. UI uses
@@ -282,6 +302,7 @@ export type ProviderRuntimeCompat =
   | 'claude_code_ready'
   | 'claude_code_verified'
   | 'claude_code_experimental'
+  | 'openrouter_anthropic_skin'
   | 'codepilot_only'
   | 'media_only'
   | 'unknown';
@@ -424,6 +445,26 @@ export interface TokenUsage {
   cache_read_input_tokens?: number;
   cache_creation_input_tokens?: number;
   cost_usd?: number;
+  /**
+   * Context window the SDK reports for the model that handled this turn.
+   * Source: `SDKResultMessage.modelUsage[<key>].contextWindow` (Claude
+   * Agent SDK ≥ 0.2.111). Optional because (a) older DB rows don't have
+   * it and (b) some adapters / fallback paths don't populate it. When
+   * present, `useContextUsage` prefers it over the static
+   * `model-context.ts` lookup so models the catalog doesn't know about
+   * (GLM / Bailian / Volcengine / MiniMax / Kimi / etc.) still get a
+   * proper percent + Context bar in RunCockpit.
+   */
+  context_window?: number;
+  /** Max output tokens reported by the SDK alongside contextWindow. */
+  max_output_tokens?: number;
+  /**
+   * The model key matched in `modelUsage` when contextWindow was
+   * extracted. Useful for debugging when the SDK reports usage under a
+   * different name than the alias the user picked (e.g. third-party
+   * proxy returns its upstream model id).
+   */
+  usage_model_id?: string;
 }
 
 // ==========================================
@@ -1201,13 +1242,21 @@ export interface ClaudeStreamOptions {
   abortController?: AbortController;
   permissionMode?: string;
   files?: FileAttachment[];
-  imageAgentMode?: boolean;
   toolTimeoutSeconds?: number;
   provider?: ApiProvider;
   /** Explicit provider ID (e.g. 'env') — passed to resolveForClaudeCode */
   providerId?: string;
   /** Session's stored provider ID — passed to resolveForClaudeCode */
   sessionProviderId?: string;
+  /**
+   * Phase 2 Step 3: session's `runtime_pin` value (chat-runtime label,
+   * e.g. `'claude_code'` / `'codepilot_runtime'`). When non-empty, the
+   * runtime selection in `streamClaude` prefers this over the global
+   * `agent_runtime` setting — that's the headline immunity behavior
+   * Phase 2 promises. Empty / undefined = "follow global", which is
+   * the today-default for any session not explicitly pinned.
+   */
+  sessionRuntimePin?: string;
   /** Recent conversation history from DB — used as fallback context when SDK resume is unavailable or fails */
   conversationHistory?: ConversationHistoryItem[];
   /** Compressed session summary — used as context skeleton in fallback mode */

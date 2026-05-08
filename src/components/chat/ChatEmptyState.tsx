@@ -42,7 +42,7 @@ export function ChatEmptyState({
         {/* Dual entry point cards */}
         <div className="flex flex-col sm:flex-row gap-4">
           {/* Project Chat card */}
-          <Card className="flex-1 cursor-pointer transition-colors hover:border-primary/40">
+          <Card className="flex-1 cursor-pointer">
             <CardHeader>
               <div className="flex items-center gap-2">
                 <FolderOpen size={20} className="text-primary" />
@@ -59,7 +59,7 @@ export function ChatEmptyState({
           </Card>
 
           {/* Personal Assistant card */}
-          <Card className="flex-1 cursor-pointer transition-colors hover:border-primary/40">
+          <Card className="flex-1 cursor-pointer">
             <CardHeader>
               <div className="flex items-center gap-2">
                 <img src={EGG_IMAGE_URL} alt="" width={24} height={24} className="shrink-0" />

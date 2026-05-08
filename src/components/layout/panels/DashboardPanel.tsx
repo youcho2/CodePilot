@@ -32,8 +32,19 @@ interface AssistantSummary {
   buddy?: BuddyData;
 }
 
+/**
+ * The Dashboard / Widget surface — rendered exclusively as the
+ * Workspace Sidebar's `widget` fixed Tab. The shell + Tab strip own
+ * resize / close, so this component renders just the dashboard
+ * header (refresh, auto-refresh toggle, assistant summary) and the
+ * widget grid below.
+ *
+ * Component name kept as `DashboardPanel` for module-path stability;
+ * `WidgetTabContent` re-exports it for the Workspace Sidebar's
+ * fixed-Tab router.
+ */
 export function DashboardPanel() {
-  const { setDashboardPanelOpen, workingDirectory, isAssistantWorkspace } = usePanel();
+  const { workingDirectory, isAssistantWorkspace } = usePanel();
   const { t } = useTranslation();
   const [width, setWidth] = useState(DASHBOARD_DEFAULT_WIDTH);
   const [config, setConfig] = useState<DashboardConfig | null>(null);
@@ -257,15 +268,15 @@ export function DashboardPanel() {
     return m;
   }, [widgets]);
 
-  return (
-    <div ref={panelRef} className="flex h-full shrink-0 overflow-hidden">
-      <ResizeHandle side="left" onResize={handleResize} />
-      <div
-        className="flex h-full flex-1 flex-col overflow-hidden border-r border-border/40 bg-background"
-        style={{ width }}
-      >
-        {/* Header */}
-        <div className="flex h-10 shrink-0 items-center justify-between px-3">
+  // Embedded mode (`<DashboardPanel embedded />`) renders the same
+  // header + content body but skips the outer ResizeHandle + width-
+  // constrained wrapper + border + Close button. The Workspace Sidebar
+  // Tab Bar already owns those affordances, so duplicating them here
+  // would produce two close buttons and two borders next to each other.
+  const inner = (
+    <>
+      {/* Header */}
+      <div className="flex h-10 shrink-0 items-center justify-between px-3">
           <div className="flex items-center gap-2">
             {isAssistantWorkspace ? (
               assistantSummary?.buddy ? (
@@ -323,15 +334,8 @@ export function DashboardPanel() {
                 </Button>
               </>
             )}
-            {/* Close button — always visible */}
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              onClick={() => setDashboardPanelOpen(false)}
-            >
-              <X size={14} />
-              <span className="sr-only">{t('common.close')}</span>
-            </Button>
+            {/* No close button here — the Workspace Sidebar shell's
+                collapse + Tab strip own the equivalent action. */}
           </div>
         </div>
 
@@ -378,11 +382,20 @@ export function DashboardPanel() {
             </div>
           )}
         </div>
+    </>
+  );
 
-      </div>
+  return (
+    <div ref={panelRef} className="flex h-full w-full flex-col overflow-hidden">
+      {inner}
     </div>
   );
 }
+
+/** Re-export for Workspace Sidebar's TabPanel router. The component
+ *  is the same as `DashboardPanel`; this alias keeps the sidebar's
+ *  fixed Tab API ergonomic. */
+export const WidgetTabContent = DashboardPanel;
 
 function DashboardWidgetCard({ widget, refreshing, isFirst, isLast, style, onRefresh, onDelete, onMove }: {
   widget: DashboardWidget;

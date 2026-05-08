@@ -58,6 +58,14 @@ export interface OverviewState {
   modelsManualHidden: number;
   workspaceConfigured: boolean;
   workspaceName: string | null;
+  /**
+   * Unfiltered provider groups — kept around so per-session surfaces
+   * (RunCockpit's "本次运行" model row) can resolve `providerId` →
+   * `provider_name` and `modelValue` → friendly label without a second
+   * fetch. We already pull `/api/providers/models` for the inventory
+   * counts; persisting the raw groups costs nothing extra.
+   */
+  providers: ProviderModelGroup[];
 }
 
 const initialState: OverviewState = {
@@ -77,6 +85,7 @@ const initialState: OverviewState = {
   modelsManualHidden: 0,
   workspaceConfigured: false,
   workspaceName: null,
+  providers: [],
 };
 
 export function useOverviewData(): OverviewState {
@@ -169,6 +178,7 @@ export function useOverviewData(): OverviewState {
       if (modelsAllRes.ok) {
         const data = (await modelsAllRes.json()) as { groups?: ProviderModelGroup[] };
         const groups = data.groups ?? [];
+        next.providers = groups;
         next.providersConfigured = groups.length;
         let total = 0;
         let enabled = 0;

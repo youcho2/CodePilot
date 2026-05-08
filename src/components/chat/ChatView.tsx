@@ -9,10 +9,16 @@ import { RateLimitBanner } from './RateLimitBanner';
 import { MessageInput } from './MessageInput';
 import { ChatComposerActionBar } from './ChatComposerActionBar';
 import { ModeIndicator } from './ModeIndicator';
+import { RuntimeSelector } from './RuntimeSelector';
+import type { ChatRuntime } from '@/lib/chat-runtime-shared';
 import { ChatPermissionSelector } from './ChatPermissionSelector';
-import { ContextUsageIndicator } from './ContextUsageIndicator';
 import { RunCockpit } from './RunCockpit';
-import { ImageGenToggle } from './ImageGenToggle';
+import { RunCheckpoint } from './RunCheckpoint';
+import { TaskCheckpoint } from './TaskCheckpoint';
+import { buildCheckpoints } from '@/lib/run-checkpoint';
+import { useOverviewData } from '@/components/settings/useOverviewData';
+import { useClaudeStatus } from '@/hooks/useClaudeStatus';
+import { computeEffectiveRuntime } from '@/lib/runtime/effective';
 import { Button } from '@/components/ui/button';
 import { usePanel } from '@/hooks/usePanel';
 import { useTranslation } from '@/hooks/useTranslation';
@@ -28,12 +34,22 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
+import { Clock, X } from '@/components/ui/icon';
 import { BatchExecutionDashboard, BatchContextSync } from './batch-image-gen';
 import { setLastGeneratedImages, loadLastGenerated } from '@/lib/image-ref-store';
 import { useChatCommands } from '@/hooks/useChatCommands';
 import { useAssistantTrigger } from '@/hooks/useAssistantTrigger';
 import { useStreamSubscription } from '@/hooks/useStreamSubscription';
 import { useProviderModels } from '@/hooks/useProviderModels';
+// Import from `chat-runtime-shared`, NOT `chat-runtime`. The latter
+// transitively imports the runtime registry → claude-client → Node-only
+// deps (async_hooks, Sentry, OpenTelemetry). Pulling that into a client
+// bundle breaks the Next.js build with "Module not found: Can't resolve
+// 'async_hooks'". `chat-runtime-shared` only ships the pure helpers /
+// types and is safe for client components. See
+// `src/lib/chat-runtime-shared.ts` doc-block for the full rationale.
+import { chatRuntimeParamForSession } from '@/lib/chat-runtime-shared';
+import { useContextUsage } from '@/hooks/useContextUsage';
 import {
   startStream,
   stopStream,
@@ -56,6 +72,13 @@ interface ChatViewProps {
   initialHasMore?: boolean;
   modelName?: string;
   providerId?: string;
+  /**
+   * Phase 2 Step 3b: session's stored `runtime_pin` (chat-runtime label
+   * form: '' / 'claude_code' / 'codepilot_runtime'). Drives the picker
+   * filter for THIS session — global `agent_runtime` flips no longer
+   * cascade. Empty / undefined = "follow global" (today's behavior).
+   */
+  runtimePin?: string;
   initialPermissionProfile?: 'default' | 'full_access';
   initialMode?: 'code' | 'plan';
   initialHasSummary?: boolean;
@@ -64,12 +87,13 @@ interface ChatViewProps {
 /** Maximum messages kept in React state. Older messages are trimmed and reloaded on scroll. */
 const MAX_MESSAGES_IN_MEMORY = 300;
 
-export function ChatView({ sessionId, initialMessages = [], initialHasMore = false, modelName, providerId, initialPermissionProfile, initialMode, initialHasSummary }: ChatViewProps) {
-  const { setStreamingSessionId, workingDirectory, setPendingApprovalSessionId, setDashboardPanelOpen, setFileTreeOpen, setIsAssistantWorkspace } = usePanel();
+export function ChatView({ sessionId, initialMessages = [], initialHasMore = false, modelName, providerId, runtimePin: initialRuntimePin, initialPermissionProfile, initialMode, initialHasSummary }: ChatViewProps) {
+  const { setStreamingSessionId, workingDirectory, setPendingApprovalSessionId, setFileTreeOpen, setIsAssistantWorkspace } = usePanel();
   const { t } = useTranslation();
   const router = useRouter();
   const [messages, setMessages] = useState<Message[]>(initialMessages);
   const [permissionProfile, setPermissionProfile] = useState<'default' | 'full_access'>(initialPermissionProfile || 'default');
+  const [pendingContextTokens, setPendingContextTokens] = useState(0);
 
   // Whether this session's working directory matches the configured assistant workspace
   const [isAssistantProject, setIsAssistantProject] = useState(false);
@@ -149,39 +173,195 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
   useEffect(() => { if (modelName) setCurrentModel(modelName); }, [modelName]);
   useEffect(() => { if (providerId !== undefined) setCurrentProviderId(providerId); }, [providerId]);
 
-  // Single runtime-filtered source of truth. We don't just check
-  // noCompatibleProvider — we also use the resolved pair so the saved
-  // session's (provider, model) flows through the runtime gate even
-  // when the gate produced a fallback group (e.g. session saved
-  // OpenRouter but runtime=claude_code drops it; resolver routes to
-  // env). Sending the raw currentProviderId/currentModel in that case
-  // would let the backend re-resolve and silently use env defaults —
-  // exactly the cross-wire we're closing.
+  // Phase 2 Step 4c — `runtime_pin` becomes local state so the composer
+  // toolbar's RuntimeSelector can write through to it without waiting
+  // for a parent reload. Initialised from the prop the page passed in
+  // (loaded server-side from chat_sessions); the sync effect catches
+  // session swaps. handleRuntimePinChange (declared with the other
+  // handlers below) PATCHes the row and updates this state.
+  const [runtimePin, setRuntimePin] = useState<string>(initialRuntimePin || '');
+  useEffect(() => {
+    if (initialRuntimePin !== undefined) setRuntimePin(initialRuntimePin);
+  }, [initialRuntimePin]);
+
+  // Phase 2 Step 3b — picker filter follows the SESSION's runtime pin,
+  // not the global `agent_runtime`. When the user has explicitly pinned
+  // this chat to Claude Code or CodePilot Runtime, that pin survives
+  // global flips; when the session has no pin (legacy / unpinned new
+  // chat), we fall through to 'auto' and the server resolves via the
+  // global setting.
+  const sessionRuntimeParam = chatRuntimeParamForSession(runtimePin);
   const {
     noCompatibleProvider,
     fetchState: providerFetchState,
     resolvedProviderId,
     resolvedModel,
     providerWasFilteredOut,
-  } = useProviderModels(currentProviderId, currentModel);
+  } = useProviderModels(currentProviderId, currentModel, sessionRuntimeParam);
 
-  // When the runtime filter substituted a different provider for the
-  // saved one, sync DB + local state so picker label, send wire, and
-  // chat_sessions row all agree. Only after fetch is `loaded` (skip on
-  // failure to avoid stomping saved state when API is briefly down).
+  // Phase 2 Step 3b — was: silently set state + PATCH the session row
+  // when the runtime filter excluded the saved provider. That made an
+  // open chat appear to "lose" its pinned provider after a global flip,
+  // *and* the DB was rewritten without any user action — exactly the
+  // drift Step 3 closes (RED #6 in the audit).
+  //
+  // Now: detect the mismatch and surface an inline notice instead. The
+  // picker (MessageInput) still shows only runtime-compatible providers
+  // so the user can pick one explicitly; once they do, the existing
+  // `onProviderModelChange` path persists their choice. No silent DB
+  // writes, no unannounced state changes.
+  const sessionProviderRuntimeIncompatible =
+    providerFetchState === 'loaded'
+    && providerWasFilteredOut
+    && !!currentProviderId
+    && (currentProviderId !== resolvedProviderId || currentModel !== resolvedModel);
+
+  // Phase 2 Step 4b — listen for the chat route's
+  // `INVALID_SESSION_PROVIDER` 409 surfaced as a window event by
+  // `stream-session-manager`. When the session's saved provider has
+  // been deleted between when this chat was loaded and when the user
+  // pressed send, the route refuses to send and we render an inline
+  // banner that explains "your saved provider is gone — pick another
+  // in the composer below" instead of letting the generic "Failed to
+  // send message" toast be the only feedback.
+  //
+  // Cleared automatically when the user picks a real provider via
+  // the picker (the existing `onProviderModelChange` →
+  // `handleProviderModelChange` flow updates currentProviderId,
+  // which makes the banner irrelevant; we clear on that signal).
+  const [invalidSessionProvider, setInvalidSessionProvider] = useState<{
+    sessionProviderId: string;
+    reason: string;
+  } | null>(null);
   useEffect(() => {
-    if (providerFetchState !== 'loaded') return;
-    if (!providerWasFilteredOut) return;
-    if (!resolvedProviderId || !resolvedModel) return;
-    if (resolvedProviderId === currentProviderId && resolvedModel === currentModel) return;
-    setCurrentProviderId(resolvedProviderId);
-    setCurrentModel(resolvedModel);
-    fetch(`/api/chat/sessions/${sessionId}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model: resolvedModel, provider_id: resolvedProviderId }),
-    }).catch(() => {});
-  }, [providerFetchState, providerWasFilteredOut, resolvedProviderId, resolvedModel, currentProviderId, currentModel, sessionId]);
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent<{ sessionId?: string; sessionProviderId?: string; reason?: string }>).detail;
+      if (!detail || detail.sessionId !== sessionId) return;
+      setInvalidSessionProvider({
+        sessionProviderId: detail.sessionProviderId ?? '',
+        reason: detail.reason ?? 'provider-missing',
+      });
+      // Step 4b review fix round 3 — remove ONLY the optimistic bubble
+      // that `sendMessage`/dequeue pushed for *this* failed attempt.
+      // We track its id in `pendingOptimisticUserIdRef`; broad-filtering
+      // every `temp-*` user message would wipe earlier successful turns
+      // whose DB rows haven't replaced their optimistic copies yet (the
+      // `temp-*` → real-id swap doesn't happen mid-session). Backend
+      // never persisted this one (early resolver gate runs before
+      // `addMessage`), so dropping the local bubble aligns transcript
+      // with reality without touching prior turns.
+      const pendingId = pendingOptimisticUserIdRef.current;
+      if (pendingId) {
+        cappedSetMessages((prev) => prev.filter((m) => m.id !== pendingId));
+        pendingOptimisticUserIdRef.current = null;
+      }
+    };
+    window.addEventListener('chat-invalid-session-provider', handler);
+    return () => window.removeEventListener('chat-invalid-session-provider', handler);
+  }, [sessionId, cappedSetMessages]);
+  // Clear the banner once the user has picked a different provider —
+  // we compare against the snapshot we received in the event so a
+  // re-render with the same currentProviderId doesn't keep clearing /
+  // re-flashing as picker state churns.
+  useEffect(() => {
+    if (!invalidSessionProvider) return;
+    if (currentProviderId && currentProviderId !== invalidSessionProvider.sessionProviderId) {
+      setInvalidSessionProvider(null);
+    }
+  }, [currentProviderId, invalidSessionProvider]);
+
+  // Run Checkpoint signals — only session-scoped concerns. An
+  // ALREADY-OPENED conversation has its own `currentProviderId/currentModel`
+  // saved on chat_sessions; the global pinned-default-invalid signal
+  // (`overview.defaultInvalid`) describes whether *new conversations* would
+  // get a valid model, which has nothing to do with whether *this saved
+  // session* can still send. Surfacing the global flag here would block-
+  // shame a perfectly working session and contradict `MessageInput.disabled`
+  // (which gates on `noCompatibleProvider` only).
+  //
+  // - `noCompatibleProvider`: session-specific (returned by
+  //   `useProviderModels(currentProviderId, currentModel)`); covers the
+  //   only case where this saved session genuinely can't send.
+  // - `runtimeFallback`: global, but applies to every session equally —
+  //   the user asked for SDK and we're on Native, regardless of session.
+  // - Global pinned-default-invalid → owned by Overview / Runtime / Health
+  //   pages and the `/chat` new-conversation entry; intentionally NOT here.
+  const overview = useOverviewData();
+  const { status: claudeStatus } = useClaudeStatus();
+  // Round 2 inputs:
+  //   - usedContextTokens: pulled from the same hook RunCockpit uses
+  //     so the cost trigger reads the SAME used count the user sees
+  //     in the status row.
+  //   - permissionElevationConfirmedFor: session-scoped ack flag.
+  //     Resets when the user toggles permission off then back on.
+  const usage = useContextUsage(messages, currentModel);
+  const usedContextTokens = usage.used;
+  const [permissionElevationConfirmedFor, setPermissionElevationConfirmedFor] =
+    useState<'full_access' | null>(null);
+  useEffect(() => {
+    if (permissionProfile !== 'full_access') {
+      setPermissionElevationConfirmedFor(null);
+    }
+  }, [permissionProfile]);
+
+  const checkpointReasons = useMemo(() => {
+    if (overview.loading) return [];
+    const cliConnected = !!claudeStatus?.connected;
+    const settingRuntime = computeEffectiveRuntime(
+      overview.agentRuntime,
+      overview.cliEnabled,
+      cliConnected,
+    );
+    const isOpenAiOauth = currentProviderId === 'openai-oauth';
+    const effectiveRuntime = isOpenAiOauth ? 'native' : settingRuntime;
+    const runtimeFallback =
+      overview.agentRuntime === 'claude-code-sdk' && effectiveRuntime !== 'claude-code-sdk';
+    const permissionElevationPending =
+      permissionProfile === 'full_access' &&
+      permissionElevationConfirmedFor !== 'full_access';
+    // Step 4c round 5 — same `runtimeFallback` suppression pattern that
+    // chat/page.tsx (round 3) and RunCockpit (round 4) use: when the
+    // user has explicitly pinned this session's runtime via the
+    // composer's RuntimeSelector, the global "Claude Code SDK pinned
+    // but CLI unreachable → fell back to native" notice is no longer
+    // about this session — they've moved off SDK by choice. Without
+    // this guard the existing-session ChatView still shows "执行
+    // 引擎已降级" RunCheckpoint even after RunCockpit and the new-chat
+    // checkpoint had cleared, contradicting the upper-vs-lower
+    // invariant rounds 3/4 just established.
+    const overrideGlobalRuntimeFallback = !!runtimePin;
+    return buildCheckpoints({
+      noCompatibleProvider,
+      // Always false for an existing session — see comment block above.
+      defaultInvalid: false,
+      runtimeFallback: overrideGlobalRuntimeFallback ? false : runtimeFallback,
+      pendingContextTokens,
+      usedContextTokens,
+      permissionElevationPending,
+    });
+  }, [
+    overview,
+    claudeStatus?.connected,
+    currentProviderId,
+    noCompatibleProvider,
+    pendingContextTokens,
+    usedContextTokens,
+    permissionProfile,
+    permissionElevationConfirmedFor,
+    runtimePin,
+  ]);
+  const blockingReasonIds = useMemo(
+    () => checkpointReasons.filter((r) => r.requiresConfirm).map((r) => r.id),
+    [checkpointReasons],
+  );
+  const handleCheckpointAction = useCallback((actionId: string) => {
+    if (actionId === 'confirm-permission-elevation') {
+      setPermissionElevationConfirmedFor('full_access');
+    }
+    if (actionId === 'confirm-context-cost' || actionId === 'confirm-permission-elevation') {
+      window.dispatchEvent(new Event('run-checkpoint-confirm-send'));
+    }
+  }, []);
 
   // Fetch provider-specific options (with abort to prevent stale responses on fast switch)
   useEffect(() => {
@@ -275,6 +455,16 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
   const [messageQueue, setMessageQueue] = useState<QueuedMessage[]>([]);
   const dequeuingRef = useRef(false);
 
+  // Tracks the id of the optimistic `temp-*` user bubble that the most
+  // recent send pushed onto the local transcript. Read by the
+  // `chat-invalid-session-provider` handler to remove ONLY that one
+  // bubble on a 409 — without this ref, broad-filtering all `temp-*`
+  // user messages would also wipe earlier successful turns whose DB
+  // rows haven't replaced their optimistic copies yet (the `temp-*`
+  // → DB id swap doesn't always happen — once a stream completes the
+  // optimistic message stays in `messages` until the next reload).
+  const pendingOptimisticUserIdRef = useRef<string | null>(null);
+
   // Pending image generation notices
   const pendingImageNoticesRef = useRef<string[]>([]);
   const sendMessageRef = useRef<(content: string, files?: FileAttachment[], systemPromptAppend?: string, displayOverride?: string, mentions?: MentionRef[]) => Promise<void>>(undefined);
@@ -309,6 +499,55 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
     }).catch(() => {});
   }, [sessionId]);
 
+  // Phase 2 Step 4c — RuntimeSelector callback. Optimistic local update
+  // (so the picker filter and other consumers see the new pin
+  // immediately) then PATCH to persist. Errors are swallowed for parity
+  // with handleProviderModelChange — the next page load would surface
+  // any drift via the existing 409 banner path. The PATCH route's
+  // sdk_session_id cleanup logic (Step 4c track 1) handles the
+  // SDK-session-can't-survive-runtime-swap case server-side.
+  //
+  // Step 4c R6 — when the switch happens **mid-conversation** (i.e.
+  // there's already at least one user message in the transcript),
+  // also append a `[__RUNTIME_SWITCH__ from=X to=Y]` marker message
+  // so future scroll-back can answer "where did we change engines?".
+  // We persist via the same `/api/chat/messages` POST that the
+  // image-gen notice path already uses (line ~1191), and append
+  // optimistically so the marker shows up before the round-trip.
+  const handleRuntimePinChange = useCallback((pin: ChatRuntime) => {
+    const previousPin = runtimePin;
+    setRuntimePin(pin);
+    fetch(`/api/chat/sessions/${sessionId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ runtime_pin: pin }),
+    }).catch(() => {});
+    // Mid-conversation marker — only when there's prior content. A
+    // brand-new session pre-first-message doesn't need a "switched
+    // FROM something" marker.
+    const hasUserTurn = messages.some((m) => m.role === 'user' && !m.id.startsWith('temp-'));
+    if (!hasUserTurn) return;
+    const fromPart =
+      previousPin === 'claude_code' || previousPin === 'codepilot_runtime'
+        ? ` from=${previousPin}`
+        : '';
+    const markerContent = `[__RUNTIME_SWITCH__${fromPart} to=${pin}]`;
+    const markerMessage: Message = {
+      id: 'temp-' + Date.now(),
+      session_id: sessionId,
+      role: 'user',
+      content: markerContent,
+      created_at: new Date().toISOString(),
+      token_usage: null,
+    };
+    cappedSetMessages((prev) => [...prev, markerMessage]);
+    fetch('/api/chat/messages', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ session_id: sessionId, role: 'user', content: markerContent }),
+    }).catch(() => {});
+  }, [sessionId, runtimePin, messages, cappedSetMessages]);
+
   // ── Extracted hooks ──
 
   const handleStreamCompleted = useCallback((phase: string) => {
@@ -319,6 +558,11 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
       tailTrimmedRef.current = false;
       reconcileWithDb();
     }
+    // Clear the optimistic-user-id ref once any stream finishes — on
+    // success the ref is no longer needed; on a non-409 error the ref
+    // would otherwise dangle, and a future 409 would mistakenly read
+    // a stale id. The 409 handler clears it eagerly before this fires.
+    pendingOptimisticUserIdRef.current = null;
   }, [reconcileWithDb]);
 
   useStreamSubscription({
@@ -692,6 +936,21 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
         console.warn('[ChatView] startStream suppressed: resolved provider/model is empty');
         return;
       }
+      // Guard 4 (Phase 2 Step 3b review): when the session's saved
+      // provider isn't reachable under the current execution engine,
+      // refuse to send. Without this, the wire-decision below would
+      // pick `resolvedProviderId/resolvedModel` (the runtime-filtered
+      // *fallback*) and the chat route's lazy-seed path would persist
+      // them onto the session row — the silent rewrite the Step 3b
+      // inline-notice fix was supposed to prevent. User must pick a
+      // new provider in the picker (still reachable in the composer)
+      // BEFORE this turn can fire. The matching MessageInput
+      // `disabled` flag is set in the JSX below so the send button
+      // visibly reflects the same gate.
+      if (sessionProviderRuntimeIncompatible) {
+        console.warn('[ChatView] startStream suppressed: session provider runtime-incompatible — user must pick another in the composer');
+        return;
+      }
       const notices = pendingImageNoticesRef.current.length > 0
         ? [...pendingImageNoticesRef.current]
         : undefined;
@@ -735,7 +994,7 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
         },
       });
     },
-    [sessionId, mode, currentModel, currentProviderId, selectedEffort, context1m, buildThinkingConfig, handleModeChange, noCompatibleProvider, providerFetchState, resolvedProviderId, resolvedModel]
+    [sessionId, mode, currentModel, currentProviderId, selectedEffort, context1m, buildThinkingConfig, handleModeChange, noCompatibleProvider, providerFetchState, resolvedProviderId, resolvedModel, sessionProviderRuntimeIncompatible]
   );
 
   const sendMessage = useCallback(
@@ -754,11 +1013,29 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
         console.warn('[ChatView] sendMessage suppressed: no provider compatible with active runtime');
         return;
       }
+      // Mirror doStartStream's Guard 4 *before* we push the optimistic
+      // bubble. MessageInput's disabled prop already blocks the typical
+      // click-to-send path when this flag is true, but autoTrigger /
+      // widget bridge / pendingRetryAfterCompact callbacks bypass the
+      // input and call sendMessage directly. Without this guard those
+      // paths would push a temp-* user bubble, then doStartStream would
+      // refuse to fire — same ghost-message shape Step 4b just fixed.
+      if (sessionProviderRuntimeIncompatible) {
+        console.warn('[ChatView] sendMessage suppressed: session provider not compatible with active runtime — pick a different provider in the composer');
+        return;
+      }
 
       const displayUserContent = displayOverride || content;
       let displayContent = displayUserContent;
       if (files && files.length > 0) {
-        const fileMeta = files.map(f => ({ id: f.id, name: f.name, type: f.type, size: f.size }));
+        // Optimistic save preserves the base64 `data` so the bubble can
+        // render images immediately (FileAttachmentDisplay's `fileUrl`
+        // prefers `data` → `filePath`). Without `data`, every image
+        // optimistically falls back to a generic file icon until the
+        // page reloads with the DB-persisted `filePath`. Backend's
+        // POST handler still strips `data` before persisting, and the
+        // GET messages route re-strips on read — so DB stays lean.
+        const fileMeta = files.map(f => ({ id: f.id, name: f.name, type: f.type, size: f.size, data: f.data }));
         displayContent = `<!--files:${JSON.stringify(fileMeta)}-->${displayUserContent}`;
       }
 
@@ -792,10 +1069,11 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
         created_at: new Date().toISOString(),
         token_usage: null,
       };
+      pendingOptimisticUserIdRef.current = userMessage.id;
       cappedSetMessages((prev) => [...prev, userMessage]);
       doStartStream(content, files, systemPromptAppend, displayOverride, mentions);
     },
-    [sessionId, isStreaming, doStartStream, cappedSetMessages, noCompatibleProvider, providerFetchState]
+    [sessionId, isStreaming, doStartStream, cappedSetMessages, noCompatibleProvider, providerFetchState, sessionProviderRuntimeIncompatible]
   );
 
   sendMessageRef.current = sendMessage;
@@ -814,6 +1092,19 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
         setMessageQueue([]);
         return;
       }
+      // Mirror sendMessage's runtime-incompatible guard. Without this
+      // the dequeue would push a temp-* user bubble for the queued
+      // message and then doStartStream's Guard 4 would refuse to fire
+      // — same ghost-message shape as Step 4b round 2/3 just fixed,
+      // just on the queue path. We *hold* the queue (vs. clear) here
+      // because the user can fix this themselves by picking a
+      // compatible provider in the composer; once `sessionProviderRuntimeIncompatible`
+      // flips back to false the effect re-runs and dequeues normally.
+      // The flag is in the dep array so the re-run actually happens.
+      if (sessionProviderRuntimeIncompatible) {
+        console.warn('[ChatView] dequeue held: session provider not compatible with active runtime — waiting for user to pick a different provider');
+        return;
+      }
       dequeuingRef.current = true;
       const [next, ...rest] = messageQueue;
       setMessageQueue(rest);
@@ -821,7 +1112,9 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
       const displayUserContent = next.displayOverride || next.content;
       let displayContent = displayUserContent;
       if (next.files && next.files.length > 0) {
-        const fileMeta = next.files.map(f => ({ id: f.id, name: f.name, type: f.type, size: f.size }));
+        // Same optimistic-data preservation as the primary send path —
+        // queued messages also need to render images immediately.
+        const fileMeta = next.files.map(f => ({ id: f.id, name: f.name, type: f.type, size: f.size, data: f.data }));
         displayContent = `<!--files:${JSON.stringify(fileMeta)}-->${displayUserContent}`;
       }
       const userMessage: Message = {
@@ -832,13 +1125,14 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
         created_at: new Date().toISOString(),
         token_usage: null,
       };
+      pendingOptimisticUserIdRef.current = userMessage.id;
       cappedSetMessages((prev) => [...prev, userMessage]);
       doStartStream(next.content, next.files, next.systemPromptAppend, next.displayOverride, next.mentions);
     }
     if (isStreaming) {
       dequeuingRef.current = false;
     }
-  }, [isStreaming, messageQueue, doStartStream, cappedSetMessages, sessionId, noCompatibleProvider, providerFetchState]);
+  }, [isStreaming, messageQueue, doStartStream, cappedSetMessages, sessionId, noCompatibleProvider, providerFetchState, sessionProviderRuntimeIncompatible]);
 
   // Expose widget drill-down bridge: widgets can call window.__widgetSendMessage(text)
   // to trigger follow-up questions (e.g. clicking a node to get deeper explanation)
@@ -939,15 +1233,6 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      {/* Phase 3.1 v1: Run Cockpit. Single thin row above the
-          message list summarising what THIS chat is routed through —
-          Runtime, provider/model, Auto/Pinned mode, health dot. Each
-          segment routes to the canonical Settings page; the cockpit
-          itself does not write state. Providers like openai-oauth
-          force runtime=native at the session level — pass providerId
-          so cockpit reflects that override (replaces the legacy
-          RuntimeBadge that used to live on the composer action bar). */}
-      <RunCockpit providerId={currentProviderId} />
       {/* Workspace mismatch banner */}
       {workspaceMismatchPath && (
         <div className="flex items-center justify-between gap-3 border-b border-status-warning/30 bg-status-warning-muted px-4 py-2">
@@ -1061,25 +1346,32 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
       <BatchExecutionDashboard />
       <BatchContextSync />
 
-      {/* Queued message banner — shown above input when messages are waiting */}
+      {/* Queued message banner — shown above input when messages are
+          waiting. Same Luma-light pill aesthetic as the chat composer:
+          24px radius, soft muted bg, no border, ghost X button. */}
       {messageQueue.length > 0 && (
-        <div className="mx-auto w-full max-w-3xl px-4 pb-1">
+        <div className="mx-auto w-full max-w-3xl space-y-1 px-4 pb-1.5">
           {messageQueue.map((qm, i) => (
-            <div key={i} className="flex items-center gap-2 rounded-lg border border-border/60 bg-muted/30 px-3 py-2 mb-1">
-              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 256 256" className="shrink-0 text-muted-foreground"><path fill="currentColor" d="M128 24a104 104 0 1 0 104 104A104.11 104.11 0 0 0 128 24Zm0 192a88 88 0 1 1 88-88a88.1 88.1 0 0 1-88 88Zm64-88a8 8 0 0 1-8 8H128a8 8 0 0 1-8-8V72a8 8 0 0 1 16 0v48h56a8 8 0 0 1 0 16Z"/></svg>
-              <span className="flex-1 truncate text-sm text-muted-foreground">
+            <div
+              key={i}
+              className="flex items-center gap-2 rounded-2xl bg-muted px-3 py-2"
+            >
+              <Clock size={14} className="shrink-0 text-muted-foreground" />
+              <span className="flex-1 truncate text-xs text-muted-foreground">
                 {(qm.displayOverride || qm.content).length > 80
                   ? (qm.displayOverride || qm.content).slice(0, 77) + '...'
                   : (qm.displayOverride || qm.content)}
               </span>
-              <button
+              <Button
                 type="button"
+                variant="ghost"
+                size="icon-xs"
                 onClick={() => setMessageQueue((prev) => prev.filter((_, idx) => idx !== i))}
-                className="shrink-0 rounded p-1 text-muted-foreground/60 hover:bg-muted hover:text-foreground transition-colors"
                 aria-label={t('messageQueue.cancel' as TranslationKey)}
+                className="shrink-0 text-muted-foreground/70 hover:text-foreground"
               >
-                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-              </button>
+                <X size={12} />
+              </Button>
             </div>
           ))}
         </div>
@@ -1100,17 +1392,78 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
           onDismiss={() => setRateLimitDismissed(true)}
         />
       )}
+      {/* Run Checkpoint — Round 1 trust layer (Pinned-invalid /
+          Runtime fallback / no-compatible-provider). Sits right above
+          MessageInput so the user sees the gating reason next to the
+          disabled composer. See `docs/exec-plans/active/chat-run-checkpoint.md`. */}
+      <RunCheckpoint reasons={checkpointReasons} className="mb-2" onAction={handleCheckpointAction} />
+      {/* Task checklist — moved out of the FileTree sidebar. Default
+          expanded; minimize via top-right toggle; auto-hides when 0
+          tasks or all completed. Same /api/tasks data source the
+          previous sidebar TaskList used; SDK TodoWrite syncs via the
+          `tasks-updated` window event. */}
+      <TaskCheckpoint sessionId={sessionId} className="mb-2" />
+      {invalidSessionProvider && (
+        // Phase 2 Step 4b — server returned 409 INVALID_SESSION_PROVIDER:
+        // the session's saved provider was deleted between when this
+        // chat was loaded and when the user pressed send. We refuse to
+        // route through env silently (Step 3a contract); this banner
+        // tells the user what's wrong + points them at the picker
+        // below to make an explicit choice. Clears on first
+        // provider-pick (the useEffect that watches currentProviderId).
+        <div
+          className="mb-2 rounded-md border border-status-error-border bg-status-error-muted px-3 py-2 text-xs text-status-error-foreground"
+          role="alert"
+        >
+          {t('chat.invalidSessionProvider.message' as TranslationKey, {
+            providerId: invalidSessionProvider.sessionProviderId,
+          })}
+        </div>
+      )}
+      {sessionProviderRuntimeIncompatible && (
+        // Phase 2 Step 3b — replaces the silent PATCH that used to
+        // rewrite the session's provider/model whenever the runtime
+        // filter excluded the saved one. Same trigger
+        // (`providerWasFilteredOut`), now informational: tells the
+        // user the saved provider isn't reachable under the current
+        // execution engine and points them at the picker below to
+        // make an explicit choice. No DB writes happen until they
+        // pick — `onProviderModelChange` (handleProviderModelChange)
+        // remains the only persist path, same shape as a normal
+        // user-initiated switch.
+        <div
+          className="mb-2 rounded-md border border-status-warning-border bg-status-warning-muted px-3 py-2 text-xs text-status-warning-foreground"
+          role="status"
+        >
+          {t('chat.sessionProviderIncompatible.message' as TranslationKey, {
+            providerId: currentProviderId,
+          })}
+        </div>
+      )}
       <MessageInput
         key={sessionId}
         onSend={sendMessage}
         onCommand={handleCommand}
         onStop={stopStreaming}
-        disabled={noCompatibleProvider || providerFetchState === 'idle'}
+        // Phase 2 Step 3b review: disable composer (textarea + send
+        // button) while the saved provider is runtime-incompatible —
+        // the picker stays reachable so the user can pick a new one
+        // and unblock send. Without this, the inline notice is purely
+        // informational and a quick-clicker can still fire a send
+        // that the wire layer would silently re-route through the
+        // runtime-filtered fallback. The matching `doStartStream`
+        // guard above is belt-and-suspenders.
+        disabled={
+          noCompatibleProvider
+          || providerFetchState === 'idle'
+          || sessionProviderRuntimeIncompatible
+        }
         isStreaming={isStreaming}
         sessionId={sessionId}
         modelName={currentModel}
         onModelChange={setCurrentModel}
         providerId={currentProviderId}
+        runtime={sessionRuntimeParam}
         onProviderModelChange={handleProviderModelChange}
         workingDirectory={workingDirectory}
         onAssistantTrigger={checkAssistantTrigger}
@@ -1119,24 +1472,38 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
         sdkInitMeta={initMetaRef.current}
         isAssistantProject={isAssistantProject}
         hasMessages={messages.length > 0}
+        onPendingContextTokensChange={setPendingContextTokens}
+        blockingReasonIds={blockingReasonIds}
       />
       <ChatComposerActionBar
-        left={<><ModeIndicator mode={mode} onModeChange={handleModeChange} disabled={isStreaming} /><ImageGenToggle /></>}
-        center={
-          <ChatPermissionSelector
-            sessionId={sessionId}
-            permissionProfile={permissionProfile}
-            onPermissionChange={setPermissionProfile}
-          />
+        left={
+          <>
+            <ModeIndicator mode={mode} onModeChange={handleModeChange} disabled={isStreaming} />
+            <RuntimeSelector
+              runtimePin={runtimePin}
+              effectiveRuntime={overview.agentRuntime === 'claude-code-sdk' ? 'claude_code' : 'codepilot_runtime'}
+              onRuntimePinChange={handleRuntimePinChange}
+              disabled={isStreaming}
+            />
+            <ChatPermissionSelector
+              sessionId={sessionId}
+              permissionProfile={permissionProfile}
+              onPermissionChange={setPermissionProfile}
+            />
+          </>
         }
         right={
-          <ContextUsageIndicator
+          <RunCockpit
+            providerId={currentProviderId}
             messages={messages}
             modelName={currentModel}
             context1m={context1m}
             hasSummary={hasSummary}
             upstreamModelId={currentModelUpstream}
             contextUsageSnapshot={streamSnapshot?.contextUsageSnapshot}
+            permissionProfile={permissionProfile}
+            pendingContextTokens={pendingContextTokens}
+            sessionRuntimePin={runtimePin}
           />
         }
       />

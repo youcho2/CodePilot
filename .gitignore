@@ -67,3 +67,9 @@ apps/site/node_modules/
 
 # claude code session data
 .claude/
+
+# AI agent skills (installed via `npx skills add ...`) — local tooling only
+.agents/
+.pi/
+/skills/
+skills-lock.json

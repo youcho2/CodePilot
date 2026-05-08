@@ -12,9 +12,8 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { SpinnerGap, Stethoscope, Plus, CaretRight } from "@/components/ui/icon";
+import { SpinnerGap, Plus } from "@/components/ui/icon";
 import { ProviderForm } from "./ProviderForm";
-import { ProviderDoctorDialog } from "./ProviderDoctorDialog";
 import type { ProviderFormData } from "./ProviderForm";
 import { PresetConnectDialog } from "./PresetConnectDialog";
 import { ProviderCard, type ProviderCardStatus, type ProviderCardInfoRow } from "./ProviderCard";
@@ -39,6 +38,9 @@ import type { ApiProvider, ProviderModelGroup } from "@/types";
 import { useTranslation } from "@/hooks/useTranslation";
 import type { TranslationKey } from "@/i18n";
 import { runAutoDiscoverForProvider } from "@/lib/auto-discover-models";
+import { showToast } from "@/hooks/useToast";
+import { isCatalogOnlyPlanProviderRecord, isOpenRouterProviderRecord, getProviderAccessType, type AccessType } from "@/lib/provider-catalog";
+import { sanitizeEndpointForDisplay, type SanitizeTranslator } from "@/lib/provider-endpoint-sanitize";
 import { ProviderOptionsSection } from "./ProviderOptionsSection";
 import { cn } from "@/lib/utils";
 import { getProviderCompat } from "@/lib/runtime-compat";
@@ -64,8 +66,23 @@ const OFFICIAL_DIRECT_API_KEYS = new Set([
 const CODING_PLAN_KEYS = new Set([
   'glm-cn', 'glm-global', 'kimi', 'moonshot',
   'minimax-cn', 'minimax-global', 'volcengine',
-  'xiaomi-mimo', 'xiaomi-mimo-token-plan', 'bailian',
+  'xiaomi-mimo', 'xiaomi-mimo-token-plan',
+  'bailian', 'bailian-token-plan-cn',
 ]);
+
+/**
+ * Step 4 文案收口: AccessType → i18n key. Kept in this file (not in
+ * provider-catalog.ts) because the catalog file is server-safe and must
+ * not depend on the i18n bundle.
+ */
+const ACCESS_TYPE_I18N: Record<AccessType, TranslationKey> = {
+  subscription_token: 'provider.accessType.subscriptionToken' as TranslationKey,
+  api_key:            'provider.accessType.apiKey' as TranslationKey,
+  oauth:              'provider.accessType.oauth' as TranslationKey,
+  local:              'provider.accessType.local' as TranslationKey,
+  cloud_credentials:  'provider.accessType.cloudCredentials' as TranslationKey,
+  gateway:            'provider.accessType.gateway' as TranslationKey,
+};
 
 /**
  * Coarse relative-time formatter for the Provider card "Last refresh" row.
@@ -122,7 +139,6 @@ export function ProviderManager() {
   const [openaiError, setOpenaiError] = useState<string | null>(null);
 
   // Doctor dialog state
-  const [doctorOpen, setDoctorOpen] = useState(false);
 
   // Add Service browse sheet (placeholder for Step 2 — will become 4-category mode)
   const [addServiceOpen, setAddServiceOpen] = useState(false);
@@ -381,11 +397,32 @@ export function ProviderManager() {
 
     window.dispatchEvent(new Event("provider-changed"));
 
-    // Auto-discover the new provider's models. The user just typed an API
-    // key; the implicit expectation is "show me what I can use", not "now
-    // open a dialog and click Refresh". Conservative apply policy means
-    // only catalog-recommended ids land enabled, so the picker stays clean.
-    void runAutoDiscoverForProvider({ providerId: newProvider.id, providerName: newProvider.name, t });
+    // Branch by provider class:
+    //   - Plan-based (sdkProxyOnly + coding/token plan): /v1/models 404s or
+    //     returns the wider Ark/DashScope catalog that mostly 4xx on use.
+    //     Skip auto-discover; show a one-line success toast pointing at
+    //     "Add model" for SKU补充.
+    //   - OpenRouter: 300+ aggregator catalog — full materialization is the
+    //     wrong UX. Eager seed (3-alias) happened on the server; we just
+    //     tell the user how to add more (search-and-add path).
+    //   - Other: standard auto-discover. The user just typed a Key, the
+    //     implicit expectation is "show me what I can use".
+    const recordProbe = { provider_type: newProvider.provider_type, base_url: newProvider.base_url };
+    if (isCatalogOnlyPlanProviderRecord(recordProbe)) {
+      showToast({
+        type: 'success',
+        message: t('provider.autoDiscover.catalogOnly' as TranslationKey, { name: newProvider.name }),
+        duration: 6000,
+      });
+    } else if (isOpenRouterProviderRecord(recordProbe)) {
+      showToast({
+        type: 'success',
+        message: t('provider.autoDiscover.openrouterAddOnly' as TranslationKey, { name: newProvider.name }),
+        duration: 6000,
+      });
+    } else {
+      void runAutoDiscoverForProvider({ providerId: newProvider.id, providerName: newProvider.name, t });
+    }
   };
 
   const handleOpenPresetDialog = (preset: QuickPreset) => {
@@ -541,69 +578,10 @@ export function ProviderManager() {
         </div>
       )}
 
-      {/* ─── Section 0: Service settings — diagnostics + default model in one card ─── */}
-      <section className="space-y-3">
-        <div>
-          <h3 className="text-sm font-medium">{t('provider.serviceSettings')}</h3>
-          <p className="text-[11px] text-muted-foreground mt-0.5">
-            {t('provider.serviceSettingsDesc')}
-          </p>
-        </div>
-        <div className="rounded-lg bg-card border border-border/50">
-          <div className="px-5 divide-y divide-border/50">
-            <div className="py-4 flex items-center justify-between gap-4">
-              <div className="min-w-0">
-                <h4 className="text-sm font-medium">{isZh ? '连接诊断' : 'Connection Diagnostics'}</h4>
-                <p className="text-xs text-muted-foreground mt-0.5">
-                  {isZh
-                    ? '检查 CLI、认证、模型兼容性和网络连接是否正常'
-                    : 'Check CLI, auth, model compatibility, and network connectivity'}
-                </p>
-              </div>
-              <Button
-                variant="outline"
-                size="sm"
-                className="gap-1.5 shrink-0"
-                onClick={() => setDoctorOpen(true)}
-              >
-                <Stethoscope size={14} />
-                {isZh ? '运行诊断' : 'Run Diagnostics'}
-              </Button>
-            </div>
-
-            {/* Phase 2C.4: default-model selector moved to Models page.
-                Providers is now strictly an asset page (connect / configure
-                services); committing one provider+model as the new-chat
-                default lives where the picker exposure is also decided —
-                Models, top status row. Keeping this row as a one-line
-                pointer so users who land here looking for "set default"
-                don't think the option disappeared. */}
-            <div className="py-4 flex items-center justify-between gap-4">
-              <div className="min-w-0">
-                <h4 className="text-sm font-medium">
-                  {isZh ? '默认模型' : 'Default Model'}
-                </h4>
-                <p className="text-xs text-muted-foreground mt-0.5">
-                  {isZh
-                    ? '已迁至「模型」页：可切换 Auto / Pinned，也可把具体模型固定为新会话默认。'
-                    : 'Moved to Models page — flip Auto / Pinned and pin a specific model as the new-chat default there.'}
-                </p>
-              </div>
-              <Button
-                variant="outline"
-                size="sm"
-                className="gap-1.5 shrink-0"
-                onClick={() => {
-                  if (typeof window !== 'undefined') window.location.hash = '#models';
-                }}
-              >
-                {isZh ? '去模型页' : 'Open Models'}
-                <CaretRight size={12} weight="bold" />
-              </Button>
-            </div>
-          </div>
-        </div>
-      </section>
+      {/* Section 0「服务设置」(连接诊断 + 默认模型) removed 2026-05-06.
+          Both options have canonical entries elsewhere now:
+            - 连接诊断 → Settings → Health (Phase 2C.5)
+            - 默认模型 → Settings → Models (Phase 2C.2 — pin button per row) */}
 
       {/* Loading */}
       {loading && (
@@ -668,7 +646,14 @@ export function ProviderManager() {
         const renderLlmDbProviderCard = (provider: ApiProvider) => {
           const matched = findMatchingPreset(provider);
           const status: ProviderCardStatus = provider.api_key ? 'available' : 'needs-config';
-          const authMethod = matched?.authStyle === 'auth_token' ? 'Auth Token' : 'API Key';
+          // Step 4 文案收口: 把工程枚举 (Auth Token / API Key) 映射成
+          // 用户面接入方式分类（套餐 Token / API Key / 授权登录 / 本地服务
+          // / 中转网关 / 云账号凭证），见 `getProviderAccessType` 注释。
+          const accessType = getProviderAccessType({
+            provider_type: provider.provider_type,
+            base_url: provider.base_url,
+          });
+          const authMethod = t(ACCESS_TYPE_I18N[accessType]);
           const totalCount = getTotalModelCount(provider.id);
           const enabledCount = getEnabledModelCount(provider.id);
           const lastRefreshedAt = getLastRefreshedAt(provider.id);
@@ -694,11 +679,19 @@ export function ProviderManager() {
           }
           info.push({ label: isZh ? '接入方式' : 'Auth', value: authMethod });
           // Surface base_url only when it's not the default vendor URL — it's
-          // signal for users routing through a third-party gateway.
+          // signal for users routing through a third-party gateway. Render
+          // through `sanitizeEndpointForDisplay` so accidental key paste into
+          // base_url doesn't leak the secret onto the card / tooltip.
           if (provider.base_url && provider.base_url !== 'https://api.anthropic.com' && provider.base_url !== 'https://api.openai.com/v1') {
+            const sanitizeT: SanitizeTranslator = (key, vars) => t(key as TranslationKey, vars);
+            const endpoint = sanitizeEndpointForDisplay(provider.base_url, sanitizeT);
             info.push({
               label: isZh ? '接入地址' : 'Endpoint',
-              value: provider.base_url.replace(/^https?:\/\//, ''),
+              value: endpoint.display,
+              // When suspicious: tooltip explains the masking; do NOT echo the
+              // raw value (would defeat the masking on hover). Otherwise no
+              // tooltip — the host/path string is already readable.
+              ...(endpoint.tooltip ? { title: endpoint.tooltip } : {}),
             });
           }
           return (
@@ -718,18 +711,11 @@ export function ProviderManager() {
                 }}
                 onEdit={() => handleEdit(provider)}
                 onDelete={() => setDeleteTarget(provider)}
-                onRefreshModels={() => handleDiscoverModels(provider)}
-                onManageModels={() => {
-                  // Jump to Models page and ask ModelsSection to scroll
-                  // to this provider. Settings uses hash routing (one
-                  // hash per page) so we can't put a query in the hash;
-                  // sessionStorage is the lightest cross-component
-                  // signal that survives the navigation.
-                  if (typeof window !== 'undefined') {
-                    sessionStorage.setItem('codepilot:models-focus-provider', provider.id);
-                    window.location.hash = '#models';
-                  }
-                }}
+                /* Phase 1 Step 2 收敛 (2026-05-06): Manage models / Refresh
+                   models inline buttons removed. Provider cards are for
+                   "connect a service" — model browsing + refresh live on
+                   the Models page (and refresh only renders for providers
+                   where `canReliablyFetchModels` returns true). */
               />
               {/* Anthropic-official: thinking/1M options */}
               {provider.base_url === 'https://api.anthropic.com' && (
@@ -1006,7 +992,10 @@ export function ProviderManager() {
       })()}
 
       {/* ─── Add Service dialog — modal preset picker.
-           Step 2 will replace presets with the 4-category mode (订阅 / API Key / 第三方中转 / 本地模型). */}
+           Presets are bucketed into 5 user-facing categories (官方直连 API
+           / 套餐型 / 第三方中转 / 本地服务 / 图像生成) below — see the
+           OFFICIAL_DIRECT_API_KEYS / CODING_PLAN_KEYS sets at the top of
+           this file. */}
       <Dialog open={addServiceOpen} onOpenChange={setAddServiceOpen}>
         <DialogContent fullscreen>
           <div className="min-h-full flex items-center justify-center px-6 py-16">
@@ -1175,9 +1164,6 @@ export function ProviderManager() {
         onSave={presetEditProvider ? handleEditSave : handlePresetAdd}
         editProvider={presetEditProvider}
       />
-
-      {/* Provider Doctor dialog */}
-      <ProviderDoctorDialog open={doctorOpen} onOpenChange={setDoctorOpen} />
 
       {/* Model discovery result — read-only spike. The result is shown so the
           user can decide whether to act on it; nothing is auto-applied. */}

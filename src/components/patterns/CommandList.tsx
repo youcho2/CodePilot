@@ -19,7 +19,11 @@ export function CommandList({ children, className }: CommandListProps) {
   return (
     <div
       className={cn(
-        "absolute bottom-full left-0 mb-2 rounded-xl border bg-popover shadow-lg overflow-hidden z-50",
+        // Geometry + shadow tuned to match the chat composer input box:
+        // same 24px radius (rounded-2xl) + same `--shadow-diffuse` token,
+        // so the popover reads as part of the same surface as the input.
+        "absolute bottom-full left-0 mb-2 rounded-2xl border bg-popover overflow-hidden z-50",
+        "shadow-[var(--shadow-diffuse)]",
         className,
       )}
     >
@@ -69,7 +73,7 @@ interface CommandListItemsProps {
 
 export function CommandListItems({ children, className }: CommandListItemsProps) {
   return (
-    <div className={cn("max-h-64 overflow-y-auto overflow-x-hidden py-1", className)}>
+    <div className={cn("max-h-64 overflow-y-auto overflow-x-hidden p-1", className)}>
       {children}
     </div>
   );
@@ -101,8 +105,13 @@ export function CommandListItem({
       variant="ghost"
       size="sm"
       className={cn(
-        "flex w-full items-center justify-start gap-2 rounded-none px-3 py-1.5 text-left text-sm font-normal transition-colors h-auto",
-        active ? "bg-accent text-accent-foreground" : "hover:bg-accent/50",
+        // Inset rounded item (mx-1) so the highlight doesn't touch the
+        // popover's edge — feels like the muted toolbar buttons rather
+        // than a flat list row. Active = the same accent we use for
+        // hover, so selection reads as "intensified hover" instead of a
+        // separate strong state.
+        "flex w-full items-center justify-start gap-2 rounded-md px-2.5 py-2 text-left text-sm font-normal transition-colors h-auto",
+        active ? "bg-accent text-foreground" : "hover:bg-accent hover:text-foreground",
         className,
       )}
       onClick={onClick}
@@ -113,22 +122,25 @@ export function CommandListItem({
   );
 }
 
-// ── Group with optional label and separator ─────────────────────────
+// ── Group with label header ─────────────────────────────────────────
+// Grouping is communicated by typography contrast (bold dark label vs
+// regular muted items) and vertical whitespace between groups — no
+// horizontal divider lines (per April 2026 feedback: "靠字体间距以及
+// 是否加粗去区分视觉重点和分组").
 
 interface CommandListGroupProps {
   /** Group header. Pass a string for the common case or a ReactNode
    *  when you need inline elements (e.g. a compat badge next to the
    *  group name in the chat picker dropdown). */
   label?: ReactNode;
-  separator?: boolean;
   children: ReactNode;
 }
 
-export function CommandListGroup({ label, separator, children }: CommandListGroupProps) {
+export function CommandListGroup({ label, children }: CommandListGroupProps) {
   return (
-    <div className={cn(separator && "border-t")}>
+    <div className="first:mt-0 mt-3">
       {label && (
-        <div className="px-3 py-1.5 text-[10px] font-medium text-muted-foreground">
+        <div className="px-2.5 pb-1 pt-1 text-xs font-semibold text-foreground">
           {label}
         </div>
       )}

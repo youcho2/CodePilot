@@ -13,8 +13,10 @@ import type {
   McpHttpServerConfig,
   McpServerConfig,
 } from '@anthropic-ai/claude-agent-sdk';
+import type { SdkModelUsage } from './sdk-model-usage';
 import type { ClaudeStreamOptions, SSEEvent, TokenUsage, MCPServerConfig, PermissionRequestEvent, FileAttachment, MediaBlock } from '@/types';
 import { isImageFile } from '@/types';
+import { pickModelUsage } from './sdk-model-usage';
 import { registerPendingPermission } from './permission-registry';
 import { registerConversation, unregisterConversation } from './conversation-registry';
 import { captureCapabilities, isCacheFresh, setCachedPlugins } from './agent-sdk-capabilities';
@@ -224,17 +226,43 @@ function extractTextFromMessage(msg: SDKAssistantMessage): string {
 }
 
 /**
- * Extract token usage from an SDK result message
+ * Extract token usage from an SDK result message.
+ *
+ * `modelHints` lets the caller forward what the request was *for*
+ * (alias + resolved upstream id) so `pickModelUsage` can find the
+ * right entry in `msg.modelUsage`. Optional — when absent we still
+ * pull contextWindow if there's only one entry, which covers the
+ * most common third-party-proxy shape.
  */
-function extractTokenUsage(msg: SDKResultMessage): TokenUsage | null {
+function extractTokenUsage(
+  msg: SDKResultMessage,
+  modelHints: { requested?: string; upstream?: string } = {},
+): TokenUsage | null {
   if (!msg.usage) return null;
-  return {
+  const base: TokenUsage = {
     input_tokens: msg.usage.input_tokens,
     output_tokens: msg.usage.output_tokens,
     cache_read_input_tokens: msg.usage.cache_read_input_tokens ?? 0,
     cache_creation_input_tokens: msg.usage.cache_creation_input_tokens ?? 0,
     cost_usd: 'total_cost_usd' in msg ? msg.total_cost_usd : undefined,
   };
+  // Pull contextWindow / maxOutputTokens straight from the SDK when
+  // available — this is the path that finally lights up % + Context bar
+  // in RunCockpit for GLM / Bailian / MiniMax / Kimi / Volcengine / etc.
+  // We deliberately keep the lookup permissive (try requested key,
+  // upstream key, single-entry, first-with-window). Missing modelUsage
+  // is not an error — the older runtime path and some adapters don't
+  // populate it, in which case useContextUsage falls back to the
+  // static catalog window via getContextWindow().
+  const modelUsage = (msg as { modelUsage?: Record<string, SdkModelUsage> }).modelUsage;
+  const picked = pickModelUsage(modelUsage, modelHints);
+  if (picked) {
+    const [key, usage] = picked;
+    if (usage.contextWindow > 0) base.context_window = usage.contextWindow;
+    if (usage.maxOutputTokens > 0) base.max_output_tokens = usage.maxOutputTokens;
+    base.usage_model_id = key;
+  }
+  return base;
 }
 
 /**
@@ -470,10 +498,26 @@ export function streamClaude(options: ClaudeStreamOptions): ReadableStream<strin
   }
 
   if (!runtime) {
-    runtime = resolveRuntime(getSetting('agent_runtime') || undefined, effectiveProvider || undefined);
+    // Phase 2 Step 3: prefer the session's `runtime_pin` over the global
+    // `agent_runtime` setting. The pin is stored in chat-runtime label
+    // form (`'claude_code'` / `'codepilot_runtime'`); translate to the
+    // `agent_runtime` setting form (`'claude-code-sdk'` / `'native'`)
+    // before handing off to the registry. Empty / unknown pin → fall
+    // back to the global setting (today's behavior).
+    const pinAsAgentRuntime = options.sessionRuntimePin === 'claude_code'
+      ? 'claude-code-sdk'
+      : options.sessionRuntimePin === 'codepilot_runtime'
+        ? 'native'
+        : undefined;
+    const runtimeOverride = pinAsAgentRuntime ?? (getSetting('agent_runtime') || undefined);
+    runtime = resolveRuntime(runtimeOverride, effectiveProvider || undefined);
   }
 
-  console.log(`[streamClaude] Using runtime: ${runtime.id} (setting: ${getSetting('agent_runtime') || 'auto'})`);
+  console.log(
+    `[streamClaude] Using runtime: ${runtime.id} `
+    + `(session pin: ${options.sessionRuntimePin || 'none'}, `
+    + `global setting: ${getSetting('agent_runtime') || 'auto'})`,
+  );
 
   return runtime.stream({
     // Universal fields
@@ -501,7 +545,6 @@ export function streamClaude(options: ClaudeStreamOptions): ReadableStream<strin
       conversationHistory: options.conversationHistory,
       sessionSummary: options.sessionSummary,
       fallbackTokenBudget: options.fallbackTokenBudget,
-      imageAgentMode: options.imageAgentMode,
       toolTimeoutSeconds: options.toolTimeoutSeconds,
       outputFormat: options.outputFormat,
       agents: options.agents,
@@ -532,7 +575,6 @@ export function streamClaudeSdk(options: ClaudeStreamOptions): ReadableStream<st
     toolTimeoutSeconds = 0,
     conversationHistory,
     onRuntimeStatusChange,
-    imageAgentMode,
     bypassPermissions: sessionBypassPermissions,
     thinking,
     effort,
@@ -739,8 +781,6 @@ export function streamClaudeSdk(options: ClaudeStreamOptions): ReadableStream<st
             if (widgetKeywords.test(prompt)) return true;
             // Check if conversation already has widgets (resume context)
             if (conversationHistory?.some(m => m.content.includes('show-widget'))) return true;
-            // Check explicit widget/image-agent mode
-            if (imageAgentMode) return true;
             return false;
           })();
 
@@ -756,10 +796,9 @@ export function streamClaudeSdk(options: ClaudeStreamOptions): ReadableStream<st
 
         // Media MCP: import + generation tools (keyword-gated).
         // Registered when the conversation involves media/image generation tasks
-        // in CODE mode. Design Agent mode uses the old image-gen-request flow
-        // and does NOT need these MCP tools.
+        // in CODE mode. The legacy "Design Agent mode" branch was removed in
+        // Phase 2D.0 (2026-04-30) — it was never user-reachable.
         const needsMediaMcp = (() => {
-          if (imageAgentMode) return false; // Design Agent uses its own flow
           const mediaKeywords = /生成图片|画一|图像|图片|素材|保存.*素材|import.*library|save.*library|codepilot_import_media|codepilot_generate_image/i;
           if (mediaKeywords.test(prompt)) return true;
           if (conversationHistory?.some(m =>
@@ -1065,21 +1104,17 @@ export function streamClaudeSdk(options: ClaudeStreamOptions): ReadableStream<st
               : imageFiles;
             const droppedCount = imageFiles.length - limitedImages.length;
 
-            // In imageAgentMode, skip file path references so Claude doesn't
-            // try to use built-in tools to analyze images from disk. It will
-            // see the images via vision (base64 content blocks) and follow the
-            // IMAGE_AGENT_SYSTEM_PROMPT to output image-gen-request blocks.
-            // In normal mode, append disk paths — only for the images actually included.
-            const textWithImageRefs = imageAgentMode
-              ? textPrompt
-              : (() => {
-                  const workDir = resolvedWorkingDirectory.path;
-                  const imagePaths = getUploadedFilePaths(limitedImages, workDir);
-                  const imageReferences = imagePaths
-                    .map((p, i) => `[User attached image: ${p} (${limitedImages[i].name})]`)
-                    .join('\n');
-                  return `${imageReferences}\n\n${textPrompt}`;
-                })();
+            // Append disk paths — only for the images actually included.
+            // (The legacy Design-Agent branch that skipped paths was
+            // removed in Phase 2D.0; it was never user-reachable.)
+            const textWithImageRefs = (() => {
+              const workDir = resolvedWorkingDirectory.path;
+              const imagePaths = getUploadedFilePaths(limitedImages, workDir);
+              const imageReferences = imagePaths
+                .map((p, i) => `[User attached image: ${p} (${limitedImages[i].name})]`)
+                .join('\n');
+              return `${imageReferences}\n\n${textPrompt}`;
+            })();
 
             const contentBlocks: Array<
               | { type: 'image'; source: { type: 'base64'; media_type: 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp'; data: string } }
@@ -1462,7 +1497,15 @@ export function streamClaudeSdk(options: ClaudeStreamOptions): ReadableStream<st
 
             case 'result': {
               const resultMsg = message as SDKResultMessage;
-              tokenUsage = extractTokenUsage(resultMsg);
+              // Forward the requested alias + resolved upstream so
+              // pickModelUsage can find the right entry in modelUsage —
+              // third-party Anthropic-compat proxies sometimes key the
+              // map by upstream id rather than the alias the user
+              // picked. See pickModelUsage doc for the full priority.
+              tokenUsage = extractTokenUsage(resultMsg, {
+                requested: model,
+                upstream: resolved.upstreamModel,
+              });
               // terminal_reason is an optional field added in SDK 0.2.111.
               // When present, it enriches the end-of-turn UI chip (Phase 1 of
               // agent-sdk-0-2-111-adoption) without replacing error-classifier.
@@ -1780,7 +1823,12 @@ export function streamClaudeSdk(options: ClaudeStreamOptions): ReadableStream<st
                 }
                 case 'result': {
                   const rMsg = msg as SDKResultMessage;
-                  const usage = 'result' in rMsg ? extractTokenUsage(rMsg as SDKResultSuccess) : undefined;
+                  const usage = 'result' in rMsg
+                    ? extractTokenUsage(rMsg as SDKResultSuccess, {
+                        requested: model,
+                        upstream: resolved.upstreamModel,
+                      })
+                    : undefined;
                   // Match main-path result shape so the chat route can persist
                   // the new sdk_session_id (route reads result.session_id as a
                   // safety net when status init was missed).

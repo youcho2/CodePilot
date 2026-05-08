@@ -5,6 +5,7 @@ import { PaintBrush, SortDescending, Funnel, SpinnerGap, Heart } from '@/compone
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { GalleryGrid, type GalleryItem } from '@/components/gallery/GalleryGrid';
 import { GalleryDetail } from '@/components/gallery/GalleryDetail';
 import { useTranslation } from '@/hooks/useTranslation';
@@ -134,21 +135,16 @@ export default function GalleryPage() {
 
   return (
     <div className="flex h-full flex-col overflow-hidden">
-      {/* Fixed header — page identity only */}
-      <div className="shrink-0 border-b border-border/50 px-6 pt-4 pb-4">
-        <h1 className="text-xl font-semibold">
-          {t('gallery.title' as TranslationKey)}
-        </h1>
-        <p className="text-sm text-muted-foreground mt-1">{t('gallery.description' as TranslationKey)}</p>
-      </div>
-
-      {/* Content */}
-      <div className="flex-1 overflow-y-auto p-6">
-        {/* Content toolbar — filters/sort */}
-        <div className="flex items-center justify-end gap-2 mb-4">
+      {/* Page chrome — same rhythm as `/plugins`: no title/description
+          (the rail label "素材库" already says where we are), no bottom
+          divider. The toolbar (favorites / filters / sort) sits in the
+          same row position as the plugins page's row-2 action bar. */}
+      <header className="shrink-0 px-6 pt-4 pb-3">
+        <div className="flex items-center justify-end gap-1.5 flex-wrap">
           <Button
             variant={favoritesOnly ? 'secondary' : 'ghost'}
             size="sm"
+            className="h-8 gap-1.5"
             onClick={() => setFavoritesOnly((v) => !v)}
           >
             <Heart
@@ -161,6 +157,7 @@ export default function GalleryPage() {
           <Button
             variant={showFilters ? 'secondary' : 'ghost'}
             size="sm"
+            className="h-8 gap-1.5"
             onClick={() => setShowFilters(!showFilters)}
           >
             <Funnel size={14} />
@@ -169,6 +166,7 @@ export default function GalleryPage() {
           <Button
             variant="ghost"
             size="sm"
+            className="h-8 gap-1.5"
             onClick={() => setSort((s) => (s === 'newest' ? 'oldest' : 'newest'))}
           >
             <SortDescending size={14} />
@@ -177,25 +175,30 @@ export default function GalleryPage() {
               : t('gallery.oldestFirst' as TranslationKey)}
           </Button>
         </div>
+      </header>
 
+      {/* Content */}
+      <div className="flex-1 overflow-y-auto px-6 pb-5">
         {/* Filter bar */}
         {showFilters && (
           <div className="mb-4 space-y-2.5">
             {/* Date range */}
             <div className="flex items-center gap-2">
-              <label className="text-xs text-muted-foreground">
+              <Label htmlFor="gallery-date-from" className="text-xs text-muted-foreground">
                 {t('gallery.dateFrom' as TranslationKey)}
-              </label>
+              </Label>
               <Input
+                id="gallery-date-from"
                 type="date"
                 value={dateFrom}
                 onChange={(e) => setDateFrom(e.target.value)}
                 className="h-7 w-auto px-2 text-xs"
               />
-              <label className="text-xs text-muted-foreground">
+              <Label htmlFor="gallery-date-to" className="text-xs text-muted-foreground">
                 {t('gallery.dateTo' as TranslationKey)}
-              </label>
+              </Label>
               <Input
+                id="gallery-date-to"
                 type="date"
                 value={dateTo}
                 onChange={(e) => setDateTo(e.target.value)}

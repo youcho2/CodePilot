@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useCallback, useSyncExternalStore } from "react";
-import { type Icon, Gear, UserCircle, Plug, ChartBar, Brain, Lightning, PaintBrush, Eye, Info, Heart } from "@/components/ui/icon";
+import { type Icon, Gear, UserCircle, Plug, ChartBar, Brain, Lightning, PaintBrush, Eye, Info, Heart, WifiHigh } from "@/components/ui/icon";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { OverviewSection } from "./OverviewSection";
@@ -14,6 +14,7 @@ import { HealthSection } from "./HealthSection";
 import { UsageStatsSection } from "./UsageStatsSection";
 import { AssistantWorkspaceSection } from "./AssistantWorkspaceSection";
 import { AboutSection } from "./AboutSection";
+import { BridgeLayout } from "@/components/bridge/BridgeLayout";
 import { useTranslation } from "@/hooks/useTranslation";
 import type { TranslationKey } from "@/i18n";
 
@@ -27,6 +28,7 @@ type Section =
   | "health"
   | "usage"
   | "assistant"
+  | "bridge"
   | "about";
 
 interface SidebarItem {
@@ -50,6 +52,10 @@ const sidebarItems: SidebarItem[] = [
   { id: "health", label: "Health", icon: Heart },
   { id: "usage", label: "Usage", icon: ChartBar },
   { id: "assistant", label: "Assistant", icon: UserCircle },
+  // Bridge moved from top-level rail entry into Settings (2026-05-02).
+  // Channel-specific config (Telegram / Feishu / Discord / QQ / WeChat)
+  // is configuration, not a primary destination, so it belongs here.
+  { id: "bridge", label: "Bridge", icon: WifiHigh },
   { id: "about", label: "About", icon: Info },
 ];
 
@@ -91,6 +97,7 @@ export function SettingsLayout() {
     'Health': 'settings.health',
     'Usage': 'settings.usage',
     'Assistant': 'settings.assistant',
+    'Bridge': 'settings.bridge',
     'About': 'settings.about',
   };
 
@@ -131,7 +138,14 @@ export function SettingsLayout() {
 
       {/* Content */}
       <div className="flex min-h-0 flex-1">
-        <div className="flex-1 overflow-auto p-4 lg:p-6">
+        <div className={cn(
+          "flex-1 overflow-auto",
+          // Bridge owns its own h-full + inner sub-nav, so it needs to
+          // flex-fill the section without our default p-4/lg:p-6 padding
+          // (its sub-nav already brings border-r + p-3). Other sections
+          // keep the standard padding.
+          activeSection === "bridge" ? "" : "p-4 lg:p-6",
+        )}>
           {activeSection === "overview" && <OverviewSection />}
           {activeSection === "general" && <GeneralSection />}
           {activeSection === "appearance" && <AppearanceSection />}
@@ -141,6 +155,7 @@ export function SettingsLayout() {
           {activeSection === "health" && <HealthSection />}
           {activeSection === "usage" && <UsageStatsSection />}
           {activeSection === "assistant" && <AssistantWorkspaceSection />}
+          {activeSection === "bridge" && <BridgeLayout embedded />}
           {activeSection === "about" && <AboutSection />}
         </div>
       </div>

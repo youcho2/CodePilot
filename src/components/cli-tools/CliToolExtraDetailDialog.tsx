@@ -51,12 +51,12 @@ export function CliToolExtraDetailDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-lg max-h-[80vh] flex flex-col overflow-hidden">
-        <DialogHeader>
+      <DialogContent className="sm:max-w-2xl max-h-[85vh] flex flex-col gap-0 overflow-hidden">
+        <DialogHeader className="shrink-0">
           <DialogTitle>{displayName}</DialogTitle>
         </DialogHeader>
 
-        <div className="flex flex-col gap-5 overflow-y-auto flex-1 min-h-0">
+        <div className="flex-1 min-h-0 overflow-y-auto mt-4 flex flex-col gap-5">
           {/* Agent compatibility (from AI assessment in structured_json) */}
           {structured?.agentCompat && Object.values(structured.agentCompat).some(Boolean) && (() => {
             const score = computeAgentScore(structured.agentCompat);

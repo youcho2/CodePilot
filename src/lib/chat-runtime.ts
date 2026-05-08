@@ -1,7 +1,13 @@
 /**
- * chat-runtime — single source for "which runtime category does the
- * current chat session map to" — expressed in the same vocabulary as
- * the model-layer Runtime Compat flags (`claude_code` / `codepilot_runtime`).
+ * chat-runtime — server-side runtime resolver helpers (read DB
+ * setting, walk the runtime registry, etc.).
+ *
+ * The **pure** pieces — `ChatRuntime` type, `ChatRuntimeParam` type,
+ * `isChatRuntimeParam`, `chatRuntimeParamForSession` — live in
+ * `chat-runtime-shared.ts` so client components can import them
+ * without dragging Node-only deps (`async_hooks`, Sentry, etc.) into
+ * the browser bundle. This file re-exports them so server callers
+ * keep working unchanged.
  *
  * Why this exists separately from `runtime/registry`:
  *   `runtime/registry` returns the concrete agent runtime id used to
@@ -31,17 +37,15 @@
 // when getActiveChatRuntime() fired. Routing every consumer through the
 // barrel guarantees registration before resolution.
 import { resolveRuntime } from './runtime';
+import type { ChatRuntime, ChatRuntimeParam } from './chat-runtime-shared';
 
-/** Two-state chat-side runtime label, aligned with ModelRuntimeCompat flags. */
-export type ChatRuntime = 'claude_code' | 'codepilot_runtime';
-
-/** Wire form for HTTP query params — adds 'auto' (server resolves). */
-export type ChatRuntimeParam = ChatRuntime | 'auto';
-
-/** Type guard for parsing untrusted query strings. */
-export function isChatRuntimeParam(v: unknown): v is ChatRuntimeParam {
-  return v === 'claude_code' || v === 'codepilot_runtime' || v === 'auto';
-}
+// Re-export pure pieces so server-side callers that already import
+// from `@/lib/chat-runtime` keep compiling. New client-side callers
+// must import directly from `chat-runtime-shared` (this file's
+// `resolveRuntime` import would still pull Node deps into a client
+// bundle).
+export type { ChatRuntime, ChatRuntimeParam } from './chat-runtime-shared';
+export { isChatRuntimeParam, chatRuntimeParamForSession } from './chat-runtime-shared';
 
 /**
  * Server-side: read `agent_runtime` setting + CLI binary availability via
@@ -61,4 +65,32 @@ export function getActiveChatRuntime(): ChatRuntime {
  */
 export function resolveChatRuntimeParam(param: ChatRuntimeParam): ChatRuntime {
   return param === 'auto' ? getActiveChatRuntime() : param;
+}
+
+/**
+ * Phase 2 Step 2: session-aware variant of `getActiveChatRuntime`.
+ *
+ * If the session record carries a non-empty `runtime_pin`, that value
+ * wins regardless of the current global `agent_runtime` setting — the
+ * user's per-session commitment is a stronger signal than a global
+ * default the user may have changed for unrelated reasons (e.g. they
+ * connected a new provider in another chat).
+ *
+ * Empty / undefined / unknown pin → fall through to the global path
+ * (`getActiveChatRuntime()`). This preserves the today-default
+ * behavior for any session created before the column existed (every
+ * legacy row has `runtime_pin = ''`) and for new chats the user
+ * hasn't explicitly pinned.
+ *
+ * Step 3+ will plumb `session` into the chat send route and the
+ * picker hook so they call this wrapper instead of the global one.
+ * Today nothing reads it except the immunity tests — this is the
+ * data-plane prerequisite that makes the migration possible.
+ */
+export function resolveRuntimeForSession(session: { runtime_pin?: string }): ChatRuntime {
+  const pin = session.runtime_pin;
+  if (pin === 'claude_code' || pin === 'codepilot_runtime') {
+    return pin;
+  }
+  return getActiveChatRuntime();
 }

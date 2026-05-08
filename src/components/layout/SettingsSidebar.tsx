@@ -2,7 +2,7 @@
 
 import { useCallback, useSyncExternalStore } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, type Icon, Gear, UserCircle, Plug, ChartBar, Brain, Lightning, PaintBrush, Eye, Info, Heart } from "@/components/ui/icon";
+import { ArrowLeft, type Icon, Gear, UserCircle, Plug, ChartBar, Brain, Lightning, PaintBrush, Eye, Info, Heart, WifiHigh } from "@/components/ui/icon";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { useTranslation } from "@/hooks/useTranslation";
@@ -23,6 +23,7 @@ type Section =
   | "health"
   | "usage"
   | "assistant"
+  | "bridge"
   | "about";
 
 interface SidebarItem {
@@ -44,6 +45,8 @@ const sidebarItems: SidebarItem[] = [
   { id: "health", label: "Health", icon: Heart },
   { id: "usage", label: "Usage", icon: ChartBar },
   { id: "assistant", label: "Assistant", icon: UserCircle },
+  // Bridge moved from top-level rail entry into Settings (2026-05-02).
+  { id: "bridge", label: "Bridge", icon: WifiHigh },
   { id: "about", label: "About", icon: Info },
 ];
 
@@ -57,6 +60,7 @@ const settingsLabelKeys: Record<string, TranslationKey> = {
   Health: "settings.health",
   Usage: "settings.usage",
   Assistant: "settings.assistant",
+  Bridge: "settings.bridge",
   About: "settings.about",
 };
 
