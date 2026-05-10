@@ -21,6 +21,8 @@
  * right specialist surface, it doesn't try to be one.
  */
 
+import { useCallback } from "react";
+import { useRouter } from "next/navigation";
 import { useTranslation } from "@/hooks/useTranslation";
 import { useClaudeStatus } from "@/hooks/useClaudeStatus";
 import { Button } from "@/components/ui/button";
@@ -53,10 +55,6 @@ interface HealthRow {
   ctaOnClick: () => void;
 }
 
-function navTo(hash: string) {
-  if (typeof window !== "undefined") window.location.hash = hash;
-}
-
 const SEVERITY_DOT: Record<Severity, string> = {
   ok: "bg-status-success-foreground",
   warn: "bg-status-warning-foreground",
@@ -74,6 +72,13 @@ export function HealthSection() {
   const isZh = t("nav.chats") === "对话";
   const state = useOverviewData();
   const { status: claudeStatus } = useClaudeStatus();
+  // Settings is route-level split — cross-section CTAs must router.push
+  // a route path; otherwise clicking a Health row only mutates the URL
+  // hash without switching pages. See `settings-link-migration.test.ts`.
+  const router = useRouter();
+  const navToSection = useCallback((section: string) => {
+    router.push(`/settings/${section}`);
+  }, [router]);
 
   // While `useOverviewData` is still hydrating its first fetch, every
   // counter sits at the initial-state default (0). Rendering health
@@ -115,7 +120,7 @@ export function HealthSection() {
           ? "chat 无法发送 — 需要至少添加一个 provider"
           : "Chat cannot start without a connected provider",
         ctaLabel: isZh ? "去 Providers" : "Open Providers",
-        ctaOnClick: () => navTo("#providers"),
+        ctaOnClick: () => navToSection("providers"),
       };
     }
     return {
@@ -132,7 +137,7 @@ export function HealthSection() {
       // — the doctor flow is no longer the headline action since
       // health/issue-filing is now log-driven, not auto-diagnose-driven.
       ctaLabel: isZh ? "查看 Providers" : "Open Providers",
-      ctaOnClick: () => navTo("#providers"),
+      ctaOnClick: () => navToSection("providers"),
     };
   })());
 
@@ -155,7 +160,7 @@ export function HealthSection() {
           ? "仅 CodePilot 引擎兼容的服务商/模型可执行"
           : "Only CodePilot Runtime providers/models will run",
         ctaLabel: isZh ? "去执行引擎" : "Open Runtime",
-        ctaOnClick: () => navTo("#runtime"),
+        ctaOnClick: () => navToSection("runtime"),
       };
     }
     if (state.agentRuntime === "claude-code-sdk" && !cliConnected) {
@@ -171,7 +176,7 @@ export function HealthSection() {
           ? "新会话使用 AI SDK，但 Claude Code 专属能力不可用"
           : "New chats use AI SDK; Claude Code-only features are unavailable",
         ctaLabel: isZh ? "去执行引擎" : "Open Runtime",
-        ctaOnClick: () => navTo("#runtime"),
+        ctaOnClick: () => navToSection("runtime"),
       };
     }
     if (warnCount > 0) {
@@ -184,7 +189,7 @@ export function HealthSection() {
           ? `Claude Code 报告 ${warnCount} 条兼容性提示`
           : `Claude Code reports ${warnCount} compatibility warning${warnCount === 1 ? "" : "s"}`,
         ctaLabel: isZh ? "去执行引擎" : "Open Runtime",
-        ctaOnClick: () => navTo("#runtime"),
+        ctaOnClick: () => navToSection("runtime"),
       };
     }
     return {
@@ -196,7 +201,7 @@ export function HealthSection() {
         ? (isZh ? "Claude Code 引擎 已就绪" : "Claude Code 引擎 ready")
         : (isZh ? "CodePilot 引擎（AI SDK）已就绪" : "CodePilot Runtime (AI SDK) ready"),
       ctaLabel: isZh ? "去执行引擎" : "Open Runtime",
-      ctaOnClick: () => navTo("#runtime"),
+      ctaOnClick: () => navToSection("runtime"),
     };
   })());
 
@@ -215,7 +220,7 @@ export function HealthSection() {
           ? "新会话进入'无兼容服务'状态，无法发送"
           : "New chats land in the 'no compatible provider' state",
         ctaLabel: isZh ? "去执行引擎" : "Open Runtime",
-        ctaOnClick: () => navTo("#runtime"),
+        ctaOnClick: () => navToSection("runtime"),
       };
     }
     if (state.defaultInvalid) {
@@ -233,7 +238,7 @@ export function HealthSection() {
           ? "新消息会被阻断，需切换执行引擎、启用模型、改 Pin 或切回 Auto"
           : "New messages are blocked until Runtime / pin / mode is changed",
         ctaLabel: isZh ? "去执行引擎" : "Open Runtime",
-        ctaOnClick: () => navTo("#runtime"),
+        ctaOnClick: () => navToSection("runtime"),
       };
     }
     if (state.defaultMode === "pinned") {
@@ -246,7 +251,7 @@ export function HealthSection() {
           ? `已固定 ${state.defaultProviderName ?? "?"} / ${state.defaultModelLabel ?? "?"}`
           : `Pinned ${state.defaultProviderName ?? "?"} / ${state.defaultModelLabel ?? "?"}`,
         ctaLabel: isZh ? "去 Models" : "Open Models",
-        ctaOnClick: () => navTo("#models"),
+        ctaOnClick: () => navToSection("models"),
       };
     }
     return {
@@ -258,7 +263,7 @@ export function HealthSection() {
         ? `Auto — 当前解析到 ${state.defaultProviderName ?? "?"} / ${state.defaultModelLabel ?? "?"}`
         : `Auto — currently resolves to ${state.defaultProviderName ?? "?"} / ${state.defaultModelLabel ?? "?"}`,
       ctaLabel: isZh ? "去 Models" : "Open Models",
-      ctaOnClick: () => navTo("#models"),
+      ctaOnClick: () => navToSection("models"),
     };
   })());
 
@@ -274,7 +279,7 @@ export function HealthSection() {
           ? "尚未配置 provider — 详见上方"
           : "No providers configured yet — see above",
         ctaLabel: isZh ? "去 Models" : "Open Models",
-        ctaOnClick: () => navTo("#models"),
+        ctaOnClick: () => navToSection("models"),
       };
     }
     if (state.modelsEnabled === 0) {
@@ -290,7 +295,7 @@ export function HealthSection() {
           ? "chat picker 为空，无法选择模型"
           : "Chat picker is empty",
         ctaLabel: isZh ? "去 Models" : "Open Models",
-        ctaOnClick: () => navTo("#models"),
+        ctaOnClick: () => navToSection("models"),
       };
     }
     const manualNote = (state.modelsManualEnabled > 0 || state.modelsManualHidden > 0)
@@ -307,7 +312,7 @@ export function HealthSection() {
         ? `${state.modelsEnabled} / ${state.modelsTotal} 个模型已对 picker 暴露${manualNote}`
         : `${state.modelsEnabled} of ${state.modelsTotal} models exposed to picker${manualNote}`,
       ctaLabel: isZh ? "去 Models" : "Open Models",
-      ctaOnClick: () => navTo("#models"),
+      ctaOnClick: () => navToSection("models"),
     };
   })());
 
@@ -323,7 +328,7 @@ export function HealthSection() {
           ? (isZh ? `已配置：${state.workspaceName}` : `Configured: ${state.workspaceName}`)
           : (isZh ? "已配置工作空间" : "Workspace configured"),
         ctaLabel: isZh ? "去助理" : "Open Assistant",
-        ctaOnClick: () => navTo("#assistant"),
+        ctaOnClick: () => navToSection("assistant"),
       };
     }
     return {
@@ -336,7 +341,7 @@ export function HealthSection() {
         ? "助理无法在本地目录上协作"
         : "Assistant cannot collaborate on local files",
       ctaLabel: isZh ? "去助理" : "Open Assistant",
-      ctaOnClick: () => navTo("#assistant"),
+      ctaOnClick: () => navToSection("assistant"),
     };
   })());
 
@@ -406,7 +411,7 @@ export function HealthSection() {
           variant="outline"
           size="sm"
           className="shrink-0 gap-1.5"
-          onClick={() => navTo("#about")}
+          onClick={() => navToSection("about")}
         >
           {isZh ? "去 About" : "Open About"}
           <CaretRight size={12} weight="bold" />

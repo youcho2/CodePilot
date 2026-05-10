@@ -8,37 +8,27 @@ import {
 } from "@/components/ui/hover-card";
 import { Progress } from "@/components/ui/progress";
 import { cn } from "@/lib/utils";
-import type { LanguageModelUsage } from "ai";
 import type { ComponentProps } from "react";
-import { createContext, useContext, useMemo } from "react";
+import { useMemo } from "react";
 import { getUsage } from "tokenlens";
+// Provider + React context identity live in `./context-core` so a
+// trigger-only consumer (the chat RunCockpit shell) can publish
+// `usedTokens / maxTokens / usage / modelId` without dragging in
+// HoverCard / Progress / Button / tokenlens. The full kit below
+// (Context, ContextIcon, ContextTrigger, ContextContent.*) reads
+// from the SAME `ContextContext` so a value provided via core
+// `<ContextProvider>` flows down to consumers here.
+import {
+  ContextContext,
+  type ContextSchema,
+  useContextValue,
+} from "./context-core";
 
 const PERCENT_MAX = 100;
 const ICON_RADIUS = 10;
 const ICON_VIEWBOX = 24;
 const ICON_CENTER = 12;
 const ICON_STROKE_WIDTH = 2;
-
-type ModelId = string;
-
-interface ContextSchema {
-  usedTokens: number;
-  maxTokens: number;
-  usage?: LanguageModelUsage;
-  modelId?: ModelId;
-}
-
-const ContextContext = createContext<ContextSchema | null>(null);
-
-const useContextValue = () => {
-  const context = useContext(ContextContext);
-
-  if (!context) {
-    throw new Error("Context components must be used within Context");
-  }
-
-  return context;
-};
 
 export type ContextProps = ComponentProps<typeof HoverCard> & ContextSchema;
 

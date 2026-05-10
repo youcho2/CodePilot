@@ -431,7 +431,7 @@ export function ChatListPanel({ open, width, hasUpdate, readyToInstall }: ChatLi
 
   // Phase 2D.4 (2026-05-01): Skills / MCP / CLI Tools collapsed into
   // a single "Plugins" entry — see ExtensionsPage for the unified UI.
-  // Bridge moved to `/settings#bridge` (2026-05-02) — channel configs
+  // Bridge moved to `/settings/bridge` (2026-05-02) — channel configs
   // are settings, not a primary destination.
   const navItems = [
     { href: "/plugins", label: t('nav.plugins' as TranslationKey), icon: Plug },
@@ -526,7 +526,7 @@ export function ChatListPanel({ open, width, hasUpdate, readyToInstall }: ChatLi
           {/* Assistant promo card for unconfigured users */}
           {assistantSummary && !assistantSummary.configured && !promoDismissed && (
             <AssistantPromoCard
-              onSetup={() => router.push('/settings#assistant')}
+              onSetup={() => router.push('/settings/assistant')}
               onDismiss={() => setPromoDismissed(true)}
             />
           )}

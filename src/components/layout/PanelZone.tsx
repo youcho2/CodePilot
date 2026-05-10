@@ -15,9 +15,13 @@
  * live inside `<WorkspaceSidebar>` as fixed or dynamic Tabs and never
  * render here.
  *
- * Mutual exclusion with the Workspace Sidebar is enforced at the
- * topbar onClick handlers (UnifiedTopBar): opening one closes the
- * other so two right rails never squeeze the chat at once.
+ * v13 — FileTreePanel and the Workspace Sidebar are additive: both
+ * can be open simultaneously and the chat area shrinks accordingly.
+ * Each topbar toggle (UnifiedTopBar) flips its own panel only, with
+ * no auto-close of the other. Earlier rounds (and v11) treated them
+ * as mutually exclusive; that direction was reversed after the user
+ * pointed out the actual product wish was coexistence — see the
+ * Phase 3 archive's v13 entry for the full rationale.
  */
 
 import dynamic from "next/dynamic";

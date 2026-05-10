@@ -21,6 +21,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
 import { useTranslation } from '@/hooks/useTranslation';
+import { copyWithToast } from "@/lib/clipboard";
 import type { TranslationKey } from "@/i18n";
 import { useState } from "react";
 import { SPECIES_IMAGE_URL, EGG_IMAGE_URL, type Species } from "@/lib/buddy";
@@ -116,7 +117,9 @@ export function ProjectGroupHeader({
             <span>{t('chatList.openFolder' as TranslationKey)}</span>
           </DropdownMenuItem>
           <DropdownMenuItem onClick={() => {
-            navigator.clipboard.writeText(workingDirectory);
+            // v11 fix — see lib/clipboard.ts for why fire-and-forget
+            // writeText fails in Electron renderers after dropdown blur.
+            void copyWithToast({ text: workingDirectory, t });
           }}>
             <Copy size={14} />
             <span>{t('chatList.copyFolderPath' as TranslationKey)}</span>

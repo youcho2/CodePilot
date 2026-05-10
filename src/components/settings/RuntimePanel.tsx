@@ -27,6 +27,7 @@
  */
 
 import { useState, useEffect, useCallback, useMemo } from "react";
+import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
@@ -327,6 +328,10 @@ const KNOWN_FIELDS = [
 export function RuntimePanel() {
   const { t } = useTranslation();
   const isZh = t("nav.chats") === "对话";
+  // Settings is route-level split — jumping to Models must router.push the
+  // route path, not just write to window.location.hash (which would only
+  // mutate the URL fragment without switching pages on /settings/runtime).
+  const router = useRouter();
 
   // ── Runtime selection (DB setting) ──
   // `agentRuntime` is the *stored* preference from the DB. The effective
@@ -653,16 +658,16 @@ export function RuntimePanel() {
       sessionStorage.setItem("codepilot:models-focus-model", invalidDefault.modelValue);
     }
     sessionStorage.setItem("codepilot:models-focus-filter", "all");
-    window.location.hash = "#models";
-  }, [invalidDefault]);
+    router.push("/settings/models");
+  }, [invalidDefault, router]);
 
   /** Jump to Models page so the user can pin a different model. The
    *  Models page top status row is already showing this same broken
    *  pin (Phase 2C.2 added that), so the user lands somewhere they
    *  can act without re-reading the problem. */
   const handlePickAnotherDefault = useCallback(() => {
-    if (typeof window !== "undefined") window.location.hash = "#models";
-  }, []);
+    router.push("/settings/models");
+  }, [router]);
 
   /** Revert to Auto. Single PUT — storage layer's auto-clears the
    *  pinned values (Phase 2C.1 short-circuit). Same call shape as

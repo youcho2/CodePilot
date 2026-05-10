@@ -234,7 +234,7 @@ function deriveStats(daily: DailyRow[], days: number): DerivedStats {
 interface HeatmapProps {
   isZh: boolean;
   /** Optional — Overview page passes this to drive the bottom CTA. When the
-   *  component is embedded in `/settings#usage` (which IS the details page),
+   *  component is embedded in `/settings/usage` (which IS the details page),
    *  the host omits the handler and `hideViewDetails` is set to true. */
   onJumpToDetails?: () => void;
   /** When true, the bottom "View details →" link is hidden. */

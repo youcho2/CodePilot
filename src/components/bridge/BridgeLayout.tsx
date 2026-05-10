@@ -46,13 +46,12 @@ function subscribeToHash(callback: () => void) {
 
 interface BridgeLayoutProps {
   /**
-   * `embedded` mounts BridgeLayout inside another shell (e.g.
-   * `<SettingsLayout>`'s "bridge" section). In embedded mode:
+   * `embedded` mounts BridgeLayout inside another shell (currently the
+   * `/settings/bridge` route). In embedded mode:
    *   - The page-level `<h1>` + description are hidden (the host shell
    *     already provides identity).
    *   - The inner sub-nav drives only local state — URL writes are
-   *     suppressed so they don't compete with the host's `/settings#…`
-   *     hash.
+   *     suppressed so they don't compete with the host route's path.
    *   - The hash is read once on mount but never mirrored back.
    */
   embedded?: boolean;

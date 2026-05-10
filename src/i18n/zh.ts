@@ -587,6 +587,9 @@ const zh: Record<TranslationKey, string> = {
   'common.close': '关闭',
   'common.enabled': '已启用',
   'common.disabled': '已禁用',
+  // v11 — clipboard 反馈，由 `lib/clipboard.ts:copyWithToast` 调用
+  'common.copySuccess': '已复制到剪贴板',
+  'common.copyFailed': '复制失败，可以手动复制：',
 
   // ── Prompt dialog (replacement for window.prompt — not supported in Electron) ──
   'prompt.rename.title': '重命名对话',
@@ -1064,6 +1067,35 @@ const zh: Record<TranslationKey, string> = {
 
   // ── Assistant Workspace ──────────────────────────────
   'settings.assistant': '助理',
+  'settings.tasks': '定时任务',
+  'settings.tasksDesc': '全局定时任务中心：提醒、AI 任务、来源（用户 / 助理 / 自动化）的统一管理',
+  'tasks.create': '新建任务',
+  'tasks.creating': '创建中…',
+  'tasks.cancel': '取消',
+  'tasks.empty': '当前没有定时任务。',
+  'tasks.createHint': '点击右上角"新建任务"会进入聊天，让 AI 帮你创建。',
+  'tasks.deliveryLog': '执行记录与通知通道',
+  'tasks.kindReminder': '提醒',
+  'tasks.kindReminderDesc': '到点弹通知，prompt 文本就是通知正文，不调用 AI 模型',
+  'tasks.kindAiTask': 'AI 任务',
+  'tasks.kindAiTaskDesc': '到点把 prompt 交给已配置的服务商，AI 回复作为通知正文',
+  'tasks.schedule': '排期',
+  'tasks.nextRun': '下次执行',
+  'tasks.lastRun': '上次执行',
+  'tasks.runNow': '立即运行',
+  'tasks.pause': '暂停',
+  'tasks.resume': '恢复',
+  'tasks.delete': '删除',
+  'tasks.fieldKind': '类型',
+  'tasks.fieldName': '任务名',
+  'tasks.fieldPrompt': '内容',
+  'tasks.fieldScheduleType': '排期方式',
+  'tasks.scheduleOnce': '一次性',
+  'tasks.scheduleInterval': '固定间隔',
+  'tasks.fieldOnceMinutes': '多少分钟后触发',
+  'tasks.fieldIntervalValue': '间隔（如 30m / 2h / 1d）',
+  'tasks.fieldPriority': '优先级',
+  'tasks.createDesc': '创建一个定时任务。提醒类直接弹通知；AI 任务类调用配置的模型生成回复。',
   'assistant.workspaceTitle': '助理工作区',
   'assistant.workspaceDesc': '配置一个目录用于持久化 AI 人格和记忆',
   'assistant.workspacePath': '工作区路径',
@@ -1084,7 +1116,11 @@ const zh: Record<TranslationKey, string> = {
   'assistant.startOnboarding': '开始引导',
   'assistant.redoOnboarding': '重新引导',
   'assistant.heartbeatTitle': '心跳检测',
-  'assistant.heartbeatDesc': '启用后，助理每次访问时检查 HEARTBEAT.md。如果没有需要报告的内容，它将保持静默（HEARTBEAT_OK）。如果有需要关注的事项，它会主动告知。',
+  // v10 — 文案诚实化：心跳不是后台定时任务，只在用户打开助理工作区
+  // 新对话（autoTrigger 命中空会话）时跑一次。
+  // v12 — 文案进一步精简，避免与开关挤在同一行；CheckInCard 也已改成
+  // 标题+Switch 顶部一行 / 描述全宽换行。
+  'assistant.heartbeatDesc': '在助理工作区开始新对话时触发——不是后台定时任务。无事保持静默（HEARTBEAT_OK），有事主动告知。',
   'assistant.lastHeartbeatLabel': '上次心跳',
   'assistant.heartbeatOk': '一切正常',
   'assistant.heartbeatNeeded': '可执行心跳',
@@ -1169,9 +1205,9 @@ const zh: Record<TranslationKey, string> = {
   'assistant.panel.settings': '设置',
   'assistant.panel.assistantSettings': '助理设置',
   'assistant.panel.editHeartbeat': '编辑 HEARTBEAT.md',
-  // ── Scheduled Tasks ──────────────────────────────────────────────
+  // ── Scheduled Tasks (旧 Phase 2 toast / 状态文案；新 Settings → Tasks
+  // 页文案已经在前面定义并覆盖 `tasks.empty`)
   'tasks.title': '定时任务',
-  'tasks.empty': '没有定时任务。',
   'tasks.created': '任务已创建',
   'tasks.cancelled': '任务已取消',
   'tasks.completed': '任务已完成',
@@ -1191,13 +1227,32 @@ const zh: Record<TranslationKey, string> = {
   'assistant.configured': '已设置',
   'assistant.reconfigure': '重新设置',
   'assistant.personality': '助理人格',
-  'assistant.scheduledTasks': '定时任务',
-  'assistant.noTasks': '没有定时任务。可以让助理创建。',
+  // v12 — `assistant.scheduledTasks` + tasksLink* 三 key 全部退役：
+  // Assistant 页不再展示定时任务入口（v9 删了内联列表，v12 把 link
+  // 卡也删了），全局任务管理在 Settings → Tasks。这些 key 只剩这一处
+  // 引用过；安全删除。
   'assistant.editHeartbeatHint': '编辑工作区中的 HEARTBEAT.md 来自定义检查内容',
+  // Phase 3 Step 4 — heartbeat interval picker (Settings → Assistant)
+  'assistant.heartbeatInterval': '心跳频率',
+  'assistant.heartbeatInterval1h': '每小时',
+  'assistant.heartbeatInterval6h': '每 6 小时',
+  'assistant.heartbeatInterval12h': '每 12 小时',
+  'assistant.heartbeatInterval24h': '每天一次',
+  // Phase 3 Step 4 — TaskRunMarker labels rendered in chat session
+  'chat.taskRunMarker.taskLabel': '定时任务',
+  'chat.taskRunMarker.heartbeatLabel': '心跳触发',
+  'chat.taskRunMarker.running': '执行中',
+  'chat.taskRunMarker.succeeded': '已完成',
+  'chat.taskRunMarker.failed': '失败',
+  'chat.taskRunMarker.waitingForPermission': '等待权限',
+  'chat.taskRunMarker.cancelled': '已放弃',
+  // Phase 3 Step 4b — TaskWaitingForPermissionPanel
+  'chat.taskWaiting.title': '后台任务暂停：需要权限',
+  'chat.taskWaiting.body': '后台执行时遇到需要权限的工具调用，已停在此处保留上下文。本版本不支持从断点继续——可以重跑（创建一条新的执行记录）或放弃。',
+  'chat.taskWaiting.rerun': '重跑此任务',
+  'chat.taskWaiting.abandon': '放弃',
   'assistant.advanced': '高级选项',
   'assistant.editSoulHint': '编辑工作区中的 soul.md 来自定义人格',
-  'assistant.taskDelete': '删除',
-  'assistant.taskNextRun': '下次执行',
 
   // ── Composer ──────────────────────────────────────────────
   'composer.slashCommand': '命令',

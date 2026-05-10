@@ -1,117 +1,58 @@
 "use client";
 
-import { useCallback, useSyncExternalStore } from "react";
-import { useRouter } from "next/navigation";
-import { ArrowLeft, type Icon, Gear, UserCircle, Plug, ChartBar, Brain, Lightning, PaintBrush, Eye, Info, Heart, WifiHigh } from "@/components/ui/icon";
+import { useCallback } from "react";
+import Link from "next/link";
+import { usePathname, useRouter } from "next/navigation";
+import { ArrowLeft } from "@/components/ui/icon";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { useTranslation } from "@/hooks/useTranslation";
 import type { TranslationKey } from "@/i18n";
+import {
+  SETTINGS_NAV_ITEMS,
+  pathnameToSettingsSection,
+} from "@/components/settings/nav-config";
 
 interface SettingsSidebarProps {
   open: boolean;
   width?: number;
 }
 
-type Section =
-  | "overview"
-  | "general"
-  | "appearance"
-  | "providers"
-  | "models"
-  | "runtime"
-  | "health"
-  | "usage"
-  | "assistant"
-  | "bridge"
-  | "about";
-
-interface SidebarItem {
-  id: Section;
-  label: string;
-  icon: Icon;
-}
-
-// Mirror SettingsLayout — Overview is the dashboard at top, About is the
-// metadata page at bottom. Middle is the three-layer mental model:
-// Providers (assets) → Models (exposure) → Runtime (environment).
-const sidebarItems: SidebarItem[] = [
-  { id: "overview", label: "Overview", icon: Eye },
-  { id: "general", label: "General", icon: Gear },
-  { id: "appearance", label: "Appearance", icon: PaintBrush },
-  { id: "providers", label: "Providers", icon: Plug },
-  { id: "models", label: "Models", icon: Brain },
-  { id: "runtime", label: "Runtime", icon: Lightning },
-  { id: "health", label: "Health", icon: Heart },
-  { id: "usage", label: "Usage", icon: ChartBar },
-  { id: "assistant", label: "Assistant", icon: UserCircle },
-  // Bridge moved from top-level rail entry into Settings (2026-05-02).
-  { id: "bridge", label: "Bridge", icon: WifiHigh },
-  { id: "about", label: "About", icon: Info },
-];
-
-const settingsLabelKeys: Record<string, TranslationKey> = {
-  Overview: "settings.overview",
-  General: "settings.general",
-  Appearance: "settings.appearance",
-  Providers: "settings.providers",
-  Models: "settings.models",
-  Runtime: "settings.runtime",
-  Health: "settings.health",
-  Usage: "settings.usage",
-  Assistant: "settings.assistant",
-  Bridge: "settings.bridge",
-  About: "settings.about",
-};
-
-function getSectionFromHash(): Section {
-  if (typeof window === "undefined") return "overview";
-  const hash = window.location.hash.replace("#", "");
-  if (sidebarItems.some((item) => item.id === hash)) {
-    return hash as Section;
-  }
-  return "overview";
-}
-
-function subscribeToHash(callback: () => void) {
-  window.addEventListener("hashchange", callback);
-  return () => window.removeEventListener("hashchange", callback);
-}
-
 /**
  * Settings sidebar — replaces ChatListPanel when on /settings route.
  * Top: Back button → returns to previous view (chat).
- * Below: 5 section navigation items (synced via URL hash).
+ * Below: section navigation (one entry per /settings/<section> route).
+ *
+ * Memory contract: nav items are <Link prefetch={false}> so dev only
+ * compiles the section a user actually clicks into. Active state is
+ * derived from pathname, not hash; legacy /settings#section hash entries
+ * are redirected to the new path by the /settings root page on mount.
+ *
+ * v6 fix (P2): nav items live in `@/components/settings/nav-config`,
+ * shared with `src/app/settings/layout.tsx` (the mobile horizontal
+ * nav). Previously each file kept its own literal and diverging adds
+ * (Tasks here, not there) caused a hydration mismatch.
  */
 export function SettingsSidebar({ open, width }: SettingsSidebarProps) {
   const router = useRouter();
+  const pathname = usePathname();
   const { t } = useTranslation();
 
-  const activeSection = useSyncExternalStore(
-    subscribeToHash,
-    getSectionFromHash,
-    () => "general" as Section,
-  );
+  const activeSection = pathnameToSettingsSection(pathname || "/settings");
 
   const handleBack = useCallback(() => {
-    // Avoid router.back() — for deep-linked /settings#... entries it escapes
-    // to about:blank. Prefer the recorded last non-settings path (written by
-    // AppShell), with /chat as explicit fallback.
-    if (typeof window !== 'undefined') {
-      const last = sessionStorage.getItem('codepilot:last-non-settings-path');
-      if (last && !last.startsWith('/settings')) {
+    // Avoid router.back() — for deep-linked /settings/... entries it can
+    // escape to about:blank. Prefer the recorded last non-settings path
+    // (written by AppShell), with /chat as explicit fallback.
+    if (typeof window !== "undefined") {
+      const last = sessionStorage.getItem("codepilot:last-non-settings-path");
+      if (last && !last.startsWith("/settings")) {
         router.push(last);
         return;
       }
     }
-    router.push('/chat');
+    router.push("/chat");
   }, [router]);
-
-  const handleSectionChange = useCallback((section: Section) => {
-    window.history.replaceState(null, "", `/settings#${section}`);
-    // Manually dispatch hashchange so useSyncExternalStore picks up the change
-    window.dispatchEvent(new HashChangeEvent("hashchange"));
-  }, []);
 
   if (!open) return null;
 
@@ -138,24 +79,23 @@ export function SettingsSidebar({ open, width }: SettingsSidebarProps) {
 
       {/* Section navigation */}
       <div className="p-2 flex flex-col gap-0.5">
-        {sidebarItems.map((item) => {
+        {SETTINGS_NAV_ITEMS.map((item) => {
           const isActive = activeSection === item.id;
           return (
-            <Button
+            <Link
               key={item.id}
-              variant="ghost"
-              size="sm"
-              onClick={() => handleSectionChange(item.id)}
+              href={item.href}
+              prefetch={false}
               className={cn(
-                "group w-full justify-start gap-2 h-9 px-3 rounded-xl text-[13px]",
+                "group inline-flex items-center w-full justify-start gap-2 h-9 px-3 rounded-xl text-[13px]",
                 isActive
                   ? "bg-sidebar-accent text-sidebar-accent-foreground font-medium"
-                  : "text-sidebar-foreground font-normal",
+                  : "text-sidebar-foreground font-normal hover:bg-sidebar-accent/60",
               )}
             >
               <item.icon size={16} weight={isActive ? "fill" : "regular"} />
-              {t(settingsLabelKeys[item.label])}
-            </Button>
+              {t(item.i18nKey)}
+            </Link>
           );
         })}
       </div>

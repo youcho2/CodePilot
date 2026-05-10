@@ -23,6 +23,7 @@ import { PromptDialog } from "@/components/ui/prompt-dialog";
 import { cn } from "@/lib/utils";
 import type { ChatSession } from "@/types";
 import type { TranslationKey } from "@/i18n";
+import { copyWithToast } from "@/lib/clipboard";
 
 interface SessionListItemProps {
   session: ChatSession;
@@ -155,7 +156,9 @@ export function SessionListItem({
             <span>{t('chatList.renameConversation' as TranslationKey)}</span>
           </DropdownMenuItem>
           <DropdownMenuItem onClick={() => {
-            navigator.clipboard.writeText(session.id);
+            // v11 fix — see lib/clipboard.ts for why fire-and-forget
+            // writeText fails in Electron renderers post-DropdownMenu blur.
+            void copyWithToast({ text: session.id, t });
           }}>
             <Copy size={14} />
             <span>{t('chatList.copySessionId' as TranslationKey)}</span>

@@ -2,10 +2,10 @@
 
 /**
  * Compatibility redirect — the bridge UI moved into Settings on
- * 2026-05-02 (`/settings#bridge`). This page exists only so old deep
- * links don't 404. Channel-specific deep links (`/bridge#telegram` etc.)
- * resolve to the bridge section's home; users can re-enter the channel
- * sub-nav from there.
+ * 2026-05-02. This page exists only so old `/bridge` deep links don't
+ * 404. Channel-specific deep links (`/bridge#telegram` etc.) resolve to
+ * the bridge section's home; users can re-enter the channel sub-nav
+ * from there.
  */
 
 import { useEffect } from "react";
@@ -15,7 +15,7 @@ import { SpinnerGap } from "@/components/ui/icon";
 export default function BridgeRedirectPage() {
   const router = useRouter();
   useEffect(() => {
-    router.replace("/settings#bridge");
+    router.replace("/settings/bridge");
   }, [router]);
 
   return (

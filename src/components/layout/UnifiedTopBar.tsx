@@ -32,6 +32,7 @@ import { useWorkspaceSidebarOptional } from "@/hooks/useWorkspaceSidebar";
 import { useSplit } from "@/hooks/useSplit";
 import { useTranslation } from "@/hooks/useTranslation";
 import { useClientPlatform } from '@/hooks/useClientPlatform';
+import { copyWithToast } from "@/lib/clipboard";
 import type { TranslationKey } from "@/i18n";
 
 export function UnifiedTopBar() {
@@ -113,8 +114,13 @@ export function UnifiedTopBar() {
 
   const handleCopyId = useCallback(() => {
     if (!sessionId) return;
-    navigator.clipboard.writeText(sessionId);
-  }, [sessionId]);
+    // v11 fix — was fire-and-forget `navigator.clipboard.writeText(...)`,
+    // which rejects with NotAllowedError in Electron renderers when the
+    // page isn't the focused document (very common after a dropdown
+    // click). The unhandled rejection became a console error / Sentry
+    // report and the user got no feedback either way.
+    void copyWithToast({ text: sessionId, t });
+  }, [sessionId, t]);
 
   // Extract project name from working directory.
   const projectName = workingDirectory ? workingDirectory.split(/[\\/]/).filter(Boolean).pop() || '' : '';
@@ -314,10 +320,11 @@ export function UnifiedTopBar() {
                    / preview); the file tree is NOT folded into it by
                    default. Files Tab only appears when the user
                    explicitly pins.
-                3. Lightweight tree + Workspace Sidebar are mutually
-                   exclusive in the OPEN state — clicking the tree
-                   button while the sidebar is open closes the sidebar
-                   first so two right rails never squeeze chat at once. */}
+                3. v13: File Tree 与 Workspace Sidebar 可同时打开，
+                   各自独立 toggle —— 两个按钮不再自动关闭对方，用户
+                   可以一边浏览 file tree 一边在 Workspace Sidebar 上
+                   钉一个 markdown / artifact preview Tab，聊天区随之
+                   收窄。完整 rationale 见 Phase 3 archive 的 v13 条目。 */}
           <Tooltip>
             <TooltipTrigger asChild>
               <Button
@@ -327,13 +334,11 @@ export function UnifiedTopBar() {
                   fileTreeOpen ? '' : 'text-muted-foreground hover:text-foreground'
                 }
                 onClick={() => {
-                  const next = !fileTreeOpen;
-                  setFileTreeOpen(next);
-                  // Mutual exclusion: opening the lightweight tree
-                  // collapses the Workspace Sidebar so chat keeps
-                  // breathing room. The reverse pairing lives on the
-                  // sidebar toggle below.
-                  if (next && ws?.state.open) ws.setOpen(false);
+                  // v13: file-tree and Workspace Sidebar are additive,
+                  // not mutex. Each toggle flips its own panel only;
+                  // user can have both open simultaneously and chat
+                  // area shrinks to fit.
+                  setFileTreeOpen(!fileTreeOpen);
                 }}
               >
                 <TreeStructure size={16} />
@@ -355,12 +360,9 @@ export function UnifiedTopBar() {
                   size="icon-sm"
                   className={ws.state.open ? "" : "text-muted-foreground hover:text-foreground"}
                   onClick={() => {
-                    const next = !ws.state.open;
-                    ws.setOpen(next);
-                    // Open path: collapse the legacy lightweight file
-                    // tree so the user doesn't end up with two right-
-                    // rail panels stacked. (Codex P2 收口 2026-04-30.)
-                    if (next && fileTreeOpen) setFileTreeOpen(false);
+                    // v13: see file-tree button above — additive, not
+                    // mutex. Each toggle is independent.
+                    ws.setOpen(!ws.state.open);
                   }}
                   aria-label={t('workspaceSidebar.toggle' as TranslationKey)}
                 >

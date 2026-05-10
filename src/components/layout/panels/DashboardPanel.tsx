@@ -569,7 +569,7 @@ function AssistantStatusCard({ summary, t }: {
           variant="ghost"
           size="sm"
           className="shrink-0 text-muted-foreground text-[10px] gap-1 h-6 px-1.5"
-          onClick={() => router?.push('/settings#assistant')}
+          onClick={() => router?.push('/settings/assistant')}
         >
           <Gear size={12} />
           {t('settings.title' as TranslationKey)}

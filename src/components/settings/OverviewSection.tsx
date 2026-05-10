@@ -23,6 +23,7 @@
  */
 
 import { useCallback, useMemo } from "react";
+import { useRouter } from "next/navigation";
 import { useTranslation } from "@/hooks/useTranslation";
 import { useAccountInfo } from "@/hooks/useAccountInfo";
 import { useUpdate } from "@/hooks/useUpdate";
@@ -65,11 +66,14 @@ export function OverviewSection() {
   const { updateInfo, checking, checkForUpdates } = useUpdate();
   const { status: claudeStatus } = useClaudeStatus();
 
-  const navTo = useCallback((hash: string) => {
-    if (typeof window !== "undefined") {
-      window.location.hash = hash;
-    }
-  }, []);
+  // Settings is a route-level split now (one page per /settings/<section>),
+  // so cross-section jumps must go through the router or they only mutate
+  // the URL hash without switching pages. Section IDs match the folder
+  // names under src/app/settings/.
+  const router = useRouter();
+  const navToSection = useCallback((section: string) => {
+    router.push(`/settings/${section}`);
+  }, [router]);
 
   const cliConnected = !!claudeStatus?.connected;
   const effectiveRuntime: AgentRuntime = computeEffectiveRuntime(
@@ -92,7 +96,7 @@ export function OverviewSection() {
       desc: t("overview.checklistConnectProviderDesc" as TranslationKey),
       done: state.providersConfigured > 0,
       actionLabel: t("overview.actionGoConfigure" as TranslationKey),
-      onAction: () => navTo("#providers"),
+      onAction: () => navToSection("providers"),
     },
     {
       id: "enable-models",
@@ -101,7 +105,7 @@ export function OverviewSection() {
       // Only ask once a provider exists; "no provider" is covered above.
       done: state.providersConfigured === 0 || state.modelsEnabled > 0,
       actionLabel: t("overview.actionGoConfigure" as TranslationKey),
-      onAction: () => navTo("#models"),
+      onAction: () => navToSection("models"),
     },
     {
       id: "verify-runtime",
@@ -109,7 +113,7 @@ export function OverviewSection() {
       desc: t("overview.checklistVerifyRuntimeDesc" as TranslationKey),
       done: !runtimeIsFallback && !claudeWarnings,
       actionLabel: t("overview.actionGoConfigure" as TranslationKey),
-      onAction: () => navTo("#runtime"),
+      onAction: () => navToSection("runtime"),
     },
     {
       id: "configure-workspace",
@@ -117,10 +121,10 @@ export function OverviewSection() {
       desc: t("overview.checklistConfigureWorkspaceDesc" as TranslationKey),
       done: state.workspaceConfigured,
       actionLabel: t("overview.actionGoConfigure" as TranslationKey),
-      onAction: () => navTo("#assistant"),
+      onAction: () => navToSection("assistant"),
     },
   ], [
-    t, navTo,
+    t, navToSection,
     state.providersConfigured,
     state.modelsEnabled,
     runtimeIsFallback,
@@ -175,7 +179,7 @@ export function OverviewSection() {
               ? isZh ? "去执行引擎修复" : "Fix in Runtime"
               : isZh ? "管理执行引擎" : "Manage Runtime"
           }
-          onPrimaryAction={() => navTo("#runtime")}
+          onPrimaryAction={() => navToSection("runtime")}
         >
           <p>
             <span className="text-muted-foreground">
@@ -204,7 +208,7 @@ export function OverviewSection() {
           title={isZh ? "服务商" : "Providers"}
           tone={state.noCompatibleProvider ? "warning" : "muted"}
           primaryActionLabel={isZh ? "管理服务商" : "Manage providers"}
-          onPrimaryAction={() => navTo("#providers")}
+          onPrimaryAction={() => navToSection("providers")}
         >
           <p>
             <span className="text-muted-foreground">
@@ -242,7 +246,7 @@ export function OverviewSection() {
           title={isZh ? "模型暴露" : "Models exposure"}
           tone={state.modelsEnabled === 0 && state.providersConfigured > 0 ? "warning" : "muted"}
           primaryActionLabel={isZh ? "管理模型" : "Manage models"}
-          onPrimaryAction={() => navTo("#models")}
+          onPrimaryAction={() => navToSection("models")}
         >
           <p>
             <span className="text-muted-foreground">
@@ -277,7 +281,7 @@ export function OverviewSection() {
               ? isZh ? "管理助理" : "Manage assistant"
               : isZh ? "去配置" : "Configure"
           }
-          onPrimaryAction={() => navTo("#assistant")}
+          onPrimaryAction={() => navToSection("assistant")}
         >
           {state.workspaceConfigured ? (
             <p>
@@ -305,7 +309,7 @@ export function OverviewSection() {
           title={isZh ? "版本与账户" : "Update & About"}
           tone={updateInfo?.updateAvailable ? "warning" : "success"}
           primaryActionLabel={isZh ? "查看关于" : "View About"}
-          onPrimaryAction={() => navTo("#about")}
+          onPrimaryAction={() => navToSection("about")}
           footer={
             <Button
               variant="ghost"
@@ -354,7 +358,7 @@ export function OverviewSection() {
           title={isZh ? "健康检查" : "Health"}
           tone={claudeWarnings ? "warning" : "muted"}
           primaryActionLabel={isZh ? "去健康检查" : "Open Health"}
-          onPrimaryAction={() => navTo("#health")}
+          onPrimaryAction={() => navToSection("health")}
         >
           {claudeWarnings ? (
             <p className="text-status-warning-foreground flex items-start gap-1">
@@ -376,7 +380,7 @@ export function OverviewSection() {
       </div>
 
       {/* Bottom — Token usage activity heatmap */}
-      <OverviewHeatmap isZh={isZh} onJumpToDetails={() => navTo("#usage")} />
+      <OverviewHeatmap isZh={isZh} onJumpToDetails={() => navToSection("usage")} />
     </div>
   );
 }

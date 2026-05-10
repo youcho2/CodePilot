@@ -599,6 +599,9 @@ const en = {
   'common.loading': 'Loading...',
   'common.close': 'Close',
   'common.enabled': 'Enabled',
+  // v11 — clipboard feedback used by `lib/clipboard.ts:copyWithToast`
+  'common.copySuccess': 'Copied to clipboard',
+  'common.copyFailed': 'Could not copy. You can copy this manually:',
   'common.disabled': 'Disabled',
 
   // ── Prompt dialog (replacement for window.prompt — not supported in Electron) ──
@@ -1077,6 +1080,35 @@ const en = {
 
   // ── Assistant Workspace ──────────────────────────────
   'settings.assistant': 'Assistant',
+  'settings.tasks': 'Tasks',
+  'settings.tasksDesc': 'Global task center — reminders and AI tasks from any source (user / assistant / automation) in one place',
+  'tasks.create': 'New Task',
+  'tasks.creating': 'Creating…',
+  'tasks.cancel': 'Cancel',
+  'tasks.empty': 'No scheduled tasks yet.',
+  'tasks.createHint': 'Click "New Task" — it opens a chat where the AI walks you through creating one.',
+  'tasks.deliveryLog': 'Execution history & notification channels',
+  'tasks.kindReminder': 'Reminder',
+  'tasks.kindReminderDesc': 'Pops a notification at the scheduled time. The prompt text is the notification body — no AI model is called.',
+  'tasks.kindAiTask': 'AI Task',
+  'tasks.kindAiTaskDesc': 'Feeds the prompt to your configured provider; the AI reply becomes the notification body.',
+  'tasks.schedule': 'Schedule',
+  'tasks.nextRun': 'Next run',
+  'tasks.lastRun': 'Last run',
+  'tasks.runNow': 'Run now',
+  'tasks.pause': 'Pause',
+  'tasks.resume': 'Resume',
+  'tasks.delete': 'Delete',
+  'tasks.fieldKind': 'Kind',
+  'tasks.fieldName': 'Name',
+  'tasks.fieldPrompt': 'Prompt',
+  'tasks.fieldScheduleType': 'Schedule type',
+  'tasks.scheduleOnce': 'One-shot',
+  'tasks.scheduleInterval': 'Repeating interval',
+  'tasks.fieldOnceMinutes': 'Trigger in N minutes',
+  'tasks.fieldIntervalValue': 'Interval (e.g. 30m / 2h / 1d)',
+  'tasks.fieldPriority': 'Priority',
+  'tasks.createDesc': 'Schedule a task. Reminders just pop a notification; AI tasks run the prompt against the configured provider.',
   'assistant.workspaceTitle': 'Assistant Workspace',
   'assistant.workspaceDesc': 'Configure a directory for persistent AI personality and memory',
   'assistant.workspacePath': 'Workspace Path',
@@ -1097,7 +1129,13 @@ const en = {
   'assistant.startOnboarding': 'Start Onboarding',
   'assistant.redoOnboarding': 'Redo Onboarding',
   'assistant.heartbeatTitle': 'Heartbeat',
-  'assistant.heartbeatDesc': 'When enabled, the assistant checks HEARTBEAT.md on each visit. If there is nothing to report, it stays silent (HEARTBEAT_OK). If something needs attention, it speaks up.',
+  // v10 — Honest framing: heartbeat is not a background timer. It
+  // only fires when the user opens a new chat in the assistant
+  // workspace (autoTrigger on an empty session).
+  // v12 — Trimmed so the description does not crowd the toggle on
+  // narrow cards; CheckInCard layout also moved Switch onto its own
+  // top row alongside just the title.
+  'assistant.heartbeatDesc': 'Triggers when you start a new chat in the assistant workspace — not a background timer. Stays silent (HEARTBEAT_OK) if all is clear; speaks up if something needs attention.',
   'assistant.lastHeartbeatLabel': 'Last heartbeat',
   'assistant.heartbeatOk': 'All clear',
   'assistant.heartbeatNeeded': 'Heartbeat available',
@@ -1182,9 +1220,10 @@ const en = {
   'assistant.panel.settings': 'Settings',
   'assistant.panel.assistantSettings': 'Assistant Settings',
   'assistant.panel.editHeartbeat': 'Edit HEARTBEAT.md',
-  // ── Scheduled Tasks ──────────────────────────────────────────────
+  // ── Scheduled Tasks (legacy toast / status copy — `tasks.empty` is
+  // re-defined above for the Settings → Tasks page; older copy lives
+  // here for Phase 2 toasts).
   'tasks.title': 'Scheduled Tasks',
-  'tasks.empty': 'No scheduled tasks.',
   'tasks.created': 'Task created',
   'tasks.cancelled': 'Task cancelled',
   'tasks.completed': 'Task completed',
@@ -1204,13 +1243,33 @@ const en = {
   'assistant.configured': 'Configured',
   'assistant.reconfigure': 'Reconfigure',
   'assistant.personality': 'Personality',
-  'assistant.scheduledTasks': 'Scheduled Tasks',
-  'assistant.noTasks': 'No scheduled tasks. Ask the assistant to create one.',
+  // v12 — `assistant.scheduledTasks` + tasksLink* keys retired.
+  // Assistant page no longer renders a scheduled-tasks block at all
+  // (v9 removed the inline list, v12 removed the link card). Global
+  // tasks live in Settings → Tasks. These keys had only one consumer
+  // each; safe to drop.
   'assistant.editHeartbeatHint': 'Edit HEARTBEAT.md in your workspace to customize checks',
+  // Phase 3 Step 4 — heartbeat interval picker (Settings → Assistant)
+  'assistant.heartbeatInterval': 'Heartbeat interval',
+  'assistant.heartbeatInterval1h': 'Every hour',
+  'assistant.heartbeatInterval6h': 'Every 6 hours',
+  'assistant.heartbeatInterval12h': 'Every 12 hours',
+  'assistant.heartbeatInterval24h': 'Once a day',
+  // Phase 3 Step 4 — TaskRunMarker labels rendered in chat session
+  'chat.taskRunMarker.taskLabel': 'Scheduled task',
+  'chat.taskRunMarker.heartbeatLabel': 'Heartbeat',
+  'chat.taskRunMarker.running': 'Running',
+  'chat.taskRunMarker.succeeded': 'Done',
+  'chat.taskRunMarker.failed': 'Failed',
+  'chat.taskRunMarker.waitingForPermission': 'Waiting for permission',
+  'chat.taskRunMarker.cancelled': 'Abandoned',
+  // Phase 3 Step 4b — TaskWaitingForPermissionPanel
+  'chat.taskWaiting.title': 'Background task paused: needs permission',
+  'chat.taskWaiting.body': 'The background run hit a tool that requires permission and stopped to preserve context. This version does not support resuming from the pause point — re-run starts fresh, or abandon to mark this run cancelled.',
+  'chat.taskWaiting.rerun': 'Re-run this task',
+  'chat.taskWaiting.abandon': 'Abandon',
   'assistant.advanced': 'Advanced',
   'assistant.editSoulHint': 'Edit soul.md in your workspace to customize personality',
-  'assistant.taskDelete': 'Delete',
-  'assistant.taskNextRun': 'Next run',
 
   // ── Composer ──────────────────────────────────────────────
   'composer.slashCommand': 'Commands',

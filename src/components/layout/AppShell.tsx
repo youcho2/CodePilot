@@ -1,34 +1,65 @@
 "use client";
 
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import dynamic from "next/dynamic";
 import { usePathname, useRouter } from "next/navigation";
 import { TooltipProvider } from "@/components/ui/tooltip";
 // NavRail removed — navigation merged into ChatListPanel
 import { ChatListPanel } from "./ChatListPanel";
 import { SettingsSidebar } from "./SettingsSidebar";
 import { ResizeHandle } from "./ResizeHandle";
-import { UpdateDialog } from "./UpdateDialog";
-import { FeatureAnnouncementDialog } from "./FeatureAnnouncementDialog";
 import { UpdateBanner } from "./UpdateBanner";
 import { UnifiedTopBar } from "./UnifiedTopBar";
-import { PanelZone } from "./PanelZone";
-import { WorkspaceSidebar } from "./WorkspaceSidebar";
 import { WorkspaceSidebarProvider, useWorkspaceSidebarOptional } from "@/hooks/useWorkspaceSidebar";
 import { PanelContext, usePanel, type PreviewViewMode, type PreviewSource } from "@/hooks/usePanel";
 import { UpdateContext } from "@/hooks/useUpdate";
 import { useUpdateChecker } from "@/hooks/useUpdateChecker";
 import { BatchImageGenContext, useBatchImageGenState } from "@/hooks/useBatchImageGen";
 import { SplitContext, type SplitSession } from "@/hooks/useSplit";
-import { SplitChatContainer } from "./SplitChatContainer";
 import { ErrorBoundary } from "./ErrorBoundary";
 import { SentryInit } from "./SentryInit";
 import { getActiveSessionIds, getSnapshot } from "@/lib/stream-session-manager";
 import { useGitStatus } from "@/hooks/useGitStatus";
-import { SetupCenter } from '@/components/setup/SetupCenter';
 import { Toaster } from '@/components/ui/toast';
 import { useNotificationPoll } from '@/hooks/useNotificationPoll';
+import { useNotificationClickRoute } from '@/hooks/useNotificationClickRoute';
 import { useGlobalSearchShortcut } from '@/hooks/useGlobalSearchShortcut';
 import { GlobalSearchDialog } from './GlobalSearchDialog';
+import { ANNOUNCEMENT_KEY } from './feature-announcement-key';
+
+// AppShell static-import contract (Phase A memory cut, 2026-05-08): the six
+// components below are conditionally rendered (gated by route, modal state,
+// or dialog-trigger state). Lazy-loading them via next/dynamic + ssr:false
+// keeps their compile graphs out of the initial /chat dev compile (which
+// previously hit ~2.3 GB on first paint just from AppShell's static chain).
+// Locked in by `src/__tests__/unit/appshell-lazy-imports.test.ts` — adding
+// a static import here regresses memory and will fail CI.
+//
+// Each loader keeps the named export shape so downstream JSX is unchanged.
+const SetupCenter = dynamic(
+  () => import('@/components/setup/SetupCenter').then((m) => ({ default: m.SetupCenter })),
+  { ssr: false },
+);
+const SplitChatContainer = dynamic(
+  () => import('./SplitChatContainer').then((m) => ({ default: m.SplitChatContainer })),
+  { ssr: false },
+);
+const WorkspaceSidebar = dynamic(
+  () => import('./WorkspaceSidebar').then((m) => ({ default: m.WorkspaceSidebar })),
+  { ssr: false },
+);
+const PanelZone = dynamic(
+  () => import('./PanelZone').then((m) => ({ default: m.PanelZone })),
+  { ssr: false },
+);
+const UpdateDialog = dynamic(
+  () => import('./UpdateDialog').then((m) => ({ default: m.UpdateDialog })),
+  { ssr: false },
+);
+const FeatureAnnouncementDialog = dynamic(
+  () => import('./FeatureAnnouncementDialog').then((m) => ({ default: m.FeatureAnnouncementDialog })),
+  { ssr: false },
+);
 
 const SPLIT_SESSIONS_KEY = "codepilot:split-sessions";
 const SPLIT_ACTIVE_COLUMN_KEY = "codepilot:split-active-column";
@@ -91,13 +122,30 @@ const LG_BREAKPOINT = 1024;
  *
  * Reads PanelContext + WorkspaceSidebarContext to derive whether any
  * rail is visible and toggles a top border accordingly:
- *   - file tree open OR sidebar open → border-t between topbar chrome
- *     and the work area
+ *   - file tree open OR sidebar open OR both → border-t between
+ *     topbar chrome and the work area
  *   - both collapsed → no border (chat reads uncluttered)
  *
- * Mutual exclusion (file tree vs sidebar) is enforced at the topbar
- * onClick handlers, not here — this row trusts the panel state.
+ * v13 product decision: the two right-rail panels are additive — both
+ * can be open simultaneously (file tree on the inner edge, sidebar on
+ * the outer edge), and chat shrinks accordingly. The topbar onClick
+ * handlers each flip their own panel only; no auto-close of the other.
  */
+
+/**
+ * v13 — Right-rail panels (FileTreePanel + WorkspaceSidebar) are
+ * **additive**, not mutex. Earlier rounds (and v11) treated them as
+ * mutually exclusive: opening one would auto-close the other, both
+ * via topbar onClick handlers and via a `RightRailMutexEnforcer`
+ * effect that plugged the event-driven sidebar-open path. That choice
+ * was reversed: the user wants both panels openable at once so they
+ * can browse files in the tree while a markdown / artifact preview is
+ * pinned on the sidebar tab. The v11 enforcer was removed entirely,
+ * and the topbar onClick mutex lines were dropped (each toggle now
+ * just flips its own panel state). The flexbox layout below already
+ * supported coexistence — only the behavior was wrong.
+ */
+
 function ChatContentRow({
   isChatDetailRoute,
   isSplitActive,
@@ -133,8 +181,8 @@ function ChatContentRow({
             removed when those surfaces moved into the sidebar; the
             file tree intentionally remained here as an independent
             high-frequency entry per the Phase 2 product boundary.
-          The two are mutually exclusive in the OPEN state — the
-          topbar handlers close one when the other opens. */}
+          v13: the two are additive in the OPEN state — both can be
+          mounted at once and the chat area shrinks accordingly. */}
       {isChatDetailRoute && <WorkspaceSidebar />}
       {isChatDetailRoute && <PanelZone />}
     </div>
@@ -150,12 +198,28 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const [setupInitialCard, setSetupInitialCard] = useState<'claude' | 'provider' | 'project' | undefined>();
   const [searchOpen, setSearchOpen] = useState(false);
 
+  // Phase A state gate (2026-05-08): only mount FeatureAnnouncementDialog
+  // when its localStorage dismiss flag is missing. The dialog still owns
+  // its own backend fetch + show timing internally; this gate just keeps
+  // the dialog's chunk + react-markdown / Dialog primitives off the boot
+  // path for the 99% of users who already dismissed it. Initial state is
+  // `null` so SSR + hydration agree on "don't render"; client sets the
+  // real value on mount.
+  const [announcementMaybeVisible, setAnnouncementMaybeVisible] = useState<boolean>(false);
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    if (!localStorage.getItem(ANNOUNCEMENT_KEY)) {
+      setAnnouncementMaybeVisible(true);
+    }
+  }, []);
+
   useGlobalSearchShortcut(() => setSearchOpen(true));
 
   // Record the last non-settings pathname for SettingsSidebar's Back button.
-  // Without this, deep-linking into /settings#providers and pressing Back
-  // would call router.back() and escape the app (e.g. to about:blank).
-  // sessionStorage scopes per-tab so it doesn't leak across windows.
+  // Without this, deep-linking into /settings/providers (or any /settings
+  // sub-route) and pressing Back would call router.back() and escape the app
+  // (e.g. to about:blank). sessionStorage scopes per-tab so it doesn't leak
+  // across windows.
   useEffect(() => {
     if (typeof window === 'undefined') return;
     if (!pathname.startsWith('/settings')) {
@@ -166,6 +230,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   // Poll server-side notification queue and display as toasts
   useNotificationPoll();
+  // Phase 3 Step 3: route Electron notification clicks (carrying
+  // taskId / sessionId payload) to the right page.
+  useNotificationClickRoute();
 
   // Check if setup is needed
   useEffect(() => {
@@ -190,19 +257,17 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     return () => window.removeEventListener('open-setup-center', handler);
   }, []);
 
-  // Hash bridge: error messages render `[Open Settings](/settings#providers)`
-  // markdown links as fallback when the frontend cannot directly dispatch the
-  // open-setup-center event (e.g. rendering inside the SSE text stream). When
-  // such a link is clicked the hash changes to `#providers`, and we surface
-  // the SetupCenter Provider card here — EXCEPT on /settings itself, where
-  // SettingsLayout owns the #providers hash for its own section routing
-  // (see SettingsLayout.tsx `getSectionFromHash`). If we swallowed the hash
-  // there, clicking "Add Provider" inside SetupCenter would ping-pong the
-  // user back into SetupCenter instead of reaching the providers tab.
+  // Hash bridge: legacy error messages and external deep links may still
+  // arrive carrying a `#providers` fragment (route-level split moved internal
+  // links to `/settings/providers`, but old chat sessions and external docs
+  // can still embed the hash form). When such a link is clicked outside the
+  // /settings tree, surface the SetupCenter Provider card here. On /settings
+  // itself the root page's redirect handler owns hash → route translation, so
+  // we early-return to avoid ping-ponging between SetupCenter and the section.
   useEffect(() => {
     const maybeOpenFromHash = () => {
       if (typeof window === 'undefined') return;
-      if (window.location.pathname === '/settings') return;
+      if (window.location.pathname.startsWith('/settings')) return;
       if (window.location.hash === '#providers') {
         setSetupInitialCard('provider');
         setSetupOpen(true);
@@ -607,8 +672,22 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               </ChatContentRow>
             </div>
           </div>
-          <UpdateDialog />
-          <FeatureAnnouncementDialog />
+          {/* Phase A state gates: only mount when actually needed.
+              UpdateDialog gate (P3 review fix): require BOTH
+              `showDialog` AND an available update. Earlier the gate was
+              just `updateAvailable`, which meant clicking "Later" only
+              flipped `showDialog` to false — the dialog stayed mounted
+              and the lazy chunk stuck around for the rest of the
+              session. UpdateBanner is the always-on lightweight
+              indicator; the dialog chunk should only be live when the
+              modal is actually open.
+              FeatureAnnouncementDialog gates on a localStorage dismiss
+              flag (see `announcementMaybeVisible`); the dialog itself
+              still owns the post-mount fetch + show-timing logic. */}
+          {updateContextValue.showDialog
+            && (updateContextValue.updateInfo?.updateAvailable ?? false)
+            && <UpdateDialog />}
+          {announcementMaybeVisible && <FeatureAnnouncementDialog />}
           <Toaster />
           <GlobalSearchDialog open={searchOpen} onOpenChange={setSearchOpen} />
           {setupOpen && (
