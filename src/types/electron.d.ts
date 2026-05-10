@@ -96,8 +96,35 @@ interface ElectronAPI {
   };
   terminal?: ElectronTerminalAPI;
   notification?: {
-    show: (options: { title: string; body?: string; onClick?: string }) => Promise<void>;
-    onClick: (listener: (action: string) => void) => () => void;
+    /**
+     * Phase 3 Step 3: payload extended with task / session / event IDs
+     * so the OS notification's click handler can route to
+     * `/settings/tasks?focus=…` (or the chat session). Returns the
+     * underlying `ipcRenderer.invoke` result — `true` if the native
+     * notification was created, `false` on Electron error.
+     */
+    show: (options: {
+      title: string;
+      body?: string;
+      onClick?: { type: string; payload: string } | string;
+      taskId?: string;
+      sessionId?: string;
+      event_id?: string;
+    }) => Promise<boolean>;
+    /**
+     * Phase 3 Step 3: action payload now carries the task/session/event
+     * tuple so `useNotificationClickRoute` can `router.push` to the
+     * right page. Legacy string / `{type, payload}` shape kept for
+     * non-task notifications.
+     */
+    onClick: (
+      listener: (
+        action:
+          | string
+          | { type: string; payload: string }
+          | { taskId?: string; sessionId?: string; event_id?: string },
+      ) => void,
+    ) => () => void;
   };
 }
 

@@ -18,6 +18,19 @@ const nextConfig: NextConfig = {
   turbopack: {
     root: import.meta.dirname,
   },
+  experimental: {
+    // Next 16 enables Turbopack's dev filesystem cache by default. In nested
+    // worktrees this cache can grow to multi-GB under `.next/dev/cache` and
+    // cause severe memory pressure when `next dev` restores it. Production
+    // builds keep their default behavior; this only disables the dev cache.
+    turbopackFileSystemCacheForDev: false,
+    // Keep local dev from taking down the machine when compiling the large
+    // Settings route graph. Dev source maps are useful but expensive here;
+    // production builds still emit their normal artifacts.
+    turbopackMemoryLimit: 1536 * 1024 * 1024,
+    turbopackSourceMaps: false,
+    turbopackInputSourceMaps: false,
+  },
   // serverExternalPackages: keep these in node_modules at runtime instead of bundling.
   // - better-sqlite3 / zlib-sync: native modules, can't be bundled
   // - discord.js / @discordjs/ws: dynamic require chain

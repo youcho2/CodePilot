@@ -26,6 +26,7 @@ import net from 'net';
 import os from 'os';
 import { TerminalManager } from './terminal-manager';
 import { sanitizeLogLine } from './log-sanitize';
+import { getTrayMenuLabels } from '../src/lib/tray-menu-labels';
 
 /**
  * Return a copy of process.env without __NEXT_PRIVATE_* variables.
@@ -190,55 +191,103 @@ async function stopBridge(): Promise<void> {
 }
 
 /**
- * Create a system tray icon for background bridge mode.
- * Called when all windows are closed but the bridge is still active.
+ * URL to load when re-creating a destroyed main window. P2 review fix
+ * (2026-05-09): this used to be `\`http://127.0.0.1:${serverPort || 3000}\``,
+ * but the production server binds to a stable range of 47823–47830, never
+ * 3000. If the tray "Open CodePilot" or `activate` (dock click) fires
+ * before `serverPort` is set — possible now that the tray is created
+ * BEFORE `await startServerOnStablePort()` resolves — the old fallback
+ * would open a window pointing at the wrong port and dead-end.
+ *
+ * Behavior:
+ *   - serverPort known → return the real URL.
+ *   - serverPort unknown → return undefined so `createWindow()` paints
+ *     the inline LOADING_HTML splash. The startup flow's
+ *     `mainWindow.loadURL(realUrl)` runs once `startServerOnStablePort()`
+ *     resolves and replaces the splash with the actual page on whichever
+ *     `mainWindow` is current at that moment.
+ *
+ * Dev path is exempt — `serverPort` is set immediately at boot from
+ * `process.env.PORT` (or 3000 default), well before any tray click could
+ * fire, so this helper safely returns the dev URL there too.
  */
-function createTray(): void {
+function chatWindowUrlForRevival(): string | undefined {
+  if (serverPort == null) return undefined;
+  return `http://127.0.0.1:${serverPort}`;
+}
+
+/**
+ * Show / focus the main window. Re-creates it if the user previously hit
+ * Cmd+Q during a hidden state and it was destroyed; otherwise just unhides
+ * an existing hidden window. Called from tray menu, tray double-click and
+ * notification clicks.
+ */
+function showMainWindow(): void {
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    createWindow(chatWindowUrlForRevival());
+    return;
+  }
+  if (!mainWindow.isVisible()) mainWindow.show();
+  mainWindow.focus();
+}
+
+/**
+ * Quit the app explicitly — the only path that bypasses the close-to-hide
+ * interceptor. Triggered by the tray "Quit CodePilot" menu item.
+ */
+function quitApp(): void {
+  isQuitting = true;
+  app.quit();
+}
+
+/**
+ * Build / rebuild the tray context menu using OS-locale-derived labels.
+ * Kept as a separate function so locale changes (rare) or future menu
+ * items don't require recreating the Tray instance.
+ */
+function rebuildTrayMenu(): void {
+  if (!tray) return;
+  const locale = (() => {
+    try { return app.getLocale(); } catch { return 'en'; }
+  })();
+  const labels = getTrayMenuLabels(locale);
+  tray.setToolTip(labels.tooltip);
+  const contextMenu = Menu.buildFromTemplate([
+    { label: labels.open, click: () => showMainWindow() },
+    { type: 'separator' },
+    { label: labels.quit, click: () => quitApp() },
+  ]);
+  tray.setContextMenu(contextMenu);
+}
+
+/**
+ * Create the menubar / tray icon. Called once at app startup so the icon is
+ * present whether the main window is visible, hidden, or destroyed. Bridge
+ * state is no longer relevant — local macOS notifications and the scheduler
+ * keep running as long as the app is alive, with or without the bridge.
+ */
+function ensureTray(): void {
   if (tray) return;
 
   const iconPath = getIconPath();
   const trayIcon = nativeImage.createFromPath(iconPath).resize({ width: 16, height: 16 });
   tray = new Tray(trayIcon);
-  tray.setToolTip('CodePilot — Bridge Active');
+  rebuildTrayMenu();
 
-  const contextMenu = Menu.buildFromTemplate([
-    {
-      label: 'Open CodePilot',
-      click: () => {
-        if (BrowserWindow.getAllWindows().length === 0) {
-          createWindow(`http://127.0.0.1:${serverPort || 3000}`);
-        } else {
-          mainWindow?.focus();
-        }
-      },
-    },
-    { type: 'separator' },
-    {
-      label: 'Bridge Status: Active',
-      enabled: false,
-    },
-    { type: 'separator' },
-    {
-      label: 'Stop Bridge & Quit',
-      click: async () => {
-        await stopBridge();
-        destroyTray();
-        await killServer();
-        app.quit();
-      },
-    },
-  ]);
-
-  tray.setContextMenu(contextMenu);
-
-  // Double-click on tray icon opens the window (macOS/Windows)
-  tray.on('double-click', () => {
-    if (BrowserWindow.getAllWindows().length === 0) {
-      createWindow(`http://127.0.0.1:${serverPort || 3000}`);
-    } else {
-      mainWindow?.focus();
-    }
-  });
+  // Platform conventions:
+  // - macOS: single click on a menubar icon already pops the context menu
+  //   (via setContextMenu); attaching a `click` handler too would
+  //   simultaneously yank the main window forward, contradicting the
+  //   "menubar-resident, click to see menu" affordance the user expects.
+  //   So single-click is intentionally NOT bound on darwin; double-click
+  //   is the explicit "open window" gesture.
+  // - Windows / Linux: tray icons normally open the primary window on
+  //   single click and the context menu on right-click. Bind both so the
+  //   menu is reachable either way.
+  if (process.platform !== 'darwin') {
+    tray.on('click', () => showMainWindow());
+  }
+  tray.on('double-click', () => showMainWindow());
 }
 
 function destroyTray(): void {
@@ -251,11 +300,24 @@ function destroyTray(): void {
 
 /**
  * Parse notification API response. Canonical version: src/lib/bg-notify-parser.ts
+ *
+ * Phase 3 Step 3: surfaces `event_id` / `task_id` / `session_id` so the
+ * bg-poller can ack delivery and route clicks. We tolerate missing
+ * fields (older payloads / external sources) by keeping them optional.
  */
-function parseBgNotifications(json: string): Array<{ title: string; body: string; priority: string }> {
+interface BgNotificationPayload {
+  title: string;
+  body: string;
+  priority: string;
+  event_id?: string;
+  task_id?: string;
+  session_id?: string;
+}
+
+function parseBgNotifications(json: string): BgNotificationPayload[] {
   try {
     const parsed = JSON.parse(json);
-    const notifications: Array<{ title: string; body: string; priority: string }> = parsed.notifications || [];
+    const notifications: BgNotificationPayload[] = parsed.notifications || [];
     return notifications.filter((n: { title: string }) => n.title);
   } catch {
     return [];
@@ -263,20 +325,73 @@ function parseBgNotifications(json: string): Array<{ title: string; body: string
 }
 
 /**
- * Background notification poller — runs in main process when no renderer window
- * is open (tray-only mode). Drains the server-side notification queue and shows
- * native Notification directly, bypassing the renderer's useNotificationPoll.
+ * Phase 3 Step 3 — ack a delivery row from the Electron main process.
+ * Used by the bg-poller after `notification.show()` succeeds.
+ *
+ * Best effort: if the server is unreachable or the ack fails, we just
+ * log; the user-visible notification has already fired, the worst case
+ * is the delivery row stays `queued` (which the UI represents
+ * honestly as "shown, ack pending" — see v3 plan ack-loss path).
+ */
+function ackDelivery(
+  port: number,
+  payload: { event_id: string; channel: string; status: 'delivered' | 'error'; error?: string },
+): void {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const http = require('http');
+  const body = JSON.stringify(payload);
+  const req = http.request(
+    {
+      hostname: '127.0.0.1',
+      port,
+      path: '/api/tasks/notify/ack',
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Content-Length': Buffer.byteLength(body),
+      },
+    },
+    () => { /* ignore response */ },
+  );
+  req.on('error', () => { /* best effort */ });
+  req.setTimeout(2000, () => { req.destroy(); });
+  req.write(body);
+  req.end();
+}
+
+/**
+ * Background notification poller — runs in the main process whenever the
+ * main window is hidden or destroyed, so local macOS notifications continue
+ * working even after the user closes the window into the menubar. When the
+ * window is visible the renderer's `useNotificationPoll` hook handles the
+ * same queue, so we self-stop to avoid duplicate delivery.
+ *
+ * This is intentionally bridge-independent: bridges (Telegram / 飞书 / QQ /
+ * Discord) are optional remote channels. Local notifications must work with
+ * just CodePilot menubar-resident, no bridge configured.
  */
 function startBgNotifyPoll(): void {
   if (bgNotifyTimer) return;
-  const port = serverPort || 3000;
 
   bgNotifyTimer = setInterval(async () => {
-    // Stop polling if a renderer window exists (frontend will handle it)
-    if (BrowserWindow.getAllWindows().length > 0) {
+    // Stop polling whenever the renderer is on screen — it will drain the
+    // queue itself via useNotificationPoll. We check `isVisible()` instead
+    // of "window count" because in the new menubar-resident model the main
+    // window stays alive (just hidden) when the user clicks close.
+    if (mainWindow && !mainWindow.isDestroyed() && mainWindow.isVisible()) {
       stopBgNotifyPoll();
       return;
     }
+
+    // Re-read the port each tick. In prod the loading window is created
+    // BEFORE startServerOnStablePort() resolves; if the user closes that
+    // loading window during boot, `hide` fires and startBgNotifyPoll()
+    // runs while serverPort is still null. Caching `serverPort || 3000`
+    // at start would then pin the poller to 3000 forever, even after the
+    // real port lands. Skipping the tick keeps the timer armed; it'll
+    // succeed on the next 5s wakeup once the server is ready.
+    const port = serverPort;
+    if (!port) return;
 
     try {
       const http = await import('http');
@@ -297,16 +412,59 @@ function startBgNotifyPoll(): void {
             title: notif.title,
             body: notif.body || '',
           });
+          // Phase 3 Step 3: click → re-open window AND forward payload
+          // to renderer so it can route to /settings/tasks?focus=<id>
+          // (or the relevant chat session). The IPC channel is the
+          // same one notification:show uses for in-renderer display.
           notification.on('click', () => {
-            // Re-open the main window when user clicks the notification
-            if (BrowserWindow.getAllWindows().length === 0) {
-              createWindow(`http://127.0.0.1:${port}`);
+            showMainWindow();
+            if (notif.task_id || notif.session_id) {
+              mainWindow?.webContents.send('notification:click', {
+                taskId: notif.task_id,
+                sessionId: notif.session_id,
+                event_id: notif.event_id,
+              });
             }
-            mainWindow?.show();
-            mainWindow?.focus();
           });
           notification.show();
-        } catch { /* best effort */ }
+          // v6 fix (P1): unify on `electron-native`. `sendNotification`
+          // pre-writes a `electron-native` row in queued state when
+          // priority is normal/urgent; the bg-poller MUST ack THAT
+          // row, not introduce a new `electron-bg-native` channel
+          // that leaves the original queued forever. Whether the OS
+          // notification was rendered by the bg-poller (window hidden)
+          // or by the renderer's `useNotificationPoll` (window visible)
+          // is the same surface from the user's POV — one row tracking
+          // both is the honest representation.
+          if (notif.event_id) {
+            ackDelivery(port, {
+              event_id: notif.event_id,
+              channel: 'electron-native',
+              status: 'delivered',
+            });
+            // The drain consumed the queue, so the renderer (when the
+            // window returns visible) will NOT see this notification
+            // again. Mark its `renderer-toast` candidate as skipped so
+            // the UI can show "in-app toast: skipped (window hidden)"
+            // instead of perpetual queued. UPSERT semantics make this
+            // safe to call even if the row was already acked.
+            ackDelivery(port, {
+              event_id: notif.event_id,
+              channel: 'renderer-toast',
+              status: 'skipped',
+              error: 'window hidden — bg-poller delivered native notification only',
+            });
+          }
+        } catch (err) {
+          if (notif.event_id) {
+            ackDelivery(port, {
+              event_id: notif.event_id,
+              channel: 'electron-native',
+              status: 'error',
+              error: err instanceof Error ? err.message : String(err),
+            });
+          }
+        }
       }
     } catch {
       // Server may not be reachable — ignore
@@ -816,6 +974,24 @@ function createWindow(url?: string) {
   if (isDev) {
     mainWindow.webContents.openDevTools();
   }
+
+  // Menubar-resident behavior: clicking close hides the window instead of
+  // quitting the app. Only `isQuitting` (set by the tray "Quit CodePilot"
+  // menu item or by `before-quit`) lets the close go through to a real
+  // teardown. The scheduler and local notifications keep running while
+  // hidden — see startBgNotifyPoll().
+  mainWindow.on('close', (event) => {
+    if (isQuitting) return;
+    event.preventDefault();
+    mainWindow?.hide();
+  });
+
+  // When the window goes hidden, hand off notification polling to the main
+  // process (the renderer's useNotificationPoll may be throttled by Chromium
+  // background heuristics on hidden BrowserWindows). When it returns visible,
+  // the renderer takes over and the main-process poller self-stops.
+  mainWindow.on('hide', () => { startBgNotifyPoll(); });
+  mainWindow.on('show', () => { stopBgNotifyPoll(); });
 
   mainWindow.on('closed', () => {
     mainWindow = null;
@@ -1751,21 +1927,38 @@ app.whenReady().then(async () => {
   // --- End terminal IPC handlers ---
 
   // --- Notification IPC handler ---
+  // Phase 3 Step 3: payload extended with `taskId` / `sessionId` /
+  // `event_id` so a click → re-open + route to /settings/tasks?focus=…
+  // works whether the notification was rendered here (window visible)
+  // or by the bg-poller (window hidden). The legacy `onClick` field is
+  // kept for backward compatibility with non-task notifications.
   ipcMain.handle('notification:show', async (_event, options: {
     title: string;
     body: string;
     onClick?: { type: string; payload: string };
+    taskId?: string;
+    sessionId?: string;
+    event_id?: string;
   }) => {
     try {
       const notification = new Notification({
         title: options.title,
         body: options.body || '',
       });
-      if (options.onClick) {
+      const hasTaskPayload = !!(options.taskId || options.sessionId);
+      if (options.onClick || hasTaskPayload) {
         notification.on('click', () => {
           mainWindow?.show();
           mainWindow?.focus();
-          mainWindow?.webContents.send('notification:click', options.onClick);
+          if (hasTaskPayload) {
+            mainWindow?.webContents.send('notification:click', {
+              taskId: options.taskId,
+              sessionId: options.sessionId,
+              event_id: options.event_id,
+            });
+          } else if (options.onClick) {
+            mainWindow?.webContents.send('notification:click', options.onClick);
+          }
         });
       }
       notification.show();
@@ -1794,10 +1987,22 @@ app.whenReady().then(async () => {
       console.log(`Dev mode: connecting to http://127.0.0.1:${port}`);
       serverPort = port;
       createWindow(`http://127.0.0.1:${port}`);
+      ensureTray();
     } else {
       // Show window immediately with loading screen so user sees progress
       // even if port acquisition takes a moment.
       createWindow();
+
+      // P2 review fix (2026-05-09): create the tray BEFORE awaiting
+      // server ready. The promise the menubar-resident model makes is
+      // "the icon is there from app launch" — if the user closes the
+      // loading window mid-boot, hide-on-close keeps mainWindow alive
+      // but the user needs a visible re-entry path; without the tray
+      // they're staring at an app with no icon and no window. Tray
+      // doesn't depend on serverPort to draw — its only server-touching
+      // action is showMainWindow(), which now handles "no port yet"
+      // by showing a loading screen instead of pinning to 3000.
+      ensureTray();
 
       // startServerOnStablePort actually binds the subprocess on each
       // candidate port and advances on EADDRINUSE — closing the TOCTOU
@@ -1838,49 +2043,63 @@ app.whenReady().then(async () => {
   }
 });
 
-app.on('window-all-closed', async () => {
-  // If bridge is active, keep the server running and show a tray icon
-  const bridgeActive = await isBridgeActive();
-  if (bridgeActive) {
-    console.log('Bridge is active — keeping server alive in background with tray icon');
-    createTray();
-    // Start background notification polling since no renderer will be available
-    startBgNotifyPoll();
-    return;
-  }
-
-  destroyTray();
-  await killServer();
-  if (process.platform !== 'darwin') {
-    app.quit();
+app.on('window-all-closed', () => {
+  // In the menubar-resident model, `close` is intercepted on the main
+  // window and turns into `hide()` instead of a real destroy. So this
+  // event only fires when the user explicitly chose "Quit CodePilot"
+  // from the tray menu (which sets `isQuitting=true` then calls
+  // `app.quit()` → `before-quit` does the real teardown).
+  //
+  // We deliberately do NOT call `app.quit()` here on non-Darwin: that
+  // would defeat the menubar-resident promise on Windows / Linux where
+  // the tray icon must keep the app alive after the last window goes
+  // away. Real shutdown happens from the tray Quit item.
+  if (!isQuitting) {
+    // Defensive: should not be reachable while the close-to-hide handler
+    // is in place, but log if we ever get here so regressions are loud.
+    console.warn('[lifecycle] window-all-closed fired without isQuitting — menubar-resident may be broken');
   }
 });
 
 app.on('activate', async () => {
-  // If tray is active (bridge background mode), destroy it when user re-opens
-  destroyTray();
+  // Dock click on macOS: if we still have a hidden main window, just show it;
+  // otherwise re-create. The tray stays alive across this — menubar icon is
+  // permanent until the user explicitly chooses "Quit CodePilot".
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    showMainWindow();
+    return;
+  }
 
-  if (BrowserWindow.getAllWindows().length === 0) {
-    try {
-      if (!isDev && !serverProcess) {
-        // Show loading window immediately so user sees progress
-        createWindow();
-        const port = await startServerOnStablePort();
-        serverPort = port;
-        if (mainWindow) {
-          mainWindow.loadURL(`http://127.0.0.1:${port}`);
-        }
-      } else {
-        createWindow(`http://127.0.0.1:${serverPort || 3000}`);
+  try {
+    if (!isDev && !serverProcess) {
+      // Show loading window immediately so user sees progress
+      createWindow();
+      const port = await startServerOnStablePort();
+      serverPort = port;
+      if (mainWindow) {
+        mainWindow.loadURL(`http://127.0.0.1:${port}`);
       }
-
-    } catch (err) {
-      console.error('Failed to restart server:', err);
+    } else {
+      // P2 review fix (2026-05-09): no `serverPort || 3000` here either.
+      // If we land in this branch with serverPort unset (dock click during
+      // a brief race where serverProcess exists but port hasn't latched
+      // yet), `chatWindowUrlForRevival()` returns undefined → loading
+      // splash, and the in-flight startup will load the real URL. Pinning
+      // to 3000 in production opens a window against the wrong port range.
+      createWindow(chatWindowUrlForRevival());
     }
+  } catch (err) {
+    console.error('Failed to restart server:', err);
   }
 });
 
 app.on('before-quit', async (e) => {
+  // First firing: tear down resources, then re-emit quit. Any subsequent
+  // firing (after we re-call app.quit() below) just proceeds to exit. The
+  // `isQuitting` flag also tells the main window's `close` handler to let
+  // the close go through instead of hiding.
+  isQuitting = true;
+
   // Kill all terminal processes
   terminalManager.killAll();
 
@@ -1899,8 +2118,7 @@ app.on('before-quit', async (e) => {
 
   destroyTray();
 
-  if (serverProcess && !isQuitting) {
-    isQuitting = true;
+  if (serverProcess) {
     e.preventDefault();
     // Stop bridge gracefully before killing the server
     await stopBridge();
