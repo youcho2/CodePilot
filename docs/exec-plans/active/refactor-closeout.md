@@ -1,16 +1,322 @@
-# Refactor Closeout / 重构收口计划
+# Refactor Closeout / 重构收口计划（总控板）
 
-> 创建时间：2026-05-06
-> 最后更新：2026-05-06
-> 状态：🔄 进行中（Phase 0 已完成；Phase 1 Step 1 ✅；Step 2 UI / 契约收敛 ✅；Step 3 基础实现 ✅；Step 5 Browser smoke ✅；Step 4 与 catalog 主动核准待补；**Phase 2 Step 1-4c 全部 ✅**：Step 1 现状审计、Step 2 schema + resolver、Step 3a send route + streamClaude、Step 3b UI hook + 静默 PATCH 移除、Step 4a lazy migration、Step 4b 409 banner、Step 4c composer 工具栏的执行引擎切换；Phase 2 主线收尾，剩余 events 落库 / Browser smoke 终验仍按计划做）
+> 创建：2026-05-06 · 最后更新：2026-05-10（新增 Phase 3 Step 4 待审批方案：后台 Agent 任务与助理心跳闭环）
+> 这是日常入口；查历史细节请去 `completed/refactor-phase-*.md`，不要在本文件里翻 1000 行决策日志。
 
-## 为什么需要这个计划
+## 当前状态
 
-这次重构已经覆盖了 Settings、Providers、Models、Runtime、Chat、Plugins、Sidebar、Logs 等多个区域。问题不是没有做事，而是做得太散：旧计划太多、每个计划都从程序模块出发，用户很难判断“做完以后我到底会看到什么”。
+| 顺序 | 主线 | 用户视角结果 | 状态 | 历史归档 |
+|------|------|--------------|------|----------|
+| 0 | 计划收敛 | Active 计划只剩本计划 + issue-tracker | ✅ 已完成（2026-05-06） | [phase-1](../completed/refactor-phase-1-models-providers.md) |
+| 1 | 模型同步与渠道扩展 | 添加服务商不再被无关模型污染；OpenRouter 走搜索；默认模型不乱跳 | ✅ 主路径完成（catalog 主动核准持续跟踪 tech-debt #16） | [phase-1](../completed/refactor-phase-1-models-providers.md) |
+| 2 | Runtime 与会话执行 | 每个会话能解释 / 能切换"执行引擎"；旧会话不被全局漂移；下一条消息生效 | ✅ Step 1-4c 全部完成（2026-05-07） | [phase-2](../completed/refactor-phase-2-runtime-session.md) |
+| 3 | 后台常驻、全局定时任务、助理心跳与通知 | 关窗常驻菜单栏；reminder 不依赖 AI；本机通知 / Bridge 解耦；全局任务页；后台 Agent 任务 + 后台心跳 | ✅ 全部完成（2026-05-10）：Step 1-3 + IA 收尾 + Step 4a（任务会话壳 + 文本生成 + 心跳后台化）+ Step 4b（headless streamClaude + waiting_for_permission 可达 + WaitingForPermissionPanel） | [phase-3](../completed/refactor-phase-3-background-tasks-notifications.md) |
+| 4 | 多 Agent、Codex 适配、Markdown / Artifact | 显式调用其它 Agent；Markdown / Artifact 稳定 | 📋 待开始（详见下方） | — |
+| 5 | 上下文可视化 | 输入框右下角是组成条而不是单一百分比 | 📋 待开始（详见下方） | — |
+| 6 | 视觉锚点与图标体系 | 点阵风格视觉记忆点 + HugeIcons 统一 | 📋 待开始（详见下方） | — |
 
-本计划作为后续工作的唯一总控板。审批时先看“用户会看到什么”，再看工程实现。未列入本计划的内容默认暂缓，避免继续横向扩张。
+## 下一步
 
-## 审批原则
+**Phase 3 整条主线已收口完毕**（Step 1-3 + IA 收尾 + Step 4a + Step 4b）。下一步是从 Phase 4 / 5 / 6 中挑一条启动——按用户感知与依赖关系建议为：(a) **Phase 5 上下文可视化**（独立、用户每次发送都能感知、不依赖其它 Phase）；(b) **Phase 4 多 Agent + Markdown / Artifact 稳定性**（Markdown / Artifact 修复优先级高于多 Agent adapter）；(c) **Phase 6 视觉锚点**（最弱依赖，但需要先做 icon audit 才好开工）。等用户挑一条之后再写细化方案。
+
+### Phase 3 Step 4a (实现完成 2026-05-10)：任务会话壳 + 文本生成
+
+> **Step 4 → 4a/4b 拆分原因（Codex review）**：v2 计划承诺"走统一 Runtime / Agent 执行链、streamClaude、工具与权限事件"。实际实现中 `agent-task-runner.ts` 的底层模型调用仍是 `generateTextFromProvider`（一次性文本），所以后台任务**不能调用工具、不会触发权限请求、不可能进入真实的 `waiting_for_permission`**。Codex 抓出这条不一致后，我们诚实拆成两步——Step 4a 已落地的"任务会话壳 + 文本生成"是真东西且独立有用；Step 4b 留作后续单独评审。
+>
+> **Step 4a 已交付**（这一批）：
+>
+> - 架构外壳：每次 ai_task 执行写一条 `task_run_logs` running 行 + 把 user prompt + assistant response 持久化为该会话的 messages，两边都通过 `messages.task_run_id` 关联到 run 行。
+> - `task.source` 分支：`'user'` 走 task-bound 会话（`chat_sessions.source='task'`，主聊天列表默认隐藏）；`'assistant_heartbeat'` 走 buddy session（**未存在时由 runner lazily create**，不再硬失败）。
+> - HEARTBEAT_OK silent contract（exact trim-equality）。
+> - `messages.task_run_id` + `<TaskRunMarker />` React-only 渲染（**不污染模型上下文**）。
+> - Heartbeat 后台化：`ensureHeartbeatTask({enabled, intervalHours})` 幂等创建 / 删除 `kind='ai_task' + source='assistant_heartbeat'` 系统任务。
+> - Settings → Assistant 心跳频率选择器（1h / 6h / 12h / 24h）。
+> - Tasks 页 5 态状态徽章 + "Open session" 链接（ai_task）。
+> - `/api/chat/sessions` 默认 `source='user'`（task 会话隐藏）；`/api/tasks/list` 默认隐藏 `assistant_heartbeat` 系统任务。
+> - 应用层 `task_run_logs.status` 5 态白名单（无 DB CHECK，避免 SQLite 表重建）。
+> - `/api/tasks/runs/[runId]` PATCH abandon 端点 + scheduler `waiting_for_permission → status='paused'` 路由 — **保留为 Step 4b 基础设施，4a 路径下不会被触发**。
+>
+> **Step 4a 不做（=Step 4b 范围）**：headless streamClaude runner、tool calls、真 permission events、`<TaskWaitingForPermissionPanel />` UI。
+>
+> **v2 → 4a 沿用的 5 条修订**：
+> 1. 心跳不新增 `kind='heartbeat'` 枚举；统一用 `kind='ai_task' + source='assistant_heartbeat'`。
+> 2. `waiting_for_permission` 不做 durable resume；状态机 + abandon 端点存在但 4a 不可达，留 4b 启用。
+> 3. `task_run_logs.status` migration 不写 `ALTER CHECK`；应用层校验 + 联合类型。
+> 4. 任务 / 心跳 marker 不用 sentinel string；`messages.task_run_id` 关联 + 渲染层组件。
+> 5. `ChatSession.source='task'` 默认不进入主聊天列表。
+
+### Phase 3 Step 4b (实现完成 2026-05-10)：headless streamClaude runner + WaitingForPermissionPanel
+
+> **拆分背景**：v2 计划承诺"走统一 Runtime / Agent 执行链 + headless streamClaude + 工具与权限事件"。Step 4a 落地的是其中能独立交付的部分（任务会话壳 + 文本生成 + 心跳后台化 + marker 关联），Step 4b 是承诺里 4a 没覆盖的"真正后台 Agent 执行链"那一半。下面的详细方案描述的是 **Step 4b 待做的工作**——**不**反映 4a 的实现现状。
+
+**目标（4b 完成后用户感受到的变化，相对 4a）**
+
+- `reminder` 到点只提醒，不调用 AI。**(已在 4a)**
+- `ai_task` 到点进入**真正的后台 Agent 执行链**——能调用工具、能触发权限请求、不再只是 `generateTextFromProvider` 一次文本生成。**(4b 范围)**
+- 后台任务需要权限时**真实可达** `waiting_for_permission` 状态——不再是"铺了表面但触发不到"的预留路径；通知 urgent 弹出，点入会话看到 `[重跑] [放弃]` 选择面板。**(4b 范围)**
+- 助理心跳走同款 Agent 执行链；HEARTBEAT_OK 沉默语义不变。**(4a 已实现 silent 沉默；4b 把底层换成 Agent 后行为不变)**
+- Bridge 继续只是可选远端通知通道，不是本机任务 / 心跳的前置条件。**(已在 4a)**
+
+**三者边界（reminder / ai_task / heartbeat）**
+
+`kind` 枚举仍然只有两个：`reminder` 和 `ai_task`。心跳不引入第三个 kind——它是**一种特殊的 `ai_task`**，仅靠 `scheduled_tasks.source = 'assistant_heartbeat'` 区分。这样 `ScheduledTaskKind` 类型 / DB CHECK / `/api/tasks/schedule` schema / MCP `codepilot_schedule_task` tool schema / Tasks 页 UI 都不需要同步加 heartbeat 分支。
+
+| 概念 | `kind` | `source` | 触发时机 | 调 AI | chat session | task_run_logs | 通知 priority |
+|---|---|---|---|---|---|---|---|
+| `reminder` | `reminder` | `'user'` | scheduler 到点 | ❌ | ❌ 不创建 | ✅ 1 行 | normal（fire-once） |
+| `ai_task`（用户创建）| `ai_task` | `'user'` | scheduler 到点 | ✅ **走 agent runner** | ✅ 创建 / 复用 task-bound | ✅ 1 行 | normal（succeeded / failed）；urgent（waiting_for_permission） |
+| heartbeat（系统注入）| `ai_task` | `'assistant_heartbeat'` | scheduler 周期触发（菜单栏常驻可后台） | ✅（HEARTBEAT.md 决定 silent / speak-up） | ✅ 复用 buddy session | ✅ 1 行 | 仅 speak-up 时发，normal |
+
+**关键边界**：
+
+- `reminder`：纯提醒。prompt 文本即通知正文，不需要 AI provider；"5 分钟后提醒喝水" 这种语义全走这条。
+- `ai_task`：让助理在后台帮我做点事。**必须有 chat session 承载结果**（user prompt + assistant message + 工具调用记录），不能再是浮在外面的"一次性文本生成"。`task.session_id` 第一次执行时被填，之后复用；用户可以从 `/settings/tasks` 点入这个会话回看上下文。
+- heartbeat 不是新 kind，是 `ai_task + source='assistant_heartbeat'` 的一个特例。差别完全靠 `runScheduledAgentTask` 在 `task.source === 'assistant_heartbeat'` 分支里处理：(a) 复用 buddy session 而不是创建 task-bound session；(b) 输出受 HEARTBEAT.md silent 契约约束（输出 trim 后精确等于 `HEARTBEAT_OK` 即静默不打扰，否则写 assistant message + 发 normal 通知）；(c) 系统注入 / 删除由 `ensureHeartbeatTask()` 管。`task.kind` 维持 `'ai_task'`，下游所有"是不是 AI 任务"的判断都不需要为心跳加例外。
+
+**执行范围（高层 — Step 4a 已交付 + Step 4b 待做拼接）**
+
+1. 后台 task runner：✅ Step 4a 已建外壳（`runScheduledAgentTask`、session 解析、message 关联）；🔄 Step 4b 把 `// 4. Model call` 从 `generateTextFromProvider` 换成 headless `streamClaude`，使其真正"走统一 Runtime / Agent 执行链"。
+2. Run 状态机：✅ Step 4a 已铺好 5 态枚举 `running / succeeded / failed / waiting_for_permission / cancelled` + 应用层白名单；🔄 Step 4b 让 `waiting_for_permission` **真正可达**（4a 不可达，4b 在 streamClaude 接到 `permission_request` 时翻这个状态）。
+3. 助理心跳后台化：✅ Step 4a 已交付（`ensureHeartbeatTask` 系统任务 + 频率配置 + lazy buddy session + HEARTBEAT_OK 静默契约）。4b 不动这条，只是底层走 Agent runner。
+4. UI 收口：✅ Step 4a 已交付 Tasks 页 5 态徽章 + "Open session" 链接 + Assistant 页心跳频率选择器 + chat 里 React-only `<TaskRunMarker />`；🔄 Step 4b 新增 `<TaskWaitingForPermissionPanel />`（task-bound session 末尾若有 paused run，渲染 `[重跑] [放弃]`）。
+5. MCP 口径：✅ 继续不变。`codepilot_schedule_task` 是创建任务的唯一入口；外部 Agent 可以创建任务，但不接管 CodePilot scheduler。
+
+**详细拆解（Step 4b 范围）**
+
+> 下方各小节描述 **Step 4b 待做的工作**。Step 4a 已经把外壳搭好（runner 文件存在、`task.source` 分支已落地、message 关联已布线、`waiting_for_permission` 状态枚举已铺好），所以 4b 不需要从零开始——只需要把 `agent-task-runner.ts` 的 `// 4. Model call` 那一段从 `generateTextFromProvider` 换成 headless `streamClaude`，并把 `permission_request` 事件接到已经预留的 paused 路径上。
+
+##### 1. 后台 Agent task runner（4a 外壳 → 4b headless streamClaude 升级）
+
+`src/lib/agent-task-runner.ts:runScheduledAgentTask(task, providedRunId?)` **已在 4a 落地**——session 解析、`addMessage` 链路、HEARTBEAT_OK 静默契约、`task.source` 分支都已工作。**Step 4b 待做的核心**是把第 4 步 "Model call" 从 `generateTextFromProvider` 升级为 headless `streamClaude`：
+
+进入 runner 后再用 `task.source` 决定 session 行为（不是用 kind）：
+
+- `task.source === 'user'` → task-bound 会话路径
+- `task.source === 'assistant_heartbeat'` → buddy session 路径 + silent contract（详见 §4）
+
+主流程（user source）：
+
+1. `insertTaskRunLog({ task_id, status: 'running', started_at })` → 拿 runId。
+2. 解析 task-bound session：`task.session_id` 已设 → 复用（`getSession`）；未设 → `createChatSession({ title: '[Task] ' + task.name, working_directory, source: 'task' })`，再 `updateScheduledTask(taskId, { session_id: newId })` 持久化绑定。
+3. `addMessage(sessionId, 'user', task.prompt, { task_run_id: runId })` → 用户气泡持久化，并把这条消息和本次 run 关联（marker 渲染用，详见 §5）。
+4. 调 headless 版 `streamClaude({ sessionId, sessionRuntimePin: task.runtime_pin || null, mode: 'background', permissionMode: 'default' })`。
+5. 流事件累积：`text_delta` 累积 → done 时 `addMessage('assistant', assistantBuffer, { task_run_id: runId })`；`tool_use` / `tool_result` 一并落 message（同样带 task_run_id）；`permission_request` 未 resolve → 中断流（cleanly），run status='waiting_for_permission'，partial assistant text 标 incomplete 写入 message；`error` → run status='failed'。
+6. `updateTaskRunLog(runId, { status, result, error, duration_ms, notification_event_id, ended_at })`。
+7. 发通知（见 §3）。
+
+##### 2. Run 状态机
+
+- `task_run_logs.status` 扩到 5 态：`'running' | 'succeeded' | 'failed' | 'waiting_for_permission' | 'cancelled'`。
+- **不动 SQLite CHECK 约束**（v1 写"ALTER CHECK"是错的，SQLite 不支持直接修改 CHECK；要改只能走 12-step 表重建）。当前 `task_run_logs.status` 是无 CHECK 的 `TEXT NOT NULL`（v6 / Phase 3 实现时只给 `notification_deliveries.status` 加了 CHECK）。Step 4 保留这个宽松：DB 列继续无 CHECK，约束完全在应用层。
+- 应用层校验在 `db.ts` 的 `insertTaskRunLog` / `updateTaskRunLog` 里：参数 `status` 类型签名收紧到 5 态联合（TypeScript 强制），运行时 `if (!ALLOWED_STATUSES.has(status)) throw new Error(...)` 兜底（防止 untyped JS / 旧 callsite 漏掉）。
+- 旧值兼容：旧 `task_run_logs.status` 历史值是 `'running' | 'success' | 'error'`。**新 callsite 一律写新枚举**，但旧行不动也不归一化（避免污染历史 / 触发不相关的迁移问题）。读侧：UI 的 5 态徽章有 `legacy / unknown` fallback，把读到的 `'success'` / `'error'` 老值映射成 `'succeeded'` / `'failed'` 显示色。
+- 状态机转移合法：`running → succeeded / failed / waiting_for_permission / cancelled` ✅；`waiting_for_permission → succeeded / failed / cancelled` ✅；终态不可逆（沿用 v5 同款 helper）。
+- **`scheduled_tasks.last_status` 不扩 5 态**——这一列在 DB 里有 CHECK 约束（`success / error / skipped / running`），SQLite 改 CHECK 要表重建，本步不做。Tasks 页**显示**的状态从最新 `task_run_logs` 行推导（5 态 + 老值映射）；`last_status` 继续按现行 4 态写：`succeeded` 写 `'success'`、`failed` 写 `'error'`、`waiting_for_permission` 不写 `last_status`（改写 `scheduled_tasks.status='paused'` 阻止 scheduler 复触发）、`cancelled` 不写 `last_status`。这条边界由 4a 已经实现并锁住，4b 不动。
+- 如果未来想要 DB 级 CHECK 兜底，需要单独写一刀"task_run_logs 表重建迁移"，**不在 Step 4 范围**——v1 那个"ALTER CHECK"误写在这条 review 里被纠正。
+
+##### 3. 通知集成
+
+每个终态写 1 条 `notification_event`，payload 必带 `task_id` + `session_id`：
+
+| 状态 | priority | 标题 | 正文 |
+|---|---|---|---|
+| succeeded | normal | `✓ {task.name}` | result 头 200 字 |
+| failed | normal | `✗ {task.name}` | error 头部 |
+| waiting_for_permission | **urgent** | `⚠️ {task.name} 需要权限` | `点开查看授权` |
+| cancelled | (不发) | — | — |
+
+`useNotificationClickRoute` 路由扩展：
+
+- `status === 'waiting_for_permission'` → `/settings/tasks?focus={task_id}`（高亮该 row，提示用户点入解决）
+- `status === 'succeeded' / 'failed'` && `session_id` → `/chat/{session_id}`（直达执行会话回看结果）
+- `kind === 'reminder'` → `/settings/tasks?focus={task_id}`（沿用现有）
+- `source === 'assistant_heartbeat' && speak-up` → `/chat/{buddy_session_id}`（**注意**：心跳是 `kind='ai_task' + source='assistant_heartbeat'`，不是新 kind；区分仅靠 `source`）
+
+##### 4. Heartbeat 后台化
+
+当前实现：`useAssistantTrigger.ts` 在 (a) 路由匹配 assistant workspace (b) 空会话 (c) `data.needsHeartbeat` 时触发 autoTrigger。后台触发不可达。
+
+设计：心跳是一个**特殊的 ai_task**（`kind='ai_task' + source='assistant_heartbeat'`），由系统注入 `scheduled_tasks`，不引入新 kind。
+
+- `scheduled_tasks` 加 `source TEXT NOT NULL DEFAULT 'user'` 列。**不加 CHECK 约束**（同 §2 理由——SQLite 改 CHECK 要表重建，本步避开）；应用层在 `createScheduledTask` / `updateScheduledTask` 校验 source 只能是 `'user'` 或 `'assistant_heartbeat'`，TypeScript 联合类型钉死。
+- Assistant workspace state 加 `heartbeatIntervalHours`（默认 24，零或关闭即停后台执行）。
+- 启动 / 设置变化时调 `ensureHeartbeatTask()`：`heartbeatEnabled === true && interval > 0` → 创建（或更新）一条 `{ kind: 'ai_task', source: 'assistant_heartbeat', schedule_type: 'cron', schedule_value: <hours-derived cron>, prompt: 'Read HEARTBEAT.md and respond per its silent contract' }` 系统任务；开关关闭 → `DELETE FROM scheduled_tasks WHERE source = 'assistant_heartbeat'`（source 是唯一标识，删除幂等）。
+- 执行：`runScheduledAgentTask` 进入后用 `task.source === 'assistant_heartbeat'` 分支（**不是用 task.kind**——kind 仍是 ai_task）：
+  - 不创建 task-bound session，复用 buddy session（4a 实现：`resolveBuddySessionId()` 先按 `assistant_workspace_path` + `includeSources: ['user']` 查最新会话，缺失时 lazy-create 一个 `source='user'` 的 "Assistant heartbeat" 会话）。
+  - 调 streamClaude 拿模型输出 `assistantBuffer`。
+  - **silent contract**：`assistantBuffer.trim() === 'HEARTBEAT_OK'` → 写 `task_run_log status='succeeded' result='silent'`，**不发通知**，**不写 assistant message**（保持 silent 对用户完全透明）。
+  - **speak-up**：否则 `addMessage(buddySessionId, 'assistant', assistantBuffer, { task_run_id: runId })` + 发 normal 通知（`payload = { task_id, session_id: buddySessionId }`）。
+- 不依赖 Bridge：所有判断都在 `notification-manager.sendNotification()` 之前完成，silent 直接 short-circuit；speak-up 才进入 deliveries 链路。
+
+##### 5. UI 收口
+
+- **TasksSection**：状态徽章扩到 5 态颜色（succeeded 绿 / failed 红 / running 蓝 / waiting_for_permission 黄 / cancelled 灰；老值 `'success'` / `'error'` 显示色映射到 succeeded / failed）；`ai_task` row 展开 run log 时每行加"打开执行会话"链接 `→ /chat/{run.session_id}`；`waiting_for_permission` row 加 warning 边框，提示"点入会话决定重跑或放弃"；过滤掉 `source='assistant_heartbeat'` 的系统任务（不让用户看到自己没创建的 row 增加 IA 噪声），心跳 run 历史只在 Settings → Assistant 心跳卡里通过"心跳运行历史"链接看（链接 push `/settings/tasks?source=assistant_heartbeat` 强制 source filter；本身 Tasks 页默认 hides）。
+- **AssistantWorkspaceSection**：v9 / v12 的"无任务列表"决议保留；CheckInCard 下方加"心跳频率"输入（24 / 12 / 6 小时 / 自定义；零或关 = 停止后台心跳），存到 workspace state 后调 `ensureHeartbeatTask()`。
+- **Chat marker（4a 已实现 — 不用 sentinel string，no per-marker fetch）**：v1 曾提议在 `message.content` 里写 `[__TASK_RUN__ ...]` / `[__HEARTBEAT_RUN__ ...]` 字面量让 MessageList 解析。这会**污染模型上下文**——下一轮发送时这些字面量进 prompt builder，模型可能尝试解析或复读。**4a 改成的结构化关联**（已落地、4b 沿用、不再修改）：
+  - `messages` 表（**真实表名是 `messages`，不是 `chat_messages`**）加 `task_run_id TEXT DEFAULT NULL` 列（4a 通过 `safeAddColumn` 已落库）。soft reference，不加 FK，避免 task_run_logs 删除级联破坏历史 messages。
+  - `addMessage(sessionId, role, content, tokenUsage?, metadata?: { task_run_id?: string \| null })`：4a 实现已经把 `task_run_id` 写到该列，**不动 `content` 文本**。
+  - prompt builder 拼 LLM 上下文时只读 `content`，`task_run_id` 从来不进 prompt（`step4-architecture-invariants.test.ts` repo-wide 钉死）。
+  - **inline-join，不是 per-marker fetch**：`/api/chat/sessions/[id]/messages` 在响应里多带一个 `taskRuns: Record<runId, TaskRunSummary>` map，`MessagesResponse.taskRuns` 类型已铺好；`db.getTaskRunSummariesByIds` 在一次 SELECT IN 里 join `scheduled_tasks` 拿 `name / kind / source`。MessageList 用 prop `taskRuns` 直接查，**TaskRunMarker 不自己 fetch**——避免 N+1。
+  - MessageList 渲染时按消息顺序遍历；遇到 `task_run_id` 不为空且和**前一条**消息的 `task_run_id` 不同（或前一条为空）→ 在该消息**之前**插入 `<TaskRunMarker run={taskRuns[message.task_run_id]} />`（React-only，组件签名只接 `run: TaskRunSummary | undefined`，没 fetch / useEffect）。文案：
+    - `task_source='user'` → "定时任务 · {当地时间} · {status 中文}"
+    - `task_source='assistant_heartbeat'` → "心跳触发 · {当地时间} · {silent 时不会渲染；speak-up 时显示 '助理有事'}"
+  - 点 marker 跳 `/settings/tasks?focus={run.task_id}`。
+  - silent heartbeat run **不写 assistant message**（§4 已锁定），所以 silent run 不会产生 marker——用户看到的 buddy session 仍然是干净的助理对话。
+
+##### 6. Task-bound chat session 在主聊天列表里的可见度
+
+`ChatSession` 加 `source: 'user' | 'task'`（默认 `'user'`；`createSession` 第 8 个可选参数显式传）。**不引入 `'assistant'` 第三值**——buddy session 在 4a 实现里就是普通的 `source='user'` 会话，归入"用户可见"那一类；assistant 这条独立维度其实只存在于 `scheduled_tasks.source = 'assistant_heartbeat'`（任务侧），不在 chat session 表里再分一遍。
+
+- `source='user'`：普通用户对话——主聊天列表（`ChatListPanel`）默认显示。**buddy session 也是这一类**：4a 的 `resolveBuddySessionId` lazy-create 走 `createSession(..., 'user')`，让心跳 speak-up 写到的会话天然出现在用户可见列表里（用户从主列表点开就能看到助理消息）。
+- `source='task'`：`runScheduledAgentTask` 为 user-source ai_task 创建的执行会话——**主聊天列表默认隐藏**（`/api/chat/sessions` GET 默认 `includeSources=['user']`，过滤掉 task）。只通过 (a) `/settings/tasks` 行内"打开执行会话"链接、(b) 通知 click route、(c) 直接 URL `/chat/<sessionId>` 三条路径访问。
+
+如果未来想把 task-bound session 显示到主列表，**必须加可见标记**（"任务"badge / 区别图标），不允许默默混进来。这条作为后续设计约束写在 `feedback_*` 用户记忆里。
+
+4a 实现已落到 `/api/chat/sessions`（**不是 `/api/chat/sessions/list`**——后者不存在）：默认 `?source` 缺省 = `'user'`（task 隐藏）；`?source=task` 显式拉 task-bound 会话；`?source=all` 不过滤。底层 `getAllSessions({ includeSources })`。ChatListPanel 不需要传任何参数——服务端默认就过滤掉 task 会话了。
+
+**不做**
+
+- 不做 cron 表达式编辑器。
+- 不做复杂多 Agent 协同或外部 scheduler 接管。
+- 不恢复重表单创建任务 UI。
+- 不把心跳塞回全局任务页。
+- 不把 Bridge 变成本机通知前置。
+- 不在后台 task 中支持需要 UI 的复杂权限审批（默认 default mode；要 elevation 必须用户主动从通知点入处理）。
+- 不做心跳频率 < 1h 的支持（避免 background polling 过密）。
+- 不做心跳 / 任务跨设备同步。
+- **不做 durable agent state resume**——`waiting_for_permission` 状态下，不试图把 agent 流"接着跑"。现有 permission registry 是 live stream-bound promise，后台 stream 已经退出后没有任何"魔法接管"机制能让原 run 继续。Step 4 v2 只做"暂停 + 用户手动决定"：用户从通知 / Tasks 页进入 task-bound session，看到 partial assistant message + 一个 `[重跑此任务] / [放弃]` 行内 panel，由用户主动选；selecting 重跑 → 创建一个新 `runId` 从头跑（旧 run 永久停在 `waiting_for_permission` 作为历史），selecting 放弃 → 旧 run 翻 `cancelled`。真正的 durable resume（agent state 序列化 / replay）放 Phase 4+。
+
+**详细验收路径（Step 4b）**
+
+> 不要跳步——每条都要在 dev / Electron 实机上手动核对。下方 ✅ 标记的项 Step 4a 已经能在实机上看到；🔄 标记的项要等 Step 4b 实现 headless streamClaude 才会真实可达。
+
+1. ✅ **reminder 不调 AI（行为不变，回归）**：在 chat 里说"5 分钟后提醒我喝水"→ `kind='reminder'` → 到点 macOS 通知弹出，正文 = prompt 文本；`generateTextFromProvider` 调用计数 = 0。
+2. **ai_task 进真 Agent 执行链**：✅ Step 4a 已经走 `runScheduledAgentTask`、创建 task-bound session、写 user / assistant message、链回 task_run_log；🔄 Step 4b 把 model call 换成 headless `streamClaude`，能调用工具、能产出 `tool_use` / `tool_result` 消息记录。验收：在 chat 里说"明天早上 9 点帮我看一下 README 然后告诉我有没有 typo"→ 到点 → `runScheduledAgentTask` → headless streamClaude → 完成时 `/chat/<task.session_id>` 看到完整 user → tool_use → tool_result → assistant 对话（4a 只能看到 user → assistant 文本）；通知"✓ {task.name}"弹出 + session 链接。
+3. **ai_task 失败路径**：✅ Step 4a 已能 fail（provider 错误、生成失败）；🔄 Step 4b 还会捕获工具调用失败（"调不存在的工具" 等场景）。验收：故意触发失败 → run `status='failed'` + `error` 字段填具体错误；通知 + Tasks 页 failed 徽章。
+4. 🔄 **ai_task waiting_for_permission（4b 关键新行为）**：创建会请求 FileWrite 权限的 ai_task → 到点 → headless streamClaude 流到 `permission_request` → 后台 cleanly cancel（不等用户接受，因为没 UI 接受）→ run `status='waiting_for_permission'` + partial assistant text 标 incomplete 落 message（带 `task_run_id`）+ `scheduled_tasks.status='paused'`（4a 已铺，4b 才真实写入）。macOS **urgent** 通知 `⚠️ {task.name} 需要权限`；点通知 → 跳 `/settings/tasks?focus={taskId}` → row 黄色高亮；用户点 row → 进 task-bound chat session → 看到 partial assistant message 末尾 + inline `<TaskWaitingForPermissionPanel />` 提供 `[重跑此任务] [放弃]`。点"重跑此任务" → POST `/api/tasks/{id}/run` 创建新 runId 从头跑（旧 run 永久停在 `waiting_for_permission` 作为历史）；点"放弃" → PATCH `/api/tasks/runs/{runId}` 翻 cancelled。**4b 不实现 durable resume**——live permission registry 是 stream-bound promise，stream 已退出无法接管。
+5. **heartbeat 后台触发**：✅ Step 4a 已交付——Settings → Assistant 打开心跳 + 频率 → 关窗（菜单栏常驻）→ 到点 fire；HEARTBEAT_OK 沉默不发通知；speak-up 写 buddy session message + normal 通知 + chat 里 React-only `<TaskRunMarker />`。Step 4b 不动这条；底层换 streamClaude 后行为不变。
+6. ✅ **Settings → Assistant 不恢复任务列表**（Step 4a 已交付）：v13 layout + 心跳频率选择器；没有任务列表 / 删除按钮。
+7. ✅ **/settings/tasks 状态显示**（Step 4a 已交付，4b 让黄色 waiting_for_permission 真实出现）：5 态徽章颜色；`ai_task` row 展开看到 session 链接；`source='assistant_heartbeat'` 的系统任务默认隐藏（`?source=assistant_heartbeat` 显式查看）。
+8. **自动化测试与构建**：4a 已通过 `npm run test 1739/1739` + `npx next build`；🔄 Step 4b 完成时需新增针对 streamClaude 事件流的 mock 测试 + WaitingForPermissionPanel 契约。浏览器 smoke 走 1 + 2 + 6 + 7；Electron 手动 smoke 走 4 + 5（菜单栏常驻 + 后台 + 权限面板）。
+
+**涉及的模块**
+
+| 模块 | 改动方向 |
+|---|---|
+| `src/lib/agent-task-runner.ts` | **新文件**：`runScheduledAgentTask(task)`；headless streamClaude 包装；按 `task.source` 分支（user / assistant_heartbeat）；状态累积成 message + run_log |
+| `src/lib/task-scheduler.ts` | `executeDueTask` `kind === 'ai_task'` 分支切到 agent-task-runner（`reminder` 不变）；新增 `ensureHeartbeatTask` / `removeHeartbeatTask`（用 `source='assistant_heartbeat'` 唯一标识，幂等创建 / 删除） |
+| `src/lib/db.ts` | `scheduled_tasks` 加 `source TEXT NOT NULL DEFAULT 'user'`（**无 CHECK，应用层校验**）+ workspace state 加 `heartbeat_interval_hours`；`messages` 加 `task_run_id TEXT DEFAULT NULL`（soft reference，不加 FK）；`addMessage` 接受 `metadata: { task_run_id? }` 写入新列；`chat_sessions.source` 扩 `'user' \| 'task'`；`getAllSessions` 加 `includeSources` 过滤；`getLatestSessionByWorkingDirectory` 加 `includeSources` 过滤（heartbeat buddy 解析必传 `['user']`）；`getTaskRunSummariesByIds` 用于 `/api/chat/sessions/[id]/messages` inline join；`getTaskRunById` 用于 abandon 端点 |
+| `src/lib/claude-client.ts` | `streamClaude` 加 `mode: 'background' \| 'interactive'`；background 模式 permission event → cleanly cancel stream + 抛 `PermissionRequiredError`（不走 SSE，不等 user resolve） |
+| `src/types/index.ts` | `TaskRunStatus` 5 态联合 + `TASK_RUN_STATUS_VALUES` + `isTaskRunStatus`（应用层 `ALLOWED_TASK_RUN_STATUSES` Set 在 db.ts）；`ScheduledTaskSource = 'user' \| 'assistant_heartbeat'`；`ScheduledTask.source?`；`ChatSessionSource = 'user' \| 'task'`（**只有两值，无 `'assistant'`**——buddy session 复用 `'user'`）；`Message.task_run_id?`；`MessagesResponse.taskRuns?: Record<id, TaskRunSummary>`（4a 已铺，inline-join 用） |
+| `src/lib/notification-manager.ts` | 不变（payload 已支持 task_id + session_id） |
+| `src/hooks/useNotificationClickRoute.ts` | 路由扩展：waiting_for_permission → tasks 页 focus；ai_task succeeded / failed → /chat/{sessionId}；`source === 'assistant_heartbeat'` && speak-up → buddy session（**`source` 而非 `kind`**） |
+| `src/app/api/chat/sessions/route.ts` | 4a 已实现：`?source` query 默认 `'user'`（task 隐藏）；`'task'` / `'all'` 显式请求；底层走 `getAllSessions({ includeSources })` |
+| `src/components/layout/ChatListPanel.tsx` | 4a 已生效：调用方不需要改——直接用 `/api/chat/sessions` 默认行为，task-bound session 已被服务端 filter 掉 |
+| `src/components/settings/TasksSection.tsx` | 状态徽章 5 态颜色（含老值映射）；`ai_task` run log 加 session 链接（4a 已交付）；🔄 4b 加 `waiting_for_permission` row 警告高亮；过滤掉 `source='assistant_heartbeat'` 系统任务（默认隐藏；URL `?source=assistant_heartbeat` 可显式查看心跳运行历史） |
+| `src/components/settings/AssistantWorkspaceSection.tsx` + `WorkspaceStatusCards.tsx` | CheckInCard 下加 heartbeatIntervalHours 输入（4a 已交付）；🔄 4b 可选：加"查看心跳运行历史"轻 link（push `?source=assistant_heartbeat`） |
+| `src/components/chat/TaskRunMarker.tsx` | 4a 已交付：组件签名 `({ run }: { run: TaskRunSummary \| undefined })` —— **从 prop 读，不 fetch**。React-only，**不读 / 不写 message.content**。N+1 已避免：数据靠 `/api/chat/sessions/[id]/messages` 一次响应里的 inline-joined `taskRuns` map 喂下来 |
+| `src/components/chat/MessageList.tsx` | 4a 已交付：接受 `taskRuns` prop（`Record<runId, TaskRunSummary>`），按消息顺序遍历——当前条 `task_run_id` 与前一条不同（或前一条空）→ 在前面插 `<TaskRunMarker run={taskRuns[message.task_run_id]} />`；**不解析任何 sentinel string** |
+| `src/lib/prompt-builder.ts`（或等价 LLM context 构造点）| 验证：构造 prompt 时只读 `message.content`，`task_run_id` 完全不进 prompt（contract test 钉死） |
+| `src/components/chat/TaskWaitingForPermissionPanel.tsx` | **新文件**：当用户进 task-bound session 看到末尾 partial assistant message 后，渲染一个 inline panel 提供 `[重跑此任务] [放弃]` 按钮；重跑 → POST `/api/tasks/{id}/run` 创建新 runId；放弃 → PATCH 旧 run 翻 cancelled |
+| `src/i18n/{zh,en}.ts` | 新增状态文案 + 心跳频率 + marker 文案 + 通知标题 + waiting_for_permission panel 文案 |
+
+**风险与降级**
+
+- **后台 streamClaude 没有 SSE 消费方**：现有 streamClaude 流到 renderer SSE。后台 task 跑时 renderer 可能在另一个 session 或根本没打开。需给 streamClaude 加 `mode: 'background'`，事件进 in-process listener 而非 SSE。降级：v1 background 模式只支持纯文本输出 + 简单 tool calls；复杂工具链作为 v2 增强。
+- **权限请求处理（不做 durable resume）**：后台 task 请求权限时无 UI 接受 — 设计选择 = cleanly cancel stream + 进 `waiting_for_permission` 状态，让用户从通知 / 任务页进入会话**手动决定**重跑或放弃。**不实现"用户接受权限后自动从断点继续"**——current permission registry 是 stream-bound live promise，stream 退出后 promise 没有承接方，没有"魔法接管"机制；勉强写一套 durable agent state checkpoint / replay 已经超出 Step 4 scope。**绝对不静默 reject 让任务以为自己 succeeded**——partial state 永远落 message + run_log。durable resume 留 Phase 4+ 单独评估。
+- **buddy session 跨工作区切换**：用户切了 assistant workspace 后，旧 buddy session 是否还能跑 heartbeat？设计：heartbeat task 创建时绑定当前 workspace，切换 workspace 时 `ensureHeartbeatTask` 重新评估并替换。
+- **HEARTBEAT_OK silent contract 边界**：模型输出含 `HEARTBEAT_OK` 但仍有正文 → 算 silent 还是 speak-up？设计：**精确匹配 trim 后等于 `HEARTBEAT_OK`** 才是 silent，否则 speak-up（避免误判）。
+- **runtime mismatch**：task.runtime_pin = 'codepilot_runtime' 但当前 CLI 不可用。设计：fall back 到 native；记录 fallback 到 run_log result 末尾。
+- **status 枚举无 DB 兜底（部分列）**：`task_run_logs.status` 与 `scheduled_tasks.source` 都没有 DB CHECK（前者历史就没建，后者是 4a `safeAddColumn` 新加的且 SQLite 不支持 ALTER CHECK），所以这两列的合法值约束完全在应用层。降级：`insertTaskRunLog` / `updateTaskRunLog` / `createScheduledTask` 严格联合类型签名 + 运行时白名单校验；`task_run_logs.status` 旧值 `'success'` / `'error'` 在 UI 读侧映射到 `succeeded` / `failed` 显示色，DB 行不动也不归一化（避免迁移引入新 bug）。如果未来要加 DB-level 强制，单独写一刀表重建迁移。**`scheduled_tasks.last_status` 不在此列**——它从一开始就有 legacy CHECK（`'success' \| 'error' \| 'skipped' \| 'running'`），4a/4b 都不动它，5 态语义只在 `task_run_logs.status` 上展开（Tasks 页显示状态从最新 run 推导）。
+- **prompt 上下文不能被 marker 污染**：v1 用 sentinel string 写入 `message.content` 让前端解析的方案被否决——会被下一轮 prompt builder 包进 LLM 上下文。4a 已经改成 `messages.task_run_id` 列 + React-only marker 渲染（inline-join via `MessagesResponse.taskRuns`，no per-marker fetch）；contract test (`step4-architecture-invariants.test.ts`) repo-wide 钉死无 sentinel 字面量 + `task_run_id` 永远不进 prompt。4b 沿用，不动。
+
+**测试覆盖**
+
+- `agent-task-runner.test.ts` (新)：mock streamClaude；`reminder` 不进入 runner（走原 reminder 路径）；`ai_task + source='user'` 创建 / 复用 task-bound session 并写 assistant message + run_log；`ai_task + source='assistant_heartbeat'` 复用 buddy session 不创建；text 累积成 message；error 路径写 specific error；`addMessage` 调用必须带 `task_run_id` metadata。
+- `task-run-status-machine.test.ts` (新)：5 态联合类型 + 应用层白名单（pass: 5 态 / fail: 任意其它字符串）；转移合法性表（running → 4 终态合法；终态不可逆）；UI 老值映射 `success → succeeded` / `error → failed`；**不写"ALTER CHECK"相关测试**（DB 层不做约束）。
+- `heartbeat-background.test.ts` (新)：`ensureHeartbeatTask` 在开关 / interval 切换时 idempotent（两次调用不创建第二行；删除幂等）；agent runner 见 `source='assistant_heartbeat'` 分支正确路由；silent 路径不写 message + 不发通知；speak-up 路径写 buddy session message（带 task_run_id metadata）+ 发通知。
+- `tasks-section-status-display.test.ts` (新)：5 态徽章颜色 source-grep；ai_task row 必须含 session 链接；waiting_for_permission row 必须含 warning 类；TasksSection 默认 SQL filter 排除 `source='assistant_heartbeat'`。
+- `heartbeat-interval-input.test.ts` (新)：Assistant 页输入存到 setting 并触发 `ensureHeartbeatTask`；零 / 关闭 → `removeHeartbeatTask` 调用；CheckInCard 下"查看心跳运行历史"link push `?source=assistant_heartbeat`。
+- `chat-message-task-run-id.test.ts` (Step 4b 新增)：`addMessage` 接受 `task_run_id` metadata 写入 `messages.task_run_id` 列；`messages` schema 含该列；prompt builder 构造 LLM context 时只读 `content`，**source-grep 钉死 prompt 拼接路径不引用 `task_run_id`**（防回归到 sentinel pattern）。注：4a 已经在 `step4-architecture-invariants.test.ts` 钉了"无 sentinel 字面量"的 repo-wide 防线，本测试是 4b 加针对 prompt 拼接路径的更精细钉死。
+- `task-session-list-filter.test.ts` (新)：`/api/chat/sessions/list` 默认 SQL where `source != 'task'`；显式 `?source=task` 才返回；ChatListPanel 的 fetch URL 不带 `source=task`；TasksSection 拉某 task 的执行会话 fetch 必须带 `?source=task&task_id=...`。
+- `waiting-for-permission-panel.test.ts` (新)：task-bound session 末尾若有 `waiting_for_permission` partial assistant message → 渲染 inline panel 含"重跑" / "放弃"按钮；点"重跑" POST `/api/tasks/{id}/run` 创建新 runId；点"放弃" PATCH 旧 run 翻 cancelled；source-grep 不出现"agent resume" / "continue stream" 等暗示 durable resume 的字面量。
+
+**审批信号**：以上是 v2 (review-fix-1) 待审批稿。等用户 review 确认 5 条修订都到位后再开 Step 2（实现 agent-task-runner）。在 v2 范围之外的扩展（cron 编辑器 / 多 Agent / durable agent state resume / 跨设备同步）按"不做"边界一律不动。
+- 扩 `notification-ack.test.ts`：waiting_for_permission urgent priority 钉死。
+- 扩 `useNotificationClickRoute.test.ts`：3 类路由（waiting_for_permission → tasks，ai_task succeeded → chat session，heartbeat speak-up → buddy）。
+
+
+## 未闭环风险 / TODO
+
+> 这一节是"还没修但有用户路径影响"的清单。修一条划掉一条（移到对应 phase archive 的决策日志）；不做的事请进"暂缓清单"或单独记入 `tech-debt-tracker.md`。
+
+<!-- ✅ 2026-05-10 修完：chat/page.tsx 拆 NewChatPageInner + 外层 Suspense + useSearchParams 取代 stale useMemo([])；MessageInput 加 adoptedInitialValueRef + useEffect 在 prop 真正变化时 setInputValue。新增 `chat-prefill-warm-navigation.test.ts` 7 例契约。CDP 实机 smoke 留给用户在本地走 `npm run dev → /settings/tasks → 新建任务` 端到端确认。完整记录见 phase-3 archive 决策日志。 -->
+<!-- ✅ 2026-05-10 修完：AssistantWorkspaceSection.tsx:547 整段 SettingsCard 换成单行 link button 跳 `/settings/tasks?source=assistant`，显示"共 N 个定时任务"或"还没有定时任务" + "在 设置 · 定时任务 中查看"。删除 handleDeleteTask + Trash icon + 3 条退役 i18n key（taskDelete / taskNextRun / noTasks），新增 3 条 link 文案 key (tasksLinkEmpty / tasksLinkCount / tasksLinkAction)。新增 `assistant-tasks-link-only.test.ts` 6 例契约。完整记录见 phase-3 archive 决策日志。 -->
+<!-- ✅ 2026-05-10 修完：zh + en 的 `assistant.heartbeatDesc` 改为显式说明"在助理工作区开始新对话时触发（不是后台定时任务，关闭应用 / 离开工作区时不会主动跑）"。新增 `heartbeat-copy-honesty.test.ts` 7 例契约（双语必须含"不是后台定时任务" / "not a background timer"，必须 anchor 到"新对话" / "new chat" + "助理工作区" / "assistant workspace"，必须保留 silent / speak-up 半句，title 不变）。完整记录见 phase-3 archive 决策日志。 -->
+<!-- ✅ 2026-05-10 v11 修完："复制对话 ID 报错"+"侧边栏与文件树互斥"两条 TODO 一起收掉。
+
+复制 ID：根因是三个 callsite（UnifiedTopBar.handleCopyId / SessionListItem 下拉菜单"复制对话 ID" / ProjectGroupHeader 下拉菜单"Copy folder path"）都做 fire-and-forget `navigator.clipboard.writeText(value)`——Electron renderer 在 DropdownMenu blur 后页面失焦，writeText reject NotAllowedError，未 await 也未 catch → 未处理 promise rejection 变控制台 / Sentry 错误，用户没反馈。新增 `src/lib/clipboard.ts:copyWithToast` 统一 await + try/catch + showToast（success / warning fallback 把原文 inline 在 toast 文字里，方便手动复制），三处都改用它。新增 `common.copySuccess` / `common.copyFailed` 双语 i18n key。
+
+互斥：根因是 `WORKSPACE_TAB_OPEN_EVENT` 事件路径绕过了 topbar 按钮的 mutex —— file-tree 点击 / MessageItem markdown / artifact 点击 / DiffSummary 卡片都派这个事件，`useWorkspaceSidebar` 把它翻成 `openDynamicTab` 直接 set `open: true`，于是 file tree + sidebar 同时挤压聊天区。新增 `RightRailMutexEnforcer` 组件挂在 `<WorkspaceSidebarProvider>` 内（这样它能同时读 PanelContext 和 sidebar context），用 `useEffect` 在两个状态都为 open 时强制 `setFileTreeOpen(false)`。Asymmetric on purpose：file-tree 唯一开启入口是 topbar 按钮，已同步关 sidebar，反向不需要 watcher。
+
+测试：新增 `clipboard-toast-feedback.test.ts` 9 例 + `right-rail-mutex.test.ts` 6 例。完整记录见 phase-3 archive 决策日志。 -->
+<!-- ✅ 2026-05-10 修完：v7 P2 的 Map projection 出口加上 `error` 解构，返回类型签名升为 `Array<{ channel; status; error? }>`，扩 `send-notification-dedup.test.ts` 2 例契约（签名 + 解构）。完整记录见 phase-3 archive 决策日志。 -->
+
+## 验收入口
+
+> 把每条主线"在哪个页面 / 命令能验"集中放这里。日常想确认某条是否还在工作，按这里走。
+
+- **Phase 1**：Settings → Providers（添加套餐型服务商不报 discovery 失败）；Settings → Models（OpenRouter 走搜索；套餐型模型不出现 100+ 上游目录）；Chat 新会话默认模型按钮显示 `<provider>·<model>`。
+- **Phase 2**：composer 工具栏 `[模式] [对话引擎] [权限]` 三联可见；切 RuntimeSelector → /chat 即时按新 runtime 过滤；删除当前会话 provider → 发送返回 409 INVALID_SESSION_PROVIDER 横幅；切换后 transcript 出现 "已切换执行引擎：X → Y" marker。
+- **Phase 3**：创建一个"+1 分钟" reminder（不配 provider）→ 关窗 → 等到点 → macOS 系统通知弹出 → 点通知落到 `Settings → 定时任务` + 焦点该任务 + 展开看到 delivery log；浏览器直接 POST `/api/tasks/schedule` 带 `notify_on_complete: true` 返回 200 + DB row 1。
+
+## 暂缓清单
+
+不主动开工的（用户决议或不在本轮 6 条主线内）：
+
+- Run Checkpoint Round 3（PermissionPrompt 视觉收编，2026-04-30 用户决定）
+- 更多 Bridge 渠道（微信 / QQ Bridge — 单独计划在 active）
+- 插件市场深度功能、浮窗助理、自动多 Agent 编排
+- 全 provider billing / usage API
+- Memory 管理面板
+- 大规模官网 / 文档站工作
+
+## Phase 4 / 5 / 6 待启动方案
+
+> 这三个 Phase 的具体方案保留在本文件，等启动时再细化。Phase 1-3 完成、本节列出的尾巴清掉之后才考虑开工。
+
+### Phase 4：多 Agent、Codex 适配、Markdown / Artifact
+
+- **用户结果**：能显式说"让 Codex / OpenClaw 处理这部分"；Markdown / Artifact 不再切换错内容 / 预览空白。
+- **要做**：定义 Local Agent Adapter 最小契约；Codex adapter 优先（连接 / 启动 / 传 prompt+cwd / 回收结果）；`@agent` 第一版只支持显式调用；Markdown / Artifact 稳定性清单。
+- **不做**：主 Agent 自动派单；多 Agent 并行编排；要求外部 Agent 共享完整权限系统。
+
+### Phase 5：上下文可视化
+
+- **用户结果**：输入框右下角不只是百分比，而是组成条——历史 / 输入 / 附件 / 系统提示 / Memory 各占多少。上下文快满时知道删什么。
+- **要做**：在现有 token estimate 上拆来源；Run 状态面板显示组成条 + 明细；Context chips / attachments / directory refs 共用同一估算数据；缺 model context length 时显"容量未知"但仍展示相对大小。
+- **不做**：第一版 token 精确到账单级；为可视化重写 context assembler。
+
+### Phase 6：视觉锚点与图标体系
+
+- **用户结果**：点阵风格视觉记忆点（loading / 空状态 / 背景纹理）；图标统一到 HugeIcons。
+- **要做**：先做视觉资产 + icon audit；HugeIcons 统一封装；点阵风格只在 3 个低风险位置试点；CDP 截图确认。
+- **不做**：一口气全局重做 UI；点阵铺满所有卡片。
+
+## 最近决策（最近 8 条）
+
+> 完整决策日志按 Phase 归档，见 `completed/refactor-phase-*.md`。本节只保留最新 8 条，方便快速回顾上一刀做了什么。
+
+- 2026-05-10：**Phase 3 尾巴 v13 — 撤回 v11 右栏互斥（产品决策反向）**。v11 把 FileTreePanel ↔ WorkspaceSidebar 在 topbar onClick 与新建的 `RightRailMutexEnforcer` 双层钉成 mutex（开一个自动关另一个），用户在 review 中明确指出方向反了：实际产品意图是**叠加**——用户希望同时浏览 file tree + 在 sidebar 上钉一个 markdown / artifact preview Tab，被强行关掉的体验比"两栏挤压聊天"更糟。v13 撤回：(a) `AppShell.tsx` 删 `RightRailMutexEnforcer` 函数定义 + provider tree 里的 `<RightRailMutexEnforcer />` mount；(b) `UnifiedTopBar.tsx` 文件树按钮 onClick 删 `if (next && ws?.state.open) ws.setOpen(false)`，简化为 `setFileTreeOpen(!fileTreeOpen)`；(c) sidebar 按钮 onClick 删 `if (next && fileTreeOpen) setFileTreeOpen(false)`，简化为 `ws.setOpen(!ws.state.open)`；(d) `ChatContentRow` 注释里"Mutual exclusion"段改成"v13 additive"。`right-rail-mutex.test.ts` 文件名留作 git 历史，内容反向：钉死 (i) 不许有 `RightRailMutexEnforcer` 函数 / mount；(ii) 文件树 onClick 不许含 `ws.setOpen(false)` 的 mutex 三件套；(iii) sidebar onClick 不许含 `setFileTreeOpen(false)` 的 mutex 三件套；(iv) 两个按钮各自的 toggle 调用还在；(v) `<WorkspaceSidebar />` 与 `<PanelZone />` 仍是 `isChatDetailRoute` 下的兄弟节点；(vi) `railVisible` 仍用 `||`（任一开就显示分割线）。`npm run test` 1723 通过 0 失败（v12 1724 → 1723 是 v11 旧契约里两条"必须同步 mutex"被反向断言替代，6 例对 6 例平衡，但 v11 多挂的"useWorkspaceSidebar 仍监听 WORKSPACE_TAB_OPEN_EVENT 作为 enforcer 存在理由"breadcrumb 已经无用、删掉，所以净 -1）；`npx next build` ✓ 9.2s。详见 [phase-3](../completed/refactor-phase-3-background-tasks-notifications.md)。
+- 2026-05-10：**Phase 3 尾巴 v12 — 用户体感反馈两条**：(A) Assistant 页"定时任务"卡片 v9 改成的 link 入口直接**删除**——既然全局 `/settings/tasks` 已经存在且从 Settings sidebar 直达，Assistant 页再放一个跳转入口属于 IA 噪声，不展示助理特有信息。整段 SettingsCard / `tasks` state / `fetchTasks` callback / 对应 useEffect / `ScheduledTask` import / `assistant.scheduledTasks` + `tasksLink*` 三 key（双语）全部退役。(B) 心跳卡（`CheckInCard`）原本是 `flex items-center justify-between` 把"标题 + 描述 + 状态"整块挤在 Switch 左侧；v10 描述变长后挤到几乎贴 Switch。重排成顶部一行只放标题 + Switch，描述 + 状态 + 提示全宽换行；同时把 zh / en `assistant.heartbeatDesc` 精简到一句"在助理工作区开始新对话时触发——不是后台定时任务。无事保持静默（HEARTBEAT_OK），有事主动告知。"（双语对应"Triggers when you start a new chat in the assistant workspace — not a background timer. Stays silent (HEARTBEAT_OK) if all is clear; speaks up if something needs attention."）。v10 的 `heartbeat-copy-honesty.test.ts` 7 例契约（必含"不是后台定时任务"/"not a background timer" + "新对话"/"new chat" + "助理工作区"/"assistant workspace" + outcome 半句保留 + title 不变）都还满足，本批不需要改测试期望，只复用既有钉死。`assistant-tasks-link-only.test.ts` v9 钉的"必须有 link 入口"反过来——v12 重写为"完全不许有 scheduled-task 入口"：不许 `tasks.map` / 不许 `useState<ScheduledTask[]>` / 不许 `setTasks` / 不许 import `ScheduledTask` / 不许 `handleDeleteTask` / 不许 import `Trash` / 不许 router.push 到 `/settings/tasks` / 不许引用 7 条退役 i18n key（含 v9 新增的 3 条 + v9 自己退役的 3 条 + `scheduledTasks` 主标题）/ zh + en bundle 不许再定义这 7 条 key。`npm run test` 1724 通过 0 失败；`npx next build` ✓ 7.9s。详见 [phase-3](../completed/refactor-phase-3-background-tasks-notifications.md)。
+- 2026-05-10：**Phase 3 尾巴 v11 — 复制 ID 报错 + 右栏互斥两条尾巴一起收**。复制 ID：三个 callsite (`UnifiedTopBar.handleCopyId` / `SessionListItem` 下拉 / `ProjectGroupHeader` 下拉) 都做 fire-and-forget `navigator.clipboard.writeText(value)`，Electron renderer 在 DropdownMenu blur 后页面失焦 → reject NotAllowedError → 未 await 也未 catch → unhandled rejection 进控制台 / Sentry，用户没反馈。新增 `src/lib/clipboard.ts:copyWithToast` 统一 await + try/catch + showToast（success → 成功提示；warning → 文案附原文 inline 让用户手动复制），三处都改用它，新增 `common.copySuccess` / `common.copyFailed` 双语 i18n key。互斥：根因是 `WORKSPACE_TAB_OPEN_EVENT` 事件路径绕过 topbar 按钮 mutex（按钮已经会关另一面板，但 file-tree 点 / MessageItem markdown 点 / DiffSummary 卡片派的事件经 `useWorkspaceSidebar.openDynamicTab` 直接 set `open:true`）。新增 `RightRailMutexEnforcer` 组件挂在 `<WorkspaceSidebarProvider>` 内（这样它能同时读 PanelContext 与 sidebar context），用 useEffect 在两个状态都 open 时强制 `setFileTreeOpen(false)`；asymmetric on purpose（file-tree 唯一开启入口是 topbar 按钮已同步 mutex）。新增 `clipboard-toast-feedback.test.ts` 9 例 + `right-rail-mutex.test.ts` 6 例契约。`npm run test` 1722 通过 0 失败；`npx next build` ✓ 8.3s。Phase 1-3 主线 + 全部 TODO 至此清空。详见 [phase-3](../completed/refactor-phase-3-background-tasks-notifications.md)。
+- 2026-05-10：**Phase 3 尾巴 v10 — 助理心跳文案诚实化（IA 闭环 2/2）**。把 zh + en `assistant.heartbeatDesc` 从含糊的"每次访问时检查 HEARTBEAT.md" / "checks HEARTBEAT.md on each visit" 改成显式的"打开新对话时触发，不是后台定时任务"双语口径——肯定半句明确触发点（"在助理工作区开始新对话时" / "each time you start a new chat in the assistant workspace"），否定半句明确边界（"不是后台定时任务，关闭应用 / 离开工作区时不会主动跑" / "not a background timer — does not run when the app is closed or you are not in the workspace"），保留原有 silent / speak-up 后半段。新增 `heartbeat-copy-honesty.test.ts` 7 例契约钉死双语必含负面框架 + 触发点 + 工作区限定 + outcome 半句保留 + title 不变。`npm run test` 1707 通过 0 失败；`npx next build` ✓ 7.4s。Phase 3 IA 至此全部闭环（Tasks 页负责全局任务管理 + Assistant 页只剩心跳 / 主动问候 + 心跳文案不再让用户误以为后台定时器）。详见 [phase-3](../completed/refactor-phase-3-background-tasks-notifications.md)。
+- 2026-05-10：**Phase 3 尾巴 v9 — Settings → Assistant 任务列表搬走（IA 闭环 1/2）**。`AssistantWorkspaceSection.tsx:547` 整段内联 task list + 状态徽章 + 删除按钮换成单行 link button 跳 `/settings/tasks?source=assistant`，显示"共 N 个定时任务"或"还没有定时任务" + "在 设置 · 定时任务 中查看"。删除 `handleDeleteTask` + `Trash` icon import + 3 条退役 i18n key（`taskDelete` / `taskNextRun` / `noTasks`），新增 3 条 link 文案 key（`tasksLinkEmpty` / `tasksLinkCount` / `tasksLinkAction`）。新增 `assistant-tasks-link-only.test.ts` 6 例契约（不许 `tasks.map` / 不许 `handleDeleteTask` / 不许 import Trash / 必须 router.push 到 /settings/tasks / 用新 i18n key / zh+en bundle 必须含新 key 且去掉旧 key + `{count}` 占位符校验）。`npm run test` 1700 通过 0 失败；`npx next build` ✓ 7.0s。剩 Phase 3 IA 尾巴：心跳文案诚实化（"后台定时器" → "工作区健康检查 / 主动问候"）。详见 [phase-3](../completed/refactor-phase-3-background-tasks-notifications.md)。
+- 2026-05-10：**Phase 3 尾巴 v8 — `sendNotification` 返回 `deliveries` 保留 `error` 字段 + `/chat?prefill=…` warm-navigation 修复**。v7 P2 的 Map projection 出口只解构 `status` 把 `error` 字段丢了，外部 API 消费方看不到 Bridge 失败原因；改成 `error ? { channel, status, error } : { channel, status }` + 返回类型签名升为 `Array<{...; error?: string }>`，扩 `send-notification-dedup.test.ts` 2 例契约。同批修 `/chat?prefill=…` 输入框不回填：chat/page.tsx 拆出 `NewChatPageInner` + 外层 Suspense 包，改用 `useSearchParams()`（替换 stale `useMemo([])`）；MessageInput 加 `adoptedInitialValueRef` + `useEffect` 在 prop 真正变化时同步到 `inputValue`，新增 `chat-prefill-warm-navigation.test.ts` 7 例契约。`npm run test` 1694 通过 0 失败；`npx next build` ✓ 7.0s。详见 [phase-3](../completed/refactor-phase-3-background-tasks-notifications.md)。
+- 2026-05-09：**Phase 3 Step 3 v7 review-fix（1 P0 SQLite bug + 1 P2 return-shape + 1 P3 类型清理）**。三层防御修 `notify_on_complete` boolean 灌进 SQLite（route + db + builtin tool）；`sendNotification` collector 换成 `Map<string, …>` 去重；`NotificationChannel` 联合类型剔除 `electron-bg-native` 字面量。`npm run test` 1687 通过 0 失败；`npx next build` ✓ 7.1s。详见 [phase-3](../completed/refactor-phase-3-background-tasks-notifications.md)。
+- 2026-05-09：**Phase 3 Step 3 v6 review-fix（4 P2 + 1 product redesign）**。修 delivery log run-row 链路 / bg-poller channel 不一致 / builtin tool 忽略 durable=false / Settings hydration mismatch；任务页改为列表-only，新建任务 `prefill` 跳 chat。`npm run test` 1678 通过。详见 [phase-3](../completed/refactor-phase-3-background-tasks-notifications.md)。
+
+## 审批原则（保留）
 
 每一阶段开工前必须回答三件事：
 
@@ -18,662 +324,14 @@
 2. **验收路径**：用哪个页面、哪个按钮、哪个流程可以验证。
 3. **不做什么**：本阶段明确不碰哪些诱人的支线。
 
-如果一个任务只能描述成“改某个模块 / 抽某个接口”，但说不清用户会看到什么，就不能作为独立阶段开工。
-
-## 总状态
-
-| 顺序 | 主线 | 用户视角结果 | 状态 |
-|------|------|--------------|------|
-| 0 | 计划收敛 | Active 计划不再到处开支线；只按本页 6 条主线推进 | ✅ 已完成（2026-05-06） |
-| 1 | 模型同步与渠道扩展 | 添加服务商后只看到真正可用的模型；大目录服务商用搜索添加；默认模型不再刷新后乱跳 | 🔄 进行中（Step 1 ✅；Step 2 UI / 契约收敛 ✅；Step 3 OpenRouter / 可搜索 provider search-and-add 基础实现 ✅；Step 5 Browser smoke ✅；Step 4 授权 / 自定义模型入口文案统一待补；catalog 来源主动核准待补 — 见 tech-debt #16） |
-| 2 | Runtime 与会话执行 | 每个会话能看懂并切换本次使用的 Agent 引擎；切换只影响下一轮消息 | 📋 待审核（详细方案已写） |
-| 3 | 助理、定时任务、心跳通知 | 不再展示”看似可用但不会触发”的半成品；先跑通后台与通知闭环 | 📋 待开始 |
-| 4 | 多 Agent、Codex 适配、Markdown / Artifact | 可以显式把任务交给另一个本地 Agent；Codex 逐步达到 Claude Code 同级；Markdown / Artifact 回归稳定 | 📋 待开始 |
-| 5 | 上下文可视化 | 输入框右下角能看到上下文组成条，知道历史、文件、附件、工具、Memory 各占多少 | 📋 待开始 |
-| 6 | 视觉锚点与图标体系 | 产品有更明确的点阵品牌细节；图标风格统一到 HugeIcons | 📋 待开始 |
-
-## Phase 0：计划收敛
-
-### 用户会看到什么
-
-用户不会直接看到 UI 变化，但会看到后续交付变得更可预期：每次只推进一条主线，每条主线都能说明产品结果，而不是不断出现新的设置页、按钮和半成品入口。
-
-### 要做什么
-
-- 把旧 active 计划分成三类：
-  - **已完成**：移到 `completed/`。
-  - **被本计划接管**：保留原文件作为参考，但顶部标注 `Superseded by refactor-closeout.md`。
-  - **暂缓**：保留但从 README 的优先 Active 表中降级。
-- 后续 ClaudeCode / Codex 只从本计划领取任务，不再从旧 active 计划里自行开支线。
-- 每个新任务都必须补“用户视角结果”和“验收路径”。
-
-### 验收
-
-- `docs/exec-plans/README.md` 里能一眼看到本计划是当前重构总控。
-- 旧计划不会再制造互相冲突的优先级。
-
-## Phase 1：模型同步与渠道扩展
-
-### 用户会看到什么
-
-- 添加一个套餐型服务商（火山、百炼、GLM、MiniMax、Kimi 等）后，不会突然出现上百个并不属于套餐的模型。
-- OpenRouter 这类大目录渠道不会把 300+ 模型塞进本地列表；用户通过搜索添加自己要用的模型。
-- 默认模型有明确模式：Auto 或固定。刷新页面、刷新模型、切 Runtime 后，不会悄悄换成另一个模型。
-- 用户可以手动添加自定义模型，并能看出它是“手动添加”的，不会被自动刷新覆盖。
-
-### 工程要做什么
-
-- 完成 OpenRouter search-and-add 的真实 smoke，保留回归测试。
-- 对所有套餐型 preset 做官方白名单复核，过期模型打“已不在当前推荐目录”提示，不静默删除。
-- 补齐授权登录渠道的产品路径：哪些支持 OAuth，哪些只能填 Key，哪些需要套餐白名单。
-- 梳理 `Provider`、`Models`、`Runtime` 三者的数据契约，默认模型只由一套 resolver 解释。
-
-### 不做什么
-
-- 不做全渠道余额 / 用量 API。
-- 不做自动定时同步所有模型。
-- 不为了“看起来完整”展示不可用模型。
-
-### 验收路径
-
-- Settings → Providers：新增服务商后 toast 和模型来源清楚。
-- Settings → Models：套餐服务商刷新按钮不会报失败；OpenRouter 搜索添加 / validate / cleanup 可用。
-- Chat 新会话：默认模型和 Settings 里的解释一致。
-
-### Phase 1 细化方案（执行中，主路径已收口）
-
-> 体验前置门槛：继续做 Step 3 之前，先按 [Models / Providers 体验收敛](../../insights/models-provider-experience.md) 审核当前页面。Phase 1 不能继续在 Models 页堆 badge / 按钮 / 兼容说明；必须先把主路径压回“默认模型 / 可用模型 / 添加模型”三段式。折叠“刷新全部 / 按推荐整理”不算完成，必须同时砍掉行级来源标签、让 Auto 显示实际解析模型、把迁移清理工具移出主路径。
-
-> 验证分工：ClaudeCode 只执行代码改动与单元测试；所有页面样式、交互走查、截图、console 检查由 Codex 负责。UI 改动交付后，未经过 Codex 使用 Browser Use / 浏览器实际验证，不标记为完成。若浏览器调试实例被占用，由 Codex 处理占用并重新打开验证环境。
-
-#### 1. 用户结果
-
-本阶段做完后，用户应该能明显感受到：
-
-- **添加服务商更可信**：新增火山、百炼、GLM、MiniMax、Kimi、DeepSeek、OpenRouter 等渠道后，页面不会把“看起来很多但实际不可用”的模型塞给用户。
-- **模型列表更少但更准**：套餐型服务商只显示官方套餐支持 / 我们已确认的白名单模型；过期或不在当前推荐目录的旧模型会保留，但会有提示。
-- **OpenRouter 从“全量目录”变成“搜索添加”**：用户想用某个 OpenRouter 模型时，搜索、查看价格 / 上下文、点添加；本地列表只保留已添加模型和必要别名。
-- **默认模型稳定**：用户选 Auto 就是自动，选固定就是固定；刷新页面、刷新模型、切 Runtime 不会悄悄把默认模型换掉。
-- **自定义模型路径清楚**：如果服务商官方套餐之外还有用户自己的 SKU，用户能通过“添加模型”补充，并看出这是手动添加，刷新不会覆盖。
-
-#### 2. 当前问题清单
-
-| 优先级 | 问题 | 用户看到的坏结果 | 处理方向 |
-|--------|------|------------------|----------|
-| P0 | 默认模型契约仍是最容易伤信任的点 | 用户刚设好默认，刷新或切换后又变成 Auto / 其它模型 | 统一 resolver 契约；Auto / Pinned 状态和 Chat 初始化共用同一解释 |
-| P0 | 套餐型服务商和大目录服务商模型来源不同 | 火山这类服务商会被误认为支持大目录里的所有模型 | 套餐型走 catalog whitelist / custom add；大目录走 search-and-add |
-| P1 | Catalog 漂移后旧模型仍显示但缺少解释 | 例如旧 DeepSeek SKU 仍在列表里，用户不知道还能不能用 | 加“已不在当前推荐目录”轻提示，不静默删除手动行 |
-| P1 | OpenRouter search-and-add 还需要最终产品化验收 | 功能已通，但要确认添加、validate、cleanup、Refresh All 文案稳定 | Browser smoke + 回归测试作为完成条件 |
-| P1 | 授权登录 / API Key / 套餐白名单入口分散 | 用户不知道某渠道该登录、填 Key，还是填套餐模型名 | Provider preset 卡片和表单文案统一说明接入方式 |
-| P2 | Refresh All summary 仍有 copy polish | “启用 0 / 隐藏 0”读起来像 bug | 最小文案优化，不改变数据逻辑 |
-| P2 | 自定义模型入口对不同 provider 语义不完全一致 | 有的服务商是补 SKU，有的是新增任意远程模型 | Add Model dialog 按 provider 类型显示对应说明 |
-
-#### 3. 本阶段具体做什么
-
-##### 1.1 默认模型契约收口
-
-- 明确 `global_default_mode = auto | pinned` 是唯一用户语义。
-- Chat 新会话、Settings → Runtime 解释块、Settings → Models 默认卡片必须共用同一个解析函数。
-- Pinned invalid 时，用户看到的是“固定模型当前不可用”，而不是系统静默 fallback。
-- Auto 模式允许 fallback，但 UI 要说明当前解析到哪个 provider/model。
-
-**验收**：
-
-- Settings → Models 固定一个模型，刷新页面后仍固定。
-- 切 Runtime 后，如果固定模型不兼容，页面显示 invalid，而不是悄悄换。
-- 改回 Auto 后，ProviderManager / Models / Chat 都不残留旧 pinned 值。
-
-##### 1.2 套餐型服务商白名单复核
-
-> 状态：✅ UI / 契约已完成；catalog 来源主动核准待补。Step 1 已把默认模型契约锁住；Step 2 只处理“套餐型 / 白名单型服务商的模型来源可信度”，不碰 OpenRouter 搜索添加的深水区，不扩 Runtime。
-
-###### 用户结果
-
-用户做完以下操作时，应该感受到的是“列表可信、解释清楚”，而不是“模型很多但不知道哪个能用”：
-
-- 新增火山、百炼、GLM、MiniMax、Kimi、DeepSeek、小米 MiMo 这类套餐型 / 白名单型渠道后，Models 页只展示我们确认属于当前套餐或官方推荐路径的模型。
-- 如果用户以前已经被旧版本同步进了大量目录模型，它们不会被静默删除；但不在当前白名单 / 推荐目录里的行会有轻提示，告诉用户“这是旧导入或手动项，不保证属于当前套餐”。
-- “刷新模型 / 刷新全部”不会把这类服务商当成失败项，也不会让用户误以为能从 `/v1/models` 自动同步完整目录。
-- “添加模型”成为正常补充路径：用户有自己控制台里可用的模型名 / SKU 时，可以手动加，且刷新不会覆盖它。
-
-###### 本轮处理范围
-
-| 服务商类别 | 覆盖对象 | 用户侧处理 |
-|------------|----------|------------|
-| 套餐型 Coding / Token Plan | 火山、百炼、GLM、MiniMax、Kimi、小米 MiMo 等 `sdkProxyOnly + billingModel` preset | 用官方套餐白名单 / 推荐列表做 catalog；禁用自动 discovery；提供“添加模型”补 SKU |
-| 固定推荐阵容 | DeepSeek 等官方推荐固定模型映射的渠道 | 更新 catalog 到当前官方推荐；旧 SKU 保留并提示 |
-| 大目录聚合 | OpenRouter | 本 Step 只确认不被套餐逻辑误伤；搜索添加细节留 Step 3 |
-| 普通 OpenAI-compatible / 本地服务 | Ollama、自定义 OpenAI-compatible、pay-as-you-go 第三方 | 不套用套餐白名单规则，保持原发现 / 手动添加逻辑 |
-
-###### 数据来源要求
-
-ClaudeCode 必须在交付说明里列出每个 provider 的事实来源，不允许只引用旧研究文档：
-
-- 先读本地“服务商 API 文档”中的链接和历史记录。
-- 再打开对应官方网页 / 官方文档 / 官方社区公告，确认截至本轮实现时的模型白名单或推荐模型。
-- 对 JS 渲染导致无法稳定抓取的页面，要说明使用了哪个可访问来源作为旁证。
-- 每个 provider 在计划或研究文档里沉淀一行：`provider / 来源 URL / 最后核对日期 / catalog 决策 / 是否允许 custom add`。
-
-###### 工程拆分
-
-1. **Catalog 复核与标注**
-   - 复核 `src/lib/provider-catalog.ts` 中套餐型 provider 的 `defaultModels` / `roleModels` / `meta.billingModel`。
-   - 对当前官方白名单中明确存在的模型，更新 catalog。
-   - 对已不在当前官方推荐目录但用户可能还在用的模型，不删除用户数据；只调整推荐状态或显示提示。
-   - GLM 默认升级到高阶模型的产品决策保持不变；本轮只避免“把非套餐大目录模型当成默认可用”。
-
-2. **旧 SKU / 非当前白名单提示**
-   - 在 Models 行级增加轻提示状态：`catalog-current` / `manual` / `legacy-or-not-recommended`。
-   - 文案避免吓人，不写“错误 / 不可用”；建议语义是“未在当前推荐目录中，保留以兼容已有配置”。
-   - 手动添加、用户编辑过、用户隐藏过的行不被自动改动。
-
-3. **刷新与新增路径**
-   - 套餐型 provider 的单卡刷新按钮继续解释为“模型由套餐白名单定义”，不触发 discovery。
-   - Refresh All 跳过套餐型 provider，summary 里可以显示“跳过 N 个套餐型服务商”，但不能计入失败。
-   - Add Service 成功 toast 说明“模型来自套餐白名单；如需补充控制台里的模型名，请到 Models → 添加模型”。
-   - Add Model dialog 根据 provider 类型显示不同说明：套餐型是“补充 SKU / 模型名”，普通 provider 是“添加自定义模型”。
-
-4. **文档和防回归**
-   - 更新 `docs/research/provider-model-discovery.md`：明确“probe 成功 ≠ 可自动物化”，并记录本轮每个 provider 的来源。
-   - 更新 tech-debt：如果某个 provider 无法确定当前白名单，记录为待核准，不用猜。
-   - 单测锁住：
-     - 套餐型 record 形态（`provider_type='anthropic' + base_url`）也必须被识别为 catalog-only。
-     - 套餐型 provider 不进入 discovery / apply / Refresh All failure path。
-     - legacy / manual / user_edited 行不会被自动删除或覆盖。
-
-###### 验收路径
-
-- **Settings → Providers**：新增一个套餐型 provider，成功 toast 不出现“无法发现模型”类 warning，而是解释模型来自白名单。
-- **Settings → Models**：
-  - 套餐型 provider 的模型列表数量合理，不出现 100+ 上游目录模型。
-  - 单卡刷新按钮 disabled 或变成解释型状态，hover / tooltip 能看懂原因。
-  - “添加模型”能打开手动补充入口，说明文字与套餐型服务商匹配。
-  - 旧 SKU / 非当前推荐目录行显示轻提示，但没有被静默删掉。
-- **Refresh All**：套餐型 provider 不进入失败 summary；若有跳过提示，文案说“套餐白名单”而不是“失败”。
-- **Chat 新会话**：默认模型仍遵守 Step 1 的 Auto / Pinned 契约；本 Step 不引入新的 silent fallback。
-
-###### 明确不做
-
-- 不做 OpenRouter 的批量导入 / 分类浏览 / 价格排序；OpenRouter 只在 Step 3 做最终 smoke 和尾巴。
-- 不做全渠道余额、用量、套餐剩余额度检测。
-- 不做自动从 provider 官网定时抓模型。
-- 不删除用户手动添加、用户编辑、用户隐藏过的模型行。
-- 不改 Runtime session-level 行为。
-
-###### 给 ClaudeCode 的执行口径
-
-> 进入 refactor-closeout Phase 1 Step 2：套餐型服务商白名单与旧 SKU 提示。只做模型来源可信度收口，不碰 Runtime、多 Agent、视觉系统，也不要扩 OpenRouter 功能。交付必须先写“用户结果”，再列改动；每个套餐型 provider 都要给出官方来源 / 最后核对日期 / catalog 决策。验收重点是 Settings → Providers / Models：新增套餐型服务商不再提示 discovery 失败，Models 列表不出现大目录污染，旧 SKU 只轻提示不静默删除，Refresh All 不把套餐型 provider 计入失败。完成后先汇报，不要继续 Step 3。
-
-##### 1.3 OpenRouter 搜索添加收口
-
-> 状态：✅ 基础实现已落地，失败时退回手动添加也已接通；仍需后续用真实 API key 做一次添加成功路径 smoke。
-
-- 保持当前方向：不再全量物化 300+ 模型。
-- `添加模型` 打开搜索弹窗；搜索结果展示模型名、ID、上下文长度、价格。
-- 添加后写入手动行，标记为手动添加 / 手动启用。
-- Validate 刷新只检查手动 / 非 catalog 行是否仍在上游，不验证本地 alias。
-- Cleanup 只作为 opt-in 整理，不自动隐藏旧行。
-
-**验收**：
-
-- 搜索 `gpt-5.5` 能过滤 OpenRouter 候选并添加。
-- 单独刷新 OpenRouter 后，上次同步更新，手动模型不误报缺失。
-- Refresh All toast 中 OpenRouter 只显示“已校验 / 仍在上游 / 不再可用”，不显示“启用 N”。
-- Cleanup preview 不会处理 manual_enabled / user_edited 行。
-
-##### 1.4 授权登录与自定义模型入口
-
-- 梳理 provider preset 的“接入方式”：
-  - OAuth 登录。
-  - API Key。
-  - 套餐型模型名。
-  - OpenRouter 搜索添加。
-  - 本地 / 无 Key 服务商。
-- Provider 卡片、ProviderForm、Models “添加模型”弹窗要用同一套用户语言解释。
-- 自定义模型入口不是高级隐藏功能，而是套餐型和大目录型 provider 的正常补充路径。
-
-**验收**：
-
-- Settings → Providers 添加服务商时，用户能知道下一步该填 Key、登录，还是补模型名。
-- Settings → Models 添加模型时，OpenRouter 走搜索，其它 provider 走手动模型表单。
-- 添加成功后的模型行能看出来源。
-
-##### 1.5 回归测试与 Browser smoke
-
-> 状态：✅ Codex 已跑一轮非破坏性 Browser smoke。主路径通过；“添加模型”弹窗的实际打开 / 添加成功路径仍需用户明确允许后再做，因为浏览器自动化点击 Add Model 被判定为可能修改设置。
-
-- 单元测试覆盖：
-  - 默认模型 Auto / Pinned / invalid。
-  - 套餐型 provider 不走 discovery。
-  - OpenRouter search / validate / cleanup。
-  - 手动启用 / 隐藏不会被刷新覆盖。
-- Browser smoke 覆盖：
-  - Settings → Providers：服务商分组、OpenRouter / Xiaomi MiMo / Bailian 图标、OpenRouter Claude Code 兼容文案。
-  - Settings → Models：刷新 / 排序 / 批量整理入口已移出主路径；每个 provider section 只剩“角色映射 / 添加模型”；OpenRouter 不再显示“当前执行引擎不可用”。
-  - Settings → Models 搜索框：`id/name=models-search` 已补齐，Chrome issue 清零；过滤输入无 console error。
-  - Chat 新会话：默认模型按钮显示 `glm-5-turbo · 默认`；Run 面板显示 Claude Code / GLM (CN) · `glm-5-turbo` / 已固定 / 默认权限；无裸 i18n key。
-  - 测试基线：`npm run test -- --runInBand` 最终通过 1525/1525。第一次全量跑遇到一次 transient `SQLITE_BUSY`，单文件复跑和全量复跑均通过。
-  - 边界：真实点击“添加模型”弹窗、真实添加候选模型仍未跑。Add Model click 被浏览器自动化风控判定为可能修改设置，本轮没有绕过。
-
-#### 4. 本阶段不做什么
-
-- 不做全渠道余额、额度、账单、用量 API。
-- 不做模型自动定时刷新。
-- 不做复杂价格排序 / 分类浏览 / 批量导入 OpenRouter。
-- 不做 Runtime session-level 切换；这留给 Phase 2。
-- 不做多 Agent adapter。
-- 不做视觉系统 / HugeIcons 迁移。
-
-#### 5. 交付顺序
-
-| Step | 内容 | 用户收益 | 是否可独立验收 |
-|------|------|----------|----------------|
-| 1 | 默认模型契约复核 + 缺口修复 | 默认不乱跳 | 是 |
-| 2 | 套餐型服务商白名单与旧 SKU 提示 | 模型列表更可信 | 是 |
-| 3 | OpenRouter search-and-add 最终验收与小尾巴 | 大目录不再压垮列表 | 是 |
-| 4 | 授权登录 / 自定义模型入口文案统一 | 添加渠道不迷路 | 是 |
-| 5 | Tests + Browser smoke + 文档更新 | 后续不回归 | 是 |
-
-#### 6. 批准后给 ClaudeCode 的执行口径
-
-如果本方案通过，给 ClaudeCode 的第一句话应该是：
-
-> 进入 refactor-closeout Phase 1。只做“模型同步与渠道扩展”，不要碰 Runtime session 切换、多 Agent、视觉系统。先按 Phase 1 细化方案做 Step 1：默认模型契约复核。交付必须包含用户结果、改动、验证和防回归。
-
-## Phase 2：Runtime 与会话执行
-
-### 用户会看到什么
-
-- 每个会话都能看到“本次由谁运行”：Claude Code、CodePilot Runtime、未来 Codex / OpenClaw 等。
-- 用户可以在会话开始前选择 Runtime，也可以在会话中切换；切换只影响下一条消息。
-- 如果当前模型不适合目标 Runtime，界面会解释原因，并引导用户换模型或换 Runtime。
-- 已有会话不会被全局默认设置突然改变运行方式，除非用户主动切换。
-
-### Phase 2 细化方案（待审核）
-
-> 用户语言：代码里仍可叫 `runtime`，但中文 UI 统一叫“执行引擎”。不要在主路径里继续裸露 Runtime / AI SDK / CodePlan Runtime 这类混乱名词；需要技术细节时放到 tooltip 或高级说明。
-
-#### 1. 用户结果
-
-本阶段做完后，用户应该能明确理解三件事：
-
-- **这个会话现在谁在跑**：底部 Run 面板不是解释“全局默认”，而是解释“本会话下一条消息会用哪个执行引擎、哪个服务商、哪个模型”。
-- **切换不会吓人**：用户在会话里切执行引擎，只影响下一条消息；已经在生成的回复不被中途换轨。
-- **旧会话不漂移**：全局默认模型或执行引擎改了以后，旧会话不会突然变成另一个执行方式，除非用户在这个会话里点了切换。
-- **不可用有原因**：如果某个模型不能在当前执行引擎下使用，界面说清楚“为什么不能用”和“下一步该换模型还是换执行引擎”，不再只贴一个“不可用”标签。
-
-#### 2. 当前问题清单
-
-| 优先级 | 问题 | 用户看到的坏结果 | 处理方向 |
-|--------|------|------------------|----------|
-| P0 | 已有会话仍可能受全局默认影响 | 用户以为旧会话保持原引擎，但下一条消息可能按新全局设置跑 | 建立 session-level execution state，发送链路优先读会话状态 |
-| P0 | Run 面板解释对象不稳定 | 面板像状态卡，但有时解释全局默认、有时解释本次消息 | Run 面板统一解释“本会话下一条消息” |
-| P1 | 切换执行引擎缺少事件轨迹 | 出问题后无法回答“为什么这次走了 Claude Code / CodePilot Runtime” | 写入 `runtime.selected` / `runtime.resolved` 类 session event |
-| P1 | 中文名词混乱 | 用户看见 Runtime / AI SDK / CodePlan Runtime，不知道区别 | UI 统一“执行引擎”；技术名只作为次级说明 |
-| P1 | 模型兼容原因分散 | Models、Runtime、Chat 三处解释可能不一致 | 复用 Phase 1 的 provider/model resolver 结果，只展示一套原因 |
-| P2 | Codex / 其它 Agent 适配被提前卷入 | 还没把会话执行状态打稳，就开始接多 Agent | Phase 2 只预留 adapter 契约；Codex 深度适配放 Phase 4 |
-
-#### 3. 本阶段具体做什么
-
-##### 2.1 现状审计与契约冻结
-
-- 只读梳理当前发送链路：Chat 新会话、已有会话、RuntimePanel、RunCockpit、backend runtime resolver。
-- 列出所有读取全局 runtime / provider / model 的位置，标记哪些应该改成 session-level。
-- 写最小回归测试，先锁住”已有会话不应该因为全局默认变化而改变下一条消息”的目标契约。
-
-**用户验收**：这一小步没有 UI 变化，但交付报告必须能用普通话说清楚”现在为什么会漂移、接下来哪条链路会被改”。
-
-###### Step 1 完成报告（2026-05-06）
-
-**用户层面解决了什么不确定性**
-
-- 旧会话的发送链路被分成了三类：(A) **会话状态正常优先**——session.model / session.provider_id 已经能在 resolver 层面战胜全局；(B) **不该读全局却仍然读着**——agent_runtime（执行引擎）读的是全局设置，每条消息都重新读，这是用户最担心的”我刚改了全局，旧会话下一条就走了新引擎”；(C) **静默 fallback**——session 持有的 provider 被 runtime 过滤后，前端会偷偷换一个并 PATCH 回 DB。三类都已经用测试钉住，Step 2 对每个 RED 项必须给出迁移方案。
-- “新会话能正常 seed、旧会话不被全局默认改写、provider 删除应该明确报错而不是滑到 env” 这三个目标契约被写成 12 条单元测试；任何后续 PR 把这些假设破坏都会立刻失败。
-- 数据库 schema gap 也被钉住：`chat_sessions` 表今天没有 runtime 列，所以即便用户切了执行引擎，存的地方都没有。Step 2 必须先加列再谈切换。
-
-**根因（漂移风险来自哪里）**
-
-| 编号 | 位置 | 现在做了什么 | 用户能看到的坏结果 |
-|------|------|--------------|--------------------|
-| #1 | `src/lib/claude-client.ts:473` `streamClaude()` | 每次 send 时 `getSetting('agent_runtime')` | 用户在 Settings 切了执行引擎，所有打开的旧会话下一条消息都按新引擎跑 |
-| #2 | `src/lib/chat-runtime.ts:53` `getActiveChatRuntime()` | 走 `resolveRuntime()`（全局） | `/api/chat` 对 resolver 的 runtime gate 永远是当前全局值；session 没办法 pin “本会话用 Claude Code” |
-| #3 | `src/lib/runtime/registry.ts:48` `resolveRuntime()` | 同上的最底层入口 | 是 #1/#2 的根，自身保留全局默认即可，但 Step 2 需要在调用方加 session-aware wrapper |
-| #4 | `src/hooks/useProviderModels.ts:111` 默认 `runtime='auto'` | 让 server 用全局 runtime 过滤模型列表 | 用户改全局执行引擎后，所有打开的会话的模型列表都被重过滤；可能把会话当前 provider 整组过滤掉 |
-| #5 | `src/app/api/chat/route.ts:246` `effectiveModel` | `model || session.model || getSetting('default_model')` | 旧会话 `session.model=''` 且请求 body 没带 model（autoTrigger / retry 路径）→ 全局 default_model 漏入 |
-| #6 | `src/components/chat/ChatView.tsx:179-191` `providerWasFilteredOut` 分支 | 静默替换 provider/model 并 PATCH 回 DB | 用户改全局 runtime 后回到旧会话，看到 provider 被偷偷换了，并且 DB 也被改了 |
-
-**已经做对的部分（GREEN，写测试钉住）**
-
-- `resolveProvider({ providerId, sessionModel })` 已经让 sessionModel 战胜 `global_default_model` / `default_model`。
-- `resolveProvider({ providerId, sessionModel, model })` 让本次 message 的 explicit model 战胜 sessionModel + global。
-- 跨 provider 的全局 pin（global pin 指向 provider X，session 在 provider Y）不会污染 session Y 的解析。
-
-**改动**
-
-| 路径 | 类型 | 内容 |
-|------|------|------|
-| `src/__tests__/unit/session-runtime-immunity.test.ts` | 新增 | 11 条契约测试，分 GREEN / YELLOW(`{todo:true}`) / RED(`{todo:true}`) 三档。GREEN（4 条）直接 assert 当前正确行为，必须永远 pass。YELLOW（2 条 todo）= resolver invalid 出参 + chat_sessions runtime 列的 target-state，今天 fail-as-todo。RED（5 条 todo）针对每个漂移点写**精确 hazardous-pattern grep**（不只是泛符号匹配），target = hazard 不存在；今天 fail-as-todo，Step 2 删 hazard 后 pass，PR 顺手摘 `{todo:true}` 即转正。原本"`assert.ok(r.lines > 0)`"反向通过的写法（伪绿色安全网）已替换。 |
-| `docs/exec-plans/active/refactor-closeout.md` | 更新 | 顶部状态行加上 Phase 2 Step 1 ✅；本节追加 Step 1 完成报告 + 决策日志条目 |
-
-**验证**
-
-- `npm run test` → 1529 pass / **7 todo** / 0 fail（Step 1 之前 1525；新增 11 条 contract test，其中 7 条目前 fail-as-todo —— 漂移点可见、不破 CI、不会被误读成"已修"）
-- typecheck clean
-- 没有 UI 改动；没有改 Codex / 多 Agent / 权限系统；resolver / runtime registry 没有改任何函数行为，只在测试层面记录了它们今天的语义。
-
-**下一步：Step 2 需要改的模块**
-
-按从最深到最浅排（每个对应一条 todo 测试，hazard 删掉即 pass）：
-
-1. **DB schema**（`src/lib/db.ts`）：给 `chat_sessions` 加 `runtime_pin TEXT NOT NULL DEFAULT ''` 列 + 安全 ALTER 迁移；同步 `getSession` / `updateSessionRuntime` 等访问器。→ 转正 YELLOW#2（schema gap）。
-2. **Resolver 层**（`src/lib/provider-resolver.ts` + `src/lib/runtime/registry.ts`）：保留现有 global resolver，但新增 `resolveProviderForSession({ session })` / `resolveRuntimeForSession({ session })` wrapper，session 带 pin 时用 pin、否则才走全局。明确 invalid-session 出参契约（`invalidReason / status` 字段）。→ 转正 YELLOW#1（invalid signal）。
-3. **Send route**（`src/app/api/chat/route.ts`）：`effectiveModel` fallback 链删掉 `session.model || getSetting('default_model')` 段；改读 `session.model` 严格非空（懒迁移：第一次发现 `session.model===''` 时立刻 seed 并写入，之后不再回查 global）。runtime gate 从 `getActiveChatRuntime()` 改成 `getActiveChatRuntime(session)` 或 `getActiveSessionRuntime(session)`。→ 转正 RED#2（getActiveChatRuntime no-arg）+ RED#5（global default_model fallback）。
-4. **streamClaude**（`src/lib/claude-client.ts`）：把 `resolveRuntime(getSetting('agent_runtime'), …)` 替换成 session-aware wrapper。→ 转正 RED#1。
-5. **Frontend hook**（`src/hooks/useProviderModels.ts`）：默认参数从 `'auto'` 改成 `null` 或要求显式传入；ChatView 传入 session 自己的 runtime（懒迁移）。→ 转正 RED#4。
-6. **ChatView 静默 PATCH**（`src/components/chat/ChatView.tsx`）：`providerWasFilteredOut` 触发的 `fetch /api/chat/sessions/${sessionId} { method: 'PATCH' }` effect 拆掉；改成 RunCheckpoint 风格的 inline 不可发提示，必须用户主动切换才写 session DB（变量本身可保留供 banner 读）。→ 转正 RED#6。
-
-测试在每个动作落地后立即由 fail-as-todo 翻成 pass-as-todo；Step 2 收尾 PR 把所有 `{ todo: true }` 摘掉即可正式转入 GREEN 防线。
-
-##### 2.2 会话级执行状态
-
-- 为每个会话持久化“下一条消息使用的执行组合”：执行引擎、provider、model、选择来源（自动解析 / 用户手动切换 / 兼容 fallback）。
-- 新会话创建时，从当前全局默认解析一次并写入会话；之后这个会话优先使用自己的状态。
-- 旧会话做懒迁移：没有会话状态时，首次打开 / 首次发送按当前 resolver 解析并写入，之后不再跟随全局漂移。
-- 全局默认仍然存在，但只影响“新会话的初始值”，不直接改旧会话。
-
-**用户验收**：
-
-- A 会话固定 GLM，B 会话切 OpenRouter；改全局默认后，A/B 下次发送仍保持各自选择。
-- 新建 C 会话时才使用新的全局默认。
-
-###### Step 2 完成报告（2026-05-06）
-
-**用户层面**：旧会话现在有了一个"自己的执行引擎"槽位（`chat_sessions.runtime_pin`），并且 resolver 已经能根据这个槽位返回正确的 runtime；当会话指向一个被删除的服务商时，resolver 会主动报"provider-missing"，不再静默换走。但**这是数据层 + 解析层的准备工作**，发送链路、UI 切换面板还没接入 —— 用户还看不到"我的会话不再漂移"的最终效果，那是 Step 3+ 的事情。Step 2 的价值是：Step 3 之后的 PR 一旦把 `streamClaude` / chat route / picker hook 切到新 wrapper，会话就立刻获得防漂移能力，且 PR diff 可以做到极小。
-
-**改动**
-
-| 路径 | 改动 |
-|------|------|
-| `src/lib/db.ts` | `chat_sessions` 表加 `runtime_pin TEXT NOT NULL DEFAULT ''` 列（安全 ALTER 迁移）；新增 `updateSessionRuntime(id, pin)` 写入器。空字符串 = "follow global"，`'claude_code'` / `'codepilot_runtime'` = 会话级 pin。 |
-| `src/types/index.ts` | `ChatSession.runtime_pin: string` 字段，附完整 docstring。 |
-| `src/lib/provider-resolver.ts` | `ResolvedProvider.invalidReason?: 'provider-missing' \| 'model-missing' \| 'runtime-incompatible'` 可选字段（仅 session-aware 出口设置）。新增 `resolveProviderForSession(intent, extras)` wrapper：检测会话指向已删除 provider 时返回 `invalidReason: 'provider-missing'`；其它情况透传到现有 `resolveProvider`，priority chain 不变。`'env'` / `'openai-oauth'` 虚拟 ID 不触发 invalid 检查；per-message `requestProviderId` override 也不触发（用户刚选的不可能不存在）。 |
-| `src/lib/chat-runtime.ts` | 新增 `resolveRuntimeForSession(session)` wrapper：会话有合法 pin（`'claude_code'` / `'codepilot_runtime'`）→ 用 pin；空 / 未知值 / undefined → 透传到 `getActiveChatRuntime()`（全局）。这是 Step 3 把 `getSetting('agent_runtime')` 替换掉时要调用的入口。 |
-| `src/__tests__/unit/session-runtime-immunity.test.ts` | YELLOW todos（resolver invalid 信号 + schema gap）从 `{ todo: true }` 转正为 GREEN：触发删除 provider → assert `invalidReason === 'provider-missing'`；schema grep → assert `runtime_pin` 列已落地。新增 `resolveProviderForSession` 5 条 GREEN（healthy session、deleted provider、per-message override 三个分支）+ `resolveRuntimeForSession` 5 条 GREEN（empty pin / claude_code pin / codepilot_runtime pin / unknown legacy 值 / undefined 防御）。RED 5 条仍 todo，留给 Step 3。 |
-| `src/__tests__/unit/context-assembler.test.ts` | 测试 fixture 加 `runtime_pin: ''` 字段，跟新的 ChatSession 类型对齐。 |
-
-**验证**
-
-- `npm run test` → **1538 pass / 5 todo / 0 fail**（Step 1 时是 1529 pass / 7 todo；新增 9 条 GREEN，2 条 YELLOW 转正）
-- typecheck clean
-- 没有改 UI；`streamClaude` / `getActiveChatRuntime()` no-arg / `useProviderModels` default / chat route effectiveModel 链 / `ChatView.providerWasFilteredOut` 静默 PATCH —— 这 5 条 RED 还在 todo，Step 3 才动它们。
-- 旧会话的 runtime_pin 自动是空串（迁移 DEFAULT）→ 一律走全局，零行为变化。
-
-**Step 2 还没做的事（明确不在范围）**
-
-- 没有把 `streamClaude` 或 chat route 改成调用 `resolveRuntimeForSession`。它们还是直接读全局，Step 3 才动。
-- 没有动 `ChatView` 的静默 PATCH effect。RED#6 仍是 todo。
-- 没有加 UI 切换面板。Step 3 / Run 面板要做。
-- 没有 lazy migration（旧会话首次发送时把全局值固化到 runtime_pin）—— 这种"懒迁移"需要 send route 配合，Step 3 一起做。
-
-**下一步：Step 3**
-
-按计划 doc 第 5 步表格，Step 3 = "Chat 里的切换入口"。但这一步在工程上分成两半：(a) **后端先把 send route 切到新 wrapper**（让 wrapper 真的开始有作用），(b) **前端再加 Run 面板的切换 UI**。建议下一轮先做 (a)：
-
-1. `src/app/api/chat/route.ts` `effectiveModel` 链删 `session.model || getSetting('default_model')` 段，懒迁移 session.model；runtime gate 从 `getActiveChatRuntime()` 改成 `getActiveChatRuntime(session)` 或 `resolveRuntimeForSession(session)`；Provider 解析改成 `resolveProviderForSession({ provider_id: session.provider_id, model: session.model, requestProviderId: provider_id, requestModel: model })`，并把返回的 `invalidReason` 翻译成 4xx 响应 + 前端可消费的错误 code。→ 转正 RED#2 + RED#5。
-2. `src/lib/claude-client.ts` `streamClaude` 接受可选 `session` 入参，把 `resolveRuntime(getSetting('agent_runtime'), …)` 替换成 `resolveRuntimeForSession(session)` 路径。→ 转正 RED#1。
-
-UI 切换面板 / `useProviderModels` runtime 参数化 / `ChatView` 静默 PATCH 改 inline 提示 都留到 Step 3 后半段。
-
-##### 2.3 Chat 里的切换入口
-
-- Run 面板增加“切换执行引擎 / 模型”入口，但仍保持状态卡风格，不变成第二个 Settings 页。
-- 切换面板只显示当前可用组合：先选执行引擎，再看兼容 provider/model；不可用组合不堆进主列表。
-- 中文 UI 使用：
-  - “执行引擎”：Claude Code / CodePilot Runtime / 未来 Codex。
-  - “本会话”：本会话使用 / 本会话已切换。
-  - “跟随默认”：只用于新会话初始值，不用于旧会话主状态。
-- 如果用户切到不兼容组合，显示 RunCheckpoint 风格的 inline 提示，而不是 toast 后消失。
-
-**用户验收**：
-
-- Chat 页面能看见“本会话使用 Claude Code / GLM · glm-5-turbo”。
-- 点击切换，用户能把下一条消息改到另一个兼容组合。
-- 切换后 Run 面板立刻更新，并说明“下一条消息生效”。
-
-##### 2.4 发送链路使用会话状态
-
-- 后端发送前读取 session execution state，而不是重新读全局默认。
-- 发送开始时写入本次 resolved runtime/provider/model/reason，便于日志和 UI 解释。
-- 正在流式生成中的回复不被切换动作中断；切换只影响下一次 submit。
-- 如果会话状态失效（provider 删除、模型隐藏、runtime 不可用），阻断发送并显示可修复原因。
-
-**用户验收**：
-
-- 切换执行引擎后发送一条消息，Run 面板和后端实际使用一致。
-- 删除当前会话使用的 provider 后再发送，会看到明确修复入口，而不是 composer 静默 disabled。
-
-##### 2.5 事件、日志与测试
-
-- 最小事件：
-  - `runtime.selected`：用户选择了什么。
-  - `runtime.resolved`：发送时实际解析到什么。
-  - `runtime.fallback`：如果发生 fallback，原因是什么。
-- 单元测试覆盖：
-  - 新会话 seed。
-  - 旧会话懒迁移。
-  - 全局默认变化不影响已有会话。
-  - 切换只影响下一条消息。
-  - provider/model 删除后的 invalid 状态。
-- Browser smoke 由 Codex 跑：
-  - 新建会话 → 看初始执行组合。
-  - 切换会话执行组合 → Run 面板更新。
-  - 改 Settings 全局默认 → 回到旧会话确认不漂移。
-
-#### 4. 本阶段明确不做
-
-- 不做自动多 Agent 派单。
-- 不把 Codex 适配做到 Claude Code 同级；Phase 2 只预留 adapter 契约，深度适配放 Phase 4。
-- 不重做 PermissionPrompt / 权限系统。
-- 不做 Run Checkpoint Round 3。
-- 不把所有 runtime 能力一次性拉齐；第一版只要求“能解释、能切换、能稳定发送”。
-
-#### 5. 交付顺序
-
-| Step | 内容 | 用户收益 | 是否可独立验收 |
-|------|------|----------|----------------|
-| 1 | 现状审计 + 契约测试 | 知道漂移从哪里来 | 是 |
-| 2 | 会话级 execution state | 旧会话不再被全局默认影响 | 是 |
-| 3 | Chat Run 面板切换入口 | 用户能在会话里切下一条消息的执行方式 | 是 |
-| 4 | 后端发送链路改读 session state | UI 与实际执行一致 | 是 |
-| 5 | runtime events + Browser smoke | 出问题能解释，后续不回归 | 是 |
-
-#### 6. 批准后给 ClaudeCode 的执行口径
-
-> 进入 refactor-closeout Phase 2 Step 1：Runtime 与会话执行的现状审计 + 契约测试。只做审计和测试，不改 UI，不接 Codex adapter，不做多 Agent。交付必须用用户语言说明：当前旧会话为什么会被全局默认影响、哪些代码路径会改成 session-level、哪些行为先用测试锁住。完成 Step 1 后停下汇报，不要直接进入 Step 2。
-
-### 工程要做什么
-
-- 建立 session-level runtime pin：会话自己的 runtime、provider、model 选择要可持久化。
-- Run 状态面板从“解释当前默认”升级为“解释当前会话”。
-- Adapter registry 只定义最小能力：detect / launch / observe / cancel / limitations。
-- Codex adapter 先做到连接和基本调用，不强行复刻所有 Claude Code 能力。
-
-### 不做什么
-
-- 不做自动多 Agent 编排。
-- 不要求每个 Runtime 一开始都支持同样的工具、权限、MCP、文件系统能力。
-- 不在同一阶段重做全部权限系统。
-
-### 验收路径
-
-- Chat 新会话：能选择 Runtime。
-- Chat 已有会话：切 Runtime 后下一条消息生效，当前生成中的回复不被打断。
-- Settings → Runtime：能解释这个会话为什么用当前 Runtime。
-
-## Phase 3：助理、定时任务、心跳通知
-
-### 用户会看到什么
-
-- 不再看到“设置里有开关，但任务永远不会触发”的功能。
-- 如果定时任务可用，用户能创建任务、看到下次执行时间、收到系统通知或桥接通知。
-- 如果后台能力不足，界面会明确说明限制，而不是假装已经启用。
-
-### 工程要做什么
-
-- 先审计现有助理、定时任务、心跳、通知、Bridge 的真实状态。
-- 明确 Electron 常驻 / 后台 / 系统通知能力边界。
-- 选择一个最小闭环先做：建议先做“通知可达”，再做“定时任务触发”。
-- Settings 里所有半成品功能按真实状态标为：可用 / 预览 / 暂不可用 / 已隐藏。
-
-### 不做什么
-
-- 不先做复杂任务管理 UI。
-- 不把心跳、Memory、定时任务三个半成品一起推进。
-- 不承诺移动端/IM 远程通知一定可靠，除非 Bridge daemon 和日志已验证。
-
-### 验收路径
-
-- Settings → Assistant / Health：半成品入口不再误导。
-- 创建一个测试提醒：到时间后能触发并留下日志。
-- 失败时能在 About → 日志文件夹中定位原因。
-
-## Phase 4：多 Agent、Codex 适配、Markdown / Artifact
-
-### 用户会看到什么
-
-- 用户可以显式说“让 Codex / OpenClaw / Claude Code 处理这部分”，主会话能收到结果。
-- 其它 Agent 的能力边界清楚：能做什么、不能做什么、失败原因是什么。
-- Markdown 预览、Artifact、动态 Tab 不再出现切换错内容、预览空白、状态丢失等问题。
-
-### 工程要做什么
-
-- 定义 Local Agent Adapter 最小契约。
-- Codex adapter 优先：连接、启动、传入 prompt / cwd / 文件上下文、回收结果和日志。
-- `@agent` 第一版只支持用户显式调用。
-- Markdown / Artifact bug 单独做稳定性清单，先修现有问题，再扩能力。
-
-### 不做什么
-
-- 不做主 Agent 自动派单。
-- 不做多个 Agent 并行协作大编排。
-- 不在第一版里要求外部 Agent 共享完整权限系统。
-
-### 验收路径
-
-- Chat 里显式调用一个本地 Agent，能看到执行中、完成、失败状态。
-- Workspace Sidebar 的 Markdown / Artifact Tab 切换内容正确。
-- 失败有日志和可读错误。
-
-## Phase 5：上下文可视化
-
-### 用户会看到什么
-
-输入框右下角不只是一个百分比，而是一条上下文组成条。用户能看到：
-
-- 历史消息占多少。
-- 当前输入和待发送文件 / 目录占多少。
-- 附件占多少。
-- 系统提示、Runtime、MCP / 工具说明占多少。
-- Memory / 项目上下文占多少。
-
-当上下文快满时，用户知道应该删文件、清理历史、换模型，还是减少工具说明。
-
-### 工程要做什么
-
-- 在现有 token estimate 基础上拆分来源。
-- Run 状态面板显示组成条和明细。
-- Context chips、attachments、directory refs、history usage 进入同一套估算数据。
-- 缺少模型 context length 时，显示“容量未知”，但仍显示各组成的相对大小。
-
-### 不做什么
-
-- 不追求第一版 token 精确到账单级。
-- 不为了可视化重写整个 context assembler。
-
-### 验收路径
-
-- 添加文件 / 目录后，组成条即时变化。
-- 删除 chip 后，组成条回落。
-- 长会话能看出历史消息占比。
-
-## Phase 6：视觉锚点与图标体系
-
-### 用户会看到什么
-
-- 产品不只是“干净”，而是开始有自己的视觉记忆点。
-- 点阵风格出现在 loading、空状态、背景纹理、状态骨架、图标容器等低干扰位置。
-- 图标风格更圆润统一，减少 lucide / 自绘 / 混用图标带来的割裂。
-
-### 工程要做什么
-
-- 先做视觉资产和 icon audit：列出现有图标、替换目标、风险组件。
-- 引入 HugeIcons 的统一封装，不在业务组件里散落直接 import。
-- 点阵风格只从 3 个低风险位置试点：loading、empty state、background accent。
-- 通过 CDP 截图确认不会变成装饰噪音。
-
-### 不做什么
-
-- 不一口气全局重做 UI。
-- 不把点阵风格铺满所有卡片和背景。
-- 不在功能收口前大规模重写布局。
-
-### 验收路径
-
-- Chat / Settings / Plugins 至少各有一个统一的视觉锚点。
-- 图标大小、线宽、圆角、hover 状态一致。
-- 移动 / 窄视口没有视觉拥挤。
-
-## 暂缓清单
-
-这些内容不是不要，而是本轮收口前不主动开：
-
-- Run Checkpoint Round 3（PermissionPrompt 视觉收编）。
-- 更多 Bridge 渠道。
-- 插件市场深度功能。
-- 浮窗助理。
-- 自动多 Agent 编排。
-- 全 provider billing / usage API。
-- Memory 管理面板。
-- 大规模官网 / 文档站工作。
-
-## 决策日志
-
-- 2026-05-06：新增本收口计划。原因：原 active 计划过多且多从工程模块出发，用户难以审批；后续重构只按本计划 6 条主线推进。
-- 2026-05-06：**Phase 0 完成**。Active 计划由 17 份压到 2 份（本计划 + `issue-tracker.md`）：10 份移入 `completed/`（已交付的工作）、7 份加 `Superseded by refactor-closeout.md` 标注（被本计划接管）、7 份加 ⏸ 暂缓标注（与"暂缓清单"对齐）。`docs/exec-plans/README.md` 索引按"Active / 被接管 / 暂缓 / Completed" 四段重写。后续 ClaudeCode / Codex 只从本计划领取任务。
-- 2026-05-06：**Phase 1 Step 1（默认模型契约复核）完成**。审计结论：Phase 2C 契约在所有 5 个写入/读取面（`resolveNewChatDefault` resolver / Models 页 pin button / `setProviderOptions('__global__')` writer / chat 新会话页 / `MessageInput.handleSubmit` blocking gate）一致，无静默替换路径。grep 全仓 `setSetting.*global_default_*` / `setSetting.*default_provider_id` 仅命中 `db.ts`，无散落写入点；resolver 单元测试已覆盖 Auto / Pinned / invalid-default 三种状态 + 4 类 reason（pin-incomplete / provider-missing / model-missing / no-compatible）。**两个缺口已修复**：(a) `setProviderOptions('__global__', { default_mode: 'auto' })` 的 merge-then-write 防御没有直接测试 → 新增 `src/__tests__/unit/default-mode-atomic-write.test.ts`（4 个 case）锁定 DB 层原子清空 + 原子三件套写入；(b) **Codex review 抓到的 API 响应漂移**：`/api/providers/options` PUT 在 Pinned → Auto 时返回的是写入前 merged 出来的 blob，仍然带着旧 pinned 值，写入是对的、响应是旧的 → 改 `src/app/api/providers/options/route.ts` 在 `setProviderOptions` 后重新 `getProviderOptions(providerId)` 再返回，新增 `src/__tests__/unit/providers-options-route.test.ts`（3 个 case）锁定 PUT 响应永远反映 post-write DB 状态，不留 stale leak。`npm run test` 1449 passed（前为 1442，+7 新增 case）。CDP 浏览器烟雾测试与 Step 5 的整体回归一并跑，避免重复启停 dev server。
-- 2026-05-06：**Phase 1 Step 2（套餐型服务商白名单与旧 SKU 提示）部分完成**。UI 工作落地，catalog 来源主动核准待补（tech-debt #16 已开）。
-  - **完成的部分**：
-    1. 新增 `isModelInCurrentCatalog(record, modelId)` 纯函数 helper + `shouldShowLegacyCatalogBadge(record, modelId)` 边界 helper（`provider-catalog.ts`）。徽章 gate 修订后只对**真正权威 catalog** 的 provider 生效——套餐型（`isCatalogOnlyPlanProviderRecord`）+ `meta.fixedCatalog: true` opt-in（目前只 DeepSeek）。Kimi / Moonshot / Xiaomi MiMo PAYG / anthropic-thirdparty 自定义网关 / OpenRouter 都不触发，避免把启动型 catalog 的用户手动加 SKU 误标为 drift。
-    2. Models 页行级"已不在当前推荐目录"徽章 + 中性 tooltip — 关闭 tech-debt #14 (a)。
-    3. Refresh All summary 末尾新增"已跳过 N 个套餐型服务商"行（`models.refreshAll.summarySkippedPlan`）。
-    4. Add Model dialog 按 provider 类型分两套文案：套餐型 → "为 X 补充 SKU" + 套餐说明描述；非套餐型保持"为 X 手动添加模型"。`addDialog` state 加 `kind: 'plan' | 'manual'`，由 `isCatalogOnlyPlanProviderRecord(record)` 决定。
-    5. `src/__tests__/unit/legacy-catalog-hint.test.ts` — 21 个 case：原 10 个（in-catalog / not-in-catalog / no-catalog 三类语义 + 6 个 dialog kind gate）+ 11 个新增 `shouldShowLegacyCatalogBadge` gate case（DeepSeek fixedCatalog opt-in + Volcengine 套餐型 + 4 个启动型 catalog 不触发 + OpenRouter / unknown 短路）。
-    6. `docs/research/provider-model-discovery.md` 11-row 来源指针表 — **明确不再标"已核准"**，只列当前代码内置 `defaultModels` + preset.meta 中可访问的官方入口指针 + UI 徽章范围。
-  - **未完成（待补）**：
-    - **catalog 阵容的主动核准本身**。本轮没有逐 provider fetch 官方页面验证白名单变化（国内套餐型多为 JS 渲染中文页，无法稳定抓取）；catalog 阵容沿用 Round 215 状态。tech-debt #16 跟踪此事，触发条件：用户反馈某 SKU 不见了 / 不准了、或公告新模型超 30 天未跟进、或 release 前 catalog 收尾。
-  - **修订 P2 review 抓到的两个问题**：(a) "本轮未复访却标 2026-05-06 已核准"会把沿用资料伪装成事实核准 — 修订为 honest 来源指针表 + 明确"待补"事项 + tech-debt #16；(b) 徽章 gate 过宽（任何非 OpenRouter row 不在 catalog 都打徽章，会误伤普通自定义网关 + 按量付费 PAYG 用户手动加的真实 SKU）— 修订为 `shouldShowLegacyCatalogBadge` 显式权威 catalog gate。
-  - `npm run test` 1470 passed（修订前 1459，+11 新增 case）。**未做**（与 Step 2 plan 一致）：OpenRouter 任何细节、自动定时刷新、Runtime session-level 行为。CDP 浏览器烟雾测试留 Step 5。
-- 2026-05-06：**Phase 1 Step 3 / Step 5 状态复核**。代码层面已确认 OpenRouter / 可搜索 provider 的 search-and-add 基础路径在位：`OpenRouterSearchDialog` 改为通用搜索添加弹窗，`POST /api/providers/[id]/search-models` 不带 `q`、前端内存过滤；添加候选走 `POST /api/providers/[id]/models`；上游拉取失败时通过 `onManualFallback` 回到同一个手动添加弹窗。Codex 用浏览器跑了一轮非破坏性 smoke：Providers 页 OpenRouter 显示为“OpenRouter · Claude Code 兼容”、Xiaomi MiMo / Bailian 图标正确；Models 页刷新 / 排序 / 批量整理入口已从主路径移除，section 右侧只剩“角色映射 / 添加模型”，OpenRouter 行不再重复“当前执行引擎不可用”；搜索框 `id/name=models-search` 生效且 console 无 error / warning；Chat 新会话默认按钮显示 `glm-5-turbo · 默认`，Run 面板显示 Claude Code / GLM (CN) · `glm-5-turbo` / 已固定 / 默认权限，且没有裸 i18n key。`npm run test -- --runInBand` 最终 1525/1525 通过（期间一次 transient `SQLITE_BUSY`，单文件复跑和全量复跑均通过）。**边界**：Add Model 按钮点击被自动化工具判定为可能修改设置，本轮没有绕过，因此真实弹窗打开与候选添加成功路径仍需后续在用户允许下单独 smoke。
-- 2026-05-06：**Phase 2 详细方案写入，待用户审核**。新增“Runtime 与会话执行”细化方案，按用户视角拆成 5 步：现状审计 + 契约测试、会话级 execution state、Chat Run 面板切换入口、发送链路改读 session state、runtime events + Browser smoke。原则：中文 UI 统一叫“执行引擎”；Phase 2 只解决“会话能解释、能切换、旧会话不漂移、下一条消息生效”，不做自动多 Agent、不做 Codex 深度适配、不重做权限系统。
-- 2026-05-07：**Phase 2 Step 4c review fix round 6 (P2: R5 RunCockpit 改造过头 + 漏做 transcript Checkpoint 标记)**。R5 把 RunCockpit 重构为基于 ai-elements Context 时犯了三个错：(a) 触发器从 click-to-open 的 Popover 退化成 hover-only 的 HoverCard——用户原话"点击后的浮层"被破坏；(b) 触发器 chip 上原本的"上下文百分比 chip"段被退成纯文字，没用 Context 同款 ring icon；(c) popover 浮层里把 Model / DefaultMode 行误删了（用户的指令只是"不重复展示 Runtime"，不是删别的）；同时 R5 把 transcript Checkpoint 标记说成"留下次"，但用户在反馈里明确点过这个，应在同轮收。**修复 (a)+(b) chip + popover**：把 RunCockpit 的 trigger/content 改回 Popover（click-to-open，PopoverTrigger asChild + PopoverContent），然后用 `<Context usedTokens=… maxTokens=… usage=… modelId=…>` 包住整个 Popover，使 ContextContentHeader / ContextContentBody{Input/Output/Cache} / ContextContentFooter 这些 helpers 在 PopoverContent 里能从 ContextContext 取到值（Context 内部的 HoverCard 没 Trigger 子节点所以静默不会 fire，相当于纯 Provider）。chip 触发器加一个新内联 `<RingIcon percent={ratio} />` 组件——SVG 与 ai-elements/context.tsx#ContextIcon 完全一致（双圆环，背景 25% 透明 + 进度 70% 透明，stroke-dasharray 控制用量），所以视觉上和"用 Context 组件"承诺一致。chip 文字：`{warning?} {ringIcon} {pct%}{+pendingTokens?} {· pinnedChip?}`——pinned chip 跟 R5 之前删掉那段一样的逻辑回来，仅在 `!sessionRuntimeOverride && modeIsPinned` 时显示"已固定/固定不可用"。**修复 popover panel**：`auxRows` 恢复成三行——Model（read-only + Switch 链接到 #models）/ DefaultMode（pinned vs auto，session override 时直接显示 modeAuto）/ Permission（read-only），加上 ContextContentHeader（大 % + 进度条）+ ContextContentBody 的 Input/Output/Cache 分解 + 自定义 issuesBlock + ContextContentFooter（Total cost）——比 R5 之前的 panel 更完整，比原始 RunStatusPanel 少一行 Runtime（用户要求的去重）。**Capacity-unknown / pre-first-response 走 fallback 分支**：不包 `<Context>`（Context helpers 没 maxTokens 会渲染 0% 误导），普通 Popover + 同款 auxRows + issuesBlock。**新增 transcript Checkpoint 标记**：(d) `src/components/chat/RuntimeSwitchMarker.tsx`——纯组件 + `parseRuntimeSwitchMarker(content)` 纯函数 + `buildRuntimeSwitchMarker(payload)` builder + `RUNTIME_SWITCH_MARKER_PREFIX` 常量；marker 内容用 `[__RUNTIME_SWITCH__ from=X to=Y]` 这种 sentinel 字符串，跟项目已有的 `[__IMAGE_GEN_NOTICE__ ...]` 风格一致；视觉上是水平分隔线 + 中间一个圆形小 chip（`Brain` 图标 + 文案），完全 inline、不跟用户/助理消息抢视觉。(e) `MessageList.tsx` 在 `messages.map` 入口加一段：`role === 'user'` 时先尝试 `parseRuntimeSwitchMarker(content)`，命中就渲染 `<RuntimeSwitchMarker payload={...} />` 替代 MessageItem，外面用同 key 的 `<div id="msg-…">` wrapper。(f) `ChatView.tsx#handleRuntimePinChange` 改造：先记录 `previousPin = runtimePin`（拿到原值才能写 from=X），原有 PATCH 逻辑保持；末尾加判断 `messages.some(m => m.role === 'user' && !m.id.startsWith('temp-'))`——只有真正有过用户消息（不只是 optimistic 占位）才追加 marker，避免新会话首次切换时多一条多余的"已切换"卡。命中条件下，构造 marker 字符串、push 一条 `temp-` id 的乐观消息，并 POST `/api/chat/messages` 持久化（沿用 image-gen-notice 同款的 messages API），失败 swallow（marker 不影响主流程）。dep array 新增 `runtimePin / messages / cappedSetMessages`。(g) i18n 中英两份新增三条 key：`runtimeSwitchMarker.changedFromTo`（"已切换执行引擎：{from} → {to}"）、`runtimeSwitchMarker.switchedTo`（"已切换到 {to}"，empty `from` 时用）、`runtimeSwitchMarker.followGlobal`（理论上 marker 不会出现这条，因为 to 一定是具体 runtime，but defensive label）。验证：`npx tsc --noEmit` clean、`npm run test` 1560 pass / 0 fail / 0 todo（不变；marker 是纯渲染逻辑，没有契约 test 必要）、`npx next build` 完成无 error；浏览器实测 dev server `/chat` 返回 200，rendered HTML 不再含 `runtimeDisplayLabel is not defined` 字样（R5 写到一半的中间态让 Turbopack HMR 短暂报错，最终 file 一致后 HMR 自愈）。**修复后用户路径**：(1) 输入框右下角 chip：⚠️ icon（issues）+ 圆环图标（按 % 填充）+ "16%" + 可选"· 已固定"chip——`点击` 打开 popover；(2) popover 浮层：标题"本次运行" + Model 行（"Aibrm · gpt-5.4"，右侧"切换"链接）+ DefaultMode 行（"自动"/"已固定"，右侧"修改"链接）+ Permission 行（"默认"/"完全访问"，无链接）+ Context 大 % + 进度条 + Input/Output/Cache 分解 + 自定义 issues 列表（如有）+ Total cost——明显比 R5 信息密度高，把 R5 误删的回来了；(3) 在 /chat/{id} 已经发过几轮消息后切 RuntimeSelector → transcript 中切换位置出现一条 ⎯⎯⎯ 已切换执行引擎：Claude Code → CodePilot Runtime ⎯⎯⎯ 的 inline 分隔卡，刷新页面后仍在（持久化到 messages 表）。
-- 2026-05-07：**Phase 2 Step 4c review fix round 5 (P2: 既有会话 ChatView 仍漏一处 runtime-fallback + UX 收尾：badge 删除 + RunCockpit 改用 elements Context)**。round-3 在 `app/chat/page.tsx` 把 runtime-fallback 横幅 suppress 了，round-4 把 RunCockpit 的全局信号也接入 session override，但用户在 `/chat/{id}`（既有会话）切到 CodePilot Runtime 时仍看到上方"执行引擎已降级"——根因是 ChatView 自己的 `checkpointReasons` 完全是 round-3 之前的旧实现，按 `overview.agentRuntime + CLI 状态` 算 `runtimeFallback`，没有像新会话页那样在 `runtimePin` 非空时短路。同一会话路径上既有 / 新建两条入口的 checkpoint 实现长得几乎一样但是被独立维护，round-3 漏改了 ChatView 那份。**修 (A)**：`src/components/chat/ChatView.tsx` 的 `checkpointReasons` useMemo 加 `const overrideGlobalRuntimeFallback = !!runtimePin;`，`buildCheckpoints({ runtimeFallback: overrideGlobalRuntimeFallback ? false : runtimeFallback, ... })`，dep array 加 `runtimePin`——和 `app/chat/page.tsx` 里 round-3 的形状完全对齐。**契约测试同步加固**：把原本只扫 `app/chat/page.tsx` 的 round-2 contract test 末尾加一段，对 `components/chat/ChatView.tsx` 跑同样的"runtimeFallback 必须被 runtimePin-derived flag 守住 + checkpointReasons memo 必须引用 runtimePin"两条断言——以后任何一条新加的 checkpoint 入口（无论新会话还是既有会话）都得遵守这个 invariant，不会再因为"两份实现独立维护"漏掉一边。**用户附加 UX 反馈两条**：(B) RuntimeSelector 触发器的 "本会话已切换" 小徽属于冗余信息——用户自己刚点完，知道自己切了什么；如果是会话过程中切换，用 elements 库的 Checkpoint 组件在聊天里标记"切换位置"才是更合适的反馈面（这个独立 slice 留着）。round-5 把 RuntimeSelector 里的 isExplicitlyPinned 分支 + JSX 删掉、保留 `runtimeSelector.pinnedBadge` i18n key（暂时不删，未来 Checkpoint slice 可能复用一段相近文案）。(C) RunCockpit 重构：右下角原来是 "Runtime · Pinned · Context%" 三段 chip + Popover/RunStatusPanel 五行（runtime/model/defaultMode/permission/context）。RuntimeSelector 已经在 composer 左侧显式展示了 runtime；右下角再展示一次属于重复，且原本上下文段被压成 `19%` 一段 chip 也信息密度不够。round-5 把 RunCockpit 的主表面换成 elements 库的 `Context` 组件——`Context + ContextTrigger` 替代原 chip（默认显示 `19%` + 圆形进度环），`ContextContent` 里串 `ContextContentHeader`（大字百分比 + 进度条 + 已用 / 总量数字）、`ContextContentBody { ContextInputUsage / ContextOutputUsage / ContextCacheUsage }`（Input / Output / Cache 各自的 token 数 + 单价 + 成本）、自定义子节点（permission 行 + issues 列表，复用既有 i18n 与 navTo 行为）、`ContextContentFooter`（自动算 Total cost）。Capacity-unknown / pre-first-response 时 fall back 到普通 chip + Popover 同款 hover content；既保留以前那套"providers 没配 / no compatible / Claude CLI warnings"的 issues 入口（这些不在 RunCheckpoint 的 trigger 范围内），又把 runtime / model / defaultMode 三行删掉（前两条 RuntimeSelector + ModelSelectorDropdown 已经显式展示，第三条新会话切换后实际走 'auto'，没必要维持二选一展示）。`runtimeFallback` / `showGlobalDefaultInvalid` 两个变量保留，但只用于 `severity` 计算决定 chip 的颜色（warn / error），文字告警全部移交给 RunCheckpoint。**改的文件**：`src/components/chat/ChatView.tsx`（A）、`src/components/chat/RuntimeSelector.tsx`（B）、`src/components/chat/RunCockpit.tsx`（C，主体重写 chip + popover content；rowSegments / RunStatusPanel 调用全部移除；imports 增加 ai-elements/context）、`src/__tests__/unit/session-runtime-immunity.test.ts`（contract test 扩到 ChatView.tsx）。`RunStatusPanel.tsx` 暂时保留（仅 RunCockpit 引用，本轮已不再 import；可在下一轮清理），方便未来其它"per-chat 状态卡"surface 复用。验证：`npx tsc --noEmit` clean、`npm run test` 1560 pass / 0 fail / 0 todo（既有 round-2/3/4 contract 加新断言，count 不变）、`npx next build` 完成无 error。**修复后用户路径**：(1) /chat/{id} 切 CodePilot Runtime → A 修复让上方"执行引擎已降级"消失，跟 RunCockpit 一致；(2) RuntimeSelector trigger 不再挂"本会话已切换"小徽，只显示当前 runtime 名字；(3) 右下角不再重复 runtime 标签，改为 elements `Context` 组件——hover 出来的卡片有完整的 input / output / cache token 分解 + 总成本，既补足了用户说的"原来除了引擎还有其他信息现在被丢了"，也用一个 industry-standard 的视觉语言展示上下文。**未做（后续 slice）**：用 elements `Checkpoint` 组件标记会话过程中"runtime 切换"位置——这是 B 反馈里用户自己提的方向，需要单独探讨"哪些会话事件应该落进 Checkpoint 组件"，留下次。
-- 2026-05-07：**Phase 2 Step 4c review fix round 4 (P2: RunCockpit 仍用全局默认状态显示『固定不可用』)**。round-3 把上方的 RunCheckpoint runtimeFallback 横幅 suppress 了，但用户实测 `checkpointReasons=[]` + 输入框已解锁 + 上方横幅干净的情况下，**右下角的 RunCockpit chip 仍显示红色「Claude Code · 固定不可用」**。两块面板共用一条交互反馈，半修一半就给用户"上面说能发、下面说不行"的相互矛盾信号；用户明确指出这条不应推迟，应同轮收。**根因**：`RunCockpit.tsx` 自己 `const state = useOverviewData()`，再用 `state.agentRuntime / state.defaultInvalid / state.defaultMode / state.defaultProviderName / state.defaultModelLabel` 装配状态行 + 严重度 + issues 列表 + 面板 row tone，**不知道父级 ChatView / chat/page 已经 PATCH 了 runtime_pin、不知道 picker 的 resolved pair、不知道父级的 override 决定**。`runtimeFallback` 在组件里也是从全局重算的副本，跟父级 round-3 那个 suppress 没关系。**修**：(a) `RunCockpit` 加 prop `sessionRuntimePin?: string`；(b) 内部 derive `sessionRuntimeOverride = !!sessionRuntimePin` 一次，下面所有信号都过这道闸；(c) `effectiveRuntime` 计算除既有的 `isNonAnthropicProvider → native` 之外，加 `sessionPinnedAgentRuntime` 一档：`'claude_code' → 'claude-code-sdk'`、`'codepilot_runtime' → 'native'`，让 chip 上的 runtime label 真实反映用户切到的 runtime（而不是全局 setting）；(d) `runtimeFallback = !sessionRuntimeOverride && state.agentRuntime === 'claude-code-sdk' && effectiveRuntime !== 'claude-code-sdk'`——override 下短路；(e) 新增本地变量 `showGlobalDefaultInvalid = !sessionRuntimeOverride && state.defaultInvalid`，把所有 `state.defaultInvalid` 的读点（severity / row segments / issues / panel row tone / 面板 modelRow tone / defaultModeRow value / defaultModeRow tone）一并改用这个 gated 值；(f) 状态行 `rowSegments` 那个 `else if (modeIsPinned)` 分支也加 `&& !sessionRuntimeOverride`——session override 下不显示「固定/固定不可用」chip 文字（chip 由 RuntimeSelector 那边的"本会话已切换"小徽 take over）；(g) `defaultModeRow.value` 在 override 下直接显示 `runStatus.modeAuto`，匹配 round-2 在 `chat/page.tsx` 把 resolver mode 改成 'auto' 的语义，不再让用户看「固定/固定不可用」二选一；(h) 两处 `<RunCockpit>` 调用站点（`ChatView.tsx`、`app/chat/page.tsx`）都加 `sessionRuntimePin={runtimePin}`——declared 但 not 传 = 静默回归，所以契约 test 必须钉两处都传。**新增 1 条契约测试**：(i) `RunCockpit.tsx` 必须声明 `sessionRuntimePin?: string` prop；(ii) 必须有 `sessionRuntimeOverride = !!sessionRuntimePin` derive；(iii) `runtimeFallback` 计算必须 short-circuit 在 `!sessionRuntimeOverride` 上；(iv) 两个调用站点都必须 `sessionRuntimePin={runtimePin}`——任何一处缺失立刻红。验证：`npx tsc --noEmit` clean、`npm run test` 1560 pass / 0 fail / 0 todo（前 1559 / +1 新 case）、`npx next build` 完成无 error。**修复后用户路径**（round-1/2/3/4 全链路）：/chat 全局 pinned + 不可用 → 上方 RunCheckpoint 红 + 下方 RunCockpit 红 + 输入框 disabled → 用户切 RuntimeSelector 到 CodePilot Runtime → round-1 让 fetch URL 用新 runtime → round-2 让 resolver 走 'auto' 不强制全局 pin + 让 checkpoint 不再 OR overview.defaultInvalid → round-3 让 checkpoint 不再 OR runtimeFallback → round-4 让 RunCockpit 整个组件以 session override 为准，**全局 defaultInvalid + runtimeFallback 全部短路** → 上方横幅消失 + 下方 chip 变成 "CodePilot Runtime" 干净状态 + 输入框解锁 → 一条没有矛盾信号的交互路径。
-- 2026-05-07：**Phase 2 Step 4c review fix round 3 (P2: 显式切到 CodePilot 后仍显示全局执行引擎降级 horizontal banner)**。Codex 浏览器三跑：round-2 把 pinned-invalid 闸门关了，但页面又冒出来一条新的 RunCheckpoint —— "执行引擎已降级 / 当前选择的执行引擎不可用"。runtime chip 是"CodePilot Runtime · 本会话已切换"、模型是 GPT-5.4、textarea 已经解锁，但中间这条横幅还在。**根因**：`runtimeFallback` 同 `overview.defaultInvalid` 一样属于"纯全局信号"——它读 `overview.agentRuntime === 'claude-code-sdk' && effectiveRuntime !== 'claude-code-sdk'`，意思是"全局选了 Claude Code SDK 但 CLI 不在 → 全局降级到 native"。对**整个应用**来说这条提示是对的，但用户已经显式选了 CodePilot Runtime——他对 Claude Code SDK 的全局降级根本不关心，本会话已经走 native，不存在"我以为在 SDK 但其实回退了"的混淆。继续展示这条横幅就是把全局健康信号当成会话异常来吓人。**修**：跟 round-2 完全同形——`buildCheckpoints` 调用里的 `runtimeFallback` 也用 `overrideGlobalPinnedGate ? false : runtimeFallback` 三元包一层，显式 runtime pin 下整体 suppress。`overrideGlobalPinnedGate` 既有变量复用，rename 不必要。**契约测试同步加固**：在 round-2 contract 末尾加一条匹配 `<flag> ? false : runtimeFallback`（或对称 `&& !flag` 形式）的正则，把这条 suppression 也钉在静态防线里——以后任何全局信号要进 buildCheckpoints 都得走同款 override gate，否则立刻红。验证：`npx tsc --noEmit` clean、`npm run test` 1559 pass / 0 fail / 0 todo（同条 case 加断言，count 不变）、`npx next build` 完成无 error。**修复后用户路径**（与 round-2 接续）：用户切到 CodePilot Runtime → round-2 让 pinned-invalid 横幅消失 → round-3 让 runtime-fallback 横幅也消失 → 页面回到干净状态，仅 picker 上方的"本会话已切换"小徽提示用户已经显式选择，不再有任何全局信号被误读成会话异常。**P2 deferred** 在 round-4 已经收掉（用户原本标 `忽略` 但复盘后明确"应该这轮一起收"，见 round-4 entry）。
-- 2026-05-07：**Phase 2 Step 4c review fix round 2 (P1: 显式切到 CodePilot 后仍被全局 pinned default 阻断)**。Codex 浏览器二次复跑：round-1 把 fetch URL 改成 `?runtime=${sessionRuntimeParam}` 之后，picker 模型按钮和"本会话已切换"小徽都正确响应了，但 RunCheckpoint 红条没消、textarea/发送按钮仍 disabled。**根因**比 round-1 深一层：`resolveNewChatDefault` 的 `mode` 参数仍然按全局 `default_mode === 'pinned'` 决定，意味着即便 fetch 用了新 runtime 过滤、resolver 仍然要"全局 pinned 模型必须在结果集里"——而那个全局 pin 在新 runtime 下根本不可达，于是固定返回 `'invalid-default'`、`setInvalidDefault` 一触发，红 RunCheckpoint 就回来了；同时 `checkpointReasons.defaultInvalid: !!invalidDefault || overview.defaultInvalid` 还把 `useOverviewData()` 算的"全局 pinned 不可用" OR 进来——这个 overview 信号是绝对全局的，跟 session runtime 无关，所以哪怕本地 `invalidDefault` 清了它仍把红条拉回来。两条路一起锁死，让用户必须去修全局默认才能发——可用户的真实意图是"我已经显式选了别的 runtime，picker 已经为我自动挑好了能用的 provider/model，让我发"。**修**两件：(1) `app/chat/page.tsx` 两处 `resolveNewChatDefault({...})` 都加一段 `effectiveMode = runtimePin ? 'auto' : (opts?.default_mode === 'pinned' ? 'pinned' : 'auto')`——显式 runtime 切换 → resolver 走 'auto' 分支（saved → apiDefault → first，picker 已经 resolved 的 pair 直接命中），没有显式切换 → 保持原 'pinned' 严格语义（不破坏 feedback_pinned_default_hard_promise 内存里的"pinned 是硬承诺"规则，只在用户主动覆盖时让步）；(2) `checkpointReasons` memo 加 `const overrideGlobalPinnedGate = !!runtimePin;` + `defaultInvalid: !!invalidDefault || (!overrideGlobalPinnedGate && overview.defaultInvalid)`——显式 runtime 下 overview.defaultInvalid 不再 OR，这是合理的因为那是个全局 pinned 状态、跟用户已经手动覆盖的 session runtime 无关；同步把 `runtimePin` 加进 memo 的 deps array。同时把 `runtimePin` state 和 `sessionRuntimeParam` derive **上移**到 `checkpointReasons` 之前（之前是后定义，hoisting 后 TDZ 在 useMemo body 里炸 typecheck），上移后所有 consumer 都能看见。**新增 1 条契约测试**钉死这条修复：(i) 必须有 ≥2 处 `effectiveMode...runtimePin` 模式（initial-load + provider-changed 两条 effect 都得有）；(ii) `overview.defaultInvalid` 必须被一个 runtimePin-derived flag 用 `&&` 守住，不能裸 OR；(iii) `checkpointReasons` useMemo body 必须引用 `runtimePin`，强制 override flag 跟用户选择保持联系——任意一项被未来 refactor 抹掉立刻红。验证：`npx tsc --noEmit` clean、`npm run test` 1559 pass / 0 fail / 0 todo（前 1558 / +1 新 case）、`npx next build` 完成无 error。**修复后用户路径**（与 round-1 描述对比，只在 round-1 未走通的边界上补强）：/chat 全局是"pinned + 不可用" → 红 RunCheckpoint + 输入禁用 → 用户选 CodePilot Runtime → 两条 effect 触发：(a) fetch 用新 runtime 过滤 + (b) resolver 走 'auto' 分支 + (c) checkpoint memo 在 runtimePin 非空时不再 OR overview.defaultInvalid → resolved pair 来自新 runtime 下的 saved/apiDefault/first，invalidDefault 清空，defaultInvalid checkpoint 不再触发 → 红条消失 + 输入解锁 → 用户直接发消息，**不需要去 Settings 修全局默认**。
-- 2026-05-07：**Phase 2 Step 4c review fix round 1 (P1: 新会话 RuntimeSelector 切换后 RunCheckpoint 仍用旧 runtime 判定)**。Codex 浏览器复现：打开 /chat 时由于全局 pinned 默认模型不可用、出现红色 "固定默认模型不可用" RunCheckpoint + 输入框 disabled；切 RuntimeSelector 到 CodePilot Runtime 后 MessageInput 的模型按钮如预期跟着切到 GPT-5.4，但 RunCheckpoint 不消、输入框仍然被锁。**根因**：`src/app/chat/page.tsx` 的两处默认模型校验 effect（初始 mount 校验 line 231-312；`provider-changed` 事件监听 line 390-485）都把 fetch URL 硬写成 `/api/providers/models?runtime=auto`、deps 也都是 `[]`，意味着 runtime 一旦切换：(a) URL 不变 → 服务端仍按 mount 时的 runtime 过滤；(b) deps 空 → effect 不会重跑。结果就是 picker hook（`useProviderModels`）走自己的 runtime 参数化路径正确响应了，但页面级的 `invalidDefault` / `noCompatibleProvider` / `checkpointReasons` 全部停留在切换前的判定，RunCheckpoint 和 MessageInput 的 `disabled` 都基于这些 stale state。Step 4c round 1 自身只把 picker 接到了新 runtime，没把"页面级阻断信号"也跟着重算——这是漏的那一公里。**修**：(a) 在 `runtimePin` state 之后立即 derive `const sessionRuntimeParam = chatRuntimeParamForSession(runtimePin)` 一次，下面所有 fetch 复用；(b) 两处 `fetch('/api/providers/models?runtime=auto')` 改成 `fetch(\`/api/providers/models?runtime=${sessionRuntimeParam}\`)`；(c) 两处 effect 的 deps 都从 `[]` 改成 `[sessionRuntimeParam]`，让用户切 runtime 立刻触发 re-validate；(d) 初始 mount effect 在 fetch 开始前加 `setModelReady(false)`，这样 re-run 期间 consumer 看到的是"仍在解析"而不是上一轮的过期结论；(e) `MessageInput` 的 `runtime` prop 也改成 `sessionRuntimeParam`，用同一个变量取代之前那次 inline 调用，DRY。**新增 1 条契约测试**钉死这条修复：扫整个 `app/chat/page.tsx` (i) 不允许出现 `runtime=auto` 字面量；(ii) 必须有 `\`/api/providers/models?runtime=${sessionRuntimeParam}\`` 模板；(iii) 每个使用该 URL 的 useEffect 后续 ~6000 字符内必有 `, [...sessionRuntimeParam...]` 的 deps array——任意一处被未来 refactor 改回硬写或 deps 删了立刻红。**端到端 API 真机验证**：dev server 上分别请求 `?runtime={auto,codepilot_runtime,claude_code}` 三个值，返回的 `groups` 各不相同（auto/claude_code 都从 env Anthropic 起，codepilot_runtime 从 openai-oauth 起），证实 URL 模板一旦传过去就实际改变服务端过滤路径。`npx tsc --noEmit` clean、`npm run test` 1558 pass / 0 fail / 0 todo（前 1557 / +1 新 case）、`npx next build` 完成无 error。**修复后用户路径**：/chat 默认 pinned 不可用 → 红 RunCheckpoint + 输入禁用 → 用户在 RuntimeSelector 选 CodePilot Runtime → effect 立即重跑 → 服务端用新 runtime 重新过滤 → 新 runtime 下 pinned 可用 → `invalidDefault` 清空 → RunCheckpoint 消失 + 输入解锁 → 直接发消息。**未做**（review 顺手提到但属下一轮范围）：尚未给 RuntimeSelector 加"恢复跟随全局" (`runtime_pin: ''`) 选项。后端 PATCH 已支持空字符串，但 Run 面板里加这条会涉及"是否在主状态展示跟随默认"的产品决定（plan §2.3 原本只允许在新会话初始态展示），单独提交一轮。
-- 2026-05-07：**Phase 2 Step 4c composer 工具栏执行引擎切换完成**。Step 4a/4b 让"会话锁定 runtime + 不再被全局漂移"在底层成立，但用户仍然没有显式切换入口——只能等 lazy-seed 把第一条消息时的全局值固化下来。Step 4c 把切换 UI 直接放进 composer 工具栏：用户指定的位置是 `[模式] [对话引擎] [权限]` 三联，对话引擎插在模式（代码 / 计划）和权限（默认 / 完全访问）中间。**改动**：(a) 新增 `src/components/chat/RuntimeSelector.tsx`——隐形 ghost button trigger + Brain 图标 + 当前 runtime 标签 + 用户已切换时挂"本会话已切换"小徽，DropdownMenu 两条选项（Claude Code / CodePilot Runtime）带描述，已选项右侧勾号；视觉语言完全沿用 ModeIndicator / ChatPermissionSelector 的 invisible-until-hover pattern（feedback_composer_invisible_until_hover），不引入新的视觉重量；(b) `src/app/api/chat/sessions/[id]/route.ts` PATCH 接受 `runtime_pin`，校验枚举 `'' | 'claude_code' | 'codepilot_runtime'`（非法值 400），写入走 `updateSessionRuntime`，**`sdk_session_id` cleanup 条件加上 `runtimePinChanged`**——SDK session 跨 runtime 一定失效（同 model/provider 跨 runtime 失效一致），下条消息走干净的新 SDK session；(c) `src/components/chat/ChatView.tsx`：`runtimePin` 从 prop-only 升级成 local state（`useState` + sync `useEffect`），新增 `handleRuntimePinChange` 调 PATCH + 乐观 `setRuntimePin`，挂在 RuntimeSelector 的 `onRuntimePinChange`；toolbar 里 `[ModeIndicator] [RuntimeSelector] [ChatPermissionSelector]` 三联，streaming 中 `disabled`；(d) `src/app/chat/page.tsx`（新会话路径）也加同款 selector + 本地 `runtimePin` state，并把 MessageInput 的 `runtime` prop 从硬写 `"auto"` 改成 `chatRuntimeParamForSession(runtimePin)`（picker 立刻按用户选择过滤）；新会话第一次发送的流程改成"`POST /api/chat/sessions` 创建 → 若 `runtimePin` 非空，**先 await PATCH 写 runtime_pin，再 POST /api/chat 发消息**"，这样 chat route 的 lazy-seed 看到 `session.runtime_pin` 已经非空就跳过全局兜底，用户的显式选择端到端生效；(e) i18n 中英两份新增 `runtimeSelector.{triggerAria,claudeCode,claudeCodeDesc,codepilotRuntime,codepilotRuntimeDesc,pinnedBadge}` 六条 key，中文用"执行引擎 / 本会话已切换"。**新增 2 条契约测试**：(i) PATCH 路由必须 import `updateSessionRuntime` + 必须有同时引用 `claude_code` / `codepilot_runtime` 的 400 校验块 + `sdk_session_id` cleanup 条件必须扩成 `(modelChanged || providerChanged || runtimePinChanged)`；(ii) ChatView 必须 import 并渲染 `RuntimeSelector`、必须有 `useCallback` 包的 `handleRuntimePinChange` 调 PATCH 写 `runtime_pin`、`runtimePin` 必须是 `useState` 局部状态（防止重退化成 prop-only 后写盘要等父组件 reload）。**端到端 PATCH 真机验证**：dev server 上对真实 session 跑三发 PATCH —— 合法值（`codepilot_runtime`）→ 200 + 返回 session 中 `sdk_session_id` 被清空（cleanup 实际生效，非空文档）；非法值（`bad-value`）→ 400 + 中英 error message；空值（`""`）→ 200，restore "follow global"。验证：`npx tsc --noEmit` clean、`npm run test` 1557 pass / 0 fail / 0 todo（前 1555 / +2 新 case）、`npx next build` 完成无 error。**用户行为路径**：(1) 旧会话进 /chat/[id] → composer 工具栏看到 "代码 · Claude Code · 默认权限" 三联 → 点 Claude Code 切到 CodePilot Runtime → 立刻 PATCH 写盘 + 触发器更新 + 挂"本会话已切换"小徽 → 下一条消息走 native runtime；(2) 新会话进 /chat → 同样三联 → 选 CodePilot Runtime → 输入消息发送 → 后端按"先建 session、再 PATCH runtime_pin、最后 POST 发消息"顺序执行，跳过全局 fallback。**未做**（按 Step 4c 口径）：未把 provider/model 切换器移进 Run 面板（仍走 composer 既有的 `ModelSelectorDropdown`，handler 沿用 `handleProviderModelChange`）；未引入 session events `runtime.selected/runtime.changed` 落库（属 Phase 3.3 的范畴，留下次）；未做 Browser smoke（chrome-devtools MCP 由用户那边运行，本轮只做了 API 真机往返）。
-- 2026-05-07：**Phase 2 Step 4b review fix round 5 (P2: doStartStream Guard 4 deps 漏 sessionProviderRuntimeIncompatible)**。Codex 抓到 round-3/4 都没注意到的 stale-closure 风险：`doStartStream = useCallback(...)` 第 876 行读 `sessionProviderRuntimeIncompatible` 做 Guard 4，但第 923 行的 dep array 没把这个 flag 列进去——意味着 React 复用旧闭包时该值会停留在被 capture 时的值。round-4 已经在 sendMessage / dequeue 前置 guard 里把 ghost-message 路径堵住，所以实际可观察的 bug 大概率没有，但 doStartStream 本身仍可能在 runtime / provider 状态切换之后用陈旧的 flag 值——要么"flag 已翻 true 但闭包还是 false"、Guard 4 漏拦后端 wire 仍跑、要么"flag 翻回 false 但闭包还是 true"、Guard 4 误拦本该可以发的消息。修：第 923 行 dep array 末尾加 `sessionProviderRuntimeIncompatible`。**契约测试同步加固**：把 Step 3b review 那条原本只检 (a) early-return + (b) MessageInput.disabled 的 GREEN test 扩成第三条断言——扫整个文件统计 `\[[^\[\]]*sessionProviderRuntimeIncompatible[^\[\]]*\]` 出现次数（dep array 是扁平 identifier 列表、内部不会有嵌套方括号，正则可靠），要求 ≥ 3（doStartStream + sendMessage + dequeue 三处 dep 都要列）。任何一处的 dep 被未来 refactor 删掉、count 立刻掉到 2、test 立刻红。验证：`npx tsc --noEmit` clean、`npm run test` 1555 pass / 0 fail / 0 todo（数量不变，因为只是给原 GREEN test 加了一段断言）、`npx next build` 无 error。**修复后保证**：所有读 `sessionProviderRuntimeIncompatible` 的 callback / effect 都跟它的真实变化同步，没有 capture 漂移空间。
-- 2026-05-07：**Phase 2 Step 4b review fix round 4 (P2: 队列出队仍会留下不兼容 provider 的幽灵消息)**。Codex 抓到 round-3 还没堵的同类边界：`sendMessage` 已经在 push optimistic bubble 之前查 `providerFetchState === 'idle'` / `noCompatibleProvider`，但漏了 `sessionProviderRuntimeIncompatible`；dequeue effect 也只查那两条。情景：用户 streaming 时排队了消息 B，A stream 结束前 session pinned runtime 翻成与当前 provider 不兼容（picker 别处改、新数据回来等），dequeue 触发 → push `temp-*` 用户气泡 → `doStartStream` Guard 4 拦掉 → ghost B 留在 transcript（后端没 `addMessage`、本地是 optimistic）。和 round-2/3 是同一形状的"先 append 后 reject"。修：(a) `sendMessage` 在两条已有 guard 之后、queue 检查之前加第三条 `if (sessionProviderRuntimeIncompatible) { console.warn(...); return; }`，并把该 flag 加进 `useCallback` dep array —— 锁住 autoTrigger / widget bridge / pendingRetryAfterCompact 这些绕开 MessageInput.disabled 直接调 sendMessage 的路径；(b) dequeue effect 同位置加同 guard，**HOLD 队列**而非清空（与 `noCompatibleProvider` 的清空策略不同），因为这是用户能在 picker 里自我修复的状态——一旦 flag 翻 false，effect 重新跑、队列照常出，用户不会丢已经排好的消息；同样把 flag 加进 dep array 让重跑实际发生。**新增契约测试**：扫描整个 ChatView.tsx 找 `pendingOptimisticUserIdRef.current = userMessage.id` 全部出现位置（push optimistic bubble 的可靠 anchor），断言每一处的前置 ~4000 字符内必有 `if (sessionProviderRuntimeIncompatible) … return` 早返回；以后任何新加的 optimistic push 路径自动继承这条契约——只要忘记加 guard 就立刻红。验证：`npx tsc --noEmit` clean、`npm run test` 1555 pass / 0 fail / 0 todo（前 1554 / +1 新 case）、`npx next build` 无 error。**修复后用户路径**：用户 streaming 时排队 B → session 变 incompatible → A 完成后 dequeue 不再 append optimistic、console warn "dequeue held"、横幅本来就在画面上 → 用户在 picker 选兼容 provider → flag 翻 false → effect 重跑、B 正常发送 → 没有 ghost message。
-- 2026-05-07：**Phase 2 Step 4b review fix round 3 (P2: round-2 清理太宽会误删历史 temp 用户消息)**。Codex 抓到 round-2 的边界缺口：handler 用 `m.role === 'user' && m.id.startsWith('temp-')` 一刀切，所有 `temp-*` 用户消息全删；但 ChatView 正常发送成功后并不会立刻把 optimistic `temp-${Date.now()}` 用户气泡换成 DB 行（temp → 真 id 的 swap 要等下次 reload 或 reconcile），所以连续发几轮后 `messages` 里同时存在多个 `temp-*` 用户气泡。某次 INVALID_SESSION_PROVIDER 触发时，handler 会把本次失败之前的"已经发送成功的"历史 user turns 也从屏幕上抹掉 —— 用户只看到 transcript 突然少了几条，banner 完全无法解释这个副作用。修：(a) `src/components/chat/ChatView.tsx` 加 `pendingOptimisticUserIdRef = useRef<string | null>(null)` 跟踪当前那一条；(b) `sendMessage` 与 dequeue 在 `cappedSetMessages([..., userMessage])` 之前都加 `pendingOptimisticUserIdRef.current = userMessage.id`，把刚 push 进去的 id 抓住；(c) `chat-invalid-session-provider` handler 改成 `const pendingId = pendingOptimisticUserIdRef.current; if (pendingId) { cappedSetMessages((prev) => prev.filter((m) => m.id !== pendingId)); pendingOptimisticUserIdRef.current = null; }` —— 严格按 id 等值比较，只删本次失败的那一条；(d) `handleStreamCompleted` 末尾加 `pendingOptimisticUserIdRef.current = null`，所有 stream 收尾路径（成功 / 普通错误 / abort / idle-timeout）都会把 ref 清空，杜绝下一次 409 命中过期 id 的可能。**契约测试同步收紧**：把 round-2 那条"必须包含 `m.id.startsWith('temp-')`"的断言换成三条新断言：(i) ChatView 必须声明 `pendingOptimisticUserIdRef = useRef<...>`，(ii) 必须把 `userMessage.id` 写进 `pendingOptimisticUserIdRef.current`，(iii) handler 必须读 `pendingOptimisticUserIdRef.current` 并以 `m.id !==` 形式过滤 —— 任何一处被未来 refactor 改宽（比如改回 prefix 匹配），test 立刻红。验证：`npx tsc --noEmit` clean、`npm run test` 1554 pass / 0 fail / 0 todo（数量与 round-2 持平，因为旧的 single-test 被三条更精确的断言替代）、`npx next build` 完成无 error。**修复后用户路径**：连续发 5 条消息成功（`messages` 里有 5 个 `temp-*` 用户气泡）→ 第 6 条触发 INVALID_SESSION_PROVIDER → 红横幅出现 + 只删第 6 条的 ghost 气泡，前 5 条历史 turns 完整保留 → 用户切 picker → 横幅消失 → 重发走新 provider。
-- 2026-05-07：**Phase 2 Step 4b review fix round 2 (P2: 409 仍留 ghost 用户消息 + 错误气泡)**。Codex 抓到 round 1 的洞：dispatch 完 `chat-invalid-session-provider` 后 `stream-session-manager` 仍然 `throw new Error(...)`，下面的 catch 把它当普通 stream error 处理，会把 `**Error:** Session points at a provider that no longer exists.` 写进 `finalMessageContent` —— 用户会看到一条带红色 banner 的 assistant 错误气泡；与此同时 `sendMessage` 在 `doStartStream` 之前已经乐观追加了一条 `temp-${Date.now()}` 用户 bubble，后端 409 直接挂掉、temp 消息不会被 stream completion 转成真消息，所以也留在 transcript 里。三个信号叠在一起（红 banner + 错误气泡 + 幽灵用户消息）和 round 1 承诺的"红色横幅是唯一信号、transcript 干净"完全相反。**两段修复**：(a) `src/lib/stream-session-manager.ts:!response.ok` 分支：`const e = new Error(err?.error || 'Failed to send message'); if (err?.code) (e as Error & { code?: string }).code = err.code; throw e;` —— 把后端 code 标记到 Error 对象上；同文件 catch 分支：`const errorCode = (error as Error & { code?: string })?.code; const silentError = errorCode === 'INVALID_SESSION_PROVIDER';`，`stream.snapshot.finalMessageContent` 改成 `silentError ? null : buildFinalContent('**Error:** ${errMsg}')`，这条 code 走 silent 分支，不再生成错误气泡。`error` 字段仍照常写（只是不渲染到 transcript），既有 `onError` 调用方逻辑不破。(b) `src/components/chat/ChatView.tsx` 监听 `chat-invalid-session-provider` 的 useEffect 里，在 `setInvalidSessionProvider({...})` 之后追加 `cappedSetMessages((prev) => prev.filter((m) => !(m.role === 'user' && typeof m.id === 'string' && m.id.startsWith('temp-'))))` —— 后端早期 gate 没有 `addMessage`，所以本地 `temp-*` 用户消息在 DB 是不存在的，直接清掉就和"这次发送从未发生"对齐；filter 用 `temp-*` 前缀（`sendMessage` 自己的 id 约定）+ `role === 'user'` 双闸，避免误删历史消息。**新增 2 条契约测试**钉死这条修复（`session-runtime-immunity.test.ts`）：(i) `stream-session-manager` 必须把 `err.code` 复制到抛出的 Error 上 + catch 分支必须有 `finalMessageContent: <flag> ? null : buildFinalContent(...)` 三元 + 该 flag 必须 gate 在 `=== 'INVALID_SESSION_PROVIDER'` —— 任何一段被未来重构去掉，silent 路径都会回退成"任何错误都生成气泡"或"全部失败都不生成"，两边都立刻红；(ii) `ChatView.tsx` 必须包含 `m.id.startsWith('temp-')` 的过滤模式 —— 重构若把 optimistic 消息 id 协议改了或忘了清理，立刻红。验证：`npx tsc --noEmit` clean、`npm run test` 1554 pass / 0 fail / 0 todo（前 1552 / +2 新 case）、`npx next build` 完成无 error（仅一条无关的 turbopack workspace-root warning）。**修复后用户路径**：旧会话 provider 被删 → 用户按发送 → 后端 409 → 红横幅出现 + transcript 完全干净（没有错误气泡、没有 ghost 用户消息）→ 用户点 picker 选新 provider → 横幅消失 → 再发送走新路径。
-- 2026-05-07：**Phase 2 Step 4b 409 INVALID_SESSION_PROVIDER 前端横幅完成**。Step 3a 已经让 chat route 在 session 指向已删除 provider 时返回 `{status: 409, code: 'INVALID_SESSION_PROVIDER', sessionProviderId, reason}`，但前端 `stream-session-manager` 只是抛 generic Error，用户看到 toast 不知道发生了什么、也没指引。修：(a) `stream-session-manager.ts` 的 `!response.ok` 分支加分支判断 `err?.code === 'INVALID_SESSION_PROVIDER'` → `dispatchEvent(new CustomEvent('chat-invalid-session-provider', { detail: { sessionId, sessionProviderId, reason } }))`，generic Error 仍照常抛（既有 onError 路径不破）；(b) `ChatView.tsx` 加 state `invalidSessionProvider` + `useEffect` 监听 `chat-invalid-session-provider` window event，sessionId 匹配才接，避免跨会话串台；同 ChatView 还加一个 `useEffect` 在 `currentProviderId !== invalidSessionProvider.sessionProviderId` 时自动 `setInvalidSessionProvider(null)`，picker 切完 provider 横幅自动消失，无需点 X；(c) banner 渲染：`role="alert"`、错误色 (`bg-status-error-muted`)、文案走 i18n key `chat.invalidSessionProvider.message` 带 `{providerId}` 占位，中英文都加；(d) 新增 2 条契约测试：`stream-session-manager` 必须 dispatch 该 event、ChatView 必须 listen + 必须有 `setInvalidSessionProvider(null)` 清除分支——任何一边重构掉就会立刻红。`npm run test` 1552 pass / 0 fail / 0 todo（前 1550 / +2 新 case），`npx next build` `✓ Compiled successfully in 37.9s`，typecheck clean。**用户行为路径**：旧会话 provider 在另一窗口被删 → 用户在这边按发送 → 后端 409 → 横幅出现"本会话保存的服务商「{id}」已经被删除，请在下方挑选其它服务商" → 用户点 picker 选新 provider → 横幅消失 → 再发送走新路径。
-- 2026-05-07：**Phase 2 Step 4a review fix (P2: autoTrigger 悄悄固化 runtime_pin)**。Codex 抓到 4a 的边界缺口：lazy-seed 对所有 `/api/chat` 请求都生效，包括 autoTrigger 的心跳 / 助理后台触发 / `/skill` 展开等 invisible 系统消息——用户没打开 chat、没按发送，仅仅因为后台心跳跑过去就把当时的全局 agent_runtime 写进 `session.runtime_pin`。承诺的"用户首次发送时固化"被破坏。修：lazy-seed 守卫从 `if (!session.runtime_pin)` 收紧到 `if (!session.runtime_pin && !autoTrigger)`，与同文件已有的 `addMessage` / `updateSessionTitle` 的 `!autoTrigger` 守卫保持一致语义。autoTrigger 仍然走 `effectiveSessionRuntime` 解析路由本次消息，只是不持久化决策。同步把契约 test 的正则收紧到 `!session.runtime_pin && !autoTrigger`（顺序无关），任何一边被未来重构去掉就会立刻红。`npm run test` 1550 pass / 0 fail，`npx next build` `✓ Compiled successfully in 29.4s`。
-- 2026-05-07：**Phase 2 Step 4a lazy migration 完成**。Step 2-3 把 `runtime_pin` 列、resolver wrapper、send route、streamClaude、UI hook 全打通了，但还有最后一公里：旧会话和 Step 3b 落地前创建的会话都是 `runtime_pin=''`，每次发送都会走"全局 fallback"路径，全局再变还是会漂。修：在 chat route 早期 gate 之后（resolver invalid 检查后），加 lazy-seed —— 当 `!session.runtime_pin` 时，调 `updateSessionRuntime(session_id, resolveRuntimeForSession(session))` 把当前已解析的 runtime label 锁进 DB，并同步 mutate 内存的 `session.runtime_pin` 让本次的 streamClaude 也读到 seeded 值。具体改动：(a) `app/api/chat/route.ts` import `updateSessionRuntime`；(b) 把原本 inline 的 `resolveRuntimeForSession(session)` 提到 `effectiveSessionRuntime` 局部，让 gate 和 lazy-seed 复用；(c) `if (!session.runtime_pin)` 分支调 `updateSessionRuntime` + 内存 mutate；(d) 新增静态 source 测试钉住三件事：导入 `updateSessionRuntime`、`!session.runtime_pin` 守卫调用、内存 mutate（保证本次 streamClaude 也读到新值，不只是下一轮）。语义结果：**用户首次发送的那一刻，session 就被钉死在当前 runtime 上，之后改全局 agent_runtime 不会再回头追这个 session**。`npm run test` 1550 pass / 0 fail / 0 todo，`npx next build` `✓ Compiled successfully in 29.2s`，typecheck clean。**剩两件事**：4b 前端消费 `INVALID_SESSION_PROVIDER` 409（chat route 已经返回正确 code，stream-session-manager 只是抛 generic Error，需要改成识别 code → 显示 inline banner）；4c Run 面板加切换 UI 让用户主动切 runtime / model / provider。
-- 2026-05-07：**Phase 2 Step 3b review fix (P1: client bundle 构建失败)**。Codex 浏览器 smoke 抓到 chat 页直接 Build Error：`Module not found: Can't resolve 'async_hooks'`，trace 是 `ChatView.tsx → chat-runtime.ts → runtime/index.ts → sdk-runtime.ts → claude-client.ts → async_hooks`。Step 3b round 1 把 `chatRuntimeParamForSession` 加到 `chat-runtime.ts`，但该文件顶层 `import { resolveRuntime } from './runtime'` 会把 Sentry / OpenTelemetry / child_process / async_hooks 一路带进 client bundle。这是 `npm run test` 看不到的洞——单测在 Node 里跑，async_hooks 本来就在；只有 `next build` / 浏览器 dev 会炸。修复：(a) 新建 `src/lib/chat-runtime-shared.ts`，零外部 import，只放纯类型 (`ChatRuntime`、`ChatRuntimeParam`) + 纯函数 (`isChatRuntimeParam`、`chatRuntimeParamForSession`)；(b) `src/lib/chat-runtime.ts` 用 `export type {...} from './chat-runtime-shared'` + `export { ... } from './chat-runtime-shared'` re-export，server-only 的 `getActiveChatRuntime / resolveChatRuntimeParam / resolveRuntimeForSession`（这三个需要 `./runtime`）继续留这里——既有 server 调用方零改动；(c) `ChatView.tsx` / `MessageInput.tsx` 改成从 `@/lib/chat-runtime-shared` 导入，附 import-comment 解释为啥这两个 client component 一定要走 shared。验证：`npx next build` → `✓ Compiled successfully in 31.4s`，`/chat` 和 `/chat/[id]` 都在 route table 里；`npm run test` 1549 pass / 0 fail / 0 todo（无回归）。**为什么要这条记录**：单纯 `npm run test` 通过不能保证 client bundle 能 build——以后再加 client 端 import 时一定要避开任何 `import './runtime'` 路径，shared 文件是稳定入口。
-- 2026-05-07：**Phase 2 Step 3b review fix (P1: 不兼容提示没阻止 send)**。Codex 抓到 Step 3b round 1 的洞：`sessionProviderRuntimeIncompatible` 只渲染 inline warning，但 MessageInput 没被禁用，`doStartStream` 在 `loaded` 状态仍然把 `resolvedProviderId/resolvedModel` (runtime-filtered fallback) 当作 request override 送给后端；Step 3a 的 lazy-seed 路径会把它们持久化到 session —— 静默改写在 wire 层重现。修复：(a) `doStartStream` 加 Guard 4，`sessionProviderRuntimeIncompatible` 时直接 console.warn + return；(b) MessageInput 的 `disabled` prop 加上同一 flag —— textarea + 发送按钮都禁用、但 `ModelSelectorDropdown` (picker) 不受 `disabled` 控制，用户依然能切换 provider；切换后 `providerWasFilteredOut` 翻转、disable 自动解开；(c) `useProviderModels.ts` 注释里"session-write callback persists a consistent pair"和"PATCH-synced back"两段过期描述清掉，改写明 hook 只暴露 runtime-filtered resolved pair 和 filtered-out signal，不持久化、由消费方显式用户动作决定 (P3 修复)；(d) 新增静态 source 测试钉住 ChatView 的两道闸（`if (sessionProviderRuntimeIncompatible) … return` 早返回 + MessageInput `disabled` prop 含该 flag）—— 任意一道被未来重构去掉、test 立刻红。`npm run test` 1549 pass / 0 fail（一次 transient SQLITE_BUSY 重跑通过）。
-- 2026-05-07：**Phase 2 Step 3b UI hook + ChatView 静默 PATCH 移除完成**。剩下两条 RED todo 转正：(#4) `useProviderModels` 把 `runtime: ChatRuntimeParam | null = 'auto'` 默认值删掉，签名变成必传——hazard regex 不再命中；(#6) ChatView 删掉 `providerWasFilteredOut` 触发的 fetch + PATCH effect，改成只读取该信号并把它折成 `sessionProviderRuntimeIncompatible` flag，渲染一段 inline 警告条（i18n key `chat.sessionProviderIncompatible.message`）告诉用户"本会话保存的服务商在当前执行引擎下不可用，请在下方挑一个其它服务商"，picker 已经按 session runtime 过滤、用户挑了之后走原有 `onProviderModelChange` 路径写盘。改的文件：(a) `src/lib/chat-runtime.ts` 新增纯函数 `chatRuntimeParamForSession(runtimePin)` —— 合法 pin → 该 pin、空/未知 → `'auto'`；(b) `src/hooks/useProviderModels.ts` 删 `'auto'` 默认；(c) `src/components/chat/MessageInput.tsx` 加必传 `runtime: ChatRuntimeParam` prop 并透传给 hook；(d) `src/components/chat/ChatView.tsx` 加 `runtimePin?: string` prop、用 `chatRuntimeParamForSession` 翻译、把 silent PATCH effect 改成 incompatible flag + 警告条；(e) `src/app/chat/[id]/page.tsx` 加载 `data.session.runtime_pin` 并 thread 到 ChatView；(f) `src/app/chat/page.tsx` 新会话页给 MessageInput 传 `runtime="auto"`；(g) `src/i18n/{zh,en}.ts` 新增 `chat.sessionProviderIncompatible.message`；(h) `src/__tests__/unit/chat-runtime.test.ts` 新增 3 条 GREEN 钉住 `chatRuntimeParamForSession` 三类输入。`npm run test` **1548 pass / 0 todo / 0 fail**——Phase 2 Step 1 钉的 6 条 RED + 1 条 YELLOW (schema gap) + 1 条 YELLOW (invalid signal) 全部转为 GREEN 防线。typecheck clean。**未做**（按 Step 3b 口径）：(a) lazy migration —— 旧会话首次发送时还没把全局 agent_runtime 固化到 `runtime_pin`，得 user 显式切换 UI 才会写；这部分 + Run 面板切换入口留 Step 4；(b) `INVALID_SESSION_PROVIDER` 409 的前端 inline UI 还没接 —— Step 3a 已经返回正确 code，但前端只是抛 generic Error；专门的"会话 provider 已删除"banner 也留 Step 4。
-- 2026-05-07：**Phase 2 Step 3a review fixes round 2 (P2 /compact bypass)**。前一轮把 invalid-session gate 移到了 Telegram notify / addMessage 之前，但仍然在 `/compact` 分支**之后**——`/compact` 内部的 `compressConversation({ providerId: provider_id || session.provider_id })` 会调 `resolveAuxiliaryModel`，旧会话 provider 被删时压缩仍可能静默走 env / 别的 provider，绕过 Step 3a 的"会话 provider 缺失 → 失败关闭"承诺。把 gate 整段再上移到 `setSessionRuntimeStatus(running)` 之后、`/compact` 分支**之前**——这样无论用户发普通消息还是 `/compact`，session 指向已删除 provider 的同一份 invalidReason 会立刻 409 INVALID_SESSION_PROVIDER 返回，没有压缩、没有 transcript 写入、没有任何静默绕路。`npm run test` 1543 pass / 2 todo / 0 fail（无回归）。
-- 2026-05-07：**Phase 2 Step 3a review fixes**。Codex 抓到两条都是 Step 3a 自身的 setup bug：(P1) `INVALID_SESSION_PROVIDER` 409 返回前已经 `addMessage(session_id, 'user', ...)` + 文件落盘 + 标题更新，导致旧会话 provider 被删时 transcript 留了一条"未发送成功"的用户消息，用户修复后重发会形成重复上下文；(P2) lazy-seed 只写 `session.model` 没写 `session.provider_id`，当请求和 session 都没带 provider_id 时 resolver 选出来的 DB provider 没固化，下条消息又会回到全局 fallback。**修复**：(a) 把 `resolveProviderForSession` + invalidReason 闸门整体上移到 `/compact` 处理之后、Telegram notify / 文件落盘 / `addMessage` / 标题更新**之前**，失败直接释放锁 + 409 出门，不留任何副作用；(b) `persistProviderId = provider_id || session.provider_id || resolved.provider?.id || ''`，把 resolver 的 DB provider 也加进 lazy-seed 链；(c) `streamClaude` 调用的 `providerId` 也换成 `persistProviderId || effectiveProviderId || undefined`，让本次发送本身就用 resolver 选出的 provider，不只是为下条消息打底。`npm run test` 1543 pass / 2 todo / 0 fail（Step 3a 修复无回归）；typecheck clean。
-- 2026-05-07：**Phase 2 Step 3a send route + streamClaude 接入 session-aware wrapper 完成**。改了三个文件：(a) `src/types/index.ts` 给 `ClaudeStreamOptions` 加 `sessionRuntimePin?: string` 字段；(b) `src/lib/claude-client.ts:streamClaude` 把最后那个 `resolveRuntime(getSetting('agent_runtime')...)` 改成"先看 sessionRuntimePin（chat-runtime label）→ 翻译成 agent_runtime 形式（claude_code → claude-code-sdk / codepilot_runtime → native）→ 没有就回退 getSetting('agent_runtime')"，console.log 同时打 session pin 和 global setting；(c) `src/app/api/chat/route.ts` 把 `resolveProviderUnified(...)` + `getActiveChatRuntime()` 替换成 `resolveProviderForSession({ provider_id, model, requestProviderId, requestModel }, { runtime: resolveRuntimeForSession(session) })`，检测 `resolved.invalidReason` → 返回 409 + `code: 'INVALID_SESSION_PROVIDER'` + `reason` + `sessionProviderId`（Step 3b 前端可消费），`effectiveModel` 链删掉 `|| getSetting('default_model')` 段，添加 lazy-seed（resolver 选了什么就 persist 到 session.model），streamClaude 调用加 `sessionRuntimePin: session.runtime_pin || undefined`。CLI-disabled env-only 兜底分支保留（不在 Step 3 范围；不同 hazard 形状）。**3 条 RED todos 转正为 pass**：#1 streamClaude no longer reads agent_runtime directly、#2 chat route uses session-aware runtime、#5 effectiveModel chain no longer falls back to global default_model。剩 2 条 RED 仍 todo（#4 useProviderModels default 'auto'、#6 ChatView silent PATCH），都属于 UI 层 Step 3b。`npm run test` **1543 pass / 2 todo / 0 fail**（前 1540 / 5；3 todo 转正、零回归）；typecheck clean。**未做**（按 Step 3a 口径）：UI 切换面板、`useProviderModels` runtime 参数化、`ChatView.providerWasFilteredOut` 静默 PATCH 改 inline 提示 —— 全部留给 Step 3b。
-- 2026-05-06：**Phase 2 Step 2 schema + session-aware resolver 完成**。给 `chat_sessions` 加 `runtime_pin TEXT NOT NULL DEFAULT ''` 列（安全 ALTER + 类型同步），加 `updateSessionRuntime` 写入器；`ResolvedProvider` 加 `invalidReason?: 'provider-missing' | 'model-missing' | 'runtime-incompatible'`；新增两个 wrapper：`resolveProviderForSession(intent)`（检测 session 指向已删除 provider 时返回 `invalidReason='provider-missing'`，其它走原 resolver chain）+ `resolveRuntimeForSession(session)`（pin 合法时用 pin，否则走全局）。Step 1 的两条 YELLOW todo 转正：`assert.match(dbSrc, /runtime_pin/)` ✅，`r.invalidReason === 'provider-missing'` ✅。新增 9 条 GREEN（healthy / missing / override / runtime pin 各分支）。RED 5 条仍 todo，留给 Step 3 动 send route + streamClaude + ChatView + useProviderModels 时转正。`npm run test` 1538 pass / 5 todo / 0 fail（Step 1 是 1529 / 7）。**Codex review 抓到一个 P2 setup bug**：原 wrapper 用 `&& !requestProviderId` 做"用户主动覆盖就跳过 session 校验"的短路，但 ChatView 实际 send 每次都把 session.provider_id 放进请求体回传，Step 3 一旦把 body 直接当 override，旧会话 provider 被删后会绕过 `provider-missing`。同会话内修复：改成验证**effective destination** —— 用 `isExplicitOverride = !!requestProviderId && requestProviderId !== sessionProviderId` 判断，effectiveProviderId 取真正会送过去那个 id，对它做 `getProvider()` 查找。这样 (a) body 回传同一 ghost id ≠ 真覆盖、仍命中 invalid，(b) 用户主动选了一个不存在的 ghost 也命中 invalid（顺手把"override 也得是真的"补上）。新增 2 条 GREEN 钉住这俩场景；原 override-trusted GREEN 仍通过。同时修了 `db.ts:updateSessionRuntime` docstring 误把 read side 写成 `lib/runtime/registry.ts`，改成正确的 `lib/chat-runtime.ts`。最终 `npm run test` 1540 pass / 5 todo / 0 fail（一次 transient SQLITE_BUSY，重跑通过）。**未做**（按 Step 2 口径）：没改 UI；没把 send route / streamClaude / picker hook 切到新 wrapper；没加 lazy migration（旧会话首次发送固化 runtime_pin）；没动 ChatView 静默 PATCH 路径 —— 全部留给 Step 3。下一步先做 send route + streamClaude 切 wrapper（转正 RED #1/#2/#5），UI 切换面板和 `providerWasFilteredOut` 改 inline 提示再下一轮。
-- 2026-05-06：**Phase 2 Step 1 现状审计 + 契约测试完成**。审计结论：今天的发送链路上有 **6 个**全局读点会让旧会话受全局默认影响（详见 Phase 2 Step 1 完成报告表格）。其中最严重的是 #1 `streamClaude()` 每次 send 重读 `agent_runtime`、#6 `ChatView` 在 runtime filter 不通过时静默 PATCH 替换 provider；这两个直接会让用户看到"我没动过这个会话，怎么换引擎/换 provider 了"。GREEN 部分（resolver 已经让 sessionModel 战胜全局；跨 provider 全局 pin 不会污染 session）也用测试钉住。新增 `src/__tests__/unit/session-runtime-immunity.test.ts`，初版 12 条 case 用 `assert.ok(r.lines > 0)` 反向锁定，**Codex review 抓到这是反向通过 / 伪绿色安全网**（"1537 全绿"会被误读成"会话漂移已修"），同会话内做了一次 reshape：(a) RED 部分改用 `{ todo: true }` + **target-state assertion**，今天 fail-as-todo（运行器报 `# todo N`，CI 不破），Step 2 删 hazard 后 pass，PR 摘掉 `{ todo: true }` 即转正；(b) RED grep 收紧到**精确 hazardous-pattern**（如 `providerWasFilteredOut` + `/api/chat/sessions/${sessionId}` + `method: 'PATCH'` 三件套连续匹配，而不是泛 `providerWasFilteredOut` 引用 —— 后者会让"留变量给 banner 读"误判未修）；(c) 删掉 drift point #3（registry.ts 是链根，Step 2 plan 明确保留 global-only），剩 5 条 RED；(d) YELLOW 也改用 `{ todo: true }` + target-state（resolver invalid signal、chat_sessions runtime 列）。最终 11 条 case：4 GREEN（永远 pass 的防回归）+ 7 todo（5 RED + 2 YELLOW，可见审计）。`npm run test` 1529 pass / 7 todo / 0 fail。**未做**（按 Step 1 口径）：没碰任何实现代码、没改 UI、没接 Codex adapter、没做多 Agent。Step 2 入口在 `chat_sessions` schema 加 `runtime_pin` 列 + `resolveProviderForSession / resolveRuntimeForSession` wrapper。
+如果一个任务只能描述成"改某个模块 / 抽某个接口"，但说不清用户会看到什么，就不能作为独立阶段开工。
+
+## 文档拆分历史
+
+- 2026-05-10：把 active/refactor-closeout.md 从 1017 行收口为约 100 行总控板。Phase 0+1 / Phase 2 / Phase 3 的全部计划文本与决策日志（共 48 条）按 Phase 拆到 `completed/refactor-phase-1-models-providers.md` / `refactor-phase-2-runtime-session.md` / `refactor-phase-3-background-tasks-notifications.md`。本文件只保留当前状态、未闭环风险、验收入口、最近 8 条决策、Phase 4-6 待启动方案。Review 同轮补两条 Phase 3 IA 尾巴到 TODO（Assistant 页任务列表残留 / Step 4 心跳文案诚实化），并把状态表 Phase 3 行从 ✅ 改成 🔄 以匹配实际未完成范围。
+- 2026-05-10：v8 收两条 TODO（`/chat?prefill=…` warm-navigation 回填 + `notification-manager` deliveries 保留 error 字段），总测试 1687 → 1694。
+- 2026-05-10：v9 收 Settings → Assistant 任务列表搬走（Phase 3 IA 闭环 1/2），总测试 1694 → 1700；TODO 减到 3 条。
+- 2026-05-10：v10 收助理心跳文案诚实化（Phase 3 IA 闭环 2/2），总测试 1700 → 1707；TODO 减到 2 条（复制对话 ID / 侧边栏与文件树互斥）；状态表 Phase 3 行从 🔄 改回 ✅，整条 Phase 3 主线连同 IA 全部闭环。
+- 2026-05-10：v11 一并收掉最后两条 TODO（复制 ID 报错 / 右栏 file-tree↔sidebar 互斥），新增 `lib/clipboard.ts:copyWithToast` 共享 helper + `RightRailMutexEnforcer` 组件；总测试 1707 → 1722；TODO 列表清空，下一步入口改为"挑一条 Phase 4-6 启动"。
+- 2026-05-10：v12 用户体感反馈两条 — Assistant 页"定时任务"link 卡 v9 加的入口直接删（与 Settings sidebar 全局任务入口重复，IA 噪声），心跳卡（CheckInCard）布局换行让长描述不再挤 Switch + 文案精简到一句；总测试 1722 → 1724；新增的契约测试只是把 v9 的"必须有 link"反过来钉成"完全不许有 task 入口"。
+- 2026-05-10：v13 review 反向 — 用户在 review 中指出 v11 把右栏 FileTree↔Sidebar 钉成 mutex 修反了方向：实际产品意图是叠加（用户希望同时浏览 file tree + 在 sidebar 上钉 markdown / artifact preview）。撤回 v11 的 `RightRailMutexEnforcer` + topbar 两个 onClick 的 mutex 三件套，`right-rail-mutex.test.ts` 文件名留作 git 历史，内容反向钉死"叠加可行 + 不许任一按钮自动关另一个"。总测试 1724 → 1723（净 -1：v11 多挂的 enforcer-存在理由 breadcrumb 已无用）。

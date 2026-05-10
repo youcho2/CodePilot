@@ -2,7 +2,9 @@
 
 中大型功能的执行计划，包含分阶段目标、进度状态和决策日志。
 
-> **本轮重构总控：[active/refactor-closeout.md](active/refactor-closeout.md)**。后续 ClaudeCode / Codex 只从这一个计划领取任务，不再从下方"被接管 / 暂缓"清单里的旧 active 计划自行开支线。
+> **日常入口：[active/refactor-closeout.md](active/refactor-closeout.md)**——这是约 120 行的总控板（当前 Phase 状态 / 下一步 / 未闭环风险 / 验收入口 / 最近 8 条决策 / Phase 4-6 待启动方案）。后续 ClaudeCode / Codex 只从这一个计划领取任务，不再从下方"被接管 / 暂缓"清单里的旧 active 计划自行开支线。
+>
+> **查历史细节：`completed/refactor-phase-*.md`**——总控板里的"历史归档"列直接 link 过去。Phase 1（模型同步与渠道扩展）/ Phase 2（Runtime 与会话执行）/ Phase 3（后台常驻、定时任务、通知）三段已完成的计划文本与全部 48 条决策日志按 Phase 归档，不要去 active 总控板里翻。
 
 **AI 须知：**
 - 新建执行计划放在 `active/`，完成后移至 `completed/`
@@ -73,7 +75,7 @@
 
 | 文件 | 主题 | 状态 |
 |------|------|------|
-| [active/refactor-closeout.md](active/refactor-closeout.md) | **重构收口总控（唯一总控板）**：把剩余工作压成 6 条用户可感知主线（计划收敛 / 模型与渠道 / Runtime 与会话 / 助理后台 / 多 Agent / 上下文可视化 / 视觉锚点） | Phase 0 ✅；Phase 1 Step 1-3 ✅；Step 5 Browser smoke ✅；Step 4 / catalog 主动核准待补；Phase 2 详细方案待审核 |
+| [active/refactor-closeout.md](active/refactor-closeout.md) | **重构收口总控板**（约 120 行）：当前 Phase 状态 / 下一步 / 未闭环风险 / 验收入口 / 最近决策 / Phase 4-6 待启动方案 | Phase 0-3 ✅；Phase 4-6 待启动；详见总控板"未闭环风险"清单 |
 | [active/issue-tracker.md](active/issue-tracker.md) | **统一问题跟踪**：所有 Bug / Feature Request / Sentry 监控的活动看板 | 持续维护 |
 
 ### 被 refactor-closeout 接管（保留作历史参考）
@@ -106,8 +108,13 @@
 
 ### Completed
 
+> Refactor closeout 的三个 Phase 归档在 `completed/refactor-phase-*.md`，由 active 总控板的"历史归档"列直接 link；下方按完成日期倒序排其它独立计划。
+
 | 文件 | 主题 | 完成日期 |
 |------|------|----------|
+| [completed/refactor-phase-3-background-tasks-notifications.md](completed/refactor-phase-3-background-tasks-notifications.md) | refactor-closeout Phase 3 归档（菜单栏常驻 + 全局定时任务 + 本机通知 + Bridge 解耦 + dev-server 内存收口）。**Step 4 助理心跳文案诚实化 + Settings → Assistant 任务列表搬走 未做**，见总控板 TODO | Step 1-3：2026-05-09 |
+| [completed/refactor-phase-2-runtime-session.md](completed/refactor-phase-2-runtime-session.md) | refactor-closeout Phase 2 归档（Runtime 与会话执行：session.runtime_pin + composer 切换面板 + 409 banner + transcript marker） | 2026-05-07 |
+| [completed/refactor-phase-1-models-providers.md](completed/refactor-phase-1-models-providers.md) | refactor-closeout Phase 1 归档（默认模型契约 + 套餐型白名单 + OpenRouter search-and-add + 自定义模型入口） | 2026-05-06 |
 | [completed/openrouter-search-and-add.md](completed/openrouter-search-and-add.md) | OpenRouter 取消全量目录物化 → 独立 search-models + validate-models 路由 + 「整理早期导入的目录」opt-in 入口；关闭 tech-debt #13 | 2026-05-06 |
 | [completed/tooling-assistant-surface-cleanup.md](completed/tooling-assistant-surface-cleanup.md) | Phase 2D Skills / MCP / CLI 三入口收敛到 `/plugins`（2D.0 + 2D.1 + 2D.2 + 2D.4 完成；2D.3 推迟、2D.5 独立） | 2026-05-01 |
 | [completed/markdown-artifact-overhaul.md](completed/markdown-artifact-overhaul.md) | Markdown 渲染/编辑 × Artifact 网页预览扩展 | 2026-04-21 |
