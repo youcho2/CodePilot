@@ -2,6 +2,18 @@
 // Database Models
 // ==========================================
 
+/**
+ * Phase 3 Step 4 — chat session origin. Default `'user'` for normal
+ * user-opened conversations; `'task'` for sessions created by the
+ * agent task runner (one per ai_task). Used by `ChatListPanel` to
+ * filter task-bound sessions out of the main list (only reachable
+ * from `/settings/tasks` or notification click). Heartbeat doesn't
+ * create new sessions — it reuses the user's buddy session — so
+ * heartbeat does NOT introduce an `'assistant'` value here; that
+ * dimension lives on the heartbeat task itself (`source` field).
+ */
+export type ChatSessionSource = 'user' | 'task';
+
 export interface ChatSession {
   id: string;
   title: string;
@@ -12,6 +24,12 @@ export interface ChatSession {
   working_directory: string;
   sdk_session_id: string; // Claude Agent SDK session ID for resume
   project_name: string;
+  /**
+   * Phase 3 Step 4 — see `ChatSessionSource`. Stored as TEXT (default
+   * `'user'`); ChatListPanel filters out `'task'` by default so
+   * task-bound sessions don't pollute the user-facing list.
+   */
+  source?: ChatSessionSource;
   status: 'active' | 'archived';
   mode?: 'code' | 'plan' | 'ask';
   needs_approval?: boolean;
@@ -158,6 +176,15 @@ export interface Message {
   created_at: string;
   token_usage: string | null; // JSON string of TokenUsage
   is_heartbeat_ack?: number; // 1 = heartbeat ack (prunable from transcript), 0 = normal
+  /**
+   * Phase 3 Step 4 — link this message to a `task_run_logs` row. When
+   * non-null the message was authored by a scheduled task / heartbeat
+   * run; MessageList uses this to render an inline TaskRunMarker
+   * before the run's first message. Critically NOT included in the
+   * LLM prompt context — it's a render-side join only, never written
+   * into `content`. NULL for normal user-authored messages.
+   */
+  task_run_id?: string | null;
   /**
    * SQLite rowid, monotonically increasing per insert — used as the compact
    * coverage boundary (see `context_summary_boundary_rowid`). Populated by
@@ -592,6 +619,13 @@ export interface SessionResponse {
 export interface MessagesResponse {
   messages: Message[];
   hasMore?: boolean;
+  /**
+   * Phase 3 Step 4 — inline-join of `task_run_logs` for messages whose
+   * `task_run_id` is non-null. Keyed by run id. Lets MessageList
+   * render `<TaskRunMarker />` without per-marker N+1 fetches. Empty
+   * (or omitted) when no message in this page has a task_run_id.
+   */
+  taskRuns?: Record<string, TaskRunSummary>;
 }
 
 export interface SuccessResponse {
@@ -792,6 +826,14 @@ export interface AssistantWorkspaceState {
   /** @deprecated Use heartbeatEnabled instead */
   dailyCheckInEnabled?: boolean;
   heartbeatEnabled: boolean;
+  /**
+   * Phase 3 Step 4 — interval (in hours) between background heartbeat
+   * runs when `heartbeatEnabled` is true. Drives `ensureHeartbeatTask`
+   * to derive a cron expression. Default 24 (once daily). Zero or
+   * undefined falls back to default; values < 1 are rejected at the
+   * API layer (avoiding background polling tighter than 1 hour).
+   */
+  heartbeatIntervalHours?: number;
   schemaVersion: number;
   hookTriggeredSessionId?: string;
   hookTriggeredAt?: string;
@@ -1288,6 +1330,25 @@ export interface ClaudeStreamOptions {
   context1m?: boolean;
   /** Enable generative UI widget guidelines MCP server (default: true) */
   generativeUI?: boolean;
+  /**
+   * Codex P1 — Phase 3 Step 4 follow-up. Marks this run as a special-
+   * purpose agent invocation so the runtime can apply tighter
+   * defaults than a normal user chat. Today only one value is
+   * defined:
+   *
+   *   - `'heartbeat'`: background heartbeat check. claude-client
+   *     skips registering codepilot-notify / cli-tools / dashboard /
+   *     media / image-gen / widget MCPs, drops external
+   *     user-configured `mcpServers`, restricts `allowedTools` to
+   *     `mcp__codepilot-memory` only, and sets `disallowedTools` to
+   *     block dangerous SDK builtins (Bash / Edit / Write / Task /
+   *     WebSearch / WebFetch). The agent-task-runner sets this on
+   *     the heartbeat branch; nothing else should set it.
+   *
+   * Absence (the default) preserves the current full-tool experience
+   * for normal user chats and ai_task / reminder runs.
+   */
+  agentMode?: 'heartbeat';
 }
 
 // ==========================================
@@ -1461,12 +1522,106 @@ export interface WeixinContextTokenRecord {
 // Scheduled Tasks
 // ==========================================
 
+/**
+ * Phase 3 Step 3 — task kind.
+ *
+ *   - 'reminder'  : the prompt text IS the notification body. Scheduler
+ *                   does NOT call any AI provider; to-the-minute fire
+ *                   works without a configured model. This is the
+ *                   "5 分钟后提醒我喝水" path.
+ *   - 'ai_task'   : the prompt is fed to the configured provider via
+ *                   `generateTextFromProvider`; the AI's text reply
+ *                   becomes the notification body. Original behavior.
+ *
+ * `kind` is REQUIRED on all newly-created tasks (server-side API + AI
+ * tool schemas validate). Legacy DB rows missing the column are
+ * defaulted to `'ai_task'` by the schema migration to preserve old
+ * behavior, but new creations must specify.
+ */
+export type ScheduledTaskKind = 'reminder' | 'ai_task';
+
+/**
+ * Phase 3 Step 4 — `scheduled_tasks.source` distinguishes user-created
+ * tasks from the system-injected assistant heartbeat task. Heartbeat is
+ * NOT a separate `kind` (kind stays `'ai_task'`); only `source` differs.
+ * The agent task runner branches on `source` to decide buddy-session vs
+ * task-bound-session and silent-contract vs normal-output handling.
+ */
+export type ScheduledTaskSource = 'user' | 'assistant_heartbeat';
+
+/**
+ * Phase 3 Step 4 — `task_run_logs.status` is a 5-state app-layer enum.
+ * Validated in `insertTaskRunLog` / `updateTaskRunLog` (no DB CHECK,
+ * since SQLite doesn't support modifying CHECK on existing tables and
+ * a table-rebuild migration is out of Step 4 scope). Legacy rows still
+ * carry `'success'` / `'error'`; UI maps those to succeeded / failed
+ * for display.
+ *
+ *   - `running` — the task is in flight.
+ *   - `succeeded` — completed normally (replaces legacy `'success'`).
+ *   - `failed` — terminated with an error (replaces legacy `'error'`).
+ *   - `waiting_for_permission` — agent hit a permission gate while
+ *     running headless; stream cleanly cancelled with partial output
+ *     persisted. User must enter the task-bound session and choose
+ *     "Re-run" or "Abandon" — there is no durable resume in v1.
+ *   - `cancelled` — user explicitly abandoned a paused run.
+ *
+ * `scheduled_tasks.last_status` is INTENTIONALLY NOT extended to 5
+ * states (the column has a SQLite CHECK constraint that would need a
+ * table rebuild to relax). Tasks page derives display status from the
+ * latest `task_run_logs` row; `last_status` keeps its legacy values.
+ */
+export type TaskRunStatus =
+  | 'running'
+  | 'succeeded'
+  | 'failed'
+  | 'waiting_for_permission'
+  | 'cancelled';
+
+export const TASK_RUN_STATUS_VALUES: ReadonlyArray<TaskRunStatus> = [
+  'running',
+  'succeeded',
+  'failed',
+  'waiting_for_permission',
+  'cancelled',
+];
+
+export function isTaskRunStatus(value: unknown): value is TaskRunStatus {
+  return typeof value === 'string' && (TASK_RUN_STATUS_VALUES as ReadonlyArray<string>).includes(value);
+}
+
+/**
+ * Inline-join shape returned by `/api/chat/sessions/[id]/messages` for
+ * messages with a non-null `task_run_id`. Lets MessageList render
+ * `<TaskRunMarker />` without N+1 fetches per marker.
+ */
+export interface TaskRunSummary {
+  id: string;
+  task_id: string;
+  status: TaskRunStatus | string; // string allows legacy values
+  task_name?: string;
+  task_kind?: ScheduledTaskKind;
+  task_source?: ScheduledTaskSource;
+  created_at: string;
+}
+
 export interface ScheduledTask {
   id: string;
   name: string;
   prompt: string;
   schedule_type: 'cron' | 'interval' | 'once';
   schedule_value: string;
+  /** Phase 3 Step 3 — see ScheduledTaskKind. */
+  kind: ScheduledTaskKind;
+  /**
+   * Phase 3 Step 4 — see ScheduledTaskSource. Optional on the type so
+   * existing test fixtures and API callsites that don't care about
+   * heartbeat distinction still type-check. DB column is `NOT NULL
+   * DEFAULT 'user'`, so reads from DB always populate this field;
+   * the type just lets create-shape inputs omit it.
+   * `'assistant_heartbeat'` is reserved for `ensureHeartbeatTask`.
+   */
+  source?: ScheduledTaskSource;
   next_run: string;
   last_run?: string;
   last_status?: 'success' | 'error' | 'skipped' | 'running';
@@ -1477,8 +1632,86 @@ export interface ScheduledTask {
   priority: 'low' | 'normal' | 'urgent';
   notify_on_complete: number;
   session_id?: string;
+  /**
+   * Phase 3 Step 4 follow-up — origin chat session this task was
+   * created from (when the model called `codepilot_schedule_task` from
+   * inside a user chat). Used by the runner to inherit working
+   * directory + provider/model/runtime_pin/permission_profile into the
+   * task-bound execution session on first fire. Distinct from
+   * `session_id`, which is the runner's lazily-created execution
+   * session. Undefined for legacy rows and for tasks created from
+   * non-chat UI surfaces (Settings → Tasks → Add).
+   */
+  origin_session_id?: string;
   working_directory?: string;
   permanent: number;
   created_at: string;
   updated_at: string;
+}
+
+/**
+ * Phase 3 Step 3 — notification delivery channels (canonical set).
+ * The `notification_deliveries` table uses a string column so future
+ * channels can be added without schema migrations, but the test
+ * suite asserts these values against the canonical type to catch
+ * typos.
+ */
+export type NotificationChannel =
+  | 'renderer-toast'
+  // `electron-native` covers BOTH the renderer-driven IPC path
+  // (window visible → useNotificationPoll calls electronAPI.notification.show)
+  // AND the bg-poller path (window hidden → main process drains the
+  // queue and shows OS native). v6 P1 fix unified them: the OS-level
+  // surface is identical from the user's POV, and tracking it as one
+  // row prevents "permanent queued" leftovers in delivery log when
+  // the window-hidden path acked under a separate channel name.
+  // The retired `electron-bg-native` literal is intentionally NOT
+  // listed here so a future regression can't smuggle it back in.
+  | 'electron-native'
+  | 'bridge-telegram'
+  | 'bridge-feishu'
+  | 'bridge-discord'
+  | 'bridge-qq';
+
+/**
+ * Phase 3 Step 3 — delivery row state machine.
+ *
+ *   queued        → channel was a candidate, ack pending
+ *   delivered     → channel ack'd success
+ *   error         → channel ack'd failure (with `error` text)
+ *   not_configured→ channel was a candidate but lacks credentials
+ *                   (e.g. urgent + bridge-telegram with no token);
+ *                   written immediately by `sendNotification`, no ack
+ *   skipped       → channel was a candidate but user disabled it
+ *                   (e.g. Bridge configured but Settings → Bridge off);
+ *                   also written immediately
+ */
+export type NotificationDeliveryStatus =
+  | 'queued'
+  | 'delivered'
+  | 'error'
+  | 'not_configured'
+  | 'skipped';
+
+export interface NotificationEvent {
+  id: string;
+  event_id: string;
+  task_id?: string;
+  session_id?: string;
+  source: 'codepilot' | 'external';
+  title: string;
+  body: string;
+  priority: 'low' | 'normal' | 'urgent';
+  status: 'queued';
+  created_at: string;
+}
+
+export interface NotificationDelivery {
+  id: string;
+  event_id: string;
+  channel: string;
+  status: NotificationDeliveryStatus;
+  error?: string | null;
+  created_at: string;
+  acked_at?: string | null;
 }

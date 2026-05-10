@@ -944,6 +944,7 @@ function migrateDb(db: Database.Database): void {
       prompt TEXT NOT NULL,
       schedule_type TEXT NOT NULL CHECK(schedule_type IN ('cron', 'interval', 'once')),
       schedule_value TEXT NOT NULL,
+      kind TEXT NOT NULL DEFAULT 'ai_task' CHECK(kind IN ('reminder', 'ai_task')),
       next_run TEXT NOT NULL,
       last_run TEXT,
       last_status TEXT CHECK(last_status IN ('success', 'error', 'skipped', 'running')),
@@ -966,6 +967,47 @@ function migrateDb(db: Database.Database): void {
   // Migration: add permanent column for existing databases
   safeAddColumn(db, "ALTER TABLE scheduled_tasks ADD COLUMN permanent INTEGER NOT NULL DEFAULT 0");
 
+  // Phase 3 Step 3 migration — `kind` column for legacy DBs. New rows
+  // MUST set this explicitly (API + tool schemas validate); the default
+  // here only covers pre-existing rows from before the split.
+  safeAddColumn(db, "ALTER TABLE scheduled_tasks ADD COLUMN kind TEXT NOT NULL DEFAULT 'ai_task'");
+
+  // Phase 3 Step 4 — `source` column for distinguishing user-created
+  // tasks from the system-injected assistant heartbeat task. NO CHECK
+  // constraint (SQLite can't ALTER CHECK on existing tables); validated
+  // in `createScheduledTask` / `updateScheduledTask`. `assistant_heartbeat`
+  // is the only non-default value today, used by ensureHeartbeatTask.
+  safeAddColumn(db, "ALTER TABLE scheduled_tasks ADD COLUMN source TEXT NOT NULL DEFAULT 'user'");
+
+  // Phase 3 Step 4 follow-up — `origin_session_id` column. Records the
+  // chat_sessions.id from which this task was originally created (the
+  // user was chatting in project A, the model called
+  // codepilot_schedule_task; that user-chat session is the "origin").
+  // Distinct from `session_id`, which is the runner's task-bound
+  // execution session lazily created on first fire. The runner reads
+  // origin_session_id to inherit working_directory / provider_id /
+  // model / runtime_pin / permission_profile / sdk_cwd into the new
+  // task-bound session, so a project-A task fires in project-A's
+  // working dir + provider, not whatever the global default happens
+  // to be when the scheduler ticks. Nullable: legacy rows + tasks
+  // created from non-chat surfaces (UI-driven Settings → Tasks "Add")
+  // simply have no origin and the runner falls back to whatever
+  // task.working_directory was POSTed.
+  safeAddColumn(db, "ALTER TABLE scheduled_tasks ADD COLUMN origin_session_id TEXT");
+
+  // Phase 3 Step 4 — `chat_sessions.source` column. Default `'user'`
+  // so existing rows stay user-visible; new task-bound sessions
+  // created by the agent task runner are tagged `'task'` and filtered
+  // out of the main ChatListPanel list (only reachable from
+  // /settings/tasks or notification click).
+  safeAddColumn(db, "ALTER TABLE chat_sessions ADD COLUMN source TEXT NOT NULL DEFAULT 'user'");
+
+  // Phase 3 Step 4 — `messages.task_run_id` column for the marker
+  // render-side join. Soft reference (no FK) so a deleted task run
+  // doesn't cascade-delete user-visible messages; render layer
+  // gracefully ignores missing runs. NEVER read by prompt builder.
+  safeAddColumn(db, "ALTER TABLE messages ADD COLUMN task_run_id TEXT");
+
   // Migration: set default_panel to 'file_tree' only if not already configured
   db.prepare(
     "INSERT OR IGNORE INTO settings (key, value) VALUES ('default_panel', 'file_tree')"
@@ -984,7 +1026,12 @@ function migrateDb(db: Database.Database): void {
     db.prepare("INSERT INTO settings (key, value) VALUES ('global_default_mode', ?)").run(mode);
   }
 
-  // Task execution history
+  // Task execution history. Phase 3 Step 3: a SINGLE row per execution
+  // — `runScheduledTaskNow` inserts one with status='running', then
+  // `updateTaskRunLog` flips it to 'success' / 'error' in place. Old
+  // callers used `insertTaskRunLog` only on terminal states; both
+  // patterns coexist (the function returns `runId` so the new path can
+  // grab it for later update).
   db.exec(`
     CREATE TABLE IF NOT EXISTS task_run_logs (
       id TEXT PRIMARY KEY,
@@ -993,10 +1040,49 @@ function migrateDb(db: Database.Database): void {
       result TEXT,
       error TEXT,
       duration_ms INTEGER,
+      notification_event_id TEXT,
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       FOREIGN KEY (task_id) REFERENCES scheduled_tasks(id) ON DELETE CASCADE
     );
     CREATE INDEX IF NOT EXISTS idx_task_run_logs_task_id ON task_run_logs(task_id);
+  `);
+
+  // Phase 3 Step 3 migration — add notification_event_id for legacy DBs.
+  safeAddColumn(db, "ALTER TABLE task_run_logs ADD COLUMN notification_event_id TEXT");
+
+  // Phase 3 Step 3 — notification events / deliveries split. The events
+  // table is the umbrella ("one task fire = one event"); deliveries is
+  // per-channel. v4 plan locks the relationship as 1:N. v5 plan adds
+  // UNIQUE(event_id, channel) so even a buggy ack route can't write
+  // two `delivered` rows for the same channel — DB layer rejects.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS notification_events (
+      id TEXT PRIMARY KEY,
+      event_id TEXT NOT NULL UNIQUE,
+      task_id TEXT,
+      session_id TEXT,
+      source TEXT NOT NULL DEFAULT 'codepilot',
+      title TEXT NOT NULL,
+      body TEXT NOT NULL,
+      priority TEXT NOT NULL CHECK(priority IN ('low', 'normal', 'urgent')),
+      status TEXT NOT NULL DEFAULT 'queued',
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_notification_events_task_id ON notification_events(task_id);
+    CREATE INDEX IF NOT EXISTS idx_notification_events_created_at ON notification_events(created_at);
+
+    CREATE TABLE IF NOT EXISTS notification_deliveries (
+      id TEXT PRIMARY KEY,
+      event_id TEXT NOT NULL,
+      channel TEXT NOT NULL,
+      status TEXT NOT NULL CHECK(status IN ('queued', 'delivered', 'error', 'not_configured', 'skipped')),
+      error TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      acked_at TEXT,
+      UNIQUE(event_id, channel),
+      FOREIGN KEY (event_id) REFERENCES notification_events(event_id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_notification_deliveries_event_id ON notification_deliveries(event_id);
   `);
 }
 
@@ -1004,8 +1090,24 @@ function migrateDb(db: Database.Database): void {
 // Session Operations
 // ==========================================
 
-export function getAllSessions(): ChatSession[] {
+/**
+ * Phase 3 Step 4: when `opts.includeSources` is supplied, only sessions
+ * whose `source` is in that list are returned. The standard caller
+ * (ChatListPanel) passes `['user']` so task-bound sessions don't
+ * pollute the user-facing list. Callers that legitimately want task
+ * sessions (TasksSection's "open execution session" link, the
+ * /api/chat/sessions list with `?source=task` query) pass the
+ * appropriate set. Defaults to no filter for backwards compatibility.
+ */
+export function getAllSessions(opts?: { includeSources?: ReadonlyArray<'user' | 'task'> }): ChatSession[] {
   const db = getDb();
+  const filter = opts?.includeSources;
+  if (filter && filter.length > 0) {
+    const placeholders = filter.map(() => '?').join(',');
+    return db
+      .prepare(`SELECT * FROM chat_sessions WHERE source IN (${placeholders}) ORDER BY updated_at DESC`)
+      .all(...filter) as ChatSession[];
+  }
   return db.prepare('SELECT * FROM chat_sessions ORDER BY updated_at DESC').all() as ChatSession[];
 }
 
@@ -1067,6 +1169,13 @@ export function updateSessionSummary(sessionId: string, summary: string, boundar
   ).run(summary, now, boundaryRowid, sessionId);
 }
 
+/**
+ * Phase 3 Step 4: `source` parameter (optional, defaults to `'user'`)
+ * tags task-bound sessions so ChatListPanel can hide them from the
+ * main user-facing list. The agent task runner passes `'task'` when
+ * creating an execution session for an `ai_task`. Existing call sites
+ * don't pass it and get the default `'user'`.
+ */
 export function createSession(
   title?: string,
   model?: string,
@@ -1075,25 +1184,53 @@ export function createSession(
   mode?: string,
   providerId?: string,
   permissionProfile?: string,
+  source?: 'user' | 'task',
 ): ChatSession {
   const db = getDb();
   const id = crypto.randomBytes(16).toString('hex');
   const now = new Date().toISOString().replace('T', ' ').split('.')[0];
   const wd = workingDirectory || '';
   const projectName = path.basename(wd);
+  const sourceValue = source === 'task' ? 'task' : 'user';
 
   db.prepare(
-    'INSERT INTO chat_sessions (id, title, created_at, updated_at, model, system_prompt, working_directory, sdk_session_id, project_name, status, mode, sdk_cwd, provider_id, permission_profile) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
-  ).run(id, title || 'New Chat', now, now, model || '', systemPrompt || '', wd, '', projectName, 'active', mode || 'code', wd, providerId || '', permissionProfile || 'default');
+    'INSERT INTO chat_sessions (id, title, created_at, updated_at, model, system_prompt, working_directory, sdk_session_id, project_name, status, mode, sdk_cwd, provider_id, permission_profile, source) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+  ).run(id, title || 'New Chat', now, now, model || '', systemPrompt || '', wd, '', projectName, 'active', mode || 'code', wd, providerId || '', permissionProfile || 'default', sourceValue);
 
   return getSession(id)!;
 }
 
-export function getLatestSessionByWorkingDirectory(workingDirectory: string): ChatSession | undefined {
+/**
+ * Phase 3 Step 4a (review fix) — `opts.includeSources` lets callers
+ * filter by `chat_sessions.source`. Without this, a workspace whose
+ * working directory happens to coincide with an `ai_task`'s
+ * `working_directory` would return that task's hidden execution
+ * session (`source='task'`) when looking up the buddy session,
+ * causing heartbeat speak-up to write into the wrong place.
+ *
+ * Backwards compatible: the second arg defaults to `undefined`, in
+ * which case the original "no filter" behavior is preserved (existing
+ * callers get the same result they always did). Heartbeat / buddy
+ * resolution should pass `{ includeSources: ['user'] }` to be
+ * explicit about wanting user-visible sessions only.
+ */
+export function getLatestSessionByWorkingDirectory(
+  workingDirectory: string,
+  opts?: { includeSources?: ReadonlyArray<'user' | 'task'> },
+): ChatSession | undefined {
   const db = getDb();
-  return db.prepare(
-    'SELECT * FROM chat_sessions WHERE working_directory = ? ORDER BY updated_at DESC LIMIT 1'
-  ).get(workingDirectory) as ChatSession | undefined;
+  const filter = opts?.includeSources;
+  if (filter && filter.length > 0) {
+    const placeholders = filter.map(() => '?').join(',');
+    return db
+      .prepare(
+        `SELECT * FROM chat_sessions WHERE working_directory = ? AND source IN (${placeholders}) ORDER BY updated_at DESC LIMIT 1`,
+      )
+      .get(workingDirectory, ...filter) as ChatSession | undefined;
+  }
+  return db
+    .prepare('SELECT * FROM chat_sessions WHERE working_directory = ? ORDER BY updated_at DESC LIMIT 1')
+    .get(workingDirectory) as ChatSession | undefined;
 }
 
 export function deleteSession(id: string): boolean {
@@ -1228,23 +1365,34 @@ export function getMessages(
   return { messages: rows, hasMore };
 }
 
+/**
+ * Phase 3 Step 4: addMessage accepts optional `metadata` for callers
+ * that need to associate a message with a `task_run_logs` row (the
+ * agent task runner does this for both the user prompt and the
+ * assistant result). The metadata is stored on the row, NEVER appended
+ * to `content`, so prompt builders constructing LLM context only see
+ * the actual conversation text. Backwards compatible — existing
+ * call sites still pass `tokenUsage` as the 4th positional arg.
+ */
 export function addMessage(
   sessionId: string,
   role: 'user' | 'assistant',
   content: string,
   tokenUsage?: string | null,
+  metadata?: { task_run_id?: string | null },
 ): Message {
   const db = getDb();
   const id = crypto.randomBytes(16).toString('hex');
   const now = new Date().toISOString().replace('T', ' ').split('.')[0];
+  const taskRunId = metadata?.task_run_id ?? null;
 
   db.prepare(
-    'INSERT INTO messages (id, session_id, role, content, created_at, token_usage) VALUES (?, ?, ?, ?, ?, ?)'
-  ).run(id, sessionId, role, content, now, tokenUsage || null);
+    'INSERT INTO messages (id, session_id, role, content, created_at, token_usage, task_run_id) VALUES (?, ?, ?, ?, ?, ?, ?)'
+  ).run(id, sessionId, role, content, now, tokenUsage || null, taskRunId);
 
   updateSessionTimestamp(sessionId);
 
-  return db.prepare('SELECT * FROM messages WHERE id = ?').get(id) as Message;
+  return db.prepare('SELECT *, rowid as _rowid FROM messages WHERE id = ?').get(id) as Message;
 }
 
 export function updateMessageContent(messageId: string, content: string): number {
@@ -3387,10 +3535,53 @@ export function bulkUpsertCliToolDescriptions(entries: Array<{ toolId: string; z
 export function createScheduledTask(task: Omit<ScheduledTask, 'id' | 'created_at' | 'updated_at'>): ScheduledTask {
   const db = getDb();
   const id = crypto.randomBytes(8).toString('hex');
-  db.prepare(`INSERT INTO scheduled_tasks (id, name, prompt, schedule_type, schedule_value, next_run, status, priority, notify_on_complete, session_id, working_directory, consecutive_errors) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`).run(
-    id, task.name, task.prompt, task.schedule_type, task.schedule_value, task.next_run, task.status || 'active', task.priority || 'normal', task.notify_on_complete ?? 1, task.session_id || null, task.working_directory || null
+  // Phase 3 Step 3: `kind` is required on the type; the API + tool
+  // schemas validate it server-side. We do NOT silently default here
+  // — letting an undefined slip through would re-introduce the
+  // "natural-language reminder accidentally tries to call a model"
+  // bug that the split was designed to prevent.
+  if (task.kind !== 'reminder' && task.kind !== 'ai_task') {
+    throw new Error(`createScheduledTask: kind must be 'reminder' or 'ai_task' (got ${JSON.stringify(task.kind)})`);
+  }
+  // Phase 3 Step 4: `source` distinguishes user tasks from system
+  // heartbeat injection. Default `'user'` for back-compat; explicit
+  // `'assistant_heartbeat'` only from `ensureHeartbeatTask`.
+  const sourceValue: 'user' | 'assistant_heartbeat' =
+    task.source === 'assistant_heartbeat' ? 'assistant_heartbeat' : 'user';
+  // v7 fix (defensive) — `notify_on_complete` is INTEGER in SQLite;
+  // better-sqlite3 throws on raw booleans. Callers should normalize
+  // upstream (the route + AI tools do), but we coerce here as a
+  // belt-and-suspenders so a future direct caller can't crash the DB
+  // by passing `true`/`false`.
+  const rawNotify = task.notify_on_complete as unknown;
+  const notifyValue: 0 | 1 =
+    rawNotify === false || rawNotify === 0 || rawNotify === '0'
+      ? 0
+      : 1;
+  db.prepare(`INSERT INTO scheduled_tasks (id, name, prompt, schedule_type, schedule_value, kind, source, next_run, status, priority, notify_on_complete, session_id, origin_session_id, working_directory, consecutive_errors) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`).run(
+    id, task.name, task.prompt, task.schedule_type, task.schedule_value, task.kind, sourceValue, task.next_run, task.status || 'active', task.priority || 'normal', notifyValue, task.session_id || null, task.origin_session_id || null, task.working_directory || null
   );
   return getScheduledTask(id)!;
+}
+
+/**
+ * Phase 3 Step 4 — system-injected heartbeat task helpers. Heartbeat
+ * is identified by `source = 'assistant_heartbeat'` (kind stays
+ * `'ai_task'`). `ensureHeartbeatTask` is idempotent: returns the
+ * existing row if one already exists, otherwise creates one with the
+ * given interval. `removeHeartbeatTask` is also idempotent (no-op
+ * when no row).
+ */
+export function getHeartbeatTask(): ScheduledTask | undefined {
+  const db = getDb();
+  return db
+    .prepare("SELECT * FROM scheduled_tasks WHERE source = 'assistant_heartbeat' LIMIT 1")
+    .get() as ScheduledTask | undefined;
+}
+
+export function removeHeartbeatTask(): void {
+  const db = getDb();
+  db.prepare("DELETE FROM scheduled_tasks WHERE source = 'assistant_heartbeat'").run();
 }
 
 export function getScheduledTask(id: string): ScheduledTask | undefined {
@@ -3408,7 +3599,12 @@ export function listScheduledTasks(opts?: { status?: string }): ScheduledTask[] 
 
 export function getDueTasks(): ScheduledTask[] {
   const db = getDb();
-  return db.prepare("SELECT * FROM scheduled_tasks WHERE next_run <= datetime('now') AND status = 'active' AND (last_status IS NULL OR last_status != 'running')").all() as ScheduledTask[];
+  // Phase 3 Step 3 fix — wrap `next_run` in datetime() so ISO strings
+  // ('2026-05-09T09:05:00.000Z') compare correctly against `datetime('now')`
+  // (which returns the space-separated form '2026-05-09 09:06:00').
+  // The pre-fix comparison `next_run <= datetime('now')` did a string
+  // collation that left "+5 minutes" once-tasks unfired in the same day.
+  return db.prepare("SELECT * FROM scheduled_tasks WHERE datetime(next_run) <= datetime('now') AND status = 'active' AND (last_status IS NULL OR last_status != 'running')").all() as ScheduledTask[];
 }
 
 export function updateScheduledTask(id: string, updates: Partial<ScheduledTask>): void {
@@ -3426,12 +3622,387 @@ export function updateScheduledTask(id: string, updates: Partial<ScheduledTask>)
   db.prepare(`UPDATE scheduled_tasks SET ${fields.join(', ')} WHERE id = ?`).run(...values);
 }
 
-export function insertTaskRunLog(log: { task_id: string; status: string; result?: string; error?: string; duration_ms: number }): void {
+/**
+ * Insert one task_run_logs row. Phase 3 Step 3 changes:
+ *   - returns the new row's id so `runScheduledTaskNow` can update it
+ *     in place when the run terminates;
+ *   - accepts optional `notification_event_id` so a successful fire
+ *     links to the notification event it produced;
+ *   - `duration_ms` is now optional (running rows don't have one yet).
+ *
+ * One execution = one row. Use `updateTaskRunLog(runId, …)` to flip
+ * 'running' → 'success' / 'error' on the same row instead of inserting
+ * a second.
+ */
+/**
+ * Phase 3 Step 4 — application-layer task_run_logs.status whitelist.
+ * Includes the 5-state v2 enum AND the legacy `'success'` / `'error'`
+ * values for backwards compatibility (existing rows stay untouched;
+ * legacy callers writing those values continue to work, while new
+ * call sites get TypeScript-enforced into the 5-state subset via
+ * `TaskRunStatus`). DB column has no CHECK constraint (SQLite
+ * limitation); validation happens here.
+ */
+const ALLOWED_TASK_RUN_STATUSES: ReadonlySet<string> = new Set([
+  'running',
+  'succeeded',
+  'failed',
+  'waiting_for_permission',
+  'cancelled',
+  // Legacy values still accepted on read; insert path also tolerates
+  // them so v6 / Phase 3 Step 3 callers don't break before they're
+  // migrated to the 5-state enum.
+  'success',
+  'error',
+  'skipped',
+]);
+
+function assertValidTaskRunStatus(status: string): void {
+  if (!ALLOWED_TASK_RUN_STATUSES.has(status)) {
+    throw new Error(
+      `[task_run_logs] invalid status '${status}'. Must be one of: ${Array.from(ALLOWED_TASK_RUN_STATUSES).join(', ')}`,
+    );
+  }
+}
+
+export function insertTaskRunLog(log: {
+  task_id: string;
+  status: string;
+  result?: string;
+  error?: string;
+  duration_ms?: number;
+  notification_event_id?: string;
+}): { runId: string } {
+  assertValidTaskRunStatus(log.status);
   const db = getDb();
   const id = crypto.randomBytes(8).toString('hex');
-  db.prepare('INSERT INTO task_run_logs (id, task_id, status, result, error, duration_ms) VALUES (?, ?, ?, ?, ?, ?)').run(
-    id, log.task_id, log.status, log.result || null, log.error || null, log.duration_ms
+  db.prepare(
+    'INSERT INTO task_run_logs (id, task_id, status, result, error, duration_ms, notification_event_id) VALUES (?, ?, ?, ?, ?, ?, ?)',
+  ).run(
+    id,
+    log.task_id,
+    log.status,
+    log.result ?? null,
+    log.error ?? null,
+    log.duration_ms ?? null,
+    log.notification_event_id ?? null,
   );
+  return { runId: id };
+}
+
+/**
+ * Update an existing task_run_logs row in place. v3 plan locks
+ * "one execution = one row" — terminal status flip happens here, not
+ * via a second insert. Caller passes only the fields that changed.
+ */
+export function updateTaskRunLog(
+  runId: string,
+  updates: {
+    status?: string;
+    result?: string | null;
+    error?: string | null;
+    duration_ms?: number | null;
+    notification_event_id?: string | null;
+  },
+): void {
+  if (updates.status !== undefined) {
+    assertValidTaskRunStatus(updates.status);
+  }
+  const db = getDb();
+  const fields: string[] = [];
+  const values: unknown[] = [];
+  if (updates.status !== undefined) {
+    fields.push('status = ?');
+    values.push(updates.status);
+  }
+  if (updates.result !== undefined) {
+    fields.push('result = ?');
+    values.push(updates.result);
+  }
+  if (updates.error !== undefined) {
+    fields.push('error = ?');
+    values.push(updates.error);
+  }
+  if (updates.duration_ms !== undefined) {
+    fields.push('duration_ms = ?');
+    values.push(updates.duration_ms);
+  }
+  if (updates.notification_event_id !== undefined) {
+    fields.push('notification_event_id = ?');
+    values.push(updates.notification_event_id);
+  }
+  if (fields.length === 0) return;
+  values.push(runId);
+  db.prepare(`UPDATE task_run_logs SET ${fields.join(', ')} WHERE id = ?`).run(...values);
+}
+
+/** Pull the recent execution history for a task — newest first. */
+export function listTaskRunLogs(taskId: string, limit = 50): Array<{
+  id: string;
+  task_id: string;
+  status: string;
+  result: string | null;
+  error: string | null;
+  duration_ms: number | null;
+  notification_event_id: string | null;
+  created_at: string;
+}> {
+  const db = getDb();
+  return db
+    .prepare(
+      'SELECT id, task_id, status, result, error, duration_ms, notification_event_id, created_at FROM task_run_logs WHERE task_id = ? ORDER BY created_at DESC LIMIT ?',
+    )
+    .all(taskId, limit) as Array<{
+      id: string;
+      task_id: string;
+      status: string;
+      result: string | null;
+      error: string | null;
+      duration_ms: number | null;
+      notification_event_id: string | null;
+      created_at: string;
+    }>;
+}
+
+/**
+ * Phase 3 Step 4 — inline-join helper used by
+ * `/api/chat/sessions/[id]/messages` to surface `task_run_logs` rows
+ * referenced by `messages.task_run_id` in a single round-trip. Returns
+ * a record keyed by run id so the API caller can build a flat
+ * `taskRuns` map without N+1 fetches per marker.
+ */
+export function getTaskRunSummariesByIds(
+  runIds: ReadonlyArray<string>,
+): Record<string, {
+  id: string;
+  task_id: string;
+  status: string;
+  task_name?: string;
+  task_kind?: 'reminder' | 'ai_task';
+  task_source?: 'user' | 'assistant_heartbeat';
+  created_at: string;
+}> {
+  if (runIds.length === 0) return {};
+  const db = getDb();
+  const placeholders = runIds.map(() => '?').join(',');
+  const rows = db
+    .prepare(
+      `SELECT trl.id, trl.task_id, trl.status, trl.created_at,
+              st.name AS task_name, st.kind AS task_kind, st.source AS task_source
+         FROM task_run_logs trl
+         LEFT JOIN scheduled_tasks st ON st.id = trl.task_id
+        WHERE trl.id IN (${placeholders})`,
+    )
+    .all(...runIds) as Array<{
+      id: string;
+      task_id: string;
+      status: string;
+      created_at: string;
+      task_name: string | null;
+      task_kind: string | null;
+      task_source: string | null;
+    }>;
+  const out: Record<string, {
+    id: string;
+    task_id: string;
+    status: string;
+    task_name?: string;
+    task_kind?: 'reminder' | 'ai_task';
+    task_source?: 'user' | 'assistant_heartbeat';
+    created_at: string;
+  }> = {};
+  for (const r of rows) {
+    out[r.id] = {
+      id: r.id,
+      task_id: r.task_id,
+      status: r.status,
+      task_name: r.task_name ?? undefined,
+      task_kind: (r.task_kind === 'reminder' || r.task_kind === 'ai_task') ? r.task_kind : undefined,
+      task_source: (r.task_source === 'assistant_heartbeat' || r.task_source === 'user') ? r.task_source : undefined,
+      created_at: r.created_at,
+    };
+  }
+  return out;
+}
+
+/**
+ * Phase 3 Step 4 — fetch a single task_run_logs row by id, used by
+ * `/api/tasks/runs/[runId]/cancel` and the WaitingForPermissionPanel
+ * to confirm a run is still in `waiting_for_permission` before
+ * cancelling. Returns undefined when the row doesn't exist.
+ */
+export function getTaskRunById(runId: string): {
+  id: string;
+  task_id: string;
+  status: string;
+  result: string | null;
+  error: string | null;
+  duration_ms: number | null;
+  notification_event_id: string | null;
+  created_at: string;
+} | undefined {
+  const db = getDb();
+  return db
+    .prepare(
+      'SELECT id, task_id, status, result, error, duration_ms, notification_event_id, created_at FROM task_run_logs WHERE id = ?',
+    )
+    .get(runId) as {
+      id: string;
+      task_id: string;
+      status: string;
+      result: string | null;
+      error: string | null;
+      duration_ms: number | null;
+      notification_event_id: string | null;
+      created_at: string;
+    } | undefined;
+}
+
+// ==========================================
+// Phase 3 Step 3 — notification events / deliveries
+// ==========================================
+
+/**
+ * Insert one notification_events row. v4 plan: 1 row per logical task
+ * notification. Caller is `notification-manager.sendNotification()`.
+ */
+export function insertNotificationEvent(evt: {
+  event_id: string;
+  task_id?: string | null;
+  session_id?: string | null;
+  source?: 'codepilot' | 'external';
+  title: string;
+  body: string;
+  priority: 'low' | 'normal' | 'urgent';
+}): void {
+  const db = getDb();
+  const id = crypto.randomBytes(8).toString('hex');
+  db.prepare(
+    `INSERT INTO notification_events (id, event_id, task_id, session_id, source, title, body, priority, status)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'queued')`,
+  ).run(
+    id,
+    evt.event_id,
+    evt.task_id ?? null,
+    evt.session_id ?? null,
+    evt.source ?? 'codepilot',
+    evt.title,
+    evt.body,
+    evt.priority,
+  );
+}
+
+/**
+ * v5 fix — UPSERT a delivery row by `(event_id, channel)`. ack route +
+ * `sendNotification` channel-enumeration both use this; the DB
+ * `UNIQUE(event_id, channel)` constraint plus this helper guarantees
+ * at most one row per pair regardless of how many ack hits land.
+ *
+ * Behavior:
+ *   - First call → INSERT; sets `created_at`, leaves `acked_at` null
+ *     unless the initial state is terminal (delivered / error /
+ *     not_configured / skipped).
+ *   - Subsequent calls → UPDATE existing row.
+ *   - State transition guard: a row already in a terminal SUCCESS
+ *     state ('delivered') will not be flipped to a terminal FAILURE
+ *     ('error') by a stale ack and vice versa. `queued → terminal`
+ *     and `not_configured → terminal` (config arrived after) are
+ *     allowed; everything else is a no-op (returns the existing row).
+ *
+ * Returns whether the call wrote anything (insert or update). False
+ * means the call was rejected by the state-transition guard.
+ */
+export function upsertNotificationDelivery(args: {
+  event_id: string;
+  channel: string;
+  status: 'queued' | 'delivered' | 'error' | 'not_configured' | 'skipped';
+  error?: string | null;
+}): boolean {
+  const db = getDb();
+  const existing = db
+    .prepare('SELECT status FROM notification_deliveries WHERE event_id = ? AND channel = ?')
+    .get(args.event_id, args.channel) as { status: string } | undefined;
+  const TERMINAL = new Set(['delivered', 'error']);
+  if (existing) {
+    if (existing.status === args.status) {
+      return true; // idempotent re-ack on the same terminal status
+    }
+    if (TERMINAL.has(existing.status) && existing.status !== args.status) {
+      return false; // refuse delivered ↔ error or any backwards transition
+    }
+    const acked = TERMINAL.has(args.status) ? new Date().toISOString() : null;
+    db.prepare(
+      'UPDATE notification_deliveries SET status = ?, error = ?, acked_at = ? WHERE event_id = ? AND channel = ?',
+    ).run(args.status, args.error ?? null, acked, args.event_id, args.channel);
+    return true;
+  }
+  const id = crypto.randomBytes(8).toString('hex');
+  const acked = TERMINAL.has(args.status) || args.status === 'not_configured' || args.status === 'skipped'
+    ? new Date().toISOString()
+    : null;
+  db.prepare(
+    `INSERT INTO notification_deliveries (id, event_id, channel, status, error, acked_at)
+     VALUES (?, ?, ?, ?, ?, ?)`,
+  ).run(id, args.event_id, args.channel, args.status, args.error ?? null, acked);
+  return true;
+}
+
+export function listNotificationDeliveries(eventId: string): Array<{
+  id: string;
+  event_id: string;
+  channel: string;
+  status: string;
+  error: string | null;
+  created_at: string;
+  acked_at: string | null;
+}> {
+  const db = getDb();
+  return db
+    .prepare(
+      'SELECT id, event_id, channel, status, error, created_at, acked_at FROM notification_deliveries WHERE event_id = ? ORDER BY created_at ASC',
+    )
+    .all(eventId) as Array<{
+      id: string;
+      event_id: string;
+      channel: string;
+      status: string;
+      error: string | null;
+      created_at: string;
+      acked_at: string | null;
+    }>;
+}
+
+export function getNotificationEvent(eventId: string): {
+  id: string;
+  event_id: string;
+  task_id: string | null;
+  session_id: string | null;
+  source: string;
+  title: string;
+  body: string;
+  priority: string;
+  status: string;
+  created_at: string;
+} | undefined {
+  const db = getDb();
+  return db
+    .prepare(
+      'SELECT id, event_id, task_id, session_id, source, title, body, priority, status, created_at FROM notification_events WHERE event_id = ?',
+    )
+    .get(eventId) as
+      | {
+          id: string;
+          event_id: string;
+          task_id: string | null;
+          session_id: string | null;
+          source: string;
+          title: string;
+          body: string;
+          priority: string;
+          status: string;
+          created_at: string;
+        }
+      | undefined;
 }
 
 export function deleteScheduledTask(id: string): boolean {
