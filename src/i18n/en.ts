@@ -1129,13 +1129,18 @@ const en = {
   'assistant.startOnboarding': 'Start Onboarding',
   'assistant.redoOnboarding': 'Redo Onboarding',
   'assistant.heartbeatTitle': 'Heartbeat',
-  // v10 — Honest framing: heartbeat is not a background timer. It
-  // only fires when the user opens a new chat in the assistant
-  // workspace (autoTrigger on an empty session).
-  // v12 — Trimmed so the description does not crowd the toggle on
-  // narrow cards; CheckInCard layout also moved Switch onto its own
-  // top row alongside just the title.
-  'assistant.heartbeatDesc': 'Triggers when you start a new chat in the assistant workspace — not a background timer. Stays silent (HEARTBEAT_OK) if all is clear; speaks up if something needs attention.',
+  // v10 → v13 — Honest framing, take two.
+  // v10 truthfully said "not a background timer" because at that
+  // point heartbeat only fired via the foreground autoTrigger when
+  // a new workspace chat opened. After Phase 3 Step 4 the trigger
+  // moved to the background scheduled_tasks poll loop and the
+  // foreground useAssistantTrigger path was removed entirely.
+  // Keeping the v10 wording would make users believe the
+  // "opening a page kicks off heartbeat" behavior is still around.
+  // New framing: heartbeat IS a background check now, runs at the
+  // user-configured interval, stays silent unless something needs
+  // attention.
+  'assistant.heartbeatDesc': 'Runs automatically in the background at your configured interval, checking HEARTBEAT.md. Stays silent (HEARTBEAT_OK) if all is clear; otherwise writes a message into your assistant session and notifies you.',
   'assistant.lastHeartbeatLabel': 'Last heartbeat',
   'assistant.heartbeatOk': 'All clear',
   'assistant.heartbeatNeeded': 'Heartbeat available',

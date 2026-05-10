@@ -1,28 +1,37 @@
 /**
- * v10 fix — Phase 3 IA closure 2/2: Settings → Assistant 心跳文案诚实化.
+ * v10 → v13 — Phase 3 IA closure: Settings → Assistant 心跳文案诚实化.
  *
- * Pre-fix: `assistant.heartbeatDesc` said "助理每次访问时检查 HEARTBEAT.md"
- * / "the assistant checks HEARTBEAT.md on each visit". "Each visit" / "每次
- * 访问" is ambiguous — readers can interpret it as a background timer
- * that runs while the app is open. The actual mechanic (in
- * `useAssistantTrigger.ts`) is far narrower: heartbeat fires ONCE per
- * empty new chat opened in the assistant workspace, via `autoTrigger`.
- * It does not run when the app is closed, when the user is on another
- * page, or on a periodic schedule.
+ * History:
+ *   v10 (the rev this file used to defend) said heartbeat is "not a
+ *   background timer" and "fires when you start a new chat in the
+ *   assistant workspace". That was true at the time: heartbeat
+ *   ran via the foreground useAssistantTrigger autoTrigger path.
  *
- * Pre-fix risk: users open the toggle, expect "the assistant will ping
- * me throughout the day", then feel cheated when nothing arrives until
- * they open a new chat. v6 → /settings/tasks page already absorbed all
- * "real timer" responsibility (Phase 3 Step 3 work); the heartbeat
- * description was the last surface still implying scheduler-like
- * semantics from a feature that has none.
+ *   v13 (Phase 3 Step 4 follow-up) moved heartbeat to the background
+ *   scheduler-only path: useAssistantTrigger no longer fires it,
+ *   /api/settings/workspace no longer returns needsHeartbeat, the
+ *   stale-check guard runs against (now - last_run >= interval).
+ *   Heartbeat IS a background timer now, scoped to the user's
+ *   configured cadence.
  *
- * Post-fix: zh + en `heartbeatDesc` explicitly state (a) the trigger
- * point is "starting a new chat in the assistant workspace" / "在助理
- * 工作区开始新对话时", and (b) it is NOT a background timer / 不是后台
- * 定时任务 — covering both the affirmative and negative half of the
- * honesty contract. This pins the copy so a future "tighten the
- * description" PR can't quietly drift back into ambiguous territory.
+ *   Keeping the v10 copy after v13 makes /settings/assistant lie
+ *   about how the toggle works — users who saw the previous
+ *   "opening a page kicks off heartbeat" behaviour wouldn't know
+ *   it had been removed.
+ *
+ * What this file pins (post-v13):
+ *   1. zh + en `heartbeatDesc` describe the new background-timer
+ *      reality: "runs automatically in the background at your
+ *      configured interval" / "按你设定的频率由后台自动检查".
+ *   2. The silent / speak-up contract is preserved (HEARTBEAT_OK
+ *      vs writes-into-session) — that part hasn't changed.
+ *   3. The OLD v10 strings are explicitly forbidden — "不是后台
+ *      定时任务" / "not a background timer" / "新对话" /
+ *      "new chat" / "助理工作区" / "assistant workspace" — so a
+ *      future "tighten the description" PR can't drift back to
+ *      the now-incorrect v10 wording.
+ *   4. Title key unchanged — "heartbeat" is still a fine name; the
+ *      change is mechanism description only.
  */
 
 import { describe, it } from 'node:test';
@@ -50,103 +59,128 @@ function extractValue(src: string, key: string): string {
   return m[1];
 }
 
-describe('heartbeat description must state both the actual trigger AND that it is not a background timer (v10)', () => {
-  it('zh.ts: heartbeatDesc explicitly negates the "background timer" misconception', () => {
+describe('heartbeat description must reflect the post-v13 background-scheduler reality', () => {
+  it('zh.ts: heartbeatDesc states heartbeat runs in the background on a schedule', () => {
     const zhDesc = extractValue(ZH, 'assistant.heartbeatDesc');
     assert.match(
       zhDesc,
-      /不是后台定时任务/,
-      'zh assistant.heartbeatDesc must contain the literal "不是后台定时任务" — without it the user can keep the misconception that enabling the toggle starts a periodic background scheduler',
+      /后台/,
+      'zh assistant.heartbeatDesc must say "后台" — Phase 3 Step 4 made heartbeat a background scheduler-driven check, and the description must match what the toggle actually does.',
+    );
+    // Must reference cadence (frequency / interval) so the user knows
+    // there's a knob in /settings/assistant for it.
+    assert.match(
+      zhDesc,
+      /频率|间隔/,
+      'zh assistant.heartbeatDesc must reference 频率 or 间隔 so users link the description to the heartbeatIntervalHours selector below.',
     );
   });
 
-  it('zh.ts: heartbeatDesc names the actual trigger event ("新对话" / open a new chat in the workspace)', () => {
-    const zhDesc = extractValue(ZH, 'assistant.heartbeatDesc');
-    // Affirmative half: must say WHEN it actually fires. Anchor on
-    // "新对话" because that is the unambiguous trigger word; "访问"
-    // is what the pre-fix copy said and is exactly the ambiguity we
-    // are trying to remove.
-    assert.match(
-      zhDesc,
-      /新对话/,
-      'zh assistant.heartbeatDesc must reference "新对话" (the specific trigger — opening a new chat in the assistant workspace). The pre-fix wording "每次访问时" left users unsure what counted as a "visit"',
-    );
-    assert.match(
-      zhDesc,
-      /助理工作区/,
-      'zh assistant.heartbeatDesc must scope the trigger to "助理工作区" — heartbeat does not fire from arbitrary chats elsewhere',
-    );
-  });
-
-  it('en.ts: heartbeatDesc explicitly negates the "background timer" misconception', () => {
+  it('en.ts: heartbeatDesc states heartbeat runs in the background on a schedule', () => {
     const enDesc = extractValue(EN, 'assistant.heartbeatDesc');
     assert.match(
       enDesc,
-      /not a background timer/i,
-      'en assistant.heartbeatDesc must contain the phrase "not a background timer" so the negative half of the contract is on the same page as the toggle',
-    );
-  });
-
-  it('en.ts: heartbeatDesc names the actual trigger event ("new chat" in the workspace)', () => {
-    const enDesc = extractValue(EN, 'assistant.heartbeatDesc');
-    assert.match(
-      enDesc,
-      /new chat/i,
-      'en assistant.heartbeatDesc must reference "new chat" — the pre-fix wording "on each visit" was ambiguous about what a visit meant',
+      /background/i,
+      'en assistant.heartbeatDesc must say "background" — heartbeat is a background scheduler-driven check now and the copy must say so.',
     );
     assert.match(
       enDesc,
-      /assistant workspace/i,
-      'en assistant.heartbeatDesc must scope the trigger to the "assistant workspace" — heartbeat does not fire from arbitrary chats',
+      /interval|cadence|frequency/i,
+      'en assistant.heartbeatDesc must reference interval / cadence / frequency so users connect it to the heartbeatIntervalHours selector below.',
     );
   });
 
-  it('zh.ts: heartbeatDesc retains the silence/speak-up semantics so the user knows what to expect after the trigger', () => {
+  it('zh.ts: heartbeatDesc retains the silent / speak-up semantics', () => {
     // The whole point of heartbeat is: silent if nothing to report,
-    // speaks up if there is. v10 only changes WHEN it fires — the
-    // OUTCOME description should not regress.
+    // speaks up if there is. v13 changes how it fires; the OUTCOME
+    // description must NOT regress.
     const zhDesc = extractValue(ZH, 'assistant.heartbeatDesc');
     assert.match(
       zhDesc,
-      /HEARTBEAT_OK|保持静默/,
-      'zh assistant.heartbeatDesc must keep the "stays silent / HEARTBEAT_OK" half so users know what enabled-and-quiet looks like',
+      /HEARTBEAT_OK|静默/,
+      'zh assistant.heartbeatDesc must keep the "stays silent / HEARTBEAT_OK" half so users know what enabled-and-quiet looks like.',
     );
     assert.match(
       zhDesc,
-      /主动告知|有需要关注/,
-      'zh assistant.heartbeatDesc must keep the "speaks up if something needs attention" half',
+      /(?:写入|告知|通知|关注)/,
+      'zh assistant.heartbeatDesc must keep the speak-up half — "writes into the session / sends a notification / something needs attention".',
     );
   });
 
-  it('en.ts: heartbeatDesc retains the silence/speak-up semantics', () => {
+  it('en.ts: heartbeatDesc retains the silent / speak-up semantics', () => {
     const enDesc = extractValue(EN, 'assistant.heartbeatDesc');
     assert.match(
       enDesc,
       /HEARTBEAT_OK|stays silent/i,
-      'en assistant.heartbeatDesc must keep the "stays silent / HEARTBEAT_OK" half',
+      'en assistant.heartbeatDesc must keep the "stays silent / HEARTBEAT_OK" half.',
     );
     assert.match(
       enDesc,
-      /speaks up|needs attention/i,
-      'en assistant.heartbeatDesc must keep the "speaks up" half',
+      /writes|notifies|notify|speaks up|needs attention/i,
+      'en assistant.heartbeatDesc must keep the speak-up half.',
     );
   });
 
-  it('the title key is unchanged — only the description was tightened', () => {
-    // Sanity guard: a future refactor that thinks "heartbeat is
-    // misleading, rename to checkin" would need to update this test
-    // and re-justify the rename. The honest fix in v10 is copy-only;
-    // the term "heartbeat" itself is fine because the actual semantics
-    // (silent if nothing wrong) match the medical/server analogy.
+  // ─ Negative pins on the OLD v10 wording ─────────────────────────
+  it('zh.ts: heartbeatDesc must NOT keep the old "不是后台定时任务" claim', () => {
+    const zhDesc = extractValue(ZH, 'assistant.heartbeatDesc');
+    assert.doesNotMatch(
+      zhDesc,
+      /不是后台定时任务/,
+      'zh assistant.heartbeatDesc must not contain "不是后台定时任务" — that claim was true under v10 (foreground autoTrigger) but became a lie after Phase 3 Step 4 moved heartbeat to the background scheduler. Keeping it would mislead users into thinking the old "open page → heartbeat fires" behavior is still around.',
+    );
+  });
+
+  it('zh.ts: heartbeatDesc must NOT pin the old "新对话" / "助理工作区" trigger story', () => {
+    const zhDesc = extractValue(ZH, 'assistant.heartbeatDesc');
+    assert.doesNotMatch(
+      zhDesc,
+      /新对话/,
+      'zh assistant.heartbeatDesc must not say heartbeat fires on opening "新对话" — that path was deleted from useAssistantTrigger in Phase 3 Step 4.',
+    );
+    assert.doesNotMatch(
+      zhDesc,
+      /助理工作区.*触发|开始.*对话.*触发/,
+      'zh assistant.heartbeatDesc must not phrase the trigger as "在助理工作区开始新对话时触发" — heartbeat trigger no longer depends on opening any chat.',
+    );
+  });
+
+  it('en.ts: heartbeatDesc must NOT keep the old "not a background timer" claim', () => {
+    const enDesc = extractValue(EN, 'assistant.heartbeatDesc');
+    assert.doesNotMatch(
+      enDesc,
+      /not a background timer/i,
+      'en assistant.heartbeatDesc must not say "not a background timer" — Phase 3 Step 4 made heartbeat exactly that. Keeping the v10 negation would directly contradict the new mechanism and confuse users about what enabling the toggle does.',
+    );
+  });
+
+  it('en.ts: heartbeatDesc must NOT pin the old "new chat" / "assistant workspace" trigger story', () => {
+    const enDesc = extractValue(EN, 'assistant.heartbeatDesc');
+    assert.doesNotMatch(
+      enDesc,
+      /new chat/i,
+      'en assistant.heartbeatDesc must not reference "new chat" as the trigger — that fired path is gone (useAssistantTrigger no longer starts heartbeat).',
+    );
+    assert.doesNotMatch(
+      enDesc,
+      /(?:starts?|fires?|triggers?)\s+when\s+you\s+(?:start|open).*(?:chat|workspace)/i,
+      'en assistant.heartbeatDesc must not phrase the trigger as "fires when you start a new chat in the assistant workspace" — heartbeat trigger no longer depends on opening any chat.',
+    );
+  });
+
+  it('the title key is unchanged — only the description was rewritten', () => {
+    // Sanity guard: this is a description-only fix. A future PR that
+    // wants to rename "heartbeat" itself needs to update this test
+    // and re-justify the rename.
     assert.match(
       ZH,
       /'assistant\.heartbeatTitle':\s*'心跳检测'/,
-      'zh assistant.heartbeatTitle should remain "心跳检测" — v10 is a description-only fix',
+      'zh assistant.heartbeatTitle should remain "心跳检测" — v13 is a description-only fix.',
     );
     assert.match(
       EN,
       /'assistant\.heartbeatTitle':\s*'Heartbeat'/,
-      'en assistant.heartbeatTitle should remain "Heartbeat" — v10 is a description-only fix',
+      'en assistant.heartbeatTitle should remain "Heartbeat" — v13 is a description-only fix.',
     );
   });
 });

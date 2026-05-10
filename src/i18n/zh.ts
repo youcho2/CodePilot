@@ -1116,11 +1116,14 @@ const zh: Record<TranslationKey, string> = {
   'assistant.startOnboarding': '开始引导',
   'assistant.redoOnboarding': '重新引导',
   'assistant.heartbeatTitle': '心跳检测',
-  // v10 — 文案诚实化：心跳不是后台定时任务，只在用户打开助理工作区
-  // 新对话（autoTrigger 命中空会话）时跑一次。
-  // v12 — 文案进一步精简，避免与开关挤在同一行；CheckInCard 也已改成
-  // 标题+Switch 顶部一行 / 描述全宽换行。
-  'assistant.heartbeatDesc': '在助理工作区开始新对话时触发——不是后台定时任务。无事保持静默（HEARTBEAT_OK），有事主动告知。',
+  // v10 → v13 — 文案再诚实化。
+  // v10 时心跳确实只在打开助理工作区新对话时触发（autoTrigger 路径），
+  // 文案就声明"不是后台定时任务"。
+  // Phase 3 Step 4 之后心跳改成由后台 scheduled_tasks 调度，前台
+  // useAssistantTrigger 不再启动检查。沿用 v10 文案会让用户以为
+  // 旧的"打开页面卡心跳"行为还在。这里改回口径：按用户配置的间隔
+  // 由后台自动检查 HEARTBEAT.md，无事静默，有事写入助理会话并通知。
+  'assistant.heartbeatDesc': '按你设定的频率由后台自动检查 HEARTBEAT.md。无事时静默（HEARTBEAT_OK）；有需要关注的事项才写入助理会话并发送通知。',
   'assistant.lastHeartbeatLabel': '上次心跳',
   'assistant.heartbeatOk': '一切正常',
   'assistant.heartbeatNeeded': '可执行心跳',
