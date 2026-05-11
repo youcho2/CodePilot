@@ -2,7 +2,8 @@ export interface MarketingContent {
   hero: {
     notice?: {
       label: string;
-      text: string;
+      english: string;
+      chinese: string;
       cta: string;
       href: string;
     };
@@ -72,8 +73,9 @@ export interface MarketingContent {
 export const en: MarketingContent = {
   hero: {
     notice: {
-      label: 'Project update',
-      text: 'CodePilot is being actively refactored for the next release: session-safe runtimes, background tasks and local notifications, scheduled AI work, stronger Markdown/Artifact previews, and local agent adapters such as Codex.',
+      label: 'Project update / 项目公告',
+      english: 'CodePilot is being actively refactored for the next release: session-safe runtimes, background resident tasks and local notifications, scheduled AI work, stronger Markdown/Artifact previews, and local agent adapters such as Codex.',
+      chinese: 'CodePilot 正在为下一轮发布进行产品重构：会话级 Runtime、后台常驻任务与本机通知、定时 AI 任务、Markdown / Artifact 预览，以及 Codex 等本地 Agent 适配会陆续稳定下来。',
       cta: 'Follow on GitHub',
       href: 'https://github.com/op7418/CodePilot',
     },

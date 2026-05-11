@@ -12,8 +12,6 @@ export function HeroSection({
   content: MarketingContent['hero'];
   locale: string;
 }) {
-  const prefix = locale === 'en' ? '' : `/${locale}`;
-
   return (
     <section className="relative overflow-hidden">
       {/* Blue-gray gradient background */}
@@ -27,17 +25,25 @@ export function HeroSection({
               href={content.notice.href}
               target="_blank"
               rel="noopener noreferrer"
-              className="mx-auto mb-7 flex max-w-3xl flex-col items-center gap-2 rounded-lg border border-border/70 bg-background/80 px-5 py-4 text-sm text-muted-foreground shadow-sm backdrop-blur transition-colors hover:border-primary/40 hover:text-foreground sm:flex-row sm:text-left"
+              className="group mx-auto mb-7 block max-w-3xl rounded-lg bg-[linear-gradient(90deg,hsl(var(--color-1)),hsl(var(--color-5)),hsl(var(--color-3)),hsl(var(--color-4)),hsl(var(--color-2)))] p-px text-left shadow-sm transition-transform hover:-translate-y-0.5"
             >
-              <span className="shrink-0 rounded-full bg-primary/10 px-3 py-1 text-xs font-medium uppercase tracking-[0.12em] text-primary">
-                {content.notice.label}
-              </span>
-              <span className="min-w-0 flex-1 leading-relaxed">
-                {content.notice.text}
-              </span>
-              <span className="shrink-0 text-sm font-medium text-primary">
-                {content.notice.cta}
-              </span>
+              <div className="rounded-[7px] bg-background/95 px-5 py-4 backdrop-blur">
+                <div className="flex flex-wrap items-center justify-center gap-x-3 gap-y-1 text-sm font-semibold text-foreground sm:justify-start">
+                  <span aria-hidden="true">🚧</span>
+                  <span>{content.notice.label}</span>
+                  <span className="text-primary transition-colors group-hover:text-foreground">
+                    {content.notice.cta}
+                  </span>
+                </div>
+                <p className="mt-3 text-[15px] leading-relaxed text-muted-foreground">
+                  <span className="font-semibold text-foreground">EN</span>{' '}
+                  {content.notice.english}
+                </p>
+                <p className="mt-1.5 text-[15px] leading-relaxed text-muted-foreground">
+                  <span className="font-semibold text-foreground">中文</span>{' '}
+                  {content.notice.chinese}
+                </p>
+              </div>
             </a>
           ) : null}
 

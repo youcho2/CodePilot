@@ -3,8 +3,9 @@ import type { MarketingContent } from './en';
 export const zh: MarketingContent = {
   hero: {
     notice: {
-      label: '项目公告',
-      text: 'CodePilot 正在为下一轮发布进行产品重构：会话级 Runtime、后台任务与本机通知、定时 AI 任务、Markdown / Artifact 预览，以及 Codex 等本地 Agent 适配会陆续稳定下来。',
+      label: '项目公告 / Project update',
+      english: 'CodePilot is being actively refactored for the next release: session-safe runtimes, background resident tasks and local notifications, scheduled AI work, stronger Markdown/Artifact previews, and local agent adapters such as Codex.',
+      chinese: 'CodePilot 正在为下一轮发布进行产品重构：会话级 Runtime、后台常驻任务与本机通知、定时 AI 任务、Markdown / Artifact 预览，以及 Codex 等本地 Agent 适配会陆续稳定下来。',
       cta: '在 GitHub 上关注',
       href: 'https://github.com/op7418/CodePilot',
     },
