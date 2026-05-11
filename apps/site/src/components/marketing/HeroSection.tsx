@@ -22,6 +22,25 @@ export function HeroSection({
       <div className="relative">
         {/* Logo + Title + CTA */}
         <div className="mx-auto max-w-[800px] px-6 pt-8 text-center md:pt-10 lg:pt-12">
+          {content.notice ? (
+            <a
+              href={content.notice.href}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="mx-auto mb-7 flex max-w-3xl flex-col items-center gap-2 rounded-lg border border-border/70 bg-background/80 px-5 py-4 text-sm text-muted-foreground shadow-sm backdrop-blur transition-colors hover:border-primary/40 hover:text-foreground sm:flex-row sm:text-left"
+            >
+              <span className="shrink-0 rounded-full bg-primary/10 px-3 py-1 text-xs font-medium uppercase tracking-[0.12em] text-primary">
+                {content.notice.label}
+              </span>
+              <span className="min-w-0 flex-1 leading-relaxed">
+                {content.notice.text}
+              </span>
+              <span className="shrink-0 text-sm font-medium text-primary">
+                {content.notice.cta}
+              </span>
+            </a>
+          ) : null}
+
           <Image
             src="/logo.png"
             alt="CodePilot"

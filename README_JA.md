@@ -11,6 +11,8 @@
 
 [English](./README.md) | [中文文档](./README_CN.md)
 
+> **プロジェクトのお知らせ（2026 年 5 月）：** CodePilot は次の正式リリースに向けて、比較的大きな製品リファクタリングを進めています。セッション単位の Runtime、バックグラウンド常駐とローカル通知、スケジュールされた AI タスク、Markdown / Artifact プレビューの安定化、Codex などのローカル Agent 連携を整備中です。既存リリースは引き続き利用できます。次のバージョンでは、これらの基盤を安定して使いやすくすることを優先します。
+
 ![CodePilot](https://github.com/user-attachments/assets/9750450a-9f6f-49ce-acd4-c623a4e24281)
 
 ---

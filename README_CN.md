@@ -11,6 +11,8 @@
 
 [English](./README.md) | [日本語](./README_JA.md)
 
+> **项目公告（2026 年 5 月）：** CodePilot 正在进行一次较大的产品重构，为下一轮正式发布整理底层能力。重点包括会话级 Runtime、后台常驻与本机通知、定时提醒和后台 AI 任务、Markdown / Artifact 预览稳定性，以及 Codex 等本地 Agent 适配。现有版本仍可下载使用；接下来的版本会优先把这些基础能力做稳、做好用。
+
 ![CodePilot](https://github.com/user-attachments/assets/9750450a-9f6f-49ce-acd4-c623a4e24281)
 
 ---

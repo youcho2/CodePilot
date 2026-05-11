@@ -11,6 +11,8 @@
 
 [中文文档](./README_CN.md) | [日本語](./README_JA.md)
 
+> **Project update (May 2026):** CodePilot is undergoing a larger product refactor before the next release. We are rebuilding the runtime/session foundation, background tasks and local notifications, scheduled AI work, Markdown/Artifact previews, and local agent adapters such as Codex. Existing releases remain available; the next versions will focus on making these foundations stable and useful.
+
 ![CodePilot](https://github.com/user-attachments/assets/9750450a-9f6f-49ce-acd4-c623a4e24281)
 
 ---

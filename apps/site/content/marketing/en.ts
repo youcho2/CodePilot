@@ -1,5 +1,11 @@
 export interface MarketingContent {
   hero: {
+    notice?: {
+      label: string;
+      text: string;
+      cta: string;
+      href: string;
+    };
     title: string;
     tagline: string;
     cta: string;
@@ -65,6 +71,12 @@ export interface MarketingContent {
 
 export const en: MarketingContent = {
   hero: {
+    notice: {
+      label: 'Project update',
+      text: 'CodePilot is being actively refactored for the next release: session-safe runtimes, background tasks and local notifications, scheduled AI work, stronger Markdown/Artifact previews, and local agent adapters such as Codex.',
+      cta: 'Follow on GitHub',
+      href: 'https://github.com/op7418/CodePilot',
+    },
     title: 'CodePilot',
     tagline: 'Your multi-model AI agent for',
     cta: 'Download',

@@ -2,6 +2,12 @@ import type { MarketingContent } from './en';
 
 export const zh: MarketingContent = {
   hero: {
+    notice: {
+      label: '项目公告',
+      text: 'CodePilot 正在为下一轮发布进行产品重构：会话级 Runtime、后台任务与本机通知、定时 AI 任务、Markdown / Artifact 预览，以及 Codex 等本地 Agent 适配会陆续稳定下来。',
+      cta: '在 GitHub 上关注',
+      href: 'https://github.com/op7418/CodePilot',
+    },
     title: 'CodePilot',
     tagline: '你的多模型 AI Agent，专注',
     cta: '下载',
