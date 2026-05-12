@@ -3,13 +3,6 @@
 import { cn } from '@/lib/utils';
 import { Eye, Image, NotePencil } from '@/components/ui/icon';
 import { Button } from '@/components/ui/button';
-import {
-  Artifact,
-  ArtifactHeader,
-  ArtifactTitle,
-  ArtifactDescription,
-  ArtifactContent,
-} from '@/components/ai-elements/artifact';
 import { useTranslation } from '@/hooks/useTranslation';
 
 /**
@@ -72,12 +65,12 @@ function getExt(name: string): string {
 }
 
 /**
- * A single Artifact card for one previewable file.
+ * One previewable file rendered as a single-row strip card.
  *
- * Layout: <Artifact> wrapper → header (filename + path + operation tag)
- * → content region with action buttons. The buttons are deliberately
- * large and always-visible — not hover-revealed icons — so users can
- * see the entry at a glance without discovering it by accident.
+ * Layout: left column stacks filename (with inline Created/Modified pill)
+ * over the absolute path; right column holds the Preview button + optional
+ * Export action. Matches docs/design.md `rounded-lg bg-card border-border/50`
+ * — no nested header/content sections, no shadow.
  */
 function ArtifactFileCard({
   file,
@@ -95,37 +88,34 @@ function ArtifactFileCard({
   const label = file.operation === 'created' ? 'Created' : 'Modified';
 
   return (
-    <Artifact className="mt-2">
-      <ArtifactHeader className="py-2">
-        <div className="min-w-0 flex-1">
-          <ArtifactTitle className="truncate flex items-center gap-1.5">
-            <NotePencil size={12} className="shrink-0 text-muted-foreground" />
-            <span className="truncate">{file.name}</span>
-          </ArtifactTitle>
-          <ArtifactDescription
-            className="truncate text-xs mt-0.5"
-            title={file.path}
+    <div className="mt-2 flex items-center gap-3 rounded-lg border border-border/50 bg-card px-4 py-3">
+      <div className="min-w-0 flex-1">
+        <p className="flex min-w-0 items-center gap-1.5 text-sm font-medium text-foreground">
+          <NotePencil size={12} className="shrink-0 text-muted-foreground" />
+          <span className="truncate">{file.name}</span>
+          <span
+            className={cn(
+              'shrink-0 rounded px-1 py-0 text-[10px] font-medium',
+              file.operation === 'created'
+                ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
+                : 'bg-amber-500/10 text-amber-600 dark:text-amber-400',
+            )}
           >
-            <span className="font-mono text-[10px] text-muted-foreground/60">{file.path}</span>
-            <span className="mx-1.5 text-muted-foreground/40">·</span>
-            <span
-              className={cn(
-                'inline-block rounded px-1 py-0 text-[10px] font-medium',
-                file.operation === 'created'
-                  ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
-                  : 'bg-amber-500/10 text-amber-600 dark:text-amber-400',
-              )}
-            >
-              {label}
-            </span>
-          </ArtifactDescription>
-        </div>
-      </ArtifactHeader>
+            {label}
+          </span>
+        </p>
+        <p
+          className="mt-0.5 truncate font-mono text-[10px] text-muted-foreground/60"
+          title={file.path}
+        >
+          {file.path}
+        </p>
+      </div>
       {(canPreview || canExport) && (
-        <ArtifactContent className="flex flex-wrap items-center gap-2 p-3">
+        <div className="flex shrink-0 items-center gap-2">
           {canPreview && (
             <Button
-              variant="default"
+              variant="outline"
               size="sm"
               onClick={() => onPreview?.(file)}
               className="gap-1.5"
@@ -136,18 +126,18 @@ function ArtifactFileCard({
           )}
           {canExport && (
             <Button
-              variant="outline"
-              size="sm"
+              variant="ghost"
+              size="icon-sm"
               onClick={() => onExportLongShot?.(file)}
-              className="gap-1.5"
+              title={t('diffSummary.exportLongShot')}
+              aria-label={t('diffSummary.exportLongShot')}
             >
               <Image size={14} />
-              {t('diffSummary.exportLongShot')}
             </Button>
           )}
-        </ArtifactContent>
+        </div>
       )}
-    </Artifact>
+    </div>
   );
 }
 

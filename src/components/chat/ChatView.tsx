@@ -965,6 +965,7 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
         model: sendModel,
         providerId: sendProviderId,
         files,
+        workingDirectory,
         systemPromptAppend,
         pendingImageNotices: notices,
         // 'auto' sentinel means "no explicit effort" — filter it here so

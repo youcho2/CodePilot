@@ -12,6 +12,12 @@
 
 import { consumeSSEStream } from '@/hooks/useSSEStream';
 import { transferPendingToMessage } from '@/lib/image-ref-store';
+import { dispatchFileChanged } from '@/lib/file-changed-event';
+import {
+  extractWritePath,
+  isWriteTool,
+  resolveToolPath,
+} from '@/lib/file-write-tools';
 import type {
   ToolUseInfo,
   ToolResultInfo,
@@ -30,6 +36,11 @@ import type {
 
 interface ActiveStream {
   sessionId: string;
+  /** Absolute working directory for the session. Stashed so the
+   *  onToolResult handler can resolve relative tool paths into the
+   *  same absolute form PreviewPanel uses, which is what the
+   *  codepilot:file-changed listener matches against. */
+  workingDirectory: string | null;
   abortController: AbortController;
   snapshot: SessionStreamSnapshot;
   idleCheckTimer: ReturnType<typeof setInterval> | null;
@@ -79,6 +90,11 @@ export interface StartStreamParams {
   onInitMeta?: (meta: { tools?: unknown; slash_commands?: unknown; skills?: unknown }) => void;
   /** Display-only content for user message (e.g. /skillName instead of expanded prompt) */
   displayOverride?: string;
+  /** Session's working directory. When provided, the stream resolves
+   *  relative tool paths to absolute before dispatching the
+   *  codepilot:file-changed event, so the PreviewPanel listener (which
+   *  carries absolute filePaths) can match against them. */
+  workingDirectory?: string | null;
 }
 
 // ==========================================
@@ -198,6 +214,7 @@ export function startStream(params: StartStreamParams): void {
 
   const stream: ActiveStream = {
     sessionId: params.sessionId,
+    workingDirectory: params.workingDirectory ?? null,
     abortController,
     snapshot: {
       sessionId: params.sessionId,
@@ -397,6 +414,26 @@ async function runStream(stream: ActiveStream, params: StartStreamParams): Promi
         emit(stream, 'snapshot-updated');
         // Refresh file tree after each tool completes
         window.dispatchEvent(new Event('refresh-file-tree'));
+        // Phase 4: dispatch codepilot:file-changed when this tool_result
+        // belongs to a write/edit tool and is not an error. Lookup the
+        // matching tool_use by id to read the name + input, then resolve
+        // any relative path against the session's workingDirectory so the
+        // PreviewPanel listener (which keys on absolute paths) matches.
+        // Errored tool_results are ignored — failed writes don't change
+        // the file on disk and the listener shouldn't refetch.
+        if (!res.is_error) {
+          const matchingUse = stream.toolUsesArray.find((u) => u.id === res.tool_use_id);
+          if (matchingUse && isWriteTool(matchingUse.name)) {
+            const rawPath = extractWritePath(matchingUse.input);
+            if (rawPath) {
+              const absolutePath = resolveToolPath(rawPath, stream.workingDirectory);
+              dispatchFileChanged({
+                paths: [absolutePath],
+                source: 'ai-tool',
+              });
+            }
+          }
+        }
       },
       onToolOutput: (data) => {
         markActive();
@@ -917,6 +954,7 @@ export function seedSnapshotPatch(
   // the ChatView that reads it will re-subscribe on mount (its own useEffect).
   const placeholder: ActiveStream = {
     sessionId,
+    workingDirectory: null,
     abortController: new AbortController(),
     idleCheckTimer: null,
     lastEventTime: Date.now(),

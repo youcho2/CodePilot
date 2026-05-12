@@ -396,3 +396,129 @@
     all: revert-layer;
   }
 }
+
+/*
+ * Obsidian-style callout blocks — Phase 4.A Markdown data layer.
+ *
+ * The callout pre-processor (src/lib/markdown/callout.ts) rewrites
+ * `> [!type]` blockquotes into <blockquote class="codepilot-callout
+ * codepilot-callout-<type>" data-callout=…>; these styles paint the
+ * left border + tinted background. Keep specificity low so theme
+ * overrides can win.
+ */
+.codepilot-callout {
+  border-left: 3px solid var(--border);
+  padding: 0.5rem 0.75rem 0.5rem 0.75rem;
+  margin: 0.75rem 0;
+  border-radius: 0 4px 4px 0;
+  background: var(--muted);
+}
+.codepilot-callout-note { border-left-color: #6b7280; background: rgba(107, 114, 128, 0.08); }
+.codepilot-callout-tip { border-left-color: #10b981; background: rgba(16, 185, 129, 0.08); }
+.codepilot-callout-important { border-left-color: #8b5cf6; background: rgba(139, 92, 246, 0.08); }
+.codepilot-callout-warning { border-left-color: #f59e0b; background: rgba(245, 158, 11, 0.08); }
+.codepilot-callout-caution { border-left-color: #ef4444; background: rgba(239, 68, 68, 0.08); }
+.codepilot-callout-info { border-left-color: #3b82f6; background: rgba(59, 130, 246, 0.08); }
+
+/*
+ * Codepilot wikilinks — Phase 4.A. The rewriter produces
+ * codepilot://wikilink/<Note> hrefs; the PreviewPanel click handler
+ * intercepts navigation, so a default underline is friendly to read
+ * but the cursor signals it's interactive.
+ */
+.codepilot-md-body a[href^="codepilot://wikilink/"] {
+  color: var(--primary);
+  text-decoration: underline dotted;
+  cursor: pointer;
+}
+
+/*
+ * Markdown presentation styles — Phase 4 UX.
+ *
+ * Applied in-place on the rendered Markdown body via a class on the
+ * `.codepilot-md-body` wrapper. The Markdown file remains the source
+ * of truth; switching styles is just a class change, no re-fetch,
+ * no new artifact tab, no source replacement.
+ *
+ * Five styles + smooth transitions so the change feels intentional
+ * rather than a flash.
+ */
+.codepilot-md-body { transition: padding 150ms ease, font-family 150ms ease, color 150ms ease; }
+.codepilot-md-body :where(h1,h2,h3,h4,h5,h6) { transition: color 150ms ease, font-size 150ms ease, margin 150ms ease; }
+
+/* default — minimal, basically v0.54 look. No-op. */
+.codepilot-md-template-default {}
+
+/* article — wider line height, serif body, accent headings. */
+.codepilot-md-template-article {
+  font-family: 'Georgia', 'Times New Roman', 'Songti SC', 'STSong', serif;
+  line-height: 1.75;
+  color: var(--foreground);
+}
+.codepilot-md-template-article :where(h1, h2, h3, h4, h5, h6) {
+  font-family: system-ui, -apple-system, 'PingFang SC', sans-serif;
+  color: rgb(30 58 138); /* slate blue accent */
+  letter-spacing: -0.005em;
+}
+.dark .codepilot-md-template-article :where(h1, h2, h3, h4, h5, h6) {
+  color: rgb(147 197 253);
+}
+.codepilot-md-template-article :where(p, li) { margin-bottom: 0.7em; }
+
+/* report — sans body, dense, structured. */
+.codepilot-md-template-report {
+  font-family: system-ui, -apple-system, 'Helvetica Neue', 'PingFang SC', sans-serif;
+  line-height: 1.6;
+  font-size: 0.95rem;
+}
+.codepilot-md-template-report :where(h1, h2, h3, h4, h5, h6) {
+  color: rgb(15 118 110);
+  border-bottom: 1px solid rgba(15, 118, 110, 0.15);
+  padding-bottom: 0.25em;
+  margin-top: 1.5em;
+}
+.dark .codepilot-md-template-report :where(h1, h2, h3, h4, h5, h6) {
+  color: rgb(94 234 212);
+  border-bottom-color: rgba(94, 234, 212, 0.2);
+}
+
+/* brief — tight spacing, prominent intro. */
+.codepilot-md-template-brief {
+  font-family: system-ui, -apple-system, 'PingFang SC', sans-serif;
+  line-height: 1.55;
+}
+.codepilot-md-template-brief :where(h1) {
+  color: rgb(180 83 9);
+  font-size: 1.6rem;
+  margin-bottom: 0.5em;
+}
+.codepilot-md-template-brief :where(h2, h3, h4, h5, h6) {
+  color: rgb(180 83 9);
+  margin-top: 1em;
+  margin-bottom: 0.4em;
+}
+.dark .codepilot-md-template-brief :where(h1, h2, h3, h4, h5, h6) {
+  color: rgb(252 211 77);
+}
+.codepilot-md-template-brief :where(p) { margin-bottom: 0.5em; }
+
+/* pitch — large headings, accent banner via first h1. */
+.codepilot-md-template-pitch {
+  font-family: system-ui, -apple-system, 'PingFang SC', sans-serif;
+  line-height: 1.65;
+}
+.codepilot-md-template-pitch :where(h1):first-child {
+  font-size: 2.1rem;
+  color: rgb(124 58 237);
+  background: linear-gradient(90deg, rgba(124, 58, 237, 0.08) 0%, transparent 100%);
+  padding: 0.5em 0.75em;
+  margin-left: -0.75em;
+  border-radius: 4px;
+}
+.codepilot-md-template-pitch :where(h2, h3, h4, h5, h6) {
+  color: rgb(124 58 237);
+  font-weight: 600;
+}
+.dark .codepilot-md-template-pitch :where(h1, h2, h3, h4, h5, h6) {
+  color: rgb(196 181 253);
+}

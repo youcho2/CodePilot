@@ -22,6 +22,9 @@ import { buildReferenceImages } from '@/lib/image-ref-store';
 import { SPECIES_IMAGE_URL, EGG_IMAGE_URL, RARITY_BG_GRADIENT, type Species, type Rarity } from '@/lib/buddy';
 import { parseDBDate } from '@/lib/utils';
 import { usePanel } from '@/hooks/usePanel';
+import { classifyPath } from '@/lib/preview-source';
+import { isWriteTool, isCreateTool, extractWritePath, resolveToolPath } from '@/lib/file-write-tools';
+import { DevOutputSegment } from './DevOutputChips';
 import type { PlannerOutput } from '@/types';
 
 interface ImageGenRequest {
@@ -674,38 +677,18 @@ export const MessageItem = memo(function MessageItem({ message, sessionId, isAss
 
       {/* Diff summary for assistant messages with file modifications */}
       {!isUser && (() => {
-        const WRITE_TOOLS = new Set(['write', 'edit', 'writefile', 'write_file', 'create_file', 'createfile', 'notebookedit', 'notebook_edit']);
-        // Tools whose semantics are "new file"; everything else in WRITE_TOOLS
-        // counts as "modify an existing file" (edit + notebookedit variants).
-        // This is a heuristic — some tools (e.g. write) do upsert — but the
-        // label is surfaced to the user only as a hint, not a correctness claim.
-        const CREATE_TOOLS = new Set(['write', 'writefile', 'write_file', 'create_file', 'createfile']);
-
-        // Assistant tools can emit either absolute paths ("/home/.../foo.md")
-        // or workspace-relative ones ("src/foo.md"). We treat the latter as
-        // relative to workingDirectory so the preview API's path-safety check
-        // and /api/files/write's baseDir enforcement both resolve to the
-        // right file. Windows drive paths (C:\...) are absolute too.
-        // (Codex P2.)
-        const isAbsolute = (p: string): boolean =>
-          p.startsWith('/') || /^[A-Za-z]:[/\\]/.test(p);
-        const resolveToolPath = (p: string): string => {
-          if (!p) return p;
-          if (isAbsolute(p)) return p;
-          if (!workingDirectory) return p;
-          const sep = workingDirectory.includes('\\') ? '\\' : '/';
-          return `${workingDirectory}${sep}${p}`;
-        };
-
+        // Phase 4: write-tool classification + path resolution now live
+        // in `src/lib/file-write-tools.ts` so the same set powers both
+        // the DiffSummary cards here and the codepilot:file-changed
+        // dispatch in stream-session-manager. Anywhere a new variant
+        // (e.g. multi_edit) lands, both surfaces pick it up.
         const modifiedFiles = pairedTools
-          .filter(t => WRITE_TOOLS.has(t.name.toLowerCase()) && !t.isError)
+          .filter(t => isWriteTool(t.name) && !t.isError)
           .map(t => {
-            const inp = t.input as Record<string, unknown> | undefined;
-            const rawPath = (inp?.file_path || inp?.path || inp?.filePath || '') as string;
-            const resolvedPath = resolveToolPath(rawPath);
+            const rawPath = extractWritePath(t.input);
+            const resolvedPath = resolveToolPath(rawPath, workingDirectory);
             const parts = resolvedPath.split(/[/\\]/);
-            const toolName = t.name.toLowerCase();
-            const operation: 'created' | 'modified' = CREATE_TOOLS.has(toolName) ? 'created' : 'modified';
+            const operation: 'created' | 'modified' = isCreateTool(t.name) ? 'created' : 'modified';
             return { path: resolvedPath, name: parts[parts.length - 1] || resolvedPath, operation };
           })
           .filter(f => f.path);
@@ -718,7 +701,23 @@ export const MessageItem = memo(function MessageItem({ message, sessionId, isAss
         return (
           <DiffSummary
             files={unique}
-            onPreview={(file) => setPreviewSource({ kind: 'file', filePath: file.path })}
+            onPreview={(file) => {
+              // Phase 4: classify the path against the session's
+              // workingDirectory. Inside the workspace → workspace trust
+              // + baseDir, opens directly. Outside → agent-referenced,
+              // which makes PreviewPanel render a confirm card and
+              // delay fetch until the user explicitly accepts (path
+              // could be a sensitive location named by the AI). The
+              // panel transitions to user-selected/readonly on confirm.
+              const { trust, baseDir, readonly } = classifyPath(file.path, workingDirectory);
+              setPreviewSource({
+                kind: 'file',
+                filePath: file.path,
+                trust,
+                ...(baseDir ? { baseDir } : {}),
+                readonly,
+              });
+            }}
             // Phase 3: export long screenshot via the Electron IPC. Only
             // .html/.htm rows pass the PREVIEWABLE+LONGSHOT gate in
             // DiffSummary; for those, we fetch the raw file contents from
@@ -932,6 +931,11 @@ const AssistantContent = memo(function AssistantContent({ displayText, messageId
       .replace(/```batch-plan[\s\S]*?```/g, '')
       .replace(/```show-widget[\s\S]*?(```|$)/g, '')
       .trim();
-    return stripped ? <MessageResponse>{stripped}</MessageResponse> : null;
+    // Phase 4.D — DevOutputSegment tokenizes the assistant text for
+    // file references (/abs/path:12, foo.md#L12) and localhost URLs,
+    // rendering them as clickable chips alongside the streamdown
+    // markdown render. Plain text without dev-output tokens falls
+    // through to a normal <MessageResponse> with zero overhead.
+    return stripped ? <DevOutputSegment text={stripped} /> : null;
   }, [displayText, messageId, sessionId]);
 });

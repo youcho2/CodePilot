@@ -216,6 +216,35 @@ export function MessageInput({
     }
   }, [initialValue, setInputValue]);
 
+  // Phase 4 — `codepilot:add-to-chat` listener. Selection from
+  // PreviewPanel dispatches a window event with the selected text +
+  // source metadata; we wrap the quote in a markdown blockquote and
+  // append a provenance line so the AI sees both content and source.
+  // The composer treats it as a normal prefill — the user can still
+  // edit before sending, and badge / mention parsing kicks in
+  // naturally because the appended content is plain text.
+  useEffect(() => {
+    function handle(event: Event) {
+      const detail = (event as CustomEvent).detail;
+      if (!detail || typeof detail !== 'object') return;
+      const d = detail as { text?: unknown; sourcePath?: unknown; sourceAnchor?: unknown; sourceLabel?: unknown };
+      if (typeof d.text !== 'string' || typeof d.sourcePath !== 'string') return;
+      const provenance =
+        '> [来源] ' +
+        d.sourcePath +
+        (typeof d.sourceAnchor === 'string' ? d.sourceAnchor : '') +
+        (typeof d.sourceLabel === 'string' ? ' — ' + d.sourceLabel : '');
+      const quote = d.text
+        .split(/\r?\n/)
+        .map((l) => '> ' + l)
+        .join('\n');
+      const composed = `${provenance}\n${quote}\n\n`;
+      setInputValue((prev) => (prev ? `${prev}\n\n${composed}` : composed));
+    }
+    window.addEventListener('codepilot:add-to-chat', handle);
+    return () => window.removeEventListener('codepilot:add-to-chat', handle);
+  }, [setInputValue]);
+
   const mentions = useMemo(() => {
     // Render chips only for explicitly inserted/known mentions.
     return parseMentionRefs(inputValue, mentionNodeTypes).filter((m) => !!mentionNodeTypes[m.path]);

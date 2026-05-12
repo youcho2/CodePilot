@@ -26,16 +26,30 @@ function Tabs({
 }
 
 const tabsListVariants = cva(
-  "rounded-full p-1 group-data-[orientation=horizontal]/tabs:h-9 group-data-[orientation=vertical]/tabs:rounded-2xl data-[variant=line]:rounded-none group/tabs-list text-muted-foreground inline-flex w-fit items-center justify-center group-data-[orientation=vertical]/tabs:h-fit group-data-[orientation=vertical]/tabs:flex-col",
+  // Removed the hardcoded `group-data-[orientation=horizontal]/tabs:h-9`
+  // from the base so the `size` variant below can own height. The
+  // `size` variant fills in horizontal heights; vertical orientation
+  // still uses `h-fit` (set in the base).
+  "rounded-full p-1 group-data-[orientation=vertical]/tabs:rounded-2xl data-[variant=line]:rounded-none group/tabs-list text-muted-foreground inline-flex w-fit items-center justify-center group-data-[orientation=vertical]/tabs:h-fit group-data-[orientation=vertical]/tabs:flex-col",
   {
     variants: {
       variant: {
         default: "bg-muted",
         line: "gap-1 bg-transparent",
       },
+      // Phase 4 UX — `size` extends the primitive in the same cva
+      // pattern shadcn uses for `variant`. `default` matches the
+      // pre-existing h-9; `sm` is h-8 to align with SelectTrigger's
+      // own `size="sm"` (32px) so the two can sit side-by-side in
+      // a toolbar without a 4px height jog.
+      size: {
+        default: "group-data-[orientation=horizontal]/tabs:h-9",
+        sm: "group-data-[orientation=horizontal]/tabs:h-8",
+      },
     },
     defaultVariants: {
       variant: "default",
+      size: "default",
     },
   }
 )
@@ -43,6 +57,7 @@ const tabsListVariants = cva(
 function TabsList({
   className,
   variant = "default",
+  size = "default",
   ...props
 }: React.ComponentProps<typeof TabsPrimitive.List> &
   VariantProps<typeof tabsListVariants>) {
@@ -50,7 +65,8 @@ function TabsList({
     <TabsPrimitive.List
       data-slot="tabs-list"
       data-variant={variant}
-      className={cn(tabsListVariants({ variant }), className)}
+      data-size={size}
+      className={cn(tabsListVariants({ variant, size }), className)}
       {...props}
     />
   )

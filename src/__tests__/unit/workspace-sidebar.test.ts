@@ -20,6 +20,7 @@ import {
   storageKey,
   dynamicTabId,
   previewSourceFromTab,
+  tabFromPreviewSource,
   SIDEBAR_MIN_WIDTH,
   SIDEBAR_MAX_WIDTH,
   SIDEBAR_DEFAULT_WIDTH,
@@ -296,5 +297,185 @@ describe('serialize / parse round-trip', () => {
     });
     const s = parse(wire);
     assert.equal(s.activeTabId, 'git');
+  });
+});
+
+// ─── Phase 4 Phase 1: trust round-trip ────────────────────────────────
+//
+// PreviewSource gained a trust tier (workspace / user-selected /
+// agent-referenced). Tabs persist to localStorage and must survive a
+// page reload without forgetting that an external file was external —
+// otherwise reopening a persisted Tab would silently re-promote it to
+// workspace and skip the confirm card.
+
+describe('tabFromPreviewSource carries trust tier through to the Tab', () => {
+  it('preserves workspace trust + baseDir on a markdown source', () => {
+    const tab = tabFromPreviewSource({
+      kind: 'file',
+      filePath: '/proj/docs/x.md',
+      trust: 'workspace',
+      baseDir: '/proj',
+    });
+    assert.equal(tab.kind, 'markdown');
+    if (tab.kind !== 'markdown') return; // narrow for TS
+    assert.equal(tab.trust, 'workspace');
+    assert.equal(tab.baseDir, '/proj');
+  });
+
+  it('preserves user-selected + readonly tier (e.g. accepted external file)', () => {
+    const tab = tabFromPreviewSource({
+      kind: 'file',
+      filePath: '/Users/me/Desktop/note.md',
+      trust: 'user-selected',
+      readonly: true,
+    });
+    if (tab.kind !== 'markdown') {
+      assert.fail('expected markdown tab for .md');
+    }
+    assert.equal(tab.trust, 'user-selected');
+    assert.equal(tab.readonly, true);
+    assert.equal(tab.baseDir, undefined);
+  });
+
+  it('preserves agent-referenced on a non-markdown file source', () => {
+    const tab = tabFromPreviewSource({
+      kind: 'file',
+      filePath: '/etc/hosts',
+      trust: 'agent-referenced',
+      readonly: true,
+    });
+    if (tab.kind !== 'file') {
+      assert.fail('expected file tab for /etc/hosts');
+    }
+    assert.equal(tab.trust, 'agent-referenced');
+    assert.equal(tab.readonly, true);
+  });
+});
+
+describe('openDynamicTab refreshes metadata when reopening the same id', () => {
+  it('replaces trust info on the existing tab (agent-referenced → user-selected)', () => {
+    // Phase 4: PreviewPanel's "confirm external" path calls
+    // setPreviewSource with the same filePath + a new trust tier.
+    // openDynamicTab must refresh tab metadata in place, otherwise
+    // localStorage persists the old agent-referenced marker and the
+    // user re-sees the confirm card after every reload.
+    let s = openDynamicTab(
+      initialState(),
+      tabFromPreviewSource({
+        kind: 'file',
+        filePath: '/Users/me/Desktop/note.md',
+        trust: 'agent-referenced',
+        readonly: true,
+      }),
+    );
+    s = openDynamicTab(
+      s,
+      tabFromPreviewSource({
+        kind: 'file',
+        filePath: '/Users/me/Desktop/note.md',
+        trust: 'user-selected',
+        readonly: true,
+      }),
+    );
+    // Still exactly one tab (no duplicate)
+    const matches = s.tabs.filter((t) => t.id === 'markdown:/Users/me/Desktop/note.md');
+    assert.equal(matches.length, 1);
+    // ...but trust upgraded to user-selected
+    const tab = matches[0];
+    assert.ok(tab.kind === 'markdown');
+    if (tab.kind !== 'markdown') return;
+    assert.equal(tab.trust, 'user-selected');
+    assert.equal(s.activeTabId, 'markdown:/Users/me/Desktop/note.md');
+  });
+
+  it('serialize → parse round-trip carries the upgraded trust forward', () => {
+    // The end-to-end shape: after confirm, persist, reload — the tab
+    // should come back as user-selected (NOT re-prompting). Without
+    // the in-place replace, this test would fail (old trust persisted).
+    let s = openDynamicTab(
+      initialState({ open: true }),
+      tabFromPreviewSource({
+        kind: 'file',
+        filePath: '/Users/me/Desktop/note.md',
+        trust: 'agent-referenced',
+        readonly: true,
+      }),
+    );
+    s = openDynamicTab(
+      s,
+      tabFromPreviewSource({
+        kind: 'file',
+        filePath: '/Users/me/Desktop/note.md',
+        trust: 'user-selected',
+        readonly: true,
+      }),
+    );
+    const restored = parse(JSON.stringify(serialize(s)));
+    const tab = restored.tabs.find((t) => t.kind === 'markdown');
+    assert.ok(tab && tab.kind === 'markdown');
+    if (!tab || tab.kind !== 'markdown') return;
+    assert.equal(tab.trust, 'user-selected');
+  });
+});
+
+describe('previewSourceFromTab restores trust tier (and stays back-compat)', () => {
+  it('echoes back trust/baseDir/readonly when set on the Tab', () => {
+    const src = previewSourceFromTab({
+      id: 'markdown:/proj/x.md',
+      kind: 'markdown',
+      key: '/proj/x.md',
+      title: 'x.md',
+      filePath: '/proj/x.md',
+      trust: 'user-selected',
+      readonly: true,
+    });
+    assert.deepEqual(src, {
+      kind: 'file',
+      filePath: '/proj/x.md',
+      trust: 'user-selected',
+      readonly: true,
+    });
+  });
+
+  it('back-compat: Tab without trust fields restores to a bare file source', () => {
+    // Pre-Phase-4 persisted Tabs have no trust field. PreviewPanel
+    // reads trust ?? 'workspace' downstream, so omitting the field
+    // produces the same UI as the v0.54.x literal shape. This is the
+    // assertion the original test (line 209) relied on; keeping it
+    // here ensures the Phase 4 spread doesn't add `trust: undefined`
+    // (which would diverge from the v0.54.x persisted state via
+    // JSON.stringify dropping vs keeping the key).
+    const src = previewSourceFromTab({
+      id: 'markdown:docs/x.md',
+      kind: 'markdown',
+      key: 'docs/x.md',
+      title: 'x.md',
+      filePath: 'docs/x.md',
+    });
+    assert.deepEqual(src, { kind: 'file', filePath: 'docs/x.md' });
+  });
+
+  it('serialize → parse round-trip preserves trust on a user-selected tab', () => {
+    // A persisted user-selected Tab must come back with the same trust
+    // tier, otherwise reopening after a page refresh would lose the
+    // external/readonly marker and let the user edit a file they only
+    // authorized for read-only preview.
+    let s = initialState({ open: true });
+    s = openDynamicTab(
+      s,
+      tabFromPreviewSource({
+        kind: 'file',
+        filePath: '/Users/me/Desktop/note.md',
+        trust: 'user-selected',
+        readonly: true,
+      }),
+    );
+    const wire = JSON.stringify(serialize(s));
+    const restored = parse(wire);
+    const tab = restored.tabs.find((t) => t.kind === 'markdown');
+    assert.ok(tab && tab.kind === 'markdown');
+    if (tab.kind !== 'markdown') return;
+    assert.equal(tab.trust, 'user-selected');
+    assert.equal(tab.readonly, true);
   });
 });

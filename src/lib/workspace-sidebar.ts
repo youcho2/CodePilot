@@ -14,6 +14,8 @@
  */
 
 import type { PreviewSource } from '@/hooks/usePanel';
+import type { PreviewTrust } from '@/lib/preview-source';
+import type { MarkdownPresentationStyle } from '@/lib/markdown/presentation-templates';
 
 export type FixedTabId = 'git' | 'widget';
 
@@ -30,6 +32,16 @@ export interface MarkdownTab {
   key: string;       // = filePath
   title: string;
   filePath: string;
+  /** Phase 4: trust tier inherited from the PreviewSource that opened
+   *  this Tab. Missing = pre-Phase-4 persisted data; consumers default
+   *  to 'workspace'. */
+  trust?: PreviewTrust;
+  baseDir?: string;
+  readonly?: boolean;
+  /** Phase 4 UX — in-place presentation style. Persists so the user's
+   *  choice survives reload + tab dedupe. Missing = the renderer
+   *  applies DEFAULT_MARKDOWN_PRESENTATION_STYLE. */
+  presentationTemplate?: MarkdownPresentationStyle;
 }
 
 export interface ArtifactTab {
@@ -46,6 +58,10 @@ export interface FilePreviewTab {
   key: string;       // = filePath
   title: string;
   filePath: string;
+  /** Phase 4: see MarkdownTab.trust above. */
+  trust?: PreviewTrust;
+  baseDir?: string;
+  readonly?: boolean;
 }
 
 export interface FilesPinnedTab {
@@ -115,7 +131,16 @@ export function dynamicTabId(kind: DynamicTabKind, key: string): string {
 
 /**
  * Open or focus a dynamic Tab.
- * - If a Tab with the same id already exists → just activate it.
+ * - If a Tab with the same id already exists → activate it AND replace
+ *   the existing tab's metadata in place. This matters for the Phase 4
+ *   agent-referenced → user-selected promotion: PreviewPanel calls
+ *   setPreviewSource with the upgraded trust tier on confirm, which
+ *   funnels back through this reducer. If we kept the old tab object,
+ *   the persisted tab list (localStorage) would still carry the
+ *   agent-referenced marker and the user would re-see the confirm
+ *   card after every page reload. Replacing in place is safe because
+ *   the key (filePath / artifact id) is the same — we're updating
+ *   trust / baseDir / readonly / title, not creating a duplicate.
  * - Otherwise → append at the end of the dynamic list and activate it.
  *
  * Always sets `open: true` (caller wants the sidebar surfaced).
@@ -124,9 +149,11 @@ export function openDynamicTab(
   state: WorkspaceSidebarState,
   tab: DynamicTab,
 ): WorkspaceSidebarState {
-  const existing = state.tabs.find((t) => t.id === tab.id);
-  if (existing) {
-    return { ...state, open: true, activeTabId: existing.id };
+  const existingIdx = state.tabs.findIndex((t) => t.id === tab.id);
+  if (existingIdx >= 0) {
+    const nextTabs = state.tabs.slice();
+    nextTabs[existingIdx] = tab;
+    return { ...state, open: true, activeTabId: tab.id, tabs: nextTabs };
   }
   return {
     ...state,
@@ -266,6 +293,16 @@ export function tabFromPreviewSource(source: PreviewSource): DynamicTab {
   if (source.kind === 'file') {
     const ext = (source.filePath.split('.').pop() || '').toLowerCase();
     const title = source.filePath.split(/[\\/]/).filter(Boolean).pop() || source.filePath;
+    // Carry the trust tier through to the Tab so reopening from
+    // persistence preserves agent-referenced / user-selected semantics
+    // (otherwise a refresh would silently re-promote the path to
+    // workspace and bypass the confirm card).
+    const provenance = {
+      trust: source.trust,
+      baseDir: source.baseDir,
+      readonly: source.readonly,
+      presentationTemplate: source.presentationTemplate,
+    };
     if (MARKDOWN_EXTENSIONS.has(ext)) {
       return {
         id: dynamicTabId('markdown', source.filePath),
@@ -273,6 +310,7 @@ export function tabFromPreviewSource(source: PreviewSource): DynamicTab {
         key: source.filePath,
         title,
         filePath: source.filePath,
+        ...provenance,
       };
     }
     return {
@@ -281,21 +319,63 @@ export function tabFromPreviewSource(source: PreviewSource): DynamicTab {
       key: source.filePath,
       title,
       filePath: source.filePath,
+      ...provenance,
     };
   }
-  // inline-html / inline-jsx / inline-datatable — artifact Tab. The
-  // shared `virtualName` field is the only stable identifier across the
-  // three inline kinds; fall back to a kind-prefixed string when missing
-  // so two unnamed inline payloads of the same kind still dedupe to one
-  // Tab (good enough for Phase 1).
-  const fingerprint = source.virtualName ?? `inline-${source.kind}`;
+  // inline-* — artifact Tab. Phase 4 UX: fingerprint includes a fast
+  // content hash so multiple Preview clicks on the same code fence
+  // reuse one tab. The kind prefix prevents collisions across
+  // inline-html / inline-json / etc. with the same content. Falls
+  // back to virtualName + content-length when content isn't readable
+  // (defensive — every concrete kind below has a content field).
+  const contentForHash = readInlineContent(source);
+  const hashSuffix = djb2Hex(contentForHash);
+  const fingerprint = `${source.kind}:${hashSuffix}`;
   return {
     id: dynamicTabId('artifact', fingerprint),
     kind: 'artifact',
     key: fingerprint,
-    title: source.virtualName || fingerprint,
+    title: source.virtualName || `inline-${source.kind}`,
     source,
   };
+}
+
+/** Pull the content payload out of an inline-* source for hashing.
+ *  Used by tabFromPreviewSource to dedupe by content rather than by
+ *  virtualName, so two clicks on the same code-fence Preview produce
+ *  one tab regardless of when. */
+function readInlineContent(source: PreviewSource): string {
+  switch (source.kind) {
+    case 'inline-html':
+      return source.html;
+    case 'inline-jsx':
+      return source.jsx;
+    case 'inline-datatable':
+      return JSON.stringify({ header: source.header, rows: source.rows });
+    case 'inline-json':
+      return source.text;
+    case 'inline-diff':
+      return source.diff;
+    case 'inline-markdown':
+      return source.markdown;
+    default:
+      return '';
+  }
+}
+
+/**
+ * djb2 32-bit hash as zero-padded hex. Sufficient for tab dedup —
+ * collision probability is effectively zero at typical content
+ * volumes (dozens of artifacts per session), and the hash is
+ * deterministic so the SAME content always produces the SAME tab id.
+ */
+export function djb2Hex(input: string): string {
+  let h = 5381;
+  for (let i = 0; i < input.length; i++) {
+    h = ((h << 5) + h + input.charCodeAt(i)) | 0;
+  }
+  // Force to unsigned 32-bit and pad
+  return (h >>> 0).toString(16).padStart(8, '0');
 }
 
 /**
@@ -314,7 +394,17 @@ export function tabFromPreviewSource(source: PreviewSource): DynamicTab {
  */
 export function previewSourceFromTab(tab: Tab): PreviewSource | null {
   if (tab.kind === 'markdown' || tab.kind === 'file') {
-    return { kind: 'file', filePath: tab.filePath };
+    // Spread-only-when-defined so pre-Phase-4 persisted Tabs (no trust
+    // field) reconstruct to the same literal shape the Phase-2 callers
+    // produced. PreviewPanel defaults missing trust to 'workspace'.
+    const provenance: Partial<PreviewSource & { kind: 'file' }> = {};
+    if (tab.trust !== undefined) provenance.trust = tab.trust;
+    if (tab.baseDir !== undefined) provenance.baseDir = tab.baseDir;
+    if (tab.readonly !== undefined) provenance.readonly = tab.readonly;
+    if (tab.kind === 'markdown' && tab.presentationTemplate !== undefined) {
+      provenance.presentationTemplate = tab.presentationTemplate;
+    }
+    return { kind: 'file', filePath: tab.filePath, ...provenance };
   }
   if (tab.kind === 'artifact') {
     return tab.source;

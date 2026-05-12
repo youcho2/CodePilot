@@ -515,20 +515,34 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   // `previewFile` is null.
   const [previewSource, setPreviewSourceRaw] = useState<PreviewSource | null>(null);
   const [previewViewMode, setPreviewViewMode] = useState<PreviewViewMode>("source");
+  // Track the last filePath we routed through setPreviewSource so we can
+  // distinguish "file change" (reset view mode) from "metadata update"
+  // (Phase 4 UX — same-file presentationTemplate / anchor / trust
+  // promotions must NOT bounce the user out of Edit mode).
+  const lastPreviewFilePathRef = useRef<string | null>(null);
 
   const previewFile: string | null =
     previewSource?.kind === "file" ? previewSource.filePath : null;
 
   const setPreviewSource = useCallback((source: PreviewSource | null) => {
     setPreviewSourceRaw(source);
-    if (!source) return;
-    // File sources respect the extension-based default view mode.
-    // Inline sources are always "rendered" — there's no raw path to show
-    // for source view, and all inline variants are meaningful only rendered.
+    if (!source) {
+      lastPreviewFilePathRef.current = null;
+      return;
+    }
+    // File sources respect the extension-based default view mode — but
+    // ONLY on actual file changes. A same-file metadata update keeps
+    // whatever view mode the user is in. Inline sources are always
+    // "rendered" — there's no raw path to show for source view, and
+    // all inline variants are meaningful only rendered.
     if (source.kind === "file") {
-      setPreviewViewMode(defaultViewMode(source.filePath));
+      if (lastPreviewFilePathRef.current !== source.filePath) {
+        setPreviewViewMode(defaultViewMode(source.filePath));
+        lastPreviewFilePathRef.current = source.filePath;
+      }
     } else {
       setPreviewViewMode("rendered");
+      lastPreviewFilePathRef.current = null;
     }
     // Right-rail routing: on chat-detail routes we dispatch a
     // `workspace-tab-open-request` event so the WorkspaceSidebar
@@ -548,10 +562,22 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       if (path === null) {
         setPreviewSource(null);
       } else {
-        setPreviewSource({ kind: "file", filePath: path });
+        // Legacy file-only entry point — used by FileTreePanel toggles
+        // and any other code that thinks in path-strings only. All known
+        // callers operate on workspace files (the file tree is scoped to
+        // workingDirectory), so we stamp the workspace trust tier and
+        // pass workingDirectory as baseDir. Callers that need a
+        // different trust (e.g. agent-referenced) must use
+        // setPreviewSource directly.
+        setPreviewSource({
+          kind: "file",
+          filePath: path,
+          trust: "workspace",
+          baseDir: workingDirectory || undefined,
+        });
       }
     },
-    [setPreviewSource],
+    [setPreviewSource, workingDirectory],
   );
 
   // Reset doc preview when navigating between pages/sessions

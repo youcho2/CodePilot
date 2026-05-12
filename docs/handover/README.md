@@ -34,5 +34,6 @@
 | sentry-error-reporting.md | Sentry 匿名错误上报：三层覆盖（browser/server/electron）、opt-out 机制、隐私保护、上报策略 |
 | decouple-native-runtime.md | Native Agent Runtime：双 Runtime 架构、AI SDK agent-loop、OpenAI Codex 集成、文件快照 rewind、MCP 全链路、验证边界与剩余风险 |
 | markdown-artifact-overhaul.md | Markdown 渲染 × Artifact 预览体系：PreviewSource 联合、DiffSummary 卡片、Sandpack 单文件 React、CodeMirror 编辑+自动保存、长图导出 IPC、文件 I/O API 合同、loadedPath/freshPreview 防漂移 |
+| phase-4-markdown-artifact.md | Phase 4 Markdown 数据层 × HTML 表现层 × 工程引用：trust tier 三档授权、html-preview 同源路由 + 4 轮 CSP 演进、codepilot:file-changed 单通道 + quiet refresh、原地 Markdown 风格 Select、code-fence Preview / dev-output chips；Save-HTML 入口 deferred 的代码锚点与重启条件 |
 | chat-composer-redesign.md | Chat composer 重构（April 2026）：三层视觉规则、Run 状态聚合面板、ai-elements 整合、隐形 select、弹窗底座统一、弥散阴影 token、左侧栏密度收紧 |
 | chat-run-checkpoint.md | Chat Run Checkpoint Round 1（April 2026）：trust layer pure builder + inline banner 组件、共享 `bg-status-*-muted` 视觉、Pinned-invalid / Runtime-fallback / no-provider 三类触发、强约束（无 modal / 单 action / 不持久化"已确认"） |

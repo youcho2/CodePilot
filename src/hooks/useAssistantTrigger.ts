@@ -263,6 +263,7 @@ export function useAssistantTrigger({
         // user-typed send path.
         model: resolvedModel,
         providerId: resolvedProviderId,
+        workingDirectory,
         autoTrigger: true,
         thinking: buildThinkingConfig(),
         onModeChanged: (sdkMode) => {

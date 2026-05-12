@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { X, ArrowClockwise, CaretUp, CaretDown, ChartBar, Trash, DownloadSimple, Heart, Brain, Clock, Check, Warning, Gear } from "@/components/ui/icon";
 import { showToast } from "@/hooks/useToast";
 import { Button } from "@/components/ui/button";
+import { Switch } from "@/components/ui/switch";
 import { usePanel } from "@/hooks/usePanel";
 import { useTranslation } from "@/hooks/useTranslation";
 import { ResizeHandle } from "@/components/layout/ResizeHandle";
@@ -301,16 +302,18 @@ export function DashboardPanel() {
           <div className="flex items-center gap-1">
             {(widgets.length > 0 || isAssistantWorkspace) && (
               <>
-                {/* Auto-refresh toggle */}
-                <button
-                  onClick={handleToggleAutoRefresh}
-                  className="flex items-center gap-1.5 text-[11px] text-muted-foreground hover:text-foreground transition-colors"
-                >
+                {/* Auto-refresh toggle — shadcn Switch (size="sm")
+                    in place of the hand-rolled track + thumb so the
+                    control reads the same as Settings switches. */}
+                <label className="flex items-center gap-1.5 text-[11px] text-muted-foreground hover:text-foreground transition-colors cursor-pointer">
                   <span>{t('dashboard.autoRefreshLabel')}</span>
-                  <span className={`relative inline-flex h-4 w-7 shrink-0 cursor-pointer rounded-full transition-colors ${autoRefresh ? 'bg-primary' : 'bg-muted'}`}>
-                    <span className={`pointer-events-none block h-3 w-3 rounded-full bg-background shadow-sm ring-0 transition-transform mt-0.5 ${autoRefresh ? 'translate-x-3.5 ml-0' : 'translate-x-0.5'}`} />
-                  </span>
-                </button>
+                  <Switch
+                    size="sm"
+                    checked={autoRefresh}
+                    onCheckedChange={() => handleToggleAutoRefresh()}
+                    aria-label={t('dashboard.autoRefreshLabel')}
+                  />
+                </label>
                 <div className="h-4 w-px bg-border/60 mx-1" />
                 {/* Refresh all */}
                 <Button

@@ -44,18 +44,21 @@ function tabLabel(tab: Tab, t: (key: TranslationKey, vars?: Record<string, strin
 }
 
 function tabIcon(tab: Tab): React.ReactNode {
+  // Phase 4 UX v5 — icons scaled from 14 → 16 to match the size-4
+  // (16px) icons inside SelectTrigger / TabsTrigger in the file-info
+  // row. Tab strip + file-info row now read at the same density.
   if (tab.kind === 'fixed') {
-    return tab.id === 'git' ? <GitBranch size={14} /> : <ChartBar size={14} />;
+    return tab.id === 'git' ? <GitBranch size={16} /> : <ChartBar size={16} />;
   }
-  if (tab.kind === 'files-pinned') return <PushPin size={14} />;
+  if (tab.kind === 'files-pinned') return <PushPin size={16} />;
   if (tab.kind === 'markdown' || tab.kind === 'file') {
     const ext = (tab.kind === 'markdown' ? '.md' : tab.filePath.split('.').pop() || '').toLowerCase();
-    if (ext.endsWith('.md') || tab.kind === 'markdown') return <File size={14} />;
-    if (['.ts', '.tsx', '.js', '.jsx', '.py'].includes(`.${ext}`)) return <Code size={14} />;
-    return <FileCode size={14} />;
+    if (ext.endsWith('.md') || tab.kind === 'markdown') return <File size={16} />;
+    if (['.ts', '.tsx', '.js', '.jsx', '.py'].includes(`.${ext}`)) return <Code size={16} />;
+    return <FileCode size={16} />;
   }
   // artifact
-  return <FolderOpen size={14} />;
+  return <FolderOpen size={16} />;
 }
 
 export function TabBar({ className }: TabBarProps) {
@@ -89,82 +92,197 @@ export function TabBar({ className }: TabBarProps) {
     [state.tabs, setActiveTab],
   );
 
+  // Phase 4 UX (Codex feedback): the collapse button used to live
+  // inside the same `overflow-x-auto` scroller as the Tabs. When the
+  // user opened enough tabs to overflow, the collapse button got
+  // pushed off the right edge and became unreachable. Now we split
+  // the row in two: an inner `role="tablist"` div that scrolls
+  // horizontally for the Tabs, and a fixed `shrink-0` collapse
+  // button sibling that stays pinned at the far right regardless of
+  // how many tabs are open.
+  // Phase 4 UX v3 (Codex feedback):
+  //  - Bar is taller (h-9) so tabs are easier to hit.
+  //  - `border-b` removed; the divider now lives BELOW the file-info
+  //    row in PreviewPanel, so Tab strip + file info read as one
+  //    contiguous header zone separated only by spacing.
+  //  - No `overflow-x-auto`: dynamic tabs shrink browser-style when
+  //    the strip gets crowded. Fixed Tabs (git, widget) keep a fixed
+  //    width so they're always reachable.
+  //  - Close is folded INTO the leading icon: hovering the tab swaps
+  //    the file icon for an X; clicking the icon while hovered closes
+  //    the tab. Removes the dedicated X button → ~16px back per tab.
+  // Phase 4 UX v4:
+  //   - py-1.5 → pt-1.5 pb-3 to put 12px breathing room (design.md
+  //     row-gap token) between the Tab strip and the file-info row
+  //     below it. Tab buttons themselves are taller now so the bar
+  //     also reads as a real toolbar, not a thin strip.
   return (
     <div
-      role="tablist"
-      aria-label={t('workspaceSidebar.toggle' as TranslationKey)}
-      aria-orientation="horizontal"
       className={cn(
-        'flex shrink-0 items-center gap-0.5 border-b border-border/40 bg-background px-2 py-1.5 overflow-x-auto',
+        'flex shrink-0 items-center bg-background px-2 pt-1.5 pb-3',
         className,
       )}
-      data-workspace-sidebar-tabbar
     >
+      <div
+        role="tablist"
+        aria-label={t('workspaceSidebar.toggle' as TranslationKey)}
+        aria-orientation="horizontal"
+        className="flex min-w-0 flex-1 items-center gap-0.5"
+        data-workspace-sidebar-tabbar
+      >
       {state.tabs.map((tab) => {
         const isActive = tab.id === state.activeTabId;
         const closable = tab.kind !== 'fixed';
         const label = tabLabel(tab, t);
         return (
-          <div
+          <TabItem
             key={tab.id}
-            className={cn(
-              'group flex items-center gap-1.5 rounded-md text-xs transition-colors',
-              isActive
-                ? 'bg-muted text-foreground'
-                : 'text-muted-foreground hover:bg-muted/50 hover:text-foreground',
-            )}
-            data-tab-id={tab.id}
-            data-tab-active={isActive || undefined}
-          >
-            <button
-              type="button"
-              id={`tab-${tab.id}`}
-              role="tab"
-              aria-selected={isActive}
-              aria-controls="workspace-sidebar-tabpanel"
-              tabIndex={isActive ? 0 : -1}
-              ref={(el) => {
-                if (el) tabRefs.current.set(tab.id, el);
-                else tabRefs.current.delete(tab.id);
-              }}
-              className="flex items-center gap-1.5 rounded-md pl-2 pr-1 py-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
-              onClick={() => setActiveTab(tab.id)}
-              onKeyDown={(e) => handleTabKeyDown(e, tab.id)}
-            >
-              <span className="text-muted-foreground/80">{tabIcon(tab)}</span>
-              <span className="max-w-[160px] truncate">{label}</span>
-            </button>
-            {closable && (
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon-xs"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  closeTab(tab.id);
-                }}
-                aria-label={t('workspaceSidebar.closeTabNamed' as TranslationKey, { name: label })}
-                className="mr-0.5 h-4 w-4 p-0 opacity-0 transition-opacity group-hover:opacity-100 data-[active]:opacity-100"
-                data-active={isActive || undefined}
-              >
-                <X size={10} />
-              </Button>
-            )}
-          </div>
+            tab={tab}
+            label={label}
+            isActive={isActive}
+            closable={closable}
+            tabRefs={tabRefs}
+            onActivate={() => setActiveTab(tab.id)}
+            onClose={() => closeTab(tab.id)}
+            onKeyDown={(e) => handleTabKeyDown(e, tab.id)}
+            closeAriaLabel={t('workspaceSidebar.closeTabNamed' as TranslationKey, { name: label })}
+          />
         );
       })}
-      {/* Spacer pushes the collapse button to the far right. */}
-      <div className="flex-1" />
+      </div>
       <Button
         type="button"
         variant="ghost"
         size="icon-sm"
         onClick={() => setOpen(false)}
         aria-label={t('workspaceSidebar.collapse' as TranslationKey)}
-        className="shrink-0 text-muted-foreground/70 hover:text-foreground"
+        className="shrink-0 text-muted-foreground/70 hover:text-foreground ml-1"
       >
         <ArrowsIn size={14} />
       </Button>
+    </div>
+  );
+}
+
+/**
+ * One tab in the strip. Phase 4 UX v3 split this out of the main
+ * render so the per-tab interaction logic (hover-icon-becomes-X,
+ * fixed vs dynamic width) stays readable.
+ *
+ * Width rules:
+ *  - Fixed tabs (git / widget): `shrink-0` + content-width so they
+ *    always show their full label and are first-priority to click.
+ *  - Dynamic tabs: `flex-1 min-w-[40px] max-w-[160px]` so they
+ *    share remaining width browser-style. Each tab can shrink down
+ *    to the leading icon + a few characters of the label;
+ *    `min-w-[40px]` keeps the icon hitbox usable.
+ *
+ * Close UX:
+ *  - The leading icon span is itself a button (when `closable`).
+ *  - On hover (or when the tab is active), the file icon is swapped
+ *    for an X. Clicking the icon then closes; clicking anywhere
+ *    else in the tab activates as usual.
+ *  - `aria-label` distinguishes activate-tab vs close-tab.
+ */
+function TabItem({
+  tab,
+  label,
+  isActive,
+  closable,
+  tabRefs,
+  onActivate,
+  onClose,
+  onKeyDown,
+  closeAriaLabel,
+}: {
+  tab: Tab;
+  label: string;
+  isActive: boolean;
+  closable: boolean;
+  tabRefs: React.MutableRefObject<Map<string, HTMLButtonElement>>;
+  onActivate: () => void;
+  onClose: () => void;
+  onKeyDown: (e: React.KeyboardEvent<HTMLButtonElement>) => void;
+  closeAriaLabel: string;
+}) {
+  return (
+    <div
+      className={cn(
+        // Phase 4 UX v5 — text-sm to match size-sm controls (14px)
+        // below in the file-info row. text-xs at 12px was visibly
+        // smaller than the file-info row's text-sm.
+        // v6 — rounded-full so the hover / active fill reads as a
+        // capsule, not a rectangle. Tab height grew to ~32px but
+        // the corner radius stayed at rounded-md (6px), making the
+        // pill look unintentionally squared off.
+        'group flex items-center rounded-full text-sm transition-colors',
+        // Fixed tabs always claim their own width; dynamic tabs share
+        // the rest. min-w guarantees the icon stays clickable; max-w
+        // caps the longest tab so a runaway filename doesn't crowd
+        // out the rest of the strip.
+        tab.kind === 'fixed'
+          ? 'shrink-0'
+          : 'min-w-[40px] max-w-[160px] flex-1',
+        isActive
+          ? 'bg-muted text-foreground'
+          : 'text-muted-foreground hover:bg-muted/50 hover:text-foreground',
+      )}
+      data-tab-id={tab.id}
+      data-tab-active={isActive || undefined}
+    >
+      <button
+        type="button"
+        id={`tab-${tab.id}`}
+        role="tab"
+        aria-selected={isActive}
+        aria-controls="workspace-sidebar-tabpanel"
+        tabIndex={isActive ? 0 : -1}
+        ref={(el) => {
+          if (el) tabRefs.current.set(tab.id, el);
+          else tabRefs.current.delete(tab.id);
+        }}
+        // Phase 4 UX v4-v5 — tab button at py-2 (h-8 total). v5: also
+        // px-3 (match SelectTrigger's px-3 horizontal padding) so the
+        // tab proportions feel like the size-sm controls below, not
+        // a stretched-vertically pill.
+        className="flex min-w-0 flex-1 items-center gap-1.5 rounded-full py-2 px-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+        onClick={(e) => {
+          // Click on the leading icon while hovering or focused →
+          // close. Anywhere else → activate.
+          const target = e.target as HTMLElement;
+          if (closable && target.closest('[data-codepilot-tab-leading]')) {
+            e.preventDefault();
+            e.stopPropagation();
+            onClose();
+            return;
+          }
+          onActivate();
+        }}
+        onKeyDown={onKeyDown}
+      >
+        {/* Leading icon — becomes the X target on hover for closable
+            tabs. Fixed tabs (no close) just render the icon. */}
+        {closable ? (
+          <span
+            data-codepilot-tab-leading
+            aria-label={closeAriaLabel}
+            role="button"
+            className="relative flex h-4 w-4 shrink-0 items-center justify-center text-muted-foreground/80 group-hover:text-foreground"
+          >
+            <span className="absolute inset-0 flex items-center justify-center transition-opacity group-hover:opacity-0">
+              {tabIcon(tab)}
+            </span>
+            <span className="absolute inset-0 flex items-center justify-center opacity-0 transition-opacity group-hover:opacity-100">
+              <X size={16} weight="bold" />
+            </span>
+          </span>
+        ) : (
+          <span className="flex h-4 w-4 shrink-0 items-center justify-center text-muted-foreground/80">
+            {tabIcon(tab)}
+          </span>
+        )}
+        <span className="min-w-0 truncate">{label}</span>
+      </button>
     </div>
   );
 }
