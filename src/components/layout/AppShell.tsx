@@ -209,6 +209,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (typeof window === 'undefined') return;
     if (!localStorage.getItem(ANNOUNCEMENT_KEY)) {
+      // SSR-safe hydration gate: initial state is `false` so SSR + first
+      // client render agree on "don't render"; we flip to `true` once after
+      // mount when localStorage shows no dismiss flag. Single transition,
+      // no cascade. The rule has no clean replacement for non-reactive
+      // browser storage reads.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setAnnouncementMaybeVisible(true);
     }
   }, []);

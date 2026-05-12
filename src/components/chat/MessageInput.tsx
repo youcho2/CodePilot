@@ -207,6 +207,10 @@ export function MessageInput({
   useEffect(() => {
     if (initialValue && initialValue !== adoptedInitialValueRef.current) {
       adoptedInitialValueRef.current = initialValue;
+      // Prop → state sync: prefill arrives after mount via URL change; the
+      // ref guard prevents cascading renders, but the lint rule can't see
+      // that the guard makes the update one-shot per transition.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setInputValue(initialValue);
     } else if (!initialValue) {
       // Prop went back to empty (e.g. user navigated away from a
