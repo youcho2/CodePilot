@@ -1,6 +1,7 @@
 import { NextRequest } from 'next/server';
 import { deleteSession, getSession, updateSessionWorkingDirectory, updateSessionTitle, updateSessionMode, updateSessionModel, updateSessionProviderId, clearSessionMessages, updateSdkSessionId, updateSessionPermissionProfile, updateSessionRuntime } from '@/lib/db';
 import { autoApprovePendingForSession } from '@/lib/bridge/permission-broker';
+import { clearRuntimeSessionRef } from '@/lib/runtime/session-store';
 
 export async function GET(
   _request: NextRequest,
@@ -77,6 +78,13 @@ export async function PATCH(
     // force-clear it so the next chat message starts a fresh SDK session
     // instead of trying to resume the old one (which would fail with a
     // different provider/model/runtime).
+    //
+    // Phase 0.5 Slice C (2026-05-13) — clear through the runtime session
+    // store abstraction so future Codex Runtime adds its clearing path
+    // here without poking sdk_session_id directly. Only the claude_code
+    // ref is cleared; other runtimes (none today; codex_runtime later)
+    // keep their refs across this operation per the cross-runtime
+    // metadata invariant.
     if ((modelChanged || providerChanged || runtimePinChanged) && body.sdk_session_id === undefined) {
       if (session.sdk_session_id) {
         console.log(
@@ -84,7 +92,7 @@ export async function PATCH(
           { modelChanged, providerChanged, runtimePinChanged, oldSdkSessionId: session.sdk_session_id.slice(0, 8) + '...' }
         );
       }
-      updateSdkSessionId(id, '');
+      clearRuntimeSessionRef(id, 'claude_code');
     }
     if (body.permission_profile !== undefined) {
       if (body.permission_profile !== 'default' && body.permission_profile !== 'full_access') {
