@@ -337,6 +337,14 @@ export type ProviderRuntimeCompat =
 /**
  * Runtime compatibility matrix — Model layer. A bag of capability flags;
  * a model can carry several at once.
+ *
+ * Phase 0.5 Slice A (2026-05-13) — new canonical contract is
+ * `supportedRuntimes[] + unsupportedReasonByRuntime?`. The two boolean
+ * fields (`claude_code_compatible` / `codepilot_runtime_compatible`)
+ * are kept for back-compat input only — new code MUST write
+ * `supportedRuntimes`. Slice B migrates all readers. Adding a third
+ * `*_runtime_compatible` boolean is explicitly prohibited by
+ * `runtime-contract-shape.test.ts`.
  */
 export interface ModelRuntimeCompat {
   /** Usable as a chat / coding model. */
@@ -345,12 +353,35 @@ export interface ModelRuntimeCompat {
   tool_capable?: boolean;
   /** Known to support thinking / reasoning. */
   thinking_capable?: boolean;
-  /** Surfaceable when current runtime is Claude Code. */
+  /**
+   * @deprecated use `supportedRuntimes`. Kept for back-compat input.
+   * Old code may still write this; new code MUST NOT.
+   */
   claude_code_compatible?: boolean;
-  /** Surfaceable when current runtime is CodePilot Runtime. */
+  /**
+   * @deprecated use `supportedRuntimes`. Kept for back-compat input.
+   * Old code may still write this; new code MUST NOT.
+   */
   codepilot_runtime_compatible?: boolean;
   /** Image / video / embedding only — does NOT belong in chat pickers. */
   media?: boolean;
+  /**
+   * Phase 0.5 Slice A canonical compat field. The set of runtime ids
+   * that can use this model. Source of truth for chat / model picker
+   * filtering. Empty array = model not surfaced in any chat runtime
+   * (still may be surfaced as image/embedding via `media`).
+   *
+   * Slice B populates this from existing boolean derivation; Slice E
+   * makes consumers read this exclusively.
+   */
+  supportedRuntimes?: string[];
+  /**
+   * Optional per-runtime explanation for WHY a runtime is not in
+   * `supportedRuntimes`. UI shows this in tooltips / unsupported
+   * badges. Key is a `RuntimeId`; value is a short human-readable
+   * reason (zh-CN preferred; i18n layer is responsible for en).
+   */
+  unsupportedReasonByRuntime?: Record<string, string>;
 }
 
 /** Where this model entry came from. Drives display badges + refresh policy. */
