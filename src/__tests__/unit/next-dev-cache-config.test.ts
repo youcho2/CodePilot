@@ -32,4 +32,8 @@ describe('next.config.ts dev-server guardrails', () => {
     assert.match(NEXT_CONFIG, /turbopackSourceMaps:\s*false/);
     assert.match(NEXT_CONFIG, /turbopackInputSourceMaps:\s*false/);
   });
+
+  it('allows Electron dev renderer origin to load Next dev resources', () => {
+    assert.match(NEXT_CONFIG, /allowedDevOrigins:\s*\[\s*['"]127\.0\.0\.1['"]\s*\]/);
+  });
 });

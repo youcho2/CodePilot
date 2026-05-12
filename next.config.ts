@@ -18,6 +18,10 @@ const nextConfig: NextConfig = {
   turbopack: {
     root: import.meta.dirname,
   },
+  // Electron dev loads the renderer from 127.0.0.1 while Next's dev
+  // server advertises localhost. Next 16 blocks cross-origin dev
+  // resources (HMR, fonts) unless the host is explicitly allowed.
+  allowedDevOrigins: ['127.0.0.1'],
   experimental: {
     // Next 16 enables Turbopack's dev filesystem cache by default. In nested
     // worktrees this cache can grow to multi-GB under `.next/dev/cache` and
