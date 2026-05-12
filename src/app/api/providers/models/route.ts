@@ -365,9 +365,11 @@ export async function GET(request: NextRequest) {
             capabilities: m.capabilities as Parameters<typeof getModelCompat>[0]['capabilities'],
           });
           if (cap.media) return false;
-          return runtimeFilter === 'claude_code'
-            ? !!cap.claude_code_compatible
-            : !!cap.codepilot_runtime_compatible;
+          // Phase 0.5 Slice B (2026-05-13) — filter by the canonical
+          // `supportedRuntimes` field. `getModelCompat` populates it
+          // alongside the legacy booleans; once all readers migrate
+          // (Slice E) the booleans become read-only legacy.
+          return cap.supportedRuntimes?.includes(runtimeFilter) ?? false;
         });
         return { ...g, models: filteredModels };
       }).filter(g => g.models.length > 0);

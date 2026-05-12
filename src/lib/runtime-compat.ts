@@ -19,6 +19,7 @@
  */
 import type { ApiProvider, ProviderRuntimeCompat, ModelRuntimeCompat } from '@/types';
 import { findMatchingPresetForRecord, type VendorPreset } from '@/lib/provider-catalog';
+import type { RuntimeId } from '@/lib/runtime/runtime-id';
 
 export interface ProviderCompatRecord {
   provider_type: string;
@@ -132,6 +133,15 @@ export function getModelCompat(args: {
     compat.thinking_capable = true;
   }
 
+  // Phase 0.5 Slice B (2026-05-13) — populate `supportedRuntimes` as
+  // the canonical compat field. Legacy booleans still set for
+  // back-compat input; new readers (API route filter, Slice E
+  // adapters) consume `supportedRuntimes` directly. Reasons land in
+  // `unsupportedReasonByRuntime` so the UI can tell users WHY a
+  // model is hidden in a given runtime.
+  const supported = new Set<RuntimeId>();
+  const reasons: Record<string, string> = {};
+
   switch (providerCompat) {
     case 'claude_code_ready':
       // Anthropic official / Bedrock / Vertex — `@ai-sdk/anthropic` can also
@@ -140,6 +150,8 @@ export function getModelCompat(args: {
       // user on Native runtime configure only Anthropic and still see models.
       compat.claude_code_compatible = true;
       compat.codepilot_runtime_compatible = true;
+      supported.add('claude_code');
+      supported.add('codepilot_runtime');
       break;
     case 'claude_code_verified':
     case 'claude_code_experimental':
@@ -155,6 +167,8 @@ export function getModelCompat(args: {
       // differ only in UI tone ("兼容" vs "实验"), not in routing.
       compat.claude_code_compatible = true;
       compat.codepilot_runtime_compatible = true;
+      supported.add('claude_code');
+      supported.add('codepilot_runtime');
       break;
     case 'openrouter_anthropic_skin':
       // OpenRouter Anthropic skin (`/api`, no `/v1`). Reachable from
@@ -167,6 +181,9 @@ export function getModelCompat(args: {
       // path. Users wanting both runtimes should configure two providers
       // (one per skin URL).
       compat.claude_code_compatible = true;
+      supported.add('claude_code');
+      reasons.codepilot_runtime =
+        'OpenRouter Anthropic skin URL (/api) — switch to /v1 skin for CodePilot Runtime';
       break;
     case 'codepilot_only':
       // Provider-layer codepilot_only means the provider doesn't speak the
@@ -184,13 +201,23 @@ export function getModelCompat(args: {
       // claude_code_experimental and is a single, coherent provider
       // identity in the UI.
       compat.codepilot_runtime_compatible = true;
+      supported.add('codepilot_runtime');
+      reasons.claude_code =
+        'OpenAI-compatible protocol — not reachable from Claude Code Runtime';
       break;
     case 'unknown':
       // We don't know the right answer — let the user verify. Both
       // runtimes keep the model visible until they hide it explicitly.
       compat.claude_code_compatible = true;
       compat.codepilot_runtime_compatible = true;
+      supported.add('claude_code');
+      supported.add('codepilot_runtime');
       break;
+  }
+
+  compat.supportedRuntimes = [...supported];
+  if (Object.keys(reasons).length > 0) {
+    compat.unsupportedReasonByRuntime = reasons;
   }
 
   return compat;
