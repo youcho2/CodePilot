@@ -1,8 +1,9 @@
 # Refactor Closeout / 重构收口计划（总控板）
 
-> 创建：2026-05-06 · 最后更新：2026-05-12（Phase 0-4 已完成并归档；Phase 5 待启动）
+> 创建：2026-05-06 · 最后更新：2026-05-13（Phase 0-4 已完成并归档；Phase 5 Codex Runtime 计划已写入，待审批 / 待开工）
 > 这是日常入口；查历史细节请走"历史归档"列（`completed/refactor-phase-*.md` + `completed/phase-4-markdown-artifact.md`），不要在本文件里翻 1000 行决策日志。
 > **协作边界**：Codex 负责计划制定、方案审查和 Review；ClaudeCode 负责执行代码改动、测试和提交整理。除非用户明确重新授权，Codex 只能改 `docs/` 下的计划 / 交接 / review 文档，不再直接改业务代码。
+> **上下文同步纪律**：交给 ClaudeCode 的内容不能只给"最终结论"或任务清单，必须同时写清楚讨论过程、判断依据、被否掉的方案和为什么否掉。尤其是架构 / Runtime / 权限 / provider / 安全边界相关任务，Codex 的交接文案需要包含：用户原始诉求 → 中间争议 → 取舍理由 → 当前决定 → 不做边界 → 审查重点。这样 ClaudeCode 重启或上下文较短时，也能继承判断过程，而不是重新踩同一个坑。
 
 ## 当前状态
 
@@ -13,14 +14,15 @@
 | 2 | Runtime 与会话执行 | 每个会话能解释 / 能切换"执行引擎"；旧会话不被全局漂移；下一条消息生效 | ✅ Step 1-4c 全部完成（2026-05-07） | [phase-2](../completed/refactor-phase-2-runtime-session.md) |
 | 3 | 后台常驻、全局定时任务、助理心跳与通知 | 关窗常驻菜单栏；reminder 不依赖 AI；本机通知 / Bridge 解耦；全局任务页；后台 Agent 任务 + 后台心跳 | ✅ 全部完成（2026-05-10）：Step 1-3 + IA 收尾 + Step 4a（任务会话壳 + 文本生成 + 心跳后台化）+ Step 4b（headless streamClaude + waiting_for_permission 可达 + WaitingForPermissionPanel） | [phase-3](../completed/refactor-phase-3-background-tasks-notifications.md) |
 | 4 | Markdown / Artifact 稳定与表现层 | Markdown 作为数据层；HTML / Artifact 作为表现层；外部资源、安全沙箱、工程输出引用 | ✅ 全部完成（2026-05-12）：trust tier + html-preview 同源路由 + CSP 4 轮 + Markdown 原地风格 + Artifact code-fence / dev-output。HTML Artifact 显式保存入口 deferred（tech-debt #18） | [phase-4](../completed/phase-4-markdown-artifact.md) |
-| 5 | 上下文可视化 | 输入框右下角是组成条而不是单一百分比 | 📋 待开始（详见下方） | — |
-| 6 | 视觉锚点与图标体系 | 点阵风格视觉记忆点 + HugeIcons 统一 | 📋 待开始（详见下方） | — |
+| 5 | Codex Runtime 接入 | Codex 像 Claude Code 一样成为同级 Runtime；登录 Codex 后读取 Codex Account 模型；Codex 原生工具 / 插件事件进 CodePilot UI；通过 CodePilot proxy 使用现有模型 | 📋 计划已写入，待审批 / 待开工 | [phase-5 plan](./phase-5-codex-runtime.md) |
+| 6 | 上下文可视化 | 输入框右下角是组成条而不是单一百分比 | 📋 待开始（Phase 5 后移） | — |
+| 7 | 视觉锚点与图标体系 | 点阵风格视觉记忆点 + HugeIcons 统一 | 📋 待开始（Phase 6 后移） | — |
 
 ## 下一步
 
 **Phase 4 整条主线已收口完毕并归档**（trust tier + html-preview 路由 + CSP 4 轮 + Markdown 原地风格 + Artifact code-fence + dev-output；HTML Artifact 显式保存入口 deferred 进 tech-debt #18）。完整交付清单见 [completed/phase-4-markdown-artifact.md](../completed/phase-4-markdown-artifact.md)，技术 / 产品文档分别在 [handover/phase-4-markdown-artifact.md](../../handover/phase-4-markdown-artifact.md) 与 [insights/phase-4-markdown-artifact.md](../../insights/phase-4-markdown-artifact.md)。
 
-下一阶段 **Phase 5：上下文可视化** 待启动（详见下方"Phase 5 方案"）。
+下一阶段 **Phase 5：Codex Runtime 接入** 已写入计划，等待审批后再让 ClaudeCode 一次性实现。计划见 [active/phase-5-codex-runtime.md](./phase-5-codex-runtime.md)。
 
 ### Phase 3 Step 4（完成 2026-05-10）：后台 Agent 任务与助理心跳闭环
 
@@ -73,9 +75,9 @@ Phase 3 验收入口：
 - Memory 管理面板
 - 大规模官网 / 文档站工作
 
-## Phase 4 / 5 / 6 方案
+## Phase 4 / 5 / 6 / 7 方案
 
-> Phase 4 当前只跟 Markdown / Artifact 有关。Codex Runtime / Local Agent Adapter、OpenClaw / Hermes 兼容、多 Agent 调度等已移出本阶段，后续单独立项，避免和展示层收口互相污染。
+> Phase 4 当前只跟 Markdown / Artifact 有关。Codex Runtime 已作为 Phase 5 单独立项；OpenClaw / Hermes 兼容、多 Agent 调度、上下文可视化继续拆在后续阶段，避免和 Runtime 接入互相污染。
 
 ### Phase 4：Markdown / Artifact 稳定与表现层
 
@@ -120,13 +122,23 @@ Phase 3 验收入口：
 - 不做远端 E2B / Vercel Sandbox 上传执行；当前 HTML/JSX 预览仍本地、安全、显式授权。
 - 不让外部只读 Markdown 因为“能预览”就静默写盘；显式 HTML Artifact 导出入口 deferred（tech-debt-tracker #18）。
 
-### Phase 5：上下文可视化
+### Phase 5：Codex Runtime 接入
+
+> 进度：**计划已写入，待审批 / 待开工**。
+>
+> 子计划见 [`active/phase-5-codex-runtime.md`](./phase-5-codex-runtime.md)。本阶段目标是把 Codex 像 Claude Code 一样接入为可选 Runtime，而不是做上下文可视化。
+
+- **用户结果**：Settings → Runtime 能看到 Codex Runtime 状态；登录 Codex 后，模型选择器能读取 Codex Account 内置模型；Chat 可以选择 Codex Runtime 执行；Codex 原生工具 / 命令 / 插件式 item / 文件改动 / 权限事件进入 CodePilot UI；通过 CodePilot provider proxy，让 Codex Runtime 使用 CodePilot 现有 provider / CodePlan 模型。
+- **要做**：先做 Runtime Contract Hardening（session / permission / model / event / preview metadata 收口），再做 `codex app-server` 进程管理 + JSON-RPC client；`account/read` / login flow；`model/list` → ProviderModelGroup；Runtime registry 新增 `codex_runtime`；thread / turn / item / command / file-change / token usage 事件映射到 CodePilot SSE / DB；Codex 原生能力 fallback renderer；Responses-compatible provider proxy MVP。
+- **不做**：不解析 `codex exec` 文本作为主协议；不读取 `~/.codex` token 文件；不把 Codex 降级成 `Codex Account only` 轻入口；不承诺第一版覆盖所有 CodePilot provider，但 unsupported 必须显式说明；不做上下文可视化。
+
+### Phase 6：上下文可视化
 
 - **用户结果**：输入框右下角不只是百分比，而是组成条——历史 / 输入 / 附件 / 系统提示 / Memory 各占多少。上下文快满时知道删什么。
 - **要做**：在现有 token estimate 上拆来源；Run 状态面板显示组成条 + 明细；Context chips / attachments / directory refs 共用同一估算数据；缺 model context length 时显"容量未知"但仍展示相对大小。
 - **不做**：第一版 token 精确到账单级；为可视化重写 context assembler。
 
-### Phase 6：视觉锚点与图标体系
+### Phase 7：视觉锚点与图标体系
 
 - **用户结果**：点阵风格视觉记忆点（loading / 空状态 / 背景纹理）；图标统一到 HugeIcons。
 - **要做**：先做视觉资产 + icon audit；HugeIcons 统一封装；点阵风格只在 3 个低风险位置试点；CDP 截图确认。
@@ -136,6 +148,7 @@ Phase 3 验收入口：
 
 > 完整决策日志按 Phase 归档，见 `completed/refactor-phase-*.md` + `completed/phase-4-markdown-artifact.md`。本节只保留当前收口状态，避免 active 总控板携带过期口径。
 
+- 2026-05-12：**Phase 5 改为 Codex Runtime 接入**。上下文可视化顺延到 Phase 6；Phase 5 目标是让 Codex 像 Claude Code 一样成为 CodePilot 同级 Runtime，既读取 Codex 登录账号模型，也接入 Codex 原生工具 / 命令 / 插件式 item / 文件改动 / 权限事件；同时通过 CodePilot Responses-compatible proxy 交付现有 provider / CodePlan 模型的可用路径。用户明确否决 `Codex Account only` 的降级口径。为避免三套 runtime invariant 污染 UI，Phase 5 增加 `Runtime Contract Hardening` 前置：session / permission / model / event / preview metadata 必须先收口，再接 Codex。
 - 2026-05-12：**Phase 4 Markdown / Artifact 主线实现并校正口径**。当前阶段只覆盖 Markdown 数据层、HTML/Artifact 表现层、工程输出引用；显式 HTML Artifact 导出入口 deferred（tech-debt #18）。Codex Runtime / Local Agent Adapter 已从 Phase 4 剥离，后续另开独立计划。
   - Markdown 表现层从“生成弹窗”改为默认 Article + Select 直接切换；显式 HTML Artifact 导出入口 deferred — 第一轮把按钮放在 PreviewPanel 头部 + `.codepilot/artifacts/<slug>.html`，用户两次反馈反对（路径错位 / header 拥挤 / Style Select 已能原地呈现 HTML 形态）。helpers 保留作未来 Export pipeline 脚手架；tech-debt-tracker #18 记录重启条件。
   - 工程输出格式适配只处理 path/line/diff/localhost 这些展示引用，不绑定任何具体 Runtime。

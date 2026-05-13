@@ -2,7 +2,7 @@
 
 中大型功能的执行计划，包含分阶段目标、进度状态和决策日志。
 
-> **日常入口：[active/refactor-closeout.md](active/refactor-closeout.md)**——这是总控板（当前 Phase 状态 / 下一步 / 未闭环风险 / 验收入口 / 最近决策 / Phase 4-6 方案）。后续 ClaudeCode / Codex 只从这一个计划领取任务，不再从下方"被接管 / 暂缓"清单里的旧 active 计划自行开支线。
+> **日常入口：[active/refactor-closeout.md](active/refactor-closeout.md)**——这是总控板（当前 Phase 状态 / 下一步 / 未闭环风险 / 验收入口 / 最近决策 / Phase 4-7 方案）。后续 ClaudeCode / Codex 只从这一个计划领取任务，不再从下方"被接管 / 暂缓"清单里的旧 active 计划自行开支线。
 >
 > **查历史细节：`completed/refactor-phase-*.md` + `completed/phase-4-markdown-artifact.md`**——总控板里的"历史归档"列直接 link 过去。Phase 1（模型同步与渠道扩展）/ Phase 2（Runtime 与会话执行）/ Phase 3（后台常驻、定时任务、通知）/ Phase 4（Markdown 数据层 + Artifact 表现层）四段已完成的计划文本与全部决策日志按 Phase 归档，不要去 active 总控板里翻。
 
@@ -33,6 +33,7 @@
 
 **Claude Code 交付说明必须包含：**
 
+- 上下文：用户原始诉求、讨论过程、关键判断、被否掉的方案和原因。不要只贴最终结论；尤其是跨 Runtime / provider / permission / schema / security 的任务，必须让下一个读计划的人知道为什么这么做。
 - 根因：为什么会出错。
 - 改动：按文件或模块说明改了什么。
 - 验证：跑了哪些测试 / CDP 路径。
@@ -40,6 +41,7 @@
 
 **Codex review 规则：**
 
+- Codex 给 ClaudeCode 的执行文案必须共享判断过程：先写用户问题和争议，再写取舍理由，最后才写执行清单。不能只把聊天里的结论压缩成命令，否则 ClaudeCode 重启或上下文变短后会重复旧误判。
 - P1/P2 finding 不能只用聊天确认关闭，必须有修复、测试证据或 tech-debt tracker 条目。
 - 涉及 Runtime resolver、默认模型、Provider/Models 暴露、日志脱敏、权限边界、DB schema 的改动，优先要求回归测试。
 - 文案承诺类问题也算产品 bug：如果按钮/页面承诺了"诊断、修复、导出、安全"，实现必须真的支持，否则降级文案。
@@ -75,7 +77,8 @@
 
 | 文件 | 主题 | 状态 |
 |------|------|------|
-| [active/refactor-closeout.md](active/refactor-closeout.md) | **重构收口总控板**：当前 Phase 状态 / 下一步 / 未闭环风险 / 验收入口 / 最近决策 / Phase 4-6 方案 | Phase 0-4 ✅；Phase 5-6 待启动 |
+| [active/refactor-closeout.md](active/refactor-closeout.md) | **重构收口总控板**：当前 Phase 状态 / 下一步 / 未闭环风险 / 验收入口 / 最近决策 / Phase 4-7 方案 | Phase 0-4 ✅；Phase 5 Codex Runtime 计划已写入 |
+| [active/phase-5-codex-runtime.md](active/phase-5-codex-runtime.md) | **Phase 5 Codex Runtime 接入**：Runtime Contract Hardening / Codex app-server / account + model sync / Runtime adapter / 原生工具与插件事件 / provider proxy | 待审批 / 待开工 |
 | [active/issue-tracker.md](active/issue-tracker.md) | **统一问题跟踪**：所有 Bug / Feature Request / Sentry 监控的活动看板 | 持续维护 |
 
 ### 被 refactor-closeout 接管（保留作历史参考）
@@ -85,11 +88,11 @@
 | 文件 | 原主题 | 接管至 |
 |------|--------|--------|
 | [active/opus-4-7-upgrade.md](active/opus-4-7-upgrade.md) | Opus 4.7 模型升级（双 SDK / `xhigh` / tokenizer / 字面化回归） | Phase 1（模型同步与渠道扩展） |
-| [active/agent-sdk-0-2-111-adoption.md](active/agent-sdk-0-2-111-adoption.md) | SDK 0.2.111 能力采纳（chip / 限流 UI / WarmQuery / session fork / context usage） | Phase 2（Runtime 与会话执行）+ Phase 5（上下文可视化） |
+| [active/agent-sdk-0-2-111-adoption.md](active/agent-sdk-0-2-111-adoption.md) | SDK 0.2.111 能力采纳（chip / 限流 UI / WarmQuery / session fork / context usage） | Phase 2（Runtime 与会话执行）+ Phase 6（上下文可视化） |
 | [active/scheduled-tasks-notifications.md](active/scheduled-tasks-notifications.md) | 定时任务 + 通知（Notification MCP / TaskScheduler / Electron 系统通知 / 管理 UI） | Phase 3（助理、定时任务、心跳通知） |
 | [active/chat-latency-remediation.md](active/chat-latency-remediation.md) | 聊天链路提速（模式入口收敛 / MCP 持久 / 首包优化） | Phase 2（Runtime 与会话执行）+ Phase 3 |
-| [active/context-storage-migration.md](active/context-storage-migration.md) | 上下文共享与存储迁移（`message_parts` / `session_runtime_state` / 压缩摘要） | Phase 5（上下文可视化）+ Phase 2 |
-| [active/agent-runtime-abstraction-revision.md](active/agent-runtime-abstraction-revision.md) | Runtime 可插拔抽象层（薄接口、Native / SDK / 未来 Codex / Gemini） | Phase 2（Runtime 与会话执行） |
+| [active/context-storage-migration.md](active/context-storage-migration.md) | 上下文共享与存储迁移（`message_parts` / `session_runtime_state` / 压缩摘要） | Phase 6（上下文可视化）+ Phase 2 |
+| [active/agent-runtime-abstraction-revision.md](active/agent-runtime-abstraction-revision.md) | Runtime 可插拔抽象层（薄接口、Native / SDK / 未来 Codex / Gemini） | Phase 2（Runtime 与会话执行）+ Phase 5（Codex Runtime） |
 | [active/agent-trust-ownership-refactor.md](active/agent-trust-ownership-refactor.md) | Agent Trust & Ownership Refactor（剩余 Run Cockpit + session-level Runtime + 事件日志） | Phase 2（Runtime 与会话执行）+ Phase 3 |
 
 ### 暂缓（本轮不开工，等收口完成后再评估）
@@ -103,7 +106,7 @@
 | [active/site-and-docs.md](active/site-and-docs.md) | 官网 + 文档站（Phase 0-3 已完成；Phase 4-5 packages/ui + 桌面端适配） | 大规模官网 / 文档站 |
 | [active/weixin-bridge-channel.md](active/weixin-bridge-channel.md) | 微信 Bridge 通道一次性交付 | 更多 Bridge 渠道 |
 | [active/qq-bridge-channel.md](active/qq-bridge-channel.md) | QQ Bridge Channel | 更多 Bridge 渠道 |
-| [active/unified-context-layer.md](active/unified-context-layer.md) | 统一上下文层 + 浮窗助理（Phase 1-3 已完成；Phase 4-5 浮窗 + 通知） | 浮窗助理；Phase 5 若启动走 closeout Phase 3 |
+| [active/unified-context-layer.md](active/unified-context-layer.md) | 统一上下文层 + 浮窗助理（Phase 1-3 已完成；Phase 4-5 浮窗 + 通知） | 浮窗助理；通知 / 后台能力走 closeout Phase 3；上下文能力顺延 Phase 6 |
 | [active/git-terminal-integration.md](active/git-terminal-integration.md) | Git + 终端集成 | 不在本轮 6 条主线 |
 
 ### Completed
