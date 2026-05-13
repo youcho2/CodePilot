@@ -26,15 +26,25 @@
  *   types/pure helpers off was the load-bearing fix.
  */
 
-/** Two-state chat-side runtime label, aligned with ModelRuntimeCompat flags. */
-export type ChatRuntime = 'claude_code' | 'codepilot_runtime';
+/**
+ * Phase 0.5 Slice E.1 (2026-05-13) — `ChatRuntime` is now an alias of
+ * the canonical `RuntimeId` from `runtime/runtime-id.ts`. Adding a
+ * new runtime (Codex / Gemini / …) goes through `RUNTIME_IDS` in
+ * runtime-id.ts; every consumer of `ChatRuntime` automatically picks
+ * it up. The legacy two-state union was Codex's P1 finding —
+ * hand-rolled string-literal blocked Codex Runtime from being added
+ * with a single-place edit.
+ */
+import { isRuntimeId, type RuntimeId, type RuntimeIdParam } from './runtime/runtime-id';
+
+export type ChatRuntime = RuntimeId;
 
 /** Wire form for HTTP query params — adds 'auto' (server resolves). */
-export type ChatRuntimeParam = ChatRuntime | 'auto';
+export type ChatRuntimeParam = RuntimeIdParam;
 
 /** Type guard for parsing untrusted query strings. */
 export function isChatRuntimeParam(v: unknown): v is ChatRuntimeParam {
-  return v === 'claude_code' || v === 'codepilot_runtime' || v === 'auto';
+  return v === 'auto' || isRuntimeId(v);
 }
 
 /**
@@ -45,15 +55,14 @@ export function isChatRuntimeParam(v: unknown): v is ChatRuntimeParam {
  * the server resolve via the global `agent_runtime` setting (drift
  * point #4 from the Phase 2 Step 1 audit).
  *
- *   pin = 'claude_code'        → 'claude_code'        (session pinned)
- *   pin = 'codepilot_runtime'  → 'codepilot_runtime'  (session pinned)
- *   pin = '' / undefined / unknown → 'auto'           (follow global)
+ *   pin = <known RuntimeId>        → that RuntimeId  (session pinned)
+ *   pin = '' / undefined / unknown → 'auto'          (follow global)
  *
  * Pure: no DB, no React, no Node-only deps. Safe to import from any
  * client component or server caller.
  */
 export function chatRuntimeParamForSession(runtimePin: string | undefined | null): ChatRuntimeParam {
-  if (runtimePin === 'claude_code' || runtimePin === 'codepilot_runtime') {
+  if (runtimePin && isRuntimeId(runtimePin)) {
     return runtimePin;
   }
   return 'auto';

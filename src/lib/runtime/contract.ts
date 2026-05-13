@@ -171,11 +171,54 @@ interface RuntimePermissionEventBase {
   readonly requestId: string;
 }
 
+/**
+ * Generic permission hint shape — adapters translate native
+ * suggestion structures (SDK `PermissionSuggestion`, Codex approval
+ * proposals, …) into this. UI renders one chip / button per hint.
+ *
+ * Shape kept identical to SDK `PermissionSuggestion` for back-compat
+ * with PermissionPrompt's current rendering; Codex adapter will map
+ * its approval proposals into the same fields.
+ */
+export interface PermissionHint {
+  /** Adapter-defined kind. SDK examples: 'addRule', 'addToAllowlist'. */
+  type: string;
+  /** Optional structured rules (used by SDK rule-based suggestions). */
+  rules?: ReadonlyArray<{ readonly toolName: string; readonly ruleContent?: string }>;
+  /** Optional intent — typically 'allow' / 'deny'. */
+  behavior?: string;
+  /** Optional destination scope ('session' / 'project' / etc.). */
+  destination?: string;
+}
+
+/**
+ * Adapter-private round-trip ref. UI MUST NOT inspect `raw`. The
+ * adapter that produced the permission event is the only code
+ * allowed to read it back — typically to echo the same id / shape
+ * to the upstream resume / approval API.
+ */
+export interface NativeRequestRef {
+  readonly runtimeId: RuntimeId;
+  readonly raw: unknown;
+}
+
 export type RuntimePermissionEvent =
   | (RuntimePermissionEventBase & {
       type: 'permission_request';
+      /** Tool / action being requested (e.g. 'Bash', 'Edit', 'codex.shell_exec'). */
+      toolName: string;
+      /** Arguments / payload the tool was invoked with. */
+      toolInput?: Record<string, unknown>;
+      /** SDK tool_use id, used for round-trip on resume. */
+      toolUseId?: string;
+      /** Human-readable summary for compact display. */
       subject: string;
+      /** Longer human-readable explanation (multi-line allowed). */
       details?: string;
+      /** Adapter-translated UI hints (e.g. SDK "Allow for session"). */
+      permissionHints?: readonly PermissionHint[];
+      /** Adapter-private shape carried through for resume / echo. */
+      nativeRequestRef?: NativeRequestRef;
     })
   | (RuntimePermissionEventBase & {
       type: 'permission_granted';

@@ -137,9 +137,26 @@ export function makeUnknownItem(
 }
 
 // ─────────────────────────────────────────────────────────────────────
-// SDK SSEEventType → canonical type mapping helper. Returns the
-// canonical event type (or `null` for transport-only events like
-// `keep_alive` that don't surface in the canonical channel).
+// SDK SSEEventType → canonical type mapping helper.
+//
+// Three return categories, intentionally distinct (P2 fix from Codex
+// review 2026-05-13 — earlier revision conflated "known transport-
+// only" with "unknown to the adapter", which silently dropped new
+// SDK / Codex item types):
+//
+//   - Canonical type ('assistant_delta', 'tool_started', ...) — the
+//     SDK type has a direct mapping; adapter emits that canonical
+//     event.
+//   - `null` — known transport-only types (e.g. `keep_alive`,
+//     `permission_request` which is handled through the separate
+//     permission channel). Caller can safely ignore.
+//   - `'unknown_item'` — the SDK type is not in the mapping table
+//     at all (new SDK release, custom event, drift). Caller MUST
+//     surface it via `makeUnknownItem` so the user sees a generic
+//     block instead of silent drop.
+//
+// Adding a new known SDK type requires extending the table here; new
+// types automatically fall into 'unknown_item' so they're never lost.
 // ─────────────────────────────────────────────────────────────────────
 
 const SDK_SSE_TO_CANONICAL: Record<string, RuntimeRunEvent['type'] | null> = {
@@ -154,7 +171,9 @@ const SDK_SSE_TO_CANONICAL: Record<string, RuntimeRunEvent['type'] | null> = {
   error: 'run_failed',
   // permission_request flows through RuntimePermissionEvent — not in
   // RuntimeRunEvent. The translator for permissions lives in
-  // permission-adapter.ts.
+  // permission-adapter.ts. Mapped to null here so the caller knows
+  // it's handled, not lost.
+  permission_request: null,
   mode_changed: 'unknown_item',
   task_update: 'unknown_item',
   keep_alive: null,
@@ -164,10 +183,43 @@ const SDK_SSE_TO_CANONICAL: Record<string, RuntimeRunEvent['type'] | null> = {
   done: 'run_completed',
 };
 
+/**
+ * Look up the canonical mapping for an SDK SSE event type.
+ *
+ * - Returns a canonical `RuntimeRunEvent['type']` when the SDK type
+ *   has a direct mapping.
+ * - Returns `null` for known transport-only types (`keep_alive` /
+ *   `permission_request`) — caller can safely ignore.
+ * - Returns `'unknown_item'` for any SDK type not in the table.
+ *   Caller MUST surface this via `makeUnknownItem({ sourceType })`
+ *   rather than dropping — adapters never silently lose items.
+ */
 export function mapSdkSseToCanonicalType(
   sdkType: string,
 ): RuntimeRunEvent['type'] | null {
-  return SDK_SSE_TO_CANONICAL[sdkType] ?? null;
+  if (sdkType in SDK_SSE_TO_CANONICAL) {
+    return SDK_SSE_TO_CANONICAL[sdkType];
+  }
+  return 'unknown_item';
+}
+
+/**
+ * Helper for the unknown branch — wraps an unrecognized SDK item in
+ * a canonical `unknown_item` event. Adapter calls this when
+ * `mapSdkSseToCanonicalType(sdkType)` returns `'unknown_item'`.
+ *
+ * `sourceType` should be a short adapter-prefixed string (e.g.
+ * `'sdk.<sdkType>'` / `'codex.plugin.<sdkType>'`) so telemetry /
+ * UI can show users where the item came from.
+ */
+export function translateUnknownSdkEvent(
+  base: BaseInput,
+  args: { sdkType: string; payload?: unknown },
+): Extract<RuntimeRunEvent, { type: 'unknown_item' }> {
+  return makeUnknownItem(base, {
+    sourceType: `sdk.${args.sdkType}`,
+    payload: args.payload,
+  });
 }
 
 /**

@@ -849,9 +849,13 @@ function buildResolution(
       capabilities: entry?.capabilities,
     });
     if (cap.media) return false;
-    return opts.runtime === 'claude_code'
-      ? !!cap.claude_code_compatible
-      : !!cap.codepilot_runtime_compatible;
+    // Phase 0.5 Slice E.1 (2026-05-13) — filter by the canonical
+    // `supportedRuntimes` array. Adding Codex Runtime later requires
+    // zero changes here: `getModelCompat` populates supportedRuntimes
+    // for every provider tier, and Codex's adapter / catalog entry
+    // adds 'codex_runtime' to the array. The legacy boolean branch
+    // hard-coded a two-runtime world.
+    return cap.supportedRuntimes?.includes(opts.runtime) ?? false;
   };
   // For the final fallback `availableModels[0]?.modelId` step we want the
   // first model that is both enabled (already encoded in `availableModels`,

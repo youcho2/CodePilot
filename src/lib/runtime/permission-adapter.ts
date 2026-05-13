@@ -40,16 +40,20 @@ type UnavailableEvent = Extract<RuntimePermissionEvent, { type: 'permission_unav
 
 /**
  * Translate Claude Code SDK's native `PermissionRequestEvent` into
- * the canonical `permission_request` event. SDK-specific fields
- * (`toolName` / `toolInput` / `suggestions` / `blockedPath`) collapse
- * into the canonical `subject` + `details` strings.
+ * the canonical `permission_request` event.
  *
- * Why we don't keep the SDK fields verbatim in the canonical event:
- * UI consumers must work the same way for any runtime. Codex's
- * approval events have a different shape — keeping SDK-shaped
- * fields on the canonical event would force the UI to branch.
- * Adapters that need to round-trip their native shape (e.g. for
- * resume) keep it side-channel, not on the canonical event.
+ * Phase 0.5 Slice E.1 fix (2026-05-13) — earlier revision dropped
+ * `toolName` / `toolInput` / `suggestions` / `toolUseId` into a
+ * collapsed subject/details pair, which broke PermissionPrompt's
+ * ExitPlanMode / AskUserQuestion / "Allow for session" affordances
+ * downstream (Codex P1 finding). The canonical event now keeps
+ * these as first-class fields so UI consumers can switch on
+ * `toolName`, render `toolInput`, and surface `permissionHints` —
+ * future Codex adapter populates the same fields from its native
+ * shape.
+ *
+ * `nativeRequestRef` carries the raw SDK event so the SDK-side
+ * resume path can echo it back. UI MUST NOT inspect `nativeRequestRef.raw`.
  */
 export function translateClaudeCodePermissionRequest(
   sdkEvent: PermissionRequestEvent,
@@ -62,13 +66,31 @@ export function translateClaudeCodePermissionRequest(
   if (sdkEvent.description) detailLines.push(sdkEvent.description);
   if (sdkEvent.decisionReason) detailLines.push(sdkEvent.decisionReason);
 
+  // SDK `PermissionSuggestion[]` maps 1:1 to canonical `PermissionHint[]`
+  // — fields are structurally identical today. Codex adapter will
+  // normalize its proposal shape into the same hint structure.
+  const permissionHints = sdkEvent.suggestions?.map((s) => ({
+    type: s.type,
+    rules: s.rules,
+    behavior: s.behavior,
+    destination: s.destination,
+  }));
+
   return {
     type: 'permission_request',
     runtimeId: 'claude_code',
     sessionId,
     requestId: sdkEvent.permissionRequestId,
+    toolName: sdkEvent.toolName,
+    toolInput: sdkEvent.toolInput,
+    toolUseId: sdkEvent.toolUseId,
     subject: subjectParts.join(' · '),
     details: detailLines.length > 0 ? detailLines.join('\n') : undefined,
+    permissionHints: permissionHints && permissionHints.length > 0 ? permissionHints : undefined,
+    nativeRequestRef: {
+      runtimeId: 'claude_code',
+      raw: sdkEvent,
+    },
   };
 }
 

@@ -41,6 +41,73 @@ describe('translateClaudeCodePermissionRequest', () => {
     assert.equal(canonical.details, 'Run shell command\ndestructive_path');
   });
 
+  it('preserves toolName / toolInput / toolUseId for downstream UI', () => {
+    // P1.2 fix — PermissionPrompt distinguishes ExitPlanMode /
+    // AskUserQuestion / generic tools by `toolName`, renders
+    // arguments from `toolInput`, and echoes `toolUseId` on resume.
+    const sdk: PermissionRequestEvent = {
+      permissionRequestId: 'req-100',
+      toolName: 'ExitPlanMode',
+      toolInput: { plan: 'step 1\nstep 2' },
+      toolUseId: 'tu-100',
+    };
+    const canonical = translateClaudeCodePermissionRequest(sdk, 's');
+    assert.equal(canonical.toolName, 'ExitPlanMode');
+    assert.deepEqual(canonical.toolInput, { plan: 'step 1\nstep 2' });
+    assert.equal(canonical.toolUseId, 'tu-100');
+  });
+
+  it('translates SDK suggestions into canonical permissionHints', () => {
+    // PermissionPrompt's "Allow for session" / "Allow for project"
+    // buttons render off this list. Fields are kept structurally
+    // identical to PermissionSuggestion so the migration is loss-free.
+    const sdk: PermissionRequestEvent = {
+      permissionRequestId: 'req-200',
+      toolName: 'Bash',
+      toolInput: { cmd: 'ls' },
+      toolUseId: 'tu-200',
+      suggestions: [
+        { type: 'addRule', behavior: 'allow', destination: 'session', rules: [{ toolName: 'Bash' }] },
+        { type: 'addToAllowlist', behavior: 'allow', destination: 'project' },
+      ],
+    };
+    const canonical = translateClaudeCodePermissionRequest(sdk, 's');
+    assert.equal(canonical.permissionHints?.length, 2);
+    assert.equal(canonical.permissionHints?.[0].type, 'addRule');
+    assert.equal(canonical.permissionHints?.[0].behavior, 'allow');
+    assert.equal(canonical.permissionHints?.[0].destination, 'session');
+    assert.equal(canonical.permissionHints?.[0].rules?.[0].toolName, 'Bash');
+    assert.equal(canonical.permissionHints?.[1].destination, 'project');
+  });
+
+  it('omits permissionHints when SDK suggestions array is empty / absent', () => {
+    const sdk: PermissionRequestEvent = {
+      permissionRequestId: 'req-201',
+      toolName: 'Read',
+      toolInput: {},
+      toolUseId: 'tu-201',
+      suggestions: [],
+    };
+    const canonical = translateClaudeCodePermissionRequest(sdk, 's');
+    assert.equal(canonical.permissionHints, undefined);
+  });
+
+  it('carries nativeRequestRef so SDK-side resume can round-trip', () => {
+    // UI MUST NOT inspect nativeRequestRef.raw — adapter owns the
+    // shape. The contract is: round-trip ref exists, runtimeId
+    // matches, raw is the SDK event verbatim.
+    const sdk: PermissionRequestEvent = {
+      permissionRequestId: 'req-300',
+      toolName: 'Edit',
+      toolInput: { path: '/tmp/a' },
+      toolUseId: 'tu-300',
+    };
+    const canonical = translateClaudeCodePermissionRequest(sdk, 's');
+    assert.ok(canonical.nativeRequestRef);
+    assert.equal(canonical.nativeRequestRef?.runtimeId, 'claude_code');
+    assert.equal(canonical.nativeRequestRef?.raw, sdk);
+  });
+
   it('omits details when neither description nor decisionReason is set', () => {
     const sdk: PermissionRequestEvent = {
       permissionRequestId: 'req-002',

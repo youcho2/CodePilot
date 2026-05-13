@@ -64,6 +64,7 @@ describe('RuntimePermissionEvent contract', () => {
       runtimeId: 'claude_code',
       sessionId: 's',
       requestId: 'r',
+      toolName: 'Bash',
       subject: 'tool: bash',
     };
     const granted: RuntimePermissionEvent = {
