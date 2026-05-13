@@ -2122,6 +2122,22 @@ app.on('before-quit', async (e) => {
     e.preventDefault();
     // Stop bridge gracefully before killing the server
     await stopBridge();
+    // Phase 5 Phase 6 (2026-05-14) — graceful Codex app-server dispose
+    // before the Next server gets hard-killed. The Codex JSON-RPC child
+    // is owned by the Next server process; if we kill the Next server
+    // without telling Codex first, the Rust binary can orphan (no
+    // parent-death signal handler upstream). 1.5s budget — failure /
+    // timeout is non-fatal, we still kill the server below.
+    if (serverPort) {
+      try {
+        await Promise.race([
+          fetch(`http://127.0.0.1:${serverPort}/api/codex/dispose`, { method: 'POST' }),
+          new Promise<never>((_, reject) => setTimeout(() => reject(new Error('timeout')), 1500)),
+        ]);
+      } catch {
+        /* best-effort — proceed to killServer regardless */
+      }
+    }
     await killServer();
     app.quit();
   }

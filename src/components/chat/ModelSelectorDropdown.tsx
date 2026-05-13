@@ -183,13 +183,27 @@ export function ModelSelectorDropdown({
 
       {modelMenuOpen && (
         <CommandList className="w-80 mb-1.5">
-          {runtimeApplied && (
+          {runtimeApplied === 'codex_runtime' ? (
+            // Phase 5 Phase 6 (2026-05-14) — Codex Runtime today exclusively
+            // serves Codex Account models (gpt-5.5 etc.). Other CodePilot
+            // providers cannot route through Codex's app-server yet (Phase
+            // 5b will land OpenAI-compatible translation first), so the
+            // server-side `?runtime=codex_runtime` filter strips every
+            // non-Codex group. Surface that fact in plain words at the top
+            // of the menu so users don't think their other providers
+            // disappeared — they're a runtime switch away.
+            <div className="px-3 pt-3 pb-1 text-[11px] leading-snug text-muted-foreground">
+              {isZh
+                ? 'Codex Runtime 当前仅支持 Codex Account 模型；其他服务商请切回 Claude Code 或 CodePilot 执行引擎。'
+                : 'Codex Runtime currently supports only Codex Account models. Switch to Claude Code or CodePilot Runtime to use other providers.'}
+            </div>
+          ) : runtimeApplied ? (
             <div className="px-3 pt-3 pb-1 text-[11px] leading-snug text-muted-foreground">
               {isZh
                 ? '仅显示当前 Agent 引擎可用的模型'
                 : 'Models available under the current Agent engine'}
             </div>
-          )}
+          ) : null}
           <CommandListItems className="max-h-80">
             {recentMatches.length > 0 && (
               <CommandListGroup label={t('composer.recentModels' as TranslationKey)}>
@@ -255,9 +269,23 @@ export function ModelSelectorDropdown({
               </CommandListGroup>
             ))}
             {providerGroups.length === 0 && (
-              <div className="px-3 py-6 text-center text-xs text-muted-foreground">
-                {isZh ? '当前执行引擎 下暂无可用模型' : 'No models available under the current Runtime'}
-              </div>
+              runtimeApplied === 'codex_runtime' ? (
+                // Codex-specific empty state: when Codex Runtime is the
+                // applied filter but no Codex Account models came back
+                // (logged out / app-server unavailable), the generic copy
+                // is unactionable. Send users to /settings/codex where
+                // they can see the actual blocker (binary missing /
+                // logged out / fetch error) and the recovery action.
+                <div className="px-3 py-6 text-center text-xs text-muted-foreground leading-relaxed">
+                  {isZh
+                    ? 'Codex Runtime 下暂无可用模型。前往「设置 → Codex」查看登录状态或重新加载模型。'
+                    : 'No Codex models available. Visit Settings → Codex to check login and refresh.'}
+                </div>
+              ) : (
+                <div className="px-3 py-6 text-center text-xs text-muted-foreground">
+                  {isZh ? '当前执行引擎 下暂无可用模型' : 'No models available under the current Runtime'}
+                </div>
+              )
             )}
           </CommandListItems>
         </CommandList>
