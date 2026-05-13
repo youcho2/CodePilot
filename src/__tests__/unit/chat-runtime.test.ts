@@ -21,6 +21,9 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { getActiveChatRuntime, isChatRuntimeParam, resolveChatRuntimeParam, chatRuntimeParamForSession } from '../../lib/chat-runtime';
 import { getSetting, setSetting } from '../../lib/db';
+import { RUNTIME_IDS } from '@/lib/runtime/runtime-id';
+
+const runtimeIdSet: ReadonlySet<string> = new Set<string>(RUNTIME_IDS);
 
 describe('chat-runtime registry side effects', () => {
   it('getActiveChatRuntime() does not throw when chat-runtime is the entry import', () => {
@@ -32,11 +35,11 @@ describe('chat-runtime registry side effects', () => {
     assert.doesNotThrow(() => getActiveChatRuntime());
   });
 
-  it('returns one of the two valid ChatRuntime labels', () => {
+  it('returns a label from the canonical RUNTIME_IDS set', () => {
     const result = getActiveChatRuntime();
     assert.ok(
-      result === 'claude_code' || result === 'codepilot_runtime',
-      `expected 'claude_code' | 'codepilot_runtime', got ${result}`,
+      runtimeIdSet.has(result),
+      `expected a member of RUNTIME_IDS (${[...RUNTIME_IDS].join(' | ')}), got ${result}`,
     );
   });
 
@@ -66,28 +69,37 @@ describe('chat-runtime registry side effects', () => {
 });
 
 describe('chat-runtime param helpers', () => {
-  it('isChatRuntimeParam accepts the three valid values, rejects everything else', () => {
+  it('isChatRuntimeParam accepts every RUNTIME_IDS member + "auto", rejects everything else', () => {
+    // Iterate the canonical set so adding a new runtime to RUNTIME_IDS
+    // automatically extends this assertion.
+    for (const id of RUNTIME_IDS) {
+      assert.equal(isChatRuntimeParam(id), true, `RUNTIME_IDS member ${id} must be accepted`);
+    }
     assert.equal(isChatRuntimeParam('auto'), true);
-    assert.equal(isChatRuntimeParam('claude_code'), true);
-    assert.equal(isChatRuntimeParam('codepilot_runtime'), true);
     assert.equal(isChatRuntimeParam(''), false);
     assert.equal(isChatRuntimeParam(null), false);
     assert.equal(isChatRuntimeParam(undefined), false);
     assert.equal(isChatRuntimeParam('claude-code'), false);
+    assert.equal(isChatRuntimeParam('UNKNOWN_RUNTIME'), false);
   });
 
-  it('resolveChatRuntimeParam passes explicit values through, resolves auto', () => {
-    assert.equal(resolveChatRuntimeParam('claude_code'), 'claude_code');
-    assert.equal(resolveChatRuntimeParam('codepilot_runtime'), 'codepilot_runtime');
+  it('resolveChatRuntimeParam passes explicit RUNTIME_IDS through, resolves auto via canonical set', () => {
+    for (const id of RUNTIME_IDS) {
+      assert.equal(resolveChatRuntimeParam(id), id);
+    }
     const auto = resolveChatRuntimeParam('auto');
-    assert.ok(auto === 'claude_code' || auto === 'codepilot_runtime');
+    assert.ok(
+      runtimeIdSet.has(auto),
+      `auto resolution must return a RUNTIME_IDS member, got ${auto}`,
+    );
   });
 });
 
 describe('chatRuntimeParamForSession (Phase 2 Step 3b)', () => {
-  it('valid pin → that pin (immune to global)', () => {
-    assert.equal(chatRuntimeParamForSession('claude_code'), 'claude_code');
-    assert.equal(chatRuntimeParamForSession('codepilot_runtime'), 'codepilot_runtime');
+  it('valid RUNTIME_IDS pin → that pin (immune to global)', () => {
+    for (const id of RUNTIME_IDS) {
+      assert.equal(chatRuntimeParamForSession(id), id);
+    }
   });
 
   it('empty / undefined / null → "auto" (follow global)', () => {

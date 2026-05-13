@@ -8,6 +8,7 @@ import type { TranslationKey } from '@/i18n';
 import { PromptInputButton } from '@/components/ai-elements/prompt-input';
 import type { ProviderModelGroup } from '@/types';
 import { compatLabel, compatTone } from '@/lib/runtime-compat';
+import type { RuntimeId } from '@/lib/runtime/runtime-id';
 import {
   CommandList,
   CommandListItems,
@@ -80,8 +81,9 @@ interface ModelSelectorDropdownProps {
   /** Which runtime the picker feed was filtered against (server-resolved
    *  when caller passed `?runtime=auto`). Surfaced as a small status row
    *  inside the dropdown so users understand why some configured
-   *  providers may not appear. */
-  runtimeApplied?: 'claude_code' | 'codepilot_runtime';
+   *  providers may not appear. Typed off the canonical `RuntimeId`
+   *  union so adding a new runtime (Codex etc.) requires no change here. */
+  runtimeApplied?: RuntimeId;
   /** Whether the provider/model fetch is still in flight. When true we
    *  show a "loading" label on the trigger instead of an empty button so
    *  the composer doesn't look broken during the brief async window. */

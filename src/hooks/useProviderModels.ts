@@ -5,6 +5,7 @@ import type { ProviderModelGroup } from '@/types';
 // component imports pointed at the shared module makes "client-safe"
 // the local rule for this hook too.
 import type { ChatRuntimeParam } from '@/lib/chat-runtime-shared';
+import { isRuntimeId, type RuntimeId } from '@/lib/runtime/runtime-id';
 
 // Default Claude model options — used as fallback when API is unavailable
 export interface DefaultModelOption {
@@ -42,8 +43,12 @@ export interface UseProviderModelsReturn {
    * was called with `runtime: 'auto'`. UI uses this to surface
    * "showing models for X runtime" in the picker. Undefined when
    * caller passed `runtime: null` (Settings full-catalog mode).
+   *
+   * Typed as the canonical `RuntimeId` from runtime-id.ts — adding a
+   * new runtime (Codex etc.) flows through automatically without
+   * touching this hook.
    */
-  runtimeApplied?: 'claude_code' | 'codepilot_runtime';
+  runtimeApplied?: RuntimeId;
   currentProviderIdValue: string;
   modelOptions: typeof DEFAULT_MODEL_OPTIONS;
   currentModelOption: (typeof DEFAULT_MODEL_OPTIONS)[number];
@@ -124,7 +129,7 @@ export function useProviderModels(
   const [defaultProviderId, setDefaultProviderId] = useState<string>('');
   const [globalDefaultModel, setGlobalDefaultModel] = useState<string | undefined>();
   const [globalDefaultProvider, setGlobalDefaultProvider] = useState<string | undefined>();
-  const [runtimeApplied, setRuntimeApplied] = useState<'claude_code' | 'codepilot_runtime' | undefined>(undefined);
+  const [runtimeApplied, setRuntimeApplied] = useState<RuntimeId | undefined>(undefined);
   // Tri-state load tracking. `noCompatibleProvider` is meaningful only
   // after a successful response — the initial empty `providerGroups`
   // array is NOT a "no compatible provider" signal, it's just "fetch
@@ -179,7 +184,13 @@ export function useProviderModels(
         if (data && Array.isArray(data.groups)) {
           setProviderGroups(data.groups);
           setDefaultProviderId(data.default_provider_id || '');
-          setRuntimeApplied(data.runtime_applied || undefined);
+          // Guard the server response with the canonical RuntimeId
+          // type guard — unknown / stale runtime labels fall back to
+          // undefined so the picker's "showing models for X" footer
+          // never displays a value the rest of the app can't honor.
+          setRuntimeApplied(
+            isRuntimeId(data.runtime_applied) ? data.runtime_applied : undefined,
+          );
           setFetchState('loaded');
         } else {
           // Malformed response — same handling as a network failure.
