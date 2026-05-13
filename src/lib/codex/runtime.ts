@@ -117,6 +117,20 @@ function canonicalToSseLine(event: RuntimeRunEvent): string {
 }
 
 /**
+ * Active Codex turn registry — Phase 5 Phase 4 Slice 3 (2026-05-13).
+ *
+ * `turn/interrupt` requires both `threadId` AND `turnId` per
+ * upstream schema (`TurnInterruptParams = { threadId, turnId }`).
+ * threadId is already persisted via session-store; turnId is
+ * transient (one per send, valid until turn/completed). We keep it
+ * in-process per chat session — losing it across process restart
+ * is acceptable because turns don't survive restarts either.
+ *
+ * Map cleared when turn/completed or turn/failed lands.
+ */
+const activeCodexTurns = new Map<string, { threadId: string; turnId: string }>();
+
+/**
  * The Codex AgentRuntime singleton. Phase 5 Phase 3 registers this
  * with the runtime registry alongside `nativeRuntime` and `sdkRuntime`.
  */
@@ -241,19 +255,28 @@ export const codexRuntime: AgentRuntime = {
             // (per the mapper); status=completed/interrupted/inProgress
             // lands as `run_completed`. Both close the stream.
             if (event?.type === 'run_completed' || event?.type === 'run_failed') {
+              // Slice 3 (2026-05-13) — drop the active-turn entry so
+              // a future interrupt() against this session doesn't
+              // chase a stale turnId.
+              activeCodexTurns.delete(sessionId);
               closeStream();
             }
           });
           unsubscribers.push(unsubAny);
 
           // ── kick off the turn ───────────────────────────────────────
-          await client.request('turn/start', {
+          // Phase 5 Phase 4 Slice 3 — capture the returned turn id so
+          // `interrupt(sessionId)` can issue `turn/interrupt` with the
+          // correct (threadId, turnId) pair per
+          // `TurnInterruptParams = { threadId, turnId }` in the schema.
+          const turnResult = await client.request<{ turn: { id: string } }>('turn/start', {
             threadId,
             input: [{ type: 'text', text: options.prompt }],
             ...(options.workingDirectory ? { cwd: options.workingDirectory } : {}),
             ...(options.model ? { model: options.model } : {}),
             ...(options.effort ? { effort: options.effort } : {}),
           });
+          activeCodexTurns.set(sessionId, { threadId, turnId: turnResult.turn.id });
         } catch (err) {
           const reason = err instanceof Error ? err.message : String(err);
           closeStream({ error: reason });
@@ -263,23 +286,31 @@ export const codexRuntime: AgentRuntime = {
   },
 
   interrupt(sessionId: string): void {
-    // Best-effort: look up the thread ref, then call turn/interrupt.
-    // We don't track the active turnId here — Codex requires both
-    // threadId AND turnId to interrupt. Phase 6 wires the active
-    // turnId through the session-store metadata bag so this path
-    // can complete the round-trip.
+    // Phase 5 Phase 4 Slice 3 (2026-05-13) — issue a proper
+    // `turn/interrupt` with (threadId, turnId). Both ids come from
+    // the in-process `activeCodexTurns` map populated when
+    // `turn/start` resolves. The map entry clears on turn/completed
+    // or turn/failed so a stale entry can't fire after the turn
+    // is already done.
+    //
+    // Best-effort still: if Codex isn't reachable or the entry is
+    // missing (race against turn completion), the call no-ops. Per
+    // upstream README, `turn/interrupt` resolves to `{}` on success
+    // and the turn ultimately finishes with status: 'interrupted'.
+    const active = activeCodexTurns.get(sessionId);
+    if (!active) {
+      console.debug('[codex.runtime] interrupt requested but no active turn for', sessionId);
+      return;
+    }
     void (async () => {
       try {
-        const ref = getRuntimeSessionRef(sessionId, 'codex_runtime');
-        if (!ref) return;
         const { client } = await getCodexAppServer();
-        // Without turnId we can't issue a proper interrupt — log so
-        // operators see the gap. The active turn will still complete
-        // on its own; this just means interrupt is a no-op today.
-        console.debug('[codex.runtime] interrupt requested for', sessionId, 'thread', ref.token, '(no active turn id tracked yet)');
-        void client; // silence unused warning until Phase 6 wires turn id
-      } catch {
-        /* ignore — best effort */
+        await client.request('turn/interrupt', {
+          threadId: active.threadId,
+          turnId: active.turnId,
+        });
+      } catch (err) {
+        console.debug('[codex.runtime] turn/interrupt failed (best-effort):', err);
       }
     })();
   },
