@@ -2,6 +2,7 @@ import { NextRequest } from 'next/server';
 import { deleteSession, getSession, updateSessionWorkingDirectory, updateSessionTitle, updateSessionMode, updateSessionModel, updateSessionProviderId, clearSessionMessages, updateSdkSessionId, updateSessionPermissionProfile, updateSessionRuntime } from '@/lib/db';
 import { autoApprovePendingForSession } from '@/lib/bridge/permission-broker';
 import { clearRuntimeSessionRef } from '@/lib/runtime/session-store';
+import { isRuntimeId, RUNTIME_IDS } from '@/lib/runtime/runtime-id';
 
 export async function GET(
   _request: NextRequest,
@@ -50,16 +51,45 @@ export async function PATCH(
     const modelChanged = body.model !== undefined && body.model !== session.model;
     const providerChanged = body.provider_id !== undefined && body.provider_id !== session.provider_id;
     let runtimePinChanged = false;
+    // Phase 5 review round 4 (2026-05-13) — accept any registered
+    // RuntimeId (claude_code / codepilot_runtime / codex_runtime / …)
+    // via the canonical isRuntimeId guard. The earlier hard-coded
+    // whitelist hard-rejected codex_runtime even though RUNTIME_IDS
+    // includes it, so the composer's PATCH from RuntimeSelector
+    // silently 400'd and the session ended up with provider_id =
+    // codex_account + runtime_pin = codepilot_runtime — exactly the
+    // mismatch Codex caught in round 4 review.
     if (body.runtime_pin !== undefined) {
-      // Step 4c — session-level runtime switch from the composer toolbar.
-      // Valid values: '' (follow global), 'claude_code', 'codepilot_runtime'.
-      // Anything else is a client bug and we 400 rather than write garbage.
-      if (body.runtime_pin !== '' && body.runtime_pin !== 'claude_code' && body.runtime_pin !== 'codepilot_runtime') {
-        return Response.json({ error: 'runtime_pin must be "", "claude_code", or "codepilot_runtime"' }, { status: 400 });
+      if (body.runtime_pin !== '' && !isRuntimeId(body.runtime_pin)) {
+        return Response.json(
+          {
+            error: `runtime_pin must be "" or one of: ${RUNTIME_IDS.join(', ')}`,
+          },
+          { status: 400 },
+        );
       }
       runtimePinChanged = body.runtime_pin !== (session.runtime_pin || '');
       if (runtimePinChanged) {
         updateSessionRuntime(id, body.runtime_pin);
+      }
+    }
+
+    // Phase 5 review round 4 (2026-05-13) — provider/runtime coherence
+    // guard. codex_account models flow ONLY through Codex Runtime;
+    // persisting (provider_id=codex_account, runtime_pin=other) is a
+    // contradiction that the composer's split picker is too easy to
+    // produce (provider PATCH fires from the model picker, runtime
+    // PATCH fires from the RuntimeSelector — separate user actions).
+    // Force runtime_pin to codex_runtime when picking codex_account,
+    // so the chat send route resolves a coherent (provider, runtime)
+    // pair without needing the client to remember the linkage.
+    let coherenceForcedRuntime: 'codex_runtime' | null = null;
+    if (body.provider_id === 'codex_account' && body.runtime_pin === undefined) {
+      const currentPin = session.runtime_pin || '';
+      if (currentPin !== 'codex_runtime') {
+        updateSessionRuntime(id, 'codex_runtime');
+        coherenceForcedRuntime = 'codex_runtime';
+        runtimePinChanged = true;
       }
     }
 
@@ -114,7 +144,14 @@ export async function PATCH(
     }
 
     const updated = getSession(id);
-    return Response.json({ session: updated });
+    // Phase 5 review round 4 — surface the coherence force-set so the
+    // client can show a small toast ("session switched to Codex Runtime"),
+    // mirroring the explicit transcript marker pattern used by the
+    // existing RuntimeSelector mid-chat switch.
+    return Response.json({
+      session: updated,
+      ...(coherenceForcedRuntime ? { coherence: { forcedRuntimePin: coherenceForcedRuntime } } : {}),
+    });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Failed to update session';
     return Response.json({ error: message }, { status: 500 });

@@ -63,6 +63,14 @@ export interface ResolvedProvider {
   /** Internal: true when resolved as OpenAI OAuth (Codex API) virtual provider */
   _openaiOAuth?: boolean;
   /**
+   * Phase 5 review round 4 (2026-05-13) — true when resolved as the
+   * Codex Account virtual provider. CodexRuntime takes over the
+   * upstream call via its own app-server thread/turn flow; resolvers
+   * downstream of this point MUST NOT try to build a transport
+   * against this provider.
+   */
+  _codexAccount?: boolean;
+  /**
    * Phase 2 Step 2 — invalid-session signal. Set ONLY by
    * `resolveProviderForSession` when the session's stored
    * `provider_id` is non-empty but no longer points at a real DB
@@ -134,6 +142,16 @@ export function resolveProvider(opts: ResolveOptions = {}): ResolvedProvider {
   // Special virtual provider: OpenAI OAuth (Codex API)
   if (effectiveProviderId === 'openai-oauth') {
     return buildOpenAIOAuthResolution(opts);
+  }
+
+  // Phase 5 review round 4 (2026-05-13) — Codex Account is a virtual
+  // provider produced by `src/lib/codex/models.ts:buildCodexProviderModelGroup`
+  // when the user is logged into Codex. It's NOT a DB row, so it needs
+  // the same virtual-provider exemption as `env` and `openai-oauth`.
+  // Codex Runtime takes over the actual upstream call via its own
+  // app-server thread/turn flow; this resolver just needs to NOT 409.
+  if (effectiveProviderId === 'codex_account') {
+    return buildCodexAccountResolution(opts);
   }
 
   if (effectiveProviderId && effectiveProviderId !== 'env') {
@@ -667,6 +685,39 @@ const OPENAI_CODEX_MODELS: CatalogModel[] = [
  * Build resolution for the virtual OpenAI OAuth provider.
  * Uses OAuth Bearer token + Codex API endpoint.
  */
+/**
+ * Phase 5 review round 4 (2026-05-13) — Codex Account virtual provider
+ * resolution. Returns a minimal ResolvedProvider so callers that
+ * destructure it don't crash; the actual upstream call goes through
+ * Codex Runtime's app-server thread/turn flow, NOT through this
+ * resolver's transport. We populate `hasCredentials: true` because
+ * Codex's account/read endpoint is the real gate — by the time the
+ * picker shows a codex_account model, the account is already logged
+ * in (codex-models.ts:buildCodexProviderModelGroup returns null
+ * otherwise).
+ */
+function buildCodexAccountResolution(opts: ResolveOptions): ResolvedProvider {
+  const model = opts.model || opts.sessionModel || '';
+  return {
+    provider: undefined,
+    protocol: 'openai-compatible',
+    authStyle: 'api_key',
+    model,
+    upstreamModel: model,
+    modelDisplayName: model,
+    headers: {},
+    envOverrides: {},
+    roleModels: { default: model },
+    // Account-managed: Codex app-server owns credentials. The resolver
+    // never makes the upstream call for this provider — CodexRuntime
+    // bypasses provider-transport entirely.
+    hasCredentials: true,
+    availableModels: [],
+    settingSources: [],
+    _codexAccount: true,
+  } as ResolvedProvider;
+}
+
 function buildOpenAIOAuthResolution(opts: ResolveOptions): ResolvedProvider {
   const model = opts.model || opts.sessionModel || 'gpt-5.4';
 
@@ -1422,6 +1473,7 @@ export function resolveProviderForSession(
     effectiveProviderId
     && effectiveProviderId !== 'env'
     && effectiveProviderId !== 'openai-oauth'
+    && effectiveProviderId !== 'codex_account'
     && !getProvider(effectiveProviderId)
   ) {
     // Still produce a ResolvedProvider shape so destructuring callers

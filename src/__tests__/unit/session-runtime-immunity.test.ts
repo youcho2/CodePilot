@@ -877,18 +877,35 @@ describe('RED — known global-runtime hazard sites Phase 2 Step 2 must replace'
       /import\s*\{[^}]*\bupdateSessionRuntime\b[^}]*\}\s*from\s*['"]@\/lib\/db['"]/,
       'PATCH route must import updateSessionRuntime to write runtime_pin',
     );
-    // Enum check: must reference all three legal values in a guard that
-    // returns 400. We don't pin the exact comparison shape — just that
-    // 'claude_code' AND 'codepilot_runtime' AND '' all appear inside a
-    // block that returns a 400 status, and the bare `body.runtime_pin`
-    // sits in the same block.
-    const validationBlock = src.match(/body\.runtime_pin[\s\S]{0,400}status:\s*400/);
+    // Enum check: must reject any value that isn't the empty string OR
+    // a known `RuntimeId`. Phase 5 review round 4 (2026-05-13)
+    // collapsed the hand-rolled allowlist `'claude_code' |
+    // 'codepilot_runtime'` into the canonical `isRuntimeId` guard
+    // (auto-grows when RUNTIME_IDS gains 'codex_runtime' / etc).
+    // Pin that the validation block (a) checks against the empty
+    // string explicitly, (b) routes through isRuntimeId, (c) returns
+    // 400 on the failure path, and (d) the error message references
+    // RUNTIME_IDS so the API caller sees the up-to-date set.
+    const validationBlock = src.match(/body\.runtime_pin[\s\S]{0,600}status:\s*400/);
     assert.ok(
       validationBlock,
       'PATCH route must validate runtime_pin and 400 on bad input',
     );
-    assert.match(validationBlock![0], /claude_code/, 'enum must include claude_code');
-    assert.match(validationBlock![0], /codepilot_runtime/, 'enum must include codepilot_runtime');
+    assert.match(
+      validationBlock![0],
+      /isRuntimeId\(/,
+      'enum check must delegate to the canonical isRuntimeId guard',
+    );
+    assert.match(
+      validationBlock![0],
+      /RUNTIME_IDS/,
+      'error message must reference RUNTIME_IDS so callers see the up-to-date set',
+    );
+    assert.match(
+      validationBlock![0],
+      /''/,
+      'empty string must remain valid (follow-global semantics)',
+    );
     // sdk_session_id cleanup must also fire on runtime_pin change. The
     // existing cleanup uses an `if (… || providerChanged …)` shape; the
     // refactor must expand that condition with `runtimePinChanged` (or
