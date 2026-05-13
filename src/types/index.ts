@@ -744,6 +744,13 @@ export type SSEEventType =
   | 'rewind_point'       // SDK user message with rewind checkpoint
   | 'rate_limit'         // SDK 0.2.111 subscription rate-limit telemetry
   | 'context_usage'      // SDK 0.2.111 post-turn context usage snapshot
+  | 'file_changed'       // Phase 5 Phase 4 (2026-05-13) — Codex Runtime
+                         // (and any future runtime) explicit file-change
+                         // event. Routes to `codepilot:file-changed`
+                         // window event so PreviewPanel quiet-refreshes.
+                         // SDK doesn't emit this — file changes inside
+                         // tool_result events still flow through the
+                         // existing isWriteTool inspection path.
   | 'done';              // stream complete
 
 export interface SSEEvent {

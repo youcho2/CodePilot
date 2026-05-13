@@ -547,6 +547,25 @@ async function runStream(stream: ActiveStream, params: StartStreamParams): Promi
         markActive();
         stream.rewindPoints = [...stream.rewindPoints, { userMessageId: sdkUserMessageId }];
       },
+      onFileChanged: (paths) => {
+        // Phase 5 Phase 4 (2026-05-13). Codex Runtime emits explicit
+        // file-changed SSE events from fs/changed + fileChange item
+        // lifecycle. ClaudeCode SDK doesn't emit this — its file
+        // changes flow through onToolResult+isWriteTool above. Both
+        // paths converge here at `dispatchFileChanged`, so PreviewPanel
+        // / file-tree / artifact refresh logic is runtime-agnostic.
+        markActive();
+        if (paths.length === 0) return;
+        // Resolve any relative path against the active session's
+        // working directory — Codex sometimes reports relative paths
+        // from `fs/changed`. PreviewPanel listener keys on absolute
+        // paths.
+        const absolute = paths.map((p) => resolveToolPath(p, stream.workingDirectory));
+        dispatchFileChanged({
+          paths: absolute,
+          source: 'ai-tool',
+        });
+      },
       onKeepAlive: () => {
         markActive();
       },

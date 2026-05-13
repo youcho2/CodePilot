@@ -78,15 +78,17 @@ function canonicalToSseLine(event: RuntimeRunEvent): string {
         data: JSON.stringify({ id: event.commandId, name: 'Bash', input: { command: event.command, cwd: event.cwd } }),
       })}\n\n`;
     case 'file_changed':
-      // File changes flow through the codepilot:file-changed event
-      // channel (see src/lib/file-changed-event.ts) — not SSE.
-      // Emit a status line so the chat transcript still records
-      // that something happened; the actual file refresh is
-      // dispatched separately by the adapter (see fileChangedDispatcher
-      // below).
+      // Phase 5 Phase 4 (2026-05-13) — emit as the dedicated SSE
+      // `file_changed` event type. `useSSEStream.handleSSEEvent` →
+      // SSECallbacks.onFileChanged → stream-session-manager →
+      // dispatchFileChanged → window 'codepilot:file-changed' event →
+      // PreviewPanel quiet-refresh. Same downstream path the
+      // ClaudeCode SDK isWriteTool inspection uses; the runtime
+      // adapter is the only place that knows where the paths come
+      // from.
       return `data: ${JSON.stringify({
-        type: 'status',
-        data: JSON.stringify({ kind: 'file_changed', paths: event.paths }),
+        type: 'file_changed',
+        data: JSON.stringify({ paths: event.paths }),
       })}\n\n`;
     case 'usage_updated':
       return `data: ${JSON.stringify({
