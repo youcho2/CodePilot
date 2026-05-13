@@ -39,7 +39,11 @@ import {
   findCodexBinary,
   getCodexAppServer,
 } from './app-server-manager';
-import { translateCodexNotification } from './event-mapper';
+import {
+  translateCodexNotification,
+  synthesizeFileChangedFromCompletedItem,
+} from './event-mapper';
+import { handleCodexApprovalRequest } from './approval-bridge';
 import {
   getRuntimeSessionRef,
   setRuntimeSessionRef,
@@ -131,6 +135,20 @@ function canonicalToSseLine(event: RuntimeRunEvent): string {
 const activeCodexTurns = new Map<string, { threadId: string; turnId: string }>();
 
 /**
+ * Active fs/watch entries — Phase 5 review round 3 (2026-05-13).
+ *
+ * Codex's fs/changed notifications only fire after a corresponding
+ * fs/watch subscription. We register one watch per Codex session
+ * (scoped to the chat session's working directory) so shell commands
+ * that write files outside the fileChange item path still surface as
+ * file_changed events. Entry cleared by fs/unwatch in closeStream.
+ *
+ * Map value is the watchId we sent — Codex echoes it back in
+ * fs/changed notifications + accepts it for fs/unwatch.
+ */
+const fsWatchEntries = new Map<string, string>();
+
+/**
  * The Codex AgentRuntime singleton. Phase 5 Phase 3 registers this
  * with the runtime registry alongside `nativeRuntime` and `sdkRuntime`.
  */
@@ -173,41 +191,72 @@ export const codexRuntime: AgentRuntime = {
             try { u(); } catch { /* ignore */ }
           }
           try { controller.close(); } catch { /* ignore */ }
+          // Phase 5 review round 3 (2026-05-13) — best-effort
+          // fs/unwatch when the stream closes. We don't await: the
+          // stream consumer doesn't care about the cleanup, and the
+          // app-server forgets the watch on its end when the client
+          // disconnects anyway. This is just hygiene to keep the
+          // watch table small while CodePilot stays connected.
+          const watchId = fsWatchEntries.get(sessionId);
+          if (watchId) {
+            fsWatchEntries.delete(sessionId);
+            void (async () => {
+              try {
+                const { client } = await getCodexAppServer();
+                await client.request('fs/unwatch', { watchId });
+              } catch {
+                /* best-effort; app-server cleans up on disconnect */
+              }
+            })();
+          }
         };
 
         try {
           const { client } = await getCodexAppServer();
 
           // ── server-originated approval requests ──────────────────────
-          // Codex emits item/commandExecution/requestApproval +
-          // item/fileChange/requestApproval + item/permissions/requestApproval
-          // as JSON-RPC REQUESTS (not notifications). The client must
-          // respond or the turn hangs.
+          // Phase 5 Phase 4 Slice 2 (2026-05-13). Wires Codex's
+          // approval flow through CodePilot's existing PermissionPrompt
+          // via `handleCodexApprovalRequest`:
+          //   1. translateCodexApproval → canonical permission_request
+          //   2. emits SDK-shape PermissionRequestEvent via SSE so
+          //      useSSEStream + stream-session-manager + PermissionPrompt
+          //      pick it up unchanged (UI doesn't branch on runtime)
+          //   3. registers resolver in the existing permission-registry
+          //      (same map ClaudeCode SDK uses); user response via
+          //      /api/chat/permission resolves it
+          //   4. translates PermissionResult → method-specific Codex
+          //      response shape (different per approval method per
+          //      `资料/codex/.../v2/{CommandExecution,FileChange,...}
+          //      ApprovalDecision.ts`)
           //
-          // Phase 5 review round 1 (2026-05-13) intermediate stance:
-          // we register decline-by-default handlers for the canonical
-          // approval methods + legacy aliases. This unblocks Codex
-          // turns immediately instead of hanging. Phase 6 will replace
-          // these handlers with a UI-driven decision flow:
-          //   1. handler returns a Promise tied to a pending-approval
-          //      registry keyed by the JSON-RPC request id
-          //   2. translateCodexApproval emits canonical
-          //      permission_request to the chat stream
-          //   3. PermissionPrompt resolves the user's decision back
-          //      via the registry → handler returns ReviewDecision
+          // Review round 3 (2026-05-13) — the original Slice 2 commit
+          // shipped approval-bridge.ts + tests, but the runtime edit
+          // got lost in a file-modification race and never replaced
+          // the decline-by-default loop. This restoration completes
+          // the wiring.
           //
-          // Until then, the conservative default keeps the Codex turn
-          // moving (declined commands surface as a normal denial in
-          // the chat transcript) without leaking permissions.
-          const declineByDefault = () => ({ decision: 'decline' as const });
+          // item/permissions/requestApproval has a different response
+          // shape (permissions + scope, not just decision). Bridge
+          // throws an error → Codex treats as failed approval →
+          // effectively decline. Phase 6 wires the full permission-
+          // grant UI with GrantedPermissionProfile.
           for (const method of [
             'item/commandExecution/requestApproval',
             'item/fileChange/requestApproval',
             'item/permissions/requestApproval',
-            'execCommandApproval', // legacy
-            'applyPatchApproval', // legacy
+            'execCommandApproval',
+            'applyPatchApproval',
           ]) {
-            const unsubReq = client.onServerRequest(method, declineByDefault);
+            const unsubReq = client.onServerRequest(method, (params, ctx) =>
+              handleCodexApprovalRequest({
+                sessionId,
+                jsonRpcId: ctx.id,
+                method,
+                params,
+                emitSse: tryEnqueue,
+              }),
+            );
             unsubscribers.push(unsubReq);
           }
 
@@ -236,6 +285,32 @@ export const codexRuntime: AgentRuntime = {
             setRuntimeSessionRef(sessionId, { runtimeId: 'codex_runtime', token: threadId });
           }
 
+          // ── workspace filesystem watch ──────────────────────────────
+          // Phase 5 review round 3 (2026-05-13). Register an fs/watch
+          // scoped to the working directory so Codex emits fs/changed
+          // notifications when shell commands (NOT through fileChange
+          // items) touch files. The fileChange item path already gets
+          // covered by `synthesizeFileChangedFromCompletedItem`; this
+          // watch covers the remaining case where Codex runs e.g. a
+          // `cargo build` that drops artifacts on disk.
+          //
+          // The watch is best-effort: a failure leaves preview auto-
+          // refresh degraded to fileChange items only, but the turn
+          // continues. fs/unwatch fires in closeStream so we don't
+          // leak watch entries on the long-running app-server.
+          if (options.workingDirectory) {
+            const watchId = `codex-fs-${sessionId}`;
+            try {
+              await client.request('fs/watch', {
+                watchId,
+                path: options.workingDirectory,
+              });
+              fsWatchEntries.set(sessionId, watchId);
+            } catch (err) {
+              console.debug('[codex.runtime] fs/watch best-effort failed:', err);
+            }
+          }
+
           // ── notification fan-out ────────────────────────────────────
           // Phase 5 review round 2 (2026-05-13): subscribe through the
           // wildcard hook so the canonical mapper sees EVERY notification.
@@ -250,6 +325,18 @@ export const codexRuntime: AgentRuntime = {
             if (event) {
               tryEnqueue(canonicalToSseLine(event));
             }
+
+            // Review round 3 (2026-05-13) — fileChange item/completed
+            // also synthesizes a `file_changed` event so PreviewPanel
+            // auto-refresh fires for patch-applied files even without
+            // a separate fs/changed notification. Two events from one
+            // notification is legitimate: tool_completed for the chat
+            // UI + file_changed for the dispatch channel.
+            if (method === 'item/completed') {
+              const fcEvent = synthesizeFileChangedFromCompletedItem(params, { sessionId });
+              if (fcEvent) tryEnqueue(canonicalToSseLine(fcEvent));
+            }
+
             // Stream lifecycle close on terminal canonical events.
             // turn/completed with status=failed lands as `run_failed`
             // (per the mapper); status=completed/interrupted/inProgress

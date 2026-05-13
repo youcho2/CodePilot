@@ -633,3 +633,46 @@ export function translateCodexApproval(args: {
 
 /** Exposed for tests + contract pinning. */
 export const CODEX_KNOWN_NOTIFICATION_METHODS = Array.from(KNOWN_CODEX_METHODS);
+
+/**
+ * Synthesize a canonical `file_changed` event from a fileChange item
+ * payload at item/completed time.
+ *
+ * Phase 5 review round 3 (2026-05-13) — earlier revision only
+ * translated fs/changed notifications into file_changed. But fs/changed
+ * only fires when CodePilot has explicitly subscribed via fs/watch,
+ * and ThreadItem.fileChange completions already carry the touched
+ * paths inside `changes[]` (FileUpdateChange = { path, kind, diff }).
+ * Without this synthesizer, Codex applying a patch via fileChange
+ * wouldn't trigger preview auto-refresh even though the runtime
+ * knows exactly which files changed.
+ *
+ * The runtime emits BOTH `tool_completed` (so chat shows "fileChange
+ * done") AND this `file_changed` event (so PreviewPanel quiet-
+ * refreshes). Two events from one item is legitimate — they serve
+ * different downstream channels (chat UI vs preview dispatch).
+ *
+ * Returns null when params don't carry a fileChange item with
+ * non-empty changes.
+ */
+export function synthesizeFileChangedFromCompletedItem(
+  params: unknown,
+  ctx: CodexMappingContext,
+): RuntimeRunEvent | null {
+  const p = params as { item?: ThreadItemLike };
+  if (!p.item || p.item.type !== 'fileChange') return null;
+  const changes = p.item.changes;
+  if (!Array.isArray(changes) || changes.length === 0) return null;
+  const paths: string[] = [];
+  for (const c of changes) {
+    if (c && typeof c === 'object' && 'path' in (c as Record<string, unknown>)) {
+      const path = (c as { path?: unknown }).path;
+      if (typeof path === 'string' && path.length > 0) paths.push(path);
+    }
+  }
+  if (paths.length === 0) return null;
+  return makeFileChanged(
+    { runtimeId: 'codex_runtime' as const, sessionId: ctx.sessionId },
+    { paths },
+  );
+}
