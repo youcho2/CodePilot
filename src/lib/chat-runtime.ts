@@ -56,7 +56,13 @@ export { isChatRuntimeParam, chatRuntimeParamForSession } from './chat-runtime-s
  */
 export function getActiveChatRuntime(): ChatRuntime {
   const concrete = resolveRuntime();
-  return concrete.id === 'claude-code-sdk' ? 'claude_code' : 'codepilot_runtime';
+  // Phase 5 Phase 3 (2026-05-13) — Codex Runtime registry id matches
+  // the canonical RuntimeId verbatim, so we can return it directly.
+  // The earlier two-runtime world mapped 'claude-code-sdk' →
+  // 'claude_code' and everything else → 'codepilot_runtime'.
+  if (concrete.id === 'codex_runtime') return 'codex_runtime';
+  if (concrete.id === 'claude-code-sdk') return 'claude_code';
+  return 'codepilot_runtime';
 }
 
 /**
@@ -89,7 +95,8 @@ export function resolveChatRuntimeParam(param: ChatRuntimeParam): ChatRuntime {
  */
 export function resolveRuntimeForSession(session: { runtime_pin?: string }): ChatRuntime {
   const pin = session.runtime_pin;
-  if (pin === 'claude_code' || pin === 'codepilot_runtime') {
+  // Phase 5 Phase 3 (2026-05-13) — codex_runtime is now a valid pin too.
+  if (pin === 'claude_code' || pin === 'codepilot_runtime' || pin === 'codex_runtime') {
     return pin;
   }
   return getActiveChatRuntime();

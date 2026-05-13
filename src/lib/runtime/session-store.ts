@@ -30,7 +30,7 @@
 
 import type { RuntimeId } from './runtime-id';
 import type { RuntimeSessionRef } from './contract';
-import { getSession, updateSdkSessionId } from '@/lib/db';
+import { getSession, updateSdkSessionId, updateCodexThreadId } from '@/lib/db';
 
 /**
  * Resolve the runtime-side session reference for a chat session
@@ -52,14 +52,15 @@ export function getRuntimeSessionRef(
       // Native runtime keeps state in-memory in the runtime singleton.
       // No persistent ref to surface.
       return null;
-    case 'codex_runtime':
-      // Phase 5 Phase 2 stub (2026-05-13). Phase 3 will replace this
-      // with persistence backed by either a JSON `runtime_session_refs`
-      // column or an in-memory map keyed by chat session — Codex
-      // thread ids are required to resume an existing conversation
-      // via `thread/resume`. Until the AgentRuntime adapter exists,
-      // there's nothing to surface.
-      return null;
+    case 'codex_runtime': {
+      // Phase 5 Phase 3 (2026-05-13) — Codex thread id persistence.
+      // Backed by `chat_sessions.codex_thread_id` column. Codex's
+      // `thread/resume` requires the original threadId, so we
+      // persist it per chat session for cross-reload resume.
+      const session = getSession(chatSessionId);
+      if (!session?.codex_thread_id) return null;
+      return { runtimeId: 'codex_runtime', token: session.codex_thread_id };
+    }
     default: {
       // Exhaustiveness — when a new RuntimeId lands here, TS will fail
       // compilation forcing the implementer to add a case.
@@ -85,8 +86,8 @@ export function setRuntimeSessionRef(
       // No-op — native runtime has no persistent ref.
       return;
     case 'codex_runtime':
-      // Phase 5 Phase 2 stub — see getRuntimeSessionRef for context.
-      // Phase 3 lands the persistence layer.
+      // Phase 5 Phase 3 (2026-05-13) — persist Codex thread id.
+      updateCodexThreadId(chatSessionId, ref.token);
       return;
     default: {
       const _: never = ref.runtimeId;
@@ -116,8 +117,11 @@ export function clearRuntimeSessionRef(
       // No-op — nothing persisted.
       return;
     case 'codex_runtime':
-      // Phase 5 Phase 2 stub — nothing persisted yet, Phase 3 lands
-      // the clearing path alongside the persistence backend.
+      // Phase 5 Phase 3 (2026-05-13) — clear the persisted Codex
+      // thread id. Provider / model / runtime-pin changes that
+      // invalidate the resume context call this path scoped to
+      // codex_runtime; other runtimes' refs stay intact.
+      updateCodexThreadId(chatSessionId, '');
       return;
     default: {
       const _: never = runtimeId;

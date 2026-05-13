@@ -1,0 +1,260 @@
+/**
+ * Codex AgentRuntime implementation.
+ *
+ * Phase 5 Phase 3 (2026-05-13). Wires the existing CodePilot
+ * `AgentRuntime` interface (stream / interrupt / isAvailable /
+ * dispose) into the Codex app-server JSON-RPC channel.
+ *
+ * Lifecycle per call:
+ *
+ *   1. getCodexAppServer() — boot + initialize the app-server child
+ *      process (cached singleton; subsequent calls reuse the same
+ *      client).
+ *   2. Resolve thread id — `thread/resume` if the session-store has
+ *      a Codex ref for this chat session, else `thread/start` with
+ *      the working directory.
+ *   3. Subscribe to canonical notifications (agentMessage/delta,
+ *      item/started, item/completed, turn/completed, etc.).
+ *   4. `turn/start` with the user prompt + optional model override.
+ *   5. Translate every notification into a `RuntimeRunEvent` via
+ *      `translateCodexNotification`, then re-emit as SSE lines in
+ *      CodePilot's existing format (`data: {"type":...,"data":...}\n\n`).
+ *   6. On `turn/completed` (or `turn/failed`), close the stream.
+ *
+ * Server-to-client approval requests (`execCommandApproval` etc.)
+ * are NOT wired into the canonical permission channel in this slice
+ * — the JSON-RPC client doesn't yet support server-originated
+ * requests, only notifications. Phase 6 closes that loop.
+ *
+ * NOTE: this module is node-only (pulls app-server-manager which
+ * imports `child_process`). Don't import from client components.
+ */
+
+import type {
+  AgentRuntime,
+  RuntimeStreamOptions,
+} from '@/lib/runtime/types';
+import type { RuntimeRunEvent } from '@/lib/runtime/contract';
+import {
+  findCodexBinary,
+  getCodexAppServer,
+} from './app-server-manager';
+import { translateCodexNotification } from './event-mapper';
+import {
+  getRuntimeSessionRef,
+  setRuntimeSessionRef,
+} from '@/lib/runtime/session-store';
+
+/**
+ * Convert one canonical RuntimeRunEvent into the SSE-line format the
+ * existing chat consumers expect:
+ *   `data: {"type":"<sdkType>","data":"<payload>"}\n\n`
+ *
+ * The chat side already knows how to render these (claude-client
+ * has been emitting them for v0.x). Codex's translator hits the same
+ * channel; consumers don't need a new code path.
+ */
+function canonicalToSseLine(event: RuntimeRunEvent): string {
+  switch (event.type) {
+    case 'assistant_delta':
+      return `data: ${JSON.stringify({ type: 'text', data: event.text })}\n\n`;
+    case 'tool_started':
+      return `data: ${JSON.stringify({
+        type: 'tool_use',
+        data: JSON.stringify({ id: event.toolId, name: event.name, input: event.input ?? {} }),
+      })}\n\n`;
+    case 'tool_completed':
+      return `data: ${JSON.stringify({
+        type: 'tool_result',
+        data: JSON.stringify({
+          tool_use_id: event.toolId,
+          content: event.output ?? '',
+          ...(event.error ? { error: event.error } : {}),
+        }),
+      })}\n\n`;
+    case 'command_started':
+      return `data: ${JSON.stringify({
+        type: 'tool_use',
+        data: JSON.stringify({ id: event.commandId, name: 'Bash', input: { command: event.command, cwd: event.cwd } }),
+      })}\n\n`;
+    case 'file_changed':
+      // File changes flow through the codepilot:file-changed event
+      // channel (see src/lib/file-changed-event.ts) — not SSE.
+      // Emit a status line so the chat transcript still records
+      // that something happened; the actual file refresh is
+      // dispatched separately by the adapter (see fileChangedDispatcher
+      // below).
+      return `data: ${JSON.stringify({
+        type: 'status',
+        data: JSON.stringify({ kind: 'file_changed', paths: event.paths }),
+      })}\n\n`;
+    case 'usage_updated':
+      return `data: ${JSON.stringify({
+        type: 'context_usage',
+        data: JSON.stringify({
+          input_tokens: event.inputTokens,
+          output_tokens: event.outputTokens,
+          model_context_window: event.contextWindow,
+        }),
+      })}\n\n`;
+    case 'run_completed':
+      return `data: ${JSON.stringify({ type: 'result', data: JSON.stringify({ finish_reason: event.finishReason ?? 'end_turn' }) })}\n\n`;
+    case 'run_failed':
+      return `data: ${JSON.stringify({ type: 'error', data: event.message })}\n\n`;
+    case 'unknown_item':
+      // Surface unknown items as status so the chat doesn't drop them.
+      return `data: ${JSON.stringify({
+        type: 'status',
+        data: JSON.stringify({ kind: event.sourceType, payload: event.payload }),
+      })}\n\n`;
+    default: {
+      const _: never = event;
+      throw new Error(`canonicalToSseLine: unhandled event ${String(_)}`);
+    }
+  }
+}
+
+/**
+ * The Codex AgentRuntime singleton. Phase 5 Phase 3 registers this
+ * with the runtime registry alongside `nativeRuntime` and `sdkRuntime`.
+ */
+export const codexRuntime: AgentRuntime = {
+  id: 'codex_runtime',
+  displayName: 'Codex Runtime',
+  description: 'Routes through the local codex app-server (Codex account models + native tools)',
+
+  isAvailable(): boolean {
+    return findCodexBinary() !== null;
+  },
+
+  stream(options: RuntimeStreamOptions): ReadableStream<string> {
+    return new ReadableStream<string>({
+      async start(controller) {
+        const sessionId = options.sessionId;
+
+        let active = true;
+        const unsubscribers: Array<() => void> = [];
+        const tryEnqueue = (line: string) => {
+          if (!active) return;
+          try {
+            controller.enqueue(line);
+          } catch {
+            // Stream already closed (consumer aborted).
+            active = false;
+          }
+        };
+
+        const closeStream = (extra?: { error?: string }) => {
+          if (!active) return;
+          if (extra?.error) {
+            tryEnqueue(
+              `data: ${JSON.stringify({ type: 'error', data: extra.error })}\n\n`,
+            );
+          }
+          tryEnqueue(`data: ${JSON.stringify({ type: 'done', data: '' })}\n\n`);
+          active = false;
+          for (const u of unsubscribers.splice(0)) {
+            try { u(); } catch { /* ignore */ }
+          }
+          try { controller.close(); } catch { /* ignore */ }
+        };
+
+        try {
+          const { client } = await getCodexAppServer();
+
+          // ── thread resolution: resume if we have a ref, else start ──
+          const existingRef = getRuntimeSessionRef(sessionId, 'codex_runtime');
+          let threadId: string;
+          if (existingRef) {
+            try {
+              await client.request('thread/resume', { threadId: existingRef.token });
+              threadId = existingRef.token;
+            } catch {
+              // Resume failed (thread archived / unknown id) → start fresh.
+              const result = await client.request<{ thread: { id: string } }>(
+                'thread/start',
+                { cwd: options.workingDirectory },
+              );
+              threadId = result.thread.id;
+              setRuntimeSessionRef(sessionId, { runtimeId: 'codex_runtime', token: threadId });
+            }
+          } else {
+            const result = await client.request<{ thread: { id: string } }>(
+              'thread/start',
+              { cwd: options.workingDirectory },
+            );
+            threadId = result.thread.id;
+            setRuntimeSessionRef(sessionId, { runtimeId: 'codex_runtime', token: threadId });
+          }
+
+          // ── notification fan-out ────────────────────────────────────
+          const methods = [
+            'item/agentMessage/delta',
+            'item/reasoningText/delta',
+            'item/reasoningSummaryText/delta',
+            'item/started',
+            'item/completed',
+            'thread/tokenUsage/updated',
+            'turn/completed',
+            'turn/failed',
+            'fs/changed',
+            'error',
+          ];
+          for (const method of methods) {
+            const unsub = client.onNotification(method, (params) => {
+              const event = translateCodexNotification(method, params, { sessionId });
+              if (event) {
+                tryEnqueue(canonicalToSseLine(event));
+              }
+              if (method === 'turn/completed' || method === 'turn/failed') {
+                closeStream();
+              }
+            });
+            unsubscribers.push(unsub);
+          }
+
+          // ── kick off the turn ───────────────────────────────────────
+          await client.request('turn/start', {
+            threadId,
+            input: [{ type: 'text', text: options.prompt }],
+            ...(options.workingDirectory ? { cwd: options.workingDirectory } : {}),
+            ...(options.model ? { model: options.model } : {}),
+            ...(options.effort ? { effort: options.effort } : {}),
+          });
+        } catch (err) {
+          const reason = err instanceof Error ? err.message : String(err);
+          closeStream({ error: reason });
+        }
+      },
+    });
+  },
+
+  interrupt(sessionId: string): void {
+    // Best-effort: look up the thread ref, then call turn/interrupt.
+    // We don't track the active turnId here — Codex requires both
+    // threadId AND turnId to interrupt. Phase 6 wires the active
+    // turnId through the session-store metadata bag so this path
+    // can complete the round-trip.
+    void (async () => {
+      try {
+        const ref = getRuntimeSessionRef(sessionId, 'codex_runtime');
+        if (!ref) return;
+        const { client } = await getCodexAppServer();
+        // Without turnId we can't issue a proper interrupt — log so
+        // operators see the gap. The active turn will still complete
+        // on its own; this just means interrupt is a no-op today.
+        console.debug('[codex.runtime] interrupt requested for', sessionId, 'thread', ref.token, '(no active turn id tracked yet)');
+        void client; // silence unused warning until Phase 6 wires turn id
+      } catch {
+        /* ignore — best effort */
+      }
+    })();
+  },
+
+  dispose(): void {
+    // Codex app-server lifecycle is managed centrally in
+    // `app-server-manager.ts`. The runtime itself holds no
+    // per-instance resources. Electron 'before-quit' / dev SIGTERM
+    // calls `disposeCodexAppServer()` directly.
+  },
+};

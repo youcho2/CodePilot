@@ -23,6 +23,14 @@ export interface ChatSession {
   system_prompt: string;
   working_directory: string;
   sdk_session_id: string; // Claude Agent SDK session ID for resume
+  /**
+   * Phase 5 Phase 3 (2026-05-13) — Codex Runtime thread id for
+   * `thread/resume`. Mirrors `sdk_session_id` semantics but scoped
+   * to the codex_runtime adapter. Empty string = no Codex thread
+   * established yet. UI / API code MUST NOT read this directly —
+   * route through `src/lib/runtime/session-store.ts`.
+   */
+  codex_thread_id?: string;
   project_name: string;
   /**
    * Phase 3 Step 4 — see `ChatSessionSource`. Stored as TEXT (default

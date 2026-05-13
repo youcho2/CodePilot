@@ -377,6 +377,15 @@ function migrateDb(db: Database.Database): void {
   if (!colNames.includes('runtime_pin')) {
     safeAddColumn(db, "ALTER TABLE chat_sessions ADD COLUMN runtime_pin TEXT NOT NULL DEFAULT ''");
   }
+  // Phase 5 Phase 3 (2026-05-13) — Codex Runtime thread/turn ids.
+  // Codex's `thread/resume` requires the original `threadId`; we
+  // persist it per chat session so reload / cross-session resume
+  // works. The runtime-side session ref flows through
+  // src/lib/runtime/session-store.ts — UI / API code never reads
+  // `codex_thread_id` directly.
+  if (!colNames.includes('codex_thread_id')) {
+    safeAddColumn(db, "ALTER TABLE chat_sessions ADD COLUMN codex_thread_id TEXT NOT NULL DEFAULT ''");
+  }
   if (!colNames.includes('sdk_cwd')) {
     safeAddColumn(db, "ALTER TABLE chat_sessions ADD COLUMN sdk_cwd TEXT NOT NULL DEFAULT ''");
     // Backfill sdk_cwd from working_directory for existing sessions
@@ -1259,6 +1268,17 @@ export function updateSessionTitle(id: string, title: string): void {
 export function updateSdkSessionId(id: string, sdkSessionId: string): void {
   const db = getDb();
   db.prepare('UPDATE chat_sessions SET sdk_session_id = ? WHERE id = ?').run(sdkSessionId, id);
+}
+
+/**
+ * Phase 5 Phase 3 (2026-05-13) — Codex Runtime thread id persistence.
+ * Mirror of `updateSdkSessionId` for the codex_thread_id column.
+ * Called only from `src/lib/runtime/session-store.ts` so adapter-
+ * specific persistence stays scoped per the contract.
+ */
+export function updateCodexThreadId(id: string, codexThreadId: string): void {
+  const db = getDb();
+  db.prepare('UPDATE chat_sessions SET codex_thread_id = ? WHERE id = ?').run(codexThreadId, id);
 }
 
 export function updateSessionModel(id: string, model: string): void {
