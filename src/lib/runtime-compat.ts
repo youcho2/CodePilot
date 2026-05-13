@@ -205,6 +205,21 @@ export function getModelCompat(args: {
       reasons.claude_code =
         'OpenAI-compatible protocol — not reachable from Claude Code Runtime';
       break;
+    case 'codex_account':
+      // Phase 5 Phase 2 (2026-05-13) — Codex Account models flow only
+      // through Codex Runtime (their own app-server). They're NOT
+      // reachable from ClaudeCode SDK or the CodePilot Runtime
+      // native loop — Codex owns the thread / turn / tool execution
+      // shape. CodePilot provider proxy (Phase 5 §provider proxy)
+      // is the future channel for the reverse direction (CodePilot
+      // models reachable from Codex Runtime); the matrix is one-way
+      // for the model side.
+      supported.add('codex_runtime');
+      reasons.claude_code =
+        'Codex Account model — only reachable through Codex Runtime';
+      reasons.codepilot_runtime =
+        'Codex Account model — only reachable through Codex Runtime';
+      break;
     case 'unknown':
       // We don't know the right answer — let the user verify. Both
       // runtimes keep the model visible until they hide it explicitly.
@@ -236,6 +251,7 @@ export function compatLabel(compat: ProviderRuntimeCompat, isZh: boolean): strin
     case 'openrouter_anthropic_skin':
       return isZh ? 'OpenRouter · Claude Code 兼容' : 'OpenRouter · Claude Code compat';
     case 'codepilot_only':           return isZh ? '仅 CodePilot Runtime' : 'CodePilot Runtime only';
+    case 'codex_account':            return isZh ? 'Codex 账号' : 'Codex Account';
     case 'media_only':               return isZh ? '图片生成' : 'Image gen';
     case 'unknown':                  return isZh ? '需验证' : 'Needs verification';
   }
@@ -264,6 +280,10 @@ export function compatTooltip(compat: ProviderRuntimeCompat, isZh: boolean): str
       return isZh
         ? 'OpenAI 兼容协议，仅在 CodePilot Runtime 下可用（不会出现在 Claude Code Runtime 的模型选择器中）'
         : 'OpenAI-compatible protocol — only reachable from CodePilot Runtime; never shown in the Claude Code Runtime picker';
+    case 'codex_account':
+      return isZh
+        ? '已登录 Codex 账号的原生模型，仅通过本机 codex app-server 在 Codex Runtime 下使用'
+        : 'Native models from the logged-in Codex account — only reachable through the local codex app-server in Codex Runtime';
     case 'media_only':
       return isZh
         ? '图片生成服务，只用于媒体创作功能，不出现在聊天模型选择器'
@@ -295,6 +315,7 @@ export function compatTone(compat: ProviderRuntimeCompat): string {
       // docs); only the brand-name flavor differs.
       return 'bg-status-info-muted text-status-info-foreground';
     case 'codepilot_only':           return 'bg-primary/10 text-primary';
+    case 'codex_account':            return 'bg-status-info-muted text-status-info-foreground';
     case 'media_only':               return 'bg-muted text-muted-foreground';
     case 'unknown':                  return 'bg-muted text-muted-foreground';
   }
@@ -310,6 +331,7 @@ export function compatDotColor(compat: ProviderRuntimeCompat): string {
     case 'claude_code_experimental': return 'bg-status-warning-foreground';
     case 'openrouter_anthropic_skin': return 'bg-status-info-foreground';
     case 'codepilot_only':           return 'bg-primary';
+    case 'codex_account':            return 'bg-status-info-foreground';
     case 'media_only':               return 'bg-muted-foreground';
     case 'unknown':                  return 'bg-muted-foreground';
   }

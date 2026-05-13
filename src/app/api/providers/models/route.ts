@@ -326,6 +326,26 @@ export async function GET(request: NextRequest) {
       }
     } catch { /* OpenAI OAuth module not available */ }
 
+    // Phase 5 Phase 2 (2026-05-13) — Codex Account virtual provider.
+    // Surfaces when (a) runtime filter is `codex_runtime` or absent
+    // (full-catalog mode), and (b) Codex app-server is reachable AND
+    // logged in. `buildCodexProviderModelGroup()` returns null on any
+    // failure (binary missing / not logged in / RPC error) so the
+    // chat picker stays usable when Codex isn't present.
+    //
+    // We skip the call entirely when `runtimeFilter` is set and isn't
+    // `codex_runtime` — saves an unnecessary app-server RPC when the
+    // user is browsing models for ClaudeCode / CodePilot Runtime.
+    if (!runtimeFilter || runtimeFilter === 'codex_runtime') {
+      try {
+        const { buildCodexProviderModelGroup } = await import('@/lib/codex/models');
+        const codexGroup = await buildCodexProviderModelGroup();
+        if (codexGroup) groups.push(codexGroup);
+      } catch {
+        /* Codex module not available / app-server unreachable; ignore. */
+      }
+    }
+
     // Apply runtime filter — only when caller asked for it. Two layers:
     //   1. Group layer: drop media_only groups (also caught at row layer below).
     //      We deliberately do NOT drop `sdkProxyOnly` groups in

@@ -17,7 +17,7 @@
  * atomic change that propagates through every consumer at once.
  */
 
-export const RUNTIME_IDS = ['claude_code', 'codepilot_runtime'] as const;
+export const RUNTIME_IDS = ['claude_code', 'codepilot_runtime', 'codex_runtime'] as const;
 
 export type RuntimeId = (typeof RUNTIME_IDS)[number];
 

@@ -331,6 +331,7 @@ export type ProviderRuntimeCompat =
   | 'claude_code_experimental'
   | 'openrouter_anthropic_skin'
   | 'codepilot_only'
+  | 'codex_account'
   | 'media_only'
   | 'unknown';
 

@@ -1929,6 +1929,8 @@ const en = {
   'runtimeSelector.claudeCodeDesc': 'Routes through Claude Code SDK with full tools, plans, and permissions',
   'runtimeSelector.codepilotRuntime': 'CodePilot Runtime',
   'runtimeSelector.codepilotRuntimeDesc': 'Built-in runtime; works with any OpenAI-compatible provider',
+  'runtimeSelector.codexRuntime': 'Codex Runtime',
+  'runtimeSelector.codexRuntimeDesc': 'Routes through the local codex app-server; uses your Codex account models and native tools',
   'runtimeSelector.pinnedBadge': 'session-pinned',
   // Step 4c R6 — transcript marker when user flips RuntimeSelector mid-chat.
   'runtimeSwitchMarker.changedFromTo': 'Switched runtime: {from} → {to}',

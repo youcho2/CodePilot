@@ -33,6 +33,10 @@ const RUNTIME_LABEL_KEYS: Record<RuntimeId, { label: TranslationKey; desc: Trans
     label: 'runtimeSelector.codepilotRuntime' as TranslationKey,
     desc: 'runtimeSelector.codepilotRuntimeDesc' as TranslationKey,
   },
+  codex_runtime: {
+    label: 'runtimeSelector.codexRuntime' as TranslationKey,
+    desc: 'runtimeSelector.codexRuntimeDesc' as TranslationKey,
+  },
 };
 
 interface RuntimeSelectorProps {

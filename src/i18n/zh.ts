@@ -1907,6 +1907,8 @@ const zh: Record<TranslationKey, string> = {
   'runtimeSelector.claudeCodeDesc': '走 Claude Code SDK，工具、计划、权限完整',
   'runtimeSelector.codepilotRuntime': 'CodePilot Runtime',
   'runtimeSelector.codepilotRuntimeDesc': 'CodePilot 内置引擎，支持任意 OpenAI 兼容服务商',
+  'runtimeSelector.codexRuntime': 'Codex Runtime',
+  'runtimeSelector.codexRuntimeDesc': '走本机 codex app-server，使用 Codex 账号原生模型与工具',
   'runtimeSelector.pinnedBadge': '本会话已切换',
   // Step 4c R6 — transcript marker when user flips RuntimeSelector mid-chat.
   'runtimeSwitchMarker.changedFromTo': '已切换执行引擎：{from} → {to}',

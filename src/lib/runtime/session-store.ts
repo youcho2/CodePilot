@@ -52,6 +52,14 @@ export function getRuntimeSessionRef(
       // Native runtime keeps state in-memory in the runtime singleton.
       // No persistent ref to surface.
       return null;
+    case 'codex_runtime':
+      // Phase 5 Phase 2 stub (2026-05-13). Phase 3 will replace this
+      // with persistence backed by either a JSON `runtime_session_refs`
+      // column or an in-memory map keyed by chat session — Codex
+      // thread ids are required to resume an existing conversation
+      // via `thread/resume`. Until the AgentRuntime adapter exists,
+      // there's nothing to surface.
+      return null;
     default: {
       // Exhaustiveness — when a new RuntimeId lands here, TS will fail
       // compilation forcing the implementer to add a case.
@@ -75,6 +83,10 @@ export function setRuntimeSessionRef(
       return;
     case 'codepilot_runtime':
       // No-op — native runtime has no persistent ref.
+      return;
+    case 'codex_runtime':
+      // Phase 5 Phase 2 stub — see getRuntimeSessionRef for context.
+      // Phase 3 lands the persistence layer.
       return;
     default: {
       const _: never = ref.runtimeId;
@@ -102,6 +114,10 @@ export function clearRuntimeSessionRef(
       return;
     case 'codepilot_runtime':
       // No-op — nothing persisted.
+      return;
+    case 'codex_runtime':
+      // Phase 5 Phase 2 stub — nothing persisted yet, Phase 3 lands
+      // the clearing path alongside the persistence backend.
       return;
     default: {
       const _: never = runtimeId;

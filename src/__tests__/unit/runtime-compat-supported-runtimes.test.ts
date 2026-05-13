@@ -80,6 +80,18 @@ describe('getModelCompat → supportedRuntimes', () => {
     assert.equal(cap.supportedRuntimes, undefined);
   });
 
+  it('codex_account exposes ONLY codex_runtime + carries reasons for the others', () => {
+    // Phase 5 Phase 2 (2026-05-13) — Codex account models flow only
+    // through Codex Runtime; legacy compat booleans stay unset.
+    const cap = compatFor('codex_account');
+    assert.deepEqual(cap.supportedRuntimes, ['codex_runtime']);
+    assert.equal(cap.claude_code_compatible, undefined);
+    assert.equal(cap.codepilot_runtime_compatible, undefined);
+    assert.ok(cap.unsupportedReasonByRuntime?.claude_code);
+    assert.ok(cap.unsupportedReasonByRuntime?.codepilot_runtime);
+    assert.match(cap.unsupportedReasonByRuntime!.claude_code!, /Codex/);
+  });
+
   it('legacy booleans still mirror supportedRuntimes (back-compat input)', () => {
     const cap = compatFor('claude_code_verified');
     assert.equal(cap.claude_code_compatible, true);
