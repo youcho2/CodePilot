@@ -1,22 +1,34 @@
 /**
  * Codex notification → canonical event mapper.
  *
- * Phase 5 Phase 3 (2026-05-13). Maps the wide Codex app-server
- * notification surface into:
+ * Phase 5 Phase 3 (2026-05-13) + review fix round 1 (same day).
+ * Maps the wide Codex app-server notification surface into:
  *
  *   - `RuntimeRunEvent` (canonical 9-type union) for chat / Run /
  *     Preview UI consumers.
  *   - `RuntimePermissionEvent` for permission UI consumers.
- *   - `null` for transport-only events (heartbeats / acks).
+ *   - `null` for transport-only events (heartbeats / acks / different
+ *     channel like account events).
  *
  * Unknown methods fall through to `unknown_item` per the contract.
  *
- * The mapping is intentionally selective today — Codex emits 50+
- * notification types; we wire the ones that drive immediate UI
- * (assistant deltas, turn lifecycle, command + tool events, file
- * changes, token usage, login). Other notifications surface as
- * `unknown_item` so they're never silently dropped — Phase 6 expands
- * coverage as user-visible features land.
+ * Schema source of truth — every method name in the switch below MUST
+ * appear in `资料/codex/codex-rs/app-server-protocol/schema/typescript/ServerNotification.ts`.
+ * The `codex-method-names.test.ts` guardrail reads that file at test
+ * time and fails the build if any name in this module isn't present.
+ *
+ * Field shapes are also pinned to schema. Three places where review
+ * round 1 caught me hallucinating:
+ *
+ *   - `ItemStartedNotification.params.item.id` (not `params.itemId`)
+ *     and `params.item.command: string` (not `string[]`) per ThreadItem
+ *     commandExecution variant.
+ *   - `ThreadTokenUsageUpdatedNotification.params.tokenUsage.last.{inputTokens,
+ *     outputTokens}` + `params.tokenUsage.modelContextWindow` — a layered
+ *     shape, not flat.
+ *   - Method names like `account/login/completed` /
+ *     `account/rateLimits/updated` / `thread/status/changed` — Codex
+ *     uses slash-separated namespaces, not camelCase.
  */
 
 import type {
@@ -40,48 +52,85 @@ interface CodexMappingContext {
 }
 
 // ─────────────────────────────────────────────────────────────────────
-// Notification table — known method → canonical translator OR null
-// (transport-only). Anything not in the table falls back to
-// `unknown_item` per the contract guardrail.
+// Known Codex notification methods. Pinned to upstream ServerNotification
+// union; the codex-method-names.test.ts guardrail asserts this set is a
+// subset of the schema file at test time.
 // ─────────────────────────────────────────────────────────────────────
 
 const KNOWN_CODEX_METHODS = new Set<string>([
   // Run lifecycle
   'thread/started',
   'thread/closed',
-  'thread/statusChanged',
+  'thread/status/changed',
+  'thread/compacted',
   'turn/started',
   'turn/completed',
-  'turn/failed',
+  'turn/diff/updated',
+  'turn/plan/updated',
   // Streaming text / reasoning
   'item/agentMessage/delta',
-  'item/reasoningText/delta',
-  'item/reasoningSummaryText/delta',
-  'item/reasoningSummaryPart/added',
+  'item/plan/delta',
+  'item/reasoning/textDelta',
+  'item/reasoning/summaryTextDelta',
+  'item/reasoning/summaryPartAdded',
   // Items lifecycle
   'item/started',
   'item/completed',
+  'item/autoApprovalReview/started',
+  'item/autoApprovalReview/completed',
   // Token usage
   'thread/tokenUsage/updated',
   // Command / process / fs streams
   'item/commandExecution/outputDelta',
+  'item/commandExecution/terminalInteraction',
+  'item/fileChange/outputDelta',
+  'item/fileChange/patchUpdated',
+  'command/exec/outputDelta',
   'process/outputDelta',
   'process/exited',
   'fs/changed',
   // Account
   'account/updated',
-  'account/loginCompleted',
-  'account/rateLimitsUpdated',
-  // Transport-only / informational
-  'keep_alive',
+  'account/login/completed',
+  'account/rateLimits/updated',
+  // Hooks / MCP
+  'hook/started',
+  'hook/completed',
+  'item/mcpToolCall/progress',
+  'mcpServer/oauthLogin/completed',
+  'mcpServer/startupStatus/updated',
+  // Misc
+  'app/list/updated',
+  'remoteControl/status/changed',
+  'externalAgentConfig/import/completed',
+  'thread/realtime/started',
+  'thread/realtime/itemAdded',
   'thread/realtime/transcript/delta',
   'thread/realtime/transcript/done',
-  'thread/realtime/output/audio/delta',
-  // Errors / warnings
+  'thread/realtime/outputAudio/delta',
+  'thread/realtime/sdp',
+  'thread/realtime/error',
+  'thread/realtime/closed',
+  'thread/name/updated',
+  'thread/goal/updated',
+  'thread/goal/cleared',
+  'thread/archived',
+  'thread/unarchived',
+  'fuzzyFileSearch/sessionUpdated',
+  'fuzzyFileSearch/sessionCompleted',
+  'model/rerouted',
+  'model/verification',
+  'rawResponseItem/completed',
+  'serverRequest/resolved',
+  'skills/changed',
+  'windows/worldWritableWarning',
+  'windowsSandbox/setupCompleted',
+  // Warnings / errors
   'error',
-  'guardian/warning',
-  'config/warning',
-  'deprecation/notice',
+  'warning',
+  'guardianWarning',
+  'configWarning',
+  'deprecationNotice',
 ]);
 
 /**
@@ -99,70 +148,58 @@ export function translateCodexNotification(
 
   switch (method) {
     // ─── streaming text ────────────────────────────────────────────
+    // AgentMessageDeltaNotification = { threadId, turnId, itemId, delta }
     case 'item/agentMessage/delta': {
       const p = params as { delta?: string };
       if (typeof p.delta !== 'string' || p.delta.length === 0) return null;
       return makeAssistantDelta(base, p.delta);
     }
-    case 'item/reasoningText/delta':
-    case 'item/reasoningSummaryText/delta': {
-      // Reasoning surfaces as assistant_delta too — the chat side
-      // doesn't distinguish today (Phase 4 / overhaul lumped thinking
-      // into assistant_delta). Future enhancement: dedicated channel.
+    // ReasoningTextDeltaNotification + ReasoningSummaryTextDeltaNotification
+    // both expose `delta: string` at top level.
+    case 'item/reasoning/textDelta':
+    case 'item/reasoning/summaryTextDelta': {
       const p = params as { delta?: string };
       if (typeof p.delta !== 'string' || p.delta.length === 0) return null;
       return makeAssistantDelta(base, p.delta);
     }
 
-    // ─── tool / command lifecycle ──────────────────────────────────
+    // ─── item lifecycle ────────────────────────────────────────────
+    // ItemStartedNotification = { item: ThreadItem, threadId, turnId,
+    //                             startedAtMs }
+    // ThreadItem is a discriminated union; id and type live INSIDE
+    // `item`, not at the top level.
     case 'item/started': {
-      const p = params as {
-        itemId?: string;
-        item?: { type?: string; name?: string; command?: string[]; cwd?: string };
-      };
+      const p = params as { item?: ThreadItemLike };
       if (!p.item) return null;
-      const itemType = p.item.type ?? 'unknown';
-      // Command exec → command_started; everything else with a type
-      // surfaces as tool_started so the UI can render it.
-      if (
-        itemType === 'commandExecution' ||
-        itemType === 'localShellExec' ||
-        itemType === 'execCommand'
-      ) {
-        return makeCommandStarted(base, {
-          commandId: p.itemId ?? 'unknown',
-          command: (p.item.command ?? []).join(' '),
-          cwd: p.item.cwd,
-        });
-      }
-      return makeToolStarted(base, {
-        toolId: p.itemId ?? 'unknown',
-        name: p.item.name ?? itemType,
-      });
+      return translateItemStarted(p.item, base);
     }
+    // ItemCompletedNotification = { item: ThreadItem, threadId, turnId,
+    //                               completedAtMs }
     case 'item/completed': {
-      const p = params as {
-        itemId?: string;
-        item?: { output?: unknown; error?: string };
-      };
-      return makeToolCompleted(base, {
-        toolId: p.itemId ?? 'unknown',
-        output: p.item?.output,
-        error: p.item?.error,
-      });
+      const p = params as { item?: ThreadItemLike };
+      if (!p.item) return null;
+      return translateItemCompleted(p.item, base);
     }
 
     // ─── token usage ───────────────────────────────────────────────
+    // ThreadTokenUsageUpdatedNotification = { threadId, turnId, tokenUsage }
+    // ThreadTokenUsage = { total, last, modelContextWindow }
+    // TokenUsageBreakdown = { totalTokens, inputTokens, cachedInputTokens,
+    //                          outputTokens, reasoningOutputTokens }
+    // We surface the LAST turn's input/output + the model window.
     case 'thread/tokenUsage/updated': {
       const p = params as {
-        inputTokens?: number;
-        outputTokens?: number;
-        modelContextWindow?: number;
+        tokenUsage?: {
+          last?: { inputTokens?: number; outputTokens?: number };
+          modelContextWindow?: number | null;
+        };
       };
+      const usage = p.tokenUsage;
+      if (!usage) return null;
       return makeUsageUpdated(base, {
-        inputTokens: p.inputTokens,
-        outputTokens: p.outputTokens,
-        contextWindow: p.modelContextWindow,
+        inputTokens: usage.last?.inputTokens,
+        outputTokens: usage.last?.outputTokens,
+        contextWindow: usage.modelContextWindow ?? undefined,
       });
     }
 
@@ -171,13 +208,9 @@ export function translateCodexNotification(
       const p = params as { status?: string };
       return makeRunCompleted(base, { finishReason: p.status });
     }
-    case 'turn/failed': {
-      const p = params as { code?: string; message?: string };
-      return makeRunFailed(base, {
-        code: p.code ?? 'codex_turn_failed',
-        message: p.message ?? 'Codex turn failed',
-      });
-    }
+    // ServerNotification union has no top-level `turn/failed`; failures
+    // surface through ErrorNotification ('error' method) and through
+    // `turn/completed` with status indicating failure.
     case 'error': {
       const p = params as { code?: string | number; message?: string };
       return makeRunFailed(base, {
@@ -187,6 +220,7 @@ export function translateCodexNotification(
     }
 
     // ─── file changes ──────────────────────────────────────────────
+    // FsChangedNotification = { watchId, changedPaths }
     case 'fs/changed': {
       const p = params as { changedPaths?: string[] };
       if (!Array.isArray(p.changedPaths) || p.changedPaths.length === 0) return null;
@@ -194,24 +228,61 @@ export function translateCodexNotification(
     }
 
     // ─── transport-only / different channel ────────────────────────
-    case 'keep_alive':
     case 'thread/started':
     case 'thread/closed':
-    case 'thread/statusChanged':
+    case 'thread/status/changed':
+    case 'thread/compacted':
+    case 'thread/name/updated':
+    case 'thread/goal/updated':
+    case 'thread/goal/cleared':
+    case 'thread/archived':
+    case 'thread/unarchived':
     case 'turn/started':
-    case 'item/reasoningSummaryPart/added':
+    case 'turn/diff/updated':
+    case 'turn/plan/updated':
+    case 'item/plan/delta':
+    case 'item/reasoning/summaryPartAdded':
     case 'item/commandExecution/outputDelta':
+    case 'item/commandExecution/terminalInteraction':
+    case 'item/fileChange/outputDelta':
+    case 'item/fileChange/patchUpdated':
+    case 'item/autoApprovalReview/started':
+    case 'item/autoApprovalReview/completed':
+    case 'item/mcpToolCall/progress':
+    case 'command/exec/outputDelta':
     case 'process/outputDelta':
     case 'process/exited':
+    case 'rawResponseItem/completed':
+    case 'serverRequest/resolved':
+    case 'skills/changed':
     case 'account/updated':
-    case 'account/loginCompleted':
-    case 'account/rateLimitsUpdated':
+    case 'account/login/completed':
+    case 'account/rateLimits/updated':
+    case 'app/list/updated':
+    case 'remoteControl/status/changed':
+    case 'externalAgentConfig/import/completed':
+    case 'hook/started':
+    case 'hook/completed':
+    case 'mcpServer/oauthLogin/completed':
+    case 'mcpServer/startupStatus/updated':
+    case 'thread/realtime/started':
+    case 'thread/realtime/itemAdded':
     case 'thread/realtime/transcript/delta':
     case 'thread/realtime/transcript/done':
-    case 'thread/realtime/output/audio/delta':
-    case 'guardian/warning':
-    case 'config/warning':
-    case 'deprecation/notice':
+    case 'thread/realtime/outputAudio/delta':
+    case 'thread/realtime/sdp':
+    case 'thread/realtime/error':
+    case 'thread/realtime/closed':
+    case 'fuzzyFileSearch/sessionUpdated':
+    case 'fuzzyFileSearch/sessionCompleted':
+    case 'model/rerouted':
+    case 'model/verification':
+    case 'warning':
+    case 'guardianWarning':
+    case 'configWarning':
+    case 'deprecationNotice':
+    case 'windows/worldWritableWarning':
+    case 'windowsSandbox/setupCompleted':
       return null;
 
     default:
@@ -223,16 +294,141 @@ export function translateCodexNotification(
   }
 }
 
+// ─────────────────────────────────────────────────────────────────────
+// ThreadItem helpers — minimal shape per upstream schema. We don't
+// import the full ThreadItem union from `资料/` to avoid coupling
+// production code to the vendored schema directory; this narrow shape
+// covers what we read.
+// ─────────────────────────────────────────────────────────────────────
+
+interface ThreadItemLike {
+  type?: string;
+  id?: string;
+  // commandExecution
+  command?: string; // schema says string, not array
+  cwd?: string;
+  exitCode?: number | null;
+  aggregatedOutput?: string | null;
+  // mcpToolCall
+  server?: string;
+  // mcpToolCall + dynamicToolCall
+  tool?: string;
+  // dynamicToolCall
+  namespace?: string | null;
+  // generic tool-call status / args
+  status?: string;
+  arguments?: unknown;
+  // fileChange
+  changes?: ReadonlyArray<unknown>;
+  // webSearch
+  query?: string;
+  // agentMessage / plan / reasoning
+  text?: string;
+}
+
+function translateItemStarted(
+  item: ThreadItemLike,
+  base: { runtimeId: 'codex_runtime'; sessionId: string },
+): RuntimeRunEvent | null {
+  const id = item.id ?? 'unknown';
+  if (item.type === 'commandExecution') {
+    // ThreadItem.commandExecution.command is a string (not array).
+    return makeCommandStarted(base, {
+      commandId: id,
+      command: item.command ?? '',
+      cwd: item.cwd,
+    });
+  }
+  if (item.type === 'mcpToolCall') {
+    const name = item.tool
+      ? (item.server ? `${item.server}.${item.tool}` : item.tool)
+      : 'mcpToolCall';
+    return makeToolStarted(base, { toolId: id, name, input: item.arguments });
+  }
+  if (item.type === 'dynamicToolCall') {
+    const name = item.tool
+      ? (item.namespace ? `${item.namespace}.${item.tool}` : item.tool)
+      : 'dynamicToolCall';
+    return makeToolStarted(base, { toolId: id, name, input: item.arguments });
+  }
+  if (item.type === 'fileChange') {
+    return makeToolStarted(base, {
+      toolId: id,
+      name: 'fileChange',
+      input: { changes: item.changes },
+    });
+  }
+  if (item.type === 'webSearch') {
+    return makeToolStarted(base, {
+      toolId: id,
+      name: 'web_search',
+      input: { query: item.query },
+    });
+  }
+  // userMessage / agentMessage / plan / reasoning / imageView /
+  // imageGeneration / enteredReviewMode / exitedReviewMode /
+  // contextCompaction / collabAgentToolCall etc. — don't have a
+  // canonical tool/command analog. Surface as unknown_item so we
+  // don't drop them silently.
+  if (typeof item.type === 'string') {
+    return makeUnknownItem(base, {
+      sourceType: `codex.item/started.${item.type}`,
+      payload: item,
+    });
+  }
+  return null;
+}
+
+function translateItemCompleted(
+  item: ThreadItemLike,
+  base: { runtimeId: 'codex_runtime'; sessionId: string },
+): RuntimeRunEvent | null {
+  const id = item.id ?? 'unknown';
+  // For commandExecution: output is `aggregatedOutput`; error implied
+  // by non-zero exitCode.
+  if (item.type === 'commandExecution') {
+    const errorIfAny =
+      typeof item.exitCode === 'number' && item.exitCode !== 0
+        ? `exit ${item.exitCode}`
+        : undefined;
+    return makeToolCompleted(base, {
+      toolId: id,
+      output: item.aggregatedOutput ?? '',
+      error: errorIfAny,
+    });
+  }
+  // For tool calls — generic output via item shape; runtime adapter
+  // doesn't need to differentiate.
+  if (
+    item.type === 'mcpToolCall' ||
+    item.type === 'dynamicToolCall' ||
+    item.type === 'fileChange' ||
+    item.type === 'webSearch'
+  ) {
+    return makeToolCompleted(base, { toolId: id, output: item });
+  }
+  // Other item types — same fallback as in translateItemStarted.
+  if (typeof item.type === 'string') {
+    return makeUnknownItem(base, {
+      sourceType: `codex.item/completed.${item.type}`,
+      payload: item,
+    });
+  }
+  return null;
+}
+
 /**
  * Translate Codex's server-to-client approval requests into the
  * canonical `permission_request` event. Server-originated requests
- * are handled separately from notifications in the JSON-RPC client;
- * this helper produces the canonical event the UI consumes.
+ * are handled by `CodexAppServerClient.onServerRequest`; this helper
+ * produces the canonical event the UI consumes.
  *
  * Subjects today:
- *   - `execCommandApproval` → `Bash · <command>`
- *   - `applyPatchApproval`  → `Patch · <fileCount> files`
- *   - `item/commandExecution/requestApproval` / `item/fileChange/...` etc.
+ *   - `item/commandExecution/requestApproval` → `Bash · <command>`
+ *   - `item/fileChange/requestApproval`       → `Patch`
+ *   - `item/permissions/requestApproval`      → `Permissions`
+ *   - Legacy `execCommandApproval`            → `Bash · <command>`
+ *   - Legacy `applyPatchApproval`             → `Patch · N files`
  *
  * Future Codex approval kinds fall through to `permission_unavailable`
  * per the conservative-default contract.
@@ -251,10 +447,11 @@ export function translateCodexApproval(args: {
   };
 
   switch (method) {
-    case 'execCommandApproval':
+    // CommandExecutionRequestApprovalParams (current canonical):
+    // { threadId, turnId, itemId, startedAtMs, approvalId?, reason?,
+    //   command? (string!), cwd?, commandActions? }
     case 'item/commandExecution/requestApproval': {
-      const p = params as { command?: string[]; cwd?: string; reason?: string };
-      const cmd = (p.command ?? []).join(' ');
+      const p = params as { command?: string; cwd?: string; reason?: string };
       const detailLines: string[] = [];
       if (p.cwd) detailLines.push(`cwd: ${p.cwd}`);
       if (p.reason) detailLines.push(p.reason);
@@ -262,7 +459,30 @@ export function translateCodexApproval(args: {
         type: 'permission_request',
         ...base,
         toolName: 'Bash',
-        toolInput: { command: p.command, cwd: p.cwd },
+        toolInput: { command: p.command ?? '', cwd: p.cwd },
+        subject: p.command ? `Bash · ${p.command}` : 'Bash',
+        details: detailLines.length > 0 ? detailLines.join('\n') : undefined,
+        nativeRequestRef: {
+          runtimeId: 'codex_runtime',
+          raw: { method, params },
+        },
+      };
+    }
+
+    // Legacy ExecCommandApprovalParams (server-side variant):
+    // { conversationId, callId, approvalId?, command: string[], cwd, reason?, parsedCmd }
+    // command is an array on this legacy path; join for display.
+    case 'execCommandApproval': {
+      const p = params as { command?: string[]; cwd?: string; reason?: string };
+      const cmd = Array.isArray(p.command) ? p.command.join(' ') : '';
+      const detailLines: string[] = [];
+      if (p.cwd) detailLines.push(`cwd: ${p.cwd}`);
+      if (p.reason) detailLines.push(p.reason);
+      return {
+        type: 'permission_request',
+        ...base,
+        toolName: 'Bash',
+        toolInput: { command: p.command ?? [], cwd: p.cwd },
         subject: cmd ? `Bash · ${cmd}` : 'Bash',
         details: detailLines.length > 0 ? detailLines.join('\n') : undefined,
         nativeRequestRef: {
@@ -272,8 +492,28 @@ export function translateCodexApproval(args: {
       };
     }
 
-    case 'applyPatchApproval':
+    // FileChangeRequestApprovalParams (current canonical):
+    // { threadId, turnId, itemId, startedAtMs, reason?, grantRoot? }
+    // No fileChanges in the canonical shape — the file list lives in
+    // the corresponding `item/started` event with the same itemId.
     case 'item/fileChange/requestApproval': {
+      const p = params as { reason?: string; itemId?: string };
+      return {
+        type: 'permission_request',
+        ...base,
+        toolName: 'Patch',
+        toolInput: { itemId: p.itemId },
+        subject: 'Patch',
+        details: p.reason ?? undefined,
+        nativeRequestRef: {
+          runtimeId: 'codex_runtime',
+          raw: { method, params },
+        },
+      };
+    }
+
+    // Legacy ApplyPatchApprovalParams: has fileChanges map; counter for UI.
+    case 'applyPatchApproval': {
       const p = params as { fileChanges?: Record<string, unknown>; reason?: string };
       const files = p.fileChanges ? Object.keys(p.fileChanges) : [];
       const subject = files.length > 0

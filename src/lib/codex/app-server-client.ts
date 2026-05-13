@@ -79,10 +79,25 @@ export class CodexRpcError extends Error {
   }
 }
 
+/**
+ * Handler for a server-originated JSON-RPC request. Resolve with the
+ * canonical response body OR throw to reject with an error.
+ *
+ * The client routes incoming `{ id, method, params }` (no result/error)
+ * to whichever handler is registered for that method. If no handler is
+ * registered, the client sends a JSON-RPC `-32601 method not found`
+ * automatically so Codex doesn't hang waiting on us.
+ */
+export type ServerRequestHandler<TParams = unknown, TResult = unknown> = (
+  params: TParams,
+  context: { id: number | string; method: string },
+) => Promise<TResult> | TResult;
+
 export class CodexAppServerClient {
   private nextId = 1;
   private readonly pending = new Map<number | string, PendingRequest>();
   private readonly notificationHandlers = new Map<string, Set<(params: unknown) => void>>();
+  private readonly serverRequestHandlers = new Map<string, ServerRequestHandler>();
   private unsubscribe: (() => void) | null = null;
   private initializeResult: CodexInitializeResponse | null = null;
   private readonly timeoutMs: number;
@@ -213,6 +228,33 @@ export class CodexAppServerClient {
   }
 
   /**
+   * Register a server-originated request handler. Phase 5 review fix
+   * (2026-05-13) — Codex's approval flow (item/commandExecution/
+   * requestApproval, item/fileChange/requestApproval, etc.) is a
+   * server REQUEST, not a notification: the client MUST respond or
+   * the turn hangs. Only one handler per method; subsequent
+   * registrations replace.
+   *
+   * Handler may return synchronously OR a promise. Resolve with the
+   * canonical response body; throw an Error to emit `-32603 internal
+   * error` back to the server. To send a structured JSON-RPC error
+   * (e.g. `-32601 method not found`), throw a `CodexRpcError`.
+   */
+  onServerRequest<TParams = unknown, TResult = unknown>(
+    method: string,
+    handler: ServerRequestHandler<TParams, TResult>,
+  ): () => void {
+    this.serverRequestHandlers.set(method, handler as ServerRequestHandler);
+    return () => {
+      // Only unregister if this exact handler is still registered (idempotent
+      // unsubscribe even if a later caller has overwritten the slot).
+      if (this.serverRequestHandlers.get(method) === (handler as ServerRequestHandler)) {
+        this.serverRequestHandlers.delete(method);
+      }
+    };
+  }
+
+  /**
    * Tear down the client. Cancels any pending requests with a
    * "client disposed" error so callers don't hang forever.
    */
@@ -247,15 +289,75 @@ export class CodexAppServerClient {
       this.routeResponse(parsed as JsonRpcResponse);
       return;
     }
-    // Notification = has `method` but no `id` (or id null per error response w/o id).
+    // Server-originated request = has `id` + `method` (no result/error).
+    // Phase 5 review fix (2026-05-13): Codex's approval flow uses this
+    // shape; ignoring it causes the turn to hang. Route to a handler
+    // and emit a JSON-RPC response. Approval methods include:
+    //   item/commandExecution/requestApproval
+    //   item/fileChange/requestApproval
+    //   item/permissions/requestApproval
+    //   execCommandApproval / applyPatchApproval (legacy)
+    //   item/tool/requestUserInput
+    //   etc.
+    if (
+      'id' in parsed &&
+      parsed.id !== null &&
+      parsed.id !== undefined &&
+      'method' in parsed &&
+      !('result' in parsed) &&
+      !('error' in parsed)
+    ) {
+      this.routeServerRequest(parsed as JsonRpcRequest);
+      return;
+    }
+    // Notification = has `method` but no `id`.
     if ('method' in parsed && !('id' in parsed)) {
       this.routeNotification(parsed as JsonRpcNotification);
       return;
     }
-    // Server-originated request — Codex doesn't currently send these
-    // to clients, but the JSON-RPC spec allows it. Log and ignore so
+    // Doesn't match any known shape — JSON-RPC spec lets servers send
+    // batches or other variants we haven't seen yet. Log and ignore so
     // a future protocol extension doesn't crash us.
-    console.warn('[codex] unsupported server-originated message', { method: 'method' in parsed ? parsed.method : '<unknown>' });
+    console.warn('[codex] unsupported message shape', { method: 'method' in parsed ? parsed.method : '<unknown>' });
+  }
+
+  private routeServerRequest(message: JsonRpcRequest): void {
+    const handler = this.serverRequestHandlers.get(message.method);
+    if (!handler) {
+      // No handler registered → respond with method-not-found so the
+      // server doesn't hang. Codex's approval flow surfaces this as
+      // an immediate "declined" outcome at the server side; runtime
+      // adapter is expected to register a real handler before starting
+      // any turn that may trigger approvals.
+      void this.sendResponse(message.id, {
+        error: { code: -32601, message: `No handler registered for ${message.method}` },
+      });
+      return;
+    }
+    void (async () => {
+      try {
+        const result = await handler(message.params, { id: message.id, method: message.method });
+        await this.sendResponse(message.id, { result });
+      } catch (err) {
+        if (err instanceof CodexRpcError) {
+          await this.sendResponse(message.id, {
+            error: { code: err.code, message: err.message, ...(err.data !== undefined ? { data: err.data } : {}) },
+          });
+        } else {
+          const msg = err instanceof Error ? err.message : String(err);
+          await this.sendResponse(message.id, {
+            error: { code: -32603, message: msg },
+          });
+        }
+      }
+    })();
+  }
+
+  private async sendResponse(
+    id: number | string,
+    body: { result: unknown } | { error: { code: number; message: string; data?: unknown } },
+  ): Promise<void> {
+    await this.transport.send(JSON.stringify({ jsonrpc: '2.0', id, ...body }));
   }
 
   private routeResponse(message: JsonRpcResponse): void {

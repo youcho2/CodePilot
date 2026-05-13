@@ -162,6 +162,39 @@ export const codexRuntime: AgentRuntime = {
         try {
           const { client } = await getCodexAppServer();
 
+          // ── server-originated approval requests ──────────────────────
+          // Codex emits item/commandExecution/requestApproval +
+          // item/fileChange/requestApproval + item/permissions/requestApproval
+          // as JSON-RPC REQUESTS (not notifications). The client must
+          // respond or the turn hangs.
+          //
+          // Phase 5 review round 1 (2026-05-13) intermediate stance:
+          // we register decline-by-default handlers for the canonical
+          // approval methods + legacy aliases. This unblocks Codex
+          // turns immediately instead of hanging. Phase 6 will replace
+          // these handlers with a UI-driven decision flow:
+          //   1. handler returns a Promise tied to a pending-approval
+          //      registry keyed by the JSON-RPC request id
+          //   2. translateCodexApproval emits canonical
+          //      permission_request to the chat stream
+          //   3. PermissionPrompt resolves the user's decision back
+          //      via the registry → handler returns ReviewDecision
+          //
+          // Until then, the conservative default keeps the Codex turn
+          // moving (declined commands surface as a normal denial in
+          // the chat transcript) without leaking permissions.
+          const declineByDefault = () => ({ decision: 'decline' as const });
+          for (const method of [
+            'item/commandExecution/requestApproval',
+            'item/fileChange/requestApproval',
+            'item/permissions/requestApproval',
+            'execCommandApproval', // legacy
+            'applyPatchApproval', // legacy
+          ]) {
+            const unsubReq = client.onServerRequest(method, declineByDefault);
+            unsubscribers.push(unsubReq);
+          }
+
           // ── thread resolution: resume if we have a ref, else start ──
           const existingRef = getRuntimeSessionRef(sessionId, 'codex_runtime');
           let threadId: string;
@@ -188,15 +221,17 @@ export const codexRuntime: AgentRuntime = {
           }
 
           // ── notification fan-out ────────────────────────────────────
+          // Method names must match upstream ServerNotification.ts
+          // (slash-namespaced). The mapper guardrail
+          // (`codex-method-names.test.ts`) pins this against the schema.
           const methods = [
             'item/agentMessage/delta',
-            'item/reasoningText/delta',
-            'item/reasoningSummaryText/delta',
+            'item/reasoning/textDelta',
+            'item/reasoning/summaryTextDelta',
             'item/started',
             'item/completed',
             'thread/tokenUsage/updated',
             'turn/completed',
-            'turn/failed',
             'fs/changed',
             'error',
           ];
@@ -206,7 +241,7 @@ export const codexRuntime: AgentRuntime = {
               if (event) {
                 tryEnqueue(canonicalToSseLine(event));
               }
-              if (method === 'turn/completed' || method === 'turn/failed') {
+              if (method === 'turn/completed' || method === 'error') {
                 closeStream();
               }
             });

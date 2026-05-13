@@ -189,6 +189,84 @@ describe('CodexAppServerClient — notifications', () => {
   });
 });
 
+describe('CodexAppServerClient — server-originated requests (P1.1 fix)', () => {
+  it('routes incoming request to onServerRequest handler + emits response', async () => {
+    const mock = makeMockTransport();
+    const client = new CodexAppServerClient(mock.transport, { version: '0.0.0' });
+    client.onServerRequest('item/commandExecution/requestApproval', () => ({ decision: 'decline' as const }));
+    await client.notify('initialized', {}); // force-attach listener
+    mock.emit(JSON.stringify({
+      jsonrpc: '2.0',
+      id: 42,
+      method: 'item/commandExecution/requestApproval',
+      params: { threadId: 't', turnId: 'u', itemId: 'i', startedAtMs: 0, command: 'ls' },
+    }));
+    // Allow the async handler + send to flush.
+    await new Promise((r) => setTimeout(r, 5));
+    const response = JSON.parse(mock.sent[1]); // sent[0] is the initialized notification
+    assert.equal(response.id, 42);
+    assert.deepEqual(response.result, { decision: 'decline' });
+    await client.dispose();
+  });
+
+  it('no handler → auto-emits -32601 method not found so Codex does not hang', async () => {
+    const mock = makeMockTransport();
+    const client = new CodexAppServerClient(mock.transport, { version: '0.0.0' });
+    await client.notify('initialized', {});
+    mock.emit(JSON.stringify({
+      jsonrpc: '2.0',
+      id: 99,
+      method: 'codex.somethingNew',
+      params: {},
+    }));
+    await new Promise((r) => setTimeout(r, 5));
+    const response = JSON.parse(mock.sent[1]);
+    assert.equal(response.id, 99);
+    assert.equal(response.error.code, -32601);
+    await client.dispose();
+  });
+
+  it('handler throw → -32603 internal error with the message', async () => {
+    const mock = makeMockTransport();
+    const client = new CodexAppServerClient(mock.transport, { version: '0.0.0' });
+    client.onServerRequest('item/commandExecution/requestApproval', () => {
+      throw new Error('boom from handler');
+    });
+    await client.notify('initialized', {});
+    mock.emit(JSON.stringify({
+      jsonrpc: '2.0',
+      id: 7,
+      method: 'item/commandExecution/requestApproval',
+      params: {},
+    }));
+    await new Promise((r) => setTimeout(r, 5));
+    const response = JSON.parse(mock.sent[1]);
+    assert.equal(response.error.code, -32603);
+    assert.match(response.error.message, /boom from handler/);
+    await client.dispose();
+  });
+
+  it('handler returning a Promise resolves into the response', async () => {
+    const mock = makeMockTransport();
+    const client = new CodexAppServerClient(mock.transport, { version: '0.0.0' });
+    client.onServerRequest('item/permissions/requestApproval', async () => {
+      await new Promise((r) => setTimeout(r, 5));
+      return { decision: 'accept' as const };
+    });
+    await client.notify('initialized', {});
+    mock.emit(JSON.stringify({
+      jsonrpc: '2.0',
+      id: 13,
+      method: 'item/permissions/requestApproval',
+      params: { reason: 'sandbox' },
+    }));
+    await new Promise((r) => setTimeout(r, 20));
+    const response = JSON.parse(mock.sent[1]);
+    assert.deepEqual(response.result, { decision: 'accept' });
+    await client.dispose();
+  });
+});
+
 describe('CodexAppServerClient — dispose', () => {
   it('rejects pending requests on dispose so callers do not hang', async () => {
     const mock = makeMockTransport();
