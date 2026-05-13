@@ -189,6 +189,66 @@ describe('CodexAppServerClient — notifications', () => {
   });
 });
 
+describe('CodexAppServerClient — wildcard notifications (P2.2 fix)', () => {
+  it('onAnyNotification fires for every notification with (method, params)', async () => {
+    const mock = makeMockTransport();
+    const client = new CodexAppServerClient(mock.transport, { version: '0.0.0' });
+    const seen: Array<[string, unknown]> = [];
+    client.onAnyNotification((method, params) => seen.push([method, params]));
+    await client.notify('initialized', {}); // force-attach
+    mock.emit(JSON.stringify({ method: 'item/agentMessage/delta', params: { delta: 'hi' } }));
+    mock.emit(JSON.stringify({ method: 'codex.someUnknownNotif', params: { foo: 1 } }));
+    mock.emit(JSON.stringify({ method: 'thread/tokenUsage/updated', params: {} }));
+    assert.equal(seen.length, 3);
+    assert.equal(seen[0][0], 'item/agentMessage/delta');
+    assert.equal(seen[1][0], 'codex.someUnknownNotif');
+    assert.deepEqual(seen[1][1], { foo: 1 });
+    await client.dispose();
+  });
+
+  it('per-method + wildcard both fire (additive, not exclusive)', async () => {
+    const mock = makeMockTransport();
+    const client = new CodexAppServerClient(mock.transport, { version: '0.0.0' });
+    const specific: unknown[] = [];
+    const wildcard: Array<[string, unknown]> = [];
+    client.onNotification('item/agentMessage/delta', (p) => specific.push(p));
+    client.onAnyNotification((method, params) => wildcard.push([method, params]));
+    await client.notify('initialized', {});
+    mock.emit(JSON.stringify({ method: 'item/agentMessage/delta', params: { delta: 'x' } }));
+    assert.equal(specific.length, 1);
+    assert.equal(wildcard.length, 1);
+    assert.equal(wildcard[0][0], 'item/agentMessage/delta');
+    await client.dispose();
+  });
+
+  it('handler throw does not block other wildcard handlers', async () => {
+    const mock = makeMockTransport();
+    const client = new CodexAppServerClient(mock.transport, { version: '0.0.0' });
+    const survivors: string[] = [];
+    client.onAnyNotification(() => {
+      throw new Error('boom');
+    });
+    client.onAnyNotification((method) => survivors.push(method));
+    await client.notify('initialized', {});
+    mock.emit(JSON.stringify({ method: 'fs/changed', params: {} }));
+    assert.deepEqual(survivors, ['fs/changed']);
+    await client.dispose();
+  });
+
+  it('unsubscribe drops the wildcard handler', async () => {
+    const mock = makeMockTransport();
+    const client = new CodexAppServerClient(mock.transport, { version: '0.0.0' });
+    const seen: string[] = [];
+    const unsub = client.onAnyNotification((method) => seen.push(method));
+    await client.notify('initialized', {});
+    mock.emit(JSON.stringify({ method: 'a', params: {} }));
+    unsub();
+    mock.emit(JSON.stringify({ method: 'b', params: {} }));
+    assert.deepEqual(seen, ['a']);
+    await client.dispose();
+  });
+});
+
 describe('CodexAppServerClient — server-originated requests (P1.1 fix)', () => {
   it('routes incoming request to onServerRequest handler + emits response', async () => {
     const mock = makeMockTransport();

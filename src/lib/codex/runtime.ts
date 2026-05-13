@@ -221,32 +221,28 @@ export const codexRuntime: AgentRuntime = {
           }
 
           // ── notification fan-out ────────────────────────────────────
-          // Method names must match upstream ServerNotification.ts
-          // (slash-namespaced). The mapper guardrail
-          // (`codex-method-names.test.ts`) pins this against the schema.
-          const methods = [
-            'item/agentMessage/delta',
-            'item/reasoning/textDelta',
-            'item/reasoning/summaryTextDelta',
-            'item/started',
-            'item/completed',
-            'thread/tokenUsage/updated',
-            'turn/completed',
-            'fs/changed',
-            'error',
-          ];
-          for (const method of methods) {
-            const unsub = client.onNotification(method, (params) => {
-              const event = translateCodexNotification(method, params, { sessionId });
-              if (event) {
-                tryEnqueue(canonicalToSseLine(event));
-              }
-              if (method === 'turn/completed' || method === 'error') {
-                closeStream();
-              }
-            });
-            unsubscribers.push(unsub);
-          }
+          // Phase 5 review round 2 (2026-05-13): subscribe through the
+          // wildcard hook so the canonical mapper sees EVERY notification.
+          // Previously we registered ~9 specific method handlers — anything
+          // outside that allowlist silently dropped, contradicting the
+          // mapper's `unknown_item` fallback contract. The wildcard puts
+          // every notification through `translateCodexNotification`, so
+          // unknown methods actually reach the chat surface as
+          // `unknown_item` blocks instead of vanishing.
+          const unsubAny = client.onAnyNotification((method, params) => {
+            const event = translateCodexNotification(method, params, { sessionId });
+            if (event) {
+              tryEnqueue(canonicalToSseLine(event));
+            }
+            // Stream lifecycle close on terminal canonical events.
+            // turn/completed with status=failed lands as `run_failed`
+            // (per the mapper); status=completed/interrupted/inProgress
+            // lands as `run_completed`. Both close the stream.
+            if (event?.type === 'run_completed' || event?.type === 'run_failed') {
+              closeStream();
+            }
+          });
+          unsubscribers.push(unsubAny);
 
           // ── kick off the turn ───────────────────────────────────────
           await client.request('turn/start', {

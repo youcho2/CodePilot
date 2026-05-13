@@ -204,13 +204,38 @@ export function translateCodexNotification(
     }
 
     // ─── turn lifecycle ────────────────────────────────────────────
+    // TurnCompletedNotification = { threadId, turn: Turn }
+    // Turn = { id, items, itemsView, status: TurnStatus,
+    //         error: TurnError | null, startedAt, completedAt, durationMs }
+    // TurnStatus = "completed" | "interrupted" | "failed" | "inProgress"
+    // TurnError = { message, codexErrorInfo, additionalDetails }
+    //
+    // Phase 5 review round 2 fix (2026-05-13) — earlier revision read
+    // `params.status` (flat, doesn't exist) → every turn appeared as
+    // a successful end_turn, including failed and interrupted ones.
     case 'turn/completed': {
-      const p = params as { status?: string };
-      return makeRunCompleted(base, { finishReason: p.status });
+      const p = params as {
+        turn?: {
+          status?: 'completed' | 'interrupted' | 'failed' | 'inProgress';
+          error?: { message?: string; additionalDetails?: string | null } | null;
+        };
+      };
+      const status = p.turn?.status;
+      if (status === 'failed') {
+        const err = p.turn?.error;
+        const message =
+          (err?.message && err.message.trim().length > 0 ? err.message : null) ??
+          err?.additionalDetails ??
+          'Codex turn failed';
+        return makeRunFailed(base, { code: 'codex_turn_failed', message });
+      }
+      // For completed / interrupted / inProgress (and missing status —
+      // be conservative): preserve the real status as finishReason so
+      // downstream can distinguish user-interrupt from natural end_turn.
+      return makeRunCompleted(base, { finishReason: status ?? 'completed' });
     }
-    // ServerNotification union has no top-level `turn/failed`; failures
-    // surface through ErrorNotification ('error' method) and through
-    // `turn/completed` with status indicating failure.
+    // ErrorNotification — top-level Codex error channel (out-of-band
+    // failures not tied to a specific turn).
     case 'error': {
       const p = params as { code?: string | number; message?: string };
       return makeRunFailed(base, {
@@ -326,6 +351,49 @@ interface ThreadItemLike {
   text?: string;
 }
 
+/**
+ * ThreadItem types whose lifecycle (started/completed) is meaningful
+ * to the chat / Run / Preview UI as a discrete event. Adapter emits
+ * canonical events for these.
+ */
+const TOOL_LIKE_ITEM_TYPES = new Set<string>([
+  'commandExecution',
+  'mcpToolCall',
+  'dynamicToolCall',
+  'fileChange',
+  'webSearch',
+]);
+
+/**
+ * ThreadItem types we know about but that DON'T need a discrete
+ * chat-side event from `item/started` / `item/completed`. The text
+ * for agentMessage / plan / reasoning already streams through
+ * `item/agentMessage/delta` / `item/plan/delta` / `item/reasoning/*`,
+ * so emitting a separate canonical event would just noise the
+ * transcript. userMessage is what the user sent us (already on screen).
+ *
+ * Phase 5 review round 2 fix (2026-05-13) — earlier revision dumped
+ * these into `unknown_item`, which the runtime then surfaces as a
+ * `status` SSE line. `useSSEStream.ts:229` displayed the raw JSON
+ * as status text, so a normal Codex reply briefly showed
+ * "codex.item/started.agentMessage" then "completed.agentMessage"
+ * as chat status. Returning null suppresses that noise; the
+ * agentMessage content still arrives via the streaming delta path.
+ */
+const CHAT_ONLY_ITEM_TYPES = new Set<string>([
+  'userMessage',
+  'hookPrompt',
+  'agentMessage',
+  'plan',
+  'reasoning',
+  'enteredReviewMode',
+  'exitedReviewMode',
+  'contextCompaction',
+  'collabAgentToolCall',
+  'imageView',
+  'imageGeneration',
+]);
+
 function translateItemStarted(
   item: ThreadItemLike,
   base: { runtimeId: 'codex_runtime'; sessionId: string },
@@ -365,11 +433,15 @@ function translateItemStarted(
       input: { query: item.query },
     });
   }
-  // userMessage / agentMessage / plan / reasoning / imageView /
-  // imageGeneration / enteredReviewMode / exitedReviewMode /
-  // contextCompaction / collabAgentToolCall etc. — don't have a
-  // canonical tool/command analog. Surface as unknown_item so we
-  // don't drop them silently.
+  // Known chat-only item types — text / reasoning / review markers
+  // etc. carry no extra info in the lifecycle event; the actual
+  // content streams through dedicated delta methods. Return null
+  // instead of polluting the chat status surface.
+  if (typeof item.type === 'string' && CHAT_ONLY_ITEM_TYPES.has(item.type)) {
+    return null;
+  }
+  // Truly unknown item type — surface via fallback so we don't drop
+  // brand-new Codex item variants silently.
   if (typeof item.type === 'string') {
     return makeUnknownItem(base, {
       sourceType: `codex.item/started.${item.type}`,
@@ -397,17 +469,17 @@ function translateItemCompleted(
       error: errorIfAny,
     });
   }
-  // For tool calls — generic output via item shape; runtime adapter
-  // doesn't need to differentiate.
-  if (
-    item.type === 'mcpToolCall' ||
-    item.type === 'dynamicToolCall' ||
-    item.type === 'fileChange' ||
-    item.type === 'webSearch'
-  ) {
+  // For tool-like items — generic output via item shape; runtime
+  // adapter doesn't need to differentiate.
+  if (item.type && TOOL_LIKE_ITEM_TYPES.has(item.type)) {
     return makeToolCompleted(base, { toolId: id, output: item });
   }
-  // Other item types — same fallback as in translateItemStarted.
+  // Known chat-only types — no completion event for the UI (the
+  // content already arrived via the streaming delta path).
+  if (typeof item.type === 'string' && CHAT_ONLY_ITEM_TYPES.has(item.type)) {
+    return null;
+  }
+  // Truly unknown item type — fallback so new variants stay visible.
   if (typeof item.type === 'string') {
     return makeUnknownItem(base, {
       sourceType: `codex.item/completed.${item.type}`,

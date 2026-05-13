@@ -235,12 +235,67 @@ describe('translateCodexNotification — item lifecycle (schema-correct)', () =>
   });
 });
 
-describe('translateCodexNotification — turn lifecycle', () => {
-  it('turn/completed → run_completed', () => {
-    const event = translateCodexNotification('turn/completed', { status: 'end_turn' }, ctx);
-    assert.equal(event?.type, 'run_completed');
+describe('translateCodexNotification — turn lifecycle (nested status per schema)', () => {
+  // TurnCompletedNotification = { threadId, turn: Turn }
+  // Turn.status = 'completed' | 'interrupted' | 'failed' | 'inProgress'
+  function turnCompleted(status: string, error?: { message: string }) {
+    return {
+      threadId: 't',
+      turn: {
+        id: 'u',
+        items: [],
+        itemsView: 'all',
+        status,
+        error: error ?? null,
+        startedAt: 0,
+        completedAt: 0,
+        durationMs: 0,
+      },
+    };
+  }
+
+  it('turn/completed with status=completed → run_completed (preserves real finishReason)', () => {
+    const event = translateCodexNotification('turn/completed', turnCompleted('completed'), ctx);
     if (event?.type !== 'run_completed') throw new Error('unreachable');
-    assert.equal(event.finishReason, 'end_turn');
+    assert.equal(event.finishReason, 'completed');
+  });
+
+  it('turn/completed with status=interrupted → run_completed with interrupted finishReason', () => {
+    // User-interrupted turns must surface as interrupted, NOT as
+    // successful end_turn — review round 2 fix (2026-05-13).
+    const event = translateCodexNotification('turn/completed', turnCompleted('interrupted'), ctx);
+    if (event?.type !== 'run_completed') throw new Error('unreachable');
+    assert.equal(event.finishReason, 'interrupted');
+  });
+
+  it('turn/completed with status=failed → run_failed (NOT run_completed)', () => {
+    // Earlier revision swallowed turn failures as successful end_turn.
+    const event = translateCodexNotification(
+      'turn/completed',
+      turnCompleted('failed', { message: 'context exhausted' }),
+      ctx,
+    );
+    if (event?.type !== 'run_failed') throw new Error('unreachable');
+    assert.equal(event.code, 'codex_turn_failed');
+    assert.equal(event.message, 'context exhausted');
+  });
+
+  it('turn/completed with status=failed and missing error.message → falls back to default text', () => {
+    const event = translateCodexNotification(
+      'turn/completed',
+      turnCompleted('failed', { message: '' }),
+      ctx,
+    );
+    if (event?.type !== 'run_failed') throw new Error('unreachable');
+    assert.match(event.message, /Codex turn failed/);
+  });
+
+  it('turn/completed with status=inProgress → run_completed (conservative, with the real status as reason)', () => {
+    // Codex doesn't typically emit inProgress here, but the schema
+    // allows it. Surface the real status so downstream can distinguish.
+    const event = translateCodexNotification('turn/completed', turnCompleted('inProgress'), ctx);
+    if (event?.type !== 'run_completed') throw new Error('unreachable');
+    assert.equal(event.finishReason, 'inProgress');
   });
 
   it('error notification → run_failed with code stringified', () => {
@@ -252,6 +307,46 @@ describe('translateCodexNotification — turn lifecycle', () => {
     if (event?.type !== 'run_failed') throw new Error('unreachable');
     assert.equal(event.code, '-32601');
   });
+});
+
+describe('translateCodexNotification — chat-only item types return null (P2.1 fix)', () => {
+  // Phase 5 review round 2 fix (2026-05-13) — agentMessage / userMessage
+  // / plan / reasoning lifecycle previously fell through to unknown_item,
+  // which the runtime surfaces as a `status` SSE → useSSEStream renders
+  // raw JSON as chat status. That's noise; the actual content streams
+  // through dedicated delta methods.
+  const chatOnly = [
+    'agentMessage',
+    'userMessage',
+    'plan',
+    'reasoning',
+    'hookPrompt',
+    'enteredReviewMode',
+    'exitedReviewMode',
+    'contextCompaction',
+    'collabAgentToolCall',
+    'imageView',
+    'imageGeneration',
+  ];
+
+  for (const type of chatOnly) {
+    it(`item/started type=${type} → null (no chat noise)`, () => {
+      const event = translateCodexNotification(
+        'item/started',
+        { item: { type, id: 'x-1' }, threadId: 't', turnId: 'u', startedAtMs: 0 },
+        ctx,
+      );
+      assert.equal(event, null);
+    });
+    it(`item/completed type=${type} → null`, () => {
+      const event = translateCodexNotification(
+        'item/completed',
+        { item: { type, id: 'x-1' }, threadId: 't', turnId: 'u', completedAtMs: 0 },
+        ctx,
+      );
+      assert.equal(event, null);
+    });
+  }
 });
 
 describe('translateCodexNotification — token usage (layered shape)', () => {

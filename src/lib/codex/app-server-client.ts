@@ -97,6 +97,17 @@ export class CodexAppServerClient {
   private nextId = 1;
   private readonly pending = new Map<number | string, PendingRequest>();
   private readonly notificationHandlers = new Map<string, Set<(params: unknown) => void>>();
+  /**
+   * Wildcard notification handlers — receive `(method, params)` for
+   * EVERY incoming notification. Phase 5 review round 2 fix (2026-05-13):
+   * the runtime previously subscribed to ~9 specific methods, so any
+   * notification outside that list was silently dropped despite the
+   * mapper's `unknown_item` fallback claim. With this hook, the
+   * runtime registers a single wildcard handler that runs every
+   * notification through `translateCodexNotification`, so unknown
+   * methods actually surface end-to-end.
+   */
+  private readonly anyNotificationHandlers = new Set<(method: string, params: unknown) => void>();
   private readonly serverRequestHandlers = new Map<string, ServerRequestHandler>();
   private unsubscribe: (() => void) | null = null;
   private initializeResult: CodexInitializeResponse | null = null;
@@ -224,6 +235,24 @@ export class CodexAppServerClient {
     set.add(handler);
     return () => {
       set?.delete(handler);
+    };
+  }
+
+  /**
+   * Subscribe to every incoming notification. Phase 5 review round 2
+   * fix — gives the runtime a chance to route ALL notifications
+   * through the canonical mapper (including unknown methods that
+   * the mapper turns into `unknown_item`), instead of dropping
+   * anything that wasn't named in a per-method subscription.
+   *
+   * Fired alongside (not instead of) per-method handlers. Per-method
+   * handlers still run; the wildcard is additive. Order: per-method
+   * handlers first, then wildcards in registration order.
+   */
+  onAnyNotification(handler: (method: string, params: unknown) => void): () => void {
+    this.anyNotificationHandlers.add(handler);
+    return () => {
+      this.anyNotificationHandlers.delete(handler);
     };
   }
 
@@ -385,12 +414,24 @@ export class CodexAppServerClient {
 
   private routeNotification(message: JsonRpcNotification): void {
     const handlers = this.notificationHandlers.get(message.method);
-    if (!handlers || handlers.size === 0) return;
-    for (const h of handlers) {
-      try {
-        h(message.params);
-      } catch (err) {
-        console.warn('[codex] notification handler threw', { method: message.method, err });
+    if (handlers && handlers.size > 0) {
+      for (const h of handlers) {
+        try {
+          h(message.params);
+        } catch (err) {
+          console.warn('[codex] notification handler threw', { method: message.method, err });
+        }
+      }
+    }
+    // Wildcard handlers run for every notification — runtime uses
+    // this to put unknown methods through the canonical mapper.
+    if (this.anyNotificationHandlers.size > 0) {
+      for (const h of this.anyNotificationHandlers) {
+        try {
+          h(message.method, message.params);
+        } catch (err) {
+          console.warn('[codex] any-notification handler threw', { method: message.method, err });
+        }
       }
     }
   }
