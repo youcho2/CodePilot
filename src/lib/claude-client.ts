@@ -478,7 +478,25 @@ export function streamClaude(options: ClaudeStreamOptions): ReadableStream<strin
   // because Claude Code SDK only supports Anthropic models.
   const isNonAnthropicProvider = effectiveProvider === 'openai-oauth';
 
-  if (isNonAnthropicProvider) {
+  // Phase 5 review round 5 (2026-05-13) — Codex Account models flow
+  // ONLY through Codex Runtime's app-server. ClaudeCode SDK / Native
+  // can't speak Codex's wire format. Fail-closed if codex_runtime
+  // isn't registered (codex binary missing): downstream chat send
+  // path will surface a clean "Codex not available" error instead
+  // of falling through to ClaudeCode SDK with an unknown model.
+  const isCodexAccountProvider = effectiveProvider === 'codex_account';
+
+  if (isCodexAccountProvider) {
+    const codexRt = getRuntime('codex_runtime');
+    if (codexRt?.isAvailable()) {
+      runtime = codexRt;
+    } else {
+      throw new Error(
+        'codex_account provider selected but Codex Runtime is not available — ' +
+          'install codex CLI or pick a different provider.',
+      );
+    }
+  } else if (isNonAnthropicProvider) {
     runtime = getRuntime('native');
   } else if (!cliDisabled) {
     // Only attempt transport-based SDK forcing when CLI is enabled
@@ -500,17 +518,43 @@ export function streamClaude(options: ClaudeStreamOptions): ReadableStream<strin
   if (!runtime) {
     // Phase 2 Step 3: prefer the session's `runtime_pin` over the global
     // `agent_runtime` setting. The pin is stored in chat-runtime label
-    // form (`'claude_code'` / `'codepilot_runtime'`); translate to the
-    // `agent_runtime` setting form (`'claude-code-sdk'` / `'native'`)
-    // before handing off to the registry. Empty / unknown pin → fall
-    // back to the global setting (today's behavior).
-    const pinAsAgentRuntime = options.sessionRuntimePin === 'claude_code'
-      ? 'claude-code-sdk'
-      : options.sessionRuntimePin === 'codepilot_runtime'
-        ? 'native'
-        : undefined;
+    // form (`'claude_code'` / `'codepilot_runtime'` / `'codex_runtime'`);
+    // translate to the `agent_runtime` registry id form. Empty / unknown
+    // pin → fall back to the global setting (today's behavior).
+    //
+    // Registry id mapping (the agent_runtime setting form):
+    //   claude_code       → claude-code-sdk  (legacy; CC SDK predates RuntimeId)
+    //   codepilot_runtime → native           (legacy; same reason)
+    //   codex_runtime     → codex_runtime    (Phase 3 — id matches RuntimeId)
+    //
+    // Round 5 fix (2026-05-13): the third mapping was missing, so
+    // sessions pinned to codex_runtime fell through to the global
+    // setting (typically claude-code-sdk) and ran GPT-5.5 through
+    // ClaudeCode SDK — the bug Codex CDP smoke caught.
+    const pinAsAgentRuntime =
+      options.sessionRuntimePin === 'claude_code'
+        ? 'claude-code-sdk'
+        : options.sessionRuntimePin === 'codepilot_runtime'
+          ? 'native'
+          : options.sessionRuntimePin === 'codex_runtime'
+            ? 'codex_runtime'
+            : undefined;
     const runtimeOverride = pinAsAgentRuntime ?? (getSetting('agent_runtime') || undefined);
     runtime = resolveRuntime(runtimeOverride, effectiveProvider || undefined);
+  }
+
+  // Phase 5 review round 5 (2026-05-13) — guardrail: when the session
+  // is pinned to codex_runtime, the resolved runtime MUST be
+  // codex_runtime. Falling through to claude-code-sdk / native is
+  // exactly the failure mode that produced "There's an issue with
+  // the selected model (gpt-5.5)" — silent runtime mismatch. Throw
+  // instead so the chat send path surfaces a clear error.
+  if (options.sessionRuntimePin === 'codex_runtime' && runtime.id !== 'codex_runtime') {
+    throw new Error(
+      `Session is pinned to codex_runtime but resolver returned "${runtime.id}". ` +
+        'Codex Runtime is not registered or not available — install codex CLI ' +
+        '(or set CODEX_BIN) and retry.',
+    );
   }
 
   console.log(
