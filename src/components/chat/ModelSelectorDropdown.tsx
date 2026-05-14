@@ -194,8 +194,8 @@ export function ModelSelectorDropdown({
             // disappeared — they're a runtime switch away.
             <div className="px-3 pt-3 pb-1 text-[11px] leading-snug text-muted-foreground">
               {isZh
-                ? 'Codex Runtime 当前仅支持 Codex Account 模型；其他服务商请切回 Claude Code 或 CodePilot 执行引擎。'
-                : 'Codex Runtime currently supports only Codex Account models. Switch to Claude Code or CodePilot Runtime to use other providers.'}
+                ? 'Codex 当前仅支持 Codex Account 模型；其他服务商请切回 Claude Code 或 CodePilot。'
+                : 'Codex currently supports only Codex Account models. Switch to Claude Code or CodePilot to use other providers.'}
             </div>
           ) : runtimeApplied ? (
             <div className="px-3 pt-3 pb-1 text-[11px] leading-snug text-muted-foreground">
@@ -278,8 +278,8 @@ export function ModelSelectorDropdown({
                 // so it leads.
                 <div className="px-3 py-6 text-center text-xs text-muted-foreground leading-relaxed">
                   {isZh
-                    ? 'Codex Runtime 下暂无可用模型。前往「设置 → 服务商」登录 Codex 账户，或在「设置 → 执行引擎」查看 Codex Runtime 状态。'
-                    : 'No Codex models available. Visit Settings → Providers to sign in to Codex, or Settings → Runtime to check Codex Runtime status.'}
+                    ? '当前没有可用的 Codex 模型。前往「设置 → 服务商」登录 Codex 账户，或在「设置 → 执行引擎」查看 Codex 状态。'
+                    : 'No Codex models available. Visit Settings → Providers to sign in to Codex, or Settings → Runtime to check Codex status.'}
                 </div>
               ) : (
                 <div className="px-3 py-6 text-center text-xs text-muted-foreground">

@@ -19,7 +19,7 @@
  * No write actions — switching default model, enable/disable, role
  * mapping etc. don't apply to Codex Account models (they're served
  * directly through Codex Runtime). The block carries a clear
- * "仅 Codex Runtime" badge so users understand the constraint.
+ * "仅 Codex" / "Codex only" badge so users understand the constraint.
  */
 
 import { useEffect, useState } from "react";
@@ -77,7 +77,7 @@ export function CodexAccountModelsBlock({ isZh }: CodexAccountModelsBlockProps) 
                 "bg-status-warning-muted text-status-warning-foreground",
               )}
             >
-              {isZh ? "仅 Codex Runtime" : "Codex Runtime only"}
+              {isZh ? "仅 Codex" : "Codex only"}
             </span>
             <span className="text-[11px] text-muted-foreground">
               {isZh
@@ -94,8 +94,8 @@ export function CodexAccountModelsBlock({ isZh }: CodexAccountModelsBlockProps) 
         </div>
         <p className="text-[11px] text-muted-foreground leading-relaxed">
           {isZh
-            ? "Codex 账户模型由 ChatGPT 套餐承担，无需 API Key；只在「执行引擎 → Codex Runtime」下可用。模型列表由 Codex 自动维护，无需在这里启用/隐藏。"
-            : "Codex Account models are covered by your ChatGPT plan — no API key required. They run only under Settings → Runtime → Codex Runtime. The list is maintained by Codex; nothing to toggle here."}
+            ? "Codex 账户模型由 ChatGPT 套餐承担，无需 API Key；只在「执行引擎 → Codex」下可用。模型列表由 Codex 自动维护，无需在这里启用/隐藏。"
+            : "Codex Account models are covered by your ChatGPT plan — no API key required. They run only under Settings → Runtime → Codex. The list is maintained by Codex; nothing to toggle here."}
         </p>
         <ul className="flex flex-col divide-y divide-border/40 rounded-md bg-muted/30 px-3.5">
           {group.models.map((m) => (

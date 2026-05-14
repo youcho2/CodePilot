@@ -890,8 +890,8 @@ export function RuntimePanel() {
           ? "未检测到 Claude Code CLI（或 OAuth 登录已过期）"
           : "Claude Code CLI not detected (or OAuth login has expired)",
         impact: isZh
-          ? "无法用 Claude Code 内核跑会话；选用此 Runtime 的会话会回退到 AI SDK"
-          : "Sessions cannot run on the Claude Code engine; selecting this runtime falls back to AI SDK",
+          ? "无法用 Claude Code 内核跑会话；选用后会自动回退到 CodePilot"
+          : "Sessions cannot run on Claude Code; selecting it falls back to CodePilot",
         recovery: isZh
           ? "下方点「安装」启动一键安装向导，或先在系统终端 `claude /login` 完成授权"
           : "Click Install below to launch the wizard, or run `claude /login` in a terminal",
@@ -953,8 +953,8 @@ export function RuntimePanel() {
           ? "未在 PATH 上检测到 codex 命令"
           : "codex binary not detected on PATH",
         impact: isZh
-          ? "Codex 账户模型（gpt-5.5 等）无法使用；选择 Codex Runtime 后发送会失败"
-          : "Codex Account models (gpt-5.5 etc.) are unavailable; selecting Codex Runtime fails at send time",
+          ? "Codex 账户模型（gpt-5.5 等）无法使用；选择 Codex 后发送会失败"
+          : "Codex Account models (gpt-5.5 etc.) are unavailable; selecting Codex fails at send time",
         recovery: isZh
           ? "按 Codex 官方指引安装 codex CLI，或设置 CODEX_BIN 指向自定义路径"
           : "Install codex CLI per the official guide, or set CODEX_BIN to point at a custom binary",
@@ -990,15 +990,15 @@ export function RuntimePanel() {
               ? "Codex 应用服务已就绪并被设为默认引擎"
               : "Codex app-server is ready and set as the default engine",
             impact: isZh
-              ? "新会话默认走 Codex Runtime，使用 Codex 账户模型（其他服务商模型暂不可用）"
-              : "New chats run on Codex Runtime with Codex Account models (other providers not yet supported)",
+              ? "新会话默认走 Codex，使用 Codex 账户模型（其他服务商模型暂不可用）"
+              : "New chats run on Codex with Codex Account models (other providers not yet supported)",
           }
         : {
             state: "available",
             reason: isZh ? "Codex 应用服务已就绪但未被设为默认" : "Codex app-server is ready but not the default engine",
             impact: isZh
-              ? "想用 Codex 账户模型作为默认，把上方「默认引擎」切到 Codex Runtime"
-              : 'Switch the "Default engine" selector above to use Codex Runtime',
+              ? "想用 Codex 账户模型作为默认，把上方「默认引擎」切到 Codex"
+              : 'Switch the "Default engine" selector above to use Codex',
           };
     }
     // unknown — initial fetch still pending
@@ -1018,21 +1018,21 @@ export function RuntimePanel() {
       return {
         state: "selected",
         reason: isZh
-          ? "AI SDK 是默认内核（无需 CLI，直连 provider API）"
-          : "AI SDK is the default engine (no CLI required, direct provider API)",
+          ? "CodePilot 是默认内核（无需 CLI，直连 provider API）"
+          : "CodePilot is the default engine (no CLI required, direct provider API)",
         impact: isZh
-          ? "新会话默认用 AI SDK；工具、权限和上下文由 CodePilot 自己管理"
-          : "New chats run on the AI SDK engine; tools, permissions, and context managed by CodePilot itself",
+          ? "新会话默认用 CodePilot；工具、权限和上下文由 CodePilot 自己管理"
+          : "New chats run on CodePilot; tools, permissions, and context managed by CodePilot itself",
       };
     }
     return {
       state: "available",
       reason: isZh
-        ? "AI SDK 内核随应用自带，始终可用"
-        : "AI SDK engine ships with the app and is always available",
+        ? "CodePilot 内核随应用自带，始终可用"
+        : "CodePilot ships with the app and is always available",
       impact: isZh
-        ? "想切到 AI SDK 内核，把上方「默认引擎」切到 AI SDK 即可"
-        : 'Switch the "Default engine" selector above to use AI SDK',
+        ? "想切到 CodePilot 内核，把上方「默认引擎」切到 CodePilot 即可"
+        : 'Switch the "Default engine" selector above to use CodePilot',
     };
   }, [effectiveRuntime, isZh]);
 
@@ -1133,11 +1133,11 @@ export function RuntimePanel() {
             <span>
               {!cliEnabled
                 ? (isZh
-                    ? "保存的偏好是 Claude Code，但 CLI 在「设置」里被显式关闭过，运行时实际走 AI SDK。点上面任一卡片可一次写齐两边设置。"
-                    : "Stored preference is Claude Code but CLI was explicitly disabled in a previous setting, so runtime actually routes to AI SDK. Click either card above to rewrite both fields together.")
+                    ? "保存的偏好是 Claude Code，但 CLI 在「设置」里被显式关闭过，运行时实际走 CodePilot。点上面任一卡片可一次写齐两边设置。"
+                    : "Stored preference is Claude Code but CLI was explicitly disabled in a previous setting, so runtime actually routes to CodePilot. Click either card above to rewrite both fields together.")
                 : (isZh
-                    ? "保存的偏好是 Claude Code，但当前没有检测到 Claude Code CLI（可能未安装或登录失效），运行时实际走 AI SDK。下方 Claude Code 引擎 卡片提供安装入口；或者改选 AI SDK 作为默认。"
-                    : "Stored preference is Claude Code but the CLI isn't currently detected (not installed or OAuth expired), so runtime actually routes to AI SDK. Use the Install button on the Claude Code 引擎 card below — or pick AI SDK as your default instead.")}
+                    ? "保存的偏好是 Claude Code，但当前没有检测到 Claude Code CLI（可能未安装或登录失效），运行时实际走 CodePilot。下方 Claude Code 卡片提供安装入口；或者改选 CodePilot 作为默认。"
+                    : "Stored preference is Claude Code but the CLI isn't currently detected (not installed or OAuth expired), so runtime actually routes to CodePilot. Use the Install button on the Claude Code card below — or pick CodePilot as your default instead.")}
             </span>
           </div>
         )}
@@ -1327,11 +1327,11 @@ export function RuntimePanel() {
                 <span className="text-xs text-status-warning-foreground text-right">
                   {!cliEnabled
                     ? (isZh
-                        ? "CLI 已禁用 → 走 AI SDK"
-                        : "CLI disabled → routes to AI SDK")
+                        ? "CLI 已禁用 → 走 CodePilot"
+                        : "CLI disabled → routes to CodePilot")
                     : (isZh
-                        ? "Claude Code 不可用 → 自动用 AI SDK"
-                        : "Claude Code unavailable → falls back to AI SDK")}
+                        ? "Claude Code 不可用 → 自动用 CodePilot"
+                        : "Claude Code unavailable → falls back to CodePilot")}
                 </span>
               </div>
             )}

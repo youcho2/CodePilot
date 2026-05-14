@@ -154,11 +154,11 @@ export function HealthSection() {
         title: isZh ? "执行引擎 / CLI" : "执行引擎 / CLI",
         severity: "warn",
         reason: isZh
-          ? "Claude Code CLI 已禁用，运行时已降级到 AI SDK"
-          : "Claude Code CLI disabled — runtime fell back to AI SDK",
+          ? "Claude Code CLI 已禁用，运行时已降级到 CodePilot"
+          : "Claude Code CLI disabled — runtime fell back to CodePilot",
         impact: isZh
-          ? "仅 CodePilot 引擎兼容的服务商/模型可执行"
-          : "Only CodePilot Runtime providers/models will run",
+          ? "仅 CodePilot 兼容的服务商/模型可执行"
+          : "Only CodePilot-compatible providers/models will run",
         ctaLabel: isZh ? "去执行引擎" : "Open Runtime",
         ctaOnClick: () => navToSection("runtime"),
       };
@@ -173,8 +173,8 @@ export function HealthSection() {
           ? "Claude Code CLI 未检测到，运行时已降级"
           : "Claude Code CLI not detected — runtime fell back",
         impact: isZh
-          ? "新会话使用 AI SDK，但 Claude Code 专属能力不可用"
-          : "New chats use AI SDK; Claude Code-only features are unavailable",
+          ? "新会话使用 CodePilot，但 Claude Code 专属能力不可用"
+          : "New chats use CodePilot; Claude Code-only features are unavailable",
         ctaLabel: isZh ? "去执行引擎" : "Open Runtime",
         ctaOnClick: () => navToSection("runtime"),
       };
@@ -198,8 +198,8 @@ export function HealthSection() {
       title: isZh ? "执行引擎 / CLI" : "执行引擎 / CLI",
       severity: "ok",
       reason: state.agentRuntime === "claude-code-sdk"
-        ? (isZh ? "Claude Code 引擎 已就绪" : "Claude Code 引擎 ready")
-        : (isZh ? "CodePilot 引擎（AI SDK）已就绪" : "CodePilot Runtime (AI SDK) ready"),
+        ? (isZh ? "Claude Code 已就绪" : "Claude Code ready")
+        : (isZh ? "CodePilot 已就绪" : "CodePilot ready"),
       ctaLabel: isZh ? "去执行引擎" : "Open Runtime",
       ctaOnClick: () => navToSection("runtime"),
     };

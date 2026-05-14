@@ -307,13 +307,20 @@ describe('Models page — Codex Account read-only block (IA correction)', () => 
     assert.match(blockSrc, /if\s*\(\s*!group\s*\|\|\s*!group\.models\?\.length\s*\)\s*return\s+null/);
   });
 
-  it('block carries the "仅 Codex Runtime" badge + Codex Runtime only en mirror', () => {
+  it('block carries the "仅 Codex" badge + "Codex only" en mirror', () => {
+    // Phase 6 UI收口 P1 fix-up sweep (2026-05-14): badge follows the
+    // short product name. "Codex Runtime" / "仅 Codex Runtime" was the
+    // pre-sweep wording that leaked the "Runtime" suffix into a
+    // qualifier badge.
     const blockSrc = fs.readFileSync(
       path.join(repoRoot, 'components/settings/CodexAccountModelsBlock.tsx'),
       'utf8',
     );
-    assert.match(blockSrc, /仅 Codex Runtime/);
-    assert.match(blockSrc, /Codex Runtime only/);
+    assert.match(blockSrc, /仅 Codex/);
+    assert.match(blockSrc, /Codex only/);
+    // Regression guard against re-bolting the suffix.
+    assert.doesNotMatch(blockSrc, /仅 Codex Runtime/);
+    assert.doesNotMatch(blockSrc, /Codex Runtime only/);
   });
 
   it('block is read-only (no enable/disable Switch, no edit display name)', () => {
@@ -415,15 +422,18 @@ describe('Model picker — codex_runtime disclosure (Slice B)', () => {
   it('codex_runtime disclosure copy names "Codex Account 模型" + recovery action', () => {
     // The user-spec wording — both halves must be present so users
     // know what's available AND how to escape the filter.
+    // Phase 6 UI收口 P1 fix-up sweep (2026-05-14): recovery copy drops
+    // the redundant "执行引擎" / "Runtime" suffix — engines are named
+    // by their short product names everywhere user-facing now.
     assert.match(pickerSrc, /Codex Account 模型/);
     assert.match(pickerSrc, /Codex Account models/);
     assert.match(
       pickerSrc,
-      /切回\s*Claude Code\s*或\s*CodePilot\s*执行引擎/,
+      /切回\s*Claude Code\s*或\s*CodePilot/,
     );
     assert.match(
       pickerSrc,
-      /Switch to Claude Code or CodePilot Runtime/,
+      /Switch to Claude Code or CodePilot/,
     );
   });
 
