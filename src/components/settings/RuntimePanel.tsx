@@ -1233,35 +1233,34 @@ export function RuntimePanel() {
             </span>
           </div>
         ) : invalidDefault ? (
-          /* Phase 2C.3: Pinned default unreachable. The banner names the
-             broken pin (raw ids if no friendly labels available) and
-             offers four explicit recovery paths — never substitute
-             silently. */
-          <div className="rounded-md border border-status-warning-border bg-status-warning-muted/30 p-3 flex flex-col gap-2.5">
+          /* Phase 6 UI收口 fix-up (2026-05-14): pinned-invalid is a
+             non-blocking warning, aligned with the chat composer's
+             banner copy + tone. The earlier wording ("新会话不会自动
+             替换 — 请选择下方一种恢复方式") and the four-button
+             recovery (switch engine / enable model / pick another /
+             revert to Auto) directly contradicted the post-P0 chat
+             behavior, which now auto-falls-back to a compatible model
+             without surprise. Banner now mirrors the chat copy:
+             acknowledge the auto-fallback, give one primary action
+             (`修改默认模型 → /settings/models`) and an optional ghost
+             "改回 Auto" for users who'd rather drop the pin entirely. */
+          <div className="rounded-md border border-status-warning-muted bg-status-warning-muted/30 p-3 flex flex-col gap-2.5">
             <div className="flex items-start gap-2">
               <Warning size={14} weight="fill" className="mt-0.5 shrink-0 text-status-warning-foreground" />
               <div className="flex-1 min-w-0">
                 <p className="text-xs font-semibold text-status-warning-foreground">
-                  {isZh ? "默认模型在当前执行引擎 下不可用" : "Pinned default model unavailable"}
+                  {isZh ? "默认模型在当前执行环境下不可用" : "Default model unavailable under the current engine"}
                 </p>
                 <p className="text-[11px] text-foreground/80 mt-1 leading-relaxed">
                   {(() => {
                     const provDisplay = invalidDefault.providerName ?? invalidDefault.providerId;
                     const modelDisplay = invalidDefault.modelLabel ?? invalidDefault.modelValue;
-                    if (isZh) {
-                      const reasonNote = invalidDefault.reason === "provider-missing"
-                        ? `「${provDisplay}」不在当前执行引擎（${resolvedEngineLabel}）的兼容列表中。`
-                        : invalidDefault.reason === "model-missing"
-                          ? `「${modelDisplay}」未对当前执行引擎 暴露（可能被隐藏或筛掉）。`
-                          : "默认模型设置不完整。";
-                      return `已固定到 ${provDisplay} / ${modelDisplay}，但 ${reasonNote} 新会话不会自动替换 — 请选择下方一种恢复方式。`;
-                    }
-                    const reasonNote = invalidDefault.reason === "provider-missing"
-                      ? `Provider "${provDisplay}" isn't compatible with the current Runtime (${resolvedEngineLabel}).`
-                      : invalidDefault.reason === "model-missing"
-                        ? `Model "${modelDisplay}" isn't exposed under the current Runtime (hidden or filtered).`
-                        : "Pinned default is incomplete.";
-                    return `Pinned to ${provDisplay} / ${modelDisplay}, but ${reasonNote} New chats will not silently substitute — pick a recovery path below.`;
+                    const pinName = provDisplay && modelDisplay
+                      ? `${provDisplay} / ${modelDisplay}`
+                      : provDisplay ?? modelDisplay ?? (isZh ? '当前默认' : 'the current default');
+                    return isZh
+                      ? `${pinName} 不在当前执行环境（${resolvedEngineLabel}）的兼容范围内；新会话会自动使用当前环境下的可用模型。需要固定一个新的默认时到「模型」页修改即可。`
+                      : `${pinName} isn't compatible with the current engine (${resolvedEngineLabel}). New chats fall back to an available model automatically. Pick a new default in Models when you're ready.`;
                   })()}
                 </p>
               </div>
@@ -1270,38 +1269,13 @@ export function RuntimePanel() {
               <Button
                 variant="default"
                 size="sm"
-                onClick={handleSwitchToAlternateRuntime}
-                className="text-xs gap-1.5"
-                title={isZh
-                  ? `切换默认引擎至 ${effectiveRuntime === "claude-code-sdk" ? "CodePilot Runtime" : "Claude Code 引擎"}，然后重新检查这个 pin 是否可用`
-                  : `Flip the default engine to ${effectiveRuntime === "claude-code-sdk" ? "CodePilot Runtime" : "Claude Code 引擎"} and re-check pin compatibility`}
-              >
-                {isZh
-                  ? `切到 ${effectiveRuntime === "claude-code-sdk" ? "CodePilot Runtime" : "Claude Code 引擎"}`
-                  : `Switch to ${effectiveRuntime === "claude-code-sdk" ? "CodePilot Runtime" : "Claude Code 引擎"}`}
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={handleEnableInModels}
-                className="text-xs"
-                disabled={!invalidDefault.providerId}
-                title={isZh
-                  ? "跳到「模型」页并定位到这个服务商，启用对应模型"
-                  : "Jump to Models and focus the pinned provider so you can enable the row"}
-              >
-                {isZh ? "去启用此模型" : "Enable this model"}
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
                 onClick={handlePickAnotherDefault}
                 className="text-xs"
                 title={isZh
-                  ? "去「模型」页挑一个其他模型作为新的固定默认"
-                  : "Open Models to pin a different model as the new default"}
+                  ? "去「模型」页挑一个新的固定默认"
+                  : "Open Models to pin a new default"}
               >
-                {isZh ? "选另一个默认" : "Pick another default"}
+                {isZh ? "修改默认模型" : "Change default"}
               </Button>
               <Button
                 variant="ghost"
@@ -1310,8 +1284,8 @@ export function RuntimePanel() {
                 disabled={revertingToAuto}
                 className="text-xs gap-1.5"
                 title={isZh
-                  ? "切回 Auto — 系统按当前执行引擎 自动选第一个合适模型，不再固定到某个具体 pin"
-                  : "Revert to Auto — system auto-picks the first compatible model under the current Runtime, drops the pin"}
+                  ? "切回 Auto — 不再固定到某个具体模型，每次新会话由系统按当前环境自动选"
+                  : "Revert to Auto — drop the pin and let the system pick a compatible model per chat"}
               >
                 {revertingToAuto ? <SpinnerGap size={12} className="animate-spin" /> : null}
                 {isZh ? "改回 Auto" : "Revert to Auto"}

@@ -41,6 +41,7 @@ export type CheckpointTone = 'error' | 'warning' | 'info';
 export type CheckpointActionId =
   | 'open-providers'
   | 'open-runtime'
+  | 'open-models'
   | 'confirm-context-cost'
   | 'confirm-permission-elevation';
 
@@ -204,8 +205,14 @@ export function buildCheckpoints(opts: BuildCheckpointsOpts): CheckpointReason[]
       descriptionValues: { pinned: opts.pinnedDescriptor || '?' },
       action: {
         labelKey: 'runCheckpoint.pinnedInvalid.action',
-        href: '/settings/runtime',
-        actionId: 'open-runtime',
+        // Phase 6 UI收口 fix-up (2026-05-14) — the action is "Change
+        // default" (not "Fix runtime"); the user's task is to pin a
+        // new default model, so the jump target is /settings/models
+        // where pinning lives. Previously this pointed at
+        // /settings/runtime which was a leftover from when the banner
+        // suggested switching engines as a recovery path.
+        href: '/settings/models',
+        actionId: 'open-models',
       },
     });
   }

@@ -166,9 +166,13 @@ describe('runtime/effective — three-engine union (IA correction)', () => {
     assert.match(src, /AgentRuntime\s*=\s*["']claude-code-sdk["']\s*\|\s*["']native["']\s*\|\s*["']codex_runtime["']/);
   });
 
-  it('runtimeDisplayLabel returns "Codex Runtime" for codex_runtime', () => {
+  it('runtimeDisplayLabel returns short "Codex" label for codex_runtime', () => {
+    // Phase 6 UI收口 P1 fix-up (2026-05-14): label dropped the redundant
+    // "Runtime" suffix so the engine picker / composer button / detail
+    // card heading / runtime explainer banner all read consistently.
     const src = fs.readFileSync(path.join(repoRoot, 'lib/runtime/effective.ts'), 'utf8');
-    assert.match(src, /runtime\s*===\s*["']codex_runtime["'][\s\S]{0,80}["']Codex Runtime["']/);
+    assert.match(src, /runtime\s*===\s*["']codex_runtime["'][\s\S]{0,80}return\s+["']Codex["']/);
+    assert.doesNotMatch(src, /return\s+["']Codex Runtime["']/);
   });
 
   it('computeEffectiveRuntime returns codex_runtime without fallback', () => {

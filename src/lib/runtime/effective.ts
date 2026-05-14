@@ -38,11 +38,17 @@ export type AgentRuntime = "claude-code-sdk" | "native" | "codex_runtime";
 
 /** Engine label used in user-facing strings. Settings page maps it to
  *  zh/en + an optional fallback annotation; just produces the canonical
- *  spelling here. */
-export function runtimeDisplayLabel(runtime: AgentRuntime): "Claude Code" | "AI SDK" | "Codex Runtime" {
+ *  spelling here.
+ *
+ *  Phase 6 UI收口 P1 fix-up (2026-05-14) — short names. "AI SDK" is an
+ *  internal implementation detail (users don't pick "an SDK"); the
+ *  product label is "CodePilot". Similarly "Codex Runtime" drops the
+ *  redundant suffix to match the engine picker / composer / detail
+ *  card heading. Three engines, three short names. */
+export function runtimeDisplayLabel(runtime: AgentRuntime): "Claude Code" | "CodePilot" | "Codex" {
   if (runtime === "claude-code-sdk") return "Claude Code";
-  if (runtime === "codex_runtime") return "Codex Runtime";
-  return "AI SDK";
+  if (runtime === "codex_runtime") return "Codex";
+  return "CodePilot";
 }
 
 /**

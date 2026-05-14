@@ -104,9 +104,15 @@ describe("computeEffectiveRuntime", () => {
 // ---------------------------------------------------------------------------
 
 describe("runtimeDisplayLabel", () => {
-  it("returns canonical display strings", () => {
+  it("returns short user-facing display strings", () => {
+    // Phase 6 UI收口 P1 fix-up (2026-05-14): three short product
+    // names. "AI SDK" was an internal implementation detail leaking
+    // into the UI label; the user-visible name is "CodePilot". Same
+    // for "Codex Runtime" → "Codex" — the page title + section header
+    // carry the runtime framing, repeating it here was redundant.
     assert.equal(runtimeDisplayLabel("claude-code-sdk"), "Claude Code");
-    assert.equal(runtimeDisplayLabel("native"), "AI SDK");
+    assert.equal(runtimeDisplayLabel("native"), "CodePilot");
+    assert.equal(runtimeDisplayLabel("codex_runtime"), "Codex");
   });
 });
 

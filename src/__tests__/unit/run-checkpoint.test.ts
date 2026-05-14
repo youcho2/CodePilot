@@ -62,7 +62,12 @@ describe('buildCheckpoints — pinned-invalid', () => {
     // banner just informs the user that their *default-model* pin is
     // in a degraded state. Tone reflects that.
     assert.equal(out[0].tone, 'warning');
-    assert.equal(out[0].action?.href, '/settings/runtime');
+    // Phase 6 UI收口 fix-up (2026-05-14) — the primary action is
+    // "Change default" (not "Fix runtime"); jump target is
+    // /settings/models where the pinned-default is set, not
+    // /settings/runtime which was a leftover from when the banner
+    // suggested switching engines as a recovery.
+    assert.equal(out[0].action?.href, '/settings/models');
   });
 
   it('renders a {pinned} placeholder when no descriptor is provided', () => {
