@@ -9,7 +9,7 @@ import { ChatComposerActionBar } from '@/components/chat/ChatComposerActionBar';
 import { ModeIndicator } from '@/components/chat/ModeIndicator';
 import { ChatPermissionSelector } from '@/components/chat/ChatPermissionSelector';
 import { RuntimeSelector } from '@/components/chat/RuntimeSelector';
-import { chatRuntimeParamForSession, agentRuntimeToChatRuntime } from '@/lib/chat-runtime-shared';
+import { agentRuntimeToChatRuntime, effectiveChatRuntime } from '@/lib/chat-runtime-shared';
 import type { ChatRuntime } from '@/lib/chat-runtime-shared';
 import { PermissionPrompt } from '@/components/chat/PermissionPrompt';
 import { ChatEmptyState } from '@/components/chat/ChatEmptyState';
@@ -168,12 +168,19 @@ function NewChatPageInner() {
   const [runtimePin, setRuntimePin] = useState<string>('');
   // Round-1 review fix — derive the chat-runtime param up front so
   // the default-resolver fetches and effect deps can both stay in
-  // sync when the user switches runtime mid-page. Hardcoded `'auto'`
-  // would lock the validation to mount-time runtime even after a
-  // pick, leaving invalidDefault / noCompatibleProvider stale and
-  // the red RunCheckpoint banner up after the model picker had
-  // already corrected itself.
-  const sessionRuntimeParam = chatRuntimeParamForSession(runtimePin);
+  // sync when the user switches runtime mid-page.
+  //
+  // Phase 6 P0 (2026-05-15): resolve to a CONCRETE RuntimeId, never
+  // `'auto'`. The earlier `chatRuntimeParamForSession` returned
+  // `'auto'` when no session pin existed; that flowed into
+  // `useProviderModels`, which treated `'auto'` as "no per-row
+  // gating", so the picker rendered every model as enabled even
+  // under Codex Runtime where most providers can't yet route
+  // through the (still-scaffolded) provider proxy. `globalRuntime`
+  // is hoisted from below so we can resolve `'auto'` here using
+  // the global `agent_runtime` setting.
+  const globalRuntime = useGlobalAgentRuntime();
+  const sessionRuntimeParam = effectiveChatRuntime(runtimePin, globalRuntime.agentRuntime);
 
   // Run Checkpoint signals — session-scoped only, no global health.
   //
@@ -228,13 +235,9 @@ function NewChatPageInner() {
     permissionProfile,
     permissionElevationConfirmedFor,
   ]);
-  // RuntimeSelector display fallback — when the session has no
-  // explicit pin, show the current global runtime so the user sees
-  // a concrete name instead of a hedge. Lightweight hook (single
-  // /api/settings/app fetch) keeps this surface off the heavy
-  // overview path; the heavy popover content uses `useOverviewData`
-  // when actually opened.
-  const globalRuntime = useGlobalAgentRuntime();
+  // (globalRuntime is now declared above near sessionRuntimeParam so the
+  // 'auto' → concrete runtime resolution happens once at the top.
+  // Phase 6 P0, 2026-05-15.)
   const blockingReasonIds = useMemo(
     () => checkpointReasons.filter((r) => r.requiresConfirm).map((r) => r.id),
     [checkpointReasons],
@@ -1155,26 +1158,27 @@ function NewChatPageInner() {
         // session-pinned `runtime_pin` only applies to /chat/[id]
         // (existing conversations).
         runtime={sessionRuntimeParam}
-        onProviderModelChange={(pid, model) => {
+        onProviderModelChange={(pid, model, opts) => {
           setCurrentProviderId(pid);
           setCurrentModel(model);
+          // Phase 6 P0 (2026-05-15) — the side effects below
+          // (localStorage write + pinned-default warning clear) only
+          // belong to a MANUAL user pick in the model dropdown. An
+          // auto-correct fallback (MessageInput effect when the
+          // saved model isn't in the runtime-compatible set) must
+          // pass `{ isAuto: true }` and skip these: silently
+          // clearing the warning would mask the broken pin without
+          // the user ever acknowledging it; silently writing
+          // localStorage would overwrite the user's last *intended*
+          // pick with whatever fell out of the runtime gate.
+          if (opts?.isAuto) return;
           localStorage.setItem('codepilot:last-provider-id', pid);
           localStorage.setItem('codepilot:last-model', model);
-          // Codex P1 — manual picker override clears the
-          // RunCheckpoint blocker. The picker is runtime-filtered (it
-          // only surfaces models that resolve in the current
-          // provider+runtime combo), so any (pid, model) the user
-          // can pick from this dropdown is by construction reachable.
-          // Without these resets, the new-chat page would stay
-          // "固定默认模型不可用" / send-disabled even after the user
-          // explicitly chose a working model — they'd have no way
-          // out except to fix the global pinned default in Settings,
-          // which is the wrong remedy when the user is just trying
-          // to start a single conversation. The state these flags
-          // gate (invalidDefault / noCompatibleProvider) describes
-          // the GLOBAL default's reachability under the active
-          // runtime; once the user has overridden it for this
-          // conversation, that gate is no longer load-bearing.
+          // Manual override — the picker is runtime-aware so any
+          // (pid, model) the user can click from this dropdown is by
+          // construction reachable. Without these resets, the new
+          // chat would stay "固定默认模型不可用" / send-disabled
+          // even after the user explicitly chose a working model.
           setInvalidDefault(null);
           setNoCompatibleProvider(false);
         }}

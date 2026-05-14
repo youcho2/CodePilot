@@ -495,6 +495,142 @@ describe('Model picker — per-row compat gating (Phase 6 UI收口 P2)', () => {
   });
 });
 
+// ─────────────────────────────────────────────────────────────────────
+// Phase 6 P0 (2026-05-15) — chat composer runtime gate, auto-correct
+// semantics, codex proxy-pending reason.
+//
+// The earlier P2 work delivered "show all + disabled" rendering but
+// left two holes that a user smoke session caught:
+//
+//   (a) chat/page + ChatView passed `'auto'` into useProviderModels
+//       when the session had no pin. The hook treated `'auto'` as
+//       "no per-row gating" so the picker rendered every model as
+//       enabled even when the global Codex Runtime would block them.
+//   (b) MessageInput's auto-correct fallback called the SAME
+//       `onProviderModelChange` callback the manual picker click
+//       used. The parent handler dismissed the pinned-default
+//       warning + wrote localStorage + (in ChatView) PATCHed the
+//       session, silently confirming a fallback the user never
+//       acknowledged.
+//   (c) `getModelCompat` had no `codex_runtime` entries in
+//       `unsupportedReasonByRuntime` for non-codex providers, so
+//       disabled rows under Codex showed only the generic fallback
+//       tooltip instead of the "Codex provider proxy 尚未覆盖"
+//       parity wording the user spec called for.
+// ─────────────────────────────────────────────────────────────────────
+
+describe('effectiveChatRuntime — resolves "auto" to a concrete RuntimeId (Phase 6 P0)', () => {
+  it('returns the session pin verbatim when it\'s a known RuntimeId', () => {
+    const sharedSrc = fs.readFileSync(
+      path.join(repoRoot, 'lib/chat-runtime-shared.ts'),
+      'utf8',
+    );
+    assert.match(sharedSrc, /export\s+function\s+effectiveChatRuntime/);
+    assert.match(sharedSrc, /isRuntimeId\(runtimePin\)\s*\)\s*return\s+runtimePin/);
+  });
+
+  it('falls back to agentRuntimeToChatRuntime(globalAgentRuntime) when no pin', () => {
+    const sharedSrc = fs.readFileSync(
+      path.join(repoRoot, 'lib/chat-runtime-shared.ts'),
+      'utf8',
+    );
+    assert.match(
+      sharedSrc,
+      /return\s+agentRuntimeToChatRuntime\(globalAgentRuntime\)/,
+    );
+  });
+});
+
+describe('Chat composer — passes concrete RuntimeId to useProviderModels (Phase 6 P0)', () => {
+  it('chat/page.tsx uses effectiveChatRuntime, not chatRuntimeParamForSession', () => {
+    const src = fs.readFileSync(path.join(repoRoot, 'app/chat/page.tsx'), 'utf8');
+    assert.match(src, /effectiveChatRuntime\(\s*runtimePin\s*,\s*globalRuntime\.agentRuntime\s*\)/);
+    // Regression guard: the old `chatRuntimeParamForSession(runtimePin)`
+    // produces `'auto'` which then bypasses the picker's per-row
+    // compat gate. Must not creep back into the new-chat page.
+    assert.doesNotMatch(src, /chatRuntimeParamForSession\(runtimePin\)/);
+  });
+
+  it('ChatView.tsx uses effectiveChatRuntime, not chatRuntimeParamForSession', () => {
+    const src = fs.readFileSync(path.join(repoRoot, 'components/chat/ChatView.tsx'), 'utf8');
+    assert.match(src, /effectiveChatRuntime\(\s*runtimePin\s*,\s*globalRuntime\.agentRuntime\s*\)/);
+    assert.doesNotMatch(src, /chatRuntimeParamForSession\(runtimePin\)/);
+  });
+});
+
+describe('MessageInput auto-correct — manual-only side effects (Phase 6 P0)', () => {
+  it('MessageInput auto-correct passes `{ isAuto: true }` to onProviderModelChange', () => {
+    const src = fs.readFileSync(
+      path.join(repoRoot, 'components/chat/MessageInput.tsx'),
+      'utf8',
+    );
+    // The load-bearing assertion: the auto-correct effect must mark
+    // its callback as auto so the parent can skip the manual-pick
+    // side effects (warning clear, localStorage write).
+    assert.match(
+      src,
+      /onProviderModelChange\?\.\([\s\S]{0,200}\{\s*isAuto:\s*true\s*\}\s*\)/,
+    );
+  });
+
+  it('ChatView handleProviderModelChange early-returns on opts.isAuto (no session PATCH)', () => {
+    const src = fs.readFileSync(
+      path.join(repoRoot, 'components/chat/ChatView.tsx'),
+      'utf8',
+    );
+    // PATCHing the session on a silent fallback would persist a
+    // model the user never picked — the next page load would surface
+    // the auto-corrected pair as their "real" selection. Must not.
+    assert.match(
+      src,
+      /handleProviderModelChange[\s\S]{0,800}opts\?\.isAuto[\s\S]{0,60}return/,
+    );
+  });
+});
+
+describe('runtime-compat — codex_runtime proxy-pending reason on every non-codex tier (Phase 6 P0)', () => {
+  const src = fs.readFileSync(
+    path.join(repoRoot, 'lib/runtime-compat.ts'),
+    'utf8',
+  );
+
+  it('codex_runtime reason wording matches the user-spec "proxy 尚未覆盖" parity language', () => {
+    // The reason must clearly say "proxy 尚未覆盖该 provider 类型 /
+    // translator 尚未接入" so users understand this is a transient
+    // 5b-pending state, NOT a permanent constraint. "请切回其他
+    // Runtime" alone (the pre-P0 wording) implied permanence.
+    assert.match(
+      src,
+      /Codex provider proxy 尚未覆盖该 provider 类型 \/ translator 尚未接入/,
+    );
+  });
+
+  it('every non-codex_account tier carries reasons.codex_runtime', () => {
+    // Mirror of the switch arms in `getModelCompat` — each compat
+    // tier that doesn't natively support codex_runtime must populate
+    // `reasons.codex_runtime` so the picker tooltip has something to
+    // show instead of falling back to the generic copy.
+    for (const tier of [
+      'claude_code_ready',
+      'claude_code_verified',
+      'claude_code_experimental',
+      'openrouter_anthropic_skin',
+      'codepilot_only',
+      'unknown',
+    ]) {
+      const tierBlock = src.match(
+        new RegExp(`case ['"]${tier}['"]:[\\s\\S]{0,1500}?break;`),
+      );
+      assert.ok(tierBlock, `expected case '${tier}' in getModelCompat switch`);
+      assert.match(
+        tierBlock![0],
+        /reasons\.codex_runtime\s*=\s*CODEX_PROXY_PENDING_REASON_ZH/,
+        `${tier} must populate reasons.codex_runtime with the proxy-pending reason`,
+      );
+    }
+  });
+});
+
 describe('useProviderModels — full-catalog fetch + client-side compat (Phase 6 UI收口 P2)', () => {
   const hookSrc = fs.readFileSync(
     path.join(repoRoot, 'hooks/useProviderModels.ts'),

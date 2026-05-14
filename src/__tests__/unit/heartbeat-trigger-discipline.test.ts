@@ -528,29 +528,39 @@ describe('ensureHeartbeatTask refresh discipline', () => {
     );
   });
 
-  it('chat/page onProviderModelChange clears invalidDefault + noCompatibleProvider', () => {
+  it('chat/page onProviderModelChange clears invalidDefault + noCompatibleProvider on MANUAL pick only', () => {
     const src = readFileSync(
       path.resolve(__dirname, '../../app/chat/page.tsx'),
       'utf-8',
     );
-    // Locate the onProviderModelChange callback body and assert it
-    // clears the two RunCheckpoint-blocking flags. The picker is
-    // runtime-filtered so any (pid, model) the user can pick from
-    // it is reachable; staying locked on stale invalidDefault would
-    // give the user no escape from "固定默认模型不可用".
+    // Phase 6 P0 (2026-05-15): the callback signature now accepts an
+    // optional `opts` arg. MessageInput's auto-correct fallback
+    // passes `{ isAuto: true }` so the parent can skip side effects;
+    // a manual pick from the dropdown omits the flag and the body
+    // below still fires.
     const callback = src.match(
-      /onProviderModelChange=\{\(pid,\s*model\)\s*=>\s*\{[\s\S]*?\}\s*\}/,
+      /onProviderModelChange=\{\(pid,\s*model(?:,\s*opts)?\)\s*=>\s*\{[\s\S]*?\}\s*\}/,
     );
     assert.ok(callback, 'expected onProviderModelChange callback in /chat page.');
+    // Auto-correct early-return MUST be present so silent fallbacks
+    // don't clear invalidDefault / write localStorage as if the user
+    // manually approved the new pair. Pre-fix the same callback fired
+    // unconditionally and silently dismissed the pinned-default
+    // warning.
+    assert.match(
+      callback![0],
+      /opts\?\.isAuto[\s\S]{0,40}return/,
+      'onProviderModelChange must early-return when opts.isAuto is true so auto-correct does not silently dismiss the pinned-default warning or persist a fallback as the new manual selection.',
+    );
     assert.match(
       callback![0],
       /setInvalidDefault\(null\)/,
-      'onProviderModelChange must call setInvalidDefault(null) — without this, picking a working model from the dropdown does not unlock the disabled MessageInput.',
+      'onProviderModelChange (manual path) must call setInvalidDefault(null) — without this, picking a working model from the dropdown does not unlock the disabled MessageInput.',
     );
     assert.match(
       callback![0],
       /setNoCompatibleProvider\(false\)/,
-      'onProviderModelChange must also clear noCompatibleProvider for the same reason — the user just picked a compatible one.',
+      'onProviderModelChange (manual path) must also clear noCompatibleProvider for the same reason — the user just picked a compatible one.',
     );
   });
 
@@ -574,7 +584,7 @@ describe('ensureHeartbeatTask refresh discipline', () => {
       notify_on_complete: 1,
       permanent: 0,
       // Caller tries to mint heartbeat-source.
-      source: 'assistant_heartbeat' as 'assistant_heartbeat',
+      source: 'assistant_heartbeat' as const,
     });
     // The createScheduledTask helper allows this only because
     // ensureHeartbeatTask (the legitimate caller) needs to. The

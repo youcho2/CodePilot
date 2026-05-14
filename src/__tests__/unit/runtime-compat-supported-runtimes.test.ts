@@ -21,13 +21,23 @@ function compatFor(tier: ProviderRuntimeCompat) {
 }
 
 describe('getModelCompat → supportedRuntimes', () => {
-  it('claude_code_ready exposes both runtimes', () => {
+  it('claude_code_ready exposes both legacy runtimes + codex_runtime proxy-pending reason', () => {
+    // Phase 6 P0 (2026-05-15) — codex_runtime reach is shaped by the
+    // CodePilot provider proxy, which is still scaffolded. Until the
+    // translator lands per compat tier, every non-Codex provider
+    // carries a `codex_runtime` reason ("proxy 尚未覆盖") so the
+    // picker tooltip explains the disabled state correctly. Pre-P0
+    // this field was undefined and the picker fell back to generic
+    // copy.
     const cap = compatFor('claude_code_ready');
     assert.deepEqual([...(cap.supportedRuntimes ?? [])].sort(), [
       'claude_code',
       'codepilot_runtime',
     ]);
-    assert.equal(cap.unsupportedReasonByRuntime, undefined);
+    assert.match(
+      cap.unsupportedReasonByRuntime?.codex_runtime ?? '',
+      /Codex provider proxy 尚未覆盖/,
+    );
   });
 
   it('claude_code_verified exposes both runtimes', () => {

@@ -55,7 +55,7 @@ import { useProviderModels } from '@/hooks/useProviderModels';
 // 'async_hooks'". `chat-runtime-shared` only ships the pure helpers /
 // types and is safe for client components. See
 // `src/lib/chat-runtime-shared.ts` doc-block for the full rationale.
-import { chatRuntimeParamForSession, agentRuntimeToChatRuntime } from '@/lib/chat-runtime-shared';
+import { agentRuntimeToChatRuntime, effectiveChatRuntime } from '@/lib/chat-runtime-shared';
 import { useContextUsage } from '@/hooks/useContextUsage';
 import {
   startStream,
@@ -207,9 +207,15 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
   // not the global `agent_runtime`. When the user has explicitly pinned
   // this chat to Claude Code or CodePilot Runtime, that pin survives
   // global flips; when the session has no pin (legacy / unpinned new
-  // chat), we fall through to 'auto' and the server resolves via the
-  // global setting.
-  const sessionRuntimeParam = chatRuntimeParamForSession(runtimePin);
+  // chat), we resolve to the global runtime concretely.
+  //
+  // Phase 6 P0 (2026-05-15): hoisted `useGlobalAgentRuntime()` so we
+  // can pass the resolved concrete RuntimeId to `useProviderModels`
+  // instead of the old `'auto'` sentinel. With `'auto'` the hook
+  // skipped per-row compat gating and the picker rendered every model
+  // as enabled even under Codex Runtime — the bug the user caught.
+  const globalRuntime = useGlobalAgentRuntime();
+  const sessionRuntimeParam = effectiveChatRuntime(runtimePin, globalRuntime.agentRuntime);
   const {
     noCompatibleProvider,
     fetchState: providerFetchState,
@@ -339,10 +345,8 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
     permissionProfile,
     permissionElevationConfirmedFor,
   ]);
-  // RuntimeSelector display fallback — same lightweight hook the new-chat
-  // page uses. Only fetches /api/settings/app, no fan-out, no transitive
-  // imports of the heavy overview / runtime resolver chain.
-  const globalRuntime = useGlobalAgentRuntime();
+  // (globalRuntime hoisted above near sessionRuntimeParam — Phase 6 P0,
+  // 2026-05-15.)
   const blockingReasonIds = useMemo(
     () => checkpointReasons.filter((r) => r.requiresConfirm).map((r) => r.id),
     [checkpointReasons],
@@ -482,9 +486,21 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
     }
   }, [sessionId]);
 
-  const handleProviderModelChange = useCallback((newProviderId: string, model: string) => {
+  const handleProviderModelChange = useCallback((
+    newProviderId: string,
+    model: string,
+    opts?: { isAuto?: boolean },
+  ) => {
     setCurrentProviderId(newProviderId);
     setCurrentModel(model);
+    // Phase 6 P0 (2026-05-15) — only persist to the session row on a
+    // MANUAL user pick. An auto-correct fallback (when the saved
+    // model isn't in the active runtime's compatible set) must NOT
+    // overwrite the session's stored (provider, model) — that would
+    // make the silent fallback survive a reload + permanently lose
+    // the user's last intended pin, which is exactly the kind of
+    // hidden state mutation the picker is supposed to avoid.
+    if (opts?.isAuto) return;
     fetch(`/api/chat/sessions/${sessionId}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },

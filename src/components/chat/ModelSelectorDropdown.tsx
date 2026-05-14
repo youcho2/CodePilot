@@ -82,7 +82,16 @@ interface ModelSelectorDropdownProps {
   providerGroups: ProviderModelGroup[];
   modelOptions: ModelOption[];
   onModelChange?: (model: string) => void;
-  onProviderModelChange?: (providerId: string, model: string) => void;
+  /** Phase 6 P0 (2026-05-15) — `opts.isAuto` lets MessageInput's
+   *  auto-correct effect call this same prop without triggering the
+   *  manual-pick side effects (clearing pinned-default warnings,
+   *  writing localStorage, PATCHing session). Manual clicks here in
+   *  the dropdown always omit the flag. */
+  onProviderModelChange?: (
+    providerId: string,
+    model: string,
+    opts?: { isAuto?: boolean },
+  ) => void;
   /** Global default model value */
   globalDefaultModel?: string;
   /** Global default model's provider ID */

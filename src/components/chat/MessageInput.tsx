@@ -64,7 +64,21 @@ interface MessageInputProps {
   modelName?: string;
   onModelChange?: (model: string) => void;
   providerId?: string;
-  onProviderModelChange?: (providerId: string, model: string) => void;
+  /**
+   * Phase 6 P0 (2026-05-15) — `opts.isAuto` differentiates the
+   * MessageInput auto-correct fallback (model→firstCompatibleModel
+   * when the user's saved model isn't reachable under the active
+   * runtime) from a manual user pick in the dropdown. Manual picks
+   * are the only path that should clear `invalidDefault` /
+   * `noCompatibleProvider`, write to localStorage as the new
+   * "recently used", or PATCH the session row. Auto-correct just
+   * synchronises display state.
+   */
+  onProviderModelChange?: (
+    providerId: string,
+    model: string,
+    opts?: { isAuto?: boolean },
+  ) => void;
   workingDirectory?: string;
   onAssistantTrigger?: () => void;
   /** Effort selection lifted to parent for inclusion in the stream chain */
@@ -285,11 +299,20 @@ export function MessageInput({
   // Existing sessions must keep their own selected model; if that model becomes
   // invalid (provider changed), fall back to the provider's first model, not the
   // global default, to avoid overwriting the session's model choice.
+  //
+  // Phase 6 P0 (2026-05-15) — pass `{ isAuto: true }` so the parent's
+  // handler doesn't treat this as a manual user pick. A silent
+  // auto-correct must NOT clear `invalidDefault` /
+  // `noCompatibleProvider`, write `codepilot:last-model` /
+  // `codepilot:last-provider-id` localStorage as the new "recently
+  // used", or PATCH the session row. It just synchronises display
+  // state so the picker label and the runtime-compatible fallback
+  // pair (provider, model) agree.
   useEffect(() => {
     if (modelName && modelOptions.length > 0 && !modelOptions.some(m => m.value === modelName)) {
       const fallback = modelOptions[0].value;
       onModelChange?.(fallback);
-      onProviderModelChange?.(currentProviderIdValue, fallback);
+      onProviderModelChange?.(currentProviderIdValue, fallback, { isAuto: true });
     }
   }, [modelName, modelOptions, currentProviderIdValue, onModelChange, onProviderModelChange]);
 

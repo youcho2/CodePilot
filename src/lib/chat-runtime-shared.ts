@@ -101,3 +101,37 @@ export function agentRuntimeToChatRuntime(stored: string | undefined | null): Ch
   // any unknown value, matching the resolver's first-paint default.
   return 'claude_code';
 }
+
+/**
+ * Phase 6 P0 (2026-05-15) — resolve a session's effective ChatRuntime
+ * to a CONCRETE RuntimeId, never 'auto'. This is the input the chat
+ * composer / picker should use for per-row compat gating.
+ *
+ * Resolution order:
+ *   1. If the session has a stored `runtime_pin` that's a known
+ *      RuntimeId → use it verbatim.
+ *   2. Otherwise consult the global `agent_runtime` setting via
+ *      `agentRuntimeToChatRuntime` (which maps the legacy
+ *      `claude-code-sdk` / `native` registry ids + the new
+ *      `codex_runtime` to canonical chat-runtime labels).
+ *
+ * Why this is needed: `chatRuntimeParamForSession(runtimePin)` returns
+ * `'auto'` when no session pin exists. That `'auto'` then flows into
+ * `useProviderModels`, which treats `'auto'` as "no per-row gating
+ * yet, follow the catalog". The picker then renders every model as
+ * enabled — even under Codex Runtime where most providers can't yet
+ * route through the (still-scaffolded) provider proxy. Resolving to a
+ * concrete RuntimeId at the boundary closes that hole.
+ *
+ * Pure: no DB, no React, no Node-only deps. Safe to import from any
+ * client component or server caller. Callers that need to know the
+ * global runtime first should hook `useGlobalAgentRuntime` and pass
+ * `state.agentRuntime` as the second arg.
+ */
+export function effectiveChatRuntime(
+  runtimePin: string | undefined | null,
+  globalAgentRuntime: string | undefined | null,
+): ChatRuntime {
+  if (runtimePin && isRuntimeId(runtimePin)) return runtimePin;
+  return agentRuntimeToChatRuntime(globalAgentRuntime);
+}
