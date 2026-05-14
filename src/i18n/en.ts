@@ -1974,7 +1974,7 @@ const en = {
   'runCheckpoint.noProvider.action': 'Open providers',
   'runCheckpoint.pinnedInvalid.title': 'Default model unavailable under the current engine',
   'runCheckpoint.pinnedInvalid.description': 'This chat has switched to an available model. Pick a new default in Settings → Models when you have time.',
-  'runCheckpoint.pinnedInvalid.action': 'Fix default',
+  'runCheckpoint.pinnedInvalid.action': 'Change default',
   'runCheckpoint.runtimeFallback.title': 'Runtime fallback in effect',
   'runCheckpoint.runtimeFallback.description': 'The selected runtime is unavailable, so CodePilot will use the available fallback for this message.',
   'runCheckpoint.runtimeFallback.action': 'Review runtime',

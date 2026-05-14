@@ -1952,7 +1952,7 @@ const zh: Record<TranslationKey, string> = {
   'runCheckpoint.noProvider.action': '前往服务商',
   'runCheckpoint.pinnedInvalid.title': '默认模型在当前执行环境下不可用',
   'runCheckpoint.pinnedInvalid.description': '当前会话已自动切换到可用模型；如需固定一个新的默认模型，请到设置 → 模型。',
-  'runCheckpoint.pinnedInvalid.action': '修复默认模型',
+  'runCheckpoint.pinnedInvalid.action': '修改默认模型',
   'runCheckpoint.runtimeFallback.title': '执行引擎已降级',
   'runCheckpoint.runtimeFallback.description': '当前选择的执行引擎不可用，本次会改用可用的执行方式。',
   'runCheckpoint.runtimeFallback.action': '查看执行引擎',
