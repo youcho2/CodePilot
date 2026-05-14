@@ -39,36 +39,68 @@ export function getAvailableRuntimes(): AgentRuntime[] {
 /**
  * Pick the runtime to use for a given request.
  *
- * Priority:
- * 0. cli_enabled=false → ALWAYS use native (highest-priority constraint)
- * 1. Explicit override (from function arg or per-session setting)
- * 2. Global user setting (agent_runtime)
- * 3. Auto: SDK if CLI binary exists, else Native
+ * Priority (Phase 5 Phase 6 IA correction round 2, 2026-05-14):
+ *   0. **Codex Runtime explicit** — `overrideId === 'codex_runtime'`
+ *      OR (`overrideId` empty/auto AND stored `agent_runtime === 'codex_runtime'`).
+ *      Returns Codex if available. Fall through if unavailable; the chat
+ *      send path's fail-closed guardrail (`claude-client.ts` Round 5)
+ *      surfaces a clear "Codex Runtime is not available" before any
+ *      legacy fallback would activate.
+ *   1. `cli_enabled=false` → native (constraint for the LEGACY pair only;
+ *      Codex was already routed above, so its own subprocess isn't gated
+ *      by the Claude CLI toggle).
+ *   2. Explicit override (other than codex_runtime).
+ *   3. Global user setting (other than codex_runtime).
+ *   4. Auto: SDK if CLI binary exists, else native.
+ *
+ * Why the codex check comes FIRST: pre-round-2, `cli_enabled=false` was
+ * treated as the absolute override. Selecting Codex Runtime as the
+ * global default in Settings → Runtime saved `agent_runtime='codex_runtime'`
+ * AND `cli_enabled='false'` (Codex doesn't need the Claude CLI), and
+ * the absolute-override branch then hijacked the resolution back to
+ * native. Settings page said "Codex Runtime current default" while the
+ * Models page filter ran on `codepilot_runtime` and showed 42 non-Codex
+ * models — exactly the misroute the user caught.
  */
 export function resolveRuntime(overrideId?: string, _providerId?: string): AgentRuntime {
-  // 0. cli_enabled=false is an absolute constraint — never return SDK
-  const cliDisabled = getSetting('cli_enabled') === 'false';
+  const settingId = getSetting('agent_runtime');
 
+  // 0. Codex Runtime explicit (override or stored setting) — beats cli_enabled.
+  const wantsCodex =
+    overrideId === 'codex_runtime'
+    || ((!overrideId || overrideId === 'auto') && settingId === 'codex_runtime');
+  if (wantsCodex) {
+    const codex = getRuntime('codex_runtime');
+    if (codex?.isAvailable()) return codex;
+    // Fall through if Codex isn't registered / unavailable. The chat
+    // send path (streamClaude) and provider resolver gate this earlier
+    // for `codex_account` providers; we don't try to fall back to a
+    // legacy runtime here because Codex Account models can't run on
+    // anything else (different wire format).
+  }
+
+  // 1. cli_enabled=false now ONLY constrains the legacy claude-code-sdk ↔
+  //    native pair. Codex was handled above; this no longer hijacks codex.
+  const cliDisabled = getSetting('cli_enabled') === 'false';
   if (cliDisabled) {
     const native = getRuntime('native');
     if (native) return native;
     throw new Error('Native runtime not registered but CLI is disabled. This is a bug.');
   }
 
-  // 1. Explicit override
+  // 2. Explicit override (other than codex_runtime, handled above)
   if (overrideId && overrideId !== 'auto') {
     const r = getRuntime(overrideId);
     if (r?.isAvailable()) return r;
   }
 
-  // 2. Global setting
-  const settingId = getSetting('agent_runtime');
+  // 3. Global setting (other than codex_runtime, handled above)
   if (settingId && settingId !== 'auto') {
     const r = getRuntime(settingId);
     if (r?.isAvailable()) return r;
   }
 
-  // 3. Auto: CLI installed → SDK, otherwise Native.
+  // 4. Auto: CLI installed → SDK, otherwise Native.
   //    No credential inference — missing credentials are caught earlier at
   //    /api/chat by hasCodePilotProvider(); if we reach this point the user
   //    has at least one provider source the caller expects to work.
@@ -91,17 +123,24 @@ export function resolveRuntime(overrideId?: string, _providerId?: string): Agent
  * Mirrors resolveRuntime() logic WITHOUT instantiating the runtime, so callers
  * (chat route, bridge) can prepare the right MCP config upfront.
  *
- * @param providerId - The provider for this request ('openai-oauth' forces native)
+ * @param providerId - The provider for this request. `'openai-oauth'`
+ *   forces native; `'codex_account'` forces Codex Runtime (returns false).
  */
 export function predictNativeRuntime(providerId?: string): boolean {
   // Non-Anthropic providers always force native
   if (providerId === 'openai-oauth') return true;
 
-  // cli_enabled=false → always native
+  // Phase 5 Phase 6 IA correction round 2 (2026-05-14) — codex_account
+  // provider routes to Codex Runtime, NOT native. Same for an explicit
+  // codex_runtime setting; cli_enabled=false doesn't downgrade Codex.
+  if (providerId === 'codex_account') return false;
+  const settingId = getSetting('agent_runtime');
+  if (settingId === 'codex_runtime') return false;
+
+  // cli_enabled=false → native for the legacy pair (codex already handled)
   if (getSetting('cli_enabled') === 'false') return true;
 
   // Explicit setting — but verify SDK is actually usable
-  const settingId = getSetting('agent_runtime');
   if (settingId === 'native') return true;
   if (settingId === 'claude-code-sdk') {
     // If CLI doesn't exist, explicit selection will fallback to native at runtime

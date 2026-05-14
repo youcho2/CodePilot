@@ -270,16 +270,16 @@ export function ModelSelectorDropdown({
             ))}
             {providerGroups.length === 0 && (
               runtimeApplied === 'codex_runtime' ? (
-                // Codex-specific empty state: when Codex Runtime is the
-                // applied filter but no Codex Account models came back
-                // (logged out / app-server unavailable), the generic copy
-                // is unactionable. Send users to /settings/codex where
-                // they can see the actual blocker (binary missing /
-                // logged out / fetch error) and the recovery action.
+                // Codex-specific empty state. Phase 6 IA correction round 2
+                // (2026-05-14) — the standalone /settings/codex page is gone
+                // (redirect-only); split recovery across the two homes the
+                // IA actually has: Providers for account login, Runtime for
+                // app-server status. Login is by far the more common cause,
+                // so it leads.
                 <div className="px-3 py-6 text-center text-xs text-muted-foreground leading-relaxed">
                   {isZh
-                    ? 'Codex Runtime 下暂无可用模型。前往「设置 → Codex」查看登录状态或重新加载模型。'
-                    : 'No Codex models available. Visit Settings → Codex to check login and refresh.'}
+                    ? 'Codex Runtime 下暂无可用模型。前往「设置 → 服务商」登录 Codex 账户，或在「设置 → 执行引擎」查看 Codex Runtime 状态。'
+                    : 'No Codex models available. Visit Settings → Providers to sign in to Codex, or Settings → Runtime to check Codex Runtime status.'}
                 </div>
               ) : (
                 <div className="px-3 py-6 text-center text-xs text-muted-foreground">

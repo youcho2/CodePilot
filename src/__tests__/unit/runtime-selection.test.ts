@@ -13,6 +13,10 @@ import assert from 'node:assert/strict';
 
 // ── Suite 1: predictNativeRuntime (inlined — registry.ts has side effects) ──
 // Mirrors registry.ts predictNativeRuntime() — update if source changes.
+//
+// Phase 6 IA correction round 2 (2026-05-14): codex_account provider AND
+// `agent_runtime='codex_runtime'` setting both route to Codex Runtime,
+// NOT native. cli_enabled=false no longer hijacks codex.
 
 function predictNativeRuntime(
   providerId: string | undefined,
@@ -22,6 +26,13 @@ function predictNativeRuntime(
   hasAnyCreds: boolean,
 ): boolean {
   if (providerId === 'openai-oauth') return true;
+  // Codex Runtime is its own subprocess — cli_enabled=false doesn't
+  // mean "force native" for Codex. Both the provider-level signal
+  // (`codex_account`) and the engine-level signal
+  // (`agent_runtime=codex_runtime`) must short-circuit BEFORE the
+  // cli_enabled check so Codex doesn't get downgraded.
+  if (providerId === 'codex_account') return false;
+  if (agentRuntime === 'codex_runtime') return false;
   if (!cliEnabled) return true;
   if (agentRuntime === 'native') return true;
   if (agentRuntime === 'claude-code-sdk') return !sdkAvailable; // fallback if no CLI
@@ -55,9 +66,25 @@ describe('predictNativeRuntime (mirrors registry.ts)', () => {
   it('auto + no SDK → native', () => {
     assert.equal(predictNativeRuntime(undefined, true, 'auto', false, true), true);
   });
+  // Phase 6 IA correction round 2 — Codex Runtime is sticky.
+  it('codex_account provider → NOT native (routes to Codex Runtime)', () => {
+    assert.equal(predictNativeRuntime('codex_account', true, 'auto', true, true), false);
+  });
+  it('setting=codex_runtime → NOT native (even with cli_enabled=false)', () => {
+    assert.equal(predictNativeRuntime(undefined, false, 'codex_runtime', true, true), false);
+    assert.equal(predictNativeRuntime(undefined, true, 'codex_runtime', false, false), false);
+  });
 });
 
 // ── Suite 2: resolveRuntime auto semantics (mirrors registry.ts) ──
+//
+// Phase 6 IA correction round 2 (2026-05-14): codex_runtime explicit
+// (override OR stored setting) beats cli_enabled. Selecting Codex
+// Runtime in Settings → Runtime saves agent_runtime='codex_runtime' +
+// cli_enabled='false' (Codex doesn't need the Claude CLI), and the
+// old "cli_enabled=false → always native" rule would hijack the
+// resolution back to native — the misroute that left Models filtering
+// on codepilot_runtime instead of codex_runtime.
 
 function resolveRuntime(
   cliDisabled: boolean,
@@ -65,22 +92,33 @@ function resolveRuntime(
   settingId: string | undefined,
   sdkAvailable: boolean,
   hasAnyCreds: boolean,
+  codexAvailable: boolean = false,
 ): string {
+  // 0. Codex Runtime explicit — beats cli_enabled.
+  const wantsCodex =
+    overrideId === 'codex_runtime'
+    || ((!overrideId || overrideId === 'auto') && settingId === 'codex_runtime');
+  if (wantsCodex && codexAvailable) return 'codex_runtime';
+
+  // 1. cli_enabled=false only constrains the LEGACY pair now
   if (cliDisabled) return 'native';
-  // Explicit override — respected directly (user chose it)
+
+  // 2. Explicit override
   if (overrideId && overrideId !== 'auto') return overrideId;
-  // Explicit setting — respected if SDK is available
+
+  // 3. Explicit setting
   if (settingId && settingId !== 'auto') {
     if (settingId === 'claude-code-sdk' && !sdkAvailable) return 'native'; // fallback
     return settingId;
   }
-  // Auto: SDK only if CLI exists AND user has any credentials
+
+  // 4. Auto
   if (sdkAvailable && hasAnyCreds) return 'claude-code-sdk';
   return 'native';
 }
 
 describe('resolveRuntime (mirrors registry.ts)', () => {
-  it('cli disabled → native regardless', () => {
+  it('cli disabled → native regardless (legacy pair)', () => {
     assert.equal(resolveRuntime(true, 'claude-code-sdk', 'claude-code-sdk', true, true), 'native');
   });
   it('explicit override takes precedence', () => {
@@ -100,6 +138,27 @@ describe('resolveRuntime (mirrors registry.ts)', () => {
   });
   it('auto + no SDK → native', () => {
     assert.equal(resolveRuntime(false, undefined, undefined, false, true), 'native');
+  });
+  // Phase 6 IA correction round 2 — codex_runtime stickiness.
+  it('codex_runtime override + codex available → codex_runtime', () => {
+    assert.equal(resolveRuntime(false, 'codex_runtime', undefined, true, true, true), 'codex_runtime');
+  });
+  it('codex_runtime override + cli_enabled=false → STILL codex_runtime (not native)', () => {
+    // The P1 misroute pre-fix: this used to short-circuit to native
+    // because cli_enabled=false was treated as the absolute override.
+    assert.equal(resolveRuntime(true, 'codex_runtime', undefined, true, true, true), 'codex_runtime');
+  });
+  it('setting=codex_runtime + cli_enabled=false → STILL codex_runtime', () => {
+    // The user-spec scenario: RuntimePanel saves agent_runtime=codex_runtime
+    // + cli_enabled=false. Settings page should agree with the resolver.
+    assert.equal(resolveRuntime(true, undefined, 'codex_runtime', true, true, true), 'codex_runtime');
+  });
+  it('codex_runtime explicit + codex NOT available → falls through (claude-client guardrail catches it)', () => {
+    // If codex isn't registered, resolution falls through to the legacy
+    // chain. The chat send path's Round 5 fail-closed throws BEFORE the
+    // resolution is acted on, so users get a clear "Codex Runtime not
+    // available" error instead of silently routing GPT-5.5 to SDK.
+    assert.equal(resolveRuntime(true, 'codex_runtime', undefined, true, true, false), 'native');
   });
 });
 

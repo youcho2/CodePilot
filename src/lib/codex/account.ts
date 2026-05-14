@@ -206,7 +206,11 @@ export async function readCodexRateLimits(): Promise<CodexRateLimitSnapshot | nu
       planType: string | null;
       rateLimitReachedType: string | null;
     } | null;
-  }>('account/rateLimits/read', {});
+    // Phase 6 IA correction round 2 (2026-05-14): `account/rateLimits/read`
+    // is a parameterless request per upstream schema. Sending `{}` works in
+    // practice but the cleaner contract is to omit params entirely — keeps
+    // request shape exact when Codex tightens its handler validation.
+  }>('account/rateLimits/read');
 
   const rl = result.rateLimits;
   if (!rl) return null;

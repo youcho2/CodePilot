@@ -89,16 +89,18 @@ test.describe('Smoke @smoke', () => {
     expect(critical).toHaveLength(0);
   });
 
-  test('Settings Codex page loads @smoke', async ({ page }) => {
-    // Phase 5 Phase 6 (2026-05-14) — Codex visibility收口. Verifies the
-    // new /settings/codex route renders the three Codex status cards
-    // (app-server / account / models) without exploding even when the
-    // Codex binary is missing or the user is logged out (those states
-    // are valid for the panel to render — they show install / login
-    // hints, not an error overlay).
+  test('Settings Codex deep link redirects to Runtime page @smoke', async ({ page }) => {
+    // Phase 5 Phase 6 IA correction (2026-05-14). /settings/codex was a
+    // standalone tab in the first cut of Phase 6; the IA correction
+    // moved its content into Runtime + Providers + Models and turned
+    // the URL into a redirect so deep links / bookmarks survive. The
+    // smoke verifies that a navigation to /settings/codex lands on
+    // /settings/runtime and the Codex Runtime engine card is visible.
     const errors = collectConsoleErrors(page);
     await page.goto('/settings/codex');
     await waitForPageReady(page);
+
+    expect(page.url()).toContain('/settings/runtime');
 
     const title = await page.title();
     expect(title).not.toContain('404');
@@ -107,15 +109,12 @@ test.describe('Smoke @smoke', () => {
     const hasErrorOverlay = await page.locator('#__next-build-error, [data-nextjs-dialog]').count();
     expect(hasErrorOverlay).toBe(0);
 
-    // The three card titles ride on top-level <h3>s. The exact tone of
-    // their status pills depends on the test machine's Codex install
-    // state; we only check the structural copy is present so the
-    // smoke catches "panel failed to mount" regressions.
-    const cardTitles = await page.locator('h3').allTextContents();
-    const titleBlob = cardTitles.join(' ');
-    expect(titleBlob).toMatch(/Codex 应用服务|Codex app-server/);
-    expect(titleBlob).toMatch(/Codex 账户|Codex account/);
-    expect(titleBlob).toMatch(/Codex 模型|Codex models/);
+    // Runtime page renders three engine cards (Claude Code / CodePilot
+    // Runtime / Codex Runtime). The Codex Runtime card heading is the
+    // structural signal that the IA-correction redirect target is alive.
+    const headings = await page.locator('h3').allTextContents();
+    const headingBlob = headings.join(' ');
+    expect(headingBlob).toMatch(/Codex Runtime/);
 
     const critical = filterCriticalErrors(errors);
     expect(critical).toHaveLength(0);

@@ -34,12 +34,28 @@ describe("computeEffectiveRuntime", () => {
     assert.equal(computeEffectiveRuntime("native", true, true), "native");
   });
 
-  it("forces 'native' when cli_enabled is false (highest priority)", () => {
+  it("forces 'native' when cli_enabled is false (highest priority for LEGACY pair)", () => {
     // Drift case: stored preference says Claude Code but cli_enabled=false
     // routes chat to AI SDK regardless. Settings panel + chat badge must
-    // both see this consistently.
+    // both see this consistently. Phase 6 IA correction round 2
+    // (2026-05-14) narrowed this rule: it now only applies to the
+    // legacy `claude-code-sdk` / `native` pair; codex_runtime is exempt
+    // (see test below).
     assert.equal(computeEffectiveRuntime("claude-code-sdk", false, true), "native");
     assert.equal(computeEffectiveRuntime("native", false, true), "native");
+  });
+
+  it("codex_runtime is sticky — cli_enabled=false does NOT downgrade it", () => {
+    // Phase 6 IA correction round 2 (2026-05-14). RuntimePanel saves
+    // `agent_runtime='codex_runtime'` + `cli_enabled='false'` when the
+    // user picks Codex as global default (Codex doesn't need the Claude
+    // CLI). The earlier "cli_enabled=false → always native" rule would
+    // hijack this back to native, and the Models page filter would then
+    // run on `codepilot_runtime` instead of `codex_runtime` — the exact
+    // misroute the user caught in P1.
+    assert.equal(computeEffectiveRuntime("codex_runtime", false, true), "codex_runtime");
+    assert.equal(computeEffectiveRuntime("codex_runtime", false, false), "codex_runtime");
+    assert.equal(computeEffectiveRuntime("codex_runtime", true, true), "codex_runtime");
   });
 
   it("falls back to 'native' when stored is claude-code-sdk but CLI not connected", () => {

@@ -352,19 +352,26 @@ describe('Model picker — codex_runtime disclosure (Slice B)', () => {
     );
   });
 
-  it('empty-state under codex_runtime points users to Settings → Codex', () => {
-    // Generic "No models available" is unactionable for codex_runtime —
-    // the user needs to know to check login. Point at /settings/codex.
-    // The empty branch + codex_runtime check + recovery pointer can sit
-    // far apart inside the JSX block, so we pin them as three separate
-    // asserts + verify ordering via indexOf.
+  it('empty-state under codex_runtime points users to Providers (not the dead /settings/codex link)', () => {
+    // Phase 6 IA correction round 2 (2026-05-14): the standalone
+    // /settings/codex page is now redirect-only, so an empty-state
+    // copy that says "前往「设置 → Codex」" sends users to a redirect
+    // that lands them somewhere unrelated to their problem (the runtime
+    // page, when the actual fix is logging in via Providers).
+    // The recovery points must name the real homes: Providers for
+    // login, Runtime for app-server status.
     const emptyStateIdx = pickerSrc.indexOf('providerGroups.length === 0');
     const codexBranchIdx = pickerSrc.indexOf("runtimeApplied === 'codex_runtime'", emptyStateIdx);
-    const zhPointerIdx = pickerSrc.indexOf('设置 → Codex', codexBranchIdx);
     assert.ok(emptyStateIdx > 0, 'empty-state branch exists');
     assert.ok(codexBranchIdx > emptyStateIdx, 'codex_runtime branch lives inside the empty-state block');
-    assert.ok(zhPointerIdx > codexBranchIdx, 'zh empty-state copy points at 设置 → Codex');
-    assert.match(pickerSrc, /Settings\s*→\s*Codex/);
+    // Recovery copy points at the live IA homes (not the dead deep link)
+    assert.match(pickerSrc, /设置\s*→\s*服务商/);
+    assert.match(pickerSrc, /设置\s*→\s*执行引擎/);
+    assert.match(pickerSrc, /Settings\s*→\s*Providers/);
+    assert.match(pickerSrc, /Settings\s*→\s*Runtime/);
+    // Regression guard: must NOT advertise /settings/codex anymore.
+    assert.doesNotMatch(pickerSrc, /设置\s*→\s*Codex/);
+    assert.doesNotMatch(pickerSrc, /Settings\s*→\s*Codex(?!\s*Account)/);
   });
 
   it('non-codex runtimes retain the generic disclosure copy', () => {
