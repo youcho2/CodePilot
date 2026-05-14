@@ -154,26 +154,17 @@ export function useProviderModels(
     fetchControllerRef.current = controller;
     const signal = controller.signal;
 
-    const url = runtime
-      ? `/api/providers/models?runtime=${encodeURIComponent(runtime)}`
-      : '/api/providers/models';
-    // Reset fetchState to idle on every (re)fetch — a `provider-changed`
-    // event mid-session would otherwise leave fetchState='loaded' with
-    // stale providerGroups, letting send / auto-trigger paths use the
-    // old runtime-filtered feed during the refresh window. Forcing idle
-    // re-engages ChatView's idle gate until the new response settles.
+    // Phase 6 UI收口 P2 (2026-05-14): always fetch the FULL catalog —
+    // server side annotates each model row with `supportedRuntimes`
+    // and `unsupportedReasonByRuntime`, and the picker uses those
+    // per-row fields to render disabled+tooltip for incompatible
+    // models instead of hiding them. Resolution / send logic in this
+    // hook still derives a runtime-compatible subset client-side
+    // (see `compatibleProviderGroups` below), so existing
+    // `noCompatibleProvider` / `providerWasFilteredOut` / auto-fallback
+    // semantics are preserved.
+    const url = '/api/providers/models';
     setFetchState('idle');
-    // Two distinct outcomes here, treated differently:
-    //   1. Network / parse failure → fall back to a synthetic `env` group
-    //      with built-in Claude defaults so the picker isn't completely
-    //      empty when the API is unreachable.
-    //   2. Success but `groups: []` → keep the picker empty. With a
-    //      runtime filter applied, an empty array is a meaningful state
-    //      ("user has no provider compatible with the active runtime");
-    //      synthesizing `env` + sonnet/opus/haiku here would smuggle the
-    //      Claude defaults back past the runtime gate the server just
-    //      enforced. Caller should render a "please configure / switch
-    //      runtime" empty state.
     fetch(url, { signal })
       .then((r) => {
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
@@ -184,13 +175,16 @@ export function useProviderModels(
         if (data && Array.isArray(data.groups)) {
           setProviderGroups(data.groups);
           setDefaultProviderId(data.default_provider_id || '');
-          // Guard the server response with the canonical RuntimeId
-          // type guard — unknown / stale runtime labels fall back to
-          // undefined so the picker's "showing models for X" footer
-          // never displays a value the rest of the app can't honor.
-          setRuntimeApplied(
-            isRuntimeId(data.runtime_applied) ? data.runtime_applied : undefined,
-          );
+          // Without server-side filtering, `runtime_applied` is no
+          // longer authoritative — derive from the caller's runtime
+          // param so the picker can still surface which runtime context
+          // its disabled-state checks are evaluated against. `'auto'`
+          // means "no session pin"; the picker treats it as "no per-row
+          // gating" until the global resolver lands a concrete value.
+          const fromParam = runtime && runtime !== 'auto' && isRuntimeId(runtime)
+            ? runtime
+            : (isRuntimeId(data.runtime_applied) ? data.runtime_applied : undefined);
+          setRuntimeApplied(fromParam);
           setFetchState('loaded');
         } else {
           // Malformed response — same handling as a network failure.
@@ -245,6 +239,33 @@ export function useProviderModels(
   }, [fetchAll]);
   /* eslint-enable */
 
+  // Phase 6 UI收口 P2 (2026-05-14) — runtime-compatible projection of
+  // the full catalog. The hook fetches everything unfiltered (so the
+  // picker can render disabled rows for incompatible models with a
+  // tooltip explaining why); resolution logic below still wants a
+  // "what can this session actually send?" view, which is what this
+  // memo provides.
+  //
+  // Annotation contract: each model row carries `supportedRuntimes:
+  // RuntimeId[]`. Rows without an annotation are treated as universally
+  // supported (legacy fallback — Settings models page and the env
+  // synthetic group don't carry per-row annotations and we don't want
+  // to silently hide them).
+  //
+  // When `runtime` is null or 'auto', the picker has no session-level
+  // pin to filter against; we pass the full catalog through.
+  const compatibleProviderGroups = useMemo(() => {
+    if (!runtime || runtime === 'auto') return providerGroups;
+    return providerGroups
+      .map(g => ({
+        ...g,
+        models: g.models.filter(
+          m => !m.supportedRuntimes || m.supportedRuntimes.includes(runtime),
+        ),
+      }))
+      .filter(g => g.models.length > 0);
+  }, [providerGroups, runtime]);
+
   // Two layers of provider id resolution:
   //
   // requestedProviderId — the *semantic* id the caller actually wants
@@ -253,10 +274,10 @@ export function useProviderModels(
   //   so a session whose desired provider got replaced by a fallback
   //   gets PATCHed back to a consistent state.
   //
-  // preferredProviderId — what we look up in `providerGroups` for the
-  //   group / model-options derivation. May resolve to `groups[0]` when
-  //   the requested id can't be served by the current feed (env filtered
-  //   out under CodePilot Runtime, etc.).
+  // preferredProviderId — what we look up in `compatibleProviderGroups`
+  //   for the group / model-options derivation. May resolve to
+  //   `groups[0]` when the requested id can't be served by the current
+  //   runtime (env filtered out under CodePilot Runtime, etc.).
   //
   // Both layers keep `undefined` and `''` distinct: undefined means
   // "caller didn't supply — use the global default chain"; '' is the
@@ -267,31 +288,31 @@ export function useProviderModels(
   if (providerId === undefined) {
     requestedProviderId = undefined;
     preferredProviderId =
-      globalDefaultProvider || defaultProviderId || (providerGroups[0]?.provider_id ?? '');
+      globalDefaultProvider || defaultProviderId || (compatibleProviderGroups[0]?.provider_id ?? '');
   } else if (providerId === '') {
     // Historic env-mode session: provider_id stored as '' in DB.
     // Semantically the user wants 'env'; surface that as the request
     // even when the env group is filtered out, so the comparison
     // against `resolvedProviderId` correctly flags substitution.
     requestedProviderId = 'env';
-    preferredProviderId = providerGroups.some(g => g.provider_id === 'env')
+    preferredProviderId = compatibleProviderGroups.some(g => g.provider_id === 'env')
       ? 'env'
-      : (providerGroups[0]?.provider_id ?? '');
+      : (compatibleProviderGroups[0]?.provider_id ?? '');
   } else {
     requestedProviderId = providerId;
     preferredProviderId = providerId;
   }
-  // Resolve provider id and group atomically. The preferred id comes from
-  // the prop / global default / DB default chain, but the active runtime
-  // may have filtered the preferred provider out of `providerGroups`
-  // (server-side `?runtime=` drops empty groups). When that happens we
-  // MUST report a provider id that actually exists in the picker — if we
-  // returned the now-missing preferred id alongside `modelOptions` from
-  // the fallback group, MessageInput's auto-correct would write back
-  // `(stale provider, fallback model)` and re-introduce the cross-wire
-  // we just spent the day fixing.
-  const matchedGroup = providerGroups.find(g => g.provider_id === preferredProviderId);
-  const currentGroup = matchedGroup ?? providerGroups[0];
+  // Resolve provider id and group atomically against the runtime-
+  // compatible projection. The preferred id may be missing under the
+  // active runtime (e.g. user pinned GLM globally but the session
+  // routes through Codex Runtime); when that happens we MUST report a
+  // provider id that actually exists in compatibleProviderGroups — if
+  // we returned the now-missing preferred id alongside `modelOptions`
+  // from the fallback group, MessageInput's auto-correct would write
+  // back `(stale provider, fallback model)` and re-introduce the
+  // cross-wire we just spent the day fixing.
+  const matchedGroup = compatibleProviderGroups.find(g => g.provider_id === preferredProviderId);
+  const currentGroup = matchedGroup ?? compatibleProviderGroups[0];
   // currentProviderIdValue tracks currentGroup. If the preferred id was
   // filtered out, this surfaces a runtime-compatible fallback id so the
   // picker has *something* live to render. **The hook does NOT persist
@@ -358,15 +379,14 @@ export function useProviderModels(
     currentModelOption,
     globalDefaultModel,
     globalDefaultProvider,
-    // The hook only sets providerGroups to an empty array when the fetch
-    // returns 200 with `groups: []` (runtime-filtered no-match). API
-    // failures synthesise an `env` group in the catch branch, so
-    // length === 0 is a precise "no compatible provider" signal — but
-    // ONLY after the initial fetch settles. Before that, an empty list
-    // just means "loading"; reporting noCompatibleProvider=true during
-    // the load window would briefly disable composer / swallow auto-
-    // triggered sends.
-    noCompatibleProvider: fetchState === 'loaded' && providerGroups.length === 0,
+    // Phase 6 UI收口 P2 (2026-05-14) — derived from the runtime-
+    // compatible projection, not the raw full-catalog state. The
+    // server now always returns the full catalog with annotations, so
+    // `providerGroups.length === 0` would only ever fire on a totally
+    // empty CodePilot install. The user-visible meaning we care about
+    // is "no model is compatible with the active runtime", which is
+    // what `compatibleProviderGroups.length === 0` measures.
+    noCompatibleProvider: fetchState === 'loaded' && compatibleProviderGroups.length === 0,
     fetchState,
     resolvedProviderId,
     resolvedModel,

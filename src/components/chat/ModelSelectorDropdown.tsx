@@ -65,6 +65,15 @@ interface ModelOption {
   label: string;
   supportsEffort?: boolean;
   supportedEffortLevels?: string[];
+  /** Phase 6 UI收口 P2 (2026-05-14) — per-row runtime compat from
+   *  `getModelCompat`. Drives the disabled state for incompatible
+   *  rows alongside the tooltip below. Absent on rows that came
+   *  from DEFAULT_MODEL_OPTIONS / env synthetic fallbacks; absent
+   *  means "treat as universally supported". */
+  supportedRuntimes?: string[];
+  /** Per-runtime "why is this unavailable" reason. Picker pipes
+   *  the entry for the active runtime into the HTML title tooltip. */
+  unsupportedReasonByRuntime?: Record<string, string>;
 }
 
 interface ModelSelectorDropdownProps {
@@ -183,36 +192,41 @@ export function ModelSelectorDropdown({
 
       {modelMenuOpen && (
         <CommandList className="w-80 mb-1.5">
-          {runtimeApplied === 'codex_runtime' ? (
-            // Phase 5 Phase 6 (2026-05-14) — Codex Runtime today exclusively
-            // serves Codex Account models (gpt-5.5 etc.). Other CodePilot
-            // providers cannot route through Codex's app-server yet (Phase
-            // 5b will land OpenAI-compatible translation first), so the
-            // server-side `?runtime=codex_runtime` filter strips every
-            // non-Codex group. Surface that fact in plain words at the top
-            // of the menu so users don't think their other providers
-            // disappeared — they're a runtime switch away.
-            <div className="px-3 pt-3 pb-1 text-[11px] leading-snug text-muted-foreground">
-              {isZh
-                ? 'Codex 当前仅支持 Codex Account 模型；其他服务商请切回 Claude Code 或 CodePilot。'
-                : 'Codex currently supports only Codex Account models. Switch to Claude Code or CodePilot to use other providers.'}
-            </div>
-          ) : runtimeApplied ? (
-            <div className="px-3 pt-3 pb-1 text-[11px] leading-snug text-muted-foreground">
-              {isZh
-                ? '仅显示当前 Agent 引擎可用的模型'
-                : 'Models available under the current Agent engine'}
-            </div>
-          ) : null}
+          {/* Phase 6 UI收口 P2 (2026-05-14) — header disclosures removed.
+              The previous "only showing models for X" / "Codex currently
+              supports only ..." banners explained a server-side filter
+              that no longer exists; the picker now renders all models
+              and disables (with hover tooltip) the ones incompatible
+              with the current engine. The active engine is already
+              visible in the composer's bottom toolbar — no need to
+              repeat it here. */}
           <CommandListItems className="max-h-80">
             {recentMatches.length > 0 && (
               <CommandListGroup label={t('composer.recentModels' as TranslationKey)}>
                 {recentMatches.map(({ group, option }) => {
                   const isActive = option.value === currentModelValue && group.provider_id === currentProviderIdValue;
+                  // Phase 6 UI收口 P2 (2026-05-14) — recent rows honour
+                  // the same runtime gating as the main groups below.
+                  // Without this a "recently used GLM" entry could stay
+                  // clickable under Codex Runtime even though picking
+                  // it would route to a model the active engine can't
+                  // serve.
+                  const supportsCurrentRuntime =
+                    !runtimeApplied
+                    || !option.supportedRuntimes
+                    || option.supportedRuntimes.includes(runtimeApplied);
+                  const incompatTooltip = !supportsCurrentRuntime
+                    ? (option.unsupportedReasonByRuntime?.[runtimeApplied!]
+                        ?? (isZh
+                          ? '当前 Agent 引擎不支持此模型；切换到兼容引擎可启用。'
+                          : 'Current Agent engine does not support this model. Switch to a compatible engine to enable.'))
+                    : undefined;
                   return (
                     <CommandListItem
                       key={`recent-${group.provider_id}-${option.value}`}
                       active={isActive}
+                      disabled={!supportsCurrentRuntime}
+                      tooltip={incompatTooltip}
                       onClick={() => handleModelSelect(group.provider_id, option.value)}
                     >
                       <span className="font-mono text-xs truncate">{option.label}</span>
@@ -251,10 +265,30 @@ export function ModelSelectorDropdown({
                     opt.value === globalDefaultModel &&
                     group.provider_id === globalDefaultProvider
                   );
+                  // Phase 6 UI收口 P2 (2026-05-14) — per-row compat gating.
+                  // Models that don't advertise support for the active
+                  // runtime render disabled, with the upstream reason
+                  // surfaced via the native HTML title tooltip. Rows
+                  // without a `supportedRuntimes` annotation fall back
+                  // to "compatible" (catalog rows without the canonical
+                  // contract — DEFAULT_MODEL_OPTIONS fallback, env
+                  // synth group during API failures).
+                  const supportsCurrentRuntime =
+                    !runtimeApplied
+                    || !opt.supportedRuntimes
+                    || opt.supportedRuntimes.includes(runtimeApplied);
+                  const incompatTooltip = !supportsCurrentRuntime
+                    ? (opt.unsupportedReasonByRuntime?.[runtimeApplied!]
+                        ?? (isZh
+                          ? '当前 Agent 引擎不支持此模型；切换到兼容引擎可启用。'
+                          : 'Current Agent engine does not support this model. Switch to a compatible engine to enable.'))
+                    : undefined;
                   return (
                     <CommandListItem
                       key={`${group.provider_id}-${opt.value}`}
                       active={isActive}
+                      disabled={!supportsCurrentRuntime}
+                      tooltip={incompatTooltip}
                       onClick={() => handleModelSelect(group.provider_id, opt.value)}
                     >
                       <span className="font-mono text-xs truncate">{opt.label}</span>
@@ -269,23 +303,16 @@ export function ModelSelectorDropdown({
               </CommandListGroup>
             ))}
             {providerGroups.length === 0 && (
-              runtimeApplied === 'codex_runtime' ? (
-                // Codex-specific empty state. Phase 6 IA correction round 2
-                // (2026-05-14) — the standalone /settings/codex page is gone
-                // (redirect-only); split recovery across the two homes the
-                // IA actually has: Providers for account login, Runtime for
-                // app-server status. Login is by far the more common cause,
-                // so it leads.
-                <div className="px-3 py-6 text-center text-xs text-muted-foreground leading-relaxed">
-                  {isZh
-                    ? '当前没有可用的 Codex 模型。前往「设置 → 服务商」登录 Codex 账户，或在「设置 → 执行引擎」查看 Codex 状态。'
-                    : 'No Codex models available. Visit Settings → Providers to sign in to Codex, or Settings → Runtime to check Codex status.'}
-                </div>
-              ) : (
-                <div className="px-3 py-6 text-center text-xs text-muted-foreground">
-                  {isZh ? '当前执行引擎 下暂无可用模型' : 'No models available under the current Runtime'}
-                </div>
-              )
+              // Phase 6 UI收口 P2 (2026-05-14) — the picker now shows the
+              // full catalog and uses per-row disabled state for runtime
+              // compat. An empty catalog here means the user has zero
+              // providers configured at all (rare); recovery is the
+              // Providers page.
+              <div className="px-3 py-6 text-center text-xs text-muted-foreground leading-relaxed">
+                {isZh
+                  ? '尚未配置任何服务商。请前往「设置 → 服务商」添加。'
+                  : 'No providers configured yet. Visit Settings → Providers to add one.'}
+              </div>
             )}
           </CommandListItems>
         </CommandList>

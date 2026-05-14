@@ -406,68 +406,155 @@ describe('Chat composer RuntimeSelector — codex_runtime support (IA round 3)',
 });
 
 // ─────────────────────────────────────────────────────────────────────
-// Slice B — model picker filter + disclosure
+// Model picker — full-catalog + per-row disabled (Phase 6 UI收口 P2)
+//
+// Replaces the earlier Slice B suite which pinned the server-side
+// filter behavior + header disclosure copy. P2 inverted those:
+//   - Picker always renders the FULL catalog
+//   - Incompatible rows are disabled with hover tooltip explaining why
+//   - Header disclosure banners removed (per-row tooltips replace them)
+//   - Empty state collapses to the rare "zero providers configured"
+//     case; the codex-specific empty state is gone (Codex rows just
+//     appear disabled when not logged in / app-server unavailable
+//     because the server omits the group entirely)
 // ─────────────────────────────────────────────────────────────────────
 
-describe('Model picker — codex_runtime disclosure (Slice B)', () => {
+describe('Model picker — per-row compat gating (Phase 6 UI收口 P2)', () => {
   const pickerSrc = fs.readFileSync(
     path.join(repoRoot, 'components/chat/ModelSelectorDropdown.tsx'),
     'utf8',
   );
 
-  it('disclosure branch fires when runtimeApplied === codex_runtime', () => {
-    assert.match(pickerSrc, /runtimeApplied\s*===\s*['"]codex_runtime['"]/);
-  });
-
-  it('codex_runtime disclosure copy names "Codex Account 模型" + recovery action', () => {
-    // The user-spec wording — both halves must be present so users
-    // know what's available AND how to escape the filter.
-    // Phase 6 UI收口 P1 fix-up sweep (2026-05-14): recovery copy drops
-    // the redundant "执行引擎" / "Runtime" suffix — engines are named
-    // by their short product names everywhere user-facing now.
-    assert.match(pickerSrc, /Codex Account 模型/);
-    assert.match(pickerSrc, /Codex Account models/);
+  it('row disabled-state checks opt.supportedRuntimes against runtimeApplied', () => {
+    // The load-bearing assertion: each model row computes its own
+    // disabled state from the per-row annotation. Regression would
+    // either hide rows again (server filter) or stop reading the
+    // annotation (incompatible rows become silently clickable).
     assert.match(
       pickerSrc,
-      /切回\s*Claude Code\s*或\s*CodePilot/,
-    );
-    assert.match(
-      pickerSrc,
-      /Switch to Claude Code or CodePilot/,
+      /opt\.supportedRuntimes[\s\S]{0,80}\.includes\(runtimeApplied\)/,
     );
   });
 
-  it('empty-state under codex_runtime points users to Providers (not the dead /settings/codex link)', () => {
-    // Phase 6 IA correction round 2 (2026-05-14): the standalone
-    // /settings/codex page is now redirect-only, so an empty-state
-    // copy that says "前往「设置 → Codex」" sends users to a redirect
-    // that lands them somewhere unrelated to their problem (the runtime
-    // page, when the actual fix is logging in via Providers).
-    // The recovery points must name the real homes: Providers for
-    // login, Runtime for app-server status.
-    const emptyStateIdx = pickerSrc.indexOf('providerGroups.length === 0');
-    const codexBranchIdx = pickerSrc.indexOf("runtimeApplied === 'codex_runtime'", emptyStateIdx);
-    assert.ok(emptyStateIdx > 0, 'empty-state branch exists');
-    assert.ok(codexBranchIdx > emptyStateIdx, 'codex_runtime branch lives inside the empty-state block');
-    // Recovery copy points at the live IA homes (not the dead deep link)
-    assert.match(pickerSrc, /设置\s*→\s*服务商/);
-    assert.match(pickerSrc, /设置\s*→\s*执行引擎/);
-    assert.match(pickerSrc, /Settings\s*→\s*Providers/);
-    assert.match(pickerSrc, /Settings\s*→\s*Runtime/);
-    // Regression guard: must NOT advertise /settings/codex anymore.
-    assert.doesNotMatch(pickerSrc, /设置\s*→\s*Codex/);
-    assert.doesNotMatch(pickerSrc, /Settings\s*→\s*Codex(?!\s*Account)/);
+  it('row tooltip reads from opt.unsupportedReasonByRuntime for the active runtime', () => {
+    assert.match(
+      pickerSrc,
+      /opt\.unsupportedReasonByRuntime\?\.\[runtimeApplied!\]/,
+    );
+    // Generic zh + en fallbacks for rows whose upstream contract
+    // doesn't supply a per-runtime reason.
+    assert.match(pickerSrc, /当前 Agent 引擎不支持此模型/);
+    assert.match(pickerSrc, /Current Agent engine does not support this model/);
   });
 
-  it('non-codex runtimes retain the generic disclosure copy', () => {
-    // The original "Models available under the current Agent engine"
-    // wording must still fire for claude_code / codepilot_runtime so
-    // those flows aren't accidentally regressed.
+  it('recent-models section honours the same disabled-state gating', () => {
+    // Without this gate, a "recently used GLM" entry would stay
+    // clickable under Codex even though the active engine can't
+    // serve GLM models. Same supportedRuntimes / tooltip wiring as
+    // the main groups below.
     assert.match(
+      pickerSrc,
+      /option\.supportedRuntimes[\s\S]{0,80}\.includes\(runtimeApplied\)/,
+    );
+  });
+
+  it('header disclosure banners are GONE (per-row tooltips replace them)', () => {
+    // Pre-P2 the picker carried a "only showing models for X" /
+    // "Codex currently supports only Codex Account models..." top
+    // banner. Both are obsolete now that every row is visible with
+    // its own tooltip — keeping them would be visual noise.
+    assert.doesNotMatch(
+      pickerSrc,
+      /仅显示当前 Agent 引擎可用的模型/,
+    );
+    assert.doesNotMatch(
       pickerSrc,
       /Models available under the current Agent engine/,
     );
-    assert.match(pickerSrc, /仅显示当前 Agent 引擎可用的模型/);
+    assert.doesNotMatch(
+      pickerSrc,
+      /Codex 当前仅支持 Codex Account 模型/,
+    );
+  });
+
+  it('empty state collapses to the generic "no providers configured" copy', () => {
+    // Phase 6 UI收口 P2: with the full catalog always returned, an
+    // empty groups array means "user has zero providers configured
+    // at all" — rare, and the only meaningful recovery is the
+    // Providers page. No more codex-specific empty-state branch.
+    assert.match(pickerSrc, /providerGroups\.length\s*===\s*0/);
+    assert.match(pickerSrc, /尚未配置任何服务商/);
+    assert.match(pickerSrc, /No providers configured yet/);
+    // Regression guard: the codex-specific empty branch must not
+    // creep back in. The picker's compat gating now operates per
+    // row, not per empty-state branch.
+    assert.doesNotMatch(
+      pickerSrc,
+      /providerGroups\.length\s*===\s*0[\s\S]{0,300}runtimeApplied\s*===\s*['"]codex_runtime['"]/,
+    );
+  });
+});
+
+describe('useProviderModels — full-catalog fetch + client-side compat (Phase 6 UI收口 P2)', () => {
+  const hookSrc = fs.readFileSync(
+    path.join(repoRoot, 'hooks/useProviderModels.ts'),
+    'utf8',
+  );
+
+  it('hook fetches /api/providers/models WITHOUT a runtime filter', () => {
+    // Pre-P2 the hook appended ?runtime=X so the server filtered the
+    // catalog. P2 inverted that: hook always fetches the full
+    // catalog, runtime gating happens client-side via
+    // compatibleProviderGroups.
+    assert.match(hookSrc, /const\s+url\s*=\s*['"]\/api\/providers\/models['"]/);
+    assert.doesNotMatch(hookSrc, /\/api\/providers\/models\?runtime=\$\{/);
+  });
+
+  it('derives compatibleProviderGroups from the full catalog + runtime param', () => {
+    assert.match(hookSrc, /const\s+compatibleProviderGroups\s*=\s*useMemo/);
+    // The filter pattern: keep rows without an annotation (legacy
+    // fallback) OR rows whose `supportedRuntimes` lists the active
+    // runtime. Two clauses, joined by `||`, anchored on the row var.
+    assert.match(
+      hookSrc,
+      /!m\.supportedRuntimes\s*\|\|\s*m\.supportedRuntimes\.includes\(runtime\)/,
+    );
+  });
+
+  it('noCompatibleProvider is derived from compatibleProviderGroups (not the raw catalog)', () => {
+    assert.match(
+      hookSrc,
+      /noCompatibleProvider:[\s\S]{0,200}compatibleProviderGroups\.length\s*===\s*0/,
+    );
+  });
+});
+
+describe('/api/providers/models — annotated rows always (Phase 6 UI收口 P2)', () => {
+  const routeSrc = fs.readFileSync(
+    path.join(repoRoot, 'app/api/providers/models/route.ts'),
+    'utf8',
+  );
+
+  it('every model row carries supportedRuntimes + unsupportedReasonByRuntime', () => {
+    // Pre-P2 these fields were computed per-row inside the filter
+    // block and then dropped. P2 promotes them to first-class
+    // response fields so the picker can render disabled rows + the
+    // tooltip without re-running getModelCompat on the client.
+    assert.match(
+      routeSrc,
+      /supportedRuntimes:\s*cap\.supportedRuntimes/,
+    );
+    assert.match(
+      routeSrc,
+      /unsupportedReasonByRuntime:\s*cap\.unsupportedReasonByRuntime/,
+    );
+  });
+
+  it('media rows are still dropped at the row layer (do not belong in chat pickers)', () => {
+    // Image / video / embedding don't surface in chat picker
+    // regardless of runtime gating — this guard predates P2 and
+    // must survive the refactor.
+    assert.match(routeSrc, /if\s*\(\s*cap\.media\s*\)\s*return\s+null/);
   });
 });
 

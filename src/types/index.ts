@@ -293,6 +293,25 @@ export interface ProviderModelGroup {
     supportsAdaptiveThinking?: boolean;
     capabilities?: Record<string, unknown>;
     variants?: Record<string, unknown>;
+    /**
+     * Phase 6 UI收口 P2 (2026-05-14) — per-row runtime compat surfaced
+     * to the chat picker so it can render incompatible rows disabled
+     * + tooltip instead of hiding them. Empty array (or missing
+     * field) = picker treats as unrestricted (legacy fallback).
+     *
+     * The data is computed server-side via `getModelCompat` and
+     * always populated for the canonical chat-runtime model rows.
+     * Settings models page (which still wants all rows visible for
+     * management) ignores this and shows everything regardless.
+     */
+    supportedRuntimes?: string[];
+    /**
+     * Optional per-runtime "why" string. Key is a `RuntimeId`; value
+     * is a short human-readable reason the picker tooltips. Matching
+     * key absent → picker falls back to a generic "not supported by
+     * current engine" message.
+     */
+    unsupportedReasonByRuntime?: Record<string, string>;
   }>;
 }
 

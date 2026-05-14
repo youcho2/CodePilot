@@ -346,53 +346,63 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    // Apply runtime filter — only when caller asked for it. Two layers:
-    //   1. Group layer: drop media_only groups (also caught at row layer below).
-    //      We deliberately do NOT drop `sdkProxyOnly` groups in
-    //      `codepilot_runtime` mode any more. `ClaudeCodeCompatAdapter`
-    //      (src/lib/claude-code-compat/) lets CodePilot Runtime speak the
-    //      same Anthropic wire format the Claude Code subprocess does, and
-    //      `provider-transport.ts::isNativeCompatible('claude-code-compat')`
-    //      already returns true. The old group-level drop here was a stale
-    //      relic of pre-adapter assumptions and was hiding GLM / Kimi /
-    //      MiniMax / Volcengine / Xiaomi MiMo / Bailian / DeepSeek Coding
-    //      Plan from AISDK pickers — leaving only OpenAI OAuth GPT models.
-    //      Reachability is now decided at the row layer via
-    //      `getModelCompat(...).codepilot_runtime_compatible`.
-    //   2. Row layer: getModelCompat per model — drop media flags, drop
-    //      rows whose runtime flag isn't set.
+    // Phase 6 UI收口 P2 (2026-05-14) — every model row carries its
+    // canonical compat annotations (`supportedRuntimes` +
+    // `unsupportedReasonByRuntime`). Pickers render the full catalog
+    // and use these per-row fields to disable + tooltip incompatible
+    // rows, instead of hiding them server-side. This kills three
+    // long-standing UX problems:
     //
-    // Empty groups are dropped from the response (not kept as `models: []`).
-    // Earlier behavior left them in so callers could still surface the
-    // provider chip, but `useProviderModels` would then fall back to the
-    // built-in DEFAULT_MODEL_OPTIONS for an empty currentGroup, silently
-    // cross-wiring an OpenRouter-selected provider with `sonnet` as the
-    // displayed model. Drop the empty group server-side; the picker simply
-    // won't render the provider that has zero compatible models in the
-    // active runtime. (Settings > Providers' global default selector calls
-    // /api/providers/models without `?runtime=`, so it still sees the
-    // unfiltered catalog — that path is unaffected.)
-    let outGroups = groups;
-    if (runtimeFilter) {
-      outGroups = groups.map(g => {
-        const providerCompat = g.compat ?? 'unknown';
-        if (providerCompat === 'media_only') return { ...g, models: [] };
-        const filteredModels = g.models.filter(m => {
+    //   1. Users couldn't tell where models went when they switched
+    //      runtimes — the picker silently dropped them.
+    //   2. The chat banner had to use a prominent red disclosure to
+    //      explain what the server filter had already done invisibly.
+    //   3. Settings models page (which already showed everything with
+    //      a separate runtime-tier filter) and the chat picker
+    //      diverged on whose responsibility it was to filter.
+    //
+    // The `?runtime=X` URL param is preserved for backward compat
+    // (Settings > Providers' global default selector uses it) and
+    // still scopes the visible rows when explicitly requested. The
+    // canonical chat picker now omits it and renders disabled rows
+    // for compat.
+    //
+    // Media rows (image / video / embedding) are still dropped at
+    // the row layer regardless of runtime — those don't belong in
+    // chat pickers period.
+    let outGroups = groups.map(g => {
+      const providerCompat = g.compat ?? 'unknown';
+      const annotatedModels = g.models
+        .map(m => {
           const cap = getModelCompat({
             modelId: m.value,
             upstreamModelId: m.upstreamModelId,
             providerCompat,
             capabilities: m.capabilities as Parameters<typeof getModelCompat>[0]['capabilities'],
           });
-          if (cap.media) return false;
-          // Phase 0.5 Slice B (2026-05-13) — filter by the canonical
-          // `supportedRuntimes` field. `getModelCompat` populates it
-          // alongside the legacy booleans; once all readers migrate
-          // (Slice E) the booleans become read-only legacy.
-          return cap.supportedRuntimes?.includes(runtimeFilter) ?? false;
-        });
+          if (cap.media) return null;
+          return {
+            ...m,
+            supportedRuntimes: cap.supportedRuntimes,
+            unsupportedReasonByRuntime: cap.unsupportedReasonByRuntime,
+          };
+        })
+        .filter((m): m is NonNullable<typeof m> => m !== null);
+      return { ...g, models: annotatedModels };
+    });
+    if (runtimeFilter) {
+      outGroups = outGroups.map(g => {
+        const filteredModels = g.models.filter(
+          m => m.supportedRuntimes?.includes(runtimeFilter) ?? false,
+        );
         return { ...g, models: filteredModels };
       }).filter(g => g.models.length > 0);
+    } else {
+      // Even when no runtime filter is requested, drop providers with
+      // zero usable models so the picker doesn't render an empty
+      // section header (e.g. a freshly-created provider with no
+      // enabled models).
+      outGroups = outGroups.filter(g => g.models.length > 0);
     }
 
     // Determine default provider — auto-heal stale references on read

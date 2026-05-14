@@ -88,6 +88,18 @@ interface CommandListItemProps {
   children: ReactNode;
   className?: string;
   itemRef?: (el: HTMLButtonElement | null) => void;
+  /**
+   * Phase 6 UI收口 P2 (2026-05-14) — render the item in a non-clickable
+   * disabled state. Picker uses this to surface models that aren't
+   * compatible with the current runtime alongside the compatible ones
+   * (instead of hiding them server-side and confusing users about
+   * where their providers went). Pair with `tooltip` so hover reveals
+   * the per-runtime reason from `unsupportedReasonByRuntime`.
+   */
+  disabled?: boolean;
+  /** Native hover tooltip (uses HTML title attribute). Renders both on
+   *  enabled and disabled items, but is most useful on disabled rows. */
+  tooltip?: string;
 }
 
 export function CommandListItem({
@@ -97,6 +109,8 @@ export function CommandListItem({
   children,
   className,
   itemRef,
+  disabled,
+  tooltip,
 }: CommandListItemProps) {
   return (
     <Button
@@ -104,6 +118,8 @@ export function CommandListItem({
       ref={itemRef}
       variant="ghost"
       size="sm"
+      disabled={disabled}
+      title={tooltip}
       className={cn(
         // Inset rounded item (mx-1) so the highlight doesn't touch the
         // popover's edge — feels like the muted toolbar buttons rather
@@ -112,10 +128,15 @@ export function CommandListItem({
         // separate strong state.
         "flex w-full items-center justify-start gap-2 rounded-md px-2.5 py-2 text-left text-sm font-normal transition-colors h-auto",
         active ? "bg-accent text-foreground" : "hover:bg-accent hover:text-foreground",
+        // Disabled rows are dimmed + non-interactive but still hoverable
+        // so the title tooltip surfaces — the cursor change + reduced
+        // opacity tells users the row is the reason "you can't pick me"
+        // and the tooltip explains why.
+        disabled && "opacity-50 cursor-not-allowed hover:bg-transparent hover:text-foreground",
         className,
       )}
-      onClick={onClick}
-      onMouseEnter={onMouseEnter}
+      onClick={disabled ? undefined : onClick}
+      onMouseEnter={disabled ? undefined : onMouseEnter}
     >
       {children}
     </Button>
