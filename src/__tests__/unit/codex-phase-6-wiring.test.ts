@@ -147,7 +147,10 @@ describe('RuntimePanel — three-engine picker (IA correction)', () => {
   it('Codex Runtime detail card renders below the picker', () => {
     // The detail card pulls reason/impact/recovery from codexRuntimeStatus
     // and surfaces the app-server status row + Codex home + jump links.
-    assert.match(panelSrc, /<RuntimeCard\s+name="Codex Runtime"/);
+    // Phase 6 UI收口 P1 (2026-05-14): short detail-card heading "Codex"
+    // (the page title + section header carry the "Runtime / 引擎"
+    // framing; repeating it on every card was redundant noise).
+    assert.match(panelSrc, /<RuntimeCard\s+name="Codex"/);
     assert.match(panelSrc, /codexRuntimeStatus/);
     // Jump links to where account + models live — these are load-bearing
     // for the IA: the Codex card MUST NOT duplicate Provider / Models

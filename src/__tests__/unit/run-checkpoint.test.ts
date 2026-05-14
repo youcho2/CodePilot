@@ -56,7 +56,12 @@ describe('buildCheckpoints — pinned-invalid', () => {
     const out = buildCheckpoints({ ...ok, defaultInvalid: true });
     assert.equal(out.length, 1);
     assert.equal(out[0].id, 'pinned-invalid');
-    assert.equal(out[0].tone, 'error');
+    // Phase 6 UI收口 P0 (2026-05-14) — pinned-invalid is a non-blocking
+    // warning, not an error. The composer no longer blocks when the
+    // current selected (provider, model, runtime) is sendable — the
+    // banner just informs the user that their *default-model* pin is
+    // in a degraded state. Tone reflects that.
+    assert.equal(out[0].tone, 'warning');
     assert.equal(out[0].action?.href, '/settings/runtime');
   });
 

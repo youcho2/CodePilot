@@ -10,7 +10,10 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
 } from '@/components/ui/dropdown-menu';
-import { Brain, CaretDown, CheckCircle } from '@/components/ui/icon';
+import { CaretDown, CheckCircle } from '@/components/ui/icon';
+import Anthropic from '@lobehub/icons/es/Anthropic';
+import OpenAI from '@lobehub/icons/es/OpenAI';
+import { CodePilotLogo } from './CodePilotLogo';
 import type { ChatRuntime } from '@/lib/chat-runtime-shared';
 import { RUNTIME_IDS, type RuntimeId } from '@/lib/runtime/runtime-id';
 
@@ -23,6 +26,10 @@ import { RUNTIME_IDS, type RuntimeId } from '@/lib/runtime/runtime-id';
  * Phase 0.5 Slice E.1 (2026-05-13) — replaces the previous hand-rolled
  * 2-item dropdown that hard-coded `claude_code` / `codepilot_runtime`
  * branches in JSX.
+ *
+ * Phase 6 UI收口 P1 (2026-05-14) — short labels: trigger shows
+ * "Claude Code" / "CodePilot" / "Codex" without the duplicate
+ * "Runtime" / "引擎" suffix that bloated the composer toolbar.
  */
 const RUNTIME_LABEL_KEYS: Record<RuntimeId, { label: TranslationKey; desc: TranslationKey }> = {
   claude_code: {
@@ -38,6 +45,22 @@ const RUNTIME_LABEL_KEYS: Record<RuntimeId, { label: TranslationKey; desc: Trans
     desc: 'runtimeSelector.codexRuntimeDesc' as TranslationKey,
   },
 };
+
+/**
+ * Per-runtime brand icon. Phase 6 UI收口 P1 (2026-05-14) — replaces the
+ * generic `Brain` icon shared across all three rows. Recognition was
+ * too costly: three identical brains forced users to read the label
+ * to disambiguate. Now each engine carries its vendor mark:
+ *
+ *   claude_code       → Anthropic (Claude Code is Anthropic's CLI)
+ *   codepilot_runtime → CodePilot's own cube logo (host product)
+ *   codex_runtime     → OpenAI (Codex is an OpenAI product)
+ */
+function RuntimeIcon({ runtime, size, className }: { runtime: RuntimeId; size: number; className?: string }) {
+  if (runtime === 'claude_code') return <Anthropic size={size} className={className} />;
+  if (runtime === 'codex_runtime') return <OpenAI size={size} className={className} />;
+  return <CodePilotLogo size={size} className={className} />;
+}
 
 interface RuntimeSelectorProps {
   // The session's persisted `runtime_pin`. Empty string means the session
@@ -97,7 +120,7 @@ export function RuntimeSelector({
             'h-7 rounded-md text-xs font-normal text-muted-foreground',
           )}
         >
-          <Brain size={12} />
+          <RuntimeIcon runtime={activeRuntime} size={12} />
           <span>{label}</span>
           <CaretDown size={10} className="opacity-60" />
         </Button>
@@ -109,7 +132,7 @@ export function RuntimeSelector({
             onClick={() => onRuntimePinChange(id)}
             className="items-start py-2"
           >
-            <Brain size={14} className="mt-0.5" />
+            <RuntimeIcon runtime={id} size={14} className="mt-0.5" />
             <div className="flex flex-col items-start gap-0.5 flex-1">
               <span className="flex items-center gap-1.5">
                 {t(RUNTIME_LABEL_KEYS[id].label)}

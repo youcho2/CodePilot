@@ -190,7 +190,15 @@ export function buildCheckpoints(opts: BuildCheckpointsOpts): CheckpointReason[]
   if (opts.defaultInvalid) {
     out.push({
       id: 'pinned-invalid',
-      tone: 'error',
+      // Phase 6 UI收口 P0 (2026-05-14): pinned-invalid is a GLOBAL
+      // warning about the user's default-model pin, NOT a per-session
+      // blocker. The composer falls back to a runtime-compatible
+      // (provider, model) pair and sends normally; this banner just
+      // tells the user their default is in a degraded state with a
+      // "fix default" jump link. Tone reflects that — warning, not
+      // error — so the chat surface isn't lying about whether the
+      // current send will work.
+      tone: 'warning',
       titleKey: 'runCheckpoint.pinnedInvalid.title',
       descriptionKey: 'runCheckpoint.pinnedInvalid.description',
       descriptionValues: { pinned: opts.pinnedDescriptor || '?' },

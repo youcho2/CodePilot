@@ -86,6 +86,9 @@ import type { TranslationKey } from "@/i18n";
 import type { ProviderOptions } from "@/types";
 import type { CodexAvailability } from "@/lib/codex/types";
 import { cn } from "@/lib/utils";
+import Anthropic from "@lobehub/icons/es/Anthropic";
+import OpenAI from "@lobehub/icons/es/OpenAI";
+import { CodePilotLogo } from "@/components/chat/CodePilotLogo";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -230,6 +233,7 @@ function EnginePickerCard({
   statusKind,
   statusText,
   isZh,
+  icon,
 }: {
   engine: AgentRuntime;
   selected: boolean;
@@ -241,6 +245,12 @@ function EnginePickerCard({
   statusKind: "ok" | "warning";
   statusText: string;
   isZh: boolean;
+  /** Phase 6 UI收口 P1 (2026-05-14) — vendor-specific brand icon. The
+   *  three engines used to render without icons (text-only cards),
+   *  which made the picker read as a wall of words. The icon sits
+   *  next to the title so users can disambiguate the engine in a
+   *  glance. */
+  icon: React.ReactNode;
 }) {
   void _engine;
   return (
@@ -267,13 +277,16 @@ function EnginePickerCard({
         )}
       </span>
 
-      {/* Title block — engine name + small subtitle so the card has a
-          micro-headline distinct from the body pitch. */}
-      <div className="pr-8">
-        <h4 className={cn("text-sm font-semibold", selected ? "text-primary" : "text-foreground")}>
-          {title}
-        </h4>
-        <p className="text-[11px] text-muted-foreground mt-0.5">{tagline}</p>
+      {/* Title block — icon + engine name + small subtitle so the card
+          has a micro-headline distinct from the body pitch. */}
+      <div className="pr-8 flex items-start gap-2.5">
+        <span className="shrink-0 mt-0.5">{icon}</span>
+        <div className="min-w-0">
+          <h4 className={cn("text-sm font-semibold", selected ? "text-primary" : "text-foreground")}>
+            {title}
+          </h4>
+          <p className="text-[11px] text-muted-foreground mt-0.5">{tagline}</p>
+        </div>
       </div>
 
       {/* Pitch text — 2-3 sentences max. Mid-card so it's the visual focus. */}
@@ -281,7 +294,11 @@ function EnginePickerCard({
 
       {/* Status row — bottom-anchored. Color-coded at a glance:
             ok      → success-foreground (Claude Code installed / AI SDK ready)
-            warning → warning-foreground (CLI missing, would fall back) */}
+            warning → warning-foreground (CLI missing, would fall back)
+          Phase 6 UI收口 P1 (2026-05-14): "点击切换" reminder removed —
+          the button's hover state + the selected/unselected indicator
+          in the top-right already telegraph click affordance. The extra
+          text was redundant. */}
       <div className="mt-auto flex items-center gap-1.5 text-[11px]">
         {statusKind === "ok" ? (
           <CheckCircle
@@ -306,12 +323,6 @@ function EnginePickerCard({
         >
           {statusText}
         </span>
-        {/* Right-side reminder — when not selected, hint the click action. */}
-        {!selected && (
-          <span className="ml-auto text-muted-foreground/70 shrink-0">
-            {isZh ? "点击切换" : "Click to switch"}
-          </span>
-        )}
       </div>
     </button>
   );
@@ -1135,9 +1146,12 @@ export function RuntimePanel() {
             engine="claude-code-sdk"
             selected={effectiveRuntime === "claude-code-sdk"}
             onSelect={() => handleRuntimeChange("claude-code-sdk")}
-            // All three cards end in "Runtime" / "引擎" so the picker
-            // reads as three parallel agent engines.
-            title="Claude Code 引擎"
+            // Phase 6 UI收口 P1 (2026-05-14): short titles drop the
+            // "引擎" / "Runtime" suffix — the page header + picker
+            // section header already carry that framing, repeating it
+            // on every card makes the picker read as redundant noise.
+            title="Claude Code"
+            icon={<Anthropic size={20} />}
             tagline={isZh ? "Anthropic 官方 CLI" : "Anthropic official CLI"}
             pitch={isZh
               ? "用 Anthropic 官方 CLI 跑 Agent，完整兼容 Claude Code 生态：~/.claude/settings.json、hooks、MCP server 直接可用。"
@@ -1149,15 +1163,16 @@ export function RuntimePanel() {
             // install method isn't actionable for the user.
             statusText={connected
               ? `${isZh ? "已安装" : "Installed"} v${claudeStatus?.version ?? ""}`
-              : (isZh ? "未安装 — 选用后会自动降级到 AI SDK" : "Not installed — selecting it falls back to AI SDK")}
+              : (isZh ? "未安装 — 选用后会自动降级到 CodePilot" : "Not installed — selecting it falls back to CodePilot")}
             isZh={isZh}
           />
           <EnginePickerCard
             engine="native"
             selected={effectiveRuntime === "native"}
             onSelect={() => handleRuntimeChange("native")}
-            title="CodePilot Runtime"
-            tagline={isZh ? "CodePilot 自带内核 (AI SDK)" : "CodePilot built-in (AI SDK)"}
+            title="CodePilot"
+            icon={<CodePilotLogo size={20} />}
+            tagline={isZh ? "CodePilot 自带内核" : "CodePilot built-in"}
             pitch={isZh
               ? "CodePilot 直连 provider API 跑 Agent。适合多 provider、可观察、可恢复，由 CodePilot 自管上下文和权限，不依赖外部 CLI。"
               : "CodePilot calls provider APIs directly. Built for multi-provider, observable, recoverable runs — context and permissions stay inside CodePilot, no external CLI required."}
@@ -1169,7 +1184,8 @@ export function RuntimePanel() {
             engine="codex_runtime"
             selected={effectiveRuntime === "codex_runtime"}
             onSelect={() => handleRuntimeChange("codex_runtime")}
-            title="Codex Runtime"
+            title="Codex"
+            icon={<OpenAI size={20} />}
             tagline={isZh ? "OpenAI Codex 应用服务" : "OpenAI Codex app-server"}
             pitch={isZh
               ? "通过 Codex 应用服务调用 ChatGPT 账户内置模型（如 gpt-5.5）。账户额度由 ChatGPT 套餐承担，目前仅支持 Codex 账户模型。"
@@ -1349,8 +1365,8 @@ export function RuntimePanel() {
         )}
       </div>
 
-      {/* ── Claude Code 引擎 card ──────────────────────────────────── */}
-      <RuntimeCard name="Claude Code 引擎" state={claudeCodeStatus.state} isZh={isZh}>
+      {/* ── Claude Code detail card ──────────────────────────────────── */}
+      <RuntimeCard name="Claude Code" state={claudeCodeStatus.state} isZh={isZh}>
         <RuntimeStatusExplanation info={claudeCodeStatus} isZh={isZh} />
 
         {/* CLI install / version / upgrade row */}
@@ -1614,12 +1630,12 @@ export function RuntimePanel() {
         </details>
       </RuntimeCard>
 
-      {/* ── Codex Runtime card ───────────────────────────────────────
+      {/* ── Codex detail card ────────────────────────────────────────
            Phase 5 Phase 6 IA correction (2026-05-14). Surfaces the
            app-server detail (binary status / version / Codex home) and
            a jump-link to Providers + Models where Codex Account
            login + models live. Doesn't duplicate that data here. */}
-      <RuntimeCard name="Codex Runtime" state={codexRuntimeStatus.state} isZh={isZh}>
+      <RuntimeCard name="Codex" state={codexRuntimeStatus.state} isZh={isZh}>
         <RuntimeStatusExplanation info={codexRuntimeStatus} isZh={isZh} />
 
         {/* App-server status row */}
@@ -1706,8 +1722,8 @@ export function RuntimePanel() {
         </div>
       </RuntimeCard>
 
-      {/* ── CodePilot Runtime card ────────────────────────────────────── */}
-      <RuntimeCard name={isZh ? "CodePilot 引擎 (AI SDK)" : "CodePilot Runtime (AI SDK)"} state={codepilotStatus.state} isZh={isZh}>
+      {/* ── CodePilot detail card ────────────────────────────────────── */}
+      <RuntimeCard name="CodePilot" state={codepilotStatus.state} isZh={isZh}>
         <RuntimeStatusExplanation info={codepilotStatus} isZh={isZh} />
 
         {/* Capabilities / Permissions / Context — three medium-granularity blocks */}

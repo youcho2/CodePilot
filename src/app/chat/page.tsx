@@ -648,14 +648,22 @@ function NewChatPageInner() {
         return;
       }
 
-      // Phase 2C: pinned default unreachable under effective Runtime →
-      // hard block. The persistent banner above MessageInput already
-      // names the broken pin and exposes a "Go to Runtime" action; the
-      // composer is also disabled so this branch is currently
-      // unreachable, but keep the gate as a defensive backstop.
-      if (invalidDefault) {
-        return;
-      }
+      // Phase 6 UI收口 P0 (2026-05-14): pinned-invalid is a GLOBAL
+      // warning, not a per-session block. If the picker has resolved
+      // to a usable (currentProviderId, currentModel) pair that lives
+      // in the runtime-filtered group set, the user can send — the
+      // global pinned default being broken is a separate concern
+      // (surfaced as a non-error checkpoint banner with a "fix default"
+      // jump link). We still honour the "no silent substitution of
+      // pinned default" contract; we just don't drag the composer
+      // along with it.
+      //
+      // Pre-round-4 this branch hard-blocked sends whenever
+      // `invalidDefault` was set, even though `currentProviderId` /
+      // `currentModel` had already fallen back to a working pair.
+      // Users saw GPT-5.5 in the model button + a red "default model
+      // unavailable" banner + a disabled composer at the same time —
+      // a three-way contradiction the round 4 fix resolves.
 
       // Require a project directory before sending
       if (!workingDir.trim()) {
@@ -1130,7 +1138,14 @@ function NewChatPageInner() {
         onSend={sendFirstMessage}
         onCommand={handleCommand}
         onStop={stopStreaming}
-        disabled={!modelReady || noCompatibleProvider || !!invalidDefault}
+        // Phase 6 UI收口 P0 (2026-05-14) — composer is enabled when the
+        // current (provider, model, runtime) tuple is sendable. The
+        // resolver / picker already fell back to a runtime-compatible
+        // pair when the global pinned default isn't usable; the
+        // pinned-invalid state surfaces above as a non-blocking warning
+        // banner. `noCompatibleProvider` (zero groups under the active
+        // runtime) is still a hard block — there's nothing to send.
+        disabled={!modelReady || noCompatibleProvider}
         isStreaming={isStreaming}
         modelName={currentModel}
         onModelChange={setCurrentModel}
