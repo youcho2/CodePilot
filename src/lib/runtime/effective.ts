@@ -30,13 +30,19 @@
 
 import { resolveLegacyRuntimeForDisplay } from "./legacy";
 
-export type AgentRuntime = "claude-code-sdk" | "native";
+// Phase 5 Phase 6 IA correction (2026-05-14) — three-engine union. Codex
+// Runtime joins as a peer of Claude Code and CodePilot Runtime; Settings →
+// Runtime now offers it as a global default and the chat header badge can
+// surface "Codex Runtime" directly.
+export type AgentRuntime = "claude-code-sdk" | "native" | "codex_runtime";
 
 /** Engine label used in user-facing strings. Settings page maps it to
  *  zh/en + an optional fallback annotation; just produces the canonical
  *  spelling here. */
-export function runtimeDisplayLabel(runtime: AgentRuntime): "Claude Code" | "AI SDK" {
-  return runtime === "claude-code-sdk" ? "Claude Code" : "AI SDK";
+export function runtimeDisplayLabel(runtime: AgentRuntime): "Claude Code" | "AI SDK" | "Codex Runtime" {
+  if (runtime === "claude-code-sdk") return "Claude Code";
+  if (runtime === "codex_runtime") return "Codex Runtime";
+  return "AI SDK";
 }
 
 /**
@@ -85,9 +91,22 @@ export function computeEffectiveRuntime(
       ? cliEnabled
       : cliEnabled !== "false";
 
-  // cli_enabled=false is the highest-priority override. Even if the
-  // user's stored preference is Claude Code, this short-circuits to AI
-  // SDK because the registry won't spawn the CLI subprocess.
+  // Phase 5 Phase 6 IA correction (2026-05-14) — codex_runtime is its
+  // own engine and never falls back. Codex Account models can ONLY
+  // run on the Codex app-server; ClaudeCode SDK / Native can't speak
+  // its wire format. So if the user pinned Codex Runtime as global
+  // default, we report it as the effective runtime even when the
+  // codex binary is missing — the send-time guardrail in
+  // claude-client.ts surfaces a clear "Codex Runtime is not
+  // available — install codex CLI" error rather than silently
+  // routing GPT-5.5 through Claude Code SDK (Round 5 fail-closed).
+  if (storedAgentRuntime === "codex_runtime") return "codex_runtime";
+
+  // cli_enabled=false is the highest-priority override for the two
+  // legacy engines. Even if the user's stored preference is Claude
+  // Code, this short-circuits to AI SDK because the registry won't
+  // spawn the CLI subprocess. Codex is unaffected — its app-server
+  // is its own subprocess, independent of cli_enabled.
   if (!cliEnabledBool) return "native";
 
   // Stored `'native'` is always available (it's bundled). Stored

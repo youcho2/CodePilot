@@ -46,6 +46,7 @@ import { OpenRouterCleanupDialog } from "./OpenRouterCleanupDialog";
 import { showToast, updateToast } from "@/hooks/useToast";
 import type { TranslationKey } from "@/i18n";
 import { getProviderIcon } from "./provider-presets";
+import { CodexAccountModelsBlock } from "./CodexAccountModelsBlock";
 import { getProviderCompat, getModelCompat, compatLabel, compatTone, compatDotColor, compatTooltip } from "@/lib/runtime-compat";
 import {
   Select,
@@ -1409,6 +1410,14 @@ export function ModelsSection() {
           </p>
         </div>
       )}
+
+      {/* Phase 5 Phase 6 IA correction (2026-05-14) — Codex Account is a
+          virtual provider whose models come from upstream Codex, not
+          from CodePilot's DB. The block surfaces them in Models so users
+          don't need to leave the page to discover what's available; it
+          self-hides when the user isn't logged in or models haven't been
+          fetched yet (no empty-state noise). */}
+      {!loading && <CodexAccountModelsBlock isZh={isZh} />}
 
       {!loading && visibleBundles.map(({ provider, models }) => {
         // Counts/availability are computed on the FULL provider model list,

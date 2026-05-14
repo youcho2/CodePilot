@@ -10,7 +10,7 @@
  * and only this file.
  */
 
-import { type Icon, Gear, UserCircle, Plug, ChartBar, Brain, Lightning, PaintBrush, Eye, Info, Heart, WifiHigh, Clock, Sparkle } from "@/components/ui/icon";
+import { type Icon, Gear, UserCircle, Plug, ChartBar, Brain, Lightning, PaintBrush, Eye, Info, Heart, WifiHigh, Clock } from "@/components/ui/icon";
 import type { TranslationKey } from "@/i18n";
 
 export type SettingsSection =
@@ -20,7 +20,6 @@ export type SettingsSection =
   | "providers"
   | "models"
   | "runtime"
-  | "codex"
   | "health"
   | "usage"
   | "assistant"
@@ -51,12 +50,6 @@ export const SETTINGS_NAV_ITEMS: SettingsNavItem[] = [
   { id: "providers", label: "Providers", icon: Plug, href: "/settings/providers", i18nKey: "settings.providers" as TranslationKey },
   { id: "models", label: "Models", icon: Brain, href: "/settings/models", i18nKey: "settings.models" as TranslationKey },
   { id: "runtime", label: "Runtime", icon: Lightning, href: "/settings/runtime", i18nKey: "settings.runtime" as TranslationKey },
-  // Phase 5 Phase 6 (2026-05-14) — Codex Runtime status surface. Sits
-  // right after Runtime because conceptually Codex is the third agent
-  // engine alongside Claude Code and CodePilot Runtime; the user
-  // mental model "Providers → Models → Runtime → Codex (runtime-tier
-  // detail)" is a natural extension of the existing three-layer order.
-  { id: "codex", label: "Codex", icon: Sparkle, href: "/settings/codex", i18nKey: "settings.codex" as TranslationKey },
   { id: "health", label: "Health", icon: Heart, href: "/settings/health", i18nKey: "settings.health" as TranslationKey },
   { id: "usage", label: "Usage", icon: ChartBar, href: "/settings/usage", i18nKey: "settings.usage" as TranslationKey },
   { id: "assistant", label: "Assistant", icon: UserCircle, href: "/settings/assistant", i18nKey: "settings.assistant" as TranslationKey },

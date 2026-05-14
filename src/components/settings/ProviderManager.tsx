@@ -12,11 +12,12 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { SpinnerGap, Plus } from "@/components/ui/icon";
+import { SpinnerGap, Plus, ArrowSquareOut, CheckCircle, Copy } from "@/components/ui/icon";
 import { ProviderForm } from "./ProviderForm";
 import type { ProviderFormData } from "./ProviderForm";
 import { PresetConnectDialog } from "./PresetConnectDialog";
 import { ProviderCard, type ProviderCardStatus, type ProviderCardInfoRow } from "./ProviderCard";
+import { CodexQuotaWidget } from "./CodexQuotaWidget";
 import {
   Dialog,
   DialogContent,
@@ -35,6 +36,8 @@ import {
   type QuickPreset,
 } from "./provider-presets";
 import type { ApiProvider, ProviderModelGroup } from "@/types";
+import type { CodexAccountState, CodexRateLimitSnapshot } from "@/lib/codex/types";
+import type { CodexLoginStart } from "@/lib/codex/account";
 import { useTranslation } from "@/hooks/useTranslation";
 import type { TranslationKey } from "@/i18n";
 import { runAutoDiscoverForProvider } from "@/lib/auto-discover-models";
@@ -137,6 +140,17 @@ export function ProviderManager() {
   const [openaiAuth, setOpenaiAuth] = useState<{ authenticated: boolean; email?: string; plan?: string } | null>(null);
   const [openaiLoggingIn, setOpenaiLoggingIn] = useState(false);
   const [openaiError, setOpenaiError] = useState<string | null>(null);
+
+  // Codex Account state — Phase 5 Phase 6 IA correction (2026-05-14).
+  // Mirrors the openai-oauth pattern: virtual provider surfaces here
+  // as a ProviderCard alongside other OAuth-connected sources. The
+  // login dialog is rendered inline (no window.open per
+  // feedback_no_silent_auto_irreversible).
+  const [codexAccount, setCodexAccount] = useState<CodexAccountState | null>(null);
+  const [codexRateLimits, setCodexRateLimits] = useState<CodexRateLimitSnapshot | null>(null);
+  const [codexLoginStart, setCodexLoginStart] = useState<CodexLoginStart | null>(null);
+  const [codexLoggingIn, setCodexLoggingIn] = useState(false);
+  const [codexError, setCodexError] = useState<string | null>(null);
 
   // Doctor dialog state
 
@@ -326,6 +340,28 @@ export function ProviderManager() {
       .then(data => { if (data) setOpenaiAuth(data); })
       .catch(() => {});
   }, []);
+
+  // Fetch Codex Account state + rate limits. Re-runs on provider-changed
+  // events so login / logout updates the card without a page refresh.
+  const fetchCodexAccount = useCallback(async () => {
+    try {
+      const [accRes, rlRes] = await Promise.all([
+        fetch('/api/codex/account', { cache: 'no-store' }),
+        fetch('/api/codex/rate-limits', { cache: 'no-store' }),
+      ]);
+      const accJson = accRes.ok ? await accRes.json() : null;
+      const rlJson = rlRes.ok ? await rlRes.json() : null;
+      if (accJson?.state) setCodexAccount(accJson.state as CodexAccountState);
+      if (rlJson?.snapshot) setCodexRateLimits(rlJson.snapshot as CodexRateLimitSnapshot);
+      else if (rlJson && rlJson.snapshot === null) setCodexRateLimits(null);
+    } catch { /* best effort — keep stale state */ }
+  }, []);
+  useEffect(() => {
+    fetchCodexAccount();
+    const handler = () => fetchCodexAccount();
+    window.addEventListener('provider-changed', handler);
+    return () => window.removeEventListener('provider-changed', handler);
+  }, [fetchCodexAccount]);
 
   // Fetch all provider models for the global default model selector
   const fetchModels = useCallback(() => {
@@ -563,6 +599,63 @@ export function ProviderManager() {
       window.dispatchEvent(new Event('provider-changed'));
     } catch { /* ignore */ }
   };
+
+  // ── Codex Account login / logout ──
+  // Login is a two-step UX: POST kicks off the flow and returns an
+  // authUrl; we show that URL as an explicit click-to-open link (no
+  // window.open() per feedback_no_silent_auto_irreversible). After
+  // the user completes login in their browser, they click "我已完成
+  // 登录" and we refetch account + models.
+  const handleCodexLogin = useCallback(async () => {
+    setCodexLoggingIn(true);
+    setCodexError(null);
+    try {
+      const res = await fetch('/api/codex/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ kind: 'chatgpt' }),
+      });
+      const json = await res.json();
+      if (!res.ok || json?.error) {
+        setCodexError(typeof json?.error === 'string' ? json.error : `HTTP ${res.status}`);
+        return;
+      }
+      setCodexLoginStart(json?.login ?? null);
+    } catch (err) {
+      setCodexError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setCodexLoggingIn(false);
+    }
+  }, []);
+
+  const handleCodexLoginCancel = useCallback(async () => {
+    if (codexLoginStart && codexLoginStart.type !== 'apiKey') {
+      try {
+        await fetch(
+          `/api/codex/login?loginId=${encodeURIComponent(codexLoginStart.loginId)}`,
+          { method: 'DELETE' },
+        );
+      } catch { /* best effort */ }
+    }
+    setCodexLoginStart(null);
+  }, [codexLoginStart]);
+
+  const handleCodexLoginComplete = useCallback(() => {
+    setCodexLoginStart(null);
+    fetchCodexAccount();
+    fetchModels();
+    window.dispatchEvent(new Event('provider-changed'));
+  }, [fetchCodexAccount, fetchModels]);
+
+  const handleCodexLogout = useCallback(async () => {
+    try {
+      await fetch('/api/codex/account', { method: 'DELETE' });
+      setCodexAccount({ kind: 'logged_out' });
+      setCodexRateLimits(null);
+      fetchModels();
+      window.dispatchEvent(new Event('provider-changed'));
+    } catch { /* ignore */ }
+  }, [fetchModels]);
 
   const sorted = [...providers].sort((a, b) => a.sort_order - b.sort_order);
 
@@ -883,29 +976,73 @@ export function ProviderManager() {
                     actually connected. The unsigned entry lives in the Add
                     Service full-screen flow, so the default page stays
                     "已连接服务" only and the empty-state can still trigger. */}
-                {openaiAuth?.authenticated && (
+                {(openaiAuth?.authenticated || codexAccount?.kind === 'logged_in') && (
                   <section className="space-y-3">
                     <h4 className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">
                       {t('provider.categoryOAuth')}
                     </h4>
                     <div className="grid gap-4 grid-cols-1 md:grid-cols-2">
-                      <ProviderCard
-                        isZh={isZh}
-                        data={{
-                          icon: getProviderIcon('OpenAI', ''),
-                          name: 'OpenAI',
-                          status: 'available',
-                          statusLabel: openaiAuth.plan || (isZh ? '已登录' : 'Signed in'),
-                          compat: 'codepilot_only',
-                          info: [
-                            ...(openaiAuth.plan ? [{ label: isZh ? '订阅' : 'Plan', value: openaiAuth.plan }] : []),
-                            ...(openaiAuth.email ? [{ label: isZh ? '账号' : 'Account', value: openaiAuth.email }] : []),
-                          ],
-                        }}
-                        onDelete={handleOpenAILogout}
-                      />
+                      {openaiAuth?.authenticated && (
+                        <ProviderCard
+                          isZh={isZh}
+                          data={{
+                            icon: getProviderIcon('OpenAI', ''),
+                            name: 'OpenAI',
+                            status: 'available',
+                            statusLabel: openaiAuth.plan || (isZh ? '已登录' : 'Signed in'),
+                            compat: 'codepilot_only',
+                            info: [
+                              ...(openaiAuth.plan ? [{ label: isZh ? '订阅' : 'Plan', value: openaiAuth.plan }] : []),
+                              ...(openaiAuth.email ? [{ label: isZh ? '账号' : 'Account', value: openaiAuth.email }] : []),
+                            ],
+                          }}
+                          onDelete={handleOpenAILogout}
+                        />
+                      )}
+                      {codexAccount?.kind === 'logged_in' && (
+                        <ProviderCard
+                          isZh={isZh}
+                          data={{
+                            icon: getProviderIcon('OpenAI', ''),
+                            name: isZh ? 'Codex 账户' : 'Codex Account',
+                            status: 'available',
+                            // Phase 6 IA correction (2026-05-14): show
+                            // planType-only as the headline. Earlier
+                            // builds put `type: chatgpt` here, which
+                            // users read as "plan = chatgpt" — confusing
+                            // because type is the *login method*, not
+                            // the subscription tier.
+                            statusLabel: codexAccount.account.planType
+                              || (isZh ? '已登录' : 'Signed in'),
+                            compat: 'codex_account',
+                            info: [
+                              ...(codexAccount.account.email
+                                ? [{ label: isZh ? '账号' : 'Account', value: codexAccount.account.email }]
+                                : []),
+                              ...(codexAccount.account.planType
+                                ? [{ label: isZh ? '套餐' : 'Plan', value: codexAccount.account.planType }]
+                                : []),
+                              {
+                                // Renamed from "类型" / "Type" — the
+                                // chatgpt/apiKey/amazonBedrock value is
+                                // how you *signed in*, not your plan.
+                                label: isZh ? '登录方式' : 'Login method',
+                                value: codexAccount.account.type,
+                              },
+                            ],
+                          }}
+                          onDelete={handleCodexLogout}
+                        >
+                          {codexRateLimits && (
+                            <CodexQuotaWidget snapshot={codexRateLimits} isZh={isZh} />
+                          )}
+                        </ProviderCard>
+                      )}
                       {openaiError && (
                         <p className="text-[11px] text-destructive col-span-full">{openaiError}</p>
+                      )}
+                      {codexError && (
+                        <p className="text-[11px] text-destructive col-span-full">{codexError}</p>
                       )}
                     </div>
                   </section>
@@ -1036,6 +1173,21 @@ export function ProviderManager() {
                   onClick: () => { setAddServiceOpen(false); handleOpenAILogin(); },
                   connected: !!openaiAuth?.authenticated,
                 },
+                {
+                  // Phase 5 Phase 6 IA correction (2026-05-14) — Codex
+                  // Account joins OAuth-style entries. Login flow ≠
+                  // OpenAI OAuth's window.open() path; we kick the
+                  // /api/codex/login RPC and render the returned
+                  // authUrl as an explicit click-to-open link in a
+                  // dialog. No silent browser navigation.
+                  key: 'codex-account',
+                  name: 'Codex Account',
+                  description: 'Sign in to Codex with ChatGPT Plus/Pro — gpt-5.5 etc.',
+                  descriptionZh: '登录 Codex（ChatGPT Plus/Pro 账户）— 可使用 gpt-5.5 等',
+                  icon: getProviderIcon('OpenAI', ''),
+                  onClick: () => { setAddServiceOpen(false); void handleCodexLogin(); },
+                  connected: codexAccount?.kind === 'logged_in',
+                },
               ];
 
               const renderPresetButton = (preset: QuickPreset) => (
@@ -1140,6 +1292,87 @@ export function ProviderManager() {
             })()}
             </div>
           </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Codex Account login dialog — Phase 5 Phase 6 IA correction.
+          Mirrors what CodexPanel briefly shipped before the IA
+          correction: explicit click-to-open authUrl, no window.open. */}
+      <Dialog open={!!codexLoginStart} onOpenChange={(open) => { if (!open) void handleCodexLoginCancel(); }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>{isZh ? '登录 Codex' : 'Login to Codex'}</DialogTitle>
+            <DialogDescription>
+              {isZh
+                ? '在浏览器中完成登录后，回到这里点击「我已完成登录」。'
+                : 'Complete login in your browser, then click "I’ve completed login" below.'}
+            </DialogDescription>
+          </DialogHeader>
+          {codexLoginStart?.type === 'chatgpt' && (
+            <div className="flex flex-col gap-3">
+              <a
+                href={codexLoginStart.authUrl}
+                target="_blank"
+                rel="noreferrer noopener"
+                className="text-xs font-mono break-all text-primary hover:underline inline-flex items-start gap-1.5 rounded-md bg-muted/40 px-3 py-2"
+              >
+                <ArrowSquareOut size={14} className="mt-0.5 shrink-0" />
+                <span>{codexLoginStart.authUrl}</span>
+              </a>
+              <div className="flex justify-end gap-2">
+                <Button variant="ghost" size="sm" onClick={() => void handleCodexLoginCancel()}>
+                  {isZh ? '取消' : 'Cancel'}
+                </Button>
+                <Button size="sm" onClick={handleCodexLoginComplete}>
+                  {isZh ? '我已完成登录' : 'I’ve completed login'}
+                </Button>
+              </div>
+            </div>
+          )}
+          {codexLoginStart?.type === 'chatgptDeviceCode' && (
+            <div className="flex flex-col gap-3">
+              <a
+                href={codexLoginStart.verificationUrl}
+                target="_blank"
+                rel="noreferrer noopener"
+                className="text-xs font-mono break-all text-primary hover:underline inline-flex items-start gap-1.5 rounded-md bg-muted/40 px-3 py-2"
+              >
+                <ArrowSquareOut size={14} className="mt-0.5 shrink-0" />
+                <span>{codexLoginStart.verificationUrl}</span>
+              </a>
+              <div className="rounded bg-card border border-border/60 px-3 py-2 flex items-center justify-between gap-2">
+                <span className="text-xs text-muted-foreground">{isZh ? '设备码' : 'Device code'}</span>
+                <span className="font-mono text-sm font-semibold tracking-wider">{codexLoginStart.userCode}</span>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => { void navigator.clipboard.writeText(codexLoginStart.userCode); }}
+                  aria-label={isZh ? '复制' : 'Copy'}
+                >
+                  <Copy size={12} />
+                </Button>
+              </div>
+              <div className="flex justify-end gap-2">
+                <Button variant="ghost" size="sm" onClick={() => void handleCodexLoginCancel()}>
+                  {isZh ? '取消' : 'Cancel'}
+                </Button>
+                <Button size="sm" onClick={handleCodexLoginComplete}>
+                  {isZh ? '我已完成登录' : 'I’ve completed login'}
+                </Button>
+              </div>
+            </div>
+          )}
+          {codexLoginStart?.type === 'apiKey' && (
+            <div className="flex flex-col gap-3">
+              <p className="text-xs text-foreground/85">
+                <CheckCircle size={12} weight="fill" className="inline-block mr-1 text-status-success-foreground" />
+                {isZh ? 'API key 已保存，可以关闭此对话框。' : 'API key saved. You can close this dialog.'}
+              </p>
+              <div className="flex justify-end">
+                <Button size="sm" onClick={handleCodexLoginComplete}>{isZh ? '完成' : 'Done'}</Button>
+              </div>
+            </div>
+          )}
         </DialogContent>
       </Dialog>
 

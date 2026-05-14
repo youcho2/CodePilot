@@ -206,3 +206,44 @@ export type CodexAvailability =
  * README §Initialization: enterprise reporting routes by clientInfo.name.
  */
 export const CODEX_CLIENT_NAME = 'codex_codepilot' as const;
+
+// ─────────────────────────────────────────────────────────────────────
+// Rate limits
+//
+// Mirror of upstream `v2/RateLimitSnapshot.ts` narrowed to what the
+// CodePilot UI surfaces. Upstream only reports `usedPercent` + a reset
+// timestamp per window (no absolute remaining tokens), so the UI text
+// must read "剩余 X%" / "rolls over in Y", not "X tokens remaining".
+//
+// Phase 5 Phase 6 (2026-05-14) — adds the quota widget in Providers'
+// virtual Codex Account card.
+// ─────────────────────────────────────────────────────────────────────
+
+export interface CodexRateLimitWindow {
+  /** 0–100. UI displays as "已用 X%" / "剩余 (100−X)%". */
+  usedPercent: number;
+  /** Length of the rolling window in minutes (5h = 300, 7d = 10080). */
+  windowDurationMins?: number;
+  /** Epoch seconds when the window rolls over. UI renders as relative time. */
+  resetsAt?: number;
+}
+
+export interface CodexRateLimitCredits {
+  hasCredits: boolean;
+  unlimited: boolean;
+  /**
+   * Upstream sends `balance` as a decimal string ("0.42"). We pass it
+   * through unparsed because UI rendering decides locale + precision.
+   */
+  balance?: string;
+}
+
+export interface CodexRateLimitSnapshot {
+  primary?: CodexRateLimitWindow;
+  secondary?: CodexRateLimitWindow;
+  credits?: CodexRateLimitCredits;
+  /** From the snapshot itself; may differ from account.planType during plan changes. */
+  planType?: string;
+  /** Non-null when the user is currently rate-limited. */
+  rateLimitReachedType?: string;
+}

@@ -80,16 +80,21 @@ import {
   computeEffectiveRuntime,
   resolveNewChatDefault,
   runtimeDisplayLabel,
+  type AgentRuntime,
 } from "@/lib/runtime/effective";
 import type { TranslationKey } from "@/i18n";
 import type { ProviderOptions } from "@/types";
+import type { CodexAvailability } from "@/lib/codex/types";
 import { cn } from "@/lib/utils";
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
-type AgentRuntime = "claude-code-sdk" | "native";
+// `AgentRuntime` is imported from `@/lib/runtime/effective` so RuntimePanel
+// shares the canonical three-engine union ('claude-code-sdk' | 'native'
+// | 'codex_runtime'). The local alias used to be a 2-value duplicate;
+// Phase 6 IA correction (2026-05-14) consolidated to a single source.
 
 /**
  * Five-state runtime status. Each state pairs with reason / impact /
@@ -349,6 +354,40 @@ export function RuntimePanel() {
   const { status: claudeStatus, refresh: refreshStatus, invalidateAndRefresh } = useClaudeStatus();
   const [upgrading, setUpgrading] = useState(false);
 
+  // ── Codex Runtime status (app-server detection) ──
+  // Phase 5 Phase 6 IA correction (2026-05-14) — Codex Runtime joins
+  // Claude Code + CodePilot Runtime as a peer engine. Polling
+  // /api/codex/status is non-destructive (doesn't spawn the binary)
+  // so the panel can keep state in sync with the user's environment.
+  const [codexAvailability, setCodexAvailability] = useState<CodexAvailability>({ kind: "unknown" });
+  const [codexStatusLoading, setCodexStatusLoading] = useState(false);
+  const [codexStatusTick, setCodexStatusTick] = useState(0);
+  useEffect(() => {
+    let cancelled = false;
+    setCodexStatusLoading(true);
+    (async () => {
+      try {
+        const res = await fetch("/api/codex/status", { cache: "no-store" });
+        const json = await res.json();
+        if (!cancelled && json?.availability) {
+          setCodexAvailability(json.availability as CodexAvailability);
+        }
+      } catch (err) {
+        if (!cancelled) {
+          const reason = err instanceof Error ? err.message : String(err);
+          setCodexAvailability({ kind: "spawn_failed", reason });
+        }
+      } finally {
+        if (!cancelled) setCodexStatusLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [codexStatusTick]);
+  const refreshCodexStatus = useCallback(() => setCodexStatusTick((t) => t + 1), []);
+  const codexConnected = codexAvailability.kind === "ready";
+
   // ── Model options (env provider) — applies when Claude Code 引擎 selected ──
   const [thinkingMode, setThinkingMode] = useState("adaptive");
   const [context1m, setContext1m] = useState(false);
@@ -593,7 +632,11 @@ export function RuntimePanel() {
   // ── Engine selector handler ──
   const handleRuntimeChange = async (value: AgentRuntime) => {
     setAgentRuntime(value);
-    const cliEnabledValue = value === "native" ? "false" : "true";
+    // Phase 5 Phase 6 IA correction (2026-05-14) — only Claude Code
+    // needs the CLI subprocess. CodePilot Runtime AND Codex Runtime
+    // both run independently of the Claude CLI; cli_enabled=false in
+    // both cases so the registry doesn't spawn it unnecessarily.
+    const cliEnabledValue = value === "claude-code-sdk" ? "true" : "false";
     setCliEnabled(cliEnabledValue === "true");
 
     // Clear stale explainer state immediately so the user doesn't see
@@ -884,6 +927,78 @@ export function RuntimePanel() {
   }, [connected, hasWarnings, updateAvailable, effectiveRuntime, isZh]);
 
   /**
+   * Codex Runtime — Phase 5 Phase 6 IA correction (2026-05-14).
+   * Availability is gated on the codex binary + a successful
+   * `initialize` handshake. Codex doesn't fall back; if it's
+   * selected but unavailable, send-time fails closed (see
+   * claude-client.ts Round 5 guardrail).
+   */
+  const codexRuntimeStatus: RuntimeStatusInfo = useMemo(() => {
+    const isSelected = effectiveRuntime === "codex_runtime";
+    if (codexAvailability.kind === "not_installed") {
+      return {
+        state: "blocked",
+        reason: isZh
+          ? "未在 PATH 上检测到 codex 命令"
+          : "codex binary not detected on PATH",
+        impact: isZh
+          ? "Codex 账户模型（gpt-5.5 等）无法使用；选择 Codex Runtime 后发送会失败"
+          : "Codex Account models (gpt-5.5 etc.) are unavailable; selecting Codex Runtime fails at send time",
+        recovery: isZh
+          ? "按 Codex 官方指引安装 codex CLI，或设置 CODEX_BIN 指向自定义路径"
+          : "Install codex CLI per the official guide, or set CODEX_BIN to point at a custom binary",
+      };
+    }
+    if (codexAvailability.kind === "too_old") {
+      return {
+        state: "degraded",
+        reason: isZh
+          ? `检测到的 Codex 版本 ${codexAvailability.version} 低于最低 ${codexAvailability.minimum}`
+          : `Detected Codex ${codexAvailability.version} below required minimum ${codexAvailability.minimum}`,
+        impact: isZh
+          ? "部分能力可能不可用，建议升级 codex CLI 后再使用"
+          : "Some capabilities may be unavailable; please upgrade codex CLI",
+        recovery: isZh ? "升级 codex CLI 到最新版本" : "Upgrade codex CLI to the latest version",
+      };
+    }
+    if (codexAvailability.kind === "spawn_failed") {
+      return {
+        state: "blocked",
+        reason: isZh ? `Codex 应用服务启动失败：${codexAvailability.reason}` : `Codex app-server spawn failed: ${codexAvailability.reason}`,
+        impact: isZh
+          ? "Codex 账户模型无法使用；查看终端日志获取详细错误"
+          : "Codex Account models unavailable; check terminal logs for details",
+        recovery: isZh ? "点右上角刷新重试，或重启 CodePilot" : "Click refresh in the top right, or restart CodePilot",
+      };
+    }
+    if (codexAvailability.kind === "ready") {
+      return isSelected
+        ? {
+            state: "selected",
+            reason: isZh
+              ? "Codex 应用服务已就绪并被设为默认引擎"
+              : "Codex app-server is ready and set as the default engine",
+            impact: isZh
+              ? "新会话默认走 Codex Runtime，使用 Codex 账户模型（其他服务商模型暂不可用）"
+              : "New chats run on Codex Runtime with Codex Account models (other providers not yet supported)",
+          }
+        : {
+            state: "available",
+            reason: isZh ? "Codex 应用服务已就绪但未被设为默认" : "Codex app-server is ready but not the default engine",
+            impact: isZh
+              ? "想用 Codex 账户模型作为默认，把上方「默认引擎」切到 Codex Runtime"
+              : 'Switch the "Default engine" selector above to use Codex Runtime',
+          };
+    }
+    // unknown — initial fetch still pending
+    return {
+      state: "available",
+      reason: isZh ? "正在检测 Codex 应用服务状态…" : "Detecting Codex app-server status…",
+      impact: isZh ? "状态会在后台轮询后刷新" : "Status updates after background polling",
+    };
+  }, [codexAvailability, effectiveRuntime, isZh]);
+
+  /**
    * CodePilot Runtime is bundled and always available; the only thing
    * that can change is whether it's selected as default.
    */
@@ -926,8 +1041,16 @@ export function RuntimePanel() {
     // (request failed or older API version).
     const apiSaid = resolvedRuntimeFromApi;
     // Normalize the API's underscore form to the canonical agent_runtime spelling.
+    // Phase 6 IA correction (2026-05-14): codex_runtime is identity (the
+    // canonical RuntimeId matches the registry id for Codex per Phase 3).
     const apiNormalized: AgentRuntime | null =
-      apiSaid === "claude_code" ? "claude-code-sdk" : apiSaid === "codepilot_runtime" ? "native" : null;
+      apiSaid === "claude_code"
+        ? "claude-code-sdk"
+        : apiSaid === "codepilot_runtime"
+          ? "native"
+          : apiSaid === "codex_runtime"
+            ? "codex_runtime"
+            : null;
     const resolvedRuntime = apiNormalized ?? effectiveRuntime;
     const resolvedLabel = runtimeDisplayLabel(resolvedRuntime);
 
@@ -1007,14 +1130,13 @@ export function RuntimePanel() {
             </span>
           </div>
         )}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <EnginePickerCard
             engine="claude-code-sdk"
             selected={effectiveRuntime === "claude-code-sdk"}
             onSelect={() => handleRuntimeChange("claude-code-sdk")}
-            // Both cards now end in "Runtime" so the picker reads as
-            // two parallel agent engines, not "a Claude product vs an
-            // SDK." The vendor name moves into the subtitle.
+            // All three cards end in "Runtime" / "引擎" so the picker
+            // reads as three parallel agent engines.
             title="Claude Code 引擎"
             tagline={isZh ? "Anthropic 官方 CLI" : "Anthropic official CLI"}
             pitch={isZh
@@ -1041,6 +1163,29 @@ export function RuntimePanel() {
               : "CodePilot calls provider APIs directly. Built for multi-provider, observable, recoverable runs — context and permissions stay inside CodePilot, no external CLI required."}
             statusKind="ok"
             statusText={isZh ? "随应用自带，始终可用" : "Bundled with the app, always available"}
+            isZh={isZh}
+          />
+          <EnginePickerCard
+            engine="codex_runtime"
+            selected={effectiveRuntime === "codex_runtime"}
+            onSelect={() => handleRuntimeChange("codex_runtime")}
+            title="Codex Runtime"
+            tagline={isZh ? "OpenAI Codex 应用服务" : "OpenAI Codex app-server"}
+            pitch={isZh
+              ? "通过 Codex 应用服务调用 ChatGPT 账户内置模型（如 gpt-5.5）。账户额度由 ChatGPT 套餐承担，目前仅支持 Codex 账户模型。"
+              : "Routes through the Codex app-server to use Codex Account models (gpt-5.5 etc.). Quota comes from your ChatGPT plan; currently only Codex Account models are supported."}
+            statusKind={codexConnected ? "ok" : "warning"}
+            statusText={
+              codexConnected
+                ? (isZh ? "已就绪" : "Ready")
+                : codexAvailability.kind === "not_installed"
+                  ? (isZh ? "未安装 codex CLI — 选用后无法发送" : "codex CLI not installed — sends will fail")
+                  : codexAvailability.kind === "spawn_failed"
+                    ? (isZh ? "应用服务启动失败" : "App-server failed to start")
+                    : codexAvailability.kind === "too_old"
+                      ? (isZh ? "版本过旧" : "Version too old")
+                      : (isZh ? "检测中…" : "Detecting…")
+            }
             isZh={isZh}
           />
         </div>
@@ -1467,6 +1612,98 @@ export function RuntimePanel() {
             </TabsContent>
           </Tabs>
         </details>
+      </RuntimeCard>
+
+      {/* ── Codex Runtime card ───────────────────────────────────────
+           Phase 5 Phase 6 IA correction (2026-05-14). Surfaces the
+           app-server detail (binary status / version / Codex home) and
+           a jump-link to Providers + Models where Codex Account
+           login + models live. Doesn't duplicate that data here. */}
+      <RuntimeCard name="Codex Runtime" state={codexRuntimeStatus.state} isZh={isZh}>
+        <RuntimeStatusExplanation info={codexRuntimeStatus} isZh={isZh} />
+
+        {/* App-server status row */}
+        <div className="rounded-md bg-muted/40 px-3.5 divide-y divide-border/50">
+          <div className="py-2.5 flex items-center justify-between gap-3">
+            <span className="text-[11px] text-muted-foreground shrink-0">
+              {isZh ? "应用服务" : "App-server"}
+            </span>
+            <div className="flex items-center gap-2">
+              {codexAvailability.kind === "ready" ? (
+                <>
+                  <CheckCircle size={14} className="text-status-success-foreground" />
+                  <span className="text-xs text-muted-foreground font-mono">
+                    {codexAvailability.version}
+                  </span>
+                </>
+              ) : codexAvailability.kind === "not_installed" ? (
+                <>
+                  <XCircle size={14} className="text-status-error-foreground" />
+                  <span className="text-xs text-muted-foreground">
+                    {isZh ? "未安装" : "Not installed"}
+                  </span>
+                </>
+              ) : codexAvailability.kind === "too_old" ? (
+                <>
+                  <Warning size={14} weight="fill" className="text-status-warning-foreground" />
+                  <span className="text-xs text-muted-foreground font-mono">
+                    {codexAvailability.version}
+                  </span>
+                </>
+              ) : codexAvailability.kind === "spawn_failed" ? (
+                <>
+                  <XCircle size={14} className="text-status-error-foreground" />
+                  <span className="text-xs text-muted-foreground">
+                    {isZh ? "启动失败" : "Spawn failed"}
+                  </span>
+                </>
+              ) : (
+                <>
+                  <SpinnerGap size={14} className="animate-spin text-muted-foreground" />
+                  <span className="text-xs text-muted-foreground">
+                    {isZh ? "检测中…" : "Detecting…"}
+                  </span>
+                </>
+              )}
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-6 w-6 p-0"
+                onClick={refreshCodexStatus}
+                disabled={codexStatusLoading}
+                aria-label={isZh ? "刷新" : "Refresh"}
+              >
+                <ArrowClockwise size={12} />
+              </Button>
+            </div>
+          </div>
+          {codexAvailability.kind === "ready" && (
+            <div className="py-2.5 flex items-center justify-between gap-3">
+              <span className="text-[11px] text-muted-foreground shrink-0">
+                {isZh ? "Codex 目录" : "Codex home"}
+              </span>
+              <span className="text-xs text-muted-foreground font-mono break-all text-right">
+                {codexAvailability.codexHome}
+              </span>
+            </div>
+          )}
+        </div>
+
+        {/* Jump links to where account / models live — keeps IA flat:
+            Codex Account belongs in Providers, Codex Account models in
+            Models, not duplicated inside this card. */}
+        <div className="flex flex-wrap gap-2 justify-end">
+          <Button variant="ghost" size="sm" className="h-7 text-xs gap-1" asChild>
+            <a href="/settings/providers">
+              {isZh ? "查看 Codex 账户 →" : "View Codex account →"}
+            </a>
+          </Button>
+          <Button variant="ghost" size="sm" className="h-7 text-xs gap-1" asChild>
+            <a href="/settings/models">
+              {isZh ? "查看 Codex 模型 →" : "View Codex models →"}
+            </a>
+          </Button>
+        </div>
       </RuntimeCard>
 
       {/* ── CodePilot Runtime card ────────────────────────────────────── */}

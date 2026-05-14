@@ -21,6 +21,8 @@
 import type {
   CodexAccount,
   CodexAccountState,
+  CodexRateLimitSnapshot,
+  CodexRateLimitWindow,
   JsonRpcMessage,
 } from './types';
 import { getCodexAppServer } from './app-server-manager';
@@ -172,6 +174,67 @@ export async function cancelCodexLogin(loginId: string): Promise<void> {
 export async function logoutCodex(): Promise<void> {
   const { client } = await getCodexAppServer();
   await client.request('account/logout');
+}
+
+/**
+ * Fetch the current Codex Account rate-limits snapshot.
+ *
+ * Upstream JSON-RPC method: `account/rateLimits/read`. Returns the
+ * backward-compatible single-bucket view (`rateLimits`); a future
+ * extension can surface `rateLimitsByLimitId` if multi-bucket display
+ * lands. Narrows the upstream nullable shape into the optional-field
+ * `CodexRateLimitSnapshot` consumed by the Settings UI.
+ *
+ * Returns `null` when the snapshot is absent (e.g. logged-out users
+ * before the server has a response). Throws on RPC errors so the
+ * caller can decide whether to fail-soft (Settings card) or surface
+ * (a sync-button error toast).
+ */
+export async function readCodexRateLimits(): Promise<CodexRateLimitSnapshot | null> {
+  const { client } = await getCodexAppServer();
+  const result = await client.request<{
+    rateLimits: {
+      limitId: string | null;
+      limitName: string | null;
+      primary:
+        | { usedPercent: number; windowDurationMins: number | null; resetsAt: number | null }
+        | null;
+      secondary:
+        | { usedPercent: number; windowDurationMins: number | null; resetsAt: number | null }
+        | null;
+      credits: { hasCredits: boolean; unlimited: boolean; balance: string | null } | null;
+      planType: string | null;
+      rateLimitReachedType: string | null;
+    } | null;
+  }>('account/rateLimits/read', {});
+
+  const rl = result.rateLimits;
+  if (!rl) return null;
+
+  const toWindow = (
+    w: { usedPercent: number; windowDurationMins: number | null; resetsAt: number | null } | null,
+  ): CodexRateLimitWindow | undefined => {
+    if (!w) return undefined;
+    return {
+      usedPercent: w.usedPercent,
+      windowDurationMins: w.windowDurationMins ?? undefined,
+      resetsAt: w.resetsAt ?? undefined,
+    };
+  };
+
+  return {
+    primary: toWindow(rl.primary),
+    secondary: toWindow(rl.secondary),
+    credits: rl.credits
+      ? {
+          hasCredits: rl.credits.hasCredits,
+          unlimited: rl.credits.unlimited,
+          balance: rl.credits.balance ?? undefined,
+        }
+      : undefined,
+    planType: rl.planType ?? undefined,
+    rateLimitReachedType: rl.rateLimitReachedType ?? undefined,
+  };
 }
 
 // Re-export JsonRpcMessage so external consumers (tests) can typecheck
