@@ -324,6 +324,74 @@ describe('Models page — Codex Account read-only block (IA correction)', () => 
 });
 
 // ─────────────────────────────────────────────────────────────────────
+// Chat composer RuntimeSelector — codex_runtime stickiness (IA round 3)
+//
+// Pre-round-3 the chat composer hard-coded a binary ternary
+// `=== 'claude-code-sdk' ? 'claude_code' : 'codepilot_runtime'` at two
+// callsites and `useGlobalAgentRuntime` only typed two values. With
+// `agent_runtime='codex_runtime'` stored, the RuntimeSelector trigger
+// rendered "Claude Code" while Models / Settings already agreed Codex
+// was the default. Round 3 expanded the hook + extracted the registry-id
+// → ChatRuntime mapping into `agentRuntimeToChatRuntime()` and pins the
+// new wiring here so the binary ternary can't slip back in.
+// ─────────────────────────────────────────────────────────────────────
+
+describe('Chat composer RuntimeSelector — codex_runtime support (IA round 3)', () => {
+  it('useGlobalAgentRuntime preserves codex_runtime (not coerced to claude-code-sdk)', () => {
+    const hookSrc = fs.readFileSync(
+      path.join(repoRoot, 'hooks/useGlobalAgentRuntime.ts'),
+      'utf8',
+    );
+    // The state type now lists all three registry ids.
+    assert.match(
+      hookSrc,
+      /agentRuntime:\s*["']claude-code-sdk["']\s*\|\s*["']native["']\s*\|\s*["']codex_runtime["']/,
+    );
+    // The coercion branch handles codex_runtime as a first-class value,
+    // not silently mapped to claude-code-sdk.
+    assert.match(
+      hookSrc,
+      /stored\s*===\s*["']codex_runtime["']\s*\?\s*["']codex_runtime["']/,
+    );
+    // Regression guard: the old binary coercion is gone.
+    assert.doesNotMatch(
+      hookSrc,
+      /stored\s*===\s*["']native["']\s*\?\s*["']native["']\s*:\s*["']claude-code-sdk["']/,
+    );
+  });
+
+  it('agentRuntimeToChatRuntime helper exists and maps three engines correctly', () => {
+    const sharedSrc = fs.readFileSync(
+      path.join(repoRoot, 'lib/chat-runtime-shared.ts'),
+      'utf8',
+    );
+    assert.match(sharedSrc, /export\s+function\s+agentRuntimeToChatRuntime/);
+    assert.match(sharedSrc, /stored\s*===\s*['"]native['"][\s\S]{0,80}codepilot_runtime/);
+    assert.match(sharedSrc, /stored\s*===\s*['"]codex_runtime['"][\s\S]{0,80}codex_runtime/);
+    // Default branch for 'claude-code-sdk' / 'auto' / null
+    assert.match(sharedSrc, /return\s+['"]claude_code['"]/);
+  });
+
+  it('both chat composer callsites use the helper (not inline binary ternary)', () => {
+    for (const relativePath of ['app/chat/page.tsx', 'components/chat/ChatView.tsx']) {
+      const src = fs.readFileSync(path.join(repoRoot, relativePath), 'utf8');
+      // The new wiring: helper invocation
+      assert.match(
+        src,
+        /effectiveRuntime=\{agentRuntimeToChatRuntime\(globalRuntime\.agentRuntime\)\}/,
+        `${relativePath} must call agentRuntimeToChatRuntime`,
+      );
+      // The old wiring: inline binary ternary that dropped codex_runtime
+      assert.doesNotMatch(
+        src,
+        /agentRuntime\s*===\s*['"]claude-code-sdk['"]\s*\?\s*['"]claude_code['"]\s*:\s*['"]codepilot_runtime['"]/,
+        `${relativePath} must not reintroduce the binary ternary`,
+      );
+    }
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────
 // Slice B — model picker filter + disclosure
 // ─────────────────────────────────────────────────────────────────────
 

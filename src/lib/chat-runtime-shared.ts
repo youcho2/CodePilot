@@ -67,3 +67,37 @@ export function chatRuntimeParamForSession(runtimePin: string | undefined | null
   }
   return 'auto';
 }
+
+/**
+ * Phase 5 Phase 6 IA correction round 3 (2026-05-14) — translate the
+ * stored `agent_runtime` setting (registry-id form) into the chat-side
+ * `ChatRuntime` (canonical RuntimeId form) the chat composer's
+ * `RuntimeSelector` consumes.
+ *
+ * Registry id ↔ chat-runtime label mapping:
+ *
+ *   'claude-code-sdk' → 'claude_code'        (legacy alias)
+ *   'native'          → 'codepilot_runtime'  (legacy alias)
+ *   'codex_runtime'   → 'codex_runtime'      (Phase 3 — identity)
+ *
+ * Unknown / 'auto' / null defaults to 'claude_code' so the trigger
+ * never renders empty during the first-paint window.
+ *
+ * Why this exists: pre-round-3 the chat composer hard-coded a binary
+ * ternary `=== 'claude-code-sdk' ? 'claude_code' : 'codepilot_runtime'`
+ * at two callsites (chat/page.tsx + ChatView.tsx) that completely
+ * dropped Codex Runtime. With `agent_runtime='codex_runtime'` stored,
+ * the RuntimeSelector showed "Claude Code" while Models/Settings
+ * already agreed Codex was the default — the IA-round-2 fix
+ * propagated to server-side but the chat composer's translation was
+ * stuck in two-engine days.
+ *
+ * Pure: same constraints as `chatRuntimeParamForSession`.
+ */
+export function agentRuntimeToChatRuntime(stored: string | undefined | null): ChatRuntime {
+  if (stored === 'native') return 'codepilot_runtime';
+  if (stored === 'codex_runtime') return 'codex_runtime';
+  // Default covers 'claude-code-sdk' + legacy 'auto' + undefined / null /
+  // any unknown value, matching the resolver's first-paint default.
+  return 'claude_code';
+}

@@ -24,8 +24,17 @@ import { useEffect, useState } from "react";
 export interface GlobalAgentRuntimeState {
   /** Stored `agent_runtime` setting. Defaults to `'claude-code-sdk'` —
    *  matching the same default the resolver uses when the row is
-   *  missing — so the first paint never renders an empty label. */
-  agentRuntime: "claude-code-sdk" | "native";
+   *  missing — so the first paint never renders an empty label.
+   *
+   *  Phase 5 Phase 6 IA correction round 3 (2026-05-14): includes
+   *  `'codex_runtime'` as a peer engine. The earlier binary union
+   *  silently coerced `'codex_runtime'` → `'claude-code-sdk'`, which
+   *  made the chat composer's RuntimeSelector render "Claude Code"
+   *  even when the user had picked Codex Runtime as the global
+   *  default in Settings. Callers (chat/page.tsx + ChatView.tsx) use
+   *  `agentRuntimeToChatRuntime()` to translate this into the
+   *  selector's `ChatRuntime` label. */
+  agentRuntime: "claude-code-sdk" | "native" | "codex_runtime";
   /** True until the first fetch resolves. Callers can choose to
    *  render the default label optimistically or wait. */
   loading: boolean;
@@ -45,14 +54,18 @@ export function useGlobalAgentRuntime(): GlobalAgentRuntimeState {
         .then((data) => {
           if (cancelled) return;
           const stored = data?.settings?.agent_runtime;
-          // Only `'native'` opts out; everything else (including
-          // legacy `'auto'`) coerces to `'claude-code-sdk'` so the
-          // selector label matches what `runtime/legacy.ts` would
-          // produce. This is a one-line coercion — we deliberately
-          // do NOT import `runtime/legacy` here to keep the hook's
-          // graph empty.
-          const agentRuntime: "claude-code-sdk" | "native" =
-            stored === "native" ? "native" : "claude-code-sdk";
+          // Preserve all three registry ids verbatim; coerce legacy
+          // 'auto' / unknown / null to 'claude-code-sdk' (matches the
+          // resolver's first-paint default). This stays a one-line
+          // coercion — we deliberately do NOT import `runtime/legacy`
+          // here to keep the hook's compile graph empty (the
+          // chat-static-graph test pins that constraint).
+          const agentRuntime: "claude-code-sdk" | "native" | "codex_runtime" =
+            stored === "native"
+              ? "native"
+              : stored === "codex_runtime"
+                ? "codex_runtime"
+                : "claude-code-sdk";
           setState({ agentRuntime, loading: false });
         })
         .catch(() => {

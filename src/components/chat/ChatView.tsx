@@ -55,7 +55,7 @@ import { useProviderModels } from '@/hooks/useProviderModels';
 // 'async_hooks'". `chat-runtime-shared` only ships the pure helpers /
 // types and is safe for client components. See
 // `src/lib/chat-runtime-shared.ts` doc-block for the full rationale.
-import { chatRuntimeParamForSession } from '@/lib/chat-runtime-shared';
+import { chatRuntimeParamForSession, agentRuntimeToChatRuntime } from '@/lib/chat-runtime-shared';
 import { useContextUsage } from '@/hooks/useContextUsage';
 import {
   startStream,
@@ -1482,7 +1482,7 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
             <ModeIndicator mode={mode} onModeChange={handleModeChange} disabled={isStreaming} />
             <RuntimeSelector
               runtimePin={runtimePin}
-              effectiveRuntime={globalRuntime.agentRuntime === 'claude-code-sdk' ? 'claude_code' : 'codepilot_runtime'}
+              effectiveRuntime={agentRuntimeToChatRuntime(globalRuntime.agentRuntime)}
               onRuntimePinChange={handleRuntimePinChange}
               disabled={isStreaming}
             />

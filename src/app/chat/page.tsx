@@ -9,7 +9,7 @@ import { ChatComposerActionBar } from '@/components/chat/ChatComposerActionBar';
 import { ModeIndicator } from '@/components/chat/ModeIndicator';
 import { ChatPermissionSelector } from '@/components/chat/ChatPermissionSelector';
 import { RuntimeSelector } from '@/components/chat/RuntimeSelector';
-import { chatRuntimeParamForSession } from '@/lib/chat-runtime-shared';
+import { chatRuntimeParamForSession, agentRuntimeToChatRuntime } from '@/lib/chat-runtime-shared';
 import type { ChatRuntime } from '@/lib/chat-runtime-shared';
 import { PermissionPrompt } from '@/components/chat/PermissionPrompt';
 import { ChatEmptyState } from '@/components/chat/ChatEmptyState';
@@ -1176,7 +1176,7 @@ function NewChatPageInner() {
             <ModeIndicator mode={mode} onModeChange={setMode} disabled={isStreaming} />
             <RuntimeSelector
               runtimePin={runtimePin}
-              effectiveRuntime={globalRuntime.agentRuntime === 'claude-code-sdk' ? 'claude_code' : 'codepilot_runtime'}
+              effectiveRuntime={agentRuntimeToChatRuntime(globalRuntime.agentRuntime)}
               onRuntimePinChange={(pin: ChatRuntime) => setRuntimePin(pin)}
               disabled={isStreaming}
             />
