@@ -44,12 +44,63 @@ import {
 import { getProviderCompatFromApi } from '@/lib/runtime-compat';
 import { makeErrorResult, classifyUpstreamError } from './errors';
 import { createUnifiedAdapter } from './unified-adapter';
+import type { ProviderRuntimeCompat } from '@/types';
 import type {
   ProxyHandlerInput,
   ProxyResult,
   ResponsesRequestBody,
   ResponsesErrorPayload,
 } from './types';
+
+/**
+ * Virtual providers that DON'T live in the `api_providers` table but
+ * DO surface under `/api/providers/models?runtime=codex_runtime` — the
+ * proxy must therefore resolve them by id WITHOUT a DB lookup.
+ *
+ *   openai-oauth   ChatGPT OAuth login (Codex API). Wire format is
+ *                  OpenAI-compatible Responses-API; routed through the
+ *                  openai_compatible adapter family. `createModel`
+ *                  already handles this virtual id by building a
+ *                  `createOpenAI` model with a custom fetch + OAuth
+ *                  token injection (see ai-provider.ts `useResponsesApi`).
+ *
+ *   codex_account  Codex Account login. Wire format goes through
+ *                  Codex's own app-server thread/turn flow, NOT through
+ *                  the proxy. If this id reaches the proxy that's a
+ *                  routing bug (the Codex runtime should have called
+ *                  thread/start without a codepilot_proxy injection).
+ *                  Defensive entry so the failure surfaces clearly
+ *                  rather than as a stale `provider_not_found`.
+ *
+ * Mirror of the surfaces in `src/app/api/providers/models/route.ts`
+ * lines ~315–347. Any new virtual provider added there MUST be added
+ * here too so the proxy can resolve it; the API-contract test below
+ * pins that invariant.
+ */
+interface VirtualProviderEntry {
+  displayName: string;
+  compat: ProviderRuntimeCompat;
+  /** When true, this id should never have been routed through the
+   *  proxy at all — surface a clear routing-bug error. */
+  routingBug?: true;
+}
+
+const VIRTUAL_PROVIDERS: Record<string, VirtualProviderEntry> = {
+  'openai-oauth': {
+    displayName: 'OpenAI OAuth (Codex API)',
+    compat: 'codepilot_only',
+  },
+  codex_account: {
+    displayName: 'Codex Account',
+    compat: 'codex_account',
+    routingBug: true,
+  },
+};
+
+/** Exposed for the API-contract regression test. */
+export function getProxyResolvableProviderIds(extraDbIds: string[]): Set<string> {
+  return new Set<string>([...Object.keys(VIRTUAL_PROVIDERS), ...extraDbIds]);
+}
 
 /**
  * Per-adapter handler signature. The adapter receives the parsed
@@ -114,65 +165,90 @@ export function registerAdapter(family: AdapterFamily, adapter: ResponsesAdapter
 export async function handleProxyRequest(
   input: ProxyHandlerInput,
 ): Promise<ProxyResult> {
-  // 1. Provider lookup.
+  // 1. Target-header check.
   if (!input.targetProviderId) {
     return makeErrorResult(
       'provider_not_targeted',
       'Codex proxy invoked without the x-codepilot-target-provider header. The runtime config injection should set this — check `buildCodexProviderProxyInjection` wiring.',
     );
   }
-  const dbProvider = getProvider(input.targetProviderId);
-  if (!dbProvider) {
-    return makeErrorResult(
-      'provider_not_found',
-      `Target CodePilot provider not found: ${input.targetProviderId}.`,
-      { providerId: input.targetProviderId },
-    );
+
+  // 2. Identify the provider. The API route exposes BOTH DB-backed
+  //    providers AND a small set of virtual providers (openai-oauth,
+  //    codex_account) under `runtime=codex_runtime`. The proxy must
+  //    resolve every id it surfaced — otherwise the UI would show a
+  //    provider, the user would pick it, and the send would fail
+  //    here with provider_not_found. Virtual providers don't have an
+  //    ApiProvider record; we carry their compat tier from the
+  //    VIRTUAL_PROVIDERS registry above and let provider-resolver
+  //    build the ResolvedProvider via its own virtual-provider hooks
+  //    (`buildOpenAIOAuthResolution`, `buildCodexAccountResolution`).
+  const virtual = VIRTUAL_PROVIDERS[input.targetProviderId];
+  let providerName: string;
+  let compat: ProviderRuntimeCompat;
+  if (virtual) {
+    if (virtual.routingBug) {
+      return makeErrorResult(
+        'internal_error',
+        `Virtual provider "${virtual.displayName}" reached the Codex proxy. This provider routes through Codex's own credentials, not through the codepilot_proxy injection — CodexRuntime should call thread/start WITHOUT the proxy config for this provider.`,
+        { providerId: input.targetProviderId, compat: virtual.compat },
+      );
+    }
+    providerName = virtual.displayName;
+    compat = virtual.compat;
+  } else {
+    const dbProvider = getProvider(input.targetProviderId);
+    if (!dbProvider) {
+      return makeErrorResult(
+        'provider_not_found',
+        `Target CodePilot provider not found: ${input.targetProviderId}. (If this is a virtual provider that surfaces under runtime=codex_runtime, it must also be registered in VIRTUAL_PROVIDERS in adapter.ts.)`,
+        { providerId: input.targetProviderId },
+      );
+    }
+    providerName = dbProvider.name;
+    compat = getProviderCompatFromApi(dbProvider);
   }
 
-  // 2. Classify compat tier + adapter family.
-  const compat = getProviderCompatFromApi(dbProvider);
   const family = ADAPTER_FAMILY_BY_COMPAT[compat];
   const status = ADAPTER_STATUS_BY_COMPAT[compat];
 
-  // 3. Resolve via the canonical provider-resolver so the adapter
-  //    gets the same `ResolvedProvider` shape Native runtime uses.
-  //    The resolver fills in credentials, baseUrl, model alias →
-  //    upstream id translation, sdkType, etc.
+  // 3. Resolve via the canonical provider-resolver. Same call for
+  //    DB-backed AND virtual providers — provider-resolver already
+  //    has dedicated branches for openai-oauth / codex_account /
+  //    env / DB ids. Passing the raw target id (not a derived field)
+  //    is what lets the virtual paths kick in.
   const resolved = resolveProvider({
-    providerId: dbProvider.id,
+    providerId: input.targetProviderId,
     model: input.body.model,
   });
 
-  // 4. Credentials check. We do this before adapter dispatch so the
-  //    user sees `credentials_missing` instead of a downstream
-  //    `upstream_unauthorized` after a failed HTTP call.
+  // 4. Credentials check. Virtual providers self-report
+  //    `hasCredentials = true` and verify at call time (e.g. OAuth
+  //    token refresh inside the custom fetch), so this passes them
+  //    through. DB providers fail here when api_key is empty.
   if (!resolved.hasCredentials) {
     return makeErrorResult(
       'credentials_missing',
-      `Provider "${dbProvider.name}" has no credentials configured. Add an API key in Settings → 服务商 or remove the model from Codex thread config.`,
-      { providerId: dbProvider.id, providerName: dbProvider.name, compat },
+      `Provider "${providerName}" has no credentials configured. Add an API key in Settings → 服务商 or remove the model from Codex thread config.`,
+      { providerId: input.targetProviderId, providerName, compat },
     );
   }
 
-  // 5. Adapter-status gate. When the family's adapter is still
-  //    pending, return a structured Responses-format error rather
-  //    than a generic 501. Codex's reader treats this like any
-  //    upstream failure (shows the user the message verbatim) and
-  //    we get full visibility into "which provider hit which
-  //    missing adapter" via the context object.
+  // 5. Adapter-status gate. After Phase 5b only `unknown` hits this
+  //    branch; the message clarifies the proxy can't fingerprint the
+  //    wire format rather than implying the adapter is incomplete.
   if (status === 'pending') {
     return makeErrorResult(
       'adapter_not_implemented',
-      buildPendingMessage(family, dbProvider.name),
-      { providerId: dbProvider.id, providerName: dbProvider.name, compat, family },
+      buildPendingMessage(family, providerName),
+      { providerId: input.targetProviderId, providerName, compat, family },
     );
   }
   if (status === 'not_applicable') {
     return makeErrorResult(
       'internal_error',
-      `Provider "${dbProvider.name}" (compat=${compat}) routed to the Codex proxy but its tier doesn't go through here. This is a routing bug.`,
-      { providerId: dbProvider.id, providerName: dbProvider.name, compat },
+      `Provider "${providerName}" (compat=${compat}) routed to the Codex proxy but its tier doesn't go through here. This is a routing bug.`,
+      { providerId: input.targetProviderId, providerName, compat },
     );
   }
 

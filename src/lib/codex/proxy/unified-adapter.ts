@@ -56,13 +56,18 @@ export function createUnifiedAdapter(family: string): ResponsesAdapter {
     const responseId = makeResponseId();
 
     // 1. Resolve the LanguageModel via the same factory native uses.
-    //    We re-resolve with explicit providerId/model so the factory
-    //    can apply normalisation (baseURL, beta headers, claude-code-compat
-    //    branch etc.) it already does for the native runtime.
+    //    Pass the RAW targetProviderId from the inbound header — NOT
+    //    `resolved.provider?.id` — so virtual providers like
+    //    `openai-oauth` (which have `resolved.provider === undefined`)
+    //    flow through to ai-provider.ts's per-virtual-id branches
+    //    (createOpenAI with Codex endpoint + OAuth fetch, etc.).
+    //    Dropping the id here was the original Phase 5b P0 bug: the
+    //    proxy route accepted openai-oauth then silently fell back to
+    //    the default provider inside createModel.
     let languageModel: LanguageModel;
     try {
       const created = createModel({
-        providerId: resolved.provider?.id,
+        providerId: input.targetProviderId,
         model: input.body.model,
       });
       languageModel = created.languageModel;
@@ -71,7 +76,7 @@ export function createUnifiedAdapter(family: string): ResponsesAdapter {
       return makeErrorResult(classified.code, classified.message, {
         ...classified.context,
         family,
-        providerId: resolved.provider?.id,
+        providerId: input.targetProviderId,
       });
     }
 
