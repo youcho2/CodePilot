@@ -115,13 +115,18 @@ export function getProxyParityEntry(provider: ApiProvider): ProviderParityEntry 
 }
 
 function pendingReason(family: AdapterFamily): string {
+  // Phase 5b shipped the unified translator for every known family,
+  // so the only path that hits this is the `unknown` provider tier
+  // (which the parity registry routes to `openai_compatible` as a
+  // best guess). The copy explains that the proxy refuses to guess
+  // the wire format rather than silently picking the wrong one.
   switch (family) {
     case 'openai_compatible':
-      return 'Codex provider proxy: OpenAI-compatible adapter is wiring (Phase 5b in progress).';
+      return 'Codex provider proxy: provider wire format not recognised. Set the provider protocol explicitly so the proxy can pick the right translator.';
     case 'anthropic_compatible':
-      return 'Codex provider proxy: Anthropic-compatible adapter is wiring (Phase 5b in progress).';
+      return 'Codex provider proxy: Anthropic-compatible adapter currently disabled.';
     case 'codeplan':
-      return 'Codex provider proxy: CodePlan / brand-shaped adapter is wiring (Phase 5b in progress).';
+      return 'Codex provider proxy: CodePlan / brand-shaped adapter currently disabled.';
     case 'native':
       // Should never be returned — native maps to not_applicable.
       // Defensive fallback.
@@ -131,30 +136,31 @@ function pendingReason(family: AdapterFamily): string {
 
 /**
  * Build the bilingual disabled-state copy the chat picker shows on
- * a CodePilot provider model row under Codex Runtime. Each adapter
- * family gets its own line so the user knows WHICH 5b slice they're
- * waiting on, not a generic "support pending".
+ * a CodePilot provider model row under Codex Runtime. Phase 5b
+ * shipped the translator for every known family, so this only fires
+ * for the `unknown` provider tier today; the wording reflects "wire
+ * format unidentified" rather than "adapter in progress".
  */
 export function pickerDisabledReason(family: AdapterFamily, isZh: boolean): string {
   if (isZh) {
     switch (family) {
       case 'openai_compatible':
-        return 'Codex provider proxy 正在接入 OpenAI 兼容 adapter（Phase 5b）';
+        return 'Codex provider proxy 暂未识别该 provider 的 wire format；请在 provider 设置里显式选 OpenAI 兼容 / Anthropic 兼容';
       case 'anthropic_compatible':
-        return 'Codex provider proxy 正在接入 Anthropic / ClaudeCode 兼容 adapter（Phase 5b）';
+        return 'Codex provider proxy 的 Anthropic / ClaudeCode 兼容 adapter 当前已停用';
       case 'codeplan':
-        return 'Codex provider proxy 正在接入 CodePlan / 套餐型 adapter（Phase 5b）';
+        return 'Codex provider proxy 的 CodePlan / 套餐型 adapter 当前已停用';
       case 'native':
         return '该服务商不通过 Codex provider proxy';
     }
   }
   switch (family) {
     case 'openai_compatible':
-      return 'Codex provider proxy: OpenAI-compatible adapter is being wired (Phase 5b)';
+      return 'Codex provider proxy: provider wire format unidentified — set the provider protocol explicitly';
     case 'anthropic_compatible':
-      return 'Codex provider proxy: Anthropic / ClaudeCode-compatible adapter is being wired (Phase 5b)';
+      return 'Codex provider proxy: Anthropic / ClaudeCode-compatible adapter currently disabled';
     case 'codeplan':
-      return 'Codex provider proxy: CodePlan / brand-shaped adapter is being wired (Phase 5b)';
+      return 'Codex provider proxy: CodePlan / brand-shaped adapter currently disabled';
     case 'native':
       return 'This provider does not route through the Codex proxy';
   }

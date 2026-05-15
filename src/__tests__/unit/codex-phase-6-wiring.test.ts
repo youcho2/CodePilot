@@ -803,7 +803,11 @@ describe('Picker — codex_runtime supportedRuntimes flows end-to-end (Phase 5b)
 
     // Known tiers (everything except `unknown` and media-only) MUST
     // list codex_runtime in supportedRuntimes now that Phase 5b's
-    // unified translator handles all three adapter families.
+    // unified translator handles all three adapter families. The
+    // built-in `env` provider (Claude Code default) is the ONE
+    // explicit exception — Phase 5b deliberately excludes env from
+    // Codex Runtime parity, so env rows must NOT carry codex_runtime
+    // even though their tier (claude_code_ready) is otherwise ready.
     const phase5bReadyTiers = new Set([
       'claude_code_ready',
       'claude_code_verified',
@@ -811,25 +815,40 @@ describe('Picker — codex_runtime supportedRuntimes flows end-to-end (Phase 5b)
       'openrouter_anthropic_skin',
       'codepilot_only',
     ]);
-    let checkedAny = false;
+    let checkedNonEnv = false;
+    let checkedEnv = false;
     for (const g of data.groups) {
       if (!g.compat || !phase5bReadyTiers.has(g.compat)) continue;
+      const isEnv = g.provider_id === 'env';
       for (const m of g.models) {
-        checkedAny = true;
-        assert.ok(
-          m.supportedRuntimes?.includes('codex_runtime'),
-          `${g.provider_id} (${g.compat}) / ${m.value} must list codex_runtime in supportedRuntimes — Phase 5b proxy adapter is ready for this tier`,
-        );
-        assert.equal(
-          m.unsupportedReasonByRuntime?.codex_runtime,
-          undefined,
-          `${g.provider_id} / ${m.value} must not carry a codex_runtime reason — adapter is wired`,
-        );
+        if (isEnv) {
+          checkedEnv = true;
+          assert.ok(
+            !m.supportedRuntimes?.includes('codex_runtime'),
+            `${g.provider_id} / ${m.value}: env (Claude Code default) MUST be excluded from codex_runtime — selecting it under Codex Runtime would fail to send`,
+          );
+          assert.match(
+            m.unsupportedReasonByRuntime?.codex_runtime ?? '',
+            /env|默认|Claude Code/,
+            `${g.provider_id} / ${m.value}: env exclusion must surface a clear reason for the picker tooltip`,
+          );
+        } else {
+          checkedNonEnv = true;
+          assert.ok(
+            m.supportedRuntimes?.includes('codex_runtime'),
+            `${g.provider_id} (${g.compat}) / ${m.value} must list codex_runtime in supportedRuntimes — Phase 5b proxy adapter is ready for this tier`,
+          );
+          assert.equal(
+            m.unsupportedReasonByRuntime?.codex_runtime,
+            undefined,
+            `${g.provider_id} / ${m.value} must not carry a codex_runtime reason — adapter is wired`,
+          );
+        }
       }
     }
     assert.ok(
-      checkedAny,
-      'expected at least one Phase 5b-ready tier provider in the response so the codex_runtime supportedness can be exercised end-to-end',
+      checkedNonEnv || checkedEnv,
+      'expected at least one Phase 5b-ready tier provider (env or non-env) in the response so the codex_runtime supportedness can be exercised end-to-end',
     );
   });
 });
@@ -941,14 +960,17 @@ describe('/api/providers/models — annotated rows always (Phase 6 UI收口 P2)'
     // block and then dropped. P2 promotes them to first-class
     // response fields so the picker can render disabled rows + the
     // tooltip without re-running getModelCompat on the client.
-    assert.match(
-      routeSrc,
-      /supportedRuntimes:\s*cap\.supportedRuntimes/,
-    );
-    assert.match(
-      routeSrc,
-      /unsupportedReasonByRuntime:\s*cap\.unsupportedReasonByRuntime/,
-    );
+    //
+    // Phase 5b: the values pass through local variables (so the env
+    // exclusion can strip codex_runtime from env rows). Pin the
+    // intent (each output row has both fields) rather than the exact
+    // expression shape so future tweaks don't accidentally drop them.
+    assert.match(routeSrc, /supportedRuntimes,/);
+    assert.match(routeSrc, /unsupportedReasonByRuntime,/);
+    // The cap pair still has to be the source — assert both names
+    // appear, just not necessarily on the same line as the output.
+    assert.match(routeSrc, /cap\.supportedRuntimes/);
+    assert.match(routeSrc, /cap\.unsupportedReasonByRuntime/);
   });
 
   it('media rows are still dropped at the row layer (do not belong in chat pickers)', () => {

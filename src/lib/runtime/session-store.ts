@@ -57,9 +57,19 @@ export function getRuntimeSessionRef(
       // Backed by `chat_sessions.codex_thread_id` column. Codex's
       // `thread/resume` requires the original threadId, so we
       // persist it per chat session for cross-reload resume.
+      //
+      // Phase 5b (2026-05-15) — also returns the provider id the
+      // thread was bound to via `metadata.providerId`. CodexRuntime
+      // compares this to the current request's provider; on mismatch
+      // it clears the ref and starts fresh instead of resuming under
+      // a wrong provider's injected proxy config.
       const session = getSession(chatSessionId);
       if (!session?.codex_thread_id) return null;
-      return { runtimeId: 'codex_runtime', token: session.codex_thread_id };
+      return {
+        runtimeId: 'codex_runtime',
+        token: session.codex_thread_id,
+        metadata: { providerId: session.codex_thread_provider_id ?? '' },
+      };
     }
     default: {
       // Exhaustiveness — when a new RuntimeId lands here, TS will fail
@@ -85,10 +95,19 @@ export function setRuntimeSessionRef(
     case 'codepilot_runtime':
       // No-op — native runtime has no persistent ref.
       return;
-    case 'codex_runtime':
+    case 'codex_runtime': {
       // Phase 5 Phase 3 (2026-05-13) — persist Codex thread id.
-      updateCodexThreadId(chatSessionId, ref.token);
+      // Phase 5b (2026-05-15) — also persist the provider id the
+      // thread was bound to so a later resume can detect a provider
+      // switch and start fresh rather than running under a stale
+      // proxy injection. Adapters MUST pass providerId in metadata
+      // for codex_runtime refs; missing metadata falls back to ''
+      // which means "unknown provider — always treat resume as stale".
+      const providerId =
+        typeof ref.metadata?.providerId === 'string' ? ref.metadata.providerId : '';
+      updateCodexThreadId(chatSessionId, ref.token, providerId);
       return;
+    }
     default: {
       const _: never = ref.runtimeId;
       throw new Error(`setRuntimeSessionRef: unknown runtime ${String(_)}`);
@@ -120,8 +139,10 @@ export function clearRuntimeSessionRef(
       // Phase 5 Phase 3 (2026-05-13) — clear the persisted Codex
       // thread id. Provider / model / runtime-pin changes that
       // invalidate the resume context call this path scoped to
-      // codex_runtime; other runtimes' refs stay intact.
-      updateCodexThreadId(chatSessionId, '');
+      // codex_runtime; other runtimes' refs stay intact. Phase 5b
+      // also clears the bound provider id so the next start writes
+      // a fresh pair.
+      updateCodexThreadId(chatSessionId, '', '');
       return;
     default: {
       const _: never = runtimeId;

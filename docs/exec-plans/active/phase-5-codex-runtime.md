@@ -69,7 +69,7 @@ ClaudeCode 和 Codex 不是互相替代的两个按钮，而是两种不同 Agen
 | 4 | Codex 原生能力 / 插件事件接入 | ✅ 已完成 | file_changed、approval bridge、turn interrupt、unknown item fallback、fs/watch 兜底已落地。 |
 | 5 | CodePilot provider proxy for Codex | ✅ scaffold 已完成 | `/api/codex/proxy/v1/responses` 结构化返回 `501 unsupported_yet`；真实 Responses 翻译器仍未完成。 |
 | 6 | UI / Electron / 测试收口 | ✅ 已完成主体收口 | Settings Runtime / Providers / Models IA、Codex 状态卡、模型 disclosure、runtime gate、Electron dispose 已落地；剩余模型可用性属于 Phase 5b provider proxy translator。 |
-| 5b | CodePilot provider proxy translator | ✅ 已落地 (2026-05-15) | 统一翻译层基于 ai-sdk `createModel()` + `streamText`/`generateText`：Responses 输入 / 工具 / 流式事件 / 非流式响应四路转换 + 同一 adapter 覆盖 OpenAI-compatible、Anthropic-compatible、CodePlan 三个家族。`ADAPTER_STATUS_BY_COMPAT` 中除 `unknown` 外的非 native tier 全部翻为 `ready`；`getModelCompat` 让这些 tier 的 `supportedRuntimes` 增加 `codex_runtime`，并清理对应 `reasons.codex_runtime`。`unknown` tier 因为 wire format 推断不出来仍保留 pending 文案。下一步是真实 provider credential 实测 + 完整 smoke 表，跑通后 status 仍保留 ✅ 不动。 |
+| 5b | CodePilot provider proxy translator | 🔄 翻译层 + 注入已落地；待真实 smoke | 统一翻译层基于 ai-sdk `createModel()` + `streamText`/`generateText`：Responses 输入 / 工具 / 流式事件 / 非流式响应四路转换 + 同一 adapter 覆盖 OpenAI-compatible、Anthropic-compatible、CodePlan 三个家族。`CodexRuntime.stream()` 真正调用 `buildCodexThreadStartParams` 注入 `model_providers.codepilot_proxy` 到 `thread/start`；session 持久化 `codex_thread_provider_id` 检测跨 provider 误 resume；env provider 在 API + runtime 双层显式排除；unit 测试通过 `CODEX_DISABLED=1` 与真实 Codex app-server 解耦。剩余 must-have：三类家族（OpenAI-compatible / Anthropic-compatible / CodePlan）各跑通一条真实 provider credential chat smoke。在这之前 5b 维持 🔄；smoke 全过后转 ✅。 |
 
 ## 详细设计
 

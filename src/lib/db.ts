@@ -386,6 +386,17 @@ function migrateDb(db: Database.Database): void {
   if (!colNames.includes('codex_thread_id')) {
     safeAddColumn(db, "ALTER TABLE chat_sessions ADD COLUMN codex_thread_id TEXT NOT NULL DEFAULT ''");
   }
+  // Phase 5b (2026-05-15) — Codex Runtime threads are provider-bound:
+  // `thread/start` injects `model_providers.codepilot_proxy` for the
+  // *targeted* CodePilot provider, so the thread can only safely
+  // resume under that same provider. If the user switches provider
+  // mid-chat, the runtime needs to detect the mismatch and start a
+  // fresh thread instead of resuming under wrong credentials. Track
+  // the provider id the thread was bound to at start time alongside
+  // the thread id itself.
+  if (!colNames.includes('codex_thread_provider_id')) {
+    safeAddColumn(db, "ALTER TABLE chat_sessions ADD COLUMN codex_thread_provider_id TEXT NOT NULL DEFAULT ''");
+  }
   if (!colNames.includes('sdk_cwd')) {
     safeAddColumn(db, "ALTER TABLE chat_sessions ADD COLUMN sdk_cwd TEXT NOT NULL DEFAULT ''");
     // Backfill sdk_cwd from working_directory for existing sessions
@@ -1275,10 +1286,21 @@ export function updateSdkSessionId(id: string, sdkSessionId: string): void {
  * Mirror of `updateSdkSessionId` for the codex_thread_id column.
  * Called only from `src/lib/runtime/session-store.ts` so adapter-
  * specific persistence stays scoped per the contract.
+ *
+ * Phase 5b (2026-05-15) — also writes `codex_thread_provider_id` so
+ * a later resume can detect provider switches and start fresh rather
+ * than running under a stale provider's injected config. Pass the
+ * empty string to clear (matches the clear semantics for thread id).
  */
-export function updateCodexThreadId(id: string, codexThreadId: string): void {
+export function updateCodexThreadId(
+  id: string,
+  codexThreadId: string,
+  providerId: string = '',
+): void {
   const db = getDb();
-  db.prepare('UPDATE chat_sessions SET codex_thread_id = ? WHERE id = ?').run(codexThreadId, id);
+  db.prepare(
+    'UPDATE chat_sessions SET codex_thread_id = ?, codex_thread_provider_id = ? WHERE id = ?',
+  ).run(codexThreadId, providerId, id);
 }
 
 export function updateSessionModel(id: string, model: string): void {

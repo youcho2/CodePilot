@@ -31,6 +31,15 @@ export interface ChatSession {
    * route through `src/lib/runtime/session-store.ts`.
    */
   codex_thread_id?: string;
+  /**
+   * Phase 5b (2026-05-15) — provider id the Codex thread was bound
+   * to at start time. `thread/start` injects `model_providers.
+   * codepilot_proxy` for one specific CodePilot provider; resuming
+   * under a different provider would smuggle a stale injection back
+   * in. Empty string = unknown (legacy thread or codex_account).
+   * Same access discipline as `codex_thread_id`.
+   */
+  codex_thread_provider_id?: string;
   project_name: string;
   /**
    * Phase 3 Step 4 — see `ChatSessionSource`. Stored as TEXT (default

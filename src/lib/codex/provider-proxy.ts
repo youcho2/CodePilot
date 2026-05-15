@@ -23,12 +23,14 @@
  * Codex's HTTP client adds them to every request to that provider
  * without needing per-request override plumbing.
  *
- * MVP today: the proxy route returns structured 501 unsupported_yet
- * for every compat tier (see `src/app/api/codex/proxy/v1/responses/route.ts`
- * for the docstring on scope). The injection PATH is wired so that
- * when Phase 5b lands the actual Responses translator, no runtime
- * changes are needed — the same config override pattern just starts
- * succeeding.
+ * Phase 5b status: the proxy route is fully implemented for every
+ * recognised compat tier via the unified translator at
+ * `src/lib/codex/proxy/unified-adapter.ts`. CodexRuntime.stream()
+ * threads provider id through to `buildCodexThreadStartParams`
+ * below, so a non-codex_account provider's first message creates
+ * a thread bound to the proxy injection; subsequent messages on the
+ * same chat session resume that thread as long as the provider
+ * binding still matches (mismatch detection in `runtime.ts`).
  */
 
 const PROVIDER_KEY = 'codepilot_proxy' as const;
@@ -77,6 +79,42 @@ export function buildCodexProviderProxyInjection(
         },
       },
     },
+  };
+}
+
+/**
+ * Build the `thread/start` params for a Codex thread tied to the
+ * resolved provider id. Centralised so the runtime and its tests
+ * use one expression for the proxy-injection wiring.
+ *
+ *   - `'codex_account'` (virtual provider) → no injection. The thread
+ *     uses Codex's own model_providers map keyed under its native
+ *     OAuth account.
+ *   - any non-empty non-`'env'` providerId → proxy injection so Codex
+ *     routes upstream calls through `/api/codex/proxy/v1/responses`.
+ *   - empty / `'env'` → caller MUST reject before reaching this fn;
+ *     this is an unreachable contract violation that we surface as
+ *     a thrown error rather than silently constructing a no-op.
+ */
+export function buildCodexThreadStartParams(opts: {
+  providerId: string;
+  workingDirectory?: string;
+  proxyBaseUrl: string;
+}): { cwd?: string; modelProvider?: string; config?: CodexProxyInjection['config'] } {
+  const providerId = opts.providerId.trim();
+  if (!providerId || providerId === 'env') {
+    throw new Error(
+      'buildCodexThreadStartParams called with env / empty providerId — caller must reject the request before building thread/start params.',
+    );
+  }
+  const base: { cwd?: string } = {};
+  if (opts.workingDirectory) base.cwd = opts.workingDirectory;
+  if (providerId === 'codex_account') return base;
+  const injection = buildCodexProviderProxyInjection(providerId, opts.proxyBaseUrl);
+  return {
+    ...base,
+    modelProvider: injection.modelProvider,
+    config: injection.config,
   };
 }
 

@@ -101,16 +101,23 @@ function makeStdioTransport(proc: ChildProcessWithoutNullStreams): SpawnedTransp
  * Locate the `codex` binary. Returns null when not found.
  *
  * Strategy:
- *   1. CODEX_BIN env var (test / CI override)
- *   2. `which codex` (resolved via posix spawn) — simplified by
- *      checking common locations under PATH ourselves; the real
- *      implementation defers to OS resolution at spawn time and
- *      lets `spawn` ENOENT do the existence check.
+ *   1. CODEX_DISABLED=1 hard-disables Codex (set in test harness so
+ *      unit tests never spawn the subprocess or hit network).
+ *   2. CODEX_BIN env var (test / CI override of the resolved path).
+ *   3. PATH walk for `codex` (with platform-appropriate extensions).
+ *      Defers to OS resolution at spawn time on win32 fallthroughs.
  *
  * For the bundled-binary case (Electron packaged app) the path will
  * be resolved by a future settings hook that points here.
  */
 export function findCodexBinary(): string | null {
+  // Phase 5b (2026-05-15) — hard disable for tests. The wider Codex
+  // surface (account, models, runtime) all funnel through this lookup,
+  // so a single guard here keeps unit tests off the subprocess and off
+  // the ChatGPT plugin-sync network call. CI sets it implicitly via
+  // `npm run test:unit`; an interactive developer running tests
+  // through their IDE picks it up the same way.
+  if (process.env.CODEX_DISABLED === '1') return null;
   const fromEnv = process.env.CODEX_BIN;
   if (fromEnv && existsSync(fromEnv)) return fromEnv;
 

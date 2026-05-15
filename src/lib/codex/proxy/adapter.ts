@@ -8,30 +8,30 @@
  *   1. validate / parse the request body
  *   2. look up the target CodePilot provider in the DB
  *   3. classify its compat tier + adapter family
- *   4. dispatch to the per-family translator (OpenAI-compat /
- *      Anthropic-compat / CodePlan)
+ *   4. dispatch to the unified adapter (per the registry below)
  *   5. return either a streaming Response (Responses SSE) or a
  *      JSON Response (Responses non-stream object).
  *
- * Until the per-family translators land in their own sub-commits,
- * step 4 returns a structured `adapter_not_implemented` error
- * encoded in the actual Responses wire format (a `response.failed`
- * SSE event when stream:true, a JSON body when stream:false). This
- * is the load-bearing difference from the pre-5b scaffold: Codex's
- * HTTP client no longer sees a generic 501, it sees a valid
- * Responses error object it can branch on.
+ * Phase 5b shipped a single `createUnifiedAdapter` implementation that
+ * serves all three CodePilot families (OpenAI-compatible, Anthropic-
+ * compatible / ClaudeCode-compatible, CodePlan / 套餐型). The wire-
+ * format divergence between families lives INSIDE ai-sdk's per-tier
+ * SDK selection (createAnthropic / createOpenAI / claude-code-compat
+ * / etc.), so the proxy doesn't need a per-family translator — the
+ * registry below maps every family-name slot to the same adapter.
+ * `unknown` is the only tier that stays gated (the proxy can't infer
+ * the wire format without more info — it surfaces as
+ * `adapter_not_implemented`).
  *
- * Adapter contract for sub-commits:
+ * Adapter contract:
  *
  *   type ResponsesAdapter = (
  *     input: ProxyHandlerInput,
  *     resolved: ResolvedProvider,
  *   ) => Promise<ProxyResult>;
  *
- * Each adapter file (openai-compat.ts / anthropic-compat.ts /
- * codeplan.ts) exports the implementation; this file's registry maps
- * AdapterFamily → adapter. Flipping a family from stub to real
- * implementation is a single registry edit.
+ * The runtime override `registerAdapter` is retained so targeted
+ * tests can substitute a stub for one family without recompiling.
  */
 
 import { resolveProvider, type ResolvedProvider } from '@/lib/provider-resolver';
@@ -189,13 +189,23 @@ export async function handleProxyRequest(
 }
 
 function buildPendingMessage(family: AdapterFamily, providerName: string): string {
+  // Phase 5b shipped a unified adapter that covers every known family,
+  // so the only path that still hits "pending" is the `unknown` provider
+  // tier (compat = 'unknown'). That tier still routes to the
+  // `openai_compatible` family slot in the parity registry because
+  // OpenAI-shape chat/completions is the most common third-party
+  // shape — but until a user explicitly verifies the wire format, the
+  // proxy refuses to guess and surfaces a clear "wire format
+  // unidentified" message. Other families CANNOT reach this branch
+  // (status='ready'); the switch arms below remain defensive in case
+  // a future regression flips a family back to 'pending'.
   switch (family) {
     case 'openai_compatible':
-      return `Codex provider proxy: OpenAI-compatible adapter is being wired (Phase 5b). "${providerName}" will go live once the OpenAI-compatible translator ships.`;
+      return `Codex provider proxy: cannot determine the wire format for "${providerName}". Set the provider's protocol to a recognised value (openai-compat / anthropic-compat / etc.) so the proxy can pick the right translator.`;
     case 'anthropic_compatible':
-      return `Codex provider proxy: Anthropic-compatible adapter is being wired (Phase 5b). "${providerName}" will go live once the Anthropic-compatible translator ships.`;
+      return `Codex provider proxy: "${providerName}" classifies as Anthropic-compatible but the adapter is currently disabled. Re-enable the adapter family or pick a different provider.`;
     case 'codeplan':
-      return `Codex provider proxy: CodePlan / 套餐型 adapter is being wired (Phase 5b). "${providerName}" will go live once the brand-shaped translator ships.`;
+      return `Codex provider proxy: "${providerName}" classifies as a CodePlan / 套餐型 brand but the adapter is currently disabled. Re-enable the adapter family or pick a different provider.`;
     case 'native':
       return `Provider "${providerName}" routes through Codex natively, not through the proxy.`;
   }

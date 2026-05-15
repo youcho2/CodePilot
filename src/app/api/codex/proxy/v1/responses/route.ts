@@ -14,17 +14,20 @@
  *   4. Serialise the ProxyResult into either an SSE stream
  *      (`Content-Type: text/event-stream`) or a JSON body.
  *
- * Pre-stream errors (provider not found, credentials missing, adapter
- * still pending) come back as `kind: 'error'` and we map them to
- * HTTP status code + JSON. During-stream errors come back as
- * `kind: 'stream'` with an embedded `response.failed` event; the
- * route still returns 200 because the SSE protocol carries the
- * error.
+ * Pre-stream errors (provider not found, credentials missing,
+ * unknown-tier provider that the proxy can't infer a wire format
+ * for) come back as `kind: 'error'` and we map them to HTTP status
+ * code + JSON. During-stream errors come back as `kind: 'stream'`
+ * with an embedded `response.failed` event; the route still returns
+ * 200 because the SSE protocol carries the error.
  *
- * Phase 5b adapter status: foundation only — the per-family
- * adapters (OpenAI / Anthropic / CodePlan) still return
- * `adapter_not_implemented` via the wire. That's a structured
- * Responses error, NOT the pre-5b raw 501.
+ * Phase 5b adapter status: SHIPPED. The unified translator at
+ * `src/lib/codex/proxy/unified-adapter.ts` handles all three families
+ * (OpenAI-compatible, Anthropic-compatible / ClaudeCode-compatible,
+ * CodePlan / 套餐型) via ai-sdk's `createModel()` + `streamText`.
+ * Only the `unknown` provider tier still hits `adapter_not_implemented`
+ * because the proxy can't fingerprint the wire format without more
+ * info; everything else flows through.
  */
 
 import { NextResponse, type NextRequest } from 'next/server';

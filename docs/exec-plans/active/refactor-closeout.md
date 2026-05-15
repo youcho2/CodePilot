@@ -1,6 +1,6 @@
 # Refactor Closeout / 重构收口计划（总控板）
 
-> 创建：2026-05-06 · 最后更新：2026-05-15（Phase 0-4 已完成并归档；Phase 5 核心链路 + Phase 5b CodePilot provider proxy translator 均已落地；下一步是用真实 provider credentials 跑 smoke 表）
+> 创建：2026-05-06 · 最后更新：2026-05-15（Phase 0-4 已完成并归档；Phase 5 核心链路已落地；Phase 5b 翻译层 + Codex thread/start 真实 proxy 注入已落地，但尚未真正闭环——还差真实 provider credentials 跑通三家族 chat smoke 才能宣布 5b 完成）
 > 这是日常入口；查历史细节请走"历史归档"列（`completed/refactor-phase-*.md` + `completed/phase-4-markdown-artifact.md`），不要在本文件里翻 1000 行决策日志。
 > **协作边界**：Codex 负责计划制定、方案审查和 Review；ClaudeCode 负责执行代码改动、测试和提交整理。除非用户明确重新授权，Codex 只能改 `docs/` 下的计划 / 交接 / review 文档，不再直接改业务代码。
 > **上下文同步纪律**：交给 ClaudeCode 的内容不能只给"最终结论"或任务清单，必须同时写清楚讨论过程、判断依据、被否掉的方案和为什么否掉。尤其是架构 / Runtime / 权限 / provider / 安全边界相关任务，Codex 的交接文案需要包含：用户原始诉求 → 中间争议 → 取舍理由 → 当前决定 → 不做边界 → 审查重点。这样 ClaudeCode 重启或上下文较短时，也能继承判断过程，而不是重新踩同一个坑。
@@ -14,8 +14,8 @@
 | 2 | Runtime 与会话执行 | 每个会话能解释 / 能切换"执行引擎"；旧会话不被全局漂移；下一条消息生效 | ✅ Step 1-4c 全部完成（2026-05-07） | [phase-2](../completed/refactor-phase-2-runtime-session.md) |
 | 3 | 后台常驻、全局定时任务、助理心跳与通知 | 关窗常驻菜单栏；reminder 不依赖 AI；本机通知 / Bridge 解耦；全局任务页；后台 Agent 任务 + 后台心跳 | ✅ 全部完成（2026-05-10）：Step 1-3 + IA 收尾 + Step 4a（任务会话壳 + 文本生成 + 心跳后台化）+ Step 4b（headless streamClaude + waiting_for_permission 可达 + WaitingForPermissionPanel） | [phase-3](../completed/refactor-phase-3-background-tasks-notifications.md) |
 | 4 | Markdown / Artifact 稳定与表现层 | Markdown 作为数据层；HTML / Artifact 作为表现层；外部资源、安全沙箱、工程输出引用 | ✅ 全部完成（2026-05-12）：trust tier + html-preview 同源路由 + CSP 4 轮 + Markdown 原地风格 + Artifact code-fence / dev-output。HTML Artifact 显式保存入口 deferred（tech-debt #18） | [phase-4](../completed/phase-4-markdown-artifact.md) |
-| 5 | Codex Runtime 接入 | Codex 像 Claude Code 一样成为同级 Runtime；Codex Account 主链路已可跑；模型兼容目标改为 CodePilot Runtime parity | ✅ 核心链路落地（含 Phase 5b proxy translator） | [phase-5 plan](./phase-5-codex-runtime.md) |
-| 5b | Codex provider proxy translator | 让 Codex Runtime 使用 CodePilot 已配置 provider；目标是除 Claude Code 默认/env 模式外与 CodePilot Runtime 模型能力对齐 | ✅ 已一次性完整交付 (2026-05-15)；剩余真实 provider credential smoke 通过 issue-tracker 跟踪 | [phase-5 plan](./phase-5-codex-runtime.md) |
+| 5 | Codex Runtime 接入 | Codex 像 Claude Code 一样成为同级 Runtime；Codex Account 主链路已可跑；模型兼容目标改为 CodePilot Runtime parity | 🔄 核心链路 ✅；Phase 5b 翻译层 + 注入已落地但 smoke 未完 | [phase-5 plan](./phase-5-codex-runtime.md) |
+| 5b | Codex provider proxy translator | 让 Codex Runtime 使用 CodePilot 已配置 provider；目标是除 Claude Code 默认/env 模式外与 CodePilot Runtime 模型能力对齐 | 🔄 翻译层 + Codex thread/start 真实 proxy 注入已落地，env provider 已从 codex_runtime 排除，unit 测试已与真实 Codex app-server 解耦；剩余必须项：三类家族（OpenAI-compat / Anthropic-compat / CodePlan）每条真实 provider credential 跑通一条 chat smoke 才能宣布 Phase 5b 闭环 | [phase-5 plan](./phase-5-codex-runtime.md) |
 | 6 | 上下文可视化 | 输入框右下角是组成条而不是单一百分比 | 📋 待开始（Codex Runtime 收口后移） | — |
 | 7 | 视觉锚点与图标体系 | 点阵风格视觉记忆点 + HugeIcons 统一 | 📋 待开始（后移） | — |
 
@@ -23,7 +23,7 @@
 
 **Phase 4 整条主线已收口完毕并归档**（trust tier + html-preview 路由 + CSP 4 轮 + Markdown 原地风格 + Artifact code-fence + dev-output；HTML Artifact 显式保存入口 deferred 进 tech-debt #18）。完整交付清单见 [completed/phase-4-markdown-artifact.md](../completed/phase-4-markdown-artifact.md)，技术 / 产品文档分别在 [handover/phase-4-markdown-artifact.md](../../handover/phase-4-markdown-artifact.md) 与 [insights/phase-4-markdown-artifact.md](../../insights/phase-4-markdown-artifact.md)。
 
-**Phase 5b CodePilot provider proxy translator 已在 2026-05-15 一次性完整交付**：基于 ai-sdk `createModel()` + `streamText`/`generateText` 的统一翻译层，同时覆盖 OpenAI-compatible、Anthropic-compatible / ClaudeCode-compatible、CodePlan / 套餐型 provider 三个家族；`ADAPTER_STATUS_BY_COMPAT` 中除 `unknown` 外的非 native tier 全部翻为 `ready`；`getModelCompat` 让这些 tier 的 `supportedRuntimes` 同步加入 `codex_runtime`。剩余真实 provider credential smoke 表（每家族至少一条真实 chat smoke）通过 issue-tracker 跟踪；不再阻塞 Phase 5b status。计划见 [active/phase-5-codex-runtime.md](./phase-5-codex-runtime.md)。
+**Phase 5b 翻译层 + Codex thread/start 真实 proxy 注入已落地，但 5b 还没真正闭环**。2026-05-15 review 抓到两个 P0/P1：翻译层之前没接到 `CodexRuntime.stream()` 的 thread/start（UI 标可用、实际发送不一定走 proxy）；env provider 被错误地写入 `codex_runtime` supportedRuntimes。这两个问题已修：`buildCodexThreadStartParams` 进入 runtime 真实发送路径，session 持久化 `codex_thread_provider_id` 防止跨 provider 误 resume；env 在 API 层和 runtime 层都被显式排除；unit 测试通过 `CODEX_DISABLED=1` 与真实 Codex app-server 解耦；scaffold/pending 文案已扫一遍。剩余必须项是真实 provider credentials 下分别跑通 OpenAI-compatible / Anthropic-compatible / CodePlan 各一条 chat smoke——在那之前不要把 5b 列为 ✅。计划见 [active/phase-5-codex-runtime.md](./phase-5-codex-runtime.md)。
 
 ### Phase 3 Step 4（完成 2026-05-10）：后台 Agent 任务与助理心跳闭环
 
@@ -125,12 +125,12 @@ Phase 3 验收入口：
 
 ### Phase 5：Codex Runtime 接入
 
-> 进度：**核心链路 + Phase 5b provider proxy translator 已全部落地；剩余真实 provider credential smoke 通过 issue-tracker 跟踪，不阻塞 phase status**。
+> 进度：**核心链路 ✅；Phase 5b 翻译层 + 真实 proxy 注入已落地，但还差三类家族的真实 credential chat smoke 才能宣布闭环**。
 >
 > 子计划见 [`active/phase-5-codex-runtime.md`](./phase-5-codex-runtime.md)。本阶段目标是把 Codex 像 Claude Code 一样接入为可选 Runtime，而不是做上下文可视化。
 
-- **已落地**：Runtime Contract Hardening、`codex app-server` 管理层、`account/read` / login flow、`model/list` → `Codex Account`、Runtime registry `codex_runtime`、thread / turn / item / file-change / approval / token usage 映射、Codex Account chat 主链路、Phase 5b CodePilot provider proxy translator（基于 ai-sdk `createModel()` + `streamText` 的统一翻译层，同一份实现覆盖 OpenAI-compatible / Anthropic-compatible / CodePlan 三家族；`getModelCompat` 让对应 tier 的 `supportedRuntimes` 加入 `codex_runtime`，并清掉 `reasons.codex_runtime`）。
-- **下一步要做**：用真实 provider credential 跑一条 chat smoke per 家族（OpenAI-compatible / Anthropic-compatible / CodePlan），并把覆盖结果归集到 issue-tracker。`unknown` tier 仍 disabled（proxy 推不出 wire format），是预期行为，不是回归。
+- **已落地**：Runtime Contract Hardening、`codex app-server` 管理层、`account/read` / login flow、`model/list` → `Codex Account`、Runtime registry `codex_runtime`、thread / turn / item / file-change / approval / token usage 映射、Codex Account chat 主链路、Phase 5b CodePilot provider proxy translator（基于 ai-sdk `createModel()` + `streamText` 的统一翻译层，同一份实现覆盖 OpenAI-compatible / Anthropic-compatible / CodePlan 三家族；`getModelCompat` 让对应 tier 的 `supportedRuntimes` 加入 `codex_runtime`），`CodexRuntime.stream()` 真正注入 `model_providers.codepilot_proxy` 到 `thread/start`，session 持久化 `codex_thread_provider_id` 防止跨 provider 误 resume；env provider 在 API + runtime 双层显式排除，unit 测试通过 `CODEX_DISABLED=1` 与真实 Codex app-server 解耦。
+- **下一步要做**：在真实 credential 下跑通三条 chat smoke，每条家族一条（GLM / OpenRouter / OpenAI proxy 等任一对应 family），并把覆盖结果归集到 issue-tracker；smoke 全部通过前 Phase 5b 仍属 🔄。`unknown` tier 维持 disabled（proxy 推不出 wire format）。
 - **不做**：不解析 `codex exec` 文本作为主协议；不读取 `~/.codex` token 文件；不把 Codex 降级成 `Codex Account only` 轻入口；不把“proxy translator 暂未覆盖”误写成永久不支持；不做上下文可视化。
 
 ### Phase 6：上下文可视化

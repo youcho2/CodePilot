@@ -230,8 +230,11 @@ describe('Provider parity inventory — every compat tier maps to a family + sta
     assert.equal(glmEntry.excluded_reason, undefined, 'ready tier must NOT carry excluded_reason — picker should re-enable the row');
 
     // An `unknown`-tier provider still surfaces excluded_reason — the
-    // proxy can't pick a wire format without more info. The reason is
-    // phrased "正在接入" / "is being wired" — not "永久不支持".
+    // proxy can't pick a wire format without more info. Phase 5b
+    // shipped the unified translator for every recognised tier, so the
+    // copy shifted from "正在接入" / "being wired" (sweep-pending) to
+    // "暂未识别 wire format" / "wire format unidentified" — the proxy
+    // is live, it just can't fingerprint the wire format for this row.
     const unknownProv: ApiProvider = {
       id: 'mystery-test',
       name: 'Mystery Provider',
@@ -247,8 +250,8 @@ describe('Provider parity inventory — every compat tier maps to a family + sta
     const unknownEntry = getProxyParityEntry(unknownProv);
     assert.equal(unknownEntry.adapter_status, 'pending');
     assert.ok(unknownEntry.excluded_reason, 'pending tier must carry an excluded_reason for the picker tooltip');
-    assert.match(pickerDisabledReason(unknownEntry.adapter_family, true), /正在接入/);
-    assert.match(pickerDisabledReason(unknownEntry.adapter_family, false), /being wired/);
+    assert.match(pickerDisabledReason(unknownEntry.adapter_family, true), /暂未识别|wire format/);
+    assert.match(pickerDisabledReason(unknownEntry.adapter_family, false), /unidentified|wire format/);
   });
 });
 

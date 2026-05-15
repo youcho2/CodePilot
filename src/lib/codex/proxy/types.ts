@@ -277,9 +277,10 @@ export type ResponsesErrorCode =
   | 'provider_not_found'
   /** Provider has no credentials configured (api_key / oauth missing). */
   | 'credentials_missing'
-  /** Provider sat in the catalog but compat tier currently has no
-   *  adapter wired. Carries `compat` in context. Used as the
-   *  "adapter 正在接入" surface. */
+  /** Provider sat in the catalog but the proxy can't route the
+   *  request through an adapter — almost always the `unknown` compat
+   *  tier (wire format unidentified). Carries `compat` and `family`
+   *  in context for diagnostics. */
   | 'adapter_not_implemented'
   /** Upstream provider returned 4xx (other than 401). */
   | 'upstream_client_error'

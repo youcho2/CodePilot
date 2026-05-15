@@ -77,8 +77,8 @@
 
 | 文件 | 主题 | 状态 |
 |------|------|------|
-| [active/refactor-closeout.md](active/refactor-closeout.md) | **重构收口总控板**：当前 Phase 状态 / 下一步 / 未闭环风险 / 验收入口 / 最近决策 / Phase 4-7 方案 | Phase 0-4 ✅；Phase 5 Codex Runtime 核心链路 + Phase 5b provider proxy translator 均已落地 |
-| [active/phase-5-codex-runtime.md](active/phase-5-codex-runtime.md) | **Phase 5 Codex Runtime 接入**：Runtime Contract Hardening / Codex app-server / account + model sync / Runtime adapter / 原生工具事件 / provider proxy scaffold / Codex UI 收口 / Phase 5b proxy translator | 核心链路、UI 收口、Phase 5b translator 均已落地；剩余真实 credential smoke 走 issue-tracker |
+| [active/refactor-closeout.md](active/refactor-closeout.md) | **重构收口总控板**：当前 Phase 状态 / 下一步 / 未闭环风险 / 验收入口 / 最近决策 / Phase 4-7 方案 | Phase 0-4 ✅；Phase 5 核心链路 ✅；Phase 5b 翻译层 + 真实 proxy 注入已落地，等三类家族真实 chat smoke 完成才能 ✅ |
+| [active/phase-5-codex-runtime.md](active/phase-5-codex-runtime.md) | **Phase 5 Codex Runtime 接入**：Runtime Contract Hardening / Codex app-server / account + model sync / Runtime adapter / 原生工具事件 / provider proxy scaffold / Codex UI 收口 / Phase 5b proxy translator | 核心链路、UI 收口 ✅；Phase 5b translator + Codex thread/start 真实 proxy 注入已落地，待真实 credential chat smoke 收口 |
 | [active/issue-tracker.md](active/issue-tracker.md) | **统一问题跟踪**：所有 Bug / Feature Request / Sentry 监控的活动看板 | 持续维护 |
 
 ### 被 refactor-closeout 接管（保留作历史参考）

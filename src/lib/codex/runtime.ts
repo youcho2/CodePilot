@@ -45,8 +45,13 @@ import {
 } from './event-mapper';
 import { handleCodexApprovalRequest } from './approval-bridge';
 import {
+  buildCodexThreadStartParams,
+  resolveCodexProxyBaseUrl,
+} from './provider-proxy';
+import {
   getRuntimeSessionRef,
   setRuntimeSessionRef,
+  clearRuntimeSessionRef,
 } from '@/lib/runtime/session-store';
 
 /**
@@ -212,6 +217,21 @@ export const codexRuntime: AgentRuntime = {
         };
 
         try {
+          // ── env exclusion (Phase 5b) ───────────────────────────────
+          // Reject empty / env providerId BEFORE booting the app-server
+          // so the subprocess isn't spawned for a request we won't honor.
+          // Codex Runtime is opt-out for env (Claude Code default); the
+          // env provider routes via the Claude Code subprocess or
+          // ANTHROPIC_API_KEY env, neither of which the Codex proxy
+          // can target. Surfacing the failure here keeps the spawned
+          // subprocess in the "actually used" set only.
+          const requestedProviderId = (options.providerId ?? options.sessionProviderId ?? '').trim();
+          if (!requestedProviderId || requestedProviderId === 'env') {
+            throw new Error(
+              'Codex Runtime requires an explicit provider. Pick a configured CodePilot provider or Codex Account; the env (Claude Code default) provider is not supported under Codex Runtime.',
+            );
+          }
+
           const { client } = await getCodexAppServer();
 
           // ── server-originated approval requests ──────────────────────
@@ -260,10 +280,29 @@ export const codexRuntime: AgentRuntime = {
             unsubscribers.push(unsubReq);
           }
 
-          // ── thread resolution: resume if we have a ref, else start ──
+          // ── proxy-injection params (Phase 5b) ───────────────────────
+          // Centralised in `buildCodexThreadStartParams`: empty-string
+          // and `'env'` were already rejected above; `'codex_account'`
+          // is the virtual provider that uses Codex's own credentials
+          // (no injection); everything else gets `model_providers.
+          // codepilot_proxy` so Codex routes through CodePilot's local
+          // proxy route. The thread is provider-bound; resume below
+          // compares against the stored binding to detect switches.
+          const buildThreadStartParams = () =>
+            buildCodexThreadStartParams({
+              providerId: requestedProviderId,
+              workingDirectory: options.workingDirectory,
+              proxyBaseUrl: resolveCodexProxyBaseUrl(),
+            });
+
+          // ── thread resolution: resume if we have a ref + provider matches, else start ──
           const existingRef = getRuntimeSessionRef(sessionId, 'codex_runtime');
+          const existingProviderBinding =
+            typeof existingRef?.metadata?.providerId === 'string'
+              ? existingRef.metadata.providerId
+              : '';
           let threadId: string;
-          if (existingRef) {
+          if (existingRef && existingProviderBinding === requestedProviderId) {
             try {
               await client.request('thread/resume', { threadId: existingRef.token });
               threadId = existingRef.token;
@@ -271,18 +310,31 @@ export const codexRuntime: AgentRuntime = {
               // Resume failed (thread archived / unknown id) → start fresh.
               const result = await client.request<{ thread: { id: string } }>(
                 'thread/start',
-                { cwd: options.workingDirectory },
+                buildThreadStartParams(),
               );
               threadId = result.thread.id;
-              setRuntimeSessionRef(sessionId, { runtimeId: 'codex_runtime', token: threadId });
+              setRuntimeSessionRef(sessionId, {
+                runtimeId: 'codex_runtime',
+                token: threadId,
+                metadata: { providerId: requestedProviderId },
+              });
             }
           } else {
+            // Either no ref yet, or provider switched mid-session. In
+            // the switch case the old thread is now stale (different
+            // proxy injection); clear before writing the new binding
+            // so a partial write can't leave a stale provider id behind.
+            if (existingRef) clearRuntimeSessionRef(sessionId, 'codex_runtime');
             const result = await client.request<{ thread: { id: string } }>(
               'thread/start',
-              { cwd: options.workingDirectory },
+              buildThreadStartParams(),
             );
             threadId = result.thread.id;
-            setRuntimeSessionRef(sessionId, { runtimeId: 'codex_runtime', token: threadId });
+            setRuntimeSessionRef(sessionId, {
+              runtimeId: 'codex_runtime',
+              token: threadId,
+              metadata: { providerId: requestedProviderId },
+            });
           }
 
           // ── workspace filesystem watch ──────────────────────────────

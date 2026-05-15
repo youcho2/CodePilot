@@ -372,6 +372,17 @@ export async function GET(request: NextRequest) {
     // chat pickers period.
     let outGroups = groups.map(g => {
       const providerCompat = g.compat ?? 'unknown';
+      // Phase 5b (2026-05-15) — the built-in `env` Claude Code default
+      // provider is explicitly excluded from Codex Runtime parity. It
+      // routes through the Claude Code subprocess (or direct API via
+      // ANTHROPIC_API_KEY env), not through any DB-configured provider
+      // record that the Codex proxy could resolve. Keeping it in
+      // `supportedRuntimes` would surface it in the Codex Runtime
+      // picker, where selecting it would fail to send (the runtime
+      // can't translate "env" into a `x-codepilot-target-provider`
+      // header). Strip codex_runtime here so the picker can render
+      // the row disabled with a clear reason.
+      const isEnvProvider = g.provider_id === 'env';
       const annotatedModels = g.models
         .map(m => {
           const cap = getModelCompat({
@@ -381,10 +392,20 @@ export async function GET(request: NextRequest) {
             capabilities: m.capabilities as Parameters<typeof getModelCompat>[0]['capabilities'],
           });
           if (cap.media) return null;
+          let supportedRuntimes = cap.supportedRuntimes;
+          let unsupportedReasonByRuntime = cap.unsupportedReasonByRuntime;
+          if (isEnvProvider && supportedRuntimes?.includes('codex_runtime')) {
+            supportedRuntimes = supportedRuntimes.filter(r => r !== 'codex_runtime');
+            unsupportedReasonByRuntime = {
+              ...(unsupportedReasonByRuntime ?? {}),
+              codex_runtime:
+                'Claude Code 默认 / env provider 不接入 Codex Runtime；改用配置好的 CodePilot provider 或 Codex Account',
+            };
+          }
           return {
             ...m,
-            supportedRuntimes: cap.supportedRuntimes,
-            unsupportedReasonByRuntime: cap.unsupportedReasonByRuntime,
+            supportedRuntimes,
+            unsupportedReasonByRuntime,
           };
         })
         .filter((m): m is NonNullable<typeof m> => m !== null);
