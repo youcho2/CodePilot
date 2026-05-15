@@ -37,14 +37,18 @@ export const ADAPTER_STATUS_BY_COMPAT: Record<ProviderRuntimeCompat, ProxyAdapte
   codex_account: 'not_applicable',
   // Image / video / embedding don't surface in chat picker.
   media_only: 'not_applicable',
-  // The three real adapter targets — each flips to 'ready' as Phase
-  // 5b sub-commits land. This commit is the foundation; all three
-  // still report 'pending' because the translation layer is stubbed.
-  claude_code_ready: 'pending',
-  claude_code_verified: 'pending',
-  claude_code_experimental: 'pending',
-  openrouter_anthropic_skin: 'pending',
-  codepilot_only: 'pending',
+  // The three real adapter targets are now wired via the unified
+  // translator (Phase 5b). Provider differences are absorbed by
+  // ai-sdk's per-tier SDK selection inside `createModel()`, so the
+  // same translation layer serves all three families.
+  claude_code_ready: 'ready',
+  claude_code_verified: 'ready',
+  claude_code_experimental: 'ready',
+  openrouter_anthropic_skin: 'ready',
+  codepilot_only: 'ready',
+  // Unknown stays pending — we don't know which wire format an
+  // unrecognised provider speaks, so the safe default is to surface
+  // a clear error instead of guessing.
   unknown: 'pending',
 };
 

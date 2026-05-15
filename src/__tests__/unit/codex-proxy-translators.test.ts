@@ -1,0 +1,430 @@
+/**
+ * Phase 5b — Translation layer pins for the Codex Responses proxy.
+ *
+ * Locks the Responses ↔ ai-sdk conversions: input items / tools /
+ * stream events / non-stream response. These are the load-bearing
+ * shape contracts the unified adapter relies on; a regression here
+ * lands at the wire boundary and Codex sees malformed events.
+ *
+ * The adapter itself (createUnifiedAdapter) is exercised separately
+ * through smoke / live-credential paths — its job is glue, not
+ * translation. The unit tests here keep the format-correctness pin
+ * fast (~ms) and independent of any real provider call.
+ */
+
+import { describe, it } from 'node:test';
+import assert from 'node:assert/strict';
+import { translateResponsesInput } from '@/lib/codex/proxy/translate-input';
+import { translateResponsesTools } from '@/lib/codex/proxy/translate-tools';
+import { translateStream } from '@/lib/codex/proxy/translate-stream';
+import { translateNonStreamResponse } from '@/lib/codex/proxy/translate-response';
+import type {
+  ResponsesInputItem,
+  ResponsesTool,
+  ResponsesRequestBody,
+} from '@/lib/codex/proxy/types';
+
+// ─────────────────────────────────────────────────────────────────────
+// translateResponsesInput
+// ─────────────────────────────────────────────────────────────────────
+
+describe('translateResponsesInput — Responses items → ai-sdk ModelMessage[]', () => {
+  it('translates a single user message with input_text', () => {
+    const input: ResponsesInputItem[] = [
+      {
+        type: 'message',
+        role: 'user',
+        content: [{ type: 'input_text', text: 'hello' }],
+      },
+    ];
+    const messages = translateResponsesInput(input);
+    assert.equal(messages.length, 1);
+    assert.equal(messages[0].role, 'user');
+    assert.deepEqual(messages[0].content, [{ type: 'text', text: 'hello' }]);
+  });
+
+  it('translates assistant message with output_text', () => {
+    const input: ResponsesInputItem[] = [
+      {
+        type: 'message',
+        role: 'assistant',
+        content: [{ type: 'output_text', text: 'hi back' }],
+      },
+    ];
+    const messages = translateResponsesInput(input);
+    assert.equal(messages[0].role, 'assistant');
+    assert.deepEqual(messages[0].content, [{ type: 'text', text: 'hi back' }]);
+  });
+
+  it('merges function_call into the preceding assistant message', () => {
+    // Codex's typical shape: assistant text → function_call → ...
+    const input: ResponsesInputItem[] = [
+      {
+        type: 'message',
+        role: 'assistant',
+        content: [{ type: 'output_text', text: 'let me check' }],
+      },
+      {
+        type: 'function_call',
+        call_id: 'call_1',
+        name: 'lookup',
+        arguments: '{"q":"weather"}',
+      },
+    ];
+    const messages = translateResponsesInput(input);
+    assert.equal(messages.length, 1);
+    assert.equal(messages[0].role, 'assistant');
+    const content = messages[0].content as Array<{ type: string }>;
+    assert.equal(content.length, 2);
+    assert.equal(content[0].type, 'text');
+    assert.equal(content[1].type, 'tool-call');
+    const toolCall = content[1] as unknown as { toolCallId: string; toolName: string; input: unknown };
+    assert.equal(toolCall.toolCallId, 'call_1');
+    assert.equal(toolCall.toolName, 'lookup');
+    assert.deepEqual(toolCall.input, { q: 'weather' });
+  });
+
+  it('translates function_call_output as tool message with JSON content when parseable', () => {
+    const input: ResponsesInputItem[] = [
+      {
+        type: 'function_call_output',
+        call_id: 'call_1',
+        output: '{"temp":72}',
+      },
+    ];
+    const messages = translateResponsesInput(input);
+    assert.equal(messages[0].role, 'tool');
+    const content = messages[0].content as Array<{
+      type: string;
+      toolCallId: string;
+      output: { type: string; value: unknown };
+    }>;
+    assert.equal(content[0].type, 'tool-result');
+    assert.equal(content[0].toolCallId, 'call_1');
+    assert.equal(content[0].output.type, 'json');
+    assert.deepEqual(content[0].output.value, { temp: 72 });
+  });
+
+  it('falls back to text output when function_call_output is non-JSON', () => {
+    const input: ResponsesInputItem[] = [
+      { type: 'function_call_output', call_id: 'c1', output: 'plain string result' },
+    ];
+    const messages = translateResponsesInput(input);
+    const content = messages[0].content as Array<{
+      output: { type: string; value: unknown };
+    }>;
+    assert.equal(content[0].output.type, 'text');
+    assert.equal(content[0].output.value, 'plain string result');
+  });
+
+  it('promotes input_image to ai-sdk image part on user messages', () => {
+    const input: ResponsesInputItem[] = [
+      {
+        type: 'message',
+        role: 'user',
+        content: [
+          { type: 'input_text', text: 'what is this' },
+          { type: 'input_image', image_url: 'https://example.com/img.png' },
+        ],
+      },
+    ];
+    const messages = translateResponsesInput(input);
+    const content = messages[0].content as Array<{ type: string; image?: string; text?: string }>;
+    assert.equal(content[0].type, 'text');
+    assert.equal(content[1].type, 'image');
+    assert.equal(content[1].image, 'https://example.com/img.png');
+  });
+
+  it('maps developer role to system (ai-sdk parity)', () => {
+    const input: ResponsesInputItem[] = [
+      {
+        type: 'message',
+        role: 'developer',
+        content: [{ type: 'input_text', text: 'be terse' }],
+      },
+    ];
+    const messages = translateResponsesInput(input);
+    assert.equal(messages[0].role, 'system');
+    assert.equal(messages[0].content, 'be terse');
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────
+// translateResponsesTools
+// ─────────────────────────────────────────────────────────────────────
+
+describe('translateResponsesTools — Responses tools[] → ai-sdk ToolSet (no execute)', () => {
+  it('returns undefined for empty / missing input', () => {
+    assert.equal(translateResponsesTools(undefined), undefined);
+    assert.equal(translateResponsesTools([]), undefined);
+  });
+
+  it('forwards tool name + description + parameters; omits execute', () => {
+    const tools: ResponsesTool[] = [
+      {
+        type: 'function',
+        name: 'lookup',
+        description: 'Search the web',
+        parameters: { type: 'object', properties: { q: { type: 'string' } } },
+      },
+    ];
+    const out = translateResponsesTools(tools);
+    assert.ok(out);
+    assert.ok(out!.lookup);
+    // ai-sdk's Tool exposes `inputSchema` for definition-only tools.
+    const t = out!.lookup as unknown as { description?: string; inputSchema: unknown; execute?: unknown };
+    assert.equal(t.description, 'Search the web');
+    assert.ok(t.inputSchema, 'inputSchema must be set so ai-sdk accepts the tool');
+    assert.equal(t.execute, undefined, 'execute must be absent — Codex runs the tool itself');
+  });
+
+  it('synthesises empty-object schema when parameters is missing', () => {
+    const tools: ResponsesTool[] = [{ type: 'function', name: 'no_args' }];
+    const out = translateResponsesTools(tools);
+    const t = out!.no_args as unknown as { inputSchema: { type: string } };
+    assert.equal(t.inputSchema.type, 'object');
+  });
+
+  it('throws unsupported_tool_kind for non-function tool types', () => {
+    const tools = [{ type: 'shell' } as unknown as ResponsesTool];
+    assert.throws(
+      () => translateResponsesTools(tools),
+      /Unsupported tool kind|shell/,
+    );
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────
+// translateStream
+// ─────────────────────────────────────────────────────────────────────
+
+async function collectStream(
+  gen: AsyncGenerator<unknown, void, void>,
+): Promise<unknown[]> {
+  const out: unknown[] = [];
+  for await (const ev of gen) out.push(ev);
+  return out;
+}
+
+function source<T>(parts: T[]): AsyncIterable<T> {
+  return (async function* () {
+    for (const p of parts) yield p;
+  })();
+}
+
+describe('translateStream — ai-sdk fullStream → Responses SSE events', () => {
+  const baseBody: ResponsesRequestBody = {
+    model: 'gpt-test',
+    input: [],
+    stream: true,
+  };
+
+  it('emits response.created + response.in_progress on start', async () => {
+    const events = await collectStream(
+      translateStream({
+        responseId: 'resp_x',
+        body: baseBody,
+        source: source([
+          { type: 'start' } as never,
+          { type: 'finish', finishReason: 'stop', rawFinishReason: 'stop', totalUsage: { inputTokens: 5, outputTokens: 7, totalTokens: 12 } } as never,
+        ]),
+      }),
+    );
+    assert.equal((events[0] as { type: string }).type, 'response.created');
+    assert.equal((events[1] as { type: string }).type, 'response.in_progress');
+    assert.equal((events[2] as { type: string }).type, 'response.completed');
+  });
+
+  it('emits output_item.added + output_text.delta + output_text.done for a text block', async () => {
+    const events = await collectStream(
+      translateStream({
+        responseId: 'resp_x',
+        body: baseBody,
+        source: source([
+          { type: 'start' } as never,
+          { type: 'text-start', id: 't1' } as never,
+          { type: 'text-delta', id: 't1', text: 'Hello' } as never,
+          { type: 'text-delta', id: 't1', text: ' world' } as never,
+          { type: 'text-end', id: 't1' } as never,
+          { type: 'finish', finishReason: 'stop', rawFinishReason: 'stop', totalUsage: { inputTokens: 1, outputTokens: 2, totalTokens: 3 } } as never,
+        ]),
+      }),
+    );
+    const types = events.map(e => (e as { type: string }).type);
+    assert.deepEqual(types, [
+      'response.created',
+      'response.in_progress',
+      'response.output_item.added',
+      'response.output_text.delta',
+      'response.output_text.delta',
+      'response.output_text.done',
+      'response.completed',
+    ]);
+    // output_index correlation: added + delta + done all share the
+    // same index (0 — first output item).
+    const added = events[2] as { output_index: number; item: { id: string; type: string } };
+    assert.equal(added.output_index, 0);
+    assert.equal(added.item.type, 'message');
+    const done = events[5] as { output_index: number; text: string };
+    assert.equal(done.output_index, 0);
+    assert.equal(done.text, 'Hello world', 'output_text.done must echo the accumulated text');
+  });
+
+  it('emits function_call.delta + function_call.done for tool calls', async () => {
+    const events = await collectStream(
+      translateStream({
+        responseId: 'resp_x',
+        body: baseBody,
+        source: source([
+          { type: 'start' } as never,
+          { type: 'tool-input-start', id: 'call_1', toolName: 'lookup' } as never,
+          { type: 'tool-input-delta', id: 'call_1', delta: '{"q":"' } as never,
+          { type: 'tool-input-delta', id: 'call_1', delta: 'weather"}' } as never,
+          { type: 'tool-call', toolCallId: 'call_1', toolName: 'lookup', input: { q: 'weather' } } as never,
+          { type: 'finish', finishReason: 'tool-calls', rawFinishReason: 'tool_calls', totalUsage: { inputTokens: 10, outputTokens: 5, totalTokens: 15 } } as never,
+        ]),
+      }),
+    );
+    const types = events.map(e => (e as { type: string }).type);
+    assert.deepEqual(types, [
+      'response.created',
+      'response.in_progress',
+      'response.output_item.added',
+      'response.function_call.delta',
+      'response.function_call.delta',
+      'response.function_call.done',
+      'response.completed',
+    ]);
+    const done = events[5] as { call_id: string; name: string; arguments: string };
+    assert.equal(done.call_id, 'call_1');
+    assert.equal(done.name, 'lookup');
+    assert.equal(done.arguments, '{"q":"weather"}');
+    const completed = events[6] as { response: { finish_reason: string } };
+    assert.equal(completed.response.finish_reason, 'tool_calls');
+  });
+
+  it('maps error to response.failed and terminates the stream', async () => {
+    const events = await collectStream(
+      translateStream({
+        responseId: 'resp_x',
+        body: baseBody,
+        source: source([
+          { type: 'start' } as never,
+          { type: 'error', error: new Error('upstream boom') } as never,
+        ]),
+      }),
+    );
+    const last = events[events.length - 1] as { type: string; error: { message: string } };
+    assert.equal(last.type, 'response.failed');
+    assert.match(last.error.message, /boom/);
+  });
+
+  it('synthesises function_call.done event when upstream skips tool-input-* entirely', async () => {
+    const events = await collectStream(
+      translateStream({
+        responseId: 'resp_x',
+        body: baseBody,
+        source: source([
+          { type: 'start' } as never,
+          { type: 'tool-call', toolCallId: 'call_1', toolName: 'lookup', input: { q: 'x' } } as never,
+          { type: 'finish', finishReason: 'tool-calls', rawFinishReason: 'tool_calls', totalUsage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 } } as never,
+        ]),
+      }),
+    );
+    const types = events.map(e => (e as { type: string }).type);
+    assert.deepEqual(types, [
+      'response.created',
+      'response.in_progress',
+      'response.output_item.added',
+      'response.function_call.done',
+      'response.completed',
+    ]);
+  });
+
+  it('passes through totalUsage on the completed event', async () => {
+    const events = await collectStream(
+      translateStream({
+        responseId: 'resp_x',
+        body: baseBody,
+        source: source([
+          { type: 'start' } as never,
+          { type: 'finish', finishReason: 'stop', rawFinishReason: 'stop', totalUsage: { inputTokens: 100, outputTokens: 200, totalTokens: 300, outputTokenDetails: { reasoningTokens: 50 } } } as never,
+        ]),
+      }),
+    );
+    const completed = events[events.length - 1] as { response: { usage: { input_tokens: number; output_tokens: number; total_tokens: number; reasoning_tokens?: number } } };
+    assert.equal(completed.response.usage.input_tokens, 100);
+    assert.equal(completed.response.usage.output_tokens, 200);
+    assert.equal(completed.response.usage.total_tokens, 300);
+    assert.equal(completed.response.usage.reasoning_tokens, 50);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────
+// translateNonStreamResponse
+// ─────────────────────────────────────────────────────────────────────
+
+describe('translateNonStreamResponse — ai-sdk result → Responses JSON body', () => {
+  it('builds a complete Responses object with assistant text', () => {
+    const body = translateNonStreamResponse({
+      responseId: 'resp_x',
+      model: 'gpt-test',
+      result: {
+        text: 'all good',
+        toolCalls: [],
+        finishReason: 'stop',
+        totalUsage: { inputTokens: 4, outputTokens: 3, totalTokens: 7 },
+      },
+    });
+    assert.equal(body.id, 'resp_x');
+    assert.equal(body.object, 'response');
+    assert.equal(body.status, 'completed');
+    assert.equal(body.model, 'gpt-test');
+    assert.equal(body.finish_reason, 'stop');
+    assert.equal(body.output.length, 1);
+    const msg = body.output[0] as { type: string; content: Array<{ type: string; text: string }> };
+    assert.equal(msg.type, 'message');
+    assert.equal(msg.content[0].type, 'output_text');
+    assert.equal(msg.content[0].text, 'all good');
+  });
+
+  it('emits function_call output items for each tool call', () => {
+    const body = translateNonStreamResponse({
+      responseId: 'resp_y',
+      model: 'gpt-test',
+      result: {
+        text: '',
+        toolCalls: [
+          { toolCallId: 'c1', toolName: 'lookup', input: { q: 'x' } },
+          { toolCallId: 'c2', toolName: 'reply', input: 'literal-string' },
+        ],
+        finishReason: 'tool-calls',
+        totalUsage: { inputTokens: 1, outputTokens: 0, totalTokens: 1 },
+      },
+    });
+    assert.equal(body.output.length, 2);
+    const call1 = body.output[0] as { type: string; call_id: string; arguments: string };
+    assert.equal(call1.type, 'function_call');
+    assert.equal(call1.call_id, 'c1');
+    assert.equal(call1.arguments, '{"q":"x"}');
+    const call2 = body.output[1] as { type: string; arguments: string };
+    assert.equal(call2.arguments, 'literal-string', 'string input passes through unchanged');
+    assert.equal(body.finish_reason, 'tool_calls');
+  });
+
+  it('falls back to usage when totalUsage is absent', () => {
+    const body = translateNonStreamResponse({
+      responseId: 'r',
+      model: 'm',
+      result: {
+        text: 'ok',
+        toolCalls: [],
+        finishReason: 'stop',
+        usage: { inputTokens: 11, outputTokens: 22, totalTokens: 33 },
+      },
+    });
+    assert.equal(body.usage.input_tokens, 11);
+    assert.equal(body.usage.output_tokens, 22);
+    assert.equal(body.usage.total_tokens, 33);
+  });
+});

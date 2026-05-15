@@ -765,15 +765,14 @@ describe('MessageInput auto-correct — manual-only side effects (Phase 6 P0)', 
   });
 });
 
-describe('Picker tooltip — codex_runtime reason flows end-to-end (Phase 6 P0 follow-up)', () => {
-  // Source-level grep on `getModelCompat` proves the annotation
-  // EXISTS at the data layer (see the next describe). The end-to-end
-  // pin here exercises the full chain — invoke the API route handler
-  // for real, walk every returned row, and assert non-Codex providers
-  // carry the proxy-pending reason in the wire response. Catches the
-  // class of bug the user reported in Chrome smoke: data side is
-  // fine but somewhere between API and DOM the annotation gets lost.
-  it('GET /api/providers/models response shape carries codex_runtime reason on each non-codex row', async () => {
+describe('Picker — codex_runtime supportedRuntimes flows end-to-end (Phase 5b)', () => {
+  // Pre-5b the picker disabled non-Codex rows under Codex Runtime
+  // with a proxy-pending reason. After the unified provider-proxy
+  // translator landed, every known compat tier reaches Codex Runtime
+  // so the picker re-enables those rows. The pin here exercises the
+  // full chain — invoke the API route, walk every returned row, and
+  // assert non-`unknown` tiers carry `codex_runtime` in supportedRuntimes.
+  it('GET /api/providers/models response shape: known-tier rows include codex_runtime in supportedRuntimes', async () => {
     const { GET } = await import('@/app/api/providers/models/route');
     const { NextRequest } = await import('next/server');
     const req = new NextRequest('http://test.local/api/providers/models');
@@ -791,10 +790,8 @@ describe('Picker tooltip — codex_runtime reason flows end-to-end (Phase 6 P0 f
     };
     assert.ok(Array.isArray(data.groups), 'response must include groups[]');
 
-    // The route must annotate EVERY row with supportedRuntimes — that
-    // contract is load-bearing for the picker's per-row gate. If even
-    // one row is missing the field, the picker silently re-enables it
-    // (gate falls back to "no annotation → universally supported").
+    // Every row must carry supportedRuntimes — picker gate reads this
+    // per row. Missing annotation falls back to "universally supported".
     for (const g of data.groups) {
       for (const m of g.models) {
         assert.ok(
@@ -804,85 +801,98 @@ describe('Picker tooltip — codex_runtime reason flows end-to-end (Phase 6 P0 f
       }
     }
 
-    // The non-codex tiers MUST carry a codex_runtime reason. Without
-    // it, the picker tooltip falls back to the generic "current engine
-    // does not support this model" — which is exactly the regression
-    // the user caught. Loop pins every row from every non-codex tier.
-    const nonCodexCompatTiers = new Set([
+    // Known tiers (everything except `unknown` and media-only) MUST
+    // list codex_runtime in supportedRuntimes now that Phase 5b's
+    // unified translator handles all three adapter families.
+    const phase5bReadyTiers = new Set([
       'claude_code_ready',
       'claude_code_verified',
       'claude_code_experimental',
       'openrouter_anthropic_skin',
       'codepilot_only',
-      'unknown',
     ]);
     let checkedAny = false;
     for (const g of data.groups) {
-      if (!g.compat || !nonCodexCompatTiers.has(g.compat)) continue;
+      if (!g.compat || !phase5bReadyTiers.has(g.compat)) continue;
       for (const m of g.models) {
         checkedAny = true;
-        const reason = m.unsupportedReasonByRuntime?.codex_runtime;
         assert.ok(
-          reason,
-          `${g.provider_id} (${g.compat}) / ${m.value} must carry unsupportedReasonByRuntime.codex_runtime — picker tooltip reads this directly`,
+          m.supportedRuntimes?.includes('codex_runtime'),
+          `${g.provider_id} (${g.compat}) / ${m.value} must list codex_runtime in supportedRuntimes — Phase 5b proxy adapter is ready for this tier`,
         );
-        assert.match(
-          reason!,
-          /Codex provider proxy 尚未覆盖/,
-          `${g.provider_id} / ${m.value} reason must use the proxy-pending wording so users see this as a temporary 5b state, not a permanent constraint`,
+        assert.equal(
+          m.unsupportedReasonByRuntime?.codex_runtime,
+          undefined,
+          `${g.provider_id} / ${m.value} must not carry a codex_runtime reason — adapter is wired`,
         );
       }
     }
-    // If `checkedAny` stayed false the test database had no non-codex
-    // providers — fine in isolation but the loop above couldn't catch
-    // anything, so the pin is meaningless. Surface that.
     assert.ok(
       checkedAny,
-      'expected at least one non-codex provider in the response so the codex_runtime reason can be exercised end-to-end',
+      'expected at least one Phase 5b-ready tier provider in the response so the codex_runtime supportedness can be exercised end-to-end',
     );
   });
 });
 
-describe('runtime-compat — codex_runtime proxy-pending reason on every non-codex tier (Phase 6 P0)', () => {
+describe('runtime-compat — codex_runtime supportedness after Phase 5b proxy adapter ships', () => {
   const src = fs.readFileSync(
     path.join(repoRoot, 'lib/runtime-compat.ts'),
     'utf8',
   );
 
-  it('codex_runtime reason wording matches the user-spec "proxy 尚未覆盖" parity language', () => {
-    // The reason must clearly say "proxy 尚未覆盖该 provider 类型 /
-    // translator 尚未接入" so users understand this is a transient
-    // 5b-pending state, NOT a permanent constraint. "请切回其他
-    // Runtime" alone (the pre-P0 wording) implied permanence.
+  it('only the unknown tier still gates codex_runtime (wire format undeducible)', () => {
+    // Phase 5b: every known compat tier routes through the unified
+    // provider-proxy translator. `unknown` is the only tier where the
+    // proxy can't pick a wire format without more info, so it stays
+    // pending. The proxy-pending reason wording shifted from "尚未
+    // 覆盖" (pre-5b sweep) to "暂未识别" (post-5b nuance — proxy is
+    // live, just can't infer the protocol for this row).
     assert.match(
       src,
-      /Codex provider proxy 尚未覆盖该 provider 类型 \/ translator 尚未接入/,
+      /Codex provider proxy 暂未识别该 provider 类型，无法判定 wire format/,
     );
   });
 
-  it('every non-codex_account tier carries reasons.codex_runtime', () => {
-    // Mirror of the switch arms in `getModelCompat` — each compat
-    // tier that doesn't natively support codex_runtime must populate
-    // `reasons.codex_runtime` so the picker tooltip has something to
-    // show instead of falling back to the generic copy.
+  it('Phase 5b-ready tiers add codex_runtime to supported set', () => {
+    // Mirror of the switch arms in `getModelCompat` — each Phase 5b
+    // adapter-ready tier must call `supported.add('codex_runtime')`.
     for (const tier of [
       'claude_code_ready',
       'claude_code_verified',
       'claude_code_experimental',
       'openrouter_anthropic_skin',
       'codepilot_only',
-      'unknown',
     ]) {
       const tierBlock = src.match(
-        new RegExp(`case ['"]${tier}['"]:[\\s\\S]{0,1500}?break;`),
+        new RegExp(`case ['"]${tier}['"]:[\\s\\S]{0,2000}?break;`),
       );
       assert.ok(tierBlock, `expected case '${tier}' in getModelCompat switch`);
       assert.match(
         tierBlock![0],
-        /reasons\.codex_runtime\s*=\s*CODEX_PROXY_PENDING_REASON_ZH/,
-        `${tier} must populate reasons.codex_runtime with the proxy-pending reason`,
+        /supported\.add\(['"]codex_runtime['"]\)/,
+        `${tier} must add codex_runtime to the supported set — Phase 5b adapter handles it`,
+      );
+      assert.doesNotMatch(
+        tierBlock![0],
+        /reasons\.codex_runtime\s*=/,
+        `${tier} must NOT set a codex_runtime reason — adapter is wired`,
       );
     }
+  });
+
+  it('unknown tier keeps codex_runtime gated with the new wire-format reason', () => {
+    const tierBlock = src.match(/case ['"]unknown['"]:[\s\S]{0,2000}?break;/);
+    assert.ok(tierBlock, 'expected case unknown in getModelCompat switch');
+    assert.match(
+      tierBlock![0],
+      /reasons\.codex_runtime\s*=\s*CODEX_PROXY_PENDING_REASON_ZH/,
+      'unknown tier must still surface the proxy-pending reason',
+    );
+    assert.doesNotMatch(
+      tierBlock![0],
+      /supported\.add\(['"]codex_runtime['"]\)/,
+      'unknown tier must NOT add codex_runtime to supported — proxy can\'t infer wire format',
+    );
   });
 });
 

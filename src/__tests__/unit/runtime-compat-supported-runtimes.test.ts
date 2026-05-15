@@ -21,44 +21,45 @@ function compatFor(tier: ProviderRuntimeCompat) {
 }
 
 describe('getModelCompat → supportedRuntimes', () => {
-  it('claude_code_ready exposes both legacy runtimes + codex_runtime proxy-pending reason', () => {
-    // Phase 6 P0 (2026-05-15) — codex_runtime reach is shaped by the
-    // CodePilot provider proxy, which is still scaffolded. Until the
-    // translator lands per compat tier, every non-Codex provider
-    // carries a `codex_runtime` reason ("proxy 尚未覆盖") so the
-    // picker tooltip explains the disabled state correctly. Pre-P0
-    // this field was undefined and the picker fell back to generic
-    // copy.
+  it('claude_code_ready exposes all three runtimes (Phase 5b proxy adapter ready)', () => {
+    // Phase 5b (2026-05-15) — Codex Runtime reach lit up after the
+    // unified provider-proxy translator landed. claude_code_ready
+    // (Anthropic-shape wire) routes through the proxy's Anthropic-
+    // compat path, so codex_runtime joins the supported set and the
+    // proxy-pending reason is gone.
     const cap = compatFor('claude_code_ready');
     assert.deepEqual([...(cap.supportedRuntimes ?? [])].sort(), [
       'claude_code',
       'codepilot_runtime',
+      'codex_runtime',
     ]);
-    assert.match(
-      cap.unsupportedReasonByRuntime?.codex_runtime ?? '',
-      /Codex provider proxy 尚未覆盖/,
-    );
+    assert.equal(cap.unsupportedReasonByRuntime?.codex_runtime, undefined);
   });
 
-  it('claude_code_verified exposes both runtimes', () => {
+  it('claude_code_verified exposes all three runtimes', () => {
     const cap = compatFor('claude_code_verified');
     assert.deepEqual([...(cap.supportedRuntimes ?? [])].sort(), [
       'claude_code',
       'codepilot_runtime',
+      'codex_runtime',
     ]);
   });
 
-  it('claude_code_experimental exposes both runtimes', () => {
+  it('claude_code_experimental exposes all three runtimes', () => {
     const cap = compatFor('claude_code_experimental');
     assert.deepEqual([...(cap.supportedRuntimes ?? [])].sort(), [
       'claude_code',
       'codepilot_runtime',
+      'codex_runtime',
     ]);
   });
 
-  it('openrouter_anthropic_skin reaches Claude Code only + carries reason for CodePilot Runtime', () => {
+  it('openrouter_anthropic_skin reaches Claude Code + Codex Runtime; CodePilot Runtime stays gated on /v1 skin', () => {
     const cap = compatFor('openrouter_anthropic_skin');
-    assert.deepEqual(cap.supportedRuntimes, ['claude_code']);
+    assert.deepEqual([...(cap.supportedRuntimes ?? [])].sort(), [
+      'claude_code',
+      'codex_runtime',
+    ]);
     assert.ok(cap.unsupportedReasonByRuntime?.codepilot_runtime);
     assert.match(
       cap.unsupportedReasonByRuntime!.codepilot_runtime!,
@@ -66,9 +67,12 @@ describe('getModelCompat → supportedRuntimes', () => {
     );
   });
 
-  it('codepilot_only reaches CodePilot Runtime only + carries reason for Claude Code', () => {
+  it('codepilot_only reaches CodePilot Runtime + Codex Runtime; Claude Code stays gated on Anthropic wire', () => {
     const cap = compatFor('codepilot_only');
-    assert.deepEqual(cap.supportedRuntimes, ['codepilot_runtime']);
+    assert.deepEqual([...(cap.supportedRuntimes ?? [])].sort(), [
+      'codepilot_runtime',
+      'codex_runtime',
+    ]);
     assert.ok(cap.unsupportedReasonByRuntime?.claude_code);
     assert.match(
       cap.unsupportedReasonByRuntime!.claude_code!,
@@ -76,12 +80,16 @@ describe('getModelCompat → supportedRuntimes', () => {
     );
   });
 
-  it('unknown defaults to both runtimes visible (user verifies)', () => {
+  it('unknown defaults to both legacy runtimes visible; codex_runtime stays gated (wire format unknown)', () => {
     const cap = compatFor('unknown');
     assert.deepEqual([...(cap.supportedRuntimes ?? [])].sort(), [
       'claude_code',
       'codepilot_runtime',
     ]);
+    assert.match(
+      cap.unsupportedReasonByRuntime?.codex_runtime ?? '',
+      /Codex provider proxy/,
+    );
   });
 
   it('media_only short-circuits — no supportedRuntimes set', () => {

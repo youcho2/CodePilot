@@ -1,8 +1,8 @@
 # Phase 5 — Codex Runtime 接入
 
 > 创建时间：2026-05-12
-> 最后更新：2026-05-13
-> 状态：📋 计划已写入，待审批 / 待开工
+> 最后更新：2026-05-15
+> 状态：🔄 核心链路已落地并过 review；下一步是 Phase 5b 一次性完成 CodePilot provider proxy translator，让 Codex Runtime 与 CodePilot Runtime 模型能力对齐（除 Claude Code 默认/env 模式），而不是只显示 Codex Account
 > 协作边界：Codex 负责计划制定、方案审查和 Review；ClaudeCode 负责执行代码改动、测试和提交整理。除非用户明确重新授权，Codex 只改 `docs/` 下的计划 / 交接 / review 文档。
 > 上下文同步：本计划不是只给 ClaudeCode 的任务列表。执行前必须读完“讨论脉络”与“Runtime Contract Hardening”，理解为什么 Codex 不能降级成 `Codex Account only`，也不能用三套 runtime 私有语义直接污染 UI。
 
@@ -17,6 +17,9 @@
 5. 风险判断：ClaudeCode 对复杂度的担心成立。现在已有 ClaudeCode + CodePilot Runtime 两套 permission / model / session / tab metadata invariant；直接加 Codex 会制造 P0 风险。
 6. 因此增加前置：Phase 0.5 Runtime Contract Hardening。它不是可选清理，而是接 Codex 前的工程安全带。先收口 session / permission / model / event / preview metadata 契约，再接 Codex app-server。
 7. 审查重点：实现报告不能只说“加了 Codex Runtime”。必须说明三 Runtime invariant 如何被统一、哪些 UI 组件没有吃 Codex 私有字段、未知 Codex item 如何 fallback、provider proxy 覆盖与 unsupported reason 如何呈现。
+8. 2026-05-14 验证结论：Codex Account 主链路已能实际跑通一轮 chat。UI 里选择 `Codex Runtime` + Codex Account 模型后，服务端日志显示走 `codex_runtime`，回复正常返回；`codex_account` 虚拟 provider、`runtime_pin='codex_runtime'` 白名单、`streamClaude` force-route 均已修过 review finding。
+9. 2026-05-14 取舍曾经写成“Settings 状态卡 + 模型选择 disclosure 同批发布，Codex Runtime 暂时只显示 Codex Account 模型”。这个口径只适合 scaffold 阶段，不能作为产品目标。
+10. 2026-05-15 用户修正：最终兼容目标不是“Codex Account only + 少量 OpenAI-compatible”，而是 **Codex Runtime 与 CodePilot Runtime 的模型能力对齐**。凡是 CodePilot Runtime（AI SDK / provider transport）今天能跑的模型，Codex Runtime 也应通过 CodePilot provider proxy 可用；唯一明确排除的是 Claude Code 默认/env 模式与 Claude Code CLI 私有账号路径。ClaudeCode-compatible / CodePlan 不能被永久延期成“后续再说”。Phase 5b 可以在代码内部按 adapter 轨道组织，但对外交付必须是一批完整实现，不接受先交 OpenAI-compatible 再反复补其它 provider 的半成品。
 
 ## 一句话目标
 
@@ -32,7 +35,7 @@ ClaudeCode 和 Codex 不是互相替代的两个按钮，而是两种不同 Agen
 - **获得 Codex 原生能力**：Codex 的 app-server 暴露 thread / turn / item / command / file-change / token usage / account / model 等结构化能力，能比文本 CLI 更完整地映射进 CodePilot。
 - **保留 CodePilot 工作区体验**：用户仍在 CodePilot 的 chat、文件树、Markdown / Artifact 预览、任务和通知里工作，而不是在 Codex 与 CodePilot 之间切换上下文。
 - **为多 Runtime 打基础**：ClaudeCode、CodePilot Runtime、Codex Runtime 并列后，后续 Gemini / OpenClaw / Hermes 类 runtime 才有统一入口和验收标准。
-- **最终复用现有 provider**：Codex Runtime 不能只停留在 Codex Account；本阶段完成口径包含 CodePilot provider proxy 的 MVP，让 Codex Runtime 至少能跑通一类 CodePilot 已配置模型，并对暂不支持的 provider 给出明确原因。
+- **最终复用现有 provider**：Codex Runtime 不能只停留在 Codex Account；本阶段完成口径是对齐 CodePilot Runtime 的模型能力。除 Claude Code 默认/env 模式外，CodePilot Runtime 能用的 provider/model 都应能通过 `CodePilot via Codex` 在 Codex Runtime 下运行；暂未接好的 provider 必须显示“proxy translator 未实现”的明确原因，不能被误写成永久不支持。
 
 ## 调研结论
 
@@ -52,20 +55,21 @@ ClaudeCode 和 Codex 不是互相替代的两个按钮，而是两种不同 Agen
 3. Chat composer 的 Runtime Selector 增加 `Codex Runtime`：选择后，新消息通过 Codex app-server thread/turn 执行。
 4. Codex Runtime 的输出进入现有聊天 UI：assistant delta、工具 / 命令事件、插件事件、文件改动、token usage、错误状态都映射到 CodePilot 现有事件面。
 5. Codex Runtime 运行目录、权限策略、会话绑定与 CodePilot 当前会话一致：不会默认跑到主目录，不会绕开 Worktree 隔离。
-6. Codex Runtime 不止能跑 Codex Account 模型；通过本阶段的 provider proxy MVP，至少能跑通一类 CodePilot 已配置 provider。暂不支持的 provider 必须显示原因，不能假装可用。
+6. Codex Runtime 不止能跑 Codex Account 模型；通过本阶段的 provider proxy，最终应覆盖所有 CodePilot Runtime 已支持的 provider/model（Claude Code 默认/env 模式除外）。实现内部可以按 adapter 轨道组织，但对用户和 review 的交付必须是一批完整能力；UI 兼容矩阵在交付前可以表达“待 proxy translator 接入”，不能把这些模型永久置为不可用。
 
 ## 状态
 
 | Phase | 内容 | 状态 | 备注 |
 |---|---|---|---|
-| 0 | POC 与契约确认 | 📋 待开始 | 验证本机 `codex app-server`、`account/read`、`model/list`、`thread/start`、`turn/start` 最小闭环。 |
-| 0.5 | Runtime Contract Hardening | 📋 待开始 | 三 Runtime 前置安全带：session / permission / model / event / preview metadata 统一契约。 |
-| 1 | Codex app-server 管理层 | 📋 待开始 | 进程发现 / 启停 / JSON-RPC client / 健康检查 / Settings 状态卡。 |
-| 2 | 账号与模型同步 | 📋 待开始 | `account/read` + login flow + `model/list` → CodePilot ProviderModelGroup。 |
-| 3 | Codex Runtime Adapter | 📋 待开始 | Runtime registry 接入；thread / turn / event stream 映射到现有 SSE / DB。 |
-| 4 | Codex 原生能力 / 插件事件接入 | 📋 待开始 | command / tool / file change / permission / plugin-like item 映射到 CodePilot UI。 |
-| 5 | CodePilot provider proxy for Codex | 📋 待开始 | 本地 Responses-compatible proxy，让 Codex Runtime 可用 CodePilot 现有 provider；这是同级 Runtime 的完成条件之一。 |
-| 6 | UI / Electron / 测试收口 | 📋 待开始 | Runtime Selector、模型选择、错误横幅、Electron smoke、文档归档。 |
+| 0 | POC 与契约确认 | ✅ 已并入实现 | 本机 `codex app-server`、`account/read`、`model/list`、`thread/start`、`turn/start` 路径随 Phase 1-3 落地验证。 |
+| 0.5 | Runtime Contract Hardening | ✅ 已完成 | RuntimeId / session-store / permission union / event union / model compat 契约已落地并有 guardrail test。 |
+| 1 | Codex app-server 管理层 | ✅ 已完成 | 进程发现 / 启停 / JSON-RPC client / server request / wildcard notification / status API 已落地；Settings 状态卡 UI 留到 Phase 6。 |
+| 2 | 账号与模型同步 | ✅ 已完成 | `account/read` + login flow + `model/list` → `Codex Account` ProviderModelGroup；模型兼容只暴露给 `codex_runtime`。 |
+| 3 | Codex Runtime Adapter | ✅ 已完成 | Runtime registry 接入；`codex_thread_id`；thread / turn / item / token usage 映射到 canonical events。 |
+| 4 | Codex 原生能力 / 插件事件接入 | ✅ 已完成 | file_changed、approval bridge、turn interrupt、unknown item fallback、fs/watch 兜底已落地。 |
+| 5 | CodePilot provider proxy for Codex | ✅ scaffold 已完成 | `/api/codex/proxy/v1/responses` 结构化返回 `501 unsupported_yet`；真实 Responses 翻译器仍未完成。 |
+| 6 | UI / Electron / 测试收口 | ✅ 已完成主体收口 | Settings Runtime / Providers / Models IA、Codex 状态卡、模型 disclosure、runtime gate、Electron dispose 已落地；剩余模型可用性属于 Phase 5b provider proxy translator。 |
+| 5b | CodePilot provider proxy translator | ✅ 已落地 (2026-05-15) | 统一翻译层基于 ai-sdk `createModel()` + `streamText`/`generateText`：Responses 输入 / 工具 / 流式事件 / 非流式响应四路转换 + 同一 adapter 覆盖 OpenAI-compatible、Anthropic-compatible、CodePlan 三个家族。`ADAPTER_STATUS_BY_COMPAT` 中除 `unknown` 外的非 native tier 全部翻为 `ready`；`getModelCompat` 让这些 tier 的 `supportedRuntimes` 增加 `codex_runtime`，并清理对应 `reasons.codex_runtime`。`unknown` tier 因为 wire format 推断不出来仍保留 pending 文案。下一步是真实 provider credential 实测 + 完整 smoke 表，跑通后 status 仍保留 ✅ 不动。 |
 
 ## 详细设计
 
@@ -241,40 +245,76 @@ Guardrail tests：
 - 未识别的 Codex item 不丢失，至少以 fallback block 可见。
 - 需要审批的动作能到达 CodePilot permission UI 或明确 waiting state。
 
-### Phase 5 — CodePilot provider proxy for Codex
+### Phase 5b — CodePilot provider proxy translator（一次性完整交付）
 
-这是“Codex Runtime 下也能使用我们现在已经可以用的这些模型”的关键，但不能在 Phase 2 就假装已经完成。
+这是“Codex Runtime 下也能使用我们现在已经可以用的这些模型”的关键，但不能假装已经完成。
+
+当前实现状态（2026-05-15）：
+
+- 已有 scaffold：本地 `/api/codex/proxy/v1/responses` route、provider proxy injection helper、按 provider compat tier 返回结构化 `unsupported_yet`。
+- 还没有 Responses API 请求/响应翻译、streaming 转换、provider transport forwarding，也没有让 `CodexRuntime` 用这个 proxy 真跑 CodePilot provider。
+- 因此当前用户可用范围仍是：`Codex Runtime` 已能跑 `Codex Account` 模型；CodePilot 现有 provider 还没有真实接入 Codex。
+- 但产品目标已经明确：**Codex Runtime 的模型兼容应与 CodePilot Runtime 对齐**。只把 OpenAI-compatible 当第一刀会让 GLM / 百炼 / Kimi / OpenRouter / CodePlan 等 CodePilot 已可用模型在 Codex 下长期不可用，不符合用户目标。
+- 真实 translator 改名为 **Phase 5b**，但 Phase 5b 不再是“只做 OpenAI-compatible”的小口径；它必须在同一轮交付里覆盖 CodePilot Runtime 的主要 provider transport 能力。内部可以分轨开发，不能分批发布或只交一个 provider slice。
 
 现实约束：
 
 - Codex provider config 当前围绕 Responses wire API。
-- CodePilot 现有 provider 包含 OpenAI-compatible、Anthropic-compatible、ClaudeCode-compatible、CodePlan 等多类。
-- 因此直接把 CodePilot provider 写进 Codex config 不足以覆盖全部模型。
+- CodePilot Runtime 已经能通过 provider resolver / provider transport / `claude-code-compat` adapter 跑多类 provider：OpenAI-compatible、Anthropic-compatible、ClaudeCode-compatible、CodePlan / 套餐型 provider 等。
+- 因此不能只把 CodePilot provider 静态写进 Codex config；需要本地 proxy 把 Codex 的 Responses-shaped 请求转换成 CodePilot Runtime 现有 provider transport 能消费的内部请求，再把 streaming / tool-call / error / usage 转回 Codex 期待的 Responses shape。
+- 唯一明确不纳入 parity 的是 Claude Code 默认/env 模式：它依赖 Claude Code CLI / Anthropic 账号私有上下文，不是 CodePilot Runtime provider，也不应通过 Codex provider proxy 伪装。
 
-计划：
+交付口径：
 
-1. 新增本地 CodePilot Responses-compatible proxy：
-   - Codex app-server 看到它像一个 Responses provider。
-   - proxy 内部调用 CodePilot provider resolver / transport。
-   - 第一批优先支持标准 messages / OpenAI-compatible providers。
-2. 对 ClaudeCode-compatible / CodePlan provider：
-   - 复用现有 `claude-code-compat` adapter 能力，或加 Responses → internal messages → provider transport 转换层。
-   - 明确哪些 provider 首批可用，哪些需要后续补齐。
-3. Codex provider config 注入策略：
-   - 优先运行时 config override，不直接改用户 `~/.codex/config.toml`。
-   - 如果 Codex app-server 不支持 runtime provider injection，再评估临时 shadow config，但必须避免污染用户全局 Codex 设置。
-4. UI 表达：
-   - `Codex Account` = Codex 原生模型。
-   - `CodePilot via Codex` = 通过本地 proxy 暴露给 Codex Runtime 的 CodePilot 模型。
-   - 模型不可用时显示原因：provider 不支持 Responses proxy / credentials missing / adapter missing。
+- **一次性完成，不拆两次 review**。ClaudeCode 可以在实现内部按 adapter 轨道拆文件、拆 commit、拆测试，但最终提交给 Codex review 的必须是一组完整成果：OpenAI-compatible、Anthropic-compatible / ClaudeCode-compatible、CodePlan / 套餐型 provider 三类主链路都要可运行或给出具体、可验证、非永久性的缺口。
+- **不接受“先只做 OpenAI-compatible”作为 Phase 5b 完成**。OpenAI-compatible 可以作为内部第一个打通的 adapter，但不能作为对用户发布的完成边界。
+- **不新增另一个 Runtime 语义层**。Phase 5b 是 Codex Runtime 使用 CodePilot provider 的桥，不是第四套 provider 系统；provider credential、model exposure、套餐白名单、错误分类都复用 CodePilot Runtime 的现有 resolver / transport 语义。
+
+执行计划：
+
+1. 建立 provider parity inventory：
+   - 以 `codepilot_runtime` 当前可用模型为基准生成兼容矩阵：provider id、model id、compat tier、credentials 状态、transport 类型、media-only / chat-capable、是否属于 Claude Code 默认/env 私有路径。
+   - 明确排除项只有 Claude Code 默认/env / CLI 私有账号路径与 media-only 非 chat 模型；其它 `codepilot_runtime` 可用 chat 模型默认都应进入 `codex_runtime`。
+   - 这份矩阵要进入测试夹具或 contract test，防止后续新增 provider 时只更新 CodePilot Runtime、忘记 Codex proxy。
+2. 完成本地 Responses-compatible proxy 主链路：
+   - 继续使用 `/api/codex/proxy/v1/responses` 作为 Codex 看到的 Responses provider endpoint。
+   - Codex 请求通过 header / model namespace / metadata 定位 CodePilot target provider 与 model；proxy 内部只调用 CodePilot provider resolver / transport，不直接读取 Codex Account，不绕过 CodePilot Provider / Models 设置。
+   - 支持 non-stream 与 stream 两条路径；streaming 必须转换为 Codex app-server / Responses 期待的增量事件形态，不能只在结束时吐整段文本。
+   - 支持 instructions / messages / input text / system prompt / temperature / max tokens / reasoning effort 的最小稳定映射；未知字段保守忽略并记录 debug 信息，不得传出敏感配置。
+3. 一次性实现三类 adapter：
+   - **OpenAI-compatible**：覆盖标准 chat/text、tool-call 占位策略、stream delta、usage、provider error。它负责打底统一 request / response / stream / error 框架。
+   - **Anthropic-compatible / ClaudeCode-compatible**：复用现有 `claude-code-compat` adapter 与 provider transport 能力，把 Anthropic shape 的 messages / tool_use / thinking / alias / timeout 语义折到同一 Responses proxy contract；不能把它永久标成 unsupported。
+   - **CodePlan / 套餐型 provider**：复用套餐型 provider 白名单、quota / auth / model exposure 规则，确保 GLM / Kimi / 百炼 / MiniMax / DeepSeek 等当前 CodePilot Runtime 可用模型在 Codex 下也可选、可发、可得到明确错误。
+4. 统一错误与 usage 映射：
+   - provider credentials missing、quota/rate-limit、unsupported media、proxy adapter missing、upstream timeout、tool-call unsupported 等错误要有结构化 code 与用户可读 message。
+   - 对 Codex Runtime 来说，真正尚未覆盖的缺口写成 “Codex provider proxy 尚未覆盖该 provider 类型 / translator 尚未接入”；已接入但凭据缺失写 credentials；不要混成 “Codex 不支持此模型”。
+   - usage / token / context window 能从 provider 返回时就映射；拿不到时不要伪造。
+5. 接入 CodexRuntime provider injection：
+   - 优先使用运行时 config override，让 Codex app-server 看到 `CodePilot via Codex` provider；不直接修改用户 `~/.codex/config.toml`。
+   - 如果 app-server 当前不支持运行时 provider injection，再评估临时 shadow config；shadow config 必须在 CodePilot 管理目录中生成和清理，不能污染用户全局 Codex 设置。
+   - Codex Account 与 CodePilot via Codex 要在 UI 和 resolver 中保持两个清晰来源：前者是 Codex 原生账号，后者是 CodePilot provider proxy。
+6. 更新模型兼容与 UI：
+   - `supportedRuntimes` 目标规则：凡 `codepilot_runtime` 可用的 chat 模型，除明确排除项外也应包含 `codex_runtime`。
+   - 模型选择器在 Codex Runtime 下展示 `Codex Account` 与 `CodePilot via Codex`；仍不可用的模型置灰并给具体原因。
+   - Settings → Providers / Models 不新增一套 Codex 私有配置；账户、模型、执行引擎仍各归其位。
+7. 防回归测试与 smoke：
+   - Unit：Responses request parser、provider target resolver、三类 adapter、stream event converter、usage/error mapper、provider matrix parity。
+   - API：`/api/codex/proxy/v1/responses` non-stream + stream、credentials missing、unsupported media、upstream error。
+   - UI/CDP：Codex Runtime 下模型 picker 全量展示；OpenAI-compatible、Anthropic-compatible / ClaudeCode-compatible、CodePlan / 套餐型 provider 各发一条真实 chat。
+   - Electron：`npm run electron:dev` 下 Codex Runtime + CodePilot via Codex 至少跑一条 chat，退出时 proxy/app-server 不留 orphan。
 
 验收：
 
-- Codex Runtime 可以用 Codex 内置模型跑通一条 chat。
-- Codex Runtime 可以至少用一个 CodePilot 已配置的 OpenAI-compatible provider 跑通一条 chat。
-- ClaudeCode-compatible / CodePlan provider 如果未全部完成，UI 必须明确标注 unsupported reason，不能静默显示又运行失败。
+- Codex Runtime 继续可以用 Codex Account 模型跑通一条 chat，不能被 provider proxy 改坏。
+- Codex Runtime 可以通过 `CodePilot via Codex` 跑通至少三类真实 provider：OpenAI-compatible、Anthropic-compatible / ClaudeCode-compatible、CodePlan / 套餐型 provider。
+- 所有 `supportedRuntimes` 包含 `codepilot_runtime` 的 chat 模型，除 Claude Code 默认/env 私有路径和 media-only 外，也应包含 `codex_runtime`；若没有，必须有具体 translator 缺口记录和测试断言。
+- Claude Code 默认/env 模式不进入 `CodePilot via Codex`，UI 显示它属于 Claude Code Runtime 私有路径。
+- 模型 picker 不再让用户误以为 CodePilot provider 在 Codex 下永久不可用；置灰原因必须区分 proxy 未覆盖、凭据缺失、套餐/额度、media-only。
+- 失败时不能静默 fallback 到 Claude Code SDK 或 CodePilot Runtime；Codex Runtime 选择必须 fail-closed，并在 UI / logs 里说明 proxy 错误。
 
 ### Phase 6 — UI / Electron / 测试收口
+
+这是已落地的收口层，不新增 transport、不改 schema、不做 provider proxy 翻译；目标是把 Codex Account 主链路变成用户可理解、可诊断、不会误选模型的产品入口，并为 Phase 5b 的 CodePilot parity 留出正确 UI 语义。当前下一步不是继续补 Phase 6，而是进入上面的 **Phase 5b provider proxy translator**。
 
 UI 和交互：
 
@@ -285,8 +325,10 @@ UI 和交互：
    - App-server failed
    - Model unavailable
 2. Model picker：
-   - Codex Runtime 下默认展示 Codex Account 模型。
-   - provider proxy 完成后展示 CodePilot via Codex 模型组。
+   - 当前 scaffold 阶段，Codex Runtime 下只有 `Codex Account` 是真正可发送模型；其他 CodePilot provider 暂时 disabled。
+   - disabled reason 必须表达为“Codex provider proxy 尚未接入 / 尚未覆盖该 provider 类型”，而不是“Codex 只能用 Codex Account”或“请切回其他 Runtime”这种永久性口径。
+   - 模型选择器可以全量展示 + disabled + tooltip，但不能让 disabled 行可点击，也不能在 `runtime='auto'` 时失去 runtime gate。
+   - provider proxy translator 完成后，所有 CodePilot Runtime 可用模型（Claude Code 默认/env 除外）归入 `CodePilot via Codex` 或等价分组，并变为可选。
 3. RunCockpit / RunCheckpoint：
    - 显示 Codex Runtime 当前 thread / model / usage / permission 状态。
    - app-server 不可用时给出清晰修复入口。
@@ -294,6 +336,11 @@ UI 和交互：
    - packaged app 能找到 bundled 或用户安装的 `codex`。
    - 关窗常驻不杀 app-server orphan。
    - 退出 CodePilot 时优雅停止 Codex app-server 子进程。
+5. Settings Codex 状态卡：
+   - 使用 `/api/codex/status`、`/api/codex/account`、`/api/codex/models`。
+   - 显示 binary 是否找到、版本 / 路径、app-server 状态、登录状态、模型数量、最近错误。
+   - 对 featured plugin / manifest warning 这类非阻断问题显示为 degraded / warning，不挡住 Codex Account chat。
+   - 提供刷新状态 / 刷新模型入口；不读取 `~/.codex` token，不展示敏感字段。
 
 测试：
 
@@ -312,7 +359,7 @@ UI 和交互：
 - 不把 `codex exec` 文本输出解析作为主 Runtime 协议；最多作为诊断 fallback。
 - 不直接读取、复制、修改用户 `~/.codex` token / auth 文件。
 - 不把 Codex 降级为“只读 Codex Account 模型的 completion 入口”；同级 Runtime 必须接入 Codex 原生工具 / 命令 / 文件 / 权限事件。
-- 不承诺所有 CodePilot provider 都能在第一版 provider proxy 下运行；但 Phase 5 完成口径必须至少有一个 CodePilot provider proxy MVP，并且对 unsupported provider 给出明确原因。
+- 不要求每个 adapter 轨道落在同一个 commit；但 Phase 5b 不能分批发布、不能只交 OpenAI-compatible、不能把 Anthropic-compatible / ClaudeCode-compatible / CodePlan 写成永久后续。提交给 review 的成果必须是一批完整的 parity 实现。
 - 不替换 Claude Code Runtime / CodePilot Runtime 的默认路径；Codex 是新增 runtime。
 - 不做 Codex cloud/web agent 产品化，只接本地 Codex CLI / app-server。
 - 不做上下文可视化；它顺延到后续 Phase。
@@ -329,8 +376,9 @@ UI 和交互：
 7. 文件改动：让 Codex 修改一个 workspace Markdown 文件，PreviewPanel 收到 `codepilot:file-changed` 并刷新。
 8. 权限事件：触发需要审批的命令，CodePilot 显示 PermissionPrompt 或明确的 waiting state，不静默失败。
 9. 切 Runtime：从 Codex Runtime 切回 CodePilot Runtime，不丢旧 Codex thread metadata；切回 Codex 后可继续。
-10. Provider proxy：至少一个 CodePilot OpenAI-compatible provider 能在 Codex Runtime 下完成一条消息；ClaudeCode-compatible / CodePlan 未覆盖时 UI 显示 unsupported reason。
-11. Electron：`npm run electron:dev` 下 Codex Runtime 可用；退出 CodePilot 后没有 orphan app-server。
+10. Phase 6 模型 disclosure：Codex Runtime 下暂未接入 proxy 的 CodePilot provider 模型可以显示为 disabled，但 tooltip 必须说明“Codex provider proxy 尚未覆盖”，而不是“请切回其他 Runtime”；Codex Account 模型可正常发送。
+11. Phase 5b Provider proxy：同一批实现内，Codex Runtime 至少覆盖 OpenAI-compatible、Anthropic-compatible / ClaudeCode-compatible、CodePlan / 套餐型 provider 各一条真实 chat；所有 `codepilot_runtime` 可用 chat 模型最终应同步加入 `codex_runtime`，Claude Code 默认/env 模式和 media-only 除外。
+12. Electron：`npm run electron:dev` 下 Codex Runtime 可用；退出 CodePilot 后没有 orphan app-server。
 
 ## 风险与降级
 
@@ -339,7 +387,7 @@ UI 和交互：
 | 用户未安装 Codex CLI | UI 显示安装指引；Codex Runtime 不出现在可选 ready runtime 里。 |
 | 用户未登录 Codex | `model/list` 不伪造模型；显示登录入口。 |
 | app-server schema 变动 | 内部 `src/lib/codex/types.ts` 做窄类型适配；contract tests pin 关键字段。 |
-| provider proxy 不能覆盖 ClaudeCode-compatible 模型 | UI 标 unsupported reason；先支持 Codex Account + OpenAI-compatible。 |
+| provider proxy 暂未覆盖某类 CodePilot Runtime provider | Phase 5b 交付前允许 UI 标 “Codex provider proxy 尚未覆盖该 provider 类型”；Phase 5b 交付时必须收敛到具体 adapter 缺口或真实运行错误，不能把整类 CodePilot Runtime provider 降级为永久不支持。 |
 | 权限 / sandbox 语义不完全一致 | Phase 3 先 conservative：不确定时要求用户审批，不自动放行。 |
 | Electron packaged 找不到 `codex` binary | Settings 提供路径检测 / 手动配置；不阻塞其他 runtime。 |
 
@@ -348,4 +396,8 @@ UI 和交互：
 - 2026-05-12：Phase 5 改为 **Codex Runtime 接入**。上下文可视化顺延到后续 Phase；本阶段目标是让 Codex 像 Claude Code 一样成为可选 Runtime，并优先读取 Codex 登录账号自带模型。
 - 2026-05-12：主协议选择 `codex app-server` JSON-RPC，而不是 `codex exec` 文本输出。原因：app-server 暴露 account / model / thread / turn / token usage 等结构化事件，能稳定映射进 CodePilot Runtime。
 - 2026-05-12：Codex 内置模型先作为 `Codex Account` provider group 暴露；CodePilot 现有 provider 通过后续 Responses-compatible proxy 接给 Codex Runtime，避免在第一批过度承诺所有模型都可用。
-- 2026-05-12：接受用户修正：Codex 不能降级成 `Codex Account only` 的轻入口。Phase 5 完成口径改为“与 ClaudeCode 同等级 Runtime”：必须覆盖 Codex 原生工具 / 命令 / 插件式 item / 文件改动 / 权限事件，并交付 CodePilot provider proxy MVP；里程碑可以分批实现，但不能把 proxy 和原生能力永久移出 Phase 5。
+- 2026-05-12：接受用户修正：Codex 不能降级成 `Codex Account only` 的轻入口。Phase 5 完成口径改为“与 ClaudeCode 同等级 Runtime”：必须覆盖 Codex 原生工具 / 命令 / 插件式 item / 文件改动 / 权限事件，并交付 CodePilot provider proxy MVP。当时允许里程碑分批；2026-05-15 的 Phase 5b 口径已经覆盖这一点，provider proxy translator 不再按半成品分批发布。
+- 2026-05-14：Round 5 review 后确认当前可交付边界：Codex Account 主链路已可在 UI 中跑通一轮；`codex_account` 虚拟 provider、`runtime_pin='codex_runtime'` 白名单、`streamClaude` force-route 均已修复。下一步先做 Phase 6（Settings Codex 状态卡 + 模型选择过滤 disclosure），两者必须一起发布，避免 Settings 显示“已配置”但聊天页误选 GLM / 百炼 / OpenRouter 等不可用模型。
+- 2026-05-14：Provider proxy 改为 Phase 5b 单独推进。当前 `/api/codex/proxy/v1/responses` 是 scaffold，只能结构化返回 `501 unsupported_yet`；不能把它写成“Codex 已可使用所有 CodePilot provider”。当时曾考虑第一刀只做 OpenAI-compatible provider translator。
+- 2026-05-15：用户明确修正模型兼容目标：Codex Runtime 不应长期只支持 Codex Account，也不应只扩到 OpenAI-compatible。期望是“除 Claude Code 默认/env 模式外，CodePilot Runtime 能用的模型，Codex Runtime 也能用”。Phase 5b 改为 CodePilot Runtime parity 目标；adapter 可以作为内部实现轨道，但对外必须一次性交付完整 proxy translator，最终兼容矩阵必须让 `codepilot_runtime` 可用模型同步进入 `codex_runtime`，或给出具体 translator 缺口。
+- 2026-05-15：用户进一步确认 Phase 5b 不要拆两轮做，避免反复人工同步和 review。执行口径改为“一批完整实现”：OpenAI-compatible、Anthropic-compatible / ClaudeCode-compatible、CodePlan / 套餐型 provider 都必须在同一轮实现报告中给出真实 chat smoke、测试和未覆盖原因；不接受“先 OpenAI-compatible，后续再补”的半成品。

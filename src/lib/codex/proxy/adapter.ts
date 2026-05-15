@@ -43,6 +43,7 @@ import {
 } from './provider-parity';
 import { getProviderCompatFromApi } from '@/lib/runtime-compat';
 import { makeErrorResult, classifyUpstreamError } from './errors';
+import { createUnifiedAdapter } from './unified-adapter';
 import type {
   ProxyHandlerInput,
   ProxyResult,
@@ -80,10 +81,14 @@ export type ResponsesAdapter = (
  * through Codex's own app-server, media_only doesn't reach chat).
  * Defensive entry surfaces a clear error if a misroute happens.
  */
+// Registry is populated at module init. The unified translator serves
+// all three families today; keeping the wiring static makes the
+// dispatch surface easier to read than the sub-commit-era runtime
+// registration pattern.
 const ADAPTERS: Record<AdapterFamily, ResponsesAdapter> = {
-  openai_compatible: makeNotImplementedAdapter('openai_compatible'),
-  anthropic_compatible: makeNotImplementedAdapter('anthropic_compatible'),
-  codeplan: makeNotImplementedAdapter('codeplan'),
+  openai_compatible: createUnifiedAdapter('openai_compatible'),
+  anthropic_compatible: createUnifiedAdapter('anthropic_compatible'),
+  codeplan: createUnifiedAdapter('codeplan'),
   native: async () => makeErrorResult(
     'internal_error',
     'Provider routed to the Codex proxy but its compat tier is native (Codex Account / media-only). This is a routing bug — the provider should not have been injected into Codex thread/start config.',

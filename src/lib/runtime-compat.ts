@@ -142,21 +142,19 @@ export function getModelCompat(args: {
   const supported = new Set<RuntimeId>();
   const reasons: Record<string, string> = {};
 
-  // Phase 6 P0 (2026-05-15) — codex_runtime reach is shaped by the
-  // PROVIDER PROXY translator (`/api/codex/proxy/v1/responses`), not
-  // by the chat-runtime registry. The proxy is currently a scaffold
-  // returning structured 501 unsupported_yet for every compat tier
-  // except `codex_account` (which flows through Codex's own app-
-  // server, no proxy needed). Until the translator lands per compat
-  // tier, every non-Codex provider gets a `codex_runtime` reason
-  // saying so — using "proxy 尚未覆盖" / "proxy doesn't cover yet"
-  // wording so users understand this is a transient PHASE 5b state,
-  // NOT a permanent constraint. When 5b ships, the reason for that
-  // tier gets removed and `supportedRuntimes` grows `codex_runtime`.
+  // Phase 5b shipped (2026-05-15) — codex_runtime reach is now covered
+  // by the unified provider-proxy translator at
+  // `/api/codex/proxy/v1/responses`. The translator wraps ai-sdk's
+  // `createModel()` so the same wire-format handling Native uses is
+  // reused for the OpenAI-compat / Anthropic-compat / CodePlan
+  // families. `codex_runtime` therefore lights up for every chat-
+  // capable compat tier EXCEPT `unknown` (we don't know the protocol)
+  // and `codex_account` (which routes through Codex's own app-server,
+  // not the proxy).
   const CODEX_PROXY_PENDING_REASON_ZH =
-    'Codex provider proxy 尚未覆盖该 provider 类型 / translator 尚未接入';
+    'Codex provider proxy 暂未识别该 provider 类型，无法判定 wire format';
   const CODEX_PROXY_PENDING_REASON_EN =
-    'Codex provider proxy doesn’t cover this provider type yet';
+    'Codex provider proxy can’t infer this provider’s wire format yet';
   // The wording mirrors the proxy route's `unsupported_yet` error
   // codes; UI can pick the language form at render time. We store
   // the zh-CN form by default to match the rest of `reasons.*`.
@@ -167,11 +165,12 @@ export function getModelCompat(args: {
       // talk to these directly without the Claude Code subprocess, so the
       // model is reachable from CodePilot Runtime too. Marking both lets a
       // user on Native runtime configure only Anthropic and still see models.
+      // Phase 5b: Codex Runtime now reaches these via the provider proxy.
       compat.claude_code_compatible = true;
       compat.codepilot_runtime_compatible = true;
       supported.add('claude_code');
       supported.add('codepilot_runtime');
-      reasons.codex_runtime = CODEX_PROXY_PENDING_REASON_ZH;
+      supported.add('codex_runtime');
       break;
     case 'claude_code_verified':
     case 'claude_code_experimental':
@@ -185,11 +184,12 @@ export function getModelCompat(args: {
       // to sdkType='claude-code-compat'. So both runtimes can reach these
       // providers; we mark both flags. Verified vs experimental still
       // differ only in UI tone ("兼容" vs "实验"), not in routing.
+      // Phase 5b: Codex Runtime also reaches these via the provider proxy.
       compat.claude_code_compatible = true;
       compat.codepilot_runtime_compatible = true;
       supported.add('claude_code');
       supported.add('codepilot_runtime');
-      reasons.codex_runtime = CODEX_PROXY_PENDING_REASON_ZH;
+      supported.add('codex_runtime');
       break;
     case 'openrouter_anthropic_skin':
       // OpenRouter Anthropic skin (`/api`, no `/v1`). Reachable from
@@ -201,11 +201,13 @@ export function getModelCompat(args: {
       // Anthropic-shaped URL would route CodePilot through the wrong
       // path. Users wanting both runtimes should configure two providers
       // (one per skin URL).
+      // Phase 5b: Codex Runtime reaches this via the provider proxy
+      // (Anthropic wire format), so codex_runtime is also supported.
       compat.claude_code_compatible = true;
       supported.add('claude_code');
+      supported.add('codex_runtime');
       reasons.codepilot_runtime =
         'OpenRouter Anthropic skin URL (/api) — switch to /v1 skin for CodePilot Runtime';
-      reasons.codex_runtime = CODEX_PROXY_PENDING_REASON_ZH;
       break;
     case 'codepilot_only':
       // Provider-layer codepilot_only means the provider doesn't speak the
@@ -222,11 +224,13 @@ export function getModelCompat(args: {
       // pointing at the relay's anthropic-compat endpoint — that maps to
       // claude_code_experimental and is a single, coherent provider
       // identity in the UI.
+      // Phase 5b: Codex Runtime reaches this via the provider proxy
+      // (OpenAI-compatible wire format), so codex_runtime is supported.
       compat.codepilot_runtime_compatible = true;
       supported.add('codepilot_runtime');
+      supported.add('codex_runtime');
       reasons.claude_code =
         'OpenAI-compatible protocol — not reachable from Claude Code Runtime';
-      reasons.codex_runtime = CODEX_PROXY_PENDING_REASON_ZH;
       break;
     case 'codex_account':
       // Phase 5 Phase 2 (2026-05-13) — Codex Account models flow only
@@ -246,7 +250,8 @@ export function getModelCompat(args: {
     case 'unknown':
       // We don't know the right answer — let the user verify. Both
       // legacy runtimes keep the model visible until they hide it
-      // explicitly. codex_runtime stays gated on the proxy until 5b.
+      // explicitly. Codex Runtime stays gated because the proxy can't
+      // pick a wire format without knowing the provider type.
       compat.claude_code_compatible = true;
       compat.codepilot_runtime_compatible = true;
       supported.add('claude_code');

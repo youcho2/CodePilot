@@ -209,8 +209,10 @@ describe('Provider parity inventory — every compat tier maps to a family + sta
     assert.equal(ADAPTER_FAMILY_BY_COMPAT.claude_code_experimental, 'codeplan');
   });
 
-  it('getProxyParityEntry surfaces excluded_reason when adapter is pending', () => {
-    const provider: ApiProvider = {
+  it('getProxyParityEntry: ready tiers have no excluded_reason; unknown tier still surfaces one', () => {
+    // Phase 5b: GLM is a CodePlan-family provider (claude_code_experimental
+    // tier) and the adapter is now wired, so excluded_reason is gone.
+    const glm: ApiProvider = {
       id: 'glm-test',
       name: 'GLM (CN)',
       provider_type: 'glm',
@@ -222,13 +224,31 @@ describe('Provider parity inventory — every compat tier maps to a family + sta
       created_at: '2026-01-01',
       updated_at: '2026-01-01',
     } as unknown as ApiProvider;
-    const entry = getProxyParityEntry(provider);
-    assert.equal(entry.provider_id, 'glm-test');
-    assert.ok(entry.excluded_reason, 'pending tier must carry an excluded_reason for the picker tooltip');
-    // The reason is phrased "正在接入" / "is being wired" — not
-    // "永久不支持". Pin both forms to prevent a future copy revert.
-    assert.match(pickerDisabledReason(entry.adapter_family, true), /正在接入/);
-    assert.match(pickerDisabledReason(entry.adapter_family, false), /being wired/);
+    const glmEntry = getProxyParityEntry(glm);
+    assert.equal(glmEntry.provider_id, 'glm-test');
+    assert.equal(glmEntry.adapter_status, 'ready');
+    assert.equal(glmEntry.excluded_reason, undefined, 'ready tier must NOT carry excluded_reason — picker should re-enable the row');
+
+    // An `unknown`-tier provider still surfaces excluded_reason — the
+    // proxy can't pick a wire format without more info. The reason is
+    // phrased "正在接入" / "is being wired" — not "永久不支持".
+    const unknownProv: ApiProvider = {
+      id: 'mystery-test',
+      name: 'Mystery Provider',
+      provider_type: 'custom-mystery',
+      base_url: 'https://mystery.example/v1',
+      protocol: 'openai-compat',
+      api_key: 'sk-test',
+      enabled: 1,
+      sort_order: 0,
+      created_at: '2026-01-01',
+      updated_at: '2026-01-01',
+    } as unknown as ApiProvider;
+    const unknownEntry = getProxyParityEntry(unknownProv);
+    assert.equal(unknownEntry.adapter_status, 'pending');
+    assert.ok(unknownEntry.excluded_reason, 'pending tier must carry an excluded_reason for the picker tooltip');
+    assert.match(pickerDisabledReason(unknownEntry.adapter_family, true), /正在接入/);
+    assert.match(pickerDisabledReason(unknownEntry.adapter_family, false), /being wired/);
   });
 });
 
@@ -330,21 +350,21 @@ describe('makeErrorResult — default status by code', () => {
   });
 });
 
-describe('registerAdapter — sub-commits swap stub for real implementation', () => {
-  it('allows runtime override (foundation-level mechanism for sub-commit landing)', () => {
-    // Doesn't actually exercise the adapter — just asserts the
-    // function is exported + callable. Sub-commits register their
-    // real adapter from a module-init or test setup; the family
-    // status flip from 'pending' to 'ready' happens in the same
-    // commit as the registration to keep dispatch consistent.
+describe('registerAdapter — runtime override stays available for tests', () => {
+  it('exposes a function that swaps the family adapter at runtime', () => {
+    // Phase 5b shipped a unified adapter wired statically at module
+    // init. The registerAdapter escape hatch is retained so tests
+    // (or a future hot-fix path) can swap in a stub for a single
+    // family without recompiling. Pre-5b sub-commits used this to
+    // land per-family adapters incrementally; the unified translator
+    // made that flow unnecessary, but keeping the hook costs nothing
+    // and unblocks targeted unit testing.
     let called = false;
     registerAdapter('openai_compatible', async () => {
       called = true;
       return makeErrorResult('internal_error', 'test stub');
     });
     assert.equal(typeof registerAdapter, 'function');
-    // Don't actually invoke the adapter here — that requires a DB
-    // provider with credentials. Sub-commits run integration tests.
     assert.equal(called, false);
   });
 });
