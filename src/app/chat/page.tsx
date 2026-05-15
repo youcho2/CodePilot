@@ -143,24 +143,29 @@ function NewChatPageInner() {
   const [permissionProfile, setPermissionProfile] = useState<'default' | 'full_access'>('default');
   const [pendingContextTokens, setPendingContextTokens] = useState(0);
 
-  // Phase 6 P0 follow-up (2026-05-15) — `canSendWithCurrentProvider`
-  // splits the legacy `hasProvider` gate into two concerns:
+  // Phase 6 P0 follow-up round 2 (2026-05-15) — split the legacy
+  // `hasProvider` gate into two derived states so virtual providers
+  // (Codex Account / OpenAI OAuth) don't get falsely blocked by the
+  // /api/setup gate that doesn't know about them:
   //
-  //   1. SEND gate (this memo): is the current (provider, model)
-  //      tuple actually sendable right now? Codex Account is a
-  //      virtual provider that doesn't flow through /api/setup, so
-  //      `hasProvider` stays false even when Codex is signed in
-  //      and the resolver has happily landed on
-  //      (codex_account, gpt-5.5). Without this carve-out the user
-  //      saw a green send button → click → "no provider configured"
-  //      error.
-  //   2. EMPTY-STATE gate (still `hasProvider` below): legacy
-  //      onboarding empty state for users who haven't set up any
-  //      traditional provider. That surface is about first-run
-  //      onboarding, not about "is this specific send valid".
+  //   - `canSendWithCurrentProvider`: is the current (provider,
+  //     model) tuple actually sendable right now? Used by the send
+  //     button + sendFirstMessage gate.
+  //   - `hasSendableProviderForCurrentRuntime`: is there ANY way to
+  //     send under the active runtime? Used by the empty-state
+  //     overlay so a Codex-Account-only user (no traditional
+  //     provider per /api/setup) doesn't see the legacy "configure
+  //     a provider" onboarding card when Codex is fully signed in
+  //     and the resolver has landed on (codex_account, gpt-5.5).
   //
-  // The two used to be the same flag; conflating them was the
-  // bug the user surfaced via Chrome smoke after Phase 6 P0.
+  // Both bypasses are the same shape — virtual providers
+  // (`codex_account` / `openai-oauth`) are sendable regardless of
+  // /api/setup state because they're authenticated through their
+  // own routes. Legacy DB providers still require `hasProvider`.
+  // `hasProvider` itself is preserved verbatim for the onboarding
+  // empty-state branch inside ChatEmptyState — that surface is
+  // about "have you ever set up a traditional provider", which is
+  // still a meaningful question even when codex is available.
   const canSendWithCurrentProvider = useMemo(() => {
     if (!currentModel || !currentProviderId) return false;
     // Codex Account bypasses the /api/setup gate — the resolver
@@ -168,8 +173,7 @@ function NewChatPageInner() {
     // (it wouldn't have landed in `currentProviderId` otherwise).
     if (currentProviderId === 'codex_account') return true;
     // Same goes for OpenAI OAuth, which is also a virtual provider
-    // (`/api/openai-oauth/status`-managed). It doesn't show up in
-    // /api/setup's `provider === 'completed'` either.
+    // (`/api/openai-oauth/status`-managed).
     if (currentProviderId === 'openai-oauth') return true;
     // Everything else still requires the legacy "provider set up"
     // signal so we don't accidentally route to an env-fallback
@@ -177,6 +181,26 @@ function NewChatPageInner() {
     // configured.
     return hasProvider;
   }, [hasProvider, currentProviderId, currentModel]);
+
+  // Empty-state overlay gate. Differs from `canSendWithCurrentProvider`
+  // ONLY around `modelReady`: during the initial resolver window
+  // currentProviderId/Model are empty so `canSendWithCurrentProvider`
+  // is false, but that's "still loading" not "no provider exists".
+  // Without the modelReady gate we'd flash the no-provider empty state
+  // on every mount.
+  //
+  // Once `modelReady === true`, the resolver has done its job:
+  //   - currentProviderId === 'codex_account' → Codex is available,
+  //     no empty state.
+  //   - currentProviderId is a DB provider → hasProvider true (we
+  //     wouldn't have a usable DB provider id otherwise), no empty
+  //     state.
+  //   - currentProviderId === '' → genuinely no provider reachable
+  //     under the active runtime → empty state shows.
+  const hasSendableProviderForCurrentRuntime = useMemo(() => {
+    if (!modelReady) return true; // still loading; don't flash the empty state
+    return canSendWithCurrentProvider;
+  }, [modelReady, canSendWithCurrentProvider]);
 
   // Round 2 — permission-elevation confirmation, scoped to this
   // session. `null` while the user hasn't ack'd; `'full_access'` once
@@ -1111,10 +1135,19 @@ function NewChatPageInner() {
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      {messages.length === 0 && !isStreaming && (!workingDir.trim() || !hasProvider) ? (
+      {messages.length === 0 && !isStreaming && (!workingDir.trim() || !hasSendableProviderForCurrentRuntime) ? (
+        // Phase 6 P0 follow-up round 2 (2026-05-15) — gate on
+        // `hasSendableProviderForCurrentRuntime` instead of the raw
+        // `hasProvider`. Codex-Account-only users have hasProvider=false
+        // (Codex is virtual, doesn't flow through /api/setup) yet a
+        // fully working send path; pre-round-2 they saw the "configure
+        // a provider" empty card sitting on top of an enabled GPT-5.5
+        // composer. Pass through `hasSendable*` to the empty-state
+        // component too so the child's onboarding branches see the
+        // same truth.
         <ChatEmptyState
           hasDirectory={!!workingDir.trim()}
-          hasProvider={hasProvider}
+          hasProvider={hasSendableProviderForCurrentRuntime}
           onSelectFolder={handleSelectFolder}
           recentProjects={recentProjects}
           onSelectProject={handleSelectProject}

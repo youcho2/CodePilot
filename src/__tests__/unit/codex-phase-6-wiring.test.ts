@@ -558,6 +558,66 @@ describe('Chat composer — passes concrete RuntimeId to useProviderModels (Phas
   });
 });
 
+describe('Empty-state — hasSendableProviderForCurrentRuntime bypasses /api/setup for Codex (Phase 6 P0 round 2)', () => {
+  const pageSrc = fs.readFileSync(
+    path.join(repoRoot, 'app/chat/page.tsx'),
+    'utf8',
+  );
+
+  it('hasSendableProviderForCurrentRuntime is derived from canSendWithCurrentProvider + modelReady', () => {
+    // The empty-state gate must NOT flash for a Codex-Account-only
+    // user during the initial resolver window. `modelReady=false`
+    // means "still loading" — keep the empty state hidden until
+    // the resolver lands. Once modelReady=true, the gate collapses
+    // to canSendWithCurrentProvider, which honours the codex_account
+    // / openai-oauth virtual-provider bypass.
+    assert.match(
+      pageSrc,
+      /hasSendableProviderForCurrentRuntime\s*=\s*useMemo/,
+    );
+    assert.match(
+      pageSrc,
+      /if\s*\(\s*!modelReady\s*\)\s*return\s+true/,
+    );
+    assert.match(
+      pageSrc,
+      /return\s+canSendWithCurrentProvider/,
+    );
+  });
+
+  it('empty-state overlay gates on hasSendableProvider*, NOT the raw hasProvider', () => {
+    // Pre-round-2 the overlay condition was
+    // `(!workingDir.trim() || !hasProvider)` — that flashed the
+    // legacy "configure a provider" card on Codex-Account-only
+    // users even when the resolver had landed cleanly on
+    // (codex_account, gpt-5.5). Round 2 routes through the new
+    // derived flag so virtual providers no longer trip the
+    // overlay.
+    assert.match(
+      pageSrc,
+      /!workingDir\.trim\(\)\s*\|\|\s*!hasSendableProviderForCurrentRuntime/,
+    );
+    // Regression guard: the bare `|| !hasProvider` form must not
+    // creep back in.
+    assert.doesNotMatch(
+      pageSrc,
+      /!workingDir\.trim\(\)\s*\|\|\s*!hasProvider/,
+    );
+  });
+
+  it('ChatEmptyState receives hasSendableProvider*, not raw hasProvider', () => {
+    // The child's onboarding branches must see the same truth as
+    // the parent's overlay gate. Passing raw hasProvider would let
+    // the child render "configure a provider" copy even when the
+    // parent gate said "show the empty state" for an unrelated
+    // reason (no workingDir).
+    assert.match(
+      pageSrc,
+      /hasProvider=\{hasSendableProviderForCurrentRuntime\}/,
+    );
+  });
+});
+
 describe('Send gate — canSendWithCurrentProvider bypasses /api/setup for Codex Account (Phase 6 P0 follow-up)', () => {
   const pageSrc = fs.readFileSync(
     path.join(repoRoot, 'app/chat/page.tsx'),
