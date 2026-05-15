@@ -180,10 +180,19 @@ describe('translateResponsesTools — Responses tools[] → ai-sdk ToolSet (no e
   });
 
   it('synthesises empty-object schema when parameters is missing', () => {
+    // Phase 5b smoke round 3 (2026-05-16): the translator now goes
+    // through ai-sdk's `tool({ inputSchema: jsonSchema(...) })`
+    // wrapper, so the resulting tool's inputSchema is the SDK's
+    // FlexibleSchema wrapper (with `.validate()` / `.jsonSchema`),
+    // not a raw `{ type: 'object', ... }`. The full streamText
+    // contract pin lives in codex-proxy-tool-contract.test.ts.
+    // This pin just confirms the wrapper carries the synthesised
+    // schema fields ai-sdk reads (which include `jsonSchema`).
     const tools: ResponsesTool[] = [{ type: 'function', name: 'no_args' }];
     const out = translateResponsesTools(tools);
-    const t = out!.no_args as unknown as { inputSchema: { type: string } };
-    assert.equal(t.inputSchema.type, 'object');
+    const t = out!.no_args as unknown as { inputSchema: { jsonSchema?: { type?: string } } };
+    assert.ok(t.inputSchema, 'wrapper must be present');
+    assert.equal(t.inputSchema.jsonSchema?.type, 'object', 'underlying JSON Schema must still be the synthesised empty-object shape');
   });
 
   it('throws unsupported_tool_kind for non-function tool types', () => {

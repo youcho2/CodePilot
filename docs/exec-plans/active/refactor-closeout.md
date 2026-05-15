@@ -34,8 +34,10 @@
 - ✅ Settings Runtime 卡片文案：Codex 不再写成"仅 Codex 账户模型"。
 - ✅ `parse-request.ts` 现在静默丢弃 Codex 发来的非 function tools（`{ type: 'custom' }` 等），不再因 `tools[i].type must be "function"` 返回 400 而阻塞所有完整聊天。Empty-after-filter 折叠回 `undefined`，结构性错误（tools 非数组、function tool 缺 name）仍走原有 field-level 错误路径。
 - ✅ `ResponsesRequestBody.store` 新增；parser 保留；`buildProviderOptions` 始终设 `providerOptions.openai.store = body.store ?? false`，openai-oauth 路径不再因 `Store must be set to false` 返回 400。
+- ✅ `translate-tools.ts` 改用 AI SDK v6 的 `tool({ inputSchema: jsonSchema(...) })`，不再 raw JSON schema + `as unknown as Tool` 强转 — 终止了运行时 "schema is not a function" 错误。新加端到端 contract 测试用 `MockLanguageModelV3` + `streamText` 验证带 function tool 的 Responses request 进入 streamText 不再 throw。
+- ✅ 写入 `docs/handover/provider-proxy-bridge.md`：把"接入新 Agent 框架"这层正式契约化（8 个 hook + AI SDK v6 schema 合约 + Codex schema 来源 + smoke 矩阵），并加进 handover README。后续任何新 Agent 框架接入必须先过这套契约，不接受"先放出去再 live smoke 抓 bug"。
 
-剩余 must-have：真实 provider credentials 下跑通端到端 chat smoke 表（每家族一条，每条至少连发两轮），且 smoke 抓到的任何 Codex error 都要能看到 schema 里的真实 message。在 smoke 表清单全过之前 Phase 5b 仍属 🔄。计划见 [active/phase-5-codex-runtime.md](./phase-5-codex-runtime.md)。
+剩余 must-have：真实 provider credentials 下跑通端到端 chat smoke 表（每家族一条，每条至少连发两轮，验证 thread/resume 续聊仍打到 proxy）。在 smoke 表清单全过之前 Phase 5b 仍属 🔄。计划见 [active/phase-5-codex-runtime.md](./phase-5-codex-runtime.md)；bridge 契约见 [handover/provider-proxy-bridge.md](../../handover/provider-proxy-bridge.md)。
 
 ### Phase 3 Step 4（完成 2026-05-10）：后台 Agent 任务与助理心跳闭环
 
