@@ -298,14 +298,65 @@ describe('translateCodexNotification — turn lifecycle (nested status per schem
     assert.equal(event.finishReason, 'inProgress');
   });
 
-  it('error notification → run_failed with code stringified', () => {
+  it('error notification → run_failed with full TurnError surface (Phase 5b smoke fix 2026-05-15)', () => {
+    // Pre-5b the mapper read `params.code` / `params.message` at the
+    // top level, which never matched Codex's actual ErrorNotification
+    // schema `{ error: TurnError, willRetry, threadId, turnId }`. After
+    // the fix the mapper reads `params.error.message` + appends
+    // additionalDetails + the codexErrorInfo classification so chat
+    // surface stops showing the bare string "Codex error".
     const event = translateCodexNotification(
       'error',
-      { code: -32601, message: 'method not found' },
+      {
+        error: {
+          message: 'upstream timed out',
+          codexErrorInfo: { httpConnectionFailed: { httpStatusCode: 504 } },
+          additionalDetails: 'retry budget exhausted',
+        },
+        willRetry: false,
+        threadId: 't1',
+        turnId: 'u1',
+      },
       ctx,
     );
     if (event?.type !== 'run_failed') throw new Error('unreachable');
-    assert.equal(event.code, '-32601');
+    assert.match(event.message, /upstream timed out/);
+    assert.match(event.message, /retry budget exhausted/);
+    assert.match(event.message, /httpConnectionFailed HTTP 504/);
+    assert.equal(event.code, 'codex:httpConnectionFailed');
+  });
+
+  it('error notification with willRetry=true surfaces the retry hint', () => {
+    const event = translateCodexNotification(
+      'error',
+      {
+        error: {
+          message: 'transient 503',
+          codexErrorInfo: 'serverOverloaded',
+          additionalDetails: null,
+        },
+        willRetry: true,
+        threadId: 't1',
+        turnId: 'u1',
+      },
+      ctx,
+    );
+    if (event?.type !== 'run_failed') throw new Error('unreachable');
+    assert.match(event.message, /transient 503/);
+    assert.match(event.message, /serverOverloaded/);
+    assert.match(event.message, /will retry/);
+    assert.equal(event.code, 'serverOverloaded');
+  });
+
+  it('error notification with empty error.message falls back to "Codex error (no message)"', () => {
+    const event = translateCodexNotification(
+      'error',
+      { error: { message: '', codexErrorInfo: null, additionalDetails: null } },
+      ctx,
+    );
+    if (event?.type !== 'run_failed') throw new Error('unreachable');
+    assert.match(event.message, /Codex error \(no message\)/);
+    assert.equal(event.code, 'codex_error');
   });
 });
 

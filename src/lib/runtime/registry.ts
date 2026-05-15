@@ -123,19 +123,29 @@ export function resolveRuntime(overrideId?: string, _providerId?: string): Agent
  * Mirrors resolveRuntime() logic WITHOUT instantiating the runtime, so callers
  * (chat route, bridge) can prepare the right MCP config upfront.
  *
- * @param providerId - The provider for this request. `'openai-oauth'`
- *   forces native; `'codex_account'` forces Codex Runtime (returns false).
+ * @param providerId - The provider for this request. `'codex_account'`
+ *   forces Codex Runtime (returns false); `'openai-oauth'` is Native-only
+ *   UNLESS the global default is `codex_runtime`, in which case it routes
+ *   through Codex's proxy (Phase 5b — Codex's Responses-API wire format
+ *   matches openai-oauth exactly, so the proxy adapter handles it via
+ *   the OpenAI OAuth virtual-provider branch in ai-provider.ts).
  */
 export function predictNativeRuntime(providerId?: string): boolean {
-  // Non-Anthropic providers always force native
-  if (providerId === 'openai-oauth') return true;
-
   // Phase 5 Phase 6 IA correction round 2 (2026-05-14) — codex_account
   // provider routes to Codex Runtime, NOT native. Same for an explicit
   // codex_runtime setting; cli_enabled=false doesn't downgrade Codex.
   if (providerId === 'codex_account') return false;
   const settingId = getSetting('agent_runtime');
   if (settingId === 'codex_runtime') return false;
+
+  // Phase 5b follow-up (2026-05-15) — openai-oauth was historically
+  // pinned to native because Claude Code SDK can't speak OpenAI's
+  // wire format. Under Codex Runtime the proxy DOES handle it (Codex
+  // speaks the same Responses-API the openai-oauth path uses). The
+  // codex_runtime branch above already short-circuits when the global
+  // default is Codex; the check here covers the residual case where
+  // openai-oauth is the active provider and the global isn't Codex.
+  if (providerId === 'openai-oauth') return true;
 
   // cli_enabled=false → native for the legacy pair (codex already handled)
   if (getSetting('cli_enabled') === 'false') return true;

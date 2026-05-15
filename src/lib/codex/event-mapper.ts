@@ -234,13 +234,45 @@ export function translateCodexNotification(
       // downstream can distinguish user-interrupt from natural end_turn.
       return makeRunCompleted(base, { finishReason: status ?? 'completed' });
     }
-    // ErrorNotification — top-level Codex error channel (out-of-band
-    // failures not tied to a specific turn).
+    // ErrorNotification — top-level Codex error channel. Schema (per
+    // codex-rs/.../v2/ErrorNotification.ts):
+    //   { error: TurnError, willRetry, threadId, turnId }
+    // TurnError: { message, codexErrorInfo, additionalDetails }
+    // CodexErrorInfo: string variant (e.g. 'unauthorized') OR an
+    //   object like `{ httpConnectionFailed: { httpStatusCode } }`.
+    //
+    // Pre-5b smoke fix (2026-05-15) — the previous reader looked for
+    // `p.code` / `p.message` at the top level, which never matched the
+    // real schema, so every Codex error surfaced as the bare string
+    // "Codex error" with no context. We now read `p.error.message`
+    // (always present per schema) and append `additionalDetails` +
+    // the CodexErrorInfo classification so the chat surface shows
+    // what actually went wrong upstream.
     case 'error': {
-      const p = params as { code?: string | number; message?: string };
+      const p = params as {
+        error?: {
+          message?: string;
+          codexErrorInfo?: unknown;
+          additionalDetails?: string | null;
+        } | null;
+        willRetry?: boolean;
+        turnId?: string;
+      };
+      const baseMessage = p.error?.message?.trim() || 'Codex error (no message)';
+      const additional = p.error?.additionalDetails?.trim();
+      const errorInfo = p.error?.codexErrorInfo;
+      const classification = describeCodexErrorInfo(errorInfo);
+      const parts = [baseMessage];
+      if (additional && additional !== baseMessage) parts.push(additional);
+      if (classification) parts.push(`(${classification})`);
+      if (p.willRetry) parts.push('— Codex will retry');
       return makeRunFailed(base, {
-        code: String(p.code ?? 'codex_error'),
-        message: p.message ?? 'Codex error',
+        code: typeof errorInfo === 'string'
+          ? errorInfo
+          : typeof errorInfo === 'object' && errorInfo
+            ? `codex:${Object.keys(errorInfo as Record<string, unknown>)[0] ?? 'unknown'}`
+            : 'codex_error',
+        message: parts.join(' '),
       });
     }
 
@@ -675,4 +707,30 @@ export function synthesizeFileChangedFromCompletedItem(
     { runtimeId: 'codex_runtime' as const, sessionId: ctx.sessionId },
     { paths },
   );
+}
+
+/**
+ * Render a CodexErrorInfo value (string variant OR single-key object
+ * variant) into a short, human-readable classification suffix. The
+ * Codex schema (codex-rs/.../v2/CodexErrorInfo.ts) is a union of
+ * either a string like `'unauthorized'` / `'contextWindowExceeded'`
+ * OR an object like `{ httpConnectionFailed: { httpStatusCode } }`.
+ *
+ * Returns `null` for `null` / unknown inputs so the caller can omit
+ * the suffix instead of appending an empty parenthesis.
+ */
+function describeCodexErrorInfo(info: unknown): string | null {
+  if (info == null) return null;
+  if (typeof info === 'string') return info;
+  if (typeof info === 'object') {
+    const entries = Object.entries(info as Record<string, unknown>);
+    if (entries.length === 0) return null;
+    const [variant, payload] = entries[0]!;
+    if (payload && typeof payload === 'object') {
+      const httpStatus = (payload as { httpStatusCode?: unknown }).httpStatusCode;
+      if (typeof httpStatus === 'number') return `${variant} HTTP ${httpStatus}`;
+    }
+    return variant;
+  }
+  return null;
 }

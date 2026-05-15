@@ -292,6 +292,15 @@ export const codexRuntime: AgentRuntime = {
             providerId: requestedProviderId,
             workingDirectory: options.workingDirectory,
             proxyBaseUrl: resolveCodexProxyBaseUrl(),
+            // Phase 5b smoke follow-up (2026-05-15) — Codex's
+            // thread_start_params_from_config (codex-rs/tui/.../app_server_session.rs)
+            // passes model alongside modelProvider so the proxy
+            // injection resolves to a concrete model id. Without it
+            // Codex rejects the turn before the proxy is even called
+            // (the model_providers entry has no default_model set, by
+            // design — we don't want users surprised by a different
+            // model than they picked).
+            model: options.model,
           });
 
           // ── thread resolution: resume if we have a ref + provider matches, else start ──

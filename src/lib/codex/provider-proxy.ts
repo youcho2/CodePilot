@@ -119,6 +119,14 @@ export function buildCodexProviderProxyInjection(
  */
 export interface CodexThreadParams {
   cwd?: string;
+  /** Optional model id. Codex's `thread_start_params_from_config` and
+   *  `thread_resume_params_from_config` (codex-rs/tui/.../app_server_session.rs)
+   *  both pass `model` alongside `modelProvider` + `config` because
+   *  the modelProvider config refers to a `default_model` lookup
+   *  inside its own map; we don't set `default_model` on the
+   *  `codepilot_proxy` entry, so without `model` Codex resolves to
+   *  null and rejects the turn before our adapter ever sees it. */
+  model?: string;
   modelProvider?: string;
   config?: CodexProxyInjection['config'];
 }
@@ -127,6 +135,10 @@ export function buildCodexThreadParams(opts: {
   providerId: string;
   workingDirectory?: string;
   proxyBaseUrl: string;
+  /** Model id the chat session selected. Forwarded to Codex's
+   *  thread/start + thread/resume so the proxy injection resolves to
+   *  the right model id before the turn runs. */
+  model?: string;
 }): CodexThreadParams {
   const providerId = opts.providerId.trim();
   if (!providerId || providerId === 'env') {
@@ -136,6 +148,7 @@ export function buildCodexThreadParams(opts: {
   }
   const base: CodexThreadParams = {};
   if (opts.workingDirectory) base.cwd = opts.workingDirectory;
+  if (opts.model) base.model = opts.model;
   if (providerId === 'codex_account') return base;
   const injection = buildCodexProviderProxyInjection(providerId, opts.proxyBaseUrl);
   return {

@@ -23,7 +23,17 @@
 
 **Phase 4 整条主线已收口完毕并归档**（trust tier + html-preview 路由 + CSP 4 轮 + Markdown 原地风格 + Artifact code-fence + dev-output；HTML Artifact 显式保存入口 deferred 进 tech-debt #18）。完整交付清单见 [completed/phase-4-markdown-artifact.md](../completed/phase-4-markdown-artifact.md)，技术 / 产品文档分别在 [handover/phase-4-markdown-artifact.md](../../handover/phase-4-markdown-artifact.md) 与 [insights/phase-4-markdown-artifact.md](../../insights/phase-4-markdown-artifact.md)。
 
-**Phase 5b 翻译层 + Codex thread/start + thread/resume 真实 proxy 注入已落地，但 5b 还没真正闭环**。2026-05-15 四轮 review 抓到：(1) 翻译层之前没接到 `CodexRuntime.stream()` 的 thread/start（UI 标可用、实际发送不一定走 proxy）；(2) env provider 被错误地写入 `codex_runtime` supportedRuntimes；(3) `openai-oauth` 虚拟 provider 在 picker 显示但发送时 `handleProxyRequest()` 走 `getProvider()` DB 查找返回 `provider_not_found`；(4) `thread/resume` 只传 `{ threadId }`，没带 `modelProvider/config/cwd`，第二轮对话在 app-server 重启或 dev 端口变化时可能丢 provider 注入。四条都已修：`buildCodexThreadParams` 进入 runtime 真实发送路径并被 thread/start 与 thread/resume 共享，session 持久化 `codex_thread_provider_id` 防止跨 provider 误 resume；env 在 API 层和 runtime 层都被显式排除；`VIRTUAL_PROVIDERS` registry 让 `openai-oauth` 在 proxy 端正确解析，`unified-adapter.ts` 改用 `input.targetProviderId`（不是 `resolved.provider?.id`），并加了 API contract 测试：所有 `runtime=codex_runtime` 暴露的 provider id 必须在 proxy resolver 集合里；unit 测试通过 `CODEX_DISABLED=1` 与真实 Codex app-server 解耦；scaffold/pending 文案已扫一遍。剩余必须项是真实 provider credentials 下分别跑通 OpenAI-compatible / Anthropic-compatible / CodePlan / openai-oauth 各一条 chat smoke，**且每条 smoke 至少连发两轮验证 thread/resume 仍打到 proxy** ——在那之前不要把 5b 列为 ✅。计划见 [active/phase-5-codex-runtime.md](./phase-5-codex-runtime.md)。
+**Phase 5b 链路在 2026-05-15 第五轮 review 后又前进了一截，但仍未 ✅**。截至本轮：
+- ✅ `CodexRuntime.stream()` 现在带完整 `thread/start` + `thread/resume` 注入：`{ model, modelProvider: 'codepilot_proxy', config.model_providers.codepilot_proxy, cwd }`（对齐 Codex 自己 `thread_start_params_from_config` 源码）。
+- ✅ Codex Account 主链路两轮真实跑通（gpt-5.5）。
+- ✅ DB provider 直接打 proxy 已经通：GLM glm-4.5-air / Kimi kimi-for-coding / MiniMax sonnet / Bailian qwen3.6-plus / Aibrm anthropic/claude-haiku-4.5 都返回 200。
+- ✅ env Claude Code 默认从 `runtime=codex_runtime` API 结果消失；`VIRTUAL_PROVIDERS` registry 让 `openai-oauth` 在 proxy 端正确解析；unified-adapter 用 `input.targetProviderId` 不丢虚拟 id；unit 测试通过 `CODEX_DISABLED=1` 隔离真实 Codex subprocess。
+- ✅ `claude-client.ts` + `predictNativeRuntime` 现在让 `codex_runtime` pin / 全局默认优先于 `openai-oauth → Native` 强制分支，sessions pinned to codex_runtime 不再返回 "Session is pinned but resolver returned native"。
+- ✅ `unified-adapter.buildProviderOptions` 把 `body.instructions` 转 `providerOptions.openai.instructions`，让 ai-sdk 在 openai-oauth 路径上写入 Codex `/responses` 必填的 `instructions` 顶层字段。
+- ✅ `event-mapper.ts` 现在按 Codex 真实的 `ErrorNotification = { error: TurnError }` schema 读取 `error.message + additionalDetails + codexErrorInfo`，而不是落入 fallback `'Codex error'`。
+- ✅ Settings Runtime 卡片文案：Codex 不再写成"仅 Codex 账户模型"。
+
+剩余 must-have：真实 provider credentials 下跑通端到端 chat smoke 表（每家族一条，每条至少连发两轮），且 smoke 抓到的任何 Codex error 都要能看到 schema 里的真实 message。在 smoke 表清单全过之前 Phase 5b 仍属 🔄。计划见 [active/phase-5-codex-runtime.md](./phase-5-codex-runtime.md)。
 
 ### Phase 3 Step 4（完成 2026-05-10）：后台 Agent 任务与助理心跳闭环
 

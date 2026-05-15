@@ -25,14 +25,24 @@ function predictNativeRuntime(
   sdkAvailable: boolean,
   hasAnyCreds: boolean,
 ): boolean {
-  if (providerId === 'openai-oauth') return true;
-  // Codex Runtime is its own subprocess — cli_enabled=false doesn't
-  // mean "force native" for Codex. Both the provider-level signal
-  // (`codex_account`) and the engine-level signal
-  // (`agent_runtime=codex_runtime`) must short-circuit BEFORE the
-  // cli_enabled check so Codex doesn't get downgraded.
+  // Phase 6 IA correction round 2 (2026-05-14) — Codex Runtime is its
+  // own subprocess. cli_enabled=false doesn't mean "force native" for
+  // Codex. Both the provider-level signal (`codex_account`) and the
+  // engine-level signal (`agent_runtime=codex_runtime`) must short-
+  // circuit BEFORE the cli_enabled check so Codex doesn't get
+  // downgraded.
+  //
+  // Phase 5b smoke follow-up (2026-05-15) — the codex_runtime setting
+  // check ALSO has to beat the legacy openai-oauth → native heuristic.
+  // openai-oauth speaks OpenAI Responses-API which is exactly what
+  // Codex's proxy supports, so under a global Codex default the user's
+  // openai-oauth selection should route through Codex, not Native.
   if (providerId === 'codex_account') return false;
   if (agentRuntime === 'codex_runtime') return false;
+  // Only AFTER the Codex short-circuits does the openai-oauth → native
+  // heuristic apply (it's the right default when Codex Runtime isn't
+  // the active engine).
+  if (providerId === 'openai-oauth') return true;
   if (!cliEnabled) return true;
   if (agentRuntime === 'native') return true;
   if (agentRuntime === 'claude-code-sdk') return !sdkAvailable; // fallback if no CLI
@@ -42,8 +52,14 @@ function predictNativeRuntime(
 }
 
 describe('predictNativeRuntime (mirrors registry.ts)', () => {
-  it('openai-oauth → always native', () => {
+  it('openai-oauth → native when no Codex pin/default', () => {
     assert.equal(predictNativeRuntime('openai-oauth', true, 'auto', true, true), true);
+  });
+  it('openai-oauth UNDER codex_runtime default → NOT native (routes through Codex proxy)', () => {
+    // Phase 5b: Codex's wire format matches openai-oauth, so the
+    // proxy adapter handles it. Forcing Native here was the pre-fix
+    // bug that broke openai-oauth sends under Codex Runtime.
+    assert.equal(predictNativeRuntime('openai-oauth', true, 'codex_runtime', true, true), false);
   });
   it('cli disabled → always native', () => {
     assert.equal(predictNativeRuntime(undefined, false, 'auto', true, true), true);

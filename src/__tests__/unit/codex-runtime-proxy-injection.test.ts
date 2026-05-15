@@ -127,6 +127,45 @@ describe('buildCodexThreadStartParams — provider routing', () => {
       'trailing slash must be normalised away — Codex appends /responses and a double slash would silently 404',
     );
   });
+
+  it('forwards `model` alongside modelProvider + config (Phase 5b smoke fix 2026-05-15)', () => {
+    // Codex's thread_start_params_from_config / thread_resume_params_from_config
+    // (codex-rs/tui/.../app_server_session.rs) pass model + modelProvider + config
+    // together. Without `model`, Codex's resolver can't pick the model id under
+    // codepilot_proxy (we don't set default_model on the proxy entry by design),
+    // so the turn fails with a generic "Codex error" before our proxy is ever
+    // called. Pinning the field-presence here so a future refactor doesn't drop it.
+    const params = buildCodexThreadStartParams({
+      providerId: 'glm-test',
+      workingDirectory: '/tmp/work',
+      proxyBaseUrl: 'http://127.0.0.1:3000',
+      model: 'glm-4.5-air',
+    });
+    assert.equal(params.model, 'glm-4.5-air', 'thread/start + thread/resume must carry the selected model');
+    assert.equal(params.modelProvider, 'codepilot_proxy');
+    assert.equal(params.cwd, '/tmp/work');
+  });
+
+  it('omits `model` when caller didn\'t supply one (back-compat with sessions that haven\'t persisted a model yet)', () => {
+    const params = buildCodexThreadStartParams({
+      providerId: 'glm-test',
+      proxyBaseUrl: 'http://127.0.0.1:3000',
+    });
+    assert.equal(params.model, undefined);
+  });
+
+  it('forwards `model` for codex_account (Codex uses it to pick the upstream model id)', () => {
+    const params = buildCodexThreadStartParams({
+      providerId: 'codex_account',
+      workingDirectory: '/tmp',
+      proxyBaseUrl: 'http://127.0.0.1:3000',
+      model: 'gpt-5.5',
+    });
+    assert.equal(params.model, 'gpt-5.5');
+    // codex_account is the virtual provider — no proxy injection
+    assert.equal(params.modelProvider, undefined);
+    assert.equal(params.config, undefined);
+  });
 });
 
 // ─────────────────────────────────────────────────────────────────────

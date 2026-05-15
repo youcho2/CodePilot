@@ -260,22 +260,37 @@ function buildMessages(body: ResponsesRequestBody): ModelMessage[] {
 function buildProviderOptions(
   body: ResponsesRequestBody,
 ): AiProviderOptions | undefined {
-  const effort = body.reasoning?.effort;
-  if (!effort) return undefined;
-
-  // Anthropic thinking — only enabled for medium/high/max budgets.
-  // Mapping mirrors how CodePilot's native runtime maps effort → budget
-  // (see src/lib/effort.ts for the canonical table).
-  const anthropicThinking = mapEffortToAnthropicThinking(effort);
-  const openaiReasoning = mapEffortToOpenAI(effort);
-
   const out: AiProviderOptions = {};
-  if (anthropicThinking) {
-    out.anthropic = { thinking: { type: anthropicThinking.type, budgetTokens: anthropicThinking.budgetTokens } };
+
+  // Phase 5b smoke follow-up (2026-05-15) — Codex's `/responses`
+  // endpoint (chatgpt.com/backend-api/codex/responses) REQUIRES a
+  // non-empty `instructions` top-level field. ai-sdk's openai
+  // `responses(...)` model only populates that field from
+  // `providerOptions.openai.instructions` — system messages in the
+  // `messages` array end up as input items, not as the top-level
+  // instructions. So forward Codex's body.instructions verbatim into
+  // the provider options so the openai-oauth path stops returning
+  // HTTP 400 "Instructions are required". Harmless for other openai
+  // wire targets (regular openai.chat / .responses both accept it).
+  if (body.instructions && body.instructions.trim().length > 0) {
+    out.openai = { ...(out.openai ?? {}), instructions: body.instructions };
   }
-  if (openaiReasoning) {
-    out.openai = { reasoningEffort: openaiReasoning };
+
+  const effort = body.reasoning?.effort;
+  if (effort) {
+    // Anthropic thinking — only enabled for medium/high/max budgets.
+    // Mapping mirrors how CodePilot's native runtime maps effort →
+    // budget (see src/lib/effort.ts for the canonical table).
+    const anthropicThinking = mapEffortToAnthropicThinking(effort);
+    const openaiReasoning = mapEffortToOpenAI(effort);
+    if (anthropicThinking) {
+      out.anthropic = { thinking: { type: anthropicThinking.type, budgetTokens: anthropicThinking.budgetTokens } };
+    }
+    if (openaiReasoning) {
+      out.openai = { ...(out.openai ?? {}), reasoningEffort: openaiReasoning };
+    }
   }
+
   return Object.keys(out).length > 0 ? out : undefined;
 }
 

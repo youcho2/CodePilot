@@ -474,8 +474,15 @@ export function streamClaude(options: ClaudeStreamOptions): ReadableStream<strin
   const effectiveProvider = options.providerId || options.sessionProviderId || '';
   let runtime;
 
-  // Non-Anthropic providers (OpenAI OAuth, etc.) MUST use Native Runtime
-  // because Claude Code SDK only supports Anthropic models.
+  // Non-Anthropic providers (OpenAI OAuth, etc.) historically went to
+  // Native Runtime because Claude Code SDK only supports Anthropic
+  // models. Phase 5b makes that branch CONDITIONAL on the runtime pin
+  // / global default: when the user has explicitly selected Codex
+  // Runtime, openai-oauth must route to Codex Runtime so the proxy
+  // can handle it (Codex's wire format = OpenAI Responses-API, which
+  // is exactly what openai-oauth speaks). Forcing Native here is the
+  // pre-fix bug that returned `Session is pinned to codex_runtime
+  // but resolver returned "native"`.
   const isNonAnthropicProvider = effectiveProvider === 'openai-oauth';
 
   // Phase 5 review round 5 (2026-05-13) — Codex Account models flow
@@ -485,6 +492,16 @@ export function streamClaude(options: ClaudeStreamOptions): ReadableStream<strin
   // path will surface a clean "Codex not available" error instead
   // of falling through to ClaudeCode SDK with an unknown model.
   const isCodexAccountProvider = effectiveProvider === 'codex_account';
+
+  // Phase 5b smoke follow-up (2026-05-15) — resolve the effective
+  // Codex Runtime intent BEFORE the provider-shape branches so a
+  // Codex pin (session pin or global default) wins over the legacy
+  // openai-oauth → Native heuristic. Order is intentional:
+  // 1. session pin wins outright;
+  // 2. global default lights it up when no session pin is set.
+  const codexIntended =
+    options.sessionRuntimePin === 'codex_runtime' ||
+    (!options.sessionRuntimePin && getSetting('agent_runtime') === 'codex_runtime');
 
   if (isCodexAccountProvider) {
     const codexRt = getRuntime('codex_runtime');
@@ -496,6 +513,27 @@ export function streamClaude(options: ClaudeStreamOptions): ReadableStream<strin
           'install codex CLI or pick a different provider.',
       );
     }
+  } else if (codexIntended) {
+    // Codex Runtime intent overrides every other provider-shape
+    // heuristic. The proxy adapter and CodexRuntime.stream() already
+    // know how to handle openai-oauth (virtual provider) and DB
+    // providers; sending them through Native here would either go to
+    // the wrong upstream or trip the "Session is pinned to codex_runtime
+    // but resolver returned X" guardrail below.
+    const codexRt = getRuntime('codex_runtime');
+    if (codexRt?.isAvailable()) {
+      runtime = codexRt;
+    } else if (options.sessionRuntimePin === 'codex_runtime') {
+      // Pin is binding — explicit user intent. Surface the error
+      // rather than silently downgrading to a different runtime.
+      throw new Error(
+        'Session is pinned to codex_runtime but Codex Runtime is not available — ' +
+          'install codex CLI or change the session runtime in the chat picker.',
+      );
+    }
+    // No pin, global=codex but binary missing: fall through to the
+    // normal resolution below so the user still gets *some* response
+    // through whichever runtime is reachable.
   } else if (isNonAnthropicProvider) {
     runtime = getRuntime('native');
   } else if (!cliDisabled) {

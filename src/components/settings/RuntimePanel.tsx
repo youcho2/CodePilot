@@ -953,8 +953,8 @@ export function RuntimePanel() {
           ? "未在 PATH 上检测到 codex 命令"
           : "codex binary not detected on PATH",
         impact: isZh
-          ? "Codex 账户模型（gpt-5.5 等）无法使用；选择 Codex 后发送会失败"
-          : "Codex Account models (gpt-5.5 etc.) are unavailable; selecting Codex fails at send time",
+          ? "Codex Runtime 整体无法启用：Codex 账户模型（gpt-5.5 等）和 CodePilot 服务商经 proxy 接入两条路径都会发送失败"
+          : "Codex Runtime is fully blocked: both Codex Account models (gpt-5.5 etc.) and CodePilot providers via the proxy will fail at send time",
         recovery: isZh
           ? "按 Codex 官方指引安装 codex CLI，或设置 CODEX_BIN 指向自定义路径"
           : "Install codex CLI per the official guide, or set CODEX_BIN to point at a custom binary",
@@ -977,8 +977,8 @@ export function RuntimePanel() {
         state: "blocked",
         reason: isZh ? `Codex 应用服务启动失败：${codexAvailability.reason}` : `Codex app-server spawn failed: ${codexAvailability.reason}`,
         impact: isZh
-          ? "Codex 账户模型无法使用；查看终端日志获取详细错误"
-          : "Codex Account models unavailable; check terminal logs for details",
+          ? "Codex Runtime 整体不可用（Codex 账户模型 + CodePilot 服务商经 proxy 接入都受影响）；查看终端日志获取详细错误"
+          : "Codex Runtime is fully unavailable (both Codex Account models and CodePilot providers via the proxy are blocked); check terminal logs for details",
         recovery: isZh ? "点右上角刷新重试，或重启 CodePilot" : "Click refresh in the top right, or restart CodePilot",
       };
     }
@@ -990,15 +990,15 @@ export function RuntimePanel() {
               ? "Codex 应用服务已就绪并被设为默认引擎"
               : "Codex app-server is ready and set as the default engine",
             impact: isZh
-              ? "新会话默认走 Codex，使用 Codex 账户模型（其他服务商模型暂不可用）"
-              : "New chats run on Codex with Codex Account models (other providers not yet supported)",
+              ? "新会话默认走 Codex：Codex 账户模型 + 已配置 CodePilot 服务商通过 provider proxy 接入（Claude Code 默认/env 模式除外）"
+              : "New chats run on Codex: Codex Account models AND configured CodePilot providers via the provider proxy (env Claude Code default is excluded)",
           }
         : {
             state: "available",
             reason: isZh ? "Codex 应用服务已就绪但未被设为默认" : "Codex app-server is ready but not the default engine",
             impact: isZh
-              ? "想用 Codex 账户模型作为默认，把上方「默认引擎」切到 Codex"
-              : 'Switch the "Default engine" selector above to use Codex',
+              ? "想把 Codex 设为默认（同时启用 Codex 账户 + CodePilot 服务商 via proxy），把上方「默认引擎」切到 Codex"
+              : 'Switch the "Default engine" selector above to make Codex the default for both Codex Account models and CodePilot providers via the proxy',
           };
     }
     // unknown — initial fetch still pending
@@ -1188,8 +1188,8 @@ export function RuntimePanel() {
             icon={<OpenAI size={20} />}
             tagline={isZh ? "OpenAI Codex 应用服务" : "OpenAI Codex app-server"}
             pitch={isZh
-              ? "通过 Codex 应用服务调用 ChatGPT 账户内置模型（如 gpt-5.5）。账户额度由 ChatGPT 套餐承担，目前仅支持 Codex 账户模型。"
-              : "Routes through the Codex app-server to use Codex Account models (gpt-5.5 etc.). Quota comes from your ChatGPT plan; currently only Codex Account models are supported."}
+              ? "通过 Codex 应用服务调用 ChatGPT 账户内置模型（gpt-5.5 等，额度走 ChatGPT 套餐），同时已配置的 CodePilot 服务商也能经 provider proxy 在 Codex 下使用（Claude Code 默认 / env 模式除外）。"
+              : "Routes through the Codex app-server for Codex Account models (gpt-5.5 etc., quota covered by your ChatGPT plan), and also serves configured CodePilot providers via the provider proxy (env Claude Code default is excluded)."}
             statusKind={codexConnected ? "ok" : "warning"}
             statusText={
               codexConnected
