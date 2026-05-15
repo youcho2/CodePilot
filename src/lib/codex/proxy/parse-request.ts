@@ -112,8 +112,19 @@ export function parseResponsesRequest(raw: unknown): ParseResult {
       if (!isObject(tool)) {
         return { ok: false, field: `tools[${i}]`, message: `tools[${i}] must be a JSON object.` };
       }
+      // Phase 5b smoke fix (2026-05-15) — Codex's real `turn/start`
+      // payload mixes function tools with Codex-specific entries like
+      // `{ type: 'custom', ... }` (Codex's own apply_patch / shell
+      // surface). Pre-fix we returned a 400 here, which blocked every
+      // real Codex chat that used non-trivial tools. Phase 5b's scope
+      // is chat parity, NOT a full Codex custom-tool bridge — so we
+      // silently DROP non-function tools rather than failing. They're
+      // re-added later when CodePilot grows a matching tool runtime.
       if (tool.type !== 'function') {
-        return { ok: false, field: `tools[${i}].type`, message: `tools[${i}].type must be "function" (got "${String(tool.type)}").` };
+        // Drop, don't reject. The unified translator only emits the
+        // function tools to ai-sdk; the rest are invisible to the
+        // model and to the upstream provider.
+        continue;
       }
       if (typeof tool.name !== 'string') {
         return { ok: false, field: `tools[${i}].name`, message: `tools[${i}].name must be a string.` };
@@ -127,6 +138,9 @@ export function parseResponsesRequest(raw: unknown): ParseResult {
         strict: typeof tool.strict === 'boolean' ? tool.strict : undefined,
       });
     }
+    // Treat "empty after filtering" as "no tools" so the adapter omits
+    // the field entirely (ai-sdk distinguishes undefined from []).
+    if (tools.length === 0) tools = undefined;
   }
 
   const stream = raw.stream === undefined ? true : !!raw.stream;
@@ -135,6 +149,15 @@ export function parseResponsesRequest(raw: unknown): ParseResult {
   const reasoning = isObject(raw.reasoning)
     ? { effort: typeof raw.reasoning.effort === 'string' ? (raw.reasoning.effort as ResponsesRequestBody['reasoning'] extends infer R ? R extends { effort?: infer E } ? E : never : never) : undefined }
     : undefined;
+  // Phase 5b smoke fix (2026-05-15) — OpenAI OAuth (Codex API)
+  // requires `store: false` on outbound /responses calls. Codex
+  // itself sends `store: false` in its request body; we MUST preserve
+  // that and forward it via providerOptions.openai.store. Pre-fix
+  // we dropped the field on parse, so even when Codex (or a manual
+  // smoke) explicitly sent store:false the upstream still rejected
+  // with "Store must be set to false". Accept a boolean and let the
+  // adapter decide what to do with it.
+  const store = typeof raw.store === 'boolean' ? raw.store : undefined;
 
   return {
     ok: true,
@@ -146,6 +169,7 @@ export function parseResponsesRequest(raw: unknown): ParseResult {
       ...(instructions ? { instructions } : {}),
       ...(metadata ? { metadata } : {}),
       ...(reasoning ? { reasoning } : {}),
+      ...(store !== undefined ? { store } : {}),
     },
   };
 }

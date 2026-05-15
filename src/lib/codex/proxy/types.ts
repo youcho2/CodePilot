@@ -129,6 +129,15 @@ export interface ResponsesRequestBody {
   reasoning?: {
     effort?: 'minimal' | 'low' | 'medium' | 'high' | 'max';
   };
+  /** OpenAI Responses-API `store` field. The Codex `/responses`
+   *  endpoint (chatgpt.com/backend-api/codex/responses) requires
+   *  `store: false` on every call; sending true returns HTTP 400
+   *  "Store must be set to false". Codex's own HTTP client always
+   *  sets this field, so we preserve it and forward it via
+   *  `providerOptions.openai.store` in the unified adapter. Default
+   *  (when caller omits) is `false` for the openai-oauth path; other
+   *  wire formats ignore the field. */
+  store?: boolean;
 }
 
 // ─────────────────────────────────────────────────────────────────────

@@ -131,15 +131,90 @@ describe('parseResponsesRequest — happy path + field-level failures', () => {
     assert.match(r.field || '', /content\[0\]\.type/);
   });
 
-  it('rejects tools[].type !== "function" so unsupported tool kinds surface cleanly', () => {
+  it('silently drops non-function tools instead of rejecting (Phase 5b smoke fix 2026-05-15)', () => {
+    // Codex's real `turn/start` payload mixes function tools with
+    // Codex-specific custom tools (e.g. `{ type: 'custom' }` for
+    // Codex's own shell / apply_patch surface). The pre-fix parser
+    // returned a 400 on those, blocking every real Codex chat that
+    // surfaced non-trivial tools. Phase 5b's scope is chat parity,
+    // not full custom-tool bridging — so non-function tools are
+    // filtered out silently. The function tools survive.
     const r = parseResponsesRequest({
       model: 'x',
       input: [],
-      tools: [{ type: 'web_search' }],
+      tools: [
+        { type: 'function', name: 'lookup', parameters: { type: 'object', properties: {} } },
+        { type: 'custom', name: 'apply_patch' }, // Codex's custom tool
+        { type: 'function', name: 'search' },
+        { type: 'web_search' }, // unknown future kind
+      ],
     });
-    assert.equal(r.ok, false);
-    if (r.ok) return;
-    assert.match(r.field || '', /tools\[0\]\.type/);
+    assert.equal(r.ok, true);
+    if (!r.ok) return;
+    // Only the two function-typed tools survive; the custom + unknown
+    // entries are silently dropped.
+    assert.equal(r.body.tools?.length, 2, 'only the function-typed tools survive the filter');
+    assert.deepEqual(
+      r.body.tools?.map(t => t.name).sort(),
+      ['lookup', 'search'],
+      'the surviving tools must be the function-typed ones, in original order',
+    );
+  });
+
+  it('treats "all tools were filtered out" the same as no tools (undefined, not [])', () => {
+    // ai-sdk distinguishes undefined from an empty array — passing []
+    // disables tool calling explicitly. The post-filter empty case
+    // should look identical to "Codex sent no tools at all".
+    const r = parseResponsesRequest({
+      model: 'x',
+      input: [],
+      tools: [{ type: 'custom' }, { type: 'web_search' }],
+    });
+    assert.equal(r.ok, true);
+    if (!r.ok) return;
+    assert.equal(r.body.tools, undefined, 'empty-after-filter must collapse to undefined');
+  });
+
+  it('still rejects malformed tools arrays at the structural level', () => {
+    // The filter only kicks in for `type !== 'function'`. Other
+    // structural problems (tools not an array, function tool missing
+    // name) still fail with the field-level error so the parser
+    // doesn't quietly swallow real bugs.
+    const notArray = parseResponsesRequest({ model: 'x', input: [], tools: 'oops' });
+    assert.equal(notArray.ok, false);
+    if (notArray.ok) return;
+    assert.equal(notArray.field, 'tools');
+
+    const missingName = parseResponsesRequest({
+      model: 'x',
+      input: [],
+      tools: [{ type: 'function' }],
+    });
+    assert.equal(missingName.ok, false);
+    if (missingName.ok) return;
+    assert.match(missingName.field || '', /tools\[0\]\.name/);
+  });
+
+  it('preserves boolean `store` field on the parsed body (Phase 5b smoke fix 2026-05-15)', () => {
+    // Codex's openai-oauth path (chatgpt.com/backend-api/codex/responses)
+    // requires `store: false` upstream. Codex's HTTP client always
+    // sends it; we must preserve the field so the unified adapter can
+    // forward it via providerOptions.openai.store. Pre-fix the parser
+    // dropped the field entirely.
+    const r = parseResponsesRequest({ model: 'x', input: [], store: false });
+    assert.equal(r.ok, true);
+    if (!r.ok) return;
+    assert.equal(r.body.store, false, 'store:false must survive parsing');
+
+    const rTrue = parseResponsesRequest({ model: 'x', input: [], store: true });
+    assert.equal(rTrue.ok, true);
+    if (!rTrue.ok) return;
+    assert.equal(rTrue.body.store, true, 'store:true also survives — the adapter decides what to do');
+
+    const rOmitted = parseResponsesRequest({ model: 'x', input: [] });
+    assert.equal(rOmitted.ok, true);
+    if (!rOmitted.ok) return;
+    assert.equal(rOmitted.body.store, undefined, 'omitted store stays undefined so the adapter can pick a default');
   });
 
   it('defaults stream=true when omitted (Codex sends stream:true by convention)', () => {

@@ -257,7 +257,8 @@ function buildMessages(body: ResponsesRequestBody): ModelMessage[] {
  * recognise — confirmed by reading providerOptions handling in each
  * @ai-sdk/* package.
  */
-function buildProviderOptions(
+/** Exported for unit testing — see codex-proxy-translators.test.ts. */
+export function buildProviderOptions(
   body: ResponsesRequestBody,
 ): AiProviderOptions | undefined {
   const out: AiProviderOptions = {};
@@ -275,6 +276,17 @@ function buildProviderOptions(
   if (body.instructions && body.instructions.trim().length > 0) {
     out.openai = { ...(out.openai ?? {}), instructions: body.instructions };
   }
+
+  // Phase 5b smoke follow-up (2026-05-15) — Codex's `/responses`
+  // endpoint also REQUIRES `store: false`. ai-sdk's openai `responses(...)`
+  // path defaults store to true (the public OpenAI API stores by
+  // default for the dashboard). When Codex's HTTP client forwards a
+  // body with `store: false` we honour it; when it's absent we still
+  // force false because the Codex endpoint never accepts true. Other
+  // openai targets (public OpenAI, OpenRouter `/v1`) tolerate
+  // `store: false` so this is safe to set unconditionally on every
+  // openai-flavoured call we make.
+  out.openai = { ...(out.openai ?? {}), store: body.store ?? false };
 
   const effort = body.reasoning?.effort;
   if (effort) {

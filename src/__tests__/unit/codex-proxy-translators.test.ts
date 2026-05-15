@@ -18,6 +18,7 @@ import { translateResponsesInput } from '@/lib/codex/proxy/translate-input';
 import { translateResponsesTools } from '@/lib/codex/proxy/translate-tools';
 import { translateStream } from '@/lib/codex/proxy/translate-stream';
 import { translateNonStreamResponse } from '@/lib/codex/proxy/translate-response';
+import { buildProviderOptions } from '@/lib/codex/proxy/unified-adapter';
 import type {
   ResponsesInputItem,
   ResponsesTool,
@@ -426,5 +427,72 @@ describe('translateNonStreamResponse — ai-sdk result → Responses JSON body',
     assert.equal(body.usage.input_tokens, 11);
     assert.equal(body.usage.output_tokens, 22);
     assert.equal(body.usage.total_tokens, 33);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────
+// buildProviderOptions — forwarded fields for openai-oauth path
+// ─────────────────────────────────────────────────────────────────────
+
+describe('buildProviderOptions — forwards instructions + store for the Codex /responses endpoint', () => {
+  it('always sets providerOptions.openai.store=false (Codex /responses rejects store:true)', () => {
+    // Phase 5b smoke fix (2026-05-15). The openai-oauth Codex endpoint
+    // (chatgpt.com/backend-api/codex/responses) returns HTTP 400
+    // "Store must be set to false" unless we send store:false. ai-sdk's
+    // openai responses(...) defaults this to true (public OpenAI dashboard
+    // behaviour). buildProviderOptions must force false on every call so
+    // the openai-oauth path stops returning 400.
+    const opts = buildProviderOptions({ model: 'x', input: [] });
+    assert.ok(opts, 'buildProviderOptions must return options even for a minimal body (so store gets set)');
+    assert.equal(opts!.openai!.store, false);
+  });
+
+  it('honours an explicit body.store:false (the field round-trips from Codex through the parser)', () => {
+    const opts = buildProviderOptions({ model: 'x', input: [], store: false });
+    assert.equal(opts!.openai!.store, false);
+  });
+
+  it('honours an explicit body.store:true (the proxy doesn\'t silently override it)', () => {
+    // Codex's Codex Account path never sends true, but the parser
+    // accepts it. The adapter just trusts the body — if a caller
+    // really wants store:true (e.g. against public OpenAI / OpenRouter
+    // through codepilot_proxy), that's their call.
+    const opts = buildProviderOptions({ model: 'x', input: [], store: true });
+    assert.equal(opts!.openai!.store, true);
+  });
+
+  it('forwards body.instructions verbatim to providerOptions.openai.instructions', () => {
+    // Codex's /responses endpoint also requires non-empty instructions
+    // at the TOP level (not inside messages). ai-sdk's openai
+    // responses(...) only puts it there from providerOptions.openai.
+    // instructions. Codex always sends one; we forward it.
+    const opts = buildProviderOptions({
+      model: 'x',
+      input: [],
+      instructions: 'You are Codex.',
+    });
+    assert.equal(opts!.openai!.instructions, 'You are Codex.');
+  });
+
+  it('drops empty / whitespace-only instructions instead of forwarding a no-op', () => {
+    const empty = buildProviderOptions({ model: 'x', input: [], instructions: '' });
+    assert.equal((empty!.openai as Record<string, unknown>).instructions, undefined);
+    const whitespace = buildProviderOptions({ model: 'x', input: [], instructions: '   ' });
+    assert.equal((whitespace!.openai as Record<string, unknown>).instructions, undefined);
+  });
+
+  it('still forwards effort → anthropic.thinking + openai.reasoningEffort on the same options object', () => {
+    // Regression guard: store/instructions sharing the same
+    // out.openai bag must not clobber the existing reasoning effort
+    // pass-through that powered the Anthropic / OpenAI reasoning
+    // paths before this round.
+    const opts = buildProviderOptions({
+      model: 'x',
+      input: [],
+      reasoning: { effort: 'high' },
+    });
+    assert.equal((opts!.openai as Record<string, unknown>).reasoningEffort, 'high');
+    assert.equal(opts!.openai!.store, false, 'store must still be set when other openai options are present');
+    assert.ok(opts!.anthropic);
   });
 });

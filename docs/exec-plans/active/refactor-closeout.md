@@ -23,7 +23,7 @@
 
 **Phase 4 整条主线已收口完毕并归档**（trust tier + html-preview 路由 + CSP 4 轮 + Markdown 原地风格 + Artifact code-fence + dev-output；HTML Artifact 显式保存入口 deferred 进 tech-debt #18）。完整交付清单见 [completed/phase-4-markdown-artifact.md](../completed/phase-4-markdown-artifact.md)，技术 / 产品文档分别在 [handover/phase-4-markdown-artifact.md](../../handover/phase-4-markdown-artifact.md) 与 [insights/phase-4-markdown-artifact.md](../../insights/phase-4-markdown-artifact.md)。
 
-**Phase 5b 链路在 2026-05-15 第五轮 review 后又前进了一截，但仍未 ✅**。截至本轮：
+**Phase 5b 链路在 2026-05-15 第六轮 review 后又前进了一截，但仍未 ✅**。截至本轮：
 - ✅ `CodexRuntime.stream()` 现在带完整 `thread/start` + `thread/resume` 注入：`{ model, modelProvider: 'codepilot_proxy', config.model_providers.codepilot_proxy, cwd }`（对齐 Codex 自己 `thread_start_params_from_config` 源码）。
 - ✅ Codex Account 主链路两轮真实跑通（gpt-5.5）。
 - ✅ DB provider 直接打 proxy 已经通：GLM glm-4.5-air / Kimi kimi-for-coding / MiniMax sonnet / Bailian qwen3.6-plus / Aibrm anthropic/claude-haiku-4.5 都返回 200。
@@ -32,6 +32,8 @@
 - ✅ `unified-adapter.buildProviderOptions` 把 `body.instructions` 转 `providerOptions.openai.instructions`，让 ai-sdk 在 openai-oauth 路径上写入 Codex `/responses` 必填的 `instructions` 顶层字段。
 - ✅ `event-mapper.ts` 现在按 Codex 真实的 `ErrorNotification = { error: TurnError }` schema 读取 `error.message + additionalDetails + codexErrorInfo`，而不是落入 fallback `'Codex error'`。
 - ✅ Settings Runtime 卡片文案：Codex 不再写成"仅 Codex 账户模型"。
+- ✅ `parse-request.ts` 现在静默丢弃 Codex 发来的非 function tools（`{ type: 'custom' }` 等），不再因 `tools[i].type must be "function"` 返回 400 而阻塞所有完整聊天。Empty-after-filter 折叠回 `undefined`，结构性错误（tools 非数组、function tool 缺 name）仍走原有 field-level 错误路径。
+- ✅ `ResponsesRequestBody.store` 新增；parser 保留；`buildProviderOptions` 始终设 `providerOptions.openai.store = body.store ?? false`，openai-oauth 路径不再因 `Store must be set to false` 返回 400。
 
 剩余 must-have：真实 provider credentials 下跑通端到端 chat smoke 表（每家族一条，每条至少连发两轮），且 smoke 抓到的任何 Codex error 都要能看到 schema 里的真实 message。在 smoke 表清单全过之前 Phase 5b 仍属 🔄。计划见 [active/phase-5-codex-runtime.md](./phase-5-codex-runtime.md)。
 
