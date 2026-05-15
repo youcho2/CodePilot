@@ -1,146 +1,102 @@
 /**
- * /api/codex/proxy/v1/responses
+ * POST /api/codex/proxy/v1/responses
  *
- * Phase 5 Phase 5 — CodePilot provider proxy MVP scaffold
- * (2026-05-13).
+ * Phase 5b — CodePilot provider proxy entry point.
  *
- * Surface area Codex's `model-provider-info` config sees when it
- * resolves a thread's `modelProvider` to a CodePilot-bridged provider.
- * The route URL is what gets injected into Codex's `model_providers`
- * map at `thread/start` time via the `config` override
- * (`ThreadStartParams.config.model_providers`).
+ * Codex's HTTP client routes here when a thread's `model_provider`
+ * is the injected `codepilot_proxy` (see
+ * `src/lib/codex/provider-proxy.ts` for the injection shape). The
+ * route is intentionally a thin HTTP shell:
  *
- * Honest scope of this commit:
+ *   1. Read target provider header.
+ *   2. Parse + validate the Responses request body.
+ *   3. Hand off to the proxy adapter (`handleProxyRequest`).
+ *   4. Serialise the ProxyResult into either an SSE stream
+ *      (`Content-Type: text/event-stream`) or a JSON body.
  *
- *   - The route EXISTS and is reachable; Codex's HTTP client gets a
- *     deterministic structured 501 instead of a hung connection.
- *   - The structured error names the provider compat tier so the UI
- *     can surface why the route can't serve it ("OpenAI-compatible
- *     forwarding lands in Phase 5b" / "ClaudeCode-compatible needs
- *     a Responses→Anthropic translator — Phase 5c").
- *   - The actual Responses-API → CodePilot transport translation is
- *     NOT implemented. Without a local codex binary to e2e the
- *     wire format against, writing the translator now would be
- *     guesswork the user has already pushed back on.
+ * Pre-stream errors (provider not found, credentials missing, adapter
+ * still pending) come back as `kind: 'error'` and we map them to
+ * HTTP status code + JSON. During-stream errors come back as
+ * `kind: 'stream'` with an embedded `response.failed` event; the
+ * route still returns 200 because the SSE protocol carries the
+ * error.
  *
- * Phase 5b deliverables (next slice when codex binary is available):
- *   - Parse Responses request body (input items: text + tool calls +
- *     tool outputs; tools array; model; stream flag).
- *   - Resolve the target CodePilot provider via the existing
- *     provider-resolver, run the request through provider-transport.
- *   - Translate the upstream chat-completions response back into
- *     Responses event format (response.created /
- *     response.output_text.delta / response.completed / etc).
- *   - Streaming variant via SSE.
+ * Phase 5b adapter status: foundation only — the per-family
+ * adapters (OpenAI / Anthropic / CodePlan) still return
+ * `adapter_not_implemented` via the wire. That's a structured
+ * Responses error, NOT the pre-5b raw 501.
  */
 
 import { NextResponse, type NextRequest } from 'next/server';
-import { getProvider } from '@/lib/db';
-import { getProviderCompatFromApi } from '@/lib/runtime-compat';
+import { handleProxyRequest } from '@/lib/codex/proxy/adapter';
+import { parseResponsesRequest } from '@/lib/codex/proxy/parse-request';
+import { makeErrorResult, toNonStreamErrorBody } from '@/lib/codex/proxy/errors';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-export type ProxyUnsupportedReason =
-  | 'no_provider_targeted'
-  | 'provider_not_found'
-  | 'codepilot_responses_translator_pending'
-  | 'anthropic_translator_pending'
-  | 'codex_account_routes_natively';
-
-interface ProxyErrorBody {
-  error: {
-    type: 'unsupported_yet';
-    code: ProxyUnsupportedReason;
-    /** Short human-readable description; UI surfaces this directly. */
-    message: string;
-    /** Optional context — provider id / compat tier / etc. */
-    context?: Record<string, unknown>;
-  };
-}
-
-function unsupported(
-  code: ProxyUnsupportedReason,
-  message: string,
-  context?: Record<string, unknown>,
-): NextResponse<ProxyErrorBody> {
-  return NextResponse.json<ProxyErrorBody>(
-    {
-      error: {
-        type: 'unsupported_yet',
-        code,
-        message,
-        ...(context ? { context } : {}),
-      },
-    },
-    { status: 501 },
-  );
-}
-
 export async function POST(request: NextRequest) {
-  // Provider target is signalled via a header (the runtime injection
-  // sets it when constructing the provider config Codex will use).
-  // Body parsing is deferred to Phase 5b — we only need to know
-  // WHICH CodePilot provider was targeted so we can return the
-  // correct unsupported reason for its compat tier.
   const targetProviderId = request.headers.get('x-codepilot-target-provider') ?? '';
 
-  if (!targetProviderId) {
-    return unsupported(
-      'no_provider_targeted',
-      'Codex proxy invoked without x-codepilot-target-provider header. Runtime injection should set this.',
+  // Parse body — fail fast with a JSON 400 if it's not valid JSON or
+  // doesn't satisfy the Responses shape. The error body is the same
+  // shape every error returns so Codex's HTTP client only has one
+  // error envelope to recognise.
+  let rawBody: unknown;
+  try {
+    rawBody = await request.json();
+  } catch (err) {
+    const result = makeErrorResult(
+      'invalid_request',
+      `Request body is not valid JSON: ${err instanceof Error ? err.message : String(err)}`,
     );
+    return NextResponse.json(toNonStreamErrorBody(result.error), { status: result.status });
   }
 
-  const provider = getProvider(targetProviderId);
-  if (!provider) {
-    return unsupported(
-      'provider_not_found',
-      `CodePilot provider not found: ${targetProviderId}`,
-      { providerId: targetProviderId },
+  const parseResult = parseResponsesRequest(rawBody);
+  if (!parseResult.ok) {
+    const result = makeErrorResult(
+      'invalid_request',
+      parseResult.message,
+      parseResult.field ? { field: parseResult.field } : undefined,
     );
+    return NextResponse.json(toNonStreamErrorBody(result.error), { status: result.status });
   }
 
-  const compat = getProviderCompatFromApi(provider);
-
-  switch (compat) {
-    case 'codepilot_only':
-      // OpenAI-compatible providers — easiest first target for the
-      // Responses translation. Scaffold returns the same 501 today;
-      // Phase 5b implements the actual forward.
-      return unsupported(
-        'codepilot_responses_translator_pending',
-        'OpenAI-compatible CodePilot provider — Responses-API translator lands in Phase 5b.',
-        { providerId: targetProviderId, compat },
-      );
-
-    case 'claude_code_ready':
-    case 'claude_code_verified':
-    case 'claude_code_experimental':
-    case 'openrouter_anthropic_skin':
-      return unsupported(
-        'anthropic_translator_pending',
-        'Anthropic-shaped provider — Responses→Anthropic translation layer lands in Phase 5c after the OpenAI path is validated.',
-        { providerId: targetProviderId, compat },
-      );
-
-    case 'codex_account':
-      // Codex Account models route through Codex's own provider
-      // config, not through this proxy. Surface as a config error
-      // so the operator catches the misconfiguration.
-      return unsupported(
-        'codex_account_routes_natively',
-        'Codex Account models route through Codex natively, not through the CodePilot proxy. Check provider injection logic.',
-        { providerId: targetProviderId, compat },
-      );
-
-    case 'media_only':
-    case 'unknown':
-    default:
-      return unsupported(
-        'codepilot_responses_translator_pending',
-        `Provider compat tier "${compat}" cannot be routed through the Codex proxy yet.`,
-        { providerId: targetProviderId, compat },
-      );
+  // Dispatch to the adapter. The adapter contract guarantees it
+  // never throws — but the route wraps defensively so an unexpected
+  // bug doesn't crash Codex's HTTP read loop.
+  let proxyResult;
+  try {
+    proxyResult = await handleProxyRequest({
+      targetProviderId,
+      body: parseResult.body,
+      signal: request.signal,
+    });
+  } catch (err) {
+    const result = makeErrorResult(
+      'internal_error',
+      `Unexpected proxy error: ${err instanceof Error ? err.message : String(err)}`,
+    );
+    return NextResponse.json(toNonStreamErrorBody(result.error), { status: result.status });
   }
+
+  // Serialise. Three result shapes; route just translates HTTP.
+  if (proxyResult.kind === 'error') {
+    return NextResponse.json(toNonStreamErrorBody(proxyResult.error), {
+      status: proxyResult.status,
+    });
+  }
+  if (proxyResult.kind === 'json') {
+    return NextResponse.json(proxyResult.body, { status: 200 });
+  }
+  // SSE stream. Codex's HTTP client looks for `text/event-stream`.
+  return new Response(proxyResult.body, {
+    status: 200,
+    headers: {
+      'Content-Type': 'text/event-stream; charset=utf-8',
+      'Cache-Control': 'no-cache, no-transform',
+      Connection: 'keep-alive',
+    },
+  });
 }
