@@ -558,6 +558,72 @@ describe('Chat composer — passes concrete RuntimeId to useProviderModels (Phas
   });
 });
 
+describe('invalid-default branch — auto-fallback writes through to parent state (Phase 6 P0 round 3)', () => {
+  const pageSrc = fs.readFileSync(
+    path.join(repoRoot, 'app/chat/page.tsx'),
+    'utf8',
+  );
+
+  it('both resolver branches call resolveNewChatDefault again with mode="auto" on invalid-default', () => {
+    // The load-bearing assertion. Pre-round-3 the invalid-default
+    // branch cleared currentProviderId/Model — banner said
+    // "auto-switched" but parent state stayed empty, MessageInput's
+    // useProviderModels resolved a different visible fallback, and
+    // the send gate then tripped on the empty parent state. Round 3
+    // re-runs the resolver in 'auto' mode and writes the result
+    // through to parent state so banner / display / send all agree.
+    //
+    // Two resolver call sites (initial-load + checkProvider), both
+    // must do this — pinned by two anchored matches.
+    const invalidDefaultBranches = pageSrc.match(
+      /resolved\.status\s*===\s*['"]invalid-default['"][\s\S]+?(?=\n\s*\}\s*else\s*\{|\n\s*\}\s*else\s+if)/g,
+    );
+    assert.ok(
+      invalidDefaultBranches && invalidDefaultBranches.length === 2,
+      'expected exactly two invalid-default branches (initial-load + checkProvider resolvers)',
+    );
+    for (const branch of invalidDefaultBranches!) {
+      assert.match(
+        branch,
+        /const\s+autoFallback\s*=\s*resolveNewChatDefault\(/,
+        'each invalid-default branch must re-resolve via resolveNewChatDefault to land on a sendable fallback pair',
+      );
+      assert.match(
+        branch,
+        /mode:\s*['"]auto['"]/,
+        'auto-fallback call must explicitly use mode="auto" so it walks the savedPair → apiDefault → first chain regardless of the pinned mode that originally failed',
+      );
+      assert.match(
+        branch,
+        /autoFallback\.status\s*===\s*['"]auto-resolved['"][\s\S]{0,300}setCurrentProviderId/,
+        'the fallback result must be written through to parent state so MessageInput / send gate / banner all see the same pair',
+      );
+      // The pinned-invalid warning still fires — banner copy says
+      // "auto-switched", so the warning state must stick.
+      assert.match(branch, /setInvalidDefault\(\s*\{/);
+    }
+  });
+
+  it('regression guard: invalid-default no longer empties parent state without writing a fallback', () => {
+    // Pre-round-3 both branches had the shape:
+    //   setCurrentModel('');
+    //   setCurrentProviderId('');
+    //   setInvalidDefault({...});
+    // and that was IT. Now there's always a follow-up auto-resolve
+    // before / after. A regression would re-introduce the bare
+    // empty-set pattern. Check by searching the whole file for the
+    // dangerous shape — three consecutive setters with no
+    // intervening fallback assignment.
+    const dangerous = pageSrc.match(
+      /setCurrentModel\(['"]['"]?\)\s*;\s*setCurrentProviderId\(['"]['"]?\)\s*;\s*setNoCompatibleProvider\(false\)\s*;\s*setInvalidDefault\(\s*\{[^}]*reason:[^}]*\}\s*\)\s*;\s*\}/,
+    );
+    assert.ok(
+      !dangerous,
+      'invalid-default branch must not leave parent state empty (currentModel + currentProviderId set to "") without a follow-up auto-resolve writing a working pair — that splits parent state from MessageInput visual state',
+    );
+  });
+});
+
 describe('Empty-state — hasSendableProviderForCurrentRuntime bypasses /api/setup for Codex (Phase 6 P0 round 2)', () => {
   const pageSrc = fs.readFileSync(
     path.join(repoRoot, 'app/chat/page.tsx'),

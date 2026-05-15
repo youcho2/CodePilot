@@ -414,16 +414,44 @@ function NewChatPageInner() {
         setNoCompatibleProvider(true);
         setInvalidDefault(null);
       } else if (resolved.status === 'invalid-default') {
-        // Pinned + unreachable — block, surface, do not substitute.
-        setCurrentModel('');
-        setCurrentProviderId('');
-        setNoCompatibleProvider(false);
+        // Phase 6 P0 round 3 (2026-05-15): pinned default is
+        // unreachable under the active runtime, but we MUST land
+        // parent state on a working fallback pair so the chat is
+        // still sendable. Pre-round-3 this branch cleared
+        // currentProviderId/Model — the banner said "auto-switched
+        // to an available model" but the parent state went empty,
+        // and MessageInput's useProviderModels resolved a DIFFERENT
+        // visible fallback. Composer rendered as usable + send gate
+        // tripped on empty parent state. Now we surface the warning
+        // AND re-resolve as Auto so parent state matches the
+        // banner's promise.
         setInvalidDefault({
           providerId: resolved.providerId,
           providerName: resolved.providerName,
           modelValue: resolved.modelValue,
           reason: resolved.reason,
         });
+        setNoCompatibleProvider(false);
+        const autoFallback = resolveNewChatDefault({
+          groups: modelsData.groups,
+          apiDefaultProviderId: modelsData.default_provider_id,
+          mode: 'auto',
+          pinnedProviderId: opts?.default_model_provider || '',
+          pinnedModel: opts?.default_model || '',
+          savedProviderId: localStorage.getItem('codepilot:last-provider-id') || '',
+          savedModel: localStorage.getItem('codepilot:last-model') || '',
+        });
+        if (autoFallback.status === 'auto-resolved') {
+          setCurrentProviderId(autoFallback.providerId ?? '');
+          setCurrentModel(autoFallback.modelValue ?? '');
+        } else {
+          // Auto chain also failed → parent state stays empty.
+          // The pinned-invalid warning still shows; the no-provider
+          // empty-state overlay surfaces because canSendWithCurrent*
+          // is false.
+          setCurrentProviderId('');
+          setCurrentModel('');
+        }
       } else {
         // 'ok' (Pinned valid) or 'auto-resolved' (Auto chain found one).
         setCurrentProviderId(resolved.providerId ?? '');
@@ -582,8 +610,10 @@ function NewChatPageInner() {
           setNoCompatibleProvider(true);
           setInvalidDefault(null);
         } else if (resolved.status === 'invalid-default') {
-          setCurrentProviderId('');
-          setCurrentModel('');
+          // Phase 6 P0 round 3 (2026-05-15) — see the matching
+          // round-3 fix in the initial-load resolver above. Surface
+          // the pinned-invalid warning AND re-resolve as Auto so
+          // parent state lands on a sendable (provider, model) pair.
           setNoCompatibleProvider(false);
           setInvalidDefault({
             providerId: resolved.providerId,
@@ -591,6 +621,22 @@ function NewChatPageInner() {
             modelValue: resolved.modelValue,
             reason: resolved.reason,
           });
+          const autoFallback = resolveNewChatDefault({
+            groups: modelsData.groups,
+            apiDefaultProviderId: modelsData.default_provider_id,
+            mode: 'auto',
+            pinnedProviderId: opts?.default_model_provider || '',
+            pinnedModel: opts?.default_model || '',
+            savedProviderId: savedProviderId || '',
+            savedModel: localStorage.getItem('codepilot:last-model') || '',
+          });
+          if (autoFallback.status === 'auto-resolved') {
+            setCurrentProviderId(autoFallback.providerId ?? '');
+            setCurrentModel(autoFallback.modelValue ?? '');
+          } else {
+            setCurrentProviderId('');
+            setCurrentModel('');
+          }
         } else {
           setNoCompatibleProvider(false);
           setInvalidDefault(null);
