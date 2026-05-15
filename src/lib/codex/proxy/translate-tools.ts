@@ -75,6 +75,14 @@ export function translateResponsesTools(
     out[t.name] = tool({
       description: t.description ?? '',
       inputSchema: jsonSchema(rawSchema),
+      // Forward `strict` when Codex declared it. ai-sdk plumbs the
+      // flag down to provider-format `LanguageModelV3FunctionTool.strict`
+      // so providers that honour strict mode (OpenAI, etc.) receive
+      // it. Pre-fix the parser preserved the field but the translator
+      // dropped it silently — Codex's request shape uses strict on
+      // structured-output tools and the lost flag changed model
+      // behaviour without telling the user.
+      ...(t.strict !== undefined ? { strict: t.strict } : {}),
       // Intentionally NO `execute` — ai-sdk stops at the tool-call
       // boundary and emits tool-call events the translator forwards
       // to Codex. Codex runs the tool and sends back

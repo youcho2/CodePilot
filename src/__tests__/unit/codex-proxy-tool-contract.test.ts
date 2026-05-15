@@ -171,6 +171,59 @@ describe('translateResponsesTools — AI SDK v6 wrapper contract (Phase 5b smoke
     assert.deepEqual(fn.inputSchema.properties, {});
   });
 
+  it('forwards `strict: true` through to the provider-format tool', async () => {
+    // Phase 5b smoke round 4 (2026-05-16). Parser preserves
+    // tool.strict; translator now forwards it via ai-sdk's tool()
+    // helper so providers that honour strict mode (OpenAI structured
+    // outputs etc.) actually see it on the provider-format call.
+    // Pre-fix the field was silently dropped and the model behaved
+    // as non-strict, which can change tool-call validity without
+    // surfacing the divergence to the user.
+    const tools = translateResponsesTools([
+      {
+        type: 'function',
+        name: 'structured',
+        description: 'Return JSON',
+        strict: true,
+        parameters: {
+          type: 'object',
+          properties: { answer: { type: 'string' } },
+          required: ['answer'],
+          additionalProperties: false,
+        },
+      },
+    ]);
+    const mock = makeMock();
+    const result = streamText({
+      model: mock,
+      tools: tools as unknown as ToolSet,
+      prompt: 'go',
+    });
+    await drain(result.fullStream);
+    const fn = (mock.doStreamCalls[0].tools as Array<{ name: string; strict?: boolean }>)[0];
+    assert.equal(fn.name, 'structured');
+    assert.equal(fn.strict, true, 'tool.strict must flow through translator → ai-sdk tool() → provider-format strict field');
+  });
+
+  it('omits `strict` when Codex did NOT declare it (no defaulting)', async () => {
+    // Symmetric pin: a missing strict must stay missing. ai-sdk
+    // treats `undefined` as "don't override the provider default";
+    // forcing `false` would actively disable strict mode for
+    // providers that default to it.
+    const tools = translateResponsesTools([
+      { type: 'function', name: 'no_strict', description: 'plain' },
+    ]);
+    const mock = makeMock();
+    const result = streamText({
+      model: mock,
+      tools: tools as unknown as ToolSet,
+      prompt: 'go',
+    });
+    await drain(result.fullStream);
+    const fn = (mock.doStreamCalls[0].tools as Array<{ strict?: boolean }>)[0];
+    assert.equal(fn.strict, undefined, 'omitted strict must remain undefined — do not synthesise a default');
+  });
+
   it('canonical tool() + jsonSchema() shape matches the translator output (sanity guard)', () => {
     // Direct comparison: build the same tool via ai-sdk's helpers
     // and via the translator; both shapes must be assignable to the
