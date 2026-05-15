@@ -143,6 +143,41 @@ function NewChatPageInner() {
   const [permissionProfile, setPermissionProfile] = useState<'default' | 'full_access'>('default');
   const [pendingContextTokens, setPendingContextTokens] = useState(0);
 
+  // Phase 6 P0 follow-up (2026-05-15) — `canSendWithCurrentProvider`
+  // splits the legacy `hasProvider` gate into two concerns:
+  //
+  //   1. SEND gate (this memo): is the current (provider, model)
+  //      tuple actually sendable right now? Codex Account is a
+  //      virtual provider that doesn't flow through /api/setup, so
+  //      `hasProvider` stays false even when Codex is signed in
+  //      and the resolver has happily landed on
+  //      (codex_account, gpt-5.5). Without this carve-out the user
+  //      saw a green send button → click → "no provider configured"
+  //      error.
+  //   2. EMPTY-STATE gate (still `hasProvider` below): legacy
+  //      onboarding empty state for users who haven't set up any
+  //      traditional provider. That surface is about first-run
+  //      onboarding, not about "is this specific send valid".
+  //
+  // The two used to be the same flag; conflating them was the
+  // bug the user surfaced via Chrome smoke after Phase 6 P0.
+  const canSendWithCurrentProvider = useMemo(() => {
+    if (!currentModel || !currentProviderId) return false;
+    // Codex Account bypasses the /api/setup gate — the resolver
+    // already proved this pair is reachable under the active runtime
+    // (it wouldn't have landed in `currentProviderId` otherwise).
+    if (currentProviderId === 'codex_account') return true;
+    // Same goes for OpenAI OAuth, which is also a virtual provider
+    // (`/api/openai-oauth/status`-managed). It doesn't show up in
+    // /api/setup's `provider === 'completed'` either.
+    if (currentProviderId === 'openai-oauth') return true;
+    // Everything else still requires the legacy "provider set up"
+    // signal so we don't accidentally route to an env-fallback
+    // provider that the resolver synthesised but the user never
+    // configured.
+    return hasProvider;
+  }, [hasProvider, currentProviderId, currentModel]);
+
   // Round 2 — permission-elevation confirmation, scoped to this
   // session. `null` while the user hasn't ack'd; `'full_access'` once
   // they confirm via the banner. Auto-resets to `null` whenever the
@@ -674,19 +709,22 @@ function NewChatPageInner() {
         return;
       }
 
-      // Require a provider before sending
-      if (!hasProvider) {
-        setErrorBanner({
-          message: t('error.providerUnavailable'),
-          description: t('chat.empty.noProvider'),
-        });
-        return;
-      }
-
-      // Defense in depth: even if other gates pass, never POST an empty
-      // model+provider pair — the server would fall back to env defaults
-      // and re-introduce the cross-wire we're trying to prevent.
-      if (!currentModel || !currentProviderId) {
+      // Phase 6 P0 follow-up (2026-05-15) — Codex Account is a virtual
+      // provider that doesn't flow through /api/setup, so `hasProvider`
+      // (which reads `data.provider === 'completed'`) stays false even
+      // when the user has signed in to Codex and the picker has
+      // resolved (`currentProviderId === 'codex_account'`,
+      // `currentModel === 'gpt-5.5'` etc.). Pre-fix, the user could
+      // see the GPT-5.5 model selector + an enabled send button, then
+      // click send and hit the legacy "no provider configured" wall.
+      //
+      // `canSendWithCurrentProvider` reflects what we actually need at
+      // send time: the runtime/model/provider triple resolves to a
+      // working route. `hasProvider` stays purely as the
+      // legacy-provider setup signal for the empty-state UI (line
+      // 1076 below) — that surface is about onboarding, not about
+      // "is this exact send valid".
+      if (!canSendWithCurrentProvider) {
         setErrorBanner({
           message: t('error.providerUnavailable'),
           description: t('chat.empty.noProvider'),
@@ -1034,7 +1072,7 @@ function NewChatPageInner() {
         abortControllerRef.current = null;
       }
     },
-    [isStreaming, router, workingDir, mode, currentModel, currentProviderId, permissionProfile, selectedEffort, thinkingMode, context1m, setPendingApprovalSessionId, t, hasProvider, modelReady, noCompatibleProvider, invalidDefault]
+    [isStreaming, router, workingDir, mode, currentModel, currentProviderId, permissionProfile, selectedEffort, thinkingMode, context1m, setPendingApprovalSessionId, t, canSendWithCurrentProvider, modelReady, noCompatibleProvider, invalidDefault]
   );
 
   const handleCommand = useCallback((command: string) => {
@@ -1154,9 +1192,10 @@ function NewChatPageInner() {
         onModelChange={setCurrentModel}
         providerId={currentProviderId}
         // /chat is the new-conversation entry — no session yet, so the
-        // picker follows the global agent_runtime via 'auto'. The
-        // session-pinned `runtime_pin` only applies to /chat/[id]
-        // (existing conversations).
+        // picker follows the runtime resolved at the top of this
+        // component (`effectiveChatRuntime(runtimePin, globalRuntime)`).
+        // Phase 6 P0 (2026-05-15): we no longer pass `'auto'` here —
+        // that bypassed the picker's per-row compat gate.
         runtime={sessionRuntimeParam}
         onProviderModelChange={(pid, model, opts) => {
           setCurrentProviderId(pid);

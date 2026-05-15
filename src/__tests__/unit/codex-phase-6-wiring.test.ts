@@ -558,6 +558,57 @@ describe('Chat composer — passes concrete RuntimeId to useProviderModels (Phas
   });
 });
 
+describe('Send gate — canSendWithCurrentProvider bypasses /api/setup for Codex Account (Phase 6 P0 follow-up)', () => {
+  const pageSrc = fs.readFileSync(
+    path.join(repoRoot, 'app/chat/page.tsx'),
+    'utf8',
+  );
+
+  it('canSendWithCurrentProvider memo exists with the codex_account bypass', () => {
+    // The load-bearing assertion: Codex Account is a virtual provider
+    // outside /api/setup's "provider === 'completed'" world, so
+    // hasProvider is false for Codex-Account-only users. Without this
+    // bypass, the user sees a green send button (composer enabled by
+    // useProviderModels' resolved pair) → click → "no provider
+    // configured" legacy error. The runtime/model pair is the source
+    // of truth at send time; the bypass keeps the gate honest.
+    assert.match(
+      pageSrc,
+      /canSendWithCurrentProvider\s*=\s*useMemo/,
+    );
+    assert.match(
+      pageSrc,
+      /currentProviderId\s*===\s*['"]codex_account['"][\s\S]{0,50}return\s+true/,
+    );
+  });
+
+  it('openai-oauth gets the same bypass (other known virtual provider)', () => {
+    // Same shape as codex_account — openai-oauth is also virtual
+    // (managed by /api/openai-oauth/status, not /api/setup). The
+    // bypass set must include both so the OAuth-only flow doesn't
+    // regress.
+    assert.match(
+      pageSrc,
+      /currentProviderId\s*===\s*['"]openai-oauth['"][\s\S]{0,50}return\s+true/,
+    );
+  });
+
+  it('sendFirstMessage uses canSendWithCurrentProvider, not the raw hasProvider gate', () => {
+    // Regression guard against re-introducing the bare `!hasProvider`
+    // check that blocked Codex Account sends. The empty-state path
+    // (line 1076 in page.tsx today) still reads hasProvider — that's
+    // intentional, it's about onboarding visibility, not about "is
+    // this specific send valid".
+    const sendBlock = pageSrc.match(
+      /const\s+sendFirstMessage\s*=[\s\S]+?\}\s*,\s*\[[^\]]+\]/,
+    );
+    assert.ok(sendBlock, 'sendFirstMessage useCallback must exist in page.tsx');
+    assert.match(sendBlock![0], /canSendWithCurrentProvider/);
+    // The old guard was `if (!hasProvider) { setErrorBanner(...); return; }`
+    assert.doesNotMatch(sendBlock![0], /if\s*\(\s*!hasProvider\s*\)/);
+  });
+});
+
 describe('MessageInput auto-correct — manual-only side effects (Phase 6 P0)', () => {
   it('MessageInput auto-correct passes `{ isAuto: true }` to onProviderModelChange', () => {
     const src = fs.readFileSync(
@@ -584,6 +635,84 @@ describe('MessageInput auto-correct — manual-only side effects (Phase 6 P0)', 
     assert.match(
       src,
       /handleProviderModelChange[\s\S]{0,800}opts\?\.isAuto[\s\S]{0,60}return/,
+    );
+  });
+});
+
+describe('Picker tooltip — codex_runtime reason flows end-to-end (Phase 6 P0 follow-up)', () => {
+  // Source-level grep on `getModelCompat` proves the annotation
+  // EXISTS at the data layer (see the next describe). The end-to-end
+  // pin here exercises the full chain — invoke the API route handler
+  // for real, walk every returned row, and assert non-Codex providers
+  // carry the proxy-pending reason in the wire response. Catches the
+  // class of bug the user reported in Chrome smoke: data side is
+  // fine but somewhere between API and DOM the annotation gets lost.
+  it('GET /api/providers/models response shape carries codex_runtime reason on each non-codex row', async () => {
+    const { GET } = await import('@/app/api/providers/models/route');
+    const { NextRequest } = await import('next/server');
+    const req = new NextRequest('http://test.local/api/providers/models');
+    const res = await GET(req);
+    const data = (await res.json()) as {
+      groups: Array<{
+        provider_id: string;
+        compat?: string;
+        models: Array<{
+          value: string;
+          supportedRuntimes?: string[];
+          unsupportedReasonByRuntime?: Record<string, string>;
+        }>;
+      }>;
+    };
+    assert.ok(Array.isArray(data.groups), 'response must include groups[]');
+
+    // The route must annotate EVERY row with supportedRuntimes — that
+    // contract is load-bearing for the picker's per-row gate. If even
+    // one row is missing the field, the picker silently re-enables it
+    // (gate falls back to "no annotation → universally supported").
+    for (const g of data.groups) {
+      for (const m of g.models) {
+        assert.ok(
+          Array.isArray(m.supportedRuntimes),
+          `${g.provider_id}/${m.value} must carry supportedRuntimes — picker gate reads this per row`,
+        );
+      }
+    }
+
+    // The non-codex tiers MUST carry a codex_runtime reason. Without
+    // it, the picker tooltip falls back to the generic "current engine
+    // does not support this model" — which is exactly the regression
+    // the user caught. Loop pins every row from every non-codex tier.
+    const nonCodexCompatTiers = new Set([
+      'claude_code_ready',
+      'claude_code_verified',
+      'claude_code_experimental',
+      'openrouter_anthropic_skin',
+      'codepilot_only',
+      'unknown',
+    ]);
+    let checkedAny = false;
+    for (const g of data.groups) {
+      if (!g.compat || !nonCodexCompatTiers.has(g.compat)) continue;
+      for (const m of g.models) {
+        checkedAny = true;
+        const reason = m.unsupportedReasonByRuntime?.codex_runtime;
+        assert.ok(
+          reason,
+          `${g.provider_id} (${g.compat}) / ${m.value} must carry unsupportedReasonByRuntime.codex_runtime — picker tooltip reads this directly`,
+        );
+        assert.match(
+          reason!,
+          /Codex provider proxy 尚未覆盖/,
+          `${g.provider_id} / ${m.value} reason must use the proxy-pending wording so users see this as a temporary 5b state, not a permanent constraint`,
+        );
+      }
+    }
+    // If `checkedAny` stayed false the test database had no non-codex
+    // providers — fine in isolation but the loop above couldn't catch
+    // anything, so the pin is meaningless. Surface that.
+    assert.ok(
+      checkedAny,
+      'expected at least one non-codex provider in the response so the codex_runtime reason can be exercised end-to-end',
     );
   });
 });
