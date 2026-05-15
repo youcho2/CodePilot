@@ -45,7 +45,7 @@ import {
 } from './event-mapper';
 import { handleCodexApprovalRequest } from './approval-bridge';
 import {
-  buildCodexThreadStartParams,
+  buildCodexThreadParams,
   resolveCodexProxyBaseUrl,
 } from './provider-proxy';
 import {
@@ -281,19 +281,18 @@ export const codexRuntime: AgentRuntime = {
           }
 
           // ── proxy-injection params (Phase 5b) ───────────────────────
-          // Centralised in `buildCodexThreadStartParams`: empty-string
-          // and `'env'` were already rejected above; `'codex_account'`
-          // is the virtual provider that uses Codex's own credentials
-          // (no injection); everything else gets `model_providers.
-          // codepilot_proxy` so Codex routes through CodePilot's local
-          // proxy route. The thread is provider-bound; resume below
-          // compares against the stored binding to detect switches.
-          const buildThreadStartParams = () =>
-            buildCodexThreadStartParams({
-              providerId: requestedProviderId,
-              workingDirectory: options.workingDirectory,
-              proxyBaseUrl: resolveCodexProxyBaseUrl(),
-            });
+          // `buildCodexThreadParams` returns the same shape that both
+          // `thread/start` and `thread/resume` accept (cwd /
+          // modelProvider / config). We MUST re-attach this payload on
+          // every resume too, not just on start — see provider-proxy.ts
+          // for the three reload scenarios where a resume-without-config
+          // would drop the codepilot_proxy injection and silently route
+          // a continuation turn at the wrong upstream.
+          const threadParams = buildCodexThreadParams({
+            providerId: requestedProviderId,
+            workingDirectory: options.workingDirectory,
+            proxyBaseUrl: resolveCodexProxyBaseUrl(),
+          });
 
           // ── thread resolution: resume if we have a ref + provider matches, else start ──
           const existingRef = getRuntimeSessionRef(sessionId, 'codex_runtime');
@@ -304,13 +303,16 @@ export const codexRuntime: AgentRuntime = {
           let threadId: string;
           if (existingRef && existingProviderBinding === requestedProviderId) {
             try {
-              await client.request('thread/resume', { threadId: existingRef.token });
+              await client.request('thread/resume', {
+                threadId: existingRef.token,
+                ...threadParams,
+              });
               threadId = existingRef.token;
             } catch {
               // Resume failed (thread archived / unknown id) → start fresh.
               const result = await client.request<{ thread: { id: string } }>(
                 'thread/start',
-                buildThreadStartParams(),
+                threadParams,
               );
               threadId = result.thread.id;
               setRuntimeSessionRef(sessionId, {
@@ -327,7 +329,7 @@ export const codexRuntime: AgentRuntime = {
             if (existingRef) clearRuntimeSessionRef(sessionId, 'codex_runtime');
             const result = await client.request<{ thread: { id: string } }>(
               'thread/start',
-              buildThreadStartParams(),
+              threadParams,
             );
             threadId = result.thread.id;
             setRuntimeSessionRef(sessionId, {

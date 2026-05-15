@@ -26,7 +26,10 @@
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
 import {
+  buildCodexThreadParams,
   buildCodexThreadStartParams,
   buildCodexProviderProxyInjection,
   CODEX_PROXY_PROVIDER_KEY,
@@ -197,5 +200,106 @@ describe('CodexRuntime.stream — provider gate (Phase 5b)', () => {
     assert.match(joined, /"type":"error"/);
     assert.match(joined, /"type":"done"/);
     assert.match(joined, /provider|env|Claude Code/);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────
+// buildCodexThreadParams — same shape serves start AND resume (P1 follow-up)
+// ─────────────────────────────────────────────────────────────────────
+
+describe('buildCodexThreadParams — shared shape for thread/start + thread/resume', () => {
+  it('returns the same payload regardless of start vs resume usage (one helper, two call sites)', () => {
+    // Two callers (thread/start in fresh path, thread/resume in
+    // matching-binding path) call this with identical inputs and MUST
+    // receive identical payloads. The previous P1 bug was that resume
+    // omitted the params entirely; we pin that the helper is the
+    // single source so a future "optimise resume" diff can't drop
+    // them again without touching this test.
+    const opts = {
+      providerId: 'glm-test',
+      workingDirectory: '/tmp/work',
+      proxyBaseUrl: 'http://127.0.0.1:3000',
+    };
+    const a = buildCodexThreadParams(opts);
+    const b = buildCodexThreadParams(opts);
+    assert.deepEqual(a, b);
+    // Spreadability: both call sites spread the same object into the
+    // request payload. Snapshot the keys so a future refactor that
+    // adds a non-spreadable field (function, Symbol, etc.) trips.
+    const keys = Object.keys(a).sort();
+    assert.deepEqual(keys, ['config', 'cwd', 'modelProvider']);
+  });
+
+  it('legacy buildCodexThreadStartParams alias is wired to the same helper', () => {
+    // The rename is non-breaking — the alias keeps the original name
+    // valid for callers / tests that haven't migrated. Asserting
+    // function identity catches an accidental forked implementation.
+    assert.equal(
+      buildCodexThreadStartParams,
+      buildCodexThreadParams,
+      'buildCodexThreadStartParams must be a true alias of buildCodexThreadParams so the start and resume paths share one source of truth',
+    );
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────
+// thread/resume payload guardrail — CodexRuntime calls thread/resume
+// with the same proxy params it passes to thread/start. Pre-fix, the
+// resume branch passed only `{ threadId }`. Source-grep the runtime
+// because the runtime function spawns the app-server we can't mock
+// without dragging the whole subprocess machinery into a unit test;
+// the AST-level pin still catches the regression at zero runtime cost.
+// ─────────────────────────────────────────────────────────────────────
+
+describe('CodexRuntime — thread/resume payload mirrors thread/start (Phase 5b P1)', () => {
+  const runtimeSrc = fs.readFileSync(
+    path.resolve(
+      __dirname,
+      '../../lib/codex/runtime.ts',
+    ),
+    'utf8',
+  );
+
+  it('runtime calls thread/resume with threadId + spread of buildCodexThreadParams result', () => {
+    // Find the thread/resume client.request call and confirm it
+    // spreads the shared threadParams object. Allow whitespace +
+    // optional trailing comma; reject the pre-fix `{ threadId: ... }`
+    // bare form.
+    const match = runtimeSrc.match(
+      /client\.request\(\s*['"]thread\/resume['"][\s\S]{0,400}?\)/,
+    );
+    assert.ok(match, 'expected a client.request("thread/resume", ...) call in runtime.ts');
+    const payload = match![0];
+    assert.match(
+      payload,
+      /\.\.\.threadParams/,
+      'thread/resume must spread the same `threadParams` object the runtime uses for thread/start — otherwise the second turn loses the codepilot_proxy injection. Found:\n' + payload,
+    );
+    assert.match(
+      payload,
+      /threadId\s*:\s*existingRef\.token/,
+      'thread/resume must reference the persisted thread id from the session ref',
+    );
+  });
+
+  it('runtime calls thread/start with the same threadParams (no divergence)', () => {
+    // Same source of truth: both thread/start invocations (fresh path
+    // + resume-failed fallback) must use `threadParams`.
+    const matches = [
+      ...runtimeSrc.matchAll(
+        /client\.request<[^>]+>\(\s*\n?\s*['"]thread\/start['"][\s\S]{0,200}?\)/g,
+      ),
+    ];
+    assert.ok(
+      matches.length >= 2,
+      `expected at least 2 client.request<...>("thread/start", ...) call sites in runtime.ts (fresh + resume-failed fallback); got ${matches.length}`,
+    );
+    for (const m of matches) {
+      assert.match(
+        m[0],
+        /threadParams\s*,?\s*\)/,
+        'thread/start call must pass `threadParams` directly so all three paths (start fresh, resume, resume-failed) share one params object. Found:\n' + m[0],
+      );
+    }
   });
 });

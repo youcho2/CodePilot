@@ -83,9 +83,26 @@ export function buildCodexProviderProxyInjection(
 }
 
 /**
- * Build the `thread/start` params for a Codex thread tied to the
- * resolved provider id. Centralised so the runtime and its tests
- * use one expression for the proxy-injection wiring.
+ * Build the shared `cwd / modelProvider / config` payload that BOTH
+ * `thread/start` and `thread/resume` need. Codex's
+ * `ThreadResumeParams` schema (codex-rs/.../v2/ThreadResumeParams.ts)
+ * accepts `modelProvider`, `config`, and `cwd` exactly like
+ * `ThreadStartParams`. Phase 5b previously passed these only on start
+ * — the resume path inherited whatever the Codex server still had in
+ * memory for the thread. That breaks when:
+ *
+ *   1. CodePilot's dev port changed between turns (proxy base_url is
+ *      no longer valid in the cached config).
+ *   2. The Codex app-server restarted between turns (in-memory thread
+ *      metadata cleared; resume reload from disk may or may not
+ *      include the codepilot_proxy entry depending on persistence).
+ *   3. A future Codex version normalises thread state and prunes
+ *      unknown model_providers across reloads.
+ *
+ * Always re-attaching the same payload on resume avoids all three
+ * cases. Codex treats resume-time overrides as authoritative for the
+ * resumed thread per the schema's "Configuration overrides for the
+ * resumed thread" docstring.
  *
  *   - `'codex_account'` (virtual provider) → no injection. The thread
  *     uses Codex's own model_providers map keyed under its native
@@ -95,19 +112,29 @@ export function buildCodexProviderProxyInjection(
  *   - empty / `'env'` → caller MUST reject before reaching this fn;
  *     this is an unreachable contract violation that we surface as
  *     a thrown error rather than silently constructing a no-op.
+ *
+ * The return shape is intentionally a plain object the runtime
+ * spreads into either `{ ...params }` (for thread/start) or
+ * `{ threadId, ...params }` (for thread/resume).
  */
-export function buildCodexThreadStartParams(opts: {
+export interface CodexThreadParams {
+  cwd?: string;
+  modelProvider?: string;
+  config?: CodexProxyInjection['config'];
+}
+
+export function buildCodexThreadParams(opts: {
   providerId: string;
   workingDirectory?: string;
   proxyBaseUrl: string;
-}): { cwd?: string; modelProvider?: string; config?: CodexProxyInjection['config'] } {
+}): CodexThreadParams {
   const providerId = opts.providerId.trim();
   if (!providerId || providerId === 'env') {
     throw new Error(
-      'buildCodexThreadStartParams called with env / empty providerId — caller must reject the request before building thread/start params.',
+      'buildCodexThreadParams called with env / empty providerId — caller must reject the request before building thread params.',
     );
   }
-  const base: { cwd?: string } = {};
+  const base: CodexThreadParams = {};
   if (opts.workingDirectory) base.cwd = opts.workingDirectory;
   if (providerId === 'codex_account') return base;
   const injection = buildCodexProviderProxyInjection(providerId, opts.proxyBaseUrl);
@@ -117,6 +144,15 @@ export function buildCodexThreadStartParams(opts: {
     config: injection.config,
   };
 }
+
+/**
+ * @deprecated Phase 5b P1 follow-up — prefer `buildCodexThreadParams`.
+ * Kept as an alias so existing callers (and the regression test that
+ * pins the start-only contract) compile. The shape and semantics are
+ * identical; only the name changed to reflect that the helper now
+ * serves resume too.
+ */
+export const buildCodexThreadStartParams = buildCodexThreadParams;
 
 /**
  * Resolve the base URL CodePilot's Next server is reachable at from
