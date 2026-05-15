@@ -1,37 +1,46 @@
 /**
- * Phase 5b — ai-sdk `fullStream` → Codex Responses SSE event stream.
+ * Phase 5b smoke round 5 (2026-05-16) — ai-sdk `fullStream` → Codex
+ * Responses SSE event stream, rewritten against the SDK fixture
+ * contract.
  *
- * `streamText({ ... }).fullStream` is an `AsyncIterable<TextStreamPart>`.
- * Codex's HTTP reader consumes a different shape: OpenAI Responses-API
- * SSE events. The translator is a long-running async generator that
- * maps ai-sdk parts to Responses events in the order Codex expects.
+ * Contract source:
+ *   - `资料/codex/sdk/typescript/tests/responsesProxy.ts`
+ *     (`responseStarted` / `assistantMessage` / `shell_call` /
+ *     `responseCompleted` / `responseFailed`)
+ *   - `资料/codex/codex-rs/core/tests/common/responses.rs`
+ *     (`ev_assistant_message` / `ev_function_call` / `ev_completed`)
  *
  * Event mapping:
  *
  *   ai-sdk part                Responses events emitted
  *   ─────────────────────────  ──────────────────────────────────────
- *   start                      response.created + response.in_progress
- *   text-start                 response.output_item.added (message)
+ *   start                      response.created
+ *   text-start                 response.output_item.added (message, empty content)
  *   text-delta                 response.output_text.delta
- *   text-end                   response.output_text.done
- *   tool-input-start           response.output_item.added (function_call)
- *   tool-input-delta           response.function_call.delta
- *   tool-call                  response.function_call.done
- *   finish                     response.completed
- *   error                      response.failed (terminal — generator returns)
- *   abort                      response.failed (code=internal_error, terminal)
+ *   text-end                   response.output_item.done (message with accumulated text)
+ *   tool-input-start           response.output_item.added (function_call placeholder)
+ *   tool-input-delta           (dropped — SDK fixture doesn't model partial-arg streaming;
+ *                               function_call lands wholesale in output_item.done)
+ *   tool-call                  response.output_item.done (function_call with call_id/name/arguments)
+ *   finish                     response.completed { response: { id, usage } }
+ *   error                      { type: 'error', error: { code, message } }
+ *   abort                      { type: 'error', error: { code: 'upstream_timeout', message } }
  *
- * Output indexing: Codex's reader correlates `output_index` between
- * output_item.added and the per-item delta/done events. We assign
- * indices monotonically as each new top-level item starts (a text
- * block or a function call).
+ * Why `output_item.done` is mandatory:
+ * Codex's `handle_output_item_done` (codex-rs/core/src/stream_events_utils.rs)
+ * is what drops the final item into the turn's items array. Pre-fix
+ * smoke saw GLM/Kimi return "completed but blank" because we emitted
+ * only `output_text.delta` + `completed` without the wrapping
+ * `output_item.done` event. The SDK fixture confirms: even when there's
+ * no streaming, `assistantMessage()` lands as a single
+ * `output_item.done(message)` and the turn shows correctly.
  *
  * Cancellation: when the caller (HTTP route) sees its request signal
- * abort, it can stop pulling from this generator — the next `for await`
+ * abort, it can stop pulling from this generator. The next `for await`
  * iteration sees the underlying ai-sdk stream cancel and the generator
- * exits cleanly via the `finally` block, which still emits
- * `response.completed` (status='cancelled') if no terminal event has
- * been emitted yet.
+ * exits cleanly via the `finally` block, which still emits a clean
+ * `response.completed` with zero usage if no terminal event has been
+ * emitted yet.
  */
 
 import type { TextStreamPart, ToolSet } from 'ai';
@@ -39,6 +48,7 @@ import type {
   ResponsesEvent,
   ResponsesUsage,
   ResponsesRequestBody,
+  ResponsesOutputItem,
 } from './types';
 import { classifyUpstreamError } from './errors';
 
@@ -52,8 +62,8 @@ interface TranslateStreamOptions {
 
 /**
  * Yield Responses events for each ai-sdk part. The generator emits
- * a terminal event (`response.completed` or `response.failed`) exactly
- * once and then returns.
+ * a terminal event (`response.completed` or `error`) exactly once
+ * and then returns.
  */
 export async function* translateStream(
   opts: TranslateStreamOptions,
@@ -65,13 +75,14 @@ export async function* translateStream(
   const textBuffers = new Map<string, string>();
   const toolIndices = new Map<string, number>();
   const toolNames = new Map<string, string>();
-  const toolArgBuffers = new Map<string, string>();
   let terminalEmitted = false;
 
   try {
     for await (const part of source) {
       switch (part.type) {
         case 'start': {
+          // Carry model + created_at (both optional per SDK fixture)
+          // for back-compat with any reader that wants to echo them.
           yield {
             type: 'response.created',
             response: {
@@ -80,7 +91,6 @@ export async function* translateStream(
               created_at: Math.floor(Date.now() / 1000),
             },
           };
-          yield { type: 'response.in_progress', response: { id: responseId } };
           break;
         }
 
@@ -88,10 +98,15 @@ export async function* translateStream(
           const idx = nextOutputIndex++;
           textIndices.set(part.id, idx);
           textBuffers.set(part.id, '');
+          // `output_item.added` is the optional pre-amble. The SDK
+          // fixture only emits `output_item.done`, but Codex's
+          // streaming reader uses the added event to mount the
+          // incremental UI. Include `content: []` so the shape
+          // matches Codex's ResponseItem::Message variant exactly.
           yield {
             type: 'response.output_item.added',
             output_index: idx,
-            item: { id: part.id, type: 'message', role: 'assistant' },
+            item: { id: part.id, type: 'message', role: 'assistant', content: [] },
           };
           break;
         }
@@ -103,18 +118,29 @@ export async function* translateStream(
           yield {
             type: 'response.output_text.delta',
             output_index: idx,
+            item_id: part.id,
             delta: part.text,
           };
           break;
         }
 
         case 'text-end': {
+          // Drop the final `output_item.done` carrying the FULL
+          // assistant message. This is the event Codex's
+          // `handle_output_item_done` consumes to record the item.
           const idx = textIndices.get(part.id);
           if (idx === undefined) break;
+          const finalText = textBuffers.get(part.id) ?? '';
+          const item: ResponsesOutputItem = {
+            id: part.id,
+            type: 'message',
+            role: 'assistant',
+            content: [{ type: 'output_text', text: finalText }],
+          };
           yield {
-            type: 'response.output_text.done',
+            type: 'response.output_item.done',
             output_index: idx,
-            text: textBuffers.get(part.id) ?? '',
+            item,
           };
           textIndices.delete(part.id);
           textBuffers.delete(part.id);
@@ -122,69 +148,83 @@ export async function* translateStream(
         }
 
         case 'tool-input-start': {
+          // Reserve the output_index but DON'T emit output_item.added
+          // here — the SDK fixture only ever emits function_call
+          // wholesale in `output_item.done`. Codex's reader doesn't
+          // need a pre-amble for function calls (no streaming arg
+          // surface). Pre-fix we sent a half-shaped `added` event
+          // with empty args that Codex's deserializer dropped.
           const idx = nextOutputIndex++;
           toolIndices.set(part.id, idx);
           toolNames.set(part.id, part.toolName);
-          toolArgBuffers.set(part.id, '');
-          yield {
-            type: 'response.output_item.added',
-            output_index: idx,
-            item: { id: part.id, type: 'function_call' },
-          };
           break;
         }
 
         case 'tool-input-delta': {
-          const idx = toolIndices.get(part.id);
-          if (idx === undefined) break;
-          toolArgBuffers.set(part.id, (toolArgBuffers.get(part.id) ?? '') + part.delta);
-          yield {
-            type: 'response.function_call.delta',
-            output_index: idx,
-            call_id: part.id,
-            arguments_delta: part.delta,
-          };
+          // SDK fixture doesn't model partial-arg streaming; Codex
+          // landed function_call arguments wholesale in the `done`
+          // event. We drop the delta here rather than emit a
+          // non-canonical event that no Codex reader consumes —
+          // pre-fix the smoke saw `function_call.delta` events that
+          // never showed up downstream, just noise on the wire.
           break;
         }
 
         case 'tool-call': {
-          // ai-sdk emits the final tool-call AFTER tool-input-* in
-          // most providers, but a few SDKs skip the input stream and
-          // jump straight to tool-call. Synthesise output_item.added
-          // for that case so Codex sees a complete sequence.
+          // Final function_call envelope lands as `output_item.done`.
+          // If the upstream skipped `tool-input-start` (some SDKs
+          // emit only `tool-call`), synthesise the index here.
           let idx = toolIndices.get(part.toolCallId);
           if (idx === undefined) {
             idx = nextOutputIndex++;
             toolIndices.set(part.toolCallId, idx);
-            yield {
-              type: 'response.output_item.added',
-              output_index: idx,
-              item: { id: part.toolCallId, type: 'function_call' },
-            };
           }
           const argsJson = stringifyInput(part.input);
-          yield {
-            type: 'response.function_call.done',
-            output_index: idx,
+          const item: ResponsesOutputItem = {
+            id: part.toolCallId,
+            type: 'function_call',
             call_id: part.toolCallId,
             name: part.toolName,
             arguments: argsJson,
           };
+          yield {
+            type: 'response.output_item.done',
+            output_index: idx,
+            item,
+          };
           toolIndices.delete(part.toolCallId);
           toolNames.delete(part.toolCallId);
-          toolArgBuffers.delete(part.toolCallId);
           break;
         }
 
         case 'finish': {
+          // Flush any text blocks that didn't get a text-end (some
+          // upstreams skip it on natural completion). Without this,
+          // Codex sees no output_item.done for the message and the
+          // turn renders blank — the GLM/Kimi failure mode.
+          for (const [id, idx] of textIndices.entries()) {
+            const finalText = textBuffers.get(id) ?? '';
+            const item: ResponsesOutputItem = {
+              id,
+              type: 'message',
+              role: 'assistant',
+              content: [{ type: 'output_text', text: finalText }],
+            };
+            yield {
+              type: 'response.output_item.done',
+              output_index: idx,
+              item,
+            };
+          }
+          textIndices.clear();
+          textBuffers.clear();
+
           terminalEmitted = true;
           yield {
             type: 'response.completed',
             response: {
               id: responseId,
-              status: 'completed',
               usage: translateUsage(part.totalUsage),
-              finish_reason: translateFinishReason(part.finishReason),
             },
           };
           return;
@@ -194,8 +234,7 @@ export async function* translateStream(
           terminalEmitted = true;
           const classified = classifyUpstreamError(part.error);
           yield {
-            type: 'response.failed',
-            response: { id: responseId },
+            type: 'error',
             error: {
               code: classified.code,
               message: classified.message,
@@ -208,10 +247,9 @@ export async function* translateStream(
         case 'abort': {
           terminalEmitted = true;
           yield {
-            type: 'response.failed',
-            response: { id: responseId },
+            type: 'error',
             error: {
-              code: 'internal_error',
+              code: 'upstream_timeout',
               message: part.reason
                 ? `Stream aborted: ${part.reason}`
                 : 'Stream aborted by upstream.',
@@ -232,14 +270,13 @@ export async function* translateStream(
     }
   } catch (err) {
     // Iterator-side error (network drop, upstream throw). Map to
-    // response.failed so Codex sees a clean error instead of an
-    // unterminated stream.
+    // the SDK-fixture-shaped `error` event so Codex sees a clean
+    // failure instead of an unterminated stream.
     if (!terminalEmitted) {
       terminalEmitted = true;
       const classified = classifyUpstreamError(err);
       yield {
-        type: 'response.failed',
-        response: { id: responseId },
+        type: 'error',
         error: {
           code: classified.code,
           message: classified.message,
@@ -250,18 +287,13 @@ export async function* translateStream(
     return;
   } finally {
     // Upstream closed without emitting a terminal event — synthesise
-    // a cancelled-completion so Codex's reader exits cleanly.
+    // a zero-usage completion so Codex's reader exits cleanly.
     if (!terminalEmitted) {
-      // Generator return path inside finally: yielding here is safe
-      // because the outer iteration is awaiting the next item.
-       
       yield {
         type: 'response.completed',
         response: {
           id: responseId,
-          status: 'cancelled',
-          usage: { input_tokens: 0, output_tokens: 0, total_tokens: 0 },
-          finish_reason: 'error',
+          usage: emptyUsage(),
         },
       };
     }
@@ -279,41 +311,35 @@ function stringifyInput(input: unknown): string {
   }
 }
 
+function emptyUsage(): ResponsesUsage {
+  return {
+    input_tokens: 0,
+    input_tokens_details: null,
+    output_tokens: 0,
+    output_tokens_details: null,
+    total_tokens: 0,
+  };
+}
+
 function translateUsage(usage: {
   inputTokens?: number;
   outputTokens?: number;
   totalTokens?: number;
   reasoningTokens?: number;
+  inputTokenDetails?: { cacheReadTokens?: number };
   outputTokenDetails?: { reasoningTokens?: number };
 } | undefined): ResponsesUsage {
   const input = usage?.inputTokens ?? 0;
   const output = usage?.outputTokens ?? 0;
   const total = usage?.totalTokens ?? input + output;
+  const cached = usage?.inputTokenDetails?.cacheReadTokens;
   const reasoning =
     usage?.outputTokenDetails?.reasoningTokens ?? usage?.reasoningTokens;
   return {
     input_tokens: input,
+    input_tokens_details: typeof cached === 'number' ? { cached_tokens: cached } : null,
     output_tokens: output,
+    output_tokens_details: typeof reasoning === 'number' ? { reasoning_tokens: reasoning } : null,
     total_tokens: total,
-    ...(typeof reasoning === 'number' ? { reasoning_tokens: reasoning } : {}),
   };
-}
-
-function translateFinishReason(
-  reason: string | undefined,
-): 'stop' | 'length' | 'tool_calls' | 'content_filter' | 'error' | undefined {
-  switch (reason) {
-    case 'stop':
-      return 'stop';
-    case 'length':
-      return 'length';
-    case 'tool-calls':
-      return 'tool_calls';
-    case 'content-filter':
-      return 'content_filter';
-    case 'error':
-      return 'error';
-    default:
-      return undefined;
-  }
 }

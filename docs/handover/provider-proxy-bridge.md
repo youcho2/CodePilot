@@ -87,6 +87,9 @@ ai-sdk v6 把 `Tool` 的 inputSchema 改成 `FlexibleSchema<T>`：必须是用 `
 
 | 文件 | 用途 |
 |---|---|
+| `资料/codex/sdk/typescript/tests/responsesProxy.ts` | **Responses SSE 事件的金标契约**：`assistantMessage()` / `shell_call()` / `responseCompleted()` / `responseFailed()` 是 SDK 公开测试 fixture，proxy 输出必须能被它直接消费。任何 SSE 字段争议以这份文件为准。 |
+| `资料/codex/codex-rs/core/tests/common/responses.rs` | Codex Rust 端的事件构造工具（`ev_assistant_message` / `ev_function_call` / `ev_completed` / `ev_output_text_delta`），与 SDK fixture 互相印证 |
+| `资料/codex/codex-rs/core/src/stream_events_utils.rs` `handle_output_item_done` | 解释了为什么 `output_item.done` 是必须事件 —— 它是 Codex 把 item 写入 turn items[] 的唯一路径 |
 | `资料/codex/codex-rs/app-server-protocol/schema/typescript/v2/ThreadStartParams.ts` | 验证 `model` + `modelProvider` + `config` 字段 |
 | `资料/codex/codex-rs/app-server-protocol/schema/typescript/v2/ThreadResumeParams.ts` | resume 也接受同一组 override 字段 |
 | `资料/codex/codex-rs/app-server-protocol/schema/typescript/v2/ErrorNotification.ts` | `{ error: TurnError, willRetry, threadId, turnId }` |
@@ -95,6 +98,68 @@ ai-sdk v6 把 `Tool` 的 inputSchema 改成 `FlexibleSchema<T>`：必须是用 `
 | Codex `/responses` API 上游约束 | `instructions` 必填 + `store: false` 必传 |
 
 接入新 Agent 框架前必须先 snapshot 它的同等协议文件到 `资料/<framework>/` 或 `tests/fixtures/<framework>/`，再写 adapter。
+
+## Codex Responses SSE 契约（来自 SDK fixture）
+
+每个 SSE 帧必须按以下格式发送，**`event:` 行不能省略**：
+
+```
+event: <type>
+data: <json-encoded ResponsesEvent>
+
+```
+
+最少 viable 的一轮聊天事件序列（与 SDK `responsesProxy.ts:assistantMessage()` 对齐）：
+
+```
+event: response.created
+data: {"type":"response.created","response":{"id":"resp_x"}}
+
+event: response.output_item.added            ← 可选；用于增量 UI
+data: {"type":"response.output_item.added","output_index":0,"item":{"id":"msg_1","type":"message","role":"assistant","content":[]}}
+
+event: response.output_text.delta             ← 可重复；增量文本
+data: {"type":"response.output_text.delta","output_index":0,"item_id":"msg_1","delta":"hi"}
+
+event: response.output_item.done              ← 必须；Codex 据此写入 items[]
+data: {"type":"response.output_item.done","output_index":0,"item":{"id":"msg_1","type":"message","role":"assistant","content":[{"type":"output_text","text":"hi"}]}}
+
+event: response.completed
+data: {"type":"response.completed","response":{"id":"resp_x","usage":{"input_tokens":1,"input_tokens_details":null,"output_tokens":1,"output_tokens_details":null,"total_tokens":2}}}
+
+data: [DONE]
+
+```
+
+工具调用沿用 `output_item.done(function_call)`，不发 `function_call.delta/done` 事件：
+
+```
+event: response.output_item.done
+data: {"type":"response.output_item.done","output_index":0,"item":{"id":"call_1","type":"function_call","call_id":"call_1","name":"shell","arguments":"{\"command\":[\"bash\"]}"}}
+```
+
+错误用 SDK fixture 的 `responseFailed()` 形式，不用 legacy `response.failed`：
+
+```
+event: error
+data: {"type":"error","error":{"code":"upstream_unauthorized","message":"..."}}
+
+data: [DONE]
+```
+
+`response.completed.response.usage` 字段必须按这个 shape：
+
+```ts
+{
+  input_tokens: number;
+  input_tokens_details: { cached_tokens: number } | null;
+  output_tokens: number;
+  output_tokens_details: { reasoning_tokens: number } | null;
+  total_tokens: number;
+}
+```
+
+**单测金标 fixture**：`src/__tests__/unit/codex-proxy-sdk-fixture.test.ts` 把上面这套契约固定下来，比对的就是 `资料/codex/sdk/typescript/tests/responsesProxy.ts` 的 `assistantMessage()` / `shell_call()` / `responseCompleted()` / `responseFailed()` reference event 形状。后续任何 stream / sse 改动跑这个文件先。
 
 ## Smoke 矩阵（Phase 5b 收口标准）
 

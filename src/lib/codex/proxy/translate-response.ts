@@ -101,9 +101,10 @@ function translateUsage(usage: UsageLite | undefined): ResponsesUsage {
     usage?.outputTokenDetails?.reasoningTokens ?? usage?.reasoningTokens;
   return {
     input_tokens: input,
+    input_tokens_details: null,
     output_tokens: output,
+    output_tokens_details: typeof reasoning === 'number' ? { reasoning_tokens: reasoning } : null,
     total_tokens: total,
-    ...(typeof reasoning === 'number' ? { reasoning_tokens: reasoning } : {}),
   };
 }
 

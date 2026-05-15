@@ -143,19 +143,34 @@ export interface ResponsesRequestBody {
 // ─────────────────────────────────────────────────────────────────────
 // Stream events (SSE)
 //
-// Codex's reader expects OpenAI Responses-API event objects. We emit a
-// minimal viable subset; the reader tolerates unknown events but acts
-// on the ones below:
+// Contract source (Phase 5b smoke round 5, 2026-05-16):
+//   resources/codex/sdk/typescript/tests/responsesProxy.ts
+//   resources/codex/codex-rs/core/tests/common/responses.rs
 //
-//   response.created            Marker; carries response.id Codex echoes back.
-//   response.in_progress        Optional; Codex shows the spinner without it.
-//   response.output_item.added  Per output_item (message / function_call).
-//   response.output_text.delta  Incremental assistant text. Streamed greedily.
-//   response.output_text.done   Marker; emitted once per text block.
-//   response.function_call.delta Tool call argument stream (matches OpenAI).
-//   response.function_call.done Tool call envelope (id / name / final args).
-//   response.completed          Final marker; carries usage + finish reason.
-//   response.failed             Terminal error event.
+// Codex's reader (both the app-server's internal Responses parser AND
+// the public `@openai/codex-sdk`) consumes a Responses-API subset
+// where the load-bearing events are:
+//
+//   response.created           Marker; carries response.id Codex echoes back.
+//   response.in_progress       Optional; Codex tolerates without.
+//   response.output_item.added Optional but recommended; signals a new item.
+//   response.output_text.delta Incremental assistant text. Streamed greedily.
+//   response.output_item.done  REQUIRED to LAND an assistant message or
+//                              function_call. Pre-fix smoke saw GLM/Kimi
+//                              return "completed but blank" because we
+//                              emitted only output_text.delta + completed
+//                              without the output_item.done that drops the
+//                              final item into Codex's items array.
+//   response.completed         Final marker. `response.usage` only — NO
+//                              `status` / `finish_reason`. Usage shape is
+//                              `{ input_tokens, input_tokens_details: { cached_tokens } | null,
+//                                 output_tokens, output_tokens_details: { reasoning_tokens } | null,
+//                                 total_tokens }`.
+//   error                      Terminal error. Shape per SDK fixture:
+//                              `{ type: 'error', error: { code, message } }`.
+//                              (Codex production also accepts response.failed
+//                              but the SDK fixture canon is `error`; we use
+//                              that for predictability.)
 // ─────────────────────────────────────────────────────────────────────
 
 export type ResponsesEvent =
@@ -163,15 +178,13 @@ export type ResponsesEvent =
   | ResponsesInProgressEvent
   | ResponsesOutputItemAddedEvent
   | ResponsesOutputTextDeltaEvent
-  | ResponsesOutputTextDoneEvent
-  | ResponsesFunctionCallDeltaEvent
-  | ResponsesFunctionCallDoneEvent
+  | ResponsesOutputItemDoneEvent
   | ResponsesCompletedEvent
-  | ResponsesFailedEvent;
+  | ResponsesErrorStreamEvent;
 
 export interface ResponsesCreatedEvent {
   type: 'response.created';
-  response: { id: string; model: string; created_at: number };
+  response: { id: string; model?: string; created_at?: number };
 }
 
 export interface ResponsesInProgressEvent {
@@ -179,72 +192,86 @@ export interface ResponsesInProgressEvent {
   response: { id: string };
 }
 
+/**
+ * `response.output_item.added` — optional pre-amble for a new output
+ * item. The SDK fixture only emits `output_item.done`; the added
+ * event is what Codex's streaming reader uses to mount an
+ * incremental UI slot. Phase 5b only emits `added` for message
+ * items today — function_call lands wholesale in `done` since we
+ * don't stream args separately.
+ */
 export interface ResponsesOutputItemAddedEvent {
   type: 'response.output_item.added';
-  output_index: number;
+  output_index?: number;
   item: {
     id: string;
-    type: 'message' | 'function_call';
-    role?: 'assistant';
+    type: 'message';
+    role: 'assistant';
+    content: { type: 'output_text'; text: string }[];
   };
 }
 
 export interface ResponsesOutputTextDeltaEvent {
   type: 'response.output_text.delta';
-  output_index: number;
+  /** `output_index` and `item_id` are optional but Codex includes
+   *  both upstream. We send `item_id` when present so a future Codex
+   *  version that correlates deltas to items doesn't choke. */
+  output_index?: number;
+  item_id?: string;
   delta: string;
 }
 
-export interface ResponsesOutputTextDoneEvent {
-  type: 'response.output_text.done';
-  output_index: number;
-  text: string;
-}
-
-export interface ResponsesFunctionCallDeltaEvent {
-  type: 'response.function_call.delta';
-  output_index: number;
-  call_id: string;
-  /** Incremental argument JSON. May arrive in chunks. */
-  arguments_delta: string;
-}
-
-export interface ResponsesFunctionCallDoneEvent {
-  type: 'response.function_call.done';
-  output_index: number;
-  call_id: string;
-  name: string;
-  /** Final arguments JSON string. */
-  arguments: string;
+/**
+ * `response.output_item.done` — REQUIRED. Codex's
+ * `handle_output_item_done` (codex-rs/core/src/stream_events_utils.rs)
+ * is what records the final item into the turn's items array. Missing
+ * this event = "completed but blank" UI failure.
+ *
+ * The `item` payload mirrors Codex's `ResponseItem` enum: message,
+ * function_call, reasoning, web_search_call, image_generation_call.
+ * Phase 5b only emits message + function_call. Shape is shared with
+ * the non-stream `ResponsesOutputItem` declared below — they're the
+ * same conceptual record (the final form of an output item).
+ */
+export interface ResponsesOutputItemDoneEvent {
+  type: 'response.output_item.done';
+  output_index?: number;
+  item: ResponsesOutputItem;
 }
 
 export interface ResponsesCompletedEvent {
   type: 'response.completed';
   response: {
     id: string;
-    status: 'completed' | 'failed' | 'cancelled';
-    usage: ResponsesUsage;
-    finish_reason?: 'stop' | 'length' | 'tool_calls' | 'content_filter' | 'error';
+    usage?: ResponsesUsage;
   };
 }
 
-export interface ResponsesFailedEvent {
-  type: 'response.failed';
-  response: { id: string };
+/**
+ * Terminal error event. Shape from SDK responsesProxy.ts
+ * `responseFailed()`: `{ type: 'error', error: { code, message } }`.
+ * Phase 5b's pre-fix emitted `{ type: 'response.failed', response,
+ * error }` which Codex's app-server tolerated but the SDK fixture
+ * never sees.
+ */
+export interface ResponsesErrorStreamEvent {
+  type: 'error';
   error: ResponsesErrorPayload;
 }
 
+/**
+ * Usage shape per SDK fixture
+ * (`sdk/typescript/tests/responsesProxy.ts` + Rust common test fixtures).
+ * The `_details` fields can be `null` (matching Codex's serializer)
+ * but downstream readers tolerate omission too. We always emit them
+ * to stay schema-strict.
+ */
 export interface ResponsesUsage {
   input_tokens: number;
+  input_tokens_details: { cached_tokens: number } | null;
   output_tokens: number;
-  /** Total = input + output; Codex doesn't read total separately but
-   *  including it matches the OpenAI Responses format and avoids
-   *  schema-strict downstream readers. */
-  total_tokens?: number;
-  /** Reasoning tokens — populated when the model exposes them
-   *  (o1-style reasoning models, Anthropic thinking blocks etc.).
-   *  Optional; absent when the upstream doesn't report. */
-  reasoning_tokens?: number;
+  output_tokens_details: { reasoning_tokens: number } | null;
+  total_tokens: number;
 }
 
 // ─────────────────────────────────────────────────────────────────────
@@ -263,9 +290,15 @@ export interface ResponsesNonStreamResponse {
   error?: ResponsesErrorPayload;
 }
 
+/**
+ * Final shape of an output item — used both inside
+ * `response.output_item.done` (SSE stream) and inside
+ * `ResponsesNonStreamResponse.output[]` (non-stream JSON). Codex's
+ * `handle_output_item_done` accepts this shape uniformly.
+ */
 export type ResponsesOutputItem =
   | { id: string; type: 'message'; role: 'assistant'; content: ResponsesContentBlock[] }
-  | { id: string; type: 'function_call'; call_id: string; name: string; arguments: string };
+  | { id?: string; type: 'function_call'; call_id: string; name: string; arguments: string };
 
 // ─────────────────────────────────────────────────────────────────────
 // Errors

@@ -222,14 +222,20 @@ function source<T>(parts: T[]): AsyncIterable<T> {
   })();
 }
 
-describe('translateStream — ai-sdk fullStream → Responses SSE events', () => {
+describe('translateStream — ai-sdk fullStream → Codex Responses SSE (SDK fixture contract, 2026-05-16)', () => {
+  // Reference contract: 资料/codex/sdk/typescript/tests/responsesProxy.ts
+  // (assistantMessage / shell_call / responseCompleted / responseFailed).
+  // Pre-fix smoke saw GLM/Kimi "completed but blank" because the
+  // translator emitted only output_text.delta + completed without
+  // the wrapping `output_item.done` that Codex's reader uses to land
+  // the assistant message into the turn's items array.
   const baseBody: ResponsesRequestBody = {
     model: 'gpt-test',
     input: [],
     stream: true,
   };
 
-  it('emits response.created + response.in_progress on start', async () => {
+  it('emits response.created on start (no required response.in_progress)', async () => {
     const events = await collectStream(
       translateStream({
         responseId: 'resp_x',
@@ -241,11 +247,10 @@ describe('translateStream — ai-sdk fullStream → Responses SSE events', () =>
       }),
     );
     assert.equal((events[0] as { type: string }).type, 'response.created');
-    assert.equal((events[1] as { type: string }).type, 'response.in_progress');
-    assert.equal((events[2] as { type: string }).type, 'response.completed');
+    assert.equal((events[1] as { type: string }).type, 'response.completed');
   });
 
-  it('emits output_item.added + output_text.delta + output_text.done for a text block', async () => {
+  it('emits output_item.added + output_text.delta + output_item.done(message) for a text block (SDK contract)', async () => {
     const events = await collectStream(
       translateStream({
         responseId: 'resp_x',
@@ -263,24 +268,55 @@ describe('translateStream — ai-sdk fullStream → Responses SSE events', () =>
     const types = events.map(e => (e as { type: string }).type);
     assert.deepEqual(types, [
       'response.created',
-      'response.in_progress',
       'response.output_item.added',
       'response.output_text.delta',
       'response.output_text.delta',
-      'response.output_text.done',
+      'response.output_item.done',
       'response.completed',
     ]);
-    // output_index correlation: added + delta + done all share the
-    // same index (0 — first output item).
-    const added = events[2] as { output_index: number; item: { id: string; type: string } };
+    const added = events[1] as { output_index: number; item: { type: string; role: string } };
     assert.equal(added.output_index, 0);
     assert.equal(added.item.type, 'message');
-    const done = events[5] as { output_index: number; text: string };
-    assert.equal(done.output_index, 0);
-    assert.equal(done.text, 'Hello world', 'output_text.done must echo the accumulated text');
+    assert.equal(added.item.role, 'assistant');
+
+    const done = events[4] as { item: { type: string; role: string; id: string; content: Array<{ type: string; text: string }> } };
+    assert.equal(done.item.type, 'message', 'final item must be message');
+    assert.equal(done.item.role, 'assistant');
+    assert.equal(done.item.content[0].type, 'output_text', 'output content must be output_text per Codex schema');
+    assert.equal(done.item.content[0].text, 'Hello world', 'output_item.done(message) must carry the FULL accumulated text — this is what Codex records');
   });
 
-  it('emits function_call.delta + function_call.done for tool calls', async () => {
+  it('flushes missing output_item.done on finish (the GLM/Kimi blank-completion fix)', async () => {
+    // Some upstreams emit text-delta but never text-end before finish.
+    // Pre-fix this dropped the message entirely; Codex saw response.completed
+    // with no preceding output_item.done(message) and rendered a blank
+    // assistant message.
+    const events = await collectStream(
+      translateStream({
+        responseId: 'resp_x',
+        body: baseBody,
+        source: source([
+          { type: 'start' } as never,
+          { type: 'text-start', id: 't1' } as never,
+          { type: 'text-delta', id: 't1', text: 'partial' } as never,
+          // intentionally no text-end
+          { type: 'finish', finishReason: 'stop', rawFinishReason: 'stop', totalUsage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 } } as never,
+        ]),
+      }),
+    );
+    const types = events.map(e => (e as { type: string }).type);
+    assert.ok(
+      types.includes('response.output_item.done'),
+      `finish must flush a pending message as output_item.done — pre-fix this missed and Codex rendered blank. Saw: ${types.join(',')}`,
+    );
+    const done = events.find(e => (e as { type: string }).type === 'response.output_item.done') as { item: { content: Array<{ text: string }> } };
+    assert.equal(done.item.content[0].text, 'partial', 'flushed message must carry the accumulated delta text');
+  });
+
+  it('function_call lands wholesale via output_item.done(function_call) (SDK contract)', async () => {
+    // Per SDK responsesProxy.ts `shell_call()`, function_call is a
+    // single output_item.done event with call_id/name/arguments —
+    // no separate function_call.delta/done events.
     const events = await collectStream(
       translateStream({
         responseId: 'resp_x',
@@ -288,32 +324,28 @@ describe('translateStream — ai-sdk fullStream → Responses SSE events', () =>
         source: source([
           { type: 'start' } as never,
           { type: 'tool-input-start', id: 'call_1', toolName: 'lookup' } as never,
-          { type: 'tool-input-delta', id: 'call_1', delta: '{"q":"' } as never,
-          { type: 'tool-input-delta', id: 'call_1', delta: 'weather"}' } as never,
+          { type: 'tool-input-delta', id: 'call_1', delta: '{"q":"weather"}' } as never,
           { type: 'tool-call', toolCallId: 'call_1', toolName: 'lookup', input: { q: 'weather' } } as never,
           { type: 'finish', finishReason: 'tool-calls', rawFinishReason: 'tool_calls', totalUsage: { inputTokens: 10, outputTokens: 5, totalTokens: 15 } } as never,
         ]),
       }),
     );
     const types = events.map(e => (e as { type: string }).type);
+    // tool-input-* doesn't emit Responses events anymore — only the
+    // final tool-call lands as output_item.done. No deltas on the wire.
     assert.deepEqual(types, [
       'response.created',
-      'response.in_progress',
-      'response.output_item.added',
-      'response.function_call.delta',
-      'response.function_call.delta',
-      'response.function_call.done',
+      'response.output_item.done',
       'response.completed',
     ]);
-    const done = events[5] as { call_id: string; name: string; arguments: string };
-    assert.equal(done.call_id, 'call_1');
-    assert.equal(done.name, 'lookup');
-    assert.equal(done.arguments, '{"q":"weather"}');
-    const completed = events[6] as { response: { finish_reason: string } };
-    assert.equal(completed.response.finish_reason, 'tool_calls');
+    const done = events[1] as { item: { type: string; call_id: string; name: string; arguments: string } };
+    assert.equal(done.item.type, 'function_call');
+    assert.equal(done.item.call_id, 'call_1');
+    assert.equal(done.item.name, 'lookup');
+    assert.equal(done.item.arguments, '{"q":"weather"}');
   });
 
-  it('maps error to response.failed and terminates the stream', async () => {
+  it('maps error to {type: "error", error: {code, message}} per SDK fixture', async () => {
     const events = await collectStream(
       translateStream({
         responseId: 'resp_x',
@@ -324,12 +356,13 @@ describe('translateStream — ai-sdk fullStream → Responses SSE events', () =>
         ]),
       }),
     );
-    const last = events[events.length - 1] as { type: string; error: { message: string } };
-    assert.equal(last.type, 'response.failed');
+    const last = events[events.length - 1] as { type: string; error: { code: string; message: string } };
+    assert.equal(last.type, 'error', 'terminal failure event must be `error`, not legacy `response.failed`');
     assert.match(last.error.message, /boom/);
+    assert.ok(last.error.code, 'error must carry a code so Codex can branch on it');
   });
 
-  it('synthesises function_call.done event when upstream skips tool-input-* entirely', async () => {
+  it('function_call sourced ONLY via tool-call (no tool-input-start) still lands cleanly', async () => {
     const events = await collectStream(
       translateStream({
         responseId: 'resp_x',
@@ -344,29 +377,58 @@ describe('translateStream — ai-sdk fullStream → Responses SSE events', () =>
     const types = events.map(e => (e as { type: string }).type);
     assert.deepEqual(types, [
       'response.created',
-      'response.in_progress',
-      'response.output_item.added',
-      'response.function_call.done',
+      'response.output_item.done',
       'response.completed',
     ]);
   });
 
-  it('passes through totalUsage on the completed event', async () => {
+  it('response.completed carries usage in SDK-fixture shape (input_tokens_details + output_tokens_details)', async () => {
     const events = await collectStream(
       translateStream({
         responseId: 'resp_x',
         body: baseBody,
         source: source([
           { type: 'start' } as never,
-          { type: 'finish', finishReason: 'stop', rawFinishReason: 'stop', totalUsage: { inputTokens: 100, outputTokens: 200, totalTokens: 300, outputTokenDetails: { reasoningTokens: 50 } } } as never,
+          {
+            type: 'finish',
+            finishReason: 'stop',
+            rawFinishReason: 'stop',
+            totalUsage: {
+              inputTokens: 100,
+              outputTokens: 200,
+              totalTokens: 300,
+              inputTokenDetails: { cacheReadTokens: 30 },
+              outputTokenDetails: { reasoningTokens: 50 },
+            },
+          } as never,
         ]),
       }),
     );
-    const completed = events[events.length - 1] as { response: { usage: { input_tokens: number; output_tokens: number; total_tokens: number; reasoning_tokens?: number } } };
+    const completed = events[events.length - 1] as { response: { usage: { input_tokens: number; input_tokens_details: { cached_tokens: number } | null; output_tokens: number; output_tokens_details: { reasoning_tokens: number } | null; total_tokens: number } } };
     assert.equal(completed.response.usage.input_tokens, 100);
+    assert.equal(completed.response.usage.input_tokens_details?.cached_tokens, 30);
     assert.equal(completed.response.usage.output_tokens, 200);
+    assert.equal(completed.response.usage.output_tokens_details?.reasoning_tokens, 50);
     assert.equal(completed.response.usage.total_tokens, 300);
-    assert.equal(completed.response.usage.reasoning_tokens, 50);
+  });
+
+  it('response.completed contains NO legacy `status` / `finish_reason` fields', async () => {
+    // Pre-fix the completed shape had `{response: {id, status, usage, finish_reason}}`.
+    // SDK fixture uses `{response: {id, usage}}` only. Pin the removal
+    // so future "convenience" additions don't break Codex's parser.
+    const events = await collectStream(
+      translateStream({
+        responseId: 'resp_x',
+        body: baseBody,
+        source: source([
+          { type: 'start' } as never,
+          { type: 'finish', finishReason: 'stop', rawFinishReason: 'stop', totalUsage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 } } as never,
+        ]),
+      }),
+    );
+    const completed = events[events.length - 1] as { response: Record<string, unknown> };
+    assert.equal((completed.response as { status?: unknown }).status, undefined, 'no `status` field on response per SDK fixture');
+    assert.equal((completed.response as { finish_reason?: unknown }).finish_reason, undefined, 'no `finish_reason` field on response per SDK fixture');
   });
 });
 

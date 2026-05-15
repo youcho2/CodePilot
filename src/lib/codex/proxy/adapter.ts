@@ -306,14 +306,20 @@ export function makeResponseId(): string {
   return `resp_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
 }
 
-/** Synthesise the `response.failed` SSE payload from an error result. */
+/**
+ * Synthesise the SDK-fixture-shaped `error` SSE payload from an
+ * error result. Phase 5b smoke round 5 (2026-05-16) renamed this
+ * from "failedEventFromError" → keeps the same import name for
+ * back-compat but emits the SDK fixture's `{type: 'error', error}`
+ * shape instead of the legacy `response.failed` form.
+ */
 export function failedEventFromError(
   responseId: string,
   error: ResponsesErrorPayload,
-): import('./types').ResponsesFailedEvent {
+): import('./types').ResponsesErrorStreamEvent {
+  void responseId; // responseId no longer carried; kept in signature for caller back-compat
   return {
-    type: 'response.failed',
-    response: { id: responseId },
+    type: 'error',
     error,
   };
 }
