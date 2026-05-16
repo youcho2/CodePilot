@@ -38,3 +38,4 @@
 | phase-4-markdown-artifact.md | Phase 4 Markdown 数据层 × HTML 表现层 × 工程引用：trust tier 三档授权、html-preview 同源路由 + 4 轮 CSP 演进、codepilot:file-changed 单通道 + quiet refresh、原地 Markdown 风格 Select、code-fence Preview / dev-output chips；Save-HTML 入口 deferred 的代码锚点与重启条件 |
 | chat-composer-redesign.md | Chat composer 重构（April 2026）：三层视觉规则、Run 状态聚合面板、ai-elements 整合、隐形 select、弹窗底座统一、弥散阴影 token、左侧栏密度收紧 |
 | chat-run-checkpoint.md | Chat Run Checkpoint Round 1（April 2026）：trust layer pure builder + inline banner 组件、共享 `bg-status-*-muted` 视觉、Pinned-invalid / Runtime-fallback / no-provider 三类触发、强约束（无 modal / 单 action / 不持久化"已确认"） |
+| codex-tool-bridge.md | Codex Runtime CodePilot Tool Bridge（Phase 5c）：proxy 内 execute() 桥接 + 侧通道事件总线、按 sessionId 路由的 tool_started/tool_completed → SSE、内建工具 function_call 对 Codex 抑制、stopWhen: stepCountIs(8) 多步续聊、anti-pattern source-grep 守卫（auth.json / npm install / OPENAI_API_KEY / image_gen.py） |

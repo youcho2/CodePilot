@@ -1,6 +1,6 @@
 # Refactor Closeout / 重构收口计划（总控板）
 
-> 创建：2026-05-06 · 最后更新：2026-05-16（Phase 0-4 已完成并归档；Phase 5 核心链路已落地；Phase 5b provider proxy 翻译层已落地但 smoke 未完；Phase 5c CodePilot Tool Bridge 计划已补，用来补齐 Codex Runtime 下 CodePilot 内置工具不可见的问题）
+> 创建：2026-05-06 · 最后更新：2026-05-16（Phase 0-4 已完成并归档；Phase 5 核心链路已落地；Phase 5b provider proxy 翻译层已落地但 smoke 未完；Phase 5c CodePilot Tool Bridge 实现 + 单测 + 文档已落地，2495 tests pass，**待用户跑 6 类能力族真实 smoke 收口**）
 > 这是日常入口；查历史细节请走"历史归档"列（`completed/refactor-phase-*.md` + `completed/phase-4-markdown-artifact.md`），不要在本文件里翻 1000 行决策日志。
 > **协作边界**：Codex 负责计划制定、方案审查和 Review；ClaudeCode 负责执行代码改动、测试和提交整理。除非用户明确重新授权，Codex 只能改 `docs/` 下的计划 / 交接 / review 文档，不再直接改业务代码。
 > **上下文同步纪律**：交给 ClaudeCode 的内容不能只给"最终结论"或任务清单，必须同时写清楚讨论过程、判断依据、被否掉的方案和为什么否掉。尤其是架构 / Runtime / 权限 / provider / 安全边界相关任务，Codex 的交接文案需要包含：用户原始诉求 → 中间争议 → 取舍理由 → 当前决定 → 不做边界 → 审查重点。这样 ClaudeCode 重启或上下文较短时，也能继承判断过程，而不是重新踩同一个坑。
@@ -183,6 +183,7 @@ Phase 3 验收入口：
 
 - 2026-05-12：**Phase 5 改为 Codex Runtime 接入**。上下文可视化顺延到 Phase 6；Phase 5 目标是让 Codex 像 Claude Code 一样成为 CodePilot 同级 Runtime，既读取 Codex 登录账号模型，也接入 Codex 原生工具 / 命令 / 插件式 item / 文件改动 / 权限事件；同时通过 CodePilot Responses-compatible proxy 交付现有 provider / CodePlan 模型的可用路径。用户明确否决 `Codex Account only` 的降级口径。为避免三套 runtime invariant 污染 UI，Phase 5 增加 `Runtime Contract Hardening` 前置：session / permission / model / event / preview metadata 必须先收口，再接 Codex。
 - 2026-05-16：**Phase 5c CodePilot Tool Bridge 计划补入**。真实 smoke 证明 Codex 原生 shell/file 能跑，但 CodePilot 自有工具还未真正接入：明确要求 `codepilot_memory_recent` / `codepilot_list_tasks` 后未产生对应工具调用。用户底线是 Widget、助理 Memory、定时任务、图片 / 媒体、Dashboard、CLI tools 等 CodePilot 产品层能力不能因切换 Codex Runtime 消失。计划要求从 `BUILTIN_MCP_CATALOG` 生成 capability matrix，桥接工具可见性 / 调用 / 结果渲染，并用每个能力族真实 smoke 验收。
+- 2026-05-16：**Phase 5c CodePilot Tool Bridge 实现 + 单测 + 文档落地**。两次切片提交完成：(slice 1) parse-request tools[] 分类（function / 已知 non-function / 未知 → 结构化错误，停止静默丢弃）、proxy header 扩展（`x-codepilot-session-id` / `x-codepilot-workspace-path`）、side-channel event bus；(slice 2) `builtin-bridge.ts` 工具集（image / media import / memory / widget / notify / tasks）、unified-adapter 集成 + `stopWhen: stepCountIs(8)`、translate-stream/response 抑制内建工具 function_call、runtime.ts 订阅事件总线、anti-pattern source-grep 守卫（`auth.json` / `npm install` / `OPENAI_API_KEY` / `image_gen.py`）、Codex Account 双层守卫（adapter routingBug + bridge 拒挂）。Phase 5c 现状 🔄：实现 + 单测全绿（2495 tests），文档 `docs/handover/codex-tool-bridge.md` + `docs/insights/codex-tool-bridge.md` 已落地，**用户必须跑 6 类能力族真实 smoke**（Codex Account 原生 / GLM 图片 / Kimi 图片 / GLM widget / GLM memory / GLM tasks）才能标 ✅。Dashboard + CLI tools 工具族 deferred。
 - 2026-05-12：**Phase 4 Markdown / Artifact 主线实现并校正口径**。当前阶段只覆盖 Markdown 数据层、HTML/Artifact 表现层、工程输出引用；显式 HTML Artifact 导出入口 deferred（tech-debt #18）。Codex Runtime / Local Agent Adapter 已从 Phase 4 剥离，后续另开独立计划。
   - Markdown 表现层从“生成弹窗”改为默认 Article + Select 直接切换；显式 HTML Artifact 导出入口 deferred — 第一轮把按钮放在 PreviewPanel 头部 + `.codepilot/artifacts/<slug>.html`，用户两次反馈反对（路径错位 / header 拥挤 / Style Select 已能原地呈现 HTML 形态）。helpers 保留作未来 Export pipeline 脚手架；tech-debt-tracker #18 记录重启条件。
   - 工程输出格式适配只处理 path/line/diff/localhost 这些展示引用，不绑定任何具体 Runtime。
