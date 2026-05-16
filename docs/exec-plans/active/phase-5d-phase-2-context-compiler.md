@@ -105,6 +105,53 @@ tokens: number             // 估算
 - 同一 `fragmentId` 在不同 RuntimeId 下编出来的 `text` 必须相同（drift test 在 2b harness 中跨 runtime 比对）。
 - `sourceFile + sourceExport` 与 `capability-contract.ts` 中对应 capability 的 `systemPromptFragment` 来源一致。
 
+### runtimeHints 边界（review 修订 #3）
+
+`runtimeHints` **是 Compiler 给特定 Runtime 的可执行配置**，不是第四个 prompt 拼装入口。**类型层和测试层都禁止 prose**。
+
+**允许字段**：
+
+- ID 类（`mcpServerNames: readonly string[]` 给 ClaudeCode；`toolSetKeys: readonly string[]` 给 Native；`builtinToolNames: ReadonlySet<string>` 给 Codex bridge）
+- 引用类（`fragmentIds: readonly string[]` 指向 CompiledContext 已有 fragment 的稳定 id）
+- 适配器选项（`stopWhen: 'stepCountIs' | 'never'` + `stepCount: number`；`passthroughToolTypes: readonly string[]`）
+
+**禁止字段**：
+
+- ❌ 任何 prompt / 文案字符串（template literal、长 string 字面值）
+- ❌ Tool description / 参数 schema paraphrase（tool schemas 必须从 `toolDescriptors` 走）
+- ❌ 重新定义 capability 文案
+- ❌ 任何"如果 model 看到这个会变化行为"的内容（那些必须以 fragment 形式进入 CompiledContext）
+
+**类型示例**：
+
+```ts
+export interface ClaudeCodeHints {
+  readonly mcpServerNames: readonly string[];
+  readonly allowedToolNames: readonly string[];
+  // 反例：禁止 systemPromptExtra: string
+}
+
+export interface NativeHints {
+  readonly toolSetKeys: readonly string[];
+  // 反例：禁止 promptOverride: string
+}
+
+export interface CodexProxyHints {
+  readonly builtinToolNames: ReadonlySet<string>;
+  readonly stopWhen: 'stepCountIs' | 'never';
+  readonly stepCount: number;
+  readonly passthroughToolTypes: readonly string[];
+  // 反例：禁止 widgetPromptExtra / namespacePromptHint: string
+}
+```
+
+**测试约束（防回归测试 #11）**：
+
+- 类型层：上面三个 Hints type 的所有 `string` 字段必须是 enum-like 集合或 ID（运行时长度 ≤ 64 字符；不含换行、不含 Markdown 标记 `\`\`\`` / `**` / `# ` 等明显 prose 标识）
+- 运行时层：编译完成后扫描每个 runtimeHints field，超长字符串 / 含 prose 标记 → FAIL
+- Source-level：grep `runtimeHints\.<field>\s*=` 赋值，禁止右侧出现 multi-line template literal
+- 跨引用一致性：runtimeHints 中所有 `fragmentIds` 引用必须能在 CompiledContext 的 capabilityFragments / workspaceFragments / artifactContracts 中找到对应 fragmentId（指 dangling 也算 FAIL）
+
 ## 边界
 
 **Compiler 只做**：
@@ -159,6 +206,27 @@ memoryFragments          (recent 优先于 workspace 优先于 session)
 
 **Token 估算**：第一版用字符 / 4 简易估算（OpenAI 经验值），第二版按 model family 调用 `gpt-tokenizer` / `anthropic-tokenizer`。先不引入新依赖，估算误差 ±20% 可接受。
 
+### Widget wire-format 单一来源（review 修订 #1）
+
+slice 7 之后 `WIDGET_SYSTEM_PROMPT`（widget-guidelines.ts）通过模板字符串内嵌 `WIDGET_WIRE_FORMAT_SPEC` + `CANONICAL_SHOW_WIDGET_JSON`。Compiler 同时把 widget 的 artifactContract（持有同一 wire spec + canonical JSON）插在 capabilityFragments **之前**。**未做处理会让 wire format 在最终 system prompt 中出现两次**（artifactContract 一次 + capability fragment 末尾一次）。
+
+**硬约束**：最终 compiled system prompt 中
+
+- `CANONICAL_SHOW_WIDGET_JSON` 字面值出现次数 = **1**
+- `FINAL OUTPUT FORMAT — non-negotiable` 标题出现次数 = **1**
+- `WIDGET_WIRE_FORMAT_SPEC` 完整文本出现次数 = **1**
+
+> 1 → 编译 FAIL，不是 warning。
+
+**实现方向（slice 2c 顺带做的小重构）**：
+
+- `WIDGET_SYSTEM_PROMPT` 重构为不嵌入 `WIDGET_WIRE_FORMAT_SPEC`，仅保留 capability 自身的"何时调用 / 何时禁止"等工作规则
+- artifactContract 成为 wire-format spec + canonical JSON 的**唯一持有者**
+- 最终 prompt 拼接顺序仍是 artifactContract → capability fragment，但内容不再重叠
+- Compiler 额外加 sanity check：编译期扫描每个 capabilityFragment 的 text，如果包含任何 artifactContract.canonicalJson 子串，**FAIL**（防止有人改回旧形式而 wire-format 单源约束被绕过）
+
+**联动**：`codex-widget-format-contract.test.ts` 中的 "the canonical example appears inside WIDGET_WIRE_FORMAT_SPEC, which appears inside WIDGET_SYSTEM_PROMPT" pin 需要在 slice 2c 同步更新为 "appears inside the compiled artifactContract for widget"。
+
 ## 迁移路径（5 slice）
 
 ### 2a — 接口与基础设施
@@ -177,6 +245,55 @@ memoryFragments          (recent 优先于 workspace 优先于 session)
 
 **这一步不改任何现有调用点**。
 
+### Expected Differences Ledger（review 修订 #2）
+
+**问题**：2b 等价测试和 2c-2e canonicalization 之间存在不可避免的冲突。现有 Runtime 实际拼出来的 prompt 含有已经被 slice 7b 列为 tech-debt 的 paraphrase（Native memory / notify / media 的简化版 system prompt）。如果 2b 严格要求"compiler 输出 === Runtime 当前 prompt"，反而**会锁死旧 drift**，让 2d 后续的 canonicalization 无法落地。
+
+**解决方案**：引入 `src/lib/harness/expected-differences.ts` 作为白名单。每条 entry：
+
+```ts
+export interface ExpectedDifference {
+  runtimeId: RuntimeId;
+  capability: string;             // 必须存在于 HARNESS_CAPABILITIES
+  diff: 'capability_fragment_replaced'
+      | 'capability_fragment_added'
+      | 'capability_fragment_removed'
+      | 'tool_schema_canonicalized'
+      | 'tool_result_shape_canonicalized';
+  description: string;            // 人话：差异是什么
+  justification: string;          // 为什么这条差异合理（drift fix / canonicalization）
+  plannedResolution: 'slice_2c' | 'slice_2d' | 'slice_2e' | 'follow_up';
+  // 验证锚点：
+  compilerSource: { sourceFile: string; sourceExport: string };  // canonical 端
+  runtimeSource?: { sourceFile: string; sourceExport: string };  // 当前 Runtime 端（被替换）
+}
+```
+
+**2b harness 使用规则**：
+
+1. 跑 compiler 输出 vs Runtime 当前 prompt fragment diff
+2. 每条差异查 ledger：
+   - 在 ledger → 标 expected，不 fail
+   - 不在 ledger → **未注册回归**，fail；开发者必须 either 把 diff 列入 ledger 或修 compiler
+3. ledger 中 `plannedResolution === 'slice_2X'` 的 entry：对应 slice 完成后期望从 ledger 移除（因为 Runtime 已经 canonical 化，diff 不再存在）
+4. 长期看，ledger 应趋向空：剩余 entry 都是显式 `follow_up` 项
+
+**初始 ledger（slice 7b 已知 drift，slice 2d 计划消化）**：
+
+| Runtime | Capability | Diff | Compiler source | Runtime source | 计划 |
+|---|---|---|---|---|---|
+| `codepilot_runtime` (Native) | `memory` | capability_fragment_replaced | `memory-search-mcp.ts: MEMORY_SEARCH_SYSTEM_PROMPT` | `builtin-tools/memory-search.ts: MEMORY_SEARCH_SYSTEM_PROMPT` (5-line abridged) | slice_2d |
+| `codepilot_runtime` (Native) | `tasks_and_notify` | capability_fragment_replaced | `notification-mcp.ts: NOTIFICATION_MCP_SYSTEM_PROMPT` | `builtin-tools/notification.ts: NOTIFICATION_SYSTEM_PROMPT` | slice_2d |
+| `codepilot_runtime` (Native) | `media_import` | capability_fragment_replaced | `media-import-mcp.ts: MEDIA_MCP_SYSTEM_PROMPT` | `builtin-tools/media.ts: MEDIA_SYSTEM_PROMPT` (共享 image_generation) | slice_2d |
+| `codepilot_runtime` (Native) | `image_generation` | tool_result_shape_canonicalized | MediaBlock 直接返回 | builtin-tools/media.ts 当前只返回 text，不构造 MediaBlock | follow_up（不属于 prompt 差异，slice 2 不强求） |
+
+**ledger 自身的契约测试（防回归测试 #12）**：
+
+- 每个 entry 引用的 `capability` 必须在 `HARNESS_CAPABILITIES` 中存在
+- 每个 entry 的 `compilerSource` 必须 resolve（文件存在 + export 存在）
+- `plannedResolution` 指向的 slice 必须在状态表中
+- slice 2d 完成时，CI 应**手动** review 哪些 entry 已实际消除（手动移除，不自动清理以保留审计痕迹）
+
 ### 2b — 等价测试 harness
 
 新建 `harness-context-compiler-equivalence.test.ts`：
@@ -184,12 +301,13 @@ memoryFragments          (recent 优先于 workspace 优先于 session)
 - 对每个 Runtime 构造一组真实形状的 `CompilerInput`
 - 调用现有 Runtime 的 prompt 构造代码（snapshot 现有输出）
 - 调用 `compileContext` 并展开为 prompt + tool descriptors
-- 断言关键 fragments / tool names 在两边完全一致（位置允许不同，集合必须等价）
+- 对照 Expected Differences Ledger 过滤已登记差异
+- 断言剩余 fragments / tool names 在两边集合等价（位置允许不同）
 
-如果 2b 发现现有 Runtime 比 compiler 输出多 / 少东西，必须明确：
+如果 2b 发现 compiler 与 Runtime 不一致但 ledger 里没有：
 
 - 是 compiler 漏了 fragment → 修 compiler
-- 是 Runtime 在 paraphrase / 多写 → 修 Runtime（属于 slice 2c-2e 的迁移）
+- 是 Runtime 在 paraphrase / 多写 → 列入 ledger（slice 2c-2e 消化），不在本 slice 修
 - 是 Runtime 有 runtime-specific 内容（例如 Codex bridge 的 stopWhen）→ 走 `runtimeHints.*`
 
 **这一步仍不改 Runtime 行为**。
@@ -231,6 +349,14 @@ memoryFragments          (recent 优先于 workspace 优先于 session)
 8. **预算契约** — 当 `systemPromptMax` 不够装 base + artifact contracts + live capability fragments 时，编译失败（不允许静默裁掉关键内容）。
 9. **跨 Runtime fragment text 同源** — 对每个 live capability，三个 RuntimeId 下编出来的同一 `fragmentId` 的 `text` 必须严格相等。
 
+review 修订追加：
+
+10. **Widget wire-format 单源** — 最终 compiled system prompt 中 `CANONICAL_SHOW_WIDGET_JSON` 子串出现次数严格 = 1；`FINAL OUTPUT FORMAT — non-negotiable` 标题严格 = 1；`WIDGET_WIRE_FORMAT_SPEC` 完整文本严格 = 1。slice 2c 完成 `WIDGET_SYSTEM_PROMPT` 去内嵌重构后这条 pin 上线；compile-time sanity check（capability fragment text 不得包含 artifactContract.canonicalJson）独立 FAIL。
+
+11. **runtimeHints 不含 prose** — `ClaudeCodeHints` / `NativeHints` / `CodexProxyHints` 所有 `string` 字段长度 ≤ 64 字符；不含 `\n` / `\`\`\`` / Markdown 标题标记；`fragmentIds` 引用必须在 CompiledContext 中找到对应 entry；Source-level grep 禁止 `runtimeHints\.<field>\s*=` 右侧出现 multi-line template literal。
+
+12. **Expected Differences Ledger 一致性** — 每条 ledger entry 引用的 capability 必须在 `HARNESS_CAPABILITIES` 中存在；`compilerSource.sourceFile` + `sourceExport` 必须可 resolve（文件存在且 export 存在）；`plannedResolution` 指向的 slice 必须在状态表中；ledger entry 数量在 slice 2d 完成后必须减少（手动 review 时 CI 提示，不自动清理保留审计痕迹）。
+
 ## 接受标准
 
 Phase 2 标 ✅ 的硬性条件：
@@ -269,6 +395,10 @@ Phase 2 标 ✅ 的硬性条件：
 - 2026-05-16：迁移顺序 ClaudeCode → Native → Codex。理由：ClaudeCode 路径的 prompt 源大部分已经是 capability-contract.ts 引用的 MCP 文件（authoritative），切换风险最小；Codex bridge 放最后是因为它的 prompt 现状已经在 slice 7 de-drift 到 canonical，2e 主要是抹去最后的 `WIDGET_PROMPT` 标量。
 - 2026-05-16：Token 估算先简易实现。如果实际遇到 30% 以上偏差再引入 tokenizer 依赖；不在本 Phase 设计前预设。
 - 2026-05-16：不解决 Native prompt drift（memory / notify / image MediaBlock）。它们记在 slice 7b tech-debt，2d 切换 Native 时**顺带消化但不强求**；硬目标是等价，不是把 drift 都修光。
+- 2026-05-16（review 修订）：补三处硬约束，开工前必须落地在设计里：
+  1. **Widget wire-format 单源**——slice 2c 把 `WIDGET_SYSTEM_PROMPT` 重构为不内嵌 `WIDGET_WIRE_FORMAT_SPEC`；artifactContract 成为 wire spec 唯一持有者；compile-time sanity check 防止 capability fragment 再吞回 wire spec。
+  2. **Expected Differences Ledger**——2b 等价测试不再强求"compiler 输出 === Runtime 当前 prompt"，而是 "compiler 输出 vs Runtime diff ⊆ ledger"。slice 7b 已知 drift 进入初始 ledger；2d 完成对应 canonicalization 时手动清空对应 entry（不自动清理以保留审计痕迹）。
+  3. **runtimeHints 严格类型**——`ClaudeCodeHints` / `NativeHints` / `CodexProxyHints` 只允许 ID / refs / 适配器选项；类型层 + 运行时层 + source-grep 三道防线阻止 prose / paraphrase / tool schema 重定义偷渡进 hints 字段。
 
 ## 反向链接
 
