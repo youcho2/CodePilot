@@ -143,34 +143,51 @@ export interface ResponsesRequestBody {
 // ─────────────────────────────────────────────────────────────────────
 // Stream events (SSE)
 //
-// Contract source (Phase 5b smoke round 5, 2026-05-16):
-//   resources/codex/sdk/typescript/tests/responsesProxy.ts
-//   resources/codex/codex-rs/core/tests/common/responses.rs
+// Contract sources (Phase 5b smoke round 6, 2026-05-16):
+//   - resources/codex/sdk/typescript/tests/responsesProxy.ts
+//     (public SDK test fixture — success path event shapes)
+//   - resources/codex/codex-rs/codex-api/src/sse/responses.rs
+//     `process_responses_event` (Codex app-server's actual stream
+//     parser — defines the events Codex production consumes)
 //
-// Codex's reader (both the app-server's internal Responses parser AND
-// the public `@openai/codex-sdk`) consumes a Responses-API subset
-// where the load-bearing events are:
+// Critical asymmetry between the two sources: the SDK fixture's
+// `responseFailed()` emits `{type: 'error', error: {code, message}}`,
+// but Codex's app-server parser (`process_responses_event`) only
+// matches `response.failed`, NOT `error`. Phase 5b smoke round 5
+// initially aligned the error path with the SDK fixture; round 6
+// reverted that — the app-server JSON-RPC path is the production
+// channel today, so streaming failures MUST use `response.failed` or
+// they fall through to "stream closed before response.completed" and
+// the user sees a silent failure. The success path stays aligned to
+// the SDK fixture (which is what both Codex's parser AND the SDK's
+// own reader accept).
+//
+// Load-bearing events:
 //
 //   response.created           Marker; carries response.id Codex echoes back.
-//   response.in_progress       Optional; Codex tolerates without.
 //   response.output_item.added Optional but recommended; signals a new item.
 //   response.output_text.delta Incremental assistant text. Streamed greedily.
 //   response.output_item.done  REQUIRED to LAND an assistant message or
-//                              function_call. Pre-fix smoke saw GLM/Kimi
-//                              return "completed but blank" because we
-//                              emitted only output_text.delta + completed
-//                              without the output_item.done that drops the
-//                              final item into Codex's items array.
+//                              function_call. `handle_output_item_done`
+//                              in `codex-rs/core/src/stream_events_utils.rs`
+//                              is what records the item into the turn.
+//                              Pre-Phase-5b smoke saw GLM/Kimi return
+//                              "completed but blank" because we emitted
+//                              only output_text.delta + completed without
+//                              this event.
 //   response.completed         Final marker. `response.usage` only — NO
 //                              `status` / `finish_reason`. Usage shape is
 //                              `{ input_tokens, input_tokens_details: { cached_tokens } | null,
 //                                 output_tokens, output_tokens_details: { reasoning_tokens } | null,
 //                                 total_tokens }`.
-//   error                      Terminal error. Shape per SDK fixture:
-//                              `{ type: 'error', error: { code, message } }`.
-//                              (Codex production also accepts response.failed
-//                              but the SDK fixture canon is `error`; we use
-//                              that for predictability.)
+//   response.failed            Terminal error event. Shape per Codex
+//                              app-server parser:
+//                              `{ type: 'response.failed', response: { id, error: { code, message } } }`.
+//                              Codex reads `response.error.code` to
+//                              classify (ContextWindowExceeded /
+//                              QuotaExceeded / ServerOverloaded etc.);
+//                              `error.message` is surfaced verbatim
+//                              to the user.
 // ─────────────────────────────────────────────────────────────────────
 
 export type ResponsesEvent =
@@ -180,7 +197,7 @@ export type ResponsesEvent =
   | ResponsesOutputTextDeltaEvent
   | ResponsesOutputItemDoneEvent
   | ResponsesCompletedEvent
-  | ResponsesErrorStreamEvent;
+  | ResponsesFailedEvent;
 
 export interface ResponsesCreatedEvent {
   type: 'response.created';
@@ -248,15 +265,42 @@ export interface ResponsesCompletedEvent {
 }
 
 /**
- * Terminal error event. Shape from SDK responsesProxy.ts
- * `responseFailed()`: `{ type: 'error', error: { code, message } }`.
- * Phase 5b's pre-fix emitted `{ type: 'response.failed', response,
- * error }` which Codex's app-server tolerated but the SDK fixture
- * never sees.
+ * Terminal error event consumed by Codex's app-server SSE parser
+ * (`codex-rs/codex-api/src/sse/responses.rs`
+ * `process_responses_event` → `"response.failed"` arm). The parser
+ * reads `response.error.code` to classify the failure into one of:
+ *   - context_length_exceeded → ApiError::ContextWindowExceeded
+ *   - insufficient_quota / rate_limit → ApiError::QuotaExceeded
+ *   - usage_not_included → ApiError::UsageNotIncluded
+ *   - cyber_policy → ApiError::CyberPolicy
+ *   - invalid_prompt → ApiError::InvalidRequest
+ *   - server_overloaded → ApiError::ServerOverloaded
+ *   - otherwise → ApiError::Retryable with message + retry-after
+ *
+ * `error.message` is the user-facing string surfaced in the chat.
+ *
+ * Phase 5b smoke round 5 mistakenly aligned this with the public
+ * SDK fixture's `{type: 'error', error}` shape, but the app-server
+ * parser doesn't match `error` — falls through to the trace
+ * "unhandled responses event" branch, then `[DONE]` never converts
+ * to a completed event, and Codex throws "stream closed before
+ * response.completed". Round 6 reverted to `response.failed` so the
+ * failure surfaces as a proper structured error.
+ *
+ * The SDK runStreamed() POC (if/when we adopt @openai/codex-sdk for
+ * execution) will use the `error` shape — at that point this type
+ * gets paired with a sibling SDK-flavoured failure event, and the
+ * caller picks one based on the path.
  */
-export interface ResponsesErrorStreamEvent {
-  type: 'error';
-  error: ResponsesErrorPayload;
+export interface ResponsesFailedEvent {
+  type: 'response.failed';
+  response: {
+    id: string;
+    /** Codex's parser also tolerates `status: 'failed'` / `usage: null`
+     *  fields — both optional. We omit unless a future contract test
+     *  demands them. */
+    error: { code: string; message: string };
+  };
 }
 
 /**

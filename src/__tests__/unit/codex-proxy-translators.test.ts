@@ -345,7 +345,11 @@ describe('translateStream — ai-sdk fullStream → Codex Responses SSE (SDK fix
     assert.equal(done.item.arguments, '{"q":"weather"}');
   });
 
-  it('maps error to {type: "error", error: {code, message}} per SDK fixture', async () => {
+  it('maps error to response.failed { response: { id, error: { code, message } } } per Codex app-server parser', async () => {
+    // Phase 5b smoke round 6 (2026-05-16) — Codex's app-server SSE
+    // parser only handles `response.failed` for stream errors. The
+    // SDK fixture's `{type: 'error'}` form is unhandled and surfaces
+    // as "stream closed before response.completed" silent failure.
     const events = await collectStream(
       translateStream({
         responseId: 'resp_x',
@@ -356,10 +360,14 @@ describe('translateStream — ai-sdk fullStream → Codex Responses SSE (SDK fix
         ]),
       }),
     );
-    const last = events[events.length - 1] as { type: string; error: { code: string; message: string } };
-    assert.equal(last.type, 'error', 'terminal failure event must be `error`, not legacy `response.failed`');
-    assert.match(last.error.message, /boom/);
-    assert.ok(last.error.code, 'error must carry a code so Codex can branch on it');
+    const last = events[events.length - 1] as {
+      type: string;
+      response: { id: string; error: { code: string; message: string } };
+    };
+    assert.equal(last.type, 'response.failed');
+    assert.equal(last.response.id, 'resp_x');
+    assert.match(last.response.error.message, /boom/);
+    assert.ok(last.response.error.code, 'response.error.code is what Codex reads to classify the failure');
   });
 
   it('function_call sourced ONLY via tool-call (no tool-input-start) still lands cleanly', async () => {

@@ -138,14 +138,20 @@ event: response.output_item.done
 data: {"type":"response.output_item.done","output_index":0,"item":{"id":"call_1","type":"function_call","call_id":"call_1","name":"shell","arguments":"{\"command\":[\"bash\"]}"}}
 ```
 
-错误用 SDK fixture 的 `responseFailed()` 形式，不用 legacy `response.failed`：
+错误事件用 **`response.failed`**（Codex app-server SSE 解析器 `process_responses_event` 实际匹配的 type）：
 
 ```
-event: error
-data: {"type":"error","error":{"code":"upstream_unauthorized","message":"..."}}
+event: response.failed
+data: {"type":"response.failed","response":{"id":"resp_x","error":{"code":"upstream_unauthorized","message":"..."}}}
 
 data: [DONE]
 ```
+
+> **重要的不对称：** SDK fixture 里 `responseFailed()` 返回的是 `{type: "error", error}` 形式 —— 那是 SDK 自己 reader 路径的口径。但 Codex 的 app-server SSE 解析器（`codex-rs/codex-api/src/sse/responses.rs` 的 `process_responses_event`）**只匹配 `response.failed`**，不识别 `error`。Phase 5b smoke 第 5 轮 (2026-05-15) 曾按 SDK fixture 改成 `error`，第 6 轮 (2026-05-16) 复盘后撤回：今天 proxy 的实际消费者是 app-server 路径，必须用 `response.failed`，否则失败时 Codex parser 走到 "unhandled event" 分支 → `[DONE]` 不转 completed → 用户看到 "stream closed before response.completed" 静默失败。
+>
+> Codex parser 会读 `response.error.code` 做分类（`context_length_exceeded` → ContextWindowExceeded / `insufficient_quota` → QuotaExceeded / `server_overloaded` → ServerOverloaded / `cyber_policy` → CyberPolicy / 其它 → Retryable 带 retry-after），`response.error.message` 是用户看到的原文。
+>
+> 当 `@openai/codex-sdk` execution POC 落地后，SDK reader 路径需要发 `{type: "error"}`；那时这层需要按 consumer 类型分叉。
 
 `response.completed.response.usage` 字段必须按这个 shape：
 

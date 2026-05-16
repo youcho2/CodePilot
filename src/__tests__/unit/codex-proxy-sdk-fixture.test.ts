@@ -115,7 +115,7 @@ describe('Codex proxy SSE — wire framing matches SDK fixture (event: <type>\\n
           },
         },
       },
-      { type: 'error', error: { code: 'internal_error', message: 'x' } },
+      { type: 'response.failed', response: { id: 'r', error: { code: 'internal_error', message: 'x' } } },
     ];
     for (const sample of samples) {
       const wire = decoder.decode(encodeEvent(sample));
@@ -353,11 +353,24 @@ describe('response.completed payload matches SDK responseCompleted() shape', () 
 });
 
 // ─────────────────────────────────────────────────────────────────────
-// responseFailed() fixture round-trip
+// Error frame contract — Codex app-server parser, not SDK fixture
 // ─────────────────────────────────────────────────────────────────────
 
-describe('error frames match SDK responseFailed() shape: {type:"error", error:{code, message}}', () => {
-  it('upstream throw becomes the SDK-fixture-shaped error event (NOT legacy response.failed)', async () => {
+describe('error frames target Codex app-server parser shape: response.failed { response: { id, error: { code, message } } }', () => {
+  // Asymmetry between sources: SDK fixture's `responseFailed()`
+  // emits `{type: 'error', error}`, but Codex's app-server SSE
+  // parser (codex-rs/codex-api/src/sse/responses.rs
+  // `process_responses_event`) only matches `response.failed` and
+  // reads `response.error.code` to classify. The `error` form falls
+  // through unhandled there and Codex throws "stream closed before
+  // response.completed" — silent failure for the user.
+  //
+  // Phase 5b smoke round 6 (2026-05-16) reverted from the SDK
+  // fixture shape to Codex's parser shape so streaming failures
+  // surface as structured ApiError variants on the app-server side.
+  // Any future @openai/codex-sdk execution POC will need to branch
+  // on consumer type and emit the SDK shape there instead.
+  it('upstream throw becomes response.failed with response.id + response.error.{code,message}', async () => {
     const events = await collect(
       translateStream({
         responseId: 'resp_mock',
@@ -368,9 +381,37 @@ describe('error frames match SDK responseFailed() shape: {type:"error", error:{c
         ]),
       }),
     );
-    const last = events[events.length - 1] as { type: string; error: { code: string; message: string } };
-    assert.equal(last.type, 'error', 'Phase 5b smoke round 5 — terminal error MUST be `error`, matching responseFailed()');
-    assert.ok(last.error.code, 'error.code required');
-    assert.match(last.error.message, /rate limit/);
+    const last = events[events.length - 1] as {
+      type: string;
+      response: { id: string; error: { code: string; message: string } };
+    };
+    assert.equal(
+      last.type,
+      'response.failed',
+      'Phase 5b smoke round 6 — terminal error MUST be response.failed; Codex app-server does not consume `error`',
+    );
+    assert.equal(last.response.id, 'resp_mock', 'response.id required so Codex can correlate to the in-progress response');
+    assert.ok(last.response.error.code, 'response.error.code required (Codex classifies failure by code)');
+    assert.match(last.response.error.message, /rate limit/, 'response.error.message is what Codex surfaces verbatim');
+  });
+
+  it('abort event also lands as response.failed (not a separate event type)', async () => {
+    const events = await collect(
+      translateStream({
+        responseId: 'resp_mock',
+        body: baseBody,
+        source: source([
+          { type: 'start' } as never,
+          { type: 'abort', reason: 'client disconnected' } as never,
+        ]),
+      }),
+    );
+    const last = events[events.length - 1] as {
+      type: string;
+      response: { id: string; error: { code: string; message: string } };
+    };
+    assert.equal(last.type, 'response.failed');
+    assert.equal(last.response.error.code, 'upstream_timeout');
+    assert.match(last.response.error.message, /aborted/);
   });
 });

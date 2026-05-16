@@ -151,11 +151,13 @@ function streamPath(args: PathInput): ProxyResult {
     return {
       kind: 'stream',
       body: makeFailureStream({
-        type: 'error',
-        error: {
-          code: classified.code,
-          message: classified.message,
-          context: { ...classified.context, family },
+        type: 'response.failed',
+        response: {
+          id: responseId,
+          error: {
+            code: classified.code,
+            message: classified.message,
+          },
         },
       }),
     };
@@ -176,11 +178,13 @@ function streamPath(args: PathInput): ProxyResult {
       } catch (err) {
         const classified = classifyUpstreamError(err);
         const failed: ResponsesEvent = {
-          type: 'error',
-          error: {
-            code: classified.code,
-            message: classified.message,
-            context: { ...classified.context, family },
+          type: 'response.failed',
+          response: {
+            id: responseId,
+            error: {
+              code: classified.code,
+              message: classified.message,
+            },
           },
         };
         controller.enqueue(encodeEvent(failed));

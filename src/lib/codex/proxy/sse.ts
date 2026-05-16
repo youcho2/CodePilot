@@ -32,7 +32,7 @@
  * body with `Content-Type: text/event-stream`.
  */
 
-import type { ResponsesEvent, ResponsesErrorStreamEvent } from './types';
+import type { ResponsesEvent, ResponsesFailedEvent } from './types';
 
 const encoder = new TextEncoder();
 
@@ -46,13 +46,18 @@ export function encodeDone(): Uint8Array {
 
 /**
  * Build a single-event stream body for the "we failed before the
- * adapter ever made it to the upstream" path. Codex's reader expects
- * the error event + DONE marker; missing DONE leaves the read loop
- * hung until the connection-level close. The error shape is
- * `{ type: 'error', error: { code, message } }` per the SDK fixture
- * (`sdk/typescript/tests/responsesProxy.ts:responseFailed()`).
+ * adapter ever made it to the upstream" path. Codex's app-server
+ * parser (`codex-rs/codex-api/src/sse/responses.rs`
+ * `process_responses_event`) only consumes `response.failed` for
+ * stream errors — the SDK fixture's `{type: 'error'}` form falls
+ * through unhandled. We use `response.failed` here so the failure
+ * surfaces as a structured ApiError on the Codex side instead of
+ * "stream closed before response.completed".
+ *
+ * The DONE marker is still required: Codex's reader exits the read
+ * loop on `[DONE]` regardless of what preceded it.
  */
-export function makeFailureStream(failed: ResponsesErrorStreamEvent): ReadableStream<Uint8Array> {
+export function makeFailureStream(failed: ResponsesFailedEvent): ReadableStream<Uint8Array> {
   return new ReadableStream({
     start(controller) {
       controller.enqueue(encodeEvent(failed));

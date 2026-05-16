@@ -23,8 +23,16 @@
  *                               function_call lands wholesale in output_item.done)
  *   tool-call                  response.output_item.done (function_call with call_id/name/arguments)
  *   finish                     response.completed { response: { id, usage } }
- *   error                      { type: 'error', error: { code, message } }
- *   abort                      { type: 'error', error: { code: 'upstream_timeout', message } }
+ *   error                      response.failed { response: { id, error: { code, message } } }
+ *   abort                      response.failed { response: { id, error: { code: 'upstream_timeout', message } } }
+ *
+ * NOTE on error event shape: SDK fixture `responseFailed()` emits
+ * `{type: 'error'}`, but Codex's app-server parser (the path our
+ * proxy actually serves today) doesn't match `error` and falls
+ * through to "stream closed before response.completed" — a silent
+ * failure. We emit `response.failed` instead so the failure surfaces
+ * as a structured ApiError. A future @openai/codex-sdk POC path will
+ * need to branch on consumer-style and emit `error` there.
  *
  * Why `output_item.done` is mandatory:
  * Codex's `handle_output_item_done` (codex-rs/core/src/stream_events_utils.rs)
@@ -234,11 +242,13 @@ export async function* translateStream(
           terminalEmitted = true;
           const classified = classifyUpstreamError(part.error);
           yield {
-            type: 'error',
-            error: {
-              code: classified.code,
-              message: classified.message,
-              context: classified.context,
+            type: 'response.failed',
+            response: {
+              id: responseId,
+              error: {
+                code: classified.code,
+                message: classified.message,
+              },
             },
           };
           return;
@@ -247,12 +257,15 @@ export async function* translateStream(
         case 'abort': {
           terminalEmitted = true;
           yield {
-            type: 'error',
-            error: {
-              code: 'upstream_timeout',
-              message: part.reason
-                ? `Stream aborted: ${part.reason}`
-                : 'Stream aborted by upstream.',
+            type: 'response.failed',
+            response: {
+              id: responseId,
+              error: {
+                code: 'upstream_timeout',
+                message: part.reason
+                  ? `Stream aborted: ${part.reason}`
+                  : 'Stream aborted by upstream.',
+              },
             },
           };
           return;
@@ -270,17 +283,20 @@ export async function* translateStream(
     }
   } catch (err) {
     // Iterator-side error (network drop, upstream throw). Map to
-    // the SDK-fixture-shaped `error` event so Codex sees a clean
-    // failure instead of an unterminated stream.
+    // `response.failed` so Codex's app-server parser surfaces a
+    // structured ApiError instead of throwing "stream closed before
+    // response.completed".
     if (!terminalEmitted) {
       terminalEmitted = true;
       const classified = classifyUpstreamError(err);
       yield {
-        type: 'error',
-        error: {
-          code: classified.code,
-          message: classified.message,
-          context: classified.context,
+        type: 'response.failed',
+        response: {
+          id: responseId,
+          error: {
+            code: classified.code,
+            message: classified.message,
+          },
         },
       };
     }

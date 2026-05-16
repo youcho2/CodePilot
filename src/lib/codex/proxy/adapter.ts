@@ -307,20 +307,24 @@ export function makeResponseId(): string {
 }
 
 /**
- * Synthesise the SDK-fixture-shaped `error` SSE payload from an
- * error result. Phase 5b smoke round 5 (2026-05-16) renamed this
- * from "failedEventFromError" → keeps the same import name for
- * back-compat but emits the SDK fixture's `{type: 'error', error}`
- * shape instead of the legacy `response.failed` form.
+ * Synthesise the `response.failed` SSE payload from an error result.
+ * Codex's app-server parser (`codex-rs/codex-api/src/sse/responses.rs`
+ * `process_responses_event`) reads `response.error.code` to classify
+ * the failure. Phase 5b smoke round 6 (2026-05-16) reverted the
+ * previous one-day experiment with `{type: 'error'}` because that
+ * shape only flows through the public SDK reader, not the app-server
+ * parser our proxy actually serves.
  */
 export function failedEventFromError(
   responseId: string,
   error: ResponsesErrorPayload,
-): import('./types').ResponsesErrorStreamEvent {
-  void responseId; // responseId no longer carried; kept in signature for caller back-compat
+): import('./types').ResponsesFailedEvent {
   return {
-    type: 'error',
-    error,
+    type: 'response.failed',
+    response: {
+      id: responseId,
+      error: { code: error.code, message: error.message },
+    },
   };
 }
 
