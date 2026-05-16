@@ -10,7 +10,7 @@
 |---|---|---|---|
 | Phase 0 | 事实审计：现有 Runtime / Harness / Artifact 边界 | ✅ 2026-05-16 | 抽查锁住的事实：widget/memory/tasks/media/dashboard/cli 七个 capability、三 Runtime 暴露映射、漂移点（widget×3 → de-drifted；memory/notify tech-debt 已记录） |
 | Phase 1 | Harness Capability Registry | ✅ 2026-05-16 | `src/lib/harness/capability-contract.ts` 已建；7 个 capability 全部入册，Widget+memory+tasks+image+media live，dashboard+cli deferred。Widget JSON 示例已 round-trip 校验 |
-| Phase 2 | Context Compiler 边界 | 📋 待开始 | 统一 system prompt / tool schema / MCP / deferred tool / memory fragments 的注入规则 |
+| Phase 2 | Context Compiler 边界 | 📋 计划已撰写（待 review） | 统一 system prompt / tool schema / MCP / deferred tool / memory fragments 的注入规则。详细子计划 → [phase-5d-phase-2-context-compiler.md](./phase-5d-phase-2-context-compiler.md) |
 | Phase 3 | Runtime Capability Adapters | 📋 待开始 | 每个 Runtime 只实现 capability binding，不再散写 prompt / tools / renderer glue |
 | Phase 4 | Artifact Contract | 📋 待开始 | Widget / Media / Markdown / HTML / Diff 等 UI block 统一前后端协议 |
 | Phase 5 | 新 Agent Runtime 接入 Playbook | 🔄 框架已就绪 | 接入硬性流程已写进 handover doc，可在 Phase 2-4 落定后实际验收（接 Hermes 时验证） |

@@ -1,0 +1,278 @@
+# Phase 5d Phase 2 — Context Compiler
+
+> 创建：2026-05-16
+> 最后更新：2026-05-16
+> 父计划：[phase-5d-harness-capability-contract.md](./phase-5d-harness-capability-contract.md) `Phase 2 — Context Compiler 边界`
+> 前置：[phase-5d-harness-capability-contract.md](./phase-5d-harness-capability-contract.md) Phase 0+1 已落地（slice 7b 后），`src/lib/harness/capability-contract.ts` + `harness-capability-contract.test.ts` 是本计划的真值底座
+> 范围：仅计划，等 Codex review 通过后再写代码
+
+## 状态
+
+| Slice | 内容 | 状态 | 备注 |
+|---|---|---|---|
+| 2a | Compiler 接口 + Input/Output 类型 + 纯函数 `compileContext(input)` + 单测 | 📋 待开始 | 零调用点；只验证类型 + 顺序 + 去重 + 预算 |
+| 2b | 等价测试 harness | 📋 待开始 | 给定真实形状输入，对照现有三个 Runtime 的 prompt 构造结果，证明 compiler 输出覆盖等价 fragments |
+| 2c | ClaudeCode SDK Runtime 切到 compiler 输出 | 📋 待开始 | 最孤立，从 `src/lib/claude-client.ts` 开始；其它 Runtime 不动 |
+| 2d | Native Runtime 切到 compiler 输出 | 📋 待开始 | 涉及 `src/lib/builtin-tools/index.ts` + Native 调用链 |
+| 2e | Codex Runtime（bridge）切到 compiler 输出 | 📋 待开始 | `src/lib/codex/proxy/unified-adapter.ts` + `builtin-bridge.ts` 的 `WIDGET_PROMPT` / `MEDIA_PROMPT` / etc. 改成从 compiler 拿 |
+
+每个 slice 独立 commit；pre-commit hook 跑 `npm run test`。所有 slice 通过后 Phase 2 才标 ✅。
+
+## 用户价值
+
+| Form | 价值 | 衡量 |
+|---|---|---|
+| C — Infrastructure | 后续 Phase 3 / 4 / 5 都需要稳定的 compiled context 作为输入；没有 Phase 2 就没法做 Runtime Capability Adapter 抽象 / Artifact Contract 校验 / 新 Runtime Playbook | 编译层稳定为后三段的输入 |
+| B — 静默改善（量化） | 同一能力在三个 Runtime 下的模型行为一致性提升 | (1) Cross-runtime prompt fragment 内容 100% 同源（drift test 0 hits）；(2) Phase 5c smoke matrix 复跑通过率 ≥ 6/6；(3) 新 Runtime 接入流程从"slice driven by smoke"变成"plan driven by contract" |
+
+**显式不承诺 Form A**：本 Phase 0 UI 改动。任何"用户看到的变化"都来自 Phase 3+ 或 Phase 5c 后续的 smoke 修复，不属于本 Phase 的交付。
+
+## 上下文 — 为什么需要 Compiler
+
+slice 7 + 7b 已经把 capability 抽成单一目录 + drift 测试。但是 **how the model actually sees the capability** 仍然散在三处：
+
+- ClaudeCode SDK Runtime: `claude-client.ts` 拼装 system prompt + 注册 MCP servers + 关键词 gate（~200 行决策代码）
+- Native Runtime: `src/lib/builtin-tools/index.ts getBuiltinTools()` + `src/lib/agent/native-runtime.ts` 调用链
+- Codex Runtime bridge: `src/lib/codex/proxy/unified-adapter.ts createUnifiedAdapter()` 调 `createCodePilotBuiltinTools()` + `combineInstructions()`
+
+三处各自决定：
+
+- base prompt 是什么
+- 哪些 capability fragments 拼进来、顺序、是否 paraphrase
+- assistant memory 怎么读、怎么截
+- workspace hooks / rules 怎么拼
+- 哪些 artifact contract 提示 / 例子嵌入
+- 预算（token budget）怎么切
+
+Phase 5d slice 6 暴露的根因不是某个 Runtime 错，是三处对"该注入什么"无法保持同步。Phase 2 Compiler 把这三处决策合并成一个**纯函数**，让三个 Runtime 只做 adapter（怎么把 compiled context 喂给自己的 SDK / app-server），不再各自重新做 compilation 决策。
+
+## 输入 — `CompilerInput`
+
+```
+sessionId: string
+workingDirectory?: string
+runtimeId: RuntimeId       // 'claude_code' | 'codepilot_runtime' | 'codex_runtime'
+providerId: string
+model: string
+userPrompt: string         // 用于 keyword-gated capability 决策
+enabledCapabilities: ReadonlySet<string> | null   // null = 使用 catalog 默认（status === 'live' 且 gating 通过）
+assistantMemory?: AssistantMemorySnapshot         // 调用方预取的最近记忆条目（compiler 不做 IO）
+permissionProfile?: PermissionProfile             // 影响哪些写类工具进入 tool descriptor 列表
+tokenBudget: { systemPromptMax: number; contextMax: number }
+flags?: Record<string, boolean>                   // 兼容 feature flag，留给未来扩展
+```
+
+**关键边界**：
+- `assistantMemory` 是 pre-fetched snapshot，compiler 不读磁盘、不查 DB。`workspace-retrieval.searchWorkspace()` / `loadManifest()` 之类的 IO 全部在调用方做，compiler 只消费快照。
+- `permissionProfile` 是 hint，影响 tool descriptors 的 `unsupported` 标记；compiler 不做 permission 决策。
+- `userPrompt` 用于关键词 gating（image / widget keyword 触发），不参与最终 prompt 拼接（拼接走 conversation message，不走 system prompt）。
+
+## 输出 — `CompiledContext`
+
+```
+basePrompt: string                                  // CodePilot runtime-agnostic 基础提示
+capabilityFragments: readonly CapabilityFragment[]  // 按 catalog 顺序
+toolDescriptors: readonly ToolDescriptor[]          // 能调用的工具列表
+memoryFragments: readonly MemoryFragment[]          // recent / workspace / session 三类
+workspaceFragments: readonly WorkspaceFragment[]    // hook / rule / context 三类
+artifactContracts: readonly ArtifactContractFragment[]  // widget / media / markdown / html 等
+runtimeHints: {
+  claudecode_sdk?: ClaudeCodeHints                  // 例如 MCP server 注册列表 + allowedTools
+  native?: NativeHints                              // 例如 ToolSet keys + system prompt segments
+  codex_proxy?: CodexProxyHints                     // 例如 stopWhen + builtinToolNames + namespace passthrough
+}
+budget: BudgetReport                                // { used, max, perCategory }
+diagnostics: {
+  droppedFragments: readonly DroppedFragment[]      // 超预算被裁掉的（每条带 reason + tokens）
+  dedupedFragments: readonly string[]               // fragment id 被去重的
+  capabilityDecisions: readonly CapabilityDecision[]  // 每个 capability 为何 in/out + 为何使用哪个 fragment 源
+}
+```
+
+每个 fragment 都有：
+
+```
+fragmentId: string         // 稳定 id，drift test 用它锁定唯一来源
+sourceCapability?: string  // 引用 capability-contract.ts 里的 capability.id
+sourceFile: string         // 来源文件路径（drift test 验证）
+sourceExport: string       // 来源 export 名（drift test 验证）
+text: string               // fragment 内容
+tokens: number             // 估算
+```
+
+**关键不变量**：
+- 每个 `fragmentId` 在 `CompiledContext` 中只能出现一次（去重发生在编译期，调用方拿到的不会有重复）。
+- 同一 `fragmentId` 在不同 RuntimeId 下编出来的 `text` 必须相同（drift test 在 2b harness 中跨 runtime 比对）。
+- `sourceFile + sourceExport` 与 `capability-contract.ts` 中对应 capability 的 `systemPromptFragment` 来源一致。
+
+## 边界
+
+**Compiler 只做**：
+
+1. 决定**注入什么**（基于 capability catalog + enabledCapabilities + gating）
+2. 决定**顺序**（catalog 顺序 + memory before workspace before artifact contract 等明确规则）
+3. 决定**预算怎么切**（base + capability 优先，memory / workspace 可裁剪，artifact contract 不可裁剪）
+4. 决定**如何去重**（fragmentId 唯一）
+
+**Compiler 不做**：
+
+1. ❌ 执行工具（execute 留给 MCP / AI SDK / bridge factory）
+2. ❌ 处理 SSE / event stream
+3. ❌ 渲染 UI / 操作 DOM
+4. ❌ 直接调用 provider / 模型
+5. ❌ 读磁盘 / DB（IO 都在调用方）
+6. ❌ Permission 决策（消费 hint，不做 round-trip）
+7. ❌ Mutate session state（纯函数，input → output）
+
+## 顺序 / 去重 / 预算规则
+
+**顺序**：
+
+```
+basePrompt
+↓
+artifactContracts        (短、关键、不可裁剪)
+↓
+capabilityFragments      (按 catalog 顺序)
+↓
+workspaceFragments       (hook / rule 优先于 context)
+↓
+memoryFragments          (recent 优先于 workspace 优先于 session)
+```
+
+为什么 artifactContracts 在前：Phase 5c slice 6 经验，模型在长 system prompt 末尾容易丢失 wire format 约束。把 Widget JSON 例子 / show-widget fence 规则前置。
+
+**去重**：
+
+- 一个 `fragmentId` 只输出一次。
+- 当多个 capability 引用同一 fragment（例如 image_generation 和 media_import 都引用 `MEDIA_*_SYSTEM_PROMPT`）时，按 capability 顺序取第一个。
+
+**预算**：
+
+```
+1. base + artifactContracts + live capabilityFragments → 必须全部进入 systemPromptMax
+   如果超出：FAIL（应触发 contract 警告而不是裁剪关键内容）
+2. workspaceFragments → 按声明顺序进入剩余预算
+3. memoryFragments → 按声明顺序进入剩余预算
+4. 超预算的 memory/workspace 进入 droppedFragments，diagnostics 记录 reason='budget'
+```
+
+**Token 估算**：第一版用字符 / 4 简易估算（OpenAI 经验值），第二版按 model family 调用 `gpt-tokenizer` / `anthropic-tokenizer`。先不引入新依赖，估算误差 ±20% 可接受。
+
+## 迁移路径（5 slice）
+
+### 2a — 接口与基础设施
+
+新建 `src/lib/harness/context-compiler.ts`：
+
+- 导出 `compileContext(input: CompilerInput): CompiledContext`
+- 导出全部输入 / 输出类型
+- 实现去重 + 顺序 + 预算逻辑
+- 单测 `harness-context-compiler.test.ts`：
+  - 输入 → 输出 类型 round-trip
+  - 顺序规则（artifact contracts 在 capability 前）
+  - 去重规则（同 fragmentId 不重复）
+  - 预算规则（超预算时 droppedFragments 正确分类）
+  - 与 capability-contract.ts 同步（live capabilities 默认全部进入；deferred 不进入）
+
+**这一步不改任何现有调用点**。
+
+### 2b — 等价测试 harness
+
+新建 `harness-context-compiler-equivalence.test.ts`：
+
+- 对每个 Runtime 构造一组真实形状的 `CompilerInput`
+- 调用现有 Runtime 的 prompt 构造代码（snapshot 现有输出）
+- 调用 `compileContext` 并展开为 prompt + tool descriptors
+- 断言关键 fragments / tool names 在两边完全一致（位置允许不同，集合必须等价）
+
+如果 2b 发现现有 Runtime 比 compiler 输出多 / 少东西，必须明确：
+
+- 是 compiler 漏了 fragment → 修 compiler
+- 是 Runtime 在 paraphrase / 多写 → 修 Runtime（属于 slice 2c-2e 的迁移）
+- 是 Runtime 有 runtime-specific 内容（例如 Codex bridge 的 stopWhen）→ 走 `runtimeHints.*`
+
+**这一步仍不改 Runtime 行为**。
+
+### 2c — ClaudeCode SDK Runtime 切到 compiler
+
+- `claude-client.ts` 的 system prompt 拼装 + MCP server 列表生成 + allowedTools 计算改成调 `compileContext` + 消费 `runtimeHints.claudecode_sdk`
+- Smoke + 单测都通过（等价测试 2b 已经覆盖）
+
+最孤立选择：ClaudeCode 路径是真值底座（capability prompt 来源大部分在 MCP 文件里），切过去最不容易踩坑。
+
+### 2d — Native Runtime 切到 compiler
+
+- `getBuiltinTools()` + Native 调用链改成 compiler-driven
+- 顺带消化 slice 7b tech-debt 中的 Native prompt drift（memory / notify / image media block）
+
+### 2e — Codex Runtime（bridge）切到 compiler
+
+- `unified-adapter.ts` 的 `combineInstructions` / `mergeToolSets` 改成 compiler 输出
+- `builtin-bridge.ts` 的 `WIDGET_PROMPT` / `MEDIA_PROMPT` / `MEMORY_PROMPT` / `NOTIFY_PROMPT` 全部从 compiler 拿，不在 bridge 本地存
+- Codex-specific 信息（`stopWhen: stepCountIs(8)`、`builtinToolNames` 抑制集合、`passthroughTools` 列表）走 `runtimeHints.codex_proxy`
+
+至此三个 Runtime 都只是 compiler 的 adapter。
+
+## 防回归测试（用户列表 + 扩展）
+
+来自用户必须满足的 6 条：
+
+1. **media_import fragment 来源稳定** — 编译结果中 `media_import` 的 `CapabilityFragment` 必须 `sourceFile === 'src/lib/media-import-mcp.ts'` 且 `sourceExport === 'MEDIA_MCP_SYSTEM_PROMPT'`。漂移到 builtin-tools/media.ts 的 paraphrase 触发 fail。
+2. **assistant_buddy 仍 deferred** — `enabledCapabilities = null` + Codex Runtime 编译时，`assistant_buddy` 不能出现在 `capabilityFragments` 也不能出现在 `toolDescriptors`；`diagnostics.capabilityDecisions` 必须有一条 `{id: 'assistant_buddy', decision: 'excluded', reason: 'status=deferred, codex_proxy=unsupported'}`。
+3. **Widget wire format 单一来源** — 编译结果的 widget artifact contract 必须 `canonicalJson === CANONICAL_SHOW_WIDGET_JSON`（从 widget-guidelines.ts 导入），且 `JSON.parse` + `parseAllShowWidgets` round-trip 成功。
+4. **live capability prompt 全部进入** — 对每个 live capability（widget / memory / tasks_and_notify / image_generation / media_import），编译结果都至少有一个 `CapabilityFragment` 引用它的 `systemPromptFragment` 源。
+5. **无 paraphrase 重复** — 整个 `CompiledContext` 中没有任何两个 `CapabilityFragment` 的 `text` 是相似不同（编辑距离 < 5%）的；同一 `fragmentId` 只出现一次。
+6. **Runtime 只 adapt 不 redefine** — 测试在 2e 完成后检查 `builtin-bridge.ts` 不再持有 `const WIDGET_PROMPT = ...` 这类标量；所有 prompt 文本必须能溯源到 compiler 调用结果。
+
+额外（compiler 自身正确性）：
+
+7. **顺序契约** — `compiledContext.capabilityFragments` 的顺序与 `HARNESS_CAPABILITIES` 数组顺序一致（去除 disabled / deferred）。
+8. **预算契约** — 当 `systemPromptMax` 不够装 base + artifact contracts + live capability fragments 时，编译失败（不允许静默裁掉关键内容）。
+9. **跨 Runtime fragment text 同源** — 对每个 live capability，三个 RuntimeId 下编出来的同一 `fragmentId` 的 `text` 必须严格相等。
+
+## 接受标准
+
+Phase 2 标 ✅ 的硬性条件：
+
+- 2a 单测全绿（compiler 纯函数行为）
+- 2b 等价测试全绿（compiler 输出 ⊇ 三个 Runtime 现有 prompt fragments，多余的内容必须有 `runtimeHints.*` 来源）
+- 2c / 2d / 2e 各自的 Runtime 切到 compiler 后：
+  - `npm run test` 全绿
+  - `CODEX_DISABLED=1 npx tsx --test src/__tests__/unit/harness-*.test.ts` 全绿
+  - Codex 路径要再跑 `codex-widget-format-contract.test.ts` 和 `codex-builtin-bridge.test.ts`，确保已有 contract 没破
+- 上述 9 条防回归测试全绿
+- handover 文档 `docs/handover/harness-capability-contract.md` 补充 Compiler 章节（输入 / 输出 / 边界 / 迁移现状）
+
+## 不做
+
+- ❌ 不在 Phase 2 改用户可见行为；如果 2c-2e 切换过程中发现 Runtime 行为有差异，差异本身不能由本计划解决（要么走 prompt drift 修复列入 slice 8，要么走 Phase 3 Runtime Capability Adapter）
+- ❌ 不引入新的运行时依赖（不引 tiktoken / langchain；token 估算用简易实现）
+- ❌ 不增加新 capability；catalog 由 capability-contract.ts 拥有，Compiler 只消费
+- ❌ 不改 capability-contract.ts 的字段集（Phase 2 不重设计 contract；如果 compiler 需要 contract 添字段，单独 follow-up）
+- ❌ 不动 SSE / artifact 渲染层（Phase 4 范围）
+
+## 风险与开放问题
+
+| 问题 | 影响 | 解决方向 |
+|---|---|---|
+| Token 估算误差大可能让 budget 误判 | 边界场景下 memory fragment 被错误裁剪 | 第一版用简易估算 + 单测覆盖；如发现实际偏差超 30% 在 Phase 2 内补 |
+| Runtime-specific hints 边界模糊 | 例如 Codex 的 stopWhen 算 hint 还是 capability 自身属性 | 默认走 `runtimeHints.codex_proxy`；任何能被多个 Runtime 共享的属性升级到 capability-contract.ts |
+| Native Runtime 的关键词 gating 逻辑可能要重写 | claude-client.ts 当前的 gate 逻辑分散且 ad-hoc | 2c 切换时把 gate 决策合并进 `enabledCapabilities` 计算 + `userPrompt` 判定，集中在调用方 |
+| assistant_buddy 在 ClaudeCode/Native 是 live capability 的一部分 | 但被 split 出 capability-contract.ts 后单独存在 | 编译时按 capability.id 决策；2c-2e 切换时需要确认现有 Runtime 没硬编码 hatch_buddy 工具名 |
+| 现有 prompt 含有不在 capability-contract.ts 里的内容（例如 ClaudeCode 的 ToolHooks 提示） | 2b 等价测试可能 fail | 这些内容归入 `workspaceFragments` 或 `runtimeHints.*`，不强行塞进 capability fragments |
+
+## 决策日志
+
+- 2026-05-16：单独立 Phase 2 sub-plan。父计划 `phase-5d-harness-capability-contract.md` 的 `Phase 2 — Context Compiler 边界` 是顶层描述；本文件是可执行的设计文档。
+- 2026-05-16：Compiler 是纯函数 + 不做 IO 的硬约束。理由：测试性、可在任何环境构造输入复现、为 Phase 3 Runtime Capability Adapter 提供可静态分析的输入。
+- 2026-05-16：迁移顺序 ClaudeCode → Native → Codex。理由：ClaudeCode 路径的 prompt 源大部分已经是 capability-contract.ts 引用的 MCP 文件（authoritative），切换风险最小；Codex bridge 放最后是因为它的 prompt 现状已经在 slice 7 de-drift 到 canonical，2e 主要是抹去最后的 `WIDGET_PROMPT` 标量。
+- 2026-05-16：Token 估算先简易实现。如果实际遇到 30% 以上偏差再引入 tokenizer 依赖；不在本 Phase 设计前预设。
+- 2026-05-16：不解决 Native prompt drift（memory / notify / image MediaBlock）。它们记在 slice 7b tech-debt，2d 切换 Native 时**顺带消化但不强求**；硬目标是等价，不是把 drift 都修光。
+
+## 反向链接
+
+- 父：[phase-5d-harness-capability-contract.md](./phase-5d-harness-capability-contract.md)
+- 真值底座：[../../handover/harness-capability-contract.md](../../handover/harness-capability-contract.md) + `src/lib/harness/capability-contract.ts`
+- 防回归源：`harness-capability-contract.test.ts`、`codex-widget-format-contract.test.ts`
+- Phase 5c context（背景痛点）：[phase-5c-codex-tool-bridge.md](./phase-5c-codex-tool-bridge.md)
