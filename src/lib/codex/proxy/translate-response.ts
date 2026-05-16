@@ -44,12 +44,18 @@ interface TranslateResponseOptions {
   responseId: string;
   model: string;
   result: NonStreamResultLite;
+  /** Phase 5c (2026-05-16) — names belonging to the CodePilot
+   *  built-in tool bridge. function_call entries with these names
+   *  are dropped from the Codex-visible output[] because the bridge
+   *  already executed them server-side. */
+  builtinToolNames?: ReadonlySet<string>;
 }
 
 export function translateNonStreamResponse(
   opts: TranslateResponseOptions,
 ): ResponsesNonStreamResponse {
   const { responseId, model, result } = opts;
+  const builtinToolNames = opts.builtinToolNames ?? new Set<string>();
   const output: ResponsesNonStreamResponse['output'] = [];
 
   let idx = 0;
@@ -62,6 +68,9 @@ export function translateNonStreamResponse(
     });
   }
   for (const call of result.toolCalls ?? []) {
+    // Phase 5c — skip bridge-owned tool calls; Codex doesn't need to
+    // see them (matches the suppression rule in translate-stream).
+    if (builtinToolNames.has(call.toolName)) continue;
     output.push({
       id: `tool_${responseId}_${idx++}`,
       type: 'function_call',

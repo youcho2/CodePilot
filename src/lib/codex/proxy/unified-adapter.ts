@@ -23,7 +23,14 @@
  * error via `classifyUpstreamError` / `makeFailureStream`.
  */
 
-import { streamText, generateText, type ModelMessage, type LanguageModel, type ToolSet } from 'ai';
+import {
+  streamText,
+  generateText,
+  stepCountIs,
+  type ModelMessage,
+  type LanguageModel,
+  type ToolSet,
+} from 'ai';
 import { createModel } from '@/lib/ai-provider';
 import { translateResponsesInput } from './translate-input';
 import { translateResponsesTools } from './translate-tools';
@@ -31,6 +38,7 @@ import { translateStream } from './translate-stream';
 import { translateNonStreamResponse } from './translate-response';
 import { encodeEvent, encodeDone, makeFailureStream } from './sse';
 import { makeErrorResult, classifyUpstreamError } from './errors';
+import { createCodePilotBuiltinTools } from './builtin-bridge';
 import type { ResponsesAdapter } from './adapter';
 import type {
   ResponsesEvent,
@@ -82,10 +90,10 @@ export function createUnifiedAdapter(family: string): ResponsesAdapter {
 
     // 2. Translate Responses input → ai-sdk messages + tools.
     let messages: ModelMessage[];
-    let tools: ToolSet | undefined;
+    let codexTools: ToolSet | undefined;
     try {
       messages = buildMessages(input.body);
-      tools = translateResponsesTools(input.body.tools) as ToolSet | undefined;
+      codexTools = translateResponsesTools(input.body.tools) as ToolSet | undefined;
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       const code = /unsupported tool kind/i.test(message)
@@ -94,16 +102,43 @@ export function createUnifiedAdapter(family: string): ResponsesAdapter {
       return makeErrorResult(code, message, { family });
     }
 
-    const providerOptions = buildProviderOptions(input.body);
+    // Phase 5c (2026-05-16) — mount the CodePilot built-in tool
+    // bridge. The bridge returns an empty result when the runtime
+    // didn't supply a sessionId (older builds / chat-less smoke) or
+    // when the target is codex_account — in both cases the rest of
+    // the adapter behaves exactly as it did pre-5c.
+    //
+    // Built-in tools take PRIORITY over any same-name function tool
+    // Codex may have sent (it shouldn't — Codex tools are prefixed
+    // with non-`codepilot_` names — but defence in depth so future
+    // Codex schema overlap can't silently replace our handler with
+    // a no-op).
+    const bridge = createCodePilotBuiltinTools({
+      sessionId: input.sessionId,
+      workspacePath: input.workspacePath,
+      targetProviderId: input.targetProviderId,
+    });
+    const tools: ToolSet | undefined = mergeToolSets(codexTools, bridge.tools);
+
+    // Prepend the bridge's system prompt to Codex's `instructions`
+    // so the model knows which built-in tools exist + when to use
+    // them. We splice rather than overwrite — Codex's instructions
+    // contain user-facing copy we MUST NOT drop.
+    const bodyWithBridgePrompt = bridge.systemPrompt.length > 0
+      ? { ...input.body, instructions: combineInstructions(input.body.instructions, bridge.systemPrompt) }
+      : input.body;
+
+    const providerOptions = buildProviderOptions(bodyWithBridgePrompt);
     const wantsStream = input.body.stream !== false;
 
     if (wantsStream) {
       return streamPath({
         responseId,
-        body: input.body,
+        body: bodyWithBridgePrompt,
         languageModel,
         messages,
         tools,
+        builtinToolNames: bridge.toolNames,
         providerOptions,
         signal: input.signal,
         family,
@@ -112,15 +147,36 @@ export function createUnifiedAdapter(family: string): ResponsesAdapter {
 
     return nonStreamPath({
       responseId,
-      body: input.body,
+      body: bodyWithBridgePrompt,
       languageModel,
       messages,
       tools,
+      builtinToolNames: bridge.toolNames,
       providerOptions,
       signal: input.signal,
       family,
     });
   };
+}
+
+/**
+ * Merge Codex's function tools with the bridge's executable tools.
+ * Bridge tools win on name collision (see comment in the call site).
+ * Returns `undefined` when both sides are empty so ai-sdk gets the
+ * "no tools" signal (it distinguishes `tools: undefined` from
+ * `tools: {}` in some places).
+ */
+function mergeToolSets(codex: ToolSet | undefined, bridge: ToolSet): ToolSet | undefined {
+  const merged: ToolSet = { ...(codex ?? {}), ...bridge };
+  return Object.keys(merged).length > 0 ? merged : undefined;
+}
+
+function combineInstructions(codexInstructions: string | undefined, bridgePrompt: string): string {
+  if (!codexInstructions || codexInstructions.length === 0) return bridgePrompt;
+  // Bridge prompt FIRST so the tool capability declarations land at
+  // the top of the system message; Codex's own instructions follow
+  // and can still reference them.
+  return `${bridgePrompt}\n\n${codexInstructions}`;
 }
 
 interface PathInput {
@@ -129,13 +185,32 @@ interface PathInput {
   languageModel: LanguageModel;
   messages: ModelMessage[];
   tools: ToolSet | undefined;
+  /** Names belonging to the bridge — Codex doesn't need their
+   *  function_call events because the bridge already executed them.
+   *  See `translate-stream.ts` for the suppression logic. */
+  builtinToolNames: ReadonlySet<string>;
   providerOptions: AiProviderOptions | undefined;
   signal: AbortSignal;
   family: string;
 }
 
+/**
+ * Phase 5c (2026-05-16) — multi-step ceiling for streamText.
+ *
+ * Codex's protocol expects a single response per HTTP call, but
+ * ai-sdk lets the model continue after a server-side tool execute()
+ * returns. The bridge needs that loop so `codepilot_generate_image`
+ * can produce an image AND the model can follow up with explanatory
+ * text in the same turn — without `stopWhen` ai-sdk stops after the
+ * first step (legacy behaviour). 8 is empirical: enough for chained
+ * tools (memory read → image gen → narration → schedule task), low
+ * enough that a confused model loop terminates instead of looping
+ * indefinitely on tool calls.
+ */
+const BUILTIN_BRIDGE_STEP_LIMIT = 8;
+
 function streamPath(args: PathInput): ProxyResult {
-  const { responseId, body, languageModel, messages, tools, providerOptions, signal, family } = args;
+  const { responseId, body, languageModel, messages, tools, builtinToolNames, providerOptions, signal, family } = args;
 
   let result: ReturnType<typeof streamText>;
   try {
@@ -145,6 +220,12 @@ function streamPath(args: PathInput): ProxyResult {
       tools,
       providerOptions,
       abortSignal: signal,
+      // Phase 5c: only enable multi-step when bridge tools are
+      // actually mounted. For pre-5c chat-only smoke runs (no
+      // sessionId, no bridge), keep the single-step legacy behaviour
+      // so we don't accidentally change the wire of currently passing
+      // smoke matrix entries.
+      ...(builtinToolNames.size > 0 ? { stopWhen: stepCountIs(BUILTIN_BRIDGE_STEP_LIMIT) } : {}),
     });
   } catch (err) {
     const classified = classifyUpstreamError(err);
@@ -170,6 +251,7 @@ function streamPath(args: PathInput): ProxyResult {
           responseId,
           body,
           source: result.fullStream,
+          builtinToolNames,
         });
         for await (const event of events) {
           controller.enqueue(encodeEvent(event));
@@ -203,7 +285,7 @@ function streamPath(args: PathInput): ProxyResult {
 }
 
 async function nonStreamPath(args: PathInput): Promise<ProxyResult> {
-  const { responseId, body, languageModel, messages, tools, providerOptions, signal, family } = args;
+  const { responseId, body, languageModel, messages, tools, builtinToolNames, providerOptions, signal, family } = args;
   try {
     const result = await generateText({
       model: languageModel,
@@ -211,6 +293,10 @@ async function nonStreamPath(args: PathInput): Promise<ProxyResult> {
       tools,
       providerOptions,
       abortSignal: signal,
+      // Same step ceiling as streamPath — kept symmetric so the
+      // non-stream path doesn't surprise callers that switch
+      // between stream:true/false at runtime.
+      ...(builtinToolNames.size > 0 ? { stopWhen: stepCountIs(BUILTIN_BRIDGE_STEP_LIMIT) } : {}),
     });
     const responseBody = translateNonStreamResponse({
       responseId,
@@ -226,6 +312,7 @@ async function nonStreamPath(args: PathInput): Promise<ProxyResult> {
         totalUsage: result.totalUsage,
         usage: result.usage,
       },
+      builtinToolNames,
     });
     return { kind: 'json', body: responseBody };
   } catch (err) {

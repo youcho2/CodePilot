@@ -49,6 +49,7 @@ import {
   buildCodexThreadParams,
   resolveCodexProxyBaseUrl,
 } from './provider-proxy';
+import { subscribeBuiltinEvents } from './proxy/builtin-event-bus';
 import {
   getRuntimeSessionRef,
   setRuntimeSessionRef,
@@ -318,6 +319,25 @@ export const codexRuntime: AgentRuntime = {
             );
             unsubscribers.push(unsubReq);
           }
+
+          // ── CodePilot built-in tool bridge subscription (Phase 5c) ──
+          // Side-channel events emitted by the proxy's bridge tools
+          // (`codepilot_generate_image` execute() etc.) flow through
+          // here. Subscribing BEFORE turn/start so even tools the
+          // model calls in its very first step land on this listener.
+          // The unsubscribe runs in closeStream via `unsubscribers`.
+          //
+          // Same materializeCodexEventMedia step the JSON-RPC path
+          // uses — image paths outside `<dataDir>/.codepilot-media`
+          // get imported here so `/api/media/serve` will accept them.
+          const unsubBridge = subscribeBuiltinEvents(sessionId, (event) => {
+            const materialised = materializeCodexEventMedia(event, {
+              sessionId,
+              cwd: options.workingDirectory,
+            });
+            tryEnqueue(canonicalToSseLine(materialised ?? event));
+          });
+          unsubscribers.push(unsubBridge);
 
           // ── proxy-injection params (Phase 5b) ───────────────────────
           // `buildCodexThreadParams` returns the same shape that both

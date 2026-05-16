@@ -66,6 +66,15 @@ interface TranslateStreamOptions {
   /** ai-sdk fullStream. Tools type is intentionally unconstrained —
    *  the translator only reads on `type` discriminants. */
   source: AsyncIterable<TextStreamPart<ToolSet>>;
+  /** Phase 5c (2026-05-16) — names of tools the proxy itself
+   *  executes through the CodePilot built-in bridge. Codex doesn't
+   *  need (and shouldn't see) function_call output_items for these
+   *  because the bridge already handled them in `execute()` — the
+   *  result reaches CodePilot's UI via the side-channel event bus.
+   *  Leaking these calls to Codex causes the same "Codex tries to
+   *  execute a tool it doesn't know" failure mode that motivated the
+   *  bridge in the first place. */
+  builtinToolNames?: ReadonlySet<string>;
 }
 
 /**
@@ -77,12 +86,17 @@ export async function* translateStream(
   opts: TranslateStreamOptions,
 ): AsyncGenerator<ResponsesEvent, void, void> {
   const { responseId, body, source } = opts;
+  const builtinToolNames = opts.builtinToolNames ?? new Set<string>();
 
   let nextOutputIndex = 0;
   const textIndices = new Map<string, number>();
   const textBuffers = new Map<string, string>();
   const toolIndices = new Map<string, number>();
   const toolNames = new Map<string, string>();
+  /** Phase 5c — track which tool-call ids belong to the built-in
+   *  bridge so we drop them on the way out (input-start / call /
+   *  result events for these names should never reach Codex). */
+  const suppressedToolCallIds = new Set<string>();
   let terminalEmitted = false;
 
   try {
@@ -156,6 +170,16 @@ export async function* translateStream(
         }
 
         case 'tool-input-start': {
+          // Phase 5c (2026-05-16) — bridge-owned tools: don't even
+          // reserve an output_index. Codex never sees the function
+          // call (the bridge ran it server-side), so allocating an
+          // index here would create gaps in the output_index
+          // sequence Codex's reader uses to address items.
+          if (builtinToolNames.has(part.toolName)) {
+            suppressedToolCallIds.add(part.id);
+            toolNames.set(part.id, part.toolName);
+            break;
+          }
           // Reserve the output_index but DON'T emit output_item.added
           // here — the SDK fixture only ever emits function_call
           // wholesale in `output_item.done`. Codex's reader doesn't
@@ -179,6 +203,19 @@ export async function* translateStream(
         }
 
         case 'tool-call': {
+          // Phase 5c — suppress when the bridge owns the tool. The
+          // ai-sdk loop will still call execute() (which emits the
+          // canonical tool_started + tool_completed via the side
+          // channel) and feed the result back to the model.
+          if (
+            builtinToolNames.has(part.toolName) ||
+            suppressedToolCallIds.has(part.toolCallId)
+          ) {
+            suppressedToolCallIds.add(part.toolCallId);
+            toolIndices.delete(part.toolCallId);
+            toolNames.delete(part.toolCallId);
+            break;
+          }
           // Final function_call envelope lands as `output_item.done`.
           // If the upstream skipped `tool-input-start` (some SDKs
           // emit only `tool-call`), synthesise the index here.
@@ -202,6 +239,20 @@ export async function* translateStream(
           };
           toolIndices.delete(part.toolCallId);
           toolNames.delete(part.toolCallId);
+          break;
+        }
+
+        case 'tool-result':
+        case 'tool-error': {
+          // Phase 5c — ai-sdk emits these after a tool with execute()
+          // returns. Codex has no Responses-API slot for tool results
+          // (they flow back as `function_call_output` in the NEXT
+          // turn's input), so a `tool-result` part is always either:
+          //   1. a bridge tool — drop (handled via side channel), OR
+          //   2. an upstream provider's own implicit tool execute
+          //      (rare; ai-sdk drops it from fullStream by default
+          //      because Codex tools have no execute()).
+          // Both cases drop silently.
           break;
         }
 
