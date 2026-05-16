@@ -76,7 +76,16 @@ export function makeToolStarted(
 
 export function makeToolCompleted(
   base: BaseInput,
-  args: { toolId: string; output?: unknown; error?: string },
+  args: {
+    toolId: string;
+    output?: unknown;
+    error?: string;
+    /** See `tool_completed` discussion in `runtime/contract.ts` —
+     *  optional MediaBlock list for image/audio/video tool results
+     *  (Codex imageGeneration / imageView etc.). Drives the SSE
+     *  `tool_result.media` channel that `MediaPreview` renders. */
+    media?: readonly import('@/types').MediaBlock[];
+  },
 ): Extract<RuntimeRunEvent, { type: 'tool_completed' }> {
   return { type: 'tool_completed', ...base, ...args };
 }

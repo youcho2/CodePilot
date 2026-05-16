@@ -73,12 +73,20 @@ function canonicalToSseLine(event: RuntimeRunEvent): string {
         data: JSON.stringify({ id: event.toolId, name: event.name, input: event.input ?? {} }),
       })}\n\n`;
     case 'tool_completed':
+      // Phase 5b smoke round 8 (2026-05-16) — forward `media` array
+      // through the SSE `tool_result.media` channel. `useSSEStream.ts`
+      // → `SSECallbacks.onToolResult` → `MediaPreview` consumes this
+      // to render image / audio / video tool results inline. Without
+      // this passthrough, Codex imageGeneration / imageView results
+      // appeared as JSON inside `content` and never rendered as a
+      // media card.
       return `data: ${JSON.stringify({
         type: 'tool_result',
         data: JSON.stringify({
           tool_use_id: event.toolId,
           content: event.output ?? '',
           ...(event.error ? { error: event.error } : {}),
+          ...(event.media && event.media.length > 0 ? { media: event.media } : {}),
         }),
       })}\n\n`;
     case 'command_started':

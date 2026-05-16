@@ -459,6 +459,68 @@ describe('translateCodexNotification — imageGeneration / imageView lifecycle (
     assert.equal(output.result, '<base64-data>', 'image_generation completion must expose the generated image data');
     assert.equal(output.savedPath, '/tmp/codex-img-1.png');
     assert.equal(output.revisedPrompt, 'a cat sitting on a chair');
+    // Phase 5b smoke round 8 — also emit MediaBlock so the chat-side
+    // MediaPreview renders the image inline. The completed event is
+    // the only surface where the image data reaches the UI; without
+    // a media field the renderer would only get the JSON payload.
+    assert.ok(event.media && event.media.length === 1, 'imageGeneration completion must emit a MediaBlock array');
+    const media = event.media![0];
+    assert.equal(media.type, 'image');
+    assert.equal(media.mimeType, 'image/png', 'mimeType inferred from savedPath extension');
+    assert.equal(media.localPath, '/tmp/codex-img-1.png', 'savedPath becomes localPath so MediaPreview reads from disk');
+  });
+
+  it('imageGeneration with base64 result but no savedPath puts the data inline (no localPath)', () => {
+    // Some Codex flows return inline base64 without writing to disk.
+    // The MediaBlock should carry `data` instead of `localPath`;
+    // MediaPreview branches on which field is present.
+    const event = translateCodexNotification(
+      'item/completed',
+      {
+        item: {
+          type: 'imageGeneration',
+          id: 'img-2',
+          status: 'completed',
+          revisedPrompt: null,
+          result: 'iVBORw0KGgo...',
+        },
+        threadId: 't',
+        turnId: 'u',
+        completedAtMs: 0,
+      },
+      ctx,
+    );
+    if (event?.type !== 'tool_completed') throw new Error('unreachable');
+    const media = event.media?.[0];
+    assert.ok(media, 'inline-result variant must still emit a MediaBlock');
+    assert.equal(media!.type, 'image');
+    assert.equal(media!.mimeType, 'image/png', 'no savedPath → fall back to image/png default');
+    assert.equal(media!.data, 'iVBORw0KGgo...');
+    assert.equal(media!.localPath, undefined, 'no path → omit localPath');
+  });
+
+  it('imageGeneration with neither savedPath NOR result emits no media (degraded but visible)', () => {
+    // Failed mid-flight or status='error' generations. Don't pretend
+    // we have a renderable image — let the chat surface the
+    // structured output JSON instead.
+    const event = translateCodexNotification(
+      'item/completed',
+      {
+        item: {
+          type: 'imageGeneration',
+          id: 'img-3',
+          status: 'failed',
+          revisedPrompt: null,
+          result: '',
+        },
+        threadId: 't',
+        turnId: 'u',
+        completedAtMs: 0,
+      },
+      ctx,
+    );
+    if (event?.type !== 'tool_completed') throw new Error('unreachable');
+    assert.equal(event.media, undefined, 'no usable image data → omit media so MediaPreview skips this row');
   });
 
   it('imageView item/started → tool_started with image_view toolName + path input', () => {
@@ -479,11 +541,11 @@ describe('translateCodexNotification — imageGeneration / imageView lifecycle (
     assert.equal(input.path, '/Users/me/photos/x.png');
   });
 
-  it('imageView item/completed → tool_completed (preserves path for chat-side renderer)', () => {
+  it('imageView item/completed → tool_completed with MediaBlock(localPath, mimeType from extension)', () => {
     const event = translateCodexNotification(
       'item/completed',
       {
-        item: { type: 'imageView', id: 'view-1', path: '/Users/me/photos/x.png' },
+        item: { type: 'imageView', id: 'view-1', path: '/Users/me/photos/x.jpeg' },
         threadId: 't',
         turnId: 'u',
         completedAtMs: 0,
@@ -493,7 +555,29 @@ describe('translateCodexNotification — imageGeneration / imageView lifecycle (
     assert.ok(event);
     if (event!.type !== 'tool_completed') throw new Error(`expected tool_completed, got ${event!.type}`);
     const output = event.output as { path: string };
-    assert.equal(output.path, '/Users/me/photos/x.png');
+    assert.equal(output.path, '/Users/me/photos/x.jpeg');
+    // Phase 5b smoke round 8 — also emit MediaBlock for the renderer.
+    assert.ok(event.media && event.media.length === 1);
+    const media = event.media![0];
+    assert.equal(media.type, 'image');
+    assert.equal(media.localPath, '/Users/me/photos/x.jpeg');
+    assert.equal(media.mimeType, 'image/jpeg', 'mimeType inferred from .jpeg extension');
+  });
+
+  it('imageView with unknown extension falls back to image/png mimeType', () => {
+    const event = translateCodexNotification(
+      'item/completed',
+      {
+        item: { type: 'imageView', id: 'view-1', path: '/tmp/no-ext-file' },
+        threadId: 't',
+        turnId: 'u',
+        completedAtMs: 0,
+      },
+      ctx,
+    );
+    if (event?.type !== 'tool_completed') throw new Error('unreachable');
+    const media = event.media?.[0];
+    assert.equal(media?.mimeType, 'image/png', 'fallback mimeType when extension is missing / unknown');
   });
 });
 

@@ -27,6 +27,7 @@
  */
 
 import type { RuntimeId } from './runtime-id';
+import type { MediaBlock } from '@/types';
 
 // ─────────────────────────────────────────────────────────────────────
 // Session reference
@@ -108,6 +109,17 @@ export type RuntimeRunEvent =
       toolId: string;
       output?: unknown;
       error?: string;
+      /**
+       * Optional media payload for tools whose output is an image /
+       * audio / video file (Codex `imageGeneration`, `imageView`, MCP
+       * tool results carrying image data, etc.). Surfaced through the
+       * SSE `tool_result.media` channel so `useSSEStream.ts` →
+       * `SSECallbacks.onToolResult` → `MediaPreview` can render the
+       * file inline. Pre-Phase-5b-smoke-round-8 this field didn't
+       * exist; Codex image generation completed but the result hid
+       * inside the JSON-stringified `output` and was never rendered.
+       */
+      media?: readonly MediaBlock[];
     })
   | (RuntimeRunEventBase & {
       type: 'command_started';

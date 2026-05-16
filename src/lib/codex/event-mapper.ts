@@ -542,6 +542,29 @@ function translateItemCompleted(
       error: errorIfAny,
     });
   }
+  // imageGeneration / imageView — emit MediaBlock so the chat-side
+  // MediaPreview renders the image inline. Without this, the result
+  // lived inside the JSON-stringified `output` and never reached
+  // the SSE `tool_result.media` channel that `useSSEStream.ts`
+  // forwards to `MediaPreview` — the silent-completion behaviour the
+  // user saw on GPT-Image-2.0 even after round 7 surfaced the
+  // tool_completed event.
+  if (item.type === 'imageGeneration') {
+    const media = buildImageGenerationMedia(item);
+    return makeToolCompleted(base, {
+      toolId: id,
+      output: item,
+      ...(media ? { media: [media] } : {}),
+    });
+  }
+  if (item.type === 'imageView') {
+    const media = buildImageViewMedia(item);
+    return makeToolCompleted(base, {
+      toolId: id,
+      output: item,
+      ...(media ? { media: [media] } : {}),
+    });
+  }
   // For tool-like items — generic output via item shape; runtime
   // adapter doesn't need to differentiate.
   if (item.type && TOOL_LIKE_ITEM_TYPES.has(item.type)) {
@@ -760,6 +783,76 @@ export function synthesizeFileChangedFromCompletedItem(
  * Returns `null` for `null` / unknown inputs so the caller can omit
  * the suffix instead of appending an empty parenthesis.
  */
+/**
+ * Phase 5b smoke round 8 (2026-05-16) — derive a MediaBlock from a
+ * Codex `imageGeneration` item. Codex's schema (see
+ * `资料/codex/codex-rs/app-server-protocol/schema/typescript/v2/ThreadItem.ts`):
+ *
+ *   { type: 'imageGeneration', id, status, revisedPrompt, result, savedPath? }
+ *
+ * `savedPath` is what Codex auto-saved to disk; `result` is the raw
+ * base64 (only present when Codex didn't save automatically). Both
+ * can be absent if the generation failed mid-flight — in that case
+ * we return null and the chat-side falls back to the structured
+ * `output` JSON, which at least surfaces "image generation finished"
+ * without an image.
+ *
+ * mimeType: there's no explicit field, so we infer from `savedPath`
+ * extension when present, else fall back to image/png (the GPT-Image-2.0
+ * default).
+ */
+function buildImageGenerationMedia(item: ThreadItemLike): import('@/types').MediaBlock | null {
+  const savedPath = typeof item.savedPath === 'string' ? item.savedPath : undefined;
+  const result = typeof item.result === 'string' ? item.result : undefined;
+  if (!savedPath && !result) return null;
+  const mimeType = savedPath ? mimeTypeFromPath(savedPath) ?? 'image/png' : 'image/png';
+  return {
+    type: 'image',
+    mimeType,
+    ...(savedPath ? { localPath: savedPath } : {}),
+    ...(result && !savedPath ? { data: result } : {}),
+  };
+}
+
+/**
+ * Phase 5b smoke round 8 (2026-05-16) — derive a MediaBlock from a
+ * Codex `imageView` item. Schema:
+ *
+ *   { type: 'imageView', id, path: AbsolutePathBuf }
+ *
+ * imageView always has a path (Codex doesn't surface raw base64 here).
+ * mimeType is inferred from the extension.
+ */
+function buildImageViewMedia(item: ThreadItemLike): import('@/types').MediaBlock | null {
+  const path = typeof item.path === 'string' ? item.path : undefined;
+  if (!path) return null;
+  return {
+    type: 'image',
+    mimeType: mimeTypeFromPath(path) ?? 'image/png',
+    localPath: path,
+  };
+}
+
+/** Map a small set of common image extensions to MIME types. Anything
+ *  unknown returns null so the caller can fall back to a sensible
+ *  default. */
+function mimeTypeFromPath(path: string): string | null {
+  const idx = path.lastIndexOf('.');
+  if (idx < 0) return null;
+  const ext = path.slice(idx + 1).toLowerCase();
+  switch (ext) {
+    case 'png': return 'image/png';
+    case 'jpg':
+    case 'jpeg': return 'image/jpeg';
+    case 'gif': return 'image/gif';
+    case 'webp': return 'image/webp';
+    case 'svg': return 'image/svg+xml';
+    case 'bmp': return 'image/bmp';
+    case 'avif': return 'image/avif';
+    default: return null;
+  }
+}
+
 function describeCodexErrorInfo(info: unknown): string | null {
   if (info == null) return null;
   if (typeof info === 'string') return info;
