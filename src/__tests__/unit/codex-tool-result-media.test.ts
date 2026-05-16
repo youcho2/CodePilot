@@ -98,7 +98,9 @@ describe('canonicalToSseLine emits tool_result.media (source-level pin)', () => 
     // confirm `media: event.media` (or the conditional shape we use)
     // is in the SSE data payload. Source-grep rather than runtime so
     // the test doesn't have to mock the full event stream.
-    const toolCompletedArm = runtimeSrc.match(/case 'tool_completed':[\s\S]{0,1500}?\n {4}case /);
+    // Window widened in round 10 — explanatory comment in the arm
+    // grew past the old 1500-char ceiling after the is_error fix.
+    const toolCompletedArm = runtimeSrc.match(/case 'tool_completed':[\s\S]{0,3000}?\n {4}case /);
     assert.ok(toolCompletedArm, 'tool_completed arm must exist in canonicalToSseLine');
     assert.match(
       toolCompletedArm![0],

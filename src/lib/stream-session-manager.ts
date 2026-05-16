@@ -125,6 +125,116 @@ function getListenersMap(): Map<string, Set<StreamEventListener>> {
 // Helpers
 // ==========================================
 
+/**
+ * Build the persisted `messages.content` JSON for a completed turn.
+ *
+ * Phase 5b smoke round 10 (2026-05-16) — extracted into a pure helper
+ * so the active-stream completion path and the persistence path share
+ * one definition, and so we can unit-test all four corner cases:
+ *
+ *   text only          → return `accumulated.trim()` (no JSON envelope)
+ *   thinking only      → blocks: [thinking]
+ *   tool-only          → blocks: [tool_use+tool_result pairs + orphan
+ *                                 tool_results]
+ *   any combination    → blocks include text + thinking + tool pairs
+ *
+ * The pre-fix guard `(hasTools || hasThinking) && (messageContent ||
+ * hasThinking)` returned null when only tools were present without any
+ * text, which is exactly the GPT-Image / imageView shape: tool_use +
+ * tool_result with media, no continuation prose. Net result: the
+ * stream completed, but `finalMessageContent: null` meant
+ * stream-session-manager never appended the assistant message to
+ * the current chat, and the user had to switch sessions for the
+ * DB re-fetch to pick it up.
+ *
+ * Orphan results (matched tool_result with no matching tool_use in
+ * the array) used to be dropped on persistence even though
+ * MessageItem.pairTools() can render them. The new helper walks the
+ * remaining tool_results AFTER pairing and writes each one as a
+ * standalone tool_result block.
+ *
+ * `tool_result.content` is forced to string defensively — the SSE
+ * boundary in `codex/runtime.ts:stringifyToolResultContent` is the
+ * primary normalisation, but a non-string here would still break the
+ * MessageContentBlock type contract.
+ *
+ * Returns null only when EVERY signal is empty (no text, no thinking,
+ * no tools at all). Caller treats null as "no assistant message
+ * worth persisting", which is correct for that case.
+ */
+export function buildFinalMessageContent(args: {
+  accumulated: string;
+  thinking: string;
+  toolUses: readonly ToolUseInfo[];
+  toolResults: readonly ToolResultInfo[];
+}): string | null {
+  const text = args.accumulated.trim();
+  const thinking = args.thinking;
+  const toolUses = args.toolUses;
+  const toolResults = args.toolResults;
+
+  const hasText = text.length > 0;
+  const hasThinking = thinking.length > 0;
+  const hasTools = toolUses.length > 0 || toolResults.length > 0;
+
+  if (!hasText && !hasThinking && !hasTools) return null;
+
+  // Pure text turn — keep the lightweight string form for
+  // back-compat with MessageItem's "plain text" fast path.
+  if (hasText && !hasThinking && !hasTools) return text;
+
+  const blocks: Array<Record<string, unknown>> = [];
+  if (hasThinking) {
+    blocks.push({ type: 'thinking', thinking });
+  }
+  if (hasText) {
+    blocks.push({ type: 'text', text });
+  }
+  const consumedResultIds = new Set<string>();
+  for (const tu of toolUses) {
+    blocks.push({ type: 'tool_use', id: tu.id, name: tu.name, input: tu.input });
+    const tr = toolResults.find(r => r.tool_use_id === tu.id && !consumedResultIds.has(r.tool_use_id));
+    if (tr) {
+      consumedResultIds.add(tr.tool_use_id);
+      blocks.push({
+        type: 'tool_result',
+        tool_use_id: tr.tool_use_id,
+        content: normalizeContentToString(tr.content),
+        ...(tr.is_error ? { is_error: true } : {}),
+        ...(tr.media && tr.media.length > 0 ? { media: tr.media } : {}),
+      });
+    }
+  }
+  // Phase 5b smoke round 10 — orphan tool_results (no matching
+  // tool_use in this turn) still need to land in the persisted
+  // content. MessageItem.pairTools() already renders orphan results;
+  // dropping them at this layer is what made "tool completed but no
+  // image" survive into history even though the stream had it.
+  for (const tr of toolResults) {
+    if (consumedResultIds.has(tr.tool_use_id)) continue;
+    blocks.push({
+      type: 'tool_result',
+      tool_use_id: tr.tool_use_id,
+      content: normalizeContentToString(tr.content),
+      ...(tr.is_error ? { is_error: true } : {}),
+      ...(tr.media && tr.media.length > 0 ? { media: tr.media } : {}),
+    });
+  }
+  return JSON.stringify(blocks);
+}
+
+/** Defensive — content SHOULD be string by the time it reaches the
+ *  persistence layer (SSE boundary stringifies). Belt and braces. */
+function normalizeContentToString(value: unknown): string {
+  if (typeof value === 'string') return value;
+  if (value === null || value === undefined) return '';
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
+}
+
 function buildSnapshot(stream: ActiveStream): SessionStreamSnapshot {
   return {
     sessionId: stream.sessionId,
@@ -583,41 +693,18 @@ async function runStream(stream: ActiveStream, params: StartStreamParams): Promi
     // Flush any pending throttled text update before building final content
     flushTextThrottle();
 
-    // Stream completed successfully — build final message content
+    // Stream completed successfully — build final message content via
+    // the shared helper that handles text-only / thinking-only /
+    // tool-only / mixed turns + orphan tool results.
     const accumulated = result.accumulated;
-    const finalToolUses = stream.toolUsesArray;
-    const finalToolResults = stream.toolResultsArray;
-    const hasTools = finalToolUses.length > 0 || finalToolResults.length > 0;
-
-    let messageContent = accumulated.trim();
-    // Combine all thinking phases for persistence
     const allThinking = [stream.fullThinking, stream.accumulatedThinking]
       .filter(s => s.trim()).join('\n\n---\n\n');
-    const hasThinking = allThinking.length > 0;
-    if ((hasTools || hasThinking) && (messageContent || hasThinking)) {
-      const contentBlocks: Array<Record<string, unknown>> = [];
-      // Include thinking block if present — rendered as collapsed Reasoning in MessageItem
-      if (hasThinking) {
-        contentBlocks.push({ type: 'thinking', thinking: allThinking });
-      }
-      if (accumulated.trim()) {
-        contentBlocks.push({ type: 'text', text: accumulated.trim() });
-      }
-      for (const tu of finalToolUses) {
-        contentBlocks.push({ type: 'tool_use', id: tu.id, name: tu.name, input: tu.input });
-        const tr = finalToolResults.find(r => r.tool_use_id === tu.id);
-        if (tr) {
-          contentBlocks.push({
-            type: 'tool_result',
-            tool_use_id: tr.tool_use_id,
-            content: tr.content,
-            ...(tr.is_error ? { is_error: true } : {}),
-            ...(tr.media && tr.media.length > 0 ? { media: tr.media } : {}),
-          });
-        }
-      }
-      messageContent = JSON.stringify(contentBlocks);
-    }
+    const messageContent = buildFinalMessageContent({
+      accumulated,
+      thinking: allThinking,
+      toolUses: stream.toolUsesArray,
+      toolResults: stream.toolResultsArray,
+    });
 
     // Update snapshot with completion info
     stream.snapshot = {
@@ -625,7 +712,7 @@ async function runStream(stream: ActiveStream, params: StartStreamParams): Promi
       phase: 'completed',
       completedAt: Date.now(),
       tokenUsage: result.tokenUsage,
-      finalMessageContent: messageContent || null,
+      finalMessageContent: messageContent,
       statusText: undefined,
       pendingPermission: null,
       permissionResolved: null,

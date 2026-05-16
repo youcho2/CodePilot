@@ -73,7 +73,7 @@ function canonicalToSseLine(event: RuntimeRunEvent): string {
         type: 'tool_use',
         data: JSON.stringify({ id: event.toolId, name: event.name, input: event.input ?? {} }),
       })}\n\n`;
-    case 'tool_completed':
+    case 'tool_completed': {
       // Phase 5b smoke round 8 (2026-05-16) — forward `media` array
       // through the SSE `tool_result.media` channel. `useSSEStream.ts`
       // → `SSECallbacks.onToolResult` → `MediaPreview` consumes this
@@ -81,15 +81,45 @@ function canonicalToSseLine(event: RuntimeRunEvent): string {
       // this passthrough, Codex imageGeneration / imageView results
       // appeared as JSON inside `content` and never rendered as a
       // media card.
+      //
+      // Phase 5b smoke round 10 (2026-05-16) — two correctness fixes
+      // at the SSE boundary:
+      //
+      //   1. `content` is typed `string` by both ToolResultInfo and
+      //      MessageContentBlock.tool_result. Codex's imageGeneration
+      //      hands us an object on `event.output`; the pre-fix code
+      //      passed that object directly through JSON.stringify of
+      //      the outer envelope, so the inner `content` became a
+      //      JSON-encoded object inside a JSON-encoded string —
+      //      working accidentally for primitives but tripping the UI
+      //      when downstream code does `String(content)` or trims it.
+      //      `stringifyToolResultContent` normalises to a stable
+      //      string at this boundary so everything downstream can
+      //      assume `content: string`.
+      //
+      //   2. `event.error` is the canonical "tool failed" channel,
+      //      but `useSSEStream.handleSSEEvent`'s `tool_result` case
+      //      reads `resultData.is_error` (matches the ClaudeCode SDK
+      //      / Anthropic Messages shape). Pre-fix we emitted a raw
+      //      `error: <text>` field which useSSEStream ignored, so
+      //      Codex tool failures rendered as a successful result
+      //      with a weird `error` extra key. Map the error onto
+      //      `is_error: true` + surface the message in `content` so
+      //      the UI's existing error rendering path picks it up.
+      const isError = typeof event.error === 'string' && event.error.length > 0;
+      const content = isError
+        ? event.error!
+        : stringifyToolResultContent(event.output);
       return `data: ${JSON.stringify({
         type: 'tool_result',
         data: JSON.stringify({
           tool_use_id: event.toolId,
-          content: event.output ?? '',
-          ...(event.error ? { error: event.error } : {}),
+          content,
+          ...(isError ? { is_error: true } : {}),
           ...(event.media && event.media.length > 0 ? { media: event.media } : {}),
         }),
       })}\n\n`;
+    }
     case 'command_started':
       return `data: ${JSON.stringify({
         type: 'tool_use',
@@ -491,3 +521,28 @@ export const codexRuntime: AgentRuntime = {
     // calls `disposeCodexAppServer()` directly.
   },
 };
+
+/**
+ * Normalize a `tool_completed.output` value into the STRING that
+ * `ToolResultInfo.content` / `MessageContentBlock.tool_result.content`
+ * both type. Codex hands us objects (e.g. imageGeneration carries
+ * the full ThreadItem.fileChange shape on `output`); we serialise
+ * stably so downstream code can assume `content: string` and the
+ * persisted message blocks survive a JSON round-trip cleanly.
+ *
+ * Exported for the SSE-contract unit test.
+ */
+export function stringifyToolResultContent(output: unknown): string {
+  if (output === null || output === undefined) return '';
+  if (typeof output === 'string') return output;
+  // For objects / arrays / numbers / booleans, JSON.stringify with
+  // sorted-key behaviour would be ideal for stable diffs but ai-sdk
+  // / persistence doesn't care about key order. Plain stringify.
+  try {
+    return JSON.stringify(output);
+  } catch {
+    // Circular / non-serialisable — fall back to toString so the
+    // chat surface still gets *something* instead of an empty string.
+    return String(output);
+  }
+}

@@ -1,8 +1,8 @@
 # Phase 5 — Codex Runtime 接入
 
 > 创建时间：2026-05-12
-> 最后更新：2026-05-15
-> 状态：🔄 核心链路已落地并过 review；下一步是 Phase 5b 一次性完成 CodePilot provider proxy translator，让 Codex Runtime 与 CodePilot Runtime 模型能力对齐（除 Claude Code 默认/env 模式），而不是只显示 Codex Account
+> 最后更新：2026-05-16
+> 状态：🔄 核心链路已落地并过 review；Phase 5b provider proxy translator 已落地但仍待真实 smoke；新增 Phase 5c CodePilot Tool Bridge 计划，用来补齐“Codex 原生 shell/file 能跑，但 CodePilot 内置工具尚未真正接上”的 P0 缺口
 > 协作边界：Codex 负责计划制定、方案审查和 Review；ClaudeCode 负责执行代码改动、测试和提交整理。除非用户明确重新授权，Codex 只改 `docs/` 下的计划 / 交接 / review 文档。
 > 上下文同步：本计划不是只给 ClaudeCode 的任务列表。执行前必须读完“讨论脉络”与“Runtime Contract Hardening”，理解为什么 Codex 不能降级成 `Codex Account only`，也不能用三套 runtime 私有语义直接污染 UI。
 
@@ -20,6 +20,7 @@
 8. 2026-05-14 验证结论：Codex Account 主链路已能实际跑通一轮 chat。UI 里选择 `Codex Runtime` + Codex Account 模型后，服务端日志显示走 `codex_runtime`，回复正常返回；`codex_account` 虚拟 provider、`runtime_pin='codex_runtime'` 白名单、`streamClaude` force-route 均已修过 review finding。
 9. 2026-05-14 取舍曾经写成“Settings 状态卡 + 模型选择 disclosure 同批发布，Codex Runtime 暂时只显示 Codex Account 模型”。这个口径只适合 scaffold 阶段，不能作为产品目标。
 10. 2026-05-15 用户修正：最终兼容目标不是“Codex Account only + 少量 OpenAI-compatible”，而是 **Codex Runtime 与 CodePilot Runtime 的模型能力对齐**。凡是 CodePilot Runtime（AI SDK / provider transport）今天能跑的模型，Codex Runtime 也应通过 CodePilot provider proxy 可用；唯一明确排除的是 Claude Code 默认/env 模式与 Claude Code CLI 私有账号路径。ClaudeCode-compatible / CodePlan 不能被永久延期成“后续再说”。Phase 5b 可以在代码内部按 adapter 轨道组织，但对外交付必须是一批完整实现，不接受先交 OpenAI-compatible 再反复补其它 provider 的半成品。
+11. 2026-05-16 真实 smoke 发现新的 P0：Codex Runtime 的 **Codex 原生 shell/file 能跑**，例如能用 Codex 自己的 Bash 读取 `HEARTBEAT.md`；但 `codepilot_memory_recent` / `codepilot_list_tasks` 没有被 Codex 感知或调用。GPT-Image-2.0 相关修复也只补了工具结果闭环和 media 渲染的一部分，不能证明所有 CodePilot 内置工具 / Skills 已经可用。用户明确要求底线是：换成 Codex Runtime 后，CodePilot 自身的 Widget、助理、Memory、定时任务、图片 / 媒体等内置工具必须能被感知和调用，不能因为换 Agent 框架就失去交互能力。
 
 ## 一句话目标
 
@@ -70,6 +71,7 @@ ClaudeCode 和 Codex 不是互相替代的两个按钮，而是两种不同 Agen
 | 5 | CodePilot provider proxy for Codex | ✅ scaffold 已完成 | `/api/codex/proxy/v1/responses` 结构化返回 `501 unsupported_yet`；真实 Responses 翻译器仍未完成。 |
 | 6 | UI / Electron / 测试收口 | ✅ 已完成主体收口 | Settings Runtime / Providers / Models IA、Codex 状态卡、模型 disclosure、runtime gate、Electron dispose 已落地；剩余模型可用性属于 Phase 5b provider proxy translator。 |
 | 5b | CodePilot provider proxy translator | 🔄 翻译层 + 注入已落地；待真实 smoke | 统一翻译层基于 ai-sdk `createModel()` + `streamText`/`generateText`：Responses 输入 / 工具 / 流式事件 / 非流式响应四路转换 + 同一 adapter 覆盖 OpenAI-compatible、Anthropic-compatible、CodePlan 三个家族。`CodexRuntime.stream()` 真正调用 `buildCodexThreadStartParams` 注入 `model_providers.codepilot_proxy` 到 `thread/start`；session 持久化 `codex_thread_provider_id` 检测跨 provider 误 resume；env provider 在 API + runtime 双层显式排除；unit 测试通过 `CODEX_DISABLED=1` 与真实 Codex app-server 解耦。剩余 must-have：三类家族（OpenAI-compatible / Anthropic-compatible / CodePlan）各跑通一条真实 provider credential chat smoke。在这之前 5b 维持 🔄；smoke 全过后转 ✅。 |
+| 5c | CodePilot Tool Bridge for Codex | 📋 计划已写；待实现 | 目标是让 Codex Runtime 能感知并调用 CodePilot 自有工具：Memory、通知 / 定时任务、Widget、图片 / 媒体、CLI tools、Dashboard 等。不能只依赖 Codex 原生 Bash/file；必须建立 capability matrix、工具桥、结果映射和 smoke 表。 |
 
 ## 详细设计
 
@@ -312,6 +314,149 @@ Guardrail tests：
 - 模型 picker 不再让用户误以为 CodePilot provider 在 Codex 下永久不可用；置灰原因必须区分 proxy 未覆盖、凭据缺失、套餐/额度、media-only。
 - 失败时不能静默 fallback 到 Claude Code SDK 或 CodePilot Runtime；Codex Runtime 选择必须 fail-closed，并在 UI / logs 里说明 proxy 错误。
 
+### Phase 5c — CodePilot Tool Bridge for Codex Runtime
+
+这是 2026-05-16 smoke 后新增的 P0 计划。它不替代 Phase 5b provider proxy：5b 解决“Codex Runtime 用哪些模型”；5c 解决“Codex Runtime 是否还能使用 CodePilot 自己的工具、上下文和表现层能力”。
+
+#### 背景与问题陈述
+
+真实 smoke 给出的事实是：
+
+- ✅ Codex 原生能力可用：Codex Runtime 能通过 Codex 自己的 shell/file 工具读取当前工作区文件，例如读取 `HEARTBEAT.md`。
+- ❌ CodePilot 内置工具不可见：同一轮 prompt 明确要求 `codepilot_memory_recent` / `codepilot_list_tasks`，结果没有调用这两个工具，最后只得到 `memory=FAIL` / `tasks=FAIL`。
+- ⚠️ GPT-Image-2.0 之前的修复只补了两类通用 bug：tool-result `toolName` 闭环、`imageGeneration` / `imageView` item 不再丢弃以及 media 通道补齐。它不能证明所有 CodePilot built-in tools / skills 都已在 Codex Runtime 下可见、可调用、可渲染。
+
+用户底线：
+
+- 每个 Agent 框架可以保留自己的特色能力和内置插件。
+- 但 CodePilot 自己的核心能力不能因为切换 Runtime 就消失。
+- Widget、助理功能、助理 Memory、定时任务、图片 / 媒体、Dashboard、CLI tools、文件改动通知等能力都属于 CodePilot 产品层，不能只在 ClaudeCode / Native Runtime 可用。
+
+#### 目标
+
+1. Codex Runtime 下，模型能 **感知** CodePilot 内置工具的存在与何时该用。
+2. Codex Runtime 下，模型能 **调用** CodePilot 内置工具，工具执行结果能回到 Codex turn。
+3. 工具结果能 **映射回 CodePilot UI**：media 走 `MediaPreview`，widget 走 show-widget / Artifact，file writes 走 `codepilot:file-changed`，task / notification 走现有任务与通知日志。
+4. 所有能力用一个 capability matrix 验收，不再靠“某个 skill 修了”推断全局可用。
+5. 这套桥要成为后续 Gemini / OpenClaw / Hermes 等新 Agent Runtime 接入的模板：每个新 runtime 都必须声明“原生能力”和“CodePilot-owned tools”两条通路。
+
+#### 现有资产
+
+不要重新手写工具清单。当前已有这些源头：
+
+| 源头 | 用途 |
+|---|---|
+| `src/lib/builtin-mcp-catalog.ts` | 内置 MCP 能力目录，列出 `codepilot-notify`、`codepilot-memory`、`codepilot-image-gen`、`codepilot-media`、`codepilot-widget`、`codepilot-cli-tools`、`codepilot-dashboard` 及工具名。 |
+| `src/lib/claude-client.ts` | ClaudeCode SDK Runtime 当前的 in-process MCP 注册逻辑，包括 always / workspace / keyword gating、system prompt 注入、allowed tools。 |
+| `src/lib/builtin-tools/*` | Native Runtime 的 AI SDK tool 实现。部分能力已与 MCP 版本同源或接近同源。 |
+| `src/lib/builtin-mcp-bridge.ts` | 早期桥接尝试，说明“从 SDK MCP tool 格式转 AI SDK tool 格式”是可行方向，但当前 `getBuiltinMcpTools()` 仍是空实现，不能当成已完成能力。 |
+| `src/lib/runtime/contract.ts` / `event-adapter.ts` | Runtime canonical event 层，应该承接工具 started / completed / media / file_changed / unknown_item。 |
+
+#### 能力矩阵
+
+第一步必须输出并测试一张矩阵。矩阵不要只写文档；至少要有 unit test 从 catalog 或注册表生成，防止新增内置工具时 Codex Runtime 漏接。
+
+| 能力族 | 代表工具 | 可见性要求 | 调用要求 | UI / side effect 要求 |
+|---|---|---|---|---|
+| Memory / 助理上下文 | `codepilot_memory_recent`、`codepilot_memory_search`、`codepilot_memory_get` | workspace 有 assistant memory 时可见；第一轮有明确提示 | 能读最近记忆 / 搜索 / 读取具体文件 | 不把 memory 大段塞进 system prompt；只通过工具返回可审计内容。 |
+| 通知与定时任务 | `codepilot_notify`、`codepilot_schedule_task`、`codepilot_list_tasks`、`codepilot_cancel_task`、`codepilot_hatch_buddy` | always 可见；任务创建需注入 `origin_session_id` / `working_directory` | schedule/list/cancel 真实写库 / 读库 | delivery log、task run、origin session 继承保持 Phase 3 约束。 |
+| Widget / Artifact 指南 | `codepilot_load_widget_guidelines` | 用户要求 widget / dashboard / 可视化时可见 | 能返回 guidelines | 生成结果仍走 show-widget / Artifact 渲染，不塞入不可执行脚本通道。 |
+| 图片 / 媒体 | `codepilot_generate_image`、`codepilot_import_media` | 图片 / 素材关键词触发；也允许显式工具名 | 能生成 / 导入媒体 | 结果必须落到 `.codepilot-media` 或 `data`，通过 `tool_result.media` → `MediaPreview` 可见；savedPath 必须导入 media library 后再 serve。 |
+| CLI tools 管理 | `codepilot_cli_tools_*` | CLI tool / install / register / update 语义触发 | install/update 等危险操作必须走 permission | 不绕过权限；执行输出与注册结果结构化返回。 |
+| Dashboard | `codepilot_dashboard_*` | dashboard / pin widget / refresh widget 语义触发 | pin/list/refresh/update/remove 真实读写 dashboard 状态 | Dashboard UI 与 widget source metadata 保持一致。 |
+| File changed | 来自 write/edit/tool result 或 Codex `fileChange` item | 不作为普通模型工具暴露，而是 runtime event | 修改文件后发 canonical `file_changed` | PreviewPanel quiet-refresh；dirty buffer 显冲突横幅。 |
+
+#### 架构选项与当前取舍
+
+被否掉 / 暂不采用：
+
+- **只靠 prompt 告诉 Codex 有 `codepilot_*` 工具**：不够。模型可能输出伪工具调用文本，SDK / app-server 不会执行，之前 GLM/Kimi 与 pseudo XML 已经踩过这个坑。
+- **让 Codex 用 Bash 直接调用 CodePilot HTTP API**：不够安全，也绕过工具 schema、permission、origin session、delivery log 等产品约束。
+- **逐个 skill 打补丁**：会导致 GPT-Image 修了、Memory / Tasks 仍不可用；不能满足用户“内置工具必须可感知可调用”的底线。
+- **把所有 CodePilot context 重新塞回 system prompt**：会倒退到上下文污染和 token 浪费；Memory / dashboard / tasks 这类数据应继续按需工具化。
+
+当前推荐：
+
+1. 建立 `CodePilotToolBridge` 作为 runtime-agnostic 工具注册层。
+2. 源头优先复用 `BUILTIN_MCP_CATALOG` + 各 MCP server / builtin-tools 的 handler，不创建第二套业务逻辑。
+3. 对 Codex Runtime，优先走 Codex app-server 支持的 tool/provider/plugin 注入方式；如果 app-server 只接受 Responses provider tools，则把 CodePilot tools 转成 Responses function tools，再由 proxy/adapter 执行。
+4. 工具执行结果统一映射回 canonical events：`tool_started`、`tool_completed`、`file_changed`、`unknown_item`，不要让 Chat UI 直接理解 Codex 私有 item。
+5. 对能力不可达的 runtime，用 capability matrix 明确显示“未接桥 / bridge unavailable”，而不是让模型假装会调用。
+
+#### 执行计划
+
+1. Inventory 与 contract
+   - 新建 `src/lib/runtime/tool-capability-matrix.ts` 或等价模块。
+   - 从 `BUILTIN_MCP_CATALOG` 生成内置工具族清单，标记 trigger condition、是否需要 workspace、是否可能产生 media / file_changed / permission。
+   - 输出测试：catalog 中每个 `codepilot_*` 工具必须在 matrix 里有状态；新增工具没有状态时测试失败。
+
+2. CodePilot tool registry
+   - 抽出 runtime-agnostic tool descriptor：`name`、`description`、`inputSchema`、`execute(ctx, input)`、`resultMapper`、`permissionProfile`。
+   - 复用现有 MCP handler / builtin-tools handler；不要复制实现。
+   - 对需要 hidden context 的工具统一注入 `sessionId`、`workingDirectory`、`providerId`、`runtimeId`，尤其是 `codepilot_schedule_task`。
+
+3. Codex bridge adapter
+   - 把 CodePilot tool descriptor 转成 Codex 可理解的工具声明。
+   - 如果 Codex app-server 原生支持动态工具注册，走 app-server 注册。
+   - 如果当前实际链路只能通过 Responses provider proxy，走 Responses function tools：Codex 发 function_call → proxy 执行 CodePilot tool → function_call_output 带真实 `toolName` 回到 provider。
+   - 工具不可用时返回结构化 `tool_unavailable`，不能让模型输出伪 XML / 伪 JSON 当成功。
+
+4. Result mapping
+   - text result → `tool_completed.output`。
+   - media result → `tool_completed.media`，且本地文件先导入 `.codepilot-media` 再给 `MediaPreview`。
+   - file write / edit result → `file_changed`。
+   - widget result → show-widget / inline Artifact 的现有渲染路径。
+   - task / notification result → delivery log / task run log 仍走 Phase 3 约束。
+   - unknown structured payload → `unknown_item` fallback，不静默丢弃。
+
+5. Permission and safety
+   - 读类工具（memory get/search、list tasks）可按现有权限策略自动执行。
+   - 写 / 执行类工具（CLI install/update、file write、dashboard update、schedule task）要保持现有 permission / trust 边界。
+   - Codex approval bridge 与 CodePilot tool permission 不要互相绕过；未知语义默认拒绝或要求用户确认。
+
+6. UI / Settings
+   - Settings → Runtime 的 Codex 卡增加 capability health：Codex native tools、CodePilot built-ins、provider proxy 三块状态分开显示。
+   - 不新增顶层 Codex 设置页；工具桥状态属于执行引擎健康状态。
+   - 模型 picker 不承担工具可用性提示；工具桥异常应在 RunCheckpoint / Runtime status 中显示。
+
+7. Smoke matrix
+   - 每个能力族至少一条真实 smoke。
+   - smoke 不只看“模型回复说成功”，还要查副作用：DB 行、media card、file_changed 事件、widget DOM、task list、delivery log。
+
+#### 必须覆盖的 smoke
+
+| Smoke | Prompt / 操作 | 通过标准 |
+|---|---|---|
+| Memory | “调用 `codepilot_memory_recent`，只输出 memory=PASS/FAIL” | 工具调用记录里出现 `codepilot_memory_recent`；不是 Bash 读文件；结果文本进入回复。 |
+| Tasks | “调用 `codepilot_list_tasks` 列出当前 active tasks” | 工具调用记录里出现 `codepilot_list_tasks`；读取 DB/API 返回任务；不通过 shell。 |
+| Schedule | “1 分钟后提醒我喝水” | `codepilot_schedule_task` 写入 task，带 origin session / working directory；到点通知。 |
+| Widget | “生成一个简单 widget，必要时先加载 guidelines” | 调用 `codepilot_load_widget_guidelines`；最终渲染 show-widget / Artifact。 |
+| Image | “用 GPT-Image-2.0 画一张小猫” | 调用 `codepilot_generate_image` 或等价 image tool；结果有 `tool_result.media`；MediaPreview 可见；savedPath 被导入 `.codepilot-media`。 |
+| Media import | “导入这个本地图片到媒体库” | `codepilot_import_media` 生成 media DB 记录；图片可 serve。 |
+| Dashboard | “把这个 widget pin 到 dashboard” | `codepilot_dashboard_pin` 写入 dashboard；Settings/Dashboard 可见。 |
+| CLI tools safe read | “列出已安装 CLI tools” | `codepilot_cli_tools_list` 返回结构化结果。 |
+| File change | “修改当前 Markdown 第一行” | runtime 发 `file_changed`；PreviewPanel quiet-refresh 或 dirty conflict。 |
+
+#### 防回归测试
+
+- `codex-tool-capability-matrix.test.ts`：catalog 中每个 `codepilot_*` 工具都有 Codex bridge 状态。
+- `codex-codepilot-tool-visibility.test.ts`：Codex Runtime 构造 turn 时包含 expected CodePilot tool declarations；Memory / Tasks 至少 always/workspace 可见。
+- `codex-codepilot-tool-execution.test.ts`：function_call → CodePilot tool execute → function_call_output 保留真实 `toolName`。
+- `codex-codepilot-media-result.test.ts`：图片工具返回本地路径时必须导入 `.codepilot-media`，SSE media localPath 指向可 serve 路径。
+- `codex-codepilot-file-changed.test.ts`：写类工具结果触发 canonical `file_changed`。
+- `codex-codepilot-permission.test.ts`：危险工具不因 Codex bridge 绕过 permission。
+- `codex-runtime-ui-health.test.ts`：Settings Runtime 卡能区分 Codex native ready / CodePilot tool bridge ready / provider proxy ready。
+
+#### 完成口径
+
+Phase 5c 只有在下面条件都满足时才能标 ✅：
+
+- CodePilot built-in tools 的 capability matrix 完整，并由测试从 catalog 锁住。
+- Codex Runtime 下至少 Memory、Tasks、Widget、Image/Media、Dashboard 或 CLI tools 各有一条真实 smoke 通过。
+- 工具结果能回到 CodePilot UI，而不是只在 Codex 内部完成。
+- 没有任何 smoke 通过 Bash / shell 模拟 `codepilot_*` 工具成功。
+- 失败路径可见：工具桥没注册、工具执行失败、permission denied、media serve 失败，都要有明确 UI / log。
+
 ### Phase 6 — UI / Electron / 测试收口
 
 这是已落地的收口层，不新增 transport、不改 schema、不做 provider proxy 翻译；目标是把 Codex Account 主链路变成用户可理解、可诊断、不会误选模型的产品入口，并为 Phase 5b 的 CodePilot parity 留出正确 UI 语义。当前下一步不是继续补 Phase 6，而是进入上面的 **Phase 5b provider proxy translator**。
@@ -401,3 +546,4 @@ UI 和交互：
 - 2026-05-14：Provider proxy 改为 Phase 5b 单独推进。当前 `/api/codex/proxy/v1/responses` 是 scaffold，只能结构化返回 `501 unsupported_yet`；不能把它写成“Codex 已可使用所有 CodePilot provider”。当时曾考虑第一刀只做 OpenAI-compatible provider translator。
 - 2026-05-15：用户明确修正模型兼容目标：Codex Runtime 不应长期只支持 Codex Account，也不应只扩到 OpenAI-compatible。期望是“除 Claude Code 默认/env 模式外，CodePilot Runtime 能用的模型，Codex Runtime 也能用”。Phase 5b 改为 CodePilot Runtime parity 目标；adapter 可以作为内部实现轨道，但对外必须一次性交付完整 proxy translator，最终兼容矩阵必须让 `codepilot_runtime` 可用模型同步进入 `codex_runtime`，或给出具体 translator 缺口。
 - 2026-05-15：用户进一步确认 Phase 5b 不要拆两轮做，避免反复人工同步和 review。执行口径改为“一批完整实现”：OpenAI-compatible、Anthropic-compatible / ClaudeCode-compatible、CodePlan / 套餐型 provider 都必须在同一轮实现报告中给出真实 chat smoke、测试和未覆盖原因；不接受“先 OpenAI-compatible，后续再补”的半成品。
+- 2026-05-16：真实 smoke 发现 Codex Runtime 只能证明 Codex 原生 shell/file 可跑，不能证明 CodePilot built-in tools 已接上。`codepilot_memory_recent` / `codepilot_list_tasks` 明确请求后未被调用；GPT-Image-2.0 相关修复也只是补了 toolName / image item / media 渲染链路，不等于所有 CodePilot tools 可感知。新增 Phase 5c：CodePilot Tool Bridge for Codex Runtime。完成口径改为 capability matrix + 每个能力族真实 smoke；不得继续用 Bash 或单个 skill 修复来代替 CodePilot 工具桥。
