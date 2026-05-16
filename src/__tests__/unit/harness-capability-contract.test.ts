@@ -86,17 +86,22 @@ describe('HARNESS_CAPABILITIES — catalog hygiene', () => {
     }
   });
 
-  it('live capabilities have at least two exposures that aren\'t marked unsupported', () => {
-    // Pure-bridge-only capabilities don't make sense (they imply
-    // CodePilot has an in-product capability ONLY when running
-    // through Codex, which is backwards). Live means at least
-    // ClaudeCode SDK + at least one of Native/Codex.
+  it('live capabilities have NO unsupported exposures (strict semantics)', () => {
+    // Phase 5d slice 7b (2026-05-16) — pre-fix the test accepted
+    // "live with one unsupported runtime" if at least two runtimes
+    // were wired. That permitted exactly the混合口径 the user flagged:
+    // a `live` capability that's actually missing on Codex (or any
+    // other runtime). Strict rule: status === 'live' must have
+    // EVERY declared exposure executable. If a runtime can't wire
+    // the capability, flip status to `deferred` or split it.
     for (const cap of liveCapabilities()) {
-      const wired = [cap.exposure.claudecode_sdk, cap.exposure.native, cap.exposure.codex_proxy]
-        .filter((e) => e.kind !== 'unsupported');
-      assert.ok(
-        wired.length >= 2,
-        `${cap.id} is live but only one runtime is wired: ${JSON.stringify(cap.exposure)}`,
+      const unsupportedRuntimes = (
+        ['claudecode_sdk', 'native', 'codex_proxy'] as const
+      ).filter((r) => cap.exposure[r].kind === 'unsupported');
+      assert.equal(
+        unsupportedRuntimes.length,
+        0,
+        `${cap.id} is live but ${unsupportedRuntimes.join(', ')} marked unsupported. Either implement those runtimes or flip status to "deferred" / split the capability.`,
       );
     }
   });
@@ -299,12 +304,21 @@ describe('System prompt fragments are present for live capabilities (unless expl
 // ─────────────────────────────────────────────────────────────────────
 
 describe('Codex bridge tool surface matches the contract', () => {
-  it('every codex_proxy.kind = bridge_executable tool name is mounted by createCodePilotBuiltinTools', async () => {
-    // Runtime check: build the bridge with a synthetic session and
-    // confirm the tool names match. This is real runtime semantics,
-    // not just source-grep — if a future refactor breaks the bridge
-    // wiring, this test catches it even if the source still mentions
-    // the right factory name.
+  it('every codex_proxy.kind = bridge_executable tool name is mounted by createCodePilotBuiltinTools (no notes exceptions)', async () => {
+    // Phase 5d slice 7b (2026-05-16) — strict mount check. Pre-fix
+    // the test had a `notes`-based exception clause: if a tool was
+    // declared bridge_executable but not actually mounted, a note
+    // mentioning "not exposed" silenced the failure. That let
+    // tasks_and_notify carry codepilot_hatch_buddy in its toolNames
+    // while the bridge mounted only 4 of 5 — a half-truth in the
+    // catalog.
+    //
+    // New rule: if codex_proxy.kind === 'bridge_executable', then
+    // EVERY tool name in toolNames must mount. If a runtime can't
+    // host a tool, either:
+    //   - flip that runtime's `kind` to 'unsupported' + add notes
+    //   - split the tool out into its own capability with deferred
+    //     status (e.g. assistant_buddy for codepilot_hatch_buddy)
     const { createCodePilotBuiltinTools } = await import('@/lib/codex/proxy/builtin-bridge');
     const bridge = createCodePilotBuiltinTools({
       sessionId: 'contract-test',
@@ -315,19 +329,10 @@ describe('Codex bridge tool surface matches the contract', () => {
     for (const cap of HARNESS_CAPABILITIES) {
       if (cap.exposure.codex_proxy.kind !== 'bridge_executable') continue;
       for (const toolName of cap.toolNames) {
-        // Some capabilities (tasks_and_notify includes hatch_buddy)
-        // declare a tool name in the catalog but don't mount it in
-        // the Codex bridge — that's documented in the contract's
-        // notes field. Skip names not mounted IF the notes mention
-        // "NOT exposed via bridge".
-        if (!mounted.has(toolName)) {
-          const notes = cap.exposure.codex_proxy.notes ?? '';
-          assert.match(
-            notes,
-            new RegExp(`${toolName}.*not exposed|NOT exposed.*${toolName}|${toolName}.*deferred`, 'i'),
-            `${cap.id}.${toolName} is declared bridge_executable but the bridge doesn't mount it and the notes don't explain why`,
-          );
-        }
+        assert.ok(
+          mounted.has(toolName),
+          `${cap.id}.${toolName} is declared bridge_executable but createCodePilotBuiltinTools does NOT mount it. Fix the bridge factory, mark this runtime unsupported, or split the tool into a deferred capability — notes-based exceptions are no longer accepted.`,
+        );
       }
     }
   });

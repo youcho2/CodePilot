@@ -92,6 +92,7 @@ import { WIDGET_SYSTEM_PROMPT, CANONICAL_SHOW_WIDGET_JSON } from '@/lib/widget-g
 import { MEMORY_SEARCH_SYSTEM_PROMPT } from '@/lib/memory-search-mcp';
 import { NOTIFICATION_MCP_SYSTEM_PROMPT } from '@/lib/notification-mcp';
 import { MEDIA_SYSTEM_PROMPT } from '@/lib/builtin-tools/media';
+import { MEDIA_MCP_SYSTEM_PROMPT } from '@/lib/media-import-mcp';
 import { DASHBOARD_MCP_SYSTEM_PROMPT } from '@/lib/dashboard-mcp';
 
 // ─────────────────────────────────────────────────────────────────────
@@ -99,15 +100,35 @@ import { DASHBOARD_MCP_SYSTEM_PROMPT } from '@/lib/dashboard-mcp';
 // ─────────────────────────────────────────────────────────────────────
 
 export type CapabilityStatus =
-  /** All three runtimes wired + tested. */
+  /**
+   * Phase 5d slice 7b (2026-05-16) — strict semantics:
+   *
+   *   `live` REQUIRES every declared runtime exposure to be
+   *   executable. No exposure may have `kind: 'unsupported'`. The
+   *   tool names listed under `toolNames` must actually register in
+   *   every wired runtime (drift test enforces this; no `notes`-based
+   *   exceptions).
+   *
+   *   Pre-strict semantics let one runtime fall back to `unsupported`
+   *   while the capability was still flagged `live` — that was the
+   *   mixed口径 the user flagged. Strict mode forces the catalog
+   *   author to either fix the missing runtime exposure or split the
+   *   capability so each `live` entry maps to a coherent surface.
+   */
   | 'live'
-  /** Planned but not yet wired anywhere. Build path: pick a runtime
-   *  to land first, mark its exposure with kind=ai_sdk_tool/mcp_server,
-   *  flip status to `live` once the other two follow + tests pass. */
+  /**
+   * One or more runtime exposures are intentionally `unsupported` for
+   * now, with a documented `deferredReason` + a plan to land them.
+   * The other exposures CAN be wired; tool names that only mount in
+   * the wired exposures still count — but the `live` promise isn't
+   * being made.
+   */
   | 'deferred'
-  /** Deliberately disabled. `deferredReason` MUST explain why
-   *  (security risk, design conflict, etc.) — otherwise it's just
-   *  a `deferred` in disguise. */
+  /**
+   * Deliberately disabled in every runtime. `deferredReason` MUST
+   * explain why (security risk, design conflict, etc.) — otherwise
+   * it's just a `deferred` in disguise.
+   */
   | 'unsupported';
 
 export type RuntimeExposureKind =
@@ -270,12 +291,15 @@ const tasksAndNotify: CapabilityContract = {
   id: 'tasks_and_notify',
   displayName: 'Scheduled tasks + immediate notifications',
   status: 'live',
+  // Phase 5d slice 7b (2026-05-16) — codepilot_hatch_buddy split out
+  // to a separate `assistant_buddy` capability (deferred). Mixing it
+  // in here made the entry technically dishonest: the bridge mounts
+  // 4 of 5 names; strict drift test demands all-or-split.
   toolNames: [
     'codepilot_notify',
     'codepilot_schedule_task',
     'codepilot_list_tasks',
     'codepilot_cancel_task',
-    'codepilot_hatch_buddy',
   ],
   exposure: {
     claudecode_sdk: {
@@ -294,13 +318,43 @@ const tasksAndNotify: CapabilityContract = {
       kind: 'bridge_executable',
       module: 'src/lib/codex/proxy/builtin-bridge.ts',
       factory: 'buildNotifyTool / buildScheduleTaskTool / buildListTasksTool / buildCancelTaskTool',
-      notes: 'Slice 4 added durable/list/cancel parity with the MCP variant. codepilot_hatch_buddy is NOT exposed via bridge — Codex-runtime buddy hatching deferred to a future slice.',
+      notes: 'Slice 4 added durable/list/cancel parity with the MCP variant. All four tool names mount via createCodePilotBuiltinTools.',
     },
   },
   systemPromptFragment: NOTIFICATION_MCP_SYSTEM_PROMPT,
   toolResultShape: 'text',
   canonicalEventTypes: ['tool_started', 'tool_completed'],
   uiRenderPath: 'Inline text; system notifications via NotificationManager.sendNotification (renderer toast + Electron + Telegram per priority)',
+};
+
+const assistantBuddy: CapabilityContract = {
+  id: 'assistant_buddy',
+  displayName: 'Assistant buddy hatching / naming',
+  status: 'deferred',
+  deferredReason: 'Codex Runtime bridge not yet implemented. ClaudeCode SDK + Native paths expose codepilot_hatch_buddy via the notification MCP/AI-SDK surfaces today; bridging it into Codex Runtime requires deciding whether buddy hatching is a Harness-level capability or an assistant-workspace flow, and that scoping is deferred to a future slice.',
+  toolNames: ['codepilot_hatch_buddy'],
+  exposure: {
+    claudecode_sdk: {
+      kind: 'mcp_server',
+      module: 'src/lib/notification-mcp.ts',
+      factory: 'createNotificationMcpServer',
+      notes: 'codepilot_hatch_buddy registered inside the same MCP server as the task/notify tools.',
+    },
+    native: {
+      kind: 'ai_sdk_tool',
+      module: 'src/lib/builtin-tools/notification.ts',
+      factory: 'createNotificationTools',
+      notes: 'codepilot_hatch_buddy is part of the createNotificationTools tool set on Native.',
+    },
+    codex_proxy: {
+      kind: 'unsupported',
+      notes: 'Not exposed via createCodePilotBuiltinTools. Codex Runtime users cannot hatch a buddy directly through the bridge; suggested workaround is to switch to ClaudeCode or Native Runtime for the hatch flow.',
+    },
+  },
+  systemPromptFragment: NOTIFICATION_MCP_SYSTEM_PROMPT,
+  toolResultShape: 'text',
+  canonicalEventTypes: ['tool_started', 'tool_completed'],
+  uiRenderPath: 'Inline text + buddy gamification updates (src/components/Buddy* + assistant workspace metadata)',
 };
 
 const imageGeneration: CapabilityContract = {
@@ -344,8 +398,18 @@ const mediaImport: CapabilityContract = {
   toolNames: ['codepilot_import_media'],
   exposure: {
     claudecode_sdk: {
-      kind: 'unsupported',
-      notes: 'No MCP equivalent today — the SDK runtime path imports via direct tool-result text matching, no canonical MCP factory exists. Tech-debt: ship a media-import MCP server in parallel with the others.',
+      // Phase 5d slice 7b (2026-05-16) — corrected from
+      // `unsupported`. The MCP server has existed all along at
+      // `src/lib/media-import-mcp.ts` and is registered by
+      // `claude-client.ts:980` as `codepilot-media` whenever the
+      // media keyword gate matches. Slice 7 misread `builtin-tools/media.ts`
+      // (Native side) as the only canonical and wrote it off as
+      // missing on the SDK side. MEDIA_MCP_SYSTEM_PROMPT is the
+      // proper authoritative prompt.
+      kind: 'mcp_server',
+      module: 'src/lib/media-import-mcp.ts',
+      factory: 'createMediaImportMcpServer',
+      notes: 'Authoritative. Owns MEDIA_MCP_SYSTEM_PROMPT (separate from builtin-tools/media.ts which carries the Native-only paraphrase). Registered by claude-client.ts under the `codepilot-media` MCP name.',
     },
     native: {
       kind: 'ai_sdk_tool',
@@ -359,7 +423,11 @@ const mediaImport: CapabilityContract = {
       notes: 'Slice 4 fix: MediaBlock.type now matches mimeType prefix (image / video / audio).',
     },
   },
-  systemPromptFragment: MEDIA_SYSTEM_PROMPT,
+  // Phase 5d slice 7b — switch canonical to the MCP-side
+  // MEDIA_MCP_SYSTEM_PROMPT now that we know it exists. Native +
+  // bridge still effectively use the shorter MEDIA_SYSTEM_PROMPT
+  // (drift recorded in tech-debt list).
+  systemPromptFragment: MEDIA_MCP_SYSTEM_PROMPT,
   toolResultShape: 'media',
   canonicalEventTypes: ['tool_started', 'tool_completed'],
   uiRenderPath: 'Same as image_generation — tool_result.media → MediaPreview.',
@@ -451,6 +519,7 @@ export const HARNESS_CAPABILITIES: readonly CapabilityContract[] = [
   widget,
   memory,
   tasksAndNotify,
+  assistantBuddy,
   imageGeneration,
   mediaImport,
   dashboard,

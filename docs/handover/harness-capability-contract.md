@@ -44,9 +44,10 @@ Widget 的 `show-widget` JSON 示例需要 round-trip 校验：契约持有 `can
 |---|---|---|---|---|---|---|
 | widget | live | `codepilot_load_widget_guidelines` | MCP `createWidgetMcpServer` | AI SDK `createWidgetGuidelinesTools`（re-export 权威 prompt） | bridge `buildWidgetGuidelinesTool`，`WIDGET_PROMPT = canonical` | slice 7 de-drifted；artifact contract = `show-widget` fence，JSON.parse-safe 示例 |
 | memory | live | `codepilot_memory_recent`、`codepilot_memory_search`、`codepilot_memory_get` | MCP `createMemorySearchMcpServer` | AI SDK `createMemorySearchTools`（仍有 prompt drift） | bridge `buildMemoryRecentTool` / `buildMemorySearchTool` / `buildMemoryGetTool` | workspace-gated；Native + bridge prompt 与 MCP 仍漂移，slice 8 tech-debt |
-| tasks_and_notify | live | `codepilot_notify`、`codepilot_schedule_task`、`codepilot_list_tasks`、`codepilot_cancel_task`、`codepilot_hatch_buddy` | MCP `createNotificationMcpServer` | AI SDK `createNotificationTools` | bridge `buildNotifyTool` 等四个；`codepilot_hatch_buddy` 未在 bridge 实现（契约 notes 中明确） | slice 4 已修 durable / list / cancel parity |
+| tasks_and_notify | live | `codepilot_notify`、`codepilot_schedule_task`、`codepilot_list_tasks`、`codepilot_cancel_task` | MCP `createNotificationMcpServer` | AI SDK `createNotificationTools` | bridge `buildNotifyTool` / `buildScheduleTaskTool` / `buildListTasksTool` / `buildCancelTaskTool`（全部 4 个 mount） | slice 4 已修 durable / list / cancel parity；slice 7b 把 `codepilot_hatch_buddy` 拆到 `assistant_buddy` capability |
+| assistant_buddy | deferred | `codepilot_hatch_buddy` | MCP `createNotificationMcpServer`（同源 MCP server） | AI SDK `createNotificationTools` | unsupported — bridge 未挂载；Codex Runtime 用户切到 ClaudeCode / Native 触发 hatch | slice 7b 新增；hatch buddy 在 bridge 的归属（Harness capability vs assistant workspace flow）待 Phase 2-3 拍板 |
 | image_generation | live | `codepilot_generate_image` | MCP `createImageGenMcpServer`（通过 MEDIA_RESULT_MARKER 注入 SSE media） | AI SDK `createMediaTools` (image key)（仅返回文本，无 MediaBlock — drift tech-debt） | bridge `buildImageGenerationTool`（带 MediaBlock + materialize） | slice 2 + 4 已修 |
-| media_import | live | `codepilot_import_media` | unsupported（无 MCP 等价文件 — tech-debt） | AI SDK `createMediaTools` (import key) | bridge `buildImportMediaTool`（slice 4 已按 mimeType 推断 type） | |
+| media_import | live | `codepilot_import_media` | MCP `createMediaImportMcpServer`（owns MEDIA_MCP_SYSTEM_PROMPT；claude-client.ts 注册为 `codepilot-media`） | AI SDK `createMediaTools` (import key) | bridge `buildImportMediaTool`（slice 4 已按 mimeType 推断 type） | slice 7b 修正 — 早期把 ClaudeCode SDK 错标 unsupported，真实有 MCP 实现 |
 | dashboard | deferred | `codepilot_dashboard_*` ×5 | MCP `createDashboardMcpServer` | AI SDK `createDashboardTools` | unsupported — 写操作需要 bridge permission round-trip 设计 | Phase 5d Phase 3 之后再开 |
 | cli_tools | deferred | `codepilot_cli_tools_*` ×6 | MCP `createCliToolsMcpServer` | AI SDK `createCliToolsTools` | unsupported — install/update/remove 需要 permission 契约 | 同上 |
 
@@ -54,13 +55,14 @@ Widget 的 `show-widget` JSON 示例需要 round-trip 校验：契约持有 `can
 
 `harness-capability-contract.test.ts` 锁定的不变量：
 
-1. **Catalog hygiene** — 每个 entry 字段齐全；id 唯一；非 live 必须有 `deferredReason`；live 至少两个 runtime wired。
-2. **Tool-name agreement** — live capability 声明的工具名必须在至少一个 wired 文件源中出现。
-3. **Bridge drift 严格检测** — bridge `WIDGET_PROMPT` 必须是 `CANONICAL_WIDGET_SYSTEM_PROMPT` 的 import + 直接赋值；Native widget 同样必须 re-export 权威。
-4. **Widget JSON round-trip** — 契约里的 `canonicalJson` 走 `JSON.parse` 不抛；走 `parseAllShowWidgets` 必须返回 widget segment（不是 malformed）。
-5. **Media render path** — `toolResultShape === 'media'` 的 capability，`uiRenderPath` 必须提到 `MediaPreview`。
-6. **状态-暴露一致性** — deferred 必须至少一个 runtime 标 unsupported；unsupported 必须带 `notes` 解释。
-7. **runtime 真实挂载** — `createCodePilotBuiltinTools` 真的 mount 了 contract 声明的 `bridge_executable` 工具；未 mount 的（如 `codepilot_hatch_buddy`）必须在 contract notes 中明确解释。
+1. **Catalog hygiene** — 每个 entry 字段齐全；id 唯一；非 live 必须有 `deferredReason`。
+2. **严格 live 语义（slice 7b）** — `status === 'live'` 必须**所有声明 runtime exposure 都不是 `unsupported`**。任何"live 但某 runtime unsupported"的混合口径都自动 fail；要么把 unsupported runtime 实现掉，要么把 status 改成 `deferred`，要么拆 capability。
+3. **Tool-name agreement** — live capability 声明的工具名必须在至少一个 wired 文件源中出现。
+4. **Bridge drift 严格检测** — bridge `WIDGET_PROMPT` 必须是 `CANONICAL_WIDGET_SYSTEM_PROMPT` 的 import + 直接赋值；Native widget 同样必须 re-export 权威。
+5. **Widget JSON round-trip** — 契约里的 `canonicalJson` 走 `JSON.parse` 不抛；走 `parseAllShowWidgets` 必须返回 widget segment（不是 malformed）。
+6. **Media render path** — `toolResultShape === 'media'` 的 capability，`uiRenderPath` 必须提到 `MediaPreview`。
+7. **状态-暴露一致性** — deferred 必须至少一个 runtime 标 unsupported；unsupported 必须带 `notes` 解释。
+8. **runtime 真实挂载（slice 7b 收紧）** — `createCodePilotBuiltinTools` 必须**真的 mount 每一个**`codex_proxy.kind === 'bridge_executable'` capability 的 `toolNames`，**不接受 notes 例外**。不挂载的工具要么改 bridge factory，要么把那个 runtime 标 `unsupported`，要么拆出 deferred capability（参考 `assistant_buddy`）。
 
 ## 接入新 Runtime 的硬性流程
 
@@ -80,7 +82,8 @@ Widget 的 `show-widget` JSON 示例需要 round-trip 校验：契约持有 `can
 | Native widget 早期有 abridged prompt，slice 7 已 re-export 权威 | 已修 | — |
 | Native memory + tasks 仍有自己的 prompt（drift） | 模型在 Native Runtime 下读到的规则与 ClaudeCode/Codex 不同 | slice 8：让 builtin-tools/memory-search.ts + builtin-tools/notification.ts 从 MCP 文件 re-export |
 | `image_generation` Native exposure 不返回 MediaBlock | Native Runtime 下用户看不到图片卡（要看 marker text） | slice 8：让 Native execute 也构造 MediaBlock 走 ai-sdk tool result |
-| `media_import` 在 ClaudeCode 路径无 MCP 等价 | ClaudeCode 用户无法用专门的 import 工具（只能让 image-gen MCP 间接处理） | 补 `media-import-mcp.ts` 后契约 claudecode_sdk 升级为 `mcp_server` |
+| `media_import` 在 builtin-tools/media.ts 仍有自己的 Native prompt（drift from MCP-side MEDIA_MCP_SYSTEM_PROMPT） | Native 模型读到的导入工作流提示比 MCP 短 | slice 8：让 builtin-tools/media.ts 从 media-import-mcp.ts re-export，或为 import / generate 分别拆 prompt |
+| `assistant_buddy` (codepilot_hatch_buddy) 未接 Codex bridge | Codex Runtime 用户无法直接 hatch buddy | Phase 5d Phase 2-3 阶段决策：是 Harness capability 还是 assistant workspace flow |
 | Dashboard / CLI tools 无 Codex bridge | Codex Runtime 用户调不动这两族工具 | 需要先定 bridge 端 permission round-trip 协议 |
 | `cli_tools` 没有独立 `_SYSTEM_PROMPT` export | 契约的 systemPromptFragment 暂为空字符串 | slice 8：从 MCP factory 提取 |
 
