@@ -1,13 +1,26 @@
 /**
- * Phase 5b smoke round 5 (2026-05-16) — SDK fixture round-trip.
+ * Phase 5b smoke round 5–6 (2026-05-16) — Codex Responses SSE
+ * contract round-trip.
  *
- * Pins the proxy's outbound SSE stream against the EXACT event shapes
- * the official `@openai/codex-sdk` ships in its test fixture:
- *   资料/codex/sdk/typescript/tests/responsesProxy.ts
+ * Pins the proxy's outbound SSE stream against two contract sources
+ * with deliberately asymmetric coverage:
  *
- * This is the contract source the previous round of patches kept
- * drifting from. Any time the proxy stops matching it, a real
- * `runStreamed()` call against our proxy will fail downstream.
+ *   Success path → SDK fixture
+ *     资料/codex/sdk/typescript/tests/responsesProxy.ts
+ *     (assistantMessage / shell_call / responseCompleted)
+ *
+ *   Failure path → Codex app-server parser
+ *     资料/codex/codex-rs/codex-api/src/sse/responses.rs
+ *     `process_responses_event` → "response.failed" arm
+ *
+ * Why the split: the SDK fixture's `responseFailed()` emits
+ * `{type: 'error', error: {code, message}}`, but Codex's actual
+ * app-server SSE parser only matches `response.failed`. Round 5
+ * naively aligned errors with the SDK fixture; round 6 reverted
+ * because the app-server path is today's production consumer, and
+ * the `error` form falls through unhandled there. Success events
+ * (output_item.done, completed) round-trip through BOTH parsers
+ * so they stay SDK-fixture-aligned.
  *
  * The test stages a synthesised ai-sdk `fullStream` (the same shape
  * `streamText().fullStream` produces), runs it through `translateStream`
@@ -22,8 +35,11 @@
  *   4. `response.completed.response.usage` has `input_tokens_details`
  *      + `output_tokens_details` keys (nullable) — matching
  *      `responseCompleted()`'s shape.
- *   5. Error frames are `{type: 'error', error: {code, message}}` —
- *      matching `responseFailed()`.
+ *   5. Error frames are `response.failed` with `response: {id, error:
+ *      {code, message}}` — matching Codex's `process_responses_event`
+ *      "response.failed" arm. The SDK fixture's `{type: 'error'}`
+ *      form is the future @openai/codex-sdk execution-POC path; not
+ *      what today's app-server route emits.
  */
 
 import { describe, it } from 'node:test';
