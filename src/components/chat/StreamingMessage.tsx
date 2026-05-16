@@ -14,7 +14,7 @@ import { Shimmer } from '@/components/ai-elements/shimmer';
 import { ImageGenConfirmation } from './ImageGenConfirmation';
 import { BatchPlanInlinePreview } from './batch-image-gen/BatchPlanInlinePreview';
 import { WidgetRenderer } from './WidgetRenderer';
-import { parseAllShowWidgets, computePartialWidgetKey } from './MessageItem';
+import { parseAllShowWidgets, computePartialWidgetKey, MalformedWidgetNotice } from './MessageItem';
 import { PENDING_KEY, buildReferenceImages } from '@/lib/image-ref-store';
 import type { PlannerOutput, MediaBlock } from '@/types';
 
@@ -382,11 +382,15 @@ export function StreamingMessage({
               const allSegments = parseAllShowWidgets(content);
               return (
                 <>
-                  {allSegments.map((seg, i) =>
-                    seg.type === 'text'
-                      ? <MessageResponse key={`t-${i}`}>{seg.content}</MessageResponse>
-                      : <WidgetRenderer key={`w-${i}`} widgetCode={seg.data.widget_code} isStreaming={false} title={seg.data.title} />
-                  )}
+                  {allSegments.map((seg, i) => {
+                    if (seg.type === 'text') {
+                      return <MessageResponse key={`t-${i}`}>{seg.content}</MessageResponse>;
+                    }
+                    if (seg.type === 'malformed_widget') {
+                      return <MalformedWidgetNotice key={`mw-${i}`} reason={seg.reason} raw={seg.raw} />;
+                    }
+                    return <WidgetRenderer key={`w-${i}`} widgetCode={seg.data.widget_code} isStreaming={false} title={seg.data.title} />;
+                  })}
                 </>
               );
             }
@@ -455,11 +459,15 @@ export function StreamingMessage({
                   <MessageResponse key="pre-text">{beforePart}</MessageResponse>
                 )}
                 {/* Completed widget fences + interleaved text */}
-                {completedSegments.map((seg, i) =>
-                  seg.type === 'text'
-                    ? <MessageResponse key={`t-${i}`}>{seg.content}</MessageResponse>
-                    : <WidgetRenderer key={`w-${i}`} widgetCode={seg.data.widget_code} isStreaming={false} title={seg.data.title} />
-                )}
+                {completedSegments.map((seg, i) => {
+                  if (seg.type === 'text') {
+                    return <MessageResponse key={`t-${i}`}>{seg.content}</MessageResponse>;
+                  }
+                  if (seg.type === 'malformed_widget') {
+                    return <MalformedWidgetNotice key={`mw-${i}`} reason={seg.reason} raw={seg.raw} />;
+                  }
+                  return <WidgetRenderer key={`w-${i}`} widgetCode={seg.data.widget_code} isStreaming={false} title={seg.data.title} />;
+                })}
                 {partialCode && partialCode.length > 10 ? (
                   <WidgetRenderer key={partialWidgetKey} widgetCode={partialCode} isStreaming={true} title={partialTitle} showOverlay={scriptsTruncated} />
                 ) : (
@@ -475,11 +483,15 @@ export function StreamingMessage({
             if (widgetSegments.length > 0) {
               return (
                 <>
-                  {widgetSegments.map((seg, i) =>
-                    seg.type === 'text'
-                      ? <MessageResponse key={`t-${i}`}>{seg.content}</MessageResponse>
-                      : <WidgetRenderer key={`w-${i}`} widgetCode={seg.data.widget_code} isStreaming={false} title={seg.data.title} />
-                  )}
+                  {widgetSegments.map((seg, i) => {
+                    if (seg.type === 'text') {
+                      return <MessageResponse key={`t-${i}`}>{seg.content}</MessageResponse>;
+                    }
+                    if (seg.type === 'malformed_widget') {
+                      return <MalformedWidgetNotice key={`mw-${i}`} reason={seg.reason} raw={seg.raw} />;
+                    }
+                    return <WidgetRenderer key={`w-${i}`} widgetCode={seg.data.widget_code} isStreaming={false} title={seg.data.title} />;
+                  })}
                 </>
               );
             }

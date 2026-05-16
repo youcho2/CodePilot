@@ -14,17 +14,49 @@ import { z } from 'zod';
 
 // ── System prompt (always injected — minimal version) ───────────────────────
 
+/**
+ * Wire format spec referenced by the system prompt, the on-demand
+ * guidelines tool, the bridge prompt, and the contract test in
+ * `codex-widget-format-contract.test.ts`. Single source of truth —
+ * any drift between them is the kind of "model returns raw HTML
+ * fence instead of JSON wrapper" failure mode the post-smoke S4
+ * scenario surfaced.
+ *
+ * The MINIMAL EXAMPLE intentionally uses an absurdly small HTML
+ * snippet so the model can't confuse it with the design-system
+ * examples loaded later by `codepilot_load_widget_guidelines`.
+ */
+export const WIDGET_WIRE_FORMAT_SPEC = `## FINAL OUTPUT FORMAT — non-negotiable
+
+The ONLY way to render a widget is a code fence labelled \`show-widget\` whose body is a JSON object with a \`widget_code\` string:
+
+\`\`\`show-widget
+{"title":"<human-readable title>","widget_code":"<escaped HTML/SVG string>"}
+\`\`\`
+
+- \`widget_code\` is a **JSON-encoded string**, not raw HTML. Escape quotes (\`\\\\"\`), newlines (\`\\\\n\`), and backslashes.
+- A raw HTML fence (\`\`\`html …\`\`\`) is NEVER rendered as a widget.
+- A \`show-widget\` fence whose body is HTML (not JSON) is NEVER rendered as a widget — the UI surfaces a "malformed widget" error block.
+- Any HTML example shown later in the design guidelines goes **inside** \`widget_code\`. It is not the wire format.
+
+Minimal correct example (use as a structural template, NOT a copy target):
+
+\`\`\`show-widget
+{"title":"Hello","widget_code":"<div style=\\\\"padding:8px;font:14px var(--font-sans)\\\\">Hello world</div>"}
+\`\`\``;
+
 export const WIDGET_SYSTEM_PROMPT = `<widget-capability>
 You can create interactive visualizations using the \`show-widget\` code fence.
 
-## Format
-\`\`\`show-widget
-{"title":"snake_case_id","widget_code":"<raw HTML/SVG string>"}
-\`\`\`
+${WIDGET_WIRE_FORMAT_SPEC}
 
 ## Design specs
 Call \`codepilot_load_widget_guidelines\` before your first widget to load detailed design specs.
 Available modules: interactive, chart, mockup, art, diagram.
+
+## When NOT to call other tools
+
+While building a widget, **do NOT** call \`codepilot_generate_image\` or any image-generation tool. Widgets render HTML/SVG inside \`widget_code\`; they do not embed generated images. Only call image-generation tools if the user explicitly asked for an image (separate from the widget).
 
 ## Required rules (always apply)
 1. widget_code is a JSON string — escape quotes, newlines. No DOCTYPE/html/head/body
@@ -220,12 +252,35 @@ const MODULE_SECTIONS: Record<string, string[]> = {
 export const AVAILABLE_MODULES = Object.keys(MODULE_SECTIONS);
 
 /**
+ * Reminder prepended to every `getGuidelines()` response so the model
+ * doesn't lose the wire format between reading the design specs and
+ * emitting the final fence. Reuses `WIDGET_WIRE_FORMAT_SPEC` so there
+ * is exactly one source of truth.
+ *
+ * Post-smoke S4 evidence (2026-05-16): GLM-5 Turbo called the load
+ * tool, read the Chart.js example, then emitted a raw \`\`\`html-style
+ * fence as the final output. The fix is to remind the model — right
+ * before it sees the HTML examples — that those examples live INSIDE
+ * widget_code, not as the wire format.
+ */
+const GUIDELINES_WRAPPER_REMINDER = `${WIDGET_WIRE_FORMAT_SPEC}
+
+> **Reading this document:** every HTML / SVG / Chart.js snippet below is an INTERNAL EXAMPLE — it shows what to put INSIDE the \`widget_code\` JSON string. None of the snippets below are themselves the wire format. The only wire format is the \`show-widget\` JSON fence above.
+`;
+
+/**
  * Assemble full guidelines from requested module names.
  * Deduplicates shared sections (e.g. Core appears once even if multiple modules requested).
+ *
+ * Output always opens with `GUIDELINES_WRAPPER_REMINDER` so the model
+ * re-reads the wire-format contract at the same moment it loads the
+ * design examples. Without this, the system-prompt-only reminder
+ * decays by the time the model is several thousand tokens into the
+ * design spec and copies an HTML example verbatim.
  */
 export function getGuidelines(moduleNames: string[]): string {
   const seen = new Set<string>();
-  const parts: string[] = [];
+  const parts: string[] = [GUIDELINES_WRAPPER_REMINDER];
   for (const mod of moduleNames) {
     const key = mod.toLowerCase().trim();
     const sections = MODULE_SECTIONS[key];

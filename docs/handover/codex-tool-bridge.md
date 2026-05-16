@@ -205,6 +205,17 @@ Responses-API 的 output_item 只有 `message` 和 `function_call` 两种。`too
 
 Phase 5c slice 5 fix: chat route 在主路径 + catch 路径都加一条 fallback——若 `hasError && contentBlocks.length === 0`，push `**Error:** <message>` 文本块再走持久化分支。文案与 `stream-session-manager.ts:864` 客户端 snapshot 同源，refresh 前后转录一致。
 
+## Widget 格式契约
+
+S4 smoke 显示模型在 widget 任务里会：（1）误读 Chart.js / SVG 示例，把 raw HTML 当成 `show-widget` 内容；（2）多余调用 `codepilot_generate_image`。Phase 5c slice 6 加四道防线：
+
+1. **单一 wire format 来源** — `WIDGET_WIRE_FORMAT_SPEC`（在 `widget-guidelines.ts`）。系统提示 + on-demand `getGuidelines()` 输出都嵌入这段，禁止 drift。
+2. **on-demand guidelines 前置 reminder** — `getGuidelines()` 输出第一段就是 wire format spec 与 “HTML/SVG examples 是 INSIDE widget_code，不是 wire format”。设计模块章节继续保留 raw HTML 示例，但出现位置在 spec 之后。
+3. **image-gen 工具禁用** — 系统提示 + bridge `WIDGET_PROMPT` 都明示 widget 任务期间不许调 `codepilot_generate_image`，除非用户独立要求生成图片。
+4. **渲染层错误可见** — `MessageItem.parseAllShowWidgets` 不再静默丢弃格式不对的 `show-widget` fence。三类失败（raw HTML 体 / JSON 缺 `widget_code` / JSON 解析错）都返回 `malformed_widget` segment，由 `MalformedWidgetNotice` 在聊天里渲染成可见的警告卡，附原始 fence body 折叠详情。
+
+由 `codex-widget-format-contract.test.ts` 12 个 pin 锁定（spec → 系统提示 → 桥提示 → 渲染层的端到端契约）。
+
 ## 已知遗留
 
 - Dashboard / CLI tools 工具族 deferred 到下一轮。

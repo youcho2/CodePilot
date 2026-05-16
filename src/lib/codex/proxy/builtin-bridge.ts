@@ -651,11 +651,19 @@ function truncate(s: string, max: number): string {
 // ─────────────────────────────────────────────────────────────────────
 
 const WIDGET_PROMPT = `<codepilot-widget-capability>
-You can create interactive visualisations using the \`show-widget\`
-code fence. Before generating your first widget in this conversation,
-call codepilot_load_widget_guidelines with the relevant modules
-(interactive / chart / mockup / art / diagram) to load the detailed
-design specs.
+You can create interactive visualisations using the \`show-widget\` code fence.
+
+WIRE FORMAT (non-negotiable):
+\`\`\`show-widget
+{"title":"<human-readable title>","widget_code":"<escaped HTML/SVG string>"}
+\`\`\`
+- \`widget_code\` is a JSON-encoded string — escape quotes, newlines, backslashes.
+- A raw HTML fence (\`\`\`html …\`\`\`) is NEVER a widget.
+- A \`show-widget\` fence whose body is HTML instead of JSON is NEVER rendered as a widget — the UI surfaces a malformed-widget error.
+
+Before generating your first widget in this conversation, call \`codepilot_load_widget_guidelines\` with the relevant modules (interactive / chart / mockup / art / diagram) to load the detailed design specs. The HTML/SVG examples in those guidelines go INSIDE \`widget_code\`; they are not themselves the wire format.
+
+While building a widget, do NOT call \`codepilot_generate_image\` (or any other image-generation tool) unless the user explicitly asked for a separate generated image. Widgets render HTML/SVG inside \`widget_code\`; they do not embed generated images.
 </codepilot-widget-capability>`;
 
 interface WidgetInput {
