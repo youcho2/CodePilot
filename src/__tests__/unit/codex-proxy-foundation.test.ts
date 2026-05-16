@@ -344,6 +344,8 @@ describe('handleProxyRequest — pre-stream errors are structured Responses erro
   it('returns provider_not_targeted when the header is missing', async () => {
     const result = await handleProxyRequest({
       targetProviderId: '',
+      sessionId: '',
+      workspacePath: '',
       body: validBody,
       signal: new AbortController().signal,
     });
@@ -356,6 +358,8 @@ describe('handleProxyRequest — pre-stream errors are structured Responses erro
   it('returns provider_not_found when the DB row is missing', async () => {
     const result = await handleProxyRequest({
       targetProviderId: 'this-id-does-not-exist-in-db',
+      sessionId: '',
+      workspacePath: '',
       body: validBody,
       signal: new AbortController().signal,
     });

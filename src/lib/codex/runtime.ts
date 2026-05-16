@@ -340,6 +340,15 @@ export const codexRuntime: AgentRuntime = {
             // design — we don't want users surprised by a different
             // model than they picked).
             model: options.model,
+            // Phase 5c (2026-05-16) — chat session id is the missing
+            // piece that lets the proxy mount CodePilot built-in
+            // tools and address the side-channel event bus. Native
+            // Codex tools (shell / fileChange) keep working
+            // regardless; this is what makes
+            // `codepilot_generate_image` / memory / tasks visible
+            // when the user picked a CodePilot provider as the
+            // proxy target.
+            sessionId,
           });
 
           // ── thread resolution: resume if we have a ref + provider matches, else start ──

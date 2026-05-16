@@ -14,11 +14,34 @@
  */
 
 import type {
+  ClassifiedNonFunctionTool,
   ResponsesContentBlock,
   ResponsesInputItem,
   ResponsesRequestBody,
   ResponsesTool,
 } from './types';
+
+/**
+ * Phase 5c (2026-05-16) — known non-function tool `type` strings we
+ * preserve in `passthroughTools` rather than treating as a request
+ * error. Anything outside this list trips `unsupported_tool_kind` so
+ * a future Codex schema extension doesn't silently disappear.
+ *
+ * `custom` is Codex's CLI surface (shell / apply_patch). `plugin`
+ * shows up in Codex's plugin system (future). `web_search` and
+ * `file_search` are OpenAI Responses built-ins — they're not used
+ * today on the proxy path but the type fields appear in some smoke
+ * fixtures so we keep them recognised.
+ */
+const KNOWN_NON_FUNCTION_TYPES = new Set<string>([
+  'custom',
+  'plugin',
+  'web_search',
+  'web_search_preview',
+  'file_search',
+  'image_generation',
+  'code_interpreter',
+]);
 
 export type ParseResult =
   | { ok: true; body: ResponsesRequestBody }
@@ -101,46 +124,76 @@ export function parseResponsesRequest(raw: unknown): ParseResult {
     }
   }
 
+  // Phase 5c (2026-05-16) — classify Codex's `tools[]` into:
+  //   1. function tools (forwarded to ai-sdk via `translateResponsesTools`)
+  //   2. known non-function tools (preserved on
+  //      `passthroughTools` for the bridge layer to log / inspect)
+  //   3. unknown tool types → structured `unsupported_tool_kind`
+  //      so a future Codex schema extension doesn't disappear into
+  //      the void.
+  //
+  // Pre-5c we silently dropped (2) and (3) — the smoke evidence was
+  // GLM/Kimi reading `imagegen` Skill text and trying to call a
+  // tool that wasn't in their function list, then falling back to
+  // CLI / auth.json / npm install. Surfacing both kinds means the
+  // bridge can either route them through CodePilot's tool set or
+  // tell the user clearly that this type isn't bridged yet.
   let tools: ResponsesTool[] | undefined;
+  let passthroughTools: ClassifiedNonFunctionTool[] | undefined;
   if (raw.tools !== undefined) {
     if (!Array.isArray(raw.tools)) {
       return { ok: false, field: 'tools', message: 'tools must be an array.' };
     }
     tools = [];
+    passthroughTools = [];
     for (let i = 0; i < raw.tools.length; i++) {
       const tool = raw.tools[i];
       if (!isObject(tool)) {
         return { ok: false, field: `tools[${i}]`, message: `tools[${i}] must be a JSON object.` };
       }
-      // Phase 5b smoke fix (2026-05-15) — Codex's real `turn/start`
-      // payload mixes function tools with Codex-specific entries like
-      // `{ type: 'custom', ... }` (Codex's own apply_patch / shell
-      // surface). Pre-fix we returned a 400 here, which blocked every
-      // real Codex chat that used non-trivial tools. Phase 5b's scope
-      // is chat parity, NOT a full Codex custom-tool bridge — so we
-      // silently DROP non-function tools rather than failing. They're
-      // re-added later when CodePilot grows a matching tool runtime.
-      if (tool.type !== 'function') {
-        // Drop, don't reject. The unified translator only emits the
-        // function tools to ai-sdk; the rest are invisible to the
-        // model and to the upstream provider.
+      const toolType = tool.type;
+      if (toolType === 'function') {
+        if (typeof tool.name !== 'string') {
+          return { ok: false, field: `tools[${i}].name`, message: `tools[${i}].name must be a string.` };
+        }
+        const parameters = isObject(tool.parameters) ? tool.parameters : undefined;
+        tools.push({
+          type: 'function',
+          name: tool.name,
+          description: typeof tool.description === 'string' ? tool.description : undefined,
+          parameters,
+          strict: typeof tool.strict === 'boolean' ? tool.strict : undefined,
+        });
         continue;
       }
-      if (typeof tool.name !== 'string') {
-        return { ok: false, field: `tools[${i}].name`, message: `tools[${i}].name must be a string.` };
+      if (typeof toolType !== 'string') {
+        return {
+          ok: false,
+          field: `tools[${i}].type`,
+          message: `tools[${i}].type must be a string ("function" or a known non-function type).`,
+        };
       }
-      const parameters = isObject(tool.parameters) ? tool.parameters : undefined;
-      tools.push({
-        type: 'function',
-        name: tool.name,
-        description: typeof tool.description === 'string' ? tool.description : undefined,
-        parameters,
-        strict: typeof tool.strict === 'boolean' ? tool.strict : undefined,
+      if (!KNOWN_NON_FUNCTION_TYPES.has(toolType)) {
+        // Unknown tool kind. Surface as a structured request error
+        // rather than dropping — Codex's reader prints this verbatim
+        // and the bridge layer doesn't have to guess.
+        return {
+          ok: false,
+          field: `tools[${i}].type`,
+          message: `tools[${i}] has unsupported type "${toolType}". Known non-function types: ${[...KNOWN_NON_FUNCTION_TYPES].join(', ')}.`,
+        };
+      }
+      passthroughTools.push({
+        rawType: toolType,
+        name: typeof tool.name === 'string' ? tool.name : undefined,
+        // Preserve the whole entry so a diagnostic log can dump it
+        // without the parser having to know every variant's shape.
+        // We clone via spread so callers can't mutate raw input.
+        payload: { ...tool },
       });
     }
-    // Treat "empty after filtering" as "no tools" so the adapter omits
-    // the field entirely (ai-sdk distinguishes undefined from []).
     if (tools.length === 0) tools = undefined;
+    if (passthroughTools.length === 0) passthroughTools = undefined;
   }
 
   const stream = raw.stream === undefined ? true : !!raw.stream;
@@ -165,6 +218,7 @@ export function parseResponsesRequest(raw: unknown): ParseResult {
       model,
       input: parsedInput,
       ...(tools ? { tools } : {}),
+      ...(passthroughTools ? { passthroughTools } : {}),
       stream,
       ...(instructions ? { instructions } : {}),
       ...(metadata ? { metadata } : {}),

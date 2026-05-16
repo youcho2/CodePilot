@@ -40,6 +40,13 @@ export const dynamic = 'force-dynamic';
 
 export async function POST(request: NextRequest) {
   const targetProviderId = request.headers.get('x-codepilot-target-provider') ?? '';
+  // Phase 5c (2026-05-16) — `x-codepilot-session-id` +
+  // `x-codepilot-workspace-path` come from the runtime injection
+  // (`provider-proxy.ts buildCodexProviderProxyInjection`). They're
+  // not load-bearing for the chat-only path; when absent the proxy
+  // falls back to the pre-5c behaviour with no built-in tool bridge.
+  const sessionId = request.headers.get('x-codepilot-session-id') ?? '';
+  const workspacePath = request.headers.get('x-codepilot-workspace-path') ?? '';
 
   // Parse body — fail fast with a JSON 400 if it's not valid JSON or
   // doesn't satisfy the Responses shape. The error body is the same
@@ -73,6 +80,8 @@ export async function POST(request: NextRequest) {
   try {
     proxyResult = await handleProxyRequest({
       targetProviderId,
+      sessionId,
+      workspacePath,
       body: parseResult.body,
       signal: request.signal,
     });

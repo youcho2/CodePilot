@@ -59,12 +59,36 @@ export interface CodexProxyInjection {
  * @param baseUrl — absolute URL CodePilot is reachable at from
  *   wherever Codex runs (usually `http://127.0.0.1:<port>` in dev,
  *   localhost in packaged Electron).
+ * @param opts.sessionId — Phase 5c (2026-05-16). Chat session id so the
+ *   proxy can mount CodePilot built-in tools (`codepilot_generate_image`
+ *   etc.) and address the side-channel event bus that pipes tool
+ *   results back to the running ChatView. Empty (default) leaves the
+ *   bridge off — old chat-only behaviour preserved for back-compat
+ *   smoke runs.
+ * @param opts.workspacePath — Phase 5c. Working directory the chat
+ *   was launched in; bridge tools that need a cwd (image gen
+ *   reference paths, memory workspace lookup, scheduled-task origin
+ *   record) receive it through this header.
  */
 export function buildCodexProviderProxyInjection(
   targetProviderId: string,
   baseUrl: string,
+  opts: { sessionId?: string; workspacePath?: string } = {},
 ): CodexProxyInjection {
   const trimmed = baseUrl.replace(/\/+$/, '');
+  const headers: Record<string, string> = {
+    'x-codepilot-target-provider': targetProviderId,
+  };
+  // Only emit the header when we actually have a value — Codex
+  // copies http_headers verbatim onto every request, and an empty
+  // string would confuse the proxy's "did the runtime tell us?"
+  // check (which then re-mounts the bridge for a chat-less smoke).
+  if (opts.sessionId && opts.sessionId.length > 0) {
+    headers['x-codepilot-session-id'] = opts.sessionId;
+  }
+  if (opts.workspacePath && opts.workspacePath.length > 0) {
+    headers['x-codepilot-workspace-path'] = opts.workspacePath;
+  }
   return {
     modelProvider: PROVIDER_KEY,
     config: {
@@ -73,9 +97,7 @@ export function buildCodexProviderProxyInjection(
           name: 'CodePilot via Codex',
           base_url: `${trimmed}/api/codex/proxy/v1`,
           wire_api: 'responses',
-          http_headers: {
-            'x-codepilot-target-provider': targetProviderId,
-          },
+          http_headers: headers,
         },
       },
     },
@@ -139,6 +161,12 @@ export function buildCodexThreadParams(opts: {
    *  thread/start + thread/resume so the proxy injection resolves to
    *  the right model id before the turn runs. */
   model?: string;
+  /** Phase 5c (2026-05-16) — CodePilot chat session id. Threaded into
+   *  the proxy injection's `x-codepilot-session-id` header so the
+   *  proxy can mount the CodePilot built-in tool bridge for this
+   *  chat. Codex Account paths skip the injection entirely (see
+   *  branch below); the field is silently ignored there. */
+  sessionId?: string;
 }): CodexThreadParams {
   const providerId = opts.providerId.trim();
   if (!providerId || providerId === 'env') {
@@ -150,7 +178,10 @@ export function buildCodexThreadParams(opts: {
   if (opts.workingDirectory) base.cwd = opts.workingDirectory;
   if (opts.model) base.model = opts.model;
   if (providerId === 'codex_account') return base;
-  const injection = buildCodexProviderProxyInjection(providerId, opts.proxyBaseUrl);
+  const injection = buildCodexProviderProxyInjection(providerId, opts.proxyBaseUrl, {
+    sessionId: opts.sessionId,
+    workspacePath: opts.workingDirectory,
+  });
   return {
     ...base,
     modelProvider: injection.modelProvider,

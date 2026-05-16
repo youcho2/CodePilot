@@ -79,6 +79,8 @@ describe('handleProxyRequest — virtual providers resolve without provider_not_
     stubObserved = undefined;
     const result = await handleProxyRequest({
       targetProviderId: 'openai-oauth',
+      sessionId: '',
+      workspacePath: '',
       body: validBody,
       signal: new AbortController().signal,
     });
@@ -118,6 +120,8 @@ describe('handleProxyRequest — virtual providers resolve without provider_not_
     // pretending the provider doesn't exist.
     const result = await handleProxyRequest({
       targetProviderId: 'codex_account',
+      sessionId: '',
+      workspacePath: '',
       body: validBody,
       signal: new AbortController().signal,
     });
@@ -138,6 +142,8 @@ describe('handleProxyRequest — virtual providers resolve without provider_not_
   it('a real-looking but unregistered virtual id: provider_not_found is still the right answer', async () => {
     const result = await handleProxyRequest({
       targetProviderId: 'made-up-virtual-id-12345',
+      sessionId: '',
+      workspacePath: '',
       body: validBody,
       signal: new AbortController().signal,
     });

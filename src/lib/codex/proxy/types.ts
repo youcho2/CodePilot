@@ -84,9 +84,12 @@ export interface ResponsesFunctionCallOutputItem {
  *
  * Codex emits the `function` shape (subset of OpenAI's tools[] schema)
  * for everything except the built-in shell/apply_patch tools. The
- * adapter forwards function tools straight to ai-sdk; built-in tools
- * are routed through CodePilot's own tool set (not yet supported in
- * this commit — adapter emits `unsupported_tool_kind` error).
+ * adapter forwards function tools straight to ai-sdk; non-function
+ * tools (Codex's custom shell / apply_patch / future plugin types)
+ * are preserved as `ClassifiedNonFunctionTool[]` for the bridge layer
+ * to inspect — Phase 5c routes around them rather than dropping
+ * them silently (the pre-5c behaviour caused GLM/Kimi to see Skill
+ * text mentioning a tool that wasn't actually in their function list).
  */
 export type ResponsesTool = ResponsesFunctionTool;
 
@@ -104,6 +107,41 @@ export interface ResponsesFunctionTool {
   strict?: boolean;
 }
 
+/**
+ * Phase 5c (2026-05-16) — non-function tools encountered in the
+ * incoming Responses request.
+ *
+ * Codex's real `turn/start` payload mixes function tools with
+ * Codex-specific entries like `{ type: 'custom', ... }` (shell /
+ * apply_patch surfaces). Pre-5c we silently dropped them — the
+ * "non-function tools NOT supported yet" branch in
+ * `translate-tools.ts` was the visible part of that policy. The drop
+ * was load-bearing for two failure modes:
+ *
+ *   1. Codex native tools (shell / apply_patch) reach the proxy when
+ *      a CodePilot provider is targeted; the proxy can't execute
+ *      them, but knowing they were requested helps diagnose smoke
+ *      failures.
+ *   2. Future Codex plugin types would land here as `type: 'plugin'`
+ *      or similar; surfacing them as `unsupported_tool_kind` (rather
+ *      than dropping) tells the user the proxy hasn't been taught
+ *      that shape yet.
+ *
+ * `rawType` carries Codex's original `type` string verbatim so the
+ * bridge / log line can distinguish `custom` from `plugin` from a
+ * spelling error.
+ */
+export interface ClassifiedNonFunctionTool {
+  /** Raw `type` field from Codex's tool entry (e.g. `'custom'`). */
+  rawType: string;
+  /** Optional `name` if Codex supplied one. Codex's `custom` shape
+   *  carries name + schema; future shapes may omit them. */
+  name?: string;
+  /** Whatever extra fields Codex sent (kept JSON-safe). The bridge
+   *  layer can stringify for diagnostic logs without re-validating. */
+  payload: Record<string, unknown>;
+}
+
 export interface ResponsesRequestBody {
   /** Model id from Codex's perspective — the codex_codepilot proxy
    *  decides what to do with it. Codex sends the model name the user
@@ -112,8 +150,15 @@ export interface ResponsesRequestBody {
   model: string;
   /** Conversation state flattened into ordered items. */
   input: ResponsesInputItem[];
-  /** Tool surface. `undefined` / `[]` means no tools available. */
+  /** Function-typed tools from the Responses request. `undefined` /
+   *  `[]` means no function tools available. Non-function tools live
+   *  in `passthroughTools` so the adapter can still see them. */
   tools?: ResponsesTool[];
+  /** Phase 5c (2026-05-16) — non-function tools Codex sent (custom /
+   *  plugin / etc.). Kept for diagnostics + future bridge work; the
+   *  unified adapter logs them so smoke runs can see which Codex
+   *  surfaces a CodePilot provider was being asked to satisfy. */
+  passthroughTools?: ClassifiedNonFunctionTool[];
   /** Whether to stream the response. Codex defaults to `true`. */
   stream?: boolean;
   /** Instructions block — Codex's developer-message hook. The
@@ -407,6 +452,24 @@ export interface ResponsesErrorPayload {
 export interface ProxyHandlerInput {
   /** Raw `x-codepilot-target-provider` header value. */
   targetProviderId: string;
+  /** Phase 5c (2026-05-16) — `x-codepilot-session-id` header set by
+   *  the runtime injection (see `provider-proxy.ts`
+   *  `buildCodexProviderProxyInjection`). The unified adapter uses it
+   *  to:
+   *    1. Mount CodePilot built-in tools so the targeted provider
+   *       gets `codepilot_generate_image` etc. in its tool list.
+   *    2. Address the side-channel event bus so tool execution
+   *       results flow back to the user's chat UI.
+   *  Empty when CodexRuntime didn't supply it (older builds or a
+   *  manual smoke run). When empty the bridge is not mounted — the
+   *  proxy still serves the original chat-only flow. */
+  sessionId: string;
+  /** Phase 5c (2026-05-16) — `x-codepilot-workspace-path` header.
+   *  Forwarded into bridge tools that need a working directory
+   *  (image gen reference-path resolution, memory workspace lookup,
+   *  scheduled-task origin recording). May be empty even when
+   *  sessionId is present (some chats never set a workspace). */
+  workspacePath: string;
   /** Parsed Responses request body. */
   body: ResponsesRequestBody;
   /** Per-call abort signal — wired to the inbound request so Codex
