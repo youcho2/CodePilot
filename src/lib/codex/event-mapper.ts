@@ -381,12 +381,27 @@ interface ThreadItemLike {
   query?: string;
   // agentMessage / plan / reasoning
   text?: string;
+  // imageGeneration
+  revisedPrompt?: string | null;
+  result?: string;
+  savedPath?: string;
+  // imageView
+  path?: string;
 }
 
 /**
  * ThreadItem types whose lifecycle (started/completed) is meaningful
  * to the chat / Run / Preview UI as a discrete event. Adapter emits
  * canonical events for these.
+ *
+ * Phase 5b smoke round 7 (2026-05-16) — `imageGeneration` and
+ * `imageView` moved out of CHAT_ONLY_ITEM_TYPES into this set. They
+ * have NO streaming delta channel (unlike agentMessage / plan /
+ * reasoning), so `item/completed` is the ONLY surface where the
+ * final image / saved path reaches the UI. Treating them as
+ * chat-only silently dropped GPT-Image-2.0 results — the user saw
+ * "tool ran" but no image. Promoting to tool_started/tool_completed
+ * lets the existing tool-card UI render them with the result payload.
  */
 const TOOL_LIKE_ITEM_TYPES = new Set<string>([
   'commandExecution',
@@ -394,6 +409,8 @@ const TOOL_LIKE_ITEM_TYPES = new Set<string>([
   'dynamicToolCall',
   'fileChange',
   'webSearch',
+  'imageGeneration',
+  'imageView',
 ]);
 
 /**
@@ -422,8 +439,10 @@ const CHAT_ONLY_ITEM_TYPES = new Set<string>([
   'exitedReviewMode',
   'contextCompaction',
   'collabAgentToolCall',
-  'imageView',
-  'imageGeneration',
+  // NOTE: imageGeneration / imageView are NOT chat-only — they have no
+  // streaming delta channel and their final item/completed is the only
+  // way the result reaches the user. See TOOL_LIKE_ITEM_TYPES above for
+  // the round-7 (2026-05-16) fix.
 ]);
 
 function translateItemStarted(
@@ -463,6 +482,28 @@ function translateItemStarted(
       toolId: id,
       name: 'web_search',
       input: { query: item.query },
+    });
+  }
+  if (item.type === 'imageGeneration') {
+    // Phase 5b smoke round 7 (2026-05-16) — emit a tool_started so the
+    // chat UI shows a card while the image generates. Input carries
+    // only the metadata available at this point (revisedPrompt is
+    // filled in by item/completed). The actual image result lands on
+    // tool_completed via the generic TOOL_LIKE branch below.
+    return makeToolStarted(base, {
+      toolId: id,
+      name: 'image_generation',
+      input: { revisedPrompt: item.revisedPrompt ?? null },
+    });
+  }
+  if (item.type === 'imageView') {
+    // imageView is Codex referencing an image FILE the user uploaded
+    // or the model wants to surface. The path is the load-bearing
+    // piece — chat side renders it through PreviewPanel / inline image.
+    return makeToolStarted(base, {
+      toolId: id,
+      name: 'image_view',
+      input: { path: item.path },
     });
   }
   // Known chat-only item types — text / reasoning / review markers

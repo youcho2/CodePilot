@@ -376,8 +376,10 @@ describe('translateCodexNotification — chat-only item types return null (P2.1 
     'exitedReviewMode',
     'contextCompaction',
     'collabAgentToolCall',
-    'imageView',
-    'imageGeneration',
+    // Phase 5b smoke round 7 (2026-05-16): imageView / imageGeneration
+    // are NOT chat-only — they have no delta channel and their final
+    // item is the only surface where the result reaches the user. See
+    // the dedicated visibility describe block below.
   ];
 
   for (const type of chatOnly) {
@@ -398,6 +400,101 @@ describe('translateCodexNotification — chat-only item types return null (P2.1 
       assert.equal(event, null);
     });
   }
+});
+
+describe('translateCodexNotification — imageGeneration / imageView lifecycle (Phase 5b smoke round 7)', () => {
+  // Pre-fix these item types lived in CHAT_ONLY_ITEM_TYPES alongside
+  // agentMessage/plan/reasoning. That was wrong: those have streaming
+  // delta channels (item/agentMessage/delta etc.) so chat-only is
+  // correct, but imageGeneration / imageView have NO delta channel
+  // — their final item is the only surface where the user sees the
+  // image or saved path. Silently returning null on item/completed
+  // produced "tool ran but no result visible" — exactly the
+  // GPT-Image-2.0 silent-failure report.
+  it('imageGeneration item/started → tool_started with image_generation toolName + revisedPrompt input', () => {
+    const event = translateCodexNotification(
+      'item/started',
+      {
+        item: { type: 'imageGeneration', id: 'img-1', status: 'generating', revisedPrompt: null, result: '' },
+        threadId: 't',
+        turnId: 'u',
+        startedAtMs: 0,
+      },
+      ctx,
+    );
+    assert.ok(event, 'imageGeneration item/started MUST emit a canonical event (silently dropping it produced the GPT-Image-2.0 blank-completion bug)');
+    if (event!.type !== 'tool_started') throw new Error(`expected tool_started, got ${event!.type}`);
+    assert.equal(event.toolId, 'img-1');
+    assert.equal(event.name, 'image_generation');
+  });
+
+  it('imageGeneration item/completed → tool_completed carrying the FULL result/savedPath payload', () => {
+    // result is what we want — the base64 / image data — and savedPath
+    // is what makes it renderable in the chat UI. The generic
+    // TOOL_LIKE_ITEM_TYPES branch packs the whole item into output,
+    // which preserves both fields for downstream rendering.
+    const event = translateCodexNotification(
+      'item/completed',
+      {
+        item: {
+          type: 'imageGeneration',
+          id: 'img-1',
+          status: 'completed',
+          revisedPrompt: 'a cat sitting on a chair',
+          result: '<base64-data>',
+          savedPath: '/tmp/codex-img-1.png',
+        },
+        threadId: 't',
+        turnId: 'u',
+        completedAtMs: 0,
+      },
+      ctx,
+    );
+    assert.ok(event, 'imageGeneration item/completed MUST surface the final result (this is the silent-drop bug)');
+    if (event!.type !== 'tool_completed') throw new Error(`expected tool_completed, got ${event!.type}`);
+    assert.equal(event.toolId, 'img-1');
+    // The output must include the result + savedPath so PreviewPanel /
+    // chat-side renderers can pick the right path.
+    const output = event.output as { result?: string; savedPath?: string; revisedPrompt?: string | null };
+    assert.equal(output.result, '<base64-data>', 'image_generation completion must expose the generated image data');
+    assert.equal(output.savedPath, '/tmp/codex-img-1.png');
+    assert.equal(output.revisedPrompt, 'a cat sitting on a chair');
+  });
+
+  it('imageView item/started → tool_started with image_view toolName + path input', () => {
+    const event = translateCodexNotification(
+      'item/started',
+      {
+        item: { type: 'imageView', id: 'view-1', path: '/Users/me/photos/x.png' },
+        threadId: 't',
+        turnId: 'u',
+        startedAtMs: 0,
+      },
+      ctx,
+    );
+    assert.ok(event);
+    if (event!.type !== 'tool_started') throw new Error(`expected tool_started, got ${event!.type}`);
+    assert.equal(event.name, 'image_view');
+    const input = event.input as { path: string };
+    assert.equal(input.path, '/Users/me/photos/x.png');
+  });
+
+  it('imageView item/completed → tool_completed (preserves path for chat-side renderer)', () => {
+    const event = translateCodexNotification(
+      'item/completed',
+      {
+        item: { type: 'imageView', id: 'view-1', path: '/Users/me/photos/x.png' },
+        threadId: 't',
+        turnId: 'u',
+        completedAtMs: 0,
+      },
+      ctx,
+    );
+    assert.ok(event);
+    if (event!.type !== 'tool_completed') throw new Error(`expected tool_completed, got ${event!.type}`);
+    const output = event.output as { path: string };
+    assert.equal(output.path, '/Users/me/photos/x.png');
+  });
 });
 
 describe('translateCodexNotification — token usage (layered shape)', () => {

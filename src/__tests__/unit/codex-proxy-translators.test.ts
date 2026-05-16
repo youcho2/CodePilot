@@ -118,6 +118,101 @@ describe('translateResponsesInput — Responses items → ai-sdk ModelMessage[]'
     assert.equal(content[0].output.value, 'plain string result');
   });
 
+  it('resolves tool-result toolName from the matching function_call (Phase 5b smoke round 7)', () => {
+    // Pre-fix the translator wrote a sentinel '__from_responses_proxy__'
+    // for every tool-result. Anthropic and OpenAI Responses both use
+    // tool-result.toolName to look up the tool definition and route
+    // the result back to the model; the sentinel broke that and
+    // produced "tool ran but no continuation" (GPT-Image-2.0 skill
+    // completed silently). The fix builds a call_id → toolName map
+    // from the input's function_call items.
+    const input: ResponsesInputItem[] = [
+      {
+        type: 'message',
+        role: 'assistant',
+        content: [{ type: 'output_text', text: 'generating' }],
+      },
+      {
+        type: 'function_call',
+        call_id: 'call_1',
+        name: 'gpt_image_2',
+        arguments: '{"prompt":"a cat"}',
+      },
+      {
+        type: 'function_call_output',
+        call_id: 'call_1',
+        output: '{"image":"<base64>","saved_path":"/tmp/x.png"}',
+      },
+    ];
+    const messages = translateResponsesInput(input);
+    // Last message is the tool result; its content[0].toolName must
+    // be the original function_call name, not a sentinel.
+    const toolMsg = messages[messages.length - 1];
+    assert.equal(toolMsg.role, 'tool');
+    const content = toolMsg.content as Array<{
+      type: string;
+      toolCallId: string;
+      toolName: string;
+      output: { type: string };
+    }>;
+    assert.equal(
+      content[0].toolName,
+      'gpt_image_2',
+      'tool-result.toolName must round-trip from the matching function_call — pre-fix the sentinel broke provider routing and silenced GPT-Image-2.0',
+    );
+    assert.equal(content[0].toolCallId, 'call_1');
+  });
+
+  it('resolves toolName across function_call_output appearing after multiple unrelated turns', () => {
+    // Same correlation must survive interleaving with text turns
+    // and other function_calls. Pin the full-walk-then-translate
+    // behaviour so a future "optimise to single pass" diff doesn't
+    // regress.
+    const input: ResponsesInputItem[] = [
+      { type: 'message', role: 'user', content: [{ type: 'input_text', text: 'go' }] },
+      { type: 'function_call', call_id: 'a', name: 'tool_a', arguments: '{}' },
+      { type: 'function_call', call_id: 'b', name: 'tool_b', arguments: '{}' },
+      { type: 'function_call_output', call_id: 'b', output: '{"ok":true}' },
+      { type: 'function_call_output', call_id: 'a', output: '{"ok":true}' },
+    ];
+    const messages = translateResponsesInput(input);
+    const tool1 = messages[messages.length - 2].content as Array<{ toolName: string; toolCallId: string }>;
+    const tool2 = messages[messages.length - 1].content as Array<{ toolName: string; toolCallId: string }>;
+    assert.equal(tool1[0].toolCallId, 'b');
+    assert.equal(tool1[0].toolName, 'tool_b');
+    assert.equal(tool2[0].toolCallId, 'a');
+    assert.equal(tool2[0].toolName, 'tool_a');
+  });
+
+  it('orphan function_call_output (no matching function_call in this request) falls back to a named sentinel + warns', () => {
+    // The sentinel must NOT be the silent '__from_responses_proxy__'
+    // anymore — make orphans loud so debugging is possible. console.warn
+    // is the load-bearing side effect; intercept it.
+    const originalWarn = console.warn;
+    const warnings: string[] = [];
+    console.warn = (...args: unknown[]) => {
+      warnings.push(args.map(a => String(a)).join(' '));
+    };
+    try {
+      const input: ResponsesInputItem[] = [
+        { type: 'function_call_output', call_id: 'orphan_1', output: '{"ok":true}' },
+      ];
+      const messages = translateResponsesInput(input);
+      const content = messages[0].content as Array<{ toolName: string }>;
+      assert.equal(
+        content[0].toolName,
+        '__orphan_function_call_output__',
+        'orphan tool-result must use the named sentinel so the divergence is visible at provider time',
+      );
+      assert.ok(
+        warnings.some(w => w.includes('orphan_1') && w.includes('no matching function_call')),
+        `orphan must emit a console.warn naming the call_id; got: ${JSON.stringify(warnings)}`,
+      );
+    } finally {
+      console.warn = originalWarn;
+    }
+  });
+
   it('promotes input_image to ai-sdk image part on user messages', () => {
     const input: ResponsesInputItem[] = [
       {

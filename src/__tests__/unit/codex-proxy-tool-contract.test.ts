@@ -257,3 +257,122 @@ describe('translateResponsesTools — AI SDK v6 wrapper contract (Phase 5b smoke
     assert.deepEqual(Object.keys(a).sort(), Object.keys(b).sort());
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────
+// Tool-loop continuation contract (Phase 5b smoke round 7)
+//
+// Codex's natural flow under tools is:
+//   1. user → assistant text + function_call(name, args, call_id)
+//   2. CodePilot proxy hands the request back through to Codex via SSE
+//   3. Codex runs the tool and re-sends the request body with:
+//      [assistant+function_call, function_call_output(call_id, output)]
+//   4. The provider sees the tool result and produces the final
+//      assistant turn.
+//
+// The "tool ran but no continuation" failure happens when step 3's
+// tool-result message doesn't carry the right `toolName` — Anthropic
+// and OpenAI Responses both use the name to reconcile the result
+// with the tool definition. Pre-fix the translator wrote a sentinel
+// '__from_responses_proxy__' and the model never produced step 4.
+//
+// This test pins the continuation end-to-end: build a Codex-shaped
+// request body with a function_call/function_call_output pair, run
+// through `translateResponsesInput` → `streamText` with a mock
+// LanguageModel, and verify the mock observes the tool-result with
+// the original toolName (so a real provider would route it correctly).
+// ─────────────────────────────────────────────────────────────────────
+
+describe('Tool continuation — function_call → function_call_output → final assistant text (Phase 5b smoke round 7)', () => {
+  it('streamText sees the tool result with the ORIGINAL function_call toolName, enabling continuation', async () => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { translateResponsesInput } = require('@/lib/codex/proxy/translate-input') as typeof import('@/lib/codex/proxy/translate-input');
+
+    const messages = translateResponsesInput([
+      { type: 'message', role: 'user', content: [{ type: 'input_text', text: 'draw a cat' }] },
+      {
+        type: 'message',
+        role: 'assistant',
+        content: [{ type: 'output_text', text: 'sure, generating' }],
+      },
+      {
+        type: 'function_call',
+        call_id: 'call_img_1',
+        name: 'gpt_image_2',
+        arguments: '{"prompt":"a cat"}',
+      },
+      {
+        type: 'function_call_output',
+        call_id: 'call_img_1',
+        output: '{"image":"<base64>","saved_path":"/tmp/x.png"}',
+      },
+    ]);
+
+    // Sanity: the last message is the tool result with the real name.
+    const toolMsg = messages[messages.length - 1];
+    assert.equal(toolMsg.role, 'tool');
+    const toolContent = toolMsg.content as Array<{ toolName: string; toolCallId: string }>;
+    assert.equal(toolContent[0].toolName, 'gpt_image_2');
+    assert.equal(toolContent[0].toolCallId, 'call_img_1');
+
+    // Now drive streamText with the same messages and the mock model.
+    // A continuation-capable provider would, given a properly-named
+    // tool-result, emit one more assistant text turn. The mock emits
+    // 'continuation ok' on the next text-delta to simulate that.
+    const mock = new MockLanguageModelV3({
+      doStream: async () => ({
+        stream: new ReadableStream({
+          start(controller) {
+            controller.enqueue({ type: 'stream-start', warnings: [] });
+            controller.enqueue({
+              type: 'response-metadata',
+              id: 'resp-cont',
+              modelId: 'test',
+              timestamp: new Date(0),
+            });
+            controller.enqueue({ type: 'text-start', id: 'msg-2' });
+            controller.enqueue({ type: 'text-delta', id: 'msg-2', delta: 'continuation ok' });
+            controller.enqueue({ type: 'text-end', id: 'msg-2' });
+            controller.enqueue({
+              type: 'finish',
+              finishReason: { unified: 'stop', raw: 'stop' },
+              usage: {
+                inputTokens: { total: 1, noCache: 1, cacheRead: undefined, cacheWrite: undefined },
+                outputTokens: { total: 2, text: 2, reasoning: undefined },
+              },
+            });
+            controller.close();
+          },
+        }),
+      }),
+    });
+
+    const result = streamText({ model: mock, messages });
+    const parts = await drain(result.fullStream);
+
+    // The mock received a `prompt` (ai-sdk's converted messages). The
+    // tool-result MUST be there. The exact provider-format depends on
+    // ai-sdk's prompt converter, but the call's prompt argument is the
+    // ground truth — assert the toolName survives in some form.
+    assert.equal(mock.doStreamCalls.length, 1, 'doStream invoked once');
+    const promptJson = JSON.stringify(mock.doStreamCalls[0].prompt);
+    assert.match(
+      promptJson,
+      /gpt_image_2/,
+      'tool-result toolName must survive ai-sdk\'s prompt conversion — pre-fix the sentinel "__from_responses_proxy__" appeared here instead, and providers refused to continue',
+    );
+    assert.doesNotMatch(
+      promptJson,
+      /__from_responses_proxy__/,
+      'the legacy sentinel must NOT leak through — that was the silent-failure surface',
+    );
+
+    // Continuation actually produced an assistant text turn.
+    const types = parts.map(p => (p as { type: string }).type);
+    assert.ok(types.includes('text-delta'), 'continuation must emit assistant text — saw events: ' + types.join(','));
+    const continuationText = parts
+      .filter(p => (p as { type: string }).type === 'text-delta')
+      .map(p => (p as { text?: string }).text ?? '')
+      .join('');
+    assert.equal(continuationText, 'continuation ok');
+  });
+});

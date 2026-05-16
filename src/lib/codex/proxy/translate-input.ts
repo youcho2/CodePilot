@@ -41,13 +41,52 @@ type JsonValue =
   | JsonValue[]
   | { [key: string]: JsonValue };
 
+/** Fallback toolName when we can't correlate a function_call_output back
+ *  to its function_call. Surfaced so the chain is debuggable downstream
+ *  instead of disappearing into a misnamed tool-result. */
+const ORPHAN_TOOL_RESULT_SENTINEL = '__orphan_function_call_output__';
+
 /**
  * Translate a Responses input array into ai-sdk ModelMessage[].
  * Caller prepends the system message (from `instructions`) if any.
+ *
+ * Phase 5b smoke round 7 (2026-05-16) — tool-result toolName fix.
+ *
+ * Codex's Responses request body interleaves `function_call` and
+ * `function_call_output` items keyed by `call_id`. ai-sdk's
+ * `tool-result` content part also expects a `toolName` that matches
+ * what was declared on the preceding `tool-call` — providers like
+ * Anthropic and OpenAI Responses use the name to look up the tool
+ * schema and route the result back to the model.
+ *
+ * Pre-fix the translator wrote a sentinel string `'__from_responses_proxy__'`
+ * for every tool-result and relied on the comment "ai-sdk doesn't use
+ * this for routing; the toolCallId is the matcher". That comment was
+ * wrong: downstream providers DO use the name. The visible symptom
+ * was tool calls finishing without continuation (e.g. GPT-Image-2.0
+ * skill completes but Codex never produces the final assistant turn
+ * because the provider can't reconcile the result).
+ *
+ * The fix walks the input array once first to build a call_id →
+ * function_call.name map, then translates linearly using that map.
+ * Orphan function_call_outputs (no matching function_call in the same
+ * request — should only happen on malformed inputs) fall back to a
+ * named sentinel so the divergence stays visible.
  */
 export function translateResponsesInput(
   input: ResponsesInputItem[],
 ): ModelMessage[] {
+  // Pass 1 — collect call_id → toolName from every function_call.
+  // Codex emits function_call BEFORE the corresponding _output in the
+  // same request, but we do a separate pass first so any future
+  // re-ordering doesn't quietly break correlation.
+  const callIdToToolName = new Map<string, string>();
+  for (const item of input) {
+    if (item.type === 'function_call') {
+      callIdToToolName.set(item.call_id, item.name);
+    }
+  }
+
   const out: ModelMessage[] = [];
 
   for (const item of input) {
@@ -94,10 +133,22 @@ export function translateResponsesInput(
       }
     } else if (item.type === 'function_call_output') {
       // ai-sdk tool result messages MUST come after the matching
-      // assistant tool-call. Codex always emits them in order, so
-      // we just push a new tool message here. ai-sdk merges
-      // consecutive tool messages internally.
-      //
+      // assistant tool-call AND carry the real toolName so the
+      // downstream provider (Anthropic, OpenAI Responses, etc.) can
+      // route the result back to the tool definition. The call_id
+      // alone isn't enough — that's the round-7 regression we hit.
+      const resolvedName = callIdToToolName.get(item.call_id);
+      const toolName = resolvedName ?? ORPHAN_TOOL_RESULT_SENTINEL;
+      if (!resolvedName) {
+        // Visible warning so an orphan result doesn't disappear into
+        // a misnamed message. The proxy adapter classifies upstream
+        // failures via classifyUpstreamError; this surfaces in
+        // dev/prod logs without dropping the request entirely.
+        console.warn(
+          `[codex.proxy.translate-input] function_call_output(call_id=${item.call_id}) has no matching function_call in this request. ` +
+            `Routing result to sentinel toolName "${ORPHAN_TOOL_RESULT_SENTINEL}" — provider may fail to reconcile.`,
+        );
+      }
       // Output is JSON-parsed when possible (so the model sees a
       // structured value), falls back to plain text otherwise. This
       // matches how Codex itself encodes tool output downstream.
@@ -111,7 +162,7 @@ export function translateResponsesInput(
           {
             type: 'tool-result' as const,
             toolCallId: item.call_id,
-            toolName: '__from_responses_proxy__', // ai-sdk doesn't use this for routing; the toolCallId is the matcher
+            toolName,
             output,
           },
         ],
