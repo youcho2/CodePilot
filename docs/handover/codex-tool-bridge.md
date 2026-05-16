@@ -106,15 +106,15 @@ useSSEStream → SSECallbacks → stream-session-manager → MessageList / Media
 | 工具 | gate | 副作用 |
 |---|---|---|
 | `codepilot_generate_image` | 默认挂 | 调 `generateSingleImage` → `.codepilot-media` → MediaBlock |
-| `codepilot_import_media` | 默认挂 | 调 `importFileToLibrary` → `.codepilot-media` → MediaBlock |
+| `codepilot_import_media` | 默认挂 | 调 `importFileToLibrary` → `.codepilot-media` → MediaBlock；`type` 字段由 mimeType 前缀决定（`video/*` → video, `audio/*` → audio, 其余 → image），与 `media-saver.mimeToMediaType` 同源 |
 | `codepilot_memory_recent` | workspace 必须有 | 读 `memory.md` + `memory/daily/*.md` |
-| `codepilot_memory_search` | workspace 必须有 | 调 `searchWorkspace` |
+| `codepilot_memory_search` | workspace 必须有 | 调 `searchWorkspace`；`file_type` (`daily` / `longterm` / `notes`) 按路径过滤；`tags` 通过 `workspace-indexer.loadManifest()` 过滤（manifest 不可用时静默退化） |
 | `codepilot_memory_get` | workspace 必须有 | path-safe + symlink-escape 校验后读文件 |
 | `codepilot_load_widget_guidelines` | 默认挂 | 调 `getGuidelines(modules)` 返回文本 |
 | `codepilot_notify` | 默认挂 | 调 `sendNotification` |
-| `codepilot_schedule_task` | 默认挂 | POST `/api/tasks/schedule`，注入 origin_session_id / working_directory |
-| `codepilot_list_tasks` | 默认挂 | GET `/api/tasks/list` |
-| `codepilot_cancel_task` | 默认挂 | DELETE `/api/tasks/:id` |
+| `codepilot_schedule_task` | 默认挂 | `durable === false` → 调 `addSessionTask`（in-memory）；否则 POST `/api/tasks/schedule`；两条路径都注入 origin_session_id / working_directory |
+| `codepilot_list_tasks` | 默认挂 | GET `/api/tasks/list` 拿 durable 列表，再合并 `getSessionTasks()`；status 过滤同时作用于两者 |
+| `codepilot_cancel_task` | 默认挂 | 先尝试 `removeSessionTask`，命中即返；否则 DELETE `/api/tasks/:id` |
 
 未支持（Phase 5c 范围外，将来再加）：
 

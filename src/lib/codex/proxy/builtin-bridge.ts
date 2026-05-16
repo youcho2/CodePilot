@@ -360,18 +360,25 @@ function buildImportMediaTool(opts: BuiltinBridgeOpts) {
           tags: input.tags,
           cwd: opts.workspacePath,
         });
+        // P2 fix (smoke round, 2026-05-16) — the bridge's tool
+        // DESCRIPTION promises image/video/audio support, but
+        // pre-fix every imported file got `type: 'image'` regardless.
+        // MediaPreview is type-discriminated (image → <img>, video
+        // → <video>, audio → <audio>), so importing a .mp4 or .wav
+        // landed in the wrong renderer. Infer mediaType from the
+        // mimeType prefix the same way `media-saver.mimeToMediaType`
+        // does — we can't reach that helper directly without
+        // exporting it, but the prefix check is two lines.
+        const mimeType = inferMimeFromPath(result.localPath);
+        const mediaType: 'image' | 'video' | 'audio' = mediaTypeOf(mimeType);
         const block: MediaBlock = {
-          // We don't know the mimeType for sure without reading the
-          // file — media-saver detected it but doesn't return it.
-          // The downstream MediaPreview infers from the localPath
-          // extension, which is what `/api/media/serve` does too.
-          type: 'image' as const,
-          mimeType: inferMimeFromPath(result.localPath),
+          type: mediaType,
+          mimeType,
           localPath: result.localPath,
           mediaId: result.mediaId,
         };
         return {
-          text: `File imported to media library. mediaId=${result.mediaId}, localPath=${result.localPath}`,
+          text: `File imported to media library. mediaId=${result.mediaId}, localPath=${result.localPath}, mediaType=${mediaType}`,
           media: [block],
         };
       });
@@ -392,10 +399,24 @@ function inferMimeFromPath(localPath: string): string {
     case '.mp4': return 'video/mp4';
     case '.webm': return 'video/webm';
     case '.mov': return 'video/quicktime';
+    case '.mkv': return 'video/x-matroska';
     case '.mp3': return 'audio/mpeg';
     case '.wav': return 'audio/wav';
+    case '.ogg': return 'audio/ogg';
+    case '.flac': return 'audio/flac';
+    case '.aac': return 'audio/aac';
     default: return 'application/octet-stream';
   }
+}
+
+/** Mirrors `media-saver.ts mimeToMediaType` — kept inline to avoid
+ *  exporting a helper from media-saver just for this caller. Drift
+ *  guard: both sides default to `image` so non-AV files still render
+ *  in the gallery as a fallback. */
+function mediaTypeOf(mimeType: string): 'image' | 'video' | 'audio' {
+  if (mimeType.startsWith('video/')) return 'video';
+  if (mimeType.startsWith('audio/')) return 'audio';
+  return 'image';
 }
 
 // ─────────────────────────────────────────────────────────────────────
@@ -443,18 +464,53 @@ function buildMemorySearchTool(opts: BuiltinBridgeOpts) {
         if (!opts.workspacePath) {
           throw new Error('Memory search requires an active workspace; this chat does not have one bound.');
         }
+        const workspace = opts.workspacePath;
+        const limit = input.limit || 5;
         const { searchWorkspace } = await import('@/lib/workspace-retrieval');
-        const results = searchWorkspace(opts.workspacePath, input.query, {
-          limit: (input.limit || 5) * 3,
-        });
-        // We deliberately DON'T re-implement the manifest filtering
-        // here — that's `memory-search-mcp.ts`'s job. If the user
-        // wants tag/type filtering through the Codex bridge in a
-        // future slice, lift the helpers into a shared module.
-        const trimmed = results.slice(0, input.limit || 5);
+        let results = searchWorkspace(workspace, input.query, { limit: limit * 3 });
+
+        // P2 fix (smoke round, 2026-05-16) — the schema + description
+        // promise `tags` and `file_type` filtering, but the pre-fix
+        // bridge ignored both. Mirror `memory-search-mcp.ts` lines
+        // 62-88 so the Codex bridge stays in lock-step with the SDK
+        // MCP version. Without this, a user asking "search
+        // file_type=daily" would get long-term notes mixed in.
+
+        if (input.file_type && input.file_type !== 'all') {
+          const isMemoryFile = (p: string) => /^memory\.md$/i.test(p);
+          const ft = input.file_type;
+          results = results.filter((r) => {
+            if (ft === 'daily') return r.path.startsWith('memory/daily/');
+            if (ft === 'longterm') return isMemoryFile(r.path);
+            if (ft === 'notes') return !r.path.startsWith('memory/') && !isMemoryFile(r.path);
+            return true;
+          });
+        }
+
+        if (input.tags && input.tags.length > 0) {
+          const tagsLower = input.tags.map((t) => t.toLowerCase().replace(/^#/, ''));
+          try {
+            const { loadManifest } = await import('@/lib/workspace-indexer');
+            const manifest = loadManifest(workspace) as Array<{ path: string; tags?: string[] }>;
+            results = results.filter((r) => {
+              const entry = manifest.find((e) => e.path === r.path);
+              if (!entry?.tags?.length) return false;
+              const entryTagsLower = entry.tags.map((t: string) => t.toLowerCase());
+              return tagsLower.some((t) => entryTagsLower.includes(t));
+            });
+          } catch {
+            // manifest unavailable (workspace never indexed) → skip
+            // tag filter rather than fail the whole search. Same
+            // soft-failure stance memory-search-mcp.ts takes.
+          }
+        }
+
+        const trimmed = results.slice(0, limit);
         const text = trimmed.length === 0
-          ? `No memory results for "${input.query}".`
-          : trimmed.map((r, i) => `${i + 1}. [${r.path}] ${truncate(r.snippet ?? '', 240)}`).join('\n\n');
+          ? `No memory results for "${input.query}"${input.file_type && input.file_type !== 'all' ? ` (file_type=${input.file_type})` : ''}${input.tags && input.tags.length > 0 ? ` (tags=${input.tags.join(',')})` : ''}.`
+          : trimmed
+              .map((r, i) => `${i + 1}. [${r.path}] (score: ${r.score.toFixed(2)})\n   ${truncate(r.snippet ?? '', 240)}`)
+              .join('\n\n');
         return { text };
       });
     },
@@ -717,6 +773,62 @@ function buildScheduleTaskTool(opts: BuiltinBridgeOpts) {
     execute: async (rawInput: unknown) => {
       const input = rawInput as ScheduleTaskInput;
       return runWithEvents(opts, 'codepilot_schedule_task', input, async () => {
+        // P1 fix (smoke round, 2026-05-16) — `durable: false` MUST
+        // take the session-only branch (writes into the in-process
+        // map via addSessionTask), NOT POST to /api/tasks/schedule.
+        // Pre-fix the bridge accepted the param then ignored it,
+        // breaking parity with `notification-mcp.ts` + the AI SDK
+        // builtin variant: a Codex Runtime task with durable=false
+        // would have ended up persistent, surviving restarts the
+        // user didn't expect, and showing up in the durable
+        // dashboard. Mirror `notification-mcp.ts` lines 121-173.
+        if (input.durable === false) {
+          const cryptoMod = await import('node:crypto');
+          const { addSessionTask, parseInterval, getNextCronTime } = await import('@/lib/task-scheduler');
+          const id = cryptoMod.randomBytes(8).toString('hex');
+          const now = new Date();
+          let next_run: string;
+          if (input.schedule_type === 'once') {
+            next_run = input.schedule_value;
+          } else if (input.schedule_type === 'interval') {
+            next_run = new Date(now.getTime() + parseInterval(input.schedule_value)).toISOString();
+          } else {
+            const cronNext = getNextCronTime(input.schedule_value);
+            if (!cronNext) {
+              return {
+                text: `Cron expression "${input.schedule_value}" has no valid occurrence within 4 years. Task not created.`,
+              };
+            }
+            next_run = cronNext.toISOString();
+          }
+          const task = {
+            id,
+            name: input.name,
+            prompt: input.prompt,
+            kind: input.kind,
+            schedule_type: input.schedule_type,
+            schedule_value: input.schedule_value,
+            next_run,
+            consecutive_errors: 0,
+            status: 'active' as const,
+            priority: input.priority || 'normal',
+            notify_on_complete: input.notify_on_complete === false ? 0 : 1,
+            permanent: 0,
+            // Hidden run context — closure-captured, model can't
+            // override. Same rationale as the MCP variant: scheduled
+            // tasks need to know which project / chat they belong
+            // to so the runner re-uses the right workspace.
+            origin_session_id: opts.sessionId,
+            working_directory: opts.workspacePath,
+            created_at: now.toISOString(),
+            updated_at: now.toISOString(),
+          };
+          addSessionTask(task);
+          return {
+            text: `Session task "${input.name}" scheduled (${input.kind}, non-durable). ID: ${id}, next run: ${next_run}`,
+          };
+        }
+
         const baseUrl = `http://127.0.0.1:${process.env.PORT || '3000'}`;
         const res = await fetch(`${baseUrl}/api/tasks/schedule`, {
           method: 'POST',
@@ -773,16 +885,45 @@ function buildListTasksTool(opts: BuiltinBridgeOpts) {
         const res = await fetch(url);
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data = await res.json();
-        const tasks = (data.tasks ?? []) as Array<{
+        type TaskRow = {
           id: string; name: string; schedule_type: string; schedule_value: string;
-          status: string; next_run: string; last_status?: string;
-        }>;
+          status: string; next_run: string; last_status?: string; durable?: boolean;
+        };
+        const tasks: TaskRow[] = ((data.tasks ?? []) as Omit<TaskRow, 'durable'>[]).map((t) => ({
+          ...t,
+          durable: true,
+        }));
+
+        // P1 fix (smoke round, 2026-05-16) — also merge session-only
+        // tasks from the in-process map. Mirror notification-mcp.ts
+        // lines 224-240. Without this merge, a user who scheduled a
+        // non-durable task earlier in the same chat couldn't see it
+        // here even though it was very much alive.
+        try {
+          const { getSessionTasks } = await import('@/lib/task-scheduler');
+          for (const [, task] of getSessionTasks()) {
+            if (input.status && input.status !== 'all' && task.status !== input.status) continue;
+            tasks.push({
+              id: task.id,
+              name: `${task.name} (session)`,
+              schedule_type: task.schedule_type,
+              schedule_value: task.schedule_value,
+              status: task.status,
+              next_run: task.next_run,
+              last_status: task.last_status,
+              durable: false,
+            });
+          }
+        } catch {
+          // Best-effort: scheduler module not loaded → durable list only.
+        }
+
         if (tasks.length === 0) {
           return { text: 'No scheduled tasks found.' };
         }
         const formatted = tasks
           .map((t, i) =>
-            `${i + 1}. [${t.id}] ${t.name}\n   Type: ${t.schedule_type} (${t.schedule_value})\n   Status: ${t.status} | Next: ${t.next_run}${t.last_status ? ` | Last: ${t.last_status}` : ''}`,
+            `${i + 1}. [${t.id}] ${t.name}\n   Type: ${t.schedule_type} (${t.schedule_value})\n   Status: ${t.status} | Next: ${t.next_run}${t.last_status ? ` | Last: ${t.last_status}` : ''}${t.durable === false ? ' | Session-only' : ''}`,
           )
           .join('\n\n');
         return { text: formatted };
@@ -807,6 +948,23 @@ function buildCancelTaskTool(opts: BuiltinBridgeOpts) {
     execute: async (rawInput: unknown) => {
       const input = rawInput as CancelTaskInput;
       return runWithEvents(opts, 'codepilot_cancel_task', input, async () => {
+        // P1 fix (smoke round, 2026-05-16) — try the session-only
+        // map first, fall through to durable DELETE if not found.
+        // Mirror notification-mcp.ts lines 263-281. Pre-fix the
+        // bridge only hit /api/tasks/:id, which returns 404 for
+        // any in-memory session task and surfaced as a tool error
+        // even though the task was very much cancellable.
+        try {
+          const { getSessionTasks, removeSessionTask } = await import('@/lib/task-scheduler');
+          const sessionTasks = getSessionTasks();
+          if (sessionTasks.has(input.task_id)) {
+            removeSessionTask(input.task_id);
+            return { text: `Session task ${input.task_id} cancelled.` };
+          }
+        } catch {
+          // Scheduler module not loaded → fall through to durable.
+        }
+
         const baseUrl = `http://127.0.0.1:${process.env.PORT || '3000'}`;
         const res = await fetch(`${baseUrl}/api/tasks/${input.task_id}`, { method: 'DELETE' });
         if (!res.ok) {
