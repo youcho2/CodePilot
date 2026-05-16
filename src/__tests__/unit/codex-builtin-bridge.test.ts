@@ -84,26 +84,34 @@ describe('createCodePilotBuiltinTools — mount + skip', () => {
     assert.ok(bridge.tools.codepilot_memory_recent);
     assert.ok(bridge.tools.codepilot_memory_search);
     assert.ok(bridge.tools.codepilot_memory_get);
-    // System prompt must mention memory when memory tools mount.
-    assert.match(bridge.systemPrompt, /codepilot_memory_recent/);
+    // Phase 5d Phase 2 slice 2e (2026-05-17) — bridge no longer
+    // assembles its own systemPrompt. The presence of the memory
+    // tools in `bridge.tools` is the contract surface here; prompt
+    // text is asserted in `harness-context-compiler.test.ts` against
+    // the compiler output.
+    assert.equal(bridge.systemPrompt, '', 'bridge.systemPrompt must be empty post-slice-2e — compiler owns prompts');
   });
 
-  it('systemPrompt always describes the mounted capabilities (no silent listing)', () => {
+  it('bridge mounts the expected tool surface for live capabilities (prompt text is compiler\'s job)', () => {
     const bridge = createCodePilotBuiltinTools({
       sessionId: 'chat-1',
       targetProviderId: 'prov-glm',
       workspacePath: '/w',
     });
-    assert.match(bridge.systemPrompt, /codepilot-media-capability/);
-    // Phase 5c slice 7 (2026-05-16) — bridge widget prompt now is
-    // the canonical WIDGET_SYSTEM_PROMPT verbatim, which uses the
-    // tag `<widget-capability>` (no codepilot- prefix). Media /
-    // tasks / memory still carry the bridge-side codepilot- tag
-    // because those prompts haven't been de-drifted yet (tech-debt
-    // tracked in the Harness Capability Contract).
-    assert.match(bridge.systemPrompt, /widget-capability/);
-    assert.match(bridge.systemPrompt, /codepilot-tasks-capability/);
-    assert.match(bridge.systemPrompt, /codepilot-memory-capability/);
+    // Phase 5d Phase 2 slice 2e (2026-05-17) — the bridge's job is
+    // tool mounting + side-channel event emission. Prompt assembly
+    // moved to the Context Compiler (see harness-context-compiler.test.ts).
+    // This test pins the tool surface only; the test that used to
+    // grep bridge.systemPrompt for capability tags is replaced by
+    // the compiler's `runtimeHints / capability fragments` pins.
+    assert.ok(bridge.tools.codepilot_generate_image, 'image tool must mount');
+    assert.ok(bridge.tools.codepilot_import_media);
+    assert.ok(bridge.tools.codepilot_load_widget_guidelines);
+    assert.ok(bridge.tools.codepilot_notify);
+    assert.ok(bridge.tools.codepilot_schedule_task);
+    assert.ok(bridge.tools.codepilot_list_tasks);
+    assert.ok(bridge.tools.codepilot_cancel_task);
+    assert.equal(bridge.systemPrompt, '', 'bridge.systemPrompt must be empty after slice 2e');
   });
 });
 

@@ -45,7 +45,10 @@ import {
   type CapabilityContract,
 } from '@/lib/harness/capability-contract';
 import { parseAllShowWidgets } from '@/components/chat/MessageItem';
-import { WIDGET_SYSTEM_PROMPT as CANONICAL_WIDGET_PROMPT } from '@/lib/widget-guidelines';
+import {
+  WIDGET_SYSTEM_PROMPT as CANONICAL_WIDGET_PROMPT,
+  WIDGET_WIRE_FORMAT_SPEC,
+} from '@/lib/widget-guidelines';
 
 const REPO_ROOT = path.resolve(__dirname, '../../..');
 
@@ -133,20 +136,29 @@ describe('Tool names declared in the contract appear in the runtime exposure fil
 // ─────────────────────────────────────────────────────────────────────
 
 describe('Codex bridge prompt does not redefine widget semantics', () => {
-  it('bridge WIDGET_PROMPT consumes the canonical WIDGET_SYSTEM_PROMPT (no paraphrase)', () => {
-    // The bridge MUST import + use the canonical fragment. We pin
-    // both the import line AND the assignment line so a future edit
-    // that re-introduces a standalone string trips immediately.
+  it('bridge holds NO local prompt scalars; compiler is the sole producer (slice 2e)', () => {
+    // Phase 5d Phase 2 slice 2e (2026-05-17) — pin shifted. Pre-fix
+    // the bridge held WIDGET_PROMPT (and MEDIA / MEMORY / NOTIFY
+    // before that). Slice 2e removed all four scalars; the Context
+    // Compiler is the only producer of capability prompts now.
     const bridgeSrc = readSource('src/lib/codex/proxy/builtin-bridge.ts');
+    assert.equal(
+      /^const\s+(WIDGET_PROMPT|MEDIA_PROMPT|MEMORY_PROMPT|NOTIFY_PROMPT)\s*=/m.test(bridgeSrc),
+      false,
+      'bridge MUST NOT declare WIDGET_PROMPT / MEDIA_PROMPT / MEMORY_PROMPT / NOTIFY_PROMPT scalars — capability prompts flow through the Context Compiler now',
+    );
+    // unified-adapter.ts must call compileContext and use its
+    // systemPromptText for the bridge prompt.
+    const adapterSrc = readSource('src/lib/codex/proxy/unified-adapter.ts');
     assert.match(
-      bridgeSrc,
-      /import\s*\{[^}]*WIDGET_SYSTEM_PROMPT[^}]*\}\s*from\s*'@\/lib\/widget-guidelines'/,
-      'bridge MUST import WIDGET_SYSTEM_PROMPT from widget-guidelines.ts (canonical source)',
+      adapterSrc,
+      /import\s*\{\s*compileContext\s*\}\s*from\s*'@\/lib\/harness\/context-compiler'/,
+      'unified-adapter must import compileContext',
     );
     assert.match(
-      bridgeSrc,
-      /const\s+WIDGET_PROMPT\s*=\s*CANONICAL_WIDGET_SYSTEM_PROMPT\s*;/,
-      'bridge WIDGET_PROMPT must be exactly the canonical fragment — no paraphrasing, no concatenation',
+      adapterSrc,
+      /compiled\.systemPromptText|systemPromptText/,
+      'unified-adapter must consume compiled.systemPromptText',
     );
   });
 
@@ -161,6 +173,70 @@ describe('Codex bridge prompt does not redefine widget semantics', () => {
       nativeSrc,
       /export\s+const\s+WIDGET_SYSTEM_PROMPT\s*=\s*CANONICAL_WIDGET_SYSTEM_PROMPT\s*;/,
       'Native widget tools must re-export the canonical, not redefine it',
+    );
+  });
+
+  it('Native Runtime memory / notification / media builtin-tools files re-export MCP canonicals (slice 2d)', () => {
+    // Phase 5d Phase 2 slice 2d (2026-05-17) — Native ran with its
+    // own paraphrased prompts pre-Phase-5d. Slice 2d migrated them
+    // to re-export from the MCP-side authority files. Drift test
+    // pins each so a future commit re-introducing a local string
+    // trips here.
+    const memorySrc = readSource('src/lib/builtin-tools/memory-search.ts');
+    assert.match(
+      memorySrc,
+      /import\s*\{[^}]*MEMORY_SEARCH_SYSTEM_PROMPT[^}]*\}\s*from\s*'@\/lib\/memory-search-mcp'/,
+      'Native memory must re-export from memory-search-mcp.ts',
+    );
+    assert.match(
+      memorySrc,
+      /export\s+const\s+MEMORY_SEARCH_SYSTEM_PROMPT\s*=\s*CANONICAL_MEMORY_SEARCH_SYSTEM_PROMPT\s*;/,
+    );
+
+    const notificationSrc = readSource('src/lib/builtin-tools/notification.ts');
+    assert.match(
+      notificationSrc,
+      /import\s*\{[^}]*NOTIFICATION_MCP_SYSTEM_PROMPT[^}]*\}\s*from\s*'@\/lib\/notification-mcp'/,
+      'Native notification must re-export from notification-mcp.ts',
+    );
+    assert.match(
+      notificationSrc,
+      /export\s+const\s+NOTIFICATION_SYSTEM_PROMPT\s*=\s*NOTIFICATION_MCP_SYSTEM_PROMPT\s*;/,
+    );
+
+    const mediaSrc = readSource('src/lib/builtin-tools/media.ts');
+    assert.match(
+      mediaSrc,
+      /import\s*\{[^}]*MEDIA_MCP_SYSTEM_PROMPT[^}]*\}\s*from\s*'@\/lib\/media-import-mcp'/,
+      'Native media must re-export from media-import-mcp.ts',
+    );
+    assert.match(
+      mediaSrc,
+      /export\s+const\s+MEDIA_SYSTEM_PROMPT\s*=\s*MEDIA_MCP_SYSTEM_PROMPT\s*;/,
+    );
+  });
+
+  it('ClaudeCode SDK Runtime claude-client.ts imports capability prompts from MCP canonicals only (slice 2c)', () => {
+    // Phase 5d Phase 2 slice 2c (2026-05-17) — ClaudeCode SDK has
+    // always imported the MCP canonicals directly (memory-search-mcp,
+    // notification-mcp, media-import-mcp, cli-tools-mcp, dashboard-mcp).
+    // No paraphrase ever existed on this path. Slice 2c codifies that
+    // invariant: claude-client.ts MUST NOT import capability prompts
+    // from `src/lib/builtin-tools/*` (which would create a drift
+    // surface), and MUST NOT define its own local _SYSTEM_PROMPT
+    // strings.
+    const claudeSrc = readSource('src/lib/claude-client.ts');
+    // No drift sources allowed.
+    assert.equal(
+      /from\s+['"]@\/lib\/builtin-tools\/(memory-search|notification|media|cli-tools|dashboard|widget-guidelines)['"]/.test(claudeSrc),
+      false,
+      'claude-client.ts must not import capability prompts from builtin-tools/* — those are the Native runtime path; SDK reads MCP canonicals directly',
+    );
+    // No local _SYSTEM_PROMPT declarations.
+    assert.equal(
+      /^export\s+const\s+\w+_SYSTEM_PROMPT\s*=\s*[`'"]/m.test(claudeSrc),
+      false,
+      'claude-client.ts must not declare its own _SYSTEM_PROMPT scalars; all capability prompts come from src/lib/*-mcp.ts files',
     );
   });
 });
@@ -212,16 +288,23 @@ describe('Widget artifact contract — canonicalJson is JSON.parse-safe + render
     assert.match(widgetSeg.data.widget_code, /Hello world/);
   });
 
-  it('the canonical example appears inside WIDGET_WIRE_FORMAT_SPEC, which appears inside WIDGET_SYSTEM_PROMPT', () => {
-    // Triple-chain check: spec contains example, system prompt
-    // contains spec. Any future refactor that detaches them shows
-    // up here instantly.
+  it('the canonical example appears inside WIDGET_WIRE_FORMAT_SPEC; artifactContract is the sole carrier (slice 2c)', () => {
+    // Phase 5d Phase 2 slice 2c (2026-05-17) — pin shifted. The
+    // Context Compiler's artifactContract for `widget` is now the
+    // single source of the wire-format spec + canonical example.
+    // WIDGET_SYSTEM_PROMPT no longer embeds the literal example so
+    // the compiler can produce a duplicate-free system prompt.
     const widget = getCapability('widget');
     assert.ok(widget?.artifactContract);
     const example = widget!.artifactContract!.canonicalJson;
     assert.ok(
+      WIDGET_WIRE_FORMAT_SPEC.includes(example),
+      'WIDGET_WIRE_FORMAT_SPEC must still embed the canonical example — that block lives in the compiled artifactContract',
+    );
+    assert.equal(
       CANONICAL_WIDGET_PROMPT.includes(example),
-      'WIDGET_SYSTEM_PROMPT must embed the canonical example so the model reads it directly',
+      false,
+      'WIDGET_SYSTEM_PROMPT must NOT embed the canonical example after slice 2c — duplicates would let the wire format land in the compiled prompt twice',
     );
   });
 });

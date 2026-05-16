@@ -8,29 +8,25 @@
 
 import { tool } from 'ai';
 import { z } from 'zod';
+import { NOTIFICATION_MCP_SYSTEM_PROMPT } from '@/lib/notification-mcp';
 
 function getBaseUrl(): string {
   const port = process.env.PORT || '3000';
   return `http://localhost:${port}`;
 }
 
-export const NOTIFICATION_SYSTEM_PROMPT = `## 通知与定时任务
-
-你可以发送通知和创建定时任务：
-
-- codepilot_notify: 立即发送通知给用户（支持系统通知和应用内提示）
-- codepilot_schedule_task: 创建定时任务（支持 cron 表达式、固定间隔、一次性定时）
-- codepilot_list_tasks: 查看已有的定时任务
-- codepilot_cancel_task: 取消定时任务
-- codepilot_hatch_buddy: 孵化或命名用户的助理伙伴
-
-使用场景：
-- 用户说"提醒我..."或"X 分钟后..." → 用 codepilot_schedule_task（schedule_type: "once"）
-- 用户说"每天/每小时..." → 用 codepilot_schedule_task（schedule_type: "cron" 或 "interval"）
-- 任务完成需要告知用户 → 用 codepilot_notify
-- 用户问"有哪些定时任务" → 用 codepilot_list_tasks
-- 用户说"孵化"、"领养"、"hatch" → 用 codepilot_hatch_buddy
-- 用户给伙伴起名字 → 用 codepilot_hatch_buddy(buddyName: 名字)`;
+/**
+ * Phase 5d Phase 2 slice 2d (2026-05-17) — system prompt now
+ * re-exports from the canonical MCP-side source. The previous local
+ * Chinese paraphrase drifted shorter than the MCP authority and had
+ * a slightly different vocabulary; the Expected Differences Ledger
+ * entry for this drift is removed as part of this commit.
+ *
+ * The export name stays `NOTIFICATION_SYSTEM_PROMPT` (no underscore
+ * change) so existing call sites in `builtin-tools/index.ts` keep
+ * working.
+ */
+export const NOTIFICATION_SYSTEM_PROMPT = NOTIFICATION_MCP_SYSTEM_PROMPT;
 
 /**
  * Phase 3 Step 4 follow-up — hidden run context for the schedule

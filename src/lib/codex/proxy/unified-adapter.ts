@@ -39,6 +39,7 @@ import { translateNonStreamResponse } from './translate-response';
 import { encodeEvent, encodeDone, makeFailureStream } from './sse';
 import { makeErrorResult, classifyUpstreamError } from './errors';
 import { createCodePilotBuiltinTools } from './builtin-bridge';
+import { compileContext } from '@/lib/harness/context-compiler';
 import type { ResponsesAdapter } from './adapter';
 import type {
   ResponsesEvent,
@@ -120,12 +121,42 @@ export function createUnifiedAdapter(family: string): ResponsesAdapter {
     });
     const tools: ToolSet | undefined = mergeToolSets(codexTools, bridge.tools);
 
-    // Prepend the bridge's system prompt to Codex's `instructions`
-    // so the model knows which built-in tools exist + when to use
-    // them. We splice rather than overwrite — Codex's instructions
-    // contain user-facing copy we MUST NOT drop.
-    const bodyWithBridgePrompt = bridge.systemPrompt.length > 0
-      ? { ...input.body, instructions: combineInstructions(input.body.instructions, bridge.systemPrompt) }
+    // Phase 5d Phase 2 slice 2e (2026-05-17) — system prompt now
+    // comes from the Harness Context Compiler. The bridge no longer
+    // assembles its own prompt; the compiler is the sole producer
+    // of capability + artifact-contract prompts across all three
+    // runtimes.
+    //
+    // When the bridge is "skipped" (codex_account guardrail, or no
+    // sessionId) `enabledCapabilities` is set to an empty Set so the
+    // compiler emits an empty system prompt; Codex's own
+    // `instructions` are kept intact.
+    const bridgeMounted = bridge.toolNames.size > 0;
+    const compiled = compileContext({
+      sessionId: input.sessionId || 'codex-anonymous',
+      workingDirectory: input.workspacePath || undefined,
+      runtimeId: 'codex_runtime',
+      providerId: input.targetProviderId,
+      model: input.body.model,
+      userPrompt: '',
+      // Trust the bridge's mount set as the source of truth for
+      // "which capabilities this turn is exposing through the proxy".
+      // The bridge's gating (codex_account guardrail / workspace-
+      // gated memory) is already applied; this keeps the compiler's
+      // capability surface aligned with what actually runs.
+      enabledCapabilities: bridgeMounted
+        ? capabilitiesFromBridgeToolNames(bridge.toolNames)
+        : new Set<string>(),
+      tokenBudget: { systemPromptMax: 100_000, contextMax: 200_000 },
+    });
+    const bridgePrompt = compiled.systemPromptText;
+
+    // Prepend the compiler-produced system prompt to Codex's
+    // `instructions` so the model knows which built-in tools exist +
+    // when to use them. We splice rather than overwrite — Codex's
+    // instructions contain user-facing copy we MUST NOT drop.
+    const bodyWithBridgePrompt = bridgePrompt.length > 0
+      ? { ...input.body, instructions: combineInstructions(input.body.instructions, bridgePrompt) }
       : input.body;
 
     const providerOptions = buildProviderOptions(bodyWithBridgePrompt);
@@ -169,6 +200,40 @@ export function createUnifiedAdapter(family: string): ResponsesAdapter {
 function mergeToolSets(codex: ToolSet | undefined, bridge: ToolSet): ToolSet | undefined {
   const merged: ToolSet = { ...(codex ?? {}), ...bridge };
   return Object.keys(merged).length > 0 ? merged : undefined;
+}
+
+/**
+ * Phase 5d Phase 2 slice 2e (2026-05-17) — map the bridge's mounted
+ * tool names back to capability ids so the Context Compiler emits
+ * fragments for exactly those capabilities. Workspace-gated cases
+ * (memory tools mounted only when workspacePath is present) flow
+ * through naturally because the bridge only mounts `codepilot_memory_*`
+ * tools when it has a workspace.
+ */
+function capabilitiesFromBridgeToolNames(toolNames: ReadonlySet<string>): Set<string> {
+  const out = new Set<string>();
+  // Capability id ← tool name mapping mirrors capability-contract.ts.
+  // The compiler will then look up exposure / fragment / artifact
+  // details from the catalog.
+  if (toolNames.has('codepilot_generate_image')) out.add('image_generation');
+  if (toolNames.has('codepilot_import_media')) out.add('media_import');
+  if (toolNames.has('codepilot_load_widget_guidelines')) out.add('widget');
+  if (
+    toolNames.has('codepilot_memory_recent') ||
+    toolNames.has('codepilot_memory_search') ||
+    toolNames.has('codepilot_memory_get')
+  ) {
+    out.add('memory');
+  }
+  if (
+    toolNames.has('codepilot_notify') ||
+    toolNames.has('codepilot_schedule_task') ||
+    toolNames.has('codepilot_list_tasks') ||
+    toolNames.has('codepilot_cancel_task')
+  ) {
+    out.add('tasks_and_notify');
+  }
+  return out;
 }
 
 function combineInstructions(codexInstructions: string | undefined, bridgePrompt: string): string {

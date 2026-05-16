@@ -67,10 +67,30 @@ Minimal correct example — copy/paste-safe JSON (verified by contract test):
 ${CANONICAL_SHOW_WIDGET_JSON}
 \`\`\``;
 
+/**
+ * Phase 5d Phase 2 slice 2c (2026-05-17) — WIDGET_SYSTEM_PROMPT no
+ * longer embeds WIDGET_WIRE_FORMAT_SPEC.
+ *
+ * Pre-fix the system prompt interpolated the entire wire-format spec
+ * (`${WIDGET_WIRE_FORMAT_SPEC}` template literal). After the
+ * Context Compiler adoption the artifactContract for `widget`
+ * (`src/lib/harness/capability-contract.ts widget.artifactContract`)
+ * is the sole holder of the wire-format spec + CANONICAL_SHOW_WIDGET_JSON
+ * example. The compiler orders artifactContracts BEFORE
+ * capabilityFragments in the compiled system prompt, so the model
+ * still sees the spec first; it just appears once.
+ *
+ * The compiler's `detectWireFormatDuplication` sanity check FAILs at
+ * compile time if WIDGET_SYSTEM_PROMPT (or any capability fragment)
+ * re-embeds an artifactContract's canonicalJson — that's the forcing
+ * function that keeps this refactor honest.
+ *
+ * The 14 capability rules below still reference `widget_code` and JSON
+ * encoding by name — that's fine, it's vocabulary, not the literal
+ * canonical example string.
+ */
 export const WIDGET_SYSTEM_PROMPT = `<widget-capability>
-You can create interactive visualizations using the \`show-widget\` code fence.
-
-${WIDGET_WIRE_FORMAT_SPEC}
+You can create interactive visualizations using the \`show-widget\` code fence. The wire format is documented in the FINAL OUTPUT FORMAT block above this section; do not re-paraphrase it.
 
 ## Design specs
 Call \`codepilot_load_widget_guidelines\` before your first widget to load detailed design specs.

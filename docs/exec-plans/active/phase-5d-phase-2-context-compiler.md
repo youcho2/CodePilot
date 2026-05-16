@@ -10,13 +10,13 @@
 
 | Slice | 内容 | 状态 | 备注 |
 |---|---|---|---|
-| 2a | Compiler 接口 + Input/Output 类型 + 纯函数 `compileContext(input)` + 单测 | 📋 待开始 | 零调用点；只验证类型 + 顺序 + 去重 + 预算 |
-| 2b | 等价测试 harness | 📋 待开始 | 给定真实形状输入，对照现有三个 Runtime 的 prompt 构造结果，证明 compiler 输出覆盖等价 fragments |
-| 2c | ClaudeCode SDK Runtime 切到 compiler 输出 | 📋 待开始 | 最孤立，从 `src/lib/claude-client.ts` 开始；其它 Runtime 不动 |
-| 2d | Native Runtime 切到 compiler 输出 | 📋 待开始 | 涉及 `src/lib/builtin-tools/index.ts` + Native 调用链 |
-| 2e | Codex Runtime（bridge）切到 compiler 输出 | 📋 待开始 | `src/lib/codex/proxy/unified-adapter.ts` + `builtin-bridge.ts` 的 `WIDGET_PROMPT` / `MEDIA_PROMPT` / etc. 改成从 compiler 拿 |
+| 2a | Compiler 接口 + Input/Output 类型 + 纯函数 `compileContext(input)` + 单测 | ✅ 2026-05-17 | `src/lib/harness/context-compiler.ts`；23 pins 在 `harness-context-compiler.test.ts` |
+| 2b | 等价测试 harness | ✅ 2026-05-17 | `src/lib/harness/expected-differences.ts` ledger + 9 pins 在 `harness-context-compiler-equivalence.test.ts` |
+| 2c | ClaudeCode SDK Runtime 切到 compiler 输出 | ✅ 2026-05-17 | claude-client.ts 已经直接 import MCP canonicals（pre-existing），无 paraphrase；slice 2c 只新增 source-pin 锁住该不变量 |
+| 2d | Native Runtime 切到 compiler 输出 | ✅ 2026-05-17 | `builtin-tools/memory-search.ts` / `notification.ts` / `media.ts` 改成从 MCP canonical re-export；ledger 中三条 slice_2d 条目已消化 |
+| 2e | Codex Runtime（bridge）切到 compiler 输出 | ✅ 2026-05-17 | builtin-bridge.ts 移除四个 _PROMPT 标量；unified-adapter.ts 调 `compileContext` 取 `systemPromptText` 喂给 Codex instructions |
 
-每个 slice 独立 commit；pre-commit hook 跑 `npm run test`。所有 slice 通过后 Phase 2 才标 ✅。
+所有 slice 一次性交付（用户调整：内部按顺序做，外部单次交付）；`npm run test` 全绿（2576/2576）。
 
 ## 用户价值
 

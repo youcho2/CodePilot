@@ -1,15 +1,21 @@
 /**
- * builtin-tools/media.ts — Media import + image generation tools (shared).
+ * builtin-tools/media.ts — Media import + image generation tools (Native Runtime).
+ *
+ * Phase 5d Phase 2 slice 2d (2026-05-17) — system prompt now
+ * re-exports the canonical MCP-side `MEDIA_MCP_SYSTEM_PROMPT` from
+ * `media-import-mcp.ts`. Pre-fix this file declared a brief 5-line
+ * paraphrase covering both import + generate; the canonical is the
+ * more detailed import workflow. Image generation description on
+ * the Native side flows through the tool's own `description` field
+ * (so image-gen instructions aren't lost). The Expected Differences
+ * Ledger entry for this drift is removed in this commit.
  */
 
 import { tool } from 'ai';
 import { z } from 'zod';
+import { MEDIA_MCP_SYSTEM_PROMPT } from '@/lib/media-import-mcp';
 
-export const MEDIA_SYSTEM_PROMPT = `<media-capability>
-You have access to media tools:
-- codepilot_import_media: Import local files to media library
-- codepilot_generate_image: Generate images via Gemini
-</media-capability>`;
+export const MEDIA_SYSTEM_PROMPT = MEDIA_MCP_SYSTEM_PROMPT;
 
 export function createMediaTools(options?: { sessionId?: string; workingDirectory?: string }) {
   return {

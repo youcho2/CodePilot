@@ -52,7 +52,10 @@ import type { MediaBlock } from '@/types';
 import { makeToolStarted, makeToolCompleted } from '@/lib/runtime/event-adapter';
 import { emitBuiltinEvent } from './builtin-event-bus';
 import { materializeCodexEventMedia } from '@/lib/codex/media-import';
-import { WIDGET_SYSTEM_PROMPT as CANONICAL_WIDGET_SYSTEM_PROMPT } from '@/lib/widget-guidelines';
+// Phase 5d Phase 2 slice 2e (2026-05-17) — `WIDGET_SYSTEM_PROMPT`
+// import dropped: the bridge no longer holds a local WIDGET_PROMPT
+// scalar. Capability prompts are produced by the Context Compiler
+// and consumed by unified-adapter.ts.
 
 /** Tool names this bridge owns. The unified adapter passes this set
  *  to `translate-stream.ts` so its tool-call / tool-result events
@@ -122,7 +125,6 @@ export function createCodePilotBuiltinTools(opts: BuiltinBridgeOpts): BuiltinBri
   }
 
   const tools: ToolSet = {};
-  const prompts: string[] = [];
 
   tools.codepilot_generate_image = buildImageGenerationTool(opts);
   tools.codepilot_import_media = buildImportMediaTool(opts);
@@ -141,17 +143,20 @@ export function createCodePilotBuiltinTools(opts: BuiltinBridgeOpts): BuiltinBri
     tools.codepilot_memory_recent = buildMemoryRecentTool(opts);
     tools.codepilot_memory_search = buildMemorySearchTool(opts);
     tools.codepilot_memory_get = buildMemoryGetTool(opts);
-    prompts.push(MEMORY_PROMPT);
   }
 
-  prompts.push(MEDIA_PROMPT);
-  prompts.push(WIDGET_PROMPT);
-  prompts.push(NOTIFY_PROMPT);
-
+  // Phase 5d Phase 2 slice 2e (2026-05-17) — bridge no longer assembles
+  // its own systemPrompt. The Harness Context Compiler
+  // (`src/lib/harness/context-compiler.ts`) is the sole producer of
+  // capability prompts across all three runtimes; unified-adapter.ts
+  // calls `compileContext({ runtimeId: 'codex_runtime', ... })` and
+  // prepends `compiled.systemPromptText` to Codex's instructions. The
+  // empty string is a stable signal to callers that haven't migrated
+  // yet — slice 2e leaves no Codex-local prompt scalars.
   return {
     tools,
     toolNames: new Set(Object.keys(tools)),
-    systemPrompt: prompts.join('\n\n'),
+    systemPrompt: '',
   };
 }
 
@@ -241,20 +246,13 @@ async function runWithEvents(
 
 // ─────────────────────────────────────────────────────────────────────
 // Image generation
+//
+// Phase 5d Phase 2 slice 2e (2026-05-17) — MEDIA_PROMPT scalar
+// removed. Media capability prompt is sourced from the canonical
+// MEDIA_MCP_SYSTEM_PROMPT (media_import) / MEDIA_SYSTEM_PROMPT
+// (image_generation) via the Context Compiler. Bridge no longer
+// holds runtime-local prompt copies.
 // ─────────────────────────────────────────────────────────────────────
-
-const MEDIA_PROMPT = `<codepilot-media-capability>
-You can generate and import media through CodePilot tools — DO NOT
-shell out to a CLI, read provider auth files, or install image
-libraries on the fly. The user expects the result to appear inline
-as a media card in this chat.
-
-- codepilot_generate_image: generate an image via the configured
-  image provider (Gemini / GPT-Image / Seedance, etc.). The result
-  appears inline; you do not need to fetch or save it yourself.
-- codepilot_import_media: import a local file the user provided
-  into the CodePilot media library so it can be referenced later.
-</codepilot-media-capability>`;
 
 interface ImageGenInput {
   prompt: string;
@@ -422,20 +420,12 @@ function mediaTypeOf(mimeType: string): 'image' | 'video' | 'audio' {
 
 // ─────────────────────────────────────────────────────────────────────
 // Memory
+//
+// Phase 5d Phase 2 slice 2e (2026-05-17) — MEMORY_PROMPT scalar
+// removed. Memory capability prompt is sourced from the canonical
+// MEMORY_SEARCH_SYSTEM_PROMPT (memory-search-mcp.ts) via the
+// Context Compiler.
 // ─────────────────────────────────────────────────────────────────────
-
-const MEMORY_PROMPT = `<codepilot-memory-capability>
-The user's assistant workspace memory is available through:
-
-- codepilot_memory_recent: read the last few days of memory snapshots.
-  Call this on the FIRST turn of every conversation so you have
-  current context.
-- codepilot_memory_search: keyword + tag search across the workspace.
-- codepilot_memory_get: read a specific file by path.
-
-DO NOT shell out (Bash 'cat memory/*') — use these tools so the
-results are auditable and respect the user's workspace boundaries.
-</codepilot-memory-capability>`;
 
 interface MemorySearchInput {
   query: string;
@@ -649,21 +639,12 @@ function truncate(s: string, max: number): string {
 
 // ─────────────────────────────────────────────────────────────────────
 // Widget guidelines
+//
+// Phase 5d Phase 2 slice 2e (2026-05-17) — WIDGET_PROMPT scalar
+// removed. The Harness Context Compiler emits the canonical
+// WIDGET_SYSTEM_PROMPT + the widget artifactContract; bridge holds
+// no local copy. The compiler is consulted by unified-adapter.ts.
 // ─────────────────────────────────────────────────────────────────────
-
-/**
- * Phase 5c slice 7 (2026-05-16) — bridge widget prompt now consumes
- * the canonical `WIDGET_SYSTEM_PROMPT` from `src/lib/widget-guidelines.ts`
- * verbatim, no Codex-specific rewording. The Harness Capability
- * Contract names that file as the authoritative source; Codex bridge
- * MUST NOT redefine widget semantics, only carry them.
- *
- * Slice 6's standalone WIDGET_PROMPT was paraphrasing the same rules
- * differently from the canonical, which is the exact drift pattern
- * the contract is designed to prevent. The drift test in
- * `harness-capability-contract.test.ts` pins this assignment.
- */
-const WIDGET_PROMPT = CANONICAL_WIDGET_SYSTEM_PROMPT;
 
 interface WidgetInput {
   modules: Array<'interactive' | 'chart' | 'mockup' | 'art' | 'diagram'>;
@@ -698,19 +679,11 @@ function buildWidgetGuidelinesTool(opts: BuiltinBridgeOpts) {
 
 // ─────────────────────────────────────────────────────────────────────
 // Notify + tasks
+//
+// Phase 5d Phase 2 slice 2e (2026-05-17) — NOTIFY_PROMPT scalar
+// removed. Tasks + notify capability prompt is sourced from the
+// canonical NOTIFICATION_MCP_SYSTEM_PROMPT via the Context Compiler.
 // ─────────────────────────────────────────────────────────────────────
-
-const NOTIFY_PROMPT = `<codepilot-tasks-capability>
-You can send notifications + manage scheduled tasks:
-
-- codepilot_notify: immediate notification to the user (priority
-  low / normal / urgent).
-- codepilot_schedule_task: create a one-off or recurring task. Use
-  kind=reminder for plain reminders (no AI call); kind=ai_task when
-  the user wants the assistant to run on a schedule.
-- codepilot_list_tasks: list scheduled tasks.
-- codepilot_cancel_task: cancel by task id.
-</codepilot-tasks-capability>`;
 
 interface NotifyInput {
   title: string;

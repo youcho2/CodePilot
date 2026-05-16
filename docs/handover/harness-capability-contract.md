@@ -10,6 +10,37 @@
 
 不替换现有 MCP 服务器、AI SDK tools 或 Codex bridge factory；只声明它们必须满足的契约 + 用测试守住。
 
+## Context Compiler（Phase 5d Phase 2，2026-05-17）
+
+`src/lib/harness/context-compiler.ts` 是单一纯函数 `compileContext(input): CompiledContext`，三个 Runtime 都通过它读取本轮应该注入什么。
+
+**输入**：`{ sessionId, workingDirectory, runtimeId, providerId, model, userPrompt, enabledCapabilities, assistantMemory?, permissionProfile?, tokenBudget, flags? }`。Compiler 不做 IO；assistantMemory 等动态内容由调用方预取后传入。
+
+**输出**：`{ basePrompt, capabilityFragments, artifactContracts, memoryFragments, workspaceFragments, toolDescriptors, runtimeHints, budget, systemPromptText, diagnostics }`。
+
+**硬约束**：
+- artifactContract 在 capabilityFragments **之前**（避免长 prompt 末尾丢失 wire format）
+- 每个 `fragmentId` 在 CompiledContext 中只能出现一次
+- 同一 `fragmentId` 在不同 RuntimeId 下编出来的 `text` 严格相等
+- 若 capability fragment 的 text 内含 artifact contract 的 `canonicalJson`，编译失败（防止 wire-format 在 final prompt 中出现两次 — slice 2c 已经 strip 了 `WIDGET_SYSTEM_PROMPT` 的内嵌 spec，artifactContract 是唯一 wire-format 持有者）
+- `runtimeHints` 只放 IDs / refs / 适配器选项，禁止 prose / tool schema paraphrase
+
+**三 Runtime 怎么消费**：
+
+- **ClaudeCode SDK Runtime** (`src/lib/claude-client.ts`)：长期就直接 import MCP canonicals 拼 `queryOptions.systemPrompt.append`。没有 paraphrase。slice 2c 只是加 source-pin 锁住该不变量（不允许 import 从 `builtin-tools/*` 走、不允许声明本地 `*_SYSTEM_PROMPT`）。
+- **CodePilot Native Runtime** (`src/lib/builtin-tools/*`)：slice 2d 把三个 paraphrase 文件改成 re-export MCP canonical（memory / notification / media）。再也没 local 副本。
+- **Codex Runtime bridge** (`src/lib/codex/proxy/unified-adapter.ts` + `builtin-bridge.ts`)：slice 2e 移除 bridge 的四个 `_PROMPT` 标量；`createCodePilotBuiltinTools().systemPrompt` 恒为 `''`；unified-adapter 调 `compileContext({ runtimeId: 'codex_runtime', enabledCapabilities: capabilitiesFromBridgeToolNames(bridge.toolNames), ... })`，把 `compiled.systemPromptText` 喂给 Codex 的 `instructions`。
+
+**Expected Differences Ledger**（`src/lib/harness/expected-differences.ts`）：
+
+是 2b 等价测试的白名单，登记 Compiler 输出与某 Runtime 当前 implementation 之间的合理差异。slice 7b 引入时初始 4 条；slice 2d 消化掉三条 Native paraphrase 后只剩 1 条 `image_generation` MediaBlock 的 `follow_up`（Native 的 image_generation 还返回 text，没构造 MediaBlock；属于 tool-result shape 问题，不是 prompt drift，slice 后续 follow_up）。
+
+**测试覆盖**：
+
+- `harness-context-compiler.test.ts`（23 pins）：catalog hygiene、widget wire-format 单源（#10）、ordering、budget、cross-runtime fragment text identity、tool descriptors、runtimeHints boundary（#11 — 类型层 + 运行时层 + source-grep）、ledger 一致性（#12）
+- `harness-context-compiler-equivalence.test.ts`（9 pins）：compilerSource / runtimeSource 文件可读 + export 可静态发现、capability_fragment_replaced 真有 drift、ledger ↔ slice ownership 对齐
+- `harness-capability-contract.test.ts` 增量：bridge 不再持有 _PROMPT 标量、Native 三文件 re-export canonical、ClaudeCode source-pin
+
 ## 三层模型
 
 每个能力按三层定义：

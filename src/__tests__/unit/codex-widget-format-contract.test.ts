@@ -60,10 +60,26 @@ describe('Widget wire format — single source of truth', () => {
     assert.match(WIDGET_WIRE_FORMAT_SPEC, /JSON-encoded string/i);
   });
 
-  it('WIDGET_SYSTEM_PROMPT embeds WIDGET_WIRE_FORMAT_SPEC verbatim (always-injected reminder)', () => {
-    assert.ok(
+  it('WIDGET_SYSTEM_PROMPT references the wire-format spec WITHOUT embedding its literal text (slice 2c)', () => {
+    // Phase 5d Phase 2 slice 2c (2026-05-17) — the artifactContract
+    // in capability-contract.ts is now the sole holder of the wire
+    // spec + canonical JSON. The system prompt no longer embeds the
+    // SPEC literal; it references that the format is documented in
+    // the "FINAL OUTPUT FORMAT block above this section" so the
+    // model knows to look for it. The compiler's
+    // `detectWireFormatDuplication` sanity check enforces this at
+    // compile time.
+    assert.equal(
       WIDGET_SYSTEM_PROMPT.includes(WIDGET_WIRE_FORMAT_SPEC),
-      'system prompt must include the canonical wire-format spec; drift between the two would let the on-demand guidelines disagree with the always-injected reminder',
+      false,
+      'WIDGET_SYSTEM_PROMPT must NOT embed WIDGET_WIRE_FORMAT_SPEC after slice 2c — that would duplicate the spec in compiled prompts',
+    );
+    // It DOES still reference the format by name + tells the model
+    // the spec lives elsewhere in the compiled prompt.
+    assert.match(
+      WIDGET_SYSTEM_PROMPT,
+      /FINAL OUTPUT FORMAT/,
+      'WIDGET_SYSTEM_PROMPT must still tell the model where to look for the wire format',
     );
   });
 
@@ -116,33 +132,39 @@ describe('Widget guidance forbids the image-gen tool while building a widget', (
     assert.match(WIDGET_SYSTEM_PROMPT, /(?:\*\*)?do\s+NOT(?:\*\*)?\s+call/i);
   });
 
-  it('Codex bridge WIDGET_PROMPT matches the same rule (canonical consumption)', () => {
-    // Phase 5c slice 7 (2026-05-16) — bridge no longer carries its
-    // own paraphrased widget prompt. It consumes the canonical
-    // WIDGET_SYSTEM_PROMPT from widget-guidelines.ts verbatim. The
-    // strong drift test in harness-capability-contract.test.ts
-    // pins this import + assignment shape. Here we just re-confirm
-    // the runtime mount surface sees the canonical rules.
+  it('Codex bridge no longer holds local Widget prompt; compiler imports canonical (slice 2e)', () => {
+    // Phase 5d Phase 2 slice 2e (2026-05-17) — bridge no longer
+    // declares WIDGET_PROMPT, MEDIA_PROMPT, MEMORY_PROMPT, or
+    // NOTIFY_PROMPT scalars. The Context Compiler is the sole
+    // producer of capability prompts.
     const bridgeSrc = fs.readFileSync(
       path.resolve(__dirname, '../../lib/codex/proxy/builtin-bridge.ts'),
       'utf-8',
     );
-    // Bridge MUST import the canonical and assign WIDGET_PROMPT to
-    // the import directly (not via concatenation).
-    assert.match(bridgeSrc, /import\s*\{[^}]*WIDGET_SYSTEM_PROMPT[^}]*\}\s*from\s*'@\/lib\/widget-guidelines'/);
-    assert.match(bridgeSrc, /const\s+WIDGET_PROMPT\s*=\s*CANONICAL_WIDGET_SYSTEM_PROMPT\s*;/);
+    assert.equal(
+      /^const\s+(WIDGET_PROMPT|MEDIA_PROMPT|MEMORY_PROMPT|NOTIFY_PROMPT)\s*=/m.test(bridgeSrc),
+      false,
+      'bridge must not declare any of WIDGET_PROMPT / MEDIA_PROMPT / MEMORY_PROMPT / NOTIFY_PROMPT — those scalars belong in the compiler-consumed canonical files',
+    );
+
+    // The compiler imports the canonical widget prompt.
+    const compilerSrc = fs.readFileSync(
+      path.resolve(__dirname, '../../lib/harness/context-compiler.ts'),
+      'utf-8',
+    );
+    assert.match(
+      compilerSrc,
+      /import\s*\{[^}]*WIDGET_WIRE_FORMAT_SPEC[^}]*\}\s*from\s*'@\/lib\/widget-guidelines'/,
+      'compiler must import WIDGET_WIRE_FORMAT_SPEC from widget-guidelines.ts (the canonical source)',
+    );
+
     // Cross-pin on the canonical source: the canonical prompt must
     // carry the show-widget format declaration + image-gen rule.
-    // If anyone weakens the canonical, this fires.
     const canonicalSrc = fs.readFileSync(
       path.resolve(__dirname, '../../lib/widget-guidelines.ts'),
       'utf-8',
     );
     assert.match(canonicalSrc, /codepilot_generate_image/);
-    // Canonical prompt wraps "do NOT" in bold (`**do NOT**`); allow
-    // optional `**` anchors on either side so the rule can read as
-    // either bold or plain in future rewordings without dropping
-    // the substantive constraint.
     assert.match(canonicalSrc, /(?:\*\*)?do\s+NOT(?:\*\*)?\s+call/i);
     assert.match(canonicalSrc, /show-widget/);
   });

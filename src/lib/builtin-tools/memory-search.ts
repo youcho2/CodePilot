@@ -1,19 +1,22 @@
 /**
- * builtin-tools/memory-search.ts — Workspace memory search tools (shared).
+ * builtin-tools/memory-search.ts — Workspace memory search tools (Native Runtime).
+ *
+ * Phase 5d Phase 2 slice 2d (2026-05-17) — system prompt is now
+ * re-exported from the canonical MCP-side source. Pre-fix this file
+ * carried a 5-line abridged paraphrase that drifted from
+ * `memory-search-mcp.ts MEMORY_SEARCH_SYSTEM_PROMPT` (the 15-line
+ * authority with the "first-turn must call memory_recent" rule).
+ * The Expected Differences Ledger entry for this drift is removed
+ * as part of this commit.
  */
 
 import { tool } from 'ai';
 import { z } from 'zod';
 import fs from 'fs';
 import path from 'path';
+import { MEMORY_SEARCH_SYSTEM_PROMPT as CANONICAL_MEMORY_SEARCH_SYSTEM_PROMPT } from '@/lib/memory-search-mcp';
 
-export const MEMORY_SEARCH_SYSTEM_PROMPT = `## 记忆检索
-
-**每次对话的第一轮，必须先调用 codepilot_memory_recent 回顾最近记忆。**
-
-- codepilot_memory_search: 搜索工作区记忆
-- codepilot_memory_get: 读取指定记忆文件
-- codepilot_memory_recent: 获取最近记忆摘要`;
+export const MEMORY_SEARCH_SYSTEM_PROMPT = CANONICAL_MEMORY_SEARCH_SYSTEM_PROMPT;
 
 export function createMemorySearchTools(workspacePath: string) {
   return {
