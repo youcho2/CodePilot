@@ -182,8 +182,31 @@ Responses-API 的 output_item 只有 `message` 和 `function_call` 两种。`too
 
 未跑通前 Phase 5c 维持 🔄。
 
+## Codex `tools[]` 允许列表（与 ToolSpec enum 同源）
+
+`parse-request.ts KNOWN_NON_FUNCTION_TYPES` 必须与 `资料/codex/codex-rs/tools/src/tool_spec.rs` 的 `ToolSpec` enum（带 `#[serde(tag = "type")]`）保持同源。除 `function`（走主路径）外，其它六个值都进 `passthroughTools`：
+
+| `type` | 来源 | 处理 |
+|---|---|---|
+| `namespace` | MCP / Skill bundle，含嵌套 `tools[]` | passthrough，原 payload 保留；嵌套 function tools 暂未 flatten（后续 slice） |
+| `tool_search` | Codex tool-discovery 表面 | passthrough |
+| `local_shell` | Codex shell tool | passthrough |
+| `image_generation` | OpenAI Responses 内建 | passthrough |
+| `web_search` | OpenAI Responses 内建 | passthrough |
+| `custom` | Codex freeform（apply_patch 等） | passthrough |
+
+不在此列的 `type` 直接 `unsupported_tool_kind`。新增 Codex enum variant 时必须同步本表 + `KNOWN_NON_FUNCTION_TYPES`，由 `codex-proxy-namespace-tool.test.ts` 锁住。
+
+## Proxy preflight 错误可见性
+
+代理在 `parseResponsesRequest` / `handleProxyRequest` 阶段返回 4xx JSON 时，Codex app-server 把 HTTP 错误翻译成 JSON-RPC error notification → CodexRuntime `translateCodexNotification` → `run_failed` canonical event → SSE `data: {"type":"error", "data":"<msg>"}`。
+
+但 chat route (`src/app/api/chat/route.ts`) 持久化条件是 `contentBlocks.length > 0`：preflight 错误**只**有 error event，没文本/思考/工具结果，contentBlocks 永远是空。结果：实时 SSE 显示了错误，refresh 后转录里只剩用户气泡。
+
+Phase 5c slice 5 fix: chat route 在主路径 + catch 路径都加一条 fallback——若 `hasError && contentBlocks.length === 0`，push `**Error:** <message>` 文本块再走持久化分支。文案与 `stream-session-manager.ts:864` 客户端 snapshot 同源，refresh 前后转录一致。
+
 ## 已知遗留
 
 - Dashboard / CLI tools 工具族 deferred 到下一轮。
-- Codex passthrough tools (`custom` / `web_search` 等) 现在仅记录到 `passthroughTools` 字段，没有真实执行能力；模型如果尝试调用 Codex 原生 shell / apply_patch（通过 proxy 路径而非 Codex Account 路径），ai-sdk 会以"工具不存在"返回。如果将来需要在 proxy 路径上接入 Codex 原生 shell，需要单独写一条"调用 Codex app-server 反向执行"的旁路。
+- Codex passthrough tools (`custom` / `namespace` / `local_shell` / `tool_search` / `web_search` / `image_generation`) 现在仅记录到 `passthroughTools` 字段，没有真实执行能力；模型如果尝试调用 Codex 原生 shell / apply_patch（通过 proxy 路径而非 Codex Account 路径），ai-sdk 会以"工具不存在"返回。`namespace` 的嵌套 function tools 也未被 flatten 进 ai-sdk ToolSet — 用户如果需要这层（让 GLM/Kimi 也能用 Codex 自身的 MCP 插件），单独立项。
 - `stopWhen: stepCountIs(8)` 是经验值；如果遇到模型工具链超过 8 步（极少见），需要按场景调整。

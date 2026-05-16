@@ -932,6 +932,23 @@ async function collectStreamResponse(
       contentBlocks.unshift({ type: 'thinking', thinking: thinkingText.trim() });
     }
 
+    // Phase 5c slice 5 (2026-05-16, post-smoke) — when the only
+    // thing the stream produced was an error event (no text, no
+    // thinking, no tool call), persist a fallback assistant message
+    // capturing the error. Pre-fix the proxy preflight 400 path
+    // (e.g. Codex `namespace` tool tripping unsupported_tool_kind)
+    // fired `event.type === 'error'` → set `hasError` + `errorMessage`,
+    // then `done` closed the stream with `contentBlocks` still
+    // empty. Nothing landed in DB and refresh showed only the user
+    // bubble — looked like "the assistant ignored me".
+    //
+    // Same `**Error:** <message>` format `stream-session-manager.ts`
+    // uses on the client side so the post-refresh transcript matches
+    // what the live SSE showed.
+    if (hasError && contentBlocks.length === 0 && errorMessage) {
+      contentBlocks.push({ type: 'text', text: `**Error:** ${errorMessage}` });
+    }
+
     if (contentBlocks.length > 0) {
       // If the message is text-only (no tool calls), store as plain text
       // for backward compatibility with existing message rendering.
@@ -973,6 +990,14 @@ async function collectStreamResponse(
     }
     if (thinkingText.trim()) {
       contentBlocks.unshift({ type: 'thinking', thinking: thinkingText.trim() });
+    }
+    // Same error-visibility fallback as the happy path above —
+    // applies when the SSE consumption loop itself throws (network
+    // drop / parse failure) rather than receiving an error event.
+    // Without this, transient stream errors also disappeared from
+    // the transcript on refresh.
+    if (contentBlocks.length === 0 && errorMessage) {
+      contentBlocks.push({ type: 'text', text: `**Error:** ${errorMessage}` });
     }
     if (contentBlocks.length > 0) {
       const hbRe = /\s*<!--\s*heartbeat-done\s*-->\s*/g;

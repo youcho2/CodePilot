@@ -22,25 +22,50 @@ import type {
 } from './types';
 
 /**
- * Phase 5c (2026-05-16) — known non-function tool `type` strings we
- * preserve in `passthroughTools` rather than treating as a request
- * error. Anything outside this list trips `unsupported_tool_kind` so
- * a future Codex schema extension doesn't silently disappear.
+ * Phase 5c slice 5 (2026-05-16, post-smoke) — known non-function tool
+ * `type` strings we preserve in `passthroughTools` rather than
+ * treating as a request error.
  *
- * `custom` is Codex's CLI surface (shell / apply_patch). `plugin`
- * shows up in Codex's plugin system (future). `web_search` and
- * `file_search` are OpenAI Responses built-ins — they're not used
- * today on the proxy path but the type fields appear in some smoke
- * fixtures so we keep them recognised.
+ * Source of truth: `资料/codex/codex-rs/tools/src/tool_spec.rs`
+ * `ToolSpec` enum with `#[serde(tag = "type")]`. Codex serialises
+ * every tool descriptor through that enum, so any `type` string
+ * Codex's app-server sends on the wire is one of these seven:
+ *
+ *   - `function`         — handled by the main `tools` array path
+ *   - `namespace`        — plugin / Skill bundle, contains nested
+ *                          function tools
+ *   - `tool_search`      — Codex's tool-discovery surface
+ *   - `local_shell`      — Codex's shell tool
+ *   - `image_generation` — OpenAI Responses built-in
+ *   - `web_search`       — OpenAI Responses built-in
+ *   - `custom`           — Codex's freeform (apply_patch, etc.)
+ *
+ * Slice 1 (pre-smoke) included `plugin` / `file_search` /
+ * `code_interpreter` / `web_search_preview` speculatively, but
+ * grepping the Rust source confirms none of those discriminants are
+ * actually emitted by Codex — listing them just hides a real future
+ * schema extension behind a permissive default. Slice 5 trims to
+ * the seven from the source enum.
+ *
+ * The smoke failure that drove this trim:
+ *   GLM-5 Turbo + Codex Runtime + image task →
+ *   "tools[17] has unsupported type \"namespace\""
+ * Codex's plugin/Skill namespace descriptor reached the proxy and
+ * we 400'd before the bridge could mount. Now `namespace` lands on
+ * `passthroughTools` and the request continues.
+ *
+ * NOT widened to "accept everything" — unknown types still trip
+ * `unsupported_tool_kind` so a future Codex schema extension we
+ * haven't snapshot'd surfaces as a clear contract gap rather than
+ * silently disappearing.
  */
 const KNOWN_NON_FUNCTION_TYPES = new Set<string>([
   'custom',
-  'plugin',
+  'namespace',
+  'tool_search',
+  'local_shell',
   'web_search',
-  'web_search_preview',
-  'file_search',
   'image_generation',
-  'code_interpreter',
 ]);
 
 export type ParseResult =
