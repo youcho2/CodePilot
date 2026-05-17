@@ -216,27 +216,90 @@ describe('Codex bridge prompt does not redefine widget semantics', () => {
     );
   });
 
-  it('ClaudeCode SDK Runtime claude-client.ts imports capability prompts from MCP canonicals only (slice 2c)', () => {
-    // Phase 5d Phase 2 slice 2c (2026-05-17) — ClaudeCode SDK has
-    // always imported the MCP canonicals directly (memory-search-mcp,
-    // notification-mcp, media-import-mcp, cli-tools-mcp, dashboard-mcp).
-    // No paraphrase ever existed on this path. Slice 2c codifies that
-    // invariant: claude-client.ts MUST NOT import capability prompts
-    // from `src/lib/builtin-tools/*` (which would create a drift
-    // surface), and MUST NOT define its own local _SYSTEM_PROMPT
-    // strings.
+  it('ClaudeCode SDK Runtime claude-client.ts calls compileContext for capability prompts (slice 2c)', () => {
+    // Phase 5d Phase 2 slice 2c — claude-client.ts mounts MCP servers
+    // per-gate (transport layer) and lets the Context Compiler
+    // produce the capability system prompt content (semantic layer).
+    // Pre-Phase-5d this file appended per-capability `_SYSTEM_PROMPT`
+    // strings inline; that was direct canonical consumption but
+    // still N separate call sites. The compiler is now the single
+    // producer.
     const claudeSrc = readSource('src/lib/claude-client.ts');
-    // No drift sources allowed.
+
+    // (a) No drift sources: no import from builtin-tools/* (Native path).
     assert.equal(
       /from\s+['"]@\/lib\/builtin-tools\/(memory-search|notification|media|cli-tools|dashboard|widget-guidelines)['"]/.test(claudeSrc),
       false,
-      'claude-client.ts must not import capability prompts from builtin-tools/* — those are the Native runtime path; SDK reads MCP canonicals directly',
+      'claude-client.ts must not import capability prompts from builtin-tools/* — those are the Native runtime path',
     );
-    // No local _SYSTEM_PROMPT declarations.
+
+    // (b) No local _SYSTEM_PROMPT declarations.
     assert.equal(
       /^export\s+const\s+\w+_SYSTEM_PROMPT\s*=\s*[`'"]/m.test(claudeSrc),
       false,
-      'claude-client.ts must not declare its own _SYSTEM_PROMPT scalars; all capability prompts come from src/lib/*-mcp.ts files',
+      'claude-client.ts must not declare its own _SYSTEM_PROMPT scalars',
+    );
+
+    // (c) Slice 2c integration: claude-client.ts must call
+    //     compileContext + use compiled.systemPromptText for the
+    //     capability prompt append. The compiler is the sole producer.
+    assert.match(
+      claudeSrc,
+      /compileContext.*from.*['"]@\/lib\/harness\/context-compiler['"]|import\(['"]@\/lib\/harness\/context-compiler['"]\)/,
+      'claude-client.ts must import compileContext (static or dynamic) from the harness module',
+    );
+    assert.match(
+      claudeSrc,
+      /compiled\.systemPromptText/,
+      'claude-client.ts must consume compiled.systemPromptText (slice 2c integration)',
+    );
+    assert.match(
+      claudeSrc,
+      /runtimeId:\s*['"]claude_code['"]/,
+      'claude-client.ts must pass runtimeId: "claude_code" to compileContext',
+    );
+
+    // (d) No per-capability inline append patterns left over.
+    // The old shape was
+    //   `queryOptions.systemPrompt.append = ... + MEMORY_SEARCH_SYSTEM_PROMPT;`
+    // (or any of the other capability constants). Source-grep
+    // catches a future regression that adds back inline appends.
+    const inlineAppendRe = /\.append\s*=\s*\([^)]*\)\s*\+\s*['"]?\\?n\\?n['"]?\s*\+\s*(MEMORY_SEARCH_SYSTEM_PROMPT|NOTIFICATION_MCP_SYSTEM_PROMPT|MEDIA_MCP_SYSTEM_PROMPT|CLI_TOOLS_MCP_SYSTEM_PROMPT|DASHBOARD_MCP_SYSTEM_PROMPT|WIDGET_SYSTEM_PROMPT)/;
+    assert.equal(
+      inlineAppendRe.test(claudeSrc),
+      false,
+      'claude-client.ts must not inline-append per-capability _SYSTEM_PROMPT strings — use compileContext output instead',
+    );
+  });
+
+  it('Native Runtime builtin-tools/index.ts routes capability prompts through compileContext (slice 2d)', () => {
+    // Phase 5d Phase 2 slice 2d — getBuiltinTools() decides gating
+    // per group (workspace / keyword / always), then calls
+    // compileContext to produce the canonical capability prompt.
+    // Non-capability groups (session-search / ask-user-question)
+    // still pass through their raw `systemPrompt` until they get
+    // their own capability contract entries.
+    const indexSrc = readSource('src/lib/builtin-tools/index.ts');
+
+    assert.match(
+      indexSrc,
+      /import\s*\{\s*compileContext\s*\}\s*from\s*['"]@\/lib\/harness\/context-compiler['"]/,
+      'builtin-tools/index.ts must import compileContext',
+    );
+    assert.match(
+      indexSrc,
+      /capabilityIdForGroup/,
+      'builtin-tools/index.ts must declare capabilityIdForGroup mapping (group name → capability id)',
+    );
+    assert.match(
+      indexSrc,
+      /runtimeId:\s*['"]codepilot_runtime['"]/,
+      'getBuiltinTools must pass runtimeId: "codepilot_runtime" to compileContext',
+    );
+    assert.match(
+      indexSrc,
+      /compiled\.systemPromptText/,
+      'getBuiltinTools must consume compiled.systemPromptText for the capability prompt slot',
     );
   });
 });

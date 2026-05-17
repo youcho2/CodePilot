@@ -884,19 +884,31 @@ export function streamClaudeSdk(options: ClaudeStreamOptions): ReadableStream<st
           }
         }
 
+        // Phase 5d Phase 2 slice 2c (2026-05-17) — capability prompt
+        // assembly delegated to the Harness Context Compiler. This
+        // loop registers MCP servers (transport-layer concern), and
+        // tracks which capabilities ended up enabled; the compiler
+        // turns that set into the canonical `systemPrompt.append`
+        // text in one call after the loop.
+        //
+        // Pre-fix this file appended per-capability `_SYSTEM_PROMPT`
+        // strings inline. The strings were sourced from the right
+        // MCP files, so there was no paraphrase — but each call site
+        // was a separate place that could drift. The compiler is now
+        // the single producer; this file is a pure consumer.
+        const enabledCapabilities = new Set<string>();
+
         // Memory MCP: always registered in assistant mode for memory search/retrieval.
         // Unlike other MCPs which are keyword-gated, memory search is a core assistant capability.
         {
           const assistantWorkspacePath = getSetting('assistant_workspace_path');
           if (assistantWorkspacePath && resolvedWorkingDirectory.path === assistantWorkspacePath) {
-            const { createMemorySearchMcpServer, MEMORY_SEARCH_SYSTEM_PROMPT } = await import('@/lib/memory-search-mcp');
+            const { createMemorySearchMcpServer } = await import('@/lib/memory-search-mcp');
             queryOptions.mcpServers = {
               ...(queryOptions.mcpServers || {}),
               'codepilot-memory': createMemorySearchMcpServer(assistantWorkspacePath),
             };
-            if (queryOptions.systemPrompt && typeof queryOptions.systemPrompt === 'object' && 'append' in queryOptions.systemPrompt) {
-              queryOptions.systemPrompt.append = (queryOptions.systemPrompt.append || '') + '\n\n' + MEMORY_SEARCH_SYSTEM_PROMPT;
-            }
+            enabledCapabilities.add('memory');
           }
         }
 
@@ -908,8 +920,7 @@ export function streamClaudeSdk(options: ClaudeStreamOptions): ReadableStream<st
         // hard guarantee; the system prompt + allowedTools are
         // additional belts.
         if (!isHeartbeatMode) {
-          const { createNotificationMcpServer, NOTIFICATION_MCP_SYSTEM_PROMPT } =
-            await import('@/lib/notification-mcp');
+          const { createNotificationMcpServer } = await import('@/lib/notification-mcp');
           queryOptions.mcpServers = {
             ...(queryOptions.mcpServers || {}),
             // Inject hidden run context so codepilot_schedule_task can
@@ -923,9 +934,7 @@ export function streamClaudeSdk(options: ClaudeStreamOptions): ReadableStream<st
               workingDirectory: resolvedWorkingDirectory.path,
             }),
           };
-          if (queryOptions.systemPrompt && typeof queryOptions.systemPrompt === 'object' && 'append' in queryOptions.systemPrompt) {
-            queryOptions.systemPrompt.append = (queryOptions.systemPrompt.append || '') + '\n\n' + NOTIFICATION_MCP_SYSTEM_PROMPT;
-          }
+          enabledCapabilities.add('tasks_and_notify');
         }
 
         // Widget guidelines: progressive loading strategy.
@@ -953,6 +962,7 @@ export function streamClaudeSdk(options: ClaudeStreamOptions): ReadableStream<st
               ...(queryOptions.mcpServers || {}),
               'codepilot-widget': widgetServer,
             };
+            enabledCapabilities.add('widget');
           }
         }
 
@@ -973,17 +983,15 @@ export function streamClaudeSdk(options: ClaudeStreamOptions): ReadableStream<st
         })();
 
         if (needsMediaMcp) {
-          const { createMediaImportMcpServer, MEDIA_MCP_SYSTEM_PROMPT } = await import('@/lib/media-import-mcp');
+          const { createMediaImportMcpServer } = await import('@/lib/media-import-mcp');
           const { createImageGenMcpServer } = await import('@/lib/image-gen-mcp');
           queryOptions.mcpServers = {
             ...(queryOptions.mcpServers || {}),
             'codepilot-media': createMediaImportMcpServer(sessionId, resolvedWorkingDirectory.path),
             'codepilot-image-gen': createImageGenMcpServer(sessionId, resolvedWorkingDirectory.path),
           };
-          // Inject media capability hint into system prompt
-          if (queryOptions.systemPrompt && typeof queryOptions.systemPrompt === 'object' && 'append' in queryOptions.systemPrompt) {
-            queryOptions.systemPrompt.append = (queryOptions.systemPrompt.append || '') + '\n\n' + MEDIA_MCP_SYSTEM_PROMPT;
-          }
+          enabledCapabilities.add('media_import');
+          enabledCapabilities.add('image_generation');
         }
 
         // CLI tools MCP: tool management capabilities (keyword-gated).
@@ -998,14 +1006,12 @@ export function streamClaudeSdk(options: ClaudeStreamOptions): ReadableStream<st
         })();
 
         if (needsCliToolsMcp) {
-          const { createCliToolsMcpServer, CLI_TOOLS_MCP_SYSTEM_PROMPT } = await import('@/lib/cli-tools-mcp');
+          const { createCliToolsMcpServer } = await import('@/lib/cli-tools-mcp');
           queryOptions.mcpServers = {
             ...(queryOptions.mcpServers || {}),
             'codepilot-cli-tools': createCliToolsMcpServer(),
           };
-          if (queryOptions.systemPrompt && typeof queryOptions.systemPrompt === 'object' && 'append' in queryOptions.systemPrompt) {
-            queryOptions.systemPrompt.append = (queryOptions.systemPrompt.append || '') + '\n\n' + CLI_TOOLS_MCP_SYSTEM_PROMPT;
-          }
+          enabledCapabilities.add('cli_tools');
         }
 
         // Dashboard MCP: widget management capabilities (keyword-gated).
@@ -1018,13 +1024,34 @@ export function streamClaudeSdk(options: ClaudeStreamOptions): ReadableStream<st
         })();
 
         if (needsDashboardMcp) {
-          const { createDashboardMcpServer, DASHBOARD_MCP_SYSTEM_PROMPT } = await import('@/lib/dashboard-mcp');
+          const { createDashboardMcpServer } = await import('@/lib/dashboard-mcp');
           queryOptions.mcpServers = {
             ...(queryOptions.mcpServers || {}),
             'codepilot-dashboard': createDashboardMcpServer(sessionId, resolvedWorkingDirectory.path),
           };
-          if (queryOptions.systemPrompt && typeof queryOptions.systemPrompt === 'object' && 'append' in queryOptions.systemPrompt) {
-            queryOptions.systemPrompt.append = (queryOptions.systemPrompt.append || '') + '\n\n' + DASHBOARD_MCP_SYSTEM_PROMPT;
+          enabledCapabilities.add('dashboard');
+        }
+
+        // Phase 5d Phase 2 slice 2c (2026-05-17) — single compileContext
+        // call producing the canonical, ordered, de-duplicated
+        // capability system prompt for everything mounted above.
+        // Replaces the previous per-capability `+ _SYSTEM_PROMPT`
+        // appends. claude-client.ts is now a pure consumer of the
+        // compiler output.
+        if (enabledCapabilities.size > 0 && queryOptions.systemPrompt && typeof queryOptions.systemPrompt === 'object' && 'append' in queryOptions.systemPrompt) {
+          const { compileContext } = await import('@/lib/harness/context-compiler');
+          const compiled = compileContext({
+            sessionId,
+            workingDirectory: resolvedWorkingDirectory.path,
+            runtimeId: 'claude_code',
+            providerId: resolved.provider?.id || 'env',
+            model: model || '',
+            userPrompt: prompt || '',
+            enabledCapabilities,
+            tokenBudget: { systemPromptMax: 100_000, contextMax: 200_000 },
+          });
+          if (compiled.systemPromptText.length > 0) {
+            queryOptions.systemPrompt.append = (queryOptions.systemPrompt.append || '') + '\n\n' + compiled.systemPromptText;
           }
         }
 

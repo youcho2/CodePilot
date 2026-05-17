@@ -25,11 +25,11 @@
 - 若 capability fragment 的 text 内含 artifact contract 的 `canonicalJson`，编译失败（防止 wire-format 在 final prompt 中出现两次 — slice 2c 已经 strip 了 `WIDGET_SYSTEM_PROMPT` 的内嵌 spec，artifactContract 是唯一 wire-format 持有者）
 - `runtimeHints` 只放 IDs / refs / 适配器选项，禁止 prose / tool schema paraphrase
 
-**三 Runtime 怎么消费**：
+**三 Runtime 怎么消费（全部通过 `compileContext`）**：
 
-- **ClaudeCode SDK Runtime** (`src/lib/claude-client.ts`)：长期就直接 import MCP canonicals 拼 `queryOptions.systemPrompt.append`。没有 paraphrase。slice 2c 只是加 source-pin 锁住该不变量（不允许 import 从 `builtin-tools/*` 走、不允许声明本地 `*_SYSTEM_PROMPT`）。
-- **CodePilot Native Runtime** (`src/lib/builtin-tools/*`)：slice 2d 把三个 paraphrase 文件改成 re-export MCP canonical（memory / notification / media）。再也没 local 副本。
-- **Codex Runtime bridge** (`src/lib/codex/proxy/unified-adapter.ts` + `builtin-bridge.ts`)：slice 2e 移除 bridge 的四个 `_PROMPT` 标量；`createCodePilotBuiltinTools().systemPrompt` 恒为 `''`；unified-adapter 调 `compileContext({ runtimeId: 'codex_runtime', enabledCapabilities: capabilitiesFromBridgeToolNames(bridge.toolNames), ... })`，把 `compiled.systemPromptText` 喂给 Codex 的 `instructions`。
+- **ClaudeCode SDK Runtime** (`src/lib/claude-client.ts`)：MCP server 注册（transport 层）按既有 gating 逻辑跑（workspace / keyword / always）；每命中一类，capability id 加入 `enabledCapabilities` Set。所有 MCP server 注册完之后调一次 `compileContext({ runtimeId: 'claude_code', enabledCapabilities, ... })`，把 `compiled.systemPromptText` 追加到 `queryOptions.systemPrompt.append`。**slice 2c 后再无 per-capability `+ _SYSTEM_PROMPT` 内联拼接**。
+- **CodePilot Native Runtime** (`src/lib/builtin-tools/index.ts getBuiltinTools()`)：per-group condition（always / workspace / { keywords }）仍由该函数决定；命中后通过 `capabilityIdForGroup(group.name)` 映射到 capability id 进 `enabledCapabilities`；末尾调 `compileContext({ runtimeId: 'codepilot_runtime', enabledCapabilities, ... })`，`compiled.systemPromptText` 作为 `systemPrompts[0]` 返回。session-search / ask-user-question 等未入 capability contract 的 group 仍按 raw `group.systemPrompt` 进入后续 entries。
+- **Codex Runtime bridge** (`src/lib/codex/proxy/unified-adapter.ts` + `builtin-bridge.ts`)：bridge 自身不持有 `_PROMPT` 标量（slice 2e 删除）。`createCodePilotBuiltinTools().systemPrompt` 恒为 `''`。`unified-adapter` 按 **bridge mount → translateResponsesTools → compileContext → bodyWithBridgePrompt → buildMessages(bodyWithBridgePrompt)** 这个顺序跑，让 `compiled.systemPromptText` 通过 `body.instructions` 进入 `messages[]` 的 role:system 槽位（这样 Anthropic-compat / CodePlan / chat-completions 路径也能看到 capability prompt，不再只走 OpenAI Responses 的 `providerOptions.openai.instructions`）。`enabledCapabilities` 由 `capabilitiesFromBridgeToolNames(bridge.toolNames)` 反推，跟 bridge 真实 mount 的工具集对齐。
 
 **Expected Differences Ledger**（`src/lib/harness/expected-differences.ts`）：
 

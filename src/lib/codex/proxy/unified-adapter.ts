@@ -89,11 +89,39 @@ export function createUnifiedAdapter(family: string): ResponsesAdapter {
       });
     }
 
-    // 2. Translate Responses input → ai-sdk messages + tools.
-    let messages: ModelMessage[];
+    // Phase 5d Phase 2 slice 2e + P0 fix (2026-05-17) — bridge,
+    // compileContext, and bodyWithBridgePrompt MUST run BEFORE
+    // buildMessages. Pre-fix the adapter ran `buildMessages(input.body)`
+    // first, so the compiler prompt only reached the upstream model
+    // via `providerOptions.openai.instructions` — visible to OpenAI
+    // Responses-API paths but invisible to Anthropic-compat /
+    // CodePlan / OpenAI chat-completions paths whose system content
+    // lives entirely in the `messages` array. That made every
+    // non-Responses provider lose the wire-format spec, image-gen
+    // rule, memory/tasks tool descriptions, etc. on the send path.
+    //
+    // The new order:
+    //   1. Mount the bridge (capability gating + tool factories)
+    //   2. Translate Codex's incoming tools[] (the function-typed
+    //      ones) so we have the merged tool surface
+    //   3. Run compileContext → systemPromptText
+    //   4. Splice systemPromptText into body.instructions
+    //   5. Now call buildMessages(bodyWithBridgePrompt) so the
+    //      compiler's content lands as the first system message
+    //
+    // This way EVERY provider family sees the compiler prompt
+    // through whichever channel the underlying SDK uses (Anthropic
+    // reads the `system` role; OpenAI reads `system` content +
+    // instructions; CodePlan vendors get whichever ai-sdk chose).
+
+    const bridge = createCodePilotBuiltinTools({
+      sessionId: input.sessionId,
+      workspacePath: input.workspacePath,
+      targetProviderId: input.targetProviderId,
+    });
+
     let codexTools: ToolSet | undefined;
     try {
-      messages = buildMessages(input.body);
       codexTools = translateResponsesTools(input.body.tools) as ToolSet | undefined;
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -102,35 +130,13 @@ export function createUnifiedAdapter(family: string): ResponsesAdapter {
         : 'invalid_request';
       return makeErrorResult(code, message, { family });
     }
-
-    // Phase 5c (2026-05-16) — mount the CodePilot built-in tool
-    // bridge. The bridge returns an empty result when the runtime
-    // didn't supply a sessionId (older builds / chat-less smoke) or
-    // when the target is codex_account — in both cases the rest of
-    // the adapter behaves exactly as it did pre-5c.
-    //
-    // Built-in tools take PRIORITY over any same-name function tool
-    // Codex may have sent (it shouldn't — Codex tools are prefixed
-    // with non-`codepilot_` names — but defence in depth so future
-    // Codex schema overlap can't silently replace our handler with
-    // a no-op).
-    const bridge = createCodePilotBuiltinTools({
-      sessionId: input.sessionId,
-      workspacePath: input.workspacePath,
-      targetProviderId: input.targetProviderId,
-    });
     const tools: ToolSet | undefined = mergeToolSets(codexTools, bridge.tools);
 
-    // Phase 5d Phase 2 slice 2e (2026-05-17) — system prompt now
-    // comes from the Harness Context Compiler. The bridge no longer
-    // assembles its own prompt; the compiler is the sole producer
-    // of capability + artifact-contract prompts across all three
-    // runtimes.
-    //
-    // When the bridge is "skipped" (codex_account guardrail, or no
-    // sessionId) `enabledCapabilities` is set to an empty Set so the
-    // compiler emits an empty system prompt; Codex's own
-    // `instructions` are kept intact.
+    // Compile the system prompt from the harness Context Compiler.
+    // `enabledCapabilities` mirrors what the bridge actually mounted
+    // so the compiler can't disagree with which tools the model
+    // sees (workspace-gated memory tools drop out of both sides
+    // naturally when `workspacePath` is empty).
     const bridgeMounted = bridge.toolNames.size > 0;
     const compiled = compileContext({
       sessionId: input.sessionId || 'codex-anonymous',
@@ -139,11 +145,6 @@ export function createUnifiedAdapter(family: string): ResponsesAdapter {
       providerId: input.targetProviderId,
       model: input.body.model,
       userPrompt: '',
-      // Trust the bridge's mount set as the source of truth for
-      // "which capabilities this turn is exposing through the proxy".
-      // The bridge's gating (codex_account guardrail / workspace-
-      // gated memory) is already applied; this keeps the compiler's
-      // capability surface aligned with what actually runs.
       enabledCapabilities: bridgeMounted
         ? capabilitiesFromBridgeToolNames(bridge.toolNames)
         : new Set<string>(),
@@ -151,13 +152,22 @@ export function createUnifiedAdapter(family: string): ResponsesAdapter {
     });
     const bridgePrompt = compiled.systemPromptText;
 
-    // Prepend the compiler-produced system prompt to Codex's
-    // `instructions` so the model knows which built-in tools exist +
-    // when to use them. We splice rather than overwrite — Codex's
-    // instructions contain user-facing copy we MUST NOT drop.
+    // Splice the compiler prompt into the request body's
+    // `instructions`. `buildMessages` below reads
+    // `body.instructions` and prepends it as a `system` message, so
+    // mutating the body here is what guarantees the prompt reaches
+    // the `messages[]` channel that non-Responses providers see.
     const bodyWithBridgePrompt = bridgePrompt.length > 0
       ? { ...input.body, instructions: combineInstructions(input.body.instructions, bridgePrompt) }
       : input.body;
+
+    let messages: ModelMessage[];
+    try {
+      messages = buildMessages(bodyWithBridgePrompt);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      return makeErrorResult('invalid_request', message, { family });
+    }
 
     const providerOptions = buildProviderOptions(bodyWithBridgePrompt);
     const wantsStream = input.body.stream !== false;

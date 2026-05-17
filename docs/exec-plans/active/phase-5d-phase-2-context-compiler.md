@@ -12,9 +12,9 @@
 |---|---|---|---|
 | 2a | Compiler 接口 + Input/Output 类型 + 纯函数 `compileContext(input)` + 单测 | ✅ 2026-05-17 | `src/lib/harness/context-compiler.ts`；23 pins 在 `harness-context-compiler.test.ts` |
 | 2b | 等价测试 harness | ✅ 2026-05-17 | `src/lib/harness/expected-differences.ts` ledger + 9 pins 在 `harness-context-compiler-equivalence.test.ts` |
-| 2c | ClaudeCode SDK Runtime 切到 compiler 输出 | ✅ 2026-05-17 | claude-client.ts 已经直接 import MCP canonicals（pre-existing），无 paraphrase；slice 2c 只新增 source-pin 锁住该不变量 |
-| 2d | Native Runtime 切到 compiler 输出 | ✅ 2026-05-17 | `builtin-tools/memory-search.ts` / `notification.ts` / `media.ts` 改成从 MCP canonical re-export；ledger 中三条 slice_2d 条目已消化 |
-| 2e | Codex Runtime（bridge）切到 compiler 输出 | ✅ 2026-05-17 | builtin-bridge.ts 移除四个 _PROMPT 标量；unified-adapter.ts 调 `compileContext` 取 `systemPromptText` 喂给 Codex instructions |
+| 2c | ClaudeCode SDK Runtime 切到 compiler 输出 | ✅ 2026-05-17 | claude-client.ts 收集 `enabledCapabilities` Set，所有 MCP 注册完后调 `compileContext({ runtimeId: 'claude_code', ... })`，用 `compiled.systemPromptText` 作单一 `queryOptions.systemPrompt.append`；所有 per-capability `+ _SYSTEM_PROMPT` 内联拼接删除 |
+| 2d | Native Runtime 切到 compiler 输出 | ✅ 2026-05-17 | `getBuiltinTools()` 用 `capabilityIdForGroup` 把 group 映射成 capability id，末尾调 `compileContext({ runtimeId: 'codepilot_runtime', ... })`；`compiled.systemPromptText` 作 `systemPrompts[0]` 返回；非 capability group (session-search / ask-user-question) 仍在 array 后续条目按原样透传 |
+| 2e | Codex Runtime（bridge）切到 compiler 输出 | ✅ 2026-05-17 | builtin-bridge.ts 移除四个 _PROMPT 标量；unified-adapter.ts 按 **bridge mount → compileContext → bodyWithBridgePrompt → buildMessages(bodyWithBridgePrompt)** 顺序跑（P0 修：compileContext 必须在 buildMessages 前面，否则编译输出只能走 `providerOptions.openai.instructions`，Anthropic-compat / CodePlan / chat-completions 路径丢内容） |
 
 所有 slice 一次性交付（用户调整：内部按顺序做，外部单次交付）；`npm run test` 全绿（2576/2576）。
 
