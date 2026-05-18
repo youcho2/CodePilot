@@ -140,7 +140,12 @@ describe('Codex availability — installed but idle state', () => {
       'utf8',
     );
     assert.match(panelSrc, /codexAvailability\.kind\s*===\s*["']installed_idle["']/);
-    assert.match(panelSrc, /已安装，待启动|Installed, idle/);
+    // Copy softening (2026-05-19) — "待启动" was misread as "not yet
+    // usable". The new wording frames it as available + a small
+    // explainer about on-demand startup. Both languages tested so a
+    // refactor can't drop one side accidentally.
+    assert.match(panelSrc, /已安装，可用/);
+    assert.match(panelSrc, /Installed, starts on demand/);
     assert.doesNotMatch(
       panelSrc,
       /installed_idle[\s\S]{0,220}SpinnerGap/,
