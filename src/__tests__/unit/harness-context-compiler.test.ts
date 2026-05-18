@@ -90,7 +90,18 @@ describe('compileContext — catalog hygiene', () => {
     }
   });
 
-  it('deferred capabilities (e.g. assistant_buddy) are excluded with a status= reason', () => {
+  it('capabilities unsupported on a runtime are excluded with a status= or unsupported= reason', () => {
+    // Phase 5e round 8 follow-up: top-level `assistant_buddy.status`
+    // stays `'deferred'` (Codex proxy is still unsupported so the
+    // strict catalog-hygiene invariant "status=live ⇒ no unsupported
+    // exposures" wouldn't allow flipping to live yet). The Native
+    // parity patch only flipped `exposure.native.kind` to
+    // `'ai_sdk_tool'` — per-runtime executability is what callers
+    // (matrix derivation, Settings dialog, Native adapter) actually
+    // read post-round-7. The compiler's exclusion reason regex below
+    // accepts EITHER `status=deferred` (the default-enabled-set path)
+    // OR `unsupported (...)` (the per-runtime exposure path) — both
+    // are legitimate exclusion mechanics.
     const out = compileContext(input({ runtimeId: 'codex_runtime' }));
     const buddy = out.diagnostics.capabilityDecisions.find(
       (d) => d.capabilityId === 'assistant_buddy',
@@ -301,13 +312,24 @@ describe('compileContext — tool descriptors', () => {
     }
   });
 
-  it('deferred capability tool names (assistant_buddy.codepilot_hatch_buddy) are NOT in Codex toolDescriptors', () => {
+  it('codepilot_hatch_buddy is NOT in Codex toolDescriptors (codex_proxy unsupported)', () => {
+    // Phase 5e round 8 follow-up: top-level `assistant_buddy.status`
+    // stays `'deferred'` because `codex_proxy.kind` is still
+    // `'unsupported'` (Codex Runtime proxy doesn't bridge the hatch
+    // flow). Native exposure flipped to `'ai_sdk_tool'`, but that
+    // affects per-runtime executability only, not the catalog's
+    // top-level status. Either way the compiler MUST exclude
+    // `codepilot_hatch_buddy` from the Codex tool descriptors —
+    // status='deferred' takes the default-enabled-set path; an
+    // explicit enabledCapabilities set would still hit the
+    // per-runtime exposure check at the next layer. Pin both
+    // pathways.
     const out = compileContext(input({ runtimeId: 'codex_runtime' }));
     const names = new Set(out.toolDescriptors.map((t) => t.name));
     assert.equal(
       names.has('codepilot_hatch_buddy'),
       false,
-      'assistant_buddy is deferred on codex_proxy; hatch_buddy must not appear in Codex tool descriptors',
+      'codex_proxy.kind === unsupported; hatch_buddy must not appear in Codex tool descriptors',
     );
   });
 });

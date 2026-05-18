@@ -251,6 +251,64 @@ export function createNotificationTools(ctx: NotificationToolsContext = {}) {
       },
     }),
 
+    // Phase 5e round 8 follow-up (2026-05-18) — Native parity for the
+    // `assistant_buddy` capability. Previously this lived only in the
+    // MCP authority (notification-mcp.ts:287); the catalog drift fix
+    // in round 4 marked `assistant_buddy.exposure.native` as
+    // `unsupported`. Round 8 user direction: "我们自家 Runtime 是基础
+    // 盘 — CodePilot 不能停在 7/8". This Native handler mirrors the
+    // MCP version verbatim (same HTTP endpoint, same response shape,
+    // same lazy `@/lib/buddy` import) so both runtimes share the
+    // SAME contract — adding a stat / changing a label only needs to
+    // happen in one canonical place going forward (next refactor
+    // slice can extract this body to a shared helper).
+    codepilot_hatch_buddy: tool({
+      description:
+        'Hatch a new buddy companion for the user, or update the buddy name. Call this when the user wants to adopt/hatch their buddy or give it a name.',
+      inputSchema: z.object({
+        buddyName: z.string().optional().describe('Name for the buddy (user-given)'),
+      }),
+      execute: async ({ buddyName }) => {
+        try {
+          const res = await fetch(`${getBaseUrl()}/api/workspace/hatch-buddy`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ buddyName: buddyName || '' }),
+          });
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          const data = await res.json();
+          if (!data.buddy) throw new Error('No buddy data');
+
+          const b = data.buddy;
+          const { SPECIES_LABEL, RARITY_DISPLAY, STAT_LABEL, SPECIES_IMAGE_URL, getBuddyTitle } =
+            await import('@/lib/buddy');
+          const speciesName =
+            SPECIES_LABEL[b.species as keyof typeof SPECIES_LABEL]?.zh || b.species;
+          const rarityInfo = RARITY_DISPLAY[b.rarity as keyof typeof RARITY_DISPLAY];
+          const title = getBuddyTitle(b);
+          const imageUrl = SPECIES_IMAGE_URL[b.species as keyof typeof SPECIES_IMAGE_URL] || '';
+          const statsText = Object.entries(b.stats)
+            .map(([stat, val]) => `${STAT_LABEL[stat as keyof typeof STAT_LABEL]?.zh || stat}: ${val}`)
+            .join(' · ');
+
+          return [
+            data.alreadyHatched ? `Updated buddy name to "${buddyName}"` : `Hatched a new buddy!`,
+            `Species: ${b.emoji} ${speciesName}`,
+            `Rarity: ${rarityInfo?.stars || ''} ${rarityInfo?.label.zh || b.rarity}`,
+            title ? `Title: "${title}"` : '',
+            `Stats: ${statsText}`,
+            `Peak: ${b.peakStat}`,
+            imageUrl ? `Image: ${imageUrl}` : '',
+            buddyName ? `Name: ${buddyName}` : '',
+          ]
+            .filter(Boolean)
+            .join('\n');
+        } catch (err) {
+          return `Failed to hatch buddy: ${err instanceof Error ? err.message : 'unknown'}`;
+        }
+      },
+    }),
+
     codepilot_cancel_task: tool({
       description: 'Cancel a scheduled task by ID (checks session-only tasks first, then durable).',
       inputSchema: z.object({

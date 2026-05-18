@@ -225,6 +225,72 @@ describe('adapter Phase 2 review invariant — Native media dual capability', ()
 });
 
 // ─────────────────────────────────────────────────────────────────────
+// 2c. Phase 5e round 8 follow-up — Native `codepilot-notify` group
+//     mounts BOTH the task/notify quartet AND `codepilot_hatch_buddy`,
+//     so it must map to BOTH `tasks_and_notify` + `assistant_buddy`.
+//     Same shape as the media case — Codex review caught this gap
+//     after the Native parity patch landed: tool was mounted at
+//     runtime, exposure.kind flipped to ai_sdk_tool, but the compiler
+//     never saw `assistant_buddy` because the group map only returned
+//     `tasks_and_notify`. Pin so a refactor can't quietly drop the
+//     second id back out.
+// ─────────────────────────────────────────────────────────────────────
+
+describe('adapter Phase 5e round 8 — Native notify dual capability', () => {
+  it('Native adapter with {tasks_and_notify, assistant_buddy} emits codepilot_hatch_buddy in toolSetKeys', () => {
+    const out = adaptForNative(
+      baseInput({
+        enabledCapabilities: new Set(['tasks_and_notify', 'assistant_buddy']),
+      }),
+    );
+    assert.ok(
+      out.toolSetKeys.includes('codepilot_hatch_buddy'),
+      'assistant_buddy is enabled but codepilot_hatch_buddy is not in toolSetKeys — adapter not forwarding the second capability',
+    );
+  });
+
+  it('Native adapter with {tasks_and_notify} ONLY does NOT emit codepilot_hatch_buddy (compiler shape, not Native ToolSet shape)', () => {
+    // Belt: the compiler honors the enabledCapabilities set verbatim.
+    // If a caller passes only tasks_and_notify, hatch_buddy must NOT
+    // appear in the compiler's toolSetKeys — that's the signal the
+    // capability wasn't gated in. (The Native ToolSet still carries
+    // hatch_buddy because createNotificationTools mounts it
+    // unconditionally; the compiler's view is what matters for
+    // system prompt + tool descriptor generation.)
+    const out = adaptForNative(
+      baseInput({
+        enabledCapabilities: new Set(['tasks_and_notify']),
+      }),
+    );
+    assert.ok(
+      !out.toolSetKeys.includes('codepilot_hatch_buddy'),
+      'codepilot_hatch_buddy leaked into toolSetKeys without assistant_buddy in enabledCapabilities',
+    );
+  });
+
+  it('builtin-tools/index.ts maps the `codepilot-notify` group to BOTH capability ids', () => {
+    const src = readSource('src/lib/builtin-tools/index.ts');
+    const idx = src.indexOf("case 'codepilot-notify':");
+    assert.ok(idx >= 0, "case 'codepilot-notify': missing");
+    // Wide slice because the notify clause carries a long round-8
+    // follow-up comment block. The actual `return [...]` statement
+    // lands well after 700 chars; find the next case marker by
+    // searching the full tail instead.
+    const tail = src.slice(idx);
+    const nextCaseIdx = tail.indexOf("case '", 5);
+    const clause = nextCaseIdx >= 0 ? tail.slice(0, nextCaseIdx) : tail.slice(0, 2000);
+    assert.ok(
+      /['"]tasks_and_notify['"]/.test(clause),
+      "codepilot-notify → does not return 'tasks_and_notify'",
+    );
+    assert.ok(
+      /['"]assistant_buddy['"]/.test(clause),
+      "codepilot-notify → does not return 'assistant_buddy' — Native factory mounts codepilot_hatch_buddy but the compiler won't know about the capability",
+    );
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────
 // 3. Cross-runtime fragment identity — the compiler promise is
 //    preserved through every facade. For any capability that is
 //    `live` and supported on all three runtimes, the compiled

@@ -339,7 +339,10 @@ export const CAPABILITY_EXECUTABLE_RUNTIMES: Readonly<Record<string, readonly Ru
   tasks_and_notify: ['claude_code', 'codepilot_runtime', 'codex_runtime'],
   image_generation: ['claude_code', 'codepilot_runtime', 'codex_runtime'],
   media_import: ['claude_code', 'codepilot_runtime', 'codex_runtime'],
-  assistant_buddy: ['claude_code'],
+  // Phase 5e round 8 follow-up (2026-05-18) — Native parity shipped;
+  // assistant_buddy now executable on Claude Code + CodePilot Native.
+  // Codex Runtime proxy still doesn't bridge the hatch flow.
+  assistant_buddy: ['claude_code', 'codepilot_runtime'],
   dashboard: ['claude_code', 'codepilot_runtime'],
   cli_tools: ['claude_code', 'codepilot_runtime'],
 };

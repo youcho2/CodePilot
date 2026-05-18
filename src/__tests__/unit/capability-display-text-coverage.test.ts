@@ -358,13 +358,16 @@ describe('buildToolUnsupportedHint', () => {
     assert.ok(h!.hint.en.includes('Dashboard operations'));
   });
 
-  it('codepilot_hatch_buddy → hints "Claude Code only"', () => {
+  it('codepilot_hatch_buddy → hints "Claude Code or CodePilot" (round 8 Native parity)', () => {
+    // Phase 5e round 8 follow-up: Native factory now mounts
+    // codepilot_hatch_buddy, so the hint should list both Claude Code
+    // AND CodePilot as alternatives (was Claude Code only pre-round-8).
     const h = buildToolUnsupportedHint('codepilot_hatch_buddy');
     assert.ok(h);
     assert.equal(h!.capabilityId, 'assistant_buddy');
-    assert.deepEqual([...h!.suggestedRuntimes], ['claude_code']);
+    assert.deepEqual([...h!.suggestedRuntimes], ['claude_code', 'codepilot_runtime']);
     assert.ok(h!.hint.zh.includes('Claude Code'));
-    assert.ok(!h!.hint.zh.includes('CodePilot'));
+    assert.ok(h!.hint.zh.includes('CodePilot'));
   });
 
   it('widget (executable everywhere) → still produces a hint listing all runtimes (defensive)', () => {

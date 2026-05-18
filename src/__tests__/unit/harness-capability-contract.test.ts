@@ -616,8 +616,11 @@ describe('Codex bridge tool surface matches the contract', () => {
     // EVERY tool name in toolNames must mount. If a runtime can't
     // host a tool, either:
     //   - flip that runtime's `kind` to 'unsupported' + add notes
-    //   - split the tool out into its own capability with deferred
-    //     status (e.g. assistant_buddy for codepilot_hatch_buddy)
+    //   - split the tool out into its own capability (e.g.
+    //     assistant_buddy holds codepilot_hatch_buddy separately
+    //     from tasks_and_notify — its codex_proxy is still
+    //     'unsupported' even though Native + ClaudeCode both ship
+    //     post-round-8)
     const { createCodePilotBuiltinTools } = await import('@/lib/codex/proxy/builtin-bridge');
     const bridge = createCodePilotBuiltinTools({
       sessionId: 'contract-test',

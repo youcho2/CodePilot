@@ -197,7 +197,7 @@ describe('PERMISSION_SAFE_TOOLS — mutating / side-effect tools that MUST NOT b
     // Buddy assets / workspace mutations
     {
       name: 'codepilot_hatch_buddy',
-      danger: 'creates buddy assets in user workspace (if Native ever ships this)',
+      danger: 'creates buddy assets in user workspace (Phase 5e round 8 follow-up: Native parity shipped — both ClaudeCode + Native mount this and write to assistant workspace metadata)',
     },
     // Media writes — external API calls + filesystem writes
     {

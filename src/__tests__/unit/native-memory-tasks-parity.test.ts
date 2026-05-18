@@ -341,3 +341,58 @@ describe('Native memory_search — tags + file_type real filtering', () => {
     }
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────
+// Phase 5e round 8 follow-up (2026-05-18) — Native parity for the
+// assistant_buddy capability. The MCP authority
+// (`src/lib/notification-mcp.ts:287`) mounts `codepilot_hatch_buddy`
+// inside the same MCP server as notify / schedule / list / cancel.
+// Round 8 user direction: "我们自家 Runtime 是基础盘 — CodePilot
+// 不能停在 7/8". This block pins the Native factory's mount and
+// blocks a catalog drift back to "claudecode-only".
+// ─────────────────────────────────────────────────────────────────────
+
+describe('Native createNotificationTools — assistant_buddy parity (round 8)', () => {
+  it('createNotificationTools mounts codepilot_hatch_buddy', async () => {
+    const { createNotificationTools } = await import('@/lib/builtin-tools/notification');
+    const tools = createNotificationTools();
+    assert.ok(
+      Object.prototype.hasOwnProperty.call(tools, 'codepilot_hatch_buddy'),
+      'Native factory must include codepilot_hatch_buddy alongside notify / schedule / list / cancel — mirrors the MCP authority for assistant_buddy capability',
+    );
+  });
+
+  it('codepilot_hatch_buddy on Native has a description string and inputSchema', async () => {
+    const { createNotificationTools } = await import('@/lib/builtin-tools/notification');
+    const tools = createNotificationTools();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const hatch = (tools as any).codepilot_hatch_buddy;
+    assert.ok(hatch);
+    assert.ok(
+      typeof hatch.description === 'string' && hatch.description.length > 0,
+      'tool must carry a description for the model to know when to call it',
+    );
+    assert.ok(hatch.inputSchema, 'tool must declare an inputSchema');
+  });
+
+  it('source pin: capability-contract.ts has assistant_buddy.exposure.native.kind === ai_sdk_tool', async () => {
+    // Belt-and-suspenders: if a future commit flips Native exposure
+    // BACK to 'unsupported' without removing the Native factory
+    // mount above, the contract / matrix / Settings clipboard would
+    // tell three different stories. This pin keeps them aligned.
+    const fsMod = await import('node:fs');
+    const pathMod = await import('node:path');
+    const src = fsMod.readFileSync(
+      pathMod.resolve(__dirname, '../../lib/harness/capability-contract.ts'),
+      'utf-8',
+    );
+    // Find the assistant_buddy block and assert native.kind = ai_sdk_tool
+    const buddyBlock = src.match(/id:\s*'assistant_buddy'[\s\S]*?uiRenderPath:/);
+    assert.ok(buddyBlock, 'cannot locate assistant_buddy block in capability-contract.ts');
+    assert.match(
+      buddyBlock![0],
+      /native:\s*\{[\s\S]*?kind:\s*'ai_sdk_tool'/,
+      'capability-contract.ts assistant_buddy.exposure.native.kind must be ai_sdk_tool (round 8 Native parity)',
+    );
+  });
+});

@@ -65,7 +65,20 @@ export interface GetBuiltinToolsOptions {
 function capabilityIdsForGroup(groupName: string): readonly string[] {
   switch (groupName) {
     case 'codepilot-notify':
-      return ['tasks_and_notify'];
+      // Phase 5e round 8 follow-up (2026-05-18) — same pattern as the
+      // round 5 media fix below: `createNotificationTools` mounts
+      // BOTH the task/notify quartet (notify / schedule_task /
+      // list_tasks / cancel_task → tasks_and_notify) AND
+      // `codepilot_hatch_buddy` (→ assistant_buddy). Returning only
+      // `tasks_and_notify` would leak the same "tool exists at
+      // runtime but the compiler doesn't know about its capability"
+      // gap the media fix sealed: Settings would show Native as
+      // supporting assistant_buddy, the Native ToolSet would actually
+      // carry codepilot_hatch_buddy, but the Context Compiler would
+      // never emit the assistant_buddy fragment / tool descriptor /
+      // runtime hint. Two ids keeps the compiler contract aligned
+      // with what Native actually mounts.
+      return ['tasks_and_notify', 'assistant_buddy'];
     case 'codepilot-memory':
       return ['memory'];
     case 'codepilot-widget-guidelines':

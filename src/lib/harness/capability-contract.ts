@@ -330,19 +330,17 @@ const tasksAndNotify: CapabilityContract = {
 const assistantBuddy: CapabilityContract = {
   id: 'assistant_buddy',
   displayName: 'Assistant buddy hatching / naming',
+  // Phase 5e round 8 follow-up (2026-05-18) — Native parity shipped
+  // (ClaudeCode + Native both wire codepilot_hatch_buddy). Codex
+  // Runtime proxy still doesn't bridge the hatch flow, so we keep
+  // status='deferred' to satisfy the catalog hygiene invariant
+  // "status=live ⇒ NO unsupported exposures" (Phase 5d slice 7b).
+  // The round 7 matrix derivation reads per-runtime `exposure.kind`
+  // directly, so the dialog correctly shows executable on Claude
+  // Code + CodePilot Native and perception_only on Codex — the
+  // top-level status here doesn't gate that derivation.
   status: 'deferred',
-  // Phase 5e Phase 0.5 audit fix (2026-05-17) — pre-fix this entry
-  // declared Native exposure as `ai_sdk_tool` claiming
-  // `createNotificationTools` mounted `codepilot_hatch_buddy`. That
-  // statement was a catalog drift: `src/lib/builtin-tools/notification.ts`
-  // only mounts notify / schedule_task / list_tasks / cancel_task. The
-  // hatch tool exists ONLY in the MCP authority `src/lib/notification-mcp.ts`
-  // (see line 287 — registered alongside the task/notify tools). Per user
-  // direction "不要继续写 Native 已暴露这种不真实口径", Native exposure
-  // is now `unsupported` until the Native factory actually ships
-  // `codepilot_hatch_buddy`. When Native ships it, flip back to
-  // `ai_sdk_tool` + remove this comment.
-  deferredReason: 'ClaudeCode SDK path exposes codepilot_hatch_buddy via the notification MCP today. Native Runtime + Codex Runtime do NOT expose it (no Native factory + no Codex bridge). Bridging buddy hatching into Native / Codex requires deciding whether it is a Harness-level capability or an assistant-workspace flow, and that scoping is deferred to a future slice.',
+  deferredReason: 'Native parity shipped 2026-05-18 (round 8 follow-up): codepilot_hatch_buddy now mounted by createNotificationTools, mirroring the MCP authority. Codex Runtime proxy is the only unsupported path — bridging buddy hatching into Codex requires a permission-round-trip design that hasn\'t been scheduled. Top-level status stays "deferred" until Codex parity ships; per-runtime support is already correct in exposure.kind + the matrix.',
   toolNames: ['codepilot_hatch_buddy'],
   exposure: {
     claudecode_sdk: {
@@ -352,12 +350,21 @@ const assistantBuddy: CapabilityContract = {
       notes: 'codepilot_hatch_buddy registered inside the same MCP server as the task/notify tools (notification-mcp.ts:287).',
     },
     native: {
-      kind: 'unsupported',
-      notes: 'Native factory createNotificationTools (src/lib/builtin-tools/notification.ts) does NOT mount codepilot_hatch_buddy — only notify / schedule_task / list_tasks / cancel_task. Catalog drift corrected 2026-05-17 (Phase 5e Phase 0.5 audit). If the Native factory later adds hatch_buddy, flip this back to ai_sdk_tool.',
+      // Phase 5e round 8 follow-up (2026-05-18) — Native factory now
+      // mounts `codepilot_hatch_buddy` mirroring the MCP authority.
+      // Same HTTP endpoint (`POST /api/workspace/hatch-buddy`), same
+      // response parsing, same lazy `@/lib/buddy` import for label
+      // formatting. CodePilot's own Runtime is the "基础盘" — every
+      // capability we can plausibly mount on it, we mount. Driven by
+      // user direction: "CodePilot 自己还是 7/8 不够硬".
+      kind: 'ai_sdk_tool',
+      module: 'src/lib/builtin-tools/notification.ts',
+      factory: 'createNotificationTools',
+      notes: 'codepilot_hatch_buddy mounted alongside notify / schedule_task / list_tasks / cancel_task; mirrors MCP authority verbatim so both runtimes share the same buddy flow.',
     },
     codex_proxy: {
       kind: 'unsupported',
-      notes: 'Not exposed via createCodePilotBuiltinTools. Codex Runtime users cannot hatch a buddy directly through the bridge; suggested workaround is to switch to ClaudeCode Runtime for the hatch flow.',
+      notes: 'Not exposed via createCodePilotBuiltinTools. Codex Runtime users cannot hatch a buddy directly through the bridge; suggested workaround is to switch to ClaudeCode or CodePilot Runtime for the hatch flow.',
     },
   },
   systemPromptFragment: NOTIFICATION_MCP_SYSTEM_PROMPT,

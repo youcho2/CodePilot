@@ -174,24 +174,28 @@ describe('Capability matrix — per-runtime exposure derivation (round 7)', () =
     assert.equal(codexCli!.status, 'perception_only');
   });
 
-  it('assistant_buddy is executable on claude_code only (native + codex_proxy are unsupported)', () => {
-    // Catalog drift fix: native exposure is 'unsupported' because
-    // src/lib/builtin-tools/notification.ts does NOT mount the hatch tool;
-    // it only lives in src/lib/notification-mcp.ts. So only claude_code
-    // can call it.
+  it('assistant_buddy is executable on claude_code + codepilot_runtime; perception_only on codex_runtime', () => {
+    // Phase 5e round 8 follow-up (2026-05-18) — Native parity shipped.
+    // `src/lib/builtin-tools/notification.ts` now mounts
+    // `codepilot_hatch_buddy` mirroring the MCP authority. Codex
+    // Runtime proxy still doesn't bridge the hatch flow (no entry in
+    // `createCodePilotBuiltinTools`), so it stays perception_only.
     const claudeCells = capabilityMatrixForRuntime('claude_code');
     const claudeBuddy = claudeCells.find((c) => c.capabilityId === 'assistant_buddy');
     assert.equal(claudeBuddy!.status, 'executable');
 
     const nativeCells = capabilityMatrixForRuntime('codepilot_runtime');
     const nativeBuddy = nativeCells.find((c) => c.capabilityId === 'assistant_buddy');
-    assert.equal(nativeBuddy!.status, 'perception_only');
-    assert.equal(nativeBuddy!.suggestedRuntime, 'claude_code');
+    assert.equal(nativeBuddy!.status, 'executable',
+      'round 8 Native parity — codepilot_hatch_buddy now mounted via createNotificationTools');
 
     const codexCells = capabilityMatrixForRuntime('codex_runtime');
     const codexBuddy = codexCells.find((c) => c.capabilityId === 'assistant_buddy');
     assert.equal(codexBuddy!.status, 'perception_only');
-    assert.equal(codexBuddy!.suggestedRuntime, 'claude_code');
+    assert.ok(
+      codexBuddy!.suggestedRuntime === 'claude_code' || codexBuddy!.suggestedRuntime === 'codepilot_runtime',
+      'suggested runtime should be one of the two executable paths',
+    );
   });
 
   it('executable count differs across runtimes (claude_code ≥ codepilot_runtime > codex_runtime)', () => {
