@@ -249,6 +249,7 @@ export async function getCodexAvailability(): Promise<CodexAvailability> {
   if (lastAvailability.kind === 'ready') return lastAvailability;
   const binary = findCodexBinary();
   if (!binary) return { kind: 'not_installed' };
+  if (lastAvailability.kind === 'unknown') return { kind: 'installed_idle', binary };
   return lastAvailability;
 }
 

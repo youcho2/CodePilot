@@ -1055,6 +1055,16 @@ export function RuntimePanel(props: RuntimePanelProps = {}) {
         recovery: isZh ? "点右上角刷新重试，或重启 CodePilot" : "Click refresh in the top right, or restart CodePilot",
       };
     }
+    if (codexAvailability.kind === "installed_idle") {
+      return {
+        state: isSelected ? "degraded" : "available",
+        reason: isZh ? "已检测到 codex，应用服务尚未启动" : "codex detected; app-server has not started yet",
+        impact: isZh
+          ? "首次发送 Codex 会话时会启动应用服务；如果启动失败，发送链路会给出明确错误"
+          : "The app-server starts on the first Codex send; if startup fails, the send path reports a concrete error",
+        recovery: isZh ? "无需处理；也可以发送一条 Codex 消息触发启动" : "No action needed; send a Codex message to start it",
+      };
+    }
     if (codexAvailability.kind === "ready") {
       return isSelected
         ? {
@@ -1285,6 +1295,8 @@ export function RuntimePanel(props: RuntimePanelProps = {}) {
                 ? (isZh ? "已就绪" : "Ready")
                 : codexAvailability.kind === "not_installed"
                   ? (isZh ? "未安装 codex CLI — 选用后无法发送" : "codex CLI not installed — sends will fail")
+                  : codexAvailability.kind === "installed_idle"
+                    ? (isZh ? "已安装，待首次启动" : "Installed, idle")
                   : codexAvailability.kind === "spawn_failed"
                     ? (isZh ? "应用服务启动失败" : "App-server failed to start")
                     : codexAvailability.kind === "too_old"
@@ -1742,6 +1754,13 @@ export function RuntimePanel(props: RuntimePanelProps = {}) {
                   <XCircle size={14} className="text-status-error-foreground" />
                   <span className="text-xs text-muted-foreground">
                     {isZh ? "未安装" : "Not installed"}
+                  </span>
+                </>
+              ) : codexAvailability.kind === "installed_idle" ? (
+                <>
+                  <CheckCircle size={14} className="text-status-success-foreground" />
+                  <span className="text-xs text-muted-foreground">
+                    {isZh ? "已安装，待启动" : "Installed, idle"}
                   </span>
                 </>
               ) : codexAvailability.kind === "too_old" ? (

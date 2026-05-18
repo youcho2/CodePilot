@@ -7,6 +7,8 @@
  * process. Two states matter to the UI:
  *
  *   - `not_installed` — Codex binary missing; UI shows install hint
+ *   - `installed_idle` — binary exists; app-server has not been
+ *     initialized in this process yet
  *   - `ready`         — app-server already up; show version + home
  *
  * Intermediate states (`spawn_failed`, `too_old`, `unknown`) ride

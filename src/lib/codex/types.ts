@@ -194,6 +194,8 @@ export type CodexAvailability =
   | { kind: 'unknown' }
   /** `codex` binary not found on PATH. */
   | { kind: 'not_installed' }
+  /** Binary found, but the app-server has not been initialized in this process yet. */
+  | { kind: 'installed_idle'; binary: string }
   /** Binary found but version is below our minimum supported. */
   | { kind: 'too_old'; version: string; minimum: string }
   /** Binary found and version OK, but spawn failed. */

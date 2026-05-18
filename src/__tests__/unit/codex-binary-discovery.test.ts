@@ -118,3 +118,33 @@ describe('findCodexBinary — source pins (round 6 macOS bundle fallback)', () =
     );
   });
 });
+
+describe('Codex availability — installed but idle state', () => {
+  it('returns installed_idle when a binary is found but app-server has not initialized', () => {
+    // Phase 5b closeout follow-up (2026-05-19) — Settings →
+    // Runtime showed "检测中…" forever because /api/codex/status is
+    // intentionally non-spawning: when the binary exists but the
+    // app-server has not been initialized, `lastAvailability` stayed
+    // `unknown` forever. The UI needs a terminal non-spinner state for
+    // this common idle case.
+    assert.match(
+      managerSrc,
+      /lastAvailability\.kind\s*===\s*['"]unknown['"][\s\S]{0,120}installed_idle/,
+      'getCodexAvailability must turn binary-found + unknown cache into installed_idle, not return unknown forever',
+    );
+  });
+
+  it('RuntimePanel renders installed_idle as a non-spinner state', () => {
+    const panelSrc = fs.readFileSync(
+      path.resolve(__dirname, '../../components/settings/RuntimePanel.tsx'),
+      'utf8',
+    );
+    assert.match(panelSrc, /codexAvailability\.kind\s*===\s*["']installed_idle["']/);
+    assert.match(panelSrc, /已安装，待启动|Installed, idle/);
+    assert.doesNotMatch(
+      panelSrc,
+      /installed_idle[\s\S]{0,220}SpinnerGap/,
+      'installed_idle must not render the detecting spinner',
+    );
+  });
+});
