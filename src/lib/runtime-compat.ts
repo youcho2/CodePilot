@@ -46,7 +46,7 @@ const CLAUDE_CODE_READY_PRESETS = new Set(['anthropic-official', 'bedrock', 'ver
  * (OpenAI-compatible skin). Trailing slashes are normalized so
  * `https://openrouter.ai/api/` still matches.
  */
-function isOpenRouterAnthropicSkinUrl(baseUrl: string): boolean {
+export function isOpenRouterAnthropicSkinUrl(baseUrl: string): boolean {
   const trimmed = baseUrl.replace(/\/+$/, '').toLowerCase();
   if (!trimmed.includes('openrouter.ai')) return false;
   // Anthropic skin: ends with `/api`, NOT `/api/v1`.

@@ -484,7 +484,17 @@ describe('Provider Resolver', () => {
       assert.deepEqual(config.processEnvInjections, {});
     });
 
-    it('openrouter protocol → openai SDK with correct base URL', () => {
+    it('openrouter protocol — Anthropic skin (/api) → claude-code-compat SDK (round-7 fix)', () => {
+      // Phase 5b round-7 (2026-05-18) — OpenRouter exposes two skin
+      // endpoints: `/api` (Anthropic Messages format) and `/api/v1`
+      // (OpenAI Chat Completions format). Pre-fix the resolver
+      // hardcoded `sdkType: 'openai'` for both, so an Anthropic-skin
+      // base URL was sent OpenAI Chat Completions chunks against the
+      // Messages endpoint — real-credential smoke saw 200 OK with
+      // empty text, non-stream returned "Invalid JSON response". Fix
+      // routes the Anthropic skin through `claude-code-compat` (the
+      // existing third-party Anthropic-compatible adapter we use for
+      // sdkProxyOnly providers like Zhipu / Kimi).
       const resolved: ResolvedProvider = {
         provider: {
           id: 'test', name: 'OR', provider_type: 'openrouter', protocol: 'openrouter',
@@ -506,9 +516,71 @@ describe('Provider Resolver', () => {
       };
 
       const config = toAiSdkConfig(resolved);
+      assert.equal(config.sdkType, 'claude-code-compat',
+        'Anthropic skin /api must route through claude-code-compat, NOT the OpenAI SDK');
+      assert.equal(config.apiKey, 'or-key');
+      assert.equal(config.baseUrl, 'https://openrouter.ai/api',
+        'Base URL must stay /api (NOT auto-upgraded to /api/v1)');
+    });
+
+    it('openrouter protocol — OpenAI skin (/api/v1) → openai SDK', () => {
+      // Belt: round-7 fix only branches the Anthropic skin away. The
+      // OpenAI skin (the canonical OpenRouter URL most users have)
+      // keeps the existing `sdkType: 'openai'` path. Pin so a future
+      // refactor doesn't accidentally widen the branch.
+      const resolved: ResolvedProvider = {
+        provider: {
+          id: 'test', name: 'OR', provider_type: 'openrouter', protocol: 'openrouter',
+          base_url: 'https://openrouter.ai/api/v1', api_key: 'or-key', is_active: 1, sort_order: 0,
+          extra_env: '{}', headers_json: '{}', env_overrides_json: '', role_models_json: '{}',
+          notes: '', created_at: '', updated_at: '', options_json: '{}',
+        },
+        protocol: 'openrouter',
+        authStyle: 'api_key',
+        model: 'gpt-4o',
+        modelDisplayName: undefined,
+        upstreamModel: undefined,
+        headers: {},
+        envOverrides: {},
+        roleModels: {},
+        hasCredentials: true,
+        availableModels: [],
+        settingSources: ['project', 'local'],
+      };
+
+      const config = toAiSdkConfig(resolved);
       assert.equal(config.sdkType, 'openai');
       assert.equal(config.apiKey, 'or-key');
-      assert.equal(config.baseUrl, 'https://openrouter.ai/api');
+      assert.equal(config.baseUrl, 'https://openrouter.ai/api/v1');
+    });
+
+    it('openrouter protocol — empty base_url → defaults to OpenAI skin', () => {
+      // Defensive: if a provider record has no base_url set (legacy
+      // row), we default to /api/v1 (OpenAI skin) which keeps the
+      // pre-round-7 behaviour for un-configured records.
+      const resolved: ResolvedProvider = {
+        provider: {
+          id: 'test', name: 'OR', provider_type: 'openrouter', protocol: 'openrouter',
+          base_url: '', api_key: 'or-key', is_active: 1, sort_order: 0,
+          extra_env: '{}', headers_json: '{}', env_overrides_json: '', role_models_json: '{}',
+          notes: '', created_at: '', updated_at: '', options_json: '{}',
+        },
+        protocol: 'openrouter',
+        authStyle: 'api_key',
+        model: 'gpt-4o',
+        modelDisplayName: undefined,
+        upstreamModel: undefined,
+        headers: {},
+        envOverrides: {},
+        roleModels: {},
+        hasCredentials: true,
+        availableModels: [],
+        settingSources: ['project', 'local'],
+      };
+
+      const config = toAiSdkConfig(resolved);
+      assert.equal(config.sdkType, 'openai');
+      assert.equal(config.baseUrl, 'https://openrouter.ai/api/v1');
     });
 
     it('bedrock protocol → injects env overrides', () => {

@@ -30,7 +30,11 @@ import {
 import { ensureTokenFresh } from './openai-oauth-manager';
 import { CODEX_API_ENDPOINT } from './openai-oauth';
 import { hasClaudeSettingsCredentials } from './claude-settings';
-import { getProviderCompat, getModelCompat } from './runtime-compat';
+import {
+  getProviderCompat,
+  getModelCompat,
+  isOpenRouterAnthropicSkinUrl,
+} from './runtime-compat';
 import type { ChatRuntime } from './chat-runtime';
 
 // ── Resolution result ───────────────────────────────────────────
@@ -566,16 +570,46 @@ export function toAiSdkConfig(
       };
     }
 
-    case 'openrouter':
+    case 'openrouter': {
+      // Phase 5b round-7 fix (2026-05-18) — OpenRouter exposes TWO
+      // skin endpoints under the same `openrouter` preset:
+      //   - `https://openrouter.ai/api/v1` — OpenAI Chat Completions skin
+      //   - `https://openrouter.ai/api`    — Anthropic Messages skin
+      // Pre-fix this case hardcoded `sdkType: 'openai'` for both,
+      // which meant Anthropic-skin requests (e.g. `anthropic/claude-haiku`)
+      // were sent in OpenAI Chat Completions wire format against the
+      // Messages endpoint. Result on real smoke: HTTP 200 but only
+      // `response.created → response.completed` with empty text;
+      // non-stream returned "Invalid JSON response". `runtime-compat.ts`
+      // already classifies this as `openrouter_anthropic_skin` (the
+      // detection predicate is `isOpenRouterAnthropicSkinUrl` — exported
+      // for reuse here), but the resolver never read the same predicate.
+      // Fix: branch on the same predicate. Anthropic skin → route through
+      // `claude-code-compat` (third-party Anthropic-compatible adapter
+      // we already use for sdkProxyOnly proxies like Zhipu/Kimi —
+      // same wire format, just a different base URL).
+      const baseUrl = provider?.base_url || 'https://openrouter.ai/api/v1';
+      if (provider?.base_url && isOpenRouterAnthropicSkinUrl(provider.base_url)) {
+        return {
+          sdkType: 'claude-code-compat',
+          apiKey: provider?.api_key || undefined,
+          authToken: undefined,
+          baseUrl,
+          modelId,
+          headers,
+          processEnvInjections,
+        };
+      }
       return {
         sdkType: 'openai',
         apiKey: provider?.api_key || undefined,
         authToken: undefined,
-        baseUrl: provider?.base_url || 'https://openrouter.ai/api/v1',
+        baseUrl,
         modelId,
         headers,
         processEnvInjections,
       };
+    }
 
     case 'openai-compatible':
       return {
