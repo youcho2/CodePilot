@@ -3,7 +3,7 @@
 > 创建：2026-05-17
 > 状态：✅ 已完成并归档（2026-05-18）。Phase 0-6 均已落地：HarnessBundle 三层、Runtime/Provider/Capability matrix、Settings 能力清单、Native 基础盘 parity、mutationLevel 权限分级、工具不支持小字提示、Codex SDK coverage 调研与 New Runtime Playbook 收口全部完成。最新收口：CodePilot Native `assistant_buddy` parity 已补齐，Settings 中 ClaudeCode / CodePilot Native 均为 8/8，Codex 仍对不支持能力诚实降级。
 > 验证：`npm run test` 2870/2870 pass；`PORT=3001 PLAYWRIGHT_BASE_URL=http://localhost:3001 npm run test:smoke` 14/14 pass（2026-05-18）。CDP smoke 已验证 Settings → 执行引擎能力 Dialog、trust badges、provider note 与 trigger 不误切 Runtime。
-> 关系：承接 [Phase 5d Harness Capability Contract](../active/phase-5d-harness-capability-contract.md)，但比 Phase 5d Phase 6 更高一层。Phase 5d Phase 6 子计划（[phase-5d-phase-6-codex-account-harness.md](../active/phase-5d-phase-6-codex-account-harness.md)）正式归入 Phase 5e Phase 3 实施 slice，详见下文"Phase 3"段落的"承接说明"。
+> 关系：承接 [Phase 5d Harness Capability Contract](./phase-5d-harness-capability-contract.md)，但比 Phase 5d Phase 6 更高一层。Phase 5d Phase 6 子计划（[phase-5d-phase-6-codex-account-harness.md](./phase-5d-phase-6-codex-account-harness.md)）正式归入 Phase 5e Phase 3 实施 slice，详见下文"Phase 3"段落的"承接说明"。
 > 用户主线诉求（2026-05-17 用户原话，置顶以防漂移）：
 >
 > 1. CodePilot 成为用户自定义 Harness 和本地 Agent 框架的**集中地**。用户能在 CodePilot 这边挂自己的 MCP / Skills，**也包括感知**用户在 ClaudeCode / Codex / 其他框架里**自己**挂的 MCP / Skills / CLI / 内置 Memory；这些外部框架的自定义内容应该**跨框架可感知**。
@@ -446,7 +446,7 @@ Phase 1 引入 `HarnessBundle` 是个**新数据类型**；Phase 4 Unified Tool 
 
 #### 承接说明（ClaudeCode 2026-05-17）
 
-[phase-5d-phase-6-codex-account-harness.md](../active/phase-5d-phase-6-codex-account-harness.md) 的所有子 slice（6a fixture-first → 6b matrix → 6c 注入方案 → 6d dashboard bridge → 6e UI 可见性）**正式归入本 Phase 3 实施 slice**。Phase 5d Phase 6 文档保留作为子任务 backlog，但状态汇报统一在 Phase 5e 这边。决策日志双写。
+[phase-5d-phase-6-codex-account-harness.md](./phase-5d-phase-6-codex-account-harness.md) 的所有子 slice（6a fixture-first → 6b matrix → 6c 注入方案 → 6d dashboard bridge → 6e UI 可见性）**正式归入本 Phase 3 实施 slice**。Phase 5d Phase 6 文档保留作为子任务 backlog，但状态汇报统一在 Phase 5e 这边。决策日志双写。
 
 本计划补充更高层原则：
 
@@ -664,7 +664,7 @@ Phase 1 引入 `HarnessBundle` 是个**新数据类型**；Phase 4 Unified Tool 
   - Phase 1 入口：扫 ClaudeCode `~/.claude/*` + Codex `~/.codex/*` 用户配置，作为 External Framework Harness 进 Bundle
   - 切换顺序：Phase 1.0/1.1 先在 ClaudeCode + Native 验证 Bundle 形态，再 Codex proxy，最后 Codex Account。禁止 Codex 单点驱动 Bundle 设计
   - Phase 2 matrix：加 User CodePilot Harness + External Framework Harness 两列
-  - Phase 3 接管：[phase-5d-phase-6-codex-account-harness.md](../active/phase-5d-phase-6-codex-account-harness.md) 子 slice 6a-6e 正式归入 Phase 5e Phase 3
+  - Phase 3 接管：[phase-5d-phase-6-codex-account-harness.md](./phase-5d-phase-6-codex-account-harness.md) 子 slice 6a-6e 正式归入 Phase 5e Phase 3
   - Smoke matrix：加 "回归保护" 行（5d 130+ pin / 三 Runtime 老 flow / cross-runtime fragment byte-identity）+ "用户自定义 / 跨框架感知" 行
   - 每 Phase 加 acceptance test 锚点（防止 "能跑就算完成"）
 - 2026-05-17（用户拍板，B-Settings 变体 + Native Runtime 底线）：用户对 Phase 3 A/B/C 决策点直接定案：

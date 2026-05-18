@@ -1,8 +1,9 @@
 # Phase 5d — Harness Capability Contract / 新 Runtime 接入规范
 
 > 创建：2026-05-16
-> 最后更新：2026-05-16
-> 关系：承接 [Phase 5c CodePilot Tool Bridge](./phase-5c-codex-tool-bridge.md)，但不替代 ClaudeCode 正在执行的 5c slice；本计划负责把这次 Codex 接入沉淀成跨 Runtime 的能力契约和下一次 Agent 接入规范。
+> 最后更新：2026-05-19
+> 状态：✅ 已完成并归档。Phase 0-5 已落地；原 Phase 6 Codex Account Harness 议题已并入 [Phase 5e Runtime Harness Architecture](./phase-5e-runtime-harness-architecture.md) 的 provider-aware Settings / 诚实降级收口。
+> 关系：承接 [Phase 5c CodePilot Tool Bridge](./phase-5c-codex-tool-bridge.md)，负责把这次 Codex 接入沉淀成跨 Runtime 的能力契约和下一次 Agent 接入规范。
 
 ## 状态
 
@@ -13,8 +14,8 @@
 | Phase 2 | Context Compiler 边界 | ✅ 2026-05-17（已过 Codex review） | 子计划 [phase-5d-phase-2-context-compiler.md](./phase-5d-phase-2-context-compiler.md)；compiler + ledger + 三 Runtime 整体落地；2576/2576 tests pass。Review 修复点：(1) ClaudeCode/Native 在无 base systemPrompt 时仍注入 compiler prompt；(2) Native `codepilot-media` 同时启用 `media_import + image_generation`。 |
 | Phase 3 | Runtime Capability Adapters | ✅ 2026-05-17（已过 Codex review；含 review fix #1） | `src/lib/harness/runtime-adapter.ts` 三 facade（`adaptForClaudeCode/Native/CodexProxy`）；三入口禁直引 compileContext；Phase 2 review invariants 钉为结构性约束（string-always shape + Native media 双 capability）。**Review fix #1（2026-05-17）**：unified-adapter.ts 之前仍用本地 `BUILTIN_BRIDGE_STEP_LIMIT` 常量 + 直传 `bridge.toolNames`，让 adapter 的 `stopWhen / stepCount / builtinToolNames` 字段半死；现已 `PathInput` 接 `adapted.*`，常量单源回 compiler 的 `CODEX_BRIDGE_STEP_LIMIT`。`harness-runtime-adapter.test.ts` 34 pins 全绿。 |
 | Phase 4 | Artifact Contract | ✅ 2026-05-17（已过 Codex review；含 review fix #2 + P2） | `src/lib/harness/artifact-contract.ts` registry 覆盖 11 类产物（widget/malformed_widget/media/file_diff_summary/inline_diff/inline_jsx/markdown/html/json/table/error）；fence/SSE/PreviewSource 三类 source descriptor + parser/renderer 模块路径 + canonical example。**Review fix #2（2026-05-17）**：拆原 `diff` entry 成 `file_diff_summary`（SSE → DiffSummary）+ `inline_diff`（PreviewSource → DiffViewer）；补 `inline_jsx`（PreviewSource → SandpackPreview）。**Review fix P2（2026-05-17）**：`relatedCapability: string \| null` 改为 `relatedCapabilities: readonly string[]`，`media` 关联 `[image_generation, media_import]`，`artifactsForCapability` 用 `includes`。`harness-artifact-contract.test.ts` 22 pins 全绿（含 PreviewSource union 完整性反向 pin）。 |
-| Phase 5 | 新 Agent Runtime 接入 Playbook | ✅ 2026-05-17（playbook 落地，但 **Phase 5d 整体不收口** — 见 Phase 6） | [docs/handover/new-runtime-playbook.md](../../handover/new-runtime-playbook.md) + [docs/insights/new-runtime-playbook.md](../../insights/new-runtime-playbook.md) 落地；7 步硬性流程（schema snapshot → capability inventory → adapter facade → artifact contract → **contract tests gate** → 9 项 smoke matrix → UI 可见性）；禁止 live-smoke-driven patching；7 条反模式来自 slice 1-6 真实事故 |
-| Phase 6 | Codex Account native path 接 Harness + Dashboard Codex bridge | 📋 待开始 | 子计划 [phase-5d-phase-6-codex-account-harness.md](./phase-5d-phase-6-codex-account-harness.md)。Phase 3/4 review 之后 Codex review smoke 发现 P0：`provider-proxy.ts:180` `codex_account` 路径直接 return base 不注入 codepilot_proxy，连带绕过 Harness / Context Compiler / built-in bridge；GPT-5.5 + Codex Account 下 widget 生成 malformed、dashboard pin 失败。底线："任何 Runtime 的任何 provider 路径，只要显示为 CodePilot Chat，就必须经过同一套 Harness capability manifest"。fixture-first，先 6a 抓 Codex app-server 协议 schema 再决定注入方案 |
+| Phase 5 | 新 Agent Runtime 接入 Playbook | ✅ 2026-05-17 | [docs/handover/new-runtime-playbook.md](../../handover/new-runtime-playbook.md) + [docs/insights/new-runtime-playbook.md](../../insights/new-runtime-playbook.md) 落地；7 步硬性流程（schema snapshot → capability inventory → adapter facade → artifact contract → **contract tests gate** → 9 项 smoke matrix → UI 可见性）；禁止 live-smoke-driven patching；7 条反模式来自 slice 1-6 真实事故 |
+| Phase 6 | Codex Account native path 接 Harness + Dashboard Codex bridge | ✅ 2026-05-18（归入 Phase 5e） | 子计划 [phase-5d-phase-6-codex-account-harness.md](./phase-5d-phase-6-codex-account-harness.md) 保留为历史 backlog；实际收口在 [Phase 5e](./phase-5e-runtime-harness-architecture.md)：codex_account provider-aware matrix、Settings 能力清单、Codex 不支持能力诚实降级已经落地。Dashboard / CLI / assistant_buddy 不再作为 Phase 5 阻塞项，后续要变可执行能力需按 Harness Capability Contract 新开 slice。 |
 
 ## 为什么单独立计划
 

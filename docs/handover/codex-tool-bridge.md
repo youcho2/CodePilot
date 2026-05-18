@@ -2,7 +2,7 @@
 
 > 产品思考见 [docs/insights/codex-tool-bridge.md](../insights/codex-tool-bridge.md)
 > 父契约：[docs/handover/provider-proxy-bridge.md](./provider-proxy-bridge.md)（八个 hook、AI SDK v6 schema、Codex schema 来源）
-> 执行计划：[docs/exec-plans/active/phase-5c-codex-tool-bridge.md](../exec-plans/active/phase-5c-codex-tool-bridge.md)
+> 执行计划：[docs/exec-plans/completed/phase-5c-codex-tool-bridge.md](../exec-plans/completed/phase-5c-codex-tool-bridge.md)
 
 ## 简介
 
@@ -180,7 +180,7 @@ Responses-API 的 output_item 只有 `message` 和 `function_call` 两种。`too
 | GLM/Kimi + memory | "用 codepilot_memory_recent 看看最近记忆" | 命中 `codepilot_memory_recent`；不是 Bash 读文件 |
 | GLM/Kimi + tasks | "用 codepilot_list_tasks 列出现有任务" | 命中 `codepilot_list_tasks`；从 DB / API 读到结果 |
 
-未跑通前 Phase 5c 维持 🔄。
+Phase 5c 已经通过 Phase 5e Harness 收口归档；后续若要把 Dashboard / CLI 等 deferred 能力变为可执行能力，按 Harness Capability Contract 新开 slice，而不是回到本 bridge 文档里补丁式扩展。
 
 ## Codex `tools[]` 允许列表（与 ToolSpec enum 同源）
 

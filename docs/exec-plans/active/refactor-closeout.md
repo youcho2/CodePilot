@@ -1,6 +1,6 @@
 # Refactor Closeout / 重构收口计划（总控板）
 
-> 创建：2026-05-06 · 最后更新：2026-05-18（Phase 0-4 已完成并归档；Phase 5 核心链路已落地；Phase 5e Runtime Harness Architecture 已完成并归档，2870 tests pass；Phase 5b provider proxy 仍需真实 credential smoke 才能最终 ✅）
+> 创建：2026-05-06 · 最后更新：2026-05-19（Phase 0-5 已完成并归档；Phase 5 Codex Runtime / provider proxy / Tool Bridge / Harness 架构全部收口，2896 unit tests pass；下一步进入 Phase 6 上下文可视化）
 > 这是日常入口；查历史细节请走"历史归档"列（`completed/refactor-phase-*.md` + `completed/phase-4-markdown-artifact.md`），不要在本文件里翻 1000 行决策日志。
 > **协作边界**：Codex 负责计划制定、方案审查和 Review；ClaudeCode 负责执行代码改动、测试和提交整理。除非用户明确重新授权，Codex 只能改 `docs/` 下的计划 / 交接 / review 文档，不再直接改业务代码。
 > **上下文同步纪律**：交给 ClaudeCode 的内容不能只给"最终结论"或任务清单，必须同时写清楚讨论过程、判断依据、被否掉的方案和为什么否掉。尤其是架构 / Runtime / 权限 / provider / 安全边界相关任务，Codex 的交接文案需要包含：用户原始诉求 → 中间争议 → 取舍理由 → 当前决定 → 不做边界 → 审查重点。这样 ClaudeCode 重启或上下文较短时，也能继承判断过程，而不是重新踩同一个坑。
@@ -14,48 +14,21 @@
 | 2 | Runtime 与会话执行 | 每个会话能解释 / 能切换"执行引擎"；旧会话不被全局漂移；下一条消息生效 | ✅ Step 1-4c 全部完成（2026-05-07） | [phase-2](../completed/refactor-phase-2-runtime-session.md) |
 | 3 | 后台常驻、全局定时任务、助理心跳与通知 | 关窗常驻菜单栏；reminder 不依赖 AI；本机通知 / Bridge 解耦；全局任务页；后台 Agent 任务 + 后台心跳 | ✅ 全部完成（2026-05-10）：Step 1-3 + IA 收尾 + Step 4a（任务会话壳 + 文本生成 + 心跳后台化）+ Step 4b（headless streamClaude + waiting_for_permission 可达 + WaitingForPermissionPanel） | [phase-3](../completed/refactor-phase-3-background-tasks-notifications.md) |
 | 4 | Markdown / Artifact 稳定与表现层 | Markdown 作为数据层；HTML / Artifact 作为表现层；外部资源、安全沙箱、工程输出引用 | ✅ 全部完成（2026-05-12）：trust tier + html-preview 同源路由 + CSP 4 轮 + Markdown 原地风格 + Artifact code-fence / dev-output。HTML Artifact 显式保存入口 deferred（tech-debt #18） | [phase-4](../completed/phase-4-markdown-artifact.md) |
-| 5 | Codex Runtime 接入 | Codex 像 Claude Code 一样成为同级 Runtime；Codex Account 主链路已可跑；Runtime / Provider / Harness 边界已收口 | 🔄 核心链路 ✅；Phase 5e Harness 架构 ✅ 并归档；Phase 5b 翻译层 + 注入已落地但真实 credential smoke 未完 | [phase-5 plan](./phase-5-codex-runtime.md) · [phase-5e](../completed/phase-5e-runtime-harness-architecture.md) |
-| 5b | Codex provider proxy translator | 让 Codex Runtime 使用 CodePilot 已配置 provider；目标是除 Claude Code 默认/env 模式外与 CodePilot Runtime 模型能力对齐 | 🔄 翻译层 + Codex thread/start 真实 proxy 注入已落地，env provider 已从 codex_runtime 排除，unit 测试已与真实 Codex app-server 解耦；剩余必须项：三类家族（OpenAI-compat / Anthropic-compat / CodePlan）每条真实 provider credential 跑通一条 chat smoke 才能宣布 Phase 5b 闭环 | [phase-5 plan](./phase-5-codex-runtime.md) |
-| 5c | CodePilot Tool Bridge for Codex | Codex Runtime 下，CodePilot 自有 Memory / Tasks / Widget / Image / Media 等能被感知、调用并回到 UI；Dashboard / CLI / assistant_buddy 在 Codex 下诚实降级 | ✅ 实现 + Harness 收口完成；Codex 不支持项在 Settings 与聊天工具结果下方用用户语言提示 | [phase-5 plan](./phase-5-codex-runtime.md) · [phase-5e](../completed/phase-5e-runtime-harness-architecture.md) |
+| 5 | Codex Runtime 接入 | Codex 像 Claude Code 一样成为同级 Runtime；Codex Account 主链路、CodePilot provider proxy、Tool Bridge、Runtime / Provider / Harness 边界已收口 | ✅ 全部完成并归档（2026-05-19）：Codex app-server + account/model sync + Runtime adapter + provider proxy translator + OpenRouter/OAuth 收口 + Tool Bridge + Phase 5e Harness 架构 | [phase-5](../completed/phase-5-codex-runtime.md) · [phase-5c](../completed/phase-5c-codex-tool-bridge.md) · [phase-5d](../completed/phase-5d-harness-capability-contract.md) · [phase-5e](../completed/phase-5e-runtime-harness-architecture.md) |
+| 5b | Codex provider proxy translator | 让 Codex Runtime 使用 CodePilot 已配置 provider；除 Claude Code 默认/env 模式外，与 CodePilot Runtime 模型能力对齐 | ✅ 已完成（2026-05-19）：Responses SSE / tool schema / retry lifecycle / OAuth refresh / OpenRouter Anthropic-skin + legacy alias canonicalization / thread resume 注入均已收口；真实 OpenRouter haiku 两轮 smoke 通过，同 session provider binding 保持一致 | [phase-5](../completed/phase-5-codex-runtime.md) |
+| 5c | CodePilot Tool Bridge for Codex | Codex Runtime 下，CodePilot 自有 Memory / Tasks / Widget / Image / Media 等能被感知、调用并回到 UI；Dashboard / CLI / assistant_buddy 在 Codex 下诚实降级 | ✅ 实现 + Harness 收口完成；Codex 不支持项在 Settings 与聊天工具结果下方用用户语言提示 | [phase-5](../completed/phase-5-codex-runtime.md) · [phase-5c](../completed/phase-5c-codex-tool-bridge.md) · [phase-5e](../completed/phase-5e-runtime-harness-architecture.md) |
 | 6 | 上下文可视化 | 输入框右下角是组成条而不是单一百分比 | 📋 待开始（Codex Runtime 收口后移） | — |
 | 7 | 视觉锚点与图标体系 | 点阵风格视觉记忆点 + HugeIcons 统一 | 📋 待开始（后移） | — |
 
 ## 下一步
 
-**Phase 4 整条主线已收口完毕并归档**（trust tier + html-preview 路由 + CSP 4 轮 + Markdown 原地风格 + Artifact code-fence + dev-output；HTML Artifact 显式保存入口 deferred 进 tech-debt #18）。完整交付清单见 [completed/phase-4-markdown-artifact.md](../completed/phase-4-markdown-artifact.md)，技术 / 产品文档分别在 [handover/phase-4-markdown-artifact.md](../../handover/phase-4-markdown-artifact.md) 与 [insights/phase-4-markdown-artifact.md](../../insights/phase-4-markdown-artifact.md)。
+**Phase 5 已完成并归档**。Codex Runtime 现在作为同级执行引擎进入 CodePilot：Codex app-server / account + model sync / runtime adapter / approval + file-change / provider proxy translator / Tool Bridge / Harness Capability Contract / Settings 能力清单均已落地。Phase 5b 的最后一轮真实 provider smoke 已覆盖 OpenRouter haiku 两轮续聊，legacy alias canonicalization 和 `installed_idle` 状态文案已补齐；完整历史见 [completed/phase-5-codex-runtime.md](../completed/phase-5-codex-runtime.md)、[completed/phase-5c-codex-tool-bridge.md](../completed/phase-5c-codex-tool-bridge.md)、[completed/phase-5d-harness-capability-contract.md](../completed/phase-5d-harness-capability-contract.md)、[completed/phase-5e-runtime-harness-architecture.md](../completed/phase-5e-runtime-harness-architecture.md)。
 
-**Phase 5b 链路在 2026-05-15 第六轮 review 后又前进了一截，但仍未 ✅**。截至本轮：
-- ✅ `CodexRuntime.stream()` 现在带完整 `thread/start` + `thread/resume` 注入：`{ model, modelProvider: 'codepilot_proxy', config.model_providers.codepilot_proxy, cwd }`（对齐 Codex 自己 `thread_start_params_from_config` 源码）。
-- ✅ Codex Account 主链路两轮真实跑通（gpt-5.5）。
-- ✅ DB provider 直接打 proxy 已经通：GLM glm-4.5-air / Kimi kimi-for-coding / MiniMax sonnet / Bailian qwen3.6-plus / Aibrm anthropic/claude-haiku-4.5 都返回 200。
-- ✅ env Claude Code 默认从 `runtime=codex_runtime` API 结果消失；`VIRTUAL_PROVIDERS` registry 让 `openai-oauth` 在 proxy 端正确解析；unified-adapter 用 `input.targetProviderId` 不丢虚拟 id；unit 测试通过 `CODEX_DISABLED=1` 隔离真实 Codex subprocess。
-- ✅ `claude-client.ts` + `predictNativeRuntime` 现在让 `codex_runtime` pin / 全局默认优先于 `openai-oauth → Native` 强制分支，sessions pinned to codex_runtime 不再返回 "Session is pinned but resolver returned native"。
-- ✅ `unified-adapter.buildProviderOptions` 把 `body.instructions` 转 `providerOptions.openai.instructions`，让 ai-sdk 在 openai-oauth 路径上写入 Codex `/responses` 必填的 `instructions` 顶层字段。
-- ✅ `event-mapper.ts` 现在按 Codex 真实的 `ErrorNotification = { error: TurnError }` schema 读取 `error.message + additionalDetails + codexErrorInfo`，而不是落入 fallback `'Codex error'`。
-- ✅ Settings Runtime 卡片文案：Codex 不再写成"仅 Codex 账户模型"。
-- ✅ `parse-request.ts` 现在静默丢弃 Codex 发来的非 function tools（`{ type: 'custom' }` 等），不再因 `tools[i].type must be "function"` 返回 400 而阻塞所有完整聊天。Empty-after-filter 折叠回 `undefined`，结构性错误（tools 非数组、function tool 缺 name）仍走原有 field-level 错误路径。
-- ✅ `ResponsesRequestBody.store` 新增；parser 保留；`buildProviderOptions` 始终设 `providerOptions.openai.store = body.store ?? false`，openai-oauth 路径不再因 `Store must be set to false` 返回 400。
-- ✅ `translate-tools.ts` 改用 AI SDK v6 的 `tool({ inputSchema: jsonSchema(...) })`，不再 raw JSON schema + `as unknown as Tool` 强转 — 终止了运行时 "schema is not a function" 错误。新加端到端 contract 测试用 `MockLanguageModelV3` + `streamText` 验证带 function tool 的 Responses request 进入 streamText 不再 throw。translator 还把 `strict` 字段从 parse 透传到 ai-sdk `tool()`，不再悄悄丢字段。
-- ✅ Phase 5b smoke 第 5 轮 (2026-05-16) 重做 Responses SSE 契约成功路径：直接以 `资料/codex/sdk/typescript/tests/responsesProxy.ts` SDK fixture 为金标。`sse.ts` 现在按 `event: <type>\ndata: <JSON>\n\n` 真 SSE 帧框架发送；`translate-stream.ts` 必须发送 `response.output_item.done(message)` 和 `response.output_item.done(function_call)` —— 这是 Codex `handle_output_item_done` 写入 turn items[] 的唯一路径（解释了之前 GLM/Kimi 完成但空白的根因）。`response.completed.response.usage` 改成 SDK fixture 的 `{input_tokens, input_tokens_details, output_tokens, output_tokens_details, total_tokens}` 形状。新加 `codex-proxy-sdk-fixture.test.ts` 把这套契约 round-trip 钉住，下次任何 stream / sse 改动跑这个文件先。
-- ✅ Phase 5b smoke 第 6 轮 (2026-05-16) 修正错误事件口径不对称：成功路径继续按 SDK fixture (`response.output_item.done` / `response.completed`)，错误路径回到 `response.failed { response: { id, error: { code, message } } }`。原因是 Codex 实际生产消费者是 app-server SSE 解析器（`codex-rs/codex-api/src/sse/responses.rs::process_responses_event`），它只匹配 `response.failed` —— SDK fixture 的 `{type:'error'}` 形式在 app-server 路径会落到 unhandled 分支然后变成 "stream closed before response.completed" 静默失败。新加 contract pin 测试覆盖 error / abort 两条路径都必须发 `response.failed` 且带 `response.id + response.error.{code, message}`。bridge 契约文档显式记录了这层不对称，并把 `@openai/codex-sdk` POC 时的 `{type:'error'}` 路径标为后续工作。
-- ✅ Phase 5b smoke 第 7 轮 (2026-05-16) 修正"工具闭环"两条 P0：
-  1. `translate-input.ts` 把 `function_call_output` 转 `tool-result` 时不再写死 `toolName: '__from_responses_proxy__'`。新逻辑先 walk input 一遍建立 `call_id → function_call.name` 映射，然后查表填真实 toolName。orphan 情况（无匹配 function_call）用命名 sentinel `'__orphan_function_call_output__'` 并 `console.warn`，divergence 可见。这是 GPT-Image-2.0 skill "工具跑完但不继续" 的根因 —— Anthropic / OpenAI Responses 都靠 tool-result.toolName 把结果对回工具定义，sentinel 让 provider 无法继续。
-  2. `event-mapper.ts` 把 `imageGeneration` / `imageView` 从 `CHAT_ONLY_ITEM_TYPES` 移到 `TOOL_LIKE_ITEM_TYPES`。这两类 item 没有 delta channel，`item/completed` 是唯一抵达 UI 的 surface；之前 chat-only 直接 silent drop，导致 GPT-Image-2.0 看到 "工具完成" 但没有图片结果。新增显式 started 分支（name = `image_generation` / `image_view`），completed 走通用 TOOL_LIKE 分支输出完整 `{result, savedPath, revisedPrompt, path}` payload 给 chat 渲染。
-  3. 测试 stack：translate-input 三条新 pin（toolName 解析 / 多 call 顺序保持 / orphan + console.warn）+ event-mapper 四条 image-lifecycle pin（imageGeneration started/completed + imageView started/completed）+ tool-loop continuation 端到端 pin 用 `MockLanguageModelV3` 验证 `function_call → function_call_output → 最终 assistant text` 链路里 ai-sdk prompt converter 看到的是真实 toolName，不是 legacy sentinel。
-- ✅ Phase 5b smoke 第 8 轮 (2026-05-16) 把图片"可见卡片"补齐：round 7 让 imageGeneration / imageView 不再静默丢弃，但 generic `output: item` 走到 `canonicalToSseLine` 后只写进 `tool_result.content`，前端 `useSSEStream → MediaPreview` 走的是 `tool_result.media` 通道，所以工具是显示完成但没真正渲染图片。本轮：(a) `RuntimeRunEvent.tool_completed` 新增 `media?: readonly MediaBlock[]`，`makeToolCompleted` factory 同步签名；(b) `event-mapper.ts` 在 imageGeneration / imageView 完成分支里调 `buildImageGenerationMedia` / `buildImageViewMedia` 合成 MediaBlock —— savedPath → localPath + mimeType 按 extension 推断，纯 base64 → data 字段；(c) `codex/runtime.ts::canonicalToSseLine` 的 `tool_completed` 分支把 `media` 透传到 SSE payload 里，与 `useSSEStream` 已有的 `tool_result.media` 解析对齐。新加 `codex-tool-result-media.test.ts` 端到端钉死：imageGeneration item/completed → SSE `tool_result.media[]` → MediaPreview 可消费的形状。
-- ✅ 写入 `docs/handover/provider-proxy-bridge.md` 并扩成"Agent Framework Bridge Contract"：8 个 hook + AI SDK v6 schema 合约 + Codex SSE 契约（含上面那段 wire-level fixture 示例）+ Codex schema 来源（**SDK fixture 列为第一行**）+ smoke 矩阵。后续任何新 Agent 框架接入必须先过这套契约，不接受"先放出去再 live smoke 抓 bug"。
+**后续不是 Phase 5 阻塞项**：
 
-新增 P0 缺口（2026-05-16 smoke）：
-1. Codex Runtime 能用 Codex 原生 shell/file 读取工作区文件，但 CodePilot 自有工具还没真正接上。明确要求 `codepilot_memory_recent` / `codepilot_list_tasks` 的 smoke 得到 `memory=FAIL` / `tasks=FAIL`，说明模型没有感知或调用这些工具。
-2. GPT-Image-2.0 相关修复已经补了 toolName 闭环、imageGeneration / imageView item 显示、`tool_result.media` 通道，但这只证明图片 item 渲染链路更完整，不能推出 CodePilot 所有 built-in tools / Skills 已可用。
-3. 已在 [phase-5 plan](./phase-5-codex-runtime.md) 增补 **Phase 5c — CodePilot Tool Bridge for Codex Runtime**：要求从 `BUILTIN_MCP_CATALOG` 建 capability matrix，桥接 Memory / Tasks / Widget / Image / Media / Dashboard / CLI tools，并给每个能力族跑真实 smoke。
-
-剩余 must-have：
-1. 真实 provider credentials 下跑通端到端 chat smoke 表（每家族一条，每条至少连发两轮，验证 thread/resume 续聊仍打到 proxy）。
-2. `@openai/codex-sdk` execution POC（control plane 留给 app-server，execution plane 评估切到 SDK）。
-3. Phase 5c CodePilot Tool Bridge：Codex Runtime 下 `codepilot_*` 内置工具必须可见、可调用、结果可渲染；不能继续靠 Codex 原生 Bash/file 代替。
-
-在 smoke 表清单全过之前 Phase 5b 仍属 🔄。计划见 [active/phase-5-codex-runtime.md](./phase-5-codex-runtime.md)；bridge 契约见 [handover/provider-proxy-bridge.md](../../handover/provider-proxy-bridge.md)。
+- `@openai/codex-sdk` execution POC 仍可作为后续研究：control plane 继续保留 app-server，execution plane 是否切 SDK 需要单独 POC。
+- Dashboard / CLI 等在 Codex 下不可执行的能力已通过 Settings 能力清单和聊天工具提示诚实降级；后续若要变成可执行能力，按 Harness Capability Contract 新开 slice。
+- Phase 6 才是下一条主线：上下文可视化，把输入框右下角的单一百分比升级成可解释的上下文组成条。
 
 ### Phase 3 Step 4（完成 2026-05-10）：后台 Agent 任务与助理心跳闭环
 
@@ -157,12 +130,12 @@ Phase 3 验收入口：
 
 ### Phase 5：Codex Runtime 接入
 
-> 进度：**核心链路 ✅；Phase 5b 翻译层 + 真实 proxy 注入已落地，但还差三类家族的真实 credential chat smoke 才能宣布闭环**。
+> 进度：**✅ 已完成并归档**。Phase 5b provider proxy translator、Phase 5c Tool Bridge、Phase 5d/5e Harness 架构与 Settings 能力清单均已收口。
 >
-> 子计划见 [`active/phase-5-codex-runtime.md`](./phase-5-codex-runtime.md)。本阶段目标是把 Codex 像 Claude Code 一样接入为可选 Runtime，而不是做上下文可视化。
+> 子计划见 [`completed/phase-5-codex-runtime.md`](../completed/phase-5-codex-runtime.md)。本阶段目标是把 Codex 像 Claude Code 一样接入为可选 Runtime，而不是做上下文可视化。
 
 - **已落地**：Runtime Contract Hardening、`codex app-server` 管理层、`account/read` / login flow、`model/list` → `Codex Account`、Runtime registry `codex_runtime`、thread / turn / item / file-change / approval / token usage 映射、Codex Account chat 主链路、Phase 5b CodePilot provider proxy translator（基于 ai-sdk `createModel()` + `streamText` 的统一翻译层，同一份实现覆盖 OpenAI-compatible / Anthropic-compatible / CodePlan 三家族；`getModelCompat` 让对应 tier 的 `supportedRuntimes` 加入 `codex_runtime`），`CodexRuntime.stream()` 真正注入 `model_providers.codepilot_proxy` 到 `thread/start` 与 `thread/resume`（共享 `buildCodexThreadParams` 一个 helper，guardrail 测试 source-grep runtime.ts 保证两条路径都 spread 同一 params 对象），session 持久化 `codex_thread_provider_id` 防止跨 provider 误 resume；env provider 在 API + runtime 双层显式排除；`VIRTUAL_PROVIDERS` registry 在 proxy 端正确解析 `openai-oauth` 等虚拟 provider（unified-adapter 改用 `input.targetProviderId` 而不是 `resolved.provider?.id`），并有 API contract 测试保证 `runtime=codex_runtime` 暴露的所有 id 都能被 proxy resolve；unit 测试通过 `CODEX_DISABLED=1` 与真实 Codex app-server 解耦。Codex 原生 shell/file smoke 可跑。
-- **下一步要做**：先补 Phase 5c CodePilot Tool Bridge，确保 Codex Runtime 下 Memory / Tasks / Widget / Image / Media / Dashboard / CLI tools 等 CodePilot 自有能力可见、可调用、结果可渲染；同时继续在真实 credential 下跑通四条 provider proxy chat smoke（OpenAI-compatible / Anthropic-compatible / CodePlan / openai-oauth 各一条），每条 smoke 至少连发两轮以验证 thread/resume 续聊仍打到 proxy。两条都过之前 Phase 5 仍属 🔄。`unknown` tier 维持 disabled（proxy 推不出 wire format）。
+- **已收口**：Phase 5b 真实 provider smoke 已完成最终阻塞项，OpenRouter haiku 两轮续聊验证通过；Phase 5c/5e 已把 CodePilot 自有 Memory / Tasks / Widget / Image / Media 等能力接入 Harness Bundle，Dashboard / CLI / Codex Account 不支持能力在 Settings 与工具提示中诚实降级。`unknown` tier 维持 disabled（proxy 推不出 wire format）。
 - **不做**：不解析 `codex exec` 文本作为主协议；不读取 `~/.codex` token 文件；不把 Codex 降级成 `Codex Account only` 轻入口；不把“proxy translator 暂未覆盖”误写成永久不支持；不做上下文可视化。
 
 ### Phase 6：上下文可视化
@@ -177,10 +150,11 @@ Phase 3 验收入口：
 - **要做**：先做视觉资产 + icon audit；HugeIcons 统一封装；点阵风格只在 3 个低风险位置试点；CDP 截图确认。
 - **不做**：一口气全局重做 UI；点阵铺满所有卡片。
 
-## 最近决策（最近 8 条）
+## 最近决策（当前收口状态）
 
-> 完整决策日志按 Phase 归档，见 `completed/refactor-phase-*.md` + `completed/phase-4-markdown-artifact.md`。本节只保留当前收口状态，避免 active 总控板携带过期口径。
+> 完整决策日志按 Phase 归档，见 `completed/refactor-phase-*.md` + `completed/phase-4-markdown-artifact.md` + `completed/phase-5*.md`。本节优先看顶部最新条目；较早条目保留为过程记录，若与顶部状态冲突，以最新 closeout 为准。
 
+- 2026-05-19：**Phase 5 Codex Runtime / Harness 主线完成并归档**。Phase 5b provider proxy translator 的最后阻塞项（OpenRouter legacy alias / Anthropic-skin / OAuth refresh / installed_idle 状态文案）已闭环；OpenRouter haiku 在 Codex Runtime 下两轮真实 smoke 通过，同一 session 的 `codex_thread_provider_id` 绑定保持一致。Phase 5c Tool Bridge 与 Phase 5d/5e Harness 架构已归档；CodePilot 自有 Memory / Tasks / Widget / Image / Media 等能力经 Harness Bundle / capability matrix / Settings 能力清单收口，不支持能力用用户可读文案诚实降级。下一条主线转入 Phase 6 上下文可视化。
 - 2026-05-12：**Phase 5 改为 Codex Runtime 接入**。上下文可视化顺延到 Phase 6；Phase 5 目标是让 Codex 像 Claude Code 一样成为 CodePilot 同级 Runtime，既读取 Codex 登录账号模型，也接入 Codex 原生工具 / 命令 / 插件式 item / 文件改动 / 权限事件；同时通过 CodePilot Responses-compatible proxy 交付现有 provider / CodePlan 模型的可用路径。用户明确否决 `Codex Account only` 的降级口径。为避免三套 runtime invariant 污染 UI，Phase 5 增加 `Runtime Contract Hardening` 前置：session / permission / model / event / preview metadata 必须先收口，再接 Codex。
 - 2026-05-16：**Phase 5c CodePilot Tool Bridge 计划补入**。真实 smoke 证明 Codex 原生 shell/file 能跑，但 CodePilot 自有工具还未真正接入：明确要求 `codepilot_memory_recent` / `codepilot_list_tasks` 后未产生对应工具调用。用户底线是 Widget、助理 Memory、定时任务、图片 / 媒体、Dashboard、CLI tools 等 CodePilot 产品层能力不能因切换 Codex Runtime 消失。计划要求从 `BUILTIN_MCP_CATALOG` 生成 capability matrix，桥接工具可见性 / 调用 / 结果渲染，并用每个能力族真实 smoke 验收。
 - 2026-05-16：**Phase 5c CodePilot Tool Bridge 实现 + 单测 + 文档落地**。两次切片提交完成：(slice 1) parse-request tools[] 分类（function / 已知 non-function / 未知 → 结构化错误，停止静默丢弃）、proxy header 扩展（`x-codepilot-session-id` / `x-codepilot-workspace-path`）、side-channel event bus；(slice 2) `builtin-bridge.ts` 工具集（image / media import / memory / widget / notify / tasks）、unified-adapter 集成 + `stopWhen: stepCountIs(8)`、translate-stream/response 抑制内建工具 function_call、runtime.ts 订阅事件总线、anti-pattern source-grep 守卫（`auth.json` / `npm install` / `OPENAI_API_KEY` / `image_gen.py`）、Codex Account 双层守卫（adapter routingBug + bridge 拒挂）。Phase 5c 现状 🔄：实现 + 单测全绿（2495 tests），文档 `docs/handover/codex-tool-bridge.md` + `docs/insights/codex-tool-bridge.md` 已落地，**用户必须跑 6 类能力族真实 smoke**（Codex Account 原生 / GLM 图片 / Kimi 图片 / GLM widget / GLM memory / GLM tasks）才能标 ✅。Dashboard + CLI tools 工具族 deferred。

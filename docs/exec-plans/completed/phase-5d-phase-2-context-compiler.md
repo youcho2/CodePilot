@@ -1,10 +1,10 @@
 # Phase 5d Phase 2 — Context Compiler
 
 > 创建：2026-05-16
-> 最后更新：2026-05-16
+> 最后更新：2026-05-19
 > 父计划：[phase-5d-harness-capability-contract.md](./phase-5d-harness-capability-contract.md) `Phase 2 — Context Compiler 边界`
 > 前置：[phase-5d-harness-capability-contract.md](./phase-5d-harness-capability-contract.md) Phase 0+1 已落地（slice 7b 后），`src/lib/harness/capability-contract.ts` + `harness-capability-contract.test.ts` 是本计划的真值底座
-> 范围：仅计划，等 Codex review 通过后再写代码
+> 状态：✅ 已完成并归档；实现已进入 `src/lib/harness/context-compiler.ts` 与 runtime adapter facade，后续只按 Harness Capability Contract 增量演进。
 
 ## 状态
 

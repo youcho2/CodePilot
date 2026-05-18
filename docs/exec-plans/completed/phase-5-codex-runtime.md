@@ -1,8 +1,8 @@
 # Phase 5 — Codex Runtime 接入
 
 > 创建时间：2026-05-12
-> 最后更新：2026-05-16
-> 状态：🔄 核心链路已落地并过 review；Phase 5b provider proxy translator 已落地但仍待真实 smoke；新增 Phase 5c CodePilot Tool Bridge 计划，用来补齐“Codex 原生 shell/file 能跑，但 CodePilot 内置工具尚未真正接上”的 P0 缺口
+> 最后更新：2026-05-19
+> 状态：✅ 已完成并归档。Codex Runtime 主链路、Codex Account、provider proxy translator、Tool Bridge、Settings UI 收口均已完成；最后一轮 OpenRouter haiku 真实两轮 smoke 通过，`installed_idle` 状态文案修正为“已安装，可用 / 按需启动”。
 > 协作边界：Codex 负责计划制定、方案审查和 Review；ClaudeCode 负责执行代码改动、测试和提交整理。除非用户明确重新授权，Codex 只改 `docs/` 下的计划 / 交接 / review 文档。
 > 上下文同步：本计划不是只给 ClaudeCode 的任务列表。执行前必须读完“讨论脉络”与“Runtime Contract Hardening”，理解为什么 Codex 不能降级成 `Codex Account only`，也不能用三套 runtime 私有语义直接污染 UI。
 
@@ -68,10 +68,10 @@ ClaudeCode 和 Codex 不是互相替代的两个按钮，而是两种不同 Agen
 | 2 | 账号与模型同步 | ✅ 已完成 | `account/read` + login flow + `model/list` → `Codex Account` ProviderModelGroup；模型兼容只暴露给 `codex_runtime`。 |
 | 3 | Codex Runtime Adapter | ✅ 已完成 | Runtime registry 接入；`codex_thread_id`；thread / turn / item / token usage 映射到 canonical events。 |
 | 4 | Codex 原生能力 / 插件事件接入 | ✅ 已完成 | file_changed、approval bridge、turn interrupt、unknown item fallback、fs/watch 兜底已落地。 |
-| 5 | CodePilot provider proxy for Codex | ✅ scaffold 已完成 | `/api/codex/proxy/v1/responses` 结构化返回 `501 unsupported_yet`；真实 Responses 翻译器仍未完成。 |
+| 5 | CodePilot provider proxy for Codex | ✅ 已完成 | `/api/codex/proxy/v1/responses` 从 scaffold 进化为统一 translator，覆盖 OpenAI-compatible / Anthropic-compatible / CodePlan 家族；env provider 显式排除。 |
 | 6 | UI / Electron / 测试收口 | ✅ 已完成主体收口 | Settings Runtime / Providers / Models IA、Codex 状态卡、模型 disclosure、runtime gate、Electron dispose 已落地；剩余模型可用性属于 Phase 5b provider proxy translator。 |
-| 5b | CodePilot provider proxy translator | 🔄 翻译层 + 注入已落地；待真实 smoke | 统一翻译层基于 ai-sdk `createModel()` + `streamText`/`generateText`：Responses 输入 / 工具 / 流式事件 / 非流式响应四路转换 + 同一 adapter 覆盖 OpenAI-compatible、Anthropic-compatible、CodePlan 三个家族。`CodexRuntime.stream()` 真正调用 `buildCodexThreadStartParams` 注入 `model_providers.codepilot_proxy` 到 `thread/start`；session 持久化 `codex_thread_provider_id` 检测跨 provider 误 resume；env provider 在 API + runtime 双层显式排除；unit 测试通过 `CODEX_DISABLED=1` 与真实 Codex app-server 解耦。剩余 must-have：三类家族（OpenAI-compatible / Anthropic-compatible / CodePlan）各跑通一条真实 provider credential chat smoke。在这之前 5b 维持 🔄；smoke 全过后转 ✅。 |
-| 5c | CodePilot Tool Bridge for Codex | 📋 计划已写；待实现 | 目标是让 Codex Runtime 能感知并调用 CodePilot 自有工具：Memory、通知 / 定时任务、Widget、图片 / 媒体、CLI tools、Dashboard 等。不能只依赖 Codex 原生 Bash/file；必须建立 capability matrix、工具桥、结果映射和 smoke 表。 |
+| 5b | CodePilot provider proxy translator | ✅ 已完成 | 统一翻译层基于 ai-sdk `createModel()` + `streamText`/`generateText`：Responses 输入 / 工具 / 流式事件 / 非流式响应四路转换 + 同一 adapter 覆盖 OpenAI-compatible、Anthropic-compatible、CodePlan 三个家族。`thread/start` / `thread/resume` 都注入 `model_providers.codepilot_proxy`；OpenAI OAuth refresh、OpenRouter Anthropic-skin、legacy alias canonicalization、willRetry lifecycle、text-delta self-allocate、macOS Codex.app fallback 均已收口。 |
+| 5c | CodePilot Tool Bridge for Codex | ✅ 已完成 | Codex Runtime 下 Memory / Tasks / Widget / Image / Media 等 CodePilot 自有工具可感知、可调用并回 UI；Dashboard / CLI / assistant_buddy 等不支持项在 Settings 和工具提示中诚实降级，后续如需执行能力按 Harness Capability Contract 另开 slice。 |
 
 ## 详细设计
 

@@ -2,9 +2,9 @@
 
 中大型功能的执行计划，包含分阶段目标、进度状态和决策日志。
 
-> **日常入口：[active/refactor-closeout.md](active/refactor-closeout.md)**——这是总控板（当前 Phase 状态 / 下一步 / 未闭环风险 / 验收入口 / 最近决策 / Phase 4-7 方案）。后续 ClaudeCode / Codex 只从这一个计划领取任务，不再从下方"被接管 / 暂缓"清单里的旧 active 计划自行开支线。
+> **日常入口：[active/refactor-closeout.md](active/refactor-closeout.md)**——这是总控板（当前 Phase 状态 / 下一步 / 未闭环风险 / 验收入口 / 最近决策 / Phase 6-7 方案）。后续 ClaudeCode / Codex 只从这一个计划领取任务，不再从下方"被接管 / 暂缓"清单里的旧 active 计划自行开支线。
 >
-> **查历史细节：`completed/refactor-phase-*.md` + `completed/phase-4-markdown-artifact.md`**——总控板里的"历史归档"列直接 link 过去。Phase 1（模型同步与渠道扩展）/ Phase 2（Runtime 与会话执行）/ Phase 3（后台常驻、定时任务、通知）/ Phase 4（Markdown 数据层 + Artifact 表现层）四段已完成的计划文本与全部决策日志按 Phase 归档，不要去 active 总控板里翻。
+> **查历史细节：`completed/refactor-phase-*.md` + `completed/phase-4-markdown-artifact.md` + `completed/phase-5*.md`**——总控板里的"历史归档"列直接 link 过去。Phase 1（模型同步与渠道扩展）/ Phase 2（Runtime 与会话执行）/ Phase 3（后台常驻、定时任务、通知）/ Phase 4（Markdown 数据层 + Artifact 表现层）/ Phase 5（Codex Runtime + Harness 架构）已完成的计划文本与全部决策日志按 Phase 归档，不要去 active 总控板里翻。
 
 **AI 须知：**
 - 新建执行计划放在 `active/`，完成后移至 `completed/`
@@ -77,11 +77,7 @@
 
 | 文件 | 主题 | 状态 |
 |------|------|------|
-| [active/refactor-closeout.md](active/refactor-closeout.md) | **重构收口总控板**：当前 Phase 状态 / 下一步 / 未闭环风险 / 验收入口 / 最近决策 / Phase 4-7 方案 | Phase 0-4 ✅；Phase 5 核心链路 ✅；Phase 5b 翻译层 + 真实 proxy 注入已落地，等三类家族真实 chat smoke 完成才能 ✅ |
-| [active/phase-5-codex-runtime.md](active/phase-5-codex-runtime.md) | **Phase 5 Codex Runtime 接入**：Runtime Contract Hardening / Codex app-server / account + model sync / Runtime adapter / 原生工具事件 / provider proxy scaffold / Codex UI 收口 / Phase 5b proxy translator | 核心链路、UI 收口 ✅；Phase 5b translator + Codex thread/start 真实 proxy 注入已落地，待真实 credential chat smoke 收口 |
-| [active/phase-5c-codex-tool-bridge.md](active/phase-5c-codex-tool-bridge.md) | **Phase 5c CodePilot Tool Bridge 执行子计划**：parse-request 分类 / proxy 头扩展 / 侧通道事件总线 / builtin-bridge 工具集 / unified-adapter 集成 / translate-stream 抑制 / runtime 订阅 / 反模式 source-grep 守卫 | 实现 + 单测 + 文档 ✅（2026-05-16，2495 tests pass），待用户跑 6 类能力族真实 smoke 收口 |
-| [active/phase-5d-harness-capability-contract.md](active/phase-5d-harness-capability-contract.md) | **Phase 5d Harness Capability Contract / 新 Runtime 接入规范**：把 Memory / Tasks / Widget / Media / Notify / Dashboard / CLI 等 CodePilot 自有能力抽成跨 Runtime contract，沉淀 Codex 接入教训，作为 Hermes 等未来 Agent 接入 playbook | Phase 0+1 ✅（2026-05-16 slice 7b 后，2544/2544 tests pass）；Phase 2 计划已撰写待 review；Phase 3-5 待开 |
-| [active/phase-5d-phase-2-context-compiler.md](active/phase-5d-phase-2-context-compiler.md) | **Phase 5d Phase 2 Context Compiler 子计划**：把 ClaudeCode / Native / Codex 三处分散的上下文注入合并成纯函数 `compileContext(input): CompiledContext`，Runtime 只 adapt 不 redefine | 📋 计划已提交，等 Codex review 通过后开始 slice 2a |
+| [active/refactor-closeout.md](active/refactor-closeout.md) | **重构收口总控板**：当前 Phase 状态 / 下一步 / 未闭环风险 / 验收入口 / 最近决策 / Phase 6-7 方案 | Phase 0-5 ✅；下一步进入 Phase 6 上下文可视化 |
 | [active/issue-tracker.md](active/issue-tracker.md) | **统一问题跟踪**：所有 Bug / Feature Request / Sentry 监控的活动看板 | 持续维护 |
 
 ### 被 refactor-closeout 接管（保留作历史参考）
@@ -114,10 +110,15 @@
 
 ### Completed
 
-> Refactor closeout 的四个 Phase 归档在 `completed/refactor-phase-*.md` + `completed/phase-4-markdown-artifact.md`，由 active 总控板的"历史归档"列直接 link；下方按完成日期倒序排其它独立计划。
+> Refactor closeout 的 Phase 1-5 归档在 `completed/refactor-phase-*.md` + `completed/phase-4-markdown-artifact.md` + `completed/phase-5*.md`，由 active 总控板的"历史归档"列直接 link；下方按完成日期倒序排其它独立计划。
 
 | 文件 | 主题 | 完成日期 |
 |------|------|----------|
+| [completed/phase-5-codex-runtime.md](completed/phase-5-codex-runtime.md) | Phase 5 Codex Runtime 接入：Codex app-server / Codex Account / Runtime adapter / approval + file events / provider proxy translator / OpenRouter + OAuth 收口 / installed_idle 状态文案 | 2026-05-19 |
+| [completed/phase-5c-codex-tool-bridge.md](completed/phase-5c-codex-tool-bridge.md) | Phase 5c CodePilot Tool Bridge：Codex Runtime 下桥接 Memory / Tasks / Widget / Image / Media，unsupported 能力在 Settings 与工具结果中诚实降级 | 2026-05-18 |
+| [completed/phase-5d-harness-capability-contract.md](completed/phase-5d-harness-capability-contract.md) | Phase 5d Harness Capability Contract：Capability registry / Context Compiler / Runtime adapter facade / Artifact contract / New Runtime Playbook | 2026-05-18 |
+| [completed/phase-5d-phase-2-context-compiler.md](completed/phase-5d-phase-2-context-compiler.md) | Phase 5d Phase 2 Context Compiler：三 Runtime 统一上下文编译，Runtime 只 adapt 不 redefine | 2026-05-18 |
+| [completed/phase-5d-phase-6-codex-account-harness.md](completed/phase-5d-phase-6-codex-account-harness.md) | Phase 5d Phase 6 Codex Account Harness 调研计划：已归入 Phase 5e 的 provider-aware Settings / 能力降级收口 | 2026-05-18 |
 | [completed/phase-5e-runtime-harness-architecture.md](completed/phase-5e-runtime-harness-architecture.md) | Phase 5e Runtime Harness Architecture：Runtime / Provider / Harness 三层边界、三层 HarnessBundle、User/External scanner、Settings 能力清单、mutationLevel 权限分级、Native 基础盘补齐、Codex 不支持能力诚实降级、New Runtime Playbook 收口 | 2026-05-18 |
 | [completed/phase-4-markdown-artifact.md](completed/phase-4-markdown-artifact.md) | refactor-closeout Phase 4 归档：Markdown 数据层（trust tier / quiet refresh / 编辑冲突）+ HTML 表现层（同源路由 / CSP 4 轮）+ Markdown 原地风格 + Artifact code-fence / dev-output 引用 | 2026-05-12 |
 | [completed/refactor-phase-3-background-tasks-notifications.md](completed/refactor-phase-3-background-tasks-notifications.md) | refactor-closeout Phase 3 归档（菜单栏常驻 + 全局定时任务 + 本机通知 + Bridge 解耦 + 后台 Agent 任务 + 心跳后台化 + dev-server 内存收口） | 2026-05-10 |

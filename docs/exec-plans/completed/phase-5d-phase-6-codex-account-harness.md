@@ -1,7 +1,7 @@
 # Phase 5d Phase 6 — Codex Account native path 接 Harness + Dashboard Codex bridge
 
 > 创建：2026-05-17
-> **状态变更（2026-05-18）**：本子计划的 6a-6e slice **已正式归入 [Phase 5e](../completed/phase-5e-runtime-harness-architecture.md) Phase 3 实施 slice，并随 Phase 5e 一并归档**。本文保留作为历史 backlog（具体技术 slice + 风险矩阵），但状态汇报、产品决策、跨 Runtime 视角统一看 Phase 5e 归档。
+> **状态变更（2026-05-18）**：本子计划的 6a-6e slice **已正式归入 [Phase 5e](./phase-5e-runtime-harness-architecture.md) Phase 3 实施 slice，并随 Phase 5e 一并归档**。本文保留作为历史 backlog（具体技术 slice + 风险矩阵），但状态汇报、产品决策、跨 Runtime 视角统一看 Phase 5e 归档。
 > 父计划：[phase-5d-harness-capability-contract.md](./phase-5d-harness-capability-contract.md) `Phase 6`（保留行，但 Phase 5e 是更高层视角）
 > 触发 review：Codex review 在 Phase 3/4 review fix 之后 smoke 验证发现 P0 缺口
 > 范围：仅计划，不立刻动 Codex Account 主路径（按 [new-runtime-playbook.md](../../handover/new-runtime-playbook.md) 的 schema-first 硬流程走）
@@ -24,11 +24,11 @@ Codex Account 现在不满足这条底线——既没经过 Harness（capability
 
 | Slice | 内容 | 状态 | 备注 |
 |---|---|---|---|
-| 6a | Codex app-server 协议 schema snapshot | 📋 待开始 | fixture-first；不写任何代码 |
-| 6b | Capability matrix 拆 `codex_account` 维度 | 📋 待开始 | 在 catalog 显式说明该 provider 下哪些 capability 真不可用 |
-| 6c | Codex Account 注入入口设计（三选一）| 📋 待开始 | A/B/C 见下文，依赖 6a fixture 才能定 |
-| 6d | Dashboard Codex bridge（proxy 路径优先） | 📋 待开始 | 与 6c 正交。先让 dashboard 在 Codex Runtime+proxy 下 live，再决定要不要进 Codex Account |
-| 6e | UI 可见性（用户能看到 capability 在 codex_account 下不可用） | 📋 待开始 | 取决于 6c 选定方案；如果选 D（显式不可用）则 UI 必须收口 |
+| 6a | Codex app-server 协议 schema snapshot | ✅ 由 Phase 5e 吸收 | 结论落在 Codex Account partial / Settings 诚实降级，不再作为 Phase 5 阻塞。 |
+| 6b | Capability matrix 拆 `codex_account` 维度 | ✅ 由 Phase 5e 吸收 | 已由 provider-aware capability matrix 表达 codex_account 下 perception-only / unavailable 能力。 |
+| 6c | Codex Account 注入入口设计（三选一）| ✅ 由 Phase 5e 吸收 | 用户决策采用 Settings 能力清单诚实降级，而不是强行绕过 Codex Account 协议边界。 |
+| 6d | Dashboard Codex bridge（proxy 路径优先） | ✅ 由 Phase 5e 吸收 | Dashboard / CLI / assistant_buddy 不再作为 Phase 5 必须可执行能力；后续要执行化需新开 Harness slice。 |
+| 6e | UI 可见性（用户能看到 capability 在 codex_account 下不可用） | ✅ 由 Phase 5e 吸收 | Settings Runtime 能力清单已落地，展示支持 / 不支持 / trust boundary / 替代路径。 |
 
 ## 6a — Codex app-server 协议 schema snapshot（fixture-first）
 

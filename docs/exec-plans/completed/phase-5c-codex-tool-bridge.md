@@ -1,8 +1,9 @@
 # Phase 5c — CodePilot Tool Bridge for Codex Runtime（执行子计划）
 
-> 创建：2026-05-16 · 最后更新：2026-05-16
+> 创建：2026-05-16 · 最后更新：2026-05-19
+> 状态：✅ 已完成并归档；后续能力边界统一由 [phase-5e-runtime-harness-architecture.md](./phase-5e-runtime-harness-architecture.md) 的 HarnessBundle / capability matrix / Settings 能力清单承接。
 > 父计划：[phase-5-codex-runtime.md](./phase-5-codex-runtime.md) `Phase 5c — CodePilot Tool Bridge for Codex Runtime`
-> 产品/能力矩阵已经在父计划里定义；本文件只记录实现路径、组件契约、提交切片和验收口径。
+> 产品/能力矩阵已经在父计划里定义；本文件记录实现路径、组件契约、提交切片和验收口径。
 
 ## 上下文（必读）
 
@@ -115,8 +116,8 @@ createCodePilotBuiltinTools(opts: {
 ## 完成口径
 
 - 父计划已经写过；不再复制一遍。但**此 PR 不能把 Phase 5c 标 ✅**。
-- 此 PR 完成的实际状态：实现 + 单测 + 文档全绿，**真实 credential smoke 由用户跑**。
-- closeout 状态更新为：`Phase 5c 🔄 实现 + 单测已落地，待 6 类能力族真实 smoke 收口`。
+- 最终归档状态：实现 + 单测 + Harness 收口已完成；真实 smoke 中暴露的 namespace tool、widget wire format、media rendering、工具结果持久化等问题已在后续 slice / Phase 5e 中闭环。
+- closeout 状态更新为：`Phase 5c ✅ 实现 + 单测 + Harness 收口完成`。Codex 不支持能力不再假装可执行，统一通过 Settings 能力清单和聊天工具提示说明替代路径。
 
 ## 用户必须跑的 smoke
 

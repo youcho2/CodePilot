@@ -1,7 +1,7 @@
 # Harness Capability Contract
 
 > 产品思考见 [docs/insights/harness-capability-contract.md](../insights/harness-capability-contract.md)
-> 执行计划：[docs/exec-plans/active/phase-5d-harness-capability-contract.md](../exec-plans/active/phase-5d-harness-capability-contract.md)
+> 执行计划：[docs/exec-plans/completed/phase-5d-harness-capability-contract.md](../exec-plans/completed/phase-5d-harness-capability-contract.md)
 > 相关：[docs/handover/codex-tool-bridge.md](./codex-tool-bridge.md)（Phase 5c Codex bridge 实现）/ [docs/handover/provider-proxy-bridge.md](./provider-proxy-bridge.md)（Codex Responses proxy 协议层）
 
 ## 这层做什么
