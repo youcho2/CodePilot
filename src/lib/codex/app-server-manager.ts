@@ -106,6 +106,12 @@ function makeStdioTransport(proc: ChildProcessWithoutNullStreams): SpawnedTransp
  *   2. CODEX_BIN env var (test / CI override of the resolved path).
  *   3. PATH walk for `codex` (with platform-appropriate extensions).
  *      Defers to OS resolution at spawn time on win32 fallthroughs.
+ *   4. macOS bundled-app fallback — `/Applications/Codex.app/Contents
+ *      /Resources/codex`. The macOS Codex.app installer puts the
+ *      `codex` binary inside the app bundle but doesn't always wire
+ *      a PATH entry; users who installed via the .dmg see "未安装"
+ *      on the Settings status page without this fallback. Phase 5b
+ *      smoke round 6 (2026-05-18, user-driven).
  *
  * For the bundled-binary case (Electron packaged app) the path will
  * be resolved by a future settings hook that points here.
@@ -132,6 +138,22 @@ export function findCodexBinary(): string | null {
       if (existsSync(candidate)) return candidate;
     }
   }
+
+  // Phase 5b smoke round 6 (2026-05-18) — last-resort macOS Codex.app
+  // bundled-binary fallback. The .dmg installer drops the binary
+  // inside the app bundle but doesn't wire a PATH entry for it; before
+  // this fallback, a user who installed Codex.app saw "未安装" on
+  // Settings → 执行引擎 → Codex even though `command -v codex` would
+  // resolve via the shell's macOS-specific shim. CODEX_DISABLED and
+  // CODEX_BIN keep their priority above this fallback (they ran
+  // first and either returned null or a resolved path). PATH wins
+  // over the fallback so power users with a custom `codex` build on
+  // their PATH still get it.
+  if (process.platform === 'darwin') {
+    const macOSBundlePath = '/Applications/Codex.app/Contents/Resources/codex';
+    if (existsSync(macOSBundlePath)) return macOSBundlePath;
+  }
+
   return null;
 }
 

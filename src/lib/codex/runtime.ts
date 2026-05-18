@@ -482,6 +482,14 @@ export const codexRuntime: AgentRuntime = {
             // turn/completed with status=failed lands as `run_failed`
             // (per the mapper); status=completed/interrupted/inProgress
             // lands as `run_completed`. Both close the stream.
+            //
+            // Phase 5b smoke round 6 (2026-05-18) — `error` with
+            // `willRetry=true` now maps to `unknown_item`
+            // (sourceType='codex_retry') instead of `run_failed`, so
+            // it does NOT match this branch and the stream stays
+            // open for the upcoming retry / eventual turn/completed.
+            // This is what "Codex will retry up to 5 times" looks
+            // like on the canonical event surface.
             if (event?.type === 'run_completed' || event?.type === 'run_failed') {
               // Slice 3 (2026-05-13) — drop the active-turn entry so
               // a future interrupt() against this session doesn't

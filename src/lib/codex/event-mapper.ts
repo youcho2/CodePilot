@@ -265,7 +265,45 @@ export function translateCodexNotification(
       const parts = [baseMessage];
       if (additional && additional !== baseMessage) parts.push(additional);
       if (classification) parts.push(`(${classification})`);
-      if (p.willRetry) parts.push('— Codex will retry');
+
+      // Phase 5b smoke round 6 (2026-05-18, user-driven) — willRetry
+      // is non-terminal. Pre-fix this branch unconditionally emitted
+      // `run_failed`, which the runtime wildcard handler closes the
+      // stream on. Real Codex behaviour after `error willRetry=true`:
+      // the app-server keeps retrying internally up to 5 times
+      // ("stream disconnected - retrying sampling request (n/5)").
+      // CodePilot was prematurely closing on the first retry signal,
+      // so the user saw "error + done" while Codex was still working
+      // — and a subsequent `thread/resume` could trip the "config
+      // overrides ignored for running thread" path.
+      //
+      // Fix: map willRetry=true to `unknown_item` (the canonical
+      // fallback for adapter-side payloads that don't fit the main
+      // event set; documented as MUST be rendered, never dropped).
+      // sourceType='codex_retry' lets the UI render a passive
+      // "Reconnecting…" hint. Only `willRetry !== true` (terminal
+      // error) keeps the old `run_failed` mapping, and the eventual
+      // `turn/completed status=failed` still lands as `run_failed`.
+      if (p.willRetry === true) {
+        return {
+          type: 'unknown_item',
+          runtimeId: base.runtimeId,
+          sessionId: base.sessionId,
+          sourceType: 'codex_retry',
+          payload: {
+            message: parts.join(' '),
+            willRetry: true,
+            turnId: p.turnId,
+            errorCode:
+              typeof errorInfo === 'string'
+                ? errorInfo
+                : typeof errorInfo === 'object' && errorInfo
+                  ? `codex:${Object.keys(errorInfo as Record<string, unknown>)[0] ?? 'unknown'}`
+                  : 'codex_error',
+          },
+        };
+      }
+
       return makeRunFailed(base, {
         code: typeof errorInfo === 'string'
           ? errorInfo

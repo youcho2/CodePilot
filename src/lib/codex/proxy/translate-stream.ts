@@ -117,25 +117,45 @@ export async function* translateStream(
         }
 
         case 'text-start': {
-          const idx = nextOutputIndex++;
-          textIndices.set(part.id, idx);
-          textBuffers.set(part.id, '');
-          // `output_item.added` is the optional pre-amble. The SDK
-          // fixture only emits `output_item.done`, but Codex's
-          // streaming reader uses the added event to mount the
-          // incremental UI. Include `content: []` so the shape
-          // matches Codex's ResponseItem::Message variant exactly.
-          yield {
-            type: 'response.output_item.added',
-            output_index: idx,
-            item: { id: part.id, type: 'message', role: 'assistant', content: [] },
-          };
+          // Allocate the index + emit the optional preamble. Same
+          // shape as before the round-6 fix.
+          if (!textIndices.has(part.id)) {
+            const idx = nextOutputIndex++;
+            textIndices.set(part.id, idx);
+            textBuffers.set(part.id, '');
+            yield {
+              type: 'response.output_item.added',
+              output_index: idx,
+              item: { id: part.id, type: 'message', role: 'assistant', content: [] },
+            };
+          }
           break;
         }
 
         case 'text-delta': {
-          const idx = textIndices.get(part.id);
-          if (idx === undefined) break;
+          // Phase 5b smoke round 6 fix (2026-05-18) — defensively
+          // allocate the text block if no `text-start` preceded.
+          // OpenRouter Anthropic-skin (`anthropic/*` models via the
+          // OpenAI-compatible /v1/chat/completions endpoint) was
+          // hitting this path: the first text chunk arrived as
+          // `text-delta` without a preceding `text-start`. The old
+          // `if (idx === undefined) break;` silently dropped every
+          // delta and the SSE only ever carried `context_usage +
+          // result + done` — Codex's reader had no
+          // `output_item.added` / `output_text.delta` to attach
+          // text to, so the assistant message rendered blank. Now
+          // the first delta triggers the preamble + index alloc.
+          let idx = textIndices.get(part.id);
+          if (idx === undefined) {
+            idx = nextOutputIndex++;
+            textIndices.set(part.id, idx);
+            textBuffers.set(part.id, '');
+            yield {
+              type: 'response.output_item.added',
+              output_index: idx,
+              item: { id: part.id, type: 'message', role: 'assistant', content: [] },
+            };
+          }
           textBuffers.set(part.id, (textBuffers.get(part.id) ?? '') + part.text);
           yield {
             type: 'response.output_text.delta',
@@ -150,8 +170,22 @@ export async function* translateStream(
           // Drop the final `output_item.done` carrying the FULL
           // assistant message. This is the event Codex's
           // `handle_output_item_done` consumes to record the item.
-          const idx = textIndices.get(part.id);
-          if (idx === undefined) break;
+          // Defensive: if neither text-start nor text-delta
+          // preceded (cheap upstream that emits only text-end + a
+          // synthetic finish), allocate here so Codex still sees
+          // the message — even if the body is empty, the canonical
+          // `output_item.done` shape is what the reader needs.
+          let idx = textIndices.get(part.id);
+          if (idx === undefined) {
+            idx = nextOutputIndex++;
+            textIndices.set(part.id, idx);
+            textBuffers.set(part.id, '');
+            yield {
+              type: 'response.output_item.added',
+              output_index: idx,
+              item: { id: part.id, type: 'message', role: 'assistant', content: [] },
+            };
+          }
           const finalText = textBuffers.get(part.id) ?? '';
           const item: ResponsesOutputItem = {
             id: part.id,
@@ -328,8 +362,24 @@ export async function* translateStream(
         // surface today — we drop them silently. Reasoning content
         // would need provider-specific routing back to Codex's
         // reasoning event; that's a separate phase.
-        default:
+        //
+        // Phase 5b smoke round 6 fix (2026-05-18) — gated debug log
+        // so a real-credential smoke run can see which chunk types
+        // an upstream provider sends that we don't yet handle. The
+        // OpenRouter Anthropic-skin empty-text symptom turned out
+        // to be missing text-start (handled defensively above), but
+        // future provider quirks will benefit from this trace.
+        // Default off so production logs stay clean; enable with
+        // `CODEX_DEBUG_STREAM=1`.
+        default: {
+          if (process.env.CODEX_DEBUG_STREAM === '1') {
+            const partType = (part as { type?: string }).type ?? 'unknown';
+            console.warn(
+              `[translate-stream] dropped ai-sdk chunk type="${partType}" (no Codex-visible mapping yet)`,
+            );
+          }
           break;
+        }
       }
     }
   } catch (err) {

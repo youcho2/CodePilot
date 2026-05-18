@@ -381,6 +381,79 @@ describe('translateStream — ai-sdk fullStream → Codex Responses SSE (SDK fix
     assert.equal(done.item.content[0].text, 'Hello world', 'output_item.done(message) must carry the FULL accumulated text — this is what Codex records');
   });
 
+  it('text-delta WITHOUT a preceding text-start synthesizes output_item.added + delta (OpenRouter Anthropic-skin fix)', async () => {
+    // Phase 5b smoke round 6 (2026-05-18) — real-credential smoke
+    // showed OpenRouter Anthropic-skin (`anthropic/*` models via
+    // OpenRouter's OpenAI-compatible /v1/chat/completions endpoint)
+    // emitting `text-delta` chunks without a preceding `text-start`.
+    // Pre-fix the translator's `if (idx === undefined) break;`
+    // silently dropped every delta and the SSE only ever carried
+    // context_usage + result + done — Codex saw a "completed but
+    // blank" assistant message. Fix: first text-delta self-allocates
+    // textIndices + emits the output_item.added preamble. This pin
+    // captures that contract so a refactor can't quietly drop the
+    // defensive allocation.
+    const events = await collectStream(
+      translateStream({
+        responseId: 'resp_x',
+        body: baseBody,
+        source: source([
+          { type: 'start' } as never,
+          // intentionally NO text-start
+          { type: 'text-delta', id: 't1', text: 'Hello' } as never,
+          { type: 'text-delta', id: 't1', text: ' world' } as never,
+          // intentionally NO text-end either — finish flushes (existing fix)
+          { type: 'finish', finishReason: 'stop', rawFinishReason: 'stop', totalUsage: { inputTokens: 1, outputTokens: 2, totalTokens: 3 } } as never,
+        ]),
+      }),
+    );
+    const types = events.map(e => (e as { type: string }).type);
+    // Must include the preamble AND the deltas AND a final done +
+    // completed. The added event is synthesized by the first delta
+    // because text-start never fired.
+    assert.deepEqual(
+      types,
+      [
+        'response.created',
+        'response.output_item.added',
+        'response.output_text.delta',
+        'response.output_text.delta',
+        'response.output_item.done',
+        'response.completed',
+      ],
+      `expected the round-6 defensive-allocation shape; got: ${types.join(',')}`,
+    );
+    const done = events.find(e => (e as { type: string }).type === 'response.output_item.done') as { item: { content: Array<{ text: string }> } };
+    assert.equal(done.item.content[0].text, 'Hello world');
+  });
+
+  it('text-end WITHOUT a preceding text-start or text-delta still emits a canonical output_item.done', async () => {
+    // Belt: the third unusual upstream shape — a cheap synthesizer
+    // that emits ONLY text-end (no start, no delta) before finish.
+    // The Codex reader still needs to see an output_item.done; we
+    // emit an empty-content message rather than dropping silently.
+    const events = await collectStream(
+      translateStream({
+        responseId: 'resp_x',
+        body: baseBody,
+        source: source([
+          { type: 'start' } as never,
+          { type: 'text-end', id: 't1' } as never,
+          { type: 'finish', finishReason: 'stop', rawFinishReason: 'stop', totalUsage: { inputTokens: 1, outputTokens: 0, totalTokens: 1 } } as never,
+        ]),
+      }),
+    );
+    const types = events.map(e => (e as { type: string }).type);
+    assert.ok(
+      types.includes('response.output_item.added'),
+      'text-end without prior allocation must still synthesize the preamble',
+    );
+    assert.ok(
+      types.includes('response.output_item.done'),
+      'text-end must still emit output_item.done so Codex records the (empty) message',
+    );
+  });
+
   it('flushes missing output_item.done on finish (the GLM/Kimi blank-completion fix)', async () => {
     // Some upstreams emit text-delta but never text-end before finish.
     // Pre-fix this dropped the message entirely; Codex saw response.completed

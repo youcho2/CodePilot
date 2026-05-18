@@ -326,7 +326,17 @@ describe('translateCodexNotification — turn lifecycle (nested status per schem
     assert.equal(event.code, 'codex:httpConnectionFailed');
   });
 
-  it('error notification with willRetry=true surfaces the retry hint', () => {
+  it('error notification with willRetry=true → unknown_item (NOT run_failed) so the stream stays open', () => {
+    // Phase 5b smoke round 6 (2026-05-18) — willRetry is non-terminal.
+    // Real Codex behaviour: app-server keeps retrying up to 5 times
+    // ("stream disconnected — retrying sampling request (n/5)") after
+    // emitting `error willRetry=true`. Pre-fix the mapper returned
+    // `run_failed` and the runtime closed the stream on the first
+    // retry signal — user saw error + done while Codex was still
+    // working. Fix: map willRetry=true to canonical `unknown_item`
+    // (sourceType='codex_retry') which the runtime wildcard handler
+    // does NOT close on. Only the eventual `turn/completed
+    // status=failed` lands as the terminal `run_failed`.
     const event = translateCodexNotification(
       'error',
       {
@@ -341,11 +351,60 @@ describe('translateCodexNotification — turn lifecycle (nested status per schem
       },
       ctx,
     );
-    if (event?.type !== 'run_failed') throw new Error('unreachable');
-    assert.match(event.message, /transient 503/);
-    assert.match(event.message, /serverOverloaded/);
-    assert.match(event.message, /will retry/);
-    assert.equal(event.code, 'serverOverloaded');
+    if (event?.type !== 'unknown_item') {
+      throw new Error(`expected unknown_item, got ${event?.type}`);
+    }
+    assert.equal(event.sourceType, 'codex_retry');
+    const payload = event.payload as Record<string, unknown>;
+    assert.equal(payload.willRetry, true);
+    assert.equal(payload.turnId, 'u1');
+    assert.equal(payload.errorCode, 'serverOverloaded');
+    assert.match(String(payload.message), /transient 503/);
+    assert.match(String(payload.message), /serverOverloaded/);
+  });
+
+  it('error notification with willRetry=false (terminal) STILL returns run_failed', () => {
+    // Belt: the non-terminal mapping is gated strictly on
+    // `willRetry === true`. Any other value (false / undefined /
+    // missing key) keeps the legacy terminal mapping so an existing
+    // terminal-error flow doesn't accidentally become silent.
+    const event = translateCodexNotification(
+      'error',
+      {
+        error: {
+          message: 'auth failed',
+          codexErrorInfo: 'unauthorized',
+          additionalDetails: null,
+        },
+        willRetry: false,
+        threadId: 't1',
+        turnId: 'u1',
+      },
+      ctx,
+    );
+    if (event?.type !== 'run_failed') throw new Error(`expected run_failed, got ${event?.type}`);
+    assert.equal(event.code, 'unauthorized');
+  });
+
+  it('error notification with willRetry undefined → run_failed (defensive default)', () => {
+    // Codex schema technically allows the field to be absent. When
+    // we can't prove non-terminal, we treat it as terminal — never
+    // assume the upstream is going to recover on its own.
+    const event = translateCodexNotification(
+      'error',
+      {
+        error: {
+          message: 'some failure',
+          codexErrorInfo: null,
+          additionalDetails: null,
+        },
+        threadId: 't1',
+        turnId: 'u1',
+      },
+      ctx,
+    );
+    if (event?.type !== 'run_failed') throw new Error(`expected run_failed, got ${event?.type}`);
+    assert.equal(event.code, 'codex_error');
   });
 
   it('error notification with empty error.message falls back to "Codex error (no message)"', () => {
