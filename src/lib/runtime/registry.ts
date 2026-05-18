@@ -39,28 +39,35 @@ export function getAvailableRuntimes(): AgentRuntime[] {
 /**
  * Pick the runtime to use for a given request.
  *
- * Priority (Phase 5 Phase 6 IA correction round 2, 2026-05-14):
+ * Priority (Phase 5e round 8 — 2026-05-18, session-pin fail-closed):
  *   0. **Codex Runtime explicit** — `overrideId === 'codex_runtime'`
  *      OR (`overrideId` empty/auto AND stored `agent_runtime === 'codex_runtime'`).
  *      Returns Codex if available. Fall through if unavailable; the chat
  *      send path's fail-closed guardrail (`claude-client.ts` Round 5)
  *      surfaces a clear "Codex Runtime is not available" before any
  *      legacy fallback would activate.
- *   1. `cli_enabled=false` → native (constraint for the LEGACY pair only;
- *      Codex was already routed above, so its own subprocess isn't gated
- *      by the Claude CLI toggle).
- *   2. Explicit override (other than codex_runtime).
- *   3. Global user setting (other than codex_runtime).
+ *   1. **Explicit override (claude-code-sdk / native)** — `overrideId`
+ *      is strong user intent for THIS request (session pin via the
+ *      chat composer, or `agent_runtime` setting passed explicitly).
+ *      Round 8 fix: this now runs BEFORE the `cli_enabled=false`
+ *      short-circuit so a session pinned to `claude-code-sdk` is not
+ *      silently demoted to Native when the global default sits at
+ *      CodePilot/Codex (which sets `cli_enabled=false`). When override
+ *      targets SDK and SDK is genuinely not available, we **throw**
+ *      rather than substitute Native — the chat send path surfaces
+ *      the error verbatim. ("Don't pretend you ran X when you really
+ *      ran Y" — same principle as the codex_runtime fail-closed in
+ *      Round 5.)
+ *   2. `cli_enabled=false` → native (legacy gate; applies when there's
+ *      no explicit override — typically `agent_runtime='auto'` + the
+ *      Settings toggle that auto-pairs with CodePilot/Codex defaults).
+ *   3. Global stored setting — try, fall through if unavailable. This
+ *      step is INTENTIONALLY NOT fail-closed (unlike step 1): the
+ *      stored value may be stale (e.g. last set months ago), so the
+ *      long-standing UX of silently coercing to an available runtime
+ *      is preserved. Explicit overrides (step 1) get the fail-closed
+ *      treatment instead.
  *   4. Auto: SDK if CLI binary exists, else native.
- *
- * Why the codex check comes FIRST: pre-round-2, `cli_enabled=false` was
- * treated as the absolute override. Selecting Codex Runtime as the
- * global default in Settings → Runtime saved `agent_runtime='codex_runtime'`
- * AND `cli_enabled='false'` (Codex doesn't need the Claude CLI), and
- * the absolute-override branch then hijacked the resolution back to
- * native. Settings page said "Codex Runtime current default" while the
- * Models page filter ran on `codepilot_runtime` and showed 42 non-Codex
- * models — exactly the misroute the user caught.
  */
 export function resolveRuntime(overrideId?: string, _providerId?: string): AgentRuntime {
   const settingId = getSetting('agent_runtime');
@@ -79,8 +86,34 @@ export function resolveRuntime(overrideId?: string, _providerId?: string): Agent
     // anything else (different wire format).
   }
 
-  // 1. cli_enabled=false now ONLY constrains the legacy claude-code-sdk ↔
-  //    native pair. Codex was handled above; this no longer hijacks codex.
+  // 1. Explicit override (other than codex_runtime, handled above). Runs
+  //    BEFORE the cli_enabled short-circuit — Phase 5e Round 8 fix.
+  //
+  //    Previously, a session pinned to `claude-code-sdk` with the global
+  //    `agent_runtime` set to CodePilot/Codex (which auto-sets
+  //    `cli_enabled='false'`) would silently demote to Native because
+  //    the cli_enabled gate fired first. UI showed "Claude Code" while
+  //    the backend actually ran Native. That's the unacceptable "lying
+  //    about which engine ran" failure mode the user called out.
+  //
+  //    Fix: honor explicit override first. If it targets SDK and SDK is
+  //    unavailable, fail-closed with a clear error — never silently
+  //    substitute another runtime.
+  if (overrideId && overrideId !== 'auto') {
+    const r = getRuntime(overrideId);
+    if (r?.isAvailable()) return r;
+    if (overrideId === 'claude-code-sdk') {
+      throw new Error(
+        'Claude Code is pinned for this session, but the Claude Code CLI is not installed or not detected. '
+        + 'Install the Claude Code CLI, or switch this session to CodePilot or Codex Runtime.',
+      );
+    }
+  }
+
+  // 2. cli_enabled=false short-circuit — only applies when no explicit
+  //    override above demanded SDK; codex already handled in step 0.
+  //    This covers `agent_runtime='auto'` / unset with the legacy
+  //    cli-disabled toggle.
   const cliDisabled = getSetting('cli_enabled') === 'false';
   if (cliDisabled) {
     const native = getRuntime('native');
@@ -88,13 +121,14 @@ export function resolveRuntime(overrideId?: string, _providerId?: string): Agent
     throw new Error('Native runtime not registered but CLI is disabled. This is a bug.');
   }
 
-  // 2. Explicit override (other than codex_runtime, handled above)
-  if (overrideId && overrideId !== 'auto') {
-    const r = getRuntime(overrideId);
-    if (r?.isAvailable()) return r;
-  }
-
-  // 3. Global setting (other than codex_runtime, handled above)
+  // 3. Global setting (other than codex_runtime, handled above). Legacy
+  //    behavior: try the setting, fall through to auto-detect if it's
+  //    not available. We do NOT throw here — the global setting is
+  //    less-explicit than a session pin / override, and the long-
+  //    standing UX is that an outdated stored preference quietly falls
+  //    back. The fail-closed behavior is reserved for an explicit
+  //    override (step 1) — that's a strong user intent for THIS
+  //    request, not a stale stored value from months ago.
   if (settingId && settingId !== 'auto') {
     const r = getRuntime(settingId);
     if (r?.isAvailable()) return r;

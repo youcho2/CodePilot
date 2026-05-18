@@ -96,35 +96,22 @@ export interface ExpectedDifference {
  *   - `src/lib/builtin-tools/media.ts` → re-exports
  *     `MEDIA_MCP_SYSTEM_PROMPT` from `media-import-mcp.ts`
  *
- * Only the `tool_result_shape_canonicalized` `follow_up` entry for
- * image_generation MediaBlock construction remains — that's outside
- * Phase 2 scope (it requires updating the AI SDK tool result wrapper,
- * not a prompt change).
+ * Phase 5e Phase 0.5 P1 (2026-05-17 Native MediaBlock 補齐) — the
+ * final `tool_result_shape_canonicalized` follow_up entry for
+ * `image_generation` is now resolved. `builtin-tools/media.ts`
+ * emits MediaBlock[] via the harness side-channel
+ * (`@/lib/harness/builtin-event-bus`); `agent-loop.ts` splices the
+ * blocks into the SSE `tool_result.media` field. Ledger is now
+ * EMPTY — that is by design: any new entry here must come with a
+ * documented `plannedResolution`, and adding entries silently
+ * (without a slice owner) is forbidden by the consistency test in
+ * `harness-context-compiler.test.ts`.
  *
  * New entries land here when (a) a runtime is mid-migration and the
  * compiler intentionally emits something the runtime current code
  * doesn't, or (b) a `follow_up` is opened for a non-prompt drift.
  */
-export const EXPECTED_DIFFERENCES: readonly ExpectedDifference[] = [
-  {
-    runtimeId: 'codepilot_runtime',
-    capability: 'image_generation',
-    diff: 'tool_result_shape_canonicalized',
-    description:
-      'Native Runtime image_generation tool returns text only (no MediaBlock construction); Codex bridge + SDK paths produce MediaBlock for inline rendering.',
-    justification:
-      'Native side hasn\'t been wired to return MediaBlock via ai-sdk tool result. Not a prompt-level diff; resolution is a follow-up to extend builtin-tools/media.ts.',
-    plannedResolution: 'follow_up',
-    compilerSource: {
-      sourceFile: 'src/lib/builtin-tools/media.ts',
-      sourceExport: 'createMediaTools',
-    },
-    runtimeSource: {
-      sourceFile: 'src/lib/builtin-tools/media.ts',
-      sourceExport: 'createMediaTools',
-    },
-  },
-];
+export const EXPECTED_DIFFERENCES: readonly ExpectedDifference[] = [];
 
 // ─────────────────────────────────────────────────────────────────────
 // Accessors

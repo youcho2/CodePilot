@@ -183,10 +183,30 @@ export function createNotificationTools(ctx: NotificationToolsContext = {}) {
     }),
 
     codepilot_list_tasks: tool({
-      description: 'List scheduled tasks.',
+      description: 'List scheduled tasks (durable + session-only).',
       inputSchema: z.object({
         status: z.enum(['active', 'paused', 'completed', 'disabled', 'all']).optional(),
       }),
+      // Phase 5e Phase 0.5 P1 parity (2026-05-17) — pre-fix this
+      // handler only hit `/api/tasks/list` (durable tasks). The MCP
+      // authority (`notification-mcp.ts:222-`) merges session-only
+      // tasks from `getSessionTasks()` so the model sees the FULL
+      // set. Native must match — running `list_tasks` in a session
+      // that scheduled an in-memory task should show it.
+      //
+      // Phase 5e review fix P1 #3 (2026-05-18) — two bugs in the
+      // first pass:
+      //   1. Used `t.scheduleType / t.scheduleValue` (camelCase) on the
+      //      session task rows. Actual `ScheduledTask` interface
+      //      (src/types/index.ts:1683) uses `schedule_type /
+      //      schedule_value` snake_case. Result: every session row
+      //      rendered as `[one-shot: ]` (fallback default) instead of
+      //      the real schedule.
+      //   2. The `status` filter was only forwarded to the durable
+      //      `/api/tasks/list` query string; session tasks were ALWAYS
+      //      merged regardless of the user's filter. MCP authority
+      //      (notification-mcp.ts:228) filters session tasks too —
+      //      Native must match.
       execute: async ({ status }) => {
         try {
           const baseUrl = getBaseUrl();
@@ -194,11 +214,37 @@ export function createNotificationTools(ctx: NotificationToolsContext = {}) {
           const res = await fetch(`${baseUrl}/api/tasks/list${qs}`);
           const data = await res.json();
           if (!res.ok) return `Failed to list tasks: ${data.error || res.statusText}`;
-          const tasks = data.tasks || [];
-          if (tasks.length === 0) return 'No scheduled tasks found.';
-          return tasks.map((t: { name: string; status: string; schedule_type: string; schedule_value: string }) =>
-            `- ${t.name} (${t.status}) [${t.schedule_type}: ${t.schedule_value}]`
-          ).join('\n');
+          const durable = (data.tasks || []) as Array<{
+            id?: string;
+            name: string;
+            status: string;
+            schedule_type: string;
+            schedule_value: string;
+          }>;
+
+          // Merge session-only in-memory tasks. Apply the same status
+          // filter the user requested so the merged output matches the
+          // MCP authority shape.
+          const sessionRows: string[] = [];
+          try {
+            const { getSessionTasks } = await import('@/lib/task-scheduler');
+            const sessionMap = getSessionTasks();
+            for (const [, task] of sessionMap) {
+              if (status && status !== 'all' && task.status !== status) continue;
+              sessionRows.push(
+                `- ${task.name} (${task.status}, session-only) [${task.schedule_type}: ${task.schedule_value}]`,
+              );
+            }
+          } catch {
+            // task-scheduler not available — degrade to durable-only
+          }
+
+          const durableRows = durable.map(
+            (t) => `- ${t.name} (${t.status}) [${t.schedule_type}: ${t.schedule_value}]`,
+          );
+          const all = [...durableRows, ...sessionRows];
+          if (all.length === 0) return 'No scheduled tasks found.';
+          return all.join('\n');
         } catch (err) {
           return `Failed to list tasks: ${err instanceof Error ? err.message : 'unknown'}`;
         }
@@ -206,11 +252,31 @@ export function createNotificationTools(ctx: NotificationToolsContext = {}) {
     }),
 
     codepilot_cancel_task: tool({
-      description: 'Cancel a scheduled task by ID.',
+      description: 'Cancel a scheduled task by ID (checks session-only tasks first, then durable).',
       inputSchema: z.object({
         task_id: z.string().describe('Task ID to cancel'),
       }),
+      // Phase 5e Phase 0.5 P1 parity (2026-05-17) — pre-fix this
+      // handler only DELETE'd `/api/tasks/:id` (durable). The MCP
+      // authority (`notification-mcp.ts:264-`) tries
+      // `removeSessionTask(task_id)` FIRST, then falls back to the
+      // durable DELETE. Native must match — session-only IDs aren't
+      // in the durable DB and the previous shape returned a 404 for
+      // them.
       execute: async ({ task_id }) => {
+        // 1. Try session-only tasks first.
+        try {
+          const { removeSessionTask, getSessionTasks } = await import('@/lib/task-scheduler');
+          const sessionTasks = getSessionTasks();
+          if (sessionTasks.has(task_id)) {
+            removeSessionTask(task_id);
+            return `Task ${task_id} cancelled (session-only).`;
+          }
+        } catch {
+          // task-scheduler unavailable — fall through to durable DELETE
+        }
+
+        // 2. Fall back to durable DELETE.
         try {
           const baseUrl = getBaseUrl();
           const res = await fetch(`${baseUrl}/api/tasks/${task_id}`, { method: 'DELETE' });

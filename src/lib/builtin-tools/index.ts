@@ -25,7 +25,7 @@
  */
 
 import type { ToolSet } from 'ai';
-import { compileContext } from '@/lib/harness/context-compiler';
+import { adaptForNative } from '@/lib/harness/runtime-adapter';
 
 export interface BuiltinToolGroup {
   name: string;
@@ -142,23 +142,64 @@ export function getBuiltinTools(
     }
   }
 
-  // Compiler produces the canonical, ordered, de-duplicated prompt
-  // for every capability-tracked group. Result is a single string;
-  // we push as `systemPrompts[0]` so the existing caller contract
-  // (array of strings → join) keeps working.
-  const compiled = compileContext({
+  // Phase 5d Phase 3 (2026-05-17) — capability prompt assembly +
+  // toolSet keys routed through the Runtime Capability Adapter.
+  // Caller (this function) still owns:
+  //   - tool MOUNTING (the AI SDK `ToolSet` instances live in
+  //     per-group factories like `createNotificationTools`).
+  //   - capability GATING (`group.condition === 'always' | 'workspace'
+  //     | keyword`) — gating reads filesystem / regex / mode state
+  //     which the adapter is forbidden from touching.
+  //   - NON-CAPABILITY prompt slots (session-search /
+  //     ask-user-question — these haven't earned a capability contract
+  //     entry yet; their raw `systemPrompt` text flows through the
+  //     legacy slot in the returned `systemPrompts` array).
+  // Adapter owns: capability prompt text + toolSetKeys hint, both
+  // sourced from the canonical capability catalog.
+  //
+  // Phase 5e review fix P1 #2 (2026-05-18) — scan User / External
+  // Harness extensions and pass them through the adapter so the
+  // Native Runtime's model sees the user's MCP / Skills / commands /
+  // external framework configs in the system prompt. Scans are best-
+  // effort + read-only.
+  let userExtensions: ReturnType<
+    typeof import('@/lib/harness/user-codepilot-extensions').scanUserCodePilotExtensions
+  > = [];
+  let externalExtensions: ReturnType<
+    typeof import('@/lib/harness/external-framework-harness').scanExternalFrameworkExtensions
+  > = [];
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { scanUserCodePilotExtensions } = require('@/lib/harness/user-codepilot-extensions');
+    userExtensions = scanUserCodePilotExtensions({
+      workspacePath: options.workspacePath,
+      runtimeId: 'codepilot_runtime',
+    });
+  } catch { /* best effort */ }
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { scanExternalFrameworkExtensions } = require('@/lib/harness/external-framework-harness');
+    // Native isn't ClaudeCode or Codex itself — flag external
+    // extensions as perception-only (executable=false). Caller's
+    // active framework hint is `undefined`, which the scanner
+    // interprets as "no framework matches → all entries get
+    // perceptionHint".
+    externalExtensions = scanExternalFrameworkExtensions({});
+  } catch { /* best effort */ }
+
+  const adapted = adaptForNative({
     sessionId: options.sessionId || 'native-anonymous',
     workingDirectory: options.workspacePath || undefined,
-    runtimeId: 'codepilot_runtime',
     providerId: '',
     model: '',
     userPrompt: options.prompt || '',
     enabledCapabilities,
-    tokenBudget: { systemPromptMax: 100_000, contextMax: 200_000 },
+    userExtensions,
+    externalExtensions,
   });
 
   const systemPrompts: string[] = [];
-  if (compiled.systemPromptText.length > 0) systemPrompts.push(compiled.systemPromptText);
+  if (adapted.systemPromptText.length > 0) systemPrompts.push(adapted.systemPromptText);
   systemPrompts.push(...nonCapabilityPrompts);
 
   return { tools, systemPrompts };

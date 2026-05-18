@@ -47,7 +47,7 @@
 import type { PermissionRequestEvent, PermissionSuggestion } from '@/types';
 import type { NativePermissionResult } from '@/lib/types/agent-types';
 import { translateCodexApproval } from './event-mapper';
-import { createPermissionRequest } from '@/lib/db';
+import { createPermissionRequest, getPermissionRequest } from '@/lib/db';
 import { registerPendingPermission } from '@/lib/permission-registry';
 
 /**
@@ -57,6 +57,55 @@ import { registerPendingPermission } from '@/lib/permission-registry';
  */
 export function makeCodexPermissionRequestId(jsonRpcId: number | string): string {
   return `codex:${jsonRpcId}`;
+}
+
+/**
+ * Decode a stored `permission_requests` row back into the
+ * `NativePermissionResult` shape so `resultToCodexResponse` can
+ * translate it. Used by the duplicate-RPC short-circuit above —
+ * `existing.status` is one of `allow / deny / timeout / aborted`,
+ * each maps to a `behavior` here. Timeout / aborted both surface
+ * as deny on the Codex side since neither produced a user "allow".
+ *
+ * Exported for unit testing.
+ */
+export function decodeStoredPermission(existing: {
+  status: string;
+  updated_permissions: string;
+  updated_input: string | null;
+  message: string;
+}): NativePermissionResult {
+  if (existing.status === 'allow') {
+    let updatedPermissions: unknown[] = [];
+    try {
+      if (existing.updated_permissions) {
+        const parsed = JSON.parse(existing.updated_permissions);
+        if (Array.isArray(parsed)) updatedPermissions = parsed;
+      }
+    } catch {
+      // Best-effort decode; malformed legacy rows fall back to empty.
+    }
+    let updatedInput: Record<string, unknown> | undefined;
+    try {
+      if (existing.updated_input) {
+        const parsed = JSON.parse(existing.updated_input);
+        if (parsed && typeof parsed === 'object') {
+          updatedInput = parsed as Record<string, unknown>;
+        }
+      }
+    } catch {
+      // Same — best-effort.
+    }
+    return {
+      behavior: 'allow',
+      updatedPermissions,
+      ...(updatedInput ? { updatedInput } : {}),
+    };
+  }
+  return {
+    behavior: 'deny',
+    message: existing.message || `Already resolved (status: ${existing.status})`,
+  };
 }
 
 interface HandleArgs {
@@ -75,6 +124,44 @@ interface HandleArgs {
  */
 export async function handleCodexApprovalRequest(args: HandleArgs): Promise<unknown> {
   const requestId = makeCodexPermissionRequestId(args.jsonRpcId);
+
+  // Phase 5d Phase 3 review fix #3 (P1, 2026-05-17) — idempotent handling
+  // of duplicate approval RPCs for the same `codex:${jsonRpcId}`.
+  //
+  // Pre-fix the bridge always called `createPermissionRequest` which is
+  // a plain INSERT on a UNIQUE id column. A duplicate RPC (Codex
+  // transport retry, reconnect replay, concurrent handler trigger) hit
+  // the UNIQUE constraint; the catch block only `console.warn`-ed,
+  // then went on to emit a second SSE permission_request AND
+  // registerPendingPermission again — overwriting the in-memory waiter
+  // for the original prompt. User would see two prompts; clicking Deny
+  // on one resolved the DB row, so the OTHER `/api/chat/permission`
+  // POST hit the `dbRecord.status !== 'pending'` branch and returned
+  // 409 ALREADY_RESOLVED. The original Codex turn's waiter promise
+  // never resolved (timeout-only) → "chain not clean" after Deny.
+  //
+  // Fix: short-circuit before any side effect (DB write, SSE emit, in-
+  // memory register) when the same requestId is already on record.
+  const existing = getPermissionRequest(requestId);
+  if (existing) {
+    if (existing.status !== 'pending') {
+      // Already resolved — replay the stored decision so Codex sees
+      // the same response it would have gotten for the original RPC.
+      const stored = decodeStoredPermission(existing);
+      return resultToCodexResponse(stored, args.method);
+    }
+    // Still pending — the user is mid-decision on the original prompt.
+    // Don't emit a duplicate UI prompt and don't overwrite the in-
+    // memory waiter; tell Codex "decline" for this duplicate. The
+    // user's eventual decision on the original prompt resolves the
+    // original turn normally; this duplicate RPC just gets a clean
+    // soft-decline instead of a hang.
+    return resultToCodexResponse(
+      { behavior: 'deny', message: 'Duplicate approval request — original prompt still pending' },
+      args.method,
+    );
+  }
+
   const canonical = translateCodexApproval({
     method: args.method,
     params: args.params,

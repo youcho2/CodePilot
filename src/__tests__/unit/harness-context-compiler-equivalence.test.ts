@@ -160,14 +160,27 @@ describe('Equivalence harness — ledger ↔ slice ownership', () => {
     }
   });
 
-  it('post-slice-2d: Native ledger holds only the follow_up MediaBlock entry', () => {
-    // Phase 5d Phase 2 slice 2d consumed the three Native
-    // paraphrase entries (memory / tasks_and_notify / media_import).
-    // The image_generation MediaBlock entry stays as `follow_up`.
+  it('post-Phase-5e-P1: Native ledger is empty (image_generation MediaBlock follow_up resolved)', () => {
+    // Phase 5d Phase 2 slice 2d consumed the three Native paraphrase
+    // entries (memory / tasks_and_notify / media_import).
+    //
+    // Phase 5e Phase 0.5 P1 (2026-05-17 Native MediaBlock 補齐) closed
+    // the final `image_generation` follow_up: `builtin-tools/media.ts`
+    // now emits MediaBlock[] via the harness side-channel
+    // (`@/lib/harness/builtin-event-bus`); `agent-loop.ts` splices the
+    // blocks into the SSE `tool_result.media` field. Codex bridge +
+    // Native + (ClaudeCode SDK marker path) all surface MediaBlock
+    // consistently — no remaining tool_result_shape drift.
+    //
+    // Pin shifted from "exactly 1 entry (the follow_up)" to "empty";
+    // any future drift must add a NEW ledger entry with explicit
+    // plannedResolution + slice owner.
     const native = expectedDifferencesFor('codepilot_runtime');
-    assert.equal(native.length, 1, `expected exactly one Native ledger entry post-2d; got ${native.length}: ${native.map((e) => e.capability).join(', ')}`);
-    assert.equal(native[0].capability, 'image_generation');
-    assert.equal(native[0].plannedResolution, 'follow_up');
+    assert.equal(
+      native.length,
+      0,
+      `expected empty Native ledger after Phase 5e P1; got ${native.length}: ${native.map((e) => e.capability).join(', ')}`,
+    );
   });
 });
 

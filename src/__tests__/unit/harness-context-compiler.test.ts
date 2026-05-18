@@ -417,23 +417,22 @@ describe('Expected Differences Ledger — internal consistency', () => {
     }
   });
 
-  it('codepilot_runtime ledger after slice 2d only retains the follow_up MediaBlock entry', () => {
-    // Phase 5d Phase 2 slice 2d (2026-05-17) — Native runtime now
+  it('codepilot_runtime ledger is empty after Phase 5e P1 (image_generation MediaBlock follow_up resolved)', () => {
+    // Phase 5d Phase 2 slice 2d (2026-05-17) — Native runtime
     // re-exports the canonical MCP-side prompts for memory /
-    // tasks_and_notify / media_import. The three corresponding
-    // ledger entries were consumed by the migrating commit. Only
-    // `image_generation`'s tool-result-shape follow_up remains, and
-    // it's a non-prompt issue resolvable in a future slice.
+    // tasks_and_notify / media_import.
+    //
+    // Phase 5e Phase 0.5 P1 (2026-05-17 Native MediaBlock 補齐) closed
+    // the final `image_generation` follow_up: Native now emits
+    // MediaBlock[] via the harness side-channel (see
+    // `src/lib/builtin-tools/media.ts` + `src/lib/agent-loop.ts`
+    // splice).
     const native = expectedDifferencesFor('codepilot_runtime');
-    const capabilities = native.map((e) => e.capability);
     assert.deepEqual(
-      capabilities.sort(),
-      ['image_generation'],
-      'Native ledger should only retain the image_generation MediaBlock follow_up after slice 2d',
+      native.map((e) => e.capability).sort(),
+      [],
+      `Native ledger should be empty after Phase 5e P1; got: ${native.map((e) => e.capability).join(', ')}`,
     );
-    const remaining = native[0];
-    assert.equal(remaining.plannedResolution, 'follow_up');
-    assert.equal(remaining.diff, 'tool_result_shape_canonicalized');
   });
 });
 

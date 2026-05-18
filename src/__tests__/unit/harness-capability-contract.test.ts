@@ -136,29 +136,41 @@ describe('Tool names declared in the contract appear in the runtime exposure fil
 // ─────────────────────────────────────────────────────────────────────
 
 describe('Codex bridge prompt does not redefine widget semantics', () => {
-  it('bridge holds NO local prompt scalars; compiler is the sole producer (slice 2e)', () => {
-    // Phase 5d Phase 2 slice 2e (2026-05-17) — pin shifted. Pre-fix
-    // the bridge held WIDGET_PROMPT (and MEDIA / MEMORY / NOTIFY
-    // before that). Slice 2e removed all four scalars; the Context
-    // Compiler is the only producer of capability prompts now.
+  it('bridge holds NO local prompt scalars; compiler is the sole producer (slice 2e + Phase 3 facade)', () => {
+    // Phase 5d Phase 2 slice 2e (2026-05-17) — pre-fix the bridge held
+    // WIDGET_PROMPT (and MEDIA / MEMORY / NOTIFY before that). Slice 2e
+    // removed all four scalars; the Context Compiler is the only
+    // producer of capability prompts now.
+    //
+    // Phase 5d Phase 3 (2026-05-17) — assertion shifted from "direct
+    // compileContext import" to "Runtime Capability Adapter facade
+    // (`adaptForCodexProxy`) wraps the compiler call". The contract is
+    // strictly stronger: the bridge prompt MUST flow through the
+    // facade, which itself is the only consumer of `compileContext`
+    // on the Codex path.
     const bridgeSrc = readSource('src/lib/codex/proxy/builtin-bridge.ts');
     assert.equal(
       /^const\s+(WIDGET_PROMPT|MEDIA_PROMPT|MEMORY_PROMPT|NOTIFY_PROMPT)\s*=/m.test(bridgeSrc),
       false,
-      'bridge MUST NOT declare WIDGET_PROMPT / MEDIA_PROMPT / MEMORY_PROMPT / NOTIFY_PROMPT scalars — capability prompts flow through the Context Compiler now',
+      'bridge MUST NOT declare WIDGET_PROMPT / MEDIA_PROMPT / MEMORY_PROMPT / NOTIFY_PROMPT scalars — capability prompts flow through the Runtime Capability Adapter now',
     );
-    // unified-adapter.ts must call compileContext and use its
-    // systemPromptText for the bridge prompt.
+    // unified-adapter.ts must call adaptForCodexProxy and use its
+    // systemPromptInstructions for the bridge prompt.
     const adapterSrc = readSource('src/lib/codex/proxy/unified-adapter.ts');
     assert.match(
       adapterSrc,
-      /import\s*\{\s*compileContext\s*\}\s*from\s*'@\/lib\/harness\/context-compiler'/,
-      'unified-adapter must import compileContext',
+      /import\s*\{\s*adaptForCodexProxy\s*\}\s*from\s*'@\/lib\/harness\/runtime-adapter'/,
+      'unified-adapter must import adaptForCodexProxy from the Runtime Capability Adapter',
+    );
+    assert.equal(
+      /from\s+['"]@\/lib\/harness\/context-compiler['"]/.test(adapterSrc),
+      false,
+      'unified-adapter must NOT import the compiler directly — go through the adapter facade',
     );
     assert.match(
       adapterSrc,
-      /compiled\.systemPromptText|systemPromptText/,
-      'unified-adapter must consume compiled.systemPromptText',
+      /adapted\.systemPromptInstructions|systemPromptInstructions/,
+      'unified-adapter must consume adapted.systemPromptInstructions',
     );
   });
 
@@ -216,14 +228,17 @@ describe('Codex bridge prompt does not redefine widget semantics', () => {
     );
   });
 
-  it('ClaudeCode SDK Runtime claude-client.ts calls compileContext for capability prompts (slice 2c)', () => {
+  it('ClaudeCode SDK Runtime claude-client.ts calls the Runtime Capability Adapter facade (slice 2c + Phase 3)', () => {
     // Phase 5d Phase 2 slice 2c — claude-client.ts mounts MCP servers
-    // per-gate (transport layer) and lets the Context Compiler
-    // produce the capability system prompt content (semantic layer).
+    // per-gate (transport layer) and let the Context Compiler produce
+    // the capability system prompt content (semantic layer).
     // Pre-Phase-5d this file appended per-capability `_SYSTEM_PROMPT`
-    // strings inline; that was direct canonical consumption but
-    // still N separate call sites. The compiler is now the single
-    // producer.
+    // strings inline.
+    //
+    // Phase 5d Phase 3 (2026-05-17) — the compiler call is now wrapped
+    // by `adaptForClaudeCode`. The entry point consumes the adapter
+    // facade, not the compiler directly; the adapter is the only path
+    // from this file to the catalog.
     const claudeSrc = readSource('src/lib/claude-client.ts');
 
     // (a) No drift sources: no import from builtin-tools/* (Native path).
@@ -240,23 +255,23 @@ describe('Codex bridge prompt does not redefine widget semantics', () => {
       'claude-client.ts must not declare its own _SYSTEM_PROMPT scalars',
     );
 
-    // (c) Slice 2c integration: claude-client.ts must call
-    //     compileContext + use compiled.systemPromptText for the
-    //     capability prompt append. The compiler is the sole producer.
+    // (c) Phase 3 integration: claude-client.ts must consume the
+    //     Runtime Capability Adapter facade + use
+    //     `adapted.systemPromptAppend` for the capability prompt append.
     assert.match(
       claudeSrc,
-      /compileContext.*from.*['"]@\/lib\/harness\/context-compiler['"]|import\(['"]@\/lib\/harness\/context-compiler['"]\)/,
-      'claude-client.ts must import compileContext (static or dynamic) from the harness module',
+      /adaptForClaudeCode.*from.*['"]@\/lib\/harness\/runtime-adapter['"]|import\(['"]@\/lib\/harness\/runtime-adapter['"]\)/,
+      'claude-client.ts must import adaptForClaudeCode (static or dynamic) from the runtime-adapter facade',
+    );
+    assert.equal(
+      /from\s+['"]@\/lib\/harness\/context-compiler['"]/.test(claudeSrc),
+      false,
+      'claude-client.ts must NOT import the compiler directly — go through adaptForClaudeCode',
     );
     assert.match(
       claudeSrc,
-      /compiled\.systemPromptText/,
-      'claude-client.ts must consume compiled.systemPromptText (slice 2c integration)',
-    );
-    assert.match(
-      claudeSrc,
-      /runtimeId:\s*['"]claude_code['"]/,
-      'claude-client.ts must pass runtimeId: "claude_code" to compileContext',
+      /adapted\.systemPromptAppend/,
+      'claude-client.ts must consume adapted.systemPromptAppend (Phase 3 facade output)',
     );
 
     // (d) No per-capability inline append patterns left over.
@@ -268,23 +283,30 @@ describe('Codex bridge prompt does not redefine widget semantics', () => {
     assert.equal(
       inlineAppendRe.test(claudeSrc),
       false,
-      'claude-client.ts must not inline-append per-capability _SYSTEM_PROMPT strings — use compileContext output instead',
+      'claude-client.ts must not inline-append per-capability _SYSTEM_PROMPT strings — use the adapter facade output instead',
     );
   });
 
-  it('Native Runtime builtin-tools/index.ts routes capability prompts through compileContext (slice 2d)', () => {
+  it('Native Runtime builtin-tools/index.ts routes capability prompts through the Runtime Capability Adapter (slice 2d + Phase 3)', () => {
     // Phase 5d Phase 2 slice 2d — getBuiltinTools() decides gating
-    // per group (workspace / keyword / always), then calls
-    // compileContext to produce the canonical capability prompt.
-    // Non-capability groups (session-search / ask-user-question)
-    // still pass through their raw `systemPrompt` until they get
-    // their own capability contract entries.
+    // per group (workspace / keyword / always), then calls into the
+    // Context Compiler to produce the canonical capability prompt.
+    //
+    // Phase 5d Phase 3 (2026-05-17) — the compiler call is wrapped by
+    // `adaptForNative`. Non-capability groups (session-search /
+    // ask-user-question) still pass through their raw `systemPrompt`
+    // until they get their own capability contract entries.
     const indexSrc = readSource('src/lib/builtin-tools/index.ts');
 
     assert.match(
       indexSrc,
-      /import\s*\{\s*compileContext\s*\}\s*from\s*['"]@\/lib\/harness\/context-compiler['"]/,
-      'builtin-tools/index.ts must import compileContext',
+      /import\s*\{\s*adaptForNative\s*\}\s*from\s*['"]@\/lib\/harness\/runtime-adapter['"]/,
+      'builtin-tools/index.ts must import adaptForNative from the Runtime Capability Adapter facade',
+    );
+    assert.equal(
+      /from\s+['"]@\/lib\/harness\/context-compiler['"]/.test(indexSrc),
+      false,
+      'builtin-tools/index.ts must NOT import the compiler directly — go through adaptForNative',
     );
     assert.match(
       indexSrc,
@@ -293,13 +315,8 @@ describe('Codex bridge prompt does not redefine widget semantics', () => {
     );
     assert.match(
       indexSrc,
-      /runtimeId:\s*['"]codepilot_runtime['"]/,
-      'getBuiltinTools must pass runtimeId: "codepilot_runtime" to compileContext',
-    );
-    assert.match(
-      indexSrc,
-      /compiled\.systemPromptText/,
-      'getBuiltinTools must consume compiled.systemPromptText for the capability prompt slot',
+      /adapted\.systemPromptText/,
+      'getBuiltinTools must consume adapted.systemPromptText for the capability prompt slot (Phase 3 facade)',
     );
   });
 
@@ -377,22 +394,43 @@ describe('Capability prompts inject WITHOUT a base systemPrompt (P1 fix, 2026-05
     );
   });
 
-  it('ClaudeCode: claude-client.ts initialises queryOptions.systemPrompt with preset shape when enabledCapabilities is non-empty', () => {
+  it('ClaudeCode: claude-client.ts initialises queryOptions.systemPrompt with preset shape (adapter block always runs)', () => {
     // Pre-fix the compileContext block was guarded by
     // `&& queryOptions.systemPrompt && typeof ... === 'object'`. If
     // the caller didn't pass a base systemPrompt, queryOptions.
     // systemPrompt was undefined and the compiled prompt was
     // silently dropped. Pin the new fallback branch that mounts
     // the SDK preset shape on demand.
+    //
+    // Phase 5d Phase 3 (2026-05-17) — `compiled.systemPromptText` was
+    // renamed to `adapted.systemPromptAppend` when the call moved into
+    // the Runtime Capability Adapter facade.
+    //
+    // Phase 5e review round 4 fix P2 #1 (2026-05-18) — the
+    // `if (enabledCapabilities.size > 0)` outer guard around the
+    // entire scan + adapter block was removed: User / External
+    // harness extensions also need injection, even when no built-in
+    // capability is gated in. The block now runs unconditionally;
+    // the `adapted.systemPromptAppend.length > 0` check inside is
+    // the only gate before splicing into queryOptions.systemPrompt.
+    //
+    // Pin shape:
+    //   - adaptForClaudeCode is called
+    //   - the preset-shape mount uses adapted.systemPromptAppend
     const src = readSource('src/lib/claude-client.ts');
     assert.match(
       src,
-      /if\s*\(enabledCapabilities\.size\s*>\s*0\)\s*\{/,
-      'claude-client.ts must enter the compileContext block whenever enabledCapabilities is non-empty (not only when systemPrompt exists)',
+      /adaptForClaudeCode\(\{/,
+      'claude-client.ts must call adaptForClaudeCode',
     );
     assert.match(
       src,
-      /queryOptions\.systemPrompt\s*=\s*\{\s*[\s\S]*?type:\s*['"]preset['"][\s\S]*?preset:\s*['"]claude_code['"][\s\S]*?append:\s*compiled\.systemPromptText/,
+      /if\s*\(adapted\.systemPromptAppend\.length\s*>\s*0\)/,
+      'claude-client.ts must gate the systemPrompt splice on `adapted.systemPromptAppend.length > 0` — that is the sole condition (no outer enabledCapabilities.size gate)',
+    );
+    assert.match(
+      src,
+      /queryOptions\.systemPrompt\s*=\s*\{\s*[\s\S]*?type:\s*['"]preset['"][\s\S]*?preset:\s*['"]claude_code['"][\s\S]*?append:\s*adapted\.systemPromptAppend/,
       'claude-client.ts must initialise queryOptions.systemPrompt with the Claude Code preset shape when none was provided',
     );
   });

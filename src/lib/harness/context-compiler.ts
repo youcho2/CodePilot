@@ -264,6 +264,16 @@ function estimateTokens(text: string): number {
   return Math.ceil(text.length / 4);
 }
 
+/**
+ * The AI SDK multi-step ceiling for Codex Runtime when the bridge has
+ * mounted at least one CodePilot built-in tool. 8 is the empirical
+ * value pinned by Phase 5c smoke (memory → image gen → narration →
+ * schedule task chains). Lives here so the proxy adapter no longer
+ * keeps a parallel `BUILTIN_BRIDGE_STEP_LIMIT` constant that could
+ * drift from the compiler hint.
+ */
+const CODEX_BRIDGE_STEP_LIMIT = 8;
+
 /** Map `RuntimeId` (canonical runtime label) → the
  *  `capability.exposure` key (machine-friendly exposure-method label).
  *  These intentionally differ: RuntimeId is product-facing; exposure
@@ -597,7 +607,7 @@ export function compileContext(input: CompilerInput): CompiledContext {
     runtimeHintsBuilder.codex_proxy = {
       builtinToolNames,
       stopWhen: builtinToolNames.size > 0 ? 'stepCountIs' : 'never',
-      stepCount: 8,
+      stepCount: CODEX_BRIDGE_STEP_LIMIT,
       passthroughToolTypes: [],
     };
   }

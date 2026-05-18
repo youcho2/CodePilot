@@ -558,7 +558,8 @@ export function streamClaude(options: ClaudeStreamOptions): ReadableStream<strin
     // `agent_runtime` setting. The pin is stored in chat-runtime label
     // form (`'claude_code'` / `'codepilot_runtime'` / `'codex_runtime'`);
     // translate to the `agent_runtime` registry id form. Empty / unknown
-    // pin → fall back to the global setting (today's behavior).
+    // pin → pass `undefined`, letting `resolveRuntime()` read the global
+    // setting itself in its step 3 (legacy stored-preference semantics).
     //
     // Registry id mapping (the agent_runtime setting form):
     //   claude_code       → claude-code-sdk  (legacy; CC SDK predates RuntimeId)
@@ -569,6 +570,18 @@ export function streamClaude(options: ClaudeStreamOptions): ReadableStream<strin
     // sessions pinned to codex_runtime fell through to the global
     // setting (typically claude-code-sdk) and ran GPT-5.5 through
     // ClaudeCode SDK — the bug Codex CDP smoke caught.
+    //
+    // Round 8 fix (2026-05-18): previously the override fell back to
+    // `getSetting('agent_runtime')` — conflating "strong explicit pin
+    // for THIS request" with "stale stored preference". Round 8's
+    // registry-side change gives explicit overrides fail-closed
+    // semantics (throw instead of silently demote to Native when the
+    // CLI is gone). Mixing the global setting into that meant a
+    // legitimate "global = ClaudeCode, CLI later went missing" case
+    // would suddenly throw instead of quietly fall back. Fix here:
+    // pass ONLY the session pin (or undefined) — the registry reads
+    // the global setting itself in step 3 with the legacy
+    // fall-through semantics.
     const pinAsAgentRuntime =
       options.sessionRuntimePin === 'claude_code'
         ? 'claude-code-sdk'
@@ -577,8 +590,7 @@ export function streamClaude(options: ClaudeStreamOptions): ReadableStream<strin
           : options.sessionRuntimePin === 'codex_runtime'
             ? 'codex_runtime'
             : undefined;
-    const runtimeOverride = pinAsAgentRuntime ?? (getSetting('agent_runtime') || undefined);
-    runtime = resolveRuntime(runtimeOverride, effectiveProvider || undefined);
+    runtime = resolveRuntime(pinAsAgentRuntime, effectiveProvider || undefined);
   }
 
   // Phase 5 review round 5 (2026-05-13) — guardrail: when the session
@@ -592,6 +604,23 @@ export function streamClaude(options: ClaudeStreamOptions): ReadableStream<strin
       `Session is pinned to codex_runtime but resolver returned "${runtime.id}". ` +
         'Codex Runtime is not registered or not available — install codex CLI ' +
         '(or set CODEX_BIN) and retry.',
+    );
+  }
+
+  // Phase 5e round 8 (2026-05-18) — symmetric guardrail for claude_code
+  // session pin. registry.ts:resolveRuntime() now fail-closes when an
+  // explicit override targets claude-code-sdk but the CLI is missing
+  // (round 8 reorder), so this branch usually doesn't fire. But it
+  // catches the residual case where the registry returns a non-SDK
+  // runtime for a claude_code-pinned session — for example, if the
+  // runtime registry state diverges (mis-registered SDK, race during
+  // setup). The check stays narrow: pin === claude_code AND resolved
+  // runtime is not claude-code-sdk → throw, never silently demote.
+  if (options.sessionRuntimePin === 'claude_code' && runtime.id !== 'claude-code-sdk') {
+    throw new Error(
+      `Session is pinned to Claude Code but the resolver returned "${runtime.id}". `
+      + 'Claude Code CLI is not installed or not detected — install Claude Code CLI, '
+      + 'or switch this session to CodePilot / Codex Runtime.',
     );
   }
 
@@ -1032,32 +1061,82 @@ export function streamClaudeSdk(options: ClaudeStreamOptions): ReadableStream<st
           enabledCapabilities.add('dashboard');
         }
 
-        // Phase 5d Phase 2 slice 2c + P1 fix (2026-05-17) — single
-        // compileContext call producing the canonical, ordered, de-
-        // duplicated capability system prompt for everything mounted
-        // above. Replaces per-capability `+ _SYSTEM_PROMPT` appends.
+        // Phase 5d Phase 3 (2026-05-17) — capability prompt assembly
+        // routed through the Runtime Capability Adapter. The adapter
+        // wraps Phase 2's compileContext + ClaudeCode-specific hints
+        // so this call site no longer touches the compiler API
+        // directly. Three contract invariants are now structural:
         //
-        // P1 fix: the compiler prompt MUST be injected even when the
-        // upstream caller did not provide a base `systemPrompt`. Pre-
-        // fix we required `queryOptions.systemPrompt` to already
-        // exist (which only happens when the caller passed
-        // `params.system`); if a chat run had MCP tools mounted but
-        // no base prompt, the model never saw the capability rules.
-        // Now we initialise `queryOptions.systemPrompt` with the
-        // canonical preset shape so the append always lands.
-        if (enabledCapabilities.size > 0) {
-          const { compileContext } = await import('@/lib/harness/context-compiler');
-          const compiled = compileContext({
+        //   1. `adapted.systemPromptAppend` is ALWAYS a string —
+        //      empty when no capabilities mounted, full canonical
+        //      text otherwise. The `length > 0` check below is the
+        //      only place that decides whether to splice it in.
+        //   2. When the upstream caller did NOT pass a `systemPrompt`,
+        //      we still mount the SDK preset shape with the compiled
+        //      append. (Phase 2 P1 review fix — pre-fix the preset
+        //      branch was skipped, leaving the model without
+        //      capability rules in chat runs without a base prompt.)
+        //   3. Capability fragment text comes ONLY from the adapter
+        //      (compiler-sourced). No `+ _SYSTEM_PROMPT` inline appends
+        //      anywhere in this file — the drift surface from
+        //      pre-Phase-2 is now a structural impossibility.
+        // Phase 5e review round 4 fix P2 #1 (2026-05-18) — User /
+        // External Harness extension injection MUST NOT be gated on
+        // `enabledCapabilities.size > 0`. Pre-fix: when no built-in
+        // capability was gated in (rare but reachable — e.g. plain
+        // chat with no widget keyword + no workspace memory), the
+        // whole adapter branch was skipped, so the user's MCP
+        // servers / Skills / commands never reached the model. The
+        // adapter is now called unconditionally; the
+        // `adapted.systemPromptAppend.length > 0` check below
+        // continues to skip the splice when there's nothing useful
+        // to inject (capability + extension fragments both empty).
+        {
+          const { adaptForClaudeCode } = await import('@/lib/harness/runtime-adapter');
+          // Phase 5e review fix P1 #2 (2026-05-18) — scan User /
+          // External Harness extensions and pass them through the
+          // adapter so the model sees a "Your harness extensions"
+          // perception fragment. Scanners are best-effort + read-only;
+          // a scan failure degrades to "no extensions visible" rather
+          // than blocking the turn (try/catch guards each scan).
+          let userExtensions: ReturnType<
+            typeof import('@/lib/harness/user-codepilot-extensions').scanUserCodePilotExtensions
+          > = [];
+          let externalExtensions: ReturnType<
+            typeof import('@/lib/harness/external-framework-harness').scanExternalFrameworkExtensions
+          > = [];
+          try {
+            const { scanUserCodePilotExtensions } = await import(
+              '@/lib/harness/user-codepilot-extensions'
+            );
+            userExtensions = scanUserCodePilotExtensions({
+              workspacePath: resolvedWorkingDirectory.path,
+              runtimeId: 'claude_code',
+            });
+          } catch {
+            // best-effort
+          }
+          try {
+            const { scanExternalFrameworkExtensions } = await import(
+              '@/lib/harness/external-framework-harness'
+            );
+            externalExtensions = scanExternalFrameworkExtensions({
+              activeFramework: 'claude_code',
+            });
+          } catch {
+            // best-effort
+          }
+          const adapted = adaptForClaudeCode({
             sessionId,
             workingDirectory: resolvedWorkingDirectory.path,
-            runtimeId: 'claude_code',
             providerId: resolved.provider?.id || 'env',
             model: model || '',
             userPrompt: prompt || '',
             enabledCapabilities,
-            tokenBudget: { systemPromptMax: 100_000, contextMax: 200_000 },
+            userExtensions,
+            externalExtensions,
           });
-          if (compiled.systemPromptText.length > 0) {
+          if (adapted.systemPromptAppend.length > 0) {
             if (
               queryOptions.systemPrompt &&
               typeof queryOptions.systemPrompt === 'object' &&
@@ -1066,7 +1145,7 @@ export function streamClaudeSdk(options: ClaudeStreamOptions): ReadableStream<st
               queryOptions.systemPrompt.append =
                 (queryOptions.systemPrompt.append || '') +
                 '\n\n' +
-                compiled.systemPromptText;
+                adapted.systemPromptAppend;
             } else {
               // No upstream systemPrompt. Mount the SDK's preset
               // shape with the compiled capability prompt in the
@@ -1075,7 +1154,7 @@ export function streamClaudeSdk(options: ClaudeStreamOptions): ReadableStream<st
               queryOptions.systemPrompt = {
                 type: 'preset',
                 preset: 'claude_code',
-                append: compiled.systemPromptText,
+                append: adapted.systemPromptAppend,
               };
             }
           }

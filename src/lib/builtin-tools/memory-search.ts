@@ -21,23 +21,72 @@ export const MEMORY_SEARCH_SYSTEM_PROMPT = CANONICAL_MEMORY_SEARCH_SYSTEM_PROMPT
 export function createMemorySearchTools(workspacePath: string) {
   return {
     codepilot_memory_search: tool({
-      description: 'Search assistant workspace memory files with keyword matching.',
+      description: 'Search assistant workspace memory files with keyword matching. Supports filtering by tags (Obsidian-style #tags from YAML frontmatter) and file type.',
       inputSchema: z.object({
         query: z.string().describe('Search query'),
-        tags: z.array(z.string()).optional(),
-        file_type: z.enum(['all', 'daily', 'longterm', 'notes']).optional(),
+        tags: z.array(z.string()).optional().describe('Filter by YAML frontmatter tags (e.g. ["project", "design"])'),
+        file_type: z.enum(['all', 'daily', 'longterm', 'notes']).optional()
+          .describe('Filter by type: "daily" = memory/daily/*.md, "longterm" = memory.md, "notes" = other workspace files'),
         limit: z.number().optional(),
       }),
+      // Phase 5e Phase 0.5 P1 parity (2026-05-17) — pre-fix this
+      // Native handler accepted `tags` / `file_type` parameters but
+      // passed them straight through to `searchWorkspace` without
+      // any filtering. The MCP-side handler (`memory-search-mcp.ts`)
+      // applies both filters server-side. Native is the product
+      // baseline → must match. Mirror the MCP filter pipeline:
+      // type-filter → tag-filter → temporal decay handled inside
+      // searchWorkspace.
       execute: async ({ query, tags, file_type, limit }) => {
         try {
           const { searchWorkspace } = await import('@/lib/workspace-retrieval');
-          const results = await searchWorkspace(workspacePath, query, {
-            limit: limit || 5,
+          // Over-fetch x3 so the filter steps have room to keep
+          // `limit` matches after type / tag filtering.
+          let results = await searchWorkspace(workspacePath, query, {
+            limit: (limit || 5) * 3,
           });
-          if (!results || results.length === 0) return 'No matching memories found.';
-          return results.map((r: { path: string; snippet: string; score: number }) =>
-            `**${r.path}** (score: ${r.score.toFixed(2)})\n${r.snippet}`
-          ).join('\n\n');
+
+          // File-type filter — same logic as memory-search-mcp.ts:64-71
+          if (file_type && file_type !== 'all') {
+            const isMemoryFile = (p: string) => /^memory\.md$/i.test(p);
+            results = results.filter((r: { path: string }) => {
+              if (file_type === 'daily') return r.path.startsWith('memory/daily/');
+              if (file_type === 'longterm') return isMemoryFile(r.path);
+              if (file_type === 'notes') return !r.path.startsWith('memory/') && !isMemoryFile(r.path);
+              return true;
+            });
+          }
+
+          // Tag filter — manifest lookup. memory-search-mcp.ts:74-87
+          if (tags && tags.length > 0) {
+            const tagsLower = tags.map((t) => t.toLowerCase().replace(/^#/, ''));
+            try {
+              const { loadManifest } = await import('@/lib/workspace-indexer');
+              const manifest = loadManifest(workspacePath);
+              results = results.filter((r: { path: string }) => {
+                const entry = manifest.find(
+                  (e: { path: string; tags?: string[] }) => e.path === r.path,
+                );
+                if (!entry?.tags?.length) return false;
+                const entryTagsLower = entry.tags.map((t: string) => t.toLowerCase());
+                return tagsLower.some((t) => entryTagsLower.includes(t));
+              });
+            } catch {
+              // manifest unavailable — skip tag filtering rather than
+              // hide results the user might want
+            }
+          }
+
+          // Final slice to caller-requested limit.
+          const trimmed = results.slice(0, limit || 5);
+
+          if (!trimmed || trimmed.length === 0) return 'No matching memories found.';
+          return trimmed
+            .map(
+              (r: { path: string; snippet: string; score: number }) =>
+                `**${r.path}** (score: ${r.score.toFixed(2)})\n${r.snippet}`,
+            )
+            .join('\n\n');
         } catch (err) { return `Search failed: ${err instanceof Error ? err.message : 'unknown'}`; }
       },
     }),
@@ -68,29 +117,72 @@ export function createMemorySearchTools(workspacePath: string) {
     }),
 
     codepilot_memory_recent: tool({
-      description: 'Get recent daily memories (last 3 days) and long-term memory summary.',
+      description: 'Get recent daily memories (last 3 days) and long-term memory summary. Call at the START of each conversation to review recent context.',
       inputSchema: z.object({}),
+      // Phase 5e Phase 0.5 P1 parity (2026-05-17) — pre-fix this
+      // Native handler read `<workspace>/daily/` + `<workspace>/longterm/summary.md`.
+      // The MCP authority (`memory-search-mcp.ts:182-` recent tool)
+      // uses `<workspace>/memory.md` (with `Memory.md` / `MEMORY.md`
+      // case fallback) + `<workspace>/memory/daily/<YYYY-MM-DD>.md`.
+      // Native is the product baseline → must match the authoritative
+      // layout. Falls back to legacy `daily/` + `longterm/summary.md`
+      // for users whose workspace still has the older shape.
       execute: async () => {
         try {
-          const dailyDir = path.join(workspacePath, 'daily');
-          if (!fs.existsSync(dailyDir)) return 'No daily memories found.';
-
-          const entries = fs.readdirSync(dailyDir)
-            .filter(f => f.endsWith('.md'))
-            .sort()
-            .slice(-3);
-
           const parts: string[] = [];
-          for (const entry of entries) {
-            const content = fs.readFileSync(path.join(dailyDir, entry), 'utf-8');
-            parts.push(`### ${entry}\n${content.slice(0, 500)}`);
+
+          // Long-term memory summary — case-variant fallback like MCP
+          const memoryVariants = ['memory.md', 'Memory.md', 'MEMORY.md'];
+          for (const variant of memoryVariants) {
+            const memPath = path.join(workspacePath, variant);
+            if (fs.existsSync(memPath)) {
+              const memContent = fs.readFileSync(memPath, 'utf-8').trim();
+              if (memContent) {
+                const summary =
+                  memContent.length > 500
+                    ? memContent.slice(0, 500) + '...'
+                    : memContent;
+                parts.push(`## Long-term Memory\n${summary}`);
+              }
+              break;
+            }
           }
 
-          // Long-term memory summary
-          const ltPath = path.join(workspacePath, 'longterm', 'summary.md');
-          if (fs.existsSync(ltPath)) {
-            const ltContent = fs.readFileSync(ltPath, 'utf-8');
-            parts.push(`### Long-term Memory\n${ltContent.slice(0, 500)}`);
+          // Recent daily memories — primary layout `memory/daily/`
+          const dailyDir = path.join(workspacePath, 'memory', 'daily');
+          let dailyEntries: string[] = [];
+          if (fs.existsSync(dailyDir)) {
+            dailyEntries = fs
+              .readdirSync(dailyDir)
+              .filter((f) => /^\d{4}-\d{2}-\d{2}\.md$/.test(f))
+              .sort()
+              .slice(-3);
+            for (const entry of dailyEntries) {
+              const content = fs.readFileSync(path.join(dailyDir, entry), 'utf-8');
+              parts.push(`### ${entry}\n${content.slice(0, 500)}`);
+            }
+          } else {
+            // Legacy fallback: pre-Phase-5e workspaces used `daily/`
+            // at the workspace root and `longterm/summary.md`. Keep
+            // reading those so existing users don't get a sudden
+            // "No memories" regression.
+            const legacyDailyDir = path.join(workspacePath, 'daily');
+            if (fs.existsSync(legacyDailyDir)) {
+              const legacy = fs
+                .readdirSync(legacyDailyDir)
+                .filter((f) => f.endsWith('.md'))
+                .sort()
+                .slice(-3);
+              for (const entry of legacy) {
+                const content = fs.readFileSync(path.join(legacyDailyDir, entry), 'utf-8');
+                parts.push(`### ${entry}\n${content.slice(0, 500)}`);
+              }
+            }
+            const legacyLt = path.join(workspacePath, 'longterm', 'summary.md');
+            if (parts.length === 0 && fs.existsSync(legacyLt)) {
+              const ltContent = fs.readFileSync(legacyLt, 'utf-8');
+              parts.push(`### Long-term Memory (legacy)\n${ltContent.slice(0, 500)}`);
+            }
           }
 
           return parts.join('\n\n') || 'No recent memories.';

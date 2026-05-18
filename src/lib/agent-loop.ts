@@ -11,7 +11,8 @@
  */
 
 import { streamText, type LanguageModel, type ToolSet, type ModelMessage } from 'ai';
-import type { SSEEvent, TokenUsage } from '@/types';
+import type { SSEEvent, TokenUsage, MediaBlock } from '@/types';
+import { subscribeBuiltinEvents } from './harness/builtin-event-bus';
 import { createModel } from './ai-provider';
 import { assembleTools, READ_ONLY_TOOLS } from './agent-tools';
 import { reportNativeError } from './error-classifier';
@@ -120,6 +121,32 @@ export function runAgentLoop(options: AgentLoopOptions): ReadableStream<string> 
       const keepAliveTimer = setInterval(() => {
         controller.enqueue(formatSSE({ type: 'keep_alive', data: '' }));
       }, KEEPALIVE_INTERVAL_MS);
+
+      // Phase 5e Phase 0.5 P1 (2026-05-17) — subscribe to the harness
+      // side-channel for `tool_completed` events that built-in tools
+      // (currently `codepilot_generate_image` / `codepilot_import_media`)
+      // use to ship MediaBlock[] payloads to the chat UI. The tool's
+      // `execute()` returns plain text to the model; this listener
+      // caches the structured MediaBlock by `toolCallId` so the
+      // `case 'tool-result'` handler below can splice it into the SSE
+      // `tool_result.media` field.
+      //
+      // Subscribed BEFORE the streamText loop runs so even the very
+      // first tool call's emit lands on this listener (the bus drops
+      // emits without subscribers, no buffering — see contract note
+      // in `harness/builtin-event-bus.ts`).
+      const pendingMediaByCallId = new Map<string, MediaBlock[]>();
+      const unsubscribeMediaSideChannel = subscribeBuiltinEvents(
+        sessionId,
+        (event) => {
+          if (event.type !== 'tool_completed') return;
+          const media = event.media;
+          if (!media || media.length === 0) return;
+          const callId = event.toolId;
+          if (!callId) return;
+          pendingMediaByCallId.set(callId, [...media]);
+        },
+      );
 
       try {
         // 0. Sync MCP servers before assembling tools (await to avoid race condition)
@@ -465,16 +492,29 @@ export function runAgentLoop(options: AgentLoopOptions): ReadableStream<string> 
                 }));
                 break;
 
-              case 'tool-result':
+              case 'tool-result': {
+                // Phase 5e Phase 0.5 P1 (2026-05-17) — splice any
+                // MediaBlock the tool emitted via the harness
+                // side-channel (`harness/builtin-event-bus.ts`) into
+                // the SSE `tool_result.media` field. useSSEStream on
+                // the frontend already reads `tool_result.media` and
+                // pipes it into `MediaPreview` (the same path the
+                // Codex bridge already used). Tool text stays clean
+                // — the model only sees the plain output below, never
+                // the MediaBlock payload.
+                const media = pendingMediaByCallId.get(event.toolCallId);
+                if (media) pendingMediaByCallId.delete(event.toolCallId);
                 controller.enqueue(formatSSE({
                   type: 'tool_result',
                   data: JSON.stringify({
                     tool_use_id: event.toolCallId,
                     content: typeof event.output === 'string' ? event.output : JSON.stringify(event.output),
                     is_error: false,
+                    ...(media && media.length > 0 ? { media } : {}),
                   }),
                 }));
                 break;
+              }
 
               case 'error':
                 controller.enqueue(formatSSE({
@@ -578,6 +618,12 @@ export function runAgentLoop(options: AgentLoopOptions): ReadableStream<string> 
         onRuntimeStatusChange?.('error');
       } finally {
         clearInterval(keepAliveTimer);
+        // Phase 5e Phase 0.5 P1 — release the side-channel listener.
+        // Leaving it attached across turns would leak MediaBlock from
+        // one turn's tool call into the next turn's UI if the same
+        // session id gets reused (see contract note in
+        // harness/builtin-event-bus.ts about cross-turn leakage).
+        unsubscribeMediaSideChannel();
         controller.enqueue(formatSSE({ type: 'done', data: '' }));
         controller.close();
       }

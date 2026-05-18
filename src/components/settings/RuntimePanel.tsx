@@ -89,6 +89,11 @@ import { cn } from "@/lib/utils";
 import Anthropic from "@lobehub/icons/es/Anthropic";
 import OpenAI from "@lobehub/icons/es/OpenAI";
 import { CodePilotLogo } from "@/components/chat/CodePilotLogo";
+import {
+  RuntimeCapabilityList,
+  codexAccountHeaderNote,
+} from "@/components/settings/RuntimeCapabilityList";
+import type { CapabilityMatrixCell } from "@/lib/harness/capability-matrix";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -234,6 +239,7 @@ function EnginePickerCard({
   statusText,
   isZh,
   icon,
+  trigger,
 }: {
   engine: AgentRuntime;
   selected: boolean;
@@ -245,22 +251,66 @@ function EnginePickerCard({
   statusKind: "ok" | "warning";
   statusText: string;
   isZh: boolean;
-  /** Phase 6 UI收口 P1 (2026-05-14) — vendor-specific brand icon. The
-   *  three engines used to render without icons (text-only cards),
-   *  which made the picker read as a wall of words. The icon sits
-   *  next to the title so users can disambiguate the engine in a
-   *  glance. */
   icon: React.ReactNode;
+  /** Phase 5e review round 7 (2026-05-18 user feedback) — the
+   *  "view capabilities" trigger lives INSIDE the engine card. We
+   *  accept it as a prop so the parent can stop event propagation
+   *  before the card's click handler fires (otherwise opening the
+   *  capability dialog would also switch the default runtime). */
+  trigger?: React.ReactNode;
 }) {
   void _engine;
+
+  // Phase 5e review round 7 (2026-05-18) — switched from a single
+  // <button> to a div + role=button so the card can host the
+  // capability-list trigger (a real <button>) inside without a
+  // button-in-button A11y violation. Keyboard handling (Enter /
+  // Space) is re-implemented; aria-pressed + focus-visible ring
+  // stay the same. The card also collapses from 3 visual rows
+  // (title block / pitch / status row) to 2 (title row + body row),
+  // matching the design.md "One row vs two rows" Provider card
+  // shape — Row 1 is identity, Row 2 packs description + the
+  // operational status + the trigger.
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    if (e.target !== e.currentTarget) return; // ignore keys on nested controls
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      onSelect();
+    }
+  };
+
+  // Phase 5e round 8 CDP smoke (2026-05-18) — `stopPropagation` on
+  // the trigger button alone was not enough: Radix `DialogTrigger
+  // asChild` composes its own click handler onto the same button,
+  // and React's synthetic stopPropagation interacted in a way that
+  // still let the card's onClick fire (verified via smoke: clicking
+  // the trigger switched the default runtime in addition to opening
+  // the dialog). Robust guard: in the card's own onClick, check
+  // whether the click originated from an interactive descendant. If
+  // it did, do NOT treat it as a card-level select. This makes the
+  // card behavior independent of how Radix composes events on the
+  // nested trigger button.
+  const handleClick = (e: React.MouseEvent<HTMLDivElement>) => {
+    const target = e.target as HTMLElement | null;
+    if (target?.closest('button, a, [role="button"]') !== e.currentTarget) {
+      // Click landed on an interactive descendant (the capability
+      // trigger, or any future nested control). Skip the card-level
+      // select; let the descendant handle its own action.
+      return;
+    }
+    onSelect();
+  };
+
   return (
-    <button
-      type="button"
-      onClick={onSelect}
+    <div
+      role="button"
+      tabIndex={0}
+      onClick={handleClick}
+      onKeyDown={handleKeyDown}
       aria-pressed={selected}
       aria-label={`${title} — ${tagline}`}
       className={cn(
-        "relative w-full text-left rounded-lg border p-5 flex flex-col gap-3 transition-colors",
+        "relative w-full text-left rounded-lg border p-5 flex flex-col gap-2 transition-colors cursor-pointer",
         "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
         selected
           ? "border-primary/40 bg-primary/5 ring-1 ring-primary/30"
@@ -269,7 +319,7 @@ function EnginePickerCard({
     >
       {/* Top-right indicator. Filled CheckCircle when selected; hollow Circle
           otherwise with a faint hover boost so the click affordance reads. */}
-      <span className="absolute top-4 right-4 text-muted-foreground">
+      <span className="absolute top-4 right-4 text-muted-foreground pointer-events-none">
         {selected ? (
           <CheckCircle size={18} weight="fill" className="text-primary" />
         ) : (
@@ -277,8 +327,8 @@ function EnginePickerCard({
         )}
       </span>
 
-      {/* Title block — icon + engine name + small subtitle so the card
-          has a micro-headline distinct from the body pitch. */}
+      {/* Row 1 — identity: icon + title + tagline. Selected indicator
+          floats top-right above this row. */}
       <div className="pr-8 flex items-start gap-2.5">
         <span className="shrink-0 mt-0.5">{icon}</span>
         <div className="min-w-0">
@@ -289,42 +339,45 @@ function EnginePickerCard({
         </div>
       </div>
 
-      {/* Pitch text — 2-3 sentences max. Mid-card so it's the visual focus. */}
-      <p className="text-xs text-foreground/85 leading-relaxed">{pitch}</p>
-
-      {/* Status row — bottom-anchored. Color-coded at a glance:
-            ok      → success-foreground (Claude Code installed / AI SDK ready)
-            warning → warning-foreground (CLI missing, would fall back)
-          Phase 6 UI收口 P1 (2026-05-14): "点击切换" reminder removed —
-          the button's hover state + the selected/unselected indicator
-          in the top-right already telegraph click affordance. The extra
-          text was redundant. */}
-      <div className="mt-auto flex items-center gap-1.5 text-[11px]">
-        {statusKind === "ok" ? (
-          <CheckCircle
-            size={12}
-            weight="fill"
-            className="text-status-success-foreground shrink-0"
-          />
-        ) : (
-          <Warning
-            size={12}
-            weight="fill"
-            className="text-status-warning-foreground shrink-0"
-          />
-        )}
-        <span
-          className={cn(
-            "truncate",
-            statusKind === "ok"
-              ? "text-status-success-foreground"
-              : "text-status-warning-foreground",
-          )}
-        >
-          {statusText}
-        </span>
+      {/* Row 2 — body: short pitch (truncates with line-clamp-2 if
+          long), with a status pill + capability-list trigger packed
+          to the right. The status row used to be a third visual
+          block; round 7 merges it inline with the trigger. */}
+      <div className="mt-1 flex items-end justify-between gap-3">
+        <p className="text-xs text-foreground/85 leading-relaxed line-clamp-2 flex-1">
+          {pitch}
+        </p>
       </div>
-    </button>
+
+      <div className="flex items-center justify-between gap-2 mt-auto flex-wrap">
+        <div className="flex items-center gap-1.5 text-[11px] min-w-0">
+          {statusKind === "ok" ? (
+            <CheckCircle
+              size={12}
+              weight="fill"
+              className="text-status-success-foreground shrink-0"
+            />
+          ) : (
+            <Warning
+              size={12}
+              weight="fill"
+              className="text-status-warning-foreground shrink-0"
+            />
+          )}
+          <span
+            className={cn(
+              "truncate",
+              statusKind === "ok"
+                ? "text-status-success-foreground"
+                : "text-status-warning-foreground",
+            )}
+          >
+            {statusText}
+          </span>
+        </div>
+        {trigger && <div className="shrink-0">{trigger}</div>}
+      </div>
+    </div>
   );
 }
 
@@ -341,7 +394,27 @@ const KNOWN_FIELDS = [
   { key: "env", label: "Environment Variables", type: "object" as const },
 ] as const;
 
-export function RuntimePanel() {
+export interface RuntimePanelProps {
+  /** Phase 5e Phase 3 (2026-05-18) — server-derived capability matrix
+   *  per Runtime. Server passes these in to avoid pulling the
+   *  capability-contract → MCP factory chain (which has Node-only
+   *  `child_process` deps) into the browser bundle. The codex_runtime
+   *  cells reflect the current provider (e.g. demoted for
+   *  codex_account); other Runtimes are provider-agnostic. */
+  readonly capabilityCells?: {
+    readonly claude_code: readonly CapabilityMatrixCell[];
+    readonly codepilot_runtime: readonly CapabilityMatrixCell[];
+    readonly codex_runtime: readonly CapabilityMatrixCell[];
+  };
+  /** Phase 5e review fix P1 #1 — the provider id used to derive the
+   *  codex_runtime matrix. Surfaced to the panel so the Codex
+   *  capability-list card can render the right header ("Codex" vs
+   *  "Codex (Codex Account)") and the right disclaimer copy. */
+  readonly currentProviderId?: string;
+}
+
+export function RuntimePanel(props: RuntimePanelProps = {}) {
+  const { capabilityCells, currentProviderId } = props;
   const { t } = useTranslation();
   const isZh = t("nav.chats") === "对话";
   // Settings is route-level split — jumping to Models must router.push the
@@ -1165,6 +1238,14 @@ export function RuntimePanel() {
               ? `${isZh ? "已安装" : "Installed"} v${claudeStatus?.version ?? ""}`
               : (isZh ? "未安装 — 选用后会自动降级到 CodePilot" : "Not installed — selecting it falls back to CodePilot")}
             isZh={isZh}
+            trigger={capabilityCells && (
+              <RuntimeCapabilityList
+                runtimeId="claude_code"
+                cells={capabilityCells.claude_code}
+                isZh={isZh}
+                stopPropagationOnTrigger
+              />
+            )}
           />
           <EnginePickerCard
             engine="native"
@@ -1179,6 +1260,14 @@ export function RuntimePanel() {
             statusKind="ok"
             statusText={isZh ? "随应用自带，始终可用" : "Bundled with the app, always available"}
             isZh={isZh}
+            trigger={capabilityCells && (
+              <RuntimeCapabilityList
+                runtimeId="codepilot_runtime"
+                cells={capabilityCells.codepilot_runtime}
+                isZh={isZh}
+                stopPropagationOnTrigger
+              />
+            )}
           />
           <EnginePickerCard
             engine="codex_runtime"
@@ -1203,6 +1292,28 @@ export function RuntimePanel() {
                       : (isZh ? "检测中…" : "Detecting…")
             }
             isZh={isZh}
+            trigger={capabilityCells && (
+              <RuntimeCapabilityList
+                runtimeId="codex_runtime"
+                cells={capabilityCells.codex_runtime}
+                isZh={isZh}
+                stopPropagationOnTrigger
+                // Phase 5e review round 7 (2026-05-18 user request) —
+                // when codex_account is the active default provider,
+                // surface the standalone header note that explains:
+                // Codex’s own plugins / Skills are managed by Codex
+                // itself, and the list below ONLY describes whether
+                // CodePilot’s built-in Harness can be injected on this
+                // path. This is the only place the matrix admits a
+                // boundary the contract can't auto-derive (it sits at
+                // the user-perception layer).
+                providerNote={
+                  currentProviderId === 'codex_account'
+                    ? codexAccountHeaderNote(isZh)
+                    : undefined
+                }
+              />
+            )}
           />
         </div>
       </div>

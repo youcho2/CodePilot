@@ -116,13 +116,22 @@ function resolveRuntime(
     || ((!overrideId || overrideId === 'auto') && settingId === 'codex_runtime');
   if (wantsCodex && codexAvailable) return 'codex_runtime';
 
-  // 1. cli_enabled=false only constrains the LEGACY pair now
+  // 1. Explicit override (Phase 5e round 8 — runs BEFORE cli_enabled).
+  //    If override targets SDK and SDK is unavailable, mirror throws.
+  if (overrideId && overrideId !== 'auto' && overrideId !== 'codex_runtime') {
+    if (overrideId === 'native') return 'native';
+    if (overrideId === 'claude-code-sdk') {
+      if (sdkAvailable) return 'claude-code-sdk';
+      throw new Error('Claude Code is pinned but the Claude Code CLI is not available.');
+    }
+  }
+
+  // 2. cli_enabled=false short-circuit — only when no explicit override above.
   if (cliDisabled) return 'native';
 
-  // 2. Explicit override
-  if (overrideId && overrideId !== 'auto') return overrideId;
-
-  // 3. Explicit setting
+  // 3. Explicit setting — try, fall through if unavailable (legacy
+  //    semantics, intentionally NOT fail-closed; that's reserved for
+  //    explicit overrides in step 1).
   if (settingId && settingId !== 'auto') {
     if (settingId === 'claude-code-sdk' && !sdkAvailable) return 'native'; // fallback
     return settingId;
@@ -134,14 +143,54 @@ function resolveRuntime(
 }
 
 describe('resolveRuntime (mirrors registry.ts)', () => {
-  it('cli disabled → native regardless (legacy pair)', () => {
-    assert.equal(resolveRuntime(true, 'claude-code-sdk', 'claude-code-sdk', true, true), 'native');
+  // Phase 5e round 8 (2026-05-18) — session pin / explicit override now
+  // beats cli_enabled=false. Previously this returned 'native' (the
+  // bug). Now: explicit SDK override + SDK available → SDK, regardless
+  // of cli_enabled. This is the headline regression pin.
+  it('explicit claude-code-sdk override + cli_enabled=false + SDK available → claude-code-sdk (NOT native)', () => {
+    assert.equal(
+      resolveRuntime(true, 'claude-code-sdk', 'claude-code-sdk', true, true),
+      'claude-code-sdk',
+    );
+  });
+  // Phase 5e round 8 — fail-closed when explicit SDK pin can't be honored.
+  it('explicit claude-code-sdk override + SDK NOT available → THROWS (never silently demotes to native)', () => {
+    assert.throws(
+      () => resolveRuntime(false, 'claude-code-sdk', undefined, false, true),
+      /Claude Code is pinned/,
+    );
+  });
+  it('explicit claude-code-sdk override + cli_enabled=false + SDK NOT available → THROWS', () => {
+    // The other half of the round 8 fix: even when cli_enabled=false is
+    // set globally, a session pinned to SDK gets a fail-closed error
+    // instead of a silent demotion. UI must surface this to the user.
+    assert.throws(
+      () => resolveRuntime(true, 'claude-code-sdk', undefined, false, true),
+      /Claude Code is pinned/,
+    );
   });
   it('explicit override takes precedence', () => {
     assert.equal(resolveRuntime(false, 'native', 'claude-code-sdk', true, true), 'native');
   });
-  it('explicit claude-code-sdk + no CLI → fallback native', () => {
+  it('global setting=claude-code-sdk + cli_enabled=false (no session pin) → native (LEGACY behavior preserved)', () => {
+    // Phase 5e round 8 deliberately preserves this case as-is. The
+    // round 8 fix only narrows behavior for EXPLICIT session pin /
+    // override (step 1) — not for a stale global setting. Reason:
+    // global preference is a stored value that may be out of sync
+    // with cli_enabled (Settings page auto-flips them together, but
+    // legacy DB rows could drift); the long-standing UX is that an
+    // outdated global silently falls back, while an explicit override
+    // is a strong signal for THIS request and gets fail-closed.
+    assert.equal(resolveRuntime(true, undefined, 'claude-code-sdk', true, true), 'native');
+  });
+  it('global setting=claude-code-sdk + no CLI + cli_enabled=true → native (fallback, no throw — legacy)', () => {
     assert.equal(resolveRuntime(false, undefined, 'claude-code-sdk', false, true), 'native');
+  });
+  it('cli_enabled=false + no explicit override + no SDK pref → native (legacy gate still works for auto)', () => {
+    // The cli_enabled gate STILL applies when there's no explicit
+    // override / SDK setting — typical case: global default is
+    // CodePilot/Codex, no session pin. We still want native then.
+    assert.equal(resolveRuntime(true, undefined, undefined, true, true), 'native');
   });
   it('setting takes precedence over auto', () => {
     assert.equal(resolveRuntime(false, undefined, 'native', true, true), 'native');

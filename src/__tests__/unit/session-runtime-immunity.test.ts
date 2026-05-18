@@ -460,6 +460,68 @@ describe('GREEN — resolveRuntimeForSession honours session.runtime_pin', () =>
       teardown();
     }
   });
+
+  // ─────────────────────────────────────────────────────────────────
+  // Phase 5e round 8 (2026-05-18) — session pin priority over
+  // cli_enabled=false. This was the user-reported P0:
+  //   "global default is Codex or CodePilot (sets cli_enabled=false),
+  //    but I pick Claude Code for one session via the composer; UI
+  //    shows ClaudeCode but backend silently runs Native."
+  // Regression pins live here AND in runtime-selection.test.ts (the
+  // algorithm-level mirror). This block covers the chat-runtime wrapper
+  // contract: resolveRuntimeForSession honors the pin verbatim no
+  // matter what the global cli_enabled / agent_runtime look like.
+  // ─────────────────────────────────────────────────────────────────
+
+  it('pin=claude_code + cli_enabled=false (global default Codex/CodePilot) → claude_code (NOT codepilot_runtime)', () => {
+    setup();
+    const savedCli = getSetting('cli_enabled');
+    try {
+      setSetting('agent_runtime', 'codex_runtime');
+      setSetting('cli_enabled', 'false');
+      const r = resolveRuntimeForSession({ runtime_pin: 'claude_code' });
+      assert.equal(
+        r,
+        'claude_code',
+        'session pin must beat the global cli_enabled=false short-circuit — otherwise UI lies about which engine ran',
+      );
+    } finally {
+      setSetting('cli_enabled', savedCli || '');
+      teardown();
+    }
+  });
+
+  it('pin=claude_code + global agent_runtime=native + cli_enabled=false → claude_code (compound immunity)', () => {
+    // Same as above but also pins agent_runtime away from claude-code-sdk.
+    // The session pin is the singular source of truth.
+    setup();
+    const savedCli = getSetting('cli_enabled');
+    try {
+      setSetting('agent_runtime', 'native');
+      setSetting('cli_enabled', 'false');
+      const r = resolveRuntimeForSession({ runtime_pin: 'claude_code' });
+      assert.equal(r, 'claude_code');
+    } finally {
+      setSetting('cli_enabled', savedCli || '');
+      teardown();
+    }
+  });
+
+  it('pin=codepilot_runtime + cli_enabled=true + global=claude-code-sdk → codepilot_runtime (pin always wins)', () => {
+    // Mirror image of the above — session pinned to Native, global
+    // default is SDK. The pin still wins.
+    setup();
+    const savedCli = getSetting('cli_enabled');
+    try {
+      setSetting('agent_runtime', 'claude-code-sdk');
+      setSetting('cli_enabled', 'true');
+      const r = resolveRuntimeForSession({ runtime_pin: 'codepilot_runtime' });
+      assert.equal(r, 'codepilot_runtime');
+    } finally {
+      setSetting('cli_enabled', savedCli || '');
+      teardown();
+    }
+  });
 });
 
 // ────────────────────────────────────────────────────────────────

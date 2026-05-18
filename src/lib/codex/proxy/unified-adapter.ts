@@ -39,7 +39,7 @@ import { translateNonStreamResponse } from './translate-response';
 import { encodeEvent, encodeDone, makeFailureStream } from './sse';
 import { makeErrorResult, classifyUpstreamError } from './errors';
 import { createCodePilotBuiltinTools } from './builtin-bridge';
-import { compileContext } from '@/lib/harness/context-compiler';
+import { adaptForCodexProxy } from '@/lib/harness/runtime-adapter';
 import type { ResponsesAdapter } from './adapter';
 import type {
   ResponsesEvent,
@@ -132,25 +132,67 @@ export function createUnifiedAdapter(family: string): ResponsesAdapter {
     }
     const tools: ToolSet | undefined = mergeToolSets(codexTools, bridge.tools);
 
-    // Compile the system prompt from the harness Context Compiler.
-    // `enabledCapabilities` mirrors what the bridge actually mounted
-    // so the compiler can't disagree with which tools the model
-    // sees (workspace-gated memory tools drop out of both sides
-    // naturally when `workspacePath` is empty).
+    // Phase 5d Phase 3 (2026-05-17) — capability prompt assembly +
+    // stopWhen / builtinToolNames hints routed through the Runtime
+    // Capability Adapter (`adaptForCodexProxy`). The adapter wraps
+    // Phase 2's compileContext call so this entry point no longer
+    // touches the compiler directly.
+    //
+    // `enabledCapabilities` still mirrors what the bridge actually
+    // mounted so the compiler can't disagree with which tools the
+    // model sees (workspace-gated memory tools drop out of both
+    // sides naturally when `workspacePath` is empty). The suppression
+    // set passed to translate-stream stays as `bridge.toolNames`
+    // (the authoritative "what ai-sdk actually executed" surface) —
+    // the adapter's `builtinToolNames` hint is the catalog-derived
+    // mirror and could differ if a future catalog drift sneaks in.
     const bridgeMounted = bridge.toolNames.size > 0;
-    const compiled = compileContext({
+    // Phase 5e review fix P1 #2 (2026-05-18) — scan User + External
+    // Harness extensions and pass through the adapter so the model
+    // sees the user's MCP servers / Skills / commands / external
+    // framework configs as a perception fragment. External scans
+    // tag executable=true only when activeFramework matches; for
+    // Codex Runtime that's `codex`, so the user's `~/.codex/*`
+    // entries are callable while `~/.claude/*` entries are perception-
+    // only with a "switch to ClaudeCode Runtime" hint. Best-effort
+    // import — scan failures degrade silently to "no extensions".
+    let userExtensions: ReturnType<
+      typeof import('@/lib/harness/user-codepilot-extensions').scanUserCodePilotExtensions
+    > = [];
+    let externalExtensions: ReturnType<
+      typeof import('@/lib/harness/external-framework-harness').scanExternalFrameworkExtensions
+    > = [];
+    try {
+      const { scanUserCodePilotExtensions } = await import(
+        '@/lib/harness/user-codepilot-extensions'
+      );
+      userExtensions = scanUserCodePilotExtensions({
+        workspacePath: input.workspacePath,
+        runtimeId: 'codex_runtime',
+      });
+    } catch { /* best effort */ }
+    try {
+      const { scanExternalFrameworkExtensions } = await import(
+        '@/lib/harness/external-framework-harness'
+      );
+      externalExtensions = scanExternalFrameworkExtensions({
+        activeFramework: 'codex',
+      });
+    } catch { /* best effort */ }
+
+    const adapted = adaptForCodexProxy({
       sessionId: input.sessionId || 'codex-anonymous',
       workingDirectory: input.workspacePath || undefined,
-      runtimeId: 'codex_runtime',
       providerId: input.targetProviderId,
       model: input.body.model,
       userPrompt: '',
       enabledCapabilities: bridgeMounted
         ? capabilitiesFromBridgeToolNames(bridge.toolNames)
         : new Set<string>(),
-      tokenBudget: { systemPromptMax: 100_000, contextMax: 200_000 },
+      userExtensions,
+      externalExtensions,
     });
-    const bridgePrompt = compiled.systemPromptText;
+    const bridgePrompt = adapted.systemPromptInstructions;
 
     // Splice the compiler prompt into the request body's
     // `instructions`. `buildMessages` below reads
@@ -172,6 +214,14 @@ export function createUnifiedAdapter(family: string): ResponsesAdapter {
     const providerOptions = buildProviderOptions(bodyWithBridgePrompt);
     const wantsStream = input.body.stream !== false;
 
+    // Phase 5d Phase 3 review fix #1 (2026-05-17) — Path inputs read
+    // builtinToolNames / stopWhen / stepCount FROM THE ADAPTER, not
+    // local state. Previously `streamPath` received `bridge.toolNames`
+    // directly and hard-coded `BUILTIN_BRIDGE_STEP_LIMIT = 8`. That
+    // made `runtime-adapter.ts`'s `stopWhen / stepCount` hint
+    // half-dead — changing the compiler hint would NOT have changed
+    // the real send path. The adapter is now the single source for
+    // these values; the compiler owns `CODEX_BRIDGE_STEP_LIMIT`.
     if (wantsStream) {
       return streamPath({
         responseId,
@@ -179,7 +229,9 @@ export function createUnifiedAdapter(family: string): ResponsesAdapter {
         languageModel,
         messages,
         tools,
-        builtinToolNames: bridge.toolNames,
+        builtinToolNames: adapted.builtinToolNames,
+        stopWhen: adapted.stopWhen,
+        stepCount: adapted.stepCount,
         providerOptions,
         signal: input.signal,
         family,
@@ -192,7 +244,9 @@ export function createUnifiedAdapter(family: string): ResponsesAdapter {
       languageModel,
       messages,
       tools,
-      builtinToolNames: bridge.toolNames,
+      builtinToolNames: adapted.builtinToolNames,
+      stopWhen: adapted.stopWhen,
+      stepCount: adapted.stepCount,
       providerOptions,
       signal: input.signal,
       family,
@@ -262,30 +316,48 @@ interface PathInput {
   tools: ToolSet | undefined;
   /** Names belonging to the bridge — Codex doesn't need their
    *  function_call events because the bridge already executed them.
-   *  See `translate-stream.ts` for the suppression logic. */
+   *  See `translate-stream.ts` for the suppression logic. Sourced
+   *  from `adaptForCodexProxy().builtinToolNames` so the value is
+   *  the catalog-derived single source, not a bridge-local copy. */
   builtinToolNames: ReadonlySet<string>;
+  /** AI SDK multi-step ceiling decision. Sourced from
+   *  `adaptForCodexProxy().stopWhen`; the compiler decides this based
+   *  on whether any built-in capability is enabled. */
+  stopWhen: 'stepCountIs' | 'never';
+  /** Step ceiling when `stopWhen === 'stepCountIs'`. Sourced from
+   *  `adaptForCodexProxy().stepCount`; the compiler holds the
+   *  canonical `CODEX_BRIDGE_STEP_LIMIT` constant. */
+  stepCount: number;
   providerOptions: AiProviderOptions | undefined;
   signal: AbortSignal;
   family: string;
 }
 
 /**
- * Phase 5c (2026-05-16) — multi-step ceiling for streamText.
+ * Phase 5c (2026-05-16) — multi-step ceiling for streamText. The
+ * actual constant value lives in `src/lib/harness/context-compiler.ts`
+ * (`CODEX_BRIDGE_STEP_LIMIT`); both stream and non-stream paths read
+ * it from `adapted.stepCount` via PathInput, so the value is the
+ * compiler's choice rather than a parallel local constant.
  *
- * Codex's protocol expects a single response per HTTP call, but
- * ai-sdk lets the model continue after a server-side tool execute()
- * returns. The bridge needs that loop so `codepilot_generate_image`
- * can produce an image AND the model can follow up with explanatory
- * text in the same turn — without `stopWhen` ai-sdk stops after the
- * first step (legacy behaviour). 8 is empirical: enough for chained
- * tools (memory read → image gen → narration → schedule task), low
- * enough that a confused model loop terminates instead of looping
- * indefinitely on tool calls.
+ * 8 is empirical: enough for chained tools (memory read → image gen →
+ * narration → schedule task), low enough that a confused model loop
+ * terminates instead of looping indefinitely on tool calls.
  */
-const BUILTIN_BRIDGE_STEP_LIMIT = 8;
+function buildStopWhen(
+  stopWhen: 'stepCountIs' | 'never',
+  stepCount: number,
+): { stopWhen: ReturnType<typeof stepCountIs> } | Record<string, never> {
+  // Phase 5c: only enable multi-step when the adapter says we should
+  // (i.e. bridge tools mounted). For pre-5c chat-only smoke runs (no
+  // sessionId, no bridge), keep the single-step legacy behaviour so
+  // we don't accidentally change the wire of currently passing
+  // smoke matrix entries.
+  return stopWhen === 'stepCountIs' ? { stopWhen: stepCountIs(stepCount) } : {};
+}
 
 function streamPath(args: PathInput): ProxyResult {
-  const { responseId, body, languageModel, messages, tools, builtinToolNames, providerOptions, signal, family } = args;
+  const { responseId, body, languageModel, messages, tools, builtinToolNames, stopWhen, stepCount, providerOptions, signal, family } = args;
 
   let result: ReturnType<typeof streamText>;
   try {
@@ -295,12 +367,7 @@ function streamPath(args: PathInput): ProxyResult {
       tools,
       providerOptions,
       abortSignal: signal,
-      // Phase 5c: only enable multi-step when bridge tools are
-      // actually mounted. For pre-5c chat-only smoke runs (no
-      // sessionId, no bridge), keep the single-step legacy behaviour
-      // so we don't accidentally change the wire of currently passing
-      // smoke matrix entries.
-      ...(builtinToolNames.size > 0 ? { stopWhen: stepCountIs(BUILTIN_BRIDGE_STEP_LIMIT) } : {}),
+      ...buildStopWhen(stopWhen, stepCount),
     });
   } catch (err) {
     const classified = classifyUpstreamError(err);
@@ -360,7 +427,7 @@ function streamPath(args: PathInput): ProxyResult {
 }
 
 async function nonStreamPath(args: PathInput): Promise<ProxyResult> {
-  const { responseId, body, languageModel, messages, tools, builtinToolNames, providerOptions, signal, family } = args;
+  const { responseId, body, languageModel, messages, tools, builtinToolNames, stopWhen, stepCount, providerOptions, signal, family } = args;
   try {
     const result = await generateText({
       model: languageModel,
@@ -370,8 +437,8 @@ async function nonStreamPath(args: PathInput): Promise<ProxyResult> {
       abortSignal: signal,
       // Same step ceiling as streamPath — kept symmetric so the
       // non-stream path doesn't surprise callers that switch
-      // between stream:true/false at runtime.
-      ...(builtinToolNames.size > 0 ? { stopWhen: stepCountIs(BUILTIN_BRIDGE_STEP_LIMIT) } : {}),
+      // between stream:true/false at runtime. Source: adapter.
+      ...buildStopWhen(stopWhen, stepCount),
     });
     const responseBody = translateNonStreamResponse({
       responseId,

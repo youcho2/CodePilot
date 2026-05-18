@@ -85,16 +85,20 @@ describe('unified-adapter — compiler prompt reaches messages[] (P0 regression)
     );
   });
 
-  it('source MUST run compileContext BEFORE buildMessages', () => {
-    // Both substrings exist; the compileContext call must appear
-    // earlier in the file than the buildMessages call.
-    const compileIdx = ADAPTER_SRC.indexOf('compileContext({');
+  it('source MUST run adaptForCodexProxy BEFORE buildMessages', () => {
+    // Phase 5d Phase 3 (2026-05-17) — the compile call moved into
+    // the Runtime Capability Adapter facade (`adaptForCodexProxy`).
+    // The ordering invariant is the same: the facade call (which
+    // internally runs `compileContext`) must finish before
+    // `buildMessages` reads `bodyWithBridgePrompt.instructions`.
+    // Pin shifted from `compileContext({` to `adaptForCodexProxy({`.
+    const compileIdx = ADAPTER_SRC.indexOf('adaptForCodexProxy({');
     const buildMessagesIdx = ADAPTER_SRC.indexOf('buildMessages(bodyWithBridgePrompt)');
-    assert.ok(compileIdx > 0, 'compileContext({...}) call must exist');
+    assert.ok(compileIdx > 0, 'adaptForCodexProxy({...}) call must exist');
     assert.ok(buildMessagesIdx > 0, 'buildMessages(bodyWithBridgePrompt) call must exist');
     assert.ok(
       compileIdx < buildMessagesIdx,
-      `compileContext (idx=${compileIdx}) must run BEFORE buildMessages (idx=${buildMessagesIdx}); reversing the order is the P0 regression`,
+      `adaptForCodexProxy (idx=${compileIdx}) must run BEFORE buildMessages (idx=${buildMessagesIdx}); reversing the order is the P0 regression`,
     );
   });
 

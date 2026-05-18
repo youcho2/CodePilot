@@ -331,24 +331,33 @@ const assistantBuddy: CapabilityContract = {
   id: 'assistant_buddy',
   displayName: 'Assistant buddy hatching / naming',
   status: 'deferred',
-  deferredReason: 'Codex Runtime bridge not yet implemented. ClaudeCode SDK + Native paths expose codepilot_hatch_buddy via the notification MCP/AI-SDK surfaces today; bridging it into Codex Runtime requires deciding whether buddy hatching is a Harness-level capability or an assistant-workspace flow, and that scoping is deferred to a future slice.',
+  // Phase 5e Phase 0.5 audit fix (2026-05-17) — pre-fix this entry
+  // declared Native exposure as `ai_sdk_tool` claiming
+  // `createNotificationTools` mounted `codepilot_hatch_buddy`. That
+  // statement was a catalog drift: `src/lib/builtin-tools/notification.ts`
+  // only mounts notify / schedule_task / list_tasks / cancel_task. The
+  // hatch tool exists ONLY in the MCP authority `src/lib/notification-mcp.ts`
+  // (see line 287 — registered alongside the task/notify tools). Per user
+  // direction "不要继续写 Native 已暴露这种不真实口径", Native exposure
+  // is now `unsupported` until the Native factory actually ships
+  // `codepilot_hatch_buddy`. When Native ships it, flip back to
+  // `ai_sdk_tool` + remove this comment.
+  deferredReason: 'ClaudeCode SDK path exposes codepilot_hatch_buddy via the notification MCP today. Native Runtime + Codex Runtime do NOT expose it (no Native factory + no Codex bridge). Bridging buddy hatching into Native / Codex requires deciding whether it is a Harness-level capability or an assistant-workspace flow, and that scoping is deferred to a future slice.',
   toolNames: ['codepilot_hatch_buddy'],
   exposure: {
     claudecode_sdk: {
       kind: 'mcp_server',
       module: 'src/lib/notification-mcp.ts',
       factory: 'createNotificationMcpServer',
-      notes: 'codepilot_hatch_buddy registered inside the same MCP server as the task/notify tools.',
+      notes: 'codepilot_hatch_buddy registered inside the same MCP server as the task/notify tools (notification-mcp.ts:287).',
     },
     native: {
-      kind: 'ai_sdk_tool',
-      module: 'src/lib/builtin-tools/notification.ts',
-      factory: 'createNotificationTools',
-      notes: 'codepilot_hatch_buddy is part of the createNotificationTools tool set on Native.',
+      kind: 'unsupported',
+      notes: 'Native factory createNotificationTools (src/lib/builtin-tools/notification.ts) does NOT mount codepilot_hatch_buddy — only notify / schedule_task / list_tasks / cancel_task. Catalog drift corrected 2026-05-17 (Phase 5e Phase 0.5 audit). If the Native factory later adds hatch_buddy, flip this back to ai_sdk_tool.',
     },
     codex_proxy: {
       kind: 'unsupported',
-      notes: 'Not exposed via createCodePilotBuiltinTools. Codex Runtime users cannot hatch a buddy directly through the bridge; suggested workaround is to switch to ClaudeCode or Native Runtime for the hatch flow.',
+      notes: 'Not exposed via createCodePilotBuiltinTools. Codex Runtime users cannot hatch a buddy directly through the bridge; suggested workaround is to switch to ClaudeCode Runtime for the hatch flow.',
     },
   },
   systemPromptFragment: NOTIFICATION_MCP_SYSTEM_PROMPT,
@@ -373,13 +382,13 @@ const imageGeneration: CapabilityContract = {
       kind: 'ai_sdk_tool',
       module: 'src/lib/builtin-tools/media.ts',
       factory: 'createMediaTools (codepilot_generate_image key)',
-      notes: 'Calls generateSingleImage directly; result text only — Native Runtime does not currently emit MediaBlock for image results. Drift tech-debt.',
+      notes: 'Phase 5e Phase 0.5 P1 (2026-05-17) — calls generateSingleImage and constructs MediaBlock[] (image type, mimeType from img.mimeType, localPath, mediaId from result.mediaGenerationId). Emits via the harness side-channel (`@/lib/harness/builtin-event-bus`); agent-loop.ts subscribes and splices into SSE `tool_result.media`. execute() return value is plain text (no JSON pollution model-side). Tool result shape parity with Codex bridge.',
     },
     codex_proxy: {
       kind: 'bridge_executable',
       module: 'src/lib/codex/proxy/builtin-bridge.ts',
       factory: 'buildImageGenerationTool',
-      notes: 'Slice 2 + slice 4 fully wired with MediaBlock construction + materializeCodexEventMedia + side-channel emit.',
+      notes: 'Slice 2 + slice 4 fully wired with MediaBlock construction + materializeCodexEventMedia + side-channel emit. (Same side-channel bus the Native path now consumes since Phase 5e P1.)',
     },
   },
   // No canonical MCP-side prompt — the image-gen MCP relies on tool
@@ -415,18 +424,18 @@ const mediaImport: CapabilityContract = {
       kind: 'ai_sdk_tool',
       module: 'src/lib/builtin-tools/media.ts',
       factory: 'createMediaTools (codepilot_import_media key)',
+      notes: 'Phase 5e Phase 0.5 P1 (2026-05-17) — calls importFileToLibrary, constructs MediaBlock via mediaTypeOf(mimeType) + inferMimeFromPath helpers (image / video / audio per extension). Emits via harness side-channel; agent-loop.ts splices into SSE tool_result.media. Tool result shape parity with Codex bridge.',
     },
     codex_proxy: {
       kind: 'bridge_executable',
       module: 'src/lib/codex/proxy/builtin-bridge.ts',
       factory: 'buildImportMediaTool',
-      notes: 'Slice 4 fix: MediaBlock.type now matches mimeType prefix (image / video / audio).',
+      notes: 'Slice 4 fix: MediaBlock.type matches mimeType prefix (image / video / audio). Same side-channel bus the Native path now consumes since Phase 5e P1.',
     },
   },
   // Phase 5d slice 7b — switch canonical to the MCP-side
   // MEDIA_MCP_SYSTEM_PROMPT now that we know it exists. Native +
-  // bridge still effectively use the shorter MEDIA_SYSTEM_PROMPT
-  // (drift recorded in tech-debt list).
+  // bridge use the same authority via re-export.
   systemPromptFragment: MEDIA_MCP_SYSTEM_PROMPT,
   toolResultShape: 'media',
   canonicalEventTypes: ['tool_started', 'tool_completed'],
@@ -437,7 +446,7 @@ const dashboard: CapabilityContract = {
   id: 'dashboard',
   displayName: 'Dashboard pin / list / refresh',
   status: 'deferred',
-  deferredReason: 'Codex Runtime bridge not yet implemented. ClaudeCode SDK + Native paths are wired but Codex bridge needs permission round-trip design for write operations (pin / remove / update). Slice 8+ candidate.',
+  deferredReason: 'Codex Runtime bridge not yet implemented. ClaudeCode SDK + Native paths are wired but Codex bridge needs permission round-trip design for write operations (pin / remove / update). Phase 5d Phase 6 slice 6d is scheduled to ship the Codex Runtime + non-codex_account bridge first; codex_account path is gated on Phase 6c (Codex app-server protocol schema snapshot) and stays unsupported until then. See docs/exec-plans/active/phase-5d-phase-6-codex-account-harness.md.',
   toolNames: [
     'codepilot_dashboard_pin',
     'codepilot_dashboard_list',

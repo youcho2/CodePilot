@@ -41,6 +41,83 @@
 - `harness-context-compiler-equivalence.test.ts`（9 pins）：compilerSource / runtimeSource 文件可读 + export 可静态发现、capability_fragment_replaced 真有 drift、ledger ↔ slice ownership 对齐
 - `harness-capability-contract.test.ts` 增量：bridge 不再持有 _PROMPT 标量、Native 三文件 re-export canonical、ClaudeCode source-pin
 
+## Runtime Capability Adapter（Phase 5d Phase 3，2026-05-17）
+
+`src/lib/harness/runtime-adapter.ts` 是三个 Runtime 入口的**唯一**编译器消费通道。把 Phase 2 留在三处的 "构造 CompilerInput → 调 compileContext → 解包 runtimeHints / systemPromptText" 模板代码合并成三个 facade：
+
+| Facade | 用于 | 输出关键字段 |
+|---|---|---|
+| `adaptForClaudeCode(input)` | `claude-client.ts` MCP 注册分支末尾 | `systemPromptAppend` / `mcpServerNames` / `allowedToolNames` / `compiled` |
+| `adaptForNative(input)` | `builtin-tools/index.ts getBuiltinTools()` 末尾 | `systemPromptText` / `toolSetKeys` / `compiled` |
+| `adaptForCodexProxy(input)` | `codex/proxy/unified-adapter.ts` bridge mount 之后 | `systemPromptInstructions` / `builtinToolNames` / `stopWhen` / `stepCount` / `compiled` |
+
+**结构性不变量**（由 `harness-runtime-adapter.test.ts` + `harness-capability-contract.test.ts` source-grep 守护）：
+
+1. **Entry-point cleanliness**：`claude-client.ts` / `builtin-tools/index.ts` / `unified-adapter.ts` 三个入口文件 grep `from '@/lib/harness/context-compiler'` 必须返回 0 行；只能通过 `runtime-adapter` 进入编译器。
+2. **String-always shape**：facade 输出的 systemPrompt 字段恒为 string（空集时为 `''`，非空集时为完整文本）。这把 Phase 2 review 暴露的 "capability prompt 仅在 caller 有 base systemPrompt 时才注入" 漂洞钉死成类型层约束——caller 只能 `length > 0` 判断后注入，不能再走 `&& queryOptions.systemPrompt` 之类的隐式 short-circuit。
+3. **Native codepilot-media 双 capability**：`builtin-tools/index.ts` `capabilityIdsForGroup('codepilot-media')` 必须返回 `['media_import', 'image_generation']`；source-grep + runtime check 双重 pin（slice 2d P1 修复点）。
+4. **Codex 步骤上限单源**（Phase 3 review fix #1）：`unified-adapter.ts` 不准声明本地 `BUILTIN_BRIDGE_STEP_LIMIT` 常量；`PathInput.stopWhen / stepCount` 由 `adapted.stopWhen / stepCount` 喂入；suppression set 用 `adapted.builtinToolNames`（不再用 `bridge.toolNames`）。常量本身搬到 `context-compiler.ts` 的 `CODEX_BRIDGE_STEP_LIMIT`。
+
+**Phase 3 测试覆盖**（`harness-runtime-adapter.test.ts`，34 pins，含 Phase 3 review fix #1 单源 pin）：
+
+- 三 facade 的 shape contract（每个字段类型 + 非空集 → 非空 / 空集 → empty）
+- Phase 2 review invariant 重测（string-always + Native 双 capability mapping）
+- 跨 Runtime fragment text identity（widget + 所有 live cross-runtime-supported capability 字节相等）
+- Entry-point cleanliness source-grep（compileContext 直引必须为 0）
+- **Codex 步骤上限单源 pin**（Phase 3 review fix #1）：`unified-adapter.ts` 无本地 `BUILTIN_BRIDGE_STEP_LIMIT`；`streamPath` / `nonStreamPath` 接 `adapted.stopWhen / stepCount / builtinToolNames`；`bridge.toolNames` 不再传入 PathInput；`context-compiler.ts` 持有唯一常量 `CODEX_BRIDGE_STEP_LIMIT = 8`
+
+## Artifact Contract（Phase 5d Phase 4，2026-05-17）
+
+`src/lib/harness/artifact-contract.ts` 把"前端能渲染哪些产物"声明成单一 registry。每个 artifact 列出 source（fence / SSE / PreviewSource）+ parser 模块 + renderer 模块 + canonical example。这一层和 `capability-contract.ts` 的 `artifactContract` 字段**正交但补充**：
+
+- `capability.artifactContract`：模型 prompt 端 — model 怎么 emit。仅 widget 使用。
+- `ARTIFACT_CONTRACTS`：渲染端 — 前端怎么 parse + render。覆盖 9 种产物。
+
+**当前 artifact 矩阵**（`HARNESS_CAPABILITIES` 之外的渲染面统一登记 — 11 条；Phase 3 review fix 把 diff 拆成 sse / preview_source 两条，补回缺失的 inline_jsx）：
+
+| Artifact | Source | Source descriptor | Parser 模块 | Renderer | Related capabilities |
+|---|---|---|---|---|---|
+| widget | fence | `show-widget` | `MessageItem.tsx parseAllShowWidgets` | `WidgetRenderer.tsx` | `[widget]` |
+| malformed_widget | fence | `show-widget`（解析失败分支） | 同上 parser | `MessageItem.tsx MalformedWidgetNotice` | `[widget]` |
+| media | sse_event | `tool_result.media` | `useSSEStream.ts case 'tool_result'`（inline） | `MediaPreview.tsx` | `[image_generation, media_import]` |
+| file_diff_summary | sse_event | `file_changed` | `useSSEStream.ts case 'file_changed'`（inline） | `DiffSummary.tsx` | `[]` |
+| inline_diff | preview_source | `inline-diff` | `usePanel.ts PreviewSource` | `DiffViewer.tsx` | `[]` |
+| inline_jsx | preview_source | `inline-jsx` | 同上 | `SandpackPreview.tsx`（PreviewPanel inline-jsx arm 内 mount） | `[]` |
+| markdown | preview_source | `inline-markdown` | 同上 | `PreviewPanel.tsx` | `[]` |
+| html | preview_source | `inline-html` | 同上 | `PreviewPanel.tsx`（+ `injectInlineHtmlCsp`） | `[]` |
+| json | preview_source | `inline-json` | 同上 | `JsonTreeViewer.tsx` | `[]` |
+| table | preview_source | `inline-datatable` | 同上 | `PreviewPanel.tsx` 内联 arm | `[]` |
+| error | component | `<component>` | `error-banner.tsx`（组件驱动） | `ErrorBanner` | `[]` |
+
+**结构性不变量**（由 `harness-artifact-contract.test.ts` 守护）：
+
+1. 每条 contract 的 parser/renderer 模块文件在磁盘真实存在；非 inline export 名能 grep 到。
+2. fence-source artifact 的 `fenceLanguage` 必须在 parser 模块文件里 mention（防止 fence 名漂走 parser 仍然指旧名）。
+3. SSE-source artifact 的 `eventType` 必须在 parser 模块的 `case 'xxx':` arm 出现。
+4. preview_source artifact 的 `previewKind` 必须是 `usePanel.ts` `PreviewSource` 联合类型声明过的 kind。
+5. **PreviewSource union 完整性**（Phase 3 review fix）：`usePanel.ts` `PreviewSource` 中声明的**每个** `inline-*` kind 都必须有 ARTIFACT_CONTRACTS entry。下次有人加 `inline-foo` arm 但忘记登记，测试会先于用户看到失败。
+6. canonical example 能 round-trip：widget 解析得到 `widget` segment、malformed_widget 解析得到 `malformed_widget` segment、json JSON.parse 成功、markdown 非空、html 含 HTML tag、inline_diff 含 `---/+++/@@` unified-diff 标记、inline_jsx 含 JSX 标签。
+7. widget 的 `canonicalExample`（剥掉 fence 包装后）字节等于 capability contract 的 `CANONICAL_SHOW_WIDGET_JSON`。
+8. capability.artifactContract 中声明的 fenceLanguage 必须能在 ARTIFACT_CONTRACTS 找到对应 entry。
+9. **多 capability artifact**（Phase 3 review fix P2）：`relatedCapabilities` 是数组；`artifactsForCapability(id)` 用 `.includes(id)` 检索，所以 `media` 在 `image_generation` 和 `media_import` 两个 capability 下都能解析。
+
+**Phase 4 测试覆盖**（`harness-artifact-contract.test.ts`，22 pins）：catalog hygiene、fence/SSE/preview source descriptor 静态对齐、PreviewSource union 完整性、canonical example round-trip（含 inline_diff / inline_jsx）、widget 跨表 byte-identical、capability ↔ artifact 一致性（含 media 双 capability 解析）、`isFileChangedDetail` 实际可调用。
+
+## New Runtime Playbook（Phase 5d Phase 5，2026-05-17）
+
+接入下一个 Agent Runtime（Hermes / Gemini Live / OpenClaw / 其他）的**硬性流程**写在 [docs/handover/new-runtime-playbook.md](./new-runtime-playbook.md)。要点：
+
+- Step 0 决定走 Provider 还是 Runtime（GLM / Kimi 这种无 agent loop 的不应该当 Runtime）
+- Step 1 Schema snapshot 抓 fixture 入 repo，禁止 speculation-driven
+- Step 2 Capability inventory 加 `RuntimeExposure`，严格 live 定义
+- Step 3 Runtime Capability Adapter facade（新 Runtime 入口禁止直引 compileContext）
+- Step 4 Artifact Contract（如有新 artifact）
+- Step 5 **Contract Tests Gate**：5 个 harness-*.test.ts 全绿才允许进 Step 6
+- Step 6 固定 9 项 Smoke Matrix（不允许自由发挥）
+- Step 7 UI 可见性收口
+
+Playbook 禁止 live-smoke-driven patching 作为开发主流程；Step 5 是结构性卡口。
+
 ## 三层模型
 
 每个能力按三层定义：
@@ -97,14 +174,9 @@ Widget 的 `show-widget` JSON 示例需要 round-trip 校验：契约持有 `can
 
 ## 接入新 Runtime 的硬性流程
 
-> 这部分对应 Phase 5d Phase 5 的 Playbook。新 Runtime（Hermes / Gemini / OpenClaw 等）落地前必须按此走。
-
-1. **Snapshot 上游协议** — 把目标 Runtime 的 SDK / protocol fixture 拷到 `资料/<runtime>/`。Codex `tool_spec.rs` enum 是最近一次的真实参照（参考 `资料/codex/codex-rs/tools/src/tool_spec.rs`）。
-2. **填 Runtime Capability Inventory** — 对每个 `live` capability 决定：原生支持 / 通过 bridge 执行 / 当前 unsupported with reason。
-3. **修改契约** — 给每个 capability 的 `exposure` map 加一个新的 runtime key（先 `unsupported with notes`，再逐项升级）。
-4. **跑 contract tests** — `npm run test`。测试不会过的 capability，要么写实现，要么明确 unsupported。
-5. **跑 smoke matrix** — capability 全部 live 之后才跑真实凭据 smoke。**禁止反过来：先 live smoke 再补字段**（这是 Phase 5c 三天救火的根因）。
-6. **打开 picker** — smoke 全过、契约绿，才把 Runtime 在 Settings / Runtime picker 标可用。
+> 唯一权威：**[docs/handover/new-runtime-playbook.md](./new-runtime-playbook.md)**（Phase 5d Phase 5 落地）。
+>
+> 本节早期 6 步精简版已替换为 playbook 的 7 步硬流程；playbook 增加了 Step 0 Provider/Runtime 边界判断 + Step 5 "Contract Tests Gate"（5 个 harness-*.test.ts 在 smoke 之前必须全绿）+ Step 7 UI 可见性收口 + 7 条反模式（来自 slice 1-6 真实事故）。新 Runtime 落地前必须按 playbook 走。
 
 ## 当前已知 tech-debt
 

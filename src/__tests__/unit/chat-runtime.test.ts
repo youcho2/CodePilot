@@ -53,13 +53,20 @@ describe('chat-runtime registry side effects', () => {
     }
   });
 
-  it('cli_enabled=false → codepilot_runtime regardless of agent_runtime', () => {
+  it('cli_enabled=false + agent_runtime=claude-code-sdk (no session override) → codepilot_runtime', () => {
     const savedCli = getSetting('cli_enabled');
     const savedRt = getSetting('agent_runtime');
     setSetting('cli_enabled', 'false');
     setSetting('agent_runtime', 'claude-code-sdk');
     try {
-      // cli_disabled is the highest-priority constraint in resolveRuntime.
+      // Phase 5e round 8 — comment updated. cli_disabled is no longer
+      // the "highest-priority" constraint in resolveRuntime: an
+      // explicit session pin to claude_code now wins over it. But
+      // here we call `getActiveChatRuntime()` with NO session pin, so
+      // resolveRuntime gets overrideId=undefined and the cli_disabled
+      // short-circuit (step 2) still fires → native. The session-pin
+      // win is tested separately in runtime-selection.test.ts /
+      // session-runtime-immunity-claude-pin.test.ts.
       assert.equal(getActiveChatRuntime(), 'codepilot_runtime');
     } finally {
       setSetting('cli_enabled', savedCli || '');
