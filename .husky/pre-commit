@@ -1,3 +1,10 @@
 npx lint-staged
 npx tsc --noEmit
-npx tsx --test src/__tests__/unit/*.test.ts
+# CODEX_DISABLED=1 mirrors `npm run test:unit` (see package.json scripts).
+# Without it the pre-commit hook spawns the real Codex app-server during
+# unit tests, which (a) holds the user's real CodePilot SQLite DB and
+# fights for locks with the dev server, (b) takes ~35× longer than the
+# standalone npm run test (~25s) — observed in Phase 5b round-6 smoke,
+# where every commit wedged for 30+ minutes. Keep the hook env aligned
+# with the canonical test script.
+CODEX_DISABLED=1 npx tsx --test src/__tests__/unit/*.test.ts
