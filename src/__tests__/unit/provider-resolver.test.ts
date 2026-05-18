@@ -98,6 +98,43 @@ describe('Provider Catalog', () => {
       assert.equal(preset.protocol, 'anthropic');
       assert.ok(preset.fields.includes('env_overrides'), 'should expose env_overrides field');
     });
+
+    it('openrouter preset ships upstreamModelId for sonnet/opus/haiku (round 8)', () => {
+      // Phase 5b round-8 (2026-05-18) — OpenRouter rejects the bare
+      // aliases (`sonnet` / `opus` / `haiku`) with "is not a valid
+      // model ID". The preset's defaultModels now ship a verified
+      // OpenRouter slug via `upstreamModelId` on each entry so the
+      // resolver's `catalogEntry.upstreamModelId` path
+      // (provider-resolver.ts:424) sends the right id upstream.
+      const preset = VENDOR_PRESETS.find(p => p.key === 'openrouter');
+      assert.ok(preset, 'openrouter preset not found');
+      const byAlias = new Map(preset!.defaultModels.map(m => [m.modelId, m]));
+      const haiku = byAlias.get('haiku');
+      const sonnet = byAlias.get('sonnet');
+      const opus = byAlias.get('opus');
+      assert.ok(haiku, 'haiku alias missing from OpenRouter preset');
+      assert.ok(sonnet, 'sonnet alias missing from OpenRouter preset');
+      assert.ok(opus, 'opus alias missing from OpenRouter preset');
+      // Haiku is the verified smoke pin — exact slug confirmed via
+      // real-credential test. Sonnet/opus follow the same OpenRouter
+      // naming convention; we pin the prefix shape so a refactor
+      // can't drop the version tag.
+      assert.equal(
+        haiku!.upstreamModelId,
+        'anthropic/claude-haiku-4.5',
+        'OpenRouter haiku must map to the verified slug anthropic/claude-haiku-4.5',
+      );
+      assert.match(
+        sonnet!.upstreamModelId ?? '',
+        /^anthropic\/claude-sonnet-\d+\.\d+$/,
+        'OpenRouter sonnet must follow anthropic/claude-sonnet-X.Y pattern',
+      );
+      assert.match(
+        opus!.upstreamModelId ?? '',
+        /^anthropic\/claude-opus-\d+\.\d+$/,
+        'OpenRouter opus must follow anthropic/claude-opus-X.Y pattern',
+      );
+    });
   });
 
   describe('inferProtocolFromLegacy', () => {
@@ -482,6 +519,55 @@ describe('Provider Resolver', () => {
       assert.equal(config.baseUrl, 'https://api.anthropic.com/v1');
       assert.equal(config.modelId, 'sonnet');
       assert.deepEqual(config.processEnvInjections, {});
+    });
+
+    it('openrouter protocol — model=haiku alias maps to upstream anthropic/claude-haiku-4.5 (round-8 fix)', () => {
+      // Phase 5b round-8 (2026-05-18) — Codex real-credential smoke
+      // confirmed OpenRouter rejects bare aliases ("haiku is not a
+      // valid model ID"). The fix added explicit upstreamModelId on
+      // OPENROUTER_ANTHROPIC_MODELS in provider-catalog.ts, and
+      // toAiSdkConfig's existing catalogEntry.upstreamModelId path
+      // (provider-resolver.ts:424) reads it. Pin the resolved
+      // modelId on the AI-SDK config produced for an OpenRouter +
+      // haiku call so a future refactor can't silently drop the
+      // upstream slug.
+      const resolved: ResolvedProvider = {
+        provider: {
+          id: 'test', name: 'OR', provider_type: 'openrouter', protocol: 'openrouter',
+          base_url: 'https://openrouter.ai/api', api_key: 'or-key', is_active: 1, sort_order: 0,
+          extra_env: '{}', headers_json: '{}', env_overrides_json: '', role_models_json: '{}',
+          notes: '', created_at: '', updated_at: '', options_json: '{}',
+        },
+        protocol: 'openrouter',
+        authStyle: 'api_key',
+        model: 'haiku',
+        modelDisplayName: 'Haiku 4.5',
+        upstreamModel: 'anthropic/claude-haiku-4.5',
+        headers: {},
+        envOverrides: {},
+        roleModels: {},
+        hasCredentials: true,
+        availableModels: [
+          {
+            modelId: 'haiku',
+            upstreamModelId: 'anthropic/claude-haiku-4.5',
+            displayName: 'Haiku 4.5',
+            role: 'haiku',
+          },
+        ],
+        settingSources: ['project', 'local'],
+      };
+
+      // Pass the alias explicitly (mirrors how the chat send path
+      // invokes toAiSdkConfig with a per-turn modelOverride).
+      const config = toAiSdkConfig(resolved, 'haiku');
+      assert.equal(config.sdkType, 'claude-code-compat',
+        'OpenRouter /api still routes through claude-code-compat (round 7)');
+      assert.equal(
+        config.modelId,
+        'anthropic/claude-haiku-4.5',
+        'haiku alias must resolve to the OpenRouter upstream slug, NOT be sent as bare "haiku"',
+      );
     });
 
     it('openrouter protocol — Anthropic skin (/api) → claude-code-compat SDK (round-7 fix)', () => {

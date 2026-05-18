@@ -262,6 +262,58 @@ const ANTHROPIC_DEFAULT_MODELS: CatalogModel[] = [
   },
 ];
 
+// Phase 5b round-8 fix (2026-05-18) — OpenRouter's Anthropic skin
+// (https://openrouter.ai/api) rejects the bare aliases `sonnet` /
+// `opus` / `haiku` with "is not a valid model ID". Real-credential
+// smoke confirmed that switching `haiku` to the upstream slug
+// `anthropic/claude-haiku-4.5` returns the prompted string. The
+// version-tagged slugs follow OpenRouter's documented naming
+// convention (verified for haiku in smoke; sonnet/opus follow the
+// same `<vendor>/claude-<role>-<major.minor>` shape — if a version
+// is unavailable on OpenRouter, the API returns the same
+// "not a valid model ID" error pointing at the canonical name, so
+// users can fix locally via the model picker).
+//
+// First-party Anthropic uses a different upstream slug shape (dash
+// separators, e.g. `claude-haiku-4-5-20251001`) so it stays in its
+// own ANTHROPIC_FIRST_PARTY_MODELS catalog below. OpenRouter is the
+// only preset that re-uses the alias trio but with its own
+// upstream surface, so we keep the array OpenRouter-specific.
+const OPENROUTER_ANTHROPIC_MODELS: CatalogModel[] = [
+  {
+    modelId: 'sonnet',
+    upstreamModelId: 'anthropic/claude-sonnet-4.6',
+    displayName: 'Sonnet 4.6',
+    role: 'sonnet',
+    capabilities: {
+      supportsEffort: true,
+      supportedEffortLevels: ['low', 'medium', 'high', 'max'],
+      supportsAdaptiveThinking: true,
+    },
+  },
+  {
+    modelId: 'opus',
+    upstreamModelId: 'anthropic/claude-opus-4.7',
+    displayName: 'Opus 4.7',
+    role: 'opus',
+    capabilities: {
+      supportsEffort: true,
+      supportedEffortLevels: ['low', 'medium', 'high', 'xhigh', 'max'],
+      supportsAdaptiveThinking: true,
+    },
+  },
+  {
+    modelId: 'haiku',
+    upstreamModelId: 'anthropic/claude-haiku-4.5',
+    displayName: 'Haiku 4.5',
+    role: 'haiku',
+    capabilities: {
+      supportsEffort: true,
+      supportedEffortLevels: ['low', 'medium', 'high'],
+    },
+  },
+];
+
 // First-party Anthropic API (anthropic-official preset) — pins opus to
 // the explicit upstream ID so resolved.upstreamModel carries a concrete
 // model name downstream. This unblocks the Opus 4.7 sanitizer regex
@@ -388,7 +440,14 @@ export const VENDOR_PRESETS: VendorPreset[] = [
     authStyle: 'auth_token',
     baseUrl: 'https://openrouter.ai/api',
     defaultEnvOverrides: {},
-    defaultModels: ANTHROPIC_DEFAULT_MODELS,
+    // Round 8 (2026-05-18) — was ANTHROPIC_DEFAULT_MODELS (bare
+    // sonnet/opus/haiku aliases). OpenRouter rejected the aliases
+    // with "is not a valid model ID"; we now ship the fully-
+    // qualified `anthropic/claude-<role>-<version>` slugs via
+    // upstreamModelId. The resolver reads catalogEntry.upstreamModelId
+    // (provider-resolver.ts:424) so existing role-based pickers keep
+    // working with the short aliases on the UI side.
+    defaultModels: OPENROUTER_ANTHROPIC_MODELS,
     fields: ['api_key'],
     iconKey: 'openrouter',
     meta: {
