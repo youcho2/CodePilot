@@ -47,6 +47,23 @@ export interface ContextWalkResult {
    *  including output-only / all-zero records the baseline-finder
    *  skipped. Null when no record carried one. */
   latestSdkContextWindow: number | null;
+  /**
+   * Phase 6 — newest `context_breakdown` snapshot seen on any assistant
+   * message in the walk. Null when no message carries one (older rows /
+   * non-ClaudeCode runtimes that don't emit the snapshot yet).
+   *
+   * Hook feeds this directly to `buildContextUsageBreakdown({ compiler })`
+   * so the popover renders real system_prompt / rules / skills / memory
+   * numbers instead of 0.
+   */
+  contextBreakdown: {
+    systemPromptTokens?: number;
+    toolDescriptorTokens?: number;
+    workspaceRuleTokens?: number;
+    skillsHarnessTokens?: number;
+    mcpDescriptorTokens?: number;
+    memoryTokens?: number;
+  } | null;
 }
 
 /**
@@ -95,6 +112,16 @@ export function walkContextUsage(messages: readonly MinimalMessageForUsage[]): C
       ? ctxWindowField
       : null;
 
+    // Phase 6 — pull the same record's `context_breakdown` snapshot if
+    // the send path persisted one. Older rows (pre-Phase 6) just don't
+    // have the field → null → hook falls back to all-zero breakdown
+    // parts (conversation absorbs the residual, same as before).
+    const breakdownField = usage.context_breakdown;
+    const contextBreakdown =
+      breakdownField && typeof breakdownField === 'object'
+        ? (breakdownField as ContextWalkResult['contextBreakdown'])
+        : null;
+
     return {
       baseline: {
         used,
@@ -104,8 +131,9 @@ export function walkContextUsage(messages: readonly MinimalMessageForUsage[]): C
         sdkContextWindow: baselineSdkContextWindow,
       },
       latestSdkContextWindow,
+      contextBreakdown,
     };
   }
 
-  return { baseline: null, latestSdkContextWindow };
+  return { baseline: null, latestSdkContextWindow, contextBreakdown: null };
 }

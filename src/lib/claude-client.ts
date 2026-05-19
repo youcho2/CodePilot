@@ -1091,6 +1091,16 @@ export function streamClaudeSdk(options: ClaudeStreamOptions): ReadableStream<st
         // `adapted.systemPromptAppend.length > 0` check below
         // continues to skip the splice when there's nothing useful
         // to inject (capability + extension fragments both empty).
+        //
+        // Phase 6 Phase 3 follow-up (2026-05-19): hoist the per-turn
+        // context_breakdown snapshot here so the streaming result-event
+        // closure below can attach it to `usage` for the persisted
+        // assistant token_usage. Most kinds derive from
+        // CompiledContext.budget; tools/mcp are placeholders pending
+        // Phase 1c precise schema-token wiring (tech-debt #21).
+        let contextBreakdownSnapshot:
+          | import('@/types').ContextBreakdownSnapshot
+          | undefined;
         {
           const { adaptForClaudeCode } = await import('@/lib/harness/runtime-adapter');
           // Phase 5e review fix P1 #2 (2026-05-18) — scan User /
@@ -1136,6 +1146,32 @@ export function streamClaudeSdk(options: ClaudeStreamOptions): ReadableStream<st
             userExtensions,
             externalExtensions,
           });
+          // Phase 6 — compute snapshot now while CompiledContext is in
+          // scope. budget.perCategory gives the running tallies for each
+          // category as the compiler assembled them; workspace rules
+          // need a `kind === 'rule'` filter because workspaceFragments
+          // also carry 'hook' and 'context' kinds.
+          contextBreakdownSnapshot = {
+            systemPromptTokens:
+              adapted.compiled.budget.perCategory.basePrompt +
+              adapted.compiled.budget.perCategory.artifactContracts,
+            // Placeholder — Phase 1c will read AI SDK / bridge tool
+            // schemas for real token counts.
+            toolDescriptorTokens: 0,
+            workspaceRuleTokens: adapted.compiled.workspaceFragments
+              .filter((f) => f.workspaceKind === 'rule')
+              .reduce((s, f) => s + f.tokens, 0),
+            // capabilityFragments aggregate covers skill prompts,
+            // HarnessBundle user/external extensions, widget contract
+            // prompts — matches the "Skills" user-facing kind defined
+            // in ContextBreakdownKind.
+            skillsHarnessTokens:
+              adapted.compiled.budget.perCategory.capabilityFragments,
+            // Placeholder — Phase 1c will read MCP server tool schemas.
+            mcpDescriptorTokens: adapted.mcpServerNames.length * 200,
+            memoryTokens:
+              adapted.compiled.budget.perCategory.memoryFragments,
+          };
           if (adapted.systemPromptAppend.length > 0) {
             if (
               queryOptions.systemPrompt &&
@@ -1809,6 +1845,14 @@ export function streamClaudeSdk(options: ClaudeStreamOptions): ReadableStream<st
               // When present, it enriches the end-of-turn UI chip (Phase 1 of
               // agent-sdk-0-2-111-adoption) without replacing error-classifier.
               const terminalReason = (resultMsg as SDKResultMessage & { terminal_reason?: string }).terminal_reason;
+              // Phase 6 — attach context_breakdown snapshot to usage so
+              // the chat route's `tokenUsage = resultData.usage` line
+              // (chat/route.ts:902) carries it straight into the JSON
+              // serialised to the DB `token_usage` column.
+              const usageWithBreakdown =
+                tokenUsage && contextBreakdownSnapshot
+                  ? { ...tokenUsage, context_breakdown: contextBreakdownSnapshot }
+                  : tokenUsage;
               controller.enqueue(formatSSE({
                 type: 'result',
                 data: JSON.stringify({
@@ -1816,7 +1860,7 @@ export function streamClaudeSdk(options: ClaudeStreamOptions): ReadableStream<st
                   is_error: resultMsg.is_error,
                   num_turns: resultMsg.num_turns,
                   duration_ms: resultMsg.duration_ms,
-                  usage: tokenUsage,
+                  usage: usageWithBreakdown,
                   session_id: resultMsg.session_id,
                   ...(terminalReason ? { terminal_reason: terminalReason } : {}),
                 }),

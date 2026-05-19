@@ -534,12 +534,42 @@ export interface ProviderResponse {
 // Token Usage
 // ==========================================
 
+/**
+ * Phase 6 — per-turn context breakdown snapshot.
+ *
+ * Captured in the send path right after `adaptForClaudeCode()` returns,
+ * then persisted alongside the assistant message via `TokenUsage.context_breakdown`
+ * so `useContextUsage` can replay the same breakdown when rendering the popover.
+ *
+ * Phase 1a wires the three fields backed by real fragment data (systemPrompt,
+ * workspaceRule, memory, plus the capability-fragment aggregate that maps to
+ * the Skills row). `toolDescriptorTokens` + `mcpDescriptorTokens` are
+ * placeholders pending Phase 1c precise schema-token wiring — see tech-debt
+ * tracker #21.
+ */
+export interface ContextBreakdownSnapshot {
+  systemPromptTokens: number;
+  toolDescriptorTokens: number;
+  workspaceRuleTokens: number;
+  skillsHarnessTokens: number;
+  mcpDescriptorTokens: number;
+  memoryTokens: number;
+}
+
 export interface TokenUsage {
   input_tokens: number;
   output_tokens: number;
   cache_read_input_tokens?: number;
   cache_creation_input_tokens?: number;
   cost_usd?: number;
+  /**
+   * Phase 6 — per-turn context breakdown snapshot. Captured in the send
+   * path, persisted JSON-nested. Optional for backward compatibility:
+   * older assistant rows + non-ClaudeCode runtimes (native / codex) won't
+   * carry this field, and the popover handles that by showing 0 across
+   * the snapshot kinds (conversation absorbs the residual).
+   */
+  context_breakdown?: ContextBreakdownSnapshot;
   /**
    * Context window the SDK reports for the model that handled this turn.
    * Source: `SDKResultMessage.modelUsage[<key>].contextWindow` (Claude

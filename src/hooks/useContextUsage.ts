@@ -159,7 +159,7 @@ export function useContextUsage(
     // `lib/context-usage-walk.ts` so it can be tested without React.
     // See that module's doc-block for the two non-obvious rules
     // (output-only baseline skip + context_window preservation).
-    const { baseline, latestSdkContextWindow } = walkContextUsage(messages);
+    const { baseline, latestSdkContextWindow, contextBreakdown } = walkContextUsage(messages);
 
     if (baseline) {
       // Resolve contextWindow priority:
@@ -211,6 +211,13 @@ export function useContextUsage(
           },
           contextWindow: contextWindow ?? undefined,
           pending: options?.pending,
+          // Phase 6 — feed per-turn context breakdown snapshot from
+          // the persisted assistant token_usage. Until the send path
+          // is wired (Phase 1a) older rows + non-ClaudeCode runtimes
+          // return contextBreakdown=null → undefined → 0s for all
+          // compiler-side kinds (system_prompt / tools / rules /
+          // skills / mcp / memory), same as before.
+          compiler: contextBreakdown ?? undefined,
         }),
       };
     }
