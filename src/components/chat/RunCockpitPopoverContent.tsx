@@ -341,20 +341,31 @@ export function RunCockpitPopoverContent({
     // line stretch across the popover width despite the parent p-3.
     return (
       <>
-        <div className="space-y-2">
-          <div className="flex items-center justify-between gap-3 text-xs">
-            <p>{headerPercentText}</p>
-            <p className="font-mono text-muted-foreground">{headerTokensText}</p>
+        {/* UI review round 3 (2026-05-19): PopoverContent dropped its
+            outer `space-y-3` because that uniformly gave every child a
+            12px margin-top — including the divider, making the line
+            feel marooned 24px from both neighbours. Now the popover
+            splits into two groups (context-usage half + session-state
+            half), each keeping internal `space-y-3`, with the divider
+            owning a smaller `my-2` (8px) between them. */}
+        <div className="space-y-3">
+          <div className="space-y-2">
+            <div className="flex items-center justify-between gap-3 text-xs">
+              <p>{headerPercentText}</p>
+              <p className="font-mono text-muted-foreground">{headerTokensText}</p>
+            </div>
+          </div>
+          <div className="space-y-3">
+            <ContextDotMatrix breakdown={usage.breakdown} />
+            <ContextBreakdownList breakdown={usage.breakdown} />
           </div>
         </div>
+        <div className="-mx-3 my-2 border-t border-border" />
         <div className="space-y-3">
-          <ContextDotMatrix breakdown={usage.breakdown} />
-          <ContextBreakdownList breakdown={usage.breakdown} />
+          {auxRows}
+          {issuesBlock}
+          <ContextContentFooter className="!p-0 bg-transparent" />
         </div>
-        <div className="-mx-3 border-t border-border" />
-        {auxRows}
-        {issuesBlock}
-        <ContextContentFooter className="!p-0 bg-transparent" />
       </>
     );
   }
@@ -372,25 +383,32 @@ export function RunCockpitPopoverContent({
     <>
       {showUnknownCapacityBlock && (
         <>
-          <div className="space-y-1">
-            <div className="flex items-center justify-between gap-3 text-xs">
-              <p className="text-muted-foreground">
-                {t("runStatus.contextCapacityUnknown" as TranslationKey)}
-              </p>
-              <p className="font-mono text-foreground">
-                {`${usedDisplay}${pendingSuffix}`}
-              </p>
+          {/* Mirror of hasFullCtx group structure (see hasFullCtx branch
+              note): two groups + my-2 divider, replacing the previous
+              uniform space-y-3 that left the divider feeling marooned. */}
+          <div className="space-y-3">
+            <div className="space-y-1">
+              <div className="flex items-center justify-between gap-3 text-xs">
+                <p className="text-muted-foreground">
+                  {t("runStatus.contextCapacityUnknown" as TranslationKey)}
+                </p>
+                <p className="font-mono text-foreground">
+                  {`${usedDisplay}${pendingSuffix}`}
+                </p>
+              </div>
+            </div>
+            <div className="space-y-3">
+              <ContextDotMatrix breakdown={usage.breakdown} />
+              <ContextBreakdownList breakdown={usage.breakdown} />
             </div>
           </div>
-          <div className="space-y-3">
-            <ContextDotMatrix breakdown={usage.breakdown} />
-            <ContextBreakdownList breakdown={usage.breakdown} />
-          </div>
-          <div className="-mx-3 border-t border-border" />
+          <div className="-mx-3 my-2 border-t border-border" />
         </>
       )}
-      {auxRows}
-      {issuesBlock}
+      <div className="space-y-3">
+        {auxRows}
+        {issuesBlock}
+      </div>
     </>
   );
 }

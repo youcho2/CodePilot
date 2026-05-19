@@ -259,7 +259,7 @@ export function RunCockpit({
           <PopoverContent
             side="top"
             align="end"
-            className="w-80 overflow-hidden p-3 space-y-3"
+            className="w-80 overflow-hidden p-3"
           >
             {popoverInner}
           </PopoverContent>
