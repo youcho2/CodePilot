@@ -29,7 +29,6 @@ import { useTranslation } from "@/hooks/useTranslation";
 import type { TranslationKey } from "@/i18n";
 import { useClaudeStatus } from "@/hooks/useClaudeStatus";
 import {
-  ContextContentHeader,
   ContextContentBody,
   ContextContentFooter,
 } from "@/components/ai-elements/context";
@@ -324,9 +323,25 @@ export function RunCockpitPopoverContent({
   // / modelId. Same shape as the original popover body, just hosted in
   // the lazy chunk.
   if (hasFullCtx) {
+    // Phase 6 Phase 2b follow-up (2026-05-19): the previous
+    // `<ContextContentHeader />` from ai-elements rendered a Progress bar
+    // PLUS the percentage/tokens text. With the new dot-matrix main bar
+    // below, the Progress bar duplicated the same information visually.
+    // Inline the header text (no Progress bar) so Context section shows
+    // exactly one bar — the dot-matrix.
+    const headerPercentText =
+      usage.contextWindow && usage.contextWindow > 0
+        ? `${(usage.ratio * 100).toFixed(usage.ratio < 0.1 ? 1 : 0)}%`
+        : "";
+    const headerTokensText = `${formatTokensCompact(usage.used)} / ${formatTokensCompact(usage.contextWindow ?? 0)}`;
     return (
       <>
-        <ContextContentHeader />
+        <div className="w-full space-y-2 p-3">
+          <div className="flex items-center justify-between gap-3 text-xs">
+            <p>{headerPercentText}</p>
+            <p className="font-mono text-muted-foreground">{headerTokensText}</p>
+          </div>
+        </div>
         <ContextContentBody className="p-3 space-y-3">
           <ContextDotMatrix breakdown={usage.breakdown} />
           <ContextBreakdownList breakdown={usage.breakdown} />

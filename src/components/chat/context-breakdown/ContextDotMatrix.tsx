@@ -114,17 +114,23 @@ function computeAllocations(
 
 export interface ContextDotMatrixProps {
   breakdown: ContextUsageBreakdown;
-  /** Total number of cells. Default 100 (2 rows × 50 with columnsPerRow). */
+  /** Total number of cells. Default 100 (2 rows × 50 columns). */
   cellCount?: number;
-  /** Cells per row. Default 50 → grid auto-wraps to 2 rows at cellCount=100. */
-  columnsPerRow?: number;
+  /**
+   * Row count. Default 2 → 100 cells lays out as 50 columns × 2 rows.
+   * Phase 6 (2026-05-19): cells flow column-major — the first column
+   * gets [row1, row2], then column 2 gets [row1, row2], etc. That way
+   * "used" cells light up column-by-column from left to right instead
+   * of filling all of row 1 before any of row 2.
+   */
+  rows?: number;
   className?: string;
 }
 
 export function ContextDotMatrix({
   breakdown,
   cellCount = 100,
-  columnsPerRow = 50,
+  rows = 2,
   className,
 }: ContextDotMatrixProps) {
   const { cells: allocations, emptyCells } = computeAllocations(
@@ -139,7 +145,10 @@ export function ContextDotMatrix({
       aria-hidden
       className={cn('grid gap-px', className)}
       style={{
-        gridTemplateColumns: `repeat(${columnsPerRow}, minmax(0, 1fr))`,
+        // Column-major flow: rows are fixed, columns flow as needed.
+        gridTemplateRows: `repeat(${rows}, minmax(0, 1fr))`,
+        gridAutoFlow: 'column',
+        gridAutoColumns: 'minmax(0, 1fr)',
       }}
     >
       {allocations.flatMap((alloc) =>

@@ -194,7 +194,7 @@ export function RunCockpit({
       <ContextDotMatrix
         breakdown={usage.breakdown}
         cellCount={10}
-        columnsPerRow={10}
+        rows={1}
         className="w-[44px] shrink-0"
       />
       <span className="truncate">{ratioText}</span>
