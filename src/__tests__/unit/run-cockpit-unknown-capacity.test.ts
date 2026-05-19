@@ -52,30 +52,29 @@ describe('RunCockpit — capacity-unknown context block', () => {
     );
   });
 
-  it('renders Input / Output / Cache rows in the unknown-capacity block', () => {
-    // The three i18n keys must all be referenced by the unknown-capacity
-    // branch — without all three the block would silently drop a
-    // category if the runtime didn't surface that field.
-    for (const key of ['contextInput', 'contextOutput', 'contextCache']) {
-      assert.match(
-        src,
-        new RegExp(`runStatus\\.${key}`),
-        `RunCockpitPopoverContent unknown-capacity branch must reference runStatus.${key} so input / output / cache breakdown stays visible without a contextWindow`,
-      );
-    }
+  it('renders ContextBreakdownList in the unknown-capacity block (Phase 6 Phase 2a redesign)', () => {
+    // 2026-05-19 redesign: the legacy 3-row Input / Output / Cache
+    // breakdown is replaced by the 10-row ContextBreakdownList. The
+    // contract is unchanged in spirit — breakdown stays visible without
+    // a contextWindow — only the rendering surface changed.
+    // Cache still surfaces via the `cache_or_previous` row inside
+    // ContextBreakdownList when cacheReadTokens / cacheCreationTokens > 0.
+    assert.match(
+      src,
+      /<ContextBreakdownList\s+breakdown=\{usage\.breakdown\}\s*\/>/,
+      'RunCockpitPopoverContent unknown-capacity branch must render <ContextBreakdownList breakdown={usage.breakdown} /> so the 10-part breakdown stays visible',
+    );
   });
 
-  it('the i18n keys exist in both zh and en bundles', () => {
+  it('the contextCapacityUnknown i18n key exists in both zh and en bundles', () => {
+    // Note: contextInput / contextOutput / contextCache keys remain in
+    // both bundles because ContextUsageIndicator (a separate mount path)
+    // still uses them. They'll be revisited in Phase 2c when that path
+    // also adopts ContextBreakdownList.
     const zh = fs.readFileSync(path.join(repoRoot, 'i18n/zh.ts'), 'utf8');
     const en = fs.readFileSync(path.join(repoRoot, 'i18n/en.ts'), 'utf8');
-    for (const key of [
-      'runStatus.contextCapacityUnknown',
-      'runStatus.contextInput',
-      'runStatus.contextOutput',
-      'runStatus.contextCache',
-    ]) {
-      assert.match(zh, new RegExp(`['\"]${key.replace('.', '\\.')}['\"]`), `${key} missing from zh.ts`);
-      assert.match(en, new RegExp(`['\"]${key.replace('.', '\\.')}['\"]`), `${key} missing from en.ts`);
-    }
+    const key = 'runStatus.contextCapacityUnknown';
+    assert.match(zh, new RegExp(`['"]${key.replace('.', '\\.')}['"]`), `${key} missing from zh.ts`);
+    assert.match(en, new RegExp(`['"]${key.replace('.', '\\.')}['"]`), `${key} missing from en.ts`);
   });
 });

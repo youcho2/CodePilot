@@ -32,10 +32,8 @@ import {
   ContextContentHeader,
   ContextContentBody,
   ContextContentFooter,
-  ContextInputUsage,
-  ContextOutputUsage,
-  ContextCacheUsage,
 } from "@/components/ai-elements/context";
+import { ContextBreakdownList } from "@/components/chat/context-breakdown/ContextBreakdownList";
 import { ArrowSquareOut } from "@/components/ui/icon";
 import { cn } from "@/lib/utils";
 import {
@@ -328,10 +326,8 @@ export function RunCockpitPopoverContent({
     return (
       <>
         <ContextContentHeader />
-        <ContextContentBody className="p-3 space-y-1.5">
-          <ContextInputUsage />
-          <ContextOutputUsage />
-          <ContextCacheUsage />
+        <ContextContentBody className="p-3">
+          <ContextBreakdownList breakdown={usage.breakdown} />
         </ContextContentBody>
         {auxRows}
         {issuesBlock}
@@ -341,19 +337,13 @@ export function RunCockpitPopoverContent({
   }
 
   // Fallback / unknown-capacity branch — usage exists but the context
-  // window couldn't be resolved (e.g. glm-5-turbo). Render the
-  // Input/Output/Cache breakdown without a percentage. Mirrors the old
-  // ContextUsageIndicator's "capacity unknown" branch.
+  // window couldn't be resolved (e.g. glm-5-turbo). Phase 2a (2026-05-19):
+  // the legacy Input/Output/Cache three-row block is replaced by the
+  // 10-row ContextBreakdownList (same component as the hasFullCtx branch).
+  // Header stays as the bespoke "capacity unknown · used N + pending"
+  // line because ContextContentHeader requires a known maxTokens.
   const showUnknownCapacityBlock = usage.hasData && !hasFullCtx;
   const usedDisplay = formatTokensCompact(usage.used);
-  const outputDisplay = formatTokensCompact(usage.outputTokens);
-  const cacheReadDisplay = formatTokensCompact(usage.cacheReadTokens);
-  const cacheCreationDisplay = formatTokensCompact(usage.cacheCreationTokens);
-  const inputOnly = Math.max(
-    0,
-    usage.used - usage.cacheReadTokens - usage.cacheCreationTokens,
-  );
-  const inputDisplay = formatTokensCompact(inputOnly);
 
   return (
     <>
@@ -369,37 +359,8 @@ export function RunCockpitPopoverContent({
               </p>
             </div>
           </div>
-          <div className="p-3 space-y-1.5 text-xs">
-            {inputOnly > 0 && (
-              <div className="flex items-center justify-between">
-                <span className="text-muted-foreground">
-                  {t("runStatus.contextInput" as TranslationKey)}
-                </span>
-                <span className="font-mono">{inputDisplay}</span>
-              </div>
-            )}
-            {usage.outputTokens > 0 && (
-              <div className="flex items-center justify-between">
-                <span className="text-muted-foreground">
-                  {t("runStatus.contextOutput" as TranslationKey)}
-                </span>
-                <span className="font-mono">{outputDisplay}</span>
-              </div>
-            )}
-            {(usage.cacheReadTokens > 0 || usage.cacheCreationTokens > 0) && (
-              <div className="flex items-center justify-between">
-                <span className="text-muted-foreground">
-                  {t("runStatus.contextCache" as TranslationKey)}
-                </span>
-                <span className="font-mono">
-                  {usage.cacheCreationTokens > 0 && usage.cacheReadTokens > 0
-                    ? `${cacheReadDisplay} / +${cacheCreationDisplay}`
-                    : usage.cacheReadTokens > 0
-                      ? cacheReadDisplay
-                      : `+${cacheCreationDisplay}`}
-                </span>
-              </div>
-            )}
+          <div className="p-3">
+            <ContextBreakdownList breakdown={usage.breakdown} />
           </div>
         </>
       )}
