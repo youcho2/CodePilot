@@ -1,3 +1,4 @@
+node scripts/lint-hooks.mjs
 npx lint-staged
 npx tsc --noEmit
 # CODEX_DISABLED=1 mirrors `npm run test:unit` (see package.json scripts).
