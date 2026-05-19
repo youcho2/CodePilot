@@ -2,36 +2,53 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 const REPO_ROOT = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..');
-const HOOK_PATH = path.join(REPO_ROOT, '.husky', 'pre-commit');
+const HOOK_PATH = process.env.LINT_HOOKS_PATH || path.join(REPO_ROOT, '.husky', 'pre-commit');
 
-const REQUIRED_TOKENS = [
-  {
-    token: 'CODEX_DISABLED=1',
-    why: 'Without it the pre-commit hook spawns the real Codex app-server during unit tests, which fights for SQLite locks with the dev server. Observed in Phase 5b round-6: every commit wedged for 30+ minutes. Keep the hook env aligned with `npm run test:unit`.',
-  },
-];
+// Test-runner command fragments that must carry the CODEX_DISABLED=1 guard.
+// Extend this list if the project's test runner changes (e.g. vitest, jest).
+const TEST_RUNNER_HINTS = ['tsx --test', 'vitest', 'jest'];
 
-function fail(messages) {
+function fail(message) {
   console.error('\n[lint:hooks] FAILED — pre-commit hook is missing required guards:\n');
-  for (const m of messages) {
-    console.error('  - ' + m);
-  }
-  console.error('\nFix: edit .husky/pre-commit to include the missing token(s) above.\n');
+  console.error('  - ' + message);
+  console.error(
+    '\nFix: edit .husky/pre-commit so the test-runner command line carries `CODEX_DISABLED=1` (the value in comments alone does not count).\n',
+  );
   process.exit(1);
 }
 
 if (!fs.existsSync(HOOK_PATH)) {
-  fail([`.husky/pre-commit not found at ${HOOK_PATH}`]);
+  fail(`.husky/pre-commit not found at ${HOOK_PATH}`);
 }
 
 const hook = fs.readFileSync(HOOK_PATH, 'utf8');
-const missing = [];
-for (const { token, why } of REQUIRED_TOKENS) {
-  if (!hook.includes(token)) {
-    missing.push(`Missing "${token}" — ${why}`);
-  }
+
+// Codex review P2 (2026-05-19): the previous version was a whole-file grep for
+// the literal "CODEX_DISABLED=1". It passed even if the token survived only in
+// a comment while the actual test command-line had been edited to drop the env
+// var. We now require the guard to sit on a real executable line next to a
+// recognised test runner.
+const executableLines = hook
+  .split('\n')
+  .filter((line) => {
+    const trimmed = line.trimStart();
+    return trimmed.length > 0 && !trimmed.startsWith('#');
+  });
+
+const hasGuardedTestLine = executableLines.some(
+  (line) =>
+    line.includes('CODEX_DISABLED=1') &&
+    TEST_RUNNER_HINTS.some((hint) => line.includes(hint)),
+);
+
+if (!hasGuardedTestLine) {
+  fail(
+    `No executable line in .husky/pre-commit has 'CODEX_DISABLED=1' alongside a known test runner (${TEST_RUNNER_HINTS.join(', ')}). ` +
+      'The token may exist only in comments. Without the runtime guard the hook spawns the real Codex app-server during unit tests, ' +
+      'which fights for SQLite locks with the dev server. Observed in Phase 5b round-6: every commit wedged for 30+ minutes.',
+  );
 }
 
-if (missing.length > 0) fail(missing);
-
-console.log('[lint:hooks] ok — .husky/pre-commit contains all required guards.');
+console.log(
+  '[lint:hooks] ok — .husky/pre-commit guards CODEX_DISABLED=1 on an executable test-runner line.',
+);
