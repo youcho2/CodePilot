@@ -97,7 +97,11 @@ export function ContextBreakdownList({
               <span
                 aria-hidden
                 className={cn(
-                  'inline-block size-2.5 rounded-sm shrink-0',
+                  // rounded-[2px] (not rounded-sm) so the dot reads as a
+                  // crisp rounded-rect — same radius as the dot-matrix
+                  // cells above. rounded-sm at size 10px shaved the
+                  // corners enough to read as "圆形" per Codex/user review.
+                  'inline-block size-2.5 rounded-[2px] shrink-0',
                   isPending && 'border border-dashed border-muted-foreground bg-transparent',
                 )}
                 style={isPending ? undefined : { backgroundColor: dotVar(part.kind) }}

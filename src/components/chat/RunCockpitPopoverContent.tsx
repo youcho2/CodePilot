@@ -348,7 +348,11 @@ export function RunCockpitPopoverContent({
         </ContextContentBody>
         {auxRows}
         {issuesBlock}
-        <ContextContentFooter />
+        {/* Override ai-elements default `bg-secondary` so the footer no
+            longer paints a filled card behind the cost row — popover
+            sections now divide by lines + spacing only (per UI review
+            2026-05-19). */}
+        <ContextContentFooter className="bg-transparent" />
       </>
     );
   }
