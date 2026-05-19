@@ -2,6 +2,10 @@ import { useMemo } from 'react';
 import type { Message } from '@/types';
 import { getContextWindow } from '@/lib/model-context';
 import { walkContextUsage } from '@/lib/context-usage-walk';
+import {
+  buildContextUsageBreakdown,
+  type ContextUsageBreakdown,
+} from '@/lib/context-breakdown';
 
 export interface ContextUsageData {
   modelName: string;
@@ -37,6 +41,20 @@ export interface ContextUsageData {
   source: 'snapshot' | 'result_usage' | 'none';
   /** When the snapshot was taken (epoch ms). Undefined for result_usage source. */
   snapshotCapturedAt?: number;
+  /**
+   * Phase 6 — 10-part token breakdown for the upcoming dot-matrix UI.
+   *
+   * Phase 1b wires only baseline (used / cacheRead / cacheCreation / output)
+   * + contextWindow. Compiler-side fragments (system_prompt / tools / rules /
+   * skills / mcp / memory) and composer pending sub-totals will land in
+   * Phase 1c + Phase 2 when ChatView / MessageInput pipe them through.
+   *
+   * Until then, the breakdown surfaces non-zero only for `conversation`
+   * and `cache_or_previous`; the other 8 parts read 0 — by design, so
+   * consumers can render the dot-matrix shell without waiting for the
+   * full data wire. The contract is the same as `buildContextUsageBreakdown`.
+   */
+  breakdown: ContextUsageBreakdown;
 }
 
 const SNAPSHOT_FRESHNESS_MS = 60_000;
@@ -110,6 +128,15 @@ export function useContextUsage(
         hasSummary: options?.hasSummary || false,
         source: 'snapshot',
         snapshotCapturedAt: snap.capturedAt,
+        breakdown: buildContextUsageBreakdown({
+          baseline: {
+            used,
+            cacheReadTokens: 0,
+            cacheCreationTokens: 0,
+            outputTokens: 0,
+          },
+          contextWindow: max,
+        }),
       };
     }
 
@@ -162,6 +189,15 @@ export function useContextUsage(
         state,
         hasSummary: options?.hasSummary || false,
         source: 'result_usage',
+        breakdown: buildContextUsageBreakdown({
+          baseline: {
+            used,
+            cacheReadTokens: baseline.cacheReadTokens,
+            cacheCreationTokens: baseline.cacheCreationTokens,
+            outputTokens,
+          },
+          contextWindow: contextWindow ?? undefined,
+        }),
       };
     }
 
@@ -185,6 +221,9 @@ export function useContextUsage(
       state: 'normal',
       hasSummary: options?.hasSummary || false,
       source: 'none' as const,
+      breakdown: buildContextUsageBreakdown({
+        contextWindow: (latestSdkContextWindow ?? catalogContextWindow) ?? undefined,
+      }),
     };
   }, [messages, modelName, options?.context1m, options?.hasSummary, options?.upstreamModelId, options?.snapshot]);
 }
