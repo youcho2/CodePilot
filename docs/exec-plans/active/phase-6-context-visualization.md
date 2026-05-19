@@ -246,9 +246,11 @@ interface ContextUsageBreakdown {
 
 验收：
 
-- `npm run test` 通过。
+- `npm run test` 通过。**报告口径**：commit message / closeout 文档报告测试结果时，必须用"相对增量 + commit hash"（例："本 commit +6 unit tests (i18n)，HEAD `2f25909` 实跑 ok"），不再写绝对的 "N/N pass"。原因：绝对数字假设读者环境跟作者一样，readers 在不同 commit / staging / worktree 跑出来数字可能不一致，导致 closeout 假阴误判。Codex P2 finding (2026-05-19)。
 - UI 改动额外跑 `npm run test:smoke`。
-- 浏览器打开聊天页，确认 console 无 error。
+- 浏览器打开聊天页，console 验收口径：**clean except known noise**。当前已知预存在噪音必须列出，不能笼统说"console clean"：
+  - `GET /api/providers/codex_account/models?all=1` 404 — tech-debt `#20`，OAuth 占位 provider getProvider 返 null，Settings → Models 页打开后会触发。本 Phase 不修；smoke ledger 行的 Evidence 列必须明确写 "console clean except tech-debt #20"。
+  - 如果有新噪音出现，必须 (a) 修掉，或 (b) 单独登记 tech-debt 并在此清单加一行。
 - CDP / Browser 验证输入框右下角、popover、不同状态。
 - 三 Runtime 至少各一条真实 smoke：
   - ClaudeCode：普通长对话。
