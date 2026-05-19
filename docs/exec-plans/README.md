@@ -67,9 +67,20 @@
 ## 详细设计
 
 （目标、技术方案、拆分步骤、依赖项、验收标准）
+
+## Smoke Ledger（真实凭据 / UI / E2E 验证记录）
+
+> 跑了真实 smoke 后必须在这里登记一行：Runtime / Provider / Model / 凭据形态 / 场景 / 结果 / 证据。不要把这类信息只留在聊天里——下次切回这个 Phase 时翻不到。
+> 第一次跑前可保留下面这行示例不删；跑过后追加真实记录。
+
+| Date | Runtime | Provider | Model | 凭据形态 | 场景 | Result | Evidence |
+|------|---------|----------|-------|---------|------|--------|----------|
+| _示例_ | codex_runtime | OpenRouter | claude-haiku-4.5 | API key | two-turn chat | ✅ | session id / provider id / marker |
 ```
 
 每个新阶段必须先写清楚：**用户会看到什么变化 / 哪个页面或按钮可以验收 / 本阶段明确不做什么**。说不清用户结果就不能开工（来自 refactor-closeout 审批原则）。
+
+**Smoke Ledger 段是 development-harness-optimization Step 5 起的强制段**。新建 Phase 计划必须保留这段，不追溯已有 active phase（grandfather clause）。下次接入新 Runtime / Provider / 凭据形态时，真实 smoke 结果不再散落在聊天里，而是直接登记在所属 Phase 计划的 Smoke Ledger 表，回头一眼能找到。
 
 ## 索引
 
