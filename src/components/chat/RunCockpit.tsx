@@ -55,6 +55,10 @@ import {
 // from `./context` and reads from the SAME context identity exported
 // via context-core.
 import { ContextProvider } from "@/components/ai-elements/context-core";
+// Phase 6 Phase 2c — dot-matrix mini-bar for the trigger. Pure component
+// + only depends on @/lib/context-breakdown (pure data layer, no deep
+// graph). Safe for chat first-paint.
+import { ContextDotMatrix } from "@/components/chat/context-breakdown/ContextDotMatrix";
 
 // Heavy popover body — resolved on first popover open, never on /chat
 // boot. The dynamic loader is what keeps `useOverviewData` + provider
@@ -75,38 +79,11 @@ function formatTokensCompact(n: number): string {
   return String(n);
 }
 
-// Compact context-usage ring — visually mirrors the SVG inside
-// `ai-elements/context.tsx#ContextIcon` so the trigger here matches
-// what the Vercel elements lib renders. We inline it instead of using
-// `<ContextTrigger />` because that component is a HoverCard trigger
-// and we want click-to-open via Popover, not hover-only.
-function RingIcon({ percent }: { percent: number }) {
-  const RADIUS = 10;
-  const STROKE = 2;
-  const VBOX = 24;
-  const CENTER = 12;
-  const circumference = 2 * Math.PI * RADIUS;
-  const usedPercent = Math.min(1, Math.max(0, percent));
-  const dashOffset = circumference * (1 - usedPercent);
-  return (
-    <svg
-      aria-hidden="true"
-      width="14"
-      height="14"
-      viewBox={`0 0 ${VBOX} ${VBOX}`}
-      style={{ color: "currentcolor" }}
-    >
-      <circle cx={CENTER} cy={CENTER} fill="none" opacity="0.25" r={RADIUS}
-        stroke="currentColor" strokeWidth={STROKE} />
-      <circle cx={CENTER} cy={CENTER} fill="none" opacity="0.7" r={RADIUS}
-        stroke="currentColor" strokeWidth={STROKE}
-        strokeDasharray={`${circumference} ${circumference}`}
-        strokeDashoffset={dashOffset}
-        strokeLinecap="round"
-        style={{ transform: "rotate(-90deg)", transformOrigin: "center" }} />
-    </svg>
-  );
-}
+// Phase 6 Phase 2c (2026-05-19): the trigger's environment-ring SVG is
+// replaced by a 10-cell mini dot-matrix that uses the same
+// ContextDotMatrix component and CSS palette as the popover main bar.
+// 10 cells = 10% per cell; preserves the "filled / empty" capacity feel
+// without dropping the by-source color stripe Phase 6 is selling.
 
 interface RunCockpitProps {
   /** Active chat's provider — drives session-level runtime overrides
@@ -184,6 +161,11 @@ export function RunCockpit({
   // the lazy popover content). RunCheckpoint above the composer is the
   // canonical surface for blocking issues, so the trigger doesn't need
   // to duplicate the alert chrome here.
+  // Suppress unused-warning: ringPercent is no longer consumed (Phase 2c
+  // replaced the ring SVG with the dot-matrix mini-bar), but the legacy
+  // computation is kept for any future fallback.
+  void ringPercent;
+
   const triggerButton = (
     <Button
       type="button"
@@ -192,7 +174,12 @@ export function RunCockpit({
       aria-label={t("runStatus.triggerLabel" as TranslationKey)}
       className="h-7 gap-1.5 rounded-md px-2 text-[11px] font-medium text-muted-foreground transition-colors"
     >
-      <RingIcon percent={ringPercent} />
+      <ContextDotMatrix
+        breakdown={usage.breakdown}
+        cellCount={10}
+        columnsPerRow={10}
+        className="w-[44px] shrink-0"
+      />
       <span className="truncate">{ratioText}</span>
     </Button>
   );
