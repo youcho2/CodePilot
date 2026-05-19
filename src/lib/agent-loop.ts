@@ -585,11 +585,31 @@ export function runAgentLoop(options: AgentLoopOptions): ReadableStream<string> 
           }));
         }
 
-        // 6. Emit result event
+        // 6. Emit result event (Phase 4 — Context Accounting Runtime
+        // Contract: Native runtime attaches its RuntimeContextAccountingSnapshot
+        // to usage so chat/route.ts persists it via the JSON-nested
+        // token_usage.context_accounting field).
+        let nativeAccountingSnapshot:
+          | import('@/types').RuntimeContextAccountingSnapshot
+          | undefined;
+        try {
+          const { produceNativeAccountingSnapshot } = await import(
+            '@/lib/harness/native-context-accounting'
+          );
+          nativeAccountingSnapshot = produceNativeAccountingSnapshot({
+            workspacePath: workingDirectory || process.cwd(),
+          });
+        } catch {
+          // best-effort — snapshot omitted on producer failure
+        }
+        const usageWithAccounting =
+          totalUsage && nativeAccountingSnapshot
+            ? { ...totalUsage, context_accounting: nativeAccountingSnapshot }
+            : totalUsage;
         controller.enqueue(formatSSE({
           type: 'result',
           data: JSON.stringify({
-            usage: totalUsage,
+            usage: usageWithAccounting,
             session_id: sessionId,
             num_turns: step,
           }),

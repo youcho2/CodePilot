@@ -35,6 +35,14 @@ import type {
   RuntimeStreamOptions,
 } from '@/lib/runtime/types';
 import type { RuntimeRunEvent } from '@/lib/runtime/contract';
+import type { RuntimeContextAccountingSnapshot } from '@/types';
+// Phase 4 — Codex Context Accounting (2026-05-20). Imported at top so
+// the closure-scoped cache + run_completed supplementary result event
+// don't need dynamic import inside the sync onAnyNotification handler.
+import {
+  produceCodexAccountingSnapshot,
+  resolveCodexProviderBackend,
+} from '@/lib/harness/codex-context-accounting';
 import {
   findCodexBinary,
   getCodexAppServer,
@@ -222,6 +230,17 @@ export const codexRuntime: AgentRuntime = {
             active = false;
           }
         };
+
+        // Phase 4 — Codex result event MUST carry usage + context_accounting
+        // (user spec #6). Codex emits live `context_usage` events
+        // (`usage_updated`) but `run_completed` carries no usage. We
+        // cache the last usage_updated values here and emit a
+        // supplementary `result` event right after run_completed so
+        // chat/route.ts collectStreamResponse picks it up via the
+        // standard `tokenUsage = resultData.usage` path.
+        let codexUsageCache:
+          | { inputTokens: number; outputTokens: number; contextWindow: number | null }
+          | null = null;
 
         const closeStream = (extra?: { error?: string }) => {
           if (!active) return;
@@ -464,7 +483,55 @@ export const codexRuntime: AgentRuntime = {
               ? materializeCodexEventMedia(rawEvent, { sessionId, cwd: options.workingDirectory })
               : null;
             if (event) {
+              // Phase 4 — cache usage from live usage_updated events
+              // so the supplementary run_completed result event below
+              // can persist the final token count to DB.
+              if (event.type === 'usage_updated') {
+                codexUsageCache = {
+                  inputTokens: event.inputTokens ?? 0,
+                  outputTokens: event.outputTokens ?? 0,
+                  contextWindow: event.contextWindow ?? null,
+                };
+              }
               tryEnqueue(canonicalToSseLine(event));
+
+              // Phase 4 — supplement run_completed with usage +
+              // context_accounting so DB has final token account.
+              // The result event canonicalToSseLine emitted just above
+              // carries only `finish_reason`; chat/route.ts ignores it
+              // for usage. THIS event is the one persisted.
+              if (event.type === 'run_completed') {
+                let accountingSnapshot: RuntimeContextAccountingSnapshot | undefined;
+                try {
+                  accountingSnapshot = produceCodexAccountingSnapshot({
+                    workspacePath: options.workingDirectory ?? process.cwd(),
+                    providerBackend: resolveCodexProviderBackend(
+                      options.providerId || options.sessionProviderId || '',
+                    ),
+                  });
+                } catch {
+                  // best-effort
+                }
+                if (codexUsageCache || accountingSnapshot) {
+                  const usage: Record<string, unknown> = {};
+                  if (codexUsageCache) {
+                    usage.input_tokens = codexUsageCache.inputTokens;
+                    usage.output_tokens = codexUsageCache.outputTokens;
+                    if (codexUsageCache.contextWindow !== null) {
+                      usage.context_window = codexUsageCache.contextWindow;
+                    }
+                  }
+                  if (accountingSnapshot) {
+                    usage.context_accounting = accountingSnapshot;
+                  }
+                  tryEnqueue(
+                    `data: ${JSON.stringify({
+                      type: 'result',
+                      data: JSON.stringify({ usage }),
+                    })}\n\n`,
+                  );
+                }
+              }
             }
 
             // Review round 3 (2026-05-13) — fileChange item/completed
