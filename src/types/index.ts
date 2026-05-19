@@ -535,25 +535,24 @@ export interface ProviderResponse {
 // ==========================================
 
 /**
- * Phase 6 — per-turn context breakdown snapshot.
+ * @deprecated Phase 0 (Context Accounting Runtime Contract, 2026-05-20):
+ * all fields made optional so the "假数据" code path that filled this in
+ * `claude-client.ts` (commit a4fa2d4) can be safely deleted without
+ * breaking persisted token_usage rows.
  *
- * Captured in the send path right after `adaptForClaudeCode()` returns,
- * then persisted alongside the assistant message via `TokenUsage.context_breakdown`
- * so `useContextUsage` can replay the same breakdown when rendering the popover.
- *
- * Phase 1a wires the three fields backed by real fragment data (systemPrompt,
- * workspaceRule, memory, plus the capability-fragment aggregate that maps to
- * the Skills row). `toolDescriptorTokens` + `mcpDescriptorTokens` are
- * placeholders pending Phase 1c precise schema-token wiring — see tech-debt
- * tracker #21.
+ * Real-source per-Runtime accounting lives in
+ * `src/lib/harness/context-accounting.ts` as
+ * `RuntimeContextAccountingSnapshot` (Phase 1+). Old rows that still
+ * carry this shape are fine — every field is now optional and the hook
+ * treats undefined as "no data → hide row".
  */
 export interface ContextBreakdownSnapshot {
-  systemPromptTokens: number;
-  toolDescriptorTokens: number;
-  workspaceRuleTokens: number;
-  skillsHarnessTokens: number;
-  mcpDescriptorTokens: number;
-  memoryTokens: number;
+  systemPromptTokens?: number;
+  toolDescriptorTokens?: number;
+  workspaceRuleTokens?: number;
+  skillsHarnessTokens?: number;
+  mcpDescriptorTokens?: number;
+  memoryTokens?: number;
 }
 
 export interface TokenUsage {
