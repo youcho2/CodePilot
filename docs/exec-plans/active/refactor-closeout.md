@@ -140,6 +140,8 @@ Phase 3 验收入口：
 
 ### Phase 6：上下文可视化
 
+> 子计划见 [`phase-6-context-visualization.md`](./phase-6-context-visualization.md)。本阶段目标是参考 Cursor 的 Context Usage Breakdown，把输入框右下角的 context 百分比升级成点阵式来源组成条。
+
 - **用户结果**：输入框右下角不只是百分比，而是组成条——历史 / 输入 / 附件 / 系统提示 / Memory 各占多少。上下文快满时知道删什么。
 - **要做**：在现有 token estimate 上拆来源；Run 状态面板显示组成条 + 明细；Context chips / attachments / directory refs 共用同一估算数据；缺 model context length 时显"容量未知"但仍展示相对大小。
 - **不做**：第一版 token 精确到账单级；为可视化重写 context assembler。
