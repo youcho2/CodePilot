@@ -101,6 +101,29 @@ describe('buildContextUsageBreakdown — usedTokens accounting', () => {
     assert.equal(conv?.tokens, 0, 'conversation clamps to 0 instead of going negative');
   });
 
+  it('when known parts exceed used, used-parts sum equals known parts (not usedTokens)', () => {
+    // Codex P2 finding 2026-05-19: previous contract docstring claimed
+    // "sum of used parts === usedTokens" but this only holds when known parts
+    // <= used. When compiler over-estimates, conversation clamps to 0 and
+    // the sum overshoots usedTokens by the over-estimation amount.
+    // Behaviour stays as-is — we trust the known-part estimators rather
+    // than silently scaling them down — but the test pins the actual
+    // arithmetic so the docstring can't drift from reality again.
+    const result = buildContextUsageBreakdown({
+      baseline: {
+        used: 1000,
+        cacheReadTokens: 0,
+        cacheCreationTokens: 0,
+        outputTokens: 0,
+      },
+      compiler: { systemPromptTokens: 5000 }, // over-estimated by 4000
+    });
+    const usedParts = result.parts.filter((p) => !PENDING_SET.has(p.kind));
+    const sum = usedParts.reduce((s, p) => s + p.tokens, 0);
+    assert.equal(sum, 5000, 'sum equals known parts when they exceed used');
+    assert.equal(result.usedTokens, 1000, 'usedTokens itself stays at baseline.used');
+  });
+
   it('clamps negative baseline.used to 0', () => {
     const result = buildContextUsageBreakdown({
       baseline: {

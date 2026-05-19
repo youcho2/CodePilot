@@ -16,8 +16,14 @@
  *
  * Invariants:
  * - Parts ordering is stable (matches CONTEXT_BREAKDOWN_KIND_ORDER).
- * - sum of "used" parts === usedTokens (conversation absorbs residual,
- *   clamped to 0 when known parts exceed used).
+ * - When known parts ≤ usedTokens: sum of "used" parts === usedTokens
+ *   (conversation absorbs the residual).
+ * - When known parts > usedTokens: conversation clamps to 0, so sum of
+ *   "used" parts === knownParts > usedTokens. The contract intentionally
+ *   trusts the known-part estimators rather than silently scaling them
+ *   down; the clamp signals "compiler over-estimated" without rewriting
+ *   inputs. UI may surface this via tooltip later. (Codex P2 finding
+ *   2026-05-19.)
  * - pending parts (files_attachments + pending_next_turn) are NOT in
  *   usedTokens — they describe what would join the next turn.
  * - ratio and remainingTokens are undefined when contextWindow is unknown
