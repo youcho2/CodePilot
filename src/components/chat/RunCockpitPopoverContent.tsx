@@ -34,6 +34,7 @@ import {
   ContextContentFooter,
 } from "@/components/ai-elements/context";
 import { ContextBreakdownList } from "@/components/chat/context-breakdown/ContextBreakdownList";
+import { ContextDotMatrix } from "@/components/chat/context-breakdown/ContextDotMatrix";
 import { ArrowSquareOut } from "@/components/ui/icon";
 import { cn } from "@/lib/utils";
 import {
@@ -326,7 +327,8 @@ export function RunCockpitPopoverContent({
     return (
       <>
         <ContextContentHeader />
-        <ContextContentBody className="p-3">
+        <ContextContentBody className="p-3 space-y-3">
+          <ContextDotMatrix breakdown={usage.breakdown} />
           <ContextBreakdownList breakdown={usage.breakdown} />
         </ContextContentBody>
         {auxRows}
@@ -359,7 +361,8 @@ export function RunCockpitPopoverContent({
               </p>
             </div>
           </div>
-          <div className="p-3">
+          <div className="p-3 space-y-3">
+            <ContextDotMatrix breakdown={usage.breakdown} />
             <ContextBreakdownList breakdown={usage.breakdown} />
           </div>
         </>

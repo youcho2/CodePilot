@@ -102,7 +102,11 @@ export function ContextBreakdownList({
                 )}
                 style={isPending ? undefined : { backgroundColor: dotVar(part.kind) }}
               />
-              <span className="truncate text-foreground">{t(LABEL_KEY[part.kind])}</span>
+              {/* Codex P2 (2026-05-19): label inherits row color, no forced
+                  text-foreground — otherwise the row's text-muted-foreground
+                  (applied when isPending) gets overridden and the pending
+                  label never actually dims. */}
+              <span className="truncate">{t(LABEL_KEY[part.kind])}</span>
             </span>
             <span className="font-mono shrink-0 tabular-nums">
               {formatTokens(part.tokens)}
