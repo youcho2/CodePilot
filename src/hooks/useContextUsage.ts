@@ -79,6 +79,18 @@ export function useContextUsage(
       maxTokens: number;
       capturedAt: number;
     };
+    /**
+     * Phase 6 Phase 3 — composer-side pending token sub-totals. When
+     * provided, flows into `buildContextUsageBreakdown` so the popover's
+     * pending kinds (`files_attachments` + `pending_next_turn`) read
+     * real per-source numbers instead of 0.
+     */
+    pending?: {
+      attachmentTokens?: number;
+      mentionTokens?: number;
+      directoryTokens?: number;
+      composerTextTokens?: number;
+    };
   },
 ): ContextUsageData {
   return useMemo(() => {
@@ -136,6 +148,7 @@ export function useContextUsage(
             outputTokens: 0,
           },
           contextWindow: max,
+          pending: options?.pending,
         }),
       };
     }
@@ -197,6 +210,7 @@ export function useContextUsage(
             outputTokens,
           },
           contextWindow: contextWindow ?? undefined,
+          pending: options?.pending,
         }),
       };
     }
@@ -223,7 +237,8 @@ export function useContextUsage(
       source: 'none' as const,
       breakdown: buildContextUsageBreakdown({
         contextWindow: (latestSdkContextWindow ?? catalogContextWindow) ?? undefined,
+        pending: options?.pending,
       }),
     };
-  }, [messages, modelName, options?.context1m, options?.hasSummary, options?.upstreamModelId, options?.snapshot]);
+  }, [messages, modelName, options?.context1m, options?.hasSummary, options?.upstreamModelId, options?.snapshot, options?.pending]);
 }

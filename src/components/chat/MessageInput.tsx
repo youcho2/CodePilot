@@ -45,6 +45,8 @@ import {
   parseMentionRefs,
   dedupeMentionsByPath,
   computePendingContextTokens,
+  computePendingContextSubTotals,
+  type PendingContextSubTotals,
   composeSubmitPayload,
 } from '@/lib/message-input-logic';
 import { QuickActions } from './QuickActions';
@@ -96,6 +98,12 @@ interface MessageInputProps {
    *  attached @ mention chips changes. Used to surface "+10K 待加"
    *  in the Run status panel before the message is sent. */
   onPendingContextTokensChange?: (tokens: number) => void;
+  /** Phase 6 Phase 3 — per-source split of the same number. When wired
+   *  on the parent, flows through to useContextUsage so the popover's
+   *  pending kinds (files_attachments) render real per-source breakdowns.
+   *  Independent from onPendingContextTokensChange — parents may listen
+   *  to either or both. */
+  onPendingContextSubTotalsChange?: (subTotals: PendingContextSubTotals) => void;
   /**
    * Round 2 — Run Checkpoint blocking. When non-empty, handleSubmit
    * silently no-ops (the active banner already explains why and
@@ -170,6 +178,7 @@ export function MessageInput({
   isAssistantProject,
   hasMessages,
   onPendingContextTokensChange,
+  onPendingContextSubTotalsChange,
   blockingReasonIds,
 }: MessageInputProps) {
   const { t, locale } = useTranslation();
@@ -798,6 +807,23 @@ export function MessageInput({
   useEffect(() => {
     onPendingContextTokensChange?.(pendingContextTokens);
   }, [pendingContextTokens, onPendingContextTokensChange]);
+
+  // Phase 6 Phase 3 — per-source split of the same pending pool. Mirrors
+  // computePendingContextTokens so the displayed total never disagrees
+  // with the per-source rows in the Context popover breakdown.
+  const pendingContextSubTotals = useMemo(
+    () => computePendingContextSubTotals({
+      attachmentPendingTokens,
+      uniqueMentions,
+      mentionEstimates,
+      directoryRefs,
+      directoryRefEstimates,
+    }),
+    [attachmentPendingTokens, uniqueMentions, mentionEstimates, directoryRefs, directoryRefEstimates],
+  );
+  useEffect(() => {
+    onPendingContextSubTotalsChange?.(pendingContextSubTotals);
+  }, [pendingContextSubTotals, onPendingContextSubTotalsChange]);
 
   const removeDirectoryRef = useCallback((path: string) => {
     setDirectoryRefs((prev) => prev.filter((p) => p !== path));

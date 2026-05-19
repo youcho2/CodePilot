@@ -113,6 +113,15 @@ interface RunCockpitProps {
    *  Surfaced as a "+10K 待加" suffix in the trigger label so the user
    *  can preview the cost. Resets to 0 after send. */
   pendingContextTokens?: number;
+  /** Phase 6 Phase 3 — per-source split of pendingContextTokens. When
+   *  provided, flows into useContextUsage → breakdown so the popover's
+   *  `files_attachments` row shows real numbers instead of 0. Resets
+   *  on send alongside pendingContextTokens. */
+  pendingContextSubTotals?: {
+    attachment: number;
+    mention: number;
+    directory: number;
+  };
   /** Step 4c round 4 — session-level runtime pin from the composer's
    *  RuntimeSelector. Forwarded to the popover so it can suppress
    *  global pinned/runtime-fallback signals when the user has
@@ -130,6 +139,7 @@ export function RunCockpit({
   contextUsageSnapshot,
   permissionProfile = "default",
   pendingContextTokens = 0,
+  pendingContextSubTotals,
   sessionRuntimePin,
 }: RunCockpitProps = {}) {
   const { t } = useTranslation();
@@ -138,6 +148,13 @@ export function RunCockpit({
     hasSummary,
     upstreamModelId,
     snapshot: contextUsageSnapshot,
+    pending: pendingContextSubTotals
+      ? {
+          attachmentTokens: pendingContextSubTotals.attachment,
+          mentionTokens: pendingContextSubTotals.mention,
+          directoryTokens: pendingContextSubTotals.directory,
+        }
+      : undefined,
   });
 
   // Pending-tokens suffix surfaces the @ mention chip cost preview.

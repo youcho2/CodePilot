@@ -107,6 +107,12 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
   const [taskRuns, setTaskRuns] = useState<Record<string, TaskRunSummary>>({});
   const [permissionProfile, setPermissionProfile] = useState<'default' | 'full_access'>(initialPermissionProfile || 'default');
   const [pendingContextTokens, setPendingContextTokens] = useState(0);
+  // Phase 6 Phase 3 — per-source split (attachment / mention / directory).
+  // Flows through RunCockpit → useContextUsage → breakdown so the popover's
+  // files_attachments row renders real numbers, not 0.
+  const [pendingContextSubTotals, setPendingContextSubTotals] = useState<
+    import('@/lib/message-input-logic').PendingContextSubTotals | undefined
+  >(undefined);
 
   // Whether this session's working directory matches the configured assistant workspace
   const [isAssistantProject, setIsAssistantProject] = useState(false);
@@ -1490,6 +1496,7 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
         isAssistantProject={isAssistantProject}
         hasMessages={messages.length > 0}
         onPendingContextTokensChange={setPendingContextTokens}
+        onPendingContextSubTotalsChange={setPendingContextSubTotals}
         blockingReasonIds={blockingReasonIds}
       />
       <ChatComposerActionBar
@@ -1520,6 +1527,7 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
             contextUsageSnapshot={streamSnapshot?.contextUsageSnapshot}
             permissionProfile={permissionProfile}
             pendingContextTokens={pendingContextTokens}
+            pendingContextSubTotals={pendingContextSubTotals}
             sessionRuntimePin={runtimePin}
           />
         }

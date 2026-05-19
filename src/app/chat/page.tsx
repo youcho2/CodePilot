@@ -142,6 +142,12 @@ function NewChatPageInner() {
   const [streamingToolOutput, setStreamingToolOutput] = useState('');
   const [permissionProfile, setPermissionProfile] = useState<'default' | 'full_access'>('default');
   const [pendingContextTokens, setPendingContextTokens] = useState(0);
+  // Phase 6 Phase 3 — per-source split (attachment / mention / directory).
+  // Flows through RunCockpit → useContextUsage → breakdown so the popover's
+  // files_attachments row renders real numbers, not 0.
+  const [pendingContextSubTotals, setPendingContextSubTotals] = useState<
+    import('@/lib/message-input-logic').PendingContextSubTotals | undefined
+  >(undefined);
 
   // Phase 6 P0 follow-up round 2 (2026-05-15) — split the legacy
   // `hasProvider` gate into two derived states so virtual providers
@@ -1305,6 +1311,7 @@ function NewChatPageInner() {
         onEffortChange={setSelectedEffort}
         initialValue={prefillText}
         onPendingContextTokensChange={setPendingContextTokens}
+        onPendingContextSubTotalsChange={setPendingContextSubTotals}
         blockingReasonIds={blockingReasonIds}
       />
       <ChatComposerActionBar
@@ -1330,6 +1337,7 @@ function NewChatPageInner() {
             modelName={currentModel}
             permissionProfile={permissionProfile}
             pendingContextTokens={pendingContextTokens}
+            pendingContextSubTotals={pendingContextSubTotals}
             sessionRuntimePin={runtimePin}
           />
         }

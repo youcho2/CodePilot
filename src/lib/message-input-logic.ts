@@ -472,6 +472,51 @@ export function computePendingContextTokens(opts: {
   return sum;
 }
 
+/**
+ * Phase 6 Phase 3 — per-source split of {@link computePendingContextTokens}.
+ *
+ * Returns the three composer-side pending sub-totals separately so the
+ * Context popover can render `files_attachments` and `pending_next_turn`
+ * as distinct rows with real numbers. Sums to the same value as
+ * computePendingContextTokens when all sources are non-null.
+ *
+ * Logic mirror of computePendingContextTokens — same null filtering,
+ * same iteration order — kept in lockstep so the displayed total never
+ * disagrees with the per-source rows.
+ */
+export interface PendingContextSubTotals {
+  /** Attachments queued via PromptInput (file picker / paste / drop). */
+  attachment: number;
+  /** Explicit `@path` mentions in the input text. */
+  mention: number;
+  /** Directory references attached via file-tree "+" buttons. */
+  directory: number;
+}
+
+export function computePendingContextSubTotals(opts: {
+  attachmentPendingTokens: number;
+  uniqueMentions: ReadonlyArray<MentionRef>;
+  mentionEstimates: Readonly<Record<string, number | null | undefined>>;
+  directoryRefs: ReadonlyArray<string>;
+  directoryRefEstimates: Readonly<Record<string, number | null | undefined>>;
+}): PendingContextSubTotals {
+  let mention = 0;
+  for (const m of opts.uniqueMentions) {
+    const v = opts.mentionEstimates[m.path];
+    if (typeof v === 'number' && v > 0) mention += v;
+  }
+  let directory = 0;
+  for (const path of opts.directoryRefs) {
+    const v = opts.directoryRefEstimates[path];
+    if (typeof v === 'number' && v > 0) directory += v;
+  }
+  return {
+    attachment: Math.max(0, opts.attachmentPendingTokens),
+    mention,
+    directory,
+  };
+}
+
 // =====================================================================
 // Submit payload composition — full handleSubmit assembly as one fn
 // =====================================================================
