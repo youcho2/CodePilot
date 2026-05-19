@@ -28,10 +28,7 @@ import { useRouter } from "next/navigation";
 import { useTranslation } from "@/hooks/useTranslation";
 import type { TranslationKey } from "@/i18n";
 import { useClaudeStatus } from "@/hooks/useClaudeStatus";
-import {
-  ContextContentBody,
-  ContextContentFooter,
-} from "@/components/ai-elements/context";
+import { ContextContentFooter } from "@/components/ai-elements/context";
 import { ContextBreakdownList } from "@/components/chat/context-breakdown/ContextBreakdownList";
 import { ContextDotMatrix } from "@/components/chat/context-breakdown/ContextDotMatrix";
 import { ArrowSquareOut } from "@/components/ui/icon";
@@ -226,7 +223,7 @@ export function RunCockpitPopoverContent({
       : t("runStatus.modeAuto" as TranslationKey);
 
   const auxRows = (
-    <div className="flex flex-col gap-2 p-3 text-xs">
+    <div className="flex flex-col gap-2 text-xs">
       <div className="text-sm font-medium text-foreground">
         {t("runStatus.title" as TranslationKey)}
       </div>
@@ -291,7 +288,7 @@ export function RunCockpitPopoverContent({
 
   const issuesBlock =
     issues.length > 0 ? (
-      <div className="flex flex-col gap-2 p-3">
+      <div className="flex flex-col gap-2">
         <div className="text-xs font-medium text-status-warning-foreground">
           {t("runStatus.issuesHeader" as TranslationKey)}
         </div>
@@ -334,25 +331,30 @@ export function RunCockpitPopoverContent({
         ? `${(usage.ratio * 100).toFixed(usage.ratio < 0.1 ? 1 : 0)}%`
         : "";
     const headerTokensText = `${formatTokensCompact(usage.used)} / ${formatTokensCompact(usage.contextWindow ?? 0)}`;
+    // UI review 2026-05-19: previously the popover divided children with
+    // `divide-y` AND each child carried its own p-3 — that produced 3
+    // dividers + uneven outer/inner spacing. Now PopoverContent owns the
+    // outer p-3 + space-y-3, each child is padding-free, and there is
+    // exactly one divider — a 1px border-top line between the context-
+    // usage half (header + breakdown) and the per-session-state half
+    // (model / mode / permission + issues + cost). The -mx-3 lets the
+    // line stretch across the popover width despite the parent p-3.
     return (
       <>
-        <div className="w-full space-y-2 p-3">
+        <div className="space-y-2">
           <div className="flex items-center justify-between gap-3 text-xs">
             <p>{headerPercentText}</p>
             <p className="font-mono text-muted-foreground">{headerTokensText}</p>
           </div>
         </div>
-        <ContextContentBody className="p-3 space-y-3">
+        <div className="space-y-3">
           <ContextDotMatrix breakdown={usage.breakdown} />
           <ContextBreakdownList breakdown={usage.breakdown} />
-        </ContextContentBody>
+        </div>
+        <div className="-mx-3 border-t border-border" />
         {auxRows}
         {issuesBlock}
-        {/* Override ai-elements default `bg-secondary` so the footer no
-            longer paints a filled card behind the cost row — popover
-            sections now divide by lines + spacing only (per UI review
-            2026-05-19). */}
-        <ContextContentFooter className="bg-transparent" />
+        <ContextContentFooter className="!p-0 bg-transparent" />
       </>
     );
   }
@@ -370,7 +372,7 @@ export function RunCockpitPopoverContent({
     <>
       {showUnknownCapacityBlock && (
         <>
-          <div className="w-full space-y-1 p-3">
+          <div className="space-y-1">
             <div className="flex items-center justify-between gap-3 text-xs">
               <p className="text-muted-foreground">
                 {t("runStatus.contextCapacityUnknown" as TranslationKey)}
@@ -380,10 +382,11 @@ export function RunCockpitPopoverContent({
               </p>
             </div>
           </div>
-          <div className="p-3 space-y-3">
+          <div className="space-y-3">
             <ContextDotMatrix breakdown={usage.breakdown} />
             <ContextBreakdownList breakdown={usage.breakdown} />
           </div>
+          <div className="-mx-3 border-t border-border" />
         </>
       )}
       {auxRows}
