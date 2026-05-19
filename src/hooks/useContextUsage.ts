@@ -6,6 +6,7 @@ import {
   buildContextUsageBreakdown,
   type ContextUsageBreakdown,
 } from '@/lib/context-breakdown';
+import { snapshotToCompilerInputs } from '@/lib/harness/context-accounting';
 
 export interface ContextUsageData {
   modelName: string;
@@ -159,7 +160,7 @@ export function useContextUsage(
     // `lib/context-usage-walk.ts` so it can be tested without React.
     // See that module's doc-block for the two non-obvious rules
     // (output-only baseline skip + context_window preservation).
-    const { baseline, latestSdkContextWindow, contextBreakdown } = walkContextUsage(messages);
+    const { baseline, latestSdkContextWindow, contextAccounting } = walkContextUsage(messages);
 
     if (baseline) {
       // Resolve contextWindow priority:
@@ -211,13 +212,14 @@ export function useContextUsage(
           },
           contextWindow: contextWindow ?? undefined,
           pending: options?.pending,
-          // Phase 6 — feed per-turn context breakdown snapshot from
-          // the persisted assistant token_usage. Until the send path
-          // is wired (Phase 1a) older rows + non-ClaudeCode runtimes
-          // return contextBreakdown=null → undefined → 0s for all
-          // compiler-side kinds (system_prompt / tools / rules /
-          // skills / mcp / memory), same as before.
-          compiler: contextBreakdown ?? undefined,
+          // Phase 1 (Context Accounting Runtime Contract, 2026-05-20):
+          // feed compiler inputs from the Runtime-produced snapshot.
+          // snapshotToCompilerInputs returns undefined when the snapshot
+          // is missing OR every kind is unsupported / empty → all
+          // compiler-side rows hide (conversation absorbs residual).
+          // Old `context_breakdown` rows are intentionally NOT honored
+          // — that field held 假数据 (Phase 0 deleted the writer).
+          compiler: snapshotToCompilerInputs(contextAccounting),
         }),
       };
     }

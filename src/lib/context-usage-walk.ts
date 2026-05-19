@@ -48,22 +48,19 @@ export interface ContextWalkResult {
    *  skipped. Null when no record carried one. */
   latestSdkContextWindow: number | null;
   /**
-   * Phase 6 — newest `context_breakdown` snapshot seen on any assistant
+   * Phase 1 — newest `context_accounting` snapshot from any assistant
    * message in the walk. Null when no message carries one (older rows /
-   * non-ClaudeCode runtimes that don't emit the snapshot yet).
+   * Runtime adapters that haven't implemented produce() yet).
    *
-   * Hook feeds this directly to `buildContextUsageBreakdown({ compiler })`
-   * so the popover renders real system_prompt / rules / skills / memory
-   * numbers instead of 0.
+   * Hook feeds via `snapshotToCompilerInputs()` → `buildContextUsageBreakdown({
+   * compiler })` so the popover renders real per-Runtime numbers OR
+   * hides rows the Runtime declared unsupported.
+   *
+   * Older rows carrying deprecated `context_breakdown` are intentionally
+   * ignored — that shape held Phase 6 Tier 2 假数据 (commit a4fa2d4),
+   * Phase 0 (4fcc09e) stopped writing it.
    */
-  contextBreakdown: {
-    systemPromptTokens?: number;
-    toolDescriptorTokens?: number;
-    workspaceRuleTokens?: number;
-    skillsHarnessTokens?: number;
-    mcpDescriptorTokens?: number;
-    memoryTokens?: number;
-  } | null;
+  contextAccounting: import('@/types').RuntimeContextAccountingSnapshot | null;
 }
 
 /**
@@ -112,14 +109,13 @@ export function walkContextUsage(messages: readonly MinimalMessageForUsage[]): C
       ? ctxWindowField
       : null;
 
-    // Phase 6 — pull the same record's `context_breakdown` snapshot if
-    // the send path persisted one. Older rows (pre-Phase 6) just don't
-    // have the field → null → hook falls back to all-zero breakdown
-    // parts (conversation absorbs the residual, same as before).
-    const breakdownField = usage.context_breakdown;
-    const contextBreakdown =
-      breakdownField && typeof breakdownField === 'object'
-        ? (breakdownField as ContextWalkResult['contextBreakdown'])
+    // Phase 1 — pull `context_accounting` snapshot (Phase 1 Contract
+    // shape). Deprecated `context_breakdown` field is intentionally
+    // ignored even if present — see ContextWalkResult docstring.
+    const accountingField = usage.context_accounting;
+    const contextAccounting =
+      accountingField && typeof accountingField === 'object'
+        ? (accountingField as ContextWalkResult['contextAccounting'])
         : null;
 
     return {
@@ -131,9 +127,9 @@ export function walkContextUsage(messages: readonly MinimalMessageForUsage[]): C
         sdkContextWindow: baselineSdkContextWindow,
       },
       latestSdkContextWindow,
-      contextBreakdown,
+      contextAccounting,
     };
   }
 
-  return { baseline: null, latestSdkContextWindow, contextBreakdown: null };
+  return { baseline: null, latestSdkContextWindow, contextAccounting: null };
 }

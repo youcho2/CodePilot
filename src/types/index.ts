@@ -555,12 +555,101 @@ export interface ContextBreakdownSnapshot {
   memoryTokens?: number;
 }
 
+/**
+ * Phase 1 — Context Accounting Runtime Contract (2026-05-20).
+ *
+ * Each Runtime adapter (ClaudeCode / CodePilot / Codex) produces a
+ * RuntimeContextAccountingSnapshot during send-path; persisted alongside
+ * the assistant message via `TokenUsage.context_accounting`.
+ *
+ * Why this exists: Phase 6 Tier 2 (a4fa2d4) persisted a JSON-uniform
+ * `context_breakdown` snapshot that fed Skills/MCP/Tools rows from fixed
+ * compiler outputs. Users saw "Skills 1.5K" on every message including
+ * plain "你好" — same value as humanizer-zh invocation — because the
+ * data source was hardcoded `capabilityFragments` not real Skill turn
+ * injection. The contract here enforces:
+ *
+ *   1. `source` breadcrumb REQUIRED — distinguishes available (every
+ *      turn) vs invoked (this turn's actual injection). UI uses source
+ *      to decide whether the row counts as user-visible.
+ *   2. `unsupported` is first-class — a Runtime says "I cannot count
+ *      MCP tokens" rather than report 0; UI hides those rows.
+ *   3. `producedBy: ContextAccountingRuntimeId` (no 'native' alias).
+ *   4. `providerBackend` encodes Codex sub-modes (codex_account /
+ *      codepilot_proxy / native_app_server).
+ *
+ * See `docs/exec-plans/active/context-accounting-runtime-contract.md`.
+ */
+
+export type ContextAccountingRuntimeId =
+  | 'claude_code'
+  | 'codepilot_runtime'
+  | 'codex_runtime';
+
+/** Kinds a Runtime adapter can report. Excludes conversation / cache /
+ *  pending_next_turn — those come from baseline / composer, not the
+ *  Runtime. */
+export type ContextAccountingKind =
+  | 'system_prompt'
+  | 'tools'
+  | 'rules'
+  | 'skills'
+  | 'mcp'
+  | 'memory'
+  | 'files_attachments';
+
+export interface ContextAccountingEntry {
+  /** Token count for this kind in THIS turn. */
+  tokens: number;
+  /**
+   * Trace source — MUST distinguish "available" vs "loaded/invoked":
+   *   'sdk-init/available-skills'    — every-turn list (NOT user-visible Skills)
+   *   'sdk-turn/loaded-skill'        — this turn's actual injection
+   *   'mcp-server-schemas/available' — all loaded schemas
+   *   'mcp-turn/invoked-tool'        — this turn's MCP tool call
+   *   'workspace-rules-fs/CLAUDE.md' — file-system source
+   *   'sdk-actual-system-prompt'     — SDK's real system prompt char/4
+   *   'assistant-memory-snapshot'    — adapter assistantMemory char/4
+   *
+   * NEVER use post-Phase-0:
+   *   'compiled.budget.capabilityFragments' — hardcoded; Phase 6 Tier 2 假数据
+   */
+  source: string;
+  /** Optional sub-detail (e.g. each loaded Skill name + size). */
+  detail?: string;
+}
+
+export interface RuntimeContextAccountingSnapshot {
+  /** Real entries — only kinds with verified source. */
+  entries: Partial<Record<ContextAccountingKind, ContextAccountingEntry>>;
+  /** Kinds this Runtime+backend cannot count. UI hides these rows. */
+  unsupported: readonly ContextAccountingKind[];
+  /** Project RuntimeId — no aliases (no 'native'). */
+  producedBy: ContextAccountingRuntimeId;
+  /**
+   * Sub-classification for Runtimes with multiple backends.
+   * - Codex Runtime split:
+   *     'codex_account'    — OAuth登录态, many kinds unsupported
+   *     'codepilot_proxy'  — user-supplied provider via CodePilot bridge (Phase 5e)
+   *     'native_app_server' — app-server self-managed
+   * - CodePilot / ClaudeCode: typically omitted (single backend)
+   */
+  providerBackend?: 'codex_account' | 'codepilot_proxy' | 'native_app_server' | string;
+}
+
 export interface TokenUsage {
   input_tokens: number;
   output_tokens: number;
   cache_read_input_tokens?: number;
   cache_creation_input_tokens?: number;
   cost_usd?: number;
+  /**
+   * Phase 1 — per-turn RuntimeContextAccountingSnapshot. Source of
+   * truth for the popover breakdown. Older rows that carry the
+   * deprecated `context_breakdown` field are ignored (those held Phase
+   * 6 Tier 2 假数据; Phase 0 commit 4fcc09e stopped writing them).
+   */
+  context_accounting?: RuntimeContextAccountingSnapshot;
   /**
    * Phase 6 — per-turn context breakdown snapshot. Captured in the send
    * path, persisted JSON-nested. Optional for backward compatibility:
