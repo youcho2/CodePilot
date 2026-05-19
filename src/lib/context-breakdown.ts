@@ -60,7 +60,19 @@ export const CONTEXT_BREAKDOWN_KIND_ORDER: readonly ContextBreakdownKind[] = [
   'cache_or_previous',
 ] as const;
 
-/** Default Chinese labels — UI may swap via i18n at render time. */
+/**
+ * Fallback labels (Chinese-only) for tests / non-React consumers / debug.
+ *
+ * **Do NOT render these directly in user-facing UI.** The UI surface
+ * (`ContextBreakdownList.tsx`) MUST use `useTranslation()` with
+ * `runStatus.breakdown*` keys — see that component's LABEL_KEY map.
+ *
+ * Codex P1 finding (2026-05-19): rendering `part.label` directly mixed
+ * Chinese DEFAULT_LABELS into the English UI. Labels are now wired through
+ * i18n at the rendering boundary; DEFAULT_LABELS remains so `part.label`
+ * stays populated for unit tests, JSON serialization, and console logging
+ * where i18n isn't available.
+ */
 export const DEFAULT_LABELS: Record<ContextBreakdownKind, string> = {
   system_prompt: '系统提示',
   tools: '工具',

@@ -16,6 +16,11 @@
  *
  * Subcomponent of ContextUsageIndicator / RunCockpitPopoverContent — not a
  * standalone mount surface (Phase 6 design: no third parallel entry).
+ *
+ * i18n (Codex P1 finding 2026-05-19): labels go through useTranslation, not
+ * `part.label`. The data-layer DEFAULT_LABELS are Chinese-only fallbacks for
+ * non-React consumers; rendering them directly mixed Chinese into the English
+ * UI. Each kind maps to a `runStatus.breakdown*` key via LABEL_KEY below.
  */
 
 import type {
@@ -23,9 +28,26 @@ import type {
   ContextUsageBreakdown,
 } from '@/lib/context-breakdown';
 import { PENDING_BREAKDOWN_KINDS } from '@/lib/context-breakdown';
+import { useTranslation } from '@/hooks/useTranslation';
+import type { TranslationKey } from '@/i18n';
 import { cn } from '@/lib/utils';
 
 const PENDING_SET = new Set<ContextBreakdownPart['kind']>(PENDING_BREAKDOWN_KINDS);
+
+// Codex P1 (2026-05-19): UI labels must go through i18n. DEFAULT_LABELS in
+// context-breakdown.ts is fallback / debug only — see that file's docstring.
+const LABEL_KEY: Record<ContextBreakdownPart['kind'], TranslationKey> = {
+  system_prompt: 'runStatus.breakdownSystemPrompt' as TranslationKey,
+  tools: 'runStatus.breakdownTools' as TranslationKey,
+  rules: 'runStatus.breakdownRules' as TranslationKey,
+  skills: 'runStatus.breakdownSkills' as TranslationKey,
+  mcp: 'runStatus.breakdownMcp' as TranslationKey,
+  memory: 'runStatus.breakdownMemory' as TranslationKey,
+  files_attachments: 'runStatus.breakdownFilesAttachments' as TranslationKey,
+  conversation: 'runStatus.breakdownConversation' as TranslationKey,
+  pending_next_turn: 'runStatus.breakdownPendingNextTurn' as TranslationKey,
+  cache_or_previous: 'runStatus.breakdownCacheOrPrevious' as TranslationKey,
+};
 
 function dotVar(kind: ContextBreakdownPart['kind']): string {
   // Map kind enum (snake_case) to CSS variable (kebab-case).
@@ -52,6 +74,7 @@ export function ContextBreakdownList({
   hideZero = true,
   className,
 }: ContextBreakdownListProps) {
+  const { t } = useTranslation();
   const visibleParts = hideZero
     ? breakdown.parts.filter((p) => p.tokens > 0)
     : breakdown.parts;
@@ -79,7 +102,7 @@ export function ContextBreakdownList({
                 )}
                 style={isPending ? undefined : { backgroundColor: dotVar(part.kind) }}
               />
-              <span className="truncate text-foreground">{part.label}</span>
+              <span className="truncate text-foreground">{t(LABEL_KEY[part.kind])}</span>
             </span>
             <span className="font-mono shrink-0 tabular-nums">
               {formatTokens(part.tokens)}

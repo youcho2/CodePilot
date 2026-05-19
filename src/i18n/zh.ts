@@ -1944,6 +1944,18 @@ const zh: Record<TranslationKey, string> = {
   'runStatus.contextInput': '输入',
   'runStatus.contextOutput': '输出',
   'runStatus.contextCache': '缓存',
+  // Phase 6 — 10-part context breakdown (rendered by ContextBreakdownList).
+  // Mirrors ContextBreakdownKind enum, mapped via LABEL_KEY in the component.
+  'runStatus.breakdownSystemPrompt': '系统提示',
+  'runStatus.breakdownTools': '工具',
+  'runStatus.breakdownRules': '规则',
+  'runStatus.breakdownSkills': 'Skills',
+  'runStatus.breakdownMcp': 'MCP',
+  'runStatus.breakdownMemory': 'Memory',
+  'runStatus.breakdownFilesAttachments': '文件与附件',
+  'runStatus.breakdownConversation': '对话历史',
+  'runStatus.breakdownPendingNextTurn': '本次待加入',
+  'runStatus.breakdownCacheOrPrevious': '缓存 / 上轮',
   'runStatus.issuesHeader': '需要处理',
 
   // run checkpoint

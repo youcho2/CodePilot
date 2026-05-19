@@ -1966,6 +1966,18 @@ const en = {
   'runStatus.contextInput': 'Input',
   'runStatus.contextOutput': 'Output',
   'runStatus.contextCache': 'Cache',
+  // Phase 6 — 10-part context breakdown (rendered by ContextBreakdownList).
+  // Mirrors ContextBreakdownKind enum, mapped via LABEL_KEY in the component.
+  'runStatus.breakdownSystemPrompt': 'System prompt',
+  'runStatus.breakdownTools': 'Tools',
+  'runStatus.breakdownRules': 'Rules',
+  'runStatus.breakdownSkills': 'Skills',
+  'runStatus.breakdownMcp': 'MCP',
+  'runStatus.breakdownMemory': 'Memory',
+  'runStatus.breakdownFilesAttachments': 'Files & attachments',
+  'runStatus.breakdownConversation': 'Conversation',
+  'runStatus.breakdownPendingNextTurn': 'Pending next turn',
+  'runStatus.breakdownCacheOrPrevious': 'Cache / previous',
   'runStatus.issuesHeader': 'Needs attention',
 
   // run checkpoint
