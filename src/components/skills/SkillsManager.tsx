@@ -23,7 +23,8 @@
 
 import { useState, useEffect, useCallback, useImperativeHandle, forwardRef } from "react";
 import { Button } from "@/components/ui/button";
-import { Lightning, Plus, SpinnerGap, Lock } from "@/components/ui/icon";
+import { Plus, SpinnerGap, Lock } from "@/components/ui/icon";
+import { CodePilotIcon } from "@/components/ui/semantic-icon";
 import { SkillDetailDialog } from "./SkillDetailDialog";
 import { useTranslation } from "@/hooks/useTranslation";
 import type { TranslationKey } from "@/i18n";
@@ -294,7 +295,7 @@ function SkillsEmptyState({
   const { t } = useTranslation();
   return (
     <div className="rounded-lg border border-border/50 bg-card p-10 flex flex-col items-center text-center gap-3">
-      <Lightning size={32} className="opacity-40 text-muted-foreground" />
+      <CodePilotIcon name="skill" size="xl" className="opacity-40 text-muted-foreground" />
       <div className="text-sm font-medium">{t("skills.noSkillsFound")}</div>
       {!hasSearch && onCreate && (
         <Button variant="default" size="sm" className="gap-1.5 mt-1" onClick={onCreate}>

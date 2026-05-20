@@ -64,12 +64,12 @@ import {
   Circle,
   Code,
   FloppyDisk,
-  Lightning,
   SlidersHorizontal,
   SpinnerGap,
   Warning,
   XCircle,
 } from "@/components/ui/icon";
+import { CodePilotIcon } from "@/components/ui/semantic-icon";
 import { useClaudeStatus } from "@/hooks/useClaudeStatus";
 import { useTranslation } from "@/hooks/useTranslation";
 import {
@@ -1192,7 +1192,7 @@ export function RuntimePanel(props: RuntimePanelProps = {}) {
           AI SDK: always ready since it ships in-app). */}
       <div>
         <div className="flex items-center gap-2 mb-2">
-          <Lightning size={16} weight="fill" className="text-status-success-foreground" />
+          <CodePilotIcon name="runtime" size="md" strokeWidth={2} className="text-status-success-foreground" />
           <h3 className="text-sm font-semibold">{isZh ? "默认引擎" : "Default engine"}</h3>
         </div>
         <p className="text-[11px] text-muted-foreground mb-3">

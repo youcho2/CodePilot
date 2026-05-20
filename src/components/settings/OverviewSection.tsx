@@ -29,10 +29,9 @@ import { useAccountInfo } from "@/hooks/useAccountInfo";
 import { useUpdate } from "@/hooks/useUpdate";
 import { useClaudeStatus } from "@/hooks/useClaudeStatus";
 import { Button } from "@/components/ui/button";
+import { CodePilotIcon } from "@/components/ui/semantic-icon";
 import {
-  Lightning,
   Plug,
-  Brain,
   UserCircle,
   Heart,
   CheckCircle,
@@ -171,7 +170,7 @@ export function OverviewSection() {
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {/* Card 1 — Runtime status */}
         <OverviewCard
-          icon={<Lightning size={16} weight={runtimeIsFallback ? "regular" : "fill"} />}
+          icon={<CodePilotIcon name="runtime" size="md" strokeWidth={runtimeIsFallback ? undefined : 2} />}
           title={isZh ? "运行环境" : "Runtime"}
           tone={runtimeIsFallback ? "warning" : "success"}
           primaryActionLabel={
@@ -242,7 +241,7 @@ export function OverviewSection() {
 
         {/* Card 3 — Models exposure */}
         <OverviewCard
-          icon={<Brain size={16} />}
+          icon={<CodePilotIcon name="model" size="md" />}
           title={isZh ? "模型暴露" : "Models exposure"}
           tone={state.modelsEnabled === 0 && state.providersConfigured > 0 ? "warning" : "muted"}
           primaryActionLabel={isZh ? "管理模型" : "Manage models"}

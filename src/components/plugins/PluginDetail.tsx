@@ -2,7 +2,8 @@
 
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { X, Lightning } from "@/components/ui/icon";
+import { X } from "@/components/ui/icon";
+import { CodePilotIcon } from "@/components/ui/semantic-icon";
 import type { SkillInfo } from './PluginCard';
 
 interface PluginDetailProps {
@@ -21,7 +22,7 @@ export function PluginDetail({ plugin, onClose }: PluginDetailProps) {
       <div className="flex items-start justify-between mb-3">
         <div>
           <div className="flex items-center gap-2">
-            <Lightning size={16} className="text-muted-foreground" />
+            <CodePilotIcon name="skill" size="md" className="text-muted-foreground" />
             <h3 className="text-lg font-semibold">/{displayName}</h3>
             <Badge variant={isProject ? 'secondary' : 'outline'}>
               {isProject ? 'Project' : 'Global'}

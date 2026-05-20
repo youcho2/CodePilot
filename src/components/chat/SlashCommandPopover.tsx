@@ -1,6 +1,7 @@
 'use client';
 
-import { Terminal, NotePencil, Brain, GlobeSimple, Folder, File } from '@/components/ui/icon';
+import { NotePencil, GlobeSimple, Folder, File } from '@/components/ui/icon';
+import { CodePilotIcon } from '@/components/ui/semantic-icon';
 import { useTranslation } from '@/hooks/useTranslation';
 import type { TranslationKey } from '@/i18n';
 import type { PopoverItem, PopoverMode } from '@/types';
@@ -63,13 +64,13 @@ export function SlashCommandPopover({
       ) : item.builtIn && item.icon ? (
         (() => { const ItemIcon = item.icon; return <ItemIcon size={16} className="shrink-0 text-muted-foreground" />; })()
       ) : item.kind === 'agent_skill' ? (
-        <Brain size={16} className="shrink-0 text-muted-foreground" />
+        <CodePilotIcon name="skill" size="md" className="shrink-0 text-muted-foreground" />
       ) : item.kind === 'slash_command' ? (
         <NotePencil size={16} className="shrink-0 text-muted-foreground" />
       ) : !item.builtIn ? (
         <GlobeSimple size={16} className="shrink-0 text-muted-foreground" />
       ) : (
-        <Terminal size={16} className="shrink-0 text-muted-foreground" />
+        <CodePilotIcon name="terminal" size="md" className="shrink-0 text-muted-foreground" />
       )}
       <span className="font-mono text-xs truncate">{item.display || item.label}</span>
       {(item.descriptionKey || item.description) && (
@@ -125,7 +126,7 @@ export function SlashCommandPopover({
               {(aiSuggestions.length > 0 || aiSearchLoading) && (
                 <CommandListGroup>
                   <div className="px-3 py-1.5 text-xs font-medium text-muted-foreground flex items-center gap-1.5">
-                    <Brain size={14} />
+                    <CodePilotIcon name="assistant" size="sm" />
                     {t('messageInput.aiSuggested')}
                     {aiSearchLoading && (
                       <span className="inline-block h-3 w-3 animate-spin rounded-full border-2 border-current border-t-transparent" />

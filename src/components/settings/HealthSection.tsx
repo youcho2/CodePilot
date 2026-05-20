@@ -31,13 +31,12 @@ import {
   Warning,
   XCircle,
   Plug,
-  Brain,
-  Lightning,
   UserCircle,
   CaretRight,
   Heart,
   Info,
 } from "@/components/ui/icon";
+import { CodePilotIcon } from "@/components/ui/semantic-icon";
 import { cn } from "@/lib/utils";
 import { useOverviewData } from "./useOverviewData";
 import type { TranslationKey } from "@/i18n";
@@ -150,7 +149,7 @@ export function HealthSection() {
     if (state.agentRuntime === "claude-code-sdk" && !cliEnabled) {
       return {
         id: "runtime",
-        icon: <Lightning size={16} />,
+        icon: <CodePilotIcon name="runtime" size="md" />,
         title: isZh ? "执行引擎 / CLI" : "执行引擎 / CLI",
         severity: "warn",
         reason: isZh
@@ -166,7 +165,7 @@ export function HealthSection() {
     if (state.agentRuntime === "claude-code-sdk" && !cliConnected) {
       return {
         id: "runtime",
-        icon: <Lightning size={16} />,
+        icon: <CodePilotIcon name="runtime" size="md" />,
         title: isZh ? "执行引擎 / CLI" : "执行引擎 / CLI",
         severity: "error",
         reason: isZh
@@ -182,7 +181,7 @@ export function HealthSection() {
     if (warnCount > 0) {
       return {
         id: "runtime",
-        icon: <Lightning size={16} />,
+        icon: <CodePilotIcon name="runtime" size="md" />,
         title: isZh ? "执行引擎 / CLI" : "执行引擎 / CLI",
         severity: "warn",
         reason: isZh
@@ -194,7 +193,7 @@ export function HealthSection() {
     }
     return {
       id: "runtime",
-      icon: <Lightning size={16} weight="fill" />,
+      icon: <CodePilotIcon name="runtime" size="md" strokeWidth={2} />,
       title: isZh ? "执行引擎 / CLI" : "执行引擎 / CLI",
       severity: "ok",
       reason: state.agentRuntime === "claude-code-sdk"
@@ -210,7 +209,7 @@ export function HealthSection() {
     if (state.noCompatibleProvider) {
       return {
         id: "default-model",
-        icon: <Brain size={16} />,
+        icon: <CodePilotIcon name="model" size="md" />,
         title: isZh ? "默认模型有效性" : "Default model validity",
         severity: "error",
         reason: isZh
@@ -228,7 +227,7 @@ export function HealthSection() {
       const modelDisplay = state.defaultModelLabel ?? "?";
       return {
         id: "default-model",
-        icon: <Brain size={16} />,
+        icon: <CodePilotIcon name="model" size="md" />,
         title: isZh ? "默认模型有效性" : "Default model validity",
         severity: "error",
         reason: isZh
@@ -244,7 +243,7 @@ export function HealthSection() {
     if (state.defaultMode === "pinned") {
       return {
         id: "default-model",
-        icon: <Brain size={16} />,
+        icon: <CodePilotIcon name="model" size="md" />,
         title: isZh ? "默认模型有效性" : "Default model validity",
         severity: "ok",
         reason: isZh
@@ -256,7 +255,7 @@ export function HealthSection() {
     }
     return {
       id: "default-model",
-      icon: <Brain size={16} />,
+      icon: <CodePilotIcon name="model" size="md" />,
       title: isZh ? "默认模型有效性" : "Default model validity",
       severity: "ok",
       reason: isZh
@@ -272,7 +271,7 @@ export function HealthSection() {
     if (state.providersConfigured === 0) {
       return {
         id: "models-exposure",
-        icon: <Brain size={16} />,
+        icon: <CodePilotIcon name="model" size="md" />,
         title: isZh ? "模型暴露" : "Models exposure",
         severity: "ok",
         reason: isZh
@@ -285,7 +284,7 @@ export function HealthSection() {
     if (state.modelsEnabled === 0) {
       return {
         id: "models-exposure",
-        icon: <Brain size={16} />,
+        icon: <CodePilotIcon name="model" size="md" />,
         title: isZh ? "模型暴露" : "Models exposure",
         severity: "error",
         reason: isZh
@@ -305,7 +304,7 @@ export function HealthSection() {
       : "";
     return {
       id: "models-exposure",
-      icon: <Brain size={16} />,
+      icon: <CodePilotIcon name="model" size="md" />,
       title: isZh ? "模型暴露" : "Models exposure",
       severity: "ok",
       reason: isZh

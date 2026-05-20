@@ -1,6 +1,7 @@
 "use client";
 
-import { Lightning, Lock, Trash } from "@/components/ui/icon";
+import { Lock, Trash } from "@/components/ui/icon";
+import { CodePilotIcon } from "@/components/ui/semantic-icon";
 import { Button } from "@/components/ui/button";
 import {
   Tooltip,
@@ -93,7 +94,7 @@ export function SkillListItem({
         setConfirmDelete(false);
       }}
     >
-      <Lightning size={16} className="shrink-0 text-muted-foreground" />
+      <CodePilotIcon name="skill" size="md" className="shrink-0 text-muted-foreground" />
       <div className="flex-1 min-w-0">
         <span className="text-sm font-medium truncate block">/{skill.name}</span>
         <p className="text-xs text-muted-foreground truncate">

@@ -4,7 +4,8 @@ import { useState } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
-import { CaretDown, CaretUp, Lightning } from "@/components/ui/icon";
+import { CaretDown, CaretUp } from "@/components/ui/icon";
+import { CodePilotIcon } from "@/components/ui/semantic-icon";
 
 export interface SkillInfo {
   name: string;
@@ -36,7 +37,7 @@ export function PluginCard({ plugin, onSelect }: PluginCardProps) {
       >
         <div className="flex-1 min-w-0 mr-3">
           <div className="flex items-center gap-2 mb-1">
-            <Lightning size={16} className="text-muted-foreground shrink-0" />
+            <CodePilotIcon name="skill" size="md" className="text-muted-foreground shrink-0" />
             <CardTitle className="text-sm font-medium truncate">
               /{displayName}
             </CardTitle>

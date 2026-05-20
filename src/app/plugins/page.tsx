@@ -30,14 +30,12 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import {
-  Lightning,
-  Plug,
-  Terminal,
   MagnifyingGlass,
   Plus,
   Code,
   Storefront,
 } from "@/components/ui/icon";
+import { CodePilotIcon, type CodePilotIconName } from "@/components/ui/semantic-icon";
 import { SkillsManager, type SkillsManagerHandle } from "@/components/skills/SkillsManager";
 import { CreateSkillDialog } from "@/components/skills/CreateSkillDialog";
 import { MarketplaceBrowser } from "@/components/skills/MarketplaceBrowser";
@@ -70,10 +68,10 @@ interface RecentSessionContext {
   sessionId?: string;
 }
 
-const FILTER_META: Record<PluginFilter, { labelKey: TranslationKey; icon: typeof Lightning }> = {
-  skills: { labelKey: "plugins.tab.skills", icon: Lightning },
-  mcp: { labelKey: "plugins.tab.mcp", icon: Plug },
-  cli: { labelKey: "plugins.tab.cli", icon: Terminal },
+const FILTER_META: Record<PluginFilter, { labelKey: TranslationKey; icon: CodePilotIconName }> = {
+  skills: { labelKey: "plugins.tab.skills", icon: "skill" },
+  mcp: { labelKey: "plugins.tab.mcp", icon: "mcp" },
+  cli: { labelKey: "plugins.tab.cli", icon: "cli" },
 };
 
 export default function ExtensionsPage() {
@@ -206,11 +204,10 @@ export default function ExtensionsPage() {
           <TabsList>
             {PLUGIN_FILTERS.map((key) => {
               const meta = FILTER_META[key];
-              const Icon = meta.icon;
               const count = filterCounts[key];
               return (
                 <TabsTrigger key={key} value={key}>
-                  <Icon />
+                  <CodePilotIcon name={meta.icon} size="md" aria-hidden />
                   {t(meta.labelKey)}
                   {typeof count === "number" && (
                     <span className="tabular-nums text-xs text-muted-foreground">

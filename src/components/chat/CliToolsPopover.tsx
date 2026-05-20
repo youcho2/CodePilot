@@ -1,6 +1,6 @@
 'use client';
 
-import { Terminal } from '@/components/ui/icon';
+import { CodePilotIcon } from '@/components/ui/semantic-icon';
 import { useTranslation } from '@/hooks/useTranslation';
 import type { TranslationKey } from '@/i18n';
 import type { CliToolItem } from '@/types';
@@ -50,7 +50,7 @@ export function CliToolsPopover({
                 onClick={() => onCliSelect(tool)}
                 onMouseEnter={() => onSetSelectedIndex(idx)}
               >
-                <Terminal size={16} className="shrink-0 text-muted-foreground" />
+                <CodePilotIcon name="cli" size="md" className="shrink-0 text-muted-foreground" />
                 <span className="font-medium text-xs truncate">{tool.name}</span>
                 {tool.version && (
                   <span className="text-[10px] text-muted-foreground shrink-0">v{tool.version}</span>
