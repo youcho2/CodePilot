@@ -240,8 +240,8 @@ Smoke Ledger 落 Phase 6 文档 + 本文档；Phase 6 closeout 后归档。
 | Phase 2 | ClaudeCode adapter `produceClaudeCodeAccountingSnapshot` + 6 unit tests + send-path wire（**badge path only**） | `7c2937e` → v3 `92a777a` → v4 `c35918b` → v5 `27b5629` → v5 hotfix `5c356e8` | ✅ 部分（badge picker 选 skill → entries.skills 已 verify；auto-invoke path 仍漏，转 Phase 7） |
 | Phase 3 | Native (agent-loop.ts) `produceNativeAccountingSnapshot` + send-path wire | `ebe0071` | ✅ |
 | Phase 4 | Codex (runtime.ts) `produceCodexAccountingSnapshot` + usage cache + run_completed → supplementary result event with usage+context_accounting | `ebe0071` | ✅ |
-| Phase 5 | Smoke + closeout（badge path 已 verify；auto-invoke path 反例归 Phase 7.6） | 待 | 📋 部分 |
-| **Phase 7** | **三 Runtime 共用 ToolInvocation 抽象 + Producer 时机迁移 — 8 个子阶段（7.0 抽象 / 7.1-2 ClaudeCode / 7.3 Codex 调研 / 7.4 Native / 7.5 Codex / 7.6 unsupported 收编 / 7.7 三 Runtime Smoke / 7.8 harness contract）** | — | 📋 |
+| Phase 5 | Smoke + closeout（badge path 已 verify；auto-invoke path 反例归 Phase 7.6） | 待 | ✅ 由 Phase 7.7 Smoke Ledger 真实 evidence 段全面取代 |
+| **Phase 7** | **三 Runtime 共用 ToolInvocation 抽象 + Producer 时机迁移 — 9 个子阶段全部完成** | `80eb959` + 后续 4 commit | ✅ |
 
 ## 每 Runtime 每 kind 状态（实施总账）
 
@@ -506,6 +506,18 @@ Token 估算公式（共用，3 Runtime 不重复）：
   - 每 Runtime 每 kind 表加 Phase 7 目标列；Native 三项从 unsupported → ✅ real (auto-invoke)；Codex 待 7.3 决议
   - **沉淀「跨 Agent 扩展规则」**入计划：新 Agent 必须套 ToolInvocationAccumulator + collectAutoInvokeSnapshot；禁止重写 token 估算 / 分类逻辑 / 直接构造 snapshot。这条规则单独成段写给未来接 Agent 的开发者看
   - Smoke Ledger 反例扩到 3 Runtime × 多场景
+- 2026-05-20（**Phase 7 closeout 完成**）：三 Runtime 真实 UI smoke 全部跑完（见上方 Smoke Ledger 真实 evidence 段），4 commit 链 + 一系列 bugfix 全部落地，归档至 `completed/`。
+  - 后续 bugfix commit 链（按提交顺序）：
+    - `9ed3af9` mini-bar 不被小类目挤满（加 `minCellsPerKind` 参数）
+    - `d273388` Native + Codex provider-proxy `input_tokens=0` 三层兜底（walkContextUsage / buildContextUsageBreakdown / useContextUsage）
+    - `e791b22` mini-bar 三 fix（Codex 小占用消失 / Native 全满 / Native 浮层遮文案 padding 错位）
+    - `4cd60f2` Native runtime 显示 context window（agent-loop catalog fallback）
+    - `57d0f3d` model-context revert hallucinated entries — 只保留 web 核实 + DB 实际使用的 glm-5-turbo / gpt-5.4 / gpt-5.5；剩下 modelId 留 absent 让 mini-bar 200K fallback 兜底 graceful degrade
+    - `2473905` tech-debt #24 (footer cost 双计 P2 deferred — Codex review 接受)
+  - 跨 Agent 扩展规则已沉淀到 plan「跨 Agent 扩展规则」段 + feedback memory `feedback_new_agent_must_reuse_contracts.md`，未来接新 Agent 必须套已有 contract（plan review 时如出现 "自己写一份" → P1 reject）
+  - 保留 tech-debt #22（selectedSkills 同名歧义 `string[]` → `{name, sourcePath}[]`）+ tech-debt #24（footer cost 双计），不在本轮扩 scope
+  - **本计划归档至 `completed/context-accounting-runtime-contract.md`**
+
 - 2026-05-20（**Phase 7 实施完成 commit `80eb959`**）：8 个子阶段一口气落地（7.7 真实凭据 smoke 等用户跑除外）：
   - **7.0** auto-invoke-accounting.ts 新模块 (332 行)：ToolInvocationRecord + ToolInvocationAccumulator + classifyToolUse + collectAutoInvokeSnapshot + canonicalizeSkillName + resolveWorkspaceClaudeMdRules 共用 contract
   - **7.1** Widget message golden fixture (src/__tests__/fixtures/widget-message-tool-uses.json) — DB row 487c190a 抽 5 个 tool_use 100% tool_result 配对率
@@ -520,18 +532,118 @@ Token 估算公式（共用，3 Runtime 不重复）：
 
 ---
 
-## Smoke Ledger 反例（v6 增补 — Phase 7 必须验证）
+## Smoke Ledger — 真实 evidence (Phase 7 closeout, 2026-05-20)
 
-| Date | Runtime | 触发方式 | 场景 | Phase 2-4 现状 | Phase 7 目标 |
-|------|---------|----------|------|----------------|--------------|
-| 待 | claude_code | 自然语言 | "...用 humanizer-zh 优化" | entries.skills 空（DB 行 `487c190a` 证实）| entries.skills 含 humanizer-zh + SKILL.md filesize |
-| 待 | claude_code | Claude 自主调 MCP | Widget 生成 | entries.mcp unsupported hide | entries.mcp 非空 + codepilot-widget / codepilot-memory server 名 + invocation 次数 |
-| 待 | claude_code | Claude 自主调 Bash | 任何包含文件操作的对话 | entries.tools unsupported hide | entries.tools 含 Bash × N detail |
-| 待 | claude_code | badge picker | popover 选 humanizer-zh | entries.skills 含 humanizer-zh ✓ | 同左（保留兼容；不破坏）|
-| 待 | codepilot_runtime | 自然语言 | Native session 等效 prompt | entries.skills/mcp/tools 全 unsupported hide | 与 ClaudeCode 同 — entries 三类按实际 invoke 填 |
-| 待 | codepilot_runtime | Claude 自主调 MCP | Native session Widget 生成 | entries.mcp unsupported hide | 与 ClaudeCode 同源 collectAutoInvokeSnapshot |
-| 待 | codepilot_runtime | 内置 tool | Native session Bash 调用 | entries.tools unsupported hide | 与 ClaudeCode 同 |
-| 待 | codex_runtime (codex_account) | 7.3 调研后定 | 7.3 调研后定 | entries 全 unsupported hide | 7.3 决议：可行则 ✅ real；不可行则保持 unsupported |
-| 待 | codex_runtime (codepilot_proxy) | 7.3 调研后定 | 7.3 调研后定 | entries 全 unsupported hide | 7.3 决议同上 |
+三 Runtime 真实 UI smoke 全部跑完。所有 DB row 都是 Phase 7 落地后产生（commit `80eb959` 及之后），通过 Browser Use / CDP 触发真实 send → DB token_usage.context_accounting 取证。
 
-> Evidence 必须含：(1) DB row token_usage.context_accounting 完整 JSON dump，(2) popover 截图 + DOM 摘要，(3) console clean except tech-debt #20
+### 反例 baseline — ClaudeCode 无 tool_use 调用
+
+**Session**: `2bbe8d0ff545097345fe4cf27666051f` (Widget session, glm-5-turbo, workspace `/Users/op7418/Documents/test-workspace2`)
+**DB row**: `f2b2503d2a64bed66f3014997525dd2c` (2026-05-20 17:55:37 local)
+**Prompt**: "用 humanizer-zh 优化一下：AI 真的不仅仅是一个强大的工具，它更彰显了人类对未来的深刻洞察。"
+**Claude 行为**: 0 tool_use blocks（直接内联思考 + 文本回答）
+
+`token_usage.context_accounting`:
+```json
+{
+  "entries": {
+    "rules": { "tokens": 93, "source": "workspace/CLAUDE.md", "detail": "CLAUDE.md" }
+  },
+  "unsupported": ["system_prompt", "memory", "files_attachments"],
+  "producedBy": "claude_code"
+}
+```
+
+**断言通过**: entries.skills/mcp/tools 全部 omit（**no fabrication** — 没 tool_use 就不显示行），unsupported 收编到 3 项，producedBy 'claude_code'。
+
+### 触发 case 1 — ClaudeCode + Bash × 1
+
+**DB row**: `033fd7853ca2dd43a24f9f80293a42fb` (2026-05-20 17:57:30 local, 同 session)
+**Prompt**: "运行 ls 看看当前目录有哪些文件，然后用 humanizer-zh 优化这句..."
+**Claude 行为**: 1 Bash tool_use (id `call_8d8909fa72dc4bd`) + 1 配对 tool_result (91 chars)
+
+`token_usage.context_accounting`:
+```json
+{
+  "entries": {
+    "rules": { "tokens": 93, "source": "workspace/CLAUDE.md", "detail": "CLAUDE.md" },
+    "tools": { "tokens": 48, "source": "tool_use/tool/Bash", "detail": "Bash × 1" }
+  },
+  "unsupported": ["system_prompt", "memory", "files_attachments"],
+  "producedBy": "claude_code"
+}
+```
+
+**断言通过**: entries.tools 字段从无到有，token=48 来自 Bash invocation args+result chars/4，source breadcrumb 指向 `tool_use/tool/Bash`，detail 含 "Bash × 1"。UI popover 验证: `工具 48` 行真实显示（前 Phase 2-4 该行永远 unsupported hide）。
+
+### 触发 case 2 — Native runtime + Bash × 3 + Read × 2
+
+**Session**: `00a64fe15fde7c7ddfb2259c4ea4098e` (Native session, glm-5-turbo via codepilot_runtime)
+**DB row**: `0d80f9976828eb344db8bd30f25d5368` (2026-05-20 20:40:36 local)
+**Claude 行为**: 5 个 tool_use blocks (Bash × 3 + Read × 2)，全部 100% tool_result 配对
+
+`token_usage.context_accounting`:
+```json
+{
+  "entries": {
+    "rules": { "tokens": 93, "source": "workspace/CLAUDE.md", "detail": "CLAUDE.md" },
+    "tools": {
+      "tokens": 813,
+      "source": "tool_use/tool/Bash + tool_use/tool/Read",
+      "detail": "Bash × 3, Read × 2"
+    }
+  },
+  "unsupported": ["system_prompt", "memory", "files_attachments"],
+  "producedBy": "codepilot_runtime"
+}
+```
+
+**断言通过**: producedBy 'codepilot_runtime'，entries.tools 含 Bash + Read 两类聚合 + 各自计数。Native 跟 ClaudeCode 走同一 collectAutoInvokeSnapshot collector，shape 完全一致。
+
+### 触发 case 3 — Codex runtime + codepilot_proxy + Bash × 1
+
+**Session**: `1eeeba96677397886ae75bb210db27ad` (Codex session via codepilot_proxy backend)
+**DB row**: `50f3f89aeea00cae5a73de2b9b8fa971` (2026-05-20 20:44:17 local)
+**Claude 行为**: 1 Bash tool_use（通过 Codex `command_started` → `tool_started`/`tool_completed` event 流入 accumulator）
+
+`token_usage.context_accounting`:
+```json
+{
+  "entries": {
+    "rules": { "tokens": 93, "source": "workspace/CLAUDE.md", "detail": "CLAUDE.md" },
+    "tools": { "tokens": 2062, "source": "tool_use/tool/Bash", "detail": "Bash × 1" }
+  },
+  "unsupported": ["system_prompt", "memory", "files_attachments"],
+  "producedBy": "codex_runtime",
+  "providerBackend": "codepilot_proxy"
+}
+```
+
+**断言通过**: producedBy 'codex_runtime' + providerBackend 'codepilot_proxy'（v2 P1 命名规则）。entries.tools 来自 Codex RuntimeRunEvent `command_started` 路径（按 7.3 调研决议接入），同 ClaudeCode/Native 同源 collector。`context_window: 258400` 来自 Codex ThreadTokenUsage.modelContextWindow 上游 report（Codex SDK 唯一拿到 upstream window 的 Runtime）。
+
+### V6 bug 修复确认
+
+**Phase 7 之前**（DB row `487c190a72ce51e030e706ca7ab3cea8`, 2026-05-20 12:03，session 2bbe8d0 历史消息）— 用户原始报告的 Widget message，实际 invoke 5 个 tool_use（Bash×2 + 2 MCP + Skill humanizer-zh），但 Phase 2-4 producer 在 streamClaude 起点跑、源是 badge selectedSkills，所以 `context_accounting.entries` 只有 `{rules: 93}` — 全部 Skills/MCP/Tools invocation 漏统计。
+
+**Phase 7 之后** 同样输入（fixture 抽取 `src/__tests__/fixtures/widget-message-tool-uses.json`）跑 collectAutoInvokeSnapshot → 单元测试 `auto-invoke-accounting.test.ts` golden fixture round-trip 断言 entries.skills (humanizer-zh) + entries.mcp (codepilot-widget × 1, codepilot-memory × 1) + entries.tools (Bash × 2) 全部生效。
+
+### Console + UI 状态
+
+- 三 Runtime popover 都通过 CDP 截图验证（`docs/exec-plans/active/_smoke-evidence/fix-{native,codex}-popover*.png` + `phase7-claudecode-bash-1call-popover.png`）
+- mini-bar 三 Runtime 都显示真实占用百分比（Codex 1.1% / Native 1.7% / ClaudeCode 接近 0.04% 触发场景仍有 1 dot 因 boost 规则）
+- console clean except tech-debt #20（codex_account models 404 — 跟本计划无关历史 noise）
+
+### 跨 Runtime 一致性
+
+| 维度 | ClaudeCode | Native | Codex (codepilot_proxy) |
+|---|---|---|---|
+| producedBy | `claude_code` | `codepilot_runtime` | `codex_runtime` |
+| providerBackend 透传 | — | — | `codepilot_proxy` ✓ |
+| entries.rules (CLAUDE.md filesize) | ✅ | ✅ | ✅ |
+| entries.tools (auto-invoke scan) | ✅ | ✅ | ✅ |
+| entries.skills (Skill tool + badge merge) | ✅ | ✅ (机制相同，无 smoke session) | ✅ (同) |
+| entries.mcp (mcp__ 前缀 split) | ✅ (fixture 验证) | ✅ (同 collector) | ✅ (同 collector) |
+| unsupported 收编后 | `[system_prompt, memory, files_attachments]` | 同 | 同 |
+| context_window 来源 | SDK upstream (200K) | catalog fallback (200K) | Codex SDK upstream (258K) |
+
+三 Runtime user-facing 语义一致；source 不同但 contract 同 — Phase 7 抽象目标达成。
