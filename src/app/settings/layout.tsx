@@ -26,6 +26,7 @@ import {
   SETTINGS_NAV_ITEMS,
   pathnameToSettingsSection,
 } from "@/components/settings/nav-config";
+import { CodePilotIcon } from "@/components/ui/semantic-icon";
 
 export default function SettingsRouteLayout({
   children,
@@ -66,7 +67,7 @@ export default function SettingsRouteLayout({
                   : "text-muted-foreground hover:bg-sidebar-accent hover:text-foreground",
               )}
             >
-              <item.icon size={16} className="shrink-0" />
+              <CodePilotIcon name={item.icon} size="md" className="shrink-0" aria-hidden />
               {t(item.i18nKey)}
             </Link>
           );

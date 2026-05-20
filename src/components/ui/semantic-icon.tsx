@@ -243,12 +243,18 @@ export function CodePilotIcon({
 }: CodePilotIconProps) {
   const iconDef = SEMANTIC_MAP[name];
   const pixelSize = resolveSize(size);
+  // No default color class — HugeIcons' SVG paths use stroke=
+  // "currentColor" so the icon inherits its parent text color
+  // naturally. Consumers that want muted icons pass
+  // `className="text-muted-foreground"` explicitly; consumers in
+  // text-colored contexts (sidebar links, active states) get correct
+  // colors without us having to override the muted default.
   return (
     <HugeiconsIcon
       icon={iconDef}
       size={pixelSize}
       strokeWidth={strokeWidth}
-      className={cn('text-muted-foreground', className)}
+      className={cn(className)}
       aria-label={ariaLabel}
       aria-hidden={ariaHidden}
       role={ariaLabel ? 'img' : undefined}

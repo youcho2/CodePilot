@@ -4,6 +4,7 @@ import { useCallback } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { ArrowLeft } from "@/components/ui/icon";
+import { CodePilotIcon } from "@/components/ui/semantic-icon";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { useTranslation } from "@/hooks/useTranslation";
@@ -93,7 +94,12 @@ export function SettingsSidebar({ open, width }: SettingsSidebarProps) {
                   : "text-sidebar-foreground font-normal hover:bg-sidebar-accent/60",
               )}
             >
-              <item.icon size={16} weight={isActive ? "fill" : "regular"} />
+              <CodePilotIcon
+                name={item.icon}
+                size="md"
+                strokeWidth={isActive ? 2 : undefined}
+                aria-hidden
+              />
               {t(item.i18nKey)}
             </Link>
           );

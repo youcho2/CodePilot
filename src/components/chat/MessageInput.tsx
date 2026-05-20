@@ -1,7 +1,7 @@
 'use client';
 
 import { useRef, useState, useCallback, useEffect, useMemo, type KeyboardEvent, type FormEvent } from 'react';
-import { Lightning, Terminal } from "@/components/ui/icon";
+import { CodePilotIcon } from "@/components/ui/semantic-icon";
 import { useTranslation } from '@/hooks/useTranslation';
 import type { TranslationKey } from '@/i18n';
 import {
@@ -1083,11 +1083,11 @@ export function MessageInput({
                       label={t('messageInput.actionAddContext' as TranslationKey)}
                     />
                     <PromptInputActionMenuItem onSelect={() => slashCommands.handleInsertSlash()}>
-                      <Lightning className="mr-2 size-4" />
+                      <CodePilotIcon name="code" size="md" className="mr-2" aria-hidden />
                       {t('messageInput.actionInsertCommand' as TranslationKey)}
                     </PromptInputActionMenuItem>
                     <PromptInputActionMenuItem onSelect={() => { void cliToolsFetch.handleOpenCliPopover(); }}>
-                      <Terminal className="mr-2 size-4" />
+                      <CodePilotIcon name="cli" size="md" className="mr-2" aria-hidden />
                       {t('messageInput.actionCallCli' as TranslationKey)}
                     </PromptInputActionMenuItem>
                   </PromptInputActionMenuContent>
