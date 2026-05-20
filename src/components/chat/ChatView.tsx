@@ -71,6 +71,10 @@ interface QueuedMessage {
   systemPromptAppend?: string;
   displayOverride?: string;
   mentions?: MentionRef[];
+  /** Phase 2 Context Accounting — preserve badge-derived Skill labels
+   *  across the queue so dequeued sends carry them through to producer.
+   *  Codex review v4 P1 fix (2026-05-20). */
+  selectedSkills?: readonly string[];
 }
 
 interface ChatViewProps {
@@ -928,7 +932,7 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
 
   /** Start an API stream for the given content. Does NOT add a user message to the list. */
   const doStartStream = useCallback(
-    (content: string, files?: FileAttachment[], systemPromptAppend?: string, displayOverride?: string, mentions?: MentionRef[]) => {
+    (content: string, files?: FileAttachment[], systemPromptAppend?: string, displayOverride?: string, mentions?: MentionRef[], selectedSkills?: readonly string[]) => {
       // Guard 1: idle = picker feed hasn't loaded yet. We don't know
       // what the runtime gate would have done with the saved pair, so
       // we can't safely fire — letting it through with raw values
@@ -1074,7 +1078,7 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
 
       // Queue message if currently streaming — hold above input, send after completion
       if (isStreaming) {
-        setMessageQueue((prev) => [...prev, { content, files, systemPromptAppend, displayOverride, mentions }]);
+        setMessageQueue((prev) => [...prev, { content, files, systemPromptAppend, displayOverride, mentions, selectedSkills }]);
         return;
       }
 
@@ -1088,7 +1092,7 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
       };
       pendingOptimisticUserIdRef.current = userMessage.id;
       cappedSetMessages((prev) => [...prev, userMessage]);
-      doStartStream(content, files, systemPromptAppend, displayOverride, mentions);
+      doStartStream(content, files, systemPromptAppend, displayOverride, mentions, selectedSkills);
     },
     [sessionId, isStreaming, doStartStream, cappedSetMessages, noCompatibleProvider, providerFetchState, sessionProviderRuntimeIncompatible]
   );
@@ -1144,7 +1148,7 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
       };
       pendingOptimisticUserIdRef.current = userMessage.id;
       cappedSetMessages((prev) => [...prev, userMessage]);
-      doStartStream(next.content, next.files, next.systemPromptAppend, next.displayOverride, next.mentions);
+      doStartStream(next.content, next.files, next.systemPromptAppend, next.displayOverride, next.mentions, next.selectedSkills);
     }
     if (isStreaming) {
       dequeuingRef.current = false;
