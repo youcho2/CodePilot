@@ -233,7 +233,7 @@ export function MessageInput({
       // Prop → state sync: prefill arrives after mount via URL change; the
       // ref guard prevents cascading renders, but the lint rule can't see
       // that the guard makes the update one-shot per transition.
-      // eslint-disable-next-line react-hooks/set-state-in-effect
+       
       setInputValue(initialValue);
     } else if (!initialValue) {
       // Prop went back to empty (e.g. user navigated away from a
@@ -576,13 +576,19 @@ export function MessageInput({
       const { prompt, displayLabel } = dispatchBadge(badges, content);
       // Codex review v3 P1 fix (2026-05-20) — extract agent_skill badge
       // labels as a structured channel for Context Accounting Phase 2.
-      // Previous regex on the final prompt only matched `/skill-name`
-      // (手打), not `Use the <name> skill. User context: ...` (real badge
-      // dispatch). Producer now reads selectedSkills directly, no prompt
-      // parsing.
+      // Codex v5 P1 fix (2026-05-20) — canonicalize before passing.
+      // Real badge picker stores `command: '/humanizer-zh'` (display
+      // form). Producer's discoverSkills().find compares against
+      // SkillDefinition.name = 'humanizer-zh' (frontmatter). Strip
+      // leading slash here so producer matches, even if a future
+      // picker change makes label/command formats inconsistent.
+      const { canonicalizeSkillName } = await import(
+        '@/lib/harness/claude-code-context-accounting'
+      );
       const selectedSkills = badges
         .filter((b) => b.kind === 'agent_skill')
-        .map((b) => b.label);
+        .map((b) => canonicalizeSkillName(b.command || b.label))
+        .filter((n) => n.length > 0);
       // Badge path: `prompt` (dispatchBadge output) takes the content slot
       // for the model side, but the bubble's `displayLabel` is owned by the
       // badge dispatcher (e.g. "/agent\nuser context"), not the chip-aware

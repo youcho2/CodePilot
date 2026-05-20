@@ -48,6 +48,21 @@ function estimateTokensFromBytes(bytes: number): number {
   return Math.ceil(bytes / 4);
 }
 
+/**
+ * Canonicalize a skill name from any UI source (badge label, badge
+ * command, manual input). Strips leading slashes + whitespace.
+ *
+ * Codex review v5 P1 (2026-05-20): real UI smoke showed selectedSkills
+ * arriving as `/humanizer-zh` (slash-prefixed display value) because
+ * the badge picker stores command as `/<name>`. Producer's previous
+ * strict `find(s => s.name === name)` then missed because
+ * SkillDefinition.name from frontmatter is `humanizer-zh` (no slash).
+ * Canonicalize both sides before comparison + case-insensitive match.
+ */
+export function canonicalizeSkillName(value: string): string {
+  return value.trim().replace(/^\/+/, '');
+}
+
 /** Map a discovered skill's filePath to a stable, workspace-relative
  *  source breadcrumb. Falls back to absolute path for outside-workspace
  *  installs (e.g. plugin / global skills). */
@@ -89,13 +104,23 @@ export function produceClaudeCodeAccountingSnapshot(input: {
     } catch {
       // discoverSkills failed — entries.skills will be omitted below
     }
-    for (const name of input.selectedSkills) {
-      const skill = allSkills.find((s) => s.name === name);
+    for (const rawName of input.selectedSkills) {
+      // Codex v5 P1 fix — canonicalize incoming value (handles
+      // `/humanizer-zh` slash-prefixed badge labels) + case-insensitive
+      // match against SkillDefinition.name from frontmatter.
+      const canonical = canonicalizeSkillName(rawName);
+      if (!canonical) continue;
+      const lower = canonical.toLowerCase();
+      const skill = allSkills.find((s) => s.name.toLowerCase() === lower);
       if (!skill || !skill.filePath) continue;
       try {
         const stat = fs.statSync(skill.filePath);
         totalTokens += estimateTokensFromBytes(stat.size);
-        matchedNames.push(name);
+        // Use the SkillDefinition's actual name (preserves case from
+        // frontmatter) rather than the canonicalized input — keeps the
+        // popover detail label stable across `/humanizer-zh` vs
+        // `humanizer-zh` invocations.
+        matchedNames.push(skill.name);
         sources.push(formatSkillSource(input.workspacePath, skill.filePath));
       } catch {
         // skill file missing on disk despite discovery — skip silently

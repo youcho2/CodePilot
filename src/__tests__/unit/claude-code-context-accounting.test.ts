@@ -13,7 +13,10 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { produceClaudeCodeAccountingSnapshot } from '../../lib/harness/claude-code-context-accounting';
+import {
+  produceClaudeCodeAccountingSnapshot,
+  canonicalizeSkillName,
+} from '../../lib/harness/claude-code-context-accounting';
 import { dispatchBadge } from '../../lib/message-input-logic';
 
 function mkdtemp(prefix: string): string {
@@ -192,6 +195,79 @@ describe('produceClaudeCodeAccountingSnapshot — Phase 2 ClaudeCode adapter', (
       userPrompt: 'hi',
     });
     assert.equal(snap.entries.rules, undefined);
+  });
+
+  // ====================================================================
+  // Codex review v5 P1 regression tests (2026-05-20) — real UI smoke
+  // failed because badge picker stores `command: '/humanizer-zh'` but
+  // SkillDefinition.name from frontmatter is `humanizer-zh`. Producer
+  // must canonicalize incoming names.
+  // ====================================================================
+
+  it('canonicalizeSkillName: strips leading slashes + trims', () => {
+    assert.equal(canonicalizeSkillName('humanizer-zh'), 'humanizer-zh');
+    assert.equal(canonicalizeSkillName('/humanizer-zh'), 'humanizer-zh');
+    assert.equal(canonicalizeSkillName('//humanizer-zh'), 'humanizer-zh');
+    assert.equal(canonicalizeSkillName('  /humanizer-zh  '), 'humanizer-zh');
+    assert.equal(canonicalizeSkillName(''), '');
+    assert.equal(canonicalizeSkillName('/'), '');
+  });
+
+  it('selectedSkills with leading slash "/humanizer-zh" still resolves (real UI badge value)', () => {
+    // This is the EXACT regression Codex v5 P1 caught — real UI smoke
+    // produced selectedSkills: ['/humanizer-zh'] from badge picker,
+    // producer's previous strict-equality lookup missed the SKILL.md.
+    const skillBody = 'humanizer skill body';
+    const ws = setupWorkspace({
+      skills: { 'humanizer-zh': skillBody },
+    });
+    const snap = produceClaudeCodeAccountingSnapshot({
+      workspacePath: ws,
+      userPrompt: 'whatever',
+      selectedSkills: ['/humanizer-zh'],
+    });
+    assert.ok(snap.entries.skills, 'slash-prefixed name must resolve to SKILL.md');
+    assert.ok(snap.entries.skills.tokens > 0);
+    // Detail uses the canonical frontmatter name (no slash) so popover
+    // copy stays consistent regardless of UI badge form.
+    assert.equal(snap.entries.skills.detail, 'humanizer-zh');
+  });
+
+  it('selectedSkills case-mismatch resolves via case-insensitive lookup', () => {
+    const ws = setupWorkspace({
+      skills: { 'humanizer-zh': 'body' },
+    });
+    const snap = produceClaudeCodeAccountingSnapshot({
+      workspacePath: ws,
+      userPrompt: 'whatever',
+      selectedSkills: ['HUMANIZER-ZH'],
+    });
+    assert.ok(snap.entries.skills);
+    assert.equal(snap.entries.skills.detail, 'humanizer-zh');
+  });
+
+  it('selectedSkills with stray whitespace + multiple slashes: defensive canonicalize', () => {
+    const ws = setupWorkspace({
+      skills: { 'humanizer-zh': 'body' },
+    });
+    const snap = produceClaudeCodeAccountingSnapshot({
+      workspacePath: ws,
+      userPrompt: 'whatever',
+      selectedSkills: ['  //humanizer-zh  '],
+    });
+    assert.ok(snap.entries.skills);
+  });
+
+  it('selectedSkills = ["/"] (slash-only after trim): no entry (no crash)', () => {
+    const ws = setupWorkspace({
+      skills: { 'humanizer-zh': 'body' },
+    });
+    const snap = produceClaudeCodeAccountingSnapshot({
+      workspacePath: ws,
+      userPrompt: 'whatever',
+      selectedSkills: ['/', '   ', ''],
+    });
+    assert.equal(snap.entries.skills, undefined);
   });
 
   it('source breadcrumb format pins "workspace/.../" prefix for traceability', () => {
