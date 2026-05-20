@@ -21,7 +21,8 @@
  */
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { ArrowsIn, ArrowsOut, ListChecks } from '@phosphor-icons/react';
+import { ArrowsIn, ArrowsOut } from '@/components/ui/icon';
+import { CodePilotIcon } from '@/components/ui/semantic-icon';
 import { Button } from '@/components/ui/button';
 import { useTranslation } from '@/hooks/useTranslation';
 import type { TranslationKey } from '@/i18n';
@@ -105,7 +106,7 @@ export function TaskCheckpoint({ sessionId, className }: TaskCheckpointProps) {
             announce the action they're about to perform. */}
         <div className="flex items-center justify-between gap-2">
           <div className="flex min-w-0 items-center gap-2 text-xs text-muted-foreground">
-            <ListChecks size={14} className="shrink-0" />
+            <CodePilotIcon name="task" size="sm" className="shrink-0" aria-hidden />
             <span className="truncate">{summary}</span>
           </div>
           <Button

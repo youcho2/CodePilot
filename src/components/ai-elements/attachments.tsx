@@ -7,16 +7,12 @@ import {
   HoverCardTrigger,
 } from "@/components/ui/hover-card";
 import { cn } from "@/lib/utils";
-import type { FileUIPart, SourceDocumentUIPart } from "ai";
+import { X } from "@/components/ui/icon";
 import {
-  FileTextIcon,
-  GlobeIcon,
-  ImageIcon,
-  Music2Icon,
-  PaperclipIcon,
-  VideoIcon,
-  XIcon,
-} from "lucide-react";
+  CodePilotIcon,
+  type CodePilotIconName,
+} from "@/components/ui/semantic-icon";
+import type { FileUIPart, SourceDocumentUIPart } from "ai";
 import type { ComponentProps, HTMLAttributes, ReactNode } from "react";
 import { createContext, useCallback, useContext, useMemo } from "react";
 
@@ -38,13 +34,16 @@ export type AttachmentMediaCategory =
 
 export type AttachmentVariant = "grid" | "inline" | "list";
 
-const mediaCategoryIcons: Record<AttachmentMediaCategory, typeof ImageIcon> = {
-  audio: Music2Icon,
-  document: FileTextIcon,
-  image: ImageIcon,
-  source: GlobeIcon,
-  unknown: PaperclipIcon,
-  video: VideoIcon,
+const mediaCategoryIcons: Record<AttachmentMediaCategory, CodePilotIconName> = {
+  audio: "media_audio",
+  document: "file",
+  image: "image",
+  // No dedicated "link / external source" alias yet — `attachment`
+  // (paperclip) is the closest match for "external reference"
+  // semantics until we add a `link` alias if the need arises.
+  source: "attachment",
+  unknown: "attachment",
+  video: "media_video",
 };
 
 // ============================================================================
@@ -240,10 +239,10 @@ export const AttachmentPreview = ({
 }: AttachmentPreviewProps) => {
   const { data, mediaCategory, variant } = useAttachmentContext();
 
-  const iconSize = variant === "inline" ? "size-3" : "size-4";
+  const iconSize: "sm" | "md" = variant === "inline" ? "sm" : "md";
 
-  const renderIcon = (Icon: typeof ImageIcon) => (
-    <Icon className={cn(iconSize, "text-muted-foreground")} />
+  const renderIcon = (name: CodePilotIconName) => (
+    <CodePilotIcon name={name} size={iconSize} className="text-muted-foreground" />
   );
 
   const renderContent = () => {
@@ -255,8 +254,8 @@ export const AttachmentPreview = ({
       return <video className="size-full object-cover" muted src={data.url} />;
     }
 
-    const Icon = mediaCategoryIcons[mediaCategory];
-    return fallbackIcon ?? renderIcon(Icon);
+    const iconName = mediaCategoryIcons[mediaCategory];
+    return fallbackIcon ?? renderIcon(iconName);
   };
 
   return (
@@ -359,7 +358,7 @@ export const AttachmentRemove = ({
       variant="ghost"
       {...props}
     >
-      {children ?? <XIcon />}
+      {children ?? <X />}
       <span className="sr-only">{label}</span>
     </Button>
   );
