@@ -21,7 +21,7 @@
  *   - ToolInvocationAccumulator — per-turn collector for streaming loops
  *   - collectAutoInvokeSnapshot — Runtime-agnostic snapshot producer
  *
- * Extending to a new Agent: see `docs/exec-plans/active/context-accounting-runtime-contract.md`
+ * Extending to a new Agent: see `docs/exec-plans/completed/context-accounting-runtime-contract.md`
  * section "跨 Agent 扩展规则" — any new Runtime MUST reuse this contract;
  * per-Runtime reinvention is explicitly rejected at plan-review time.
  */
