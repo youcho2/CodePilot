@@ -107,16 +107,48 @@ describe('walkContextUsage — baseline + capacity capture', () => {
     assert.equal(r.baseline!.outputTokens, 50);
   });
 
-  it('returns null baseline but surfaces latestSdkContextWindow when only output-only records exist', () => {
-    // Brand-new session whose first assistant turn was output-only —
-    // we shouldn't fail to surface the SDK-reported capacity. The
-    // hook layer treats baseline=null as hasData=false, but the
-    // capacity number still flows through to RunCockpit.
+  it('output-only-only session: surfaces weak baseline (used=0) so popover still renders', () => {
+    // Updated 2026-05-20: previously this returned baseline=null. But
+    // Native+Codex via provider proxies (Codex+GLM, agent-loop+OpenRouter)
+    // consistently report input_tokens=0 on every turn — the old null
+    // baseline meant their popovers were completely empty (user report:
+    // "Native + Codex 连使用了多少都不显示"). New behavior: if every
+    // record is output-only, return the newest as a weak baseline with
+    // used=0; the popover then shows capacity + breakdown (just no
+    // input-tokens ratio).
     const r = walkContextUsage([
       asstUsage({ input_tokens: 0, output_tokens: 800, context_window: 128000 }),
     ]);
-    assert.equal(r.baseline, null);
+    assert.ok(r.baseline, 'output-only record should become weak baseline');
+    assert.equal(r.baseline!.used, 0);
+    assert.equal(r.baseline!.outputTokens, 800);
+    assert.equal(r.baseline!.sdkContextWindow, 128000);
     assert.equal(r.latestSdkContextWindow, 128000);
+  });
+
+  it('weak baseline fallback: surfaces context_accounting even when input=0 (Native/Codex regression)', () => {
+    // Native + Codex via provider proxies report input_tokens=0 reliably.
+    // The walk must still surface their context_accounting snapshot so
+    // the popover can render the breakdown (skills/mcp/tools rows).
+    const r = walkContextUsage([
+      {
+        role: 'assistant',
+        token_usage: JSON.stringify({
+          input_tokens: 0,
+          output_tokens: 2552,
+          context_accounting: {
+            entries: { rules: { tokens: 93, source: 'workspace/CLAUDE.md' } },
+            unsupported: ['system_prompt', 'memory', 'files_attachments'],
+            producedBy: 'codepilot_runtime',
+          },
+        }),
+      },
+    ]);
+    assert.ok(r.baseline);
+    assert.equal(r.baseline!.used, 0);
+    assert.equal(r.baseline!.outputTokens, 2552);
+    assert.ok(r.contextAccounting, 'context_accounting must be captured from weak baseline');
+    assert.equal(r.contextAccounting!.producedBy, 'codepilot_runtime');
   });
 
   it('positive context_window only — zero / missing context_window must NOT overwrite a previously captured positive value', () => {

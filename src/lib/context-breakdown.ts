@@ -176,20 +176,8 @@ export function buildContextUsageBreakdown(
 ): ContextUsageBreakdown {
   const { baseline, contextWindow, pending, compiler } = inputs;
 
-  const usedTokens = Math.max(0, Math.floor(baseline?.used ?? 0));
-
-  const validWindow =
-    typeof contextWindow === 'number' && contextWindow > 0
-      ? contextWindow
-      : undefined;
-  const ratio =
-    validWindow !== undefined
-      ? Math.min(1, Math.max(0, usedTokens / validWindow))
-      : undefined;
-  const remainingTokens =
-    validWindow !== undefined
-      ? Math.max(0, validWindow - usedTokens)
-      : undefined;
+  const reportedUsedTokens = Math.max(0, Math.floor(baseline?.used ?? 0));
+  const outputTokens = Math.max(0, Math.floor(baseline?.outputTokens ?? 0));
 
   // === Used parts (sum equals usedTokens after conversation residual) ===
 
@@ -212,6 +200,30 @@ export function buildContextUsageBreakdown(
     mcpTokens +
     memoryTokens +
     cacheTokens;
+
+  // Phase 7 fallback (2026-05-20): Native+Codex via provider proxies often
+  // report input_tokens=0, so reportedUsedTokens is 0 even when entries
+  // expose real per-turn token cost (entries.tools/skills/mcp + outputTokens).
+  // Promote effective used to the floor of "what we DO know is in context".
+  // No double-count risk on ClaudeCode where reportedUsedTokens already
+  // includes everything — max() always picks the larger.
+  const usedTokens = Math.max(
+    reportedUsedTokens,
+    knownUsedNonConversation + outputTokens,
+  );
+
+  const validWindow =
+    typeof contextWindow === 'number' && contextWindow > 0
+      ? contextWindow
+      : undefined;
+  const ratio =
+    validWindow !== undefined
+      ? Math.min(1, Math.max(0, usedTokens / validWindow))
+      : undefined;
+  const remainingTokens =
+    validWindow !== undefined
+      ? Math.max(0, validWindow - usedTokens)
+      : undefined;
 
   // Conversation absorbs residual; clamps to 0 when known parts exceed used.
   const conversationTokens = Math.max(

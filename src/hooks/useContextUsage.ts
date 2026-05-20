@@ -175,8 +175,30 @@ export function useContextUsage(
         ?? latestSdkContextWindow
         ?? catalogContextWindow;
 
-      const used = baseline.used;
       const outputTokens = baseline.outputTokens;
+      // Build breakdown first — its usedTokens may promote past baseline.used
+      // when provider proxies (Native/Codex+GLM) report input_tokens=0 but
+      // entries surface real per-turn tokens. Header used/ratio must match
+      // breakdown sum or popover looks inconsistent ("0" header vs 3.5K rows).
+      const breakdown = buildContextUsageBreakdown({
+        baseline: {
+          used: baseline.used,
+          cacheReadTokens: baseline.cacheReadTokens,
+          cacheCreationTokens: baseline.cacheCreationTokens,
+          outputTokens,
+        },
+        contextWindow: contextWindow ?? undefined,
+        pending: options?.pending,
+        // Phase 1 (Context Accounting Runtime Contract, 2026-05-20):
+        // feed compiler inputs from the Runtime-produced snapshot.
+        // snapshotToCompilerInputs returns undefined when the snapshot
+        // is missing OR every kind is unsupported / empty → all
+        // compiler-side rows hide (conversation absorbs residual).
+        // Old `context_breakdown` rows are intentionally NOT honored
+        // — that field held 假数据 (Phase 0 deleted the writer).
+        compiler: snapshotToCompilerInputs(contextAccounting),
+      });
+      const used = breakdown.usedTokens;
       const ratio = contextWindow ? used / contextWindow : 0;
 
       // Estimate next turn: current input context + this turn's output + ~200 token overhead for a new user message
@@ -203,24 +225,7 @@ export function useContextUsage(
         state,
         hasSummary: options?.hasSummary || false,
         source: 'result_usage',
-        breakdown: buildContextUsageBreakdown({
-          baseline: {
-            used,
-            cacheReadTokens: baseline.cacheReadTokens,
-            cacheCreationTokens: baseline.cacheCreationTokens,
-            outputTokens,
-          },
-          contextWindow: contextWindow ?? undefined,
-          pending: options?.pending,
-          // Phase 1 (Context Accounting Runtime Contract, 2026-05-20):
-          // feed compiler inputs from the Runtime-produced snapshot.
-          // snapshotToCompilerInputs returns undefined when the snapshot
-          // is missing OR every kind is unsupported / empty → all
-          // compiler-side rows hide (conversation absorbs residual).
-          // Old `context_breakdown` rows are intentionally NOT honored
-          // — that field held 假数据 (Phase 0 deleted the writer).
-          compiler: snapshotToCompilerInputs(contextAccounting),
-        }),
+        breakdown,
       };
     }
 

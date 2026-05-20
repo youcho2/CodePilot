@@ -101,14 +101,17 @@ describe('buildContextUsageBreakdown — usedTokens accounting', () => {
     assert.equal(conv?.tokens, 0, 'conversation clamps to 0 instead of going negative');
   });
 
-  it('when known parts exceed used, used-parts sum equals known parts (not usedTokens)', () => {
-    // Codex P2 finding 2026-05-19: previous contract docstring claimed
-    // "sum of used parts === usedTokens" but this only holds when known parts
-    // <= used. When compiler over-estimates, conversation clamps to 0 and
-    // the sum overshoots usedTokens by the over-estimation amount.
-    // Behaviour stays as-is — we trust the known-part estimators rather
-    // than silently scaling them down — but the test pins the actual
-    // arithmetic so the docstring can't drift from reality again.
+  it('when known parts exceed reported used, usedTokens promotes to match (Phase 7 fix)', () => {
+    // Updated 2026-05-20: previously usedTokens stayed at baseline.used (1000)
+    // while breakdown summed to known parts (5000) — visually inconsistent
+    // ("header says 1K but rows total 5K"). The old behavior also broke
+    // Native+Codex via provider proxies which report input_tokens=0; the
+    // popover showed used=0 with empty dot-matrix even though entries had
+    // real per-turn token cost.
+    // New: usedTokens = max(reportedUsedTokens, knownNonConv + output). On
+    // ClaudeCode where reportedUsedTokens already includes everything,
+    // max() picks the larger (typically reported, no double-count). On
+    // Native+Codex with reportedUsedTokens=0, knownParts wins.
     const result = buildContextUsageBreakdown({
       baseline: {
         used: 1000,
@@ -116,12 +119,34 @@ describe('buildContextUsageBreakdown — usedTokens accounting', () => {
         cacheCreationTokens: 0,
         outputTokens: 0,
       },
-      compiler: { systemPromptTokens: 5000 }, // over-estimated by 4000
+      compiler: { systemPromptTokens: 5000 },
     });
     const usedParts = result.parts.filter((p) => !PENDING_SET.has(p.kind));
     const sum = usedParts.reduce((s, p) => s + p.tokens, 0);
-    assert.equal(sum, 5000, 'sum equals known parts when they exceed used');
-    assert.equal(result.usedTokens, 1000, 'usedTokens itself stays at baseline.used');
+    assert.equal(sum, 5000, 'breakdown rows sum to known parts');
+    assert.equal(result.usedTokens, 5000, 'usedTokens promoted to match breakdown sum');
+  });
+
+  it('Native/Codex regression: reportedUsedTokens=0 + entries.tools > 0 → effective used = entries sum + output', () => {
+    // Provider-proxy (Codex+GLM, Native+OpenRouter) reports input_tokens=0
+    // even on substantive turns. Without this promotion, popover showed
+    // "used: 0" + empty dot-matrix even when entries.tools surfaced real
+    // per-turn token cost via auto-invoke-accounting (Phase 7).
+    const result = buildContextUsageBreakdown({
+      baseline: {
+        used: 0,
+        cacheReadTokens: 0,
+        cacheCreationTokens: 0,
+        outputTokens: 2552,
+      },
+      compiler: {
+        toolDescriptorTokens: 813,
+        workspaceRuleTokens: 93,
+      },
+    });
+    assert.equal(result.usedTokens, 813 + 93 + 2552, 'usedTokens reflects entries + output');
+    const conv = result.parts.find((p) => p.kind === 'conversation');
+    assert.equal(conv?.tokens, 2552, 'conversation absorbs outputTokens residual');
   });
 
   it('clamps negative baseline.used to 0', () => {

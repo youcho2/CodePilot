@@ -69,6 +69,13 @@ export interface ContextWalkResult {
  */
 export function walkContextUsage(messages: readonly MinimalMessageForUsage[]): ContextWalkResult {
   let latestSdkContextWindow: number | null = null;
+  let latestContextAccounting: ContextWalkResult['contextAccounting'] = null;
+  // Fallback baseline — used when no record has non-zero used. Provider
+  // proxies (Codex+GLM via codepilot_proxy, Native via OpenRouter) often
+  // report `input_tokens=0` even on substantive turns; the old skip rule
+  // hid Native+Codex popovers entirely. Use the newest output-only record
+  // as a weak baseline so the popover at least shows capacity + breakdown.
+  let weakBaseline: ContextWalkResult['baseline'] = null;
 
   for (let i = messages.length - 1; i >= 0; i--) {
     const msg = messages[i];
@@ -101,35 +108,60 @@ export function walkContextUsage(messages: readonly MinimalMessageForUsage[]): C
       latestSdkContextWindow = ctxWindowField;
     }
 
-    // Skip output-only and all-zero records for the baseline.
-    if (used === 0 && outputTokens > 0) continue;
-    if (used === 0 && outputTokens === 0) continue;
+    // Phase 1 — pull `context_accounting` snapshot. Capture from EVERY
+    // record (newest wins), not just the matched baseline, so Native /
+    // Codex turns (often input_tokens=0) still surface their snapshot
+    // when the baseline finder falls back to a weak record.
+    const accountingField = usage.context_accounting;
+    if (
+      latestContextAccounting === null
+      && accountingField
+      && typeof accountingField === 'object'
+    ) {
+      latestContextAccounting = accountingField as ContextWalkResult['contextAccounting'];
+    }
 
     const baselineSdkContextWindow = typeof ctxWindowField === 'number' && ctxWindowField > 0
       ? ctxWindowField
       : null;
 
-    // Phase 1 — pull `context_accounting` snapshot (Phase 1 Contract
-    // shape). Deprecated `context_breakdown` field is intentionally
-    // ignored even if present — see ContextWalkResult docstring.
-    const accountingField = usage.context_accounting;
-    const contextAccounting =
-      accountingField && typeof accountingField === 'object'
-        ? (accountingField as ContextWalkResult['contextAccounting'])
-        : null;
+    if (used === 0 && outputTokens === 0) continue; // truly empty — skip
 
-    return {
-      baseline: {
-        used,
+    if (used > 0) {
+      // Strong baseline — return immediately.
+      return {
+        baseline: {
+          used,
+          cacheReadTokens: cacheRead,
+          cacheCreationTokens: cacheCreation,
+          outputTokens,
+          sdkContextWindow: baselineSdkContextWindow,
+        },
+        latestSdkContextWindow,
+        contextAccounting: latestContextAccounting,
+      };
+    }
+
+    // used === 0 && outputTokens > 0 → output-only record. Remember as
+    // fallback in case no strong baseline exists later (Native+Codex via
+    // provider proxies that report input_tokens=0 reliably).
+    if (!weakBaseline) {
+      weakBaseline = {
+        used: 0,
         cacheReadTokens: cacheRead,
         cacheCreationTokens: cacheCreation,
         outputTokens,
         sdkContextWindow: baselineSdkContextWindow,
-      },
-      latestSdkContextWindow,
-      contextAccounting,
-    };
+      };
+    }
   }
 
-  return { baseline: null, latestSdkContextWindow, contextAccounting: null };
+  // No strong baseline found. If there's a weak (output-only) record,
+  // surface it — the popover will show capacity + breakdown even though
+  // `used` is 0. Better than rendering an empty popover for Native+Codex.
+  return {
+    baseline: weakBaseline,
+    latestSdkContextWindow,
+    contextAccounting: latestContextAccounting,
+  };
 }
