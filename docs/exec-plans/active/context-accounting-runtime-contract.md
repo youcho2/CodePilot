@@ -309,7 +309,9 @@ Smoke Ledger 落 Phase 6 文档 + 本文档；Phase 6 closeout 后归档。
 - 2026-05-20（**v3 Codex review pass**）：接受 1 P1 + 1 P2 finding：
   - **P1 Skills 仅覆盖手打 `/skill` 窄路径，不覆盖真实 Agent Skill badge 选择路径**：用户用 UI 选 Agent Skill 时 dispatchBadge 实际发的是 `Use the humanizer-zh skill. User context: ...`，不是 `/humanizer-zh`。Phase 2 commit 7c2937e 的 SLASH_COMMAND_RE 完全 miss 这条真实路径。修法：删 prompt regex，从 MessageInput badge 元数据作为结构化字段 (`selectedSkills`) 通过 send-path 传到 producer；producer 用 `discoverSkills()`（已覆盖 project / global / installed / agents skill 目录）按 name lookup 拿 SKILL.md 真实 filePath
   - **P2 "SDK POC 已完成"口径不成立**：SDK 实际只暴露 available skills/tools/mcp_servers 列表元数据，没暴露 turn-level loaded-skill。Phase 2 实施其实是 fs 启发式 + 现在改为 badge 结构化 metadata。文档口径修正为 "starts from MessageInput badge metadata; SDK doesn't expose turn-level loaded-skill; no prompt-text guessing"
-- 2026-05-20（**P1 修复 commit pending**）：
+- 2026-05-20（**v3 P1 修复 commit 92a777a**）：
   - producer 签名加 `selectedSkills?: readonly string[]` 参数；用 discoverSkills() lookup filePath；删 SLASH_COMMAND_RE 完全（手打 `/skill` 也 hide，避免猜测）
   - 5 文件 plumbing：MessageInput badges → onSend → ChatView/page sendMessage → stream-session-manager body → /api/chat → streamClaude options → producer
   - 新回归测试：dispatchBadge real prompt + structured selectedSkills 必须产 skills entry；手打 `/skill` 无 selectedSkills 必须 hide
+- 2026-05-20（**v4 P1 修复 commit c35918b**）：ChatView 已有会话发送链路 plumb 完整：QueuedMessage interface 加字段 / doStartStream 6th param / 三处 caller (直发 + enqueue + dequeue) 都传 selectedSkills。同时修 v3 漏的 typecheck error (selectedSkills 在 doStartStream scope 内未声明)。
+- 2026-05-20（**v4 P2 deferred → tech-debt #22**）：selectedSkills 仍是 `readonly string[]`。同名 skill 在 project + global 重复时按 discoverSkills() 优先级选第一个，可能跟 picker 里点的不一致。**短期接受**（user OK）— 单 skill 场景不触发；同名重复时数字仍真实，只 source breadcrumb 可能指错 SKILL.md，不算 hallucination。**升级方向**（tech-debt #22）：`string[]` → `{ name, sourcePath }[]`，picker 存 SkillDefinition.filePath，全链 plumb 到 producer，producer 用 sourcePath 直接 statSync 不再二次 lookup。
