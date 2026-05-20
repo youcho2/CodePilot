@@ -46,9 +46,11 @@ interface CellAllocation {
   isPending: boolean;
 }
 
-function computeAllocations(
+/** Exported for unit tests; not part of the public render API. */
+export function computeAllocations(
   breakdown: ContextUsageBreakdown,
   cellCount: number,
+  minCellsPerKind: 0 | 1,
 ): { cells: CellAllocation[]; emptyCells: number } {
   const partsByKind = new Map(
     breakdown.parts.map((p) => [p.kind, p] as const),
@@ -71,14 +73,25 @@ function computeAllocations(
   const allocations: CellAllocation[] = [];
   let totalAllocated = 0;
 
+  // Allocation strategy depends on minCellsPerKind:
+  //   1 — popover (default): every non-zero category surfaces at least 1
+  //       cell, even when its share rounds to 0. Use Math.max(1, ceil)
+  //       so 100-cell main bar shows every visible category.
+  //   0 — mini-bar (10-cell trigger): no minimum. Tiny categories that
+  //       round below 0.5 disappear; otherwise round to nearest.
+  //       Without this, 5 categories each holding 2% of context would
+  //       force 5 cells = 50% mini-bar fill at ~10% real usage.
+  const allocate = (raw: number): number =>
+    minCellsPerKind === 1 ? Math.max(1, Math.ceil(raw)) : Math.round(raw);
+
   // First pass: used kinds in stable order.
   for (const kind of CONTEXT_BREAKDOWN_KIND_ORDER) {
     if (PENDING_SET.has(kind)) continue;
     const part = partsByKind.get(kind);
     if (!part || part.tokens <= 0) continue;
-    // ceil so a tiny non-zero share still surfaces as 1 cell.
     const raw = (part.tokens / denominator) * cellCount;
-    const cells = Math.max(1, Math.ceil(raw));
+    const cells = allocate(raw);
+    if (cells <= 0) continue;
     allocations.push({ kind, cells, isPending: false });
     totalAllocated += cells;
   }
@@ -89,7 +102,8 @@ function computeAllocations(
     const part = partsByKind.get(kind);
     if (!part || part.tokens <= 0) continue;
     const raw = (part.tokens / denominator) * cellCount;
-    const cells = Math.max(1, Math.ceil(raw));
+    const cells = allocate(raw);
+    if (cells <= 0) continue;
     allocations.push({ kind, cells, isPending: true });
     totalAllocated += cells;
   }
@@ -124,6 +138,18 @@ export interface ContextDotMatrixProps {
    * of filling all of row 1 before any of row 2.
    */
   rows?: number;
+  /**
+   * Minimum cells per non-zero category.
+   *   - 1 (default, popover): every visible category gets at least 1 cell
+   *     so the breakdown legend matches the bar one-to-one.
+   *   - 0 (mini-bar / trigger): no minimum — tiny categories that round
+   *     below 0.5 disappear. Required for 10-cell trigger so 5 tiny
+   *     categories don't each force 1 cell and overshoot real usage.
+   *
+   * Caller should pass 0 when cellCount is small (e.g. 10) and the bar
+   * is used as a rough fullness signal rather than a full legend.
+   */
+  minCellsPerKind?: 0 | 1;
   className?: string;
 }
 
@@ -131,11 +157,13 @@ export function ContextDotMatrix({
   breakdown,
   cellCount = 100,
   rows = 2,
+  minCellsPerKind = 1,
   className,
 }: ContextDotMatrixProps) {
   const { cells: allocations, emptyCells } = computeAllocations(
     breakdown,
     cellCount,
+    minCellsPerKind,
   );
 
   if (allocations.length === 0 && emptyCells === 0) return null;
