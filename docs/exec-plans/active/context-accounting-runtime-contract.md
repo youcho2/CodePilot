@@ -506,6 +506,17 @@ Token 估算公式（共用，3 Runtime 不重复）：
   - 每 Runtime 每 kind 表加 Phase 7 目标列；Native 三项从 unsupported → ✅ real (auto-invoke)；Codex 待 7.3 决议
   - **沉淀「跨 Agent 扩展规则」**入计划：新 Agent 必须套 ToolInvocationAccumulator + collectAutoInvokeSnapshot；禁止重写 token 估算 / 分类逻辑 / 直接构造 snapshot。这条规则单独成段写给未来接 Agent 的开发者看
   - Smoke Ledger 反例扩到 3 Runtime × 多场景
+- 2026-05-20（**Phase 7 实施完成 commit `80eb959`**）：8 个子阶段一口气落地（7.7 真实凭据 smoke 等用户跑除外）：
+  - **7.0** auto-invoke-accounting.ts 新模块 (332 行)：ToolInvocationRecord + ToolInvocationAccumulator + classifyToolUse + collectAutoInvokeSnapshot + canonicalizeSkillName + resolveWorkspaceClaudeMdRules 共用 contract
+  - **7.1** Widget message golden fixture (src/__tests__/fixtures/widget-message-tool-uses.json) — DB row 487c190a 抽 5 个 tool_use 100% tool_result 配对率
+  - **7.2** ClaudeCode wire (claude-client.ts 两条路径) — 主路径 line 1576/1672/1844 + 兼顾 retry-after-compression 的 alt 路径 line 2102/2156/2198；删 streamClaude-start produce
+  - **7.3** Codex SDK 调研短文 (docs/research/codex-sdk-tool-call-surface.md) — 决议：Codex `RuntimeRunEvent` 已是 canonical shape，wire 到 `onAnyNotification`，无需外部 SDK
+  - **7.4** Native wire (agent-loop.ts) — case 'tool-call' 481 + case 'tool-result' 495 + result emit 588；删 produceNativeAccountingSnapshot
+  - **7.5** Codex wire (codex/runtime.ts onAnyNotification) — tool_started / tool_completed / command_started 三类映射 ToolInvocationAccumulator；run_completed → collectAutoInvokeSnapshot 嵌入 supplementary result event（沿用 Phase 4 P2 通道）
+  - **7.6** PHASE_X_UNSUPPORTED 收编：3 Runtime 各自 unsupported 列表收编到 `[system_prompt, memory, files_attachments]`；删 legacy modules（claude-code-context-accounting.ts -156 行 + native-context-accounting.ts -61 行 + claude-code-context-accounting.test.ts -286 行；codex-context-accounting.ts trim 到只剩 resolveCodexProviderBackend）
+  - **7.7** 真实凭据 Smoke ⏳ 等用户跑（dev server HTTP 200 alive，可直接试）
+  - **7.8** harness contract + 全套测试 ✅：27/27 新 contract+fixture 测试 pass；2948/2948 完整单元测试套件 pass（净增 4）；typecheck 清；现有 chat 页面渲染 OK
+  - 用户决议 "新 Agent 必须套抽象" 沉淀到 feedback memory `feedback_new_agent_must_reuse_contracts.md`
 
 ---
 
