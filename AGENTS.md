@@ -42,6 +42,10 @@ CodePilot — Codex 的桌面 GUI 客户端，基于 Electron + Next.js。
 - body 中按文件或功能分组，说明改了什么、为什么改、影响范围
 - 修复 bug 需说明根因；架构决策需简要说明理由
 
+## 语义验收与反假数据
+
+涉及用户可见的统计、状态、能力支持、权限提示、模型/Runtime 兼容性、上下文用量、进度条、badge、warning、设置页能力清单等功能时，必须先验证"这个数字/状态是不是用户以为的意思"。每个字段要有真实 source breadcrumb；没有真实来源时隐藏、标记 unsupported，或明确写"估算"，不得显示假 0、placeholder 或固定估值。详细 checklist 以 [CLAUDE.md](./CLAUDE.md) 的"语义验收与反假数据"为准。
+
 ## 自检命令
 
 **自检命令（pre-commit hook 会自动执行前三项）：**
