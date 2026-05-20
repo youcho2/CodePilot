@@ -46,6 +46,16 @@ interface CellAllocation {
   isPending: boolean;
 }
 
+/**
+ * Fallback "typical context window" used when the Runtime doesn't report
+ * one (Native via OpenRouter/ai-sdk often skips context_window in usage).
+ * 200K is the modal context size across mainstream chat LLMs in 2025-26
+ * (Claude 3.5+, GPT-5, GLM-4.6, etc.). Without this fallback, mini-bar's
+ * old behavior was "denominator = usedTokens" which fills 100% even at
+ * 3K real usage — misleading "looks maxed out" UX.
+ */
+const FALLBACK_CONTEXT_WINDOW = 200_000;
+
 /** Exported for unit tests; not part of the public render API. */
 export function computeAllocations(
   breakdown: ContextUsageBreakdown,
@@ -58,7 +68,15 @@ export function computeAllocations(
 
   // Denominator decides what one cell represents.
   // When contextWindow is known: 1 cell = contextWindow / cellCount tokens.
-  // When unknown: distribute by usedTokens + pendingTotal (no empty cells).
+  // When unknown:
+  //   - Popover (minCellsPerKind=1): used + pending (proportional, fills
+  //     to ~100% because legend rows match the bar one-to-one;
+  //     "容量未知" header tells the user we're showing the breakdown not
+  //     a capacity %).
+  //   - Mini-bar (minCellsPerKind=0): FALLBACK_CONTEXT_WINDOW (200K).
+  //     Mini-bar has no header so a 100% fill at unknown capacity is
+  //     read as "context maxed out" — wrong. Using a typical-window
+  //     fallback lets the bar show a believable rough %.
   const pendingTotal = breakdown.parts
     .filter((p) => PENDING_SET.has(p.kind))
     .reduce((s, p) => s + p.tokens, 0);
@@ -66,7 +84,9 @@ export function computeAllocations(
     typeof breakdown.contextWindow === 'number' && breakdown.contextWindow > 0;
   const denominator = windowKnown
     ? (breakdown.contextWindow as number)
-    : breakdown.usedTokens + pendingTotal;
+    : minCellsPerKind === 0
+      ? Math.max(breakdown.usedTokens + pendingTotal, FALLBACK_CONTEXT_WINDOW)
+      : breakdown.usedTokens + pendingTotal;
 
   if (denominator <= 0) return { cells: [], emptyCells: cellCount };
 
@@ -121,6 +141,34 @@ export function computeAllocations(
       cells: allocations.filter((a) => a.cells > 0),
       emptyCells: 0,
     };
+  }
+
+  // Mini-bar usage indicator: when `minCellsPerKind=0` (round-without-min)
+  // and total used > 0 but everything rounds below 0.5, the mini-bar ends
+  // up completely empty even though the user IS using context. Boost the
+  // largest category to 1 cell so "some usage exists" is visible.
+  // Example: Codex at 1% real usage on 10-cell mini-bar → round → 0 cells
+  // → confusing "I just sent a message but bar is empty". With this boost,
+  // the largest non-zero category becomes 1 cell — small but visible.
+  if (
+    minCellsPerKind === 0
+    && totalAllocated === 0
+    && breakdown.usedTokens > 0
+  ) {
+    // Find the largest non-pending used category to host the 1-cell marker.
+    let largestKind: ContextBreakdownKind | null = null;
+    let largestTokens = 0;
+    for (const part of breakdown.parts) {
+      if (PENDING_SET.has(part.kind)) continue;
+      if (part.tokens > largestTokens) {
+        largestTokens = part.tokens;
+        largestKind = part.kind;
+      }
+    }
+    if (largestKind) {
+      allocations.push({ kind: largestKind, cells: 1, isPending: false });
+      totalAllocated = 1;
+    }
   }
 
   return { cells: allocations, emptyCells: cellCount - totalAllocated };

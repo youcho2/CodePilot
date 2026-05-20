@@ -273,13 +273,24 @@ export function RunCockpit({
   // we have usage but `contextWindow` couldn't be resolved for this
   // model. The popover content handles both branches internally
   // (showUnknownCapacityBlock).
+  //
+  // 2026-05-20 bug fix: previously this used `divide-y overflow-hidden p-0`
+  // (legacy class from pre-redesign popover). The inner popover content
+  // assumes `p-3` outer wrapper — it draws its own divider via
+  // `<div className="-mx-3 my-2 border-t" />` which depends on outer
+  // padding for the negative-margin trick to stretch the line across.
+  // With `p-0` outer, the inner content rendered without padding and
+  // the divider's `-mx-3` reached outside the popover, causing the
+  // popover to land on top of conversation text (user report: "Native
+  // 弹窗的浮层把文字一部分遮住了，其他渠道没问题"). Unified with the
+  // hasFullCtx branch's `p-3 overflow-hidden`.
   return (
     <Popover>
       <PopoverTrigger asChild>{triggerButton}</PopoverTrigger>
       <PopoverContent
         side="top"
         align="end"
-        className="w-80 divide-y overflow-hidden p-0"
+        className="w-80 overflow-hidden p-3"
       >
         {popoverInner}
       </PopoverContent>
