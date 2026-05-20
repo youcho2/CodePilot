@@ -609,6 +609,26 @@ export function runAgentLoop(options: AgentLoopOptions): ReadableStream<string> 
         // unifying with ClaudeCode/Codex via auto-invoke-accounting.ts.
         // Skills/MCP/Tools now come from real per-turn invocations accumulated
         // during streaming, not from filesystem guesses).
+        //
+        // Context window fallback (2026-05-20): Vercel AI SDK's
+        // LanguageModelUsage doesn't expose model context window, so unlike
+        // ClaudeCode (SDKResultMessage.modelUsage) and Codex
+        // (ThreadTokenUsage.modelContextWindow) which get it from upstream,
+        // Native has no native source. Fall back to the static catalog
+        // (model-context.ts) so the popover header can show capacity for
+        // GLM / Kimi / DeepSeek / etc.
+        if (!totalUsage.context_window) {
+          try {
+            const { getContextWindow } = await import('./model-context');
+            const catalogWindow = getContextWindow(modelId);
+            if (catalogWindow && catalogWindow > 0) {
+              totalUsage.context_window = catalogWindow;
+            }
+          } catch {
+            // best-effort
+          }
+        }
+
         let nativeAccountingSnapshot:
           | import('@/types').RuntimeContextAccountingSnapshot
           | undefined;

@@ -17,6 +17,25 @@ export const MODEL_CONTEXT_WINDOWS: Record<string, number> = {
   'claude-opus-4-20250514': 200000,
   'claude-opus-4-7': 1_000_000,
   'claude-haiku-4-5-20251001': 200000,
+  // Third-party chat models — vendor-documented windows. Used by Native
+  // runtime (Vercel AI SDK doesn't expose model context window itself, so
+  // we resolve here when ClaudeCode/Codex SDK paths aren't taken). Codex
+  // ThreadTokenUsage.modelContextWindow and Claude Code SDK's reported
+  // window still win when present — these are pure fallback.
+  'glm-5-turbo': 200000,
+  'glm-5': 200000,
+  'glm-5.1': 200000,
+  'glm-4.6': 200000,
+  'glm-4.5-air': 128000,
+  'gpt-5': 400000,
+  'gpt-5-turbo': 400000,
+  'gpt-4.1': 1_000_000,
+  'gpt-4o': 128000,
+  'gemini-2.5-pro': 2_000_000,
+  'gemini-2.5-flash': 1_000_000,
+  'kimi-k2': 128000,
+  'deepseek-v3': 64000,
+  'deepseek-r1': 64000,
 };
 
 // Substring fallback keys ordered by length (longest first) so a vendor-
