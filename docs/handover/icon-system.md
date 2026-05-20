@@ -85,7 +85,7 @@
 | `plugin` | `PuzzleIcon` | `Package01Icon` | 拼图块 = 插件 |
 | `skill` | `MagicWand03Icon` | `SparklesIcon` | 魔杖表达"能力"，不与 model 撞 |
 | `mcp` | `McpServerIcon` | `ServerStack01Icon` | **HugeIcons 直接有 McpServerIcon** — 不需要替代 |
-| `cli` | `Code02Icon` | `Codepen​Icon` | 代码符号，与 terminal 区分 |
+| `cli` | `CommandLineIcon` | `ConsoleIcon` | HugeIcons 有专用 CommandLineIcon — 比 Code 更贴"CLI 工具"语义，与 terminal 区分 |
 | `terminal` | `TerminalIcon` | — | 命令行窗口 |
 | `file` | `File01Icon` | — | 文件 |
 | `folder` | `Folder01Icon` | `Folder02Icon` | 目录 |
@@ -115,7 +115,7 @@ Phase 7 之前的图标使用里，三个 Phosphor icon 严重负载多个语义
 |------|------------------------|------------------|----------|
 | `Brain` | 1. Settings nav "Models"（line 51 `nav-config.ts`）<br>2. Slash `/memory` 命令（line 31 `command-icons.ts`）<br>3. 部分 Assistant 文案 | 归 `memory` 语义 | 1. Models → `model` (`CubeIcon`)<br>2. `/memory` 保留 `BrainIcon` 但走 alias `memory`<br>3. Assistant 用 `assistant` (`Robot01Icon`) |
 | `Lightning` | 1. Settings nav "Runtime"（line 52 `nav-config.ts`）<br>2. Chat composer "插入斜杠命令"按钮（line 1086 `MessageInput.tsx`）<br>3. 部分 Skills / Quick action 图标 | 不再作为 default vendor 输出 | 1. Runtime → `runtime` (`ChipIcon`)<br>2. "插入命令"按钮 → `code` (`CodeIcon`)（命令是 slash 不是闪电）<br>3. Skill → `skill` (`MagicWand03Icon`) |
-| `Terminal` | 1. Chat composer "调用 CLI"按钮（line 1090 `MessageInput.tsx`）<br>2. Slash `/terminal-setup` 命令（line 30 `command-icons.ts`）<br>3. 内嵌 terminal 抽屉 | 归 `terminal` 语义（terminal UI / shell session） | 1. "调用 CLI"按钮 → `cli` (`Code02Icon`)（CLI 工具不是 terminal）<br>2. `/terminal-setup` 保留 `terminal` alias（语义对得上）<br>3. 内嵌 terminal 抽屉 → `terminal` (`TerminalIcon`)无需变 |
+| `Terminal` | 1. Chat composer "调用 CLI"按钮（line 1090 `MessageInput.tsx`）<br>2. Slash `/terminal-setup` 命令（line 30 `command-icons.ts`）<br>3. 内嵌 terminal 抽屉 | 归 `terminal` 语义（terminal UI / shell session） | 1. "调用 CLI"按钮 → `cli` (`CommandLineIcon`)（CLI 工具不是 terminal）<br>2. `/terminal-setup` 保留 `terminal` alias（语义对得上）<br>3. 内嵌 terminal 抽屉 → `terminal` (`TerminalIcon`)无需变 |
 
 **核心动作**：`cli` 与 `terminal` 分离；`model` 与 `memory` 分离；`runtime` 不被 `Lightning` 这种泛义图标承载。
 
@@ -151,7 +151,7 @@ Phase 7 之前的图标使用里，三个 Phosphor icon 严重负载多个语义
 | 位置 | 当前图标 | 目标 alias |
 |------|---------|-----------|
 | line 1086 "插入斜杠命令"按钮 | **Lightning ⚠️** | `code` (`CodeIcon`)（slash 命令不是闪电） |
-| line 1090 "调用 CLI"按钮 | **Terminal ⚠️** | `cli` (`Code02Icon`)（CLI 不是 terminal session） |
+| line 1090 "调用 CLI"按钮 | **Terminal ⚠️** | `cli` (`CommandLineIcon`)（CLI 不是 terminal session） |
 
 **复合组件**（待 Phase 2 实测扫描）：`MessageInputParts.tsx`, `ChatComposerActionBar.tsx`, `RuntimeSelector.tsx`, `ChatPermissionSelector.tsx`, `ModelSelectorDropdown.tsx`, `EffortSelectorDropdown.tsx`, `SlashCommandPopover.tsx`, `CliToolsPopover.tsx`, `QuickActions.tsx`, `ContextUsageIndicator.tsx`, `RunCockpit.tsx`, `RunCockpitPopoverContent.tsx`, `MessageItem.tsx`, `MessageList.tsx`, `PermissionPrompt.tsx`, `TaskCheckpoint.tsx ⚠️ cross_phase_risk`, `RunCheckpoint.tsx`, `RateLimitBanner.tsx`（含 `lucide-react` 直引）。
 
