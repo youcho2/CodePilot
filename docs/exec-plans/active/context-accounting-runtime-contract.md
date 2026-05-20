@@ -3,6 +3,7 @@
 > 创建：2026-05-19（v1）
 > 重写：2026-05-19（v2 — Codex review pass，修 4 P1 + 1 P2）
 > 增补：2026-05-20（v6 — 用户真实 UI smoke 暴露源错位，加 Phase 7）
+> 增补：2026-05-20（v7 — 用户决议 Phase 7 范围扩三 Runtime + 强制抽象 contract，防止新 Agent 接入时重写 producer 逻辑）
 > 父计划：[`phase-6-context-visualization.md`](./phase-6-context-visualization.md)
 > 触发：用户 Codex review (2026-05-19) — Phase 6 Tier 2 (`a4fa2d4`) 实施了 `context_breakdown` 持久化链路，但**真实 smoke 证明**普通消息和 humanizer-zh Skill 消息的 `context_breakdown` **完全相同**：Skills 行统计的是固定 compiler capability prompt（一直存在的 hardcoded harness 输出），不是实际 Skill 注入 / 调用。这是 "界面有数字，但数字不是用户以为的那个东西" 的 hallucination 风险，违反 `feedback_no_hallucination` 元规则。
 > v6 二次触发：用户 2026-05-20 真实 UI smoke 暴露 Phase 2-4 设计只覆盖 "badge picker 预选" 一条路径，**用户自然语言**让 Claude 自主 invoke Skill/MCP 这条主流路径 producer 永远看不到 → 仍违反"数字反映用户实际工作量"的语义契约。
@@ -240,21 +241,21 @@ Smoke Ledger 落 Phase 6 文档 + 本文档；Phase 6 closeout 后归档。
 | Phase 3 | Native (agent-loop.ts) `produceNativeAccountingSnapshot` + send-path wire | `ebe0071` | ✅ |
 | Phase 4 | Codex (runtime.ts) `produceCodexAccountingSnapshot` + usage cache + run_completed → supplementary result event with usage+context_accounting | `ebe0071` | ✅ |
 | Phase 5 | Smoke + closeout（badge path 已 verify；auto-invoke path 反例归 Phase 7.6） | 待 | 📋 部分 |
-| **Phase 7** | **Producer 时机从「发送前」迁到「答复后」— 扫 SDK assistant message `tool_use` blocks 统计真实 Skill/MCP/Tools 调用** | — | 📋 |
+| **Phase 7** | **三 Runtime 共用 ToolInvocation 抽象 + Producer 时机迁移 — 8 个子阶段（7.0 抽象 / 7.1-2 ClaudeCode / 7.3 Codex 调研 / 7.4 Native / 7.5 Codex / 7.6 unsupported 收编 / 7.7 三 Runtime Smoke / 7.8 harness contract）** | — | 📋 |
 
 ## 每 Runtime 每 kind 状态（实施总账）
 
 > Phase 7 后此表的 ClaudeCode 列会变 — `skills/mcp/tools` 三项从 unsupported 改为 real (auto-invoke scan)。Phase 7 实施完成时同步更新本表。
 
-| Kind | ClaudeCode (Phase 2) | ClaudeCode (Phase 7 目标) | Native (Phase 3) | Codex codex_account (Phase 4a) | Codex codepilot_proxy (Phase 4b) | 真实 source |
-|---|---|---|---|---|---|---|
-| `system_prompt` | unsupported | unsupported（SDK 不暴露）| unsupported | unsupported | unsupported | 全 SDK preset opaque from 我们侧 |
-| `tools` | unsupported | **✅ real (auto-invoke)** | unsupported | unsupported | unsupported | Phase 7: 扫 `tool_use` 内置 tool 名 (Bash/Read/Edit/Grep/...) + per-call args/result chars/4 |
-| `rules` | ✅ real (CLAUDE.md filesize) | ✅ real（保留）| ✅ real | ✅ real | ✅ real | `workspace/CLAUDE.md` fs.statSync |
-| `skills` | ✅ real (badge picker path) | **✅ real (badge + auto-invoke)** | unsupported | unsupported | unsupported | Phase 7 加: `tool_use.name === 'Skill'` → input.skill 名 → discoverSkills lookup → SKILL.md filesize |
-| `mcp` | unsupported | **✅ real (auto-invoke)** | unsupported | unsupported | unsupported | Phase 7: `tool_use.name` 前缀 `mcp__<server>__<tool>` → per-call args + tool_result chars/4 |
-| `memory` | unsupported | unsupported | unsupported | unsupported | unsupported (待 Phase 6.x bridge wire) | adapter 没传 assistantMemory |
-| `files_attachments` | unsupported | unsupported | unsupported | unsupported | unsupported | composer pending 走 ContextBreakdownInputs.pending（已 Phase 6 Tier 2 wire） |
+| Kind | ClaudeCode 当前 | **ClaudeCode (Phase 7 目标)** | Native 当前 | **Native (Phase 7 目标)** | Codex codex_account 当前 | **Codex (Phase 7 目标，pending 7.3 调研)** | Codex codepilot_proxy 当前 | 真实 source |
+|---|---|---|---|---|---|---|---|---|
+| `system_prompt` | unsupported | unsupported | unsupported | unsupported | unsupported | unsupported | unsupported | 全 SDK preset opaque from 我们侧 |
+| `tools` | unsupported | **✅ real (auto-invoke)** | unsupported | **✅ real (auto-invoke)** | unsupported | **✅ real 或 unsupported（7.3 决议）** | unsupported | 共用 collectAutoInvokeSnapshot — 扫 `tool_use` 内置 tool 名 + per-call args/result chars/4 |
+| `rules` | ✅ real (CLAUDE.md filesize) | ✅ real（保留）| ✅ real | ✅ real（保留）| ✅ real | ✅ real | ✅ real | `workspace/CLAUDE.md` fs.statSync |
+| `skills` | ✅ real (badge picker path) | **✅ real (badge + auto-invoke)** | unsupported | **✅ real (auto-invoke)** | unsupported | **✅ real 或 unsupported（7.3）** | unsupported | 共用 collector — `tool_use.name === 'Skill'` + badge merge dedup → discoverSkills lookup → SKILL.md filesize |
+| `mcp` | unsupported | **✅ real (auto-invoke)** | unsupported | **✅ real (auto-invoke)** | unsupported | **✅ real 或 unsupported（7.3）** | unsupported | 共用 collector — `mcp__<server>__<tool>` 前缀 split → per-call args + tool_result chars/4 |
+| `memory` | unsupported | unsupported | unsupported | unsupported | unsupported | unsupported | unsupported (待 Phase 6.x bridge wire) | adapter 没传 assistantMemory |
+| `files_attachments` | unsupported | unsupported | unsupported | unsupported | unsupported | unsupported | unsupported | composer pending 走 ContextBreakdownInputs.pending（已 Phase 6 Tier 2 wire） |
 
 **说明**：
 - "unsupported" = Runtime 明确声明不计 → UI hide 行，不显示 0 假数据
@@ -302,7 +303,7 @@ Smoke Ledger 落 Phase 6 文档 + 本文档；Phase 6 closeout 后归档。
 | 待 | codex_runtime | codex_account | — | OAuth | 普通消息 | 📋 | rules 真实；其他 unsupported；providerBackend='codex_account' |
 | 待 | codex_runtime | (codepilot proxy) | — | API key | 普通消息 | 📋 | rules 真实；其他 unsupported；providerBackend='codepilot_proxy'；result event 含 usage（Phase 4 P2 修复验证）|
 
-## Phase 7 — Producer 时机从「发送前」移到「答复后」（v6 增补）
+## Phase 7 — Producer 时机移到「答复后」+ 三 Runtime 共用抽象（v6 起草，v7 用户决议扩 scope）
 
 ### 用户视角
 
@@ -310,11 +311,12 @@ Smoke Ledger 落 Phase 6 文档 + 本文档；Phase 6 closeout 后归档。
 
 升级前（Phase 2-4 落地后）只在用户**主动用 badge picker 选 skill** 时显示 Skills 行。但用户最自然的工作方式是**自然语言提到 skill 名 / 让 Claude 自主决定调哪些 MCP / Tool**，这条主流路径 popover 完全看不到。
 
-Phase 7 后：
+Phase 7 后（**v7：三 Runtime 全覆盖**）：
 
-- popover Skills 行：**Claude 实际 invoke 的所有 Skill**（无论用户用 badge 选还是自然语言触发都会出）
-- popover MCP 行：**本轮调用的 MCP server / tool 清单 + 每个 invocation 估算 token**（之前永远 hide）
-- popover Tools 行：**本轮调用的内置工具次数**（Bash×N / Read×N / Edit×N，之前永远 hide）
+- popover Skills 行：**Claude 实际 invoke 的所有 Skill**（无论用户用 badge 选还是自然语言触发都会出；ClaudeCode + Native；Codex 调研后决定）
+- popover MCP 行：**本轮调用的 MCP server / tool 清单 + 每个 invocation 估算 token**（之前 3 Runtime 永远 hide）
+- popover Tools 行：**本轮调用的内置工具次数**（Bash×N / Read×N / Edit×N，之前 3 Runtime 永远 hide）
+- 切到 Native session 或 Codex session 看到同样的行 — **跨 Runtime 一致语义**
 
 #### 不做什么
 
@@ -322,109 +324,151 @@ Phase 7 后：
 - 不试图统计 MCP **schema 注入** 的系统提示部分 token（那属于 system_prompt，Phase 2-4 已声明 unsupported；Phase 7 只统计 invocation-level token，即 args + tool_result 内容）
 - 不为 "available 但未 invoke 的 skill/MCP/tool" 显示行 — 只统计实际发生的 tool_use
 - 不动 badge picker 路径（保留作为 UX 保证，picker 主动选时也会被 tool_use 扫描覆盖到 — 数据来源一致）
-- 不动 Native (`agent-loop.ts`) 时机：Native 没 SDK 抽象的 `tool_use` block；Phase 7.5 评估是否需要补 agent-loop 自己的 tool-call record
-- 不动 Codex (`runtime.ts`) 时机：Codex 已有 `usage_updated` event 拿 turn-level 数；不需要 tool_use scan 路径
-- 不预先 trigger producer — 只在 SDK result event 内跑一次
+- 不预先 trigger producer — 只在 result event 内跑一次
 
 #### 怎么验收
 
-- **铁证 #1（Skills 自然语言）**：复制本计划触发证据的同一 prompt "你好帮我创建一个当前目录内容的可视化解释组件，然后随便写点啥调用 humanizer-zh 优化"，修复前 DB row entries.skills 空，修复后 entries.skills 含 humanizer-zh + SKILL.md 真实 filesize
-- **铁证 #2（MCP）**：Widget 生成场景 entries.mcp 非空 + source 含 `codepilot-widget`、`codepilot-memory` server 名 + invocation count
-- **铁证 #3（Tools）**：任何调用 Bash 的对话 entries.tools 非空 + detail 含 "Bash × N"
-- **反例 baseline**：发"你好" 不触发任何 tool_use → entries.skills/mcp/tools 都 omit（防 hallucination 加 0）
+- **铁证 #1（ClaudeCode Skills 自然语言）**：复制本计划触发证据的同一 prompt "你好帮我创建一个当前目录内容的可视化解释组件，然后随便写点啥调用 humanizer-zh 优化"，修复前 DB row entries.skills 空，修复后 entries.skills 含 humanizer-zh + SKILL.md 真实 filesize
+- **铁证 #2（ClaudeCode MCP）**：Widget 生成场景 entries.mcp 非空 + source 含 `codepilot-widget`、`codepilot-memory` server 名 + invocation count
+- **铁证 #3（ClaudeCode Tools）**：任何调用 Bash 的对话 entries.tools 非空 + detail 含 "Bash × N"
+- **铁证 #4（Native 三类）**：Native session 跑等效 prompt → entries.skills / entries.mcp / entries.tools 跟 ClaudeCode 语义一致（行出、数字接近）
+- **铁证 #5（Codex 三类，前提是调研可行）**：Codex session 跑等效 prompt → 同上；不可行则 entries 显式 unsupported（不允许显示 0 / 假数据）
+- **反例 baseline**：3 Runtime 都跑"你好" 不触发任何 tool_use → entries.skills/mcp/tools 都 omit（防 hallucination 加 0）
 - **回归 baseline**：badge picker 选 humanizer-zh 仍 work（与 auto-invoke 数据等价）
 - **harness contract**：`src/__tests__/unit/harness-capability-contract.test.ts` pass（CLAUDE.md `feedback_no_live_smoke_driven_patching`：harness contract 变更必须先过 contract test 再 burn 真实凭据 smoke）
-- **Smoke Ledger** 加 Phase 7.6 三行（Skills 自然语言 / MCP / Tools 各一）
+- **Smoke Ledger** 加 Phase 7.7 反例行 — ClaudeCode 3 行（Skills/MCP/Tools） + Native 3 行 + Codex 按调研结果 0~3 行
 
 #### 价值类型
 
-**A 类（用户可见 UI）**：直接修复用户最反馈的痛点 — popover 数字反映的不是 Claude 真实工作量。
+**A 类（用户可见 UI）+ C 类（基础设施）**：A 直接修复用户最反馈的痛点；C 沉淀 ToolInvocation 抽象 contract，未来接新 Agent 不需要重写 producer 逻辑（用户决议 v7：「不然后面接新的 Agent 又会出问题」）。
 
 ### 实施路径（技术细节，不需要用户审查）
 
-> 以下内容是给开发者看的，描述代码层面如何接通；用户验收只看上一段「怎么验收」铁证。
+> 以下内容是给开发者看的；用户验收只看上一段「怎么验收」铁证。
 
-#### 数据源 (SDK 实际能给的)
+#### 关键发现：抽象 shape 已存在（v7）
 
-SDK assistant message content 是 `Array<ContentBlock>`，包含 `text / thinking / tool_use / tool_result` 几类。Phase 7 producer 扫 `tool_use` blocks：
+三 Runtime 在 SSE 流出阶段已经 emit 相同 shape 的 `tool_use` event：
 
-| tool_use.name 模式 | 归类 | 提取字段 |
+| Runtime | 累积点 | 已 emit shape |
 |---|---|---|
-| `Skill` | `entries.skills` | `input.skill`（skill 名）→ discoverSkills lookup → SKILL.md filesize |
-| `mcp__<server>__<tool>` | `entries.mcp` | server / tool 名（前缀 split）+ per-call input args 字符长度 + 对应 tool_result chars |
-| 其他（`Bash` `Read` `Edit` `Grep` `Glob` `WebFetch` ...）| `entries.tools` | tool 名 + per-call input args + tool_result chars |
+| ClaudeCode | `src/lib/claude-client.ts:1585-1591` `if (block.type === 'tool_use')` | `{ id, name, input }` |
+| Native | `src/lib/agent-loop.ts:483-489` `case 'tool-call'` | `{ id: event.toolCallId, name: event.toolName, input }` |
+| Codex | `src/lib/codex/runtime.ts:82-134` `type: 'tool_use'` event | `{ tool_use_id, name, input }` |
 
-#### Producer 时机迁移
+**含义**：抽象不需要新发明 — 把已 emit 的 SSE `tool_use` event shape 提升为正式 contract，三 Runtime accumulator 都套同一个接口。这也是为啥 v7 用户说"必须抽象"是对的：当前虽然 shape 一致，但累积逻辑散在三处，未来加第 4 个 Agent 又会复制一份。
 
-当前 `src/lib/claude-client.ts:1158` 在 streamClaude 起点跑 produce。改为：
-
-1. streamClaude 入口处 **删除** 当前 produce 调用（line 1100-1166 块）；保留 `adaptForClaudeCode` / extensions 扫描（那些是 system prompt 注入相关，不依赖 tool_use）
-2. 在 streaming 循环里（line 1585 附近 `if (block.type === 'tool_use')`）累积 tool_use blocks 到本地 array `accumulatedToolUses: Array<{ name: string; input: unknown; tool_use_id: string }>`
-3. 在 streaming 循环里 `tool_result` block 也累积（line 1674 附近）到 `accumulatedToolResults: Map<tool_use_id, { content: string }>` （tool_result 是 user 消息内的；同一 stream 内可达）
-4. result event handler (line 2162) 调 producer 新入口 `produceFromAssistantHistory({ workspacePath, toolUses, toolResults, selectedSkills })`
-5. result event handler line 1845-1846 sites（main + alt path）把 snapshot 嵌进 `usage.context_accounting`
-
-#### Producer 新入口 API
+#### 抽象 contract — 新模块 `src/lib/harness/auto-invoke-accounting.ts`
 
 ```ts
-// src/lib/harness/claude-code-context-accounting.ts
-export interface ProducerToolUseRecord {
-  name: string;
+// 共用 Runtime-agnostic shape，所有 Runtime accumulator 都产这个
+export interface ToolInvocationRecord {
+  toolUseId: string;
+  toolName: string;           // 'Skill' | 'mcp__server__tool' | 'Bash' | ...
   input: unknown;
-  tool_use_id: string;
+  resultContent?: string;     // 配对 tool_result，未配上时 undefined
 }
-export interface ProducerToolResultRecord {
-  content: string;
+
+// 共用 accumulator — 在每 Runtime 的 streaming loop 中复用
+export class ToolInvocationAccumulator {
+  recordToolUse(toolUseId: string, toolName: string, input: unknown): void;
+  recordToolResult(toolUseId: string, content: string): void;
+  drain(): readonly ToolInvocationRecord[];   // result event 时调用
 }
-export interface ProducerInputAutoInvoke {
+
+// 共用 collector — Runtime-agnostic 分类 + 估算 + 产 snapshot
+export function collectAutoInvokeSnapshot(input: {
   workspacePath: string;
-  toolUses: ReadonlyArray<ProducerToolUseRecord>;
-  toolResults: ReadonlyMap<string, ProducerToolResultRecord>;
-  selectedSkills?: readonly string[];  // 保留 badge 路径；与 tool_use Skill 合并 dedup
-}
-export function produceClaudeCodeAccountingSnapshot(
-  input: ProducerInputAutoInvoke,
-): RuntimeContextAccountingSnapshot;
+  records: readonly ToolInvocationRecord[];
+  producedBy: ContextAccountingRuntimeId;       // 'claude_code' | 'codepilot_runtime' | 'codex_runtime'
+  providerBackend?: string;                     // Codex 子分类透传
+  selectedSkills?: readonly string[];           // badge picker 兼容；dedup
+  workspaceRulesSource?: () => Promise<ContextAccountingEntry | undefined>;  // rules 入口可注入
+}): RuntimeContextAccountingSnapshot;
 ```
 
-Token 估算公式 (POC):
+Token 估算公式（共用，3 Runtime 不重复）：
 - Skill: `discoverSkills().find(s.name === input.skill).filesize / 4`
-- MCP per call: `(JSON.stringify(input).length + (toolResults.get(tool_use_id)?.content.length ?? 0)) / 4`
+- MCP per call: `(JSON.stringify(input).length + (resultContent?.length ?? 0)) / 4`
 - 内置 tool per call: 同 MCP 公式
 
-#### 子阶段拆分
+#### 三 Runtime 各自接通
+
+| Runtime | accumulator wire 位置 | result-event produce 位置 | 备注 |
+|---|---|---|---|
+| ClaudeCode | `claude-client.ts:1585` block.type==='tool_use' / `:1674` tool_result | `:2162` result handler 内 | 删 `:1100-1166` 的旧 streamClaude-start produce |
+| Native | `agent-loop.ts:483` `case 'tool-call'` / `:505-510` tool_result | result event handler（在 finalUsage 处） | 替换现有 `produceNativeAccountingSnapshot` |
+| Codex | `codex/runtime.ts:82-134` `tool_use` event / 配对 tool_result | run_completed → 嵌入 result.usage.context_accounting（同 Phase 4 P2 通道） | 是否复用 SDK 原生 API 待 7.3 调研 |
+
+#### 子阶段拆分（v7 重排）
 
 | 子阶段 | 内容 | 验收 |
 |---|---|---|
-| 7.1 POC + fixture | 从当前 DB row `487c190a72ce51e030e706ca7ab3cea8` content 抽 4 个 tool_use blocks 存 `src/__tests__/fixtures/widget-message-tool-uses.json` 作为 golden fixture | fixture 文件存在；shape 验证测试 pass |
-| 7.2 contract 扩展 | `PHASE_2_UNSUPPORTED` 列表 - 去掉 `tools` `mcp`；保留 `system_prompt` `memory` `files_attachments`；contract unit test 同步更新 | `context-accounting.test.ts` 仍 pass |
-| 7.3 producer 新入口 | 加 `produceFromAssistantHistory` (或 producer 签名扩展)；保留 `selectedSkills` 兼容（badge 路径）；与 tool_use Skill dedup | 6 个新 unit test：Skill auto-invoke / MCP × 2 server / Bash × N / 空 tool_uses → 不计 / dedup badge + tool_use / unknown skill → 不计 |
-| 7.4 claude-client 时机迁移 | streamClaude line 1100-1166 produce 调用删；累积 tool_use + tool_result；result event line 2162 调新入口 | typecheck pass；现有 smoke 不回归 |
-| 7.5 Native / Codex 评估 | Native agent-loop 是否能补 tool_use scan？Codex usage_updated 是否已覆盖？写决策不实施 | 决策写入本计划 decision log |
-| 7.6 Smoke Ledger 三反例 | Skills 自然语言 / MCP Widget / Tools Bash 三条真实凭据 smoke，DB row dump + popover 截图 | Smoke Ledger 三行 Evidence 列填齐 |
-| 7.7 harness contract | `harness-capability-contract.test.ts` pass | 测试列表跑全绿 |
+| 7.0 抽象 contract | `auto-invoke-accounting.ts` 新模块：ToolInvocationRecord type / ToolInvocationAccumulator class / collectAutoInvokeSnapshot 入口；专属 unit test pin shape | 模块存在 + 8 个 contract test pass（accumulate / drain / dedup / Skill 分类 / MCP 前缀 split / 内置 tool / 空 records / badge + tool_use Skill merge） |
+| 7.1 ClaudeCode POC + fixture | 从 DB row `487c190a` 抽 tool_use blocks 存 `src/__tests__/fixtures/widget-message-tool-uses.json`；verify 4 个 tool_use 都有对应 tool_result（如果没有，记录到 7.0 contract risk） | fixture 文件存在；shape 测试 pass；tool_result 配对率 100%（不通过则 7.0 contract 加 "missing tool_result" 分支） |
+| 7.2 ClaudeCode 接通 | claude-client.ts wire ToolInvocationAccumulator；删旧 produce（line 1100-1166）；result event 调 collectAutoInvokeSnapshot；保留 selectedSkills badge merge | typecheck pass；现有 unit test (claude-code-context-accounting.test.ts 13 测试) 改造为复用 collectAutoInvokeSnapshot 不破坏既有 assert |
+| 7.3 Codex SDK 调研 | 读 codex-sdk types / runtime SSE 流文档；判定 Codex 是否暴露 native tool-call list API；如果有 → 用；没有 → 走 SSE `tool_use` event accumulator（兜底）；写决策入 decision log | 调研文档（短）+ 决议落到 decision log |
+| 7.4 Native 接通 | agent-loop.ts wire ToolInvocationAccumulator；替换 `produceNativeAccountingSnapshot`；result event 调 collectAutoInvokeSnapshot；producedBy: 'codepilot_runtime' | 新建 `native-auto-invoke.test.ts` 4 test：Skill / MCP / 内置 tool / 空；现有 native 单测不回归 |
+| 7.5 Codex 接通 | 按 7.3 调研决议接通：accumulator wire 到 runtime.ts 或新位置；保持 Phase 4 P2 run_completed → supplementary result event 通道；providerBackend 透传 | codex 单测 + harness contract test pass |
+| 7.6 PHASE_2_UNSUPPORTED 收编 | 三 Runtime producer 的 unsupported 列表去掉 `tools` `mcp` `skills`（auto-invoke 已 cover）；保留 `system_prompt` `memory` `files_attachments` | 每 Runtime 每 kind 总账表更新；context-accounting.test.ts 同步 |
+| 7.7 Smoke Ledger 反例 | ClaudeCode 3 行（Skills 自然语言 / MCP Widget / Bash） + Native 3 行（等效场景）+ Codex 按 7.3 0~3 行；每行 DB row dump + popover 截图 + console clean | Ledger 行齐；用户/Codex 验证 pass |
+| 7.8 harness contract | `harness-capability-contract.test.ts` 三 Runtime auto-invoke 维度都 pass | 测试列表跑全绿 |
 
 #### 影响范围 (改动文件)
 
-- `src/lib/harness/claude-code-context-accounting.ts` — producer 新入口
-- `src/lib/claude-client.ts` — produce 时机迁移 + tool_use/tool_result 累积
-- `src/__tests__/unit/claude-code-context-accounting.test.ts` — 新增 6 test
-- `src/__tests__/fixtures/widget-message-tool-uses.json` — 新 fixture
-- 不改：`src/components/chat/MessageInput.tsx`（badge picker 路径保留）、`ChatView.tsx`、`stream-session-manager.ts`、`/api/chat`、`src/types/index.ts`（contract 字段不变）
+新增：
+- `src/lib/harness/auto-invoke-accounting.ts` — 抽象 contract
+- `src/__tests__/unit/auto-invoke-accounting.test.ts` — 8 contract test
+- `src/__tests__/fixtures/widget-message-tool-uses.json` — golden fixture
+- `src/__tests__/unit/native-auto-invoke.test.ts` — Native 4 test
+- `docs/research/codex-sdk-tool-call-surface.md`（7.3 调研短文）
+
+改动：
+- `src/lib/harness/claude-code-context-accounting.ts` — 复用 collectAutoInvokeSnapshot；移除重复逻辑
+- `src/lib/harness/native-context-accounting.ts` — 同上
+- `src/lib/harness/codex-context-accounting.ts` — 同上
+- `src/lib/claude-client.ts` — 时机迁移 + accumulator wire
+- `src/lib/agent-loop.ts` — accumulator wire
+- `src/lib/codex/runtime.ts` — accumulator wire（按 7.3 决议）
+- `src/__tests__/unit/claude-code-context-accounting.test.ts` — 改造 13 既有 test 复用 collector
+- `src/types/index.ts` — 视 contract 类型导出（可能新增 ToolInvocationRecord 导出）
+
+不改：
+- `src/components/chat/MessageInput.tsx`（badge picker 路径保留）、`ChatView.tsx`、`stream-session-manager.ts`、`/api/chat`（selectedSkills 通道仍 alive 作 badge UX 保证）
 
 #### 风险 / 已知局限
 
 - **MCP schema 注入仍 unsupported**：用户期待"MCP-heavy 工作流影响 system_prompt 大"无法覆盖；这是 Phase 8 范围（需要从 MCP loader 拿 server tool schemas）
-- **tool_result 不一定在同 stream 内可达**：parent_tool_use_id 跨边界场景需要查；7.1 POC 必须 verify Widget message 全部 tool_use 都有对应 tool_result
+- **tool_result 配对失败的兜底**：7.1 POC 必须 verify Widget message 全部 tool_use 都有对应 tool_result；若配对率 < 100%，accumulator 必须能优雅降级（drain 时返回 record.resultContent = undefined，token 估算只算 input 部分；不许漏行）
 - **estimate 精度**：char/4 + JSON 序列化估算与 server tokenization 偏差 5-15%；可接受（跟 Phase 2-4 一致基线）
-- **Skill 同名歧义**：tech-debt #22 已记录；Phase 7 producer 复用 discoverSkills 仍受影响
+- **Skill 同名歧义**：tech-debt #22 已记录；collectAutoInvokeSnapshot 复用 discoverSkills 仍受影响
+- **Codex 走兜底路径的代价**：如果 7.3 调研结论是 "SDK 不暴露 native API"，Codex 走 SSE `tool_use` event accumulator — 跟 ClaudeCode/Native 路径同源，无额外代价；但若 Codex SSE 没全量带 tool 内容（如 input 截断），accounting 精度会比另两个 Runtime 低，需 7.5 决议
+
+### 跨 Agent 扩展规则（v7 用户决议沉淀 — 给未来接新 Agent 的人看）
+
+**新 Agent 接入 CodePilot 时，必须遵守 ToolInvocation contract，不允许重写 producer 逻辑：**
+
+1. 在 Agent 自己的 streaming loop 中实例化 `ToolInvocationAccumulator`
+2. 每次看到 tool_use 调用 `accumulator.recordToolUse(id, name, input)`
+3. 每次看到 tool_result 调用 `accumulator.recordToolResult(id, content)`
+4. result event 时调 `collectAutoInvokeSnapshot({ records: accumulator.drain(), producedBy, workspacePath, ... })`
+5. 把 snapshot 嵌入 `usage.context_accounting`
+
+**禁止：**
+- 在 Agent runtime 内重写 token 估算公式（必须复用 collectAutoInvokeSnapshot）
+- 在 Agent runtime 内重写 Skill / MCP / 内置 tool 分类（必须复用 collector 内分类）
+- 跳过 accumulator 直接构造 RuntimeContextAccountingSnapshot（除非 producedBy 明确不支持 auto-invoke 维度，此时全部 unsupported；不允许部分自构）
+
+**只允许：**
+- 自定义 producedBy 值（按 RuntimeId enum）
+- 自定义 providerBackend 子分类透传
+- 自定义 workspaceRulesSource 入口（rules entry 是 Runtime-specific 文件系统/配置查询）
 
 ### 不在 Phase 7 范围
 
 - MCP server tool schemas 系统提示注入估算 → 留 Phase 8
-- Native runtime tool-call 时机 → 7.5 决策后再起独立 phase
-- Codex runtime → 当前 usage_updated 已覆盖；不在 Phase 7 范围
 - Memory / files_attachments 接通 → Phase 6.x 范围
+- 第 4+ 个 Agent 真正接入 → 新 Agent 各自的 phase，但必须遵守上方扩展规则
 
 ## 决策日志
 
@@ -455,6 +499,13 @@ Token 估算公式 (POC):
 - 2026-05-20（**v5 P1 修复 commit `27b5629`**）：badge picker 存 `command: '/humanizer-zh'`（slash 前缀），producer 原 strict 比对 SkillDefinition.name 失败。加 `canonicalizeSkillName(value)` = `value.trim().replace(/^\/+/, '')` + 大小写不敏感 lookup；新加 5 个 regression test（slash 前缀 / 大小写 / 防御性空格 / slash-only / source breadcrumb 格式）。
 - 2026-05-20（**v5 hotfix commit `5c356e8`**）：v5 引入 client bundle 致命错误。MessageInput.tsx 加的 `await import('@/lib/harness/claude-code-context-accounting')` 把 producer module → discoverSkills → `node:fs` 拖进客户端 bundle，触发 `Module not found: 'fs'` → 整个 /chat 页面 HTTP 500。修法：MessageInput 改 inline `(v) => v.trim().replace(/^\/+/, '')` 不 import 任何 server-only module；producer 自留 canonicalize export 给 server caller 用，client + server 各一份（**enforced boundary**）。教训：Next.js client bundle traces 所有 reachable imports (static + dynamic)；dynamic import 不 escape bundle inclusion；想当然用 `await import()` 跨 client-server 边界会出事。
 - 2026-05-20（**v6 触发：用户真实 UI smoke 暴露设计源错位**）：用户 prompt "你好帮我创建一个当前目录内容的可视化解释组件，然后随便写点啥调用 humanizer-zh 优化" → DB row `487c190a72ce51e030e706ca7ab3cea8` token_usage.context_accounting 只有 rules，缺 skills + mcp + tools。Assistant message content 实际 4 个 tool_use：Bash × 2 / mcp__codepilot-widget__codepilot_load_widget_guidelines / mcp__codepilot-memory__codepilot_memory_recent / Skill { skill: 'humanizer-zh' }。**根本原因**：Phase 2-4 producer 在 streamClaude 起点跑，源是 `options.selectedSkills`（badge picker 预选）；用户没用 badge，自然语言提到 skill 后 Claude 自主 invoke Skill tool — 这条 path producer 永远看不到。同理 MCP / 内置 Tool 永远 unsupported。Phase 2-4 仍属 partial：只 cover badge picker 路径，不 cover Claude 自主 invoke 主流路径。**决议**：加 Phase 7 (producer 时机迁到 SDK result event；扫 assistant message tool_use blocks)；Phase 7 不否定 Phase 2-4（badge 路径 dedup 合并），只补漏 auto-invoke 路径。
+- 2026-05-20（**v7 用户决议：Phase 7 范围扩三 Runtime + 强制抽象**）：用户明确要求 "ClaudeCode + Native 都搞；Codex 看 SDK 接口；**也得抽象，不然后面接新的 Agent 又会出问题**"。**侦察结论**：三 Runtime 早已 emit 相同 shape 的 SSE `tool_use` event（ClaudeCode `claude-client.ts:1585` / Native `agent-loop.ts:483-489` / Codex `codex/runtime.ts:82-134`）— 抽象 shape 不需要新发明，把已 emit 的 event shape 提升为正式 contract 即可。**v7 调整**：
+  - 加 Phase 7.0 — 新模块 `auto-invoke-accounting.ts` 沉淀 `ToolInvocationRecord` / `ToolInvocationAccumulator` / `collectAutoInvokeSnapshot` 共用 contract；8 个 contract test pin shape
+  - 子阶段拆为 7.0-7.8（vs v6 的 7.1-7.7），加 Codex SDK 调研 (7.3) + Native 完整接通 (7.4) + Codex 接通 (7.5)
+  - Phase 7 价值类型从 A 类升级为 **A + C 类**（C = 基础设施：跨 Agent 复用 contract）
+  - 每 Runtime 每 kind 表加 Phase 7 目标列；Native 三项从 unsupported → ✅ real (auto-invoke)；Codex 待 7.3 决议
+  - **沉淀「跨 Agent 扩展规则」**入计划：新 Agent 必须套 ToolInvocationAccumulator + collectAutoInvokeSnapshot；禁止重写 token 估算 / 分类逻辑 / 直接构造 snapshot。这条规则单独成段写给未来接 Agent 的开发者看
+  - Smoke Ledger 反例扩到 3 Runtime × 多场景
 
 ---
 
@@ -466,5 +517,10 @@ Token 估算公式 (POC):
 | 待 | claude_code | Claude 自主调 MCP | Widget 生成 | entries.mcp unsupported hide | entries.mcp 非空 + codepilot-widget / codepilot-memory server 名 + invocation 次数 |
 | 待 | claude_code | Claude 自主调 Bash | 任何包含文件操作的对话 | entries.tools unsupported hide | entries.tools 含 Bash × N detail |
 | 待 | claude_code | badge picker | popover 选 humanizer-zh | entries.skills 含 humanizer-zh ✓ | 同左（保留兼容；不破坏）|
+| 待 | codepilot_runtime | 自然语言 | Native session 等效 prompt | entries.skills/mcp/tools 全 unsupported hide | 与 ClaudeCode 同 — entries 三类按实际 invoke 填 |
+| 待 | codepilot_runtime | Claude 自主调 MCP | Native session Widget 生成 | entries.mcp unsupported hide | 与 ClaudeCode 同源 collectAutoInvokeSnapshot |
+| 待 | codepilot_runtime | 内置 tool | Native session Bash 调用 | entries.tools unsupported hide | 与 ClaudeCode 同 |
+| 待 | codex_runtime (codex_account) | 7.3 调研后定 | 7.3 调研后定 | entries 全 unsupported hide | 7.3 决议：可行则 ✅ real；不可行则保持 unsupported |
+| 待 | codex_runtime (codepilot_proxy) | 7.3 调研后定 | 7.3 调研后定 | entries 全 unsupported hide | 7.3 决议同上 |
 
 > Evidence 必须含：(1) DB row token_usage.context_accounting 完整 JSON dump，(2) popover 截图 + DOM 摘要，(3) console clean except tech-debt #20
