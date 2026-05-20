@@ -17,25 +17,31 @@ export const MODEL_CONTEXT_WINDOWS: Record<string, number> = {
   'claude-opus-4-20250514': 200000,
   'claude-opus-4-7': 1_000_000,
   'claude-haiku-4-5-20251001': 200000,
-  // Third-party chat models — vendor-documented windows. Used by Native
-  // runtime (Vercel AI SDK doesn't expose model context window itself, so
-  // we resolve here when ClaudeCode/Codex SDK paths aren't taken). Codex
-  // ThreadTokenUsage.modelContextWindow and Claude Code SDK's reported
-  // window still win when present — these are pure fallback.
-  'glm-5-turbo': 200000,
-  'glm-5': 200000,
-  'glm-5.1': 200000,
-  'glm-4.6': 200000,
-  'glm-4.5-air': 128000,
-  'gpt-5': 400000,
-  'gpt-5-turbo': 400000,
-  'gpt-4.1': 1_000_000,
-  'gpt-4o': 128000,
-  'gemini-2.5-pro': 2_000_000,
-  'gemini-2.5-flash': 1_000_000,
-  'kimi-k2': 128000,
-  'deepseek-v3': 64000,
-  'deepseek-r1': 64000,
+  // Third-party chat models — Native runtime fallback (Vercel AI SDK
+  // doesn't expose modelContextWindow; ClaudeCode SDK's reported window
+  // and Codex ThreadTokenUsage.modelContextWindow still win when present).
+  //
+  // Discipline:
+  //   - Only add modelIds that ACTUALLY appear in:
+  //     · src/lib/provider-catalog.ts defaultModels
+  //     · DB chat_sessions.model (historical sessions)
+  //   - Each entry MUST be web-verified against vendor's official docs
+  //     and cite source URL in a leading comment
+  //   - DO NOT guess from training memory — 2026-05-20 first attempt
+  //     shipped several wrong / non-existent entries before fact-check
+  //   - Unverified modelIds: leave absent → useContextUsage falls back
+  //     to "capacity unknown"; mini-bar uses 200K fallback denominator
+  //     (graceful degrade, not misleading 100% fill)
+  //
+  // GLM-5-Turbo (Z.ai) — heaviest usage in DB (44 sessions)
+  // https://docs.z.ai/guides/llm/glm-5-turbo — 202,752 input tokens
+  'glm-5-turbo': 202752,
+  // GPT-5.5 (OpenAI) — 16 sessions in DB
+  // https://openai.com/index/introducing-gpt-5-5/ — 1M API context
+  'gpt-5.5': 1_000_000,
+  // GPT-5.4 (OpenAI) — 11 sessions in DB
+  // https://openai.com/index/introducing-gpt-5-4/ — 1M API context
+  'gpt-5.4': 1_000_000,
 };
 
 // Substring fallback keys ordered by length (longest first) so a vendor-
