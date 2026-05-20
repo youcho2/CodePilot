@@ -1,9 +1,16 @@
 # Phase 6：上下文用量可视化 / Context Breakdown
 
 > 创建时间：2026-05-19
-> 最后更新：2026-05-19
-> 父计划：[`refactor-closeout.md`](./refactor-closeout.md)
+> 最后更新：2026-05-20
+> 状态：✅ 已完成并归档
+> 父计划：[`refactor-closeout.md`](../active/refactor-closeout.md)
 > 参考：用户提供的 Cursor Context Usage Breakdown 截图；Cursor context docs；CodePilot `docs/handover/context-management.md`
+
+## 归档说明
+
+Phase 6 的视觉入口、点阵组成条、popover breakdown、三 Runtime context-accounting 持久化与真实 smoke evidence 已完成。真实数据契约与收口证据见 [`context-accounting-runtime-contract.md`](./context-accounting-runtime-contract.md) 与 [`_smoke-evidence-phase-7/`](./_smoke-evidence-phase-7/)。
+
+本文件下方保留原始设计与执行拆分，作为 Phase 7 视觉锚点和后续 context accounting 扩展的背景材料；若与上方归档说明或 `context-accounting-runtime-contract.md` 冲突，以归档说明和已完成计划为准。
 
 ## 用户会看到什么变化
 
@@ -25,11 +32,19 @@
 
 | Phase | 内容 | 状态 | 用户结果 |
 |-------|------|------|----------|
-| Phase 0 | 数据审计 + contract 定义 | 📋 待开始 | 明确哪些来源可拆、哪些只能估算 |
-| Phase 1 | `ContextUsageBreakdown` 数据层 | 📋 待开始 | 同一份结构驱动 UI / tests / smoke |
-| Phase 2 | 现有 Context UI 改造 | 📋 待开始 | 在现有入口上看到 dot-matrix mini bar + popover 明细 |
-| Phase 3 | Chat / RunCockpit 接入 | 📋 待开始 | 输入框右下角正式替换成组成条入口 |
-| Phase 4 | 三 Runtime 冒烟 + 文档收口 | 📋 待开始 | ClaudeCode / CodePilot Native / Codex Runtime 均可验收 |
+| Phase 0 | 数据审计 + contract 定义 | ✅ 已完成 | 明确哪些来源可拆、哪些只能估算；假数据 snapshot 已止损 |
+| Phase 1 | `ContextUsageBreakdown` 数据层 | ✅ 已完成 | 同一份结构驱动 UI / tests / smoke |
+| Phase 2 | 现有 Context UI 改造 | ✅ 已完成 | 在现有入口上看到 dot-matrix mini bar + popover 明细 |
+| Phase 3 | Chat / RunCockpit 接入 | ✅ 已完成 | 输入框右下角正式替换成组成条入口 |
+| Phase 4 | 三 Runtime 冒烟 + 文档收口 | ✅ 已完成 | ClaudeCode / CodePilot Native / Codex Runtime 均有真实 smoke / DB evidence |
+
+## 收口结果
+
+- 输入框右下角 context 入口已从单一百分比升级为点阵式组成条。
+- Popover 已展示可解释的分类明细，隐藏 unsupported / 无真实来源的类别，避免用 0 或 placeholder 误导用户。
+- ClaudeCode / CodePilot Native / Codex Runtime 均通过 context-accounting producer 落 `result.usage.context_breakdown`。
+- `rules`、`tools` 等已通过真实 invocation / DB row 验证；Skills / MCP / Tools 的历史 fixture 回归也已覆盖。
+- 剩余非阻塞债务：tech-debt #22（selectedSkills 同名歧义）与 #24（footer cost 双计）。
 
 ## 先读文档
 

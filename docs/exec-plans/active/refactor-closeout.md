@@ -1,6 +1,6 @@
 # Refactor Closeout / 重构收口计划（总控板）
 
-> 创建：2026-05-06 · 最后更新：2026-05-19（Phase 0-5 已完成并归档；Phase 5 Codex Runtime / provider proxy / Tool Bridge / Harness 架构全部收口，2896 unit tests pass；下一步进入 Phase 6 上下文可视化）
+> 创建：2026-05-06 · 最后更新：2026-05-20（Phase 0-6 已完成并归档；Phase 6 上下文可视化 / context-accounting 已收口；下一步进入 Phase 7 视觉锚点与图标体系）
 > 这是日常入口；查历史细节请走"历史归档"列（`completed/refactor-phase-*.md` + `completed/phase-4-markdown-artifact.md`），不要在本文件里翻 1000 行决策日志。
 > **协作边界**：Codex 负责计划制定、方案审查和 Review；ClaudeCode 负责执行代码改动、测试和提交整理。除非用户明确重新授权，Codex 只能改 `docs/` 下的计划 / 交接 / review 文档，不再直接改业务代码。
 > **上下文同步纪律**：交给 ClaudeCode 的内容不能只给"最终结论"或任务清单，必须同时写清楚讨论过程、判断依据、被否掉的方案和为什么否掉。尤其是架构 / Runtime / 权限 / provider / 安全边界相关任务，Codex 的交接文案需要包含：用户原始诉求 → 中间争议 → 取舍理由 → 当前决定 → 不做边界 → 审查重点。这样 ClaudeCode 重启或上下文较短时，也能继承判断过程，而不是重新踩同一个坑。
@@ -17,18 +17,18 @@
 | 5 | Codex Runtime 接入 | Codex 像 Claude Code 一样成为同级 Runtime；Codex Account 主链路、CodePilot provider proxy、Tool Bridge、Runtime / Provider / Harness 边界已收口 | ✅ 全部完成并归档（2026-05-19）：Codex app-server + account/model sync + Runtime adapter + provider proxy translator + OpenRouter/OAuth 收口 + Tool Bridge + Phase 5e Harness 架构 | [phase-5](../completed/phase-5-codex-runtime.md) · [phase-5c](../completed/phase-5c-codex-tool-bridge.md) · [phase-5d](../completed/phase-5d-harness-capability-contract.md) · [phase-5e](../completed/phase-5e-runtime-harness-architecture.md) |
 | 5b | Codex provider proxy translator | 让 Codex Runtime 使用 CodePilot 已配置 provider；除 Claude Code 默认/env 模式外，与 CodePilot Runtime 模型能力对齐 | ✅ 已完成（2026-05-19）：Responses SSE / tool schema / retry lifecycle / OAuth refresh / OpenRouter Anthropic-skin + legacy alias canonicalization / thread resume 注入均已收口；真实 OpenRouter haiku 两轮 smoke 通过，同 session provider binding 保持一致 | [phase-5](../completed/phase-5-codex-runtime.md) |
 | 5c | CodePilot Tool Bridge for Codex | Codex Runtime 下，CodePilot 自有 Memory / Tasks / Widget / Image / Media 等能被感知、调用并回到 UI；Dashboard / CLI / assistant_buddy 在 Codex 下诚实降级 | ✅ 实现 + Harness 收口完成；Codex 不支持项在 Settings 与聊天工具结果下方用用户语言提示 | [phase-5](../completed/phase-5-codex-runtime.md) · [phase-5c](../completed/phase-5c-codex-tool-bridge.md) · [phase-5e](../completed/phase-5e-runtime-harness-architecture.md) |
-| 6 | 上下文可视化 | 输入框右下角是组成条而不是单一百分比 | 📋 待开始（Codex Runtime 收口后移） | — |
-| 7 | 视觉锚点与图标体系 | 点阵风格视觉记忆点 + HugeIcons 统一 | 📋 待开始（后移） | — |
+| 6 | 上下文可视化 | 输入框右下角是组成条而不是单一百分比；popover 展示来源分解与三 Runtime context-accounting | ✅ 已完成并归档（2026-05-20） | [phase-6](../completed/phase-6-context-visualization.md) · [context-accounting](../completed/context-accounting-runtime-contract.md) |
+| 7 | 视觉锚点与图标体系 | 先收敛图标库与图标表意，再扩展点阵风格视觉记忆点 | 📋 待开始 | [phase-7-icons](./phase-7-icon-system.md) |
 
 ## 下一步
 
-**Phase 5 已完成并归档**。Codex Runtime 现在作为同级执行引擎进入 CodePilot：Codex app-server / account + model sync / runtime adapter / approval + file-change / provider proxy translator / Tool Bridge / Harness Capability Contract / Settings 能力清单均已落地。Phase 5b 的最后一轮真实 provider smoke 已覆盖 OpenRouter haiku 两轮续聊，legacy alias canonicalization 和 `installed_idle` 状态文案已补齐；完整历史见 [completed/phase-5-codex-runtime.md](../completed/phase-5-codex-runtime.md)、[completed/phase-5c-codex-tool-bridge.md](../completed/phase-5c-codex-tool-bridge.md)、[completed/phase-5d-harness-capability-contract.md](../completed/phase-5d-harness-capability-contract.md)、[completed/phase-5e-runtime-harness-architecture.md](../completed/phase-5e-runtime-harness-architecture.md)。
+**Phase 6 已完成并归档**。输入框右下角的 context 入口已升级为点阵式组成条，popover 展示来源分解；三 Runtime 的 context-accounting 数据契约、持久化、真实 smoke evidence 已收口。完整历史见 [completed/phase-6-context-visualization.md](../completed/phase-6-context-visualization.md) 与 [completed/context-accounting-runtime-contract.md](../completed/context-accounting-runtime-contract.md)。
 
 **后续不是 Phase 5 阻塞项**：
 
 - `@openai/codex-sdk` execution POC 仍可作为后续研究：control plane 继续保留 app-server，execution plane 是否切 SDK 需要单独 POC。
 - Dashboard / CLI 等在 Codex 下不可执行的能力已通过 Settings 能力清单和聊天工具提示诚实降级；后续若要变成可执行能力，按 Harness Capability Contract 新开 slice。
-- Phase 6 才是下一条主线：上下文可视化，把输入框右下角的单一百分比升级成可解释的上下文组成条。
+- Phase 7 才是下一条主线：视觉锚点与图标体系。第一刀先做 [图标体系与表意校准](./phase-7-icon-system.md)：HugeIcons 主库迁移、CodePilot semantic icon layer、重复图标 / 表意不清收敛；点阵 loading / 空状态 / 背景纹理等视觉资产排在图标语义稳定之后。
 
 ### Phase 3 Step 4（完成 2026-05-10）：后台 Agent 任务与助理心跳闭环
 
@@ -140,22 +140,26 @@ Phase 3 验收入口：
 
 ### Phase 6：上下文可视化
 
-> 子计划见 [`phase-6-context-visualization.md`](./phase-6-context-visualization.md)。本阶段目标是参考 Cursor 的 Context Usage Breakdown，把输入框右下角的 context 百分比升级成点阵式来源组成条。
+> 进度：**✅ 已完成并归档（2026-05-20）**。
+>
+> 子计划见 [`completed/phase-6-context-visualization.md`](../completed/phase-6-context-visualization.md)；真实数据契约与 smoke evidence 见 [`completed/context-accounting-runtime-contract.md`](../completed/context-accounting-runtime-contract.md)。
 
-- **用户结果**：输入框右下角不只是百分比，而是组成条——历史 / 输入 / 附件 / 系统提示 / Memory 各占多少。上下文快满时知道删什么。
-- **要做**：在现有 token estimate 上拆来源；Run 状态面板显示组成条 + 明细；Context chips / attachments / directory refs 共用同一估算数据；缺 model context length 时显"容量未知"但仍展示相对大小。
-- **不做**：第一版 token 精确到账单级；为可视化重写 context assembler。
+- **用户结果**：输入框右下角不只是百分比，而是点阵组成条；popover 展示上下文来源分解、剩余容量和分类 token 数。
+- **已落地**：Context Breakdown UI、点阵 mini/main bar、RunCockpit 接入、三 Runtime context-accounting producer、ToolInvocation 统一抽象、真实 smoke / DB evidence。
+- **剩余非阻塞**：tech-debt #22（selectedSkills 同名歧义）与 #24（footer cost 双计）。
 
 ### Phase 7：视觉锚点与图标体系
 
-- **用户结果**：点阵风格视觉记忆点（loading / 空状态 / 背景纹理）；图标统一到 HugeIcons。
-- **要做**：先做视觉资产 + icon audit；HugeIcons 统一封装；点阵风格只在 3 个低风险位置试点；CDP 截图确认。
+- **用户结果**：设置页、聊天输入框、工具结果、插件 / Skills / MCP / CLI 等高频区域的图标更清楚；同一概念用同一个图标，不同概念不再共用 Brain / Lightning / Terminal 等泛化图标。
+- **要做**：第一刀见 [`phase-7-icon-system.md`](./phase-7-icon-system.md)：icon inventory、HugeIcons 基础封装、semantic aliases、高频 UI 表意校准、direct import guardrail；之后再做点阵 loading / 空状态 / 背景纹理试点。
 - **不做**：一口气全局重做 UI；点阵铺满所有卡片。
 
 ## 最近决策（当前收口状态）
 
 > 完整决策日志按 Phase 归档，见 `completed/refactor-phase-*.md` + `completed/phase-4-markdown-artifact.md` + `completed/phase-5*.md`。本节优先看顶部最新条目；较早条目保留为过程记录，若与顶部状态冲突，以最新 closeout 为准。
 
+- 2026-05-20：**Phase 6 上下文可视化 / context-accounting 完成并归档**。Phase 6 的点阵式 context breakdown UI 与 Phase 7 context-accounting 数据契约已合并收口：三 Runtime 均通过 producer 落 `result.usage.context_breakdown`，真实 smoke / DB evidence 已归档到 `completed/_smoke-evidence-phase-7/`。下一条主线转入 Phase 7 视觉锚点与图标体系。
+- 2026-05-21：**Phase 7 第一刀改为图标体系与表意校准**。用户明确指出当前图标重复使用、表意不清；决定先立 [`phase-7-icon-system.md`](./phase-7-icon-system.md)，用 HugeIcons 作为主图标库目标，但先建 CodePilot semantic icon layer 与 icon inventory，再迁移高频 UI。品牌图标继续保留 LobeHub；点阵背景 / loading / 空状态排在图标语义稳定之后。
 - 2026-05-19：**Phase 5 Codex Runtime / Harness 主线完成并归档**。Phase 5b provider proxy translator 的最后阻塞项（OpenRouter legacy alias / Anthropic-skin / OAuth refresh / installed_idle 状态文案）已闭环；OpenRouter haiku 在 Codex Runtime 下两轮真实 smoke 通过，同一 session 的 `codex_thread_provider_id` 绑定保持一致。Phase 5c Tool Bridge 与 Phase 5d/5e Harness 架构已归档；CodePilot 自有 Memory / Tasks / Widget / Image / Media 等能力经 Harness Bundle / capability matrix / Settings 能力清单收口，不支持能力用用户可读文案诚实降级。下一条主线转入 Phase 6 上下文可视化。
 - 2026-05-12：**Phase 5 改为 Codex Runtime 接入**。上下文可视化顺延到 Phase 6；Phase 5 目标是让 Codex 像 Claude Code 一样成为 CodePilot 同级 Runtime，既读取 Codex 登录账号模型，也接入 Codex 原生工具 / 命令 / 插件式 item / 文件改动 / 权限事件；同时通过 CodePilot Responses-compatible proxy 交付现有 provider / CodePlan 模型的可用路径。用户明确否决 `Codex Account only` 的降级口径。为避免三套 runtime invariant 污染 UI，Phase 5 增加 `Runtime Contract Hardening` 前置：session / permission / model / event / preview metadata 必须先收口，再接 Codex。
 - 2026-05-16：**Phase 5c CodePilot Tool Bridge 计划补入**。真实 smoke 证明 Codex 原生 shell/file 能跑，但 CodePilot 自有工具还未真正接入：明确要求 `codepilot_memory_recent` / `codepilot_list_tasks` 后未产生对应工具调用。用户底线是 Widget、助理 Memory、定时任务、图片 / 媒体、Dashboard、CLI tools 等 CodePilot 产品层能力不能因切换 Codex Runtime 消失。计划要求从 `BUILTIN_MCP_CATALOG` 生成 capability matrix，桥接工具可见性 / 调用 / 结果渲染，并用每个能力族真实 smoke 验收。
