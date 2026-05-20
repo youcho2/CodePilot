@@ -1,43 +1,29 @@
 /**
  * Phase 2 — ClaudeCode Runtime's Context Accounting producer.
  *
- * Source-Of-Truth POC (2026-05-20) — SDK type inspection in
- * `node_modules/@anthropic-ai/claude-agent-sdk/sdk.d.ts`:
- *
- *   - SDKSystemMessage.skills: string[]     — AVAILABLE skill names (every-turn list)
- *   - SDKSystemMessage.tools: string[]      — AVAILABLE tool names (no schemas)
- *   - SDKSystemMessage.mcp_servers: {...}[] — AVAILABLE MCP servers (no schemas)
- *   - SDKAssistantMessage.message: BetaMessage — content blocks incl. tool_use
- *
- * The SDK does NOT expose per-turn "invoked skill" metadata. Claude Code
- * loads skills via slash-command in the user prompt (`/<skill-name>`),
- * and the SDK doesn't echo back which skill markdown got inlined. Per
- * user verify spec: "available skills ≠ invoked skills", so we don't
- * count available lists as real entries — we scan the user prompt for
- * the slash command and read the corresponding `SKILL.md` from disk.
- *
- * Phase 2 real-source coverage (vs Phase 6 Tier 2 假数据):
- *   - skills:   ✅ slash-command scan + workspace/.claude/skills/<name>/SKILL.md filesize
+ * Real-source coverage (vs Phase 6 Tier 2 假数据):
+ *   - skills:   ✅ structured `selectedSkills` from MessageInput badges
+ *               → discoverSkills().find(s => s.name === label).filePath
+ *               → fs.statSync filesize char/4
+ *               Covers project / global / installed / plugin skills.
  *   - rules:    ✅ workspace CLAUDE.md filesize
- *   - tools:    ❌ unsupported (SDK doesn't expose tool schema sizes)
- *   - mcp:      ❌ unsupported (SDK doesn't expose MCP tool schema sizes)
- *   - memory:   ❌ unsupported (adapter doesn't pass assistantMemory yet)
- *   - system_prompt: ❌ unsupported (full SDK preset is opaque from our side;
- *                       only our adapter `append` is visible, partial counting
- *                       would be misleading)
- *   - files_attachments: ❌ unsupported (composer pending wire handles this
- *                              via ContextBreakdownInputs.pending, not via
- *                              the Runtime adapter path)
+ *   - tools / mcp / memory / system_prompt / files_attachments: ❌ unsupported
  *
- * Entries omit (vs `unsupported` list) — semantic distinction:
- *   - omit: "this turn didn't trigger the kind" (e.g. plain "你好" → no
- *     skill omit → UI hides via hideZero default)
- *   - unsupported: "Runtime CAN'T measure this kind, ever" (permanent
- *     declaration; UI hides regardless of value)
+ * Codex review v3 (2026-05-20) P1 fix: the previous regex on `userPrompt`
+ * only matched `/skill-name`手打路径. Real UI badge dispatch produces
+ * `Use the <name> skill. User context: ...` (see
+ * `src/lib/message-input-logic.ts:dispatchBadge` agent_skill branch), so
+ * users selecting Agent Skill via the input UI got Skills row hidden.
  *
- * Bumping a kind from unsupported → real entry is a future-Phase
- * extension (e.g. when SDK adds per-turn loaded-skill metadata, or when
- * we wire MCP tool schemas).
+ * Fix: producer no longer parses prompt text. Caller MUST pass
+ * `selectedSkills: string[]` containing the badge-derived skill names.
+ * Producer looks each up via `discoverSkills()` which covers project
+ * `.claude/skills/`, user `~/.claude/skills/`, and `~/.agents/skills/`.
+ * If `selectedSkills` is empty or names don't resolve → skills entry omit.
+ *
+ * `userPrompt` is retained on the input shape for future structural
+ * signals (e.g. MCP tool invocation parse from prompt) but is NOT used
+ * for skill detection in this phase.
  */
 
 import fs from 'node:fs';
@@ -47,6 +33,7 @@ import type {
   ContextAccountingKind,
   RuntimeContextAccountingSnapshot,
 } from '@/types';
+import { discoverSkills } from '@/lib/skill-discovery';
 
 const PHASE_2_UNSUPPORTED: readonly ContextAccountingKind[] = [
   'tools',
@@ -61,45 +48,65 @@ function estimateTokensFromBytes(bytes: number): number {
   return Math.ceil(bytes / 4);
 }
 
-/** Match a leading slash command — `/skill-name args...`. Permits
- *  whitespace and matches the first `/<word>` token only. */
-const SLASH_COMMAND_RE = /^\s*\/([a-z0-9_-]+)/i;
+/** Map a discovered skill's filePath to a stable, workspace-relative
+ *  source breadcrumb. Falls back to absolute path for outside-workspace
+ *  installs (e.g. plugin / global skills). */
+function formatSkillSource(workspacePath: string, filePath: string): string {
+  const rel = path.relative(workspacePath, filePath);
+  // path.relative returns something like '.claude/skills/...' for
+  // workspace-rooted skills, and '../../home/user/.claude/skills/...'
+  // for outside-workspace. Prefer the relative form when it's clean.
+  if (!rel.startsWith('..')) return `workspace/${rel}`;
+  // outside workspace — use absolute path; UI tooltip can show the full path
+  return filePath;
+}
 
 /**
- * Phase 2 ClaudeCode producer.
- *
- * Inputs are the same shape adaptForClaudeCode receives, plus the user
- * prompt (which adapter doesn't usually surface but is the only signal
- * we have for "invoked skill"). All filesystem reads are best-effort —
- * missing files mean "no real source" and the kind is omitted from
- * entries, NOT silently substituted.
+ * Phase 2 ClaudeCode producer. Caller (claude-client.ts streamClaude)
+ * passes `selectedSkills` derived from MessageInput's agent_skill badge
+ * metadata; this avoids guessing from final-prompt text.
  */
 export function produceClaudeCodeAccountingSnapshot(input: {
   workspacePath: string;
+  /** Final prompt sent to SDK. Currently unused by skill detection
+   *  (Codex review v3 P1 fix removed regex), retained for future signals. */
   userPrompt: string;
+  /** Skill names from MessageInput agent_skill badges. When empty,
+   *  skills entry is omitted (no slash-command fallback — per user spec
+   *  "不要从 final prompt 文本猜 Skill"). */
+  selectedSkills?: readonly string[];
 }): RuntimeContextAccountingSnapshot {
   const entries: Partial<Record<ContextAccountingKind, ContextAccountingEntry>> = {};
 
-  // -- skills (slash command + SKILL.md filesize) --
-  const skillMatch = input.userPrompt.match(SLASH_COMMAND_RE);
-  if (skillMatch) {
-    const skillName = skillMatch[1];
-    const skillPath = path.join(
-      input.workspacePath,
-      '.claude',
-      'skills',
-      skillName,
-      'SKILL.md',
-    );
+  // -- skills (structured badge metadata + skill-discovery lookup) --
+  if (input.selectedSkills && input.selectedSkills.length > 0) {
+    let totalTokens = 0;
+    const matchedNames: string[] = [];
+    const sources: string[] = [];
+    let allSkills: ReturnType<typeof discoverSkills> = [];
     try {
-      const stat = fs.statSync(skillPath);
-      entries.skills = {
-        tokens: estimateTokensFromBytes(stat.size),
-        source: `workspace/.claude/skills/${skillName}/SKILL.md`,
-        detail: skillName,
-      };
+      allSkills = discoverSkills(input.workspacePath);
     } catch {
-      // skill file not present — entries.skills omitted (UI hides)
+      // discoverSkills failed — entries.skills will be omitted below
+    }
+    for (const name of input.selectedSkills) {
+      const skill = allSkills.find((s) => s.name === name);
+      if (!skill || !skill.filePath) continue;
+      try {
+        const stat = fs.statSync(skill.filePath);
+        totalTokens += estimateTokensFromBytes(stat.size);
+        matchedNames.push(name);
+        sources.push(formatSkillSource(input.workspacePath, skill.filePath));
+      } catch {
+        // skill file missing on disk despite discovery — skip silently
+      }
+    }
+    if (totalTokens > 0) {
+      entries.skills = {
+        tokens: totalTokens,
+        source: sources.length === 1 ? sources[0] : sources.join(' + '),
+        detail: matchedNames.join(', '),
+      };
     }
   }
 

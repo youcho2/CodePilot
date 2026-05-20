@@ -997,6 +997,7 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
         context1m,
         displayOverride,
         mentions,
+        selectedSkills,
         onModeChanged: (sdkMode) => {
           const uiMode = sdkMode === 'plan' ? 'plan' : 'code';
           handleModeChange(uiMode);
@@ -1014,7 +1015,7 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
   );
 
   const sendMessage = useCallback(
-    async (content: string, files?: FileAttachment[], systemPromptAppend?: string, displayOverride?: string, mentions?: MentionRef[]) => {
+    async (content: string, files?: FileAttachment[], systemPromptAppend?: string, displayOverride?: string, mentions?: MentionRef[], selectedSkills?: readonly string[]) => {
       // Hoist provider-state guards above message append. Without this
       // sendMessage would write a user bubble into the local list and
       // *then* doStartStream would refuse to fire — leaving the user

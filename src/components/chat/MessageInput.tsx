@@ -57,7 +57,7 @@ const MAX_DIRECTORY_MENTION_COUNT = 3;
 const MAX_DIRECTORY_PREVIEW_ITEMS = 30;
 
 interface MessageInputProps {
-  onSend: (content: string, files?: FileAttachment[], systemPromptAppend?: string, displayOverride?: string, mentions?: MentionRef[]) => void;
+  onSend: (content: string, files?: FileAttachment[], systemPromptAppend?: string, displayOverride?: string, mentions?: MentionRef[], selectedSkills?: readonly string[]) => void;
   onCommand?: (command: string) => void;
   onStop?: () => void;
   disabled?: boolean;
@@ -574,6 +574,15 @@ export function MessageInput({
       const uploadedFiles = await convertFiles();
       const mentionPayload = await resolveMentionPayload();
       const { prompt, displayLabel } = dispatchBadge(badges, content);
+      // Codex review v3 P1 fix (2026-05-20) — extract agent_skill badge
+      // labels as a structured channel for Context Accounting Phase 2.
+      // Previous regex on the final prompt only matched `/skill-name`
+      // (手打), not `Use the <name> skill. User context: ...` (real badge
+      // dispatch). Producer now reads selectedSkills directly, no prompt
+      // parsing.
+      const selectedSkills = badges
+        .filter((b) => b.kind === 'agent_skill')
+        .map((b) => b.label);
       // Badge path: `prompt` (dispatchBadge output) takes the content slot
       // for the model side, but the bubble's `displayLabel` is owned by the
       // badge dispatcher (e.g. "/agent\nuser context"), not the chip-aware
@@ -595,6 +604,7 @@ export function MessageInput({
         undefined,
         displayLabel,
         payload.mentions ? [...payload.mentions] : undefined,
+        selectedSkills.length > 0 ? selectedSkills : undefined,
       );
       return;
     }

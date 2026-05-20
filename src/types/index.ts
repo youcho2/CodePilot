@@ -1476,6 +1476,13 @@ export interface ClaudeStreamOptions {
   mcpServers?: Record<string, MCPServerConfig>;
   abortController?: AbortController;
   permissionMode?: string;
+  /**
+   * Phase 2 — Context Accounting Runtime Contract (2026-05-20). Names of
+   * Agent Skills selected via MessageInput badges. Producer looks up via
+   * discoverSkills() to compute real SKILL.md filesizes; no prompt-text
+   * guessing.
+   */
+  selectedSkills?: readonly string[];
   files?: FileAttachment[];
   toolTimeoutSeconds?: number;
   provider?: ApiProvider;

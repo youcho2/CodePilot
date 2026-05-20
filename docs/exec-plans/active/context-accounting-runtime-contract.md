@@ -255,7 +255,7 @@ Smoke Ledger 落 Phase 6 文档 + 本文档；Phase 6 closeout 后归档。
 
 | Kind | source value | 含义 |
 |---|---|---|
-| skills (ClaudeCode) | `workspace/.claude/skills/<name>/SKILL.md` | 本轮 slash-command 指向的 skill 文件 |
+| skills (ClaudeCode) | `workspace/.claude/skills/<name>/SKILL.md` (workspace) OR absolute path (global / agents) | MessageInput badge label → discoverSkills() lookup 真实 filePath |
 | rules (all 3 Runtimes) | `workspace/CLAUDE.md` | workspace 根的 CLAUDE.md 文件 |
 
 未来扩展 (Phase 6.x):
@@ -303,6 +303,13 @@ Smoke Ledger 落 Phase 6 文档 + 本文档；Phase 6 closeout 后归档。
 - 2026-05-20（**Phase 0-4 实施完成**）：5 个 commit 串成 Phase 0→1→2→3→4 chain：
   - `4fcc09e` Phase 0 止损（删假数据 + 字段 optional）
   - `a997e33` Phase 1 Contract type + 16 unit tests (10 accounting + 6 走 hook 已有)
-  - `7c2937e` Phase 2 ClaudeCode adapter (skills real source via slash-command + rules via CLAUDE.md)
+  - `7c2937e` Phase 2 ClaudeCode adapter (skills real source via slash-command + rules via CLAUDE.md) — **deprecated by 2026-05-20 v3 fix below**
   - `ebe0071` Phase 3 Native + Phase 4 Codex (rules real source；Codex usage cache + supplementary result event for P2 fix)
   - 实施现状：每 Runtime 每 kind 状态表 + source breadcrumb 标准 + 测试覆盖见上方"实施状态"段；Smoke Ledger 待 Codex/user 真实凭据 smoke 填
+- 2026-05-20（**v3 Codex review pass**）：接受 1 P1 + 1 P2 finding：
+  - **P1 Skills 仅覆盖手打 `/skill` 窄路径，不覆盖真实 Agent Skill badge 选择路径**：用户用 UI 选 Agent Skill 时 dispatchBadge 实际发的是 `Use the humanizer-zh skill. User context: ...`，不是 `/humanizer-zh`。Phase 2 commit 7c2937e 的 SLASH_COMMAND_RE 完全 miss 这条真实路径。修法：删 prompt regex，从 MessageInput badge 元数据作为结构化字段 (`selectedSkills`) 通过 send-path 传到 producer；producer 用 `discoverSkills()`（已覆盖 project / global / installed / agents skill 目录）按 name lookup 拿 SKILL.md 真实 filePath
+  - **P2 "SDK POC 已完成"口径不成立**：SDK 实际只暴露 available skills/tools/mcp_servers 列表元数据，没暴露 turn-level loaded-skill。Phase 2 实施其实是 fs 启发式 + 现在改为 badge 结构化 metadata。文档口径修正为 "starts from MessageInput badge metadata; SDK doesn't expose turn-level loaded-skill; no prompt-text guessing"
+- 2026-05-20（**P1 修复 commit pending**）：
+  - producer 签名加 `selectedSkills?: readonly string[]` 参数；用 discoverSkills() lookup filePath；删 SLASH_COMMAND_RE 完全（手打 `/skill` 也 hide，避免猜测）
+  - 5 文件 plumbing：MessageInput badges → onSend → ChatView/page sendMessage → stream-session-manager body → /api/chat → streamClaude options → producer
+  - 新回归测试：dispatchBadge real prompt + structured selectedSkills 必须产 skills entry；手打 `/skill` 无 selectedSkills 必须 hide

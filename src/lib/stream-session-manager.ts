@@ -90,6 +90,13 @@ export interface StartStreamParams {
   onInitMeta?: (meta: { tools?: unknown; slash_commands?: unknown; skills?: unknown }) => void;
   /** Display-only content for user message (e.g. /skillName instead of expanded prompt) */
   displayOverride?: string;
+  /**
+   * Phase 2 — Context Accounting Runtime Contract (2026-05-20). Names of
+   * Agent Skills selected via MessageInput badges. Used by the Context
+   * Accounting producer to look up real `SKILL.md` filesizes (replaces
+   * the previous regex on the prompt text that missed badge dispatch).
+   */
+  selectedSkills?: readonly string[];
   /** Session's working directory. When provided, the stream resolves
    *  relative tool paths to absolute before dispatching the
    *  codepilot:file-changed event, so the PreviewPanel listener (which
@@ -433,6 +440,9 @@ async function runStream(stream: ActiveStream, params: StartStreamParams): Promi
         ...(params.thinking ? { thinking: params.thinking } : {}),
         ...(params.context1m ? { context_1m: true } : {}),
         ...(params.displayOverride ? { displayOverride: params.displayOverride } : {}),
+        ...(params.selectedSkills && params.selectedSkills.length > 0
+          ? { selectedSkills: params.selectedSkills }
+          : {}),
       }),
       signal: stream.abortController.signal,
     });

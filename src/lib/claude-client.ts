@@ -1147,7 +1147,8 @@ export function streamClaudeSdk(options: ClaudeStreamOptions): ReadableStream<st
           });
 
           // Phase 2 — produce per-turn ClaudeCode Context Accounting
-          // snapshot. Uses prompt + workspace fs reads, no SDK rpc.
+          // snapshot. Reads structured `selectedSkills` from caller (no
+          // prompt-text guessing; Codex review v3 P1 fix 2026-05-20).
           // Best-effort: failures degrade to "no real source" entries
           // rather than fake data.
           try {
@@ -1157,6 +1158,7 @@ export function streamClaudeSdk(options: ClaudeStreamOptions): ReadableStream<st
             contextAccountingSnapshot = produceClaudeCodeAccountingSnapshot({
               workspacePath: resolvedWorkingDirectory.path,
               userPrompt: prompt || '',
+              selectedSkills: options.selectedSkills,
             });
           } catch {
             // producer failed — leave snapshot undefined; result event

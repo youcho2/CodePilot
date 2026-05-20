@@ -742,7 +742,7 @@ function NewChatPageInner() {
   }, [pendingPermission, setPendingApprovalSessionId]);
 
   const sendFirstMessage = useCallback(
-    async (content: string, files?: FileAttachment[], systemPromptAppend?: string, displayOverride?: string, mentions?: MentionRef[]) => {
+    async (content: string, files?: FileAttachment[], systemPromptAppend?: string, displayOverride?: string, mentions?: MentionRef[], selectedSkills?: readonly string[]) => {
       if (isStreaming) return;
 
       // Wait for model/provider to be resolved from the global default before allowing send
@@ -908,6 +908,9 @@ function NewChatPageInner() {
             ...(thinkingConfig ? { thinking: thinkingConfig } : {}),
             ...(context1m ? { context_1m: true } : {}),
             ...(displayOverride ? { displayOverride } : {}),
+            ...(selectedSkills && selectedSkills.length > 0
+              ? { selectedSkills }
+              : {}),
           }),
           signal: controller.signal,
         });
