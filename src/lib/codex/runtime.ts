@@ -40,9 +40,13 @@ import type { RuntimeContextAccountingSnapshot } from '@/types';
 // the closure-scoped cache + run_completed supplementary result event
 // don't need dynamic import inside the sync onAnyNotification handler.
 import {
-  produceCodexAccountingSnapshot,
   resolveCodexProviderBackend,
 } from '@/lib/harness/codex-context-accounting';
+import {
+  ToolInvocationAccumulator,
+  collectAutoInvokeSnapshot,
+  resolveWorkspaceClaudeMdRules,
+} from '@/lib/harness/auto-invoke-accounting';
 import {
   findCodexBinary,
   getCodexAppServer,
@@ -241,6 +245,13 @@ export const codexRuntime: AgentRuntime = {
         let codexUsageCache:
           | { inputTokens: number; outputTokens: number; contextWindow: number | null }
           | null = null;
+
+        // Phase 7 — per-turn ToolInvocationAccumulator. Wired in the
+        // onAnyNotification handler below (tool_started / tool_completed /
+        // command_started records) and drained on run_completed for the
+        // supplementary result event's context_accounting field. Shares the
+        // contract with ClaudeCode + Native (auto-invoke-accounting.ts).
+        const toolInvocationAccumulator = new ToolInvocationAccumulator();
 
         const closeStream = (extra?: { error?: string }) => {
           if (!active) return;
@@ -493,21 +504,60 @@ export const codexRuntime: AgentRuntime = {
                   contextWindow: event.contextWindow ?? null,
                 };
               }
+
+              // Phase 7 — accumulate tool invocations for Context Accounting.
+              // Codex Runtime's canonical RuntimeRunEvent already separates
+              // tool_started / tool_completed / command_started into discrete
+              // events with stable id+name+input shape (see
+              // docs/research/codex-sdk-tool-call-surface.md). Just adapt
+              // the field names to ToolInvocationAccumulator contract.
+              if (event.type === 'tool_started') {
+                toolInvocationAccumulator.recordToolUse(
+                  event.toolId,
+                  event.name,
+                  event.input ?? {},
+                );
+              } else if (event.type === 'tool_completed') {
+                toolInvocationAccumulator.recordToolResult(
+                  event.toolId,
+                  stringifyToolResultContent(event.output),
+                );
+              } else if (event.type === 'command_started') {
+                toolInvocationAccumulator.recordToolUse(
+                  event.commandId,
+                  'Bash',
+                  { command: event.command, cwd: event.cwd },
+                );
+              }
+
               tryEnqueue(canonicalToSseLine(event));
 
-              // Phase 4 — supplement run_completed with usage +
-              // context_accounting so DB has final token account.
-              // The result event canonicalToSseLine emitted just above
-              // carries only `finish_reason`; chat/route.ts ignores it
-              // for usage. THIS event is the one persisted.
+              // Phase 4 → Phase 7 — supplement run_completed with usage +
+              // context_accounting so DB has final token account. The result
+              // event canonicalToSseLine emitted just above carries only
+              // `finish_reason`; chat/route.ts ignores it for usage. THIS
+              // event is the one persisted.
+              //
+              // Phase 7 (2026-05-20): producer switched from
+              // produceCodexAccountingSnapshot (rules-only) to
+              // collectAutoInvokeSnapshot which extracts Skills/MCP/Tools
+              // from the accumulated tool invocations.
               if (event.type === 'run_completed') {
                 let accountingSnapshot: RuntimeContextAccountingSnapshot | undefined;
                 try {
-                  accountingSnapshot = produceCodexAccountingSnapshot({
+                  accountingSnapshot = collectAutoInvokeSnapshot({
                     workspacePath: options.workingDirectory ?? process.cwd(),
+                    records: toolInvocationAccumulator.drain(),
+                    producedBy: 'codex_runtime',
                     providerBackend: resolveCodexProviderBackend(
                       options.providerId || options.sessionProviderId || '',
                     ),
+                    // Codex unsupported list — same Phase 7 ClaudeCode set.
+                    // system_prompt opaque (app-server preset); memory not
+                    // wired for any backend in Phase 7; files_attachments
+                    // via composer pending channel.
+                    unsupported: ['system_prompt', 'memory', 'files_attachments'],
+                    resolveRulesEntry: resolveWorkspaceClaudeMdRules,
                   });
                 } catch {
                   // best-effort

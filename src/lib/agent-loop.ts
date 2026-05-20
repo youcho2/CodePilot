@@ -136,6 +136,14 @@ export function runAgentLoop(options: AgentLoopOptions): ReadableStream<string> 
       // emits without subscribers, no buffering — see contract note
       // in `harness/builtin-event-bus.ts`).
       const pendingMediaByCallId = new Map<string, MediaBlock[]>();
+
+      // Phase 7 Context Accounting — per-turn ToolInvocationAccumulator.
+      // Lives in start(controller) closure so step loop tool_use/tool_result
+      // events accumulate across all steps. Drained at result emit (line ~588).
+      const { ToolInvocationAccumulator } = await import(
+        '@/lib/harness/auto-invoke-accounting'
+      );
+      const toolInvocationAccumulator = new ToolInvocationAccumulator();
       const unsubscribeMediaSideChannel = subscribeBuiltinEvents(
         sessionId,
         (event) => {
@@ -482,6 +490,12 @@ export function runAgentLoop(options: AgentLoopOptions): ReadableStream<string> 
                 hasToolCalls = true;
                 stepToolNames.push(event.toolName);
                 distinctTools.add(event.toolName);
+                // Phase 7 — accumulate for Context Accounting at result time.
+                toolInvocationAccumulator.recordToolUse(
+                  event.toolCallId,
+                  event.toolName,
+                  event.input,
+                );
                 controller.enqueue(formatSSE({
                   type: 'tool_use',
                   data: JSON.stringify({
@@ -504,11 +518,16 @@ export function runAgentLoop(options: AgentLoopOptions): ReadableStream<string> 
                 // the MediaBlock payload.
                 const media = pendingMediaByCallId.get(event.toolCallId);
                 if (media) pendingMediaByCallId.delete(event.toolCallId);
+                const resultText = typeof event.output === 'string'
+                  ? event.output
+                  : JSON.stringify(event.output);
+                // Phase 7 — accumulate for Context Accounting.
+                toolInvocationAccumulator.recordToolResult(event.toolCallId, resultText);
                 controller.enqueue(formatSSE({
                   type: 'tool_result',
                   data: JSON.stringify({
                     tool_use_id: event.toolCallId,
-                    content: typeof event.output === 'string' ? event.output : JSON.stringify(event.output),
+                    content: resultText,
                     is_error: false,
                     ...(media && media.length > 0 ? { media } : {}),
                   }),
@@ -585,19 +604,26 @@ export function runAgentLoop(options: AgentLoopOptions): ReadableStream<string> 
           }));
         }
 
-        // 6. Emit result event (Phase 4 — Context Accounting Runtime
-        // Contract: Native runtime attaches its RuntimeContextAccountingSnapshot
-        // to usage so chat/route.ts persists it via the JSON-nested
-        // token_usage.context_accounting field).
+        // 6. Emit result event (Phase 7 — Context Accounting Runtime Contract:
+        // collectAutoInvokeSnapshot replaces produceNativeAccountingSnapshot,
+        // unifying with ClaudeCode/Codex via auto-invoke-accounting.ts.
+        // Skills/MCP/Tools now come from real per-turn invocations accumulated
+        // during streaming, not from filesystem guesses).
         let nativeAccountingSnapshot:
           | import('@/types').RuntimeContextAccountingSnapshot
           | undefined;
         try {
-          const { produceNativeAccountingSnapshot } = await import(
-            '@/lib/harness/native-context-accounting'
-          );
-          nativeAccountingSnapshot = produceNativeAccountingSnapshot({
+          const { collectAutoInvokeSnapshot, resolveWorkspaceClaudeMdRules } =
+            await import('@/lib/harness/auto-invoke-accounting');
+          nativeAccountingSnapshot = collectAutoInvokeSnapshot({
             workspacePath: workingDirectory || process.cwd(),
+            records: toolInvocationAccumulator.drain(),
+            producedBy: 'codepilot_runtime',
+            // Native unsupported list — same as ClaudeCode (system_prompt is
+            // ai-sdk preset opaque; memory not wired; files_attachments via
+            // composer pending channel not Runtime).
+            unsupported: ['system_prompt', 'memory', 'files_attachments'],
+            resolveRulesEntry: resolveWorkspaceClaudeMdRules,
           });
         } catch {
           // best-effort — snapshot omitted on producer failure

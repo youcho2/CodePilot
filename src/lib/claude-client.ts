@@ -732,6 +732,15 @@ export function streamClaudeSdk(options: ClaudeStreamOptions): ReadableStream<st
         sessionProviderId: options.sessionProviderId,
       });
 
+      // Phase 7 Context Accounting — accumulator must outlive try/catch so
+      // the CONTEXT_TOO_LONG retry path (alt path inside catch) can drain
+      // the same per-turn record list as the main path. Decl here at the
+      // streamClaude scope; ToolInvocationAccumulator class imported up top.
+      const { ToolInvocationAccumulator: _PhaseRcAcc } = await import(
+        '@/lib/harness/auto-invoke-accounting'
+      );
+      const toolInvocationAccumulator = new _PhaseRcAcc();
+
       try {
         const resolvedWorkingDirectory = resolveWorkingDirectory([
           { path: workingDirectory, source: 'requested' },
@@ -1092,14 +1101,16 @@ export function streamClaudeSdk(options: ClaudeStreamOptions): ReadableStream<st
         // continues to skip the splice when there's nothing useful
         // to inject (capability + extension fragments both empty).
         //
-        // Phase 2 Context Accounting (2026-05-20): produce per-turn
-        // RuntimeContextAccountingSnapshot here. ONLY real sources are
-        // entered (skills via slash-command + SKILL.md filesize; rules
-        // via CLAUDE.md filesize); other kinds declared unsupported.
-        // See src/lib/harness/claude-code-context-accounting.ts.
-        let contextAccountingSnapshot:
-          | import('@/types').RuntimeContextAccountingSnapshot
-          | undefined;
+        // Phase 7 Context Accounting (2026-05-20): producer time-shifted
+        // from streamClaude-start to result-event. Instead of guessing
+        // what Claude will invoke, we accumulate the actual tool_use /
+        // tool_result blocks during streaming and produce the snapshot
+        // from real invocations at result time. Wire below at line ~1589
+        // (main path tool_use), ~1623 (main path tool_result), ~1844
+        // (main path result), and ~2086/2094/2160 (alt path retry).
+        // The accumulator instance lives in streamClaude scope above so
+        // CONTEXT_TOO_LONG retry can share it across try/catch boundary.
+        // See src/lib/harness/auto-invoke-accounting.ts for the contract.
         {
           const { adaptForClaudeCode } = await import('@/lib/harness/runtime-adapter');
           // Phase 5e review fix P1 #2 (2026-05-18) — scan User /
@@ -1145,25 +1156,6 @@ export function streamClaudeSdk(options: ClaudeStreamOptions): ReadableStream<st
             userExtensions,
             externalExtensions,
           });
-
-          // Phase 2 — produce per-turn ClaudeCode Context Accounting
-          // snapshot. Reads structured `selectedSkills` from caller (no
-          // prompt-text guessing; Codex review v3 P1 fix 2026-05-20).
-          // Best-effort: failures degrade to "no real source" entries
-          // rather than fake data.
-          try {
-            const { produceClaudeCodeAccountingSnapshot } = await import(
-              '@/lib/harness/claude-code-context-accounting'
-            );
-            contextAccountingSnapshot = produceClaudeCodeAccountingSnapshot({
-              workspacePath: resolvedWorkingDirectory.path,
-              userPrompt: prompt || '',
-              selectedSkills: options.selectedSkills,
-            });
-          } catch {
-            // producer failed — leave snapshot undefined; result event
-            // falls back to raw tokenUsage (popover hides Runtime kinds).
-          }
           if (adapted.systemPromptAppend.length > 0) {
             if (
               queryOptions.systemPrompt &&
@@ -1587,6 +1579,9 @@ export function streamClaudeSdk(options: ClaudeStreamOptions): ReadableStream<st
               // Check for tool use blocks
               for (const block of assistantMsg.message.content) {
                 if (block.type === 'tool_use') {
+                  // Phase 7 — accumulate for Context Accounting at result time.
+                  toolInvocationAccumulator.recordToolUse(block.id, block.name, block.input);
+
                   controller.enqueue(formatSSE({
                     type: 'tool_use',
                     data: JSON.stringify({
@@ -1678,6 +1673,11 @@ export function streamClaudeSdk(options: ClaudeStreamOptions): ReadableStream<st
                     if (mediaBlocks.length > 0) {
                       ssePayload.media = mediaBlocks;
                     }
+                    // Phase 7 — accumulate for Context Accounting at result time.
+                    // resultContent is already string-normalized (text-only join,
+                    // media stripped, MEDIA_RESULT_MARKER trimmed above).
+                    toolInvocationAccumulator.recordToolResult(block.tool_use_id, resultContent);
+
                     controller.enqueue(formatSSE({
                       type: 'tool_result',
                       data: JSON.stringify(ssePayload),
@@ -1837,10 +1837,32 @@ export function streamClaudeSdk(options: ClaudeStreamOptions): ReadableStream<st
               // When present, it enriches the end-of-turn UI chip (Phase 1 of
               // agent-sdk-0-2-111-adoption) without replacing error-classifier.
               const terminalReason = (resultMsg as SDKResultMessage & { terminal_reason?: string }).terminal_reason;
-              // Phase 2 — attach RuntimeContextAccountingSnapshot to
-              // usage so chat/route.ts persists it via the existing
-              // `tokenUsage = resultData.usage` path. Old context_breakdown
-              // field is not written (Phase 0 deleted that path).
+              // Phase 7 — produce Context Accounting snapshot from accumulated
+              // tool_use / tool_result records. Real invocation data only;
+              // empty records → entries omit (no fabrication).
+              // Replaces Phase 2 streamClaude-start produce (deleted above).
+              let contextAccountingSnapshot:
+                | import('@/types').RuntimeContextAccountingSnapshot
+                | undefined;
+              try {
+                const { collectAutoInvokeSnapshot, resolveWorkspaceClaudeMdRules } =
+                  await import('@/lib/harness/auto-invoke-accounting');
+                contextAccountingSnapshot = collectAutoInvokeSnapshot({
+                  workspacePath: resolvedWorkingDirectory.path,
+                  records: toolInvocationAccumulator.drain(),
+                  producedBy: 'claude_code',
+                  selectedSkills: options.selectedSkills,
+                  // Phase 7 ClaudeCode unsupported list — system_prompt opaque
+                  // (SDK preset), memory not wired (Phase 6.x), files_attachments
+                  // goes through composer pending channel not Runtime.
+                  unsupported: ['system_prompt', 'memory', 'files_attachments'],
+                  resolveRulesEntry: resolveWorkspaceClaudeMdRules,
+                });
+              } catch {
+                // Best-effort: producer failed → snapshot stays undefined,
+                // result event falls back to raw tokenUsage (popover hides
+                // Runtime kinds rather than showing fake data).
+              }
               const usageWithAccounting =
                 tokenUsage && contextAccountingSnapshot
                   ? { ...tokenUsage, context_accounting: contextAccountingSnapshot }
@@ -2083,6 +2105,8 @@ export function streamClaudeSdk(options: ClaudeStreamOptions): ReadableStream<st
                   const aMsg = msg as SDKAssistantMessage;
                   for (const block of aMsg.message.content) {
                     if (block.type === 'tool_use') {
+                      // Phase 7 — accumulator shared with main path so retry tool calls also count.
+                      toolInvocationAccumulator.recordToolUse(block.id, block.name, block.input);
                       controller.enqueue(formatSSE({ type: 'tool_use', data: JSON.stringify({ id: block.id, name: block.name, input: block.input }) }));
                     }
                   }
@@ -2134,6 +2158,10 @@ export function streamClaudeSdk(options: ClaudeStreamOptions): ReadableStream<st
                         retryContent = retryContent.slice(0, retryMarkerIdx).trim();
                       }
 
+                      // Phase 7 — accumulator shared; pair with main path tool_use ids.
+                      if (block.tool_use_id) {
+                        toolInvocationAccumulator.recordToolResult(block.tool_use_id, retryContent);
+                      }
                       controller.enqueue(formatSSE({ type: 'tool_result', data: JSON.stringify({
                         tool_use_id: block.tool_use_id,
                         content: retryContent,
@@ -2164,6 +2192,33 @@ export function streamClaudeSdk(options: ClaudeStreamOptions): ReadableStream<st
                         upstream: resolved.upstreamModel,
                       })
                     : undefined;
+                  // Phase 7 — alt path also produces Context Accounting snapshot
+                  // from the same shared accumulator. Without this, retry-after-
+                  // compression turns would lose Skills/MCP/Tools visibility.
+                  // resolvedWorkingDirectory is scoped to outer try (line 736);
+                  // use the same expression line 2057 uses for retry cwd.
+                  const altWorkspacePath = options.workingDirectory || os.homedir();
+                  let altContextAccounting:
+                    | import('@/types').RuntimeContextAccountingSnapshot
+                    | undefined;
+                  try {
+                    const { collectAutoInvokeSnapshot, resolveWorkspaceClaudeMdRules } =
+                      await import('@/lib/harness/auto-invoke-accounting');
+                    altContextAccounting = collectAutoInvokeSnapshot({
+                      workspacePath: altWorkspacePath,
+                      records: toolInvocationAccumulator.drain(),
+                      producedBy: 'claude_code',
+                      selectedSkills: options.selectedSkills,
+                      unsupported: ['system_prompt', 'memory', 'files_attachments'],
+                      resolveRulesEntry: resolveWorkspaceClaudeMdRules,
+                    });
+                  } catch {
+                    // Best-effort; degrade to raw usage if producer fails.
+                  }
+                  const altUsageWithAccounting =
+                    usage && altContextAccounting
+                      ? { ...usage, context_accounting: altContextAccounting }
+                      : usage;
                   // Match main-path result shape so the chat route can persist
                   // the new sdk_session_id (route reads result.session_id as a
                   // safety net when status init was missed).
@@ -2174,7 +2229,7 @@ export function streamClaudeSdk(options: ClaudeStreamOptions): ReadableStream<st
                       is_error: rMsg.is_error,
                       num_turns: rMsg.num_turns,
                       duration_ms: rMsg.duration_ms,
-                      usage,
+                      usage: altUsageWithAccounting,
                       session_id: rMsg.session_id,
                     }),
                   }));
