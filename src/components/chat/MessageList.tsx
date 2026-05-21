@@ -18,7 +18,7 @@ import { TaskRunMarker } from './TaskRunMarker';
 import { TaskWaitingForPermissionPanel } from './TaskWaitingForPermissionPanel';
 import type { TaskRunSummary } from '@/types';
 import { StreamingMessage } from './StreamingMessage';
-import { CodePilotLogo } from './CodePilotLogo';
+import { MonolithIcon } from '@/components/brand/MonolithIcon';
 import { SPECIES_IMAGE_URL, EGG_IMAGE_URL, RARITY_BG_GRADIENT, type Species, type Rarity } from '@/lib/buddy';
 
 /**
@@ -291,7 +291,7 @@ export function MessageList({
         <ConversationEmptyState
           title={t('messageList.claudeChat')}
           description={t('messageList.emptyDescription')}
-          icon={<CodePilotLogo className="h-16 w-16" />}
+          icon={<MonolithIcon className="h-16 w-16" />}
         />
       </div>
     );

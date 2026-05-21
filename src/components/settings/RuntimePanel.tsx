@@ -88,7 +88,7 @@ import type { CodexAvailability } from "@/lib/codex/types";
 import { cn } from "@/lib/utils";
 import Anthropic from "@lobehub/icons/es/Anthropic";
 import OpenAI from "@lobehub/icons/es/OpenAI";
-import { CodePilotLogo } from "@/components/chat/CodePilotLogo";
+import { MonolithIcon } from "@/components/brand/MonolithIcon";
 import {
   RuntimeCapabilityList,
   codexAccountHeaderNote,
@@ -1266,7 +1266,7 @@ export function RuntimePanel(props: RuntimePanelProps = {}) {
             selected={effectiveRuntime === "native"}
             onSelect={() => handleRuntimeChange("native")}
             title="CodePilot"
-            icon={<CodePilotLogo size={20} />}
+            icon={<MonolithIcon size={20} />}
             tagline={isZh ? "CodePilot 自带内核" : "CodePilot built-in"}
             pitch={isZh
               ? "CodePilot 直连 provider API 跑 Agent。适合多 provider、可观察、可恢复，由 CodePilot 自管上下文和权限，不依赖外部 CLI。"

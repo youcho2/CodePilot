@@ -13,7 +13,7 @@ import {
 import { CaretDown, CheckCircle } from '@/components/ui/icon';
 import Anthropic from '@lobehub/icons/es/Anthropic';
 import OpenAI from '@lobehub/icons/es/OpenAI';
-import { CodePilotLogo } from './CodePilotLogo';
+import { MonolithIcon } from '@/components/brand/MonolithIcon';
 import type { ChatRuntime } from '@/lib/chat-runtime-shared';
 import { RUNTIME_IDS, type RuntimeId } from '@/lib/runtime/runtime-id';
 
@@ -59,7 +59,7 @@ const RUNTIME_LABEL_KEYS: Record<RuntimeId, { label: TranslationKey; desc: Trans
 function RuntimeIcon({ runtime, size, className }: { runtime: RuntimeId; size: number; className?: string }) {
   if (runtime === 'claude_code') return <Anthropic size={size} className={className} />;
   if (runtime === 'codex_runtime') return <OpenAI size={size} className={className} />;
-  return <CodePilotLogo size={size} className={className} />;
+  return <MonolithIcon size={size} className={className} />;
 }
 
 interface RuntimeSelectorProps {

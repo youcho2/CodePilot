@@ -23,6 +23,7 @@ import { useAccountInfo } from "@/hooks/useAccountInfo";
 import { Button } from "@/components/ui/button";
 import { ArrowSquareOut, SpinnerGap } from "@/components/ui/icon";
 import { CodePilotIcon } from "@/components/ui/semantic-icon";
+import { MonolithIcon } from "@/components/brand/MonolithIcon";
 import { SettingsCard } from "@/components/patterns/SettingsCard";
 import { ImportSessionDialog } from "@/components/layout/ImportSessionDialog";
 import { showToast } from "@/hooks/useToast";
@@ -165,6 +166,18 @@ export function AboutSection() {
 
   return (
     <div className="max-w-4xl mx-auto space-y-6">
+      {/* Brand hero — Monolith app icon as the canonical About anchor.
+          The icon sits on a soft card background that mirrors the
+          screenshot brand presentation (white wash → grey edges) so it
+          reads as a "logo card" in both light and dark themes. */}
+      <div className="flex flex-col items-center justify-center py-8 rounded-lg bg-gradient-to-b from-muted/30 to-muted/10 border border-border/40">
+        <MonolithIcon className="h-32 w-32" />
+        <h2 className="mt-4 text-lg font-semibold">{t("settings.codepilot")}</h2>
+        <p className="text-xs text-muted-foreground mt-1">
+          {t("settings.version", { version: APP_VERSION })}
+        </p>
+      </div>
+
       <div>
         <h2 className="text-sm font-medium">{t("settings.about" as TranslationKey)}</h2>
         <p className="text-[11px] text-muted-foreground mt-0.5">
