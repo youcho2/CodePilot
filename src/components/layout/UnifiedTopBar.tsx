@@ -3,16 +3,12 @@
 import { useState, useCallback, useEffect } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import {
-  GitBranch,
   TreeStructure,
   DotOutline,
   DotsThree,
-  Trash,
   Columns,
-  Copy,
-  PencilSimple,
-  SidebarSimple,
 } from "@/components/ui/icon";
+import { CodePilotIcon } from "@/components/ui/semantic-icon";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -150,7 +146,7 @@ export function UnifiedTopBar() {
           className="text-muted-foreground hover:text-foreground"
           style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
         >
-          <SidebarSimple size={16} />
+          <CodePilotIcon name="sidebar" size="md" aria-hidden />
         </Button>
       </TooltipTrigger>
       <TooltipContent side="bottom">
@@ -257,16 +253,16 @@ export function UnifiedTopBar() {
                     setRenameOpen(true);
                   }}
                 >
-                  <PencilSimple size={14} />
+                  <CodePilotIcon name="edit" size="sm" aria-hidden />
                   <span>{t('chatList.renameConversation' as TranslationKey)}</span>
                 </DropdownMenuItem>
                 <DropdownMenuItem onClick={handleCopyId}>
-                  <Copy size={14} />
+                  <CodePilotIcon name="copy" size="sm" aria-hidden />
                   <span>{t('chatList.copySessionId' as TranslationKey)}</span>
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem variant="destructive" onClick={handleDelete}>
-                  <Trash size={14} />
+                  <CodePilotIcon name="delete" size="sm" aria-hidden />
                   <span>{t('chatList.deleteConversation' as TranslationKey)}</span>
                 </DropdownMenuItem>
               </DropdownMenuContent>
@@ -298,7 +294,7 @@ export function UnifiedTopBar() {
                   }}
                   className="flex h-7 items-center gap-1 rounded-md px-1.5 text-xs text-muted-foreground hover:text-foreground"
                 >
-                  <GitBranch size={16} />
+                  <CodePilotIcon name="git" size="md" aria-hidden />
                   <span className="max-w-[100px] truncate">{currentBranch}</span>
                   {gitDirtyCount > 0 && (
                     <span className="flex items-center gap-0.5 text-[11px] text-amber-500">
@@ -366,7 +362,7 @@ export function UnifiedTopBar() {
                   }}
                   aria-label={t('workspaceSidebar.toggle' as TranslationKey)}
                 >
-                  <SidebarSimple size={16} weight={ws.state.open ? 'fill' : 'regular'} />
+                  <CodePilotIcon name="sidebar" size="md" strokeWidth={ws.state.open ? 2 : undefined} aria-hidden />
                 </Button>
               </TooltipTrigger>
               <TooltipContent side="bottom">

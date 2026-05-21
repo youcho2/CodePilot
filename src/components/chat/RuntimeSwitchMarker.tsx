@@ -23,7 +23,7 @@
 
 import { useTranslation } from '@/hooks/useTranslation';
 import type { TranslationKey } from '@/i18n';
-import { Brain } from '@/components/ui/icon';
+import { CodePilotIcon } from '@/components/ui/semantic-icon';
 import type { ChatRuntime } from '@/lib/chat-runtime-shared';
 
 export const RUNTIME_SWITCH_MARKER_PREFIX = '[__RUNTIME_SWITCH__';
@@ -91,7 +91,7 @@ export function RuntimeSwitchMarker({ payload }: RuntimeSwitchMarkerProps) {
     >
       <span className="h-px flex-1 bg-border/60" />
       <span className="inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-muted/30 px-2 py-0.5">
-        <Brain size={11} />
+        <CodePilotIcon name="runtime" size={11} aria-hidden />
         {text}
       </span>
       <span className="h-px flex-1 bg-border/60" />

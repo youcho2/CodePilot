@@ -4,7 +4,8 @@ import { useRouter } from 'next/navigation';
 import { useTranslation } from '@/hooks/useTranslation';
 import type { TaskRunSummary } from '@/types';
 import type { TranslationKey } from '@/i18n';
-import { Brain, CheckCircle, X as XIcon } from '@/components/ui/icon';
+import { CheckCircle, X as XIcon } from '@/components/ui/icon';
+import { CodePilotIcon } from '@/components/ui/semantic-icon';
 
 /**
  * Phase 3 Step 4 — inline marker that appears in MessageList before
@@ -67,7 +68,7 @@ export function TaskRunMarker({ run }: { run: TaskRunSummary | undefined }) {
       statusKey = 'chat.taskRunMarker.failed' as TranslationKey;
       break;
     case 'waiting_for_permission':
-      statusGlyph = <Brain size={12} className="text-status-warning-foreground" />;
+      statusGlyph = <CodePilotIcon name="assistant" size={12} className="text-status-warning-foreground" aria-hidden />;
       statusKey = 'chat.taskRunMarker.waitingForPermission' as TranslationKey;
       break;
     case 'cancelled':
@@ -75,7 +76,7 @@ export function TaskRunMarker({ run }: { run: TaskRunSummary | undefined }) {
       statusKey = 'chat.taskRunMarker.cancelled' as TranslationKey;
       break;
     default:
-      statusGlyph = <Brain size={12} className="text-muted-foreground" />;
+      statusGlyph = <CodePilotIcon name="assistant" size={12} className="text-muted-foreground" aria-hidden />;
       statusKey = 'chat.taskRunMarker.running' as TranslationKey;
   }
 
