@@ -1,24 +1,29 @@
 /**
  * CodePilot Monolith app icon — the canonical brand mark.
  *
- * Used in three brand-anchor surfaces:
+ * Used in the brand-anchor surfaces:
  *   1. Runtime selector / Runtime panel (Settings → Runtime) — the
  *      visual identity of the "CodePilot Runtime" engine entry.
- *   2. Welcome page (empty chat session) — the brand greeting.
+ *   2. New-chat welcome (centered hero above the composer) — the
+ *      brand greeting.
  *   3. About page (Settings → About) — the canonical brand surface.
+ *   4. Setup Center welcome card.
  *
  * Design:
- *   - 5×5 grid of squares→circles that fade from solid (top-left) to
+ *   - 5×5 grid of squares→dots that fade from solid (top-left) to
  *     dispersed (bottom-right). Carries the "context dispersing into
  *     answers" metaphor.
  *   - Shape fills route through `currentColor` so the icon picks up
  *     `text-foreground` (or whatever color the parent sets) and works
  *     in both light and dark themes without per-mode SVG variants.
- *   - The original SVG uses `#252525` baked in; we preserve every
- *     opacity stop (1.0 / 0.82 / 0.58 / 0.34 / 0.1 / 0.08) so the
- *     gradient effect is identical to the master file.
- *   - Inner-shadow filter values are baked in (white at 25% alpha)
- *     which gives the rounded squares their glossy lift in both modes.
+ *   - Preserves every opacity stop (1.0 / 0.82 / 0.58 / 0.34 / 0.1)
+ *     from the master file so the gradient effect is identical.
+ *   - 2026-05-21 v2: switched to the cleaned master SVG that drops
+ *     the Gaussian-blur backdrop + inner-shadow filters (those
+ *     rendered as a dirty halo in the inline SVG path). The new
+ *     master file is content-only at 595×595 edge-to-edge; we extend
+ *     the viewBox to 655×655 (centered) to add ~5% padding on all
+ *     sides so the icon doesn't sit jammed against its container.
  *
  * Sizes: pass `size` (px) for a fixed render, OR omit `size` and rely
  * on the parent's `className="w-X h-X"` for responsive sizing.
@@ -39,17 +44,12 @@ export function MonolithIcon({ className, size, style }: MonolithIconProps) {
     ? { width: size, height: size, ...style }
     : style;
   return (
-    // viewBox cropped from the master SVG's 0-903 to 138-762 (~625 wide).
-    // The master file ships with ~150px of padding on every side; at the
-    // small sizes we render in RuntimeSelector / Settings (16-20px) that
-    // padding made the icon visibly smaller (≈66%) than peer brand icons
-    // (Anthropic / OpenAI) which fill their full square. Tight crop here
-    // brings content to ~95% of the rendered box so the icon matches
-    // peer sizing across all use sites (selector, panels, welcome, About).
-    // The blurred halo (opacity 0.08) loses a few pixels at the right /
-    // bottom but it's already nearly invisible at every size we render.
+    // viewBox extends 30px past the 595×595 content on every side
+    // (~5% padding) so the icon never reads as cropped against its
+    // container edges — matches the breathing room baked into peer
+    // brand icons (LobeHub Anthropic / OpenAI).
     <svg
-      viewBox="138 138 625 625"
+      viewBox="-30 -30 655 655"
       fill="none"
       xmlns="http://www.w3.org/2000/svg"
       className={cn('text-foreground', className)}
@@ -57,53 +57,28 @@ export function MonolithIcon({ className, size, style }: MonolithIconProps) {
       role="img"
       aria-label="CodePilot"
     >
-      <g filter="url(#monolith_inner_shadow)">
-        <g opacity="0.08" filter="url(#monolith_backdrop_blur)">
-          <path
-            d="M632 150H270.5C203.95 150 150 188.535 150 236.071V666.429C150 713.964 203.95 752.5 270.5 752.5H632C698.55 752.5 752.5 713.964 752.5 666.429V236.071C752.5 188.535 698.55 150 632 150Z"
-            fill="currentColor"
-          />
-        </g>
-        <path d="M214.5 150.5H182.5C164.827 150.5 150.5 164.827 150.5 182.5V214.5C150.5 232.173 164.827 246.5 182.5 246.5H214.5C232.173 246.5 246.5 232.173 246.5 214.5V182.5C246.5 164.827 232.173 150.5 214.5 150.5Z" fill="currentColor" />
-        <path d="M214.5 278.5H182.5C164.827 278.5 150.5 292.827 150.5 310.5V342.5C150.5 360.173 164.827 374.5 182.5 374.5H214.5C232.173 374.5 246.5 360.173 246.5 342.5V310.5C246.5 292.827 232.173 278.5 214.5 278.5Z" fill="currentColor" />
-        <path d="M214.5 406.5H182.5C164.827 406.5 150.5 420.827 150.5 438.5V470.5C150.5 488.173 164.827 502.5 182.5 502.5H214.5C232.173 502.5 246.5 488.173 246.5 470.5V438.5C246.5 420.827 232.173 406.5 214.5 406.5Z" fill="currentColor" />
-        <path opacity="0.82" d="M208.58 540.58H188.58C170.907 540.58 156.58 554.907 156.58 572.58V592.58C156.58 610.253 170.907 624.58 188.58 624.58H208.58C226.253 624.58 240.58 610.253 240.58 592.58V572.58C240.58 554.907 226.253 540.58 208.58 540.58Z" fill="currentColor" />
-        <path opacity="0.58" d="M200.58 676.58H196.58C178.907 676.58 164.58 690.907 164.58 708.58V712.58C164.58 730.253 178.907 744.58 196.58 744.58H200.58C218.253 744.58 232.58 730.253 232.58 712.58V708.58C232.58 690.907 218.253 676.58 200.58 676.58Z" fill="currentColor" />
-        <path d="M342.5 150.5H310.5C292.827 150.5 278.5 164.827 278.5 182.5V214.5C278.5 232.173 292.827 246.5 310.5 246.5H342.5C360.173 246.5 374.5 232.173 374.5 214.5V182.5C374.5 164.827 360.173 150.5 342.5 150.5Z" fill="currentColor" />
-        <path d="M342.5 278.5H310.5C292.827 278.5 278.5 292.827 278.5 310.5V342.5C278.5 360.173 292.827 374.5 310.5 374.5H342.5C360.173 374.5 374.5 360.173 374.5 342.5V310.5C374.5 292.827 360.173 278.5 342.5 278.5Z" fill="currentColor" />
-        <path opacity="0.82" d="M336.58 412.58H316.58C298.907 412.58 284.58 426.907 284.58 444.58V464.58C284.58 482.253 298.907 496.58 316.58 496.58H336.58C354.253 496.58 368.58 482.253 368.58 464.58V444.58C368.58 426.907 354.253 412.58 336.58 412.58Z" fill="currentColor" />
-        <path opacity="0.58" d="M328.58 548.58H324.58C306.907 548.58 292.58 562.907 292.58 580.58V584.58C292.58 602.253 306.907 616.58 324.58 616.58H328.58C346.253 616.58 360.58 602.253 360.58 584.58V580.58C360.58 562.907 346.253 548.58 328.58 548.58Z" fill="currentColor" />
-        <path opacity="0.34" d="M352.58 710.58C352.58 696.221 340.939 684.58 326.58 684.58C312.221 684.58 300.58 696.221 300.58 710.58C300.58 724.939 312.221 736.58 326.58 736.58C340.939 736.58 352.58 724.939 352.58 710.58Z" fill="currentColor" />
-        <path d="M470.5 150.5H438.5C420.827 150.5 406.5 164.827 406.5 182.5V214.5C406.5 232.173 420.827 246.5 438.5 246.5H470.5C488.173 246.5 502.5 232.173 502.5 214.5V182.5C502.5 164.827 488.173 150.5 470.5 150.5Z" fill="currentColor" />
-        <path opacity="0.82" d="M464.58 284.58H444.58C426.907 284.58 412.58 298.907 412.58 316.58V336.58C412.58 354.253 426.907 368.58 444.58 368.58H464.58C482.253 368.58 496.58 354.253 496.58 336.58V316.58C496.58 298.907 482.253 284.58 464.58 284.58Z" fill="currentColor" />
-        <path opacity="0.58" d="M456.58 420.58H452.58C434.907 420.58 420.58 434.907 420.58 452.58V456.58C420.58 474.253 434.907 488.58 452.58 488.58H456.58C474.253 488.58 488.58 474.253 488.58 456.58V452.58C488.58 434.907 474.253 420.58 456.58 420.58Z" fill="currentColor" />
-        <path opacity="0.34" d="M480.58 582.58C480.58 568.221 468.939 556.58 454.58 556.58C440.221 556.58 428.58 568.221 428.58 582.58C428.58 596.939 440.221 608.58 454.58 608.58C468.939 608.58 480.58 596.939 480.58 582.58Z" fill="currentColor" />
-        <path opacity="0.1" d="M456.58 692.58H452.58C443.744 692.58 436.58 699.744 436.58 708.58V712.58C436.58 721.417 443.744 728.58 452.58 728.58H456.58C465.417 728.58 472.58 721.417 472.58 712.58V708.58C472.58 699.744 465.417 692.58 456.58 692.58Z" fill="currentColor" />
-        <path opacity="0.82" d="M592.58 156.58H572.58C554.907 156.58 540.58 170.907 540.58 188.58V208.58C540.58 226.253 554.907 240.58 572.58 240.58H592.58C610.253 240.58 624.58 226.253 624.58 208.58V188.58C624.58 170.907 610.253 156.58 592.58 156.58Z" fill="currentColor" />
-        <path opacity="0.58" d="M584.58 292.58H580.58C562.907 292.58 548.58 306.907 548.58 324.58V328.58C548.58 346.253 562.907 360.58 580.58 360.58H584.58C602.253 360.58 616.58 346.253 616.58 328.58V324.58C616.58 306.907 602.253 292.58 584.58 292.58Z" fill="currentColor" />
-        <path opacity="0.34" d="M608.58 454.58C608.58 440.221 596.939 428.58 582.58 428.58C568.221 428.58 556.58 440.221 556.58 454.58C556.58 468.939 568.221 480.58 582.58 480.58C596.939 480.58 608.58 468.939 608.58 454.58Z" fill="currentColor" />
-        <path opacity="0.1" d="M584.58 564.58H580.58C571.744 564.58 564.58 571.743 564.58 580.58V584.58C564.58 593.417 571.744 600.58 580.58 600.58H584.58C593.417 600.58 600.58 593.417 600.58 584.58V580.58C600.58 571.743 593.417 564.58 584.58 564.58Z" fill="currentColor" />
-        <path opacity="0.58" d="M712.58 164.58H708.58C690.907 164.58 676.58 178.907 676.58 196.58V200.58C676.58 218.253 690.907 232.58 708.58 232.58H712.58C730.253 232.58 744.58 218.253 744.58 200.58V196.58C744.58 178.907 730.253 164.58 712.58 164.58Z" fill="currentColor" />
-        <path opacity="0.34" d="M736.58 326.58C736.58 312.221 724.939 300.58 710.58 300.58C696.221 300.58 684.58 312.221 684.58 326.58C684.58 340.94 696.221 352.58 710.58 352.58C724.939 352.58 736.58 340.94 736.58 326.58Z" fill="currentColor" />
-        <path opacity="0.1" d="M712.58 436.58H708.58C699.744 436.58 692.58 443.743 692.58 452.58V456.58C692.58 465.417 699.744 472.58 708.58 472.58H712.58C721.417 472.58 728.58 465.417 728.58 456.58V452.58C728.58 443.743 721.417 436.58 712.58 436.58Z" fill="currentColor" />
-      </g>
-      <defs>
-        <filter id="monolith_inner_shadow" x="150" y="150" width="612.5" height="610" filterUnits="userSpaceOnUse" colorInterpolationFilters="sRGB">
-          <feFlood floodOpacity="0" result="BackgroundImageFix" />
-          <feBlend mode="normal" in="SourceGraphic" in2="BackgroundImageFix" result="shape" />
-          <feColorMatrix in="SourceAlpha" type="matrix" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0" result="hardAlpha" />
-          <feOffset dx="10" dy="7.5" />
-          <feGaussianBlur stdDeviation="10" />
-          <feComposite in2="hardAlpha" operator="arithmetic" k2="-1" k3="1" />
-          <feColorMatrix type="matrix" values="0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 0.25 0" />
-          <feBlend mode="normal" in2="shape" result="effect1_innerShadow" />
-        </filter>
-        <filter id="monolith_backdrop_blur" x="0" y="0" width="902.5" height="902.5" filterUnits="userSpaceOnUse" colorInterpolationFilters="sRGB">
-          <feFlood floodOpacity="0" result="BackgroundImageFix" />
-          <feBlend mode="normal" in="SourceGraphic" in2="BackgroundImageFix" result="shape" />
-          <feGaussianBlur stdDeviation="75" result="effect1_foregroundBlur" />
-        </filter>
-      </defs>
+      <path d="M64 0H32C14.3269 0 0 14.3269 0 32V64C0 81.6731 14.3269 96 32 96H64C81.6731 96 96 81.6731 96 64V32C96 14.3269 81.6731 0 64 0Z" fill="currentColor" />
+      <path d="M64 128H32C14.3269 128 0 142.327 0 160V192C0 209.673 14.3269 224 32 224H64C81.6731 224 96 209.673 96 192V160C96 142.327 81.6731 128 64 128Z" fill="currentColor" />
+      <path d="M64 256H32C14.3269 256 0 270.327 0 288V320C0 337.673 14.3269 352 32 352H64C81.6731 352 96 337.673 96 320V288C96 270.327 81.6731 256 64 256Z" fill="currentColor" />
+      <path opacity="0.82" d="M58.0801 390.08H38.0801C20.407 390.08 6.08008 404.407 6.08008 422.08V442.08C6.08008 459.753 20.407 474.08 38.0801 474.08H58.0801C75.7532 474.08 90.0801 459.753 90.0801 442.08V422.08C90.0801 404.407 75.7532 390.08 58.0801 390.08Z" fill="currentColor" />
+      <path opacity="0.58" d="M50.0801 526.08H46.0801C28.407 526.08 14.0801 540.407 14.0801 558.08V562.08C14.0801 579.753 28.407 594.08 46.0801 594.08H50.0801C67.7532 594.08 82.0801 579.753 82.0801 562.08V558.08C82.0801 540.407 67.7532 526.08 50.0801 526.08Z" fill="currentColor" />
+      <path d="M192 0H160C142.327 0 128 14.3269 128 32V64C128 81.6731 142.327 96 160 96H192C209.673 96 224 81.6731 224 64V32C224 14.3269 209.673 0 192 0Z" fill="currentColor" />
+      <path d="M192 128H160C142.327 128 128 142.327 128 160V192C128 209.673 142.327 224 160 224H192C209.673 224 224 209.673 224 192V160C224 142.327 209.673 128 192 128Z" fill="currentColor" />
+      <path opacity="0.82" d="M186.08 262.08H166.08C148.407 262.08 134.08 276.407 134.08 294.08V314.08C134.08 331.753 148.407 346.08 166.08 346.08H186.08C203.753 346.08 218.08 331.753 218.08 314.08V294.08C218.08 276.407 203.753 262.08 186.08 262.08Z" fill="currentColor" />
+      <path opacity="0.58" d="M178.08 398.08H174.08C156.407 398.08 142.08 412.407 142.08 430.08V434.08C142.08 451.753 156.407 466.08 174.08 466.08H178.08C195.753 466.08 210.08 451.753 210.08 434.08V430.08C210.08 412.407 195.753 398.08 178.08 398.08Z" fill="currentColor" />
+      <path opacity="0.34" d="M202.08 560.08C202.08 545.721 190.439 534.08 176.08 534.08C161.721 534.08 150.08 545.721 150.08 560.08C150.08 574.439 161.721 586.08 176.08 586.08C190.439 586.08 202.08 574.439 202.08 560.08Z" fill="currentColor" />
+      <path d="M320 0H288C270.327 0 256 14.3269 256 32V64C256 81.6731 270.327 96 288 96H320C337.673 96 352 81.6731 352 64V32C352 14.3269 337.673 0 320 0Z" fill="currentColor" />
+      <path opacity="0.82" d="M314.08 134.08H294.08C276.407 134.08 262.08 148.407 262.08 166.08V186.08C262.08 203.753 276.407 218.08 294.08 218.08H314.08C331.753 218.08 346.08 203.753 346.08 186.08V166.08C346.08 148.407 331.753 134.08 314.08 134.08Z" fill="currentColor" />
+      <path opacity="0.58" d="M306.08 270.08H302.08C284.407 270.08 270.08 284.407 270.08 302.08V306.08C270.08 323.753 284.407 338.08 302.08 338.08H306.08C323.753 338.08 338.08 323.753 338.08 306.08V302.08C338.08 284.407 323.753 270.08 306.08 270.08Z" fill="currentColor" />
+      <path opacity="0.34" d="M330.08 432.08C330.08 417.721 318.439 406.08 304.08 406.08C289.721 406.08 278.08 417.721 278.08 432.08C278.08 446.439 289.721 458.08 304.08 458.08C318.439 458.08 330.08 446.439 330.08 432.08Z" fill="currentColor" />
+      <path opacity="0.1" d="M306.08 542.08H302.08C293.244 542.08 286.08 549.244 286.08 558.08V562.08C286.08 570.917 293.244 578.08 302.08 578.08H306.08C314.917 578.08 322.08 570.917 322.08 562.08V558.08C322.08 549.244 314.917 542.08 306.08 542.08Z" fill="currentColor" />
+      <path opacity="0.82" d="M442.08 6.08006H422.08C404.407 6.08006 390.08 20.4069 390.08 38.0801V58.0801C390.08 75.7532 404.407 90.0801 422.08 90.0801H442.08C459.753 90.0801 474.08 75.7532 474.08 58.0801V38.0801C474.08 20.4069 459.753 6.08006 442.08 6.08006Z" fill="currentColor" />
+      <path opacity="0.58" d="M434.08 142.08H430.08C412.407 142.08 398.08 156.407 398.08 174.08V178.08C398.08 195.753 412.407 210.08 430.08 210.08H434.08C451.753 210.08 466.08 195.753 466.08 178.08V174.08C466.08 156.407 451.753 142.08 434.08 142.08Z" fill="currentColor" />
+      <path opacity="0.34" d="M458.08 304.08C458.08 289.721 446.439 278.08 432.08 278.08C417.721 278.08 406.08 289.721 406.08 304.08C406.08 318.439 417.721 330.08 432.08 330.08C446.439 330.08 458.08 318.439 458.08 304.08Z" fill="currentColor" />
+      <path opacity="0.1" d="M434.08 414.08H430.08C421.244 414.08 414.08 421.243 414.08 430.08V434.08C414.08 442.917 421.244 450.08 430.08 450.08H434.08C442.917 450.08 450.08 442.917 450.08 434.08V430.08C450.08 421.243 442.917 414.08 434.08 414.08Z" fill="currentColor" />
+      <path opacity="0.58" d="M562.08 14.08H558.08C540.407 14.08 526.08 28.4069 526.08 46.08V50.08C526.08 67.7532 540.407 82.08 558.08 82.08H562.08C579.753 82.08 594.08 67.7532 594.08 50.08V46.08C594.08 28.4069 579.753 14.08 562.08 14.08Z" fill="currentColor" />
+      <path opacity="0.34" d="M586.08 176.08C586.08 161.721 574.439 150.08 560.08 150.08C545.721 150.08 534.08 161.721 534.08 176.08C534.08 190.44 545.721 202.08 560.08 202.08C574.439 202.08 586.08 190.44 586.08 176.08Z" fill="currentColor" />
+      <path opacity="0.1" d="M562.08 286.08H558.08C549.244 286.08 542.08 293.243 542.08 302.08V306.08C542.08 314.917 549.244 322.08 558.08 322.08H562.08C570.917 322.08 578.08 314.917 578.08 306.08V302.08C578.08 293.243 570.917 286.08 562.08 286.08Z" fill="currentColor" />
     </svg>
   );
 }
