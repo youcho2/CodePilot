@@ -246,7 +246,7 @@ function WidgetRendererInner({ widgetCode, isStreaming, title, showOverlay, extr
         // the gradient. Use the same `color-mix(in oklch, ...)` pattern
         // that the rest of globals.css applies (see lines 255-265).
         backgroundImage:
-          'radial-gradient(circle, color-mix(in oklch, var(--muted-foreground) 15%, transparent) 0.8px, transparent 0.8px)',
+          'radial-gradient(circle, color-mix(in oklch, var(--muted-foreground) 8%, transparent) 0.8px, transparent 0.8px)',
         backgroundSize: '14px 14px',
       }}
     >
