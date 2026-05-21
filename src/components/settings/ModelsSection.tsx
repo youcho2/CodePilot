@@ -28,16 +28,13 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import {
-  Plus,
-  Trash,
   PencilSimple,
-  MagnifyingGlass,
   SpinnerGap,
   Check,
   X,
-  PushPin,
   Warning,
 } from "@/components/ui/icon";
+import { CodePilotIcon } from "@/components/ui/semantic-icon";
 import { useTranslation } from "@/hooks/useTranslation";
 import { runAutoDiscoverForProvider, probeAndApplyProvider, type AutoDiscoverResult } from "@/lib/auto-discover-models";
 import { canReliablyFetchModels, canSearchUpstreamModels, isCatalogOnlyPlanProviderRecord, isOpenRouterProviderRecord, shouldShowLegacyCatalogBadge } from "@/lib/provider-catalog";
@@ -1384,7 +1381,7 @@ export function ModelsSection() {
         </Select>
 
         <div className="relative flex-1">
-          <MagnifyingGlass size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
+          <CodePilotIcon name="search" size="sm" className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" aria-hidden />
           <Input
             id="models-search"
             name="models-search"
@@ -1610,7 +1607,7 @@ export function ModelsSection() {
                   }
                 }}
               >
-                <Plus size={12} weight="bold" />
+                <CodePilotIcon name="plus" size={12} strokeWidth={2} aria-hidden />
                 {isZh ? '添加模型' : 'Add model'}
               </Button>
               </div>
@@ -1718,7 +1715,7 @@ export function ModelsSection() {
                               ? '当前固定的默认模型 — 新会话将使用这个'
                               : 'Currently pinned default — used by new chats'}
                           >
-                            <PushPin size={9} weight="fill" />
+                            <CodePilotIcon name="pin" size={9} strokeWidth={2} aria-hidden />
                             {isZh ? '默认' : 'Default'}
                           </span>
                         )}
@@ -1839,9 +1836,11 @@ export function ModelsSection() {
                           ? (isZh ? '启用并设为默认模型' : 'Enable and set as default')
                           : (isZh ? '设为默认模型' : 'Set as default')}
                     >
-                      <PushPin
-                        size={14}
-                        weight={isCurrentDefault(provider.id, model.model_id) ? 'fill' : 'regular'}
+                      <CodePilotIcon
+                        name="pin"
+                        size="sm"
+                        strokeWidth={isCurrentDefault(provider.id, model.model_id) ? 2 : undefined}
+                        aria-hidden
                       />
                     </Button>
 
@@ -1858,7 +1857,7 @@ export function ModelsSection() {
                         onClick={() => setDeleteTarget({ providerId: provider.id, modelId: model.model_id, name: model.display_name || model.model_id })}
                         title={isZh ? '删除此条' : 'Delete'}
                       >
-                        <Trash size={14} />
+                        <CodePilotIcon name="delete" size="sm" aria-hidden />
                       </Button>
                     )}
 

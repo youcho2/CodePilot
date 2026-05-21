@@ -8,10 +8,8 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import {
-  DotsThree,
-  Stethoscope,
-} from "@/components/ui/icon";
+import { DotsThree } from "@/components/ui/icon";
+import { CodePilotIcon } from "@/components/ui/semantic-icon";
 import {
   Tooltip,
   TooltipContent,
@@ -172,7 +170,7 @@ export function ProviderCard({
                   <DropdownMenuContent align="end" className="min-w-[180px]">
                     {onDiagnose && (
                       <DropdownMenuItem onClick={onDiagnose}>
-                        <Stethoscope size={14} />
+                        <CodePilotIcon name="diagnose" size="sm" aria-hidden />
                         <span>{isZh ? "诊断" : "Diagnose"}</span>
                       </DropdownMenuItem>
                     )}

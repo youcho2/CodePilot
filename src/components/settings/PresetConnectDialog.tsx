@@ -20,7 +20,8 @@ import {
   DialogDescription,
   DialogFooter,
 } from "@/components/ui/dialog";
-import { SpinnerGap, CaretDown, CaretUp, ArrowSquareOut, CheckCircle, XCircle, Warning, Lightning } from "@/components/ui/icon";
+import { SpinnerGap, CaretDown, CaretUp, ArrowSquareOut, CheckCircle, XCircle, Warning } from "@/components/ui/icon";
+import { CodePilotIcon } from "@/components/ui/semantic-icon";
 import type { ProviderFormData } from "./ProviderForm";
 import type { QuickPreset } from "./provider-presets";
 import { QUICK_PRESETS } from "./provider-presets";
@@ -822,7 +823,7 @@ export function PresetConnectDialog({
                 disabled={saving || testing || !canTest}
                 className="gap-1.5"
               >
-                {testing ? <SpinnerGap size={14} className="animate-spin" /> : <Lightning size={14} />}
+                {testing ? <SpinnerGap size={14} className="animate-spin" /> : <CodePilotIcon name="diagnose" size="sm" aria-hidden />}
                 {testing ? (isZh ? '测试中...' : 'Testing...') : (isZh ? '测试连接' : 'Test')}
               </Button>
               <Button

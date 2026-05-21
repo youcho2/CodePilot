@@ -10,7 +10,8 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { SpinnerGap, MagnifyingGlass, Plus, Check } from "@/components/ui/icon";
+import { SpinnerGap, Check } from "@/components/ui/icon";
+import { CodePilotIcon } from "@/components/ui/semantic-icon";
 import { useTranslation } from "@/hooks/useTranslation";
 import type { TranslationKey } from "@/i18n";
 import { showToast } from "@/hooks/useToast";
@@ -238,9 +239,11 @@ export function OpenRouterSearchDialog({
             {t('provider.search.dialogDescription' as TranslationKey)}
           </DialogDescription>
           <div className="relative mt-3">
-            <MagnifyingGlass
-              size={14}
+            <CodePilotIcon
+              name="search"
+              size="sm"
               className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground"
+              aria-hidden
             />
             <Input
               value={query}
@@ -380,7 +383,7 @@ export function OpenRouterSearchDialog({
                           {isAdding ? (
                             <SpinnerGap size={11} className="animate-spin" />
                           ) : (
-                            <Plus size={11} weight="bold" />
+                            <CodePilotIcon name="plus" size={11} strokeWidth={2} aria-hidden />
                           )}
                           {isAdding
                             ? t("provider.search.openrouter.adding" as TranslationKey)

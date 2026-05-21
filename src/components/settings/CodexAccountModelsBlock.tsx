@@ -24,7 +24,8 @@
 
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
-import { Sparkle, ArrowSquareOut } from "@/components/ui/icon";
+import { ArrowSquareOut } from "@/components/ui/icon";
+import { CodePilotIcon } from "@/components/ui/semantic-icon";
 import { cn } from "@/lib/utils";
 import type { ProviderModelGroup } from "@/types";
 
@@ -67,7 +68,7 @@ export function CodexAccountModelsBlock({ isZh }: CodexAccountModelsBlockProps) 
       <div className="rounded-lg border border-border/50 bg-card p-5 flex flex-col gap-3.5">
         <div className="flex items-start justify-between gap-3 flex-wrap">
           <div className="flex items-center gap-2 flex-wrap">
-            <Sparkle size={16} className="text-muted-foreground shrink-0" />
+            <CodePilotIcon name="model" size="md" className="text-muted-foreground shrink-0" aria-hidden />
             <h3 id="codex-account-models-heading" className="text-sm font-semibold leading-tight">
               {isZh ? "Codex 账户" : "Codex Account"}
             </h3>

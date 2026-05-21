@@ -12,7 +12,8 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { SpinnerGap, Plus, ArrowSquareOut, CheckCircle, Copy } from "@/components/ui/icon";
+import { SpinnerGap, ArrowSquareOut, CheckCircle } from "@/components/ui/icon";
+import { CodePilotIcon } from "@/components/ui/semantic-icon";
 import { ProviderForm } from "./ProviderForm";
 import type { ProviderFormData } from "./ProviderForm";
 import { PresetConnectDialog } from "./PresetConnectDialog";
@@ -924,7 +925,7 @@ export function ProviderManager() {
                 className="gap-1.5 shrink-0"
                 onClick={() => { setPresetEditProvider(null); setAddServiceOpen(true); }}
               >
-                <Plus size={14} weight="bold" />
+                <CodePilotIcon name="plus" size="sm" strokeWidth={2} aria-hidden />
                 {t('provider.addService')}
               </Button>
             </div>
@@ -966,7 +967,7 @@ export function ProviderManager() {
                   className="gap-1.5 mt-1"
                   onClick={() => { setPresetEditProvider(null); setAddServiceOpen(true); }}
                 >
-                  <Plus size={14} weight="bold" />
+                  <CodePilotIcon name="plus" size="sm" strokeWidth={2} aria-hidden />
                   {t('provider.addService')}
                 </Button>
               </div>
@@ -1349,7 +1350,7 @@ export function ProviderManager() {
                   onClick={() => { void navigator.clipboard.writeText(codexLoginStart.userCode); }}
                   aria-label={isZh ? '复制' : 'Copy'}
                 >
-                  <Copy size={12} />
+                  <CodePilotIcon name="copy" size={12} aria-hidden />
                 </Button>
               </div>
               <div className="flex justify-end gap-2">

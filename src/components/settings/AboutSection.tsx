@@ -21,14 +21,8 @@ import { useTranslation } from "@/hooks/useTranslation";
 import { useUpdate } from "@/hooks/useUpdate";
 import { useAccountInfo } from "@/hooks/useAccountInfo";
 import { Button } from "@/components/ui/button";
-import {
-  ArrowClockwise,
-  ArrowSquareOut,
-  FileArrowDown,
-  Stethoscope,
-  SpinnerGap,
-  Folder,
-} from "@/components/ui/icon";
+import { ArrowSquareOut, SpinnerGap } from "@/components/ui/icon";
+import { CodePilotIcon } from "@/components/ui/semantic-icon";
 import { SettingsCard } from "@/components/patterns/SettingsCard";
 import { ImportSessionDialog } from "@/components/layout/ImportSessionDialog";
 import { showToast } from "@/hooks/useToast";
@@ -219,7 +213,7 @@ export function AboutSection() {
               {checking ? (
                 <SpinnerGap size={14} className="animate-spin" />
               ) : (
-                <ArrowClockwise size={14} />
+                <CodePilotIcon name="refresh" size="sm" aria-hidden />
               )}
               {checking ? t("settings.checking") : t("settings.checkForUpdates")}
             </Button>
@@ -355,7 +349,7 @@ export function AboutSection() {
               onClick={handleOpenLogFolder}
               title={logPath ?? undefined}
             >
-              <Folder size={14} />
+              <CodePilotIcon name="folder" size="sm" aria-hidden />
               {t("about.support.openLogs")}
             </Button>
           )}
@@ -369,7 +363,7 @@ export function AboutSection() {
             {exportingDiagnostics ? (
               <SpinnerGap size={14} className="animate-spin" />
             ) : (
-              <FileArrowDown size={14} />
+              <CodePilotIcon name="download" size="sm" aria-hidden />
             )}
             {t("about.support.exportDiagnostics")}
           </Button>
@@ -379,7 +373,7 @@ export function AboutSection() {
             className="text-xs gap-1.5"
             onClick={() => window.dispatchEvent(new CustomEvent("open-setup-center"))}
           >
-            <Stethoscope size={14} />
+            <CodePilotIcon name="diagnose" size="sm" aria-hidden />
             {t("about.support.runSetupWizard")}
           </Button>
           <Button
@@ -388,7 +382,7 @@ export function AboutSection() {
             className="text-xs gap-1.5"
             onClick={() => setImportDialogOpen(true)}
           >
-            <FileArrowDown size={14} />
+            <CodePilotIcon name="download" size="sm" aria-hidden />
             {t("cli.importButton" as TranslationKey)}
           </Button>
         </div>
