@@ -195,7 +195,7 @@ export function CliToolBatchDescribeDialog({
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
-            <CodePilotIcon name="skill" size={18} aria-hidden />
+            <CodePilotIcon name="assistant" size={18} aria-hidden />
             {t('cliTools.batchDescribe')}
           </DialogTitle>
           <DialogDescription>
@@ -330,7 +330,7 @@ export function CliToolBatchDescribeDialog({
                 disabled={!selectedModel || toolsToProcessCount === 0}
                 className="gap-1.5"
               >
-                <CodePilotIcon name="skill" size="sm" aria-hidden />
+                <CodePilotIcon name="assistant" size="sm" aria-hidden />
                 {t('cliTools.batchStart')}
               </Button>
               )}

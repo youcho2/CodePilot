@@ -1,12 +1,14 @@
 # Icon System — Phase 7 交接文档
 
-> 产品思考见 [docs/insights/icon-system.md](../insights/icon-system.md)（待 Phase 4 收口时补；Phase 0 阶段只有技术档）
+> 产品思考见 [docs/insights/icon-system.md](../insights/icon-system.md)（Phase 4 收口时补）
 >
-> 当前阶段：**Phase 0 deliverable**（semantic alias 字典 + HugeIcons free 候选映射 + 冲突解决决议 + 7 个区域 inventory snapshot）
+> **当前阶段：Phase 0-3 已完成**（taxonomy / HugeIcons skeleton / 89 文件迁到 CodePilotIcon / eslint guardrail 改向 + Brain/Lightning/Terminal 永久禁用）。**Phase 4 待做**：design-system Icon section + ui-governance.md 第 2 节重写 + insights doc + plan 归档。详细对账见第八节"closeout gap pass 残留清单"。
 >
 > 父计划：[`docs/exec-plans/active/phase-7-icon-system.md`](../exec-plans/active/phase-7-icon-system.md)
 >
-> 相关存量文档：[`docs/handover/ui-governance.md`](./ui-governance.md) 描述的是 Phase 7 **之前**的图标规则（"Phosphor 通过 `ui/icon.tsx` 统一入口"）。Phase 7 收口后 `ui-governance.md` 第 2 节"图标统一"会被本文件取代或重写。
+> 相关存量文档：[`docs/handover/ui-governance.md`](./ui-governance.md) 描述的是 Phase 7 **之前**的图标规则（"Phosphor 通过 `ui/icon.tsx` 统一入口"），Phase 4 收口时会把该文件第 2 节重写指向本文件。
+>
+> **下方第一到第四节是 Phase 0 立项时写下的 strategic snapshot（2026-05-21 立项快照）**；第八节是 closeout 阶段的实际现状对账。两者数据可能略有差异，**以第八节为准**。
 
 ## 范围与边界
 
@@ -103,9 +105,22 @@
 | `error` | `AlertCircleIcon` | `CancelCircleIcon` | 错误圆 |
 | `loading` | `Loading02Icon` | `Refresh01Icon` | 旋转 |
 | `workspace` | `Folder02Icon` | `LaptopIcon` | 与 folder 区分（workspace 是 cwd 整体） |
-| `git` | `GitBranchIcon`（HugeIcons 不一定有，需 fallback） | fallback Phosphor `GitBranch` | Phase 1 装库后实测；若 free 包无 git 系列，**仍保留 Phosphor 的 GitBranch / GitCommit**，semantic 层 alias 但 vendor 不切 |
+| `git` | `GitBranchIcon` | `GitCommitIcon` | Phase 1 装库后实测确认 HugeIcons free 已有 git 系列；不需要 fallback |
 
-**Fallback 政策**：任一 alias 在 free 包里找不到合适候选（如 `git` 系列若实测缺失），semantic 层暴露 alias 名但内部仍用 Phosphor — `aliased as semantic_name`。**绝不在第三方库混入第三套**（Lucide / Tabler / Hero）。
+> **Phase 2 / closeout 期间持续追加的 alias**（与 semantic-icon.tsx 同步；这里只记最关键的几个，完整列表以 `src/components/ui/semantic-icon.tsx` SEMANTIC_MAP 为准）：
+
+| 新增 alias | HugeIcons | 说明 |
+|------------|-----------|------|
+| `panel_left` / `panel_left_close` / `panel_left_open` | `PanelLeftIcon` / `PanelLeftCloseIcon` / `PanelLeftOpenIcon` | 侧栏开 / 折 / 打开按钮（替代原通用 `sidebar`，方向语义更准） |
+| `panel_right` | `PanelRightIcon` | workspace sidebar toggle |
+| `file_tree` | `HierarchyFilesIcon` | 文件树切换按钮（不是单 file 也不是普通 folder） |
+| `favorite` | `FavouriteIcon` | 收藏 / 评分（heart-shape 通用） |
+| `tag` | `Tag01Icon` | 标签 |
+| `bookmark` | `Bookmark01Icon` | 书签 |
+| `external` | `ArrowUpRight01Icon` | 外部链接 / 新窗口打开（替代 Phosphor `ArrowSquareOut`） |
+| `archive` | `ArchiveIcon` | `/compact` 命令（压缩对话）等"归档/压缩"语义；替代 Phosphor `FileZip` |
+
+**Fallback 政策**：任一 alias 在 free 包里找不到合适候选，semantic 层暴露 alias 名但内部仍用 Phosphor — `aliased as semantic_name`。**绝不在第三方库混入第三套**（Lucide / Tabler / Hero）。**新增 alias 必须同步本节表 + `src/components/ui/semantic-icon.tsx` + 在第八节残留清单同步更新数字**。
 
 ## 三、冲突解决决议
 

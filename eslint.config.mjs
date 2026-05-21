@@ -111,6 +111,7 @@ const eslintConfig = defineConfig([
       "src/components/git/**/*.{ts,tsx}",
       "src/app/**/*.{ts,tsx}",
       "src/hooks/**/*.{ts,tsx}",
+      "src/lib/**/*.{ts,tsx}",
     ],
     rules: {
       "no-restricted-imports": [
@@ -135,6 +136,14 @@ const eslintConfig = defineConfig([
                 "Lightning → \"runtime\" (or \"skill\" / \"code\" depending on context); " +
                 "Terminal → \"terminal\" (for shell UI) or \"cli\" (for CLI tools catalog). " +
                 "Importing the raw Phosphor name re-introduces the cross-semantic overload Phase 7 resolved.",
+            },
+            {
+              name: "@phosphor-icons/react",
+              importNames: ["Brain", "Lightning", "Terminal"],
+              message:
+                "Phase 7 mapped these to semantic aliases (see CodePilotIcon). " +
+                "Bypassing the wrapper does NOT bypass the ban — raw Phosphor Brain / Lightning / Terminal " +
+                "re-introduces the cross-semantic overload Phase 7 resolved. Use CodePilotIcon name=\"memory|runtime|terminal|cli|skill|code\" instead.",
             },
           ],
         },

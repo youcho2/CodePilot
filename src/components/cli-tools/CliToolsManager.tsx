@@ -272,7 +272,7 @@ export const CliToolsManager = forwardRef<CliToolsManagerHandle, CliToolsManager
                 className="h-7 text-xs gap-1.5"
                 onClick={() => setBatchDescribeOpen(true)}
               >
-                <CodePilotIcon name="skill" size="sm" aria-hidden />
+                <CodePilotIcon name="assistant" size="sm" aria-hidden />
                 {t('cliTools.batchDescribe')}
               </Button>
             </div>
