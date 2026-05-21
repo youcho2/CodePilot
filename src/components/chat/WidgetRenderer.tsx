@@ -241,8 +241,12 @@ function WidgetRendererInner({ widgetCode, isStreaming, title, showOverlay, extr
     <div
       className="group/widget relative my-1 rounded-xl p-4 bg-muted/40"
       style={{
+        // Project theme uses oklch() not HSL — `hsl(var(--muted-foreground) / 0.12)`
+        // would produce an invalid color and the browser silently drops
+        // the gradient. Use the same `color-mix(in oklch, ...)` pattern
+        // that the rest of globals.css applies (see lines 255-265).
         backgroundImage:
-          'radial-gradient(circle, hsl(var(--muted-foreground) / 0.12) 1px, transparent 1px)',
+          'radial-gradient(circle, color-mix(in oklch, var(--muted-foreground) 28%, transparent) 1.25px, transparent 1.25px)',
         backgroundSize: '14px 14px',
       }}
     >
