@@ -33,7 +33,6 @@ import {
   Plug,
   UserCircle,
   CaretRight,
-  Heart,
   Info,
 } from "@/components/ui/icon";
 import { CodePilotIcon } from "@/components/ui/semantic-icon";
@@ -88,8 +87,7 @@ export function HealthSection() {
     return (
       <div className="max-w-4xl mx-auto space-y-6">
         <div>
-          <h2 className="text-sm font-medium flex items-center gap-2">
-            <Heart size={14} weight="fill" className="text-status-success-foreground shrink-0" />
+          <h2 className="text-sm font-medium">
             {t("settings.health" as TranslationKey)}
           </h2>
           <p className="text-[11px] text-muted-foreground mt-0.5">
@@ -363,8 +361,7 @@ export function HealthSection() {
       {/* Header */}
       <div className="flex flex-col sm:flex-row items-start sm:justify-between gap-3">
         <div className="min-w-0">
-          <h2 className="text-sm font-medium flex items-center gap-2">
-            <Heart size={14} weight="fill" className="text-status-success-foreground shrink-0" />
+          <h2 className="text-sm font-medium">
             {t("settings.health" as TranslationKey)}
           </h2>
           <p className="text-[11px] text-muted-foreground mt-0.5">

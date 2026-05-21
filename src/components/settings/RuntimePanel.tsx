@@ -1191,8 +1191,7 @@ export function RuntimePanel(props: RuntimePanelProps = {}) {
           actual reachability (Claude Code: install / OAuth state;
           AI SDK: always ready since it ships in-app). */}
       <div>
-        <div className="flex items-center gap-2 mb-2">
-          <CodePilotIcon name="runtime" size="md" strokeWidth={2} className="text-status-success-foreground" />
+        <div className="mb-2">
           <h3 className="text-sm font-semibold">{isZh ? "默认引擎" : "Default engine"}</h3>
         </div>
         <p className="text-[11px] text-muted-foreground mb-3">

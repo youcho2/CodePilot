@@ -166,18 +166,6 @@ export function AboutSection() {
 
   return (
     <div className="max-w-4xl mx-auto space-y-6">
-      {/* Brand hero — Monolith app icon as the canonical About anchor.
-          The icon sits on a soft card background that mirrors the
-          screenshot brand presentation (white wash → grey edges) so it
-          reads as a "logo card" in both light and dark themes. */}
-      <div className="flex flex-col items-center justify-center py-8 rounded-lg bg-gradient-to-b from-muted/30 to-muted/10 border border-border/40">
-        <MonolithIcon className="h-32 w-32" />
-        <h2 className="mt-4 text-lg font-semibold">{t("settings.codepilot")}</h2>
-        <p className="text-xs text-muted-foreground mt-1">
-          {t("settings.version", { version: APP_VERSION })}
-        </p>
-      </div>
-
       <div>
         <h2 className="text-sm font-medium">{t("settings.about" as TranslationKey)}</h2>
         <p className="text-[11px] text-muted-foreground mt-0.5">
@@ -187,14 +175,19 @@ export function AboutSection() {
 
       {/* Version + update check. Same logic as the legacy UpdateCard
           but rendered as a single inline row so it matches the rest
-          of About visually. */}
+          of About visually. App icon (Monolith) sits left of the name +
+          version pair — replaces the previous separate "brand hero"
+          card so About lands as a single coherent row. */}
       <SettingsCard>
         <div className="flex items-center justify-between gap-3">
-          <div>
-            <h3 className="text-sm font-medium">{t("settings.codepilot")}</h3>
-            <p className="text-xs text-muted-foreground">
-              {t("settings.version", { version: APP_VERSION })}
-            </p>
+          <div className="flex items-center gap-3">
+            <MonolithIcon className="h-10 w-10 shrink-0" />
+            <div>
+              <h3 className="text-sm font-medium">{t("settings.codepilot")}</h3>
+              <p className="text-xs text-muted-foreground">
+                {t("settings.version", { version: APP_VERSION })}
+              </p>
+            </div>
           </div>
           <div className="flex items-center gap-2 shrink-0">
             {updateInfo?.updateAvailable && !checking && (
