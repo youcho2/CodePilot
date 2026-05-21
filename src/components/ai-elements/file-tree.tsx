@@ -8,13 +8,8 @@ import {
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
 import { cn } from "@/lib/utils";
-import {
-  Folder,
-  FolderOpen,
-  File,
-  CaretRight,
-  Plus,
-} from "@phosphor-icons/react";
+import { CaretRight } from "@phosphor-icons/react";
+import { CodePilotIcon } from "@/components/ui/semantic-icon";
 import {
   createContext,
   useCallback,
@@ -211,9 +206,9 @@ export const FileTreeFolder = ({
               </span>
               <FileTreeIcon>
                 {isExpanded ? (
-                  <FolderOpen size={16} className="text-muted-foreground" />
+                  <CodePilotIcon name="folder_open" size="md" className="text-muted-foreground" aria-hidden />
                 ) : (
-                  <Folder size={16} className="text-muted-foreground" />
+                  <CodePilotIcon name="folder" size="md" className="text-muted-foreground" aria-hidden />
                 )}
               </FileTreeIcon>
               <FileTreeName>{name}</FileTreeName>
@@ -225,7 +220,7 @@ export const FileTreeFolder = ({
                   title={addLabel ?? 'Add to chat'}
                   aria-label={addLabel ?? 'Add to chat'}
                 >
-                  <Plus size={12} className="text-muted-foreground" />
+                  <CodePilotIcon name="plus" size={12} className="text-muted-foreground" aria-hidden />
                 </button>
               )}
             </div>
@@ -306,7 +301,7 @@ export const FileTreeFile = ({
         {children ?? (
           <>
             <FileTreeIcon>
-              {icon ?? <File size={16} className="text-muted-foreground" />}
+              {icon ?? <CodePilotIcon name="file" size="md" className="text-muted-foreground" aria-hidden />}
             </FileTreeIcon>
             <FileTreeName>{name}</FileTreeName>
             {onAdd && (
@@ -317,7 +312,7 @@ export const FileTreeFile = ({
                 title={addLabel ?? 'Add to chat'}
                 aria-label={addLabel ?? 'Add to chat'}
               >
-                <Plus size={12} className="text-muted-foreground" />
+                <CodePilotIcon name="plus" size={12} className="text-muted-foreground" aria-hidden />
               </button>
             )}
           </>

@@ -1,16 +1,13 @@
 "use client";
 
 import {
-  Folder,
   CaretDown,
   CaretRight,
-  Plus,
-  FolderOpen,
   FolderMinus,
   DotsThree,
-  Copy,
   ArrowSquareOut,
 } from "@/components/ui/icon";
+import { CodePilotIcon } from "@/components/ui/semantic-icon";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -83,7 +80,7 @@ export function ProjectGroupHeader({
         tabIndex={showActions ? 0 : -1}
         onClick={onCreateSession}
       >
-        <Plus size={14} />
+        <CodePilotIcon name="plus" size="sm" aria-hidden />
       </Button>
       {/* Three-dot menu */}
       <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
@@ -121,7 +118,7 @@ export function ProjectGroupHeader({
             // writeText fails in Electron renderers after dropdown blur.
             void copyWithToast({ text: workingDirectory, t });
           }}>
-            <Copy size={14} />
+            <CodePilotIcon name="copy" size="sm" aria-hidden />
             <span>{t('chatList.copyFolderPath' as TranslationKey)}</span>
           </DropdownMenuItem>
           {onRemoveProject && !isWorkspace && (
@@ -214,9 +211,9 @@ export function ProjectGroupHeader({
         )
       )}
       {isCollapsed ? (
-        <Folder size={16} className="shrink-0 text-muted-foreground" />
+        <CodePilotIcon name="folder" size="md" className="shrink-0 text-muted-foreground" aria-hidden />
       ) : (
-        <FolderOpen size={16} className="shrink-0 text-muted-foreground" />
+        <CodePilotIcon name="folder_open" size="md" className="shrink-0 text-muted-foreground" aria-hidden />
       )}
       <span className="flex-1 truncate text-[13px] font-normal text-sidebar-foreground/70">
         {displayName}

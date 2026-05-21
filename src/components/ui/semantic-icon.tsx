@@ -80,6 +80,11 @@ import {
   Search01Icon,
   PlusSignIcon,
   SidebarLeft01Icon,
+  PanelLeftIcon,
+  PanelLeftCloseIcon,
+  PanelLeftOpenIcon,
+  PanelRightIcon,
+  HierarchyFilesIcon,
   Pin02Icon,
   Refresh01Icon,
   Note01Icon,
@@ -170,6 +175,11 @@ export type CodePilotIconName =
   | 'search'
   | 'plus'
   | 'sidebar'
+  | 'panel_left'
+  | 'panel_left_close'
+  | 'panel_left_open'
+  | 'panel_right'
+  | 'file_tree'
   | 'pin'
   | 'refresh'
   | 'note'
@@ -269,6 +279,11 @@ const SEMANTIC_MAP: Record<CodePilotIconName, HugeiconsSvg> = {
   search: Search01Icon,
   plus: PlusSignIcon,
   sidebar: SidebarLeft01Icon,
+  panel_left: PanelLeftIcon,
+  panel_left_close: PanelLeftCloseIcon,
+  panel_left_open: PanelLeftOpenIcon,
+  panel_right: PanelRightIcon,
+  file_tree: HierarchyFilesIcon,
   pin: Pin02Icon,
   refresh: Refresh01Icon,
   note: Note01Icon,

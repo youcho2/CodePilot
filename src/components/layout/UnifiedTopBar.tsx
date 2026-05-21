@@ -3,7 +3,6 @@
 import { useState, useCallback, useEffect } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import {
-  TreeStructure,
   DotOutline,
   DotsThree,
   Columns,
@@ -146,7 +145,7 @@ export function UnifiedTopBar() {
           className="text-muted-foreground hover:text-foreground"
           style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
         >
-          <CodePilotIcon name="sidebar" size="md" aria-hidden />
+          <CodePilotIcon name="panel_left_open" size="md" aria-hidden />
         </Button>
       </TooltipTrigger>
       <TooltipContent side="bottom">
@@ -337,7 +336,7 @@ export function UnifiedTopBar() {
                   setFileTreeOpen(!fileTreeOpen);
                 }}
               >
-                <TreeStructure size={16} />
+                <CodePilotIcon name="file_tree" size="md" aria-hidden />
                 <span className="sr-only">{t('topBar.fileTree')}</span>
               </Button>
             </TooltipTrigger>
@@ -362,7 +361,7 @@ export function UnifiedTopBar() {
                   }}
                   aria-label={t('workspaceSidebar.toggle' as TranslationKey)}
                 >
-                  <CodePilotIcon name="sidebar" size="md" strokeWidth={ws.state.open ? 2 : undefined} aria-hidden />
+                  <CodePilotIcon name="panel_right" size="md" strokeWidth={ws.state.open ? 2 : undefined} aria-hidden />
                 </Button>
               </TooltipTrigger>
               <TooltipContent side="bottom">
