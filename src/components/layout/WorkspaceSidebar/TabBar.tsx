@@ -22,7 +22,6 @@
  */
 
 import { useCallback, useRef } from 'react';
-import { ArrowsIn } from '@/components/ui/icon';
 import { CodePilotIcon } from '@/components/ui/semantic-icon';
 import { Button } from '@/components/ui/button';
 import { useTranslation } from '@/hooks/useTranslation';
@@ -161,7 +160,7 @@ export function TabBar({ className }: TabBarProps) {
         aria-label={t('workspaceSidebar.collapse' as TranslationKey)}
         className="shrink-0 text-muted-foreground/70 hover:text-foreground ml-1"
       >
-        <ArrowsIn size={14} />
+        <CodePilotIcon name="sidebar_collapse_right" size="sm" aria-hidden />
       </Button>
     </div>
   );
