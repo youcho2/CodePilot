@@ -4,6 +4,7 @@ import { useState, useCallback, useEffect, useRef, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import type { Message, MessagesResponse, FileAttachment, SessionStreamSnapshot, MentionRef, TaskRunSummary } from '@/types';
 import { MessageList } from './MessageList';
+import { NewChatWelcome } from './NewChatWelcome';
 import { TerminalReasonChip } from './TerminalReasonChip';
 import { RateLimitBanner } from './RateLimitBanner';
 import { MessageInput } from './MessageInput';
@@ -1252,6 +1253,14 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
     return () => window.removeEventListener('image-gen-completed', handler);
   }, [sessionId]);
 
+  // New-chat layout (2026-05-21): when a session exists but has no
+  // messages yet and is NOT actively streaming, render the same
+  // centered logo + welcome + composer hero as /chat (the
+  // session-less landing). Covers "clicked + on a project" and
+  // "clicked + in the assistant workspace" — both create an empty
+  // session and land here.
+  const isNewChat = messages.length === 0 && !isStreaming;
+
   return (
     <div className="flex h-full min-h-0 flex-col">
       {/* Workspace mismatch banner */}
@@ -1268,7 +1277,81 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
           </Button>
         </div>
       )}
-      <MessageList
+      {isNewChat ? (
+        // Centered hero — welcome row + composer as one vertically
+        // centered max-w-3xl block. Skips MessageList and all the
+        // inline post-stream affordances (TerminalReasonChip,
+        // skillNudge, RateLimitBanner, etc.) since none of them
+        // apply when there are no messages yet.
+        <div className="flex-1 overflow-y-auto flex flex-col items-center justify-center px-4 py-8">
+          <div className="w-full max-w-3xl">
+            <NewChatWelcome />
+            <MessageInput
+              key={sessionId}
+              onSend={sendMessage}
+              onCommand={handleCommand}
+              onStop={stopStreaming}
+              disabled={
+                noCompatibleProvider
+                || providerFetchState === 'idle'
+                || sessionProviderRuntimeIncompatible
+              }
+              isStreaming={isStreaming}
+              sessionId={sessionId}
+              modelName={currentModel}
+              onModelChange={setCurrentModel}
+              providerId={currentProviderId}
+              runtime={sessionRuntimeParam}
+              onProviderModelChange={handleProviderModelChange}
+              workingDirectory={workingDirectory}
+              onAssistantTrigger={checkAssistantTrigger}
+              effort={selectedEffort}
+              onEffortChange={setSelectedEffort}
+              sdkInitMeta={initMetaRef.current}
+              isAssistantProject={isAssistantProject}
+              hasMessages={false}
+              onPendingContextTokensChange={setPendingContextTokens}
+              onPendingContextSubTotalsChange={setPendingContextSubTotals}
+              blockingReasonIds={blockingReasonIds}
+            />
+            <ChatComposerActionBar
+              left={
+                <>
+                  <ModeIndicator mode={mode} onModeChange={handleModeChange} disabled={isStreaming} />
+                  <RuntimeSelector
+                    runtimePin={runtimePin}
+                    effectiveRuntime={agentRuntimeToChatRuntime(globalRuntime.agentRuntime)}
+                    onRuntimePinChange={handleRuntimePinChange}
+                    disabled={isStreaming}
+                  />
+                  <ChatPermissionSelector
+                    sessionId={sessionId}
+                    permissionProfile={permissionProfile}
+                    onPermissionChange={setPermissionProfile}
+                  />
+                </>
+              }
+              right={
+                <RunCockpit
+                  providerId={currentProviderId}
+                  messages={messages}
+                  modelName={currentModel}
+                  context1m={context1m}
+                  hasSummary={hasSummary}
+                  upstreamModelId={currentModelUpstream}
+                  contextUsageSnapshot={streamSnapshot?.contextUsageSnapshot}
+                  permissionProfile={permissionProfile}
+                  pendingContextTokens={pendingContextTokens}
+                  pendingContextSubTotals={pendingContextSubTotals}
+                  sessionRuntimePin={runtimePin}
+                />
+              }
+            />
+          </div>
+        </div>
+      ) : (
+        <>
+        <MessageList
         messages={messages}
         streamingContent={streamingContent}
         isStreaming={isStreaming}
@@ -1537,6 +1620,8 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
           />
         }
       />
+        </>
+      )}
     </div>
   );
 }
