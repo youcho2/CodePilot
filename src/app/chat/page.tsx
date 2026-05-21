@@ -13,6 +13,7 @@ import { agentRuntimeToChatRuntime, effectiveChatRuntime } from '@/lib/chat-runt
 import type { ChatRuntime } from '@/lib/chat-runtime-shared';
 import { PermissionPrompt } from '@/components/chat/PermissionPrompt';
 import { ChatEmptyState } from '@/components/chat/ChatEmptyState';
+import { NewChatWelcome } from '@/components/chat/NewChatWelcome';
 import { RunCockpit } from '@/components/chat/RunCockpit';
 import { RunCheckpoint } from '@/components/chat/RunCheckpoint';
 import { OnboardingWizard } from '@/components/assistant/OnboardingWizard';
@@ -1188,56 +1189,50 @@ function NewChatPageInner() {
     }
   }, [sendFirstMessage]);
 
-  return (
-    <div className="flex h-full min-h-0 flex-col">
-      {messages.length === 0 && !isStreaming && (!workingDir.trim() || !hasSendableProviderForCurrentRuntime) ? (
-        // Phase 6 P0 follow-up round 2 (2026-05-15) — gate on
-        // `hasSendableProviderForCurrentRuntime` instead of the raw
-        // `hasProvider`. Codex-Account-only users have hasProvider=false
-        // (Codex is virtual, doesn't flow through /api/setup) yet a
-        // fully working send path; pre-round-2 they saw the "configure
-        // a provider" empty card sitting on top of an enabled GPT-5.5
-        // composer. Pass through `hasSendable*` to the empty-state
-        // component too so the child's onboarding branches see the
-        // same truth.
-        <ChatEmptyState
-          hasDirectory={!!workingDir.trim()}
-          hasProvider={hasSendableProviderForCurrentRuntime}
-          onSelectFolder={handleSelectFolder}
-          recentProjects={recentProjects}
-          onSelectProject={handleSelectProject}
-          assistantConfigured={assistantConfigured}
-          onOpenAssistant={() => {
-            if (assistantConfigured) {
-              // Navigate to the latest assistant session
-              fetch(`/api/workspace/session`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ mode: 'checkin' }),
-              })
-                .then(r => r.json())
-                .then(data => router.push(`/chat/${data.session.id}`))
-                .catch(() => {});
-            } else if (assistantWorkspacePath) {
-              setShowWizard(true);
-            } else {
-              router.push('/settings/assistant');
-            }
-          }}
-        />
-      ) : (
-        <MessageList
-          messages={messages}
-          streamingContent={streamingContent}
-          streamingThinkingContent={streamingThinkingContent}
-          isStreaming={isStreaming}
-          sessionId={createdSessionId}
-          toolUses={toolUses}
-          toolResults={toolResults}
-          streamingToolOutput={streamingToolOutput}
-          statusText={statusText}
-        />
-      )}
+  // New-chat layout (2026-05-21): when there are no messages and no
+  // streaming, replace the bottom-pinned composer + top scrolling
+  // message list with a centered hero block — welcome greeting + logo,
+  // composer in the middle, optional onboarding cards below. Mirrors
+  // the ChatGPT / Claude / Codex new-chat pattern. Once the user
+  // sends the first message (messages.length > 0 OR isStreaming),
+  // we fall back to the traditional list-above + composer-below layout.
+  const isNewChat = messages.length === 0 && !isStreaming;
+  const needsOnboardingCards = !workingDir.trim() || !hasSendableProviderForCurrentRuntime;
+
+  const chatEmptyStateNode = (
+    <ChatEmptyState
+      hasDirectory={!!workingDir.trim()}
+      hasProvider={hasSendableProviderForCurrentRuntime}
+      onSelectFolder={handleSelectFolder}
+      recentProjects={recentProjects}
+      onSelectProject={handleSelectProject}
+      assistantConfigured={assistantConfigured}
+      onOpenAssistant={() => {
+        if (assistantConfigured) {
+          // Navigate to the latest assistant session
+          fetch(`/api/workspace/session`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ mode: 'checkin' }),
+          })
+            .then(r => r.json())
+            .then(data => router.push(`/chat/${data.session.id}`))
+            .catch(() => {});
+        } else if (assistantWorkspacePath) {
+          setShowWizard(true);
+        } else {
+          router.push('/settings/assistant');
+        }
+      }}
+    />
+  );
+
+  // Single composer stack — reused in both the new-chat hero (centered)
+  // and the active-chat layout (bottom-pinned). Avoids duplicating
+  // ErrorBanner / RunCheckpoint / PermissionPrompt / MessageInput /
+  // ChatComposerActionBar across two branches.
+  const composerStack = (
+    <>
       {errorBanner && (
         <ErrorBanner
           message={errorBanner.message}
@@ -1249,13 +1244,6 @@ function NewChatPageInner() {
           ]}
         />
       )}
-      {/* Run Checkpoint — inline trust layer right above the composer.
-          Round 1 wires Pinned-invalid / Runtime fallback / no-compatible-
-          provider; later rounds add context-cost / permission-elevation /
-          dangerous-tool. See `docs/exec-plans/active/chat-run-checkpoint.md`.
-          The composer is gated separately via `disabled` so this banner
-          is purely informative — but it's the only place we explain *why*
-          send is blocked. */}
       <RunCheckpoint reasons={checkpointReasons} className="mb-2" onAction={handleCheckpointAction} />
       <PermissionPrompt
         pendingPermission={pendingPermission}
@@ -1267,45 +1255,18 @@ function NewChatPageInner() {
         onSend={sendFirstMessage}
         onCommand={handleCommand}
         onStop={stopStreaming}
-        // Phase 6 UI收口 P0 (2026-05-14) — composer is enabled when the
-        // current (provider, model, runtime) tuple is sendable. The
-        // resolver / picker already fell back to a runtime-compatible
-        // pair when the global pinned default isn't usable; the
-        // pinned-invalid state surfaces above as a non-blocking warning
-        // banner. `noCompatibleProvider` (zero groups under the active
-        // runtime) is still a hard block — there's nothing to send.
         disabled={!modelReady || noCompatibleProvider}
         isStreaming={isStreaming}
         modelName={currentModel}
         onModelChange={setCurrentModel}
         providerId={currentProviderId}
-        // /chat is the new-conversation entry — no session yet, so the
-        // picker follows the runtime resolved at the top of this
-        // component (`effectiveChatRuntime(runtimePin, globalRuntime)`).
-        // Phase 6 P0 (2026-05-15): we no longer pass `'auto'` here —
-        // that bypassed the picker's per-row compat gate.
         runtime={sessionRuntimeParam}
         onProviderModelChange={(pid, model, opts) => {
           setCurrentProviderId(pid);
           setCurrentModel(model);
-          // Phase 6 P0 (2026-05-15) — the side effects below
-          // (localStorage write + pinned-default warning clear) only
-          // belong to a MANUAL user pick in the model dropdown. An
-          // auto-correct fallback (MessageInput effect when the
-          // saved model isn't in the runtime-compatible set) must
-          // pass `{ isAuto: true }` and skip these: silently
-          // clearing the warning would mask the broken pin without
-          // the user ever acknowledging it; silently writing
-          // localStorage would overwrite the user's last *intended*
-          // pick with whatever fell out of the runtime gate.
           if (opts?.isAuto) return;
           localStorage.setItem('codepilot:last-provider-id', pid);
           localStorage.setItem('codepilot:last-model', model);
-          // Manual override — the picker is runtime-aware so any
-          // (pid, model) the user can click from this dropdown is by
-          // construction reachable. Without these resets, the new
-          // chat would stay "固定默认模型不可用" / send-disabled
-          // even after the user explicitly chose a working model.
           setInvalidDefault(null);
           setNoCompatibleProvider(false);
         }}
@@ -1345,6 +1306,38 @@ function NewChatPageInner() {
           />
         }
       />
+    </>
+  );
+
+  return (
+    <div className="flex h-full min-h-0 flex-col">
+      {isNewChat ? (
+        // Centered new-chat hero: welcome → composer → onboarding cards
+        // as one vertically-centered max-w-3xl block. Mirrors ChatGPT /
+        // Claude / Codex new-chat pattern.
+        <div className="flex-1 overflow-y-auto flex flex-col items-center justify-center px-4 py-8">
+          <div className="w-full max-w-3xl">
+            <NewChatWelcome />
+            {composerStack}
+            {needsOnboardingCards && <div className="mt-4">{chatEmptyStateNode}</div>}
+          </div>
+        </div>
+      ) : (
+        <>
+          <MessageList
+            messages={messages}
+            streamingContent={streamingContent}
+            streamingThinkingContent={streamingThinkingContent}
+            isStreaming={isStreaming}
+            sessionId={createdSessionId}
+            toolUses={toolUses}
+            toolResults={toolResults}
+            streamingToolOutput={streamingToolOutput}
+            statusText={statusText}
+          />
+          {composerStack}
+        </>
+      )}
       <FolderPicker
         open={folderPickerOpen}
         onOpenChange={setFolderPickerOpen}

@@ -20,7 +20,9 @@ import { ImageGenCard } from './ImageGenCard';
 import { BatchPlanInlinePreview } from './batch-image-gen/BatchPlanInlinePreview';
 import { WidgetRenderer } from './WidgetRenderer';
 import { buildReferenceImages } from '@/lib/image-ref-store';
-import { SPECIES_IMAGE_URL, EGG_IMAGE_URL, RARITY_BG_GRADIENT, type Species, type Rarity } from '@/lib/buddy';
+// SPECIES_IMAGE_URL / EGG_IMAGE_URL / RARITY_BG_GRADIENT were used by
+// the assistant-chat avatar (removed 2026-05-21); the imports are kept
+// out to avoid stale references.
 import { parseDBDate } from '@/lib/utils';
 import { usePanel } from '@/hooks/usePanel';
 import { classifyPath } from '@/lib/preview-source';
@@ -672,21 +674,15 @@ export const MessageItem = memo(function MessageItem({ message, sessionId, isAss
     minute: '2-digit',
   });
 
-  const showAssistantAvatar = !isUser && isAssistantProject;
-  const buddyInfo = isAssistantProject ? (globalThis as Record<string, unknown>).__codepilot_buddy_info__ as { emoji?: string; species?: string; rarity?: string } | undefined : undefined;
+  // Assistant chat avatar removed (2026-05-21) — message bubbles already
+  // carry assistant/user attribution via tone + alignment; the buddy
+  // egg/species portrait next to every AI reply was visual noise and
+  // duplicated identity already shown elsewhere (sidebar, composer
+  // header). `isAssistantProject` is kept on the props since other
+  // assistant-aware paths in this file may still reference it.
 
   return (
-    <div className={showAssistantAvatar ? 'flex gap-2.5 items-start' : ''}>
-      {showAssistantAvatar && (
-        buddyInfo?.species
-          ? <img
-              src={SPECIES_IMAGE_URL[buddyInfo.species as Species] || ''}
-              alt="" width={28} height={28}
-              className="mt-0.5 shrink-0 rounded-lg"
-              style={{ background: RARITY_BG_GRADIENT[buddyInfo.rarity as Rarity] || '' }}
-            />
-          : <img src={EGG_IMAGE_URL} alt="egg" width={28} height={28} className="mt-0.5 shrink-0" />
-      )}
+    <div>
       <div className="flex-1 min-w-0">
     <AIMessage from={isUser ? 'user' : 'assistant'}>
       <MessageContent>

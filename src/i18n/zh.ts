@@ -1649,6 +1649,14 @@ const zh: Record<TranslationKey, string> = {
   'chat.empty.assistant.promo': '设置你的个人助理 — 记住你的偏好、管理日程、辅助创作',
   'chat.empty.explanation': '项目对话在代码目录中工作。个人助理跨所有任务工作，无需特定项目。',
 
+  // 新对话欢迎语 — 随机轮换
+  'chat.newChat.welcome.1': '今天想做什么？',
+  'chat.newChat.welcome.2': '需要我从哪里开始？',
+  'chat.newChat.welcome.3': '在做什么项目？',
+  'chat.newChat.welcome.4': '我能为你做什么？',
+  'chat.newChat.welcome.5': '有什么需要帮忙的？',
+  'chat.newChat.welcome.6': '我们一起干点什么？',
+
   // Platform
   'platform.openInFileManager': '双击在{fileManager}中打开',
 
