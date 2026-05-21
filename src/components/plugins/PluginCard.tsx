@@ -37,7 +37,12 @@ export function PluginCard({ plugin, onSelect }: PluginCardProps) {
       >
         <div className="flex-1 min-w-0 mr-3">
           <div className="flex items-center gap-2 mb-1">
-            <CodePilotIcon name="skill" size="md" className="text-muted-foreground shrink-0" />
+            <CodePilotIcon
+              name={isPlugin ? 'plugin' : 'skill'}
+              size="md"
+              className="text-muted-foreground shrink-0"
+              aria-hidden
+            />
             <CardTitle className="text-sm font-medium truncate">
               /{displayName}
             </CardTitle>

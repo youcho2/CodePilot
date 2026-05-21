@@ -89,6 +89,7 @@ import {
   Tag01Icon,
   Bookmark01Icon,
   ArrowUpRight01Icon,
+  ArchiveIcon,
   Pin02Icon,
   Refresh01Icon,
   Note01Icon,
@@ -188,6 +189,7 @@ export type CodePilotIconName =
   | 'tag'
   | 'bookmark'
   | 'external'
+  | 'archive'
   | 'pin'
   | 'refresh'
   | 'note'
@@ -296,6 +298,7 @@ const SEMANTIC_MAP: Record<CodePilotIconName, HugeiconsSvg> = {
   tag: Tag01Icon,
   bookmark: Bookmark01Icon,
   external: ArrowUpRight01Icon,
+  archive: ArchiveIcon,
   pin: Pin02Icon,
   refresh: Refresh01Icon,
   note: Note01Icon,

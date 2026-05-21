@@ -118,6 +118,7 @@ export type SkillKind = 'agent_skill' | 'slash_command' | 'sdk_command' | 'codep
 
 import type { TranslationKey } from '@/i18n';
 import type { ComponentType, SVGAttributes, RefAttributes } from 'react';
+import type { CodePilotIconName } from '@/components/ui/semantic-icon';
 
 /** Generic icon component type — compatible with Phosphor, Lucide, or any SVG icon. */
 export type IconComponent = ComponentType<
@@ -138,7 +139,13 @@ export interface PopoverItem {
   installedSource?: 'agents' | 'claude';
   source?: 'global' | 'project' | 'plugin' | 'installed' | 'sdk';
   kind?: SkillKind;
-  icon?: IconComponent;
+  /**
+   * Phase 7 (2026-05-21): replaced `icon: IconComponent` (Phosphor
+   * function reference) with `iconName: CodePilotIconName` (semantic
+   * alias string). Keeps the vendor identity out of the data layer and
+   * funnels rendering through CodePilotIcon → HugeIcons.
+   */
+  iconName?: CodePilotIconName;
   nodeType?: MentionNodeType;
 }
 

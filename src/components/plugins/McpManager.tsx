@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, forwardRef, useImperativeHandle, useM
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
-import { List, SpinnerGap, WifiHigh } from "@/components/ui/icon";
+import { List, SpinnerGap } from "@/components/ui/icon";
 import { CodePilotIcon } from "@/components/ui/semantic-icon";
 import { McpServerList, type McpRuntimeStatus } from "@/components/plugins/McpServerList";
 import { McpServerEditor } from "@/components/plugins/McpServerEditor";
@@ -402,7 +402,7 @@ export const McpManager = forwardRef<McpManagerHandle, McpManagerProps>(function
         <div className="mt-8">
           <div className="flex items-center justify-between mb-3">
             <div className="flex items-center gap-2">
-              <WifiHigh size={16} className="text-muted-foreground" />
+              <CodePilotIcon name="mcp" size="md" className="text-muted-foreground" aria-hidden />
               <h4 className="text-sm font-medium">{t('mcp.runtimeStatus' as TranslationKey)}</h4>
             </div>
             <Button
@@ -589,7 +589,7 @@ export const McpManager = forwardRef<McpManagerHandle, McpManagerProps>(function
       <div className="mt-8">
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-2">
-            <WifiHigh size={16} className="text-muted-foreground" />
+            <CodePilotIcon name="mcp" size="md" className="text-muted-foreground" aria-hidden />
             <h4 className="text-sm font-medium">{t('mcp.runtimeStatus' as TranslationKey)}</h4>
           </div>
           <Button

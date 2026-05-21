@@ -22,18 +22,21 @@
 
 所以 Phase 7 不做“一口气替换所有 import”。正确路径是：先建语义图标契约，再把关键产品面切过去，最后再清理底层直引。
 
-## 当前审计快照（2026-05-21）
+## 当前审计快照（2026-05-21，gap pass 后）
 
 本地扫描范围：`src/**/*.ts(x)`。
 
-| 项目 | 结果 |
-|------|------|
-| 有图标 import 的文件 | 150 |
-| 通过 `@/components/ui/icon` 的文件 | 127 |
-| 直接 `@phosphor-icons/react` 的 import | 21 |
-| 直接 `lucide-react` 的 import | 2 |
-| LobeHub 品牌图标（3 个文件 / 19 行 import） | 3 文件 / 19 行 |
-| `@hugeicons/react` / `@hugeicons/core-free-icons` | 尚未安装（npm 上分别为 1.1.6 / 4.1.4，可装） |
+| 项目 | Phase 7 之前 | gap pass 后（现况） |
+|------|------|------|
+| `CodePilotIcon` 消费者 | 0 | **89** 文件 |
+| `@/components/ui/icon` 引用（含 CodePilotIcon 混合的） | 127 | 105（53 纯 wrapper + 52 已部分迁到 CodePilotIcon） |
+| 直接 `@phosphor-icons/react`（业务，排除 wrapper / IconProvider / ai-elements / shadcn primitive） | 2（cross_phase_risk） | **0** |
+| 直接 `lucide-react`（业务） | 2 | **0** |
+| LobeHub 品牌图标（3 文件 / 19 行 import） | 3 文件 / 19 行 | 不变（按 plan 保留） |
+| `@hugeicons/react` / `@hugeicons/core-free-icons` | 尚未安装 | **已安装并使用** (`@hugeicons/react@^1.1.6` + `@hugeicons/core-free-icons@^4.1.4`) |
+| `semantic-icon.tsx` alias 数 | 0 | **~75**（含通用 UI + 资源 + 状态 + capability + brand-adjacent） |
+
+剩余 53 个纯 wrapper 引用主要是**结构性图标**（CaretDown / CaretUp / CheckCircle / Warning / XCircle / SpinnerGap / X / Check / Stop / DotOutline / Circle / ArrowsIn / ArrowsClockwise / Bell / Lock / LockOpen 等）和 `IconComponent` 类型 import。这些目前没有 HugeIcons 等价或视觉差异不大，作为 wrapper compatibility 保留。
 
 重复高频图标（需重点校准语义）：
 
@@ -81,11 +84,11 @@ HugeIcons 调研结论：
 
 | Phase | 内容 | 状态 | 用户结果 |
 |-------|------|------|----------|
-| Phase 0 | Icon inventory + semantic taxonomy | 📋 待开始 | 明确每个产品概念该用哪个图标，不再凭感觉挑 |
-| Phase 1 | HugeIcons 基础封装 | 📋 待开始 | 新图标库接入，但旧 UI 不大面积变化 |
-| Phase 2 | 高频 UI 表意校准 | 📋 待开始 | Settings / Chat / Runtime / Model / Tool 等关键入口图标更清楚 |
-| Phase 3 | Direct import 清理 + guardrail | 📋 待开始 | 新代码不能绕过语义层直接 import 图标包 |
-| Phase 4 | 视觉 QA + 文档收口 | 📋 待开始 | 用户能在真实页面看到一致的图标体系 |
+| Phase 0 | Icon inventory + semantic taxonomy | ✅ 已完成（2026-05-21）— `docs/handover/icon-system.md` | 明确每个产品概念该用哪个图标，不再凭感觉挑 |
+| Phase 1 | HugeIcons 基础封装 | ✅ 已完成（2026-05-21）— `src/components/ui/semantic-icon.tsx`（75 alias） | 新图标库接入，旧 UI 兼容层不变 |
+| Phase 2 | 高频 UI 表意校准 | ✅ 主体完成（2026-05-21）— 89 文件迁到 CodePilotIcon；Brain/Lightning/Terminal 三大冲突在业务代码全部清除；剩余 53 文件只用结构性图标（CaretDown/CheckCircle/...）作 wrapper 兼容 | Settings / Chat / Plugins / Skills / MCP / CLI / FileTree / Gallery / Git / 思维链 / 工具链 / 代码块 全部 HugeIcons 视觉 |
+| Phase 3 | Direct import 清理 + guardrail | ✅ 已完成（2026-05-21）— `eslint.config.mjs` 更新：lucide 重定向到 CodePilotIcon；Phosphor 直引重定向到 CodePilotIcon（warn）；`@/components/ui/icon` 显式禁用 Brain/Lightning/Terminal 三个 named import（error 级，防再次引入冲突语义） | 新代码不能用 Brain/Lightning/Terminal 绕过语义层 |
+| Phase 4 | 视觉 QA + 文档收口 | 📋 待开工 — 待补：design-system 加 Icon semantics section；ui-governance.md 第 2 节由 icon-system.md 接管；插入 insights/icon-system.md；plan 归档至 completed/ | 设计系统页 + 反向链接产品思考文档 |
 
 ## 先读文档
 
@@ -353,3 +356,9 @@ type CodePilotIconName =
   4. Phase 2 验收强制反例 smoke：覆盖普通 / Skill / MCP / CLI / Image+Media 五个场景，验证 7 个高频 semantic alias 在同一界面下不撞、不互相误导。
   5. `chat/TaskCheckpoint.tsx`（Phase 6 context popover 刚改过）与 `layout/IconProvider.tsx`（主题元层）标 `cross_phase_risk = Y`，单独验收，不与其他业务组件同批走。
 - 2026-05-21：LobeHub guardrail 收紧。原因：实测 LobeHub 仅 3 个文件 / 19 行 import 且全在 provider / runtime brand 场景；Phase 3 source-grep 加断言"LobeHub 不得出现在 brand 场景之外的业务组件"，避免后续 PR 复用为通用图标。
+- 2026-05-21：**Phase 7 closeout gap pass**（Codex review 推动）。前几轮做的是"热点 commit"，没把 plan / guardrail / 表意错位收齐。这轮做 5 件结构性的事：
+  1. **eslint guardrail 改向**：lucide 直引重定向从 "use Phosphor" 改到 "use CodePilotIcon"；Phosphor 直引重定向同样改到 CodePilotIcon（warn）；`@/components/ui/icon` 名导入 Brain/Lightning/Terminal 三个被 error 级别禁用，防新 PR 再次引入冲突语义。
+  2. **`command-icons.ts` 重写**：从 raw Phosphor 组件引用（`Brain` / `Terminal` 等）改为 `COMMAND_ICON_NAMES: Record<string, CodePilotIconName>`；`PopoverItem.icon` 改为 `iconName`；`SlashCommandPopover` 渲染走 CodePilotIcon。`/memory` 的 Brain 形状通过 `memory` alias 表达，不再绕过语义层。
+  3. **Plugin/MCP 表意错位**：`PluginCard.tsx` / `PluginDetail.tsx` 按 `source` 分流（`source === 'plugin'` 用 `plugin`，`project/global` skill 用 `skill`）；`McpManager.tsx` 两处 `WifiHigh` runtime status 改为 `mcp`。
+  4. **Plan 状态对齐现实**：把 Phase 0/1/2/3 标 ✅，更新审计数字（CodePilotIcon 消费者 89、剩余 wrapper 53 纯结构性引用），不再显示"待开始 / 未安装"。
+  5. **残留清单** 维护在 `docs/handover/icon-system.md` 第 X 节（gap pass closeout）：列出 53 个 wrapper-only 文件 + 类别（结构性 / IconComponent 类型 / 真有 HugeIcons 等价但暂未迁），后续按需逐批清理或保留作 compat layer。

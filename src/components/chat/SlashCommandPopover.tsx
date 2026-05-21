@@ -61,8 +61,8 @@ export function SlashCommandPopover({
         item.nodeType === 'directory'
           ? <Folder size={16} className="shrink-0 text-muted-foreground" />
           : <File size={16} className="shrink-0 text-muted-foreground" />
-      ) : item.builtIn && item.icon ? (
-        (() => { const ItemIcon = item.icon; return <ItemIcon size={16} className="shrink-0 text-muted-foreground" />; })()
+      ) : item.builtIn && item.iconName ? (
+        <CodePilotIcon name={item.iconName} size="md" className="shrink-0 text-muted-foreground" aria-hidden />
       ) : item.kind === 'agent_skill' ? (
         <CodePilotIcon name="skill" size="md" className="shrink-0 text-muted-foreground" />
       ) : item.kind === 'slash_command' ? (

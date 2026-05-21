@@ -284,3 +284,53 @@ Phase 7 之前的图标使用里，三个 Phosphor icon 严重负载多个语义
 | Phase 2 | 每迁完一个 wave，本文件第四节相应区域追加实测 7 列条目。 |
 | Phase 3 | 第六节 source-grep guardrail 落地时同步追加允许清单的最终版。 |
 | Phase 4 | 本文件升级为正式 handover；同时新建 `docs/insights/icon-system.md` 互链；`docs/handover/ui-governance.md` 第 2 节"图标统一"重写指向本文件。 |
+
+## 八、Closeout gap pass 残留清单（2026-05-21）
+
+Codex review 推动的 closeout 整理。**目标**：让"Phase 7 已完成"对得上代码现实，而不是热点 commit 堆叠。
+
+### 8.1 结构性现状
+
+| 项目 | 数字 | 含义 |
+|------|------|------|
+| `CodePilotIcon` 消费者 | 89 文件 | 业务代码用 semantic alias 渲染 |
+| `@/components/ui/icon` 引用（混合 — 同时也用 CodePilotIcon） | 52 文件 | 已部分迁，剩余结构性图标走 wrapper |
+| `@/components/ui/icon` 引用（**纯 wrapper 残留**） | 53 文件 | 全部用结构性图标，未迁到 semantic layer |
+| `@phosphor-icons/react` direct import 业务代码 | 0 | lucide 同样 0 |
+| `@phosphor-icons/react` direct import 总数 | 19 | 13 ai-elements primitive + 6 shadcn primitive（按 plan 允许清单保留） |
+
+### 8.2 53 个纯 wrapper 残留按 bucket 分类
+
+按"为什么没迁"分桶：
+
+| Bucket | 含义 | 后续动作 |
+|--------|------|----------|
+| **B-structural-only** | 只用 CaretDown / CaretUp / CaretRight / CheckCircle / Warning / XCircle / SpinnerGap / X / Check / Stop / DotOutline / Circle / ArrowsIn / ArrowsClockwise / Bell / Lock / LockOpen 等结构性 / 状态 / chevron 图标，无 HugeIcons 等价或视觉差异不大 | **保留作 compat layer**；本轮不迁 |
+| **B-icon-component-type** | 只 import `IconComponent` 类型（不 import 具体图标），例如 `command-icons.ts` 之前的 `IconComponent` 引用、`GlobalSearchDialog.tsx` 的 `TYPE_ICONS` map | **保留**；type-only import |
+| **B-deferred-semantic** | 含有 1-2 个 HugeIcons-aliasable 图标（如 ProviderForm 的 Caret + SpinnerGap），但全文件只用结构性图标；视觉收益小 | **暂不迁**；保留作 compat layer；后续 PR 走到该文件再顺手迁 |
+| **B-bridge-family** | `src/components/bridge/*`（6 个 Bridge section + BridgeLayout + page.tsx） | **可迁但本轮不紧急**；下一波专项做 Bridge 视觉刷新时一起处理 |
+| **B-setup-wizard** | `src/components/setup/SetupCard.tsx` + `ClaudeCodeCard.tsx` + `InstallWizard.tsx` | **新用户首屏**；优先级中，下一轮如果做 Setup 体验顺手迁 |
+
+### 8.3 不再扩散的红线（强制 guardrail）
+
+`eslint.config.mjs` 2026-05-21 改向后强制：
+
+1. **lucide-react** project-wide 仍 error，但 message 重定向到 `CodePilotIcon` 而不是之前的 Phosphor。
+2. **`@phosphor-icons/react`** 业务代码仍 warn，message 重定向到 `CodePilotIcon`。
+3. **`@/components/ui/icon` 三个名导入 Brain / Lightning / Terminal**：业务代码 error 级 ban；msg 说明三个图标在 Phase 7 已经映射到 `memory` / `runtime` / `terminal+cli`，raw 用法 = 回滚 Phase 7 冲突解决。
+4. ai-elements / shadcn primitive 6 个 / `ui/icon.tsx` 自身 / `IconProvider.tsx` 不在业务 files glob 内，所以这套 rule 不会误伤库组件。
+
+### 8.4 表意错位修复（gap pass 同期）
+
+| 文件 | 修复 |
+|------|------|
+| `plugins/PluginCard.tsx` + `plugins/PluginDetail.tsx` | 按 `source` 分流：`source === 'plugin'` 用 `plugin` alias（Plugin badge 的语义一致），`project` / `global` skill 仍用 `skill` |
+| `plugins/McpManager.tsx`（2 处 runtime status header） | `WifiHigh`（网络信号）→ `mcp`（McpServerIcon）— 这是 MCP runtime status 入口，不是泛 wifi |
+| `lib/constants/command-icons.ts` | 整文件重写：raw Phosphor `Brain` / `Terminal` 等 → `COMMAND_ICON_NAMES: Record<string, CodePilotIconName>` 字符串；`/memory` 走 `memory` alias（BrainIcon），不再绕过语义层 |
+
+### 8.5 Phase 4 仍待做
+
+- design-system 加 Icon semantics section（实时渲染样板表，与本文件第一节同步）
+- `ui-governance.md` 第 2 节"图标统一"重写：原 "Phosphor 通过 `ui/icon.tsx` 入口" 改为指向本文件 + semantic-icon.tsx
+- `docs/insights/icon-system.md`（产品思考文档）— 与本文件互链
+- plan 归档到 `docs/exec-plans/completed/`

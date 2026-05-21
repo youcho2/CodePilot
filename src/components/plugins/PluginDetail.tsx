@@ -13,6 +13,7 @@ interface PluginDetailProps {
 
 export function PluginDetail({ plugin, onClose }: PluginDetailProps) {
   const isProject = plugin.source === 'project';
+  const isPlugin = plugin.source === 'plugin';
   const displayName = isProject
     ? plugin.name.replace('project:', '')
     : plugin.name;
@@ -22,7 +23,12 @@ export function PluginDetail({ plugin, onClose }: PluginDetailProps) {
       <div className="flex items-start justify-between mb-3">
         <div>
           <div className="flex items-center gap-2">
-            <CodePilotIcon name="skill" size="md" className="text-muted-foreground" />
+            <CodePilotIcon
+              name={isPlugin ? 'plugin' : 'skill'}
+              size="md"
+              className="text-muted-foreground"
+              aria-hidden
+            />
             <h3 className="text-lg font-semibold">/{displayName}</h3>
             <Badge variant={isProject ? 'secondary' : 'outline'}>
               {isProject ? 'Project' : 'Global'}
