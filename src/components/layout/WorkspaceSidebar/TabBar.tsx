@@ -22,6 +22,7 @@
  */
 
 import { useCallback, useRef } from 'react';
+import { X } from '@/components/ui/icon';
 import { CodePilotIcon } from '@/components/ui/semantic-icon';
 import { Button } from '@/components/ui/button';
 import { useTranslation } from '@/hooks/useTranslation';
@@ -158,9 +159,10 @@ export function TabBar({ className }: TabBarProps) {
         size="icon-sm"
         onClick={() => setOpen(false)}
         aria-label={t('workspaceSidebar.collapse' as TranslationKey)}
-        className="shrink-0 text-muted-foreground/70 hover:text-foreground ml-1"
+        className="shrink-0 ml-1"
       >
-        <CodePilotIcon name="sidebar_collapse_right" size="sm" aria-hidden />
+        <X size={14} />
+        <span className="sr-only">{t('workspaceSidebar.collapse' as TranslationKey)}</span>
       </Button>
     </div>
   );
@@ -269,7 +271,7 @@ function TabItem({
             data-codepilot-tab-leading
             aria-label={closeAriaLabel}
             role="button"
-            className="relative flex h-4 w-4 shrink-0 items-center justify-center text-muted-foreground/80 group-hover:text-foreground"
+            className="relative flex h-4 w-4 shrink-0 items-center justify-center text-muted-foreground group-hover:text-foreground"
           >
             <span className="absolute inset-0 flex items-center justify-center transition-opacity group-hover:opacity-0">
               {tabIcon(tab)}
@@ -279,7 +281,7 @@ function TabItem({
             </span>
           </span>
         ) : (
-          <span className="flex h-4 w-4 shrink-0 items-center justify-center text-muted-foreground/80">
+          <span className="flex h-4 w-4 shrink-0 items-center justify-center text-muted-foreground">
             {tabIcon(tab)}
           </span>
         )}
