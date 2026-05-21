@@ -207,7 +207,7 @@ export default function ExtensionsPage() {
               const count = filterCounts[key];
               return (
                 <TabsTrigger key={key} value={key}>
-                  <CodePilotIcon name={meta.icon} size="md" aria-hidden />
+                  <CodePilotIcon name={meta.icon} size="md" className="text-inherit" aria-hidden />
                   {t(meta.labelKey)}
                   {typeof count === "number" && (
                     <span className="tabular-nums text-xs text-muted-foreground">

@@ -452,7 +452,7 @@ export function ChatListPanel({ open, width, hasUpdate, readyToInstall }: ChatLi
               aria-label={t('chatList.collapseSidebar' as TranslationKey)}
               className="text-sidebar-foreground/60 hover:text-sidebar-foreground"
             >
-              <CodePilotIcon name="panel_left_close" size="md" aria-hidden />
+              <CodePilotIcon name="panel_left_close" size="md" className="text-inherit" aria-hidden />
             </Button>
           </TooltipTrigger>
           <TooltipContent side="bottom">

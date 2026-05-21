@@ -145,7 +145,7 @@ export function UnifiedTopBar() {
           className="text-muted-foreground hover:text-foreground"
           style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
         >
-          <CodePilotIcon name="panel_left_open" size="md" aria-hidden />
+          <CodePilotIcon name="panel_left_open" size="md" className="text-inherit" aria-hidden />
         </Button>
       </TooltipTrigger>
       <TooltipContent side="bottom">
@@ -293,7 +293,7 @@ export function UnifiedTopBar() {
                   }}
                   className="flex h-7 items-center gap-1 rounded-md px-1.5 text-xs text-muted-foreground hover:text-foreground"
                 >
-                  <CodePilotIcon name="git" size="md" aria-hidden />
+                  <CodePilotIcon name="git" size="md" className="text-inherit" aria-hidden />
                   <span className="max-w-[100px] truncate">{currentBranch}</span>
                   {gitDirtyCount > 0 && (
                     <span className="flex items-center gap-0.5 text-[11px] text-amber-500">
@@ -336,7 +336,7 @@ export function UnifiedTopBar() {
                   setFileTreeOpen(!fileTreeOpen);
                 }}
               >
-                <CodePilotIcon name="file_tree" size="md" aria-hidden />
+                <CodePilotIcon name="file_tree" size="md" className="text-inherit" aria-hidden />
                 <span className="sr-only">{t('topBar.fileTree')}</span>
               </Button>
             </TooltipTrigger>
@@ -361,7 +361,7 @@ export function UnifiedTopBar() {
                   }}
                   aria-label={t('workspaceSidebar.toggle' as TranslationKey)}
                 >
-                  <CodePilotIcon name="panel_right" size="md" strokeWidth={ws.state.open ? 2 : undefined} aria-hidden />
+                  <CodePilotIcon name="panel_right" size="md" strokeWidth={ws.state.open ? 2 : undefined} className="text-inherit" aria-hidden />
                 </Button>
               </TooltipTrigger>
               <TooltipContent side="bottom">
