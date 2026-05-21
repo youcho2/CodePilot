@@ -229,7 +229,23 @@ function WidgetRendererInner({ widgetCode, isStreaming, title, showOverlay, extr
   const showLoadingOverlay = hasCDN && !isStreaming && iframeReady && !finalized;
 
   return (
-    <div className="group/widget relative my-1">
+    // Widget surface (2026-05-21): wrap the iframe in a soft card with
+    // a subtle dot pattern background. The card gives widgets a clear
+    // visual container in the chat scroll (so user reads them as
+    // discrete "rendered output" rather than free-floating iframes),
+    // and the dot pattern is a recurring brand motif (matches the
+    // Monolith logo's grid-of-dots metaphor). Dot color is `muted-foreground
+    // / 0.12` (very faint, just a touch darker than the card bg) so it
+    // reads as texture, not noise. 14px grid for density without
+    // becoming busy.
+    <div
+      className="group/widget relative my-1 rounded-xl p-4 bg-muted/40"
+      style={{
+        backgroundImage:
+          'radial-gradient(circle, hsl(var(--muted-foreground) / 0.12) 1px, transparent 1px)',
+        backgroundSize: '14px 14px',
+      }}
+    >
       {/* iframe — always visible, no skeleton, no hiding */}
       <iframe
         ref={iframeRef}
@@ -246,13 +262,16 @@ function WidgetRendererInner({ widgetCode, isStreaming, title, showOverlay, extr
           display: showCode ? 'none' : 'block',
           overflow: 'hidden',
           colorScheme: 'auto',
+          // iframe sits ABOVE the dot-pattern card; padding (p-4 on
+          // parent) is where the dots show through around the widget.
+          borderRadius: 8,
         }}
       />
 
       {/* Shimmer overlay — shown for CDN script loading OR when parent requests it (script streaming phase) */}
       {(showLoadingOverlay || showOverlay) && (
         <div
-          className="absolute inset-0 pointer-events-none rounded-lg"
+          className="absolute inset-4 pointer-events-none rounded-lg"
           style={{
             background: 'linear-gradient(90deg, transparent 0%, var(--color-muted, rgba(128,128,128,0.08)) 50%, transparent 100%)',
             backgroundSize: '200% 100%',
@@ -262,13 +281,15 @@ function WidgetRendererInner({ widgetCode, isStreaming, title, showOverlay, extr
       )}
 
       {showCode && (
-        <pre className="p-3 text-xs rounded-lg bg-muted/30 overflow-x-auto max-h-80 overflow-y-auto border border-border/30">
+        <pre className="p-3 text-xs rounded-lg bg-background/60 overflow-x-auto max-h-80 overflow-y-auto border border-border/30">
           <code>{widgetCode}</code>
         </pre>
       )}
 
-      {/* Toolbar — top-right, visible on hover */}
-      <div className="absolute top-1 right-1 opacity-0 group-hover/widget:opacity-100 transition-opacity flex items-center gap-1">
+      {/* Toolbar — top-right, visible on hover. inset offset adjusted
+          for parent p-4 padding so the toolbar still hugs the card
+          edge instead of floating outside. */}
+      <div className="absolute top-2 right-2 opacity-0 group-hover/widget:opacity-100 transition-opacity flex items-center gap-1">
         {extraButtons}
         <button
           onClick={() => setShowCode(!showCode)}
