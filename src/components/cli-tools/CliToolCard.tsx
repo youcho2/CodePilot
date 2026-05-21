@@ -1,7 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import { Plus, CaretDown, Star } from "@/components/ui/icon";
+import { CaretDown } from "@/components/ui/icon";
+import { CodePilotIcon } from "@/components/ui/semantic-icon";
 import { Button } from "@/components/ui/button";
 import { useTranslation } from "@/hooks/useTranslation";
 import type { TranslationKey } from "@/i18n";
@@ -115,11 +116,13 @@ export function CliToolCard({
               <span className="text-[10px] text-muted-foreground">{t('cliTools.agentFriendliness' as TranslationKey)}</span>
               <div className="flex gap-0.5">
                 {[1, 2, 3, 4, 5].map(i => (
-                  <Star
+                  <CodePilotIcon
                     key={i}
+                    name="favorite"
                     size={10}
-                    weight={i <= score ? 'fill' : 'regular'}
+                    strokeWidth={i <= score ? 2 : undefined}
                     className={i <= score ? 'text-primary' : 'text-muted-foreground/30'}
+                    aria-hidden
                   />
                 ))}
               </div>
@@ -139,7 +142,7 @@ export function CliToolCard({
               >
                 {availableMethods.length > 1
                   ? <CaretDown size={16} />
-                  : <Plus size={16} />}
+                  : <CodePilotIcon name="plus" size="md" aria-hidden />}
               </Button>
               {showMethodPicker && availableMethods.length > 1 && (
                 <div className="absolute right-0 top-8 z-10 rounded-md border bg-popover p-1 shadow-md min-w-[140px]">

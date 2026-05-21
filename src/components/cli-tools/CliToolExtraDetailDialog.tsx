@@ -9,7 +9,7 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Copy, Play } from "@/components/ui/icon";
+import { CodePilotIcon } from "@/components/ui/semantic-icon";
 import { useTranslation } from "@/hooks/useTranslation";
 import type { TranslationKey } from "@/i18n";
 import type { CliToolRuntimeInfo, CliToolStructuredDesc } from "@/types";
@@ -163,7 +163,7 @@ export function CliToolExtraDetailDialog({
                         onClick={() => copyToClipboard(isZh ? ep.promptZh : ep.promptEn)}
                         title={t('cliTools.copy')}
                       >
-                        <Copy size={12} />
+                        <CodePilotIcon name="copy" size={12} aria-hidden />
                       </Button>
                     </div>
                   </div>
@@ -200,7 +200,7 @@ export function CliToolExtraDetailDialog({
 
         <DialogFooter>
           <Button size="sm" className="gap-1.5" onClick={handleTryTool}>
-            <Play size={14} />
+            <CodePilotIcon name="play" size="sm" aria-hidden />
             {t('cliTools.tryTool' as TranslationKey)}
           </Button>
         </DialogFooter>

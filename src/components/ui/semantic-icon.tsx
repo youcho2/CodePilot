@@ -85,6 +85,9 @@ import {
   PanelLeftOpenIcon,
   PanelRightIcon,
   HierarchyFilesIcon,
+  FavouriteIcon,
+  Tag01Icon,
+  Bookmark01Icon,
   Pin02Icon,
   Refresh01Icon,
   Note01Icon,
@@ -180,6 +183,9 @@ export type CodePilotIconName =
   | 'panel_left_open'
   | 'panel_right'
   | 'file_tree'
+  | 'favorite'
+  | 'tag'
+  | 'bookmark'
   | 'pin'
   | 'refresh'
   | 'note'
@@ -284,6 +290,9 @@ const SEMANTIC_MAP: Record<CodePilotIconName, HugeiconsSvg> = {
   panel_left_open: PanelLeftOpenIcon,
   panel_right: PanelRightIcon,
   file_tree: HierarchyFilesIcon,
+  favorite: FavouriteIcon,
+  tag: Tag01Icon,
+  bookmark: Bookmark01Icon,
   pin: Pin02Icon,
   refresh: Refresh01Icon,
   note: Note01Icon,

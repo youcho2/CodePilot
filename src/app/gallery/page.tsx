@@ -1,7 +1,8 @@
 'use client';
 
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { PaintBrush, SortDescending, Funnel, SpinnerGap, Heart } from '@/components/ui/icon';
+import { SortDescending, SpinnerGap } from '@/components/ui/icon';
+import { CodePilotIcon } from '@/components/ui/semantic-icon';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -147,10 +148,12 @@ export default function GalleryPage() {
             className="h-8 gap-1.5"
             onClick={() => setFavoritesOnly((v) => !v)}
           >
-            <Heart
-              size={14}
+            <CodePilotIcon
+              name="favorite"
+              size="sm"
+              strokeWidth={favoritesOnly ? 2 : undefined}
               className={cn(favoritesOnly && 'text-status-error-foreground')}
-              weight={favoritesOnly ? 'fill' : 'regular'}
+              aria-hidden
             />
             {t('gallery.favoritesOnly' as TranslationKey)}
           </Button>
@@ -160,7 +163,7 @@ export default function GalleryPage() {
             className="h-8 gap-1.5"
             onClick={() => setShowFilters(!showFilters)}
           >
-            <Funnel size={14} />
+            <CodePilotIcon name="filter" size="sm" aria-hidden />
             {t('gallery.filters' as TranslationKey)}
           </Button>
           <Button
@@ -227,7 +230,7 @@ export default function GalleryPage() {
           </div>
         ) : items.length === 0 ? (
           <div className="flex h-full flex-col items-center justify-center gap-3 text-muted-foreground">
-            <PaintBrush size={40} className="opacity-30" />
+            <CodePilotIcon name="appearance" size={40} className="opacity-30" aria-hidden />
             <p className="text-sm">{t('gallery.empty' as TranslationKey)}</p>
             <p className="text-xs opacity-70">{t('gallery.emptyHint' as TranslationKey)}</p>
           </div>

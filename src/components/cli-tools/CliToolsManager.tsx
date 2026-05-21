@@ -10,7 +10,8 @@ import { CliToolDetailDialog } from "./CliToolDetailDialog";
 import { CliToolExtraDetailDialog } from "./CliToolExtraDetailDialog";
 // CliToolInstallDialog removed — install now goes through chat AI
 import { CliToolBatchDescribeDialog } from "./CliToolBatchDescribeDialog";
-import { SpinnerGap, Sparkle, Warning, Plus, Trash, Star } from "@/components/ui/icon";
+import { SpinnerGap, Warning } from "@/components/ui/icon";
+import { CodePilotIcon } from "@/components/ui/semantic-icon";
 import { Button } from "@/components/ui/button";
 import { EXTRA_WELL_KNOWN_BINS } from "@/lib/cli-tools-catalog";
 
@@ -271,7 +272,7 @@ export const CliToolsManager = forwardRef<CliToolsManagerHandle, CliToolsManager
                 className="h-7 text-xs gap-1.5"
                 onClick={() => setBatchDescribeOpen(true)}
               >
-                <Sparkle size={14} />
+                <CodePilotIcon name="skill" size="sm" aria-hidden />
                 {t('cliTools.batchDescribe')}
               </Button>
             </div>
@@ -333,7 +334,7 @@ export const CliToolsManager = forwardRef<CliToolsManagerHandle, CliToolsManager
                       <span className="text-[10px] text-muted-foreground">{t('cliTools.agentFriendliness' as TranslationKey)}</span>
                       <div className="flex gap-0.5">
                         {[1, 2, 3, 4, 5].map(i => (
-                          <Star key={i} size={10} weight={i <= score ? 'fill' : 'regular'} className={i <= score ? 'text-primary' : 'text-muted-foreground/30'} />
+                          <CodePilotIcon key={i} name="favorite" size={10} strokeWidth={i <= score ? 2 : undefined} className={i <= score ? 'text-primary' : 'text-muted-foreground/30'} aria-hidden />
                         ))}
                       </div>
                     </div>
@@ -387,7 +388,7 @@ export const CliToolsManager = forwardRef<CliToolsManagerHandle, CliToolsManager
                         <span className="text-[10px] text-muted-foreground">{t('cliTools.agentFriendliness' as TranslationKey)}</span>
                         <div className="flex gap-0.5">
                           {[1, 2, 3, 4, 5].map(i => (
-                            <Star key={i} size={10} weight={i <= score ? 'fill' : 'regular'} className={i <= score ? 'text-primary' : 'text-muted-foreground/30'} />
+                            <CodePilotIcon key={i} name="favorite" size={10} strokeWidth={i <= score ? 2 : undefined} className={i <= score ? 'text-primary' : 'text-muted-foreground/30'} aria-hidden />
                           ))}
                         </div>
                       </div>
@@ -402,7 +403,7 @@ export const CliToolsManager = forwardRef<CliToolsManagerHandle, CliToolsManager
                       title={`${t('cliTools.removeCustomTool' as TranslationKey)} ${ct.name}`}
                       aria-label={`${t('cliTools.removeCustomTool' as TranslationKey)} ${ct.name}`}
                     >
-                      <Trash size={14} />
+                      <CodePilotIcon name="delete" size="sm" aria-hidden />
                     </Button>
                   </div>
                 </div>
@@ -510,7 +511,7 @@ export const CliToolsManager = forwardRef<CliToolsManagerHandle, CliToolsManager
             <p className="text-sm text-muted-foreground mt-1">{t('cliTools.description')}</p>
           </div>
           <Button size="sm" className="gap-1.5 shrink-0" onClick={handleAddTool}>
-            <Plus size={14} />
+            <CodePilotIcon name="plus" size="sm" aria-hidden />
             {t('cliTools.addTool' as TranslationKey)}
           </Button>
         </div>

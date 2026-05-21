@@ -1,6 +1,6 @@
 'use client';
 
-import { PaintBrush, Heart, Play } from '@/components/ui/icon';
+import { CodePilotIcon } from '@/components/ui/semantic-icon';
 import { useTranslation } from '@/hooks/useTranslation';
 import type { TranslationKey } from '@/i18n';
 
@@ -85,7 +85,7 @@ export function GalleryGrid({ items, onSelect }: GalleryGridProps) {
             <div className="relative bg-muted/30">
               {url ? (
                 isVideo ? (
-                  // eslint-disable-next-line jsx-a11y/media-has-caption
+                   
                   <video
                     src={url}
                     muted
@@ -103,13 +103,13 @@ export function GalleryGrid({ items, onSelect }: GalleryGridProps) {
                 )
               ) : (
                 <div className="flex aspect-square items-center justify-center">
-                  <PaintBrush size={32} className="text-muted-foreground/30" />
+                  <CodePilotIcon name="appearance" size="xl" className="text-muted-foreground/30" aria-hidden />
                 </div>
               )}
               {isVideo && url && (
                 <span className="absolute inset-0 flex items-center justify-center">
                   <span className="flex h-10 w-10 items-center justify-center rounded-full bg-black/50 backdrop-blur-sm">
-                    <Play size={20} weight="fill" className="text-white ml-0.5" />
+                    <CodePilotIcon name="play" size="lg" strokeWidth={2} className="text-white ml-0.5" aria-hidden />
                   </span>
                 </span>
               )}
@@ -120,7 +120,7 @@ export function GalleryGrid({ items, onSelect }: GalleryGridProps) {
               )}
               {item.favorited && (
                 <span className="absolute top-1.5 left-1.5">
-                  <Heart size={16} className="text-status-error-foreground drop-shadow" weight="fill" />
+                  <CodePilotIcon name="favorite" size="md" strokeWidth={2} className="text-status-error-foreground drop-shadow" aria-hidden />
                 </span>
               )}
             </div>
