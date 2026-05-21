@@ -12,7 +12,8 @@ import { ToolActionsGroup } from '@/components/ai-elements/tool-actions-group';
 import { MediaPreview } from './MediaPreview';
 import { DiffSummary } from './DiffSummary';
 import { Button } from "@/components/ui/button";
-import { Copy, Check, CaretDown, CaretUp, CaretRight, PushPin, DownloadSimple } from "@/components/ui/icon";
+import { Check, CaretDown, CaretUp, CaretRight } from "@/components/ui/icon";
+import { CodePilotIcon } from "@/components/ui/semantic-icon";
 import { FileAttachmentDisplay } from './FileAttachmentDisplay';
 import { ImageGenConfirmation } from './ImageGenConfirmation';
 import { ImageGenCard } from './ImageGenCard';
@@ -588,7 +589,7 @@ function CopyButton({ text }: { text: string }) {
       {copied ? (
         <Check size={12} className="text-status-success-foreground" />
       ) : (
-        <Copy size={12} />
+        <CodePilotIcon name="copy" size={12} aria-hidden />
       )}
     </Button>
   );
@@ -919,7 +920,7 @@ function PinnableWidget({ widgetCode, title }: {
           onClick={handlePin}
           disabled={cooldown}
         >
-          <PushPin size={12} />
+          <CodePilotIcon name="pin" size={12} aria-hidden />
           Pin
         </button>
       )}
@@ -927,7 +928,7 @@ function PinnableWidget({ widgetCode, title }: {
         className="text-[10px] px-1.5 py-0.5 rounded text-muted-foreground/50 hover:text-muted-foreground hover:bg-muted/50 flex items-center gap-0.5"
         onClick={handleExport}
       >
-        <DownloadSimple size={12} />
+        <CodePilotIcon name="download" size={12} aria-hidden />
       </button>
     </>
   );

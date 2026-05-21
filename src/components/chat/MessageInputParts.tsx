@@ -1,7 +1,8 @@
 'use client';
 
 import { useEffect, useCallback, useMemo } from 'react';
-import { ArrowUp, X, Stop, Terminal, Brain, NotePencil, Lightning, File as FileIcon, Folder } from '@/components/ui/icon';
+import { ArrowUp, X, Stop, NotePencil } from '@/components/ui/icon';
+import { CodePilotIcon } from '@/components/ui/semantic-icon';
 import { Button } from '@/components/ui/button';
 import {
   PromptInputSubmit,
@@ -187,7 +188,7 @@ export function FileAttachmentsCapsules() {
                 className="h-5 w-5 rounded object-cover"
               />
             ) : (
-              <FileIcon size={12} className="text-muted-foreground" />
+              <CodePilotIcon name="file" size={12} className="text-muted-foreground" aria-hidden />
             )}
             <span className="max-w-[120px] truncate text-[11px]">
               {file.filename || 'file'}
@@ -242,7 +243,7 @@ export function DirectoryRefsCapsules({
             key={path}
             className="inline-flex items-center gap-1.5 rounded-full border border-border/40 bg-muted pl-2 pr-1 py-0.5 text-xs font-medium text-foreground"
           >
-            <Folder size={12} className="text-muted-foreground" />
+            <CodePilotIcon name="folder" size={12} className="text-muted-foreground" aria-hidden />
             <span className="max-w-[160px] truncate text-[11px] font-mono">
               {path}
             </span>
@@ -284,9 +285,9 @@ export function CommandBadge({
 }) {
   const { t } = useTranslation();
   const icon = badge.kind === 'agent_skill'
-    ? <Brain size={12} />
+    ? <CodePilotIcon name="skill" size={12} aria-hidden />
     : badge.kind === 'codepilot_command'
-      ? <Lightning size={12} />
+      ? <CodePilotIcon name="code" size={12} aria-hidden />
       : <NotePencil size={12} />;
 
   return (
@@ -343,7 +344,7 @@ export function CliBadge({
   return (
     <div className="flex w-full items-center gap-1.5 px-3 pt-2.5 pb-0 order-first">
       <span className="inline-flex items-center gap-1.5 rounded-full border border-border/40 bg-muted pl-2.5 pr-1.5 py-1 text-xs font-medium text-foreground">
-        <Terminal size={12} className="text-muted-foreground" />
+        <CodePilotIcon name="cli" size={12} className="text-muted-foreground" aria-hidden />
         <span>CLI: {name}</span>
         <Button
           type="button"
@@ -381,8 +382,8 @@ function MentionBadge({
   return (
     <span className="inline-flex items-center gap-1 rounded-full border border-border/40 bg-muted pl-2.5 pr-1 py-1 text-xs font-medium text-foreground">
       {isDirectory
-        ? <Folder size={12} className="text-muted-foreground" />
-        : <FileIcon size={12} className="text-muted-foreground" />}
+        ? <CodePilotIcon name="folder" size={12} className="text-muted-foreground" aria-hidden />
+        : <CodePilotIcon name="file" size={12} className="text-muted-foreground" aria-hidden />}
       <span className="font-mono truncate max-w-[180px]">
         @{mention.display}{isDirectory ? '/' : ''}
       </span>

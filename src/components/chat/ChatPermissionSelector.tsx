@@ -21,7 +21,10 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
-import { Lock, LockOpen, CaretDown } from '@/components/ui/icon';
+import { CaretDown } from '@/components/ui/icon';
+// LockOpen removed — both lock/lock-open render via CodePilotIcon
+// `permission` alias; the open state just gets a red color override.
+import { CodePilotIcon } from '@/components/ui/semantic-icon';
 
 interface ChatPermissionSelectorProps {
   sessionId?: string;
@@ -92,9 +95,9 @@ export function ChatPermissionSelector({
             )}
           >
             {isFullAccess ? (
-              <LockOpen size={12} className="text-status-error-foreground" />
+              <CodePilotIcon name="permission" size={12} className="text-status-error-foreground" aria-hidden />
             ) : (
-              <Lock size={12} />
+              <CodePilotIcon name="permission" size={12} aria-hidden />
             )}
             <span>
               {isFullAccess ? t('permission.fullAccess') : t('permission.default')}
@@ -104,7 +107,7 @@ export function ChatPermissionSelector({
         </DropdownMenuTrigger>
         <DropdownMenuContent align="start" className="min-w-[240px]">
           <DropdownMenuItem onClick={() => handleSelect('default')} className="items-start py-2">
-            <Lock size={14} className="mt-0.5" />
+            <CodePilotIcon name="permission" size="sm" className="mt-0.5" aria-hidden />
             <div className="flex flex-col items-start gap-0.5">
               <span>{t('permission.default')}</span>
               <span className="text-[11px] text-muted-foreground leading-tight">
@@ -113,7 +116,7 @@ export function ChatPermissionSelector({
             </div>
           </DropdownMenuItem>
           <DropdownMenuItem onClick={() => handleSelect('full_access')} className="items-start py-2">
-            <LockOpen size={14} className="mt-0.5 text-status-error-foreground" />
+            <CodePilotIcon name="permission" size="sm" className="mt-0.5 text-status-error-foreground" aria-hidden />
             <div className="flex flex-col items-start gap-0.5">
               <span className="text-status-error-foreground">{t('permission.fullAccess')}</span>
               <span className="text-[11px] text-status-error-foreground/70 leading-tight">

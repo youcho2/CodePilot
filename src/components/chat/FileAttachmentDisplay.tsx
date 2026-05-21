@@ -4,7 +4,7 @@ import { useState, useCallback, useMemo } from 'react';
 import type { FileUIPart } from 'ai';
 import type { FileAttachment } from '@/types';
 import { isImageFile } from '@/types';
-import { Folder } from '@/components/ui/icon';
+import { CodePilotIcon } from '@/components/ui/semantic-icon';
 import {
   Attachment,
   AttachmentInfo,
@@ -118,7 +118,7 @@ export function FileAttachmentDisplay({ files }: FileAttachmentDisplayProps) {
                   // Inner icon box stays grey to keep the icon column
                   // visually separate from the filename column.
                   className="bg-muted"
-                  fallbackIcon={isDir ? <Folder size={16} className="text-muted-foreground" /> : undefined}
+                  fallbackIcon={isDir ? <CodePilotIcon name="folder" size="md" className="text-muted-foreground" aria-hidden /> : undefined}
                 />
                 <AttachmentInfo showMediaType={!isDir} />
               </Attachment>
