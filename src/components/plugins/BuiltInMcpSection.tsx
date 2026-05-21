@@ -24,7 +24,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Lock } from "@/components/ui/icon";
+import { CodePilotIcon } from "@/components/ui/semantic-icon";
 import { cn } from "@/lib/utils";
 import { useTranslation } from "@/hooks/useTranslation";
 import type { TranslationKey } from "@/i18n";
@@ -84,7 +84,7 @@ export function BuiltInMcpSection({ search = "" }: { search?: string }) {
     <>
       <header className="mb-3">
         <div className="flex items-center gap-2">
-          <Lock size={14} className="text-muted-foreground" />
+          <CodePilotIcon name="permission" size="sm" className="text-muted-foreground" aria-hidden />
           <h4 className="text-sm font-medium">
             {t("mcp.builtin.sectionTitle" as TranslationKey)}
           </h4>

@@ -38,7 +38,8 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Globe, HardDrives, PencilSimple, Trash, WifiHigh } from "@/components/ui/icon";
+import { WifiHigh } from "@/components/ui/icon";
+import { CodePilotIcon } from "@/components/ui/semantic-icon";
 import { useTranslation } from "@/hooks/useTranslation";
 import { cn } from "@/lib/utils";
 import type { TranslationKey } from "@/i18n";
@@ -65,16 +66,16 @@ interface McpServerDetailDialogProps {
   onDelete: (name: string) => void;
 }
 
-function getTransportInfo(server: MCPServer | null) {
-  if (!server) return { label: "stdio", icon: HardDrives, color: "text-muted-foreground" };
+function getTransportInfo(server: MCPServer | null): { label: string; iconKind: 'wifi' | 'web' | 'disk'; color: string } {
+  if (!server) return { label: "stdio", iconKind: "disk", color: "text-muted-foreground" };
   const type = server.type || "stdio";
   switch (type) {
     case "sse":
-      return { label: "SSE", icon: WifiHigh, color: "text-primary" };
+      return { label: "SSE", iconKind: "wifi", color: "text-primary" };
     case "http":
-      return { label: "HTTP", icon: Globe, color: "text-status-success-foreground" };
+      return { label: "HTTP", iconKind: "web", color: "text-status-success-foreground" };
     default:
-      return { label: "stdio", icon: HardDrives, color: "text-muted-foreground" };
+      return { label: "stdio", iconKind: "disk", color: "text-muted-foreground" };
   }
 }
 
@@ -129,7 +130,6 @@ export function McpServerDetailDialog({
   }
 
   const transport = getTransportInfo(server);
-  const TransportIcon = transport.icon;
   const statusPill = runtime ? getStatusPill(runtime.status) : null;
   const toolCount = runtime?.tools?.length ?? 0;
   const isDisabled = server.enabled === false;
@@ -153,7 +153,13 @@ export function McpServerDetailDialog({
               {name}
             </DialogTitle>
             <span className="inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
-              <TransportIcon size={10} className={transport.color} />
+              {transport.iconKind === 'wifi' ? (
+                <WifiHigh size={10} className={transport.color} />
+              ) : transport.iconKind === 'web' ? (
+                <CodePilotIcon name="web_simple" size={10} className={transport.color} aria-hidden />
+              ) : (
+                <CodePilotIcon name="disk" size={10} className={transport.color} aria-hidden />
+              )}
               {transport.label}
             </span>
             {statusPill && (
@@ -247,11 +253,11 @@ export function McpServerDetailDialog({
                 className="gap-1.5 text-destructive hover:text-destructive hover:bg-destructive/10"
                 onClick={() => setConfirmDeleteOpen(true)}
               >
-                <Trash size={14} />
+                <CodePilotIcon name="delete" size="sm" aria-hidden />
                 {t("common.delete")}
               </Button>
               <Button size="sm" className="gap-1.5" onClick={() => setMode("edit")}>
-                <PencilSimple size={14} />
+                <CodePilotIcon name="edit" size="sm" aria-hidden />
                 {t("common.edit")}
               </Button>
             </>

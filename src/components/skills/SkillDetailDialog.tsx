@@ -24,7 +24,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Trash, Lock } from "@/components/ui/icon";
+import { CodePilotIcon } from "@/components/ui/semantic-icon";
 import { cn } from "@/lib/utils";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -137,7 +137,7 @@ export function SkillDetailDialog({
             </span>
             {readOnlyReasonKey && (
               <span className="inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground shrink-0">
-                <Lock size={10} />
+                <CodePilotIcon name="permission" size={10} aria-hidden />
                 {t(readOnlyReasonKey)}
               </span>
             )}
@@ -195,7 +195,7 @@ export function SkillDetailDialog({
               onClick={handleDeleteClick}
               className="gap-1.5"
             >
-              <Trash size={14} />
+              <CodePilotIcon name="delete" size="sm" aria-hidden />
               {confirmDelete
                 ? t("skills.deleteConfirm")
                 : t("common.delete" as TranslationKey)}

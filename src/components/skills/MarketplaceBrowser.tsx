@@ -17,13 +17,8 @@
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import { Input } from "@/components/ui/input";
-import {
-  CheckCircle,
-  DownloadSimple,
-  MagnifyingGlass,
-  SpinnerGap,
-  Storefront,
-} from "@/components/ui/icon";
+import { CheckCircle, SpinnerGap } from "@/components/ui/icon";
+import { CodePilotIcon } from "@/components/ui/semantic-icon";
 import { useTranslation } from "@/hooks/useTranslation";
 import { MarketplaceSkillDetail } from "./MarketplaceSkillDetail";
 import { cn } from "@/lib/utils";
@@ -105,9 +100,11 @@ export function MarketplaceBrowser({ onInstalled }: MarketplaceBrowserProps) {
           load / change. Body below it is the only scroll region. */}
       <div className="shrink-0 px-6 pt-4 pb-3">
         <div className="relative max-w-md">
-          <MagnifyingGlass
-            size={14}
+          <CodePilotIcon
+            name="search"
+            size="sm"
             className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none"
+            aria-hidden
           />
           <Input
             placeholder={t("skills.marketplaceSearch")}
@@ -133,7 +130,7 @@ export function MarketplaceBrowser({ onInstalled }: MarketplaceBrowserProps) {
           </div>
         ) : results.length === 0 ? (
           <div className="rounded-lg border border-border/50 bg-card p-10 flex flex-col items-center text-center gap-3">
-            <Storefront size={32} className="opacity-40 text-muted-foreground" />
+            <CodePilotIcon name="marketplace" size="xl" className="opacity-40 text-muted-foreground" aria-hidden />
             <p className="text-sm font-medium">{t("skills.searchNoResults")}</p>
           </div>
         ) : (
@@ -196,7 +193,7 @@ function MarketplaceCard({
         <span className="font-mono truncate min-w-0">{skill.source}</span>
         {skill.installs > 0 && (
           <span className="flex items-center gap-0.5 shrink-0">
-            <DownloadSimple size={12} />
+            <CodePilotIcon name="download" size={12} aria-hidden />
             {skill.installs.toLocaleString()}
           </span>
         )}

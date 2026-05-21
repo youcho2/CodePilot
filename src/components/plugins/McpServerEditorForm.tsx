@@ -29,7 +29,8 @@ import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { HardDrives, WifiHigh, Globe, Code } from '@/components/ui/icon';
+import { WifiHigh } from '@/components/ui/icon';
+import { CodePilotIcon } from '@/components/ui/semantic-icon';
 import { useTranslation } from '@/hooks/useTranslation';
 import type { TranslationKey } from '@/i18n';
 import type { MCPServer } from '@/types';
@@ -246,7 +247,7 @@ export const McpServerEditorForm = forwardRef<McpServerEditorFormHandle, McpServ
               setError(null);
             }}
           >
-            <Code size={14} />
+            <CodePilotIcon name="code" size="sm" aria-hidden />
             {t('mcp.jsonEditTab')}
           </Button>
         </div>
@@ -277,7 +278,7 @@ export const McpServerEditorForm = forwardRef<McpServerEditorFormHandle, McpServ
               >
                 <TabsList className="w-full">
                   <TabsTrigger value="stdio" className="flex-1 gap-1.5">
-                    <HardDrives size={14} />
+                    <CodePilotIcon name="disk" size="sm" aria-hidden />
                     stdio
                   </TabsTrigger>
                   <TabsTrigger value="sse" className="flex-1 gap-1.5">
@@ -285,7 +286,7 @@ export const McpServerEditorForm = forwardRef<McpServerEditorFormHandle, McpServ
                     SSE
                   </TabsTrigger>
                   <TabsTrigger value="http" className="flex-1 gap-1.5">
-                    <Globe size={14} />
+                    <CodePilotIcon name="web_simple" size="sm" aria-hidden />
                     HTTP
                   </TabsTrigger>
                 </TabsList>

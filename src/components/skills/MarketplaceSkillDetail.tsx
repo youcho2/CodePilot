@@ -2,14 +2,8 @@
 
 import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
-import {
-  ArrowLeft,
-  ArrowSquareOut,
-  CheckCircle,
-  DownloadSimple,
-  SpinnerGap,
-  Trash,
-} from "@/components/ui/icon";
+import { ArrowSquareOut, CheckCircle, SpinnerGap } from "@/components/ui/icon";
+import { CodePilotIcon } from "@/components/ui/semantic-icon";
 import { useTranslation } from "@/hooks/useTranslation";
 import type { TranslationKey } from "@/i18n";
 import { InstallProgressDialog } from "./InstallProgressDialog";
@@ -103,7 +97,7 @@ export function MarketplaceSkillDetail({
           onClick={onBack}
           className="-ml-2 mb-2 h-7 gap-1.5"
         >
-          <ArrowLeft size={14} />
+          <CodePilotIcon name="back" size="sm" aria-hidden />
           {t("skills.marketplaceBack" as TranslationKey)}
         </Button>
         <div className="flex items-center gap-2 flex-wrap">
@@ -135,7 +129,7 @@ export function MarketplaceSkillDetail({
           )}
           {skill.installs > 0 && (
             <span className="flex items-center gap-0.5 shrink-0">
-              <DownloadSimple size={12} />
+              <CodePilotIcon name="download" size={12} aria-hidden />
               {skill.installs.toLocaleString()}
             </span>
           )}
@@ -173,12 +167,12 @@ export function MarketplaceSkillDetail({
             className="gap-1.5"
             onClick={handleUninstall}
           >
-            <Trash size={14} />
+            <CodePilotIcon name="delete" size="sm" aria-hidden />
             {t("skills.uninstall")}
           </Button>
         ) : (
           <Button size="sm" className="gap-1.5" onClick={handleInstall}>
-            <DownloadSimple size={14} />
+            <CodePilotIcon name="download" size="sm" aria-hidden />
             {t("skills.install")}
           </Button>
         )}

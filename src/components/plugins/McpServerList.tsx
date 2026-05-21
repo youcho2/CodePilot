@@ -1,7 +1,8 @@
 'use client';
 
 import { Button } from '@/components/ui/button';
-import { ArrowsClockwise, Globe, HardDrives, SpinnerGap, WifiHigh } from "@/components/ui/icon";
+import { SpinnerGap, WifiHigh } from "@/components/ui/icon";
+import { CodePilotIcon } from "@/components/ui/semantic-icon";
 import { Switch } from '@/components/ui/switch';
 import { useTranslation } from '@/hooks/useTranslation';
 import { showToast } from '@/hooks/useToast';
@@ -30,15 +31,15 @@ interface McpServerListProps {
   activeSessionId?: string;
 }
 
-function getServerTypeInfo(server: MCPServer) {
+function getServerTypeInfo(server: MCPServer): { label: string; iconKind: 'wifi' | 'web' | 'disk'; color: string } {
   const type = server.type || 'stdio';
   switch (type) {
     case 'sse':
-      return { label: 'SSE', icon: WifiHigh, color: 'text-primary' };
+      return { label: 'SSE', iconKind: 'wifi', color: 'text-primary' };
     case 'http':
-      return { label: 'HTTP', icon: Globe, color: 'text-status-success-foreground' };
+      return { label: 'HTTP', iconKind: 'web', color: 'text-status-success-foreground' };
     default:
-      return { label: 'stdio', icon: HardDrives, color: 'text-muted-foreground' };
+      return { label: 'stdio', iconKind: 'disk', color: 'text-muted-foreground' };
   }
 }
 
@@ -126,7 +127,7 @@ export function McpServerList({ servers, onOpenDetail, onToggleEnabled, runtimeS
   if (entries.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
-        <HardDrives size={40} className="mb-3 opacity-50" />
+        <CodePilotIcon name="disk" size={40} className="mb-3 opacity-50" aria-hidden />
         <p className="text-sm">{t('mcp.noServers')}</p>
         <p className="text-xs mt-1">
           {t('mcp.noServersDesc')}
@@ -194,7 +195,13 @@ export function McpServerList({ servers, onOpenDetail, onToggleEnabled, runtimeS
                 {name}
               </span>
               <span className="inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
-                <typeInfo.icon size={10} className={typeInfo.color} />
+                {typeInfo.iconKind === 'wifi' ? (
+                  <WifiHigh size={10} className={typeInfo.color} />
+                ) : typeInfo.iconKind === 'web' ? (
+                  <CodePilotIcon name="web_simple" size={10} className={typeInfo.color} aria-hidden />
+                ) : (
+                  <CodePilotIcon name="disk" size={10} className={typeInfo.color} aria-hidden />
+                )}
                 {typeInfo.label}
               </span>
               {statusPill ? (
@@ -250,7 +257,7 @@ export function McpServerList({ servers, onOpenDetail, onToggleEnabled, runtimeS
                     {isReconnecting ? (
                       <SpinnerGap size={14} className="animate-spin" />
                     ) : (
-                      <ArrowsClockwise size={14} />
+                      <CodePilotIcon name="refresh" size="sm" aria-hidden />
                     )}
                     <span
                       className="absolute -top-0.5 -right-0.5 h-1.5 w-1.5 rounded-full bg-status-warning"

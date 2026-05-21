@@ -4,7 +4,8 @@ import { useState, useEffect, useCallback, forwardRef, useImperativeHandle, useM
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
-import { Plus, List, Code, SpinnerGap, ArrowsClockwise, WifiHigh, HardDrives } from "@/components/ui/icon";
+import { List, SpinnerGap, WifiHigh } from "@/components/ui/icon";
+import { CodePilotIcon } from "@/components/ui/semantic-icon";
 import { McpServerList, type McpRuntimeStatus } from "@/components/plugins/McpServerList";
 import { McpServerEditor } from "@/components/plugins/McpServerEditor";
 import { McpServerDetailDialog } from "@/components/plugins/McpServerDetailDialog";
@@ -365,7 +366,7 @@ export const McpManager = forwardRef<McpManagerHandle, McpManagerProps>(function
           <>
             <header className="mb-3">
               <div className="flex items-center gap-2">
-                <HardDrives size={14} className="text-muted-foreground" />
+                <CodePilotIcon name="disk" size="sm" className="text-muted-foreground" aria-hidden />
                 <h4 className="text-sm font-medium">
                   {t('mcp.installed.sectionTitle' as TranslationKey)}
                 </h4>
@@ -411,7 +412,7 @@ export const McpManager = forwardRef<McpManagerHandle, McpManagerProps>(function
               onClick={fetchRuntimeStatus}
               disabled={runtimeLoading}
             >
-              {runtimeLoading ? <SpinnerGap size={12} className="animate-spin" /> : <ArrowsClockwise size={12} />}
+              {runtimeLoading ? <SpinnerGap size={12} className="animate-spin" /> : <CodePilotIcon name="refresh" size={12} aria-hidden />}
               {t('mcp.refresh' as TranslationKey)}
             </Button>
           </div>
@@ -498,7 +499,7 @@ export const McpManager = forwardRef<McpManagerHandle, McpManagerProps>(function
             </p>
           </div>
           <Button size="sm" className="gap-1" onClick={handleAdd}>
-            <Plus size={14} />
+            <CodePilotIcon name="plus" size="sm" aria-hidden />
             {t('mcp.addServer')}
           </Button>
         </div>
@@ -514,7 +515,7 @@ export const McpManager = forwardRef<McpManagerHandle, McpManagerProps>(function
             {t('mcp.listTab')}
           </TabsTrigger>
           <TabsTrigger value="json" className="gap-1.5">
-            <Code size={14} />
+            <CodePilotIcon name="code" size="sm" aria-hidden />
             {t('mcp.jsonTab')}
           </TabsTrigger>
         </TabsList>
@@ -529,7 +530,7 @@ export const McpManager = forwardRef<McpManagerHandle, McpManagerProps>(function
               that mirrors the same name + count layout. */}
           <header className="mb-3">
             <div className="flex items-center gap-2">
-              <HardDrives size={14} className="text-muted-foreground" />
+              <CodePilotIcon name="disk" size="sm" className="text-muted-foreground" aria-hidden />
               <h4 className="text-sm font-medium">
                 {t('mcp.installed.sectionTitle' as TranslationKey)}
               </h4>
@@ -598,7 +599,7 @@ export const McpManager = forwardRef<McpManagerHandle, McpManagerProps>(function
             onClick={fetchRuntimeStatus}
             disabled={runtimeLoading}
           >
-            {runtimeLoading ? <SpinnerGap size={12} className="animate-spin" /> : <ArrowsClockwise size={12} />}
+            {runtimeLoading ? <SpinnerGap size={12} className="animate-spin" /> : <CodePilotIcon name="refresh" size={12} aria-hidden />}
             {t('mcp.refresh' as TranslationKey)}
           </Button>
         </div>
