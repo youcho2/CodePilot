@@ -39,8 +39,17 @@ export function MonolithIcon({ className, size, style }: MonolithIconProps) {
     ? { width: size, height: size, ...style }
     : style;
   return (
+    // viewBox cropped from the master SVG's 0-903 to 138-762 (~625 wide).
+    // The master file ships with ~150px of padding on every side; at the
+    // small sizes we render in RuntimeSelector / Settings (16-20px) that
+    // padding made the icon visibly smaller (≈66%) than peer brand icons
+    // (Anthropic / OpenAI) which fill their full square. Tight crop here
+    // brings content to ~95% of the rendered box so the icon matches
+    // peer sizing across all use sites (selector, panels, welcome, About).
+    // The blurred halo (opacity 0.08) loses a few pixels at the right /
+    // bottom but it's already nearly invisible at every size we render.
     <svg
-      viewBox="0 0 903 903"
+      viewBox="138 138 625 625"
       fill="none"
       xmlns="http://www.w3.org/2000/svg"
       className={cn('text-foreground', className)}
