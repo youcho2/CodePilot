@@ -4,7 +4,8 @@ import { useEffect, useState } from 'react';
 import { usePanel } from '@/hooks/usePanel';
 import { Button } from '@/components/ui/button';
 import { AssistantAvatar } from '@/components/ui/AssistantAvatar';
-import { X, Gear, Brain, Heart, Clock, File, Check, Warning } from '@/components/ui/icon';
+import { X, Clock, File, Check, Warning } from '@/components/ui/icon';
+import { CodePilotIcon } from '@/components/ui/semantic-icon';
 import { useTranslation } from '@/hooks/useTranslation';
 import { useRouter } from 'next/navigation';
 import type { TranslationKey } from '@/i18n';
@@ -62,7 +63,7 @@ export function AssistantPanel() {
           <div className="text-sm text-muted-foreground">{t('assistant.panel.loading' as TranslationKey)}</div>
         ) : !summary?.configured ? (
           <div className="text-center py-8 space-y-3">
-            <Brain size={32} className="mx-auto text-muted-foreground/40" />
+            <CodePilotIcon name="memory" size="xl" className="mx-auto text-muted-foreground/40" aria-hidden />
             <p className="text-sm text-muted-foreground">{t('assistant.panel.notConfigured' as TranslationKey)}</p>
             <Button size="sm" onClick={() => router.push('/settings/assistant')}>
               {t('assistant.panel.setup' as TranslationKey)}
@@ -86,7 +87,7 @@ export function AssistantPanel() {
               </h3>
               <div className="space-y-1.5">
                 <StatusRow
-                  icon={<Heart size={13} />}
+                  icon={<CodePilotIcon name="health" size="sm" aria-hidden />}
                   label={t('assistant.panel.heartbeat' as TranslationKey)}
                   value={summary.heartbeatEnabled
                     ? summary.lastHeartbeatDate || t('assistant.panel.enabled' as TranslationKey)
@@ -94,7 +95,7 @@ export function AssistantPanel() {
                   status={summary.heartbeatEnabled ? 'ok' : 'off'}
                 />
                 <StatusRow
-                  icon={<Brain size={13} />}
+                  icon={<CodePilotIcon name="memory" size="sm" aria-hidden />}
                   label={t('assistant.panel.memories' as TranslationKey)}
                   value={`${summary.memoryCount}`}
                   status="ok"
@@ -154,7 +155,7 @@ export function AssistantPanel() {
                   className="w-full justify-start gap-2 text-xs h-7"
                   onClick={() => router.push('/settings/assistant')}
                 >
-                  <Gear size={13} />
+                  <CodePilotIcon name="settings" size="sm" aria-hidden />
                   {t('assistant.panel.assistantSettings' as TranslationKey)}
                 </Button>
                 <Button

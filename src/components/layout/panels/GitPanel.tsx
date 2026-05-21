@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowClockwise } from "@/components/ui/icon";
+import { CodePilotIcon } from "@/components/ui/semantic-icon";
 import { Button } from "@/components/ui/button";
 import { useTranslation } from "@/hooks/useTranslation";
 import { GitPanel } from "@/components/git/GitPanel";
@@ -32,7 +32,7 @@ export function GitTabContent() {
           title={t('git.refresh')}
           aria-label={t('git.refresh')}
         >
-          <ArrowClockwise size={14} />
+          <CodePilotIcon name="refresh" size="sm" aria-hidden />
         </Button>
       </div>
       <div className="flex-1 min-h-0 overflow-hidden">

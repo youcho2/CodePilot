@@ -3,7 +3,8 @@
 import { useState, useEffect, useMemo, useCallback, useRef, useLayoutEffect } from "react";
 import dynamic from "next/dynamic";
 import { useTheme } from "next-themes";
-import { X, Copy, Check, SpinnerGap, Image as ImageIcon } from "@/components/ui/icon";
+import { X, Check, SpinnerGap } from "@/components/ui/icon";
+import { CodePilotIcon } from "@/components/ui/semantic-icon";
 import { exportHtmlAsLongShot, ArtifactExportError } from "@/lib/artifact-export";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -1158,7 +1159,7 @@ export function PreviewPanel(_: { variant?: 'sidebar' } = {}) {
             {copied ? (
               <Check size={14} className="text-status-success-foreground" />
             ) : (
-              <Copy size={14} />
+              <CodePilotIcon name="copy" size="sm" aria-hidden />
             )}
           </Button>
         )}
@@ -1179,7 +1180,7 @@ export function PreviewPanel(_: { variant?: 'sidebar' } = {}) {
             {exporting ? (
               <SpinnerGap size={14} className="animate-spin" />
             ) : (
-              <ImageIcon size={14} />
+              <CodePilotIcon name="image" size="sm" aria-hidden />
             )}
           </Button>
         )}

@@ -2,7 +2,8 @@
 
 import { useState, useCallback, useEffect, useRef, useMemo } from "react";
 import { useRouter } from "next/navigation";
-import { X, ArrowClockwise, CaretUp, CaretDown, ChartBar, Trash, DownloadSimple, Heart, Brain, Clock, Check, Warning, Gear } from "@/components/ui/icon";
+import { X, CaretUp, CaretDown, Clock, Check, Warning } from "@/components/ui/icon";
+import { CodePilotIcon } from "@/components/ui/semantic-icon";
 import { showToast } from "@/hooks/useToast";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
@@ -332,7 +333,7 @@ export function DashboardPanel() {
                   disabled={refreshingAll}
                   title={t('dashboard.refresh')}
                 >
-                  <ArrowClockwise size={14} className={refreshingAll ? "animate-spin" : ""} />
+                  <CodePilotIcon name="refresh" size="sm" className={refreshingAll ? "animate-spin" : ""} aria-hidden />
                   <span className="sr-only">{t('dashboard.refresh')}</span>
                 </Button>
               </>
@@ -355,7 +356,7 @@ export function DashboardPanel() {
               )}
               {!(isAssistantWorkspace && assistantSummary?.configured) && (
                 <div className="flex flex-col items-center justify-center flex-1 text-center text-muted-foreground">
-                  <ChartBar size={32} className="mb-3 opacity-40" />
+                  <CodePilotIcon name="chart" size="xl" className="mb-3 opacity-40" aria-hidden />
                   <p className="text-sm">{t('dashboard.empty')}</p>
                 </div>
               )}
@@ -452,7 +453,7 @@ function DashboardWidgetCard({ widget, refreshing, isFirst, isLast, style, onRef
             title={t('dashboard.refreshWidget')}
             className="h-5 w-5"
           >
-            <ArrowClockwise size={12} className={refreshing ? "animate-spin" : ""} />
+            <CodePilotIcon name="refresh" size={12} className={refreshing ? "animate-spin" : ""} aria-hidden />
           </Button>
           <Button
             variant="ghost"
@@ -470,7 +471,7 @@ function DashboardWidgetCard({ widget, refreshing, isFirst, isLast, style, onRef
             title={t('dashboard.exportWidget')}
             className="h-5 w-5"
           >
-            <DownloadSimple size={12} />
+            <CodePilotIcon name="download" size={12} aria-hidden />
           </Button>
           <Button
             variant="ghost"
@@ -479,7 +480,7 @@ function DashboardWidgetCard({ widget, refreshing, isFirst, isLast, style, onRef
             title={t('dashboard.deleteWidget')}
             className="h-5 w-5 text-muted-foreground hover:text-destructive"
           >
-            <Trash size={12} />
+            <CodePilotIcon name="delete" size={12} aria-hidden />
           </Button>
         </div>
       </div>
@@ -574,7 +575,7 @@ function AssistantStatusCard({ summary, t }: {
           className="shrink-0 text-muted-foreground text-[10px] gap-1 h-6 px-1.5"
           onClick={() => router?.push('/settings/assistant')}
         >
-          <Gear size={12} />
+          <CodePilotIcon name="settings" size={12} aria-hidden />
           {t('settings.title' as TranslationKey)}
         </Button>
       </div>
@@ -605,12 +606,12 @@ function AssistantStatusCard({ summary, t }: {
       {/* Status row — compact single line */}
       <div className="flex items-center gap-3 text-[11px] text-muted-foreground">
         <div className="flex items-center gap-1">
-          <Heart size={11} />
+          <CodePilotIcon name="health" size={11} aria-hidden />
           <span className={`h-1.5 w-1.5 rounded-full ${summary.heartbeatEnabled ? 'bg-status-success' : 'bg-muted-foreground/30'}`} />
           <span>{t('assistant.panel.heartbeat' as TranslationKey)}</span>
         </div>
         <div className="flex items-center gap-1">
-          <Brain size={11} />
+          <CodePilotIcon name="memory" size={11} aria-hidden />
           <span>{t('assistant.panel.memories' as TranslationKey)}</span>
           <span className="text-foreground">{summary.memoryCount}</span>
         </div>

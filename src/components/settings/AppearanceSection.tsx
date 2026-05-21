@@ -9,7 +9,7 @@ import {
   resolveShikiThemes,
 } from "@/lib/theme/code-themes";
 import { useTranslation } from "@/hooks/useTranslation";
-import { Sun, Moon, Desktop } from "@/components/ui/icon";
+import { CodePilotIcon, type CodePilotIconName } from "@/components/ui/semantic-icon";
 import {
   Select,
   SelectContent,
@@ -24,10 +24,10 @@ import { FieldRow } from "@/components/patterns/FieldRow";
 
 // ── Theme Mode Pill Selector ────────────────────────────────────────
 
-const MODE_OPTIONS = [
-  { value: "light", icon: Sun, labelKey: "settings.modeLight" as const },
-  { value: "dark", icon: Moon, labelKey: "settings.modeDark" as const },
-  { value: "system", icon: Desktop, labelKey: "settings.modeSystem" as const },
+const MODE_OPTIONS: ReadonlyArray<{ value: string; icon: CodePilotIconName; labelKey: "settings.modeLight" | "settings.modeDark" | "settings.modeSystem" }> = [
+  { value: "light", icon: "theme_light", labelKey: "settings.modeLight" },
+  { value: "dark", icon: "theme_dark", labelKey: "settings.modeDark" },
+  { value: "system", icon: "desktop", labelKey: "settings.modeSystem" },
 ] as const;
 
 function ThemeModePills({
@@ -57,7 +57,7 @@ function ThemeModePills({
                 : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
             )}
           >
-            <opt.icon size={14} />
+            <CodePilotIcon name={opt.icon} size="sm" aria-hidden />
             {t(opt.labelKey)}
           </Button>
         );
