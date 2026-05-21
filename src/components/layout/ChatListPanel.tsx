@@ -69,8 +69,10 @@ export function ChatListPanel({ open, width, hasUpdate, readyToInstall }: ChatLi
   // Codex-style sectioned sidebar: separate 项目 (non-assistant) and 助理 (assistant flat list)
   const [projectsCollapsed, setProjectsCollapsed] = useState(false);
   const [assistantCollapsed, setAssistantCollapsed] = useState(false);
-  const [projectsHovered, setProjectsHovered] = useState(false);
-  const [assistantHovered, setAssistantHovered] = useState(false);
+  // projectsHovered / assistantHovered state previously gated chevron
+  // visibility (opacity-0 → opacity-100 on hover). 2026-05-21: chevron
+  // is now always visible + button itself takes hover:bg, so the
+  // hover-tracked state is no longer needed.
   const [projectListExpanded, setProjectListExpanded] = useState(false);
   const PROJECT_LIST_TRUNCATE_LIMIT = 10;
   const { workspacePath } = useAssistantWorkspace();
@@ -450,7 +452,7 @@ export function ChatListPanel({ open, width, hasUpdate, readyToInstall }: ChatLi
               aria-label={t('chatList.collapseSidebar' as TranslationKey)}
               className="text-sidebar-foreground/60 hover:text-sidebar-foreground"
             >
-              <CodePilotIcon name="panel_left_close" size="md" aria-hidden />
+              <CodePilotIcon name="sidebar_collapse" size="md" aria-hidden />
             </Button>
           </TooltipTrigger>
           <TooltipContent side="bottom">
@@ -526,27 +528,26 @@ export function ChatListPanel({ open, width, hasUpdate, readyToInstall }: ChatLi
           {/* ─── 项目 section ─── */}
           <div
             className="px-2 pt-2 pb-1"
-            onMouseEnter={() => setProjectsHovered(true)}
-            onMouseLeave={() => setProjectsHovered(false)}
           >
-            {/* Section header with hover-revealed collapse chevron */}
+            {/* Section header — chevron always visible (was hover-revealed
+                and "太不显眼"); button itself takes a hover background
+                so the toggle reads as a tappable affordance, not as
+                plain text. */}
             <button
               type="button"
               onClick={() => setProjectsCollapsed(c => !c)}
-              className="flex w-full items-center gap-1 px-3 h-7 cursor-pointer select-none rounded-xl"
+              className={cn(
+                "flex w-full items-center gap-1 px-3 h-7 cursor-pointer select-none rounded-xl",
+                "transition-colors hover:bg-sidebar-accent/60 hover:text-sidebar-foreground",
+              )}
             >
-              <span className="text-[13px] font-semibold text-sidebar-foreground/45">
+              <span className="text-[13px] font-semibold text-sidebar-foreground/55 group-hover:text-sidebar-foreground">
                 {t('chatList.projects' as TranslationKey)}
               </span>
-              <span
-                className={cn(
-                  "transition-opacity",
-                  projectsHovered ? "opacity-100" : "opacity-0"
-                )}
-              >
+              <span className="text-muted-foreground/80">
                 {projectsCollapsed
-                  ? <CaretRight size={12} className="text-muted-foreground/60" />
-                  : <CaretDown size={12} className="text-muted-foreground/60" />}
+                  ? <CaretRight size={12} />
+                  : <CaretDown size={12} />}
               </span>
             </button>
 
@@ -726,26 +727,22 @@ export function ChatListPanel({ open, width, hasUpdate, readyToInstall }: ChatLi
             return (
               <div
                 className="px-2 pt-1 pb-2"
-                onMouseEnter={() => setAssistantHovered(true)}
-                onMouseLeave={() => setAssistantHovered(false)}
               >
                 <button
                   type="button"
                   onClick={() => setAssistantCollapsed(c => !c)}
-                  className="flex w-full items-center gap-1 px-3 h-7 cursor-pointer select-none rounded-xl"
+                  className={cn(
+                    "flex w-full items-center gap-1 px-3 h-7 cursor-pointer select-none rounded-xl",
+                    "transition-colors hover:bg-sidebar-accent/60 hover:text-sidebar-foreground",
+                  )}
                 >
-                  <span className="text-[13px] font-semibold text-sidebar-foreground/45">
+                  <span className="text-[13px] font-semibold text-sidebar-foreground/55">
                     {t('chatList.assistantSection' as TranslationKey)}
                   </span>
-                  <span
-                    className={cn(
-                      "transition-opacity",
-                      assistantHovered ? "opacity-100" : "opacity-0"
-                    )}
-                  >
+                  <span className="text-muted-foreground/80">
                     {assistantCollapsed
-                      ? <CaretRight size={12} className="text-muted-foreground/60" />
-                      : <CaretDown size={12} className="text-muted-foreground/60" />}
+                      ? <CaretRight size={12} />
+                      : <CaretDown size={12} />}
                   </span>
                 </button>
 
