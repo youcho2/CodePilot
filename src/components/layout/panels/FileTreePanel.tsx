@@ -2,7 +2,8 @@
 
 import { useState, useCallback, useRef, useEffect } from "react";
 import { useSearchParams } from "next/navigation";
-import { X, NotePencil, FolderPlus, ArrowsClockwise, PushPin } from "@/components/ui/icon";
+import { X } from "@/components/ui/icon";
+import { CodePilotIcon } from "@/components/ui/semantic-icon";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { usePanel } from "@/hooks/usePanel";
@@ -259,7 +260,7 @@ export function FileTreePanel({ variant = 'legacy' }: { variant?: 'legacy' | 'si
               title={t("fileTree.newMarkdown")}
               aria-label={t("fileTree.newMarkdown")}
             >
-              <NotePencil size={16} />
+              <CodePilotIcon name="note" size="md" aria-hidden />
             </Button>
             <Button
               variant="ghost"
@@ -269,7 +270,7 @@ export function FileTreePanel({ variant = 'legacy' }: { variant?: 'legacy' | 'si
               title={t("fileTree.newFolder")}
               aria-label={t("fileTree.newFolder")}
             >
-              <FolderPlus size={16} />
+              <CodePilotIcon name="folder_add" size="md" aria-hidden />
             </Button>
             <Button
               variant="ghost"
@@ -279,7 +280,7 @@ export function FileTreePanel({ variant = 'legacy' }: { variant?: 'legacy' | 'si
               title={t("fileTree.refresh")}
               aria-label={t("fileTree.refresh")}
             >
-              <ArrowsClockwise size={16} />
+              <CodePilotIcon name="refresh" size="md" aria-hidden />
             </Button>
           </div>
 
@@ -387,7 +388,7 @@ export function FileTreePanel({ variant = 'legacy' }: { variant?: 'legacy' | 'si
                 title={t('workspaceSidebar.pinFiles' as TranslationKey)}
                 aria-label={t('workspaceSidebar.pinFiles' as TranslationKey)}
               >
-                <PushPin size={14} />
+                <CodePilotIcon name="pin" size="sm" aria-hidden />
               </Button>
             )}
             <Button

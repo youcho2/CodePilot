@@ -51,8 +51,11 @@ import {
   TerminalIcon,
   // Resource
   File01Icon,
+  FileCodeIcon,
   Folder01Icon,
   Folder02Icon,
+  FolderAddIcon,
+  FolderOpenIcon,
   CodeIcon,
   Layers02Icon,
   EyeIcon,
@@ -70,6 +73,42 @@ import {
   Loading02Icon,
   // Workspace
   GitBranchIcon,
+  GitCommitIcon,
+  // Generic UI (Phase 2 broadened — visible refresh across NavRail /
+  // ChatListPanel / FileTree / WorkspaceSidebar / Settings / Chat)
+  Chat01Icon,
+  Search01Icon,
+  PlusSignIcon,
+  SidebarLeft01Icon,
+  Pin02Icon,
+  Refresh01Icon,
+  Note01Icon,
+  ArrowLeft01Icon,
+  ArrowRight01Icon,
+  PencilEdit01Icon,
+  Copy01Icon,
+  Delete01Icon,
+  Wrench01Icon,
+  Store01Icon,
+  HardDriveIcon,
+  ComputerActivityIcon,
+  Globe02Icon,
+  GlobeIcon,
+  Coins01Icon,
+  Download01Icon,
+  Upload01Icon,
+  Cancel01Icon,
+  Sun01Icon,
+  Moon01Icon,
+  Notification01Icon,
+  StopIcon,
+  PlayCircleIcon,
+  Book01Icon,
+  ChartBarBigIcon,
+  FilterIcon,
+  MoreHorizontalCircle01Icon,
+  StethoscopeIcon,
+  CloudUploadIcon,
 } from '@hugeicons/core-free-icons';
 import type { ComponentProps } from 'react';
 import { cn } from '@/lib/utils';
@@ -103,7 +142,10 @@ export type CodePilotIconName =
   | 'terminal'
   // Resource
   | 'file'
+  | 'file_code'
   | 'folder'
+  | 'folder_open'
+  | 'folder_add'
   | 'workspace'
   | 'code'
   | 'artifact'
@@ -120,8 +162,43 @@ export type CodePilotIconName =
   | 'warning'
   | 'error'
   | 'loading'
-  // Workspace
-  | 'git';
+  // Git / Workspace
+  | 'git'
+  | 'git_commit'
+  // Generic UI primitives (Phase 2 broader — visible refresh)
+  | 'chat'
+  | 'search'
+  | 'plus'
+  | 'sidebar'
+  | 'pin'
+  | 'refresh'
+  | 'note'
+  | 'back'
+  | 'forward'
+  | 'edit'
+  | 'copy'
+  | 'delete'
+  | 'cancel'
+  | 'more'
+  | 'filter'
+  | 'wrench'
+  | 'marketplace'
+  | 'disk'
+  | 'desktop'
+  | 'web'
+  | 'web_simple'
+  | 'cost'
+  | 'download'
+  | 'upload'
+  | 'upload_cloud'
+  | 'theme_light'
+  | 'theme_dark'
+  | 'notification'
+  | 'stop'
+  | 'play'
+  | 'book'
+  | 'chart'
+  | 'diagnose';
 
 // HugeIcons IconSvgElement is a 2-tuple array; we match its surface
 // here to avoid pulling its private types.
@@ -164,7 +241,10 @@ const SEMANTIC_MAP: Record<CodePilotIconName, HugeiconsSvg> = {
   terminal: TerminalIcon,
   // Resource
   file: File01Icon,
+  file_code: FileCodeIcon,
   folder: Folder01Icon,
+  folder_open: FolderOpenIcon,
+  folder_add: FolderAddIcon,
   workspace: Folder02Icon,
   code: CodeIcon,
   artifact: Layers02Icon,
@@ -181,8 +261,43 @@ const SEMANTIC_MAP: Record<CodePilotIconName, HugeiconsSvg> = {
   warning: Alert02Icon,
   error: AlertCircleIcon,
   loading: Loading02Icon,
-  // Workspace
+  // Git / Workspace
   git: GitBranchIcon,
+  git_commit: GitCommitIcon,
+  // Generic UI primitives
+  chat: Chat01Icon,
+  search: Search01Icon,
+  plus: PlusSignIcon,
+  sidebar: SidebarLeft01Icon,
+  pin: Pin02Icon,
+  refresh: Refresh01Icon,
+  note: Note01Icon,
+  back: ArrowLeft01Icon,
+  forward: ArrowRight01Icon,
+  edit: PencilEdit01Icon,
+  copy: Copy01Icon,
+  delete: Delete01Icon,
+  cancel: Cancel01Icon,
+  more: MoreHorizontalCircle01Icon,
+  filter: FilterIcon,
+  wrench: Wrench01Icon,
+  marketplace: Store01Icon,
+  disk: HardDriveIcon,
+  desktop: ComputerActivityIcon,
+  web: Globe02Icon,
+  web_simple: GlobeIcon,
+  cost: Coins01Icon,
+  download: Download01Icon,
+  upload: Upload01Icon,
+  upload_cloud: CloudUploadIcon,
+  theme_light: Sun01Icon,
+  theme_dark: Moon01Icon,
+  notification: Notification01Icon,
+  stop: StopIcon,
+  play: PlayCircleIcon,
+  book: Book01Icon,
+  chart: ChartBarBigIcon,
+  diagnose: StethoscopeIcon,
 };
 
 /**

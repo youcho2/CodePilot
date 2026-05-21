@@ -3,14 +3,12 @@
 import { useState } from "react";
 import Link from "next/link";
 import {
-  Trash,
   Bell,
   Columns,
   X,
   DotsThree,
-  Copy,
-  PencilSimple,
 } from "@/components/ui/icon";
+import { CodePilotIcon } from "@/components/ui/semantic-icon";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -152,7 +150,7 @@ export function SessionListItem({
               setRenameOpen(true);
             }}
           >
-            <PencilSimple size={14} />
+            <CodePilotIcon name="edit" size="sm" aria-hidden />
             <span>{t('chatList.renameConversation' as TranslationKey)}</span>
           </DropdownMenuItem>
           <DropdownMenuItem onClick={() => {
@@ -160,7 +158,7 @@ export function SessionListItem({
             // writeText fails in Electron renderers post-DropdownMenu blur.
             void copyWithToast({ text: session.id, t });
           }}>
-            <Copy size={14} />
+            <CodePilotIcon name="copy" size="sm" aria-hidden />
             <span>{t('chatList.copySessionId' as TranslationKey)}</span>
           </DropdownMenuItem>
           <DropdownMenuSeparator />
@@ -168,7 +166,7 @@ export function SessionListItem({
             variant="destructive"
             onClick={(e) => onDelete(e as unknown as React.MouseEvent, session.id)}
           >
-            <Trash size={14} />
+            <CodePilotIcon name="delete" size="sm" aria-hidden />
             <span>{t('chatList.deleteConversation' as TranslationKey)}</span>
           </DropdownMenuItem>
         </DropdownMenuContent>

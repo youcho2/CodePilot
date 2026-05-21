@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
-import { ArrowsClockwise, MagnifyingGlass, FileCode, Code, File } from "@/components/ui/icon";
+import { CodePilotIcon } from "@/components/ui/semantic-icon";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import type { FileTreeNode } from "@/types";
@@ -50,19 +50,19 @@ function getFileIcon(extension?: string): ReactNode {
     case "lua":
     case "php":
     case "zig":
-      return <FileCode size={16} className="text-muted-foreground" />;
+      return <CodePilotIcon name="file_code" size="md" className="text-muted-foreground" aria-hidden />;
     case "json":
     case "yaml":
     case "yml":
     case "toml":
-      return <Code size={16} className="text-muted-foreground" />;
+      return <CodePilotIcon name="code" size="md" className="text-muted-foreground" aria-hidden />;
     case "md":
     case "mdx":
     case "txt":
     case "csv":
-      return <File size={16} className="text-muted-foreground" />;
+      return <CodePilotIcon name="file" size="md" className="text-muted-foreground" aria-hidden />;
     default:
-      return <File size={16} className="text-muted-foreground" />;
+      return <CodePilotIcon name="file" size="md" className="text-muted-foreground" aria-hidden />;
   }
 }
 
@@ -265,7 +265,7 @@ export function FileTree({ workingDirectory, onFileSelect, onFileAdd, selectedFo
           events that the effect below catches. */}
       <div className="px-3 pb-2 shrink-0">
         <div className="relative">
-          <MagnifyingGlass size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
+          <CodePilotIcon name="search" size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" aria-hidden />
           <Input
             placeholder={t('fileTree.filterFiles')}
             value={searchQuery}
@@ -279,7 +279,7 @@ export function FileTree({ workingDirectory, onFileSelect, onFileAdd, selectedFo
       <div className="flex-1 overflow-auto">
         {loading && tree.length === 0 ? (
           <div className="flex items-center justify-center py-8">
-            <ArrowsClockwise size={16} className="animate-spin text-muted-foreground" />
+            <CodePilotIcon name="refresh" size="md" className="animate-spin text-muted-foreground" aria-hidden />
           </div>
         ) : tree.length === 0 ? (
           <p className="py-4 text-center text-xs text-muted-foreground">

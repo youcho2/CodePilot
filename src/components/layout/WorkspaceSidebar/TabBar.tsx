@@ -22,7 +22,8 @@
  */
 
 import { useCallback, useRef } from 'react';
-import { GitBranch, ChartBar, FileCode, Code, File, X, ArrowsIn, PushPin, FolderOpen } from '@/components/ui/icon';
+import { ArrowsIn } from '@/components/ui/icon';
+import { CodePilotIcon } from '@/components/ui/semantic-icon';
 import { Button } from '@/components/ui/button';
 import { useTranslation } from '@/hooks/useTranslation';
 import type { TranslationKey } from '@/i18n';
@@ -48,17 +49,19 @@ function tabIcon(tab: Tab): React.ReactNode {
   // (16px) icons inside SelectTrigger / TabsTrigger in the file-info
   // row. Tab strip + file-info row now read at the same density.
   if (tab.kind === 'fixed') {
-    return tab.id === 'git' ? <GitBranch size={16} /> : <ChartBar size={16} />;
+    return tab.id === 'git'
+      ? <CodePilotIcon name="git" size="md" aria-hidden />
+      : <CodePilotIcon name="chart" size="md" aria-hidden />;
   }
-  if (tab.kind === 'files-pinned') return <PushPin size={16} />;
+  if (tab.kind === 'files-pinned') return <CodePilotIcon name="pin" size="md" aria-hidden />;
   if (tab.kind === 'markdown' || tab.kind === 'file') {
     const ext = (tab.kind === 'markdown' ? '.md' : tab.filePath.split('.').pop() || '').toLowerCase();
-    if (ext.endsWith('.md') || tab.kind === 'markdown') return <File size={16} />;
-    if (['.ts', '.tsx', '.js', '.jsx', '.py'].includes(`.${ext}`)) return <Code size={16} />;
-    return <FileCode size={16} />;
+    if (ext.endsWith('.md') || tab.kind === 'markdown') return <CodePilotIcon name="file" size="md" aria-hidden />;
+    if (['.ts', '.tsx', '.js', '.jsx', '.py'].includes(`.${ext}`)) return <CodePilotIcon name="code" size="md" aria-hidden />;
+    return <CodePilotIcon name="file_code" size="md" aria-hidden />;
   }
   // artifact
-  return <FolderOpen size={16} />;
+  return <CodePilotIcon name="folder_open" size="md" aria-hidden />;
 }
 
 export function TabBar({ className }: TabBarProps) {
@@ -273,7 +276,7 @@ function TabItem({
               {tabIcon(tab)}
             </span>
             <span className="absolute inset-0 flex items-center justify-center opacity-0 transition-opacity group-hover:opacity-100">
-              <X size={16} weight="bold" />
+              <CodePilotIcon name="cancel" size="md" strokeWidth={2} aria-hidden />
             </span>
           </span>
         ) : (

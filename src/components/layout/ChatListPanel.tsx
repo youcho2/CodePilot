@@ -5,18 +5,10 @@ import { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import Link from "next/link";
 import { motion, AnimatePresence } from "motion/react";
 import {
-  MagnifyingGlass,
-  FileArrowDown,
-  Plus,
-  FolderPlus,
-  Plug,
-  Image,
-  Gear,
-  ChatCircle,
   CaretDown,
   CaretRight,
-  SidebarSimple,
 } from "@/components/ui/icon";
+import { CodePilotIcon, type CodePilotIconName } from "@/components/ui/semantic-icon";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import {
@@ -433,9 +425,9 @@ export function ChatListPanel({ open, width, hasUpdate, readyToInstall }: ChatLi
   // a single "Plugins" entry — see ExtensionsPage for the unified UI.
   // Bridge moved to `/settings/bridge` (2026-05-02) — channel configs
   // are settings, not a primary destination.
-  const navItems = [
-    { href: "/plugins", label: t('nav.plugins' as TranslationKey), icon: Plug },
-    { href: "/gallery", label: t('nav.gallery' as TranslationKey), icon: Image },
+  const navItems: Array<{ href: string; label: string; icon: CodePilotIconName }> = [
+    { href: "/plugins", label: t('nav.plugins' as TranslationKey), icon: "plugin" },
+    { href: "/gallery", label: t('nav.gallery' as TranslationKey), icon: "image" },
   ];
 
   return (
@@ -458,7 +450,7 @@ export function ChatListPanel({ open, width, hasUpdate, readyToInstall }: ChatLi
               aria-label={t('chatList.collapseSidebar' as TranslationKey)}
               className="text-sidebar-foreground/60 hover:text-sidebar-foreground"
             >
-              <SidebarSimple size={16} />
+              <CodePilotIcon name="sidebar" size="md" aria-hidden />
             </Button>
           </TooltipTrigger>
           <TooltipContent side="bottom">
@@ -478,7 +470,7 @@ export function ChatListPanel({ open, width, hasUpdate, readyToInstall }: ChatLi
             disabled={creatingChat}
             onClick={handleNewChat}
           >
-            <ChatCircle size={16} />
+            <CodePilotIcon name="chat" size="md" aria-hidden />
             {t('chatList.newConversation')}
           </Button>
 
@@ -489,7 +481,7 @@ export function ChatListPanel({ open, width, hasUpdate, readyToInstall }: ChatLi
             className="group w-full justify-start gap-2 h-9 px-3 rounded-xl text-[13px] font-normal text-sidebar-foreground"
             onClick={() => window.dispatchEvent(new CustomEvent('open-global-search'))}
           >
-            <MagnifyingGlass size={16} />
+            <CodePilotIcon name="search" size="md" aria-hidden />
             <span>{t('chatList.searchSessions')}</span>
             <kbd className="ml-auto hidden group-hover:inline-flex items-center rounded bg-muted px-1.5 py-0.5 text-[10px] font-mono text-muted-foreground/80">
               ⌘K
@@ -510,7 +502,7 @@ export function ChatListPanel({ open, width, hasUpdate, readyToInstall }: ChatLi
                       : "text-sidebar-foreground font-normal"
                   }`}
                 >
-                  <item.icon size={16} weight={isActive ? "fill" : "regular"} />
+                  <CodePilotIcon name={item.icon} size="md" strokeWidth={isActive ? 2 : undefined} aria-hidden />
                   {item.label}
                 </Button>
               </Link>
@@ -574,7 +566,7 @@ export function ChatListPanel({ open, width, hasUpdate, readyToInstall }: ChatLi
                       onClick={() => openFolderPicker()}
                       className="group flex items-center gap-2 rounded-xl px-3 h-8 cursor-pointer select-none transition-colors hover:bg-sidebar-accent"
                     >
-                      <FolderPlus size={16} className="shrink-0 text-muted-foreground" />
+                      <CodePilotIcon name="folder_add" size="md" className="shrink-0 text-muted-foreground" aria-hidden />
                       <span className="flex-1 truncate text-left text-[13px] font-normal text-sidebar-foreground">
                         {t('chatList.newProject' as TranslationKey)}
                       </span>
@@ -841,7 +833,7 @@ export function ChatListPanel({ open, width, hasUpdate, readyToInstall }: ChatLi
                 : "text-sidebar-foreground font-normal"
             }`}
           >
-            <Gear size={16} weight={pathname.startsWith("/settings") ? "fill" : "regular"} />
+            <CodePilotIcon name="settings" size="md" strokeWidth={pathname.startsWith("/settings") ? 2 : undefined} aria-hidden />
             {t('nav.settings' as TranslationKey)}
             {(hasUpdate || readyToInstall) && (
               <span className={`ml-auto h-2 w-2 rounded-full ${readyToInstall ? "bg-primary" : "bg-primary animate-pulse"}`} />

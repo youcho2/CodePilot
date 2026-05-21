@@ -2,12 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import {
-  ChatCircle,
-  Plug,
-  Image,
-  Gear,
-} from "@/components/ui/icon";
+import { CodePilotIcon, type CodePilotIconName } from "@/components/ui/semantic-icon";
 import { Button } from "@/components/ui/button";
 import {
   Tooltip,
@@ -34,10 +29,10 @@ interface NavRailProps {
 // Bridge moved into Settings as a sub-section (2026-05-02) — channel
 // configs are configuration, not a primary destination, so they no
 // longer earn a top-level rail entry.
-const navItems = [
-  { href: "/chat", label: "Chats", icon: ChatCircle },
-  { href: "/plugins", label: "Plugins", icon: Plug },
-  { href: "/gallery", label: "Gallery", icon: Image },
+const navItems: ReadonlyArray<{ href: string; label: string; icon: CodePilotIconName }> = [
+  { href: "/chat", label: "Chats", icon: "chat" },
+  { href: "/plugins", label: "Plugins", icon: "plugin" },
+  { href: "/gallery", label: "Gallery", icon: "image" },
 ] as const;
 
 export function NavRail({ onToggleChatList, hasUpdate, readyToInstall, skipPermissionsActive }: NavRailProps) {
@@ -83,7 +78,7 @@ export function NavRail({ onToggleChatList, hasUpdate, readyToInstall, skipPermi
                       }
                     }}
                   >
-                    <item.icon size={16} weight={isActive ? "fill" : "regular"} />
+                    <CodePilotIcon name={item.icon} size="md" strokeWidth={isActive ? 2 : undefined} aria-hidden />
                     <span className="sr-only">{t(navLabelKeys[item.label] ?? item.label as TranslationKey)}</span>
                   </Button>
                 ) : (
@@ -98,7 +93,7 @@ export function NavRail({ onToggleChatList, hasUpdate, readyToInstall, skipPermi
                       )}
                     >
                       <Link href={item.href}>
-                        <item.icon size={16} weight={isActive ? "fill" : "regular"} />
+                        <CodePilotIcon name={item.icon} size="md" strokeWidth={isActive ? 2 : undefined} aria-hidden />
                         <span className="sr-only">{t(navLabelKeys[item.label] ?? item.label as TranslationKey)}</span>
                       </Link>
                     </Button>
@@ -139,7 +134,7 @@ export function NavRail({ onToggleChatList, hasUpdate, readyToInstall, skipPermi
                 )}
               >
                 <Link href="/settings">
-                  <Gear size={16} weight={isSettingsActive ? "fill" : "regular"} />
+                  <CodePilotIcon name="settings" size="md" strokeWidth={isSettingsActive ? 2 : undefined} aria-hidden />
                   <span className="sr-only">{t('nav.settings')}</span>
                 </Link>
               </Button>
