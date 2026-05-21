@@ -118,7 +118,7 @@ export function ProviderCard({
   const hasKebabActions = !!(onDiagnose || onSyncToClaudeCode);
 
   return (
-    <div className="rounded-lg bg-card border border-border/50 p-5 flex flex-col gap-4">
+    <div className="rounded-lg bg-card border border-border/50 p-5 flex flex-col gap-4 h-full">
       {/* Header — icon + name + actions on row 1; status / compat pills move
           to row 2 so they own the full inner width and never have to wrap
           mid-character (the previous layout shared row 1 with actions, which
