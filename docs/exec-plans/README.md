@@ -91,6 +91,7 @@
 | [active/refactor-closeout.md](active/refactor-closeout.md) | **重构收口总控板**：当前 Phase 状态 / 下一步 / 未闭环风险 / 验收入口 / 最近决策 / Phase 7 方案 | Phase 0-6 ✅；下一步进入 Phase 7 视觉锚点与图标体系 |
 | [active/phase-7-icon-system.md](active/phase-7-icon-system.md) | **Phase 7 图标体系与表意校准**：HugeIcons 主库迁移、CodePilot semantic icon layer、重复图标 / 表意不清收敛、direct import guardrail | 📋 待开始；先做 icon inventory + semantic taxonomy |
 | [active/phase-7b-macos-native-visual-profile.md](active/phase-7b-macos-native-visual-profile.md) | **Phase 7b macOS 平台视觉层**：借鉴 Raycast / Apple HIG 的平台感原则，只在窗口 chrome、顶部栏、侧栏、输入区和浮层做 macOS 材质与 hover profile，不分叉页面内容 | 📋 待 Phase 7 图标收口后启动；先做 macOS profile，Windows profile 后续另开 |
+| [active/phase-8-codex-mcp-context-injection.md](active/phase-8-codex-mcp-context-injection.md) | **Phase 8 Codex MCP / Memory 注入**：验证并实现 Codex `config.mcp_servers` 注入，让 CodePilot Memory MCP / 用户 MCP 在 Codex Account 与 provider proxy 路径下可执行；不可行路径在 Settings 诚实降级 | 📋 待 Phase 7 UI/icon 优化完成后启动；先 POC 后产品化 |
 | [active/development-harness-optimization.md](active/development-harness-optimization.md) | **开发流程 Harness 优化讨论稿（v2）**：Codex 初稿 + ClaudeCode 按用户"可审核"约束重组。事实层面补 3 项 Codex 漏说的已有资产（guardrails/ 4 份模块契约 / lint:colors / tech-debt-tracker）；方向上 Skill 化暂缓、主推自动检查脚本（docs drift / hook 配置）+ 测试矩阵补洞；每个 Step 必须以"用户能看到什么 / 不做什么 / 怎么验收"开头 | 📋 讨论中；待用户对齐 Step 1-3，再决定是否进入 Step 4-6 |
 | [active/issue-tracker.md](active/issue-tracker.md) | **统一问题跟踪**：所有 Bug / Feature Request / Sentry 监控的活动看板 | 持续维护 |
 
