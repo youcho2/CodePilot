@@ -41,13 +41,12 @@ import type { ChatSession } from "@/types";
 
 interface ChatListPanelProps {
   open: boolean;
-  width?: number;
   hasUpdate?: boolean;
   readyToInstall?: boolean;
 }
 
 
-export function ChatListPanel({ open, width, hasUpdate, readyToInstall }: ChatListPanelProps) {
+export function ChatListPanel({ open, hasUpdate, readyToInstall }: ChatListPanelProps) {
   const pathname = usePathname();
   const router = useRouter();
   const { streamingSessionId, pendingApprovalSessionId, activeStreamingSessions, pendingApprovalSessionIds, workingDirectory, setChatListOpen } = usePanel();
@@ -432,16 +431,12 @@ export function ChatListPanel({ open, width, hasUpdate, readyToInstall }: ChatLi
     { href: "/gallery", label: t('nav.gallery' as TranslationKey), icon: "image" },
   ];
 
+  // Phase 7c-B — surface chrome (data-platform-sidebar attribute, bg
+  // token, backdrop-filter, overflow-hidden, width inset) moved to
+  // <CardSurface kind="sidebar"> in AppShell. This inner block now
+  // only owns the column layout for its own children.
   return (
-    <aside
-      // Round 18 — data-platform-sidebar marks this as a navigation-
-      // layer surface so globals.css can give it the macOS Liquid
-      // Glass floating-sidebar treatment (rounded card + shadow +
-      // material) above the flat content layer. Web shell ignores it.
-      data-platform-sidebar="chat-list"
-      className="hidden h-full shrink-0 flex-col overflow-hidden bg-[var(--platform-surface-sidebar)] backdrop-blur-xl lg:flex"
-      style={{ width: width ?? 240 }}
-    >
+    <div className="flex h-full w-full flex-col">
       {/* Round 20 — the h-12 traffic-light-safe-area + collapse
           button used to live at the top of this panel. Both moved
           to UnifiedTopBar so the four floating cards (this sidebar,
@@ -834,6 +829,6 @@ export function ChatListPanel({ open, width, hasUpdate, readyToInstall }: ChatLi
         onSelect={handleFolderSelect}
       />
 
-    </aside>
+    </div>
   );
 }

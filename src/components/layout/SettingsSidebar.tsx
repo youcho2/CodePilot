@@ -13,7 +13,6 @@ import {
 
 interface SettingsSidebarProps {
   open: boolean;
-  width?: number;
 }
 
 /**
@@ -31,7 +30,7 @@ interface SettingsSidebarProps {
  * nav). Previously each file kept its own literal and diverging adds
  * (Tasks here, not there) caused a hydration mismatch.
  */
-export function SettingsSidebar({ open, width }: SettingsSidebarProps) {
+export function SettingsSidebar({ open }: SettingsSidebarProps) {
   const pathname = usePathname();
   const { t } = useTranslation();
 
@@ -39,13 +38,11 @@ export function SettingsSidebar({ open, width }: SettingsSidebarProps) {
 
   if (!open) return null;
 
+  // Phase 7c-B — surface chrome (data-platform-sidebar attribute, bg
+  // token, backdrop-filter, overflow-hidden, width inset) moved to
+  // <CardSurface kind="sidebar" variant="settings"> in AppShell.
   return (
-    <aside
-      // Round 18 — Liquid Glass floating-sidebar treatment.
-      data-platform-sidebar="settings"
-      className="hidden h-full shrink-0 flex-col overflow-hidden bg-[var(--platform-surface-sidebar)] backdrop-blur-xl lg:flex"
-      style={{ width: width ?? 240 }}
-    >
+    <div className="flex h-full w-full flex-col">
       {/* Round 33 — back button moved out to UnifiedTopBar's
           /settings branch so it lives in the same tab bar as the
           sidebar-toggle button, not inside the sidebar card. Saves
@@ -80,6 +77,6 @@ export function SettingsSidebar({ open, width }: SettingsSidebarProps) {
           );
         })}
       </div>
-    </aside>
+    </div>
   );
 }

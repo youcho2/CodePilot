@@ -60,12 +60,12 @@ data-app-content-row（横向 flex，children 扁平）
 
 | Phase | 内容 | 状态 | 备注 |
 |-------|------|------|------|
-| A | 新增 `CardFrame.tsx` / `CardSurface.tsx` / `ResizeGutter.tsx` + 单元测试 | pending | 独立组件，不接入任何 panel |
-| B | AppShell.tsx content-row 切换到扁平 children，左侧 sidebar 接入新 primitive | pending | 第一个验证点：dataPlatform 仍为 darwin |
-| C | WorkspaceSidebar 拆 — 移除自己的 frame + ResizeHandle，仅暴露 inner | pending |  |
-| D | PanelZone + FileTreePanel 拆 — 同 C | pending |  |
+| A | 新增 `card-primitives.tsx` (CardFrame + CardSurface + ResizeGutter) + 单元测试 | done | commit `<phase-A>` — 独立组件，不接入任何 panel |
+| B | AppShell + 左侧 ChatListPanel/SettingsSidebar 切到 CardFrame + CardSurface（aside → div，bg/clip 移到 Surface）；ResizeHandle 暂留 | pending | 第一个 dataPlatform=darwin 检查点 |
+| C | WorkspaceSidebar 同 B：移除自己的 aside / wrapper，AppShell 用 CardFrame + CardSurface 包它 | pending |  |
+| D | PanelZone + FileTreePanel 同 B/C | pending |  |
 | E | shell padding 拆开（`padding-top` 单独算）+ trafficLightPosition.y 重算 | pending | 必须 Electron 截图验证红绿灯 vs topbar items 中心线对齐 |
-| F | 删除旧 `ResizeHandle.tsx`（或保留兼容层）+ 旧 `data-platform-card-frame` 选择器收口 | pending |  |
+| F | ResizeHandle → ResizeGutter 切换（4 处一次性替换，content-row gap 改 0，gutter 自己 8px = visible gap） | pending | 切换前所有 panel 已经是 frame+surface 结构，可以安全做 row-level gutter |
 | G | 验收：四张卡片 DOM 结构记录、gutter 中心测量、light/dark Electron 截图、console 干净 | pending | 进 docs/handover/macos-visual-profile.md |
 
 ## 决策日志

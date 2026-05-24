@@ -8,6 +8,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { ChatListPanel } from "./ChatListPanel";
 import { SettingsSidebar } from "./SettingsSidebar";
 import { ResizeHandle } from "./ResizeHandle";
+import { CardFrame, CardSurface } from "./card-primitives";
 import { UpdateBanner } from "./UpdateBanner";
 import { UnifiedTopBar } from "./UnifiedTopBar";
 import { WorkspaceSidebarProvider, useWorkspaceSidebarOptional } from "@/hooks/useWorkspaceSidebar";
@@ -718,25 +719,32 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                   `gap: 4px` slot on both sides, making the left-sidebar
                   → main spacing visibly larger than the other three
                   gutters. */}
+              {/* Phase 7c-B — left sidebar wrapped in CardFrame +
+                  CardSurface. Frame owns shadow + isolation + width
+                  layout slot; Surface owns bg + clip + overflow. The
+                  inner panel components (ChatListPanel /
+                  SettingsSidebar) now render only their column
+                  content with no aside wrapper. */}
               <div className="flex h-full shrink-0">
-                {/* Round 32 — outer frame for shadow (overflow visible
-                    so the shadow doesn't get clipped by the surface
-                    element's clip-path). Inner sidebar is the surface. */}
                 {chatListOpen && (
-                  <div data-platform-card-frame="sidebar" className="h-full">
-                    <ErrorBoundary>
-                      {pathname.startsWith('/settings') ? (
-                        <SettingsSidebar open={chatListOpen} width={chatListWidth} />
-                      ) : (
-                        <ChatListPanel
-                          open={chatListOpen}
-                          width={chatListWidth}
-                          hasUpdate={updateContextValue.updateInfo?.updateAvailable ?? false}
-                          readyToInstall={updateContextValue.updateInfo?.readyToInstall ?? false}
-                        />
-                      )}
-                    </ErrorBoundary>
-                  </div>
+                  <CardFrame kind="sidebar" width={chatListWidth}>
+                    <CardSurface
+                      kind="sidebar"
+                      variant={pathname.startsWith('/settings') ? 'settings' : 'chat-list'}
+                    >
+                      <ErrorBoundary>
+                        {pathname.startsWith('/settings') ? (
+                          <SettingsSidebar open={chatListOpen} />
+                        ) : (
+                          <ChatListPanel
+                            open={chatListOpen}
+                            hasUpdate={updateContextValue.updateInfo?.updateAvailable ?? false}
+                            readyToInstall={updateContextValue.updateInfo?.readyToInstall ?? false}
+                          />
+                        )}
+                      </ErrorBoundary>
+                    </CardSurface>
+                  </CardFrame>
                 )}
                 {chatListOpen && (
                   <ResizeHandle
