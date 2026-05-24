@@ -22,33 +22,61 @@
  * as mutually exclusive; that direction was reversed after the user
  * pointed out the actual product wish was coexistence — see the
  * Phase 3 archive's v13 entry for the full rationale.
+ *
+ * Phase 7c-D — width state for the file tree moved up here from
+ * FileTreePanel so PanelZone can pass it to the new CardFrame's
+ * `width` prop and pair it with a ResizeHandle sibling. FileTreePanel
+ * now renders only the inner content (header + body).
  */
 
 import dynamic from "next/dynamic";
+import { useCallback, useState } from "react";
 import { usePanel } from "@/hooks/usePanel";
+import { ResizeHandle } from "./ResizeHandle";
+import { CardFrame, CardSurface } from "./card-primitives";
 
-const FileTreePanel = dynamic(() => import("./panels/FileTreePanel").then(m => ({ default: m.FileTreePanel })), { ssr: false });
-const AssistantPanel = dynamic(() => import("./panels/AssistantPanel").then(m => ({ default: m.AssistantPanel })), { ssr: false });
+const FileTreePanel = dynamic(
+  () => import("./panels/FileTreePanel").then((m) => ({ default: m.FileTreePanel })),
+  { ssr: false },
+);
+const AssistantPanel = dynamic(
+  () => import("./panels/AssistantPanel").then((m) => ({ default: m.AssistantPanel })),
+  { ssr: false },
+);
+
+const TREE_MIN_WIDTH = 220;
+const TREE_MAX_WIDTH = 500;
+const TREE_DEFAULT_WIDTH = 280;
 
 export function PanelZone() {
   const { fileTreeOpen, assistantPanelOpen } = usePanel();
+  const [treeWidth, setTreeWidth] = useState(TREE_DEFAULT_WIDTH);
+
+  const handleTreeResize = useCallback((delta: number) => {
+    // Dragging right on a right-rail handle → narrower tree, so subtract.
+    setTreeWidth((w) => Math.min(TREE_MAX_WIDTH, Math.max(TREE_MIN_WIDTH, w - delta)));
+  }, []);
 
   const anyOpen = fileTreeOpen || assistantPanelOpen;
-
   if (!anyOpen) return null;
 
   return (
-    // Round 32 — file tree wrapped in card-frame for macOS profile so
-    // its outer shadow doesn't get clipped by the surface's clip-path.
-    // overflow:visible on the outer flex so the frame's shadow can
-    // paint past its boundary.
-    <div className="flex h-full shrink-0">
+    <>
       {assistantPanelOpen && <AssistantPanel />}
       {fileTreeOpen && (
-        <div data-platform-card-frame="file-tree" className="h-full">
-          <FileTreePanel />
-        </div>
+        <>
+          <ResizeHandle
+            side="left"
+            onResize={handleTreeResize}
+            onReset={() => setTreeWidth(TREE_DEFAULT_WIDTH)}
+          />
+          <CardFrame kind="fileTree" width={treeWidth}>
+            <CardSurface kind="fileTree">
+              <FileTreePanel />
+            </CardSurface>
+          </CardFrame>
+        </>
       )}
-    </div>
+    </>
   );
 }
