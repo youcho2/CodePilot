@@ -89,3 +89,73 @@ Console result: light and dark capture runs both produced no `console.error` or 
 - The left/settings sidebars are more platform-ready than the top/right shell.
 - RunCockpit and popovers are visually modern but not platform-aware; they are good Phase 4 candidates after token infrastructure exists.
 - Settings / Runtime currently shows capability/status-heavy content; this is useful as a baseline because it catches text contrast regressions quickly.
+
+## Phase 7c — Floating Card Layout Primitive (2026-05-24)
+
+> 执行计划见 [docs/exec-plans/active/phase-7c-card-primitive.md](../exec-plans/active/phase-7c-card-primitive.md)
+
+### 抽象边界
+
+四张浮动卡片现在统一走三个共享 primitive，结构由 `src/components/layout/card-primitives.tsx` 定义：
+
+| primitive | 职责 | 不允许 |
+|---|---|---|
+| `CardFrame` | shadow + radius + isolation + layout slot；`kind="main"` 单独吃 `flex-1 min-w-0` 其他 `shrink-0 + width` | overflow:hidden / clip-path（必须 visible 让 shadow 完整 paint） |
+| `CardSurface` | bg + clip-path + backdrop-filter + content slot；`kind` prop 自己映射 data attribute 名 | 外层 box-shadow（属于 frame） |
+| `ResizeGutter` | 8px 宽 row-level 兄弟，自身 `justify-center` 让 2px line 永远在 gap 几何中心 | 出现在 CardFrame 内部 |
+
+约束被 `src/__tests__/unit/card-primitives.test.ts` 的 10 个 source pin 锁住。
+
+### 四张卡片接入点
+
+| card | frame 渲染位置 | width state 来源 |
+|---|---|---|
+| sidebar | `AppShell.tsx`（content-row 第一个 child，wrap 在 `<div className="flex h-full shrink-0">` 内跟 ResizeGutter 同 flex item） | AppShell 本地 `useState(240)` + localStorage `codepilot_chatlist_width` |
+| main | `ChatContentRow`（Fragment 直接 child） | `CardFrame kind="main"` 自动 flex-1，无 width prop |
+| workspace | `ChatContentRow`（在 `ws.state.open` 守护下） | `useWorkspaceSidebar` context |
+| fileTree | `PanelZone`（在 `fileTreeOpen` 守护下） | PanelZone 本地 `useState(280)` |
+
+panel 业务组件（`ChatListPanel` / `SettingsSidebar` / `WorkspaceSidebar` / `FileTreePanel`）现在只暴露内层内容，不再 wrap 自己的 aside / data-attribute / bg / clip。
+
+### Phase G 验收数据（2026-05-24 Browser Use, 1440×900 viewport, /chat/[id] route, 四个面板全开）
+
+DOM 结构（`[data-platform-card-frame]` 数量 + 顺序）：
+
+```
+sidebar     left=16    right=256    width=240
+main        left=264   right=648    width=384
+workspace   left=656   right=1136   width=480
+fileTree    left=1144  right=1424   width=280
+```
+
+Surface attributes（各一个，kind→attribute 映射来自 `CardSurface`）：
+
+```
+[data-platform-sidebar="chat-list"]
+[data-platform-main-content]
+[data-workspace-sidebar]
+[data-platform-file-tree]
+```
+
+Gutter 几何（3 个 `[data-resize-gutter]`）：
+
+| gutter | centerX | leftCard | rightCard | gapMidline | offsetFromMidline |
+|---|---|---|---|---|---|
+| 1 | 260 | sidebar | main | 260 | **0px** |
+| 2 | 652 | main | workspace | 652 | **0px** |
+| 3 | 1140 | workspace | fileTree | 1140 | **0px** |
+
+`ResizeGutter` 的 8px 宽度 + 内部 `justify-center` 的 2px line 在三个 gap 中心都完全对齐，没有任何偏移。
+
+Shell padding：`8px 16px 16px`（top 8, sides 16, bottom 16） — topbar items center y = 8 + h-10/2 = 28，与窗口 bottom 的 16px inset 形成 12px 视觉差（原来的 20px 不对称问题消除）。
+
+Content-row gap：`0`（visible gap 全部由 ResizeGutter 自己的 8px 宽度提供，hidden card 旁边不会留多余 8px gap）。
+
+Console clean：reload 后 0 个 error / warn 消息。
+
+Electron 截图：见 `docs/exec-plans/active/_smoke-evidence/phase-7c-light.png` / `phase-7c-dark.png`（browser 模拟 darwin profile + 手动注入 `.dark` class 渲染）。
+
+### 待办
+
+- **wrapper removal regression**：Phase F 调试时观察到，删除 AppShell 左侧 sidebar 的 `<div className="flex h-full shrink-0">` wrapper 会让 anti-FOUC script 失效（`dataPlatform=null`），跟 Round 34 同样的失败模式。当前 Phase F 保留 wrapper 绕过。根因尚未定位，进 `docs/exec-plans/tech-debt-tracker.md`。
+- **trafficLightPosition 微调**：当前公式给的 `y=21` 是按 dot cluster ~14px 高度 + 半高 7 计算。Electron 在 macOS 26 上 AppKit 偏移可能 ±1-2px，由 user 在 Electron 中目视确认后再微调（D-3）。

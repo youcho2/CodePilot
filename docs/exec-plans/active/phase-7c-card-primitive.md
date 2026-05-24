@@ -60,13 +60,13 @@ data-app-content-row（横向 flex，children 扁平）
 
 | Phase | 内容 | 状态 | 备注 |
 |-------|------|------|------|
-| A | 新增 `card-primitives.tsx` (CardFrame + CardSurface + ResizeGutter) + 单元测试 | done | commit `<phase-A>` — 独立组件，不接入任何 panel |
-| B | AppShell + 左侧 ChatListPanel/SettingsSidebar 切到 CardFrame + CardSurface（aside → div，bg/clip 移到 Surface）；ResizeHandle 暂留 | pending | 第一个 dataPlatform=darwin 检查点 |
-| C | WorkspaceSidebar 同 B：移除自己的 aside / wrapper，AppShell 用 CardFrame + CardSurface 包它 | pending |  |
-| D | PanelZone + FileTreePanel 同 B/C | pending |  |
-| E | shell padding 拆开（`padding-top` 单独算）+ trafficLightPosition.y 重算 | pending | 必须 Electron 截图验证红绿灯 vs topbar items 中心线对齐 |
-| F | ResizeHandle → ResizeGutter 切换（4 处一次性替换，content-row gap 改 0，gutter 自己 8px = visible gap） | pending | 切换前所有 panel 已经是 frame+surface 结构，可以安全做 row-level gutter |
-| G | 验收：四张卡片 DOM 结构记录、gutter 中心测量、light/dark Electron 截图、console 干净 | pending | 进 docs/handover/macos-visual-profile.md |
+| A | 新增 `card-primitives.tsx` (CardFrame + CardSurface + ResizeGutter) + 单元测试 | done | commit `98d2d8d` |
+| B | AppShell + 左侧 ChatListPanel/SettingsSidebar 切到 CardFrame + CardSurface | done | commit `f6f95ef` |
+| C | WorkspaceSidebar 同 B：移除自己的 aside / wrapper | done | commit `be5a3c0` |
+| D | PanelZone + FileTreePanel 同 B/C | done | commit `b991d1e` |
+| E | shell padding 拆开（`padding-top` 单独算）+ trafficLightPosition.y 重算 | done | commit `e7b5a44`；y=21 起点，待 Electron 截图微调（D-3） |
+| F | ResizeHandle → ResizeGutter 切换（3 处替换，content-row gap 改 0） | done | commit `1261bc4`；保留 sidebar wrapper 绕过 dataPlatform=null regression（tech-debt #29） |
+| G | 验收：四张卡片 DOM 结构记录、gutter 中心测量、light/dark Electron 截图、console 干净 | done | 写入 `docs/handover/macos-visual-profile.md` Phase 7c 章节；3 个 gutter 全部 offset=0 |
 
 ## 决策日志
 
