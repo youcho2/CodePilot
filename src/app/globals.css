@@ -403,8 +403,14 @@ html.dark[data-platform="darwin"][data-shell="electron"][data-platform-style="au
          vibrancy shows through.
      Web shell ignores all of this — those selectors only match under
      [data-shell="electron"]. */
+  /* Phase 7c-E — split padding so the topbar tucks closer to the
+     window top (matches macOS native toolbar inset) while the cards
+     keep enough breathing room below. With padding-top=8, the topbar
+     items-center row sits at window y=8+h-10/2=28, much closer to
+     the bottom inset of 16. See trafficLightPosition in
+     `electron/main.ts` — must stay in sync (y = 28 - 7 = 21). */
   html[data-platform="darwin"][data-shell="electron"][data-platform-style="auto"] [data-app-shell] {
-    padding: 16px;
+    padding: 8px 16px 16px 16px;
     gap: 4px;
     overflow: clip;
     overflow-clip-margin: 80px;

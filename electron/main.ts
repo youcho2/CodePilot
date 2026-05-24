@@ -940,9 +940,14 @@ function createWindow(url?: string) {
 
   if (process.platform === 'darwin') {
     windowOptions.titleBarStyle = 'hiddenInset';
-    // Round 28 — shell padding 16, topbar h-10 → items center y=36.
-    // Dot cluster center = y+7, so trafficLightPosition.y = 36-7 = 29.
-    windowOptions.trafficLightPosition = { x: 20, y: 29 };
+    // Phase 7c-E — shell padding-top reduced to 8 (sides + bottom
+    // stay 16). Topbar h-10 → items center y = 8 + 20 = 28. Dot
+    // cluster center should align with items center, so
+    // trafficLightPosition.y = 28 - 7 = 21. The +7 offset is the
+    // half-height of the macOS traffic-light cluster (~14px tall);
+    // see Phase 7c plan D-3 — actual AppKit offset may be ±2px so
+    // verify with Electron screenshot before finalizing.
+    windowOptions.trafficLightPosition = { x: 20, y: 21 };
     // macOS material POC matrix — Codex round 3 (2026-05-23).
     // Reviewer asked for a real matrix, not single-flag guessing.
     // Env-driven so anyone can rerun a candidate without editing src:
