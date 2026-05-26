@@ -102,6 +102,37 @@ if (fs.existsSync(COMPLETED_DIR)) {
   }
 }
 
+// Table-structure guard. The index tables are all 3-column
+// (文件 | 主题 | 状态/日期/...). A botched edit can mash two rows onto one
+// line (`...才进 Phase 2 || [active/phase-8...]`); the link-existence
+// checks above MISS this because both links still resolve. Found
+// 2026-05-26 when a hunk split merged the Phase 8 row into the row
+// above it. Enforce: every table row that links to a plan must be a
+// single, well-formed 3-column row.
+if (fs.existsSync(README_PATH)) {
+  const lines = fs.readFileSync(README_PATH, 'utf8').split('\n');
+  const planLinkRe = /\]\((?:\.\/)?(?:active|completed)\//;
+  lines.forEach((line, idx) => {
+    if (!line.trimStart().startsWith('|')) return; // table rows only
+    if (!planLinkRe.test(line)) return; // rows that link to a plan only
+    const lineNo = idx + 1;
+    if (line.includes('|| ') || line.includes('||[')) {
+      errors.push(
+        `README.md line ${lineNo}: merged-row artifact ('||') — two table rows mashed onto one line: ${line.slice(0, 90)}…`,
+      );
+      return;
+    }
+    // `| a | b | c |` → split('|') → ['', a, b, c, ''] = 5 parts = 3 cells.
+    const parts = line.split('|');
+    const columns = parts.length - 2;
+    if (parts.length !== 5) {
+      errors.push(
+        `README.md line ${lineNo}: table row has ${columns} columns, expected 3 (index tables are 3-column): ${line.slice(0, 90)}…`,
+      );
+    }
+  });
+}
+
 if (errors.length > 0) {
   console.error('\n[lint:docs-drift] FAILED — docs/exec-plans is out of sync:\n');
   for (const e of errors) console.error('  - ' + e);
