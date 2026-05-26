@@ -1317,7 +1317,7 @@ function NewChatPageInner() {
         // Claude / Codex new-chat pattern.
         <div className="flex-1 overflow-y-auto flex flex-col items-center justify-center px-4 py-8">
           <div className="w-full max-w-3xl">
-            <NewChatWelcome />
+            <NewChatWelcome workingDir={workingDir} />
             {composerStack}
             {needsOnboardingCards && <div className="mt-4">{chatEmptyStateNode}</div>}
           </div>

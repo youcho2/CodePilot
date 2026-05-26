@@ -1285,7 +1285,7 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
         // apply when there are no messages yet.
         <div className="flex-1 overflow-y-auto flex flex-col items-center justify-center px-4 py-8">
           <div className="w-full max-w-3xl">
-            <NewChatWelcome />
+            <NewChatWelcome workingDir={workingDirectory} isAssistant={isAssistantProject} />
             <MessageInput
               key={sessionId}
               onSend={sendMessage}

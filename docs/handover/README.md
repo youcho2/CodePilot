@@ -39,6 +39,7 @@
 | markdown-artifact-overhaul.md | Markdown 渲染 × Artifact 预览体系：PreviewSource 联合、DiffSummary 卡片、Sandpack 单文件 React、CodeMirror 编辑+自动保存、长图导出 IPC、文件 I/O API 合同、loadedPath/freshPreview 防漂移 |
 | phase-4-markdown-artifact.md | Phase 4 Markdown 数据层 × HTML 表现层 × 工程引用：trust tier 三档授权、html-preview 同源路由 + 4 轮 CSP 演进、codepilot:file-changed 单通道 + quiet refresh、原地 Markdown 风格 Select、code-fence Preview / dev-output chips；Save-HTML 入口 deferred 的代码锚点与重启条件 |
 | chat-composer-redesign.md | Chat composer 重构（April 2026）：三层视觉规则、Run 状态聚合面板、ai-elements 整合、隐形 select、弹窗底座统一、弥散阴影 token、左侧栏密度收紧 |
+| new-chat-greeting.md | 新对话欢迎语：「时段问候 + 场景问句」组合（场景优先级 assistant > project > general、项目名插值）、SSR-safe 的 client-only 组合逻辑、page.tsx / ChatView 调用点、助理检测的已知局限 |
 | chat-run-checkpoint.md | Chat Run Checkpoint Round 1（April 2026）：trust layer pure builder + inline banner 组件、共享 `bg-status-*-muted` 视觉、Pinned-invalid / Runtime-fallback / no-provider 三类触发、强约束（无 modal / 单 action / 不持久化"已确认"） |
 | codex-tool-bridge.md | Codex Runtime CodePilot Tool Bridge（Phase 5c）：proxy 内 execute() 桥接 + 侧通道事件总线、按 sessionId 路由的 tool_started/tool_completed → SSE、内建工具 function_call 对 Codex 抑制、stopWhen: stepCountIs(8) 多步续聊、anti-pattern source-grep 守卫（auth.json / npm install / OPENAI_API_KEY / image_gen.py） |
 | harness-capability-contract.md | Harness Capability Contract（Phase 5d 全 5 段）：三层模型（tool schema / context instruction / UI artifact contract）、能力矩阵、Context Compiler 纯函数、Runtime Capability Adapter facade（三 Runtime 入口禁直引 compileContext）、Artifact Contract 9 类产物 + 防漂移测试、跨 Runtime drift 检测、Widget JSON round-trip 校验 |

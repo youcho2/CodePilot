@@ -6,52 +6,99 @@ import { useTranslation } from '@/hooks/useTranslation';
 import type { TranslationKey } from '@/i18n';
 
 /**
- * NewChatWelcome — single-line hero shown directly above the composer
- * on the new-chat page (when no session exists or no messages have
- * been sent yet).
+ * NewChatWelcome — single-line hero above the composer on the new-chat
+ * surface (the /chat page, and ChatView's empty state).
  *
- * Layout (mirrors the ChatGPT / Claude / Codex new-chat pattern):
+ * The line is composed as "{time salutation}{sep}{question}" so it
+ * reads as alive rather than a fixed prompt:
+ *   - the salutation reflects the time of day (morning / afternoon /
+ *     evening / late night);
+ *   - the question pool depends on context — assistant workspace, a
+ *     named project, or general — and the project name is interpolated
+ *     into the project pool.
  *
- *     [Monolith logo] [Random welcome message in large text]
- *
- * The welcome line rotates across 6 short prompts, but the
- * randomisation runs client-side only (useEffect after mount). An
- * earlier version used `useMemo(() => Math.random(), [])` which
- * picks on every render — including the server pass and the first
- * client hydration pass — and ran Math.random twice with different
- * results, producing a hydration mismatch:
- *
- *   client: "How can I assist you?"
- *   server: "What would you like to build?"
- *
- * Hydration warnings break Phase 7b vibrancy smoke (Codex round 3
- * review): they leave a noisy DevTools console that masks the real
- * UI issues we're trying to chase. Initial state is the first
- * welcome key so server and client render the SAME string; once
- * useEffect runs we swap in the random pick.
+ * SSR / hydration: the time, the context-derived pool, and the random
+ * pick are ALL decided in a client-only effect. The first paint (server
+ * + first client render) shows a fixed neutral question so both passes
+ * match. An earlier `useMemo(() => Math.random())` version ran twice
+ * with different results and produced a hydration mismatch whose console
+ * noise masked the Phase 7b vibrancy smoke (Codex round 3 review). Keep
+ * the non-deterministic compute inside useEffect.
  */
 
-const WELCOME_KEYS: ReadonlyArray<TranslationKey> = [
-  'chat.newChat.welcome.1' as TranslationKey,
-  'chat.newChat.welcome.2' as TranslationKey,
-  'chat.newChat.welcome.3' as TranslationKey,
-  'chat.newChat.welcome.4' as TranslationKey,
-  'chat.newChat.welcome.5' as TranslationKey,
-  'chat.newChat.welcome.6' as TranslationKey,
-];
+const GENERAL_KEYS = [
+  'chat.newChat.welcome.1',
+  'chat.newChat.welcome.2',
+  'chat.newChat.welcome.3',
+  'chat.newChat.welcome.4',
+  'chat.newChat.welcome.5',
+  'chat.newChat.welcome.6',
+] as const;
 
-export function NewChatWelcome() {
+const PROJECT_KEYS = [
+  'chat.newChat.welcome.project.1',
+  'chat.newChat.welcome.project.2',
+  'chat.newChat.welcome.project.3',
+] as const;
+
+const ASSISTANT_KEYS = [
+  'chat.newChat.welcome.assistant.1',
+  'chat.newChat.welcome.assistant.2',
+  'chat.newChat.welcome.assistant.3',
+] as const;
+
+function greetKeyForHour(hour: number): TranslationKey {
+  if (hour >= 5 && hour < 12) return 'chat.newChat.greet.morning' as TranslationKey;
+  if (hour >= 12 && hour < 18) return 'chat.newChat.greet.afternoon' as TranslationKey;
+  if (hour >= 18 && hour < 23) return 'chat.newChat.greet.evening' as TranslationKey;
+  return 'chat.newChat.greet.night' as TranslationKey;
+}
+
+function pick<T>(arr: ReadonlyArray<T>): T {
+  return arr[Math.floor(Math.random() * arr.length)];
+}
+
+/** Last path segment of a working directory (handles posix + windows). */
+function basename(dir: string): string {
+  return dir.replace(/[\\/]+$/, '').split(/[\\/]/).pop() ?? '';
+}
+
+interface NewChatWelcomeProps {
+  /** Active working directory; its basename is used as the project name. */
+  workingDir?: string;
+  /** True when the active workspace is the assistant workspace. */
+  isAssistant?: boolean;
+}
+
+export function NewChatWelcome({ workingDir, isAssistant }: NewChatWelcomeProps = {}) {
   const { t } = useTranslation();
-  const [welcomeKey, setWelcomeKey] = useState<TranslationKey>(WELCOME_KEYS[0]);
+  // null on the first paint → render the neutral fallback below so the
+  // server and first client render agree; the composed greeting is set
+  // once the client-only effect runs.
+  const [greeting, setGreeting] = useState<string | null>(null);
+
   useEffect(() => {
-    setWelcomeKey(WELCOME_KEYS[Math.floor(Math.random() * WELCOME_KEYS.length)]);
-  }, []);
+    const salutation = t(greetKeyForHour(new Date().getHours()));
+    const sep = t('chat.newChat.greet.sep' as TranslationKey);
+    const project = workingDir ? basename(workingDir) : '';
+
+    let question: string;
+    if (isAssistant) {
+      question = t(pick(ASSISTANT_KEYS) as TranslationKey);
+    } else if (project) {
+      question = t(pick(PROJECT_KEYS) as TranslationKey, { project });
+    } else {
+      question = t(pick(GENERAL_KEYS) as TranslationKey);
+    }
+
+    setGreeting(`${salutation}${sep}${question}`);
+  }, [t, workingDir, isAssistant]);
 
   return (
     <div className="flex items-center justify-center gap-3 mb-8">
       <MonolithIcon className="h-9 w-9 shrink-0" />
       <h1 className="text-3xl font-medium tracking-tight text-foreground leading-none">
-        {t(welcomeKey)}
+        {greeting ?? t('chat.newChat.welcome.1' as TranslationKey)}
       </h1>
     </div>
   );

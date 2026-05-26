@@ -1670,15 +1670,29 @@ const en = {
   'chat.empty.assistant.promo': 'Set up your personal assistant — remembers your preferences, manages schedule, assists creation',
   'chat.empty.explanation': 'Project Chat works within a codebase folder. Personal Assistant works across all your tasks without a specific project.',
 
-  // New-chat welcome — random rotation prompts shown above the composer.
-  // Keep them short, action-oriented, and varied enough to feel fresh
-  // across visits. Stable English IDs map to per-locale phrasing.
-  'chat.newChat.welcome.1': 'What can I help you with today?',
+  // New-chat welcome — composed as "{salutation}{sep}{question}" by
+  // NewChatWelcome.tsx. The salutation reflects time of day; the question
+  // pool depends on context (assistant > named project > general). Keep
+  // questions Capitalized so they read as a clean second sentence after
+  // the salutation ("Good morning. What are we working on?"). Consumed
+  // only by NewChatWelcome.tsx.
+  'chat.newChat.greet.morning': 'Good morning',
+  'chat.newChat.greet.afternoon': 'Good afternoon',
+  'chat.newChat.greet.evening': 'Good evening',
+  'chat.newChat.greet.night': 'Working late',
+  'chat.newChat.greet.sep': '. ',
+  'chat.newChat.welcome.1': 'What are we working on?',
   'chat.newChat.welcome.2': 'What would you like to build?',
   'chat.newChat.welcome.3': "What's on your mind?",
   'chat.newChat.welcome.4': 'Where should we start?',
-  'chat.newChat.welcome.5': 'Got a project to dig into?',
-  'chat.newChat.welcome.6': 'How can I assist you?',
+  'chat.newChat.welcome.5': 'Got something to dig into?',
+  'chat.newChat.welcome.6': 'How can I help?',
+  'chat.newChat.welcome.project.1': 'Back to {project}?',
+  'chat.newChat.welcome.project.2': "What's next for {project}?",
+  'chat.newChat.welcome.project.3': "Let's pick up {project}.",
+  'chat.newChat.welcome.assistant.1': 'Anything on your mind?',
+  'chat.newChat.welcome.assistant.2': 'Need a hand with something?',
+  'chat.newChat.welcome.assistant.3': 'Where shall we start?',
 
   // Platform
   'platform.openInFileManager': 'Double-click to open in {fileManager}',

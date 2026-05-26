@@ -1651,13 +1651,26 @@ const zh: Record<TranslationKey, string> = {
   'chat.empty.assistant.promo': '设置你的个人助理 — 记住你的偏好、管理日程、辅助创作',
   'chat.empty.explanation': '项目对话在代码目录中工作。个人助理跨所有任务工作，无需特定项目。',
 
-  // 新对话欢迎语 — 随机轮换
-  'chat.newChat.welcome.1': '今天想做什么？',
-  'chat.newChat.welcome.2': '需要我从哪里开始？',
-  'chat.newChat.welcome.3': '在做什么项目？',
-  'chat.newChat.welcome.4': '我能为你做什么？',
-  'chat.newChat.welcome.5': '有什么需要帮忙的？',
-  'chat.newChat.welcome.6': '我们一起干点什么？',
+  // 新对话欢迎语 — 由 NewChatWelcome.tsx 拼成「{时段问候}{分隔}{问句}」。
+  // 问候随时段变化；问句池随上下文切换（助理 > 具名项目 > 通用）。问句不带
+  // 时间词（「今天」等由问候承载），避免和问候重复。仅 NewChatWelcome.tsx 使用。
+  'chat.newChat.greet.morning': '早上好',
+  'chat.newChat.greet.afternoon': '下午好',
+  'chat.newChat.greet.evening': '晚上好',
+  'chat.newChat.greet.night': '夜深了',
+  'chat.newChat.greet.sep': '，',
+  'chat.newChat.welcome.1': '想做点什么？',
+  'chat.newChat.welcome.2': '想搭点什么？',
+  'chat.newChat.welcome.3': '在琢磨什么？',
+  'chat.newChat.welcome.4': '从哪儿开始？',
+  'chat.newChat.welcome.5': '有什么要深挖的？',
+  'chat.newChat.welcome.6': '需要我做点什么？',
+  'chat.newChat.welcome.project.1': '继续推进 {project}？',
+  'chat.newChat.welcome.project.2': '{project} 接下来做点什么？',
+  'chat.newChat.welcome.project.3': '接着搞 {project} 吧。',
+  'chat.newChat.welcome.assistant.1': '今天想聊点什么？',
+  'chat.newChat.welcome.assistant.2': '需要帮你梳理点什么？',
+  'chat.newChat.welcome.assistant.3': '想从哪儿聊起？',
 
   // Platform
   'platform.openInFileManager': '双击在{fileManager}中打开',
