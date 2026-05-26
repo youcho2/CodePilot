@@ -157,5 +157,5 @@ Electron 截图：见 `docs/exec-plans/active/_smoke-evidence/phase-7c-light.png
 
 ### 待办
 
-- **wrapper removal regression**：Phase F 调试时观察到，删除 AppShell 左侧 sidebar 的 `<div className="flex h-full shrink-0">` wrapper 会让 anti-FOUC script 失效（`dataPlatform=null`），跟 Round 34 同样的失败模式。当前 Phase F 保留 wrapper 绕过。根因尚未定位，进 `docs/exec-plans/tech-debt-tracker.md`。
+- ~~**wrapper removal regression**~~（已解决 2026-05-26）：曾以为删除 AppShell 左侧 sidebar 的 `<div className="flex h-full shrink-0">` wrapper 会让 anti-FOUC script 失效（`dataPlatform=null`）。复核确认是**误判**——`data-platform` 由 `<head>` 里的 anti-FOUC `<script>` 在 hydration 前盖在 `<html>` 上，与 `<body>` 内的 layout wrapper 无因果关系；真凶是组件树中任意 hydration mismatch / render error 触发的 full client re-render 把 `<html>` 重渲染掉。Phase 7c 收口已删除该 wrapper，sidebar 回到 row-level card；Electron diag 实测 `dataPlatform=darwin` / `opaqueElementCount=0`。详见 tech-debt #29（已解决）。
 - **trafficLightPosition 微调**：当前公式给的 `y=21` 是按 dot cluster ~14px 高度 + 半高 7 计算。Electron 在 macOS 26 上 AppKit 偏移可能 ±1-2px，由 user 在 Electron 中目视确认后再微调（D-3）。

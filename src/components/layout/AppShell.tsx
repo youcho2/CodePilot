@@ -706,51 +706,55 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             <UnifiedTopBar />
             <UpdateBanner />
             <div className="flex flex-1 min-h-0 overflow-hidden" data-app-content-row>
-              {/* Round 22 — wrap left sidebar + its ResizeHandle into a
-                  single flex item so the data-app-content-row gap only
-                  spaces the four floating cards. Previously the handle
-                  was a sibling of ChatListPanel and got its own
-                  `gap: 4px` slot on both sides, making the left-sidebar
-                  → main spacing visibly larger than the other three
-                  gutters. */}
-              {/* Phase 7c-B — left sidebar wrapped in CardFrame +
-                  CardSurface. Frame owns shadow + isolation + width
-                  layout slot; Surface owns bg + clip + overflow. The
-                  inner panel components (ChatListPanel /
-                  SettingsSidebar) now render only their column
-                  content with no aside wrapper. */}
-              <div className="flex h-full shrink-0">
-                {chatListOpen && (
-                  <CardFrame kind="sidebar" width={chatListWidth}>
-                    <CardSurface
-                      kind="sidebar"
-                      variant={pathname.startsWith('/settings') ? 'settings' : 'chat-list'}
-                    >
-                      <ErrorBoundary>
-                        {pathname.startsWith('/settings') ? (
-                          <SettingsSidebar open={chatListOpen} />
-                        ) : (
-                          <ChatListPanel
-                            open={chatListOpen}
-                            hasUpdate={updateContextValue.updateInfo?.updateAvailable ?? false}
-                            readyToInstall={updateContextValue.updateInfo?.readyToInstall ?? false}
-                          />
-                        )}
-                      </ErrorBoundary>
-                    </CardSurface>
-                  </CardFrame>
-                )}
-                {chatListOpen && (
-                  <ResizeGutter
-                    onResize={handleChatListResize}
-                    onResizeEnd={handleChatListResizeEnd}
-                    onReset={() => {
-                      setChatListWidth(240);
-                      localStorage.setItem("codepilot_chatlist_width", "240");
-                    }}
-                  />
-                )}
-              </div>
+              {/* Phase 7c closeout — the left sidebar is now a
+                  row-level card, exactly like main / workspace /
+                  fileTree: its CardFrame and ResizeGutter sit FLAT in
+                  data-app-content-row with no extra wrapper.
+
+                  The old `<div className="flex h-full shrink-0">`
+                  wrapper was a vestige of the Round 22 `gap: 4px` era,
+                  when it grouped the sidebar + handle into one flex
+                  item so the row gap wouldn't double up around the
+                  handle. Phase 7c-F set the darwin content-row gap to
+                  0 (the 8px ResizeGutter now owns the only visible
+                  gap), so the wrapper had no layout job left.
+
+                  Removing it was previously blamed for dataPlatform=
+                  null (tech-debt #29). That was a misattribution: the
+                  data-platform attribute is stamped on <html> by the
+                  anti-FOUC <head> script before hydration and has no
+                  causal link to a layout <div> deep in <body>. See
+                  tech-debt #29's resolution for the real cause. */}
+              {chatListOpen && (
+                <CardFrame kind="sidebar" width={chatListWidth}>
+                  <CardSurface
+                    kind="sidebar"
+                    variant={pathname.startsWith('/settings') ? 'settings' : 'chat-list'}
+                  >
+                    <ErrorBoundary>
+                      {pathname.startsWith('/settings') ? (
+                        <SettingsSidebar open={chatListOpen} />
+                      ) : (
+                        <ChatListPanel
+                          open={chatListOpen}
+                          hasUpdate={updateContextValue.updateInfo?.updateAvailable ?? false}
+                          readyToInstall={updateContextValue.updateInfo?.readyToInstall ?? false}
+                        />
+                      )}
+                    </ErrorBoundary>
+                  </CardSurface>
+                </CardFrame>
+              )}
+              {chatListOpen && (
+                <ResizeGutter
+                  onResize={handleChatListResize}
+                  onResizeEnd={handleChatListResizeEnd}
+                  onReset={() => {
+                    setChatListWidth(240);
+                    localStorage.setItem("codepilot_chatlist_width", "240");
+                  }}
+                />
+              )}
               <ChatContentRow isChatDetailRoute={isChatDetailRoute} isSplitActive={isSplitActive}>
                 {children}
               </ChatContentRow>

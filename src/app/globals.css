@@ -291,10 +291,10 @@
      the darwin profile sets it. */
   --platform-traffic-light-safe-area: 0px;
   /* Vertical alignment nudge so chrome controls in the drag region
-     line up with the traffic-light center (≈ y=18 in `hiddenInset`).
-     Default 0 px on non-Mac; darwin profile sets a small positive
-     offset to bring h-8 buttons (center y=16) onto the same line as
-     the traffic lights. */
+     line up with the traffic-light center. Stays 0 px everywhere —
+     the alignment is owned by the traffic-light Y set in
+     `electron/main.ts`, not by this offset (see the darwin-profile
+     note below for the current value). */
   --platform-traffic-light-offset-y: 0px;
 }
 
@@ -354,13 +354,13 @@ html[data-platform="darwin"][data-shell="electron"][data-platform-style="auto"] 
      `hiddenInset` traffic-light cluster (left edge → end of green dot
      ≈ 76 px) plus one pixel of visual breathing. */
   --platform-traffic-light-safe-area: 78px;
-  /* Round 22 — offset reset to 0. After we moved the traffic
-     lights via `trafficLightPosition: { x: 20, y: 18 }`, the dot
-     centers land at y=24 (inset y=18 + button radius 6). The
-     UnifiedTopBar's h-12 row already vertically centers its
-     children at y=24, so no additional shift is needed. The
-     earlier +2 px was tuned for default `hiddenInset` (y=12),
-     which put dots at y=18 — irrelevant now. */
+  /* Offset stays 0. The traffic-light Y is owned by
+     `electron/main.ts` (`trafficLightPosition: { x: 20, y: 21 }`) —
+     that file is the source of truth; keep this note in sync if it
+     changes. y=21 is picked so the dot centers land at ~y=28, which
+     is where the Phase 7c-E shell (padding-top 8 + the h-10 topbar
+     row) vertically centers its chrome controls, so no extra CSS
+     shift is needed here. */
   --platform-traffic-light-offset-y: 0px;
 }
 
@@ -470,7 +470,8 @@ html.dark[data-platform="darwin"][data-shell="electron"][data-platform-style="au
   html[data-platform="darwin"][data-shell="electron"][data-platform-style="auto"] [data-platform-sidebar],
   html[data-platform="darwin"][data-shell="electron"][data-platform-style="auto"] [data-workspace-sidebar],
   html[data-platform="darwin"][data-shell="electron"][data-platform-style="auto"] [data-platform-main-content],
-  html[data-platform="darwin"][data-shell="electron"][data-platform-style="auto"] [data-platform-file-tree] {
+  html[data-platform="darwin"][data-shell="electron"][data-platform-style="auto"] [data-platform-file-tree],
+  html[data-platform="darwin"][data-shell="electron"][data-platform-style="auto"] [data-platform-assistant] {
     border-radius: 14px;
     clip-path: inset(0 round 14px);
     width: 100%;
@@ -480,7 +481,8 @@ html.dark[data-platform="darwin"][data-shell="electron"][data-platform-style="au
   html.dark[data-platform="darwin"][data-shell="electron"][data-platform-style="auto"] [data-platform-sidebar],
   html.dark[data-platform="darwin"][data-shell="electron"][data-platform-style="auto"] [data-workspace-sidebar],
   html.dark[data-platform="darwin"][data-shell="electron"][data-platform-style="auto"] [data-platform-main-content],
-  html.dark[data-platform="darwin"][data-shell="electron"][data-platform-style="auto"] [data-platform-file-tree] {
+  html.dark[data-platform="darwin"][data-shell="electron"][data-platform-style="auto"] [data-platform-file-tree],
+  html.dark[data-platform="darwin"][data-shell="electron"][data-platform-style="auto"] [data-platform-assistant] {
     box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.06);
   }
   /* Translucent cards get backdrop-filter. Frame's `isolation:

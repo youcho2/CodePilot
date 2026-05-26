@@ -6,7 +6,13 @@
  * Why source-grep instead of DOM render:
  *   - The constraints live in CSS (gap geometry, clip vs overflow,
  *     attribute names) not in component runtime behavior.
- *   - Electron-side visual proof lives in
+ *   - jsdom does no layout, so it cannot prove the gutter's 2px line
+ *     actually lands on the gap mid-line. That centering claim is now
+ *     proven against a real Chromium render in
+ *     `src/__tests__/e2e/card-gutter-geometry.spec.ts` (@smoke) —
+ *     these source pins guard the contract, that e2e measures the
+ *     resulting geometry.
+ *   - Electron-side darwin visual proof lives in
  *     `docs/exec-plans/active/_smoke-evidence/phase-7c/` (manual
  *     screenshots referenced in the plan's acceptance section).
  *   - Existing unit tests in this folder all follow the same
@@ -39,6 +45,14 @@ test("ResizeGutter renders a justify-center container so the 2px line lands on i
 
 test("ResizeGutter visible line is 2px wide (w-0.5)", () => {
   match(SOURCE, /className="pointer-events-none w-0\.5 transition-opacity duration-150"/);
+});
+
+test("ResizeGutter width is driven by the RESIZE_GUTTER_WIDTH_PX constant", () => {
+  // The 8px container width must come from the exported constant, not a
+  // hand-typed literal, so the "8px gap" promise stays single-source.
+  // The real-DOM centering that results is asserted in
+  // card-gutter-geometry.spec.ts.
+  match(SOURCE, /style=\{\{ width: RESIZE_GUTTER_WIDTH_PX \}\}/);
 });
 
 test("ResizeGutter is marked with data-resize-gutter for DOM identification", () => {
@@ -76,6 +90,15 @@ test("CardSurface emits the correct data-platform-* attribute per kind", () => {
   match(SOURCE, /main: "data-platform-main-content",/);
   match(SOURCE, /workspace: "data-workspace-sidebar",/);
   match(SOURCE, /fileTree: "data-platform-file-tree",/);
+  match(SOURCE, /assistant: "data-platform-assistant",/);
+});
+
+test("CardKind includes the assistant rail and maps its frame value (Phase 7c closeout)", () => {
+  // The assistant rail joined the primitive so the right rail runs one
+  // chrome system. globals.css adds [data-platform-assistant] to the
+  // opaque-surface group (NOT the translucent backdrop-filter group).
+  match(SOURCE, /export type CardKind =[^;]*"assistant"/);
+  match(SOURCE, /assistant: "assistant",/);
 });
 
 test("CardSurface keeps overflow-hidden (it's the actual clipping layer)", () => {

@@ -27,7 +27,7 @@
 import { useCallback, useRef, useState } from "react";
 import { cn } from "@/lib/utils";
 
-export type CardKind = "sidebar" | "main" | "workspace" | "fileTree";
+export type CardKind = "sidebar" | "main" | "workspace" | "fileTree" | "assistant";
 
 const CARD_FRAME_ATTR = "data-platform-card-frame";
 
@@ -39,6 +39,7 @@ const SURFACE_ATTR_BY_KIND: Record<CardKind, string> = {
   main: "data-platform-main-content",
   workspace: "data-workspace-sidebar",
   fileTree: "data-platform-file-tree",
+  assistant: "data-platform-assistant",
 };
 
 const FRAME_VALUE_BY_KIND: Record<CardKind, string> = {
@@ -46,6 +47,7 @@ const FRAME_VALUE_BY_KIND: Record<CardKind, string> = {
   main: "main",
   workspace: "workspace",
   fileTree: "file-tree",
+  assistant: "assistant",
 };
 
 /* -------------------------------------------------------------------------- */
@@ -136,6 +138,9 @@ export function CardSurface({ kind, variant, className, children }: CardSurfaceP
         kind === "workspace" && "bg-background",
         kind === "main" && "bg-background",
         kind === "fileTree" && "bg-background",
+        // Assistant rail is opaque by deliberate user request (see
+        // AssistantPanel's "Round 5" note) — same treatment as fileTree.
+        kind === "assistant" && "bg-background",
         className,
       )}
     >
@@ -160,7 +165,8 @@ interface ResizeGutterProps {
  * as a sibling between two CardFrames (NEVER inside a frame). Owns the
  * pointer math and gradient; consumer panels just plug in callbacks.
  *
- * Geometry contract — verified by `phase-7c-gutter-geometry.test.ts`:
+ * Geometry contract — verified by the real-DOM e2e
+ * `src/__tests__/e2e/card-gutter-geometry.spec.ts`:
  *   gutter.boundingClientRect().width === 8
  *   line centerX === gutter centerX (the 2px line sits in the middle
  *   of the 8px gutter, so it lands on the geometric mid-line between

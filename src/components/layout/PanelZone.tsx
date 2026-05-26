@@ -47,21 +47,48 @@ const TREE_MIN_WIDTH = 220;
 const TREE_MAX_WIDTH = 500;
 const TREE_DEFAULT_WIDTH = 280;
 
+const ASSISTANT_MIN_WIDTH = 260;
+const ASSISTANT_MAX_WIDTH = 460;
+const ASSISTANT_DEFAULT_WIDTH = 320;
+
 export function PanelZone() {
   const { fileTreeOpen, assistantPanelOpen } = usePanel();
   const [treeWidth, setTreeWidth] = useState(TREE_DEFAULT_WIDTH);
+  const [assistantWidth, setAssistantWidth] = useState(ASSISTANT_DEFAULT_WIDTH);
 
   const handleTreeResize = useCallback((delta: number) => {
     // Dragging right on a right-rail handle → narrower tree, so subtract.
     setTreeWidth((w) => Math.min(TREE_MAX_WIDTH, Math.max(TREE_MIN_WIDTH, w - delta)));
   }, []);
 
+  const handleAssistantResize = useCallback((delta: number) => {
+    setAssistantWidth((w) => Math.min(ASSISTANT_MAX_WIDTH, Math.max(ASSISTANT_MIN_WIDTH, w - delta)));
+  }, []);
+
   const anyOpen = fileTreeOpen || assistantPanelOpen;
   if (!anyOpen) return null;
 
+  // Phase 7c closeout — AssistantPanel is now a row-level floating
+  // card just like fileTree: its own ResizeGutter + CardFrame +
+  // CardSurface. It used to render bare (its own border-l /
+  // bg-background chrome), which left the right rail running two
+  // different chrome systems. Both panels now go through the single
+  // card primitive; AssistantPanel renders inner content only.
   return (
     <>
-      {assistantPanelOpen && <AssistantPanel />}
+      {assistantPanelOpen && (
+        <>
+          <ResizeGutter
+            onResize={handleAssistantResize}
+            onReset={() => setAssistantWidth(ASSISTANT_DEFAULT_WIDTH)}
+          />
+          <CardFrame kind="assistant" width={assistantWidth}>
+            <CardSurface kind="assistant">
+              <AssistantPanel />
+            </CardSurface>
+          </CardFrame>
+        </>
+      )}
       {fileTreeOpen && (
         <>
           <ResizeGutter

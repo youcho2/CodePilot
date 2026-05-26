@@ -39,8 +39,14 @@ export function AssistantPanel() {
   }, []);
 
   return (
-    // Round 5: right rail back to opaque per user request.
-    <div className="flex h-full flex-col border-l border-border bg-background">
+    // Phase 7c closeout — outer chrome (border-l / bg-background)
+    // removed: the CardFrame/CardSurface wrapper in PanelZone now owns
+    // background, radius, clip and shadow, so the right rail runs one
+    // chrome system. This element is just the inner content column.
+    // Opacity is preserved — the assistant CardSurface uses
+    // bg-background, honoring the original "right rail back to opaque
+    // per user request" decision.
+    <div className="flex h-full flex-col">
       {/* Header */}
       <div className="flex items-center justify-between border-b border-border px-3 py-2">
         <div className="flex items-center gap-2">

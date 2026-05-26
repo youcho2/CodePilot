@@ -65,8 +65,9 @@ data-app-content-row（横向 flex，children 扁平）
 | C | WorkspaceSidebar 同 B：移除自己的 aside / wrapper | done | commit `be5a3c0` |
 | D | PanelZone + FileTreePanel 同 B/C | done | commit `b991d1e` |
 | E | shell padding 拆开（`padding-top` 单独算）+ trafficLightPosition.y 重算 | done | commit `e7b5a44`；y=21 起点，待 Electron 截图微调（D-3） |
-| F | ResizeHandle → ResizeGutter 切换（3 处替换，content-row gap 改 0） | done | commit `1261bc4`；保留 sidebar wrapper 绕过 dataPlatform=null regression（tech-debt #29） |
+| F | ResizeHandle → ResizeGutter 切换（3 处替换，content-row gap 改 0） | done | commit `1261bc4`；当时临时保留 sidebar wrapper（已于 2026-05-26 收口删除，tech-debt #29 误判已撤销，sidebar 改为 row-level card） |
 | G | 验收：四张卡片 DOM 结构记录、gutter 中心测量、light/dark Electron 截图、console 干净 | done | 写入 `docs/handover/macos-visual-profile.md` Phase 7c 章节；3 个 gutter 全部 offset=0 |
+| H | 收口：删 sidebar wrapper（row-level card）+ AssistantPanel 接入 CardFrame/CardSurface（新增 `assistant` kind）+ 真实 DOM gutter 几何 e2e + 修 globals.css stale trafficLight 注释 | done | 2026-05-26；Codex review 4 findings；Electron diag `dataPlatform=darwin` / `opaqueElementCount=0` |
 
 ## 决策日志
 
@@ -112,6 +113,6 @@ ResizeGutter 的"line 在 gap 正中"不能只靠肉眼。
 
 ## 风险 / 已知坑
 
-- **anti-FOUC script 失效复现路径** — Round 34 改完后 dataPlatform=null。具体哪个改动触发的还没定位。Phase B 切换 AppShell 结构时**单独提交**，提交后**立刻**重启 Electron 验证 diag log，如果 dataPlatform 变 null → 当步 revert，定位是哪个 wrapper change 触发的。
+- **anti-FOUC script 失效复现路径** — Round 34 改完后 dataPlatform=null。**已定位（2026-05-26，tech-debt #29 收口）**：根因是 React 放弃 SSR hydration、从 RootLayout 重渲染 `<html>`，抹掉 `<head>` script 设的 `data-platform`，由组件树中**任意**位置的 hydration mismatch / render error 触发，与某个 layout wrapper 无关。切换 AppShell 结构时仍建议**单独提交**并立刻重启 Electron 验证 diag log；但若 dataPlatform 变 null，应去查 hydration mismatch / render error（控制台的 hydration 报错、server/client 渲染分叉），不要再怪某个 wrapper。
 - **clip-path + translucent fill + backdrop-filter 三层叠加的 sub-pixel 锯齿** — Round 30 的根因，目前用 `inset 0 0 0 1px highlight` ring 视觉掩盖。Phase A 设计 CardSurface 时考虑改用 `border: 1px solid` + `box-sizing: border-box`（Chromium 把 border 跟 border-radius 当一个 anti-aliased outline）。这是个**单独验证项**：CardSurface 加 storybook-style demo 页面，对比 inset shadow vs border 两种方案的圆角清晰度。
 - **trafficLight 跨 padding 变化** — 任何 shell padding 变动都必须同步 `electron/main.ts` 的 trafficLightPosition.y。建议在 main.ts 注释里链回这份计划，提醒未来改 padding 的人。
