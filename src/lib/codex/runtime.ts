@@ -63,10 +63,12 @@ import {
 } from './provider-proxy';
 import {
   buildCodexMemoryMcpConfig,
+  buildCodexWidgetMcpConfig,
   fingerprintCodexMcpConfig,
   sameRealPath,
   type CodexMcpServersConfig,
 } from './mcp-config';
+import { promptNeedsWidget } from '@/lib/widget-guidelines';
 import {
   handleCodexDynamicToolCall,
   type CodexDynamicToolCallParams,
@@ -484,6 +486,18 @@ export const codexRuntime: AgentRuntime = {
               sessionId,
             });
             codexMcpServers[mem.name] = mem.entry;
+          }
+          // Widget MCP (Phase 8 #31) — keyword-gated, the SAME gate the
+          // ClaudeCode path uses (`promptNeedsWidget`, shared from
+          // widget-guidelines). Static read-only guidelines, no workspace
+          // scope. Lets the model load the show-widget wire format and emit
+          // widgets in Codex Account chats.
+          if (options.prompt && promptNeedsWidget(options.prompt)) {
+            const widget = buildCodexWidgetMcpConfig({
+              baseUrl: resolveCodexProxyBaseUrl(),
+              sessionId,
+            });
+            codexMcpServers[widget.name] = widget.entry;
           }
           const hasMcp = Object.keys(codexMcpServers).length > 0;
           // Fingerprint the injected MCP set; a resume whose fingerprint

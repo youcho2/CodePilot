@@ -1,15 +1,14 @@
 /**
- * Phase 8 Phase 1 — CodePilot Memory MCP served to Codex over streamable HTTP.
+ * Phase 8 — CodePilot built-in MCP servers served to Codex over the generic
+ * streamable-HTTP route (/api/codex/mcp/[server]). Phase 1 (memory) + #31 (widget).
  *
  * Run: npx tsx --test src/__tests__/unit/codex-memory-mcp-route.test.ts
  *
- * Two concerns:
- *  (a) REUSE: the route mounts the SAME `createMemorySearchMcpServer`
- *      instance the ClaudeCode path uses (no duplicated tool logic). Proven
- *      via an in-memory MCP client — 3 tools present + memory_recent reads
- *      the workspace.
- *  (b) ROUTE: the POST handler stands up the MCP transport and answers an
- *      `initialize`, and rejects a request with no workspace header.
+ * Concerns:
+ *  (a) REUSE: routes mount the SAME createSdkMcpServer the ClaudeCode path
+ *      uses (no duplicated tool logic) — proven via an in-memory MCP client.
+ *  (b) ROUTE: the generic POST handler authorizes per-server (memory scoped
+ *      to the configured workspace; widget open) and answers initialize.
  */
 
 import { describe, it, before, after } from 'node:test';
@@ -21,7 +20,8 @@ import path from 'node:path';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { createMemorySearchMcpServer } from '@/lib/memory-search-mcp';
-import { POST } from '@/app/api/codex/mcp/memory/route';
+import { createWidgetMcpServer } from '@/lib/widget-guidelines';
+import { POST } from '@/app/api/codex/mcp/[server]/route';
 import { getSetting, setSetting } from '@/lib/db';
 
 let ws: string;
@@ -32,7 +32,6 @@ before(() => {
   fs.writeFileSync(path.join(ws, 'memory.md'), '# Long-term\nMEMTEST_MARKER preferred language is Chinese.\n', 'utf-8');
   otherWs = fs.mkdtempSync(path.join(os.tmpdir(), 'codex-mem-other-'));
   fs.writeFileSync(path.join(otherWs, 'memory.md'), 'SECRET other-workspace memory\n', 'utf-8');
-  // The route only serves the configured assistant workspace.
   priorAssistantWs = getSetting('assistant_workspace_path');
   setSetting('assistant_workspace_path', ws);
 });
@@ -42,85 +41,75 @@ after(() => {
   fs.rmSync(otherWs, { recursive: true, force: true });
 });
 
-describe('Memory MCP reuse (in-memory)', () => {
-  it('exposes the 3 ClaudeCode memory tools and reads the workspace', async () => {
+const INIT_BODY = JSON.stringify({
+  jsonrpc: '2.0',
+  id: 1,
+  method: 'initialize',
+  params: { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 't', version: '1.0' } },
+});
+
+function callRoute(server: string, headers: Record<string, string>, body = INIT_BODY) {
+  const req = new Request(`http://local/api/codex/mcp/${server}`, { method: 'POST', headers, body });
+  return POST(req as never, { params: Promise.resolve({ server }) });
+}
+
+describe('built-in MCP reuse (in-memory)', () => {
+  it('memory: exposes the 3 ClaudeCode tools and reads the workspace', async () => {
     const [clientT, serverT] = InMemoryTransport.createLinkedPair();
     const { instance } = createMemorySearchMcpServer(ws);
     await instance.connect(serverT);
     const client = new Client({ name: 'test', version: '1.0.0' });
     await client.connect(clientT);
-
     const tools = (await client.listTools()).tools.map((t) => t.name).sort();
-    assert.deepEqual(tools, [
-      'codepilot_memory_get',
-      'codepilot_memory_recent',
-      'codepilot_memory_search',
-    ]);
-
+    assert.deepEqual(tools, ['codepilot_memory_get', 'codepilot_memory_recent', 'codepilot_memory_search']);
     const recent = await client.callTool({ name: 'codepilot_memory_recent', arguments: {} });
-    const text = (recent.content as { type: string; text: string }[])[0]?.text ?? '';
-    assert.match(text, /MEMTEST_MARKER/);
+    assert.match((recent.content as { text: string }[])[0]?.text ?? '', /MEMTEST_MARKER/);
+    await client.close();
+    await instance.close();
+  });
 
+  it('widget: exposes codepilot_load_widget_guidelines', async () => {
+    const [clientT, serverT] = InMemoryTransport.createLinkedPair();
+    const { instance } = createWidgetMcpServer();
+    await instance.connect(serverT);
+    const client = new Client({ name: 'test', version: '1.0.0' });
+    await client.connect(clientT);
+    const tools = (await client.listTools()).tools.map((t) => t.name);
+    assert.ok(tools.includes('codepilot_load_widget_guidelines'));
     await client.close();
     await instance.close();
   });
 });
 
-describe('Memory MCP route (POST handler)', () => {
-  it('rejects a request with no workspace header (400)', async () => {
-    const res = await POST(
-      new Request('http://local/api/codex/mcp/memory', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: '{}',
-      }) as never,
-    );
-    assert.equal(res.status, 400);
+describe('built-in MCP route — /api/codex/mcp/[server]', () => {
+  const accept = { 'content-type': 'application/json', accept: 'application/json, text/event-stream' };
+
+  it('unknown server → 404', async () => {
+    const res = await callRoute('nope', accept);
+    assert.equal(res.status, 404);
   });
 
-  it('rejects a workspace that is not the configured assistant workspace (403)', async () => {
-    const body = JSON.stringify({
-      jsonrpc: '2.0',
-      id: 1,
-      method: 'initialize',
-      params: { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 't', version: '1.0' } },
-    });
-    const res = await POST(
-      new Request('http://local/api/codex/mcp/memory', {
-        method: 'POST',
-        headers: {
-          'content-type': 'application/json',
-          accept: 'application/json, text/event-stream',
-          // attacker-chosen directory, NOT the configured assistant workspace
-          'x-codepilot-workspace-path': otherWs,
-        },
-        body,
-      }) as never,
+  it('memory without/with wrong workspace → 403 (scoped to configured workspace)', async () => {
+    assert.equal((await callRoute('codepilot_memory', accept)).status, 403); // no header
+    assert.equal(
+      (await callRoute('codepilot_memory', { ...accept, 'x-codepilot-workspace-path': otherWs })).status,
+      403, // attacker-chosen dir
     );
-    assert.equal(res.status, 403);
   });
 
-  it('answers an MCP initialize over the streamable-HTTP transport', async () => {
-    const body = JSON.stringify({
-      jsonrpc: '2.0',
-      id: 1,
-      method: 'initialize',
-      params: { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 't', version: '1.0' } },
-    });
-    const res = await POST(
-      new Request('http://local/api/codex/mcp/memory', {
-        method: 'POST',
-        headers: {
-          'content-type': 'application/json',
-          accept: 'application/json, text/event-stream',
-          'x-codepilot-workspace-path': ws,
-        },
-        body,
-      }) as never,
-    );
+  it('memory with the configured workspace → 200 initialize', async () => {
+    const res = await callRoute('codepilot_memory', { ...accept, 'x-codepilot-workspace-path': ws });
     assert.equal(res.status, 200);
     const json = (await res.json()) as { result?: { serverInfo?: { name?: string } }; error?: unknown };
     assert.equal(json.error, undefined);
     assert.equal(json.result?.serverInfo?.name, 'codepilot-memory');
+  });
+
+  it('widget → 200 initialize WITHOUT a workspace header (no file access, not scoped)', async () => {
+    const res = await callRoute('codepilot_widget', accept);
+    assert.equal(res.status, 200);
+    const json = (await res.json()) as { result?: { serverInfo?: { name?: string } }; error?: unknown };
+    assert.equal(json.error, undefined);
+    assert.equal(json.result?.serverInfo?.name, 'codepilot-widget-guidelines');
   });
 });

@@ -337,6 +337,22 @@ export function getGuidelines(moduleNames: string[]): string {
   return parts.join('\n\n\n');
 }
 
+// ── Keyword gate (shared contract — Phase 8 #31) ────────────────────────────
+
+/**
+ * Widget is keyword-gated: only loaded when the prompt hints at generative
+ * UI, or the conversation already contains a widget (resume context). Used by
+ * BOTH the ClaudeCode path (`claude-client.ts`) and the Codex Runtime
+ * injection (`codex/runtime.ts`) so the gate can't drift between runtimes.
+ */
+export const WIDGET_KEYWORDS =
+  /可视化|图表|流程图|时间线|架构图|对比|visualiz|diagram|chart|flowchart|timeline|infographic|interactive|widget|show-widget|hierarchy|dashboard/i;
+
+export function promptNeedsWidget(prompt: string, conversationHasWidget = false): boolean {
+  if (prompt && WIDGET_KEYWORDS.test(prompt)) return true;
+  return conversationHasWidget;
+}
+
 // ── In-process MCP server for on-demand guideline loading ───────────────────
 
 /**

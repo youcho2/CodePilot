@@ -97,10 +97,12 @@ describe('runtime elicitation handler (source pin)', () => {
 });
 
 describe('decideCodexElicitation — behavior (Phase 5 root-cause guard)', () => {
-  it('ACCEPTS the read-only Memory server (else Codex rejects the model\'s memory call)', () => {
-    const r = decideCodexElicitation('codepilot_memory');
-    assert.equal(r.action, 'accept');
-    assert.deepEqual(r.content, {});
+  it('ACCEPTS the read-only built-in servers (memory + widget; else Codex rejects the call)', () => {
+    for (const s of ['codepilot_memory', 'codepilot_widget']) {
+      const r = decideCodexElicitation(s);
+      assert.equal(r.action, 'accept', `${s} must accept`);
+      assert.deepEqual(r.content, {});
+    }
   });
 
   it('DECLINES any other server (never blanket-accept)', () => {

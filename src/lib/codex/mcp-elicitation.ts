@@ -19,7 +19,7 @@
  * decline (or, worse, blanket accept)".
  */
 
-import { CODEX_MEMORY_MCP_SERVER_NAME } from './mcp-config';
+import { CODEX_MEMORY_MCP_SERVER_NAME, CODEX_WIDGET_MCP_SERVER_NAME } from './mcp-config';
 
 /** Shape of `McpServerElicitationRequestResponse` (codex 0.133 v2). */
 export interface CodexElicitationResponse {
@@ -29,14 +29,25 @@ export interface CodexElicitationResponse {
 }
 
 /**
+ * Built-in MCP servers whose tool-call approval elicitation we auto-accept.
+ * ONLY safe-read built-ins (Memory = workspace memo reads, Widget = static
+ * guidelines text). Mutating / side-effecting servers must NOT be added here
+ * — they need mutationLevel / permission policy first (#31).
+ */
+const AUTO_ACCEPT_ELICITATION_SERVERS: ReadonlySet<string> = new Set([
+  CODEX_MEMORY_MCP_SERVER_NAME,
+  CODEX_WIDGET_MCP_SERVER_NAME,
+]);
+
+/**
  * Decide how to answer a Codex MCP elicitation, given the originating MCP
- * server name. Accept only the read-only Memory server; decline everything
+ * server name. Accept only the safe-read built-in servers; decline everything
  * else (the safe default — never blanket-accept).
  */
 export function decideCodexElicitation(
   serverName: string | null | undefined,
 ): CodexElicitationResponse {
-  if (serverName === CODEX_MEMORY_MCP_SERVER_NAME) {
+  if (serverName && AUTO_ACCEPT_ELICITATION_SERVERS.has(serverName)) {
     return { action: 'accept', content: {}, _meta: null };
   }
   return { action: 'decline', content: null, _meta: null };

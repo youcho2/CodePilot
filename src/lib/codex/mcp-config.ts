@@ -124,15 +124,18 @@ export function buildCodexMcpServersConfig(
   return { servers, unsupported };
 }
 
-/** Default Codex `mcp_servers` key for the CodePilot Memory MCP. */
+/** Codex `mcp_servers` keys for CodePilot built-in MCP servers. The key is
+ *  also the route path segment (see `/api/codex/mcp/[server]`). */
 export const CODEX_MEMORY_MCP_SERVER_NAME = 'codepilot_memory';
+export const CODEX_WIDGET_MCP_SERVER_NAME = 'codepilot_widget';
 
 /** Header the Memory MCP route reads to scope memory reads to a workspace. */
 export const MEMORY_MCP_WORKSPACE_HEADER = 'x-codepilot-workspace-path';
-/** Header the Memory MCP route reads to associate a chat session. */
+/** Header used to associate a chat session. */
 export const MEMORY_MCP_SESSION_HEADER = 'x-codepilot-session-id';
-/** Next route path that serves the CodePilot Memory MCP over streamable HTTP. */
-export const MEMORY_MCP_ROUTE_PATH = '/api/codex/mcp/memory';
+/** Base path serving CodePilot built-in MCP servers over streamable HTTP;
+ *  the server name is appended (e.g. /api/codex/mcp/codepilot_memory). */
+export const CODEX_MCP_ROUTE_BASE = '/api/codex/mcp';
 
 /**
  * Build the Codex `mcp_servers` entry for the CodePilot Memory MCP.
@@ -154,6 +157,7 @@ export function buildCodexMemoryMcpConfig(opts: {
   /** Override the `mcp_servers` key (default `codepilot_memory`). */
   serverName?: string;
 }): { name: string; entry: CodexStreamableHttpMcpServer } {
+  const name = opts.serverName ?? CODEX_MEMORY_MCP_SERVER_NAME;
   const trimmed = opts.baseUrl.replace(/\/+$/, '');
   const http_headers: Record<string, string> = {
     [MEMORY_MCP_WORKSPACE_HEADER]: opts.workspacePath,
@@ -161,10 +165,29 @@ export function buildCodexMemoryMcpConfig(opts: {
   if (opts.sessionId && opts.sessionId.length > 0) {
     http_headers[MEMORY_MCP_SESSION_HEADER] = opts.sessionId;
   }
-  return {
-    name: opts.serverName ?? CODEX_MEMORY_MCP_SERVER_NAME,
-    entry: { url: `${trimmed}${MEMORY_MCP_ROUTE_PATH}`, http_headers },
+  return { name, entry: { url: `${trimmed}${CODEX_MCP_ROUTE_BASE}/${name}`, http_headers } };
+}
+
+/**
+ * Build the Codex `mcp_servers` entry for the CodePilot Widget MCP
+ * (`codepilot_load_widget_guidelines` — static read-only guidelines text,
+ * served by the same `/api/codex/mcp/[server]` route). No workspace header:
+ * the widget server reads no files, so it isn't workspace-scoped.
+ */
+export function buildCodexWidgetMcpConfig(opts: {
+  baseUrl: string;
+  sessionId?: string;
+}): { name: string; entry: CodexStreamableHttpMcpServer } {
+  const trimmed = opts.baseUrl.replace(/\/+$/, '');
+  const http_headers: Record<string, string> = {};
+  if (opts.sessionId && opts.sessionId.length > 0) {
+    http_headers[MEMORY_MCP_SESSION_HEADER] = opts.sessionId;
+  }
+  const entry: CodexStreamableHttpMcpServer = {
+    url: `${trimmed}${CODEX_MCP_ROUTE_BASE}/${CODEX_WIDGET_MCP_SERVER_NAME}`,
   };
+  if (Object.keys(http_headers).length > 0) entry.http_headers = http_headers;
+  return { name: CODEX_WIDGET_MCP_SERVER_NAME, entry };
 }
 
 /** Recursively sort object keys so equal configs hash identically. */

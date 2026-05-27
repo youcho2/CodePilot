@@ -17,11 +17,13 @@ import type { MCPServerConfig } from '../../types';
 import {
   buildCodexMcpServersConfig,
   buildCodexMemoryMcpConfig,
+  buildCodexWidgetMcpConfig,
   fingerprintCodexMcpConfig,
   redactCodexMcpConfigForLog,
   isStdioEntry,
   sameRealPath,
   CODEX_MEMORY_MCP_SERVER_NAME,
+  CODEX_WIDGET_MCP_SERVER_NAME,
   MEMORY_MCP_WORKSPACE_HEADER,
   type CodexMcpServersConfig,
 } from '../../lib/codex/mcp-config';
@@ -102,7 +104,7 @@ describe('buildCodexMemoryMcpConfig', () => {
       sessionId: 'sess-1',
     });
     assert.equal(name, CODEX_MEMORY_MCP_SERVER_NAME);
-    assert.equal(entry.url, 'http://127.0.0.1:3000/api/codex/mcp/memory');
+    assert.equal(entry.url, 'http://127.0.0.1:3000/api/codex/mcp/codepilot_memory');
     assert.equal(entry.http_headers?.[MEMORY_MCP_WORKSPACE_HEADER], '/ws/assistant');
   });
 
@@ -113,6 +115,20 @@ describe('buildCodexMemoryMcpConfig', () => {
       assert.doesNotMatch(v, /token|secret|key|bearer|password/i);
     }
     assert.equal('bearer_token_env_var' in entry, false);
+  });
+});
+
+describe('buildCodexWidgetMcpConfig', () => {
+  it('points at the widget route with NO workspace header (static guidelines, not scoped)', () => {
+    const { name, entry } = buildCodexWidgetMcpConfig({ baseUrl: 'http://127.0.0.1:3000', sessionId: 'sess-1' });
+    assert.equal(name, CODEX_WIDGET_MCP_SERVER_NAME);
+    assert.equal(entry.url, 'http://127.0.0.1:3000/api/codex/mcp/codepilot_widget');
+    assert.equal(entry.http_headers?.[MEMORY_MCP_WORKSPACE_HEADER], undefined);
+  });
+
+  it('omits http_headers entirely when no session id', () => {
+    const { entry } = buildCodexWidgetMcpConfig({ baseUrl: 'http://x:3000' });
+    assert.equal(entry.http_headers, undefined);
   });
 });
 

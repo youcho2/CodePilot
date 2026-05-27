@@ -359,6 +359,10 @@ export const CAPABILITY_NOTES: Readonly<Record<string, BilingualText>> = {
     zh: 'Memory 已接入 Codex，模型可在需要时调用。',
     en: 'Memory is wired into Codex; the model can call it when needed.',
   },
+  widget_codex_native: {
+    zh: 'Widget 已接入 Codex；模型能否在自然对话中主动生成 Widget，待真实账号验证。',
+    en: 'Widget is wired into Codex; whether the model generates widgets on its own in normal conversation is pending real-account verification.',
+  },
 };
 
 export function getCapabilityNote(noteKey: string, lang: 'zh' | 'en'): string | undefined {

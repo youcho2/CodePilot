@@ -312,28 +312,32 @@ export function capabilityMatrixForRuntime(
  * the user honestly in Settings.
  *
  * Capabilities affected:
- *   - widget / tasks_and_notify / image_generation / media_import →
+ *   - tasks_and_notify / image_generation / media_import →
  *     bridge_executable on codex_proxy, NOT on codex_account (no native
- *     injection path; stay perception_only under Codex Account).
+ *     injection path yet; stay perception_only under Codex Account).
  *   - dashboard / cli_tools / assistant_buddy → already deferred /
  *     unsupported (no further downgrade needed).
  *
- * Phase 8 Phase 4 (2026-05-27) — `memory` is REMOVED from this set.
- * Unlike the bridge-only built-ins, Memory now reaches Codex Account via
- * Codex's NATIVE `config.mcp_servers` injection (not the proxy bridge):
- * the runtime injects it on both the account and proxy branches, the
- * Memory MCP route serves it, and `mcpServer/tool/call` returns real
- * memory (validated end-to-end against Codex 0.133 — see
- * docs/research/codex-mcp-injection-poc/). So it stays `executable` under
- * Codex Account, carrying an honest caveat (noteKey) that whether the
- * model autonomously uses it in chat is pending the Phase 5 login smoke.
+ * REMOVED from this set (reach Codex Account via NATIVE config.mcp_servers
+ * injection, not the proxy bridge — runtime injects on both account+proxy
+ * branches, served by /api/codex/mcp/[server]):
+ *   - `memory` (Phase 4) — login-smoke verified; affirmative note.
+ *   - `widget` (#31) — keyword-gated native injection; stays executable with
+ *     a caveat note (model's autonomous widget use pending real-account smoke).
  */
 const CODEX_ACCOUNT_BRIDGE_DEMOTED_CAPS: ReadonlySet<string> = new Set([
-  'widget',
   'tasks_and_notify',
   'image_generation',
   'media_import',
 ]);
+
+/** Built-ins reachable on Codex Account via native MCP injection → keep
+ *  executable but attach an honest per-capability note (key in
+ *  capability-display-text CAPABILITY_NOTES). */
+const CODEX_ACCOUNT_NATIVE_NOTE_BY_CAP: Readonly<Record<string, string>> = {
+  memory: 'memory_codex_native',
+  widget: 'widget_codex_native',
+};
 
 /**
  * Returns the capability matrix for a specific Runtime + Provider
@@ -351,11 +355,11 @@ export function capabilityMatrixForRuntimeProvider(
   }
   // Demote bridge-only capabilities to perception_only for Codex Account.
   return base.map((cell) => {
-    // Phase 8 Phase 4 — Memory reaches Codex Account via native MCP
-    // injection (not the proxy bridge), so it stays executable; attach an
-    // honest caveat that autonomous model use is pending Phase 5.
-    if (cell.capabilityId === 'memory' && cell.status === 'executable') {
-      return { ...cell, noteKey: 'memory_codex_native' };
+    // Native-injected built-ins (memory, widget) stay executable under Codex
+    // Account, each with an honest per-capability note.
+    const nativeNote = CODEX_ACCOUNT_NATIVE_NOTE_BY_CAP[cell.capabilityId];
+    if (nativeNote && cell.status === 'executable') {
+      return { ...cell, noteKey: nativeNote };
     }
     if (!CODEX_ACCOUNT_BRIDGE_DEMOTED_CAPS.has(cell.capabilityId)) {
       return cell;

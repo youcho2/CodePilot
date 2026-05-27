@@ -335,11 +335,11 @@ describe('Capability matrix — trustBoundary derivation', () => {
 // ─────────────────────────────────────────────────────────────────────
 
 describe('Capability matrix — Codex Account provider downgrade', () => {
-  it('codex_runtime + codex_account demotes widget / tasks_and_notify / image_generation / media_import to perception_only (bridge-only, no native injection)', () => {
+  it('codex_runtime + codex_account demotes tasks_and_notify / image_generation / media_import to perception_only (bridge-only, no native injection)', () => {
     const cells = capabilityMatrixForRuntimeProvider('codex_runtime', 'codex_account');
-    // Phase 8 Phase 4 — `memory` is NO LONGER demoted; it reaches Codex
-    // Account via native config.mcp_servers injection (asserted below).
-    for (const capId of ['widget', 'tasks_and_notify', 'image_generation', 'media_import']) {
+    // Phase 8 — `memory` (P4) and `widget` (#31) are NO LONGER demoted; they
+    // reach Codex Account via native config.mcp_servers injection (below).
+    for (const capId of ['tasks_and_notify', 'image_generation', 'media_import']) {
       const cell = cells.find((c) => c.capabilityId === capId);
       assert.ok(cell, `${capId} should be in matrix`);
       assert.equal(
@@ -383,6 +383,21 @@ describe('Capability matrix — Codex Account provider downgrade', () => {
       const note = getCapabilityNote(memory!.noteKey!, lang);
       assert.ok(note && note.length > 0, `note must resolve for ${lang}`);
       assert.doesNotMatch(note!, /MCP|config\.mcp_servers|Phase\s*5/i, `${lang} note must not leak internal vocabulary`);
+    }
+  });
+
+  it('codex_runtime + codex_account keeps widget EXECUTABLE (native MCP injection, #31) with a caveat note', () => {
+    const cells = capabilityMatrixForRuntimeProvider('codex_runtime', 'codex_account');
+    const widget = cells.find((c) => c.capabilityId === 'widget');
+    assert.ok(widget, 'widget should be in matrix');
+    // #31: widget reaches Codex Account via native (keyword-gated) injection,
+    // so it stays executable — not demoted like the remaining bridge-only caps.
+    assert.equal(widget!.status, 'executable');
+    assert.equal(widget!.noteKey, 'widget_codex_native');
+    for (const lang of ['zh', 'en'] as const) {
+      const note = getCapabilityNote(widget!.noteKey!, lang);
+      assert.ok(note && note.length > 0, `widget note must resolve for ${lang}`);
+      assert.doesNotMatch(note!, /MCP|config\.mcp_servers|Phase\s*5/i, `${lang} widget note must not leak internal vocabulary`);
     }
   });
 
