@@ -1,25 +1,26 @@
 /**
- * Codex MCP elicitation policy — Phase 8 Phase 5.
+ * Codex MCP elicitation policy + approval — Phase 8 (Phase 5 root-cause + #31).
  *
  * Under `approvalPolicy: on-request`, Codex sends an MCP tool-call APPROVAL
- * to the client as a `mcpServer/elicitation/request` (server→client). The
- * Phase 5 login smoke's root cause was a blanket DECLINE here: every
- * autonomous `codepilot_memory_*` call came back as Codex's
- * "user rejected MCP tool call".
+ * to the client as a `mcpServer/elicitation/request` (server→client). How we
+ * answer depends on the built-in server's policy (declared in
+ * `builtin-mcp-servers.ts`):
  *
- * Policy: the CodePilot Memory MCP is read-only (auto_safe mutationLevel),
- * so its elicitation is ACCEPTED — the model may read memory without a
- * prompt. Any OTHER server is a safe DECLINE: we have no UI to fill a real
- * elicitation form, and no permission policy to approve other servers'
- * (possibly mutating) tools yet. That gate is the work tracked for the
- * remaining capabilities (Widget / Tasks / Image / Media / user MCP).
+ *   - `auto_accept` (safe-read: memory, widget) → accept immediately.
+ *   - `user_approval` (mutating / side-effecting: tasks) → route to the
+ *     user's approval flow (reuse `registerPendingPermission` +
+ *     `permission_request` SSE, the same path Codex's native approval-bridge
+ *     uses); accept ONLY if the user approves. Never auto-run.
+ *   - `decline` (unknown server) → safe decline.
  *
- * This is a pure decision function so it can be unit-tested directly —
- * the regression we must prevent is "someone flips it back to blanket
- * decline (or, worse, blanket accept)".
+ * `codexElicitationPolicy` is a pure classifier (unit-tested) — the
+ * regression we must prevent is "someone flips it to blanket accept/decline".
  */
 
-import { CODEX_MEMORY_MCP_SERVER_NAME, CODEX_WIDGET_MCP_SERVER_NAME } from './mcp-config';
+import type { PermissionRequestEvent } from '@/types';
+import { createPermissionRequest, getPermissionRequest } from '@/lib/db';
+import { registerPendingPermission } from '@/lib/permission-registry';
+import { getBuiltinMcpServer, type ElicitationPolicy } from './builtin-mcp-servers';
 
 /** Shape of `McpServerElicitationRequestResponse` (codex 0.133 v2). */
 export interface CodexElicitationResponse {
@@ -28,27 +29,76 @@ export interface CodexElicitationResponse {
   _meta: null;
 }
 
-/**
- * Built-in MCP servers whose tool-call approval elicitation we auto-accept.
- * ONLY safe-read built-ins (Memory = workspace memo reads, Widget = static
- * guidelines text). Mutating / side-effecting servers must NOT be added here
- * — they need mutationLevel / permission policy first (#31).
- */
-const AUTO_ACCEPT_ELICITATION_SERVERS: ReadonlySet<string> = new Set([
-  CODEX_MEMORY_MCP_SERVER_NAME,
-  CODEX_WIDGET_MCP_SERVER_NAME,
-]);
+export type CodexElicitationDecision = ElicitationPolicy | 'decline';
+
+export const ACCEPT_ELICITATION: CodexElicitationResponse = { action: 'accept', content: {}, _meta: null };
+export const DECLINE_ELICITATION: CodexElicitationResponse = { action: 'decline', content: null, _meta: null };
 
 /**
- * Decide how to answer a Codex MCP elicitation, given the originating MCP
- * server name. Accept only the safe-read built-in servers; decline everything
- * else (the safe default — never blanket-accept).
+ * Classify how to answer an elicitation by its originating MCP server name.
+ * Known built-ins use their declared `elicitationPolicy`; anything else
+ * declines (the safe default — never blanket-accept an unknown server).
  */
-export function decideCodexElicitation(
-  serverName: string | null | undefined,
-): CodexElicitationResponse {
-  if (serverName && AUTO_ACCEPT_ELICITATION_SERVERS.has(serverName)) {
-    return { action: 'accept', content: {}, _meta: null };
+export function codexElicitationPolicy(serverName: string | null | undefined): CodexElicitationDecision {
+  if (!serverName) return 'decline';
+  const entry = getBuiltinMcpServer(serverName);
+  return entry ? entry.elicitationPolicy : 'decline';
+}
+
+/**
+ * Route a mutating built-in's tool-call approval to the USER, reusing the
+ * exact `permission_request` SSE + `registerPendingPermission` path the
+ * native Codex approval-bridge uses (so the existing PermissionPrompt UI
+ * renders it). Accept iff the user approves. Never throws — a failure or a
+ * duplicate RPC resolves to a safe decline rather than auto-running.
+ */
+export async function handleCodexMcpElicitationApproval(args: {
+  sessionId: string;
+  jsonRpcId: number | string;
+  serverName: string;
+  message?: string;
+  emitSse: (line: string) => void;
+}): Promise<CodexElicitationResponse> {
+  const requestId = `codex-mcp-elicit:${args.jsonRpcId}`;
+
+  // Idempotency: a duplicate elicitation RPC must NOT double-prompt or
+  // re-INSERT (UNIQUE id). Soft-decline the duplicate; the original prompt
+  // drives the real decision for the original RPC.
+  if (getPermissionRequest(requestId)) {
+    return DECLINE_ELICITATION;
   }
-  return { action: 'decline', content: null, _meta: null };
+
+  const toolName = `${args.serverName} (MCP tool)`;
+  const description = args.message?.trim()
+    ? args.message
+    : `The ${args.serverName} MCP server wants to run a tool.`;
+  const toolInput = { server: args.serverName, message: args.message ?? null };
+  const sdkPermission: PermissionRequestEvent = {
+    permissionRequestId: requestId,
+    toolName,
+    toolInput,
+    toolUseId: '',
+    description,
+  };
+
+  try {
+    createPermissionRequest({
+      id: requestId,
+      sessionId: args.sessionId,
+      toolName,
+      toolInput: JSON.stringify(toolInput),
+      decisionReason: description,
+      expiresAt: new Date(Date.now() + 5 * 60 * 1000).toISOString(),
+    });
+  } catch (err) {
+    console.warn('[codex.mcp-elicitation] createPermissionRequest failed:', err);
+  }
+
+  args.emitSse(
+    `data: ${JSON.stringify({ type: 'permission_request', data: JSON.stringify(sdkPermission) })}\n\n`,
+  );
+
+  // Resolves via /api/chat/permission → resolvePendingPermission (same as SDK).
+  const result = await registerPendingPermission(requestId, toolInput);
+  return result.behavior === 'allow' ? ACCEPT_ELICITATION : DECLINE_ELICITATION;
 }

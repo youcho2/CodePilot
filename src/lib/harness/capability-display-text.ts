@@ -363,6 +363,10 @@ export const CAPABILITY_NOTES: Readonly<Record<string, BilingualText>> = {
     zh: 'Widget 已接入 Codex；模型能否在自然对话中主动生成 Widget，待真实账号验证。',
     en: 'Widget is wired into Codex; whether the model generates widgets on its own in normal conversation is pending real-account verification.',
   },
+  tasks_codex_native: {
+    zh: '任务与通知已接入 Codex；模型调用前会请你确认。是否会在自然对话中被主动使用，待真实账号验证。',
+    en: 'Tasks & notifications are wired into Codex; the model asks for your confirmation before each call. Autonomous use in normal conversation is pending real-account verification.',
+  },
 };
 
 export function getCapabilityNote(noteKey: string, lang: 'zh' | 'en'): string | undefined {

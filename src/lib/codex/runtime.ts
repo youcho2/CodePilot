@@ -64,6 +64,7 @@ import {
 import {
   buildCodexMemoryMcpConfig,
   buildCodexWidgetMcpConfig,
+  buildCodexTasksMcpConfig,
   fingerprintCodexMcpConfig,
   sameRealPath,
   type CodexMcpServersConfig,
@@ -74,7 +75,12 @@ import {
   type CodexDynamicToolCallParams,
   type McpToolCallResultLike,
 } from './dynamic-tool-bridge';
-import { decideCodexElicitation } from './mcp-elicitation';
+import {
+  codexElicitationPolicy,
+  handleCodexMcpElicitationApproval,
+  ACCEPT_ELICITATION,
+  DECLINE_ELICITATION,
+} from './mcp-elicitation';
 import { getSetting } from '@/lib/db';
 import { subscribeBuiltinEvents } from './proxy/builtin-event-bus';
 import {
@@ -378,34 +384,51 @@ export const codexRuntime: AgentRuntime = {
           // fill a real form, and no policy to approve other servers yet).
           const unsubElicit = client.onServerRequest(
             'mcpServer/elicitation/request',
-            (params) => {
+            async (params, ctx) => {
               const p = (params ?? {}) as {
                 serverName?: string;
                 message?: string;
                 mode?: string;
                 requestedSchema?: unknown;
               };
-              // Pure, unit-tested policy (mcp-elicitation.ts): accept the
-              // read-only Memory server, decline everything else. Keeps the
-              // "never blanket-decline / never blanket-accept" invariant.
-              const resp = decideCodexElicitation(p.serverName);
-              const accepted = resp.action === 'accept';
+              // Policy (mcp-elicitation.ts, registry-driven): safe-read →
+              // auto_accept; mutating/side-effect → user_approval (surface to
+              // the user); unknown → decline. Never blanket-accept.
+              const policy = codexElicitationPolicy(p.serverName);
               console.debug('[codex.mcp-elicitation]', {
                 serverName: p.serverName,
                 mode: p.mode,
                 hasSchema: p.requestedSchema != null,
-                action: resp.action,
+                policy,
               });
-              tryEnqueue(
-                `data: ${JSON.stringify({
-                  type: 'status',
-                  data: JSON.stringify({
-                    kind: accepted ? 'codex.mcpElicitationAccepted' : 'codex.mcpElicitationDeclined',
-                    payload: { server: p.serverName ?? null, message: p.message ?? null },
-                  }),
-                })}\n\n`,
-              );
-              return resp;
+              const emitStatus = (kind: string) =>
+                tryEnqueue(
+                  `data: ${JSON.stringify({
+                    type: 'status',
+                    data: JSON.stringify({
+                      kind,
+                      payload: { server: p.serverName ?? null, message: p.message ?? null },
+                    }),
+                  })}\n\n`,
+                );
+
+              if (policy === 'auto_accept') {
+                emitStatus('codex.mcpElicitationAccepted');
+                return ACCEPT_ELICITATION;
+              }
+              if (policy === 'user_approval') {
+                // Mutating/side-effecting tool → ask the user (the
+                // permission_request SSE is emitted inside the handler).
+                return await handleCodexMcpElicitationApproval({
+                  sessionId,
+                  jsonRpcId: ctx.id,
+                  serverName: p.serverName ?? '',
+                  message: p.message,
+                  emitSse: tryEnqueue,
+                });
+              }
+              emitStatus('codex.mcpElicitationDeclined');
+              return DECLINE_ELICITATION;
             },
           );
           unsubscribers.push(unsubElicit);
@@ -498,6 +521,18 @@ export const codexRuntime: AgentRuntime = {
               sessionId,
             });
             codexMcpServers[widget.name] = widget.entry;
+          }
+          // Tasks/Notify MCP (#31) — always-on built-in (matches the
+          // ClaudeCode "always" trigger). Its mutating tools (schedule /
+          // cancel / notify) route to USER APPROVAL at call time (see the
+          // elicitation handler below), so it's safe to inject unconditionally.
+          {
+            const tasks = buildCodexTasksMcpConfig({
+              baseUrl: resolveCodexProxyBaseUrl(),
+              workspacePath: options.workingDirectory ?? '',
+              sessionId,
+            });
+            codexMcpServers[tasks.name] = tasks.entry;
           }
           const hasMcp = Object.keys(codexMcpServers).length > 0;
           // Fingerprint the injected MCP set; a resume whose fingerprint

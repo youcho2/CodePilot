@@ -312,21 +312,21 @@ export function capabilityMatrixForRuntime(
  * the user honestly in Settings.
  *
  * Capabilities affected:
- *   - tasks_and_notify / image_generation / media_import →
- *     bridge_executable on codex_proxy, NOT on codex_account (no native
- *     injection path yet; stay perception_only under Codex Account).
+ *   - image_generation / media_import → bridge_executable on codex_proxy,
+ *     NOT on codex_account (native injection pending the MediaBlock result
+ *     contract; stay perception_only under Codex Account for now).
  *   - dashboard / cli_tools / assistant_buddy → already deferred /
  *     unsupported (no further downgrade needed).
  *
  * REMOVED from this set (reach Codex Account via NATIVE config.mcp_servers
- * injection, not the proxy bridge — runtime injects on both account+proxy
- * branches, served by /api/codex/mcp/[server]):
+ * injection, not the proxy bridge — runtime injects, served by
+ * /api/codex/mcp/[server]):
  *   - `memory` (Phase 4) — login-smoke verified; affirmative note.
- *   - `widget` (#31) — keyword-gated native injection; stays executable with
- *     a caveat note (model's autonomous widget use pending real-account smoke).
+ *   - `widget` (#31) — keyword-gated native injection; caveat note.
+ *   - `tasks_and_notify` (#31) — always-on native injection; mutating tools
+ *     route to user approval; caveat note (autonomous use pending smoke).
  */
 const CODEX_ACCOUNT_BRIDGE_DEMOTED_CAPS: ReadonlySet<string> = new Set([
-  'tasks_and_notify',
   'image_generation',
   'media_import',
 ]);
@@ -337,6 +337,7 @@ const CODEX_ACCOUNT_BRIDGE_DEMOTED_CAPS: ReadonlySet<string> = new Set([
 const CODEX_ACCOUNT_NATIVE_NOTE_BY_CAP: Readonly<Record<string, string>> = {
   memory: 'memory_codex_native',
   widget: 'widget_codex_native',
+  tasks_and_notify: 'tasks_codex_native',
 };
 
 /**

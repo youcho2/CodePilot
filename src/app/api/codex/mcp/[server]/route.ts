@@ -14,7 +14,7 @@
 
 import { type NextRequest } from 'next/server';
 import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js';
-import { MEMORY_MCP_WORKSPACE_HEADER } from '@/lib/codex/mcp-config';
+import { MEMORY_MCP_WORKSPACE_HEADER, MEMORY_MCP_SESSION_HEADER } from '@/lib/codex/mcp-config';
 import { getBuiltinMcpServer } from '@/lib/codex/builtin-mcp-servers';
 
 export const runtime = 'nodejs';
@@ -37,8 +37,11 @@ export async function POST(
     return jsonRpcError(-32601, `Unknown built-in MCP server: ${server}`, 404);
   }
 
-  const workspacePath = request.headers.get(MEMORY_MCP_WORKSPACE_HEADER) ?? '';
-  const auth = entry.authorize({ workspacePath });
+  const ctx = {
+    workspacePath: request.headers.get(MEMORY_MCP_WORKSPACE_HEADER) ?? '',
+    sessionId: request.headers.get(MEMORY_MCP_SESSION_HEADER) ?? '',
+  };
+  const auth = entry.authorize(ctx);
   if (!auth.ok) {
     return jsonRpcError(-32600, auth.message, auth.status);
   }
@@ -48,7 +51,7 @@ export async function POST(
       sessionIdGenerator: undefined, // stateless — one request, one response
       enableJsonResponse: true, // buffered JSON, no SSE stream to keep open
     });
-    const instance = entry.create({ workspacePath });
+    const instance = entry.create(ctx);
     await instance.connect(transport);
     return await transport.handleRequest(request);
   } catch (err) {

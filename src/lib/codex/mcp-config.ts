@@ -128,6 +128,7 @@ export function buildCodexMcpServersConfig(
  *  also the route path segment (see `/api/codex/mcp/[server]`). */
 export const CODEX_MEMORY_MCP_SERVER_NAME = 'codepilot_memory';
 export const CODEX_WIDGET_MCP_SERVER_NAME = 'codepilot_widget';
+export const CODEX_TASKS_MCP_SERVER_NAME = 'codepilot_tasks';
 
 /** Header the Memory MCP route reads to scope memory reads to a workspace. */
 export const MEMORY_MCP_WORKSPACE_HEADER = 'x-codepilot-workspace-path';
@@ -188,6 +189,32 @@ export function buildCodexWidgetMcpConfig(opts: {
   };
   if (Object.keys(http_headers).length > 0) entry.http_headers = http_headers;
   return { name: CODEX_WIDGET_MCP_SERVER_NAME, entry };
+}
+
+/**
+ * Build the Codex `mcp_servers` entry for the CodePilot Tasks/Notify MCP
+ * (`codepilot_schedule_task` / `cancel_task` / `notify` / `list_tasks`).
+ * Like Memory it carries workspace + session headers (the route's
+ * `createNotificationMcpServer` scopes tasks by sessionId + working dir).
+ * Mutating/side-effecting → its tool-call approval is `user_approval`
+ * (see builtin-mcp-servers.ts), NOT auto-accepted.
+ */
+export function buildCodexTasksMcpConfig(opts: {
+  baseUrl: string;
+  workspacePath: string;
+  sessionId?: string;
+}): { name: string; entry: CodexStreamableHttpMcpServer } {
+  const trimmed = opts.baseUrl.replace(/\/+$/, '');
+  const http_headers: Record<string, string> = {
+    [MEMORY_MCP_WORKSPACE_HEADER]: opts.workspacePath,
+  };
+  if (opts.sessionId && opts.sessionId.length > 0) {
+    http_headers[MEMORY_MCP_SESSION_HEADER] = opts.sessionId;
+  }
+  return {
+    name: CODEX_TASKS_MCP_SERVER_NAME,
+    entry: { url: `${trimmed}${CODEX_MCP_ROUTE_BASE}/${CODEX_TASKS_MCP_SERVER_NAME}`, http_headers },
+  };
 }
 
 /** Recursively sort object keys so equal configs hash identically. */

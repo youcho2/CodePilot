@@ -4,20 +4,24 @@
  *
  * Each entry knows how to (a) build a fresh in-process MCP server instance
  * per request (stateless) by reusing the SAME `createSdkMcpServer` the
- * ClaudeCode path uses — no duplicated tool logic — and (b) authorize the
- * request. The route is generic; per-server policy lives here so adding the
- * next capability is a one-entry change.
+ * ClaudeCode path uses — no duplicated tool logic, (b) authorize the HTTP
+ * request, and (c) declare the elicitation policy for the model's
+ * autonomous tool-call approval.
  *
- * Auth policy is per-server because the access risk differs:
- *   - Memory reads workspace files → MUST be scoped to the configured
- *     assistant workspace (realpath equality), else a local process could
- *     point it at any directory.
- *   - Widget guidelines are static read-only text (no file/FS access) →
- *     localhost trust is sufficient, no workspace scoping.
+ * Two independent per-server policies:
+ *   - `authorize` (HTTP serving): memory reads workspace files → MUST be
+ *     scoped to the configured assistant workspace; widget/tasks read no
+ *     files → localhost trust.
+ *   - `elicitationPolicy` (tool-call approval, Phase 8 #31): Codex sends an
+ *     `mcpServer/elicitation/request` to approve each model-initiated tool
+ *     call. Safe-read servers (memory, widget) `auto_accept`; servers with
+ *     mutating / side-effecting tools (tasks: schedule/cancel/notify) need
+ *     `user_approval` — route to the user, never auto-run.
  */
 
 import { createMemorySearchMcpServer } from '@/lib/memory-search-mcp';
 import { createWidgetMcpServer } from '@/lib/widget-guidelines';
+import { createNotificationMcpServer } from '@/lib/notification-mcp';
 import { getSetting } from '@/lib/db';
 import { sameRealPath } from './mcp-config';
 
@@ -28,15 +32,23 @@ export type BuiltinMcpAuth =
   | { ok: true }
   | { ok: false; status: number; message: string };
 
+/** Tool-call approval policy for a built-in server's elicitation. */
+export type ElicitationPolicy = 'auto_accept' | 'user_approval';
+
+export interface BuiltinMcpRouteCtx {
+  workspacePath: string;
+  sessionId: string;
+}
+
 export interface BuiltinMcpServerEntry {
   /** Codex `mcp_servers` namespace + route path segment. */
   readonly serverName: string;
-  /** Whether the server reads the assistant workspace (memory) or not (widget). */
-  readonly needsWorkspace: boolean;
+  /** Tool-call approval policy (see module doc). */
+  readonly elicitationPolicy: ElicitationPolicy;
   /** Build a fresh server instance for one stateless request. */
-  create(ctx: { workspacePath: string }): CodexBuiltinMcpInstance;
-  /** Authorize the request before serving. */
-  authorize(ctx: { workspacePath: string }): BuiltinMcpAuth;
+  create(ctx: BuiltinMcpRouteCtx): CodexBuiltinMcpInstance;
+  /** Authorize the HTTP request before serving. */
+  authorize(ctx: BuiltinMcpRouteCtx): BuiltinMcpAuth;
 }
 
 function authorizeAssistantWorkspace(workspacePath: string): BuiltinMcpAuth {
@@ -52,15 +64,24 @@ function authorizeAssistantWorkspace(workspacePath: string): BuiltinMcpAuth {
 export const CODEX_BUILTIN_MCP_SERVERS: Readonly<Record<string, BuiltinMcpServerEntry>> = {
   codepilot_memory: {
     serverName: 'codepilot_memory',
-    needsWorkspace: true,
+    elicitationPolicy: 'auto_accept', // read-only memo reads (auto_safe)
     create: ({ workspacePath }) => createMemorySearchMcpServer(workspacePath).instance,
     authorize: ({ workspacePath }) => authorizeAssistantWorkspace(workspacePath),
   },
   codepilot_widget: {
     serverName: 'codepilot_widget',
-    needsWorkspace: false,
+    elicitationPolicy: 'auto_accept', // static read-only guidelines text
     create: () => createWidgetMcpServer().instance,
-    // Static read-only guidelines text — no file access, no workspace scope.
+    authorize: () => ({ ok: true }), // no file access, no workspace scope
+  },
+  codepilot_tasks: {
+    serverName: 'codepilot_tasks',
+    // schedule_task / cancel_task (mutating) + notify (side-effect) → the
+    // model's call must be approved by the user, never auto-run.
+    elicitationPolicy: 'user_approval',
+    create: ({ workspacePath, sessionId }) =>
+      createNotificationMcpServer({ sessionId, workingDirectory: workspacePath }).instance,
+    // No file reads; tasks are scoped by sessionId/workspace passed at create.
     authorize: () => ({ ok: true }),
   },
 };

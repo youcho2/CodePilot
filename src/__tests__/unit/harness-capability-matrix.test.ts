@@ -335,11 +335,11 @@ describe('Capability matrix — trustBoundary derivation', () => {
 // ─────────────────────────────────────────────────────────────────────
 
 describe('Capability matrix — Codex Account provider downgrade', () => {
-  it('codex_runtime + codex_account demotes tasks_and_notify / image_generation / media_import to perception_only (bridge-only, no native injection)', () => {
+  it('codex_runtime + codex_account demotes image_generation / media_import to perception_only (bridge-only, no native injection yet)', () => {
     const cells = capabilityMatrixForRuntimeProvider('codex_runtime', 'codex_account');
-    // Phase 8 — `memory` (P4) and `widget` (#31) are NO LONGER demoted; they
-    // reach Codex Account via native config.mcp_servers injection (below).
-    for (const capId of ['tasks_and_notify', 'image_generation', 'media_import']) {
+    // Phase 8 — memory (P4), widget + tasks_and_notify (#31) are NO LONGER
+    // demoted; they reach Codex Account via native injection (asserted below).
+    for (const capId of ['image_generation', 'media_import']) {
       const cell = cells.find((c) => c.capabilityId === capId);
       assert.ok(cell, `${capId} should be in matrix`);
       assert.equal(
@@ -398,6 +398,21 @@ describe('Capability matrix — Codex Account provider downgrade', () => {
       const note = getCapabilityNote(widget!.noteKey!, lang);
       assert.ok(note && note.length > 0, `widget note must resolve for ${lang}`);
       assert.doesNotMatch(note!, /MCP|config\.mcp_servers|Phase\s*5/i, `${lang} widget note must not leak internal vocabulary`);
+    }
+  });
+
+  it('codex_runtime + codex_account keeps tasks_and_notify EXECUTABLE (native injection, #31) with a caveat note', () => {
+    const cells = capabilityMatrixForRuntimeProvider('codex_runtime', 'codex_account');
+    const tasks = cells.find((c) => c.capabilityId === 'tasks_and_notify');
+    assert.ok(tasks, 'tasks_and_notify should be in matrix');
+    // #31: always-on native injection; its mutating tools route to user
+    // approval at call time, so the capability stays executable here.
+    assert.equal(tasks!.status, 'executable');
+    assert.equal(tasks!.noteKey, 'tasks_codex_native');
+    for (const lang of ['zh', 'en'] as const) {
+      const note = getCapabilityNote(tasks!.noteKey!, lang);
+      assert.ok(note && note.length > 0, `tasks note must resolve for ${lang}`);
+      assert.doesNotMatch(note!, /MCP|config\.mcp_servers|Phase\s*5/i, `${lang} tasks note must not leak internal vocabulary`);
     }
   });
 

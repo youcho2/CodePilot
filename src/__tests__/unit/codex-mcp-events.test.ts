@@ -13,7 +13,11 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { translateCodexNotification } from '../../lib/codex/event-mapper';
-import { decideCodexElicitation } from '../../lib/codex/mcp-elicitation';
+import {
+  codexElicitationPolicy,
+  handleCodexMcpElicitationApproval,
+} from '../../lib/codex/mcp-elicitation';
+import { resolvePendingPermission } from '../../lib/permission-registry';
 
 const ctx = { sessionId: 'sess-1' } as const;
 
@@ -90,29 +94,66 @@ describe('mcpToolCall → canonical tool events', () => {
 describe('runtime elicitation handler (source pin)', () => {
   const runtimeSrc = fs.readFileSync(path.resolve(__dirname, '../../lib/codex/runtime.ts'), 'utf-8');
 
-  it('registers mcpServer/elicitation/request and routes it through the pure policy', () => {
+  it('registers mcpServer/elicitation/request and routes by policy', () => {
     assert.ok(runtimeSrc.includes("'mcpServer/elicitation/request'"), 'must register elicitation handler');
-    assert.ok(runtimeSrc.includes('decideCodexElicitation'), 'handler must use the unit-tested elicitation policy');
+    assert.ok(runtimeSrc.includes('codexElicitationPolicy'), 'handler must classify via the unit-tested policy');
+    // mutating servers must route to user approval, not auto-accept
+    assert.ok(runtimeSrc.includes('handleCodexMcpElicitationApproval'), 'user_approval must route to the approval flow');
   });
 });
 
-describe('decideCodexElicitation — behavior (Phase 5 root-cause guard)', () => {
-  it('ACCEPTS the read-only built-in servers (memory + widget; else Codex rejects the call)', () => {
-    for (const s of ['codepilot_memory', 'codepilot_widget']) {
-      const r = decideCodexElicitation(s);
-      assert.equal(r.action, 'accept', `${s} must accept`);
-      assert.deepEqual(r.content, {});
-    }
+describe('codexElicitationPolicy — built-in MCP tool-call approval classification', () => {
+  it('safe-read built-ins (memory, widget) → auto_accept', () => {
+    assert.equal(codexElicitationPolicy('codepilot_memory'), 'auto_accept');
+    assert.equal(codexElicitationPolicy('codepilot_widget'), 'auto_accept');
   });
 
-  it('DECLINES any other server (never blanket-accept)', () => {
+  it('mutating / side-effecting built-ins (tasks) → user_approval (never auto-accepted)', () => {
+    assert.equal(codexElicitationPolicy('codepilot_tasks'), 'user_approval');
+  });
+
+  it('unknown server / null / undefined → decline (never blanket-accept)', () => {
     for (const s of ['user_weather', 'chrome-devtools', 'some_mutating_server']) {
-      assert.equal(decideCodexElicitation(s).action, 'decline', `${s} must decline`);
+      assert.equal(codexElicitationPolicy(s), 'decline', `${s} must decline`);
     }
+    assert.equal(codexElicitationPolicy(null), 'decline');
+    assert.equal(codexElicitationPolicy(undefined), 'decline');
+  });
+});
+
+describe('handleCodexMcpElicitationApproval — user-approval round-trip', () => {
+  it('emits a permission_request SSE and ACCEPTS iff the user approves', async () => {
+    const lines: string[] = [];
+    const jsonRpcId = `accept-${Date.now()}`;
+    const pending = handleCodexMcpElicitationApproval({
+      sessionId: 'sess-approval',
+      jsonRpcId,
+      serverName: 'codepilot_tasks',
+      message: 'schedule a follow-up',
+      emitSse: (l) => lines.push(l),
+    });
+    // Let it emit the prompt + register the pending permission, then approve.
+    await new Promise((r) => setTimeout(r, 10));
+    const emitted = lines.find((l) => l.includes('"type":"permission_request"'));
+    assert.ok(emitted, 'must emit a permission_request SSE for the user');
+    assert.match(emitted!, /codepilot_tasks/, 'prompt must name the originating server');
+    assert.equal(resolvePendingPermission(`codex-mcp-elicit:${jsonRpcId}`, { behavior: 'allow' }), true);
+    const res = await pending;
+    assert.equal(res.action, 'accept');
   });
 
-  it('DECLINES null / undefined server (safe default — guards against blanket-decline AND blanket-accept regressions)', () => {
-    assert.equal(decideCodexElicitation(null).action, 'decline');
-    assert.equal(decideCodexElicitation(undefined).action, 'decline');
+  it('DECLINES when the user denies (never auto-runs a mutating tool)', async () => {
+    const jsonRpcId = `deny-${Date.now()}`;
+    const pending = handleCodexMcpElicitationApproval({
+      sessionId: 'sess-approval',
+      jsonRpcId,
+      serverName: 'codepilot_tasks',
+      message: 'send a notification',
+      emitSse: () => {},
+    });
+    await new Promise((r) => setTimeout(r, 10));
+    resolvePendingPermission(`codex-mcp-elicit:${jsonRpcId}`, { behavior: 'deny', message: 'no' });
+    const res = await pending;
+    assert.equal(res.action, 'decline');
   });
 });
