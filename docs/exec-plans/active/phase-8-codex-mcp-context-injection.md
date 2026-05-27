@@ -1,9 +1,10 @@
 # Phase 8 — Codex MCP / Memory 注入
 
-> 创建时间：2026-05-21  
-> 最后更新：2026-05-21  
-> 状态：📋 待 Phase 7 视觉锚点与图标体系完成后启动  
+> 创建时间：2026-05-21
+> 最后更新：2026-05-27
+> 状态：🚧 Phase 7 已收口，Phase 0 核心问题**已 live 验证通过**（真实 Codex `0.133.0` app-server，隔离 CODEX_HOME）：per-thread `config.mcp_servers` 注入可行、工具可调用、错误/elicitation/broken-server 均可见。唯一 auth-gated = 模型自主调用（需登录）。可进入 Phase 1。
 > 上游：Phase 5 Codex Runtime / Phase 5e Runtime Harness Architecture / Phase 7 Icon System
+> POC 记录：[docs/research/codex-mcp-injection-poc/](../../research/codex-mcp-injection-poc/)
 
 ## 用户目标
 
@@ -75,7 +76,7 @@ Phase 8 需要先做 wrapper / shim：
 
 | Phase | 内容 | 状态 | 用户可见结果 |
 |-------|------|------|-------------|
-| Phase 0 | MCP 注入 POC + schema fixture | 📋 待开始 | 无 UI 变化；确定 Codex app-server 是否能启动并调用 CodePilot fixture MCP |
+| Phase 0 | MCP 注入 POC + schema fixture | ✅ 基本完成 | 无 UI 变化；live 验证：Codex `0.133.0` 接受 per-thread `config.mcp_servers` 注入、`mcpServer/tool/call` 命中 fixture、错误/elicitation/broken-server 均可见；仅模型自主调用 auth-gated（见 POC 记录） |
 | Phase 1 | Codex MCP config builder + Memory MCP wrapper | 📋 待开始 | 无 UI 变化；产品代码有可测试的 `config.mcp_servers` 构造 |
 | Phase 2 | Runtime start/resume 注入 | 📋 待开始 | Codex Account / proxy 路径可带 MCP config 启动与续聊 |
 | Phase 3 | 事件、状态、elicitation / OAuth 桥接 | 📋 待开始 | MCP 启动状态、工具调用、权限请求不再静默 |
@@ -86,6 +87,9 @@ Phase 8 需要先做 wrapper / shim：
 
 目标：先证明“Codex app-server + `config.mcp_servers` + CodePilot fixture MCP”能跑，而不是在主链路里盲写。
 
+> ✅ **已 live 验证（2026-05-27）**，结论与事件样本见 [docs/research/codex-mcp-injection-poc/](../../research/codex-mcp-injection-poc/)。
+> **关键修正（推翻下方旧假设）**：per-thread 注入的 server **不进** `mcpServerStatus/list`（实测对注入 server 返回 `data:[]`）；server 的 starting/ready/failed 状态走 `mcpServer/startupStatus/updated` **通知流**。凡涉及“查 list 断言”的任务以通知流为准（Phase 3 状态桥接同理）。模型**自主**调用为 auth-gated（需登录），其余项均已通过。
+
 任务：
 
 - 用临时 `CODEX_HOME` 与独立 test workspace 启动 Codex app-server，避免污染用户真实配置。
@@ -94,15 +98,15 @@ Phase 8 需要先做 wrapper / shim：
   - `config.mcp_servers.codepilot_memory_fixture`
   - `cwd`
   - `model`
-- 调 `mcpServerStatus/list`，断言 fixture server 已启动且 tools 可见。
-- 发送一轮 prompt 要求调用 fixture memory tool，断言 Codex 发出 `mcpToolCall` / `mcpServer/tool/call` 对应事件。
+- 监听 `mcpServer/startupStatus/updated` 通知，断言注入的 fixture server 报 `starting → ready`，并经 `mcpServer/tool/call` 调用其 tool 成功。（实测：per-thread 注入 server **不进** `mcpServerStatus/list`，不能用 list 断言。）
+- 经 `mcpServer/tool/call` 直调 fixture memory tool（无需模型，已验证命中）；模型**自主**调用走 `turn/start`，为 auth-gated，待登录后补。
 - 覆盖 broken optional / required MCP startup status，确认错误能被 app-server 暴露。
 - 探测 `mcpServer/elicitation/request` 行为：如果 fixture 工具发 elicitation，当前 CodePilot 应安全拒绝并可见记录，而不是卡住。
 
 验收：
 
 - POC 产物放 `docs/research/` 或 unit fixture，不直接进产品路径。
-- Smoke Ledger 记录 Codex CLI version、transport、thread id、MCP server status、事件样本。
+- Smoke Ledger 记录 Codex CLI version、transport、thread id、`mcpServer/startupStatus/updated` 状态（starting/ready/failed）、事件样本。
 - 如果 Codex 版本或 app-server schema 与 vendored source 不一致，先记录版本门槛，不继续产品化。
 
 ## Phase 1 — Codex MCP Config Builder
@@ -190,7 +194,7 @@ Phase 8 需要先做 wrapper / shim：
 
 | Date | Runtime | Provider | Model | MCP transport | 场景 | Result | Evidence |
 |------|---------|----------|-------|---------------|------|--------|----------|
-| _待跑_ | codex_runtime | codex_account | Codex Account model | stdio fixture | Memory MCP recent/search 一轮调用 | 📋 | thread id / `mcpServerStatus/list` / DB usage / screenshot |
+| _待跑_ | codex_runtime | codex_account | Codex Account model | stdio fixture | Memory MCP recent/search 一轮调用 | 📋 | thread id / `mcpServer/startupStatus/updated` 通知 / DB usage / screenshot |
 | _待跑_ | codex_runtime | codex_account | Codex Account model | stdio fixture | 同一 session 第二轮续聊仍可调用 MCP | 📋 | same thread/provider binding + resume payload evidence |
 | _待跑_ | codex_runtime | CodePilot proxy | OpenRouter / GLM / Kimi 任一 | stdio fixture | Memory MCP 调用 + provider proxy 回复 | 📋 | proxy request id + mcp tool call event |
 | _待跑_ | codex_runtime | codex_account | Codex Account model | broken optional server | Settings / chat 显示启动失败但不阻塞主回复 | 📋 | status event + screenshot |
@@ -215,3 +219,19 @@ Phase 8 需要先做 wrapper / shim：
 ## 决策日志
 
 - 2026-05-21：用户要求在 Phase 7 UI/icon 优化后补 Codex Runtime 的 MCP / Memory 注入问题。结论：Codex app-server 支持 `config.mcp_servers`，当前 CodePilot 缺的是注入链路与 Memory MCP wrapper；先登记 Phase 8，等 Phase 7 完成后按 POC → 产品化 → Settings 翻转推进。
+- 2026-05-27：Phase 7 收口，进入 Phase 0。Codex review + 文档复核：
+  - **文档事实核对全部属实**（vendored ThreadStart/Resume Params 的 `config` override、app-server README 的 5 个 MCP 方法、`mcp_types.rs` 的 stdio + streamable_http、产品侧只注 `model_providers`、Memory MCP 是 in-process `createSdkMcpServer`）。
+  - **待 fold-in 的修订（复核发现，尚未改各 Phase 正文）**：
+    1. guardrail 失真——`codex-user-mcp-wiring.test.ts` Test 1 锁的是 4 个 Claude SDK loader 符号，**抓不到** Codex 原生 `config.mcp_servers` 注入路径；Phase 1/5 改写 guardrail 时新断言必须挂在 thread params 出现 `mcp_servers` / `buildCodexMcpServersConfig` 上。
+    2. Phase 1「sse」措辞——Codex 原生只有 `Stdio` + `StreamableHttp`，无独立 sse；应写「CodePilot http/sse → Codex streamable_http；Codex 无原生 sse」。
+    3. Phase 1 新测试避让已有 `unit/mcp-config.test.ts`，建议命名 `codex-mcp-config.test.ts`。
+    4. 风险表补：Codex 自己 spawn `config.mcp_servers` 的 stdio 进程，生命周期归 Codex，与 CodePilot connection manager 可能重复启动同一 Memory MCP；stdio wrapper 不可依赖被 spawn 时的 cwd/PATH。
+  - **Phase 0 已 live 验证通过**：用户提供现有 codex 二进制（`/Applications/Codex.app/Contents/Resources/codex`，`0.133.0-alpha.1`），在隔离 `CODEX_HOME` 下跑通（产物 `docs/research/codex-mcp-injection-poc/`）：
+    - `generate-ts` 核对：live `0.133.0` 的 `ThreadStartParams` 与 vendored 逐字一致，thread/MCP 关键方法都在；漂移项（`mcpServer/reload`→`config/mcpServer/reload`、`turn/start` 跑提示、新增 `getAuthStatus`）已记录。
+    - `thread/start` 接受 `config.mcp_servers` 注入 → 注入 server **即时启动**（`mcpServer/startupStatus/updated` starting→ready）→ `mcpServer/tool/call` 命中 fixture（memory_search→mem-1、fail_always→isError、ask_user→elicitation 往返安全 decline）。
+    - broken server 启动失败被通知暴露（`status:failed` + 详细 error），且不阻塞 thread。
+  - **Phase 0 暴露的两处文档纠正**（已写进 POC 记录，待 fold-in 到 Phase 0/3 正文）：
+    5. per-thread 注入 server **不进** `mcpServerStatus/list`（该 RPC 实测对注入 server 返回 `data:[]`）；状态/失败走 `mcpServer/startupStatus/updated` **通知流**。Phase 0 断言方式 & Phase 3 状态桥接要按通知改，不能轮询 list。
+    6. 「工具可调用」（`mcpServer/tool/call`，无需 auth）≠「模型自主调用」（`turn/start` 走模型，需 OpenAI 登录）。后者实测 `401 Unauthorized`，仍待登录后验证；按边界**未读 `~/.codex/auth.json`**，仅用 `getAuthStatus` 记录未登录。
+  - 全程守边界：未改产品 start/resume、未翻 Settings capability、未动 guardrail 测试、未污染真实 `~/.codex`（隔离 `CODEX_HOME`，驱动脚本带拒绝闸）。
+  - **下一步**：(a) `thread/resume` 续聊带同份 MCP config 的验证；(b) 若用户授权在临时 CODEX_HOME `codex login`，补「模型自主调 memory_search」一行 smoke；(c) 进入 Phase 1（`buildCodexMcpServersConfig` + Memory MCP wrapper），按修订 1（guardrail 挂在新注入路径）做。
