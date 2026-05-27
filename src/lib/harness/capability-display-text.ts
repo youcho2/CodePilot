@@ -360,12 +360,12 @@ export const CAPABILITY_NOTES: Readonly<Record<string, BilingualText>> = {
     en: 'Memory is wired into Codex; the model can call it when needed.',
   },
   widget_codex_native: {
-    zh: 'Widget 已接入 Codex；模型能否在自然对话中主动生成 Widget，待真实账号验证。',
-    en: 'Widget is wired into Codex; whether the model generates widgets on its own in normal conversation is pending real-account verification.',
+    zh: 'Widget 已接入 Codex，模型可生成可渲染的 Widget（支持固定、导出 PNG、查看代码）。',
+    en: 'Widget is wired into Codex; the model can generate renderable widgets (pin, export PNG, view code).',
   },
   tasks_codex_native: {
-    zh: '任务与通知已接入 Codex；模型调用前会请你确认。是否会在自然对话中被主动使用，待真实账号验证。',
-    en: 'Tasks & notifications are wired into Codex; the model asks for your confirmation before each call. Autonomous use in normal conversation is pending real-account verification.',
+    zh: '任务与通知已接入 Codex，模型可在需要时调用；调用前会请你确认，拒绝则不会执行。',
+    en: 'Tasks & notifications are wired into Codex; the model can use them when needed. It asks for your confirmation first — if you decline, nothing runs.',
   },
 };
 
