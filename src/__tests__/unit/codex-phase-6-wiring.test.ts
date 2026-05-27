@@ -72,6 +72,36 @@ describe('Settings IA — no top-level Codex tab (IA correction)', () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────
+// Codex capability card aligns to the Codex Account profile (2026-05-28)
+// ─────────────────────────────────────────────────────────────────────
+
+describe('Settings Runtime page — Codex card uses the Codex Account profile', () => {
+  const pageSrc = fs.readFileSync(
+    path.join(repoRoot, 'app/settings/runtime/page.tsx'),
+    'utf8',
+  );
+
+  it('derives the codex_runtime matrix from "codex_account", not the effective default provider', () => {
+    // User decision (2026-05-28): the Codex capability card must reflect
+    // Codex Account's honest profile (Memory/Widget/Tasks callable with
+    // notes; image/media/dashboard/cli NOT callable). Deriving from the
+    // effective default provider made the card render the provider-proxy
+    // profile when the default wasn't Codex Account, overstating image /
+    // media as callable even though they aren't under Codex Account.
+    assert.match(
+      pageSrc,
+      /capabilityMatrixForRuntimeProvider\(\s*["']codex_runtime["']\s*,\s*["']codex_account["']\s*,?\s*\)/,
+      'page must derive Codex cells from the codex_account profile',
+    );
+    assert.doesNotMatch(
+      pageSrc,
+      /resolveEffectiveProviderId/,
+      'Codex card must not key off the effective default provider (that profile overstates image/media)',
+    );
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────
 // Rate limits API — wraps `account/rateLimits/read`
 // ─────────────────────────────────────────────────────────────────────
 

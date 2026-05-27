@@ -406,15 +406,10 @@ export interface RuntimePanelProps {
     readonly codepilot_runtime: readonly CapabilityMatrixCell[];
     readonly codex_runtime: readonly CapabilityMatrixCell[];
   };
-  /** Phase 5e review fix P1 #1 — the provider id used to derive the
-   *  codex_runtime matrix. Surfaced to the panel so the Codex
-   *  capability-list card can render the right header ("Codex" vs
-   *  "Codex (Codex Account)") and the right disclaimer copy. */
-  readonly currentProviderId?: string;
 }
 
 export function RuntimePanel(props: RuntimePanelProps = {}) {
-  const { capabilityCells, currentProviderId } = props;
+  const { capabilityCells } = props;
   const { t } = useTranslation();
   const isZh = t("nav.chats") === "对话";
   // Settings is route-level split — jumping to Models must router.push the
@@ -1319,20 +1314,14 @@ export function RuntimePanel(props: RuntimePanelProps = {}) {
                 cells={capabilityCells.codex_runtime}
                 isZh={isZh}
                 stopPropagationOnTrigger
-                // Phase 5e review round 7 (2026-05-18 user request) —
-                // when codex_account is the active default provider,
-                // surface the standalone header note that explains:
-                // Codex’s own plugins / Skills are managed by Codex
-                // itself, and the list below ONLY describes whether
-                // CodePilot’s built-in Harness can be injected on this
-                // path. This is the only place the matrix admits a
-                // boundary the contract can't auto-derive (it sits at
-                // the user-perception layer).
-                providerNote={
-                  currentProviderId === 'codex_account'
-                    ? codexAccountHeaderNote(isZh)
-                    : undefined
-                }
+                // The Codex card always reflects the Codex Account profile
+                // (page derives codex_runtime cells from codex_account, per
+                // the 2026-05-28 decision), so this scope note always
+                // applies: Codex’s own plugins / Skills are Codex-managed,
+                // and the list below ONLY describes whether CodePilot’s
+                // built-in Harness is injected on this path — not Codex’s
+                // native capabilities.
+                providerNote={codexAccountHeaderNote(isZh)}
               />
             )}
           />

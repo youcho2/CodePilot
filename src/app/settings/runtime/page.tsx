@@ -1,15 +1,14 @@
-// Phase 5e Phase 3 (2026-05-18) + review round 3 fix P1 #B + round 4
-// fix P2 #2 (2026-05-18) — server component derives the capability
-// matrix per Runtime using the **effective resolved provider** (the
-// same one chat send path uses). The resolver itself lives in
-// `src/lib/harness/settings-effective-provider.ts` so it can be unit-
-// tested against pinned-invalid + auto-fallback fixtures without
-// driving a Next page render.
+// Server component that derives the capability matrix per Runtime and
+// passes one matrix per Runtime to the panel (each rendered as a card).
 //
-// Using `resolveEffectiveProviderId()` (which internally calls the
-// canonical `resolveProvider()` chat send path uses) means the matrix
-// reflects the real-world behaviour: pinned-but-invalid + auto
-// fallback resolves to the active provider, not to the broken pin.
+// Codex card (decision 2026-05-28): always derived from the **Codex
+// Account** native profile — Memory/Widget/Tasks callable with notes,
+// image/media/dashboard/cli honestly "not callable" (native injection is
+// the open decision point). Earlier this keyed off the effective default
+// provider, which rendered the provider-proxy profile when the default
+// wasn't Codex Account and overstated image/media as callable even though
+// they aren't under Codex Account. claude_code / codepilot_runtime
+// matrices are provider-agnostic.
 //
 // Server-side derivation isolates the capability-contract → MCP-factory
 // → `child_process` dep chain to the server bundle; the browser bundle
@@ -20,21 +19,21 @@ import {
   buildCapabilityMatrix,
   capabilityMatrixForRuntimeProvider,
 } from "@/lib/harness/capability-matrix";
-import { resolveEffectiveProviderId } from "@/lib/harness/settings-effective-provider";
 
 export default function SettingsRuntimePage() {
-  const providerId = resolveEffectiveProviderId();
-
-  // For claude_code + codepilot_runtime the per-provider override is a
-  // no-op (capabilityMatrixForRuntimeProvider returns the runtime-only
-  // matrix when no override applies). For codex_runtime + codex_account
-  // it demotes bridge-only capabilities to perception_only with a
-  // suggested-Runtime hint. Either way the page passes one matrix per
-  // Runtime to the panel; the panel renders each as its own card.
+  // The Codex capability card always reflects the **Codex Account** native
+  // profile: Memory / Widget / Tasks callable (with notes), and image /
+  // media / dashboard / cli honestly "not callable" (native injection is
+  // the open decision point). Per user decision (2026-05-28) — aligning the
+  // card to how Codex Account actually behaves. Deriving from the effective
+  // default provider instead made the card render the provider-proxy
+  // profile when the default wasn't Codex Account, which overstated image /
+  // media as callable even though they aren't under Codex Account. The
+  // claude_code / codepilot_runtime matrices are provider-agnostic.
   const matrix = buildCapabilityMatrix();
   const codexCells = capabilityMatrixForRuntimeProvider(
     "codex_runtime",
-    providerId,
+    "codex_account",
   );
 
   return (
@@ -44,7 +43,6 @@ export default function SettingsRuntimePage() {
         codepilot_runtime: matrix.codepilot_runtime,
         codex_runtime: codexCells,
       }}
-      currentProviderId={providerId}
     />
   );
 }
