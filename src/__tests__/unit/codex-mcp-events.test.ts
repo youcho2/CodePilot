@@ -122,14 +122,17 @@ describe('codexElicitationPolicy — built-in MCP tool-call approval classificat
 });
 
 describe('handleCodexMcpElicitationApproval — user-approval round-trip', () => {
-  it('emits a permission_request SSE and ACCEPTS iff the user approves', async () => {
+  it('emits a permission_request SSE (with mode + schema for judgeability) and ACCEPTS iff the user approves', async () => {
     const lines: string[] = [];
+    const sessionId = 'sess-approval';
     const jsonRpcId = `accept-${Date.now()}`;
     const pending = handleCodexMcpElicitationApproval({
-      sessionId: 'sess-approval',
+      sessionId,
       jsonRpcId,
       serverName: 'codepilot_tasks',
       message: 'schedule a follow-up',
+      mode: 'tool_call',
+      requestedSchema: { type: 'object', properties: { confirm: { type: 'boolean' } } },
       emitSse: (l) => lines.push(l),
     });
     // Let it emit the prompt + register the pending permission, then approve.
@@ -137,22 +140,29 @@ describe('handleCodexMcpElicitationApproval — user-approval round-trip', () =>
     const emitted = lines.find((l) => l.includes('"type":"permission_request"'));
     assert.ok(emitted, 'must emit a permission_request SSE for the user');
     assert.match(emitted!, /codepilot_tasks/, 'prompt must name the originating server');
-    assert.equal(resolvePendingPermission(`codex-mcp-elicit:${jsonRpcId}`, { behavior: 'allow' }), true);
+    // Audit/judgeability enrichment: mode + requestedSchema reach the prompt.
+    assert.match(emitted!, /tool_call/, 'prompt must carry the elicitation mode');
+    assert.match(emitted!, /requestedSchema/, 'prompt must carry the requested schema');
+    assert.match(emitted!, /confirm/, 'requested schema fields must survive into the prompt');
+    // sessionId-scoped id — resolving an unscoped id must NOT match.
+    assert.equal(resolvePendingPermission(`codex-mcp-elicit:${jsonRpcId}`, { behavior: 'allow' }), false);
+    assert.equal(resolvePendingPermission(`codex-mcp-elicit:${sessionId}:${jsonRpcId}`, { behavior: 'allow' }), true);
     const res = await pending;
     assert.equal(res.action, 'accept');
   });
 
   it('DECLINES when the user denies (never auto-runs a mutating tool)', async () => {
+    const sessionId = 'sess-approval';
     const jsonRpcId = `deny-${Date.now()}`;
     const pending = handleCodexMcpElicitationApproval({
-      sessionId: 'sess-approval',
+      sessionId,
       jsonRpcId,
       serverName: 'codepilot_tasks',
       message: 'send a notification',
       emitSse: () => {},
     });
     await new Promise((r) => setTimeout(r, 10));
-    resolvePendingPermission(`codex-mcp-elicit:${jsonRpcId}`, { behavior: 'deny', message: 'no' });
+    resolvePendingPermission(`codex-mcp-elicit:${sessionId}:${jsonRpcId}`, { behavior: 'deny', message: 'no' });
     const res = await pending;
     assert.equal(res.action, 'decline');
   });

@@ -57,9 +57,20 @@ export async function handleCodexMcpElicitationApproval(args: {
   jsonRpcId: number | string;
   serverName: string;
   message?: string;
+  /**
+   * Codex elicitation `mode` + `requestedSchema`. Kept in the audit
+   * toolInput so a too-generic `message` still yields a judgeable prompt
+   * (the user sees what shape of input / which mode is being requested).
+   */
+  mode?: string;
+  requestedSchema?: unknown;
   emitSse: (line: string) => void;
 }): Promise<CodexElicitationResponse> {
-  const requestId = `codex-mcp-elicit:${args.jsonRpcId}`;
+  // Scope the id by sessionId. A JSON-RPC id is only unique within ONE
+  // Codex connection, so the same numeric id recurs across sessions /
+  // reconnects; an unscoped id could collide with a stale DB row and get
+  // soft-declined as a bogus "duplicate". (Codex review — non-blocking.)
+  const requestId = `codex-mcp-elicit:${args.sessionId}:${args.jsonRpcId}`;
 
   // Idempotency: a duplicate elicitation RPC must NOT double-prompt or
   // re-INSERT (UNIQUE id). Soft-decline the duplicate; the original prompt
@@ -72,7 +83,15 @@ export async function handleCodexMcpElicitationApproval(args: {
   const description = args.message?.trim()
     ? args.message
     : `The ${args.serverName} MCP server wants to run a tool.`;
-  const toolInput = { server: args.serverName, message: args.message ?? null };
+  const toolInput: Record<string, unknown> = {
+    server: args.serverName,
+    message: args.message ?? null,
+  };
+  // Enrich the audit trail / prompt for side-effect tools: carry the
+  // elicitation mode + requested schema so the approval is judgeable even
+  // when `message` is vague. (Codex review — non-blocking.)
+  if (args.mode != null) toolInput.mode = args.mode;
+  if (args.requestedSchema != null) toolInput.requestedSchema = args.requestedSchema;
   const sdkPermission: PermissionRequestEvent = {
     permissionRequestId: requestId,
     toolName,

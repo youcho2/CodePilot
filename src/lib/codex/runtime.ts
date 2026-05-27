@@ -424,6 +424,8 @@ export const codexRuntime: AgentRuntime = {
                   jsonRpcId: ctx.id,
                   serverName: p.serverName ?? '',
                   message: p.message,
+                  mode: p.mode,
+                  requestedSchema: p.requestedSchema,
                   emitSse: tryEnqueue,
                 });
               }
