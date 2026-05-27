@@ -397,6 +397,12 @@ function migrateDb(db: Database.Database): void {
   if (!colNames.includes('codex_thread_provider_id')) {
     safeAddColumn(db, "ALTER TABLE chat_sessions ADD COLUMN codex_thread_provider_id TEXT NOT NULL DEFAULT ''");
   }
+  // Phase 8 Phase 2 (2026-05-27) — fingerprint of the MCP config the codex
+  // thread was started with. A resume whose current MCP fingerprint differs
+  // starts a fresh thread instead of resuming with a stale tool set.
+  if (!colNames.includes('codex_thread_mcp_fingerprint')) {
+    safeAddColumn(db, "ALTER TABLE chat_sessions ADD COLUMN codex_thread_mcp_fingerprint TEXT NOT NULL DEFAULT ''");
+  }
   if (!colNames.includes('sdk_cwd')) {
     safeAddColumn(db, "ALTER TABLE chat_sessions ADD COLUMN sdk_cwd TEXT NOT NULL DEFAULT ''");
     // Backfill sdk_cwd from working_directory for existing sessions
@@ -1296,11 +1302,12 @@ export function updateCodexThreadId(
   id: string,
   codexThreadId: string,
   providerId: string = '',
+  mcpFingerprint: string = '',
 ): void {
   const db = getDb();
   db.prepare(
-    'UPDATE chat_sessions SET codex_thread_id = ?, codex_thread_provider_id = ? WHERE id = ?',
-  ).run(codexThreadId, providerId, id);
+    'UPDATE chat_sessions SET codex_thread_id = ?, codex_thread_provider_id = ?, codex_thread_mcp_fingerprint = ? WHERE id = ?',
+  ).run(codexThreadId, providerId, mcpFingerprint, id);
 }
 
 export function updateSessionModel(id: string, model: string): void {

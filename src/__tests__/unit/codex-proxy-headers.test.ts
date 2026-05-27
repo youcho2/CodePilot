@@ -78,7 +78,7 @@ describe('buildCodexThreadParams — sessionId forwarded into the injection', ()
       model: 'glm-5-turbo',
       sessionId: 'chat-glm-1',
     });
-    const headers = params.config?.model_providers.codepilot_proxy.http_headers;
+    const headers = params.config?.model_providers?.codepilot_proxy.http_headers;
     assert.ok(headers, 'codepilot_proxy entry must include http_headers');
     assert.equal(headers!['x-codepilot-session-id'], 'chat-glm-1');
     assert.equal(headers!['x-codepilot-workspace-path'], '/Users/me/proj');
@@ -110,7 +110,7 @@ describe('buildCodexThreadParams — sessionId forwarded into the injection', ()
       model: 'glm-5-turbo',
       // sessionId not passed
     });
-    const headers = params.config?.model_providers.codepilot_proxy.http_headers;
+    const headers = params.config?.model_providers?.codepilot_proxy.http_headers;
     assert.ok(headers);
     assert.equal(headers!['x-codepilot-session-id'], undefined);
   });

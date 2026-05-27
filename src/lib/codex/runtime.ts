@@ -61,6 +61,13 @@ import {
   buildCodexThreadParams,
   resolveCodexProxyBaseUrl,
 } from './provider-proxy';
+import {
+  buildCodexMemoryMcpConfig,
+  fingerprintCodexMcpConfig,
+  sameRealPath,
+  type CodexMcpServersConfig,
+} from './mcp-config';
+import { getSetting } from '@/lib/db';
 import { subscribeBuiltinEvents } from './proxy/builtin-event-bus';
 import {
   getRuntimeSessionRef,
@@ -350,6 +357,33 @@ export const codexRuntime: AgentRuntime = {
             unsubscribers.push(unsubReq);
           }
 
+          // ── MCP elicitation (Phase 8 Phase 3) ───────────────────────
+          // A Memory / user MCP tool can request structured user input
+          // mid-call (`mcpServer/elicitation/request`, a server→client
+          // request). We have no elicitation form UI yet, so we SAFELY
+          // DECLINE — never auto-accept, never hang — and surface a
+          // visible status so the user sees the tool asked and was
+          // declined. Validated against Codex 0.133 in
+          // docs/research/codex-mcp-injection-poc/ (ask_user round-trip).
+          const unsubElicit = client.onServerRequest(
+            'mcpServer/elicitation/request',
+            (params) => {
+              const p = (params ?? {}) as { serverName?: string; message?: string };
+              tryEnqueue(
+                `data: ${JSON.stringify({
+                  type: 'status',
+                  data: JSON.stringify({
+                    kind: 'codex.mcpElicitationDeclined',
+                    payload: { server: p.serverName ?? null, message: p.message ?? null },
+                  }),
+                })}\n\n`,
+              );
+              // McpServerElicitationRequestResponse — decline, no content.
+              return { action: 'decline', content: null, _meta: null };
+            },
+          );
+          unsubscribers.push(unsubElicit);
+
           // ── CodePilot built-in tool bridge subscription (Phase 5c) ──
           // Side-channel events emitted by the proxy's bridge tools
           // (`codepilot_generate_image` execute() etc.) flow through
@@ -377,6 +411,38 @@ export const codexRuntime: AgentRuntime = {
           // for the three reload scenarios where a resume-without-config
           // would drop the codepilot_proxy injection and silently route
           // a continuation turn at the wrong upstream.
+          // ── MCP injection (Phase 8 Phase 2) ─────────────────────────
+          // Inject the CodePilot Memory MCP as a streamable-HTTP server
+          // when the session runs in the assistant workspace — the same
+          // gate the ClaudeCode path uses (claude-client.ts). It's served
+          // in-process by /api/codex/mcp/memory, so it works in dev AND
+          // packaged Electron without spawning a subprocess. User MCP
+          // injection is deferred to the capability-flip slice (Phase 4);
+          // only Memory is wired here, and the Settings capability stays
+          // perception_only until then (codex-user-mcp-wiring guardrail).
+          const codexMcpServers: CodexMcpServersConfig = {};
+          const assistantWorkspacePath = getSetting('assistant_workspace_path');
+          if (
+            assistantWorkspacePath &&
+            options.workingDirectory &&
+            // realpath-normalized compare (trailing slash / symlink safe) —
+            // same helper the route authorizes with, so "inject" and
+            // "authorized" never disagree.
+            sameRealPath(options.workingDirectory, assistantWorkspacePath)
+          ) {
+            const mem = buildCodexMemoryMcpConfig({
+              baseUrl: resolveCodexProxyBaseUrl(),
+              workspacePath: assistantWorkspacePath,
+              sessionId,
+            });
+            codexMcpServers[mem.name] = mem.entry;
+          }
+          const hasMcp = Object.keys(codexMcpServers).length > 0;
+          // Fingerprint the injected MCP set; a resume whose fingerprint
+          // differs starts a fresh thread (below) so a continuation can't
+          // bind to a stale tool set.
+          const mcpFingerprint = fingerprintCodexMcpConfig(hasMcp ? codexMcpServers : undefined);
+
           const threadParams = buildCodexThreadParams({
             providerId: requestedProviderId,
             workingDirectory: options.workingDirectory,
@@ -399,16 +465,30 @@ export const codexRuntime: AgentRuntime = {
             // when the user picked a CodePilot provider as the
             // proxy target.
             sessionId,
+            mcpServers: hasMcp ? codexMcpServers : undefined,
           });
 
-          // ── thread resolution: resume if we have a ref + provider matches, else start ──
+          // ── thread resolution: resume if we have a ref + provider AND
+          // MCP fingerprint match, else start ──
           const existingRef = getRuntimeSessionRef(sessionId, 'codex_runtime');
           const existingProviderBinding =
             typeof existingRef?.metadata?.providerId === 'string'
               ? existingRef.metadata.providerId
               : '';
+          // Phase 8 Phase 2 — the MCP fingerprint the existing thread was
+          // started with. A change (workspace switch, MCP config edit)
+          // invalidates resume the same way a provider switch does.
+          const existingMcpFingerprint =
+            typeof existingRef?.metadata?.mcpConfigFingerprint === 'string'
+              ? existingRef.metadata.mcpConfigFingerprint
+              : '';
+          const refMetadata = { providerId: requestedProviderId, mcpConfigFingerprint: mcpFingerprint };
           let threadId: string;
-          if (existingRef && existingProviderBinding === requestedProviderId) {
+          if (
+            existingRef &&
+            existingProviderBinding === requestedProviderId &&
+            existingMcpFingerprint === mcpFingerprint
+          ) {
             try {
               await client.request('thread/resume', {
                 threadId: existingRef.token,
@@ -425,14 +505,14 @@ export const codexRuntime: AgentRuntime = {
               setRuntimeSessionRef(sessionId, {
                 runtimeId: 'codex_runtime',
                 token: threadId,
-                metadata: { providerId: requestedProviderId },
+                metadata: refMetadata,
               });
             }
           } else {
-            // Either no ref yet, or provider switched mid-session. In
-            // the switch case the old thread is now stale (different
-            // proxy injection); clear before writing the new binding
-            // so a partial write can't leave a stale provider id behind.
+            // No ref yet, OR provider switched, OR the MCP config changed.
+            // In every "switched" case the old thread is now stale (wrong
+            // proxy injection or wrong tool set); clear before writing the
+            // new binding so a partial write can't leave a stale id behind.
             if (existingRef) clearRuntimeSessionRef(sessionId, 'codex_runtime');
             const result = await client.request<{ thread: { id: string } }>(
               'thread/start',
@@ -442,7 +522,7 @@ export const codexRuntime: AgentRuntime = {
             setRuntimeSessionRef(sessionId, {
               runtimeId: 'codex_runtime',
               token: threadId,
-              metadata: { providerId: requestedProviderId },
+              metadata: refMetadata,
             });
           }
 

@@ -337,6 +337,27 @@ export function translateCodexNotification(
     case 'turn/plan/updated':
     case 'item/plan/delta':
     case 'item/reasoning/summaryPartAdded':
+    case 'mcpServer/startupStatus/updated': {
+      // Phase 8 Phase 3 — MCP server lifecycle must not be silent. A
+      // `failed` startup surfaces as a visible (non-terminal) diagnostic
+      // so a broken Memory / user MCP is explainable in chat instead of
+      // just a missing tool; `ready` confirms it came up. `starting`
+      // (transient) stays quiet to avoid noise.
+      const sp = params as { name?: string; status?: string; error?: string | null };
+      if (sp.status === 'failed') {
+        return makeUnknownItem(base, {
+          sourceType: 'codex.mcpServerStartupFailed',
+          payload: { server: sp.name ?? null, error: sp.error ?? null },
+        });
+      }
+      if (sp.status === 'ready') {
+        return makeUnknownItem(base, {
+          sourceType: 'codex.mcpServerReady',
+          payload: { server: sp.name ?? null },
+        });
+      }
+      return null;
+    }
     case 'item/commandExecution/outputDelta':
     case 'item/commandExecution/terminalInteraction':
     case 'item/fileChange/outputDelta':
@@ -359,7 +380,6 @@ export function translateCodexNotification(
     case 'hook/started':
     case 'hook/completed':
     case 'mcpServer/oauthLogin/completed':
-    case 'mcpServer/startupStatus/updated':
     case 'thread/realtime/started':
     case 'thread/realtime/itemAdded':
     case 'thread/realtime/transcript/delta':
@@ -413,6 +433,8 @@ interface ThreadItemLike {
   // generic tool-call status / args
   status?: string;
   arguments?: unknown;
+  // mcpToolCall failure detail (McpToolCallError = { message })
+  error?: { message?: string } | null;
   // fileChange
   changes?: ReadonlyArray<unknown>;
   // webSearch
@@ -602,6 +624,15 @@ function translateItemCompleted(
       output: item,
       ...(media ? { media: [media] } : {}),
     });
+  }
+  // mcpToolCall — Phase 8 Phase 3. Surface the MCP tool error into the
+  // canonical `error` field (not just buried in the output payload) so a
+  // failed Memory / user MCP call renders as an errored tool card, the
+  // same as a native command failure above.
+  if (item.type === 'mcpToolCall') {
+    const errMsg =
+      item.error?.message ?? (item.status === 'failed' ? 'MCP tool call failed' : undefined);
+    return makeToolCompleted(base, { toolId: id, output: item, error: errMsg });
   }
   // For tool-like items — generic output via item shape; runtime
   // adapter doesn't need to differentiate.

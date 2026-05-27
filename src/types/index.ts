@@ -40,6 +40,13 @@ export interface ChatSession {
    * Same access discipline as `codex_thread_id`.
    */
   codex_thread_provider_id?: string;
+  /**
+   * Phase 8 Phase 2 (2026-05-27) — fingerprint of the `config.mcp_servers`
+   * the Codex thread was started with. Resume re-checks it; a changed
+   * fingerprint forces a fresh thread so a continuation can't bind to a
+   * stale MCP tool set. Empty string = no MCP injected / legacy thread.
+   */
+  codex_thread_mcp_fingerprint?: string;
   project_name: string;
   /**
    * Phase 3 Step 4 — see `ChatSessionSource`. Stored as TEXT (default

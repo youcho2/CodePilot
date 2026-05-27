@@ -2,7 +2,7 @@
 
 > 创建时间：2026-05-21
 > 最后更新：2026-05-27
-> 状态：🚧 Phase 7 已收口，Phase 0 核心问题**已 live 验证通过**（真实 Codex `0.133.0` app-server，隔离 CODEX_HOME）：per-thread `config.mcp_servers` 注入可行、工具可调用、错误/elicitation/broken-server 均可见。唯一 auth-gated = 模型自主调用（需登录）。可进入 Phase 1。
+> 状态：🚧 Phase 0–3 完成并 live 验证（真实 Codex `0.133.0`）。Memory MCP 经 streamable-HTTP route 注入、`mcpServer/tool/call` 命中真实记忆、startup/elicitation 事件可见；全量单测 3009 通过。**Settings capability 仍 perception_only（Phase 4 未做）**；模型自主调用待登录后验证（Phase 5）。待用户审查。
 > 上游：Phase 5 Codex Runtime / Phase 5e Runtime Harness Architecture / Phase 7 Icon System
 > POC 记录：[docs/research/codex-mcp-injection-poc/](../../research/codex-mcp-injection-poc/)
 
@@ -77,9 +77,9 @@ Phase 8 需要先做 wrapper / shim：
 | Phase | 内容 | 状态 | 用户可见结果 |
 |-------|------|------|-------------|
 | Phase 0 | MCP 注入 POC + schema fixture | ✅ 基本完成 | 无 UI 变化；live 验证：Codex `0.133.0` 接受 per-thread `config.mcp_servers` 注入、`mcpServer/tool/call` 命中 fixture、错误/elicitation/broken-server 均可见；仅模型自主调用 auth-gated（见 POC 记录） |
-| Phase 1 | Codex MCP config builder + Memory MCP wrapper | 📋 待开始 | 无 UI 变化；产品代码有可测试的 `config.mcp_servers` 构造 |
-| Phase 2 | Runtime start/resume 注入 | 📋 待开始 | Codex Account / proxy 路径可带 MCP config 启动与续聊 |
-| Phase 3 | 事件、状态、elicitation / OAuth 桥接 | 📋 待开始 | MCP 启动状态、工具调用、权限请求不再静默 |
+| Phase 1 | Codex MCP config builder + Memory MCP wrapper | ✅ 完成 | 无 UI 变化；`src/lib/codex/mcp-config.ts` 构造 + Memory MCP 经 `/api/codex/mcp/memory` streamable-HTTP route 复用（非 stdio wrapper），单测 + 路由测试通过 |
+| Phase 2 | Runtime start/resume 注入 | ✅ 完成 | 无 UI 变化；start/resume 都带 `config.mcp_servers`（Memory MCP，assistant 模式门控）；MCP fingerprint 入 session ref，变化即重开 thread |
+| Phase 3 | 事件、状态、elicitation / OAuth 桥接 | ✅ 完成（OAuth 见备注） | MCP 启动失败/就绪可见、mcpToolCall 错误进 canonical tool_completed、elicitation 安全 decline 且可见；OAuth 留待用户 MCP 注入（Phase 4）|
 | Phase 4 | Settings capability matrix 翻转 | 📋 待开始 | Codex 下 Memory MCP 从“感知不可执行”变为已验证路径下“可调用” |
 | Phase 5 | 真实 smoke + 归档 | 📋 待开始 | Smoke Ledger 有 Codex Account / proxy 两轮对话与 Memory MCP 调用证据 |
 
@@ -235,3 +235,14 @@ Phase 8 需要先做 wrapper / shim：
     6. 「工具可调用」（`mcpServer/tool/call`，无需 auth）≠「模型自主调用」（`turn/start` 走模型，需 OpenAI 登录）。后者实测 `401 Unauthorized`，仍待登录后验证；按边界**未读 `~/.codex/auth.json`**，仅用 `getAuthStatus` 记录未登录。
   - 全程守边界：未改产品 start/resume、未翻 Settings capability、未动 guardrail 测试、未污染真实 `~/.codex`（隔离 `CODEX_HOME`，驱动脚本带拒绝闸）。
   - **下一步**：(a) `thread/resume` 续聊带同份 MCP config 的验证；(b) 若用户授权在临时 CODEX_HOME `codex login`，补「模型自主调 memory_search」一行 smoke；(c) 进入 Phase 1（`buildCodexMcpServersConfig` + Memory MCP wrapper），按修订 1（guardrail 挂在新注入路径）做。
+- 2026-05-27：**Phase 1–3 实现完成并 live 验证**（待用户审查）。
+  - **transport 决策**：Memory MCP 用 **streamable-HTTP route**（`/api/codex/mcp/memory`）而非 stdio wrapper。理由：打包态用 `utilityProcess.fork` 跑 standalone Next server，stdio 子进程难解析被打包的 memory 依赖；HTTP route 复用同一在跑的 server，dev/打包一致（与 provider proxy 同模式）。先 POC 验证 Codex streamable_http 可行（`poc-streamable-http.mjs`）再选型。
+  - **零 refactor 复用**：`createMemorySearchMcpServer().instance` 本身是标准 MCP `McpServer`，跨 SDK 副本可 `connect()` 到 WebStandard HTTP transport；route 每请求新建实例（stateless），不重写 search/get/recent 逻辑（守 [[新 Agent 复用 contract]]）。
+  - **Phase 1**：`src/lib/codex/mcp-config.ts`（buildCodexMcpServersConfig: stdio→{command,args,env}、http→streamable_http、sse→unsupported；buildCodexMemoryMcpConfig；fingerprintCodexMcpConfig；redact）；`/api/codex/mcp/memory` route；guardrail 改写为单向不变量（executable ⟹ injects）。
+  - **Phase 2**：buildCodexThreadParams 合并 `mcp_servers`（account 仅 mcp_servers、proxy 两者）；DB 加 `codex_thread_mcp_fingerprint` 列（additive 安全迁移）；session ref 存读 fingerprint；start/resume 都注入，fingerprint 变化重开 thread。Memory MCP 注入门控 = assistant workspace（同 claude-client）。**仅注入 Memory MCP**，用户 MCP 注入留待 Phase 4（避免触 guardrail 禁止的 Claude loader + 与能力翻转配对）。
+  - **Phase 3**：`mcpServer/startupStatus/updated` 移出静默组（failed→可见诊断、ready→轻量状态）；mcpToolCall completed 把 error 提进 canonical `tool_completed.error`；runtime 注册 `mcpServer/elicitation/request` → 安全 decline（`{action:'decline'}`）+ 可见 `mcpElicitationDeclined` 状态。OAuth：Memory MCP 不需要；用户 MCP 的 OAuth 链接处理留待 Phase 4。
+  - **测试**：codex-mcp-config(13) / codex-memory-mcp-route(3) / codex-user-mcp-wiring 改写(3) / codex-mcp-injection(8) / codex-mcp-events(7)；全量 `npm run test` 3009 通过、typecheck 干净。
+  - **端到端 live smoke**（`integration-phase-1-3.mjs`，2026-05-27）：真实 Codex 0.133 → 注入 Memory MCP（指向 :3001 dev server 的 route）→ startupStatus ready → `mcpServer/tool/call codepilot_memory_recent` 返回真实记忆文本。证据见 POC 记录。
+  - **未做（守边界）**：未翻 Settings capability（Phase 4）；未注入用户 MCP；未读 `~/.codex/auth.json`；模型自主调用 auth-gated（Phase 5）。handover/insights 文档待 Phase 4-5 收口后补。
+  - **审查修复 P1（route 鉴权，2026-05-27）**：Memory MCP route 原先直接信任 `x-codepilot-workspace-path` header → 任意本地进程可把 workspace 指向任意目录、经 `codepilot_memory_get` 读任意文件（攻击者选 root）。修复：route 校验 header realpath 等于 `getSetting('assistant_workspace_path')`，否则 403。把路由能力降到「只服务用户已配置的 assistant workspace」=不超过同用户已有的 FS 访问。补测试两条（configured→200 / 其他→403）；live route 实测任意目录 → `403 Workspace not authorized`。nonce 暂不加（同用户本地威胁模型下等值校验已充分）。
+  - **复核 P2/P3（reviewer 看了旧快照）**：文档 line 101 早已是「监听 startupStatus 通知…不能用 list 断言」的改正版（在 commit 1071d5e）、Smoke Ledger evidence 已改、脚本注释已改正、header 无 trailing whitespace、`git diff --check` clean——均在上一轮已 fold-in，本轮无需再改。

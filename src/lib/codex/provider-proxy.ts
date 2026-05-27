@@ -33,6 +33,8 @@
  * binding still matches (mismatch detection in `runtime.ts`).
  */
 
+import type { CodexMcpServersConfig } from './mcp-config';
+
 const PROVIDER_KEY = 'codepilot_proxy' as const;
 
 export interface CodexProxyInjection {
@@ -139,6 +141,17 @@ export function buildCodexProviderProxyInjection(
  * spreads into either `{ ...params }` (for thread/start) or
  * `{ threadId, ...params }` (for thread/resume).
  */
+/**
+ * The `config` override blob for a Codex thread. Both keys are optional
+ * and merged independently — proxy routing lives under `model_providers`,
+ * MCP injection under `mcp_servers` (Phase 8 Phase 2). They never
+ * overwrite each other; a codex_account thread carries only `mcp_servers`.
+ */
+export interface CodexThreadConfig {
+  model_providers?: CodexProxyInjection['config']['model_providers'];
+  mcp_servers?: CodexMcpServersConfig;
+}
+
 export interface CodexThreadParams {
   cwd?: string;
   /** Optional model id. Codex's `thread_start_params_from_config` and
@@ -150,7 +163,7 @@ export interface CodexThreadParams {
    *  null and rejects the turn before our adapter ever sees it. */
   model?: string;
   modelProvider?: string;
-  config?: CodexProxyInjection['config'];
+  config?: CodexThreadConfig;
 }
 
 export function buildCodexThreadParams(opts: {
@@ -167,6 +180,13 @@ export function buildCodexThreadParams(opts: {
    *  chat. Codex Account paths skip the injection entirely (see
    *  branch below); the field is silently ignored there. */
   sessionId?: string;
+  /** Phase 8 Phase 2 (2026-05-27) — Codex-native MCP servers to inject
+   *  under `config.mcp_servers`. Applied to BOTH provider branches
+   *  (codex_account and codepilot_proxy) so Memory / user MCP is
+   *  available regardless of how the upstream model is reached. The
+   *  caller builds this via `buildCodexMcpServersConfig` /
+   *  `buildCodexMemoryMcpConfig`. */
+  mcpServers?: CodexMcpServersConfig;
 }): CodexThreadParams {
   const providerId = opts.providerId.trim();
   if (!providerId || providerId === 'env') {
@@ -174,10 +194,17 @@ export function buildCodexThreadParams(opts: {
       'buildCodexThreadParams called with env / empty providerId — caller must reject the request before building thread params.',
     );
   }
+  const hasMcp = opts.mcpServers && Object.keys(opts.mcpServers).length > 0;
   const base: CodexThreadParams = {};
   if (opts.workingDirectory) base.cwd = opts.workingDirectory;
   if (opts.model) base.model = opts.model;
-  if (providerId === 'codex_account') return base;
+
+  if (providerId === 'codex_account') {
+    // No proxy injection — Codex uses its own OAuth account. MCP servers
+    // (if any) are the only `config` entry on this branch.
+    return hasMcp ? { ...base, config: { mcp_servers: opts.mcpServers } } : base;
+  }
+
   const injection = buildCodexProviderProxyInjection(providerId, opts.proxyBaseUrl, {
     sessionId: opts.sessionId,
     workspacePath: opts.workingDirectory,
@@ -185,7 +212,12 @@ export function buildCodexThreadParams(opts: {
   return {
     ...base,
     modelProvider: injection.modelProvider,
-    config: injection.config,
+    // Merge — proxy routing AND MCP injection coexist; neither overwrites
+    // the other.
+    config: {
+      ...injection.config,
+      ...(hasMcp ? { mcp_servers: opts.mcpServers } : {}),
+    },
   };
 }
 

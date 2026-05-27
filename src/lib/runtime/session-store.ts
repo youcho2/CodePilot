@@ -68,7 +68,12 @@ export function getRuntimeSessionRef(
       return {
         runtimeId: 'codex_runtime',
         token: session.codex_thread_id,
-        metadata: { providerId: session.codex_thread_provider_id ?? '' },
+        metadata: {
+          providerId: session.codex_thread_provider_id ?? '',
+          // Phase 8 Phase 2 — MCP config fingerprint the thread was started
+          // with. Empty when no MCP was injected (legacy / non-assistant).
+          mcpConfigFingerprint: session.codex_thread_mcp_fingerprint ?? '',
+        },
       };
     }
     default: {
@@ -105,7 +110,13 @@ export function setRuntimeSessionRef(
       // which means "unknown provider — always treat resume as stale".
       const providerId =
         typeof ref.metadata?.providerId === 'string' ? ref.metadata.providerId : '';
-      updateCodexThreadId(chatSessionId, ref.token, providerId);
+      // Phase 8 Phase 2 — persist the MCP config fingerprint so a later
+      // resume can detect an MCP-config change and start fresh.
+      const mcpFingerprint =
+        typeof ref.metadata?.mcpConfigFingerprint === 'string'
+          ? ref.metadata.mcpConfigFingerprint
+          : '';
+      updateCodexThreadId(chatSessionId, ref.token, providerId, mcpFingerprint);
       return;
     }
     default: {
@@ -141,8 +152,8 @@ export function clearRuntimeSessionRef(
       // invalidate the resume context call this path scoped to
       // codex_runtime; other runtimes' refs stay intact. Phase 5b
       // also clears the bound provider id so the next start writes
-      // a fresh pair.
-      updateCodexThreadId(chatSessionId, '', '');
+      // a fresh pair. Phase 8 Phase 2 — also clears the MCP fingerprint.
+      updateCodexThreadId(chatSessionId, '', '', '');
       return;
     default: {
       const _: never = runtimeId;

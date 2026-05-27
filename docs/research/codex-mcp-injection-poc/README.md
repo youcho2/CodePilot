@@ -134,3 +134,30 @@ node docs/research/codex-mcp-injection-poc/drive-codex-appserver.mjs
 ```
 
 > 驱动脚本带安全闸：若 `CODEX_HOME` 指向真实 `~/.codex` 会直接拒绝运行。
+
+---
+
+## 八、Phase 1–3 transport 选型 + 集成 smoke（2026-05-27）
+
+Phase 1 选型时验证了 **streamable-HTTP** transport（`poc-streamable-http.mjs`）：Codex 接受 `{ url }`（无 command）注入、startupStatus `starting→ready`、`mcpServer/tool/call` 命中 HTTP fixture。结论：Memory MCP 用 streamable-HTTP route（复用 Next server，dev/打包一致），优于 stdio wrapper（打包态难 spawn TS 子进程）。
+
+`integration-phase-1-3.mjs` 是 Phase 1–3 端到端集成 smoke（无需模型 auth）：真实 Codex 0.133 → 注入 `config.mcp_servers.codepilot_memory = { url: <:3001 dev server route>, http_headers: { x-codepilot-workspace-path } }` → startupStatus ready → `mcpServer/tool/call codepilot_memory_recent` 返回真实记忆文本。
+
+> **路由鉴权（P1 修复）**：Memory MCP route 现在对任意 workspace 返回 **403**，只服务 `getSetting('assistant_workspace_path')` realpath 等值的目录——防止本地任意进程把 header 指向任意路径读文件。实测 live route 对任意 temp 目录返回 `403 "Workspace not authorized for the Memory MCP"`。复现集成 smoke 需把 `WORKSPACE` 设为 dev server 实际配置的 assistant workspace。
+
+| Date | 项 | transport | Result | Evidence |
+|------|----|-----------|--------|----------|
+| 2026-05-27 | Codex 接受 streamable-HTTP `{url}` 注入 + tool/call | streamable_http | ✅ | `poc-streamable-http.mjs` 输出 |
+| 2026-05-27 | E2E：真实 Codex → live Memory MCP route → `codepilot_memory_recent` 返回真实记忆 | streamable_http | ✅ | `integration-phase-1-3.mjs`（startupStatus ready + tool 文本 MEMTEST_LIVE）|
+| 2026-05-27 | 全量单测（含 5 个新 Codex MCP 测试文件） | — | ✅ 3009 pass | `npm run test` |
+
+复现集成 smoke（需 :3001 dev server 在跑）：
+
+```
+TMPWS=$(mktemp -d); echo "# Long-term\nhello" > "$TMPWS/memory.md"
+CODEX_BIN=/Applications/Codex.app/Contents/Resources/codex \
+CODEX_HOME=/tmp/codex-mcp-poc/home \
+MEMORY_URL=http://127.0.0.1:3001/api/codex/mcp/memory \
+WORKSPACE="$TMPWS" \
+node docs/research/codex-mcp-injection-poc/integration-phase-1-3.mjs
+```
