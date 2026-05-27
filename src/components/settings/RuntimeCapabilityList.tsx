@@ -60,6 +60,7 @@ import type { CapabilityMatrixCell } from '@/lib/harness/capability-matrix';
 import {
   getCapabilityDisplay,
   buildUserReason,
+  getCapabilityNote,
   CALLABLE_STATUS_LINE,
   CODEX_ACCOUNT_HEADER_NOTE,
   getUserExtensionsSummary,
@@ -348,6 +349,14 @@ export function RuntimeCapabilityList({
                     {cell.status !== 'executable' && (
                       <p className="mt-0.5 text-[11px] text-muted-foreground leading-snug">
                         {userStatusLine}
+                      </p>
+                    )}
+                    {cell.noteKey && getCapabilityNote(cell.noteKey, lang) && (
+                      <p
+                        data-testid={`capability-note-${runtimeId}-${cell.capabilityId}`}
+                        className="mt-0.5 text-[11px] text-muted-foreground leading-snug"
+                      >
+                        {getCapabilityNote(cell.noteKey, lang)}
                       </p>
                     )}
                   </div>

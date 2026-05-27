@@ -347,6 +347,24 @@ export const CAPABILITY_EXECUTABLE_RUNTIMES: Readonly<Record<string, readonly Ru
   cli_tools: ['claude_code', 'codepilot_runtime'],
 };
 
+/**
+ * Phase 8 Phase 4 (2026-05-27) — optional bilingual caveats shown under a
+ * capability REGARDLESS of status (keyed by `CapabilityMatrixCell.noteKey`).
+ * Used when a capability is executable at the Runtime layer but carries an
+ * honest behavioral caveat. Outcome-oriented per this file's rules — no
+ * internal wire vocabulary (no "MCP injection" / phase numbers in copy).
+ */
+export const CAPABILITY_NOTES: Readonly<Record<string, BilingualText>> = {
+  memory_codex_native: {
+    zh: 'Memory 已接入 Codex，模型可在需要时调用。',
+    en: 'Memory is wired into Codex; the model can call it when needed.',
+  },
+};
+
+export function getCapabilityNote(noteKey: string, lang: 'zh' | 'en'): string | undefined {
+  return CAPABILITY_NOTES[noteKey]?.[lang];
+}
+
 /** Error-content patterns that the runtime layer emits when the
  *  model called a tool not in its toolset. Narrow on purpose —
  *  legitimate runtime errors (API key invalid, rate limit, etc.)

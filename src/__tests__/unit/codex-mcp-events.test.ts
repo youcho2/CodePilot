@@ -13,6 +13,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { translateCodexNotification } from '../../lib/codex/event-mapper';
+import { decideCodexElicitation } from '../../lib/codex/mcp-elicitation';
 
 const ctx = { sessionId: 'sess-1' } as const;
 
@@ -89,11 +90,27 @@ describe('mcpToolCall → canonical tool events', () => {
 describe('runtime elicitation handler (source pin)', () => {
   const runtimeSrc = fs.readFileSync(path.resolve(__dirname, '../../lib/codex/runtime.ts'), 'utf-8');
 
-  it('registers mcpServer/elicitation/request and safely declines (no auto-accept, no hang)', () => {
-    assert.ok(runtimeSrc.includes("onServerRequest(\n            'mcpServer/elicitation/request'") ||
-      runtimeSrc.includes("'mcpServer/elicitation/request'"), 'must register elicitation handler');
-    assert.match(runtimeSrc, /action:\s*'decline'/);
-    // surfaces a visible declined status (not swallowed)
-    assert.ok(runtimeSrc.includes('mcpElicitationDeclined'));
+  it('registers mcpServer/elicitation/request and routes it through the pure policy', () => {
+    assert.ok(runtimeSrc.includes("'mcpServer/elicitation/request'"), 'must register elicitation handler');
+    assert.ok(runtimeSrc.includes('decideCodexElicitation'), 'handler must use the unit-tested elicitation policy');
+  });
+});
+
+describe('decideCodexElicitation — behavior (Phase 5 root-cause guard)', () => {
+  it('ACCEPTS the read-only Memory server (else Codex rejects the model\'s memory call)', () => {
+    const r = decideCodexElicitation('codepilot_memory');
+    assert.equal(r.action, 'accept');
+    assert.deepEqual(r.content, {});
+  });
+
+  it('DECLINES any other server (never blanket-accept)', () => {
+    for (const s of ['user_weather', 'chrome-devtools', 'some_mutating_server']) {
+      assert.equal(decideCodexElicitation(s).action, 'decline', `${s} must decline`);
+    }
+  });
+
+  it('DECLINES null / undefined server (safe default — guards against blanket-decline AND blanket-accept regressions)', () => {
+    assert.equal(decideCodexElicitation(null).action, 'decline');
+    assert.equal(decideCodexElicitation(undefined).action, 'decline');
   });
 });

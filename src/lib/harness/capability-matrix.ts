@@ -58,6 +58,16 @@ export interface CapabilityMatrixCell {
    *  "切到 X Runtime 启用" hint. */
   readonly suggestedRuntime?: RuntimeId;
   /**
+   * Phase 8 Phase 4 (2026-05-27) — optional bilingual caveat key
+   * (resolved via `capability-display-text.ts` `getCapabilityNote`).
+   * Shown under the capability REGARDLESS of status. Used when a
+   * capability is `executable` at the Runtime layer but carries an
+   * honest caveat (e.g. Memory under Codex Account is wired + callable
+   * via native MCP injection, but whether the model autonomously uses
+   * it in chat is pending the Phase 5 real-login smoke).
+   */
+  readonly noteKey?: string;
+  /**
    * Phase 5e review fix P2 #5 (2026-05-18) — trust / approval boundary
    * derived from `CODEPILOT_TOOL_MUTATION_LEVELS`. UI shows a badge
    * next to the capability name so the user knows whether the tools
@@ -302,15 +312,24 @@ export function capabilityMatrixForRuntime(
  * the user honestly in Settings.
  *
  * Capabilities affected:
- *   - widget / memory / tasks_and_notify / image_generation /
- *     media_import → bridge_executable on codex_proxy, NOT on
- *     codex_account.
+ *   - widget / tasks_and_notify / image_generation / media_import →
+ *     bridge_executable on codex_proxy, NOT on codex_account (no native
+ *     injection path; stay perception_only under Codex Account).
  *   - dashboard / cli_tools / assistant_buddy → already deferred /
  *     unsupported (no further downgrade needed).
+ *
+ * Phase 8 Phase 4 (2026-05-27) — `memory` is REMOVED from this set.
+ * Unlike the bridge-only built-ins, Memory now reaches Codex Account via
+ * Codex's NATIVE `config.mcp_servers` injection (not the proxy bridge):
+ * the runtime injects it on both the account and proxy branches, the
+ * Memory MCP route serves it, and `mcpServer/tool/call` returns real
+ * memory (validated end-to-end against Codex 0.133 — see
+ * docs/research/codex-mcp-injection-poc/). So it stays `executable` under
+ * Codex Account, carrying an honest caveat (noteKey) that whether the
+ * model autonomously uses it in chat is pending the Phase 5 login smoke.
  */
 const CODEX_ACCOUNT_BRIDGE_DEMOTED_CAPS: ReadonlySet<string> = new Set([
   'widget',
-  'memory',
   'tasks_and_notify',
   'image_generation',
   'media_import',
@@ -332,6 +351,12 @@ export function capabilityMatrixForRuntimeProvider(
   }
   // Demote bridge-only capabilities to perception_only for Codex Account.
   return base.map((cell) => {
+    // Phase 8 Phase 4 — Memory reaches Codex Account via native MCP
+    // injection (not the proxy bridge), so it stays executable; attach an
+    // honest caveat that autonomous model use is pending Phase 5.
+    if (cell.capabilityId === 'memory' && cell.status === 'executable') {
+      return { ...cell, noteKey: 'memory_codex_native' };
+    }
     if (!CODEX_ACCOUNT_BRIDGE_DEMOTED_CAPS.has(cell.capabilityId)) {
       return cell;
     }

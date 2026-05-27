@@ -67,6 +67,12 @@ import {
   sameRealPath,
   type CodexMcpServersConfig,
 } from './mcp-config';
+import {
+  handleCodexDynamicToolCall,
+  type CodexDynamicToolCallParams,
+  type McpToolCallResultLike,
+} from './dynamic-tool-bridge';
+import { decideCodexElicitation } from './mcp-elicitation';
 import { getSetting } from '@/lib/db';
 import { subscribeBuiltinEvents } from './proxy/builtin-event-bus';
 import {
@@ -357,32 +363,74 @@ export const codexRuntime: AgentRuntime = {
             unsubscribers.push(unsubReq);
           }
 
-          // ── MCP elicitation (Phase 8 Phase 3) ───────────────────────
-          // A Memory / user MCP tool can request structured user input
-          // mid-call (`mcpServer/elicitation/request`, a server→client
-          // request). We have no elicitation form UI yet, so we SAFELY
-          // DECLINE — never auto-accept, never hang — and surface a
-          // visible status so the user sees the tool asked and was
-          // declined. Validated against Codex 0.133 in
-          // docs/research/codex-mcp-injection-poc/ (ask_user round-trip).
+          // ── MCP elicitation / tool-call approval (Phase 3 + Phase 5 fix) ──
+          // Codex sends `mcpServer/elicitation/request` (server→client) for
+          // MCP elicitation AND — under approvalPolicy `on-request` — as the
+          // approval gate for an MCP tool call. The Phase 5 login smoke
+          // showed the model AUTONOMOUSLY calling codepilot_memory_recent,
+          // but our original blanket DECLINE turned every memory call into
+          // Codex's "user rejected MCP tool call" (root cause; see
+          // docs/exec-plans/.../phase-8 decision log). Memory is safe_read
+          // (auto_safe mutationLevel), so we ACCEPT the Memory server's
+          // elicitation; every other server stays a safe DECLINE (no UI to
+          // fill a real form, and no policy to approve other servers yet).
           const unsubElicit = client.onServerRequest(
             'mcpServer/elicitation/request',
             (params) => {
-              const p = (params ?? {}) as { serverName?: string; message?: string };
+              const p = (params ?? {}) as {
+                serverName?: string;
+                message?: string;
+                mode?: string;
+                requestedSchema?: unknown;
+              };
+              // Pure, unit-tested policy (mcp-elicitation.ts): accept the
+              // read-only Memory server, decline everything else. Keeps the
+              // "never blanket-decline / never blanket-accept" invariant.
+              const resp = decideCodexElicitation(p.serverName);
+              const accepted = resp.action === 'accept';
+              console.debug('[codex.mcp-elicitation]', {
+                serverName: p.serverName,
+                mode: p.mode,
+                hasSchema: p.requestedSchema != null,
+                action: resp.action,
+              });
               tryEnqueue(
                 `data: ${JSON.stringify({
                   type: 'status',
                   data: JSON.stringify({
-                    kind: 'codex.mcpElicitationDeclined',
+                    kind: accepted ? 'codex.mcpElicitationAccepted' : 'codex.mcpElicitationDeclined',
                     payload: { server: p.serverName ?? null, message: p.message ?? null },
                   }),
                 })}\n\n`,
               );
-              // McpServerElicitationRequestResponse — decline, no content.
-              return { action: 'decline', content: null, _meta: null };
+              return resp;
             },
           );
           unsubscribers.push(unsubElicit);
+
+          // ── MCP dynamic tool call (Phase 8 Phase 5) ─────────────────
+          // When the model AUTONOMOUSLY calls a Memory tool mid-turn,
+          // Codex routes it to us as a server-originated `item/tool/call`
+          // (dynamic tool call) — NOT the client→server mcpServer/tool/call
+          // the Phase 0 POC used. Without this handler the client answers
+          // -32601 and Codex marks the call rejected (the Phase 5 smoke
+          // symptom). We forward an allowed memory call back to Codex's own
+          // MCP manager via mcpServer/tool/call (so Codex keeps owning the
+          // MCP lifecycle) and shape the DynamicToolCallResponse. Scope:
+          // read-only Memory only; user/mutating MCP stays gated.
+          const unsubDynTool = client.onServerRequest('item/tool/call', async (params) => {
+            const p = params as CodexDynamicToolCallParams;
+            const res = await handleCodexDynamicToolCall(p, (req) =>
+              client.request<McpToolCallResultLike>('mcpServer/tool/call', req),
+            );
+            console.debug('[codex.dynamic-tool-call]', {
+              namespace: p.namespace,
+              tool: p.tool,
+              success: res.success,
+            });
+            return res;
+          });
+          unsubscribers.push(unsubDynTool);
 
           // ── CodePilot built-in tool bridge subscription (Phase 5c) ──
           // Side-channel events emitted by the proxy's bridge tools

@@ -358,6 +358,7 @@ export class CodexAppServerClient {
       // an immediate "declined" outcome at the server side; runtime
       // adapter is expected to register a real handler before starting
       // any turn that may trigger approvals.
+      console.warn('[codex] server-originated request with NO handler:', message.method);
       void this.sendResponse(message.id, {
         error: { code: -32601, message: `No handler registered for ${message.method}` },
       });

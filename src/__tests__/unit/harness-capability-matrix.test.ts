@@ -30,6 +30,7 @@ import {
   flattenMatrix,
 } from '@/lib/harness/capability-matrix';
 import { HARNESS_CAPABILITIES, getCapability } from '@/lib/harness/capability-contract';
+import { getCapabilityNote } from '@/lib/harness/capability-display-text';
 
 const RUNTIMES = ['claude_code', 'codepilot_runtime', 'codex_runtime'] as const;
 
@@ -334,9 +335,11 @@ describe('Capability matrix — trustBoundary derivation', () => {
 // ─────────────────────────────────────────────────────────────────────
 
 describe('Capability matrix — Codex Account provider downgrade', () => {
-  it('codex_runtime + codex_account demotes widget / memory / tasks_and_notify / image_generation / media_import to perception_only', () => {
+  it('codex_runtime + codex_account demotes widget / tasks_and_notify / image_generation / media_import to perception_only (bridge-only, no native injection)', () => {
     const cells = capabilityMatrixForRuntimeProvider('codex_runtime', 'codex_account');
-    for (const capId of ['widget', 'memory', 'tasks_and_notify', 'image_generation', 'media_import']) {
+    // Phase 8 Phase 4 — `memory` is NO LONGER demoted; it reaches Codex
+    // Account via native config.mcp_servers injection (asserted below).
+    for (const capId of ['widget', 'tasks_and_notify', 'image_generation', 'media_import']) {
       const cell = cells.find((c) => c.capabilityId === capId);
       assert.ok(cell, `${capId} should be in matrix`);
       assert.equal(
@@ -359,6 +362,27 @@ describe('Capability matrix — Codex Account provider downgrade', () => {
         'codepilot_runtime',
         `${capId} must suggest CodePilot Native as alternative`,
       );
+    }
+  });
+
+  it('codex_runtime + codex_account keeps memory EXECUTABLE (native MCP injection) with an honest caveat note', () => {
+    const cells = capabilityMatrixForRuntimeProvider('codex_runtime', 'codex_account');
+    const memory = cells.find((c) => c.capabilityId === 'memory');
+    assert.ok(memory, 'memory should be in matrix');
+    // Phase 8: Memory is injected via native config.mcp_servers (validated
+    // end-to-end), so it stays executable under Codex Account — NOT demoted
+    // like the bridge-only built-ins above.
+    assert.equal(memory!.status, 'executable');
+    assert.ok(memory!.toolNames.length > 0, 'executable memory must expose its tool names');
+    // ...but carries a caveat key so the UI is honest that autonomous model
+    // use is pending the real-account smoke (Phase 5).
+    assert.equal(memory!.noteKey, 'memory_codex_native');
+    // The noteKey MUST resolve to real bilingual copy (else the UI renders
+    // nothing). Copy stays outcome-oriented — no internal vocabulary.
+    for (const lang of ['zh', 'en'] as const) {
+      const note = getCapabilityNote(memory!.noteKey!, lang);
+      assert.ok(note && note.length > 0, `note must resolve for ${lang}`);
+      assert.doesNotMatch(note!, /MCP|config\.mcp_servers|Phase\s*5/i, `${lang} note must not leak internal vocabulary`);
     }
   });
 

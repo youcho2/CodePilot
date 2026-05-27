@@ -2,7 +2,7 @@
 
 > 创建时间：2026-05-21
 > 最后更新：2026-05-27
-> 状态：🚧 Phase 0–3 完成并 live 验证（真实 Codex `0.133.0`）。Memory MCP 经 streamable-HTTP route 注入、`mcpServer/tool/call` 命中真实记忆、startup/elicitation 事件可见；全量单测 3009 通过。**Settings capability 仍 perception_only（Phase 4 未做）**；模型自主调用待登录后验证（Phase 5）。待用户审查。
+> 状态：✅ Phase 0–5（Memory）完成并经真实 Codex `0.133.0` 登录验证。Memory MCP 经 streamable-HTTP route 注入、Settings 显示可调用；登录 smoke 确认 Codex Account 下模型**主动调用 Memory 并读出真实记忆**。根因：Codex 在 `approvalPolicy: on-request` 下把 MCP 工具审批发成 `mcpServer/elicitation/request`，原 handler 无脑 decline → 改为对 safe-read Memory `accept`（`item/tool/call` 实测未触发，bridge 留作防御）。全量单测通过。**下一步 #31**：Widget / Image / Tasks 等能力按 capability 逐项接入 Codex。
 > 上游：Phase 5 Codex Runtime / Phase 5e Runtime Harness Architecture / Phase 7 Icon System
 > POC 记录：[docs/research/codex-mcp-injection-poc/](../../research/codex-mcp-injection-poc/)
 
@@ -63,6 +63,27 @@ Phase 8 需要先做 wrapper / shim：
 
 两条路最终可以并存，但 Settings 和测试必须区分来源，不能把 provider proxy bridge 的成功当作 Codex MCP 注入已完成。
 
+### MCP 协议统一 ≠ CodePilot 能力自动统一
+
+2026-05-27 用户补充目标：**所有原生 CodePilot 能力都应尽可能接入 Codex Runtime；接不进去的能力必须在 Settings / 提示里诚实说明，而不是只接 Memory 就算 Codex 适配完成。**
+
+MCP 统一的是传输与工具调用协议，不自动统一 CodePilot 的产品能力。每个能力还要逐项处理三层差异：
+
+- **注入层**：能力是否已有可被 Codex `config.mcp_servers` 挂载的 stdio / streamable HTTP server。
+- **执行层**：模型自主调用走 `item/tool/call`，需要 Runtime handler 转发到 `mcpServer/tool/call`，不能只验证手动 RPC。
+- **结果层**：不同能力的结果契约不同。Memory 是文本；Widget 要 `show-widget` artifact；Image / Media 要 `MediaBlock` 与素材导入；Tasks / Dashboard / CLI 有 side effect 与权限边界。
+
+因此 Phase 8 先闭环 Memory，是因为它是 safe-read 文本工具、最适合作为 Codex 原生 MCP 注入样板；这不代表其他 CodePilot 能力天然完成。后续要按 capability 逐项做 parity：
+
+| Capability | 当前事实 | Codex 原生接入还缺什么 |
+|------------|----------|------------------------|
+| Memory | Phase 8 已注入 Memory MCP；dynamic tool bridge 仅放行 `codepilot_memory_*` safe-read | 用户重跑登录 smoke，确认模型主动调用后能读出真实 Memory |
+| Widget | ClaudeCode / Native 有 Widget 能力；Codex Account 目前仍 perception_only | 需要 Codex 原生可见的 widget 指南 / artifact contract，并验证模型能输出可渲染 `show-widget` |
+| Tasks / Notify | 已有 CodePilot capability 与权限语义 | 需要 MCP/server 注入 + `mutationLevel` / permission policy，不可直接 auto-allow |
+| Image generation / Media import | 已有 MCP / Native / bridge 路径与 MediaBlock 经验 | 需要 Codex 原生工具结果到 CodePilot MediaBlock / 素材库的映射，避免只给模型文本 |
+| Dashboard / CLI | 目前 deferred / 高 side-effect | 需要先定权限与用户确认策略，再考虑注入 |
+| User MCP | 与 built-in CodePilot capability 分开 | 需要 transport / OAuth / permission / per-workspace allowlist，不可用 Memory 成功直接翻转 |
+
 ## 非目标
 
 - 不读取 `~/.codex/auth.json`、token、credentials、key、pem 等敏感文件。
@@ -80,15 +101,17 @@ Phase 8 需要先做 wrapper / shim：
 | Phase 1 | Codex MCP config builder + Memory MCP wrapper | ✅ 完成 | 无 UI 变化；`src/lib/codex/mcp-config.ts` 构造 + Memory MCP 经 `/api/codex/mcp/memory` streamable-HTTP route 复用（非 stdio wrapper），单测 + 路由测试通过 |
 | Phase 2 | Runtime start/resume 注入 | ✅ 完成 | 无 UI 变化；start/resume 都带 `config.mcp_servers`（Memory MCP，assistant 模式门控）；MCP fingerprint 入 session ref，变化即重开 thread |
 | Phase 3 | 事件、状态、elicitation / OAuth 桥接 | ✅ 完成（OAuth 见备注） | MCP 启动失败/就绪可见、mcpToolCall 错误进 canonical tool_completed、elicitation 安全 decline 且可见；OAuth 留待用户 MCP 注入（Phase 4）|
-| Phase 4 | Settings capability matrix 翻转 | 📋 待开始 | Codex 下 Memory MCP 从“感知不可执行”变为已验证路径下“可调用” |
-| Phase 5 | 真实 smoke + 归档 | 📋 待开始 | Smoke Ledger 有 Codex Account / proxy 两轮对话与 Memory MCP 调用证据 |
+| Phase 4 | Settings capability matrix 翻转 | ✅ 完成 | Codex Account 下 Memory 从「感知不可执行」翻成「可调用」（带 caveat：自主调用待真实账号验证）；widget/tasks/image/media 仍 perception_only；用户 MCP 不翻 |
+| Phase 5 | 真实 smoke + 归档 | ✅ Memory 已验证通过 | Codex Account 登录 smoke：模型主动调用 Memory，审批 elicitation 被 accept，**读出真实记忆**（见下方 Smoke Ledger）。其余能力（Widget/Image/Tasks…）的 smoke 随 #31 逐项补 |
 
 ## Phase 0 — POC 与事实夹具
 
 目标：先证明“Codex app-server + `config.mcp_servers` + CodePilot fixture MCP”能跑，而不是在主链路里盲写。
 
 > ✅ **已 live 验证（2026-05-27）**，结论与事件样本见 [docs/research/codex-mcp-injection-poc/](../../research/codex-mcp-injection-poc/)。
-> **关键修正（推翻下方旧假设）**：per-thread 注入的 server **不进** `mcpServerStatus/list`（实测对注入 server 返回 `data:[]`）；server 的 starting/ready/failed 状态走 `mcpServer/startupStatus/updated` **通知流**。凡涉及“查 list 断言”的任务以通知流为准（Phase 3 状态桥接同理）。模型**自主**调用为 auth-gated（需登录），其余项均已通过。
+> **关键修正（推翻下方旧假设）**：
+> 1. per-thread 注入的 server **不进** `mcpServerStatus/list`（实测对注入 server 返回 `data:[]`）；server 的 starting/ready/failed 状态走 `mcpServer/startupStatus/updated` **通知流**。凡涉及“查 list 断言”的任务以通知流为准（Phase 3 状态桥接同理）。
+> 2. **模型自主调用的执行 + 审批（Phase 5 真实登录 smoke 实测，更正早先的 `item/tool/call` 假设）**：模型在 turn 里调 Codex **托管**的 `config.mcp_servers` MCP 工具时，Codex **内部执行**它，不会发 `item/tool/call` 给客户端（实测该方法 **0 次**；早先以为走 dynamic tool call 是误判，bridge 仅留作防御）。手动 POC 的 `mcpServer/tool/call`（client→server）只证明 MCP manager 可被调用，不代表 turn 内自主调用闭环。真正的闭环点是**审批**：在 `approvalPolicy: on-request` 下 Codex 把工具调用审批发成 server→client 的 `mcpServer/elicitation/request`，客户端必须**正确应答**——对 safe-read Memory `accept`（否则被记为 `"user rejected MCP tool call"`）。
 
 任务：
 
@@ -194,7 +217,7 @@ Phase 8 需要先做 wrapper / shim：
 
 | Date | Runtime | Provider | Model | MCP transport | 场景 | Result | Evidence |
 |------|---------|----------|-------|---------------|------|--------|----------|
-| _待跑_ | codex_runtime | codex_account | Codex Account model | stdio fixture | Memory MCP recent/search 一轮调用 | 📋 | thread id / `mcpServer/startupStatus/updated` 通知 / DB usage / screenshot |
+| 2026-05-27 | codex_runtime | codex_account | gpt-5.5 | streamable-HTTP route | 自然对话里模型**主动**调 `codepilot_memory_recent` 并读出真实记忆 | ✅ | electron:dev 日志确证 `[codex.mcp-elicitation] serverName:codepilot_memory action:accept`（mode:form / hasSchema:true）；用户确认对话中模型成功读出 Memory。对照：**修复前**同一调用为 `codex.tool_result ... success=false output=[{"text":"user rejected MCP tool call"}]`（6 次），修复后不再出现 |
 | _待跑_ | codex_runtime | codex_account | Codex Account model | stdio fixture | 同一 session 第二轮续聊仍可调用 MCP | 📋 | same thread/provider binding + resume payload evidence |
 | _待跑_ | codex_runtime | CodePilot proxy | OpenRouter / GLM / Kimi 任一 | stdio fixture | Memory MCP 调用 + provider proxy 回复 | 📋 | proxy request id + mcp tool call event |
 | _待跑_ | codex_runtime | codex_account | Codex Account model | broken optional server | Settings / chat 显示启动失败但不阻塞主回复 | 📋 | status event + screenshot |
@@ -246,3 +269,23 @@ Phase 8 需要先做 wrapper / shim：
   - **未做（守边界）**：未翻 Settings capability（Phase 4）；未注入用户 MCP；未读 `~/.codex/auth.json`；模型自主调用 auth-gated（Phase 5）。handover/insights 文档待 Phase 4-5 收口后补。
   - **审查修复 P1（route 鉴权，2026-05-27）**：Memory MCP route 原先直接信任 `x-codepilot-workspace-path` header → 任意本地进程可把 workspace 指向任意目录、经 `codepilot_memory_get` 读任意文件（攻击者选 root）。修复：route 校验 header realpath 等于 `getSetting('assistant_workspace_path')`，否则 403。把路由能力降到「只服务用户已配置的 assistant workspace」=不超过同用户已有的 FS 访问。补测试两条（configured→200 / 其他→403）；live route 实测任意目录 → `403 Workspace not authorized`。nonce 暂不加（同用户本地威胁模型下等值校验已充分）。
   - **复核 P2/P3（reviewer 看了旧快照）**：文档 line 101 早已是「监听 startupStatus 通知…不能用 list 断言」的改正版（在 commit 1071d5e）、Smoke Ledger evidence 已改、脚本注释已改正、header 无 trailing whitespace、`git diff --check` clean——均在上一轮已 fold-in，本轮无需再改。
+- 2026-05-27：**Phase 4 完成**（用户确认翻转）。判断标准（用户拍板）：Runtime 层 executable = 原生 MCP 注入成功 + server ready + 手动 `mcpServer/tool/call` 返回真实 Memory（已验证）；模型在自然对话中是否主动调用属 Phase 5 真实登录 smoke，不作为 Phase 4 门槛。
+  - **只翻 Memory**：`capability-matrix.ts` 把 `memory` 从 `CODEX_ACCOUNT_BRIDGE_DEMOTED_CAPS` 移除（它经原生 `config.mcp_servers` 注入，非代理桥，故 Codex Account 下也 executable）；widget / tasks_and_notify / image_generation / media_import 仍 perception_only（无原生注入）；用户 MCP 仍 perception_only（guardrail 不动，[[新 Agent 复用 contract]] 不受影响）。
+  - **诚实 caveat**：新增 `CapabilityMatrixCell.noteKey` + `capability-display-text.ts` 的 `CAPABILITY_NOTES`/`getCapabilityNote`（双语）；codex_account 下 memory cell 带 `noteKey='memory_codex_native'`，UI（`RuntimeCapabilityList`）对任意状态渲染该 note。文案按本仓库「用户语言、不暴露内部词汇」规则**去掉了「Phase 5」「MCP」**（用户建议稿里有，但 capability-display-text 规则 #3 + 「describe in user terms」要求不漏架构词）：「Memory 已接入 Codex，可供模型调用；模型是否会在自然对话中主动使用它，待真实账号验证。」
+  - **测试**：`harness-capability-matrix.test.ts` 拆分 codex_account 用例（4 个 bridge-only 仍 perception_only；memory → executable + noteKey 解析出双语文案 + 不含内部词汇）；全量 3014 通过、typecheck 干净。
+  - **验证缺口（诚实记录）**：codex_account 专属的 caveat note 未在 live 页面目视确认（当前生效 provider 非 codex_account，无法在不改用户设置的前提下强制切换）；数据/逻辑已单测锁定，`/settings/runtime` SSR 返回 200（组件含改动渲染无错）。
+  - **未做**：模型自主调用 smoke（Phase 5，auth-gated）。
+- 2026-05-27：**Phase 5 关键发现 + dynamic tool bridge**（用户真实登录 smoke）。
+  - **好消息**：Codex Account 登录后，模型在自然对话里**已主动调用** `codepilot_memory.codepilot_memory_recent {}` —— 最难的「模型会不会主动调」已过。注入 + 模型决策都 OK。
+  - **根因（之前 POC 漏的一层）**：模型自主调用走 **server→client 的 `item/tool/call`**（`DynamicToolCallParams`），不是 POC 手动用的 client→server `mcpServer/tool/call`。runtime 没注册 `item/tool/call` handler → `CodexAppServerClient.routeServerRequest` 默认回 `-32601` → Codex 视为 rejected。**手动 POC 的 mcpServer/tool/call 只证明 MCP manager 可调用，不代表 turn 内自主调用闭环。**
+  - **修复**：`src/lib/codex/dynamic-tool-bridge.ts` + runtime 注册 `client.onServerRequest('item/tool/call', ...)`。handler 仅允许 `namespace==='codepilot_memory'` + recent/search/get（safe_read），**转发回 `client.request('mcpServer/tool/call',{threadId,server:namespace,tool,arguments})`**（不绕过 Codex MCP 生命周期），把 `McpToolCallResult` → `DynamicToolCallResponse{contentItems:[{type:'inputText',text}],success:!isError}`（text 取 content[] 的 text，非 text/structuredContent 用 JSON 兜底）；unsupported namespace/tool 或 forward 失败 → graceful `success:false`，**不 throw**（避免 -32603）。
+  - **schema 核对**：live `0.133` ServerRequest union 确含 `{ "method":"item/tool/call", params: DynamicToolCallParams }`；`DynamicToolCallParams{threadId,turnId,callId,namespace:string|null,tool,arguments}`、`DynamicToolCallResponse{contentItems,success}`、contentItem `{type:'inputText',text}|{type:'inputImage',imageUrl}` 全部逐字确认。
+  - **测试**：`codex-dynamic-tool-bridge.test.ts`（forward 映射 namespace→server / isError→success:false / unsupported namespace+tool 不转发 / null namespace / structuredContent 兜底 / forward 抛错 graceful / source pin runtime 注册 item/tool/call 且经 mcpServer/tool/call 转发）。
+  - **范围**：仅 Memory（safe_read 自动转发）；用户 MCP / mutating 工具留待接 mutationLevel / permission policy 后再放行。
+  - **待确认**：用户重跑登录 smoke —— 同一句对话里模型调 Memory 应从「被拒绝」变成「读出真实 Memory」。我无法 headless 跑 authed turn（隔离 driver 不能登录，且不碰真实 `~/.codex`）。
+- 2026-05-27：**真实根因更正（推翻 item/tool/call 假设）**。用户重跑 smoke 仍「被拒绝」；从 electron:dev 日志（`/tmp/p7c-electron-dev.log`，未碰真实 `~/.codex`）定位到真因：
+  - **`item/tool/call` 全程出现 0 次**——模型自主调用 **不走** dynamic tool call。Codex 对它**自己管理的** `config.mcp_servers` MCP server 是**内部执行**，不反向请客户端。所以 Phase 5a 的 `item/tool/call` bridge 针对的是**未被触发的路径**（保留为防御性代码，但不是本问题的解）。
+  - **真因是我 Phase 3 的 elicitation handler 无脑 decline**。Codex 在 `approvalPolicy: on-request` 下，把 MCP 工具调用的**审批**当成 `mcpServer/elicitation/request` 发给客户端；我的 handler 对所有 elicitation 回 `{action:'decline'}` → 日志 `tool_result ... success=false output=[{"text":"user rejected MCP tool call"}] mcp_server=codepilot_memory`（6 次 decline 对应 6 次 reject）。
+  - **证据**：`<- response JSONRPCResponse {id:0, result:{"action":"decline"}}` → `op.dispatch.resolve_elicitation` → `codex.tool_result tool_name=mcp__codepilot_memory__codepilot_memory_recent success=false "user rejected MCP tool call"`。
+  - **好消息**：模型**确实主动调用了** Memory、Codex **确实注入并执行**了 MCP——唯一坏的是我那个过激的 decline。
+  - **修复**：elicitation handler 改为 **Memory server（`codepilot_memory`，safe_read / auto_safe）→ `{action:'accept', content:{}}`**，其余 server 仍安全 decline；加 `[codex.mcp-elicitation]` 日志记录 serverName/mode/hasSchema 以确认形状。待用户重跑确认「accept → 读出真实 Memory」。`content:{}` 是否够（若 approval elicitation 带 requestedSchema）由重跑日志确认。
