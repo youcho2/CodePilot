@@ -341,6 +341,22 @@ const CODEX_ACCOUNT_NATIVE_NOTE_BY_CAP: Readonly<Record<string, string>> = {
 };
 
 /**
+ * Built-ins whose codex_proxy contract is `unsupported` (so they default to
+ * `perception_only` on Codex) but that this slice promotes to executable
+ * under Codex Account specifically — via a mutation-level SPLIT: a
+ * safe-read MCP (auto_accept) + a mutating MCP (user_approval), both
+ * injected into Codex's `mcp_servers` config. The promotion attaches a
+ * mixed trust badge + the honest per-capability note (Codex review next
+ * slice, 2026-05-28).
+ */
+const CODEX_ACCOUNT_NATIVE_PROMOTED_BY_CAP: Readonly<
+  Record<string, { readonly noteKey: string }>
+> = {
+  dashboard: { noteKey: 'dashboard_codex_native' },
+  cli_tools: { noteKey: 'cli_tools_codex_native' },
+};
+
+/**
  * Returns the capability matrix for a specific Runtime + Provider
  * combination. For most combinations this is identical to
  * `capabilityMatrixForRuntime` — the override only fires when the
@@ -356,11 +372,31 @@ export function capabilityMatrixForRuntimeProvider(
   }
   // Demote bridge-only capabilities to perception_only for Codex Account.
   return base.map((cell) => {
-    // Native-injected built-ins (memory, widget) stay executable under Codex
-    // Account, each with an honest per-capability note.
+    // Native-injected built-ins (memory, widget, tasks) stay executable under
+    // Codex Account, each with an honest per-capability note.
     const nativeNote = CODEX_ACCOUNT_NATIVE_NOTE_BY_CAP[cell.capabilityId];
     if (nativeNote && cell.status === 'executable') {
       return { ...cell, noteKey: nativeNote };
+    }
+    // Mutation-level-split built-ins (dashboard, cli_tools) — their
+    // codex_proxy contract is `unsupported` (cell is perception_only by
+    // default), but Codex Account injects two MCP servers per capability
+    // (safe-read + mutating) so the capability IS callable, just gated. Flip
+    // the cell to executable + mixed trust + the explanatory note.
+    const promoted = CODEX_ACCOUNT_NATIVE_PROMOTED_BY_CAP[cell.capabilityId];
+    if (promoted && cell.status === 'perception_only') {
+      const cap = HARNESS_CAPABILITIES.find((c) => c.id === cell.capabilityId);
+      const promotedCell: CapabilityMatrixCell = {
+        ...cell,
+        status: 'executable',
+        statusLine: '可调用',
+        toolNames: cap?.toolNames ?? cell.toolNames,
+        trustBoundary: 'mixed',
+        noteKey: promoted.noteKey,
+      };
+      // suggestedRuntime no longer applies — the capability IS callable here.
+      delete (promotedCell as { suggestedRuntime?: unknown }).suggestedRuntime;
+      return promotedCell;
     }
     if (!CODEX_ACCOUNT_BRIDGE_DEMOTED_CAPS.has(cell.capabilityId)) {
       return cell;

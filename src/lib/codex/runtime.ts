@@ -65,11 +65,17 @@ import {
   buildCodexMemoryMcpConfig,
   buildCodexWidgetMcpConfig,
   buildCodexTasksMcpConfig,
+  buildCodexDashboardReadMcpConfig,
+  buildCodexDashboardWriteMcpConfig,
+  buildCodexCliToolsReadMcpConfig,
+  buildCodexCliToolsWriteMcpConfig,
   fingerprintCodexMcpConfig,
   sameRealPath,
   type CodexMcpServersConfig,
 } from './mcp-config';
 import { promptNeedsWidget } from '@/lib/widget-guidelines';
+import { promptNeedsDashboard } from '@/lib/dashboard-mcp';
+import { promptNeedsCli } from '@/lib/cli-tools-mcp';
 import {
   handleCodexDynamicToolCall,
   type CodexDynamicToolCallParams,
@@ -535,6 +541,45 @@ export const codexRuntime: AgentRuntime = {
               sessionId,
             });
             codexMcpServers[tasks.name] = tasks.entry;
+          }
+          // Dashboard split (Codex review next slice, 2026-05-28) — same
+          // keyword gate as the ClaudeCode SDK path (`promptNeedsDashboard`,
+          // shared from dashboard-mcp.ts). Two MCPs: read tools (list /
+          // refresh) auto_accept on elicitation; write tools (pin / update /
+          // remove) routed to USER APPROVAL at call time.
+          if (
+            options.prompt &&
+            options.workingDirectory &&
+            promptNeedsDashboard(options.prompt)
+          ) {
+            const dashRead = buildCodexDashboardReadMcpConfig({
+              baseUrl: resolveCodexProxyBaseUrl(),
+              workspacePath: options.workingDirectory,
+              sessionId,
+            });
+            codexMcpServers[dashRead.name] = dashRead.entry;
+            const dashWrite = buildCodexDashboardWriteMcpConfig({
+              baseUrl: resolveCodexProxyBaseUrl(),
+              workspacePath: options.workingDirectory,
+              sessionId,
+            });
+            codexMcpServers[dashWrite.name] = dashWrite.entry;
+          }
+          // CLI tools split — same keyword gate as the ClaudeCode SDK path
+          // (`promptNeedsCli`, shared from cli-tools-mcp.ts). Read tools
+          // (list / check_updates) auto_accept; mutating tools (install /
+          // add / remove / update) routed to USER APPROVAL.
+          if (options.prompt && promptNeedsCli(options.prompt)) {
+            const cliRead = buildCodexCliToolsReadMcpConfig({
+              baseUrl: resolveCodexProxyBaseUrl(),
+              sessionId,
+            });
+            codexMcpServers[cliRead.name] = cliRead.entry;
+            const cliWrite = buildCodexCliToolsWriteMcpConfig({
+              baseUrl: resolveCodexProxyBaseUrl(),
+              sessionId,
+            });
+            codexMcpServers[cliWrite.name] = cliWrite.entry;
           }
           const hasMcp = Object.keys(codexMcpServers).length > 0;
           // Fingerprint the injected MCP set; a resume whose fingerprint

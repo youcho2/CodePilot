@@ -22,6 +22,8 @@
 import { createMemorySearchMcpServer } from '@/lib/memory-search-mcp';
 import { createWidgetMcpServer } from '@/lib/widget-guidelines';
 import { createNotificationMcpServer } from '@/lib/notification-mcp';
+import { createDashboardMcpServer } from '@/lib/dashboard-mcp';
+import { createCliToolsMcpServer } from '@/lib/cli-tools-mcp';
 import { getSetting } from '@/lib/db';
 import { sameRealPath } from './mcp-config';
 
@@ -92,6 +94,65 @@ export const CODEX_BUILTIN_MCP_SERVERS: Readonly<Record<string, BuiltinMcpServer
         excludeTools: ['codepilot_hatch_buddy'],
       }).instance,
     // No file reads; tasks are scoped by sessionId/workspace passed at create.
+    authorize: () => ({ ok: true }),
+  },
+  // ── Dashboard split (Codex review next slice, 2026-05-28) ──────────────
+  // The dashboard MCP exposes 5 tools mixing safe-read (list / refresh) and
+  // mutating (pin / update / remove). Codex elicitation params identify the
+  // server, not the individual tool, so per-tool policy via a single server
+  // entry isn't possible — we instead expose the same factory under TWO
+  // server names with disjoint `includeTools` allowlists, one auto_accept
+  // and one user_approval. Both require workspace scope (dashboard reads
+  // local source files via glob and writes widget state under the workspace
+  // dashboard).
+  codepilot_dashboard_read: {
+    serverName: 'codepilot_dashboard_read',
+    elicitationPolicy: 'auto_accept', // list / refresh — safe-read
+    create: ({ workspacePath, sessionId }) =>
+      createDashboardMcpServer(sessionId, workspacePath, {
+        includeTools: ['codepilot_dashboard_list', 'codepilot_dashboard_refresh'],
+      }).instance,
+    authorize: ({ workspacePath }) => authorizeAssistantWorkspace(workspacePath),
+  },
+  codepilot_dashboard_write: {
+    serverName: 'codepilot_dashboard_write',
+    elicitationPolicy: 'user_approval', // pin / update / remove — mutating
+    create: ({ workspacePath, sessionId }) =>
+      createDashboardMcpServer(sessionId, workspacePath, {
+        includeTools: [
+          'codepilot_dashboard_pin',
+          'codepilot_dashboard_update',
+          'codepilot_dashboard_remove',
+        ],
+      }).instance,
+    authorize: ({ workspacePath }) => authorizeAssistantWorkspace(workspacePath),
+  },
+  // ── CLI tools split ────────────────────────────────────────────────────
+  // CLI tool management is system-wide (not workspace-scoped) so no
+  // workspace authorize gate — but every mutating action (install / add /
+  // remove / update) goes through user approval so the model can't silently
+  // run package installs.
+  codepilot_cli_tools_read: {
+    serverName: 'codepilot_cli_tools_read',
+    elicitationPolicy: 'auto_accept', // list / check_updates — safe-read
+    create: () =>
+      createCliToolsMcpServer({
+        includeTools: ['codepilot_cli_tools_list', 'codepilot_cli_tools_check_updates'],
+      }).instance,
+    authorize: () => ({ ok: true }),
+  },
+  codepilot_cli_tools_write: {
+    serverName: 'codepilot_cli_tools_write',
+    elicitationPolicy: 'user_approval', // install / add / remove / update — mutating
+    create: () =>
+      createCliToolsMcpServer({
+        includeTools: [
+          'codepilot_cli_tools_install',
+          'codepilot_cli_tools_add',
+          'codepilot_cli_tools_remove',
+          'codepilot_cli_tools_update',
+        ],
+      }).instance,
     authorize: () => ({ ok: true }),
   },
 };

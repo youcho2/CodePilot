@@ -416,6 +416,40 @@ describe('Capability matrix — Codex Account provider downgrade', () => {
     }
   });
 
+  it('codex_runtime + codex_account promotes dashboard EXECUTABLE via mutation-level split (mixed trust)', () => {
+    const cells = capabilityMatrixForRuntimeProvider('codex_runtime', 'codex_account');
+    const dashboard = cells.find((c) => c.capabilityId === 'dashboard');
+    assert.ok(dashboard, 'dashboard should be in matrix');
+    // Codex review next slice (2026-05-28): dashboard is unsupported in the
+    // codex_proxy contract (perception_only by default), but Codex Account
+    // splits the MCP into read (auto_accept) + write (user_approval) and
+    // injects both. The capability IS callable here, just gated.
+    assert.equal(dashboard!.status, 'executable');
+    assert.equal(dashboard!.trustBoundary, 'mixed');
+    assert.equal(dashboard!.noteKey, 'dashboard_codex_native');
+    assert.equal(dashboard!.suggestedRuntime, undefined, 'promoted cell must not carry a suggestedRuntime');
+    for (const lang of ['zh', 'en'] as const) {
+      const note = getCapabilityNote(dashboard!.noteKey!, lang);
+      assert.ok(note && note.length > 0, `dashboard note must resolve for ${lang}`);
+      assert.doesNotMatch(note!, /MCP|config\.mcp_servers|elicitation|auto_accept|user_approval/i, `${lang} dashboard note must not leak internal vocabulary`);
+    }
+  });
+
+  it('codex_runtime + codex_account promotes cli_tools EXECUTABLE via mutation-level split (mixed trust)', () => {
+    const cells = capabilityMatrixForRuntimeProvider('codex_runtime', 'codex_account');
+    const cli = cells.find((c) => c.capabilityId === 'cli_tools');
+    assert.ok(cli, 'cli_tools should be in matrix');
+    assert.equal(cli!.status, 'executable');
+    assert.equal(cli!.trustBoundary, 'mixed');
+    assert.equal(cli!.noteKey, 'cli_tools_codex_native');
+    assert.equal(cli!.suggestedRuntime, undefined, 'promoted cell must not carry a suggestedRuntime');
+    for (const lang of ['zh', 'en'] as const) {
+      const note = getCapabilityNote(cli!.noteKey!, lang);
+      assert.ok(note && note.length > 0, `cli_tools note must resolve for ${lang}`);
+      assert.doesNotMatch(note!, /MCP|config\.mcp_servers|elicitation|auto_accept|user_approval/i, `${lang} cli_tools note must not leak internal vocabulary`);
+    }
+  });
+
   it('codex_runtime + non-codex_account provider keeps the bridge-executable status', () => {
     const cells = capabilityMatrixForRuntimeProvider('codex_runtime', 'some_glm_provider');
     const widget = cells.find((c) => c.capabilityId === 'widget');

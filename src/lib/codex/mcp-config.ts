@@ -129,6 +129,17 @@ export function buildCodexMcpServersConfig(
 export const CODEX_MEMORY_MCP_SERVER_NAME = 'codepilot_memory';
 export const CODEX_WIDGET_MCP_SERVER_NAME = 'codepilot_widget';
 export const CODEX_TASKS_MCP_SERVER_NAME = 'codepilot_tasks';
+// Per-capability mutation-level split (Codex review next slice, 2026-05-28).
+// Each capability is exposed under TWO server names: a safe-read MCP
+// (auto_accept on elicitation) and a mutating MCP (user_approval). Codex's
+// elicitation params identify the SERVER, not the individual tool, so
+// per-tool policy isn't possible from a single server entry — splitting by
+// server is the cleanest way to give read tools auto-accept while keeping
+// writes behind the user's approval card.
+export const CODEX_DASHBOARD_READ_MCP_SERVER_NAME = 'codepilot_dashboard_read';
+export const CODEX_DASHBOARD_WRITE_MCP_SERVER_NAME = 'codepilot_dashboard_write';
+export const CODEX_CLI_TOOLS_READ_MCP_SERVER_NAME = 'codepilot_cli_tools_read';
+export const CODEX_CLI_TOOLS_WRITE_MCP_SERVER_NAME = 'codepilot_cli_tools_write';
 
 /** Header the Memory MCP route reads to scope memory reads to a workspace. */
 export const MEMORY_MCP_WORKSPACE_HEADER = 'x-codepilot-workspace-path';
@@ -215,6 +226,88 @@ export function buildCodexTasksMcpConfig(opts: {
     name: CODEX_TASKS_MCP_SERVER_NAME,
     entry: { url: `${trimmed}${CODEX_MCP_ROUTE_BASE}/${CODEX_TASKS_MCP_SERVER_NAME}`, http_headers },
   };
+}
+
+/**
+ * Build a Codex `mcp_servers` entry for a workspace-scoped built-in MCP
+ * route (memory / dashboard read+write). Carries workspace + session
+ * headers; the route's `authorize` checks the workspace against the
+ * configured assistant workspace.
+ */
+function buildWorkspaceScopedConfig(opts: {
+  serverName: string;
+  baseUrl: string;
+  workspacePath: string;
+  sessionId?: string;
+}): { name: string; entry: CodexStreamableHttpMcpServer } {
+  const trimmed = opts.baseUrl.replace(/\/+$/, '');
+  const http_headers: Record<string, string> = {
+    [MEMORY_MCP_WORKSPACE_HEADER]: opts.workspacePath,
+  };
+  if (opts.sessionId && opts.sessionId.length > 0) {
+    http_headers[MEMORY_MCP_SESSION_HEADER] = opts.sessionId;
+  }
+  return {
+    name: opts.serverName,
+    entry: { url: `${trimmed}${CODEX_MCP_ROUTE_BASE}/${opts.serverName}`, http_headers },
+  };
+}
+
+/** Codex `mcp_servers` entry for the safe-read Dashboard MCP
+ *  (list / refresh). auto_accept on elicitation. */
+export function buildCodexDashboardReadMcpConfig(opts: {
+  baseUrl: string;
+  workspacePath: string;
+  sessionId?: string;
+}): { name: string; entry: CodexStreamableHttpMcpServer } {
+  return buildWorkspaceScopedConfig({ ...opts, serverName: CODEX_DASHBOARD_READ_MCP_SERVER_NAME });
+}
+
+/** Codex `mcp_servers` entry for the mutating Dashboard MCP
+ *  (pin / update / remove). user_approval on elicitation. */
+export function buildCodexDashboardWriteMcpConfig(opts: {
+  baseUrl: string;
+  workspacePath: string;
+  sessionId?: string;
+}): { name: string; entry: CodexStreamableHttpMcpServer } {
+  return buildWorkspaceScopedConfig({ ...opts, serverName: CODEX_DASHBOARD_WRITE_MCP_SERVER_NAME });
+}
+
+/** Codex `mcp_servers` entry for the safe-read CLI tools MCP
+ *  (list / check_updates). auto_accept on elicitation. No workspace
+ *  scope: CLI tools are system-wide. */
+export function buildCodexCliToolsReadMcpConfig(opts: {
+  baseUrl: string;
+  sessionId?: string;
+}): { name: string; entry: CodexStreamableHttpMcpServer } {
+  const trimmed = opts.baseUrl.replace(/\/+$/, '');
+  const http_headers: Record<string, string> = {};
+  if (opts.sessionId && opts.sessionId.length > 0) {
+    http_headers[MEMORY_MCP_SESSION_HEADER] = opts.sessionId;
+  }
+  const entry: CodexStreamableHttpMcpServer = {
+    url: `${trimmed}${CODEX_MCP_ROUTE_BASE}/${CODEX_CLI_TOOLS_READ_MCP_SERVER_NAME}`,
+  };
+  if (Object.keys(http_headers).length > 0) entry.http_headers = http_headers;
+  return { name: CODEX_CLI_TOOLS_READ_MCP_SERVER_NAME, entry };
+}
+
+/** Codex `mcp_servers` entry for the mutating CLI tools MCP
+ *  (install / add / remove / update). user_approval on elicitation. */
+export function buildCodexCliToolsWriteMcpConfig(opts: {
+  baseUrl: string;
+  sessionId?: string;
+}): { name: string; entry: CodexStreamableHttpMcpServer } {
+  const trimmed = opts.baseUrl.replace(/\/+$/, '');
+  const http_headers: Record<string, string> = {};
+  if (opts.sessionId && opts.sessionId.length > 0) {
+    http_headers[MEMORY_MCP_SESSION_HEADER] = opts.sessionId;
+  }
+  const entry: CodexStreamableHttpMcpServer = {
+    url: `${trimmed}${CODEX_MCP_ROUTE_BASE}/${CODEX_CLI_TOOLS_WRITE_MCP_SERVER_NAME}`,
+  };
+  if (Object.keys(http_headers).length > 0) entry.http_headers = http_headers;
+  return { name: CODEX_CLI_TOOLS_WRITE_MCP_SERVER_NAME, entry };
 }
 
 /** Recursively sort object keys so equal configs hash identically. */

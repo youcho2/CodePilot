@@ -127,6 +127,67 @@ describe('built-in MCP reuse (in-memory)', () => {
     await client.close();
     await instance.close();
   });
+
+  // ── Dashboard + CLI mutation-level split (Codex review next slice, 2026-05-28)
+  // Same `tools/list` guard pattern as `codepilot_tasks`: each split MCP must
+  // expose EXACTLY the expected subset (auto_accept for safe-read, user_approval
+  // for mutating). Catches future tool additions accidentally landing on the
+  // wrong side of the split (or leaking into Codex at all).
+  const splitCases: ReadonlyArray<{
+    serverName: string;
+    expectedTools: readonly string[];
+    needsWorkspace: boolean;
+  }> = [
+    {
+      serverName: 'codepilot_dashboard_read',
+      expectedTools: ['codepilot_dashboard_list', 'codepilot_dashboard_refresh'],
+      needsWorkspace: true,
+    },
+    {
+      serverName: 'codepilot_dashboard_write',
+      expectedTools: [
+        'codepilot_dashboard_pin',
+        'codepilot_dashboard_remove',
+        'codepilot_dashboard_update',
+      ],
+      needsWorkspace: true,
+    },
+    {
+      serverName: 'codepilot_cli_tools_read',
+      expectedTools: ['codepilot_cli_tools_check_updates', 'codepilot_cli_tools_list'],
+      needsWorkspace: false,
+    },
+    {
+      serverName: 'codepilot_cli_tools_write',
+      expectedTools: [
+        'codepilot_cli_tools_add',
+        'codepilot_cli_tools_install',
+        'codepilot_cli_tools_remove',
+        'codepilot_cli_tools_update',
+      ],
+      needsWorkspace: false,
+    },
+  ];
+
+  for (const { serverName, expectedTools, needsWorkspace } of splitCases) {
+    it(`Codex \`${serverName}\` entry exposes EXACTLY its mutation-level subset`, async () => {
+      const entry = getBuiltinMcpServer(serverName);
+      assert.ok(entry, `${serverName} must be registered in the Codex builtin MCP registry`);
+      const instance = entry!.create({ workspacePath: needsWorkspace ? ws : '/tmp', sessionId: 'split-audit' });
+      const [clientT, serverT] = InMemoryTransport.createLinkedPair();
+      await instance.connect(serverT);
+      const client = new Client({ name: 'test', version: '1.0.0' });
+      await client.connect(clientT);
+      const tools = (await client.listTools()).tools.map((t) => t.name).sort();
+      assert.deepEqual(
+        tools,
+        [...expectedTools].sort(),
+        `${serverName} must expose EXACTLY ${expectedTools.length} tool(s) (no leaks, no missing)`,
+      );
+      await client.close();
+      await instance.close();
+    });
+  }
 });
 
 describe('built-in MCP route — /api/codex/mcp/[server]', () => {

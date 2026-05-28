@@ -367,6 +367,14 @@ export const CAPABILITY_NOTES: Readonly<Record<string, BilingualText>> = {
     zh: '任务与通知已接入 Codex，模型可在需要时调用；调用前会请你确认，拒绝则不会执行。',
     en: 'Tasks & notifications are wired into Codex; the model can use them when needed. It asks for your confirmation first — if you decline, nothing runs.',
   },
+  dashboard_codex_native: {
+    zh: '仪表盘已接入 Codex：查看与刷新自动可用；钉、修改、移除会请你确认。',
+    en: 'Dashboard is wired into Codex: viewing and refreshing run automatically; pinning, updating, and removing ask for your confirmation first.',
+  },
+  cli_tools_codex_native: {
+    zh: 'CLI 工具管理已接入 Codex：查看与检查更新自动可用；安装、添加、卸载、更新会请你确认。',
+    en: 'CLI tools management is wired into Codex: listing and checking updates run automatically; install, add, remove, and update ask for your confirmation first.',
+  },
 };
 
 export function getCapabilityNote(noteKey: string, lang: 'zh' | 'en'): string | undefined {

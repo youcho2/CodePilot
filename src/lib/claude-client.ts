@@ -1036,12 +1036,10 @@ export function streamClaudeSdk(options: ClaudeStreamOptions): ReadableStream<st
         // Wide regex to cover natural phrasing like "帮我装 jq", "install uv",
         // "brew install", "pip install", "npm install -g", etc.
         // Codex P1 — heartbeat never installs CLI tools.
-        const needsCliToolsMcp = !isHeartbeatMode && (() => {
-          const cliKeywords = /CLI\s*工具|cli.tool|安装.*工具|卸载.*工具|添加.*工具|更新.*工具|升级.*工具|入库.*工具|工具.*入库|加入.*工具库|添加到.*库|工具库|tool\s*library|codepilot_cli_tools|帮我装|帮我安装|帮我更新|帮我升级|\binstall\s+[@\w./-]+|\buninstall\s+[@\w./-]+|\bupdate\s+[@\w./-]+|\bupgrade\s+[@\w./-]+|brew\s+install|brew\s+upgrade|pip\s+install|pipx\s+install|npm\s+install\s+-g|npm\s+update\s+-g|cargo\s+install|apt\s+install|apt-get\s+install/i;
-          if (cliKeywords.test(prompt)) return true;
-          if (conversationHistory?.some(m => cliKeywords.test(m.content))) return true;
-          return false;
-        })();
+        // Keyword gate is shared with the Codex injection path (don't
+        // per-runtime rewrite — `feedback_new_agent_must_reuse_contracts`).
+        const { promptNeedsCli } = await import('@/lib/cli-tools-mcp');
+        const needsCliToolsMcp = !isHeartbeatMode && promptNeedsCli(prompt, conversationHistory);
 
         if (needsCliToolsMcp) {
           const { createCliToolsMcpServer } = await import('@/lib/cli-tools-mcp');
@@ -1054,12 +1052,9 @@ export function streamClaudeSdk(options: ClaudeStreamOptions): ReadableStream<st
 
         // Dashboard MCP: widget management capabilities (keyword-gated).
         // Codex P1 — heartbeat never manages dashboard pins.
-        const needsDashboardMcp = !isHeartbeatMode && (() => {
-          const dashboardKeywords = /dashboard|仪表盘|看板|pin.*widget|pinned.*widget|refresh.*widget|固定.*组件|刷新.*组件|codepilot_dashboard/i;
-          if (dashboardKeywords.test(prompt)) return true;
-          if (conversationHistory?.some(m => dashboardKeywords.test(m.content))) return true;
-          return false;
-        })();
+        // Keyword gate is shared with the Codex injection path.
+        const { promptNeedsDashboard } = await import('@/lib/dashboard-mcp');
+        const needsDashboardMcp = !isHeartbeatMode && promptNeedsDashboard(prompt, conversationHistory);
 
         if (needsDashboardMcp) {
           const { createDashboardMcpServer } = await import('@/lib/dashboard-mcp');
