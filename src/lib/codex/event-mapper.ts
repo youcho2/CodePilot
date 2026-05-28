@@ -875,11 +875,22 @@ function buildImageGenerationMedia(item: ThreadItemLike): import('@/types').Medi
   const result = typeof item.result === 'string' ? item.result : undefined;
   if (!savedPath && !result) return null;
   const mimeType = savedPath ? mimeTypeFromPath(savedPath) ?? 'image/png' : 'image/png';
+  // Capture the REAL generation context so the import layer can populate
+  // the library row with `prompt = revisedPrompt` + a real model id —
+  // otherwise the gallery shows `prompt = filename` and the image is
+  // unsearchable / unidentifiable. (Codex protocol exposes `revisedPrompt`
+  // but no model id on this item, so we tag with the fixed identifier
+  // 'codex-image' that downstream UI / filters can recognize.)
+  const revisedPrompt = typeof item.revisedPrompt === 'string' ? item.revisedPrompt : undefined;
+  const sourceMetadata = revisedPrompt
+    ? { prompt: revisedPrompt, model: 'codex-image' }
+    : undefined;
   return {
     type: 'image',
     mimeType,
     ...(savedPath ? { localPath: savedPath } : {}),
     ...(result && !savedPath ? { data: result } : {}),
+    ...(sourceMetadata ? { sourceMetadata } : {}),
   };
 }
 

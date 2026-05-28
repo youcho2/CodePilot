@@ -6,6 +6,9 @@ import type { TranslationKey } from '@/i18n';
 
 export interface GalleryItem {
   id: string;
+  /** Generation provider (e.g. 'gemini', 'codex', 'cli-import'). Used by
+   *  the UI to label the engine that produced the image. */
+  provider?: string;
   prompt: string;
   images: Array<{ data?: string; mimeType: string; localPath?: string }>;
   type?: 'image' | 'video' | 'audio';

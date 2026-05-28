@@ -232,6 +232,19 @@ export interface MediaBlock {
   mimeType: string;     // e.g. 'image/png', 'video/mp4'
   localPath?: string;   // local file path (after save to .codepilot-media/)
   mediaId?: string;     // media_generations.id (after DB save)
+  /**
+   * Source-of-origin metadata captured at block-emit time. Used by the
+   * media-import layer (`materializeCodexEventMedia`) to populate the
+   * library's prompt + model with the REAL generation context (e.g.
+   * Codex's `revisedPrompt`) instead of defaulting to the filename.
+   * Renderers ignore this field.
+   */
+  sourceMetadata?: {
+    /** Human-readable prompt used to generate the media. */
+    prompt?: string;
+    /** Provider/model identifier (e.g. 'codex-image'). */
+    model?: string;
+  };
 }
 
 // Structured message content blocks (stored as JSON in messages.content)

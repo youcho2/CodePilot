@@ -87,13 +87,18 @@ export function materializeCodexEventMedia(
       imported.push(block);
       continue;
     }
-    // Foreign path → import into the library.
+    // Foreign path → import into the library. Pull `prompt` + `model` from
+    // the block's sourceMetadata so a Codex-generated image lands in the
+    // gallery with its real revised prompt + a recognizable model tag
+    // ('codex-image'), not the meaningless temp filename.
     try {
       const result = importFileToLibrary(block.localPath, {
         sessionId: opts.sessionId,
         source: 'codex',
         mimeType: block.mimeType,
         cwd: opts.cwd,
+        prompt: block.sourceMetadata?.prompt,
+        model: block.sourceMetadata?.model,
       });
       imported.push({
         ...block,

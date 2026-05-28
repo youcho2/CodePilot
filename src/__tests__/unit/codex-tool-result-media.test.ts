@@ -76,6 +76,53 @@ describe('Codex tool_result media — canonical event populated for image items'
     assert.equal(m.data, undefined);
   });
 
+  it('imageGeneration with revisedPrompt: MediaBlock carries sourceMetadata so the library row gets the real prompt (2026-05-28)', () => {
+    // The import layer (materializeCodexEventMedia) reads block.sourceMetadata
+    // and passes its prompt + model into importFileToLibrary so gallery
+    // rows are searchable by the actual generation prompt, not by filename.
+    const event = translateCodexNotification(
+      'item/completed',
+      {
+        item: {
+          type: 'imageGeneration',
+          id: 'img-prompted',
+          status: 'completed',
+          revisedPrompt: 'a calm pond at dusk with floating lanterns',
+          result: '<base64>',
+          savedPath: '/tmp/codex/out.webp',
+        },
+        threadId: 't', turnId: 'u', completedAtMs: 0,
+      },
+      ctx,
+    );
+    if (event?.type !== 'tool_completed') throw new Error('unreachable');
+    const m = event.media![0];
+    assert.deepEqual(m.sourceMetadata, {
+      prompt: 'a calm pond at dusk with floating lanterns',
+      model: 'codex-image',
+    });
+  });
+
+  it('imageGeneration without revisedPrompt: no sourceMetadata field (import layer falls back to filename)', () => {
+    const event = translateCodexNotification(
+      'item/completed',
+      {
+        item: {
+          type: 'imageGeneration',
+          id: 'img-bare',
+          status: 'completed',
+          revisedPrompt: null,
+          result: '<base64>',
+          savedPath: '/tmp/codex/out.webp',
+        },
+        threadId: 't', turnId: 'u', completedAtMs: 0,
+      },
+      ctx,
+    );
+    if (event?.type !== 'tool_completed') throw new Error('unreachable');
+    assert.equal(event.media![0].sourceMetadata, undefined);
+  });
+
   it('imageView always emits a media block', () => {
     const event = translateCodexNotification(
       'item/completed',

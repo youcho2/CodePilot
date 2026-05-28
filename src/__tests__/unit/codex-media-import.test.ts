@@ -115,6 +115,61 @@ describe('materializeCodexEventMedia — Codex savedPath imported into the media
     assert.ok(fs.existsSync(block.localPath!), 'imported file must exist on disk');
   });
 
+  it('Codex imageGeneration with revisedPrompt: library row gets prompt=revisedPrompt + model=codex-image (not filename, 2026-05-28)', async () => {
+    // Real user concern: a Codex-generated image must land in the gallery
+    // searchable by its actual prompt — not by the temp filename that
+    // Codex's savedPath uses. buildImageGenerationMedia threads
+    // `revisedPrompt` into block.sourceMetadata; materializeCodexEventMedia
+    // passes that into importFileToLibrary as prompt + model.
+    const src = buildSourcePng();
+    const revisedPrompt = 'a calm pond at dusk with floating lanterns';
+    const event: RuntimeRunEvent = {
+      type: 'tool_completed',
+      runtimeId: 'codex_runtime',
+      sessionId: 's-prompted',
+      toolId: 'img-prompted',
+      output: { type: 'imageGeneration', id: 'img-prompted', result: '<base64>', savedPath: src, revisedPrompt },
+      media: [{
+        type: 'image',
+        mimeType: 'image/webp',
+        localPath: src,
+        sourceMetadata: { prompt: revisedPrompt, model: 'codex-image' },
+      }],
+    };
+    const out = materializeCodexEventMedia(event, { sessionId: 's-prompted' });
+    if (out.type !== 'tool_completed') throw new Error('unreachable');
+    const block = out.media![0];
+    assert.ok(block.mediaId, 'import must stamp a mediaId');
+
+    // Verify the DB row uses the real prompt + model + provider.
+    const { getDb } = await import('../../lib/db');
+    const row = getDb()
+      .prepare('SELECT prompt, model, provider FROM media_generations WHERE id = ?')
+      .get(block.mediaId!) as { prompt: string; model: string; provider: string } | undefined;
+    assert.ok(row, 'media_generations row must exist');
+    assert.equal(row!.prompt, revisedPrompt, 'prompt must be the Codex revisedPrompt, not the filename');
+    assert.equal(row!.model, 'codex-image', 'model must be tagged so the UI can label the engine');
+    assert.equal(row!.provider, 'codex', 'provider stays codex');
+  });
+
+  it('Codex imageGeneration WITHOUT revisedPrompt: falls back to filename (no regression for current behavior)', async () => {
+    // Defensive fallback — if Codex omits revisedPrompt (failed generation,
+    // older protocol), the library still gets an importable row, just with
+    // the prior filename-as-prompt behavior. No drift in error paths.
+    const src = buildSourcePng();
+    const event = makeImageGenerationEvent(src); // no sourceMetadata on the block
+    const out = materializeCodexEventMedia(event, { sessionId: 's-bare' });
+    if (out.type !== 'tool_completed') throw new Error('unreachable');
+    const block = out.media![0];
+    const { getDb } = await import('../../lib/db');
+    const row = getDb()
+      .prepare('SELECT prompt, model FROM media_generations WHERE id = ?')
+      .get(block.mediaId!) as { prompt: string; model: string } | undefined;
+    assert.ok(row);
+    assert.equal(row!.prompt, 'codex-out.webp', 'fallback prompt is the filename when no sourceMetadata is provided');
+    assert.equal(row!.model, '', 'fallback model stays empty');
+  });
+
   it('imageView path is imported same way', () => {
     const src = buildSourcePng();
     const event: RuntimeRunEvent = {
