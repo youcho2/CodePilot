@@ -79,8 +79,18 @@ export const CODEX_BUILTIN_MCP_SERVERS: Readonly<Record<string, BuiltinMcpServer
     // schedule_task / cancel_task (mutating) + notify (side-effect) → the
     // model's call must be approved by the user, never auto-run.
     elicitationPolicy: 'user_approval',
+    // `excludeTools: ['codepilot_hatch_buddy']` keeps the buddy tool off
+    // Codex's tool surface. The SDK MCP also serves `codepilot_hatch_buddy`
+    // to ClaudeCode SDK / Native callers; on Codex Account the capability
+    // matrix says assistant_buddy = perception_only, so exposing it via this
+    // route without an autonomous-call smoke would silently contradict the
+    // matrix (the leak that Codex's exposure audit caught, 2026-05-28).
     create: ({ workspacePath, sessionId }) =>
-      createNotificationMcpServer({ sessionId, workingDirectory: workspacePath }).instance,
+      createNotificationMcpServer({
+        sessionId,
+        workingDirectory: workspacePath,
+        excludeTools: ['codepilot_hatch_buddy'],
+      }).instance,
     // No file reads; tasks are scoped by sessionId/workspace passed at create.
     authorize: () => ({ ok: true }),
   },

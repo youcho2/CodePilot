@@ -21,6 +21,8 @@ import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { createMemorySearchMcpServer } from '@/lib/memory-search-mcp';
 import { createWidgetMcpServer } from '@/lib/widget-guidelines';
+import { createNotificationMcpServer } from '@/lib/notification-mcp';
+import { getBuiltinMcpServer } from '@/lib/codex/builtin-mcp-servers';
 import { POST } from '@/app/api/codex/mcp/[server]/route';
 import { getSetting, setSetting } from '@/lib/db';
 
@@ -76,6 +78,52 @@ describe('built-in MCP reuse (in-memory)', () => {
     await client.connect(clientT);
     const tools = (await client.listTools()).tools.map((t) => t.name);
     assert.ok(tools.includes('codepilot_load_widget_guidelines'));
+    await client.close();
+    await instance.close();
+  });
+
+  // ── Codex tool-surface audit (2026-05-28) ──────────────────────────────
+  // The Codex `codepilot_tasks` route must NOT expose `codepilot_hatch_buddy`.
+  // notification-mcp.ts ships 5 tools (notify + 3 task tools + buddy); the
+  // capability matrix says assistant_buddy = perception_only on Codex Account,
+  // so the Codex route filters buddy out via the entry's `excludeTools`.
+  // Audit guards: (1) the SDK MCP still gives ALL 5 to non-Codex callers
+  // (no regression for ClaudeCode SDK / Native), (2) the Codex `codepilot_tasks`
+  // entry's create() yields EXACTLY 4 tools without buddy — no surprise
+  // additions if notification-mcp.ts gains tools later.
+  it('notification MCP without excludeTools serves all 5 tools (SDK / Native unchanged)', async () => {
+    const [clientT, serverT] = InMemoryTransport.createLinkedPair();
+    const { instance } = createNotificationMcpServer({});
+    await instance.connect(serverT);
+    const client = new Client({ name: 'test', version: '1.0.0' });
+    await client.connect(clientT);
+    const tools = (await client.listTools()).tools.map((t) => t.name).sort();
+    assert.deepEqual(tools, [
+      'codepilot_cancel_task',
+      'codepilot_hatch_buddy',
+      'codepilot_list_tasks',
+      'codepilot_notify',
+      'codepilot_schedule_task',
+    ]);
+    await client.close();
+    await instance.close();
+  });
+
+  it('Codex `codepilot_tasks` entry excludes codepilot_hatch_buddy (matrix says perception_only)', async () => {
+    const entry = getBuiltinMcpServer('codepilot_tasks');
+    assert.ok(entry, 'codepilot_tasks must be registered in the Codex builtin MCP registry');
+    const instance = entry!.create({ workspacePath: '/tmp', sessionId: 'audit' });
+    const [clientT, serverT] = InMemoryTransport.createLinkedPair();
+    await instance.connect(serverT);
+    const client = new Client({ name: 'test', version: '1.0.0' });
+    await client.connect(clientT);
+    const tools = (await client.listTools()).tools.map((t) => t.name).sort();
+    assert.deepEqual(
+      tools,
+      ['codepilot_cancel_task', 'codepilot_list_tasks', 'codepilot_notify', 'codepilot_schedule_task'],
+      'Codex tasks MCP must expose EXACTLY these 4 tools — no buddy, no surprise additions',
+    );
+    assert.ok(!tools.includes('codepilot_hatch_buddy'), 'buddy must not leak to Codex');
     await client.close();
     await instance.close();
   });

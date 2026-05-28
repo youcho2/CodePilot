@@ -1,13 +1,20 @@
 /**
  * codepilot-notify MCP — in-process MCP server for notifications and scheduled tasks.
  *
- * Provides 4 tools:
+ * Provides up to 5 tools:
  * - codepilot_notify: Send an immediate notification
  * - codepilot_schedule_task: Create a scheduled task
  * - codepilot_list_tasks: List scheduled tasks
  * - codepilot_cancel_task: Cancel a scheduled task
+ * - codepilot_hatch_buddy: Hatch / name the user's buddy companion
  *
- * Globally registered: available in all contexts (no keyword gating).
+ * Globally registered for ClaudeCode SDK / Native callers (no keyword gating).
+ *
+ * `ctx.excludeTools` filters individual tools at construction time — used by
+ * the Codex `codepilot_tasks` route to keep `codepilot_hatch_buddy` off Codex's
+ * tool surface (the capability matrix says `assistant_buddy = perception_only`
+ * on Codex Account; exposing the tool there without an explicit smoke would
+ * silently contradict that).
  */
 
 import { createSdkMcpServer, tool } from '@anthropic-ai/claude-agent-sdk';
@@ -63,6 +70,13 @@ export interface NotificationMcpContext {
   sessionId?: string;
   /** Originating working directory (resolved on the streamClaude side). */
   workingDirectory?: string;
+  /**
+   * Optional allowlist exclusion — tool names listed here are NOT registered on
+   * the returned MCP server. Used by the Codex `codepilot_tasks` route to keep
+   * `codepilot_hatch_buddy` (assistant_buddy domain, perception_only on Codex
+   * Account in the matrix) off Codex's tool surface.
+   */
+  excludeTools?: readonly string[];
 }
 
 export function createNotificationMcpServer(ctx: NotificationMcpContext = {}) {
@@ -282,51 +296,57 @@ export function createNotificationMcpServer(ctx: NotificationMcpContext = {}) {
         },
       ),
 
-      // Tool 5: Hatch / name buddy
-      tool(
-        'codepilot_hatch_buddy',
-        'Hatch a new buddy companion for the user, or update the buddy name. Call this when the user wants to adopt/hatch their buddy or give it a name.',
-        {
-          buddyName: z.string().optional().describe('Name for the buddy (user-given)'),
-        },
-        async ({ buddyName }) => {
-          try {
-            const res = await fetch(`${getBaseUrl()}/api/workspace/hatch-buddy`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ buddyName: buddyName || '' }),
-            });
-            if (!res.ok) throw new Error(`HTTP ${res.status}`);
-            const data = await res.json();
-            if (!data.buddy) throw new Error('No buddy data');
-
-            const b = data.buddy;
-            const { SPECIES_LABEL, RARITY_DISPLAY, STAT_LABEL, SPECIES_IMAGE_URL, getBuddyTitle } = await import('@/lib/buddy');
-            const speciesName = SPECIES_LABEL[b.species as keyof typeof SPECIES_LABEL]?.zh || b.species;
-            const rarityInfo = RARITY_DISPLAY[b.rarity as keyof typeof RARITY_DISPLAY];
-            const title = getBuddyTitle(b);
-            const imageUrl = SPECIES_IMAGE_URL[b.species as keyof typeof SPECIES_IMAGE_URL] || '';
-            const statsText = Object.entries(b.stats)
-              .map(([stat, val]) => `${STAT_LABEL[stat as keyof typeof STAT_LABEL]?.zh || stat}: ${val}`)
-              .join(' · ');
-
-            const result = [
-              data.alreadyHatched ? `Updated buddy name to "${buddyName}"` : `Hatched a new buddy!`,
-              `Species: ${b.emoji} ${speciesName}`,
-              `Rarity: ${rarityInfo?.stars || ''} ${rarityInfo?.label.zh || b.rarity}`,
-              title ? `Title: "${title}"` : '',
-              `Stats: ${statsText}`,
-              `Peak: ${b.peakStat}`,
-              imageUrl ? `Image: ${imageUrl}` : '',
-              buddyName ? `Name: ${buddyName}` : '',
-            ].filter(Boolean).join('\n');
-
-            return { content: [{ type: 'text' as const, text: result }] };
-          } catch (err) {
-            return { content: [{ type: 'text' as const, text: `Failed to hatch buddy: ${err instanceof Error ? err.message : 'unknown'}` }] };
-          }
-        },
-      ),
+      // Tool 5: Hatch / name buddy — gated by ctx.excludeTools so the
+      // Codex `codepilot_tasks` route can keep buddy off Codex's tool
+      // surface while ClaudeCode SDK / Native callers still get it.
+      ...(ctx.excludeTools?.includes('codepilot_hatch_buddy') ? [] : [createHatchBuddyTool()]),
     ],
   });
+}
+
+function createHatchBuddyTool() {
+  return tool(
+    'codepilot_hatch_buddy',
+    'Hatch a new buddy companion for the user, or update the buddy name. Call this when the user wants to adopt/hatch their buddy or give it a name.',
+    {
+      buddyName: z.string().optional().describe('Name for the buddy (user-given)'),
+    },
+    async ({ buddyName }) => {
+      try {
+        const res = await fetch(`${getBaseUrl()}/api/workspace/hatch-buddy`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ buddyName: buddyName || '' }),
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+        if (!data.buddy) throw new Error('No buddy data');
+
+        const b = data.buddy;
+        const { SPECIES_LABEL, RARITY_DISPLAY, STAT_LABEL, SPECIES_IMAGE_URL, getBuddyTitle } = await import('@/lib/buddy');
+        const speciesName = SPECIES_LABEL[b.species as keyof typeof SPECIES_LABEL]?.zh || b.species;
+        const rarityInfo = RARITY_DISPLAY[b.rarity as keyof typeof RARITY_DISPLAY];
+        const title = getBuddyTitle(b);
+        const imageUrl = SPECIES_IMAGE_URL[b.species as keyof typeof SPECIES_IMAGE_URL] || '';
+        const statsText = Object.entries(b.stats)
+          .map(([stat, val]) => `${STAT_LABEL[stat as keyof typeof STAT_LABEL]?.zh || stat}: ${val}`)
+          .join(' · ');
+
+        const result = [
+          data.alreadyHatched ? `Updated buddy name to "${buddyName}"` : `Hatched a new buddy!`,
+          `Species: ${b.emoji} ${speciesName}`,
+          `Rarity: ${rarityInfo?.stars || ''} ${rarityInfo?.label.zh || b.rarity}`,
+          title ? `Title: "${title}"` : '',
+          `Stats: ${statsText}`,
+          `Peak: ${b.peakStat}`,
+          imageUrl ? `Image: ${imageUrl}` : '',
+          buddyName ? `Name: ${buddyName}` : '',
+        ].filter(Boolean).join('\n');
+
+        return { content: [{ type: 'text' as const, text: result }] };
+      } catch (err) {
+        return { content: [{ type: 'text' as const, text: `Failed to hatch buddy: ${err instanceof Error ? err.message : 'unknown'}` }] };
+      }
+    },
+  );
 }
