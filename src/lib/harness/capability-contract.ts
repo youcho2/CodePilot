@@ -453,7 +453,7 @@ const dashboard: CapabilityContract = {
   id: 'dashboard',
   displayName: 'Dashboard pin / list / refresh',
   status: 'deferred',
-  deferredReason: 'Codex Runtime bridge not yet implemented. ClaudeCode SDK + Native paths are wired but Codex bridge needs permission round-trip design for write operations (pin / remove / update). Phase 5d Phase 6 slice 6d is scheduled to ship the Codex Runtime + non-codex_account bridge first; codex_account path is gated on Phase 6c (Codex app-server protocol schema snapshot) and stays unsupported until then. See docs/exec-plans/active/phase-5d-phase-6-codex-account-harness.md.',
+  deferredReason: 'Legacy CodePilot provider-proxy bridge for Dashboard is NOT implemented (no buildDashboard* factory in codex/proxy/builtin-bridge.ts). The new path that DOES ship dashboard under codex_runtime is the mutation-level MCP split (#31, 2026-05-28): codepilot_dashboard_read (auto_accept, list / refresh) + codepilot_dashboard_write (user_approval, pin / update / remove), both injected via config.mcp_servers and served by /api/codex/mcp/[server]. The matrix layer promotes the cell accordingly (see CODEX_NATIVE_PROMOTED_BY_CAP in capability-matrix.ts). status=deferred remains accurate for the legacy bridge surface; UI shows executable via the matrix-layer promotion.',
   toolNames: [
     'codepilot_dashboard_pin',
     'codepilot_dashboard_list',
@@ -474,7 +474,7 @@ const dashboard: CapabilityContract = {
     },
     codex_proxy: {
       kind: 'unsupported',
-      notes: 'Deferred — see deferredReason. Model attempting to call any codepilot_dashboard_* in Codex Runtime gets ai-sdk "tool not found".',
+      notes: 'Legacy provider-proxy bridge is unsupported. Dashboard reaches Codex Runtime via the mutation-level MCP split — codepilot_dashboard_read (auto_accept) + codepilot_dashboard_write (user_approval), injected into config.mcp_servers and served by /api/codex/mcp/[server]. Matrix-layer promotion lives in CODEX_NATIVE_PROMOTED_BY_CAP (capability-matrix.ts).',
     },
   },
   systemPromptFragment: DASHBOARD_MCP_SYSTEM_PROMPT,
@@ -487,7 +487,7 @@ const cliTools: CapabilityContract = {
   id: 'cli_tools',
   displayName: 'CLI tools management (list / install / update / remove)',
   status: 'deferred',
-  deferredReason: 'Codex Runtime bridge not yet implemented. install/update/remove require permission contracts that Phase 5c slice 7 has not designed for the bridge path. Read-only list could ship first; gated on permission round-trip story.',
+  deferredReason: 'Legacy CodePilot provider-proxy bridge for CLI tools is NOT implemented. Ships under codex_runtime via the mutation-level MCP split (#31, 2026-05-28): codepilot_cli_tools_read (auto_accept, list / check_updates) + codepilot_cli_tools_write (user_approval, install / add / remove / update), both injected via config.mcp_servers. Matrix layer promotes the cell (CODEX_NATIVE_PROMOTED_BY_CAP).',
   toolNames: [
     'codepilot_cli_tools_list',
     'codepilot_cli_tools_install',
@@ -509,7 +509,7 @@ const cliTools: CapabilityContract = {
     },
     codex_proxy: {
       kind: 'unsupported',
-      notes: 'Deferred — permission story not designed for write operations on the Codex bridge path.',
+      notes: 'Legacy provider-proxy bridge is unsupported. CLI tools reach Codex Runtime via the mutation-level MCP split — read MCP (list / check_updates, auto_accept) + write MCP (install / add / remove / update, user_approval), injected into config.mcp_servers. Matrix-layer promotion lives in CODEX_NATIVE_PROMOTED_BY_CAP.',
     },
   },
   // CLI tools have no single SYSTEM_PROMPT export — the prompt lives

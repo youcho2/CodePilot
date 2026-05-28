@@ -343,8 +343,12 @@ export const CAPABILITY_EXECUTABLE_RUNTIMES: Readonly<Record<string, readonly Ru
   // assistant_buddy now executable on Claude Code + CodePilot Native.
   // Codex Runtime proxy still doesn't bridge the hatch flow.
   assistant_buddy: ['claude_code', 'codepilot_runtime'],
-  dashboard: ['claude_code', 'codepilot_runtime'],
-  cli_tools: ['claude_code', 'codepilot_runtime'],
+  // Codex review P1 (2026-05-28) — dashboard + cli_tools now reach
+  // codex_runtime via the mutation-level MCP split (read auto / write
+  // approval). The capability-matrix layer promotes the cells; the static
+  // map mirrors that so the cross-check coverage test stays green.
+  dashboard: ['claude_code', 'codepilot_runtime', 'codex_runtime'],
+  cli_tools: ['claude_code', 'codepilot_runtime', 'codex_runtime'],
 };
 
 /**

@@ -104,13 +104,26 @@ describe('Capability matrix — status semantics', () => {
 });
 
 describe('Capability matrix — per-runtime exposure derivation (round 7)', () => {
-  it('matrix status is derived purely from exposure.kind, NOT capability.status', () => {
+  // Documented exceptions: matrix-layer promotions where the codex_proxy
+  // contract.kind is `unsupported` (because the LEGACY provider-proxy
+  // bridge is genuinely unsupported for these capabilities) but the new
+  // mutation-level MCP split injection makes them callable. See
+  // capability-matrix.ts `CODEX_NATIVE_PROMOTED_BY_CAP`. Tracked as
+  // tech-debt: the contract schema could grow a per-runtime promotion
+  // kind to absorb these without an exception list.
+  const MATRIX_LAYER_PROMOTIONS = new Set<string>([
+    'codex_runtime/dashboard',
+    'codex_runtime/cli_tools',
+  ]);
+
+  it('matrix status is derived from exposure.kind (with documented matrix-layer promotions)', () => {
     // Round 7 fix: removed the `cap.status === 'deferred'` short-circuit
     // in deriveCell. A capability marked deferred at the top level can
     // still be executable on a runtime whose exposure.kind is real (e.g.
     // dashboard.exposure.claudecode_sdk.kind === 'mcp_server' is real
     // wiring — only codex_proxy is unsupported). The contract is:
-    // exposure.kind === 'unsupported' → perception_only or unavailable.
+    // exposure.kind === 'unsupported' → perception_only / unavailable,
+    // UNLESS the matrix layer promotes (see MATRIX_LAYER_PROMOTIONS above).
     // exposure.kind !== 'unsupported' → executable. Nothing else may
     // gate this transition.
     for (const cell of flattenMatrix()) {
@@ -123,28 +136,43 @@ describe('Capability matrix — per-runtime exposure derivation (round 7)', () =
             ? 'native'
             : 'codex_proxy';
       const exposureKind = cap!.exposure[exposureKey].kind;
+      const key = `${cell.runtimeId}/${cell.capabilityId}`;
       if (exposureKind === 'unsupported') {
-        assert.notEqual(
-          cell.status,
-          'executable',
-          `${cell.runtimeId}/${cell.capabilityId} has exposure.kind=unsupported but matrix marked it executable`,
-        );
+        if (MATRIX_LAYER_PROMOTIONS.has(key)) {
+          // Promoted via the codex_runtime MCP split — must be executable
+          // with the mixed trust badge + a non-empty noteKey.
+          assert.equal(
+            cell.status,
+            'executable',
+            `${key} is in MATRIX_LAYER_PROMOTIONS but matrix marked it ${cell.status} — promotion regressed`,
+          );
+          assert.equal(cell.trustBoundary, 'mixed', `${key} promoted cells must carry mixed trust`);
+          assert.ok(cell.noteKey, `${key} promoted cells must carry a noteKey`);
+        } else {
+          assert.notEqual(
+            cell.status,
+            'executable',
+            `${key} has exposure.kind=unsupported but matrix marked it executable — add to MATRIX_LAYER_PROMOTIONS if intentional, else the matrix is lying`,
+          );
+        }
       } else {
         assert.equal(
           cell.status,
           'executable',
-          `${cell.runtimeId}/${cell.capabilityId} has real exposure.kind=${exposureKind} but matrix marked it ${cell.status} — top-level status must NOT gate per-runtime executability`,
+          `${key} has real exposure.kind=${exposureKind} but matrix marked it ${cell.status} — top-level status must NOT gate per-runtime executability`,
         );
       }
     }
   });
 
-  it('dashboard is executable on claude_code + codepilot_runtime, unavailable on codex_runtime', () => {
+  it('dashboard is executable on every Runtime (codex_runtime via the mutation-level split, 2026-05-28)', () => {
     // Round 7 specific pin — dashboard is the canonical case where the
     // OLD short-circuit (cap.status === 'deferred' → all runtimes
     // unavailable) was wrong. dashboard exposure: claudecode_sdk=mcp_server
     // (real wiring to src/lib/dashboard-mcp.ts), native=ai_sdk_tool (real
-    // wiring to src/lib/builtin-tools/dashboard.ts), codex_proxy=unsupported.
+    // wiring to src/lib/builtin-tools/dashboard.ts), codex_proxy=unsupported
+    // — but for codex_runtime the matrix now promotes via the read+write
+    // MCP split (see capability-matrix.ts promoteCodexNativeSplitIfApplicable).
     const claudeCells = capabilityMatrixForRuntime('claude_code');
     const claudeDashboard = claudeCells.find((c) => c.capabilityId === 'dashboard');
     assert.equal(claudeDashboard!.status, 'executable');
@@ -155,13 +183,17 @@ describe('Capability matrix — per-runtime exposure derivation (round 7)', () =
 
     const codexCells = capabilityMatrixForRuntime('codex_runtime');
     const codexDashboard = codexCells.find((c) => c.capabilityId === 'dashboard');
-    // codex_proxy.kind === 'unsupported' AND other runtimes can run it
-    // → perception_only (with suggestedRuntime), NOT unavailable.
-    assert.equal(codexDashboard!.status, 'perception_only');
-    assert.ok(codexDashboard!.suggestedRuntime);
+    // Codex review P1 (2026-05-28): codex_proxy.kind === 'unsupported' in the
+    // contract, but the matrix layer promotes dashboard to executable via the
+    // mutation-level MCP split (read auto_accept + write user_approval). The
+    // promotion applies under ANY codex_runtime provider so the matrix never
+    // disagrees with the actual injection in runtime.ts.
+    assert.equal(codexDashboard!.status, 'executable');
+    assert.equal(codexDashboard!.trustBoundary, 'mixed');
+    assert.equal(codexDashboard!.suggestedRuntime, undefined, 'promoted cell drops suggestedRuntime');
   });
 
-  it('cli_tools mirrors dashboard pattern (executable on claude_code + codepilot_runtime, perception_only on codex_runtime)', () => {
+  it('cli_tools mirrors dashboard pattern: executable on every Runtime (codex_runtime via the mutation-level split)', () => {
     const claudeCells = capabilityMatrixForRuntime('claude_code');
     const claudeCli = claudeCells.find((c) => c.capabilityId === 'cli_tools');
     assert.equal(claudeCli!.status, 'executable');
@@ -172,7 +204,11 @@ describe('Capability matrix — per-runtime exposure derivation (round 7)', () =
 
     const codexCells = capabilityMatrixForRuntime('codex_runtime');
     const codexCli = codexCells.find((c) => c.capabilityId === 'cli_tools');
-    assert.equal(codexCli!.status, 'perception_only');
+    // Codex review P1 (2026-05-28): promoted via mutation-level split, same
+    // promotion the runtime injection mirrors. mixed trust, no suggestedRuntime.
+    assert.equal(codexCli!.status, 'executable');
+    assert.equal(codexCli!.trustBoundary, 'mixed');
+    assert.equal(codexCli!.suggestedRuntime, undefined);
   });
 
   it('assistant_buddy is executable on claude_code + codepilot_runtime; perception_only on codex_runtime', () => {
@@ -456,6 +492,21 @@ describe('Capability matrix — Codex Account provider downgrade', () => {
     assert.ok(widget);
     // For GLM-via-proxy, widget IS executable through the bridge
     assert.equal(widget!.status, 'executable');
+  });
+
+  it('codex_runtime + non-codex_account provider STILL promotes dashboard/cli (P1 fix, 2026-05-28)', () => {
+    // Codex review P1.2: the runtime injects dashboard/cli split MCPs for
+    // ANY codex_runtime provider (see runtime.ts injection blocks; no
+    // provider gate). The matrix must mirror that — otherwise non-account
+    // paths get the drift "Settings says not callable, model can call it".
+    const cells = capabilityMatrixForRuntimeProvider('codex_runtime', 'some_glm_provider');
+    for (const capId of ['dashboard', 'cli_tools']) {
+      const cell = cells.find((c) => c.capabilityId === capId);
+      assert.ok(cell, `${capId} must be in matrix`);
+      assert.equal(cell!.status, 'executable', `${capId} must be executable on non-account Codex providers`);
+      assert.equal(cell!.trustBoundary, 'mixed', `${capId} must carry mixed trust`);
+      assert.equal(cell!.noteKey, `${capId === 'cli_tools' ? 'cli_tools' : 'dashboard'}_codex_native`);
+    }
   });
 
   it('claude_code + codex_account is unaffected by the downgrade', () => {

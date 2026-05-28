@@ -547,20 +547,28 @@ export const codexRuntime: AgentRuntime = {
           // shared from dashboard-mcp.ts). Two MCPs: read tools (list /
           // refresh) auto_accept on elicitation; write tools (pin / update /
           // remove) routed to USER APPROVAL at call time.
+          //
+          // Workspace gate MIRRORS memory's (`sameRealPath` against the
+          // configured assistant workspace, line ~512). The dashboard route
+          // authorizes with the same realpath check — without this gate the
+          // model would see the tools and Codex would 403 at call time.
+          // (Codex review P1 fix, 2026-05-28.)
           if (
             options.prompt &&
+            assistantWorkspacePath &&
             options.workingDirectory &&
+            sameRealPath(options.workingDirectory, assistantWorkspacePath) &&
             promptNeedsDashboard(options.prompt)
           ) {
             const dashRead = buildCodexDashboardReadMcpConfig({
               baseUrl: resolveCodexProxyBaseUrl(),
-              workspacePath: options.workingDirectory,
+              workspacePath: assistantWorkspacePath,
               sessionId,
             });
             codexMcpServers[dashRead.name] = dashRead.entry;
             const dashWrite = buildCodexDashboardWriteMcpConfig({
               baseUrl: resolveCodexProxyBaseUrl(),
-              workspacePath: options.workingDirectory,
+              workspacePath: assistantWorkspacePath,
               sessionId,
             });
             codexMcpServers[dashWrite.name] = dashWrite.entry;

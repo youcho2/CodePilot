@@ -272,23 +272,53 @@ export function buildCapabilityMatrix(): Record<
   RuntimeId,
   readonly CapabilityMatrixCell[]
 > {
-  const out: Partial<Record<RuntimeId, CapabilityMatrixCell[]>> = {};
+  // Delegate per runtime so the codex_runtime promotion (dashboard / cli_tools
+  // mutation-level split) lands here too — otherwise this matrix would
+  // disagree with capabilityMatrixForRuntime / capabilityMatrixForRuntimeProvider.
+  const out: Partial<Record<RuntimeId, readonly CapabilityMatrixCell[]>> = {};
   for (const runtimeId of ALL_RUNTIMES) {
-    const cells: CapabilityMatrixCell[] = [];
-    for (const cap of HARNESS_CAPABILITIES) {
-      cells.push(deriveCell(runtimeId, cap));
-    }
-    out[runtimeId] = cells;
+    out[runtimeId] = capabilityMatrixForRuntime(runtimeId);
   }
   return out as Record<RuntimeId, readonly CapabilityMatrixCell[]>;
 }
 
 /** Convenience: cells for one Runtime — what Settings UI renders
- *  for a single Runtime card. */
+ *  for a single Runtime card.
+ *
+ *  Codex review P1 fix (2026-05-28): for codex_runtime the dashboard /
+ *  cli_tools cells are promoted from perception_only → executable via the
+ *  mutation-level split MCPs. The runtime injects those split MCPs whenever
+ *  a codex_runtime thread starts (subject to the keyword + workspace gates
+ *  in runtime.ts), regardless of which upstream provider drives the thread.
+ *  Keeping the promotion here — not just inside the codex_account branch of
+ *  `capabilityMatrixForRuntimeProvider` — means EVERY consumer of the
+ *  matrix sees the same answer, and the page / matrix tests / drift tests
+ *  agree with the actual injection behaviour. */
 export function capabilityMatrixForRuntime(
   runtimeId: RuntimeId,
 ): readonly CapabilityMatrixCell[] {
-  return HARNESS_CAPABILITIES.map((cap) => deriveCell(runtimeId, cap));
+  const base = HARNESS_CAPABILITIES.map((cap) => deriveCell(runtimeId, cap));
+  if (runtimeId !== 'codex_runtime') return base;
+  return base.map(promoteCodexNativeSplitIfApplicable);
+}
+
+function promoteCodexNativeSplitIfApplicable(
+  cell: CapabilityMatrixCell,
+): CapabilityMatrixCell {
+  const promoted = CODEX_NATIVE_PROMOTED_BY_CAP[cell.capabilityId];
+  if (!promoted || cell.status !== 'perception_only') return cell;
+  const cap = HARNESS_CAPABILITIES.find((c) => c.id === cell.capabilityId);
+  const promotedCell: CapabilityMatrixCell = {
+    ...cell,
+    status: 'executable',
+    statusLine: '可调用',
+    toolNames: cap?.toolNames ?? cell.toolNames,
+    trustBoundary: 'mixed',
+    noteKey: promoted.noteKey,
+  };
+  // suggestedRuntime no longer applies — the capability IS callable here.
+  delete (promotedCell as { suggestedRuntime?: unknown }).suggestedRuntime;
+  return promotedCell;
 }
 
 // ─────────────────────────────────────────────────────────────────────
@@ -343,13 +373,19 @@ const CODEX_ACCOUNT_NATIVE_NOTE_BY_CAP: Readonly<Record<string, string>> = {
 /**
  * Built-ins whose codex_proxy contract is `unsupported` (so they default to
  * `perception_only` on Codex) but that this slice promotes to executable
- * under Codex Account specifically — via a mutation-level SPLIT: a
- * safe-read MCP (auto_accept) + a mutating MCP (user_approval), both
- * injected into Codex's `mcp_servers` config. The promotion attaches a
- * mixed trust badge + the honest per-capability note (Codex review next
- * slice, 2026-05-28).
+ * under ANY codex_runtime provider via a mutation-level SPLIT: a safe-read
+ * MCP (auto_accept) + a mutating MCP (user_approval), both injected into
+ * Codex's `mcp_servers` config. The promotion attaches a mixed trust badge
+ * + the honest per-capability note (Codex review next slice, 2026-05-28).
+ *
+ * Codex review P1 fix (2026-05-28): promotion now applies for ALL
+ * codex_runtime providers, not just codex_account. The runtime injects the
+ * split MCPs whenever a codex_runtime thread starts (subject to the keyword
+ * gate + workspace check), regardless of provider — so the matrix has to
+ * mirror that, otherwise non-codex_account providers see the drift
+ * "Settings says not callable, but the model can call it".
  */
-const CODEX_ACCOUNT_NATIVE_PROMOTED_BY_CAP: Readonly<
+const CODEX_NATIVE_PROMOTED_BY_CAP: Readonly<
   Record<string, { readonly noteKey: string }>
 > = {
   dashboard: { noteKey: 'dashboard_codex_native' },
@@ -366,37 +402,24 @@ export function capabilityMatrixForRuntimeProvider(
   runtimeId: RuntimeId,
   providerId?: string,
 ): readonly CapabilityMatrixCell[] {
+  // `capabilityMatrixForRuntime` already promotes dashboard / cli_tools for
+  // codex_runtime via the mutation-level split (see helper above) — that
+  // promotion applies regardless of provider, so both APIs stay aligned.
   const base = capabilityMatrixForRuntime(runtimeId);
   if (runtimeId !== 'codex_runtime' || providerId !== 'codex_account') {
     return base;
   }
-  // Demote bridge-only capabilities to perception_only for Codex Account.
+
+  // codex_account-specific overrides: attach native notes for memory /
+  // widget / tasks (already executable from the base contract) and demote
+  // bridge-only capabilities (image_generation / media_import) to
+  // perception_only.
   return base.map((cell) => {
     // Native-injected built-ins (memory, widget, tasks) stay executable under
     // Codex Account, each with an honest per-capability note.
     const nativeNote = CODEX_ACCOUNT_NATIVE_NOTE_BY_CAP[cell.capabilityId];
-    if (nativeNote && cell.status === 'executable') {
+    if (nativeNote && cell.status === 'executable' && !cell.noteKey) {
       return { ...cell, noteKey: nativeNote };
-    }
-    // Mutation-level-split built-ins (dashboard, cli_tools) — their
-    // codex_proxy contract is `unsupported` (cell is perception_only by
-    // default), but Codex Account injects two MCP servers per capability
-    // (safe-read + mutating) so the capability IS callable, just gated. Flip
-    // the cell to executable + mixed trust + the explanatory note.
-    const promoted = CODEX_ACCOUNT_NATIVE_PROMOTED_BY_CAP[cell.capabilityId];
-    if (promoted && cell.status === 'perception_only') {
-      const cap = HARNESS_CAPABILITIES.find((c) => c.id === cell.capabilityId);
-      const promotedCell: CapabilityMatrixCell = {
-        ...cell,
-        status: 'executable',
-        statusLine: '可调用',
-        toolNames: cap?.toolNames ?? cell.toolNames,
-        trustBoundary: 'mixed',
-        noteKey: promoted.noteKey,
-      };
-      // suggestedRuntime no longer applies — the capability IS callable here.
-      delete (promotedCell as { suggestedRuntime?: unknown }).suggestedRuntime;
-      return promotedCell;
     }
     if (!CODEX_ACCOUNT_BRIDGE_DEMOTED_CAPS.has(cell.capabilityId)) {
       return cell;

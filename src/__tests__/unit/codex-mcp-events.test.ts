@@ -112,6 +112,22 @@ describe('codexElicitationPolicy — built-in MCP tool-call approval classificat
     assert.equal(codexElicitationPolicy('codepilot_tasks'), 'user_approval');
   });
 
+  it('mutation-level split — read MCPs (dashboard_read / cli_tools_read) → auto_accept', () => {
+    // Codex review next slice (2026-05-28): read-only halves of the
+    // Dashboard / CLI split. list / refresh / check_updates are safe-read,
+    // so their elicitation auto-accepts.
+    assert.equal(codexElicitationPolicy('codepilot_dashboard_read'), 'auto_accept');
+    assert.equal(codexElicitationPolicy('codepilot_cli_tools_read'), 'auto_accept');
+  });
+
+  it('mutation-level split — write MCPs (dashboard_write / cli_tools_write) → user_approval', () => {
+    // Mutating halves: pin / update / remove (dashboard) and install / add /
+    // remove / update (cli). The model's call MUST hit the user's approval
+    // card before anything runs; never auto-accepted.
+    assert.equal(codexElicitationPolicy('codepilot_dashboard_write'), 'user_approval');
+    assert.equal(codexElicitationPolicy('codepilot_cli_tools_write'), 'user_approval');
+  });
+
   it('unknown server / null / undefined → decline (never blanket-accept)', () => {
     for (const s of ['user_weather', 'chrome-devtools', 'some_mutating_server']) {
       assert.equal(codexElicitationPolicy(s), 'decline', `${s} must decline`);
