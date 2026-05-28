@@ -68,6 +68,14 @@ function countRealCodexRows(): number | null {
   if (!fs.existsSync(REAL_USER_DB_PATH)) return null;
   const db = new Database(REAL_USER_DB_PATH, { readonly: true });
   try {
+    // Guard against "DB file exists but media_generations table doesn't"
+    // (fresh installs / partial migrations). Without this, the COUNT(*)
+    // throws "no such table" and the regression guard fails for the
+    // wrong reason. Codex review P2 follow-up (2026-05-28).
+    const tableExists = db
+      .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='media_generations'")
+      .get();
+    if (!tableExists) return 0;
     const row = db
       .prepare("SELECT COUNT(*) AS n FROM media_generations WHERE provider = 'codex'")
       .get() as { n: number };
@@ -374,5 +382,29 @@ describe('imported MediaBlock.localPath is accepted by /api/media/serve', () => 
     const req = new NextRequest(url);
     const res = await GET(req);
     assert.equal(res.status, 403, 'paths outside .codepilot-media MUST 403; serve route is the security boundary');
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────
+// Source-pin: the env setup MUST be the first import (tech-debt #25 guard)
+// ─────────────────────────────────────────────────────────────────────
+
+describe('import order — env setup must run before any @/lib import', () => {
+  it('the first `import` line in this file must be ./_codex-media-import-env', () => {
+    // ESM imports execute in declaration order (siblings of the same
+    // parent module). If anything triggering `@/lib/db` module-load
+    // (directly or transitively) is imported BEFORE the env setup,
+    // db.ts captures the user's real ~/.codepilot path and the test
+    // silently re-pollutes the real DB — the exact failure mode
+    // tech-debt #25 was about. A comment alone isn't enforcement;
+    // this source pin will fail loudly if someone reorders.
+    const src = fs.readFileSync(__filename, 'utf-8');
+    const firstImportLine = src.split('\n').find((l) => l.trimStart().startsWith('import '));
+    assert.ok(firstImportLine, 'test file must have at least one `import`');
+    assert.match(
+      firstImportLine!,
+      /from\s+['"]\.\/_codex-media-import-env['"]/,
+      `the FIRST import in codex-media-import.test.ts MUST be ./_codex-media-import-env (sets CLAUDE_GUI_DATA_DIR + pre-touches an empty DB before @/lib/db module-load). Got: ${firstImportLine}. Reordering will silently re-pollute the real ~/.codepilot/codepilot.db — see tech-debt #25.`,
+    );
   });
 });
