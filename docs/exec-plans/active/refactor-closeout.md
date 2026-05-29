@@ -18,7 +18,7 @@
 | 5b | Codex provider proxy translator | 让 Codex Runtime 使用 CodePilot 已配置 provider；除 Claude Code 默认/env 模式外，与 CodePilot Runtime 模型能力对齐 | ✅ 已完成（2026-05-19）：Responses SSE / tool schema / retry lifecycle / OAuth refresh / OpenRouter Anthropic-skin + legacy alias canonicalization / thread resume 注入均已收口；真实 OpenRouter haiku 两轮 smoke 通过，同 session provider binding 保持一致 | [phase-5](../completed/phase-5-codex-runtime.md) |
 | 5c | CodePilot Tool Bridge for Codex | Codex Runtime 下，CodePilot 自有 Memory / Tasks / Widget / Image / Media 等能被感知、调用并回到 UI；Dashboard / CLI / assistant_buddy 在 Codex 下诚实降级（**Phase 8 收口后 Dashboard / CLI 已翻为可调用**——read 自动 / write 弹审批；assistant_buddy 仍按当前能力矩阵为准）| ✅ 实现 + Harness 收口完成；Codex 不支持项在 Settings 与聊天工具结果下方用用户语言提示 | [phase-5](../completed/phase-5-codex-runtime.md) · [phase-5c](../completed/phase-5c-codex-tool-bridge.md) · [phase-5e](../completed/phase-5e-runtime-harness-architecture.md) · [phase-8](../completed/phase-8-codex-mcp-context-injection.md) |
 | 6 | 上下文可视化 | 输入框右下角是组成条而不是单一百分比；popover 展示来源分解与三 Runtime context-accounting | ✅ 已完成并归档（2026-05-20） | [phase-6](../completed/phase-6-context-visualization.md) · [context-accounting](../completed/context-accounting-runtime-contract.md) |
-| 7 | 视觉锚点与图标体系 | 图标库与表意收敛 + macOS 平台视觉 + 浮动卡片 primitive；点阵风格视觉记忆点后续扩展 | 🔄 进行中：图标 Phase 0-3 ✅（Phase 4 文档收口中）· 视觉锚点首批 ✅（应用图标 / 欢迎布局 / widget 点阵）· macOS 7b Phase 0-2 ✅ · 卡片 7c ✅ 已归档；剩 7b Phase 3-5 + 点阵 loading / 空状态 | [phase-7-icons](../completed/phase-7-icon-system.md) · [phase-7b](./phase-7b-macos-native-visual-profile.md) · [phase-7c](../completed/phase-7c-card-primitive.md) |
+| 7 | 视觉锚点与图标体系 | 图标库与表意收敛 + macOS 平台视觉 + 浮动卡片 primitive；点阵风格视觉记忆点后续扩展 | 🔄 进行中：图标 Phase 0-4 ✅ 已归档 · 视觉锚点首批 ✅（应用图标 / 欢迎布局 / widget 点阵）· macOS 7b Phase 0-2 ✅（3-5 用户决定不做）· 卡片 7c ✅ 已归档；剩 点阵 loading / 空状态（另开子计划） | [phase-7-icons](../completed/phase-7-icon-system.md) · [phase-7b](./phase-7b-macos-native-visual-profile.md) · [phase-7c](../completed/phase-7c-card-primitive.md) |
 | 8 | Codex MCP / Memory 注入 | 5 项核心能力（Memory / Widget / Tasks+Notify / Dashboard / CLI）在 Codex Account 下真账号 smoke 通过；图片入库对齐素材库；不可行 / 用户 defer 路径在 Settings 诚实降级 | ✅ 已完成并归档（2026-05-29）：5 项 smoke 通过 + read 自动 / write 弹审批的 elicitation 策略 + Codex 原生图片入库；Image/Media（不叠加 Gemini）+ 用户自定义 MCP（独立工程）用户明确 defer | [phase-8-codex-mcp](../completed/phase-8-codex-mcp-context-injection.md) |
 
 ## 下一步
@@ -30,7 +30,7 @@
 - `@openai/codex-sdk` execution POC 仍可作为后续研究：control plane 继续保留 app-server，execution plane 是否切 SDK 需要单独 POC。
 - Codex MCP / Memory 注入 [Phase 8](../completed/phase-8-codex-mcp-context-injection.md) **已完成并归档（2026-05-29）**：5 项核心能力（Memory / Widget / Tasks+Notify / Dashboard / CLI）在 Codex Account 下真账号 smoke 通过 + 按能力区分的 elicitation 审批策略（read 自动 / write 弹审批；Dashboard / CLI 拆 read+write 两 server）+ Codex 原生图片入库已对齐素材库。**用户明确 defer 两项**：Image/Media 不叠加 App 的 Gemini 图片 MCP（Codex 自带够用）；用户自定义 MCP 是独立工程（transport / OAuth / 白名单），后续单独立项。
 - Dashboard / CLI **已变成可调用**（read 自动 / write 弹审批），不再是诚实降级状态；上一句中保留的「诚实降级」泛指 Image/Media + 用户 MCP + 旧版 Dashboard/CLI 桥之前的状态，现 Phase 8 收口后只剩 Image/Media 与用户 MCP 在 Settings 里诚实标 defer。
-- Phase 7（视觉锚点与图标体系）已进入并完成大部分：[图标体系与表意校准](../completed/phase-7-icon-system.md) Phase 0-3 已落地（HugeIcons 主库迁移、CodePilot semantic icon layer、重复图标收敛、direct-import guardrail），仅剩 Phase 4 文档收口；[macOS 平台视觉 7b](./phase-7b-macos-native-visual-profile.md) Phase 0-2 + [浮动卡片 primitive 7c](../completed/phase-7c-card-primitive.md) 已落地，剩 7b Phase 3-5（hover/cursor/density、浮层 POC、QA 归档）；点阵 loading / 空状态 / 背景纹理仍排在后面、另开子计划。当前优先做整体收尾（文档校准 + tech-debt 排序）。
+- Phase 7（视觉锚点与图标体系）已完成大部分：[图标体系与表意校准](../completed/phase-7-icon-system.md) Phase 0-4 全部完成并归档（HugeIcons 主库迁移、CodePilot semantic icon layer、重复图标收敛、direct-import guardrail、Phase 4 文档收口）；[macOS 平台视觉 7b](./phase-7b-macos-native-visual-profile.md) 收口于 Phase 0-2（3-5 用户 2026-05-29 决定不做）+ [浮动卡片 primitive 7c](../completed/phase-7c-card-primitive.md) 已归档；只剩 点阵 loading / 空状态 / 背景纹理（视觉锚点第二批，另开子计划）。
 
 ### Phase 3 Step 4（完成 2026-05-10）：后台 Agent 任务与助理心跳闭环
 
@@ -152,11 +152,11 @@ Phase 3 验收入口：
 
 ### Phase 7：视觉锚点与图标体系
 
-> 进度：**🔄 进行中**。图标体系 [`phase-7-icon-system.md`](../completed/phase-7-icon-system.md) Phase 0-3 ✅（Phase 4 文档收口中）；macOS 平台视觉 [`phase-7b`](./phase-7b-macos-native-visual-profile.md) Phase 0-2 ✅、浮动卡片 [`phase-7c`](../completed/phase-7c-card-primitive.md) ✅ 已归档；剩 7b Phase 3-5 + 点阵 loading / 空状态 / 背景（后续子计划）。
+> 进度：**🔄 进行中**。图标体系 [`phase-7-icon-system.md`](../completed/phase-7-icon-system.md) Phase 0-4 ✅ 已归档；macOS 平台视觉 [`phase-7b`](./phase-7b-macos-native-visual-profile.md) 收口于 Phase 0-2（3-5 用户决定不做）、浮动卡片 [`phase-7c`](../completed/phase-7c-card-primitive.md) ✅ 已归档；只剩 点阵 loading / 空状态 / 背景（视觉锚点第二批，另开子计划）。
 
 - **用户结果**：设置页、聊天输入框、工具结果、插件 / Skills / MCP / CLI 等高频区域的图标更清楚；同一概念用同一个图标，不同概念不再共用 Brain / Lightning / Terminal 等泛化图标；macOS 下窗口壳层 / 顶栏 / 侧栏 / 浮动卡片更像原生应用。
 - **已落地**：图标 semantic layer（`semantic-icon.tsx`，96 文件迁到 CodePilotIcon）+ Brain/Lightning/Terminal 永久禁用 guardrail；新应用图标 MonolithIcon + 居中欢迎布局 + widget 点阵卡；macOS `data-platform` + 平台 token 层 + 壳层材质 + CardFrame/CardSurface/ResizeGutter 浮动卡片 primitive。
-- **剩余**：图标 Phase 4 文档收口（design-system Icon 区 / design.md / insights）；7b Phase 3-5（hover/cursor/density、浮层 POC、QA 归档）；点阵 loading / 空状态 / 背景纹理另开子计划。
+- **剩余**：仅 点阵 loading / 空状态 / 背景纹理（视觉锚点第二批，另开子计划）。图标 Phase 4 已收口并归档；7b Phase 3-5 用户 2026-05-29 决定不做。
 - **不做**：一口气全局重做 UI；点阵铺满所有卡片；macOS 分叉页面内容。
 
 ## 最近决策（当前收口状态）

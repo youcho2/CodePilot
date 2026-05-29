@@ -97,9 +97,9 @@ Apple 在 WWDC 2025 公布 **Liquid Glass** 设计语言，覆盖 iOS 26 / iPadO
 | Phase 0 | macOS HIG + 当前 surface 审计 | ✅ 已完成 | 明确哪些区域能平台化，哪些必须保持共享；见 [`docs/handover/macos-visual-profile.md`](../../handover/macos-visual-profile.md) |
 | Phase 1 | Platform profile 基础设施 | ✅ 已完成 | `data-platform` + `data-platform-style` 落在 `<html>`；`--platform-*` token 层声明 + 默认值 = 产品 token 等价（无视觉 diff）；`docs/design.md` 新增 Token 分类章节；6 个 source-pin 单元测试 |
 | Phase 2 | macOS chrome + material POC | ✅ 主体完成（`1202fef`，Codex round 3 final review 收口；卡片几何后续由 7c 完成）| 5 个壳层 surface 接 token（ChatListPanel / SettingsSidebar / UnifiedTopBar chat 分支 / MessageInput / Popover）+ 空态 topbar + 右侧 WorkspaceSidebar / TabBar / AssistantPanel / FileTreePanel；macOS profile alpha 拉到 48/55/78/72；Electron BrowserWindow `backgroundColor: '#00000000'` + `visualEffectState: 'followWindow'`；body 在 darwin profile 下 `transparent`；traffic light 安全区 + 垂直对齐 token；`electron:dev` 引入 esbuild watch（避免 main.js stale）|
-| Phase 3 | macOS hover / cursor / density 收口 | 📋 待开始 | 高频导航层减少网页 hover 感，但功能和布局不变 |
-| Phase 4 | macOS 浮层视觉 POC | 📋 待开始 | RunCockpit / model picker / command menu 等浮层更像 Mac 控制层 |
-| Phase 5 | CDP / Electron smoke + 文档归档 | 📋 待开始 | 有可回归截图矩阵和设计规范入口 |
+| Phase 3 | macOS hover / cursor / density 收口 | ❌ 不做（用户 2026-05-29 决定） | — |
+| Phase 4 | macOS 浮层视觉 POC | ❌ 不做（用户 2026-05-29 决定） | — |
+| Phase 5 | CDP / Electron smoke + 文档归档 | ❌ 不做（用户 2026-05-29 决定） | — |
 
 ## 设计边界
 
@@ -362,6 +362,7 @@ Apple 在 WWDC 2025 公布 **Liquid Glass** 设计语言，覆盖 iOS 26 / iPadO
 
 ## 决策日志
 
+- 2026-05-29: **Phase 3/4/5 不做（用户决定）**。macOS 平台视觉收口在 Phase 0-2（壳层材质 + 平台 token + 卡片 primitive 经 7c 完成）。hover/cursor/density 收弱、浮层视觉 POC、CDP/Electron 回归截图矩阵、design.md "Platform Native Visual Profile" 章节、计划归档均不做；Phase 2 遗留的"真实 Electron 窗口材质截图"缺口也一并不补。若未来重启 macOS 视觉，另起新子计划。
 - 2026-05-22: 用户确认优先做 macOS 方向。范围收紧为”平台材质和壳层”，不做 Mac / Windows 两套页面，不改内容层。
 - 2026-05-22: Raycast 借鉴点定为”共享 Web UI + 平台宿主兜 native feel”，不采用 Raycast 的自研 Swift/C# shell 路线。
 - 2026-05-22: macOS profile 先落在 window chrome / topbar / sidebars / composer shell / popover；Chat 内容、Settings 表单、Widget / Artifact 内容保持共享 CodePilot 语言。
