@@ -19,7 +19,7 @@
 
 | Phase | 内容 | 类型 | 优先级 | 状态 |
 |-------|------|------|--------|------|
-| A | 模型目录：接入 Opus 4.8 + 修 Sonnet 4.6 别名（#23） | A 可见 | **高**（发送正确性 + 新模型） | ✅ 代码 + 回归测试完成（commit 9d98029）；真实凭据 smoke 待用户/Codex |
+| A | 模型目录：接入 Opus 4.8 + 修 Sonnet 4.6 别名（#23） | A 可见 | **高**（发送正确性 + 新模型） | ✅ **完成**（代码 9d98029 + Codex review 2 补丁 c90b6f8；真实凭据 smoke 用户确认通过 2026-05-29） |
 | B | 用户信任 bug：Mac 通知不弹（#34）+ pin-incomplete 误报（#27） | A 可见 | 高 | 📋 待审 |
 | C | 能力/平台正确性：Plan 模式 Widget（#26）+ Windows shell 方言（#28） | A 可见 | 中 | 📋 待审 |
 | D0 | flake + no-verify 事件记入 tech-debt #30 | C 文档 | 中 | ✅ 已完成 |
@@ -27,7 +27,7 @@
 | D2 | react-hooks 存量 16 error（9 高频组件）+ apply-discovery-diff 间歇 flake | C 工程债 | 中 | 📋 留债（on-touch / 单开专项） |
 | E | design.md 设计规范补全（横切 3 节） | C 基础设施/文档 | 中 | 📋 待审 |
 
-**顺序建议**：**D1（enforce）已完成**（e10fa1d，质量门恢复"失败即停"，#30 核心洞已堵）；**D2**（react-hooks 16 error + flake）留债、不阻塞。接下来 **A**（模型，已由 Codex 提供 Opus 4.8 官方参数 + 确认 OpenRouter slug 解锁）→ B（信任）→ C（能力/平台）；E 纯文档可并行。代码 phase 不靠 --no-verify。
+**进度**：**D1 ✅**（enforce，e10fa1d）· **A ✅**（Opus 4.8 + #23；代码 + Codex review 2 + 真实 smoke 通过 2026-05-29）· **D2 📋 留债**（react-hooks 16 error + flake，不阻塞）。**剩余**：B（#34 / #27）→ C（#26 / #28）；E 纯文档可并行。代码 phase 不靠 --no-verify。
 
 ---
 
@@ -194,14 +194,14 @@ A 类面专属（Chat 消息 / /plugins / Workspace / 素材库等）从 "Anchor
 
 | Date | Runtime | Provider | Model | 凭据形态 | 场景 | Result | Evidence |
 |------|---------|----------|-------|---------|------|--------|----------|
-| 待跑 | claude_code | Anthropic direct | claude-opus-4-8（modelId `opus-4-8`） | API key | Opus 4.8 两轮发送 | ⏳ 待 smoke | 代码 9d98029；只验证集成路径 |
-| 待跑 | native / codex_runtime | OpenRouter | anthropic/claude-opus-4.8（modelId `opus-4-8`） | API key | Opus 4.8 发送 | ⏳ 待 smoke | 代码 9d98029 |
-| 待跑 | claude_code | Anthropic | claude-sonnet-4-6 | API key | Sonnet 4.6 两轮发送（#23 反例：此前报 model 不存在） | ⏳ 待 smoke | 代码 9d98029 |
+| 2026-05-29 | native | OpenRouter Anthropic skin | requested `opus-4-8` → sent `anthropic/claude-opus-4.8` | 本机 OpenRouter provider | Opus 4.8 发送 | ✅ 通过：`OPENROUTER_OPUS48_OK`，status=succeeded，tool_use=0/tool_result=0 | 验证 legacy DB row `opus-4-8` 经 resolver/catalog 归一到 OpenRouter upstream slug |
+| 2026-05-29 | claude_code | OpenRouter Anthropic skin | `anthropic/claude-sonnet-4.6` | 本机 OpenRouter provider | Sonnet 4.6 两轮发送（#23 反例路径） | ✅ 通过：`SONNET46_SMOKE_A_OK` / `SONNET46_SMOKE_B_OK`，status=succeeded，tool_use=0/tool_result=0 | 本机无 Anthropic direct 凭据；用 ClaudeCode Runtime + Anthropic-compatible provider 验证 SDK send path |
+| 2026-05-29 | claude_code | Claude Code account / Anthropic direct | `claude-opus-4-8` | 本机 Claude Code 授权账户（`providerId='env'`） | Opus 4.8 两轮发送 | ✅ 通过：`OPUS48_CLAUDE_ACCOUNT_A_OK` / `OPUS48_CLAUDE_ACCOUNT_B_OK`，status=succeeded，tool_use=0/tool_result=0 | SDK 日志显示 `account=yes`；无 `ANTHROPIC_API_KEY` 也可通过 Claude Code 本机授权发送 |
 
 ## Open Questions（待 Codex / 用户核对）
 
 1. ~~Opus 4.8 是否设默认 / `opus` 别名指向~~ **已定（Codex review）**：首轮**不切**，只新增显式 `claude-opus-4-8`，`opus` 别名 / 默认保持 4.7；切换待真实 smoke 后由用户拍板。
-2. ~~OpenRouter slug + 1M beta header~~ **已定并接入**：OpenRouter Opus 4.8 = `anthropic/claude-opus-4.8`（Codex 经 OpenRouter 官方页确认），**本轮已接入**（commit 9d98029，显式 fixture，不臆测）；1M context / adaptive thinking / effort 默认 high 按 Anthropic 官方核实已落 Phase A。真实凭据 smoke 仍待跑（见 Smoke Ledger）。
+2. ~~OpenRouter slug + 1M beta header~~ **已定并接入**：OpenRouter Opus 4.8 = `anthropic/claude-opus-4.8`（Codex 经 OpenRouter 官方页确认），**本轮已接入**（commit 9d98029，显式 fixture，不臆测）；1M context / adaptive thinking / effort 默认 high 按 Anthropic 官方核实已落 Phase A。真实凭据 smoke **已通过**（见 Smoke Ledger，2026-05-29：OpenRouter / Anthropic-direct Opus 4.8 + Sonnet 4.6 #23 反例 全 ✅）。
 3. **#34 的真实断点**：通知没弹是"任务没调到通知出口"还是"系统通知权限/IPC 丢上下文"——需先定位再定修法。
 4. **#30 存量 error 的确切清单**：开工前先 `npm run lint`/eslint 跑一遍确认当前 error 数与文件，再决定清理范围。
 5. **Phase 拆分粒度**：A-E 是否进一步拆成独立 PR / 提交，由实现时按 Tier 决定（A/C 含 Tier 2，需 guardrail + smoke）。
