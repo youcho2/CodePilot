@@ -1,0 +1,294 @@
+# Branch Preview Build Readiness / 分支预览包发布前收口
+
+> 创建时间：2026-05-29
+> 最后更新：2026-05-29
+> 父计划：[`refactor-closeout.md`](./refactor-closeout.md) + [`post-refactor-cleanup.md`](./post-refactor-cleanup.md)
+
+## 背景与目标
+
+用户决定：**暂不合并 main，先从 `worktree-product-refactor-research` 打预览包给少量用户试用**。这次预览包必须覆盖 macOS 与 Windows；macOS 负责验证新视觉 / Runtime / MCP 能力，Windows 负责验证跨平台基础体验，尤其不能继续出现"Windows 版 Agent 生成 bash 命令"这类一眼失信的问题。
+
+本计划不是新一轮大重构，而是把**预览包之前必须修的问题、必须做的打包验证、以及用户试用后的合并门槛**收成一张执行图。它引用 `post-refactor-cleanup.md` 里已经拆好的遗留项，但把它们提升为"能不能发分支预览包"的发布门槛。
+
+## 状态
+
+| Phase | 内容 | 用户能看到什么 | 状态 | 备注 |
+|-------|------|----------------|------|------|
+| 0 | 预览边界与版本策略 | 不会静默升级；测试用户明确拿到 Preview 包 | 📋 待开始 | 不合 main、不走自动更新 |
+| 1 | 必修用户可见问题 | Mac 通知、默认模型提示、Plan Widget、Windows shell 方言修正 | 📋 待开始 | 对应 `post-refactor-cleanup` B/C |
+| 2 | Windows Preview Readiness | Windows 包不像 macOS 硬搬；命令默认 PowerShell 兼容 | 📋 待开始 | #28 是 blocking |
+| 3 | macOS Preview Readiness | macOS 视觉与通知路径可验证；已知系统设置限制有说明 | 📋 待开始 | #34 是 blocking |
+| 4 | 打包与安装验证 | macOS / Windows 安装包能安装、启动、跑核心 smoke | 📋 待开始 | 不上传正式 release |
+| 5 | 小范围试用与反馈闭环 | 用户知道测什么、怎么回滚、怎么报问题 | 📋 待开始 | 试用后再决定是否合 main |
+| 6 | 合并 / 不合并决策 | 有明确 go/no-go 标准 | 📋 待开始 | 不用聊天拍脑袋 |
+
+## 发布边界
+
+### 本轮要做
+
+- 从当前 worktree 分支打 **Branch Preview Build**。
+- 产物至少包含：
+  - macOS Apple Silicon 包。
+  - macOS Intel 或 universal 包（按现有打包能力决定，不能假装已验证）。
+  - Windows x64 NSIS 包。
+- 修掉预览包前会直接误导用户或破坏基础信任的 blocker：
+  - #34 macOS 定时任务执行后不弹通知。
+  - #27 默认模型 `pin-incomplete` 被误报为当前执行环境不可用。
+  - #26 Native Plan 模式无法创建 Widget。
+  - #28 Windows 版脚本命令仍偏 bash。
+- 保留保守默认：
+  - 不把 `opus` 默认切到 Opus 4.8；只保留显式 `opus-4-8`。
+  - 不自动开启高副作用能力。
+  - 不把 deferred 能力包装成"已完全支持"。
+
+### 本轮不做
+
+- 不合并 main。
+- 不推送正式 release，不开启自动更新。
+- 不把 preview 包伪装成稳定版。
+- 不做 Windows 全量 Fluent 重设计；只做 preview 必需的平台正确性与壳层 smoke。
+- 不做 Liquid Glass / liquid-dom POC；该方向已经暂缓，不混入预览包收口。
+- 不清空所有非阻塞 tech-debt；只修发布前 blocker。
+
+## Phase 0：预览边界与版本策略
+
+### 用户能看到什么
+
+测试用户拿到的是一个明确标注的 **Preview / Beta** 包，而不是静默覆盖稳定版。用户知道这是分支预览，反馈目标是 Runtime / MCP / Windows / macOS 视觉与通知，而不是正式升级。
+
+### 不做什么
+
+- 不改主线版本号为正式 release。
+- 不把包挂到正式自动更新渠道。
+- 不承诺现有用户会自动迁移到这个版本。
+
+### 怎么验收
+
+- Release notes / 分发说明中明确：
+  - 分支：`worktree-product-refactor-research`
+  - Preview 性质：小范围试用，不是稳定推送。
+  - 已知问题与回滚方式。
+- 包名或版本号含 preview / beta 标识，例如 `CodePilot Preview` 或 `0.x.x-beta.N`。
+- `git status` 干净，`git log --oneline -5` 可读，记录最终打包 commit。
+
+### 实现路径（不需用户审阅）
+
+1. 在打包前确定 preview version scheme：是否改 `package.json` version，还是只改 artifact name。
+2. **数据隔离（P1，必须先定 — Codex review 2026-05-29）**：当前 `appId=com.codepilot.app` / `productName=CodePilot` / 数据目录 `~/.codepilot`（`src/lib/db.ts:11`、`electron/main.ts:844`）。preview 包若沿用这三者，会**覆盖 stable 安装、并改用户真实 DB**——preview 的 schema 迁移让回滚到 stable 不可逆（违反 DB migration safety）。**推荐**：preview 用独立 `productName="CodePilot Preview"` + `appId=com.codepilot.app.preview` + `CLAUDE_GUI_DATA_DIR=~/.codepilot-preview`，与 stable 共存、不碰真实数据。若坚持共用，**必须**在试用说明里写明"先备份 `~/.codepilot/codepilot.db`，且装 preview 后无法干净回滚 stable"。
+3. **自动更新已禁用**：`electron/updater.ts` 已 DISABLED（运行时不检查更新）。本计划只需**确认 preview 构建保持禁用** + 不把产物上传到 `electron-builder.yml` 的 GitHub release feed（Phase 4 已有"不上传正式 Release"约束）。不需新增禁用动作。
+4. **分发签名（P2）**：未签名 / 未公证的 DMG 在外部 Mac 被 Gatekeeper 拦、未签名 NSIS 触发 SmartScreen。确定 preview 是否签名；不签名则在试用说明给绕过指引（Mac 右键打开 / `xattr -dr com.apple.quarantine`；Win「更多信息 → 仍要运行」）。
+5. 打包脚本使用 worktree 内代码；不得从主目录启动 dev / build。
+6. Smoke Ledger 登记每个平台包的 commit hash、构建命令、产物路径、安装结果。
+
+## Phase 1：预览前必修用户可见问题
+
+> 这一 phase 消化 `post-refactor-cleanup.md` 里还没完成的 B/C。Phase A（Opus 4.8 + Sonnet 4.6）已完成并 smoke；Phase D1（pre-commit enforce）已完成；D2 react-hooks / flake 留债，不作为 preview blocker。
+
+### 用户能看到什么
+
+- macOS：定时任务到点后有系统通知或明确 fallback，不再静默执行。
+- Settings：默认模型缺少 provider pin 时不再误导用户"模型不可用"。
+- Native Plan 模式：仍能生成 Widget。
+- Windows：Agent 给出的脚本命令默认是 Windows 可执行的 PowerShell / CMD 语法。
+
+### 不做什么
+
+- 不重写整个任务系统。
+- 不重写 Settings 健康检查。
+- 不扩大 Plan 模式权限。
+- 不做 Windows 全 UI 重设。
+
+### 怎么验收
+
+| 问题 | 验收 |
+|------|------|
+| #34 Mac 通知 | 3 分钟定时任务触发后，macOS 系统通知弹出；如果系统权限阻止，聊天 / 状态区有可见 fallback；日志能说明通知出口是否调用 |
+| #27 pin-incomplete | 构造 `default_mode='pinned'` + `default_model` 有值 + `default_model_provider` 缺失，Runtime / Health 文案都说"固定信息不完整"，不再说当前引擎不可用 |
+| #26 Plan Widget | Native Plan 模式要求创建 Widget，能输出合法 `show-widget`；回归测试证明 `codepilot_load_widget_guidelines` 与 Widget prompt 保留，mutating 工具不保留 |
+| #28 Windows shell | Windows shell fixture 中不出现 `export` / `source` / `rm -rf` / `/tmp` 等 bash-only 语法；真实或接近真实 Windows smoke 验证命令可复制执行 |
+
+### 实现路径（不需用户审阅）
+
+- #34：先定位断点。区分 scheduler 未调用通知、Electron Notification API 被系统拒绝、IPC 丢上下文、Focus/权限阻止四类原因。加可观测日志后再修。
+- #27：给 `pin-incomplete` 独立文案与 severity，Runtime 页 / Health 页共用同一解释函数。
+- #26：Plan 模式工具集合从硬编码 `Read/Glob/Grep` 改为派生保留 safe-read Harness 工具，Widget guideline 与 wire-format prompt 必须留下。
+- #28：把 `platformShell` 纳入 Runtime / Harness context。Windows 默认 `powershell`；只有检测或用户选择 Git Bash / WSL 时才允许 bash。
+
+## Phase 2：Windows Preview Readiness
+
+### 用户能看到什么
+
+Windows 用户打开包后，界面不是 macOS 壳层硬搬；模型生成的本地命令能按 Windows 语境使用。至少不会第一眼出现 bash-only 命令、标题栏按钮被遮挡、字体不对劲这类基础问题。
+
+### 不做什么
+
+- 不做完整 Fluent redesign。
+- 不把 macOS Liquid Glass / floating card 视觉原样照搬到 Windows。
+- 不强行实现所有 Windows 原生系统集成。
+
+### 怎么验收
+
+- Windows x64 包安装后可启动。
+- Settings → Runtime / Chat / Models / Plugins 至少四个页面可打开。
+- 标题栏按钮安全区正常；关闭 / 最小化 / 最大化可用。
+- 默认字体为 Segoe UI / Segoe UI Variable 系列。
+- 发送一个要求"给我一条创建目录并写文件的命令"的 prompt，输出为 PowerShell / Windows 兼容命令。
+- Console / app log 无新增 P0/P1 error；已知 noise 必须登记。
+
+### 实现路径（不需用户审阅）
+
+1. renderer root 注入 `data-platform='win32'` 后，确认回退到**默认产品 token**——7b 只实现了 macOS profile，Windows 无专属材质层，走默认 token = 符合预期（不是 bug，别误以为有 Windows 材质层要验）。
+2. 检查 Electron Windows `titleBarOverlay` / Mica 设置与当前样式是否冲突。
+3. 为 shell dialect 增加 Windows unit / fixture 测试。
+4. 如果本机没有 Windows 环境，至少产出 Windows smoke checklist，让真实 Windows 机器执行并登记结果；不能用 macOS 结果代替 Windows 结果。
+5. **构建环境（P1，Codex review 2026-05-29）**：Windows 包**必须在 Windows 机器 / Windows CI 上构建**——`scripts/after-pack.js` 为目标 ABI 重建 better-sqlite3，但原生 `.node` 无法从 macOS 交叉编译出可用的 Windows 版。在 Mac 上 `electron:pack:win` 的产物会带 Mac 二进制 → Windows 一读 DB 即崩。这是 Windows preview 的**构建前提**，不是测试项；上面第 4 点只解决"测试"，不解决"构建"。
+
+## Phase 3：macOS Preview Readiness
+
+### 用户能看到什么
+
+macOS 预览包保留本轮新视觉，但不因为透明 / vibrancy / floating cards 牺牲可用性。定时任务提醒、Runtime 切换、Codex / ClaudeCode / Native 三引擎核心路径可用。
+
+### 不做什么
+
+- 不继续追 liquid-dom / WebGPU 玻璃 POC。
+- 不重开 7b Phase 3-5。
+- 不为了视觉微调继续改 layout primitive，除非发现 P0/P1 视觉遮挡。
+
+### 怎么验收
+
+- macOS 包安装后启动。
+- Chat 默认页、已有会话、Settings Runtime、素材库、Plugins 可打开。
+- floating cards 底部圆角 / 阴影没有明显脏边或遮挡。
+- 关窗后后台行为符合预期；定时任务通知见 Phase 1 #34。
+- 三 Runtime smoke：
+  - ClaudeCode：Sonnet 4.6 / Opus 4.8 marker。
+  - Native：OpenRouter Opus 4.8 marker。
+  - Codex：Memory / Widget / Tasks / Dashboard / CLI 核心能力至少抽样。
+
+### 实现路径（不需用户审阅）
+
+- 用 Electron 实包而不是 Browser-only 截图验 macOS 壳层；Browser 只作为 DOM / layout 辅助。
+- **确认并 pin 整窗 vibrancy 值（P2，Codex review 2026-05-29）**：dev 实测当前是 `vibrancy:'menu'`，不在 7b 评估过的候选（`sidebar` / `under-window` / `content`）内。preview 前确认这是有意还是遗留；若不定稿，在已知问题里写明 macOS 底材质未最终确定，避免试用反馈"视觉"时无基准。
+- 检查 macOS Reduce Transparency / wallpaper tinting 对视觉的影响，必要时在已知问题里说明。
+- 对 macOS 系统通知必须同时记录系统权限状态与 app 内 dispatch 日志。
+
+## Phase 4：打包与安装验证
+
+### 用户能看到什么
+
+测试用户拿到可安装、可启动、可回滚的包；不是一堆开发命令。
+
+### 不做什么
+
+- 不上传正式 GitHub Release。
+- 不推 tag。
+- 不自动发布到 stable channel。
+
+### 怎么验收
+
+| 平台 | 产物 | 必验 |
+|------|------|------|
+| macOS arm64 | DMG / zip | 安装、启动、发一条 ClaudeCode 或 Native 消息、打开 Settings Runtime |
+| macOS x64 / universal | DMG / zip | 至少启动 + Settings + Chat smoke；若无法在本机验证 x64，需要在 release note 标明未本机实测 |
+| Windows x64 | NSIS | 安装、启动、标题栏、Settings、Chat、PowerShell 命令 smoke |
+
+### 实现路径（不需用户审阅）
+
+1. 构建前清理 release 输出目录，但不要清工作区或 DB。
+2. 记录实际命令和耗时。
+3. 记录产物 sha / 文件大小。
+4. 安装后 smoke 结果写入本计划 Smoke Ledger。
+
+## Phase 5：小范围试用与反馈闭环
+
+### 用户能看到什么
+
+试用用户知道该测什么、哪里可能有问题、怎么回滚；反馈能被分级，不会混成一堆聊天记录。
+
+### 不做什么
+
+- 不开放大范围自动升级。
+- 不把所有反馈都承诺进 preview 版修完。
+
+### 怎么验收
+
+- 给测试用户的说明包含：
+  - 重点测试清单。
+  - 已知问题。
+  - 回滚方式。
+  - 日志 / 截图反馈方式。
+- 反馈按 P0/P1/P2 分类：
+  - P0：启动、发送、数据损坏、无法回滚。
+  - P1：核心 Runtime / MCP / Windows 命令 / macOS 通知不可用。
+  - P2：视觉、文案、轻微交互。
+- P0/P1 必须在合 main 前关闭或明确 defer 并得到用户同意。
+
+## Phase 6：合并 / 不合并决策
+
+### 用户能看到什么
+
+不是“感觉差不多就合”。合 main 前有明确的通过标准；如果不合，也知道还差什么。
+
+> **两道门，别混（Codex review 2026-05-29）**：① **Ship-to-testers 门槛**（能不能把 preview 发给试用用户）= Phase 1 blocker 全关 + 两平台安装 smoke 各一轮 + 数据隔离方案已定（Phase 0 实现路径 2）+ 签名 / 绕过说明就位。② **Merge-to-main 门槛**（下面的 Go / No-go）= 试用反馈 P0/P1 关闭后才评估。**先过 ① 才发包，试用后再谈 ②**——下面的 Go 标准是 ② 的，不要拿它当发包门槛。
+
+### Go 标准
+
+- Phase 1 blocker 全部关闭。
+- macOS + Windows preview 包至少各有一轮真实安装 smoke。
+- 三 Runtime 核心路径 smoke 无 P0/P1。
+- Settings Runtime 能力清单与实际能力没有明显相反承诺。
+- 已知问题写入 release notes / tech-debt tracker。
+- 用户确认可以合 main。
+
+### No-go 标准
+
+- 任一平台包无法启动。
+- Windows 仍默认输出 bash-only 命令。
+- Mac 定时任务仍静默无通知 / 无 fallback。
+- Runtime 选择 UI 与实际运行 runtime 不一致。
+- Provider / model resolver 出现用户无法自行恢复的错误。
+- **preview 与 stable 共用 `~/.codepilot` 且会不可逆迁移用户真实 DB**（数据隔离未先定，见 Phase 0 实现路径 2）。
+- **外部测试用户因 Gatekeeper / SmartScreen 打不开包，且未提供绕过指引**。
+
+## Smoke Ledger（真实凭据 / UI / E2E 验证记录）
+
+> 跑了真实 smoke 后必须追加一行。Preview 包 smoke 不能只写"我试了可以"，必须写平台 / runtime / provider / 场景 / 结果 / 证据。
+
+| Date | Platform | Runtime | Provider / Model | 凭据形态 | 场景 | Result | Evidence |
+|------|----------|---------|------------------|---------|------|--------|----------|
+| 2026-05-29 | macOS dev | native | OpenRouter / `anthropic/claude-opus-4.8` | 本机 OpenRouter provider | Phase A Opus 4.8 marker | ✅ | `OPENROUTER_OPUS48_OK`；登记于 `post-refactor-cleanup.md` |
+| 2026-05-29 | macOS dev | claude_code | Claude Code account / `claude-opus-4-8` | 本机 Claude Code 授权 | Phase A Opus 4.8 两轮 | ✅ | `OPUS48_CLAUDE_ACCOUNT_A_OK` / `B_OK`；登记于 `post-refactor-cleanup.md` |
+| 2026-05-29 | macOS dev | claude_code | OpenRouter / `anthropic/claude-sonnet-4.6` | 本机 OpenRouter provider | #23 Sonnet 4.6 两轮 | ✅ | `SONNET46_SMOKE_A_OK` / `B_OK`；登记于 `post-refactor-cleanup.md` |
+| 待跑 | macOS packaged | TBD | TBD | TBD | 安装包启动 + Chat + Settings Runtime | ⏳ | |
+| 待跑 | Windows packaged | TBD | TBD | TBD | 安装包启动 + Windows shell command smoke | ⏳ | |
+
+## 详细自审 / Codex Review Checklist
+
+### 一致性检查
+
+- 本计划没有替代 `post-refactor-cleanup.md`，而是把其中 B/C 这两组 preview blocker 和打包门槛串成 preview 发布计划；E（design.md 横切规范）仍可并行，但不是预览包阻断项。
+- 已完成的 Phase A / D1 不重新开工，只作为 preview 依赖记录。
+- #28 被升级为 Windows preview blocker；这符合用户"Windows 也得打，所以 Windows 适配也得做"的最新决定。
+- #34 被列为 macOS preview blocker；这符合用户明确纠正"我说的是定时任务的问题"后的上下文。
+
+### 风险检查
+
+- 最大技术风险：#28 需要三 Runtime 的 shell context 统一注入，不能只改一处 prompt。
+- 最大产品风险：Windows 包如果没真实机器验证，不能说 Windows ready。
+- 最大发布风险：preview 包被用户误以为 stable；Phase 0 必须先处理命名 / release notes / 回滚说明。
+- 最大流程风险：D2 unit flake 仍可能误挡提交；这不阻塞 preview，但每次失败必须记录，不得用 `--no-verify` 混过去。
+
+### 不变量
+
+- 不合 main。
+- 不推 tag。
+- 不自动更新。
+- 不切 `opus` 默认。
+- 不把 experimental liquid glass POC 混入 preview。
+- 不把未真实验证的平台写成已验证。
+
+## 决策日志
+
+- 2026-05-29（review）：审查本计划。方向准确、与 `post-refactor-cleanup` A-E 状态无冲突（A 已完成/D1 已完成/D2 留债/E 并行，均不重新开工）。补 2 个 P1：(P1-a) preview 与 stable 共用 `~/.codepilot` + 同 appId/productName，DB 迁移与回滚不可逆 → Phase 0 增数据隔离硬约束 + No-go；(P1-b) Windows 包原生模块 better-sqlite3 无法从 Mac 交叉构建 → Phase 2 增"Windows 必须在 Windows 构建"前提。P2：分发签名/Gatekeeper 绕过指引（Phase 0）、Phase 3 pin vibrancy（dev 当前 `'menu'` 不在 7b 候选）、Phase 2 Windows-profile 措辞澄清（无专属材质层、走默认）、ship-to-testers 门槛与合 main 门槛分开（Phase 6）。P3：auto-update 已在 `electron/updater.ts` DISABLED，Phase 0 口径从"明确是否禁用"改为陈述事实。
+- 2026-05-29：用户决定不直接合 main，倾向先从当前 worktree 打预览包给少量用户试用；随后补充 Windows 也必须打包，因此 Windows 方言 / Windows 包 smoke 升为 preview blocker。本计划创建，用于把 `post-refactor-cleanup` 的遗留修复、Windows readiness、macOS readiness、打包 smoke 与小范围试用闭环放到同一张发布门槛表里。
