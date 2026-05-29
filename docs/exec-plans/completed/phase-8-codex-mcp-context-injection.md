@@ -1,10 +1,14 @@
 # Phase 8 — Codex MCP / Memory 注入
 
 > 创建时间：2026-05-21
-> 最后更新：2026-05-29
-> 状态：✅ Phase 0–5（Memory）完成并经真实 Codex `0.133.0` 登录验证。Memory MCP 经 streamable-HTTP route 注入、Settings 显示可调用；登录 smoke 确认 Codex Account 下模型**主动调用 Memory 并读出真实记忆**。根因：Codex 在 `approvalPolicy: on-request` 下把 MCP 工具审批发成 `mcpServer/elicitation/request`，原 handler 无脑 decline → 改为对 safe-read Memory `accept`（`item/tool/call` 实测未触发，bridge 留作防御）。全量单测通过。
+> 完成时间：2026-05-29
+> **状态：✅ 已归档（2026-05-29 收口，文件由 `active/` 移入 `completed/`）**
 >
-> **#31 收口（2026-05-29）**：✅ Memory / Widget / Tasks+Notify / Dashboard / CLI 五项均**已接入 + 真实账号 smoke 通过**（见下方 #31 capability 表 + Smoke Ledger）。其中 Tasks/Notify + Dashboard/CLI 引入**按能力区分的 elicitation 审批策略**（safe-read 自动接受 / mutating 走用户审批 / 未知 decline；Dashboard / CLI 各拆成 read+write 两个 server 以绕过 Codex elicitation 只识别 server 不识别 tool 的限制）。Codex 原生图片入库已对齐素材库（prompt + model + provider 都接进 Gallery API）。**剩余两项用户决定 defer（2026-05-29）**：Image/Media 不叠加 Gemini MCP（Codex 自带图片够用）；用户自定义 MCP 是独立工程（transport / OAuth / 白名单），后续单独立项。
+> **收口摘要**：Codex `config.mcp_servers` 注入链路打通，**5 项核心能力**（Memory / Widget / Tasks+Notify / Dashboard / CLI）在 Codex Account 下全部**已接入 + 真实账号 smoke 通过**（见下方 Smoke Ledger）。引入按能力区分的 elicitation 审批策略（safe-read 自动接受 / mutating 走用户审批 / 未知 decline；Dashboard / CLI 各拆成 read+write 两个 server 以绕过 Codex elicitation 只识别 server 不识别 tool 的限制）。Codex 原生图片入库已对齐素材库（prompt + model + provider 都接进 Gallery API）。
+>
+> **用户明确 defer（2026-05-29）**：(a) Image/Media — 不叠加 App 的 Gemini 图片 MCP（Codex 自带图片够用，避免双"画图"工具混淆）；(b) 用户自定义 MCP — 独立工程（transport / OAuth / 白名单）。如要重启，**新立独立计划**，不在本文档续写。
+>
+> 关键内容：5 项能力的真账号 smoke 见 Smoke Ledger；按能力的拆分 / 注入 / 审批策略见 #31 capability 表；为什么这样收口、什么不做见决策日志（按日期倒序最新数条）。
 > 上游：Phase 5 Codex Runtime / Phase 5e Runtime Harness Architecture / Phase 7 Icon System
 > POC 记录：[docs/research/codex-mcp-injection-poc/](../../research/codex-mcp-injection-poc/)
 
