@@ -112,12 +112,25 @@ export function assembleTools(options: AssembleToolsOptions = {}): AssembleTools
     abortSignal: options.permissionContext?.abortSignal,
   });
 
-  // In 'plan' mode, restrict to read-only tools
+  // In 'plan' mode, restrict to read-only tools — but #26: keep the
+  // safe_read Harness capabilities (codepilot_load_widget_guidelines,
+  // memory reads, …) and their compiler prompts (widget wire-format spec),
+  // not just Read/Glob/Grep. Mutating tools (Write/Edit/Bash + image gen /
+  // dashboard / schedule / notify / media import) stay out. Restores Native
+  // Plan mode's ability to produce Widgets without granting side effects.
+  // Every resulting tool skips the permission check by construction, so no
+  // permission wrapping is needed.
   if (options.mode === 'plan') {
-    return {
-      tools: { Read: builtinTools.Read, Glob: builtinTools.Glob, Grep: builtinTools.Grep },
-      systemPrompts: [],
-    };
+    const { tools: safeMcpTools, systemPrompts } = getBuiltinTools({
+      workspacePath: cwd,
+      prompt: options.prompt,
+      sessionId: options.permissionContext?.sessionId,
+      safeReadOnly: true,
+    });
+    const safeBuiltin = Object.fromEntries(
+      Object.entries(builtinTools).filter(([name]) => PERMISSION_SAFE_TOOLS.has(name)),
+    );
+    return { tools: { ...safeBuiltin, ...safeMcpTools }, systemPrompts };
   }
 
   // Built-in MCP-equivalent tools (notification, memory, dashboard, etc.)

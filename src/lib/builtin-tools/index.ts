@@ -26,6 +26,7 @@
 
 import type { ToolSet } from 'ai';
 import { adaptForNative } from '@/lib/harness/runtime-adapter';
+import { shouldSkipPermission } from '@/lib/harness/mutation-level';
 
 export interface BuiltinToolGroup {
   name: string;
@@ -44,6 +45,14 @@ export interface GetBuiltinToolsOptions {
    * MCP variant in claude-client.ts.
    */
   sessionId?: string;
+  /**
+   * #26: when true, mount only permission-safe (read-only) tools and emit
+   * only their capability prompts. Plan / read-only mode uses this so the
+   * Native Agent keeps safe_read Harness capabilities (widget guidelines,
+   * memory reads) WITHOUT mutating tools (image gen / dashboard / schedule /
+   * notify / media import). See assembleTools('plan').
+   */
+  safeReadOnly?: boolean;
 }
 
 /**
@@ -142,7 +151,18 @@ export function getBuiltinTools(
       if (!group.condition.keywords.test(text)) continue;
     }
 
-    Object.assign(tools, group.tools);
+    // #26: Plan / read-only mode keeps only permission-safe tools. A group
+    // whose tools are all mutating contributes neither tools nor its
+    // capability prompt — so Plan advertises safe_read caps (widget
+    // guidelines / memory) but not image-gen / dashboard / schedule / notify.
+    const groupTools = options.safeReadOnly
+      ? Object.fromEntries(
+          Object.entries(group.tools).filter(([name]) => shouldSkipPermission(name)),
+        )
+      : group.tools;
+    if (Object.keys(groupTools).length === 0) continue;
+
+    Object.assign(tools, groupTools);
     const capIds = capabilityIdsForGroup(group.name);
     if (capIds.length > 0) {
       for (const id of capIds) enabledCapabilities.add(id);
