@@ -1370,7 +1370,9 @@ export function RuntimePanel(props: RuntimePanelProps = {}) {
               <Warning size={14} weight="fill" className="mt-0.5 shrink-0 text-status-warning-foreground" />
               <div className="flex-1 min-w-0">
                 <p className="text-xs font-semibold text-status-warning-foreground">
-                  {isZh ? "默认模型在当前执行环境下不可用" : "Default model unavailable under the current engine"}
+                  {invalidDefault.reason === "pin-incomplete"
+                    ? (isZh ? "默认模型固定信息不完整" : "Pinned default is incomplete")
+                    : (isZh ? "默认模型在当前执行环境下不可用" : "Default model unavailable under the current engine")}
                 </p>
                 <p className="text-[11px] text-foreground/80 mt-1 leading-relaxed">
                   {(() => {
@@ -1379,6 +1381,13 @@ export function RuntimePanel(props: RuntimePanelProps = {}) {
                     const pinName = provDisplay && modelDisplay
                       ? `${provDisplay} / ${modelDisplay}`
                       : provDisplay ?? modelDisplay ?? (isZh ? '当前默认' : 'the current default');
+                    // #27: pin-incomplete = 缺 provider 绑定，模型本身可用，不是
+                    // Runtime 兼容问题——别说"不在兼容范围内"误导用户。
+                    if (invalidDefault.reason === "pin-incomplete") {
+                      return isZh
+                        ? `默认模型固定信息不完整（缺 provider 绑定）；新会话会自动使用当前环境下的可用模型。到「模型」页重新固定一个默认即可。`
+                        : `The pinned default is missing its provider binding. New chats auto-use an available model — re-pin a default in Models to fix.`;
+                    }
                     return isZh
                       ? `${pinName} 不在当前执行环境（${resolvedEngineLabel}）的兼容范围内；新会话会自动使用当前环境下的可用模型。需要固定一个新的默认时到「模型」页修改即可。`
                       : `${pinName} isn't compatible with the current engine (${resolvedEngineLabel}). New chats fall back to an available model automatically. Pick a new default in Models when you're ready.`;

@@ -50,6 +50,11 @@ export interface OverviewState {
    *  Surfaced on the Overview Runtime card so the dashboard names the
    *  problem the same way Settings → Runtime does. */
   defaultInvalid: boolean;
+  /** When defaultInvalid, which kind — so the UI can distinguish a
+   *  half-pinned config (`pin-incomplete`, model is fine, just missing the
+   *  provider binding) from a genuinely unreachable pin (provider/model
+   *  not in the runtime-filtered groups). #27. */
+  defaultInvalidReason: "provider-missing" | "model-missing" | "pin-incomplete" | null;
   noCompatibleProvider: boolean;
   providersConfigured: number;
   modelsTotal: number;
@@ -77,6 +82,7 @@ const initialState: OverviewState = {
   defaultProviderName: null,
   defaultModelLabel: null,
   defaultInvalid: false,
+  defaultInvalidReason: null,
   noCompatibleProvider: false,
   providersConfigured: 0,
   modelsTotal: 0,
@@ -164,6 +170,7 @@ export function useOverviewData(): OverviewState {
           // RuntimePanel's fallback rule: providerName ?? providerId,
           // modelLabel ?? modelValue.
           next.defaultInvalid = true;
+          next.defaultInvalidReason = resolved.reason ?? null;
           next.defaultProviderName =
             resolved.providerName ?? resolved.providerId ?? null;
           next.defaultModelLabel =

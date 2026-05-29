@@ -223,19 +223,39 @@ export function HealthSection() {
     if (state.defaultInvalid) {
       const provDisplay = state.defaultProviderName ?? "?";
       const modelDisplay = state.defaultModelLabel ?? "?";
+      // #27: pin-incomplete = 固定信息半截（缺 provider 绑定），模型本身可用，
+      // 不是 Runtime 兼容问题。其余（provider/model-missing）才是固定目标不在
+      // 当前引擎可达范围。两者都是**非阻断**（chat 会自动 fallback），统一降为
+      // warning，不再说"阻断"——与 RuntimePanel banner 口径一致。
+      if (state.defaultInvalidReason === "pin-incomplete") {
+        return {
+          id: "default-model",
+          icon: <CodePilotIcon name="model" size="md" />,
+          title: isZh ? "默认模型有效性" : "Default model validity",
+          severity: "warn",
+          reason: isZh
+            ? "默认模型固定信息不完整（缺 provider 绑定）"
+            : "Pinned default is incomplete (missing provider binding)",
+          impact: isZh
+            ? "新会话会自动使用当前环境下的可用模型；到「模型」页重新固定即可"
+            : "New chats auto-use an available model; re-pin in Models to fix",
+          ctaLabel: isZh ? "去 Models" : "Open Models",
+          ctaOnClick: () => navToSection("models"),
+        };
+      }
       return {
         id: "default-model",
         icon: <CodePilotIcon name="model" size="md" />,
         title: isZh ? "默认模型有效性" : "Default model validity",
-        severity: "error",
+        severity: "warn",
         reason: isZh
-          ? `已固定 ${provDisplay} / ${modelDisplay} — 当前执行引擎 下不可执行`
-          : `Pinned ${provDisplay} / ${modelDisplay} — not executable under current Runtime`,
+          ? `已固定 ${provDisplay} / ${modelDisplay} — 不在当前执行引擎的兼容范围内`
+          : `Pinned ${provDisplay} / ${modelDisplay} — not compatible with the current Runtime`,
         impact: isZh
-          ? "新消息会被阻断，需切换执行引擎、启用模型、改 Pin 或切回 Auto"
-          : "New messages are blocked until Runtime / pin / mode is changed",
-        ctaLabel: isZh ? "去执行引擎" : "Open Runtime",
-        ctaOnClick: () => navToSection("runtime"),
+          ? "新会话会自动使用当前环境下的可用模型；可去「模型」页改默认或切回 Auto"
+          : "New chats fall back to an available model; change the default in Models or revert to Auto",
+        ctaLabel: isZh ? "去 Models" : "Open Models",
+        ctaOnClick: () => navToSection("models"),
       };
     }
     if (state.defaultMode === "pinned") {
