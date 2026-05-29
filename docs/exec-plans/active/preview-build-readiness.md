@@ -74,7 +74,7 @@
 ### 实现路径（不需用户审阅）
 
 1. 在打包前确定 preview version scheme：是否改 `package.json` version，还是只改 artifact name。
-2. **数据隔离（P1，必须先定 — Codex review 2026-05-29）**：当前 `appId=com.codepilot.app` / `productName=CodePilot` / 数据目录 `~/.codepilot`（`src/lib/db.ts:11`、`electron/main.ts:844`）。preview 包若沿用这三者，会**覆盖 stable 安装、并改用户真实 DB**——preview 的 schema 迁移让回滚到 stable 不可逆（违反 DB migration safety）。**推荐**：preview 用独立 `productName="CodePilot Preview"` + `appId=com.codepilot.app.preview` + `CLAUDE_GUI_DATA_DIR=~/.codepilot-preview`，与 stable 共存、不碰真实数据。若坚持共用，**必须**在试用说明里写明"先备份 `~/.codepilot/codepilot.db`，且装 preview 后无法干净回滚 stable"。
+2. **数据目录（用户 2026-05-29 决定：不隔离）**：preview 沿用 `appId=com.codepilot.app` / `productName=CodePilot` / `~/.codepilot`。**核实迁移机制后风险可控**（修正最初 review 的过度标定）：`db.ts` 用 `PRAGMA table_info` 按列存在性做**增量迁移**（49 ALTER ADD + 41 CREATE IF NOT EXISTS），**无 `user_version` 单调版本门、无"schema 太新即拒绝"上界**——stable 打开被 preview 向前迁移过的 DB 不会被拒，只补自己认识的列、忽略多出的列/表，**回滚基本安全**。残留风险（试用说明必须写明）：① install **替换**用户 stable app（回滚 = 重装 stable 包）；② DB 向前迁移（基本可回滚，不保证 100%）；③ 一条非纯增量迁移 `db.ts:944 DELETE FROM api_providers WHERE protocol='openai-compatible'` 会清该类 provider（可重加）。→ **硬要求**：试用说明给一句"preview 会替换你的 CodePilot 并改其数据，装前先备份 `~/.codepilot/codepilot.db`"。（完全隔离 `productName="CodePilot Preview"` + 独立 `appId` + `CLAUDE_GUI_DATA_DIR=~/.codepilot-preview` 只有在需要 preview 与 stable **并存** / 保证零数据触碰时才做。）
 3. **自动更新已禁用**：`electron/updater.ts` 已 DISABLED（运行时不检查更新）。本计划只需**确认 preview 构建保持禁用** + 不把产物上传到 `electron-builder.yml` 的 GitHub release feed（Phase 4 已有"不上传正式 Release"约束）。不需新增禁用动作。
 4. **分发签名（P2）**：未签名 / 未公证的 DMG 在外部 Mac 被 Gatekeeper 拦、未签名 NSIS 触发 SmartScreen。确定 preview 是否签名；不签名则在试用说明给绕过指引（Mac 右键打开 / `xattr -dr com.apple.quarantine`；Win「更多信息 → 仍要运行」）。
 5. 打包脚本使用 worktree 内代码；不得从主目录启动 dev / build。
@@ -248,7 +248,7 @@ macOS 预览包保留本轮新视觉，但不因为透明 / vibrancy / floating 
 - Mac 定时任务仍静默无通知 / 无 fallback。
 - Runtime 选择 UI 与实际运行 runtime 不一致。
 - Provider / model resolver 出现用户无法自行恢复的错误。
-- **preview 与 stable 共用 `~/.codepilot` 且会不可逆迁移用户真实 DB**（数据隔离未先定，见 Phase 0 实现路径 2）。
+- **不隔离时未在试用说明告知"preview 会替换 stable + 改其数据、需先备份 `~/.codepilot/codepilot.db`"**（共用本身可接受——迁移无版本门、增量；不可接受的是不告知/不给备份指引，见 Phase 0 实现路径 2）。
 - **外部测试用户因 Gatekeeper / SmartScreen 打不开包，且未提供绕过指引**。
 
 ## Smoke Ledger（真实凭据 / UI / E2E 验证记录）
@@ -290,5 +290,6 @@ macOS 预览包保留本轮新视觉，但不因为透明 / vibrancy / floating 
 
 ## 决策日志
 
+- 2026-05-29（数据隔离决定）：用户决定**不隔离**，preview 共用 `~/.codepilot` + 同 appId/productName。核实 `db.ts` 迁移机制后确认风险可控（PRAGMA table_info 增量迁移、无 `user_version` 版本门、无 schema 上界拒绝 → 回滚基本安全），最初 review 的 P1-a"回滚不可逆"被**下调**为"需告知 + 备份提示"。硬要求只剩：试用说明写明 preview 替换 stable + 改数据 + 装前备份。完全隔离方案保留为"需 preview/stable 并存时"的可选项。
 - 2026-05-29（review）：审查本计划。方向准确、与 `post-refactor-cleanup` A-E 状态无冲突（A 已完成/D1 已完成/D2 留债/E 并行，均不重新开工）。补 2 个 P1：(P1-a) preview 与 stable 共用 `~/.codepilot` + 同 appId/productName，DB 迁移与回滚不可逆 → Phase 0 增数据隔离硬约束 + No-go；(P1-b) Windows 包原生模块 better-sqlite3 无法从 Mac 交叉构建 → Phase 2 增"Windows 必须在 Windows 构建"前提。P2：分发签名/Gatekeeper 绕过指引（Phase 0）、Phase 3 pin vibrancy（dev 当前 `'menu'` 不在 7b 候选）、Phase 2 Windows-profile 措辞澄清（无专属材质层、走默认）、ship-to-testers 门槛与合 main 门槛分开（Phase 6）。P3：auto-update 已在 `electron/updater.ts` DISABLED，Phase 0 口径从"明确是否禁用"改为陈述事实。
 - 2026-05-29：用户决定不直接合 main，倾向先从当前 worktree 打预览包给少量用户试用；随后补充 Windows 也必须打包，因此 Windows 方言 / Windows 包 smoke 升为 preview blocker。本计划创建，用于把 `post-refactor-cleanup` 的遗留修复、Windows readiness、macOS readiness、打包 smoke 与小范围试用闭环放到同一张发布门槛表里。
