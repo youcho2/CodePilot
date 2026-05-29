@@ -13,32 +13,44 @@ import path from 'node:path';
 import { getPlatformShell, platformCommandGuidance } from '../../lib/platform';
 
 describe('#28 getPlatformShell', () => {
-  it('win32 without Git Bash → powershell', () => {
-    assert.equal(getPlatformShell({ platform: 'win32', gitBashAvailable: false }), 'powershell');
+  it('win32 defaults to powershell (no explicit bash opt-in)', () => {
+    assert.equal(getPlatformShell({ platform: 'win32', bashOptIn: false }), 'powershell');
   });
-  it('win32 with Git Bash / WSL → bash', () => {
-    assert.equal(getPlatformShell({ platform: 'win32', gitBashAvailable: true }), 'bash');
+  it('win32 with explicit bash opt-in → bash', () => {
+    assert.equal(getPlatformShell({ platform: 'win32', bashOptIn: true }), 'bash');
+  });
+  it('win32 default keys off CLAUDE_CODE_GIT_BASH_PATH, NOT mere Git install (Codex review P2)', () => {
+    const saved = process.env.CLAUDE_CODE_GIT_BASH_PATH;
+    try {
+      delete process.env.CLAUDE_CODE_GIT_BASH_PATH;
+      assert.equal(getPlatformShell({ platform: 'win32' }), 'powershell', 'no env → PowerShell default');
+      process.env.CLAUDE_CODE_GIT_BASH_PATH = 'C:\\Program Files\\Git\\bin\\bash.exe';
+      assert.equal(getPlatformShell({ platform: 'win32' }), 'bash', 'explicit env opt-in → bash');
+    } finally {
+      if (saved === undefined) delete process.env.CLAUDE_CODE_GIT_BASH_PATH;
+      else process.env.CLAUDE_CODE_GIT_BASH_PATH = saved;
+    }
   });
   it('darwin → zsh by default, bash when $SHELL says bash', () => {
     assert.equal(getPlatformShell({ platform: 'darwin', shellEnv: '/bin/zsh' }), 'zsh');
     assert.equal(getPlatformShell({ platform: 'darwin', shellEnv: '/usr/local/bin/bash' }), 'bash');
   });
-  it('linux → bash', () => {
+  it('linux (incl. WSL) → bash', () => {
     assert.equal(getPlatformShell({ platform: 'linux' }), 'bash');
   });
 });
 
 describe('#28 platformCommandGuidance', () => {
   it('Windows-PowerShell → PowerShell guidance that forbids bash-only + gives PS equivalents', () => {
-    const g = platformCommandGuidance({ platform: 'win32', gitBashAvailable: false });
+    const g = platformCommandGuidance({ platform: 'win32', bashOptIn: false });
     assert.match(g, /PowerShell/);
     assert.match(g, /rm -rf|export VAR|mkdir -p/); // names the bash-only patterns to avoid
     assert.match(g, /Remove-Item|New-Item|\$env:/); // PowerShell equivalents
   });
-  it('no-op (empty) on macOS / Linux / Windows-with-Git-Bash', () => {
+  it('no-op (empty) on macOS / Linux / Windows-with-explicit-bash-opt-in', () => {
     assert.equal(platformCommandGuidance({ platform: 'darwin' }), '');
     assert.equal(platformCommandGuidance({ platform: 'linux' }), '');
-    assert.equal(platformCommandGuidance({ platform: 'win32', gitBashAvailable: true }), '');
+    assert.equal(platformCommandGuidance({ platform: 'win32', bashOptIn: true }), '');
   });
 });
 

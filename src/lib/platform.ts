@@ -454,36 +454,38 @@ export function getUpgradeCommand(installType: ClaudeInstallType): UpgradeComman
 
 export type PlatformShell = 'powershell' | 'bash' | 'zsh';
 
-/** Cheap Git Bash presence check (no `where git` exec) — env hint + the two
- *  standard install paths. Good enough for prompt-build-time shell selection. */
-function gitBashLikelyPresent(): boolean {
-  if (process.env.CLAUDE_CODE_GIT_BASH_PATH) return true;
-  try {
-    return (
-      fs.existsSync('C:\\Program Files\\Git\\bin\\bash.exe') ||
-      fs.existsSync('C:\\Program Files (x86)\\Git\\bin\\bash.exe')
-    );
-  } catch {
-    return false;
-  }
+/**
+ * Whether the user EXPLICITLY opted into the bash dialect on Windows.
+ *
+ * #28 (Codex review 2026-05-29): keying off "is Git Bash installed" is the
+ * wrong signal — Git for Windows is near-universal among devs, but most of
+ * them paste commands into PowerShell, not bash. So we do NOT probe install
+ * paths. The only reliable signal that the user actually runs bash is them
+ * having set `CLAUDE_CODE_GIT_BASH_PATH` (the same var ClaudeCode's SDK uses).
+ * Absent that, Windows defaults to PowerShell. WSL reports platform='linux'
+ * (handled by the linux branch below), so it's not a win32 concern.
+ */
+function windowsBashOptIn(): boolean {
+  return !!process.env.CLAUDE_CODE_GIT_BASH_PATH;
 }
 
 /**
  * Resolve the shell the Agent should target for generated commands.
- * - win32: PowerShell, unless Git Bash / WSL is available (then bash).
+ * - win32: **PowerShell by default**; bash ONLY when the user opted in via
+ *   CLAUDE_CODE_GIT_BASH_PATH (a mere Git-for-Windows install does NOT flip it).
  * - darwin: zsh (default) unless $SHELL says bash.
- * - linux/other: bash.
+ * - linux/other (incl. WSL): bash.
  * `opts` overrides are for unit tests (process.platform is read-only).
  */
 export function getPlatformShell(opts?: {
   platform?: NodeJS.Platform;
-  gitBashAvailable?: boolean;
+  bashOptIn?: boolean;
   shellEnv?: string;
 }): PlatformShell {
   const platform = opts?.platform ?? process.platform;
   if (platform === 'win32') {
-    const gb = opts?.gitBashAvailable ?? gitBashLikelyPresent();
-    return gb ? 'bash' : 'powershell';
+    const bash = opts?.bashOptIn ?? windowsBashOptIn();
+    return bash ? 'bash' : 'powershell';
   }
   if (platform === 'darwin') {
     const sh = (opts?.shellEnv ?? process.env.SHELL ?? '').toLowerCase();
@@ -495,13 +497,13 @@ export function getPlatformShell(opts?: {
 /**
  * System-prompt hint telling the model which shell dialect to emit.
  * **Empty string off Windows-PowerShell** — so callers can inject it
- * unconditionally and it's a no-op on macOS / Linux / Windows-with-Git-Bash
- * (zero hot-path change there). Only Windows-without-Git-Bash gets the
- * PowerShell guidance (the #28 fix surface).
+ * unconditionally and it's a no-op on macOS / Linux / Windows-with-explicit-
+ * bash-opt-in (zero hot-path change there). Only Windows defaulting to
+ * PowerShell gets the guidance (the #28 fix surface).
  */
 export function platformCommandGuidance(opts?: {
   platform?: NodeJS.Platform;
-  gitBashAvailable?: boolean;
+  bashOptIn?: boolean;
   shellEnv?: string;
 }): string {
   if (getPlatformShell(opts) !== 'powershell') return '';
