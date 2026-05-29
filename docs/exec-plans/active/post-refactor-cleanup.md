@@ -19,7 +19,7 @@
 
 | Phase | 内容 | 类型 | 优先级 | 状态 |
 |-------|------|------|--------|------|
-| A | 模型目录：接入 Opus 4.8 + 修 Sonnet 4.6 别名（#23） | A 可见 | **高**（发送正确性 + 新模型） | 📋 待审 |
+| A | 模型目录：接入 Opus 4.8 + 修 Sonnet 4.6 别名（#23） | A 可见 | **高**（发送正确性 + 新模型） | ✅ 代码 + 回归测试完成（commit 9d98029）；真实凭据 smoke 待用户/Codex |
 | B | 用户信任 bug：Mac 通知不弹（#34）+ pin-incomplete 误报（#27） | A 可见 | 高 | 📋 待审 |
 | C | 能力/平台正确性：Plan 模式 Widget（#26）+ Windows shell 方言（#28） | A 可见 | 中 | 📋 待审 |
 | D0 | flake + no-verify 事件记入 tech-debt #30 | C 文档 | 中 | ✅ 已完成 |
@@ -194,7 +194,9 @@ A 类面专属（Chat 消息 / /plugins / Workspace / 素材库等）从 "Anchor
 
 | Date | Runtime | Provider | Model | 凭据形态 | 场景 | Result | Evidence |
 |------|---------|----------|-------|---------|------|--------|----------|
-| _示例_ | claude_code | Anthropic | claude-opus-4-8 | API key | Opus 4.8 两轮发送 | ⏳ | 待 Phase A |
+| 待跑 | claude_code | Anthropic direct | claude-opus-4-8（modelId `opus-4-8`） | API key | Opus 4.8 两轮发送 | ⏳ 待 smoke | 代码 9d98029；只验证集成路径 |
+| 待跑 | native / codex_runtime | OpenRouter | anthropic/claude-opus-4.8（modelId `opus-4-8`） | API key | Opus 4.8 发送 | ⏳ 待 smoke | 代码 9d98029 |
+| 待跑 | claude_code | Anthropic | claude-sonnet-4-6 | API key | Sonnet 4.6 两轮发送（#23 反例：此前报 model 不存在） | ⏳ 待 smoke | 代码 9d98029 |
 
 ## Open Questions（待 Codex / 用户核对）
 
