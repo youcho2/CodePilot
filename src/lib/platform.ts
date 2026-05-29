@@ -445,6 +445,75 @@ export function getUpgradeCommand(installType: ClaudeInstallType): UpgradeComman
   }
 }
 
+// ── #28: platform shell dialect ─────────────────────────────────────
+// The Agent (any Runtime) generates / shows shell commands. On Windows the
+// model defaults to bash/POSIX (export, rm -rf, /tmp, mkdir -p) which the
+// user can't run in PowerShell. Inject a shell-dialect hint into the system
+// prompt so commands match the platform shell. Pure + override-able so it's
+// unit-testable without a real Windows host.
+
+export type PlatformShell = 'powershell' | 'bash' | 'zsh';
+
+/** Cheap Git Bash presence check (no `where git` exec) — env hint + the two
+ *  standard install paths. Good enough for prompt-build-time shell selection. */
+function gitBashLikelyPresent(): boolean {
+  if (process.env.CLAUDE_CODE_GIT_BASH_PATH) return true;
+  try {
+    return (
+      fs.existsSync('C:\\Program Files\\Git\\bin\\bash.exe') ||
+      fs.existsSync('C:\\Program Files (x86)\\Git\\bin\\bash.exe')
+    );
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Resolve the shell the Agent should target for generated commands.
+ * - win32: PowerShell, unless Git Bash / WSL is available (then bash).
+ * - darwin: zsh (default) unless $SHELL says bash.
+ * - linux/other: bash.
+ * `opts` overrides are for unit tests (process.platform is read-only).
+ */
+export function getPlatformShell(opts?: {
+  platform?: NodeJS.Platform;
+  gitBashAvailable?: boolean;
+  shellEnv?: string;
+}): PlatformShell {
+  const platform = opts?.platform ?? process.platform;
+  if (platform === 'win32') {
+    const gb = opts?.gitBashAvailable ?? gitBashLikelyPresent();
+    return gb ? 'bash' : 'powershell';
+  }
+  if (platform === 'darwin') {
+    const sh = (opts?.shellEnv ?? process.env.SHELL ?? '').toLowerCase();
+    return sh.includes('bash') ? 'bash' : 'zsh';
+  }
+  return 'bash';
+}
+
+/**
+ * System-prompt hint telling the model which shell dialect to emit.
+ * **Empty string off Windows-PowerShell** — so callers can inject it
+ * unconditionally and it's a no-op on macOS / Linux / Windows-with-Git-Bash
+ * (zero hot-path change there). Only Windows-without-Git-Bash gets the
+ * PowerShell guidance (the #28 fix surface).
+ */
+export function platformCommandGuidance(opts?: {
+  platform?: NodeJS.Platform;
+  gitBashAvailable?: boolean;
+  shellEnv?: string;
+}): string {
+  if (getPlatformShell(opts) !== 'powershell') return '';
+  return [
+    '- Shell dialect: this machine is Windows and the target shell is PowerShell.',
+    '  Any command you run OR show the user must be PowerShell / Windows-compatible — NOT bash-only.',
+    '  Avoid: `rm -rf`, `export VAR=...`, `source`, `/tmp`, `mkdir -p`, `&&`-only chaining, `$VAR`.',
+    '  Use instead: `Remove-Item -Recurse -Force`, `$env:VAR = "..."`, `New-Item -ItemType Directory -Force`,',
+    '  `$env:TEMP`, `;` or separate lines, `$env:VAR`. (If Git Bash / WSL is detected this hint is omitted.)',
+  ].join('\n');
+}
+
 /**
  * Find Git Bash (bash.exe) on Windows.
  * Returns the path to bash.exe or null if not found.

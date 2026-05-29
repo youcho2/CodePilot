@@ -40,6 +40,7 @@ import { encodeEvent, encodeDone, makeFailureStream } from './sse';
 import { makeErrorResult, classifyUpstreamError } from './errors';
 import { createCodePilotBuiltinTools } from './builtin-bridge';
 import { adaptForCodexProxy } from '@/lib/harness/runtime-adapter';
+import { platformCommandGuidance } from '@/lib/platform';
 import type { ResponsesAdapter } from './adapter';
 import type {
   ResponsesEvent,
@@ -192,7 +193,11 @@ export function createUnifiedAdapter(family: string): ResponsesAdapter {
       userExtensions,
       externalExtensions,
     });
-    const bridgePrompt = adapted.systemPromptInstructions;
+    // #28: append the platform shell-dialect hint (no-op off Windows-PowerShell)
+    // so Codex emits PowerShell-compatible commands on Windows.
+    const bridgePrompt = [adapted.systemPromptInstructions, platformCommandGuidance()]
+      .filter((s) => s.length > 0)
+      .join('\n\n');
 
     // Splice the compiler prompt into the request body's
     // `instructions`. `buildMessages` below reads
