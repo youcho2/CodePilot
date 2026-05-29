@@ -144,10 +144,10 @@
 
 ### 实现路径（不需用户审阅）
 已核实 `.husky/pre-commit` 4 行未串联（`lint-hooks.mjs` / `lint-staged` / `tsc --noEmit` / `CODEX_DISABLED=1 tsx --test`），husky 以最后一条退出码为准。
-1. **先清 eslint 存量 error**：开工前 `npx eslint` 跑一遍确认确切清单（tracker 记约 3 个：`card-primitives.tsx` react-hooks/refs、`AppShell.tsx`/`AssistantPanel.tsx` unused-var），清零。
-2. **定位 unit flake**：`apply-discovery-diff` 隔离过、全量挂——查同进程里哪个兄弟测试污染共享 DB/状态（#11/#25 家族），修隔离。
-3. **再收紧**：4 行用 `&&` 串联或 `set -e`（或各加 `|| exit 1`）。
-4. **优先级（Codex review）**：建议 **D 先于 A/B/C 收口**——否则代码 phase 要么被 flake 误挡、要么只能 --no-verify 而失去护栏。
+1. **eslint 存量（开工实测 16 个 error，非早先估的 3 个）**：2 prefer-const（`context-chips-send-clear.test.ts`，机械修）+ ~14 react-hooks（`setState in effect` / `refs during render`）在 9 个 live 组件/hook（MessageInput / NewChatWelcome / StreamingMessage / TaskCheckpoint / UnifiedTopBar / SkillDetailDialog / ResizeHandle / card-primitives / useMentionTokenEstimate / useWorkspaceSidebar）。**不盲改高频组件**（运行时回归风险，code-review 抓不到）——`lint-staged` 只 lint 暂存文件，故**先 enforce**、这 9 个留 on-touch 债 / 单开 react-hooks 专项。
+2. **unit flake（间歇，难复现）**：`apply-discovery-diff` 隔离必过、全量**间歇**挂（同日连跑两次又全过）——非确定、难 bisect；作为独立调查（#11/#25 家族），**不阻塞 enforce**（hook 仍可收紧，flake 命中时重试）。
+3. **收紧**：4 行用 `&&` 串联或 `set -e`（或各加 `|| exit 1`）。enforce 后 `lint-staged`（暂存文件 eslint）/ `tsc` / drift / unit 任一失败稳定阻断。
+4. **优先级（Codex review）**：D 先于 A/B/C——但 enforce 不必等清完 16 个（lint-staged 只管暂存文件，A/B/C 不碰那 9 个 error 文件）。
 
 ---
 
