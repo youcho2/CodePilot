@@ -412,6 +412,10 @@ function startBgNotifyPoll(): void {
             title: notif.title,
             body: notif.body || '',
           });
+          // #34 observability — bg (window-hidden) show path. supported=false
+          // OR no banner despite supported=true ⇒ macOS notification permission
+          // for this app (esp. an unsigned dev Electron binary) is the suspect.
+          console.log(`[notify] bg-poller OS notification: supported=${Notification.isSupported()} title=${JSON.stringify(notif.title)}`);
           // Phase 3 Step 3: click → re-open window AND forward payload
           // to renderer so it can route to /settings/tasks?focus=<id>
           // (or the relevant chat session). The IPC channel is the
@@ -2125,6 +2129,10 @@ app.whenReady().then(async () => {
         title: options.title,
         body: options.body || '',
       });
+      // #34 observability — renderer (window-visible) show path. On macOS the
+      // OS banner is SUPPRESSED while the app is focused (focused=true) — the
+      // in-app toast from useNotificationPoll is the visible fallback there.
+      console.log(`[notify] notification:show renderer path: supported=${Notification.isSupported()} focused=${mainWindow?.isFocused() ?? 'n/a'} title=${JSON.stringify(options.title)}`);
       const hasTaskPayload = !!(options.taskId || options.sessionId);
       if (options.onClick || hasTaskPayload) {
         notification.on('click', () => {

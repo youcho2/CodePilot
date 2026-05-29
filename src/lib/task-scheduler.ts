@@ -737,9 +737,16 @@ async function sendTaskNotification(
       sessionId: payload?.sessionId,
       source: 'codepilot',
     });
+    // #34 observability — confirm the notification reached the queue (the
+    // chain's first hop). If a task "fires but no popup", grep `[notify]`:
+    // enqueue OK here but no Electron `[notify]` show line ⇒ the bg-poller /
+    // renderer drain dropped it; enqueue FAILED below ⇒ the queue never got it.
+    console.log(`[notify] enqueued event_id=${result.event_id ?? 'null'} priority=${priority} title=${JSON.stringify(title)}`);
     return result.event_id;
-  } catch {
-    // Best effort — don't let notification failure affect task execution
+  } catch (err) {
+    // #34: previously swallowed silently — surface it so a failed enqueue is
+    // visible in logs (still best-effort: never block task execution).
+    console.error('[notify] enqueue FAILED (task notification not queued):', err);
     return null;
   }
 }
