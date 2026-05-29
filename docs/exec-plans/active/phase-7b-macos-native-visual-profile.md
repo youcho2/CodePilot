@@ -30,7 +30,7 @@
 
 - Raycast 技术解析本地剪藏：`/Users/op7418/Downloads/深入技术解析：全新 Raycast-A Technical Deep Dive Into the New Raycast.md`
 - 当前设计规范：[`docs/design.md`](../../design.md)
-- 当前图标体系计划：[`phase-7-icon-system.md`](./phase-7-icon-system.md)
+- 当前图标体系计划：[`phase-7-icon-system.md`](../completed/phase-7-icon-system.md)（已归档）
 - Electron 入口：`electron/main.ts`
 - Renderer 平台信息入口：`electron/preload.ts`
 - 主题系统入口：`src/app/layout.tsx`、`src/components/layout/ThemeFamilyProvider.tsx`、`src/app/globals.css`

@@ -118,6 +118,32 @@ CodePilot 的 CSS token 分两层。本节是项目级原则，虽然 design.md 
 
 参考：[`docs/exec-plans/active/phase-7b-macos-native-visual-profile.md`](exec-plans/active/phase-7b-macos-native-visual-profile.md) / [`docs/handover/macos-visual-profile.md`](handover/macos-visual-profile.md)。
 
+## 图标语义（CodePilot Icon Layer）
+
+> 完整 semantic alias 字典 + HugeIcons 候选 + 冲突裁决决策日志见 [`docs/handover/icon-system.md`](handover/icon-system.md)；产品理由见 [`docs/insights/icon-system.md`](insights/icon-system.md)。本节只给 design 层的使用规则。
+
+业务代码用 `<CodePilotIcon name="..." />` 表达**产品概念**，不直接 import vendor icon 名。一个概念对应一个 glyph，由 `src/components/ui/semantic-icon.tsx` 的 `SEMANTIC_MAP` 单点裁决。
+
+**已裁决的冲突（不要回退）：**
+
+| 概念 | glyph | 说明 |
+|------|-------|------|
+| `model` | Cube | Brain 让给 `memory`，不再表示模型 |
+| `runtime` | Chip | Lightning 已退役 |
+| `memory` | Brain | 记忆才是"脑" |
+| `cli` | CommandLine | 命令工具目录，**不等于** `terminal` |
+| `terminal` | Terminal | shell 会话，**不等于** `cli` |
+| `skill` | MagicWand | 可调用能力，**不等于** `plugin` |
+| `plugin` | Puzzle | 安装包 / 容器，**不等于** `skill` |
+
+**规则：**
+- **品牌图标用 LobeHub**（Anthropic / OpenAI / OpenRouter / Kimi …），只出现在 provider / runtime brand 场景；不得用通用 glyph 伪装品牌。
+- **尺寸 token**：`sm`(14) toolbar / `md`(16) inline-row 默认 / `lg`(20) card header / `xl`(24) empty state。优先用 token，raw 数字是 escape hatch。
+- **颜色**：默认 `text-muted-foreground`（次要 affordance，不与相邻文字标签抢注意力）；anchor（左栏 / 侧栏快捷动作 / Settings 左导航）和 active/selected 才用 `text-inherit` 跟随父级深色；状态图标走 `--status-*`。
+- **只用 CodePilotIcon 语义层**：业务组件不直引 Phosphor / Lucide（eslint 守卫：Brain/Lightning/Terminal 名导入 error；Phosphor/Lucide 直引重定向到 CodePilotIcon）。结构性图标（CaretDown / CheckCircle / X 等 53 个）暂留 `ui/icon.tsx` 兼容层。
+
+设计系统页 `/design-system` 的 "Icon Semantics" 区有可视样例。
+
 ## Page shell
 
 Every Settings sub-page uses the same outer container:

@@ -1,8 +1,9 @@
 # Phase 7：图标体系与表意校准 / Icon System
 
 > 创建时间：2026-05-21
-> 最后更新：2026-05-21
-> 父计划：[`refactor-closeout.md`](./refactor-closeout.md)
+> 最后更新：2026-05-29（✅ Phase 0-4 全部完成并归档）
+> 父计划：[`refactor-closeout.md`](../active/refactor-closeout.md)
+> 技术交接见 [`docs/handover/icon-system.md`](../../handover/icon-system.md)；产品思考见 [`docs/insights/icon-system.md`](../../insights/icon-system.md)
 > 参考：[`docs/design.md`](../../design.md)、HugeIcons React docs、`@hugeicons/react` npm package、Phase 6 点阵式 Context Breakdown
 
 ## 用户会看到什么变化
@@ -88,7 +89,7 @@ HugeIcons 调研结论：
 | Phase 1 | HugeIcons 基础封装 | ✅ 已完成（2026-05-21）— `src/components/ui/semantic-icon.tsx`（75 alias） | 新图标库接入，旧 UI 兼容层不变 |
 | Phase 2 | 高频 UI 表意校准 | ✅ 主体完成（2026-05-21）— 89 文件迁到 CodePilotIcon；Brain/Lightning/Terminal 三大冲突在业务代码全部清除；剩余 53 文件只用结构性图标（CaretDown/CheckCircle/...）作 wrapper 兼容 | Settings / Chat / Plugins / Skills / MCP / CLI / FileTree / Gallery / Git / 思维链 / 工具链 / 代码块 全部 HugeIcons 视觉 |
 | Phase 3 | Direct import 清理 + guardrail | ✅ 已完成（2026-05-21）— `eslint.config.mjs` 更新：lucide 重定向到 CodePilotIcon；Phosphor 直引重定向到 CodePilotIcon（warn）；`@/components/ui/icon` 显式禁用 Brain/Lightning/Terminal 三个 named import（error 级，防再次引入冲突语义） | 新代码不能用 Brain/Lightning/Terminal 绕过语义层 |
-| Phase 4 | 视觉 QA + 文档收口 | 📋 待开工 — 待补：design-system 加 Icon semantics section；ui-governance.md 第 2 节由 icon-system.md 接管；插入 insights/icon-system.md；plan 归档至 completed/ | 设计系统页 + 反向链接产品思考文档 |
+| Phase 4 | 视觉 QA + 文档收口 | ✅ 已完成（2026-05-29）— design-system "Icon Semantics" 区 + design.md "图标语义" 章节 + ui-governance §2 交接给 icon-system.md + insights/icon-system.md；本计划归档至 completed/ | 设计系统页 + 反向链接产品思考文档 |
 
 ## 先读文档
 

@@ -1,5 +1,7 @@
 # macOS Native Visual Profile
 
+> 产品思考见 [docs/insights/macos-visual-profile.md](../insights/macos-visual-profile.md)
+
 Phase 7b Phase 0 audit for bringing a macOS-flavored shell to CodePilot without forking the product UI.
 
 ## Scope

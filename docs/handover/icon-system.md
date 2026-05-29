@@ -1,12 +1,12 @@
 # Icon System — Phase 7 交接文档
 
-> 产品思考见 [docs/insights/icon-system.md](../insights/icon-system.md)（Phase 4 收口时补）
+> 产品思考见 [docs/insights/icon-system.md](../insights/icon-system.md)
 >
-> **当前阶段：Phase 0-3 已完成**（taxonomy / HugeIcons skeleton / 89 文件迁到 CodePilotIcon / eslint guardrail 改向 + Brain/Lightning/Terminal 永久禁用）。**Phase 4 待做**：design-system Icon section + ui-governance.md 第 2 节重写 + insights doc + plan 归档。详细对账见第八节"closeout gap pass 残留清单"。
+> **当前阶段：Phase 0-4 已完成并归档**（taxonomy / HugeIcons skeleton / 96 文件迁到 CodePilotIcon / eslint guardrail + Brain/Lightning/Terminal 永久禁用 / Phase 4 文档收口：design-system Icon 区 + design.md 图标语义 + ui-governance §2 交接 + insights/icon-system.md）。详细对账见第八节"closeout gap pass 残留清单"。
 >
-> 父计划：[`docs/exec-plans/active/phase-7-icon-system.md`](../exec-plans/active/phase-7-icon-system.md)
+> 父计划：[`docs/exec-plans/completed/phase-7-icon-system.md`](../exec-plans/completed/phase-7-icon-system.md)（已归档）
 >
-> 相关存量文档：[`docs/handover/ui-governance.md`](./ui-governance.md) 描述的是 Phase 7 **之前**的图标规则（"Phosphor 通过 `ui/icon.tsx` 统一入口"），Phase 4 收口时会把该文件第 2 节重写指向本文件。
+> 相关存量文档：[`docs/handover/ui-governance.md`](./ui-governance.md) 第 2 节描述的是 Phase 7 **之前**的图标规则（"Phosphor 通过 `ui/icon.tsx` 统一入口"），Phase 4 收口已把该节重写为指向本文件。
 >
 > **下方第一到第四节是 Phase 0 立项时写下的 strategic snapshot（2026-05-21 立项快照）**；第八节是 closeout 阶段的实际现状对账。两者数据可能略有差异，**以第八节为准**。
 
