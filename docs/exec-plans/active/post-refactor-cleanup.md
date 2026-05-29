@@ -22,10 +22,11 @@
 | A | 模型目录：接入 Opus 4.8 + 修 Sonnet 4.6 别名（#23） | A 可见 | **高**（发送正确性 + 新模型） | 📋 待审 |
 | B | 用户信任 bug：Mac 通知不弹（#34）+ pin-incomplete 误报（#27） | A 可见 | 高 | 📋 待审 |
 | C | 能力/平台正确性：Plan 模式 Widget（#26）+ Windows shell 方言（#28） | A 可见 | 中 | 📋 待审 |
-| D | 工程卫生：pre-commit enforce eslint（#30） | C 基础设施 | 中（enabler） | 📋 待审 |
+| D0 | 把 apply-discovery-diff 全量 flake + no-verify 事件记入 tech-debt #30 | C 文档 | 中 | ✅ 本轮已做 |
+| D | 工程护栏：清 eslint 存量 error + 修 unit flake → pre-commit enforce（#30） | C 基础设施 | 中（enabler，**建议先于 A/B/C**） | 📋 待审 |
 | E | design.md 设计规范补全（横切 3 节） | C 基础设施/文档 | 中 | 📋 待审 |
 
-**顺序建议**：A 优先（既修发送失败又上新模型，用户最可感）→ B（信任）→ C（能力/平台）；**D 建议尽早或并行**（它是 enabler——本轮已亲历 #30 放行了 drift 失败的提交，越早收紧后续每一刀越干净，但要先清存量 error）；E 可全程并行（纯文档）。各 Phase 无强依赖，可按资源穿插。
+**顺序建议**（按 Codex review 2026-05-29 调整）：**先收口 D**（清 eslint 存量 error + 修 unit flake + pre-commit enforce）再开 A/B/C——本轮纯文档提交已被 unit flake 误挡、被迫 --no-verify（D0 已记入 #30），代码 phase 不应再靠 --no-verify。之后 A（模型，用户最可感）→ B（信任）→ C（能力/平台）；E 纯文档可全程并行。各 Phase 无强依赖。
 
 ---
 
@@ -41,14 +42,26 @@
 ### 不做什么
 - 不改模型选择的 UI 布局（沿用现有 Models 页 / composer 模型选择器）。
 - 不动其它 provider 的套餐型目录（那是 [`#16`](./tech-debt-tracker.md)，独立）。
-- 不引入新的"自动切默认"行为——默认模型是否切到 4.8 是显式决策（见 Open Questions），遵守 [pinned 默认硬承诺] guardrail。
+- **不动 `opus` 短别名 / 默认**：首轮只新增显式 `claude-opus-4-8`，`opus` 别名与默认仍指 4.7；是否切 4.8 待真实 smoke 后用户拍板（遵守 [pinned 默认硬承诺] guardrail）。
+- **不臆测 OpenRouter slug**：OpenRouter 的 Opus 4.8 未经官方 / 接口确认上架前不接（见实现路径 deferred），不按 `anthropic/claude-opus-4.8` 规律推断。
+- **不"只改模型名"**：catalog 显示出来 ≠ 请求正确——Opus 4.7 专属的 thinking / effort / 1M beta 逻辑必须一并泛化（见实现路径），否则模型出现了但真实发送语义仍错。
 
 ### 怎么验收
-- Settings → Models 在 Anthropic / OpenRouter 下都能看到 Opus 4.8 条目。
+- Settings → Models 在 **Anthropic direct** 下能看到并选用 Opus 4.8（OpenRouter deferred，见实现路径）。
 - **真实凭据 smoke**（写入 Smoke Ledger）：
   - ClaudeCode runtime + Sonnet 4.6 → 两轮发送成功（修复 #23 的反例）。
-  - Opus 4.8 → 发送成功，且上下文窗口按 1M 生效（若沿用 4.7 的 1M 待遇）。
-- 回归测试：别名 `opus`/`sonnet` → upstream 解析断言更新；无残留 `claude-sonnet-4-20250514` 兜底。
+  - Opus 4.8（Anthropic direct）→ 发送成功；thinking / effort / 上下文窗口按**核验到的官方行为**生效（不是照搬 4.7 假设）。
+- 回归测试：别名 `opus`/`sonnet` → upstream 解析断言更新；无残留 `claude-sonnet-4-20250514` 兜底；**Opus 4.7 行为不回归 + Opus 4.8 行为正确**两组都有断言。
+
+### 开工前核验（官方行为，必做，不臆测）
+
+加 Opus 4.8 前先对照 Anthropic 官方迁移指南 / model card 核实，**不照搬 4.7 假设**：
+- 官方 **model id**（已知 `claude-opus-4-8`，仍以官方为准）。
+- **context window**：是否 1M？是默认 1M（像 4.7 不需 beta header）还是需要 `context-1m-2025-08-07`？
+- **thinking**：是否同 4.7 拒绝 manual extended thinking、走 adaptive？还是变了？
+- **effort**：允许哪些级别（4.7 加了 `xhigh`；4.8 是否还有 `max` 等）。
+
+核验结论直接决定下方"泛化"怎么写——**这一步没做完不开代码**。
 
 ### 实现路径（不需用户审阅，供 Codex / 实现者）
 已核实的现状（file:line）：
@@ -60,11 +73,17 @@
 - `provider-resolver.ts:507`：`modelId = ... || 'claude-sonnet-4-5-20250929'` 兜底。
 
 改动点：
-1. **新增 Opus 4.8 目录条目**：对照现有 4.7 条目，加 Anthropic 直连（`claude-opus-4-8`）+ OpenRouter skin（slug 待核对）；`supportedRuntimes` / `getModelCompat` tier 对齐。
-2. **修 Sonnet 4.6 别名链（#23）**：`provider-resolver.ts:845` 与各 fallback 从 `claude-sonnet-4-20250514` 改为 `claude-sonnet-4-6`；`ai-provider.ts:96` sonnet 别名同步。
-3. **model-context.ts**：`claude-opus-4-8` 加 1M 映射（沿用 4-7 待遇，beta header 是否仍需 `context-1m-*` 待核对）。
-4. **别名 / 默认**：`ai-provider.ts:97` opus 别名是否切 4-8（见 Open Questions）；fallback default 不再用 Sonnet 4.0。
-5. 测试：别名解析 + Bedrock/Vertex 前缀匹配（`model-context.ts:49` 注释的 `us.anthropic.claude-opus-4-*` 路径）回归 pin。
+1. **新增 Opus 4.8 目录条目（仅 Anthropic direct）**：对照现有 4.7 条目加 `claude-opus-4-8`；`supportedRuntimes` / `getModelCompat` tier 对齐。**OpenRouter deferred**——未经 OpenRouter 官方 / 接口确认上架 + 真实 slug 前不接，不臆测。
+2. **泛化 Opus 4.7 专属逻辑到 4.8（核心，别只改 catalog）**。已核实这些"按版本硬判"的点：
+   - `claude-model-options.ts:48` `OPUS_4_7_PATTERN = /opus-?4-?7/i` + `:50 isOpus47Model` + `:62-76` thinking 处理（4.7 拒绝 manual extended thinking → 转 adaptive/summarized）+ `:42/:80 applyContext1mBeta`（4.7 默认 1M、不发 beta header）。
+   - `provider-catalog.ts:65` effort 允许集（注明 "Opus 4.7 adds xhigh"）。
+   - `claude-client.ts:1179-1222` 共享 sanitizer + per-model effort 默认（4.7 默认 xhigh）+ `context-1m-2025-08-07`；`agent-loop.ts:287/374` 是同一函数的另一调用点。
+   - `model-context.ts:18` `claude-opus-4-7: 1_000_000` 窗口表。
+   改法：按**开工前核验**结论，把 `isOpus47` 这种单版本判定改成按能力 / 版本族泛化（扩 pattern 含 opus-4-8，或改 capability 表驱动），让 4.8 走对的 thinking/effort/context 行为；**4.7 不回归**。
+3. **修 Sonnet 4.6 别名链（#23）**：`provider-resolver.ts:845` 与各 fallback 从 `claude-sonnet-4-20250514` 改为 `claude-sonnet-4-6`；`ai-provider.ts:96` sonnet 别名同步；fallback default（`onboarding-processor.ts:61` / `checkin-processor.ts:73` / `provider-resolver.ts:507`）不再用 Sonnet 4.0。
+4. **`opus` 别名 / 默认先不动**：`ai-provider.ts:97` 保持 4-7，只新增显式 4.8；切换待 smoke 后用户拍板。
+5. **model-context.ts**：`claude-opus-4-8` 的窗口 / beta 按核验结论加（**不照搬 4.7**）。
+6. 测试：别名解析 + Bedrock/Vertex 前缀匹配（`model-context.ts:49` 的 `us.anthropic.claude-opus-4-*`）回归 pin；**Opus 4.7 与 4.8 各一组** thinking/effort/context 行为断言。
 
 ---
 
@@ -108,24 +127,27 @@
 
 ---
 
-## Phase D：工程卫生 — pre-commit enforce eslint（#30）
+## Phase D：工程护栏 — pre-commit enforce（#30）（拆 D0 + D）
+
+### D0（纯文档，✅ 本轮已做）
+把 2026-05-29 两件事记入 tech-debt **#30**：(a) `apply-discovery-diff.test.ts` 隔离单跑必过、全量套件 3/4 次挂的污染型 flake；(b) 因此被迫 `--no-verify` 提交纯文档（commit 825edaf）。并写明纪律：**后续代码 phase（A/B/C）不应再靠 --no-verify**。
 
 ### 用户能看到什么
-- **用户不可见（类型 C 基础设施）**。价值：**防止坏提交悄悄溜过去**——本轮已亲历 #30：第一次提交时 docs-drift linter 失败，但提交照样成功（husky 只看最后一条命令退出码）。这意味着违反 drift / lint / 甚至 tsc 的提交都可能溜过。收紧后，违规提交会被挡住。
+- **用户不可见（类型 C 基础设施）**。价值：**防止坏提交悄悄溜过去**——本轮已亲历 #30：docs-drift 与 unit flake 都因 husky 只认最后一条命令而表现失常（前者被放行、后者误挡）。收紧后违规提交会被稳定挡住，正常提交不被 flake 误挡。
 
 ### 不做什么
-- 不为了收紧 hook 而一次性挡死所有提交——**必须先清掉现存的 eslint error**，再串联。
+- 不为了收紧 hook 一次性挡死所有提交——**必须先清掉现存 eslint error + 定位 flake 污染源**，再串联。
 
 ### 怎么验收
 - 故意制造一个 eslint error → `git commit` 被挡住（退出非 0）。
-- 现存 error 清零后，`lint-staged` / `tsc` / drift 任一失败都能阻断提交。
+- 存量 error 清零、flake 修掉后：`lint-staged` / `tsc` / drift / unit 任一失败都能稳定阻断提交，且正常提交不被 flake 误挡。
 
 ### 实现路径（不需用户审阅）
-已核实 `.husky/pre-commit` 是 4 行未串联（`node scripts/lint-hooks.mjs` / `npx lint-staged` / `npx tsc --noEmit` / `CODEX_DISABLED=1 npx tsx --test ...`），husky 以最后一条（unit test）退出码为准。
-两步（tracker #30）：
-1. **先清存量**：tracker 记录约 3 个 error（`card-primitives.tsx` 的 `react-hooks/refs`、`AppShell.tsx`/`AssistantPanel.tsx` unused-var 等）——需先确认当前确切清单再清。
-2. **再收紧**：4 行用 `&&` 串联或加 `set -e`（或 `npx lint-staged || exit 1` 等价）。
-附带：tracker 提到 unit 套件在 pre-commit 负载下偶发 flaky（重跑全绿），可一并排查。
+已核实 `.husky/pre-commit` 4 行未串联（`lint-hooks.mjs` / `lint-staged` / `tsc --noEmit` / `CODEX_DISABLED=1 tsx --test`），husky 以最后一条退出码为准。
+1. **先清 eslint 存量 error**：开工前 `npx eslint` 跑一遍确认确切清单（tracker 记约 3 个：`card-primitives.tsx` react-hooks/refs、`AppShell.tsx`/`AssistantPanel.tsx` unused-var），清零。
+2. **定位 unit flake**：`apply-discovery-diff` 隔离过、全量挂——查同进程里哪个兄弟测试污染共享 DB/状态（#11/#25 家族），修隔离。
+3. **再收紧**：4 行用 `&&` 串联或 `set -e`（或各加 `|| exit 1`）。
+4. **优先级（Codex review）**：建议 **D 先于 A/B/C 收口**——否则代码 phase 要么被 flake 误挡、要么只能 --no-verify 而失去护栏。
 
 ---
 
@@ -154,6 +176,7 @@ A 类面专属（Chat 消息 / /plugins / Workspace / 素材库等）从 "Anchor
 
 ## 决策日志
 
+- 2026-05-29（Codex review 修订）：方向获认可，按 5 条反馈修订 Phase A/D —— (1) Phase A 增"开工前核验"（Opus 4.8 官方 model id / context window / thinking·effort / 1M beta header，不臆测）；(2) 实现范围增"泛化 Opus 4.7 专属逻辑"（`isOpus47Model` / `OPUS_4_7_PATTERN` / `applyContext1mBeta` / effort 门控 / sanitizer，配回归测试）—— catalog 显示 ≠ 请求正确；(3) OpenRouter Opus 4.8 改 deferred，未经官方 / 接口确认不接、不臆测 slug，首轮只接 Anthropic direct；(4) `opus` 别名 / 默认先不动（仍 4.7），只新增显式 `claude-opus-4-8`，切换待真实 smoke 后用户拍板；(5) Phase D 拆出 D0（记录 flake + no-verify 事件入 #30，已做），D 建议先于 A/B/C，代码 phase 不再靠 --no-verify。
 - 2026-05-29：建本计划。重构主体收尾后，把 6 个遗留项（design.md + #23/#34/#26/#27/#28/#30）+ Opus 4.8 接入拆成 A-E 五个 Phase。#23 与 Opus 4.8 合并入 Phase A（同一别名解析链）。#30 标为 enabler 建议尽早。各 Phase 可独立交付，不强行捆绑。草稿待 Codex 审查后开工。
 
 ## Smoke Ledger（真实凭据 / UI / E2E 验证记录）
@@ -166,8 +189,8 @@ A 类面专属（Chat 消息 / /plugins / Workspace / 素材库等）从 "Anchor
 
 ## Open Questions（待 Codex / 用户核对）
 
-1. **Opus 4.8 是否设为默认 / `opus` 短别名指向**：建议把 `opus` 别名 + 推荐默认切到 `claude-opus-4-8`（最新），但 4.7 保留可选；是否切默认请用户拍板（涉及新会话默认行为）。
-2. **Opus 4.8 的 OpenRouter slug** 与 **1M context 的 beta header**（是否仍需 `context-1m-2025-08-07`）：需对照 Anthropic / OpenRouter 官方文档核对，不臆测。
+1. ~~Opus 4.8 是否设默认 / `opus` 别名指向~~ **已定（Codex review）**：首轮**不切**，只新增显式 `claude-opus-4-8`，`opus` 别名 / 默认保持 4.7；切换待真实 smoke 后由用户拍板。
+2. ~~OpenRouter slug + 1M beta header~~ **已拆**：OpenRouter Opus 4.8 → **deferred**（未经 OpenRouter 官方 / 接口确认不接、不臆测 slug）；1M beta header / context window / thinking / effort → 纳入 Phase A"开工前核验"，对照 Anthropic 官方核实。
 3. **#34 的真实断点**：通知没弹是"任务没调到通知出口"还是"系统通知权限/IPC 丢上下文"——需先定位再定修法。
 4. **#30 存量 error 的确切清单**：开工前先 `npm run lint`/eslint 跑一遍确认当前 error 数与文件，再决定清理范围。
 5. **Phase 拆分粒度**：A-E 是否进一步拆成独立 PR / 提交，由实现时按 Tier 决定（A/C 含 Tier 2，需 guardrail + smoke）。
