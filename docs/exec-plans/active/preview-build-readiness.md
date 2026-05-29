@@ -33,7 +33,7 @@
   - Windows x64 NSIS 包。
 - 修掉预览包前会直接误导用户或破坏基础信任的 blocker：
   - #34 macOS 定时任务执行后不弹通知。
-  - #27 默认模型 `pin-incomplete` 被误报为当前执行环境不可用。
+  - #27 默认模型 `pin-incomplete` 被误报为当前执行环境不可用。**✅ 已修（e1ccb3b，code+test）**
   - #26 Native Plan 模式无法创建 Widget。
   - #28 Windows 版脚本命令仍偏 bash。
 - 保留保守默认：
