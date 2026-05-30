@@ -144,6 +144,81 @@ CodePilot 的 CSS token 分两层。本节是项目级原则，虽然 design.md 
 
 设计系统页 `/design-system` 的 "Icon Semantics" 区有可视样例。
 
+## macOS 壳层 profile（platform shell）
+
+> 完整 surface matrix + Electron vibrancy 选型 + 分层依据见 [`docs/handover/macos-visual-profile.md`](handover/macos-visual-profile.md)；产品理由见 [`docs/insights/macos-visual-profile.md`](insights/macos-visual-profile.md)。本节只给 design 层的边界规则。
+
+**一句话边界**：macOS profile 只动**外壳和控件层**，不动内容层。同一套产品结构（聊天 / Settings / 卡片 / 消息 / Widget / 按钮顺序）在 mac / win / linux / web 上完全一致，不开平台分支。
+
+**用户能看到的差别（仅 macOS）：**
+- 窗口是无边框圆角悬浮，红绿灯按钮嵌在左上，顶栏可拖动。
+- 侧栏 / 顶栏 / 浮层（菜单、tooltip、HUD）半透明，透出背后桌面的模糊（vibrancy）。
+- 内容区（聊天正文、代码、Settings 卡片、Widget）**保持不透明**——阅读画布不做玻璃化。
+
+**哪些层允许平台化（其余一律不动）：**
+
+| 层 | 允许 | 例子 |
+|---|---|---|
+| chrome（窗口 / 顶栏 / composer 外壳） | 半透明 + vibrancy | 顶栏、composer hood |
+| navigation（左右侧栏） | 半透明 + backdrop-blur | ChatListPanel / SettingsSidebar / WorkspaceSidebar |
+| floating control（浮层） | CSS 材质模拟 | Popover / Menu / Tooltip / RunCockpit HUD |
+| **content（内容）** | **不透明、跨平台一致** | 聊天正文、代码、卡片、Widget、Dialog 正文 |
+
+**规则：**
+- **内容层永远不透明**。玻璃化内容会毁掉可读性和 artifact 保真；Dialog 正文 / 卡片 / 消息一律实色（`bg-background` / `bg-card` / `bg-popover`）。
+- **DOM 浮层只是 CSS 材质模拟**，不是真原生 vibrancy。Electron 的 `vibrancy` 是窗口级（`titleBarStyle: 'hiddenInset'` + `vibrancy: 'sidebar'`）；Radix popover / tooltip / RunCockpit 这些 DOM 面在 webview 里裁剪，不要宣称"原生 popover 行为"。
+- **平台差异一律走 `--platform-*` token，不在组件里写 `isMac` 分支**（见上方「平台 token」节）。darwin profile 把 `--platform-surface-bar` 设 `transparent`、`--platform-surface-sidebar` 设半透明，让 vibrancy 透上来；off-mac 这些 token 退回实色，同一份 DOM 直接当普通块渲染。
+- **顶栏保留拖动区 + 红绿灯安全间距**；嵌套按钮要标 `no-drag`。
+
+实现路径（实现者）：profile 由 `data-platform` / `data-platform-style`（anti-FOUC `<script>` 在 hydration 前盖到 `<html>`）驱动；token 在 `globals.css` 的 darwin profile 块（`--platform-surface-*`）；Electron 窗口在 `electron/main.ts`。
+
+## 浮动卡片布局（floating card shell）
+
+> 抽象边界 + 四卡接入点 + gutter 几何验收见 [`docs/handover/macos-visual-profile.md`](handover/macos-visual-profile.md) 的 Phase 7c 节。
+
+macOS profile 下，外壳是**几张悬浮卡片**并排：左侧栏 / 主聊天 / 右工作区 / 文件树（assistant rail 复用同一套 primitive）。每张卡圆角 14px、独立投影、卡间留窄缝（缝里一条可拖拽细线调宽）。off-mac 圆角归 0、退回普通分栏块——同一份 DOM。
+
+**用户能看到的：**
+- 几块内容像浮在窗口里的卡片，彼此有缝、有投影。
+- 缝中间一条 2px 细线，悬停时跟着光标亮起渐变，拖动改相邻两卡宽度，双击重置。
+- 缝永远落在两卡正中（不偏移）。
+
+**三个 primitive（职责单一，不许串味）：**
+
+| primitive | 干什么 | 不许干 |
+|---|---|---|
+| `CardFrame` | 投影 + 圆角 + 布局槽位（`kind="main"` 吃 `flex-1`，其余 `shrink-0` + 固定宽） | 裁剪（必须 overflow visible 让投影画全） |
+| `CardSurface` | 背景 + clip-path 圆角裁剪 + backdrop-filter + 内容槽位 | 画外层投影（那是 frame 的事） |
+| `ResizeGutter` | 8px 宽 row-level 兄弟，2px 线靠 `justify-center` 永落缝中心 | 出现在 CardFrame 内部 |
+
+**规则：**
+- **frame 画影、surface 裁剪、gutter 调宽**——三件事分给三个组件；不要在一个 div 上又投影又裁剪（投影会被自身 `overflow:hidden` 切掉）。
+- **ResizeGutter 永远是 CardFrame 的兄弟、不是孩子**。卡间可见缝全部由 gutter 的 8px 宽度提供（content-row gap 设 0），隐藏的卡旁边不留多余缝。
+- **半透明只给 sidebar / workspace kind**（backdrop-blur + `--platform-surface-sidebar`）；main / fileTree / assistant 不透明（`bg-background`）。
+- **宽度 state 留在业务面板**，primitive 只收 `width` prop + 转发 `onResize` 回调；面板组件（ChatListPanel 等）只出内层内容，不再自己 wrap aside / data-attribute / bg / clip。
+- 约束被 `card-primitives.test.ts` 的 source pin 锁死，别绕过。
+
+实现路径（实现者）：`src/components/layout/card-primitives.tsx`；圆角 14px / clip-path 在 `globals.css` darwin profile（off-mac radius 0、clip no-op）；四卡接入点 = `AppShell.tsx`(sidebar) / `ChatContentRow`(main + workspace) / `PanelZone`(fileTree)；`RESIZE_GUTTER_WIDTH_PX = 8`。
+
+## Composer（聊天输入外壳）
+
+> composer 属 chrome 层，macOS profile 下透出 vibrancy；surface matrix 见 [`docs/handover/macos-visual-profile.md`](handover/macos-visual-profile.md)。
+
+聊天输入框是一个**悬浮 hood**：顶部一排已选上下文胶囊（文件 / CLI / 目录引用），中间多行文本框，底部一排操作（左侧加料 + 模型 / effort 选择，右侧发送）。
+
+**用户能看到的：**
+- 输入区像浮在聊天底部的一块面板（macOS 下半透明、透出背后模糊）。
+- 添加的附件 / CLI / 目录引用以胶囊排在文本框上方，可单独删。
+- 底部左边是「加料」菜单（插入命令 / 调用 CLI / 加上下文）+ 模型选择 +（模型支持时）effort 选择；右边是发送按钮。
+
+**规则：**
+- **外壳走平台 token**：`bg-[var(--platform-surface-bar)] backdrop-blur-lg`。default profile 该 token = 实色 `--background`；darwin = `transparent`，让 vibrancy 透过 composer hood。文本框本身保持清晰，**不要**在文字输入区堆模糊（伤打字专注）。
+- **可调控件安静优先**：模型 / effort 这类下拉默认无边框无填充，hover 或处于非默认值时才浮出结构（见 `feedback`：composer 控件 invisible-until-hover）。右侧发送是唯一常驻强调的动作。
+- **工具图标走语义层**：`<CodePilotIcon name="code" />` / `name="cli"` 等，不直引 vendor icon（见「图标语义」节）。
+- **运行状态（Runtime / Auto / Context 占用）不在 composer 里**——由 ChatView 级的状态读出（`RuntimeSelector` / `ModeIndicator` / 上下文 popover）承担。composer 只管「写什么 + 发送」，只读状态归状态区，别混进输入栏。
+
+实现路径（实现者）：`src/components/chat/MessageInput.tsx`（外壳 + footer），`MessageInputParts.tsx`（胶囊行），`ModelSelectorDropdown` / `EffortSelectorDropdown`；运行状态读出在 `ChatView.tsx`（`ModeIndicator` / `RuntimeSelector`）。
+
 ## Page shell
 
 Every Settings sub-page uses the same outer container:
@@ -834,6 +909,9 @@ Don't display only the enabled count — users hide things and need to remember 
 | Pattern | File |
 |---|---|
 | Settings shell + nav | `src/components/settings/SettingsLayout.tsx` |
+| Floating card shell (4-panel) | `src/components/layout/card-primitives.tsx` (`CardFrame` / `CardSurface` / `ResizeGutter`); 接入点 `AppShell.tsx` / `PanelZone.tsx`；约束 `card-primitives.test.ts` |
+| Composer shell | `src/components/chat/MessageInput.tsx` (`--platform-surface-bar` hood + footer tools) + `MessageInputParts.tsx` (胶囊行) |
+| macOS platform shell profile | `src/app/globals.css` (darwin `--platform-surface-*` 块) + `electron/main.ts` (`hiddenInset` + `vibrancy`) |
 | Page-level container width (Settings sub-pages) | `src/components/settings/{OverviewSection,GeneralSection,AppearanceSection,ProviderManager,ModelsSection,RuntimePanel,UsageStatsSection,AssistantWorkspaceSection,AboutSection}.tsx` |
 | Status-dashboard cards | `OverviewSection.tsx` — `GettingStartedBar` (top checklist, auto-hides at 4/4) + 6 `OverviewCard` in `lg:grid-cols-2` (Runtime / Providers / Models / Assistant Workspace / Update & About / Setup & Diagnostics; warning-tone cards pick up `status-warning-muted` accent) + `OverviewHeatmap.tsx` (365-day grid + 30/90/365D pills, reuses `/api/usage/stats`) |
 | Outer card | `ProviderCard.tsx` (`rounded-lg bg-card border border-border/50 p-5`) |
