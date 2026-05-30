@@ -2,7 +2,7 @@
 
 > 创建时间：2026-05-29
 > 最后更新：2026-05-29
-> 父计划：[`refactor-closeout.md`](./refactor-closeout.md) + [`post-refactor-cleanup.md`](./post-refactor-cleanup.md)
+> 父计划：[`refactor-closeout.md`](./refactor-closeout.md) + [`post-refactor-cleanup.md`](../completed/post-refactor-cleanup.md)（已完成归档）
 
 ## 背景与目标
 
@@ -15,9 +15,9 @@
 | Phase | 内容 | 用户能看到什么 | 状态 | 备注 |
 |-------|------|----------------|------|------|
 | 0 | 预览边界与版本策略 | 不会静默升级；测试用户明确拿到 Preview 包 | 📋 待开始 | 不合 main、不走自动更新 |
-| 1 | 必修用户可见问题 | Mac 通知、默认模型提示、Plan Widget、Windows shell 方言修正 | 📋 待开始 | 对应 `post-refactor-cleanup` B/C |
-| 2 | Windows Preview Readiness | Windows 包不像 macOS 硬搬；命令默认 PowerShell 兼容 | 📋 待开始 | #28 是 blocking |
-| 3 | macOS Preview Readiness | macOS 视觉与通知路径可验证；已知系统设置限制有说明 | 📋 待开始 | #34 是 blocking |
+| 1 | 必修用户可见问题 | Mac 通知、默认模型提示、Plan Widget、Windows shell 方言修正 | ✅ 代码全修（B/C code-level 完成） | 对应 `post-refactor-cleanup` B/C（已归档）；本阶段只剩**真机 / 权限验收**，非改代码 |
+| 2 | Windows Preview Readiness | Windows 包不像 macOS 硬搬；命令默认 PowerShell 兼容 | 📋 待开始 | #28 代码已修（默认 PowerShell，bash 只认显式 opt-in），真机验收 blocking |
+| 3 | macOS Preview Readiness | macOS 视觉与通知路径可验证；已知系统设置限制有说明 | 📋 待开始 | #34 链路已确认 delivered/acked，真机通知权限核查 blocking |
 | 4 | 打包与安装验证 | macOS / Windows 安装包能安装、启动、跑核心 smoke | 📋 待开始 | 不上传正式 release |
 | 5 | 小范围试用与反馈闭环 | 用户知道测什么、怎么回滚、怎么报问题 | 📋 待开始 | 试用后再决定是否合 main |
 | 6 | 合并 / 不合并决策 | 有明确 go/no-go 标准 | 📋 待开始 | 不用聊天拍脑袋 |
@@ -32,10 +32,10 @@
   - macOS Intel 或 universal 包（按现有打包能力决定，不能假装已验证）。
   - Windows x64 NSIS 包。
 - 修掉预览包前会直接误导用户或破坏基础信任的 blocker：
-  - #34 macOS 定时任务执行后不弹通知。
+  - #34 macOS 定时任务通知：**链路已确认工作**（Codex 真实 smoke：renderer-toast + electron-native 均 delivered/acked；0605b80 已加观测）。**非代码 bug**——"没看到前台横幅" = macOS 前台应用抑制横幅 / 通知权限样式。本阶段只需**真机核查通知权限 + 前台展示策略**（必要时让聊天内 fallback 更显眼），不改链路代码。
   - #27 默认模型 `pin-incomplete` 被误报为当前执行环境不可用。**✅ 已修（e1ccb3b，code+test）**
   - #26 Native Plan 模式无法创建 Widget。**✅ 已修（f32275f，code+test）**
-  - #28 Windows 版脚本命令仍偏 bash。**✅ 代码已修（970a1fa）；Windows 真机验收待**
+  - #28 Windows 版脚本命令仍偏 bash。**✅ 代码已修（970a1fa + d6e9d96）**：Windows 默认 PowerShell，bash 只认显式 `CLAUDE_CODE_GIT_BASH_PATH`（不再"检测到 Git Bash 就允许 bash"）。**Windows 真机验收待**（本阶段做）。
 - 保留保守默认：
   - 不把 `opus` 默认切到 Opus 4.8；只保留显式 `opus-4-8`。
   - 不自动开启高副作用能力。

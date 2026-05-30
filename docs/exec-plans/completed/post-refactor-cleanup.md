@@ -1,15 +1,17 @@
 # 重构收尾后遗留清理 / Post-Refactor Cleanup
 
 > 创建时间：2026-05-29
-> 最后更新：2026-05-29（草稿，待 Codex 审查）
-> 父计划：[`refactor-closeout.md`](./refactor-closeout.md)（重构主体已收尾；本计划处理收口后的遗留项 + Opus 4.8 接入）
+> 最后更新：2026-05-31（A / B / C / D1 / D2 / E 全部完成 → 归档至 completed/）
+> 父计划：[`refactor-closeout.md`](../active/refactor-closeout.md)（重构主体已收尾；本计划处理收口后的遗留项 + Opus 4.8 接入）
+
+> **✅ 本计划已完成（2026-05-31）**：A / B / C / D1 / D2 / E 六个 Phase 全部交付并验证。**本计划范围 = 重构收尾的 6 个遗留项（#23/#34/#26/#27/#28/#30）+ Opus 4.8 接入 + design.md 横切规范的「代码 / 文档 phase」**，已全部完成。**Windows 真机 smoke、macOS 通知权限核查、Preview 打包属独立下一阶段**（见 active 的 `preview-build-readiness.md`），**不混入本计划、不属本计划验收范围**。
 
 ## 范围与来源
 
 重构 6+ 主线已收口，Phase 7 视觉/图标也收口（图标归档、7b 收口于 0-2、7c 归档）。剩下的是一批**互相独立的遗留问题** + 一个**新输入（Opus 4.8）**。本计划只负责把它们拆成可审、可验收的小刀，**逐项可独立交付**，不强行捆绑。
 
 来源：
-- tech-debt tracker：[`#23`](./tech-debt-tracker.md) / `#34` / `#26` / `#27` / `#28` / `#30`
+- tech-debt tracker：[`#23`](../tech-debt-tracker.md) / `#34` / `#26` / `#27` / `#28` / `#30`
 - design.md 设计规范缺口（2026-05-29 与用户讨论的结论：见下方 Phase E）
 - Anthropic 于 2026-05-28 更新 Claude Opus 4.8 → 评估 CodePilot 是否需要接入
 
@@ -21,13 +23,13 @@
 |-------|------|------|--------|------|
 | A | 模型目录：接入 Opus 4.8 + 修 Sonnet 4.6 别名（#23） | A 可见 | **高**（发送正确性 + 新模型） | ✅ **完成**（代码 9d98029 + Codex review 2 补丁 c90b6f8；真实凭据 smoke 用户确认通过 2026-05-29） |
 | B | 用户信任 bug：Mac 通知不弹（#34）+ pin-incomplete 误报（#27） | A 可见 | 高 | ✅ #27（e1ccb3b）+ #34（0605b80 观测 + Codex smoke 确认链路工作；无横幅=macOS 前台抑制/权限，非 bug） |
-| C | 能力/平台正确性：Plan 模式 Widget（#26）+ Windows shell 方言（#28） | A 可见 | 中 | ✅ #26 代码+测试（f32275f）；✅ #28 代码+测试（970a1fa），Windows 真机验收待 |
+| C | 能力/平台正确性：Plan 模式 Widget（#26）+ Windows shell 方言（#28） | A 可见 | 中 | ✅ #26 代码+测试（f32275f）；✅ #28 代码+测试（970a1fa + d6e9d96：**Windows 默认 PowerShell，bash 只认显式 `CLAUDE_CODE_GIT_BASH_PATH`**），Windows 真机验收移交 preview 阶段 |
 | D0 | flake + no-verify 事件记入 tech-debt #30 | C 文档 | 中 | ✅ 已完成 |
 | D1 | pre-commit enforce / set -e（#30 核心止血：任一检查失败即停） | C 基础设施 | 高 | ✅ 已完成（commit e10fa1d） |
-| D2 | react-hooks 存量 16 error（9 高频组件）+ apply-discovery-diff 间歇 flake | C 工程债 | 中 | 📋 留债（on-touch / 单开专项） |
-| E | design.md 设计规范补全（横切 3 节） | C 基础设施/文档 | 中 | 📋 待审 |
+| D2 | react-hooks 存量 16 error（9 高频组件）+ apply-discovery-diff 间歇 flake | C 工程债 | 中 | ✅ **完成**（cd2a024）：**flake 根治**（per-worker temp DB 隔离 `db-isolation.setup.ts` + `--import`，连跑 4× 3086/3086 确定性通过）；"16 error" 核实为 React Compiler 规则（非 exhaustive-deps），已修 2 prefer-const + 1 set-state + 清 11 warning，**13 个 React Compiler error 拆 tech-debt #35**（高频/视觉组件行为重构，on-touch） |
+| E | design.md 设计规范补全（横切 3 节） | C 基础设施/文档 | 中 | ✅ **完成**（b8abb44）：macOS 壳层 / 浮动卡片 / Composer 三节 + Anchor 表 3 行，锚定真实实现 |
 
-**进度**：**D1 ✅**（enforce，e10fa1d）· **A ✅**（Opus 4.8 + #23，真实 smoke 通过）· **B ✅**（#27 e1ccb3b + #34 0605b80/Codex smoke 确认链路工作）· **C ✅**（#26 f32275f + #28 970a1fa/d6e9d96 代码，Windows 真机验收待）· **D2 📋 留债**（react-hooks 16 error + DB flake，不阻塞）。**Phase 1 blocker 全部 code-level 完成。剩余**：E（design.md，纯文档）+ preview 打包（Windows 构建 / 签名）；代码 phase 不靠 --no-verify。
+**进度（全部完成）**：**D1 ✅**（enforce，e10fa1d）· **A ✅**（Opus 4.8 + #23，真实 smoke 通过）· **B ✅**（#27 e1ccb3b + #34 0605b80/Codex smoke 确认链路工作）· **C ✅**（#26 f32275f + #28 970a1fa/d6e9d96 代码）· **D2 ✅**（cd2a024，flake 根治 + lint 分级处理，13 React Compiler error 拆 #35）· **E ✅**（b8abb44，design.md 三节）。**本计划 A-E 全交付。** 下一阶段（**独立、不属本计划**）：Preview 打包（Windows 构建 / 签名）+ Windows 真机 smoke + macOS 通知权限核查 → 见 `preview-build-readiness.md`。
 
 ---
 
@@ -42,7 +44,7 @@
 
 ### 不做什么
 - 不改模型选择的 UI 布局（沿用现有 Models 页 / composer 模型选择器）。
-- 不动其它 provider 的套餐型目录（那是 [`#16`](./tech-debt-tracker.md)，独立）。
+- 不动其它 provider 的套餐型目录（那是 [`#16`](../tech-debt-tracker.md)，独立）。
 - **不动 `opus` 短别名 / 默认**：首轮只新增显式 `claude-opus-4-8`，`opus` 别名与默认仍指 4.7；是否切 4.8 待真实 smoke 后用户拍板（遵守 [pinned 默认硬承诺] guardrail）。
 - **OpenRouter slug 用确认值、不推断**：Codex 已确认 OpenRouter Opus 4.8 = `anthropic/claude-opus-4.8`，本轮一并接入（不再 deferred）；代码 / 测试把该 id 写成显式 fixture。
 - **不"只改模型名"**：catalog 显示出来 ≠ 请求正确——Opus 4.7 专属的 thinking / effort / 1M beta 逻辑必须一并泛化（见实现路径），否则模型出现了但真实发送语义仍错。
@@ -136,7 +138,7 @@
 
 ## Phase D：工程护栏 — pre-commit enforce（#30）（D0 / D1 / D2）
 
-> 状态：**D1（enforce / set -e）✅ 已完成（commit e10fa1d）**——质量门恢复"任一检查失败即停"，#30 核心洞已堵。**D2（清 react-hooks 16 error + 修 apply-discovery-diff flake）📋 留债**（on-touch / 单开专项）——存量 react-hooks 债与 unit flake 未解决，**不在"D 完成"口径内**。
+> 状态：**D1（enforce / set -e）✅ 已完成（commit e10fa1d）**——质量门恢复"任一检查失败即停"，#30 核心洞已堵。**D2 ✅ 已完成（commit cd2a024）**——(1) **flake 根治**：根因是 `tsx --test` 并行跑文件 + 多数 DB 测试未隔离 → 并发抢同一真实库，修法是 `db-isolation.setup.ts` + `--import` 让每 worker 独立 temp DB（连跑 4× 全量 3086/3086 确定性通过，flake 消除）；(2) **"16 error" 核实为 React Compiler 规则**（`set-state-in-effect` / `refs`，非 exhaustive-deps），已修 2 prefer-const + 1 plugins set-state（React 官方渲染期调整模式，CDP 验证）+ 清 11 exhaustive-deps warning，**13 个 React Compiler error 拆 tech-debt #35**（高频/视觉组件行为重构，盲改有回归风险，on-touch debt）。
 
 ### D0（纯文档，✅ 已完成）
 把 2026-05-29 两件事记入 tech-debt **#30**：(a) `apply-discovery-diff.test.ts` 隔离单跑必过、全量套件 3/4 次挂的污染型 flake；(b) 因此被迫 `--no-verify` 提交纯文档（commit 825edaf）。并写明纪律：**后续代码 phase（A/B/C）不应再靠 --no-verify**。

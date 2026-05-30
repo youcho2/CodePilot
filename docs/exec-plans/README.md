@@ -88,8 +88,7 @@
 
 | 文件 | 主题 | 状态 |
 |------|------|------|
-| [active/refactor-closeout.md](active/refactor-closeout.md) | **重构收口总控板**：当前 Phase 状态 / 下一步 / 未闭环风险 / 验收入口 / 最近决策 / Phase 7 方案 | Phase 0-6 ✅ / Phase 8 ✅；Phase 7：图标 ✅归档 / 7b 收口 0-2(3-5 不做) / 7c ✅归档，剩 点阵视觉；遗留清理见 post-refactor-cleanup |
-| [active/post-refactor-cleanup.md](active/post-refactor-cleanup.md) | **重构收尾后遗留清理**：Opus 4.8 接入 + Sonnet 4.6 别名 (#23) / Mac 通知不弹 (#34) / pin 误报 (#27) / Plan 模式 Widget (#26) / Windows shell 方言 (#28) / pre-commit enforce eslint (#30) / design.md 横切规范补全 | 📋 草稿，待 Codex 审查 |
+| [active/refactor-closeout.md](active/refactor-closeout.md) | **重构收口总控板**：当前 Phase 状态 / 下一步 / 未闭环风险 / 验收入口 / 最近决策 / Phase 7 方案 | Phase 0-6 ✅ / Phase 8 ✅；Phase 7：图标 ✅归档 / 7b 收口 0-2(3-5 不做) / 7c ✅归档，剩 点阵视觉；遗留清理 post-refactor-cleanup ✅ 已完成归档 |
 | [active/preview-build-readiness.md](active/preview-build-readiness.md) | **分支预览包发布前收口**：不合 main，从当前 worktree 打 macOS + Windows Preview 包前的 blocker 修复、Windows readiness、macOS readiness、打包 smoke 与小范围试用闭环 | 📋 已 review，待执行（数据隔离已决"不隔离"+ 装前备份提示；剩 1 个 P1：Windows 包必须在 Windows 构建） |
 | [active/phase-7b-macos-native-visual-profile.md](active/phase-7b-macos-native-visual-profile.md) | **Phase 7b macOS 平台视觉层**：借鉴 Raycast / Apple HIG 的平台感原则，只在窗口 chrome、顶部栏、侧栏、输入区和浮层做 macOS 材质与 hover profile，不分叉页面内容 | 🟢 收口于 Phase 0-2（卡片几何拆出为 7c 已归档）；Phase 3/4/5 用户 2026-05-29 决定不做 |
 | [active/development-harness-optimization.md](active/development-harness-optimization.md) | **开发流程 Harness 优化讨论稿（v2）**：Codex 初稿 + ClaudeCode 按用户"可审核"约束重组。事实层面补 3 项 Codex 漏说的已有资产（guardrails/ 4 份模块契约 / lint:colors / tech-debt-tracker）；方向上 Skill 化暂缓、主推自动检查脚本（docs drift / hook 配置）+ 测试矩阵补洞；每个 Step 必须以"用户能看到什么 / 不做什么 / 怎么验收"开头 | 📋 讨论中；待用户对齐 Step 1-3，再决定是否进入 Step 4-6 |
@@ -129,6 +128,7 @@
 
 | 文件 | 主题 | 完成日期 |
 |------|------|----------|
+| [completed/post-refactor-cleanup.md](completed/post-refactor-cleanup.md) | **重构收尾后遗留清理**：Opus 4.8 接入 + Sonnet 4.6 别名 (#23) / Mac 通知链路确认 (#34) / pin 误报修复 (#27) / Plan 模式 Widget (#26) / Windows shell 默认 PowerShell (#28) / pre-commit enforce + 测试 flake 根治 (#30) / design.md 横切三节 (E)；13 React Compiler error 拆 #35；Preview 打包属独立下一阶段 | 2026-05-31 |
 | [completed/phase-8-codex-mcp-context-injection.md](completed/phase-8-codex-mcp-context-injection.md) | **Phase 8 Codex MCP / Memory 注入**：`config.mcp_servers` 注入链路 + 5 项核心能力（Memory / Widget / Tasks+Notify / Dashboard / CLI）在 Codex Account 下真账号 smoke 通过 + 按能力区分的 elicitation 审批策略（read 自动 / write 弹审批）+ Codex 原生图片入库对齐素材库；Image/Media 与用户自定义 MCP 用户决定 defer | 2026-05-29 |
 | [completed/phase-7-icon-system.md](completed/phase-7-icon-system.md) | **Phase 7 图标体系与表意校准**：CodePilot semantic icon layer（一概念一 glyph）+ HugeIcons 主库 + LobeHub 品牌图标保留 + Brain/Lightning/Terminal 冲突裁决 + eslint guardrail；96 文件迁到 CodePilotIcon | 2026-05-29 |
 | [completed/phase-7c-card-primitive.md](completed/phase-7c-card-primitive.md) | **Phase 7c 浮动卡片 layout primitive**：CardFrame / CardSurface / ResizeGutter 三个单职责组件收敛四张浮动卡片的 shadow / clip-path / gutter 几何；sidebar 改 row-level card、AssistantPanel 接入、真实 DOM gutter 几何 e2e；验收证据见 [handover/macos-visual-profile.md](handover/macos-visual-profile.md) Phase 7c 章节 | 2026-05-26 |
