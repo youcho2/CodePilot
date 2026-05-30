@@ -27,7 +27,7 @@
 | D2 | react-hooks 存量 16 error（9 高频组件）+ apply-discovery-diff 间歇 flake | C 工程债 | 中 | 📋 留债（on-touch / 单开专项） |
 | E | design.md 设计规范补全（横切 3 节） | C 基础设施/文档 | 中 | 📋 待审 |
 
-**进度**：**D1 ✅**（enforce，e10fa1d）· **A ✅**（Opus 4.8 + #23；代码 + Codex review 2 + 真实 smoke 通过 2026-05-29）· **D2 📋 留债**（react-hooks 16 error + flake，不阻塞）。**剩余**：B（#34 / #27）→ C（#26 / #28）；E 纯文档可并行。代码 phase 不靠 --no-verify。
+**进度**：**D1 ✅**（enforce，e10fa1d）· **A ✅**（Opus 4.8 + #23，真实 smoke 通过）· **B ✅**（#27 e1ccb3b + #34 0605b80/Codex smoke 确认链路工作）· **C ✅**（#26 f32275f + #28 970a1fa/d6e9d96 代码，Windows 真机验收待）· **D2 📋 留债**（react-hooks 16 error + DB flake，不阻塞）。**Phase 1 blocker 全部 code-level 完成。剩余**：E（design.md，纯文档）+ preview 打包（Windows 构建 / 签名）；代码 phase 不靠 --no-verify。
 
 ---
 

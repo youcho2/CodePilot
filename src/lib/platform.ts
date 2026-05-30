@@ -512,7 +512,7 @@ export function platformCommandGuidance(opts?: {
     '  Any command you run OR show the user must be PowerShell / Windows-compatible — NOT bash-only.',
     '  Avoid: `rm -rf`, `export VAR=...`, `source`, `/tmp`, `mkdir -p`, `&&`-only chaining, `$VAR`.',
     '  Use instead: `Remove-Item -Recurse -Force`, `$env:VAR = "..."`, `New-Item -ItemType Directory -Force`,',
-    '  `$env:TEMP`, `;` or separate lines, `$env:VAR`. (If Git Bash / WSL is detected this hint is omitted.)',
+    '  `$env:TEMP`, `;` or separate lines, `$env:VAR`. (Omitted only when explicit bash opt-in via CLAUDE_CODE_GIT_BASH_PATH is configured.)',
   ].join('\n');
 }
 
