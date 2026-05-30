@@ -15,4 +15,8 @@ npx tsc --noEmit
 # standalone npm run test (~25s) — observed in Phase 5b round-6 smoke,
 # where every commit wedged for 30+ minutes. Keep the hook env aligned
 # with the canonical test script.
-CODEX_DISABLED=1 npx tsx --test src/__tests__/unit/*.test.ts
+# --import db-isolation.setup.ts gives each parallel test-worker its own temp DB
+# (tech-debt #11/#25/#30 flake fix): node:test runs files in parallel, so without
+# this every DB test raced on the one real ~/.codepilot/codepilot.db → intermittent
+# failures that blocked commits. Now: no shared-file races, no real-DB pollution.
+CODEX_DISABLED=1 npx tsx --test --import ./src/__tests__/db-isolation.setup.ts src/__tests__/unit/*.test.ts

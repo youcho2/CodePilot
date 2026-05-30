@@ -75,8 +75,9 @@ export function TabPanel() {
     // bridge from echoing back into another openTab call).
     if (previewSource && samePreviewSource(previewSource, desired)) return;
     setPreviewSource(desired);
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional:
-    // listening to active.id only; previewSource itself flips post-effect.
+    // Intentional: listen to active.id only. previewSource itself flips
+    // post-effect, so including it (or active / setPreviewSource) would loop.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [active?.id]);
 
   if (!active) return null;

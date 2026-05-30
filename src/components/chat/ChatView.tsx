@@ -99,6 +99,16 @@ interface ChatViewProps {
 /** Maximum messages kept in React state. Older messages are trimmed and reloaded on scroll. */
 const MAX_MESSAGES_IN_MEMORY = 300;
 
+// Terminal actions that must route through the confirm dialog (destructive /
+// state-changing). Module-scoped so the Set identity is stable across renders
+// (was an exhaustive-deps warning on handleTerminalAction).
+const CONFIRM_REQUIRED = new Set<import('./TerminalReasonChip').TerminalActionId>([
+  'compress_and_retry',
+  'enable_1m_and_retry',
+  'switch_to_sonnet',
+  'retry_simple',
+]);
+
 export function ChatView({ sessionId, initialMessages = [], initialHasMore = false, modelName, providerId, runtimePin: initialRuntimePin, initialPermissionProfile, initialMode, initialHasSummary }: ChatViewProps) {
   const { setStreamingSessionId, workingDirectory, setPendingApprovalSessionId, setFileTreeOpen, setIsAssistantWorkspace } = usePanel();
   const { t } = useTranslation();
@@ -767,14 +777,8 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
   }, [currentProviderId, router, t]);
 
   // Entry point from the chip. Destructive actions route through confirm
-  // dialog; non-destructive ones run immediately.
-  const CONFIRM_REQUIRED = new Set<import('./TerminalReasonChip').TerminalActionId>([
-    'compress_and_retry',
-    'enable_1m_and_retry',
-    'switch_to_sonnet',
-    'retry_simple',
-  ]);
-
+  // dialog; non-destructive ones run immediately. (CONFIRM_REQUIRED hoisted
+  // to module scope below — stable Set identity, no longer a render-time dep.)
   const handleTerminalAction = useCallback((actionId: import('./TerminalReasonChip').TerminalActionId) => {
     const lastUserMessage = findLastUserMessage();
     if (CONFIRM_REQUIRED.has(actionId) && lastUserMessage) {
@@ -858,7 +862,8 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
       }
     })();
     return () => { cancelled = true; };
-  }, [workingDirectory]);
+    // setIsAssistantWorkspace is a stable useState setter (AppShell) — safe to list.
+  }, [workingDirectory, setIsAssistantWorkspace]);
 
   // Listen for workspace-switched events
   useEffect(() => {

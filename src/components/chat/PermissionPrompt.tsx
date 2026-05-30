@@ -379,6 +379,12 @@ function ToolInputDisplay({ input }: { input: Record<string, unknown> }) {
   );
 }
 
+// Tools that require user interaction even in full_access mode.
+// AskUserQuestion's entire purpose is to get user input — auto-approving
+// would return empty answers, defeating the purpose. Module-scoped so the
+// Set identity is stable across renders (was an exhaustive-deps warning).
+const NEVER_AUTO_APPROVE = new Set(['AskUserQuestion']);
+
 export function PermissionPrompt({
   pendingPermission,
   permissionResolved,
@@ -388,10 +394,7 @@ export function PermissionPrompt({
 }: PermissionPromptProps) {
   const { t } = useTranslation();
 
-  // Tools that require user interaction even in full_access mode.
-  // AskUserQuestion's entire purpose is to get user input — auto-approving
-  // would return empty answers, defeating the purpose.
-  const NEVER_AUTO_APPROVE = new Set(['AskUserQuestion']);
+  // (NEVER_AUTO_APPROVE hoisted to module scope — stable Set identity.)
 
   // Auto-approve when full_access is active — except for interactive tools
   const autoApprovedRef = useRef<string | null>(null);

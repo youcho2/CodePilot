@@ -247,7 +247,7 @@ export function BridgeSection() {
     flushPendingDefaults();
     // flushPendingDefaults is a stable closure over refs/setters; the
     // empty dep array intentionally captures the mount-time function.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // (flushPendingDefaults is stable — eslint needs no suppression here.)
   }, []);
 
   const handleWorkDirChange = (next: string) => {

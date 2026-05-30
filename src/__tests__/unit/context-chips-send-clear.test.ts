@@ -377,8 +377,8 @@ describe('Submit-flow cycle — mirrors MessageInput.handleSubmit', () => {
 
   it('a re-submit immediately after clear produces an empty payload (no leak from prior state)', () => {
     // Pre-submit (cleared from a prior turn).
-    let inputValue = '';
-    let directoryRefs: string[] = [];
+    const inputValue = '';
+    const directoryRefs: string[] = [];
     const onSendArgs: unknown[][] = [];
     const onSend = (...args: unknown[]) => {
       onSendArgs.push(args);

@@ -255,7 +255,7 @@ export function DashboardPanel() {
     }
   }, [workingDirectory, autoRefresh]);
 
-  const widgets = config?.widgets ?? [];
+  const widgets = useMemo(() => config?.widgets ?? [], [config?.widgets]);
 
   // Stable render order: sort by ID so React never reorders DOM (preserves iframes).
   // Visual order controlled by CSS `order` based on position in config.widgets.

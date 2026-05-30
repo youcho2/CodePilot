@@ -43,13 +43,25 @@ describe('chat-runtime registry side effects', () => {
     );
   });
 
-  it('agent_runtime=native → codepilot_runtime (deterministic — no env dependency)', () => {
-    const saved = getSetting('agent_runtime');
+  it('agent_runtime=native + cli disabled → codepilot_runtime (deterministic)', () => {
+    // Pin BOTH inputs resolveRuntime reads so this is genuinely deterministic.
+    // Under db-isolation.setup.ts each worker gets a FRESH empty DB: cli_enabled
+    // is unset and no provider is configured, so native.isAvailable() is false
+    // → resolveRuntime would fall through to the SDK (claude_code). Setting
+    // cli_enabled='false' fires the cli_disabled short-circuit (registry.ts
+    // step 2), which returns Native regardless of provider config — the real
+    // state when a user runs Native/CodePilot. (Pre-isolation this test silently
+    // relied on the developer's real ~/.codepilot DB happening to have
+    // cli_enabled='false'; the old "no env dependency" claim was wrong.)
+    const savedRt = getSetting('agent_runtime');
+    const savedCli = getSetting('cli_enabled');
     setSetting('agent_runtime', 'native');
+    setSetting('cli_enabled', 'false');
     try {
       assert.equal(getActiveChatRuntime(), 'codepilot_runtime');
     } finally {
-      setSetting('agent_runtime', saved || '');
+      setSetting('agent_runtime', savedRt || '');
+      setSetting('cli_enabled', savedCli || '');
     }
   });
 

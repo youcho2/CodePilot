@@ -336,6 +336,11 @@ export function useProviderModels(
   // chat request that the server then resolves against `env` defaults,
   // bypassing the runtime gate the API just enforced).
   const allowDefaultFallback = currentProviderIdValue === 'env';
+  // NOTE: do NOT wrap this in useMemo — this is a React Compiler project and a
+  // manual useMemo here triggers "Existing memoization could not be preserved"
+  // (the compiler infers `currentGroup` as the dep, coarser than a hand-written
+  // [currentGroup?.models, ...]). The compiler auto-memoizes; leave it plain.
+  // The residual exhaustive-deps warning on the downstream useMemo is benign.
   const modelOptions = (currentGroup?.models && currentGroup.models.length > 0)
     ? currentGroup.models
     : (allowDefaultFallback ? DEFAULT_MODEL_OPTIONS : []);

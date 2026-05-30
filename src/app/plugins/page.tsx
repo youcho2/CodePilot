@@ -112,9 +112,16 @@ export default function ExtensionsPage() {
 
   // Tab-scoped search: each manager filters its own data set. Switch
   // filter clears the box so the user doesn't see "0 results" because
-  // their query was scoped to a different list.
+  // their query was scoped to a different list. Adjust during render
+  // (React's "reset state when a prop changes" pattern) instead of a
+  // setState-in-effect — React-Compiler-friendly and avoids a one-frame
+  // stale-search flash. https://react.dev/learn/you-might-not-need-an-effect
   const [search, setSearch] = useState("");
-  useEffect(() => { setSearch(""); }, [filter]);
+  const [prevFilter, setPrevFilter] = useState(filter);
+  if (filter !== prevFilter) {
+    setPrevFilter(filter);
+    setSearch("");
+  }
 
   // Per-filter counts for the Tab labels ("Skills 35 / MCP 9 / CLI 11").
   // Each manager reports its own count via callback when mounted; the
@@ -182,8 +189,8 @@ export default function ExtensionsPage() {
     return <CliToolsManager ref={cliRef} variant="embedded" onCountChange={setCliCount} search={search} />;
     // handleSkillsCounts identity changes per render, but it only flows
     // into a child useEffect that re-fires harmlessly. Keeping it out of
-    // deps would cause stale closure on setSkillsCount.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // deps would cause stale closure on setSkillsCount. (deps are complete now —
+    // no suppression needed.)
   }, [filter, cwd, activeSessionId, search]);
 
   return (

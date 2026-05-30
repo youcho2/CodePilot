@@ -202,6 +202,11 @@ function isSyncableProvider(provider: ApiProvider): { ok: boolean; reasonZh?: st
   return { ok: false, reasonZh: policy.reasonZh, reasonEn: policy.reasonEn };
 }
 
+// Role-mapping keys — module-scoped constants so their identity is stable
+// across renders (avoids invalidating the role-models useCallback every render).
+type RoleKey = 'default' | 'reasoning' | 'small' | 'sonnet' | 'opus' | 'haiku';
+const ROLE_KEYS: RoleKey[] = ['default', 'sonnet', 'opus', 'haiku', 'reasoning', 'small'];
+
 export function ModelsSection() {
   const { t } = useTranslation();
   const isZh = t('nav.chats') === '对话';
@@ -274,8 +279,8 @@ export function ModelsSection() {
 
   // Role-mapping dialog state. role_models_json is parsed lazily per
   // provider; persistance goes through PUT /api/providers/[id].
-  type RoleKey = 'default' | 'reasoning' | 'small' | 'sonnet' | 'opus' | 'haiku';
-  const ROLE_KEYS: RoleKey[] = ['default', 'sonnet', 'opus', 'haiku', 'reasoning', 'small'];
+  // RoleKey / ROLE_KEYS hoisted to module scope (stable identity for the
+  // role-models useCallback dep — was recreated every render).
   const ROLE_LABEL_ZH: Record<RoleKey, string> = {
     default: '默认（兜底）',
     sonnet: 'Sonnet 角色',
@@ -719,7 +724,7 @@ export function ModelsSection() {
       setRoleSaving(false);
       setRoleDialog(null);
     }
-  }, [roleDialog, providers, roleDraft, fetchAll, ROLE_KEYS]);
+  }, [roleDialog, providers, roleDraft, fetchAll]);
 
   useEffect(() => { fetchAll(); }, [fetchAll]);
 

@@ -190,8 +190,7 @@ export default function ChatSessionPage({ params }: ChatSessionPageProps) {
     // ws.setActiveTab / ws.setOpen are stable callbacks from the
     // provider; intentionally tracked via the `ws` reference identity
     // rather than the inner functions to avoid noisy re-runs on every
-    // sidebar state change.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // sidebar state change. (deps are complete — no suppression needed.)
   }, [id, targetFilePath, setFileTreeOpen, ws]);
 
   if (loading || !sessionInfoLoaded) {
