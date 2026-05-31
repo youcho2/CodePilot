@@ -112,6 +112,12 @@ function makeStdioTransport(proc: ChildProcessWithoutNullStreams): SpawnedTransp
     },
     async close() {
       messageHandler = null;
+      // Already exited (self-exit / crash) — nothing to wait for. Without
+      // this guard we'd block on a `proc.once('exit')` that has already
+      // fired and only resolve after the 2s SIGTERM fallback, adding 2s to
+      // every failure path. (`proc.killed` is only set when WE kill it, so
+      // it stays false for a process that exited on its own.)
+      if (proc.exitCode !== null || proc.signalCode !== null) return;
       if (!proc.killed) {
         // Gentle shutdown first — close stdin so app-server exits its
         // request loop. Force-kill after 2s if it hasn't exited.
