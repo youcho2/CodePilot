@@ -57,15 +57,12 @@ mac:
   entitlementsInherit: build/entitlements.mac.inherit.plist
   notarize: false
   target:
-    - target: dmg
-      arch: [x64, arm64]
-    - target: zip
-      arch: [x64, arm64]
+    - dmg
+    - zip
 win:
   icon: build/icon.ico
   target:
-    - target: nsis
-      arch: [x64, arm64]
+    - nsis
 nsis:
   oneClick: false
   perMachine: false

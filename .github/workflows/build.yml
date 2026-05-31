@@ -158,7 +158,7 @@ jobs:
           [ "$PLIST_VER" = "$PREVIEW_VERSION" ] || { echo "::error::Info.plist $PLIST_VER != $PREVIEW_VERSION"; exit 1; }
           SQLITE=$(find "$APP/Contents/Resources" -path "*better-sqlite3*" -name "*.node" | head -1)
           [ -n "$SQLITE" ] || { echo "::error::better-sqlite3 .node not found"; exit 1; }
-          ELECTRON_RUN_AS_NODE=1 "$APP/Contents/MacOS/CodePilot" -e "require(process.argv[1]); console.log('better-sqlite3 OK, ABI=' + process.versions.modules)" "$SQLITE"
+          ELECTRON_RUN_AS_NODE=1 "$APP/Contents/MacOS/CodePilot" -e "const path = require('node:path'); require(path.resolve(process.argv[1])); console.log('better-sqlite3 OK, ABI=' + process.versions.modules)" "$SQLITE"
 
       - name: Checksums
         run: cd release && shasum -a 256 CodePilot-*-arm64.dmg CodePilot-*-arm64*.zip 2>/dev/null | tee checksums-macos-arm64.sha256
@@ -202,7 +202,7 @@ jobs:
           SQLITE=$(find release/win-unpacked -path "*better-sqlite3*" -name "*.node" 2>/dev/null | head -1)
           [ -n "$SQLITE" ] || { echo "::error::better-sqlite3 .node not found"; exit 1; }
           BIN=$(find release/win-unpacked -maxdepth 1 -name "CodePilot.exe" | head -1)
-          ELECTRON_RUN_AS_NODE=1 "$BIN" -e "require(process.argv[1]); console.log('better-sqlite3 OK, ABI=' + process.versions.modules)" "$SQLITE"
+          ELECTRON_RUN_AS_NODE=1 "$BIN" -e "const path = require('node:path'); require(path.resolve(process.argv[1])); console.log('better-sqlite3 OK, ABI=' + process.versions.modules)" "$SQLITE"
 
       - name: Checksums
         shell: bash
