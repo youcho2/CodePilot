@@ -33,6 +33,37 @@
 
 ---
 
+## ✅ 日志确认（2026-06-01，`codepilot-main_副本 2.log`）——真因落定
+
+日志跨**4 个版本**（`0.53.0 → 0.55.0-preview.1 → preview.2 → preview.3`，用户一天内迭代了多个本地包），不同版本症状不同，**必须只看最新 preview.3（15:04 起）**：
+
+1. **`--listen` 是旧 `0.53.0` 包的问题，preview.3 已修**：07:12 的 `0.53.0` 段反复 `unexpected argument '--listen' found` + `exited code=2`；但 preview.3（15:04+）spawn 参数已是 **`['app-server']`（无 --listen）** → `6923f13` 的 stdio 修复在 preview.3 里生效。**这条已解决。**
+
+2. **【preview.3 真正的 Codex 启动失败】`model_reasoning_effort = xhigh`**：
+   ```
+   [codex.app-server] Failed to deserialize overridden config: unknown variant `xhigh`,
+   expected one of `minimal`, `low`, `medium`, `high`  in `model_reasoning_effort`
+   [codex.app-server] exited { code: 1 }
+   ```
+   - **根因**：Codex 0.133 的 effort 只认 `minimal/low/medium/high`；`xhigh` 是 **CodePilot 给 Opus 4.7 用的档位**（`provider-catalog.ts:250` 等），Codex 不认。
+   - **来源**：spawn 参数只有 `['app-server']`、无 `-c`，且源码里 CodePilot **不写 codex 的 `config.toml`、不传 `-c model_reasoning_effort`**（grep `src/lib/codex/`+`electron/` 无）→ 所以 `xhigh` 来自**用户自己的 `~/.codex/config.toml`**（之前某次设过 / 旧 Codex 写过）。app-server 启动时读该配置 → 反序列化失败 → 退出。
+   - **每 ~30s 重试**：取模型列表触发 spawn → 配置错误退出 → 下次再 spawn，期间 initialize 请求等满 **30s 超时** → 这就是问题 A/C「准备运行环境 / 加载几十秒」。
+
+3. **【preview.1 的 ABI 不匹配】**：08:02 的 preview.1 段 `[ABI check] ABI mismatch detected: better_sqlite3.node ... NODE_MODULE_VERSION 127 ... requires 143` → 那个本地包的 better-sqlite3 没重编到 Electron ABI（用了 Node ABI）。**`preview-build.yml` 的 native ABI 校验步骤正是挡这个的**；preview.3 段未见此报错（重点是 Codex）。
+
+4. **【ClaudeCode sonnet】**：preview.3 仍 `Claude Code compat API error: 503 ... model_not_found ... 分组 auto 下模型 sonnet 无可用渠道（distributor）`（`new_api_error`）——这是**用户的 new-api 网关**报「auto 分组里没有 `sonnet` 这个渠道」，且发出去的还是裸 `sonnet`。属 provider 侧配置（网关要有对应渠道）+ 该 provider 的别名规范化未覆盖；**与 Codex/打包无关，单独处理**。
+
+### 据日志确定的修复方向
+
+| 问题 | 真因 | 修复 |
+|------|------|------|
+| Codex 启动失败（preview.3） | 用户 `~/.codex/config.toml` 里 `model_reasoning_effort = xhigh`，Codex 不认 | **立即可用**：用户改该文件 `xhigh`→`high`（或删该行）。**CodePilot 侧治本**：spawn app-server 时传 `-c model_reasoning_effort=high` 覆盖（或把发给 Codex 的 effort clamp 到 `high`，Codex 不支持 `xhigh`）——让 CodePilot 对用户配置里的非法/过高 effort 鲁棒 |
+| 问题 A/C（准备运行环境 / 加载几十秒） | 取模型列表卡在上面失败的 app-server 的 30s 超时 | Codex 修好后自然好；**另建议**：给 `/api/providers/models` 的 Codex 分支设短超时 / 失败快速降级，避免 Codex 一坏就拖 30s |
+| preview.1 ABI 127≠143 | 本地包 better-sqlite3 没重编 Electron ABI | 走 `preview-build.yml`（含 ABI 校验）出包，别用本地手打包 |
+| sonnet 无可用渠道 | new-api 网关 auto 分组无 sonnet 渠道 + 发裸 sonnet | provider 侧配渠道；查该 provider 类型的别名规范化为何没把 sonnet→`claude-sonnet-4-6` |
+
+---
+
 ## 背景：打包态 PATH 与二进制发现（三个问题共用）
 
 - 从访达 / Dock 启动的打包 Electron **不继承 shell 的完整 PATH**（不读 `~/.zshrc`），裸 PATH 只有 `/usr/bin:/bin:...`。
