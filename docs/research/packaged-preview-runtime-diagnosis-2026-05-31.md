@@ -7,10 +7,33 @@
 
 - **问题 A**：软件打开 / 每轮输出结束一段时间后 / 新建对话 → 输入框「正在准备运行环境」+ 模型下拉「模型加载中」，等一会才好。
 - **问题 B**：Settings → 执行引擎 → Codex 显示「应用服务启动失败」（机器明明装了 Codex）。
+- **问题 C**（2026-06-01 补充）：Settings 概览 / 执行引擎 等页面「加载中」要**几十秒**才出来。
+
+> **2026-06-01 更新：三个症状很可能是同一个根因。** 见下方「统一根因」。
 
 ---
 
-## 背景：打包态 PATH 与二进制发现（两个问题共用）
+## ⭐ 统一根因：Codex app-server 卡到 30s 请求超时（2026-06-01）
+
+把三个症状串起来的链路：
+
+1. **取模型列表 = `GET /api/providers/models`**：当 `runtime=auto` 或不带 runtime（null）时，路由 `if (!runtimeFilter || runtimeFilter === 'codex_runtime')` → `buildCodexProviderModelGroup()` → `getCodexAppServer()`（spawn + `initialize`）→ `listCodexModels()`（`client.request`）。
+2. **app-server client 的请求超时 = `30_000` ms（30 秒）**（`app-server-client.ts:121`），`initialize` 与 `listModels` 各走一次。
+3. **凡是"取模型列表"的 UI 都吃这条链路**：
+   - 聊天输入框 `useProviderModels` → **问题 A**（"正在准备运行环境"）。
+   - Settings 概览 `useOverviewData`（`fetch /api/providers/models?runtime=auto` + 无 runtime 各一次，`useOverviewData.ts:105-106`）→ **问题 C**。
+   - Settings 执行引擎 `RuntimePanel`（`fetch /api/providers/models?runtime=auto`，`RuntimePanel.tsx:550`；`setLoading(false)` 要等**所有**并行 fetch 完成）→ **问题 C**。
+   - `getCodexAppServer` 的 `initialize` 卡到 30s 失败 → **问题 B**（"应用服务启动失败"）。
+
+**结论：只要 Codex app-server 的 RPC 不响应，这三处都会卡到 30s 超时。**「几十秒」正好是这个 30s 请求超时。
+
+**关键分诊**：旧问题 `--listen` / 旧版本无 `app-server` 子命令时，子进程会**立刻退出、快速失败**，Settings **不会**卡几十秒。**你 Settings 卡几十秒 = app-server spawn 起来了、但 `initialize` 握手 hang 到 30s 超时** → 据此**改判：更可能是协议 / 版本不匹配（或 app-server 起来后不响应），而非过时构建**。`reason` 字符串可最终确认（见问题 B）。
+
+> 注：`/api/codex/status`（执行引擎页顶部的 Codex 状态条）走 `getCodexAvailability()`，**不 spawn**、读缓存的 `lastAvailability`，所以它本身快——慢的是同页并行的 `/api/providers/models`。
+
+---
+
+## 背景：打包态 PATH 与二进制发现（三个问题共用）
 
 - 从访达 / Dock 启动的打包 Electron **不继承 shell 的完整 PATH**（不读 `~/.zshrc`），裸 PATH 只有 `/usr/bin:/bin:...`。
 - app 的补救：启动时跑一个 login shell 读 `userShellEnv` + `getExpandedShellPath()`，并注入 Next server 子进程——`electron/main.ts:839` 的 `startServer` env = `{ ...userShellEnv, ...sanitizedProcessEnv(), ...userShellEnv, PATH: constructedPath, HOME, CLAUDE_GUI_DATA_DIR, ... }`。**所以 Next server 进程的 `process.env.PATH` 已经是扩展后的 PATH，且有 `HOME`。**
@@ -93,4 +116,9 @@
 4. **`codex --version`**：在那台机器终端跑一下（确认装的 Codex 版本 + 是否支持 `codex app-server`）。
 5. **打包用的 commit**：那个"新版"是从哪个 commit 打的（确认是否 ≥ `6923f13`）。
 
-拿到 1 + 2，问题 B 当场可定根因；拿到问题 A 的 spawn/exit 时间线，可定"输出后重现"是子进程退出重启还是重复取模型。然后再决定改代码哪里（备选方向：packaged 下保持 app-server 常驻 / runtime 异步解析不重复触发模型请求 / 按 Codex 版本适配 initialize）。
+拿到 1 + 2，问题 B 当场可定根因——而 **B 一旦解决，A 和 C 大概率一起好**（三者都卡在同一个 30s Codex RPC，见「统一根因」）。改代码方向取决于 B 的 reason：
+- `initialize failed` / 超时 → **协议/版本不匹配**：按该 Codex 版本适配 initialize（或检测不兼容时快速判 `too_old` / 降级，不等 30s）。
+- app-server 根本起不来 → **packaged 下让"取模型列表"不阻塞在 Codex**：Codex 不可用时快速降级（给 `/api/providers/models` 的 Codex 分支单独设短超时、或后台预热 app-server、或缓存上次可用状态），不要让聊天 composer / Settings 页面等满 30s。
+- `--listen` / 旧版本 → 过时构建（但前述"卡几十秒"使这条可能性变低）→ 走 `preview-build.yml` 重打。
+
+问题 A 的"输出后重现"额外看日志里 app-server 是否每轮后 `exited` 又 `spawning`（决定是否要在 packaged 下保持 app-server 常驻）。
