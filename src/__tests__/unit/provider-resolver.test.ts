@@ -409,6 +409,7 @@ describe('Provider Resolver', () => {
         envOverrides: {
           API_TIMEOUT_MS: '3000000',
           ANTHROPIC_API_KEY: '', // legacy placeholder — should be skipped (auth keys handled by auth injection)
+          ANTHROPIC_MODEL: 'sonnet', // stale legacy model override — should be skipped (role models own it)
           SOME_CUSTOM_VAR: '',   // non-auth key — should be deleted
         },
         roleModels: {},
@@ -421,6 +422,8 @@ describe('Provider Resolver', () => {
       assert.equal(env.API_TIMEOUT_MS, '3000000');
       // Auth keys are NOT deleted by envOverrides — they're managed by the auth injection logic above
       assert.equal(env.ANTHROPIC_API_KEY, 'key'); // preserved from auth injection
+      assert.notEqual(env.ANTHROPIC_MODEL, 'sonnet',
+        'envOverrides must not reintroduce stale bare model aliases after resolver injection');
       assert.equal(env.SOME_CUSTOM_VAR, undefined); // non-auth key deleted by empty string
     });
 
@@ -464,6 +467,57 @@ describe('Provider Resolver', () => {
       assert.equal(env.ANTHROPIC_MODEL, 'my-model-v1');
       assert.equal(env.ANTHROPIC_REASONING_MODEL, 'my-reasoning-model');
       assert.equal(env.ANTHROPIC_SMALL_FAST_MODEL, 'my-small-model');
+    });
+
+    it('canonicalizes short role-model aliases to upstream IDs before injecting Claude Code env', () => {
+      const resolved: ResolvedProvider = {
+        provider: {
+          id: 'test',
+          name: 'Legacy Gateway',
+          provider_type: 'anthropic',
+          protocol: 'anthropic',
+          base_url: 'https://gateway.example.com/anthropic',
+          api_key: 'key',
+          is_active: 1,
+          sort_order: 0,
+          extra_env: '{}',
+          headers_json: '{}',
+          env_overrides_json: '',
+          role_models_json: '{"default":"sonnet","sonnet":"sonnet","haiku":"haiku","opus":"opus"}',
+          notes: '',
+          created_at: '',
+          updated_at: '',
+          options_json: '{}',
+        },
+        protocol: 'anthropic',
+        authStyle: 'api_key',
+        model: 'sonnet',
+        upstreamModel: 'claude-sonnet-4-6',
+        modelDisplayName: 'Sonnet 4.6',
+        headers: {},
+        envOverrides: {},
+        roleModels: {
+          default: 'sonnet',
+          sonnet: 'sonnet',
+          haiku: 'haiku',
+          opus: 'opus',
+        },
+        hasCredentials: true,
+        availableModels: [
+          { modelId: 'sonnet', upstreamModelId: 'claude-sonnet-4-6', displayName: 'Sonnet 4.6' },
+          { modelId: 'haiku', upstreamModelId: 'claude-haiku-4-5-20251001', displayName: 'Haiku 4.5' },
+          { modelId: 'opus', upstreamModelId: 'claude-opus-4-7', displayName: 'Opus 4.7' },
+        ],
+        settingSources: ['user'],
+      };
+
+      const env = toClaudeCodeEnv({}, resolved);
+      assert.equal(env.ANTHROPIC_MODEL, 'claude-sonnet-4-6');
+      assert.equal(env.ANTHROPIC_DEFAULT_SONNET_MODEL, 'claude-sonnet-4-6');
+      assert.equal(env.ANTHROPIC_DEFAULT_HAIKU_MODEL, 'claude-haiku-4-5-20251001');
+      assert.equal(env.ANTHROPIC_DEFAULT_OPUS_MODEL, 'claude-opus-4-7');
+      assert.notEqual(env.ANTHROPIC_MODEL, 'sonnet',
+        'Claude Code compat gateways must not receive the bare UI alias `sonnet`');
     });
 
     it('preserves env vars when no provider (env-based)', () => {

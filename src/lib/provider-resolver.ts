@@ -305,6 +305,13 @@ export function toClaudeCodeEnv(
   resolved: ResolvedProvider,
 ): Record<string, string> {
   const env = { ...baseEnv };
+  const roleModelForEnv = (modelId: string | undefined): string | undefined => {
+    if (!modelId) return undefined;
+    const catalogEntry = resolved.availableModels.find(model => model.modelId === modelId);
+    if (catalogEntry?.upstreamModelId) return catalogEntry.upstreamModelId;
+    if (modelId === resolved.model && resolved.upstreamModel) return resolved.upstreamModel;
+    return modelId;
+  };
 
   // Managed env vars that must be cleaned when switching providers to prevent leaks
   const MANAGED_ENV_KEYS = new Set([
@@ -357,23 +364,29 @@ export function toClaudeCodeEnv(
     }
 
     // Inject role models as env vars
-    if (resolved.roleModels.default) {
-      env.ANTHROPIC_MODEL = resolved.roleModels.default;
+    const defaultModel = roleModelForEnv(resolved.roleModels.default);
+    const reasoningModel = roleModelForEnv(resolved.roleModels.reasoning);
+    const smallModel = roleModelForEnv(resolved.roleModels.small);
+    const haikuModel = roleModelForEnv(resolved.roleModels.haiku);
+    const sonnetModel = roleModelForEnv(resolved.roleModels.sonnet);
+    const opusModel = roleModelForEnv(resolved.roleModels.opus);
+    if (defaultModel) {
+      env.ANTHROPIC_MODEL = defaultModel;
     }
-    if (resolved.roleModels.reasoning) {
-      env.ANTHROPIC_REASONING_MODEL = resolved.roleModels.reasoning;
+    if (reasoningModel) {
+      env.ANTHROPIC_REASONING_MODEL = reasoningModel;
     }
-    if (resolved.roleModels.small) {
-      env.ANTHROPIC_SMALL_FAST_MODEL = resolved.roleModels.small;
+    if (smallModel) {
+      env.ANTHROPIC_SMALL_FAST_MODEL = smallModel;
     }
-    if (resolved.roleModels.haiku) {
-      env.ANTHROPIC_DEFAULT_HAIKU_MODEL = resolved.roleModels.haiku;
+    if (haikuModel) {
+      env.ANTHROPIC_DEFAULT_HAIKU_MODEL = haikuModel;
     }
-    if (resolved.roleModels.sonnet) {
-      env.ANTHROPIC_DEFAULT_SONNET_MODEL = resolved.roleModels.sonnet;
+    if (sonnetModel) {
+      env.ANTHROPIC_DEFAULT_SONNET_MODEL = sonnetModel;
     }
-    if (resolved.roleModels.opus) {
-      env.ANTHROPIC_DEFAULT_OPUS_MODEL = resolved.roleModels.opus;
+    if (opusModel) {
+      env.ANTHROPIC_DEFAULT_OPUS_MODEL = opusModel;
     }
 
     // Inject extra headers
@@ -382,16 +395,24 @@ export function toClaudeCodeEnv(
     }
 
     // Inject env overrides (empty string = delete).
-    // Skip auth-related keys — they were already correctly injected above based on authStyle.
-    // Legacy extra_env often contains placeholder entries like {"ANTHROPIC_AUTH_TOKEN":""} or
-    // {"ANTHROPIC_API_KEY":""} that would delete the freshly-injected credentials.
-    const AUTH_ENV_KEYS = new Set([
+    // Skip provider-owned Anthropic keys — they were already correctly
+    // injected above based on authStyle + role model resolution. Legacy
+    // extra_env often contains placeholder auth entries, and older gateway
+    // configs may carry bare UI aliases like ANTHROPIC_MODEL=sonnet; letting
+    // either override this resolver reintroduces stale-model failures.
+    const HOST_MANAGED_ANTHROPIC_ENV_KEYS = new Set([
       'ANTHROPIC_API_KEY',
       'ANTHROPIC_AUTH_TOKEN',
       'ANTHROPIC_BASE_URL',
+      'ANTHROPIC_MODEL',
+      'ANTHROPIC_REASONING_MODEL',
+      'ANTHROPIC_SMALL_FAST_MODEL',
+      'ANTHROPIC_DEFAULT_HAIKU_MODEL',
+      'ANTHROPIC_DEFAULT_SONNET_MODEL',
+      'ANTHROPIC_DEFAULT_OPUS_MODEL',
     ]);
     for (const [key, value] of Object.entries(resolved.envOverrides)) {
-      if (AUTH_ENV_KEYS.has(key)) continue; // already handled by auth injection
+      if (HOST_MANAGED_ANTHROPIC_ENV_KEYS.has(key)) continue; // already handled above
       if (typeof value === 'string') {
         if (value === '') {
           delete env[key];

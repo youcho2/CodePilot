@@ -3,7 +3,7 @@
  *
  * Phase 5 Phase 1 (2026-05-13). Handles:
  *   - binary discovery (`codex` on PATH; future custom-path setting)
- *   - spawn lifecycle (`codex app-server --listen stdio://`)
+ *   - spawn lifecycle (`codex app-server`, default stdio transport)
  *   - JSON-RPC client wiring over the child's stdio
  *   - graceful close (avoid orphan processes per plan §硬约束)
  *
@@ -185,7 +185,8 @@ export async function getCodexAppServer(): Promise<ManagedAppServer> {
   cached = (async (): Promise<ManagedAppServer> => {
     let proc: ChildProcessWithoutNullStreams;
     try {
-      proc = spawn(binary, ['app-server', '--listen', 'stdio://'], {
+      console.info('[codex.app-server] spawning', { binary, args: ['app-server'] });
+      proc = spawn(binary, ['app-server'], {
         stdio: ['pipe', 'pipe', 'pipe'],
         env: {
           ...process.env,

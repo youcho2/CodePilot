@@ -153,3 +153,22 @@ describe('Codex availability — installed but idle state', () => {
     );
   });
 });
+
+describe('Codex app-server spawn compatibility', () => {
+  it('spawns app-server without --listen so older installed Codex.app builds still start', () => {
+    // Preview P0 (2026-05-31): a user-installed Codex binary returned
+    // `unexpected argument '--listen' found`. Codex app-server's default
+    // transport is stdio, so CodePilot must not require the newer
+    // `--listen stdio://` flag to boot the runtime.
+    assert.match(
+      managerSrc,
+      /spawn\(binary,\s*\[\s*['"]app-server['"]\s*\]/,
+      'app-server should be spawned with the default stdio transport',
+    );
+    assert.doesNotMatch(
+      managerSrc,
+      /spawn\(binary,\s*\[[^\]]*['"]--listen['"]/,
+      'app-server spawn args must not include --listen; older Codex.app builds reject it',
+    );
+  });
+});
