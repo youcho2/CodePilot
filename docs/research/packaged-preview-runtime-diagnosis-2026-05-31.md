@@ -10,6 +10,45 @@
 - **问题 C**（2026-06-01 补充）：Settings 概览 / 执行引擎 等页面「加载中」要**几十秒**才出来。
 
 > **2026-06-01 更新：三个症状很可能是同一个根因。** 见下方「统一根因」。
+> **2026-06-01 二次更新（POC 实测）：原先「xhigh 配置让 app-server 挂掉」的判断被 POC 证伪——见下方「POC 实测修正」。真因是 *旧 codex 二进制*（已卸载）+ CodePilot 不快速失败，不是配置本身。**
+
+---
+
+## ✅✅ POC 实测修正（2026-06-01）——真因再定位（本节权威，覆盖下方「日志确认」中关于 xhigh 的结论）
+
+下方「日志确认」基于日志推断「`~/.codex/config.toml` 的 `xhigh` 让 app-server 启动失败、需用户改配置或 spawn 时 `-c` 覆盖」。在用户本机做隔离 + 端到端 POC 后，**这个因果链对当前二进制不成立**，修正如下。
+
+**POC 方法**（脚本见提交记录，跑完即删）：
+- 隔离：临时 `CODEX_HOME` 写 `model_reasoning_effort = "<值>"`，spawn `codex app-server`，跑完整 `initialize` + `model/list` 握手，看是否报错 / 退出。
+- 端到端：用 `findCodexBinary()` 实际会解析到的二进制 + **用户真实的 `~/.codex`**，只读跑 `initialize` + `model/list`。
+
+**[外部事实 · pin codex-cli 0.133.0 / 2026-06-01]**
+- 当前机器 `which -a codex` **找不到**；`/opt/homebrew/bin/codex`（日志里用的那个）**已不在磁盘**。仅存 `/Applications/Codex.app/Contents/Resources/codex`，版本 `codex-cli 0.133.0`。
+- `.app` 的 codex `0.133.0` **原生接受 `model_reasoning_effort = "xhigh"`**：initialize + model/list 全 OK，无 deserialize 报错、不退出。
+- 同一 `0.133.0` 对 `max` / 垃圾值 **只警告、不致命**（stderr 有 "unknown variant" 但进程不退出，降级到 `medium`）。
+- 端到端：`findCodexBinary()` → `/Applications/Codex.app/.../codex`；对**真实 `~/.codex`（确含 xhigh）** → `initialize OK` + `model/list` 返回 **6 个真实模型**（gpt-5.5 / gpt-5.4 / gpt-5.4-mini / gpt-5.3-codex / gpt-5.3-codex-spark …）。
+
+**[仓库事实]**
+- spawn 参数 = `['app-server']`，无 `-c`（`app-server-manager.ts:189`）；日志里的 spawn 参数也是 `['app-server']`——**与 POC 完全一致**。
+- `proc.once('exit')` 仅清 `cached`、置 `lastAvailability=spawn_failed`，**不 reject 正在 await 的 `initialize()`**（`app-server-manager.ts:213-223`）→ 子进程退出后，`getCodexAppServer()` 的 initialize 要等满 **30s RPC 超时**（`app-server-client.ts:121`）才失败。
+- 日志里失败的二进制全是 `/opt/homebrew/bin/codex`（`spawning { binary: '/opt/homebrew/bin/codex' }`），其报错只列 `minimal/low/medium/high`（无 xhigh、无 max），且 `error loading config` 后 **`exited code=1`**。
+
+**[推断 → 修正后的真因]**
+- 日志里那个会被 xhigh 搞挂的 codex 是**旧 / 更严的 `/opt/homebrew/bin/codex`**（只认 4 档 + 把配置反序列化失败当致命退出）。它**现已卸载**。
+- 用户当前机器只剩 `.app 0.133.0`，**它接受 xhigh** → CodePilot 现在解析到它 → **Codex 现在就是通的**（端到端实测 6 个模型为证）。
+- 三个症状变慢的真正放大器是 **CodePilot 不快速失败**：任何 codex 在 init 期退出，都会让取模型列表等满 30s——这与"为什么退出"无关，是 CodePilot 自身的韧性缺陷。
+
+### 修正后的结论与对策
+
+| 项 | 修正后 |
+|----|--------|
+| **用户立即动作** | **重启 / 重试 CodePilot 即可**，Codex 大概率已恢复（实测当前二进制 + 真实配置可出 6 个模型）。**不需要改 `~/.codex/config.toml`**——之前让你改 xhigh→high 是基于"旧 homebrew 二进制"的错误假设，当前 `.app 0.133.0` 不需要。 |
+| **P0（真缺陷，值得修）** | app-server 子进程在 init 期退出时**立即 reject 等待中的 `initialize()`**（`proc.once('exit')` 里 reject pending），而不是干等 30s。这是让三个症状都"卡几十秒"的真正原因，**与 codex 为何退出无关**，永远正确。 |
+| **P1（防御，针对旧/严二进制）** | 把 CodePilot **发给** Codex 的 effort（`turn/start` 的 `options.effort`，`runtime.ts:862`）clamp 到 Codex 支持集，绝不外发 `xhigh`/`max`。先核实发送路径是否真会把 Opus 档位带给 Codex 模型再决定力度。 |
+| **不做：spawn 时 `-c model_reasoning_effort=high`** | 否决。当前 `0.133` 接受 xhigh → 这是 no-op；且它会**强行覆盖用户自己的 Codex 配置默认**；又无法验证它能救回旧二进制（旧二进制已卸载，且日志错误正是 "**overridden** config" 失败）。用 P0 快速失败替代"猜着纠正用户配置"。 |
+| **问题 A/C（准备运行环境 / 几十秒）** | P0 修好后自然好（30s→瞬时失败降级）；可再给 `/api/providers/models` 的 Codex 分支加一道短超时做双保险。 |
+
+> 下方「日志确认」与「下一步」中凡是「xhigh 来自配置 → 改配置 / `-c` 覆盖」的表述，**以本节为准**。日志推断的方向（30s 超时是统一放大器、ABI、sonnet）依然成立，只有 xhigh 的因果被本节修正。
 
 ---
 
@@ -39,15 +78,15 @@
 
 1. **`--listen` 是旧 `0.53.0` 包的问题，preview.3 已修**：07:12 的 `0.53.0` 段反复 `unexpected argument '--listen' found` + `exited code=2`；但 preview.3（15:04+）spawn 参数已是 **`['app-server']`（无 --listen）** → `6923f13` 的 stdio 修复在 preview.3 里生效。**这条已解决。**
 
-2. **【preview.3 真正的 Codex 启动失败】`model_reasoning_effort = xhigh`**：
+2. **【preview.3 的 Codex 启动失败】`model_reasoning_effort = xhigh`** ⚠️ **因果已被上方「POC 实测修正」更正：失败的是旧 `/opt/homebrew/bin/codex`（已卸载），当前 `.app 0.133.0` 接受 xhigh。下方保留作推断留痕。**
    ```
    [codex.app-server] Failed to deserialize overridden config: unknown variant `xhigh`,
    expected one of `minimal`, `low`, `medium`, `high`  in `model_reasoning_effort`
    [codex.app-server] exited { code: 1 }
    ```
-   - **根因**：Codex 0.133 的 effort 只认 `minimal/low/medium/high`；`xhigh` 是 **CodePilot 给 Opus 4.7 用的档位**（`provider-catalog.ts:250` 等），Codex 不认。
-   - **来源**：spawn 参数只有 `['app-server']`、无 `-c`，且源码里 CodePilot **不写 codex 的 `config.toml`、不传 `-c model_reasoning_effort`**（grep `src/lib/codex/`+`electron/` 无）→ 所以 `xhigh` 来自**用户自己的 `~/.codex/config.toml`**（之前某次设过 / 旧 Codex 写过）。app-server 启动时读该配置 → 反序列化失败 → 退出。
-   - **每 ~30s 重试**：取模型列表触发 spawn → 配置错误退出 → 下次再 spawn，期间 initialize 请求等满 **30s 超时** → 这就是问题 A/C「准备运行环境 / 加载几十秒」。
+   - **当时推断（已被 POC 证伪）**：以为 Codex 0.133 不认 `xhigh`。**修正**：`.app 0.133.0` 实测**接受** xhigh；报这个错的是 `spawning { binary: '/opt/homebrew/bin/codex' }`——更旧/更严的 codex（报错只列 4 档），把配置反序列化失败当**致命退出**。
+   - **来源（仍对）**：spawn 参数只有 `['app-server']`、无 `-c`，CodePilot 不写 codex `config.toml`、不传 `-c`→ `xhigh` 来自**用户自己的 `~/.codex/config.toml`**。但**它只对旧二进制致命**。
+   - **每 ~30s 重试（机制仍对，是真正该修的）**：旧二进制读配置失败退出 → CodePilot **不快速失败** → initialize 等满 **30s 超时** → 问题 A/C。该修的是 30s 那段（P0），不是配置。
 
 3. **【preview.1 的 ABI 不匹配】**：08:02 的 preview.1 段 `[ABI check] ABI mismatch detected: better_sqlite3.node ... NODE_MODULE_VERSION 127 ... requires 143` → 那个本地包的 better-sqlite3 没重编到 Electron ABI（用了 Node ABI）。**`preview-build.yml` 的 native ABI 校验步骤正是挡这个的**；preview.3 段未见此报错（重点是 Codex）。
 
@@ -57,7 +96,7 @@
 
 | 问题 | 真因 | 修复 |
 |------|------|------|
-| Codex 启动失败（preview.3） | 用户 `~/.codex/config.toml` 里 `model_reasoning_effort = xhigh`，Codex 不认 | **立即可用**：用户改该文件 `xhigh`→`high`（或删该行）。**CodePilot 侧治本**：spawn app-server 时传 `-c model_reasoning_effort=high` 覆盖（或把发给 Codex 的 effort clamp 到 `high`，Codex 不支持 `xhigh`）——让 CodePilot 对用户配置里的非法/过高 effort 鲁棒 |
+| Codex 启动失败 ⚠️**已被 POC 修正，以「POC 实测修正」节为准** | ~~xhigh 让 0.133 挂~~ → 实际是**旧 `/opt/homebrew/bin/codex`（已卸载）** 致命、当前 `.app 0.133.0` 接受 xhigh | **立即**：重启 CodePilot 即可（实测当前二进制可出 6 模型，**不用改 config**）。**治本 P0**：app-server init 期退出时立即 reject pending init（不等 30s）。**防御 P1**：clamp CodePilot **发给** Codex 的 effort。~~`-c` 覆盖~~ 已否决（no-op + 覆盖用户配置 + 不可验证） |
 | 问题 A/C（准备运行环境 / 加载几十秒） | 取模型列表卡在上面失败的 app-server 的 30s 超时 | Codex 修好后自然好；**另建议**：给 `/api/providers/models` 的 Codex 分支设短超时 / 失败快速降级，避免 Codex 一坏就拖 30s |
 | preview.1 ABI 127≠143 | 本地包 better-sqlite3 没重编 Electron ABI | 走 `preview-build.yml`（含 ABI 校验）出包，别用本地手打包 |
 | sonnet 无可用渠道 | new-api 网关 auto 分组无 sonnet 渠道 + 发裸 sonnet | provider 侧配渠道；查该 provider 类型的别名规范化为何没把 sonnet→`claude-sonnet-4-6` |
@@ -135,6 +174,9 @@
 ---
 
 ## 下一步（需要你给我）
+
+> ⚠️ **本节大部分已由 2026-06-01 的 POC 回答（见「POC 实测修正」），无需再收集 reason 字符串/版本——真因已实测落定。保留作排查清单模板。** 仍待办的只剩：P0 快速失败 + P1 effort clamp 的代码实现，及 sonnet 网关单独排查。
+
 
 1. **问题 B 的 reason 字符串**：Settings → 执行引擎 → Codex 那行冒号后面的全部文字（或截图）。**这一项最关键，基本一句定根因。**
 2. **那台机器的 app 日志**，grep 这些关键字贴给我：
