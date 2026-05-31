@@ -129,6 +129,7 @@ jobs:
       - name: Fail-closed gate B — ClaudeCode canonicalizes bare `sonnet` (checked-out resolver, not the commit's tests)
         run: |
           set -euo pipefail
+          trap 'rm -f preview-gate-sonnet.ts' EXIT   # clean temp file even if the gate fails (set -e exits before a trailing rm)
           # Run the CHECKED-OUT resolver against a legacy bare-`sonnet` provider.
           # Fixed (6923f13) → ANTHROPIC_MODEL=claude-sonnet-4-6; unfixed / reverted
           # → 'sonnet' → Anthropic gateway 503 model_not_found. Written to a temp
@@ -153,7 +154,6 @@ jobs:
           console.log('✓ ClaudeCode sonnet alias -> ' + env.ANTHROPIC_MODEL);
           TS
           CODEX_DISABLED=1 npx tsx preview-gate-sonnet.ts
-          rm -f preview-gate-sonnet.ts
       - name: P0 regression pins (Codex no---listen + ClaudeCode alias canonicalization)
         run: |
           CODEX_DISABLED=1 npx tsx --test --import ./src/__tests__/db-isolation.setup.ts \
