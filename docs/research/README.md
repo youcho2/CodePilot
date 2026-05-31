@@ -18,6 +18,7 @@
 | mcp-tooling-agent-sdk-review-2026-03-10.md | MCP 工具 + Agent SDK 集成调研 |
 | skills-agent-sdk-review-2026-03-10.md | Skills + Agent SDK 集成调研 |
 | issue-analysis-2026-04-02.md | GitHub Issues #356-#417 分类分析：第三方 Provider CLI 崩溃、配置持久化丢失、Windows 兼容性 |
+| packaged-preview-runtime-diagnosis-2026-05-31.md | **预览包运行时启动诊断**：Codex「应用服务启动失败」(=spawn_failed 三产生点 → reason 分诊：过时构建/旧版本/协议不匹配) + 「正在准备运行环境/模型加载中」延迟（模型列表请求在途 + runtime 异步解析重取 + Codex app-server 冷启）；机制已定位，待用户日志/reason 确认。关联 preview-build-readiness Phase 1 |
 | tool-call-thinking-display.md | 工具调用思考过程展示实现方案（数据链路、组件改动、设计决策） |
 | tool-call-ux-competitive-analysis.md | 工具调用 UX 竞品调研：Claude Code / CraftAgent / Opencode / Codex 的展示与交互设计对比 |
 | agent-loop-self-built.md | 脱离 Claude Code：自建 Agent Loop 替代 SDK — Vercel AI SDK streamText 方案 |

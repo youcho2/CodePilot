@@ -129,8 +129,10 @@
 
 ### 实现路径（不需用户审阅）
 
+> **打包态运行时启动的症状 → 机制 → 分诊信号 → 需要的日志，已整理在 [`docs/research/packaged-preview-runtime-diagnosis-2026-05-31.md`](../../research/packaged-preview-runtime-diagnosis-2026-05-31.md)**（Codex「应用服务启动失败」= `spawn_failed` 三产生点的 reason 分诊；「正在准备运行环境」= 模型列表请求在途 + runtime 异步解析重取 + Codex app-server 冷启）。下面两条 packaged P0 的根因待该文所列日志确认。
+
 - #34：先定位断点。区分 scheduler 未调用通知、Electron Notification API 被系统拒绝、IPC 丢上下文、Focus/权限阻止四类原因。加可观测日志后再修。
-- packaged P0 / Codex：先确认当前 HEAD 是否包含 `6923f13 fix(runtime): unblock preview Codex and Claude Code startup` 等后续修复；再检查 packaged `dist-electron/main.js` 与 source 是否一致。用户日志里的 `--listen` 是旧协议参数，不允许靠 UI 文案绕过，必须在启动命令层修掉并加 packaged smoke。
+- packaged P0 / Codex：先确认当前 HEAD 是否包含 `6923f13 fix(runtime): unblock preview Codex and Claude Code startup` 等后续修复；再检查 packaged `dist-electron/main.js` 与 source 是否一致。用户日志里的 `--listen` 是旧协议参数，不允许靠 UI 文案绕过，必须在启动命令层修掉并加 packaged smoke。**「应用服务启动失败」= `spawn_failed`，reason 在屏幕「Codex 应用服务启动失败：<reason>」+ 日志，先读 reason 再定是过时构建(--listen)/旧版本/协议不匹配——见上方诊断文档。**
 - packaged P0 / ClaudeCode：复现 `model_not_found sonnet` 的 resolver 输入，确认 packaged app 使用的 provider / model alias catalog 与 dev smoke 一致；把 "sonnet" 这种短别名解析到当前可用渠道，或在 packaged smoke 中明确失败。
 - packaged P0 / 版本：修 package version 单源，详见 Phase 0。
 - #27：给 `pin-incomplete` 独立文案与 severity，Runtime 页 / Health 页共用同一解释函数。
