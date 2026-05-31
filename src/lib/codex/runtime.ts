@@ -51,6 +51,7 @@ import {
   findCodexBinary,
   getCodexAppServer,
 } from './app-server-manager';
+import { clampCodexEffort } from './effort';
 import {
   translateCodexNotification,
   synthesizeFileChangedFromCompletedItem,
@@ -854,12 +855,17 @@ export const codexRuntime: AgentRuntime = {
           // `interrupt(sessionId)` can issue `turn/interrupt` with the
           // correct (threadId, turnId) pair per
           // `TurnInterruptParams = { threadId, turnId }` in the schema.
+          // Clamp Opus-only effort tiers (xhigh/max) to a Codex-accepted
+          // value before sending — Codex only knows minimal/low/medium/high
+          // and older builds reject unknown variants fatally. codex_runtime
+          // only; Claude Code / Native keep the full union. See ./effort.ts.
+          const codexEffort = clampCodexEffort(options.effort);
           const turnResult = await client.request<{ turn: { id: string } }>('turn/start', {
             threadId,
             input: [{ type: 'text', text: options.prompt }],
             ...(options.workingDirectory ? { cwd: options.workingDirectory } : {}),
             ...(options.model ? { model: options.model } : {}),
-            ...(options.effort ? { effort: options.effort } : {}),
+            ...(codexEffort ? { effort: codexEffort } : {}),
           });
           activeCodexTurns.set(sessionId, { threadId, turnId: turnResult.turn.id });
         } catch (err) {

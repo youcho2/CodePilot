@@ -34,6 +34,29 @@ interface SpawnedTransport extends CodexTransport {
 function makeStdioTransport(proc: ChildProcessWithoutNullStreams): SpawnedTransport {
   let buffer = '';
   let messageHandler: ((line: string) => void) | null = null;
+  const closeHandlers = new Set<(reason?: Error) => void>();
+  let closed = false;
+  let closeReason: Error | undefined;
+
+  // P0 (2026-06-01): surface process death to the JSON-RPC client so it
+  // rejects pending requests immediately instead of waiting out the 30s
+  // RPC timeout. Fires on both a non-zero exit (e.g. an old codex binary
+  // fatally rejecting ~/.codex/config.toml) and a spawn/runtime 'error'.
+  // `fireClose` is idempotent so exit + error can't double-notify.
+  function fireClose(reason?: Error) {
+    if (closed) return;
+    closed = true;
+    closeReason = reason;
+    for (const handler of closeHandlers) {
+      try { handler(reason); } catch { /* a bad subscriber must not block others */ }
+    }
+  }
+  proc.once('exit', (code, signal) => {
+    fireClose(new Error(`Codex app-server exited (code=${code} signal=${signal})`));
+  });
+  proc.on('error', (err) => {
+    fireClose(err instanceof Error ? err : new Error(String(err)));
+  });
 
   proc.stdout.setEncoding('utf8');
   proc.stdout.on('data', (chunk: string) => {
@@ -75,6 +98,17 @@ function makeStdioTransport(proc: ChildProcessWithoutNullStreams): SpawnedTransp
       return () => {
         if (messageHandler === handler) messageHandler = null;
       };
+    },
+    onClose(handler) {
+      // Already dead → notify synchronously so a client that attaches
+      // after a fast exit still fast-fails (closes the exit-before-attach
+      // race). Otherwise queue for the eventual exit/error.
+      if (closed) {
+        handler(closeReason);
+        return () => { /* nothing to unsubscribe */ };
+      }
+      closeHandlers.add(handler);
+      return () => closeHandlers.delete(handler);
     },
     async close() {
       messageHandler = null;

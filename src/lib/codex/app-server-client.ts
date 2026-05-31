@@ -39,6 +39,17 @@ export interface CodexTransport {
   send(message: string): void | Promise<void>;
   onMessage(handler: (line: string) => void): () => void;
   /**
+   * Subscribe to transport death (child process exit / socket error).
+   * Optional so simple/legacy transports stay valid. When implemented,
+   * the client uses it to reject all pending requests the instant the
+   * process dies, instead of letting each wait out the 30s RPC timeout.
+   *
+   * Contract: if the transport is ALREADY closed when `onClose` is
+   * called, it MUST invoke `handler` immediately (synchronously) — this
+   * closes the race where the process exits before the client attaches.
+   */
+  onClose?(handler: (reason?: Error) => void): () => void;
+  /**
    * Close the transport. Returns once the underlying resource has
    * been released (process killed, socket closed, etc.).
    */
@@ -110,7 +121,14 @@ export class CodexAppServerClient {
   private readonly anyNotificationHandlers = new Set<(method: string, params: unknown) => void>();
   private readonly serverRequestHandlers = new Map<string, ServerRequestHandler>();
   private unsubscribe: (() => void) | null = null;
+  private unsubscribeClose: (() => void) | null = null;
   private initializeResult: CodexInitializeResponse | null = null;
+  /**
+   * Set once the transport reports the process has died. Subsequent
+   * requests fast-fail with `closeReason` instead of timing out.
+   */
+  private closed = false;
+  private closeReason: Error | null = null;
   private readonly timeoutMs: number;
   private readonly maxOverloadRetries: number;
 
@@ -129,6 +147,33 @@ export class CodexAppServerClient {
   private attach(): void {
     if (this.unsubscribe) return;
     this.unsubscribe = this.transport.onMessage((line) => this.handleLine(line));
+    // P0 (2026-06-01): when the underlying process/transport dies, reject
+    // every pending request immediately instead of letting each wait out
+    // the 30s RPC timeout. Without this, a Codex app-server that exits
+    // during `initialize` (e.g. an older binary that fatally rejects the
+    // user's ~/.codex/config.toml) hangs the model-list fetch — and the
+    // chat composer + Settings pages that depend on it — for a full 30s.
+    // The transport invokes this synchronously if it is already closed,
+    // which also covers a process that exits before we attach.
+    // See docs/research/packaged-preview-runtime-diagnosis-2026-05-31.md.
+    if (this.transport.onClose) {
+      this.unsubscribeClose = this.transport.onClose((reason) => this.handleClose(reason));
+    }
+  }
+
+  /**
+   * Transport died — fail fast. Mark the client closed so new requests
+   * reject immediately, and reject everything currently in flight.
+   */
+  private handleClose(reason?: Error): void {
+    if (this.closed) return;
+    this.closed = true;
+    this.closeReason = reason ?? new Error('Codex app-server connection closed');
+    for (const [id, pending] of this.pending) {
+      if (pending.timer) clearTimeout(pending.timer);
+      pending.reject(this.closeReason);
+      this.pending.delete(id);
+    }
   }
 
   /**
@@ -180,7 +225,11 @@ export class CodexAppServerClient {
   }
 
   private requestOnce<TResult>(method: string, params?: unknown): Promise<TResult> {
+    // attach() may discover an already-dead transport and set `closed`.
     if (!this.unsubscribe) this.attach();
+    if (this.closed) {
+      return Promise.reject(this.closeReason ?? new Error('Codex app-server connection closed'));
+    }
     return new Promise<TResult>((resolve, reject) => {
       const id = this.nextId++;
       const timer =
@@ -290,6 +339,9 @@ export class CodexAppServerClient {
   async dispose(): Promise<void> {
     this.unsubscribe?.();
     this.unsubscribe = null;
+    this.unsubscribeClose?.();
+    this.unsubscribeClose = null;
+    this.closed = true;
     for (const [id, pending] of this.pending) {
       if (pending.timer) clearTimeout(pending.timer);
       pending.reject(new Error(`Codex RPC aborted: ${pending.method} (client disposed)`));

@@ -48,6 +48,18 @@
 | **不做：spawn 时 `-c model_reasoning_effort=high`** | 否决。当前 `0.133` 接受 xhigh → 这是 no-op；且它会**强行覆盖用户自己的 Codex 配置默认**；又无法验证它能救回旧二进制（旧二进制已卸载，且日志错误正是 "**overridden** config" 失败）。用 P0 快速失败替代"猜着纠正用户配置"。 |
 | **问题 A/C（准备运行环境 / 几十秒）** | P0 修好后自然好（30s→瞬时失败降级）；可再给 `/api/providers/models` 的 Codex 分支加一道短超时做双保险。 |
 
+### ✅ 实现状态（2026-06-01，已提交）
+
+- **P0 已实现（transport/client 层，比只在 manager race initialize 更干净）**：
+  - `app-server-client.ts`：`CodexTransport` 增加可选 `onClose`；client 在 `attach()` 订阅，进程死时 `handleClose()` **立即 reject 所有 pending** 并置 `closed`；`requestOnce` 在 `closed` 时直接 reject，不再发往死管道。
+  - `app-server-manager.ts`：`makeStdioTransport` 在 `proc` `exit`/`error` 时 `fireClose()`；对**已关闭后才订阅**的 client 同步回放（消除"进程先退、client 后 attach"竞态）。
+  - 回归测试 `codex-app-server-client.test.ts`「transport close (P0)」：核心用例用**真实 30s 超时**配置，断言 close 后 reject 耗时 `< 1000ms`（回归即慢且失败）；另覆盖"全部 in-flight 一起 reject""close 后新请求快速失败不写管道""exit-before-attach 竞态"。
+- **P1 已实现（仅 codex_runtime）**：
+  - 新增 `src/lib/codex/effort.ts` 的 `clampCodexEffort`：`xhigh`/`max`→`high`，`minimal/low/medium/high` 原样，未知→省略；`runtime.ts` 的 `turn/start` 改用 clamp 后的值。**不碰** Claude Code / Native 的 Opus effort（它们不 import 此函数）。
+  - 回归测试 `codex-effort-clamp.test.ts`：覆盖 `xhigh→high` / `max→high` / 四档原样 / 空与未知省略。
+- **验证**：`npm run test` typecheck 干净 + **3103 单测全过**（含上述新增）。
+- **未做**：spawn `-c` 覆盖（已否决，理由见表）；`/api/providers/models` Codex 分支的额外短超时（P0 已把 30s→瞬时，此项作为可选双保险留待按需）。
+
 > 下方「日志确认」与「下一步」中凡是「xhigh 来自配置 → 改配置 / `-c` 覆盖」的表述，**以本节为准**。日志推断的方向（30s 超时是统一放大器、ABI、sonnet）依然成立，只有 xhigh 的因果被本节修正。
 
 ---

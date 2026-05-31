@@ -23,6 +23,9 @@ import { CODEX_CLIENT_NAME, JSON_RPC_OVERLOADED_CODE } from '@/lib/codex/types';
 
 function makeMockTransport() {
   let messageHandler: ((line: string) => void) | null = null;
+  const closeHandlers = new Set<(reason?: Error) => void>();
+  let closed = false;
+  let closeReason: Error | undefined;
   const sent: string[] = [];
   const transport: CodexTransport = {
     send(message) {
@@ -34,6 +37,16 @@ function makeMockTransport() {
         if (messageHandler === handler) messageHandler = null;
       };
     },
+    onClose(handler) {
+      // Mirror the production stdio transport: notify immediately if the
+      // process is already gone (exit-before-attach race).
+      if (closed) {
+        handler(closeReason);
+        return () => { /* nothing to unsubscribe */ };
+      }
+      closeHandlers.add(handler);
+      return () => closeHandlers.delete(handler);
+    },
     async close() {
       messageHandler = null;
     },
@@ -44,6 +57,13 @@ function makeMockTransport() {
     emit(line: string) {
       if (!messageHandler) throw new Error('no message handler attached');
       messageHandler(line);
+    },
+    /** Simulate the child process / transport dying. */
+    emitClose(reason?: Error) {
+      if (closed) return;
+      closed = true;
+      closeReason = reason;
+      for (const h of [...closeHandlers]) h(reason);
     },
     /** Wait one microtask so client-side promise wiring settles. */
     flush: () => new Promise<void>((r) => setImmediate(r)),
@@ -335,5 +355,58 @@ describe('CodexAppServerClient — dispose', () => {
     await mock.flush();
     await client.dispose();
     await assert.rejects(promise, /aborted.*disposed/);
+  });
+});
+
+describe('CodexAppServerClient — transport close (P0: fast-fail, not 30s timeout)', () => {
+  it('rejects a pending request immediately when the process exits — NOT after the 30s timeout', async () => {
+    const mock = makeMockTransport();
+    // Real 30s default: a regression that waits the timeout would make this
+    // test slow AND fail the elapsed assertion below.
+    const client = new CodexAppServerClient(mock.transport, { version: '0.0.0', requestTimeoutMs: 30_000 });
+    const promise = client.initialize();
+    await mock.flush();
+    // Server never responds; the app-server dies (e.g. old binary rejecting
+    // ~/.codex/config.toml → exit 1).
+    const start = Date.now();
+    mock.emitClose(new Error('Codex app-server exited (code=1 signal=null)'));
+    await assert.rejects(promise, /exited \(code=1/);
+    const elapsed = Date.now() - start;
+    assert.ok(elapsed < 1000, `expected fast-fail on close, took ${elapsed}ms (regression: waiting the 30s RPC timeout?)`);
+    await client.dispose();
+  });
+
+  it('rejects ALL in-flight requests on close, each with the close reason', async () => {
+    const mock = makeMockTransport();
+    const client = new CodexAppServerClient(mock.transport, { version: '0.0.0', requestTimeoutMs: 30_000 });
+    const a = client.request('model/list');
+    const b = client.request('thread/start');
+    await mock.flush();
+    mock.emitClose(new Error('transport gone'));
+    await assert.rejects(a, /transport gone/);
+    await assert.rejects(b, /transport gone/);
+    await client.dispose();
+  });
+
+  it('fast-fails NEW requests issued after the transport has closed (no write to a dead pipe)', async () => {
+    const mock = makeMockTransport();
+    const client = new CodexAppServerClient(mock.transport, { version: '0.0.0', requestTimeoutMs: 30_000 });
+    await client.notify('initialized', {}); // forces attach so onClose is wired
+    mock.emitClose(new Error('boom'));
+    const sentBefore = mock.sent.length;
+    await assert.rejects(client.request('model/list', { includeHidden: false }), /boom/);
+    assert.equal(mock.sent.length, sentBefore, 'must not send to a closed transport');
+    await client.dispose();
+  });
+
+  it('handles the exit-before-attach race — close before initialize still rejects fast', async () => {
+    const mock = makeMockTransport();
+    const client = new CodexAppServerClient(mock.transport, { version: '0.0.0', requestTimeoutMs: 30_000 });
+    // Process dies BEFORE the client ever attaches / sends initialize.
+    mock.emitClose(new Error('died early'));
+    const start = Date.now();
+    await assert.rejects(client.initialize(), /died early/);
+    assert.ok(Date.now() - start < 1000, 'already-closed transport must reject the next request synchronously');
+    await client.dispose();
   });
 });
