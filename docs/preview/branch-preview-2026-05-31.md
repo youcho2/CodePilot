@@ -12,8 +12,8 @@
 
 | 平台 | 架构 | 包 | SHA-256 | 状态 |
 |------|------|----|---------|------|
-| macOS | Apple Silicon | `/Users/op7418/Documents/code/opus-4.6-test/.claude/worktrees/product-refactor-research/release-preview-2026-05-31/CodePilot-0.53.0-preview-2026-05-31-arm64.dmg` | `7965d9f51df41814c86785d0a16cc64966f5a9dc1692f35e0c10ee684ed285a8` | ✅ `codesign --deep --strict` + `hdiutil verify` 通过 |
-| macOS | Intel x64 | `/Users/op7418/Documents/code/opus-4.6-test/.claude/worktrees/product-refactor-research/release-preview-2026-05-31/CodePilot-0.53.0-preview-2026-05-31-x64.dmg` | `be65141fd48643439f0d95a9cd94e56cd3e5fe2ed686cf91a8096d22bd351bd0` | ✅ `codesign --deep --strict` + `hdiutil verify` 通过 |
+| macOS | Apple Silicon | `/Users/op7418/Documents/code/opus-4.6-test/.claude/worktrees/product-refactor-research/release-preview-2026-05-31/CodePilot-0.53.0-preview-2026-05-31-arm64.dmg` | `7965d9f51df41814c86785d0a16cc64966f5a9dc1692f35e0c10ee684ed285a8` | 🚫 **已废弃 / 不分发**（0.53.0 旧版 + 6923f13 前过时构建，仅诊断样本；当时 codesign/hdiutil 通过不代表可发） |
+| macOS | Intel x64 | `/Users/op7418/Documents/code/opus-4.6-test/.claude/worktrees/product-refactor-research/release-preview-2026-05-31/CodePilot-0.53.0-preview-2026-05-31-x64.dmg` | `be65141fd48643439f0d95a9cd94e56cd3e5fe2ed686cf91a8096d22bd351bd0` | 🚫 **已废弃 / 不分发**（0.53.0 旧版 + 6923f13 前过时构建，仅诊断样本；当时 codesign/hdiutil 通过不代表可发） |
 | Windows | x64 | 待 Windows 机器本地构建 | 待补 | ⏳ 不能在 Mac 上交叉构建可用包 |
 
 说明：
