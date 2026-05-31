@@ -56,8 +56,16 @@ export function getDb(): Database.Database {
       fs.mkdirSync(dir, { recursive: true });
     }
 
-    // Migrate from old locations if the new DB doesn't exist yet
-    if (!fs.existsSync(DB_PATH)) {
+    // Migrate from old locations if the new DB doesn't exist yet.
+    //
+    // CODEPILOT_DISABLE_DB_MIGRATION_IN_TESTS (set by the unit-test
+    // db-isolation setup, never in prod) skips this copy entirely. Without
+    // it, any fresh temp dataDir — including one a test re-points to in its
+    // own beforeEach without pre-touching an empty codepilot.db — would copy
+    // the user's REAL ~/Library/.../codepilot.db into /tmp, leaking real data
+    // and coupling the test to real contents. This is the worker-wide backstop
+    // (the setup's empty-file pre-touch only covers the initial dir).
+    if (!fs.existsSync(DB_PATH) && process.env.CODEPILOT_DISABLE_DB_MIGRATION_IN_TESTS !== '1') {
       const home = os.homedir();
       const oldPaths = [
         // Old Electron userData paths (app.getPath('userData'))

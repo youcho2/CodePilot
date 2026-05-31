@@ -1,8 +1,8 @@
 # set -e 收紧整条 hook（tech-debt #30）：2026-05-29 之前四条命令未串联，husky 只认
 # 最后一条（unit test）的退出码，导致失败的 lint-staged / tsc / docs-drift 被静默放行。
 # 加 set -e 后任一非零即中止提交。注意：lint-staged 只 lint 暂存文件，故未触碰文件里的
-# 存量 error（9 个 react-hooks 组件 on-touch 债）不会挡住提交。
-# 详见 docs/exec-plans/active/post-refactor-cleanup.md Phase D。
+# 存量 error（13 个 React Compiler error / 9 组件，on-touch 债 → tech-debt #35）不会挡住提交。
+# 详见 docs/exec-plans/completed/post-refactor-cleanup.md Phase D（已归档）。
 set -e
 
 node scripts/lint-hooks.mjs

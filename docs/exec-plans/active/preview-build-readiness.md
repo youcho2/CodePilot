@@ -82,7 +82,7 @@
 
 ## Phase 1：预览前必修用户可见问题
 
-> 这一 phase 消化 `post-refactor-cleanup.md` 里还没完成的 B/C。Phase A（Opus 4.8 + Sonnet 4.6）已完成并 smoke；Phase D1（pre-commit enforce）已完成；D2 react-hooks / flake 留债，不作为 preview blocker。
+> 这一 phase 消化 `post-refactor-cleanup.md`（已完成归档至 completed/）的 B/C——**代码已全部完成**，本 phase 只做真机 / 权限验收。Phase A（Opus 4.8 + Sonnet 4.6）已完成并 smoke；Phase D1（enforce）+ D2 均已完成：**D2 的 unit flake 已用 per-worker temp DB 隔离根治**（commit cd2a024），剩 13 个 React Compiler error 拆 tech-debt #35（on-touch，不作为 preview blocker）。
 
 ### 用户能看到什么
 
@@ -277,7 +277,7 @@ macOS 预览包保留本轮新视觉，但不因为透明 / vibrancy / floating 
 - 最大技术风险：#28 需要三 Runtime 的 shell context 统一注入，不能只改一处 prompt。
 - 最大产品风险：Windows 包如果没真实机器验证，不能说 Windows ready。
 - 最大发布风险：preview 包被用户误以为 stable；Phase 0 必须先处理命名 / release notes / 回滚说明。
-- 最大流程风险：D2 unit flake 仍可能误挡提交；这不阻塞 preview，但每次失败必须记录，不得用 `--no-verify` 混过去。
+- 流程：D2 unit flake **已根治**（per-worker temp DB 隔离 + 禁测试迁移真实库，commit cd2a024 / 本轮 followup），提交不再被 flake 误挡；仍保持纪律——任何提交失败必须查明根因，不得用 `--no-verify` 混过去。
 
 ### 不变量
 

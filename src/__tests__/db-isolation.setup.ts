@@ -32,6 +32,14 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
+// Worker-wide backstop against real-DB leakage. Even if a test re-points
+// CLAUDE_GUI_DATA_DIR to its own temp dir in beforeEach WITHOUT pre-touching
+// an empty codepilot.db, db.ts must never copy the user's real
+// ~/Library/.../codepilot.db into it. This flag makes db.ts skip the
+// legacy-migration copy for the whole process (see db.ts getDb()). Set
+// unconditionally — it must hold no matter who owns CLAUDE_GUI_DATA_DIR.
+process.env.CODEPILOT_DISABLE_DB_MIGRATION_IN_TESTS = '1';
+
 if (!process.env.CLAUDE_GUI_DATA_DIR) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'codepilot-unit-db-'));
   process.env.CLAUDE_GUI_DATA_DIR = root;
