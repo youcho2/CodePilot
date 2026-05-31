@@ -46,6 +46,7 @@ next-env.d.ts
 # electron
 /dist-electron/
 /release/
+/release-*/
 
 # test artifacts
 /playwright-report/

@@ -36,6 +36,7 @@
     "dist-electron",
     "scripts",
     "release",
+    "release-*",
     "apps",
     "packages",
     ".claude",
