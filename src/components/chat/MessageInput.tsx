@@ -26,7 +26,7 @@ import { FileAwareSubmitButton, FileTreeAttachmentBridge, FileAttachmentsCapsule
 import { useMentionTokenEstimate } from '@/hooks/useMentionTokenEstimate';
 import { dataUrlToFileAttachment } from '@/lib/file-utils';
 import { usePopoverState } from '@/hooks/usePopoverState';
-import { useProviderModels } from '@/hooks/useProviderModels';
+import { useProviderModels, isComposerProviderLoading } from '@/hooks/useProviderModels';
 // Import from `chat-runtime-shared` (client-safe). See ChatView import
 // note + `src/lib/chat-runtime-shared.ts` doc-block. Even type-only
 // imports from `chat-runtime.ts` are risky if the build leans on
@@ -196,12 +196,13 @@ export function MessageInput({
     if (initialValue) return initialValue;
     try { return sessionStorage.getItem(draftKey) || ''; } catch { return ''; }
   });
-  // Track the last `initialValue` we adopted so the warm-navigation sync
-  // below only fires when the prop ACTUALLY changes (not on every render
-  // where the prop is stable). Initialised to the same value the
-  // useState initialiser saw, so the first effect pass after mount is
-  // a no-op and we don't double-set inputValue.
-  const adoptedInitialValueRef = useRef(initialValue);
+  // Track the last `initialValue` we've reconciled so the warm-navigation
+  // sync below fires only when the prop ACTUALLY transitions (not on every
+  // render where it's stable). State (not a ref) so the reconcile can run
+  // during render — reading a ref during render is itself a React Compiler
+  // bailout. Initialised to the mount-time `initialValue`, so the first
+  // render is a no-op and we don't double-set inputValue.
+  const [seenInitialValue, setSeenInitialValue] = useState(initialValue);
   const [mentionNodeTypes, setMentionNodeTypes] = useState<Record<string, 'file' | 'directory'>>({});
   // Directories attached via the file tree's "+" button. Kept separate
   // from textarea-driven `@folder` mentions so the chip lives in the
@@ -220,28 +221,22 @@ export function MessageInput({
   }, [draftKey]);
 
   // Warm-navigation prefill sync. The `useState` initialiser above only
-  // runs at mount — if `initialValue` arrives later (e.g. /chat is
-  // already mounted and the URL changes to /chat?prefill=…, or the
-  // parent reads URL via `useSearchParams` after first paint), the
-  // textarea would otherwise stay empty. Adopt the new value when (and
-  // only when) the prop actually transitions to a non-empty string we
-  // haven't seen before. Mirrors the mount-time priority: prefill beats
-  // any persisted draft. Stable initialValue across renders → no-op.
-  useEffect(() => {
-    if (initialValue && initialValue !== adoptedInitialValueRef.current) {
-      adoptedInitialValueRef.current = initialValue;
-      // Prop → state sync: prefill arrives after mount via URL change; the
-      // ref guard prevents cascading renders, but the lint rule can't see
-      // that the guard makes the update one-shot per transition.
-       
-      setInputValue(initialValue);
-    } else if (!initialValue) {
-      // Prop went back to empty (e.g. user navigated away from a
-      // prefill URL). Reset the ref so a future re-arrival of the same
-      // prefill text is treated as a fresh transition.
-      adoptedInitialValueRef.current = '';
+  // runs at mount — if `initialValue` arrives later (e.g. /chat is already
+  // mounted and the URL changes to /chat?prefill=…, or the parent reads URL
+  // via `useSearchParams` after first paint), the textarea would otherwise
+  // stay empty. React's "adjust state when a prop changes" pattern (render
+  // time, not an effect — https://react.dev/learn/you-might-not-need-an-effect):
+  // when `initialValue` transitions to a new value we adopt it; when it goes
+  // back to empty we just record the transition so a later re-arrival of the
+  // same prefill text counts as fresh. `setInputValueRaw` (not setInputValue)
+  // because we're mid-render — the persisted-draft write happens on the next
+  // user keystroke, and a URL prefill is re-derivable from the URL anyway.
+  if (initialValue !== seenInitialValue) {
+    setSeenInitialValue(initialValue);
+    if (initialValue) {
+      setInputValueRaw(initialValue);
     }
-  }, [initialValue, setInputValue]);
+  }
 
   // Phase 4 — `codepilot:add-to-chat` listener. Selection from
   // PreviewPanel dispatches a window event with the selected text +
@@ -299,7 +294,9 @@ export function MessageInput({
   // --- Extracted hooks ---
   const popover = usePopoverState(modelName);
   const { providerGroups, runtimeApplied, currentProviderIdValue, modelOptions, currentModelOption, globalDefaultModel, globalDefaultProvider, fetchState } = useProviderModels(providerId, modelName, runtime);
-  const isProviderLoading = fetchState === 'idle';
+  // P0.4 — only show "正在准备运行环境…" during the genuine first load, not
+  // on a background refetch when a sendable model is already resolved.
+  const isProviderLoading = isComposerProviderLoading(fetchState, !!currentModelOption);
 
   // Auto-correct model when it doesn't exist in the current provider's model list.
   // This prevents sending an unsupported model name (e.g. 'opus' to MiniMax which only has 'sonnet').

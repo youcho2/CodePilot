@@ -182,6 +182,14 @@ export function useOverviewData(): OverviewState {
       }
 
       // Unfiltered group list — for the Models aggregate + provider count.
+      // P0.4 (2026-06-01): the per-provider `?all=1` deep fetch below is the
+      // only UNBOUNDED-N part of this hook (one request per configured
+      // provider). Keep the aggregate totals (provider count, enabled/total)
+      // in this first paint — they come from the single modelsAll response —
+      // but DEFER the manual-count deep fetches to a follow-up patch so the
+      // dashboard's core + inventory cards render without waiting on a long
+      // provider list. modelsManual* stay 0 until the patch lands.
+      let dbGroupsToCount: ProviderModelGroup[] = [];
       if (modelsAllRes.ok) {
         const data = (await modelsAllRes.json()) as { groups?: ProviderModelGroup[] };
         const groups = data.groups ?? [];
@@ -195,25 +203,8 @@ export function useOverviewData(): OverviewState {
         }
         next.modelsTotal = total;
         next.modelsEnabled = enabled;
-
-        // Per-provider deep fetch for manual_enabled / manual_hidden counts.
-        const dbGroups = groups.filter(
+        dbGroupsToCount = groups.filter(
           (g) => g.provider_id !== "env" && g.provider_id !== "openai-oauth",
-        );
-        await Promise.all(
-          dbGroups.map(async (g) => {
-            try {
-              const r = await fetch(`/api/providers/${g.provider_id}/models?all=1`);
-              if (!r.ok) return;
-              const j = (await r.json()) as { models?: ModelRow[] };
-              for (const m of j.models ?? []) {
-                if (m.enable_source === "manual_enabled") next.modelsManualEnabled += 1;
-                else if (m.enable_source === "manual_hidden") next.modelsManualHidden += 1;
-              }
-            } catch {
-              /* ignore */
-            }
-          }),
         );
       }
 
@@ -228,7 +219,32 @@ export function useOverviewData(): OverviewState {
         if (summary?.configured) next.workspaceConfigured = true;
       }
 
+      // First paint: everything except the per-provider manual counts.
       setState(next);
+
+      // Phase 2 (non-blocking): per-provider deep fetch for manual_enabled /
+      // manual_hidden counts. A slow / large provider list can't hold up the
+      // dashboard's core + inventory cards anymore — they're already painted.
+      if (dbGroupsToCount.length > 0) {
+        let manualEnabled = 0;
+        let manualHidden = 0;
+        await Promise.all(
+          dbGroupsToCount.map(async (g) => {
+            try {
+              const r = await fetch(`/api/providers/${g.provider_id}/models?all=1`);
+              if (!r.ok) return;
+              const j = (await r.json()) as { models?: ModelRow[] };
+              for (const m of j.models ?? []) {
+                if (m.enable_source === "manual_enabled") manualEnabled += 1;
+                else if (m.enable_source === "manual_hidden") manualHidden += 1;
+              }
+            } catch {
+              /* ignore */
+            }
+          }),
+        );
+        setState((prev) => ({ ...prev, modelsManualEnabled: manualEnabled, modelsManualHidden: manualHidden }));
+      }
     } catch {
       setState((prev) => ({ ...prev, loading: false }));
     }

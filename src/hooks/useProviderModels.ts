@@ -36,6 +36,25 @@ export const DEFAULT_MODEL_OPTIONS: DefaultModelOption[] = [
   },
 ];
 
+/**
+ * Should the chat composer show "正在准备运行环境…"?
+ *
+ * P0.4 (2026-06-01): only during the GENUINE first load — i.e. while the
+ * feed is in-flight AND no sendable model has resolved yet. Once a model is
+ * resolved, a background refetch (provider-changed / runtime switch resets
+ * `fetchState` to 'idle' but keeps the prior `providerGroups`) must NOT
+ * re-flash the placeholder. Previously the composer keyed purely on
+ * `fetchState === 'idle'`, so every refetch — including the full-catalog
+ * background load that a broken Codex used to stall — froze the input on
+ * "正在准备运行环境…" even though a perfectly sendable model was already known.
+ */
+export function isComposerProviderLoading(
+  fetchState: 'idle' | 'loaded' | 'failed',
+  hasResolvedModel: boolean,
+): boolean {
+  return fetchState === 'idle' && !hasResolvedModel;
+}
+
 export interface UseProviderModelsReturn {
   providerGroups: ProviderModelGroup[];
   /**
