@@ -277,3 +277,18 @@ grep -n "model_reasoning_effort\|model" ~/.codex/config.toml
 - 2026-06-01: Codex 代码审查判断 `/api/providers/models` 仍可能被 Codex `model/list` 慢请求拖住，这是 Settings 和 MessageInput 长时间 loading 的共同入口。
 - 2026-06-01: 用户提供另一台电脑日志。日志确认 `0.55.0-preview.4` 包仍选择旧 `/opt/homebrew/bin/codex`，该 binary 因 `xhigh` 配置 fatal，并且约 30 秒后才退出；同时暴露裸 `sonnet` 仍会打到 Claude Code compat provider 的独立问题。
 - 2026-06-01: 用户在另一台 Mac 实跑定位命令，确认 PATH 只有 `/opt/homebrew/bin/codex` (`0.45.0`)，Codex.app 内置 binary 为 `0.135.0-alpha.1`，且配置含 `model_reasoning_effort = "xhigh"`。产品侧必须避免旧 PATH binary 抢过新 Codex.app。
+
+## ✅ 实现状态（2026-06-01，本分支已提交）
+
+| 项 | 修法 | commit | 验证 |
+|----|------|--------|------|
+| **P0.1** binary 发现 | 多候选 probe `codex --version` 选最高版本（`selectBestCodexCandidate`），旧 PATH 0.45 不再压过 .app 0.135；单候选不 probe；结果 memoize（带 test reset）；日志打印 selected binary + reason；CODEX_BIN 仍最高 | `0106b07` | 纯函数单测（旧 PATH + .app → 选 .app）+ source pin；真实 transport smoke |
+| **P0.2** fatal stderr 快速失败 | stderr 命中致命配置错误即 `fireClose`（reject pending）+ SIGKILL，不等旧 codex 拖 ~30s 退出 | `0106b07`（P2 收窄 `2935340`） | `isFatalCodexConfigStderr` 正/反例（收窄后裸 `unknown variant` 无 config 上下文不致命）+ source pin；真实 smoke 386ms |
+| **P0.3** 模型发现解耦 | `buildCodexProviderModelGroup/listCodexModels` 加 `cacheOnly/timeoutMs`；route：full-catalog `cacheOnly`（不 spawn）、`codex_runtime` 短超时降级、其它 runtime 跳过 | `d594fb0` | DI seam 单测（cacheOnly 0 spawn、hang→timeout reject）+ route source pin |
+| **P0.4** 输入框/概览 loading | 输入框"准备运行环境"判据改 `idle && 无已解析模型`（`isComposerProviderLoading`）；概览 per-provider `?all=1` 移出阻塞阶段 | `9e85e5f`（顺带清 MessageInput #35 on-touch 债） | 纯函数真值表 + useOverviewData/prefill source pin |
+| **P0.5** 裸 sonnet 规范化 | `canonicalAnthropicAliasUpstream`（固定映射）在 toClaudeCodeEnv + toAiSdkConfig 两条 send 路径；gate 收窄到"别名确在 availableModels（物化行）"以不违反旧多模型契约 | `75fdcc2` | DB 集成（物化 sonnet 行 → claude-sonnet-4-6）+ 纯函数 + 两路径 source pin |
+| **P1** macOS Tray 图标 | 新增单色 template `build/trayTemplate.png(+@2x)`（`scripts/gen-tray-icon.mjs` 从品牌图标生成）；`getTrayIconPath` + darwin `setTemplateImage(true)`；electron-builder extraResources 带上；mac.icon 仍 .icns | `dad0197` | source/asset pin（Tray 不指 .icns、必 setTemplateImage、extraResources 含资产、Win/Linux 不变、资产存在）；minimatch 打包检查 |
+
+- 全程 pre-commit 全套单测通过、无 `--no-verify`；typecheck 干净；累计 3154 单测全过。
+- **待真机视觉验收（下一版 packaged 包，另一台 Mac）**：菜单栏图标明暗模式可见；Settings/Chat 不再整体卡死、Codex 异常仅 degraded；Claude Code 能发普通消息；（验收清单见上方「Packaged smoke」表）。
+- Codex review（2026-06-01）：P0.1–P0.5 主线无阻塞；唯一 P2（fatal stderr 正则过宽）已在 `2935340` 收窄。
