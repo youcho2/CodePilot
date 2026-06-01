@@ -213,12 +213,16 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
+          FILES=()
+          while IFS= read -r f; do
+            FILES+=("$f")
+          done < <(find artifacts -type f \( -name "*.dmg" -o -name "*.zip" -o -name "*.exe" \) | sort)
+          FILES+=("SHA256SUMS.txt")
+          printf 'Release assets:\n'
+          printf ' - %s\n' "${FILES[@]}"
           gh release create "$GITHUB_REF_NAME" \
             --title "CodePilot ${{ needs.verify-source.outputs.version }} internal preview" \
             --notes-file release-notes.md \
             --prerelease \
             --latest=false \
-            artifacts/CodePilot-*.dmg \
-            artifacts/CodePilot-*-arm64*.zip \
-            artifacts/CodePilot.Setup.*.exe \
-            SHA256SUMS.txt
+            "${FILES[@]}"
