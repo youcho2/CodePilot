@@ -70,7 +70,7 @@ jobs:
           CODEX_DISABLED=1 npx tsx --test --import ./src/__tests__/db-isolation.setup.ts \
             src/__tests__/unit/codex-binary-discovery.test.ts \
             src/__tests__/unit/provider-resolver.test.ts \
-            src/__tests__/unit/app-server-client.test.ts
+            src/__tests__/unit/codex-app-server-client.test.ts
 
   build-macos-arm64:
     needs: verify-source
