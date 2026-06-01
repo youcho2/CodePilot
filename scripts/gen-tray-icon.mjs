@@ -15,10 +15,30 @@
  *   build/trayTemplate@2x.png   (32x32, retina)
  *
  * Run from repo root:  node scripts/gen-tray-icon.mjs
+ *
+ * Dependency note: this uses `sharp`, which is NOT a declared dependency — it
+ * ships transitively via Next.js's image optimization (same pattern as the
+ * existing scripts/generate-app-icon.mjs). The generated PNGs are committed and
+ * the BUILD does not run this script, so a fresh `npm ci --omit=optional` env
+ * that lacks sharp won't break packaging — only a manual rebrand re-run. If you
+ * hit "sharp not found", run `npm i -D sharp` once, then re-run this script.
  */
-import sharp from 'sharp';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+
+// Dynamic import so a missing `sharp` (e.g. omitted optional deps) fails with an
+// actionable message instead of an opaque module-resolution error.
+let sharp;
+try {
+  sharp = (await import('sharp')).default;
+} catch {
+  console.error(
+    '[gen-tray-icon] `sharp` not found. It normally ships transitively via Next.js; ' +
+    'if it is missing (e.g. after `npm ci --omit=optional`), run `npm i -D sharp` then re-run. ' +
+    'This is a one-off regen-on-rebrand script and is NOT part of the build.',
+  );
+  process.exit(1);
+}
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const SRC = path.join(root, 'build', 'icon-source.png');
