@@ -283,6 +283,18 @@ describe('isFatalCodexConfigStderr — fatal-stderr detection (P0.2)', () => {
     assert.equal(isFatalCodexConfigStderr('INFO app_server.request{otel.name="model/list"}: enter'), false);
     assert.equal(isFatalCodexConfigStderr('listening on stdio'), false);
   });
+
+  it('does NOT SIGKILL on a bare `unknown variant` without config context (Codex P2 narrowing)', () => {
+    // A future non-fatal warning/log that merely contains "unknown variant"
+    // must NOT kill a healthy process — it's only fatal in a config-load context.
+    assert.equal(isFatalCodexConfigStderr('WARN something: unknown variant `foo` in the response payload'), false);
+    assert.equal(isFatalCodexConfigStderr('unknown variant'), false);
+  });
+
+  it('DOES match `unknown variant` when it co-occurs with config/deserialize context', () => {
+    assert.equal(isFatalCodexConfigStderr('config: unknown variant `xhigh` in `model_reasoning_effort`'), true);
+    assert.equal(isFatalCodexConfigStderr('failed to deserialize: unknown variant `xhigh`'), true);
+  });
 });
 
 describe('app-server-manager — P0.1/P0.2 wiring source pins', () => {

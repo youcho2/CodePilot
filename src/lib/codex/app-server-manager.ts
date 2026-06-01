@@ -40,7 +40,15 @@ interface SpawnedTransport extends CodexTransport {
  * fail the moment this signature appears on stderr.
  */
 export function isFatalCodexConfigStderr(chunk: string): boolean {
-  return /Failed to deserialize overridden config|error loading config|unknown variant/i.test(chunk);
+  // Two explicit, already config-scoped fatal signatures — a config load /
+  // deserialize failure is terminal regardless of the specific cause.
+  if (/Failed to deserialize overridden config|error loading config/i.test(chunk)) return true;
+  // `unknown variant` ALONE is too broad — a future non-fatal Codex warning /
+  // log line could contain it and we'd SIGKILL a healthy process. Only treat it
+  // as fatal when it co-occurs with config-load / deserialization context in
+  // the SAME chunk (Codex review 2026-06-01 P2). The real fatal lines read
+  // `... config: unknown variant \`xhigh\` ...`, so the context is always present.
+  return /unknown variant/i.test(chunk) && /config|deserializ/i.test(chunk);
 }
 
 /**
