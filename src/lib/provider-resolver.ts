@@ -173,6 +173,32 @@ export function normalizeOpenRouterAnthropicAlias(
   return model;
 }
 
+/**
+ * Canonical upstream IDs for the bare Anthropic UI aliases. Mirrors the env
+ * provider's model table (`envModels` below) + route.ts `DEFAULT_MODELS`.
+ */
+export const ANTHROPIC_ALIAS_UPSTREAM: Record<string, string> = {
+  sonnet: 'claude-sonnet-4-6',
+  opus: 'claude-opus-4-7',
+  haiku: 'claude-haiku-4-5-20251001',
+};
+
+/**
+ * P0.5 (2026-06-01) — map a bare Anthropic alias (`sonnet` / `opus` / `haiku`)
+ * to its real upstream id; returns undefined for anything else.
+ *
+ * This is DETERMINISTIC (a fixed alias→upstream table), unlike the
+ * single-model "first model in list" fallback — so it's safe to apply even
+ * for multi-model Claude-compat gateways. Without it, a legacy DB row
+ * `model_id='sonnet'` with a NULL / self upstream reaches a New-API /
+ * Claude-compat gateway verbatim as `sonnet` → "分组 auto 下模型 sonnet 无可用
+ * 渠道" 503 (observed 2026-06-01; tech-debt #23).
+ */
+export function canonicalAnthropicAliasUpstream(modelId: string | undefined | null): string | undefined {
+  if (!modelId) return undefined;
+  return ANTHROPIC_ALIAS_UPSTREAM[modelId];
+}
+
 export function resolveProvider(opts: ResolveOptions = {}): ResolvedProvider {
   const effectiveProviderId = opts.providerId || opts.sessionProviderId || '';
 
@@ -308,9 +334,17 @@ export function toClaudeCodeEnv(
   const roleModelForEnv = (modelId: string | undefined): string | undefined => {
     if (!modelId) return undefined;
     const catalogEntry = resolved.availableModels.find(model => model.modelId === modelId);
-    if (catalogEntry?.upstreamModelId) return catalogEntry.upstreamModelId;
-    if (modelId === resolved.model && resolved.upstreamModel) return resolved.upstreamModel;
-    return modelId;
+    const resolvedId = catalogEntry?.upstreamModelId
+      || (modelId === resolved.model ? resolved.upstreamModel : undefined)
+      || modelId;
+    // P0.5 — this builds the Claude Code (Anthropic) env. When the provider
+    // LISTS this alias as a model (catalogEntry) but the resolved id is still a
+    // bare alias (legacy self-referential / NULL upstream), canonicalize it so
+    // it can't ship to the gateway as `sonnet`/`opus`/`haiku` → 503 "no channel".
+    // If the alias isn't a listed model, preserve it (let upstream surface the
+    // real error — the existing multi-model contract).
+    if (catalogEntry) return canonicalAnthropicAliasUpstream(resolvedId) ?? resolvedId;
+    return resolvedId;
   };
 
   // Managed env vars that must be cleaned when switching providers to prevent leaks
@@ -523,6 +557,22 @@ export function toAiSdkConfig(
       if (onlyUpstream && !SHORT_ALIASES.has(onlyUpstream)) {
         modelId = onlyUpstream;
       }
+    }
+
+    // 4. P0.5 — a bare Anthropic alias that the provider LISTS as a model
+    //    (legacy materialized row with NULL/self upstream) on an anthropic
+    //    protocol provider: canonicalize to the real upstream id. Gated on
+    //    "alias is in availableModels" so we DON'T rewrite an alias the
+    //    provider doesn't offer (that stays bare → upstream surfaces the real
+    //    error, preserving the multi-model contract in step 3's note). Unlike
+    //    step 3 this is a fixed alias→upstream map, not "first model in list".
+    if (
+      SHORT_ALIASES.has(modelId) &&
+      resolved.protocol === 'anthropic' &&
+      resolved.availableModels.some(m => m.modelId === modelId)
+    ) {
+      const canon = canonicalAnthropicAliasUpstream(modelId);
+      if (canon) modelId = canon;
     }
   } else {
     modelId = resolved.upstreamModel || resolved.model || 'claude-sonnet-4-6';
