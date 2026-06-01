@@ -41,7 +41,9 @@ extraResources:
     filter: ["*.json"]
   - from: build/
     to: .
-    filter: ["icon.*"]
+    # icon.* = Dock/app/window icons; trayTemplate*.png = macOS menubar template
+    # (16x16 + @2x retina). Both land at process.resourcesPath root.
+    filter: ["icon.*", "trayTemplate*.png"]
 afterPack: scripts/after-pack.js
 afterSign: scripts/after-sign.js
 asarUnpack:
