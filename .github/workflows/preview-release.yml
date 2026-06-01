@@ -208,21 +208,19 @@ jobs:
           done
           cat SHA256SUMS.txt
 
+      - name: List release assets
+        run: find artifacts -type f \( -name "*.dmg" -o -name "*.zip" -o -name "*.exe" \) -print | sort
+
       - name: Create GitHub prerelease
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          set -euo pipefail
-          FILES=()
-          while IFS= read -r f; do
-            FILES+=("$f")
-          done < <(find artifacts -type f \( -name "*.dmg" -o -name "*.zip" -o -name "*.exe" \) | sort)
-          FILES+=("SHA256SUMS.txt")
-          printf 'Release assets:\n'
-          printf ' - %s\n' "${FILES[@]}"
-          gh release create "$GITHUB_REF_NAME" \
-            --title "CodePilot ${{ needs.verify-source.outputs.version }} internal preview" \
-            --notes-file release-notes.md \
-            --prerelease \
-            --latest=false \
-            "${FILES[@]}"
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: CodePilot ${{ needs.verify-source.outputs.version }} internal preview
+          body_path: release-notes.md
+          prerelease: true
+          make_latest: false
+          files: |
+            artifacts/*.dmg
+            artifacts/*.zip
+            artifacts/*.exe
+            SHA256SUMS.txt
