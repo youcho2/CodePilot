@@ -361,22 +361,37 @@ export async function GET(request: NextRequest) {
     } catch { /* OpenAI OAuth module not available */ }
 
     // Phase 5 Phase 2 (2026-05-13) — Codex Account virtual provider.
-    // Surfaces when (a) runtime filter is `codex_runtime` or absent
-    // (full-catalog mode), and (b) Codex app-server is reachable AND
-    // logged in. `buildCodexProviderModelGroup()` returns null on any
-    // failure (binary missing / not logged in / RPC error) so the
-    // chat picker stays usable when Codex isn't present.
     //
-    // We skip the call entirely when `runtimeFilter` is set and isn't
-    // `codex_runtime` — saves an unnecessary app-server RPC when the
-    // user is browsing models for ClaudeCode / CodePilot Runtime.
-    if (!runtimeFilter || runtimeFilter === 'codex_runtime') {
+    // P0.3 (2026-06-01) — Codex model discovery is an OPTIONAL enhancement
+    // and must NEVER block the global model feed. A broken/old Codex
+    // app-server was hanging this route ~30s, freezing Settings overview,
+    // the chat composer ("正在准备运行环境"), and the runtime health card.
+    // So the spawn policy now depends on the requested runtime:
+    //
+    //   - `codex_runtime` (explicit): allowed to spawn, but bounded by a
+    //     short timeout so a slow/broken app-server degrades to "no Codex
+    //     group" instead of hanging the response.
+    //   - no runtime (full catalog — Settings global selector / chat feed):
+    //     MUST NOT implicitly spawn. Serve a warm cache only; no cache →
+    //     skip the codex_account group this round.
+    //   - any other runtime filter (claude_code / codepilot_runtime): skip
+    //     Codex entirely — saves an unnecessary RPC.
+    if (runtimeFilter === 'codex_runtime') {
       try {
         const { buildCodexProviderModelGroup } = await import('@/lib/codex/models');
-        const codexGroup = await buildCodexProviderModelGroup();
+        const codexGroup = await buildCodexProviderModelGroup({ timeoutMs: 2500 });
         if (codexGroup) groups.push(codexGroup);
       } catch {
-        /* Codex module not available / app-server unreachable; ignore. */
+        /* degraded: Codex unreachable / timed out — no Codex group. */
+      }
+    } else if (!runtimeFilter) {
+      try {
+        const { buildCodexProviderModelGroup } = await import('@/lib/codex/models');
+        // cacheOnly — never spawn from the full-catalog path.
+        const codexGroup = await buildCodexProviderModelGroup({ cacheOnly: true });
+        if (codexGroup) groups.push(codexGroup);
+      } catch {
+        /* Codex module not available; ignore. */
       }
     }
 
