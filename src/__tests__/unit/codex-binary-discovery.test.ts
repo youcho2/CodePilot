@@ -22,7 +22,13 @@ import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { findCodexBinary } from '@/lib/codex/app-server-manager';
+import {
+  findCodexBinary,
+  parseCodexVersion,
+  selectBestCodexCandidate,
+  isFatalCodexConfigStderr,
+  resetCodexBinaryCacheForTests,
+} from '@/lib/codex/app-server-manager';
 
 const managerSrc = fs.readFileSync(
   path.resolve(__dirname, '../../lib/codex/app-server-manager.ts'),
@@ -54,6 +60,7 @@ describe('findCodexBinary — discovery order (round 6)', () => {
     // Pick a path that definitely exists (this test file).
     process.env.CODEX_BIN = __filename;
     process.env.PATH = '';
+    resetCodexBinaryCacheForTests();
     assert.equal(findCodexBinary(), null,
       'CODEX_DISABLED must beat CODEX_BIN — it is the test-harness escape hatch');
   });
@@ -62,6 +69,7 @@ describe('findCodexBinary — discovery order (round 6)', () => {
     delete process.env.CODEX_DISABLED;
     process.env.CODEX_BIN = __filename; // existing file
     process.env.PATH = '/no/such/dir';
+    resetCodexBinaryCacheForTests();
     const out = findCodexBinary();
     assert.equal(out, __filename,
       'CODEX_BIN must return the explicit path when the file exists');
@@ -71,6 +79,7 @@ describe('findCodexBinary — discovery order (round 6)', () => {
     delete process.env.CODEX_DISABLED;
     process.env.CODEX_BIN = '/definitely/does/not/exist/codex';
     process.env.PATH = '/no/such/dir';
+    resetCodexBinaryCacheForTests();
     // No PATH match, no real CLI on the test machine for sure — but
     // on macOS we may find the Codex.app fallback. So we only assert
     // that the result isn't the broken CODEX_BIN path.
@@ -169,6 +178,135 @@ describe('Codex app-server spawn compatibility', () => {
       managerSrc,
       /spawn\(binary,\s*\[[^\]]*['"]--listen['"]/,
       'app-server spawn args must not include --listen; older Codex.app builds reject it',
+    );
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────
+// P0.1 (2026-06-01) — version-aware binary discovery. The packaged P0 was
+// an old Homebrew /opt/homebrew/bin/codex 0.45.0 on PATH shadowing the
+// newer /Applications/Codex.app build 0.135.0; the old one rejected the
+// user's `xhigh` effort config fatally. Discovery must pick the newer one.
+// ─────────────────────────────────────────────────────────────────────
+
+describe('selectBestCodexCandidate — version-aware discovery (P0.1)', () => {
+  it('picks the newer Codex.app build over an older Homebrew codex listed first on PATH', () => {
+    const chosen = selectBestCodexCandidate([
+      { path: '/opt/homebrew/bin/codex', version: 'codex-cli 0.45.0' },
+      { path: '/Applications/Codex.app/Contents/Resources/codex', version: 'codex-cli 0.135.0-alpha.1' },
+    ]);
+    assert.equal(chosen, '/Applications/Codex.app/Contents/Resources/codex');
+  });
+
+  it('does NOT silently pick the old PATH binary even when listed first', () => {
+    const chosen = selectBestCodexCandidate([
+      { path: '/opt/homebrew/bin/codex', version: 'codex-cli 0.45.0' },
+      { path: '/Applications/Codex.app/Contents/Resources/codex', version: 'codex-cli 0.135.0-alpha.1' },
+    ]);
+    assert.notEqual(chosen, '/opt/homebrew/bin/codex');
+  });
+
+  it('compares numerically (0.135 > 0.45), not lexically', () => {
+    assert.equal(
+      selectBestCodexCandidate([
+        { path: '/a', version: '0.135.0' },
+        { path: '/b', version: '0.45.0' },
+      ]),
+      '/a',
+    );
+  });
+
+  it('a parseable version beats an unparseable one regardless of order', () => {
+    assert.equal(
+      selectBestCodexCandidate([
+        { path: '/broken', version: null },
+        { path: '/ok', version: 'codex-cli 0.45.0' },
+      ]),
+      '/ok',
+    );
+    assert.equal(
+      selectBestCodexCandidate([
+        { path: '/ok', version: 'codex-cli 0.45.0' },
+        { path: '/broken', version: null },
+      ]),
+      '/ok',
+    );
+  });
+
+  it('equal versions keep input order (PATH-first tiebreak preserves the custom-build intent)', () => {
+    assert.equal(
+      selectBestCodexCandidate([
+        { path: '/usr/local/bin/codex', version: '0.135.0' },
+        { path: '/Applications/Codex.app/Contents/Resources/codex', version: '0.135.0' },
+      ]),
+      '/usr/local/bin/codex',
+    );
+  });
+
+  it('returns null for no candidates', () => {
+    assert.equal(selectBestCodexCandidate([]), null);
+  });
+});
+
+describe('parseCodexVersion', () => {
+  it('parses `codex-cli 0.135.0-alpha.1` → [0,135,0]', () => {
+    assert.deepEqual(parseCodexVersion('codex-cli 0.135.0-alpha.1'), [0, 135, 0]);
+  });
+  it('parses a bare `0.45.0`', () => {
+    assert.deepEqual(parseCodexVersion('0.45.0'), [0, 45, 0]);
+  });
+  it('returns null for null / garbage', () => {
+    assert.equal(parseCodexVersion(null), null);
+    assert.equal(parseCodexVersion('no version here'), null);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────
+// P0.2 (2026-06-01) — fatal-stderr fast-fail. The old binary prints the
+// fatal config error to stderr and then lingers ~30s before exiting, so
+// proc.once('exit') alone is too slow. Detect the signature on stderr.
+// ─────────────────────────────────────────────────────────────────────
+
+describe('isFatalCodexConfigStderr — fatal-stderr detection (P0.2)', () => {
+  it('matches the xhigh deserialize fatal the old binary prints', () => {
+    assert.equal(
+      isFatalCodexConfigStderr(
+        'Failed to deserialize overridden config: unknown variant `xhigh`, expected one of `minimal`, `low`, `medium`, `high`',
+      ),
+      true,
+    );
+  });
+  it('matches `error loading config`', () => {
+    assert.equal(isFatalCodexConfigStderr('Error: error loading config: unknown variant `xhigh`'), true);
+  });
+  it('does NOT match ordinary RUST_LOG / tracing lines', () => {
+    assert.equal(isFatalCodexConfigStderr('INFO app_server.request{otel.name="model/list"}: enter'), false);
+    assert.equal(isFatalCodexConfigStderr('listening on stdio'), false);
+  });
+});
+
+describe('app-server-manager — P0.1/P0.2 wiring source pins', () => {
+  it('findCodexBinary routes multi-candidate selection through selectBestCodexCandidate + version probe', () => {
+    assert.match(managerSrc, /selectBestCodexCandidate\(/,
+      'findCodexBinary must select multi-candidate via selectBestCodexCandidate');
+    assert.match(managerSrc, /probeCodexVersion\(/,
+      'multi-candidate path must probe `codex --version`');
+  });
+
+  it('makeStdioTransport fast-fails (fireClose) AND kills the child on fatal config stderr', () => {
+    // The handler's fatal check must lead to BOTH fireClose (reject pending
+    // initialize/model-list now) and SIGKILL (so the lingering old binary
+    // can't hold the RPC open for its ~30s timeout). `(chunk)` (no type
+    // annotation) anchors on the handler call, not the function definition.
+    assert.match(
+      managerSrc,
+      /if \(isFatalCodexConfigStderr\(chunk\)\)[\s\S]{0,300}fireClose\(/,
+      'fatal stderr must fireClose to reject pending requests immediately',
+    );
+    assert.match(
+      managerSrc,
+      /if \(isFatalCodexConfigStderr\(chunk\)\)[\s\S]{0,400}SIGKILL/,
+      'fatal stderr must SIGKILL the lingering child so it cannot hold the RPC ~30s',
     );
   });
 });

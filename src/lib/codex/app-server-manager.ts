@@ -17,7 +17,7 @@
  * client's access path.
  */
 
-import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
+import { spawn, execFileSync, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { CodexAppServerClient, type CodexTransport } from './app-server-client';
@@ -25,6 +25,22 @@ import type { CodexAvailability } from './types';
 
 interface SpawnedTransport extends CodexTransport {
   readonly proc: ChildProcessWithoutNullStreams;
+}
+
+/**
+ * Detect a FATAL config-parse error in Codex stderr.
+ *
+ * P0.2 (2026-06-01): some codex builds print a fatal config error to
+ * stderr and then linger ~30s before the process actually exits — observed
+ * with old `/opt/homebrew/bin/codex` 0.45.0 rejecting `model_reasoning_effort
+ * = "xhigh"` from the user's `~/.codex/config.toml`:
+ *   `Failed to deserialize overridden config: unknown variant `xhigh``
+ * Waiting for the `exit` event would hang the model-list fetch (and the
+ * chat composer + Settings that depend on it) for that whole window, so we
+ * fail the moment this signature appears on stderr.
+ */
+export function isFatalCodexConfigStderr(chunk: string): boolean {
+  return /Failed to deserialize overridden config|error loading config|unknown variant/i.test(chunk);
 }
 
 /**
@@ -79,6 +95,15 @@ function makeStdioTransport(proc: ChildProcessWithoutNullStreams): SpawnedTransp
   proc.stderr.on('data', (chunk: string) => {
     for (const line of chunk.split(/\r?\n/)) {
       if (line.trim()) console.debug('[codex.app-server]', line);
+    }
+    // P0.2 — fatal config error on stderr: fail NOW + kill the child so a
+    // lingering old binary can't hold the RPC open for its ~30s timeout.
+    // fireClose() rejects every pending request via the onClose subscriber.
+    if (isFatalCodexConfigStderr(chunk)) {
+      const fatalLine = chunk.split(/\r?\n/).find((l) => isFatalCodexConfigStderr(l)) ?? chunk.trim().slice(0, 200);
+      console.warn('[codex.app-server] fatal config error on stderr — failing fast + killing child:', fatalLine);
+      fireClose(new Error(`Codex app-server fatal config error: ${fatalLine.trim()}`));
+      try { proc.kill('SIGKILL'); } catch { /* already gone */ }
     }
   });
 
@@ -137,24 +162,94 @@ function makeStdioTransport(proc: ChildProcessWithoutNullStreams): SpawnedTransp
   };
 }
 
+/** Parse a `codex --version` line (`codex-cli 0.135.0-alpha.1` or bare
+ *  `0.45.0`) into `[major, minor, patch]`. Returns null if unparseable. */
+export function parseCodexVersion(versionOutput: string | null | undefined): [number, number, number] | null {
+  if (!versionOutput) return null;
+  const m = versionOutput.match(/(\d+)\.(\d+)\.(\d+)/);
+  if (!m) return null;
+  return [Number(m[1]), Number(m[2]), Number(m[3])];
+}
+
+function compareCodexVersion(a: [number, number, number], b: [number, number, number]): number {
+  for (let i = 0; i < 3; i++) {
+    if (a[i] !== b[i]) return a[i] - b[i];
+  }
+  return 0;
+}
+
+export interface CodexBinaryCandidate {
+  path: string;
+  /** Raw `codex --version` output, or null if the probe failed. */
+  version: string | null;
+}
+
+/**
+ * Pick the best codex binary among candidates by VERSION (highest wins).
+ *
+ * P0.1 (2026-06-01): the macOS packaged-app P0 was an old Homebrew
+ * `/opt/homebrew/bin/codex` 0.45.0 on PATH shadowing the newer
+ * `/Applications/Codex.app/.../codex` 0.135.0 — the old build rejected the
+ * user's `xhigh` effort config fatally. PATH-first discovery picked the
+ * stale binary every time. So when more than one codex is installed we pick
+ * the highest version instead of blindly trusting PATH order.
+ *
+ * Tiebreak rules: a parseable version always beats an unparseable one; among
+ * equal versions (or all-unparseable) the FIRST candidate wins — and since
+ * callers pass PATH candidates before the Codex.app fallback, an equal-version
+ * custom build on PATH still wins (preserves the original round-6 intent).
+ */
+export function selectBestCodexCandidate(candidates: readonly CodexBinaryCandidate[]): string | null {
+  let best: { path: string; v: [number, number, number] | null } | null = null;
+  for (const c of candidates) {
+    const v = parseCodexVersion(c.version);
+    if (best === null) { best = { path: c.path, v }; continue; }
+    if (v && !best.v) { best = { path: c.path, v }; continue; }
+    if (v && best.v && compareCodexVersion(v, best.v) > 0) { best = { path: c.path, v }; }
+    // equal version / lower / both-unparseable → keep current (input-order tiebreak)
+  }
+  return best?.path ?? null;
+}
+
+/** Best-effort `codex --version` probe. Returns null on any failure
+ *  (not executable / hung / non-zero) so the candidate ranks lowest. */
+function probeCodexVersion(binaryPath: string): string | null {
+  try {
+    return execFileSync(binaryPath, ['--version'], { timeout: 2500, encoding: 'utf8' }).trim();
+  } catch {
+    return null;
+  }
+}
+
+// Memoize the PATH/.app resolution. Version probing spawns `codex --version`,
+// and findCodexBinary() is on the hot path (every getCodexAvailability poll +
+// runtime.isAvailable()), so we probe at most once per process. CODEX_DISABLED
+// and CODEX_BIN are re-checked fresh on every call (cheap) ABOVE this cache.
+let resolvedBinaryCache: { value: string | null } | null = null;
+
+/** Test-only: clear the memoized binary resolution between cases. */
+export function resetCodexBinaryCacheForTests(): void {
+  resolvedBinaryCache = null;
+}
+
 /**
  * Locate the `codex` binary. Returns null when not found.
  *
  * Strategy:
  *   1. CODEX_DISABLED=1 hard-disables Codex (set in test harness so
  *      unit tests never spawn the subprocess or hit network).
- *   2. CODEX_BIN env var (test / CI override of the resolved path).
- *   3. PATH walk for `codex` (with platform-appropriate extensions).
- *      Defers to OS resolution at spawn time on win32 fallthroughs.
- *   4. macOS bundled-app fallback — `/Applications/Codex.app/Contents
- *      /Resources/codex`. The macOS Codex.app installer puts the
- *      `codex` binary inside the app bundle but doesn't always wire
- *      a PATH entry; users who installed via the .dmg see "未安装"
- *      on the Settings status page without this fallback. Phase 5b
- *      smoke round 6 (2026-05-18, user-driven).
+ *   2. CODEX_BIN env var (test / CI override of the resolved path) —
+ *      highest explicit priority.
+ *   3. Collect candidates: PATH walk first, then the macOS Codex.app
+ *      bundled binary (`/Applications/Codex.app/.../codex` — the .dmg
+ *      installer drops it inside the bundle without always wiring a PATH
+ *      entry; Phase 5b round 6, 2026-05-18).
+ *   4. If more than one candidate exists, probe `--version` and pick the
+ *      NEWEST (P0.1, 2026-06-01) so a stale Homebrew codex on PATH can't
+ *      shadow a newer Codex.app build. Single candidate → use it as-is
+ *      (no probe, keeps the common case spawn-free).
  *
- * For the bundled-binary case (Electron packaged app) the path will
- * be resolved by a future settings hook that points here.
+ * The resolved binary + reason is logged for packaged-app diagnosis.
  */
 export function findCodexBinary(): string | null {
   // Phase 5b (2026-05-15) — hard disable for tests. The wider Codex
@@ -167,34 +262,49 @@ export function findCodexBinary(): string | null {
   const fromEnv = process.env.CODEX_BIN;
   if (fromEnv && existsSync(fromEnv)) return fromEnv;
 
-  // Walk PATH and probe candidates. We don't shell out to `which`
-  // because that adds a spawn cost per call.
+  if (resolvedBinaryCache) return resolvedBinaryCache.value;
+
+  // Collect candidates IN PRIORITY ORDER — PATH matches first, then the
+  // macOS Codex.app bundle. We don't shell out to `which` (spawn cost);
+  // the version probe below only runs when there are 2+ candidates.
+  const candidatePaths: string[] = [];
   const path = process.env.PATH ?? '';
   const sep = process.platform === 'win32' ? ';' : ':';
   const exts = process.platform === 'win32' ? ['.exe', '.cmd', ''] : [''];
   for (const dir of path.split(sep).filter(Boolean)) {
     for (const ext of exts) {
       const candidate = join(dir, 'codex' + ext);
-      if (existsSync(candidate)) return candidate;
+      if (existsSync(candidate) && !candidatePaths.includes(candidate)) candidatePaths.push(candidate);
+    }
+  }
+  // macOS Codex.app bundled binary — appended AFTER the PATH walk so an
+  // equal-version PATH build still wins the tiebreak (see selectBestCodexCandidate).
+  if (process.platform === 'darwin') {
+    const macOSBundlePath = '/Applications/Codex.app/Contents/Resources/codex';
+    if (existsSync(macOSBundlePath) && !candidatePaths.includes(macOSBundlePath)) {
+      candidatePaths.push(macOSBundlePath);
     }
   }
 
-  // Phase 5b smoke round 6 (2026-05-18) — last-resort macOS Codex.app
-  // bundled-binary fallback. The .dmg installer drops the binary
-  // inside the app bundle but doesn't wire a PATH entry for it; before
-  // this fallback, a user who installed Codex.app saw "未安装" on
-  // Settings → 执行引擎 → Codex even though `command -v codex` would
-  // resolve via the shell's macOS-specific shim. CODEX_DISABLED and
-  // CODEX_BIN keep their priority above this fallback (they ran
-  // first and either returned null or a resolved path). PATH wins
-  // over the fallback so power users with a custom `codex` build on
-  // their PATH still get it.
-  if (process.platform === 'darwin') {
-    const macOSBundlePath = '/Applications/Codex.app/Contents/Resources/codex';
-    if (existsSync(macOSBundlePath)) return macOSBundlePath;
+  let selected: string | null;
+  if (candidatePaths.length <= 1) {
+    selected = candidatePaths[0] ?? null;
+    if (selected) console.info('[codex] selected binary', { binary: selected, reason: 'sole candidate' });
+  } else {
+    // Multiple codex installs (e.g. old /opt/homebrew/bin/codex alongside a
+    // newer /Applications/Codex.app build) — probe versions and pick newest
+    // so a stale PATH binary can't shadow Codex.app (packaged P0 2026-06-01).
+    const probed: CodexBinaryCandidate[] = candidatePaths.map((p) => ({ path: p, version: probeCodexVersion(p) }));
+    selected = selectBestCodexCandidate(probed);
+    console.info('[codex] selected binary', {
+      binary: selected,
+      reason: 'highest version among multiple candidates',
+      candidates: probed.map((c) => ({ path: c.path, version: c.version })),
+    });
   }
 
-  return null;
+  resolvedBinaryCache = { value: selected };
+  return selected;
 }
 
 interface ManagedAppServer {

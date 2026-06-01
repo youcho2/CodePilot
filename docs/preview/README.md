@@ -4,5 +4,5 @@
 
 | 文件 | 分支 / Commit | 日期 |
 |------|---------------|------|
+| [packaged-preview-p0-diagnosis-2026-06-01.md](packaged-preview-p0-diagnosis-2026-06-01.md) | `worktree-product-refactor-research` / preview P0 diagnosis | 2026-06-01 |
 | [branch-preview-2026-05-31.md](branch-preview-2026-05-31.md) | `worktree-product-refactor-research` / `2606371` | 2026-05-31 |
-
