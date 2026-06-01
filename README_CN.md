@@ -11,7 +11,7 @@
 
 [English](./README.md) | [日本語](./README_JA.md)
 
-> **项目公告（2026 年 5 月）：** CodePilot 正在进行一次较大的产品重构，为下一轮正式发布整理底层能力。重点包括会话级 Runtime、后台常驻与本机通知、定时提醒和后台 AI 任务、Markdown / Artifact 预览稳定性，以及 Codex 等本地 Agent 适配。现有版本仍可下载使用；接下来的版本会优先把这些基础能力做稳、做好用。
+> **重构预览测试：** CodePilot 的 Runtime / Harness / macOS UI 大重构已经进入预览测试阶段。如果你愿意帮忙测试，请使用最新预览包，不要再使用旧的 `0.53` / `0.54` 测试包。我们尤其欢迎反馈 P0/P1 问题：安装或启动失败、Settings 页面一直加载、Claude Code / Codex / Native Runtime 无法发消息、模型或服务商异常、升级后旧数据缺失、macOS 菜单栏图标异常、通知或打包问题。稳定版仍可继续作为日常使用版本。反馈时请尽量附上系统版本、CodePilot 版本、复现步骤、截图和日志：[GitHub Issues](https://github.com/op7418/CodePilot/issues)。
 
 ![CodePilot](https://github.com/user-attachments/assets/9750450a-9f6f-49ce-acd4-c623a4e24281)
 
