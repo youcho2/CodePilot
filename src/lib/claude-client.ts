@@ -718,6 +718,13 @@ export function streamClaudeSdk(options: ClaudeStreamOptions): ReadableStream<st
       });
       // Flag to prevent infinite PTL retry loops (at most one retry per request)
       let ptlRetryAttempted = false;
+      // #577: once the turn's `result` SSE has been emitted, the turn SUCCEEDED
+      // and the result is authoritative. A post-result rejection of the SDK
+      // iterator (control-channel teardown racing capability capture, late
+      // stderr, etc.) lands in the catch below and would otherwise append an
+      // "**Error:**" bubble after a correct answer (and clear the SDK session /
+      // trigger a retry). Gate those crash behaviors on this flag.
+      let resultEmitted = false;
       // Per-request shadow ~/.claude/ for DB-provider isolation. Built lazily
       // below once we know whether we have an explicit DB provider; cleaned up
       // in the outer finally block. See src/lib/claude-home-shadow.ts.
@@ -1874,6 +1881,7 @@ export function streamClaudeSdk(options: ClaudeStreamOptions): ReadableStream<st
                   ...(terminalReason ? { terminal_reason: terminalReason } : {}),
                 }),
               }));
+              resultEmitted = true; // #577 — turn succeeded; suppress any post-result error
               // Notify on conversation-level errors (e.g. rate limit, auth failure)
               if (resultMsg.is_error) {
                 const errTitle = 'Conversation error';
@@ -1991,7 +1999,7 @@ export function streamClaudeSdk(options: ClaudeStreamOptions): ReadableStream<st
         });
 
         // ── Reactive compact: auto-compress and retry on CONTEXT_TOO_LONG ──
-        if (classified.category === 'CONTEXT_TOO_LONG' && !ptlRetryAttempted && conversationHistory && conversationHistory.length > 4) {
+        if (classified.category === 'CONTEXT_TOO_LONG' && !ptlRetryAttempted && !resultEmitted && conversationHistory && conversationHistory.length > 4) {
           ptlRetryAttempted = true;
           try {
             console.log('[claude-client] CONTEXT_TOO_LONG detected — attempting auto-compress + retry');
@@ -2228,6 +2236,7 @@ export function streamClaudeSdk(options: ClaudeStreamOptions): ReadableStream<st
                       session_id: rMsg.session_id,
                     }),
                   }));
+                  resultEmitted = true; // #577 — retry produced a result; same guard applies
                   // Emit compression notification via the shared builder so
                   // useSSEStream's subtype=context_compressed dispatch fires.
                   const { buildContextCompressedStatus } = await import('./context-compressor');
@@ -2252,30 +2261,41 @@ export function streamClaudeSdk(options: ClaudeStreamOptions): ReadableStream<st
         }
 
         // Send structured error JSON so frontend can parse category + hints
-        // Falls back gracefully for older frontends that only read raw text
-        const errorMessage = formatClassifiedError(classified);
-        controller.enqueue(formatSSE({
-          type: 'error',
-          data: JSON.stringify({
-            category: classified.category,
-            userMessage: classified.userMessage,
-            actionHint: classified.actionHint,
-            retryable: classified.retryable,
-            providerName: classified.providerName,
-            details: classified.details,
-            rawMessage: classified.rawMessage,
-            recoveryActions: classified.recoveryActions,
-            // Include formatted text for backward compatibility
-            _formattedMessage: errorMessage,
-          }),
-        }));
+        // (falls back gracefully for older frontends that only read raw text) —
+        // but ONLY if the turn hadn't already emitted its result. #577: a
+        // post-result rejection (iterator teardown racing capability capture,
+        // late stderr, etc.) must not append an error bubble after a correct
+        // answer; the result is authoritative, so we just finish the stream.
+        if (!resultEmitted) {
+          const errorMessage = formatClassifiedError(classified);
+          controller.enqueue(formatSSE({
+            type: 'error',
+            data: JSON.stringify({
+              category: classified.category,
+              userMessage: classified.userMessage,
+              actionHint: classified.actionHint,
+              retryable: classified.retryable,
+              providerName: classified.providerName,
+              details: classified.details,
+              rawMessage: classified.rawMessage,
+              recoveryActions: classified.recoveryActions,
+              // Include formatted text for backward compatibility
+              _formattedMessage: errorMessage,
+            }),
+          }));
+        } else {
+          console.warn('[claude-client] suppressing post-result error (#577):', rawMessage);
+        }
         controller.enqueue(formatSSE({ type: 'done', data: '' }));
 
-        // Always clear sdk_session_id on crash so the next message starts fresh.
-        // Even for fresh sessions — the SDK may emit a session_id via status
-        // event before crashing, which gets persisted by consumeStream/SSE
-        // handlers. Leaving it would cause repeated resume failures.
-        if (sessionId) {
+        // Clear sdk_session_id on a genuine crash so the next message starts
+        // fresh. Even for fresh sessions — the SDK may emit a session_id via
+        // status event before crashing, which gets persisted by consumeStream/
+        // SSE handlers. Leaving it would cause repeated resume failures.
+        // #577: but NOT when the turn already produced a result — that session
+        // is valid and the next turn should resume it; only post-result teardown
+        // noise reached here, so preserve the session.
+        if (sessionId && !resultEmitted) {
           try {
             updateSdkSessionId(sessionId, '');
             console.warn('[claude-client] Cleared stale sdk_session_id for session', sessionId);

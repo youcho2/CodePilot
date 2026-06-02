@@ -75,6 +75,10 @@ export interface QuickPreset {
   category?: "chat" | "media";
   /** Provider meta info from catalog (for user guidance) */
   meta?: VendorPreset['meta'];
+  /** Catalog default model id — used to pre-fill the model_names input so a
+   *  preset that requires a user-specified model (e.g. MiMo) shows its current
+   *  default instead of an empty box with an unrelated placeholder. */
+  defaultModelId?: string;
 }
 
 /** Map iconKey from VENDOR_PRESETS to React icon component */
@@ -120,6 +124,7 @@ function toQuickPreset(vp: VendorPreset): QuickPreset {
     fields: vp.fields as QuickPreset['fields'],
     category: vp.category,
     meta: vp.meta,
+    defaultModelId: vp.defaultRoleModels?.default ?? vp.defaultModels?.[0]?.upstreamModelId,
   };
 }
 

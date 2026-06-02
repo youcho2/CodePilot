@@ -717,7 +717,12 @@ export const VENDOR_PRESETS: VendorPreset[] = [
       opus: 'mimo-v2-pro',
       haiku: 'mimo-v2-pro',
     },
-    fields: ['api_key'],
+    // model_names: MiMo has no /v1/models discovery (sdkProxyOnly) and ships
+    // new model ids (v2.5 / v2.5pro) over time. Without a model field the
+    // connect dialog saved role_models_json:'{}', so the resolver back-filled
+    // the stale `mimo-v2-pro` default every send (#577). Exposing model_names
+    // lets the user set their actual model, which the resolver then honors.
+    fields: ['api_key', 'model_names'],
     iconKey: 'xiaomi-mimo',
     sdkProxyOnly: true,
     meta: {
@@ -748,7 +753,10 @@ export const VENDOR_PRESETS: VendorPreset[] = [
       opus: 'mimo-v2-pro',
       haiku: 'mimo-v2-pro',
     },
-    fields: ['api_key'],
+    // model_names: same as the pay-as-you-go preset above — lets Token Plan
+    // users set their actual MiMo model instead of being pinned to the stale
+    // `mimo-v2-pro` default (#577).
+    fields: ['api_key', 'model_names'],
     iconKey: 'xiaomi-mimo',
     sdkProxyOnly: true,
     meta: {

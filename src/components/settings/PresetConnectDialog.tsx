@@ -272,7 +272,12 @@ export function PresetConnectDialog({
       setBaseUrl(preset.base_url);
       setName(preset.name);
       setExtraEnv(preset.extra_env);
-      setModelName("");
+      // Pre-fill the model-name field with the preset's default model id so a
+      // preset that requires a user-specified model (e.g. MiMo) shows its
+      // current model (editable) rather than an empty box (#577). Harmless for
+      // presets without the model_names field — the value is only read on save
+      // when that field is exposed.
+      setModelName(preset.defaultModelId || "");
       // Use authStyle directly from preset (single source of truth)
       const detectedStyle = (preset.authStyle === 'auth_token' ? 'auth_token' : 'api_key') as 'api_key' | 'auth_token';
       // If preset doesn't expose api_key field, pre-fill from extra_env default
@@ -661,13 +666,13 @@ export function PresetConnectDialog({
               <Input
                 value={modelName}
                 onChange={(e) => setModelName(e.target.value)}
-                placeholder="ark-code-latest"
+                placeholder={preset.defaultModelId || "ark-code-latest"}
                 className="text-sm font-mono"
               />
               <p className="text-[11px] text-muted-foreground">
                 {isZh
-                  ? '在服务商控制台配置的模型名称，如 ark-code-latest、doubao-seed-2.0-code'
-                  : 'Model name configured in provider console, e.g. ark-code-latest'}
+                  ? '在服务商控制台配置的模型名称，可改为你账号实际可用的型号'
+                  : 'Model name as configured in the provider console — change it to the model your account uses'}
               </p>
             </div>
           )}
