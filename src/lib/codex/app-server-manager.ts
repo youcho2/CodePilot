@@ -17,7 +17,7 @@
  * client's access path.
  */
 
-import { spawn, execFileSync, type ChildProcessWithoutNullStreams } from 'node:child_process';
+import { spawn, spawnSync, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { CodexAppServerClient, type CodexTransport } from './app-server-client';
@@ -219,11 +219,74 @@ export function selectBestCodexCandidate(candidates: readonly CodexBinaryCandida
   return best?.path ?? null;
 }
 
+/**
+ * Windows `.cmd` / `.bat` shims (e.g. the npm-global `codex.cmd` under
+ * `%AppData%\npm`) are NOT directly executable: Node hands the path straight
+ * to CreateProcess, which rejects a batch file with `EINVAL`. That is the
+ * packaged-Windows "Codex app-server spawn failed: spawn EINVAL" report — the
+ * resolved binary was a `.cmd`. Such shims must run through the command
+ * interpreter.
+ *
+ * We wrap them as `cmd.exe /d /s /c "<quoted-command-line>"` — the same shape
+ * cross-spawn / Node's own `{ shell: true }` produce — and set
+ * windowsVerbatimArguments so Node forwards our already-quoted command line
+ * unchanged. The whole command line gets an OUTER pair of quotes because
+ * `cmd /s /c` strips exactly the first and last quote, which lets a shim path
+ * containing spaces (`Program Files`, `AppData\Roaming`) survive.
+ *
+ * Real `.exe` binaries and ALL macOS / Linux paths are returned for a direct
+ * spawn, unchanged — preserving the `app-server` stdio contract (never
+ * `--listen`) that older Codex.app builds depend on.
+ *
+ * `platform` / `comspec` are injectable so both branches are unit-testable
+ * without actually running on Windows.
+ */
+export interface CodexLaunchSpec {
+  readonly command: string;
+  readonly args: string[];
+  readonly windowsVerbatimArguments?: boolean;
+}
+
+function quoteWinArg(arg: string): string {
+  return `"${arg.replace(/"/g, '\\"')}"`;
+}
+
+export function buildCodexLaunch(
+  binaryPath: string,
+  codexArgs: readonly string[],
+  platform: NodeJS.Platform = process.platform,
+  comspec: string = process.env.ComSpec || 'cmd.exe',
+): CodexLaunchSpec {
+  const lower = binaryPath.toLowerCase();
+  const isWindowsShim = platform === 'win32' && (lower.endsWith('.cmd') || lower.endsWith('.bat'));
+  if (!isWindowsShim) {
+    return { command: binaryPath, args: [...codexArgs] };
+  }
+  const commandLine = [binaryPath, ...codexArgs].map(quoteWinArg).join(' ');
+  return {
+    command: comspec,
+    args: ['/d', '/s', '/c', `"${commandLine}"`],
+    windowsVerbatimArguments: true,
+  };
+}
+
 /** Best-effort `codex --version` probe. Returns null on any failure
- *  (not executable / hung / non-zero) so the candidate ranks lowest. */
+ *  (not executable / hung / non-zero) so the candidate ranks lowest.
+ *  Routes through buildCodexLaunch so a Windows `.cmd` shim is probed via
+ *  cmd.exe too — otherwise version detection fails and ranking goes unstable. */
 function probeCodexVersion(binaryPath: string): string | null {
   try {
-    return execFileSync(binaryPath, ['--version'], { timeout: 2500, encoding: 'utf8' }).trim();
+    const launch = buildCodexLaunch(binaryPath, ['--version']);
+    // spawnSync (not execFileSync) so we can pass windowsVerbatimArguments for
+    // the cmd.exe shim wrapper; it also won't throw on a non-zero exit.
+    const res = spawnSync(launch.command, launch.args, {
+      timeout: 2500,
+      encoding: 'utf8',
+      windowsHide: true,
+      windowsVerbatimArguments: launch.windowsVerbatimArguments,
+    });
+    if (res.error || res.status !== 0) return null;
+    return (res.stdout ?? '').trim() || null;
   } catch {
     return null;
   }
@@ -343,9 +406,14 @@ export async function getCodexAppServer(): Promise<ManagedAppServer> {
   cached = (async (): Promise<ManagedAppServer> => {
     let proc: ChildProcessWithoutNullStreams;
     try {
-      console.info('[codex.app-server] spawning', { binary, args: ['app-server'] });
-      proc = spawn(binary, ['app-server'], {
+      // Windows `.cmd`/`.bat` shims can't be spawned directly (EINVAL) — run
+      // them through cmd.exe. Real .exe / macOS / Linux paths spawn directly.
+      const launch = buildCodexLaunch(binary, ['app-server']);
+      console.info('[codex.app-server] spawning', { binary, command: launch.command, args: launch.args });
+      proc = spawn(launch.command, launch.args, {
         stdio: ['pipe', 'pipe', 'pipe'],
+        windowsHide: true,
+        windowsVerbatimArguments: launch.windowsVerbatimArguments,
         env: {
           ...process.env,
           // Surface tracing logs at info level by default; operator

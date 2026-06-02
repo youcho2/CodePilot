@@ -28,6 +28,7 @@ import {
   selectBestCodexCandidate,
   isFatalCodexConfigStderr,
   resetCodexBinaryCacheForTests,
+  buildCodexLaunch,
 } from '@/lib/codex/app-server-manager';
 
 const managerSrc = fs.readFileSync(
@@ -164,20 +165,89 @@ describe('Codex availability — installed but idle state', () => {
 });
 
 describe('Codex app-server spawn compatibility', () => {
-  it('spawns app-server without --listen so older installed Codex.app builds still start', () => {
+  it('launches app-server via buildCodexLaunch (default stdio, never --listen)', () => {
     // Preview P0 (2026-05-31): a user-installed Codex binary returned
     // `unexpected argument '--listen' found`. Codex app-server's default
-    // transport is stdio, so CodePilot must not require the newer
-    // `--listen stdio://` flag to boot the runtime.
+    // transport is stdio, so CodePilot must not require --listen.
+    // Phase 1 (2026-06-02) routed the spawn through buildCodexLaunch so a
+    // Windows `.cmd` shim gets a cmd.exe wrapper; we pin the app-server
+    // subcommand + no---listen contract that older Codex.app builds need.
     assert.match(
       managerSrc,
-      /spawn\(binary,\s*\[\s*['"]app-server['"]\s*\]/,
-      'app-server should be spawned with the default stdio transport',
+      /buildCodexLaunch\(binary,\s*\[\s*['"]app-server['"]\s*\]/,
+      'app-server must be launched through buildCodexLaunch with the app-server subcommand',
+    );
+    assert.match(
+      managerSrc,
+      /spawn\(launch\.command,\s*launch\.args/,
+      'getCodexAppServer must spawn the launch spec (command + args), not the raw binary',
     );
     assert.doesNotMatch(
       managerSrc,
-      /spawn\(binary,\s*\[[^\]]*['"]--listen['"]/,
-      'app-server spawn args must not include --listen; older Codex.app builds reject it',
+      /['"]--listen['"]/,
+      'app-server spawn must not include --listen; older Codex.app builds reject it',
+    );
+  });
+});
+
+describe('buildCodexLaunch — Windows .cmd shim wrapping (Phase 1, 2026-06-02)', () => {
+  // Packaged-Windows P0: the resolved codex was an npm `.cmd` shim and
+  // `spawn(shim, [...])` failed with EINVAL because Windows can't execute a
+  // batch file directly. buildCodexLaunch wraps shims in cmd.exe; .exe and
+  // macOS/Linux paths stay a direct spawn.
+  it('macOS/Linux path is a direct spawn, unchanged', () => {
+    const launch = buildCodexLaunch('/usr/local/bin/codex', ['app-server'], 'darwin');
+    assert.equal(launch.command, '/usr/local/bin/codex');
+    assert.deepEqual(launch.args, ['app-server']);
+    assert.ok(!launch.windowsVerbatimArguments, 'no verbatim-args wrapping off Windows');
+  });
+
+  it('Windows .exe is a direct spawn (no cmd.exe wrapper)', () => {
+    const launch = buildCodexLaunch('C:\\Program Files\\Codex\\codex.exe', ['app-server'], 'win32');
+    assert.equal(launch.command, 'C:\\Program Files\\Codex\\codex.exe');
+    assert.deepEqual(launch.args, ['app-server']);
+    assert.ok(!launch.windowsVerbatimArguments);
+  });
+
+  it('Windows .cmd shim is wrapped in cmd.exe /d /s /c, NOT spawned directly', () => {
+    const cmd = 'C:\\Users\\tyler\\AppData\\Roaming\\npm\\codex.cmd';
+    const launch = buildCodexLaunch(cmd, ['app-server'], 'win32', 'C:\\Windows\\System32\\cmd.exe');
+    assert.equal(
+      launch.command,
+      'C:\\Windows\\System32\\cmd.exe',
+      'a .cmd shim must launch through the command interpreter, not directly (that is the EINVAL bug)',
+    );
+    assert.notEqual(launch.command, cmd);
+    assert.deepEqual(launch.args, ['/d', '/s', '/c', `""${cmd}" "app-server""`]);
+    assert.equal(launch.windowsVerbatimArguments, true);
+  });
+
+  it('Windows .cmd path with spaces stays quoted so it survives cmd /s /c', () => {
+    const cmd = 'C:\\Program Files\\npm\\codex.cmd';
+    const launch = buildCodexLaunch(cmd, ['app-server'], 'win32', 'cmd.exe');
+    assert.match(launch.args[3], /"C:\\Program Files\\npm\\codex\.cmd"/);
+  });
+
+  it('Windows .bat shim is also wrapped', () => {
+    const launch = buildCodexLaunch('C:\\x\\codex.bat', ['--version'], 'win32', 'cmd.exe');
+    assert.equal(launch.command, 'cmd.exe');
+    assert.deepEqual(launch.args, ['/d', '/s', '/c', '""C:\\x\\codex.bat" "--version""']);
+    assert.equal(launch.windowsVerbatimArguments, true);
+  });
+
+  it('the version probe uses the same shim wrapping (so .cmd version detection works)', () => {
+    const launch = buildCodexLaunch('C:\\n\\codex.cmd', ['--version'], 'win32', 'cmd.exe');
+    assert.equal(launch.command, 'cmd.exe');
+    assert.ok(launch.args.includes('/c'));
+    assert.match(launch.args[3], /codex\.cmd/);
+    assert.match(launch.args[3], /--version/);
+  });
+
+  it('source: probeCodexVersion routes through buildCodexLaunch too', () => {
+    assert.match(
+      managerSrc,
+      /probeCodexVersion[\s\S]{0,200}buildCodexLaunch\(binaryPath,\s*\[\s*['"]--version['"]\s*\]/,
+      'probeCodexVersion must wrap .cmd shims the same way (else .cmd version detection fails on Windows)',
     );
   });
 });
