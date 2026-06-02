@@ -25,6 +25,25 @@ import {
   resolveNewChatDefault,
 } from "@/lib/runtime/effective";
 
+/**
+ * Virtual / non-DB providers: no `api_providers` row and no `provider_models`
+ * to count — their models come from the runtime, not the DB.
+ *   - `env`           — environment-variable default
+ *   - `openai-oauth`  — OpenAI subscription login
+ *   - `codex_account` — Codex (ChatGPT) subscription login; routes through
+ *                       Codex's app-server, has no DB provider record
+ * Fetching `/api/providers/{id}/models?all=1` for these returns 404
+ * ("Provider not found") and reddens the Settings smoke. Add any future
+ * virtual provider id here so the overview count loop keeps skipping them.
+ */
+export const NON_DB_PROVIDER_IDS = new Set<string>(["env", "openai-oauth", "codex_account"]);
+
+/** Whether a provider group is backed by a real api_providers DB row, so its
+ *  provider_models can be counted via /api/providers/{id}/models?all=1. */
+export function isCountableDbProvider(providerId: string): boolean {
+  return !NON_DB_PROVIDER_IDS.has(providerId);
+}
+
 interface ProviderModelGroup {
   provider_id: string;
   provider_name: string;
@@ -203,9 +222,9 @@ export function useOverviewData(): OverviewState {
         }
         next.modelsTotal = total;
         next.modelsEnabled = enabled;
-        dbGroupsToCount = groups.filter(
-          (g) => g.provider_id !== "env" && g.provider_id !== "openai-oauth",
-        );
+        // Skip virtual / non-DB providers (env / OAuth logins / codex_account):
+        // they have no provider_models to count and 404 the per-provider fetch.
+        dbGroupsToCount = groups.filter((g) => isCountableDbProvider(g.provider_id));
       }
 
       // Assistant Workspace status — boolean configured + optional name.
