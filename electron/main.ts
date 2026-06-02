@@ -1362,7 +1362,33 @@ function setupPersistentMainLog() {
   }
 }
 
+// ── Single-instance lock (Windows multi-tray / multi-process feedback) ──────
+// Without this, relaunching CodePilot (double-clicking the shortcut, reopening
+// from the tray, etc.) starts a SECOND main process — each with its own tray
+// icon and background Next server — which is the duplicate-tray + multiple-
+// background-task report on Windows. Acquire the lock before app init; a losing
+// second instance quits immediately and hands focus back to the primary via the
+// 'second-instance' event. macOS already single-instances .app bundles, so the
+// lock is a harmless no-op there.
+const gotSingleInstanceLock = app.requestSingleInstanceLock();
+if (!gotSingleInstanceLock) {
+  // Not the primary — bail before spinning up a duplicate tray/server. A bare
+  // app.quit() is correct here; do NOT set isQuitting (that flag drives the
+  // PRIMARY's teardown path).
+  app.quit();
+} else {
+  app.on('second-instance', () => {
+    // User tried to launch another copy — surface the existing window instead
+    // (respects the menubar-resident hide-on-close model).
+    showMainWindow();
+  });
+}
+
 app.whenReady().then(async () => {
+  // A losing second instance is on its way out via app.quit() above — don't
+  // initialize tray/server/windows in it.
+  if (!gotSingleInstanceLock) return;
+
   // Set up persistent main-process log first so subsequent startup
   // logs (env load, ABI check, server boot) are captured.
   setupPersistentMainLog();

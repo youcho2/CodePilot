@@ -68,7 +68,9 @@ win:
 nsis:
   oneClick: false
   perMachine: false
-  allowToChangeInstallationDirectory: false
+  # Let users pick the install location — Windows feedback: the installer
+  # offered no path choice. Requires oneClick:false (kept above).
+  allowToChangeInstallationDirectory: true
   createDesktopShortcut: true
   createStartMenuShortcut: true
   deleteAppDataOnUninstall: false

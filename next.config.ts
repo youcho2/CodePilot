@@ -1,8 +1,18 @@
 import type { NextConfig } from "next";
+import path from "node:path";
 import pkg from "./package.json" with { type: "json" };
 
 const nextConfig: NextConfig = {
   output: 'standalone',
+  // Packaged CodePilot runs the Next standalone server with its cwd inside the
+  // read-only install dir (e.g. C:\Program Files\CodePilot\resources\standalone).
+  // Next's default FileSystemCache mkdir's `.next/cache` there on the first
+  // ISR/fetch cache write and dies with EPERM. A desktop app's per-session
+  // server gains nothing from a persistent on-disk cache, so we keep it fully
+  // in memory — nothing is written under the install dir. (next/image is unused,
+  // so there's no separate `.next/cache/images` writer.) See cache-handler.js.
+  cacheHandler: path.join(import.meta.dirname, 'cache-handler.js'),
+  cacheMaxMemorySize: 0, // our handler owns memory; disable Next's extra LRU layer
   // Pin Turbopack's workspace root to THIS directory.
   //
   // Without this, Next walks upward looking for the nearest lockfile
