@@ -80,7 +80,12 @@ function DialogContent({
             className={cn(
               "ring-offset-background focus:ring-ring data-[state=open]:bg-accent data-[state=open]:text-muted-foreground absolute rounded-full opacity-70 transition-opacity hover:opacity-100 focus:ring-2 focus:ring-offset-2 focus:outline-hidden disabled:pointer-events-none [&_svg]:pointer-events-none [&_svg]:shrink-0",
               fullscreen
-                ? "top-5 right-5 size-9 inline-flex items-center justify-center hover:bg-muted [&_svg:not([class*='size-'])]:size-5"
+                // Windows: a fullscreen dialog fills the window, so this
+                // top-right close button lands in the system WCO band (the
+                // titleBarOverlay close button). Nudge it below the band via
+                // --platform-titlebar-safe-area (0px off Windows → no change
+                // on macOS/web; 44px on win32 electron).
+                ? "top-[calc(1.25rem_+_var(--platform-titlebar-safe-area))] right-5 size-9 inline-flex items-center justify-center hover:bg-muted [&_svg:not([class*='size-'])]:size-5"
                 : "top-4 right-4 rounded-xs [&_svg:not([class*='size-'])]:size-4"
             )}
           >

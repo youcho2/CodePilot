@@ -8,7 +8,12 @@
  *   - pinned-invalid             — Pinned default unreachable under runtime
  *   - runtime-fallback           — Claude Code SDK requested but Native in use
  *   - context-cost-change        — pending tokens crossed an attention threshold
- *   - permission-elevation       — full-access permission, first send this session
+ *
+ * Full-access permission is confirmed ONCE at toggle time (the
+ * ChatPermissionSelector AlertDialog) and shown by a persistent red chip; it is
+ * NOT re-confirmed per send. An earlier `permission-elevation` checkpoint did
+ * that and, via the /chat → /chat/[id] remount, re-fired on nearly every send
+ * ("已了解，继续发送" each time — preview feedback). Removed 2026-06-02.
  *
  * Future rounds (see `docs/exec-plans/active/chat-run-checkpoint.md`)
  * will extend `CheckpointReasonId` with `dangerous-tool-call` (Round 3,
@@ -27,8 +32,7 @@ export type CheckpointReasonId =
   | 'no-compatible-provider'
   | 'pinned-invalid'
   | 'runtime-fallback'
-  | 'context-cost-change'
-  | 'permission-elevation';
+  | 'context-cost-change';
 
 export type CheckpointTone = 'error' | 'warning' | 'info';
 
@@ -42,8 +46,7 @@ export type CheckpointActionId =
   | 'open-providers'
   | 'open-runtime'
   | 'open-models'
-  | 'confirm-context-cost'
-  | 'confirm-permission-elevation';
+  | 'confirm-context-cost';
 
 export interface CheckpointAction {
   /** i18n key for the button label. Resolved by the renderer. */
@@ -75,11 +78,11 @@ export interface CheckpointReason {
   action?: CheckpointAction;
   /**
    * When true, MessageInput must block the send until the user takes
-   * the banner's action. Round 2 added this for context-cost-change
-   * and permission-elevation: those reasons gate the next message,
-   * the action button confirms-and-sends. The other Round 1 reasons
-   * are informational + already gate via `MessageInput.disabled` on
-   * other state, so they don't set this flag.
+   * the banner's action. Round 2 added this for context-cost-change:
+   * the reason gates the next message, the action button
+   * confirms-and-sends. The other Round 1 reasons are informational +
+   * already gate via `MessageInput.disabled` on other state, so they
+   * don't set this flag.
    */
   requiresConfirm?: boolean;
 }
@@ -115,16 +118,6 @@ export interface BuildCheckpointsOpts {
    */
   pendingContextTokens?: number;
   usedContextTokens?: number;
-  /**
-   * Round 2 — permission-elevation trigger. The page computes:
-   *   permissionElevationPending =
-   *     permissionProfile === 'full_access' &&
-   *     !sessionAlreadyConfirmedFullAccess
-   * and passes the boolean here. The session-confirmed flag belongs
-   * to the page (it survives across MessageInput re-renders but
-   * resets when the user toggles permission off then on again).
-   */
-  permissionElevationPending?: boolean;
 }
 
 /** Pending tokens cap that always triggers the banner regardless of used. */
@@ -166,9 +159,8 @@ export function shouldTriggerContextCost(
  * Round 1 reasons (no-provider / pinned-invalid / runtime-fallback)
  * never set `requiresConfirm`: they're informational, and MessageInput's
  * existing `disabled` gate handles the pinned/no-provider blocks.
- * Round 2 reasons (context-cost / permission-elevation) DO set it,
- * because the user may legitimately want to send the message after
- * acknowledging the cost / permission.
+ * The Round 2 context-cost reason DOES set it, because the user may
+ * legitimately want to send the message after acknowledging the cost.
  */
 export function buildCheckpoints(opts: BuildCheckpointsOpts): CheckpointReason[] {
   const out: CheckpointReason[] = [];
@@ -249,23 +241,6 @@ export function buildCheckpoints(opts: BuildCheckpointsOpts): CheckpointReason[]
       action: {
         labelKey: 'runCheckpoint.contextCost.action',
         actionId: 'confirm-context-cost',
-      },
-      requiresConfirm: true,
-    });
-  }
-
-  // Round 2 — permission-elevation. Triggers on FIRST send under
-  // full_access in this session; the page tracks "confirmed" state
-  // separately and clears the pending flag once the user acknowledges.
-  if (opts.permissionElevationPending) {
-    out.push({
-      id: 'permission-elevation',
-      tone: 'warning',
-      titleKey: 'runCheckpoint.permissionElevation.title',
-      descriptionKey: 'runCheckpoint.permissionElevation.description',
-      action: {
-        labelKey: 'runCheckpoint.permissionElevation.action',
-        actionId: 'confirm-permission-elevation',
       },
       requiresConfirm: true,
     });

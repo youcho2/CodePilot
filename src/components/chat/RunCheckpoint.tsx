@@ -32,7 +32,7 @@ interface RunCheckpointProps {
   className?: string;
   /**
    * Optional handler for action-id-based reasons (Round 2:
-   * `confirm-context-cost`, `confirm-permission-elevation`). When the
+   * `confirm-context-cost`). When the
    * banner's action carries an `actionId` and this prop is provided,
    * the handler runs instead of the default `href` navigation.
    * Used by chat/page.tsx + ChatView to wire the confirm-and-send
@@ -83,8 +83,7 @@ export function RunCheckpoint({ reasons, className, onAction }: RunCheckpointPro
           // was provided, breaking the Round 1 navigation flow. (Codex
           // P1, 2026-04-30.)
           const isConfirmAction =
-            reason.action?.actionId === 'confirm-context-cost' ||
-            reason.action?.actionId === 'confirm-permission-elevation';
+            reason.action?.actionId === 'confirm-context-cost';
           if (isConfirmAction && onAction) {
             onAction(reason.action!.actionId!);
             return;

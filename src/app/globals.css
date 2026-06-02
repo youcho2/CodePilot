@@ -296,6 +296,14 @@
      `electron/main.ts`, not by this offset (see the darwin-profile
      note below for the current value). */
   --platform-traffic-light-offset-y: 0px;
+  /* Windows: the system Window Controls Overlay (electron/main.ts sets
+     titleBarStyle:'hidden' + titleBarOverlay height 44) draws minimize /
+     maximize / close in a band across the top-right. Reserve that height so
+     top-anchored chrome (e.g. a fullscreen dialog's close button) clears the
+     system close button instead of sitting beside it ("两个 X 太近"). 0
+     everywhere except the win32 electron profile below; keep the value in
+     sync with the titleBarOverlay height in electron/main.ts. */
+  --platform-titlebar-safe-area: 0px;
 }
 
 .dark {
@@ -306,6 +314,16 @@
   --platform-surface-hud: var(--popover);
   --platform-surface-tooltip: var(--foreground);
   --platform-border-subtle: color-mix(in oklch, var(--border) 40%, transparent);
+}
+
+/* Windows profile — Electron renderer with the WCO title-bar overlay
+ * (electron/main.ts: titleBarStyle:'hidden' + titleBarOverlay height 44).
+ * Reserve the overlay band so a fullscreen dialog's close button clears the
+ * system close button. Gated on data-shell="electron" so the web shell (no
+ * WCO) keeps a 0 safe-area. macOS traffic lights are top-LEFT, so the
+ * top-right close button never collides there — this token stays win32-only. */
+html[data-platform="win32"][data-shell="electron"] {
+  --platform-titlebar-safe-area: 44px;
 }
 
 /* macOS profile — only activates when all three:

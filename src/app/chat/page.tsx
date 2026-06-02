@@ -209,19 +209,6 @@ function NewChatPageInner() {
     return canSendWithCurrentProvider;
   }, [modelReady, canSendWithCurrentProvider]);
 
-  // Round 2 — permission-elevation confirmation, scoped to this
-  // session. `null` while the user hasn't ack'd; `'full_access'` once
-  // they confirm via the banner. Auto-resets to `null` whenever the
-  // permission profile leaves full_access, so toggling back ON
-  // re-arms the banner.
-  const [permissionElevationConfirmedFor, setPermissionElevationConfirmedFor] =
-    useState<'full_access' | null>(null);
-  useEffect(() => {
-    if (permissionProfile !== 'full_access') {
-      setPermissionElevationConfirmedFor(null);
-    }
-  }, [permissionProfile]);
-
   // Phase 2 Step 4c — runtime pin for the not-yet-created session.
   // RuntimeSelector writes here; on first send we PATCH the new
   // session row with this value before the chat POST runs (so the
@@ -271,8 +258,7 @@ function NewChatPageInner() {
   //                                   under follow-default it's the
   //                                   runtime-aware substitute for the
   //                                   global pinned check)
-  //   - context-cost + permission-elevation: per-send confirmation
-  //                                   gates, unrelated to runtime
+  //   - context-cost: per-send confirmation gate, unrelated to runtime
   //
   // /chat (new conversation page) hasn't accumulated messages yet, so
   // usedContextTokens is 0 — the context-cost trigger collapses to the
@@ -282,24 +268,18 @@ function NewChatPageInner() {
     const pinnedDescriptor = invalidDefault?.modelValue
       ? `${invalidDefault.providerName ?? invalidDefault.providerId ?? '?'} / ${invalidDefault.modelValue}`
       : invalidDefault?.providerId ?? undefined;
-    const permissionElevationPending =
-      permissionProfile === 'full_access' &&
-      permissionElevationConfirmedFor !== 'full_access';
     return buildCheckpoints({
       noCompatibleProvider,
       defaultInvalid: !!invalidDefault,
       pinnedDescriptor,
       pendingContextTokens,
       usedContextTokens,
-      permissionElevationPending,
     });
   }, [
     invalidDefault,
     noCompatibleProvider,
     pendingContextTokens,
     usedContextTokens,
-    permissionProfile,
-    permissionElevationConfirmedFor,
   ]);
   // (globalRuntime is now declared above near sessionRuntimeParam so the
   // 'auto' → concrete runtime resolution happens once at the top.
@@ -309,12 +289,9 @@ function NewChatPageInner() {
     [checkpointReasons],
   );
   const handleCheckpointAction = useCallback((actionId: string) => {
-    if (actionId === 'confirm-permission-elevation') {
-      setPermissionElevationConfirmedFor('full_access');
-    }
-    // Both Round 2 confirms unblock the pending send; MessageInput
+    // The context-cost confirm unblocks the pending send; MessageInput
     // listens for this event and re-runs submit with bypass=true.
-    if (actionId === 'confirm-context-cost' || actionId === 'confirm-permission-elevation') {
+    if (actionId === 'confirm-context-cost') {
       window.dispatchEvent(new Event('run-checkpoint-confirm-send'));
     }
   }, []);

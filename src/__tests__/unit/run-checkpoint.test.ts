@@ -1,9 +1,9 @@
 /**
  * Unit tests for the Run Checkpoint trust-layer builder.
  *
- * Coverage: all five active reasons (no-compatible-provider /
+ * Coverage: all four active reasons (no-compatible-provider /
  * pinned-invalid / runtime-fallback from Round 1; context-cost-change
- * and permission-elevation from Round 2) plus the precedence rule
+ * from Round 2) plus the precedence rule
  * (no-provider supersedes the others, since "your pin is wrong" is
  * meaningless when there's no provider to send to in the first place).
  *
@@ -111,12 +111,13 @@ describe('buildCheckpoints — stacking', () => {
 });
 
 describe('buildCheckpoints — Round 1 + 2 scope guard', () => {
-  // The active reason set is exactly the five below. If a future
+  // The active reason set is exactly the four below. If a future
   // commit adds `dangerous-tool-call` (Round 3) — or any new id — to
   // the builder, this test will fail and force the author to confirm
   // the new round has been formally started (plan + i18n + state
-  // wiring + e2e all in place).
-  it('only emits the five known reason ids', () => {
+  // wiring + e2e all in place). permission-elevation was removed
+  // 2026-06-02 (full-access is confirmed once at toggle time, not per send).
+  it('only emits the four known reason ids', () => {
     const seen = new Set<string>();
     for (const opts of [
       { ...ok, noCompatibleProvider: true },
@@ -124,7 +125,6 @@ describe('buildCheckpoints — Round 1 + 2 scope guard', () => {
       { ...ok, runtimeFallback: true },
       { ...ok, defaultInvalid: true, runtimeFallback: true },
       { ...ok, pendingContextTokens: 50_000, usedContextTokens: 0 },
-      { ...ok, permissionElevationPending: true },
     ]) {
       for (const r of buildCheckpoints(opts)) {
         seen.add(r.id);
@@ -135,7 +135,6 @@ describe('buildCheckpoints — Round 1 + 2 scope guard', () => {
       [
         'context-cost-change',
         'no-compatible-provider',
-        'permission-elevation',
         'pinned-invalid',
         'runtime-fallback',
       ].sort(),
@@ -148,7 +147,6 @@ describe('buildCheckpoints — Round 1 + 2 scope guard', () => {
       { ...ok, defaultInvalid: true },
       { ...ok, runtimeFallback: true },
       { ...ok, pendingContextTokens: 12_000, usedContextTokens: 0 },
-      { ...ok, permissionElevationPending: true },
     ]) {
       for (const r of buildCheckpoints(opts)) {
         assert.ok(r.action, `${r.id} must have an action`);
@@ -217,44 +215,19 @@ describe('buildCheckpoints — context-cost-change reason', () => {
   });
 });
 
-// ─── Round 2 — permission-elevation ─────────────────────────────────
-
-describe('buildCheckpoints — permission-elevation reason', () => {
-  it('emits a warning-toned reason with requiresConfirm=true when permissionElevationPending', () => {
-    const reasons = buildCheckpoints({ ...ok, permissionElevationPending: true });
-    const r = reasons.find((x) => x.id === 'permission-elevation');
-    assert.ok(r, 'permission-elevation reason should fire');
-    assert.equal(r!.tone, 'warning');
-    assert.equal(r!.requiresConfirm, true);
-    assert.equal(r!.action?.actionId, 'confirm-permission-elevation');
-  });
-
-  it('does NOT emit when permissionElevationPending=false', () => {
-    const reasons = buildCheckpoints({ ...ok, permissionElevationPending: false });
-    assert.equal(reasons.find((x) => x.id === 'permission-elevation'), undefined);
-  });
-
-  it('does NOT emit when permissionElevationPending omitted (default false)', () => {
-    const reasons = buildCheckpoints({ ...ok });
-    assert.equal(reasons.find((x) => x.id === 'permission-elevation'), undefined);
-  });
-});
-
 // ─── Round 2 — stacking with Round 1 ────────────────────────────────
 
 describe('buildCheckpoints — Round 1 + 2 stacking', () => {
-  it('runtime-fallback + context-cost + permission-elevation all stack together', () => {
+  it('runtime-fallback + context-cost stack together', () => {
     const reasons = buildCheckpoints({
       ...ok,
       runtimeFallback: true,
       pendingContextTokens: 12_000,
       usedContextTokens: 0,
-      permissionElevationPending: true,
     });
     const ids = reasons.map((r) => r.id);
     assert.ok(ids.includes('runtime-fallback'));
     assert.ok(ids.includes('context-cost-change'));
-    assert.ok(ids.includes('permission-elevation'));
   });
 
   it('no-compatible-provider still suppresses Round 2 reasons (precedence)', () => {
@@ -262,7 +235,6 @@ describe('buildCheckpoints — Round 1 + 2 stacking', () => {
       ...ok,
       noCompatibleProvider: true,
       pendingContextTokens: 50_000,
-      permissionElevationPending: true,
     });
     assert.equal(reasons.length, 1);
     assert.equal(reasons[0].id, 'no-compatible-provider');

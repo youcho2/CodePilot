@@ -331,25 +331,15 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
   //     no provider/model pair is reachable under the active runtime)
   //   - sessionProviderRuntimeIncompatible (rendered as a separate
   //     banner just below RunCheckpoint, not piped through buildCheckpoints)
-  //   - context-cost / permission-elevation: per-send confirmation gates
+  //   - context-cost: per-send confirmation gate
   //
   // usedContextTokens reads from the same `useContextUsage` hook
   // RunCockpit uses so the cost trigger reads the SAME used count the
   // user sees in the status row.
   const usage = useContextUsage(messages, currentModel);
   const usedContextTokens = usage.used;
-  const [permissionElevationConfirmedFor, setPermissionElevationConfirmedFor] =
-    useState<'full_access' | null>(null);
-  useEffect(() => {
-    if (permissionProfile !== 'full_access') {
-      setPermissionElevationConfirmedFor(null);
-    }
-  }, [permissionProfile]);
 
   const checkpointReasons = useMemo(() => {
-    const permissionElevationPending =
-      permissionProfile === 'full_access' &&
-      permissionElevationConfirmedFor !== 'full_access';
     return buildCheckpoints({
       noCompatibleProvider,
       // Always false for an existing session — global pinned-default
@@ -357,14 +347,11 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
       defaultInvalid: false,
       pendingContextTokens,
       usedContextTokens,
-      permissionElevationPending,
     });
   }, [
     noCompatibleProvider,
     pendingContextTokens,
     usedContextTokens,
-    permissionProfile,
-    permissionElevationConfirmedFor,
   ]);
   // (globalRuntime hoisted above near sessionRuntimeParam — Phase 6 P0,
   // 2026-05-15.)
@@ -373,10 +360,7 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
     [checkpointReasons],
   );
   const handleCheckpointAction = useCallback((actionId: string) => {
-    if (actionId === 'confirm-permission-elevation') {
-      setPermissionElevationConfirmedFor('full_access');
-    }
-    if (actionId === 'confirm-context-cost' || actionId === 'confirm-permission-elevation') {
+    if (actionId === 'confirm-context-cost') {
       window.dispatchEvent(new Event('run-checkpoint-confirm-send'));
     }
   }, []);
