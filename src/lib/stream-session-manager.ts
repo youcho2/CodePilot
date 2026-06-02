@@ -112,6 +112,11 @@ const GLOBAL_KEY = '__streamSessionManager__' as const;
 const LISTENERS_KEY = '__streamSessionListeners__' as const;
 const STREAM_IDLE_TIMEOUT_MS = 330_000;
 const GC_DELAY_MS = 5 * 60 * 1000; // 5 minutes
+// stopStream: how long to wait for a graceful interrupt before force-aborting.
+// The force-abort is scheduled UNCONDITIONALLY (not behind the interrupt
+// request's .finally) so a hung /api/chat/interrupt can't strand the stream in
+// 'active' and lock the composer's isStreaming gate (GitHub #578).
+const STREAM_FORCE_ABORT_MS = 2000;
 
 function getStreamsMap(): Map<string, ActiveStream> {
   if (!(globalThis as Record<string, unknown>)[GLOBAL_KEY]) {
@@ -892,25 +897,73 @@ async function runStream(stream: ActiveStream, params: StartStreamParams): Promi
 // Stop
 // ==========================================
 
+/** Minimal stream surface stopStreamWith needs — lets the stop logic be
+ *  unit-tested with a fake stream + spy deps, without the (un-injectable)
+ *  module-level streams map. */
+interface StoppableStream {
+  snapshot: { phase: string };
+  abortController: Pick<AbortController, 'abort'>;
+}
+
+interface StopStreamDeps {
+  /** Best-effort graceful interrupt. MUST be bounded by the caller (so a hung
+   *  endpoint can't leak) and swallow its own errors. */
+  requestInterrupt: () => void;
+  /** Schedule the force-abort safety net (tracked on the stream's timers). */
+  scheduleForceAbort: (fn: () => void, ms: number) => void;
+}
+
+/**
+ * Pure/DI core of stopStream. The force-abort safety net is scheduled FIRST
+ * and UNCONDITIONALLY — never gated behind the interrupt request.
+ *
+ * Regression (GitHub #578): the old code scheduled the force-abort inside the
+ * interrupt fetch's `.finally()`. A hung `/api/chat/interrupt` never settles,
+ * so `.finally` never ran, the abort was never scheduled, `phase` stayed
+ * 'active' forever, and the composer's `isStreaming` gate (= phase==='active')
+ * locked the user out of sending after an interrupt.
+ */
+export function stopStreamWith(
+  stream: StoppableStream | undefined,
+  deps: StopStreamDeps,
+  forceAbortMs: number,
+): void {
+  if (!stream || stream.snapshot.phase !== 'active') return;
+  // 1) Safety net FIRST — independent of (and before) the interrupt request,
+  //    so a hung or throwing interrupt can't prevent the fallback abort.
+  deps.scheduleForceAbort(() => {
+    if (stream.snapshot.phase === 'active') {
+      stream.abortController.abort();
+    }
+  }, forceAbortMs);
+  // 2) Best-effort graceful interrupt — stops the backend faster than the
+  //    force-abort when it works; purely an optimization now.
+  deps.requestInterrupt();
+}
+
 export function stopStream(sessionId: string): void {
   const stream = getStreamsMap().get(sessionId);
-  if (stream && stream.snapshot.phase === 'active') {
-    // Try graceful interrupt first, fallback to abort
-    fetch('/api/chat/interrupt', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ sessionId }),
-    }).catch(() => {
-      // Interrupt failed, force abort
-    }).finally(() => {
-      // Always abort after a short delay to ensure cleanup
-      streamTimeout(stream, () => {
-        if (stream.snapshot.phase === 'active') {
-          stream.abortController.abort();
-        }
-      }, 2000);
-    });
-  }
+  stopStreamWith(
+    stream,
+    {
+      requestInterrupt: () => {
+        fetch('/api/chat/interrupt', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ sessionId }),
+          // Bounded so a hung endpoint can't leak a pending request; the
+          // scheduled force-abort is the real fallback.
+          signal: AbortSignal.timeout(STREAM_FORCE_ABORT_MS),
+        }).catch(() => {
+          // Interrupt failed/timed out — force-abort already scheduled.
+        });
+      },
+      scheduleForceAbort: (fn, ms) => {
+        if (stream) streamTimeout(stream, fn, ms);
+      },
+    },
+    STREAM_FORCE_ABORT_MS,
+  );
 }
 
 // ==========================================

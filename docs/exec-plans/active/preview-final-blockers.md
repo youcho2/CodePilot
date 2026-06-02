@@ -11,7 +11,7 @@
 |-------|------|------|------|
 | Phase 0 | Scope freeze + 证据基线 | ✅ 完成 2026-06-02 | 明确 FileTree / Workflow 不进本轮；plan + 0.55.0-preview.5 内测说明落地，已对照代码评审 6 个 Phase 根因 |
 | Phase 1 | Windows Codex 启动 / 登录 P0 | ✅ 完成 2026-06-02 | `.cmd` shim spawn EINVAL → `buildCodexLaunch` cmd.exe wrapper；真机 smoke 留 Phase 7 |
-| Phase 2 | 中断任务后输入无响应 P0 | 📋 待开始 | GitHub #578；interrupt 后 send lock / stream snapshot 清理 |
+| Phase 2 | 中断任务后输入无响应 P0 | ✅ 完成 2026-06-02 | GitHub #578；force-abort 脱离 interrupt fetch `.finally`，先且无条件调度 |
 | Phase 3 | Windows app shell / installer / packaged cache | 📋 待开始 | tray 多实例、安装目录选择、Program Files cache EPERM |
 | Phase 4 | 新会话 provider / Mimo mapping | 📋 待开始 | GitHub #577；回答后追加错误 + mapping 回退 |
 | Phase 5 | 两个用户体验阻断 | 📋 待开始 | full access 二次确认；Windows 服务商编辑双 X 过近 |
@@ -356,3 +356,4 @@ Windows 下编辑服务商窗口 / 面板右上角不会有应用内关闭按钮
   3. **Phase 5.2** provider 编辑是 in-app 模态 `Dialog`（`ProviderForm`）而非独立窗口；"两个 X 贴脸"实为与 Windows `titleBarStyle:'hidden' + titleBarOverlay`（WCO，右上角 44px 系统按钮）重叠。修法是 Windows 下让出 WCO 安全区 / 该模式隐藏 app 内 close，而非按独立窗口处理。
   4. **Phase 5.1** 触发条件已存在 `permissionElevationConfirmedFor`"确认一次"标志（`chat/page.tsx`），优先修它的持久化/重置（为何没记住已确认），而非删除整个 `permission-elevation` checkpoint；`context-cost-change` 拦截不受影响。与暂缓的 RunCheckpoint Round 3（`PermissionPrompt` 视觉收编）无冲突。
 - 2026-06-02：**Phase 1 完成**。新增可注入平台的 `buildCodexLaunch()`：Windows `.cmd`/`.bat` shim 走 `cmd.exe /d /s /c "<整体加引号命令行>"` + `windowsVerbatimArguments`，`.exe`/macOS/Linux 仍直接 spawn（保持不带 `--listen` 的 app-server stdio 约定）；`getCodexAppServer` spawn launch spec，`probeCodexVersion` 改 `spawnSync` 复用同一 wrapper。单测覆盖 darwin/win .exe/.cmd/.bat/含空格路径/版本探测；本机 `spawnSync` 真机探测 Codex.app 0.135.0-alpha.1 status=0 无回归。Windows 真机 smoke 留 Phase 7。
+- 2026-06-02：**Phase 2 完成**（GitHub #578）。根因：`stopStream` 把 2s force-abort 调度放在 interrupt fetch 的 `.finally()` 里，`/api/chat/interrupt` 挂起不 settle 时 `.finally` 不执行 → abort 永不触发 → `phase` 卡 `'active'` → ChatView `isStreaming`（= `phase==='active'`）把新消息入队却永不出队。修法：抽出可注入的 `stopStreamWith()`，**先且无条件**调度 force-abort（脱离 interrupt 结果），interrupt fetch 加 `AbortSignal.timeout` 上界。ChatView 无需改（dequeue 本就由 isStreaming 驱动）。单测 9 条 pin 调度顺序 / 终态守卫 / 无 `.finally` / fetch 有界；真机 interrupt→再发送 smoke 留 Phase 7。
