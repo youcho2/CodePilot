@@ -124,6 +124,28 @@ export interface UseProviderModelsReturn {
 }
 
 /**
+ * Match a model id to a picker row by EITHER its UI alias (`value`, e.g. `opus`)
+ * OR its canonical upstream id (`upstreamModelId`, e.g. `claude-opus-4-7`).
+ *
+ * On alias-keyed providers (OpenRouter, Anthropic-skin, …) the picker rows are
+ * aliases (`opus`/`sonnet`/`haiku`) whose canonical id lives on
+ * `upstreamModelId` (the preset merge in `api/providers/models/route.ts`
+ * rewrites it to e.g. `claude-opus-4-7`). Many persisted sessions store the
+ * *canonical* id as their `model`. Matching by `value` alone then fails to find
+ * the row, and the picker / resolved-model logic silently drops to the group's
+ * first model — a saved Opus chat reopens as Sonnet and keeps SENDING Sonnet
+ * (tech-debt #37). Matching on either id makes the saved canonical id round-trip
+ * back to its alias row. Returns undefined when nothing matches (caller falls back).
+ */
+export function findModelOption<T extends { value: string; upstreamModelId?: string }>(
+  options: readonly T[],
+  modelId: string | undefined,
+): T | undefined {
+  if (!modelId) return undefined;
+  return options.find((m) => m.value === modelId || m.upstreamModelId === modelId);
+}
+
+/**
  * @param runtime  Runtime gate for the picker feed. **Required as of
  * Phase 2 Step 3b** — the previous `'auto'` default made every chat-side
  * caller silently re-filter on global `agent_runtime` change, so any
@@ -366,21 +388,22 @@ export function useProviderModels(
 
   const currentModelValue = modelName || 'sonnet';
   const currentModelOption = useMemo(
-    () => modelOptions.find((m) => m.value === currentModelValue) || modelOptions[0],
+    () => findModelOption(modelOptions, currentModelValue) || modelOptions[0],
     [modelOptions, currentModelValue],
   );
 
   // Resolved pair contract — single source of truth for "what should the
   // picker / send path actually use right now".
   //
-  // resolvedModel: prefer caller's modelName when it's actually exposed
-  //   by the resolved group; otherwise drop to the group's first model.
-  //   Empty when the group has zero models (caller must gate via
-  //   noCompatibleProvider before sending).
+  // resolvedModel: resolve the caller's modelName to a row by alias `value` OR
+  //   canonical `upstreamModelId` (tech-debt #37 — a saved canonical id like
+  //   `claude-opus-4-7` must round-trip to its `opus` row instead of silently
+  //   dropping to the group's first model and SENDING that). Resolve to the
+  //   matched row's `value` (the alias the backend re-canonicalizes on send);
+  //   drop to the group's first model only when nothing matches. Empty when the
+  //   group has zero models (caller gates via noCompatibleProvider before sending).
   const resolvedProviderId = currentProviderIdValue;
-  const resolvedModel = (modelName && modelOptions.some(m => m.value === modelName))
-    ? modelName
-    : (modelOptions[0]?.value ?? '');
+  const resolvedModel = findModelOption(modelOptions, modelName)?.value ?? (modelOptions[0]?.value ?? '');
   // providerWasFilteredOut: did the runtime-filtered feed force us to
   // route somewhere different from what the caller semantically
   // requested? Compare requestedProviderId (semantic intent) NOT
