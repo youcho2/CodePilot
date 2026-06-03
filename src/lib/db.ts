@@ -3,7 +3,7 @@ import path from 'path';
 import crypto from 'crypto';
 import fs from 'fs';
 import os from 'os';
-import type { ChatSession, Message, SettingsMap, TaskItem, TaskStatus, ApiProvider, CreateProviderRequest, UpdateProviderRequest, MediaJob, MediaJobStatus, MediaJobItem, MediaJobItemStatus, MediaContextEvent, BatchConfig, CustomCliTool, ScheduledTask } from '@/types';
+import type { ChatSession, ChatOriginType, Message, SettingsMap, TaskItem, TaskStatus, ApiProvider, CreateProviderRequest, UpdateProviderRequest, MediaJob, MediaJobStatus, MediaJobItem, MediaJobItemStatus, MediaContextEvent, BatchConfig, CustomCliTool, ScheduledTask } from '@/types';
 import type { ChannelType, ChannelBinding } from './bridge/types';
 import { getLocalDateString, localDayStartAsUTC } from './utils';
 import { inferProtocolFromLegacy } from './provider-catalog';
@@ -1036,6 +1036,15 @@ function migrateDb(db: Database.Database): void {
   // /settings/tasks or notification click).
   safeAddColumn(db, "ALTER TABLE chat_sessions ADD COLUMN source TEXT NOT NULL DEFAULT 'user'");
 
+  // Phase 2 (2026-06-03) — chat creation origin. `chat_origin_type` records
+  // whether a chat was created from the assistant / a workspace / a folder /
+  // a file (see ChatOriginType); `chat_origin_path` is the path that origin
+  // refers to. Default '' so legacy rows stay compatible (unspecified origin);
+  // new sessions set a concrete origin so the UI can show ownership and a plain
+  // new chat isn't polluted by the last-selected file/folder.
+  safeAddColumn(db, "ALTER TABLE chat_sessions ADD COLUMN chat_origin_type TEXT NOT NULL DEFAULT ''");
+  safeAddColumn(db, "ALTER TABLE chat_sessions ADD COLUMN chat_origin_path TEXT NOT NULL DEFAULT ''");
+
   // Phase 3 Step 4 — `messages.task_run_id` column for the marker
   // render-side join. Soft reference (no FK) so a deleted task run
   // doesn't cascade-delete user-visible messages; render layer
@@ -1219,6 +1228,8 @@ export function createSession(
   providerId?: string,
   permissionProfile?: string,
   source?: 'user' | 'task',
+  originType?: ChatOriginType,
+  originPath?: string,
 ): ChatSession {
   const db = getDb();
   const id = crypto.randomBytes(16).toString('hex');
@@ -1226,10 +1237,15 @@ export function createSession(
   const wd = workingDirectory || '';
   const projectName = path.basename(wd);
   const sourceValue = source === 'task' ? 'task' : 'user';
+  // Phase 2 — persist where this chat was created from. Empty string = legacy /
+  // unspecified (the column default), so existing call sites that don't pass it
+  // stay compatible.
+  const originTypeValue: string = originType || '';
+  const originPathValue = originPath || '';
 
   db.prepare(
-    'INSERT INTO chat_sessions (id, title, created_at, updated_at, model, system_prompt, working_directory, sdk_session_id, project_name, status, mode, sdk_cwd, provider_id, permission_profile, source) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
-  ).run(id, title || 'New Chat', now, now, model || '', systemPrompt || '', wd, '', projectName, 'active', mode || 'code', wd, providerId || '', permissionProfile || 'default', sourceValue);
+    'INSERT INTO chat_sessions (id, title, created_at, updated_at, model, system_prompt, working_directory, sdk_session_id, project_name, status, mode, sdk_cwd, provider_id, permission_profile, source, chat_origin_type, chat_origin_path) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+  ).run(id, title || 'New Chat', now, now, model || '', systemPrompt || '', wd, '', projectName, 'active', mode || 'code', wd, providerId || '', permissionProfile || 'default', sourceValue, originTypeValue, originPathValue);
 
   return getSession(id)!;
 }
