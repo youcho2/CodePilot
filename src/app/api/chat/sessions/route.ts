@@ -64,9 +64,6 @@ export async function POST(request: NextRequest) {
       body.mode,
       body.provider_id,
       body.permission_profile,
-      undefined, // source — POST /api/chat/sessions is always a user-created chat
-      body.chat_origin_type,
-      body.chat_origin_path,
     );
     const response: SessionResponse = { session };
     return Response.json(response, { status: 201 });

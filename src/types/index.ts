@@ -14,14 +14,6 @@
  */
 export type ChatSessionSource = 'user' | 'task';
 
-/**
- * Phase 2 (2026-06-03) — where a chat was CREATED from, so the UI can show its
- * ownership ("助理 / 工作区 / 文件夹 / 文件") and a plain new chat isn't polluted
- * by the last-selected file/folder. Distinct from `working_directory` (a path)
- * and `source` (user vs task-hidden). Empty / undefined on legacy sessions.
- */
-export type ChatOriginType = 'assistant' | 'workspace' | 'folder' | 'file';
-
 export interface ChatSession {
   id: string;
   title: string;
@@ -62,14 +54,6 @@ export interface ChatSession {
    * task-bound sessions don't pollute the user-facing list.
    */
   source?: ChatSessionSource;
-  /**
-   * Phase 2 (2026-06-03) — chat creation origin. `chat_origin_type` is the kind
-   * of place it was created from (see ChatOriginType); `chat_origin_path` is the
-   * file/folder/workspace path that origin refers to. Empty on legacy sessions;
-   * the chat header reads these to show ownership.
-   */
-  chat_origin_type?: ChatOriginType;
-  chat_origin_path?: string;
   status: 'active' | 'archived';
   mode?: 'code' | 'plan' | 'ask';
   needs_approval?: boolean;
@@ -735,11 +719,6 @@ export interface CreateSessionRequest {
   mode?: string;
   provider_id?: string;
   permission_profile?: string;
-  /** Phase 2 — chat creation origin (see ChatOriginType) + the path it refers
-   *  to. Lets a new chat record whether it was created from the assistant /
-   *  a workspace / a folder / a file. Omitted = unspecified (legacy). */
-  chat_origin_type?: ChatOriginType;
-  chat_origin_path?: string;
 }
 
 export interface SendMessageRequest {
