@@ -718,23 +718,35 @@ export function ChatListPanel({ open, hasUpdate, readyToInstall }: ChatListPanel
               <div
                 className="px-2 pt-1 pb-2"
               >
-                <button
-                  type="button"
-                  onClick={() => setAssistantCollapsed(c => !c)}
-                  className={cn(
-                    "flex w-full items-center gap-1 px-3 h-7 cursor-pointer select-none rounded-xl",
-                    "transition-colors hover:bg-sidebar-accent/60 hover:text-sidebar-foreground",
-                  )}
-                >
-                  <span className="text-[13px] font-semibold text-sidebar-foreground/55">
-                    {t('chatList.assistantSection' as TranslationKey)}
-                  </span>
-                  <span className="text-muted-foreground/80">
-                    {assistantCollapsed
-                      ? <CaretRight size={12} />
-                      : <CaretDown size={12} />}
-                  </span>
-                </button>
+                <div className="flex w-full items-center gap-1 px-3 h-7 rounded-xl transition-colors hover:bg-sidebar-accent/60">
+                  <button
+                    type="button"
+                    onClick={() => setAssistantCollapsed(c => !c)}
+                    className="flex flex-1 min-w-0 items-center gap-1 cursor-pointer select-none text-left transition-colors hover:text-sidebar-foreground"
+                  >
+                    <span className="text-[13px] font-semibold text-sidebar-foreground/55">
+                      {t('chatList.assistantSection' as TranslationKey)}
+                    </span>
+                    <span className="text-muted-foreground/80">
+                      {assistantCollapsed
+                        ? <CaretRight size={12} />
+                        : <CaretDown size={12} />}
+                    </span>
+                  </button>
+                  {/* New assistant chat. The assistant has no folder, so this
+                      top-level "写新对话" (pencil) entry is how you start a chat
+                      that belongs to the assistant. Always visible — it's the
+                      assistant's primary action. */}
+                  <Button
+                    variant="ghost"
+                    size="icon-xs"
+                    className="h-5 w-5 shrink-0 text-muted-foreground hover:text-foreground"
+                    title={t('chatList.newConversation')}
+                    onClick={(e) => handleCreateSessionInProject(e, aGroup.workingDirectory)}
+                  >
+                    <CodePilotIcon name="edit" size="sm" aria-hidden />
+                  </Button>
+                </div>
 
                 <AnimatePresence initial={false}>
                   {!assistantCollapsed && (

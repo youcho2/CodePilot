@@ -72,15 +72,17 @@ export function ProjectGroupHeader({
       "flex items-center gap-0.5 transition-opacity",
       showActions ? "opacity-100" : "opacity-0 pointer-events-none"
     )}>
-      {/* New chat button */}
+      {/* New chat button — a "写新对话" pencil/compose icon (clearer than a
+          bare +, which read ambiguously as "add what?"). */}
       <Button
         variant="ghost"
         size="icon-xs"
         className="h-5 w-5 shrink-0 text-muted-foreground hover:text-foreground"
         tabIndex={showActions ? 0 : -1}
         onClick={onCreateSession}
+        title={t('chatList.newConversation')}
       >
-        <CodePilotIcon name="plus" size="sm" aria-hidden />
+        <CodePilotIcon name="edit" size="sm" aria-hidden />
       </Button>
       {/* Three-dot menu */}
       <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
