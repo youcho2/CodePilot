@@ -2,7 +2,7 @@
 
 > 创建时间：2026-06-03
 > 最后更新：2026-06-03
-> 状态：📋 待 ClaudeCode 修复
+> 状态：🔧 Blocker A 已交付侧栏「写新对话」入口（commit a1c9997）；Blocker B 暂缓（用户本机复现不了）。待 Codex 审。
 > 范围：当前 worktree `product-refactor-research`，不得改主目录，不得自动 merge / push。
 
 ## 用户原始反馈
@@ -17,6 +17,50 @@
 2. **对话发送故障**
    - 在助理里使用 Claude Code Runtime，并选择 OpenRouter 的 Opus 4.6 / Opus 4.7 类模型时，输入内容后按 Enter 无法发送。
    - 用户强调：以前同样的 OpenRouter + Claude Code + Opus 模型是可以正常发送的，所以不能简单解释成“OpenRouter 本来就不支持 Claude Code”。
+
+## 需求最终态与变更轨迹（2026-06-03 收口，供 Codex 审）
+
+> 上面「用户原始反馈」是起点；本节是收敛后的**真实范围与交付**。审阅以本节为准。
+> 中途多次变更均为用户主动收窄/否决，原因见下。
+
+### 用户最终诉求（收敛后，只有一个）
+
+侧栏要有**清晰的「写新对话」入口**：
+
+- **助理**（顶层、没有“文件夹”概念，所以在侧栏顶层）需要一个明确的「写新对话」入口（带笔的 compose 图标）。
+- **项目文件夹**行原来的 `+` 表意不清（“加什么？”），改成同款「写新对话」铅笔图标。
+
+用户**明确否决**“给对话打来源标记 / 在对话顶部显示归属”那一整套——认为是计划初稿（Codex 拟）带来的过度设计。原话：“我看它让你加标记，有什么乱七八糟的，我这诉求只有一个。”
+
+### 变更轨迹 + 原因（按时间，全部由用户发起）
+
+| # | 变更 | 原因 / 触发 |
+|---|------|-------------|
+| 1 | **Blocker B（OpenRouter「无法发送」）暂缓** | 用户本机**复现不了**。ClaudeCode 先做 Phase 0 采样（真实 DB + 真机 CDP + 用户提供的打包日志），结论：OpenRouter `https://openrouter.ai/api` 是 Anthropic skin，在 Claude Code 下**可发送**（CDP 真机发出第一条并收到 Opus 回复）；唯一真实缺陷是“选的 Opus 被静默换成 Sonnet”——会话存的是 canonical slug（`anthropic/claude-opus-4.7`）而 picker 按别名 `opus` 匹配，不 round-trip，**属静默替换、不是硬阻断**；硬阻断只在 `codepilot_runtime`（Anthropic skin 不兼容，属正确）。用户给的打包日志是旧 preview 包的**服务端**日志：0 条 OpenRouter，错误都是旧 codex `--listen`/`xhigh`（已在更早 preview P0 修复）。→ Phase 1/3 本轮不做。 |
+| 2 | **文件树「在此新建对话」入口不做** | 用户决定：文件树保留现有“附加到输入框”即可，新建入口冗余。 |
+| 3 | **来源建模 + 顶部显示归属 不做** | 用户判为过度设计（见上“最终诉求”）。真实诉求只是侧栏清晰的新建入口。已写入的来源字段暂留为**休眠基础设施**（界面不可见、不影响发送），可单独 strip。 |
+
+### 本轮实际交付（可验证）
+
+- **`a1c9997`（满足用户诉求的提交）**：侧栏「写新对话」入口
+  - `src/components/layout/ProjectGroupHeader.tsx`：项目行 new-chat 按钮图标 `plus` → `edit`（铅笔 compose）+ tooltip。
+  - `src/components/layout/ChatListPanel.tsx`：助理区头新增**常驻**铅笔 compose 按钮 → `handleCreateSessionInProject(e, aGroup.workingDirectory)`（在助理工作区新建对话）。
+  - 测试 `src/__tests__/unit/sidebar-compose-new-chat.test.ts`；CDP 实测 `localhost:3001` 两入口生效；`npm run test` 3218 全过。
+- **休眠基础设施（用户不再需要，留着无害，可 strip）**：`b8b1669` + `1b00edc` 加的
+  `chat_sessions.chat_origin_type` / `chat_origin_path` 两列、`createSession` 参数、建会话 API
+  透传、侧栏 POST body 的来源透传。**界面无任何显示，不影响发送**。
+
+### 明确不做（+原因）
+
+- 文件树新建入口（用户：不需要）。
+- 对话顶部显示归属（用户：过度设计）。
+- Blocker B OpenRouter 发送修复（用户：复现不了；证据：非硬阻断，是模型别名 round-trip）。
+
+### 留给 Codex 审的点
+
+1. 侧栏两个新建入口的图标/可达性是否清晰、与现有“新对话/新建项目”语义是否冲突。
+2. 休眠的 `chat_origin_*` 字段：合并前**保留还是 strip**？（用户倾向“乱七八糟”，但已无害休眠；strip 需手工移除代码，DB 列因禁止破坏性迁移会留存为未用列。）
+3. Blocker B 暂缓是否可接受合并；若日后要修，方向是“别名 ↔ upstream slug 的 round-trip / 不静默替换”，**不是**放宽 runtime gate（gate 对 claude_code 是对的）。
 
 ## 当前判断
 
