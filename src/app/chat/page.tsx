@@ -806,6 +806,10 @@ function NewChatPageInner() {
           permission_profile: permissionProfile,
           model: currentModel,
           provider_id: currentProviderId,
+          // Phase 2 — the generic /chat first-message flow is a workspace-scoped
+          // chat; record origin so the chat can show its ownership.
+          chat_origin_type: 'workspace',
+          chat_origin_path: workingDir.trim(),
         };
 
         const createRes = await fetch('/api/chat/sessions', {

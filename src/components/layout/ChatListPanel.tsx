@@ -186,10 +186,14 @@ export function ChatListPanel({ open, hasUpdate, readyToInstall }: ChatListPanel
       }
 
       const { model, provider_id } = getCurrentModelAndProvider();
+      // Phase 2 — record where this chat was created from. The "新对话" button
+      // makes a workspace-scoped chat (assistant if lastDir is the assistant
+      // workspace), so the chat can later show its ownership.
+      const originType = lastDir === workspacePath ? 'assistant' : 'workspace';
       const res = await fetch("/api/chat/sessions", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ working_directory: lastDir, model, provider_id }),
+        body: JSON.stringify({ working_directory: lastDir, model, provider_id, chat_origin_type: originType, chat_origin_path: lastDir }),
       });
       if (!res.ok) {
         // Backend rejected it (e.g. INVALID_DIRECTORY) — prompt user
@@ -205,7 +209,7 @@ export function ChatListPanel({ open, hasUpdate, readyToInstall }: ChatListPanel
     } finally {
       setCreatingChat(false);
     }
-  }, [router, workingDirectory, openFolderPicker, getCurrentModelAndProvider, t]);
+  }, [router, workingDirectory, openFolderPicker, getCurrentModelAndProvider, workspacePath, t]);
 
   const toggleProject = useCallback((wd: string) => {
     setCollapsedProjects((prev) => {
@@ -356,10 +360,13 @@ export function ChatListPanel({ open, hasUpdate, readyToInstall }: ChatListPanel
     e.stopPropagation();
     try {
       const { model, provider_id } = getCurrentModelAndProvider();
+      // Phase 2 — the assistant row's + creates an assistant-origin chat; a
+      // project folder row's + creates a workspace-origin chat.
+      const originType = workingDirectory === workspacePath ? 'assistant' : 'workspace';
       const res = await fetch("/api/chat/sessions", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ working_directory: workingDirectory, model, provider_id }),
+        body: JSON.stringify({ working_directory: workingDirectory, model, provider_id, chat_origin_type: originType, chat_origin_path: workingDirectory }),
       });
       if (res.ok) {
         const data = await res.json();

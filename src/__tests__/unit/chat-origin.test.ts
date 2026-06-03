@@ -78,3 +78,28 @@ describe('POST /api/chat/sessions — threads origin to createSession (Phase 2)'
     assert.match(src, /body\.chat_origin_path/);
   });
 });
+
+describe('creation entry points record origin (Phase 2 Step 2 wiring)', () => {
+  const root = path.resolve(__dirname, '../..');
+  const chatList = fs.readFileSync(path.join(root, 'components/layout/ChatListPanel.tsx'), 'utf8');
+  const newChatPage = fs.readFileSync(path.join(root, 'app/chat/page.tsx'), 'utf8');
+
+  it('sidebar derives assistant vs workspace origin from the assistant workspace path', () => {
+    // Both the "新对话" button and a project/assistant row "+" tag the chat:
+    // assistant when the dir IS the assistant workspace, else workspace.
+    assert.match(
+      chatList,
+      /=== workspacePath \? 'assistant' : 'workspace'/,
+      'origin type must be derived from workspacePath (assistant vs workspace)',
+    );
+    assert.match(chatList, /chat_origin_type: originType/);
+    // Both creation bodies carry the path too.
+    const bodies = chatList.match(/chat_origin_type: originType, chat_origin_path:/g) ?? [];
+    assert.ok(bodies.length >= 2, 'both handleNewChat and handleCreateSessionInProject must send origin');
+  });
+
+  it('the /chat first-message flow records a workspace origin', () => {
+    assert.match(newChatPage, /chat_origin_type: 'workspace'/);
+    assert.match(newChatPage, /chat_origin_path: workingDir\.trim\(\)/);
+  });
+});
