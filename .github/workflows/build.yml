@@ -61,8 +61,10 @@ jobs:
           EXPECTED_VERSION: ${{ steps.ver.outputs.version }}
         run: |
           set -euo pipefail
-          if grep -RIn -- "--listen" src/lib/codex/app-server-manager.ts; then
-            echo "::error::Codex app-server still uses --listen"
+          # Match an actual CLI-arg literal ('--listen' / "--listen"), NOT prose
+          # comments that merely mention the removed flag (e.g. a backtick `--listen`).
+          if grep -REn "['\"]--listen['\"]" src/lib/codex/app-server-manager.ts; then
+            echo "::error::Codex app-server still passes --listen as a CLI arg"
             exit 1
           fi
           node -e '
