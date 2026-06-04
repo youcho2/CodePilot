@@ -24,7 +24,7 @@
 | 项 | 状态 | 备注 |
 |----|------|------|
 | Worktree 分支 | ✅ clean（本提交后） | `worktree-product-refactor-research` 最新提交 `0f73a5f`（侧栏新建入口 `a1c9997` / 来源建模 strip `403415e` / tech-debt #37 模型 round-trip 修复 `b6d2e43`+`0f73a5f`）|
-| 主分支 | ⚠️ dirty | `docs/exec-plans/tech-debt-tracker.md` 有 **12 行本地未提交草稿（#11-#22 = preview blocker 登记）**，编号与 worktree tracker 的 #11-#22 **冲突**；合并前必须由用户处理（见 Phase 0 + 2026-06-04 决策） |
+| 主分支 | ✅ clean（2026-06-04 已处理）| 原 12 行未提交草稿（#11-#22 preview blocker 登记）已 strip：#569 迁入 worktree `issue-tracker.md` B-023，其余已修复或 GitHub issue 永久记录；当前 `git -C <main> status` = `## main...origin/main` 无修改 |
 | 本机单元测试 | ✅ | `npm run test`：`3233/3233 pass`（含 `provider-model-roundtrip` 回归）|
 | 本机 smoke | ✅ 16/16 | `ba2230d` 后重跑 Playwright `@smoke` 全绿（Settings 概览 `codex_account/models` 404 已闭环）|
 | Codex 状态 | ✅ | 本机 `/api/codex/status` 返回 ready，Codex Desktop `0.135.0-alpha.1` |
@@ -34,7 +34,7 @@
 
 | Phase | 内容 | 状态 | 备注 |
 |-------|------|------|------|
-| Phase 0 | 合并前冻结与脏状态处理 | 📋 待开始 | 先处理主分支未提交 tech-debt 改动 |
+| Phase 0 | 合并前冻结与脏状态处理 | ✅ 已完成（2026-06-04）| main + worktree 均 clean；主分支 tracker 草稿已 strip（#569→B-023）|
 | Phase 1 | Worktree 最终验证 | 📋 待开始 | 单测 + smoke + 关键 API 探针 |
 | Phase 2 | 建 integration 分支合并演练 | 📋 待开始 | 推荐先在 `merge/refactor-preview-to-main` 演练，不直接动 main |
 | Phase 3 | 冲突解决与回归测试 | 📋 待开始 | 重点看 README / docs index / package-lock / Electron build files |
@@ -49,6 +49,15 @@
 - 2026-06-03: Preview 包继续 tester-only，不接正式自动更新通知。原因：Windows / macOS 真机反馈仍是最后一道门，正式发版前需要至少一轮小范围稳定性观察。
 - 2026-06-04: merge-blockers 收口——侧栏新建对话入口已交付（`a1c9997`）；对话来源建模按用户否决 strip（tech-debt #38，两空 DB 列因禁破坏性迁移保留）；OpenRouter"无法发送"本机复现不到，真实缺陷是静默 Opus→Sonnet 模型 round-trip（tech-debt #37，已修 `b6d2e43`+`0f73a5f`，de19e576 真机正向确认）。issue-tracker 中 B-020/B-021/B-022 已按提交对齐状态。
 - 2026-06-04: **主分支 tech-debt-tracker.md 编号冲突预警**。主分支本地未提交草稿加了 #11-#22（preview blocker 登记），而 worktree tracker 的 #11-#22 是另一批债务条目——直接 merge 会在 tracker 上产生大量冲突且语义错乱。这些 preview blocker 大多已在 worktree 修复（`8ea4b82`…`ea860da`）并由 issue-tracker / preview-final-blockers 计划承载。建议合并前由用户在主分支 **stash 或丢弃**这 12 行草稿（确认 issue-tracker 已覆盖同一批问题后），让 merge 直接采用 worktree 的 tracker；不要让两套 #11-#22 合体。
+- 2026-06-04: **主分支 tracker 草稿已 strip + #37 复审通过**。用户授权后主分支 12 行未提交草稿已 `git checkout --` 丢弃（唯一 worktree 未覆盖的 #569 已迁入 issue-tracker B-023，commit `ed83d66`）；main 现 clean。Codex 复审确认 #37（OpenRouter/Opus 静默切 Sonnet）修复通过 → tech-debt #37 标 ✅ 已解决。Phase 0 完成。`git merge-tree` 探针确认硬冲突集中在 4 个文件：`package.json` / `package-lock.json` / `src/app/api/providers/models/route.ts` / `src/components/settings/provider-presets.tsx`（版本 / 依赖 / 模型目录 / preset，两侧都动过），须在 integration 分支手动解。
+
+## 合并前已知问题（非阻断，随测试版发布说明公示）
+
+Codex 复审 2026-06-04 提出：以下已记录、不挡合并，但发测试版时要写进"已知问题"：
+
+- **B-021 Windows 服务商编辑关闭按钮**：双 X 贴脸已修（`2646f23`），"点击无效"待 Windows packaged 真机终验。
+- **B-022 消息队列**：中断后发送无响应已修（`fcce794` / #578）；"streaming 期间继续排队"待专项 smoke。
+- **B-023 MCP 设置页可见但运行时不可调用**（#569）：属合并后问题，排查 runtime MCP 注入来源 vs 运行状态 UI 来源。
 
 ## Phase 0 — 合并前冻结与脏状态处理
 
