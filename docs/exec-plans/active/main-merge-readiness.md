@@ -23,7 +23,7 @@
 
 | 项 | 状态 | 备注 |
 |----|------|------|
-| Worktree 分支 | ✅ clean（本提交后） | `worktree-product-refactor-research` 最新提交 `0f73a5f`（侧栏新建入口 `a1c9997` / 来源建模 strip `403415e` / tech-debt #37 模型 round-trip 修复 `b6d2e43`+`0f73a5f`）|
+| Worktree 分支 | ✅ clean（本提交后） | `worktree-product-refactor-research` 最新提交 `bd7b1fd`（侧栏新建入口 `a1c9997` / 来源建模 strip `403415e` / tech-debt #37 模型 round-trip 修复 `b6d2e43`+`0f73a5f`）|
 | 主分支 | ✅ clean（2026-06-04 已处理）| 原 12 行未提交草稿（#11-#22 preview blocker 登记）已 strip：#569 迁入 worktree `issue-tracker.md` B-023，其余已修复或 GitHub issue 永久记录；当前 `git -C <main> status` = `## main...origin/main` 无修改 |
 | 本机单元测试 | ✅ | `npm run test`：`3233/3233 pass`（含 `provider-model-roundtrip` 回归）|
 | 本机 smoke | ✅ 16/16 | `ba2230d` 后重跑 Playwright `@smoke` 全绿（Settings 概览 `codex_account/models` 404 已闭环）|
