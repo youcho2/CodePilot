@@ -49,6 +49,7 @@ import { useChatCommands } from '@/hooks/useChatCommands';
 import { useAssistantTrigger } from '@/hooks/useAssistantTrigger';
 import { useStreamSubscription } from '@/hooks/useStreamSubscription';
 import { useProviderModels } from '@/hooks/useProviderModels';
+import { findModelOption } from '@/lib/model-option-match';
 // Import from `chat-runtime-shared`, NOT `chat-runtime`. The latter
 // transitively imports the runtime registry → claude-client → Node-only
 // deps (async_hooks, Sentry, OpenTelemetry). Pulling that into a client
@@ -394,7 +395,11 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
       .then(data => {
         if (controller.signal.aborted) return;
         const group = data?.groups?.find((g: { provider_id: string }) => g.provider_id === pid);
-        const model = group?.models?.find((m: { value: string }) => m.value === currentModel);
+        // Canonical-aware (tech-debt #37): currentModel may be a canonical id
+        // (`claude-opus-4-7`) while the rows are aliases (`opus`) — match by
+        // either so the context-window indicator gets the right upstream.
+        const models = (group?.models ?? []) as Array<{ value: string; upstreamModelId?: string }>;
+        const model = findModelOption(models, currentModel);
         setCurrentModelUpstream(model?.upstreamModelId);
       })
       .catch(() => {});

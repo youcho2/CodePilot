@@ -6,6 +6,13 @@ import type { ProviderModelGroup } from '@/types';
 // the local rule for this hook too.
 import type { ChatRuntimeParam } from '@/lib/chat-runtime-shared';
 import { isRuntimeId, type RuntimeId } from '@/lib/runtime/runtime-id';
+// Canonical-aware model matcher (tech-debt #37) — pure helper shared by the
+// composer (picker / auto-correct / run-status / context upstream) so every
+// surface resolves a saved canonical id the same way. Re-exported below for
+// existing importers of this hook.
+import { findModelOption } from '@/lib/model-option-match';
+
+export { findModelOption };
 
 // Default Claude model options — used as fallback when API is unavailable
 export interface DefaultModelOption {
@@ -121,28 +128,6 @@ export interface UseProviderModelsReturn {
    * and on API failure we don't want to silently rewrite saved state.
    */
   providerWasFilteredOut: boolean;
-}
-
-/**
- * Match a model id to a picker row by EITHER its UI alias (`value`, e.g. `opus`)
- * OR its canonical upstream id (`upstreamModelId`, e.g. `claude-opus-4-7`).
- *
- * On alias-keyed providers (OpenRouter, Anthropic-skin, …) the picker rows are
- * aliases (`opus`/`sonnet`/`haiku`) whose canonical id lives on
- * `upstreamModelId` (the preset merge in `api/providers/models/route.ts`
- * rewrites it to e.g. `claude-opus-4-7`). Many persisted sessions store the
- * *canonical* id as their `model`. Matching by `value` alone then fails to find
- * the row, and the picker / resolved-model logic silently drops to the group's
- * first model — a saved Opus chat reopens as Sonnet and keeps SENDING Sonnet
- * (tech-debt #37). Matching on either id makes the saved canonical id round-trip
- * back to its alias row. Returns undefined when nothing matches (caller falls back).
- */
-export function findModelOption<T extends { value: string; upstreamModelId?: string }>(
-  options: readonly T[],
-  modelId: string | undefined,
-): T | undefined {
-  if (!modelId) return undefined;
-  return options.find((m) => m.value === modelId || m.upstreamModelId === modelId);
 }
 
 /**

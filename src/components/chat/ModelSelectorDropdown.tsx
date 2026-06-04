@@ -8,6 +8,7 @@ import type { TranslationKey } from '@/i18n';
 import { PromptInputButton } from '@/components/ai-elements/prompt-input';
 import type { ProviderModelGroup } from '@/types';
 import { compatLabel, compatTone } from '@/lib/runtime-compat';
+import { findModelOption } from '@/lib/model-option-match';
 import type { RuntimeId } from '@/lib/runtime/runtime-id';
 import {
   CommandList,
@@ -137,7 +138,9 @@ export function ModelSelectorDropdown({
     for (const entry of recent) {
       const group = providerGroups.find(g => g.provider_id === entry.providerId);
       if (!group) continue;
-      const option = group.models.find(m => m.value === entry.modelValue);
+      // Canonical-aware (tech-debt #37): a stored recent entry may carry a
+      // canonical id — match by value OR upstreamModelId so it resolves.
+      const option = findModelOption(group.models, entry.modelValue);
       if (!option) continue;
       matches.push({ group, option });
       if (matches.length >= RECENT_MODELS_DISPLAY) break;
@@ -145,7 +148,9 @@ export function ModelSelectorDropdown({
     return matches;
   }, [modelMenuOpen, providerGroups]);
 
-  const currentModelOption = modelOptions.find((m) => m.value === currentModelValue) || modelOptions[0];
+  // Canonical-aware (tech-debt #37): resolve the saved id to its alias row by
+  // value OR upstreamModelId so the trigger label shows the right model.
+  const currentModelOption = findModelOption(modelOptions, currentModelValue) || modelOptions[0];
 
   const isCurrentDefault = !!(
     globalDefaultModel &&
@@ -221,7 +226,10 @@ export function ModelSelectorDropdown({
             {recentMatches.length > 0 && (
               <CommandListGroup label={t('composer.recentModels' as TranslationKey)}>
                 {recentMatches.map(({ group, option }) => {
-                  const isActive = option.value === currentModelValue && group.provider_id === currentProviderIdValue;
+                  // Canonical-aware active check (tech-debt #37) — resolve the
+                  // current id within this group so a canonical id highlights
+                  // its alias row instead of nothing.
+                  const isActive = group.provider_id === currentProviderIdValue && findModelOption(group.models, currentModelValue)?.value === option.value;
                   // Phase 6 UI收口 P2 (2026-05-14) — recent rows honour
                   // the same runtime gating as the main groups below.
                   // Without this a "recently used GLM" entry could stay
@@ -275,7 +283,8 @@ export function ModelSelectorDropdown({
                 }
               >
                 {group.models.map((opt) => {
-                  const isActive = opt.value === currentModelValue && group.provider_id === currentProviderIdValue;
+                  // Canonical-aware active check (tech-debt #37) — see recent rows above.
+                  const isActive = group.provider_id === currentProviderIdValue && findModelOption(group.models, currentModelValue)?.value === opt.value;
                   const isDefault = !!(
                     globalDefaultModel &&
                     globalDefaultProvider &&

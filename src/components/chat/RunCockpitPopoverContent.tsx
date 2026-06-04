@@ -38,6 +38,7 @@ import {
   type AgentRuntime,
 } from "@/lib/runtime/effective";
 import { useOverviewData } from "@/components/settings/useOverviewData";
+import { findModelOption } from "@/lib/model-option-match";
 import type { ContextUsageData } from "@/hooks/useContextUsage";
 
 interface RunStatusIssue {
@@ -206,7 +207,10 @@ export function RunCockpitPopoverContent({
     : undefined;
   const sessionModelEntry =
     sessionProviderGroup && modelName
-      ? sessionProviderGroup.models.find((m) => m.value === modelName)
+      // Canonical-aware (tech-debt #37): resolve a saved canonical id
+      // (`claude-opus-4-7`) to its alias row so the run-status model label
+      // reads "Opus 4.7", not the raw upstream slug.
+      ? findModelOption(sessionProviderGroup.models, modelName)
       : undefined;
   const providerLabel =
     sessionProviderGroup?.provider_name

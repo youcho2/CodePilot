@@ -27,6 +27,7 @@ import { useMentionTokenEstimate } from '@/hooks/useMentionTokenEstimate';
 import { dataUrlToFileAttachment } from '@/lib/file-utils';
 import { usePopoverState } from '@/hooks/usePopoverState';
 import { useProviderModels, isComposerProviderLoading } from '@/hooks/useProviderModels';
+import { resolveComposerModelAutoCorrect } from '@/lib/model-option-match';
 // Import from `chat-runtime-shared` (client-safe). See ChatView import
 // note + `src/lib/chat-runtime-shared.ts` doc-block. Even type-only
 // imports from `chat-runtime.ts` are risky if the build leans on
@@ -315,8 +316,13 @@ export function MessageInput({
   // state so the picker label and the runtime-compatible fallback
   // pair (provider, model) agree.
   useEffect(() => {
-    if (modelName && modelOptions.length > 0 && !modelOptions.some(m => m.value === modelName)) {
-      const fallback = modelOptions[0].value;
+    // Canonical-aware auto-correct (tech-debt #37). The decision lives in a pure,
+    // unit-tested helper: a model that resolves by value OR canonical upstream is
+    // NOT corrected (the old value-only check rewrote canonical ids like
+    // `claude-opus-4-7` to the first model (Sonnet), which fed `useProviderModels`
+    // and made the send path send Sonnet). Only correct genuinely-absent models.
+    const fallback = resolveComposerModelAutoCorrect(modelName, modelOptions);
+    if (fallback !== null) {
       onModelChange?.(fallback);
       onProviderModelChange?.(currentProviderIdValue, fallback, { isAuto: true });
     }
