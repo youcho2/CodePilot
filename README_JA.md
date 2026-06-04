@@ -11,8 +11,6 @@
 
 [English](./README.md) | [中文文档](./README_CN.md)
 
-> **プロジェクトのお知らせ（2026 年 5 月）：** CodePilot は次の正式リリースに向けて、比較的大きな製品リファクタリングを進めています。セッション単位の Runtime、バックグラウンド常駐とローカル通知、スケジュールされた AI タスク、Markdown / Artifact プレビューの安定化、Codex などのローカル Agent 連携を整備中です。既存リリースは引き続き利用できます。次のバージョンでは、これらの基盤を安定して使いやすくすることを優先します。
-
 ![CodePilot](https://github.com/user-attachments/assets/9750450a-9f6f-49ce-acd4-c623a4e24281)
 
 ---
@@ -27,7 +25,7 @@
 |---|---|---|
 | macOS | [Apple Silicon (.dmg)](https://github.com/op7418/CodePilot/releases/latest) · [Intel (.dmg)](https://github.com/op7418/CodePilot/releases/latest) | arm64 / x64 |
 | Windows | [インストーラー (.exe)](https://github.com/op7418/CodePilot/releases/latest) | x64 + arm64 |
-| Linux | [AppImage](https://github.com/op7418/CodePilot/releases/latest) · [.deb](https://github.com/op7418/CodePilot/releases/latest) · [.rpm](https://github.com/op7418/CodePilot/releases/latest) | x64 + arm64 |
+| Linux | ソースからビルド | x64 + arm64 |
 
 または [Releases](https://github.com/op7418/CodePilot/releases) ページで全バージョンを確認できます。
 
@@ -262,10 +260,10 @@ npm run build                  # 本番ビルド
 npm run electron:build         # Electron 配布ファイルをビルド
 npm run electron:pack:mac      # macOS DMG (arm64 + x64)
 npm run electron:pack:win      # Windows NSIS インストーラー
-npm run electron:pack:linux    # Linux AppImage, deb, rpm
+npm run electron:pack:linux    # Linux AppImage, deb, rpm（ローカルビルドのみ — GitHub Release の事前ビルド配布物ではありません）
 ```
 
-**CI/CD:** `v*` タグをプッシュすると、全プラットフォームビルドが自動的にトリガーされ、GitHub Release が作成されます。
+**CI/CD:** `v*` タグをプッシュすると、macOS と Windows のパッケージがビルドされ、GitHub Release が自動的に作成されます。Linux は release ビルドに含まれません — `npm run electron:pack:linux` でローカルにビルドしてください。
 
 **メモ:**
 - Electron は `127.0.0.1` 上で Next.js スタンドアロンサーバーをフォークし、ランダムなフリーポートで接続

@@ -13,25 +13,6 @@
 
 ---
 
-## 🧪 Refactor Preview Testing / 重构预览测试
-
-**EN:** The major Runtime / Harness / macOS UI refactor is now ready for preview testing. If you want to help test the refactored build, please use the latest preview package instead of older `0.53` / `0.54` builds. We especially welcome reports for P0/P1 issues: install or launch failures, Settings pages stuck loading, Claude Code / Codex / Native Runtime unable to send messages, model/provider problems, existing data missing after upgrade, macOS menu bar icon issues, and notification or packaging problems. Stable releases remain available for daily use.
-
-**中文：** CodePilot 的 Runtime / Harness / macOS UI 大重构已经进入预览测试阶段。如果你愿意帮忙测试，请使用最新预览包，不要再使用旧的 `0.53` / `0.54` 测试包。我们尤其欢迎反馈 P0/P1 问题：安装或启动失败、Settings 页面一直加载、Claude Code / Codex / Native Runtime 无法发消息、模型或服务商异常、升级后旧数据缺失、macOS 菜单栏图标异常、通知或打包问题。稳定版仍可继续作为日常使用版本。
-
-Preview downloads / 预览包下载：
-
-- [Preview release page / 预览版发布页](https://github.com/op7418/CodePilot/releases/tag/preview-0.55.0-preview.5)
-- [macOS Apple Silicon / arm64 DMG](https://github.com/op7418/CodePilot/releases/download/preview-0.55.0-preview.5/CodePilot-0.55.0-preview.5-arm64.dmg)
-- [Windows x64 installer](https://github.com/op7418/CodePilot/releases/download/preview-0.55.0-preview.5/CodePilot.Setup.0.55.0-preview.5.exe)
-- [SHA256 checksums](https://github.com/op7418/CodePilot/releases/download/preview-0.55.0-preview.5/SHA256SUMS.txt)
-
-Please report issues with your OS version, CodePilot version, reproduction steps, screenshots, and logs when possible: [GitHub Issues](https://github.com/op7418/CodePilot/issues).
-
-请尽量在反馈中附上系统版本、CodePilot 版本、复现步骤、截图和日志：[GitHub Issues](https://github.com/op7418/CodePilot/issues)。
-
----
-
 ![CodePilot](https://github.com/user-attachments/assets/9750450a-9f6f-49ce-acd4-c623a4e24281)
 
 ---
@@ -46,7 +27,7 @@ Please report issues with your OS version, CodePilot version, reproduction steps
 |---|---|---|
 | macOS | [Apple Silicon (.dmg)](https://github.com/op7418/CodePilot/releases/latest) · [Intel (.dmg)](https://github.com/op7418/CodePilot/releases/latest) | arm64 / x64 |
 | Windows | [Installer (.exe)](https://github.com/op7418/CodePilot/releases/latest) | x64 + arm64 |
-| Linux | [AppImage](https://github.com/op7418/CodePilot/releases/latest) · [.deb](https://github.com/op7418/CodePilot/releases/latest) · [.rpm](https://github.com/op7418/CodePilot/releases/latest) | x64 + arm64 |
+| Linux | Build from source | x64 + arm64 |
 
 Or visit the [Releases](https://github.com/op7418/CodePilot/releases) page for all versions.
 
@@ -285,10 +266,10 @@ npm run build                  # Production build
 npm run electron:build         # Build Electron distributable
 npm run electron:pack:mac      # macOS DMG (arm64 + x64)
 npm run electron:pack:win      # Windows NSIS installer
-npm run electron:pack:linux    # Linux AppImage, deb, rpm
+npm run electron:pack:linux    # Linux AppImage, deb, rpm (local build only — not a GitHub Release download)
 ```
 
-**CI/CD:** Pushing a `v*` tag triggers a full multi-platform build and creates a GitHub Release automatically.
+**CI/CD:** Pushing a `v*` tag builds the macOS and Windows packages and creates a GitHub Release automatically. Linux is not part of the release build — build it locally with `npm run electron:pack:linux`.
 
 **Notes:**
 - Electron forks a Next.js standalone server on `127.0.0.1` with a random free port

@@ -11,12 +11,6 @@
 
 [English](./README.md) | [日本語](./README_JA.md)
 
-> **重构预览测试：** CodePilot 的 Runtime / Harness / macOS UI 大重构已经进入预览测试阶段。如果你愿意帮忙测试，请使用最新预览包，不要再使用旧的 `0.53` / `0.54` 测试包。我们尤其欢迎反馈 P0/P1 问题：安装或启动失败、Settings 页面一直加载、Claude Code / Codex / Native Runtime 无法发消息、模型或服务商异常、升级后旧数据缺失、macOS 菜单栏图标异常、通知或打包问题。稳定版仍可继续作为日常使用版本。
->
-> **预览包下载：** [发布页](https://github.com/op7418/CodePilot/releases/tag/preview-0.55.0-preview.5) · [macOS Apple Silicon / arm64 DMG](https://github.com/op7418/CodePilot/releases/download/preview-0.55.0-preview.5/CodePilot-0.55.0-preview.5-arm64.dmg) · [Windows x64 安装包](https://github.com/op7418/CodePilot/releases/download/preview-0.55.0-preview.5/CodePilot.Setup.0.55.0-preview.5.exe) · [SHA256 校验](https://github.com/op7418/CodePilot/releases/download/preview-0.55.0-preview.5/SHA256SUMS.txt)
->
-> 反馈时请尽量附上系统版本、CodePilot 版本、复现步骤、截图和日志：[GitHub Issues](https://github.com/op7418/CodePilot/issues)。
-
 ![CodePilot](https://github.com/user-attachments/assets/9750450a-9f6f-49ce-acd4-c623a4e24281)
 
 ---
@@ -31,7 +25,7 @@
 |---|---|---|
 | macOS | [Apple Silicon (.dmg)](https://github.com/op7418/CodePilot/releases/latest) · [Intel (.dmg)](https://github.com/op7418/CodePilot/releases/latest) | arm64 / x64 |
 | Windows | [安装包 (.exe)](https://github.com/op7418/CodePilot/releases/latest) | x64 + arm64 |
-| Linux | [AppImage](https://github.com/op7418/CodePilot/releases/latest) · [.deb](https://github.com/op7418/CodePilot/releases/latest) · [.rpm](https://github.com/op7418/CodePilot/releases/latest) | x64 + arm64 |
+| Linux | 从源码构建 | x64 + arm64 |
 
 或访问 [Releases](https://github.com/op7418/CodePilot/releases) 页面获取所有版本。
 
@@ -270,10 +264,10 @@ npm run build                  # 生产构建
 npm run electron:build         # 构建 Electron 可分发包
 npm run electron:pack:mac      # macOS DMG（arm64 + x64）
 npm run electron:pack:win      # Windows NSIS 安装包
-npm run electron:pack:linux    # Linux AppImage、deb、rpm
+npm run electron:pack:linux    # Linux AppImage、deb、rpm（仅本地构建——不是 GitHub Release 的预编译下载项）
 ```
 
-**CI/CD：** 推送 `v*` tag 会自动触发全平台构建并创建 GitHub Release。
+**CI/CD：** 推送 `v*` tag 会自动构建 macOS 和 Windows 包并创建 GitHub Release。Linux 不在 release 构建内——用 `npm run electron:pack:linux` 在本地构建。
 
 **说明：**
 - Electron 在 `127.0.0.1` 上 fork Next.js standalone 服务器，使用随机可用端口

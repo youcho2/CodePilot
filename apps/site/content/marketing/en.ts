@@ -72,13 +72,6 @@ export interface MarketingContent {
 
 export const en: MarketingContent = {
   hero: {
-    notice: {
-      label: 'Project update / 项目公告',
-      english: 'CodePilot is being actively refactored for the next release: session-safe runtimes, background resident tasks and local notifications, scheduled AI work, stronger Markdown/Artifact previews, and local agent adapters such as Codex.',
-      chinese: 'CodePilot 正在为下一轮发布进行产品重构：会话级 Runtime、后台常驻任务与本机通知、定时 AI 任务、Markdown / Artifact 预览，以及 Codex 等本地 Agent 适配会陆续稳定下来。',
-      cta: 'Follow on GitHub',
-      href: 'https://github.com/op7418/CodePilot',
-    },
     title: 'CodePilot',
     tagline: 'Your multi-model AI agent for',
     cta: 'Download',
@@ -183,7 +176,7 @@ export const en: MarketingContent = {
       },
       {
         q: 'Which platforms are supported?',
-        a: 'CodePilot supports macOS (Apple Silicon & Intel), Windows (x64), and Linux (x64 & arm64). Download the latest version for your platform from the GitHub releases page.',
+        a: 'CodePilot ships prebuilt downloads for macOS (Apple Silicon & Intel) and Windows (x64) on the GitHub releases page. Linux (x64 & arm64) is supported by building from source.',
       },
     ],
   },

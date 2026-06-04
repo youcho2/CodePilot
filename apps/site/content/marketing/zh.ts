@@ -2,13 +2,6 @@ import type { MarketingContent } from './en';
 
 export const zh: MarketingContent = {
   hero: {
-    notice: {
-      label: '项目公告 / Project update',
-      english: 'CodePilot is being actively refactored for the next release: session-safe runtimes, background resident tasks and local notifications, scheduled AI work, stronger Markdown/Artifact previews, and local agent adapters such as Codex.',
-      chinese: 'CodePilot 正在为下一轮发布进行产品重构：会话级 Runtime、后台常驻任务与本机通知、定时 AI 任务、Markdown / Artifact 预览，以及 Codex 等本地 Agent 适配会陆续稳定下来。',
-      cta: '在 GitHub 上关注',
-      href: 'https://github.com/op7418/CodePilot',
-    },
     title: 'CodePilot',
     tagline: '你的多模型 AI Agent，专注',
     cta: '下载',
@@ -113,7 +106,7 @@ export const zh: MarketingContent = {
       },
       {
         q: '支持哪些平台？',
-        a: 'CodePilot 支持 macOS（Apple Silicon 和 Intel）、Windows（x64）以及 Linux（x64 和 arm64）。前往 GitHub Releases 页面下载对应平台的最新版本。',
+        a: 'CodePilot 的 macOS（Apple Silicon 和 Intel）和 Windows（x64）提供预编译包，可在 GitHub Releases 页面下载；Linux（x64 和 arm64）目前通过源码构建支持。',
       },
     ],
   },
