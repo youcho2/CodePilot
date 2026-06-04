@@ -1,11 +1,19 @@
 name: Build & Package
 
-# Branch-preview override for worktree-product-refactor-research.
+# Stable tag-release workflow.
 #
-# The default branch only knows this workflow file name, so GitHub can dispatch
-# `build.yml` on a branch ref. The branch version below intentionally mirrors
-# the reviewed preview-build workflow: artifacts only, no Release, no tag, no
-# stable update channel.
+# Triggers on `v*` tags → builds macOS (arm64 + x64) and Windows packages, then
+# creates a real GitHub Release (NOT a prerelease) whose body is RELEASE_NOTES.md.
+# The internal tester channel lives in `preview-build.yml` / `preview-release.yml`
+# (artifacts-only / prerelease) — those are intentionally separate and untouched.
+#
+# Fail-closed gates preserved from the refactor's CI:
+#   - package.json version == tag version
+#   - Codex app-server must NOT use `--listen`
+#   - ClaudeCode canonicalizes bare `sonnet` -> `claude-sonnet-4-6`
+#   - P0 startup regression pins (codex binary discovery, app-server client
+#     fast-fail, provider resolver / catalog)
+#   - packaged better-sqlite3 native ABI loads under the Electron runtime
 
 on:
   workflow_dispatch:
@@ -19,36 +27,48 @@ on:
           - all
           - windows
           - macos
+  push:
+    tags:
+      - "v*"
 
 permissions:
-  contents: read
-
-env:
-  PREVIEW_VERSION: 0.55.0-preview.4
+  contents: write
 
 jobs:
   verify-source:
     runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.ver.outputs.version }}
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Fail-closed gate A — required preview fixes are present
+      - name: Resolve expected version (tag on push, package.json otherwise)
+        id: ver
         run: |
           set -euo pipefail
-          if ! git merge-base --is-ancestor 6923f13 HEAD; then
-            echo "::error::checkout does not include 6923f13 (preview startup fixes)"
-            exit 1
+          if [ "${GITHUB_REF_TYPE:-}" = "tag" ]; then
+            VERSION="${GITHUB_REF_NAME#v}"
+          else
+            VERSION="$(node -p "require('./package.json').version")"
           fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Expected release version: $VERSION"
+
+      - name: Fail-closed gate A — version matches tag + Codex has no --listen
+        env:
+          EXPECTED_VERSION: ${{ steps.ver.outputs.version }}
+        run: |
+          set -euo pipefail
           if grep -RIn -- "--listen" src/lib/codex/app-server-manager.ts; then
             echo "::error::Codex app-server still uses --listen"
             exit 1
           fi
           node -e '
             const v = require("./package.json").version;
-            if (v !== process.env.PREVIEW_VERSION) {
-              console.error(`::error::package.json version ${v} != ${process.env.PREVIEW_VERSION}`);
+            if (v !== process.env.EXPECTED_VERSION) {
+              console.error(`::error::package.json version ${v} != tag/expected ${process.env.EXPECTED_VERSION}`);
               process.exit(1);
             }
             console.log(`✓ package version ${v}`);
@@ -67,8 +87,8 @@ jobs:
       - name: Fail-closed gate B — ClaudeCode canonicalizes bare sonnet
         run: |
           set -euo pipefail
-          trap 'rm -f preview-gate-sonnet.ts' EXIT
-          cat > preview-gate-sonnet.ts <<'TS'
+          trap 'rm -f release-gate-sonnet.ts' EXIT
+          cat > release-gate-sonnet.ts <<'TS'
           import { toClaudeCodeEnv } from './src/lib/provider-resolver';
           const resolved: any = {
             provider: {
@@ -112,22 +132,23 @@ jobs:
           }
           console.log(`✓ sonnet -> ${env.ANTHROPIC_MODEL}`);
           TS
-          CODEX_DISABLED=1 npx tsx preview-gate-sonnet.ts
+          CODEX_DISABLED=1 npx tsx release-gate-sonnet.ts
 
       - name: P0 regression pins
         run: |
           CODEX_DISABLED=1 npx tsx --test --import ./src/__tests__/db-isolation.setup.ts \
             src/__tests__/unit/codex-binary-discovery.test.ts \
+            src/__tests__/unit/codex-app-server-client.test.ts \
             src/__tests__/unit/provider-resolver.test.ts
 
-      # Full unit coverage is enforced by the local pre-commit hook on the
-      # pushed commit. The branch-preview CI keeps the remote gate focused on
-      # source identity + P0 startup regressions so artifact packaging cannot be
-      # blocked by unrelated Linux runner test hangs.
+      # Full unit + lint coverage is enforced by the local pre-commit hook on the
+      # tagged commit. The release CI keeps the remote gate focused on version
+      # identity + P0 startup regressions + packaged ABI so a tag build can't be
+      # blocked by unrelated Linux-runner test hangs or React-compiler lint debt.
 
-  build-macos-arm64:
+  build-macos:
     needs: verify-source
-    if: ${{ inputs.platform == 'all' || inputs.platform == 'macos' }}
+    if: ${{ github.event_name == 'push' || inputs.platform == 'all' || inputs.platform == 'macos' }}
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
@@ -139,42 +160,53 @@ jobs:
 
       - run: npm ci
 
-      - name: Build + package macOS arm64
-        timeout-minutes: 30
+      - name: Build + package macOS (arm64 + x64)
+        timeout-minutes: 45
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: "false"
         run: |
           npm run electron:build
-          npx electron-builder --mac --arm64 --config electron-builder.yml --publish never
+          npx electron-builder --mac --arm64 --x64 --config electron-builder.yml --publish never
 
       - name: Verify packaged version and native ABI
+        env:
+          EXPECTED_VERSION: ${{ needs.verify-source.outputs.version }}
         run: |
           set -euo pipefail
-          DMG=$(find release -name "CodePilot-*-arm64.dmg" | head -1)
-          [ -n "$DMG" ] || { echo "::error::no arm64 DMG produced"; exit 1; }
-          case "$DMG" in *"$PREVIEW_VERSION"*) ;; *) echo "::error::DMG name lacks $PREVIEW_VERSION"; exit 1 ;; esac
-          APP=$(find release -maxdepth 4 -name "CodePilot.app" -type d | head -1)
+          # Both arch DMGs must exist and carry the version in their names.
+          for ARCH in arm64 x64; do
+            DMG=$(find release -name "CodePilot-*-${ARCH}.dmg" | head -1)
+            [ -n "$DMG" ] || { echo "::error::no ${ARCH} DMG produced"; exit 1; }
+            case "$DMG" in *"$EXPECTED_VERSION"*) ;; *) echo "::error::${ARCH} DMG name lacks $EXPECTED_VERSION"; exit 1 ;; esac
+            echo "✓ ${ARCH} DMG: $DMG"
+          done
+          # Full ABI load check on the runner-native arm64 .app. Cross-arch exec
+          # of the x64 binary is not reliable on an Apple-Silicon runner, so the
+          # x64 DMG is verified structurally (existence + version) above.
+          APP=$(find release -maxdepth 4 -path "*mac-arm64*" -name "CodePilot.app" -type d | head -1)
+          [ -n "$APP" ] || APP=$(find release -maxdepth 4 -name "CodePilot.app" -type d | head -1)
+          [ -n "$APP" ] || { echo "::error::CodePilot.app not found"; exit 1; }
           PLIST_VER=$(plutil -extract CFBundleShortVersionString raw "$APP/Contents/Info.plist")
-          [ "$PLIST_VER" = "$PREVIEW_VERSION" ] || { echo "::error::Info.plist $PLIST_VER != $PREVIEW_VERSION"; exit 1; }
+          [ "$PLIST_VER" = "$EXPECTED_VERSION" ] || { echo "::error::Info.plist $PLIST_VER != $EXPECTED_VERSION"; exit 1; }
           SQLITE=$(find "$APP/Contents/Resources" -path "*better-sqlite3*" -name "*.node" | head -1)
           [ -n "$SQLITE" ] || { echo "::error::better-sqlite3 .node not found"; exit 1; }
           ELECTRON_RUN_AS_NODE=1 "$APP/Contents/MacOS/CodePilot" -e "const path = require('node:path'); require(path.resolve(process.argv[1])); console.log('better-sqlite3 OK, ABI=' + process.versions.modules)" "$SQLITE"
 
       - name: Checksums
-        run: cd release && shasum -a 256 CodePilot-*-arm64.dmg CodePilot-*-arm64*.zip 2>/dev/null | tee checksums-macos-arm64.sha256
+        run: cd release && shasum -a 256 CodePilot-*.dmg CodePilot-*.zip 2>/dev/null | tee checksums-macos.sha256
 
       - uses: actions/upload-artifact@v4
         with:
-          name: preview-macos-arm64
+          name: release-macos
           path: |
-            release/CodePilot-*-arm64.dmg
-            release/CodePilot-*-arm64*.zip
-            release/checksums-macos-arm64.sha256
+            release/CodePilot-*.dmg
+            release/CodePilot-*.zip
+            release/checksums-macos.sha256
           retention-days: 7
 
-  build-windows-x64:
+  build-windows:
     needs: verify-source
-    if: ${{ inputs.platform == 'all' || inputs.platform == 'windows' }}
+    if: ${{ github.event_name == 'push' || inputs.platform == 'all' || inputs.platform == 'windows' }}
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -194,11 +226,13 @@ jobs:
 
       - name: Verify packaged version and native ABI
         shell: bash
+        env:
+          EXPECTED_VERSION: ${{ needs.verify-source.outputs.version }}
         run: |
           set -euo pipefail
           EXE=$(find release -name "CodePilot.Setup.*.exe" | head -1)
           [ -n "$EXE" ] || { echo "::error::no NSIS installer produced"; exit 1; }
-          case "$EXE" in *"$PREVIEW_VERSION"*) ;; *) echo "::error::installer name lacks $PREVIEW_VERSION"; exit 1 ;; esac
+          case "$EXE" in *"$EXPECTED_VERSION"*) ;; *) echo "::error::installer name lacks $EXPECTED_VERSION"; exit 1 ;; esac
           SQLITE=$(find release/win-unpacked -path "*better-sqlite3*" -name "*.node" 2>/dev/null | head -1)
           [ -n "$SQLITE" ] || { echo "::error::better-sqlite3 .node not found"; exit 1; }
           BIN=$(find release/win-unpacked -maxdepth 1 -name "CodePilot.exe" | head -1)
@@ -206,12 +240,68 @@ jobs:
 
       - name: Checksums
         shell: bash
-        run: cd release && sha256sum CodePilot.Setup.*.exe 2>/dev/null | tee checksums-windows-x64.sha256
+        run: cd release && sha256sum CodePilot.Setup.*.exe 2>/dev/null | tee checksums-windows.sha256
 
       - uses: actions/upload-artifact@v4
         with:
-          name: preview-windows-x64
+          name: release-windows
           path: |
             release/CodePilot.Setup.*.exe
-            release/checksums-windows-x64.sha256
+            release/checksums-windows.sha256
           retention-days: 7
+
+  release:
+    # Only on a `v*` tag push, and only after both build jobs succeed (default
+    # `needs` semantics skip this job if any dependency fails).
+    if: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') }}
+    needs: [build-macos, build-windows]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download all build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: List artifacts
+        run: find artifacts -type f | sort
+
+      - name: Create stable GitHub Release + upload assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          VERSION="${GITHUB_REF_NAME#v}"
+
+          # Release body is RELEASE_NOTES.md from the repo (must be present for a
+          # stable release — no silent fallback).
+          [ -f RELEASE_NOTES.md ] || { echo "::error::RELEASE_NOTES.md missing — cannot create stable release"; exit 1; }
+
+          # Merge per-platform checksums into one file.
+          echo "## SHA-256 Checksums" > artifacts/SHA256SUMS.txt
+          echo "" >> artifacts/SHA256SUMS.txt
+          for cs in artifacts/checksums-*.sha256; do
+            [ -f "$cs" ] || continue
+            cat "$cs" >> artifacts/SHA256SUMS.txt
+          done
+          echo "=== Combined checksums ==="
+          cat artifacts/SHA256SUMS.txt
+
+          # Collect installers + checksum file (skip blockmap / update metadata).
+          FILES=()
+          while IFS= read -r f; do
+            FILES+=("$f")
+          done < <(find artifacts -type f \( -name "*.dmg" -o -name "*.zip" -o -name "*.exe" \) | sort)
+          FILES+=("artifacts/SHA256SUMS.txt")
+          echo "=== Release assets ==="
+          printf '%s\n' "${FILES[@]}"
+
+          gh release create "${GITHUB_REF_NAME}" \
+            --title "CodePilot v${VERSION}" \
+            --notes-file RELEASE_NOTES.md \
+            --latest \
+            "${FILES[@]}"
