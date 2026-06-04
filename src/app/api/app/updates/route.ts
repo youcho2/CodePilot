@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getRuntimeArchitectureInfo } from "@/lib/platform";
 import { selectRecommendedReleaseAsset, type ReleaseAsset } from "@/lib/update-release";
+import { compareSemver } from "@/lib/compare-semver";
 
 const GITHUB_REPO = "op7418/CodePilot";
 
@@ -20,16 +21,6 @@ function noUpdatePayload(currentVersion: string, runtimeInfo: ReturnType<typeof 
     hostArch: runtimeInfo.hostArch,
     runningUnderRosetta: runtimeInfo.runningUnderRosetta,
   };
-}
-
-function compareSemver(a: string, b: string): number {
-  const pa = a.replace(/^v/, "").split(".").map(Number);
-  const pb = b.replace(/^v/, "").split(".").map(Number);
-  for (let i = 0; i < 3; i++) {
-    const diff = (pa[i] || 0) - (pb[i] || 0);
-    if (diff !== 0) return diff;
-  }
-  return 0;
 }
 
 export async function GET() {
