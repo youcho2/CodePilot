@@ -1,5 +1,7 @@
 # CodePilot 0.55.0-preview.5 内测说明
 
+> ⚠️ **已归档（2026-06-05）：** 正式版 v0.55.0 / v0.55.1 已发布，本预览包为发布前的历史内测记录，**不再分发**；当前请从 [GitHub Releases](https://github.com/op7418/CodePilot/releases) 下载正式版。
+>
 > 面向小范围内测用户。此版本不是正式 Release，不走自动更新，不代表最终 UI 与能力形态。
 
 ## 本次内测目标
