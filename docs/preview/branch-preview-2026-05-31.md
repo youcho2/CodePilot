@@ -1,7 +1,7 @@
 # CodePilot Branch Preview — 2026-05-31
 
 > ⚠️ **已废弃，不要分发本页旧包。**  
-> 用户安装后确认 P0：app 内仍显示 `0.53`，Codex app-server 启动失败，ClaudeCode 输入框长期停在"正在准备运行环境"。详见 [`docs/exec-plans/active/preview-build-readiness.md`](../exec-plans/active/preview-build-readiness.md) 的 `2026-05-31 P0 复盘`。下一版必须重新生成，版本单源高于 `0.54.0`，并通过 packaged Runtime smoke 后再更新本页。
+> 用户安装后确认 P0：app 内仍显示 `0.53`，Codex app-server 启动失败，ClaudeCode 输入框长期停在"正在准备运行环境"。详见 [`docs/exec-plans/completed/preview-build-readiness.md`](../exec-plans/completed/preview-build-readiness.md) 的 `2026-05-31 P0 复盘`。下一版必须重新生成，版本单源高于 `0.54.0`，并通过 packaged Runtime smoke 后再更新本页。
 
 > 分支：`worktree-product-refactor-research`  
 > Commit：`2606371`  

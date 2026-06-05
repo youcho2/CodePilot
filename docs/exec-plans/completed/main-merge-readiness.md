@@ -1,3 +1,5 @@
+> **Archive note（2026-06-05，document-system-governance）**：本计划已完成并移出 `active/`，归入 `completed/`——main 已合并重构分支并发布 v0.55.0 / v0.55.1，合并演练与回滚方案已执行完毕。作为历史执行记录保留；当前任务入口见 [exec-plans README](../README.md)。
+
 # Main Merge Readiness / 重构分支合并主分支计划
 
 > 创建时间：2026-06-03
@@ -297,7 +299,7 @@ git revert -m 1 <merge_commit>
 
 ```text
 你已经在 worktree-product-refactor-research 分支内。请先阅读：
-docs/exec-plans/active/main-merge-readiness.md
+docs/exec-plans/completed/main-merge-readiness.md
 
 不要 push，不要合 main，不要动主目录代码。
 

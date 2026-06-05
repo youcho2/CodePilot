@@ -3,7 +3,7 @@
 > 创建时间：2026-05-19
 > 最后更新：2026-05-20
 > 状态：✅ 已完成并归档
-> 父计划：[`refactor-closeout.md`](../active/refactor-closeout.md)
+> 父计划：[`refactor-closeout.md`](refactor-closeout.md)
 > 参考：用户提供的 Cursor Context Usage Breakdown 截图；Cursor context docs；CodePilot `docs/handover/context-management.md`
 
 ## 归档说明
@@ -50,7 +50,7 @@ Phase 6 的视觉入口、点阵组成条、popover breakdown、三 Runtime cont
 
 实施前必须先读：
 
-- `docs/exec-plans/active/refactor-closeout.md` — Phase 6 父计划与验收口径。
+- `docs/exec-plans/completed/refactor-closeout.md` — Phase 6 父计划与验收口径。
 - `docs/handover/context-management.md` — 现有上下文预估 / 压缩 / UI 交接。
 - `docs/handover/compact-coverage-boundary.md` — summary boundary，避免把压缩覆盖范围显示错。
 - `docs/guardrails/StreamSession.md` — 双入口 `/chat` 与 `/chat/[id]` 的流状态不变量。

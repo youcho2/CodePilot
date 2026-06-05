@@ -2,7 +2,7 @@
 
 中大型功能的执行计划，包含分阶段目标、进度状态和决策日志。
 
-> **日常入口：[active/refactor-closeout.md](active/refactor-closeout.md)**——这是总控板（当前 Phase 状态 / 下一步 / 未闭环风险 / 验收入口 / 最近决策 / Phase 6-7 方案）。后续 ClaudeCode / Codex 只从这一个计划领取任务，不再从下方"被接管 / 暂缓"清单里的旧 active 计划自行开支线。
+> **重构已完成并随 v0.55.0 / v0.55.1 发布。** 原重构总控板已归档为 [completed/refactor-closeout.md](completed/refactor-closeout.md)（重构收口历史）。当前在推进的计划见下方「Active — 当前推进」表（`issue-tracker` / `development-harness-optimization` / 文档体系治理）；ClaudeCode / Codex **只从 `active/` 领任务**，不从 `completed/` / `deferred/` / `superseded/` 自行开支线。
 >
 > **查历史细节：`completed/refactor-phase-*.md` + `completed/phase-4-markdown-artifact.md` + `completed/phase-5*.md`**——总控板里的"历史归档"列直接 link 过去。Phase 1（模型同步与渠道扩展）/ Phase 2（Runtime 与会话执行）/ Phase 3（后台常驻、定时任务、通知）/ Phase 4（Markdown 数据层 + Artifact 表现层）/ Phase 5（Codex Runtime + Harness 架构）已完成的计划文本与全部决策日志按 Phase 归档，不要去 active 总控板里翻。
 
@@ -101,12 +101,6 @@
 
 | 文件 | 主题 | 状态 |
 |------|------|------|
-| [active/refactor-closeout.md](active/refactor-closeout.md) | **重构收口总控板**：当前 Phase 状态 / 下一步 / 未闭环风险 / 验收入口 / 最近决策 / Phase 7 方案 | Phase 0-6 ✅ / Phase 8 ✅；Phase 7：图标 ✅归档 / 7b 收口 0-2(3-5 不做) / 7c ✅归档，剩 点阵视觉；遗留清理 post-refactor-cleanup ✅ 已完成归档 |
-| [active/main-merge-readiness.md](active/main-merge-readiness.md) | **重构分支合并主分支计划**：worktree → main 的冻结、验证、integration merge 演练、preview 真机验收、正式合并与回滚方案 | 📋 计划已写 + 快照更新至 `bd7b1fd` / 测试 3233 / smoke 16/16；**主分支 tracker #11-#22 编号冲突已预警**；待用户确认后执行，不自动 merge / push |
-| [active/merge-blockers-chat-ownership-openrouter.md](active/merge-blockers-chat-ownership-openrouter.md) | **合并前收口：侧栏新建对话入口（来源建模已否决 strip / OpenRouter 发送回归 → tech-debt #37）** | 🟢 已交付：侧栏「写新对话」入口 `a1c9997`；对话来源建模按用户否决 strip（→ tech-debt #38）；OpenRouter"无法发送"本机复现不到、真实缺陷是静默 Opus→Sonnet（→ tech-debt #37，已修 `b6d2e43`+`0f73a5f`，de19e576 真机确认）。待 Codex 复审 |
-| [active/preview-build-readiness.md](active/preview-build-readiness.md) | **分支预览包发布前收口**：不合 main，从当前 worktree 打 macOS + Windows Preview 包前的 blocker 修复、Windows readiness、macOS readiness、打包 smoke 与小范围试用闭环 | 📋 已 review，待执行（数据隔离已决"不隔离"+ 装前备份提示；剩 1 个 P1：Windows 包必须在 Windows 构建） |
-| [active/preview-final-blockers.md](active/preview-final-blockers.md) | **Preview 合并前最终 blocker 修复**：Windows Codex `.cmd` spawn EINVAL / interrupt 后无法再发送 / Windows single-instance tray + installer + packaged cache / full access 二次确认 / Windows provider edit 双 X / Mimo mapping 与新会话追加错误 | 📋 待 Claude Code 执行；FileTree 与 Workflow 已按用户确认 defer |
-| [active/phase-7b-macos-native-visual-profile.md](active/phase-7b-macos-native-visual-profile.md) | **Phase 7b macOS 平台视觉层**：借鉴 Raycast / Apple HIG 的平台感原则，只在窗口 chrome、顶部栏、侧栏、输入区和浮层做 macOS 材质与 hover profile，不分叉页面内容 | 🟢 收口于 Phase 0-2（卡片几何拆出为 7c 已归档）；Phase 3/4/5 用户 2026-05-29 决定不做 |
 | [active/development-harness-optimization.md](active/development-harness-optimization.md) | **开发流程 Harness 优化讨论稿（v2）**：Codex 初稿 + ClaudeCode 按用户"可审核"约束重组。事实层面补 3 项 Codex 漏说的已有资产（guardrails/ 4 份模块契约 / lint:colors / tech-debt-tracker）；方向上 Skill 化暂缓、主推自动检查脚本（docs drift / hook 配置）+ 测试矩阵补洞；每个 Step 必须以"用户能看到什么 / 不做什么 / 怎么验收"开头 | 📋 讨论中；待用户对齐 Step 1-3，再决定是否进入 Step 4-6 |
 | [active/issue-tracker.md](active/issue-tracker.md) | **统一问题跟踪**：所有 Bug / Feature Request / Sentry 监控的活动看板 | 持续维护 |
 | [active/document-system-governance.md](active/document-system-governance.md) | **文档体系治理**：基于 2026-06-05 文档健康审计，清理 active 语义污染，建立 deferred / superseded 目录，归档合并与 preview 旧计划，并升级 docs drift 防线 | 📋 计划已写；待 Claude Code 按 Phase 1-5 执行 |
@@ -145,6 +139,12 @@
 
 | 文件 | 主题 | 完成日期 |
 |------|------|----------|
+| [completed/refactor-closeout.md](completed/refactor-closeout.md) | **重构收口总控板（历史归档）**：6 大主线 Phase 0-8 收口；重构主体随 v0.55.0 / v0.55.1 发布 | 2026-06-04 |
+| [completed/main-merge-readiness.md](completed/main-merge-readiness.md) | **重构分支合并主分支**：integration 演练 + 4 冲突手解 + 回归，main ff-only 合并并发布 | 2026-06-04 |
+| [completed/merge-blockers-chat-ownership-openrouter.md](completed/merge-blockers-chat-ownership-openrouter.md) | **合并前收口**：侧栏新建对话入口已交付；OpenRouter 静默 Opus→Sonnet = tech-debt #37 已修（Codex 复审通过）| 2026-06-04 |
+| [completed/preview-final-blockers.md](completed/preview-final-blockers.md) | **Preview 最终 blocker 修复**：Windows Codex .cmd / 中断后发送 / single-instance / full-access / 双 X / MiMo 等已收口 | 2026-06-03 |
+| [completed/preview-build-readiness.md](completed/preview-build-readiness.md) | **预览包发布前收口**：已被正式 v0.55.x 发布流程取代 | 2026-06-04 |
+| [completed/phase-7b-macos-native-visual-profile.md](completed/phase-7b-macos-native-visual-profile.md) | **Phase 7b macOS 平台视觉层**：Phase 0-2 + 7c 已落地；Phase 3-5 用户决定不做 | 2026-05-29 |
 | [completed/post-refactor-cleanup.md](completed/post-refactor-cleanup.md) | **重构收尾后遗留清理**：Opus 4.8 接入 + Sonnet 4.6 别名 (#23) / Mac 通知链路确认 (#34) / pin 误报修复 (#27) / Plan 模式 Widget (#26) / Windows shell 默认 PowerShell (#28) / pre-commit enforce + 测试 flake 根治 (#30) / design.md 横切三节 (E)；13 React Compiler error 拆 #35；Preview 打包属独立下一阶段 | 2026-05-31 |
 | [completed/phase-8-codex-mcp-context-injection.md](completed/phase-8-codex-mcp-context-injection.md) | **Phase 8 Codex MCP / Memory 注入**：`config.mcp_servers` 注入链路 + 5 项核心能力（Memory / Widget / Tasks+Notify / Dashboard / CLI）在 Codex Account 下真账号 smoke 通过 + 按能力区分的 elicitation 审批策略（read 自动 / write 弹审批）+ Codex 原生图片入库对齐素材库；Image/Media 与用户自定义 MCP 用户决定 defer | 2026-05-29 |
 | [completed/phase-7-icon-system.md](completed/phase-7-icon-system.md) | **Phase 7 图标体系与表意校准**：CodePilot semantic icon layer（一概念一 glyph）+ HugeIcons 主库 + LobeHub 品牌图标保留 + Brain/Lightning/Terminal 冲突裁决 + eslint guardrail；96 文件迁到 CodePilotIcon | 2026-05-29 |

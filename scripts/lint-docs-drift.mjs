@@ -15,8 +15,10 @@ const SUPERSEDED_DIR = path.join(EXEC_PLANS_DIR, 'superseded');
 
 // Active files that are long-running orchestrators (never archive). Completed
 // plans MAY reference these — they're stable indices, not phase work.
+// refactor-closeout moved to completed/ in Phase 2b (refactor shipped as
+// v0.55.0/0.55.1), so it's no longer here — archived plans now reference it as
+// a completed/ peer, not an active orchestrator.
 const LONG_LIVED_ACTIVE = new Set([
-  'refactor-closeout.md',
   'issue-tracker.md',
 ]);
 

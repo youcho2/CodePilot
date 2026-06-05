@@ -1,3 +1,5 @@
+> **Archive note（2026-06-05，document-system-governance）**：本计划已完成并移出 `active/`，归入 `completed/`——重构主体已收口并随 v0.55.0 / v0.55.1 发布；本文件作为重构收口历史归档。作为历史执行记录保留；当前任务入口见 [exec-plans README](../README.md)。
+
 # Refactor Closeout / 重构收口计划（总控板）
 
 > 创建：2026-05-06 · 最后更新：2026-05-29（Phase 0-6 / Phase 8 已完成并归档；**Phase 7 视觉锚点与图标体系进行中**——图标体系 Phase 0-3、视觉锚点首批、macOS 视觉 7b Phase 0-2、浮动卡片 7c 均已落地，剩 图标 Phase 4 文档收口 + 7b Phase 3-5；当前在做整体收尾——文档状态校准 + tech-debt 排序）

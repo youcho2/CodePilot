@@ -2,7 +2,7 @@
 
 > 创建时间：2026-05-21
 > 最后更新：2026-05-29（✅ Phase 0-4 全部完成并归档）
-> 父计划：[`refactor-closeout.md`](../active/refactor-closeout.md)
+> 父计划：[`refactor-closeout.md`](refactor-closeout.md)
 > 技术交接见 [`docs/handover/icon-system.md`](../../handover/icon-system.md)；产品思考见 [`docs/insights/icon-system.md`](../../insights/icon-system.md)
 > 参考：[`docs/design.md`](../../design.md)、HugeIcons React docs、`@hugeicons/react` npm package、Phase 6 点阵式 Context Breakdown
 
@@ -96,7 +96,7 @@ HugeIcons 调研结论：
 实施前必须先读：
 
 - `docs/design.md` — Settings / cards / badges / density / hover / icon click target 规范。
-- `docs/exec-plans/active/refactor-closeout.md` — Phase 7 父计划与边界。
+- `docs/exec-plans/completed/refactor-closeout.md` — Phase 7 父计划与边界。
 - `docs/guardrails/i18n.md` — 图标替换如果同步 tooltip / aria-label，必须双语同步。
 - `docs/guardrails/Runtime.md` — Runtime / Provider / Model 图标语义不能破坏当前三层心智模型。
 - `docs/guardrails/ComposerModelSelection.md` — Chat composer / model picker / runtime selector 是高风险入口。

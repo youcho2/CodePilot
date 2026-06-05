@@ -1,8 +1,8 @@
 # Refactor Phase 2 — Runtime 与会话执行（已完成归档）
 
-> 历史归档。本文件由 [active/refactor-closeout.md](../active/refactor-closeout.md) 在 2026-05-09 拆出，对应 Phase 2（Runtime 与会话执行）的全部计划文本与决策日志。
+> 历史归档。本文件由 [active/refactor-closeout.md](refactor-closeout.md) 在 2026-05-09 拆出，对应 Phase 2（Runtime 与会话执行）的全部计划文本与决策日志。
 > 完成时间：2026-05-07（Step 1-4c 全部 ✅，含 4c review fix round 1-6）
-> 当前总控板：[active/refactor-closeout.md](../active/refactor-closeout.md)
+> 当前总控板：[active/refactor-closeout.md](refactor-closeout.md)
 
 ## Phase 2 用户结果（最终交付）
 
@@ -87,7 +87,7 @@
 | 路径 | 类型 | 内容 |
 |------|------|------|
 | `src/__tests__/unit/session-runtime-immunity.test.ts` | 新增 | 11 条契约测试，分 GREEN / YELLOW(`{todo:true}`) / RED(`{todo:true}`) 三档。GREEN（4 条）直接 assert 当前正确行为，必须永远 pass。YELLOW（2 条 todo）= resolver invalid 出参 + chat_sessions runtime 列的 target-state，今天 fail-as-todo。RED（5 条 todo）针对每个漂移点写**精确 hazardous-pattern grep**（不只是泛符号匹配），target = hazard 不存在；今天 fail-as-todo，Step 2 删 hazard 后 pass，PR 顺手摘 `{todo:true}` 即转正。原本"`assert.ok(r.lines > 0)`"反向通过的写法（伪绿色安全网）已替换。 |
-| `docs/exec-plans/active/refactor-closeout.md` | 更新 | 顶部状态行加上 Phase 2 Step 1 ✅；本节追加 Step 1 完成报告 + 决策日志条目 |
+| `docs/exec-plans/completed/refactor-closeout.md` | 更新 | 顶部状态行加上 Phase 2 Step 1 ✅；本节追加 Step 1 完成报告 + 决策日志条目 |
 
 **验证**
 

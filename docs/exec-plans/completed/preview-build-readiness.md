@@ -1,3 +1,5 @@
+> **Archive note（2026-06-05，document-system-governance）**：本计划已完成并移出 `active/`，归入 `completed/`——预览包流程已被正式 v0.55.x 发布取代。作为历史执行记录保留；当前任务入口见 [exec-plans README](../README.md)。
+
 # Branch Preview Build Readiness / 分支预览包发布前收口
 
 > 创建时间：2026-05-29

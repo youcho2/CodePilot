@@ -1,3 +1,5 @@
+> **Archive note（2026-06-05，document-system-governance）**：本计划已完成并移出 `active/`，归入 `completed/`——Phase 0-2 + 7c 已落地；Phase 3-5 用户 2026-05-29 决定不做。作为历史执行记录保留；当前任务入口见 [exec-plans README](../README.md)。
+
 # Phase 7b: macOS Native Visual Profile
 
 > 创建时间：2026-05-22

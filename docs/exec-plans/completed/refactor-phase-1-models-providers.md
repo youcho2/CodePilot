@@ -1,8 +1,8 @@
 # Refactor Phase 1 — 模型同步与渠道扩展（已完成归档）
 
-> 历史归档。本文件由 [active/refactor-closeout.md](../active/refactor-closeout.md) 在 2026-05-09 拆出，对应 Phase 0（计划收敛）+ Phase 1（模型同步与渠道扩展）的全部计划文本与决策日志。
+> 历史归档。本文件由 [active/refactor-closeout.md](refactor-closeout.md) 在 2026-05-09 拆出，对应 Phase 0（计划收敛）+ Phase 1（模型同步与渠道扩展）的全部计划文本与决策日志。
 > 完成时间：2026-05-06（Phase 0 ✅ + Phase 1 主路径 ✅；catalog 主动核准纳入 tech-debt #16 长期跟进）
-> 当前总控板：[active/refactor-closeout.md](../active/refactor-closeout.md)
+> 当前总控板：[active/refactor-closeout.md](refactor-closeout.md)
 
 ## Phase 1 用户结果（最终交付）
 

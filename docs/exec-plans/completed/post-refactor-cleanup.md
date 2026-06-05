@@ -2,7 +2,7 @@
 
 > 创建时间：2026-05-29
 > 最后更新：2026-05-31（A / B / C / D1 / D2 / E 全部完成 → 归档至 completed/）
-> 父计划：[`refactor-closeout.md`](../active/refactor-closeout.md)（重构主体已收尾；本计划处理收口后的遗留项 + Opus 4.8 接入）
+> 父计划：[`refactor-closeout.md`](refactor-closeout.md)（重构主体已收尾；本计划处理收口后的遗留项 + Opus 4.8 接入）
 
 > **✅ 本计划已完成（2026-05-31）**：A / B / C / D1 / D2 / E 六个 Phase 全部交付并验证。**本计划范围 = 重构收尾的 6 个遗留项（#23/#34/#26/#27/#28/#30）+ Opus 4.8 接入 + design.md 横切规范的「代码 / 文档 phase」**，已全部完成。**Windows 真机 smoke、macOS 通知权限核查、Preview 打包属独立下一阶段**（见 active 的 `preview-build-readiness.md`），**不混入本计划、不属本计划验收范围**。
 

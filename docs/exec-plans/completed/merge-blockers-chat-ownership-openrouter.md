@@ -1,3 +1,5 @@
+> **Archive note（2026-06-05，document-system-governance）**：本计划已完成并移出 `active/`，归入 `completed/`——侧栏新建对话入口已交付、tech-debt #37 已修并经 Codex 复审。作为历史执行记录保留；当前任务入口见 [exec-plans README](../README.md)。
+
 # 合并前收口：侧栏新建对话入口（OpenRouter 发送回归 → 暂缓 / 另记 tech-debt）
 
 > 创建时间：2026-06-03

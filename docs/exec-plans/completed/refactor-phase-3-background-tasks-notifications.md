@@ -1,9 +1,9 @@
 # Refactor Phase 3 — 后台常驻、全局定时任务、助理心跳与通知（已完成归档）
 
-> 历史归档。本文件由 [active/refactor-closeout.md](../active/refactor-closeout.md) 在 2026-05-10 拆出，对应 Phase 3（后台常驻、全局定时任务、助理心跳与通知）的全部计划文本与决策日志，并合并入这条主线进行期间发生的 dev-server 内存收口（Sentry dev guard / RunCockpit 数据层拆分 / Settings route-level split / AppShell Phase A）—— 这些都不是独立 Phase，但在 Phase 3 时间窗口内提交。
+> 历史归档。本文件由 [active/refactor-closeout.md](refactor-closeout.md) 在 2026-05-10 拆出，对应 Phase 3（后台常驻、全局定时任务、助理心跳与通知）的全部计划文本与决策日志，并合并入这条主线进行期间发生的 dev-server 内存收口（Sentry dev guard / RunCockpit 数据层拆分 / Settings route-level split / AppShell Phase A）—— 这些都不是独立 Phase，但在 Phase 3 时间窗口内提交。
 > Step 1-3 完成时间：2026-05-09（Step 1 现状审计 ✅；Step 2 菜单栏常驻 + 本机通知 ✅；Step 3 通知与任务触发闭环 ✅，含 v6 5 件功能修复 + v7 SQLite/Map/类型清理）
 > Step 4 / Step 5 完成时间：2026-05-10（v9 = Settings → Assistant 任务列表搬走轻入口；v10 = 心跳文案诚实化"打开新对话时触发，不是后台定时任务"）
-> 当前总控板：[active/refactor-closeout.md](../active/refactor-closeout.md)
+> 当前总控板：[active/refactor-closeout.md](refactor-closeout.md)
 
 ## Phase 3 用户结果（最终交付）
 
@@ -247,7 +247,7 @@
 | `src/components/settings/AssistantWorkspaceSection.tsx` | 删除"助理创建任务列表"区域，改成一个链接（`Settings → 定时任务（来源：助理）`）；保留心跳 / 主动问候配置 |
 | `src/i18n/{zh,en}.ts` | 任务页文案 + `kind` / 来源 / 状态 / channel 标签 |
 | `docs/handover/scheduler-tasks.md`（新增）+ `docs/insights/scheduler-tasks.md`（新增） | 完成后按规范双链 |
-| `docs/exec-plans/active/refactor-closeout.md` | 决策日志写完成条目 |
+| `docs/exec-plans/completed/refactor-closeout.md` | 决策日志写完成条目 |
 
 #### 5. 需要哪些测试
 

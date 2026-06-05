@@ -1,3 +1,5 @@
+> **Archive note（2026-06-05，document-system-governance）**：本计划已完成并移出 `active/`，归入 `completed/`——所列 blocker 已全部收口（见各 Phase 提交）。作为历史执行记录保留；当前任务入口见 [exec-plans README](../README.md)。
+
 # Preview Final Blockers
 
 > 创建时间：2026-06-02
