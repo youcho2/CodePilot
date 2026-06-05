@@ -159,6 +159,59 @@ if (fs.existsSync(README_PATH)) {
   });
 }
 
+// Phase 4 (document-system-governance): active/ plans must NOT carry a
+// superseded/deferred TOP banner — those belong in superseded/ or deferred/.
+// STRUCTURAL detection only — we look at the file's top region (the leading
+// blockquote banner around the first heading), never the whole body. Signals
+// are anchored to a blockquote line (`^>`), so a governance/plan doc that
+// DISCUSSES these markers in its body (bullets / prose / backticks) is NOT
+// flagged. This is the deliberate replacement for a naive full-text grep.
+const BANNER_SIGNALS = [
+  /^>\s*.*Superseded by/i,
+  /^>\s*⚠️.*Superseded/i,
+  /^>\s*⏸/,
+  /^>\s*.*本轮重构暂缓/,
+];
+function topBannerRegion(text) {
+  const lines = text.split('\n');
+  const region = lines.slice(0, 12); // leading region (covers pre-heading banners)
+  const headingIdx = lines.findIndex((l) => /^#/.test(l));
+  if (headingIdx >= 0) {
+    for (let i = headingIdx + 1; i < lines.length; i++) {
+      const t = lines[i].trim();
+      if (t === '') continue; // allow blank lines between heading and banner
+      if (t.startsWith('>')) region.push(lines[i]); // contiguous blockquote banner
+      else break; // banner ends at first non-blockquote content
+    }
+  }
+  return region;
+}
+const hasArchiveBanner = (text) =>
+  topBannerRegion(text).some((l) => BANNER_SIGNALS.some((re) => re.test(l)));
+
+// Inline self-check: the detector must fire on a TOP banner and stay silent on a
+// BODY mention — otherwise it would flag the governance plan itself.
+{
+  const bannerDoc = '# X\n\n> Superseded by refactor-closeout.md\n\nbody';
+  const bodyDoc =
+    '# X\n\n> 创建时间：2026-06-05\n\n## 实现路径\n\n- active 中出现 `> Superseded by` → fail\n- 正文讨论 `⏸` / `本轮重构暂缓` 不算违规';
+  if (!hasArchiveBanner(bannerDoc)) {
+    errors.push('lint self-check FAILED: a top `Superseded by` banner was not detected');
+  }
+  if (hasArchiveBanner(bodyDoc)) {
+    errors.push('lint self-check FAILED: a body mention of an archive marker was wrongly flagged as a banner');
+  }
+}
+
+for (const name of listMd(ACTIVE_DIR).filter((f) => f !== 'README.md')) {
+  const text = fs.readFileSync(path.join(ACTIVE_DIR, name), 'utf8');
+  if (hasArchiveBanner(text)) {
+    errors.push(
+      `Active plan has a superseded/deferred TOP banner: docs/exec-plans/active/${name} — move it to docs/exec-plans/superseded/ or deferred/ (active/ is for current work only). Body mentions are fine; this only matches a leading \`> …\` banner.`,
+    );
+  }
+}
+
 if (errors.length > 0) {
   console.error('\n[lint:docs-drift] FAILED — docs/exec-plans is out of sync:\n');
   for (const e of errors) console.error('  - ' + e);
