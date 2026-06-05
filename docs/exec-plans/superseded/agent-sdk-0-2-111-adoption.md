@@ -1,3 +1,5 @@
+> **Archive note（2026-06-05，document-system-governance）**：本计划已移出 `active/`，归入 `superseded/`——被 refactor-closeout 接管，仅作历史参考。**不是当前任务入口**；当前工作入口见 [exec-plans README](../README.md)，重启方式见 [superseded/README.md](README.md)。
+
 # Claude Agent SDK 0.2.111 能力采纳
 
 > ⚠️ **Superseded by [refactor-closeout.md](./refactor-closeout.md)** — 不再单独推进，保留作历史参考。SDK 升级已完成；剩余 chip / 限流 UI / WarmQuery / session fork / getContextUsage 等能力按需并入 refactor-closeout 的 **Phase 2（Runtime 与会话执行）** 与 **Phase 5（上下文可视化）**。

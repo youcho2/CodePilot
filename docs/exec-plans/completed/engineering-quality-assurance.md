@@ -89,7 +89,7 @@
 | 产物 | 路径 | 内容 |
 |------|------|------|
 | 执行计划规范 | `docs/exec-plans/README.md` | 模板、索引、使用指南 |
-| 首个执行计划 | `docs/exec-plans/active/context-storage-migration.md` | 从 research 迁移而来，标注各 Phase 状态 |
+| 首个执行计划 | `docs/exec-plans/superseded/context-storage-migration.md` | 从 research 迁移而来，标注各 Phase 状态 |
 | 技术债务清单 | `docs/exec-plans/tech-debt-tracker.md` | 4 项已知债务 |
 | CLAUDE.md 规则 | CLAUDE.md "执行计划" 区块 | 强制 AI 对中大型功能先写计划再开工 |
 

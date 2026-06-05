@@ -220,8 +220,8 @@ SDK 路径 `claude-client.ts` 和 native 路径 `agent-loop.ts` 共用 Opus 4.7 
 
 ## 8. 文档交叉引用
 
-- `docs/exec-plans/active/opus-4-7-upgrade.md` — Opus 4.7 升级计划（Codex round 1 审过）
-- `docs/exec-plans/active/agent-sdk-0-2-111-adoption.md` — SDK 新能力采纳计划（Codex rounds 2-10 审过）
+- `docs/exec-plans/superseded/opus-4-7-upgrade.md` — Opus 4.7 升级计划（Codex round 1 审过）
+- `docs/exec-plans/superseded/agent-sdk-0-2-111-adoption.md` — SDK 新能力采纳计划（Codex rounds 2-10 审过）
 - `docs/research/opus-4-7-verify-effort-dropdown.png` — CDP 验证 effort 下拉
 - `docs/research/opus-4-7-verify-auto-effort.png` — CDP 验证 Auto 默认状态
 

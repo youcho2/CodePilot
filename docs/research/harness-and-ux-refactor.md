@@ -1,6 +1,6 @@
 # Harness 思考与交互重构 — 事实输入文档
 
-> **本文档已不再承担排期职责。** 唯一执行入口为 [`docs/exec-plans/active/agent-trust-ownership-refactor.md`](../exec-plans/active/agent-trust-ownership-refactor.md)(Agent Trust & Ownership Refactor)。本文剩余内容仅作为该计划 Phase 0-4 的**事实输入**保留:
+> **本文档已不再承担排期职责。** 唯一执行入口为 [`docs/exec-plans/superseded/agent-trust-ownership-refactor.md`](../exec-plans/superseded/agent-trust-ownership-refactor.md)(Agent Trust & Ownership Refactor)。本文剩余内容仅作为该计划 Phase 0-4 的**事实输入**保留:
 >
 > - §"事实速览" 1-10:Harness 各层代码现状、记忆系统 V3、Hermes 路线图进度——作为 Phase 2 / Phase 4 实施输入
 > - §"Google design.md 事实速览":作为 Phase 1 design.md 写作参考
@@ -19,7 +19,7 @@
 用户 2026-04-24 明确的三条：
 
 1. **整体视觉和交互一致性 + 易用性**——要有一次可见的提升(不是内部重构,是用户能直接感受到的)。
-2. **完成一批半成品功能**——示例:定时任务通知(对应 `docs/exec-plans/active/scheduled-tasks-notifications.md`)。其他候选待讨论清点。
+2. **完成一批半成品功能**——示例:定时任务通知(对应 `docs/exec-plans/superseded/scheduled-tasks-notifications.md`)。其他候选待讨论清点。
 3. **核心目标**:把整个 Agent 架构/体系变成一个**整体**,提升稳定性 + 可用性。
    - 手法示例:新增"护栏文件"——`Context.md`、`服务商.md`。作用类似现有 `CLAUDE.md` / `ARCHITECTURE.md`,但针对 Context 管控体系和 Provider 体系,把分散在代码里的隐性约定落到显性文档上。
    - 动机:当前架构的各部件各自都在跑(见下方事实速览),但没有一份能统一解释"这些部件如何协作、边界在哪、新增功能触及哪些约束"的文档。

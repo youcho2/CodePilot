@@ -1,3 +1,5 @@
+> **Archive note（2026-06-05，document-system-governance）**：本计划已移出 `active/`，归入 `deferred/`——用户明确暂缓，未来可能重启。**不是当前任务入口**；当前工作入口见 [exec-plans README](../README.md)，重启方式见 [deferred/README.md](README.md)。
+
 # 记忆系统 V3：Onboarding 重写 + Heartbeat + 渐进式更新
 
 > ⏸ **本轮重构暂缓**（见 [refactor-closeout.md](./refactor-closeout.md) "暂缓清单"）— Phase 1-3 + V3.1 已完成；Phase 4（Memory Flush）+ Memory 管理面板不主动推进。

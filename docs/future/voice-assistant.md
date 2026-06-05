@@ -1,6 +1,6 @@
 # 语音助手（浮窗 + MCP）
 
-> 关联：[统一上下文层 Phase 4](../exec-plans/active/unified-context-layer.md#四phase-4-待开始浮窗助理)
+> 关联：[统一上下文层 Phase 4](../exec-plans/deferred/unified-context-layer.md#四phase-4-待开始浮窗助理)
 
 ## 核心想法
 

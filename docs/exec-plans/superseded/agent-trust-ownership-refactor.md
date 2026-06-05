@@ -1,3 +1,5 @@
+> **Archive note（2026-06-05，document-system-governance）**：本计划已移出 `active/`，归入 `superseded/`——被 refactor-closeout 接管，仅作历史参考。**不是当前任务入口**；当前工作入口见 [exec-plans README](../README.md)，重启方式见 [superseded/README.md](README.md)。
+
 # Agent Trust & Ownership Refactor
 
 > ⚠️ **Superseded by [refactor-closeout.md](./refactor-closeout.md)** — 不再单独推进，保留作历史参考。Phase 2A/2B/2C 已完成；剩余 Run Cockpit + session-level Runtime + 事件日志并入 refactor-closeout 的 **Phase 2（Runtime 与会话执行）**，长期助理叙事并入 **Phase 3（助理、定时任务、心跳通知）**。

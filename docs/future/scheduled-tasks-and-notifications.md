@@ -1,6 +1,6 @@
 # 定时任务 + 通知系统
 
-> 关联：[语音助手](voice-assistant.md)、[统一上下文层 Phase 4-5](../exec-plans/active/unified-context-layer.md)
+> 关联：[语音助手](voice-assistant.md)、[统一上下文层 Phase 4-5](../exec-plans/deferred/unified-context-layer.md)
 
 ## 核心想法
 

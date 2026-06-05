@@ -1,7 +1,7 @@
 # Chat Run Checkpoint — 产品思考（Round 1）
 
 > 技术实现见 [docs/handover/chat-run-checkpoint.md](../handover/chat-run-checkpoint.md)
-> 执行计划见 [docs/exec-plans/active/chat-run-checkpoint.md](../exec-plans/active/chat-run-checkpoint.md)
+> 执行计划见 [docs/exec-plans/deferred/chat-run-checkpoint.md](../exec-plans/deferred/chat-run-checkpoint.md)
 
 ## 用户问题
 

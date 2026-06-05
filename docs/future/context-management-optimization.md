@@ -1,7 +1,7 @@
 # 上下文管理体系优化
 
 > 参考 Claude Code 源码的上下文管理体系，与 CodePilot 对比分析，提炼可借鉴和优化的方向。
-> 技术实现跟踪见 [docs/exec-plans/active/context-storage-migration.md](../exec-plans/active/context-storage-migration.md)
+> 技术实现跟踪见 [docs/exec-plans/superseded/context-storage-migration.md](../exec-plans/superseded/context-storage-migration.md)
 > 最后更新：2026-04-02（实施完成）
 
 ## 架构对比总览（实施后）

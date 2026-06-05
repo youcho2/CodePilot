@@ -1,3 +1,5 @@
+> **Archive note（2026-06-05，document-system-governance）**：本计划已移出 `active/`，归入 `superseded/`——被 refactor-closeout 接管，仅作历史参考。**不是当前任务入口**；当前工作入口见 [exec-plans README](../README.md)，重启方式见 [superseded/README.md](README.md)。
+
 # 上下文共享与存储迁移
 
 > ⚠️ **Superseded by [refactor-closeout.md](./refactor-closeout.md)** — 不再单独推进，保留作历史参考。`message_parts` / `session_runtime_state` / 压缩摘要并入 refactor-closeout 的 **Phase 5（上下文可视化）**；session-level runtime 持久化并入 **Phase 2（Runtime 与会话执行）**。

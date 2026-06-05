@@ -1,3 +1,5 @@
+> **Archive note（2026-06-05，document-system-governance）**：本计划已移出 `active/`，归入 `superseded/`——被 refactor-closeout 接管，仅作历史参考。**不是当前任务入口**；当前工作入口见 [exec-plans README](../README.md)，重启方式见 [superseded/README.md](README.md)。
+
 # Opus 4.7 模型升级
 
 > ⚠️ **Superseded by [refactor-closeout.md](./refactor-closeout.md)** — 不再单独推进，保留作历史参考。模型 ID 切换 / `xhigh` effort / tokenizer 复核 / 字面化回归测试并入 refactor-closeout 的 **Phase 1（模型同步与渠道扩展）**。

@@ -111,33 +111,33 @@
 | [active/issue-tracker.md](active/issue-tracker.md) | **统一问题跟踪**：所有 Bug / Feature Request / Sentry 监控的活动看板 | 持续维护 |
 | [active/document-system-governance.md](active/document-system-governance.md) | **文档体系治理**：基于 2026-06-05 文档健康审计，清理 active 语义污染，建立 deferred / superseded 目录，归档合并与 preview 旧计划，并升级 docs drift 防线 | 📋 计划已写；待 Claude Code 按 Phase 1-5 执行 |
 
-### 被 refactor-closeout 接管（保留作历史参考）
+### Superseded（被接管，历史参考）— `superseded/`
 
-文件已加 `Superseded by refactor-closeout.md` 顶部标注，不再单独推进；相关工作并入 refactor-closeout 对应 Phase。
+已移到 [`superseded/`](superseded/README.md)（每份顶部有 Archive note）；被 refactor-closeout 接管，仅作历史参考，不再单独推进。
 
 | 文件 | 原主题 | 接管至 |
 |------|--------|--------|
-| [active/opus-4-7-upgrade.md](active/opus-4-7-upgrade.md) | Opus 4.7 模型升级（双 SDK / `xhigh` / tokenizer / 字面化回归） | Phase 1（模型同步与渠道扩展） |
-| [active/agent-sdk-0-2-111-adoption.md](active/agent-sdk-0-2-111-adoption.md) | SDK 0.2.111 能力采纳（chip / 限流 UI / WarmQuery / session fork / context usage） | Phase 2（Runtime 与会话执行）+ Phase 6（上下文可视化） |
-| [active/scheduled-tasks-notifications.md](active/scheduled-tasks-notifications.md) | 定时任务 + 通知（Notification MCP / TaskScheduler / Electron 系统通知 / 管理 UI） | Phase 3（助理、定时任务、心跳通知） |
-| [active/chat-latency-remediation.md](active/chat-latency-remediation.md) | 聊天链路提速（模式入口收敛 / MCP 持久 / 首包优化） | Phase 2（Runtime 与会话执行）+ Phase 3 |
-| [active/context-storage-migration.md](active/context-storage-migration.md) | 上下文共享与存储迁移（`message_parts` / `session_runtime_state` / 压缩摘要） | Phase 6（上下文可视化）+ Phase 2 |
-| [active/agent-runtime-abstraction-revision.md](active/agent-runtime-abstraction-revision.md) | Runtime 可插拔抽象层（薄接口、Native / SDK / 未来 Codex / Gemini） | Phase 2（Runtime 与会话执行）+ Phase 5（Codex Runtime） |
-| [active/agent-trust-ownership-refactor.md](active/agent-trust-ownership-refactor.md) | Agent Trust & Ownership Refactor（剩余 Run Cockpit + session-level Runtime + 事件日志） | Phase 2（Runtime 与会话执行）+ Phase 3 |
+| [superseded/opus-4-7-upgrade.md](superseded/opus-4-7-upgrade.md) | Opus 4.7 模型升级（双 SDK / `xhigh` / tokenizer / 字面化回归） | Phase 1（模型同步与渠道扩展） |
+| [superseded/agent-sdk-0-2-111-adoption.md](superseded/agent-sdk-0-2-111-adoption.md) | SDK 0.2.111 能力采纳（chip / 限流 UI / WarmQuery / session fork / context usage） | Phase 2（Runtime 与会话执行）+ Phase 6（上下文可视化） |
+| [superseded/scheduled-tasks-notifications.md](superseded/scheduled-tasks-notifications.md) | 定时任务 + 通知（Notification MCP / TaskScheduler / Electron 系统通知 / 管理 UI） | Phase 3（助理、定时任务、心跳通知） |
+| [superseded/chat-latency-remediation.md](superseded/chat-latency-remediation.md) | 聊天链路提速（模式入口收敛 / MCP 持久 / 首包优化） | Phase 2（Runtime 与会话执行）+ Phase 3 |
+| [superseded/context-storage-migration.md](superseded/context-storage-migration.md) | 上下文共享与存储迁移（`message_parts` / `session_runtime_state` / 压缩摘要） | Phase 6（上下文可视化）+ Phase 2 |
+| [superseded/agent-runtime-abstraction-revision.md](superseded/agent-runtime-abstraction-revision.md) | Runtime 可插拔抽象层（薄接口、Native / SDK / 未来 Codex / Gemini） | Phase 2（Runtime 与会话执行）+ Phase 5（Codex Runtime） |
+| [superseded/agent-trust-ownership-refactor.md](superseded/agent-trust-ownership-refactor.md) | Agent Trust & Ownership Refactor（剩余 Run Cockpit + session-level Runtime + 事件日志） | Phase 2（Runtime 与会话执行）+ Phase 3 |
 
-### 暂缓（本轮不开工，等收口完成后再评估）
+### Deferred（暂缓，未来可能重启）— `deferred/`
 
-文件已加 ⏸ 暂缓顶部标注，与 refactor-closeout 的"暂缓清单"对齐。
+已移到 [`deferred/`](deferred/README.md)（每份顶部有 Archive note）；用户明确暂缓，不是当前任务入口，重启由用户主动发起。
 
 | 文件 | 原主题 | 暂缓原因 |
 |------|--------|----------|
-| [active/chat-run-checkpoint.md](active/chat-run-checkpoint.md) | Chat Run Checkpoint（Round 1+2 已完成；Round 3 PermissionPrompt 视觉收编） | Run Checkpoint Round 3（用户 2026-04-30 决定） |
-| [active/memory-system-v3.md](active/memory-system-v3.md) | 记忆系统 V3（Phase 1-3 + V3.1 已完成；Phase 4 Memory Flush + Memory 管理面板） | Memory 管理面板 |
-| [active/site-and-docs.md](active/site-and-docs.md) | 官网 + 文档站（Phase 0-3 已完成；Phase 4-5 packages/ui + 桌面端适配） | 大规模官网 / 文档站 |
-| [active/weixin-bridge-channel.md](active/weixin-bridge-channel.md) | 微信 Bridge 通道一次性交付 | 更多 Bridge 渠道 |
-| [active/qq-bridge-channel.md](active/qq-bridge-channel.md) | QQ Bridge Channel | 更多 Bridge 渠道 |
-| [active/unified-context-layer.md](active/unified-context-layer.md) | 统一上下文层 + 浮窗助理（Phase 1-3 已完成；Phase 4-5 浮窗 + 通知） | 浮窗助理；通知 / 后台能力走 closeout Phase 3；上下文能力顺延 Phase 6 |
-| [active/git-terminal-integration.md](active/git-terminal-integration.md) | Git + 终端集成 | 不在本轮 6 条主线 |
+| [deferred/chat-run-checkpoint.md](deferred/chat-run-checkpoint.md) | Chat Run Checkpoint（Round 1+2 已完成；Round 3 PermissionPrompt 视觉收编） | Run Checkpoint Round 3（用户 2026-04-30 决定） |
+| [deferred/memory-system-v3.md](deferred/memory-system-v3.md) | 记忆系统 V3（Phase 1-3 + V3.1 已完成；Phase 4 Memory Flush + Memory 管理面板） | Memory 管理面板 |
+| [deferred/site-and-docs.md](deferred/site-and-docs.md) | 官网 + 文档站（Phase 0-3 已完成；Phase 4-5 packages/ui + 桌面端适配） | 大规模官网 / 文档站 |
+| [deferred/weixin-bridge-channel.md](deferred/weixin-bridge-channel.md) | 微信 Bridge 通道一次性交付 | 更多 Bridge 渠道 |
+| [deferred/qq-bridge-channel.md](deferred/qq-bridge-channel.md) | QQ Bridge Channel | 更多 Bridge 渠道 |
+| [deferred/unified-context-layer.md](deferred/unified-context-layer.md) | 统一上下文层 + 浮窗助理（Phase 1-3 已完成；Phase 4-5 浮窗 + 通知） | 浮窗助理；通知 / 后台能力走 closeout Phase 3；上下文能力顺延 Phase 6 |
+| [deferred/git-terminal-integration.md](deferred/git-terminal-integration.md) | Git + 终端集成 | 不在本轮 6 条主线 |
 
 ### Completed
 

@@ -1,7 +1,7 @@
 # 记忆系统 V3 + V3.1 — 交接文档
 
 > 产品思考见 [docs/future/core-system-guardrails.md](../future/core-system-guardrails.md)
-> 执行计划见 [docs/exec-plans/active/memory-system-v3.md](../exec-plans/active/memory-system-v3.md)
+> 执行计划见 [docs/exec-plans/deferred/memory-system-v3.md](../exec-plans/deferred/memory-system-v3.md)
 > 后续增强见 [docs/future/memory-enhancements.md](../future/memory-enhancements.md)
 > 助理体验升级见 [docs/future/assistant-ux-upgrade.md](../future/assistant-ux-upgrade.md)
 

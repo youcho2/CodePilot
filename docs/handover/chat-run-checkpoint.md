@@ -1,7 +1,7 @@
 # Chat Run Checkpoint — 技术交接（Round 1）
 
 > 产品思考见 [docs/insights/chat-run-checkpoint.md](../insights/chat-run-checkpoint.md)
-> 执行计划见 [docs/exec-plans/active/chat-run-checkpoint.md](../exec-plans/active/chat-run-checkpoint.md)
+> 执行计划见 [docs/exec-plans/deferred/chat-run-checkpoint.md](../exec-plans/deferred/chat-run-checkpoint.md)
 
 ## 范围
 
