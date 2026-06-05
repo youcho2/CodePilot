@@ -103,7 +103,7 @@
 |------|------|------|
 | [active/development-harness-optimization.md](active/development-harness-optimization.md) | **开发流程 Harness 优化讨论稿（v2）**：Codex 初稿 + ClaudeCode 按用户"可审核"约束重组。事实层面补 3 项 Codex 漏说的已有资产（guardrails/ 4 份模块契约 / lint:colors / tech-debt-tracker）；方向上 Skill 化暂缓、主推自动检查脚本（docs drift / hook 配置）+ 测试矩阵补洞；每个 Step 必须以"用户能看到什么 / 不做什么 / 怎么验收"开头 | 📋 讨论中；待用户对齐 Step 1-3，再决定是否进入 Step 4-6 |
 | [active/issue-tracker.md](active/issue-tracker.md) | **统一问题跟踪**：所有 Bug / Feature Request / Sentry 监控的活动看板 | 持续维护 |
-| [active/document-system-governance.md](active/document-system-governance.md) | **文档体系治理**：基于 2026-06-05 文档健康审计，清理 active 语义污染，建立 deferred / superseded 目录，归档合并与 preview 旧计划，并升级 docs drift 防线 | 📋 计划已写；待 Claude Code 按 Phase 1-5 执行 |
+| [active/document-system-governance.md](active/document-system-governance.md) | **文档体系治理**：基于 2026-06-05 文档健康审计，清理 active 语义污染，建立 deferred / superseded 目录，归档合并与 preview 旧计划，并升级 docs drift 防线 | ✅ Phase 0-5 已执行（active 23→3；14→superseded/deferred；6→completed；结构化 lint 防线 + self-check）；本文件保留 active 作治理记录，可后续移 completed/ |
 
 ### Superseded（被接管，历史参考）— `superseded/`
 

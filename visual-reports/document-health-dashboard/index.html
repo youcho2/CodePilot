@@ -274,6 +274,193 @@
         font-size: 24px;
       }
 
+      .layer-grid,
+      .health-grid {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 12px;
+      }
+
+      .layer-card,
+      .health-card {
+        min-height: 138px;
+        padding: 14px;
+        border-radius: 14px;
+        border: 1px solid var(--line);
+        background: rgba(255, 255, 255, 0.5);
+      }
+
+      .layer-card h3,
+      .health-card h3 {
+        margin: 0 0 8px;
+        font-size: 15px;
+      }
+
+      .layer-card p,
+      .health-card p {
+        margin: 0;
+        color: var(--muted);
+        font-size: 13px;
+        line-height: 1.58;
+      }
+
+      .status-chip {
+        display: inline-flex;
+        align-items: center;
+        min-height: 24px;
+        margin-bottom: 10px;
+        padding: 3px 8px;
+        border-radius: 999px;
+        font-size: 12px;
+        font-weight: 650;
+      }
+
+      .status-chip.good {
+        color: var(--ok);
+        background: rgba(35, 134, 108, 0.12);
+      }
+
+      .status-chip.warn {
+        color: var(--warn);
+        background: rgba(198, 128, 46, 0.14);
+      }
+
+      .status-chip.bad {
+        color: var(--bad);
+        background: rgba(195, 77, 63, 0.13);
+      }
+
+      .callout {
+        margin-top: 14px;
+        padding: 14px;
+        border-radius: 14px;
+        border: 1px solid rgba(64, 119, 184, 0.22);
+        background: rgba(64, 119, 184, 0.08);
+        color: var(--muted);
+        font-size: 13px;
+        line-height: 1.6;
+      }
+
+      .architecture {
+        display: grid;
+        grid-template-columns: 1fr 1.1fr 1fr;
+        gap: 14px;
+        align-items: stretch;
+      }
+
+      .arch-column {
+        display: grid;
+        gap: 10px;
+      }
+
+      .arch-title {
+        color: var(--muted);
+        font-size: 12px;
+        font-weight: 700;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+      }
+
+      .doc-node {
+        min-height: 72px;
+        padding: 13px;
+        border-radius: 14px;
+        border: 1px solid var(--line);
+        background: rgba(255, 255, 255, 0.54);
+      }
+
+      .doc-node.primary {
+        border-color: rgba(64, 119, 184, 0.38);
+        background: rgba(64, 119, 184, 0.1);
+      }
+
+      .doc-node h3 {
+        margin: 0 0 6px;
+        font-size: 15px;
+      }
+
+      .doc-node p {
+        margin: 0;
+        color: var(--muted);
+        font-size: 12px;
+        line-height: 1.48;
+      }
+
+      .flow {
+        display: grid;
+        grid-template-columns: repeat(5, minmax(0, 1fr));
+        gap: 10px;
+      }
+
+      .flow-step {
+        position: relative;
+        min-height: 150px;
+        padding: 14px;
+        border-radius: 16px;
+        border: 1px solid var(--line);
+        background: rgba(255, 255, 255, 0.5);
+      }
+
+      .flow-step:not(:last-child)::after {
+        content: "";
+        position: absolute;
+        top: 28px;
+        right: -10px;
+        width: 10px;
+        height: 2px;
+        background: rgba(37, 37, 37, 0.22);
+      }
+
+      .flow-num {
+        width: 26px;
+        height: 26px;
+        display: grid;
+        place-items: center;
+        margin-bottom: 10px;
+        border-radius: 50%;
+        background: var(--blue);
+        color: white;
+        font-size: 12px;
+        font-weight: 750;
+      }
+
+      .flow-step h3 {
+        margin: 0 0 8px;
+        font-size: 15px;
+      }
+
+      .flow-step p {
+        margin: 0;
+        color: var(--muted);
+        font-size: 12px;
+        line-height: 1.5;
+      }
+
+      .lifecycle {
+        display: grid;
+        grid-template-columns: 1fr 1fr 1fr 1fr;
+        gap: 10px;
+      }
+
+      .life-card {
+        padding: 14px;
+        border-radius: 16px;
+        border: 1px solid var(--line);
+        background: rgba(255, 255, 255, 0.52);
+      }
+
+      .life-card strong {
+        display: block;
+        margin-bottom: 8px;
+        font-size: 22px;
+      }
+
+      .life-card span {
+        color: var(--muted);
+        font-size: 12px;
+        line-height: 1.45;
+      }
+
       .todo {
         display: grid;
         gap: 10px;
@@ -324,6 +511,11 @@
         header,
         .grid,
         .metric-grid,
+        .architecture,
+        .flow,
+        .lifecycle,
+        .layer-grid,
+        .health-grid,
         .donut-wrap,
         .active-grid {
           grid-template-columns: 1fr;
@@ -353,13 +545,28 @@
           </div>
         </section>
 
+        <section class="card" style="border: 1px solid var(--ok); background: rgba(35, 134, 108, 0.08);">
+          <div class="section-title">
+            <h2>✅ 治理已执行（2026-06-05）</h2>
+          </div>
+          <p class="summary">
+            下方是<strong>治理前</strong>的审计基线，保留作为动因记录。按
+            <code>docs/exec-plans/active/document-system-governance.md</code> 执行后，
+            <code>active/</code> 已从 <strong>23</strong> 份清理到 <strong>3</strong> 份真正当前计划
+            （issue-tracker / development-harness-optimization / 本治理计划）：14 份移到
+            <code>superseded/</code> + <code>deferred/</code>，6 份完成项移到 <code>completed/</code>，
+            并加了「active 顶部 banner 即失败」的结构化 docs-drift lint 防线。active 目录不再大片红色。
+          </p>
+        </section>
+
         <section class="card">
           <div class="section-title">
             <h2>一句话判断</h2>
           </div>
           <p class="summary">
             文档约等于代码量的 <strong>21%</strong>，这是健康的工程文档密度。风险点不是“文档太多”，而是
-            active 目录里混着当前计划、暂停计划、被接管计划和发布前计划，容易误导 Codex / Claude Code 开错支线。
+            不同文档类别承担的职责没有被结构化表达。最急的是 active 语义污染；更长期的问题是 handover、guardrails、
+            research、preview、insights 也需要各自的生命周期和健康指标。
           </p>
         </section>
       </header>
@@ -388,6 +595,167 @@
       </section>
 
       <section class="grid">
+        <article class="card wide">
+          <div class="section-title">
+            <h2>文档架构地图</h2>
+            <span class="subtle">人给判断，文档保存判断，AI 按文档执行</span>
+          </div>
+          <div class="architecture">
+            <div class="arch-column">
+              <div class="arch-title">输入层：问题从哪里来</div>
+              <div class="doc-node primary">
+                <h3>用户判断 / 反馈</h3>
+                <p>产品方向、体验反馈、真实机器 smoke、哪些风险能接受。</p>
+              </div>
+              <div class="doc-node">
+                <h3>GitHub Issues / Tester 反馈</h3>
+                <p>外部用户的 P0/P1 信号，进入 issue tracker 或 release readiness。</p>
+              </div>
+              <div class="doc-node">
+                <h3>日志 / CDP / Smoke</h3>
+                <p>把“感觉坏了”变成可追踪证据，避免只靠聊天记忆。</p>
+              </div>
+            </div>
+
+            <div class="arch-column">
+              <div class="arch-title">控制层：AI 从哪里领任务</div>
+              <div class="doc-node primary">
+                <h3>exec-plans/active</h3>
+                <p>唯一当前任务入口。只放正在推进的计划，其他都不该从这里领任务。</p>
+              </div>
+              <div class="doc-node">
+                <h3>tech-debt-tracker / issue-tracker</h3>
+                <p>长期风险、已知问题、用户反馈、阻断级别和解决状态。</p>
+              </div>
+              <div class="doc-node">
+                <h3>Smoke Ledger</h3>
+                <p>真实账号、真实包、真实 UI 的验证记录。证明“真的跑过”。</p>
+              </div>
+            </div>
+
+            <div class="arch-column">
+              <div class="arch-title">知识层：改代码前读什么</div>
+              <div class="doc-node">
+                <h3>handover/</h3>
+                <p>系统怎么工作：数据流、架构、关键入口、已有设计。</p>
+              </div>
+              <div class="doc-node">
+                <h3>guardrails/</h3>
+                <p>哪些边界不能破：Runtime、Provider、DB、权限、发布。</p>
+              </div>
+              <div class="doc-node">
+                <h3>research / insights</h3>
+                <p>事实来源和产品判断：为什么选这个方案，为什么不选那个。</p>
+              </div>
+            </div>
+          </div>
+          <div class="callout">
+            理想状态下，AI 不应该“全仓乱读”。它应该先看控制层确认当前任务，再看对应知识层校准边界，最后把验证证据回写到计划或技术债。
+          </div>
+        </article>
+
+        <article class="card wide">
+          <div class="section-title">
+            <h2>从需求到代码的文档工作流</h2>
+            <span class="subtle">这就是 CodePilot 当前 Vibe Coding 的操作系统</span>
+          </div>
+          <div class="flow">
+            <div class="flow-step">
+              <div class="flow-num">1</div>
+              <h3>Signal</h3>
+              <p>用户反馈、日志、截图、CI 失败、真实包 smoke。先形成可描述的问题。</p>
+            </div>
+            <div class="flow-step">
+              <div class="flow-num">2</div>
+              <h3>Triage</h3>
+              <p>进入 issue tracker / active plan，判断 P0/P1/P2、范围和不做边界。</p>
+            </div>
+            <div class="flow-step">
+              <div class="flow-num">3</div>
+              <h3>Context</h3>
+              <p>读 handover、guardrails、research，确认历史结论和不能破的契约。</p>
+            </div>
+            <div class="flow-step">
+              <div class="flow-num">4</div>
+              <h3>Implementation</h3>
+              <p>Claude Code 执行代码，Codex 做方案审查、边界确认和复盘。</p>
+            </div>
+            <div class="flow-step">
+              <div class="flow-num">5</div>
+              <h3>Evidence</h3>
+              <p>测试、CDP、真机、Release smoke 写回 Smoke Ledger / tech debt / handover。</p>
+            </div>
+          </div>
+        </article>
+
+        <article class="card wide">
+          <div class="section-title">
+            <h2>计划文档生命周期</h2>
+            <span class="subtle">让 AI 知道哪里能做，哪里只能查</span>
+          </div>
+          <div class="lifecycle">
+            <div class="life-card">
+              <strong style="color: var(--blue)">Active</strong>
+              <span>当前推进。AI 可以从这里领任务，但必须有用户结果、不做边界和验收方式。</span>
+            </div>
+            <div class="life-card">
+              <strong style="color: var(--ok)">Completed</strong>
+              <span>已完成。保留决策日志和 smoke evidence，只能查历史，不能当新任务。</span>
+            </div>
+            <div class="life-card">
+              <strong style="color: var(--violet)">Deferred</strong>
+              <span>用户明确暂缓。保留方案，但恢复前必须由用户主动重启。</span>
+            </div>
+            <div class="life-card">
+              <strong style="color: var(--warn)">Superseded</strong>
+              <span>被新计划接管。仅作历史参考，顶部 Archive note 指向当前入口。</span>
+            </div>
+          </div>
+        </article>
+
+        <article class="card wide">
+          <div class="section-title">
+            <h2>新的判断：文档系统分 6 层治理</h2>
+            <span class="subtle">不是所有 Markdown 都是一种文档</span>
+          </div>
+          <div class="layer-grid">
+            <div class="layer-card">
+              <span class="status-chip bad">最急</span>
+              <h3>1. 任务控制面</h3>
+              <p><code>exec-plans/</code> 回答“现在做什么”。当前主要问题是 active 混入 completed / deferred / superseded。</p>
+            </div>
+            <div class="layer-card">
+              <span class="status-chip warn">需补触发</span>
+              <h3>2. 系统交接层</h3>
+              <p><code>handover/</code> 记录系统怎么工作，但需要写清“改哪些文件前必须读我”。</p>
+            </div>
+            <div class="layer-card">
+              <span class="status-chip warn">覆盖不均</span>
+              <h3>3. 安全契约层</h3>
+              <p><code>guardrails/</code> 方向正确，但 13 份里仍有 stub；看板应区分 complete / stub / missing。</p>
+            </div>
+            <div class="layer-card">
+              <span class="status-chip warn">去向不清</span>
+              <h3>4. 调研事实层</h3>
+              <p><code>research/</code> 价值高，但需要 outcome：adopted / rejected / reference only / pending。</p>
+            </div>
+            <div class="layer-card">
+              <span class="status-chip bad">易过期</span>
+              <h3>5. 发布时效层</h3>
+              <p><code>preview/</code> 天然短命；必须标清有效版本、是否 archive、是否仍对应真实 Release 资产。</p>
+            </div>
+            <div class="layer-card">
+              <span class="status-chip good">保留判断</span>
+              <h3>6. 产品洞察层</h3>
+              <p><code>insights/</code> 不负责执行，只沉淀“为什么这件事对产品重要”和可复用判断。</p>
+            </div>
+          </div>
+          <div class="callout">
+            看板后续不应该只统计“多少文档过时”，而要统计每一层是否有入口、状态、证据和触发条件。
+            这会让人和 AI 在 30 秒内知道：哪里能领任务，哪里只查历史，哪里必须先读再改代码。
+          </div>
+        </article>
+
         <article class="card">
           <div class="section-title">
             <h2>过时风险分布</h2>
@@ -428,7 +796,7 @@
         <article class="card">
           <div class="section-title">
             <h2>active 目录实际状态</h2>
-            <span class="subtle">23 份执行计划，含本治理计划</span>
+            <span class="subtle">治理前 23 份；当前工作树已降到 9 份</span>
           </div>
           <div class="active-grid">
             <div class="active-box">
@@ -437,16 +805,19 @@
             </div>
             <div class="active-box">
               <strong style="color: var(--bad)">6</strong>
-              <span class="subtle">已完成后仍在 active</span>
+              <span class="subtle">硬过时：仍待移出 active</span>
             </div>
             <div class="active-box">
-              <strong style="color: var(--warn)">7</strong>
-              <span class="subtle">Superseded，应移出 active</span>
+              <strong style="color: var(--warn)">0</strong>
+              <span class="subtle">Superseded 已迁出 active</span>
             </div>
             <div class="active-box">
-              <strong style="color: var(--violet)">7</strong>
-              <span class="subtle">暂停项，应进入 deferred</span>
+              <strong style="color: var(--violet)">0</strong>
+              <span class="subtle">Deferred 已迁出 active</span>
             </div>
+          </div>
+          <div class="callout">
+            进度说明：当前工作树里 7 份 deferred、7 份 superseded 已经迁出；剩余风险集中在 6 份完成/发布相关旧计划。
           </div>
         </article>
 
@@ -460,10 +831,51 @@
             <div class="bar-row"><span>Handover</span><div class="bar-track"><div class="bar" style="width: 98%"></div></div><strong>41</strong></div>
             <div class="bar-row"><span>Completed plans</span><div class="bar-track"><div class="bar" style="width: 88%"></div></div><strong>37</strong></div>
             <div class="bar-row"><span>Site docs</span><div class="bar-track"><div class="bar" style="width: 86%"></div></div><strong>36</strong></div>
-            <div class="bar-row"><span>Active plans</span><div class="bar-track"><div class="bar" style="width: 55%"></div></div><strong>23</strong></div>
+            <div class="bar-row"><span>Active plans</span><div class="bar-track"><div class="bar" style="width: 21%"></div></div><strong>9</strong></div>
             <div class="bar-row"><span>Insights</span><div class="bar-track"><div class="bar" style="width: 52%"></div></div><strong>22</strong></div>
             <div class="bar-row"><span>Guardrails</span><div class="bar-track"><div class="bar" style="width: 31%"></div></div><strong>13</strong></div>
             <div class="bar-row"><span>Future</span><div class="bar-track"><div class="bar" style="width: 19%"></div></div><strong>8</strong></div>
+            <div class="bar-row"><span>Deferred plans</span><div class="bar-track"><div class="bar" style="width: 19%"></div></div><strong>8</strong></div>
+            <div class="bar-row"><span>Superseded plans</span><div class="bar-track"><div class="bar" style="width: 19%"></div></div><strong>8</strong></div>
+          </div>
+        </article>
+
+        <article class="card wide">
+          <div class="section-title">
+            <h2>各类文档的健康问题</h2>
+            <span class="subtle">下一版看板应持续追踪这些维度</span>
+          </div>
+          <div class="health-grid">
+            <div class="health-card">
+              <span class="status-chip bad">Lifecycle</span>
+              <h3>exec-plans</h3>
+              <p>问题是状态污染。治理目标是 active 只放当前任务，completed / deferred / superseded 各有明确归宿。</p>
+            </div>
+            <div class="health-card">
+              <span class="status-chip warn">Trigger</span>
+              <h3>handover</h3>
+              <p>问题不是价值低，而是触发条件不够显式。每份应写“改哪些文件/模块前必须读”。</p>
+            </div>
+            <div class="health-card">
+              <span class="status-chip warn">Coverage</span>
+              <h3>guardrails</h3>
+              <p>13 份护栏中有稳定契约也有 stub。数量不能代表覆盖度，需要区分完整、草稿、缺失。</p>
+            </div>
+            <div class="health-card">
+              <span class="status-chip warn">Outcome</span>
+              <h3>research</h3>
+              <p>42 份 research 应有去向：被采纳、被否决、仅参考、待决策。否则调研会变成孤岛。</p>
+            </div>
+            <div class="health-card">
+              <span class="status-chip bad">Freshness</span>
+              <h3>preview / release</h3>
+              <p>这类文档过期最快。必须标有效版本、真实资产、是否 archive，避免用户装错包。</p>
+            </div>
+            <div class="health-card">
+              <span class="status-chip good">Judgment</span>
+              <h3>insights</h3>
+              <p>只记录可复用产品判断，不承担任务入口；质量看是否被 handover / plan 引用，而不是数量。</p>
+            </div>
           </div>
         </article>
 

@@ -97,12 +97,12 @@ NODE
 
 | Phase | 内容 | 状态 | 用户能看到什么 |
 |-------|------|------|----------------|
-| Phase 0 | 审计基线 + 可视化看板 | ✅ 已完成（Codex，未提交） | 有独立 HTML 看板可快速理解文档健康状态 |
-| Phase 1 | 定义目录语义 + 让 docs drift 认识新目录 | 📋 待开始 | `active / completed / deferred / superseded` 四类入口先建立起来，但不先收紧规则 |
-| Phase 2 | 搬迁硬过时 / superseded / deferred 文档 | 📋 待开始 | `active/` 只剩真正当前工作入口 |
-| Phase 3 | preview 文档 archive 化 | 📋 待开始 | 旧 preview.5 说明不会被误读为当前测试入口 |
-| Phase 4 | 收紧结构化 lint 防线 | 📋 待开始 | 以后再把 superseded / deferred 放进 active，会被提交检查拦住 |
-| Phase 5 | 更新索引、交接说明和可视化看板 | 📋 待开始 | 文档入口、看板、lint 三者一致 |
+| Phase 0 | 审计基线 + 可视化看板 | ✅ 已完成（落地于 `ac96139`） | 有独立 HTML 看板可快速理解文档健康状态 |
+| Phase 1 | 定义目录语义 + 让 docs drift 认识新目录 | ✅ 已完成（`ac96139`） | `active / completed / deferred / superseded` 四类入口已建立，规则未先收紧 |
+| Phase 2 | 搬迁硬过时 / superseded / deferred 文档 | ✅ 已完成（`1f7b8ea` 14 份 + `93d2f52` 6 份） | `active/` 只剩 3 个真正当前工作入口 |
+| Phase 3 | preview 文档 archive 化 | ✅ 已完成（`fc13b98`） | 旧 preview.5 说明已标历史归档，不会被误读为当前测试入口 |
+| Phase 4 | 收紧结构化 lint 防线 | ✅ 已完成（`5f5c08f`，含 self-check + fixture 实测） | 以后把 superseded / deferred banner 放进 active，提交即被拦 |
+| Phase 5 | 更新索引、交接说明和可视化看板 | ✅ 已完成（本提交） | 看板加「治理已执行」横幅、active 不再大片红；README 目录语义 + lint + 看板三者一致 |
 
 ## Phase 0 — 审计基线 + 可视化看板
 
