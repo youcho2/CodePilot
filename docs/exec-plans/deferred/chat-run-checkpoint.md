@@ -2,7 +2,7 @@
 
 # Chat Run Checkpoint — 轻量运行前信任层
 
-> ⏸ **本轮重构暂缓**（见 [refactor-closeout.md](./refactor-closeout.md) "暂缓清单"）— Round 1+2 已完成；Round 3（PermissionPrompt 视觉收编）不主动推进，等收口完成后再评估。
+> ⏸ **本轮重构暂缓**（见 [refactor-closeout.md](../completed/refactor-closeout.md) "暂缓清单"）— Round 1+2 已完成；Round 3（PermissionPrompt 视觉收编）不主动推进，等收口完成后再评估。
 
 ## 状态: 🟡 Round 1 + Round 2 完成（2026-04-30）— Round 3 暂缓（2026-04-30 用户决定）
 

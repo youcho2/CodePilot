@@ -2,7 +2,7 @@
 
 中大型功能的执行计划，包含分阶段目标、进度状态和决策日志。
 
-> **重构已完成并随 v0.55.0 / v0.55.1 发布。** 原重构总控板已归档为 [completed/refactor-closeout.md](completed/refactor-closeout.md)（重构收口历史）。当前在推进的计划见下方「Active — 当前推进」表（`issue-tracker` / `development-harness-optimization` / 文档体系治理）；ClaudeCode / Codex **只从 `active/` 领任务**，不从 `completed/` / `deferred/` / `superseded/` 自行开支线。
+> **重构已完成并随 v0.55.0 / v0.55.1 发布。** 原重构总控板已归档为 [completed/refactor-closeout.md](completed/refactor-closeout.md)（重构收口历史）。当前在推进的计划见下方「Active — 当前推进」表（`issue-tracker` / `development-harness-optimization` / `codex-stop-recovery`）；ClaudeCode / Codex **只从 `active/` 领任务**，不从 `completed/` / `deferred/` / `superseded/` 自行开支线。
 >
 > **查历史细节：`completed/refactor-phase-*.md` + `completed/phase-4-markdown-artifact.md` + `completed/phase-5*.md`**——总控板里的"历史归档"列直接 link 过去。Phase 1（模型同步与渠道扩展）/ Phase 2（Runtime 与会话执行）/ Phase 3（后台常驻、定时任务、通知）/ Phase 4（Markdown 数据层 + Artifact 表现层）/ Phase 5（Codex Runtime + Harness 架构）已完成的计划文本与全部决策日志按 Phase 归档，不要去 active 总控板里翻。
 
@@ -101,9 +101,9 @@
 
 | 文件 | 主题 | 状态 |
 |------|------|------|
+| [active/codex-stop-recovery.md](active/codex-stop-recovery.md) | **Codex Stop Recovery / 终止后恢复发送**：调研并修复 Codex Runtime 下 Stop 只切断前端 stream、未必调用 Codex app-server `turn/interrupt`，导致后台 collect / session lock / runtime status 未收口，下一条同会话指令无法拉起的问题；外部 Codex issues 只作症状旁证，不采信其根因推测 | 📋 待 Claude Code 接手修复 |
 | [active/development-harness-optimization.md](active/development-harness-optimization.md) | **开发流程 Harness 优化讨论稿（v2）**：Codex 初稿 + ClaudeCode 按用户"可审核"约束重组。事实层面补 3 项 Codex 漏说的已有资产（guardrails/ 4 份模块契约 / lint:colors / tech-debt-tracker）；方向上 Skill 化暂缓、主推自动检查脚本（docs drift / hook 配置）+ 测试矩阵补洞；每个 Step 必须以"用户能看到什么 / 不做什么 / 怎么验收"开头 | 📋 讨论中；待用户对齐 Step 1-3，再决定是否进入 Step 4-6 |
 | [active/issue-tracker.md](active/issue-tracker.md) | **统一问题跟踪**：所有 Bug / Feature Request / Sentry 监控的活动看板 | 持续维护 |
-| [active/document-system-governance.md](active/document-system-governance.md) | **文档体系治理**：基于 2026-06-05 文档健康审计，清理 active 语义污染，建立 deferred / superseded 目录，归档合并与 preview 旧计划，并升级 docs drift 防线 | ✅ Phase 0-5 已执行（active 23→3；14→superseded/deferred；6→completed；结构化 lint 防线 + self-check）；本文件保留 active 作治理记录，可后续移 completed/ |
 
 ### Superseded（被接管，历史参考）— `superseded/`
 
@@ -139,6 +139,7 @@
 
 | 文件 | 主题 | 完成日期 |
 |------|------|----------|
+| [completed/document-system-governance.md](completed/document-system-governance.md) | **文档体系治理**：基于 2026-06-05 文档健康审计清理 active 语义污染，建立 deferred / superseded 目录，归档合并与 preview 旧计划，升级 docs drift 防线（结构化 banner + 归档桶内部链接完整性），并修复归档桶 21 处失效相对链接 | 2026-06-05 |
 | [completed/refactor-closeout.md](completed/refactor-closeout.md) | **重构收口总控板（历史归档）**：6 大主线 Phase 0-8 收口；重构主体随 v0.55.0 / v0.55.1 发布 | 2026-06-04 |
 | [completed/main-merge-readiness.md](completed/main-merge-readiness.md) | **重构分支合并主分支**：integration 演练 + 4 冲突手解 + 回归，main ff-only 合并并发布 | 2026-06-04 |
 | [completed/merge-blockers-chat-ownership-openrouter.md](completed/merge-blockers-chat-ownership-openrouter.md) | **合并前收口**：侧栏新建对话入口已交付；OpenRouter 静默 Opus→Sonnet = tech-debt #37 已修（Codex 复审通过）| 2026-06-04 |

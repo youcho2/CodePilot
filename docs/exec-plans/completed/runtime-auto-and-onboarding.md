@@ -3,7 +3,7 @@
 > 创建时间：2026-04-15
 > 最后更新：2026-04-15
 > 关联 Issue：#490 #493 #478 #476 #461；Sentry NEXT-2Z、NEXT-PA
-> 问题跟踪主档：[issue-tracker.md](./issue-tracker.md)
+> 问题跟踪主档：[issue-tracker.md](../active/issue-tracker.md)
 
 ---
 
@@ -472,7 +472,7 @@ v0.50.2 release 已知活跃 issue 快照：2Z=9, 2X=2, 2Y=2, PA=1。2X/2Y 是 N
 
 ## 参考
 
-- [issue-tracker.md](./issue-tracker.md) — 问题跟踪主档（本计划的 B-001 / B-008 / B-009 相关）
+- [issue-tracker.md](../active/issue-tracker.md) — 问题跟踪主档（本计划的 B-001 / B-008 / B-009 相关）
 - [cc-switch-credential-bridge.md](./cc-switch-credential-bridge.md) — v0.50.2 shadow HOME 方案背景（仍有效，本计划是其补充修复）
 - [electron-port-stability.md](./electron-port-stability.md) — v0.50.2 端口稳定化（已发布）
 - cc-switch 仓库：https://github.com/farion1231/cc-switch（commit 2025-12-05 `Feat/proxy server (#355)` 引入代理模式）

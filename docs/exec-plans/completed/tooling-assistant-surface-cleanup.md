@@ -6,7 +6,7 @@
 >
 > 不属于本计划：合并 Skills / MCP / CLI 数据模型、新增统一启用开关、把内置 MCP 做成可编辑 server、CLI update endpoint、Settings 内 Assistant/Memory/Heartbeat/Tasks 面板的 UI 重做。
 >
-> 上游：Round 2 完成 + Chat 稳定化收口（见 [chat-run-checkpoint.md](./chat-run-checkpoint.md)）。
+> 上游：Round 2 完成 + Chat 稳定化收口（见 [chat-run-checkpoint.md](../deferred/chat-run-checkpoint.md)）。
 > 下游：Phase 2E 待定。
 
 ## 概览
@@ -850,8 +850,8 @@ P2-4 反馈采纳：先核准事实再做 UI 决策。
 
 ## 反向引用
 
-- 上一阶段：[chat-run-checkpoint.md](./chat-run-checkpoint.md)（Round 1+2 完成，Round 3 暂缓）
+- 上一阶段：[chat-run-checkpoint.md](../deferred/chat-run-checkpoint.md)（Round 1+2 完成，Round 3 暂缓）
 - Settings IA 历史：见 `../completed/settings-ia.md`（Phase 2C.1-2C.6 已完成）
-- Scheduled Tasks 老 plan：[scheduled-tasks-notifications.md](./scheduled-tasks-notifications.md)（状态表跟代码现实有漂移，本期 2D.5 核准）
+- Scheduled Tasks 老 plan：[scheduled-tasks-notifications.md](../superseded/scheduled-tasks-notifications.md)（状态表跟代码现实有漂移，本期 2D.5 核准）
 - 内置 MCP 数据来源：`src/lib/{memory-search,notification,cli-tools,dashboard,media-import,image-gen}-mcp.ts` + `src/lib/widget-guidelines.ts`
 - 注册逻辑入口：`src/lib/claude-client.ts:700-823`

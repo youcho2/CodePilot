@@ -343,7 +343,7 @@
 
       .architecture {
         display: grid;
-        grid-template-columns: 1fr 1.1fr 1fr;
+        grid-template-columns: 0.95fr 1fr 1.05fr 1fr;
         gap: 14px;
         align-items: stretch;
       }
@@ -536,7 +536,7 @@
           <p class="summary">
             这是一份给研发协作使用的静态看板。全仓已跟踪文档共 261 份，其中 243 份是 CodePilot 自有文档，另外 18 份来自
             <code>资料/</code> 下的第三方参考包。结论很清楚：文档量不失控，真正需要治理的是
-            <code>docs/exec-plans/active</code> 的语义污染。
+            顶层规则文档与 <code>docs/exec-plans/active</code> 的职责边界。
           </p>
           <div class="hero-note">
             <span class="pill">生成时间：2026-06-05</span>
@@ -551,11 +551,13 @@
           </div>
           <p class="summary">
             下方是<strong>治理前</strong>的审计基线，保留作为动因记录。按
-            <code>docs/exec-plans/active/document-system-governance.md</code> 执行后，
-            <code>active/</code> 已从 <strong>23</strong> 份清理到 <strong>3</strong> 份真正当前计划
-            （issue-tracker / development-harness-optimization / 本治理计划）：14 份移到
+            <code>docs/exec-plans/completed/document-system-governance.md</code> 执行后，
+            <code>active/</code> 先从 <strong>23</strong> 份清理到 3 份真正当前计划：14 份移到
             <code>superseded/</code> + <code>deferred/</code>，6 份完成项移到 <code>completed/</code>，
-            并加了「active 顶部 banner 即失败」的结构化 docs-drift lint 防线。active 目录不再大片红色。
+            并加了「active 顶部 banner 即失败」的结构化 docs-drift lint 防线；收尾再修复了归档桶内
+            <strong>21</strong> 处失效的相对链接，并把「归档桶内部链接完整性」纳入同一条 lint 防线。
+            治理计划本身完成后也归入 <code>completed/</code>，<code>active/</code> 现为 <strong>2</strong>
+            份当前计划（issue-tracker / development-harness-optimization）。active 目录不再大片红色。
           </p>
         </section>
 
@@ -601,6 +603,22 @@
             <span class="subtle">人给判断，文档保存判断，AI 按文档执行</span>
           </div>
           <div class="architecture">
+            <div class="arch-column">
+              <div class="arch-title">规则层：AI 先遵守什么</div>
+              <div class="doc-node primary">
+                <h3>AGENTS.md / CLAUDE.md</h3>
+                <p>仓库级协作规则：测试、提交、Worktree、发版、执行计划。AI 的默认操作边界。</p>
+              </div>
+              <div class="doc-node">
+                <h3>docs/CLAUDE.md</h3>
+                <p>文档目录自己的维护规则，决定文档增删、索引和 drift lint 怎么走。</p>
+              </div>
+              <div class="doc-node">
+                <h3>docs/design.md / ARCHITECTURE.md</h3>
+                <p>产品视觉和系统架构的长期约束，决定 UI 和代码方案不能偏离哪里。</p>
+              </div>
+            </div>
+
             <div class="arch-column">
               <div class="arch-title">输入层：问题从哪里来</div>
               <div class="doc-node primary">
@@ -650,7 +668,8 @@
             </div>
           </div>
           <div class="callout">
-            理想状态下，AI 不应该“全仓乱读”。它应该先看控制层确认当前任务，再看对应知识层校准边界，最后把验证证据回写到计划或技术债。
+            理想状态下，AI 不应该“全仓乱读”。它应该先看顶层规则确定行为边界，再看控制层确认当前任务，
+            然后读对应知识层校准系统事实，最后把验证证据回写到计划或技术债。
           </div>
         </article>
 
@@ -715,10 +734,15 @@
 
         <article class="card wide">
           <div class="section-title">
-            <h2>新的判断：文档系统分 6 层治理</h2>
+            <h2>新的判断：文档系统分 7 层治理</h2>
             <span class="subtle">不是所有 Markdown 都是一种文档</span>
           </div>
           <div class="layer-grid">
+            <div class="layer-card">
+              <span class="status-chip good">顶层约束</span>
+              <h3>0. 规则入口层</h3>
+              <p><code>AGENTS.md</code>、<code>CLAUDE.md</code>、<code>docs/design.md</code>、<code>ARCHITECTURE.md</code> 决定 AI 怎么工作、UI 怎么设计、系统边界在哪里。</p>
+            </div>
             <div class="layer-card">
               <span class="status-chip bad">最急</span>
               <h3>1. 任务控制面</h3>
@@ -753,6 +777,7 @@
           <div class="callout">
             看板后续不应该只统计“多少文档过时”，而要统计每一层是否有入口、状态、证据和触发条件。
             这会让人和 AI 在 30 秒内知道：哪里能领任务，哪里只查历史，哪里必须先读再改代码。
+            其中顶层规则层不按“完成/归档”治理，而按“是否互相冲突、是否被 AI 实际引用、是否仍符合当前流程”治理。
           </div>
         </article>
 
@@ -796,16 +821,16 @@
         <article class="card">
           <div class="section-title">
             <h2>active 目录实际状态</h2>
-            <span class="subtle">治理前 23 份；当前工作树已降到 9 份</span>
+            <span class="subtle">治理前 23 份；当前已降到 2 份（治理计划自身已归档）</span>
           </div>
           <div class="active-grid">
             <div class="active-box">
-              <strong style="color: var(--ok)">3</strong>
-              <span class="subtle">真正当前：issue tracker / 开发流程 / 文档治理</span>
+              <strong style="color: var(--ok)">2</strong>
+              <span class="subtle">真正当前：issue tracker / 开发流程</span>
             </div>
             <div class="active-box">
-              <strong style="color: var(--bad)">6</strong>
-              <span class="subtle">硬过时：仍待移出 active</span>
+              <strong style="color: var(--bad)">0</strong>
+              <span class="subtle">硬过时已迁出 active</span>
             </div>
             <div class="active-box">
               <strong style="color: var(--warn)">0</strong>
@@ -817,7 +842,8 @@
             </div>
           </div>
           <div class="callout">
-            进度说明：当前工作树里 7 份 deferred、7 份 superseded 已经迁出；剩余风险集中在 6 份完成/发布相关旧计划。
+            治理结果：7 份 deferred、7 份 superseded、6 份已完成发布/合并计划全部迁出 active。
+            现在 active 只承担当前任务入口职责。
           </div>
         </article>
 
@@ -829,14 +855,15 @@
           <div class="bar-list">
             <div class="bar-row"><span>Research</span><div class="bar-track"><div class="bar" style="width: 100%"></div></div><strong>42</strong></div>
             <div class="bar-row"><span>Handover</span><div class="bar-track"><div class="bar" style="width: 98%"></div></div><strong>41</strong></div>
-            <div class="bar-row"><span>Completed plans</span><div class="bar-track"><div class="bar" style="width: 88%"></div></div><strong>37</strong></div>
+            <div class="bar-row"><span>Completed plans</span><div class="bar-track"><div class="bar" style="width: 100%"></div></div><strong>43</strong></div>
             <div class="bar-row"><span>Site docs</span><div class="bar-track"><div class="bar" style="width: 86%"></div></div><strong>36</strong></div>
-            <div class="bar-row"><span>Active plans</span><div class="bar-track"><div class="bar" style="width: 21%"></div></div><strong>9</strong></div>
+            <div class="bar-row"><span>Active plans</span><div class="bar-track"><div class="bar" style="width: 5%"></div></div><strong>2</strong></div>
             <div class="bar-row"><span>Insights</span><div class="bar-track"><div class="bar" style="width: 52%"></div></div><strong>22</strong></div>
             <div class="bar-row"><span>Guardrails</span><div class="bar-track"><div class="bar" style="width: 31%"></div></div><strong>13</strong></div>
             <div class="bar-row"><span>Future</span><div class="bar-track"><div class="bar" style="width: 19%"></div></div><strong>8</strong></div>
-            <div class="bar-row"><span>Deferred plans</span><div class="bar-track"><div class="bar" style="width: 19%"></div></div><strong>8</strong></div>
-            <div class="bar-row"><span>Superseded plans</span><div class="bar-track"><div class="bar" style="width: 19%"></div></div><strong>8</strong></div>
+            <div class="bar-row"><span>Deferred plans</span><div class="bar-track"><div class="bar" style="width: 17%"></div></div><strong>7</strong></div>
+            <div class="bar-row"><span>Superseded plans</span><div class="bar-track"><div class="bar" style="width: 17%"></div></div><strong>7</strong></div>
+            <div class="bar-row"><span>Top-level rules</span><div class="bar-track"><div class="bar" style="width: 12%"></div></div><strong>5</strong></div>
           </div>
         </article>
 
@@ -847,9 +874,14 @@
           </div>
           <div class="health-grid">
             <div class="health-card">
-              <span class="status-chip bad">Lifecycle</span>
+              <span class="status-chip warn">Consistency</span>
+              <h3>top-level rules</h3>
+              <p>问题不是过时数量，而是规则是否互相冲突。<code>AGENTS.md</code>、<code>CLAUDE.md</code>、<code>docs/design.md</code> 应成为所有计划的上位约束。</p>
+            </div>
+            <div class="health-card">
+              <span class="status-chip good">Lifecycle</span>
               <h3>exec-plans</h3>
-              <p>问题是状态污染。治理目标是 active 只放当前任务，completed / deferred / superseded 各有明确归宿。</p>
+              <p>第一轮治理已完成：active 只剩当前入口，completed / deferred / superseded 各有明确归宿。后续重点是保持 lint 防线有效。</p>
             </div>
             <div class="health-card">
               <span class="status-chip warn">Trigger</span>
@@ -881,29 +913,29 @@
 
         <article class="card">
           <div class="section-title">
-            <h2>最该处理的 6 份</h2>
-            <span class="subtle">硬过时</span>
+            <h2>已归档的 6 份</h2>
+            <span class="subtle">原 active 硬过时项</span>
           </div>
           <ul class="file-list">
-            <li><code>active/refactor-closeout.md</code>：仍像 Phase 7 进行中，实际已合并发布。</li>
-            <li><code>active/main-merge-readiness.md</code>：合并计划已完成，应归档。</li>
-            <li><code>active/preview-build-readiness.md</code>：preview 阶段已进入正式 release。</li>
-            <li><code>active/preview-final-blockers.md</code>：blocker 已完成，仍在 active。</li>
-            <li><code>active/merge-blockers-chat-ownership-openrouter.md</code>：#37 已修，阻塞状态已过期。</li>
-            <li><code>active/phase-7b-macos-native-visual-profile.md</code>：收口边界已定，应归档或转 deferred。</li>
+            <li><code>completed/refactor-closeout.md</code>：重构主体已随 v0.55.0 / v0.55.1 发布。</li>
+            <li><code>completed/main-merge-readiness.md</code>：主分支合并演练与正式合并已完成。</li>
+            <li><code>completed/preview-build-readiness.md</code>：preview 阶段已被正式发布流程取代。</li>
+            <li><code>completed/preview-final-blockers.md</code>：preview blocker 已收口。</li>
+            <li><code>completed/merge-blockers-chat-ownership-openrouter.md</code>：#37 已修，阻塞状态已结束。</li>
+            <li><code>completed/phase-7b-macos-native-visual-profile.md</code>：macOS 视觉线已按实际范围收口。</li>
           </ul>
         </article>
 
         <article class="card">
           <div class="section-title">
-            <h2>建议治理动作</h2>
-            <span class="subtle">按收益排序</span>
+            <h2>已执行治理动作</h2>
+            <span class="subtle">Phase 0-5</span>
           </div>
           <ol class="todo">
-            <li><span class="rank">1</span><span>先建立 <code>deferred/</code> 与 <code>superseded/</code> 的目录语义，并让 docs drift 认识新目录，但先不启用硬拦截。</span></li>
-            <li><span class="rank">2</span><span>用 <code>git mv</code> 搬走硬过时、superseded、deferred 三类文档，让 active 先恢复自洽。</span></li>
+            <li><span class="rank">1</span><span>建立 <code>deferred/</code> 与 <code>superseded/</code> 目录语义，并让 docs drift 认识新目录。</span></li>
+            <li><span class="rank">2</span><span>用 <code>git mv</code> 搬走硬过时、superseded、deferred 三类文档，让 active 恢复自洽。</span></li>
             <li><span class="rank">3</span><span>给 <code>docs/preview/</code> 加 archive 说明，避免旧 preview.5 文档被误当当前测试入口。</span></li>
-            <li><span class="rank">4</span><span>最后再收紧 docs drift：只检查文件顶部结构化 banner，不全文 grep <code>Superseded</code> / <code>本轮暂缓</code>。</span></li>
+            <li><span class="rank">4</span><span>收紧 docs drift：只检查文件顶部结构化 banner，不全文 grep <code>Superseded</code> / <code>本轮暂缓</code>。</span></li>
           </ol>
         </article>
       </section>

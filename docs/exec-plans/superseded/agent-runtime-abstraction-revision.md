@@ -2,11 +2,11 @@
 
 # Agent Runtime 抽象层 — 执行计划修订建议
 
-> ⚠️ **Superseded by [refactor-closeout.md](./refactor-closeout.md)** — 不再单独推进，保留作历史参考。Runtime 可插拔思路并入 refactor-closeout 的 **Phase 2（Runtime 与会话执行）**。
+> ⚠️ **Superseded by [refactor-closeout.md](../completed/refactor-closeout.md)** — 不再单独推进，保留作历史参考。Runtime 可插拔思路并入 refactor-closeout 的 **Phase 2（Runtime 与会话执行）**。
 
 > 创建时间：2026-04-06
 > 基于：`decouple-claude-code.md` 原始计划 + 用户新方向（Runtime 可插拔）
-> 关联：[原始执行计划](./decouple-claude-code.md)
+> 关联：[原始执行计划](../completed/decouple-claude-code.md)
 
 ## 背景与新方向
 

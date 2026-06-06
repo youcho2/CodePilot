@@ -2,7 +2,7 @@
 
 # 记忆系统 V3：Onboarding 重写 + Heartbeat + 渐进式更新
 
-> ⏸ **本轮重构暂缓**（见 [refactor-closeout.md](./refactor-closeout.md) "暂缓清单"）— Phase 1-3 + V3.1 已完成；Phase 4（Memory Flush）+ Memory 管理面板不主动推进。
+> ⏸ **本轮重构暂缓**（见 [refactor-closeout.md](../completed/refactor-closeout.md) "暂缓清单"）— Phase 1-3 + V3.1 已完成；Phase 4（Memory Flush）+ Memory 管理面板不主动推进。
 
 > 创建时间：2026-03-30
 > 最后更新：2026-03-30

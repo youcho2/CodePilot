@@ -2,7 +2,7 @@
 
 # Agent Trust & Ownership Refactor
 
-> ⚠️ **Superseded by [refactor-closeout.md](./refactor-closeout.md)** — 不再单独推进，保留作历史参考。Phase 2A/2B/2C 已完成；剩余 Run Cockpit + session-level Runtime + 事件日志并入 refactor-closeout 的 **Phase 2（Runtime 与会话执行）**，长期助理叙事并入 **Phase 3（助理、定时任务、心跳通知）**。
+> ⚠️ **Superseded by [refactor-closeout.md](../completed/refactor-closeout.md)** — 不再单独推进，保留作历史参考。Phase 2A/2B/2C 已完成；剩余 Run Cockpit + session-level Runtime + 事件日志并入 refactor-closeout 的 **Phase 2（Runtime 与会话执行）**，长期助理叙事并入 **Phase 3（助理、定时任务、心跳通知）**。
 
 > 创建时间：2026-04-25
 > 最后更新：2026-04-29

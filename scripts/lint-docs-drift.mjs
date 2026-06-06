@@ -128,6 +128,55 @@ if (fs.existsSync(COMPLETED_DIR)) {
   }
 }
 
+// Internal cross-link integrity across ALL plan buckets. The archive move
+// (document-system-governance Phase 2) git-mv'd plans into deferred/ and
+// superseded/ but left body links like `./refactor-closeout.md` pointing at a
+// now-absent same-dir peer (refactor-closeout itself moved to completed/). git
+// mv preserves history but NOT relative-link targets, so 21 dangling links
+// survived the move and only hurt "查历史" navigation. This check resolves every
+// RELATIVE markdown (.md) link in active/completed/deferred/superseded against
+// the file's own directory and fails the gate on dangling ones — so the next
+// archive move that forgets to repoint links can't silently rot history.
+// Scope guards mirror the non-doc links we must NOT flag (verified false
+// positives at fix time):
+//   - absolute paths (`/settings#providers` app routes, `/Users/.../.mcp.json`
+//     machine paths, `/abs/path/file.md:12` syntax examples) → skipped
+//   - non-.md targets (images, `src/foo.ts:12` refs) → skipped
+//   - http(s) / #anchors / mailto → skipped
+for (const dir of [ACTIVE_DIR, COMPLETED_DIR, DEFERRED_DIR, SUPERSEDED_DIR]) {
+  if (!fs.existsSync(dir)) continue;
+  const bucket = path.basename(dir);
+  for (const name of listMd(dir)) {
+    const text = fs.readFileSync(path.join(dir, name), 'utf8');
+    for (const { label, target } of extractLinks(text)) {
+      if (/^(?:https?:|mailto:)/.test(target) || target.startsWith('#') || target.startsWith('/')) continue;
+      const onlyPath = target.split('#')[0];
+      if (!onlyPath || !onlyPath.endsWith('.md')) continue; // doc cross-links only
+      const resolved = path.resolve(dir, onlyPath);
+      if (!fs.existsSync(resolved)) {
+        errors.push(
+          `Broken internal link: docs/exec-plans/${bucket}/${name} has [${label}](${target}) — resolves to a missing file (${path.relative(REPO_ROOT, resolved)}). After an archive move, repoint same-dir links to ../completed/ or the new bucket peer.`,
+        );
+      }
+    }
+  }
+}
+
+// Inline self-check for the internal-link rule: a relative .md target that does
+// not exist must be flagged, and an absolute app-route / non-.md target must NOT.
+{
+  const probeDir = ACTIVE_DIR;
+  const danglingRel = path.resolve(probeDir, './__definitely-missing-peer__.md');
+  if (fs.existsSync(danglingRel)) {
+    errors.push('lint self-check FAILED: probe file __definitely-missing-peer__.md unexpectedly exists');
+  }
+  const skipAbsolute = '/settings#providers'.startsWith('/');
+  const skipNonMd = !'./peer.png'.split('#')[0].endsWith('.md');
+  if (!skipAbsolute || !skipNonMd) {
+    errors.push('lint self-check FAILED: internal-link scope guard would flag an app route or non-.md target');
+  }
+}
+
 // Table-structure guard. The index tables are all 3-column
 // (文件 | 主题 | 状态/日期/...). A botched edit can mash two rows onto one
 // line (`...才进 Phase 2 || [active/phase-8...]`); the link-existence
