@@ -19,6 +19,8 @@
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
 
 import { buildCheckpoints, type BuildCheckpointsOpts } from '../../lib/run-checkpoint';
 
@@ -63,6 +65,18 @@ const ok: BuildCheckpointsOpts = {
   defaultInvalid: false,
   runtimeFallback: false,
 };
+const read = (rel: string) => readFileSync(path.resolve(__dirname, '../..', rel), 'utf8');
+
+async function promptInputWouldClearAfterSubmit(onSubmit: () => Promise<void>): Promise<boolean> {
+  let cleared = false;
+  try {
+    await onSubmit();
+    cleared = true;
+  } catch {
+    // PromptInput catches submit failures and keeps local text/files.
+  }
+  return cleared;
+}
 
 // ─── Contract 1-3: bypass machine ───────────────────────────────────
 
@@ -92,6 +106,90 @@ describe('MessageInput-style submit blocking + bypass', () => {
     const m = makeSubmitMachine([]);
     assert.equal(m.userSubmit(), true);
     assert.equal(m.state.submitsRecorded, 1);
+  });
+});
+
+describe('MessageInput ↔ PromptInput checkpoint preservation contract', () => {
+  it('a checkpoint-blocked submit must reject so PromptInput does not clear screenshots', async () => {
+    assert.equal(
+      await promptInputWouldClearAfterSubmit(async () => {}),
+      true,
+      'PromptInput clears text/files after a resolved submit',
+    );
+    assert.equal(
+      await promptInputWouldClearAfterSubmit(async () => {
+        throw new Error('run-checkpoint-blocked');
+      }),
+      false,
+      'PromptInput preserves text/files when submit rejects',
+    );
+  });
+
+  it('MessageInput throws the checkpoint-blocked sentinel instead of returning', () => {
+    const src = read('components/chat/MessageInput.tsx');
+    assert.match(src, /throw new Error\(['"]run-checkpoint-blocked['"]\)/);
+    assert.doesNotMatch(
+      src,
+      /blockingReasonIds[\s\S]{0,120}\{\s*return;\s*\}/,
+      'blocked submit must not resolve successfully, or PromptInput will clear attachments',
+    );
+  });
+});
+
+describe('PromptInput keeps text/files when an async submit rejects (real source pin)', () => {
+  // The OTHER half of the screenshot-preservation contract. MessageInput
+  // throwing 'run-checkpoint-blocked' only preserves attachments because
+  // PromptInput.handleSubmit calls clear() ONLY on the resolved branch and
+  // deliberately skips it in BOTH the rejected-promise catch and the outer
+  // sync catch. The local `promptInputWouldClearAfterSubmit` model above could
+  // silently diverge from the real component; this pins the real source so a
+  // future "tidy up the empty catch" can't drop the user's screenshots while
+  // every other test stays green. (Behavioral RTL render would be stronger but
+  // we have no React renderer here; source-pin is the low-cost guardrail.)
+  const src = read('components/ai-elements/prompt-input.tsx');
+  // Isolate handleSubmit so unrelated catch blocks elsewhere in the file
+  // (blob-URL conversion) don't enter the analysis. `// Render with or without`
+  // is the comment immediately after handleSubmit's useCallback closes.
+  const start = src.indexOf('const handleSubmit: FormEventHandler');
+  const tail = src.indexOf('// Render with or without local provider');
+  assert.ok(
+    start >= 0 && tail > start,
+    'prompt-input.tsx anchors moved — re-point the handleSubmit isolation in this test',
+  );
+  const handleSubmit = src.slice(start, tail);
+
+  it('clear() runs only after the awaited result resolves', () => {
+    assert.match(
+      handleSubmit,
+      /if \(result instanceof Promise\)[\s\S]*?await result;\s*clear\(\);/,
+      'the resolved-promise branch must await THEN clear; clear must not move ahead of the await',
+    );
+  });
+
+  it('neither the rejected-promise catch nor the outer catch clears text/files', () => {
+    const catchBodies = [...handleSubmit.matchAll(/catch\s*\{([^}]*)\}/g)].map((m) => m[1]);
+    assert.ok(
+      catchBodies.length >= 2,
+      'expected both the rejected-promise catch and the outer try/catch to be present in handleSubmit',
+    );
+    for (const body of catchBodies) {
+      assert.doesNotMatch(
+        body,
+        /clear\s*\(|textInput\.clear/,
+        'a catch in handleSubmit must NOT clear — clearing on a rejected/failed submit drops the screenshots a blocked checkpoint is supposed to preserve',
+      );
+    }
+  });
+});
+
+describe('ChatView RunCheckpoint context window source pins', () => {
+  it('checkpoint usage passes context1m + upstreamModelId like RunCockpit', () => {
+    const src = read('components/chat/ChatView.tsx');
+    assert.match(
+      src,
+      /const usage = useContextUsage\(\s*messages,\s*currentModel,\s*\{\s*context1m,\s*upstreamModelId: currentModelUpstream,\s*\}\s*\)/,
+      'RunCheckpoint cost gating must use the same context-window inputs the status row uses',
+    );
   });
 });
 

@@ -317,6 +317,11 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
     }
   }, [currentProviderId, invalidSessionProvider]);
 
+  // Resolve upstream model ID for the current model/provider so both the
+  // context indicator and Run Checkpoint can disambiguate alias windows
+  // (first-party opus = 1M vs Bedrock/Vertex opus = 200K).
+  const [currentModelUpstream, setCurrentModelUpstream] = useState<string | undefined>(undefined);
+
   // Run Checkpoint signals — session-scoped only.
   //
   // An ALREADY-OPENED conversation has its own `currentProviderId/currentModel`
@@ -337,7 +342,10 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
   // usedContextTokens reads from the same `useContextUsage` hook
   // RunCockpit uses so the cost trigger reads the SAME used count the
   // user sees in the status row.
-  const usage = useContextUsage(messages, currentModel);
+  const usage = useContextUsage(messages, currentModel, {
+    context1m,
+    upstreamModelId: currentModelUpstream,
+  });
   const usedContextTokens = usage.used;
 
   const checkpointReasons = useMemo(() => {
@@ -382,11 +390,8 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
     return () => controller.abort();
   }, [currentProviderId]);
 
-  // Resolve upstream model ID for the current model/provider so the context
-  // indicator can disambiguate alias windows (first-party opus = 1M vs
-  // Bedrock/Vertex opus = 200K). /api/providers/models already returns
-  // upstreamModelId per model on the returned groups.
-  const [currentModelUpstream, setCurrentModelUpstream] = useState<string | undefined>(undefined);
+  // /api/providers/models already returns upstreamModelId per model on the
+  // returned groups.
   useEffect(() => {
     const pid = currentProviderId || 'env';
     const controller = new AbortController();

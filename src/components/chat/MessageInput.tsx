@@ -493,7 +493,10 @@ export function MessageInput({
     // `bypassBlockingRef` and re-triggers this submit, so the same
     // user-edited content + attachments flow through unchanged.
     if (!bypassBlockingRef.current && blockingReasonIds && blockingReasonIds.length > 0) {
-      return;
+      // Reject instead of resolving: PromptInput clears text/files only
+      // after a successful submit. The checkpoint banner already explains
+      // the block, so this preserves screenshots until confirm-and-send.
+      throw new Error('run-checkpoint-blocked');
     }
     bypassBlockingRef.current = false;
 
