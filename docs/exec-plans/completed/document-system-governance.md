@@ -1,3 +1,5 @@
+> **Archive note（2026-06-05，document-system-governance）**：本治理计划 Phase 0-5 已全部执行——active 语义清理（23→3）、建立 `deferred/` / `superseded/` 目录、归档合并/preview 旧计划、结构化 docs-drift lint 防线；收尾再修复归档桶内 21 处失效的相对链接，并把"归档桶内部链接完整性"纳入同一条 lint。治理完成后本文件自身移出 `active/`、归入 `completed/`（active 随之 3→2），作历史执行记录保留。当前任务入口见 [exec-plans README](../README.md)。
+
 # Document System Governance / 文档体系治理
 
 > 创建时间：2026-06-05  
