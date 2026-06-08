@@ -10,11 +10,11 @@
 | Phase | 内容 | 状态 | 备注 |
 |-------|------|------|------|
 | Phase 0 | Issue inventory + release/commit 对照 | ✅ 完成 | 覆盖 GitHub #606/#612/#613/#614/#615/#616/#617/#618/#619/#620/#621，以及 0.55 后更新的 #554/#577 |
-| Phase 1 | #615/#614 截图发送被吞 | 📋 待 Claude Code 修 | P0，源码已确认还有多条 no-send 成功返回路径会清空附件 |
-| Phase 2 | #620 Ollama 添加时要求安装 Claude Code | 📋 待 Claude Code 修 | P1，后端 provider test 不依赖 Claude Code，UI/语义提示疑似误导 |
-| Phase 3 | #613/#615 Codex/Opus 模型切换与模型列表不稳定 | 📋 待 Claude Code 深挖 | P1，本地 warm-cache 未复现；冷缓存/发现链路有源码风险 |
-| Phase 4 | #619 概率串会话 | 📋 待专项复现 | P1，高严重但当前未找到主路径 sessionId 分桶错误 |
-| Phase 5 | 低优先级/待补证队列 | 📋 待排期 | #612/#554/#617/#618/#606/#616/#621 |
+| Phase 1 | #615/#614 截图发送被吞 | ✅ 已实现（单测） | P0 已修：`onSend` 升级为可回传"未投递"的契约，MessageInput 所有带附件的 no-send 路径改走 `abortComposerSubmit`（首条 + 后续两条流都覆盖）。真实 UI smoke 待补 |
+| Phase 2 | #620 Ollama 添加时要求安装 Claude Code | ⏸ 本轮不做（用户 2026-06-08） | P1，方向较明确（语义/文案），但本轮先只做 P0；记录待排期 |
+| Phase 3 | #613/#615 Codex/Opus 模型切换与模型列表不稳定 | ⏸ 本轮不做（用户 2026-06-08） | P1，**未复现**，需冷缓存专项复现后再动，不盲改 |
+| Phase 4 | #619 概率串会话 | ⏸ 本轮不做（用户 2026-06-08） | P1，**未复现**，必须先按复现脚本坐实再碰 stream/ context，不盲改 |
+| Phase 5 | 低优先级/待补证队列 | ⏸ 本轮不做（用户 2026-06-08） | #612/#554/#617/#618/#606/#616/#621 |
 
 ## 用户会看到什么
 
@@ -36,6 +36,8 @@
 - 2026-06-08：#615 拆成两个问题处理：截图/附件丢失为 P0，可从 `PromptInput` + `MessageInput` 清空契约直接证明；模型无法选中/列表不稳定并入 Phase 3。
 - 2026-06-08：#620 定为语义/UX P1，而不是“真实需要 Claude Code CLI”。后端 test provider 已明确绕过 Claude Code SDK subprocess。
 - 2026-06-08：#619 定为高严重待复现。主路径 stream subscription 按 `sessionId` 分桶，当前不能直接判定为全局广播 bug。
+- 2026-06-08：Claude Code 复核 triage——深挖确认 P0（#615）成立（MessageInput 多条裸 `return` no-send 路径 + `onSend` 为 `void` 导致 ChatView/首消息页的 provider 门早退后附件已被清空；首条与后续两条流都中招）；spot-check Phase 2（Ollama）代码证据成立；Phase 3/4 认同"未复现、需专项复现再动"。
+- 2026-06-08：用户决定**本轮只修 P0（#615）**，Phase 2/3/4/5 暂不做（不确定 / 待复现），保留本文档作记录。P0 已由 Claude Code 实现并通过单测；真实 UI smoke 待补。其余 Phase 待用户后续主动发起。
 
 ## Release / Commit 对照
 

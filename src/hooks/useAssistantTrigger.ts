@@ -87,7 +87,9 @@ interface UseAssistantTriggerOpts {
   initialMessages: Message[];
   handleModeChange: (mode: string) => void;
   buildThinkingConfig: () => { type: string } | undefined;
-  sendMessageRef: React.MutableRefObject<((content: string, files?: FileAttachment[]) => Promise<void>) | undefined>;
+  // Returns boolean | void — false means the send was gated/not delivered
+  // (#615 composer-preservation contract). Auto-trigger ignores the result.
+  sendMessageRef: React.MutableRefObject<((content: string, files?: FileAttachment[]) => Promise<boolean | void>) | undefined>;
   initMetaRef: React.MutableRefObject<{ tools?: unknown; slash_commands?: unknown; skills?: unknown } | null>;
 }
 

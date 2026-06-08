@@ -297,6 +297,12 @@ function NewChatPageInner() {
   }, []);
   const [createdSessionId, setCreatedSessionId] = useState<string | undefined>();
   const abortControllerRef = useRef<AbortController | null>(null);
+  // #615: guards the first-message send while it's mid-flight. We defer the
+  // isStreaming / optimistic-bubble flips until the backend ACCEPTS the message
+  // (otherwise flipping `isNewChat` remounts the composer and eats the
+  // screenshot), which means the usual `if (isStreaming) return` re-entry guard
+  // isn't armed during that window — this ref blocks a double-submit instead.
+  const firstSendInFlightRef = useRef(false);
   // Effort level — lifted here so the first message includes it
   const [selectedEffort, setSelectedEffort] = useState<string | undefined>(undefined);
   // Provider options (thinking mode + 1M context)
@@ -721,10 +727,13 @@ function NewChatPageInner() {
 
   const sendFirstMessage = useCallback(
     async (content: string, files?: FileAttachment[], systemPromptAppend?: string, displayOverride?: string, mentions?: MentionRef[], selectedSkills?: readonly string[]) => {
-      if (isStreaming) return;
+      // Each early-out below is a NOT-delivered case: return false so the
+      // composer preserves the user's text + attachments instead of letting
+      // PromptInput clear a first-message screenshot that never got sent (#615).
+      if (isStreaming) return false;
 
       // Wait for model/provider to be resolved from the global default before allowing send
-      if (!modelReady) return;
+      if (!modelReady) return false;
 
       // Block send when the runtime-filtered API returned an empty group
       // list — user has providers but none are compatible with the
@@ -737,7 +746,7 @@ function NewChatPageInner() {
           message: t('error.providerUnavailable'),
           description: t('chat.empty.noProvider'),
         });
-        return;
+        return false; // not delivered → preserve composer (#615)
       }
 
       // Phase 6 UI收口 P0 (2026-05-14): pinned-invalid is a GLOBAL
@@ -760,7 +769,7 @@ function NewChatPageInner() {
       // Require a project directory before sending
       if (!workingDir.trim()) {
         setErrorBanner({ message: t('chat.empty.noDirectory') });
-        return;
+        return false; // not delivered → preserve composer (#615)
       }
 
       // Phase 6 P0 follow-up (2026-05-15) — Codex Account is a virtual
@@ -783,19 +792,28 @@ function NewChatPageInner() {
           message: t('error.providerUnavailable'),
           description: t('chat.empty.noProvider'),
         });
-        return;
+        return false; // not delivered → preserve composer (#615)
       }
 
-      setIsStreaming(true);
-      setStreamingContent('');
-      setToolUses([]);
-      setToolResults([]);
-      setStatusText(undefined);
+      // #615 remount fix: do NOT flip isStreaming / push the optimistic bubble
+      // yet. Either flips `isNewChat` (messages.length === 0 && !isStreaming),
+      // which swaps the whole layout ternary — the composer moves from the
+      // centered hero branch to the active-layout branch (a DIFFERENT parent), so
+      // MessageInput remounts and PromptInput loses the attachment, BEFORE we even
+      // learn the send failed. Defer those flips to the post-accept point so a
+      // pre-acceptance failure leaves the hero (and the screenshot) untouched.
+      if (firstSendInFlightRef.current) return false; // double-submit guard while mid-flight
+      firstSendInFlightRef.current = true;
 
       const controller = new AbortController();
       abortControllerRef.current = controller;
 
       let sessionId = '';
+      // #615: tracks whether the message reached a delivered / recoverable state
+      // (session created + POST /api/chat accepted). A failure BEFORE this must
+      // return false so the composer preserves the user's text + attachments —
+      // otherwise a session-create 500 silently eats the screenshot.
+      let accepted = false;
 
       try {
         // Create a new session with working directory + model/provider
@@ -844,23 +862,10 @@ function NewChatPageInner() {
         // Notify ChatListPanel to refresh immediately
         window.dispatchEvent(new CustomEvent('session-created'));
 
-        // Add user message to UI — use displayOverride for chat bubble if provided
-        const displayUserContent = displayOverride || content;
-        // Optimistic save preserves base64 `data` so images can render
-        // their thumbnail immediately (see ChatView for the full
-        // explanation; backend still strips `data` before persistence).
-        const contentWithFileMeta = files && files.length > 0
-          ? `<!--files:${JSON.stringify(files.map(f => ({ id: f.id, name: f.name, type: f.type, size: f.size, data: f.data })))}-->${displayUserContent}`
-          : displayUserContent;
-        const userMessage: Message = {
-          id: 'temp-' + Date.now(),
-          session_id: session.id,
-          role: 'user',
-          content: contentWithFileMeta,
-          created_at: new Date().toISOString(),
-          token_usage: null,
-        };
-        setMessages([userMessage]);
+        // NOTE: the optimistic user bubble is pushed AFTER the message is
+        // accepted (post-accept block below), not here — pushing it now would
+        // make messages non-empty → flip isNewChat → remount the composer and
+        // eat the screenshot on a /api/chat rejection. (#615)
 
         // Build thinking config from settings
         const thinkingConfig = thinkingMode && thinkingMode !== 'adaptive'
@@ -901,6 +906,37 @@ function NewChatPageInner() {
             }));
           }
           throw new Error(err?.error || 'Failed to send message');
+        }
+        // Backend accepted the message + files (POST /api/chat is 2xx and the
+        // stream is opening) — from here the screenshot is committed
+        // server-side, so a later error must NOT preserve the composer (#615).
+        accepted = true;
+
+        // Flip the layout-driving state ONLY now: show streaming + push the
+        // optimistic user bubble. Deferring to here keeps `isNewChat` true
+        // through any pre-acceptance failure, so the composer never remounts and
+        // the screenshot survives (#615).
+        setIsStreaming(true);
+        setStreamingContent('');
+        setToolUses([]);
+        setToolResults([]);
+        setStatusText(undefined);
+        {
+          // Optimistic user bubble — preserves base64 `data` so images render
+          // their thumbnail immediately (backend strips `data` before persisting).
+          const displayUserContent = displayOverride || content;
+          const contentWithFileMeta = files && files.length > 0
+            ? `<!--files:${JSON.stringify(files.map(f => ({ id: f.id, name: f.name, type: f.type, size: f.size, data: f.data })))}-->${displayUserContent}`
+            : displayUserContent;
+          const userMessage: Message = {
+            id: 'temp-' + Date.now(),
+            session_id: session.id,
+            role: 'user',
+            content: contentWithFileMeta,
+            created_at: new Date().toISOString(),
+            token_usage: null,
+          };
+          setMessages([userMessage]);
         }
 
         const reader = response.body?.getReader();
@@ -1115,6 +1151,11 @@ function NewChatPageInner() {
           const errMsg = error instanceof Error ? error.message : 'Unknown error';
           setErrorBanner({ message: t('error.sessionCreateFailed'), description: errMsg });
         }
+        // #615: a failure BEFORE the message was accepted for delivery (session
+        // creation or POST /api/chat rejected) must preserve the composer so the
+        // user's screenshot isn't cleared. Post-acceptance errors (mid-stream)
+        // keep today's behavior — the message already went, so the composer clears.
+        if (!accepted) return false;
       } finally {
         setIsStreaming(false);
         setStreamingContent('');
@@ -1127,6 +1168,7 @@ function NewChatPageInner() {
         setPermissionResolved(null);
         setPendingApprovalSessionId('');
         abortControllerRef.current = null;
+        firstSendInFlightRef.current = false;
       }
     },
     [isStreaming, router, workingDir, mode, currentModel, currentProviderId, permissionProfile, selectedEffort, thinkingMode, context1m, setPendingApprovalSessionId, t, canSendWithCurrentProvider, modelReady, noCompatibleProvider, invalidDefault]
@@ -1210,8 +1252,14 @@ function NewChatPageInner() {
   // ChatComposerActionBar across two branches.
   const composerStack = (
     <>
+      {/* #615: stable keys so MessageInput keeps its identity (and PromptInput
+          keeps its attachment state) when ErrorBanner appears/disappears as a
+          sibling. The dominant remount cause — the isNewChat layout swap — is
+          fixed by deferring the layout-flip until accept (see sendFirstMessage);
+          these keys cover the within-parent ErrorBanner toggle. */}
       {errorBanner && (
         <ErrorBanner
+          key="composer-error-banner"
           message={errorBanner.message}
           description={errorBanner.description}
           className="mx-4 mb-2"
@@ -1221,14 +1269,16 @@ function NewChatPageInner() {
           ]}
         />
       )}
-      <RunCheckpoint reasons={checkpointReasons} className="mb-2" onAction={handleCheckpointAction} />
+      <RunCheckpoint key="composer-run-checkpoint" reasons={checkpointReasons} className="mb-2" onAction={handleCheckpointAction} />
       <PermissionPrompt
+        key="composer-permission-prompt"
         pendingPermission={pendingPermission}
         permissionResolved={permissionResolved}
         onPermissionResponse={handlePermissionResponse}
         toolUses={toolUses}
       />
       <MessageInput
+        key="composer-message-input"
         onSend={sendFirstMessage}
         onCommand={handleCommand}
         onStop={stopStreaming}

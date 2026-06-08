@@ -127,7 +127,9 @@ describe('MessageInput ↔ PromptInput checkpoint preservation contract', () => 
 
   it('MessageInput throws the checkpoint-blocked sentinel instead of returning', () => {
     const src = read('components/chat/MessageInput.tsx');
-    assert.match(src, /throw new Error\(['"]run-checkpoint-blocked['"]\)/);
+    // #615 refactor: the raw throw moved into the shared abortComposerSubmit()
+    // helper. Accept either form so the sentinel stays pinned through the move.
+    assert.match(src, /(throw new Error|abortComposerSubmit)\(['"]run-checkpoint-blocked['"]\)/);
     assert.doesNotMatch(
       src,
       /blockingReasonIds[\s\S]{0,120}\{\s*return;\s*\}/,

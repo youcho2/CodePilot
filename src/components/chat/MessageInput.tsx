@@ -57,8 +57,24 @@ const MAX_MENTION_FILE_COUNT = 6;
 const MAX_DIRECTORY_MENTION_COUNT = 3;
 const MAX_DIRECTORY_PREVIEW_ITEMS = 30;
 
+/**
+ * Abort a composer submit WITHOUT delivering it, preserving the user's text and
+ * attachments. PromptInput's submit pipeline clears text/files only when the
+ * onSubmit Promise RESOLVES; throwing routes into its rejection branch, which
+ * keeps everything — so a blocked / provider-not-ready / gated submit never eats
+ * the user's screenshot (#615). Every no-send branch must go through here (or
+ * the same throw) instead of a bare `return`, which would resolve and clear.
+ */
+function abortComposerSubmit(reason: string): never {
+  throw new Error(reason);
+}
+
 interface MessageInputProps {
-  onSend: (content: string, files?: FileAttachment[], systemPromptAppend?: string, displayOverride?: string, mentions?: MentionRef[], selectedSkills?: readonly string[]) => void;
+  // Returns false when the submit was NOT accepted for delivery (provider still
+  // loading / no compatible provider / runtime-incompatible). The composer then
+  // preserves the user's text + attachments. true / void means accepted — either
+  // sent or queued — so the composer clears. (#615 screenshot-eaten fix)
+  onSend: (content: string, files?: FileAttachment[], systemPromptAppend?: string, displayOverride?: string, mentions?: MentionRef[], selectedSkills?: readonly string[]) => boolean | void | Promise<boolean | void>;
   onCommand?: (command: string) => void;
   onStop?: () => void;
   disabled?: boolean;
@@ -496,7 +512,7 @@ export function MessageInput({
       // Reject instead of resolving: PromptInput clears text/files only
       // after a successful submit. The checkpoint banner already explains
       // the block, so this preserves screenshots until confirm-and-send.
-      throw new Error('run-checkpoint-blocked');
+      abortComposerSubmit('run-checkpoint-blocked');
     }
     bypassBlockingRef.current = false;
 
@@ -576,7 +592,10 @@ export function MessageInput({
     // If one or more badges are active, dispatch by kind (multi-skill combines).
     // Block during streaming — badges carry slash/skill semantics, not safe to queue.
     if (badges.length > 0) {
-      if (isStreaming) return;
+      // No-send: badges carry slash/skill semantics, not safe to queue during
+      // streaming. Preserve the composer (text + badges + attachments) instead
+      // of letting PromptInput clear them (#615).
+      if (isStreaming) abortComposerSubmit('composer-badge-streaming');
       const uploadedFiles = await convertFiles();
       const mentionPayload = await resolveMentionPayload();
       const { prompt, displayLabel } = dispatchBadge(badges, content);
@@ -608,10 +627,9 @@ export function MessageInput({
         directoryRefs,
       });
       const { files, finalContent: finalPrompt } = payload;
-      clearBadgesWithOrder();
-      setInputValue('');
-      setDirectoryRefs([]);
-      onSend(
+      // Await delivery BEFORE clearing — if a provider gate drops the send,
+      // keep badges + text + attachments instead of clearing them (#615).
+      const delivered = await onSend(
         finalPrompt,
         files.length > 0 ? files.slice() : undefined,
         undefined,
@@ -619,6 +637,10 @@ export function MessageInput({
         payload.mentions ? [...payload.mentions] : undefined,
         selectedSkills.length > 0 ? selectedSkills : undefined,
       );
+      if (delivered === false) abortComposerSubmit('composer-send-not-delivered');
+      clearBadgesWithOrder();
+      setInputValue('');
+      setDirectoryRefs([]);
       return;
     }
 
@@ -638,7 +660,11 @@ export function MessageInput({
     const { files, finalContent } = payload;
     const hasFiles = files.length > 0;
 
-    if ((!finalContent && !hasFiles) || disabled) return;
+    // Empty submit: nothing to send and nothing to lose — clear silently.
+    if (!finalContent && !hasFiles) return;
+    // Disabled while content/attachments are present: preserve the composer
+    // (a bare return here would let PromptInput clear the screenshot) (#615).
+    if (disabled) abortComposerSubmit('composer-disabled');
 
     // Check if it's a direct slash command typed in the input.
     if (!hasFiles) {
@@ -661,21 +687,27 @@ export function MessageInput({
       }
     }
 
-    // If CLI badge is active, inject systemPromptAppend to guide model
+    // If CLI badge is active, inject systemPromptAppend to guide model.
+    // (Don't clear cliBadge yet — only after the send is confirmed delivered.)
     const cliAppend = buildCliAppend(cliBadge);
-    if (cliBadge) setCliBadge(null);
 
     // displayOverride keeps the bubble's text clean — when the user
     // attached @ mentions OR + directory chips, hide the inflated
     // `[Referenced Directories]\n...` LLM-context section from the UI
     // (the chips above the bubble already carry that information).
-    onSend(
+    // Await delivery BEFORE clearing: onSend returns false when the send was
+    // gated (provider still loading / no compatible provider / runtime
+    // incompatible). Throwing then preserves the user's text + screenshot
+    // instead of letting PromptInput clear them on a no-op send (#615).
+    const delivered = await onSend(
       finalContent || 'Please review the attached file(s).',
       hasFiles ? files.slice() : undefined,
       cliAppend,
       payload.displayOverride,
       payload.mentions ? [...payload.mentions] : undefined,
     );
+    if (delivered === false) abortComposerSubmit('composer-send-not-delivered');
+    if (cliBadge) setCliBadge(null);
     setInputValue('');
     setDirectoryRefs([]);
   }, [inputValue, mentionNodeTypes, directoryRefs, onSend, onCommand, disabled, isStreaming, popover, badges, cliBadge, addBadgeWithOrder, clearBadgesWithOrder, setCliBadge, setInputValue, fetchDirectorySummary, fetchMentionFileAttachment, blockingReasonIds]);

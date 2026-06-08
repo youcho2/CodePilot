@@ -479,7 +479,7 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
 
   // Pending image generation notices
   const pendingImageNoticesRef = useRef<string[]>([]);
-  const sendMessageRef = useRef<(content: string, files?: FileAttachment[], systemPromptAppend?: string, displayOverride?: string, mentions?: MentionRef[]) => Promise<void>>(undefined);
+  const sendMessageRef = useRef<(content: string, files?: FileAttachment[], systemPromptAppend?: string, displayOverride?: string, mentions?: MentionRef[]) => Promise<boolean | void>>(undefined);
   const initMetaRef = useRef<{ tools?: unknown; slash_commands?: unknown; skills?: unknown } | null>(null);
 
   const handleModeChange = useCallback((newMode: string) => {
@@ -1028,11 +1028,11 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
       // so the early-outs have to live here too.
       if (providerFetchState === 'idle') {
         console.warn('[ChatView] sendMessage suppressed: provider feed still loading');
-        return;
+        return false; // not delivered → composer preserves the user's text + attachments (#615)
       }
       if (noCompatibleProvider) {
         console.warn('[ChatView] sendMessage suppressed: no provider compatible with active runtime');
-        return;
+        return false; // not delivered → preserve composer (#615)
       }
       // Mirror doStartStream's Guard 4 *before* we push the optimistic
       // bubble. MessageInput's disabled prop already blocks the typical
@@ -1043,7 +1043,7 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
       // refuse to fire — same ghost-message shape Step 4b just fixed.
       if (sessionProviderRuntimeIncompatible) {
         console.warn('[ChatView] sendMessage suppressed: session provider not compatible with active runtime — pick a different provider in the composer');
-        return;
+        return false; // not delivered → preserve composer (#615)
       }
 
       const displayUserContent = displayOverride || content;
