@@ -342,9 +342,10 @@ export function useProviderModels(
   // `providerWasFilteredOut` signal below to surface an inline notice
   // and gate send.
   const currentProviderIdValue = currentGroup?.provider_id ?? preferredProviderId;
-  // DEFAULT_MODEL_OPTIONS (sonnet/opus/haiku) is reserved for the env
-  // provider only — when the user is genuinely on the built-in Claude
-  // Code path, the picker shows the canonical short aliases.
+  // DEFAULT_MODEL_OPTIONS (the canonical env aliases, derived from
+  // ENV_CLAUDE_CODE_MODELS) is reserved for the env provider only — when
+  // the user is genuinely on the built-in Claude Code path, the picker
+  // shows the canonical short aliases.
   //
   // We deliberately do NOT fall back to defaults on `providerGroups.length === 0`
   // anymore: with the API-failure path now synthesizing an `env` group in
