@@ -154,8 +154,10 @@ function handleSSEEvent(
           name: toolData.name,
           input: toolData.input,
         });
-      } catch {
-        // skip malformed tool_use data
+      } catch (err) {
+        // A dropped tool_use leaves no UI trace and orphans the later
+        // tool_result — log enough to diagnose it from the console.
+        console.error('[SSE] malformed tool_use event, dropped:', event.data.slice(0, 200), err);
       }
       return accumulated;
     }
@@ -171,8 +173,10 @@ function handleSSEEvent(
             ? { media: resultData.media }
             : {}),
         });
-      } catch {
-        // skip malformed tool_result data
+      } catch (err) {
+        // A dropped tool_result leaves its tool stuck in "running" in
+        // the UI — log enough to diagnose it from the console.
+        console.error('[SSE] malformed tool_result event, dropped:', event.data.slice(0, 200), err);
       }
       return accumulated;
     }
