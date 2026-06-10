@@ -104,7 +104,8 @@ export interface RateLimitInfo {
  * needs to see regardless of subsequent streaming progress belong here.
  */
 export const TOAST_STATUS_CODES = new Set<string>([
-  'RUNTIME_EFFORT_IGNORED', // Opus 4.7 on native runtime — explicit effort dropped
+  'RUNTIME_EFFORT_IGNORED', // Opus 4.7+ family on native runtime — explicit effort dropped
+  'THINKING_ALWAYS_ON', // Fable 5 — thinking:'disabled' cannot be honored, adaptive runs anyway
 ]);
 
 /**
@@ -118,7 +119,7 @@ export function maybeShowStatusToast(statusData: { code?: string; message?: stri
   if (!statusData?.code || !TOAST_STATUS_CODES.has(statusData.code)) return;
   void import('./useToast').then(({ showToast }) => {
     showToast({
-      type: statusData.code === 'RUNTIME_EFFORT_IGNORED' ? 'warning' : 'info',
+      type: statusData.code === 'RUNTIME_EFFORT_IGNORED' || statusData.code === 'THINKING_ALWAYS_ON' ? 'warning' : 'info',
       message: statusData.message || statusData.title || 'Status notification',
       duration: 8000,
     });

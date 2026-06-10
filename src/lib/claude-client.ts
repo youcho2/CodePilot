@@ -1194,6 +1194,22 @@ export function streamClaudeSdk(options: ClaudeStreamOptions): ReadableStream<st
           context1m,
         });
 
+        if (sanitized.thinkingForcedOn) {
+          // Fable 5: thinking cannot be turned off — the sanitizer omitted
+          // the user's thinking:'disabled' to avoid a 400, but adaptive
+          // thinking still runs. Tell the user once per send instead of
+          // silently misrepresenting the "thinking off" choice
+          // (Codex review P1, same surfacing as the native path).
+          controller.enqueue(formatSSE({
+            type: 'status',
+            data: JSON.stringify({
+              notification: true,
+              code: 'THINKING_ALWAYS_ON',
+              title: 'Thinking stays on for this model',
+              message: `Fable 5 always uses adaptive thinking — the "thinking off" setting can't apply to this model. Use Effort to tune thinking depth instead.`,
+            }),
+          }));
+        }
         if (sanitized.thinking) {
           queryOptions.thinking = sanitized.thinking;
         }
