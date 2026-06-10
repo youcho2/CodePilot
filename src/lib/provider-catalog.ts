@@ -398,6 +398,21 @@ const ANTHROPIC_FIRST_PARTY_MODELS: CatalogModel[] = [
   },
 ];
 
+// Single source of truth for the built-in "Claude Code" (env) provider's
+// model list — same aliases + concrete upstream IDs as the first-party
+// catalog, minus `role` (env mode has no role-mapping semantics).
+//
+// Consumers must DERIVE from this export, never re-hardcode (Codex review
+// P1, 2026-06-10: three hand-maintained copies had drifted — the model
+// picker's env group and the client fallback were missing opus-4-8 AND
+// fable-5 while the resolver had both):
+//   - provider-resolver.ts            envModels (alias → upstream resolution)
+//   - app/api/providers/models/route.ts  DEFAULT_MODELS + ENV_ALIAS_TO_UPSTREAM
+//   - hooks/useProviderModels.ts      DEFAULT_MODEL_OPTIONS (client fallback)
+export const ENV_CLAUDE_CODE_MODELS: CatalogModel[] = ANTHROPIC_FIRST_PARTY_MODELS.map(
+  ({ role: _role, ...model }) => model,
+);
+
 // Bedrock / Vertex: per Claude Code docs, the `opus` alias still resolves
 // to Opus 4.6 on these platforms (unlike first-party Anthropic). Users who
 // want Opus 4.7 on Bedrock/Vertex must pass the full model name or set

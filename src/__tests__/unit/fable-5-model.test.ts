@@ -118,11 +118,14 @@ describe('Fable 5 — catalog / resolver source pins', () => {
       'fable-5 must not claim a role alias');
   });
 
-  it('env-mode resolver alias table ships fable-5 → claude-fable-5', () => {
+  it('env-mode alias table (shared ENV_CLAUDE_CODE_MODELS) ships fable-5 → claude-fable-5; resolver derives', () => {
+    // 2026-06-10 consolidation (Codex P1): the resolver no longer inlines
+    // its own envModels copy — it derives from provider-catalog's
+    // ENV_CLAUDE_CODE_MODELS. Content is pinned in
+    // env-models-single-source.test.ts; here we pin the derivation.
     const src = read('provider-resolver.ts');
-    const idx = src.indexOf("modelId: 'fable-5'");
-    assert.ok(idx > 0, 'provider-resolver envModels must contain fable-5');
-    assert.match(src.slice(idx, idx + 300), /upstreamModelId: 'claude-fable-5'/);
+    assert.match(src, /=\s*ENV_CLAUDE_CODE_MODELS/,
+      'provider-resolver envModels must derive from the shared export');
   });
 
   it('OpenRouter catalog intentionally has NO fable entry (slug unverified)', () => {
