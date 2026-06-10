@@ -945,6 +945,16 @@ function buildResolution(
         },
       },
       {
+        modelId: 'fable-5',
+        upstreamModelId: 'claude-fable-5',
+        displayName: 'Fable 5',
+        capabilities: {
+          supportsEffort: true,
+          supportedEffortLevels: ['low', 'medium', 'high', 'xhigh', 'max'],
+          supportsAdaptiveThinking: true,
+        },
+      },
+      {
         modelId: 'haiku',
         upstreamModelId: 'claude-haiku-4-5-20251001',
         displayName: 'Haiku 4.5',

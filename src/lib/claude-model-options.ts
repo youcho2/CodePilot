@@ -7,8 +7,9 @@
  * have to be duplicated across paths and drift (which is exactly what Codex
  * flagged in the Opus 4.7 review).
  *
- * Scope for the Opus 4.7+ adaptive-thinking family (4.7 and 4.8, per the
- * official migration guides — they share the same request contract):
+ * Scope for the Opus 4.7+ adaptive-thinking family (4.7, 4.8, and Fable 5,
+ * per the official migration guides — they share the same request contract;
+ * Fable 5 additionally rejects an explicit thinking:disabled, see below):
  *   - These models do NOT accept manual extended thinking
  *     ({ type: 'enabled', budgetTokens }) — returns 400. Convert to adaptive.
  *   - They support adaptive thinking + effort-based reasoning budget.
@@ -61,9 +62,24 @@ export interface ClaudeModelOptionsOutput {
 // that assumption (Codex review P2, 2026-05-29).
 const OPUS_ADAPTIVE_THINKING_PATTERN = /opus-?4[-.]?[78]/i;
 
+// Fable 5 (claude-fable-5, 2026-06 launch) shares the Opus 4.7/4.8 request
+// contract (adaptive thinking only; sampling params removed; 1M default)
+// with ONE extra breaking change per the official model docs: an explicit
+// `thinking: { type: 'disabled' }` returns 400 (it is accepted on 4.7/4.8) —
+// the param must be omitted entirely instead. Matches `claude-fable-5`,
+// `fable-5`, and tagged variants like `claude-fable-5[1m]`.
+const FABLE_PATTERN = /fable-?5/i;
+
+export function isFableModel(model: string | undefined): boolean {
+  if (!model) return false;
+  return FABLE_PATTERN.test(model);
+}
+
 export function isOpusAdaptiveThinkingModel(model: string | undefined): boolean {
   if (!model) return false;
-  return OPUS_ADAPTIVE_THINKING_PATTERN.test(model);
+  // Fable 5 is in the same adaptive-thinking family — every 4.7+ guard
+  // (enabled→adaptive conversion, no context-1m beta) applies to it too.
+  return OPUS_ADAPTIVE_THINKING_PATTERN.test(model) || FABLE_PATTERN.test(model);
 }
 
 /**
@@ -88,6 +104,11 @@ export function sanitizeClaudeModelOptions(
       // disappears. Explicitly request 'summarized' so users still see the
       // reasoning UI they saw on 4.6.
       thinking = { ...thinking, display: 'summarized' };
+    } else if (thinking.type === 'disabled' && isFableModel(input.model)) {
+      // Fable 5 rejects an explicit { type: 'disabled' } with a 400
+      // (4.7/4.8 accept it). Omitting the param has the same semantics
+      // (thinking off), so drop it instead of forwarding.
+      thinking = undefined;
     }
   }
 

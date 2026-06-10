@@ -372,6 +372,21 @@ const ANTHROPIC_FIRST_PARTY_MODELS: CatalogModel[] = [
     },
   },
   {
+    modelId: 'fable-5',
+    upstreamModelId: 'claude-fable-5',
+    displayName: 'Fable 5',
+    // No `role`: Fable 5 (2026-06 launch, the tier above Opus) is an
+    // explicit pick, same policy as Opus 4.8 — no silent default switch.
+    // Request contract = Opus 4.7/4.8 family (adaptive thinking only,
+    // 1M context) with one extra guard handled in claude-model-options.ts
+    // (explicit thinking:disabled returns 400 — omitted instead).
+    capabilities: {
+      supportsEffort: true,
+      supportedEffortLevels: ['low', 'medium', 'high', 'xhigh', 'max'],
+      supportsAdaptiveThinking: true,
+    },
+  },
+  {
     modelId: 'haiku',
     upstreamModelId: 'claude-haiku-4-5-20251001',
     displayName: 'Haiku 4.5',
