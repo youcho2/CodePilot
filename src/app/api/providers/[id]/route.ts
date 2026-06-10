@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getProvider, updateProvider, deleteProvider, getDefaultProviderId, setDefaultProviderId, getAllProviders, getSetting, setSetting } from '@/lib/db';
+import { invalidateCapabilityCache } from '@/lib/agent-sdk-capabilities';
 import { getEffectiveProviderProtocol, isValidProtocol } from '@/lib/provider-catalog';
 import type { ProviderResponse, ErrorResponse, UpdateProviderRequest, ApiProvider } from '@/types';
 
@@ -128,6 +129,11 @@ export async function PUT(request: NextRequest, context: RouteContext) {
       );
     }
 
+    // The capability cache was captured under the old config (base URL /
+    // key / model list) — drop it so the next query re-captures instead of
+    // serving stale models for up to the cache TTL.
+    invalidateCapabilityCache(id);
+
     // Defensive: if the active-image row's type just moved out of media
     // (e.g. someone edits gemini-image → anthropic), clear the setting.
     // The ProviderManager banner already surfaces this post-hoc, but
@@ -158,6 +164,8 @@ export async function DELETE(_request: NextRequest, context: RouteContext) {
         { status: 404 }
       );
     }
+
+    invalidateCapabilityCache(id);
 
     // If the deleted provider was the default, clear the stale reference
     // and auto-switch to the first remaining provider (if any).
