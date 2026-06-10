@@ -458,6 +458,34 @@ export const VENDOR_PRESETS: VendorPreset[] = [
     iconKey: 'anthropic',
   },
 
+  // ── OpenAI-Compatible Third-party (generic) ──
+  // Generic OpenAI-compatible chat gateway: user supplies base_url + key +
+  // model. Routes through @ai-sdk/openai's chat-completions wire, so it's
+  // reachable from CodePilot Runtime and Codex Runtime but NOT Claude Code
+  // (Anthropic wire). runtime-compat maps protocol 'openai-compatible' to the
+  // `codepilot_only` tier; getProviderCompat reaches that tier only when this
+  // preset is matched (see findMatchingPresetForRecord / findMatchingPreset).
+  // NOT sdkProxyOnly (that flag means "Claude Code subprocess only" — the
+  // opposite of this). NOT claudeCodeVerified (only meaningful for anthropic).
+  // No default model catalog — the user names their own model; never fabricate
+  // an official-OpenAI lineup for an arbitrary third-party gateway.
+  {
+    key: 'openai-compatible',
+    name: 'OpenAI-Compatible API',
+    description: 'OpenAI-compatible chat API — provide URL, key and model (CodePilot / Codex runtimes)',
+    descriptionZh: 'OpenAI 兼容第三方 API — 填写地址、密钥和模型（用于 CodePilot / Codex 运行时）',
+    protocol: 'openai-compatible',
+    authStyle: 'api_key',
+    baseUrl: '',
+    defaultEnvOverrides: {},
+    defaultModels: [],
+    fields: ['name', 'api_key', 'base_url', 'model_names'],
+    iconKey: 'openai',
+    meta: {
+      billingModel: 'pay_as_you_go',
+    },
+  },
+
   // ── OpenRouter ──
   {
     key: 'openrouter',
@@ -710,6 +738,13 @@ export const VENDOR_PRESETS: VendorPreset[] = [
     defaultEnvOverrides: {},
     defaultModels: [
       { modelId: 'sonnet', upstreamModelId: 'mimo-v2.5-pro', displayName: 'MiMo-V2.5-Pro', role: 'default' },
+      // UltraSpeed — high-throughput experience mode of MiMo-V2.5-Pro.
+      // Optional + approval-gated by Xiaomi, so NOT the default. The official
+      // model page lists Anthropic-protocol access on this same .../anthropic
+      // channel with model="mimo-v2.5-pro-ultraspeed" (streaming + thinking) —
+      // verified against the page's Anthropic-protocol sample 2026-06-09.
+      // Capabilities limited to what the doc states; no unsourced contextWindow.
+      { modelId: 'mimo-v2.5-pro-ultraspeed', upstreamModelId: 'mimo-v2.5-pro-ultraspeed', displayName: 'MiMo-V2.5-Pro-UltraSpeed', capabilities: { toolUse: true, reasoning: true } },
     ],
     defaultRoleModels: {
       default: 'mimo-v2.5-pro',
@@ -1584,6 +1619,13 @@ export function findMatchingPresetForRecord(record: {
     }
     return official;
   }
+  // Generic OpenAI-compatible third-party gateway with a user-supplied URL —
+  // fall back to the generic `openai-compatible` preset so getProviderCompat
+  // classifies it as `codepilot_only` (CodePilot + Codex runtimes), not
+  // `unknown` (which would wrongly expose it to Claude Code and gate Codex).
+  if (record.provider_type === 'openai-compatible') {
+    return getPreset('openai-compatible');
+  }
   // Generic Anthropic-compat with a custom URL (PipeLLM / Aiberm / DeepSeek
   // /anthropic / etc.) — fall back to the `anthropic-thirdparty` preset so
   // they pick up its defaults (sonnet/opus/haiku as enabled baseline).
@@ -1639,6 +1681,7 @@ export function inferProtocolFromLegacy(
 ): Protocol {
   // Direct type mappings
   if (providerType === 'anthropic') return 'anthropic';
+  if (providerType === 'openai-compatible') return 'openai-compatible';
   if (providerType === 'openrouter') return 'openrouter';
   if (providerType === 'bedrock') return 'bedrock';
   if (providerType === 'vertex') return 'vertex';

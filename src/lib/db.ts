@@ -944,13 +944,21 @@ function migrateDb(db: Database.Database): void {
     }
   }
 
-  // Migration: remove explicitly openai-compatible providers (SDK does not support them)
-  // and backfill empty protocol for legacy custom providers using URL-based inference.
+  // Migration: backfill empty protocol for legacy custom providers using
+  // URL-based inference.
+  //
+  // History (2026-06-09): this block previously also ran
+  //   DELETE FROM api_providers WHERE protocol = 'openai-compatible'
+  // from the era when the app couldn't reach OpenAI-compatible endpoints.
+  // That path is now supported (CodePilot + Codex runtimes via the
+  // @ai-sdk/openai chat-completions wire), and deleting user-created rows in a
+  // migration violates the no-destructive-migration rule. The DELETE is
+  // removed so valid openai-compatible providers survive restarts. (Rows the
+  // old DELETE already removed are gone — not recoverable — but no newly
+  // created provider will be silently wiped.)
   try {
     const providerCols = db.prepare("PRAGMA table_info(api_providers)").all() as { name: string }[];
     if (providerCols.some(c => c.name === 'protocol')) {
-      db.exec("DELETE FROM api_providers WHERE protocol = 'openai-compatible'");
-
       // Backfill empty protocol for legacy custom providers — infer from base_url.
       // These are valid Anthropic-compatible providers (GLM, Kimi, MiniMax, etc.)
       // that were created before the protocol column existed.

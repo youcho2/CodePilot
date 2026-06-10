@@ -107,6 +107,18 @@ export async function PUT(request: NextRequest, context: RouteContext) {
         { status: 400 }
       );
     }
+    // Same guard for openai-compatible — a PUT that clears base_url would let
+    // createOpenAI() fall back to https://api.openai.com (wrong service + the
+    // user's third-party key leaks there). Mirrors the POST guard.
+    if (effectiveProtocol === 'openai-compatible' && !mergedBaseUrl?.trim()) {
+      return NextResponse.json<ErrorResponse>(
+        {
+          error: 'OpenAI-compatible providers must specify a base URL (e.g. https://your-gateway.example.com/v1)',
+          code: 'OPENAI_COMPATIBLE_BASE_URL_REQUIRED',
+        },
+        { status: 400 }
+      );
+    }
 
     const updated = updateProvider(id, body);
     if (!updated) {
