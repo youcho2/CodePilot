@@ -100,4 +100,34 @@ describe('extractTokenUsage — SDK contextWindow wiring', () => {
       'every extractTokenUsage call must forward { requested: model, upstream: resolved.upstreamModel } so pickModelUsage has the hints it needs',
     );
   });
+
+  // #632: the SDK's modelUsage.contextWindow is the SDK's bundled-catalog
+  // value, reliable only for first-party Anthropic. These pins keep the
+  // first-party gate from being silently dropped (which resurfaced GLM "200K").
+  it('gates the context_window write on trustContextWindow (first-party only)', () => {
+    assert.match(
+      src,
+      /trustWindow\s*=\s*modelHints\.trustContextWindow\s*!==\s*false/,
+      'extractTokenUsage must derive a trustWindow flag from modelHints.trustContextWindow',
+    );
+    assert.match(
+      src,
+      /if\s*\(\s*trustWindow\s*&&\s*usage\.contextWindow\s*>\s*0\s*\)\s*base\.context_window/,
+      'context_window must only be written when trustWindow is true — a third-party SDK default must not be persisted',
+    );
+  });
+
+  it('both call sites pass trustContextWindow = isFirstPartyAnthropicEndpoint(provider base_url)', () => {
+    assert.match(
+      src,
+      /import\s*\{\s*isFirstPartyAnthropicEndpoint\s*\}\s*from\s*['"]\.\/ai-provider['"]/,
+      'claude-client must import the first-party endpoint helper',
+    );
+    const trustCalls = src.match(/trustContextWindow:\s*isFirstPartyAnthropicEndpoint\(resolved\.provider\?\.base_url\)/g) || [];
+    assert.equal(
+      trustCalls.length,
+      2,
+      'both extractTokenUsage call sites must gate context_window trust on the provider being first-party Anthropic',
+    );
+  });
 });

@@ -132,6 +132,18 @@ function isOfficialAnthropicUrl(url: string): boolean {
 }
 
 /**
+ * Whether a provider base URL points at the first-party Anthropic endpoint.
+ * Empty / absent base_url = the SDK default (api.anthropic.com) = first-party.
+ * Used to decide whether the SDK's `modelUsage.contextWindow` is trustworthy:
+ * it's the SDK's bundled-catalog value — reliable for first-party Anthropic,
+ * but a generic default for third-party Anthropic-compatible proxies (e.g. a
+ * GLM endpoint via custom base_url), where it misrepresents the real window. (#632)
+ */
+export function isFirstPartyAnthropicEndpoint(baseUrl?: string | null): boolean {
+  return !baseUrl || isOfficialAnthropicUrl(baseUrl);
+}
+
+/**
  * @ai-sdk/anthropic appends `/messages` to baseURL.
  * Default is `https://api.anthropic.com/v1` → `/v1/messages`.
  * Third-party proxies expect the same, but users often omit `/v1`.

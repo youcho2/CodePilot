@@ -24,6 +24,7 @@ import { normalizeMessageContent, microCompactMessage } from './message-normaliz
 import { roughTokenEstimate } from './context-estimator';
 import { getSetting, updateSdkSessionId, createPermissionRequest } from './db';
 import { resolveForClaudeCode } from './provider-resolver';
+import { isFirstPartyAnthropicEndpoint } from './ai-provider';
 import { sanitizeClaudeModelOptions } from './claude-model-options';
 import { findClaudeBinary, invalidateClaudePathCache } from './platform';
 import { notifyPermissionRequest, notifyGeneric } from './telegram-bot';
@@ -236,7 +237,7 @@ function extractTextFromMessage(msg: SDKAssistantMessage): string {
  */
 function extractTokenUsage(
   msg: SDKResultMessage,
-  modelHints: { requested?: string; upstream?: string } = {},
+  modelHints: { requested?: string; upstream?: string; trustContextWindow?: boolean } = {},
 ): TokenUsage | null {
   if (!msg.usage) return null;
   const base: TokenUsage = {
@@ -258,7 +259,15 @@ function extractTokenUsage(
   const picked = pickModelUsage(modelUsage, modelHints);
   if (picked) {
     const [key, usage] = picked;
-    if (usage.contextWindow > 0) base.context_window = usage.contextWindow;
+    // v0.56.x #632: `modelUsage.contextWindow` is the SDK's bundled-catalog
+    // value, NOT the provider's API. Reliable for first-party Anthropic; for a
+    // third-party Anthropic-compatible proxy (custom base_url, e.g. GLM) it's a
+    // generic default (~200000) that misrepresents the real window. Only persist
+    // it when the caller vouches the endpoint is first-party — otherwise leave
+    // context_window absent so useContextUsage treats the window as untrusted
+    // (catalog fallback) and shows used-tokens only, no fabricated percentage.
+    const trustWindow = modelHints.trustContextWindow !== false;
+    if (trustWindow && usage.contextWindow > 0) base.context_window = usage.contextWindow;
     if (usage.maxOutputTokens > 0) base.max_output_tokens = usage.maxOutputTokens;
     base.usage_model_id = key;
   }
@@ -1858,6 +1867,9 @@ export function streamClaudeSdk(options: ClaudeStreamOptions): ReadableStream<st
               tokenUsage = extractTokenUsage(resultMsg, {
                 requested: model,
                 upstream: resolved.upstreamModel,
+                // #632: only persist the SDK-reported window for first-party
+                // Anthropic; third-party proxies report a generic default.
+                trustContextWindow: isFirstPartyAnthropicEndpoint(resolved.provider?.base_url),
               });
               // terminal_reason is an optional field added in SDK 0.2.111.
               // When present, it enriches the end-of-turn UI chip (Phase 1 of
@@ -2217,6 +2229,8 @@ export function streamClaudeSdk(options: ClaudeStreamOptions): ReadableStream<st
                     ? extractTokenUsage(rMsg as SDKResultSuccess, {
                         requested: model,
                         upstream: resolved.upstreamModel,
+                        // #632: see the primary result path above.
+                        trustContextWindow: isFirstPartyAnthropicEndpoint(resolved.provider?.base_url),
                       })
                     : undefined;
                   // Phase 7 — alt path also produces Context Accounting snapshot
