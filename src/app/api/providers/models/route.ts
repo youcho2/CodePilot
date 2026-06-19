@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAllProviders, getDefaultProviderId, setDefaultProviderId, getProvider, getAllModelsForProvider, getSetting } from '@/lib/db';
 import { getContextWindow } from '@/lib/model-context';
+import { isFirstPartyAnthropicEndpoint } from '@/lib/ai-provider';
 import { getDefaultModelsForProvider, getEffectiveProviderProtocol, findPresetForLegacy, ENV_CLAUDE_CODE_MODELS } from '@/lib/provider-catalog';
 import type { Protocol } from '@/lib/provider-catalog';
 import type { ErrorResponse, ProviderModelGroup } from '@/types';
@@ -110,6 +111,14 @@ export async function GET(request: NextRequest) {
         provider_name: 'Claude Code',
         provider_type: 'anthropic',
         compat: 'claude_code_ready',
+        // #632 item 1 — env is the Claude Code (Anthropic) group, but it can
+        // route through a third-party proxy via settings.anthropic_base_url /
+        // process.env.ANTHROPIC_BASE_URL (same precedence as
+        // resolveEffectiveAnthropicBaseUrl). Trust the SDK-reported
+        // context_window only when that effective endpoint is first-party.
+        reportedContextWindowTrusted: isFirstPartyAnthropicEndpoint(
+          getSetting('anthropic_base_url') || process.env.ANTHROPIC_BASE_URL || undefined,
+        ),
         ...(!envHasDirectCredentials ? { sdkProxyOnly: true } : {}),
         // Use upstreamModelId for context-window lookup so the bare `opus`
         // alias doesn't get clamped to the 200K Bedrock/Vertex value.
@@ -330,6 +339,12 @@ export async function GET(request: NextRequest) {
           provider_type: provider.provider_type,
           base_url: provider.base_url,
         }),
+        // #632 item 1 — only an anthropic-protocol provider on a third-party
+        // base_url reports the Claude SDK's bogus ~200K default context_window.
+        // Non-anthropic protocols (Codex's real modelContextWindow, etc.) report
+        // their own window, so leave those trusted.
+        reportedContextWindowTrusted:
+          protocol !== 'anthropic' || isFirstPartyAnthropicEndpoint(provider.base_url || undefined),
         models,
       });
     }

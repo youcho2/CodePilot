@@ -318,6 +318,16 @@ export interface ProviderModelGroup {
   /** Provider-layer runtime compat. Computed from preset + protocol; a single
    * source of truth across Provider Card / Models page / chat picker. */
   compat?: ProviderRuntimeCompat;
+  /**
+   * #632 item 1 — whether a `token_usage.context_window` persisted for a
+   * session on this provider reflects a REAL capacity. `false` only for an
+   * anthropic-protocol provider on a third-party base_url: the Claude Agent
+   * SDK reports a generic ~200K default there (the GLM "200K" the user
+   * reported). Non-anthropic runtimes (Codex's modelContextWindow, etc.)
+   * report their own real window, so they stay trusted. Undefined = trusted
+   * (back-compat; consumers must gate on `=== false`, not falsiness).
+   */
+  reportedContextWindowTrusted?: boolean;
   models: Array<{
     value: string;           // internal/UI model ID
     label: string;           // display name

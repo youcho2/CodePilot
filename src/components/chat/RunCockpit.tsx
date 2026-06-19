@@ -127,6 +127,14 @@ interface RunCockpitProps {
    *  global pinned/runtime-fallback signals when the user has
    *  explicitly opted out of the global default for this session. */
   sessionRuntimePin?: string;
+  /**
+   * #632 item 1 — whether this session's provider reports a trustworthy
+   * context window (false only for a third-party Anthropic-compatible proxy
+   * like GLM). Forwarded to useContextUsage so an existing third-party session
+   * stops rendering a fake "200K" capacity. Resolved by the parent from the
+   * provider group's `reportedContextWindowTrusted`.
+   */
+  reportedContextWindowTrusted?: boolean;
 }
 
 export function RunCockpit({
@@ -141,12 +149,14 @@ export function RunCockpit({
   pendingContextTokens = 0,
   pendingContextSubTotals,
   sessionRuntimePin,
+  reportedContextWindowTrusted,
 }: RunCockpitProps = {}) {
   const { t } = useTranslation();
   const usage = useContextUsage(messages, modelName, {
     context1m,
     hasSummary,
     upstreamModelId,
+    reportedContextWindowTrusted,
     snapshot: contextUsageSnapshot,
     pending: pendingContextSubTotals
       ? {

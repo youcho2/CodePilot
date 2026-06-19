@@ -78,6 +78,19 @@ export function useContextUsage(
      *  opus = 1M, Bedrock/Vertex opus = 200K). */
     upstreamModelId?: string;
     /**
+     * #632 item 1 — whether the session's provider reports a TRUSTWORTHY
+     * context window. The SDK-reported `token_usage.context_window` is a real
+     * denominator only for a first-party Anthropic endpoint (or a non-Anthropic
+     * runtime that reports its own window, e.g. Codex's modelContextWindow). A
+     * third-party Anthropic-compatible proxy (GLM / Bailian / Kimi / …) reports
+     * the SDK's generic ~200K default. Existing sessions already have that bogus
+     * value persisted, so the renderer must gate trust here — the server write
+     * gate only protects new turns. `false` → SDK windows are NOT trusted (show
+     * used-tokens only). undefined / true → trust (back-compat). Source:
+     * ProviderModelGroup.reportedContextWindowTrusted.
+     */
+    reportedContextWindowTrusted?: boolean;
+    /**
      * Phase 5: SDK-authoritative snapshot from Query.getContextUsage().
      * When fresh (<60s), its totalTokens / maxTokens win over the
      * char-based estimator.
@@ -115,6 +128,14 @@ export function useContextUsage(
       upstream: options?.upstreamModelId,
     });
 
+    // #632 item 1 — an SDK-reported window (token_usage.context_window) is only
+    // a trustworthy denominator when the provider vouches for it. `false` (a
+    // third-party Anthropic-compat proxy like GLM) means the persisted window is
+    // the SDK's generic ~200K default → don't render a % against it, even for
+    // EXISTING sessions whose bogus window is already in the DB. undefined/true
+    // → trust (back-compat; the server write gate prevents new bogus windows).
+    const reportedWindowTrusted = options?.reportedContextWindowTrusted !== false;
+
     // Phase 5 — prefer a fresh SDK snapshot over the char:token estimator.
     // Freshness window matches the plan (60s). Beyond that, the estimator
     // takes over and the `source` flag flips so the UI can signal the
@@ -132,7 +153,7 @@ export function useContextUsage(
       const ratio = max ? used / max : 0;
       // Trusted only when the SDK snapshot itself reported a real maxTokens
       // (#632) — a fallback to catalog/used is not a trustworthy denominator.
-      const snapWindowTrusted = (snap.maxTokens ?? 0) > 0;
+      const snapWindowTrusted = (snap.maxTokens ?? 0) > 0 && reportedWindowTrusted;
       // No estimated-next-turn from the snapshot — we assume next turn is
       // similar to current (snapshot is authoritative on "used now" but
       // can't project future output).
@@ -193,7 +214,7 @@ export function useContextUsage(
       // 假百分比 the user reported (a stale or wrong guess + post-compaction
       // used jumps). When untrusted we surface absolute used + kind
       // composition only (no %, no remaining, no unused, no fabricated total).
-      const contextWindowTrusted = sdkContextWindow != null || latestSdkContextWindow != null;
+      const contextWindowTrusted = (sdkContextWindow != null || latestSdkContextWindow != null) && reportedWindowTrusted;
 
       const outputTokens = baseline.outputTokens;
       // Build breakdown first — its usedTokens may promote past baseline.used
@@ -261,9 +282,10 @@ export function useContextUsage(
     return {
       modelName,
       contextWindow: latestSdkContextWindow ?? catalogContextWindow,
-      // Trusted only if an SDK window was actually seen during the walk;
-      // catalog fallback alone is not a trustworthy denominator (#632).
-      contextWindowTrusted: latestSdkContextWindow != null,
+      // Trusted only if an SDK window was actually seen during the walk AND the
+      // provider vouches for it (#632) — catalog fallback alone, or a third-party
+      // proxy's SDK default, is not a trustworthy denominator.
+      contextWindowTrusted: latestSdkContextWindow != null && reportedWindowTrusted,
       used: 0,
       ratio: 0,
       estimatedNextTurn: 0,
@@ -276,11 +298,11 @@ export function useContextUsage(
       hasSummary: options?.hasSummary || false,
       source: 'none' as const,
       breakdown: buildContextUsageBreakdown({
-        contextWindow: latestSdkContextWindow != null
+        contextWindow: latestSdkContextWindow != null && reportedWindowTrusted
           ? (latestSdkContextWindow ?? catalogContextWindow) ?? undefined
           : undefined,
         pending: options?.pending,
       }),
     };
-  }, [messages, modelName, options?.context1m, options?.hasSummary, options?.upstreamModelId, options?.snapshot, options?.pending]);
+  }, [messages, modelName, options?.context1m, options?.hasSummary, options?.upstreamModelId, options?.snapshot, options?.pending, options?.reportedContextWindowTrusted]);
 }

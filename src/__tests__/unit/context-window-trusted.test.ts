@@ -37,11 +37,13 @@ describe('context-window trusted denominator (#632)', () => {
     );
   });
 
-  it('the baseline branch derives trusted from SDK window presence, not catalog', () => {
+  it('the baseline branch derives trusted from SDK window presence (not catalog), gated by the provider flag', () => {
+    // #632 item 1 added the `&& reportedWindowTrusted` provider gate; the
+    // SDK-source requirement (not catalog) is preserved as the first conjunct.
     assert.match(
       hookSrc,
-      /const contextWindowTrusted = sdkContextWindow != null \|\| latestSdkContextWindow != null;/,
-      'trusted must be SDK-sourced (sdkContextWindow / latestSdkContextWindow); the catalog fallback must NOT make it true',
+      /const contextWindowTrusted = \(sdkContextWindow != null \|\| latestSdkContextWindow != null\) && reportedWindowTrusted;/,
+      'trusted must be SDK-sourced (sdkContextWindow / latestSdkContextWindow) AND provider-vouched; the catalog fallback must NOT make it true',
     );
   });
 
@@ -116,6 +118,79 @@ describe('context-window trusted denominator (#632)', () => {
       loopSrc,
       /\.context_window\s*=\s*catalogWindow/,
       'Native must leave context_window absent when the runtime did not report one (catalog stays UNtrusted in useContextUsage), not launder the catalog guess into the SDK-authoritative field',
+    );
+  });
+});
+
+// #632 item 1 (2026-06-20): the SDK-reported window must additionally be gated
+// on the PROVIDER vouching for it. The server write-gate (#632 P1) only stops
+// NEW third-party turns from persisting the SDK's bogus ~200K; EXISTING GLM
+// sessions still have that value in token_usage, so the renderer must gate at
+// READ time. These pins lock the end-to-end wiring — route → ProviderModelGroup
+// → ChatView → RunCockpit → useContextUsage — so a refactor can't silently drop
+// the existing-session gate and resurface the fake "200K".
+describe('context-window trusted — existing-session provider gate (#632 item 1)', () => {
+  it('useContextUsage accepts a reportedContextWindowTrusted option and derives a back-compat-default flag', () => {
+    assert.match(
+      hookSrc,
+      /reportedContextWindowTrusted\?:\s*boolean/,
+      'useContextUsage must accept the provider window-trust option',
+    );
+    assert.match(
+      hookSrc,
+      /const reportedWindowTrusted = options\?\.reportedContextWindowTrusted !== false;/,
+      'undefined/true must trust (back-compat); only an explicit false (third-party proxy) untrusts',
+    );
+  });
+
+  it('the baseline AND no-baseline branches AND reportedWindowTrusted into the trust flag', () => {
+    assert.match(
+      hookSrc,
+      /contextWindowTrusted = \(sdkContextWindow != null \|\| latestSdkContextWindow != null\) && reportedWindowTrusted;/,
+      'baseline branch must gate the SDK window on the provider window-trust flag',
+    );
+    assert.match(
+      hookSrc,
+      /contextWindowTrusted: latestSdkContextWindow != null && reportedWindowTrusted/,
+      'no-baseline (output-only first turn) branch must gate too',
+    );
+  });
+
+  it('RunCockpit declares the prop and forwards it into useContextUsage', () => {
+    assert.match(
+      cockpitSrc,
+      /reportedContextWindowTrusted\?:\s*boolean/,
+      'RunCockpit must declare the prop',
+    );
+    assert.match(
+      cockpitSrc,
+      /useContextUsage\(messages, modelName, \{[\s\S]*?reportedContextWindowTrusted,/,
+      'RunCockpit must forward the prop into the useContextUsage options',
+    );
+  });
+
+  it('ChatView resolves the active provider group window-trust and passes it to RunCockpit', () => {
+    const chatViewSrc = fs.readFileSync(path.join(repoRoot, 'components/chat/ChatView.tsx'), 'utf8');
+    assert.match(
+      chatViewSrc,
+      /providerGroups\.find\([\s\S]{0,120}reportedContextWindowTrusted/,
+      'ChatView must resolve the active group reportedContextWindowTrusted (env-mode "" → the env group)',
+    );
+    const passes = chatViewSrc.match(/reportedContextWindowTrusted=\{activeProviderReportsTrustedWindow\}/g) || [];
+    assert.ok(passes.length >= 2, `both RunCockpit render sites must pass the resolved flag; found ${passes.length}`);
+  });
+
+  it('the providers/models route sets reportedContextWindowTrusted with the first-party gate (Codex stays trusted)', () => {
+    const routeSrc = fs.readFileSync(path.join(repoRoot, 'app/api/providers/models/route.ts'), 'utf8');
+    assert.match(
+      routeSrc,
+      /reportedContextWindowTrusted:\s*isFirstPartyAnthropicEndpoint\(/,
+      'the env group must gate on the effective first-party endpoint',
+    );
+    assert.match(
+      routeSrc,
+      /protocol !== 'anthropic' \|\| isFirstPartyAnthropicEndpoint\(provider\.base_url/,
+      'DB groups: only an anthropic-protocol third-party base_url is untrusted — non-anthropic (Codex) stays trusted',
     );
   });
 });

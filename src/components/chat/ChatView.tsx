@@ -244,7 +244,19 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
     resolvedProviderId,
     resolvedModel,
     providerWasFilteredOut,
+    providerGroups,
   } = useProviderModels(currentProviderId, currentModel, sessionRuntimeParam);
+
+  // #632 item 1 — does the active session provider report a TRUSTWORTHY context
+  // window? `false` only for a third-party Anthropic-compat proxy (e.g. GLM),
+  // whose persisted token_usage.context_window is the SDK's bogus ~200K default.
+  // Forwarded to RunCockpit → useContextUsage so existing third-party sessions
+  // stop rendering a fake capacity %. undefined while groups load → trusted
+  // (back-compat; matches the common first-party case). currentProviderId '' is
+  // the historic env-mode value → the 'env' group.
+  const activeProviderReportsTrustedWindow = providerGroups.find(
+    g => g.provider_id === (currentProviderId || 'env'),
+  )?.reportedContextWindowTrusted;
 
   // Phase 2 Step 3b — was: silently set state + PATCH the session row
   // when the runtime filter excluded the saved provider. That made an
@@ -1347,6 +1359,7 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
                   pendingContextTokens={pendingContextTokens}
                   pendingContextSubTotals={pendingContextSubTotals}
                   sessionRuntimePin={runtimePin}
+                  reportedContextWindowTrusted={activeProviderReportsTrustedWindow}
                 />
               }
             />
@@ -1620,6 +1633,7 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
             pendingContextTokens={pendingContextTokens}
             pendingContextSubTotals={pendingContextSubTotals}
             sessionRuntimePin={runtimePin}
+            reportedContextWindowTrusted={activeProviderReportsTrustedWindow}
           />
         }
       />
