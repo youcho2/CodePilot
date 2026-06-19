@@ -631,24 +631,19 @@ export function runAgentLoop(options: AgentLoopOptions): ReadableStream<string> 
         // Skills/MCP/Tools now come from real per-turn invocations accumulated
         // during streaming, not from filesystem guesses).
         //
-        // Context window fallback (2026-05-20): Vercel AI SDK's
-        // LanguageModelUsage doesn't expose model context window, so unlike
+        // Context window (2026-06-19, v0.56.x #632): Native's Vercel AI SDK
+        // LanguageModelUsage doesn't expose a model context window — unlike
         // ClaudeCode (SDKResultMessage.modelUsage) and Codex
-        // (ThreadTokenUsage.modelContextWindow) which get it from upstream,
-        // Native has no native source. Fall back to the static catalog
-        // (model-context.ts) so the popover header can show capacity for
-        // GLM / Kimi / DeepSeek / etc.
-        if (!totalUsage.context_window) {
-          try {
-            const { getContextWindow } = await import('./model-context');
-            const catalogWindow = getContextWindow(modelId);
-            if (catalogWindow && catalogWindow > 0) {
-              totalUsage.context_window = catalogWindow;
-            }
-          } catch {
-            // best-effort
-          }
-        }
+        // (ThreadTokenUsage.modelContextWindow), which get it from upstream.
+        // We DELIBERATELY no longer fall back to the static catalog here:
+        // writing the catalog GUESS into `context_window` laundered it into
+        // the field `useContextUsage` treats as SDK-authoritative, so the UI
+        // rendered a "trusted" capacity / percentage against a window the
+        // runtime never reported (the GLM "200K" the user flagged). Leaving it
+        // absent lets useContextUsage fall back to the catalog as UNtrusted →
+        // used-tokens only, no fabricated percentage. The runtime-agnostic
+        // TRUSTED source is a real per-model window override (provider config)
+        // — see the v0.56.x plan Phase 2 context-window source-priority design.
 
         const nativeAccountingSnapshot = await buildNativeAccountingSnapshot(
           toolInvocationAccumulator.drain(),

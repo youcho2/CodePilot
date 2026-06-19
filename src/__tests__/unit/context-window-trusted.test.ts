@@ -105,4 +105,17 @@ describe('context-window trusted denominator (#632)', () => {
       'the unknown-window mini-bar must distribute by used+pending (composition), not a fabricated 200K capacity',
     );
   });
+
+  // #632 follow-up: the Native agent loop must not launder the static catalog
+  // window into token_usage.context_window — that field is what useContextUsage
+  // treats as SDK-authoritative (contextWindowTrusted), so a catalog fill there
+  // resurfaces the exact ">100% / fake 200K" trusted-display this fix removed.
+  it('agent-loop does NOT write the static catalog window into token_usage.context_window', () => {
+    const loopSrc = fs.readFileSync(path.join(repoRoot, 'lib/agent-loop.ts'), 'utf8');
+    assert.doesNotMatch(
+      loopSrc,
+      /\.context_window\s*=\s*catalogWindow/,
+      'Native must leave context_window absent when the runtime did not report one (catalog stays UNtrusted in useContextUsage), not launder the catalog guess into the SDK-authoritative field',
+    );
+  });
 });
