@@ -483,14 +483,22 @@ export function toClaudeCodeEnv(
 
 /**
  * The Anthropic base URL the Claude Code SDK subprocess will actually talk to,
- * computed with the SAME precedence as `toClaudeCodeEnv` so the two never drift:
+ * computed by mirroring `toClaudeCodeEnv`'s THREE states exactly so the two
+ * never drift (the gate that consumes this must reflect the real send target):
  *
- *   - DB provider WITH credentials: toClaudeCodeEnv clears every ANTHROPIC_* var
- *     then injects this provider's base_url. An empty base_url leaves it unset →
- *     the SDK falls back to official `api.anthropic.com` (we return undefined).
- *   - env / legacy / cc-switch (no owning provider): the SDK inherits the ambient
- *     base URL — `settings.anthropic_base_url` first (mirrors the `!resolved.provider`
- *     branch above), then `process.env.ANTHROPIC_BASE_URL`.
+ *   - DB provider WITH credentials (`provider && hasCredentials`): toClaudeCodeEnv
+ *     clears every ANTHROPIC_* var then injects this provider's base_url. An empty
+ *     base_url leaves it unset → SDK falls back to official api.anthropic.com
+ *     (return undefined).
+ *   - DB provider WITHOUT credentials (`provider && !hasCredentials`): toClaudeCodeEnv
+ *     runs NEITHER branch — its provider branch is gated on `hasCredentials`, its
+ *     env branch on `!provider` — so it neither clears nor injects ANTHROPIC_*. The
+ *     SDK inherits ONLY the ambient `process.env.ANTHROPIC_BASE_URL`; provider.base_url
+ *     is NOT injected and settings is NOT consulted. Mirror that (a third-party env
+ *     override here must still untrust the window — Codex P2, 2026-06-20).
+ *   - env / legacy / cc-switch (`!provider`): SDK inherits the ambient base URL —
+ *     `settings.anthropic_base_url` first (mirrors the `!resolved.provider` branch),
+ *     then `process.env.ANTHROPIC_BASE_URL`.
  *
  * Returning undefined means "official first-party endpoint". Callers gate the
  * TRUST of the SDK-reported `modelUsage.contextWindow` on this (#632): a third
@@ -503,12 +511,11 @@ export function resolveEffectiveAnthropicBaseUrl(
   if (resolved.provider && resolved.hasCredentials) {
     return resolved.provider.base_url || undefined;
   }
-  return (
-    resolved.provider?.base_url ||
-    getSetting('anthropic_base_url') ||
-    process.env.ANTHROPIC_BASE_URL ||
-    undefined
-  );
+  if (resolved.provider) {
+    // provider selected but no credentials → SDK inherits ambient env only.
+    return process.env.ANTHROPIC_BASE_URL || undefined;
+  }
+  return getSetting('anthropic_base_url') || process.env.ANTHROPIC_BASE_URL || undefined;
 }
 
 // ── AI SDK config builder ───────────────────────────────────────

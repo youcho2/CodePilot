@@ -169,12 +169,19 @@ describe('context-window trusted — existing-session provider gate (#632 item 1
     );
   });
 
-  it('ChatView resolves the active provider group window-trust and passes it to RunCockpit', () => {
+  it('ChatView resolves the active provider group window-trust, fail-closed until loaded, and passes it to RunCockpit', () => {
     const chatViewSrc = fs.readFileSync(path.join(repoRoot, 'components/chat/ChatView.tsx'), 'utf8');
     assert.match(
       chatViewSrc,
-      /providerGroups\.find\([\s\S]{0,120}reportedContextWindowTrusted/,
-      'ChatView must resolve the active group reportedContextWindowTrusted (env-mode "" → the env group)',
+      /providerGroups\.find\(\s*g => g\.provider_id === \(currentProviderId \|\| 'env'\)/,
+      'ChatView must resolve the active group by provider_id (env-mode "" → the env group)',
+    );
+    // Codex P3: fail-closed until provider models load so an existing third-party
+    // session never flashes its persisted bogus window as a % before we know.
+    assert.match(
+      chatViewSrc,
+      /providerFetchState === 'loaded'\s*\?\s*\(activeProviderGroup\?\.reportedContextWindowTrusted \?\? true\)\s*:\s*false/,
+      'ChatView must fail-closed (untrusted) while providerFetchState !== "loaded"',
     );
     const passes = chatViewSrc.match(/reportedContextWindowTrusted=\{activeProviderReportsTrustedWindow\}/g) || [];
     assert.ok(passes.length >= 2, `both RunCockpit render sites must pass the resolved flag; found ${passes.length}`);

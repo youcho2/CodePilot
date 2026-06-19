@@ -251,12 +251,23 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
   // window? `false` only for a third-party Anthropic-compat proxy (e.g. GLM),
   // whose persisted token_usage.context_window is the SDK's bogus ~200K default.
   // Forwarded to RunCockpit → useContextUsage so existing third-party sessions
-  // stop rendering a fake capacity %. undefined while groups load → trusted
-  // (back-compat; matches the common first-party case). currentProviderId '' is
-  // the historic env-mode value → the 'env' group.
-  const activeProviderReportsTrustedWindow = providerGroups.find(
+  // stop rendering a fake capacity %. currentProviderId '' is the historic
+  // env-mode value → the 'env' group.
+  //
+  // FAIL-CLOSED until provider models load (Codex P3, 2026-06-20): while
+  // providerFetchState !== 'loaded' we pass `false`, so an existing third-party
+  // session never FLASHES its persisted bogus window as a % before we know the
+  // provider isn't first-party. Cost: a first-party session briefly shows
+  // used-only before the % appears — honest progressive disclosure, never a
+  // wrong number. Once loaded, a found group is always annotated; a not-found
+  // (stale/removed) provider defaults to trusted for back-compat.
+  const activeProviderGroup = providerGroups.find(
     g => g.provider_id === (currentProviderId || 'env'),
-  )?.reportedContextWindowTrusted;
+  );
+  const activeProviderReportsTrustedWindow =
+    providerFetchState === 'loaded'
+      ? (activeProviderGroup?.reportedContextWindowTrusted ?? true)
+      : false;
 
   // Phase 2 Step 3b — was: silently set state + PATCH the session row
   // when the runtime filter excluded the saved provider. That made an

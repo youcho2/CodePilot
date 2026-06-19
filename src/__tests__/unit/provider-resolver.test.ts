@@ -2671,6 +2671,43 @@ describe('resolveEffectiveAnthropicBaseUrl — context-window trust gate (#632)'
     assert.equal(isFirstPartyAnthropicEndpoint(eff), true);
   });
 
+  // ── DB provider WITHOUT credentials — Codex P2 (2026-06-20). toClaudeCodeEnv
+  // runs neither branch, so the SDK inherits ambient process.env.ANTHROPIC_BASE_URL
+  // (NOT provider.base_url, NOT settings). The helper must mirror that or it would
+  // trust a first-party-looking provider row while the SDK actually hits a
+  // third-party env proxy. ──
+  it('DB provider WITHOUT credentials → follows ambient process.env, NOT provider.base_url (P2)', () => {
+    const origEnv = process.env.ANTHROPIC_BASE_URL;
+    const origSetting = getSetting('anthropic_base_url');
+    setSetting('anthropic_base_url', '');
+    process.env.ANTHROPIC_BASE_URL = GLM_URL; // ambient third-party proxy
+    try {
+      // provider.base_url looks first-party, but no credentials → SDK ignores it.
+      const eff = resolveEffectiveAnthropicBaseUrl(
+        baseResolved({ provider: makeDbProvider('https://api.anthropic.com'), hasCredentials: false }),
+      );
+      assert.equal(eff, GLM_URL, 'no-cred provider must defer to ambient env, not its own base_url');
+      assert.equal(isFirstPartyAnthropicEndpoint(eff), false, 'a third-party ambient env must untrust even behind a first-party-looking no-cred provider row');
+    } finally {
+      if (origEnv !== undefined) process.env.ANTHROPIC_BASE_URL = origEnv; else delete process.env.ANTHROPIC_BASE_URL;
+      setSetting('anthropic_base_url', origSetting || '');
+    }
+  });
+
+  it('DB provider WITHOUT credentials + clean env → undefined → first-party (no false untrust)', () => {
+    const origEnv = process.env.ANTHROPIC_BASE_URL;
+    delete process.env.ANTHROPIC_BASE_URL;
+    try {
+      const eff = resolveEffectiveAnthropicBaseUrl(
+        baseResolved({ provider: makeDbProvider(GLM_URL), hasCredentials: false }),
+      );
+      assert.equal(eff, undefined, 'no-cred provider with clean ambient env → SDK default (provider.base_url is not injected)');
+      assert.equal(isFirstPartyAnthropicEndpoint(eff), true);
+    } finally {
+      if (origEnv !== undefined) process.env.ANTHROPIC_BASE_URL = origEnv; else delete process.env.ANTHROPIC_BASE_URL;
+    }
+  });
+
   // ── env / legacy / cc-switch path (resolved.provider === undefined) — THE #632 P1 HOLE.
   // Must consult process.env.ANTHROPIC_BASE_URL AND settings.anthropic_base_url,
   // because isFirstPartyAnthropicEndpoint(undefined) === true would otherwise
