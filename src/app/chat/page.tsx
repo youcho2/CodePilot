@@ -1095,9 +1095,13 @@ function NewChatPageInner() {
                   // unresolved request, so marking resolved without an explicit
                   // id-guard is safe here (entry 2 / stream-session-manager
                   // id-guards because it has fresh mutable snapshot access).
+                  // Also clear the sidebar "needs approval" badge: the prompt
+                  // now shows the timeout one-liner, nothing's left to approve
+                  // (A5 follow-up — without this the badge lingers till stream end).
                   try {
                     const data = JSON.parse(event.data) as { status: 'timeout' };
                     setPermissionResolved(data.status);
+                    setPendingApprovalSessionId('');
                   } catch {
                     // skip malformed permission_resolved data
                   }
