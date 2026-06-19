@@ -371,7 +371,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   // Listen for global stream events from stream-session-manager
   useEffect(() => {
-    const handler = () => {
+    const handler = (e: Event) => {
       const activeIds = getActiveSessionIds();
       setActiveStreamingSessions(activeIds.length > 0 ? new Set(activeIds) : EMPTY_SET);
 
@@ -383,6 +383,20 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         }
       }
       setPendingApprovalSessionIds(approvals.size > 0 ? approvals : EMPTY_SET);
+
+      // A5 Step 2 follow-up #2 — also clear the single-value global badge when
+      // THIS event's session no longer needs approval (resolved / timed out).
+      // Runs at the app-shell level for every stream event, so it covers the
+      // "user navigated away, THEN the request timed out" case: the session's
+      // useStreamSubscription is unmounted then and can't clear it, but the
+      // pendingApprovalSessionIds Set above (which DOES re-derive) leaves the
+      // single global stuck until stream end. Functional + guarded
+      // (prev === sid && not in approvals) so it never clears a still-pending
+      // peer or the /chat inline new-session value.
+      const sid = (e as CustomEvent<{ sessionId?: string }>).detail?.sessionId;
+      if (sid) {
+        setPendingApprovalSessionId((prev) => (prev === sid && !approvals.has(sid) ? '' : prev));
+      }
     };
     window.addEventListener('stream-session-event', handler);
     return () => window.removeEventListener('stream-session-event', handler);

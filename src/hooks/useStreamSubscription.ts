@@ -84,17 +84,13 @@ export function useStreamSubscription({
     const unsubscribe = subscribe(sessionId, (event) => {
       setStreamSnapshot(event.snapshot);
 
-      // A5 Step 2 follow-up — a resolved permission (allow / deny / timeout)
-      // must drop this session's "needs approval" sidebar badge. Timeout emits
-      // 'snapshot-updated' (not phase-changed / completed), so the event-type
-      // branches below never catch it and the badge lingers until the stream
-      // ends. Clearing the single global unconditionally is safe: AppShell's
-      // pendingApprovalSessionIds Set independently re-derives any STILL-pending
-      // session from snapshots (pendingPermission && !permissionResolved), so a
-      // genuinely-pending peer can't lose its badge from this clear.
-      if (event.snapshot.pendingPermission && event.snapshot.permissionResolved) {
-        setPendingApprovalSessionId('');
-      }
+      // NOTE: clearing the single-value pendingApprovalSessionId on a resolved/
+      // timed-out permission lives in AppShell's global stream-session-event
+      // handler (A5 Step 2 follow-up #2), NOT here — that handler runs even
+      // after this ChatView unmounts (user switched sessions), and clears
+      // precisely (only when the event's session left the approvals set), so a
+      // per-session unconditional clear here would be both redundant and less
+      // safe (could drop a peer's global under split-screen).
 
       // Sync panel state
       if (event.type === 'phase-changed') {
