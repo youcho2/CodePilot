@@ -330,9 +330,13 @@ export function RunCockpitPopoverContent({
     // below, the Progress bar duplicated the same information visually.
     // Inline the header text (no Progress bar) so Context section shows
     // exactly one bar — the dot-matrix.
+    // hasFullCtx (the prop) already requires a trusted window; clamp ≤100%
+    // so a trusted-but-momentarily-exceeded window (post-compaction) never
+    // renders ">100%" (#632).
+    const clampedRatio = Math.min(1, Math.max(0, usage.ratio));
     const headerPercentText =
       usage.contextWindow && usage.contextWindow > 0
-        ? `${(usage.ratio * 100).toFixed(usage.ratio < 0.1 ? 1 : 0)}%`
+        ? `${(clampedRatio * 100).toFixed(clampedRatio < 0.1 ? 1 : 0)}%`
         : "";
     const headerTokensText = `${formatTokensCompact(usage.used)} / ${formatTokensCompact(usage.contextWindow ?? 0)}`;
     // UI review 2026-05-19: previously the popover divided children with

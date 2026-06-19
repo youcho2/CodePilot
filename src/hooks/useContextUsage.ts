@@ -11,6 +11,13 @@ import { snapshotToCompilerInputs } from '@/lib/harness/context-accounting';
 export interface ContextUsageData {
   modelName: string;
   contextWindow: number | null;
+  /**
+   * True only when `contextWindow` came from an SDK/upstream-reported value
+   * (not the static catalog fallback). UI must gate percentage / remaining /
+   * unused displays on this — an untrusted denominator produced the ">100%"
+   * and 假百分比 in #632. When false, show absolute used + kind composition only.
+   */
+  contextWindowTrusted: boolean;
   /** Actual token usage from the last API response */
   used: number;
   /** Ratio of actual usage to context window */
@@ -123,12 +130,16 @@ export function useContextUsage(
       const used = snap.totalTokens;
       const max = snap.maxTokens || catalogContextWindow || used;
       const ratio = max ? used / max : 0;
+      // Trusted only when the SDK snapshot itself reported a real maxTokens
+      // (#632) — a fallback to catalog/used is not a trustworthy denominator.
+      const snapWindowTrusted = (snap.maxTokens ?? 0) > 0;
       // No estimated-next-turn from the snapshot — we assume next turn is
       // similar to current (snapshot is authoritative on "used now" but
       // can't project future output).
       return {
         modelName,
         contextWindow: max,
+        contextWindowTrusted: snapWindowTrusted,
         used,
         ratio,
         estimatedNextTurn: used,
@@ -148,7 +159,7 @@ export function useContextUsage(
             cacheCreationTokens: 0,
             outputTokens: 0,
           },
-          contextWindow: max,
+          contextWindow: snapWindowTrusted ? max : undefined,
           pending: options?.pending,
         }),
       };
@@ -175,6 +186,15 @@ export function useContextUsage(
         ?? latestSdkContextWindow
         ?? catalogContextWindow;
 
+      // v0.56.x Phase 2 (#632) — the window is only a TRUSTED denominator
+      // when the SDK / upstream actually reported it. The static
+      // `catalogContextWindow` fallback is a guess; rendering a percentage /
+      // remaining / unused against it is what produced the ">100%" and
+      // 假百分比 the user reported (a stale or wrong guess + post-compaction
+      // used jumps). When untrusted we surface absolute used + kind
+      // composition only (no %, no remaining, no unused, no fabricated total).
+      const contextWindowTrusted = sdkContextWindow != null || latestSdkContextWindow != null;
+
       const outputTokens = baseline.outputTokens;
       // Build breakdown first — its usedTokens may promote past baseline.used
       // when provider proxies (Native/Codex+GLM) report input_tokens=0 but
@@ -187,7 +207,9 @@ export function useContextUsage(
           cacheCreationTokens: baseline.cacheCreationTokens,
           outputTokens,
         },
-        contextWindow: contextWindow ?? undefined,
+        // Untrusted window → omit it so the breakdown / dot-matrix fall back
+        // to a used-relative composition view instead of a fabricated capacity.
+        contextWindow: contextWindowTrusted ? (contextWindow ?? undefined) : undefined,
         pending: options?.pending,
         // Phase 1 (Context Accounting Runtime Contract, 2026-05-20):
         // feed compiler inputs from the Runtime-produced snapshot.
@@ -214,6 +236,7 @@ export function useContextUsage(
       return {
         modelName,
         contextWindow,
+        contextWindowTrusted,
         used,
         ratio,
         estimatedNextTurn,
@@ -238,6 +261,9 @@ export function useContextUsage(
     return {
       modelName,
       contextWindow: latestSdkContextWindow ?? catalogContextWindow,
+      // Trusted only if an SDK window was actually seen during the walk;
+      // catalog fallback alone is not a trustworthy denominator (#632).
+      contextWindowTrusted: latestSdkContextWindow != null,
       used: 0,
       ratio: 0,
       estimatedNextTurn: 0,
@@ -250,7 +276,9 @@ export function useContextUsage(
       hasSummary: options?.hasSummary || false,
       source: 'none' as const,
       breakdown: buildContextUsageBreakdown({
-        contextWindow: (latestSdkContextWindow ?? catalogContextWindow) ?? undefined,
+        contextWindow: latestSdkContextWindow != null
+          ? (latestSdkContextWindow ?? catalogContextWindow) ?? undefined
+          : undefined,
         pending: options?.pending,
       }),
     };

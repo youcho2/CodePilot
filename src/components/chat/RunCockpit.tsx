@@ -163,10 +163,16 @@ export function RunCockpit({
       ? ` +${formatTokensCompact(pendingContextTokens)}`
       : "";
 
-  const hasFullCtx = usage.hasData && (usage.contextWindow ?? 0) > 0;
+  // v0.56.x Phase 2 (#632) — only show a percentage when the context window
+  // is a TRUSTED (SDK/upstream-reported) denominator. Catalog fallback →
+  // hasFullCtx=false → fall through to the absolute used-tokens display.
+  const hasFullCtx = usage.hasData && usage.contextWindowTrusted && (usage.contextWindow ?? 0) > 0;
   const ringPercent = hasFullCtx ? Math.min(1, Math.max(0, usage.ratio)) : 0;
+  // Clamp the displayed percentage to ≤100% — a trusted window can still be
+  // momentarily exceeded by `used` (e.g. right after compaction); never show >100%.
+  const clampedRatio = Math.min(1, Math.max(0, usage.ratio));
   const ratioText = hasFullCtx
-    ? `${(usage.ratio * 100).toFixed(usage.ratio < 0.1 ? 1 : 0)}%${pendingSuffix}`
+    ? `${(clampedRatio * 100).toFixed(clampedRatio < 0.1 ? 1 : 0)}%${pendingSuffix}`
     : usage.hasData
       ? `${formatTokensCompact(usage.used)}${pendingSuffix}`
       : pendingContextTokens > 0
