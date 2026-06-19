@@ -12,6 +12,22 @@
 
 ---
 
+## 〇、v0.56.x Stability / Trust 治理 issue（2026-06-19 纳入）
+
+GitHub milestone `v0.56.x Stability / Trust`（#1）+ P0/P1 label 体系已建（见 [.github/TRIAGE.md](../../../.github/TRIAGE.md)）。以下 7 个 issue 已用**当前源码**重新核验（不采信 issue 自述根因），逐条证据与修法见 [v0.56.x-stability-trust.md](v0.56.x-stability-trust.md) 的「2026-06-19 Claude Code 源码复核」表，此处只做看板索引、不重复分析。
+
+| Issue | 复核 | label | Phase | 状态 |
+|-------|------|-------|-------|------|
+| [#635](https://github.com/op7418/CodePilot/issues/635) 频繁自动中断 | 截图-only；候选 SDK runtime 无 keepalive（B-019/#499 同源） | P0-crash-or-interrupt, needs-repro | 2 | 🔴 待 cluster + repro |
+| [#632](https://github.com/op7418/CodePilot/issues/632) 上下文膨胀/>100% | ">100%" 确认显示 bug；跨会话不成立 | P1-context | 2 | 🔴 待修 |
+| [#629](https://github.com/op7418/CodePilot/issues/629) resume 400 空 assistant | 空 assistant 已防护；残留 is_error 不清坏 session id | P1-runtime-session | 2 | 🟡 残留 gap |
+| [#628](https://github.com/op7418/CodePilot/issues/628) @file 误改上传副本 | 确认真实风险（origin path 丢失 + mentions[] 未消费） | P1-file-reference | 3 | 🔴 待修 |
+| [#634](https://github.com/op7418/CodePilot/issues/634) Native 工具不可用 | 根因不成立——工具齐全；疑旧版 | P1-runtime-session, needs-repro | — | ⚪ 待 Native smoke + 版本 |
+| [#626](https://github.com/op7418/CodePilot/issues/626) 更新提示高 CPU | polling 排除；候选 pulse 动画×backdrop blur | P1-performance | 4 | 🔴 待 profiler |
+| [#633](https://github.com/op7418/CodePilot/issues/633) Win11 装不上 | mac 无法复现；NSIS-only+未签名+无 portable+CI 不验安装 | P1-installer-update, needs-repro | 4 | 🔴 待 Windows repro |
+
+---
+
 ## 一、活跃 Bug（按优先级排序）
 
 ### P0 — 阻断核心功能

@@ -1,0 +1,83 @@
+name: "Bug report / 问题反馈"
+description: "报告一个可复现的问题 / Report a reproducible bug"
+labels: ["bug", "needs-repro"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **v0.56.x 正处于 Stability / Trust 阶段**：优先修复对话中断/恢复、上下文、文件引用安全、安装更新、诊断与 CI 门禁；新功能暂缓。请尽量提供可复现信息——缺版本/平台/runtime/日志的反馈会被打上 `needs-repro` 并延后处理。
+        _v0.56.x is a Stability / Trust line — please provide repro details; reports missing version/OS/runtime/logs get `needs-repro`._
+  - type: input
+    id: version
+    attributes:
+      label: "CodePilot 版本 / Version"
+      description: "见 设置 / About，例如 0.56.0"
+      placeholder: "0.56.0"
+    validations:
+      required: true
+  - type: input
+    id: os
+    attributes:
+      label: "操作系统与架构 / OS & arch"
+      placeholder: "macOS 14.5 arm64 / Windows 11 26100 x64 / Linux ..."
+    validations:
+      required: true
+  - type: dropdown
+    id: runtime
+    attributes:
+      label: "Runtime"
+      description: "出问题的会话用的是哪个 Runtime？不确定就选 unsure。"
+      options:
+        - "Claude Code (SDK)"
+        - "Native"
+        - "Codex"
+        - "unsure / 不确定"
+    validations:
+      required: true
+  - type: input
+    id: provider_model
+    attributes:
+      label: "Provider / Model"
+      description: "服务商与模型，例如 Anthropic / claude-opus-4-8，或 OpenRouter / glm-4.5；第三方 proxy 请注明。"
+      placeholder: "Anthropic / claude-opus-4-8"
+    validations:
+      required: true
+  - type: dropdown
+    id: reproducible
+    attributes:
+      label: "是否可复现 / Reproducible?"
+      options:
+        - "每次都能复现 / always"
+        - "偶尔 / sometimes"
+        - "只出现过一次 / once"
+        - "无法复现 / can't reproduce"
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: "复现步骤 / Steps to reproduce"
+      description: "尽量从打开应用开始一步步写；附最小复现更好。"
+      placeholder: "1. ... 2. ... 3. ..."
+    validations:
+      required: true
+  - type: textarea
+    id: expected_actual
+    attributes:
+      label: "期望 vs 实际 / Expected vs actual"
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: "日志 / 截图 / session id"
+      description: "日志（设置可导出诊断）、截图、出问题会话的 session id。脱敏后再贴，不要包含 API key。"
+    validations:
+      required: false
+  - type: checkboxes
+    id: risk
+    attributes:
+      label: "影响面 / Impact"
+      options:
+        - label: "涉及文件写入或可能误改/丢失数据 / involves file write or possible data loss"
+        - label: "导致崩溃、闪退或对话被自动中断 / causes crash / quit / auto-interrupt"
