@@ -171,8 +171,10 @@ export function RunCockpit({
   // Clamp the displayed percentage to ≤100% — a trusted window can still be
   // momentarily exceeded by `used` (e.g. right after compaction); never show >100%.
   const clampedRatio = Math.min(1, Math.max(0, usage.ratio));
+  // Trusted window → show "percent + used" together (e.g. "56.6% 452K") per
+  // user spec; untrusted → used absolute only. No standalone "remaining" number.
   const ratioText = hasFullCtx
-    ? `${(clampedRatio * 100).toFixed(clampedRatio < 0.1 ? 1 : 0)}%${pendingSuffix}`
+    ? `${(clampedRatio * 100).toFixed(1)}% ${formatTokensCompact(usage.used)}${pendingSuffix}`
     : usage.hasData
       ? `${formatTokensCompact(usage.used)}${pendingSuffix}`
       : pendingContextTokens > 0

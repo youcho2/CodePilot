@@ -61,11 +61,18 @@ describe('context-window trusted denominator (#632)', () => {
     );
   });
 
-  it('RunCockpit clamps the displayed percentage to ≤100%', () => {
+  it('RunCockpit clamps the displayed percentage to ≤100% and shows percent + used together', () => {
     assert.match(
       cockpitSrc,
-      /const clampedRatio = Math\.min\(1, Math\.max\(0, usage\.ratio\)\);[\s\S]{0,200}clampedRatio \* 100/,
+      /const clampedRatio = Math\.min\(1, Math\.max\(0, usage\.ratio\)\);/,
       'a trusted window momentarily exceeded by used (post-compaction) must never render >100%',
+    );
+    // Trusted trigger shows "percent + used" together (e.g. "56.6% 452K"), per
+    // user spec — not a standalone "remaining" number.
+    assert.match(
+      cockpitSrc,
+      /hasFullCtx[\s\S]{0,160}clampedRatio \* 100\)\.toFixed\(1\)\}% \$\{formatTokensCompact\(usage\.used\)\}/,
+      'trusted ratio text must render percent AND absolute used together',
     );
   });
 
