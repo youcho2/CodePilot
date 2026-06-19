@@ -15,9 +15,11 @@
  *   - usage_model_id
  *
  * Without this contract a future "trim unused TokenUsage fields"
- * refactor could quietly drop the SDK window and silently regress
- * the GLM / Bailian / MiniMax / Kimi / Volcengine / DeepSeek path
- * back to "capacity unknown" in RunCockpit.
+ * refactor could quietly drop the SDK window plumbing. The window is
+ * persisted only for a first-party Anthropic endpoint (#632 — third-party
+ * proxies like GLM / Bailian / MiniMax / Kimi / Volcengine intentionally fall
+ * back to "capacity unknown"); max_output_tokens / usage_model_id flow
+ * regardless.
  */
 
 import { describe, it } from 'node:test';
@@ -117,17 +119,48 @@ describe('extractTokenUsage — SDK contextWindow wiring', () => {
     );
   });
 
-  it('both call sites pass trustContextWindow = isFirstPartyAnthropicEndpoint(provider base_url)', () => {
+  it('imports the effective-base-URL resolver and the first-party endpoint helper', () => {
     assert.match(
       src,
-      /import\s*\{\s*isFirstPartyAnthropicEndpoint\s*\}\s*from\s*['"]\.\/ai-provider['"]/,
+      /import\s*\{[^}]*\bisFirstPartyAnthropicEndpoint\b[^}]*\}\s*from\s*['"]\.\/ai-provider['"]/,
       'claude-client must import the first-party endpoint helper',
     );
-    const trustCalls = src.match(/trustContextWindow:\s*isFirstPartyAnthropicEndpoint\(resolved\.provider\?\.base_url\)/g) || [];
+    assert.match(
+      src,
+      /import\s*\{[^}]*\bresolveEffectiveAnthropicBaseUrl\b[^}]*\}\s*from\s*['"]\.\/provider-resolver['"]/,
+      'claude-client must import resolveEffectiveAnthropicBaseUrl so the trust gate keys on the EFFECTIVE SDK base URL, not just the provider row',
+    );
+  });
+
+  // #632 P1: env / legacy / cc-switch sessions have resolved.provider === undefined
+  // but can STILL route through a third-party proxy via settings.anthropic_base_url
+  // or process.env.ANTHROPIC_BASE_URL. The original fix gated on
+  // resolved.provider?.base_url alone, and isFirstPartyAnthropicEndpoint(undefined)
+  // === true — so those third-party windows were re-trusted (GLM "200K" returns).
+  // The flag must derive from resolveEffectiveAnthropicBaseUrl(resolved), which
+  // mirrors toClaudeCodeEnv's precedence (provider → settings → process.env).
+  it('derives the trust flag once from the EFFECTIVE base URL (covers env / legacy ANTHROPIC_BASE_URL)', () => {
+    assert.match(
+      src,
+      /const\s+trustSdkContextWindow\s*=\s*isFirstPartyAnthropicEndpoint\(\s*resolveEffectiveAnthropicBaseUrl\(resolved\)\s*,?\s*\)/,
+      'trustSdkContextWindow must be isFirstPartyAnthropicEndpoint(resolveEffectiveAnthropicBaseUrl(resolved))',
+    );
+  });
+
+  it('does NOT gate trust on the provider row alone (regression guard for the env/legacy hole)', () => {
+    assert.doesNotMatch(
+      src,
+      /trustContextWindow:\s*isFirstPartyAnthropicEndpoint\(resolved\.provider\?\.base_url\)/,
+      'the provider-row-only gate re-trusts third-party env/legacy ANTHROPIC_BASE_URL windows (#632 P1) — must use the precomputed effective-URL flag',
+    );
+  });
+
+  it('both call sites pass the single precomputed trustSdkContextWindow flag', () => {
+    const trustCalls = src.match(/trustContextWindow:\s*trustSdkContextWindow\b/g) || [];
     assert.equal(
       trustCalls.length,
       2,
-      'both extractTokenUsage call sites must gate context_window trust on the provider being first-party Anthropic',
+      'both extractTokenUsage call sites must forward the precomputed trustSdkContextWindow flag',
     );
   });
 });

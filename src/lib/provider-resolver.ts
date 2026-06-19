@@ -481,6 +481,36 @@ export function toClaudeCodeEnv(
   return env;
 }
 
+/**
+ * The Anthropic base URL the Claude Code SDK subprocess will actually talk to,
+ * computed with the SAME precedence as `toClaudeCodeEnv` so the two never drift:
+ *
+ *   - DB provider WITH credentials: toClaudeCodeEnv clears every ANTHROPIC_* var
+ *     then injects this provider's base_url. An empty base_url leaves it unset →
+ *     the SDK falls back to official `api.anthropic.com` (we return undefined).
+ *   - env / legacy / cc-switch (no owning provider): the SDK inherits the ambient
+ *     base URL — `settings.anthropic_base_url` first (mirrors the `!resolved.provider`
+ *     branch above), then `process.env.ANTHROPIC_BASE_URL`.
+ *
+ * Returning undefined means "official first-party endpoint". Callers gate the
+ * TRUST of the SDK-reported `modelUsage.contextWindow` on this (#632): a third
+ * party proxy reaching here reports the SDK's generic ~200K default, which must
+ * NOT be shown as a real capacity. See `isFirstPartyAnthropicEndpoint`.
+ */
+export function resolveEffectiveAnthropicBaseUrl(
+  resolved: ResolvedProvider,
+): string | undefined {
+  if (resolved.provider && resolved.hasCredentials) {
+    return resolved.provider.base_url || undefined;
+  }
+  return (
+    resolved.provider?.base_url ||
+    getSetting('anthropic_base_url') ||
+    process.env.ANTHROPIC_BASE_URL ||
+    undefined
+  );
+}
+
 // ── AI SDK config builder ───────────────────────────────────────
 
 export interface AiSdkConfig {

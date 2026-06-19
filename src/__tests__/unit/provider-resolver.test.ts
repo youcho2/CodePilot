@@ -282,7 +282,7 @@ describe('Provider Catalog', () => {
 
 // ── Provider Resolver Tests ─────────────────────────────────────
 
-import { resolveProvider, toClaudeCodeEnv, toAiSdkConfig } from '../../lib/provider-resolver';
+import { resolveProvider, toClaudeCodeEnv, toAiSdkConfig, resolveEffectiveAnthropicBaseUrl } from '../../lib/provider-resolver';
 import type { ResolvedProvider } from '../../lib/provider-resolver';
 
 describe('Provider Resolver', () => {
@@ -2626,6 +2626,97 @@ describe('resolveAuxiliaryModel (live wrapper)', () => {
     } finally {
       deleteProvider(mainSdkOnly.id);
       deleteProvider(fallbackEmpty.id);
+    }
+  });
+});
+
+// ── Effective Anthropic base URL → context-window trust gate (#632) ─────
+// resolveEffectiveAnthropicBaseUrl computes the base URL the Claude Code SDK
+// subprocess will ACTUALLY use, with the same precedence as toClaudeCodeEnv.
+// claude-client gates trust of the SDK-reported contextWindow on it: a
+// third-party proxy here reports the SDK's generic ~200K default, which must
+// NOT be shown as a real capacity (the GLM "200K" the user reported).
+import { isFirstPartyAnthropicEndpoint } from '../../lib/ai-provider';
+
+describe('resolveEffectiveAnthropicBaseUrl — context-window trust gate (#632)', () => {
+  const GLM_URL = 'https://open.bigmodel.cn/api/anthropic';
+  const makeDbProvider = (base_url: string): NonNullable<ResolvedProvider['provider']> => ({
+    id: 'p1', name: 'Test', provider_type: 'custom', protocol: 'anthropic',
+    base_url, api_key: 'key', is_active: 1, sort_order: 0, extra_env: '{}',
+    headers_json: '{}', env_overrides_json: '', role_models_json: '{}', notes: '',
+    created_at: '', updated_at: '', options_json: '{}',
+  });
+  const baseResolved = (overrides: Partial<ResolvedProvider>): ResolvedProvider => ({
+    provider: undefined, protocol: 'anthropic', authStyle: 'api_key',
+    model: 'sonnet', upstreamModel: 'sonnet', modelDisplayName: undefined,
+    headers: {}, envOverrides: {}, roleModels: {}, hasCredentials: true,
+    availableModels: [], settingSources: ['user'], ...overrides,
+  });
+
+  // ── DB provider path: base_url IS the effective URL ──
+  it('DB third-party provider (GLM) → effective URL third-party → NOT first-party', () => {
+    const eff = resolveEffectiveAnthropicBaseUrl(baseResolved({ provider: makeDbProvider(GLM_URL) }));
+    assert.equal(eff, GLM_URL);
+    assert.equal(isFirstPartyAnthropicEndpoint(eff), false, 'GLM proxy must not be trusted for the SDK window');
+  });
+
+  it('DB official-Anthropic provider → first-party (trusted)', () => {
+    const eff = resolveEffectiveAnthropicBaseUrl(baseResolved({ provider: makeDbProvider('https://api.anthropic.com') }));
+    assert.equal(isFirstPartyAnthropicEndpoint(eff), true);
+  });
+
+  it('DB provider with empty base_url + credentials → undefined → first-party (SDK default api.anthropic.com)', () => {
+    const eff = resolveEffectiveAnthropicBaseUrl(baseResolved({ provider: makeDbProvider(''), hasCredentials: true }));
+    assert.equal(eff, undefined);
+    assert.equal(isFirstPartyAnthropicEndpoint(eff), true);
+  });
+
+  // ── env / legacy / cc-switch path (resolved.provider === undefined) — THE #632 P1 HOLE.
+  // Must consult process.env.ANTHROPIC_BASE_URL AND settings.anthropic_base_url,
+  // because isFirstPartyAnthropicEndpoint(undefined) === true would otherwise
+  // re-trust a third-party proxy reached via env/legacy. ──
+  it('env mode + process.env.ANTHROPIC_BASE_URL third-party → NOT first-party (P1 regression)', () => {
+    const origEnv = process.env.ANTHROPIC_BASE_URL;
+    const origSetting = getSetting('anthropic_base_url');
+    setSetting('anthropic_base_url', '');
+    process.env.ANTHROPIC_BASE_URL = GLM_URL;
+    try {
+      const eff = resolveEffectiveAnthropicBaseUrl(baseResolved({ provider: undefined }));
+      assert.equal(eff, GLM_URL);
+      assert.equal(isFirstPartyAnthropicEndpoint(eff), false, 'env-mode third-party proxy must NOT trust the SDK window — this is the #632 P1 hole');
+    } finally {
+      if (origEnv !== undefined) process.env.ANTHROPIC_BASE_URL = origEnv; else delete process.env.ANTHROPIC_BASE_URL;
+      setSetting('anthropic_base_url', origSetting || '');
+    }
+  });
+
+  it('env mode + settings.anthropic_base_url third-party → NOT first-party', () => {
+    const origEnv = process.env.ANTHROPIC_BASE_URL;
+    const origSetting = getSetting('anthropic_base_url');
+    delete process.env.ANTHROPIC_BASE_URL;
+    setSetting('anthropic_base_url', GLM_URL);
+    try {
+      const eff = resolveEffectiveAnthropicBaseUrl(baseResolved({ provider: undefined }));
+      assert.equal(eff, GLM_URL);
+      assert.equal(isFirstPartyAnthropicEndpoint(eff), false);
+    } finally {
+      if (origEnv !== undefined) process.env.ANTHROPIC_BASE_URL = origEnv; else delete process.env.ANTHROPIC_BASE_URL;
+      setSetting('anthropic_base_url', origSetting || '');
+    }
+  });
+
+  it('env mode clean (no env, no settings) → undefined → first-party (official default)', () => {
+    const origEnv = process.env.ANTHROPIC_BASE_URL;
+    const origSetting = getSetting('anthropic_base_url');
+    delete process.env.ANTHROPIC_BASE_URL;
+    setSetting('anthropic_base_url', '');
+    try {
+      const eff = resolveEffectiveAnthropicBaseUrl(baseResolved({ provider: undefined }));
+      assert.equal(eff, undefined);
+      assert.equal(isFirstPartyAnthropicEndpoint(eff), true);
+    } finally {
+      if (origEnv !== undefined) process.env.ANTHROPIC_BASE_URL = origEnv; else delete process.env.ANTHROPIC_BASE_URL;
+      setSetting('anthropic_base_url', origSetting || '');
     }
   });
 });

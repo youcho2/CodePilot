@@ -23,7 +23,7 @@ import { captureCapabilities, isCacheFresh, setCachedPlugins } from './agent-sdk
 import { normalizeMessageContent, microCompactMessage } from './message-normalizer';
 import { roughTokenEstimate } from './context-estimator';
 import { getSetting, updateSdkSessionId, createPermissionRequest } from './db';
-import { resolveForClaudeCode } from './provider-resolver';
+import { resolveForClaudeCode, resolveEffectiveAnthropicBaseUrl } from './provider-resolver';
 import { isFirstPartyAnthropicEndpoint } from './ai-provider';
 import { sanitizeClaudeModelOptions } from './claude-model-options';
 import { findClaudeBinary, invalidateClaudePathCache } from './platform';
@@ -247,14 +247,15 @@ function extractTokenUsage(
     cache_creation_input_tokens: msg.usage.cache_creation_input_tokens ?? 0,
     cost_usd: 'total_cost_usd' in msg ? msg.total_cost_usd : undefined,
   };
-  // Pull contextWindow / maxOutputTokens straight from the SDK when
-  // available — this is the path that finally lights up % + Context bar
-  // in RunCockpit for GLM / Bailian / MiniMax / Kimi / Volcengine / etc.
-  // We deliberately keep the lookup permissive (try requested key,
-  // upstream key, single-entry, first-with-window). Missing modelUsage
-  // is not an error — the older runtime path and some adapters don't
-  // populate it, in which case useContextUsage falls back to the
-  // static catalog window via getContextWindow().
+  // Pull contextWindow / maxOutputTokens straight from the SDK when available.
+  // NOTE (#632): contextWindow is only PERSISTED for a first-party Anthropic
+  // endpoint (see the trustWindow gate below). For GLM / Bailian / MiniMax /
+  // Kimi / Volcengine and other third-party Anthropic-compatible proxies the
+  // SDK reports a generic ~200K default, so we leave context_window absent and
+  // RunCockpit shows used-tokens only (no fabricated %). maxOutputTokens /
+  // usage_model_id are unaffected. The lookup stays permissive (try requested
+  // key, upstream key, single-entry, first-with-window); missing modelUsage is
+  // not an error — useContextUsage then falls back to the untrusted catalog.
   const modelUsage = (msg as { modelUsage?: Record<string, SdkModelUsage> }).modelUsage;
   const picked = pickModelUsage(modelUsage, modelHints);
   if (picked) {
@@ -747,6 +748,17 @@ export function streamClaudeSdk(options: ClaudeStreamOptions): ReadableStream<st
         providerId: options.providerId,
         sessionProviderId: options.sessionProviderId,
       });
+
+      // #632: trust the SDK-reported context window only for a first-party
+      // Anthropic endpoint. Derive it from the EFFECTIVE base URL the SDK will
+      // use (provider row → settings.anthropic_base_url → process.env.ANTHROPIC_BASE_URL),
+      // not just resolved.provider — env / legacy / cc-switch sessions with no
+      // owning provider can STILL point at a third-party proxy whose
+      // modelUsage.contextWindow is the SDK's generic ~200K default (the GLM
+      // "200K" the user reported). Computed once; both result handlers reuse it.
+      const trustSdkContextWindow = isFirstPartyAnthropicEndpoint(
+        resolveEffectiveAnthropicBaseUrl(resolved),
+      );
 
       // Phase 7 Context Accounting — accumulator must outlive try/catch so
       // the CONTEXT_TOO_LONG retry path (alt path inside catch) can drain
@@ -1867,9 +1879,9 @@ export function streamClaudeSdk(options: ClaudeStreamOptions): ReadableStream<st
               tokenUsage = extractTokenUsage(resultMsg, {
                 requested: model,
                 upstream: resolved.upstreamModel,
-                // #632: only persist the SDK-reported window for first-party
-                // Anthropic; third-party proxies report a generic default.
-                trustContextWindow: isFirstPartyAnthropicEndpoint(resolved.provider?.base_url),
+                // #632: only persist the SDK-reported window for a first-party
+                // Anthropic endpoint (effective base URL, computed above).
+                trustContextWindow: trustSdkContextWindow,
               });
               // terminal_reason is an optional field added in SDK 0.2.111.
               // When present, it enriches the end-of-turn UI chip (Phase 1 of
@@ -2230,7 +2242,7 @@ export function streamClaudeSdk(options: ClaudeStreamOptions): ReadableStream<st
                         requested: model,
                         upstream: resolved.upstreamModel,
                         // #632: see the primary result path above.
-                        trustContextWindow: isFirstPartyAnthropicEndpoint(resolved.provider?.base_url),
+                        trustContextWindow: trustSdkContextWindow,
                       })
                     : undefined;
                   // Phase 7 — alt path also produces Context Accounting snapshot

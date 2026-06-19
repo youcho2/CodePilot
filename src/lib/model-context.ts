@@ -33,12 +33,20 @@ export const MODEL_CONTEXT_WINDOWS: Record<string, number> = {
   //     and cite source URL in a leading comment
   //   - DO NOT guess from training memory — 2026-05-20 first attempt
   //     shipped several wrong / non-existent entries before fact-check
-  //   - Unverified modelIds: leave absent → useContextUsage falls back
-  //     to "capacity unknown"; mini-bar uses 200K fallback denominator
-  //     (graceful degrade, not misleading 100% fill)
+  //   - Unverified modelIds: leave absent → useContextUsage reports
+  //     "capacity unknown"; the trigger mini-bar then distributes by
+  //     used+pending composition (#632 removed the old 200K fallback
+  //     denominator — no fabricated capacity, no misleading 100% fill)
+  //   - NOTE (#632): this catalog is now an UNTRUSTED fallback. RunCockpit
+  //     shows a % only against an SDK / upstream-reported window; a value
+  //     here drives composition, never a trusted percentage.
   //
   // GLM-5-Turbo (Z.ai) — heaviest usage in DB (44 sessions)
-  // https://docs.z.ai/guides/llm/glm-5-turbo — 202,752 input tokens
+  // ⚠️ provenance under review (#632): the Z.ai GLM-5-Turbo page states
+  // Context 200K / Max Output 128K, NOT 202,752 — this "202752" citation
+  // does not match the vendor page. Kept as-is pending a verified source;
+  // it only feeds composition now (untrusted fallback, see above), so the
+  // exact figure no longer drives a user-visible percentage.
   'glm-5-turbo': 202752,
   // GPT-5.5 (OpenAI) — 16 sessions in DB
   // https://openai.com/index/introducing-gpt-5-5/ — 1M API context

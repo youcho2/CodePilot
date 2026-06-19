@@ -690,12 +690,14 @@ export interface TokenUsage {
   /**
    * Context window the SDK reports for the model that handled this turn.
    * Source: `SDKResultMessage.modelUsage[<key>].contextWindow` (Claude
-   * Agent SDK ≥ 0.2.111). Optional because (a) older DB rows don't have
-   * it and (b) some adapters / fallback paths don't populate it. When
-   * present, `useContextUsage` prefers it over the static
-   * `model-context.ts` lookup so models the catalog doesn't know about
-   * (GLM / Bailian / Volcengine / MiniMax / Kimi / etc.) still get a
-   * proper percent + Context bar in RunCockpit.
+   * Agent SDK ≥ 0.2.111) — but it's the SDK's BUNDLED-catalog value, not the
+   * provider's API. #632: claude-client only persists this for a first-party
+   * Anthropic endpoint; for third-party Anthropic-compatible proxies (GLM /
+   * Bailian / Volcengine / MiniMax / Kimi via custom base_url) the SDK reports
+   * a generic ~200K default, so this field is left ABSENT there and RunCockpit
+   * shows used-tokens only (no fabricated %). Also absent for older DB rows and
+   * adapters that don't populate modelUsage. When present, `useContextUsage`
+   * treats it as the trusted window over the static `model-context.ts` lookup.
    */
   context_window?: number;
   /** Max output tokens reported by the SDK alongside contextWindow. */
