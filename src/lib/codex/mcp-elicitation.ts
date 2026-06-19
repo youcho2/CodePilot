@@ -19,7 +19,7 @@
 
 import type { PermissionRequestEvent } from '@/types';
 import { createPermissionRequest, getPermissionRequest } from '@/lib/db';
-import { registerPendingPermission } from '@/lib/permission-registry';
+import { registerPendingPermission, buildPermissionResolvedEvent } from '@/lib/permission-registry';
 import { getBuiltinMcpServer, type ElicitationPolicy } from './builtin-mcp-servers';
 
 /** Shape of `McpServerElicitationRequestResponse` (codex 0.133 v2). */
@@ -118,6 +118,19 @@ export async function handleCodexMcpElicitationApproval(args: {
   );
 
   // Resolves via /api/chat/permission → resolvePendingPermission (same as SDK).
-  const result = await registerPendingPermission(requestId, toolInput);
+  // onTimeout pushes permission_resolved(timeout) so an MCP elicitation that
+  // times out shows the same auto-deny UI as every other path (A5 Step 2).
+  const result = await registerPendingPermission(
+    requestId,
+    toolInput,
+    undefined,
+    () => {
+      try {
+        args.emitSse(`data: ${JSON.stringify(buildPermissionResolvedEvent(requestId))}\n\n`);
+      } catch {
+        // stream already closed — deny still applies
+      }
+    },
+  );
   return result.behavior === 'allow' ? ACCEPT_ELICITATION : DECLINE_ELICITATION;
 }

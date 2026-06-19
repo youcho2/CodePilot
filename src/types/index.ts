@@ -913,6 +913,7 @@ export type SSEEventType =
   | 'result'             // final result with usage stats
   | 'error'              // error occurred
   | 'permission_request' // permission approval needed
+  | 'permission_resolved' // permission auto-resolved server-side (timeout) — A5 Step 2
   | 'mode_changed'       // SDK permission mode changed (e.g. plan → code)
   | 'task_update'        // SDK TodoWrite task sync
   | 'keep_alive'         // SDK keep-alive heartbeat (resets idle timer)
@@ -1425,7 +1426,10 @@ export interface SessionStreamSnapshot {
   streamingToolOutput: string;
   statusText: string | undefined;
   pendingPermission: PermissionRequestEvent | null;
-  permissionResolved: 'allow' | 'deny' | null;
+  // 'timeout' = auto-denied because the user never responded within the
+  // 5-minute window (codebase-health A5 Step 2). Rendered distinctly from a
+  // manual 'deny' so the user knows they didn't click it.
+  permissionResolved: 'allow' | 'deny' | 'timeout' | null;
   tokenUsage: TokenUsage | null;
   startedAt: number;
   completedAt: number | null;

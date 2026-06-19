@@ -86,6 +86,7 @@ const en = {
   'streaming.allowForSession': 'Allow for Session',
   'streaming.allowed': 'Allowed',
   'streaming.denied': 'Denied',
+  'streaming.permissionTimedOut': 'Auto-denied — request timed out',
 
   // ── Skill Nudge ──
   'skillNudge.message': 'This workflow involved {step} steps across {toolCount} distinct tools. Save as a Skill for one-click replay.',

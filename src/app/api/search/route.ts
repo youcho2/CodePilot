@@ -3,6 +3,7 @@ import path from 'path';
 import { getAllSessions, searchMessages } from '@/lib/db';
 import { scanDirectory } from '@/lib/files';
 import type { ChatSession, FileTreeNode } from '@/types';
+import { serverErrorResponse } from '@/lib/api-error';
 
 const FILE_SCAN_DEPTH = 2;
 const MAX_RESULTS_PER_TYPE = 10;
@@ -182,8 +183,6 @@ export async function GET(request: NextRequest) {
 
     return Response.json(result);
   } catch (error) {
-    const message = error instanceof Error ? error.stack || error.message : String(error);
-    console.error('[GET /api/search] Error:', message);
-    return Response.json({ error: message }, { status: 500 });
+    return serverErrorResponse('GET /api/search', error);
   }
 }

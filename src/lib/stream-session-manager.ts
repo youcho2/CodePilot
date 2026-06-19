@@ -662,6 +662,29 @@ async function runStream(stream: ActiveStream, params: StartStreamParams): Promi
         };
         emit(stream, 'permission-request');
       },
+      onPermissionResolved: (permissionRequestId, status) => {
+        // A5 Step 2 — registry auto-denied a pending request on timeout.
+        // Flip ONLY the prompt that's actually showing; a late event for an
+        // already-answered or replaced request is ignored.
+        markActive();
+        if (stream.snapshot.pendingPermission?.permissionRequestId !== permissionRequestId) return;
+        stream.snapshot = { ...stream.snapshot, permissionResolved: status };
+        emit(stream, 'snapshot-updated');
+        // Hold the "auto-denied — timed out" line a touch longer than a manual
+        // resolve (the user wasn't watching), then clear it if nothing else
+        // replaced the prompt in the meantime.
+        const answeredId = permissionRequestId;
+        streamTimeout(stream, () => {
+          if (stream.snapshot.pendingPermission?.permissionRequestId === answeredId) {
+            stream.snapshot = {
+              ...stream.snapshot,
+              pendingPermission: null,
+              permissionResolved: null,
+            };
+            emit(stream, 'snapshot-updated');
+          }
+        }, 6000);
+      },
       onToolTimeout: (toolName, elapsedSeconds) => {
         markActive();
         stream.toolTimeoutInfo = { toolName, elapsedSeconds };

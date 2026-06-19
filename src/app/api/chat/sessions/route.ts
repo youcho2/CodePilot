@@ -2,6 +2,7 @@ import { NextRequest } from 'next/server';
 import fs from 'fs/promises';
 import { getAllSessions, createSession } from '@/lib/db';
 import type { CreateSessionRequest, SessionsResponse, SessionResponse } from '@/types';
+import { serverErrorResponse } from '@/lib/api-error';
 
 export async function GET(request: NextRequest) {
   try {
@@ -28,9 +29,7 @@ export async function GET(request: NextRequest) {
     const response: SessionsResponse = { sessions };
     return Response.json(response);
   } catch (error) {
-    const message = error instanceof Error ? error.stack || error.message : String(error);
-    console.error('[GET /api/chat/sessions] Error:', message);
-    return Response.json({ error: message }, { status: 500 });
+    return serverErrorResponse('GET /api/chat/sessions', error);
   }
 }
 
@@ -68,8 +67,6 @@ export async function POST(request: NextRequest) {
     const response: SessionResponse = { session };
     return Response.json(response, { status: 201 });
   } catch (error) {
-    const message = error instanceof Error ? error.stack || error.message : String(error);
-    console.error('[POST /api/chat/sessions] Error:', message);
-    return Response.json({ error: message }, { status: 500 });
+    return serverErrorResponse('POST /api/chat/sessions', error);
   }
 }

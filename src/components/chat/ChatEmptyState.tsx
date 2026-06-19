@@ -142,13 +142,22 @@ export function AssistantPromoCard({ onSetup, onDismiss }: AssistantPromoCardPro
   const { t } = useTranslation();
   const [dismissed, setDismissed] = useState(() => {
     if (typeof window === 'undefined') return false;
-    return localStorage.getItem('codepilot:assistant-promo-dismissed') === '1';
+    try {
+      return localStorage.getItem('codepilot:assistant-promo-dismissed') === '1';
+    } catch {
+      return false;
+    }
   });
 
   if (dismissed) return null;
 
   const handleDismiss = () => {
-    localStorage.setItem('codepilot:assistant-promo-dismissed', '1');
+    try {
+      localStorage.setItem('codepilot:assistant-promo-dismissed', '1');
+    } catch {
+      // localStorage unavailable (private mode / restricted Electron) —
+      // dismissal won't persist across sessions; degrade gracefully.
+    }
     setDismissed(true);
     onDismiss();
   };

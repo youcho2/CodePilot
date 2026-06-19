@@ -314,6 +314,17 @@ export const codexRuntime: AgentRuntime = {
         const toolInvocationAccumulator = new ToolInvocationAccumulator();
 
         const closeStream = (extra?: { error?: string }) => {
+          // codebase-health A4 — drop the active-turn entry on EVERY close,
+          // not just the terminal run_completed/run_failed branch. If the turn
+          // is registered (turn/start resolved, activeCodexTurns.set below) and
+          // the stream then closes via the error catch or an abort BEFORE a
+          // terminal event arrives, closeStream is the single "explicit close
+          // path" that codex-stop-recovery Phase 2 expects to do the cleanup.
+          // Placed before the `active` guard + keyed by sessionId + idempotent
+          // so a redundant close (consumer aborted → `active` already false,
+          // then a late terminal event lands) still can't leave a stale turnId
+          // for a future interrupt() to chase.
+          activeCodexTurns.delete(sessionId);
           if (!active) return;
           if (extra?.error) {
             tryEnqueue(
@@ -873,10 +884,11 @@ export const codexRuntime: AgentRuntime = {
             // This is what "Codex will retry up to 5 times" looks
             // like on the canonical event surface.
             if (event?.type === 'run_completed' || event?.type === 'run_failed') {
-              // Slice 3 (2026-05-13) — drop the active-turn entry so
-              // a future interrupt() against this session doesn't
-              // chase a stale turnId.
-              activeCodexTurns.delete(sessionId);
+              // Slice 3 (2026-05-13) — terminal event closes the stream.
+              // The active-turn entry cleanup now lives in closeStream
+              // (codebase-health A4, the single close exit) so a future
+              // interrupt() against this session can't chase a stale turnId
+              // regardless of WHICH close path ran (terminal / error / abort).
               closeStream();
             }
           });

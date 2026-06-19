@@ -139,7 +139,7 @@ function NewChatPageInner() {
     return '';
   });
   const [pendingPermission, setPendingPermission] = useState<PermissionRequestEvent | null>(null);
-  const [permissionResolved, setPermissionResolved] = useState<'allow' | 'deny' | null>(null);
+  const [permissionResolved, setPermissionResolved] = useState<'allow' | 'deny' | 'timeout' | null>(null);
   const [streamingToolOutput, setStreamingToolOutput] = useState('');
   const [permissionProfile, setPermissionProfile] = useState<'default' | 'full_access'>('default');
   const [pendingContextTokens, setPendingContextTokens] = useState(0);
@@ -1085,6 +1085,21 @@ function NewChatPageInner() {
                     setPendingApprovalSessionId(sessionId);
                   } catch {
                     // skip malformed permission_request data
+                  }
+                  break;
+                }
+                case 'permission_resolved': {
+                  // A5 Step 2 — registry timed out the pending request and
+                  // auto-denied it. The inline first-message flow has a single
+                  // active prompt and the registry only emits this for a still-
+                  // unresolved request, so marking resolved without an explicit
+                  // id-guard is safe here (entry 2 / stream-session-manager
+                  // id-guards because it has fresh mutable snapshot access).
+                  try {
+                    const data = JSON.parse(event.data) as { status: 'timeout' };
+                    setPermissionResolved(data.status);
+                  } catch {
+                    // skip malformed permission_resolved data
                   }
                   break;
                 }

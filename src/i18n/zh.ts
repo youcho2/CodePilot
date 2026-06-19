@@ -83,6 +83,7 @@ const zh: Record<TranslationKey, string> = {
   'streaming.allowForSession': '本次会话允许',
   'streaming.allowed': '已允许',
   'streaming.denied': '已拒绝',
+  'streaming.permissionTimedOut': '已超时自动拒绝',
 
   // ── Skill Nudge ──
   'skillNudge.message': '本次工作流使用了 {step} 个步骤和 {toolCount} 种工具，可以保存为 Skill 以便一键复用。',

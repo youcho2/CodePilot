@@ -47,12 +47,41 @@ describe('Codex turn registry — Slice 3 contract', () => {
     );
   });
 
-  it('canonical run_completed | run_failed → activeCodexTurns.delete (no stale entries)', () => {
-    // Stream-close branch must drop the active-turn entry so a future
-    // interrupt() against this session doesn't chase a stale turnId.
+  it('closeStream() drops the active-turn entry on EVERY close path (codebase-health A4)', () => {
+    // The delete moved OUT of the terminal-event branch and INTO closeStream,
+    // positioned BEFORE the `active` guard, so an error/abort close that lands
+    // before a terminal run_completed/run_failed event still can't leave a
+    // stale turnId. This is the "no stale entries" invariant, now enforced at
+    // the single close exit instead of only the happy terminal path.
     assert.match(
       runtimeSrc,
-      /event\?\.type\s*===\s*'run_completed'\s*\|\|\s*event\?\.type\s*===\s*'run_failed'[\s\S]{0,500}activeCodexTurns\.delete\(sessionId\)/,
+      /const closeStream = \(extra[^)]*\) => \{[\s\S]{0,1400}?activeCodexTurns\.delete\(sessionId\);[\s\S]{0,120}?if \(!active\) return;/,
+    );
+  });
+
+  it('terminal run_completed | run_failed routes cleanup through closeStream() (no inline delete)', () => {
+    // Terminal event must call closeStream() (which owns the cleanup); it must
+    // NOT carry its own activeCodexTurns.delete anymore — that would re-fork
+    // the cleanup the way A4 just consolidated.
+    const terminalBranch = runtimeSrc.match(
+      /event\?\.type\s*===\s*'run_completed'\s*\|\|\s*event\?\.type\s*===\s*'run_failed'\)\s*\{[\s\S]{0,500}?\n\s*\}/,
+    );
+    assert.ok(terminalBranch, 'expected the terminal-event branch in runtime.ts');
+    assert.match(terminalBranch![0], /closeStream\(\);/);
+    assert.doesNotMatch(
+      terminalBranch![0],
+      /activeCodexTurns\.delete/,
+      'terminal branch should delegate cleanup to closeStream, not delete inline (A4 single-exit)',
+    );
+  });
+
+  it('error catch path closes via closeStream so a throw after turn/start cleans up the entry', () => {
+    // turn registered (activeCodexTurns.set) → throw before a terminal event →
+    // catch → closeStream({ error }) → entry deleted. This is the exact
+    // residual A4 set out to close.
+    assert.match(
+      runtimeSrc,
+      /\}\s*catch\s*\(err\)\s*\{[\s\S]{0,200}closeStream\(\{\s*error:\s*reason\s*\}\)/,
     );
   });
 });

@@ -1,6 +1,7 @@
 import { NextRequest } from 'next/server';
 import { parseClaudeSession } from '@/lib/claude-session-parser';
 import { createSession, addMessage, updateSdkSessionId, getAllSessions } from '@/lib/db';
+import { serverErrorResponse } from '@/lib/api-error';
 
 export async function POST(request: NextRequest) {
   try {
@@ -85,8 +86,6 @@ export async function POST(request: NextRequest) {
       },
     }, { status: 201 });
   } catch (error) {
-    const message = error instanceof Error ? error.stack || error.message : String(error);
-    console.error('[POST /api/claude-sessions/import] Error:', message);
-    return Response.json({ error: message }, { status: 500 });
+    return serverErrorResponse('POST /api/claude-sessions/import', error);
   }
 }

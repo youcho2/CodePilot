@@ -1,6 +1,6 @@
 'use client';
 
-import { useRef, useEffect, useState, useCallback } from 'react';
+import { useRef, useEffect, useState, useCallback, useMemo } from 'react';
 import { useTranslation } from '@/hooks/useTranslation';
 import type { TranslationKey } from '@/i18n';
 import { useStickToBottomContext } from 'use-stick-to-bottom';
@@ -247,6 +247,16 @@ export function MessageList({
     }
   }, [messages]);
 
+  // A2 (audit 2026-06): the visible user-message list drives rewind-point
+  // position mapping in the render below. Memoize it once per render — it used
+  // to be recomputed inside the messages.map() callback (once per message →
+  // O(n²) on every streaming re-render). Mapping semantics are unchanged; this
+  // only removes the duplicated filter (UUID-explicit matching stays in #39).
+  const userMessages = useMemo(
+    () => messages.filter((m) => m.role === 'user'),
+    [messages],
+  );
+
   if (messages.length === 0 && !isStreaming) {
     if (isAssistantProject) {
       // Assistant workspace — show buddy or egg welcome
@@ -359,8 +369,7 @@ export function MessageList({
           // (not tool results, not auto-trigger), so they're 1:1 with visible user messages.
           let rewindSdkUuid: string | undefined;
           if (message.role === 'user' && sessionId && rewindPoints.length > 0) {
-            const userMsgsBefore = messages.filter(m => m.role === 'user');
-            const userIndex = userMsgsBefore.indexOf(message);
+            const userIndex = userMessages.indexOf(message);
             if (userIndex >= 0 && userIndex < rewindPoints.length) {
               rewindSdkUuid = rewindPoints[userIndex].userMessageId;
             }

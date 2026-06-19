@@ -17,7 +17,7 @@ import type { SdkModelUsage } from './sdk-model-usage';
 import type { ClaudeStreamOptions, SSEEvent, TokenUsage, MCPServerConfig, PermissionRequestEvent, FileAttachment, MediaBlock } from '@/types';
 import { isImageFile } from '@/types';
 import { pickModelUsage } from './sdk-model-usage';
-import { registerPendingPermission } from './permission-registry';
+import { registerPendingPermission, buildPermissionResolvedEvent } from './permission-registry';
 import { registerConversation, unregisterConversation } from './conversation-registry';
 import { captureCapabilities, isCacheFresh, setCachedPlugins } from './agent-sdk-capabilities';
 import { normalizeMessageContent, microCompactMessage } from './message-normalizer';
@@ -1357,8 +1357,16 @@ export function streamClaudeSdk(options: ClaudeStreamOptions): ReadableStream<st
           onRuntimeStatusChange?.('waiting_permission');
 
           // Wait for user response (resolved by POST /api/chat/permission)
-          // Store original input so registry can inject updatedInput on allow
-          const result = await registerPendingPermission(permissionRequestId, input, opts.signal);
+          // Store original input so registry can inject updatedInput on allow.
+          // onTimeout pushes a permission_resolved(timeout) event down this
+          // same SSE stream so the chat UI shows the auto-deny (A5 Step 2).
+          const result = await registerPendingPermission(permissionRequestId, input, opts.signal, () => {
+            try {
+              controller.enqueue(formatSSE(buildPermissionResolvedEvent(permissionRequestId)));
+            } catch {
+              // stream already closed — deny still applies
+            }
+          });
 
           // Restore runtime status after permission resolved
           onRuntimeStatusChange?.('running');

@@ -61,7 +61,7 @@ import { createBuiltinTools } from './tools';
 import { buildMcpToolSet } from './mcp-tool-adapter';
 import { getBuiltinTools } from './builtin-tools';
 import { checkPermission, type PermissionMode } from './permission-checker';
-import { registerPendingPermission } from './permission-registry';
+import { registerPendingPermission, buildPermissionResolvedEvent } from './permission-registry';
 import { emit as emitEvent } from './runtime/event-bus';
 import { createPermissionRequest } from './db';
 import crypto from 'crypto';
@@ -248,11 +248,20 @@ function wrapWithPermissions(
             }),
           });
 
-          // Wait for user response
+          // Wait for user response. onTimeout pushes a permission_resolved
+          // (timeout) event down the same SSE stream so the chat UI shows the
+          // auto-deny instead of the prompt silently vanishing (A5 Step 2).
           const permResult = await registerPendingPermission(
             permId,
             (input || {}) as Record<string, unknown>,
             ctx.abortSignal,
+            () => {
+              try {
+                ctx.emitSSE(buildPermissionResolvedEvent(permId));
+              } catch {
+                // stream already closed — deny still applies
+              }
+            },
           );
 
           emitEvent('permission:resolved', { sessionId: ctx.sessionId, toolName: name, behavior: permResult.behavior });

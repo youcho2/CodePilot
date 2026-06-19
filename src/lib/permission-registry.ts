@@ -27,21 +27,90 @@ function getMap(): Map<string, PendingPermission> {
 }
 
 /**
- * Helper to deny and remove a pending permission entry.
- * Also writes the denial to DB for persistence/audit.
+ * The deny reason surfaced when a request is auto-denied because the user
+ * never responded within TIMEOUT_MS. Named constant so the timeout path and
+ * anything that needs to recognise "this was a timeout, not a manual deny"
+ * stay in sync (codebase-health A5).
  */
-function denyAndRemove(id: string, message: string, dbStatus: 'timeout' | 'aborted' = 'aborted') {
+const TIMEOUT_MESSAGE = 'Permission request timed out';
+
+/**
+ * Shape of the `permission_resolved` SSE event payload (codebase-health A5
+ * Step 2). Emitted only when the registry auto-resolves WITHOUT user action so
+ * the frontend can distinguish an auto-deny from one the user clicked. Today
+ * the only auto-resolve reason surfaced to the UI is `timeout`; abort is the
+ * user's own Stop, so it isn't pushed.
+ */
+export interface PermissionResolvedEventData {
+  permissionRequestId: string;
+  status: 'timeout';
+}
+
+/**
+ * Build the transport-agnostic `{ type, data }` SSE event object every caller
+ * emits on timeout. Single source so the event name / payload field names
+ * can't drift across the four registration sites (SDK / native tools / Codex
+ * approval / Codex MCP elicitation), each of which has a different emit
+ * transport (controller.enqueue / ctx.emitSSE / raw string).
+ */
+export function buildPermissionResolvedEvent(
+  permissionRequestId: string,
+): { type: 'permission_resolved'; data: string } {
+  return {
+    type: 'permission_resolved',
+    data: JSON.stringify({
+      permissionRequestId,
+      status: 'timeout',
+    } satisfies PermissionResolvedEventData),
+  };
+}
+
+/**
+ * Single finalize exit for a pending permission (codebase-health A5 Step 1).
+ *
+ * allow / deny / timeout / abort all converge here so the four-step teardown
+ * — clearTimeout, persist to DB, resolve the in-memory waiter, drop the map
+ * entry — can't drift between paths. Previously each of the three paths
+ * re-implemented it and they had already diverged in DB-write ordering.
+ *
+ * DB write happens BEFORE resolve(): resolvePendingPermission documented that
+ * ordering ("persist before resolving in-memory") and the other paths now
+ * share it. A DB failure is swallowed so it can never block the in-memory
+ * resolve that unblocks the agent turn.
+ *
+ * Returns true if a pending entry was found and finalized, false otherwise
+ * (already resolved / unknown id) — callers no-op idempotently on false.
+ */
+function finalizePermission(
+  id: string,
+  result: PermissionResult,
+  dbStatus: 'allow' | 'deny' | 'timeout' | 'aborted',
+  dbExtra?: {
+    updatedPermissions?: unknown[];
+    updatedInput?: Record<string, unknown>;
+    message?: string;
+  },
+): boolean {
   const map = getMap();
   const entry = map.get(id);
-  if (!entry) return;
+  if (!entry) return false;
   clearTimeout(entry.timer);
-  entry.resolve({ behavior: 'deny', message });
-  map.delete(id);
   try {
-    dbResolvePermission(id, dbStatus, { message });
+    dbResolvePermission(id, dbStatus, dbExtra);
   } catch {
     // DB write failure should not affect in-memory path
   }
+  entry.resolve(result);
+  map.delete(id);
+  return true;
+}
+
+/**
+ * Deny and remove a pending permission entry (abort / timeout paths).
+ * Thin wrapper over finalizePermission so it shares the one exit.
+ */
+function denyAndRemove(id: string, message: string, dbStatus: 'timeout' | 'aborted' = 'aborted') {
+  finalizePermission(id, { behavior: 'deny', message }, dbStatus, { message });
 }
 
 /**
@@ -52,6 +121,12 @@ export function registerPendingPermission(
   id: string,
   toolInput: Record<string, unknown>,
   abortSignal?: AbortSignal,
+  // codebase-health A5 Step 2 — invoked when (and only when) the request
+  // auto-denies on TIMEOUT, so the caller can push a `permission_resolved`
+  // event down its still-open stream and the chat UI can show "auto-denied,
+  // timed out" instead of the request silently vanishing. Not called on user
+  // resolve (UI is optimistic) or abort (user's own Stop).
+  onTimeout?: () => void,
 ): Promise<PermissionResult> {
   const map = getMap();
 
@@ -63,13 +138,21 @@ export function registerPendingPermission(
     const timer = setTimeout(() => {
       if (map.has(id)) {
         console.warn(`[permission-registry] Permission request ${id} timed out after ${TIMEOUT_MS / 1000}s`);
-        resolve({ behavior: 'deny', message: 'Permission request timed out' });
-        map.delete(id);
+        // Notify the UI via the caller's still-open stream BEFORE finalizing,
+        // so a `permission_resolved(timeout)` event rides the same channel the
+        // original `permission_request` did. Guarded: if the stream is already
+        // closing/errored the enqueue can throw — the deny must still apply.
         try {
-          dbResolvePermission(id, 'timeout', { message: 'Permission request timed out' });
+          onTimeout?.();
         } catch {
-          // DB write failure should not affect in-memory path
+          // stream may be closing; the deny below still unblocks the turn
         }
+        finalizePermission(
+          id,
+          { behavior: 'deny', message: TIMEOUT_MESSAGE },
+          'timeout',
+          { message: TIMEOUT_MESSAGE },
+        );
       }
     }, TIMEOUT_MS);
     if (typeof timer === 'object' && 'unref' in timer) {
@@ -103,25 +186,16 @@ export function resolvePendingPermission(
   const entry = map.get(id);
   if (!entry) return false;
 
-  clearTimeout(entry.timer);
-
+  // Default updatedInput to the originally-requested toolInput on allow —
+  // needs the entry, so resolved here before delegating to the shared exit.
   if (result.behavior === 'allow' && !result.updatedInput) {
     result = { ...result, updatedInput: entry.toolInput };
   }
 
-  // Dual-write: persist to DB before resolving in-memory
-  try {
-    const dbStatus = result.behavior === 'allow' ? 'allow' as const : 'deny' as const;
-    dbResolvePermission(id, dbStatus, {
-      updatedPermissions: result.behavior === 'allow' ? (result.updatedPermissions as unknown[]) : undefined,
-      updatedInput: result.behavior === 'allow' ? (result.updatedInput as Record<string, unknown>) : undefined,
-      message: result.behavior === 'deny' ? result.message : undefined,
-    });
-  } catch {
-    // DB write failure should not affect in-memory path
-  }
-
-  entry.resolve(result);
-  map.delete(id);
-  return true;
+  const dbStatus = result.behavior === 'allow' ? 'allow' as const : 'deny' as const;
+  return finalizePermission(id, result, dbStatus, {
+    updatedPermissions: result.behavior === 'allow' ? (result.updatedPermissions as unknown[]) : undefined,
+    updatedInput: result.behavior === 'allow' ? (result.updatedInput as Record<string, unknown>) : undefined,
+    message: result.behavior === 'deny' ? result.message : undefined,
+  });
 }

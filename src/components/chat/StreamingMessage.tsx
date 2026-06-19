@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useTranslation } from '@/hooks/useTranslation';
 import {
   Message as AIMessage,
@@ -218,12 +218,13 @@ function ElapsedTimer({ startedAt }: { startedAt: number }) {
     startedAtIsReady ? Math.floor((Date.now() - startedAt) / 1000) : 0,
   );
 
-  // Reset elapsed when the stream start time changes (e.g. new turn or session switch)
-  useEffect(() => {
-    if (!startedAtIsReady) return;
-    setElapsed(Math.floor((Date.now() - startedAt) / 1000));
-  }, [startedAt, startedAtIsReady]);
-
+  // The parent keys this component by `startedAt` (see render site), so a new
+  // turn / session switch remounts it and the lazy initializer above repaints
+  // the correct first value synchronously — no stale tick. This effect then
+  // only ticks every second; setState runs in the interval callback (async),
+  // never in the effect body, so there's no set-state-in-effect cascade.
+  // (#35 on-touch — previously a same-render reset effect that the React
+  // Compiler flagged; key-based remount is the clean equivalent.)
   useEffect(() => {
     if (!startedAtIsReady) return;
     const interval = setInterval(() => {
@@ -267,7 +268,7 @@ function StreamingStatusBar({ statusText, onForceStop, startedAt }: { statusText
         )}
       </div>
       <span className="text-muted-foreground/50">|</span>
-      <ElapsedTimer startedAt={startedAt} />
+      <ElapsedTimer key={startedAt} startedAt={startedAt} />
       {isCritical && onForceStop && (
         <Button
           variant="outline"
@@ -296,8 +297,16 @@ export function StreamingMessage({
 }: StreamingMessageProps) {
   const { t } = useTranslation();
   const bufferedContent = useBufferedContent(content, isStreaming);
-  const runningTools = toolUses.filter(
-    (tool) => !toolResults.some((r) => r.tool_use_id === tool.id)
+  // A2 (audit 2026-06): index toolResults by id once, then reuse for both the
+  // running-tools filter and the per-tool lookup in the render below. Both
+  // previously did an O(n) scan inside an O(n) loop → O(n²) every render.
+  const toolResultsById = useMemo(
+    () => new Map(toolResults.map((r) => [r.tool_use_id, r] as const)),
+    [toolResults]
+  );
+  const runningTools = useMemo(
+    () => toolUses.filter((tool) => !toolResultsById.has(tool.id)),
+    [toolUses, toolResultsById]
   );
 
   // Extract a human-readable summary of the running command
@@ -325,7 +334,7 @@ export function StreamingMessage({
         {(toolUses.length > 0 || thinkingContent) && (
           <ToolActionsGroup
             tools={toolUses.map((tool) => {
-              const result = toolResults.find((r) => r.tool_use_id === tool.id);
+              const result = toolResultsById.get(tool.id);
               return {
                 id: tool.id,
                 name: tool.name,

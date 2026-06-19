@@ -35,7 +35,9 @@ interface ToolUseInfo {
 
 interface PermissionPromptProps {
   pendingPermission: PermissionRequestEvent | null;
-  permissionResolved: 'allow' | 'deny' | null;
+  // 'timeout' = registry auto-denied after the 5-min window (A5 Step 2),
+  // rendered distinctly from a manual 'deny'.
+  permissionResolved: 'allow' | 'deny' | 'timeout' | null;
   onPermissionResponse: (decision: 'allow' | 'allow_session' | 'deny', updatedInput?: Record<string, unknown>, denyMessage?: string) => void;
   toolUses?: ToolUseInfo[];
   permissionProfile?: 'default' | 'full_access';
@@ -438,7 +440,8 @@ export function PermissionPrompt({
     if (permissionResolved === 'allow') {
       return { id: pendingPermission?.permissionRequestId || '', approved: true as const };
     }
-    if (permissionResolved === 'deny') {
+    // timeout is an auto-deny → render as not-approved, same as a manual deny.
+    if (permissionResolved === 'deny' || permissionResolved === 'timeout') {
       return { id: pendingPermission?.permissionRequestId || '', approved: false as const };
     }
     return { id: pendingPermission?.permissionRequestId || '' };
@@ -462,6 +465,9 @@ export function PermissionPrompt({
       {pendingPermission?.toolName === 'ExitPlanMode' && permissionResolved === 'deny' && (
         <p className="py-1 text-xs text-status-error-foreground">Plan rejected</p>
       )}
+      {pendingPermission?.toolName === 'ExitPlanMode' && permissionResolved === 'timeout' && (
+        <p className="py-1 text-xs text-status-error-foreground">{t('streaming.permissionTimedOut')}</p>
+      )}
 
       {/* AskUserQuestion */}
       {pendingPermission?.toolName === 'AskUserQuestion' && !isResolved && (
@@ -471,7 +477,12 @@ export function PermissionPrompt({
         />
       )}
       {pendingPermission?.toolName === 'AskUserQuestion' && isResolved && (
-        <p className="py-1 text-xs text-status-success-foreground">Answer submitted</p>
+        <p className={cn(
+          "py-1 text-xs",
+          permissionResolved === 'timeout' ? 'text-status-error-foreground' : 'text-status-success-foreground'
+        )}>
+          {permissionResolved === 'timeout' ? t('streaming.permissionTimedOut') : 'Answer submitted'}
+        </p>
       )}
 
       {/* Generic confirmation for other tools — only show when not yet resolved */}
@@ -532,7 +543,11 @@ export function PermissionPrompt({
           "py-1 text-xs",
           permissionResolved === 'allow' ? 'text-status-success-foreground' : 'text-status-error-foreground'
         )}>
-          {permissionResolved === 'allow' ? t('streaming.allowed') : t('streaming.denied')}
+          {permissionResolved === 'allow'
+            ? t('streaming.allowed')
+            : permissionResolved === 'timeout'
+              ? t('streaming.permissionTimedOut')
+              : t('streaming.denied')}
         </p>
       )}
     </div>

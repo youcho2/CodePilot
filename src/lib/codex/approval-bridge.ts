@@ -48,7 +48,7 @@ import type { PermissionRequestEvent, PermissionSuggestion } from '@/types';
 import type { NativePermissionResult } from '@/lib/types/agent-types';
 import { translateCodexApproval } from './event-mapper';
 import { createPermissionRequest, getPermissionRequest } from '@/lib/db';
-import { registerPendingPermission } from '@/lib/permission-registry';
+import { registerPendingPermission, buildPermissionResolvedEvent } from '@/lib/permission-registry';
 
 /**
  * Generate a stable permissionRequestId from the Codex JSON-RPC id.
@@ -225,7 +225,20 @@ export async function handleCodexApprovalRequest(args: HandleArgs): Promise<unkn
   // Wait for the user's decision. registerPendingPermission resolves
   // via /api/chat/permission → resolvePendingPermission — the same
   // path the SDK uses, so PermissionPrompt's existing wire-up works.
-  const result = await registerPendingPermission(requestId, canonical.toolInput ?? {});
+  // onTimeout mirrors the SDK path: push permission_resolved(timeout) so a
+  // Codex approval that times out shows the same auto-deny UI (A5 Step 2).
+  const result = await registerPendingPermission(
+    requestId,
+    canonical.toolInput ?? {},
+    undefined,
+    () => {
+      try {
+        args.emitSse(`data: ${JSON.stringify(buildPermissionResolvedEvent(requestId))}\n\n`);
+      } catch {
+        // stream already closed — deny still applies
+      }
+    },
+  );
 
   return resultToCodexResponse(result, args.method);
 }
