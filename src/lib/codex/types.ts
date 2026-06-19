@@ -150,10 +150,24 @@ export interface CodexThreadStartResponse {
   thread: { id: string; status?: string; ephemeral?: boolean };
 }
 
+/**
+ * A single Codex app-server `turn/start` input block. Wire format confirmed
+ * against codex-cli 0.142.0-alpha.1 via serde-error probing — see
+ * docs/research/codex-image-input-poc/FINDINGS.md. Valid `type` variants the
+ * server enumerates: text · image · localImage · skill · mention. We wire the
+ * first three (text + the two image forms); skill/mention are not used here.
+ */
+export type CodexTurnInputBlock =
+  | { type: 'text'; text: string }
+  /** Remote or data URL image. Field is `url` (NOT `image_url`); `detail` optional. */
+  | { type: 'image'; url: string; detail?: string | null }
+  /** Local image by absolute filesystem path (avoids a multi-MB data URL). */
+  | { type: 'localImage'; path: string };
+
 export interface CodexTurnStartParams {
   threadId: string;
-  /** User input — Codex `UserInput[]`. We pass text-only items today. */
-  input: readonly { type: 'text'; text: string }[];
+  /** User input — Codex `UserInput[]`. Text + image blocks (#632 / Phase 2 #3). */
+  input: readonly CodexTurnInputBlock[];
   cwd?: string;
   model?: string;
   effort?: string;

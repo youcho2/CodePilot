@@ -35,7 +35,8 @@ import type {
   RuntimeStreamOptions,
 } from '@/lib/runtime/types';
 import type { RuntimeRunEvent } from '@/lib/runtime/contract';
-import type { RuntimeContextAccountingSnapshot } from '@/types';
+import type { RuntimeContextAccountingSnapshot, FileAttachment } from '@/types';
+import { buildCodexTurnInput } from './turn-input';
 // Phase 4 — Codex Context Accounting (2026-05-20). Imported at top so
 // the closure-scoped cache + run_completed supplementary result event
 // don't need dynamic import inside the sync onAnyNotification handler.
@@ -935,9 +936,16 @@ export const codexRuntime: AgentRuntime = {
           // and older builds reject unknown variants fatally. codex_runtime
           // only; Claude Code / Native keep the full union. See ./effort.ts.
           const codexEffort = clampCodexEffort(options.effort);
+          // #632 / Phase 2 #3 — include image attachments in the turn input.
+          // Files reach the runtime via runtimeOptions.files (claude-client.ts);
+          // before this the input was text-only and images were silently dropped.
+          // buildCodexTurnInput maps image/* attachments to the app-server's
+          // image / localImage blocks (wire format from the POC — see
+          // docs/research/codex-image-input-poc/FINDINGS.md).
+          const turnFiles = options.runtimeOptions?.files as FileAttachment[] | undefined;
           const turnResult = await client.request<{ turn: { id: string } }>('turn/start', {
             threadId,
-            input: [{ type: 'text', text: options.prompt }],
+            input: buildCodexTurnInput(options.prompt, turnFiles),
             ...(options.workingDirectory ? { cwd: options.workingDirectory } : {}),
             ...(options.model ? { model: options.model } : {}),
             ...(codexEffort ? { effort: codexEffort } : {}),
