@@ -90,14 +90,15 @@ describe('ContextDotMatrix.computeAllocations — minCellsPerKind: 0 (mini-bar)'
     assert.equal(emptyCells, 9);
   });
 
-  it('Native unknown contextWindow on 10-cell bar → uses 200K fallback, NOT used-as-denominator (mini-bar does not show 100% fill at 3.5K real usage)', () => {
-    // Real-world: Native (agent-loop+OpenRouter) often has no contextWindow
-    // from upstream. Old behavior: denominator = usedTokens, so 100% fill
-    // even at 3.5K real usage — misleading "context maxed out" (user
-    // complaint 2026-05-20).
-    // New: when window unknown + mini-bar (minCellsPerKind=0), denominator
-    // falls back to 200K (typical chat-LLM window). 3.5K / 200K = 1.75%
-    // → cells round to 0 → boost rule gives largest 1 cell.
+  it('unknown contextWindow on 10-cell mini-bar → composition (used-as-denominator), NOT a fabricated 200K capacity (#632 follow-up)', () => {
+    // v0.56.x #632 follow-up (2026-06-19): the old mini-bar fell back to a
+    // 200K FALLBACK_CONTEXT_WINDOW so it could draw a "believable rough %"
+    // when upstream omitted the window — but that fabricated a capacity the
+    // user never had, implying "used / remaining" against a guess. Removed.
+    // Now an unknown window distributes by used+pending (composition), same as
+    // the popover. In practice RunCockpit HIDES the mini-bar entirely when the
+    // window is untrusted (trigger shows only the absolute used-token text);
+    // this pins computeAllocations' defensive composition behavior.
     const breakdown: ContextUsageBreakdown = {
       parts: [
         { kind: 'tools', tokens: 813, label: 'tools', source: 'test' },
@@ -109,8 +110,9 @@ describe('ContextDotMatrix.computeAllocations — minCellsPerKind: 0 (mini-bar)'
     } as ContextUsageBreakdown;
     const { cells, emptyCells } = computeAllocations(breakdown, 10, 0);
     const filled = cells.reduce((s, c) => s + c.cells, 0);
-    assert.ok(filled <= 2, `mini-bar with unknown window @ 3.5K must NOT fill 10/10; got ${filled} cells (${cells.length} categories)`);
-    assert.ok(filled >= 1, 'mini-bar must show at least 1 cell when used > 0 (any-usage marker)');
+    // Composition fills most of the bar (proportional by used) — the OPPOSITE
+    // of the old 200K behavior (which left it ~1-2 cells = a fake low "%").
+    assert.ok(filled >= 8, `unknown-window mini-bar must show a used-relative composition, not a 200K rough %; got ${filled} cells`);
     assert.equal(filled + emptyCells, 10);
   });
 

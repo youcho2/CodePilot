@@ -76,4 +76,26 @@ describe('context-window trusted denominator (#632)', () => {
       'popover header percentage must also clamp ≤100%',
     );
   });
+
+  // #632 follow-up (2026-06-19): the trigger mini dot-bar must not draw a
+  // capacity gauge against an untrusted window.
+  it('RunCockpit only renders the trigger mini-bar when hasFullCtx (trusted window)', () => {
+    assert.match(
+      cockpitSrc,
+      /\{hasFullCtx && \(\s*<ContextDotMatrix[\s\S]{0,200}minCellsPerKind=\{0\}/,
+      'the trigger ContextDotMatrix (minCellsPerKind=0) must be gated on hasFullCtx so an untrusted window shows only the absolute used-token text, no fabricated capacity bar',
+    );
+  });
+
+  it('ContextDotMatrix no longer carries the 200K FALLBACK_CONTEXT_WINDOW fabrication', () => {
+    const matrixSrc = fs.readFileSync(
+      path.join(repoRoot, 'components/chat/context-breakdown/ContextDotMatrix.tsx'),
+      'utf8',
+    );
+    assert.doesNotMatch(
+      matrixSrc,
+      /FALLBACK_CONTEXT_WINDOW|200_000/,
+      'the unknown-window mini-bar must distribute by used+pending (composition), not a fabricated 200K capacity',
+    );
+  });
 });

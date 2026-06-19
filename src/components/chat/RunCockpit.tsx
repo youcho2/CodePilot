@@ -197,13 +197,19 @@ export function RunCockpit({
       aria-label={t("runStatus.triggerLabel" as TranslationKey)}
       className="h-7 gap-1.5 rounded-md px-2 text-[11px] font-medium text-muted-foreground transition-colors"
     >
-      <ContextDotMatrix
-        breakdown={usage.breakdown}
-        cellCount={10}
-        rows={1}
-        minCellsPerKind={0}
-        className="w-[44px] shrink-0"
-      />
+      {/* v0.56.x #632 follow-up — the mini capacity bar only makes sense
+          against a TRUSTED window. When untrusted (catalog fallback / none)
+          we'd be drawing a "used / remaining" gauge against a guess, so hide
+          it and let the trigger show only the absolute used-token text. */}
+      {hasFullCtx && (
+        <ContextDotMatrix
+          breakdown={usage.breakdown}
+          cellCount={10}
+          rows={1}
+          minCellsPerKind={0}
+          className="w-[44px] shrink-0"
+        />
+      )}
       <span className="truncate">{ratioText}</span>
     </Button>
   );
