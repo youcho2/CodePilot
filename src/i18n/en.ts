@@ -2018,7 +2018,7 @@ const en = {
   'runCheckpoint.runtimeFallback.description': 'The selected runtime is unavailable, so CodePilot will use the available fallback for this message.',
   'runCheckpoint.runtimeFallback.action': 'Review runtime',
   'runCheckpoint.contextCost.title': 'This message adds substantial context',
-  'runCheckpoint.contextCost.description': 'The attached context is large enough to noticeably change this run. Confirm before sending.',
+  'runCheckpoint.contextCost.description': 'The attached context is large enough to noticeably change this run.',
   'runCheckpoint.contextCost.action': 'Continue sending',
   'runCheckpoint.permissionElevation.title': 'Full access is enabled',
   'runCheckpoint.permissionElevation.description': 'This message will run with fewer confirmations. Use it only for trusted projects.',

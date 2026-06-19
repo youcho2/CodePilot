@@ -156,11 +156,13 @@ export function shouldTriggerContextCost(
  * other reasons are additive — pinned-invalid + runtime-fallback +
  * context-cost can all stack if their triggers fire together.
  *
- * Round 1 reasons (no-provider / pinned-invalid / runtime-fallback)
- * never set `requiresConfirm`: they're informational, and MessageInput's
- * existing `disabled` gate handles the pinned/no-provider blocks.
- * The Round 2 context-cost reason DOES set it, because the user may
- * legitimately want to send the message after acknowledging the cost.
+ * No reason currently sets `requiresConfirm`: they're all informational.
+ * Round 1 (no-provider / pinned-invalid / runtime-fallback) rely on
+ * MessageInput's existing `disabled` gate; Round 2 context-cost is a
+ * non-blocking heads-up (v0.56.x #632 — an estimated context size must not
+ * block a non-destructive send). The `requiresConfirm` + `blockingReasonIds`
+ * + MessageInput bypass machinery is retained for any FUTURE real-danger
+ * reason, but no built-in reason triggers it today.
  */
 export function buildCheckpoints(opts: BuildCheckpointsOpts): CheckpointReason[] {
   const out: CheckpointReason[] = [];
@@ -223,9 +225,15 @@ export function buildCheckpoints(opts: BuildCheckpointsOpts): CheckpointReason[]
     });
   }
 
-  // Round 2 — context-cost-change. Blocks the send until the user
-  // confirms via the action. After send, pending → 0 and the trigger
-  // un-fires, so no need for a "confirmed this" persistent flag.
+  // Round 2 — context-cost-change. v0.56.x #632 / Phase 2: this is a
+  // NON-BLOCKING heads-up. The pending context size is an ESTIMATE; per the
+  // plan, an estimated risk on a non-destructive, user-initiated send must not
+  // be turned into a second confirm / send block. So NO `requiresConfirm` and
+  // NO confirm action — it informs (info tone) but never enters
+  // `blockingReasonIds`. Image / file attachments therefore send on the first
+  // Enter. (The requiresConfirm + bypass machinery is retained for any FUTURE
+  // real-danger reason — write / delete / exec / escalate — but none is active
+  // now; those dangerous actions go through the permission system, not here.)
   const pending = opts.pendingContextTokens ?? 0;
   const used = opts.usedContextTokens ?? 0;
   if (shouldTriggerContextCost(pending, used)) {
@@ -238,11 +246,6 @@ export function buildCheckpoints(opts: BuildCheckpointsOpts): CheckpointReason[]
         pending: formatTokensForBanner(pending),
         used: used > 0 ? formatTokensForBanner(used) : '0',
       },
-      action: {
-        labelKey: 'runCheckpoint.contextCost.action',
-        actionId: 'confirm-context-cost',
-      },
-      requiresConfirm: true,
     });
   }
 

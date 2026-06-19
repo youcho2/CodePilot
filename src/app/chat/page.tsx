@@ -289,8 +289,10 @@ function NewChatPageInner() {
     [checkpointReasons],
   );
   const handleCheckpointAction = useCallback((actionId: string) => {
-    // The context-cost confirm unblocks the pending send; MessageInput
-    // listens for this event and re-runs submit with bypass=true.
+    // Generic confirm→bypass bridge (MessageInput listens for this event and
+    // re-runs submit with bypass=true). As of #632 no built-in reason emits
+    // 'confirm-context-cost' — context-cost is now a non-blocking heads-up;
+    // this is retained dormant for any future real-danger confirm reason.
     if (actionId === 'confirm-context-cost') {
       window.dispatchEvent(new Event('run-checkpoint-confirm-send'));
     }

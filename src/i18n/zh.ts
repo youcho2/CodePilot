@@ -1993,7 +1993,7 @@ const zh: Record<TranslationKey, string> = {
   'runCheckpoint.runtimeFallback.description': '当前选择的执行引擎不可用，本次会改用可用的执行方式。',
   'runCheckpoint.runtimeFallback.action': '查看执行引擎',
   'runCheckpoint.contextCost.title': '这次会加入较多上下文',
-  'runCheckpoint.contextCost.description': '本次附加的上下文较多，可能明显影响这次运行。发送前请确认。',
+  'runCheckpoint.contextCost.description': '本次附加的上下文较多，可能明显影响这次运行。',
   'runCheckpoint.contextCost.action': '已了解，继续发送',
   'runCheckpoint.permissionElevation.title': '当前是完全访问权限',
   'runCheckpoint.permissionElevation.description': '这条消息会在更少确认的权限下运行。仅建议在信任项目中使用。',

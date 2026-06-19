@@ -2,8 +2,12 @@
  * Round 2 — flow-level contract tests for the "blocking + confirm-and-send"
  * cycle. Models the MessageInput's bypass-flag state machine without React,
  * so we can lock down the contract independently of the React renderer.
- * (The permission-elevation reason that used to drive this was removed
- * 2026-06-02; context-cost-change is now the live requiresConfirm reason.)
+ * (No built-in reason currently sets requiresConfirm: permission-elevation was
+ * removed 2026-06-02, and context-cost-change was downgraded to a non-blocking
+ * heads-up 2026-06-19 per #632. These tests model the GENERIC bypass machinery
+ * with a hypothetical blocking id — the machinery is retained for any future
+ * real-danger confirm, and the screenshot-preservation contract below protects
+ * ANY rejected submit, not just checkpoint blocks.)
  *
  * The contract under test:
  *   1. While a `requiresConfirm` reason is active, MessageInput's
@@ -82,13 +86,13 @@ async function promptInputWouldClearAfterSubmit(onSubmit: () => Promise<void>): 
 
 describe('MessageInput-style submit blocking + bypass', () => {
   it('user submit is blocked while a requiresConfirm reason is active', () => {
-    const m = makeSubmitMachine(['context-cost-change']);
+    const m = makeSubmitMachine(['future-danger-confirm']);
     assert.equal(m.userSubmit(), false);
     assert.equal(m.state.submitsRecorded, 0);
   });
 
   it('confirm-and-send goes through even when blocking ids are still set', () => {
-    const m = makeSubmitMachine(['context-cost-change']);
+    const m = makeSubmitMachine(['future-danger-confirm']);
     // The state-machine deliberately keeps blockingIds set to model
     // React state-propagation lag between confirm-action and re-render.
     assert.equal(m.confirmAndSend(), true);
@@ -96,7 +100,7 @@ describe('MessageInput-style submit blocking + bypass', () => {
   });
 
   it('bypass auto-clears after one consume — next user submit re-blocks', () => {
-    const m = makeSubmitMachine(['context-cost-change']);
+    const m = makeSubmitMachine(['future-danger-confirm']);
     m.confirmAndSend();
     assert.equal(m.userSubmit(), false, 'second submit must re-block');
     assert.equal(m.state.submitsRecorded, 1);

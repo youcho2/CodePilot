@@ -141,7 +141,7 @@ describe('buildCheckpoints — Round 1 + 2 scope guard', () => {
     );
   });
 
-  it('every reason has exactly one action — single-action plan §B', () => {
+  it('each reason has at most one well-formed action — single-action plan §B', () => {
     for (const opts of [
       { ...ok, noCompatibleProvider: true },
       { ...ok, defaultInvalid: true },
@@ -149,9 +149,15 @@ describe('buildCheckpoints — Round 1 + 2 scope guard', () => {
       { ...ok, pendingContextTokens: 12_000, usedContextTokens: 0 },
     ]) {
       for (const r of buildCheckpoints(opts)) {
+        // context-cost-change is a NON-BLOCKING info heads-up with NO action
+        // (#632 / Phase 2 — an estimated context size must not force a confirm).
+        if (r.id === 'context-cost-change') {
+          assert.equal(r.action, undefined, 'context-cost is info-only; must carry no action');
+          continue;
+        }
+        // The remaining (Round 1) reasons each carry exactly one action,
+        // either a navigation (href + actionId) or a confirm (actionId only).
         assert.ok(r.action, `${r.id} must have an action`);
-        // Action must be either a navigation (href + actionId)
-        // or a confirm action (actionId only, no href).
         assert.ok(
           r.action?.href || r.action?.onClick || r.action?.actionId,
           `${r.id} must have href / onClick / actionId`,
@@ -191,14 +197,18 @@ describe('shouldTriggerContextCost', () => {
 });
 
 describe('buildCheckpoints — context-cost-change reason', () => {
-  it('emits an info-toned reason with requiresConfirm=true', () => {
+  it('emits an info-toned, NON-blocking heads-up — no requiresConfirm, no confirm action (#632 / Phase 2)', () => {
     const reasons = buildCheckpoints({ ...ok, pendingContextTokens: 12_000, usedContextTokens: 0 });
     const r = reasons.find((x) => x.id === 'context-cost-change');
-    assert.ok(r, 'context-cost reason should fire');
+    assert.ok(r, 'context-cost reason should still fire as info');
     assert.equal(r!.tone, 'info');
-    assert.equal(r!.requiresConfirm, true);
-    assert.equal(r!.action?.actionId, 'confirm-context-cost');
-    // descriptionValues carries human-formatted token counts
+    // #632 / Phase 2: an ESTIMATED context size must not block a non-destructive,
+    // user-initiated send. It must NOT require confirm and must NOT carry a
+    // confirm action (so it never enters blockingReasonIds; image/file
+    // attachments send on the first Enter).
+    assert.notEqual(r!.requiresConfirm, true);
+    assert.equal(r!.action, undefined);
+    // descriptionValues still carries human-formatted token counts
     assert.equal(r!.descriptionValues?.pending, '12K');
     assert.equal(r!.descriptionValues?.used, '0');
   });
