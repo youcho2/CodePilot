@@ -4,7 +4,7 @@ import { Suspense, useState, useCallback, useRef, useEffect, useMemo } from 'rea
 import { useRouter, useSearchParams } from 'next/navigation';
 import type { Message, SSEEvent, SessionResponse, TokenUsage, PermissionRequestEvent, FileAttachment, MentionRef } from '@/types';
 import { MessageList } from '@/components/chat/MessageList';
-import { MessageInput } from '@/components/chat/MessageInput';
+import { MessageInput, composerDraftKey } from '@/components/chat/MessageInput';
 import { ChatComposerActionBar } from '@/components/chat/ChatComposerActionBar';
 import { ModeIndicator } from '@/components/chat/ModeIndicator';
 import { ChatPermissionSelector } from '@/components/chat/ChatPermissionSelector';
@@ -913,6 +913,11 @@ function NewChatPageInner() {
         // stream is opening) — from here the screenshot is committed
         // server-side, so a later error must NOT preserve the composer (#615).
         accepted = true;
+        // #4/#5 — clear the persisted composer draft at accept. The imminent
+        // isStreaming flip REMOUNTS the composer, which re-seeds inputValue from
+        // this draft (the only composer state surviving the remount); without
+        // clearing it the just-sent text lingers all turn (CDP repro).
+        try { sessionStorage.removeItem(composerDraftKey()); } catch { /* unavailable */ }
 
         // Flip the layout-driving state ONLY now: show streaming + push the
         // optimistic user bubble. Deferring to here keeps `isNewChat` true

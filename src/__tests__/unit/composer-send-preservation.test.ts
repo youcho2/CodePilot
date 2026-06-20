@@ -109,7 +109,12 @@ describe('page.tsx sendFirstMessage signals not-delivered on its gates (#615)', 
     assert.match(src, /const firstSendInFlightRef = useRef\(false\)/);
     assert.match(src, /if \(firstSendInFlightRef\.current\) return false/);
     assert.equal(countMatches(src, /setIsStreaming\(true\)/g), 1, 'isStreaming must be flipped in exactly one place (deferred to post-accept)');
-    assert.match(src, /accepted = true;[\s\S]{0,400}setIsStreaming\(true\)/);
+    // setIsStreaming(true) stays AFTER `accepted = true` (deferred to post-accept).
+    // Distance widened 2026-06-20 (#4/#5): the draft-clear (sessionStorage
+    // .removeItem(composerDraftKey())) + its comment now also sit between accept
+    // and the layout flip — both legitimately post-accept; the invariant is
+    // "accept → … → setIsStreaming", not adjacency.
+    assert.match(src, /accepted = true;[\s\S]{0,800}setIsStreaming\(true\)/);
   });
 
   it('composer-stack siblings are keyed so an ErrorBanner toggle keeps MessageInput identity (#615)', () => {

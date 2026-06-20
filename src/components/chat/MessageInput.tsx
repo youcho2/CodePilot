@@ -69,6 +69,18 @@ function abortComposerSubmit(reason: string): never {
   throw new Error(reason);
 }
 
+/**
+ * sessionStorage key for the per-session composer draft. Exported so the
+ * first-message page (page.tsx) can clear it at send-accept: that flow flips
+ * the layout (isStreaming) which REMOUNTS the composer, and the remounted
+ * MessageInput re-seeds `inputValue` from this draft — so the persisted draft is
+ * the one piece of composer state that survives the remount. Clearing it at
+ * accept makes the remounted composer come up empty (#4/#5). A new chat has no
+ * sessionId → the 'new' bucket.
+ */
+export const composerDraftKey = (sessionId?: string): string =>
+  `codepilot:draft:${sessionId || 'new'}`;
+
 interface MessageInputProps {
   // Returns false when the submit was NOT accepted for delivery (provider still
   // loading / no compatible provider / runtime-incompatible). The composer then
@@ -208,7 +220,7 @@ export function MessageInput({
   // submission.
   const bypassBlockingRef = useRef(false);
   // Persist draft per session so switching chats doesn't lose typed text.
-  const draftKey = `codepilot:draft:${sessionId || 'new'}`;
+  const draftKey = composerDraftKey(sessionId);
   const [inputValue, setInputValueRaw] = useState(() => {
     if (initialValue) return initialValue;
     try { return sessionStorage.getItem(draftKey) || ''; } catch { return ''; }
