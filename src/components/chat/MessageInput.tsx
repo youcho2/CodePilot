@@ -1058,10 +1058,13 @@ export function MessageInput({
           <QuickActions
             isAssistantProject={!!isAssistantProject}
             hasMessages={!!hasMessages}
-            onAction={(text) => {
-              onSend(text);
-              // Clear input after send to avoid stale text
-              setInputValue('');
+            onAction={async (text) => {
+              // #615 — await delivery and clear ONLY when the send was actually
+              // delivered. A gated send (provider / model / runtime / directory
+              // not ready → onSend returns false) must keep the composer instead
+              // of silently eating the user's text. Mirrors handleSubmit.
+              const delivered = await onSend(text);
+              if (delivered !== false) setInputValue('');
             }}
           />
 

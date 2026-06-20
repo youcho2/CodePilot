@@ -77,6 +77,14 @@ function NewChatPageInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const prefillText = searchParams.get('prefill') || '';
+  // #4/#5 (Codex P2) — the prefill enters the composer via `initialValue`, which
+  // MessageInput prioritises OVER the draft. So clearing only the sessionStorage
+  // draft at send-accept (below) leaves the URL prefill, and the accept-time
+  // composer remount re-seeds the just-sent text from `initialValue`. Track which
+  // prefill we've already sent and feed '' for it so the remount comes up empty;
+  // a genuinely NEW prefill (different text) still shows.
+  const [consumedPrefill, setConsumedPrefill] = useState<string | null>(null);
+  const effectivePrefill = prefillText && prefillText !== consumedPrefill ? prefillText : '';
   const { setPendingApprovalSessionId } = usePanel();
   const { t } = useTranslation();
   const { isElectron, openNativePicker } = useNativeFolderPicker();
@@ -918,6 +926,9 @@ function NewChatPageInner() {
         // this draft (the only composer state surviving the remount); without
         // clearing it the just-sent text lingers all turn (CDP repro).
         try { sessionStorage.removeItem(composerDraftKey()); } catch { /* unavailable */ }
+        // #4/#5 (Codex P2) — also mark the URL prefill consumed so the remount's
+        // `initialValue` (which outranks the draft) doesn't re-seed the sent text.
+        if (prefillText) setConsumedPrefill(prefillText);
 
         // Flip the layout-driving state ONLY now: show streaming + push the
         // optimistic user bubble. Deferring to here keeps `isNewChat` true
@@ -1326,7 +1337,7 @@ function NewChatPageInner() {
         workingDirectory={workingDir}
         effort={selectedEffort}
         onEffortChange={setSelectedEffort}
-        initialValue={prefillText}
+        initialValue={effectivePrefill}
         onPendingContextTokensChange={setPendingContextTokens}
         onPendingContextSubTotalsChange={setPendingContextSubTotals}
         blockingReasonIds={blockingReasonIds}

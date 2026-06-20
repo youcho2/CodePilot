@@ -61,4 +61,20 @@ describe('first-message composer clears at accept (#4/#5)', () => {
     const pageSrc = read('app/chat/page.tsx');
     assert.doesNotMatch(pageSrc, /composerResetNonce|resetSignal=/);
   });
+
+  it('page.tsx also clears the URL prefill at accept (Codex P2 — initialValue outranks the draft)', () => {
+    // The first-message composer remount re-reads initialValue (= URL prefill)
+    // BEFORE the draft, so the draft-clear alone leaves a prefill-sourced text
+    // re-seeding. Track + zero the consumed prefill so the remount comes up empty.
+    const src = read('app/chat/page.tsx');
+    assert.match(src, /const \[consumedPrefill, setConsumedPrefill\] = useState/);
+    assert.match(
+      src,
+      /const effectivePrefill = prefillText && prefillText !== consumedPrefill \? prefillText : ''/,
+      'effectivePrefill must blank out an already-sent prefill while still showing a new one',
+    );
+    assert.match(src, /if \(prefillText\) setConsumedPrefill\(prefillText\)/, 'accept must mark the prefill consumed');
+    assert.match(src, /initialValue=\{effectivePrefill\}/);
+    assert.doesNotMatch(src, /initialValue=\{prefillText\}/);
+  });
 });

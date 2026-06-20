@@ -55,6 +55,17 @@ describe('MessageInput: no-send branches preserve the composer (#615)', () => {
   it('the old screenshot-eating bare returns are gone (no `|| disabled) return;`)', () => {
     assert.doesNotMatch(src, /\|\| disabled\)\s*return;/);
   });
+
+  it('QuickActions awaits onSend and clears ONLY on delivery (Codex P3 — gated send keeps the composer)', () => {
+    // Was `onSend(text); setInputValue('')` — fire-and-forget, no await, no
+    // delivery check, so a gated send (provider/model/runtime not ready) still
+    // ate the user's text. Must mirror handleSubmit's await + `!== false` gate.
+    assert.match(
+      src,
+      /onAction=\{async \(text\) => \{[\s\S]*?const delivered = await onSend\(text\)[\s\S]*?if \(delivered !== false\) setInputValue\(''\)/,
+      'QuickActions onAction must await onSend and only setInputValue("") when delivered !== false',
+    );
+  });
 });
 
 describe('ChatView.sendMessage signals not-delivered on every provider gate (#615)', () => {
@@ -109,12 +120,14 @@ describe('page.tsx sendFirstMessage signals not-delivered on its gates (#615)', 
     assert.match(src, /const firstSendInFlightRef = useRef\(false\)/);
     assert.match(src, /if \(firstSendInFlightRef\.current\) return false/);
     assert.equal(countMatches(src, /setIsStreaming\(true\)/g), 1, 'isStreaming must be flipped in exactly one place (deferred to post-accept)');
-    // setIsStreaming(true) stays AFTER `accepted = true` (deferred to post-accept).
-    // Distance widened 2026-06-20 (#4/#5): the draft-clear (sessionStorage
-    // .removeItem(composerDraftKey())) + its comment now also sit between accept
-    // and the layout flip — both legitimately post-accept; the invariant is
-    // "accept → … → setIsStreaming", not adjacency.
-    assert.match(src, /accepted = true;[\s\S]{0,800}setIsStreaming\(true\)/);
+    // setIsStreaming(true) must come AFTER `accepted = true` (deferred to
+    // post-accept). Order-based, not distance-based: more #4/#5 post-accept work
+    // (draft-clear, prefill-consume) legitimately accrues between them, and a
+    // tight char-distance bound kept false-failing as that grew.
+    const acceptIdx = src.indexOf('accepted = true;');
+    const streamIdx = src.indexOf('setIsStreaming(true)');
+    assert.ok(acceptIdx > 0, 'expected an `accepted = true;` commit point');
+    assert.ok(streamIdx > acceptIdx, 'setIsStreaming(true) must come after accepted = true (deferred to post-accept)');
   });
 
   it('composer-stack siblings are keyed so an ErrorBanner toggle keeps MessageInput identity (#615)', () => {
