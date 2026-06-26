@@ -1,5 +1,6 @@
 import { NextRequest } from 'next/server';
 import { streamClaude } from '@/lib/claude-client';
+import { isSessionStateResultError } from '@/lib/error-classifier';
 import { addMessage, getMessages, getSession, getSessionSummary, updateSessionTitle, updateSdkSessionId, updateSessionModel, updateSessionProvider, updateSessionProviderId, updateSessionRuntime, getSetting, acquireSessionLock, renewSessionLock, releaseSessionLock, setSessionRuntimeStatus, syncSdkTasks } from '@/lib/db';
 import { resolveProviderForSession } from '@/lib/provider-resolver';
 import { resolveRuntimeForSession } from '@/lib/chat-runtime';
@@ -932,9 +933,24 @@ async function collectStreamResponse(
                 }
                 if (resultData.is_error) {
                   hasError = true;
+                  // #629 — surface the result error so the empty-assistant guard
+                  // below persists a visible **Error:** bubble; otherwise a failed
+                  // is_error result turn looks like "no answer" after refresh.
+                  if (!errorMessage) {
+                    errorMessage =
+                      (Array.isArray(resultData.errors) && resultData.errors.length
+                        ? resultData.errors.join('\n')
+                        : resultData.subtype) || 'The conversation ended with an error';
+                  }
                 }
-                // Also capture session_id from result if we missed it from init
-                if (resultData.session_id) {
+                // Also capture session_id from result if we missed it from init.
+                // #629 — EXCEPT a stale-resume is_error result: resultData.session_id
+                // is the BAD id; persisting it would overwrite claude-client's clear
+                // and make the next turn retry the broken resume. Clear it instead so
+                // the next message starts fresh (DB-history rebuild).
+                if (resultData.is_error && isSessionStateResultError(resultData.errors)) {
+                  updateSdkSessionId(sessionId, '');
+                } else if (resultData.session_id) {
                   updateSdkSessionId(sessionId, resultData.session_id);
                 }
                 // Memory flush tracking: log high turn counts for assistant sessions.

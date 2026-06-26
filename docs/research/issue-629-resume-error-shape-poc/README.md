@@ -156,4 +156,12 @@ driver 把结局归为 `A_THROW_AT_PEEK` / `B_RESULT_ERROR` / `C_RESULT_SUCCESS`
 4. ✅ result event 透传 `errors`（仅 is_error 且非空）/ `stop_reason`。
 
 Guardrail：`src/__tests__/unit/issue-629-resume-session-clear.test.ts`（12 例：classifier 真实文案 → RESUME_FAILED + helper transient 不清回归守卫 + claude-client wiring source-pin）。全量 `npm run test` **3415/3415**、`tsc --noEmit` 0、`stream-result-error-guard`(#577) 仍绿。**仍待**：Codex 复审 + 真实 app resume-recovery smoke（坏 resume 后同会话下一条能正常发）；第一方对照未跑（throw 路径本就被 `claude-client.ts:1568` catch 覆盖，非阻塞）。
-</content>
+
+### 复审 follow-up（2026-06-26，Codex 真实 route smoke）— 端到端仍复发，补 route 持久化 P1/P2
+
+Codex 用临时 DB 做真实 route smoke：claude-client 清了 `sdk_session_id`，但 **result SSE 已带 `session_id` 先 enqueue**（`claude-client.ts:1931`），`/api/chat` 消费时 `route.ts:937` **无条件写回** `resultData.session_id` → 覆盖清理；第二轮同会话仍带 `00000000-…-629`，再报 `No conversation found`，"会话发不出去"仍在。两个 finding 已补：
+
+- **P1**（`route.ts` result 分支）：`if (resultData.is_error && isSessionStateResultError(resultData.errors)) updateSdkSessionId(sessionId, '')`，否则才写回 `resultData.session_id`。坏 id 不再被写回覆盖；transient is_error 的有效 session_id 仍正常写回。
+- **P2**（同处）：is_error result 时把 `resultData.errors?.join('\n') || resultData.subtype` 写入 `errorMessage`，让既有 empty-assistant guard（`route.ts:980`）落 `**Error:**` 气泡——否则失败首轮刷新后像"没回答"。
+
+Guardrail 追加 route.ts source-pin（P1 clear-not-writeback + P2 errorMessage）。全量 `npm run test` **3418/3418**、tsc 0、`codex-proxy-error-visibility` / `stream-result-error-guard` 仍绿。**教训**：清 `sdk_session_id` 的 DB writer 不止 claude-client 一处，route 的 SSE 消费是另一个 writer——「fix all consumers」必须含跨进程的持久化 writer，不能只看产生方（上轮只 sweep 了 claude-client 内部 retry path，漏了 route，premature-solved 第二次）。**待 Codex 复跑端到端 smoke 确认**：两轮坏 resume → 第二轮 fresh、不再 `No conversation found`。

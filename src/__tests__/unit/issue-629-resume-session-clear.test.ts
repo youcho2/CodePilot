@@ -106,3 +106,30 @@ describe('#629 — claude-client wiring (source pins)', () => {
     assert.match(src, /terminal_reason: terminalReason \} : \{\}\),[\s\S]{0,80}resultEmitted = true;/);
   });
 });
+
+describe('#629 — route.ts persistence wiring (source pins)', () => {
+  // The clear in claude-client is not enough: the result SSE was emitted with
+  // session_id, and /api/chat must NOT write that bad id back (P1). It must also
+  // surface the error so a failed is_error turn persists a visible bubble (P2).
+  const routeSrc = readFileSync(path.resolve(__dirname, '../../app/api/chat/route.ts'), 'utf8');
+
+  it('imports isSessionStateResultError', () => {
+    assert.match(routeSrc, /import \{ isSessionStateResultError \} from '@\/lib\/error-classifier'/);
+  });
+
+  it('P1 — clears (not writes back) the bad session_id for a stale-resume is_error result', () => {
+    assert.match(
+      routeSrc,
+      /if \(resultData\.is_error && isSessionStateResultError\(resultData\.errors\)\) \{[\s\S]{0,160}updateSdkSessionId\(sessionId, ''\);[\s\S]{0,160}\} else if \(resultData\.session_id\) \{[\s\S]{0,160}updateSdkSessionId\(sessionId, resultData\.session_id\)/,
+      'a session-state is_error result must clear sdk_session_id; only otherwise persist resultData.session_id',
+    );
+  });
+
+  it('P2 — populates errorMessage from result errors/subtype for the empty-assistant fallback', () => {
+    assert.match(
+      routeSrc,
+      /if \(resultData\.is_error\) \{[\s\S]{0,420}errorMessage =[\s\S]{0,200}resultData\.errors[\s\S]{0,80}resultData\.subtype/,
+      'an is_error result must populate errorMessage (errors.join or subtype) so the **Error:** bubble persists',
+    );
+  });
+});
