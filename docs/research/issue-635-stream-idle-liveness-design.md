@@ -2,7 +2,7 @@
 
 > 关联执行计划：[docs/exec-plans/active/v0.56.x-stability-trust.md](../exec-plans/active/v0.56.x-stability-trust.md) Phase 2 Session/Stream cluster（#635）
 > 看板：[docs/exec-plans/active/issue-tracker.md](../exec-plans/active/issue-tracker.md) `#635`
-> 状态：**调研完成 + 设计推荐（2026-06-26）；两个核心 claim 已 spot-check 确证；待 review 后实现（Tier 2 stream 核心，设计先行、不盲改）。**
+> 状态：**Codex review 通过方向（2026-06-26）；已修正 P2 事件定义 + P3 入口边界；进入实现。** 本期范围 = `stream-session-manager` 分级超时 + `claude-client` api_retry（防误杀核心，已有会话路径）；首条 `/chat` 一致 UI 文案 + 完整等待文案记 follow-up。Tier 2 stream 核心。
 > 三层（research 纪律）：A 外部事实（SDK 行为，file:line + 快照）/ B repo facts（file:line）/ C 设计提案。纯设计，无代码改动。
 
 ## 一句话结论
@@ -53,7 +53,10 @@
 
 **C — 分级 idle 预算（核心）：**
 
-- 在 idle checker 维护一个 `sawUpstreamModelOutput` 标志：收到**首个携带模型输出的事件**（`stream_event` 的 content delta / `assistant` message / `result`）时翻为 true。**注意：`system` init / `status` 不算**——它们在真正请求上游前就发，不证明上游在响应。
+- 在 idle checker 维护一个 `sawUpstreamModelOutput` 标志：收到**首个表示模型已开始输出的 SSE 事件**时翻为 true。**必须落到前端实际消费的 SSE 事件名（Codex P2 修正）**：
+  - **算"首字节"** = `text` / `thinking` / `tool_use`（模型开始吐内容 / 调工具）。
+  - **不算** = `status` / init（请求上游前就发，不证明上游在响应）；`tool_result` / `tool_output`（工具回传，非模型输出）；**`result`**（turn 终态——若拿 result 翻"首字节"，tool-call-only 首响 / terminal result 会让两级超时语义变歪，故排除）。
+  - 注意：前端**无直接 `assistant` SSE**——SDK 的 assistant message 在 claude-client 转成 `tool_use`（含 TodoWrite 的 `task_update`）、stream_event 转成 `text`/`thinking`。所以判定按 **SSE 事件名**落地，不是 SDK message type（设计稿早前的 `stream_event`/`assistant`/`result` 是 SDK 层措辞，已按此订正）。
 - 两级预算：
   - **首字节前**（`!sawUpstreamModelOutput`）：用更长、可配的预算 `PRE_FIRST_TOKEN_IDLE_MS`（建议默认 ~600s / 10min，env 可调）——慢第三方 proxy 合法排队数分钟才出首 token。
   - **首字节后**（流中静默）：维持较短 `POST_FIRST_TOKEN_IDLE_MS`（建议保留 330s 或更短，如 180s）——开了流又静默更可能真卡。
@@ -73,6 +76,21 @@ C 让 UI 说真话，而非把"慢但正常"和"已死"混成一句笼统 idle t
 - 流中停顿：**"流已停滞"**。
 - api_retry 期：**"上游重试中（第 N 次）"**。
 - 最终 abort（真超时）：原因码用 `network_error` / `provider_timeout`，对齐 Phase 2「stream 终态原因码」待办，不再是泛化 idle。
+
+### 聊天入口边界 + 本期范围（Codex P3 修正）
+
+#635 的 330s idle abort **只在 `stream-session-manager.ts:386`**——即**已有会话**（`/chat/[id]` ChatView）的流。**首条新聊天**（`/chat` page.tsx 约 `:886`）直接 `fetch` + 自读 SSE，**不走该 idle checker** → 首条本就不被 #635 误杀（也无此 idle 保护 / 兜底）。这是双聊天入口的既有结构（见 memory「Dual Chat Entry Points」）。
+
+**本期实现范围（防误杀核心）**：
+- `stream-session-manager.ts` 分级超时（首字节前长 / 首字节后短）。
+- `claude-client.ts` api_retry → `status` SSE（→ `markActive`，覆盖重试风暴期不误 abort）。
+→ 覆盖 #635 的实际误杀面（已有会话后续消息）。
+
+**本期不做 / 记 follow-up**：
+- 完整 UI 等待文案（"等待服务商响应" / "流已停滞" / "上游重试中"）是前端增强；本期先把核心 idle 逻辑修对、消除误杀，文案分阶段。
+- **首条 `/chat` 路径的一致等待文案 + 兜底超时**——首条不走 stream-session-manager，需单独改 page.tsx 的 SSE 读取；若验收要求首条也有一致等待 UI，再把它纳入同一 slice（待用户定）。
+
+> 下方「用户能看到什么」「验收」默认按**已有会话**路径理解；UI 文案条目属增强阶段，首条入口未纳入本期。
 
 ### 实现点（待 review 后做，Tier 2）
 
