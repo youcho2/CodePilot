@@ -306,6 +306,12 @@ const ERROR_PATTERNS: ErrorPattern[] = [
       'failed to resume',
       'resume_failed',
       'conversation not found',
+      // #629 (POC-B 2026-06-26) — third-party Anthropic proxies (GLM / MiMo /
+      // DeepSeek / Aliyun) return "No conversation found with session ID: <sid>"
+      // for a stale resume. 'conversation not found' has the wrong word order and
+      // the session-id regex below needs "not found" AFTER the id (here it's
+      // before), so neither matches. See docs/research/issue-629-resume-error-shape-poc/.
+      'no conversation found',
       /session\s+id\s+.*\s*(invalid|expired|not found|missing)/,
     ],
     userMessage: () => 'Failed to resume previous conversation.',
@@ -428,6 +434,27 @@ export function classifyError(ctx: ErrorContext): ClassifiedError {
     retryable: false,
     recoveryActions: buildRecoveryActions('UNKNOWN', ctx),
   };
+}
+
+/**
+ * #629 — decide whether an is_error RESULT's `errors[]` indicates a stale/bad
+ * resume (session-state) that SHOULD clear sdk_session_id, vs a transient error
+ * (rate-limit / auth / budget) that must NOT (clearing would force a fresh
+ * session and drop SDK-side context). Pure: feeds `errors.join('\n')` through
+ * classifyError; true only for RESUME_FAILED / SESSION_STATE_ERROR. Empty / null
+ * → false (no text signal; caller may fall back to a non-text heuristic).
+ *
+ * Verified shape (POC-B 2026-06-26, docs/research/issue-629-resume-error-shape-poc):
+ * GLM / MiMo / DeepSeek / Aliyun Anthropic proxies all return
+ * errors[0] = "No conversation found with session ID: <sid>".
+ */
+export function isSessionStateResultError(
+  errors: readonly string[] | null | undefined,
+  ctx?: Pick<ErrorContext, 'providerName' | 'baseUrl'>,
+): boolean {
+  if (!errors || errors.length === 0) return false;
+  const { category } = classifyError({ error: errors.join('\n'), ...ctx });
+  return category === 'RESUME_FAILED' || category === 'SESSION_STATE_ERROR';
 }
 
 function buildRecoveryActions(category: ClaudeErrorCategory, ctx: ErrorContext): RecoveryAction[] {

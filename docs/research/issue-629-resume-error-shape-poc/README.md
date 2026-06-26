@@ -2,12 +2,12 @@
 
 > 关联执行计划：[docs/exec-plans/active/v0.56.x-stability-trust.md](../../exec-plans/active/v0.56.x-stability-trust.md) Phase 2 Session/Stream cluster（#629）
 > 看板：[docs/exec-plans/active/issue-tracker.md](../../exec-plans/active/issue-tracker.md) `#629`（🟡 残留 gap）
-> 状态：**POC-A（源码层）已完成 + driver `--selftest` 5/5 绿（2026-06-26）；POC-B（真实凭据复现 400）待用户授权 provider 后跑。**
+> 状态：**POC-A（源码层）已完成 + driver `--selftest` 5/5 绿（2026-06-26）；POC-B（真实第三方 proxy）已跑 4 个 provider，结论一致：坏 resume 走 `B_RESULT_ERROR`，`errors[]` 含可判别 session 文本。**
 > 三层写法（遵守 research 文档纪律）：A 外部事实（SDK 类型，含 file:line + 快照）/ B repo facts（file:line）/ C 推断与设计。刻意放 `docs/research/`、不进 `src/`，不触产品测试文件清单。
 
 ## 一句话结论
 
-#629 的 gap 真实存在（坏 sdk_session_id 在 is_error **result** 路径不被清，留到下一轮重试坏 resume）。**修复的判别器不能用 `result.subtype`**——它只有 4 个通用枚举、无 session 语义；**唯一潜在判别源是 `SDKResultError.errors: string[]`，而 claude-client 当前从不读它**。但 `errors[]` 的**内容**类型层看不出，必须真实跑一次坏 resume 才能定：① 坏 resume 是 throw（已处理）还是 is_error result（gap）；② 若是后者，`errors[]` 里有没有可喂给 `classifyError` 的 session 文本。driver 已就绪并自检通过，只差凭据。
+#629 的 gap 真实存在（坏 sdk_session_id 在 is_error **result** 路径不被清，留到下一轮重试坏 resume）。**修复的判别器不能用 `result.subtype`**——它只有 4 个通用枚举、无 session 语义；**真实 POC-B 已确认唯一可用判别源是 `SDKResultError.errors: string[]`**。GLM / MiMo Token Plan / DeepSeek / Aliyun Bailian 四个第三方 Anthropic-compatible proxy 全部返回同一形态：第一条消息就是 `is_error result`，`errors[0] = "No conversation found with session ID: <bad sid>"`。因此修复应在 is_error result 分支读取 `errors[]`，把该文案归入 `RESUME_FAILED`/session-state 类后只清坏 session id；不能无脑清所有 is_error。
 
 ---
 
@@ -119,4 +119,41 @@ driver 把结局归为 `A_THROW_AT_PEEK` / `B_RESULT_ERROR` / `C_RESULT_SUCCESS`
 | 意外 success | `C_RESULT_SUCCESS` | false | provider 容忍坏 id，重选无效 id |
 
 > selftest 证明的是**探测/分类逻辑**正确（覆盖全部 4 种 live 结局），不是 #629 已修。真实结局取决于 POC-B 跑出来的 outcome + errors[] 内容。
+
+## POC-B live 结果（2026-06-26，真实第三方 proxy）
+
+运行方式：从本机 CodePilot DB 读取已有 provider key 注入 env，driver 只打印 key 尾部掩码；`BAD_SESSION_ID` 使用默认假 UUID `00000000-0000-4000-8000-000000000629`；`maxTurns:1` + `permissionMode:'plan'` + 临时 cwd。未改产品代码。
+
+| Date | base_url 形态 | Model | outcome | errors[] 摘要 | 能否判别 |
+|------|---------------|-------|---------|---------------|----------|
+| 2026-06-26 | GLM CN Anthropic proxy (`https://open.bigmodel.cn/api/anthropic`) | `glm-5-turbo` | `B_RESULT_ERROR` | `No conversation found with session ID: 00000000-0000-4000-8000-000000000629` | **可以**。语义明确是坏/不存在会话；当前 driver / `error-classifier.ts` 的近似 pattern 未命中，因为已有 `conversation not found` 顺序相反，需补 `no conversation found` 或 regex。 |
+| 2026-06-26 | Xiaomi MiMo Token Plan Anthropic proxy (`https://token-plan-cn.xiaomimimo.com/anthropic`) | `mimo-v2-pro` | `B_RESULT_ERROR` | 同上 | **可以**。同一 SDK error shape。 |
+| 2026-06-26 | DeepSeek Anthropic proxy (`https://api.deepseek.com/anthropic`) | `deepseek-v4-flash` | `B_RESULT_ERROR` | 同上 | **可以**。同一 SDK error shape。 |
+| 2026-06-26 | Aliyun Bailian Token Plan Anthropic proxy (`https://token-plan.cn-beijing.maas.aliyuncs.com/apps/anthropic`) | `glm-5` | `B_RESULT_ERROR` | 同上 | **可以**。同一 SDK error shape。 |
+
+关键观察：
+
+- 四个第三方 proxy 结论完全一致：坏 resume **不是 throw**，而是 **第一条消息即 `result`，`subtype='error_during_execution'`，`is_error=true`，`num_turns=0`，`errors.length=1`**。
+- `errors[]` 原文足以判别 session-state/resume 失败，但现有 pattern 还缺这个 exact wording。当前 `RESUME_FAILED` 有 `conversation not found` 和 `/session\s+id\s+.*\s*(invalid|expired|not found|missing)/`，都不匹配 `No conversation found with session ID: ...`。修复时应补 `no conversation found` 或更稳的 `/no conversation found.*session id/`。
+- 第一方 Anthropic 对照未跑：当前 shell env 与本机 CodePilot DB 未发现可用第一方 `ANTHROPIC_API_KEY`。这不阻塞 #629 第三方 proxy 修复，因为用户报告路径和四个实测 proxy 都已坐实最坏路径 `B_RESULT_ERROR`。
+
+修复落点建议（交 Claude Code 实施）：
+
+1. `claude-client.ts` 的 is_error result 分支读取 `resultMsg.errors ?? []`，并把 `errors.join('\n')` 传给 `classifyError`。
+2. `error-classifier.ts` 的 `RESUME_FAILED` patterns 补 `no conversation found` / `no conversation found.*session id`，确保上述真实文案命中。
+3. 分类为 `RESUME_FAILED` 或 `SESSION_STATE_ERROR` 时清 `sdk_session_id`；`RATE_LIMITED` / `AUTH_*` / `BUDGET` 等 transient 保留。
+4. result event 透传 `errors` 与 `stop_reason`，否则 UI / 日志仍只能看到泛化 `error_during_execution`，后续 #629/#635 诊断会继续失明。
+
+---
+
+## 修复已落地（2026-06-26，Claude Code 实施，全绿）
+
+按上述 4 条建议实施，逐条对账：
+
+1. ✅ `error-classifier.ts` `RESUME_FAILED` 补 `'no conversation found'`（baseline 实测：真实文案改前归 `UNKNOWN`、改后 `RESUME_FAILED`；现有 `'conversation not found'` 词序相反、session-id regex 要求 "not found" 在 id 后，均不命中）。
+2. ✅ 新增纯函数 `isSessionStateResultError(errors, ctx)`：`errors.join('\n')` 喂 `classifyError`，仅 `RESUME_FAILED`/`SESSION_STATE_ERROR` → true，空/null → false。
+3. ✅ `claude-client.ts` is_error result 分支读 `resultMsg.errors`（cast，`SDKResultSuccess` 无 `errors[]`），`sessionId && isSessionStateResultError(...)` 时 `updateSdkSessionId(sessionId,'')`；transient（限流/鉴权/预算）保留。**正交于 #577**：#577 的 `!resultEmitted` gate 在 post-result catch（管成功 result 后噪音），本修复在 is_error result 分支内（管 result 本身是坏 resume）。
+4. ✅ result event 透传 `errors`（仅 is_error 且非空）/ `stop_reason`。
+
+Guardrail：`src/__tests__/unit/issue-629-resume-session-clear.test.ts`（12 例：classifier 真实文案 → RESUME_FAILED + helper transient 不清回归守卫 + claude-client wiring source-pin）。全量 `npm run test` **3415/3415**、`tsc --noEmit` 0、`stream-result-error-guard`(#577) 仍绿。**仍待**：Codex 复审 + 真实 app resume-recovery smoke（坏 resume 后同会话下一条能正常发）；第一方对照未跑（throw 路径本就被 `claude-client.ts:1568` catch 覆盖，非阻塞）。
 </content>

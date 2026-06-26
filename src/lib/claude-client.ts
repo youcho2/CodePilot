@@ -28,7 +28,7 @@ import { isFirstPartyAnthropicEndpoint } from './ai-provider';
 import { sanitizeClaudeModelOptions } from './claude-model-options';
 import { findClaudeBinary, invalidateClaudePathCache } from './platform';
 import { notifyPermissionRequest, notifyGeneric } from './telegram-bot';
-import { classifyError, formatClassifiedError } from './error-classifier';
+import { classifyError, formatClassifiedError, isSessionStateResultError } from './error-classifier';
 import { resolveWorkingDirectory } from './working-directory';
 import { wrapController } from './safe-stream';
 import { type ShadowHome } from './claude-home-shadow';
@@ -1917,6 +1917,9 @@ export function streamClaudeSdk(options: ClaudeStreamOptions): ReadableStream<st
                 tokenUsage && contextAccountingSnapshot
                   ? { ...tokenUsage, context_accounting: contextAccountingSnapshot }
                   : tokenUsage;
+              // #629 — SDKResultError carries errors[]; SDKResultSuccess doesn't,
+              // so read it via cast (mirrors the terminal_reason access above).
+              const resultErrors = (resultMsg as SDKResultMessage & { errors?: string[] }).errors ?? [];
               controller.enqueue(formatSSE({
                 type: 'result',
                 data: JSON.stringify({
@@ -1926,12 +1929,31 @@ export function streamClaudeSdk(options: ClaudeStreamOptions): ReadableStream<st
                   duration_ms: resultMsg.duration_ms,
                   usage: usageWithAccounting,
                   session_id: resultMsg.session_id,
+                  // #629 — surface raw errors / stop_reason for diagnostics so the
+                  // UI and logs see more than the generic `error_during_execution`.
+                  ...(resultMsg.is_error && resultErrors.length ? { errors: resultErrors } : {}),
+                  ...(resultMsg.stop_reason ? { stop_reason: resultMsg.stop_reason } : {}),
                   ...(terminalReason ? { terminal_reason: terminalReason } : {}),
                 }),
               }));
               resultEmitted = true; // #577 — turn succeeded; suppress any post-result error
               // Notify on conversation-level errors (e.g. rate limit, auth failure)
               if (resultMsg.is_error) {
+                // #629 — a stale/bad resume returns as an is_error RESULT (not a
+                // throw): third-party Anthropic proxies send errors[0]="No
+                // conversation found with session ID: <sid>". The resume-peek catch
+                // (~1574) and the crash cleanup (~2350, gated on !resultEmitted)
+                // don't cover this — resultEmitted is already true here. Clear the
+                // bad sdk_session_id so the next message starts fresh, but ONLY for
+                // resume/session-state errors; transient rate-limit/auth/budget must
+                // keep it (clearing drops SDK-side context). Orthogonal to #577:
+                // that guard is in the post-result catch; this is the result itself.
+                if (sessionId && isSessionStateResultError(resultErrors, {
+                  providerName: resolved.provider?.name,
+                  baseUrl: resolved.provider?.base_url,
+                })) {
+                  try { updateSdkSessionId(sessionId, ''); } catch { /* best effort */ }
+                }
                 const errTitle = 'Conversation error';
                 const errMsg = resultMsg.subtype || 'The conversation ended with an error';
                 controller.enqueue(formatSSE({
