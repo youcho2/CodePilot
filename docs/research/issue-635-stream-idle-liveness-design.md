@@ -2,7 +2,7 @@
 
 > 关联执行计划：[docs/exec-plans/active/v0.56.x-stability-trust.md](../exec-plans/active/v0.56.x-stability-trust.md) Phase 2 Session/Stream cluster（#635）
 > 看板：[docs/exec-plans/active/issue-tracker.md](../exec-plans/active/issue-tracker.md) `#635`
-> 状态：**Codex review 通过方向（2026-06-26）；已修正 P2 事件定义 + P3 入口边界；进入实现。** 本期范围 = `stream-session-manager` 分级超时 + `claude-client` api_retry（防误杀核心，已有会话路径）；首条 `/chat` 一致 UI 文案 + 完整等待文案记 follow-up。Tier 2 stream 核心。
+> 状态：**核心实现落地（2026-06-26，全量 3423/3423）。** `stream-session-manager` 两级 idle 预算（首字节前 600s / 后 330s，按 `sawUpstreamModelOutput`；首字节 = `text`/`thinking`/`tool_use`）+ `claude-client` api_retry → status SSE（→ markActive）+ keep_alive 死分支标注；guardrail `issue-635-idle-tier.test.ts`（5 例，含 P2「恰好 3 处翻标志、result/status/tool_result 不翻」负向 pin）。**待**：真实慢 proxy smoke（首 token 前排队 6–9min 不被误 abort）；首条 `/chat` 一致 UI 文案 + 完整等待文案 = follow-up。Tier 2 stream 核心。
 > 三层（research 纪律）：A 外部事实（SDK 行为，file:line + 快照）/ B repo facts（file:line）/ C 设计提案。纯设计，无代码改动。
 
 ## 一句话结论

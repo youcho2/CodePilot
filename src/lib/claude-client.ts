@@ -1839,6 +1839,22 @@ export function streamClaudeSdk(options: ClaudeStreamOptions): ReadableStream<st
                   if (!autoTrigger) {
                     notifyGeneric(title, taskMsg.summary || '', telegramOpts).catch(() => {});
                   }
+                } else if ((sysMsg.subtype as string) === 'api_retry') {
+                  // #635 — api_retry (SDKAPIRetryMessage) is the one real upstream-
+                  // liveness signal during a slow turn: the SDK's own keep_alive is
+                  // filtered out before the app iterator (see issue-635 design), so
+                  // forward it as a status SSE → client onStatus → markActive resets
+                  // the idle timer. Don't abort a turn that's actively retrying
+                  // upstream. (UI copy "上游重试中" is a follow-up.)
+                  const retryMsg = message as { attempt?: number; max_retries?: number };
+                  controller.enqueue(formatSSE({
+                    type: 'status',
+                    data: JSON.stringify({
+                      apiRetry: true,
+                      attempt: retryMsg.attempt,
+                      maxRetries: retryMsg.max_retries,
+                    }),
+                  }));
                 }
               }
               break;
@@ -2000,6 +2016,11 @@ export function streamClaudeSdk(options: ClaudeStreamOptions): ReadableStream<st
             default: {
               const mType = (message as { type: string }).type;
               if (mType === 'keep_alive') {
+                // #635 — DEAD BRANCH: the SDK transport (Query.readMessages) does
+                // `continue` on keep_alive before the app iterator, so the public
+                // query() iterator never yields it. Kept for completeness; the real
+                // fix for slow-proxy idle is the two-tier budget in
+                // stream-session-manager + the api_retry status above.
                 controller.enqueue(formatSSE({ type: 'keep_alive', data: '' }));
               } else if (mType === 'rate_limit_event') {
                 // SDK 0.2.111+ — subscription rate limit telemetry. SDK

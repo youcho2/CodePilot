@@ -60,6 +60,10 @@ interface ActiveStream {
   toolOutputAccumulated: string;
   toolTimeoutInfo: { toolName: string; elapsedSeconds: number } | null;
   isIdleTimeout: boolean;
+  /** #635 — true once the first model-output SSE (text / thinking / tool_use)
+   *  arrived. Gates the two-tier idle budget; status/init, tool_result/
+   *  tool_output and the terminal result do NOT count as "first token". */
+  sawUpstreamModelOutput: boolean;
   sendMessageFn: ((content: string, files?: FileAttachment[]) => void) | null;
   rewindPoints: Array<{ userMessageId: string }>;
 }
@@ -110,7 +114,15 @@ export interface StartStreamParams {
 
 const GLOBAL_KEY = '__streamSessionManager__' as const;
 const LISTENERS_KEY = '__streamSessionListeners__' as const;
-const STREAM_IDLE_TIMEOUT_MS = 330_000;
+// #635 — two-tier idle budget. Before the first model-output SSE the upstream
+// may legitimately be queueing on a slow third-party proxy (the SDK is silent
+// during that wait — its keep_alive is filtered before the app iterator), so we
+// give a longer fuse; once the model has started emitting we tighten it (a stream
+// that opened then went silent is more likely truly stuck). NOT an unconditional
+// keepalive — a dead upstream still aborts after the PRE budget. See
+// docs/research/issue-635-stream-idle-liveness-design.md.
+const STREAM_IDLE_PRE_FIRST_TOKEN_MS = 600_000; // 10min — waiting for first model output
+const STREAM_IDLE_POST_FIRST_TOKEN_MS = 330_000; // 5.5min — mid-stream silence (unchanged)
 const GC_DELAY_MS = 5 * 60 * 1000; // 5 minutes
 // stopStream: how long to wait for a graceful interrupt before force-aborting.
 // The force-abort is scheduled UNCONDITIONALLY (not behind the interrupt
@@ -368,6 +380,7 @@ export function startStream(params: StartStreamParams): void {
     toolOutputAccumulated: '',
     toolTimeoutInfo: null,
     isIdleTimeout: false,
+    sawUpstreamModelOutput: false,
     sendMessageFn: params.sendMessageFn ?? null,
     rewindPoints: [],
   };
@@ -384,7 +397,12 @@ async function runStream(stream: ActiveStream, params: StartStreamParams): Promi
 
   // Idle timeout checker
   stream.idleCheckTimer = setInterval(() => {
-    if (Date.now() - stream.lastEventTime >= STREAM_IDLE_TIMEOUT_MS) {
+    // #635 — longer fuse before the first model-output event (a slow proxy may
+    // legitimately be queueing), shorter once the stream has started producing.
+    const idleBudget = stream.sawUpstreamModelOutput
+      ? STREAM_IDLE_POST_FIRST_TOKEN_MS
+      : STREAM_IDLE_PRE_FIRST_TOKEN_MS;
+    if (Date.now() - stream.lastEventTime >= idleBudget) {
       cleanupTimers(stream);
       stream.isIdleTimeout = true;
       stream.abortController.abort();
@@ -495,12 +513,14 @@ async function runStream(stream: ActiveStream, params: StartStreamParams): Promi
     const result = await consumeSSEStream(reader, {
       onText: (acc) => {
         markActive();
+        stream.sawUpstreamModelOutput = true; // #635 — first model-output tier
         stream.accumulatedText = acc;
         stream.thinkingPhaseEnded = true;
         throttledTextEmit();
       },
       onThinking: (delta) => {
         markActive();
+        stream.sawUpstreamModelOutput = true; // #635 — first model-output tier
         // If non-thinking content has arrived since last thinking delta,
         // this is a new thinking phase (e.g. after a tool_use round-trip).
         // Reset the live accumulator so the UI shows only the current phase.
@@ -517,6 +537,7 @@ async function runStream(stream: ActiveStream, params: StartStreamParams): Promi
       },
       onToolUse: (tool) => {
         markActive();
+        stream.sawUpstreamModelOutput = true; // #635 — first model-output tier (tool-call-only first response)
         flushTextThrottle(); // Ensure text is up-to-date before tool events
         stream.thinkingPhaseEnded = true;
         stream.toolOutputAccumulated = '';
@@ -799,7 +820,11 @@ async function runStream(stream: ActiveStream, params: StartStreamParams): Promi
     if (error instanceof DOMException && error.name === 'AbortError') {
       if (stream.isIdleTimeout) {
         // Idle timeout
-        const idleSecs = Math.round(STREAM_IDLE_TIMEOUT_MS / 1000);
+        const idleSecs = Math.round(
+          (stream.sawUpstreamModelOutput
+            ? STREAM_IDLE_POST_FIRST_TOKEN_MS
+            : STREAM_IDLE_PRE_FIRST_TOKEN_MS) / 1000,
+        );
         const textPart = stream.accumulatedText.trim()
           ? stream.accumulatedText.trim() + `\n\n**Error:** Stream idle timeout — no response for ${idleSecs}s. The connection may have dropped.`
           : `**Error:** Stream idle timeout — no response for ${idleSecs}s. The connection may have dropped.`;
@@ -1173,6 +1198,7 @@ export function seedSnapshotPatch(
     toolOutputAccumulated: '',
     toolTimeoutInfo: null,
     isIdleTimeout: false,
+    sawUpstreamModelOutput: false,
     sendMessageFn: null,
     rewindPoints: [],
     snapshot: {
