@@ -249,6 +249,17 @@ function handleSSEEvent(
           // whitelist without duplicating the toast import logic.
           maybeShowStatusToast(statusData);
           callbacks.onStatus(statusData.message || statusData.title || undefined);
+        } else if (statusData.apiRetry) {
+          // #635 — api_retry status has no display text of its own; show human
+          // copy (NOT the raw JSON) and still call onStatus so the idle timer is
+          // refreshed (markActive). `attempt` is the SDK's raw value. (Full i18n
+          // of the status bar — incl. the existing English "Connected" — is a
+          // separate follow-up.)
+          callbacks.onStatus(
+            typeof statusData.attempt === 'number'
+              ? `Retrying upstream (attempt ${statusData.attempt})…`
+              : 'Retrying upstream…',
+          );
         } else {
           callbacks.onStatus(typeof event.data === 'string' ? event.data : undefined);
         }

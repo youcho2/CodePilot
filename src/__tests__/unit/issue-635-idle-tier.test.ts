@@ -69,3 +69,23 @@ describe('#635 — api_retry liveness wiring + dead keep_alive (claude-client so
     assert.match(cc, /mType === 'keep_alive'[\s\S]{0,140}DEAD BRANCH/);
   });
 });
+
+describe('#635 — api_retry status shows human copy, not raw JSON (Codex P2 follow-up)', () => {
+  const sse = readFileSync(path.resolve(__dirname, '../../hooks/useSSEStream.ts'), 'utf8');
+  const page = readFileSync(path.resolve(__dirname, '../../app/chat/page.tsx'), 'utf8');
+
+  it('useSSEStream has a dedicated apiRetry branch BEFORE the raw-data fallback', () => {
+    assert.match(sse, /statusData\.apiRetry[\s\S]{0,600}Retrying upstream/);
+    // must precede the `else { onStatus(event.data) }` raw fallback or JSON leaks
+    const retryIdx = sse.indexOf('statusData.apiRetry');
+    const rawIdx = sse.indexOf('onStatus(typeof event.data');
+    assert.ok(retryIdx > 0 && retryIdx < rawIdx, 'apiRetry branch must precede the raw-data fallback');
+  });
+
+  it('first-message page.tsx has the same apiRetry branch BEFORE its raw fallback', () => {
+    assert.match(page, /statusData\.apiRetry[\s\S]{0,600}Retrying upstream/);
+    const retryIdx = page.indexOf('statusData.apiRetry');
+    const rawIdx = page.indexOf('setStatusText(event.data');
+    assert.ok(retryIdx > 0 && retryIdx < rawIdx, 'apiRetry branch must precede the raw-data fallback');
+  });
+});

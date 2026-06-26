@@ -1034,6 +1034,14 @@ function NewChatPageInner() {
                       // (useSSEStream via stream-session-manager).
                       maybeShowStatusToast(statusData);
                       setStatusText(statusData.message || statusData.title || undefined);
+                    } else if (statusData.apiRetry) {
+                      // #635 — show human copy, not raw JSON. The first-message
+                      // path doesn't run the idle checker, so this is display-only.
+                      setStatusText(
+                        typeof statusData.attempt === 'number'
+                          ? `Retrying upstream (attempt ${statusData.attempt})…`
+                          : 'Retrying upstream…',
+                      );
                     } else {
                       setStatusText(event.data || undefined);
                     }
