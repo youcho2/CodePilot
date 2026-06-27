@@ -1236,6 +1236,13 @@ export interface FileAttachment {
   size: number;
   data: string; // base64 encoded content
   filePath?: string; // persisted disk path (for messages reloaded from DB)
+  /** #628 — real in-tree source path for an @-mention of a project file
+   *  (cwd-relative). When set AND server-validated inside cwd, the chat route
+   *  references the real file instead of writing a `.codepilot-uploads` copy, so
+   *  the AI's Read/Edit lands on the user's actual file. Absent for true uploads
+   *  (no in-tree path) — those still get copied. Never trusted server-side: it is
+   *  re-resolved + containment-checked against the working dir. */
+  originPath?: string;
 }
 
 // Check if a MIME type is an image

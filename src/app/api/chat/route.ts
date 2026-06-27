@@ -1,6 +1,7 @@
 import { NextRequest } from 'next/server';
 import { streamClaude } from '@/lib/claude-client';
 import { isSessionStateResultError } from '@/lib/error-classifier';
+import { resolveInTreeAttachmentPath } from '@/lib/in-tree-attachment';
 import { addMessage, getMessages, getSession, getSessionSummary, updateSessionTitle, updateSdkSessionId, updateSessionModel, updateSessionProvider, updateSessionProviderId, updateSessionRuntime, getSetting, acquireSessionLock, renewSessionLock, releaseSessionLock, setSessionRuntimeStatus, syncSdkTasks } from '@/lib/db';
 import { resolveProviderForSession } from '@/lib/provider-resolver';
 import { resolveRuntimeForSession } from '@/lib/chat-runtime';
@@ -317,6 +318,15 @@ export async function POST(request: NextRequest) {
           // the Folder icon and skip URL fetching.
           if (f.type === 'inode/directory') {
             return { id: f.id, name: f.name, type: f.type, size: 0, filePath: f.filePath || '' };
+          }
+          // #628 — @-mention of an in-tree project file: preserve the REAL path so
+          // the AI's Read/Edit lands on the user's actual file, not a copy. Never
+          // trust the client path — resolveInTreeAttachmentPath re-resolves it
+          // against workDir and requires containment inside cwd; out-of-cwd /
+          // missing → null → fall through to the copy below (non-destructive).
+          const inTreeReal = resolveInTreeAttachmentPath(f.originPath, workDir);
+          if (inTreeReal) {
+            return { id: f.id, name: f.name, type: f.type, size: f.size, filePath: inTreeReal };
           }
           const safeName = path.basename(f.name).replace(/[^a-zA-Z0-9._-]/g, '_');
           const filePath = path.join(uploadDir, `${Date.now()}-${safeName}`);

@@ -174,6 +174,7 @@ async function fileResponseToAttachment(
   response: Response,
   filename: string,
   idPrefix: string,
+  originPath?: string,
 ): Promise<FileAttachment> {
   const mimeType = response.headers.get('content-type') || 'application/octet-stream';
   const buffer = await response.arrayBuffer();
@@ -183,6 +184,9 @@ async function fileResponseToAttachment(
     type: mimeType,
     size: buffer.byteLength,
     data: arrayBufferToBase64(buffer),
+    // #628 — preserve the real in-tree path for @-mentions so the chat route can
+    // reference the user's actual file instead of a `.codepilot-uploads` copy.
+    ...(originPath ? { originPath } : {}),
   };
 }
 
@@ -466,7 +470,7 @@ export function MessageInput({
         if (Number.isFinite(headerSize) && headerSize > MAX_MENTION_FILE_BYTES) {
           return { attachment: null, limitNote: `@${safePath}: omitted (file too large > 256KB).` };
         }
-        const attachment = await fileResponseToAttachment(res, filename, 'mention');
+        const attachment = await fileResponseToAttachment(res, filename, 'mention', safePath);
         if (attachment.size > MAX_MENTION_FILE_BYTES) {
           return { attachment: null, limitNote: `@${safePath}: omitted (file too large > 256KB).` };
         }
@@ -481,7 +485,7 @@ export function MessageInput({
       if (Number.isFinite(headerSize) && headerSize > MAX_MENTION_FILE_BYTES) {
         return { attachment: null, limitNote: `@${safePath}: omitted (file too large > 256KB).` };
       }
-      const attachment = await fileResponseToAttachment(res, filename, 'mention');
+      const attachment = await fileResponseToAttachment(res, filename, 'mention', safePath);
       if (attachment.size > MAX_MENTION_FILE_BYTES) {
         return { attachment: null, limitNote: `@${safePath}: omitted (file too large > 256KB).` };
       }
