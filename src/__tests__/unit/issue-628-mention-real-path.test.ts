@@ -7,9 +7,12 @@
  * Fix: FileAttachment.originPath (set on mentions at MessageInput) → route
  * resolves it inside cwd and references the real path instead of copying.
  *
- * Security is the crux: the client path is NEVER trusted — it's re-resolved
- * against workDir and containment-checked, so a crafted attachment can't hand
- * the AI a write path outside the project. These run against a real temp dir.
+ * Security is the crux — the client path is NEVER trusted. Codex P1: a
+ * string-level containment check is not enough, because an in-tree SYMLINK can
+ * point outside the project (`linked-secret.txt -> ../outside`) and a
+ * follow-the-link write escapes. The resolver now reuses the project's
+ * `assertRealPathInBase(..., rejectIfSymlink: true)` write-path contract. These
+ * run against a real temp dir, including the symlink-escape repro.
  */
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
@@ -19,53 +22,55 @@ import path from 'node:path';
 import { readFileSync } from 'node:fs';
 import { resolveInTreeAttachmentPath } from '../../lib/in-tree-attachment';
 
-describe('#628 — resolveInTreeAttachmentPath (cwd containment)', () => {
+describe('#628 — resolveInTreeAttachmentPath (cwd + symlink containment)', () => {
   let workDir: string;
+  let outsideFile: string;
   before(() => {
     workDir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'issue-628-')));
     fs.writeFileSync(path.join(workDir, 'real.ts'), 'export const x = 1;');
     fs.mkdirSync(path.join(workDir, 'sub'));
     fs.writeFileSync(path.join(workDir, 'sub', 'nested.md'), '# hi');
+    // a secret OUTSIDE the project + an in-tree symlink pointing at it (Codex P1 repro)
+    outsideFile = path.join(os.tmpdir(), `issue-628-outside-${process.pid}.txt`);
+    fs.writeFileSync(outsideFile, 'SECRET');
+    fs.symlinkSync(outsideFile, path.join(workDir, 'linked-secret.txt'));
+    // an in-tree symlink pointing at an in-tree file (still rejected under rejectIfSymlink)
+    fs.symlinkSync(path.join(workDir, 'real.ts'), path.join(workDir, 'linked-inside.ts'));
   });
   after(() => {
     try { fs.rmSync(workDir, { recursive: true, force: true }); } catch { /* best effort */ }
+    try { fs.rmSync(outsideFile, { force: true }); } catch { /* best effort */ }
   });
 
-  it('returns the real absolute path for an in-cwd file', () => {
-    assert.equal(resolveInTreeAttachmentPath('real.ts', workDir), path.join(workDir, 'real.ts'));
+  it('returns the real absolute path for an in-cwd file', async () => {
+    assert.equal(await resolveInTreeAttachmentPath('real.ts', workDir), path.join(workDir, 'real.ts'));
   });
-  it('resolves a nested in-cwd file', () => {
-    assert.equal(resolveInTreeAttachmentPath('sub/nested.md', workDir), path.join(workDir, 'sub', 'nested.md'));
+  it('resolves a nested in-cwd file', async () => {
+    assert.equal(await resolveInTreeAttachmentPath('sub/nested.md', workDir), path.join(workDir, 'sub', 'nested.md'));
   });
-  it('rejects a ../ escape (returns null → caller copies)', () => {
-    assert.equal(resolveInTreeAttachmentPath('../outside.ts', workDir), null);
+  it('rejects a ../ escape (returns null → caller copies)', async () => {
+    assert.equal(await resolveInTreeAttachmentPath('../outside.ts', workDir), null);
   });
-  it('rejects an absolute path outside cwd', () => {
-    assert.equal(resolveInTreeAttachmentPath('/etc/passwd', workDir), null);
+  it('rejects an absolute path outside cwd', async () => {
+    assert.equal(await resolveInTreeAttachmentPath('/etc/passwd', workDir), null);
   });
-  it('rejects a non-existent in-cwd path', () => {
-    assert.equal(resolveInTreeAttachmentPath('nope.ts', workDir), null);
+  it('rejects a non-existent in-cwd path', async () => {
+    assert.equal(await resolveInTreeAttachmentPath('nope.ts', workDir), null);
   });
-  it('rejects a directory (only regular files preserved)', () => {
-    assert.equal(resolveInTreeAttachmentPath('sub', workDir), null);
+  it('rejects a directory (only regular files preserved)', async () => {
+    assert.equal(await resolveInTreeAttachmentPath('sub', workDir), null);
   });
-  it('rejects absent originPath / workDir', () => {
-    assert.equal(resolveInTreeAttachmentPath(undefined, workDir), null);
-    assert.equal(resolveInTreeAttachmentPath('', workDir), null);
-    assert.equal(resolveInTreeAttachmentPath('real.ts', undefined), null);
+  it('rejects absent originPath / workDir', async () => {
+    assert.equal(await resolveInTreeAttachmentPath(undefined, workDir), null);
+    assert.equal(await resolveInTreeAttachmentPath('', workDir), null);
+    assert.equal(await resolveInTreeAttachmentPath('real.ts', undefined), null);
   });
-  it('rejects a prefix-sibling escape (`${workDir}-evil`, guarded by + path.sep)', () => {
-    const sibling = workDir + '-evil';
-    fs.mkdirSync(sibling, { recursive: true });
-    fs.writeFileSync(path.join(sibling, 'x.ts'), 'x');
-    try {
-      assert.equal(
-        resolveInTreeAttachmentPath('../' + path.basename(sibling) + '/x.ts', workDir),
-        null,
-      );
-    } finally {
-      fs.rmSync(sibling, { recursive: true, force: true });
-    }
+  it('[P1] rejects an in-tree SYMLINK that escapes cwd (Codex finding repro)', async () => {
+    // path looks in-tree but the real target is outside — must NOT reach the AI
+    assert.equal(await resolveInTreeAttachmentPath('linked-secret.txt', workDir), null);
+  });
+  it('[P1] rejects an in-tree symlink even when it points inside (rejectIfSymlink)', async () => {
+    assert.equal(await resolveInTreeAttachmentPath('linked-inside.ts', workDir), null);
   });
 });
 
@@ -73,6 +78,7 @@ describe('#628 — wiring source pins', () => {
   const types = readFileSync(path.resolve(__dirname, '../../types/index.ts'), 'utf8');
   const mi = readFileSync(path.resolve(__dirname, '../../components/chat/MessageInput.tsx'), 'utf8');
   const route = readFileSync(path.resolve(__dirname, '../../app/api/chat/route.ts'), 'utf8');
+  const lib = readFileSync(path.resolve(__dirname, '../../lib/in-tree-attachment.ts'), 'utf8');
 
   it('FileAttachment declares originPath', () => {
     assert.match(types, /originPath\?: string;/);
@@ -84,5 +90,8 @@ describe('#628 — wiring source pins', () => {
     const real = route.indexOf('resolveInTreeAttachmentPath(f.originPath');
     const copy = route.indexOf('path.join(uploadDir,');
     assert.ok(real > 0 && real < copy, 'in-tree resolution must precede the copy write');
+  });
+  it('[P1] reuses assertRealPathInBase with rejectIfSymlink (not a bespoke check)', () => {
+    assert.match(lib, /assertRealPathInBase\([\s\S]{0,160}rejectIfSymlink: true/);
   });
 });

@@ -309,7 +309,7 @@ export async function POST(request: NextRequest) {
         if (!fs.existsSync(uploadDir)) {
           fs.mkdirSync(uploadDir, { recursive: true });
         }
-        fileMeta = files.map((f) => {
+        fileMeta = await Promise.all(files.map(async (f) => {
           // Directory references travel through the same files[] pipeline
           // (so they render as chips in the message bubble), but they
           // don't have file content — skip the disk write and just
@@ -321,10 +321,11 @@ export async function POST(request: NextRequest) {
           }
           // #628 — @-mention of an in-tree project file: preserve the REAL path so
           // the AI's Read/Edit lands on the user's actual file, not a copy. Never
-          // trust the client path — resolveInTreeAttachmentPath re-resolves it
-          // against workDir and requires containment inside cwd; out-of-cwd /
-          // missing → null → fall through to the copy below (non-destructive).
-          const inTreeReal = resolveInTreeAttachmentPath(f.originPath, workDir);
+          // trust the client path — resolveInTreeAttachmentPath realpath-resolves
+          // it (rejecting symlinks that escape cwd, Codex P1) and requires
+          // containment; out-of-cwd / symlink / missing → null → fall through to
+          // the copy below (non-destructive).
+          const inTreeReal = await resolveInTreeAttachmentPath(f.originPath, workDir);
           if (inTreeReal) {
             return { id: f.id, name: f.name, type: f.type, size: f.size, filePath: inTreeReal };
           }
@@ -333,7 +334,7 @@ export async function POST(request: NextRequest) {
           const buffer = Buffer.from(f.data, 'base64');
           fs.writeFileSync(filePath, buffer);
           return { id: f.id, name: f.name, type: f.type, size: buffer.length, filePath };
-        });
+        }));
         savedContent = `<!--files:${JSON.stringify(fileMeta)}-->${displayOverride || content}`;
       }
       addMessage(session_id, 'user', savedContent);
