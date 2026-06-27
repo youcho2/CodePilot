@@ -11,8 +11,11 @@
  * string-level containment check is not enough, because an in-tree SYMLINK can
  * point outside the project (`linked-secret.txt -> ../outside`) and a
  * follow-the-link write escapes. The resolver now reuses the project's
- * `assertRealPathInBase(..., rejectIfSymlink: true)` write-path contract. These
- * run against a real temp dir, including the symlink-escape repro.
+ * `assertRealPathInBase(..., rejectIfSymlink: true)` write-path contract.
+ *
+ * Codex P3: symlinks are planted INSIDE each test via a helper that skips on
+ * EPERM (not in before()), mirroring html-preview-route.test.ts, so a restricted
+ * FS (Windows without Developer Mode) doesn't blow up the whole suite setup.
  */
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
@@ -22,6 +25,21 @@ import path from 'node:path';
 import { readFileSync } from 'node:fs';
 import { resolveInTreeAttachmentPath } from '../../lib/in-tree-attachment';
 
+/**
+ * Plant a symlink, returning true on success. On a restricted FS (Windows
+ * without Developer Mode / Admin) symlink creation throws EPERM — return false
+ * so the caller can skip the assertion instead of failing the suite.
+ */
+function trySymlink(target: string, linkPath: string): boolean {
+  try {
+    fs.symlinkSync(target, linkPath);
+    return true;
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'EPERM') return false;
+    throw err;
+  }
+}
+
 describe('#628 — resolveInTreeAttachmentPath (cwd + symlink containment)', () => {
   let workDir: string;
   let outsideFile: string;
@@ -30,12 +48,9 @@ describe('#628 — resolveInTreeAttachmentPath (cwd + symlink containment)', () 
     fs.writeFileSync(path.join(workDir, 'real.ts'), 'export const x = 1;');
     fs.mkdirSync(path.join(workDir, 'sub'));
     fs.writeFileSync(path.join(workDir, 'sub', 'nested.md'), '# hi');
-    // a secret OUTSIDE the project + an in-tree symlink pointing at it (Codex P1 repro)
+    // a secret OUTSIDE the project (symlink targets are planted per-test)
     outsideFile = path.join(os.tmpdir(), `issue-628-outside-${process.pid}.txt`);
     fs.writeFileSync(outsideFile, 'SECRET');
-    fs.symlinkSync(outsideFile, path.join(workDir, 'linked-secret.txt'));
-    // an in-tree symlink pointing at an in-tree file (still rejected under rejectIfSymlink)
-    fs.symlinkSync(path.join(workDir, 'real.ts'), path.join(workDir, 'linked-inside.ts'));
   });
   after(() => {
     try { fs.rmSync(workDir, { recursive: true, force: true }); } catch { /* best effort */ }
@@ -67,9 +82,11 @@ describe('#628 — resolveInTreeAttachmentPath (cwd + symlink containment)', () 
   });
   it('[P1] rejects an in-tree SYMLINK that escapes cwd (Codex finding repro)', async () => {
     // path looks in-tree but the real target is outside — must NOT reach the AI
+    if (!trySymlink(outsideFile, path.join(workDir, 'linked-secret.txt'))) return; // FS w/o symlink support
     assert.equal(await resolveInTreeAttachmentPath('linked-secret.txt', workDir), null);
   });
   it('[P1] rejects an in-tree symlink even when it points inside (rejectIfSymlink)', async () => {
+    if (!trySymlink(path.join(workDir, 'real.ts'), path.join(workDir, 'linked-inside.ts'))) return;
     assert.equal(await resolveInTreeAttachmentPath('linked-inside.ts', workDir), null);
   });
 });
