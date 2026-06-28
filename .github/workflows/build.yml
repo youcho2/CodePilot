@@ -209,7 +209,11 @@ jobs:
   build-windows:
     needs: verify-source
     if: ${{ github.event_name == 'push' || inputs.platform == 'all' || inputs.platform == 'windows' }}
-    runs-on: windows-latest
+    # Pinned to windows-2022 (VS 2022 / MSVC v17). `windows-latest` rolled to a
+    # VS 18 image whose toolchain the bundled node-gyp can't detect ("unknown
+    # version undefined"), breaking native builds (zlib-sync / better-sqlite3)
+    # at `npm ci`. See v0.56.1 release failure.
+    runs-on: windows-2022
     steps:
       - uses: actions/checkout@v4
 
