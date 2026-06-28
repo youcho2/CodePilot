@@ -1,4 +1,4 @@
-## CodePilot v0.56.1
+## CodePilot v0.56.2
 
 > 稳定性与可信度修复版本：专注修复对话中断、会话恢复、@文件编辑、上下文用量显示、Codex 图文输入等一批"可信主路径"问题。不新增功能，推荐所有用户升级。
 
@@ -26,11 +26,11 @@
 ## 下载地址
 
 ### macOS
-- [Apple Silicon (M1/M2/M3/M4)](https://github.com/op7418/CodePilot/releases/download/v0.56.1/CodePilot-0.56.1-arm64.dmg)
-- [Intel](https://github.com/op7418/CodePilot/releases/download/v0.56.1/CodePilot-0.56.1-x64.dmg)
+- [Apple Silicon (M1/M2/M3/M4)](https://github.com/op7418/CodePilot/releases/download/v0.56.2/CodePilot-0.56.2-arm64.dmg)
+- [Intel](https://github.com/op7418/CodePilot/releases/download/v0.56.2/CodePilot-0.56.2-x64.dmg)
 
 ### Windows
-- [Windows 安装包](https://github.com/op7418/CodePilot/releases/download/v0.56.1/CodePilot.Setup.0.56.1.exe)
+- [Windows 安装包](https://github.com/op7418/CodePilot/releases/download/v0.56.2/CodePilot.Setup.0.56.2.exe)
 
 ## 安装说明
 
