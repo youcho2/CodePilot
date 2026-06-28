@@ -184,7 +184,7 @@ Phase 5 收口前的最后 10 个 commit，按用户能感知的类别分桶：
 > - `CLAUDE.md` 瘦身：发版节 55 行 → 摘要 + 纪律 + 链接；新增「汇报与完成状态」节；文档索引补 rules/ + guardrails/ 入口。
 > - `AGENTS.md` 重写：删与 CLAUDE.md 重复的开发规则/语义验收/功能文档/发版大段 → 改为「共享规则入口」链接；保留 Codex 边界 + review 规则；**修正错误**——原写「pre-commit 自动执行前三项（含 smoke/e2e）」，实际只跑 lint/tsc/unit。
 > - 消除三处冲突的最后一处：`exec-plans/README.md`「UI 改动必须 CDP 验证」→「必须实际验证，CDP 仅深度诊断备用」（顶层 CLAUDE.md / AGENTS.md 早已是「默认不强制 CDP」）。
-> - **path-scoped rules 决策**：claude-code-guide 查证 `.claude/rules/`（含 YAML `paths` 前缀）官方支持按需加载，但它是 Claude Code 专属、Codex 读不到；为双 agent 单一来源，规则放 `docs/rules/`（两边按需读），不引入 `.claude/rules/`、不引入 Ruler（兑现 Ruler-compatible first）。
+> - **path-scoped rules 决策**：claude-code-guide 查证 `.claude/rules/`（含 YAML `paths` 前缀）官方支持按需加载。但 (1) `.claude/` 被 `.gitignore` 整目录忽略（line 70）→ 放那里不进版本库、Codex / CI 读不到；(2) 即便放行，自动按需加载只 Claude 受益，Codex 仍按链接手动读；(3) 当前两个是流程规则、按需收益小。故规则放 `docs/rules/`（两 agent 单一来源），不引入 `.claude/rules/` / Ruler（兑现 Ruler-compatible first）。用户 2026-06-28 复议确认后维持此决策；`.claude/rules/` 的 path-scoped 留给未来绑定代码路径的模块规则（Step 4 guardrail 类）再引入。
 > - 测试 Tier 0/1/2 权威定义留 `CLAUDE.md`「自检命令」，AGENTS.md / README 指向它，三处口径统一。
 > - 未做（按计划保留）：Step 4 的 8 份 guardrail 内容填充（on-touch）、Step 6 测试矩阵（待定）。
 
@@ -204,7 +204,7 @@ Phase 5 收口前的最后 10 个 commit，按用户能感知的类别分桶：
 
 > 实现路径（用户不需审核）：`npm run lint:docs-drift`（`scripts/lint-docs-drift.mjs`）+ lint-staged path glob 只在改 `docs/exec-plans/**` 时触发；脚本校验 README 索引链接是否存在、active/completed/deferred/superseded 文件是否被索引、completed 不含 `../active/` 内链、归档桶内部相对链接完整性、索引表 3 列结构、active/ 不带 superseded/deferred 顶部 banner。**实际覆盖比原计划更广**（多了表格结构 + banner + 全桶内链）。
 >
-> ⚠️ 已知盲区（2026-06-28 对账记录）：docs-drift 只比对「README 索引 ↔ 实际文件」，**读不懂「计划正文里声明的 Step / Phase 状态 vs 代码真实状态」的语义差**。本计划自己就是反例——Step 2/3 的脚本早已 commit、Step 4/5 已部分落地，文件却长期写成「待做讨论稿」，而 lint:docs-drift 全程放行（README 链接、文件位置都合法）。补这类「语义状态漂移」需要新机制（例如让计划顶部状态行可机读 + 对照产物清单），不在现有脚本能力内；是否投入由后续决定，先记录为缺口。
+> ⚠️ 已知盲区（2026-06-28 对账记录，同日 Step 0 实施后再次实证）：docs-drift 只校验「README 索引 ↔ 实际文件」是否存在 / 链接合法，**读不懂状态语义是否一致**——既读不懂「计划正文声明的 Step / Phase 状态 vs 代码真实状态」，也读不懂「README 索引的状态列 ↔ 计划正文的状态行」。两次实证：(1) 对账前 Step 2/3 脚本早已 commit、Step 4/5 已部分落地，正文却长期写「待做讨论稿」；(2) Step 0/5 实施后只更新了正文状态行、漏同步 README 索引状态列，由用户 review 发现。两次 lint:docs-drift 都全程放行（链接、文件位置都合法）。补这类「语义状态漂移」需要新机制（例如让计划顶部状态行可机读 + 对照 README 状态列 / 产物清单），不在现有脚本能力内；是否投入由后续决定，先记录为缺口。
 
 ### Step 3 — pre-commit 配置自检 ✅ 已完成
 
@@ -260,6 +260,8 @@ Phase 5 收口前的最后 10 个 commit，按用户能感知的类别分桶：
 - 2026-06-28（用户 + Codex）：发版前复盘发现新的瓶颈不是单个测试或单个计划，而是顶层规则体系本身过重：`CLAUDE.md` / `AGENTS.md` / `exec-plans/README.md` 对测试、CDP、文档回写、交付说明存在重复与冲突，导致 Agent 倾向过度测试、过度汇报、把用户变成 Claude↔Codex 消息总线。Codex 调研 Ruler / Claude Code memory / Claude Code best practices / Codex AGENTS.md / hooks 后，新增 Step 0「规则体系瘦身」：顶层规则最小化、按路径/任务加载规则、stub guardrail 降级、测试 Tier 0/1/2 统一、完成状态词典、简化用户汇报协议。发版不纳入本 Step，由 Claude Code 另行处理。
 - 2026-06-28（ClaudeCode 对账，应用户要求）：审查本计划时发现它本身严重 docs drift——Step 2/3 的脚本（`lint-docs-drift.mjs` / `lint-hooks.mjs`）早已实现并在 pre-commit 运行、Step 4（8 类 guardrails stub + 索引）与 Step 5（README Smoke Ledger 模板段）已部分落地，但顶部状态与各 Step 仍写成"待做讨论稿"。本次对账：Step 1/2/3 标 ✅、Step 4/5 标 🔄 部分完成、删除会过期的 tech-debt 固定计数（"17 活跃"实际已 38+）、修正 guardrails「只有 4 份 / 8 类还没建」的过时描述（实为 4 完整 + 8 骨架已建）、并在 Step 2 记录 docs-drift 查不到「计划语义状态漂移」的盲区（即本计划骗过了它自己实现的检查）。**未实现 Step 0**——用户明确要求先让计划重新可信、暂不动规则瘦身。同步更新 README active 表该行状态。根因复核：Step 2/3/4/5 是"实现了没回写计划"（违反 CLAUDE.md「完成即回写进度」），与本计划要解决的同类问题同源。
 - 2026-06-28（ClaudeCode 执行 Step 0 + Step 5，应用户"一次性搞完、交 Codex 审"）：**Step 0 规则瘦身**——新建 `docs/rules/`（reporting / release）；`CLAUDE.md` 发版节瘦身 + 新增「汇报与完成状态」节 + 文档索引补 rules/guardrails；`AGENTS.md` 重写为「Codex 边界 + 共享规则入口」并修正「pre-commit 自动跑 smoke/e2e」错误描述；`exec-plans/README.md` 消除「UI 必须 CDP」冲突（三处冲突全清）。**Step 5**——`lint-docs-drift.mjs` 加 Smoke Ledger 强制校验（grandfather 豁免落地前 8 个 active 计划 + 自检）。**path-scoped rules 决策**：Claude Code 官方支持 `.claude/rules/` 按需加载，但 Codex 读不到，为双 agent 单一来源改放 `docs/rules/` + 顶层链接，不引入 `.claude/rules/` / Ruler（兑现 Ruler-compatible first）。**未做**：Step 4 guardrail 内容填充（on-touch）、Step 6 测试矩阵（待定）。验证：`npm run lint:docs-drift` ok（含新校验自检）+ 提交门禁（lint-hooks + lint-staged docs-drift + tsc + 单测）通过。待用户交 Codex 审。
+- 2026-06-28（ClaudeCode 返工，用户 review 发现）：Step 0/5 实施时只更新了本文顶部状态行（Step 0 ✅ / Step 5 ✅），漏同步 `exec-plans/README.md` 索引该行状态（还停在「Step 4/5 部分、Step 0 待定」），构成「索引 ↔ 正文状态漂移」——正是本计划要消灭、且 Step 2 盲区记录的同类问题（docs-drift 查不到）。已补 README 状态列同步；并把 README line 52「验证：测试 / CDP 路径」改为「测试 / smoke / 浏览器或 CDP 路径（如有）」，消除残留的默认 CDP 暗示（line 44 上轮已改）。Step 2 盲区描述同步扩充，把「README 状态列 ↔ 正文状态行」也明确纳入，并记为该盲区的第二次实证。
+- 2026-06-28（用户复议规则存放位置）：用户提出改用官方 `.claude/rules/` 按需加载机制。核查发现 `.claude/` 被 `.gitignore` 整目录忽略（line 70）→ 放那里不进版本库、Codex / CI 读不到；且自动按需加载只 Claude 受益、当前流程规则（reporting / release）按需收益小。用户知情后确认维持 `docs/rules/`；`.claude/rules/` 留给未来绑定代码路径的模块规则（Step 4 guardrail 类）再引入。
 
 ## 给 Codex 的回复要点（如果 Codex 看到这版后需要回应）
 
