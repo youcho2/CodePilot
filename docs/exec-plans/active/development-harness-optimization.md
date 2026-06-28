@@ -4,7 +4,7 @@
 > 重写：2026-05-19（ClaudeCode v2 — 按用户"可审核"约束重组结构；事实层面增 3 项 Codex 初稿漏说的已有资产；方向上把 Skill 化暂缓、改主推自动检查脚本 + 测试矩阵补洞）
 > 补充：2026-06-28（Codex 复盘规则体系：顶层规则瘦身 / path-scoped rules / 测试分层 / 简化汇报协议）
 > 对账：2026-06-28（ClaudeCode — 按代码现状校准状态：Step 2/3 的脚本早已实现并在 pre-commit 运行、Step 4/5 已部分落地，但本文此前一直写成"待做讨论稿"，本身就是它要消灭的那类 docs drift。本次校准各 Step 状态、删除会过期的固定计数、修正 guardrails stub 描述，并记录 docs-drift 现在查不到"计划语义状态漂移"的盲区。未实现 Step 0。）
-> 状态：🔄 进行中（2026-06-28 对账 + Step 0/5 落地）；Step 0 ✅ ｜ Step 1 ✅ ｜ Step 2 ✅ ｜ Step 3 ✅ ｜ Step 4 🔄 部分（stub 已建、内容 on-touch 填）｜ Step 5 ✅ ｜ Step 6 📋 待定
+> 状态：🔄 进行中（2026-06-28 对账 + Step 0/5 落地 + Step 6 核实）；Step 0 ✅ ｜ Step 1 ✅ ｜ Step 2 ✅ ｜ Step 3 ✅ ｜ Step 4 🔄 部分（stub 已建、内容 on-touch 填）｜ Step 5 ✅ ｜ Step 6 ✅（核实：4 桶已被后续修复覆盖，无需单独补）。主体完成，仅剩 Step 4 on-touch 持续填充。
 > 触发：用户问"为什么 Phase 5 接入 Codex 花了 3 天，下次接 Hermes / Gemini / OpenClaw 还会重复这种边跑边修吗"
 > 参考材料：
 > - Anthropic 大型代码库 Claude Code 最佳实践（用户提供本地文档；原文：<https://claude.com/blog/how-claude-code-works-in-large-codebases-best-practices-and-where-to-start>）
@@ -230,13 +230,20 @@ Phase 5 收口前的最后 10 个 commit，按用户能感知的类别分桶：
 
 > 实现路径（用户不需审核）：✅ 全部完成——(1) `docs/exec-plans/README.md` 执行计划模板含 `## Smoke Ledger` 必填段（表头 + 示例行）；(2) `lint-docs-drift.mjs` 已加强制校验：新建 active 计划缺 `## Smoke Ledger` 段即 commit 失败，带 grandfather 豁免清单（规则落地前的 8 个 active 计划不追溯）+ 自检（heading 检测器对正例 fire、对正文提及 silent）。从此靠脚本强制，不再靠约定。
 
-### Step 6（最后再决定是否做）— 测试矩阵补洞
+### Step 6 — 测试矩阵补洞 ✅ 已覆盖（2026-06-28 核实，无需单独做）
 
 - **用户能看到什么**：**用户无法直接审核**（这里 v2 必须如实告诉用户）。但能从"接下一个 Runtime / Provider 时是否还在重复出 OpenRouter Anthropic-skin / OAuth refresh 那类坑"间接判断
 - **不做什么**：不为补洞而搭复杂测试基础设施；只补已知踩过的 4 个桶（OpenRouter Anthropic-skin / OAuth refresh / 长尾 retry / 历史 DB 行 canonicalization）
 - **怎么验收**：等下次接 Hermes / Gemini 时回看。如果再没出现"切换模型就炸"，这一刀就有效
 
 > 实现路径（用户不需审核）：在 `harness-capability-contract.test.ts` 一类的契约测试里，把 capability × protocol × credential 矩阵的已知洞补成断言；不新建测试框架，只扩已有契约测试。
+>
+> ✅ 核实结论（2026-06-28，Explore 调研 + spot-verify）：4 个桶**均已被后续 bug 修复顺带覆盖**，无需单独补：
+> - OpenRouter Anthropic-skin + 历史 DB 行 canonicalization → `provider-resolver.test.ts:1335-1394`（round 9：legacy `haiku→haiku` DB 行 canonicalize 成 `anthropic/claude-haiku-4.5`）+ `provider-model-roundtrip.test.ts`（21 用例）
+> - OAuth refresh → `openai-oauth-fetch-refresh.test.ts`（per-request `ensureTokenFresh`）+ `openai-oauth-retry.test.ts`（14 用例，重试分类）
+> - 长尾 retry / 慢渠道分级超时 → `issue-635-idle-tier.test.ts`（7 用例，两层 idle 预算 + api_retry liveness）
+>
+> 矩阵契约框架本就在位（`harness-capability-contract.test.ts` / `harness-capability-matrix.test.ts` / `harness-runtime-adapter.test.ts`）。这是又一例「计划说待做、实际已完成」（见决策日志 + tech-debt #45）。未来接 Hermes / Gemini 若冒出新桶，按 on-touch 补进对应契约测试即可。
 
 ## 已删除 / 不做的项（替代 Codex 初稿对应内容）
 
@@ -262,6 +269,7 @@ Phase 5 收口前的最后 10 个 commit，按用户能感知的类别分桶：
 - 2026-06-28（ClaudeCode 执行 Step 0 + Step 5，应用户"一次性搞完、交 Codex 审"）：**Step 0 规则瘦身**——新建 `docs/rules/`（reporting / release）；`CLAUDE.md` 发版节瘦身 + 新增「汇报与完成状态」节 + 文档索引补 rules/guardrails；`AGENTS.md` 重写为「Codex 边界 + 共享规则入口」并修正「pre-commit 自动跑 smoke/e2e」错误描述；`exec-plans/README.md` 消除「UI 必须 CDP」冲突（三处冲突全清）。**Step 5**——`lint-docs-drift.mjs` 加 Smoke Ledger 强制校验（grandfather 豁免落地前 8 个 active 计划 + 自检）。**path-scoped rules 决策**：Claude Code 官方支持 `.claude/rules/` 按需加载，但 Codex 读不到，为双 agent 单一来源改放 `docs/rules/` + 顶层链接，不引入 `.claude/rules/` / Ruler（兑现 Ruler-compatible first）。**未做**：Step 4 guardrail 内容填充（on-touch）、Step 6 测试矩阵（待定）。验证：`npm run lint:docs-drift` ok（含新校验自检）+ 提交门禁（lint-hooks + lint-staged docs-drift + tsc + 单测）通过。待用户交 Codex 审。
 - 2026-06-28（ClaudeCode 返工，用户 review 发现）：Step 0/5 实施时只更新了本文顶部状态行（Step 0 ✅ / Step 5 ✅），漏同步 `exec-plans/README.md` 索引该行状态（还停在「Step 4/5 部分、Step 0 待定」），构成「索引 ↔ 正文状态漂移」——正是本计划要消灭、且 Step 2 盲区记录的同类问题（docs-drift 查不到）。已补 README 状态列同步；并把 README line 52「验证：测试 / CDP 路径」改为「测试 / smoke / 浏览器或 CDP 路径（如有）」，消除残留的默认 CDP 暗示（line 44 上轮已改）。Step 2 盲区描述同步扩充，把「README 状态列 ↔ 正文状态行」也明确纳入，并记为该盲区的第二次实证。
 - 2026-06-28（用户复议规则存放位置）：用户提出改用官方 `.claude/rules/` 按需加载机制。核查发现 `.claude/` 被 `.gitignore` 整目录忽略（line 70）→ 放那里不进版本库、Codex / CI 读不到；且自动按需加载只 Claude 受益、当前流程规则（reporting / release）按需收益小。用户知情后确认维持 `docs/rules/`；`.claude/rules/` 留给未来绑定代码路径的模块规则（Step 4 guardrail 类）再引入。
+- 2026-06-28（ClaudeCode 核实 Step 6，应用户"继续推进"）：Explore 调研 + spot-verify 确认 Step 6 声称的 4 个桶（OpenRouter Anthropic-skin / OAuth refresh / 长尾 retry / 历史 DB canonicalization）**均已被后续 bug 修复顺带覆盖**（provider-resolver round 9 / provider-model-roundtrip / openai-oauth-* / issue-635-idle-tier，证据见 Step 6 核实结论）。故 Step 6 标 ✅、无需单独做。这是继 Step 2/3/4 之后第三例「计划说待做、实际已完成」，已把这类「语义状态漂移」沉淀为 tech-debt #45（现有 lint 读不懂状态语义一致性）。计划主体（Step 0-3 / 5 / 6）至此完成，仅剩 Step 4 guardrail 内容 on-touch 持续填充；是否移 completed/ 待定（Step 4 on-touch 性质上不会"全完成"）。已同步 README 索引状态。
 
 ## 给 Codex 的回复要点（如果 Codex 看到这版后需要回应）
 
