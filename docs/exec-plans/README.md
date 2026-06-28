@@ -41,7 +41,7 @@
 | Signal | 记录触发信号：review finding、用户反馈、CDP 截图、测试失败、日志证据 | finding / issue / plan note |
 | Triage | 判断根因、影响范围、是否阻断用户路径、是否已有同类历史 | 修复范围 + 优先级 |
 | Fix | 做最小必要改动；Claude Code 不得借小修复扩成无关重构 | commit / patch summary |
-| Verify | 跑相关测试；UI 改动必须 CDP 验证；说明验证场景 | test output / CDP notes |
+| Verify | 跑相关测试；UI 改动必须实际验证（CDP 仅作深度诊断备用，验证强度按 [CLAUDE.md](../../CLAUDE.md) 测试分层 Tier 0/1/2）；说明验证场景 | test output / 验证记录 |
 | Guardrail | 同类问题第二次出现，或涉及 schema/runtime/default/log/security，必须沉淀防线 | guardrail doc / tech-debt tracker / plan update |
 
 **Claude Code 交付说明必须包含：**

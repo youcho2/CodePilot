@@ -4,7 +4,7 @@
 > 重写：2026-05-19（ClaudeCode v2 — 按用户"可审核"约束重组结构；事实层面增 3 项 Codex 初稿漏说的已有资产；方向上把 Skill 化暂缓、改主推自动检查脚本 + 测试矩阵补洞）
 > 补充：2026-06-28（Codex 复盘规则体系：顶层规则瘦身 / path-scoped rules / 测试分层 / 简化汇报协议）
 > 对账：2026-06-28（ClaudeCode — 按代码现状校准状态：Step 2/3 的脚本早已实现并在 pre-commit 运行、Step 4/5 已部分落地，但本文此前一直写成"待做讨论稿"，本身就是它要消灭的那类 docs drift。本次校准各 Step 状态、删除会过期的固定计数、修正 guardrails stub 描述，并记录 docs-drift 现在查不到"计划语义状态漂移"的盲区。未实现 Step 0。）
-> 状态：🔄 进行中（2026-06-28 对账后）；Step 1 ✅ ｜ Step 2 ✅ ｜ Step 3 ✅ ｜ Step 4 🔄 部分 ｜ Step 5 🔄 部分 ｜ Step 0 📋 待定（本次不做）｜ Step 6 📋 待定
+> 状态：🔄 进行中（2026-06-28 对账 + Step 0/5 落地）；Step 0 ✅ ｜ Step 1 ✅ ｜ Step 2 ✅ ｜ Step 3 ✅ ｜ Step 4 🔄 部分（stub 已建、内容 on-touch 填）｜ Step 5 ✅ ｜ Step 6 📋 待定
 > 触发：用户问"为什么 Phase 5 接入 Codex 花了 3 天，下次接 Hermes / Gemini / OpenClaw 还会重复这种边跑边修吗"
 > 参考材料：
 > - Anthropic 大型代码库 Claude Code 最佳实践（用户提供本地文档；原文：<https://claude.com/blog/how-claude-code-works-in-large-codebases-best-practices-and-where-to-start>）
@@ -134,7 +134,7 @@ Phase 5 收口前的最后 10 个 commit，按用户能感知的类别分桶：
 
 每一步都用"用户能看到什么 / 不做什么 / 怎么验收"开头。
 
-### Step 0 — 规则体系瘦身 / Rules System Slimdown（2026-06-28 新增）
+### Step 0 — 规则体系瘦身 / Rules System Slimdown ✅ 已完成（2026-06-28）
 
 - **用户能看到什么**：Claude / Codex 的输出更短、更一致；不会再把每个 P3 follow-up 都汇报成审计报告；不再因为规则冲突而反复跑 CDP / smoke / 全量测试。用户看到的默认汇报收敛为：**结论 / 用户影响 / 验证 / 剩余风险 / 下一步**。
 - **不做什么**：不碰发版；不立即引入 Ruler 改写规则文件；不删除已有 guardrails / handover / research 历史文档；不把安全、DB、Runtime、权限这些高风险规则弱化。
@@ -178,6 +178,15 @@ Phase 5 收口前的最后 10 个 commit，按用户能感知的类别分桶：
 > ```
 >
 > 默认不贴 commit 串、file:line、source-pin、测试全文；只有 review blocker / Tier 2 / 用户要求细节时展开。
+>
+> ✅ 落地（2026-06-28，应用户"一次性搞完"）：
+> - 新建 `docs/rules/`（[reporting.md](../../rules/reporting.md) = 完成状态词典 + 简化汇报协议；[release.md](../../rules/release.md) = 发版流程 + Release Notes 模板）+ README 索引。
+> - `CLAUDE.md` 瘦身：发版节 55 行 → 摘要 + 纪律 + 链接；新增「汇报与完成状态」节；文档索引补 rules/ + guardrails/ 入口。
+> - `AGENTS.md` 重写：删与 CLAUDE.md 重复的开发规则/语义验收/功能文档/发版大段 → 改为「共享规则入口」链接；保留 Codex 边界 + review 规则；**修正错误**——原写「pre-commit 自动执行前三项（含 smoke/e2e）」，实际只跑 lint/tsc/unit。
+> - 消除三处冲突的最后一处：`exec-plans/README.md`「UI 改动必须 CDP 验证」→「必须实际验证，CDP 仅深度诊断备用」（顶层 CLAUDE.md / AGENTS.md 早已是「默认不强制 CDP」）。
+> - **path-scoped rules 决策**：claude-code-guide 查证 `.claude/rules/`（含 YAML `paths` 前缀）官方支持按需加载，但它是 Claude Code 专属、Codex 读不到；为双 agent 单一来源，规则放 `docs/rules/`（两边按需读），不引入 `.claude/rules/`、不引入 Ruler（兑现 Ruler-compatible first）。
+> - 测试 Tier 0/1/2 权威定义留 `CLAUDE.md`「自检命令」，AGENTS.md / README 指向它，三处口径统一。
+> - 未做（按计划保留）：Step 4 的 8 份 guardrail 内容填充（on-touch）、Step 6 测试矩阵（待定）。
 
 ### Step 1 — 写一份 Phase 5 耗时归因表 ✅ 已完成
 
@@ -213,13 +222,13 @@ Phase 5 收口前的最后 10 个 commit，按用户能感知的类别分桶：
 
 > 实现路径（用户不需审核）：✅ 已完成部分——`docs/guardrails/README.md` 索引已扩到 8 类（commit 84980be）；8 个 stub 文件（i18n.md / DatabaseSchema.md / PermissionBoundary.md / StreamSession.md / MCP.md / Onboarding.md / ElectronMain.md / Release.md）已建，统一七节模板（词汇表 / 不变量 / 关键文件 / 改动检查表 / 常见坑 / 测试覆盖 / 决策日志）就位。🔄 待完成部分——除 StreamSession（已随 2026-06-10 流式 bug 修复部分填充）外，其余 stub 内容仍是骨架，按 on-touch（真实改到对应模块时填一节）推进。
 
-### Step 5 — Smoke Ledger 模板化 🔄 部分完成
+### Step 5 — Smoke Ledger 模板化 ✅ 已完成
 
 - **用户能看到什么**：未来每个 Phase 计划里都有固定一张 Smoke Ledger 表，记录哪个 provider / 模型 / 凭据形态在哪一天跑过、结果如何。这样切回某个 Phase 时不用翻聊天回忆
 - **不做什么**：不追溯过往已完成 phase 的 ledger，只对未来生效
 - **怎么验收**：下一个新建的 Phase 计划必须自动带这段；如果新建的 Phase 没带，Step 2 的 docs-drift 脚本会挡
 
-> 实现路径（用户不需审核）：✅ 已完成部分——`docs/exec-plans/README.md` 执行计划模板已加 `## Smoke Ledger` 必填段（含表头 + 示例行）+ grandfather clause（不追溯已有 active phase）。🔄 待完成部分——Step 2 的 docs-drift lint **尚未**把"新建 active phase 必须含 Smoke Ledger 段"并入校验（`lint-docs-drift.mjs` 目前不检查该段是否存在），所以模板靠约定而非强制；要变强制需在脚本里增一条「active 文件必含 `## Smoke Ledger`」的检查。
+> 实现路径（用户不需审核）：✅ 全部完成——(1) `docs/exec-plans/README.md` 执行计划模板含 `## Smoke Ledger` 必填段（表头 + 示例行）；(2) `lint-docs-drift.mjs` 已加强制校验：新建 active 计划缺 `## Smoke Ledger` 段即 commit 失败，带 grandfather 豁免清单（规则落地前的 8 个 active 计划不追溯）+ 自检（heading 检测器对正例 fire、对正文提及 silent）。从此靠脚本强制，不再靠约定。
 
 ### Step 6（最后再决定是否做）— 测试矩阵补洞
 
@@ -250,6 +259,7 @@ Phase 5 收口前的最后 10 个 commit，按用户能感知的类别分桶：
 - 2026-05-19（Codex review v2）：通过 v2 主方向（Skill 化暂缓 / 优先做 docs drift + hook self-check + Smoke Ledger + contract matrix gaps）。两处文档小修：(1) tech-debt 数量从误写的 18 活跃改为 17 活跃 + 2 已解决；(2) OpenAI Codex use cases 措辞软化为"任务类别参考"，不再写"无具体可执行启发"。
 - 2026-06-28（用户 + Codex）：发版前复盘发现新的瓶颈不是单个测试或单个计划，而是顶层规则体系本身过重：`CLAUDE.md` / `AGENTS.md` / `exec-plans/README.md` 对测试、CDP、文档回写、交付说明存在重复与冲突，导致 Agent 倾向过度测试、过度汇报、把用户变成 Claude↔Codex 消息总线。Codex 调研 Ruler / Claude Code memory / Claude Code best practices / Codex AGENTS.md / hooks 后，新增 Step 0「规则体系瘦身」：顶层规则最小化、按路径/任务加载规则、stub guardrail 降级、测试 Tier 0/1/2 统一、完成状态词典、简化用户汇报协议。发版不纳入本 Step，由 Claude Code 另行处理。
 - 2026-06-28（ClaudeCode 对账，应用户要求）：审查本计划时发现它本身严重 docs drift——Step 2/3 的脚本（`lint-docs-drift.mjs` / `lint-hooks.mjs`）早已实现并在 pre-commit 运行、Step 4（8 类 guardrails stub + 索引）与 Step 5（README Smoke Ledger 模板段）已部分落地，但顶部状态与各 Step 仍写成"待做讨论稿"。本次对账：Step 1/2/3 标 ✅、Step 4/5 标 🔄 部分完成、删除会过期的 tech-debt 固定计数（"17 活跃"实际已 38+）、修正 guardrails「只有 4 份 / 8 类还没建」的过时描述（实为 4 完整 + 8 骨架已建）、并在 Step 2 记录 docs-drift 查不到「计划语义状态漂移」的盲区（即本计划骗过了它自己实现的检查）。**未实现 Step 0**——用户明确要求先让计划重新可信、暂不动规则瘦身。同步更新 README active 表该行状态。根因复核：Step 2/3/4/5 是"实现了没回写计划"（违反 CLAUDE.md「完成即回写进度」），与本计划要解决的同类问题同源。
+- 2026-06-28（ClaudeCode 执行 Step 0 + Step 5，应用户"一次性搞完、交 Codex 审"）：**Step 0 规则瘦身**——新建 `docs/rules/`（reporting / release）；`CLAUDE.md` 发版节瘦身 + 新增「汇报与完成状态」节 + 文档索引补 rules/guardrails；`AGENTS.md` 重写为「Codex 边界 + 共享规则入口」并修正「pre-commit 自动跑 smoke/e2e」错误描述；`exec-plans/README.md` 消除「UI 必须 CDP」冲突（三处冲突全清）。**Step 5**——`lint-docs-drift.mjs` 加 Smoke Ledger 强制校验（grandfather 豁免落地前 8 个 active 计划 + 自检）。**path-scoped rules 决策**：Claude Code 官方支持 `.claude/rules/` 按需加载，但 Codex 读不到，为双 agent 单一来源改放 `docs/rules/` + 顶层链接，不引入 `.claude/rules/` / Ruler（兑现 Ruler-compatible first）。**未做**：Step 4 guardrail 内容填充（on-touch）、Step 6 测试矩阵（待定）。验证：`npm run lint:docs-drift` ok（含新校验自检）+ 提交门禁（lint-hooks + lint-staged docs-drift + tsc + 单测）通过。待用户交 Codex 审。
 
 ## 给 Codex 的回复要点（如果 Codex 看到这版后需要回应）
 
