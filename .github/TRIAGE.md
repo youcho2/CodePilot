@@ -52,5 +52,3 @@
 
 > **`pull_request_target` 安全约束**：以上 PR workflow 一律不 checkout、不执行外部 PR 代码，只读 PR 元数据 / 打 label / 评论。
 > docs-drift + link check 已另行落地（`scripts/lint-docs-drift.mjs`，pre-commit 强制）。
-
-> docs-drift + link check 已另行落地（`scripts/lint-docs-drift.mjs`，pre-commit 强制）。

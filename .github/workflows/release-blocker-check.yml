@@ -22,7 +22,7 @@ jobs:
             const { data: milestones } = await github.rest.issues.listMilestones({ owner, repo, state: 'open', per_page: 100 });
             const ms = milestones.find((m) => m.title === 'v0.56.x Stability / Trust');
             if (!ms) {
-              core.warning('未找到 milestone "v0.56.x Stability / Trust"，跳过检查');
+              core.setFailed('❌ 未找到 milestone "v0.56.x Stability / Trust"，发版门禁 fail-closed（不放行）。请确认 milestone 名称未被改名 / 关闭，或手动核对 P0 blocker 后再发版。');
               return;
             }
             const issues = await github.paginate(github.rest.issues.listForRepo, {
