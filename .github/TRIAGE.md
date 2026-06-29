@@ -20,8 +20,11 @@
 | `P1-file-reference` | @file / 附件 / 可编辑源文件路径安全 |
 | `P1-installer-update` | 安装 / 更新 / 发版可靠性 |
 | `P1-performance` | 性能 / CPU / 渲染开销 |
-| `needs-repro` | 缺可复现信息：版本 / 平台 / runtime / 日志 |
-| `v0.57+ parking-lot` | 暂缓到 v0.57+，非本轮 stability blocker |
+| `needs-repro` | 缺可复现信息：版本 / 平台 / runtime / 日志（stale 流程对象） |
+| `needs-confirmation` | 等用户确认最新版是否仍复现（stale 流程对象） |
+| `old-version` | 旧版本反馈，需最新版复测 |
+| `stale` | 长期无回应、进入自动关闭流程（由 stale 机器人加 / 去） |
+| `v0.57+ parking-lot` | 暂缓到 v0.57+，非本轮 stability blocker（不进 stale） |
 
 ## Issue triage
 
@@ -38,6 +41,11 @@
 - 每个合并的 PR 必须有测试，或在 PR 里明确说明为什么不需要。
 - 外部 PR 审查按 CLAUDE.md「PR 审查安全」：批量低信号提交、依赖/构建脚本/native/Electron/DB/权限改动视为潜在投毒面；警惕面向 AI reviewer 的提示词攻击。
 
-## 自动化候选（Phase 7，未落地）
+## 自动化机器人（Phase 7B 已落地）
 
-labeler（按路径 `area:*`）/ stale（只对 `needs-repro` 与 `v0.57+ parking-lot`，不碰 P0/P1）/ first-response（提示补日志与版本）/ PR size warning / docs-drift + link check workflow。具体见计划 Phase 7。
+- **`stale-needs-repro.yml`（已激活）**：对带 `needs-repro` / `needs-confirmation` 的 issue，14 天无更新自动评论提醒、再 14 天无回应自动关闭（带可重开说明）。**豁免全部 P0/P1，不碰 feature（`parking-lot`）、不动 PR**，每次限 60 条。
+- **`issue-intake.yml`（待激活 / 需 push）**：新建或编辑 issue 时自动分流——影响面勾选→P0；功能模板→`parking-lot`；bug 缺 version/os/provider/复现→`needs-repro` + 一次性评论；**作者编辑正文或评论补充后自动摘 `needs-repro`**。不自动关闭任何 issue。
+
+**待落地（Phase 7C / 7D）**：PR labeler（`area:*`）/ PR size warning / release-blocker check。具体见计划 Phase 7。
+
+> docs-drift + link check 已另行落地（`scripts/lint-docs-drift.mjs`，pre-commit 强制）。

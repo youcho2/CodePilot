@@ -1,16 +1,17 @@
 name: Issue intake — 新 issue 自动分流
 
-# Phase 7B (v0.56.x-stability-trust)：只作用于**新建 / 编辑**的 issue，不碰存量。
-# 给新 issue 打基础分流 label：
-#   - 功能模板(enhancement) → v0.57+ parking-lot（当前版本冻结新功能）
+# Phase 7B (v0.56.x-stability-trust)：分流新建/编辑的 issue，并在作者补充后摘 needs-repro。
+#   - 功能模板(enhancement) → v0.57+ parking-lot（feature_request.yml 已自带，此处冗余兜底）
 #   - 影响面勾选"数据丢失"/"崩溃中断" → 对应 P0 label
-#   - bug 缺复现信息(无 form 结构 / 关键字段占位) → needs-repro + 一次性评论
-# 编辑后信息补全 → 自动摘掉 needs-repro。**绝不自动关闭任何 issue**（关闭交给 stale 流程）。
-# 可用 workflow_dispatch 跑不了（需 issue 事件）；调试改在 fork / 测试 issue 上。
+#   - bug 缺复现(version/os/provider/steps 占位 或 无 form 结构) → needs-repro + 一次性评论
+#   - 作者**编辑正文**或**评论**补充后 → 自动摘 needs-repro（兑现"补全自动取消"承诺）
+# 绝不自动关闭任何 issue（关闭交给 stale 流程）。
 
 on:
   issues:
     types: [opened, edited]
+  issue_comment:
+    types: [created]
 
 permissions:
   issues: write
@@ -23,40 +24,51 @@ jobs:
         with:
           script: |
             const issue = context.payload.issue;
-            const body = issue.body || '';
             const labels = issue.labels.map((l) => l.name);
+            const repo = { owner: context.repo.owner, repo: context.repo.repo, issue_number: issue.number };
+
+            // ── 事件 A：作者评论 → 视为已回应/补充，摘掉 needs-repro（P2 修复）──
+            // 用户最常见是"评论补日志/复现"而非"编辑正文"；不覆盖这条路径就会出现
+            // "用户已补、label 还在、被 stale 误关"，并违背评论里的"补全自动取消"承诺。
+            if (context.eventName === 'issue_comment') {
+              const c = context.payload.comment;
+              if (c.user.type !== 'Bot' && c.user.login === issue.user.login && labels.includes('needs-repro')) {
+                await github.rest.issues.removeLabel({ ...repo, name: 'needs-repro' }).catch(() => {});
+              }
+              return;
+            }
+
+            // ── 事件 B：issues.opened / edited ──
+            const body = issue.body || '';
             const isFeature = labels.includes('enhancement');
             const add = new Set();
-
-            // 功能请求 → v0.56.x 冻结新功能，进 parking-lot
             if (isFeature) add.add('v0.57+ parking-lot');
-
-            // 影响面 checkbox 勾选(form 勾选后为 "- [x]") → 自动 P0
             if (/- \[[xX]\][^\n]*(数据|data loss|文件写入|file write|丢失)/.test(body)) add.add('P0-data-loss-risk');
             if (/- \[[xX]\][^\n]*(崩溃|闪退|中断|crash|quit|interrupt)/.test(body)) add.add('P0-crash-or-interrupt');
 
-            // bug 缺复现信息 → needs-repro（不对 feature 判断）
+            // 缺复现判定：检查 form 关键 input/textarea 字段
+            // （runtime / reproducible 是 dropdown、必选总有值，不参与占位判断，避免 "unsure" 误判）
             const section = (re) => { const m = body.match(re); return m ? m[1].trim() : ''; };
             const placeholder = (v) => !v || v === '_No response_' || v.length < 3 || /^(无|没有|不知道|暂无|n\/?a|-+|\.+)$/i.test(v);
             const hasForm = /###\s*(CodePilot 版本|Version)/i.test(body);
-            const steps = section(/###\s*复现步骤[^\n]*\n+([\s\S]*?)(?=\n###|$)/);
-            const version = section(/###\s*CodePilot 版本[^\n]*\n+([\s\S]*?)(?=\n###|$)/);
-            const missingRepro = !isFeature && (!hasForm || placeholder(steps) || placeholder(version));
-            if (missingRepro) add.add('needs-repro');
+            const fields = {
+              version: section(/###\s*CodePilot 版本[^\n]*\n+([\s\S]*?)(?=\n###|$)/),
+              os: section(/###\s*操作系统[^\n]*\n+([\s\S]*?)(?=\n###|$)/),
+              provider: section(/###\s*Provider[^\n]*\n+([\s\S]*?)(?=\n###|$)/),
+              steps: section(/###\s*复现步骤[^\n]*\n+([\s\S]*?)(?=\n###|$)/),
+            };
+            const missing = !isFeature && (!hasForm || Object.values(fields).some(placeholder));
+            if (missing) add.add('needs-repro');
 
-            const repo = { owner: context.repo.owner, repo: context.repo.repo, issue_number: issue.number };
+            if (add.size) await github.rest.issues.addLabels({ ...repo, labels: [...add] });
 
-            if (add.size) {
-              await github.rest.issues.addLabels({ ...repo, labels: [...add] });
-            }
-
-            // 编辑后信息已补全 → 自动摘掉 needs-repro
-            if (context.payload.action === 'edited' && labels.includes('needs-repro') && !missingRepro && !isFeature) {
+            // 编辑正文后信息补全 → 摘 needs-repro
+            if (context.payload.action === 'edited' && labels.includes('needs-repro') && !missing && !isFeature) {
               await github.rest.issues.removeLabel({ ...repo, name: 'needs-repro' }).catch(() => {});
             }
 
-            // 仅首次打 needs-repro 时评论一次（避免重复噪音）
-            if (missingRepro && !labels.includes('needs-repro')) {
+            // 首次打 needs-repro 时评论一次（明确告知"直接回复即可"，与 P2 的评论路径一致）
+            if (missing && !labels.includes('needs-repro')) {
               await github.rest.issues.createComment({
                 ...repo,
                 body: [
@@ -64,7 +76,7 @@ jobs:
                   '',
                   '请用 **issue 模板**、在最新版 **v0.56.2+** 上补齐：**版本号、操作系统、Runtime、Provider / 模型、复现步骤、日志 / session id**（请脱敏，不要包含 API key）。',
                   '',
-                  '补全后该标记会自动取消并进入正常排队；长期未补充会按 stale 流程提醒、最终关闭（关闭后随时可重新打开）。',
+                  '**直接在本 issue 下回复补充即可** —— 补全后会自动取消 `needs-repro` 标记、进入正常排队；长期无回应会按 stale 流程提醒、最终关闭（关闭后随时可重新打开）。',
                 ].join('\n'),
               });
             }
