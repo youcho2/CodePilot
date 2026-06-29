@@ -1,0 +1,48 @@
+name: Stale — needs-repro / needs-confirmation
+
+# 保守的 stale 流程（Phase 7B / v0.56.x-stability-trust）：
+# 只处理"等用户补信息 / 等确认"的 issue；明确排除所有 P0/P1 高风险，
+# 也不碰 feature（v0.57+ parking-lot 不在 any-of-labels 里）。
+# 节奏：14 天无更新 → 自动评论提醒；再 14 天无回应 → 自动关闭（带说明，可重开）。
+#
+# 首次上线可先用 workflow_dispatch 手动跑一次、把下方 debug-only 临时设为 true
+# 观察匹配是否正确，确认后再恢复 false 让它按 cron 真实生效。
+
+on:
+  schedule:
+    - cron: '0 2 * * *' # 每天 02:00 UTC
+  workflow_dispatch:
+
+permissions:
+  issues: write
+
+jobs:
+  stale:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/stale@v9
+        with:
+          debug-only: false
+          # 只对这两类生效（OR：带任一即处理）
+          any-of-labels: 'needs-repro,needs-confirmation'
+          # 高风险一律豁免（actions/stale 不支持通配，必须逐个列全）
+          exempt-issue-labels: 'P0-crash-or-interrupt,P0-data-loss-risk,P1-runtime-session,P1-context,P1-file-reference,P1-installer-update,P1-performance'
+          days-before-stale: 14
+          days-before-close: 14
+          stale-issue-label: 'stale'
+          remove-stale-when-updated: true
+          stale-issue-message: |
+            这个 issue 因为缺少复现信息 / 等待确认，已经 14 天没有更新。
+
+            如果问题仍然存在，请在最新版本（v0.56.2 及以上）上补充：**版本号、操作系统、运行时 / 服务商、复现步骤或日志**。
+
+            再过 14 天若仍无回应，会自动关闭——这不是否认问题，关闭后随时可以用新信息重新打开。
+          close-issue-message: |
+            由于长期缺少复现 / 确认信息，自动关闭本 issue。
+
+            这不代表问题被否认；如果在最新版本仍能复现，欢迎带上**版本 + 复现步骤 + 日志**重新打开本 issue 或新建。感谢理解 🙏
+          # 本 workflow 只管 issue，不动 PR
+          days-before-pr-stale: -1
+          days-before-pr-close: -1
+          ascending: true # 先处理最老的
+          operations-per-run: 60 # 每次跑限流，避免一次动太多
