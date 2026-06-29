@@ -1,10 +1,10 @@
 name: Issue intake — 新 issue 自动分流
 
-# Phase 7B (v0.56.x-stability-trust)：分流新建/编辑的 issue，并在作者补充后摘 needs-repro。
+# Phase 7B (v0.56.x-stability-trust)：分流新建/编辑的 issue，并在作者补充后摘 needs-repro + stale。
 #   - 功能模板(enhancement) → v0.57+ parking-lot（feature_request.yml 已自带，此处冗余兜底）
 #   - 影响面勾选"数据丢失"/"崩溃中断" → 对应 P0 label
 #   - bug 缺复现(version/os/provider/steps 占位 或 无 form 结构) → needs-repro + 一次性评论
-#   - 作者**编辑正文**或**评论**补充后 → 自动摘 needs-repro（兑现"补全自动取消"承诺）
+#   - 作者**编辑正文**或**评论**补充后 → 摘 needs-repro **和 stale**（兑现"补全自动取消"承诺）
 # 绝不自动关闭任何 issue（关闭交给 stale 流程）。
 
 on:
@@ -27,13 +27,23 @@ jobs:
             const labels = issue.labels.map((l) => l.name);
             const repo = { owner: context.repo.owner, repo: context.repo.repo, issue_number: issue.number };
 
-            // ── 事件 A：作者评论 → 视为已回应/补充，摘掉 needs-repro（P2 修复）──
-            // 用户最常见是"评论补日志/复现"而非"编辑正文"；不覆盖这条路径就会出现
-            // "用户已补、label 还在、被 stale 误关"，并违背评论里的"补全自动取消"承诺。
+            // 作者补充后解除"待补信息"状态：摘 needs-repro **和 stale**。
+            // 必须连 stale 一起摘——一旦 needs-repro 没了，issue 不再匹配 stale 机器人的
+            // any-of-labels，stale 机器人不会再碰它（remove-stale-when-updated 也不触发），
+            // 残留的 stale 标签会一直挂着误导。
+            const clearResolved = async () => {
+              for (const name of ['needs-repro', 'stale']) {
+                if (labels.includes(name)) {
+                  await github.rest.issues.removeLabel({ ...repo, name }).catch(() => {});
+                }
+              }
+            };
+
+            // ── 事件 A：作者评论 → 视为已回应/补充（P2 修复，用户最常见的补充方式）──
             if (context.eventName === 'issue_comment') {
               const c = context.payload.comment;
-              if (c.user.type !== 'Bot' && c.user.login === issue.user.login && labels.includes('needs-repro')) {
-                await github.rest.issues.removeLabel({ ...repo, name: 'needs-repro' }).catch(() => {});
+              if (c.user.type !== 'Bot' && c.user.login === issue.user.login) {
+                await clearResolved();
               }
               return;
             }
@@ -62,12 +72,12 @@ jobs:
 
             if (add.size) await github.rest.issues.addLabels({ ...repo, labels: [...add] });
 
-            // 编辑正文后信息补全 → 摘 needs-repro
-            if (context.payload.action === 'edited' && labels.includes('needs-repro') && !missing && !isFeature) {
-              await github.rest.issues.removeLabel({ ...repo, name: 'needs-repro' }).catch(() => {});
+            // 编辑正文后信息补全 → 摘 needs-repro + stale
+            if (context.payload.action === 'edited' && !isFeature && !missing && (labels.includes('needs-repro') || labels.includes('stale'))) {
+              await clearResolved();
             }
 
-            // 首次打 needs-repro 时评论一次（明确告知"直接回复即可"，与 P2 的评论路径一致）
+            // 首次打 needs-repro 时评论一次（明确"直接回复即可"，与 P2 评论路径一致）
             if (missing && !labels.includes('needs-repro')) {
               await github.rest.issues.createComment({
                 ...repo,
