@@ -1,0 +1,70 @@
+name: Issue intake — 新 issue 自动分流
+
+# Phase 7B (v0.56.x-stability-trust)：只作用于**新建 / 编辑**的 issue，不碰存量。
+# 给新 issue 打基础分流 label：
+#   - 功能模板(enhancement) → v0.57+ parking-lot（当前版本冻结新功能）
+#   - 影响面勾选"数据丢失"/"崩溃中断" → 对应 P0 label
+#   - bug 缺复现信息(无 form 结构 / 关键字段占位) → needs-repro + 一次性评论
+# 编辑后信息补全 → 自动摘掉 needs-repro。**绝不自动关闭任何 issue**（关闭交给 stale 流程）。
+# 可用 workflow_dispatch 跑不了（需 issue 事件）；调试改在 fork / 测试 issue 上。
+
+on:
+  issues:
+    types: [opened, edited]
+
+permissions:
+  issues: write
+
+jobs:
+  triage:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/github-script@v7
+        with:
+          script: |
+            const issue = context.payload.issue;
+            const body = issue.body || '';
+            const labels = issue.labels.map((l) => l.name);
+            const isFeature = labels.includes('enhancement');
+            const add = new Set();
+
+            // 功能请求 → v0.56.x 冻结新功能，进 parking-lot
+            if (isFeature) add.add('v0.57+ parking-lot');
+
+            // 影响面 checkbox 勾选(form 勾选后为 "- [x]") → 自动 P0
+            if (/- \[[xX]\][^\n]*(数据|data loss|文件写入|file write|丢失)/.test(body)) add.add('P0-data-loss-risk');
+            if (/- \[[xX]\][^\n]*(崩溃|闪退|中断|crash|quit|interrupt)/.test(body)) add.add('P0-crash-or-interrupt');
+
+            // bug 缺复现信息 → needs-repro（不对 feature 判断）
+            const section = (re) => { const m = body.match(re); return m ? m[1].trim() : ''; };
+            const placeholder = (v) => !v || v === '_No response_' || v.length < 3 || /^(无|没有|不知道|暂无|n\/?a|-+|\.+)$/i.test(v);
+            const hasForm = /###\s*(CodePilot 版本|Version)/i.test(body);
+            const steps = section(/###\s*复现步骤[^\n]*\n+([\s\S]*?)(?=\n###|$)/);
+            const version = section(/###\s*CodePilot 版本[^\n]*\n+([\s\S]*?)(?=\n###|$)/);
+            const missingRepro = !isFeature && (!hasForm || placeholder(steps) || placeholder(version));
+            if (missingRepro) add.add('needs-repro');
+
+            const repo = { owner: context.repo.owner, repo: context.repo.repo, issue_number: issue.number };
+
+            if (add.size) {
+              await github.rest.issues.addLabels({ ...repo, labels: [...add] });
+            }
+
+            // 编辑后信息已补全 → 自动摘掉 needs-repro
+            if (context.payload.action === 'edited' && labels.includes('needs-repro') && !missingRepro && !isFeature) {
+              await github.rest.issues.removeLabel({ ...repo, name: 'needs-repro' }).catch(() => {});
+            }
+
+            // 仅首次打 needs-repro 时评论一次（避免重复噪音）
+            if (missingRepro && !labels.includes('needs-repro')) {
+              await github.rest.issues.createComment({
+                ...repo,
+                body: [
+                  '感谢反馈！这个 issue 似乎缺少必要的复现信息，已标记 `needs-repro`。',
+                  '',
+                  '请用 **issue 模板**、在最新版 **v0.56.2+** 上补齐：**版本号、操作系统、Runtime、Provider / 模型、复现步骤、日志 / session id**（请脱敏，不要包含 API key）。',
+                  '',
+                  '补全后该标记会自动取消并进入正常排队；长期未补充会按 stale 流程提醒、最终关闭（关闭后随时可重新打开）。',
+                ].join('\n'),
+              });
+            }
