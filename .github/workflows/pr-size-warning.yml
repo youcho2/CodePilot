@@ -1,0 +1,48 @@
+name: PR size warning — 大 PR 提醒
+
+# Phase 7C：PR 超过阈值时打 pr:large + 评论提醒拆分。**只 warning，不 fail、不关闭 PR。**
+# 安全（Codex 建议）：只用 GitHub API 读 PR 的 additions/deletions/changed_files 元数据，
+# **不 checkout、不执行 PR 代码**。
+
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  pull-requests: write
+
+jobs:
+  size:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/github-script@v7
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const num = context.payload.pull_request.number;
+            // 重新拉取最新数值（synchronize 后 payload 可能 stale）；纯 API 读，不取代码
+            const { data: pr } = await github.rest.pulls.get({ owner, repo, pull_number: num });
+            const lines = (pr.additions || 0) + (pr.deletions || 0);
+            const files = pr.changed_files || 0;
+            const FILE_CAP = 25, LINE_CAP = 800;
+            if (files <= FILE_CAP && lines <= LINE_CAP) {
+              core.info(`PR #${num} 规模 OK（${files} 文件 / ${lines} 行）`);
+              return;
+            }
+            await github.rest.issues.addLabels({ owner, repo, issue_number: num, labels: ['pr:large'] }).catch(() => {});
+            const marker = '<!-- pr-size-warning -->';
+            const { data: comments } = await github.rest.issues.listComments({ owner, repo, issue_number: num, per_page: 100 });
+            const existing = comments.find((c) => c.user?.type === 'Bot' && (c.body || '').includes(marker));
+            const body = [
+              marker,
+              `⚠️ **这个 PR 较大**（${files} 个文件 / ${lines} 行改动；阈值 ${FILE_CAP} 文件 / ${LINE_CAP} 行）。`,
+              '',
+              '建议拆分成更小、聚焦的 PR，或在描述里说明为什么需要一次性改这么多——这样更好审查、风险更低。',
+              '',
+              '_这只是提醒，不阻塞合并。_',
+            ].join('\n');
+            if (existing) {
+              await github.rest.issues.updateComment({ owner, repo, comment_id: existing.id, body });
+            } else {
+              await github.rest.issues.createComment({ owner, repo, issue_number: num, body });
+            }

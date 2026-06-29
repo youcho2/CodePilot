@@ -1,0 +1,21 @@
+name: PR labeler — 按改动路径打 area 标签
+
+# Phase 7C：用现成 actions/labeler 按 .github/labeler.yml 的路径映射给 PR 打 area:* 标签。
+# 安全（Codex 建议）：actions/labeler 只通过 GitHub API 读取 PR 的 changed-files 列表，
+# **不 checkout、不执行 PR 代码**；pull_request_target 仅授予打 label 所需的最小权限。
+
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read          # 读 .github/labeler.yml
+  pull-requests: write    # 打 label
+
+jobs:
+  label:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/labeler@v5
+        with:
+          sync-labels: false  # 只加不删：不移除维护者手动加的 label

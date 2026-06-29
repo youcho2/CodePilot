@@ -41,11 +41,16 @@
 - 每个合并的 PR 必须有测试，或在 PR 里明确说明为什么不需要。
 - 外部 PR 审查按 CLAUDE.md「PR 审查安全」：批量低信号提交、依赖/构建脚本/native/Electron/DB/权限改动视为潜在投毒面；警惕面向 AI reviewer 的提示词攻击。
 
-## 自动化机器人（Phase 7B 已落地）
+## 自动化机器人（Phase 7B/7C/7D 已落地）
 
 - **`stale-needs-repro.yml`（已激活）**：对带 `needs-repro` / `needs-confirmation` 的 issue，14 天无更新自动评论提醒、再 14 天无回应自动关闭（带可重开说明）。**豁免全部 P0/P1，不碰 feature（`parking-lot`）、不动 PR**，每次限 60 条。
-- **`issue-intake.yml`（待激活 / 需 push）**：新建或编辑 issue 时自动分流——影响面勾选→P0；功能模板→`parking-lot`；bug 缺 version/os/provider/复现→`needs-repro` + 一次性评论；**作者编辑正文或评论补充后自动摘 `needs-repro`**。不自动关闭任何 issue。
+- **`issue-intake.yml`（已激活）**：新建或编辑 issue 时自动分流——影响面勾选→P0；功能模板→`parking-lot`；bug 缺 version/os/provider/复现→`needs-repro` + 一次性评论；**作者编辑正文或评论补充后自动摘 `needs-repro`**。不自动关闭任何 issue。
 
-**待落地（Phase 7C / 7D）**：PR labeler（`area:*`）/ PR size warning / release-blocker check。具体见计划 Phase 7。
+- **`pr-labeler.yml`（Phase 7C，已落地）**：按 PR 改动路径打 `area:*`（用 actions/labeler，只读 changed-files、不 checkout / 不执行 PR 代码）。
+- **`pr-size-warning.yml`（Phase 7C，已落地）**：PR >25 文件或 >800 行 → 打 `pr:large` + 评论提醒拆分（去重）；**只提醒，不 fail、不关闭**。
+- **`release-blocker-check.yml`（Phase 7D，已落地）**：手动 `workflow_dispatch`，发稳定版前查 `v0.56.x` milestone 下 open P0（crash / data-loss）→ fail；P1 列为 known issues 候选、不 fail。
+
+> **`pull_request_target` 安全约束**：以上 PR workflow 一律不 checkout、不执行外部 PR 代码，只读 PR 元数据 / 打 label / 评论。
+> docs-drift + link check 已另行落地（`scripts/lint-docs-drift.mjs`，pre-commit 强制）。
 
 > docs-drift + link check 已另行落地（`scripts/lint-docs-drift.mjs`，pre-commit 强制）。
