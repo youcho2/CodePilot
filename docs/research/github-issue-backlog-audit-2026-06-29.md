@@ -13,12 +13,12 @@
 | 拉取 open issue | 399 |
 | 无 label | 392 |
 | 无 milestone | 392 |
-| >30 天未更新 | 354 |
+| >30 天未更新 | 355 |
 | >60 天未更新 | 333 |
 | >90 天未更新 | 208 |
 | 疑似旧版本 | 55 |
 | 疑似 feature | 62 |
-| 命中重复主题 | 128 |
+| 命中重复主题 | 86 |
 
 ## 分桶建议
 
@@ -39,7 +39,7 @@
 | # | idle天 | label数 | 标题 |
 |---|--------|---------|------|
 | 635 | 9 | 2 | 0.56 版本会频繁自动中断 |
-| 634 | 9 | 2 | Native Runtime: codepilot_schedule_task and related builtin tools not available  |
+| 634 | 9 | 2 | Native Runtime: codepilot_schedule_task and related builtin tools not available… |
 | 633 | 9 | 2 | Windows11，安装程序无法打开 |
 | 632 | 9 | 1 | 同一项目多个会话似乎存在上下文膨胀问题，导致新会话很容易中断 |
 | 626 | 9 | 1 | 【Bug】每次有新版本提示时，CPU就会占用飙升，而且是持续的 |
@@ -61,20 +61,20 @@
 |---|--------|---------|------|
 | 83 | 125 | 0 | 几点建议 |
 | 29 | 125 | 0 | 0.5版本支持图片、文件了，这是要干趴Cursor的节奏！再接再厉，把视频也加上去！ |
-| 152 | 115 | 0 | [macOS] 标题栏可拖拽区域高度不足，导致窗口难以移动 - 建议增大 macOS 窗口顶部可拖拽区域高度（WebkitAppRegion） |
-| 129 | 115 | 0 | ChatListPanel never loads sessions on mobile  (sidebar always hidden) |
-| 122 | 115 | 0 | 无法安装 |
-| 116 | 115 | 0 | Bug: 文件资源展示栏折叠后无法重新展开 |
-| 108 | 115 | 0 | Bug: 文档最多只能显示 500 行 |
+| 152 | 116 | 0 | [macOS] 标题栏可拖拽区域高度不足，导致窗口难以移动 - 建议增大 macOS 窗口顶部可拖拽区域高度（WebkitAppRegion） |
+| 129 | 116 | 0 | ChatListPanel never loads sessions on mobile (sidebar always hidden) |
+| 122 | 116 | 0 | 无法安装 |
+| 116 | 116 | 0 | Bug: 文件资源展示栏折叠后无法重新展开 |
+| 108 | 116 | 0 | Bug: 文档最多只能显示 500 行 |
 | 177 | 114 | 0 | agent有时候会自己停下来不工作 |
 | 176 | 114 | 0 | 切换会话窗口返回后，原会话窗口的输入框中已经写的但未发出的文字消失了 |
-| 175 | 114 | 0 | [Feature Request] 让费用可见——为 CodePilot 增设常驻实时费用标记 /Upgrade Token Tracking to a Per |
+| 175 | 114 | 0 | [Feature Request] 让费用可见——为 CodePilot 增设常驻实时费用标记 /Upgrade Token Tracking to a Pe… |
 | 174 | 113 | 0 | Claude Code 通过 npm 安装后在 Windows 上无法被 CodePilot 检测到 |
 | 214 | 110 | 0 | 今日更新版本至0.28.1后，Claude无法连接 |
 | 239 | 108 | 0 | feat: Add webhook mode for Lark international (no WebSocket support) |
 | 233 | 108 | 0 | 0.30.0版本，模型选项又是只有默认的，没有自己加的模型，之前的功能是有的 |
 | 231 | 108 | 0 | 飞书对话无法识别/compact、/clear等命令 |
-| 228 | 108 | 0 | windows版本   升到0.30版本，出现错误，但是左上角显示已连接    内容如下，我该怎么改，前两个版本能用  一直使用的是glm-4.7的coding |
+| 228 | 108 | 0 | windows版本 升到0.30版本，出现错误，但是左上角显示已连接 内容如下，我该怎么改，前两个版本能用 一直使用的是glm-4.7的coding plan… |
 | 223 | 108 | 0 | 按照0.29无法使用，切回0.26恢复正常 |
 | 210 | 108 | 0 | Telegram Bot 功能需要支持代理配置（Proxy Support for Telegram Bot） |
 | 192 | 107 | 0 | [bug]API Error: |
@@ -83,12 +83,10 @@
 | 309 | 104 | 0 | 豆包模型使用问题 |
 | 307 | 104 | 0 | Claude Code process exits with code 1 when using GLM (CN) provider |
 | 300 | 104 | 0 | 对话的前端页面为什么会加载失败 |
-| 296 | 104 | 0 | [Bug] Custom API / LiteLLM provider saves successfully but models do not appear  |
+| 296 | 104 | 0 | [Bug] Custom API / LiteLLM provider saves successfully but models do not appear… |
 | 302 | 103 | 0 | 使用 0.38 仍然无法添加Anthropic Third-party API第三方模型，运行诊断是通过的 |
 | 301 | 103 | 0 | 使用 0.38 仍然无法添加火山引擎 codingplan 相关模型，运行诊断是通过的 |
-| 287 | 101 | 0 | feishu bridge allow permission 报错 code 200340
-
-0.36 版本 allow permission 时报错 |
+| 287 | 101 | 0 | feishu bridge allow permission 报错 code 200340 0.36 版本 allow permission 时报错 |
 | 367 | 98 | 0 | OAuth模式下Opus 4.6用着用着就从模型列表消失了 |
 | 305 | 98 | 0 | Custom API (OpenAI-compatible)在哪填写default model name? |
 | 324 | 95 | 0 | feat: 支持通过 Homebrew Cask 安装和更新 |
@@ -96,8 +94,8 @@
 | 354 | 92 | 0 | 添加minimax服务商后无法对话（版本0.38.4） |
 | 405 | 90 | 0 | fedora rpm安装没有软件图标 |
 | 172 | 90 | 0 | [feature]无法使用 @ 文件功能 |
-| 445 | 83 | 0 | 在 CodePilot 中配置 Kimi Coding Plan 时，选择 **Kimi K2.5** 作为模型，但实际对话返回的是 **Claude Sonn |
-| 455 | 80 | 0 | Enabling multiple bridge adapters simultaneously causes both to fail (Feishu + Q |
+| 445 | 83 | 0 | 在 CodePilot 中配置 Kimi Coding Plan 时，选择 **Kimi K2.5** 作为模型，但实际对话返回的是 **Claude Son… |
+| 455 | 80 | 0 | Enabling multiple bridge adapters simultaneously causes both to fail (Feishu + … |
 | 491 | 74 | 0 | [Feature/Bug] 第三方 Anthropic API 供应商配置中，缺少 1M 上下文模型的名称映射选项 |
 | 489 | 74 | 0 | 新功能请求：补充Claude Code的rewind功能 |
 | 470 | 74 | 0 | 【求救】更新提示错误； Claude Code CLI not found. |
@@ -107,11 +105,11 @@
 | 503 | 73 | 0 | [bug]: 新建技能的弹窗里UI交互更新不及时 |
 | 499 | 73 | 0 | [Bug] Aliyun Bailian / qwen3.6-plus 会在 330s 后固定报 Stream idle timeout |
 | 493 | 73 | 0 | 0.50.2 还是无法连接 cc-switch 配置的 Claude CLI |
-| 490 | 73 | 0 | [Bug] CodePilot 已成功同步 CC-Switch 环境变量配置，但对话时报错 "Not logged in · Please run /login |
+| 490 | 73 | 0 | [Bug] CodePilot 已成功同步 CC-Switch 环境变量配置，但对话时报错 "Not logged in · Please run /logi… |
 | 519 | 69 | 0 | bridge 切换路径要先删原 Bridge 对话才成功 |
-| 497 | 65 | 0 | Codex登录授权失败 |
+| 497 | 66 | 0 | Codex登录授权失败 |
 | 542 | 62 | 0 | 功能建议：Mac 分屏/窄窗口下允许固定显示左侧会话列表 |
-| 539 | 62 | 0 | bug(telegram): non-image document attachments are silently dropped or trigger "u |
+| 539 | 62 | 0 | bug(telegram): non-image document attachments are silently dropped or trigger "… |
 | 537 | 62 | 0 | [建议] Claude SDK可能需要更新了，现在codepilot在使用中出现了一大堆问题 |
 | 546 | 61 | 0 | 执行/compact命令报错 |
 | 100 | 61 | 0 | Bug: 第三方 Provider 模型选择器只改变 UI 显示名称，未传递实际模型值 |
@@ -127,21 +125,21 @@
 | 46 | 125 | 0 | 自动识别本地会话空间 |
 | 34 | 125 | 0 | 来个中文包啊 |
 | 26 | 125 | 0 | 必须要求claude login吗？ |
-| 13 | 125 | 0 | 请求支持多语言  （简体中文） |
-| 30 | 120 | 0 | 自定义API和模型 |
-| 148 | 115 | 0 |  "Test Connection" failed；详细见图 |
-| 137 | 115 | 0 | 连续交互会话后不显示思考连和最下方的时间等，看上去像是挂了，切换下会话之后就可以了，感觉应该是前端刷新的问题 |
-| 135 | 115 | 0 | 配置api 无法成功 |
-| 133 | 115 | 0 | 设置使用默认浏览器来打开链接，而非内置浏览器 |
-| 131 | 115 | 0 | 不显示tool call |
-| 130 | 115 | 0 | Telegram bridge doesn't support audio input (Telegram 不支持语音输入) |
-| 117 | 115 | 0 | "New Version Available" pop-up page optimization: markdown pages not rendering p |
-| 115 | 115 | 0 | 求加入服务商硅基流动的 API |
-| 112 | 115 | 0 | 已安装的插件加载错误 |
-| 109 | 115 | 0 | Bug: 插件加载不全 |
-| 105 | 115 | 0 | 使用agents相关是否有问题 |
+| 13 | 125 | 0 | 请求支持多语言 （简体中文） |
+| 30 | 121 | 0 | 自定义API和模型 |
+| 148 | 116 | 0 | "Test Connection" failed；详细见图 |
+| 137 | 116 | 0 | 连续交互会话后不显示思考连和最下方的时间等，看上去像是挂了，切换下会话之后就可以了，感觉应该是前端刷新的问题 |
+| 135 | 116 | 0 | 配置api 无法成功 |
+| 133 | 116 | 0 | 设置使用默认浏览器来打开链接，而非内置浏览器 |
+| 131 | 116 | 0 | 不显示tool call |
+| 130 | 116 | 0 | Telegram bridge doesn't support audio input (Telegram 不支持语音输入) |
+| 117 | 116 | 0 | "New Version Available" pop-up page optimization: markdown pages not rendering … |
+| 115 | 116 | 0 | 求加入服务商硅基流动的 API |
+| 112 | 116 | 0 | 已安装的插件加载错误 |
+| 109 | 116 | 0 | Bug: 插件加载不全 |
+| 105 | 116 | 0 | 使用agents相关是否有问题 |
+| 97 | 116 | 0 | 消息记录丢失，切换界面消息记录就丢失了，当前操作列表消息以及最新状态 |
 | 103 | 115 | 0 | macbook m4 版本，会话还在运行中，我点击设置页面后再点击回来，发现对话缺失 |
-| 97 | 115 | 0 | 消息记录丢失，切换界面消息记录就丢失了，当前操作列表消息以及最新状态 |
 | 189 | 114 | 0 | 关于需要用户授权时的体验优化 |
 | 178 | 114 | 0 | 【功能请求】多路桥接 |
 | 149 | 114 | 0 | 桥接链接失败 已按照操作指引操作 测试几遍都这个问题 |
@@ -160,16 +158,16 @@
 | 262 | 108 | 0 | 最新版本，仍需要新开对话才能激活所有模型 |
 | 261 | 108 | 0 | 最新版本，出现版本检测到已安装其他版本 |
 | 259 | 108 | 0 | [bug]选择深色，主题为 GitHub，输出的 markdown 内容看不清楚 |
+| 257 | 108 | 0 | 服务商api无法使用 |
 | 252 | 108 | 0 | 界面显示 Sonnet 4.6，实际思考中连接到 claude-opus-4-6（模型标识错误） |
-| 248 | 108 | 0 | 我安装了Obsidian CLI 但是界面没有显示  win10已经设置全局变量了 已经设置到path |
+| 248 | 108 | 0 | 我安装了Obsidian CLI 但是界面没有显示 win10已经设置全局变量了 已经设置到path |
 | 247 | 108 | 0 | pluguin内的skills无法加载 |
 | 236 | 108 | 0 | 功能需求 |
 | 229 | 108 | 0 | 桥接至Discord bot后，命令行指令无法被识别和正确传输 |
 | 180 | 108 | 0 | 配置豆包API不成功 |
-| 271 | 107 | 0 | It's not possible to add project files using the @ symbol; the project currently |
+| 271 | 107 | 0 | It's not possible to add project files using the @ symbol; the project currentl… |
 | 269 | 107 | 0 | 无法自动获取ollama作为服务商提高的所有模型 |
 | 267 | 107 | 0 | mcp无法配置，并且配置后有时候会莫名其妙的被重置。 |
-| 257 | 107 | 0 | 服务商api无法使用 |
 | 288 | 106 | 0 | Feishu Bridge: Long connection not detected by Feishu developer console |
 | 279 | 106 | 0 | 无法看到思维链 |
 | 277 | 106 | 0 | 飞书的确认太不友好了 |
@@ -212,10 +210,10 @@
 | 392 | 93 | 0 | CodePilot提醒有版本升级,不知道下载进度 |
 | 404 | 90 | 0 | 拖拽失效 |
 | 401 | 90 | 0 | 文件树超过3级目录就显示不出来了 |
+| 417 | 88 | 0 | UI 模型选型跳变 |
 | 411 | 88 | 0 | 可以支持在软件中编辑文档内容呢，谢谢 |
 | 422 | 87 | 0 | 媒体服务商可以支持第三方服务商配置吗 |
 | 419 | 87 | 0 | 识别不到工作目录 |
-| 417 | 87 | 0 | UI 模型选型跳变 |
 | 430 | 85 | 0 | Custom API (OpenAl-compatible)选项消失了 |
 | 429 | 85 | 0 | 有个大问题，看不到工作树.worktree的目录和文件 |
 | 426 | 85 | 0 | 回滚功能不起作用 |
@@ -255,7 +253,7 @@
 | 520 | 69 | 0 | 删除历史会话后选择已有或者新增新的会话，输入框被置灰无法进行输入 |
 | 527 | 67 | 0 | BUG |
 | 530 | 66 | 0 | 飞书客户端无法显示Markdown表格，微信正常 |
-| 529 | 66 | 0 | AI_MissingToolResultsError: Tool results are missing for tool calls call_functio |
+| 529 | 66 | 0 | AI_MissingToolResultsError: Tool results are missing for tool calls call_functi… |
 | 518 | 66 | 0 | 心跳检查和定时任务不起作用 |
 | 533 | 64 | 0 | 查看Mermind流程图无法退出 |
 | 535 | 63 | 0 | 复制粘贴图片发送后 无法解读 报错 |
@@ -281,8 +279,8 @@
 | 554 | 23 | 0 | 1m上下文如何来开启？设置里面打开开关，但对话下面还是显示200k，而且/context似乎没用？ |
 | 617 | 22 | 0 | claude运行问题 |
 | 616 | 22 | 0 | 需要小米mimo新加坡集群节点 |
+| 625 | 19 | 0 | 运行就会提示这个东西但是过会自己就消失了 |
 | 622 | 19 | 0 | 飞书远程桥接无法使用 |
-| 625 | 18 | 0 | 运行就会提示这个东西但是过会自己就消失了 |
 | 532 | 16 | 0 | deepseek v4两个模型都只显示200k上下文，实际能力为1M |
 | 637 | 14 | 0 | 版本 5.60 =》分屏功能优化体验需求 |
 | 619 | 14 | 0 | 版本 V0.55.1 问题：概率串会话 |
@@ -301,13 +299,13 @@
 |---|--------|---------|------|
 | 69 | 125 | 0 | 能不能支持 codex 那种多项目选择的模式 |
 | 52 | 125 | 0 | 能不能增加Antigravity 的授权而不是GOOGLE API 来启动这个UI？ |
-| 162 | 115 | 0 | AI每一步做的事情都是摘要，无法查看他每一步详细的内容，希望可以点击展开看到它改了什么 |
-| 147 | 115 | 0 | 【功能请求】 希望添加对远程服务器上CC的支持 |
-| 145 | 115 | 0 | 【功能请求】希望能增加claude code的更新检测和升级功能 |
-| 139 | 115 | 0 | 希望 CodePilot 可以添加 Image 模型的第三方配置，支持自己输入 Base URL 和 API Key。 |
-| 132 | 115 | 0 | Feature Request: 添加上下文窗口使用百分比显示 (Context Window Usage Percentage Display) |
-| 114 | 115 | 0 | 建议显示已安装的agent，可视化创建agent |
-| 106 | 115 | 0 | 建议增加远程功能，PC上打开这个软件，手机使用app或者web打开一个页面继续操作 |
+| 162 | 116 | 0 | AI每一步做的事情都是摘要，无法查看他每一步详细的内容，希望可以点击展开看到它改了什么 |
+| 147 | 116 | 0 | 【功能请求】 希望添加对远程服务器上CC的支持 |
+| 145 | 116 | 0 | 【功能请求】希望能增加claude code的更新检测和升级功能 |
+| 139 | 116 | 0 | 希望 CodePilot 可以添加 Image 模型的第三方配置，支持自己输入 Base URL 和 API Key。 |
+| 132 | 116 | 0 | Feature Request: 添加上下文窗口使用百分比显示 (Context Window Usage Percentage Display) |
+| 114 | 116 | 0 | 建议显示已安装的agent，可视化创建agent |
+| 106 | 116 | 0 | 建议增加远程功能，PC上打开这个软件，手机使用app或者web打开一个页面继续操作 |
 | 181 | 114 | 0 | 会考虑增加codex和gemini cli吗 |
 | 168 | 114 | 0 | 对话列表增加关闭文件夹的建议 |
 | 165 | 114 | 0 | 希望可以增加定时任务功能 |
@@ -324,10 +322,10 @@
 | 313 | 104 | 0 | 希望能适配ClaudeCode最新的Agent Team |
 | 311 | 104 | 0 | 希望支持修改默认图片生成工具 |
 | 318 | 103 | 0 | 希望能添加接入第三方vertex |
+| 182 | 103 | 0 | 希望目录可以显示隐藏文件和文件夹 |
+| 336 | 102 | 0 | 功能请求: 会话列表增加删除会话和删除文件夹功能 |
 | 333 | 102 | 0 | 希望服务商增加codex 和 github copilot的 oauth认证登录 |
-| 182 | 102 | 0 | 希望目录可以显示隐藏文件和文件夹 |
 | 338 | 101 | 0 | 功能请求: 软件更新弹窗增加「不再提示」选项 |
-| 336 | 101 | 0 | 功能请求: 会话列表增加删除会话和删除文件夹功能 |
 | 363 | 98 | 0 | [Feature Request] 增加 Discord 回复自动新建thread选项 |
 | 397 | 92 | 0 | 希望能增加diff内容预览和回退的功能 |
 | 403 | 90 | 0 | 希望加个聊天框确认提醒通知功能 |
@@ -337,23 +335,23 @@
 | 458 | 80 | 0 | Feature Request: Support multiple OpenAI OAuth accounts |
 | 460 | 79 | 0 | 希望能增加定时任务的功能 |
 | 467 | 77 | 0 | Feature: Auto-transcribe WeChat voice messages when voice_item.text is missing |
+| 466 | 77 | 0 | 希望加个内部测试版吧，内部测试通过才发布。 |
 | 469 | 76 | 0 | Feature: One-click import and browse Claude Code conversation history |
-| 466 | 76 | 0 | 希望加个内部测试版吧，内部测试通过才发布。 |
+| 482 | 75 | 0 | Feature Request: 全局/会话内搜索功能（参考 Obsidian） |
+| 481 | 75 | 0 | Feature Request：Turn 级增加 meta 信息展示（Coding Agent / 模型） |
 | 485 | 74 | 0 | Feature Request：支持更多 AI Agent 框架（QwenCode、OpenCode 等） |
-| 482 | 74 | 0 | Feature Request: 全局/会话内搜索功能（参考 Obsidian） |
-| 481 | 74 | 0 | Feature Request：Turn 级增加 meta 信息展示（Coding Agent / 模型） |
 | 409 | 73 | 0 | 希望能保留对话草稿内容 |
 | 525 | 69 | 0 | 希望增加对无问芯穹 coding plan 的支持 |
 | 522 | 69 | 0 | 增加对gml-5.1的支持 |
 | 538 | 62 | 0 | 求增加对openai兼容格式的支持，目前无法添加openai中转站接口 |
 | 557 | 54 | 0 | 建议支持添加自定义桥接渠道功能 |
 | 565 | 42 | 0 | 求增加硅基流动api的支持或者openaithirdparty |
-| 566 | 40 | 0 | 运行链接诊断的时候报错：Live test failed — UNSUPPORTED_FEATURE: Your Claude Code CLI version |
+| 566 | 40 | 0 | 运行链接诊断的时候报错：Live test failed — UNSUPPORTED_FEATURE: Your Claude Code CLI versio… |
 | 621 | 21 | 0 | 建议在右侧文件区域添加右键功能，直接打开文件，或者在文件夹中显示 |
 | 631 | 17 | 0 | 【特性需求/RFC】引入类似 Steam 创意工坊的开放模块挂载系统，支持用户自主扩展独立 UI 组件与全局功能 |
 | 630 | 17 | 0 | 1,色彩主题没匹配上，2建议增加在浏览器中打开按钮，3建议增加在文件夹中打开按钮 |
 | 638 | 14 | 0 | 交互优化建议 |
-| 645 | 3 | 0 | 模型的对接建议直接对接cc-switch |
+| 645 | 4 | 0 | 模型的对接建议直接对接cc-switch |
 
 ### `support-question-close`（15）
 
@@ -361,16 +359,16 @@
 
 | # | idle天 | label数 | 标题 |
 |---|--------|---------|------|
-| 128 | 115 | 0 | 请问是否计划支持acp协议呢 |
-| 121 | 115 | 0 | 环境检测问题-软件中如何切换 node 版本？ |
-| 111 | 115 | 0 | 回答速度相比cli太慢了，怎么办 |
-| 104 | 115 | 0 | 怎么修改Claude Code默认的启动目录？ |
+| 128 | 116 | 0 | 请问是否计划支持acp协议呢 |
+| 121 | 116 | 0 | 环境检测问题-软件中如何切换 node 版本？ |
+| 111 | 116 | 0 | 回答速度相比cli太慢了，怎么办 |
+| 104 | 116 | 0 | 怎么修改Claude Code默认的启动目录？ |
 | 200 | 113 | 0 | session 如何切换 |
 | 278 | 106 | 0 | bug: AskUserQuestion 在飞书端未正确渲染为交互式表单 |
 | 246 | 106 | 0 | 为什么没有自动更新的功能啊。 |
 | 275 | 105 | 0 | 最新版本的智谱大模型如何加入 |
 | 295 | 104 | 0 | 请问通过修改claude/settings.json，服务商可以生效吗？ |
-| 317 | 102 | 0 | 怎么切换模式？ |
+| 317 | 103 | 0 | 怎么切换模式？ |
 | 359 | 99 | 0 | AskUserQuestion 在Discord端未正确渲染为交互式表单 |
 | 358 | 99 | 0 | Telegram 桥接怎么设置full access, 一直弹权限确认， 老中断 |
 | 450 | 81 | 0 | 为什么无法同步对话框,telegram发消息都是弹出新窗口 |
@@ -388,27 +386,27 @@
 | 76 | 125 | 0 | Code review summary: usability breakages and safety/stability gaps |
 | 27 | 125 | 0 | 可以支持claude code的agent吗 |
 | 63 | 123 | 0 | 没办法多开窗口对话 |
-| 160 | 115 | 0 | 请求添加 TG 流式响应开关选项 |
-| 140 | 115 | 0 | TG 发送消息失败 |
+| 160 | 116 | 0 | 请求添加 TG 流式响应开关选项 |
+| 140 | 116 | 0 | TG 发送消息失败 |
+| 126 | 116 | 0 | 总掉线是什么原因呢 |
+| 119 | 116 | 0 | bug：自动更新后无法重启更新 |
+| 110 | 116 | 0 | provider |
+| 102 | 116 | 0 | mac，终端正常使用，桌面端不行，自己新增的 provider 也不行 |
+| 98 | 116 | 0 | ask模式正常，code模式/plan模式无法使用 |
 | 136 | 115 | 0 | Original error: Claude Code process exited with code 1 |
-| 126 | 115 | 0 | 总掉线是什么原因呢 |
-| 119 | 115 | 0 | bug：自动更新后无法重启更新 |
-| 110 | 115 | 0 | provider |
-| 102 | 115 | 0 | mac，终端正常使用，桌面端不行，自己新增的 provider 也不行 |
-| 98 | 115 | 0 | ask模式正常，code模式/plan模式无法使用 |
+| 194 | 114 | 0 | 无法记住窗口大小和颜色配置 |
 | 190 | 114 | 0 | macOS version only showing 2 MCP servers, should show 7 |
 | 185 | 114 | 0 | MAC版添加豆包模型后，telegram发送任务不能执行 |
 | 154 | 114 | 0 | 提示错误，Claude Code CLI not found. |
-| 194 | 113 | 0 | 无法记住窗口大小和颜色配置 |
 | 173 | 113 | 0 | 连接第三方api时，对话栏模型选择列表有误 |
-| 219 | 111 | 0 | 我一直没有使用起来，求大神指导 |
-| 220 | 110 | 0 | 用kimi k2.5模型显示：Original error: Claude Code process exited with code 1 |
+| 219 | 112 | 0 | 我一直没有使用起来，求大神指导 |
+| 220 | 111 | 0 | 用kimi k2.5模型显示：Original error: Claude Code process exited with code 1 |
 | 179 | 110 | 0 | 「feishu桥接」 |
 | 254 | 108 | 0 | Chats 窗口有确认项的 session 会话，黄点闪烁 |
 | 244 | 108 | 0 | [Bug] Terminal window pops up when sending messages on Windows |
 | 234 | 108 | 0 | 是否支持 codex的 OAth登陆 |
 | 225 | 108 | 0 | Bug: Chinese IME Enter key triggers message send during composition |
-| 285 | 106 | 0 | Dependency ‘@lobehub/ui’ exists in package.json but failed to resolve after inst |
+| 285 | 106 | 0 | Dependency ‘@lobehub/ui’ exists in package.json but failed to resolve after ins… |
 | 276 | 106 | 0 | 版本冲突 |
 | 274 | 106 | 0 | 版本冲突 |
 | 199 | 106 | 0 | 飞书桥接无回应，chat界面可运行 |
@@ -416,9 +414,9 @@
 | 306 | 104 | 0 | 检测一切都通过，但是还是显示Error: Claude Code CLI not foun |
 | 299 | 104 | 0 | 对话速度慢 |
 | 323 | 103 | 0 | [Bug] Feishu WebSocket long connection fails: code 1000040345, system busy |
+| 335 | 102 | 0 | Bug: 当同时输入命令和请求时，请求内容被隐藏只显示命令 |
 | 340 | 101 | 0 | Add Provider按钮不好使 |
 | 337 | 101 | 0 | 功能请求: 添加链接打开设置选项及内置浏览器数据持久化支持 |
-| 335 | 101 | 0 | Bug: 当同时输入命令和请求时，请求内容被隐藏只显示命令 |
 | 270 | 100 | 0 | Windows端无法使用 |
 | 365 | 98 | 0 | Sonnet 4 and Opus 4 |
 | 371 | 97 | 0 | feat: 支持批量导入 CLI session（按 project 或全选） |
@@ -429,29 +427,29 @@
 | 395 | 92 | 0 | 启动不了 |
 | 385 | 89 | 0 | [Bug] 关闭软件重新打开后，主题配置丢失，永远是深色主题 |
 | 428 | 85 | 0 | 功能请求：在 CodePilot 中支持 Plugin 斜杠命令 |
-| 427 | 85 | 0 | OpenRouter provider: thinking mode causes crash with non-Anthropic models (e.g.  |
+| 427 | 85 | 0 | OpenRouter provider: thinking mode causes crash with non-Anthropic models (e.g.… |
 | 413 | 85 | 0 | KIMI 2.5 CODING plan not working |
 | 412 | 85 | 0 | 阿里百炼和直接填写kimi coding 2.5 both not working |
 | 410 | 85 | 0 | Windows npm下载的Claude code，会找不到Claude code cli |
 | 406 | 85 | 0 | 删除多余 claude code 后，claude code 不可用 |
 | 396 | 85 | 0 | 更新为何一定要用内置浏览器呢？ |
-| 440 | 84 | 0 | Chat doesn't render colors correctly for coding blocks or json. Very hard to rea |
+| 440 | 84 | 0 | Chat doesn't render colors correctly for coding blocks or json. Very hard to re… |
 | 432 | 84 | 0 | fix: broaden Claude CLI discovery paths for pnpm and compatibility wrappers |
-| 423 | 84 | 0 | 鉴权来源出错，但是我已经正确配置了我claude  code |
+| 423 | 84 | 0 | 鉴权来源出错，但是我已经正确配置了我claude code |
 | 434 | 81 | 0 | feat: add optional cc-switch compatibility mode |
+| 459 | 80 | 0 | 左侧UI设计上能否采用codex设计，每项对话对其文案，而非图标 |
 | 454 | 80 | 0 | windows11 卸载卡住 |
 | 447 | 80 | 0 | BUG 配置文件确定正确，并且系统的claude code可以使用，但是CodePilot无法使用。 |
-| 459 | 79 | 0 | 左侧UI设计上能否采用codex设计，每项对话对其文案，而非图标 |
 | 471 | 77 | 0 | v0.49.0 版本 Generative UI 的渲染功能以及OpenRouter Native 协议连接失败 |
-| 456 | 77 | 0 | v0.48.0+ 强制要求 Provider 实体导致了 CLI 引擎的认证拦截。对于第三方 API，AI SDK 引擎与 Claude CLI 引擎在环境变量 |
+| 456 | 77 | 0 | v0.48.0+ 强制要求 Provider 实体导致了 CLI 引擎的认证拦截。对于第三方 API，AI SDK 引擎与 Claude CLI 引擎在环境变… |
 | 453 | 77 | 0 | codepilot好像不支持 claude code 的/btw指令 |
 | 475 | 74 | 0 | GLM 5.1 一直卡在 组织回复中 CodePilot v0.49.0 |
 | 474 | 74 | 0 | Provider resolution path: "Anthropic Third-party API" (anthropic) |
 | 457 | 74 | 0 | 最新版本的 Claude Code CLI 或者 AI SDK 无法使用 |
+| 514 | 73 | 0 | [Bug] Claude Code 状态检查间歇性失败（Windows） |
 | 512 | 73 | 0 | 同步 Claude Code 历史 |
 | 500 | 73 | 0 | 我想用kimi 2.5 coding plan作为模型使用，竟然折腾了2周都不能实现，大家都可以用吗？ |
-| 514 | 72 | 0 | [Bug] Claude Code 状态检查间歇性失败（Windows） |
-| 464 | 72 | 0 | OpenAI OAuth 登录报错：Token exchange failed: Token exchange failed: 403 - [object Ob |
+| 464 | 72 | 0 | OpenAI OAuth 登录报错：Token exchange failed: Token exchange failed: 403 - [object O… |
 | 523 | 69 | 0 | 配置第三方服务总是出错 |
 | 461 | 69 | 0 | 升级最新版本后，claude code 无法连接？ |
 | 517 | 68 | 0 | ubuntu系统下版本更新的推荐下载文件不对 |
@@ -467,115 +465,82 @@
 | 552 | 57 | 0 | 第三方 Anthropic 代理 (gaccode 等) 测试连接使用模型别名导致失败，更新时 base_url 空字符串校验问题 |
 | 560 | 52 | 0 | 我在终端用 claude cli 就可以,在桌面网页就不行,已经更新了 |
 | 559 | 52 | 0 | GPT做看板 好像一直有问题，但是其他模型（DeepSeek、kimi等）就可以 |
-| 558 | 51 | 0 | win下有时会清空 ~/.claude/ 文件夹下的agent和skills |
+| 558 | 52 | 0 | win下有时会清空 ~/.claude/ 文件夹下的agent和skills |
 | 563 | 37 | 0 | 会清空掉claude code的历史对话，严重Bug。另外图2图3这个bug经常第一次发送不回复要发两次 |
+| 570 | 31 | 0 | 无法配置OpenRouter |
 | 571 | 30 | 0 | deepSeek用不了 |
-| 570 | 30 | 0 | 无法配置OpenRouter |
 | 478 | 26 | 0 | 使用 cc-switch 后一直报错无法使用 |
-| 577 | 25 | 0 | 使用期间每一次正常对话后都会出现一次Error: An unexpected error occurred (Provider: Anthropic Third |
+| 577 | 25 | 0 | 使用期间每一次正常对话后都会出现一次Error: An unexpected error occurred (Provider: Anthropic Thir… |
 | 574 | 25 | 0 | 在claude code最新版本中可以使用workflow，codepilot中最新的用不了 |
 | 613 | 23 | 0 | codex 切换其他模型总是失败。 |
 | 612 | 23 | 0 | codepilot_generate_image MCP 工具在 HTTP 代理环境下 TLS 握手失败 |
-| 618 | 21 | 0 | win11下运行后闪退，下面是日志，删除 .cc-switch 目录后重启还是闪退 |
+| 618 | 22 | 0 | win11下运行后闪退，下面是日志，删除 .cc-switch 目录后重启还是闪退 |
 | 623 | 20 | 0 | claude code一直误报：1 other Claude CLI installation(s) detected |
 | 624 | 19 | 0 | Clarify quota/billing behavior for Claude Agent SDK runtime |
 | 641 | 12 | 0 | 这个版本的 CodePilot 不能直接用 Claude Pro 登录态跑 Claude Code SDK，必须配 API Provider |
-| 640 | 12 | 0 | Effort selector dropdown hidden for GLM models — blocks access to GLM-5.2 High/M |
+| 640 | 12 | 0 | Effort selector dropdown hidden for GLM models — blocks access to GLM-5.2 High/… |
 
-## 重复主题聚类（candidate canonical + 其余指向它）
+## 重复主题聚类（仅候选，canonical 需人工选）
 
-### install-update（54）
+> 仅按**标题**关键词命中归类（不看正文，避免正文偶然命中误聚）；**不自动推荐 canonical**——同主题下留哪个作主 issue 须人工判断后再评论 / 关闭。
 
-建议 canonical: **#646**；其余可评论指向后关闭（人工确认）。
+### install-update（35）
 
 - #646（idle 1d）最近不更新了吗？
 - #633（idle 9d）Windows11，安装程序无法打开
 - #628（idle 9d）通过@ 添加文件发送后的文件被单独保存，导致内容更新时更新的不是原文件
 - #623（idle 20d）claude code一直误报：1 other Claude CLI installation(s) detected
 - #615（idle 14d）版本 0.55.1模型不更新，截图发送被吞
-- #577（idle 25d）使用期间每一次正常对话后都会出现一次Error: An unexpected error occurred (Provider: Anthr
 - #576（idle 25d）codepilot中右边的文件夹目录中的文件无法打开添加到聊天框中
 - #561（idle 51d）不更新了吗
 - #560（idle 52d）我在终端用 claude cli 就可以,在桌面网页就不行,已经更新了
-- #559（idle 52d）GPT做看板 好像一直有问题，但是其他模型（DeepSeek、kimi等）就可以
 - #552（idle 57d）第三方 Anthropic 代理 (gaccode 等) 测试连接使用模型别名导致失败，更新时 base_url 空字符串校验问题
 - #543（idle 62d）windows下安装默认C盘
+- #537（idle 62d）[建议] Claude SDK可能需要更新了，现在codepilot在使用中出现了一大堆问题
 - #524（idle 69d）更新版本之后，连接国内大模型服务商经常出现断联
-- #523（idle 69d）配置第三方服务总是出错
 - #521（idle 66d）更新后百炼code plan无法使用
 - #517（idle 68d）ubuntu系统下版本更新的推荐下载文件不对
-- #514（idle 72d）[Bug] Claude Code 状态检查间歇性失败（Windows）
-- #511（idle 65d）【v.50.3版本】识别不到默认的CLI里面claude订阅会员，一直卡在模型选择
-- #505（idle 68d）[Bug] 指令补全异常：文件型本地指令刷新滞后，且未支持解析 enabledPlugins (如 superpowers)
-- #504（idle 73d）[bug] 我的技能列表读取有问题
 - #503（idle 73d）[bug]: 新建技能的弹窗里UI交互更新不及时
-- #487（idle 73d）项目级别的mcp和skill没被加载
-- #445（idle 83d）在 CodePilot 中配置 Kimi Coding Plan 时，选择 **Kimi K2.5** 作为模型，但实际对话返回的是 **C
-- #437（idle 84d）关于自定义API，链接成功后点击保存，再测试链接就会失败
-- #436（idle 84d）MINIMAX的api用不了
 - #420（idle 85d）自定义安装了OpenCLI工具并同步给了CodePilot，在CodePilot中识别不到
-- #413（idle 85d）KIMI 2.5 CODING plan not working
 - #405（idle 90d）fedora rpm安装没有软件图标
 - #396（idle 85d）更新为何一定要用内置浏览器呢？
-- #379（idle 96d）Bug: Stream data gets GC'd while user is still on the session page
 - #377（idle 97d）技能安装窗口，字符编码全是乱码
 - #374（idle 74d）CodePilot群二维码失效了，能否更新一下。
-- #349（idle 79d）现在的 SKILL 并不是真正的 SKILL，而是 Command
 - #338（idle 101d）功能请求: 软件更新弹窗增加「不再提示」选项
 - #324（idle 95d）feat: 支持通过 Homebrew Cask 安装和更新
 - #310（idle 72d）软件更新问题
-- #309（idle 104d）豆包模型使用问题
 - #292（idle 105d）0.37.0 install failed in ubuntu
-- #285（idle 106d）Dependency ‘@lobehub/ui’ exists in package.json but failed to resolve 
-- #276（idle 106d）版本冲突
-- #274（idle 106d）版本冲突
+- #285（idle 106d）Dependency ‘@lobehub/ui’ exists in package.json but failed to resolve…
 - #264（idle 102d）安装SKILL失败
 - #261（idle 108d）最新版本，出现版本检测到已安装其他版本
-- #248（idle 108d）我安装了Obsidian CLI 但是界面没有显示  win10已经设置全局变量了 已经设置到path
+- #248（idle 108d）我安装了Obsidian CLI 但是界面没有显示 win10已经设置全局变量了 已经设置到path
 - #246（idle 106d）为什么没有自动更新的功能啊。
-- #165（idle 114d）希望可以增加定时任务功能
-- #145（idle 115d）【功能请求】希望能增加claude code的更新检测和升级功能
-- #126（idle 115d）总掉线是什么原因呢
-- #122（idle 115d）无法安装
-- #121（idle 115d）环境检测问题-软件中如何切换 node 版本？
-- #119（idle 115d）bug：自动更新后无法重启更新
-- #114（idle 115d）建议显示已安装的agent，可视化创建agent
-- #112（idle 115d）已安装的插件加载错误
-- #76（idle 125d）Code review summary: usability breakages and safety/stability gaps
+- #174（idle 113d）Claude Code 通过 npm 安装后在 Windows 上无法被 CodePilot 检测到
+- #145（idle 116d）【功能请求】希望能增加claude code的更新检测和升级功能
+- #122（idle 116d）无法安装
+- #119（idle 116d）bug：自动更新后无法重启更新
+- #114（idle 116d）建议显示已安装的agent，可视化创建agent
+- #112（idle 116d）已安装的插件加载错误
 
-### crash-interrupt（11）
-
-建议 canonical: **#635**；其余可评论指向后关闭（人工确认）。
+### crash-interrupt（5）
 
 - #635（idle 9d）0.56 版本会频繁自动中断
 - #632（idle 9d）同一项目多个会话似乎存在上下文膨胀问题，导致新会话很容易中断
-- #618（idle 21d）win11下运行后闪退，下面是日志，删除 .cc-switch 目录后重启还是闪退
+- #618（idle 22d）win11下运行后闪退，下面是日志，删除 .cc-switch 目录后重启还是闪退
 - #578（idle 25d）在构建任务时，任务中断之后，重新在输入框中输入相关内容点击发送无响应
-- #558（idle 51d）win下有时会清空 ~/.claude/ 文件夹下的agent和skills
-- #518（idle 66d）心跳检查和定时任务不起作用
-- #499（idle 73d）[Bug] Aliyun Bailian / qwen3.6-plus 会在 330s 后固定报 Stream idle timeout
-- #427（idle 85d）OpenRouter provider: thinking mode causes crash with non-Anthropic mod
-- #395（idle 92d）启动不了
-- #307（idle 104d）Claude Code process exits with code 1 when using GLM (CN) provider
-- #63（idle 123d）没办法多开窗口对话
+- #427（idle 85d）OpenRouter provider: thinking mode causes crash with non-Anthropic mo…
 
-### bridge（41）
+### bridge（36）
 
-建议 canonical: **#624**；其余可评论指向后关闭（人工确认）。
-
-- #624（idle 19d）Clarify quota/billing behavior for Claude Agent SDK runtime
 - #622（idle 19d）飞书远程桥接无法使用
 - #557（idle 54d）建议支持添加自定义桥接渠道功能
-- #550（idle 58d）Error: No output generated. Check the stream for errors.
-- #539（idle 62d）bug(telegram): non-image document attachments are silently dropped or 
-- #537（idle 62d）[建议] Claude SDK可能需要更新了，现在codepilot在使用中出现了一大堆问题
+- #539（idle 62d）bug(telegram): non-image document attachments are silently dropped or…
 - #530（idle 66d）飞书客户端无法显示Markdown表格，微信正常
 - #519（idle 69d）bridge 切换路径要先删原 Bridge 对话才成功
 - #510（idle 73d）【0.50.3版】telegram桥接的连接测试失败和Anthropic兼容端点的推理深度问题
 - #506（idle 73d）飞书的桥接不通畅
-- #467（idle 77d）Feature: Auto-transcribe WeChat voice messages when voice_item.text is
+- #455（idle 80d）Enabling multiple bridge adapters simultaneously causes both to fail …
 - #450（idle 81d）为什么无法同步对话框,telegram发消息都是弹出新窗口
-- #389（idle 93d）关闭窗口（不是退出应用）后台没反应了
 - #363（idle 98d）[Feature Request] 增加 Discord 回复自动新建thread选项
 - #359（idle 99d）AskUserQuestion 在Discord端未正确渲染为交互式表单
 - #358（idle 99d）Telegram 桥接怎么设置full access, 一直弹权限确认， 老中断
@@ -584,64 +549,39 @@
 - #294（idle 103d）window版的qq桥接老是自动断掉
 - #293（idle 74d）微信群已经过期
 - #291（idle 105d）通过飞书桥接发不了文件
-- #288（idle 106d）Feishu Bridge: Long connection not detected by Feishu developer consol
-- #287（idle 101d）feishu bridge allow permission 报错 code 200340
-
-0.36 版本 allow permissio
+- #288（idle 106d）Feishu Bridge: Long connection not detected by Feishu developer conso…
+- #287（idle 101d）feishu bridge allow permission 报错 code 200340 0.36 版本 allow permissio…
 - #286（idle 105d）飞书切换项目文件夹失败
 - #278（idle 106d）bug: AskUserQuestion 在飞书端未正确渲染为交互式表单
 - #277（idle 106d）飞书的确认太不友好了
 - #256（idle 108d）建议 Bridge 增加企业微信（WeCom）桥接支持
 - #242（idle 108d）【归藏最帅】希望增加多个bot桥接功能
-- #239（idle 108d）feat: Add webhook mode for Lark international (no WebSocket support)
 - #231（idle 108d）飞书对话无法识别/compact、/clear等命令
 - #229（idle 108d）桥接至Discord bot后，命令行指令无法被识别和正确传输
-- #227（idle 105d）设置的主题，在重启软件后会变回默认
 - #217（idle 112d）「QQ桥接」延时问题
 - #215（idle 112d）Feature Request: Add iMessage support to Bridge
+- #210（idle 108d）Telegram Bot 功能需要支持代理配置（Proxy Support for Telegram Bot）
 - #209（idle 113d）把当前会话同步到飞书等渠道
 - #199（idle 106d）飞书桥接无回应，chat界面可运行
 - #185（idle 114d）MAC版添加豆包模型后，telegram发送任务不能执行
 - #179（idle 110d）「feishu桥接」
 - #178（idle 114d）【功能请求】多路桥接
 - #149（idle 114d）桥接链接失败 已按照操作指引操作 测试几遍都这个问题
-- #130（idle 115d）Telegram bridge doesn't support audio input (Telegram 不支持语音输入)
+- #130（idle 116d）Telegram bridge doesn't support audio input (Telegram 不支持语音输入)
 
-### provider-connect（11）
-
-建议 canonical: **#493**；其余可评论指向后关闭（人工确认）。
+### provider-connect（7）
 
 - #493（idle 73d）0.50.2 还是无法连接 cc-switch 配置的 Claude CLI
 - #471（idle 77d）v0.49.0 版本 Generative UI 的渲染功能以及OpenRouter Native 协议连接失败
 - #461（idle 69d）升级最新版本后，claude code 无法连接？
-- #455（idle 80d）Enabling multiple bridge adapters simultaneously causes both to fail (
-- #431（idle 84d）三方api密钥无法保存
-- #412（idle 85d）阿里百炼和直接填写kimi coding 2.5 both not working
 - #393（idle 85d）无论是按 openai 第三方来配置还是按Anthropic Third-party API 来配置，都无法连接，已经上传报错日志
-- #323（idle 103d）[Bug] Feishu WebSocket long connection fails: code 1000040345, system 
+- #323（idle 103d）[Bug] Feishu WebSocket long connection fails: code 1000040345, system…
 - #214（idle 110d）今日更新版本至0.28.1后，Claude无法连接
-- #210（idle 108d）Telegram Bot 功能需要支持代理配置（Proxy Support for Telegram Bot）
-- #148（idle 115d） "Test Connection" failed；详细见图
+- #148（idle 116d）"Test Connection" failed；详细见图
 
-### model-list（5）
-
-建议 canonical: **#491**；其余可评论指向后关闭（人工确认）。
-
-- #491（idle 74d）[Feature/Bug] 第三方 Anthropic API 供应商配置中，缺少 1M 上下文模型的名称映射选项
-- #380（idle 85d）配置第三方GPT，无法设置模型
-- #367（idle 98d）OAuth模式下Opus 4.6用着用着就从模型列表消失了
-- #306（idle 104d）检测一切都通过，但是还是显示Error: Claude Code CLI not foun
-- #100（idle 61d）Bug: 第三方 Provider 模型选择器只改变 UI 显示名称，未传递实际模型值
-
-### claude-cli-missing（6）
-
-建议 canonical: **#470**；其余可评论指向后关闭（人工确认）。
+### claude-cli-missing（2）
 
 - #470（idle 74d）【求救】更新提示错误； Claude Code CLI not found.
-- #432（idle 84d）fix: broaden Claude CLI discovery paths for pnpm and compatibility wra
-- #406（idle 85d）删除多余 claude code 后，claude code 不可用
-- #219（idle 111d）我一直没有使用起来，求大神指导
-- #174（idle 113d）Claude Code 通过 npm 安装后在 Windows 上无法被 CodePilot 检测到
 - #154（idle 114d）提示错误，Claude Code CLI not found.
 
 ## 下一步（不在本脚本内执行）

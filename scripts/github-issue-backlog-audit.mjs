@@ -49,6 +49,15 @@ function pullIssues() {
 
 const daysSince = (iso) => Math.floor((now - new Date(iso).getTime()) / 86_400_000);
 
+// Normalize a GitHub issue title for safe single-line markdown table output:
+// collapse ALL whitespace (incl. \n \r \t and runs) to single spaces, trim,
+// escape pipes. Fixes embedded-newline titles splitting table rows (e.g. #287)
+// and trailing-whitespace lint on the generated report.
+function sanitizeTitle(title, max = 80) {
+  const clean = String(title || '').replace(/\s+/g, ' ').trim().replace(/\|/g, '\\|');
+  return clean.length > max ? clean.slice(0, max - 1) + '…' : clean;
+}
+
 // --- heuristic detectors (conservative; only used to SUGGEST a bucket) ---
 const labelNames = (i) => (i.labels || []).map((l) => l.name);
 const isP0P1 = (i) => labelNames(i).some((n) => /^P0-|^P1-/.test(n));
@@ -79,7 +88,9 @@ const DUP_TOPICS = [
   { key: 'crash-interrupt', re: /闪退|崩溃|crash|中断|interrupt|自动停止/i },
 ];
 function dupTopic(i) {
-  const hit = DUP_TOPICS.find((t) => t.re.test(text(i)));
+  // title-only: matching against body produced false clusters (e.g. #624
+  // "quota/billing" got pulled into 'bridge' because its body mentioned a bridge).
+  const hit = DUP_TOPICS.find((t) => t.re.test(i.title));
   return hit ? hit.key : null;
 }
 
@@ -169,19 +180,19 @@ for (const b of BUCKET_ORDER) {
   md += `${BUCKET_DESC[b]}\n\n`;
   md += `| # | idle天 | label数 | 标题 |\n|---|--------|---------|------|\n`;
   for (const e of list.sort((a, b) => b.idleDays - a.idleDays)) {
-    const t = e.title.replace(/\|/g, '\\|').slice(0, 80);
+    const t = sanitizeTitle(e.title, 80);
     md += `| ${e.number} | ${e.idleDays} | ${e.labels.length} | ${t} |\n`;
   }
   md += `\n`;
 }
 
-md += `## 重复主题聚类（candidate canonical + 其余指向它）\n\n`;
+md += `## 重复主题聚类（仅候选，canonical 需人工选）\n\n`;
+md += `> 仅按**标题**关键词命中归类（不看正文，避免正文偶然命中误聚）；**不自动推荐 canonical**——同主题下留哪个作主 issue 须人工判断后再评论 / 关闭。\n\n`;
 for (const [key, list] of Object.entries(dupClusters)) {
   if (list.length < 2) continue;
   md += `### ${key}（${list.length}）\n\n`;
   const sorted = list.sort((a, b) => a.ageDays - b.ageDays);
-  md += `建议 canonical: **#${sorted[0].number}**；其余可评论指向后关闭（人工确认）。\n\n`;
-  md += sorted.map((e) => `- #${e.number}（idle ${e.idleDays}d）${e.title.slice(0, 70)}`).join('\n');
+  md += sorted.map((e) => `- #${e.number}（idle ${e.idleDays}d）${sanitizeTitle(e.title, 70)}`).join('\n');
   md += `\n\n`;
 }
 
