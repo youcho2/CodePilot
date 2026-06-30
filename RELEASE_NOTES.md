@@ -1,24 +1,26 @@
-## CodePilot v0.56.2
+## CodePilot v0.56.3
 
-> 稳定性与可信度修复版本：专注修复对话中断、会话恢复、@文件编辑、上下文用量显示、Codex 图文输入等一批"可信主路径"问题。不新增功能，推荐所有用户升级。
+> 新增 ClinePass 与 OpenCode Go 两类订阅服务商接入，并彻底修复发送后输入框文本残留、服务商弹窗关闭按钮等体验问题。推荐升级。
+
+### 新增功能
+
+- **接入 ClinePass 订阅** — 在「添加服务 > Coding Plan」里新增 ClinePass（月付订阅，提供一组开源编程模型）。填一个 API Key 即可在 CodePilot / Codex 运行时使用，模型由订阅白名单提供。
+- **接入 OpenCode Go 订阅** — 新增 OpenCode Zen「Go」订阅。按官方协议拆为两个渠道：OpenAI 兼容（GLM / Kimi / DeepSeek / MiMo）与 Anthropic Messages（MiniMax / Qwen）。两者共用同一订阅 Key，模型由套餐白名单提供，不做在线全量刷新，避免把套餐外或错协议的模型拉进来。其中 Anthropic 渠道在 Claude Code 运行时为实验性接入。
 
 ### 修复问题
 
-- **第三方渠道会话恢复** — 修复使用第三方（OpenAI 兼容 / 中转）渠道时，会话状态损坏后整个对话卡住、再也发不出消息的问题；现在能自动识别坏会话、用历史重建继续对话。
-- **慢渠道不再被误判中断** — 修复慢速 / 排队中的第三方渠道在首个回复前等待数分钟时，被误判为"卡死"而自动中断的问题；现在对"等待首字"给更长的耐心，同时保留对真正卡死的兜底。
-- **@文件编辑落到真实文件** — 修复用 `@` 引用项目内文件让 AI 修改时，AI 改的是一份临时副本、你的真实文件没有变化的问题；现在 AI 的修改直接落到你引用的真实文件上（带项目目录边界与符号链接安全校验）。
-- **上下文用量不再显示假百分比** — 修复第三方渠道下上下文用量显示来源不可信的固定窗口（如 200K）、甚至超过 100% 的问题；窗口不可信时只显示实际已用量与构成，不再用误导性的百分比。
-- **Codex 图文输入** — 修复 Codex 引擎下"图片 + 文字"混合输入按回车发送时，图片被静默丢弃、模型只收到文字的问题。
-- **发送后输入框清空** — 修复发送消息后（尤其新对话的第一条），输入框文本残留整轮的问题。
-- **大附件不再阻断发送** — 图片等较大附件 / 较长上下文不再弹出"确认发送"的阻断横幅，降级为非阻断提示。
-- **长对话与权限提示** — 长对话流式输出更顺；权限请求超时后聊天里有明确提示而不是凭空消失；错误提示不再夹带整段代码堆栈。
+- **发送后输入框彻底清空** — 进一步修复发送消息后输入框文本残留的问题。这次覆盖了之前仍会残留的几种情况：已在对话页时跳转到带预填内容的新对话、新对话的第一条普通消息、以及第一条消息带技能 / 命令徽章时；现在发送即清，且不会清掉你在等待回复期间已经开始输入的下一条。
+- **服务商弹窗关闭按钮** — 修复「添加服务」全屏弹窗右上角的关闭按钮在 macOS 上点不动（被窗口拖拽区吞掉点击）、在 Windows 上与系统最小化 / 关闭按钮挤在一起打架的问题。
+
+### 优化改进
+
+- **服务商品牌图标** — 升级图标库并补全品牌图标（含 Cline / OpenCode），同时修正部分服务商卡片错误显示成无关品牌 logo 的问题。
 
 ### 已知问题
 
 以下问题已记录、不影响主流程，仍在跟进（欢迎到 GitHub Issues 反馈复现细节）：
 
-- 慢渠道分级超时已落地并通过自动化测试，超长排队（6–9 分钟级）的真机场景验证仍在补充。
-- Windows 上服务商编辑窗口右上角关闭按钮在个别情况下点击无反应（仍在 Windows 真机验证中）。
+- OpenCode Go 的 Anthropic 渠道（MiniMax / Qwen）在 Claude Code 运行时为实验性接入，流式与工具调用的真机验证仍在补充。
 - MCP 在设置页能看到，但运行时模型调不到，需要把 MCP 配置到项目路径才识别（排查中）。
 
 **反馈入口**：欢迎在 [GitHub Issues](https://github.com/op7418/CodePilot/issues) 提交问题与复现步骤。
@@ -26,11 +28,11 @@
 ## 下载地址
 
 ### macOS
-- [Apple Silicon (M1/M2/M3/M4)](https://github.com/op7418/CodePilot/releases/download/v0.56.2/CodePilot-0.56.2-arm64.dmg)
-- [Intel](https://github.com/op7418/CodePilot/releases/download/v0.56.2/CodePilot-0.56.2-x64.dmg)
+- [Apple Silicon (M1/M2/M3/M4)](https://github.com/op7418/CodePilot/releases/download/v0.56.3/CodePilot-0.56.3-arm64.dmg)
+- [Intel](https://github.com/op7418/CodePilot/releases/download/v0.56.3/CodePilot-0.56.3-x64.dmg)
 
 ### Windows
-- [Windows 安装包](https://github.com/op7418/CodePilot/releases/download/v0.56.2/CodePilot.Setup.0.56.2.exe)
+- [Windows 安装包](https://github.com/op7418/CodePilot/releases/download/v0.56.3/CodePilot.Setup.0.56.3.exe)
 
 ## 安装说明
 
