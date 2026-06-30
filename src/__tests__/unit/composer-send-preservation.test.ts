@@ -40,10 +40,19 @@ describe('MessageInput: no-send branches preserve the composer (#615)', () => {
       countMatches(src, /const delivered = await onSend\(/g) >= 2,
       'both the normal and badge send paths must await onSend for the delivery signal',
     );
-    // … and abort (preserve) when it comes back false.
+    // … and abort (preserve) when it comes back false. The badge path aborts
+    // inline; the normal path now clears the composer optimistically before the
+    // await and RESTORES it inside the `delivered === false` block before
+    // aborting (so the box empties immediately on a real send — the lingering-
+    // text fix — without losing a gated send's text). Both still gate on
+    // `delivered === false` and still call abortComposerSubmit to preserve.
     assert.ok(
-      countMatches(src, /if \(delivered === false\) abortComposerSubmit\('composer-send-not-delivered'\)/g) >= 2,
-      'each awaited send must preserve the composer when delivered === false',
+      countMatches(src, /if \(delivered === false\)/g) >= 2,
+      'each awaited send must gate the preserve on delivered === false',
+    );
+    assert.ok(
+      countMatches(src, /abortComposerSubmit\('composer-send-not-delivered'\)/g) >= 2,
+      'each awaited send must preserve the composer (abortComposerSubmit) when delivered === false',
     );
   });
 

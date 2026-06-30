@@ -85,6 +85,18 @@ function NewChatPageInner() {
   // a genuinely NEW prefill (different text) still shows.
   const [consumedPrefill, setConsumedPrefill] = useState<string | null>(null);
   const effectivePrefill = prefillText && prefillText !== consumedPrefill ? prefillText : '';
+  // #4/#5 (Codex P2, warm-nav) — live ref to the URL prefill so the accept path
+  // in `sendFirstMessage` consumes the *current* prefill even after a warm
+  // navigation (/chat already mounted, then router.push to /chat?prefill=…).
+  // `sendFirstMessage` is a stable useCallback that intentionally omits
+  // prefillText from its deps — adding it would churn the callback identity and
+  // cascade through `handleCommand`. Reading prefillText from that stale closure
+  // saw the OLD (often empty) prefill, so `setConsumedPrefill` never fired and
+  // the prefill kept re-seeding the composer. The ref is synced in an effect
+  // (not during render — react-hooks/refs); the effect flushes before the next
+  // user event, so the accept-time consume always sees the live prefill.
+  const prefillTextRef = useRef(prefillText);
+  useEffect(() => { prefillTextRef.current = prefillText; }, [prefillText]);
   const { setPendingApprovalSessionId } = usePanel();
   const { t } = useTranslation();
   const { isElectron, openNativePicker } = useNativeFolderPicker();
@@ -928,7 +940,7 @@ function NewChatPageInner() {
         try { sessionStorage.removeItem(composerDraftKey()); } catch { /* unavailable */ }
         // #4/#5 (Codex P2) — also mark the URL prefill consumed so the remount's
         // `initialValue` (which outranks the draft) doesn't re-seed the sent text.
-        if (prefillText) setConsumedPrefill(prefillText);
+        if (prefillTextRef.current) setConsumedPrefill(prefillTextRef.current);
 
         // Flip the layout-driving state ONLY now: show streaming + push the
         // optimistic user bubble. Deferring to here keeps `isNewChat` true

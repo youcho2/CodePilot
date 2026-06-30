@@ -379,6 +379,19 @@ export function MessageInput({
     setBadgeOrder({});
   }, [clearBadges]);
 
+  // Live refs to badge / cliBadge state so the gated-send restore in handleSubmit
+  // reads the CURRENT value and never clobbers a badge the user picked during an
+  // async failure window (Codex P3). Text + dirs use functional updaters for the
+  // same guard; cliBadge/badges have no functional-update setter, so a ref is the
+  // equivalent. Synced in an effect (not during render — react-hooks/refs); the
+  // effect flushes before the next user event, so the send handler reads latest.
+  const cliBadgeRef = useRef(cliBadge);
+  const badgesRef = useRef(badges);
+  useEffect(() => {
+    cliBadgeRef.current = cliBadge;
+    badgesRef.current = badges;
+  }, [cliBadge, badges]);
+
   const cliToolsFetch = useCliToolsFetch({
     popoverMode: popover.popoverMode,
     closePopover: popover.closePopover,
@@ -643,8 +656,17 @@ export function MessageInput({
         directoryRefs,
       });
       const { files, finalContent: finalPrompt } = payload;
-      // Await delivery BEFORE clearing — if a provider gate drops the send,
-      // keep badges + text + attachments instead of clearing them (#615).
+      // Clear OPTIMISTICALLY before awaiting delivery (same rationale as the
+      // normal path below): the first-message send doesn't resolve until the
+      // stream ends and the composer no longer remounts (#615), so a post-await
+      // clear left the sent text + skill/slash badges sitting in the box for the
+      // whole turn (Codex P2 — the badge path had the same lingering bug).
+      const restoreInput = inputValue;
+      const restoreDirs = [...directoryRefs];
+      const restoreBadges = [...badges];
+      clearBadgesWithOrder();
+      setInputValue('');
+      setDirectoryRefs([]);
       const delivered = await onSend(
         finalPrompt,
         files.length > 0 ? files.slice() : undefined,
@@ -653,10 +675,16 @@ export function MessageInput({
         payload.mentions ? [...payload.mentions] : undefined,
         selectedSkills.length > 0 ? selectedSkills : undefined,
       );
-      if (delivered === false) abortComposerSubmit('composer-send-not-delivered');
-      clearBadgesWithOrder();
-      setInputValue('');
-      setDirectoryRefs([]);
+      if (delivered === false) {
+        // Gated/no-op send — restore, guarded so a new message the user started
+        // during the failure window isn't clobbered (Codex P2/P3). Re-add the
+        // cleared badges only if the user hasn't picked a new one since (the live
+        // ref reads the CURRENT badges, not this stale send-closure).
+        setInputValue((cur) => (cur ? cur : restoreInput));
+        setDirectoryRefs((cur) => (cur.length ? cur : restoreDirs));
+        if (badgesRef.current.length === 0) restoreBadges.forEach((b) => addBadgeWithOrder(b));
+        abortComposerSubmit('composer-send-not-delivered');
+      }
       return;
     }
 
@@ -711,10 +739,20 @@ export function MessageInput({
     // attached @ mentions OR + directory chips, hide the inflated
     // `[Referenced Directories]\n...` LLM-context section from the UI
     // (the chips above the bubble already carry that information).
-    // Await delivery BEFORE clearing: onSend returns false when the send was
-    // gated (provider still loading / no compatible provider / runtime
-    // incompatible). Throwing then preserves the user's text + screenshot
-    // instead of letting PromptInput clear them on a no-op send (#615).
+    // Clear the composer text OPTIMISTICALLY, before awaiting delivery. The
+    // first-message send (page.tsx `sendFirstMessage`) doesn't resolve until the
+    // WHOLE stream finishes, and the composer is now a single stable-keyed
+    // instance that no longer remounts at the isStreaming flip (#615) — so a
+    // post-await clear left the just-sent text in the box for the entire turn
+    // (the lingering-text bug). ChatView's `sendMessage` returns at accept (its
+    // stream is fire-and-forget), which is why it cleared fine; clearing up-front
+    // makes both paths behave the same.
+    const restoreInput = inputValue;
+    const restoreDirs = [...directoryRefs];
+    const restoreCli = cliBadge;
+    setInputValue('');
+    setDirectoryRefs([]);
+    if (cliBadge) setCliBadge(null);
     const delivered = await onSend(
       finalContent || 'Please review the attached file(s).',
       hasFiles ? files.slice() : undefined,
@@ -722,10 +760,19 @@ export function MessageInput({
       payload.displayOverride,
       payload.mentions ? [...payload.mentions] : undefined,
     );
-    if (delivered === false) abortComposerSubmit('composer-send-not-delivered');
-    if (cliBadge) setCliBadge(null);
-    setInputValue('');
-    setDirectoryRefs([]);
+    if (delivered === false) {
+      // Gated/no-op send — restore, but ONLY if the user hasn't started a new
+      // message during the (possibly async) failure window, or we'd clobber
+      // their new input (Codex P3). Functional updaters / live refs read the
+      // CURRENT value, not this stale send-closure.
+      setInputValue((cur) => (cur ? cur : restoreInput));
+      setDirectoryRefs((cur) => (cur.length ? cur : restoreDirs));
+      if (restoreCli && !cliBadgeRef.current) setCliBadge(restoreCli);
+      abortComposerSubmit('composer-send-not-delivered');
+    }
+    // Note: nothing to clear post-await — text, dirs, and cliBadge were all
+    // cleared optimistically above, and we must NOT re-clear (the user may have
+    // typed the next message while the turn streamed, and that must survive).
   }, [inputValue, mentionNodeTypes, directoryRefs, onSend, onCommand, disabled, isStreaming, popover, badges, cliBadge, addBadgeWithOrder, clearBadgesWithOrder, setCliBadge, setInputValue, fetchDirectorySummary, fetchMentionFileAttachment, blockingReasonIds]);
 
   const handleKeyDown = useCallback(
