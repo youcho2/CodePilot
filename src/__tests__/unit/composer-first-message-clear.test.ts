@@ -73,8 +73,72 @@ describe('first-message composer clears at accept (#4/#5)', () => {
       /const effectivePrefill = prefillText && prefillText !== consumedPrefill \? prefillText : ''/,
       'effectivePrefill must blank out an already-sent prefill while still showing a new one',
     );
-    assert.match(src, /if \(prefillText\) setConsumedPrefill\(prefillText\)/, 'accept must mark the prefill consumed');
+    assert.match(src, /if \(prefillTextRef\.current\) setConsumedPrefill\(prefillTextRef\.current\)/, 'accept must mark the CURRENT prefill consumed');
     assert.match(src, /initialValue=\{effectivePrefill\}/);
     assert.doesNotMatch(src, /initialValue=\{prefillText\}/);
+  });
+
+  it('BOTH send paths clear the composer OPTIMISTICALLY, with a guarded restore (P2/P3)', () => {
+    // THE actual lingering-text fix. The single stable-keyed composer no longer
+    // remounts at the isStreaming flip (#615 — see the "Single composer stack"
+    // note in page.tsx), and sendFirstMessage doesn't resolve until the whole
+    // stream ends — so the old post-await `setInputValue('')` left the sent text
+    // in the box for the entire turn. handleSend now clears before `await onSend`
+    // (matching ChatView's accept-time clear) and restores only when the send is
+    // gated. Codex P2: the badge (skill/slash) path needed the same treatment.
+    const src = read('components/chat/MessageInput.tsx');
+    const count = (re: RegExp) => (src.match(re) ?? []).length;
+    // Both the normal AND badge paths clear before awaiting onSend.
+    assert.ok(
+      count(/setInputValue\(''\);[\s\S]{0,90}const delivered = await onSend\(/g) >= 2,
+      'both send paths (normal + badge) must clear the composer BEFORE awaiting onSend',
+    );
+    // cliBadge is cleared optimistically too (before the await), not post-stream (P3a).
+    assert.match(
+      src,
+      /if \(cliBadge\) setCliBadge\(null\);\s+const delivered = await onSend\(/,
+      'cliBadge must be cleared BEFORE awaiting onSend (send-immediately, not post-stream)',
+    );
+    // Restores read the LIVE value (functional updater / ref) so a gated send
+    // never clobbers a new message the user started during the failure window (P3).
+    assert.ok(
+      count(/setInputValue\(\(cur\) => \(cur \? cur : restoreInput\)\)/g) >= 2,
+      'each gated restore must use a functional updater (do not clobber new input)',
+    );
+    assert.match(
+      src,
+      /if \(restoreCli && !cliBadgeRef\.current\) setCliBadge\(restoreCli\)/,
+      'cliBadge restore must be guarded by the live ref (P3a)',
+    );
+    assert.match(
+      src,
+      /if \(badgesRef\.current\.length === 0\) restoreBadges\.forEach\(\(b\) => addBadgeWithOrder\(b\)\)/,
+      'badge re-add must be guarded by the live ref so a newly-picked badge survives (P3b)',
+    );
+    assert.doesNotMatch(
+      src,
+      /if \(delivered === false\) \{\s*setInputValue\(restoreInput\)/,
+      'must not restore unconditionally (that would clobber a newly-typed message)',
+    );
+  });
+
+  it('the prefill consume reads a live ref, not a stale send-closure (Codex P2 warm-nav)', () => {
+    // Warm navigation (/chat already mounted → router.push /chat?prefill=abc)
+    // changes prefillText WITHOUT recreating the stable sendFirstMessage
+    // useCallback (prefillText is deliberately not in its deps; adding it would
+    // churn identity and cascade through handleCommand). If accept read
+    // prefillText from the callback closure it would see the OLD value (often
+    // '') and never consume the new prefill, so the accept-time remount
+    // re-seeded the just-sent text. Fix: a ref synced to the live prefill,
+    // read at accept.
+    const src = read('app/chat/page.tsx');
+    assert.match(src, /const prefillTextRef = useRef\(prefillText\)/, 'must hold a ref to the prefill');
+    assert.match(src, /prefillTextRef\.current = prefillText/, 'the ref must track the LIVE url prefill every render');
+    assert.match(src, /setConsumedPrefill\(prefillTextRef\.current\)/, 'accept must consume via the live ref');
+    assert.doesNotMatch(
+      src,
+      /if \(prefillText\) setConsumedPrefill\(prefillText\)/,
+      'must not read the stale closure prefillText',
+    );
   });
 });
