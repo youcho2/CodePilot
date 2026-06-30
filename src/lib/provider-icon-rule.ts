@@ -29,6 +29,8 @@ export type ProviderIconKey =
   | "google"
   | "aws"
   | "anthropic"
+  | "cline"
+  | "opencode"
   | "default";
 
 export function getProviderIconKey(name: string, baseUrl: string): ProviderIconKey {
@@ -36,6 +38,14 @@ export function getProviderIconKey(name: string, baseUrl: string): ProviderIconK
   const url = baseUrl.toLowerCase();
 
   if (lower.includes("openrouter")) return "openrouter";
+  // OpenCode Go: the provider name carries a protocol suffix — "OpenCode Go
+  // (OpenAI)" / "(Anthropic)". Match BEFORE the openai / anthropic name
+  // matchers below, which would otherwise steal the wrong brand logo
+  // (OpenCode brand icon added in @lobehub/icons 4.9.0).
+  if (url.includes("opencode.ai") || lower.includes("opencode")) return "opencode";
+  // ClinePass — Cline brand icon. Scoped to brand-unique fragments
+  // (`cline.bot` host / `clinepass` name) to avoid stealing on "client" etc.
+  if (url.includes("cline.bot") || lower.includes("clinepass")) return "cline";
   if (
     url.includes("bigmodel.cn") ||
     url.includes("z.ai") ||

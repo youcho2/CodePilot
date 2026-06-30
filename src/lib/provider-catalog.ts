@@ -161,6 +161,17 @@ export interface VendorPreset {
      * SKUs are normal usage, not drift.
      */
     fixedCatalog?: boolean;
+    /**
+     * Model discovery posture. `'catalog_only'` = the shipped `defaultModels`
+     * lineup is the ONLY truth: no `/v1/models` refresh, no search-and-add, and
+     * `classifyProvider` returns `unsupported`. Used for subscription gateways
+     * whose model endpoint either needs a key, mixes wire protocols, or returns
+     * a superset of the plan whitelist (ClinePass, OpenCode Go). Distinct from
+     * the `sdkProxyOnly && coding_plan` plan gate: those keep search-and-add ON
+     * (their `/v1/models` is a clean per-vendor list), this turns it OFF.
+     * Phase 2 may add a `'filtered_models_endpoint'` mode with allowlist/prefix.
+     */
+    modelDiscoveryMode?: 'catalog_only';
   };
 }
 
@@ -175,6 +186,7 @@ const PresetMetaSchema = z.object({
   notes: z.array(z.string()).optional(),
   claudeCodeVerified: z.boolean().optional(),
   fixedCatalog: z.boolean().optional(),
+  modelDiscoveryMode: z.enum(['catalog_only']).optional(),
 });
 
 export const PresetSchema = z.object({
@@ -929,6 +941,142 @@ export const VENDOR_PRESETS: VendorPreset[] = [
     },
   },
 
+  // ── ClinePass ──
+  // ClinePass subscription accessed through the Cline API (OpenAI-compatible
+  // Chat Completions). Models use the `cline-pass/<id>` slug — that IS the
+  // value sent to the API, so modelId == upstream (no alias). The Cline API
+  // is a multi-provider aggregator; its `/v1/models` returns far more than the
+  // ClinePass whitelist AND needs a key, so discovery is `catalog_only`:
+  // ship the 10-model whitelist as truth, no refresh / no search-and-add.
+  // NOT sdkProxyOnly — OpenAI-compatible reaches CodePilot + Codex runtimes
+  // via the AI SDK chat path, never the Claude Code subprocess.
+  {
+    key: 'cline-pass',
+    name: 'ClinePass',
+    description: 'ClinePass subscription — open coding models via the Cline API (CodePilot / Codex runtimes)',
+    descriptionZh: 'ClinePass 订阅 — 通过 Cline API 访问开源编程模型（用于 CodePilot / Codex 运行时）',
+    protocol: 'openai-compatible',
+    authStyle: 'api_key',
+    baseUrl: 'https://api.cline.bot/api/v1',
+    defaultEnvOverrides: {},
+    // ClinePass whitelist — https://docs.cline.bot/getting-started/clinepass
+    // (verified 2026-06-30). The cline-pass/ prefix is part of the model id
+    // sent to /chat/completions, so no upstreamModelId alias is needed.
+    defaultModels: [
+      { modelId: 'cline-pass/glm-5.2', displayName: 'GLM-5.2', capabilities: { toolUse: true } },
+      { modelId: 'cline-pass/kimi-k2.7-code', displayName: 'Kimi K2.7 Code', capabilities: { toolUse: true } },
+      { modelId: 'cline-pass/kimi-k2.6', displayName: 'Kimi K2.6', capabilities: { toolUse: true } },
+      { modelId: 'cline-pass/deepseek-v4-pro', displayName: 'DeepSeek V4 Pro', capabilities: { toolUse: true } },
+      { modelId: 'cline-pass/deepseek-v4-flash', displayName: 'DeepSeek V4 Flash', capabilities: { toolUse: true } },
+      { modelId: 'cline-pass/mimo-v2.5', displayName: 'MiMo-V2.5', capabilities: { toolUse: true } },
+      { modelId: 'cline-pass/mimo-v2.5-pro', displayName: 'MiMo-V2.5-Pro', capabilities: { toolUse: true } },
+      { modelId: 'cline-pass/minimax-m3', displayName: 'MiniMax M3', capabilities: { toolUse: true } },
+      { modelId: 'cline-pass/qwen3.7-max', displayName: 'Qwen3.7 Max', capabilities: { toolUse: true } },
+      { modelId: 'cline-pass/qwen3.7-plus', displayName: 'Qwen3.7 Plus', capabilities: { toolUse: true } },
+    ],
+    fields: ['api_key'],
+    iconKey: 'cline',
+    meta: {
+      apiKeyUrl: 'https://app.cline.bot',
+      docsUrl: 'https://docs.cline.bot/getting-started/clinepass',
+      billingModel: 'coding_plan',
+      modelDiscoveryMode: 'catalog_only',
+      notes: ['模型使用 cline-pass/<model-id> 形式；由订阅白名单定义，不做在线刷新。'],
+    },
+  },
+
+  // ── OpenCode Go (OpenAI-compatible) ──
+  // OpenCode Zen "Go" subscription, OpenAI-compatible half. Same host + key as
+  // the Anthropic half below; split into two presets because protocol lives at
+  // the provider layer (no per-model wire dispatch). `/zen/go/v1/models` is a
+  // single MIXED catalog (both wire protocols) and a superset of this plan's
+  // lineup, so discovery is `catalog_only` — auto-import would put `/messages`-
+  // only models on the `/chat/completions` path. Models use bare ids (the
+  // `opencode-go/` prefix is OpenCode-config-only, not the API model field).
+  {
+    key: 'opencode-go-openai',
+    name: 'OpenCode Go (OpenAI)',
+    description: 'OpenCode Zen Go subscription — OpenAI-compatible models (CodePilot / Codex runtimes)',
+    descriptionZh: 'OpenCode Zen Go 订阅 — OpenAI 兼容模型（用于 CodePilot / Codex 运行时）',
+    protocol: 'openai-compatible',
+    authStyle: 'api_key',
+    baseUrl: 'https://opencode.ai/zen/go/v1',
+    defaultEnvOverrides: {},
+    // OpenAI-compatible half of the official endpoint table —
+    // https://opencode.ai/docs/zh-cn/go/ (verified 2026-06-30).
+    defaultModels: [
+      { modelId: 'glm-5.2', displayName: 'GLM-5.2', capabilities: { toolUse: true } },
+      { modelId: 'glm-5.1', displayName: 'GLM-5.1', capabilities: { toolUse: true } },
+      { modelId: 'kimi-k2.7-code', displayName: 'Kimi K2.7 Code', capabilities: { toolUse: true } },
+      { modelId: 'kimi-k2.6', displayName: 'Kimi K2.6', capabilities: { toolUse: true } },
+      { modelId: 'deepseek-v4-pro', displayName: 'DeepSeek V4 Pro', capabilities: { toolUse: true } },
+      { modelId: 'deepseek-v4-flash', displayName: 'DeepSeek V4 Flash', capabilities: { toolUse: true } },
+      { modelId: 'mimo-v2.5', displayName: 'MiMo-V2.5', capabilities: { toolUse: true } },
+      { modelId: 'mimo-v2.5-pro', displayName: 'MiMo-V2.5-Pro', capabilities: { toolUse: true } },
+    ],
+    fields: ['api_key'],
+    iconKey: 'opencode',
+    meta: {
+      apiKeyUrl: 'https://opencode.ai/auth',
+      docsUrl: 'https://opencode.ai/docs/zh-cn/go/',
+      billingModel: 'coding_plan',
+      modelDiscoveryMode: 'catalog_only',
+      notes: ['与「OpenCode Go (Anthropic)」共用同一订阅 Key；模型由套餐白名单定义。'],
+    },
+  },
+
+  // ── OpenCode Go (Anthropic Messages) ──
+  // Anthropic-Messages half of the same OpenCode Go subscription. The real
+  // endpoint is https://opencode.ai/zen/go/v1/messages, but the base is stored
+  // WITHOUT the trailing /v1 on purpose. The Claude Code SDK ALWAYS appends
+  // `/v1/messages` to ANTHROPIC_BASE_URL, so a `.../zen/go/v1` base makes the
+  // SDK POST to `.../zen/go/v1/v1/messages` → 404 HTML → surfaced as "model
+  // (minimax-m3) doesn't exist" (verified 2026-06-30). (The native
+  // ClaudeCodeCompatModel.buildMessagesUrl() actually handles a /v1-ending base
+  // fine — it appends only `/messages` in that case — so the CodePilot path was
+  // already correct; the SDK path was the broken one.) Storing `.../zen/go`
+  // makes all three transports converge on the right URL: the SDK appends
+  // `/v1/messages`, the adapter's deep-path branch also yields
+  // `.../zen/go/v1/messages`, and the Codex provider proxy reuses the adapter.
+  // (Every other anthropic preset's base ends in /api/anthropic etc. for the
+  // same SDK reason.) Bonus: this base differs from the OpenAI half
+  // (`.../zen/go/v1`), so no preset collision. authStyle: api_key → x-api-key
+  // (probe confirmed x-api-key, not Bearer; the endpoint does not require
+  // anthropic-version). NOT claudeCodeVerified: ships experimental until a
+  // real-key smoke.
+  {
+    key: 'opencode-go-anthropic',
+    name: 'OpenCode Go (Anthropic)',
+    description: 'OpenCode Zen Go subscription — Anthropic Messages models (experimental on Claude Code)',
+    descriptionZh: 'OpenCode Zen Go 订阅 — Anthropic Messages 模型（Claude Code 兼容性实验中）',
+    protocol: 'anthropic',
+    authStyle: 'api_key',
+    baseUrl: 'https://opencode.ai/zen/go',
+    defaultEnvOverrides: {},
+    // Anthropic-Messages half of the official endpoint table —
+    // https://opencode.ai/docs/zh-cn/go/ (verified 2026-06-30).
+    defaultModels: [
+      { modelId: 'minimax-m3', displayName: 'MiniMax M3', capabilities: { toolUse: true } },
+      { modelId: 'minimax-m2.7', displayName: 'MiniMax M2.7', capabilities: { toolUse: true } },
+      { modelId: 'minimax-m2.5', displayName: 'MiniMax M2.5', capabilities: { toolUse: true } },
+      { modelId: 'qwen3.7-max', displayName: 'Qwen3.7 Max', capabilities: { toolUse: true } },
+      { modelId: 'qwen3.7-plus', displayName: 'Qwen3.7 Plus', capabilities: { toolUse: true } },
+      { modelId: 'qwen3.6-plus', displayName: 'Qwen3.6 Plus', capabilities: { toolUse: true } },
+    ],
+    fields: ['api_key'],
+    iconKey: 'opencode',
+    meta: {
+      apiKeyUrl: 'https://opencode.ai/auth',
+      docsUrl: 'https://opencode.ai/docs/zh-cn/go/',
+      billingModel: 'coding_plan',
+      modelDiscoveryMode: 'catalog_only',
+      notes: [
+        '与「OpenCode Go (OpenAI)」共用同一订阅 Key；模型由套餐白名单定义。',
+        'Anthropic Messages 协议；Claude Code Runtime 兼容性未经真实凭据验证，先以实验态提供。',
+      ],
+    },
+  },
+
   // ── DeepSeek ──
   {
     key: 'deepseek',
@@ -1237,6 +1385,33 @@ export function isCatalogOnlyPlanProviderRecord(record: {
 }
 
 /**
+ * True for presets that ship `meta.modelDiscoveryMode: 'catalog_only'` — the
+ * strictest discovery posture: no `/v1/models` refresh, no search-and-add, and
+ * `classifyProvider` returns `unsupported`. The shipped `defaultModels` lineup
+ * is the only truth.
+ *
+ * This is intentionally NOT folded into `isCatalogOnlyPlanProvider`: plan
+ * providers (GLM / MiniMax) keep search-and-add ON because their `/v1/models`
+ * is a clean per-vendor list, whereas these gateways (ClinePass, OpenCode Go)
+ * expose a key-gated, mixed-protocol, or superset endpoint that must never be
+ * auto-imported. By-key variant for callers that already resolved a preset
+ * (e.g. `model-discovery.ts:classifyProvider`); use the record variant from any
+ * UI/route site that only holds a provider record.
+ */
+export function isCatalogOnlyDiscoveryProvider(presetKey: string | undefined | null): boolean {
+  if (!presetKey) return false;
+  return getPreset(presetKey)?.meta?.modelDiscoveryMode === 'catalog_only';
+}
+
+/** Record-aware version of `isCatalogOnlyDiscoveryProvider`. */
+export function isCatalogOnlyDiscoveryRecord(record: {
+  provider_type: string;
+  base_url: string;
+}): boolean {
+  return isCatalogOnlyDiscoveryProvider(findMatchingPresetForRecord(record)?.key);
+}
+
+/**
  * True for OpenRouter provider records — the aggregator that ships 300+
  * model entries through `/v1/models`. OpenRouter is *not* a Coding/Token
  * Plan vendor (every model is genuinely usable on pay-as-you-go), but
@@ -1422,6 +1597,7 @@ export function shouldShowLegacyCatalogBadge(
   if (!preset) return false;
   const isAuthoritative =
     isCatalogOnlyPlanProviderRecord(record) ||
+    isCatalogOnlyDiscoveryRecord(record) ||
     preset.meta?.fixedCatalog === true;
   if (!isAuthoritative) return false;
   return !isModelInCurrentCatalog(record, modelId);
@@ -1464,6 +1640,16 @@ export function canReliablyFetchModels(
       reliable: false,
       reasonZh: '套餐型服务，模型由套餐白名单定义；如需补 SKU 请用「添加模型」',
       reasonEn: 'Plan-based provider — model list is defined by your subscription whitelist. Use "Add model" to add SKUs.',
+    };
+  }
+  // Catalog-only discovery gateways (ClinePass, OpenCode Go): the shipped
+  // whitelist is the only truth — their model endpoint is key-gated /
+  // mixed-protocol / a superset, so neither refresh nor search-and-add is safe.
+  if (isCatalogOnlyDiscoveryRecord(record)) {
+    return {
+      reliable: false,
+      reasonZh: '套餐型服务，模型由内置白名单定义，暂不支持在线刷新',
+      reasonEn: 'Subscription provider — models are defined by a built-in whitelist; online refresh is disabled.',
     };
   }
   // OpenRouter: search-and-add is the canonical add path; validate is the
@@ -1570,6 +1756,19 @@ export function canReliablyFetchModels(
 export function canSearchUpstreamModels(
   record: { provider_type: string; base_url: string },
 ): { reliable: boolean; reasonZh: string; reasonEn: string } {
+  // Catalog-only discovery gateways (ClinePass, OpenCode Go): unlike the plan
+  // providers below (whose /v1/models is a clean per-vendor list), their model
+  // endpoint is key-gated / mixed-protocol / a superset of the plan lineup, so
+  // search-and-add is disabled in Phase 1. Checked before the
+  // `isCatalogOnlyPlanProviderRecord` branch (which returns true) so these
+  // override it to false.
+  if (isCatalogOnlyDiscoveryRecord(record)) {
+    return {
+      reliable: false,
+      reasonZh: '套餐型服务，模型由内置白名单定义，暂不支持在线搜索添加',
+      reasonEn: 'Subscription provider — models come from a built-in whitelist; online search-and-add is disabled.',
+    };
+  }
   if (isOpenRouterProviderRecord(record)) {
     return { reliable: true, reasonZh: '', reasonEn: '' };
   }
@@ -1629,7 +1828,16 @@ export function findMatchingPresetForRecord(record: {
   base_url: string;
 }): VendorPreset | undefined {
   if (record.base_url) {
-    const exact = VENDOR_PRESETS.find(p => p.baseUrl && p.baseUrl === record.base_url);
+    const byBase = VENDOR_PRESETS.filter(p => p.baseUrl && p.baseUrl === record.base_url);
+    // Prefer a base match whose protocol agrees with the record. Without this,
+    // a legacy OpenCode Go Anthropic record (saved at the OpenAI half's base
+    // `https://opencode.ai/zen/go/v1` before the Anthropic base was de-/v1'd)
+    // would match `opencode-go-openai` and get the wrong bucket / runtime badge
+    // / discovery class. A record whose provider_type isn't a real Protocol
+    // (legacy / blank rows) can't be disambiguated, so it keeps the plain base
+    // match; a known-but-mismatched protocol falls through to the type rules.
+    const exact = byBase.find(p => p.protocol === record.provider_type)
+      ?? (isValidProtocol(record.provider_type) ? undefined : byBase[0]);
     if (exact) return exact;
   }
   if (record.provider_type === 'bedrock') return getPreset('bedrock');

@@ -72,6 +72,7 @@ const CODING_PLAN_KEYS = new Set([
   'minimax-cn', 'minimax-global', 'volcengine',
   'xiaomi-mimo', 'xiaomi-mimo-token-plan',
   'bailian', 'bailian-token-plan-cn',
+  'cline-pass', 'opencode-go-openai', 'opencode-go-anthropic',
 ]);
 
 /**

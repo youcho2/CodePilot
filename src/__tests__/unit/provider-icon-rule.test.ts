@@ -104,6 +104,33 @@ describe("getProviderIconKey — first-match-wins ordering for shared fragments"
   });
 });
 
+describe("getProviderIconKey — OpenCode Go / ClinePass", () => {
+  // OpenCode Go preset names carry a protocol suffix; the opencode rule must
+  // win BEFORE the name-side openai/anthropic matchers, which would otherwise
+  // steal the wrong brand logo. (OpenCode brand icon added in @lobehub/icons 4.9.0.)
+  it("OpenCode Go (OpenAI) → opencode, NOT openai", () => {
+    const key = getProviderIconKey("OpenCode Go (OpenAI)", "https://opencode.ai/zen/go/v1");
+    assert.equal(key, "opencode");
+    assert.notEqual(key, "openai");
+  });
+
+  it("OpenCode Go (Anthropic) → opencode, NOT anthropic", () => {
+    const key = getProviderIconKey("OpenCode Go (Anthropic)", "https://opencode.ai/zen/go");
+    assert.equal(key, "opencode");
+    assert.notEqual(key, "anthropic");
+  });
+
+  it("ClinePass → cline (via host and name)", () => {
+    assert.equal(getProviderIconKey("ClinePass", "https://api.cline.bot/api/v1"), "cline");
+    assert.equal(getProviderIconKey("My ClinePass", "https://example.com"), "cline");
+  });
+
+  it("cline match is scoped — 'Decline Relay' on a generic host → default", () => {
+    // Guards against a bare `cline` substring stealing icons.
+    assert.equal(getProviderIconKey("Decline Relay", "https://example.com/api"), "default");
+  });
+});
+
 describe("getProviderIconKey — legitimate Bailian matchers", () => {
   it("URL with bare aliyun (without maas/dashscope) still routes via name", () => {
     // The rule prefers Aliyun-scoped URL fragments, but name-side

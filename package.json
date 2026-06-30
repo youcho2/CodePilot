@@ -62,7 +62,7 @@
     "@hugeicons/core-free-icons": "^4.1.4",
     "@hugeicons/react": "^1.1.6",
     "@larksuiteoapi/node-sdk": "^1.59.0",
-    "@lobehub/icons": "^4.6.0",
+    "@lobehub/icons": "^4.12.0",
     "@phosphor-icons/react": "^2.1.10",
     "@radix-ui/react-use-controllable-state": "^1.2.2",
     "@sentry/browser": "^9.27.0",

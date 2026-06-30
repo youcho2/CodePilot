@@ -3,7 +3,7 @@
 import type { ReactNode } from "react";
 import { HardDrives } from "@/components/ui/icon";
 import type { ApiProvider } from "@/types";
-import { VENDOR_PRESETS } from "@/lib/provider-catalog";
+import { VENDOR_PRESETS, isValidProtocol } from "@/lib/provider-catalog";
 import type { VendorPreset } from "@/lib/provider-catalog";
 import { getProviderIconKey, type ProviderIconKey } from "@/lib/provider-icon-rule";
 import Anthropic from "@lobehub/icons/es/Anthropic";
@@ -12,6 +12,8 @@ import Zhipu from "@lobehub/icons/es/Zhipu";
 import Kimi from "@lobehub/icons/es/Kimi";
 import Moonshot from "@lobehub/icons/es/Moonshot";
 import Minimax from "@lobehub/icons/es/Minimax";
+import Cline from "@lobehub/icons/es/Cline";
+import OpenCode from "@lobehub/icons/es/OpenCode";
 import Aws from "@lobehub/icons/es/Aws";
 import Bedrock from "@lobehub/icons/es/Bedrock";
 import Google from "@lobehub/icons/es/Google";
@@ -47,6 +49,8 @@ const ICON_BY_KEY: Record<ProviderIconKey, ReactNode> = {
   google: <Google size={18} />,
   aws: <Aws size={18} />,
   anthropic: <Anthropic size={18} />,
+  cline: <Cline size={18} />,
+  opencode: <OpenCode size={18} />,
   default: <HardDrives size={18} className="text-muted-foreground" />,
 };
 
@@ -98,6 +102,8 @@ function resolveIcon(iconKey: string): ReactNode {
     ollama: <Ollama size={18} />,
     openai: <OpenAI size={18} />,
     deepseek: <DeepSeek size={18} />,
+    cline: <Cline size={18} />,
+    opencode: <OpenCode size={18} />,
     server: <HardDrives size={18} className="text-muted-foreground" />,
   };
   return ICON_MAP[iconKey] || <HardDrives size={18} className="text-muted-foreground" />;
@@ -175,9 +181,15 @@ export function getOpenAIImageModel(provider: ApiProvider): string {
 // ---------------------------------------------------------------------------
 
 export function findMatchingPreset(provider: ApiProvider): QuickPreset | undefined {
-  // Exact base_url match (most specific)
+  // Exact base_url match (most specific) — protocol-aware so a legacy OpenCode
+  // Go Anthropic record (base .../zen/go/v1) doesn't match the OpenAI half that
+  // now lives at that base. Mirrors findMatchingPresetForRecord; rows with a
+  // legacy/blank protocol keep the plain base match.
   if (provider.base_url) {
-    const match = QUICK_PRESETS.find(p => p.base_url && p.base_url === provider.base_url);
+    const byBase = QUICK_PRESETS.filter(p => p.base_url && p.base_url === provider.base_url);
+    const wire = provider.protocol || provider.provider_type;
+    const match = byBase.find(p => p.protocol === wire)
+      ?? (isValidProtocol(wire) ? undefined : byBase[0]);
     if (match) return match;
   }
   // Type-based fallback for known types
