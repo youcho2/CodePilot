@@ -136,7 +136,6 @@ export function ContextUsageIndicator({
       reasoningTokens: undefined,
     },
     totalTokens: usage.used + usage.outputTokens,
-    cachedInputTokens: usage.cacheReadTokens,
   };
 
   return (
