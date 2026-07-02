@@ -65,6 +65,8 @@
 | P3 | 成功后 attempts 历史不清理 | `runner-state.json` 仍保留已成功 assignment 的失败计数，长期会污染状态与监控解读 | publish 成功后删除对应 `attempts[assignmentId]`，或归档到独立 run history；保留失败证据但不留在 live state | 成功重试路径后 live state 无 stale attempts；历史证据仍可追踪到 archive / issue comment |
 | P3 | launchd 注释与文档状态漂移 | plist 注释仍有旧状态描述；主仓还有 loop 架构网页/计划更新未提交时，新 worktree 可能读不到最新说明 | 更新 plist 注释、launchd README 与 exec plan；把 docs 变更提交进 main 后再开下一轮 hands-off run | `plutil -lint`；docs drift check；新 worktree 能读到计划与架构说明 |
 
+- 2026-07-03: 处理 Codex 对 post-loop 收口的三条复审意见。①「中文可读性没修」「plist 源/装载漂移」两条为**审计快照过期**——现状核实：`lib/artifact.mjs` 全部中文标题 + 摘要块（渲染样例 issue #5，2026-07-02 已发布）、两侧 prompt 均含语言要求（claude-implementer.md:44 / codex-reviewer.md:41）、`~/Library/LaunchAgents` 与源 plist 经 `plutil -p` diff 逐字节一致且均指 issue #1；判断 Codex 审到的是我拨回待命之前的中途状态。②「Codex 错过契约缺口仍 accepted」的时间线需澄清：所述现象是 issue #4 **首轮**（模板丢 `--task` 的事故轮，根因当日已修）；round 2 实际抓到全部 3 条缺口（comment 4864191814）、round 3 验证修复后才 accept。③但「散文契约太软」的方向判断成立，**已实现机器强制验收（required checks）**：runner 新增 `--required-checks '[{id,desc}]'` → wake 校验并落盘 `run/<id>/required-checks.json`、渲染进两侧 prompt（implementer 见验收线、reviewer 见必查项）→ reviewer artifact 新增 `checks: [{id, result: pass|fail, evidence}]` → **publisher 硬门禁**：任一 required check 缺报、无 evidence 或 fail 时 `accepted` 一律 BLOCK（fail-closed，与 prompt 无关）；`fix_requested` 允许携带 fail（循环本义）。验证：58/58 单测（含 publisher 级 CLI 测试「accepted+failing check 被拒且未发评论未改 label」）+ `--no-exec` 实测 prompt 注入与文件落盘。下一个真实 assignment 起，验收契约走 `--required-checks` 结构化下发，不再只依赖 task 散文。
+
 ## 事实源与 Ledger 合同
 
 ### 四层事实源
