@@ -64,28 +64,30 @@ function stripComments(src: string): string {
 
 const ADAPTER_SRC = stripComments(ADAPTER_SRC_RAW);
 
-describe('unified-adapter — compiler prompt reaches messages[] (P0 regression)', () => {
-  it('source MUST NOT call buildMessages(input.body) anywhere', () => {
-    // Pre-P0 the adapter had `messages = buildMessages(input.body)`
-    // before the compileContext call. Any reintroduction of that
-    // pattern reverts the P0 fix and silently breaks
-    // Anthropic-compat / CodePlan / chat-completions paths.
+describe('unified-adapter — compiler prompt reaches the model (P0 regression)', () => {
+  // ai@7 迁移（2026-07-03）：投递载具从 "messages[] 里的 role:system" 换成
+  // streamText/generateText 的 `instructions` 选项 —— ai@7 直接拒绝 messages
+  // 里的 system role（"Use the instructions option instead"）；SDK core 会在
+  // 非 Responses 家族的 wire 上把 instructions 还原为 system message
+  // （node_modules/ai/dist/index.js convertToLanguageModelPrompt），所以
+  // P0 的"所有 provider 家族都能收到编译器 prompt"不变量依然由本组 pin 保护。
+  it('source MUST NOT call buildPrompt(input.body) anywhere', () => {
     assert.equal(
-      /buildMessages\(\s*input\.body\s*\)/.test(ADAPTER_SRC),
+      /buildPrompt\(\s*input\.body\s*\)/.test(ADAPTER_SRC),
       false,
-      'buildMessages(input.body) is the pre-P0 shape — re-introducing it loses the compiler prompt for non-Responses provider paths',
+      'buildPrompt(input.body) is the pre-P0 shape — re-introducing it loses the compiler prompt for every provider path',
     );
   });
 
-  it('source MUST call buildMessages(bodyWithBridgePrompt) — the spliced body', () => {
+  it('source MUST call buildPrompt(bodyWithBridgePrompt) — the spliced body', () => {
     assert.match(
       ADAPTER_SRC,
-      /buildMessages\(\s*bodyWithBridgePrompt\s*\)/,
-      'adapter must feed buildMessages the body that already has compiler prompt spliced into instructions',
+      /buildPrompt\(\s*bodyWithBridgePrompt\s*\)/,
+      'adapter must feed buildPrompt the body that already has compiler prompt spliced into instructions',
     );
   });
 
-  it('source MUST run adaptForCodexProxy BEFORE buildMessages', () => {
+  it('source MUST run adaptForCodexProxy BEFORE buildPrompt', () => {
     // Phase 5d Phase 3 (2026-05-17) — the compile call moved into
     // the Runtime Capability Adapter facade (`adaptForCodexProxy`).
     // The ordering invariant is the same: the facade call (which
@@ -93,41 +95,44 @@ describe('unified-adapter — compiler prompt reaches messages[] (P0 regression)
     // `buildMessages` reads `bodyWithBridgePrompt.instructions`.
     // Pin shifted from `compileContext({` to `adaptForCodexProxy({`.
     const compileIdx = ADAPTER_SRC.indexOf('adaptForCodexProxy({');
-    const buildMessagesIdx = ADAPTER_SRC.indexOf('buildMessages(bodyWithBridgePrompt)');
+    const buildMessagesIdx = ADAPTER_SRC.indexOf('buildPrompt(bodyWithBridgePrompt)');
     assert.ok(compileIdx > 0, 'adaptForCodexProxy({...}) call must exist');
-    assert.ok(buildMessagesIdx > 0, 'buildMessages(bodyWithBridgePrompt) call must exist');
+    assert.ok(buildMessagesIdx > 0, 'buildPrompt(bodyWithBridgePrompt) call must exist');
     assert.ok(
       compileIdx < buildMessagesIdx,
-      `adaptForCodexProxy (idx=${compileIdx}) must run BEFORE buildMessages (idx=${buildMessagesIdx}); reversing the order is the P0 regression`,
+      `adaptForCodexProxy (idx=${compileIdx}) must run BEFORE buildPrompt (idx=${buildMessagesIdx}); reversing the order is the P0 regression`,
     );
   });
 
-  it('source MUST run bodyWithBridgePrompt construction BEFORE buildMessages', () => {
+  it('source MUST run bodyWithBridgePrompt construction BEFORE buildPrompt', () => {
     // The body splice happens in a `const bodyWithBridgePrompt =`
     // line. Confirm it precedes the buildMessages call so the
     // spliced instructions are actually what buildMessages reads.
     const bodySpliceIdx = ADAPTER_SRC.indexOf('const bodyWithBridgePrompt');
-    const buildMessagesIdx = ADAPTER_SRC.indexOf('buildMessages(bodyWithBridgePrompt)');
+    const buildMessagesIdx = ADAPTER_SRC.indexOf('buildPrompt(bodyWithBridgePrompt)');
     assert.ok(bodySpliceIdx > 0);
     assert.ok(buildMessagesIdx > 0);
     assert.ok(
       bodySpliceIdx < buildMessagesIdx,
-      'bodyWithBridgePrompt must be constructed before buildMessages is called',
+      'bodyWithBridgePrompt must be constructed before buildPrompt is called',
     );
   });
 });
 
-describe('unified-adapter — buildMessages prepends instructions as a system message (downstream contract)', () => {
-  it('buildMessages helper prepends `body.instructions` as role:system at index 0', () => {
-    // The helper is internal; pin via source so a future "drop the
-    // system message" refactor is caught. The model only sees the
-    // compiler prompt because buildMessages prepends instructions
-    // as a role:system message; remove that and the P0 fix loses
-    // its delivery vehicle.
-    assert.match(
-      ADAPTER_SRC,
-      /function\s+buildMessages\(body[^)]*\)[^{]*\{[\s\S]{0,400}role:\s*['"]system['"]\s*,\s*content:\s*body\.instructions/,
-      'buildMessages must prepend body.instructions as the first system message — that is what carries the compiled prompt to non-Responses providers',
+describe('unified-adapter — instructions travel via the ai@7 `instructions` OPTION (downstream contract)', () => {
+  it('buildPrompt must NOT prepend role:system into messages (ai@7 rejects it)', () => {
+    assert.equal(
+      /role:\s*['"]system['"]\s*,\s*content:\s*body\.instructions/.test(ADAPTER_SRC),
+      false,
+      'prepending body.instructions as role:system is the pre-ai@7 shape — ai@7 throws "System messages are not allowed in the prompt or messages fields"',
+    );
+  });
+
+  it('streamText and generateText both receive the instructions option', () => {
+    const spreads = ADAPTER_SRC.match(/\.\.\.\(instructions \? \{ instructions \} : \{\}\)/g) ?? [];
+    assert.ok(
+      spreads.length >= 2,
+      `both send paths must spread the instructions option (found ${spreads.length}) — dropping it silently loses the compiled prompt for ALL providers`,
     );
   });
 });

@@ -31,7 +31,8 @@ export async function* streamTextFromProvider(params: StreamTextParams): AsyncIt
 
   const result = streamText({
     model: languageModel,
-    system: params.system,
+    // ai@7: `system` is a deprecated alias of `instructions` (wire-identical).
+    instructions: params.system,
     prompt: params.prompt,
     maxOutputTokens: params.maxTokens || 4096,
     abortSignal: params.abortSignal || AbortSignal.timeout(120_000),

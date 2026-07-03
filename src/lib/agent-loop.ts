@@ -466,7 +466,9 @@ export function runAgentLoop(options: AgentLoopOptions): ReadableStream<string> 
           // Call streamText (single step — we control the loop)
           const result = streamText({
             model: languageModel,
-            system: effectiveSystemPrompt,
+            // ai@7: `system` is a deprecated alias of `instructions` (wire-identical);
+            // renamed to stay off the deprecation path.
+            instructions: effectiveSystemPrompt,
             messages: prunedMessages,
             tools: hasTools ? tools : undefined,
             // activeTools: limit available tools in plan mode (AI SDK feature)
