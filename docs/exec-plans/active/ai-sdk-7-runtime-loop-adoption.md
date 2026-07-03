@@ -1,7 +1,7 @@
 # AI SDK 7 Runtime 接入 + 自动化 Loop 实践
 
 > 创建时间：2026-06-29
-> 最后更新：2026-07-02
+> 最后更新：2026-07-03
 > 关联调研：[AI SDK 7 Runtime Adoption](../../research/ai-sdk-7-runtime-adoption-2026-06-29.md)
 > 协作循环基础设施：[Agent Collaboration Loop Infrastructure](agent-collaboration-loop-infrastructure.md)
 
@@ -11,7 +11,7 @@
 |-------|------|------|------|
 | Phase 0 | 立项、调研归档、Loop 边界定义 | ✅ 已完成 | Codex 已完成调研与本执行计划；不改产品代码 |
 | Phase 1 | Node 22 / AI SDK 7 依赖升级可行性 spike | ✅ 已完成 | Codex 复审通过（worktree commit `717bf93`）：`ai` ^6.0.169→^7.0.11 + 5 个 provider 包可安装/测试/构建，唯一破坏面 `LanguageModelUsage` 类型 4 行机械修复；3497 单测 + `npm run build` + Electron bundle 全绿；未 push/merge/release；下一阶段门禁是真实 provider smoke 与完整 packaging 取舍 |
-| Phase 2 | Provider request-shape 能力矩阵 | 🚧 进行中 | 部分：fixture 矩阵 + targeted test 已完成（29 用例 / 28 sanitized fixture，见 [矩阵文档](../../research/ai-sdk-7-provider-request-shape-matrix.md)）；待：真实凭据 smoke（Anthropic / OpenAI / 网关各 1 条，human gate）与发现 3（.chat image 裸 base64）基线比对 |
+| Phase 2 | Provider request-shape 能力矩阵 | 🚧 进行中 | 部分：fixture 矩阵 + targeted test 已完成（30+12 用例 / 29 sanitized fixture，见 [矩阵文档](../../research/ai-sdk-7-provider-request-shape-matrix.md)）；发现 3（.chat image 裸 base64）已本地收口（`withChatImageDataUrlFetch`，Codex 裁决 option a）；待：真实凭据 smoke（Anthropic / OpenAI / 网关各 1 条，human gate） |
 | Phase 3 | Native Runtime ToolLoopAgent side-by-side POC | 📋 待开始 | 只做实验入口或测试路径；保持现有 Native Runtime 默认不变 |
 | Phase 4 | 第一批安全落地能力 | 📋 待开始 | 优先 timeout、approval HMAC、AI SDK DevTools 诊断、`@ai-sdk/mcp` adapter POC |
 | Phase 5 | Native Runtime 迁移 / 保守采用决策门 | 📋 待开始 | 根据 parity 与 smoke 结果决定是否替换 agent loop |
@@ -47,6 +47,7 @@
 - 2026-07-01: Phase 1 作为协作循环 hands-off pilot 执行。原因：用户希望在确认计划和创建专用 worktree 后，不再充当 Claude/Codex 中间消息队列；Claude/Codex 应在 private run issue 中完成实现、review、修复、验证和 smoke，直到 ready-for-user-acceptance 或触发 human gate。
 - 2026-07-02: Phase 1 spike 由 hands-off runner 完成首跑（无人工干预：launchd tick 唤醒 → 实现 → 自验 → artifact → 自动发布）。结论：**升级可行且破坏面极小**——`ai` ^6.0.169→^7.0.11 + 5 个 `@ai-sdk/*` 包无 peer 冲突，`@ai-sdk/provider@4` 仍导出 `LanguageModelV3`（自定义 provider 包装层零改动）；唯一破坏面是 `LanguageModelUsage` 顶层 `cachedInputTokens`/`reasoningTokens` 移入嵌套 details，4 处编译错误 4 行机械修复。验证：升级前基线 3497 测试全过 → 升级后 3497 全过 + `npm run build` + Electron esbuild bundle。worktree commit `717bf93`（未 push）。Agent 上报三个剩余风险：本计划文档未提交进 git、worktree 内不可见（agent 无法回写进度，见协作计划同日决策）；无真实凭据未做 live provider smoke（建议作 Phase 1→2 门禁）；未跑完整 DMG/NSIS 打包。证据：`https://github.com/op7418/codepilot-agent-runs/issues/1#issuecomment-4862072251`。
 - 2026-07-03: Phase 2 fixture 取证完成（hands-off run issue #6，commit 见本 worktree）。产出：`src/__tests__/unit/provider-request-shape.test.ts`（29 targeted test，mock fetch 捕获真实出网请求）+ `src/__tests__/fixtures/provider-request-shape/`（28 个 sanitized fixture，含卫生自检用例）+ [矩阵文档](../../research/ai-sdk-7-provider-request-shape-matrix.md)。验证：`npm run test` 3526/3526 全绿（新增 29）。关键发现：(1) `@ai-sdk/anthropic@4.0.5` effort 走 `output_config.effort` 且**不带**任何 effort beta header——agent-loop 为 Opus 4.7+ 丢弃 native effort 的前提（"SDK 仍附 deprecated effort-2025-11-24 beta"）已失效，待 1 条真实 smoke 后可考虑撤 gate；(2) Anthropic 带 tools 请求被 SDK 自动追加 `structured-outputs-2025-11-13` beta、带 PDF 追加 `pdfs-2024-09-25`，第三方代理接受度未知 → 代理路径 tools/PDF 保持 capability-gated；(3) **采用阻断项**：`@ai-sdk/openai@4.0.5` `.chat()` 路径（现行网关路径）把 image 发成裸 base64（无 `data:` 前缀），Responses 路径与 `@ai-sdk/openai-compatible@3.0.3` 均正确——main 基线（ai@6）行为本轮沙箱内无法取证，升级采用前必须收口；(4) Codex Responses 路径 system prompt 双发（`input[developer]` + `instructions`），P2 待产品取舍。真实凭据 smoke 未跑（无凭据，不猜）→ Phase 2 保持 🚧，接受度结论一律按 gated 处理。
+- 2026-07-03: 发现 3 本地收口（run issue #6 fix 轮，Codex 裁决 option a：本地 wrapper 而非 gated 等 upstream / patch node_modules）。改动：新增 `src/lib/openai-chat-image-normalizer.ts`（`withChatImageDataUrlFetch`：仅对 `…/chat/completions` 的 JSON body、仅当 `image_url.url` 为裸 base64 时按 magic-byte sniff（png/jpeg/webp/gif/svg）补 `data:<mime>;base64,` 前缀；schemed URL / 未识别字节原样透传，upstream 修复后自动 no-op 防双前缀），接入 `ai-provider.ts` 非 OAuth openai 网关分支；未触碰默认 Runtime/provider/model/permission/DB schema，无用户可见开关。P3 一并收口：request-shape 测试标题改为与断言一致（app 路径断言规范 data URL），另加显式命名 `upstream bare base64` 的无 wrapper 对照测试 + fixture `openai-chat-file-image-upstream-bare-base64`（SDK 升级修复后该 fixture drift 报警 → 撤 wrapper 信号）。验证：`npx tsx --test provider-request-shape` 30/30 + `openai-chat-image-normalizer` 12/12，`npm run test` 全绿（数字见 run issue #6 本轮 artifact）。网关对 data URL 的真实接受度仍是 human gate smoke，不在本轮下结论。
 - 2026-07-02: Codex 复审接受 Phase 1。复审复跑 `npm run test`（3497/3497）、`npm run build`、`node scripts/build-electron.mjs`，并确认 diff 只包含 `package.json` / `package-lock.json` / 3 个 usage UI 适配文件；未触碰默认 Runtime/provider/model/permission/DB schema。`review_requested + LanguageModelUsage` 语义核对通过：cache row 读取 `inputTokenDetails.cacheReadTokens`，reasoning row 读取 `outputTokenDetails.reasoningTokens`，与 AI SDK 7 `LanguageModelUsage` 类型一致。Phase 1 结论：可进入 Phase 2 provider request-shape / live smoke；不得因此直接切默认 Runtime。证据：`https://github.com/op7418/codepilot-agent-runs/issues/1#issuecomment-4862072251`。
 
 ## Loop Operating Rules

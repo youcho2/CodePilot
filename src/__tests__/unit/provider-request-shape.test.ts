@@ -43,6 +43,7 @@ import { z } from 'zod';
 import { createAnthropic } from '@ai-sdk/anthropic';
 import { createOpenAI } from '@ai-sdk/openai';
 import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
+import { withChatImageDataUrlFetch } from '../../lib/openai-chat-image-normalizer';
 
 // ── Constants ───────────────────────────────────────────────────
 
@@ -293,7 +294,21 @@ function appOpenAIResponses(fetchImpl: typeof fetch): LanguageModel {
 
 function gatewayOpenAIChat(fetchImpl: typeof fetch): LanguageModel {
   // Mirrors ai-provider.ts non-OAuth 'openai' branch: openai-compatible
-  // third-party gateways / OpenRouter-class providers via .chat().
+  // third-party gateways / OpenRouter-class providers via .chat(), with the
+  // same withChatImageDataUrlFetch wrapper the app installs (发现 3 收口).
+  const openai = createOpenAI({
+    apiKey: FAKE_KEY,
+    baseURL: 'https://gateway.example/v1',
+    fetch: withChatImageDataUrlFetch(fetchImpl),
+  });
+  return openai.chat('anthropic/claude-sonnet-4.6');
+}
+
+function gatewayOpenAIChatUpstreamRaw(fetchImpl: typeof fetch): LanguageModel {
+  // NO normalization wrapper — pins the raw @ai-sdk/openai .chat() output so
+  // the upstream bare-base64 bug (发现 3) stays visible. When an SDK upgrade
+  // makes this fixture drift to a proper data URL, the upstream bug is fixed
+  // and the app-side wrapper can be retired.
   const openai = createOpenAI({
     apiKey: FAKE_KEY,
     baseURL: 'https://gateway.example/v1',
@@ -659,7 +674,7 @@ describe('provider request shape — OpenAI Chat Completions (gateway path)', ()
     checkFixture('openai-chat-tool-choice-named', CHAT_META, req);
   });
 
-  it('file input: image/png file part → image_url data URL', async () => {
+  it('file input: image/png file part → image_url data URL (app path: bare-base64 fixed by withChatImageDataUrlFetch)', async () => {
     const req = await captureGenerate('openai-chat', gatewayOpenAIChat, {
       system: SYSTEM,
       messages: IMAGE_MESSAGES,
@@ -668,7 +683,31 @@ describe('provider request shape — OpenAI Chat Completions (gateway path)', ()
     const content = req.body.messages.find((m: { role: string }) => m.role === 'user').content;
     const image = content.find((p: { type: string }) => p.type === 'image_url');
     assert.ok(image, 'expected image_url part');
+    assert.equal(
+      image.image_url.url,
+      `data:image/png;base64,${PNG_1PX}`,
+      'app gateway path must send a proper data URL, not bare base64',
+    );
     checkFixture('openai-chat-file-image', CHAT_META, req);
+  });
+
+  it('file input (upstream control, NO wrapper): @ai-sdk/openai .chat() emits image_url as BARE base64 — upstream bug', async () => {
+    const req = await captureGenerate('openai-chat', gatewayOpenAIChatUpstreamRaw, {
+      system: SYSTEM,
+      messages: IMAGE_MESSAGES,
+      maxOutputTokens: 16384,
+    });
+    const content = req.body.messages.find((m: { role: string }) => m.role === 'user').content;
+    const image = content.find((p: { type: string }) => p.type === 'image_url');
+    assert.ok(image, 'expected image_url part');
+    // Drift here (bare base64 → data URL) means upstream fixed the bug:
+    // regenerate fixtures and consider retiring withChatImageDataUrlFetch.
+    assert.equal(image.image_url.url, PNG_1PX, 'installed @ai-sdk/openai still emits bare base64');
+    checkFixture(
+      'openai-chat-file-image-upstream-bare-base64',
+      { ...CHAT_META, note: 'raw SDK output WITHOUT the app normalization wrapper — documents upstream bare-base64 bug (发现 3)' },
+      req,
+    );
   });
 
   it('file input: application/pdf file part → file part (or documented unsupported)', async () => {

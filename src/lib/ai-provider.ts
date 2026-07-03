@@ -32,6 +32,7 @@ import {
 } from './provider-resolver';
 import { ensureTokenFresh } from './openai-oauth-manager';
 import { hasClaudeSettingsCredentials } from './claude-settings';
+import { withChatImageDataUrlFetch } from './openai-chat-image-normalizer';
 
 // ── Public API ──────────────────────────────────────────────────
 
@@ -287,6 +288,14 @@ function createLanguageModel(config: AiSdkConfig, isThirdPartyProxy: boolean): L
         apiKey: config.apiKey,
         baseURL: config.baseUrl,
         ...(hasHeaders ? { headers: config.headers } : {}),
+        // @ai-sdk/openai@4.0.5 .chat() emits image_url.url as BARE base64
+        // (missing the data:<mime>;base64, prefix — Phase 2 发现 3, fixture
+        // openai-chat-file-image-upstream-bare-base64). Gateways expect a
+        // data URL or remote URL, so bare base64 breaks image input on this
+        // wire. The wrapper sniffs the real MIME (png/jpeg/webp/gif/svg) and
+        // prefixes it; already-schemed URLs pass through verbatim, so an
+        // upstream fix cannot double-prefix.
+        fetch: withChatImageDataUrlFetch(),
       });
       // Chat Completions, NOT the Responses API. In @ai-sdk/openai v3 the bare
       // `openai(modelId)` call defaults to `.responses()` (/v1/responses), but
