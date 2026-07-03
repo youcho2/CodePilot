@@ -74,6 +74,8 @@ Loop 只能在下面这些机械信号上自动迭代：
 - 连续 3 次自动迭代仍未收敛，或同一失败原因重复出现。
 - 需要真实账号 / 真实 provider key / 真实 MCP server 才能判断。
 
+**工程取舍不停循环（用户规则，2026-07-03）**：bug 收口方式、实现路径选择、测试策略等有工程正解的取舍，由 Codex 在 review artifact 里裁决并记录（judgment 写方向与理由、nextAction 给指令），用 fix-requested / claude-implementing 推进循环；双方分歧走 loop 轮次讨论，3 轮不收敛才升级 human-decision-needed。human gate 收窄为：真实凭据、花钱/配额、发布、安全与权限边界、用户明确保留的产品方向。
+
 ### Loop 运行约束
 
 - 每个 run 最多 3 个自动迭代 cycle，超过后进入人工 triage。
