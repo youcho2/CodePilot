@@ -78,6 +78,8 @@
 
 - 2026-07-03: 修复 Codex 对加固批次的 4 条复审 findings（67/67 单测）。①P1/P2 fix 轮计数重放重复累加：bumpFixRound 改为按 artifact-id 幂等（fixRoundArtifacts 记账，重放返回原计数），新增 publish CLI 级 replay 测试（fix_requested 发布后重放，计数保持 1）；②P2 PID stale 只看 wake 父进程：锁新增 childPid（wake spawn 后回写），holderAlive 改为父/子任一存活即 live——父死子活不再误判 stale、不再并发唤醒第二个 agent（测试覆盖父死子活/双死两态）；③P3 assignment 文件损坏只在本地空转：runner 捕获解析失败并走 escalation 机制（N 次后 human-decision-needed 浮到 issue），escalation 对合成字符串 assignment id 增加 NaN 防护（cursor 不被污染）；④P3 usage 只记 Claude：从真实 codex JSONL 确认 usage 字段格式后补齐 Codex 侧解析，两侧每 run 都落 usage 行。
 
+- 2026-07-03: 修复 Codex 二轮复核的 2 条 findings（72/72 单测）。①P1 assignment 文件损坏的 escalation 非终态、每 tick 重发升级评论（Codex 用隔离 state 复现 3 连发）：recordFailureAndMaybeEscalate 对已 rec.escalated 的 assignment 改为终态 no-op（返回 repeated:true，不再计数不再发评论），测试断言 3 次连调只发 1 条；②P2 Codex usage 解析存在但真实 run 未落账（close 事件与 WriteStream flush 竞态）：wake 的日志写入从 pipe 改为同步 appendFileSync（close 时文件必然完整，顺带修掉双 pipe 进单 writable 的隐患），usage 解析抽出为 lib/usage.mjs 并用真实格式 fixture 测试（claude result 行 / codex JSONL usage 行 / 截断行回退）。
+
 ## 事实源与 Ledger 合同
 
 ### 四层事实源
