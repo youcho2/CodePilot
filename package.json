@@ -25,6 +25,7 @@
     "test:e2e": "npx playwright test",
     "test:visual": "npx playwright test --grep @visual",
     "test:sdk-poc": "CLAUDE_SDK_POC=1 tsx --test src/__tests__/integration/*-poc.test.ts",
+    "smoke:mcp-poc": "tsx scripts/smoke-ai-sdk7-phase4-mcp-poc.ts",
     "test": "npm run typecheck && npm run test:unit",
     "lint:colors": "! grep -rn --include='*.tsx' --include='*.ts' -E '(bg|text|border)-(green|emerald|red|orange|yellow|amber|blue)-(400|500|600|700)' src/components/ src/app/ --exclude-dir=ui --exclude-dir=ai-elements | grep -v 'lint-allow-raw-color'",
     "lint:hooks": "node scripts/lint-hooks.mjs",
@@ -116,6 +117,7 @@
     "zlib-sync": "^0.1.10"
   },
   "devDependencies": {
+    "@ai-sdk/mcp": "^2.0.7",
     "@ai-sdk/openai-compatible": "^3.0.3",
     "@playwright/test": "^1.58.1",
     "@tailwindcss/postcss": "^4",
