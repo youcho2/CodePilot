@@ -74,6 +74,8 @@
 - 2026-07-03: Phase 4 首轮暴露三个 harness 问题（issue #8，两次 run 共 ~2h 无 GitHub 可见产出后由人工介入恢复）。**①headless 一次性进程盲点（已治本）**：agent 在 `claude -p` 里沿用交互式习惯——把全量测试挂后台 + watcher 后结束回合等回调，但 headless 回合结束＝进程退出，attempt 1（52min）/attempt 2（75min）都死在交付前且工作已基本完成（27 个未提交文件）；修复：`claude-implementer.md` 新增 "Headless one-shot mode (CRITICAL)" 区块（禁止后台挂起、验证必须前台阻塞跑完），并用"收尾轮" task 让第三轮接续半成品而非重做。**②运行中零可观测（待修，tech-debt #49）**：issue 评论只在轮次成功收尾时发布，失败 run 外部完全不可见（用户看到 3 小时静默）；`--output-format text` 运行中 agent.log 为空。修法：wake 改 `stream-json` 让日志变实时事件流。**③单轮体量过大（规则化）**：Phase 4 一轮塞 4 个特性导致 50-75min 长跑，失败爆炸半径大；此后 phase 下发时拆子轮（每轮 1-2 个特性 + 独立 required checks 子集）。**附带沉淀的介入手法**：阻止即将到来的 retry 用「摘 trigger label」而非 launchctl（label 操作无进程风险，launchctl unload 会误杀飞行中 run）。
 - 2026-07-03: Codex 运行中复盘补记 issue #8 附近的 loop 问题清单，避免只留在聊天里。已修 / 规则化：① headless 进程不得后台挂测试；② phase 自动推进时 `launchctl unload/load` 只在 locks==0，临时阻止 retry 用摘 trigger label；③ 过大 phase 后续拆成 1-2 个能力一轮。待修：`tech-debt #49` 运行中零可观测（Claude text log 空、GitHub 无 heartbeat）。运营注意：Codex reviewer 侧可因网络/DNS 限制无法复跑真实 provider smoke，此类 live smoke 以 Claude 侧脱敏证据为主、Codex 只复核报告与无泄漏；raw probe / 临时归因证据必须落脱敏文件或 issue comment，不能只写在 narrative 里。对应 AI SDK 技术问题与 Phase 2-4 结论登记在 `ai-sdk-7-runtime-loop-adoption.md`。
 
+- 2026-07-03: #49+#50 加固批次实施完成（Phase 4 收尾轮交卷后的暂停窗口内，摘 label 暂停→改码→测试→恢复，零误杀）。落地：stream-json 实时日志 + usage 落账、lock PID 死进程即时 stale、assignment 文件（plist 静态化、编排零 launchctl）、fix 轮次机械上限（>=4 强制 human gate）、日志时间戳、escalation 演练真实通过（issue #9）。63/63 单测。附：Phase 4 收尾轮 65 分钟成功交卷——时长为真实工作量（审 27 文件 + 前台全量测试 + pre-commit 复跑），非故障。
+
 ## 事实源与 Ledger 合同
 
 ### 四层事实源
