@@ -76,6 +76,8 @@
 
 - 2026-07-03: #49+#50 加固批次实施完成（Phase 4 收尾轮交卷后的暂停窗口内，摘 label 暂停→改码→测试→恢复，零误杀）。落地：stream-json 实时日志 + usage 落账、lock PID 死进程即时 stale、assignment 文件（plist 静态化、编排零 launchctl）、fix 轮次机械上限（>=4 强制 human gate）、日志时间戳、escalation 演练真实通过（issue #9）。63/63 单测。附：Phase 4 收尾轮 65 分钟成功交卷——时长为真实工作量（审 27 文件 + 前台全量测试 + pre-commit 复跑），非故障。
 
+- 2026-07-03: 修复 Codex 对加固批次的 4 条复审 findings（67/67 单测）。①P1/P2 fix 轮计数重放重复累加：bumpFixRound 改为按 artifact-id 幂等（fixRoundArtifacts 记账，重放返回原计数），新增 publish CLI 级 replay 测试（fix_requested 发布后重放，计数保持 1）；②P2 PID stale 只看 wake 父进程：锁新增 childPid（wake spawn 后回写），holderAlive 改为父/子任一存活即 live——父死子活不再误判 stale、不再并发唤醒第二个 agent（测试覆盖父死子活/双死两态）；③P3 assignment 文件损坏只在本地空转：runner 捕获解析失败并走 escalation 机制（N 次后 human-decision-needed 浮到 issue），escalation 对合成字符串 assignment id 增加 NaN 防护（cursor 不被污染）；④P3 usage 只记 Claude：从真实 codex JSONL 确认 usage 字段格式后补齐 Codex 侧解析，两侧每 run 都落 usage 行。
+
 ## 事实源与 Ledger 合同
 
 ### 四层事实源
