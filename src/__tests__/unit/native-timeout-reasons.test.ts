@@ -16,7 +16,11 @@
  *      asserted by writing with addMessage and reading back via getMessages.
  *   4. 反例 (anti-fake-data): with budgets configured but generous, a normal
  *      turn produces NO timeout error; a USER abort with budgets armed is
- *      still a clean abort (no TIMEOUT_* misclassification).
+ *      still a clean abort (no TIMEOUT_* misclassification); a connection
+ *      BLACK HOLE never produces TIMEOUT_FIRST_TOKEN — not with only
+ *      firstTokenMs configured (fires nothing) and not with
+ *      firstTokenMs < connectMs (fires connect) — because the first-token
+ *      timer is armed only by `start-step` (response arrived).
  *
  * Defaults are all-off: `resolveNativeTimeoutConfig()` with no options and
  * no env returns an empty config and the controller arms nothing — pinned
@@ -266,6 +270,38 @@ describe('createNativeTimeoutController', () => {
     b.dispose();
   });
 
+  // 反例 (P1 fix): first-token must never pre-empt the connect window. A
+  // black-hole connection produces no start-step, so the first-token timer
+  // must never even be armed.
+  it('first-token: black hole with ONLY firstTokenMs configured fires nothing', async () => {
+    const ctl = createNativeTimeoutController({ firstTokenMs: 30 }, new AbortController().signal);
+    ctl.onStepRequest();
+    await sleep(90); // 3× the budget, still no response
+    assert.equal(ctl.fired, null, 'no start-step → first-token must not fire (that window belongs to connect)');
+    assert.equal(ctl.signal.aborted, false, 'no spurious abort either');
+    ctl.dispose();
+  });
+
+  it('first-token: black hole with firstTokenMs < connectMs is classified as connect, never first-token', async () => {
+    const ctl = createNativeTimeoutController({ connectMs: 80, firstTokenMs: 20 }, new AbortController().signal);
+    ctl.onStepRequest();
+    await sleep(160);
+    assert.equal(ctl.fired?.reason, 'connect', 'the smaller first-token budget must not pre-empt connect');
+    assert.equal(ctl.fired?.source, 'agent-loop.fullStream[start-step]');
+    ctl.dispose();
+  });
+
+  it('first-token: the budget window starts at start-step, not at the request', async () => {
+    const ctl = createNativeTimeoutController({ firstTokenMs: 60 }, new AbortController().signal);
+    ctl.onStepRequest();
+    await sleep(120); // 2× the budget elapses BEFORE the response — must not count
+    assert.equal(ctl.fired, null, 'pre-response time must not consume the first-token budget');
+    ctl.onStreamPart({ type: 'start-step' });
+    await sleep(120);
+    assert.deepEqual(ctl.fired, { reason: 'first-token', budgetMs: 60, source: 'agent-loop.fullStream[first-output-part]' });
+    ctl.dispose();
+  });
+
   it('tool-execution: fires between tool-call and tool-result; cleared by the matching tool-result', async () => {
     const a = createNativeTimeoutController({ toolExecutionMs: 40 }, new AbortController().signal);
     a.onStepRequest();
@@ -424,7 +460,24 @@ describe('runAgentLoop timeout reason codes (end-to-end)', () => {
     assert.ok(events.some((e) => e.type === 'result'), 'normal result event present');
   });
 
-  // 反例 2: USER abort with budgets armed must stay a clean abort — never a
+  // 反例 2 (P1 fix): a black-hole connection with firstTokenMs < connectMs
+  // must surface as TIMEOUT_CONNECT — the shorter first-token budget cannot
+  // pre-empt the connect window because it only arms after start-step.
+  it('black-hole with firstTokenMs < connectMs → TIMEOUT_CONNECT, not first-token', async () => {
+    const { events } = await runLoop({
+      timeouts: { connectMs: 300, firstTokenMs: 100 },
+      fetchHandler: (init) => neverRespond(init),
+    });
+    const err = errorEventData(events);
+    assert.ok(err, 'error event present');
+    assert.equal(err.category, 'TIMEOUT_CONNECT', 'black hole must classify as connect');
+    const timeout = err.timeout as Record<string, unknown>;
+    assert.equal(timeout.reason, 'connect');
+    assert.equal(timeout.budgetMs, 300, 'the connect budget fired, not the smaller first-token one');
+    assert.equal(events[events.length - 1].type, 'done');
+  });
+
+  // 反例 3: USER abort with budgets armed must stay a clean abort — never a
   // TIMEOUT_* misclassification, never an error bubble.
   it('classifies a user abort as abort, not as a timeout', async () => {
     const { events } = await runLoop({

@@ -1,6 +1,6 @@
 {
   "smoke": "ai-sdk7-phase4-mcp-poc",
-  "timestamp": "2026-07-03T11:42:54.140Z",
+  "timestamp": "2026-07-03T12:14:35.896Z",
   "transport": "stdio (child process via @ai-sdk/mcp/mcp-stdio StdioMCPTransport)",
   "server": "scripts/fixture-mcp-stdio-server.mjs (@modelcontextprotocol/sdk Server)",
   "allPass": true,

@@ -14,12 +14,17 @@
  *   `doStream()` resolves, i.e. after response headers arrived (it carries
  *   the request metadata + provider warnings). Covers DNS/TCP/TLS/queueing.
  *   Source breadcrumb: `agent-loop.fullStream[start-step]`.
- * - `first-token` — the provider responded but produced no MODEL OUTPUT
- *   (text/reasoning/tool-call) within `firstTokenMs` of the step's
- *   `streamText()` invocation. Anchor: first fullStream part in
- *   {text-start, text-delta, reasoning-start, reasoning-delta,
- *   tool-input-start, tool-input-delta, tool-call}. Measured per step (each
- *   step is one provider request). Source breadcrumb:
+ * - `first-token` — the provider RESPONDED but produced no MODEL OUTPUT
+ *   (text/reasoning/tool-call) within `firstTokenMs` of the response
+ *   arriving. The timer is armed ONLY by the step's `start-step` part (the
+ *   response-arrived signal) — never at request time — so an unresponsive
+ *   connection can never be misclassified as first-token: a black hole with
+ *   only `firstTokenMs` configured fires nothing (that window is `connect`'s
+ *   to cover), and with both configured only `connect` can fire before the
+ *   response. Clear anchor: first fullStream part in {text-start,
+ *   text-delta, reasoning-start, reasoning-delta, tool-input-start,
+ *   tool-input-delta, tool-call}. Measured per step (each step is one
+ *   provider request). Source breadcrumb:
  *   `agent-loop.fullStream[first-output-part]`.
  * - `tool-execution` — one tool call's execution did not finish within
  *   `toolExecutionMs`. Anchor: `tool-call` part (execution starts) →
@@ -137,12 +142,16 @@ export interface NativeTimeoutController {
   readonly fired: NativeTimeoutFired | null;
   /** Arm the total-run timer (idempotent; no-op when budget disabled). */
   onRunStart(): void;
-  /** Arm connect + first-token timers for one step's provider request. */
+  /**
+   * Arm the connect timer for one step's provider request. Deliberately
+   * does NOT arm first-token: before the response arrives, `connect` is the
+   * only valid classification (see the semantic contract above).
+   */
   onStepRequest(): void;
   /**
-   * Observe one fullStream part: clears connect on `start-step`, clears
-   * first-token on the first output part, starts/stops per-tool timers on
-   * `tool-call` / `tool-result` / `tool-error`.
+   * Observe one fullStream part: `start-step` clears connect and arms
+   * first-token, the first output part clears first-token, and
+   * `tool-call` / `tool-result` / `tool-error` start/stop per-tool timers.
    */
   onStreamPart(part: { type: string; toolCallId?: string }): void;
   /**
@@ -186,6 +195,9 @@ export function createNativeTimeoutController(
   let totalTimer: NodeJS.Timeout | null = null;
   let connectTimer: NodeJS.Timeout | null = null;
   let firstTokenTimer: NodeJS.Timeout | null = null;
+  // Guards first-token arming: true once the current step produced output,
+  // so a stray late `start-step` can never re-arm a budget already satisfied.
+  let stepOutputSeen = false;
   const toolTimers = new Map<string, NodeJS.Timeout>();
 
   const clear = (t: NodeJS.Timeout | null) => { if (t) clearTimeout(t); };
@@ -226,17 +238,24 @@ export function createNativeTimeoutController(
 
     onStepRequest() {
       clear(connectTimer);
-      clear(firstTokenTimer);
+      clear(firstTokenTimer); firstTokenTimer = null;
+      stepOutputSeen = false;
       connectTimer = arm('connect', config.connectMs);
-      firstTokenTimer = arm('first-token', config.firstTokenMs);
+      // first-token is armed by `start-step` (response arrived), never here:
+      // arming at request time would let it fire during a connection black
+      // hole and misreport a connect failure as first-token.
     },
 
     onStreamPart(part) {
       if (part.type === 'start-step') {
         clear(connectTimer); connectTimer = null;
+        if (!firstTokenTimer && !stepOutputSeen) {
+          firstTokenTimer = arm('first-token', config.firstTokenMs);
+        }
         return;
       }
-      if (firstTokenTimer && OUTPUT_PART_TYPES.has(part.type)) {
+      if (OUTPUT_PART_TYPES.has(part.type)) {
+        stepOutputSeen = true;
         // Any output part also proves the response arrived.
         clear(connectTimer); connectTimer = null;
         clear(firstTokenTimer); firstTokenTimer = null;
