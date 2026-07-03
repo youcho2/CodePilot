@@ -64,6 +64,7 @@ import { checkPermission, type PermissionMode } from './permission-checker';
 import { registerPendingPermission, buildPermissionResolvedEvent } from './permission-registry';
 import { emit as emitEvent } from './runtime/event-bus';
 import { createPermissionRequest } from './db';
+import { issueApprovalToken } from './permission-approval-token';
 import crypto from 'crypto';
 
 export interface AssembleToolsOptions {
@@ -168,7 +169,11 @@ function getSessionRules(sessionId: string): Array<{ permission: string; pattern
   return approvals.map(a => ({ permission: a.toolName, pattern: a.pattern, action: 'allow' as const }));
 }
 
-function wrapWithPermissions(
+// Exported for the Phase 4 @ai-sdk/mcp adapter POC
+// (src/lib/experimental/mcp-sdk-adapter-poc.ts) so the experimental path
+// reuses the EXACT production permission wrapper instead of a replica.
+// Export-only change: no behavior difference on the default path.
+export function wrapWithPermissions(
   tools: ToolSet,
   ctx: NonNullable<AssembleToolsOptions['permissionContext']>,
 ): ToolSet {
@@ -223,6 +228,7 @@ function wrapWithPermissions(
         if (result.action === 'ask') {
           // Emit permission_request SSE and wait for user response
           const permId = crypto.randomBytes(8).toString('hex');
+          const expiresAt = new Date(Date.now() + 5 * 60 * 1000).toISOString();
 
           // Persist to DB
           try {
@@ -231,13 +237,14 @@ function wrapWithPermissions(
               sessionId: ctx.sessionId,
               toolName: name,
               toolInput: JSON.stringify(input),
-              expiresAt: new Date(Date.now() + 5 * 60 * 1000).toISOString(),
+              expiresAt,
             });
           } catch { /* non-critical */ }
 
           emitEvent('permission:request', { sessionId: ctx.sessionId, toolName: name, permissionId: permId });
 
-          // Emit SSE
+          // Emit SSE. approvalToken: HMAC over (id, expiresAt) — the route
+          // rejects approvals that don't echo it (Phase 4 ② hardening).
           ctx.emitSSE({
             type: 'permission_request',
             data: JSON.stringify({
@@ -245,6 +252,7 @@ function wrapWithPermissions(
               toolName: name,
               toolInput: input,
               description: result.reason,
+              approvalToken: issueApprovalToken(permId, expiresAt),
             }),
           });
 

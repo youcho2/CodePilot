@@ -202,6 +202,7 @@ async function collectStream(
  *   - session ids → <SID>
  *   - rewind userMessageId (DB message id) → <MID>
  *   - permissionRequestId → <PERM-n> in order of first appearance
+ *   - approvalToken (HMAC over per-run id+expiry, Phase 4 ②) → <TOKEN-n>
  *   - working directory absolute path → <WD>
  */
 function normalizeEvents(
@@ -218,9 +219,14 @@ function normalizeEvents(
         // Bind permission ids before generic replacements.
         if (e.type === 'permission_request' || e.type === 'permission_resolved') {
           try {
-            const parsed = JSON.parse(text) as { permissionRequestId?: string };
+            const parsed = JSON.parse(text) as { permissionRequestId?: string; approvalToken?: string };
             const id = parsed.permissionRequestId;
             if (id && !permIds.has(id)) permIds.set(id, `<PERM-${permIds.size + 1}>`);
+            // The token is volatile (HMAC of per-run id + expiry) but must be
+            // PRESENT on both loops — map it to a stable marker rather than
+            // dropping it, so a loop that stops emitting it fails parity.
+            const token = parsed.approvalToken;
+            if (token && !permIds.has(token)) permIds.set(token, `<TOKEN-${permIds.size + 1}>`);
           } catch { /* keep raw */ }
         }
         for (const [id, marker] of permIds) text = text.split(id).join(marker);

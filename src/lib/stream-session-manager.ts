@@ -1092,6 +1092,9 @@ export async function respondToPermission(
 
   const body = {
     permissionRequestId: perm.permissionRequestId,
+    // Echo the server-issued HMAC token; the route rejects responses
+    // without a valid one (Phase 4 ② hardening).
+    ...(perm.approvalToken ? { approvalToken: perm.approvalToken } : {}),
     decision: decision === 'deny'
       ? { behavior: 'deny' as const, message: denyMessage || 'User denied permission' }
       : {

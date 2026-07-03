@@ -966,10 +966,19 @@ export interface PermissionRequestEvent {
   blockedPath?: string;
   toolUseId: string;
   description?: string;
+  /**
+   * HMAC approval token issued by the server at request-creation time
+   * (src/lib/permission-approval-token.ts). The renderer must echo it back
+   * in PermissionResponseRequest; /api/chat/permission rejects responses
+   * whose token is missing, tampered, or bound to a different request.
+   */
+  approvalToken?: string;
 }
 
 export interface PermissionResponseRequest {
   permissionRequestId: string;
+  /** Echo of PermissionRequestEvent.approvalToken — required by the route. */
+  approvalToken?: string;
   decision: {
     behavior: 'allow';
     updatedPermissions?: PermissionSuggestion[];

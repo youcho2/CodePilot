@@ -48,6 +48,7 @@ import type { PermissionRequestEvent, PermissionSuggestion } from '@/types';
 import type { NativePermissionResult } from '@/lib/types/agent-types';
 import { translateCodexApproval } from './event-mapper';
 import { createPermissionRequest, getPermissionRequest } from '@/lib/db';
+import { issueApprovalToken } from '@/lib/permission-approval-token';
 import { registerPendingPermission, buildPermissionResolvedEvent } from '@/lib/permission-registry';
 
 /**
@@ -182,6 +183,7 @@ export async function handleCodexApprovalRequest(args: HandleArgs): Promise<unkn
   // existing useSSEStream / PermissionPrompt pipeline picks it up
   // unchanged. UI doesn't care about runtime; the bridge does the
   // shape adaptation.
+  const expiresAt = new Date(Date.now() + 5 * 60 * 1000).toISOString();
   const sdkPermission: PermissionRequestEvent = {
     permissionRequestId: requestId,
     toolName: canonical.toolName,
@@ -195,6 +197,9 @@ export async function handleCodexApprovalRequest(args: HandleArgs): Promise<unkn
       ...(h.behavior !== undefined ? { behavior: h.behavior } : {}),
       ...(h.destination !== undefined ? { destination: h.destination } : {}),
     })),
+    // HMAC over (id, expiresAt) — /api/chat/permission rejects approvals
+    // that don't echo it (Phase 4 ② hardening).
+    approvalToken: issueApprovalToken(requestId, expiresAt),
   };
 
   // Persist to permission_requests so the existing /api/chat/permission
@@ -206,7 +211,7 @@ export async function handleCodexApprovalRequest(args: HandleArgs): Promise<unkn
       toolName: canonical.toolName,
       toolInput: JSON.stringify(canonical.toolInput ?? {}),
       decisionReason: canonical.details,
-      expiresAt: new Date(Date.now() + 5 * 60 * 1000).toISOString(),
+      expiresAt,
     });
   } catch (err) {
     // Logging-only failure; the in-memory registry is the source of
