@@ -1,4 +1,9 @@
 import type { RuntimeContextAccountingSnapshot } from '@/types';
+import {
+  TIMEOUT_CATEGORY,
+  describeNativeTimeout,
+  type NativeTimeoutFired,
+} from './native-timeout';
 
 /**
  * Data payload for the Native runtime `error` SSE event.
@@ -8,10 +13,25 @@ import type { RuntimeContextAccountingSnapshot } from '@/types';
  * calls ran before the throw, so when a snapshot is available the UI can still
  * report that usage. Omitted entirely when no snapshot could be produced, which
  * keeps the legacy `{ category, userMessage }` shape for the common case.
+ *
+ * `timeout` (Phase 4 ①) is present iff a native timeout budget fired:
+ * `category` is then the matching `TIMEOUT_*` code and `timeout` carries the
+ * machine-readable reason + budget + source breadcrumb. The chat route
+ * persists this exact JSON (inside the `**Error:** …` fallback message), so
+ * the reason code in the DB and the one the live UI displayed are the same
+ * value by construction — see native-timeout.ts "Persistence / display path".
  */
+export type NativeErrorCategory =
+  | 'AGENT_ERROR'
+  | 'TIMEOUT_CONNECT'
+  | 'TIMEOUT_FIRST_TOKEN'
+  | 'TIMEOUT_TOOL_EXECUTION'
+  | 'TIMEOUT_TOTAL_RUN';
+
 export interface NativeErrorEventData {
-  category: 'AGENT_ERROR';
+  category: NativeErrorCategory;
   userMessage: string;
+  timeout?: NativeTimeoutFired;
   context_accounting?: RuntimeContextAccountingSnapshot;
 }
 
@@ -24,11 +44,22 @@ export interface NativeErrorEventData {
  * @param accounting optional context-accounting snapshot; attached only when
  *                   present so a normal (no-snapshot) error keeps the legacy
  *                   `{ category, userMessage }` shape.
+ * @param timeout    the fired native timeout, when the turn was terminated by
+ *                   a timeout budget rather than a provider/tool failure.
  */
 export function buildNativeErrorEventData(
   err: unknown,
   accounting?: RuntimeContextAccountingSnapshot,
+  timeout?: NativeTimeoutFired | null,
 ): NativeErrorEventData {
+  if (timeout) {
+    return {
+      category: TIMEOUT_CATEGORY[timeout.reason],
+      userMessage: describeNativeTimeout(timeout),
+      timeout,
+      ...(accounting ? { context_accounting: accounting } : {}),
+    };
+  }
   return {
     category: 'AGENT_ERROR',
     userMessage: err instanceof Error ? err.message : String(err),
