@@ -67,6 +67,8 @@
 
 - 2026-07-03: 处理 Codex 对 post-loop 收口的三条复审意见。①「中文可读性没修」「plist 源/装载漂移」两条为**审计快照过期**——现状核实：`lib/artifact.mjs` 全部中文标题 + 摘要块（渲染样例 issue #5，2026-07-02 已发布）、两侧 prompt 均含语言要求（claude-implementer.md:44 / codex-reviewer.md:41）、`~/Library/LaunchAgents` 与源 plist 经 `plutil -p` diff 逐字节一致且均指 issue #1；判断 Codex 审到的是我拨回待命之前的中途状态。②「Codex 错过契约缺口仍 accepted」的时间线需澄清：所述现象是 issue #4 **首轮**（模板丢 `--task` 的事故轮，根因当日已修）；round 2 实际抓到全部 3 条缺口（comment 4864191814）、round 3 验证修复后才 accept。③但「散文契约太软」的方向判断成立，**已实现机器强制验收（required checks）**：runner 新增 `--required-checks '[{id,desc}]'` → wake 校验并落盘 `run/<id>/required-checks.json`、渲染进两侧 prompt（implementer 见验收线、reviewer 见必查项）→ reviewer artifact 新增 `checks: [{id, result: pass|fail, evidence}]` → **publisher 硬门禁**：任一 required check 缺报、无 evidence 或 fail 时 `accepted` 一律 BLOCK（fail-closed，与 prompt 无关）；`fix_requested` 允许携带 fail（循环本义）。验证：58/58 单测（含 publisher 级 CLI 测试「accepted+failing check 被拒且未发评论未改 label」）+ `--no-exec` 实测 prompt 注入与文件落盘。下一个真实 assignment 起，验收契约走 `--required-checks` 结构化下发，不再只依赖 task 散文。
 
+- 2026-07-03: 用户收窄 human gate 范围（Phase 2 停在 human-decision-needed 之后的反馈）：工程/架构取舍（如 OpenAI image bug 收口方式）由 Codex 先裁决并记录，Claude/Codex 在 loop 内讨论收敛，不得因此中断循环；human-decision-needed 只保留真实凭据、花钱/配额、发布、安全与权限边界、用户明确保留的产品方向、连续失败逃逸。已落地：两侧 prompt 模板新增 Engineering arbitration 规则、AI SDK 7 计划 Loop Operating Rules 同步修订、记忆 `loop-human-gate-scope` 沉淀。本次实例处理：image bug 收口决策送回循环由 Codex 裁决（issue #6 重打 codex-review-requested + 仲裁 task）；live smoke 凭据仍留给用户（硬 gate，机器无法代答）。
+
 ## 事实源与 Ledger 合同
 
 ### 四层事实源
