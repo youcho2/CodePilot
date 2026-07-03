@@ -69,6 +69,8 @@
 
 - 2026-07-03: 用户收窄 human gate 范围（Phase 2 停在 human-decision-needed 之后的反馈）：工程/架构取舍（如 OpenAI image bug 收口方式）由 Codex 先裁决并记录，Claude/Codex 在 loop 内讨论收敛，不得因此中断循环；human-decision-needed 只保留真实凭据、花钱/配额、发布、安全与权限边界、用户明确保留的产品方向、连续失败逃逸。已落地：两侧 prompt 模板新增 Engineering arbitration 规则、AI SDK 7 计划 Loop Operating Rules 同步修订、记忆 `loop-human-gate-scope` 沉淀。本次实例处理：image bug 收口决策送回循环由 Codex 裁决（issue #6 重打 codex-review-requested + 仲裁 task）；live smoke 凭据仍留给用户（硬 gate，机器无法代答）。
 
+- 2026-07-03: 用户第二次收窄验收点：**已批准计划内的 phase 推进不需要用户拍板**——上一 phase 达到 `codex-accepted` 后自动开下一 phase（干净开局流程：worktree 合 main → 新 run issue → 无锁窗口换 plist/required checks → 打 label）；用户验收点收敛为「批准计划」与「最终验收/发版」两头。同日实践：Phase 2 收口后 Phase 3（ToolLoopAgent side-by-side POC）按此规则自动启动（issue #7）。附带运营硬规则：`launchctl unload/load` 只在 locks==0 窗口执行（2026-07-03 曾在飞行中换 task 误杀一轮 run，stale-lock 恢复自愈）。
+
 ## 事实源与 Ledger 合同
 
 ### 四层事实源
