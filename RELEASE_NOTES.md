@@ -1,46 +1,25 @@
-## CodePilot v0.56.3
+## CodePilot v0.57.0
 
-> 新增 ClinePass 与 OpenCode Go 两类订阅服务商接入，并彻底修复发送后输入框文本残留、服务商弹窗关闭按钮等体验问题。推荐升级。
+> 底层 AI 运行时升级到 Vercel AI SDK 7，并彻底修复长回复期间「停止无效 / 输入框残留 / 重复发送」一组体验问题。默认聊天行为不变，推荐升级。
 
 ### 新增功能
 
-- **接入 ClinePass 订阅** — 在「添加服务 > Coding Plan」里新增 ClinePass（月付订阅，提供一组开源编程模型）。填一个 API Key 即可在 CodePilot / Codex 运行时使用，模型由订阅白名单提供。
-- **接入 OpenCode Go 订阅** — 新增 OpenCode Zen「Go」订阅。按官方协议拆为两个渠道：OpenAI 兼容（GLM / Kimi / DeepSeek / MiMo）与 Anthropic Messages（MiniMax / Qwen）。两者共用同一订阅 Key，模型由套餐白名单提供，不做在线全量刷新，避免把套餐外或错协议的模型拉进来。其中 Anthropic 渠道在 Claude Code 运行时为实验性接入。
+- **AI SDK 7 接入（保守采用）** — 底层依赖从 AI SDK 6 升级到 7，为后续的 provider 能力、诊断与安全加固打基础。本次采用是「部分采用」：默认聊天引擎和交互**完全不变**，新增能力都在渠道能力开关后按需启用或作为实验路径，不影响现有会话。
+- **Provider 参数能力矩阵（capability-gated）** — reasoning / effort、tool choice、图片、文件等参数按渠道逐一验证后开放，不做「类型上支持就宣称支持」的假接入。
+- **诊断与安全能力（默认关闭）** — 新增四类超时原因码诊断、权限批准令牌 HMAC 加固、AI SDK trace 脱敏诊断。这些能力默认全部关闭、不改变现有行为，供后续排障与安全场景按需开启。
 
 ### 修复问题
 
-- **发送后输入框彻底清空** — 进一步修复发送消息后输入框文本残留的问题。这次覆盖了之前仍会残留的几种情况：已在对话页时跳转到带预填内容的新对话、新对话的第一条普通消息、以及第一条消息带技能 / 命令徽章时；现在发送即清，且不会清掉你在等待回复期间已经开始输入的下一条。
-- **服务商弹窗关闭按钮** — 修复「添加服务」全屏弹窗右上角的关闭按钮在 macOS 上点不动（被窗口拖拽区吞掉点击）、在 Windows 上与系统最小化 / 关闭按钮挤在一起打架的问题。
-
-### 优化改进
-
-- **服务商品牌图标** — 升级图标库并补全品牌图标（含 Cline / OpenCode），同时修正部分服务商卡片错误显示成无关品牌 logo 的问题。
+- **停止生成现在真的会停** — 修复长回复生成时点「停止」无效的问题：此前在等待回复期间如果输入框还留着文字，点击会被当成「排队发送」而不是停止，导致同一条消息被重复发送、会话卡在「生成中」。现在停止即全停（同时清空待发队列），会话状态干净收敛。
+- **发送后输入框彻底清空** — 修复长回复 / 首条消息场景下，发送后输入框仍残留已发文字的问题（根因是输入框在流式期间被内部状态覆盖，乐观清空到不了界面）。现在发送即清，且不会清掉你在等待回复期间已经开始输入的下一条。
+- **发送 / 停止 / 排队按钮语义正确** — 按钮的无障碍标签按状态区分「发送消息 / 停止生成 / 排队发送」，不再一律显示「发送消息」——避免想点停止时误读成发送而重复发送。
+- **辅助生成的报错更诚实** — 媒体规划等辅助路径遇到 provider 报错时，现在显示真实的上游错误（如渠道 400），不再一律误报「无法从回复中解析出结果」。
 
 ### 已知问题
 
 以下问题已记录、不影响主流程，仍在跟进（欢迎到 GitHub Issues 反馈复现细节）：
 
-- OpenCode Go 的 Anthropic 渠道（MiniMax / Qwen）在 Claude Code 运行时为实验性接入，流式与工具调用的真机验证仍在补充。
+- 官方直连 Anthropic / OpenAI 渠道上，部分新参数特性（reasoning effort / 图片 / PDF）的真机验证仍在补充——本次主要在网关 / 订阅类渠道上完成了实测。
+- 部分订阅渠道（如 ClinePass、OpenCode Go 的 Anthropic 渠道）在媒体规划 / 辅助生成路径上的模型兼容仍在跟进；现在遇到不兼容会显示真实上游错误便于定位。
 - MCP 在设置页能看到，但运行时模型调不到，需要把 MCP 配置到项目路径才识别（排查中）。
-
-**反馈入口**：欢迎在 [GitHub Issues](https://github.com/op7418/CodePilot/issues) 提交问题与复现步骤。
-
-## 下载地址
-
-### macOS
-- [Apple Silicon (M1/M2/M3/M4)](https://github.com/op7418/CodePilot/releases/download/v0.56.3/CodePilot-0.56.3-arm64.dmg)
-- [Intel](https://github.com/op7418/CodePilot/releases/download/v0.56.3/CodePilot-0.56.3-x64.dmg)
-
-### Windows
-- [Windows 安装包](https://github.com/op7418/CodePilot/releases/download/v0.56.3/CodePilot.Setup.0.56.3.exe)
-
-## 安装说明
-
-**macOS**: 下载 DMG → 拖入 Applications → 首次启动如遇安全提示，在系统设置 > 隐私与安全中点击"仍要打开"
-**Windows**: 下载 exe 安装包 → 双击安装
-
-## 系统要求
-
-- macOS 12.0+ / Windows 10+ / Linux (glibc 2.31+)
-- 需要配置 API 服务商（Anthropic / OpenRouter 等）
-- 推荐安装 Claude Code CLI 以获得完整功能
+- `@ai-sdk/mcp` 适配与 ToolLoopAgent 运行时目前仅为实验 / POC 路径，未接入默认运行时。
