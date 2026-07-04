@@ -23,6 +23,7 @@ import { captureCapabilities, isCacheFresh, setCachedPlugins } from './agent-sdk
 import { normalizeMessageContent, microCompactMessage } from './message-normalizer';
 import { roughTokenEstimate } from './context-estimator';
 import { getSetting, updateSdkSessionId, createPermissionRequest } from './db';
+import { issueApprovalToken } from './permission-approval-token';
 import { resolveForClaudeCode, resolveEffectiveAnthropicBaseUrl } from './provider-resolver';
 import { isFirstPartyAnthropicEndpoint } from './ai-provider';
 import { sanitizeClaudeModelOptions } from './claude-model-options';
@@ -1335,6 +1336,7 @@ export function streamClaudeSdk(options: ClaudeStreamOptions): ReadableStream<st
           }
 
           const permissionRequestId = `perm-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+          const expiresAt = new Date(Date.now() + 5 * 60 * 1000).toISOString().replace('T', ' ').split('.')[0];
 
           const permEvent: PermissionRequestEvent = {
             permissionRequestId,
@@ -1345,10 +1347,12 @@ export function streamClaudeSdk(options: ClaudeStreamOptions): ReadableStream<st
             blockedPath: opts.blockedPath,
             toolUseId: opts.toolUseID,
             description: undefined,
+            // HMAC over (id, expiresAt) — /api/chat/permission rejects
+            // approvals that don't echo it (Phase 4 ② hardening).
+            approvalToken: issueApprovalToken(permissionRequestId, expiresAt),
           };
 
           // Persist permission request to DB for audit/recovery
-          const expiresAt = new Date(Date.now() + 5 * 60 * 1000).toISOString().replace('T', ' ').split('.')[0];
           try {
             createPermissionRequest({
               id: permissionRequestId,

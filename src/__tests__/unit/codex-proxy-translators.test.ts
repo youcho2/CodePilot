@@ -15,6 +15,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { translateResponsesInput } from '@/lib/codex/proxy/translate-input';
+import { buildPrompt } from '@/lib/codex/proxy/unified-adapter';
 import { translateResponsesTools } from '@/lib/codex/proxy/translate-tools';
 import { translateStream } from '@/lib/codex/proxy/translate-stream';
 import { translateNonStreamResponse } from '@/lib/codex/proxy/translate-response';
@@ -741,5 +742,47 @@ describe('buildProviderOptions — forwards instructions + store for the Codex /
     assert.equal((opts!.openai as Record<string, unknown>).reasoningEffort, 'high');
     assert.equal(opts!.openai!.store, false, 'store must still be set when other openai options are present');
     assert.ok(opts!.anthropic);
+  });
+});
+
+// ai@7 迁移回归（2026-07-03 用户实测抓到）：ai@7 禁止 messages 里出现
+// role:'system'（"Use the instructions option instead"），旧 buildMessages 把
+// body.instructions prepend 成 system message，Codex Runtime 发"你好"即抛错。
+// buildPrompt 必须把一切 system 文本抽到 instructions 选项。
+describe('buildPrompt — ai@7 system-in-messages regression', () => {
+  it('instructions + 用户消息：system 文本走 instructions，messages 零 system（“你好”回归）', () => {
+    const { instructions, messages } = buildPrompt({
+      model: 'gpt-5.5-codex',
+      instructions: 'You are Codex.',
+      input: [{ type: 'message', role: 'user', content: [{ type: 'input_text', text: '你好' }] }],
+    });
+    assert.equal(instructions, 'You are Codex.');
+    assert.equal(messages.length, 1);
+    assert.ok(messages.every((m) => m.role !== 'system'), 'messages must carry NO system role');
+    assert.equal(messages[0].role, 'user');
+  });
+
+  it('input 里的 system/developer 项也被抽出合并进 instructions（body.instructions 在前）', () => {
+    const { instructions, messages } = buildPrompt({
+      model: 'gpt-5.5-codex',
+      instructions: 'top-level',
+      input: [
+        { type: 'message', role: 'developer', content: [{ type: 'input_text', text: 'dev note' }] },
+        { type: 'message', role: 'user', content: [{ type: 'input_text', text: 'hi' }] },
+      ],
+    });
+    assert.ok(instructions!.startsWith('top-level'), 'body.instructions comes first');
+    assert.ok(instructions!.includes('dev note'), 'developer item merged into instructions');
+    assert.ok(messages.every((m) => m.role !== 'system'));
+    assert.equal(messages.length, 1);
+  });
+
+  it('无任何 system 来源时 instructions 为 undefined', () => {
+    const { instructions, messages } = buildPrompt({
+      model: 'gpt-5.5-codex',
+      input: [{ type: 'message', role: 'user', content: [{ type: 'input_text', text: 'hi' }] }],
+    });
+    assert.equal(instructions, undefined);
+    assert.equal(messages.length, 1);
   });
 });

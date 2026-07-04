@@ -715,8 +715,11 @@ function NewChatPageInner() {
   const handlePermissionResponse = useCallback(async (decision: 'allow' | 'allow_session' | 'deny', updatedInput?: Record<string, unknown>, denyMessage?: string) => {
     if (!pendingPermission) return;
 
-    const body: { permissionRequestId: string; decision: { behavior: 'allow'; updatedInput?: Record<string, unknown>; updatedPermissions?: unknown[] } | { behavior: 'deny'; message?: string } } = {
+    const body: { permissionRequestId: string; approvalToken?: string; decision: { behavior: 'allow'; updatedInput?: Record<string, unknown>; updatedPermissions?: unknown[] } | { behavior: 'deny'; message?: string } } = {
       permissionRequestId: pendingPermission.permissionRequestId,
+      // Echo the server-issued HMAC token; the route rejects responses
+      // without a valid one (Phase 4 ② hardening).
+      ...(pendingPermission.approvalToken ? { approvalToken: pendingPermission.approvalToken } : {}),
       decision: decision === 'deny'
         ? { behavior: 'deny', message: denyMessage || 'User denied permission' }
         : {

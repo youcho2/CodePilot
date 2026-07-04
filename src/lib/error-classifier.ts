@@ -88,6 +88,12 @@ export type ClaudeErrorCategory =
   | 'OPENAI_AUTH_FAILED'     // OpenAI OAuth token expired/invalid
   | 'MCP_CONNECTION_ERROR'   // MCP server connect/sync failure
   | 'EMPTY_RESPONSE'         // Model returned nothing (proxy rejection, unsupported model)
+  // Native Runtime timeout reason codes (Phase 4 ① — src/lib/native-timeout.ts).
+  // Assigned directly from the fired timeout budget, never regex-inferred.
+  | 'TIMEOUT_CONNECT'        // No provider response headers within connectMs
+  | 'TIMEOUT_FIRST_TOKEN'    // Response arrived but no model output within firstTokenMs
+  | 'TIMEOUT_TOOL_EXECUTION' // One tool call exceeded toolExecutionMs
+  | 'TIMEOUT_TOTAL_RUN'      // Whole run exceeded totalRunMs
   | 'UNKNOWN';
 
 /** A concrete action the user can take to recover from an error */

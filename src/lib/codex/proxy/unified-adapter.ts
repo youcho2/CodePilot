@@ -200,17 +200,20 @@ export function createUnifiedAdapter(family: string): ResponsesAdapter {
       .join('\n\n');
 
     // Splice the compiler prompt into the request body's
-    // `instructions`. `buildMessages` below reads
-    // `body.instructions` and prepends it as a `system` message, so
-    // mutating the body here is what guarantees the prompt reaches
-    // the `messages[]` channel that non-Responses providers see.
+    // `instructions`. `buildPrompt` below merges `body.instructions`
+    // (plus any system/developer input items) into the AI SDK 7
+    // `instructions` OPTION — ai@7 forbids system messages inside
+    // `messages`, so the option is the only channel for system text
+    // and the SDK forwards it per provider (system message for chat
+    // skins, top-level instructions for Responses).
     const bodyWithBridgePrompt = bridgePrompt.length > 0
       ? { ...input.body, instructions: combineInstructions(input.body.instructions, bridgePrompt) }
       : input.body;
 
     let messages: ModelMessage[];
+    let instructions: string | undefined;
     try {
-      messages = buildMessages(bodyWithBridgePrompt);
+      ({ instructions, messages } = buildPrompt(bodyWithBridgePrompt));
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       return makeErrorResult('invalid_request', message, { family });
@@ -232,6 +235,7 @@ export function createUnifiedAdapter(family: string): ResponsesAdapter {
         responseId,
         body: bodyWithBridgePrompt,
         languageModel,
+        instructions,
         messages,
         tools,
         builtinToolNames: adapted.builtinToolNames,
@@ -247,6 +251,7 @@ export function createUnifiedAdapter(family: string): ResponsesAdapter {
       responseId,
       body: bodyWithBridgePrompt,
       languageModel,
+      instructions,
       messages,
       tools,
       builtinToolNames: adapted.builtinToolNames,
@@ -317,6 +322,9 @@ interface PathInput {
   responseId: string;
   body: ResponsesRequestBody;
   languageModel: LanguageModel;
+  /** System text for the AI SDK 7 `instructions` option — ai@7 rejects
+   *  system messages inside `messages`, so this is the only channel. */
+  instructions: string | undefined;
   messages: ModelMessage[];
   tools: ToolSet | undefined;
   /** Names belonging to the bridge — Codex doesn't need their
@@ -362,12 +370,13 @@ function buildStopWhen(
 }
 
 function streamPath(args: PathInput): ProxyResult {
-  const { responseId, body, languageModel, messages, tools, builtinToolNames, stopWhen, stepCount, providerOptions, signal, family } = args;
+  const { responseId, body, languageModel, instructions, messages, tools, builtinToolNames, stopWhen, stepCount, providerOptions, signal, family } = args;
 
   let result: ReturnType<typeof streamText>;
   try {
     result = streamText({
       model: languageModel,
+      ...(instructions ? { instructions } : {}),
       messages,
       tools,
       providerOptions,
@@ -432,10 +441,11 @@ function streamPath(args: PathInput): ProxyResult {
 }
 
 async function nonStreamPath(args: PathInput): Promise<ProxyResult> {
-  const { responseId, body, languageModel, messages, tools, builtinToolNames, stopWhen, stepCount, providerOptions, signal, family } = args;
+  const { responseId, body, languageModel, instructions, messages, tools, builtinToolNames, stopWhen, stepCount, providerOptions, signal, family } = args;
   try {
     const result = await generateText({
       model: languageModel,
+      ...(instructions ? { instructions } : {}),
       messages,
       tools,
       providerOptions,
@@ -471,13 +481,36 @@ async function nonStreamPath(args: PathInput): Promise<ProxyResult> {
   }
 }
 
-/** Prepend the `instructions` system message if Codex supplied one. */
-function buildMessages(body: ResponsesRequestBody): ModelMessage[] {
+/**
+ * Split the prompt for AI SDK 7: system text must travel via the
+ * `instructions` OPTION — ai@7 rejects `role: 'system'` inside `messages`
+ * ("System messages are not allowed in the prompt or messages fields.
+ * Use the instructions option instead."). Merged into `instructions`
+ * in order: Codex's top-level `body.instructions`, then any
+ * system/developer items translated out of `body.input` (translate-input
+ * emits those as role:'system'; they are extracted here at the single
+ * choke point before streamText/generateText). Exported for unit tests.
+ */
+export function buildPrompt(body: ResponsesRequestBody): {
+  instructions: string | undefined;
+  messages: ModelMessage[];
+} {
   const translated = translateResponsesInput(body.input);
+  const systemParts: string[] = [];
   if (body.instructions && body.instructions.length > 0) {
-    return [{ role: 'system', content: body.instructions }, ...translated];
+    systemParts.push(body.instructions);
   }
-  return translated;
+  const messages = translated.filter((m) => {
+    if (m.role === 'system') {
+      systemParts.push(typeof m.content === 'string' ? m.content : JSON.stringify(m.content));
+      return false;
+    }
+    return true;
+  });
+  return {
+    instructions: systemParts.length > 0 ? systemParts.join('\n\n') : undefined,
+    messages,
+  };
 }
 
 /**

@@ -246,7 +246,6 @@ export function RunCockpit({
           reasoningTokens: undefined,
         },
         totalTokens: usage.used + usage.outputTokens,
-        cachedInputTokens: usage.cacheReadTokens,
       }
     : undefined;
 
