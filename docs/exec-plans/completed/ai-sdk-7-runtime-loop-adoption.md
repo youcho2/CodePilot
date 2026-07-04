@@ -3,7 +3,7 @@
 > 创建时间：2026-06-29
 > 最后更新：2026-07-03
 > 关联调研：[AI SDK 7 Runtime Adoption](../../research/ai-sdk-7-runtime-adoption-2026-06-29.md)
-> 协作循环基础设施：[Agent Collaboration Loop Infrastructure](agent-collaboration-loop-infrastructure.md)
+> 协作循环基础设施：[Agent Collaboration Loop Infrastructure](../../handover/agent-collaboration-space.md)
 
 ## 状态
 
@@ -15,7 +15,7 @@
 | Phase 3 | Native Runtime ToolLoopAgent side-by-side POC | ✅ 已完成 | Codex accepted（8/8 checks，issue #7）：POC 达成逐事件 SSE / wire deepEqual / DB 逐字节 / permission 全序列 parity + 真实网关 3/3 场景；**结论 partial adopt**——能承载但依赖两处尾部语义补偿（gap #1/#2），不建议现在替换默认 loop；gap list 见 `docs/research/ai-sdk-7-toolloop-parity-gaps.md`（在 spike worktree 分支，随合并入 main） |
 | Phase 4 | 第一批安全落地能力 | ✅ 已完成 | 2026-07-03 四件套实现+验证完成（issue #8 第二轮）：timeout 原因码（含收尾轮修复的 hung-tool 挂死 P1——guardStream）/ approval HMAC（403/410/409 三攻击面）/ trace 脱敏（fail-closed，默认关）/ `@ai-sdk/mcp` POC（生产零改动）；fix 轮（第三轮）修复 Codex P1：first-token 定时器改为只由 `start-step` arm，连接黑洞不再误分类为 TIMEOUT_FIRST_TOKEN，补 3 条控制器反例 + 1 条端到端反例；`npm run test` 3594/3594 + smoke 3/3；可发布清单见 research 文档；**待 Codex 复审** |
 | Phase 5 | Native Runtime 迁移 / 保守采用决策门 | ✅ 已完成（待 Codex 复审 + 采用决策留人类闸门） | 2026-07-04 三件套完成（issue #10）：①gap list 全处置（P1×3 关闭：#1/#2 补偿+8/8 parity 复跑锁定、#3 降级论证；P2/P3 关闭或 backlog，#7→tech-debt #49）②三类真实场景 prod vs POC 对照 4/4 contractMatch（长文本/approval 批准+拒绝/abort→continue，OpenRouter 真实渠道）③[采用决策文档](../../research/ai-sdk-7-adoption-decision.md)：**partial**——依赖升级+外围能力 go、默认 loop 替换 no-go（现在）+ 分层 rollback plan。默认聊天路径零变化 |
-| Phase 6 | 自动化 Loop 产品化沉淀 | 📋 待开始 | 已拆到 [Agent Collaboration Loop Infrastructure](agent-collaboration-loop-infrastructure.md)；本计划只保留 AI SDK 7 pilot 反馈 |
+| Phase 6 | 自动化 Loop 产品化沉淀 | 📋 待开始 | 已拆到 [Agent Collaboration Loop Infrastructure](../../handover/agent-collaboration-space.md)；本计划只保留 AI SDK 7 pilot 反馈 |
 
 ## 背景与用户问题
 
@@ -28,7 +28,7 @@
 - 把产品判断、权限边界、默认 Runtime 切换保留给用户 + Claude Code + Codex review。
 - 每轮 Loop 必须留下 ledger，不把结论只放在聊天里。
 
-协作循环本身不再由本计划管理。Claude Code / Codex 的 private run space、handoff、review、ledger 主从关系、通知 MVP 和未来 GitHub Project / Notion / Cloudflare 演进，统一由 [Agent Collaboration Loop Infrastructure](agent-collaboration-loop-infrastructure.md) 管理。本计划只记录 AI SDK 7 Runtime 接入的技术决策、产品验收和 pilot 反馈。
+协作循环本身不再由本计划管理。Claude Code / Codex 的 private run space、handoff、review、ledger 主从关系、通知 MVP 和未来 GitHub Project / Notion / Cloudflare 演进，统一由 [Agent Collaboration Loop Infrastructure](../../handover/agent-collaboration-space.md) 管理。本计划只记录 AI SDK 7 Runtime 接入的技术决策、产品验收和 pilot 反馈。
 
 参考材料：
 
@@ -294,7 +294,7 @@ Loop 实践方式：
 用户会看到什么变化：
 
 - 本计划不会继续扩成协作基础设施工程。
-- AI SDK 7 的 pilot 结果会输入 [Agent Collaboration Loop Infrastructure](agent-collaboration-loop-infrastructure.md)，用于沉淀 bounded loop harness。
+- AI SDK 7 的 pilot 结果会输入 [Agent Collaboration Loop Infrastructure](../../handover/agent-collaboration-space.md)，用于沉淀 bounded loop harness。
 
 验收入口：
 
