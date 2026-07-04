@@ -90,6 +90,15 @@ describe('停止语义与 aria 三态（#52 源码钉）', () => {
     }
   });
 
+  it('PromptInputTextarea 必须让显式 value 覆盖内部 controller（#52 P1：乐观清空要能到达 DOM）', () => {
+    const src = read('../../components/ai-elements/prompt-input.tsx');
+    assert.ok(src.includes('hasExplicitValue'), 'must branch on an explicit value prop');
+    assert.ok(
+      /value: hasExplicitValue \? \(props\.value as string\) : controller\.textInput\.value/.test(src),
+      '显式 value 存在时以它为准，否则回退 controller —— 否则受控清空被 controller 覆盖，textarea 滞留已发文字',
+    );
+  });
+
   it('agent-loop 用户中止不得标记为 error 状态', () => {
     const src = read('../../lib/agent-loop.ts');
     assert.ok(

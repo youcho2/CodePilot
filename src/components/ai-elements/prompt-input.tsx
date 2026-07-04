@@ -969,13 +969,23 @@ export const PromptInputTextarea = ({
   const handleCompositionEnd = useCallback(() => setIsComposing(false), []);
   const handleCompositionStart = useCallback(() => setIsComposing(true), []);
 
+  // Honor an explicit `value` prop (caller-controlled) over the internal
+  // controller state. Without this, `{...controlledProps}` (spread AFTER
+  // `{...props}` below) clobbers the caller's `value`, so a caller that
+  // controls the textarea via its own state (MessageInput → `inputValue`)
+  // has its value silently ignored: its optimistic clear updates its state
+  // but never reaches the DOM, leaving sent text lingering in the box and
+  // the Stop/queue button showing over stale text (tech-debt #52 P1). We
+  // still sync the controller on change so PromptInput's internal submit /
+  // attachment logic keeps a consistent view.
+  const hasExplicitValue = props.value !== undefined;
   const controlledProps = controller
     ? {
         onChange: (e: ChangeEvent<HTMLTextAreaElement>) => {
           controller.textInput.setInput(e.currentTarget.value);
           onChange?.(e);
         },
-        value: controller.textInput.value,
+        value: hasExplicitValue ? (props.value as string) : controller.textInput.value,
       }
     : {
         onChange,
