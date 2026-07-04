@@ -947,7 +947,14 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
     }
   }, [sessionId, messages, hasMore]);
 
-  const stopStreaming = useCallback(() => { stopStream(sessionId); }, [sessionId]);
+  // 用户主动停止 = 全停：同时清空排队消息。否则 isStreaming 一翻 false，
+  // dequeue effect 会立刻把队列里的消息发出去开新 run —— 用户感知为
+  // "停止无效 + 重复发送 + 仍在 streaming"（tech-debt #52 真实浏览器 smoke 的
+  // 全部三个症状均由此产生）。
+  const stopStreaming = useCallback(() => {
+    setMessageQueue([]);
+    stopStream(sessionId);
+  }, [sessionId]);
 
   const handlePermissionResponse = useCallback(
     async (decision: 'allow' | 'allow_session' | 'deny', updatedInput?: Record<string, unknown>, denyMessage?: string) => {

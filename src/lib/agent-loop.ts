@@ -763,7 +763,9 @@ export function runAgentLoop(options: AgentLoopOptions): ReadableStream<string> 
           }));
         }
 
-        onRuntimeStatusChange?.('error');
+        // 用户主动中止不是错误：状态标 'idle'，否则会话在 route 收尾竞态窗口内
+        // 显示假 error（语义失真）。真实错误与 timeout 仍标 'error'。
+        onRuntimeStatusChange?.(isAbort ? 'idle' : 'error');
       } finally {
         timeoutCtl.dispose();
         clearInterval(keepAliveTimer);

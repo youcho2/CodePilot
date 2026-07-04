@@ -52,12 +52,21 @@ export function FileAwareSubmitButton({
     disabled: !!disabled,
   });
 
+  // tech-debt #52：aria-label 必须跟随真实行为——流式中无文本=停止、
+  // 流式中有文本=排队发送、空闲=发送。此前无条件写死"发送消息"，
+  // 停止按钮被读作发送（a11y 失真 + 自动化误点）。
+  const ariaKey: TranslationKey = canQueue
+    ? ('messageInput.queueAriaLabel' as TranslationKey)
+    : isStreaming
+      ? ('messageInput.stopAriaLabel' as TranslationKey)
+      : ('messageInput.submitAriaLabel' as TranslationKey);
+
   return (
     <PromptInputSubmit
       status={canQueue ? 'ready' : status}
       onStop={canQueue ? undefined : onStop}
       disabled={!enabled}
-      aria-label={t('messageInput.submitAriaLabel' as TranslationKey)}
+      aria-label={t(ariaKey)}
       // Stable hook for programmatic clicks. The Run Checkpoint Round 2
       // confirm-and-send flow needs to find this button in a locale-
       // agnostic way; aria-label is i18n'd ("发送消息" in zh) and

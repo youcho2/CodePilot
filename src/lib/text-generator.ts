@@ -23,6 +23,29 @@ export interface StreamTextParams {
  * which uses the short alias as modelId. Expanding aliases would break that lookup
  * for SDK proxy providers (Kimi, GLM, MiniMax, etc.) that expect short aliases.
  */
+/**
+ * Pump a fullStream: yield text deltas, THROW on error parts.
+ *
+ * ai@7 的 `textStream` 对 error part 静默收尾（不抛）——上游 4xx/5xx 会变成
+ * "空文本"，调用方只能报出误导性的下游错误（tech-debt #53 实测：ClinePass
+ * 400 invalid model format 被伪装成 "Failed to extract plan JSON"）。走
+ * fullStream 并把 error part 转成异常，错误语义才是真实的。
+ * Exported for unit testing.
+ */
+export async function* pumpTextStream(
+  fullStream: AsyncIterable<{ type: string; text?: string; error?: unknown }>,
+): AsyncIterable<string> {
+  for await (const part of fullStream) {
+    if (part.type === 'text-delta' && typeof part.text === 'string') {
+      yield part.text;
+    } else if (part.type === 'error') {
+      const er = part.error as { message?: string; responseBody?: string } | undefined;
+      const body = typeof er?.responseBody === 'string' ? ` — upstream: ${er.responseBody.slice(0, 300)}` : '';
+      throw new Error(`${er?.message || String(part.error)}${body}`);
+    }
+  }
+}
+
 export async function* streamTextFromProvider(params: StreamTextParams): AsyncIterable<string> {
   const { languageModel } = createModel({
     providerId: params.providerId,
@@ -38,9 +61,7 @@ export async function* streamTextFromProvider(params: StreamTextParams): AsyncIt
     abortSignal: params.abortSignal || AbortSignal.timeout(120_000),
   });
 
-  for await (const chunk of result.textStream) {
-    yield chunk;
-  }
+  yield* pumpTextStream(result.fullStream as AsyncIterable<{ type: string; text?: string; error?: unknown }>);
 }
 
 /**

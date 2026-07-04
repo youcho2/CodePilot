@@ -78,5 +78,6 @@ POC adapter + parity 套件 + Phase 5 对照 smoke 脚本保留为迁移 harness
 
 - 官方一方 Anthropic / OpenAI key live smoke（Phase 2 起持续 open，本机无凭据）。
 - 网关对 image data URL 的真实接受度（wrapper 输出形状的 live 验证）。
-- ClinePass 500 复测（tech-debt #48）、`normaliseBaseUrl` 深路径（tech-debt #47）。
+- ClinePass / OpenCode Go final 复测已完成（2026-07-04）：真实 `/api/chat` UI 后端路径已验证通过——ClinePass GLM-5.2 与 OpenCode Go Anthropic MiniMax M3 均 HTTP 200、SSE `result/done` 收尾、marker 命中。证据见 `docs/exec-plans/completed/_smoke-evidence/ai-sdk7-final-ui-api-provider-smoke-2026-07-04.json`。
+- direct SDK smoke 的剩余债务要与产品路径分开看：OpenCode Go Anthropic 的 direct `@ai-sdk/anthropic` 404 是 smoke harness 绕过 resolver 后打错执行面（产品路径走 `claude-code-compat`，会补 `/v1/messages`）；ClinePass direct 非流式 `generateText()` 仍受 `data` 信封影响，需确认是否有标题/摘要/诊断等辅助路径会使用该 provider（tech-debt #48）。
 - tool-error part 吞掉的 UX 债（tech-debt #49，独立于本决策）。

@@ -1,9 +1,9 @@
 # Agent Collaboration Space
 
 > 创建时间：2026-06-29
-> 最后更新：2026-07-01
+> 最后更新：2026-07-04
 > 演进计划：[Agent Collaboration Loop Infrastructure](../exec-plans/active/agent-collaboration-loop-infrastructure.md)
-> Pilot 需求：[AI SDK 7 Runtime 接入 + 自动化 Loop 实践](../exec-plans/active/ai-sdk-7-runtime-loop-adoption.md)
+> Pilot 需求：[AI SDK 7 Runtime 接入 + 自动化 Loop 实践](../exec-plans/completed/ai-sdk-7-runtime-loop-adoption.md)
 
 ## 目标
 

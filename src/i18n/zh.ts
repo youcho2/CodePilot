@@ -1923,6 +1923,8 @@ const zh: Record<TranslationKey, string> = {
   'messageInput.actionCallCli': '调用 CLI 工具',
   'messageInput.removeChipAriaLabel': '移除 {name}',
   'messageInput.submitAriaLabel': '发送消息',
+  'messageInput.stopAriaLabel': '停止生成',
+  'messageInput.queueAriaLabel': '排队发送（当前回复完成后自动发送）',
   'permission.defaultDesc': '按确认规则执行',
   'permission.fullAccessDesc': '减少确认，仅用于信任项目',
   // Phase 2 Step 4c — composer runtime selector (between mode and permission).
