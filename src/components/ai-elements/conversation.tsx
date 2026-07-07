@@ -14,7 +14,14 @@ export type ConversationProps = ComponentProps<typeof StickToBottom>;
 export const Conversation = ({ className, ...props }: ConversationProps) => (
   <StickToBottom
     className={cn("relative flex-1 overflow-y-hidden", className)}
-    initial="smooth"
+    // Phase 2 ① — `initial` governs the FIRST scroll-to-bottom when the
+    // transcript mounts (use-stick-to-bottom uses `initial` on the first
+    // ResizeObserver tick, `resize` on every later one). `smooth` made
+    // opening a history session visibly animate-scroll from top to bottom
+    // for ~0.5s; `instant` jumps straight to the latest message with no
+    // visible animation. `resize` stays untouched so new-message append /
+    // live streaming keep their existing behavior.
+    initial="instant"
     resize="instant"
     role="log"
     {...props}

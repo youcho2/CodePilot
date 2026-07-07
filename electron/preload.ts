@@ -59,7 +59,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
       html: string;
       width: number;
       pixelRatio?: number;
-      outPath?: string;
+      // No `outPath` — the main handler never writes to a renderer-supplied
+      // path; it returns base64 and the renderer downloads it. (audit 1.1)
       maxHeightPx?: number;
       timeoutMs?: number;
     }) => ipcRenderer.invoke('artifact:export-long-shot', params),

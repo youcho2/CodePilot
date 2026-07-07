@@ -9,6 +9,8 @@ import { SpinnerGap } from "@/components/ui/icon";
 import { usePanel } from '@/hooks/usePanel';
 import { useWorkspaceSidebarOptional } from '@/hooks/useWorkspaceSidebar';
 import { useTranslation } from '@/hooks/useTranslation';
+import { getSnapshot, seedSnapshotPatch } from '@/lib/stream-session-manager';
+import { reconcilePhase } from '@/lib/stream-phase-reconcile';
 
 interface ChatSessionPageProps {
   params: Promise<{ id: string }>;
@@ -75,6 +77,25 @@ export default function ChatSessionPage({ params }: ChatSessionPageProps) {
           setSessionPermissionProfile(data.session.permission_profile || 'default');
           setSessionMode((data.session.mode as 'code' | 'plan') || 'code');
           setSessionHasSummary(!!data.session.context_summary);
+
+          // Interrupt/phase reconcile — reconcile the client stream phase against the
+          // authoritative backend runtime_status on mount (I2). This corrects a
+          // client snapshot left stuck 'active' after the backend already reached
+          // a terminal status (idle / interrupted / error) — the "假 active" split
+          // that keeps the composer locked (isStreaming ≡ phase==='active',
+          // GitHub #578). We converge to a TERMINAL phase only: we do NOT
+          // fabricate a reader-less 'active' snapshot for the inverse case
+          // (backend running but no live local stream), because a fresh JS
+          // context can't resume the server turn and seeding 'active' with no
+          // reader is exactly the #578 strand. Mount-read only — no active-period
+          // poll (DP2).
+          const localPhase = getSnapshot(id)?.phase;
+          if (localPhase === 'active') {
+            const next = reconcilePhase(data.session.runtime_status, localPhase);
+            if (next && next !== 'active') {
+              seedSnapshotPatch(id, { phase: next });
+            }
+          }
         }
       } catch {
         // Session info load failed - panel will still work without directory

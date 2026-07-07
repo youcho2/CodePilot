@@ -25,7 +25,10 @@ import {
   getSession,
   getSetting,
   getDefaultProviderId,
+  isLockOwner,
 } from '../db';
+import { createSessionLockSettler } from '../session-lock-settle';
+import { evaluateRenewal } from '../session-lock-renewal';
 import { resolveProvider as resolveProviderUnified } from '../provider-resolver';
 import { getActiveChatRuntime } from '../chat-runtime';
 import { loadCodePilotMcpServers, loadAllMcpServers } from '../mcp-loader';
@@ -113,10 +116,37 @@ export async function processMessage(
 
   setSessionRuntimeStatus(sessionId, 'running');
 
-  // Lock renewal interval
+  // Lock renewal interval. Session ownership (DP3): if renewSessionLock returns
+  // false the lockId no longer owns the row (a newer web/bridge send took over,
+  // or the lock was already released) — stop renewing a lock we don't hold.
+  // Bridge turns are NOT autoTrigger, so there is no renewal cap (autoTrigger:
+  // false + max: Infinity ⇒ evaluateRenewal only ever returns 'continue' or
+  // 'stop-renew-false'); the shared decision keeps the semantics consistent
+  // with the /api/chat route.
   const renewalInterval = setInterval(() => {
-    try { renewSessionLock(sessionId, lockId, 600); } catch { /* best effort */ }
+    let renewed: boolean;
+    try {
+      renewed = renewSessionLock(sessionId, lockId, 600);
+    } catch {
+      // Transient DB error — keep the interval alive and retry next tick.
+      return;
+    }
+    const decision = evaluateRenewal({ autoTrigger: false, renewalCount: 0, renewed, max: Infinity });
+    if (decision === 'stop-renew-false') {
+      console.warn(`[conversation-engine] lockId 已不 own（被接管/已释放），停止续租 session ${sessionId}`);
+      clearInterval(renewalInterval);
+    }
   }, 60_000);
+
+  // Session ownership — lockId-scoped settler shared with the finally below.
+  // Idempotent; only writes runtime_status when releaseSessionLock confirms we
+  // still own the lock (lockId-scoped release vs session-scoped status), so a
+  // superseded bridge turn cannot clobber the new owner's 'running' with 'idle'.
+  const settleLock = createSessionLockSettler({
+    clearRenewal: () => clearInterval(renewalInterval),
+    releaseLock: () => releaseSessionLock(sessionId, lockId),
+    setStatus: (status) => { try { setSessionRuntimeStatus(sessionId, status); } catch { /* best effort */ } },
+  });
 
   try {
     // Resolve session early — needed for workingDirectory and provider resolution
@@ -253,6 +283,11 @@ export async function processMessage(
     const stream = streamClaude({
       prompt: text,
       sessionId,
+      // Session ownership — plumb the ownership token so this bridge turn's Query
+      // registers/unregisters and clearSdkSessionIfOwner run under A's owner-gate
+      // (options.lockId). A superseded bridge turn then can't clear a new owner's
+      // SDK session on cleanup.
+      lockId,
       sdkSessionId: effectiveSdkSessionId,
       model: effectiveModel,
       systemPrompt: assembled.systemPrompt,
@@ -273,28 +308,48 @@ export async function processMessage(
       enableFileCheckpointing: false,
       context1m: false,
       onRuntimeStatusChange: (status: string) => {
-        try { setSessionRuntimeStatus(sessionId, status); } catch { /* best effort */ }
+        // I1 owner gate: a superseded bridge turn (its session lock taken over
+        // by a newer web/bridge turn) must not write session-level runtime_status
+        // — it would clobber the new owner's 'running'.
+        try {
+          if (isLockOwner(sessionId, lockId)) {
+            setSessionRuntimeStatus(sessionId, status);
+          } else {
+            console.warn(`[conversation-engine] stale owner (lockId superseded), skipping runtime_status write for session ${sessionId}`);
+          }
+        } catch { /* best effort */ }
       },
     });
 
     // Consume the stream server-side (replicate collectStreamResponse pattern).
     // Permission requests are forwarded immediately via the callback during streaming
     // because the stream blocks until permission is resolved — we can't wait until after.
-    return await consumeStream(stream, sessionId, onPermissionRequest, onPartialText, onToolEvent);
+    return await consumeStream(stream, sessionId, lockId, onPermissionRequest, onPartialText, onToolEvent);
   } finally {
-    clearInterval(renewalInterval);
-    releaseSessionLock(sessionId, lockId);
-    setSessionRuntimeStatus(sessionId, 'idle');
+    // Session ownership — lockId-scoped settle: clears the renewal interval,
+    // releases only THIS lockId's row, and writes runtime_status='idle' ONLY when
+    // the release confirms we still owned the lock. A superseded bridge turn thus
+    // no longer overwrites the new owner's 'running' with 'idle'.
+    settleLock('idle');
   }
 }
 
 /**
  * Consume an SSE stream and extract response data.
  * Mirrors the collectStreamResponse() logic from chat/route.ts.
+ *
+ * Session ownership (I1/DP1 owner gate): `lockId` is this bridge turn's ownership
+ * token. Every session-level write below — sdk_session_id / model / SDK tasks /
+ * the assistant `addMessage` — is gated on `isLockOwner(sessionId, lockId)`. A
+ * superseded bridge turn (its lock taken over by a newer web/bridge send) reaches
+ * consume LATE carrying its OLD lockId and must write NOTHING to shared session
+ * state. Exported (it is a lib function, no Next route export contract) so the
+ * gate is driveable by a real DB unit test.
  */
-async function consumeStream(
+export async function consumeStream(
   stream: ReadableStream<string>,
   sessionId: string,
+  lockId: string,
   onPermissionRequest?: OnPermissionRequest,
   onPartialText?: OnPartialText,
   onToolEvent?: OnToolEvent,
@@ -417,12 +472,24 @@ async function consumeStream(
           case 'status': {
             try {
               const statusData = JSON.parse(event.data);
+              // capturedSdkSessionId is in-memory (returned to this binding for
+              // its own resume) — harmless. Only the shared session-level DB
+              // writes are owner-gated (I1/DP1): a superseded turn must not
+              // overwrite the new owner's sdk_session_id / model.
               if (statusData.session_id) {
                 capturedSdkSessionId = statusData.session_id;
-                updateSdkSessionId(sessionId, statusData.session_id);
               }
-              if (statusData.model) {
-                updateSessionModel(sessionId, statusData.model);
+              if (statusData.session_id || statusData.model) {
+                if (!isLockOwner(sessionId, lockId)) {
+                  console.warn(`[conversation-engine] stale owner (lockId superseded), skipping status session_id/model write for session ${sessionId}`);
+                } else {
+                  if (statusData.session_id) {
+                    updateSdkSessionId(sessionId, statusData.session_id);
+                  }
+                  if (statusData.model) {
+                    updateSessionModel(sessionId, statusData.model);
+                  }
+                }
               }
               // Skill-nudge: agent loop emits this at end-of-run when the
               // workflow is complex enough to warrant saving as a Skill.
@@ -452,7 +519,13 @@ async function consumeStream(
             try {
               const taskData = JSON.parse(event.data);
               if (taskData.session_id && taskData.todos) {
-                syncSdkTasks(taskData.session_id, taskData.todos);
+                // I1/DP1 owner gate: a superseded turn must not overwrite the
+                // new owner's task list.
+                if (!isLockOwner(sessionId, lockId)) {
+                  console.warn(`[conversation-engine] stale owner (lockId superseded), skipping syncSdkTasks for session ${sessionId}`);
+                } else {
+                  syncSdkTasks(taskData.session_id, taskData.todos);
+                }
               }
             } catch { /* skip */ }
             break;
@@ -477,7 +550,13 @@ async function consumeStream(
               if (resultData.is_error) hasError = true;
               if (resultData.session_id) {
                 capturedSdkSessionId = resultData.session_id;
-                updateSdkSessionId(sessionId, resultData.session_id);
+                // I1/DP1 owner gate: a superseded turn must not write the new
+                // owner's sdk_session_id.
+                if (!isLockOwner(sessionId, lockId)) {
+                  console.warn(`[conversation-engine] stale owner (lockId superseded), skipping result sdk_session_id write for session ${sessionId}`);
+                } else {
+                  updateSdkSessionId(sessionId, resultData.session_id);
+                }
               }
             } catch { /* skip */ }
             break;
@@ -507,7 +586,14 @@ async function consumeStream(
             .trim();
 
       if (content) {
-        addMessage(sessionId, 'assistant', content, tokenUsage ? JSON.stringify(tokenUsage) : null);
+        // DP1 owner gate: a superseded bridge turn must not insert its (old)
+        // assistant answer into the new owner's timeline. The response is still
+        // returned to this binding for IM delivery; only the DB persist is dropped.
+        if (!isLockOwner(sessionId, lockId)) {
+          console.warn(`[conversation-engine] stale owner (lockId superseded) — DP1: dropping assistant message persist for session ${sessionId} (${content.length} chars not written)`);
+        } else {
+          addMessage(sessionId, 'assistant', content, tokenUsage ? JSON.stringify(tokenUsage) : null);
+        }
       }
     }
 
@@ -550,7 +636,14 @@ async function consumeStream(
             .join('\n\n')
             .trim();
       if (content) {
-        addMessage(sessionId, 'assistant', content);
+        // DP1 owner gate (error path): same invariant as the happy path — a
+        // superseded bridge turn must not insert its partial answer into the new
+        // owner's timeline.
+        if (!isLockOwner(sessionId, lockId)) {
+          console.warn(`[conversation-engine] stale owner (lockId superseded) — DP1: dropping error-path assistant message persist for session ${sessionId}`);
+        } else {
+          addMessage(sessionId, 'assistant', content);
+        }
       }
     }
 

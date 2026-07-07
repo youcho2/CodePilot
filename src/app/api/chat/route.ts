@@ -1,22 +1,22 @@
 import { NextRequest } from 'next/server';
 import { streamClaude } from '@/lib/claude-client';
-import { isSessionStateResultError } from '@/lib/error-classifier';
 import { resolveInTreeAttachmentPath } from '@/lib/in-tree-attachment';
-import { addMessage, getMessages, getSession, getSessionSummary, updateSessionTitle, updateSdkSessionId, updateSessionModel, updateSessionProvider, updateSessionProviderId, updateSessionRuntime, getSetting, acquireSessionLock, renewSessionLock, releaseSessionLock, setSessionRuntimeStatus, syncSdkTasks } from '@/lib/db';
+import { addMessage, getMessages, getSession, getSessionSummary, updateSessionTitle, updateSdkSessionId, updateSessionModel, updateSessionProvider, updateSessionProviderId, updateSessionRuntime, getSetting, acquireSessionLock, renewSessionLock, releaseSessionLock, setSessionRuntimeStatus, isLockOwner } from '@/lib/db';
 import { resolveProviderForSession } from '@/lib/provider-resolver';
 import { resolveRuntimeForSession } from '@/lib/chat-runtime';
-import { notifySessionStart, notifySessionComplete, notifySessionError } from '@/lib/telegram-bot';
-import { extractCompletion } from '@/lib/onboarding-completion';
+import { notifySessionStart } from '@/lib/telegram-bot';
+import { collectStreamResponse } from '@/lib/chat-collect-stream-response';
 import { loadCodePilotMcpServers, loadAllMcpServers } from '@/lib/mcp-loader';
 import { assembleContext } from '@/lib/context-assembler';
 import { buildContextCompressedStatus } from '@/lib/context-compressor';
-import type { SendMessageRequest, SSEEvent, TokenUsage, MessageContentBlock, FileAttachment, ClaudeStreamOptions, MediaBlock } from '@/types';
-import { saveMediaToLibrary } from '@/lib/media-saver';
+import type { SendMessageRequest, FileAttachment, ClaudeStreamOptions } from '@/types';
 import { wrapController } from '@/lib/safe-stream';
 import { ensureSchedulerRunning } from '@/lib/task-scheduler';
 import { predictNativeRuntime } from '@/lib/runtime';
 import { hasCodePilotProvider } from '@/lib/provider-presence';
 import { createSessionLockSettler } from '@/lib/session-lock-settle';
+import { evaluateRenewal } from '@/lib/session-lock-renewal';
+import { validateSendMessageBody } from '@/lib/chat-request-validation';
 
 // codex-stop-recovery Phase 3 — after the request aborts (Stop force-abort /
 // client disconnect), how long to wait for the natural interrupt→terminal→
@@ -24,6 +24,15 @@ import { createSessionLockSettler } from '@/lib/session-lock-settle';
 // that the common case settles itself as 'idle'; short enough that a turn with
 // no terminal event still frees the session promptly instead of forever.
 const LOCK_RECOVERY_GRACE_MS = 8000;
+
+// Session lock renewal (I3) — cap on how many times an autoTrigger
+// (background/heartbeat) turn's lock-renewal interval may renew before it is
+// force-settled. 30 renewals ≈ 30min @ 60s tick. A background turn has no
+// Stop/abort watchdog (its initiating request may disconnect while it keeps
+// running), so without this cap a stuck background turn would renew its lock
+// forever and beat the TTL — the session could never be reclaimed. Foreground
+// turns stay uncapped here; they are bounded by the watchdog instead.
+const AUTO_TRIGGER_MAX_RENEWALS = 30;
 
 // Start the task scheduler on first API call
 ensureSchedulerRunning();
@@ -43,15 +52,19 @@ export async function POST(request: NextRequest) {
     const body: SendMessageRequest & { files?: FileAttachment[]; toolTimeout?: number; provider_id?: string; systemPromptAppend?: string; autoTrigger?: boolean; thinking?: unknown; effort?: string; enableFileCheckpointing?: boolean; displayOverride?: string; context_1m?: boolean; selectedSkills?: readonly string[] } = await request.json();
     const { session_id, content, model, mode, files, toolTimeout, provider_id, systemPromptAppend, autoTrigger, thinking, effort, enableFileCheckpointing, displayOverride, context_1m, selectedSkills } = body;
 
-    console.log('[chat API] content length:', content.length, 'first 200 chars:', content.slice(0, 200));
-    console.log('[chat API] systemPromptAppend:', systemPromptAppend ? `${systemPromptAppend.length} chars` : 'none');
-
-    if (!session_id || !content) {
-      return new Response(JSON.stringify({ error: 'session_id and content are required' }), {
-        status: 400,
+    // Required-field validation BEFORE any use of `content` (audit ③). The
+    // logs below read content.length/slice; a missing or non-string content
+    // would throw here and surface as a 500 instead of an honest 400.
+    const bodyValidationError = validateSendMessageBody(body);
+    if (bodyValidationError) {
+      return new Response(JSON.stringify({ error: bodyValidationError.error }), {
+        status: bodyValidationError.status,
         headers: { 'Content-Type': 'application/json' },
       });
     }
+
+    console.log('[chat API] content length:', content.length, 'first 200 chars:', content.slice(0, 200));
+    console.log('[chat API] systemPromptAppend:', systemPromptAppend ? `${systemPromptAppend.length} chars` : 'none');
 
     // Precondition: CodePilot must have a provider configured. ~/.claude/settings.json
     // (cc-switch, CLI login) is intentionally NOT counted — users with only that source
@@ -663,6 +676,9 @@ export async function POST(request: NextRequest) {
     const stream = streamClaude({
       prompt: content,
       sessionId: session_id,
+      // Session-lock ownership token minted above (crypto.randomBytes). Plumbed
+      // so this turn's Query registers/unregisters under the lock owner (I1 gate).
+      lockId,
       sdkSessionId: streamSdkSessionId,
       model: resolved.upstreamModel || resolved.model || effectiveModel,
       systemPrompt: finalSystemPrompt,
@@ -703,31 +719,108 @@ export async function POST(request: NextRequest) {
       autoTrigger: !!autoTrigger,
       selectedSkills,
       onRuntimeStatusChange: (status: string) => {
-        try { setSessionRuntimeStatus(session_id, status); } catch { /* best effort */ }
+        // I1 ownership gate: a superseded turn (its session lock taken over by a
+        // newer turn) must not write session-level runtime_status. lockId is the
+        // owner token minted at :85 and is directly in scope here.
+        try {
+          if (isLockOwner(session_id, lockId)) {
+            setSessionRuntimeStatus(session_id, status);
+          } else {
+            console.warn(`[chat/route] stale owner (lockId superseded), skipping runtime_status write for session ${session_id}`);
+          }
+        } catch { /* best effort */ }
       },
     });
 
     // Tee the stream: one for client, one for collecting the response
     const [streamForClient, streamForCollect] = stream.tee();
 
-    // Periodically renew the session lock so long-running tasks don't expire
-    const lockRenewalInterval = setInterval(() => {
-      try { renewSessionLock(session_id, lockId, 600); } catch { /* best effort */ }
-    }, 60_000);
+    // Session lock renewal — renewal interval + its autoTrigger cap
+    // counter are forward-declared here (assigned after settleLock below). The
+    // interval callback now references settleLock (to force-settle at the cap),
+    // and settleLock's clearRenewal closure references lockRenewalInterval — a
+    // mutual reference. Declaring both as `let` before settleLock, then creating
+    // the interval AFTER settleLock is defined, avoids a TDZ: settleLock is a
+    // live const by the time the interval closes over it, and lockRenewalInterval
+    // is assigned before any 60s tick or settle can run clearRenewal.
+    let renewalCount = 0;
+    let lockRenewalInterval: ReturnType<typeof setInterval>;
+
+    // codex-stop-recovery Phase 3 — Stop/abort watchdog resources. Declared
+    // before the settler so its (one-shot) clearRenewal can also tear these
+    // down: whichever settle path fires first must clear the pending
+    // setTimeout AND detach the abort listener, or the timer keeps the event
+    // loop alive for the full grace window after a turn already settled
+    // normally, and the listener lingers on abortController (audit ⑥).
+    let watchdogTimer: ReturnType<typeof setTimeout> | undefined;
+    let watchdogAbortListener: (() => void) | undefined;
+    const clearWatchdog = () => {
+      if (watchdogTimer !== undefined) {
+        clearTimeout(watchdogTimer);
+        watchdogTimer = undefined;
+      }
+      if (watchdogAbortListener) {
+        abortController.signal.removeEventListener('abort', watchdogAbortListener);
+        watchdogAbortListener = undefined;
+      }
+    };
 
     // codex-stop-recovery Phase 3 — one settler shared by the normal completion
     // path and the Stop/abort watchdog below. Idempotent; only writes status
     // when releaseSessionLock confirms we still own the lock (lockId-scoped
     // release vs session-scoped status — see session-lock-settle.ts).
     const settleLock = createSessionLockSettler({
-      clearRenewal: () => clearInterval(lockRenewalInterval),
+      // Runs exactly once (settler is one-shot) — tear down both the renewal
+      // interval and the watchdog timer/listener at the first settle.
+      clearRenewal: () => { clearInterval(lockRenewalInterval); clearWatchdog(); },
       releaseLock: () => releaseSessionLock(session_id, lockId),
       setStatus: (status) => { try { setSessionRuntimeStatus(session_id, status); } catch { /* best effort */ } },
     });
 
+    // Periodically renew the session lock so long-running tasks don't expire.
+    // Session lock renewal bounds two runaway modes via the pure
+    // evaluateRenewal decision (session-lock-renewal.ts):
+    //  - DP3 (both turn types): renewSessionLock returned false → this lockId no
+    //    longer owns the row (taken over / already released). Stop renewing; the
+    //    interval is spinning on a lock we don't hold.
+    //  - I3 (autoTrigger only): a stuck background/heartbeat turn would renew
+    //    forever and beat the TTL. Cap at AUTO_TRIGGER_MAX_RENEWALS renewals,
+    //    then settle('interrupted') so the session can be reclaimed.
+    // Foreground turns stay uncapped (bounded by the Stop/abort watchdog below).
+    lockRenewalInterval = setInterval(() => {
+      let renewed: boolean;
+      try {
+        renewed = renewSessionLock(session_id, lockId, 600);
+      } catch {
+        // Transient DB error — best effort. Keep the interval alive (do NOT
+        // conflate a throw with a definitive renew-false) and retry next tick.
+        return;
+      }
+      // Only advance the cap counter on a successful renew of an autoTrigger
+      // turn; a renew-false tick is handled as DP3 stop below, not a cap step.
+      if (autoTrigger && renewed) renewalCount++;
+      const decision = evaluateRenewal({
+        autoTrigger: !!autoTrigger,
+        renewalCount,
+        renewed,
+        max: AUTO_TRIGGER_MAX_RENEWALS,
+      });
+      if (decision === 'stop-renew-false') {
+        console.warn(`[chat/route] lockId 已不 own（被接管/已释放），停止续租 session ${session_id}`);
+        clearInterval(lockRenewalInterval);
+        return;
+      }
+      if (decision === 'settle-cap') {
+        console.warn(`[chat/route] autoTrigger 续租达上限 ${AUTO_TRIGGER_MAX_RENEWALS}，settle interrupted session ${session_id}`);
+        settleLock('interrupted');
+        return;
+      }
+      // 'continue' — still own the lock and under any cap; wait for next tick.
+    }, 60_000);
+
     // Save assistant message in background, with cleanup callback to release lock
     const isHeartbeatTurn = !!autoTrigger && content.includes('心跳检查');
-    collectStreamResponse(streamForCollect, session_id, telegramNotifyOpts, () => {
+    collectStreamResponse(streamForCollect, session_id, lockId, telegramNotifyOpts, () => {
       settleLock('idle');
     }, { isHeartbeatTurn, suppressNotifications: !!autoTrigger });
 
@@ -741,9 +834,12 @@ export async function POST(request: NextRequest) {
     // settle. Gated on !autoTrigger: background/heartbeat turns must keep running
     // (and keep their lock) even after their initiating request disconnects.
     if (!autoTrigger) {
-      abortController.signal.addEventListener('abort', () => {
-        setTimeout(() => settleLock('interrupted'), LOCK_RECOVERY_GRACE_MS);
-      }, { once: true });
+      // Save the setTimeout handle + listener ref so a normal settle can cancel
+      // the pending force-settle and detach this listener (clearWatchdog above).
+      watchdogAbortListener = () => {
+        watchdogTimer = setTimeout(() => settleLock('interrupted'), LOCK_RECOVERY_GRACE_MS);
+      };
+      abortController.signal.addEventListener('abort', watchdogAbortListener, { once: true });
     }
 
     // If auto-compression happened, prepend a notification event to the stream.
@@ -796,476 +892,5 @@ export async function POST(request: NextRequest) {
       status: 500,
       headers: { 'Content-Type': 'application/json' },
     });
-  }
-}
-
-async function collectStreamResponse(
-  stream: ReadableStream<string>,
-  sessionId: string,
-  telegramOpts: { sessionId?: string; sessionTitle?: string; workingDirectory?: string },
-  onComplete?: () => void,
-  opts?: { isHeartbeatTurn?: boolean; suppressNotifications?: boolean },
-) {
-  const reader = stream.getReader();
-  const contentBlocks: MessageContentBlock[] = [];
-  let currentText = '';
-  let thinkingText = '';
-  /** Tracks whether non-thinking content arrived since last thinking delta (for phase separation) */
-  let thinkingPhaseEnded = false;
-  let tokenUsage: TokenUsage | null = null;
-  let hasError = false;
-  let errorMessage = '';
-  let lastSavedAssistantMsgId: string | null = null;
-  // Dedup layer: skip duplicate tool_result events by tool_use_id
-  const seenToolResultIds = new Set<string>();
-
-  try {
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-
-      const lines = value.split('\n');
-      for (const line of lines) {
-        if (line.startsWith('data: ')) {
-          try {
-            const event: SSEEvent = JSON.parse(line.slice(6));
-            if (event.type === 'permission_request' || event.type === 'tool_output') {
-              // Skip permission_request and tool_output events - not saved as message content
-            } else if (event.type === 'thinking') {
-              // Accumulate thinking content with phase separation (--- between phases)
-              if (thinkingPhaseEnded) {
-                if (thinkingText) thinkingText += '\n\n---\n\n';
-                thinkingPhaseEnded = false;
-              }
-              thinkingText += event.data;
-            } else if (event.type === 'text') {
-              currentText += event.data;
-              if (thinkingText) thinkingPhaseEnded = true;
-            } else if (event.type === 'tool_use') {
-              if (thinkingText) thinkingPhaseEnded = true;
-              // Flush any accumulated text before the tool use block
-              if (currentText.trim()) {
-                contentBlocks.push({ type: 'text', text: currentText });
-                currentText = '';
-              }
-              try {
-                const toolData = JSON.parse(event.data);
-                contentBlocks.push({
-                  type: 'tool_use',
-                  id: toolData.id,
-                  name: toolData.name,
-                  input: toolData.input,
-                });
-              } catch {
-                // skip malformed tool_use data
-              }
-            } else if (event.type === 'tool_result') {
-              try {
-                const resultData = JSON.parse(event.data);
-
-                // Save media blocks to library, replace base64 with local paths
-                let savedMedia: MediaBlock[] | undefined;
-                if (Array.isArray(resultData.media) && resultData.media.length > 0) {
-                  savedMedia = [];
-                  for (const block of resultData.media as MediaBlock[]) {
-                    if (block.data) {
-                      try {
-                        const saved = saveMediaToLibrary(block, { sessionId });
-                        savedMedia.push({
-                          type: block.type,
-                          mimeType: block.mimeType,
-                          localPath: saved.localPath,
-                          mediaId: saved.mediaId,
-                        });
-                      } catch (saveErr) {
-                        console.warn('[chat/route] Failed to save media block:', saveErr);
-                        savedMedia.push(block); // Keep original if save fails
-                      }
-                    } else {
-                      savedMedia.push(block);
-                    }
-                  }
-                }
-
-                const newBlock: MessageContentBlock = {
-                  type: 'tool_result' as const,
-                  tool_use_id: resultData.tool_use_id,
-                  content: resultData.content,
-                  is_error: resultData.is_error || false,
-                  ...(savedMedia && savedMedia.length > 0 ? { media: savedMedia } : {}),
-                };
-                // Last-wins: if same tool_use_id already exists, replace it
-                // (user handler's result may be more complete than PostToolUse's)
-                if (seenToolResultIds.has(resultData.tool_use_id)) {
-                  const idx = contentBlocks.findIndex(
-                    (b) => b.type === 'tool_result' && 'tool_use_id' in b && b.tool_use_id === resultData.tool_use_id
-                  );
-                  if (idx >= 0) {
-                    contentBlocks[idx] = newBlock;
-                  }
-                } else {
-                  seenToolResultIds.add(resultData.tool_use_id);
-                  contentBlocks.push(newBlock);
-                }
-              } catch {
-                // skip malformed tool_result data
-              }
-            } else if (event.type === 'status') {
-              // Capture SDK session_id and model from init event and persist them
-              try {
-                const statusData = JSON.parse(event.data);
-                if (statusData.session_id) {
-                  updateSdkSessionId(sessionId, statusData.session_id);
-                }
-                if (statusData.model) {
-                  updateSessionModel(sessionId, statusData.model);
-                }
-              } catch {
-                // skip malformed status data
-              }
-            } else if (event.type === 'task_update') {
-              // Sync SDK TodoWrite tasks to local DB
-              try {
-                const taskData = JSON.parse(event.data);
-                if (taskData.session_id && taskData.todos) {
-                  syncSdkTasks(taskData.session_id, taskData.todos);
-                }
-              } catch {
-                // skip malformed task_update data
-              }
-            } else if (event.type === 'error') {
-              hasError = true;
-              errorMessage = event.data || 'Unknown error';
-            } else if (event.type === 'result') {
-              try {
-                const resultData = JSON.parse(event.data);
-                if (resultData.usage) {
-                  tokenUsage = resultData.usage;
-                }
-                if (resultData.is_error) {
-                  hasError = true;
-                  // #629 — surface the result error so the empty-assistant guard
-                  // below persists a visible **Error:** bubble; otherwise a failed
-                  // is_error result turn looks like "no answer" after refresh.
-                  if (!errorMessage) {
-                    errorMessage =
-                      (Array.isArray(resultData.errors) && resultData.errors.length
-                        ? resultData.errors.join('\n')
-                        : resultData.subtype) || 'The conversation ended with an error';
-                  }
-                }
-                // Also capture session_id from result if we missed it from init.
-                // #629 — EXCEPT a stale-resume is_error result: resultData.session_id
-                // is the BAD id; persisting it would overwrite claude-client's clear
-                // and make the next turn retry the broken resume. Clear it instead so
-                // the next message starts fresh (DB-history rebuild).
-                if (resultData.is_error && isSessionStateResultError(resultData.errors)) {
-                  updateSdkSessionId(sessionId, '');
-                } else if (resultData.session_id) {
-                  updateSdkSessionId(sessionId, resultData.session_id);
-                }
-                // Memory flush tracking: log high turn counts for assistant sessions.
-                // The progressive update instructions already tell the model to
-                // proactively write important info to daily memory files.
-                if (resultData.num_turns >= 25) {
-                  console.log(`[chat API] High turn count (${resultData.num_turns}) for session ${sessionId}`);
-                }
-              } catch {
-                // skip malformed result data
-              }
-            }
-          } catch {
-            // skip malformed lines
-          }
-        }
-      }
-    }
-
-    // Flush any remaining text
-    if (currentText.trim()) {
-      contentBlocks.push({ type: 'text', text: currentText });
-    }
-
-    // Prepend thinking block if accumulated during stream
-    if (thinkingText.trim()) {
-      contentBlocks.unshift({ type: 'thinking', thinking: thinkingText.trim() });
-    }
-
-    // Phase 5c slice 5 (2026-05-16, post-smoke) — when the only
-    // thing the stream produced was an error event (no text, no
-    // thinking, no tool call), persist a fallback assistant message
-    // capturing the error. Pre-fix the proxy preflight 400 path
-    // (e.g. Codex `namespace` tool tripping unsupported_tool_kind)
-    // fired `event.type === 'error'` → set `hasError` + `errorMessage`,
-    // then `done` closed the stream with `contentBlocks` still
-    // empty. Nothing landed in DB and refresh showed only the user
-    // bubble — looked like "the assistant ignored me".
-    //
-    // Same `**Error:** <message>` format `stream-session-manager.ts`
-    // uses on the client side so the post-refresh transcript matches
-    // what the live SSE showed.
-    if (hasError && contentBlocks.length === 0 && errorMessage) {
-      contentBlocks.push({ type: 'text', text: `**Error:** ${errorMessage}` });
-    }
-
-    if (contentBlocks.length > 0) {
-      // If the message is text-only (no tool calls), store as plain text
-      // for backward compatibility with existing message rendering.
-      // Strip soft-heartbeat marker from text blocks before persisting (both paths)
-      const heartbeatMarkerRe = /\s*<!--\s*heartbeat-done\s*-->\s*/g;
-      const cleanedBlocks = contentBlocks.map(b =>
-        b.type === 'text' && 'text' in b ? { ...b, text: (b.text as string).replace(heartbeatMarkerRe, '') } : b
-      );
-
-      // If it contains tool calls or thinking blocks, store as structured JSON.
-      const hasStructuredBlocks = cleanedBlocks.some(
-        (b) => b.type === 'tool_use' || b.type === 'tool_result' || b.type === 'thinking'
-      );
-
-      const content = hasStructuredBlocks
-        ? JSON.stringify(cleanedBlocks)
-        : cleanedBlocks
-            .filter((b): b is Extract<MessageContentBlock, { type: 'text' }> => b.type === 'text')
-            .map((b) => b.text)
-            .join('')
-            .trim();
-
-      if (content) {
-        const savedMsg = addMessage(
-          sessionId,
-          'assistant',
-          content,
-          tokenUsage ? JSON.stringify(tokenUsage) : null,
-        );
-        lastSavedAssistantMsgId = savedMsg.id;
-      }
-    }
-  } catch (e) {
-    hasError = true;
-    errorMessage = e instanceof Error ? e.message : 'Stream reading error';
-    // Stream reading error - best effort save (same structured-block handling as happy path)
-    if (currentText.trim()) {
-      contentBlocks.push({ type: 'text', text: currentText });
-    }
-    if (thinkingText.trim()) {
-      contentBlocks.unshift({ type: 'thinking', thinking: thinkingText.trim() });
-    }
-    // Same error-visibility fallback as the happy path above —
-    // applies when the SSE consumption loop itself throws (network
-    // drop / parse failure) rather than receiving an error event.
-    // Without this, transient stream errors also disappeared from
-    // the transcript on refresh.
-    if (contentBlocks.length === 0 && errorMessage) {
-      contentBlocks.push({ type: 'text', text: `**Error:** ${errorMessage}` });
-    }
-    if (contentBlocks.length > 0) {
-      const hbRe = /\s*<!--\s*heartbeat-done\s*-->\s*/g;
-      const errCleanedBlocks = contentBlocks.map(b =>
-        b.type === 'text' && 'text' in b ? { ...b, text: (b.text as string).replace(hbRe, '') } : b
-      );
-      const hasStructuredBlocks = errCleanedBlocks.some(
-        (b) => b.type === 'tool_use' || b.type === 'tool_result' || b.type === 'thinking'
-      );
-      const content = hasStructuredBlocks
-        ? JSON.stringify(errCleanedBlocks)
-        : errCleanedBlocks
-            .filter((b): b is Extract<MessageContentBlock, { type: 'text' }> => b.type === 'text')
-            .map((b) => b.text)
-            .join('')
-            .trim();
-      if (content) {
-        // Keep token accounting on the error path too — the result event
-        // often arrives before the exception, so usage is already known.
-        addMessage(sessionId, 'assistant', content, tokenUsage ? JSON.stringify(tokenUsage) : null);
-      }
-    }
-  } finally {
-    // ── Server-side completion detection (reliable path) ──
-    // After persisting the assistant message, check for onboarding/checkin
-    // fences and process them directly on the server. This ensures completion
-    // is captured even if the frontend misses it (page refresh, parse failure, etc.).
-    try {
-      const fullText = contentBlocks
-        .filter((b): b is Extract<MessageContentBlock, { type: 'text' }> => b.type === 'text')
-        .map((b) => b.text)
-        .join('');
-
-      // 1. Check for onboarding-complete fence
-      const completion = extractCompletion(fullText);
-      if (completion) {
-        const workspacePath = getSetting('assistant_workspace_path');
-        const session = getSession(sessionId);
-        if (workspacePath && session && session.working_directory === workspacePath) {
-          await processCompletionServerSide(completion, workspacePath, sessionId);
-        }
-      }
-
-      // 2a. Soft heartbeat: for normal turns in assistant projects, mark heartbeat done
-      // only if the AI's response actually mentions heartbeat-related content.
-      if (!opts?.isHeartbeatTurn && !hasError && fullText.trim().length > 0) {
-        try {
-          const workspacePath = getSetting('assistant_workspace_path');
-          const session = getSession(sessionId);
-          if (workspacePath && session && session.working_directory === workspacePath) {
-            const { loadState, saveState, shouldRunHeartbeat } = await import('@/lib/assistant-workspace');
-            const { getLocalDateString } = await import('@/lib/utils');
-            const st = loadState(workspacePath);
-            if (shouldRunHeartbeat(st)) {
-              // Only mark done if the AI included the heartbeat-done marker.
-              // The soft hint instructs the AI to append <!-- heartbeat-done --> when it checks in.
-              const didCheck = fullText.includes('<!-- heartbeat-done -->');
-              if (didCheck) {
-                st.lastHeartbeatDate = getLocalDateString();
-                saveState(workspacePath, st);
-              }
-            }
-          }
-        } catch { /* best effort */ }
-      }
-
-      // 2b. Heartbeat state update — ONLY for actual heartbeat turns, and ONLY on success
-      if (opts?.isHeartbeatTurn && !hasError && fullText.trim().length > 0) {
-        try {
-          const workspacePath = getSetting('assistant_workspace_path');
-          const session = getSession(sessionId);
-          if (workspacePath && session && session.working_directory === workspacePath) {
-            const { stripHeartbeatToken } = await import('@/lib/heartbeat');
-            const { loadState, saveState } = await import('@/lib/assistant-workspace');
-            const { getLocalDateString } = await import('@/lib/utils');
-            const stripped = stripHeartbeatToken(fullText);
-
-            const st = loadState(workspacePath);
-            st.lastHeartbeatDate = getLocalDateString();
-
-            if (stripped.shouldSkip && lastSavedAssistantMsgId) {
-              // Pure HEARTBEAT_OK — mark ONLY the assistant reply as ack
-              // (auto-trigger messages are not persisted, so we only have the reply)
-              try {
-                const { updateMessageHeartbeatAck } = await import('@/lib/db');
-                updateMessageHeartbeatAck(lastSavedAssistantMsgId, true);
-              } catch { /* best effort */ }
-            } else if (!stripped.shouldSkip) {
-              // Has real content — record for dedup
-              st.lastHeartbeatText = stripped.text;
-              st.lastHeartbeatSentAt = Date.now();
-            }
-
-            // Clear hookTriggeredSessionId
-            if (st.hookTriggeredSessionId === sessionId || !st.hookTriggeredSessionId) {
-              st.hookTriggeredSessionId = undefined;
-              st.hookTriggeredAt = undefined;
-            }
-            saveState(workspacePath, st);
-          }
-        } catch {
-          // best effort heartbeat state update
-        }
-      }
-    } catch (e) {
-      console.error('[chat API] Server-side completion detection failed:', e);
-    }
-
-    // Memory extraction: auto-extract durable memories every N turns (assistant projects only)
-    if (!opts?.isHeartbeatTurn && !opts?.suppressNotifications) {
-      try {
-        const workspacePath = getSetting('assistant_workspace_path');
-        const session = getSession(sessionId);
-        if (workspacePath && session && session.working_directory === workspacePath) {
-          const { shouldExtractMemory, hasMemoryWritesInResponse, extractMemories } = await import('@/lib/memory-extractor');
-
-          const fullTextForMemory = contentBlocks
-            .filter((b): b is Extract<MessageContentBlock, { type: 'text' }> => b.type === 'text')
-            .map((b) => b.text)
-            .join('');
-
-          // For memory-write detection, serialize ALL blocks (including tool_use/tool_result)
-          // so that hasMemoryWritesInResponse can see memory file paths in tool calls.
-          const fullResponseForWriteCheck = JSON.stringify(contentBlocks);
-
-          // Load buddy rarity for extraction interval
-          let buddyRarity: string | undefined;
-          try {
-            const { loadState } = await import('@/lib/assistant-workspace');
-            const st = loadState(workspacePath);
-            buddyRarity = st.buddy?.rarity;
-          } catch { /* ignore */ }
-
-          // Only extract if: interval met + AI didn't already write memory this turn
-          if (shouldExtractMemory(buddyRarity, sessionId) && !hasMemoryWritesInResponse(fullResponseForWriteCheck)) {
-            const { getMessages: getMsgs } = await import('@/lib/db');
-            const { messages: recent } = getMsgs(sessionId, { limit: 6, excludeHeartbeatAck: true });
-            const recentForExtraction = recent.map(m => ({ role: m.role, content: m.content }));
-
-            // Fire-and-forget: don't block the response
-            extractMemories(recentForExtraction, workspacePath).catch(() => {});
-          }
-        }
-      } catch { /* best effort */ }
-    }
-
-    // Telegram notifications: completion or error (fire-and-forget)
-    // Suppressed for auto-trigger turns (onboarding/heartbeat) — invisible system flows
-    if (!opts?.suppressNotifications) {
-      if (hasError) {
-        notifySessionError(errorMessage, telegramOpts).catch(() => {});
-      } else {
-        const textSummary = contentBlocks
-          .filter((b): b is Extract<MessageContentBlock, { type: 'text' }> => b.type === 'text')
-          .map((b) => b.text)
-          .join('')
-          .trim();
-        notifySessionComplete(textSummary || undefined, telegramOpts).catch(() => {});
-      }
-    }
-    onComplete?.();
-  }
-}
-
-/**
- * Process a detected onboarding/checkin completion on the server side.
- * Calls the shared processor functions directly — no HTTP round-trip needed.
- *
- * Both processors are internally idempotent:
- * - processOnboarding checks state.onboardingComplete
- * - processCheckin checks state.lastCheckInDate === today
- */
-async function processCompletionServerSide(
-  completion: import('@/lib/onboarding-completion').ExtractedCompletion,
-  _workspacePath: string,
-  sessionId: string,
-): Promise<void> {
-  try {
-    if (completion.type === 'onboarding') {
-      const { processOnboarding } = await import('@/lib/onboarding-processor');
-      console.log('[chat API] Server-side onboarding completion detected');
-      await processOnboarding(completion.answers, sessionId);
-      console.log('[chat API] Server-side onboarding completion succeeded');
-    } else if (completion.type === 'checkin') {
-      const { processCheckin } = await import('@/lib/checkin-processor');
-      console.log('[chat API] Server-side checkin completion detected');
-      await processCheckin(completion.answers, sessionId);
-      console.log('[chat API] Server-side checkin completion succeeded');
-    }
-
-    // Clear hookTriggeredSessionId directly (no HTTP needed).
-    // CAS: only clear if we are still the owner — prevents wiping another
-    // tab's legitimate lock when completions arrive out of order.
-    try {
-      const { loadState, saveState } = await import('@/lib/assistant-workspace');
-      const { getSetting: getSettingDirect } = await import('@/lib/db');
-      const wsPath = getSettingDirect('assistant_workspace_path');
-      if (wsPath) {
-        const state = loadState(wsPath);
-        if (state.hookTriggeredSessionId === sessionId || !state.hookTriggeredSessionId) {
-          state.hookTriggeredSessionId = undefined;
-          state.hookTriggeredAt = undefined;
-          saveState(wsPath, state);
-        }
-      }
-    } catch {
-      // Best effort
-    }
-  } catch (e) {
-    console.error(`[chat API] Server-side ${completion.type} processing failed:`, e);
   }
 }

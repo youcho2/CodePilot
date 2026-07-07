@@ -27,10 +27,12 @@
  */
 
 import type { ComponentProps, ReactNode } from "react";
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useRef } from "react";
+import type { BundledLanguage } from "shiki";
 import { cn } from "@/lib/utils";
 import { CodePilotIcon } from "@/components/ui/semantic-icon";
 import { showToast } from "@/hooks/useToast";
+import { CodeBlockContent } from "@/components/ai-elements/code-block";
 
 // Shared card-action-button class — same geometry as Widget toolbar.
 // `justify-center` is intentional: icon-only variants (h-7 w-7 px-0)
@@ -130,70 +132,52 @@ function ChatTBody(props: ComponentProps<"tbody">) {
 }
 
 // ---------------------------------------------------------------------------
-// Code block — Widget-style card with copy button
+// Code block — Widget-style card, Shiki-highlighted via the Web Worker
 // ---------------------------------------------------------------------------
-// streamdown's `code` plugin highlights via Shiki and ships its own
-// `<pre>`. We only override `pre` so the OUTER chrome matches the
-// Widget card; the inner highlighted code is left to the plugin.
+// Chat code-fence highlighting fix: the previous cut mapped `code` to a plain
+// inline pill for BOTH inline and fenced code and `pre` to the card chrome.
+// Because react-markdown/streamdown render a fenced block as `<pre><code>`,
+// overriding `code` with an inline pill made real chat code fences render as
+// un-highlighted text and NEVER reach `highlightCode()` → the Shiki Worker
+// (they were "swallowed" as inline code). Streamdown's own block renderer —
+// the only thing that consults `plugins.code` / `createSharedCodePlugin` — was
+// bypassed by the override.
+//
+// Fix: split `code` into a dispatcher (`ChatCode`) that keeps inline code as
+// the pill but renders fenced blocks as a self-contained Widget-card block
+// (`ChatCodeFenceBlock`). The block body reuses `CodeBlockContent`, which routes
+// tokenization through the exact same `highlightCode()` seam as the rest of the
+// app: Shiki Worker on the hot path, main-thread engine as fallback, raw code
+// shown immediately so a block is never blank. `pre` becomes a pass-through
+// (streamdown's own default) because the card now owns the whole block.
 
-function ChatPre({ children, className, ...props }: ComponentProps<"pre">) {
-  const preRef = useRef<HTMLPreElement>(null);
+/** Extract the fence language from react-markdown's `language-xxx` className. */
+function extractFenceLanguage(className?: string): string {
+  const m = className?.match(/language-([\w+#.-]+)/i);
+  return m ? m[1] : "";
+}
 
-  // Inspect the code child for a language hint — streamdown puts the
-  // language as `data-language` on the code element when its shiki
-  // plugin runs. Fall back to "code" so the badge always shows.
-  const langGuess = (() => {
-    if (!Array.isArray(children) && typeof children === "object" && children && "props" in children) {
-      const props = (children as { props?: Record<string, unknown> }).props;
-      const dl = props?.["data-language"];
-      if (typeof dl === "string") return dl;
-      const cls = props?.className;
-      if (typeof cls === "string") {
-        const m = cls.match(/language-([a-z0-9+#-]+)/i);
-        if (m) return m[1];
-      }
-    }
-    return "";
-  })();
-
-  const handleCopy = useCallback(async () => {
-    const pre = preRef.current;
-    if (!pre) return;
-    const txt = pre.innerText;
-    try {
-      await navigator.clipboard.writeText(txt);
-      showToast({ type: "success", message: "已复制" });
-    } catch {
-      showToast({ type: "error", message: "复制失败" });
-    }
-  }, []);
-
-  // Same header-bar layout as ChatTable — keeps the action buttons
-  // out of the code area so long single-line code can use the full
-  // card width without hiding behind the copy button.
-  // Round 14: header bar uses `bg-muted/30` to mark itself off from
-  // the code area; the explicit `border-b` between header and pre
-  // was redundant (color shift already does the separation) and
-  // showed as an extra hairline that didn't read well.
-  return (
-    <div className="my-4 rounded-xl bg-muted/20 overflow-hidden">
-      <div className="flex items-center justify-between gap-2 bg-muted/30 px-3 py-1">
-        <span className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground/70">
-          {langGuess || "code"}
-        </span>
-        <button type="button" onClick={handleCopy} className={cn(cardActionBtn, "h-7 w-7 px-0")} aria-label="Copy code" title="复制代码">
-          <CodePilotIcon name="copy" size="sm" aria-hidden />
-        </button>
-      </div>
-      <pre
-        ref={preRef}
-        className={cn("overflow-x-auto px-4 py-3 text-sm font-mono leading-relaxed", className)}
-        {...props}
-      >
-        {children}
-      </pre>
-    </div>
-  );
+/**
+ * Inline-vs-block classification, mirroring streamdown's own heuristic
+ * (`node.position.start.line === node.position.end.line` ⇒ inline). A fenced
+ * block always spans its opening/closing delimiters, so its position is
+ * multi-line; a language class or an embedded newline are robust fallbacks
+ * when `node.position` is absent. Exported for the routing regression test.
+ */
+export function isChatFenceBlock(args: {
+  node?: { position?: { start?: { line?: number }; end?: { line?: number } } };
+  className?: string;
+  text: string;
+}): boolean {
+  const { node, className, text } = args;
+  const hasLangClass = typeof className === "string" && /(^|\s)language-/.test(className);
+  const start = node?.position?.start?.line;
+  const end = node?.position?.end?.line;
+  const multiLine =
+    typeof start === "number" && typeof end === "number"
+      ? start !== end
+      : text.includes("\n");
+  return hasLangClass || multiLine;
 }
 
 // Inline code (single backtick). Don't apply card chrome — just a
@@ -208,6 +192,72 @@ function ChatInlineCode({ className, ...props }: ComponentProps<"code">) {
       {...props}
     />
   );
+}
+
+/**
+ * Fenced code block rendered as a Widget-style card. Chrome (rounded-xl muted
+ * card, language badge, single copy button) matches the previous ChatPre; the
+ * body is `CodeBlockContent`, which highlights through the Shiki Worker seam
+ * (with main-thread fallback) and surfaces `data-language` for the block.
+ */
+function ChatCodeFenceBlock({ code, language }: { code: string; language: string }) {
+  const handleCopy = useCallback(async () => {
+    try {
+      await navigator.clipboard.writeText(code);
+      showToast({ type: "success", message: "已复制" });
+    } catch {
+      showToast({ type: "error", message: "复制失败" });
+    }
+  }, [code]);
+
+  return (
+    <div
+      className="my-4 rounded-xl bg-muted/20 overflow-hidden"
+      data-language={language || "text"}
+      data-codepilot-chat-code-block=""
+    >
+      <div className="flex items-center justify-between gap-2 bg-muted/30 px-3 py-1">
+        <span className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground/70">
+          {language || "code"}
+        </span>
+        <button
+          type="button"
+          onClick={handleCopy}
+          className={cn(cardActionBtn, "h-7 w-7 px-0")}
+          aria-label="Copy code"
+          title="复制代码"
+        >
+          <CodePilotIcon name="copy" size="sm" aria-hidden />
+        </button>
+      </div>
+      <CodeBlockContent code={code} language={(language || "text") as BundledLanguage} />
+    </div>
+  );
+}
+
+type ChatCodeProps = ComponentProps<"code"> & {
+  node?: { position?: { start?: { line?: number }; end?: { line?: number } } };
+};
+
+// The `code` component override. Inline code stays a muted pill; fenced blocks
+// render as the highlighted Widget-card block above (worker-backed).
+function ChatCode({ node, className, children, ...props }: ChatCodeProps) {
+  const text = childrenToText(children);
+  if (!isChatFenceBlock({ node, className, text })) {
+    return (
+      <ChatInlineCode className={className} {...props}>
+        {children}
+      </ChatInlineCode>
+    );
+  }
+  return <ChatCodeFenceBlock code={text} language={extractFenceLanguage(className)} />;
+}
+
+// `pre` is now a pass-through: ChatCode renders the entire fenced-block card,
+// so `pre` only needs to hand the block through — matching streamdown's own
+// default `pre` (which is likewise a pass-through).
+function ChatPre({ children }: ComponentProps<"pre">) {
+  return <>{children}</>;
 }
 
 // ---------------------------------------------------------------------------
@@ -274,11 +324,6 @@ function ChatImg(props: ComponentProps<"img">) {
   );
 }
 
-// Touch every used elementToString reference so eslint doesn't complain
-// in case dead-code elimination misses it; remove if all consumers
-// migrate to the DOM-based copy fallback above.
-void childrenToText;
-
 export const CHAT_MARKDOWN_COMPONENTS = {
   h1: ChatH1,
   h2: ChatH2,
@@ -297,5 +342,5 @@ export const CHAT_MARKDOWN_COMPONENTS = {
   thead: ChatTHead,
   tbody: ChatTBody,
   pre: ChatPre,
-  code: ChatInlineCode,
+  code: ChatCode,
 } as const;

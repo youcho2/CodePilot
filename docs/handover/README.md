@@ -36,7 +36,6 @@
 | sentry-error-reporting.md | Sentry 匿名错误上报：三层覆盖（browser/server/electron）、opt-out 机制、隐私保护、上报策略 |
 | decouple-native-runtime.md | Native Agent Runtime：双 Runtime 架构、AI SDK agent-loop、OpenAI Codex 集成、文件快照 rewind、MCP 全链路、验证边界与剩余风险 |
 | provider-proxy-bridge.md | Provider Proxy Bridge Contract：Codex provider proxy / 任何新 Agent 框架接入的 8 个 hook（parseInbound / translateInput / translateTools / translateProviderOptions / translateStream / translateResponse / translateError / resumeThreadParams）、AI SDK v6 `tool({inputSchema: jsonSchema(...)})` schema 合约、Codex schema 来源清单、Smoke 矩阵收口标准；接新 Agent 框架前必读 |
-| agent-collaboration-space.md | Claude Code / Codex 私有协作空间机制说明：公开 Issue 作为 untrusted external signal、私有 `codepilot-agent-runs` repo 作为 Agent Run / handoff / review 操作主账，定义 labels、状态机、Goal 模式位置、ledger 主从语义与 bot 权限边界；阶段演进归 `agent-collaboration-loop-infrastructure.md` |
 | markdown-artifact-overhaul.md | Markdown 渲染 × Artifact 预览体系：PreviewSource 联合、DiffSummary 卡片、Sandpack 单文件 React、CodeMirror 编辑+自动保存、长图导出 IPC、文件 I/O API 合同、loadedPath/freshPreview 防漂移 |
 | phase-4-markdown-artifact.md | Phase 4 Markdown 数据层 × HTML 表现层 × 工程引用：trust tier 三档授权、html-preview 同源路由 + 4 轮 CSP 演进、codepilot:file-changed 单通道 + quiet refresh、原地 Markdown 风格 Select、code-fence Preview / dev-output chips；Save-HTML 入口 deferred 的代码锚点与重启条件 |
 | chat-composer-redesign.md | Chat composer 重构（April 2026）：三层视觉规则、Run 状态聚合面板、ai-elements 整合、隐形 select、弹窗底座统一、弥散阴影 token、左侧栏密度收紧 |
@@ -45,4 +44,3 @@
 | codex-tool-bridge.md | Codex Runtime CodePilot Tool Bridge（Phase 5c）：proxy 内 execute() 桥接 + 侧通道事件总线、按 sessionId 路由的 tool_started/tool_completed → SSE、内建工具 function_call 对 Codex 抑制、stopWhen: stepCountIs(8) 多步续聊、anti-pattern source-grep 守卫（auth.json / npm install / OPENAI_API_KEY / image_gen.py） |
 | harness-capability-contract.md | Harness Capability Contract（Phase 5d 全 5 段）：三层模型（tool schema / context instruction / UI artifact contract）、能力矩阵、Context Compiler 纯函数、Runtime Capability Adapter facade（三 Runtime 入口禁直引 compileContext）、Artifact Contract 9 类产物 + 防漂移测试、跨 Runtime drift 检测、Widget JSON round-trip 校验 |
 | new-runtime-playbook.md | New Agent Runtime 接入硬性流程（Phase 5d Phase 5）：7 步顺序（Schema snapshot → Capability inventory → Runtime Adapter facade → Artifact contract → Contract tests gate → 9 项 smoke matrix → UI 可见性）、禁止 live-smoke-driven patching、Provider vs Runtime 边界判断；接 Hermes/Gemini/OpenClaw 之前必读 |
-| agent-collaboration-loop-architecture.html | Claude Code / Codex 自动协作 Loop 的可视化网页说明：四层事实源、launchd runner、reconcile/lock/cursor、artifact publisher、状态机、权限边界、AI SDK 7 pilot 验证结果与下一步 |

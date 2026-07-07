@@ -64,6 +64,7 @@ export const sdkRuntime: AgentRuntime = {
       enableFileCheckpointing: ro.enableFileCheckpointing as boolean | undefined,
       generativeUI: ro.generativeUI as boolean | undefined,
       provider: ro.provider as ClaudeStreamOptions['provider'],
+      lockId: ro.lockId as string | undefined,
     };
 
     return streamClaudeSdk(sdkOptions);

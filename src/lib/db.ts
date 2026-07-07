@@ -2907,6 +2907,25 @@ export function releaseSessionLock(sessionId: string, lockId: string): boolean {
 }
 
 /**
+ * Read-only ownership check: does `lockId` still own the lock row for
+ * `sessionId`? Pure SELECT — no writes, no side effects.
+ *
+ * Deliberately does NOT check `expires_at`. Ownership (who holds the lock)
+ * and liveness (TTL freshness) are separate concerns. A takeover only ever
+ * happens inside acquireSessionLock, which deletes the stale row and inserts
+ * a new one under a different lockId — so as long as THIS lockId's row still
+ * exists, this lockId is still the owner, even if its TTL has lapsed. Callers
+ * that also care about liveness must check TTL separately.
+ */
+export function isLockOwner(sessionId: string, lockId: string): boolean {
+  const db = getDb();
+  const row = db.prepare(
+    'SELECT 1 FROM session_runtime_locks WHERE session_id = ? AND lock_id = ?'
+  ).get(sessionId, lockId);
+  return !!row;
+}
+
+/**
  * Update the runtime status of a session.
  */
 export function setSessionRuntimeStatus(

@@ -25,10 +25,12 @@ import fs from 'fs';
 import net from 'net';
 import os from 'os';
 import { TerminalManager } from './terminal-manager';
+import { validateTerminalCreateOpts } from './terminal-create-validation';
 import { sanitizeLogLine } from './log-sanitize';
 import { getTrayMenuLabels } from '../src/lib/tray-menu-labels';
 import { BoundedLineRing } from '../src/lib/logging/bounded-line-ring';
 import { createRotatingLogWriter, type RotatingLogWriter } from '../src/lib/logging/main-log-rotation';
+import { classifyNavigation } from '../src/lib/navigation-policy';
 
 // B-025: hard caps for the persistent main log + the in-memory server-output
 // ring. The 12.5 GB log a user hit came from an unbounded active file plus an
@@ -1069,10 +1071,18 @@ function createWindow(url?: string) {
     return { action: 'deny' };
   });
   mainWindow.webContents.on('will-navigate', (event, targetUrl) => {
-    // Allow navigating within the app (localhost dev server)
-    const appOrigin = new URL(mainWindow!.webContents.getURL()).origin;
-    if (new URL(targetUrl).origin !== appOrigin) {
-      event.preventDefault();
+    // Policy lives in a pure, unit-tested helper (src/lib/navigation-policy).
+    // In-app navigation is allowed ONLY for same-origin http/https. The
+    // startup splash is a `data:` page whose origin serializes to "null", so
+    // an origin-only same-origin check would let data:/file:/javascript:/
+    // vscode: targets masquerade as same-origin and skip the http/https
+    // external-link whitelist. Non-web targets are blocked outright and never
+    // reach shell.openExternal (which would let AI-authored content launch OS
+    // protocol handlers). (audit 2026-07 finding 1.7 + Codex Loop-1 review)
+    const decision = classifyNavigation(mainWindow!.webContents.getURL(), targetUrl);
+    if (decision === 'allow-in-app') return;
+    event.preventDefault();
+    if (decision === 'open-external') {
       shell.openExternal(targetUrl);
     }
   });
@@ -2093,7 +2103,10 @@ app.whenReady().then(async () => {
     html: string;
     width: number;
     pixelRatio?: number;
-    outPath?: string;
+    // NOTE: no `outPath`. The renderer must NOT name an arbitrary filesystem
+    // path here — a compromised renderer could overwrite any file with PNG
+    // bytes. The handler only returns base64; the renderer saves it via a Blob
+    // download (src/lib/artifact-export.ts). (audit 2026-07 finding 1.1)
     maxHeightPx?: number;
     timeoutMs?: number;
   }) => {
@@ -2106,7 +2119,6 @@ app.whenReady().then(async () => {
       html,
       width,
       pixelRatio = 2,
-      outPath,
       maxHeightPx = 50000,
       timeoutMs = 30000,
     } = params;
@@ -2200,12 +2212,9 @@ app.whenReady().then(async () => {
         }
       }
 
-      if (outPath) {
-        const fs = await import('fs/promises');
-        const buf = Buffer.from(pngBase64, 'base64');
-        await fs.writeFile(outPath, buf);
-        return { path: outPath, bytes: buf.length };
-      }
+      // Always return base64 to the renderer; never write to a
+      // renderer-supplied path (removed — audit 2026-07 finding 1.1). The
+      // renderer saves via a Blob download in src/lib/artifact-export.ts.
       return { base64: pngBase64, bytes: Buffer.from(pngBase64, 'base64').length };
     } catch (err) {
       return {
@@ -2232,12 +2241,26 @@ app.whenReady().then(async () => {
   });
 
   ipcMain.handle('terminal:create', async (_event, opts: { id: string; cwd: string; cols: number; rows: number }) => {
+    // Validate before spawning (stability audit ⑦): a non-string/duplicate id
+    // would poison the id→terminal map or clobber a live terminal, and a
+    // missing cwd would spawn in the wrong place or throw an ambiguous ENOENT.
+    const validation = validateTerminalCreateOpts(opts, {
+      idExists: (id) => terminalManager.has(id),
+      cwdIsDirectory: (cwd) => {
+        try { return fs.statSync(cwd).isDirectory(); } catch { return false; }
+      },
+    });
+    if (!validation.ok) {
+      console.warn(`[terminal:create] rejected (${validation.error}): ${validation.detail}`);
+      return { ok: false as const, error: validation.error, detail: validation.detail };
+    }
     terminalManager.create(opts.id, {
       cwd: opts.cwd,
       cols: opts.cols,
       rows: opts.rows,
       env: userShellEnv,
     });
+    return { ok: true as const };
   });
 
   ipcMain.on('terminal:write', (_event, data: { id: string; data: string }) => {

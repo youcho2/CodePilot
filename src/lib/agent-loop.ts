@@ -26,6 +26,7 @@ import { sanitizeClaudeModelOptions } from './claude-model-options';
 import { getMessages } from './db';
 import { wrapController } from './safe-stream';
 import { buildNativeErrorEventData } from './agent-loop-error-event';
+import { buildToolErrorResultData } from './agent-loop-tool-error';
 import {
   createNativeTimeoutController,
   resolveNativeTimeoutConfig,
@@ -609,6 +610,29 @@ export function runAgentLoop(options: AgentLoopOptions): ReadableStream<string> 
                     is_error: false,
                     ...(media && media.length > 0 ? { media } : {}),
                   }),
+                }));
+                break;
+              }
+
+              case 'tool-error': {
+                // #49 — a tool's execute() threw. The AI SDK emits a
+                // `tool-error` fullStream part (not `tool-result`); before
+                // this case existed it fell to `default` and was silently
+                // swallowed, leaving the tool_use bubble with no result.
+                // Forward it as an is_error:true tool_result so the UI shows
+                // an error bubble (same channel a normal tool failure uses).
+                const errorResult = buildToolErrorResultData(event);
+                // Accounting parity with the tool-result branch: the tool WAS
+                // invoked and its error output is fed back to the model, so
+                // record it (otherwise the accumulator holds a recordToolUse
+                // with no matching result).
+                toolInvocationAccumulator.recordToolResult(
+                  errorResult.tool_use_id,
+                  errorResult.content,
+                );
+                controller.enqueue(formatSSE({
+                  type: 'tool_result',
+                  data: JSON.stringify(errorResult),
                 }));
                 break;
               }

@@ -13,7 +13,34 @@ const SENTRY_REPORTABLE: Set<string> = new Set([
   'MISSING_GIT_BASH', 'PROVIDER_NOT_APPLIED', 'SESSION_STATE_ERROR',
   // Native Runtime errors
   'NATIVE_STREAM_ERROR', 'OPENAI_AUTH_FAILED', 'MCP_CONNECTION_ERROR',
+  // Model-output failures — agent-loop calls reportNativeError for these
+  // (EMPTY_RESPONSE = proxy/model incompatibility; TIMEOUT_* = real hangs).
+  // They were declared reportable-by-caller but absent from this set, so the
+  // reports were silent no-ops. (audit 2026-07 "Sentry blind spot 1")
+  'EMPTY_RESPONSE',
+  'TIMEOUT_CONNECT', 'TIMEOUT_FIRST_TOKEN', 'TIMEOUT_TOOL_EXECUTION', 'TIMEOUT_TOTAL_RUN',
 ]);
+
+/**
+ * Pure predicate: should this (category, error) be reported to Sentry?
+ *
+ * Side-effect-free and exported so tests can lock the semantics WITHOUT
+ * importing `@sentry/node` (that import would pull the @opentelemetry chain
+ * into the dev/test compile graph — see reportToSentry's guard and the
+ * sentry-dev-guard contract).
+ *
+ *  1. category must be in the reportable allow-list.
+ *  2. user-initiated abort/cancel is dropped — EXCEPT TIMEOUT_*, which the
+ *     native runtime raises as an AbortError (a fired timeout budget aborts
+ *     the combined signal; see agent-loop.ts:728). A timeout is a real
+ *     failure, so the abort/cancel message filter must not swallow it.
+ */
+export function shouldReportToSentry(category: string, error: unknown): boolean {
+  if (!SENTRY_REPORTABLE.has(category)) return false;
+  if (category.startsWith('TIMEOUT_')) return true;
+  const msg = error instanceof Error ? error.message : String(error);
+  return !/abort|cancel/i.test(msg);
+}
 
 function reportToSentry(category: string, error: unknown, extra?: Record<string, unknown>) {
   // Dev-server memory guardrail (2026-05-09): even though instrumentation.ts
@@ -25,10 +52,8 @@ function reportToSentry(category: string, error: unknown, extra?: Record<string,
   // instrumentation.ts contract here. Locked in by
   // `src/__tests__/unit/sentry-dev-guard.test.ts`.
   if (process.env.NODE_ENV !== 'development') {
-    if (!SENTRY_REPORTABLE.has(category)) return;
-    // Skip aborted operations — these are user-initiated cancellations
+    if (!shouldReportToSentry(category, error)) return;
     const msg = error instanceof Error ? error.message : String(error);
-    if (/abort|cancel/i.test(msg)) return;
 
     // Fire-and-forget async import — never blocks the classifier
     import('@sentry/node').then((Sentry) => {

@@ -4,7 +4,7 @@
  *
  * Phase 3's smoke proved the POC path works end-to-end; Phase 5's decision
  * gate requires COMPARISON evidence on the three user-trust scenarios from
- * the exec plan (docs/exec-plans/active/ai-sdk-7-runtime-loop-adoption.md):
+ * the AI SDK 7 adoption decision criteria:
  *   (1) long-text        — streaming / tail / usage contract on a long reply
  *   (2) tool + approval  — BOTH branches: approved (tool really runs) and
  *                          denied (deny surfaces as tool_result, loop keeps

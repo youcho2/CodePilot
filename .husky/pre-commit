@@ -7,16 +7,30 @@ set -e
 
 node scripts/lint-hooks.mjs
 npx lint-staged
-npx tsc --noEmit
-# CODEX_DISABLED=1 mirrors `npm run test:unit` (see package.json scripts).
-# Without it the pre-commit hook spawns the real Codex app-server during
-# unit tests, which (a) holds the user's real CodePilot SQLite DB and
-# fights for locks with the dev server, (b) takes ~35× longer than the
-# standalone npm run test (~25s) — observed in Phase 5b round-6 smoke,
-# where every commit wedged for 30+ minutes. Keep the hook env aligned
-# with the canonical test script.
-# --import db-isolation.setup.ts gives each parallel test-worker its own temp DB
-# (tech-debt #11/#25/#30 flake fix): node:test runs files in parallel, so without
-# this every DB test raced on the one real ~/.codepilot/codepilot.db → intermittent
-# failures that blocked commits. Now: no shared-file races, no real-DB pollution.
-CODEX_DISABLED=1 npx tsx --test --import ./src/__tests__/db-isolation.setup.ts src/__tests__/unit/*.test.ts
+
+# Verification tier（scripts/pre-commit-tier.mjs 分类，fail-closed）：
+# docs-only 暂存改动跳过重量级 tsc + 单测（单测已涨到 ~300s，文档小改不该付全量成本）；
+# 产品代码 / 测试 / 依赖 / 构建脚本 / 配置 / 未知扩展名一律走全量门禁。
+# FAIL-CLOSED：只有分类器显式输出 `docs` 才跳过；出错、空集、未知文件（`*)` 分支）都跑全量，
+# 不重蹈 2026-05-29 之前「前置命令失败被静默放行」。
+TIER="$(node scripts/pre-commit-tier.mjs || echo code)"
+case "$TIER" in
+  docs)
+    echo "[pre-commit] docs-only 改动 — 跳过 tsc + 单测。（高风险 docs：release/security/runtime/provider/permission 请手动跑 'npm run test'，必要时 build/smoke。）"
+    ;;
+  *)
+    npx tsc --noEmit
+    # CODEX_DISABLED=1 mirrors `npm run test:unit` (see package.json scripts).
+    # Without it the pre-commit hook spawns the real Codex app-server during
+    # unit tests, which (a) holds the user's real CodePilot SQLite DB and
+    # fights for locks with the dev server, (b) takes ~35× longer than the
+    # standalone npm run test (~25s) — observed in Phase 5b round-6 smoke,
+    # where every commit wedged for 30+ minutes. Keep the hook env aligned
+    # with the canonical test script.
+    # --import db-isolation.setup.ts gives each parallel test-worker its own temp DB
+    # (tech-debt #11/#25/#30 flake fix): node:test runs files in parallel, so without
+    # this every DB test raced on the one real ~/.codepilot/codepilot.db → intermittent
+    # failures that blocked commits. Now: no shared-file races, no real-DB pollution.
+    CODEX_DISABLED=1 npx tsx --test --import ./src/__tests__/db-isolation.setup.ts src/__tests__/unit/*.test.ts
+    ;;
+esac

@@ -18,10 +18,12 @@ import {
   isWriteTool,
   resolveToolPath,
 } from '@/lib/file-write-tools';
+import { reconcilePhase } from '@/lib/stream-phase-reconcile';
 import type {
   ToolUseInfo,
   ToolResultInfo,
   SessionStreamSnapshot,
+  StreamPhase,
   StreamEvent,
   StreamEventListener,
   TokenUsage,
@@ -416,7 +418,15 @@ async function runStream(stream: ActiveStream, params: StartStreamParams): Promi
     effectiveContent = `${notices}\n\n---\n\n${params.content}`;
   }
 
-  // Adaptive text emit throttle — avoids excessive React re-renders during fast streaming.
+  // Adaptive snapshot emit throttle — avoids excessive React re-renders during
+  // fast streaming. Phase 2 ② — reused (kept the `Text` names for a minimal
+  // diff) by the three high-frequency non-text handlers too: onThinking,
+  // onToolOutput and onToolProgress. All four just schedule a coalesced
+  // `emit(stream, 'snapshot-updated')`, and buildSnapshot always reads the
+  // latest mutated accumulators/statusText, so coalescing drops intermediate
+  // frames WITHOUT changing the final snapshot. Terminal transitions
+  // (completion/error/stop) and onToolUse call flushTextThrottle() first, so
+  // no pending frame is ever lost before a tool block or the final content.
   // Defined before try/catch so flushTextThrottle is accessible in the error path.
   const TEXT_THROTTLE_MS = 100;
   let textEmitTimer: ReturnType<typeof setTimeout> | null = null;
@@ -533,7 +543,7 @@ async function runStream(stream: ActiveStream, params: StartStreamParams): Promi
           stream.thinkingPhaseEnded = false;
         }
         stream.accumulatedThinking += delta;
-        emit(stream, 'snapshot-updated');
+        throttledTextEmit(); // Phase 2 ② — coalesce fast thinking deltas
       },
       onToolUse: (tool) => {
         markActive();
@@ -593,12 +603,12 @@ async function runStream(stream: ActiveStream, params: StartStreamParams): Promi
         } else {
           stream.toolOutputAccumulated = next;
         }
-        emit(stream, 'snapshot-updated');
+        throttledTextEmit(); // Phase 2 ② — coalesce fast live tool-output frames
       },
       onToolProgress: (toolName, elapsed) => {
         markActive();
         stream.snapshot = { ...stream.snapshot, statusText: `Running ${toolName}... (${elapsed}s)` };
-        emit(stream, 'snapshot-updated');
+        throttledTextEmit(); // Phase 2 ② — coalesce fast progress ticks
       },
       onSkillNudge: (data) => {
         // Broadcast as window event — ChatView listens and renders a
@@ -963,10 +973,18 @@ interface StoppableStream {
 
 interface StopStreamDeps {
   /** Best-effort graceful interrupt. MUST be bounded by the caller (so a hung
-   *  endpoint can't leak) and swallow its own errors. */
-  requestInterrupt: () => void;
+   *  endpoint can't leak) and swallow its own errors (resolve, never reject).
+   *  Returns the backend's authoritative runtime_status from the interrupt
+   *  response, or null when unknown / failed / timed out. */
+  requestInterrupt: () => Promise<string | null>;
   /** Schedule the force-abort safety net (tracked on the stream's timers). */
   scheduleForceAbort: (fn: () => void, ms: number) => void;
+  /** Converge the client phase to a TERMINAL phase (I4). Called only when the
+   *  interrupt response reports the backend is already terminal while the
+   *  client is still 'active' — flips the composer's isStreaming gate off
+   *  without waiting for the reader to reject. Must NOT append content (the
+   *  reader's own terminal transition still runs). */
+  convergePhase: (terminalPhase: StreamPhase) => void;
 }
 
 /**
@@ -978,6 +996,14 @@ interface StopStreamDeps {
  * so `.finally` never ran, the abort was never scheduled, `phase` stayed
  * 'active' forever, and the composer's `isStreaming` gate (= phase==='active')
  * locked the user out of sending after an interrupt.
+ *
+ * Interrupt/phase reconcile (I4/I2): the interrupt response now carries the backend's
+ * authoritative runtime_status. If the backend is ALREADY terminal (idle /
+ * interrupted / error), converge the client phase to a terminal phase in a
+ * microtask — bounding phase off 'active' even if the reader never rejects. A
+ * 'running'/unknown status maps to no correction (reconcilePhase → null or
+ * 'active'), so the force-abort net remains the sole bound in the live-stop
+ * case. No periodic poll (DP2) — this is one read off the stop response.
  */
 export function stopStreamWith(
   stream: StoppableStream | undefined,
@@ -992,9 +1018,27 @@ export function stopStreamWith(
       stream.abortController.abort();
     }
   }, forceAbortMs);
-  // 2) Best-effort graceful interrupt — stops the backend faster than the
-  //    force-abort when it works; purely an optimization now.
-  deps.requestInterrupt();
+  // 2) Best-effort graceful interrupt — invoked immediately (its side effect
+  //    fires synchronously, right after the net is armed). Its resolved
+  //    runtime_status drives phase convergence in a microtask.
+  Promise.resolve(deps.requestInterrupt())
+    .then((runtimeStatus) => {
+      // The reader may have already settled (force-abort or a real terminal
+      // event) between the interrupt and its response — only converge a still-
+      // active client.
+      if (stream.snapshot.phase !== 'active') return;
+      const next = reconcilePhase(runtimeStatus, stream.snapshot.phase);
+      // Act on TERMINAL corrections only. A 'running' status maps back to
+      // 'active' (→ skipped): we never re-lock behind a reader-less phase, and
+      // the force-abort net still bounds it.
+      if (next && next !== 'active') {
+        deps.convergePhase(next);
+      }
+    })
+    .catch(() => {
+      // Interrupt failed/timed out — the force-abort net (armed above) is the
+      // fallback that bounds the phase.
+    });
 }
 
 export function stopStream(sessionId: string): void {
@@ -1002,20 +1046,40 @@ export function stopStream(sessionId: string): void {
   stopStreamWith(
     stream,
     {
-      requestInterrupt: () => {
-        fetch('/api/chat/interrupt', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ sessionId }),
-          // Bounded so a hung endpoint can't leak a pending request; the
-          // scheduled force-abort is the real fallback.
-          signal: AbortSignal.timeout(STREAM_FORCE_ABORT_MS),
-        }).catch(() => {
+      requestInterrupt: async (): Promise<string | null> => {
+        try {
+          const res = await fetch('/api/chat/interrupt', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ sessionId }),
+            // Bounded so a hung endpoint can't leak a pending request; the
+            // scheduled force-abort is the real fallback.
+            signal: AbortSignal.timeout(STREAM_FORCE_ABORT_MS),
+          });
+          if (!res.ok) return null;
+          const data = await res.json().catch(() => null);
+          // Interrupt/phase reconcile — the interrupt route returns the backend's
+          // authoritative runtime_status (or null). Drives phase convergence.
+          return data && typeof data.runtime_status === 'string' ? data.runtime_status : null;
+        } catch {
           // Interrupt failed/timed out — force-abort already scheduled.
-        });
+          return null;
+        }
       },
       scheduleForceAbort: (fn, ms) => {
         if (stream) streamTimeout(stream, fn, ms);
+      },
+      convergePhase: (terminalPhase) => {
+        // I4: bound the client phase off 'active' once the backend is confirmed
+        // terminal, so the composer's isStreaming gate (≡ phase==='active',
+        // GitHub #578) releases without waiting for the reader to reject. We
+        // only flip the phase and emit — we do NOT append finalMessageContent or
+        // schedule GC here: the reader's own terminal transition (line ~905, on
+        // the force-abort's abort or a real stream close) still runs and appends
+        // the partial output canonically. This bounds phase, not content.
+        if (!stream || stream.snapshot.phase !== 'active') return;
+        stream.snapshot = { ...stream.snapshot, phase: terminalPhase };
+        emit(stream, 'phase-changed');
       },
     },
     STREAM_FORCE_ABORT_MS,
@@ -1224,4 +1288,113 @@ export function seedSnapshotPatch(
     },
   };
   map.set(sessionId, placeholder);
+  // Schedule GC like the normal terminal transitions do (this placeholder is
+  // registered directly in a terminal phase='completed' and never passes
+  // through the stream lifecycle that would otherwise arm the timer). Without
+  // this, a seeded first-turn snapshot leaks in the module-global map forever
+  // (audit ⑤). GC only reclaims when the entry is still non-active at fire.
+  scheduleGC(placeholder);
+}
+
+// ==========================================
+// Message queue (Phase 2 ④)
+// ==========================================
+
+/**
+ * A message the user typed while a stream was already active. ChatView holds
+ * these above the composer and sends the next one when the current stream
+ * finishes.
+ *
+ * Phase 2 ④ — this used to live in `ChatView` React state, so switching away
+ * from a streaming session and back (ChatView unmount → remount) dropped every
+ * queued message. Moving the store here (keyed by sessionId, in the same
+ * globalThis-backed module the stream itself lives in) makes the queue survive
+ * the remount and stay bucketed per session — the queue now shares the stream's
+ * lifecycle instead of the component's.
+ */
+export interface QueuedMessage {
+  content: string;
+  files?: FileAttachment[];
+  systemPromptAppend?: string;
+  displayOverride?: string;
+  mentions?: MentionRef[];
+  /** Preserve badge-derived Skill labels across the queue so dequeued sends
+   *  carry them through to the producer. */
+  selectedSkills?: readonly string[];
+}
+
+const QUEUES_KEY = '__streamSessionQueues__' as const;
+const QUEUE_LISTENERS_KEY = '__streamSessionQueueListeners__' as const;
+
+function getQueuesMap(): Map<string, QueuedMessage[]> {
+  if (!(globalThis as Record<string, unknown>)[QUEUES_KEY]) {
+    (globalThis as Record<string, unknown>)[QUEUES_KEY] = new Map<string, QueuedMessage[]>();
+  }
+  return (globalThis as Record<string, unknown>)[QUEUES_KEY] as Map<string, QueuedMessage[]>;
+}
+
+function getQueueListenersMap(): Map<string, Set<() => void>> {
+  if (!(globalThis as Record<string, unknown>)[QUEUE_LISTENERS_KEY]) {
+    (globalThis as Record<string, unknown>)[QUEUE_LISTENERS_KEY] = new Map<string, Set<() => void>>();
+  }
+  return (globalThis as Record<string, unknown>)[QUEUE_LISTENERS_KEY] as Map<string, Set<() => void>>;
+}
+
+function notifyQueue(sessionId: string): void {
+  const listeners = getQueueListenersMap().get(sessionId);
+  if (listeners) {
+    for (const listener of listeners) {
+      try { listener(); } catch { /* listener error */ }
+    }
+  }
+}
+
+/** Current queued messages for a session (empty array when none). Returns a
+ *  fresh array reference each call so React state identity checks re-render. */
+export function getMessageQueue(sessionId: string): QueuedMessage[] {
+  return [...(getQueuesMap().get(sessionId) ?? [])];
+}
+
+/**
+ * Replace a session's queue. Accepts either the next array or an updater
+ * function (mirrors React's setState signature so ChatView's existing
+ * `setMessageQueue(prev => ...)` / `setMessageQueue([])` call sites port over
+ * unchanged). An emptied queue deletes its map entry so drained/stopped
+ * sessions don't leak in the module-global map.
+ */
+export function updateMessageQueue(
+  sessionId: string,
+  updater: QueuedMessage[] | ((prev: QueuedMessage[]) => QueuedMessage[]),
+): void {
+  const map = getQueuesMap();
+  const prev = map.get(sessionId) ?? [];
+  const next = typeof updater === 'function' ? updater([...prev]) : updater;
+  if (next.length === 0) {
+    map.delete(sessionId);
+  } else {
+    map.set(sessionId, [...next]);
+  }
+  notifyQueue(sessionId);
+}
+
+/** Append one message to a session's queue. */
+export function enqueueMessage(sessionId: string, message: QueuedMessage): void {
+  updateMessageQueue(sessionId, (prev) => [...prev, message]);
+}
+
+/** Subscribe to queue changes for a session. Returns an unsubscribe fn. */
+export function subscribeMessageQueue(sessionId: string, listener: () => void): () => void {
+  const listenersMap = getQueueListenersMap();
+  let listeners = listenersMap.get(sessionId);
+  if (!listeners) {
+    listeners = new Set();
+    listenersMap.set(sessionId, listeners);
+  }
+  listeners.add(listener);
+  return () => {
+    listeners!.delete(listener);
+    if (listeners!.size === 0) {
+      listenersMap.delete(sessionId);
+    }
+  };
 }

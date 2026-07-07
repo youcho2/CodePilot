@@ -1,6 +1,6 @@
 /**
  * provider-request-shape.test.ts — AI SDK 7 Phase 2: provider request-shape
- * capability matrix evidence (docs/exec-plans/active/ai-sdk-7-runtime-loop-adoption.md).
+ * AI SDK 7 provider capability matrix evidence.
  *
  * What this pins: for each provider wire the native runtime can hit
  * (Anthropic Messages, OpenAI Responses [Codex OAuth path], OpenAI Chat

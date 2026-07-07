@@ -35,6 +35,11 @@ export class TerminalManager {
     this.onExit = handler;
   }
 
+  /** Whether a live terminal is currently registered under `id`. */
+  has(id: string): boolean {
+    return this.terminals.has(id);
+  }
+
   create(id: string, opts: TerminalCreateOptions): void {
     if (this.terminals.has(id)) {
       this.kill(id);

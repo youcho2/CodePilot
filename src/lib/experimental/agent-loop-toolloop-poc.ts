@@ -10,7 +10,7 @@
  * What it is: `runAgentLoop()` re-implemented on top of AI SDK 7's
  * `ToolLoopAgent` instead of the manual while-loop around single-step
  * `streamText()`. The goal is to measure parity, not to replace the loop —
- * see docs/exec-plans/active/ai-sdk-7-runtime-loop-adoption.md Phase 3.
+ * Experimental AI SDK 7 ToolLoop agent parity POC.
  *
  * Deliberate mirroring rules:
  *   - Same `AgentLoopOptions` input type as agent-loop.ts.
@@ -60,6 +60,7 @@ import { sanitizeClaudeModelOptions } from '../claude-model-options';
 import { getMessages } from '../db';
 import { wrapController } from '../safe-stream';
 import { buildNativeErrorEventData } from '../agent-loop-error-event';
+import { buildToolErrorResultData } from '../agent-loop-tool-error';
 import type { AgentLoopOptions } from '../agent-loop';
 import type { ToolInvocationRecord } from '../harness/auto-invoke-accounting';
 
@@ -414,6 +415,23 @@ export function runToolLoopAgentPoc(options: AgentLoopOptions): ReadableStream<s
                   is_error: false,
                   ...(media && media.length > 0 ? { media } : {}),
                 }),
+              }));
+              break;
+            }
+
+            case 'tool-error': {
+              // #49 parity with agent-loop.ts — a tool's execute() threw.
+              // ToolLoopAgent surfaces it as a `tool-error` stream part;
+              // forward it as an is_error:true tool_result instead of letting
+              // it fall to `default` and get swallowed (no UI error bubble).
+              const errorResult = buildToolErrorResultData(event);
+              toolInvocationAccumulator.recordToolResult(
+                errorResult.tool_use_id,
+                errorResult.content,
+              );
+              controller.enqueue(formatSSE({
+                type: 'tool_result',
+                data: JSON.stringify(errorResult),
               }));
               break;
             }

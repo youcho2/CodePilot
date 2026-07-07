@@ -2,7 +2,7 @@
 /**
  * Phase 2 live smoke — AI SDK 7 provider request-shape acceptance probe.
  *
- * Companion to docs/research/ai-sdk-7-provider-request-shape-matrix.md:
+ * Companion smoke for the AI SDK 7 provider request-shape matrix:
  * the fixture matrix proved what we PUT on the wire; this script probes
  * whether real gateways ACCEPT those exact shapes, using the same SDK
  * versions and the same providerOptions the app assembles.

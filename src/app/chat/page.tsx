@@ -38,6 +38,7 @@ import { useTranslation } from '@/hooks/useTranslation';
 import { usePanel } from '@/hooks/usePanel';
 import { maybeShowStatusToast } from '@/hooks/useSSEStream';
 import { seedSnapshotPatch } from '@/lib/stream-session-manager';
+import { createFirstTurnNavGuard, type FirstTurnNavGuard } from '@/lib/first-turn-navigation';
 // `runtime/effective` stays — it's needed for the local resolver effect
 // that produces `invalidDefault` (runtime-aware pinned-default check).
 // That's the only contributor to RunCheckpoint's pinned-invalid
@@ -319,6 +320,23 @@ function NewChatPageInner() {
   }, []);
   const [createdSessionId, setCreatedSessionId] = useState<string | undefined>();
   const abortControllerRef = useRef<AbortController | null>(null);
+  // Phase 2 ③ — first-turn navigation guard. The inline first-turn stream
+  // router.push()es to the new session on completion; if the user navigated
+  // away mid-stream (this page unmounted) that push must be suppressed so they
+  // aren't dragged back. The unmount cleanup below deactivates the guard and
+  // aborts the in-flight send controller.
+  const navGuardRef = useRef<FirstTurnNavGuard | null>(null);
+  if (!navGuardRef.current) navGuardRef.current = createFirstTurnNavGuard();
+  useEffect(() => {
+    const guard = navGuardRef.current;
+    // Re-arm on (re)mount so StrictMode's mount→unmount→remount (whose
+    // cleanup deactivates the guard) doesn't leave it permanently dead.
+    guard?.reactivate();
+    return () => {
+      guard?.deactivate();
+      abortControllerRef.current?.abort();
+    };
+  }, []);
   // #615: guards the first-message send while it's mid-flight. We defer the
   // isStreaming / optimistic-bubble flips until the backend ACCEPTS the message
   // (otherwise flipping `isNewChat` remounts the composer and eats the
@@ -1199,13 +1217,19 @@ function NewChatPageInner() {
           setMessages((prev) => [...prev, assistantMessage]);
         }
 
-        // Navigate to the session page after response is complete
-        router.push(`/chat/${session.id}`);
+        // Navigate to the session page after response is complete — but ONLY
+        // if the user is still on this new-chat page. If they switched away
+        // mid-stream (navGuard deactivated on unmount), suppress the push so
+        // we don't drag them back to the just-created session (Phase 2 ③).
+        navGuardRef.current?.navigate(() => router.push(`/chat/${session.id}`));
       } catch (error) {
         if (error instanceof DOMException && error.name === 'AbortError') {
-          // User stopped - navigate to session if we have one
+          // Aborted — either the user hit stop, or the page unmounted (session
+          // switch) and the cleanup aborted the controller. Only navigate to
+          // the session if the guard is still active (user stopped while
+          // still here); a switch-away abort must NOT push them back.
           if (sessionId) {
-            router.push(`/chat/${sessionId}`);
+            navGuardRef.current?.navigate(() => router.push(`/chat/${sessionId}`));
           }
         } else {
           const errMsg = error instanceof Error ? error.message : 'Unknown error';

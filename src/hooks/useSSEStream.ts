@@ -516,6 +516,14 @@ export function useSSEStream() {
         onInitMeta: (m) => callbacksRef.current?.onInitMeta?.(m),
         onRateLimit: (info) => callbacksRef.current?.onRateLimit?.(info),
         onContextUsage: (snap) => callbacksRef.current?.onContextUsage?.(snap),
+        // Previously missing from the proxy: consumeSSEStream parsed these
+        // three events and called them on the wrapped set, but the ref-proxy
+        // omitted them, so skill-nudge banners, context-compression notices,
+        // and Codex file-change refreshes were silently dropped for callers
+        // that go through useSSEStream(). Forward them like the rest.
+        onSkillNudge: (d) => callbacksRef.current?.onSkillNudge?.(d),
+        onContextCompressed: (d) => callbacksRef.current?.onContextCompressed?.(d),
+        onFileChanged: (paths) => callbacksRef.current?.onFileChanged?.(paths),
       };
 
       return consumeSSEStream(reader, proxied);

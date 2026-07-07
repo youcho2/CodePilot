@@ -22,7 +22,7 @@ import { registerConversation, unregisterConversation } from './conversation-reg
 import { captureCapabilities, isCacheFresh, setCachedPlugins } from './agent-sdk-capabilities';
 import { normalizeMessageContent, microCompactMessage } from './message-normalizer';
 import { roughTokenEstimate } from './context-estimator';
-import { getSetting, updateSdkSessionId, createPermissionRequest } from './db';
+import { getSetting, updateSdkSessionId, createPermissionRequest, isLockOwner } from './db';
 import { issueApprovalToken } from './permission-approval-token';
 import { resolveForClaudeCode, resolveEffectiveAnthropicBaseUrl } from './provider-resolver';
 import { isFirstPartyAnthropicEndpoint } from './ai-provider';
@@ -212,6 +212,34 @@ function toSdkMcpConfig(
  */
 function formatSSE(event: SSEEvent): string {
   return `data: ${JSON.stringify(event)}\n\n`;
+}
+
+/**
+ * Session ownership — owner-gated clear of `sdk_session_id`.
+ *
+ * The resume/crash/PTL-retry paths below clear `sdk_session_id` (`''`) so the
+ * next turn starts fresh. But that is a session-level write: if THIS turn was
+ * superseded (its session lock taken over by a newer send), clearing here would
+ * wipe the NEW owner's freshly-persisted session id and break its resume (I1).
+ *
+ * Only gate when a `lockId` was threaded through (subtask A plumbs
+ * `options.lockId`). Legacy callers that omit it keep the prior unconditional-
+ * clear behavior — `lockId === undefined` ⇒ no gate. `successLog`, when given,
+ * is emitted only on an actual clear (preserves the crash-path log).
+ */
+function clearSdkSessionIfOwner(
+  sessionId: string,
+  lockId: string | undefined,
+  successLog?: string,
+): void {
+  if (lockId !== undefined && !isLockOwner(sessionId, lockId)) {
+    console.warn(`[claude-client] stale owner (lockId superseded), skipping updateSdkSessionId('') for session ${sessionId}`);
+    return;
+  }
+  try {
+    updateSdkSessionId(sessionId, '');
+    if (successLog) console.warn(successLog);
+  } catch { /* best effort */ }
 }
 
 /**
@@ -674,6 +702,7 @@ export function streamClaude(options: ClaudeStreamOptions): ReadableStream<strin
       enableFileCheckpointing: options.enableFileCheckpointing,
       generativeUI: options.generativeUI,
       provider: options.provider,
+      lockId: options.lockId,
     },
   });
 }
@@ -1284,7 +1313,7 @@ export function streamClaudeSdk(options: ClaudeStreamOptions): ReadableStream<st
           );
           shouldResume = false;
           if (sessionId) {
-            try { updateSdkSessionId(sessionId, ''); } catch { /* best effort */ }
+            clearSdkSessionIfOwner(sessionId, options.lockId);
           }
           controller.enqueue(formatSSE({
             type: 'status',
@@ -1575,7 +1604,7 @@ export function streamClaudeSdk(options: ClaudeStreamOptions): ReadableStream<st
             console.warn('[claude-client] Resume failed, retrying without resume:', errMsg);
             // Clear stale sdk_session_id so future messages don't retry this broken resume
             if (sessionId) {
-              try { updateSdkSessionId(sessionId, ''); } catch { /* best effort */ }
+              clearSdkSessionIfOwner(sessionId, options.lockId);
             }
             // Notify frontend about the fallback
             controller.enqueue(formatSSE({
@@ -1599,7 +1628,7 @@ export function streamClaudeSdk(options: ClaudeStreamOptions): ReadableStream<st
           }
         }
 
-        registerConversation(sessionId, conversation);
+        registerConversation(sessionId, conversation, options.lockId);
 
         // Defer capability capture until first assistant response to avoid
         // competing with first-token latency. Skip entirely if cache is fresh.
@@ -1972,7 +2001,7 @@ export function streamClaudeSdk(options: ClaudeStreamOptions): ReadableStream<st
                   providerName: resolved.provider?.name,
                   baseUrl: resolved.provider?.base_url,
                 })) {
-                  try { updateSdkSessionId(sessionId, ''); } catch { /* best effort */ }
+                  clearSdkSessionIfOwner(sessionId, options.lockId);
                 }
                 const errTitle = 'Conversation error';
                 const errMsg = resultMsg.subtype || 'The conversation ended with an error';
@@ -2145,7 +2174,7 @@ export function streamClaudeSdk(options: ClaudeStreamOptions): ReadableStream<st
 
             // Clear stale session so retry starts fresh
             if (sessionId) {
-              try { updateSdkSessionId(sessionId, ''); } catch { /* best effort */ }
+              clearSdkSessionIfOwner(sessionId, options.lockId);
             }
 
             // Build retry prompt using compressed context with recalculated budget
@@ -2393,17 +2422,16 @@ export function streamClaudeSdk(options: ClaudeStreamOptions): ReadableStream<st
         // is valid and the next turn should resume it; only post-result teardown
         // noise reached here, so preserve the session.
         if (sessionId && !resultEmitted) {
-          try {
-            updateSdkSessionId(sessionId, '');
-            console.warn('[claude-client] Cleared stale sdk_session_id for session', sessionId);
-          } catch {
-            // best effort
-          }
+          clearSdkSessionIfOwner(
+            sessionId,
+            options.lockId,
+            `[claude-client] Cleared stale sdk_session_id for session ${sessionId}`,
+          );
         }
 
         controller.close();
       } finally {
-        unregisterConversation(sessionId);
+        unregisterConversation(sessionId, options.lockId);
         // Tear down shadow ~/.claude/ if we built one. Best-effort — the OS
         // will eventually GC tmpdir even if this fails.
         if (shadowHome) {

@@ -2,7 +2,7 @@
  * openai-chat-image-normalizer.ts — data URL normalization for the OpenAI
  * Chat Completions gateway path (ai-provider.ts non-OAuth 'openai' branch).
  *
- * Why this exists (Phase 2 发现 3, run issue #6): `@ai-sdk/openai@4.0.5`
+ * Why this exists (Phase 2 finding 3): `@ai-sdk/openai@4.0.5`
  * `.chat()` converts `{type:'file', data:<base64>, mediaType:'image/png'}`
  * parts into `{type:'image_url', image_url:{url:<bare base64>}}` — the
  * `data:<mime>;base64,` prefix is dropped (dist/index.js ~L307 calls

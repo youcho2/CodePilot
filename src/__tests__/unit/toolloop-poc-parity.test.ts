@@ -1,6 +1,6 @@
 /**
  * toolloop-poc-parity.test.ts — AI SDK 7 Phase 3: ToolLoopAgent side-by-side
- * parity evidence (docs/exec-plans/active/ai-sdk-7-runtime-loop-adoption.md).
+ * AI SDK 7 ToolLoop parity evidence.
  *
  * What this pins: `runToolLoopAgentPoc()` (src/lib/experimental/
  * agent-loop-toolloop-poc.ts, built on AI SDK 7 ToolLoopAgent) must produce
@@ -12,7 +12,8 @@
  *      permission_request, error, result, done. Compared as full normalized
  *      sequences, plus a committed golden snapshot for the tool-call turn.
  *   2. DB history parity — both streams are fed through a faithful replica of
- *      the chat route's SSE→contentBlocks consumer (route.ts ~820-1040) and
+ *      the chat route's SSE→contentBlocks consumer (collectStreamResponse in
+ *      src/lib/chat-collect-stream-response.ts) and
  *      must persist byte-identical assistant message content + token_usage,
  *      and rebuild byte-identical next-turn model messages from DB.
  *   3. Permission parity — approve / deny / abort-while-pending run through
@@ -29,7 +30,7 @@
  * the strongest form of "the two loops drive the provider identically".
  *
  * Anything that fails equality here is a Phase 3 parity gap and must be
- * recorded in docs/research/ai-sdk-7-toolloop-parity-gaps.md, not papered
+ * recorded in the AI SDK 7 ToolLoop parity notes, not papered
  * over in the adapter.
  *
  * Regenerate the golden snapshot after an intentional contract change:
@@ -246,7 +247,7 @@ function normalizeEvents(
 
 // ── Chat route consumer replica (DB history parity) ─────────────
 //
-// Faithful subset of src/app/api/chat/route.ts consumeStream (~820-1040):
+// Faithful subset of collectStreamResponse in src/lib/chat-collect-stream-response.ts:
 // thinking phase separation, text flushing before tool_use, tool_result
 // last-wins dedup, error capture, result usage capture, and the final
 // structured-JSON vs plain-text persistence decision. Media saving is not

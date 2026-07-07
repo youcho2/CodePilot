@@ -4,10 +4,14 @@ import type { ComponentProps, CSSProperties, HTMLAttributes, ReactNode } from "r
 import type {
   BundledLanguage,
   BundledTheme,
-  HighlighterGeneric,
   ThemedToken,
 } from "shiki";
 import { LRUMap } from "@/lib/lru-map";
+import { createHighlightEngine, type TokenizedCode } from "./shiki-highlight-core";
+import {
+  getShikiWorkerClient,
+  tokenizeWithFallback,
+} from "./shiki-worker-client";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -136,12 +140,6 @@ type CodeBlockProps = HTMLAttributes<HTMLDivElement> & {
   filename?: string;
 };
 
-interface TokenizedCode {
-  tokens: ThemedToken[][];
-  fg: string;
-  bg: string;
-}
-
 interface CodeBlockContextType {
   code: string;
   language: string;
@@ -152,12 +150,6 @@ const CodeBlockContext = createContext<CodeBlockContextType>({
   code: "",
   language: "text",
 });
-
-// Highlighter cache keyed by "lang:lightTheme:darkTheme" — bounded to 10 entries
-const highlighterCache = new LRUMap<
-  string,
-  Promise<HighlighterGeneric<BundledLanguage, BundledTheme>>
->(10);
 
 // Token cache — bounded to 200 entries
 const tokensCache = new LRUMap<string, TokenizedCode>(200);
@@ -171,58 +163,20 @@ const getTokensCacheKey = (code: string, language: BundledLanguage, lightTheme: 
   return `${language}:${lightTheme}:${darkTheme}:${code.length}:${start}:${end}`;
 };
 
-// Lazy-loaded bundledLanguages to avoid eager import of the full shiki module
-let _bundledLanguages: Record<string, unknown> | null = null;
-async function loadBundledLanguages(): Promise<Record<string, unknown>> {
-  if (!_bundledLanguages) {
-    const mod = await import("shiki");
-    _bundledLanguages = mod.bundledLanguages as Record<string, unknown>;
-  }
-  return _bundledLanguages;
-}
-
-const isBundledLanguage = (lang: string): lang is BundledLanguage => {
-  // Synchronous check: if languages haven't been loaded yet, accept the lang
-  // and let getHighlighter handle the fallback.
-  if (!_bundledLanguages) return true;
-  return lang in _bundledLanguages || lang === "text" || lang === "plaintext";
-};
-
-const getHighlighter = (
-  language: BundledLanguage,
-  lightTheme: BundledTheme = SHIKI_DEFAULT_LIGHT,
-  darkTheme: BundledTheme = SHIKI_DEFAULT_DARK,
-): Promise<HighlighterGeneric<BundledLanguage, BundledTheme>> => {
-  // Kick off lazy load of bundledLanguages (fire-and-forget, resolves for future calls)
-  loadBundledLanguages().catch(() => {});
-
-  // Normalize unknown languages to "text" before hitting Shiki
-  const safeLang = isBundledLanguage(language) ? language : ("text" as BundledLanguage);
-  const cacheKey = `${safeLang}:${lightTheme}:${darkTheme}`;
-
-  const cached = highlighterCache.get(cacheKey);
-  if (cached) {
-    return cached;
-  }
-
-  const highlighterPromise = createHighlighter({
-    langs: [safeLang],
-    themes: [lightTheme, darkTheme],
-  }).catch(() => {
-    // Language or theme not supported — fall back to plain text + default themes.
-    // Using default themes avoids infinite retry if the *theme* was the problem.
-    highlighterCache.delete(cacheKey);
-    const useFallbackThemes =
-      lightTheme !== SHIKI_DEFAULT_LIGHT || darkTheme !== SHIKI_DEFAULT_DARK;
-    if (useFallbackThemes) {
-      return getHighlighter("text" as BundledLanguage, SHIKI_DEFAULT_LIGHT, SHIKI_DEFAULT_DARK);
-    }
-    return getHighlighter("text" as BundledLanguage, lightTheme, darkTheme);
-  });
-
-  highlighterCache.set(cacheKey, highlighterPromise);
-  return highlighterPromise;
-};
+/**
+ * Phase 5B — main-thread FALLBACK tokenizer. The happy path runs this exact
+ * engine inside the Shiki Web Worker (shiki.worker.ts); this instance only
+ * runs when the worker is unavailable or a tokenize RPC fails, so
+ * `createHighlighter` / `codeToTokens` no longer execute on the main thread on
+ * the hot path. Its highlighter cache stays empty until a fallback happens.
+ */
+const fallbackEngine = createHighlightEngine({
+  createHighlighter,
+  loadBundledLanguages: async () =>
+    (await import("shiki")).bundledLanguages as Record<string, unknown>,
+  defaultLight: SHIKI_DEFAULT_LIGHT,
+  defaultDark: SHIKI_DEFAULT_DARK,
+});
 
 // Create raw tokens for immediate display while highlighting loads
 const createRawTokens = (code: string): TokenizedCode => ({
@@ -336,27 +290,17 @@ export const highlightCode = (
     subscribers.get(tokensCacheKey)?.add(callback);
   }
 
-  // Start highlighting in background - fire-and-forget async pattern
-  getHighlighter(language, lightTheme, darkTheme)
+  // Start highlighting in the background — fire-and-forget. Phase 5B: route
+  // tokenization to the Shiki Web Worker off the main thread; on any worker
+  // failure fall back to the identical main-thread engine so a code block is
+  // never left blank.
+  tokenizeWithFallback(
+    { code, language, lightTheme, darkTheme },
+    getShikiWorkerClient(),
+    fallbackEngine.tokenize,
+  )
     // oxlint-disable-next-line eslint-plugin-promise(prefer-await-to-then)
-    .then((highlighter) => {
-      const availableLangs = highlighter.getLoadedLanguages();
-      const langToUse = availableLangs.includes(language) ? language : "text";
-
-      const result = highlighter.codeToTokens(code, {
-        lang: langToUse,
-        themes: {
-          dark: darkTheme,
-          light: lightTheme,
-        },
-      });
-
-      const tokenized: TokenizedCode = {
-        bg: result.bg ?? "transparent",
-        fg: result.fg ?? "inherit",
-        tokens: result.tokens,
-      };
-
+    .then((tokenized) => {
       // Cache the result
       tokensCache.set(tokensCacheKey, tokenized);
 

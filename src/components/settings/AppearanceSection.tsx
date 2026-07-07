@@ -81,6 +81,15 @@ function ShikiCodePreview({ isDark }: { isDark: boolean }) {
   const theme: BundledTheme = isDark ? dark : light;
   const [html, setHtml] = useState("");
 
+  // Phase 5B — this preview stays on the main thread on purpose (it is NOT
+  // routed through the shiki Web Worker). Rationale: it's a single tiny,
+  // one-shot snippet rendered only while the Appearance settings page is open,
+  // not the streaming chat hot path the worker offload targets; and it needs
+  // an HTML string for dangerouslySetInnerHTML, whereas the worker returns
+  // structured tokens (a different shape). Keeping codeToHtml here avoids
+  // widening the worker's surface and leaves this file's single HTML-injection
+  // path unchanged. If this ever becomes a hot path, migrate it to the
+  // token-based CodeBlock renderer rather than adding an HTML RPC.
   useEffect(() => {
     let cancelled = false;
     codeToHtml(PREVIEW_CODE, {

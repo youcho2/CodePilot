@@ -65,7 +65,26 @@ export async function POST(request: NextRequest) {
     // Diagnostic breadcrumb only — never logs prompt / files / credentials.
     console.debug('[interrupt] fan-out', { sessionId, attempted });
 
-    return NextResponse.json({ interrupted: true });
+    // Interrupt/phase reconcile — return the backend's authoritative runtime_status so the
+    // client can reconcile its stream phase (I2 / d-interrupt-returns-status). We
+    // ONLY read chat_sessions.runtime_status here.
+    //
+    // We deliberately do NOT release or settle the session lock: this route only
+    // carries a sessionId (no owner lockId), and a sessionId-wide release/settle
+    // would clobber a newer turn that already took over the lock — killing an
+    // already-reclaimed new owner (Codex I1 correction, d-interrupt-no-kill-
+    // newowner). Real lock release + terminal-status write stay with the chat
+    // route's lockId-scoped settleLock / watchdog.
+    let runtime_status: string | null = null;
+    try {
+      const { getSession } = await import('@/lib/db');
+      runtime_status = getSession(sessionId)?.runtime_status ?? null;
+    } catch {
+      // DB unavailable — return null; the client falls back to its force-abort
+      // safety net rather than converging on an authoritative status.
+    }
+
+    return NextResponse.json({ interrupted: true, runtime_status });
   } catch (error) {
     console.error('[interrupt] Failed to interrupt:', error);
     return NextResponse.json({ interrupted: false, error: String(error) });

@@ -1610,6 +1610,15 @@ export interface ClaudeStreamOptions {
    * for normal user chats and ai_task / reminder runs.
    */
   agentMode?: 'heartbeat';
+  /**
+   * Session-lock ownership token (the per-request `lockId` minted in the chat
+   * route via crypto.randomBytes). Plumbed through so this turn's Query is
+   * registered under the token that owns the session lock, and unregister is
+   * gated on it — the I1 ownership gate that keeps a superseded turn's late
+   * teardown from evicting the turn that took over. Optional/additive: legacy
+   * callers that omit it register/unregister under `undefined` as before.
+   */
+  lockId?: string;
 }
 
 // ==========================================

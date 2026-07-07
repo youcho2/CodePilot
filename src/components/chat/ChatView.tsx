@@ -65,19 +65,12 @@ import {
   getSnapshot,
   getRewindPoints,
   respondToPermission,
+  getMessageQueue,
+  updateMessageQueue,
+  enqueueMessage,
+  subscribeMessageQueue,
+  type QueuedMessage,
 } from '@/lib/stream-session-manager';
-
-interface QueuedMessage {
-  content: string;
-  files?: FileAttachment[];
-  systemPromptAppend?: string;
-  displayOverride?: string;
-  mentions?: MentionRef[];
-  /** Phase 2 Context Accounting — preserve badge-derived Skill labels
-   *  across the queue so dequeued sends carry them through to producer.
-   *  Codex review v4 P1 fix (2026-05-20). */
-  selectedSkills?: readonly string[];
-}
 
 interface ChatViewProps {
   sessionId: string;
@@ -491,7 +484,22 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
   }, [isStreaming]);
 
   // ── Message queue — allows sending while AI is responding ──
-  const [messageQueue, setMessageQueue] = useState<QueuedMessage[]>([]);
+  // Phase 2 ④ — the queue lives in stream-session-manager keyed by sessionId,
+  // so it survives ChatView unmount/remount (session switch away and back)
+  // instead of being dropped with the old component-local useState. This local
+  // state just mirrors the store for rendering; `setMessageQueue` forwards to
+  // the store, and the subscription below re-reads + stays in sync (including
+  // on session change, where we read the target session's own bucket).
+  const [messageQueue, setMessageQueueState] = useState<QueuedMessage[]>(() => getMessageQueue(sessionId));
+  const setMessageQueue = useCallback(
+    (updater: QueuedMessage[] | ((prev: QueuedMessage[]) => QueuedMessage[])) =>
+      updateMessageQueue(sessionId, updater),
+    [sessionId],
+  );
+  useEffect(() => {
+    setMessageQueueState(getMessageQueue(sessionId));
+    return subscribeMessageQueue(sessionId, () => setMessageQueueState(getMessageQueue(sessionId)));
+  }, [sessionId]);
   const dequeuingRef = useRef(false);
 
   // Tracks the id of the optimistic `temp-*` user bubble that the most
@@ -966,7 +974,12 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
 
   /** Start an API stream for the given content. Does NOT add a user message to the list. */
   const doStartStream = useCallback(
-    (content: string, files?: FileAttachment[], systemPromptAppend?: string, displayOverride?: string, mentions?: MentionRef[], selectedSkills?: readonly string[]) => {
+    // Returns true iff a stream was actually started; false when a guard
+    // suppressed it. The dequeue effect relies on this: a suppressed start
+    // never flips isStreaming, so its isStreaming-gated latch reset can't
+    // fire — it must reset `dequeuingRef` itself on a false return, or the
+    // queue deadlocks (audit ④).
+    (content: string, files?: FileAttachment[], systemPromptAppend?: string, displayOverride?: string, mentions?: MentionRef[], selectedSkills?: readonly string[]): boolean => {
       // Guard 1: idle = picker feed hasn't loaded yet. We don't know
       // what the runtime gate would have done with the saved pair, so
       // we can't safely fire — letting it through with raw values
@@ -974,20 +987,20 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
       // gets re-resolved against env defaults. Block until loaded.
       if (providerFetchState === 'idle') {
         console.warn('[ChatView] startStream suppressed: provider feed still loading');
-        return;
+        return false;
       }
       // Guard 2: refuse when the active runtime has no compatible
       // provider at all (catch-all for empty filtered set).
       if (noCompatibleProvider) {
         console.warn('[ChatView] startStream suppressed: no provider compatible with active runtime');
-        return;
+        return false;
       }
       // Guard 3: only after fetch settles, refuse when resolved pair is
       // empty. failed branch (API down) still has the synthetic env
       // group from the catch path, so resolved pair stays populated.
       if (providerFetchState === 'loaded' && (!resolvedProviderId || !resolvedModel)) {
         console.warn('[ChatView] startStream suppressed: resolved provider/model is empty');
-        return;
+        return false;
       }
       // Guard 4 (Phase 2 Step 3b review): when the session's saved
       // provider isn't reachable under the current execution engine,
@@ -1002,7 +1015,7 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
       // visibly reflects the same gate.
       if (sessionProviderRuntimeIncompatible) {
         console.warn('[ChatView] startStream suppressed: session provider runtime-incompatible — user must pick another in the composer');
-        return;
+        return false;
       }
       const notices = pendingImageNoticesRef.current.length > 0
         ? [...pendingImageNoticesRef.current]
@@ -1048,6 +1061,7 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
           console.log('[ChatView] SDK init meta received:', meta);
         },
       });
+      return true;
     },
     [sessionId, mode, currentModel, currentProviderId, selectedEffort, context1m, buildThinkingConfig, handleModeChange, noCompatibleProvider, providerFetchState, resolvedProviderId, resolvedModel, sessionProviderRuntimeIncompatible]
   );
@@ -1110,9 +1124,11 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
         clearPendingRetry();
       }
 
-      // Queue message if currently streaming — hold above input, send after completion
+      // Queue message if currently streaming — hold above input, send after
+      // completion. Phase 2 ④ — enqueue into the manager-owned bucket so the
+      // queued message survives a session switch away and back.
       if (isStreaming) {
-        setMessageQueue((prev) => [...prev, { content, files, systemPromptAppend, displayOverride, mentions, selectedSkills }]);
+        enqueueMessage(sessionId, { content, files, systemPromptAppend, displayOverride, mentions, selectedSkills });
         return;
       }
 
@@ -1182,7 +1198,14 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
       };
       pendingOptimisticUserIdRef.current = userMessage.id;
       cappedSetMessages((prev) => [...prev, userMessage]);
-      doStartStream(next.content, next.files, next.systemPromptAppend, next.displayOverride, next.mentions, next.selectedSkills);
+      const started = doStartStream(next.content, next.files, next.systemPromptAppend, next.displayOverride, next.mentions, next.selectedSkills);
+      if (!started) {
+        // A guard suppressed the stream (e.g. resolved provider/model went
+        // empty). isStreaming will never flip true, so the reset below can't
+        // fire — release the latch here so a later state change re-runs the
+        // effect instead of the queue deadlocking with dequeuingRef stuck true.
+        dequeuingRef.current = false;
+      }
     }
     if (isStreaming) {
       dequeuingRef.current = false;
