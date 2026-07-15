@@ -2,7 +2,7 @@
 
 > 产品思考见 [docs/insights/user-audience-analysis.md](../insights/user-audience-analysis.md)
 > 架构全景见 [provider-architecture.md](./provider-architecture.md)
-> 执行计划见 [docs/exec-plans/active/provider-governance.md](../exec-plans/active/provider-governance.md)
+> 执行计划见 [docs/exec-plans/active/provider-governance.md](../exec-plans/completed/provider-governance.md)
 
 ---
 
