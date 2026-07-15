@@ -1,7 +1,7 @@
 # Provider Proxy Bridge Contract
 
 > 创建：2026-05-16 · 负责人：CodePilot Runtime
-> 产品思考见 [docs/insights/codex-runtime.md](../insights/codex-runtime.md)（如未来补写则参考 phase-5 plan）。
+> 背景与计划见 [docs/exec-plans/completed/phase-5-codex-runtime.md](../exec-plans/completed/phase-5-codex-runtime.md)（配对 insights 未产出）。
 
 ## 为什么需要这层
 

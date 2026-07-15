@@ -1,4 +1,4 @@
-> 产品思考见 [docs/insights/hermes-inspired-runtime-upgrade.md](../insights/hermes-inspired-runtime-upgrade.md)
+> 背景与计划见 [docs/exec-plans/completed/hermes-inspired-runtime-upgrade.md](../exec-plans/completed/hermes-inspired-runtime-upgrade.md)（配对 insights 未产出）
 
 # Hermes-Inspired Runtime Upgrade — 技术交接文档
 
