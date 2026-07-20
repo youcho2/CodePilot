@@ -140,4 +140,21 @@ describe('Electron packaging hygiene', () => {
       /path\.join\(\/\* turbopackIgnore: true \*\/ home, '\.claude'\)/,
     );
   });
+
+  it('keeps Electron extraResources destinations disjoint for Windows packaging', () => {
+    const builderConfig = fs.readFileSync(path.join(repoRoot, 'electron-builder.yml'), 'utf8');
+    const rootRuntimeFileSet = builderConfig.match(
+      /- from: \.next\/standalone\/[\s\S]*?(?=\n  - from: \.next\/standalone\/node_modules\/)/,
+    )?.[0];
+
+    assert.ok(rootRuntimeFileSet, 'standalone root FileSet must exist before node_modules FileSet');
+    assert.match(rootRuntimeFileSet, /- "server\.js"/);
+    assert.match(rootRuntimeFileSet, /- "package\.json"/);
+    assert.match(rootRuntimeFileSet, /- "cache-handler\.js"/);
+    assert.doesNotMatch(rootRuntimeFileSet, /- "\*\*\/\*"/);
+    assert.doesNotMatch(rootRuntimeFileSet, /!node_modules/);
+    assert.doesNotMatch(rootRuntimeFileSet, /!release/);
+    assert.match(builderConfig, /- from: \.next\/standalone\/node_modules\//);
+    assert.match(builderConfig, /- from: \.next\/standalone\/\.next\//);
+  });
 });

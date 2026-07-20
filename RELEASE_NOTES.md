@@ -1,4 +1,4 @@
-## CodePilot v0.58.2
+## CodePilot v0.58.3
 
 > 修复 macOS 上 Codex CLI 发现与自动恢复问题，并让 Codex Runtime 和账户连接失败都给出可判断、可重试的反馈。
 
@@ -9,6 +9,7 @@
 - **修复卸载或升级 CLI 后仍卡在旧路径** — Runtime 刷新会重新扫描候选。旧路径消失、新客户端安装或同一路径完成升级后，无需重启 CodePilot 即可从失败状态恢复；正在正常运行的 Codex 会话不会被刷新中断。
 - **修复添加 Codex Account 点击后没有反应** — 登录失败时添加窗口会保留，直接显示错误原因并提供重试入口；接口没有返回有效登录会话时也不会再静默结束。
 - **修复 macOS 发布包被本地工作树污染** — Electron 构建会先清理旧产物，并通过严格 allowlist 移除误追踪的本地代理目录、用户数据、Git 元数据或嵌套发布产物。
+- **修复 Windows 安装包偶发构建失败** — 消除 Electron 资源复制目标重叠，避免 Windows 打包时同一文件被并发复制或签名而触发文件锁冲突。
 
 ### 优化改进
 
@@ -22,11 +23,11 @@
 ## 下载地址
 
 ### macOS
-- [Apple Silicon (M1/M2/M3/M4)](https://github.com/op7418/CodePilot/releases/download/v0.58.2/CodePilot-0.58.2-arm64.dmg)
-- [Intel](https://github.com/op7418/CodePilot/releases/download/v0.58.2/CodePilot-0.58.2-x64.dmg)
+- [Apple Silicon (M1/M2/M3/M4)](https://github.com/op7418/CodePilot/releases/download/v0.58.3/CodePilot-0.58.3-arm64.dmg)
+- [Intel](https://github.com/op7418/CodePilot/releases/download/v0.58.3/CodePilot-0.58.3-x64.dmg)
 
 ### Windows
-- [Windows 安装包](https://github.com/op7418/CodePilot/releases/download/v0.58.2/CodePilot.Setup.0.58.2.exe)
+- [Windows 安装包](https://github.com/op7418/CodePilot/releases/download/v0.58.3/CodePilot.Setup.0.58.3.exe)
 
 ## 安装说明
 
