@@ -175,3 +175,4 @@
 - 2026-07-20：production UI 与可启动 arm64 `.app` 的 C3/C5/C6 smoke 通过；临时 shim 仅模拟“已缓存旧路径消失”，没有冒充真实 Homebrew 0.45.0 共存，因此真实双安装终验仍保留待办。
 - 2026-07-20：`electron:pack:mac` 暴露 B-029：standalone 误追踪项目内 `.claude/worktrees/**/release`，导致 codesign 递归进入嵌套 Electron Framework 后失败。该问题独立于 Codex resolver，但阻断 signed DMG/ZIP 与 `Release ready`。
 - 2026-07-20：B-029 深挖发现 instrumentation NFT 还带入本地 `data/*.db`、`.codepilot` 与上传文件，风险从“签名失败”升级为“发布数据泄漏”。决定不依赖 route 级 excludes，而是在 Electron build 边界以最小 standalone allowlist 清理并 fail-closed；最终签名、内容、DMG 与 packaged server smoke 全部通过。
+- 2026-07-20：0.58.2 实现与发布候选落于 commit `06dcc9f`；包含 Codex resolver/UI 修复、回归测试、standalone allowlist 安全边界、版本与 Release Notes。真实双安装终验作为 B-028 剩余项保留，不冒充本机已完成。
