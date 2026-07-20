@@ -188,6 +188,43 @@ describe('RuntimePanel — three-engine picker (IA correction)', () => {
     assert.match(panelSrc, /href="\/settings\/providers"/);
     assert.match(panelSrc, /href="\/settings\/models"/);
   });
+
+  it('refresh explicitly rescans the CLI and surfaces the selected binary path', () => {
+    assert.match(
+      panelSrc,
+      /fetch\(["']\/api\/codex\/status["']\s*,\s*\{[\s\S]{0,160}method:\s*["']POST["']/,
+      'the refresh button must POST so same-path upgrades clear resolver/version/failure caches',
+    );
+    assert.match(panelSrc, /["']binary["']\s+in\s+codexAvailability/);
+    assert.match(panelSrc, /CLI 来源/);
+    assert.match(panelSrc, /CLI source/);
+  });
+});
+
+describe('/api/codex/status — safe refresh contract', () => {
+  const routeSrc = fs.readFileSync(
+    path.join(repoRoot, 'app/api/codex/status/route.ts'),
+    'utf8',
+  );
+  const managerSrc = fs.readFileSync(
+    path.join(repoRoot, 'lib/codex/app-server-manager.ts'),
+    'utf8',
+  );
+
+  it('keeps GET read-only and exposes POST through refreshCodexAvailability', () => {
+    assert.match(routeSrc, /export\s+async\s+function\s+GET\s*\(/);
+    assert.match(routeSrc, /export\s+async\s+function\s+POST\s*\(/);
+    assert.match(routeSrc, /POST\(\)[\s\S]{0,180}refreshCodexAvailability\(\)/);
+  });
+
+  it('does not dispose or switch a healthy/pending app-server during refresh', () => {
+    const refreshBlock = managerSrc.match(
+      /export\s+async\s+function\s+refreshCodexAvailability[\s\S]+?\n}\n\n\/\*\*/,
+    );
+    assert.ok(refreshBlock, 'refreshCodexAvailability block must exist');
+    assert.match(refreshBlock![0], /if\s*\(cached\)\s*return\s+getCodexAvailability\(\)/);
+    assert.doesNotMatch(refreshBlock![0], /disposeCodexAppServer|\.dispose\(|\.kill\(/);
+  });
 });
 
 describe('runtime/effective — three-engine union (IA correction)', () => {
@@ -271,6 +308,20 @@ describe('ProviderManager — Codex Account virtual card (IA correction)', () =>
     assert.ok(codexLoginDialog, 'Codex login dialog must exist');
     assert.doesNotMatch(codexLoginDialog![0], /window\.open\(/);
     assert.match(codexLoginDialog![0], /target=["']_blank["']/);
+  });
+
+  it('keeps Add Service open and renders an inline error when Codex login startup fails', () => {
+    // First-time users have no connected OAuth section, so codexError must be
+    // rendered inside the still-open Add Service dialog. Closing before the
+    // POST resolved made the original failure look like a no-op.
+    assert.match(
+      mgrSrc,
+      /handleCodexLogin\(\)\.then\(\(started\)[\s\S]{0,100}if\s*\(started\)\s*setAddServiceOpen\(false\)/,
+    );
+    const addDialog = mgrSrc.match(/Add Service dialog[\s\S]+?Codex Account login dialog/);
+    assert.ok(addDialog, 'Add Service dialog block must exist');
+    assert.match(addDialog![0], /codexError\s*&&[\s\S]{0,160}role=["']alert["']/);
+    assert.match(addDialog![0], /aria-busy=\{entry\.loading/);
   });
 });
 

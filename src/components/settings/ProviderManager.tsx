@@ -620,15 +620,23 @@ export function ProviderManager() {
       const json = await res.json();
       if (!res.ok || json?.error) {
         setCodexError(typeof json?.error === 'string' ? json.error : `HTTP ${res.status}`);
-        return;
+        return false;
       }
-      setCodexLoginStart(json?.login ?? null);
+      if (!json?.login) {
+        setCodexError(isZh
+          ? 'Codex 登录未返回有效会话，请重试。'
+          : 'Codex login did not return a login session. Please retry.');
+        return false;
+      }
+      setCodexLoginStart(json.login);
+      return true;
     } catch (err) {
       setCodexError(err instanceof Error ? err.message : String(err));
+      return false;
     } finally {
       setCodexLoggingIn(false);
     }
-  }, []);
+  }, [isZh]);
 
   const handleCodexLoginCancel = useCallback(async () => {
     if (codexLoginStart && codexLoginStart.type !== 'apiKey') {
@@ -1168,7 +1176,7 @@ export function ProviderManager() {
               // OAuth entries — synthetic (not preset-based). Always shown so the
               // category stays visible; already-connected entries are rendered
               // disabled with a "已登录" tag instead of being hidden.
-              type OAuthEntry = { key: string; name: string; description: string; descriptionZh: string; icon: ReactNode; onClick: () => void; connected?: boolean };
+              type OAuthEntry = { key: string; name: string; description: string; descriptionZh: string; icon: ReactNode; onClick: () => void; connected?: boolean; loading?: boolean };
               const oauthEntries: OAuthEntry[] = [
                 {
                   key: 'openai-oauth',
@@ -1191,8 +1199,16 @@ export function ProviderManager() {
                   description: 'Sign in to Codex with ChatGPT Plus/Pro — gpt-5.5 etc.',
                   descriptionZh: '登录 Codex（ChatGPT Plus/Pro 账户）— 可使用 gpt-5.5 等',
                   icon: getProviderIcon('OpenAI', ''),
-                  onClick: () => { setAddServiceOpen(false); void handleCodexLogin(); },
+                  // Keep the picker open until the app-server accepts the
+                  // login request. On failure, the error below remains in the
+                  // user's current context instead of disappearing with it.
+                  onClick: () => {
+                    void handleCodexLogin().then((started) => {
+                      if (started) setAddServiceOpen(false);
+                    });
+                  },
                   connected: codexAccount?.kind === 'logged_in',
+                  loading: codexLoggingIn,
                 },
               ];
 
@@ -1214,11 +1230,12 @@ export function ProviderManager() {
               const renderOAuthButton = (entry: OAuthEntry) => (
                 <button
                   key={entry.key}
-                  onClick={entry.connected ? undefined : entry.onClick}
-                  disabled={entry.connected}
+                  onClick={entry.connected || entry.loading ? undefined : entry.onClick}
+                  disabled={entry.connected || entry.loading}
+                  aria-busy={entry.loading || undefined}
                   className={cn(
                     "flex items-center gap-3 rounded-md bg-muted/40 px-4 py-3 text-left transition-colors",
-                    entry.connected ? "opacity-60 cursor-default" : "hover:bg-muted",
+                    entry.connected || entry.loading ? "opacity-60 cursor-default" : "hover:bg-muted",
                   )}
                 >
                   <div className="shrink-0 size-9 rounded-md bg-card flex items-center justify-center">{entry.icon}</div>
@@ -1228,6 +1245,11 @@ export function ProviderManager() {
                       {entry.connected && (
                         <span className="inline-flex items-center rounded-full bg-status-success-muted px-1.5 py-0.5 text-[10px] font-medium text-status-success-foreground">
                           {isZh ? '已登录' : 'Signed in'}
+                        </span>
+                      )}
+                      {entry.loading && (
+                        <span className="text-[10px] font-normal text-muted-foreground">
+                          {isZh ? '连接中…' : 'Connecting…'}
                         </span>
                       )}
                     </div>
@@ -1247,6 +1269,11 @@ export function ProviderManager() {
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                         {oauthEntries.map(renderOAuthButton)}
                       </div>
+                      {codexError && (
+                        <p className="mt-2 text-[11px] text-destructive" role="alert">
+                          {codexError}
+                        </p>
+                      )}
                     </div>
                   )}
 

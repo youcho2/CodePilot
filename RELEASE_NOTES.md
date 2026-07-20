@@ -1,46 +1,37 @@
-## CodePilot v0.58.1
+## CodePilot v0.58.2
 
-> 基础 AI 体验更新：补齐新模型的推理强度、Claude Code 与 Codex 的「替我审批」、自动聊天命名，并修复模型列表和聊天界面的多处一致性问题。
-
-### 新增功能
-
-- **更多模型支持推理强度** — Codex Account 的 GPT-5.6、Kimi for Coding、GLM-5.2，以及 Claude Sonnet / Opus / Fable 等支持模型，会在模型右侧显示真实可用的推理强度。切换模型时，不支持的档位会自动回到「默认」，不会继续发送无效参数。
-- **Claude Code 与 Codex 支持「替我审批」** — 在「需要时询问我」和「完全访问」之间新增受限的模型代审模式；工作区和沙盒边界仍然生效，凭据、付费和对外发布类操作会直接拦截。旧版或无法确认能力的 Runtime 会自动降级，不会显示假支持。
-- **自动生成聊天标题** — 新会话首轮回复后可生成更易识别的标题，并同步更新顶部和侧栏；Kimi for Coding 的 always-thinking 调用也已适配。手动改名始终优先，不会被后台生成结果覆盖。
-- **模型目录更新** — Claude 目录加入 Sonnet 5、Opus 4.8、Fable 5 等新型号；ClinePass 与 OpenCode Go 增加 Kimi K3。Kimi Coding Plan 继续显示为「Kimi for Coding」，无需跟随底层版本手动改名。
+> 修复 macOS 上 Codex CLI 发现与自动恢复问题，并让 Codex Runtime 和账户连接失败都给出可判断、可重试的反馈。
 
 ### 修复问题
 
-- **修复 GPT-5.6 与 Kimi 推理选择不显示** — 修复动态模型能力没有进入最终界面、以及存量目录缓存遮蔽新能力的问题；用户自定义模型名称和能力设置仍会保留。
-- **修复智谱 CodePlan 添加模型失败** — 上游模型列表暂时不可用时，设置页会回退到内置的当前套餐目录，不再直接报获取失败。
-- **修复最新 Claude Agent SDK 被误判为版本过低** — 能力检测改为兼容打包后的应用路径；Codex 使用自身版本和真实响应回显判断，不再受 Claude SDK 状态影响。
-- **修复 Kimi 自动命名长期停留在首条消息** — 标题生成使用适合 Kimi Coding 端点的输出预算与超时，同时保持失败不阻塞主回复。
-- **修复网络代理绕过规则失效** — DNS 预检现在遵守 `NO_PROXY` / `no_proxy`，避免本应直连的地址被错误拦截。
+- **修复新版 OpenAI 客户端内置 Codex CLI 无法识别** — CodePilot 现在会发现当前 `ChatGPT.app` 内置的 CLI，同时兼容旧版 `Codex.app`、用户级 Applications 安装和 PATH 中的独立 CLI。
+- **修复多个 Codex CLI 共存时误用旧版本** — 自动发现会比较所有可用候选的真实版本并选择较新版本；相同版本仍保持 PATH 优先，避免改变既有自定义安装行为。
+- **修复卸载或升级 CLI 后仍卡在旧路径** — Runtime 刷新会重新扫描候选。旧路径消失、新客户端安装或同一路径完成升级后，无需重启 CodePilot 即可从失败状态恢复；正在正常运行的 Codex 会话不会被刷新中断。
+- **修复添加 Codex Account 点击后没有反应** — 登录失败时添加窗口会保留，直接显示错误原因并提供重试入口；接口没有返回有效登录会话时也不会再静默结束。
+- **修复 macOS 发布包被本地工作树污染** — Electron 构建会先清理旧产物，并通过严格 allowlist 移除误追踪的本地代理目录、用户数据、Git 元数据或嵌套发布产物。
 
 ### 优化改进
 
-- **统一聊天输入区样式** — 模型、推理强度与权限选择使用一致的字号、字重、圆角和间距；窄窗口下菜单会自动避让边缘，不再横向溢出。
-- **统一聊天内容字体** — 修正文件树、代码卡片和模型列表中的字体语义：界面名称使用正常 UI 字体，只有真实代码和技术标识使用等宽字体。
-- **Claude Code 延迟诊断更准确** — 记录真实首 token、总耗时和重试信息；上游没有返回的数据保持缺失，不再显示虚假的 0。
+- **Codex Runtime 来源更透明** — 设置页会展示实际选中的 CLI 路径、探测版本或 app-server 版本，启动失败也会保留对应路径，方便判断 CodePilot 到底使用了哪个 Codex。
+- **刷新语义更准确** — 普通状态读取保持只读；用户主动点击刷新时才强制重新探测版本。已有健康 app-server 会继续运行，避免打断活跃任务。
 
 ### 已知问题
 
-- CodePilot Runtime 暂不提供与 Claude Code / Codex 等价的「替我审批」能力；该选项会保持不可用，而不是降级成普通自动放行。
-- 少数第三方模型网关是否接受全部推理档位仍取决于服务商实现；CodePilot 只展示已确认的能力，未知档位不会猜测性开放。
+- Windows 继续支持 PATH 中的 Codex CLI；Windows 版 ChatGPT/Codex 客户端是否内置 CLI 以及具体路径仍待真机确认，本版本没有猜测性加入未验证路径。
 
 ## 下载地址
 
 ### macOS
-- [Apple Silicon (M1/M2/M3/M4)](https://github.com/op7418/CodePilot/releases/download/v0.58.1/CodePilot-0.58.1-arm64.dmg)
-- [Intel](https://github.com/op7418/CodePilot/releases/download/v0.58.1/CodePilot-0.58.1-x64.dmg)
+- [Apple Silicon (M1/M2/M3/M4)](https://github.com/op7418/CodePilot/releases/download/v0.58.2/CodePilot-0.58.2-arm64.dmg)
+- [Intel](https://github.com/op7418/CodePilot/releases/download/v0.58.2/CodePilot-0.58.2-x64.dmg)
 
 ### Windows
-- [Windows 安装包](https://github.com/op7418/CodePilot/releases/download/v0.58.1/CodePilot.Setup.0.58.1.exe)
+- [Windows 安装包](https://github.com/op7418/CodePilot/releases/download/v0.58.2/CodePilot.Setup.0.58.2.exe)
 
 ## 安装说明
 
-**macOS**: 下载 DMG → 拖入 Applications → 首次启动如遇安全提示，在系统设置 > 隐私与安全中点击"仍要打开"
-**Windows**: 下载 exe 安装包 → 双击安装
+**macOS**：下载 DMG → 拖入 Applications → 首次启动如遇安全提示，在系统设置 > 隐私与安全中点击“仍要打开”
+**Windows**：下载 exe 安装包 → 双击安装
 
 ## 系统要求
 
