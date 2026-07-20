@@ -33,6 +33,14 @@ extraResources:
     filter: ["**/*"]
   - from: .next/standalone/.next/
     to: standalone/.next/
+    filter:
+      # electron-builder always filters a FileSet's root node_modules directory.
+      # Keep it explicitly disjoint here and copy it with the dedicated FileSet
+      # below so Next's hashed external-module aliases reach the packaged app.
+      - "**/*"
+      - "!node_modules{,/**/*}"
+  - from: .next/standalone/.next/node_modules/
+    to: standalone/.next/node_modules/
     filter: ["**/*"]
   - from: .next/static/
     to: standalone/.next/static/

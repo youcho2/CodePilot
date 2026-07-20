@@ -155,6 +155,31 @@ describe('Electron packaging hygiene', () => {
     assert.doesNotMatch(rootRuntimeFileSet, /!node_modules/);
     assert.doesNotMatch(rootRuntimeFileSet, /!release/);
     assert.match(builderConfig, /- from: \.next\/standalone\/node_modules\//);
-    assert.match(builderConfig, /- from: \.next\/standalone\/\.next\//);
+
+    const nextRuntimeFileSet = builderConfig.match(
+      /- from: \.next\/standalone\/\.next\/[\s\S]*?(?=\n  - from: \.next\/standalone\/\.next\/node_modules\/)/,
+    )?.[0];
+    assert.ok(nextRuntimeFileSet, '.next FileSet must exist before its node_modules FileSet');
+    assert.match(nextRuntimeFileSet, /- "\*\*\/\*"/);
+    assert.match(nextRuntimeFileSet, /- "!node_modules\{,\/\*\*\/\*\}"/);
+    assert.match(
+      builderConfig,
+      /- from: \.next\/standalone\/\.next\/node_modules\/[\s\S]*?to: standalone\/\.next\/node_modules\/[\s\S]*?filter: \["\*\*\/\*"\]/,
+    );
+  });
+
+  it('boots the packaged standalone server in release CI instead of checking ABI only', () => {
+    const releaseWorkflow = fs.readFileSync(
+      path.join(repoRoot, '.github/workflows/build.yml'),
+      'utf8',
+    );
+    const packagedSmoke = fs.readFileSync(
+      path.join(repoRoot, 'scripts/verify-packaged-server.mjs'),
+      'utf8',
+    );
+
+    assert.match(releaseWorkflow, /node scripts\/verify-packaged-server\.mjs/);
+    assert.match(packagedSmoke, /\/api\/health/);
+    assert.match(packagedSmoke, /ELECTRON_RUN_AS_NODE/);
   });
 });
