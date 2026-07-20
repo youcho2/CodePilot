@@ -147,6 +147,7 @@
 | 2026-07-20 | release | — | — | 最终 0.58.2 arm64 `.app` / DMG / ZIP | standalone allowlist、签名、DMG 完整性与 packaged server | ✅ | standalone 仅 Next runtime 5 项，package 额外受控加入 `public/themes`；无本地 DB/上传/agent roots；`codesign --deep --strict` 与 `hdiutil verify` 通过；health 200，Codex GET/POST 选中 ChatGPT.app CLI |
 | 2026-07-20 | release | — | — | v0.58.2 tag CI | source gate + macOS 双架构 + Windows x64 | ❌ | source gate、macOS arm64/x64、版本/ABI/checksum 均通过；Windows electron-builder 因重叠 extraResources 并发复制同一 `.next/server` 文件触发 `EBUSY`，Release job fail-closed 跳过；tag 保留，修复转 v0.58.3 |
 | 2026-07-20 | release | — | — | 本地 v0.58.3 arm64 `.app` / DMG / ZIP | 互斥 extraResources、运行树完整性、签名与 DMG | ✅ | root runtime files / `.next` / `node_modules` 分组互斥；包内七个受控 runtime roots 齐全且无 DB/uploads/agent/Git 状态；`codesign --deep --strict`、`hdiutil verify`、版本 0.58.3 通过；Windows 真机由 tag CI 门禁 |
+| 2026-07-20 | release | — | — | v0.58.3 tag CI + stable Release | source、macOS arm64/x64、Windows x64、Release assets | ✅ | Actions `29743547521` 全绿；Windows 已跨过原 `EBUSY` 点并通过版本/native ABI/checksum；stable Release 非 draft/prerelease，DMG/ZIP/EXE/SHA256SUMS 共 6 项资产均 uploaded |
 | _待实施_ | codex_runtime | Codex Account | dynamic | 真实旧 Homebrew CLI + ChatGPT.app | 两版本共存选择新版 + initialize/model list | ⏳ | 当前以行为测试覆盖；仍需真实双安装 Mac 的 signed packaged log + selected binary breadcrumb |
 
 ## 调研验证记录
@@ -180,3 +181,4 @@
 - 2026-07-20：0.58.2 实现与发布候选落于 commit `06dcc9f`；包含 Codex resolver/UI 修复、回归测试、standalone allowlist 安全边界、版本与 Release Notes。真实双安装终验作为 B-028 剩余项保留，不冒充本机已完成。
 - 2026-07-20：v0.58.2 tag CI 的 source gate 与 macOS 双架构完整通过，Windows 在 electron-builder 复制阶段因 standalone root `**/*` 与专用 `.next`/`node_modules` FileSet 目标重叠触发 `EBUSY`；Release job 正确跳过。遵守 tag 不可变规则，不删除/重建 v0.58.2，资源组改为互斥并递增至 v0.58.3。
 - 2026-07-20：v0.58.3 修复将 standalone root FileSet 收窄为三个根文件，与 `.next`/`node_modules` 专用 FileSet 互斥；新增配置合同测试 6/6、typecheck、全量 unit 4404/4404 通过。本地 arm64 `.app`/DMG/ZIP 再打包确认运行树完整、无私有数据、签名与 DMG 校验通过；最终 Windows 证据以 v0.58.3 tag CI 为准。
+- 2026-07-20：v0.58.3 tag CI `29743547521` 的 source、macOS 双架构、Windows x64 与 Release 四个 job 全绿；Windows 版本/native ABI/checksum 通过，证明 FileSet 互斥修复在真实 Windows runner 生效。GitHub stable Release 已发布且 6 项资产全部 uploaded；本计划仍保持 🟡，仅因为真实旧 Homebrew CLI + ChatGPT.app 双安装 Mac 终验尚未执行。
