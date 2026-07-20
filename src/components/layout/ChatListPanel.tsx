@@ -23,6 +23,7 @@ import type { TranslationKey } from "@/i18n";
 import { useNativeFolderPicker } from "@/hooks/useNativeFolderPicker";
 import { showToast } from '@/hooks/useToast';
 import { cn } from "@/lib/utils";
+import { renameSession } from "@/lib/session-title-events";
 // ConnectionStatus removed from header — CLI status now lives in Settings > Claude CLI
 // ImportSessionDialog moved to Settings page
 import { SessionListItem } from "./SessionListItem";
@@ -303,21 +304,15 @@ export function ChatListPanel({ open, hasUpdate, readyToInstall }: ChatListPanel
   };
 
   const handleRenameSession = async (sessionId: string, newTitle: string) => {
-    try {
-      const res = await fetch(`/api/chat/sessions/${sessionId}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ title: newTitle }),
-      });
-      if (res.ok) {
-        setSessions((prev) =>
-          prev.map((s) => (s.id === sessionId ? { ...s, title: newTitle } : s))
-        );
-        window.dispatchEvent(new CustomEvent("session-updated"));
-      }
-    } catch {
-      // Silently fail
-    }
+    // Canonical title from the server — PATCH clamps and single-lines, so
+    // `newTitle` is only what we asked for, not what the session is called.
+    // `renameSession` also broadcasts it, so the top bar and split view land on
+    // the same string immediately instead of waiting for their own re-read.
+    const canonical = await renameSession(sessionId, newTitle);
+    if (!canonical) return;
+    setSessions((prev) =>
+      prev.map((s) => (s.id === sessionId ? { ...s, title: canonical } : s))
+    );
   };
 
   const handleRemoveProject = async (workingDirectory: string) => {

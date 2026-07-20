@@ -24,9 +24,10 @@ import { normalizeMessageContent, microCompactMessage } from './message-normaliz
 import { roughTokenEstimate } from './context-estimator';
 import { getSetting, updateSdkSessionId, createPermissionRequest, isLockOwner } from './db';
 import { issueApprovalToken } from './permission-approval-token';
-import { resolveForClaudeCode, resolveEffectiveAnthropicBaseUrl } from './provider-resolver';
+import { resolveForClaudeCode, resolveEffectiveAnthropicBaseUrl, type ResolvedProvider } from './provider-resolver';
 import { isFirstPartyAnthropicEndpoint } from './ai-provider';
 import { sanitizeClaudeModelOptions } from './claude-model-options';
+import { buildSamplingIgnoredNotice } from './anthropic-sampling-notice';
 import { findClaudeBinary, invalidateClaudePathCache } from './platform';
 import { notifyPermissionRequest, notifyGeneric } from './telegram-bot';
 import { classifyError, formatClassifiedError, isSessionStateResultError } from './error-classifier';
@@ -61,6 +62,18 @@ import { prepareSdkSubprocessEnv } from './sdk-subprocess-env';
 // the barrel themselves, so the registry is already populated by the time
 // resolveRuntime() fires here.
 import { resolveRuntime, getRuntime } from './runtime/registry';
+import {
+  buildClaudePermissionQueryOptions,
+  decideHostToolPermission,
+  resolveRuntimeAutoReview,
+} from './permission/profile';
+import {
+  buildReviewEvent,
+  buildSdkReviewerDenial,
+  type PermissionReviewEvent,
+} from './permission/review-event';
+import { emitReviewEvent } from './permission/review-audit';
+import { probeExternalMcp } from './permission/external-mcp';
 import { detectTransport, isNativeCompatible } from './provider-transport';
 import os from 'os';
 import fs from 'fs';
@@ -409,20 +422,151 @@ function buildFallbackContext(params: {
   return lines.join('\n');
 }
 
-/**
- * Lightweight text generation via the Claude Code SDK subprocess.
- * Uses the same provider/env resolution as streamClaude but without sessions,
- * MCP, permissions, or conversation history. Suitable for simple tasks like
- * generating tool descriptions.
- */
-export async function generateTextViaSdk(params: {
+export interface GenerateTextViaSdkParams {
   providerId?: string;
+  /** Provider snapshot captured by a fail-closed upstream caller. When set,
+   *  this is the authority for the wire configuration and no resolver runs. */
+  resolvedProvider?: ResolvedProvider;
   model?: string;
   system: string;
   prompt: string;
   abortSignal?: AbortSignal;
-}): Promise<string> {
-  const resolved = resolveForClaudeCode(undefined, {
+  /**
+   * Strip this subprocess down to pure text-in / text-out.
+   *
+   * Set by callers that carry the user's own words into an auxiliary call and
+   * must therefore be provably incapable of touching anything else — currently
+   * only title generation. See `buildGenerateTextQueryOptions` for exactly what
+   * it turns off and why each piece is needed.
+   *
+   * Omitted = unchanged legacy behavior for the dashboard / cli-tools /
+   * context-compressor callers, which DO want the normal Claude Code surface.
+   */
+  isolate?: boolean;
+  /**
+   * Best-effort cap on the subprocess's output length. The SDK exposes no
+   * per-request `max_tokens`, so this rides the CLI's
+   * `CLAUDE_CODE_MAX_OUTPUT_TOKENS` env var — see the honesty note in
+   * `buildGenerateTextQueryOptions`.
+   */
+  maxOutputTokens?: number;
+  /**
+   * Reasoning policy for an isolated auxiliary call. Isolation removes tools,
+   * settings and project context; it does not imply every provider is capable
+   * of disabling thinking. Omitted keeps the original low-cost behavior.
+   */
+  reasoningPolicy?: 'disabled' | 'provider-managed';
+  /** Override the 60s auto-abort. */
+  timeoutMs?: number;
+}
+
+/**
+ * Build the SDK `Options` for `generateTextViaSdk`. Extracted and exported so
+ * the isolation contract can be asserted on the ACTUAL wire object a test can
+ * hold, rather than inferred from the call site. The previous version set
+ * `allowedTools: []`, which only auto-approves an empty
+ * set — it does not remove a single built-in tool).
+ *
+ * With `isolate`, the subprocess is stripped on five independent axes:
+ *
+ *  - `tools: []` — the only option that actually DISABLES built-in tools
+ *    (`allowedTools` is a permission allowlist, not an availability filter).
+ *  - `settingSources: []` — the resolver's normal `['user']` loads the user's
+ *    MCP servers, plugins, skills, hooks and CLAUDE.md. A title call must carry
+ *    none of them, so the whole layer is dropped rather than filtered.
+ *  - `mcpServers: {}` — explicit belt-and-braces now that no setting source can
+ *    contribute any.
+ *  - permissions returned to defaults — with zero tools there is nothing to
+ *    permit, so `bypassPermissions` / `allowDangerouslySkipPermissions` would be
+ *    an untrue claim about this subprocess rather than a working convenience.
+ *  - a STRING `systemPrompt`, which REPLACES the Claude Code preset instead of
+ *    appending to it, so no memory or project instructions ride along.
+ *
+ * HONESTY NOTE on output length: the SDK has no `max_tokens`. We set
+ * `CLAUDE_CODE_MAX_OUTPUT_TOKENS` (best-effort, CLI-honored) and `maxTurns: 1`,
+ * but the hard guarantee that a long answer cannot reach the user lives
+ * downstream in `sanitizeGeneratedTitle`, which caps at 50 graphemes on one
+ * line. We do not claim a wire-level 12-20 token cap on this path.
+ */
+export function buildGenerateTextQueryOptions(
+  params: GenerateTextViaSdkParams,
+  resolved: ResolvedProvider,
+  sdkEnv: Record<string, string>,
+  abortController: AbortController,
+): Options {
+  const queryOptions: Options = {
+    cwd: os.homedir(),
+    abortController,
+    env: sanitizeEnv(sdkEnv),
+    settingSources: resolved.settingSources as Options['settingSources'],
+    systemPrompt: params.system,
+    maxTurns: 1,
+  };
+
+  if (params.isolate) {
+    queryOptions.tools = [];
+    queryOptions.allowedTools = [];
+    queryOptions.mcpServers = {};
+    queryOptions.settingSources = [];
+  } else {
+    queryOptions.permissionMode = 'bypassPermissions';
+    queryOptions.allowDangerouslySkipPermissions = true;
+  }
+
+  if (params.model) {
+    queryOptions.model = params.model;
+  }
+
+  return queryOptions;
+}
+
+export interface PreparedGenerateTextViaSdkCall {
+  resolved: ResolvedProvider;
+  queryOptions: Options;
+  cleanup: () => void;
+}
+
+/**
+ * Apply only the auxiliary-call budget knobs to an SDK subprocess env.
+ * Exported so the provider-managed-thinking exception is asserted on the
+ * actual child-process environment rather than trusted from a call-site flag.
+ */
+export function buildGenerateTextSdkEnv(
+  params: GenerateTextViaSdkParams,
+  sdkEnv: Record<string, string>,
+): Record<string, string> {
+  let next = sdkEnv;
+  if (params.isolate) {
+    if (params.reasoningPolicy === 'provider-managed') {
+      // prepareSdkSubprocessEnv starts from process.env. Merely declining to
+      // add this variable is not enough: an inherited app/shell override would
+      // still be translated by the SDK into `thinking: disabled`, which an
+      // always-thinking endpoint cannot honor.
+      const { MAX_THINKING_TOKENS: _inheritedThinkingOverride, ...providerManagedEnv } = next;
+      next = providerManagedEnv;
+    } else {
+      next = { ...next, MAX_THINKING_TOKENS: '0' };
+    }
+  }
+  if (params.maxOutputTokens) {
+    next = { ...next, CLAUDE_CODE_MAX_OUTPUT_TOKENS: String(params.maxOutputTokens) };
+  }
+  return next;
+}
+
+/**
+ * Build the provider-owned SDK wire configuration used by generateTextViaSdk.
+ *
+ * A caller that already performed fail-closed resolution may supply
+ * `resolvedProvider`. In that mode this function deliberately does not consult
+ * the provider DB again: deletion between title eligibility and wire creation
+ * must not retarget the user's text to their current default provider.
+ */
+export function prepareGenerateTextViaSdkCall(
+  params: GenerateTextViaSdkParams,
+  abortController: AbortController,
+): PreparedGenerateTextViaSdkCall {
+  const resolved = params.resolvedProvider ?? resolveForClaudeCode(undefined, {
     providerId: params.providerId,
   });
 
@@ -431,44 +575,47 @@ export async function generateTextViaSdk(params: {
   // cc-switch credentials from ~/.claude/settings.json or ~/.claude.json.
   // See src/lib/sdk-subprocess-env.ts.
   const setup = prepareSdkSubprocessEnv(resolved);
-  const sdkEnv = setup.env;
+  const sdkEnv = buildGenerateTextSdkEnv(params, setup.env);
 
+  return {
+    resolved,
+    queryOptions: buildGenerateTextQueryOptions(params, resolved, sdkEnv, abortController),
+    cleanup: () => setup.shadow.cleanup(),
+  };
+}
+
+/**
+ * Lightweight text generation via the Claude Code SDK subprocess.
+ * Uses the same provider/env resolution as streamClaude but without sessions,
+ * MCP, permissions, or conversation history. Suitable for simple tasks like
+ * generating tool descriptions.
+ */
+export async function generateTextViaSdk(params: GenerateTextViaSdkParams): Promise<string> {
   const abortController = new AbortController();
   if (params.abortSignal) {
     params.abortSignal.addEventListener('abort', () => abortController.abort());
   }
 
-  // Auto-timeout after 60s to prevent indefinite hangs
-  const timeoutId = setTimeout(() => abortController.abort(), 60_000);
+  const prepared = prepareGenerateTextViaSdkCall(params, abortController);
 
-  const queryOptions: Options = {
-    cwd: os.homedir(),
-    abortController,
-    permissionMode: 'bypassPermissions',
-    allowDangerouslySkipPermissions: true,
-    env: sanitizeEnv(sdkEnv),
-    settingSources: resolved.settingSources as Options['settingSources'],
-    systemPrompt: params.system,
-    maxTurns: 1,
-  };
+  // Auto-timeout to prevent indefinite hangs (60s unless the caller is stricter)
+  const timeoutMs = params.timeoutMs ?? 60_000;
+  const timeoutId = setTimeout(() => abortController.abort(), timeoutMs);
 
-  if (params.model) {
-    queryOptions.model = params.model;
-  }
-
-  const claudePath = findClaudePath();
-  if (claudePath) {
-    const ext = path.extname(claudePath).toLowerCase();
-    if (ext === '.cmd' || ext === '.bat') {
-      const scriptPath = resolveScriptFromCmd(claudePath);
-      if (scriptPath) queryOptions.pathToClaudeCodeExecutable = scriptPath;
-    } else {
-      queryOptions.pathToClaudeCodeExecutable = claudePath;
-    }
-  }
-
+  const queryOptions = prepared.queryOptions;
   let resultText = '';
   try {
+    const claudePath = findClaudePath();
+    if (claudePath) {
+      const ext = path.extname(claudePath).toLowerCase();
+      if (ext === '.cmd' || ext === '.bat') {
+        const scriptPath = resolveScriptFromCmd(claudePath);
+        if (scriptPath) queryOptions.pathToClaudeCodeExecutable = scriptPath;
+      } else {
+        queryOptions.pathToClaudeCodeExecutable = claudePath;
+      }
+    }
+
     const conversation = query({
       prompt: params.prompt,
       options: queryOptions,
@@ -481,16 +628,14 @@ export async function generateTextViaSdk(params: {
       }
     }
   } catch (err) {
-    clearTimeout(timeoutId);
-    setup.shadow.cleanup();
     if (abortController.signal.aborted && !(params.abortSignal?.aborted)) {
-      throw new Error('SDK query timed out after 60s');
+      throw new Error(`SDK query timed out after ${Math.round(timeoutMs / 1000)}s`);
     }
     throw err;
+  } finally {
+    clearTimeout(timeoutId);
+    prepared.cleanup();
   }
-
-  clearTimeout(timeoutId);
-  setup.shadow.cleanup();
 
   if (!resultText) {
     throw new Error('SDK query returned no result');
@@ -669,6 +814,51 @@ export function streamClaude(options: ClaudeStreamOptions): ReadableStream<strin
     + `global setting: ${getSetting('agent_runtime') || 'auto'})`,
   );
 
+  // ── Cross-runtime auto_review capability gate (review round #6, P1) ──────
+  //
+  // permissionMode:'auto' is the Claude Agent SDK's classifier reviewer;
+  // Codex Runtime maps the same product profile to app-server's
+  // approvalsReviewer:auto_review. This is the shipping
+  // boundary that sees the REAL resolved runtime — the route computes the wire
+  // mode before the runtime is known, so it cannot gate here. Catching it here
+  // also closes the direct-PATCH / runtime-switch bypass: whatever a session
+  // persisted (or a raw PATCH set), the next send funnels through this point and
+  // re-decides against the runtime it will actually run on.
+  //
+  // Native would map 'auto' into NORMAL_RULES (auto-allow writes) and run as
+  // plain 'normal' with no reviewer while the chip claims one. Native therefore
+  // fails closed; Codex stays on 'auto' and its adapter owns the wire mapping.
+  const autoReviewRuntime = resolveRuntimeAutoReview({
+    permissionMode: options.permissionMode,
+    runtimeId: runtime.id,
+  });
+  const effectivePermissionMode = autoReviewRuntime.permissionMode;
+  if (autoReviewRuntime.degraded) {
+    // chat-runtime label form for the canonical event's runtimeId.
+    const runtimeLabel =
+      runtime.id === 'native'
+        ? 'codepilot_runtime'
+        : runtime.id === 'codex_runtime'
+          ? 'codex_runtime'
+          : 'claude_code';
+    console.warn(
+      `[streamClaude] Session ${options.sessionId} requested auto_review but runtime `
+        + `"${runtime.id}" cannot honour it — degraded to "${effectivePermissionMode}" (fail-closed)`,
+    );
+    // A DENYING canonical event: the session says 替我审批 while this runtime has
+    // no reviewer. Emitting it is what makes the downgrade attributable rather
+    // than silent (the exact "静默按 normal 运行" failure this fixes).
+    emitReviewEvent(buildReviewEvent({
+      state: 'unavailable',
+      requestId: `auto-review-unsupported-runtime-${options.sessionId}`,
+      sessionId: options.sessionId,
+      runtimeId: runtimeLabel,
+      reviewerSource: 'sdk-reviewer',
+      toolName: '*',
+      reason: 'auto_review_unsupported_runtime',
+    }));
+  }
+
   return runtime.stream({
     // Universal fields
     prompt: options.prompt,
@@ -683,8 +873,11 @@ export function streamClaude(options: ClaudeStreamOptions): ReadableStream<strin
     thinking: options.thinking,
     effort: options.effort,
     context1m: options.context1m,
+    temperature: options.temperature,
+    topP: options.topP,
+    topK: options.topK,
     mcpServers: options.mcpServers,
-    permissionMode: options.permissionMode,
+    permissionMode: effectivePermissionMode,
     bypassPermissions: options.bypassPermissions,
     onRuntimeStatusChange: options.onRuntimeStatusChange,
 
@@ -735,6 +928,9 @@ export function streamClaudeSdk(options: ClaudeStreamOptions): ReadableStream<st
     enableFileCheckpointing,
     autoTrigger,
     context1m,
+    temperature,
+    topP,
+    topK,
     generativeUI,
     agentMode,
   } = options;
@@ -765,6 +961,14 @@ export function streamClaudeSdk(options: ClaudeStreamOptions): ReadableStream<st
       // "**Error:**" bubble after a correct answer (and clear the SDK session /
       // trigger a retry). Gate those crash behaviors on this flag.
       let resultEmitted = false;
+      // U8 latency diagnostics. The SDK already reports TTFT / result duration,
+      // but the old adapter discarded them before persistence. Keep request-
+      // local facts only; attach them to token_usage at the terminal result.
+      const latencyStartedAt = Date.now();
+      let observedTtftMs: number | undefined;
+      let observedApiRetryCount = 0;
+      const latencyResumeAttempted = !!sdkSessionId;
+      let latencyResumeFallback = false;
       // Per-request shadow ~/.claude/ for DB-provider isolation. Built lazily
       // below once we know whether we have an explicit DB provider; cleaned up
       // in the outer finally block. See src/lib/claude-home-shadow.ts.
@@ -819,23 +1023,88 @@ export function streamClaudeSdk(options: ClaudeStreamOptions): ReadableStream<st
         const sdkEnv = setup.env;
         shadowHome = setup.shadow;
 
+        // U8 — when macOS has no DNS configuration the SDK/CLI can stay silent
+        // until the UI's 10-minute pre-first-token fuse. Resolve only the target
+        // hostname before spawning the query so that impossible connections fail
+        // in <=3s with the existing NETWORK_UNREACHABLE recovery message. Proxy
+        // configurations are skipped because the proxy may own DNS resolution.
+        const { assertProviderDnsResolvable } = await import('./provider-dns-preflight');
+        await assertProviderDnsResolvable({
+          baseUrl: sdkEnv.ANTHROPIC_BASE_URL,
+          env: sdkEnv,
+        });
+
         // Warn if no credentials found at all
         if (!resolved.hasCredentials && !sdkEnv.ANTHROPIC_API_KEY && !sdkEnv.ANTHROPIC_AUTH_TOKEN) {
           console.warn('[claude-client] No API key found: no active provider, no legacy settings, and no ANTHROPIC_API_KEY/ANTHROPIC_AUTH_TOKEN in environment');
         }
 
 
-        // Check if dangerously_skip_permissions is enabled globally or per-session
+        // The permission-bearing slice of the options — permissionMode,
+        // allowedTools, disallowedTools, allowDangerouslySkipPermissions — is
+        // assembled in ONE place, lib/permission/profile.ts, and spread in
+        // verbatim below. Nothing here may re-decide those four fields.
+        //
+        // `sessionBypassPermissions` is set ONLY by the full_access profile
+        // (resolveClaudeWireOptions is the single decider). auto_review arrives
+        // as permissionMode 'auto' with bypass false, and Plan as 'plan';
+        // neither may be collapsed into a blanket allow by the legacy global
+        // setting. That combination used to be re-widened right here, after the
+        // resolver had already refused it.
         const globalSkip = getSetting('dangerously_skip_permissions') === 'true';
-        const skipPermissions = globalSkip || !!sessionBypassPermissions;
+        // External-MCP gate (review round #4, P1). Probed HERE, at the shipping
+        // boundary, with the same settingSources / mcpServers / cwd this turn
+        // will actually use — an answer derived from anything else describes a
+        // different turn. Only worth the filesystem reads when 'auto' is
+        // actually on the table.
+        const externalMcp = permissionMode === 'auto'
+          ? probeExternalMcp({
+              workingDirectory: resolvedWorkingDirectory.path,
+              settingSources: (resolved.settingSources as string[] | undefined) ?? [],
+              explicitServerNames: mcpServers ? Object.keys(mcpServers) : [],
+            })
+          : { present: false as const };
+        const {
+          // Not a wire field — must not reach SDK Options.
+          degradedReason: autoReviewDegradedReason,
+          ...permissionOptions
+        } = buildClaudePermissionQueryOptions({
+          permissionMode,
+          sessionBypassPermissions: !!sessionBypassPermissions,
+          globalSkip,
+          isHeartbeatMode,
+          externalMcp,
+        });
+        const skipPermissions = permissionOptions.allowDangerouslySkipPermissions === true;
+        // The user picked 替我审批 and is not getting it. Silence here would be
+        // the worst outcome of all: they'd believe a reviewer was running while
+        // every request quietly fell back to asking them. Emit the canonical
+        // `unavailable` event (a02) so the UI can say so.
+        if (autoReviewDegradedReason) {
+          const event = emitReviewEvent(buildReviewEvent({
+            state: 'unavailable',
+            requestId: `auto-review-unavailable-${sessionId}`,
+            sessionId,
+            runtimeId: 'claude_code',
+            reviewerSource: 'rule-engine',
+            toolName: 'permission_profile:auto_review',
+            reason: autoReviewDegradedReason,
+          }));
+          controller.enqueue(formatSSE({
+            type: 'permission_review',
+            data: JSON.stringify({
+              state: event.state,
+              reviewerSource: event.reviewerSource,
+              toolName: event.toolName,
+              reason: 'reason' in event ? event.reason : undefined,
+            }),
+          }));
+        }
 
         const queryOptions: Options = {
           cwd: resolvedWorkingDirectory.path,
           abortController,
           includePartialMessages: true,
-          permissionMode: skipPermissions
-            ? 'bypassPermissions'
-            : ((permissionMode as Options['permissionMode']) || 'acceptEdits'),
           env: sanitizeEnv(sdkEnv),
           // Load settings so the SDK behaves like the CLI (tool permissions,
           // CLAUDE.md, etc.). For DB providers settingSources is ['user'] only;
@@ -860,55 +1129,62 @@ export function streamClaudeSdk(options: ClaudeStreamOptions): ReadableStream<st
           settingSources: isHeartbeatMode
             ? ([] as Options['settingSources'])
             : (resolved.settingSources as Options['settingSources']),
-          // Auto-allow all CodePilot built-in MCPs. These are host-defined
-          // in-process servers (createSdkMcpServer in claude-client.ts below)
-          // that ship with CodePilot — they're not third-party plugins and
-          // don't need per-tool user approval. Without this list, SDK's
-          // default 'acceptEdits' mode prompts the user for each mcp__codepilot-*
-          // invocation, which is the regression users reported after we
-          // stopped silently allowing everything via project-level settings.
-          //
-          // Codex P1 — heartbeat narrows this down to memory only, AND
-          // adds disallowedTools so SDK builtins (Bash/Edit/Write/etc.)
-          // can't be invoked even though they're not gated by
-          // allowedTools (which is auto-approve, not whitelist).
-          allowedTools: isHeartbeatMode
-            ? ['mcp__codepilot-memory']
-            : [
-                'mcp__codepilot-memory',
-                'mcp__codepilot-notify',
-                'mcp__codepilot-widget',
-                'mcp__codepilot-widget-guidelines',
-                'mcp__codepilot-media',
-                'mcp__codepilot-image-gen',
-                'mcp__codepilot-cli-tools',
-                'mcp__codepilot-dashboard',
-              ],
-          ...(isHeartbeatMode
-            ? {
-                // Hard block of dangerous SDK builtins for heartbeat
-                // runs. The system prompt also tells the model not
-                // to use these (belt + suspenders) — but the SDK
-                // refusal is what makes "model decides to ignore
-                // the prompt and call Bash anyway" not a problem.
-                disallowedTools: [
-                  'Bash',
-                  'Edit',
-                  'Write',
-                  'NotebookEdit',
-                  'Task',
-                  'WebSearch',
-                  'WebFetch',
-                  'Read',
-                  'Glob',
-                  'Grep',
-                ],
-              }
-            : {}),
+          // permissionMode / allowedTools / disallowedTools /
+          // allowDangerouslySkipPermissions — decided by
+          // buildClaudePermissionQueryOptions and spread verbatim. Read that
+          // function for why the mutating MCP servers are no longer bare-allowed
+          // (a05) and why auto_review adds a deny list (a04). Deliberately last
+          // so it cannot be silently overridden by a field above.
+          ...(permissionOptions as Pick<Options,
+            'permissionMode' | 'allowedTools' | 'disallowedTools' | 'allowDangerouslySkipPermissions'>),
         };
 
-        if (skipPermissions) {
-          queryOptions.allowDangerouslySkipPermissions = true;
+        // Reviewer breadcrumb (a02 / a08). The SDK's PermissionDenied hook
+        // fires ONLY for auto-mode classifier denials — never for a user's own
+        // Deny click — so it is an exact `sdk-reviewer` signal rather than an
+        // inference from shape. Registered only under 'auto', where a reviewer
+        // exists at all. Classifier APPROVALS have no equivalent hook and stay
+        // unobservable; see buildSdkReviewerDenial for why that is upstream.
+        // Gate on the EFFECTIVE mode, not the requested one: a turn whose
+        // auto_review was refused by the external-MCP gate runs as 'default',
+        // where no classifier exists and this hook would never fire anyway.
+        if (permissionOptions.permissionMode === 'auto') {
+          queryOptions.hooks = {
+            ...queryOptions.hooks,
+            PermissionDenied: [
+              {
+                hooks: [
+                  async (input) => {
+                    const denied = input as { tool_name?: string; tool_use_id?: string; reason?: string };
+                    const event = emitReviewEvent(buildSdkReviewerDenial({
+                      requestId: `sdk-reviewer-${denied.tool_use_id ?? denied.tool_name ?? 'unknown'}`,
+                      sessionId,
+                      toolName: denied.tool_name ?? 'unknown',
+                      reason: denied.reason,
+                    }));
+                    // Surface it: a reviewer that blocks work silently is
+                    // indistinguishable from the model deciding not to bother.
+                    // `reviewerSource` travels with the event so the UI labels
+                    // this 模型代审拒绝, never 你拒绝了 — the two are different
+                    // facts about who is in control. The reason is already
+                    // redacted by buildSdkReviewerDenial.
+                    controller.enqueue(formatSSE({
+                      type: 'permission_review',
+                      data: JSON.stringify({
+                        state: event.state,
+                        reviewerSource: event.reviewerSource,
+                        toolName: event.toolName,
+                        reason: 'reason' in event ? event.reason : undefined,
+                      }),
+                    }));
+                    // Observe only: the SDK already denied, and this hook must
+                    // not be able to talk it back into allowing.
+                    return {};
+                  },
+                ],
+              },
+            ],
+          };
         }
 
         // Find claude binary for packaged app where PATH is limited.
@@ -1243,6 +1519,9 @@ export function streamClaudeSdk(options: ClaudeStreamOptions): ReadableStream<st
           thinking,
           effort,
           context1m,
+          temperature,
+          topP,
+          topK,
         });
 
         if (sanitized.thinkingForcedOn) {
@@ -1258,6 +1537,34 @@ export function streamClaudeSdk(options: ClaudeStreamOptions): ReadableStream<st
               code: 'THINKING_ALWAYS_ON',
               title: 'Thinking stays on for this model',
               message: `Fable 5 always uses adaptive thinking — the "thinking off" setting can't apply to this model. Use Effort to tune thinking depth instead.`,
+            }),
+          }));
+        }
+        // Sampling params on the SDK runtime. Two reasons a value doesn't reach
+        // the model — the sanitizer stripped it (adaptive family 400s on
+        // non-defaults), or Claude Code's query() has no sampling knobs at all
+        // — and neither is retryable, so tell the user once. Same shared
+        // builder + code as the native path (Codex review P2).
+        const samplingNotice = buildSamplingIgnoredNotice({
+          runtime: 'sdk',
+          model,
+          sanitized,
+        });
+        if (samplingNotice) {
+          console.warn(
+            `[streamClaudeSdk] ${model}: sampling params (${samplingNotice.unsent.join(', ')}) not sent — `
+              + `rejected by this model and/or unsupported by the Claude Code SDK runtime.`,
+          );
+          controller.enqueue(formatSSE({
+            type: 'status',
+            data: JSON.stringify({
+              notification: true,
+              code: samplingNotice.code,
+              // Localized on the client from (code, reason, params) — see
+              // status-notice-i18n.ts (Codex review P2). console.warn above is
+              // the server-side breadcrumb.
+              reason: samplingNotice.reason,
+              params: samplingNotice.params,
             }),
           }));
         }
@@ -1340,28 +1647,50 @@ export function streamClaudeSdk(options: ClaudeStreamOptions): ReadableStream<st
 
         // Permission handler: sends SSE event and waits for user response
         queryOptions.canUseTool = async (toolName, input, opts) => {
-          // Auto-approve CodePilot's own in-process MCP tools — they are internal
-          // and the user has already opted in by enabling the relevant mode.
-          // Auto-approve CodePilot's own in-process MCP tools — they are internal
-          // and the user has already opted in by enabling the relevant mode.
-          // Note: SDK prefixes MCP tool names with mcp__<server>__, so we check
-          // both bare and prefixed names.
-          const autoApprovedTools = [
-            'codepilot_generate_image',
-            'codepilot_import_media',
-            'codepilot_load_widget_guidelines',
-            'codepilot_cli_tools_list',
-            'codepilot_cli_tools_add',
-            'codepilot_cli_tools_remove',
-            'codepilot_cli_tools_check_updates',
-            'codepilot_dashboard_pin',
-            'codepilot_dashboard_list',
-            'codepilot_dashboard_refresh',
-            'codepilot_dashboard_update',
-            'codepilot_dashboard_remove',
-          ];
-          if (autoApprovedTools.some(t => toolName === t || toolName.endsWith(`__${t}`))) {
+          // Decision order (runtime-permission-modes.md Phase 1, a04/a05):
+          //
+          //   1. human-only → ask the user, whatever the profile says
+          //   2. rule-engine auto-approve → CodePilot's own read-only + local
+          //      host tools, which the user opted into by using the feature
+          //   3. everything else → ask
+          //
+          // Step 2 replaces the old hand-written `autoApprovedTools` list.
+          // That list had drifted from the mutationLevel table — it waved
+          // through `codepilot_cli_tools_add` / `_remove` (shell exec) and
+          // `codepilot_generate_image` (bills the user's API), which are now
+          // human-only and reach the user instead.
+          //
+          // SCOPE, precisely (review round #2, P1): step 1 here is a backstop,
+          // NOT the auto_review guarantee. Under permissionMode 'auto' the SDK
+          // classifier can allow a tool without ever calling canUseTool, so a
+          // human-only tool that reached this callback under 'auto' only did so
+          // because the SDK itself refused to let the classifier decide (an
+          // interactive tool like AskUserQuestion, or the classifier being
+          // unavailable). What actually keeps the classifier away from our
+          // money-spending / publishing tools is the deny list applied to
+          // `disallowedTools` above — see resolveHumanOnlyDenyTools.
+          const hostDecision = decideHostToolPermission(toolName);
+          const humanOnlyCategory =
+            hostDecision.decision === 'human-only' ? hostDecision.category : undefined;
+          if (hostDecision.decision === 'rule-approved') {
+            // Auto-approved, but not invisible: the audit trail records that
+            // the rule engine — not a model, not the user — made this call.
+            emitReviewEvent(buildReviewEvent({
+              state: 'approved',
+              requestId: `rule-${opts.toolUseID ?? toolName}`,
+              sessionId,
+              runtimeId: 'claude_code',
+              reviewerSource: 'rule-engine',
+              toolName,
+            }));
             return { behavior: 'allow' as const, updatedInput: input };
+          }
+
+          if (humanOnlyCategory) {
+            // Under auto_review the SDK reviewer would otherwise be entitled
+            // to answer this. It isn't: these are the operations where the
+            // user's own judgement is the product.
+            console.log(`[claude-client] ${toolName} is human-only (${humanOnlyCategory}) — asking the user regardless of permission profile`);
           }
 
           const permissionRequestId = `perm-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -1396,6 +1725,19 @@ export function streamClaudeSdk(options: ClaudeStreamOptions): ReadableStream<st
             console.warn('[claude-client] Failed to persist permission request to DB:', e);
           }
 
+          emitReviewEvent(buildReviewEvent({
+            state: 'requested',
+            requestId: permissionRequestId,
+            sessionId,
+            runtimeId: 'claude_code',
+            // This request reached a human prompt, so the decision ahead is
+            // the user's — even under auto_review, where the SDK reviewer
+            // either escalated it or was never allowed to see it.
+            reviewerSource: 'user',
+            toolName,
+            humanOnlyCategory,
+          }));
+
           // Send permission_request SSE event to the client
           controller.enqueue(formatSSE({
             type: 'permission_request',
@@ -1424,6 +1766,21 @@ export function streamClaudeSdk(options: ClaudeStreamOptions): ReadableStream<st
 
           // Restore runtime status after permission resolved
           onRuntimeStatusChange?.('running');
+
+          // Close the audit trail for this request. `timeout` is its own
+          // state rather than a flavour of deny: the UI needs to say "nobody
+          // answered" instead of implying the user refused.
+          const timedOut = result.behavior === 'deny' && /timed out|timeout|expired/i.test(result.message || '');
+          emitReviewEvent(buildReviewEvent({
+            state: result.behavior === 'allow' ? 'approved' : timedOut ? 'timeout' : 'denied',
+            requestId: permissionRequestId,
+            sessionId,
+            runtimeId: 'claude_code',
+            reviewerSource: 'user',
+            toolName,
+            humanOnlyCategory,
+            ...(result.behavior === 'deny' && !timedOut ? { reason: result.message } : {}),
+          } as PermissionReviewEvent));
 
           // Cast to SDK PermissionResult (NativePermissionResult is a compatible subset)
           return result as unknown as import('@anthropic-ai/claude-agent-sdk').PermissionResult;
@@ -1600,6 +1957,7 @@ export function streamClaudeSdk(options: ClaudeStreamOptions): ReadableStream<st
             // controlQuery still points at the original Query with
             // getContextUsage() available.
           } catch (resumeError) {
+            latencyResumeFallback = true;
             const errMsg = resumeError instanceof Error ? resumeError.message : String(resumeError);
             console.warn('[claude-client] Resume failed, retrying without resume:', errMsg);
             // Clear stale sdk_session_id so future messages don't retry this broken resume
@@ -1802,6 +2160,14 @@ export function streamClaudeSdk(options: ClaudeStreamOptions): ReadableStream<st
 
             case 'stream_event': {
               const streamEvent = message as SDKPartialAssistantMessage;
+              if (
+                observedTtftMs === undefined &&
+                typeof streamEvent.ttft_ms === 'number' &&
+                Number.isFinite(streamEvent.ttft_ms) &&
+                streamEvent.ttft_ms >= 0
+              ) {
+                observedTtftMs = streamEvent.ttft_ms;
+              }
               const evt = streamEvent.event;
               if (evt.type === 'content_block_delta' && 'delta' in evt) {
                 const delta = evt.delta;
@@ -1880,6 +2246,7 @@ export function streamClaudeSdk(options: ClaudeStreamOptions): ReadableStream<st
                   // the idle timer. Don't abort a turn that's actively retrying
                   // upstream. (UI copy "上游重试中" is a follow-up.)
                   const retryMsg = message as { attempt?: number; max_retries?: number };
+                  observedApiRetryCount += 1;
                   controller.enqueue(formatSSE({
                     type: 'status',
                     data: JSON.stringify({
@@ -1966,6 +2333,18 @@ export function streamClaudeSdk(options: ClaudeStreamOptions): ReadableStream<st
                 tokenUsage && contextAccountingSnapshot
                   ? { ...tokenUsage, context_accounting: contextAccountingSnapshot }
                   : tokenUsage;
+              const { attachClaudeRuntimeLatency, logClaudeRuntimeLatency } = await import('./claude-latency');
+              const usageWithLatency = attachClaudeRuntimeLatency(usageWithAccounting, {
+                ttftMs: observedTtftMs,
+                durationMs: resultMsg.duration_ms,
+                durationApiMs: resultMsg.duration_api_ms,
+                wallMs: Date.now() - latencyStartedAt,
+                apiRetryCount: observedApiRetryCount,
+                terminalType: resultMsg.subtype,
+                resumeAttempted: latencyResumeAttempted,
+                resumeFallback: latencyResumeFallback,
+              });
+              logClaudeRuntimeLatency(usageWithLatency);
               // #629 — SDKResultError carries errors[]; SDKResultSuccess doesn't,
               // so read it via cast (mirrors the terminal_reason access above).
               const resultErrors = (resultMsg as SDKResultMessage & { errors?: string[] }).errors ?? [];
@@ -1976,7 +2355,7 @@ export function streamClaudeSdk(options: ClaudeStreamOptions): ReadableStream<st
                   is_error: resultMsg.is_error,
                   num_turns: resultMsg.num_turns,
                   duration_ms: resultMsg.duration_ms,
-                  usage: usageWithAccounting,
+                  usage: usageWithLatency,
                   session_id: resultMsg.session_id,
                   // #629 — surface raw errors / stop_reason for diagnostics so the
                   // UI and logs see more than the generic `error_during_execution`.
@@ -2223,6 +2602,17 @@ export function streamClaudeSdk(options: ClaudeStreamOptions): ReadableStream<st
                         tools: sysMsg.tools,
                       }),
                     }));
+                  } else if ('subtype' in sysMsg && (sysMsg.subtype as string) === 'api_retry') {
+                    const retryMsg = msg as { attempt?: number; max_retries?: number };
+                    observedApiRetryCount += 1;
+                    controller.enqueue(formatSSE({
+                      type: 'status',
+                      data: JSON.stringify({
+                        apiRetry: true,
+                        attempt: retryMsg.attempt,
+                        maxRetries: retryMsg.max_retries,
+                      }),
+                    }));
                   }
                   break;
                 }
@@ -2300,13 +2690,22 @@ export function streamClaudeSdk(options: ClaudeStreamOptions): ReadableStream<st
                   break;
                 }
                 case 'stream_event': {
-                  const se = msg as { type: 'stream_event'; event: { type: string; delta?: { text?: string; thinking?: string }; index?: number } };
+                  const se = msg as SDKPartialAssistantMessage;
+                  if (
+                    observedTtftMs === undefined &&
+                    typeof se.ttft_ms === 'number' &&
+                    Number.isFinite(se.ttft_ms) &&
+                    se.ttft_ms >= 0
+                  ) {
+                    observedTtftMs = se.ttft_ms;
+                  }
                   if (se.event.type === 'content_block_delta') {
-                    if (se.event.delta?.text) {
-                      controller.enqueue(formatSSE({ type: 'text', data: se.event.delta.text }));
+                    const delta = 'delta' in se.event ? se.event.delta : undefined;
+                    if (delta && 'text' in delta && delta.text) {
+                      controller.enqueue(formatSSE({ type: 'text', data: delta.text }));
                     }
-                    if (se.event.delta?.thinking) {
-                      controller.enqueue(formatSSE({ type: 'thinking', data: se.event.delta.thinking }));
+                    if (delta && 'thinking' in delta && delta.thinking) {
+                      controller.enqueue(formatSSE({ type: 'thinking', data: delta.thinking }));
                     }
                   }
                   break;
@@ -2348,6 +2747,18 @@ export function streamClaudeSdk(options: ClaudeStreamOptions): ReadableStream<st
                     usage && altContextAccounting
                       ? { ...usage, context_accounting: altContextAccounting }
                       : usage;
+                  const { attachClaudeRuntimeLatency, logClaudeRuntimeLatency } = await import('./claude-latency');
+                  const altUsageWithLatency = attachClaudeRuntimeLatency(altUsageWithAccounting, {
+                    ttftMs: observedTtftMs,
+                    durationMs: rMsg.duration_ms,
+                    durationApiMs: rMsg.duration_api_ms,
+                    wallMs: Date.now() - latencyStartedAt,
+                    apiRetryCount: observedApiRetryCount,
+                    terminalType: rMsg.subtype,
+                    resumeAttempted: latencyResumeAttempted,
+                    resumeFallback: true,
+                  });
+                  logClaudeRuntimeLatency(altUsageWithLatency);
                   // Match main-path result shape so the chat route can persist
                   // the new sdk_session_id (route reads result.session_id as a
                   // safety net when status init was missed).
@@ -2358,7 +2769,7 @@ export function streamClaudeSdk(options: ClaudeStreamOptions): ReadableStream<st
                       is_error: rMsg.is_error,
                       num_turns: rMsg.num_turns,
                       duration_ms: rMsg.duration_ms,
-                      usage: altUsageWithAccounting,
+                      usage: altUsageWithLatency,
                       session_id: rMsg.session_id,
                     }),
                   }));

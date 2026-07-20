@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import path from 'path';
 import * as gitService from '@/lib/git/service';
 import { getSession, createSession } from '@/lib/db';
+import { normalizePermissionProfile, type SessionPermissionProfile } from '@/lib/permission/profile';
 
 export async function POST(req: NextRequest) {
   try {
@@ -25,7 +26,7 @@ export async function POST(req: NextRequest) {
     let systemPrompt = '';
     let mode = 'code';
     let providerId = '';
-    let permissionProfile = 'default';
+    let permissionProfile: SessionPermissionProfile = 'default';
 
     if (sourceSessionId) {
       const source = getSession(sourceSessionId);
@@ -34,7 +35,7 @@ export async function POST(req: NextRequest) {
         systemPrompt = source.system_prompt || '';
         mode = source.mode || 'code';
         providerId = source.provider_id || '';
-        permissionProfile = source.permission_profile || 'default';
+        permissionProfile = normalizePermissionProfile(source.permission_profile);
       }
     }
 
@@ -46,6 +47,10 @@ export async function POST(req: NextRequest) {
       mode,
       providerId,
       permissionProfile,
+      undefined, // source
+      // The branch name is the point of this session — a fallback from the
+      // first message would bury which worktree it belongs to.
+      'system',
     );
 
     return NextResponse.json({

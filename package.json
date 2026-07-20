@@ -1,6 +1,6 @@
 {
   "name": "codepilot",
-  "version": "0.58.0",
+  "version": "0.58.1",
   "private": true,
   "license": "BUSL-1.1",
   "workspaces": [
@@ -87,6 +87,7 @@
     "discord.js": "^14.25.1",
     "dompurify": "^3.3.3",
     "electron-updater": "^6.8.3",
+    "geist": "^1.7.2",
     "html-to-image": "^1.11.13",
     "jdenticon": "^3.3.0",
     "lucide-react": "^1.14.0",

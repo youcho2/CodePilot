@@ -281,6 +281,33 @@ export function resolveProvider(opts: ResolveOptions = {}): ResolvedProvider {
 }
 
 /**
+ * Fail-closed resolution: return the resolution for EXACTLY this provider id, or
+ * `null`. Never falls back to the default / active provider.
+ *
+ * `resolveProvider` is deliberately forgiving — a stale or deleted session
+ * provider silently becomes the user's default one, which is right for "answer
+ * the user's question" but WRONG for any call that carries the user's text to a
+ * vendor of its own accord. If the provider a session was pinned to is gone,
+ * a background caller must do nothing, not quietly re-target another vendor:
+ * title generation must not ship the first user message to a different company
+ * than the one the chat was started with.
+ *
+ * Virtual providers ('env', 'openai-oauth', 'codex_account') are matched on the
+ * marker the resolver sets for them, since they have no DB row to compare ids
+ * against.
+ *
+ * @returns the resolution whose identity is provably the requested one, else null.
+ */
+export function resolveExactProvider(providerId: string): ResolvedProvider | null {
+  if (!providerId) return null;
+  const resolved = resolveProvider({ providerId });
+  if (providerId === 'openai-oauth') return resolved._openaiOAuth ? resolved : null;
+  if (providerId === 'codex_account') return resolved._codexAccount ? resolved : null;
+  if (providerId === 'env') return resolved.provider === undefined ? resolved : null;
+  return resolved.provider?.id === providerId ? resolved : null;
+}
+
+/**
  * Resolve provider for the Claude Code SDK subprocess (used by claude-client.ts).
  * Uses the same resolution chain but also checks getActiveProvider() for backwards compat.
  *

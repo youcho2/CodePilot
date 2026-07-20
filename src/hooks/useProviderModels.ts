@@ -25,6 +25,8 @@ export interface DefaultModelOption {
   label: string;
   supportsEffort?: boolean;
   supportedEffortLevels?: string[];
+  /** i18n key for the effort menu's mapping note (GLM two-tier / Kimi Auto). */
+  effortNoteKey?: string;
 }
 
 export const DEFAULT_MODEL_OPTIONS: DefaultModelOption[] = ENV_CLAUDE_CODE_MODELS.map(m => ({

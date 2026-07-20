@@ -2,6 +2,7 @@ import { NextRequest } from 'next/server';
 import { streamClaude } from '@/lib/claude-client';
 import { resolveInTreeAttachmentPath } from '@/lib/in-tree-attachment';
 import { addMessage, getMessages, getSession, getSessionSummary, updateSessionTitle, updateSdkSessionId, updateSessionModel, updateSessionProvider, updateSessionProviderId, updateSessionRuntime, getSetting, acquireSessionLock, renewSessionLock, releaseSessionLock, setSessionRuntimeStatus, isLockOwner } from '@/lib/db';
+import { deriveConversationTitle } from '@/lib/conversation-title';
 import { resolveProviderForSession } from '@/lib/provider-resolver';
 import { resolveRuntimeForSession } from '@/lib/chat-runtime';
 import { notifySessionStart } from '@/lib/telegram-bot';
@@ -17,6 +18,14 @@ import { hasCodePilotProvider } from '@/lib/provider-presence';
 import { createSessionLockSettler } from '@/lib/session-lock-settle';
 import { evaluateRenewal } from '@/lib/session-lock-renewal';
 import { validateSendMessageBody } from '@/lib/chat-request-validation';
+import {
+  normalizePermissionProfile,
+  resolveClaudeWireOptions,
+  resolveProfileAutoReviewSupport,
+} from '@/lib/permission/profile';
+import { buildReviewEvent } from '@/lib/permission/review-event';
+import { emitReviewEvent } from '@/lib/permission/review-audit';
+import { isAutoReviewSupported, getAutoReviewUnavailableReason } from '@/lib/permission/sdk-capability';
 
 // codex-stop-recovery Phase 3 — after the request aborts (Stop force-abort /
 // client disconnect), how long to wait for the natural interrupt→terminal→
@@ -303,7 +312,12 @@ export async function POST(request: NextRequest) {
     // Skip for auto-trigger turns (onboarding/heartbeat) — these are invisible system triggers
     const telegramNotifyOpts = {
       sessionId: session_id,
-      sessionTitle: session.title !== 'New Chat' ? session.title : content.slice(0, 50),
+      // Same derivation as the fallback title below, so the Telegram
+      // notification and the sidebar never disagree about what this chat is
+      // called (and the notification doesn't leak mention-expanded paths).
+      sessionTitle: session.title !== 'New Chat'
+        ? session.title
+        : deriveConversationTitle(displayOverride || content) || session.title,
       workingDirectory: session.working_directory,
     };
     if (!autoTrigger) {
@@ -315,6 +329,10 @@ export async function POST(request: NextRequest) {
     // Use displayOverride for DB storage if provided (e.g. /skillName instead of expanded prompt)
     let savedContent = displayOverride || content;
     let fileMeta: Array<{ id: string; name: string; type: string; size: number; filePath: string }> | undefined;
+    /** Set ONLY on the first real user turn (see the fallback-title CAS below).
+     *  Non-null hands Phase 2 semantic title generation to `collectStreamResponse`,
+     *  which fires it in the background after a clean completion. */
+    let titleGenerationInput: string | null = null;
     if (!autoTrigger) {
       if (files && files.length > 0) {
         const workDir = session.working_directory;
@@ -352,10 +370,33 @@ export async function POST(request: NextRequest) {
       }
       addMessage(session_id, 'user', savedContent);
 
-      // Auto-generate title from first message if still default
-      if (session.title === 'New Chat') {
-        const title = content.slice(0, 50) + (content.length > 50 ? '...' : '');
-        updateSessionTitle(session_id, title);
+      // Fallback title — derived from the first REAL user message, which is
+      // exactly the message we just persisted (autoTrigger turns never reach
+      // here, so an invisible system trigger can't name the user's chat).
+      //
+      // Input is `displayOverride || content`, NOT `content`: `content` is the
+      // model-facing text and may carry the `[Referenced Directories]` block
+      // expanded from @-mentions / directory chips. Titling on that leaked
+      // attachment paths and file summaries into the sidebar (the privacy bug
+      // this replaces).
+      //
+      // The CAS on 'placeholder' is what makes this safe to run on every
+      // non-autoTrigger send instead of gating on `title === 'New Chat'`: a
+      // session that already has any real title — manual, system, import, or
+      // an earlier fallback — matches zero rows and is left alone.
+      const fallbackTitle = deriveConversationTitle(displayOverride || content);
+      if (fallbackTitle) {
+        // The CAS return value doubles as the "this is the FIRST real turn"
+        // signal for Phase 2 semantic generation: it is true exactly once per
+        // session, on the send that moved `placeholder -> fallback`. Deriving
+        // "first turn" this way rather than by counting messages means the two
+        // features can never disagree about which message named the chat.
+        const landed = updateSessionTitle(session_id, fallbackTitle, 'fallback', {
+          expectOrigin: ['placeholder'],
+        });
+        if (landed) {
+          titleGenerationInput = displayOverride || content;
+        }
       }
     }
 
@@ -433,11 +474,52 @@ export async function POST(request: NextRequest) {
     // Request body mode takes priority to avoid race condition: user switches mode
     // then immediately sends — the PATCH may not have landed in DB yet.
     const effectiveMode = mode || session.mode || 'code';
-    const permissionMode = effectiveMode === 'plan' ? 'plan' : 'acceptEdits';
 
-    // Plan mode takes precedence over full_access: if the user explicitly chose
-    // Plan, they expect no tool execution regardless of permission profile.
-    const bypassPermissions = session.permission_profile === 'full_access' && effectiveMode !== 'plan';
+    // Profile → SDK wire options. Plan mode takes precedence over every
+    // profile: if the user explicitly chose Plan, they expect no tool
+    // execution regardless of permission profile. `auto_review` maps to the
+    // SDK's own reviewer ('auto') and never sets the bypass flag; only
+    // `full_access` does. See lib/permission/profile.ts for the full ladder.
+    const permissionWire = resolveClaudeWireOptions({
+      profile: normalizePermissionProfile(session.permission_profile),
+      effectiveMode,
+      autoReviewSupported: resolveProfileAutoReviewSupport({
+        runtime: effectiveSessionRuntime,
+        claudeSdkSupported: isAutoReviewSupported(),
+      }),
+    });
+    const permissionMode = permissionWire.permissionMode;
+    const bypassPermissions = permissionWire.bypassPermissions;
+
+    // The session persisted a profile this SDK build can't honour. Degrading
+    // is allowed (to MORE asking, never less) but going quiet is not — the
+    // user picked "review on my behalf" and is owed the news that nobody is
+    // reviewing.
+    if (permissionWire.degradedReason === 'auto_review_unsupported') {
+      console.warn(
+        `[chat] Session ${session_id} requested auto_review but the installed Agent SDK does not support it`,
+        getAutoReviewUnavailableReason(),
+      );
+      // A console line is not an audit trail and is not a user-visible fact.
+      // The canonical `unavailable` event is what records that this turn ran
+      // with nobody reviewing, and it is a DENYING state by contract — the
+      // session says 替我审批 while the wire says "ask the user for
+      // everything", and that gap has to be attributable after the fact.
+      emitReviewEvent(buildReviewEvent({
+        state: 'unavailable',
+        requestId: `auto-review-unavailable-${session_id}`,
+        sessionId: session_id,
+        runtimeId: 'claude_code',
+        reviewerSource: 'sdk-reviewer',
+        toolName: '*',
+        reason: (() => {
+          const gap = getAutoReviewUnavailableReason();
+          return gap
+            ? `Agent SDK ${gap.installedVersion ?? 'unknown'} < ${gap.minVersion} required for auto_review`
+            : 'auto_review_unsupported';
+        })(),
+      }));
+    }
     const systemPromptOverride: string | undefined = undefined;
 
     const abortController = new AbortController();
@@ -822,7 +904,22 @@ export async function POST(request: NextRequest) {
     const isHeartbeatTurn = !!autoTrigger && content.includes('心跳检查');
     collectStreamResponse(streamForCollect, session_id, lockId, telegramNotifyOpts, () => {
       settleLock('idle');
-    }, { isHeartbeatTurn, suppressNotifications: !!autoTrigger });
+    }, {
+      isHeartbeatTurn,
+      suppressNotifications: !!autoTrigger,
+      // Phase 2 semantic title. Non-null only on the first real user turn.
+      // The provider/runtime handed over here are THIS session's resolved
+      // values — the same ones that answered the message — so generation can
+      // never reach a provider the user didn't pick for this chat.
+      titleGeneration: titleGenerationInput
+        ? {
+            userText: titleGenerationInput,
+            runtime: effectiveSessionRuntime,
+            providerId: persistProviderId || effectiveProviderId || '',
+            model: resolved.upstreamModel || resolved.model || effectiveModel || undefined,
+          }
+        : undefined,
+    });
 
     // codex-stop-recovery Phase 3 — Stop/abort watchdog. The normal path settles
     // when the runtime stream closes on a terminal event. But a turn that's

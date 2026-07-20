@@ -1,5 +1,12 @@
 import { useRef, useCallback } from 'react';
 import type { SSEEvent, TokenUsage, PermissionRequestEvent, MediaBlock } from '@/types';
+import {
+  isReviewEventState,
+  isReviewerSource,
+  type PermissionReviewNotice,
+} from '@/lib/permission/review-event';
+import { resolveStatusNoticeKeys } from '@/lib/status-notice-i18n';
+import { translateActive } from '@/i18n';
 
 interface ToolUseInfo {
   id: string;
@@ -41,6 +48,12 @@ export interface SSECallbacks {
    *  'timeout'). Lets the chat UI show "auto-denied — timed out" instead of
    *  the prompt silently vanishing (codebase-health A5 Step 2). */
   onPermissionResolved?: (permissionRequestId: string, status: 'timeout') => void;
+  /**
+   * A review decision made without prompting — the auto_review classifier
+   * denying a tool. Separate from onPermissionResolved, which closes a prompt
+   * the user was actually shown.
+   */
+  onPermissionReview?: (notice: PermissionReviewNotice) => void;
   onToolTimeout: (toolName: string, elapsedSeconds: number) => void;
   onModeChanged: (mode: string) => void;
   onTaskUpdate: (sessionId: string) => void;
@@ -110,21 +123,51 @@ export interface RateLimitInfo {
 export const TOAST_STATUS_CODES = new Set<string>([
   'RUNTIME_EFFORT_IGNORED', // Opus 4.7+ family on native runtime — explicit effort dropped
   'THINKING_ALWAYS_ON', // Fable 5 — thinking:'disabled' cannot be honored, adaptive runs anyway
+  'SAMPLING_PARAMS_IGNORED', // temperature/top_p/top_k stripped or unsendable on this model/runtime
 ]);
+
+/**
+ * Resolve a status notification's user-facing text.
+ *
+ * Notices that carry a `reason` are localized here from i18n keys — the server
+ * sends the decision (code + reason + params), never rendered prose, so a zh
+ * user doesn't get an English toast (Codex review P2, 2026-07-18). Notices
+ * without a mapped reason fall back to the server's `message`/`title`, which
+ * keeps older/unmapped codes (THINKING_ALWAYS_ON, the proxy variant of
+ * RUNTIME_EFFORT_IGNORED) working unchanged.
+ *
+ * Exported so behavior tests can assert the rendered string comes from the
+ * dictionary, not from the wire.
+ */
+export function resolveStatusNoticeText(
+  statusData: { code?: string; message?: string; title?: string; reason?: string; params?: Record<string, string | number> },
+): string | undefined {
+  const keys = resolveStatusNoticeKeys(statusData);
+  if (keys) return translateActive(keys.messageKey, statusData.params);
+  return statusData.message || statusData.title || undefined;
+}
 
 /**
  * Inspect a parsed status event payload and fire a toast when it carries a
  * whitelisted code. Exposed so both useSSEStream's helper and inline SSE
- * parsers in page-level components can share toast routing without
- * duplicating the whitelist. No-op when the code isn't on the whitelist
- * or when the browser toast registry hasn't initialized (tests / SSR).
+ * parsers in page-level components can share toast routing — and, since the
+ * localization runs inside here, so both entry points provably render the SAME
+ * i18n key. No-op when the code isn't on the whitelist or when the browser
+ * toast registry hasn't initialized (tests / SSR).
  */
-export function maybeShowStatusToast(statusData: { code?: string; message?: string; title?: string }): void {
+export function maybeShowStatusToast(
+  statusData: { code?: string; message?: string; title?: string; reason?: string; params?: Record<string, string | number> },
+): void {
   if (!statusData?.code || !TOAST_STATUS_CODES.has(statusData.code)) return;
+  const text = resolveStatusNoticeText(statusData);
   void import('./useToast').then(({ showToast }) => {
     showToast({
-      type: statusData.code === 'RUNTIME_EFFORT_IGNORED' || statusData.code === 'THINKING_ALWAYS_ON' ? 'warning' : 'info',
-      message: statusData.message || statusData.title || 'Status notification',
+      type: statusData.code === 'RUNTIME_EFFORT_IGNORED'
+        || statusData.code === 'THINKING_ALWAYS_ON'
+        || statusData.code === 'SAMPLING_PARAMS_IGNORED'
+        ? 'warning'
+        : 'info',
+      message: text || 'Status notification',
       duration: 8000,
     });
   }).catch(() => { /* toast system unavailable — caller falls back to status text */ });
@@ -248,7 +291,9 @@ function handleSSEEvent(
           // the inline parser in app/chat/page.tsx can reuse the same
           // whitelist without duplicating the toast import logic.
           maybeShowStatusToast(statusData);
-          callbacks.onStatus(statusData.message || statusData.title || undefined);
+          // Same resolution as the toast — the status bar must not fall back to
+          // the (now absent) server prose for localized notices.
+          callbacks.onStatus(resolveStatusNoticeText(statusData));
         } else if (statusData.apiRetry) {
           // #635 — api_retry status has no display text of its own; show human
           // copy (NOT the raw JSON) and still call onStatus so the idle timer is
@@ -321,6 +366,34 @@ function handleSSEEvent(
         callbacks.onPermissionResolved?.(data.permissionRequestId, data.status);
       } catch {
         // skip malformed permission_resolved data
+      }
+      return accumulated;
+    }
+
+    case 'permission_review': {
+      // A decision made FOR the user (auto_review classifier denial). The
+      // reviewerSource is taken from the event, never inferred — mislabelling
+      // a model's denial as the user's own would misreport who is in control.
+      // Unrecognised state/source is dropped rather than rendered as a guess.
+      try {
+        const data = JSON.parse(event.data) as {
+          state?: unknown; reviewerSource?: unknown; toolName?: unknown; reason?: unknown;
+        };
+        if (
+          !isReviewEventState(data.state) ||
+          !isReviewerSource(data.reviewerSource) ||
+          typeof data.toolName !== 'string'
+        ) return accumulated;
+        callbacks.onPermissionReview?.({
+          id: `review-${data.toolName}-${Date.now()}`,
+          state: data.state,
+          reviewerSource: data.reviewerSource,
+          toolName: data.toolName,
+          reason: typeof data.reason === 'string' ? data.reason : undefined,
+          at: Date.now(),
+        });
+      } catch {
+        // skip malformed permission_review data
       }
       return accumulated;
     }
@@ -506,6 +579,7 @@ export function useSSEStream() {
         onResult: (u, meta) => callbacksRef.current?.onResult(u, meta),
         onPermissionRequest: (d) => callbacksRef.current?.onPermissionRequest(d),
         onPermissionResolved: (id, s) => callbacksRef.current?.onPermissionResolved?.(id, s),
+        onPermissionReview: (n) => callbacksRef.current?.onPermissionReview?.(n),
         onToolTimeout: (n, s) => callbacksRef.current?.onToolTimeout(n, s),
         onModeChanged: (m) => callbacksRef.current?.onModeChanged(m),
         onTaskUpdate: (s) => callbacksRef.current?.onTaskUpdate(s),

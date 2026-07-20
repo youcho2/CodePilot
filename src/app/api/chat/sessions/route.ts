@@ -1,8 +1,10 @@
 import { NextRequest } from 'next/server';
 import fs from 'fs/promises';
 import { getAllSessions, createSession } from '@/lib/db';
+import { sanitizeManualTitle, type TitleOrigin } from '@/lib/conversation-title';
 import type { CreateSessionRequest, SessionsResponse, SessionResponse } from '@/types';
 import { serverErrorResponse } from '@/lib/api-error';
+import { isPermissionProfile, PERMISSION_PROFILES } from '@/lib/permission/profile';
 
 export async function GET(request: NextRequest) {
   try {
@@ -55,14 +57,43 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // A session is created with the profile the composer was showing. An
+    // unrecognised value is rejected rather than coerced — silently
+    // downgrading a caller that asked for 'full_access' would be as much a
+    // lie as silently honouring a typo'd elevation.
+    if (body.permission_profile !== undefined && !isPermissionProfile(body.permission_profile)) {
+      return Response.json(
+        { error: `permission_profile must be one of: ${PERMISSION_PROFILES.join(', ')}` },
+        { status: 400 },
+      );
+    }
+
+    // Title is optional and, since the composer stopped sending one, normally
+    // absent — the session is created as a placeholder and POST /api/chat
+    // derives the fallback from the first real message. A caller that DOES
+    // name the session is stating explicit intent, so it's validated through
+    // the shared rules and recorded as 'manual' (never auto-overwritten).
+    let title: string | undefined;
+    let titleOrigin: TitleOrigin | undefined;
+    if (body.title !== undefined) {
+      const result = sanitizeManualTitle(body.title);
+      if (!result.ok) {
+        return Response.json({ error: result.error }, { status: 400 });
+      }
+      title = result.title;
+      titleOrigin = 'manual';
+    }
+
     const session = createSession(
-      body.title,
+      title,
       body.model,
       body.system_prompt,
       body.working_directory,
       body.mode,
       body.provider_id,
       body.permission_profile,
+      undefined, // source
+      titleOrigin,
     );
     const response: SessionResponse = { session };
     return Response.json(response, { status: 201 });

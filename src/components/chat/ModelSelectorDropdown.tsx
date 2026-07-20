@@ -1,11 +1,12 @@
 'use client';
 
-import { useRef, useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useCallback, useMemo } from 'react';
 import { CaretDown } from '@/components/ui/icon';
 import { cn } from '@/lib/utils';
 import { useTranslation } from '@/hooks/useTranslation';
 import type { TranslationKey } from '@/i18n';
 import { PromptInputButton } from '@/components/ai-elements/prompt-input';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import type { ProviderModelGroup } from '@/types';
 import { compatLabel, compatTone } from '@/lib/runtime-compat';
 import { findModelOption } from '@/lib/model-option-match';
@@ -66,6 +67,8 @@ interface ModelOption {
   label: string;
   supportsEffort?: boolean;
   supportedEffortLevels?: string[];
+  /** i18n key for the effort menu's mapping note (GLM two-tier / Kimi Auto). */
+  effortNoteKey?: string;
   /** Phase 6 UI收口 P2 (2026-05-14) — per-row runtime compat from
    *  `getModelCompat`. Drives the disabled state for incompatible
    *  rows alongside the tooltip below. Absent on rows that came
@@ -123,7 +126,6 @@ export function ModelSelectorDropdown({
 }: ModelSelectorDropdownProps) {
   const { t } = useTranslation();
   const isZh = t('nav.chats') === '对话';
-  const modelMenuRef = useRef<HTMLDivElement>(null);
   const [modelMenuOpen, setModelMenuOpen] = useState(false);
   // Recent-model entries that still resolve to a (provider, model) pair
   // present in the current `providerGroups`. Re-read from localStorage
@@ -159,17 +161,6 @@ export function ModelSelectorDropdown({
     currentProviderIdValue === globalDefaultProvider
   );
 
-  useEffect(() => {
-    if (!modelMenuOpen) return;
-    const handler = (e: MouseEvent) => {
-      if (modelMenuRef.current && !modelMenuRef.current.contains(e.target as Node)) {
-        setModelMenuOpen(false);
-      }
-    };
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
-  }, [modelMenuOpen]);
-
   const handleModelSelect = useCallback((providerId: string, modelValue: string) => {
     onModelChange?.(modelValue);
     onProviderModelChange?.(providerId, modelValue);
@@ -182,38 +173,41 @@ export function ModelSelectorDropdown({
   const showLoading = isLoading || !currentModelOption;
 
   return (
-    <div className="relative" ref={modelMenuRef}>
-      <PromptInputButton
-        onClick={() => setModelMenuOpen((prev) => !prev)}
-        disabled={showLoading}
-      >
-        {showLoading ? (
-          <span className="text-xs text-muted-foreground">
-            {t('composer.modelLoading' as TranslationKey)}
-          </span>
-        ) : (
-          <>
-            <span className="text-xs font-mono">{currentModelOption?.label}</span>
-            {isCurrentDefault && (
-              <span className="ml-0.5 text-[10px] font-medium text-muted-foreground">
-                {isZh ? '· 默认' : '· Default'}
-              </span>
-            )}
-          </>
-        )}
-        <CaretDown size={10} className={cn("transition-transform duration-200", modelMenuOpen && "rotate-180")} />
-      </PromptInputButton>
+    <Popover open={modelMenuOpen} onOpenChange={setModelMenuOpen}>
+      <PopoverTrigger asChild>
+        <PromptInputButton disabled={showLoading}>
+          {showLoading ? (
+            <span className="text-xs text-muted-foreground">
+              {t('composer.modelLoading' as TranslationKey)}
+            </span>
+          ) : (
+            <>
+              {/* The selected model is toolbar chrome, not a code sample. Keep it
+                  on the same sans text token as effort; reserve monospace for
+                  raw identifiers that users need to compare character by character. */}
+              <span className="text-xs font-normal">{currentModelOption?.label}</span>
+              {isCurrentDefault && (
+                <span className="ml-0.5 text-[10px] font-medium text-muted-foreground">
+                  {isZh ? '· 默认' : '· Default'}
+                </span>
+              )}
+            </>
+          )}
+          <CaretDown size={10} className={cn("transition-transform duration-200", modelMenuOpen && "rotate-180")} />
+        </PromptInputButton>
+      </PopoverTrigger>
 
       {modelMenuOpen && (
-        // Round 12: mount-time animation matches shadcn Select /
-        // Radix Popover (`data-[state=open]:animate-in fade-in-0
-        // zoom-in-95 slide-in-from-top-2`). The dropdown is custom
-        // (built around a controlled `modelMenuOpen` + click-outside,
-        // not Radix), so we apply the animate-in directly via
-        // tailwindcss-animate utilities on mount. Without these the
-        // popover used to pop in instantly while every other dropdown
-        // in the app animated — visually inconsistent.
-        <CommandList className="w-80 mb-1.5 animate-in fade-in-0 zoom-in-95 slide-in-from-bottom-2 duration-150">
+        // Radix owns side flipping, collision handling, and open/close
+        // animation. CommandList owns the shared list surface and rows.
+        <PopoverContent
+          side="top"
+          align="start"
+          sideOffset={6}
+          collisionPadding={16}
+          className="w-80 max-w-[calc(100vw-2rem)] gap-0 overflow-hidden rounded-2xl border bg-popover p-0 shadow-[var(--shadow-diffuse)] ring-0 duration-150"
+        >
+          <CommandList positioning="inline" className="w-full rounded-none border-0 shadow-none">
           {/* Phase 6 UI收口 P2 (2026-05-14) — header disclosures removed.
               The previous "only showing models for X" / "Codex currently
               supports only ..." banners explained a server-side filter
@@ -254,7 +248,7 @@ export function ModelSelectorDropdown({
                       tooltip={incompatTooltip}
                       onClick={() => handleModelSelect(group.provider_id, option.value)}
                     >
-                      <span className="font-mono text-xs truncate">{option.label}</span>
+                      <span className="text-xs font-normal truncate">{option.label}</span>
                       <span className="ml-auto text-[10px] font-normal text-muted-foreground truncate max-w-[100px]">
                         {group.provider_name}
                       </span>
@@ -317,7 +311,7 @@ export function ModelSelectorDropdown({
                       tooltip={incompatTooltip}
                       onClick={() => handleModelSelect(group.provider_id, opt.value)}
                     >
-                      <span className="font-mono text-xs truncate">{opt.label}</span>
+                      <span className="text-xs font-normal truncate">{opt.label}</span>
                       {isDefault && (
                         <span className="ml-auto text-[10px] font-medium text-muted-foreground">
                           {isZh ? '默认' : 'Default'}
@@ -341,8 +335,9 @@ export function ModelSelectorDropdown({
               </div>
             )}
           </CommandListItems>
-        </CommandList>
+          </CommandList>
+        </PopoverContent>
       )}
-    </div>
+    </Popover>
   );
 }

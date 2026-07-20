@@ -4,6 +4,17 @@
 > 角色边界：Codex 只做调研、复现和执行计划，不改产品代码。
 > 目标：判断 ClinePass 与 OpenCode Go 这两类订阅 / Code Plan 服务如何接入 CodePilot 的 Provider / Runtime / Model Discovery 体系。
 
+> 2026-07-20 更新：两个套餐均加入 Kimi K3。OpenCode Go 官方 endpoint
+> 表明确给出显示名 `Kimi K3`、直连模型 ID `kimi-k3` 和
+> OpenAI-compatible `/chat/completions` 路径；ClinePass 的公共静态模型页尚未
+> 同步，但按 Cline 官方 `provider/model-name` 合同使用
+> `cline-pass/kimi-k3`，并用本机已配置凭据做 4-output-token 最小请求，HTTP
+> 200，响应确认上游模型为 `moonshotai/kimi-k3`。两项都只更新各自
+> catalog-only 白名单，不改变协议或 discovery 策略。Kimi 官方虽确认 K3
+> 支持 low/high/max，但这不能证明两个聚合网关接受同一 effort 请求字段；
+> 在各网关 wire 未验证前，不给这两个条目声明 `supportsEffort`，避免 UI
+> 出现“可选择但未发送”的假能力。
+
 ## 结论先行
 
 建议分两步接入：
@@ -61,11 +72,12 @@
 - Chat Completions endpoint 是 `POST https://api.cline.bot/api/v1/chat/completions`。
 - Cline API model id 使用 `provider/model-name` 形式。
 
-官方 ClinePass 模型白名单：
+ClinePass 模型白名单（2026-06-30 官方静态目录 + 2026-07-20 K3 真实 wire 补充）：
 
 | Display | Model ID |
 |---|---|
 | GLM-5.2 | `cline-pass/glm-5.2` |
+| Kimi K3 | `cline-pass/kimi-k3` |
 | Kimi K2.7 Code | `cline-pass/kimi-k2.7-code` |
 | Kimi K2.6 | `cline-pass/kimi-k2.6` |
 | DeepSeek V4 Pro | `cline-pass/deepseek-v4-pro` |
@@ -80,6 +92,12 @@
 - `GET https://api.cline.bot/api/v1/models` 无 key 返回 401。
 - `GET https://api.cline.bot/api/v1/chat/completions` 无 key 返回 401。
 - 这说明发现 / 验证都需要用户保存 Cline API key 后再做；不能把无 key 401 当服务不可用。
+- 2026-07-20 用已保存 key 重试 `/api/v1/models` 返回 404；当前公开 API 文档也只
+  描述模型目录能力字段，没有公布可调用的 models endpoint。因此仍保持
+  catalog-only，不把这个 404 解读成 K3 不可用。
+- 同日对 `POST /api/v1/chat/completions` 发送 `model=cline-pass/kimi-k3`、
+  `max_tokens=4` 的最小非流式请求，HTTP 200；响应 `model` 为
+  `moonshotai/kimi-k3`。这条真实 wire 证据确认了 ClinePass K3 的精确 ID。
 
 ### OpenCode Go
 
@@ -97,7 +115,7 @@
 
 | Protocol | Models | CodePilot preset base URL |
 |---|---|---|
-| OpenAI-compatible | `glm-5.2`, `glm-5.1`, `kimi-k2.7-code`, `kimi-k2.6`, `deepseek-v4-pro`, `deepseek-v4-flash`, `mimo-v2.5`, `mimo-v2.5-pro` | `https://opencode.ai/zen/go/v1` |
+| OpenAI-compatible | `glm-5.2`, `glm-5.1`, `kimi-k3`, `kimi-k2.7-code`, `kimi-k2.6`, `deepseek-v4-pro`, `deepseek-v4-flash`, `mimo-v2.5`, `mimo-v2.5-pro` | `https://opencode.ai/zen/go/v1` |
 | Anthropic Messages | `minimax-m3`, `minimax-m2.7`, `minimax-m2.5`, `qwen3.7-max`, `qwen3.7-plus`, `qwen3.6-plus` | `https://opencode.ai/zen/go` |
 
 本机只读探测：
@@ -106,6 +124,9 @@
 - `POST /zen/go/v1/chat/completions` 无 key 返回 401 `Missing API key`；伪 `Authorization: Bearer bogus` 返回 401 `Invalid API key`。
 - `POST /zen/go/v1/messages` 无 key 返回 401 `Missing API key`；伪 `x-api-key: bogus` 返回 401 `Invalid API key`；伪 `Authorization: Bearer bogus` 仍是 `Missing API key`。因此 Anthropic Messages preset 应使用 `authStyle: api_key`，不是 `auth_token`。
 - `POST /zen/go/v1/v1/messages` 返回 404 HTML。Anthropic preset 的存储 base 必须去掉尾部 `/v1`，让各 runtime 统一拼出 `https://opencode.ai/zen/go/v1/messages`。
+- 2026-07-20 对 `POST /zen/go/v1/chat/completions` 发送 `model=kimi-k3`、
+  `max_tokens=4` 的最小非流式请求，HTTP 200，响应 `model=kimi-k3`。这条
+  真实 wire 证据与当天官方 endpoint 表一致。
 
 ## 本仓库接入判断
 
@@ -188,7 +209,7 @@ meta: {
   baseUrl: 'https://api.cline.bot/api/v1',
   defaultEnvOverrides: {},
   defaultModels: [
-    /* CatalogModel objects for the 10 official cline-pass/* ids above */
+    /* CatalogModel objects for the 11 cline-pass/* ids above */
   ],
   fields: ['api_key'],
   iconKey: 'cline',
@@ -222,7 +243,7 @@ Discovery:
   defaultEnvOverrides: {},
   defaultModels: [
     /* CatalogModel objects for:
-       glm-5.2, glm-5.1, kimi-k2.7-code, kimi-k2.6,
+       glm-5.2, glm-5.1, kimi-k3, kimi-k2.7-code, kimi-k2.6,
        deepseek-v4-pro, deepseek-v4-flash,
        mimo-v2.5, mimo-v2.5-pro */
   ],
@@ -349,7 +370,7 @@ Discovery:
 需要用户提供真实 Cline / OpenCode key 或由本机已有账号完成：
 
 - ClinePass
-  - `stream: false` 调用 `cline-pass/kimi-k2.7-code` 或用户指定模型。
+  - `stream: false` 调用 `cline-pass/kimi-k3` 或用户指定模型。
   - `stream: true` 验证 SSE 能被 CodePilot 消费。
   - tool calling 用 OpenAI function schema 做最小工具调用。
 - OpenCode Go OpenAI
@@ -365,5 +386,7 @@ Discovery:
 - Cline API authentication: https://docs.cline.bot/api/authentication
 - Cline Chat Completions reference: https://docs.cline.bot/api/chat-completions
 - Cline models reference: https://docs.cline.bot/api/models
-- OpenCode Go docs: https://opencode.ai/docs/zh-cn/go/
+- Cline public model directory: https://cline.bot/models
+- OpenCode Go docs: https://dev.opencode.ai/docs/go/
 - OpenCode Go model endpoint: https://opencode.ai/zen/go/v1/models
+- Kimi K3 release and effort levels: https://www.kimi.com/code/docs/kimi-code/whats-new.html

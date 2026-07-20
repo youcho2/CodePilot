@@ -117,6 +117,29 @@ describe('resolveSessionModelPure', () => {
     assert.deepEqual(result, { model: 'opus', providerId: 'anthropic' });
   });
 
+  it('does NOT auto-migrate a Sonnet 4.6-pinned session to Sonnet 5 (s08)', async () => {
+    const { resolveSessionModelPure } = await import('../../lib/resolve-session-model');
+    // Group now offers sonnet-5 alongside the old sonnet alias, but a session
+    // already pinned to sonnet 4.6 must keep its pin — no silent upgrade.
+    const groups = [{
+      provider_id: 'anthropic',
+      models: [{ value: 'sonnet' }, { value: 'sonnet-5' }, { value: 'opus' }],
+    }];
+    assert.deepEqual(
+      resolveSessionModelPure('sonnet', 'anthropic', ctx({ groups })),
+      { model: 'sonnet', providerId: 'anthropic' },
+    );
+    // Even the concrete upstream id stays put.
+    const groups2 = [{
+      provider_id: 'anthropic',
+      models: [{ value: 'claude-sonnet-4-6' }, { value: 'sonnet-5' }],
+    }];
+    assert.deepEqual(
+      resolveSessionModelPure('claude-sonnet-4-6', 'anthropic', ctx({ groups: groups2 })),
+      { model: 'claude-sonnet-4-6', providerId: 'anthropic' },
+    );
+  });
+
   it('handles empty groups array', async () => {
     const { resolveSessionModelPure } = await import('../../lib/resolve-session-model');
     const result = resolveSessionModelPure('', 'anthropic', ctx({

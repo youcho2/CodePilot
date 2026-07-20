@@ -14,7 +14,8 @@
  */
 
 import { type NextRequest, NextResponse } from 'next/server';
-import { readCodexAccount } from '@/lib/codex/account';
+import { logoutCodex, readCodexAccount } from '@/lib/codex/account';
+import { logoutCodexAndInvalidateModels } from '@/lib/codex/account-transition';
 
 export async function GET(request: NextRequest) {
   const refresh = request.nextUrl.searchParams.get('refresh') === '1';
@@ -30,13 +31,23 @@ export async function GET(request: NextRequest) {
   }
 }
 
-export async function DELETE() {
+/**
+ * DELETE body, split out so tests can drive the real handler while replacing
+ * only the bottom JSON-RPC call. `perform` defaults to the real logout, so the
+ * route export below binds production wiring.
+ */
+export async function handleAccountDelete(perform: () => Promise<void> = logoutCodex) {
   try {
-    const { logoutCodex } = await import('@/lib/codex/account');
-    await logoutCodex();
+    // Drops the model/list cache on success — the `cacheOnly` read path ignores
+    // TTL, so without this the logged-out account's capability survives.
+    await logoutCodexAndInvalidateModels(perform);
     return NextResponse.json({ ok: true });
   } catch (err) {
     const reason = err instanceof Error ? err.message : String(err);
     return NextResponse.json({ ok: false, error: reason }, { status: 500 });
   }
+}
+
+export async function DELETE() {
+  return handleAccountDelete();
 }

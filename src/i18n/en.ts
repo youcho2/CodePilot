@@ -1309,6 +1309,19 @@ const en = {
   'chat.taskWaiting.body': 'The background run hit a tool that requires permission and stopped to preserve context. This version does not support resuming from the pause point — re-run starts fresh, or abandon to mark this run cancelled.',
   'chat.taskWaiting.rerun': 'Re-run this task',
   'chat.taskWaiting.abandon': 'Abandon',
+
+  // ── Runtime status notices (SSE code+reason → these keys) ──
+  // Emitted by agent-loop / claude-client as { code, reason, params } and
+  // rendered client-side via src/lib/status-notice-i18n.ts, so the server
+  // never has to guess the reader's language (Codex review P2, 2026-07-18).
+  'chat.notice.samplingIgnored.title': 'Sampling settings not sent',
+  'chat.notice.samplingIgnored.modelRejects.one': '{model} only accepts its default sampling settings — {names} was not sent. Use Effort to tune the response instead.',
+  'chat.notice.samplingIgnored.modelRejects.other': '{model} only accepts its default sampling settings — {names} were not sent. Use Effort to tune the response instead.',
+  'chat.notice.samplingIgnored.runtimeCannotSend.one': 'Sampling settings ({names}) weren\'t sent on the SDK runtime — {model} and/or the Claude Code SDK doesn\'t accept them. Use Effort to tune the response instead.',
+  'chat.notice.samplingIgnored.runtimeCannotSend.other': 'Sampling settings ({names}) weren\'t sent on the SDK runtime — {model} and/or the Claude Code SDK doesn\'t accept them. Use Effort to tune the response instead.',
+  'chat.notice.effortIgnored.unsupportedModel.title': 'Effort not supported by this model',
+  'chat.notice.effortIgnored.unsupportedModel.message': '{model} doesn\'t support the effort parameter — your "{effort}" choice wasn\'t sent and the model runs at its own default reasoning depth. Pick a model that supports effort (e.g. Sonnet 4.6, Sonnet 5, Opus 4.7/4.8, Fable 5) to control it.',
+
   'assistant.advanced': 'Advanced',
   'assistant.editSoulHint': 'Edit soul.md in your workspace to customize personality',
 
@@ -1323,9 +1336,31 @@ const en = {
   'composer.designAgentTooltip': 'Enable AI design & image generation',
 
   // ── Permission ────────────────────────────────────────────
-  'permission.default': 'Default',
+  // Three profiles, three different things. `autoReview` is a reviewer,
+  // `fullAccess` is a bypass — the copy must never let them blur.
+  'permission.default': 'Ask me when needed',
+  'permission.autoReview': 'Review for me',
   'permission.fullAccess': 'Full Access',
   'permission.fullAccessWarning': 'Full Access mode will automatically approve all permission requests without confirmation. This includes file writes, shell commands, and network requests. Only enable this if you fully trust the current task.',
+  // Says "blocked", not "still come to you": under auto_review these tools are
+  // denied outright by a deny rule, because the SDK offers no way to hand a
+  // classifier-eligible tool back to a human. Promising a prompt that never
+  // arrives would be worse than the restriction itself.
+  'permission.autoReviewWarning': 'Claude will review and answer permission requests for you. It is not full access: sandbox and working-directory limits still apply, and anything it refuses or fails to answer in time is blocked. CodePilot\'s own tools that spend money, publish externally or touch credentials are blocked outright rather than reviewed. Note that ordinary command execution is still judged by the model, which may approve a command you would have wanted to confirm yourself — switch back to Ask me when needed to check each one.',
+  'permission.autoReviewUnavailable': 'Requires Claude Agent SDK {minVersion} or later (installed: {installedVersion})',
+  'permission.autoReviewUnavailableUnknownVersion': 'Requires Claude Agent SDK {minVersion} or later (installed version could not be read)',
+  'permission.autoReviewCodexUnavailable': 'Requires Codex {minVersion} or later (installed: {installedVersion})',
+  'permission.autoReviewCodexUnavailableUnknownVersion': 'Requires Codex {minVersion} or later (installed version could not be read)',
+  'permission.autoReviewChecking': 'Checking whether this environment supports it…',
+  'permission.autoReviewProbeFailed': 'Could not confirm support for Review for me — unavailable for now',
+  'permission.autoReviewExternalMcp': 'An external MCP server is configured. Its tools are only declared at connect time, so we cannot tell in advance whether they touch credentials or spend money — this profile is unavailable while it is enabled.',
+  'permission.autoReviewExternalMcpUnknown': 'Your MCP config could not be read, so we cannot confirm whether an external MCP server is present — this profile is unavailable.',
+  'permission.autoReviewDegraded': 'This chat is saved as Review for me, but your environment cannot run it — it is running as Ask me when needed.',
+  'permission.autoReviewUnsupportedRuntime': 'This runtime does not support review-for-me yet',
+  'permission.deniedByReviewer': 'Denied by the model reviewing for you',
+  'permission.deniedByUser': 'You denied this',
+  'permission.deniedByRules': 'Blocked by CodePilot permission rules',
+  'permission.humanOnlyNotice': 'Always asks you — not delegated to the reviewer',
   'permission.sessionPermission': 'Chat Permission',
 
   // ── Context Usage ─────────────────────────────────────────
@@ -1357,6 +1392,9 @@ const en = {
   'messageInput.effort.high': 'High',
   'messageInput.effort.xhigh': 'XHigh',
   'messageInput.effort.max': 'Max',
+  'messageInput.effort.note.glmTwoTier': 'GLM maps Claude Code effort onto two real levels: low/medium/high run as High, xhigh/max/ultracode as Max.',
+  'messageInput.effort.note.kimiAuto': 'Kimi supports Low, High, and Max. Auto sends no level and lets Kimi pick.',
+  'messageInput.effort.resetOnModelSwitch': 'This model doesn\'t support the effort level you had selected — reset to Auto.',
 
   // ── SDK Capabilities: Terminal Reason (Phase 1 of agent-sdk-0-2-111) ──
   'terminal.completed': 'Completed',
@@ -1950,7 +1988,8 @@ const en = {
   'messageInput.submitAriaLabel': 'Send message',
   'messageInput.stopAriaLabel': 'Stop generating',
   'messageInput.queueAriaLabel': 'Queue message (sends after current response finishes)',
-  'permission.defaultDesc': 'Follow confirmation rules',
+  'permission.defaultDesc': 'File edits run directly; commands and other risky actions ask you first',
+  'permission.autoReviewDesc': "The model approves routine requests for you; CodePilot's credential, spending and publishing tools are blocked, not reviewed",
   'permission.fullAccessDesc': 'Fewer confirmations; trusted projects only',
   // Phase 2 Step 4c — composer runtime selector (between mode and permission).
   'runtimeSelector.triggerAria': 'Switch this session\'s execution runtime',
@@ -1984,7 +2023,8 @@ const en = {
   'runStatus.modeAuto': 'Auto',
   'runStatus.modify': 'Modify',
   'runStatus.permissionFullAccess': 'Full access',
-  'runStatus.permissionDefault': 'Default permissions',
+  'runStatus.permissionAutoReview': 'Reviewed for you',
+  'runStatus.permissionDefault': 'Asks when needed',
   'runStatus.runtime': 'Runtime',
   'runStatus.model': 'Model',
   'runStatus.defaultMode': 'Default',

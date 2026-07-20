@@ -28,6 +28,7 @@ import { getProvider, getAllModelsForProvider } from '@/lib/db';
 import {
   canSearchUpstreamModels,
   findMatchingPresetForRecord,
+  isCatalogOnlyPlanProviderRecord,
   isOpenRouterProviderRecord,
 } from '@/lib/provider-catalog';
 import { discoverModels } from '@/lib/model-discovery';
@@ -76,7 +77,7 @@ export async function POST(
     // Cross-reference with current provider_models to flag alreadyAdded
     // — the dialog disables "add" on rows that are already in the local list.
     const localModels = getAllModelsForProvider(provider.id);
-    const localIds = new Set(localModels.map(m => m.model_id));
+    const localIds = new Set(localModels.flatMap(m => [m.model_id, m.upstream_model_id].filter(Boolean)));
 
     if (isOpenRouter) {
       // OpenRouter path — uses cached /v1/models with rich metadata
@@ -96,12 +97,33 @@ export async function POST(
       return NextResponse.json(result);
     }
 
+    const matched = findMatchingPresetForRecord(provider);
+
+    // Coding/Token Plan providers have a curated SKU contract in the built-in
+    // catalog. The user must be able to open Add Model even when DNS or the
+    // vendor's optional /models endpoint is unavailable, so serve that catalog
+    // directly and leave arbitrary ids to the dialog's manual-entry path.
+    if (isCatalogOnlyPlanProviderRecord(provider) && matched?.defaultModels?.length) {
+      const candidates: SearchModelCandidate[] = matched.defaultModels.map(model => {
+        const modelId = model.upstreamModelId || model.modelId;
+        return {
+          modelId,
+          displayName: model.displayName,
+          alreadyAdded: localIds.has(modelId) || localIds.has(model.modelId),
+        };
+      });
+      return NextResponse.json<SearchModelsResponse>({
+        candidates,
+        total: candidates.length,
+        cachedAt: new Date().toISOString(),
+      });
+    }
+
     // Generic reliable provider — probe /v1/models directly. No cache:
     // dialog opens are rare (and the reliable path is tighter than
     // OpenRouter's 300+ catalog), so a per-open upstream call is fine.
     // Strip Gemini's `models/` prefix to keep ids canonical (matches
     // discover-models route's `normalizeModelId`).
-    const matched = findMatchingPresetForRecord(provider);
     const authStyle = matched?.authStyle === 'api_key' || matched?.authStyle === 'auth_token'
       ? matched.authStyle
       : undefined;

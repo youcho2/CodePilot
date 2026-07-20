@@ -23,6 +23,8 @@ import { createCheckpoint } from './file-checkpoint';
 import type { PermissionMode } from './permission-checker';
 import { buildCoreMessages } from './message-builder';
 import { sanitizeClaudeModelOptions } from './claude-model-options';
+import { buildAnthropicProviderOptions } from './agent-loop-anthropic-wire';
+import { buildSamplingIgnoredNotice } from './anthropic-sampling-notice';
 import { getMessages } from './db';
 import { wrapController } from './safe-stream';
 import { buildNativeErrorEventData } from './agent-loop-error-event';
@@ -69,6 +71,21 @@ export interface AgentLoopOptions {
   effort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max';
   /** Enable 1M context beta */
   context1m?: boolean;
+  /**
+   * Sampling params for the request (Anthropic path). Threaded into the shared
+   * sanitizer so the adaptive family's "non-default temperature/top_p/top_k
+   * returns 400" contract is enforced on the REAL request rather than only in
+   * unit tests (Codex review P2, 2026-07-18: `strippedSamplingParams` had zero
+   * production consumers, so a strip was silent).
+   *
+   * No UI surface populates these today — CodePilot doesn't expose sampling
+   * controls — so the live behavior is unchanged. The plumbing exists so the
+   * guard fires the moment a caller does set them, instead of the guard being
+   * "safe by construction" one refactor away from a silent 400.
+   */
+  temperature?: number;
+  topP?: number;
+  topK?: number;
   /** Max agent loop steps (default 50) */
   maxSteps?: number;
   /** Whether this is an auto-trigger turn (skip rewind points) */
@@ -117,6 +134,9 @@ export function runAgentLoop(options: AgentLoopOptions): ReadableStream<string> 
     thinking,
     effort,
     context1m,
+    temperature,
+    topP,
+    topK,
     maxSteps = DEFAULT_MAX_STEPS,
     autoTrigger,
     onRuntimeStatusChange,
@@ -331,22 +351,21 @@ export function runAgentLoop(options: AgentLoopOptions): ReadableStream<string> 
           // thinking or effort) — those are proxy compatibility concerns,
           // not Opus 4.7 migration concerns, so they stay inline here.
           //
-          // Opus 4.7 effort on the native path (@ai-sdk/anthropic 3.0.70):
-          //   The installed package still attaches `effort-2025-11-24` beta
-          //   header whenever anthropicOpts.effort is set, while Opus 4.7's
-          //   migration checklist says to remove that beta (effort is GA).
-          //   To avoid sending a stale beta header, effort is dropped for
-          //   Opus 4.7 on the native path until the provider emits a clean
-          //   request. SDK/CLI path is unaffected — that codepath handles
-          //   effort natively. Tracked as tech-debt on the adoption plan's
-          //   risk table.
+          // Effort on the native path (@ai-sdk/anthropic 4.0.5): sent per model
+          // via GA `output_config.effort` (no beta header) for the models on
+          // Anthropic's effort list, omitted + announced for everything else.
+          // The old workaround that dropped effort for the whole Opus 4.7+
+          // family is reverted; the per-model gate lives in
+          // buildAnthropicProviderOptions (model plan Phase 2 / s05).
           const sanitized = sanitizeClaudeModelOptions({
             model: config.modelId,
             thinking,
             effort,
             context1m,
+            temperature,
+            topP,
+            topK,
           });
-          const isOpusAdaptiveThinking = sanitized.isOpusAdaptiveThinking;
           if (sanitized.thinkingForcedOn && step === 1) {
             // Fable 5: thinking cannot be turned off — the sanitizer omitted
             // the user's thinking:'disabled' to stay wire-valid, but adaptive
@@ -365,74 +384,80 @@ export function runAgentLoop(options: AgentLoopOptions): ReadableStream<string> 
               }),
             }));
           }
+          // The adaptive family 400s on non-default temperature/top_p/top_k, so
+          // the sanitizer strips them to keep the request valid. Say so once
+          // instead of silently sending a different request than the caller
+          // asked for (Codex review P2 — same surface-don't-swallow rule as
+          // thinkingForcedOn / RUNTIME_EFFORT_IGNORED). Shared with the SDK
+          // runtime so the two can't drift.
+          const samplingNotice = buildSamplingIgnoredNotice({
+            runtime: 'native',
+            model: config.modelId,
+            sanitized,
+          });
+          if (samplingNotice && step === 1) {
+            console.warn(
+              `[agent-loop] ${config.modelId}: sampling params (${samplingNotice.unsent.join(', ')}) not sent — this model rejects non-default values.`,
+            );
+            controller.enqueue(formatSSE({
+              type: 'status',
+              data: JSON.stringify({
+                notification: true,
+                code: samplingNotice.code,
+                // Decision + interpolation values only — the client renders it
+                // from src/i18n (Codex review P2). The console.warn above stays
+                // as the server-side diagnostic breadcrumb; it names the param
+                // keys, never their values.
+                reason: samplingNotice.reason,
+                params: samplingNotice.params,
+              }),
+            }));
+          }
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           let providerOptions: any;
           if (config.sdkType === 'anthropic') {
-            const anthropicOpts: Record<string, unknown> = {};
-
-            if (isThirdPartyProxy) {
-              // Proxies: only pass thinking if explicitly enabled (not adaptive),
-              // skip effort (requires beta header proxies may not support).
-              // UI currently still shows Effort selector for these providers
-              // (supportsEffort is a model-level catalog flag, not per
-              // provider-runtime), so an explicit pick silently evaporates.
-              // Surface a one-shot toast on the first step so users know
-              // their Low/High/XHigh/Max choice didn't reach the wire.
-              if (sanitized.thinking && sanitized.thinking.type === 'enabled') {
-                anthropicOpts.thinking = sanitized.thinking;
-              }
-              if (sanitized.effort && step === 1) {
-                console.warn(
-                  `[agent-loop] Third-party Anthropic proxy: dropping explicit effort='${sanitized.effort}' — effort GA beta header may not be supported by proxies. Switch to SDK runtime or the official Anthropic endpoint to control effort.`,
-                );
-                controller.enqueue(formatSSE({
-                  type: 'status',
-                  data: JSON.stringify({
-                    notification: true,
-                    code: 'RUNTIME_EFFORT_IGNORED',
-                    title: 'Effort ignored on this runtime',
-                    message: `Third-party Anthropic proxies may not support the effort parameter — your "${sanitized.effort}" choice wasn't sent. Switch to SDK runtime or an official Anthropic provider to control effort explicitly.`,
-                  }),
-                }));
-              }
-              // Don't pass effort or adaptive thinking for proxies
-            } else {
-              // Official API: pass through sanitized thinking.
-              if (sanitized.thinking) {
-                anthropicOpts.thinking = sanitized.thinking;
-              }
-              // Gate effort on the Opus 4.7+ family (4.7 / 4.8 / Fable 5)
-              // to avoid the stale effort-2025-11-24 beta header the
-              // installed @ai-sdk/anthropic still attaches. Other models
-              // keep the existing effort plumbing.
-              if (sanitized.effort && !isOpusAdaptiveThinking) {
-                anthropicOpts.effort = sanitized.effort;
-              } else if (sanitized.effort && isOpusAdaptiveThinking && step === 1) {
-                // Tell the user the explicit effort they picked is being
-                // dropped for this session. Only emit on the first step so
-                // we don't spam multi-turn conversations. The UI surfaces
-                // this via the status event pipeline; ChatView can treat
-                // code=RUNTIME_EFFORT_IGNORED as a one-shot toast.
-                console.warn(
-                  `[agent-loop] Opus 4.7+ (incl. 4.8 / Fable 5) on native runtime: dropping explicit effort='${sanitized.effort}' — @ai-sdk/anthropic still attaches deprecated effort-2025-11-24 beta. Switch to SDK runtime for explicit effort control.`,
-                );
-                controller.enqueue(formatSSE({
-                  type: 'status',
-                  data: JSON.stringify({
-                    notification: true,
-                    code: 'RUNTIME_EFFORT_IGNORED',
-                    title: 'Effort ignored on this runtime',
-                    message: `Opus 4.7 / 4.8 / Fable 5 on the native runtime can't send explicit effort yet (would ship a deprecated beta header). Using API default — switch to SDK runtime to control effort.`,
-                  }),
-                }));
-              }
+            // Build the exact `providerOptions.anthropic` wire object. Effort
+            // rides GA output_config.effort on the official path, but only for
+            // models on Anthropic's effort list; unsupported models and
+            // third-party proxies drop it and raise their own drop signal so we
+            // surface a one-shot toast. See buildAnthropicProviderOptions for
+            // the full policy + s05 rationale.
+            const wire = buildAnthropicProviderOptions({
+              isThirdPartyProxy,
+              model: config.modelId,
+              sanitized,
+            });
+            if (wire.effortDroppedUnsupportedModel && step === 1) {
+              console.warn(
+                `[agent-loop] ${config.modelId} is not on Anthropic's effort-capable model list — dropping explicit effort='${sanitized.effort}'. The model runs at its own default reasoning depth.`,
+              );
+              controller.enqueue(formatSSE({
+                type: 'status',
+                data: JSON.stringify({
+                  notification: true,
+                  code: 'RUNTIME_EFFORT_IGNORED',
+                  // Client-localized (Codex review P2) — see status-notice-i18n.ts.
+                  reason: 'unsupported-model',
+                  params: { model: config.modelId || '', effort: sanitized.effort || '' },
+                }),
+              }));
             }
-
-            if (sanitized.applyContext1mBeta) {
-              anthropicOpts.anthropicBeta = ['context-1m-2025-08-07'];
+            if (wire.effortDroppedForProxy && step === 1) {
+              console.warn(
+                `[agent-loop] Third-party Anthropic proxy: dropping explicit effort='${sanitized.effort}' — effort GA beta header may not be supported by proxies. Switch to SDK runtime or the official Anthropic endpoint to control effort.`,
+              );
+              controller.enqueue(formatSSE({
+                type: 'status',
+                data: JSON.stringify({
+                  notification: true,
+                  code: 'RUNTIME_EFFORT_IGNORED',
+                  title: 'Effort ignored on this runtime',
+                  message: `Third-party Anthropic proxies may not support the effort parameter — your "${sanitized.effort}" choice wasn't sent. Switch to SDK runtime or an official Anthropic provider to control effort explicitly.`,
+                }),
+              }));
             }
-            if (Object.keys(anthropicOpts).length > 0) {
-              providerOptions = { anthropic: anthropicOpts };
+            if (wire.anthropic) {
+              providerOptions = { anthropic: wire.anthropic };
             }
           }
 
@@ -477,6 +502,12 @@ export function runAgentLoop(options: AgentLoopOptions): ReadableStream<string> 
             // toolChoice: auto by default, none if no tools
             toolChoice: hasTools ? 'auto' : 'none',
             providerOptions,
+            // Sampling params that survived sanitization. Spread (not
+            // `temperature: x ?? undefined`) so an absent value leaves the
+            // option off the call entirely — wire-identical to before for every
+            // caller that doesn't set them. Values stripped by the sanitizer
+            // never reach here; the user was told about them above.
+            ...sanitized.sampling,
             abortSignal: timeoutCtl.signal,
             // Codex API doesn't support max_output_tokens
             ...(config.useResponsesApi ? {} : { maxOutputTokens: 16384 }),

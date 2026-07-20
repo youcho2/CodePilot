@@ -187,12 +187,71 @@ export function parseCodexVersion(versionOutput: string | null | undefined): [nu
   return [Number(m[1]), Number(m[2]), Number(m[3])];
 }
 
+interface ParsedCodexRelease {
+  readonly core: [number, number, number];
+  /** `null` is a stable release and therefore newer than any prerelease. */
+  readonly prerelease: readonly string[] | null;
+}
+
+function parseCodexRelease(versionOutput: string | null | undefined): ParsedCodexRelease | null {
+  if (!versionOutput) return null;
+  const match = versionOutput.match(/(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?/);
+  if (!match) return null;
+  return {
+    core: [Number(match[1]), Number(match[2]), Number(match[3])],
+    prerelease: match[4] ? match[4].split('.') : null,
+  };
+}
+
 function compareCodexVersion(a: [number, number, number], b: [number, number, number]): number {
   for (let i = 0; i < 3; i++) {
     if (a[i] !== b[i]) return a[i] - b[i];
   }
   return 0;
 }
+
+function compareCodexRelease(a: ParsedCodexRelease, b: ParsedCodexRelease): number {
+  const core = compareCodexVersion(a.core, b.core);
+  if (core !== 0) return core;
+  if (a.prerelease === null && b.prerelease === null) return 0;
+  if (a.prerelease === null) return 1;
+  if (b.prerelease === null) return -1;
+
+  const length = Math.max(a.prerelease.length, b.prerelease.length);
+  for (let i = 0; i < length; i++) {
+    const left = a.prerelease[i];
+    const right = b.prerelease[i];
+    if (left === undefined) return -1;
+    if (right === undefined) return 1;
+    if (left === right) continue;
+    const leftNumber = /^\d+$/.test(left) ? Number(left) : null;
+    const rightNumber = /^\d+$/.test(right) ? Number(right) : null;
+    if (leftNumber !== null && rightNumber !== null) return leftNumber - rightNumber;
+    if (leftNumber !== null) return -1;
+    if (rightNumber !== null) return 1;
+    return left.localeCompare(right);
+  }
+  return 0;
+}
+
+/** First Codex build whose generated schema has been verified for auto review. */
+export const CODEX_AUTO_REVIEW_MIN_VERSION = '0.145.0-alpha.18';
+
+/** Conservative version gate: unknown and older builds never advertise support. */
+export function codexVersionSupportsAutoReview(versionOutput: string | null | undefined): boolean {
+  const installed = parseCodexRelease(versionOutput);
+  const minimum = parseCodexRelease(CODEX_AUTO_REVIEW_MIN_VERSION);
+  return installed !== null && minimum !== null && compareCodexRelease(installed, minimum) >= 0;
+}
+
+export type CodexAutoReviewCapability =
+  | { readonly supported: true; readonly installedVersion: string; readonly minVersion: string }
+  | {
+      readonly supported: false;
+      readonly installedVersion: string | null;
+      readonly minVersion: string;
+      readonly reason: 'not_installed' | 'version_unknown' | 'version_too_old';
+    };
 
 export interface CodexBinaryCandidate {
   path: string;
@@ -305,10 +364,62 @@ function probeCodexVersion(binaryPath: string): string | null {
 // runtime.isAvailable()), so we probe at most once per process. CODEX_DISABLED
 // and CODEX_BIN are re-checked fresh on every call (cheap) ABOVE this cache.
 let resolvedBinaryCache: { value: string | null } | null = null;
+let versionProbeCache: { binary: string; value: string | null } | null = null;
 
 /** Test-only: clear the memoized binary resolution between cases. */
 export function resetCodexBinaryCacheForTests(): void {
   resolvedBinaryCache = null;
+  versionProbeCache = null;
+}
+
+/**
+ * Read the selected binary's version once and turn it into the UI capability
+ * fact for `approvalsReviewer:auto_review`.
+ *
+ * The runtime still verifies the thread/start or thread/resume response echo.
+ * This preflight only controls whether the composer may offer the option.
+ */
+export function getCodexAutoReviewCapability(): CodexAutoReviewCapability {
+  const binary = findCodexBinary();
+  if (!binary) {
+    return {
+      supported: false,
+      installedVersion: null,
+      minVersion: CODEX_AUTO_REVIEW_MIN_VERSION,
+      reason: 'not_installed',
+    };
+  }
+
+  const rawVersion = lastAvailability.kind === 'ready'
+    ? lastAvailability.version
+    : versionProbeCache?.binary === binary
+      ? versionProbeCache.value
+      : probeCodexVersion(binary);
+  if (lastAvailability.kind !== 'ready' && versionProbeCache?.binary !== binary) {
+    versionProbeCache = { binary, value: rawVersion };
+  }
+
+  if (!rawVersion) {
+    return {
+      supported: false,
+      installedVersion: null,
+      minVersion: CODEX_AUTO_REVIEW_MIN_VERSION,
+      reason: 'version_unknown',
+    };
+  }
+  if (!codexVersionSupportsAutoReview(rawVersion)) {
+    return {
+      supported: false,
+      installedVersion: rawVersion,
+      minVersion: CODEX_AUTO_REVIEW_MIN_VERSION,
+      reason: 'version_too_old',
+    };
+  }
+  return {
+    supported: true,
+    installedVersion: rawVersion,
+    minVersion: CODEX_AUTO_REVIEW_MIN_VERSION,
+  };
 }
 
 /**

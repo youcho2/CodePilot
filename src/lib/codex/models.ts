@@ -14,6 +14,7 @@
 import type { ProviderModelGroup } from '@/types';
 import type { CodexModel } from './types';
 import { getCodexAppServer } from './app-server-manager';
+import { toGenericEffortLevels } from './effort';
 
 type ProviderModelOption = ProviderModelGroup['models'][number];
 
@@ -63,6 +64,71 @@ function withTimeout<T>(ms: number, p: Promise<T>): Promise<T> {
   });
 }
 
+/**
+ * One element of upstream `Model.supportedReasoningEfforts`.
+ *
+ * Schema drift (2026-07-17): codex-cli 0.144.2 emits
+ * `{ reasoningEffort, description }`; older binaries emit `{ effort }`.
+ * We read BOTH — reading only `effort` against a 0.144.x app-server yields
+ * `undefined` for every element, which used to collapse the capability list
+ * into `[undefined, ...]` and render fake tiers downstream. See the local
+ * read-only POC in docs/research/foundation-experience-refresh-2026-07-17.md.
+ */
+interface UpstreamReasoningEffort {
+  /** New shape (codex-cli ≥ 0.144). */
+  reasoningEffort?: unknown;
+  /** Legacy shape (older binaries). */
+  effort?: unknown;
+  description?: unknown;
+}
+
+/**
+ * Reasoning-effort tokens CodePilot understands from `model/list`.
+ *
+ * `ultra` is included because GPT-5.6 Sol really does declare it — we parse
+ * it honestly here, and exclude it from the GENERIC effort selector one layer
+ * up (see {@link CODEX_GENERIC_EXCLUDED_EFFORTS}). Anything outside this set
+ * is dropped fail-closed: an unrecognized upstream token must never reach the
+ * picker as a selectable tier we can't explain or honor.
+ */
+const KNOWN_CODEX_EFFORTS: readonly string[] = [
+  'none',
+  'minimal',
+  'low',
+  'medium',
+  'high',
+  'xhigh',
+  'max',
+  'ultra',
+];
+
+/**
+ * Normalize one `supportedReasoningEfforts` element across both schemas.
+ * Returns undefined for empty / non-string / unrecognized values.
+ */
+function normalizeEffortElement(raw: UpstreamReasoningEffort | undefined | null): string | undefined {
+  if (!raw || typeof raw !== 'object') return undefined;
+  // New shape wins when both are present (a transitional binary emitting both
+  // should be read as its current field, not its deprecated one).
+  const value = raw.reasoningEffort ?? raw.effort;
+  if (typeof value !== 'string') return undefined;
+  const trimmed = value.trim();
+  if (!trimmed) return undefined;
+  if (!KNOWN_CODEX_EFFORTS.includes(trimmed)) return undefined;
+  return trimmed;
+}
+
+/** Parse + de-dupe a model's declared efforts. Missing field → []. */
+function normalizeSupportedEfforts(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return [];
+  const out: string[] = [];
+  for (const el of raw as UpstreamReasoningEffort[]) {
+    const level = normalizeEffortElement(el);
+    if (level && !out.includes(level)) out.push(level);
+  }
+  return out;
+}
+
 async function fetchModelsFromAppServer(getAppServer: GetCodexAppServerFn): Promise<CodexModel[]> {
   const { client } = await getAppServer();
   const result = await client.request<{
@@ -73,28 +139,40 @@ async function fetchModelsFromAppServer(getAppServer: GetCodexAppServerFn): Prom
       description: string;
       hidden: boolean;
       isDefault: boolean;
-      supportedReasoningEfforts: Array<{ effort: string }>;
-      defaultReasoningEffort: string;
+      /** Dual-schema — see {@link UpstreamReasoningEffort}. */
+      supportedReasoningEfforts?: UpstreamReasoningEffort[];
+      defaultReasoningEffort?: string;
       inputModalities: string[];
       serviceTiers?: Array<{ id?: string; name?: string }>;
     }>;
     nextCursor: string | null;
   }>('model/list', { includeHidden: false });
 
-  return result.data
+  return (result?.data ?? [])
     .filter((m) => !m.hidden)
-    .map((m) => ({
-      id: m.id,
-      model: m.model,
-      displayName: m.displayName,
-      description: m.description,
-      hidden: m.hidden,
-      isDefault: m.isDefault,
-      supportedReasoningEfforts: m.supportedReasoningEfforts.map((e) => e.effort),
-      defaultReasoningEffort: m.defaultReasoningEffort,
-      inputModalities: m.inputModalities,
-      serviceTiers: m.serviceTiers?.map((t) => t.name ?? t.id ?? ''),
-    }));
+    .map((m) => {
+      const supportedReasoningEfforts = normalizeSupportedEfforts(m.supportedReasoningEfforts);
+      // Keep the upstream default only when it survives the same filter — a
+      // default we can't map is worse than no default (it would seed the
+      // picker with a tier absent from the list).
+      const defaultReasoningEffort =
+        typeof m.defaultReasoningEffort === 'string' &&
+        supportedReasoningEfforts.includes(m.defaultReasoningEffort.trim())
+          ? m.defaultReasoningEffort.trim()
+          : '';
+      return {
+        id: m.id,
+        model: m.model,
+        displayName: m.displayName,
+        description: m.description,
+        hidden: m.hidden,
+        isDefault: m.isDefault,
+        supportedReasoningEfforts,
+        defaultReasoningEffort,
+        inputModalities: m.inputModalities,
+        serviceTiers: m.serviceTiers?.map((t) => t.name ?? t.id ?? ''),
+      };
+    });
 }
 
 /**
@@ -125,6 +203,27 @@ export function invalidateCodexModelsCache(): void {
 }
 
 /**
+ * The effort tiers a specific Codex model DECLARES, read from the warm
+ * model/list cache. Powers the per-model allowlist on the `turn/start` path
+ * (`resolveCodexEffort`) so a model that really supports `xhigh` / `max` is no
+ * longer silently clamped to `high`.
+ *
+ * `cacheOnly` on purpose: turn/start is latency-critical and must never spawn
+ * an app-server or block on a probe (P0.3). A cold cache returns undefined,
+ * which the caller reads as "no capability info" → conservative clamp.
+ */
+export async function getCachedCodexEffortLevels(
+  modelId: string | undefined,
+): Promise<readonly string[] | undefined> {
+  if (!modelId) return undefined;
+  const models = await listCodexModels({ cacheOnly: true });
+  // model/list keys by `id`; turn/start may carry either id or wire `model`.
+  const match = models.find((m) => m.id === modelId || m.model === modelId);
+  if (!match || match.supportedReasoningEfforts.length === 0) return undefined;
+  return match.supportedReasoningEfforts;
+}
+
+/**
  * Build the CodePilot ProviderModelGroup that surfaces Codex Account
  * models inside `/api/providers/models`. Returns null when no models
  * are available (account not logged in or list call failed).
@@ -148,23 +247,33 @@ export async function buildCodexProviderModelGroup(
 
   if (models.length === 0) return null;
 
-  const modelOptions: ProviderModelOption[] = models.map((m) => ({
-    value: m.id,
-    label: m.displayName,
-    upstreamModelId: m.model,
-    source: 'api',
-    capabilities: {
-      reasoning: m.supportedReasoningEfforts.length > 1,
-      supportsEffort: m.supportedReasoningEfforts.length > 1,
-      supportedEffortLevels: [...m.supportedReasoningEfforts],
-      // We don't have an authoritative tool-use signal from
-      // `model/list` — Codex routes tool-calling through its own
-      // app-server thread rather than per-model capability. Default
-      // true so the picker doesn't surface a misleading "no tools"
-      // badge; the actual tool inventory is per-thread.
-      toolUse: true,
-    },
-  }));
+  const modelOptions: ProviderModelOption[] = models.map((m) => {
+    // `ultra` is a Codex-only product tier, not a Responses API reasoning
+    // effort — it does NOT enter the generic effort selector this round (see
+    // toGenericEffortLevels). Modeling it properly is a separate decision;
+    // offering it in the shared menu would promise semantics we don't wire.
+    const genericLevels = toGenericEffortLevels(m.supportedReasoningEfforts);
+    return {
+      value: m.id,
+      label: m.displayName,
+      upstreamModelId: m.model,
+      source: 'api',
+      capabilities: {
+        reasoning: genericLevels.length > 1,
+        supportsEffort: genericLevels.length > 1,
+        // Omit entirely (rather than send []) when the app-server declared
+        // nothing we recognize — an absent field makes the selector hide
+        // rather than render a tier list we can't source. Fail-closed.
+        ...(genericLevels.length > 0 ? { supportedEffortLevels: genericLevels } : {}),
+        // We don't have an authoritative tool-use signal from
+        // `model/list` — Codex routes tool-calling through its own
+        // app-server thread rather than per-model capability. Default
+        // true so the picker doesn't surface a misleading "no tools"
+        // badge; the actual tool inventory is per-thread.
+        toolUse: true,
+      },
+    };
+  });
 
   return {
     provider_id: 'codex_account',

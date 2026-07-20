@@ -17,14 +17,24 @@
  */
 
 import { type NextRequest, NextResponse } from 'next/server';
-import { startCodexLogin, cancelCodexLogin } from '@/lib/codex/account';
+import { cancelCodexLogin, startCodexLogin } from '@/lib/codex/account';
+import { startCodexLoginAndInvalidateModels } from '@/lib/codex/account-transition';
 
 interface LoginBody {
   kind?: 'chatgpt' | 'chatgptDeviceCode' | 'apiKey';
   apiKey?: string;
 }
 
-export async function POST(request: NextRequest) {
+/**
+ * POST body, split out so tests can drive the real handler (request parsing,
+ * branching, invalidation, response) while replacing only the bottom JSON-RPC
+ * call. `perform` defaults to the real login start — the route export below
+ * binds production wiring.
+ */
+export async function handleLoginPost(
+  request: NextRequest,
+  perform: typeof startCodexLogin = startCodexLogin,
+) {
   let body: LoginBody = {};
   try {
     body = (await request.json()) as LoginBody;
@@ -40,19 +50,26 @@ export async function POST(request: NextRequest) {
           { status: 400 },
         );
       }
-      const result = await startCodexLogin({ kind: 'apiKey', apiKey: body.apiKey });
+      const result = await startCodexLoginAndInvalidateModels(
+        { kind: 'apiKey', apiKey: body.apiKey },
+        perform,
+      );
       return NextResponse.json({ login: result });
     }
     if (body.kind === 'chatgptDeviceCode') {
-      const result = await startCodexLogin({ kind: 'chatgptDeviceCode' });
+      const result = await startCodexLoginAndInvalidateModels({ kind: 'chatgptDeviceCode' }, perform);
       return NextResponse.json({ login: result });
     }
-    const result = await startCodexLogin({ kind: 'chatgpt' });
+    const result = await startCodexLoginAndInvalidateModels({ kind: 'chatgpt' }, perform);
     return NextResponse.json({ login: result });
   } catch (err) {
     const reason = err instanceof Error ? err.message : String(err);
     return NextResponse.json({ error: reason }, { status: 500 });
   }
+}
+
+export async function POST(request: NextRequest) {
+  return handleLoginPost(request);
 }
 
 export async function DELETE(request: NextRequest) {

@@ -36,6 +36,7 @@ import type {
 } from '@/lib/runtime/types';
 import type { RuntimeRunEvent } from '@/lib/runtime/contract';
 import type { RuntimeContextAccountingSnapshot, FileAttachment } from '@/types';
+import type { CodexThreadResumeResponse, CodexThreadStartResponse } from './types';
 import { buildCodexTurnInput } from './turn-input';
 // Phase 4 — Codex Context Accounting (2026-05-20). Imported at top so
 // the closure-scoped cache + run_completed supplementary result event
@@ -50,9 +51,14 @@ import {
 } from '@/lib/harness/auto-invoke-accounting';
 import {
   findCodexBinary,
+  getCodexAutoReviewCapability,
   getCodexAppServer,
 } from './app-server-manager';
-import { clampCodexEffort } from './effort';
+import { resolveCodexEffort } from './effort';
+import { getCachedCodexEffortLevels } from './models';
+import { reconcileCodexPermissionEcho, resolveCodexPermissionWire } from './permission';
+import { buildReviewEvent } from '@/lib/permission/review-event';
+import { emitReviewEvent } from '@/lib/permission/review-audit';
 import {
   translateCodexNotification,
   synthesizeFileChangedFromCompletedItem,
@@ -640,30 +646,74 @@ export const codexRuntime: AgentRuntime = {
           // bind to a stale tool set.
           const mcpFingerprint = fingerprintCodexMcpConfig(hasMcp ? codexMcpServers : undefined);
 
-          const threadParams = buildCodexThreadParams({
-            providerId: requestedProviderId,
-            workingDirectory: options.workingDirectory,
-            proxyBaseUrl: resolveCodexProxyBaseUrl(),
-            // Phase 5b smoke follow-up (2026-05-15) — Codex's
-            // thread_start_params_from_config (codex-rs/tui/.../app_server_session.rs)
-            // passes model alongside modelProvider so the proxy
-            // injection resolves to a concrete model id. Without it
-            // Codex rejects the turn before the proxy is even called
-            // (the model_providers entry has no default_model set, by
-            // design — we don't want users surprised by a different
-            // model than they picked).
-            model: options.model,
-            // Phase 5c (2026-05-16) — chat session id is the missing
-            // piece that lets the proxy mount CodePilot built-in
-            // tools and address the side-channel event bus. Native
-            // Codex tools (shell / fileChange) keep working
-            // regardless; this is what makes
-            // `codepilot_generate_image` / memory / tasks visible
-            // when the user picked a CodePilot provider as the
-            // proxy target.
-            sessionId,
-            mcpServers: hasMcp ? codexMcpServers : undefined,
+          let codexPermission = resolveCodexPermissionWire({
+            permissionMode: options.permissionMode,
+            bypassPermissions: options.bypassPermissions,
           });
+          let autoReviewUnavailableEmitted = false;
+          const emitAutoReviewUnavailable = (reason: string) => {
+            if (autoReviewUnavailableEmitted) return;
+            autoReviewUnavailableEmitted = true;
+            const event = emitReviewEvent(buildReviewEvent({
+              state: 'unavailable',
+              requestId: `codex-auto-review-unavailable-${sessionId}`,
+              sessionId,
+              runtimeId: 'codex_runtime',
+              reviewerSource: 'sdk-reviewer',
+              toolName: 'permission_profile:auto_review',
+              reason,
+            }));
+            tryEnqueue(`data: ${JSON.stringify({
+              type: 'permission_review',
+              data: JSON.stringify({
+                state: event.state,
+                reviewerSource: event.reviewerSource,
+                toolName: event.toolName,
+                reason,
+              }),
+            })}\n\n`);
+          };
+
+          // Persisted sessions and direct API callers can still request the
+          // profile after the composer has hidden it. Gate again at the
+          // runtime boundary so an older app-server never receives an
+          // unknown `approvalsReviewer` field. Fail closed to the ordinary
+          // user-review profile and surface the downgrade on the canonical
+          // review channel.
+          if (codexPermission.thread.approvalsReviewer === 'auto_review') {
+            const capability = getCodexAutoReviewCapability();
+            if (!capability.supported) {
+              codexPermission = resolveCodexPermissionWire({ permissionMode: 'default' });
+              emitAutoReviewUnavailable(`codex_auto_review_${capability.reason}`);
+            }
+          }
+
+          const applyPermissionEcho = (response: CodexThreadStartResponse | CodexThreadResumeResponse) => {
+            const decision = reconcileCodexPermissionEcho({ requested: codexPermission, response });
+            codexPermission = decision.wire;
+            if (!decision.degraded) return;
+            const reason = decision.actualReviewer
+              ? 'codex_auto_review_not_honoured'
+              : 'codex_auto_review_echo_missing';
+            emitAutoReviewUnavailable(reason);
+          };
+
+          const threadParams = {
+            ...buildCodexThreadParams({
+              providerId: requestedProviderId,
+              workingDirectory: options.workingDirectory,
+              proxyBaseUrl: resolveCodexProxyBaseUrl(),
+              // Phase 5b smoke follow-up (2026-05-15) — Codex's
+              // thread_start_params_from_config passes model alongside
+              // modelProvider + config so the proxy resolves the selected id.
+              model: options.model,
+              // Phase 5c — lets the proxy mount CodePilot built-in tools and
+              // address the side-channel event bus for this chat.
+              sessionId,
+              mcpServers: hasMcp ? codexMcpServers : undefined,
+            }),
+            ...codexPermission.thread,
+          };
 
           // ── thread resolution: resume if we have a ref + provider AND
           // MCP fingerprint match, else start ──
@@ -687,17 +737,19 @@ export const codexRuntime: AgentRuntime = {
             existingMcpFingerprint === mcpFingerprint
           ) {
             try {
-              await client.request('thread/resume', {
+              const result = await client.request<CodexThreadResumeResponse>('thread/resume', {
                 threadId: existingRef.token,
                 ...threadParams,
               });
+              applyPermissionEcho(result);
               threadId = existingRef.token;
             } catch {
               // Resume failed (thread archived / unknown id) → start fresh.
-              const result = await client.request<{ thread: { id: string } }>(
+              const result = await client.request<CodexThreadStartResponse>(
                 'thread/start',
                 threadParams,
               );
+              applyPermissionEcho(result);
               threadId = result.thread.id;
               setRuntimeSessionRef(sessionId, {
                 runtimeId: 'codex_runtime',
@@ -711,10 +763,11 @@ export const codexRuntime: AgentRuntime = {
             // proxy injection or wrong tool set); clear before writing the
             // new binding so a partial write can't leave a stale id behind.
             if (existingRef) clearRuntimeSessionRef(sessionId, 'codex_runtime');
-            const result = await client.request<{ thread: { id: string } }>(
+            const result = await client.request<CodexThreadStartResponse>(
               'thread/start',
               threadParams,
             );
+            applyPermissionEcho(result);
             threadId = result.thread.id;
             setRuntimeSessionRef(sessionId, {
               runtimeId: 'codex_runtime',
@@ -931,11 +984,16 @@ export const codexRuntime: AgentRuntime = {
           // `interrupt(sessionId)` can issue `turn/interrupt` with the
           // correct (threadId, turnId) pair per
           // `TurnInterruptParams = { threadId, turnId }` in the schema.
-          // Clamp Opus-only effort tiers (xhigh/max) to a Codex-accepted
-          // value before sending — Codex only knows minimal/low/medium/high
-          // and older builds reject unknown variants fatally. codex_runtime
-          // only; Claude Code / Native keep the full union. See ./effort.ts.
-          const codexEffort = clampCodexEffort(options.effort);
+          // Phase 0 (2026-07-17) — send exactly the tier THIS model declares
+          // in model/list. GPT-5.6 really supports xhigh/max, and the old
+          // global clamp downgraded them to `high` behind the user's back.
+          // Unknown/undeclared tiers are omitted (never coerced); a cold
+          // cache yields no capability info and falls back to the
+          // conservative clamp inside resolveCodexEffort. cacheOnly read —
+          // turn/start must never spawn an app-server (P0.3).
+          // codex_runtime only; Claude Code / Native keep the full union.
+          const declaredEfforts = await getCachedCodexEffortLevels(options.model);
+          const codexEffort = resolveCodexEffort(options.effort, declaredEfforts);
           // #632 / Phase 2 #3 — include image attachments in the turn input.
           // Files reach the runtime via runtimeOptions.files (claude-client.ts);
           // before this the input was text-only and images were silently dropped.
@@ -949,6 +1007,7 @@ export const codexRuntime: AgentRuntime = {
             ...(options.workingDirectory ? { cwd: options.workingDirectory } : {}),
             ...(options.model ? { model: options.model } : {}),
             ...(codexEffort ? { effort: codexEffort } : {}),
+            ...codexPermission.turn,
           });
           activeCodexTurns.set(sessionId, { threadId, turnId: turnResult.turn.id });
           if (pendingAbort) {

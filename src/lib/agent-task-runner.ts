@@ -46,6 +46,7 @@
  */
 
 import type { ScheduledTask, TaskRunStatus } from '@/types';
+import { normalizePermissionProfile } from '@/lib/permission/profile';
 
 export interface AgentTaskRunResult {
   status: TaskRunStatus;
@@ -146,9 +147,10 @@ export async function ensureTaskBoundSession(task: ScheduledTask): Promise<strin
     || undefined;
   const inheritedProviderId = originSession?.provider_id || undefined;
   const inheritedModel = originSession?.model || undefined;
-  const inheritedPermissionProfile =
-    (originSession?.permission_profile as 'default' | 'full_access' | undefined)
-    || 'default';
+  // Inherit the origin session's profile — never upgrade. A background task
+  // has no foreground UI to raise a prompt in, which is an argument for
+  // asking less, not for granting more.
+  const inheritedPermissionProfile = normalizePermissionProfile(originSession?.permission_profile);
 
   const newSession = createSession(
     `[Task] ${task.name}`,
@@ -159,6 +161,9 @@ export async function ensureTaskBoundSession(task: ScheduledTask): Promise<strin
     inheritedProviderId,
     inheritedPermissionProfile,
     'task',
+    // The task's name is the session's identity — never re-derive it from
+    // whatever prompt the runner happens to send first.
+    'system',
   );
   // Inherit runtime_pin separately — createSession doesn't take it as
   // an arg today (it's a Phase 2 column added later). Lift the same
@@ -228,6 +233,10 @@ async function resolveBuddySessionId(): Promise<string | undefined> {
     undefined,
     'default',
     'user',
+    // 'system' even though source is 'user': the user can chat here later, but
+    // "Assistant heartbeat" is what makes this session findable in the list.
+    // Renaming it from the user's first reply would lose that.
+    'system',
   );
   return fresh.id;
 }

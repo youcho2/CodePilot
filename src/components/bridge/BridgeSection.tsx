@@ -580,7 +580,7 @@ export function BridgeSection() {
               </label>
               {providerGroups.length > 0 ? (
                 <Select value={model} onValueChange={handleModelChange} disabled={saving}>
-                  <SelectTrigger className="w-full text-sm font-mono">
+                  <SelectTrigger className="w-full text-sm font-normal">
                     <SelectValue placeholder={t("bridge.defaultModelHint")} />
                   </SelectTrigger>
                   <SelectContent>

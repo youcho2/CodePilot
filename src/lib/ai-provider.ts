@@ -39,6 +39,9 @@ import { withChatImageDataUrlFetch } from './openai-chat-image-normalizer';
 export interface CreateModelOptions {
   providerId?: string;
   sessionProviderId?: string;
+  /** Provider snapshot captured by a fail-closed upstream caller. When set,
+   *  model construction must not re-resolve or fall back to another provider. */
+  resolvedProvider?: ResolvedProvider;
   model?: string;
   sessionModel?: string;
 }
@@ -56,7 +59,7 @@ export interface CreateModelResult {
  * Resolve provider + model and create a Vercel AI SDK LanguageModel instance.
  */
 export function createModel(opts: CreateModelOptions = {}): CreateModelResult {
-  const resolved = resolveProvider({
+  const resolved = opts.resolvedProvider ?? resolveProvider({
     providerId: opts.providerId,
     sessionProviderId: opts.sessionProviderId,
     model: opts.model,

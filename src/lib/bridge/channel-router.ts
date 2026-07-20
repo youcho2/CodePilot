@@ -106,6 +106,12 @@ export function createBinding(
     undefined,
     defaultCwd,
     'code',
+    undefined, // provider id — set below once known
+    undefined, // permission profile
+    undefined, // source
+    // The channel identity IS the name here; a fallback derived from the
+    // first inbound message would be strictly worse information.
+    'system',
   );
 
   if (defaultProviderId) {

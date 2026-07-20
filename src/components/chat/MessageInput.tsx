@@ -27,7 +27,8 @@ import { useMentionTokenEstimate } from '@/hooks/useMentionTokenEstimate';
 import { dataUrlToFileAttachment } from '@/lib/file-utils';
 import { usePopoverState } from '@/hooks/usePopoverState';
 import { useProviderModels, isComposerProviderLoading } from '@/hooks/useProviderModels';
-import { resolveComposerModelAutoCorrect } from '@/lib/model-option-match';
+import { resolveComposerModelAutoCorrect, findModelOption } from '@/lib/model-option-match';
+import { resolveComposerEffortDisplay } from '@/lib/effort-levels';
 // Import from `chat-runtime-shared` (client-safe). See ChatView import
 // note + `src/lib/chat-runtime-shared.ts` doc-block. Even type-only
 // imports from `chat-runtime.ts` are risky if the build leans on
@@ -108,7 +109,7 @@ interface MessageInputProps {
   onProviderModelChange?: (
     providerId: string,
     model: string,
-    opts?: { isAuto?: boolean },
+    opts?: { isAuto?: boolean; supportedEffortLevels?: string[] },
   ) => void;
   workingDirectory?: string;
   onAssistantTrigger?: () => void;
@@ -347,6 +348,28 @@ export function MessageInput({
   // used", or PATCH the session row. It just synchronises display
   // state so the picker label and the runtime-compatible fallback
   // pair (provider, model) agree.
+  // s07 reviewer fix (run i31, 2026-07-18) — enrich every model-change with the
+  // NEW model's sourced effort tiers, resolved from the SAME `providerGroups` /
+  // `modelOptions` feed the picker renders. This is the single capability feed
+  // both effort-reset consumers (ChatView's session handler and the new-chat
+  // page) validate against, so neither has to re-derive it or (as the new-chat
+  // entry did) skip the check entirely. Both the manual picker path
+  // (ModelSelectorDropdown) and the auto-correct effect below route through here.
+  const emitProviderModelChange = useCallback((
+    pid: string,
+    model: string,
+    opts?: { isAuto?: boolean },
+  ) => {
+    const group = providerGroups.find(g => g.provider_id === (pid || 'env'));
+    const option = findModelOption(group?.models ?? modelOptions, model) as
+      | { supportedEffortLevels?: string[] }
+      | undefined;
+    onProviderModelChange?.(pid, model, {
+      ...opts,
+      supportedEffortLevels: option?.supportedEffortLevels,
+    });
+  }, [onProviderModelChange, providerGroups, modelOptions]);
+
   useEffect(() => {
     // Canonical-aware auto-correct (tech-debt #37). The decision lives in a pure,
     // unit-tested helper: a model that resolves by value OR canonical upstream is
@@ -356,9 +379,9 @@ export function MessageInput({
     const fallback = resolveComposerModelAutoCorrect(modelName, modelOptions);
     if (fallback !== null) {
       onModelChange?.(fallback);
-      onProviderModelChange?.(currentProviderIdValue, fallback, { isAuto: true });
+      emitProviderModelChange(currentProviderIdValue, fallback, { isAuto: true });
     }
-  }, [modelName, modelOptions, currentProviderIdValue, onModelChange, onProviderModelChange]);
+  }, [modelName, modelOptions, currentProviderIdValue, onModelChange, emitProviderModelChange]);
 
   const { badges, addBadge, removeBadge, clearBadges, cliBadge, setCliBadge, removeCliBadge, hasBadge } = useCommandBadge(textareaRef);
   const addBadgeWithOrder = useCallback((badge: { command: string; label: string; description: string; kind: 'agent_skill' | 'slash_command' | 'sdk_command' | 'codepilot_command'; installedSource?: 'agents' | 'claude' }) => {
@@ -1051,7 +1074,7 @@ export function MessageInput({
   }, [normalizeMentionPath]);
 
   // Effort selector state — guard against undefined when model not found in current provider's list
-  const currentModelMeta = currentModelOption as (typeof currentModelOption & { supportsEffort?: boolean; supportedEffortLevels?: string[] }) | undefined;
+  const currentModelMeta = currentModelOption as (typeof currentModelOption & { supportsEffort?: boolean; supportedEffortLevels?: string[]; effortNoteKey?: string }) | undefined;
   const showEffortSelector = currentModelMeta?.supportsEffort === true;
   // Default label is 'auto' — the UI displays "默认 / Auto" and no explicit
   // effort value is sent to the backend. This lets Claude Code apply its
@@ -1059,7 +1082,16 @@ export function MessageInput({
   // instead, the button would say "High" while the request actually carried
   // undefined, which silently sent a different level than shown.
   const [localEffort, setLocalEffort] = useState<string>('auto');
-  const selectedEffort = effortProp ?? localEffort;
+  // s07 reviewer fix (run i31, 2026-07-18) — the displayed tier is a CONTROLLED
+  // value when the parent owns effort state (onEffortChange wired — every real
+  // call site does). The old `effortProp ?? localEffort` re-surfaced a stale
+  // local pick after a parent reset (model switch dropping an unsupported tier),
+  // so the button showed e.g. `xhigh` while the wire already omitted effort. Now
+  // a parent reset to undefined is observable as Auto; localEffort is consulted
+  // only for uncontrolled standalone usage. Resolution lives in a pure helper so
+  // the state chain is unit-testable directly (no React renderer in this suite).
+  const isEffortControlled = onEffortChange !== undefined;
+  const selectedEffort = resolveComposerEffortDisplay(effortProp, localEffort, isEffortControlled);
   const setSelectedEffort = useCallback((v: string) => {
     setLocalEffort(v);
     // Passthrough — including the 'auto' sentinel. The send path in
@@ -1207,7 +1239,7 @@ export function MessageInput({
                   providerGroups={providerGroups}
                   modelOptions={modelOptions}
                   onModelChange={onModelChange}
-                  onProviderModelChange={onProviderModelChange}
+                  onProviderModelChange={emitProviderModelChange}
                   globalDefaultModel={globalDefaultModel}
                   globalDefaultProvider={globalDefaultProvider}
                   runtimeApplied={runtimeApplied}
@@ -1219,6 +1251,7 @@ export function MessageInput({
                     selectedEffort={selectedEffort}
                     onEffortChange={setSelectedEffort}
                     supportedEffortLevels={currentModelMeta?.supportedEffortLevels}
+                    effortNoteKey={currentModelMeta?.effortNoteKey}
                   />
                 )}
               </PromptInputTools>

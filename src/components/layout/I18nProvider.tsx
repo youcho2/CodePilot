@@ -1,7 +1,7 @@
 'use client';
 
 import { createContext, useState, useEffect, useCallback, type ReactNode } from 'react';
-import { type Locale, type TranslationKey, translate } from '@/i18n';
+import { type Locale, type TranslationKey, translate, setActiveLocale } from '@/i18n';
 
 interface I18nContextValue {
   locale: Locale;
@@ -53,6 +53,12 @@ export function I18nProvider({ children }: { children: ReactNode }) {
     }
     loadLocale();
   }, []);
+
+  // Publish to the module registry so non-React consumers (SSE status toasts in
+  // useSSEStream / app/chat/page.tsx) render in the same locale as the tree.
+  useEffect(() => {
+    setActiveLocale(locale);
+  }, [locale]);
 
   const setLocale = useCallback((newLocale: Locale) => {
     setLocaleState(newLocale);

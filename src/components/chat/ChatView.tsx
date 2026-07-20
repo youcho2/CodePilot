@@ -3,6 +3,7 @@
 import { useState, useCallback, useEffect, useRef, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import type { Message, MessagesResponse, FileAttachment, SessionStreamSnapshot, MentionRef, TaskRunSummary } from '@/types';
+import type { SessionPermissionProfile } from '@/lib/permission/profile';
 import { MessageList } from './MessageList';
 import { NewChatWelcome } from './NewChatWelcome';
 import { TerminalReasonChip } from './TerminalReasonChip';
@@ -32,6 +33,7 @@ import { usePanel } from '@/hooks/usePanel';
 import { useTranslation } from '@/hooks/useTranslation';
 import type { TranslationKey } from '@/i18n';
 import { PermissionPrompt } from './PermissionPrompt';
+import { PermissionReviewNotices } from './PermissionReviewNotices';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -50,6 +52,7 @@ import { useAssistantTrigger } from '@/hooks/useAssistantTrigger';
 import { useStreamSubscription } from '@/hooks/useStreamSubscription';
 import { useProviderModels } from '@/hooks/useProviderModels';
 import { findModelOption } from '@/lib/model-option-match';
+import { toWireEffort, resolveModelSwitchEffortEffect } from '@/lib/effort-levels';
 // Import from `chat-runtime-shared`, NOT `chat-runtime`. The latter
 // transitively imports the runtime registry → claude-client → Node-only
 // deps (async_hooks, Sentry, OpenTelemetry). Pulling that into a client
@@ -85,7 +88,7 @@ interface ChatViewProps {
    * cascade. Empty / undefined = "follow global" (today's behavior).
    */
   runtimePin?: string;
-  initialPermissionProfile?: 'default' | 'full_access';
+  initialPermissionProfile?: SessionPermissionProfile;
   initialMode?: 'code' | 'plan';
   initialHasSummary?: boolean;
 }
@@ -114,7 +117,7 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
   // Used by `<MessageList />` to render `<TaskRunMarker />` without
   // per-marker fetches.
   const [taskRuns, setTaskRuns] = useState<Record<string, TaskRunSummary>>({});
-  const [permissionProfile, setPermissionProfile] = useState<'default' | 'full_access'>(initialPermissionProfile || 'default');
+  const [permissionProfile, setPermissionProfile] = useState<SessionPermissionProfile>(initialPermissionProfile || 'default');
   const [pendingContextTokens, setPendingContextTokens] = useState(0);
   // Phase 6 Phase 3 — per-source split (attachment / mention / directory).
   // Flows through RunCockpit → useContextUsage → breakdown so the popover's
@@ -450,6 +453,7 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
   const statusText = streamSnapshot?.statusText;
   const pendingPermission = streamSnapshot?.pendingPermission ?? null;
   const permissionResolved = streamSnapshot?.permissionResolved ?? null;
+  const reviewNotices = streamSnapshot?.reviewNotices ?? [];
   const rewindPoints = getRewindPoints(sessionId);
 
   // ── Skill nudge banner ──
@@ -539,10 +543,45 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
   const handleProviderModelChange = useCallback((
     newProviderId: string,
     model: string,
-    opts?: { isAuto?: boolean },
+    opts?: { isAuto?: boolean; supportedEffortLevels?: string[] },
   ) => {
     setCurrentProviderId(newProviderId);
     setCurrentModel(model);
+
+    // Model plan Phase 2 / s07 (2026-07-18; reviewer fix run i31) — effort
+    // effect. On ANY effective model change — manual pick OR silent auto-correct
+    // — if the tier the user had selected isn't offered by the new model, fall
+    // back to Auto and tell them once: keeping a now-unsupported tier would
+    // either be rejected by the provider or silently dropped by toWireEffort on
+    // send, making the composer button lie about what actually reaches the wire.
+    // The reset does NOT depend on isAuto (an auto-correct that leaves an illegal
+    // transient tier is exactly the inconsistency this guards); isAuto only gates
+    // the session-pin persist below. Prefer the levels MessageInput resolved from
+    // the SAME feed the picker renders (opts.supportedEffortLevels); fall back to
+    // our own useProviderModels lookup if a caller omitted them.
+    const newGroup = providerGroups.find(g => g.provider_id === (newProviderId || 'env'));
+    const fallbackOption = findModelOption(newGroup?.models ?? [], model) as
+      | { supportedEffortLevels?: string[] }
+      | undefined;
+    const newSupportedLevels =
+      opts?.supportedEffortLevels ?? fallbackOption?.supportedEffortLevels;
+    const effortEffect = resolveModelSwitchEffortEffect(
+      selectedEffort,
+      newSupportedLevels,
+    );
+    if (effortEffect.resetEffort) {
+      setSelectedEffort(undefined);
+    }
+    if (effortEffect.showResetToast) {
+      import('@/hooks/useToast').then(({ showToast }) => {
+        showToast({
+          type: 'info',
+          message: t('messageInput.effort.resetOnModelSwitch' as TranslationKey),
+          duration: 4000,
+        });
+      });
+    }
+
     // Phase 6 P0 (2026-05-15) — only persist to the session row on a
     // MANUAL user pick. An auto-correct fallback (when the saved
     // model isn't in the active runtime's compatible set) must NOT
@@ -551,12 +590,13 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
     // the user's last intended pin, which is exactly the kind of
     // hidden state mutation the picker is supposed to avoid.
     if (opts?.isAuto) return;
+
     fetch(`/api/chat/sessions/${sessionId}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ model, provider_id: newProviderId }),
     }).catch(() => {});
-  }, [sessionId]);
+  }, [sessionId, providerGroups, selectedEffort, t]);
 
   // Phase 2 Step 4c — RuntimeSelector callback. Optimistic local update
   // (so the picker filter and other consumers see the new pin
@@ -1041,9 +1081,9 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
         workingDirectory,
         systemPromptAppend,
         pendingImageNotices: notices,
-        // 'auto' sentinel means "no explicit effort" — filter it here so
-        // the CLI applies its per-model default (Opus 4.7 → xhigh, etc.)
-        effort: selectedEffort && selectedEffort !== 'auto' ? selectedEffort : undefined,
+        // 'auto' sentinel means "no explicit effort" — omitted so the CLI
+        // applies its per-model default (Opus 4.7 → xhigh, etc.)
+        effort: toWireEffort(selectedEffort),
         thinking: buildThinkingConfig(),
         context1m,
         displayOverride,
@@ -1384,6 +1424,7 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
                     sessionId={sessionId}
                     permissionProfile={permissionProfile}
                     onPermissionChange={setPermissionProfile}
+                    runtime={sessionRuntimeParam}
                   />
                 </>
               }
@@ -1441,6 +1482,9 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
           onAction={handleTerminalAction}
         />
       )}
+      {/* Decisions made FOR the user (auto_review classifier denials) — these
+          have no prompt to close, so they get their own surface above it. */}
+      <PermissionReviewNotices notices={reviewNotices} />
       {/* Permission prompt */}
       <PermissionPrompt
         pendingPermission={pendingPermission}
@@ -1658,6 +1702,7 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
               sessionId={sessionId}
               permissionProfile={permissionProfile}
               onPermissionChange={setPermissionProfile}
+              runtime={sessionRuntimeParam}
             />
           </>
         }

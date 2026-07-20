@@ -7,6 +7,9 @@ import {
   getDefaultModelsForProvider,
   findPresetForLegacy,
 } from '../../lib/provider-catalog';
+import { resolveEffortMenuLevels } from '../../lib/effort-levels';
+import en from '../../i18n/en';
+import zh from '../../i18n/zh';
 
 // ── Provider Catalog Tests ──────────────────────────────────────
 
@@ -44,6 +47,180 @@ describe('Provider Catalog', () => {
       assert.ok(kimi, 'Kimi preset not found');
       assert.equal(kimi.protocol, 'anthropic');
       assert.equal(kimi.authStyle, 'api_key');
+    });
+
+    // ── Phase 1 (2026-07-17): GLM-5.2 / Kimi for Coding ─────────────
+    //
+    // These pin the two USER-VISIBLE claims the catalog makes for the two
+    // Coding Plans: which model name the user reads, and which effort tiers
+    // the menu may offer. Both were fake before this phase — GLM listed a
+    // superseded model pair with no effort capability at all, and Kimi's row
+    // said `Kimi K2.5`, a version the vendor rolls forward without telling us.
+
+    describe('GLM Coding Plan (CN + Global)', () => {
+      const glmPresets = VENDOR_PRESETS.filter(p => p.key === 'glm-cn' || p.key === 'glm-global');
+
+      it('both regions exist and share one catalog', () => {
+        assert.equal(glmPresets.length, 2, 'Expected glm-cn + glm-global');
+        assert.deepEqual(glmPresets[0].defaultModels, glmPresets[1].defaultModels);
+      });
+
+      it('catalog is the GLM-5.2 generation — no superseded 5-Turbo / 5.1 rows', () => {
+        for (const p of glmPresets) {
+          const names = p.defaultModels.map(m => m.displayName);
+          assert.ok(names.includes('GLM-5.2'), `${p.key} should list GLM-5.2, got ${names.join(', ')}`);
+          for (const stale of ['GLM-5-Turbo', 'GLM-5.1']) {
+            assert.ok(!names.includes(stale), `${p.key} still lists superseded ${stale}`);
+          }
+        }
+      });
+
+      it('GLM-5.2 is listed once — sonnet+opus both map to it, so two rows would be one model twice', () => {
+        for (const p of glmPresets) {
+          const glm52Rows = p.defaultModels.filter(m => m.displayName === 'GLM-5.2');
+          assert.equal(glm52Rows.length, 1, `${p.key} lists GLM-5.2 ${glm52Rows.length}×`);
+        }
+      });
+
+      it('role env mapping points both sonnet and opus at glm-5.2', () => {
+        for (const p of glmPresets) {
+          assert.equal(p.defaultEnvOverrides.ANTHROPIC_DEFAULT_SONNET_MODEL, 'glm-5.2', p.key);
+          assert.equal(p.defaultEnvOverrides.ANTHROPIC_DEFAULT_OPUS_MODEL, 'glm-5.2', p.key);
+          // haiku is unchanged this round — nothing in the research baseline
+          // says the small slot moved off 4.5-Air.
+          assert.equal(p.defaultEnvOverrides.ANTHROPIC_DEFAULT_HAIKU_MODEL, 'glm-4.5-air', p.key);
+        }
+      });
+
+      it('effort capability declares exactly the two real tiers (high, max)', () => {
+        for (const p of glmPresets) {
+          const glm52 = p.defaultModels.find(m => m.displayName === 'GLM-5.2');
+          assert.ok(glm52, `${p.key} missing GLM-5.2 row`);
+          assert.equal(glm52.capabilities?.supportsEffort, true, p.key);
+          assert.deepEqual(glm52.capabilities?.supportedEffortLevels, ['high', 'max'], p.key);
+        }
+      });
+
+      it('never offers the low/medium/xhigh tiers GLM silently folds away', () => {
+        // GLM maps low/medium/high → high and xhigh/max/ultracode → max, so a
+        // `low` row would charge the user for `high` while the button said Low.
+        for (const p of glmPresets) {
+          for (const m of p.defaultModels) {
+            const levels = m.capabilities?.supportedEffortLevels ?? [];
+            for (const fake of ['low', 'medium', 'xhigh']) {
+              assert.ok(!levels.includes(fake as 'low'), `${p.key}/${m.modelId} offers folded tier ${fake}`);
+            }
+          }
+        }
+      });
+
+      it('the two-tier menu carries a mapping note stating BOTH groups in both locales', () => {
+        const glm52 = glmPresets[0].defaultModels.find(m => m.displayName === 'GLM-5.2');
+        const key = glm52?.capabilities?.effortNoteKey;
+        assert.ok(key, 'GLM-5.2 must explain the six-to-two collapse in the menu');
+        const enNote = en[key as keyof typeof en] as string;
+        const zhNote = zh[key as keyof typeof zh] as string;
+        assert.ok(enNote, `missing en string for ${key}`);
+        assert.ok(zhNote, `missing zh string for ${key}`);
+        // Both source tiers must be named, or the note under-promises the
+        // fold: `ultracode` was missing from both locales in the first cut
+        // while the code comment claimed six-to-two.
+        for (const note of [enNote, zhNote]) {
+          for (const tier of ['low', 'medium', 'high', 'xhigh', 'max', 'ultracode']) {
+            assert.ok(
+              note.includes(tier),
+              `mapping note omits the ${tier} tier — reads as a partial mapping: "${note}"`,
+            );
+          }
+        }
+      });
+
+      it('menu resolves to Auto + the two real tiers', () => {
+        const glm52 = glmPresets[0].defaultModels.find(m => m.displayName === 'GLM-5.2');
+        assert.deepEqual(
+          resolveEffortMenuLevels(glm52?.capabilities?.supportedEffortLevels),
+          ['auto', 'high', 'max'],
+        );
+      });
+
+      it('GLM-4.5-Air declares no effort capability → selector hides, not guesses', () => {
+        const air = glmPresets[0].defaultModels.find(m => m.displayName === 'GLM-4.5-Air');
+        assert.ok(air, 'GLM-4.5-Air row missing');
+        assert.equal(air.capabilities?.supportsEffort, undefined);
+        assert.equal(resolveEffortMenuLevels(air.capabilities?.supportedEffortLevels), null);
+      });
+    });
+
+    describe('Kimi for Coding', () => {
+      const kimi = VENDOR_PRESETS.find(p => p.key === 'kimi');
+
+      it('user-visible name is the channel, never the underlying version', () => {
+        assert.ok(kimi);
+        assert.equal(kimi.defaultModels.length, 1);
+        assert.equal(kimi.defaultModels[0].displayName, 'Kimi for Coding');
+      });
+
+      it('no K2.5 / K3 version string anywhere in the user-visible Kimi preset', () => {
+        assert.ok(kimi);
+        const visible = [kimi.name, kimi.description, kimi.descriptionZh, ...kimi.defaultModels.map(m => m.displayName)];
+        for (const text of visible) {
+          assert.ok(!/K2\.5|K3/i.test(text), `Kimi preset leaks an underlying version: "${text}"`);
+        }
+      });
+
+      it('does NOT add an explicit k3 row (vendor rolls the channel forward)', () => {
+        assert.ok(kimi);
+        assert.ok(!kimi.defaultModels.some(m => /k3/i.test(m.modelId) || /k3/i.test(m.upstreamModelId ?? '')));
+      });
+
+      it('requests go to the stable channel id, not the bare `sonnet` alias', () => {
+        assert.ok(kimi);
+        const row = kimi.defaultModels[0];
+        // The alias stays as the UI/DB id (existing rows + sessions point at
+        // it); upstreamModelId is what actually ships.
+        assert.equal(row.modelId, 'sonnet');
+        assert.equal(row.upstreamModelId, 'kimi-for-coding');
+      });
+
+      it('declares the documented low/high/max tiers without Claude-only pseudo-tiers', () => {
+        assert.ok(kimi);
+        const caps = kimi.defaultModels[0].capabilities;
+        assert.equal(caps?.supportsEffort, true);
+        assert.deepEqual(caps?.supportedEffortLevels, ['low', 'high', 'max']);
+      });
+
+      it('menu is Auto + Low/High/Max, and `auto` is never a declared vendor tier', () => {
+        assert.ok(kimi);
+        const caps = kimi.defaultModels[0].capabilities;
+        // Auto is CodePilot's "send nothing" option; if it ever leaked into
+        // the capability list it would be sent on the wire as effort=auto.
+        assert.ok(!(caps?.supportedEffortLevels as string[]).includes('auto'));
+        assert.deepEqual(resolveEffortMenuLevels(caps?.supportedEffortLevels), ['auto', 'low', 'high', 'max']);
+      });
+
+      it('the Auto distinction is explained in both locales', () => {
+        assert.ok(kimi);
+        const key = kimi.defaultModels[0].capabilities?.effortNoteKey;
+        assert.ok(key, 'Kimi must state that Auto is not a Kimi tier');
+        assert.ok(en[key as keyof typeof en], `missing en string for ${key}`);
+        assert.ok(zh[key as keyof typeof zh], `missing zh string for ${key}`);
+      });
+    });
+
+    describe('Moonshot — out of scope for the Kimi rename (Phase 1)', () => {
+      it('keeps its own name and K2.5 model row untouched', () => {
+        // Moonshot is a separate pay-as-you-go provider that sells the K2.5
+        // SKU by name. The `Kimi for Coding` channel abstraction is a Kimi
+        // Coding Plan product contract and does NOT apply here; renaming it
+        // would claim a channel Moonshot doesn't offer.
+        const moonshot = VENDOR_PRESETS.find(p => p.key === 'moonshot');
+        assert.ok(moonshot);
+        assert.equal(moonshot.name, 'Moonshot');
+        assert.equal(moonshot.baseUrl, 'https://api.moonshot.cn/anthropic');
+        assert.deepEqual(moonshot.defaultModels, [
+          { modelId: 'sonnet', displayName: 'Kimi K2.5', role: 'default' },
+        ]);
+      });
     });
 
     it('MiniMax presets use anthropic protocol', () => {

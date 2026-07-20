@@ -24,11 +24,22 @@ const SRC = path.resolve(path.dirname(new URL(import.meta.url).pathname), '../..
 const read = (f: string) => fs.readFileSync(path.join(SRC, f), 'utf8');
 
 describe('ENV_CLAUDE_CODE_MODELS — canonical content', () => {
-  it('ships the full alias set including opus-4-8 and fable-5', () => {
+  it('ships the full alias set including opus-4-8, fable-5 and sonnet-5', () => {
     const ids = new Set(ENV_CLAUDE_CODE_MODELS.map(m => m.modelId));
-    for (const expected of ['sonnet', 'opus', 'opus-4-8', 'fable-5', 'haiku']) {
+    for (const expected of ['sonnet', 'sonnet-5', 'opus', 'opus-4-8', 'fable-5', 'haiku']) {
       assert.ok(ids.has(expected), `env model list must contain ${expected}`);
     }
+  });
+
+  it('sonnet-5 maps to claude-sonnet-5 with full effort levels + adaptive thinking, no role', () => {
+    const s5 = ENV_CLAUDE_CODE_MODELS.find(m => m.modelId === 'sonnet-5')!;
+    assert.equal(s5.upstreamModelId, 'claude-sonnet-5');
+    assert.equal(s5.capabilities?.supportsEffort, true);
+    assert.deepEqual(s5.capabilities?.supportedEffortLevels,
+      ['low', 'medium', 'high', 'xhigh', 'max']);
+    assert.equal(s5.capabilities?.supportsAdaptiveThinking, true);
+    assert.equal('role' in s5 && s5.role !== undefined, false,
+      'sonnet-5 must not carry a role (no silent default switch off sonnet 4.6)');
   });
 
   it('fable-5 maps to claude-fable-5 with full effort levels + adaptive thinking', () => {
@@ -82,6 +93,16 @@ describe('/api/providers/models — env group serves the canonical list', () => 
     const opus48 = envGroup!.models.find(m => m.value === 'opus-4-8');
     assert.ok(opus48, 'env group must include opus-4-8');
     assert.equal(opus48!.upstreamModelId, 'claude-opus-4-8');
+
+    // sonnet-5 (model plan Phase 2) — flows through the same derived route.
+    const sonnet5 = envGroup!.models.find(m => m.value === 'sonnet-5');
+    assert.ok(sonnet5, 'env group must include sonnet-5');
+    assert.equal(sonnet5!.label, 'Sonnet 5');
+    assert.equal(sonnet5!.upstreamModelId, 'claude-sonnet-5');
+    assert.equal(sonnet5!.contextWindow, 1_000_000);
+    assert.equal(sonnet5!.supportsEffort, true);
+    assert.deepEqual(sonnet5!.supportedEffortLevels, ['low', 'medium', 'high', 'xhigh', 'max']);
+    assert.equal(sonnet5!.supportsAdaptiveThinking, true);
   });
 });
 

@@ -28,6 +28,12 @@ import {
   isLockOwner,
 } from '../db';
 import { createSessionLockSettler } from '../session-lock-settle';
+import {
+  normalizePermissionProfile,
+  resolveClaudeWireOptions,
+  resolveProfileAutoReviewSupport,
+} from '../permission/profile';
+import { isAutoReviewSupported } from '../permission/sdk-capability';
 import { evaluateRenewal } from '../session-lock-renewal';
 import { resolveProvider as resolveProviderUnified } from '../provider-resolver';
 import { getActiveChatRuntime } from '../chat-runtime';
@@ -197,11 +203,12 @@ export async function processMessage(
     // Same runtime gate as the main /api/chat route — bridge sessions go
     // through the same SDK / ai-sdk paths, so the default-model fallback
     // must respect the active runtime's compat constraints.
+    const activeRuntime = getActiveChatRuntime();
     const resolved = resolveProviderUnified({
       providerId: effectiveProviderId,
       model: binding.model || undefined,
       sessionModel: session?.model || undefined,
-      runtime: getActiveChatRuntime(),
+      runtime: activeRuntime,
     });
     const resolvedProvider = resolved.provider;
 
@@ -222,15 +229,25 @@ export async function processMessage(
     }
 
     // Permission mode from binding mode
-    let permissionMode: string;
-    switch (binding.mode) {
-      case 'plan': permissionMode = 'plan'; break;
-      case 'ask': permissionMode = 'default'; break;
-      default: permissionMode = 'acceptEdits'; break;
-    }
+    // Profile decides the floor (plan > bypass > auto reviewer > acceptEdits)
+    // through the same resolver the main chat route uses — bridge sessions
+    // must not grow their own interpretation of the three profiles.
+    const wire = resolveClaudeWireOptions({
+      profile: normalizePermissionProfile(session?.permission_profile),
+      effectiveMode: binding.mode === 'plan' ? 'plan' : 'code',
+      autoReviewSupported: resolveProfileAutoReviewSupport({
+        runtime: activeRuntime,
+        claudeSdkSupported: isAutoReviewSupported(),
+      }),
+    });
 
-    // Bypass permissions entirely when session has full_access profile
-    const bypassPermissions = session?.permission_profile === 'full_access';
+    // The binding's 'ask' mode is a separate axis: it asks for MORE
+    // confirmation than the profile's floor. It can tighten acceptEdits into
+    // 'default', but it never loosens a bypass and never overrides the
+    // reviewer — those are the profile's call.
+    const permissionMode: string =
+      binding.mode === 'ask' && wire.permissionMode === 'acceptEdits' ? 'default' : wire.permissionMode;
+    const bypassPermissions = wire.bypassPermissions;
 
     // Load conversation history for context
     const { messages: recentMsgs } = getMessages(sessionId, { limit: 50, excludeHeartbeatAck: true });

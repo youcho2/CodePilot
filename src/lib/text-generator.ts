@@ -1,8 +1,11 @@
 import { streamText } from 'ai';
 import { createModel } from './ai-provider';
+import type { ResolvedProvider } from './provider-resolver';
 
 export interface StreamTextParams {
   providerId: string;
+  /** Exact provider snapshot supplied by fail-closed background calls. */
+  resolvedProvider?: ResolvedProvider;
   model: string;
   system: string;
   prompt: string;
@@ -49,6 +52,7 @@ export async function* pumpTextStream(
 export async function* streamTextFromProvider(params: StreamTextParams): AsyncIterable<string> {
   const { languageModel } = createModel({
     providerId: params.providerId,
+    resolvedProvider: params.resolvedProvider,
     model: params.model,
   });
 

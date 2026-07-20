@@ -148,7 +148,12 @@ export interface CodexThreadStartParams {
 
 export interface CodexThreadStartResponse {
   thread: { id: string; status?: string; ephemeral?: boolean };
+  /** Effective reviewer echoed by current app-server builds. Optional here so
+   *  old/malformed responses can be detected and degraded rather than trusted. */
+  approvalsReviewer?: string;
 }
+
+export type CodexThreadResumeResponse = CodexThreadStartResponse;
 
 /**
  * A single Codex app-server `turn/start` input block. Wire format confirmed

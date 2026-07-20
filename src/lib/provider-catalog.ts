@@ -64,6 +64,15 @@ export interface CatalogModel {
     supportsEffort?: boolean;
     /** Allowed effort levels for this model (Opus 4.7 adds 'xhigh') */
     supportedEffortLevels?: ('low' | 'medium' | 'high' | 'xhigh' | 'max')[];
+    /**
+     * i18n key for a one-line note under the effort menu, used when the tier
+     * list alone would misread. Phase 1 (2026-07-17): GLM collapses Claude
+     * Code's six `/effort` tokens onto two real tiers, and Kimi's only vendor
+     * tier is `max` — in both cases the user needs to know what the shown
+     * tiers mean before picking one. Must resolve to an existing key in
+     * `src/i18n/en.ts` + `zh.ts`.
+     */
+    effortNoteKey?: string;
     /** Whether this model supports adaptive thinking */
     supportsAdaptiveThinking?: boolean;
   };
@@ -209,6 +218,10 @@ export const PresetSchema = z.object({
       vision: z.boolean().optional(),
       pdf: z.boolean().optional(),
       contextWindow: z.number().optional(),
+      supportsEffort: z.boolean().optional(),
+      supportedEffortLevels: z.array(z.enum(['low', 'medium', 'high', 'xhigh', 'max'])).optional(),
+      effortNoteKey: z.string().optional(),
+      supportsAdaptiveThinking: z.boolean().optional(),
     }).optional(),
   })),
   fields: z.array(z.string()),
@@ -358,6 +371,30 @@ const ANTHROPIC_FIRST_PARTY_MODELS: CatalogModel[] = [
     },
   },
   {
+    modelId: 'sonnet-5',
+    upstreamModelId: 'claude-sonnet-5',
+    displayName: 'Sonnet 5',
+    // No `role`: Sonnet 5 is an explicit pick, NOT the default `sonnet` role
+    // target (which stays claude-sonnet-4-6). Existing sessions pinned to
+    // Sonnet 4.6 must NOT auto-migrate — same pinned-default discipline as
+    // opus-4-8 / fable-5.
+    //
+    // Official contract (whats-new-sonnet-5 migration guide, verified
+    // 2026-07-17): adaptive thinking is the DEFAULT but — unlike Fable 5 —
+    // can be explicitly turned off with thinking:{type:'disabled'} (Fable 5
+    // 400s on that). Manual extended thinking ({enabled,budgetTokens}) is
+    // removed and 400s. Non-default temperature/top_p/top_k 400. effort
+    // low/medium/high(default)/xhigh/max. New tokenizer ⇒ same text ≈ +30%
+    // tokens vs 4.6. Wire handling lives in claude-model-options.ts +
+    // agent-loop.ts (effort now sent on native — @ai-sdk/anthropic 4.0.5
+    // ships GA output_config.effort, no deprecated beta header).
+    capabilities: {
+      supportsEffort: true,
+      supportedEffortLevels: ['low', 'medium', 'high', 'xhigh', 'max'],
+      supportsAdaptiveThinking: true,
+    },
+  },
+  {
     modelId: 'opus',
     upstreamModelId: 'claude-opus-4-7',
     displayName: 'Opus 4.7',
@@ -459,6 +496,57 @@ const BEDROCK_VERTEX_DEFAULT_MODELS: CatalogModel[] = [
       supportsEffort: true,
       supportedEffortLevels: ['low', 'medium', 'high'],
     },
+  },
+];
+
+/**
+ * GLM Coding Plan catalog — shared by the CN and Global presets (identical
+ * plan, different region endpoint). Phase 1 (2026-07-17).
+ *
+ * Effort: GLM's Claude Code adapter collapses the SIX `/effort` tokens onto
+ * TWO real tiers — low/medium/high → high, xhigh/max/ultracode → max
+ * (source: docs.bigmodel.cn/cn/guide/develop/claude, recorded in
+ * docs/research/foundation-experience-refresh-2026-07-17.md). So the honest
+ * menu is exactly `high` + `max`: offering five tiers would let the user pick
+ * `low` and pay for `high`, which is the fake-precision this plan exists to
+ * remove. `effortNoteKey` states the collapse in the menu so two tiers don't
+ * read as "GLM only has two speeds".
+ *
+ * Model rows: GLM-5.2 is the current Coding Plan generation (superseding the
+ * GLM-5-Turbo / GLM-5.1 pair this catalog used to list). Both the sonnet and
+ * opus role slots map to it (see defaultEnvOverrides), so it is listed ONCE —
+ * two rows both reading "GLM-5.2" would be two names for one model, i.e. the
+ * same fake differentiation in the model picker.
+ *
+ * Not verified without a real key (tracked in the plan's Smoke Ledger):
+ * whether the sonnet slot has its own distinct 5.2-generation turbo SKU, the
+ * `[1m]` long-context variant, and whether haiku still resolves to
+ * glm-4.5-air (left as-is — nothing in the baseline says it moved).
+ */
+const GLM_CODING_PLAN_MODELS: CatalogModel[] = [
+  {
+    modelId: 'sonnet',
+    // Self-referential upstream: GLM's gateway resolves the bare
+    // sonnet/opus/haiku aliases server-side, so the wire keeps sending the
+    // alias. Unchanged this round — retargeting GLM onto explicit SKU ids is
+    // a wire change no credential-less round should make.
+    upstreamModelId: 'sonnet',
+    displayName: 'GLM-5.2',
+    role: 'sonnet',
+    capabilities: {
+      supportsEffort: true,
+      supportedEffortLevels: ['high', 'max'],
+      effortNoteKey: 'messageInput.effort.note.glmTwoTier',
+    },
+  },
+  {
+    modelId: 'haiku',
+    upstreamModelId: 'haiku',
+    displayName: 'GLM-4.5-Air',
+    role: 'haiku',
+    // No effort capability declared: the baseline only attests the two-tier
+    // mapping for the coding models. Absent → the selector hides rather than
+    // guessing (see src/lib/effort-levels.ts).
   },
 ];
 
@@ -564,12 +652,8 @@ export const VENDOR_PRESETS: VendorPreset[] = [
     protocol: 'anthropic',
     authStyle: 'auth_token',
     baseUrl: 'https://open.bigmodel.cn/api/anthropic',
-    defaultEnvOverrides: { API_TIMEOUT_MS: '3000000', ANTHROPIC_DEFAULT_HAIKU_MODEL: 'glm-4.5-air', ANTHROPIC_DEFAULT_SONNET_MODEL: 'glm-5-turbo', ANTHROPIC_DEFAULT_OPUS_MODEL: 'glm-5.1' },
-    defaultModels: [
-      { modelId: 'sonnet', upstreamModelId: 'sonnet', displayName: 'GLM-5-Turbo', role: 'sonnet' },
-      { modelId: 'opus', upstreamModelId: 'opus', displayName: 'GLM-5.1', role: 'opus' },
-      { modelId: 'haiku', upstreamModelId: 'haiku', displayName: 'GLM-4.5-Air', role: 'haiku' },
-    ],
+    defaultEnvOverrides: { API_TIMEOUT_MS: '3000000', ANTHROPIC_DEFAULT_HAIKU_MODEL: 'glm-4.5-air', ANTHROPIC_DEFAULT_SONNET_MODEL: 'glm-5.2', ANTHROPIC_DEFAULT_OPUS_MODEL: 'glm-5.2' },
+    defaultModels: GLM_CODING_PLAN_MODELS,
     fields: ['api_key'],
     iconKey: 'zhipu',
     sdkProxyOnly: true,
@@ -591,12 +675,8 @@ export const VENDOR_PRESETS: VendorPreset[] = [
     protocol: 'anthropic',
     authStyle: 'auth_token',
     baseUrl: 'https://api.z.ai/api/anthropic',
-    defaultEnvOverrides: { API_TIMEOUT_MS: '3000000', ANTHROPIC_DEFAULT_HAIKU_MODEL: 'glm-4.5-air', ANTHROPIC_DEFAULT_SONNET_MODEL: 'glm-5-turbo', ANTHROPIC_DEFAULT_OPUS_MODEL: 'glm-5.1' },
-    defaultModels: [
-      { modelId: 'sonnet', upstreamModelId: 'sonnet', displayName: 'GLM-5-Turbo', role: 'sonnet' },
-      { modelId: 'opus', upstreamModelId: 'opus', displayName: 'GLM-5.1', role: 'opus' },
-      { modelId: 'haiku', upstreamModelId: 'haiku', displayName: 'GLM-4.5-Air', role: 'haiku' },
-    ],
+    defaultEnvOverrides: { API_TIMEOUT_MS: '3000000', ANTHROPIC_DEFAULT_HAIKU_MODEL: 'glm-4.5-air', ANTHROPIC_DEFAULT_SONNET_MODEL: 'glm-5.2', ANTHROPIC_DEFAULT_OPUS_MODEL: 'glm-5.2' },
+    defaultModels: GLM_CODING_PLAN_MODELS,
     fields: ['api_key'],
     iconKey: 'zhipu',
     sdkProxyOnly: true,
@@ -619,8 +699,40 @@ export const VENDOR_PRESETS: VendorPreset[] = [
     authStyle: 'api_key',
     baseUrl: 'https://api.kimi.com/coding/',
     defaultEnvOverrides: { ENABLE_TOOL_SEARCH: 'false' },
+    // Phase 1 (2026-07-17, reaffirmed 2026-07-19) — `Kimi for Coding` is the
+    // product/channel the user picks. The vendor also publishes versioned IDs
+    // such as `k3`; they are NOT aliases we can infer from this display name.
+    // Per the product decision, CodePilot sends the channel's own documented
+    // `kimi-for-coding` wire ID and deliberately keeps the backing/version name
+    // out of the UI. No explicit `k3` row is added and no K3 compatibility
+    // branch is needed when the channel's backing implementation changes.
     defaultModels: [
-      { modelId: 'sonnet', displayName: 'Kimi K2.5', role: 'default' },
+      {
+        // `sonnet` is a legacy UI/DB alias, NOT a Kimi model: existing
+        // providers have a provider_models row and sessions pinned to this
+        // id, so renaming it would strand them. It stays the id; the wire
+        // truth is upstreamModelId.
+        modelId: 'sonnet',
+        // Explicit upstream so the request carries the product channel's own
+        // wire id — never a version id inferred from the display name.
+        // Previously absent, which left resolveProvider falling through to
+        // its single-model alias fallback (provider-resolver.ts:~590) and
+        // shipping the bare string `sonnet` to Kimi.
+        upstreamModelId: 'kimi-for-coding',
+        displayName: 'Kimi for Coding',
+        role: 'default',
+        capabilities: {
+          supportsEffort: true,
+          // Kimi's 2026-07-16 K3 release notes document low/high/max for the
+          // model currently served by Kimi Code. Keep the product/channel name
+          // stable in the UI while exposing the channel's current effort
+          // contract. `auto` remains CodePilot's own
+          // "send no effort at all" option (src/lib/effort-levels.ts), not a
+          // Kimi tier; the note key makes that distinction explicit.
+          supportedEffortLevels: ['low', 'high', 'max'],
+          effortNoteKey: 'messageInput.effort.note.kimiAuto',
+        },
+      },
     ],
     fields: ['api_key'],
     iconKey: 'kimi',
@@ -947,7 +1059,7 @@ export const VENDOR_PRESETS: VendorPreset[] = [
   // value sent to the API, so modelId == upstream (no alias). The Cline API
   // is a multi-provider aggregator; its `/v1/models` returns far more than the
   // ClinePass whitelist AND needs a key, so discovery is `catalog_only`:
-  // ship the 10-model whitelist as truth, no refresh / no search-and-add.
+  // ship the 11-model whitelist as truth, no refresh / no search-and-add.
   // NOT sdkProxyOnly — OpenAI-compatible reaches CodePilot + Codex runtimes
   // via the AI SDK chat path, never the Claude Code subprocess.
   {
@@ -959,11 +1071,16 @@ export const VENDOR_PRESETS: VendorPreset[] = [
     authStyle: 'api_key',
     baseUrl: 'https://api.cline.bot/api/v1',
     defaultEnvOverrides: {},
-    // ClinePass whitelist — https://docs.cline.bot/getting-started/clinepass
-    // (verified 2026-06-30). The cline-pass/ prefix is part of the model id
-    // sent to /chat/completions, so no upstreamModelId alias is needed.
+    // ClinePass whitelist — https://cline.bot/models plus the Cline API model
+    // id contract at https://docs.cline.bot/api/models. Kimi K3 was added
+    // 2026-07-20 from the current product lineup; the public static model
+    // directory still lagged that rollout, so its exact cline-pass/kimi-k3 id
+    // is pinned by the provider/model-name contract and a real-key smoke.
+    // The cline-pass/ prefix is part of the model id sent to
+    // /chat/completions, so no upstreamModelId alias is needed.
     defaultModels: [
       { modelId: 'cline-pass/glm-5.2', displayName: 'GLM-5.2', capabilities: { toolUse: true } },
+      { modelId: 'cline-pass/kimi-k3', displayName: 'Kimi K3', capabilities: { toolUse: true } },
       { modelId: 'cline-pass/kimi-k2.7-code', displayName: 'Kimi K2.7 Code', capabilities: { toolUse: true } },
       { modelId: 'cline-pass/kimi-k2.6', displayName: 'Kimi K2.6', capabilities: { toolUse: true } },
       { modelId: 'cline-pass/deepseek-v4-pro', displayName: 'DeepSeek V4 Pro', capabilities: { toolUse: true } },
@@ -1003,10 +1120,11 @@ export const VENDOR_PRESETS: VendorPreset[] = [
     baseUrl: 'https://opencode.ai/zen/go/v1',
     defaultEnvOverrides: {},
     // OpenAI-compatible half of the official endpoint table —
-    // https://opencode.ai/docs/zh-cn/go/ (verified 2026-06-30).
+    // https://dev.opencode.ai/docs/go/ (verified 2026-07-20).
     defaultModels: [
       { modelId: 'glm-5.2', displayName: 'GLM-5.2', capabilities: { toolUse: true } },
       { modelId: 'glm-5.1', displayName: 'GLM-5.1', capabilities: { toolUse: true } },
+      { modelId: 'kimi-k3', displayName: 'Kimi K3', capabilities: { toolUse: true } },
       { modelId: 'kimi-k2.7-code', displayName: 'Kimi K2.7 Code', capabilities: { toolUse: true } },
       { modelId: 'kimi-k2.6', displayName: 'Kimi K2.6', capabilities: { toolUse: true } },
       { modelId: 'deepseek-v4-pro', displayName: 'DeepSeek V4 Pro', capabilities: { toolUse: true } },

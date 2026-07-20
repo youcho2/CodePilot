@@ -1,8 +1,10 @@
 import { NextRequest } from 'next/server';
 import { deleteSession, getSession, updateSessionWorkingDirectory, updateSessionTitle, updateSessionMode, updateSessionModel, updateSessionProviderId, clearSessionMessages, updateSdkSessionId, updateSessionPermissionProfile, updateSessionRuntime } from '@/lib/db';
+import { sanitizeManualTitle } from '@/lib/conversation-title';
 import { autoApprovePendingForSession } from '@/lib/bridge/permission-broker';
 import { clearRuntimeSessionRef } from '@/lib/runtime/session-store';
 import { isRuntimeId, RUNTIME_IDS } from '@/lib/runtime/runtime-id';
+import { isPermissionProfile, normalizePermissionProfile, PERMISSION_PROFILES } from '@/lib/permission/profile';
 
 export async function GET(
   _request: NextRequest,
@@ -37,8 +39,28 @@ export async function PATCH(
     if (body.working_directory) {
       updateSessionWorkingDirectory(id, body.working_directory);
     }
-    if (body.title) {
-      updateSessionTitle(id, body.title);
+    // Rename. `if (body.title)` used to be the whole validation, so a title of
+    // "   " or a lone NUL byte was stored verbatim and rendered as a blank sidebar
+    // row the user couldn't tell apart from a bug. Validate + canonicalize
+    // through the shared pure function, and reject rather than silently
+    // storing junk. `undefined` still means "not renaming in this PATCH".
+    if (body.title !== undefined) {
+      const result = sanitizeManualTitle(body.title);
+      if (!result.ok) {
+        return Response.json({ error: result.error }, { status: 400 });
+      }
+      // origin 'manual' with no expectOrigin: the user is explicitly naming
+      // this chat, which outranks every automatic writer from now on.
+      updateSessionTitle(id, result.title, 'manual');
+
+      // Keep an existing Codex thread label aligned with CodePilot's canonical
+      // title. Fire-and-forget so an unavailable/old app-server can never make
+      // the local rename spinner wait for its 30s RPC timeout.
+      if (session.codex_thread_id) {
+        import('@/lib/codex/thread-name')
+          .then(({ syncCodexThreadName }) => syncCodexThreadName(id, result.title))
+          .catch(() => { /* local manual rename already succeeded */ });
+      }
     }
     if (body.mode) {
       updateSessionMode(id, body.mode);
@@ -125,11 +147,19 @@ export async function PATCH(
       clearRuntimeSessionRef(id, 'claude_code');
     }
     if (body.permission_profile !== undefined) {
-      if (body.permission_profile !== 'default' && body.permission_profile !== 'full_access') {
-        return Response.json({ error: 'permission_profile must be "default" or "full_access"' }, { status: 400 });
+      if (!isPermissionProfile(body.permission_profile)) {
+        return Response.json(
+          { error: `permission_profile must be one of: ${PERMISSION_PROFILES.join(', ')}` },
+          { status: 400 },
+        );
       }
-      // When switching to full_access, auto-approve any pending bridge permissions
-      const previousProfile = session.permission_profile || 'default';
+      // A profile change only governs requests made AFTER it lands — an
+      // in-flight prompt keeps the semantics it was raised under. The one
+      // exception is the deliberate full_access elevation below: the user
+      // asked for "stop asking me", and the request they're staring at is
+      // the one they meant. Switching to/from auto_review resolves nothing —
+      // the pending prompt stays a human decision.
+      const previousProfile = normalizePermissionProfile(session.permission_profile);
       updateSessionPermissionProfile(id, body.permission_profile);
       if (previousProfile !== 'full_access' && body.permission_profile === 'full_access') {
         try {

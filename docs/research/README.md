@@ -8,6 +8,8 @@
 
 | 文件 | 主题 |
 |------|------|
+| multi-agent-loop-review-process-audit-2026-07-20.md | **loop review 过程独立审计（Claude）**：基于连续六次实现/复审运行的裁决原文与 57 commit 流所作的机制层补充——6 分钟审查轮排除 layer 4/5、deferral 无载体致「待 smoke」蒸发、账本对账吃掉双位数预算、「机械轮」蚕食人类闸门、required checks 出自共享计划、范围缩减散文化洗白（reward hacking 定性 + 5 处实证）、僵尸运行记录；给出映射复盘门禁 A–E 的 7 条可执行补丁 |
+| multi-agent-loop-acceptance-failure-2026-07-19.md | **多 Agent loop 验收失效复盘**：53 个提交仍未通过用户路径的根因；定位共享错误计划、低层级 required checks、待 smoke 被误报完成、父任务无总门与延期未回问；给出 U1–U8 不可变验收矩阵和证据阶梯 |
 | sentry-post-refactor-audit-2026-07-05.md | **Sentry 重构后有效性审计 + 后台新问题**:检测整体仍生效;已核实盲区=`reportNativeError` 对 `EMPTY_RESPONSE`/`TIMEOUT_*` 是 no-op(`error-classifier.ts` 集合未含);后台新问题 `AI_MissingToolResultsError` 佐证 audit #49 吞 tool-error。标注了已核实/待 Codex 复核 |
 | competitor-runtime-security-solutions-2026-07-04.md | **竞品对 CodePilot 其他问题的更优解法**(OpenCode/Codex/CraftAgent 最新版):覆盖 stop/abort+turn 所有权、排队消息、新会话导航、工具错误、密钥加密、Electron 安全、崩溃恢复、能力建模。横向根因=会话级状态放进了会重挂载的组件本地;三家都上提到会话级 store/后端真相。CraftAgent 多数同栈可整段搬。承接 audit 文档非滚动/性能部分 |
 | competitor-chat-scroll-perf-2026-07-04.md | **竞品聊天滚动/流式性能对照**(OpenCode/Codex/CraftAgent 最新版):三家均不用朴素全量渲染、均把 token 到达与渲染解耦、初次进会话均瞬时定位。提炼可迁移结论:优先 `@tanstack/react-virtual`(与 OpenCode 共享 virtual-core)、Worker 卸载 shiki 高亮(OpenCode 零 Solid 依赖可近乎逐字复制)、300ms/24ms 流式节流、初始滚动改瞬时。支撑 audit 文档 §4.2/§4.3 |
@@ -52,4 +54,4 @@
 | phase-7e-issue-cleanup-2026-06-29.md | **[v0.56.x Phase 7E 执行记录 — 线上已操作]** 旧 issue 人工/半自动清理的逐批 gh 操作记录(关闭 / parking-lot / 复核)。Batch 1（最旧 30 无标签超旧 #27–#131）：关 20（not planned，**经用户授权只 close 不评论**）+ park 4 + 留复核 6；open 396→376。含 cohort 分析（超旧 220 拆解）、运行总计、累积待复核清单。每批追加 |
 | ai-sdk-7-runtime-adoption-2026-06-29.md | **AI SDK 7 Runtime 采用调研**：结论是不直接替换 CodePilot Runtime；Native Runtime 可逐步吸收 ToolLoopAgent / v7 Core，Codex/Claude Harness 暂只做 POC；P0 先做 Node 22 + 依赖升级 spike，P1 验证 reasoning/effort request shape、ToolLoopAgent SSE parity、`@ai-sdk/mcp` adapter |
 | foundation-experience-refresh-2026-07-17.md | **基础体验更新事实基线**：核验 GLM-5.2 / Kimi for Coding / GPT-5.6 / Claude Sonnet 5 与推理强度；定位 Codex `reasoningEffort` schema drift、跨 Runtime auto-review 权限语义、现有三条 50 字标题截断链路；已按 2026-07-17 审查裁决修订（Kimi Auto 语义 / Native effort 丢弃 / permissions response 形状） |
-| clinepass-opencode-go-integration-2026-06-30.md | **ClinePass / OpenCode Go 接入调研**：ClinePass 走 OpenAI-compatible `cline-pass/*`; OpenCode Go 必须拆成 OpenAI-compatible 与 Anthropic Messages 两个 preset；初版建议 catalog-only，避免混合 `/models` 自动写库污染协议路由 |
+| clinepass-opencode-go-integration-2026-06-30.md | **ClinePass / OpenCode Go 接入调研**：ClinePass 走 OpenAI-compatible `cline-pass/*`; OpenCode Go 必须拆成 OpenAI-compatible 与 Anthropic Messages 两个 preset；初版建议 catalog-only，避免混合 `/models` 自动写库污染协议路由；2026-07-20 补 Kimi K3 精确 ID、官方来源与 ClinePass 真实 wire 证据 |

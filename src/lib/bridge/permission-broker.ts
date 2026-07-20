@@ -15,6 +15,7 @@ import type { BaseChannelAdapter } from './channel-adapter';
 import { deliver } from './delivery-layer';
 import { insertPermissionLink, getPermissionLink, markPermissionLinkResolved, getSession, getDb } from '../db';
 import { resolvePendingPermission } from '../permission-registry';
+import { getHumanOnlyCategory, normalizePermissionProfile } from '../permission/profile';
 import { escapeHtml } from './adapters/telegram-utils';
 
 /**
@@ -150,15 +151,29 @@ export async function forwardPermissionRequest(
     return;
   }
 
-  // Check if this session uses full_access permission profile — auto-approve without IM notification
-  // Note: AskUserQuestion still needs the user to pick an option, so we don't auto-approve it even
-  // under full_access (the user's choice carries semantic meaning, not just consent).
-  if (sessionId && toolName !== 'AskUserQuestion') {
-    const session = getSession(sessionId);
-    if (session?.permission_profile === 'full_access') {
+  // full_access auto-approves without an IM round-trip. Two profiles do NOT
+  // land here:
+  //
+  //   - `default` — forwards to the human, as always.
+  //   - `auto_review` — anything that reaches this broker has ALREADY been
+  //     escalated past the Runtime's own reviewer, so "the reviewer will
+  //     handle it" is exactly wrong. It forwards to the human too. Treating
+  //     auto_review as an elevated bucket here would silently turn "review
+  //     on my behalf" into "allow on my behalf".
+  //
+  // Human-only tools (AskUserQuestion, credential, billing, publish,
+  // shell-level impact) are never auto-approved under ANY profile — the
+  // user's choice carries semantic meaning, not just consent.
+  if (sessionId) {
+    const humanOnly = getHumanOnlyCategory(toolName);
+    const profile = normalizePermissionProfile(getSession(sessionId)?.permission_profile);
+    if (profile === 'full_access' && !humanOnly) {
       console.log(`[bridge] Auto-approved permission ${permissionRequestId} (tool=${toolName}) due to full_access profile`);
       resolvePendingPermission(permissionRequestId, { behavior: 'allow' });
       return;
+    }
+    if (profile === 'full_access' && humanOnly) {
+      console.log(`[bridge] Forwarding ${permissionRequestId} (tool=${toolName}) to the user despite full_access — human-only category: ${humanOnly}`);
     }
   }
 
@@ -479,11 +494,18 @@ export function autoApprovePendingForSession(sessionId: string): number {
   const db = getDb();
 
   const pendingRows = db.prepare(
-    "SELECT id FROM permission_requests WHERE session_id = ? AND status = 'pending'"
-  ).all(sessionId) as { id: string }[];
+    "SELECT id, tool_name FROM permission_requests WHERE session_id = ? AND status = 'pending'"
+  ).all(sessionId) as { id: string; tool_name: string }[];
 
   let resolved = 0;
   for (const row of pendingRows) {
+    // Elevating to full_access does not retroactively answer a human-only
+    // prompt — those keep waiting for the user.
+    const humanOnly = getHumanOnlyCategory(row.tool_name);
+    if (humanOnly) {
+      console.log(`[bridge] Left pending permission ${row.id} (tool=${row.tool_name}) for the user — human-only category: ${humanOnly}`);
+      continue;
+    }
     const ok = resolvePendingPermission(row.id, { behavior: 'allow' });
     if (ok) {
       resolved++;

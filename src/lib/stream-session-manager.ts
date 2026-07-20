@@ -13,6 +13,7 @@
 import { consumeSSEStream } from '@/hooks/useSSEStream';
 import { transferPendingToMessage } from '@/lib/image-ref-store';
 import { dispatchFileChanged } from '@/lib/file-changed-event';
+import { refreshSessionTitle } from '@/lib/session-title-events';
 import {
   extractWritePath,
   isWriteTool,
@@ -126,6 +127,8 @@ const LISTENERS_KEY = '__streamSessionListeners__' as const;
 const STREAM_IDLE_PRE_FIRST_TOKEN_MS = 600_000; // 10min — waiting for first model output
 const STREAM_IDLE_POST_FIRST_TOKEN_MS = 330_000; // 5.5min — mid-stream silence (unchanged)
 const GC_DELAY_MS = 5 * 60 * 1000; // 5 minutes
+/** Bound on retained auto-review notices per turn — keeps the recent tail. */
+const MAX_REVIEW_NOTICES = 20;
 // stopStream: how long to wait for a graceful interrupt before force-aborting.
 // The force-abort is scheduled UNCONDITIONALLY (not behind the interrupt
 // request's .finally) so a hung /api/chat/interrupt can't strand the stream in
@@ -273,6 +276,9 @@ function buildSnapshot(stream: ActiveStream): SessionStreamSnapshot {
     statusText: stream.snapshot.statusText,
     pendingPermission: stream.snapshot.pendingPermission,
     permissionResolved: stream.snapshot.permissionResolved,
+    // Carried through: emit() replaces the snapshot wholesale, so anything
+    // not rebuilt here is dropped on the next event.
+    reviewNotices: stream.snapshot.reviewNotices,
     tokenUsage: stream.snapshot.tokenUsage,
     startedAt: stream.snapshot.startedAt,
     completedAt: stream.snapshot.completedAt,
@@ -363,6 +369,7 @@ export function startStream(params: StartStreamParams): void {
       statusText: undefined,
       pendingPermission: null,
       permissionResolved: null,
+      reviewNotices: [],
       tokenUsage: null,
       startedAt: Date.now(),
       completedAt: null,
@@ -515,6 +522,16 @@ async function runStream(stream: ActiveStream, params: StartStreamParams): Promi
       const e = new Error(err?.error || 'Failed to send message');
       if (err?.code) (e as Error & { code?: string }).code = err.code;
       throw e;
+    }
+
+    // Accepted — the route has already persisted the user message and, if this
+    // was the session's first real message, committed the fallback title.
+    // Pull it back so the top bar / sidebar update now rather than on the
+    // sidebar's 5s poll. autoTrigger turns are skipped: they never write a
+    // title, so a GET would be pure noise. Fire-and-forget — this is cosmetic
+    // and must not touch the snapshot lifecycle below.
+    if (!params.autoTrigger) {
+      void refreshSessionTitle(params.sessionId);
     }
 
     const reader = response.body?.getReader();
@@ -715,6 +732,19 @@ async function runStream(stream: ActiveStream, params: StartStreamParams): Promi
             emit(stream, 'snapshot-updated');
           }
         }, 6000);
+      },
+      onPermissionReview: (notice) => {
+        // A decision made for the user, with no prompt to close. Appended to
+        // its own list rather than folded into permissionResolved: that field
+        // answers "what happened to the question you were asked", and this
+        // never was one. Keep the tail bounded — a long auto_review turn can
+        // produce many, and the useful ones are the recent ones.
+        markActive();
+        stream.snapshot = {
+          ...stream.snapshot,
+          reviewNotices: [...stream.snapshot.reviewNotices, notice].slice(-MAX_REVIEW_NOTICES),
+        };
+        emit(stream, 'snapshot-updated');
       },
       onToolTimeout: (toolName, elapsedSeconds) => {
         markActive();
@@ -1279,6 +1309,7 @@ export function seedSnapshotPatch(
       statusText: undefined,
       pendingPermission: null,
       permissionResolved: null,
+      reviewNotices: [],
       tokenUsage: null,
       startedAt: Date.now(),
       completedAt: Date.now(),

@@ -307,8 +307,8 @@ const ERROR_PATTERNS: ErrorPattern[] = [
   // ── Network unreachable ──
   {
     category: 'NETWORK_UNREACHABLE',
-    patterns: ['ECONNREFUSED', 'ECONNRESET', 'ETIMEDOUT', 'fetch failed', 'network error', 'DNS', 'ENOTFOUND'],
-    codes: ['ECONNREFUSED', 'ECONNRESET', 'ETIMEDOUT', 'ENOTFOUND'],
+    patterns: ['ECONNREFUSED', 'ECONNRESET', 'ETIMEDOUT', 'fetch failed', 'network error', 'DNS', 'ENOTFOUND', 'EAI_AGAIN'],
+    codes: ['ECONNREFUSED', 'ECONNRESET', 'ETIMEDOUT', 'ENOTFOUND', 'EAI_AGAIN'],
     userMessage: (ctx) => `Cannot connect to API endpoint${ctx.baseUrl ? ` (${ctx.baseUrl})` : ''}.`,
     actionHint: () => 'Check your network connection and the Base URL in provider settings.',
     retryable: true,

@@ -2,6 +2,13 @@
 // Database Models
 // ==========================================
 
+import type { TitleOrigin } from '@/lib/conversation-title';
+import type { SessionPermissionProfile } from '@/lib/permission/profile';
+import type { PermissionReviewNotice } from '@/lib/permission/review-event';
+
+export type { TitleOrigin };
+export type { SessionPermissionProfile };
+
 /**
  * Phase 3 Step 4 — chat session origin. Default `'user'` for normal
  * user-opened conversations; `'task'` for sessions created by the
@@ -17,6 +24,13 @@ export type ChatSessionSource = 'user' | 'task';
 export interface ChatSession {
   id: string;
   title: string;
+  /**
+   * Provenance of `title` — who wrote it and therefore who may overwrite it.
+   * See `TitleOrigin` in `src/lib/conversation-title.ts` for the state machine;
+   * `src/lib/db.ts#updateSessionTitle` is the only writer. Optional here because
+   * rows read back from a pre-migration DB snapshot may predate the column.
+   */
+  title_origin?: TitleOrigin;
   created_at: string;
   updated_at: string;
   model: string;
@@ -73,7 +87,7 @@ export interface ChatSession {
   runtime_status: string;
   runtime_updated_at: string;
   runtime_error: string;
-  permission_profile?: 'default' | 'full_access';
+  permission_profile?: SessionPermissionProfile;
   context_summary?: string;
   context_summary_updated_at?: string;
 }
@@ -336,6 +350,8 @@ export interface ProviderModelGroup {
     description?: string;
     supportsEffort?: boolean;
     supportedEffortLevels?: string[];
+    /** i18n key for the effort menu's mapping note (see CatalogModel.capabilities). */
+    effortNoteKey?: string;
     supportsAdaptiveThinking?: boolean;
     capabilities?: Record<string, unknown>;
     variants?: Record<string, unknown>;
@@ -719,6 +735,28 @@ export interface TokenUsage {
    * proxy returns its upstream model id).
    */
   usage_model_id?: string;
+  /**
+   * Measured Claude Code turn latency. Persisted from Claude Agent SDK events
+   * and result fields; absent for older rows and other runtimes. Values that
+   * the SDK did not report stay absent rather than being displayed as fake 0s.
+   */
+  runtime_latency?: {
+    source: 'claude-agent-sdk';
+    /** SDK `SDKPartialAssistantMessage.ttft_ms`. */
+    ttft_ms?: number;
+    /** SDK result duration (whole SDK query). */
+    duration_ms?: number;
+    /** SDK result upstream API duration. */
+    duration_api_ms?: number;
+    /** CodePilot wall clock from stream start through the result. */
+    wall_ms?: number;
+    /** Number of real SDK `api_retry` events observed. */
+    api_retry_count: number;
+    /** SDK result subtype, e.g. success / error_during_execution. */
+    terminal_type: string;
+    resume_attempted: boolean;
+    resume_fallback: boolean;
+  };
 }
 
 // ==========================================
@@ -732,7 +770,7 @@ export interface CreateSessionRequest {
   working_directory?: string;
   mode?: string;
   provider_id?: string;
-  permission_profile?: string;
+  permission_profile?: SessionPermissionProfile;
 }
 
 export interface SendMessageRequest {
@@ -926,6 +964,11 @@ export type SSEEventType =
   | 'error'              // error occurred
   | 'permission_request' // permission approval needed
   | 'permission_resolved' // permission auto-resolved server-side (timeout) — A5 Step 2
+  | 'permission_review'  // canonical review decision made WITHOUT a prompt —
+                         // currently the auto_review classifier denying a tool
+                         // (reviewerSource: 'sdk-reviewer'). Distinct from
+                         // permission_resolved, which closes a prompt the user
+                         // was actually shown. See lib/permission/review-event.ts.
   | 'mode_changed'       // SDK permission mode changed (e.g. plan → code)
   | 'task_update'        // SDK TodoWrite task sync
   | 'keep_alive'         // SDK keep-alive heartbeat (resets idle timer)
@@ -1458,6 +1501,14 @@ export interface SessionStreamSnapshot {
   // 5-minute window (codebase-health A5 Step 2). Rendered distinctly from a
   // manual 'deny' so the user knows they didn't click it.
   permissionResolved: 'allow' | 'deny' | 'timeout' | null;
+  /**
+   * Review decisions made without prompting the user — today, the auto_review
+   * classifier denying a tool. Distinct from `pendingPermission` (a question
+   * for the user) and `permissionResolved` (the answer to one). Carries
+   * `reviewerSource` so the UI can say who decided. See
+   * lib/permission/review-event.ts.
+   */
+  reviewNotices: PermissionReviewNotice[];
   tokenUsage: TokenUsage | null;
   startedAt: number;
   completedAt: number | null;
@@ -1577,6 +1628,16 @@ export interface ClaudeStreamOptions {
   thinking?: { type: 'adaptive' } | { type: 'enabled'; budgetTokens?: number } | { type: 'disabled' };
   /** Effort level for the query (Opus 4.7 adds 'xhigh') */
   effort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max';
+  /**
+   * Sampling params for the query. Threaded into the shared sanitizer so the
+   * adaptive family's "non-default temperature/top_p/top_k returns 400"
+   * contract is enforced on the REAL request, and any drop is announced
+   * (Codex review P2, 2026-07-18). No UI surface populates these today, so
+   * live behavior is unchanged; see the AgentLoopOptions counterpart.
+   */
+  temperature?: number;
+  topP?: number;
+  topK?: number;
   /** Output format for structured responses */
   outputFormat?: { type: 'json_schema'; schema: Record<string, unknown> };
   /** Custom agent definitions */

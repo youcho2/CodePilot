@@ -13,8 +13,22 @@ import {
 } from '@/lib/runtime-compat';
 import { isChatRuntimeParam, resolveChatRuntimeParam, type ChatRuntime } from '@/lib/chat-runtime';
 
-// OpenAI models available through ChatGPT Plus/Pro OAuth (Codex API)
-// Reasoning effort defaults to 'medium' server-side (not user-configurable)
+// OpenAI models reachable through the legacy ChatGPT Plus/Pro OAuth login
+// (`openai-oauth`, compat: codepilot_only).
+//
+// NOT the same thing as the `codex_account` group built by
+// `@/lib/codex/models` further down (Phase 0, 2026-07-17):
+//   - openai-oauth  — this STATIC, hand-maintained list. Reasoning effort is
+//     fixed to 'medium' server-side and is NOT user-configurable, so these
+//     entries deliberately carry no effort capability metadata and the
+//     composer's effort selector stays hidden for them.
+//   - codex_account — DYNAMIC, sourced from the Codex app-server's
+//     `model/list`, per-model effort tiers, runtime `codex_runtime`.
+//
+// Because this list is static it necessarily LAGS upstream. Do not hand-add
+// models (e.g. GPT-5.6) to make the picker look current: an entry here is a
+// claim that THIS OAuth path can serve that model, which nothing verifies.
+// New Codex models must arrive through the codex_account group instead.
 const OPENAI_OAUTH_MODELS = [
   { value: 'gpt-5.5', label: 'GPT-5.5' },
   { value: 'gpt-5.4', label: 'GPT-5.4' },
@@ -54,8 +68,105 @@ interface ModelEntry {
   value: string;
   label: string;
   upstreamModelId?: string;
+  supportsEffort?: boolean;
+  supportedEffortLevels?: string[];
+  effortNoteKey?: string;
+  supportsAdaptiveThinking?: boolean;
   capabilities?: Record<string, unknown>;
   variants?: Record<string, unknown>;
+}
+
+interface DbModelEntry extends ModelEntry {
+  /** True only for an untouched row originally materialized from the catalog. */
+  catalogManaged: boolean;
+}
+
+/**
+ * The composer consumes effort fields at the model row's top level, while
+ * DB/catalog/Codex sources may carry them under `capabilities`. Normalize at
+ * the final API boundary so virtual groups added after the DB-provider loop
+ * (notably `codex_account`) cannot silently miss the selector contract.
+ */
+export function normalizeModelCapabilitySurface(model: ModelEntry): ModelEntry {
+  const caps = model.capabilities ?? {};
+  const {
+    supportsEffort: directSupportsEffort,
+    supportedEffortLevels: directEffortLevels,
+    effortNoteKey: directEffortNoteKey,
+    supportsAdaptiveThinking: directAdaptiveThinking,
+    ...base
+  } = model;
+  const supportsEffort = typeof directSupportsEffort === 'boolean'
+    ? directSupportsEffort
+    : typeof caps.supportsEffort === 'boolean'
+      ? caps.supportsEffort
+      : undefined;
+  const supportedEffortLevels = Array.isArray(directEffortLevels)
+    && directEffortLevels.every((level): level is string => typeof level === 'string')
+    ? directEffortLevels
+    : Array.isArray(caps.supportedEffortLevels)
+        && caps.supportedEffortLevels.every((level): level is string => typeof level === 'string')
+      ? caps.supportedEffortLevels
+      : undefined;
+  const effortNoteKey = typeof directEffortNoteKey === 'string'
+    ? directEffortNoteKey
+    : typeof caps.effortNoteKey === 'string'
+      ? caps.effortNoteKey
+      : undefined;
+  const supportsAdaptiveThinking = typeof directAdaptiveThinking === 'boolean'
+    ? directAdaptiveThinking
+    : typeof caps.supportsAdaptiveThinking === 'boolean'
+      ? caps.supportsAdaptiveThinking
+      : undefined;
+  return {
+    ...base,
+    ...(supportsEffort !== undefined ? { supportsEffort } : {}),
+    ...(supportedEffortLevels !== undefined ? { supportedEffortLevels } : {}),
+    ...(effortNoteKey !== undefined ? { effortNoteKey } : {}),
+    ...(supportsAdaptiveThinking !== undefined ? { supportsAdaptiveThinking } : {}),
+  };
+}
+
+function sameModelIdentity(a: ModelEntry, b: ModelEntry): boolean {
+  const aIds = new Set([a.value, a.upstreamModelId].filter((id): id is string => !!id));
+  return [b.value, b.upstreamModelId].some(id => !!id && aIds.has(id));
+}
+
+/**
+ * User-edited DB rows remain authoritative on disk. For the read-only picker
+ * feed, fill only missing system metadata by matching the catalog's canonical
+ * upstream id. This covers Kimi's real `kimi-for-coding` row shadowing its
+ * legacy `sonnet` alias without overwriting a custom label or explicit false.
+ */
+function enrichDbModelForRead(model: DbModelEntry, catalog: ModelEntry[]): ModelEntry {
+  const { catalogManaged, ...surface } = model;
+  const matched = catalog.find(entry => sameModelIdentity(surface, entry));
+  if (!matched) return surface;
+  const labelIsRawId = surface.label === surface.value || surface.label === surface.upstreamModelId;
+
+  // Catalog rows are a cache of shipped defaults, not user-authored facts.
+  // When a release updates a capability (Kimi max-only → low/high/max), an
+  // existing installation must see the current catalog without recreating
+  // the provider or manually aligning the DB. User/API rows keep the old
+  // merge direction below, so explicit false/custom allowlists still win.
+  if (catalogManaged) {
+    return {
+      ...surface,
+      label: matched.label,
+      upstreamModelId: matched.upstreamModelId || surface.upstreamModelId,
+      capabilities: matched.capabilities,
+    };
+  }
+  return {
+    ...matched,
+    ...surface,
+    label: labelIsRawId ? matched.label : surface.label,
+    upstreamModelId: surface.upstreamModelId || matched.upstreamModelId,
+    capabilities: {
+      ...(matched.capabilities ?? {}),
+      ...(surface.capabilities ?? {}),
+    },
+  };
 }
 
 /**
@@ -177,7 +288,7 @@ export async function GET(request: NextRequest) {
       // 1) Read provider_models — the *enabled* rows feed the picker, but we
       //    also need the *full* row set as a suppression list so disabled
       //    rows aren't re-added by the catalog fallback below.
-      const dbModels: { value: string; label: string; upstreamModelId?: string; capabilities?: Record<string, unknown>; variants?: Record<string, unknown> }[] = [];
+      const dbModels: DbModelEntry[] = [];
       const dbHiddenIds = new Set<string>();
       let dbHasAnyRow = false;
       // Track the most-recent `last_refreshed_at` across rows so the Provider
@@ -205,6 +316,10 @@ export async function GET(request: NextRequest) {
             upstreamModelId: m.upstream_model_id || undefined,
             capabilities: caps,
             variants: vars,
+            catalogManaged: m.source === 'catalog'
+              && m.user_edited === 0
+              && m.enable_source !== 'manual_enabled'
+              && m.enable_source !== 'manual_hidden',
           });
         }
       } catch { /* table may not exist in old DBs */ }
@@ -212,22 +327,26 @@ export async function GET(request: NextRequest) {
       // 2) Catalog defaults — but skip any id the user has explicitly hidden
       //    in the Models page, otherwise the picker silently re-adds them.
       const catalogModels = getDefaultModelsForProvider(protocol, provider.base_url, provider.provider_type);
-      const catalogRaw = catalogModels
-        .filter(m => !dbHiddenIds.has(m.modelId))
+      const catalogAllRaw = catalogModels
         .map(m => ({
           value: m.modelId,
           label: m.displayName,
           upstreamModelId: m.upstreamModelId,
           capabilities: m.capabilities as Record<string, unknown> | undefined,
         }));
+      const catalogRaw = catalogAllRaw.filter(m => !dbHiddenIds.has(m.value));
 
       if (dbHasAnyRow) {
         // User has materialized rows for this provider — DB enabled set is
-        // authoritative. Only catalog ids that are NEITHER in the DB nor
-        // hidden show through (covers brand-new catalog additions the user
-        // hasn't seen yet).
-        const dbIds = new Set(dbModels.map(m => m.value));
-        rawModels = [...dbModels, ...catalogRaw.filter(m => !dbIds.has(m.value))];
+        // authoritative. Enrich the read surface by canonical/upstream
+        // identity, then append only genuinely new catalog models. Exact-id
+        // hidden rows still suppress the catalog tail; enrichment never
+        // mutates provider_models.
+        const enrichedDbModels = dbModels.map(m => enrichDbModelForRead(m, catalogAllRaw));
+        rawModels = [
+          ...enrichedDbModels,
+          ...catalogRaw.filter(catalogModel => !dbModels.some(dbModel => sameModelIdentity(dbModel, catalogModel))),
+        ];
       } else {
         rawModels = [...catalogRaw];
       }
@@ -307,6 +426,7 @@ export async function GET(request: NextRequest) {
         const effortLift = {
           ...(caps.supportsEffort != null ? { supportsEffort: caps.supportsEffort as boolean } : {}),
           ...(caps.supportedEffortLevels != null ? { supportedEffortLevels: caps.supportedEffortLevels as string[] } : {}),
+          ...(caps.effortNoteKey != null ? { effortNoteKey: caps.effortNoteKey as string } : {}),
           ...(caps.supportsAdaptiveThinking != null ? { supportsAdaptiveThinking: caps.supportsAdaptiveThinking as boolean } : {}),
         };
         return {
@@ -437,11 +557,12 @@ export async function GET(request: NextRequest) {
       const isEnvProvider = g.provider_id === 'env';
       const annotatedModels = g.models
         .map(m => {
+          const normalized = normalizeModelCapabilitySurface(m);
           const cap = getModelCompat({
-            modelId: m.value,
-            upstreamModelId: m.upstreamModelId,
+            modelId: normalized.value,
+            upstreamModelId: normalized.upstreamModelId,
             providerCompat,
-            capabilities: m.capabilities as Parameters<typeof getModelCompat>[0]['capabilities'],
+            capabilities: normalized.capabilities as Parameters<typeof getModelCompat>[0]['capabilities'],
           });
           if (cap.media) return null;
           let supportedRuntimes = cap.supportedRuntimes;
@@ -455,7 +576,7 @@ export async function GET(request: NextRequest) {
             };
           }
           return {
-            ...m,
+            ...normalized,
             supportedRuntimes,
             unsupportedReasonByRuntime,
           };

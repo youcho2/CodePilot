@@ -305,7 +305,7 @@ describe('CodexRuntime — thread/resume payload mirrors thread/start (Phase 5b 
     // optional trailing comma; reject the pre-fix `{ threadId: ... }`
     // bare form.
     const match = runtimeSrc.match(
-      /client\.request\(\s*['"]thread\/resume['"][\s\S]{0,400}?\)/,
+      /client\.request(?:<[^>]+>)?\(\s*['"]thread\/resume['"][\s\S]{0,400}?\)/,
     );
     assert.ok(match, 'expected a client.request("thread/resume", ...) call in runtime.ts');
     const payload = match![0];

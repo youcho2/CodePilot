@@ -20,6 +20,15 @@ export const MODEL_CONTEXT_WINDOWS: Record<string, number> = {
   // Fable 5 — 1M context / 128K max output per official model docs
   // https://platform.claude.com/docs/en/about-claude/models/overview
   'claude-fable-5': 1_000_000,
+  // Sonnet 5 — 1M context (default AND ceiling) / 128K max output per the
+  // official migration guide (whats-new-sonnet-5, verified 2026-07-17).
+  // Same window semantics as the fable-5 entry above. NOTE: Sonnet 5 ships
+  // a new tokenizer — the SAME text counts ≈ +30% tokens vs Sonnet 4.6, so
+  // this catalog window is an UNTRUSTED fallback (like all entries here):
+  // the SDK / upstream-reported window still wins for the user-visible %,
+  // and token-budget estimates that key off char-count will under-count on
+  // Sonnet 5. Prefer real usage reporting over char heuristics for it.
+  'claude-sonnet-5': 1_000_000,
   'claude-haiku-4-5-20251001': 200000,
   // Third-party chat models — Native runtime fallback (Vercel AI SDK
   // doesn't expose modelContextWindow; ClaudeCode SDK's reported window

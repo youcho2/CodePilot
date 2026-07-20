@@ -13,16 +13,23 @@ import { Input } from "@/components/ui/input";
 interface CommandListProps {
   children: ReactNode;
   className?: string;
+  /**
+   * `anchored` keeps the historical composer-relative absolute position.
+   * `inline` lets a collision-aware Radix Popover own placement while this
+   * component continues to own the shared command-list surface.
+   */
+  positioning?: "anchored" | "inline";
 }
 
-export function CommandList({ children, className }: CommandListProps) {
+export function CommandList({ children, className, positioning = "anchored" }: CommandListProps) {
   return (
     <div
       className={cn(
         // Geometry + shadow tuned to match the chat composer input box:
         // same 24px radius (rounded-2xl) + same `--shadow-diffuse` token,
         // so the popover reads as part of the same surface as the input.
-        "absolute bottom-full left-0 mb-2 rounded-2xl border bg-popover overflow-hidden z-50",
+        positioning === "anchored" ? "absolute bottom-full left-0 mb-2" : "relative",
+        "rounded-2xl border bg-popover overflow-hidden z-50",
         "shadow-[var(--shadow-diffuse)]",
         className,
       )}

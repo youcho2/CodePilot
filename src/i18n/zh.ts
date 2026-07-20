@@ -1290,6 +1290,18 @@ const zh: Record<TranslationKey, string> = {
   'chat.taskWaiting.body': '后台执行时遇到需要权限的工具调用，已停在此处保留上下文。本版本不支持从断点继续——可以重跑（创建一条新的执行记录）或放弃。',
   'chat.taskWaiting.rerun': '重跑此任务',
   'chat.taskWaiting.abandon': '放弃',
+
+  // ── Runtime 状态提示（SSE code+reason 映射到这些键）──
+  // 由 agent-loop / claude-client 以 { code, reason, params } 下发，
+  // 客户端经 src/lib/status-notice-i18n.ts 渲染，服务端不再猜测用户语言。
+  'chat.notice.samplingIgnored.title': '采样参数未发送',
+  'chat.notice.samplingIgnored.modelRejects.one': '{model} 只接受默认采样参数——{names} 未发送。请改用「推理力度」来调节回答。',
+  'chat.notice.samplingIgnored.modelRejects.other': '{model} 只接受默认采样参数——{names} 均未发送。请改用「推理力度」来调节回答。',
+  'chat.notice.samplingIgnored.runtimeCannotSend.one': '采样参数（{names}）在 SDK Runtime 上未发送——{model} 和/或 Claude Code SDK 不接受这些参数。请改用「推理力度」来调节回答。',
+  'chat.notice.samplingIgnored.runtimeCannotSend.other': '采样参数（{names}）在 SDK Runtime 上均未发送——{model} 和/或 Claude Code SDK 不接受这些参数。请改用「推理力度」来调节回答。',
+  'chat.notice.effortIgnored.unsupportedModel.title': '该模型不支持推理力度',
+  'chat.notice.effortIgnored.unsupportedModel.message': '{model} 不支持 effort 参数——你选择的「{effort}」未发送，模型按自身默认推理深度运行。如需控制，请换用支持该参数的模型（如 Sonnet 4.6、Sonnet 5、Opus 4.7/4.8、Fable 5）。',
+
   'assistant.advanced': '高级选项',
   'assistant.editSoulHint': '编辑工作区中的 soul.md 来自定义人格',
 
@@ -1304,9 +1316,28 @@ const zh: Record<TranslationKey, string> = {
   'composer.designAgentTooltip': '启用 AI 设计与图片生成',
 
   // ── Permission ────────────────────────────────────────────
-  'permission.default': '默认权限',
+  'permission.default': '需要时询问我',
+  'permission.autoReview': '替我审批',
   'permission.fullAccess': '完全访问',
   'permission.fullAccessWarning': '完全访问模式将自动批准此对话的所有权限请求，包括文件写入、命令执行等潜在危险操作。确定要开启吗？',
+  // 写「会被拦截」而不是「由你决定」：auto_review 下这些工具由 deny rule 直接拒绝，
+  // SDK 没有把 classifier 可判定的工具转回人工的能力。承诺一个不会出现的弹窗，
+  // 比这个限制本身更糟。
+  'permission.autoReviewWarning': '模型会替你审批权限请求。这不是完全访问：sandbox 与工作目录限制仍然生效，模型拒绝或超时未答一律拦截。CodePilot 自带的付费、对外发布、凭据类工具会被直接拦截，而不是交给模型审批。请注意：普通的命令执行仍由模型判断，它可能批准一条你本来想亲自确认的命令——需要逐条把关请切回「需要时询问我」。',
+  'permission.autoReviewUnavailable': '需要 Claude Agent SDK {minVersion} 或更高版本（当前：{installedVersion}）',
+  'permission.autoReviewUnavailableUnknownVersion': '需要 Claude Agent SDK {minVersion} 或更高版本（当前版本读取失败）',
+  'permission.autoReviewCodexUnavailable': '需要 Codex {minVersion} 或更高版本（当前：{installedVersion}）',
+  'permission.autoReviewCodexUnavailableUnknownVersion': '需要 Codex {minVersion} 或更高版本（当前版本读取失败）',
+  'permission.autoReviewChecking': '正在检测当前环境是否支持…',
+  'permission.autoReviewProbeFailed': '无法确认当前环境是否支持替我审批，暂不提供',
+  'permission.autoReviewExternalMcp': '检测到已配置外部 MCP 服务：其工具在连接时才声明，无法提前判断是否涉及凭据或付费，因此此档暂不可用。停用外部 MCP 后可用。',
+  'permission.autoReviewExternalMcpUnknown': '无法读取 MCP 配置文件，不能确认是否存在外部 MCP 服务，因此此档暂不可用。',
+  'permission.autoReviewDegraded': '此对话保存的是「替我审批」，但当前环境无法执行——实际以「需要时询问我」运行。',
+  'permission.autoReviewUnsupportedRuntime': '当前 Runtime 暂不支持替我审批',
+  'permission.deniedByReviewer': '模型代审拒绝',
+  'permission.deniedByUser': '你拒绝了',
+  'permission.deniedByRules': '被 CodePilot 权限规则拦截',
+  'permission.humanOnlyNotice': '始终询问你 — 不交给代审',
   'permission.sessionPermission': '对话权限',
 
   // ── Context Usage ─────────────────────────────────────────
@@ -1338,6 +1369,9 @@ const zh: Record<TranslationKey, string> = {
   'messageInput.effort.high': '高',
   'messageInput.effort.xhigh': '极高',
   'messageInput.effort.max': '最大',
+  'messageInput.effort.note.glmTwoTier': 'GLM 只有两档真实力度：Claude Code 的 low/medium/high 都按「高」执行，xhigh/max/ultracode 按「最大」执行。',
+  'messageInput.effort.note.kimiAuto': 'Kimi 支持低、高、最大三档。选「默认」则不下发力度，由 Kimi 自行决定。',
+  'messageInput.effort.resetOnModelSwitch': '该模型不支持你之前选择的推理力度，已回到「默认」。',
 
   // ── SDK Capabilities: Terminal Reason (Phase 1 of agent-sdk-0-2-111) ──
   'terminal.completed': '已完成',
@@ -1925,7 +1959,8 @@ const zh: Record<TranslationKey, string> = {
   'messageInput.submitAriaLabel': '发送消息',
   'messageInput.stopAriaLabel': '停止生成',
   'messageInput.queueAriaLabel': '排队发送（当前回复完成后自动发送）',
-  'permission.defaultDesc': '按确认规则执行',
+  'permission.defaultDesc': '文件编辑直接执行；命令等有风险的操作先问你',
+  'permission.autoReviewDesc': '由模型代审常规请求；CodePilot 的凭据、付费与发布类工具直接拦截，不交给模型',
   'permission.fullAccessDesc': '减少确认，仅用于信任项目',
   // Phase 2 Step 4c — composer runtime selector (between mode and permission).
   'runtimeSelector.triggerAria': '切换本会话执行引擎',
@@ -1959,7 +1994,8 @@ const zh: Record<TranslationKey, string> = {
   'runStatus.modeAuto': '自动',
   'runStatus.modify': '修改',
   'runStatus.permissionFullAccess': '完全访问',
-  'runStatus.permissionDefault': '默认权限',
+  'runStatus.permissionAutoReview': '已替你审批',
+  'runStatus.permissionDefault': '需要时询问我',
   'runStatus.runtime': '执行引擎',
   'runStatus.model': '模型',
   'runStatus.defaultMode': '默认',

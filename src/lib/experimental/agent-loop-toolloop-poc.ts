@@ -57,6 +57,7 @@ import { createCheckpoint } from '../file-checkpoint';
 import type { PermissionMode } from '../permission-checker';
 import { buildCoreMessages } from '../message-builder';
 import { sanitizeClaudeModelOptions } from '../claude-model-options';
+import { buildAnthropicProviderOptions } from '../agent-loop-anthropic-wire';
 import { getMessages } from '../db';
 import { wrapController } from '../safe-stream';
 import { buildNativeErrorEventData } from '../agent-loop-error-event';
@@ -216,7 +217,6 @@ export function runToolLoopAgentPoc(options: AgentLoopOptions): ReadableStream<s
           effort,
           context1m,
         });
-        const isOpusAdaptiveThinking = sanitized.isOpusAdaptiveThinking;
         if (sanitized.thinkingForcedOn) {
           console.warn(
             `[toolloop-poc] Fable 5: thinking cannot be disabled — request runs with adaptive thinking despite thinking_mode='disabled'.`,
@@ -234,53 +234,47 @@ export function runToolLoopAgentPoc(options: AgentLoopOptions): ReadableStream<s
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         let providerOptions: any;
         if (config.sdkType === 'anthropic') {
-          const anthropicOpts: Record<string, unknown> = {};
-
-          if (isThirdPartyProxy) {
-            if (sanitized.thinking && sanitized.thinking.type === 'enabled') {
-              anthropicOpts.thinking = sanitized.thinking;
-            }
-            if (sanitized.effort) {
-              console.warn(
-                `[toolloop-poc] Third-party Anthropic proxy: dropping explicit effort='${sanitized.effort}' — effort GA beta header may not be supported by proxies. Switch to SDK runtime or the official Anthropic endpoint to control effort.`,
-              );
-              controller.enqueue(formatSSE({
-                type: 'status',
-                data: JSON.stringify({
-                  notification: true,
-                  code: 'RUNTIME_EFFORT_IGNORED',
-                  title: 'Effort ignored on this runtime',
-                  message: `Third-party Anthropic proxies may not support the effort parameter — your "${sanitized.effort}" choice wasn't sent. Switch to SDK runtime or an official Anthropic provider to control effort explicitly.`,
-                }),
-              }));
-            }
-          } else {
-            if (sanitized.thinking) {
-              anthropicOpts.thinking = sanitized.thinking;
-            }
-            if (sanitized.effort && !isOpusAdaptiveThinking) {
-              anthropicOpts.effort = sanitized.effort;
-            } else if (sanitized.effort && isOpusAdaptiveThinking) {
-              console.warn(
-                `[toolloop-poc] Opus 4.7+ (incl. 4.8 / Fable 5) on native runtime: dropping explicit effort='${sanitized.effort}' — @ai-sdk/anthropic still attaches deprecated effort-2025-11-24 beta. Switch to SDK runtime for explicit effort control.`,
-              );
-              controller.enqueue(formatSSE({
-                type: 'status',
-                data: JSON.stringify({
-                  notification: true,
-                  code: 'RUNTIME_EFFORT_IGNORED',
-                  title: 'Effort ignored on this runtime',
-                  message: `Opus 4.7 / 4.8 / Fable 5 on the native runtime can't send explicit effort yet (would ship a deprecated beta header). Using API default — switch to SDK runtime to control effort.`,
-                }),
-              }));
-            }
+          // Parity with agent-loop.ts via the SAME shared builder (model plan
+          // Phase 2 / s05) — the wire shape and both effort-drop rules
+          // (unsupported model on the official path, any model on a proxy) can
+          // no longer drift between the two native paths.
+          const wire = buildAnthropicProviderOptions({
+            isThirdPartyProxy,
+            model: config.modelId,
+            sanitized,
+          });
+          if (wire.effortDroppedForProxy) {
+            console.warn(
+              `[toolloop-poc] Third-party Anthropic proxy: dropping explicit effort='${sanitized.effort}' — effort GA beta header may not be supported by proxies. Switch to SDK runtime or the official Anthropic endpoint to control effort.`,
+            );
+            controller.enqueue(formatSSE({
+              type: 'status',
+              data: JSON.stringify({
+                notification: true,
+                code: 'RUNTIME_EFFORT_IGNORED',
+                title: 'Effort ignored on this runtime',
+                message: `Third-party Anthropic proxies may not support the effort parameter — your "${sanitized.effort}" choice wasn't sent. Switch to SDK runtime or an official Anthropic provider to control effort explicitly.`,
+              }),
+            }));
           }
-
-          if (sanitized.applyContext1mBeta) {
-            anthropicOpts.anthropicBeta = ['context-1m-2025-08-07'];
+          if (wire.effortDroppedUnsupportedModel) {
+            console.warn(
+              `[toolloop-poc] ${config.modelId} is not on Anthropic's effort-capable model list — dropping explicit effort='${sanitized.effort}'. The model runs at its own default reasoning depth.`,
+            );
+            controller.enqueue(formatSSE({
+              type: 'status',
+              data: JSON.stringify({
+                notification: true,
+                code: 'RUNTIME_EFFORT_IGNORED',
+                // Client-localized, same key as agent-loop (no drift between
+                // the two native paths) — see status-notice-i18n.ts.
+                reason: 'unsupported-model',
+                params: { model: config.modelId || '', effort: sanitized.effort || '' },
+              }),
+            }));
           }
-          if (Object.keys(anthropicOpts).length > 0) {
-            providerOptions = { anthropic: anthropicOpts };
+          if (wire.anthropic) {
+            providerOptions = { anthropic: wire.anthropic };
           }
         }
 

@@ -27,6 +27,7 @@ import { useCallback, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { useTranslation } from "@/hooks/useTranslation";
 import type { TranslationKey } from "@/i18n";
+import type { SessionPermissionProfile } from "@/lib/permission/profile";
 import { useClaudeStatus } from "@/hooks/useClaudeStatus";
 import { ContextContentFooter } from "@/components/ai-elements/context";
 import { ContextBreakdownList } from "@/components/chat/context-breakdown/ContextBreakdownList";
@@ -67,7 +68,7 @@ export interface RunCockpitPopoverContentProps {
   /** Resolved upstream model ID for context-window lookup display. */
   upstreamModelId?: string;
   /** Active chat's permission profile. */
-  permissionProfile: "default" | "full_access";
+  permissionProfile: SessionPermissionProfile;
   /** Step 4c round 4 — session-level runtime pin. Same semantics as
    *  before; suppresses global pinned/runtime-fallback signals because
    *  the user has explicitly opted out of the global default. */
@@ -277,6 +278,9 @@ export function RunCockpitPopoverContent({
         <span
           className={cn(
             "min-w-0 flex-1 truncate text-right",
+            // Only the bypass reads as an alarm. auto_review is elevated but
+            // reviewed — colouring it red would tell the user it's the same
+            // risk as full access.
             permissionProfile === "full_access"
               ? "text-status-error-foreground"
               : "text-foreground",
@@ -284,7 +288,9 @@ export function RunCockpitPopoverContent({
         >
           {permissionProfile === "full_access"
             ? t("runStatus.permissionFullAccess" as TranslationKey)
-            : t("runStatus.permissionDefault" as TranslationKey)}
+            : permissionProfile === "auto_review"
+              ? t("runStatus.permissionAutoReview" as TranslationKey)
+              : t("runStatus.permissionDefault" as TranslationKey)}
         </span>
       </div>
     </div>

@@ -109,7 +109,11 @@ export const FileTree = ({
     <FileTreeContext.Provider value={contextValue}>
       <div
         className={cn(
-          "rounded-lg border bg-background font-mono text-sm",
+          // File names are panel navigation chrome, not code content. Keeping
+          // the whole tree in `font-mono text-sm` makes rows optically larger
+          // than the surrounding compact controls. Reserve monospace for full
+          // paths and editable technical identifiers instead.
+          "rounded-lg border bg-background text-xs font-normal",
           className
         )}
         role="tree"

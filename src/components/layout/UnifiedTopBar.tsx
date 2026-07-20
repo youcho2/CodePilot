@@ -29,6 +29,7 @@ import { useSplit } from "@/hooks/useSplit";
 import { useTranslation } from "@/hooks/useTranslation";
 import { useClientPlatform } from '@/hooks/useClientPlatform';
 import { copyWithToast } from "@/lib/clipboard";
+import { renameSession } from "@/lib/session-title-events";
 import type { TranslationKey } from "@/i18n";
 
 export function UnifiedTopBar() {
@@ -68,19 +69,11 @@ export function UnifiedTopBar() {
   const handleRename = useCallback(async (newTitle: string) => {
     const trimmed = newTitle.trim();
     if (!trimmed || !sessionId || trimmed === sessionTitle) return;
-    try {
-      const res = await fetch(`/api/chat/sessions/${sessionId}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ title: trimmed }),
-      });
-      if (res.ok) {
-        setSessionTitle(trimmed);
-        window.dispatchEvent(new CustomEvent('session-updated', { detail: { id: sessionId, title: trimmed } }));
-      }
-    } catch {
-      // Silent — fail-soft like the sidebar handler.
-    }
+    // Displays what the SERVER stored, not what we sent: PATCH canonicalizes
+    // (50-grapheme clamp, single-lined), so echoing `trimmed` would leave this
+    // bar disagreeing with the sidebar's copy of the same session.
+    const canonical = await renameSession(sessionId, trimmed);
+    if (canonical) setSessionTitle(canonical);
   }, [sessionId, sessionTitle, setSessionTitle]);
 
   const handleDelete = useCallback(async () => {

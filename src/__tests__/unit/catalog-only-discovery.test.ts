@@ -67,7 +67,12 @@ describe('catalog-only presets — shape', () => {
     assert.equal(p.protocol, 'openai-compatible');
     assert.equal(p.baseUrl, CLINE_PASS_URL);
     assert.ok(p.baseUrl.endsWith('/v1'), 'OpenAI SDK appends /chat/completions, so base ends in /v1');
-    assert.equal(p.defaultModels.length, 10);
+    assert.equal(p.defaultModels.length, 11);
+    const k3 = p.defaultModels.find(m => m.modelId === 'cline-pass/kimi-k3');
+    assert.ok(k3 && k3.displayName === 'Kimi K3',
+      'ClinePass must expose Kimi K3 with the provider/model-name wire id');
+    assert.equal(k3.capabilities?.supportsEffort, undefined,
+      'the gateway effort request field is unverified, so the selector must stay hidden');
     for (const m of p.defaultModels) {
       assert.ok(m.modelId.startsWith('cline-pass/'), `model ${m.modelId} must carry the cline-pass/ slug`);
       // The slug IS what the API expects, so no upstream alias.
@@ -75,12 +80,17 @@ describe('catalog-only presets — shape', () => {
     }
   });
 
-  it('OpenCode Go OpenAI: openai-compatible, base ends /v1, 8 bare model ids', () => {
+  it('OpenCode Go OpenAI: openai-compatible, base ends /v1, 9 bare model ids', () => {
     const p = getPreset('opencode-go-openai')!;
     assert.equal(p.protocol, 'openai-compatible');
     assert.equal(p.baseUrl, OPENCODE_OPENAI_URL);
     assert.ok(p.baseUrl.endsWith('/v1'), 'OpenAI SDK appends /chat/completions, so base ends in /v1');
-    assert.equal(p.defaultModels.length, 8);
+    assert.equal(p.defaultModels.length, 9);
+    const k3 = p.defaultModels.find(m => m.modelId === 'kimi-k3');
+    assert.ok(k3 && k3.displayName === 'Kimi K3',
+      'OpenCode Go direct API must use the documented bare kimi-k3 id');
+    assert.equal(k3.capabilities?.supportsEffort, undefined,
+      'Kimi model capability alone does not prove this gateway accepts an effort field');
     for (const m of p.defaultModels) {
       assert.ok(!m.modelId.includes('/'), `OpenCode Go uses bare model ids (got ${m.modelId})`);
     }
@@ -111,6 +121,8 @@ describe('catalog-only presets — shape', () => {
     for (const id of anthropic) {
       assert.ok(!openai.has(id), `${id} must not appear in both protocol halves`);
     }
+    assert.ok(openai.has('kimi-k3'), 'Kimi K3 belongs on /chat/completions');
+    assert.ok(!anthropic.has('kimi-k3'), 'Kimi K3 must not leak onto /messages');
   });
 });
 
@@ -218,11 +230,12 @@ describe('preset resolution + runtime-compat — both halves resolve correctly',
 
   // Seeding path (getDefaultModelsForProvider) keys on protocol + base_url, so a
   // newly-saved provider gets only its own half — never the other protocol's.
-  it('getDefaultModelsForProvider seeds only the OpenAI half (8 bare ids)', () => {
+  it('getDefaultModelsForProvider seeds only the OpenAI half (9 bare ids)', () => {
     const models = getDefaultModelsForProvider('openai-compatible', OPENCODE_OPENAI_URL);
-    assert.equal(models.length, 8);
+    assert.equal(models.length, 9);
     assert.ok(models.every(m => !m.modelId.includes('/')));
     assert.ok(models.some(m => m.modelId === 'glm-5.2'));
+    assert.ok(models.some(m => m.modelId === 'kimi-k3'));
   });
   it('getDefaultModelsForProvider seeds only the Anthropic half (6 ids)', () => {
     const models = getDefaultModelsForProvider('anthropic', OPENCODE_ANTHROPIC_URL);

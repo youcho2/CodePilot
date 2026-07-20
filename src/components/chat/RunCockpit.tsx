@@ -38,6 +38,7 @@
 import dynamic from "next/dynamic";
 import type { LanguageModelUsage } from "ai";
 import type { Message } from "@/types";
+import type { SessionPermissionProfile } from "@/lib/permission/profile";
 import { useTranslation } from "@/hooks/useTranslation";
 import type { TranslationKey } from "@/i18n";
 import { useContextUsage } from "@/hooks/useContextUsage";
@@ -108,7 +109,7 @@ interface RunCockpitProps {
     capturedAt: number;
   };
   /** Active chat's permission profile. */
-  permissionProfile?: "default" | "full_access";
+  permissionProfile?: SessionPermissionProfile;
   /** Pre-send token estimate for currently attached @ mention chips.
    *  Surfaced as a "+10K 待加" suffix in the trigger label so the user
    *  can preview the cost. Resets to 0 after send. */

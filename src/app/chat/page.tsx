@@ -3,6 +3,7 @@
 import { Suspense, useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import type { Message, SSEEvent, SessionResponse, TokenUsage, PermissionRequestEvent, FileAttachment, MentionRef } from '@/types';
+import type { SessionPermissionProfile } from '@/lib/permission/profile';
 import { MessageList } from '@/components/chat/MessageList';
 import { MessageInput, composerDraftKey } from '@/components/chat/MessageInput';
 import { ChatComposerActionBar } from '@/components/chat/ChatComposerActionBar';
@@ -10,6 +11,8 @@ import { ModeIndicator } from '@/components/chat/ModeIndicator';
 import { ChatPermissionSelector } from '@/components/chat/ChatPermissionSelector';
 import { RuntimeSelector } from '@/components/chat/RuntimeSelector';
 import { agentRuntimeToChatRuntime, effectiveChatRuntime } from '@/lib/chat-runtime-shared';
+import { toWireEffort, resolveModelSwitchEffortEffect } from '@/lib/effort-levels';
+import { refreshSessionTitle } from '@/lib/session-title-events';
 import type { ChatRuntime } from '@/lib/chat-runtime-shared';
 import { PermissionPrompt } from '@/components/chat/PermissionPrompt';
 import { ChatEmptyState } from '@/components/chat/ChatEmptyState';
@@ -162,7 +165,7 @@ function NewChatPageInner() {
   const [pendingPermission, setPendingPermission] = useState<PermissionRequestEvent | null>(null);
   const [permissionResolved, setPermissionResolved] = useState<'allow' | 'deny' | 'timeout' | null>(null);
   const [streamingToolOutput, setStreamingToolOutput] = useState('');
-  const [permissionProfile, setPermissionProfile] = useState<'default' | 'full_access'>('default');
+  const [permissionProfile, setPermissionProfile] = useState<SessionPermissionProfile>('default');
   const [pendingContextTokens, setPendingContextTokens] = useState(0);
   // Phase 6 Phase 3 — per-source split (attachment / mention / directory).
   // Flows through RunCockpit → useContextUsage → breakdown so the popover's
@@ -860,8 +863,14 @@ function NewChatPageInner() {
 
       try {
         // Create a new session with working directory + model/provider
+        // No `title` here on purpose. The client used to name the session at
+        // create time by cutting the first 50 characters with no ellipsis,
+        // while the chat route named it AGAIN from the same message under
+        // different rules — two writers, two answers. The session is now
+        // created as a placeholder and the route derives the one fallback
+        // title after the first real message is persisted;
+        // `refreshSessionTitle` below pulls it back for the UI.
         const createBody: Record<string, string> = {
-          title: content.slice(0, 50),
           mode,
           working_directory: workingDir.trim(),
           permission_profile: permissionProfile,
@@ -928,9 +937,9 @@ function NewChatPageInner() {
             ...(files && files.length > 0 ? { files } : {}),
             ...(mentions && mentions.length > 0 ? { mentions } : {}),
             ...(systemPromptAppend ? { systemPromptAppend } : {}),
-            // 'auto' sentinel means "no explicit effort" — omit so Claude
+            // 'auto' sentinel means "no explicit effort" — omitted so Claude
             // Code CLI applies its per-model default (Opus 4.7 → xhigh).
-            ...(selectedEffort && selectedEffort !== 'auto' ? { effort: selectedEffort } : {}),
+            ...(toWireEffort(selectedEffort) ? { effort: toWireEffort(selectedEffort) } : {}),
             ...(thinkingConfig ? { thinking: thinkingConfig } : {}),
             ...(context1m ? { context_1m: true } : {}),
             ...(displayOverride ? { displayOverride } : {}),
@@ -962,6 +971,14 @@ function NewChatPageInner() {
         // #4/#5 (Codex P2) — also mark the URL prefill consumed so the remount's
         // `initialValue` (which outranks the draft) doesn't re-seed the sent text.
         if (prefillTextRef.current) setConsumedPrefill(prefillTextRef.current);
+
+        // The route wrote the fallback title before returning this response —
+        // pull it back so the top bar / sidebar show the real title now
+        // instead of waiting on the sidebar's 5s poll. Not awaited: the title
+        // is cosmetic and must never delay the stream. Deliberately placed
+        // AFTER the draft clear, which `composer-first-message-clear.test.ts`
+        // pins to within 600 chars of `accepted = true`.
+        void refreshSessionTitle(session.id);
 
         // Flip the layout-driving state ONLY now: show streaming + push the
         // optimistic user bubble. Deferring to here keeps `isNewChat` true
@@ -1375,6 +1392,32 @@ function NewChatPageInner() {
         onProviderModelChange={(pid, model, opts) => {
           setCurrentProviderId(pid);
           setCurrentModel(model);
+          // s07 (reviewer fix run i31, 2026-07-18) — the new-chat composer had NO
+          // effort fallback at all: a manual or auto-correct switch to a model
+          // that doesn't offer the selected tier left it selected, so the first
+          // message sent an unsupported effort (or toWireEffort silently dropped
+          // it while the button still showed it). Mirror ChatView: clear the
+          // illegal transient tier on ANY effective model change — validated
+          // against the SAME picker feed via opts.supportedEffortLevels — and
+          // surface the one-shot sourced notice only when a reset actually fired.
+          // This runs BEFORE the isAuto persist-skip; isAuto still governs only
+          // the localStorage "recently used" writes, never the effort effect.
+          const effortEffect = resolveModelSwitchEffortEffect(
+            selectedEffort,
+            opts?.supportedEffortLevels,
+          );
+          if (effortEffect.resetEffort) {
+            setSelectedEffort(undefined);
+          }
+          if (effortEffect.showResetToast) {
+            import('@/hooks/useToast').then(({ showToast }) => {
+              showToast({
+                type: 'info',
+                message: t('messageInput.effort.resetOnModelSwitch'),
+                duration: 4000,
+              });
+            });
+          }
           if (opts?.isAuto) return;
           localStorage.setItem('codepilot:last-provider-id', pid);
           localStorage.setItem('codepilot:last-model', model);
@@ -1402,6 +1445,7 @@ function NewChatPageInner() {
             <ChatPermissionSelector
               permissionProfile={permissionProfile}
               onPermissionChange={setPermissionProfile}
+              runtime={sessionRuntimeParam}
             />
           </>
         }

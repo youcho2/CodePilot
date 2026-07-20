@@ -7,6 +7,8 @@ import type { ChatSession, Message, SettingsMap, TaskItem, TaskStatus, ApiProvid
 import type { ChannelType, ChannelBinding } from './bridge/types';
 import { getLocalDateString, localDayStartAsUTC } from './utils';
 import { inferProtocolFromLegacy } from './provider-catalog';
+import type { TitleOrigin } from './conversation-title';
+import { normalizePermissionProfile, type SessionPermissionProfile } from './permission/profile';
 
 const dataDir = process.env.CLAUDE_GUI_DATA_DIR || path.join(os.homedir(), '.codepilot');
 const DB_PATH = path.join(dataDir, 'codepilot.db');
@@ -428,6 +430,36 @@ function migrateDb(db: Database.Database): void {
   if (!colNames.includes('permission_profile')) {
     safeAddColumn(db, "ALTER TABLE chat_sessions ADD COLUMN permission_profile TEXT NOT NULL DEFAULT 'default'");
   }
+  if (!colNames.includes('title_origin')) {
+    // Provenance for `title` — decides who is allowed to overwrite it later
+    // (see TitleOrigin in lib/conversation-title.ts). Added with DEFAULT ''
+    // rather than a real origin so existing rows land in a "not yet
+    // classified" state that the backfill below can find and re-decide;
+    // ALTER ... DEFAULT 'placeholder' would silently stamp every legacy row
+    // as overwritable, which is exactly the wrong direction to fail.
+    safeAddColumn(db, "ALTER TABLE chat_sessions ADD COLUMN title_origin TEXT NOT NULL DEFAULT ''");
+  }
+  // Backfill, OUTSIDE the ADD COLUMN guard on purpose: ALTER and UPDATE are two
+  // statements, and a crash between them used to leave every legacy row stuck
+  // at '' forever — the next boot saw the column present and skipped the fill.
+  // `WHERE title_origin = ''` makes this re-entrant and a no-op once done; no
+  // insert path ever writes '', so an empty origin can only mean "unclassified".
+  // Conservative on purpose:
+  //   'New Chat' / '' → 'placeholder': never had a real title, so the next
+  //     real user message should fill in a fallback (the whole point).
+  //   anything else   → 'manual': the row predates provenance, so we CANNOT
+  //     tell a user's hand-typed rename from an old auto-truncation. Both
+  //     look like plain text. Guessing 'fallback' would let Phase 2's
+  //     generator silently rename a session the user deliberately named —
+  //     breaking "manual is never overwritten", the one promise this whole
+  //     feature rests on. 'manual' is the safe wrong answer: worst case a
+  //     legacy session keeps its current (already user-visible, already
+  //     accepted) title forever instead of gaining a semantic one.
+  db.prepare(
+    `UPDATE chat_sessions
+        SET title_origin = CASE WHEN title = '' OR title = 'New Chat' THEN 'placeholder' ELSE 'manual' END
+      WHERE title_origin = ''`
+  ).run();
   if (!colNames.includes('context_summary')) {
     safeAddColumn(db, "ALTER TABLE chat_sessions ADD COLUMN context_summary TEXT NOT NULL DEFAULT ''");
   }
@@ -1233,8 +1265,16 @@ export function createSession(
   workingDirectory?: string,
   mode?: string,
   providerId?: string,
-  permissionProfile?: string,
+  permissionProfile?: SessionPermissionProfile,
   source?: 'user' | 'task',
+  /**
+   * Provenance of `title`. Defaults to the honest reading of the args: a
+   * caller that passed no title gets 'placeholder' (a fallback may fill it
+   * in later); a caller that named the session explicitly gets 'manual'
+   * (protected). System callers (bridge / task / heartbeat / worktree) and
+   * the importer pass 'system' / 'import' explicitly.
+   */
+  titleOrigin?: TitleOrigin,
 ): ChatSession {
   const db = getDb();
   const id = crypto.randomBytes(16).toString('hex');
@@ -1242,10 +1282,11 @@ export function createSession(
   const wd = workingDirectory || '';
   const projectName = path.basename(wd);
   const sourceValue = source === 'task' ? 'task' : 'user';
+  const originValue: TitleOrigin = titleOrigin ?? (title ? 'manual' : 'placeholder');
 
   db.prepare(
-    'INSERT INTO chat_sessions (id, title, created_at, updated_at, model, system_prompt, working_directory, sdk_session_id, project_name, status, mode, sdk_cwd, provider_id, permission_profile, source) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
-  ).run(id, title || 'New Chat', now, now, model || '', systemPrompt || '', wd, '', projectName, 'active', mode || 'code', wd, providerId || '', permissionProfile || 'default', sourceValue);
+    'INSERT INTO chat_sessions (id, title, created_at, updated_at, model, system_prompt, working_directory, sdk_session_id, project_name, status, mode, sdk_cwd, provider_id, permission_profile, source, title_origin) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+  ).run(id, title || 'New Chat', now, now, model || '', systemPrompt || '', wd, '', projectName, 'active', mode || 'code', wd, providerId || '', normalizePermissionProfile(permissionProfile), sourceValue, originValue);
 
   return getSession(id)!;
 }
@@ -1301,9 +1342,42 @@ export function updateSessionTimestamp(id: string): void {
   db.prepare('UPDATE chat_sessions SET updated_at = ? WHERE id = ?').run(now, id);
 }
 
-export function updateSessionTitle(id: string, title: string): void {
+/**
+ * Write a session title together with its provenance.
+ *
+ * `origin` is REQUIRED — a title without a recorded origin is what let the
+ * old unconditional blind write clobber a user's manual rename. Every call
+ * site now has to say, in the diff, who is writing and by what right.
+ *
+ * `opts.expectOrigin` makes the write a compare-and-swap: the row is only
+ * touched if its CURRENT origin is in that list. This is the atomicity
+ * boundary for background generation — `expectOrigin: ['fallback']` cannot
+ * overwrite 'manual' / 'system' / 'import', cannot double-apply (the first
+ * write moves the row to 'generated'), and cannot resurrect a deleted
+ * session (zero rows match). Omit it only for writes that are themselves the
+ * user's or the system's explicit intent.
+ *
+ * @returns true if a row was actually updated.
+ */
+export function updateSessionTitle(
+  id: string,
+  title: string,
+  origin: TitleOrigin,
+  opts?: { expectOrigin?: readonly TitleOrigin[] },
+): boolean {
   const db = getDb();
-  db.prepare('UPDATE chat_sessions SET title = ? WHERE id = ?').run(title, id);
+  const expect = opts?.expectOrigin;
+  if (expect && expect.length > 0) {
+    const slots = expect.map(() => '?').join(', ');
+    const res = db
+      .prepare(`UPDATE chat_sessions SET title = ?, title_origin = ? WHERE id = ? AND title_origin IN (${slots})`)
+      .run(title, origin, id, ...expect);
+    return res.changes > 0;
+  }
+  const res = db
+    .prepare('UPDATE chat_sessions SET title = ?, title_origin = ? WHERE id = ?')
+    .run(title, origin, id);
+  return res.changes > 0;
 }
 
 export function updateSdkSessionId(id: string, sdkSessionId: string): void {
@@ -1397,9 +1471,16 @@ export function updateSessionMode(id: string, mode: string): void {
   db.prepare('UPDATE chat_sessions SET mode = ? WHERE id = ?').run(mode, id);
 }
 
-export function updateSessionPermissionProfile(id: string, profile: string): void {
+/**
+ * Persist a session's permission profile. `normalizePermissionProfile` is the
+ * fail-closed floor: a caller that somehow reaches here with an unvalidated
+ * value writes 'default', never an elevated profile. API validation still
+ * rejects bad input with a 400 — this is the second line, not the first.
+ */
+export function updateSessionPermissionProfile(id: string, profile: SessionPermissionProfile): void {
   const db = getDb();
-  db.prepare('UPDATE chat_sessions SET permission_profile = ? WHERE id = ?').run(profile, id);
+  db.prepare('UPDATE chat_sessions SET permission_profile = ? WHERE id = ?')
+    .run(normalizePermissionProfile(profile), id);
 }
 
 // ==========================================
@@ -1997,9 +2078,40 @@ export function getAllModelsForProvider(providerId: string): import('@/types').P
  * A row with `enabled=0, enable_source='recommended'` is internally
  * inconsistent — the badge would say "system enabled" while it's hidden.
  */
+/**
+ * The catalog fields these sync helpers propagate into provider_models.
+ * Structural (not an import of CatalogModel) so db.ts stays free of a
+ * provider-catalog dependency; callers pass catalog entries directly.
+ */
+type CatalogSyncModel = {
+  modelId: string;
+  upstreamModelId?: string;
+  displayName: string;
+  capabilities?: Record<string, unknown> | undefined;
+};
+
+/**
+ * Serialize catalog capabilities for the DB, or null meaning "leave the
+ * existing column alone".
+ *
+ * Phase 1 fix (2026-07-17) — before this, both sync paths hard-wrote '{}',
+ * so a materialized GLM/Kimi row shadowed the catalog (models GET and
+ * provider-resolver both let a same-id DB row win) and the picker lost
+ * supportsEffort / supportedEffortLevels / effortNoteKey: the Auto/High/Max
+ * menu silently vanished for exactly the providers Phase 1 added it for.
+ *
+ * A catalog entry with no capabilities returns null rather than '{}': rows
+ * can also carry API-discovered capabilities, and a catalog that is merely
+ * silent must not erase them.
+ */
+function serializeCatalogCapabilities(m: CatalogSyncModel): string | null {
+  if (!m.capabilities || Object.keys(m.capabilities).length === 0) return null;
+  return JSON.stringify(m.capabilities);
+}
+
 export function alignEnabledWithCatalog(
   providerId: string,
-  catalogModels: { modelId: string; upstreamModelId?: string; displayName: string }[],
+  catalogModels: CatalogSyncModel[],
   options: { dryRun?: boolean } = {},
 ): { enabled: number; disabled: number; unchanged: number; inserted: number; pruned: number } {
   if (catalogModels.length === 0) {
@@ -2008,12 +2120,13 @@ export function alignEnabledWithCatalog(
   const db = getDb();
   const catalogByModelId = new Map(catalogModels.map(m => [m.modelId, m]));
   const rows = db
-    .prepare('SELECT model_id, enabled, display_name, upstream_model_id, user_edited, source, enable_source FROM provider_models WHERE provider_id = ?')
+    .prepare('SELECT model_id, enabled, display_name, upstream_model_id, capabilities_json, user_edited, source, enable_source FROM provider_models WHERE provider_id = ?')
     .all(providerId) as {
       model_id: string;
       enabled: number;
       display_name: string;
       upstream_model_id: string;
+      capabilities_json: string | null;
       user_edited: number;
       source: string;
       enable_source: import('@/types').ModelEnableSource;
@@ -2026,8 +2139,8 @@ export function alignEnabledWithCatalog(
   // `kind: 'enable'` always carries the next enable_source so we never
   // produce a row whose enabled/enable_source disagree.
   type Decision =
-    | { kind: 'insert'; modelId: string; upstreamModelId: string; displayName: string; sort_order: number }
-    | { kind: 'enable'; modelId: string; displayName: string; upstreamModelId: string }
+    | { kind: 'insert'; modelId: string; upstreamModelId: string; displayName: string; capabilitiesJson: string | null; sort_order: number }
+    | { kind: 'enable'; modelId: string; displayName: string; upstreamModelId: string; capabilitiesJson: string | null }
     | { kind: 'disable'; modelId: string }
     | { kind: 'prune'; modelId: string };
   const decisions: Decision[] = [];
@@ -2045,6 +2158,7 @@ export function alignEnabledWithCatalog(
         modelId: m.modelId,
         upstreamModelId: m.upstreamModelId || m.modelId,
         displayName: m.displayName || m.modelId,
+        capabilitiesJson: serializeCatalogCapabilities(m),
         sort_order: nextSort,
       });
       inserted++;
@@ -2068,16 +2182,19 @@ export function alignEnabledWithCatalog(
     const shouldEnable = !!catEntry;
     const targetDisplay = catEntry?.displayName || row.model_id;
     const targetUpstream = catEntry?.upstreamModelId || row.model_id;
+    // null = catalog says nothing about capabilities → keep the column as-is.
+    const targetCapabilities = catEntry ? serializeCatalogCapabilities(catEntry) : null;
 
     if (shouldEnable) {
       const fieldsAlreadyMatch = row.enabled === 1
         && row.enable_source === 'recommended'
         && row.display_name === targetDisplay
-        && row.upstream_model_id === targetUpstream;
+        && row.upstream_model_id === targetUpstream
+        && (targetCapabilities === null || row.capabilities_json === targetCapabilities);
       if (fieldsAlreadyMatch) {
         unchanged++;
       } else {
-        decisions.push({ kind: 'enable', modelId: row.model_id, displayName: targetDisplay, upstreamModelId: targetUpstream });
+        decisions.push({ kind: 'enable', modelId: row.model_id, displayName: targetDisplay, upstreamModelId: targetUpstream, capabilitiesJson: targetCapabilities });
         if (row.enabled === 1) unchanged++;
         else enabled++;
       }
@@ -2105,9 +2222,12 @@ export function alignEnabledWithCatalog(
   // to manual_* between phase 1 and phase 2 (race-free in practice
   // because we're in a single sync pass, but cheap belt-and-suspenders)
   // stays untouched.
+  // capabilities_json via COALESCE(?, capabilities_json): a null param leaves
+  // the stored value untouched (catalog silent → don't erase discovered caps).
   const enableStmt = db.prepare(
     `UPDATE provider_models
-     SET enabled = 1, display_name = ?, upstream_model_id = ?, enable_source = 'recommended'
+     SET enabled = 1, display_name = ?, upstream_model_id = ?,
+         capabilities_json = COALESCE(?, capabilities_json), enable_source = 'recommended'
      WHERE provider_id = ? AND model_id = ?
        AND user_edited = 0
        AND enable_source NOT IN ('manual_enabled', 'manual_hidden')`
@@ -2127,7 +2247,7 @@ export function alignEnabledWithCatalog(
   );
   const insertStmt = db.prepare(
     `INSERT INTO provider_models (id, provider_id, model_id, upstream_model_id, display_name, capabilities_json, variants_json, sort_order, enabled, created_at, source, last_refreshed_at, user_edited, enable_source)
-     VALUES (?, ?, ?, ?, ?, '{}', '{}', ?, 1, ?, 'catalog', NULL, 0, 'recommended')`
+     VALUES (?, ?, ?, ?, ?, ?, '{}', ?, 1, ?, 'catalog', NULL, 0, 'recommended')`
   );
   const now = new Date().toISOString().replace('T', ' ').split('.')[0];
 
@@ -2137,11 +2257,12 @@ export function alignEnabledWithCatalog(
         case 'insert':
           insertStmt.run(
             crypto.randomBytes(16).toString('hex'),
-            providerId, d.modelId, d.upstreamModelId, d.displayName, d.sort_order, now,
+            providerId, d.modelId, d.upstreamModelId, d.displayName,
+            d.capabilitiesJson ?? '{}', d.sort_order, now,
           );
           break;
         case 'enable':
-          enableStmt.run(d.displayName, d.upstreamModelId, providerId, d.modelId);
+          enableStmt.run(d.displayName, d.upstreamModelId, d.capabilitiesJson, providerId, d.modelId);
           break;
         case 'disable':
           disableStmt.run(providerId, d.modelId);
@@ -2167,7 +2288,7 @@ export function alignEnabledWithCatalog(
  */
 export function seedCatalogModelsIfEmpty(
   providerId: string,
-  catalogModels: { modelId: string; upstreamModelId?: string; displayName: string }[],
+  catalogModels: CatalogSyncModel[],
 ): number {
   if (catalogModels.length === 0) return 0;
   const db = getDb();
@@ -2179,7 +2300,7 @@ export function seedCatalogModelsIfEmpty(
   const now = new Date().toISOString().replace('T', ' ').split('.')[0];
   const stmt = db.prepare(
     `INSERT INTO provider_models (id, provider_id, model_id, upstream_model_id, display_name, capabilities_json, variants_json, sort_order, enabled, created_at, source, last_refreshed_at, user_edited, enable_source)
-     VALUES (?, ?, ?, ?, ?, '{}', '{}', ?, 1, ?, 'catalog', NULL, 0, 'catalog')`
+     VALUES (?, ?, ?, ?, ?, ?, '{}', ?, 1, ?, 'catalog', NULL, 0, 'catalog')`
   );
   const txn = db.transaction(() => {
     catalogModels.forEach((m, i) => {
@@ -2189,6 +2310,7 @@ export function seedCatalogModelsIfEmpty(
         m.modelId,
         m.upstreamModelId || m.modelId,
         m.displayName || m.modelId,
+        serializeCatalogCapabilities(m) ?? '{}',
         i,
         now,
       );

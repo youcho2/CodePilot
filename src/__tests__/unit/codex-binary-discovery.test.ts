@@ -25,6 +25,8 @@ import path from 'node:path';
 import {
   findCodexBinary,
   parseCodexVersion,
+  codexVersionSupportsAutoReview,
+  CODEX_AUTO_REVIEW_MIN_VERSION,
   selectBestCodexCandidate,
   isFatalCodexConfigStderr,
   resetCodexBinaryCacheForTests,
@@ -328,6 +330,26 @@ describe('parseCodexVersion', () => {
   it('returns null for null / garbage', () => {
     assert.equal(parseCodexVersion(null), null);
     assert.equal(parseCodexVersion('no version here'), null);
+  });
+});
+
+describe('Codex auto-review minimum version', () => {
+  it('pins the exact schema-probed alpha build', () => {
+    assert.equal(CODEX_AUTO_REVIEW_MIN_VERSION, '0.145.0-alpha.18');
+    assert.equal(codexVersionSupportsAutoReview('codex-cli 0.145.0-alpha.18'), true);
+  });
+
+  it('rejects earlier alphas and older minor releases', () => {
+    assert.equal(codexVersionSupportsAutoReview('codex-cli 0.145.0-alpha.17'), false);
+    assert.equal(codexVersionSupportsAutoReview('codex-cli 0.135.0-alpha.1'), false);
+  });
+
+  it('accepts later alphas and stable releases but rejects unknown versions', () => {
+    assert.equal(codexVersionSupportsAutoReview('codex-cli 0.145.0-alpha.19'), true);
+    assert.equal(codexVersionSupportsAutoReview('codex-cli 0.145.0'), true);
+    assert.equal(codexVersionSupportsAutoReview('codex-cli 0.146.0-alpha.1'), true);
+    assert.equal(codexVersionSupportsAutoReview(null), false);
+    assert.equal(codexVersionSupportsAutoReview('unknown'), false);
   });
 });
 

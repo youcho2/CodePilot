@@ -4,12 +4,14 @@ import { useEffect, useState, useRef, use } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import type { Message, MessagesResponse, ChatSession } from '@/types';
+import { normalizePermissionProfile, type SessionPermissionProfile } from '@/lib/permission/profile';
 import { ChatView } from '@/components/chat/ChatView';
 import { SpinnerGap } from "@/components/ui/icon";
 import { usePanel } from '@/hooks/usePanel';
 import { useWorkspaceSidebarOptional } from '@/hooks/useWorkspaceSidebar';
 import { useTranslation } from '@/hooks/useTranslation';
 import { getSnapshot, seedSnapshotPatch } from '@/lib/stream-session-manager';
+import { subscribeSessionTitle } from '@/lib/session-title-events';
 import { reconcilePhase } from '@/lib/stream-phase-reconcile';
 
 interface ChatSessionPageProps {
@@ -31,7 +33,7 @@ export default function ChatSessionPage({ params }: ChatSessionPageProps) {
   // global agent_runtime.
   const [sessionRuntimePin, setSessionRuntimePin] = useState<string>('');
   const [sessionInfoLoaded, setSessionInfoLoaded] = useState(false);
-  const [sessionPermissionProfile, setSessionPermissionProfile] = useState<'default' | 'full_access'>('default');
+  const [sessionPermissionProfile, setSessionPermissionProfile] = useState<SessionPermissionProfile>('default');
   const [sessionMode, setSessionMode] = useState<'code' | 'plan'>('code');
   const [sessionHasSummary, setSessionHasSummary] = useState(false);
   const { setWorkingDirectory, setSessionId, setSessionTitle: setPanelSessionTitle, setFileTreeOpen } = usePanel();
@@ -74,7 +76,7 @@ export default function ChatSessionPage({ params }: ChatSessionPageProps) {
           setSessionModel(resolved.model);
           setSessionProviderId(resolved.providerId);
           setSessionRuntimePin(data.session.runtime_pin || '');
-          setSessionPermissionProfile(data.session.permission_profile || 'default');
+          setSessionPermissionProfile(normalizePermissionProfile(data.session.permission_profile));
           setSessionMode((data.session.mode as 'code' | 'plan') || 'code');
           setSessionHasSummary(!!data.session.context_summary);
 
@@ -107,6 +109,14 @@ export default function ChatSessionPage({ params }: ChatSessionPageProps) {
     loadSession();
     return () => { cancelled = true; };
   }, [id, setWorkingDirectory, setSessionId, setPanelSessionTitle, t]);
+
+  // Keep the top bar's title live. The effect above reads the title exactly
+  // once on mount, so before this the first message's fallback title (written
+  // server-side, after mount) never reached the top bar — it kept showing
+  // "New Chat" for the rest of the session.
+  useEffect(() => {
+    return subscribeSessionTitle(id, (title) => setPanelSessionTitle(title));
+  }, [id, setPanelSessionTitle]);
 
   useEffect(() => {
     // Reset state when switching sessions

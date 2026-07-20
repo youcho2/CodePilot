@@ -6,6 +6,7 @@
 // typecheck. This library module is imported by BOTH `route.ts` (production
 // call site) and `collect-owner-gate.test.ts` (real-driven owner-gate test),
 // keeping the route module's export surface clean.
+import type { ChatRuntime } from '@/lib/chat-runtime-shared';
 import { isSessionStateResultError } from '@/lib/error-classifier';
 import {
   addMessage,
@@ -45,7 +46,19 @@ export async function collectStreamResponse(
   lockId: string,
   telegramOpts: { sessionId?: string; sessionTitle?: string; workingDirectory?: string },
   onComplete?: () => void,
-  opts?: { isHeartbeatTurn?: boolean; suppressNotifications?: boolean },
+  opts?: {
+    isHeartbeatTurn?: boolean;
+    suppressNotifications?: boolean;
+    /** Phase 2 semantic title generation. Present only when this turn is the
+     *  session's FIRST real user turn (the route sets it from the fallback-title
+     *  CAS return value). Fired below only on a clean, persisted completion. */
+    titleGeneration?: {
+      userText: string;
+      runtime: ChatRuntime;
+      providerId: string;
+      model?: string;
+    };
+  },
 ) {
   const reader = stream.getReader();
   const contentBlocks: MessageContentBlock[] = [];
@@ -474,6 +487,47 @@ export async function collectStreamResponse(
           }
         }
       } catch { /* best effort */ }
+    }
+
+    // ── Phase 2: semantic title generation (background, fire-and-forget) ──
+    // Preconditions, all required:
+    //   - the route marked this as the session's first real user turn,
+    //   - the turn ended cleanly (`hasError` covers thrown errors AND inline
+    //     `error` SSE events; an aborted/Stopped turn lands here too),
+    //   - the assistant row actually persisted (a turn dropped by the DP1 owner
+    //     gate is a superseded turn — it must not name the new owner's chat).
+    // Not awaited: `collectStreamResponse` is itself detached from the streaming
+    // Response, and nothing downstream of here may wait on a provider call.
+    // `generateSessionTitle` never throws; `.catch` is belt-and-braces.
+    if (opts?.titleGeneration && !hasError && lastSavedAssistantMsgId !== null) {
+      const gen = opts.titleGeneration;
+
+      import('@/lib/title-generation')
+        .then(({ generateSessionTitle }) =>
+          generateSessionTitle({
+            sessionId,
+            userText: gen.userText,
+            runtime: gen.runtime,
+            providerId: gen.providerId,
+            model: gen.model,
+          }),
+        )
+        .catch(() => { /* silent by contract — the fallback title stands */ });
+
+      // Codex app-server does not generate titles, but it does expose
+      // `thread/name/set`. Once the first successful turn has persisted, the
+      // runtime thread id is available, so mirror the LOCAL canonical title in
+      // the background. Read it at completion time so a manual rename that won
+      // during the turn is mirrored instead of being overwritten by the
+      // original fallback snapshot.
+      if (gen.runtime === 'codex_runtime') {
+        const canonicalTitle = getSession(sessionId)?.title?.trim();
+        if (canonicalTitle) {
+          import('@/lib/codex/thread-name')
+            .then(({ syncCodexThreadName }) => syncCodexThreadName(sessionId, canonicalTitle))
+            .catch(() => { /* best effort — the local title remains canonical */ });
+        }
+      }
     }
 
     // Telegram notifications: completion or error (fire-and-forget)
