@@ -269,13 +269,13 @@ describe('ProviderManager — Codex Account virtual card (IA correction)', () =>
     assert.match(mgrSrc, /import\s*\{\s*CodexQuotaWidget\s*\}\s*from\s*["']\.\/CodexQuotaWidget["']/);
   });
 
-  it('Codex Account card renders alongside OpenAI OAuth when logged in', () => {
-    // The OAuth section header must trigger when EITHER provider is
-    // connected — regressing this means logged-in Codex users would
+  it('Codex Account card renders alongside OAuth virtual providers when logged in', () => {
+    // The OAuth section header must trigger when OpenAI, xAI, OR Codex is
+    // connected — regressing this means a virtual-provider user would
     // see no card at all.
     assert.match(
       mgrSrc,
-      /openaiAuth\?\.authenticated\s*\|\|\s*codexAccount\?\.kind\s*===\s*['"]logged_in['"]/,
+      /openaiAuth\?\.authenticated\s*\|\|\s*xaiAuth\?\.authenticated\s*\|\|\s*codexAccount\?\.kind\s*===\s*['"]logged_in['"]/,
     );
     assert.match(mgrSrc, /codexAccount\?\.kind\s*===\s*['"]logged_in['"][\s\S]{0,500}<ProviderCard/);
   });
