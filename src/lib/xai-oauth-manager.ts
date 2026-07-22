@@ -1,6 +1,7 @@
 /** xAI OAuth lifecycle: atomic bundle persistence, refresh single-flight, browser/device login. */
 import { createServer, type Server } from 'node:http';
 import { getSetting, setSetting } from './db';
+import { envProxyFetch } from './env-proxy-fetch';
 import {
   XAI_OAUTH_CALLBACK_PORT,
   accessTokenIsExpiring,
@@ -204,7 +205,7 @@ export async function ensureXaiTokenFresh(): Promise<{ accessToken: string } | u
   return refreshed ? { accessToken: refreshed.accessToken } : undefined;
 }
 
-export function createXaiOAuthFetch(fetchImpl: typeof fetch = fetch): typeof fetch {
+export function createXaiOAuthFetch(fetchImpl: typeof fetch = envProxyFetch): typeof fetch {
   return (async (input: RequestInfo | URL, init?: RequestInit) => {
     const target = typeof input === 'string'
       ? new URL(input)

@@ -171,6 +171,17 @@ describe('xAI OAuth protocol primitives', () => {
     }
   });
 
+  it('surfaces a sanitized low-level network code without leaking proxy details', async () => {
+    const socketError = Object.assign(new Error('connect failed for redacted proxy'), { code: 'ECONNREFUSED' });
+    const fetchError = new TypeError('fetch failed', { cause: socketError });
+    await assert.rejects(
+      () => refreshXaiTokens('keep-me', async () => Promise.reject(fetchError)),
+      (error: unknown) => error instanceof XaiOAuthTokenError
+        && error.message === 'xAI OAuth network failure: fetch failed (ECONNREFUSED)'
+        && !error.message.includes('redacted proxy'),
+    );
+  });
+
   it('parses device authorization response and honors server interval', async () => {
     const authorization = await requestXaiDeviceAuthorization(async (input, init) => {
       assert.equal(String(input), XAI_OAUTH_DEVICE_URL);

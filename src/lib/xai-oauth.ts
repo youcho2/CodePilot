@@ -6,6 +6,7 @@
  * restrict it; UI and release notes must keep that risk visible.
  */
 import { createHash, randomBytes } from 'node:crypto';
+import { envProxyFetch } from './env-proxy-fetch';
 
 export const XAI_OAUTH_CLIENT_ID = 'b1a00492-073a-47ea-816f-4c329264a828';
 export const XAI_OAUTH_AUTHORIZE_URL = 'https://auth.x.ai/oauth2/authorize';
@@ -75,6 +76,17 @@ export class XaiOAuthTokenError extends Error {
     this.retryable = input.retryable;
     this.shouldClearCredentials = input.shouldClearCredentials ?? false;
   }
+}
+
+/** Extract only a stable socket/DNS/TLS code; never include proxy URLs or credentials. */
+function findNetworkErrorCode(error: unknown): string | undefined {
+  let current: unknown = error;
+  for (let depth = 0; depth < 4 && current && typeof current === 'object'; depth += 1) {
+    const code = (current as { code?: unknown }).code;
+    if (typeof code === 'string' && /^[A-Z][A-Z0-9_]{1,63}$/.test(code)) return code;
+    current = (current as { cause?: unknown }).cause;
+  }
+  return undefined;
 }
 
 function randomBase64Url(bytes = 32): string {
@@ -178,8 +190,9 @@ async function tokenRequest(
     });
   } catch (error) {
     if (signal?.aborted) throw new Error('xAI OAuth flow cancelled.');
+    const networkCode = findNetworkErrorCode(error);
     throw new XaiOAuthTokenError({
-      message: `xAI OAuth network failure: ${error instanceof Error ? error.message : String(error)}`,
+      message: `xAI OAuth network failure: ${error instanceof Error ? error.message : String(error)}${networkCode ? ` (${networkCode})` : ''}`,
       retryable: true,
     });
   }
@@ -191,7 +204,7 @@ export async function exchangeXaiAuthorizationCode(
   code: string,
   codeVerifier: string,
   expectedNonce: string,
-  fetchImpl: typeof fetch = fetch,
+  fetchImpl: typeof fetch = envProxyFetch,
   signal?: AbortSignal,
 ): Promise<XaiOAuthTokenResponse> {
   const tokens = await tokenRequest(new URLSearchParams({
@@ -217,7 +230,7 @@ export async function exchangeXaiAuthorizationCode(
 
 export async function refreshXaiTokens(
   refreshToken: string,
-  fetchImpl: typeof fetch = fetch,
+  fetchImpl: typeof fetch = envProxyFetch,
 ): Promise<XaiOAuthTokenResponse> {
   return tokenRequest(new URLSearchParams({
     grant_type: 'refresh_token',
@@ -227,7 +240,7 @@ export async function refreshXaiTokens(
 }
 
 export async function requestXaiDeviceAuthorization(
-  fetchImpl: typeof fetch = fetch,
+  fetchImpl: typeof fetch = envProxyFetch,
 ): Promise<XaiDeviceAuthorization> {
   const response = await fetchImpl(XAI_OAUTH_DEVICE_URL, {
     method: 'POST',
@@ -264,7 +277,7 @@ export async function pollXaiDeviceTokens(
     signal?: AbortSignal;
   } = {},
 ): Promise<XaiOAuthTokenResponse> {
-  const fetchImpl = options.fetchImpl ?? fetch;
+  const fetchImpl = options.fetchImpl ?? envProxyFetch;
   const cancelled = () => new Error('xAI device login cancelled.');
   const throwIfCancelled = () => {
     if (options.signal?.aborted) throw cancelled();
