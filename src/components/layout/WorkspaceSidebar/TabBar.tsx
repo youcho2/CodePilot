@@ -62,6 +62,7 @@ function tabIcon(tab: Tab): React.ReactNode {
       : <CodePilotIcon name="chart" size="md" className="text-inherit" aria-hidden />;
   }
   if (tab.kind === 'files-pinned') return <CodePilotIcon name="pin" size="md" className="text-inherit" aria-hidden />;
+  if (tab.kind === 'agent-run') return <CodePilotIcon name={tab.run.icon} size="md" className="text-inherit" aria-hidden />;
   if (tab.kind === 'markdown' || tab.kind === 'file') {
     const ext = (tab.kind === 'markdown' ? '.md' : tab.filePath.split('.').pop() || '').toLowerCase();
     if (ext.endsWith('.md') || tab.kind === 'markdown') return <CodePilotIcon name="file" size="md" className="text-inherit" aria-hidden />;

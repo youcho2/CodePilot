@@ -20,7 +20,7 @@ describe('resolveCodexPermissionWire', () => {
     assert.deepEqual(wire.turn, {
       approvalPolicy: 'on-request',
       approvalsReviewer: 'auto_review',
-      sandboxPolicy: { type: 'workspaceWrite', writableRoots: [], networkAccess: false },
+      sandboxPolicy: { type: 'workspaceWrite', writableRoots: [], networkAccess: true },
     });
   });
 
@@ -42,7 +42,7 @@ describe('resolveCodexPermissionWire', () => {
       approvalsReviewer: 'user',
       sandbox: 'read-only',
     });
-    assert.deepEqual(wire.turn.sandboxPolicy, { type: 'readOnly', networkAccess: false });
+    assert.deepEqual(wire.turn.sandboxPolicy, { type: 'readOnly', networkAccess: true });
   });
 
   it('default asks the user inside a workspace sandbox', () => {
@@ -50,6 +50,11 @@ describe('resolveCodexPermissionWire', () => {
     assert.equal(wire.thread.approvalPolicy, 'on-request');
     assert.equal(wire.thread.approvalsReviewer, 'user');
     assert.equal(wire.thread.sandbox, 'workspace-write');
+    assert.deepEqual(wire.turn.sandboxPolicy, {
+      type: 'workspaceWrite',
+      writableRoots: [],
+      networkAccess: true,
+    });
   });
 });
 

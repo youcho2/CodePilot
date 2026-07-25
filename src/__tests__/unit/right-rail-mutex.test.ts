@@ -141,16 +141,15 @@ describe('right-rail panels are additive — neither button forces the other to 
     //
     // Phase 7c-C update: WorkspaceSidebar is now nested inside a
     // <CardFrame kind="workspace"> + <CardSurface kind="workspace">
-    // pair and guarded by an additional `ws.state.open` check, but it
-    // still mounts under `isChatDetailRoute` and stays a sibling of
-    // <PanelZone />. We assert that both `<WorkspaceSidebar />` and
-    // `<PanelZone />` appear in the source guarded by `isChatDetailRoute`
-    // somewhere, without pinning the exact JSX shape around them so
-    // future refactors of the chrome layer don't break this invariant.
+    // pair and guarded by an additional `ws.state.open` check. The
+    // sidebar deliberately mounts for the new-chat `/chat` route too,
+    // so a first-turn sub-agent card can open Details before navigation
+    // settles; PanelZone remains detail-route-only. Both stay siblings
+    // in ChatContentRow and can coexist on a detail route.
     assert.match(
       APPSHELL,
-      /isChatDetailRoute[\s\S]{0,400}<WorkspaceSidebar\s*\/>/,
-      'AppShell must render <WorkspaceSidebar /> under an isChatDetailRoute guard',
+      /isChatRoute[\s\S]{0,400}<WorkspaceSidebar\s*\/>/,
+      'AppShell must render <WorkspaceSidebar /> under an isChatRoute guard so first-turn Details can open',
     );
     assert.match(
       APPSHELL,

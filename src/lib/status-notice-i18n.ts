@@ -67,6 +67,11 @@ export function resolveStatusNoticeKeys(
         titleKey: 'chat.notice.effortIgnored.unsupportedModel.title',
         messageKey: 'chat.notice.effortIgnored.unsupportedModel.message',
       };
+    case 'SUBAGENT_MODEL_UNAVAILABLE:runtime-model-unsupported':
+      return {
+        titleKey: 'chat.notice.subagentModelUnavailable.title',
+        messageKey: 'chat.notice.subagentModelUnavailable.message',
+      };
     default:
       return null;
   }

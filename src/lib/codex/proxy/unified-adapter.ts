@@ -39,6 +39,7 @@ import { translateNonStreamResponse } from './translate-response';
 import { encodeEvent, encodeDone, makeFailureStream } from './sse';
 import { makeErrorResult, classifyUpstreamError } from './errors';
 import { createCodePilotBuiltinTools } from './builtin-bridge';
+import { isManagedCodexSubagentSession } from '@/lib/codex/subagent';
 import { adaptForCodexProxy } from '@/lib/harness/runtime-adapter';
 import { platformCommandGuidance } from '@/lib/platform';
 import type { ResponsesAdapter } from './adapter';
@@ -48,6 +49,16 @@ import type {
   ProxyResult,
 } from './types';
 import { buildXaiProviderOptions } from '@/lib/xai-provider-options';
+import { buildCodexSubagentRunContext } from '@/lib/subagent-run-context';
+import { anthropic } from '@ai-sdk/anthropic';
+import { openai } from '@ai-sdk/openai';
+import { xaiTools } from '@ai-sdk/xai';
+import type { AiSdkConfig } from '@/lib/provider-resolver';
+import type { ClassifiedNonFunctionTool } from './types';
+import {
+  translateCodexNamespaceTools,
+  type CodexNamespaceToolRoute,
+} from './namespace-tools';
 
 /** JSON value type matching ai-sdk's SharedV3ProviderOptions inner. */
 type JsonValue = string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue };
@@ -77,13 +88,19 @@ export function createUnifiedAdapter(family: string): ResponsesAdapter {
     //    proxy route accepted openai-oauth then silently fell back to
     //    the default provider inside createModel.
     let languageModel: LanguageModel;
+    let modelConfig: AiSdkConfig;
+    let isThirdPartyProxy = false;
     try {
       const created = createModel({
-        callScene: 'interactive_chat',
+        callScene: isManagedCodexSubagentSession(input.sessionId)
+          ? 'delegated_interactive'
+          : 'interactive_chat',
         providerId: input.targetProviderId,
         model: input.body.model,
       });
       languageModel = created.languageModel;
+      modelConfig = created.config;
+      isThirdPartyProxy = created.isThirdPartyProxy;
     } catch (err) {
       const classified = classifyUpstreamError(err);
       return makeErrorResult(classified.code, classified.message, {
@@ -134,7 +151,18 @@ export function createUnifiedAdapter(family: string): ResponsesAdapter {
         : 'invalid_request';
       return makeErrorResult(code, message, { family });
     }
-    const tools: ToolSet | undefined = mergeToolSets(codexTools, bridge.tools);
+    const hostedSearchTools = buildCodexHostedSearchTools(
+      input.body.passthroughTools,
+      modelConfig,
+      isThirdPartyProxy,
+    );
+    const namespaceTools = translateCodexNamespaceTools(input.body.passthroughTools);
+    const tools: ToolSet | undefined = mergeToolSets(
+      codexTools,
+      namespaceTools.tools,
+      bridge.tools,
+      hostedSearchTools,
+    );
 
     // Phase 5d Phase 3 (2026-05-17) — capability prompt assembly +
     // stopWhen / builtinToolNames hints routed through the Runtime
@@ -146,10 +174,11 @@ export function createUnifiedAdapter(family: string): ResponsesAdapter {
     // mounted so the compiler can't disagree with which tools the
     // model sees (workspace-gated memory tools drop out of both
     // sides naturally when `workspacePath` is empty). The suppression
-    // set passed to translate-stream stays as `bridge.toolNames`
-    // (the authoritative "what ai-sdk actually executed" surface) —
-    // the adapter's `builtinToolNames` hint is the catalog-derived
-    // mirror and could differ if a future catalog drift sneaks in.
+    // Runtime prompt/step hints remain adapter-owned. Stream suppression is
+    // deliberately the union of that catalog hint and the concrete tools
+    // executed in this adapter (`bridge.toolNames` + hosted tools): an
+    // executed bridge call must never be echoed to app-server, even when the
+    // capability catalog has no entry for it (for example Sub-agent spawn).
     const bridgeMounted = bridge.toolNames.size > 0;
     // Phase 5e review fix P1 #2 (2026-05-18) — scan User + External
     // Harness extensions and pass through the adapter so the model
@@ -196,9 +225,44 @@ export function createUnifiedAdapter(family: string): ResponsesAdapter {
       userExtensions,
       externalExtensions,
     });
+    // Both bridge tools and provider-hosted tools are completed inside this
+    // adapter. They must never be echoed back to Codex as function calls:
+    // app-server owns neither name and would answer "unsupported call".
+    const providerExecutedToolNames = new Set([
+      ...bridge.toolNames,
+      ...Object.keys(hostedSearchTools),
+    ]);
     // #28: append the platform shell-dialect hint (no-op off Windows-PowerShell)
     // so Codex emits PowerShell-compatible commands on Windows.
-    const bridgePrompt = [adapted.systemPromptInstructions, platformCommandGuidance()]
+    let subagentRunContext = '';
+    if (bridge.toolNames.has('codepilot_list_subagent_runs')) {
+      try {
+        subagentRunContext = buildCodexSubagentRunContext(input.sessionId);
+      } catch (error) {
+        console.warn('[codex.proxy.subagent-runs] Failed to load durable lifecycle snapshot', {
+          sessionId: input.sessionId,
+          error: error instanceof Error ? error.message : String(error),
+        });
+        subagentRunContext = [
+          'CodePilot managed Sub-agent lifecycle storage is currently unavailable.',
+          'Do not claim that a Sub-agent is running or completed, and do not infer progress from update_plan, assistant narration, elapsed time, or workspace files.',
+          'Tell the user the status cannot be verified and ask them to retry after local storage recovers.',
+        ].join('\n');
+      }
+    }
+    const managedDelegationInstruction = bridge.toolNames.has('codepilot_spawn_subagent')
+      ? [
+          'CodePilot managed delegation rule: codepilot_spawn_subagent is the only Sub Agent entry point in this proxied Codex thread.',
+          'Call it directly once per requested child. Do not call or simulate multi_agent_v1, spawn_agent, wait_agent, resume_agent, or close_agent around it.',
+          'A native Codex worker inherits the wrong Provider/Model route here and would create an extra, misleading Agent run.',
+        ].join(' ')
+      : '';
+    const bridgePrompt = [
+      adapted.systemPromptInstructions,
+      subagentRunContext,
+      managedDelegationInstruction,
+      platformCommandGuidance(),
+    ]
       .filter((s) => s.length > 0)
       .join('\n\n');
 
@@ -244,9 +308,11 @@ export function createUnifiedAdapter(family: string): ResponsesAdapter {
         builtinToolNames: adapted.builtinToolNames,
         stopWhen: adapted.stopWhen,
         stepCount: adapted.stepCount,
+        providerExecutedToolNames,
         providerOptions,
         signal: input.signal,
         family,
+        namespaceToolRoutes: namespaceTools.routes,
       });
     }
 
@@ -260,9 +326,11 @@ export function createUnifiedAdapter(family: string): ResponsesAdapter {
       builtinToolNames: adapted.builtinToolNames,
       stopWhen: adapted.stopWhen,
       stepCount: adapted.stepCount,
+      providerExecutedToolNames,
       providerOptions,
       signal: input.signal,
       family,
+      namespaceToolRoutes: namespaceTools.routes,
     });
   };
 }
@@ -274,9 +342,45 @@ export function createUnifiedAdapter(family: string): ResponsesAdapter {
  * "no tools" signal (it distinguishes `tools: undefined` from
  * `tools: {}` in some places).
  */
-function mergeToolSets(codex: ToolSet | undefined, bridge: ToolSet): ToolSet | undefined {
-  const merged: ToolSet = { ...(codex ?? {}), ...bridge };
+function mergeToolSets(
+  codex: ToolSet | undefined,
+  namespace: ToolSet,
+  bridge: ToolSet,
+  hosted: ToolSet = {},
+): ToolSet | undefined {
+  const merged: ToolSet = { ...(codex ?? {}), ...namespace, ...bridge, ...hosted };
   return Object.keys(merged).length > 0 ? merged : undefined;
+}
+
+/**
+ * Codex describes provider-hosted search as a non-function `web_search`
+ * tool. The proxy used to preserve that descriptor for diagnostics and then
+ * drop it, so both parent and managed child could see a search affordance
+ * that the selected provider never received. Translate it only for SDK
+ * families with a real hosted-search implementation.
+ */
+export function buildCodexHostedSearchTools(
+  passthrough: readonly ClassifiedNonFunctionTool[] | undefined,
+  config: Pick<AiSdkConfig, 'sdkType' | 'useResponsesApi'>,
+  isThirdPartyProxy = false,
+): ToolSet {
+  if (!passthrough?.some(tool => tool.rawType === 'web_search')) return {};
+  if (config.sdkType === 'xai') {
+    return {
+      // @ai-sdk/xai currently carries a provider-tool generic from the v4
+      // provider package while ai@7's ToolSet expects the v5 intersection.
+      // The runtime wire shape is the same provider-executed tool contract.
+      web_search: xaiTools.webSearch() as unknown as ToolSet[string],
+      x_search: xaiTools.xSearch() as unknown as ToolSet[string],
+    };
+  }
+  if (config.sdkType === 'openai' && config.useResponsesApi) {
+    return { web_search: openai.tools.webSearch() };
+  }
+  if (config.sdkType === 'anthropic' && !isThirdPartyProxy) {
+    return { web_search: anthropic.tools.webSearch_20250305() };
+  }
+  return {};
 }
 
 /**
@@ -336,6 +440,11 @@ interface PathInput {
    *  from `adaptForCodexProxy().builtinToolNames` so the value is
    *  the catalog-derived single source, not a bridge-local copy. */
   builtinToolNames: ReadonlySet<string>;
+  /** Hosted provider tools (for example xAI x_search) are also
+   *  executed upstream, but are deliberately kept separate from
+   *  `builtinToolNames`: the latter is owned by the Runtime
+   *  Capability Adapter and must remain its exact output. */
+  providerExecutedToolNames: ReadonlySet<string>;
   /** AI SDK multi-step ceiling decision. Sourced from
    *  `adaptForCodexProxy().stopWhen`; the compiler decides this based
    *  on whether any built-in capability is enabled. */
@@ -347,6 +456,7 @@ interface PathInput {
   providerOptions: AiProviderOptions | undefined;
   signal: AbortSignal;
   family: string;
+  namespaceToolRoutes: ReadonlyMap<string, CodexNamespaceToolRoute>;
 }
 
 /**
@@ -373,7 +483,26 @@ function buildStopWhen(
 }
 
 function streamPath(args: PathInput): ProxyResult {
-  const { responseId, body, languageModel, instructions, messages, tools, builtinToolNames, stopWhen, stepCount, providerOptions, signal, family } = args;
+  const {
+    responseId,
+    body,
+    languageModel,
+    instructions,
+    messages,
+    tools,
+    builtinToolNames,
+    providerExecutedToolNames,
+    stopWhen,
+    stepCount,
+    providerOptions,
+    signal,
+    family,
+    namespaceToolRoutes,
+  } = args;
+  const suppressedToolNames = new Set([
+    ...builtinToolNames,
+    ...providerExecutedToolNames,
+  ]);
 
   let result: ReturnType<typeof streamText>;
   try {
@@ -410,7 +539,8 @@ function streamPath(args: PathInput): ProxyResult {
           responseId,
           body,
           source: result.fullStream,
-          builtinToolNames,
+          builtinToolNames: suppressedToolNames,
+          namespaceToolRoutes,
         });
         for await (const event of events) {
           controller.enqueue(encodeEvent(event));
@@ -444,7 +574,26 @@ function streamPath(args: PathInput): ProxyResult {
 }
 
 async function nonStreamPath(args: PathInput): Promise<ProxyResult> {
-  const { responseId, body, languageModel, instructions, messages, tools, builtinToolNames, stopWhen, stepCount, providerOptions, signal, family } = args;
+  const {
+    responseId,
+    body,
+    languageModel,
+    instructions,
+    messages,
+    tools,
+    builtinToolNames,
+    providerExecutedToolNames,
+    stopWhen,
+    stepCount,
+    providerOptions,
+    signal,
+    family,
+    namespaceToolRoutes,
+  } = args;
+  const suppressedToolNames = new Set([
+    ...builtinToolNames,
+    ...providerExecutedToolNames,
+  ]);
   try {
     const result = await generateText({
       model: languageModel,
@@ -472,7 +621,8 @@ async function nonStreamPath(args: PathInput): Promise<ProxyResult> {
         totalUsage: result.totalUsage,
         usage: result.usage,
       },
-      builtinToolNames,
+      builtinToolNames: suppressedToolNames,
+      namespaceToolRoutes,
     });
     return { kind: 'json', body: responseBody };
   } catch (err) {

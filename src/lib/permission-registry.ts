@@ -44,6 +44,8 @@ const TIMEOUT_MESSAGE = 'Permission request timed out';
 export interface PermissionResolvedEventData {
   permissionRequestId: string;
   status: 'timeout';
+  agentRunId?: string;
+  childSessionId?: string;
 }
 
 /**
@@ -55,12 +57,15 @@ export interface PermissionResolvedEventData {
  */
 export function buildPermissionResolvedEvent(
   permissionRequestId: string,
+  agent?: { agentRunId?: string; childSessionId?: string },
 ): { type: 'permission_resolved'; data: string } {
   return {
     type: 'permission_resolved',
     data: JSON.stringify({
       permissionRequestId,
       status: 'timeout',
+      ...(agent?.agentRunId ? { agentRunId: agent.agentRunId } : {}),
+      ...(agent?.childSessionId ? { childSessionId: agent.childSessionId } : {}),
     } satisfies PermissionResolvedEventData),
   };
 }

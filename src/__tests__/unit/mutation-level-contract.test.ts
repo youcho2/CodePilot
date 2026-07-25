@@ -86,6 +86,8 @@ describe('mutation-level — safe_read tools enumeration', () => {
     'codepilot_cli_tools_list',
     'codepilot_cli_tools_check_updates',
     'codepilot_session_search',
+    'codepilot_list_subagent_runs',
+    'codepilot_spawn_subagent',
   ];
 
   for (const name of mustBeSafeRead) {

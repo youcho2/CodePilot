@@ -30,6 +30,15 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { parseResponsesRequest } from '@/lib/codex/proxy/parse-request';
 import { createCodePilotBuiltinTools } from '@/lib/codex/proxy/builtin-bridge';
+import {
+  CODEX_NATIVE_COLLAB_NAMESPACE,
+  flattenCodexNamespaceToolName,
+  translateCodexNamespaceTools,
+} from '@/lib/codex/proxy/namespace-tools';
+import { translateResponsesInput } from '@/lib/codex/proxy/translate-input';
+import { translateStream } from '@/lib/codex/proxy/translate-stream';
+import { translateNonStreamResponse } from '@/lib/codex/proxy/translate-response';
+import type { ResponsesRequestBody } from '@/lib/codex/proxy/types';
 
 /**
  * Real Codex namespace wire shape verbatim from
@@ -81,10 +90,8 @@ describe('parseResponsesRequest — Codex `namespace` tool no longer trips unsup
     assert.equal(result.body.passthroughTools?.length, 1);
     assert.equal(result.body.passthroughTools?.[0].rawType, 'namespace');
     assert.equal(result.body.passthroughTools?.[0].name, 'mcp__demo__');
-    // Nested function tools live inside the namespace payload — the
-    // parser doesn't flatten them today (that's a future slice). We
-    // pin that the raw shape is preserved so a future flattener can
-    // read them without re-parsing.
+    // The parser preserves the raw shape; the adapter's namespace
+    // compatibility layer expands it after classification.
     const nested = result.body.passthroughTools![0].payload.tools;
     assert.ok(Array.isArray(nested));
     assert.equal((nested as unknown[]).length, 1);
@@ -141,6 +148,152 @@ describe('parseResponsesRequest — Codex `namespace` tool no longer trips unsup
     assert.match(result.message, /custom/);
     assert.match(result.message, /namespace/);
     assert.match(result.message, /local_shell/);
+  });
+});
+
+describe('namespace compatibility bridge — third-party provider round trip', () => {
+  it('expands nested namespace members into definition-only function tools', () => {
+    const parsed = parseResponsesRequest({
+      ...baseBody,
+      tools: [REAL_CODEX_NAMESPACE_TOOL],
+    });
+    assert.equal(parsed.ok, true);
+    if (!parsed.ok) return;
+    const translated = translateCodexNamespaceTools(parsed.body.passthroughTools);
+    const alias = 'mcp__demo__lookup_order';
+    assert.equal(flattenCodexNamespaceToolName('mcp__demo__', 'lookup_order'), alias);
+    assert.deepEqual(Object.keys(translated.tools), [alias]);
+    assert.deepEqual(translated.routes.get(alias), {
+      namespace: 'mcp__demo__',
+      name: 'lookup_order',
+    });
+    assert.equal(
+      typeof (translated.tools[alias] as { execute?: unknown }).execute,
+      'undefined',
+      'Codex, not the proxy, must execute the MCP call',
+    );
+  });
+
+  it('does not expose native Codex collab beside the exact-route managed bridge', () => {
+    const parsed = parseResponsesRequest({
+      ...baseBody,
+      tools: [{
+        type: 'namespace',
+        name: CODEX_NATIVE_COLLAB_NAMESPACE,
+        description: 'Codex native collaboration controls',
+        tools: [
+          {
+            type: 'function',
+            name: 'spawn_agent',
+            description: 'Spawn an inherited-model Codex worker',
+            parameters: { type: 'object', properties: {} },
+          },
+          {
+            type: 'function',
+            name: 'wait_agent',
+            description: 'Wait for a native Codex worker',
+            parameters: { type: 'object', properties: {} },
+          },
+        ],
+      }],
+    });
+    assert.equal(parsed.ok, true);
+    if (!parsed.ok) return;
+    const translated = translateCodexNamespaceTools(parsed.body.passthroughTools);
+    assert.deepEqual(Object.keys(translated.tools), []);
+    assert.equal(translated.routes.size, 0);
+  });
+
+  it('reconstructs the flat provider alias when Codex sends prior namespace calls', () => {
+    const parsed = parseResponsesRequest({
+      ...baseBody,
+      input: [
+        {
+          type: 'function_call',
+          call_id: 'call_1',
+          namespace: 'mcp__demo__',
+          name: 'lookup_order',
+          arguments: '{"order_id":"42"}',
+        },
+        {
+          type: 'function_call_output',
+          call_id: 'call_1',
+          output: '{"status":"shipped"}',
+        },
+      ],
+      tools: [REAL_CODEX_NAMESPACE_TOOL],
+    });
+    assert.equal(parsed.ok, true);
+    if (!parsed.ok) return;
+    const messages = translateResponsesInput(parsed.body.input);
+    assert.match(JSON.stringify(messages), /mcp__demo__lookup_order/);
+    assert.doesNotMatch(JSON.stringify(messages), /__orphan_function_call_output__/);
+  });
+
+  it('restores namespace + inner name on both stream and non-stream provider calls', async () => {
+    const routes = new Map([
+      ['mcp__demo__lookup_order', {
+        namespace: 'mcp__demo__',
+        name: 'lookup_order',
+      }],
+    ]);
+    async function* source() {
+      yield {
+        type: 'tool-call',
+        toolCallId: 'call_1',
+        toolName: 'mcp__demo__lookup_order',
+        input: { order_id: '42' },
+      } as never;
+      yield {
+        type: 'finish',
+        finishReason: 'tool-calls',
+        totalUsage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+      } as never;
+    }
+    const events = [];
+    for await (const event of translateStream({
+      responseId: 'resp_namespace',
+      body: { model: 'third-party', input: [], stream: true } as ResponsesRequestBody,
+      source: source(),
+      namespaceToolRoutes: routes,
+    })) {
+      events.push(event);
+    }
+    const done = events.find(event => event.type === 'response.output_item.done');
+    assert.ok(done && done.type === 'response.output_item.done');
+    assert.deepEqual(done.item, {
+      id: 'call_1',
+      type: 'function_call',
+      call_id: 'call_1',
+      namespace: 'mcp__demo__',
+      name: 'lookup_order',
+      arguments: '{"order_id":"42"}',
+    });
+
+    const response = translateNonStreamResponse({
+      responseId: 'resp_namespace',
+      model: 'third-party',
+      result: {
+        text: '',
+        toolCalls: [{
+          toolCallId: 'call_2',
+          toolName: 'mcp__demo__lookup_order',
+          input: { order_id: '43' },
+        }],
+        finishReason: 'tool-calls',
+        totalUsage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+      },
+      namespaceToolRoutes: routes,
+    });
+    assert.equal(response.output[0]?.type, 'function_call');
+    assert.deepEqual(response.output[0], {
+      id: 'tool_resp_namespace_0',
+      type: 'function_call',
+      call_id: 'call_2',
+      namespace: 'mcp__demo__',
+      name: 'lookup_order',
+      arguments: '{"order_id":"43"}',
+    });
   });
 });
 

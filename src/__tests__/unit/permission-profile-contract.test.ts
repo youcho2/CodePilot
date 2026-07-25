@@ -432,11 +432,11 @@ describe('human-only tools are denied before the SDK classifier (a04 + a09)', ()
     // Introspects the REAL server instances: if a tool is added to a server and
     // not to CODEPILOT_MCP_TOOL_SERVERS, derivation would silently skip it —
     // which is exactly how the previous hand-written table went stale.
-    const [memory, notify, media, imageGen, cliTools, dashboard, widget] = await Promise.all([
+    const [memory, notify, media, imageGen, cliTools, dashboard, widget, subagent] = await Promise.all([
       import('@/lib/memory-search-mcp'), import('@/lib/notification-mcp'),
       import('@/lib/media-import-mcp'), import('@/lib/image-gen-mcp'),
       import('@/lib/cli-tools-mcp'), import('@/lib/dashboard-mcp'),
-      import('@/lib/widget-guidelines'),
+      import('@/lib/widget-guidelines'), import('@/lib/claude-subagent-mcp'),
     ]);
     const servers: Record<string, { instance: { _registeredTools: Record<string, unknown> } }> = {
       'codepilot-memory': memory.createMemorySearchMcpServer('/tmp') as never,
@@ -446,6 +446,11 @@ describe('human-only tools are denied before the SDK classifier (a04 + a09)', ()
       'codepilot-cli-tools': cliTools.createCliToolsMcpServer() as never,
       'codepilot-dashboard': dashboard.createDashboardMcpServer('s', '/tmp') as never,
       'codepilot-widget': widget.createWidgetMcpServer() as never,
+      'codepilot-subagent': subagent.createClaudeSubagentMcpServer({
+        sessionId: 's',
+        workingDirectory: '/tmp',
+        routes: [],
+      }) as never,
     };
 
     for (const [serverKey, server] of Object.entries(servers)) {

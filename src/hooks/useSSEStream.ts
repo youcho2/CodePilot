@@ -124,6 +124,7 @@ export const TOAST_STATUS_CODES = new Set<string>([
   'RUNTIME_EFFORT_IGNORED', // Opus 4.7+ family on native runtime — explicit effort dropped
   'THINKING_ALWAYS_ON', // Fable 5 — thinking:'disabled' cannot be honored, adaptive runs anyway
   'SAMPLING_PARAMS_IGNORED', // temperature/top_p/top_k stripped or unsendable on this model/runtime
+  'SUBAGENT_MODEL_UNAVAILABLE', // Current Claude Code provider cannot route the requested child model
 ]);
 
 /**
@@ -165,6 +166,7 @@ export function maybeShowStatusToast(
       type: statusData.code === 'RUNTIME_EFFORT_IGNORED'
         || statusData.code === 'THINKING_ALWAYS_ON'
         || statusData.code === 'SAMPLING_PARAMS_IGNORED'
+        || statusData.code === 'SUBAGENT_MODEL_UNAVAILABLE'
         ? 'warning'
         : 'info',
       message: text || 'Status notification',

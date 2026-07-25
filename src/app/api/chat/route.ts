@@ -27,11 +27,11 @@ import { buildReviewEvent } from '@/lib/permission/review-event';
 import { emitReviewEvent } from '@/lib/permission/review-audit';
 import { isAutoReviewSupported, getAutoReviewUnavailableReason } from '@/lib/permission/sdk-capability';
 
-// codex-stop-recovery Phase 3 — after the request aborts (Stop force-abort /
-// client disconnect), how long to wait for the natural interrupt→terminal→
-// collect path to release the lock before the watchdog forces it. Long enough
-// that the common case settles itself as 'idle'; short enough that a turn with
-// no terminal event still frees the session promptly instead of forever.
+// codex-stop-recovery Phase 3 — after an explicit Runtime interrupt aborts the
+// turn controller, how long to wait for the natural interrupt→terminal→collect
+// path to release the lock before the watchdog forces it. Transport disconnect
+// is deliberately NOT an interrupt: switching chats or refreshing may detach
+// the renderer while the server-owned collector continues to a durable terminal.
 const LOCK_RECOVERY_GRACE_MS = 8000;
 
 // Session lock renewal (I3) — cap on how many times an autoTrigger
@@ -524,11 +524,6 @@ export async function POST(request: NextRequest) {
 
     const abortController = new AbortController();
 
-    // Handle client disconnect
-    request.signal.addEventListener('abort', () => {
-      abortController.abort();
-    });
-
     // Convert file attachments to the format expected by streamClaude.
     // Include filePath from the already-saved files so claude-client can
     // reference the on-disk copies instead of writing them again.
@@ -925,13 +920,13 @@ export async function POST(request: NextRequest) {
 
     // codex-stop-recovery Phase 3 — Stop/abort watchdog. The normal path settles
     // when the runtime stream closes on a terminal event. But a turn that's
-    // interrupted yet never emits a terminal event (a Codex stuck turn) would
+    // explicitly interrupted yet never emits a terminal event (a Codex stuck turn) would
     // leave collect reading forever and the lock renewing forever → the next
-    // same-session send is blocked by SESSION_BUSY indefinitely. When the request
-    // aborts (Stop force-abort / client disconnect) we give the natural
+    // same-session send is blocked by SESSION_BUSY indefinitely. When the Runtime
+    // aborts (only through the explicit Stop path) we give the natural
     // interrupt→terminal→collect path a grace window, then force the lock to
     // settle. Gated on !autoTrigger: background/heartbeat turns must keep running
-    // (and keep their lock) even after their initiating request disconnects.
+    // (and keep their lock) until their own lifecycle reaches a terminal state.
     if (!autoTrigger) {
       // Save the setTimeout handle + listener ref so a normal settle can cancel
       // the pending force-settle and detach this listener (clearWatchdog above).

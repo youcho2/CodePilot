@@ -15,9 +15,13 @@ export type CodexApprovalPolicy = 'untrusted' | 'on-request' | 'never';
 export type CodexApprovalsReviewer = 'user' | 'auto_review';
 export type CodexThreadSandbox = 'read-only' | 'workspace-write' | 'danger-full-access';
 
+// Codex app-server 0.145.0-alpha.27 generates `networkAccess: boolean`
+// for both constrained sandbox variants. Network access is an independent
+// axis from local filesystem write scope, so keeping a workspace/read-only
+// sandbox does not require silently disabling the native network tool path.
 export type CodexSandboxPolicy =
-  | { type: 'readOnly'; networkAccess: false }
-  | { type: 'workspaceWrite'; writableRoots: string[]; networkAccess: false }
+  | { type: 'readOnly'; networkAccess: boolean }
+  | { type: 'workspaceWrite'; writableRoots: string[]; networkAccess: boolean }
   | { type: 'dangerFullAccess' };
 
 export interface CodexPermissionWire {
@@ -59,7 +63,7 @@ export function resolveCodexPermissionWire(input: {
       turn: {
         approvalPolicy: 'never',
         approvalsReviewer: 'user',
-        sandboxPolicy: { type: 'readOnly', networkAccess: false },
+        sandboxPolicy: { type: 'readOnly', networkAccess: true },
       },
     };
   }
@@ -89,7 +93,7 @@ export function resolveCodexPermissionWire(input: {
       turn: {
         approvalPolicy: 'on-request',
         approvalsReviewer: 'auto_review',
-        sandboxPolicy: { type: 'workspaceWrite', writableRoots: [], networkAccess: false },
+        sandboxPolicy: { type: 'workspaceWrite', writableRoots: [], networkAccess: true },
       },
     };
   }
@@ -103,7 +107,7 @@ export function resolveCodexPermissionWire(input: {
     turn: {
       approvalPolicy: 'on-request',
       approvalsReviewer: 'user',
-      sandboxPolicy: { type: 'workspaceWrite', writableRoots: [], networkAccess: false },
+      sandboxPolicy: { type: 'workspaceWrite', writableRoots: [], networkAccess: true },
     },
   };
 }

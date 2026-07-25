@@ -12,16 +12,11 @@
  * the MCP injection + the model's decision to call were already working;
  * only this client-side execution bridge was missing.
  *
- * This bridge forwards an ALLOWED memory dynamic tool call back to Codex's
- * own MCP manager via `mcpServer/tool/call` (so we do NOT bypass Codex's
- * MCP server lifecycle), then converts the MCP result into the
- * `DynamicToolCallResponse` shape Codex expects.
- *
- * Scope (this slice): only the read-only Memory MCP (`codepilot_memory`
- * recent/search/get) auto-forwards — memory tools are `safe_read`. User
- * MCP / mutating tools must later route through mutationLevel / permission
- * policy before being allowed here; until then they fall through to a
- * graceful `success: false` (never an unhandled rejection).
+ * This bridge forwards every namespaced dynamic tool call back to Codex's
+ * own MCP manager via `mcpServer/tool/call`, then converts the MCP result
+ * into the `DynamicToolCallResponse` shape Codex expects. Approval and
+ * permission checks remain owned by Codex's elicitation / approval flow;
+ * this transport bridge must not impose a second tool allowlist.
  *
  * Shapes mirror the live app-server schema (codex 0.133 v2):
  *   DynamicToolCallParams / DynamicToolCallResponse /
@@ -54,17 +49,6 @@ export interface McpToolCallResultLike {
   isError?: boolean;
 }
 
-/** Tools allowed to auto-forward from a model-autonomous dynamic call.
- *  Memory only (all three are safe_read). Keep this the single source of
- *  truth for "what the model may invoke dynamically on Codex". */
-export const ALLOWED_DYNAMIC_TOOLS: Readonly<Record<string, ReadonlySet<string>>> = {
-  codepilot_memory: new Set([
-    'codepilot_memory_recent',
-    'codepilot_memory_search',
-    'codepilot_memory_get',
-  ]),
-};
-
 function inputText(text: string): DynamicToolCallOutputContentItem {
   return { type: 'inputText', text };
 }
@@ -90,17 +74,13 @@ function resultToText(result: McpToolCallResultLike): string {
   return JSON.stringify(content ?? null);
 }
 
-function isAllowed(namespace: string, tool: string): boolean {
-  return ALLOWED_DYNAMIC_TOOLS[namespace]?.has(tool) ?? false;
-}
-
 /**
- * Handle a Codex `item/tool/call` (dynamic tool call) by forwarding an
- * allowed memory tool to Codex's MCP manager and shaping the response.
+ * Handle a Codex `item/tool/call` (dynamic tool call) by forwarding the
+ * namespaced tool to Codex's MCP manager and shaping the response.
  * `forward` is `client.request('mcpServer/tool/call', ...)` in production;
- * tests inject a fake. NEVER throws — an unsupported tool or a forward
- * failure becomes a graceful `success: false` response (throwing would
- * surface as `-32603` and Codex would treat the call as a hard error).
+ * tests inject a fake. NEVER throws — malformed input or a forward failure
+ * becomes a graceful `success: false` response (throwing would surface as
+ * `-32603` and Codex would treat the call as a hard error).
  */
 export async function handleCodexDynamicToolCall(
   params: CodexDynamicToolCallParams,
@@ -112,12 +92,12 @@ export async function handleCodexDynamicToolCall(
   }) => Promise<McpToolCallResultLike>,
 ): Promise<CodexDynamicToolCallResponse> {
   const namespace = params.namespace ?? '';
-  if (!isAllowed(namespace, params.tool)) {
+  if (!namespace || !params.tool) {
     return {
       success: false,
       contentItems: [
         inputText(
-          `Dynamic tool "${namespace || '(none)'}.${params.tool}" is not available for autonomous calls on the Codex Runtime. Only the read-only Memory MCP is wired in this version.`,
+          `Dynamic MCP tool call is missing a namespace or tool name: "${namespace || '(none)'}.${params.tool || '(none)'}".`,
         ),
       ],
     };
@@ -137,7 +117,7 @@ export async function handleCodexDynamicToolCall(
     return {
       success: false,
       contentItems: [
-        inputText(`Memory tool call failed: ${err instanceof Error ? err.message : String(err)}`),
+        inputText(`MCP tool call failed: ${err instanceof Error ? err.message : String(err)}`),
       ],
     };
   }

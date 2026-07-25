@@ -92,7 +92,7 @@
 - [x] 未调用任何写用户全局 `~/.codex/config.toml` 的接口；全部是当前 thread/turn 请求参数。
 - [x] thread start/resume 携带一致配置；每个新 turn 再显式发送当前 profile，切档不依赖旧 thread snapshot。
 - [ ] 现有 command/file approval、permissions request、MCP elicitation 都纳入矩阵；未知类型 fail closed。
-- [ ] 修正 `item/permissions/requestApproval` 的 response 合同：当前已映射为真实审批 prompt（`src/lib/codex/event-mapper.ts:773-786`），但批准/拒绝统一返回 `{ decision }`（`src/lib/codex/approval-bridge.ts:275-293`），与注释所述 permissions + scope / GrantedPermissionProfile 形状疑似不符——必须 live 验证上游是否接受该形状，按 schema 修正，并同步清理 `runtime.ts:401-405`、`approval-bridge.ts:264-268` 的过时"等效 decline"注释。
+- [x] 修正 `item/permissions/requestApproval` response 合同：以 CodePilot 实际使用的 app-server 生成 TypeScript schema为依据，批准返回原请求 permission subset + `turn/session` scope，拒绝返回空 permissions；不再错误复用 `{ decision }`。定向 contract 已覆盖 allow once / allow session / deny / 非升级，真实登录审批 smoke 仍记在 Ledger 待跑。
 - [x] UI/API capability 读取当前选中 Codex binary 版本；运行时再检查同一能力，并要求 thread start/resume 回显 `auto_review`。旧版、未知版本、缺失回显、回显 user 四种反例均不保留 auto reviewer。
 - [x] 产品裁决：CodePilot 的会话权限选择是 thread/turn 权威事实源。default 显式发送 `on-request + user + workspace-write`，不继承用户全局 Codex config；这可能增加询问，但方向更保守且保证 UI 所选与实际 wire 一致。
 

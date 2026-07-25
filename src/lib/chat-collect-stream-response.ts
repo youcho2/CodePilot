@@ -16,11 +16,58 @@ import {
   updateSessionModel,
   syncSdkTasks,
   isLockOwner,
+  updateMessageStreamCheckpoint,
+  updateMessageStreamStatus,
 } from '@/lib/db';
 import { notifySessionComplete, notifySessionError } from '@/lib/telegram-bot';
 import { extractCompletion } from '@/lib/onboarding-completion';
 import { saveMediaToLibrary } from '@/lib/media-saver';
 import type { SSEEvent, TokenUsage, MessageContentBlock, MediaBlock } from '@/types';
+
+const ASSISTANT_CHECKPOINT_INTERVAL_MS = 120;
+const HEARTBEAT_MARKER_RE = /\s*<!--\s*heartbeat-done\s*-->\s*/g;
+
+/**
+ * Serialize assistant blocks with the same shape used by historical rendering.
+ * Checkpoints and terminal persistence must share this helper so refreshing
+ * cannot change a tool/sub-agent block into a different transcript shape.
+ */
+function serializeAssistantBlocks(blocks: readonly MessageContentBlock[]): string | null {
+  const cleanedBlocks = blocks.map((block) =>
+    block.type === 'text'
+      ? { ...block, text: block.text.replace(HEARTBEAT_MARKER_RE, '') }
+      : block
+  );
+  const hasStructuredBlocks = cleanedBlocks.some(
+    (block) =>
+      block.type === 'tool_use'
+      || block.type === 'tool_result'
+      || block.type === 'thinking'
+  );
+  const content = hasStructuredBlocks
+    ? JSON.stringify(cleanedBlocks)
+    : cleanedBlocks
+        .filter((block): block is Extract<MessageContentBlock, { type: 'text' }> => block.type === 'text')
+        .map((block) => block.text)
+        .join('')
+        .trim();
+  return content || null;
+}
+
+function buildAssistantSnapshot(
+  contentBlocks: readonly MessageContentBlock[],
+  currentText: string,
+  thinkingText: string,
+): { blocks: MessageContentBlock[]; content: string | null } {
+  const blocks = [...contentBlocks];
+  if (currentText.trim()) {
+    blocks.push({ type: 'text', text: currentText });
+  }
+  if (thinkingText.trim()) {
+    blocks.unshift({ type: 'thinking', thinking: thinkingText.trim() });
+  }
+  return { blocks, content: serializeAssistantBlocks(blocks) };
+}
 
 /**
  * Consume the runtime SSE stream server-side and persist the assistant turn.
@@ -70,8 +117,68 @@ export async function collectStreamResponse(
   let hasError = false;
   let errorMessage = '';
   let lastSavedAssistantMsgId: string | null = null;
+  let checkpointMessageId: string | null = null;
+  let lastCheckpointAt = 0;
   // Dedup layer: skip duplicate tool_result events by tool_use_id
   const seenToolResultIds = new Set<string>();
+
+  const persistCheckpoint = (force = false): void => {
+    const now = Date.now();
+    if (!force && checkpointMessageId && now - lastCheckpointAt < ASSISTANT_CHECKPOINT_INTERVAL_MS) {
+      return;
+    }
+
+    const { content } = buildAssistantSnapshot(contentBlocks, currentText, thinkingText);
+    if (!content) return;
+
+    // A checkpoint may only be created/advanced while this turn owns the
+    // session. If ownership was superseded after an earlier checkpoint, settle
+    // that old row without copying any newer stale output into the timeline.
+    if (!isLockOwner(sessionId, lockId)) {
+      if (checkpointMessageId) {
+        updateMessageStreamStatus(checkpointMessageId, 'interrupted');
+      }
+      return;
+    }
+
+    const usage = tokenUsage ? JSON.stringify(tokenUsage) : null;
+    if (checkpointMessageId) {
+      updateMessageStreamCheckpoint(checkpointMessageId, content, 'streaming', usage);
+    } else {
+      const saved = addMessage(sessionId, 'assistant', content, usage, {
+        stream_status: 'streaming',
+      });
+      checkpointMessageId = saved.id;
+    }
+    lastCheckpointAt = now;
+  };
+
+  const persistTerminal = (
+    content: string,
+    status: 'completed' | 'error',
+  ): void => {
+    if (!isLockOwner(sessionId, lockId)) {
+      if (checkpointMessageId) {
+        updateMessageStreamStatus(checkpointMessageId, 'interrupted');
+      }
+      console.warn(
+        `[chat/route] stale owner (lockId superseded) — DP1: dropping terminal assistant content for session ${sessionId}`,
+      );
+      return;
+    }
+
+    const usage = tokenUsage ? JSON.stringify(tokenUsage) : null;
+    if (checkpointMessageId) {
+      updateMessageStreamCheckpoint(checkpointMessageId, content, status, usage);
+      lastSavedAssistantMsgId = checkpointMessageId;
+    } else {
+      const saved = addMessage(sessionId, 'assistant', content, usage, {
+        stream_status: status,
+      });
+      checkpointMessageId = saved.id;
+      lastSavedAssistantMsgId = saved.id;
+    }
+  };
 
   try {
     while (true) {
@@ -92,9 +199,11 @@ export async function collectStreamResponse(
                 thinkingPhaseEnded = false;
               }
               thinkingText += event.data;
+              persistCheckpoint();
             } else if (event.type === 'text') {
               currentText += event.data;
               if (thinkingText) thinkingPhaseEnded = true;
+              persistCheckpoint();
             } else if (event.type === 'tool_use') {
               if (thinkingText) thinkingPhaseEnded = true;
               // Flush any accumulated text before the tool use block
@@ -110,6 +219,7 @@ export async function collectStreamResponse(
                   name: toolData.name,
                   input: toolData.input,
                 });
+                persistCheckpoint(true);
               } catch {
                 // skip malformed tool_use data
               }
@@ -161,6 +271,7 @@ export async function collectStreamResponse(
                   seenToolResultIds.add(resultData.tool_use_id);
                   contentBlocks.push(newBlock);
                 }
+                persistCheckpoint(true);
               } catch {
                 // skip malformed tool_result data
               }
@@ -209,6 +320,7 @@ export async function collectStreamResponse(
                 const resultData = JSON.parse(event.data);
                 if (resultData.usage) {
                   tokenUsage = resultData.usage;
+                  persistCheckpoint(true);
                 }
                 if (resultData.is_error) {
                   hasError = true;
@@ -281,43 +393,10 @@ export async function collectStreamResponse(
     }
 
     if (contentBlocks.length > 0) {
-      // If the message is text-only (no tool calls), store as plain text
-      // for backward compatibility with existing message rendering.
-      // Strip soft-heartbeat marker from text blocks before persisting (both paths)
-      const heartbeatMarkerRe = /\s*<!--\s*heartbeat-done\s*-->\s*/g;
-      const cleanedBlocks = contentBlocks.map(b =>
-        b.type === 'text' && 'text' in b ? { ...b, text: (b.text as string).replace(heartbeatMarkerRe, '') } : b
-      );
-
-      // If it contains tool calls or thinking blocks, store as structured JSON.
-      const hasStructuredBlocks = cleanedBlocks.some(
-        (b) => b.type === 'tool_use' || b.type === 'tool_result' || b.type === 'thinking'
-      );
-
-      const content = hasStructuredBlocks
-        ? JSON.stringify(cleanedBlocks)
-        : cleanedBlocks
-            .filter((b): b is Extract<MessageContentBlock, { type: 'text' }> => b.type === 'text')
-            .map((b) => b.text)
-            .join('')
-            .trim();
+      const content = serializeAssistantBlocks(contentBlocks);
 
       if (content) {
-        // DP1 owner gate: a superseded turn's assistant content — even if it's
-        // real, fully-formed output — must NOT be persisted into `messages`.
-        // Writing it would splice a stale turn's answer into the new owner's
-        // timeline (the 1.9 ordering bug). Diagnostic-log only, drop the row.
-        if (!isLockOwner(sessionId, lockId)) {
-          console.warn(`[chat/route] stale owner (lockId superseded) — DP1: dropping assistant message persist for session ${sessionId} (${content.length} chars not written to messages)`);
-        } else {
-          const savedMsg = addMessage(
-            sessionId,
-            'assistant',
-            content,
-            tokenUsage ? JSON.stringify(tokenUsage) : null,
-          );
-          lastSavedAssistantMsgId = savedMsg.id;
-        }
+        persistTerminal(content, hasError ? 'error' : 'completed');
       }
     }
   } catch (e) {
@@ -339,30 +418,9 @@ export async function collectStreamResponse(
       contentBlocks.push({ type: 'text', text: `**Error:** ${errorMessage}` });
     }
     if (contentBlocks.length > 0) {
-      const hbRe = /\s*<!--\s*heartbeat-done\s*-->\s*/g;
-      const errCleanedBlocks = contentBlocks.map(b =>
-        b.type === 'text' && 'text' in b ? { ...b, text: (b.text as string).replace(hbRe, '') } : b
-      );
-      const hasStructuredBlocks = errCleanedBlocks.some(
-        (b) => b.type === 'tool_use' || b.type === 'tool_result' || b.type === 'thinking'
-      );
-      const content = hasStructuredBlocks
-        ? JSON.stringify(errCleanedBlocks)
-        : errCleanedBlocks
-            .filter((b): b is Extract<MessageContentBlock, { type: 'text' }> => b.type === 'text')
-            .map((b) => b.text)
-            .join('')
-            .trim();
+      const content = serializeAssistantBlocks(contentBlocks);
       if (content) {
-        // Keep token accounting on the error path too — the result event
-        // often arrives before the exception, so usage is already known.
-        // DP1 owner gate: same as the happy path — a superseded turn must not
-        // persist its (error) assistant content into the new owner's timeline.
-        if (!isLockOwner(sessionId, lockId)) {
-          console.warn(`[chat/route] stale owner (lockId superseded) — DP1: dropping error-path assistant message persist for session ${sessionId}`);
-        } else {
-          addMessage(sessionId, 'assistant', content, tokenUsage ? JSON.stringify(tokenUsage) : null);
-        }
+        persistTerminal(content, 'error');
       }
     }
   } finally {

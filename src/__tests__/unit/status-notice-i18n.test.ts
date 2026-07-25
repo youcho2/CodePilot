@@ -33,6 +33,8 @@ const NEW_KEYS = [
   'chat.notice.samplingIgnored.runtimeCannotSend.other',
   'chat.notice.effortIgnored.unsupportedModel.title',
   'chat.notice.effortIgnored.unsupportedModel.message',
+  'chat.notice.subagentModelUnavailable.title',
+  'chat.notice.subagentModelUnavailable.message',
 ] as const;
 
 describe('s09 — new user-visible notices exist in BOTH locales', () => {
@@ -133,6 +135,21 @@ describe('s09 — unsupported-model effort notice is localized too', () => {
       assert.match(text, /Sonnet 4\.6/,
         'Sonnet 4.6 is effort-capable — the "pick a supported model" list must say so');
     }
+  });
+});
+
+describe('sub-agent model capability failures are localized and actionable', () => {
+  const payload = {
+    code: 'SUBAGENT_MODEL_UNAVAILABLE',
+    reason: 'runtime-model-unsupported',
+    params: { model: 'grok-4.5' },
+  };
+
+  it('tells the user the model did not run and offers a Runtime choice', () => {
+    const keys = resolveStatusNoticeKeys(payload)!;
+    assert.equal(keys.messageKey, 'chat.notice.subagentModelUnavailable.message');
+    assert.match(translate('en', keys.messageKey, payload.params), /switch the session Runtime/i);
+    assert.match(translate('zh', keys.messageKey, payload.params), /切换当前会话的 Runtime/);
   });
 });
 

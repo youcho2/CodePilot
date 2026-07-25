@@ -17,6 +17,7 @@
  */
 
 import type { ResponsesNonStreamResponse, ResponsesUsage } from './types';
+import type { CodexNamespaceToolRoute } from './namespace-tools';
 
 interface ToolCallLite {
   toolCallId: string;
@@ -46,9 +47,10 @@ interface TranslateResponseOptions {
   result: NonStreamResultLite;
   /** Phase 5c (2026-05-16) — names belonging to the CodePilot
    *  built-in tool bridge. function_call entries with these names
-   *  are dropped from the Codex-visible output[] because the bridge
-   *  already executed them server-side. */
+  *  are dropped from the Codex-visible output[] because the bridge
+  *  already executed them server-side. */
   builtinToolNames?: ReadonlySet<string>;
+  namespaceToolRoutes?: ReadonlyMap<string, CodexNamespaceToolRoute>;
 }
 
 export function translateNonStreamResponse(
@@ -71,11 +73,13 @@ export function translateNonStreamResponse(
     // Phase 5c — skip bridge-owned tool calls; Codex doesn't need to
     // see them (matches the suppression rule in translate-stream).
     if (builtinToolNames.has(call.toolName)) continue;
+    const namespaceRoute = opts.namespaceToolRoutes?.get(call.toolName);
     output.push({
       id: `tool_${responseId}_${idx++}`,
       type: 'function_call',
       call_id: call.toolCallId,
-      name: call.toolName,
+      name: namespaceRoute?.name ?? call.toolName,
+      ...(namespaceRoute ? { namespace: namespaceRoute.namespace } : {}),
       arguments: stringifyInput(call.input),
     });
   }

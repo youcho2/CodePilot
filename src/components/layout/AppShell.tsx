@@ -147,10 +147,12 @@ const LG_BREAKPOINT = 1024;
  */
 
 function ChatContentRow({
+  isChatRoute,
   isChatDetailRoute,
   isSplitActive,
   children,
 }: {
+  isChatRoute: boolean;
   isChatDetailRoute: boolean;
   isSplitActive: boolean;
   children: React.ReactNode;
@@ -182,7 +184,7 @@ function ChatContentRow({
       </CardFrame>
       {/* Workspace sidebar: ResizeGutter as sibling of the frame so
           its visible line lands in the gap between main and workspace. */}
-      {isChatDetailRoute && ws.state.open && (
+      {isChatRoute && ws.state.open && (
         <>
           <ResizeGutter
             onResize={handleWorkspaceResize}
@@ -769,7 +771,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                   }}
                 />
               )}
-              <ChatContentRow isChatDetailRoute={isChatDetailRoute} isSplitActive={isSplitActive}>
+              <ChatContentRow isChatRoute={isChatRoute} isChatDetailRoute={isChatDetailRoute} isSplitActive={isSplitActive}>
                 {children}
               </ChatContentRow>
             </div>

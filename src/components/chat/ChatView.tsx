@@ -177,6 +177,43 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
       .catch(() => { /* keep current state as-is */ });
   }, [sessionId]);
 
+  // A fresh renderer cannot re-attach to the old browser-side SSE reader, but
+  // the server collector may still be finishing the turn. Durable assistant
+  // checkpoints let us poll only that narrow recovery window and replace the
+  // same row in place until it reaches a terminal status.
+  const hasStreamingCheckpoint = messages.some(
+    (message) => message.role === 'assistant' && message.stream_status === 'streaming',
+  );
+  useEffect(() => {
+    if (!hasStreamingCheckpoint) return;
+
+    let cancelled = false;
+    const refreshCheckpoints = async () => {
+      try {
+        const res = await fetch(`/api/chat/sessions/${sessionId}/messages?limit=50`);
+        if (!res.ok || cancelled) return;
+        const data = await res.json() as MessagesResponse;
+        if (!data.messages || cancelled) return;
+        const refreshed = new Map(data.messages.map((message) => [message.id, message]));
+        setMessages((current) =>
+          current.map((message) => refreshed.get(message.id) ?? message),
+        );
+        if (data.taskRuns) {
+          setTaskRuns((current) => ({ ...current, ...data.taskRuns }));
+        }
+      } catch {
+        // Keep the last durable checkpoint visible and retry on the next tick.
+      }
+    };
+
+    void refreshCheckpoints();
+    const timer = window.setInterval(refreshCheckpoints, 750);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [hasStreamingCheckpoint, sessionId]);
+
   const cappedSetMessages: typeof setMessages = useCallback((action) => {
     setMessages((prev) => {
       const next = typeof action === 'function' ? action(prev) : action;
@@ -455,6 +492,53 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
   const permissionResolved = streamSnapshot?.permissionResolved ?? null;
   const reviewNotices = streamSnapshot?.reviewNotices ?? [];
   const rewindPoints = getRewindPoints(sessionId);
+
+  // When the user navigates away and back without reloading the renderer, the
+  // local SSE snapshot is still alive while the history API now also contains
+  // its durable checkpoint. Remember those row ids so the historical mirror is
+  // hidden only while the local stream renders the same turn. Once terminal,
+  // prefer the canonical DB row and suppress the equivalent temp assistant
+  // bubble appended by the client completion event.
+  const mirroredCheckpointIdsRef = useRef<Set<string>>(
+    new Set(
+      initialMessages
+        .filter((message) => message.role === 'assistant' && message.stream_status === 'streaming')
+        .map((message) => message.id),
+    ),
+  );
+  useEffect(() => {
+    mirroredCheckpointIdsRef.current = new Set(
+      initialMessages
+        .filter((message) => message.role === 'assistant' && message.stream_status === 'streaming')
+        .map((message) => message.id),
+    );
+  }, [sessionId, initialMessages]);
+
+  const recoveredCheckpointContents = new Set(
+    messages
+      .filter((message) =>
+        message.role === 'assistant'
+        && mirroredCheckpointIdsRef.current.has(message.id)
+        && message.stream_status !== 'streaming'
+      )
+      .map((message) => message.content),
+  );
+  const displayedMessages = messages.filter((message) => {
+    if (
+      isStreaming
+      && mirroredCheckpointIdsRef.current.has(message.id)
+    ) {
+      return false;
+    }
+    if (
+      message.role === 'assistant'
+      && message.id.startsWith('temp-assistant-')
+      && recoveredCheckpointContents.has(message.content)
+    ) {
+      return false;
+    }
+    return true;
+  });
 
   // ── Skill nudge banner ──
   // Listens for 'skill-nudge' window events dispatched by stream-session-manager
@@ -1355,7 +1439,7 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
   // session-less landing). Covers "clicked + on a project" and
   // "clicked + in the assistant workspace" — both create an empty
   // session and land here.
-  const isNewChat = messages.length === 0 && !isStreaming;
+  const isNewChat = displayedMessages.length === 0 && !isStreaming;
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -1450,7 +1534,7 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
       ) : (
         <>
         <MessageList
-        messages={messages}
+        messages={displayedMessages}
         streamingContent={streamingContent}
         isStreaming={isStreaming}
         toolUses={toolUses}

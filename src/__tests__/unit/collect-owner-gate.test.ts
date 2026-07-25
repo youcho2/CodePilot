@@ -20,8 +20,13 @@
  * Ordering-safety note (why the owner is never falsely dropped): in production
  * `addMessage` runs inside collect's try, BEFORE onComplete→settleLock releases
  * the lock (finally). So the true owner is still the lock holder when it persists.
+ *
+ * This file is also run directly during stream-persistence debugging. Keep the
+ * isolation preload as the FIRST import so a bare
+ * `npx tsx --test collect-owner-gate.test.ts` can never open the Dev database.
  */
 
+import '../db-isolation.setup';
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 
@@ -36,6 +41,11 @@ import {
   getTasksBySession,
   updateSdkSessionId,
   updateSessionModel,
+  addMessage,
+  createPermissionRequest,
+  getPermissionRequest,
+  recoverInterruptedMessageStreams,
+  runRuntimeStartupRecoveryOnce,
 } from '../../lib/db';
 
 // Build a single SSE chunk for a `{ type, data }` event, matching what the
@@ -83,6 +93,7 @@ describe('collectStreamResponse session-level write owner gate (Phase 3 B)', () 
     const msgs = assistantMessages(sid);
     assert.equal(msgs.length, 1, 'owner assistant message must be persisted');
     assert.equal(msgs[0].content, 'Hello from the true owner', 'persisted content matches');
+    assert.equal(msgs[0].stream_status, 'completed', 'terminal row must not remain a streaming checkpoint');
 
     // Session-level state written by the owner.
     const row = getSession(sid)!;
@@ -132,5 +143,120 @@ describe('collectStreamResponse session-level write owner gate (Phase 3 B)', () 
 
     // SDK task sync dropped for the stale turn.
     assert.equal(getTasksBySession(sid).length, 0, 'stale turn must not sync SDK tasks');
+  });
+
+  it('checkpoints a structured Sub-agent transcript before stream end, then finalizes the same row', async () => {
+    const sid = createSession('collect-checkpoint-refresh').id;
+    const lockId = 'lock-checkpoint-refresh';
+    assert.equal(acquireSessionLock(sid, lockId, 'test-owner', 600), true);
+
+    let controller!: ReadableStreamDefaultController<string>;
+    const stream = new ReadableStream<string>({
+      start(nextController) {
+        controller = nextController;
+      },
+    });
+    const collecting = collectStreamResponse(stream, sid, lockId, NO_TELEGRAM, undefined, OPTS);
+
+    controller.enqueue(sse('text', 'Preparing result. '));
+    controller.enqueue(sse('tool_use', {
+      id: 'subagent-run-1',
+      name: 'codepilot_spawn_subagent',
+      input: { agent_name: 'researcher', model: 'qwen3.8-max' },
+    }));
+    await new Promise<void>((resolve) => setImmediate(resolve));
+
+    const during = assistantMessages(sid);
+    assert.equal(during.length, 1, 'first meaningful output creates one durable checkpoint row');
+    assert.equal(during[0].stream_status, 'streaming');
+    const duringBlocks = JSON.parse(during[0].content) as Array<Record<string, unknown>>;
+    assert.equal(duringBlocks[1]?.type, 'tool_use');
+    assert.equal(duringBlocks[1]?.id, 'subagent-run-1', 'real Sub-agent tool id survives refresh checkpoint');
+
+    controller.enqueue(sse('tool_result', {
+      tool_use_id: 'subagent-run-1',
+      content: JSON.stringify({ status: 'completed', terminal: true, text: 'done' }),
+      is_error: false,
+    }));
+    controller.enqueue(sse('text', 'Finished.'));
+    controller.enqueue(sse('result', {
+      session_id: 'sdk-checkpoint',
+      is_error: false,
+      usage: { input_tokens: 7, output_tokens: 11 },
+    }));
+    controller.close();
+    await collecting;
+
+    const after = assistantMessages(sid);
+    assert.equal(after.length, 1, 'terminal persistence updates the checkpoint instead of inserting a duplicate');
+    assert.equal(after[0].id, during[0].id, 'checkpoint identity is stable across completion');
+    assert.equal(after[0].stream_status, 'completed');
+    const finalBlocks = JSON.parse(after[0].content) as Array<Record<string, unknown>>;
+    assert.equal(finalBlocks.some((block) => block.type === 'tool_result'), true);
+    assert.equal(finalBlocks.at(-1)?.type, 'text');
+  });
+
+  it('startup recovery marks only unfinished assistant checkpoints interrupted', () => {
+    const sid = createSession('collect-checkpoint-restart').id;
+    const partial = addMessage(sid, 'assistant', 'Saved partial response', null, {
+      stream_status: 'streaming',
+    });
+    const complete = addMessage(sid, 'assistant', 'Already complete', null, {
+      stream_status: 'completed',
+    });
+
+    assert.equal(recoverInterruptedMessageStreams(), 1);
+    const rows = assistantMessages(sid);
+    assert.equal(rows.find((row) => row.id === partial.id)?.stream_status, 'interrupted');
+    assert.equal(rows.find((row) => row.id === complete.id)?.stream_status, 'completed');
+    assert.equal(recoverInterruptedMessageStreams(), 0, 'recovery is idempotent');
+  });
+
+  it('repeated DB/module initialization cannot recover a live process owner', () => {
+    const previousDisableMigration = process.env.CODEPILOT_DISABLE_DB_MIGRATION_IN_TESTS;
+    delete process.env.CODEPILOT_DISABLE_DB_MIGRATION_IN_TESTS;
+    try {
+      // Claim this test worker as the one runtime owner before creating live
+      // state. A second Next route/module instance sees the same live PID and
+      // must not run the destructive process-restart sweep.
+      runRuntimeStartupRecoveryOnce();
+
+      const sid = createSession('collect-live-runtime-owner').id;
+      const lockId = 'lock-live-runtime-owner';
+      assert.equal(acquireSessionLock(sid, lockId, `chat-${process.pid}`, 600), true);
+      const checkpoint = addMessage(sid, 'assistant', 'Still running', null, {
+        stream_status: 'streaming',
+      });
+      createPermissionRequest({
+        id: 'permission-live-runtime-owner',
+        sessionId: sid,
+        toolName: 'Agent',
+        toolInput: '{}',
+        expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      });
+
+      assert.equal(
+        runRuntimeStartupRecoveryOnce(),
+        false,
+        'the same live process owner must make repeated initialization a no-op',
+      );
+      assert.equal(isLockOwner(sid, lockId), true, 'live session lock must survive');
+      assert.equal(
+        assistantMessages(sid).find((row) => row.id === checkpoint.id)?.stream_status,
+        'streaming',
+        'live checkpoint must not be relabeled interrupted',
+      );
+      assert.equal(
+        getPermissionRequest('permission-live-runtime-owner')?.status,
+        'pending',
+        'live child permission must not be aborted as Process restarted',
+      );
+    } finally {
+      if (previousDisableMigration === undefined) {
+        delete process.env.CODEPILOT_DISABLE_DB_MIGRATION_IN_TESTS;
+      } else {
+        process.env.CODEPILOT_DISABLE_DB_MIGRATION_IN_TESTS = previousDisableMigration;
+      }
+    }
   });
 });

@@ -5,6 +5,18 @@
 import type { TitleOrigin } from '@/lib/conversation-title';
 import type { SessionPermissionProfile } from '@/lib/permission/profile';
 import type { PermissionReviewNotice } from '@/lib/permission/review-event';
+import type {
+  DelegatedAgentArtifact,
+  DelegatedAgentResult,
+  DelegatedAgentSource,
+  DelegatedAgentUsage,
+  DelegatedAgentWarning,
+  SubagentDispatchState,
+  SubagentExecutionStatus,
+  SubagentLifecycleEventType,
+  SubagentRunPhase,
+  SubagentStatusError,
+} from '@/lib/subagent-status';
 
 export type { TitleOrigin };
 export type { SessionPermissionProfile };
@@ -220,6 +232,12 @@ export interface Message {
   content: string; // JSON string of MessageContentBlock[] for structured content
   created_at: string;
   token_usage: string | null; // JSON string of TokenUsage
+  /**
+   * Durable lifecycle of the assistant transcript row. Older/synthetic rows may
+   * omit it and are treated as completed. A `streaming` row is an incremental
+   * checkpoint, not proof that the turn finished successfully.
+   */
+  stream_status?: 'streaming' | 'completed' | 'interrupted' | 'error';
   is_heartbeat_ack?: number; // 1 = heartbeat ack (prunable from transcript), 0 = normal
   /**
    * Phase 3 Step 4 — link this message to a `task_run_logs` row. When
@@ -237,6 +255,149 @@ export interface Message {
    * because some code paths synthesize Message-like objects without DB origin.
    */
   _rowid?: number;
+}
+
+/**
+ * Durable lifecycle fact for a managed Sub-agent attempt.
+ *
+ * `terminal` is stored as SQLite INTEGER so callers must compare it with 1,
+ * not use plan text or the presence of a tool result as a completion signal.
+ */
+export interface SubagentRunRecord {
+  id: string;
+  logical_run_id: string;
+  attempt_number: number;
+  parent_session_id: string;
+  runtime: 'codepilot_runtime' | 'claude_code' | 'codex_runtime';
+  tool_name: string;
+  agent_name: string;
+  provider_id: string;
+  requested_model: string;
+  effective_provider_id: string;
+  effective_model: string;
+  workflow_id: string;
+  task_key: string;
+  dependencies_json: string;
+  dispatch_state: SubagentDispatchState;
+  prompt: string;
+  status: SubagentExecutionStatus;
+  phase: SubagentRunPhase;
+  terminal: 0 | 1;
+  result_text: string;
+  result_json: string;
+  current_activity: string;
+  last_activity_at: string;
+  error_json: string;
+  created_at: string;
+  updated_at: string;
+  completed_at: string;
+}
+
+export interface StartSubagentRunInput {
+  id: string;
+  /** Reuse this opaque id only when retrying the same logical task. */
+  logicalRunId?: string;
+  parentSessionId: string;
+  runtime: SubagentRunRecord['runtime'];
+  toolName: string;
+  agentName: string;
+  providerId?: string;
+  requestedModel?: string;
+  workflowId?: string;
+  taskKey?: string;
+  dependencyTaskKeys?: string[];
+  prompt?: string;
+}
+
+export interface SettleSubagentRunInput {
+  status: Exclude<SubagentExecutionStatus, 'running'>;
+  resultText?: string;
+  effectiveProviderId?: string;
+  effectiveModel?: string;
+  error?: SubagentStatusError;
+  sources?: DelegatedAgentSource[];
+  artifacts?: DelegatedAgentArtifact[];
+  warnings?: DelegatedAgentWarning[];
+  usage?: DelegatedAgentUsage;
+}
+
+export interface CheckpointSubagentRunInput {
+  resultText?: string;
+  effectiveModel?: string;
+  currentActivity?: string;
+}
+
+export interface SubagentRunEventRecord {
+  id: string;
+  run_id: string;
+  logical_run_id: string;
+  sequence: number;
+  /** Monotonic database change cursor; advances when a coalesced row updates. */
+  cursor: number;
+  event_type: SubagentLifecycleEventType;
+  activity: string;
+  tool_name: string;
+  payload_json: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface RecordSubagentRunEventInput {
+  type: SubagentLifecycleEventType;
+  activity?: string;
+  toolName?: string;
+  payload?: Record<string, unknown>;
+  /** Repeated partial/activity events with the same key update in place. */
+  coalesceKey?: string;
+}
+
+export interface SubagentRunAttemptSnapshot {
+  id: string;
+  logicalRunId: string;
+  attemptNumber: number;
+  runtime: SubagentRunRecord['runtime'];
+  toolName: string;
+  agentName: string;
+  providerId?: string;
+  requestedModel?: string;
+  effectiveProviderId?: string;
+  effectiveModel?: string;
+  workflowId?: string;
+  taskKey?: string;
+  dependencyTaskKeys: string[];
+  dispatchState: SubagentDispatchState;
+  status: SubagentExecutionStatus;
+  phase: SubagentRunPhase;
+  terminal: boolean;
+  prompt: string;
+  resultText?: string;
+  result?: DelegatedAgentResult;
+  currentActivity?: string;
+  lastActivityAt?: string;
+  error?: SubagentStatusError;
+  createdAt: string;
+  updatedAt: string;
+  completedAt?: string;
+}
+
+export interface SubagentRunDetailsResponse {
+  source: 'sqlite.subagent_runs';
+  logicalRunId: string;
+  /** Pass this value back as after_cursor to fetch only later event changes. */
+  nextEventCursor: number;
+  attempts: SubagentRunAttemptSnapshot[];
+  events: Array<{
+    id: string;
+    attemptId: string;
+    sequence: number;
+    cursor: number;
+    type: SubagentLifecycleEventType;
+    activity?: string;
+    toolName?: string;
+    payload?: Record<string, unknown>;
+    createdAt: string;
+    updatedAt: string;
+  }>;
 }
 
 // Media content block (MCP-compatible: image/audio/video in tool results)
@@ -1018,6 +1179,10 @@ export interface PermissionRequestEvent {
   permissionRequestId: string;
   toolName: string;
   toolInput: Record<string, unknown>;
+  /** Managed child attribution; the DB owner remains the parent chat session. */
+  agentRunId?: string;
+  childSessionId?: string;
+  agentName?: string;
   suggestions?: PermissionSuggestion[];
   decisionReason?: string;
   blockedPath?: string;
@@ -1657,7 +1822,17 @@ export interface ClaudeStreamOptions {
   /** Output format for structured responses */
   outputFormat?: { type: 'json_schema'; schema: Record<string, unknown> };
   /** Custom agent definitions */
-  agents?: Record<string, { description: string; prompt?: string; tools?: string[]; disallowedTools?: string[] }>;
+  agents?: Record<string, {
+    description: string;
+    prompt: string;
+    tools?: string[];
+    disallowedTools?: string[];
+    /** Omitted or "inherit" keeps the parent; full IDs/aliases may override per run. */
+    model?: string;
+    maxTurns?: number;
+    background?: boolean;
+    permissionMode?: 'default' | 'acceptEdits' | 'bypassPermissions' | 'plan' | 'dontAsk';
+  }>;
   /** Agent name for the main thread */
   agent?: string;
   /** Enable file checkpointing for rewind support */

@@ -21,6 +21,7 @@ import { ImageGenCard } from './ImageGenCard';
 import { BatchPlanInlinePreview } from './batch-image-gen/BatchPlanInlinePreview';
 import { WidgetRenderer } from './WidgetRenderer';
 import { buildReferenceImages } from '@/lib/image-ref-store';
+import { useTranslation } from '@/hooks/useTranslation';
 // SPECIES_IMAGE_URL / EGG_IMAGE_URL / RARITY_BG_GRADIENT were used by
 // the assistant-chat avatar (removed 2026-05-21); the imports are kept
 // out to avoid stale references.
@@ -30,6 +31,12 @@ import { classifyPath } from '@/lib/preview-source';
 import { isWriteTool, isCreateTool, extractWritePath, resolveToolPath } from '@/lib/file-write-tools';
 import { DevOutputSegment } from './DevOutputChips';
 import type { PlannerOutput } from '@/types';
+import { SubagentCard } from './SubagentCard';
+import {
+  buildSubagentRunView,
+  collapseLogicalSubagentRuns,
+  isSubagentToolName,
+} from '@/lib/subagent-view';
 
 interface ImageGenRequest {
   prompt: string;
@@ -507,6 +514,7 @@ function parseToolBlocks(content: string): { text: string; tools: ToolBlock[]; t
 }
 
 function pairTools(tools: ToolBlock[]): Array<{
+  id: string;
   name: string;
   input: unknown;
   result?: string;
@@ -514,6 +522,7 @@ function pairTools(tools: ToolBlock[]): Array<{
   media?: MediaBlock[];
 }> {
   const paired: Array<{
+    id: string;
     name: string;
     input: unknown;
     result?: string;
@@ -532,6 +541,7 @@ function pairTools(tools: ToolBlock[]): Array<{
     if (t.type === 'tool_use' && t.name) {
       const result = t.id ? resultMap.get(t.id) : undefined;
       paired.push({
+        id: t.id || `tool-${paired.length}`,
         name: t.name,
         input: t.input,
         result: result?.content,
@@ -544,6 +554,7 @@ function pairTools(tools: ToolBlock[]): Array<{
   for (const t of tools) {
     if (t.type === 'tool_result' && !tools.some(u => u.type === 'tool_use' && u.id === t.id)) {
       paired.push({
+        id: t.id || `tool-result-${paired.length}`,
         name: 'tool_result',
         input: {},
         result: t.content,
@@ -620,6 +631,7 @@ const COLLAPSE_HEIGHT = 300;
 
 export const MessageItem = memo(function MessageItem({ message, sessionId, isAssistantProject, assistantName }: MessageItemProps) {
   const isUser = message.role === 'user';
+  const { t } = useTranslation();
 
   // Collapse/expand state for long user messages (hooks must be called unconditionally)
   const [isExpanded, setIsExpanded] = useState(false);
@@ -639,6 +651,15 @@ export const MessageItem = memo(function MessageItem({ message, sessionId, isAss
     const pairedTools = pairTools(tools);
     return { text, pairedTools, thinking };
   }, [message.content]);
+  const subagentTools = pairedTools.filter(tool => isSubagentToolName(tool.name));
+  const subagentRuns = collapseLogicalSubagentRuns(subagentTools.map(tool => buildSubagentRunView({
+    id: tool.id,
+    name: tool.name,
+    toolInput: tool.input,
+    result: tool.result,
+    isError: tool.isError,
+  })));
+  const regularTools = pairedTools.filter(tool => !isSubagentToolName(tool.name));
 
   // Memoize file attachment parsing
   const { files, displayText } = useMemo(() => {
@@ -693,10 +714,10 @@ export const MessageItem = memo(function MessageItem({ message, sessionId, isAss
         )}
 
         {/* Tool calls + thinking for assistant messages — single collapsible group */}
-        {!isUser && (pairedTools.length > 0 || thinking) && (
+        {!isUser && (regularTools.length > 0 || thinking) && (
           <ToolActionsGroup
-            tools={pairedTools.map((tool, i) => ({
-              id: `hist-${i}`,
+            tools={regularTools.map((tool) => ({
+              id: tool.id,
               name: tool.name,
               input: tool.input,
               result: tool.result,
@@ -763,6 +784,47 @@ export const MessageItem = memo(function MessageItem({ message, sessionId, isAss
               )}
             </div>
           ) : <AssistantContent displayText={displayText} messageId={message.id} sessionId={sessionId} />
+        )}
+
+        {/* Compact Sub Agent capsules follow the assistant text and wrap on one
+            row when space allows. */}
+        {!isUser && subagentRuns.length > 0 && (
+          <div className="mt-2 flex flex-wrap items-center gap-2">
+            {subagentRuns.map(run => (
+              <SubagentCard
+                key={run.id}
+                run={run}
+                sessionId={sessionId}
+              />
+            ))}
+          </div>
+        )}
+
+        {!isUser && message.stream_status && message.stream_status !== 'completed' && (
+          <div
+            className={cn(
+              'mt-2 inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs',
+              message.stream_status === 'streaming'
+                ? 'border-border bg-muted/50 text-muted-foreground'
+                : message.stream_status === 'interrupted'
+                  ? 'border-status-warning-border bg-status-warning-muted text-status-warning-foreground'
+                  : 'border-status-error-border bg-status-error-muted text-status-error-foreground',
+            )}
+            role="status"
+          >
+            <span
+              className={cn(
+                'size-1.5 rounded-full',
+                message.stream_status === 'streaming'
+                  ? 'animate-pulse bg-muted-foreground'
+                  : message.stream_status === 'interrupted'
+                    ? 'bg-status-warning'
+                    : 'bg-status-error',
+              )}
+              aria-hidden
+            />
+            {t(`message.streamStatus.${message.stream_status}`)}
+          </div>
         )}
       </MessageContent>
 

@@ -50,11 +50,13 @@ URL 是传输配置，不是产品身份。把 `preset_key` 持久化后，用�
 
 0.59.0 发布后的另一台电脑又暴露了第三层问题：系统浏览器能通过代理完成 xAI 授权，但 packaged server 的 Node `fetch` 没有自动消费同一代理，导致授权码换 token 时失败。产品上“跟随系统代理”不能只停留在检测到代理或给子进程写环境变量，必须验证浏览器、loopback 和服务端上游请求三段使用一致且可解释的网络路径。0.59.1 因此只为 xAI 外部请求挂局部代理 dispatcher，避免把本地 callback 和无关 Provider 一起交给代理。
 
+0.59.1 在同一台故障电脑上的后续复验还出现过一次浏览器相关差异：同一账号经 Dia 授权后，xAI 推理返回 team RPM `0/0`；把默认浏览器改为 Chrome 并重新授权后，同账号在 CodePilot Runtime 正常回复。当前证据只能说明该次 OAuth grant/浏览器上下文存在差异，不能证明 Dia 普遍不兼容，也不能归因于账号额度或 CodePilot 的代理实现。按用户裁决保留观察记录，不为此改代码；未来若出现第二个独立复现，再收集两次授权的脱敏 claims/team 与 xAI response 元数据后决定是否建立浏览器兼容矩阵。
+
 ## 仍然诚实保留的限制
 
 - OAuth client 不是 CodePilot 自有，兼容性可能被 xAI 上游收紧。
 - OAuth bundle 尚未迁移到 OS keyring，沿用项目现有 settings 存储边界。
 - 配额、套餐名称和剩余额度没有可靠 API 来源，因此界面不展示猜测值。
-- device、refresh/tool/logout、packaged 双平台及部分 Qwen 套餐还需要继续真实 smoke。
+- device、refresh/tool/logout、Windows packaged 登录、其他浏览器及部分 Qwen 套餐还需要继续真实 smoke。
 
 后续优先方向是申请 CodePilot 自有 public OAuth client、统一凭据加密，并把真实 smoke 变成每个发布版本可重复执行的外部验收清单。

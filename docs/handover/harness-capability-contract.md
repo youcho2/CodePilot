@@ -56,7 +56,7 @@
 1. **Entry-point cleanliness**：`claude-client.ts` / `builtin-tools/index.ts` / `unified-adapter.ts` 三个入口文件 grep `from '@/lib/harness/context-compiler'` 必须返回 0 行；只能通过 `runtime-adapter` 进入编译器。
 2. **String-always shape**：facade 输出的 systemPrompt 字段恒为 string（空集时为 `''`，非空集时为完整文本）。这把 Phase 2 review 暴露的 "capability prompt 仅在 caller 有 base systemPrompt 时才注入" 漂洞钉死成类型层约束——caller 只能 `length > 0` 判断后注入，不能再走 `&& queryOptions.systemPrompt` 之类的隐式 short-circuit。
 3. **Native codepilot-media 双 capability**：`builtin-tools/index.ts` `capabilityIdsForGroup('codepilot-media')` 必须返回 `['media_import', 'image_generation']`；source-grep + runtime check 双重 pin（slice 2d P1 修复点）。
-4. **Codex 步骤上限单源**（Phase 3 review fix #1）：`unified-adapter.ts` 不准声明本地 `BUILTIN_BRIDGE_STEP_LIMIT` 常量；`PathInput.stopWhen / stepCount` 由 `adapted.stopWhen / stepCount` 喂入；suppression set 用 `adapted.builtinToolNames`（不再用 `bridge.toolNames`）。常量本身搬到 `context-compiler.ts` 的 `CODEX_BRIDGE_STEP_LIMIT`。
+4. **Codex 步骤上限单源**（Phase 3 review fix #1）：`unified-adapter.ts` 不准声明本地 `BUILTIN_BRIDGE_STEP_LIMIT` 常量；`PathInput.stopWhen / stepCount` 由 `adapted.stopWhen / stepCount` 喂入。Runtime catalog 的 suppression hint 仍用 `adapted.builtinToolNames`；此外必须合并 adapter 内真实执行的 `bridge.toolNames` / hosted tool names，避免未进入 capability catalog 的 spawn 等调用泄漏回 app-server。常量本身搬到 `context-compiler.ts` 的 `CODEX_BRIDGE_STEP_LIMIT`。
 
 **Phase 3 测试覆盖**（`harness-runtime-adapter.test.ts`，34 pins，含 Phase 3 review fix #1 单源 pin）：
 
@@ -64,7 +64,7 @@
 - Phase 2 review invariant 重测（string-always + Native 双 capability mapping）
 - 跨 Runtime fragment text identity（widget + 所有 live cross-runtime-supported capability 字节相等）
 - Entry-point cleanliness source-grep（compileContext 直引必须为 0）
-- **Codex 步骤上限单源 pin**（Phase 3 review fix #1）：`unified-adapter.ts` 无本地 `BUILTIN_BRIDGE_STEP_LIMIT`；`streamPath` / `nonStreamPath` 接 `adapted.stopWhen / stepCount / builtinToolNames`；`bridge.toolNames` 不再传入 PathInput；`context-compiler.ts` 持有唯一常量 `CODEX_BRIDGE_STEP_LIMIT = 8`
+- **Codex 步骤上限单源 pin**（Phase 3 review fix #1）：`unified-adapter.ts` 无本地 `BUILTIN_BRIDGE_STEP_LIMIT`；`streamPath` / `nonStreamPath` 接 `adapted.stopWhen / stepCount / builtinToolNames`；adapter 内执行工具通过独立 `providerExecutedToolNames` 传入并与 catalog hint 合并；`context-compiler.ts` 持有唯一常量 `CODEX_BRIDGE_STEP_LIMIT = 8`
 
 ## Artifact Contract（Phase 5d Phase 4，2026-05-17）
 

@@ -14,16 +14,20 @@
  *   - the in-stream abort-signal handler — honors the `abortController` the
  *     chat route already passes (force-abort / disconnect path).
  *
- * Source-level pins (not runtime-executed) because the full path needs a live
- * Codex app-server. They assert the structural contract is in place and, just
- * as importantly, that a future edit can't silently regress the Stop→interrupt
- * wiring (which previously left a Stopped Codex turn running forever).
+ * The transient registry and wire payload are behavior-tested without a live
+ * app-server. A small set of source pins remains for the runtime integration
+ * points that only execute against a real app-server; the true end-to-end
+ * Stop path remains a required smoke.
  */
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
+import {
+  CodexTurnInterruptRegistry,
+  requestCodexTurnInterrupt,
+} from '../../lib/codex/turn-interrupt-registry';
 
 const runtimeSrc = fs.readFileSync(
   path.resolve(__dirname, '../../lib/codex/runtime.ts'),
@@ -31,10 +35,29 @@ const runtimeSrc = fs.readFileSync(
 );
 
 describe('Codex turn registry — Slice 3 contract', () => {
-  it('activeCodexTurns map declared at module scope', () => {
+  it('owns active turn identity and refuses interrupt after terminal cleanup', () => {
+    const registry = new CodexTurnInterruptRegistry();
+    const turn = { threadId: 'thread-1', turnId: 'turn-1' };
+    registry.set('session-1', turn);
+    assert.deepEqual(registry.get('session-1'), turn);
+
+    let requested: typeof turn | undefined;
+    assert.equal(registry.issue('session-1', active => {
+      requested = active;
+    }), true);
+    assert.deepEqual(requested, turn);
+
+    assert.equal(registry.delete('session-1'), true);
+    assert.equal(registry.get('session-1'), undefined);
+    assert.equal(registry.issue('session-1', () => {
+      assert.fail('a terminal-cleaned turn must not be interrupted');
+    }), false);
+  });
+
+  it('runtime owns one module-scoped registry', () => {
     assert.match(
       runtimeSrc,
-      /const\s+activeCodexTurns\s*=\s*new\s+Map<\s*string,\s*\{[\s\S]{0,200}threadId:\s*string[\s\S]{0,200}turnId:\s*string/,
+      /const\s+activeCodexTurns\s*=\s*new\s+CodexTurnInterruptRegistry\(\)/,
     );
   });
 
@@ -87,23 +110,38 @@ describe('Codex turn registry — Slice 3 contract', () => {
 });
 
 describe('Codex interrupt — shared helper (single implementation)', () => {
-  it('issueCodexTurnInterrupt reads activeCodexTurns and issues turn/interrupt with both ids', () => {
+  it('sends the exact app-server turn/interrupt payload', async () => {
+    const calls: Array<{ method: string; params: unknown }> = [];
+    await requestCodexTurnInterrupt({
+      async request(method, params) {
+        calls.push({ method, params });
+        return {};
+      },
+    }, {
+      threadId: 'thread-wire',
+      turnId: 'turn-wire',
+    });
+    assert.deepEqual(calls, [{
+      method: 'turn/interrupt',
+      params: { threadId: 'thread-wire', turnId: 'turn-wire' },
+    }]);
+  });
+
+  it('issueCodexTurnInterrupt delegates registry lookup and wire request', () => {
     assert.match(
       runtimeSrc,
-      /function issueCodexTurnInterrupt\(sessionId: string, source: string\): boolean[\s\S]{0,400}activeCodexTurns\.get\(sessionId\)/,
+      /function issueCodexTurnInterrupt\(sessionId: string, source: string\): boolean[\s\S]{0,300}activeCodexTurns\.issue\(sessionId/,
     );
     assert.match(
       runtimeSrc,
-      /function issueCodexTurnInterrupt[\s\S]{0,900}turn\/interrupt[\s\S]{0,300}threadId:\s*active\.threadId[\s\S]{0,300}turnId:\s*active\.turnId/,
+      /function issueCodexTurnInterrupt[\s\S]{0,500}requestCodexTurnInterrupt\(client, active\)/,
     );
   });
 
-  it('issueCodexTurnInterrupt short-circuits (returns false) when no active turn', () => {
-    // Race-against-completion / abort-before-turnId: missing entry → no
-    // JSON-RPC call, and a false return so the caller can defer.
+  it('issueCodexTurnInterrupt preserves the no-active false result', () => {
     assert.match(
       runtimeSrc,
-      /function issueCodexTurnInterrupt[\s\S]{0,300}if\s*\(!active\)\s*\{[\s\S]{0,200}return false/,
+      /function issueCodexTurnInterrupt[\s\S]{0,700}return issued/,
     );
   });
 
@@ -119,7 +157,12 @@ describe('Codex stream() honors the abort signal (codex-stop-recovery Phase 2)',
   it('reads options.abortController.signal and bails before turn/start if already aborted', () => {
     assert.match(
       runtimeSrc,
-      /const abortSignal = options\.abortController\?\.signal;[\s\S]{0,300}if\s*\(abortSignal\?\.aborted\)\s*\{[\s\S]{0,200}closeStream\(\);[\s\S]{0,60}return/,
+      /const parentAbortSignal = options\.abortController\?\.signal;/,
+      'the parent chat turn owns the authoritative cancellation signal',
+    );
+    assert.match(
+      runtimeSrc,
+      /const abortSignal = parentAbortSignal;[\s\S]{0,300}if\s*\(abortSignal\?\.aborted\)\s*\{[\s\S]{0,200}closeStream\(\);[\s\S]{0,60}return/,
     );
   });
 

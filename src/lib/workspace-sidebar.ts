@@ -16,10 +16,16 @@
 import type { PreviewSource } from '@/hooks/usePanel';
 import type { PreviewTrust } from '@/lib/preview-source';
 import type { MarkdownPresentationStyle } from '@/lib/markdown/presentation-templates';
+import type { SubagentRunDetailsResponse } from '@/types';
+import type {
+  DelegatedAgentResult,
+  SubagentDispatchState,
+  SubagentRunPhase,
+} from '@/lib/subagent-status';
 
 export type FixedTabId = 'git' | 'widget';
 
-export type DynamicTabKind = 'markdown' | 'artifact' | 'file' | 'files-pinned';
+export type DynamicTabKind = 'markdown' | 'artifact' | 'file' | 'files-pinned' | 'agent-run';
 
 export interface FixedTab {
   id: FixedTabId;
@@ -71,7 +77,46 @@ export interface FilesPinnedTab {
   title: string;
 }
 
-export type DynamicTab = MarkdownTab | ArtifactTab | FilePreviewTab | FilesPinnedTab;
+export interface AgentRunTab {
+  id: string;
+  kind: 'agent-run';
+  key: string;
+  title: string;
+  run: {
+    id: string;
+    attemptId: string;
+    attemptNumber: number;
+    attemptCount: number;
+    agentName: string;
+    prompt: string;
+    requestedProviderId?: string;
+    requestedModel?: string;
+    effectiveProviderId?: string;
+    effectiveModel?: string;
+    workflowId?: string;
+    taskKey?: string;
+    dependencyTaskKeys: string[];
+    runtime?: 'codepilot_runtime' | 'claude_code' | 'codex_runtime';
+    status: 'queued' | 'running' | 'completed' | 'partial' | 'failed' | 'cancelled' | 'timed_out';
+    phase: SubagentRunPhase;
+    dispatchState: SubagentDispatchState;
+    currentActivity?: string;
+    lastActivityAt?: string;
+    result?: string;
+    structuredResult?: DelegatedAgentResult;
+    attempts?: SubagentRunDetailsResponse['attempts'];
+    lifecycleEvents?: SubagentRunDetailsResponse['events'];
+    isError?: boolean;
+    error?: {
+      code: string;
+      httpStatus?: number;
+      retryable?: boolean;
+    };
+    icon: 'search' | 'code' | 'task' | 'assistant';
+  };
+}
+
+export type DynamicTab = MarkdownTab | ArtifactTab | FilePreviewTab | FilesPinnedTab | AgentRunTab;
 export type Tab = FixedTab | DynamicTab;
 
 export interface WorkspaceSidebarState {
@@ -234,7 +279,9 @@ export function serialize(state: WorkspaceSidebarState): SerializedState {
     open: state.open,
     width: state.width,
     activeTabId: state.activeTabId,
-    dynamicTabs: state.tabs.filter(isDynamicTab),
+    // Agent transcripts are reconstructed from the durable chat message on
+    // demand. Do not duplicate prompt/result content into localStorage.
+    dynamicTabs: state.tabs.filter(isDynamicTab).filter(tab => tab.kind !== 'agent-run'),
   };
 }
 
@@ -270,6 +317,14 @@ function isParsableDynamicTab(value: unknown): value is DynamicTab {
   if (!value || typeof value !== 'object') return false;
   const v = value as Partial<DynamicTab> & { kind?: string; id?: string; key?: string };
   if (typeof v.id !== 'string' || typeof v.key !== 'string') return false;
+  if (v.kind === 'agent-run') {
+    const run = (v as Partial<AgentRunTab>).run;
+    return !!run
+      && typeof run.id === 'string'
+      && typeof run.agentName === 'string'
+      && typeof run.prompt === 'string'
+      && ['queued', 'running', 'completed', 'partial', 'failed', 'cancelled', 'timed_out'].includes(run.status);
+  }
   return v.kind === 'markdown' || v.kind === 'artifact' || v.kind === 'file' || v.kind === 'files-pinned';
 }
 
@@ -409,6 +464,6 @@ export function previewSourceFromTab(tab: Tab): PreviewSource | null {
   if (tab.kind === 'artifact') {
     return tab.source;
   }
-  // 'fixed' / 'files-pinned' — preview surface isn't theirs to drive.
+  // 'fixed' / 'files-pinned' / 'agent-run' — preview surface isn't theirs.
   return null;
 }

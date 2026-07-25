@@ -33,6 +33,8 @@ import {
   __resetBuiltinEventBusForTests,
 } from '@/lib/codex/proxy/builtin-event-bus';
 import type { RuntimeRunEvent } from '@/lib/runtime/contract';
+import fs from 'node:fs';
+import path from 'node:path';
 
 beforeEach(() => {
   __resetBuiltinEventBusForTests();
@@ -56,12 +58,22 @@ describe('createCodePilotBuiltinTools — mount + skip', () => {
     assert.match(bridge.skippedReason ?? '', /Codex Account/);
   });
 
+  it('returns an empty bridge inside a managed child so delegation depth stays one', () => {
+    const bridge = createCodePilotBuiltinTools({
+      sessionId: 'codex-subagent-child-1',
+      targetProviderId: 'prov-glm',
+    });
+    assert.equal(Object.keys(bridge.tools).length, 0);
+    assert.match(bridge.skippedReason ?? '', /depth is limited to one/);
+  });
+
   it('mounts the non-workspace-gated tools when sessionId present but no workspace', () => {
     const bridge = createCodePilotBuiltinTools({
       sessionId: 'chat-1',
       targetProviderId: 'prov-glm',
     });
-    // Image / media import / widget / notify / schedule / list / cancel always mount.
+    // Image / media import / widget / notify / schedule / list / cancel /
+    // managed Sub Agent always mount.
     assert.ok(bridge.tools.codepilot_generate_image, 'image gen must mount without workspace');
     assert.ok(bridge.tools.codepilot_import_media);
     assert.ok(bridge.tools.codepilot_load_widget_guidelines);
@@ -69,10 +81,79 @@ describe('createCodePilotBuiltinTools — mount + skip', () => {
     assert.ok(bridge.tools.codepilot_schedule_task);
     assert.ok(bridge.tools.codepilot_list_tasks);
     assert.ok(bridge.tools.codepilot_cancel_task);
+    assert.ok(bridge.tools.codepilot_list_subagent_runs, 'durable Sub-agent run query must mount');
+    assert.ok(bridge.tools.codepilot_spawn_subagent, 'managed Codex Sub Agent tool must mount');
     // Memory tools require a workspace.
     assert.equal(bridge.tools.codepilot_memory_recent, undefined, 'memory recent requires workspace');
     assert.equal(bridge.tools.codepilot_memory_search, undefined);
     assert.equal(bridge.tools.codepilot_memory_get, undefined);
+  });
+
+  it('lets Codex own child capabilities instead of asking the parent model to classify them', () => {
+    const bridge = createCodePilotBuiltinTools({
+      sessionId: 'chat-1',
+      targetProviderId: 'prov-glm',
+    });
+    const spawn = bridge.tools.codepilot_spawn_subagent as unknown as {
+      description?: string;
+      inputSchema?: {
+        jsonSchema?: {
+          required?: string[];
+          properties?: Record<string, unknown>;
+        };
+      };
+    };
+    assert.match(spawn.description ?? '', /inherits the parent Codex native tools, MCP servers, sandbox, approval policy/i);
+    assert.match(spawn.description ?? '', /only Sub Agent entry point/i);
+    assert.match(spawn.description ?? '', /never wrap it with Codex native multi_agent_v1\/spawn_agent\/wait_agent workers/i);
+    assert.match(spawn.description ?? '', /returns only after the child reaches a terminal status/i);
+    assert.match(spawn.description ?? '', /never describe it as merely submitted, launched, queued, or still processing/i);
+    assert.deepEqual(spawn.inputSchema?.jsonSchema?.required, ['prompt', 'provider_id', 'model']);
+    assert.equal(
+      spawn.inputSchema?.jsonSchema?.properties?.required_capabilities,
+      undefined,
+      'Codex app-server is the capability source of truth; CodePilot must not add a second gate',
+    );
+  });
+
+  it('exposes an authoritative progress query instead of asking Codex to inspect workspace files', () => {
+    const bridge = createCodePilotBuiltinTools({
+      sessionId: 'chat-1',
+      targetProviderId: 'prov-glm',
+    });
+    const listRuns = bridge.tools.codepilot_list_subagent_runs as unknown as {
+      description?: string;
+      inputSchema?: {
+        jsonSchema?: {
+          properties?: Record<string, unknown>;
+        };
+      };
+    };
+    assert.match(listRuns.description ?? '', /authoritative durable lifecycle records/i);
+    assert.match(listRuns.description ?? '', /Never infer .* workspace files/i);
+    assert.ok(listRuns.inputSchema?.jsonSchema?.properties?.include_results);
+
+    const adapterSource = fs.readFileSync(
+      path.resolve(__dirname, '../../lib/codex/proxy/unified-adapter.ts'),
+      'utf8',
+    );
+    assert.match(
+      adapterSource,
+      /buildCodexSubagentRunContext\(input\.sessionId\)/,
+      'every later Codex proxy turn must receive the durable session snapshot',
+    );
+  });
+
+  it('suppresses every bridge-executed tool from the Codex-bound stream', () => {
+    const adapterSource = fs.readFileSync(
+      path.resolve(__dirname, '../../lib/codex/proxy/unified-adapter.ts'),
+      'utf8',
+    );
+    assert.match(
+      adapterSource,
+      /const providerExecutedToolNames = new Set\(\[\s*\.\.\.bridge\.toolNames,/,
+      'codepilot_spawn_subagent and every other executed bridge tool must not leak back as an unsupported app-server call',
+    );
   });
 
   it('mounts memory tools when workspacePath is supplied', () => {
@@ -111,6 +192,8 @@ describe('createCodePilotBuiltinTools — mount + skip', () => {
     assert.ok(bridge.tools.codepilot_schedule_task);
     assert.ok(bridge.tools.codepilot_list_tasks);
     assert.ok(bridge.tools.codepilot_cancel_task);
+    assert.ok(bridge.tools.codepilot_list_subagent_runs);
+    assert.ok(bridge.tools.codepilot_spawn_subagent);
     assert.equal(bridge.systemPrompt, '', 'bridge.systemPrompt must be empty after slice 2e');
   });
 });

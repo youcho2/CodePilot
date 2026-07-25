@@ -245,6 +245,8 @@ export function runAgentLoop(options: AgentLoopOptions): ReadableStream<string> 
             providerId,
             sessionProviderId,
             model: modelOverride || sessionModel,
+            callScene,
+            bypassPermissions,
             permissionContext: bypassPermissions ? undefined : {
               sessionId,
               permissionMode: (permissionMode || 'normal') as PermissionMode,
@@ -342,6 +344,7 @@ export function runAgentLoop(options: AgentLoopOptions): ReadableStream<string> 
         let lastToolNames: string[] = []; // for doom loop detection
         const distinctTools = new Set<string>(); // for skill-nudge heuristic
         let messages = historyMessages;
+        let runtimeReportedModel: string | undefined;
 
         while (step < maxSteps) {
           step++;
@@ -695,6 +698,14 @@ export function runAgentLoop(options: AgentLoopOptions): ReadableStream<string> 
           // Step's stream fully consumed — clear step-scoped timeout budgets.
           timeoutCtl.onStepEnd();
 
+          // AI SDK's response metadata is the Runtime/Provider fact for the
+          // model that actually answered. Keep the last step's value and
+          // expose it in the terminal SSE result so managed Native Sub Agents
+          // can fail closed on an upstream fallback instead of echoing the
+          // requested catalog route as though it were effective.
+          const responseData = await result.response;
+          runtimeReportedModel = responseData.modelId?.trim() || runtimeReportedModel;
+
           // Usage is accumulated in onStepFinish callback above
 
           // If no tool calls, the model is done
@@ -728,7 +739,6 @@ export function runAgentLoop(options: AgentLoopOptions): ReadableStream<string> 
           // Update messages for next iteration.
           // streamText returns the full message list including our input + model response.
           // Use response.messages which contains properly typed ModelMessage[].
-          const responseData = await result.response;
           messages = [...messages, ...responseData.messages] as ModelMessage[];
         }
 
@@ -785,6 +795,7 @@ export function runAgentLoop(options: AgentLoopOptions): ReadableStream<string> 
             usage: usageWithAccounting,
             session_id: sessionId,
             num_turns: step,
+            ...(runtimeReportedModel ? { model_id: runtimeReportedModel } : {}),
           }),
         }));
 

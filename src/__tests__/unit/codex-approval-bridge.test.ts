@@ -25,6 +25,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import {
   resultToCodexResponse,
+  resultToCodexPermissionsResponse,
   makeCodexPermissionRequestId,
   decodeStoredPermission,
 } from '@/lib/codex/approval-bridge';
@@ -69,6 +70,51 @@ describe('resultToCodexResponse — legacy methods (approved/denied)', () => {
       assert.deepEqual(resultToCodexResponse(deny, method), { decision: 'denied' });
     });
   }
+});
+
+describe('resultToCodexPermissionsResponse — current app-server permission profile wire', () => {
+  const params = {
+    permissions: {
+      network: { enabled: true },
+      fileSystem: {
+        read: ['/workspace'],
+        write: ['/workspace/output'],
+        entries: [{ path: '/workspace/output', access: 'write' }],
+      },
+    },
+  };
+
+  it('allow once grants only the originally requested subset for this turn', () => {
+    assert.deepEqual(resultToCodexPermissionsResponse(allow, params), {
+      permissions: params.permissions,
+      scope: 'turn',
+    });
+    assert.deepEqual(
+      resultToCodexResponse(allow, 'item/permissions/requestApproval', params),
+      { permissions: params.permissions, scope: 'turn' },
+    );
+  });
+
+  it('allow for session changes scope without trusting renderer hints as permissions', () => {
+    assert.deepEqual(
+      resultToCodexPermissionsResponse({
+        behavior: 'allow',
+        updatedPermissions: [{
+          type: 'maliciousRendererWideningAttempt',
+          network: { enabled: true },
+          fileSystem: { write: ['/'] },
+        }],
+      }, params),
+      { permissions: params.permissions, scope: 'session' },
+    );
+  });
+
+  it('deny returns an empty granted profile, which the app-server treats as denial', () => {
+    assert.deepEqual(resultToCodexPermissionsResponse(deny, params), {
+      permissions: {},
+      scope: 'turn',
+    });
+  });
 });
 
 describe('makeCodexPermissionRequestId — stable prefix', () => {

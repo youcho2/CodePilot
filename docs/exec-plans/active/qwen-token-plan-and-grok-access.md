@@ -1,19 +1,20 @@
 # 千问 Token Plan 与 Grok 4.5 接入
 
 > 创建时间：2026-07-21
-> 最后更新：2026-07-22
-> 状态：🟡 Phase 0–5 代码与文档及 review gate 修复已完成；0.59.0 在另一台开启 HTTP system proxy 的 packaged macOS 上暴露浏览器成功、server token exchange 直连失败，0.59.1 已完成局部 env-proxy fetch、Claude release-gate 复审、自动化回归、本地安装包验证与正式双平台 CI，并发布稳定 GitHub Release。设备码、refresh/tool/effort、其他 Qwen 套餐和 0.59.1 packaged 双平台真实登录仍待验证，因此计划保持 active。
+> 最后更新：2026-07-23
+> 状态：🟡 Phase 0–5 代码与文档及 review gate 修复已完成；0.59.1 已发布并通过 packaged macOS Chrome OAuth 文本回复。2026-07-23 用户反馈揭示新的能力缺口：当前 Grok 只接了 Responses 推理与客户端函数工具，没有给请求注入 xAI 托管的 `x_search`，因此模型无法检索 X。新增 Phase 7，要求 API Key 与 OAuth、CodePilot Runtime 与 Codex Runtime 四条路径都显式接通并真实验证 X Search；设备码、refresh/effort、Windows 真实登录和其他 Qwen 套餐仍待验证，因此计划保持 active。
 > 事实基线：[千问 Token Plan 与 Grok OAuth 接入调研](../../research/qwen-token-plan-grok-oauth-2026-07-21.md)
 
 ## 用户问题与争议
 
-用户观察到阿里云百炼 Codeplan 的文档入口变成千问 Token Plan，并希望按新产品迭代；同时希望参考 OpenCode 截图，通过 Grok/SuperGrok OAuth 使用账号内的 Grok 4.5 额度。
+用户观察到阿里云百炼 Codeplan 的文档入口变成千问 Token Plan，并希望按新产品迭代；同时希望参考 OpenCode 截图，通过 Grok/SuperGrok OAuth 使用账号内的 Grok 4.5 额度。2026-07-23 的后续反馈指出：Grok 在 CodePilot 中称无法查找推特/X 信息，与用户对 Grok 原生能力的合理预期不符。
 
 调研后的取舍不是“把百炼改个名字，再复制一份 OpenCode OAuth”：
 
 - 千问侧当前有 **Coding Plan、Token Plan 个人版、Token Plan 团队版** 三个独立产品。个人版和团队版共用 URL，但模型目录、配额和数据条款不同；现有 URL matcher 无法可靠区分。
 - Grok 侧，OpenCode 已经用公开 Grok CLI client id 做通 SuperGrok 浏览器/设备 OAuth。CodePilot 按用户裁决直接参考这条实现，同时把非自有 client 的上游可撤销风险写进产品文案、错误分类和发布 smoke。
 - Grok 同时提供两条互不阻塞的渠道：官方 API Key + Responses，以及参考 OpenCode、复用公开 Grok CLI client 的 SuperGrok 浏览器/设备 OAuth。后者接受上游可能收紧的兼容风险，以 API Key 作为稳定兜底。
+- “接入 Grok 模型”不等于“已经接入 X Search”。xAI Responses 要求客户端显式发送 `tools: [{ type: 'x_search' }]`（当前 SDK 对应 `xai.tools.xSearch()`）；现有实现只发送 CodePilot 客户端函数工具。OAuth 与 API Key 复用同一个 xAI Responses model factory，只在凭据注入上分流，因此两条凭据路径必须拥有相同的 X Search 产品合同；但 OAuth 登录/文本回复成功不能代替真实 `x_search` entitlement smoke。
 
 ## 状态
 
@@ -25,8 +26,9 @@
 | Phase 2 | 千问三 Runtime 对齐与套餐场景 gate | ✅ 已完成（合同测试） | 前台交互可用；不允许的后台自动调用会被结构化拦截 |
 | Phase 3 | xAI API Key + Grok 4.5 Responses | ✅ 已完成（mock/request-shape） | 可用 xAI API Key 在 CodePilot/Codex Runtime 选择 Grok 4.5 |
 | Phase 4 | OpenCode-compatible SuperGrok OAuth 核心 | ✅ 已完成（协议/mock + browser text smoke） | 浏览器 OAuth 已在 CodePilot/Codex Runtime 真实回复；设备码、refresh/tool 仍待 smoke |
-| Phase 5 | xAI 双渠道 UI、生命周期与 packaged hardening | ✅ 代码完成（含 0.59.1 HTTP(S) system-proxy bridge） | API Key/OAuth 并列可选；浏览器与 server xAI 请求不再因 Node fetch 默认直连而分流，packaged 双平台真实复验仍待验收 |
-| Phase 6 | Tier 2 回归、真实凭据 smoke 与发布说明 | 🟡 0.59.1 已发布，外部验收部分通过 | proxy 定向 44/44、unit 4537/4537、Web smoke 19/19、build/electron:build、本地 macOS arm64 package 与正式 macOS arm64/x64、Windows x64 CI 全通过；其余外部项保留待测 |
+| Phase 5 | xAI 双渠道 UI、生命周期与 packaged hardening | ✅ 代码完成（含 0.59.1 HTTP(S) system-proxy bridge） | API Key/OAuth 并列可选；浏览器与 server xAI 请求不再因 Node fetch 默认直连而分流，packaged macOS Chrome 登录与回复已验收，Windows 真实登录仍待测 |
+| Phase 6 | Tier 2 回归、真实凭据 smoke 与发布说明 | 🟡 0.59.1 已发布，外部验收部分通过 | proxy 定向 44/44、unit 4537/4537、Web smoke 19/19、build/electron:build、双平台 CI 与 packaged macOS Chrome OAuth 文本回复通过；其余外部项保留待测 |
+| Phase 7 | Grok X Search 双凭据、双 Runtime 能力闭环 | 📋 待实施 | API Key/OAuth 下的 Grok 都能实际检索 X，并展示可追溯的 X 来源；不再把普通函数工具冒充 X Search |
 
 ## 范围与非目标
 
@@ -35,6 +37,7 @@
 - 三个千问订阅产品的稳定身份、文本模型目录、角色映射、运行时与交互式使用限制。
 - xAI 官方 API Key 的 Grok 4.5 Responses 接入。
 - 参考 OpenCode 实现 SuperGrok 浏览器 PKCE、device-code OAuth、token refresh 和 xAI API 请求注入。
+- 为 xAI API Key 与 OAuth 两条凭据路径接入官方 Responses `x_search` hosted tool，并在 CodePilot/Codex Runtime 诚实呈现调用状态、来源与不支持原因。
 
 本计划不负责：
 
@@ -197,7 +200,7 @@ Settings → 添加服务中出现 xAI；用户粘贴 `XAI_API_KEY` 后，可以
 
 - [x] 引入 `@ai-sdk/xai`；新增显式 `xai` protocol/sdk type，并更新 catalog、resolver、adapter、compat 和 form。
 - [x] branded preset 固定官方 `https://api.x.ai/v1`、API Key auth，首版只承诺 `grok-4.5`。
-- [x] CodePilot 使用 `xai.responses('grok-4.5')`，补 Responses request/stream/tool-choice fixtures。
+- [x] CodePilot 使用 `xai.responses('grok-4.5')`，补 Responses request/stream/客户端函数 tool-choice fixtures；这些 fixture 不代表 `x_search` 已接入，X Search 由 Phase 7 单独闭环。
 - [x] Codex proxy 使用 `xai` provider-options namespace、映射 `reasoningEffort`；显式发送 `store:false`（CodePilot 不复用 previous response），不继承 OpenAI namespace。
 - [x] connection test 使用有 timeout 的非生成 `GET /models/grok-4.5`，且 official endpoint 校验先于 bearer fetch。
 - [x] 未经真实 smoke 的能力不标 verified；Phase 6 按 context/vision/tool/effort 分项记录。
@@ -206,7 +209,7 @@ Settings → 添加服务中出现 xAI；用户粘贴 `XAI_API_KEY` 后，可以
 ### 验收标准
 
 - CodePilot Runtime 与 Codex Runtime 各完成两轮同 session 对话，wire model 为 `grok-4.5`。
-- 至少一个真实工具调用通过；不支持能力返回诚实错误，不降级成纯文本伪成功。
+- 至少一个真实客户端函数工具调用通过；不支持能力返回诚实错误，不降级成纯文本伪成功。xAI 托管的 `x_search` 不计入本阶段，见 Phase 7。
 - Claude Code Runtime picker 不出现 xAI provider。
 
 ## Phase 4：OpenCode-compatible SuperGrok OAuth 核心
@@ -250,7 +253,7 @@ Settings → 添加服务 → 授权登录中出现两种 xAI 登录方式：浏
 
 ### 验收标准
 
-- browser/device 两种登录在真实 SuperGrok 账号完成，`grok-4.5` 两轮文本 + 工具调用通过。
+- browser/device 两种登录在真实 SuperGrok 账号完成，`grok-4.5` 两轮文本 + 客户端函数工具调用通过；X Search 是独立的 hosted-tool 合同，见 Phase 7。
 - xAI Usage 页面能看到对应账号消耗；如果无法证明额度归属，不标完成。
 - OAuth 登录失败不影响 API Key provider；API Key 删除也不注销 OAuth。
 - allowlist/redirect/referrer 变化能分类成上游 OAuth 兼容错误，而不是泛化为“网络失败”。
@@ -302,13 +305,51 @@ Release Notes 能准确说明“新增哪种千问套餐”“Grok 是 API Key �
 
 - [x] Tier 0：catalog schema、exact allowlist、preset matcher parity、ambiguous URL、migration idempotency、usage policy gate、runtime compat、request shape、OAuth mock lifecycle。
 - [x] Tier 1：0.59.1 修复后 `npm run test`（4537/4537）；docs drift/hooks；`npm run build`；`npm run electron:build`。
-- [ ] Tier 2：通用 Web smoke 已通过 19/19；xAI OAuth browser 与 Qwen Personal 已在 CodePilot/Codex Runtime 真实连接并回复。Settings 编辑/切换/注销、同 session resume、device/refresh/tool/effort 与 packaged UX 仍需对应凭据/产物。
+- [ ] Tier 2：通用 Web smoke 已通过 19/19；xAI OAuth browser 与 Qwen Personal 已在 CodePilot/Codex Runtime 真实连接并回复，0.59.1 packaged macOS 也已通过 Chrome 完成 xAI OAuth 登录与 CodePilot Runtime 文本回复。Settings 编辑/切换/注销、同 session resume、device/refresh/客户端函数工具/effort、Phase 7 `x_search`、Windows packaged UX 与其他浏览器仍需对应凭据/产物。
 - [ ] Windows/macOS 验证 loopback、系统浏览器、端口占用、device flow 与 app restart。
 - [x] CI 同配置 macOS arm64 打包：`CSC_IDENTITY_AUTO_DISCOVERY=false`，0.59.1 DMG 内 `.app` 通过 `codesign --verify --deep --strict`，`CFBundleShortVersionString=0.59.1`，Electron ABI 143 与 packaged server health 通过；这不替代 packaged 真实登录或 Windows/x64 验收。
 - [x] 2026-07-21 发布前复核官方 Qwen Coding/Token Plan exact allowlist 与 xAI `grok-4.5` slug；未据此提升未经真实调用验证的 capability。
 - [x] identity 四路径 parity 覆盖 explicit/legacy/fuzzy/ambiguous，派生谓词消费同一 resolver。
 - [x] 20 个 `callScene` 有封闭枚举与正反例；自动场景在模型构造/fetch 前 fail closed，用户交互场景放行。
 - [ ] 团队版真实 Anthropic wire spot-check 至少覆盖 `deepseek-v3.2`、`kimi-k2.7-code`、`MiniMax-M2.5`，按单模型记录响应，不能用一个成功推广到 15 个模型。
+
+## Phase 7：Grok X Search 双凭据、双 Runtime 能力闭环
+
+### 用户会看到什么
+
+用户在 CodePilot Runtime 或 Codex Runtime 选择 xAI API Key / xAI Grok OAuth 下的 Grok 后，可以直接要求检索 X（原 Twitter）的实时帖子、用户或讨论串。实际发生搜索时，聊天流展示 `x_search` 调用状态和可点击的 X 来源；如果账号、模型或上游套餐不允许使用，产品显示结构化的不支持/权限错误，不让模型用训练知识伪装成实时搜索。
+
+### 根因与取舍
+
+- 当前 `src/lib/ai-provider.ts` 只建立 `xai.responses(model)`，`src/lib/agent-loop.ts` 传入的是 `assembleTools()` 生成的客户端函数工具；没有导入或注入 `xai.tools.xSearch()`。所以 Grok 回答“不能查找推特信息”是当前请求能力的真实反映，不是模型本身不支持。
+- [xAI 官方 X Search 文档](https://docs.x.ai/developers/tools/x-search)要求在 Responses 请求中显式传入 `type: x_search`；模型名称、OAuth 登录成功或普通文本回复成功都不能证明本轮获得了搜索工具。
+- OAuth 与 API Key 共用 xAI Responses provider，OAuth fetch override 只负责换入 fresh Bearer token。产品决策是两条凭据渠道能力对齐，不允许 API Key 有 X Search、OAuth 却静默缺失。
+- `api:access` scope 只证明 OAuth token 可以访问 API，不据此推断具体账号已经获得 `x_search` entitlement。两类凭据必须分别做真实调用并核对 server-side tool event、来源和错误分类。
+
+### 本阶段不做什么
+
+- 不把普通网页搜索、第三方 Twitter MCP 或模型训练知识冒充 xAI 原生 `x_search`。
+- 不因接通 X Search 就宣称 CodePilot 等同 grok.com 或完整 Grok Build；本阶段只承诺 xAI Responses hosted tool。
+- 不静默删除 CodePilot 现有文件、Shell、MCP 等客户端工具来换取 X Search；如果 xAI/AI SDK 不允许 hosted tool 与客户端函数工具同请求混用，必须先做 wire POC，再选择显式研究模式或分轮路由，并让用户知道能力差异。
+- 不默认给其他 Provider 打开网络搜索，也不把 X 外部内容当成系统指令；搜索结果始终按不可信外部数据处理。
+
+### 执行清单
+
+- [ ] 在 xAI provider-aware tool assembly 中注入 `xai.tools.xSearch()`；非 xAI provider、后台/辅助调用和未授权场景不得得到该工具。
+- [ ] 补 request-shape 正反例：xAI 含 `tools[].type === 'x_search'`，API Key/OAuth 生成相同工具请求，非 xAI 无该字段；普通客户端函数 tool fixture 与 hosted-tool fixture 分开命名。
+- [ ] POC 并锁定 xAI Responses hosted tool 与现有客户端函数工具的兼容合同；若不能混用，记录明确的产品模式、路由和降级规则，不静默牺牲任一能力。
+- [ ] 映射并展示 `x_search_call` 生命周期、provider-executed tool result、sources/citations；未知或失败事件不得被 `default` 分支吞掉，也不得显示永远 pending 的工具气泡。
+- [ ] 为 X Search 定义权限、计费和外部内容信任边界；至少展示一次可追溯的 source breadcrumb，失败时区分未接线、账号 entitlement、限流、上游错误和网络错误。
+- [ ] CodePilot Runtime 与 Codex proxy 分别补回归；两条 Runtime 不共享“某一条成功就全部 verified”的状态。
+- [ ] 更新 capability/UI 文案：只有真实接线并通过对应凭据 smoke 的组合才显示支持；未验证组合标记待验证或 unsupported，不显示假能力。
+
+### 验收标准
+
+- xAI API Key × CodePilot Runtime、xAI OAuth × CodePilot Runtime、xAI API Key × Codex Runtime、xAI OAuth × Codex Runtime 四个组合分别发起一个要求近期 X 信息的查询，并观察到真实 `x_search` server-side tool call。
+- 每个成功组合至少返回一个可点击的 `x.com` 来源，来源能支持回答中的核心时效性结论；只返回模型文本或普通函数工具调用不算通过。
+- OAuth 至少用真实 SuperGrok browser 登录完成一次；device flow 共用同一 credential identity 的自动化合同必须通过，真实 device smoke 继续在 ledger 单列，不用 browser 成功替代。
+- entitlement/429/5xx/网络失败均保留原始可判别类别且不泄漏 token；失败组合不被标记为 verified。
+- 外部 X 内容中的提示词不得改变系统权限、工具白名单或用户任务；补一条提示词注入反例测试。
 
 ## 关键文件（供实施定位，不是限制性清单）
 
@@ -320,6 +361,7 @@ Release Notes 能准确说明“新增哪种千问套餐”“Grok 是 API Key �
 | Runtime/model gate | `src/lib/runtime-compat.ts`、`src/lib/provider-resolver.ts`、`src/app/api/providers/models/route.ts` |
 | CodePilot model factory | `src/lib/ai-provider.ts`、`src/lib/agent-loop.ts` |
 | Codex translator | `src/lib/codex/provider-proxy.ts`、`src/lib/codex/proxy/*` |
+| xAI X Search tool/events | `src/lib/agent-tools.ts`、`src/lib/agent-loop.ts`、`src/lib/codex/proxy/*`、聊天流 tool/source 渲染组件 |
 | Usage-policy choke points | `src/lib/provider-resolver.ts`、`src/lib/claude-client.ts`、`src/lib/text-generator.ts`、`src/lib/agent-task-runner.ts`、`src/lib/context-compressor.ts`、`src/lib/title-generation.ts` |
 | 自动/辅助调用清单 | `src/lib/memory-extractor.ts`、`src/lib/memory-search-mcp.ts`、`src/lib/onboarding-processor.ts`、`src/lib/checkin-processor.ts`、`src/lib/task-scheduler.ts`、`src/app/api/workspace/quick-actions/route.ts`、`src/app/api/dashboard/refresh/route.ts`、`src/app/api/cli-tools/[id]/describe/route.ts`、`src/app/api/skills/search/route.ts`、`src/app/api/media/jobs/plan/route.ts`、`src/app/api/chat/structured/route.ts` |
 | OAuth precedent | `src/lib/openai-oauth.ts`、`src/lib/openai-oauth-manager.ts`、`src/app/api/openai-oauth/*` |
@@ -364,6 +406,8 @@ Release Notes 能准确说明“新增哪种千问套餐”“Grok 是 API Key �
 - 2026-07-22（0.59.1 Claude release gate）：独立复验未发现 P0/P1/P2；P3 文案与注释当场收口，并记录 undici 大版本维护钉子。既有 `NO_PROXY` matcher 对裸 IPv6 `::1` 的端口剥离缺陷不影响本次 xAI 域名链路，留作后续 matcher 债务，不在 release gate 临时扩行为。
 - 2026-07-22（0.59.1 发布提交）：修复提交 `a61faa4`；pre-commit 再次通过 4537/4537，发版标签只在本条回写、工作区清洁与远端 main 推送成功后创建。
 - 2026-07-22（0.59.1 正式发布）：`v0.59.1` 指向计划回写提交 `51e2edb`；GitHub Actions run `29895409535` 的 verify-source、macOS arm64/x64、Windows x64、release jobs 全绿。稳定 Release 已上传两套 DMG/ZIP、Windows EXE 与 `SHA256SUMS.txt`；同一故障电脑的 HTTP proxy 真实复测继续保留 ⏳。
+- 2026-07-22（0.59.1 packaged 用户复验）：同一账号在故障 macOS 上首次经 Dia 完成 OAuth 后，CodePilot Runtime 调用 `grok-4.5` 收到 xAI team RPM `0/0`；改默认浏览器为 Chrome、重新授权后同账号可正常回复。当前电脑 dev 的同账号/xAI OAuth/CodePilot Runtime 也正常。按用户裁决只记录为 Dia 授权上下文相关观察，不修改代码、不泛化为 Dia 必现缺陷；未据此关闭 refresh/device/tool 或 Windows 验收。
+- 2026-07-23（用户反馈与能力审计）：用户指出 Grok 应能直接检索推特/X，且 OAuth 登录的 Grok 也应具有同样能力。审计确认当前只接入 `xai.responses('grok-4.5')` 与 CodePilot 客户端函数工具，未发送 xAI hosted `x_search`；官方 SDK 已提供 `xai.tools.xSearch()`。裁决新增 Phase 7，API Key/OAuth 与 CodePilot/Codex Runtime 四组合分别验收；OAuth `api:access` scope、登录成功和文本回复不再被当作 `x_search` entitlement 证据。
 
 ## Release Notes 草案（已写入 `RELEASE_NOTES.md`，版本 v0.59.1）
 
@@ -420,13 +464,19 @@ Release Notes 能准确说明“新增哪种千问套餐”“Grok 是 API Key �
 | 2026-07-22 | ci-equivalent-package | macOS arm64 | CodePilot 0.59.1 | ad-hoc（与 `build.yml` 一致） | DMG/ZIP、DMG 内 app 深度签名、版本、Electron ABI、packaged server health | ✅ | `CSC_IDENTITY_AUTO_DISCOVERY=false`；版本 0.59.1，ABI 143，server health `127.0.0.1` 通过；未替代真实代理登录 |
 | 2026-07-22 | ci-package | macOS arm64/x64 | CodePilot 0.59.1 | GitHub Actions | 双架构 DMG/ZIP、版本、native ABI、packaged server、checksum | ✅ | run `29895409535`，build-macos 5m59s；资产已上传稳定 Release |
 | 2026-07-22 | ci-package | Windows x64 | CodePilot 0.59.1 | GitHub Actions | EXE、版本、native ABI、packaged server、checksum | ✅ | run `29895409535`，build-windows 6m17s；资产已上传稳定 Release |
-| _待测_ | packaged-macos | xAI OAuth 0.59.1 | browser code exchange | SuperGrok + HTTP system proxy | 同一故障电脑登录、回复、refresh | ⏳ | 发布后用户复验；不得用 local CONNECT mock 代替 |
+| 2026-07-22 | packaged-macos | xAI OAuth 0.59.1 | grok-4.5 / codepilot_runtime | SuperGrok + HTTP system proxy + Dia | 浏览器授权、登录、文本回复 | ⚠️ 授权成功、推理被拒 | xAI 返回 team RPM `0/0`；同账号随后改用 Chrome 授权成功，故不归因于账号权限或 0.59.1 proxy |
+| 2026-07-22 | packaged-macos | xAI OAuth 0.59.1 | grok-4.5 / codepilot_runtime | SuperGrok + HTTP system proxy + Chrome | 重新授权、登录、文本回复 | ✅ 用户复验 | 同一账号改默认浏览器为 Chrome 后正常；仅关闭 packaged macOS browser login + one-turn text，不推广到 Dia 普遍兼容、refresh/device/tool |
+| 2026-07-23 | claude_code | Aliyun Token Plan（用户当前配置） | qwen3.8-max-preview / qwen3.7-max | 用户本地 Token Plan | managed Sub-agent one-turn entitlement probe | ❌ 403 | 两个模型均返回 `Access to model denied`；仅证明当前 provider/account/plan route 不可访问，不证明 Qwen 3.8 Max Preview 全局下线；旧 UI 的 completed 误判由 Sub-agent P1 修复处理 |
 | _待测_ | claude_code | Qwen Token Plan Personal | qwen3.8-max-preview | `sk-sp-` personal | two-turn + tool + effort | ⏳ | |
 | _待测_ | codepilot_runtime | Qwen Token Plan Team | qwen3.8-max-preview | `sk-sp-` seat | two-turn + tool + usage gate | ⏳ | |
 | _待测_ | claude_code | Qwen Token Plan Team | deepseek-v3.2 / kimi-k2.7-code / MiniMax-M2.5 | `sk-sp-` seat | Anthropic wire one-turn/model | ⏳ | |
 | _待测_ | codex_runtime | Bailian Coding Plan | qwen3.7-plus | `sk-sp-` coding plan | two-turn + provider binding | ⏳ | |
-| _待测_ | codepilot_runtime | xAI API | grok-4.5 | `XAI_API_KEY` | Responses two-turn + tool | ⏳ | |
-| _待测_ | codex_runtime | xAI API | grok-4.5 | `XAI_API_KEY` | proxy two-turn + tool | ⏳ | |
-| _待测_ | codepilot_runtime | xAI OAuth | grok-4.5 | SuperGrok browser/device | login + refresh + two-turn + logout | ⏳ | |
-| _待测_ | codex_runtime | xAI OAuth | grok-4.5 | SuperGrok browser/device | proxy two-turn + tool + refresh | ⏳ | |
+| _待测_ | codepilot_runtime | xAI API | grok-4.5 | `XAI_API_KEY` | Responses two-turn + client function tool | ⏳ | 不代表 X Search |
+| _待测_ | codex_runtime | xAI API | grok-4.5 | `XAI_API_KEY` | proxy two-turn + client function tool | ⏳ | 不代表 X Search |
+| _待测_ | codepilot_runtime | xAI OAuth | grok-4.5 | SuperGrok browser/device | login + refresh + two-turn + client function tool + logout | ⏳ | 不代表 X Search |
+| _待测_ | codex_runtime | xAI OAuth | grok-4.5 | SuperGrok browser/device | proxy two-turn + client function tool + refresh | ⏳ | 不代表 X Search |
+| _待测_ | codepilot_runtime | xAI API | grok-4.5 | `XAI_API_KEY` | `x_search` + X citations | ⏳ | Phase 7；需真实 server-side tool event |
+| _待测_ | codepilot_runtime | xAI OAuth | grok-4.5 | SuperGrok browser OAuth | `x_search` + X citations + entitlement | ⏳ | Phase 7；登录/文本成功不能替代 |
+| _待测_ | codex_runtime | xAI API | grok-4.5 | `XAI_API_KEY` | proxy `x_search` + X citations | ⏳ | Phase 7；独立于 CodePilot Runtime |
+| _待测_ | codex_runtime | xAI OAuth | grok-4.5 | SuperGrok browser OAuth | proxy `x_search` + X citations + entitlement | ⏳ | Phase 7；独立于 API Key |
 | _待测_ | background-negative | Qwen Token Plan personal/team | configured default | `sk-sp-` | scheduled + heartbeat + auto-memory → 0 upstream requests | ⏳ | |

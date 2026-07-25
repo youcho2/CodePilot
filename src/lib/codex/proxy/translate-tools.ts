@@ -41,14 +41,13 @@ export type ResponsesProxyToolSet = Record<string, Tool<unknown, never>>;
  * the `tools` field on streamText (ai-sdk treats `tools: undefined`
  * and `tools: {}` differently in some places — undefined is safer).
  *
- * Built-in Codex tools (`shell`, `apply_patch`) are NOT supported
- * yet; they require CodePilot to inject its own tool implementation
- * matching Codex's expected schema. This translator drops them
- * with a thrown error so the adapter can surface
- * `unsupported_tool_kind` cleanly instead of silently shipping a
- * broken tool list. The Codex proxy parser silently filters
- * non-function tools BEFORE they reach this layer (see
- * `parse-request.ts`), so the throw below is purely defensive.
+ * Non-function Codex tool descriptors do not pass through this
+ * function. `parse-request.ts` preserves them in `passthroughTools`;
+ * the unified adapter separately translates provider-hosted search
+ * and namespace/MCP descriptors, while local Codex tools continue to
+ * be executed by app-server. The throw below is therefore defensive
+ * against a classifier regression, not a statement that the overall
+ * proxy supports only function-typed tools.
  */
 export function translateResponsesTools(
   tools: ResponsesTool[] | undefined,
@@ -58,12 +57,11 @@ export function translateResponsesTools(
   const out: ResponsesProxyToolSet = {};
   for (const t of tools) {
     if (t.type !== 'function') {
-      // We filter at parse time (parse-request.ts drops non-function
-      // tools silently for chat parity); this throw catches a future
-      // Codex schema extension that reaches this layer through a
-      // different code path.
+      // The parser classifies non-function tools into passthroughTools;
+      // this catches a future schema extension that reaches this layer
+      // through a different code path.
       throw new Error(
-        `Unsupported tool kind "${(t as { type: string }).type}". The Codex proxy currently translates only function-typed tools; built-in tools (shell, apply_patch) need a CodePilot-side implementation.`,
+        `Unsupported tool kind "${(t as { type: string }).type}" reached the function-tool translator.`,
       );
     }
     // ai-sdk's `tool()` helper requires a JSON schema for input. If

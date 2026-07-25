@@ -14,6 +14,7 @@ import { createBashTool } from './bash';
 import { createEditTool } from './edit';
 import { createSkillTool } from './skill';
 import { createAgentTool } from './agent';
+import type { ProviderCallScene } from '../provider-call-policy';
 
 export interface ToolContext {
   /** Working directory for file operations */
@@ -28,10 +29,14 @@ export interface ToolContext {
   model?: string;
   /** Permission mode (for sub-agents) */
   permissionMode?: string;
+  /** Parent session explicitly selected the full-access profile. */
+  bypassPermissions?: boolean;
   /** SSE emitter callback — passed to sub-agents for permission forwarding */
   emitSSE?: (event: { type: string; data: string }) => void;
   /** Abort signal from parent */
   abortSignal?: AbortSignal;
+  /** Scene of the parent invocation; sub-agent spawning is interactive-only. */
+  parentCallScene?: ProviderCallScene;
 }
 
 /**
@@ -52,9 +57,11 @@ export function createBuiltinTools(ctx: ToolContext): ToolSet {
       sessionProviderId: ctx.sessionProviderId,
       parentModel: ctx.model,
       permissionMode: ctx.permissionMode,
+      bypassPermissions: ctx.bypassPermissions,
       parentSessionId: ctx.sessionId,
       emitSSE: ctx.emitSSE,
       abortSignal: ctx.abortSignal,
+      parentCallScene: ctx.parentCallScene,
     }),
   };
 }

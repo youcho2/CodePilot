@@ -184,6 +184,8 @@ export const CODEPILOT_MCP_TOOL_SERVERS: Readonly<Record<string, string>> = {
   codepilot_dashboard_pin: 'codepilot-dashboard',
   codepilot_dashboard_update: 'codepilot-dashboard',
   codepilot_dashboard_remove: 'codepilot-dashboard',
+  // codepilot-subagent — separate read-only Claude Code model call.
+  codepilot_spawn_subagent: 'codepilot-subagent',
 };
 
 /** `mcp__<serverKey>__<bareTool>` — the name the SDK matches rules against. */
@@ -565,6 +567,7 @@ export const BARE_ALLOWED_MCP_SERVERS: readonly string[] = [
   'mcp__codepilot-memory',
   'mcp__codepilot-widget',
   'mcp__codepilot-widget-guidelines',
+  'mcp__codepilot-subagent',
 ];
 
 /** Heartbeat runs get memory only — see the heartbeat note in claude-client. */

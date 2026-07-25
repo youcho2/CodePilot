@@ -59,6 +59,7 @@ import type {
   ResponsesOutputItem,
 } from './types';
 import { classifyUpstreamError } from './errors';
+import type { CodexNamespaceToolRoute } from './namespace-tools';
 
 interface TranslateStreamOptions {
   responseId: string;
@@ -75,6 +76,8 @@ interface TranslateStreamOptions {
    *  execute a tool it doesn't know" failure mode that motivated the
    *  bridge in the first place. */
   builtinToolNames?: ReadonlySet<string>;
+  /** Flat provider function name → original Codex namespace/member pair. */
+  namespaceToolRoutes?: ReadonlyMap<string, CodexNamespaceToolRoute>;
 }
 
 /**
@@ -87,6 +90,7 @@ export async function* translateStream(
 ): AsyncGenerator<ResponsesEvent, void, void> {
   const { responseId, body, source } = opts;
   const builtinToolNames = opts.builtinToolNames ?? new Set<string>();
+  const namespaceToolRoutes = opts.namespaceToolRoutes ?? new Map();
 
   let nextOutputIndex = 0;
   const textIndices = new Map<string, number>();
@@ -259,11 +263,13 @@ export async function* translateStream(
             toolIndices.set(part.toolCallId, idx);
           }
           const argsJson = stringifyInput(part.input);
+          const namespaceRoute = namespaceToolRoutes.get(part.toolName);
           const item: ResponsesOutputItem = {
             id: part.toolCallId,
             type: 'function_call',
             call_id: part.toolCallId,
-            name: part.toolName,
+            name: namespaceRoute?.name ?? part.toolName,
+            ...(namespaceRoute ? { namespace: namespaceRoute.namespace } : {}),
             arguments: argsJson,
           };
           yield {

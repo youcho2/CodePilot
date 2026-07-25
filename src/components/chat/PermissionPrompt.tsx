@@ -464,6 +464,16 @@ export function PermissionPrompt({
 
   return (
     <div className="mx-auto w-full max-w-3xl border-t border-border bg-background px-4 py-3 max-h-[50vh] overflow-y-auto">
+      {pendingPermission?.agentRunId && pendingPermission.agentName && !isResolved && (
+        <p
+          className="mb-2 text-xs font-medium text-muted-foreground"
+          data-subagent-permission-attribution={pendingPermission.agentRunId}
+        >
+          {t('streaming.permissionRequestedBySubagent', {
+            name: pendingPermission.agentName,
+          })}
+        </p>
+      )}
       {/* ExitPlanMode */}
       {pendingPermission?.toolName === 'ExitPlanMode' && !isResolved && (
         <ExitPlanModeUI

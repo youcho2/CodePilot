@@ -98,10 +98,19 @@ import {
 import { getSetting } from '@/lib/db';
 import { subscribeBuiltinEvents } from './proxy/builtin-event-bus';
 import {
+  codexNotificationBelongsToThread,
+  registerCodexSubagentParentContext,
+  type CodexSubagentParentContext,
+} from './subagent';
+import {
   getRuntimeSessionRef,
   setRuntimeSessionRef,
   clearRuntimeSessionRef,
 } from '@/lib/runtime/session-store';
+import {
+  CodexTurnInterruptRegistry,
+  requestCodexTurnInterrupt,
+} from './turn-interrupt-registry';
 
 /**
  * Convert one canonical RuntimeRunEvent into the SSE-line format the
@@ -224,7 +233,7 @@ function canonicalToSseLine(event: RuntimeRunEvent): string {
  *
  * Map cleared when turn/completed or turn/failed lands.
  */
-const activeCodexTurns = new Map<string, { threadId: string; turnId: string }>();
+const activeCodexTurns = new CodexTurnInterruptRegistry();
 
 /**
  * Issue a best-effort `turn/interrupt` for whatever turn is currently active
@@ -239,23 +248,20 @@ const activeCodexTurns = new Map<string, { threadId: string; turnId: string }>()
  * `source` is a diagnostic tag only; never logs prompt / files / credentials.
  */
 function issueCodexTurnInterrupt(sessionId: string, source: string): boolean {
-  const active = activeCodexTurns.get(sessionId);
-  if (!active) {
+  const issued = activeCodexTurns.issue(sessionId, (active) => {
+    void (async () => {
+      try {
+        const { client } = await getCodexAppServer();
+        await requestCodexTurnInterrupt(client, active);
+      } catch (err) {
+        console.debug(`[codex.runtime] turn/interrupt (${source}) failed (best-effort):`, err);
+      }
+    })();
+  });
+  if (!issued) {
     console.debug(`[codex.runtime] interrupt (${source}) — no active turn for`, sessionId);
-    return false;
   }
-  void (async () => {
-    try {
-      const { client } = await getCodexAppServer();
-      await client.request('turn/interrupt', {
-        threadId: active.threadId,
-        turnId: active.turnId,
-      });
-    } catch (err) {
-      console.debug(`[codex.runtime] turn/interrupt (${source}) failed (best-effort):`, err);
-    }
-  })();
-  return true;
+  return issued;
 }
 
 /**
@@ -405,10 +411,9 @@ export const codexRuntime: AgentRuntime = {
           // the wiring.
           //
           // item/permissions/requestApproval has a different response
-          // shape (permissions + scope, not just decision). Bridge
-          // throws an error → Codex treats as failed approval →
-          // effectively decline. Phase 6 wires the full permission-
-          // grant UI with GrantedPermissionProfile.
+          // shape (the granted subset + turn/session scope, not a decision
+          // string). approval-bridge owns that method-specific mapping and
+          // clamps the result to the profile Codex originally requested.
           for (const method of [
             'item/commandExecution/requestApproval',
             'item/fileChange/requestApproval',
@@ -493,15 +498,15 @@ export const codexRuntime: AgentRuntime = {
           unsubscribers.push(unsubElicit);
 
           // ── MCP dynamic tool call (Phase 8 Phase 5) ─────────────────
-          // When the model AUTONOMOUSLY calls a Memory tool mid-turn,
+          // When the model AUTONOMOUSLY calls an MCP tool mid-turn,
           // Codex routes it to us as a server-originated `item/tool/call`
           // (dynamic tool call) — NOT the client→server mcpServer/tool/call
           // the Phase 0 POC used. Without this handler the client answers
           // -32601 and Codex marks the call rejected (the Phase 5 smoke
-          // symptom). We forward an allowed memory call back to Codex's own
+          // symptom). We forward the call back to Codex's own
           // MCP manager via mcpServer/tool/call (so Codex keeps owning the
-          // MCP lifecycle) and shape the DynamicToolCallResponse. Scope:
-          // read-only Memory only; user/mutating MCP stays gated.
+          // MCP lifecycle, elicitation, and approval policy) and shape the
+          // DynamicToolCallResponse. Do not add a second CodePilot allowlist.
           const unsubDynTool = client.onServerRequest('item/tool/call', async (params) => {
             const p = params as CodexDynamicToolCallParams;
             const res = await handleCodexDynamicToolCall(p, (req) =>
@@ -688,9 +693,21 @@ export const codexRuntime: AgentRuntime = {
             }
           }
 
+          const parentAbortSignal = options.abortController?.signal;
+          const subagentParentContext: CodexSubagentParentContext = {
+            permission: codexPermission,
+            ...(hasMcp ? { mcpServers: codexMcpServers } : {}),
+            ...(parentAbortSignal ? { abortSignal: parentAbortSignal } : {}),
+          };
+          unsubscribers.push(registerCodexSubagentParentContext(
+            sessionId,
+            subagentParentContext,
+          ));
+
           const applyPermissionEcho = (response: CodexThreadStartResponse | CodexThreadResumeResponse) => {
             const decision = reconcileCodexPermissionEcho({ requested: codexPermission, response });
             codexPermission = decision.wire;
+            subagentParentContext.permission = codexPermission;
             if (!decision.degraded) return;
             const reason = decision.actualReviewer
               ? 'codex_auto_review_not_honoured'
@@ -812,6 +829,10 @@ export const codexRuntime: AgentRuntime = {
           // unknown methods actually reach the chat surface as
           // `unknown_item` blocks instead of vanishing.
           const unsubAny = client.onAnyNotification((method, params) => {
+            // The app-server connection is shared by every parent chat and
+            // managed child thread. Never render a child's deltas as parent
+            // prose or close the parent stream on the child's turn/completed.
+            if (!codexNotificationBelongsToThread(params, threadId)) return;
             const rawEvent = translateCodexNotification(method, params, { sessionId });
             // Phase 5b smoke round 9 (2026-05-16) — materialise MediaBlocks
             // before SSE encoding. Codex hands us raw paths like
@@ -955,7 +976,7 @@ export const codexRuntime: AgentRuntime = {
           // never reaches the Codex app-server turn: the turn keeps running,
           // the stream never closes, and chat/route.ts renews the session lock
           // forever → "Stop 后无法发送新指令".
-          const abortSignal = options.abortController?.signal;
+          const abortSignal = parentAbortSignal;
           if (abortSignal?.aborted) {
             // Stop landed during turn setup, before turn/start — don't kick
             // off a turn just to interrupt it.

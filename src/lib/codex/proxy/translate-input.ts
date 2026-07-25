@@ -34,6 +34,7 @@ import type {
   ResponsesInputItem,
   ResponsesContentBlock,
 } from './types';
+import { flattenCodexNamespaceToolName } from './namespace-tools';
 
 /** Mirror of ai-sdk's JSONValue — recursive primitive/array/object. */
 type JsonValue =
@@ -83,7 +84,12 @@ export function translateResponsesInput(
   const callIdToToolName = new Map<string, string>();
   for (const item of input) {
     if (item.type === 'function_call') {
-      callIdToToolName.set(item.call_id, item.name);
+      callIdToToolName.set(
+        item.call_id,
+        item.namespace
+          ? flattenCodexNamespaceToolName(item.namespace, item.name)
+          : item.name,
+      );
     }
   }
 
@@ -120,7 +126,9 @@ export function translateResponsesInput(
       const toolCallPart = {
         type: 'tool-call' as const,
         toolCallId: item.call_id,
-        toolName: item.name,
+        toolName: item.namespace
+          ? flattenCodexNamespaceToolName(item.namespace, item.name)
+          : item.name,
         input: safeParseJson(item.arguments) ?? item.arguments,
       };
       if (prev && prev.role === 'assistant' && Array.isArray(prev.content)) {

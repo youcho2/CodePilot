@@ -3,17 +3,81 @@ import path from 'path';
 import crypto from 'crypto';
 import fs from 'fs';
 import os from 'os';
-import type { ChatSession, Message, SettingsMap, TaskItem, TaskStatus, ApiProvider, CreateProviderRequest, UpdateProviderRequest, MediaJob, MediaJobStatus, MediaJobItem, MediaJobItemStatus, MediaContextEvent, BatchConfig, CustomCliTool, ScheduledTask } from '@/types';
+import type {
+  ChatSession,
+  Message,
+  SettingsMap,
+  TaskItem,
+  TaskStatus,
+  ApiProvider,
+  CreateProviderRequest,
+  UpdateProviderRequest,
+  MediaJob,
+  MediaJobStatus,
+  MediaJobItem,
+  MediaJobItemStatus,
+  MediaContextEvent,
+  BatchConfig,
+  CustomCliTool,
+  ScheduledTask,
+  SubagentRunRecord,
+  SubagentRunEventRecord,
+  StartSubagentRunInput,
+  CheckpointSubagentRunInput,
+  RecordSubagentRunEventInput,
+  SettleSubagentRunInput,
+} from '@/types';
 import type { ChannelType, ChannelBinding } from './bridge/types';
 import { getLocalDateString, localDayStartAsUTC } from './utils';
 import { inferProtocolFromLegacy } from './provider-catalog';
 import type { TitleOrigin } from './conversation-title';
 import { normalizePermissionProfile, type SessionPermissionProfile } from './permission/profile';
+import type { DelegatedAgentResult, SubagentStatusError } from './subagent-status';
 
 const dataDir = process.env.CLAUDE_GUI_DATA_DIR || path.join(os.homedir(), '.codepilot');
 const DB_PATH = path.join(dataDir, 'codepilot.db');
 
-let db: Database.Database | null = null;
+interface DatabaseProcessState {
+  db: Database.Database | null;
+  schemaRevision?: string;
+  runtimeOwnerToken?: string;
+}
+
+interface RuntimeOwnerRecord {
+  pid: number;
+  token: string;
+  claimedAt: string;
+}
+
+const DATABASE_PROCESS_STATES_KEY = Symbol.for('codepilot.database-process-states');
+const DATABASE_SHUTDOWN_HANDLER_KEY = Symbol.for('codepilot.database-shutdown-handler');
+const RUNTIME_OWNER_PATH = `${DB_PATH}.runtime-owner.json`;
+const RUNTIME_OWNER_LOCK_PATH = `${DB_PATH}.runtime-owner.lock`;
+// Next.js dev hot reload preserves the process-global database handle while
+// replacing this module. Keep a code-owned revision beside that handle so a
+// newly loaded migration still runs without requiring the user to restart the
+// desktop client. Bump this value whenever initDb/migrateDb gains a migration.
+const DATABASE_SCHEMA_REVISION = '2026-07-24-subagent-workflow-dependencies';
+
+function getDatabaseProcessStates(): Map<string, DatabaseProcessState> {
+  const target = globalThis as typeof globalThis & {
+    [DATABASE_PROCESS_STATES_KEY]?: Map<string, DatabaseProcessState>;
+  };
+  if (!target[DATABASE_PROCESS_STATES_KEY]) {
+    target[DATABASE_PROCESS_STATES_KEY] = new Map();
+  }
+  return target[DATABASE_PROCESS_STATES_KEY]!;
+}
+
+function getDatabaseProcessState(): DatabaseProcessState {
+  const states = getDatabaseProcessStates();
+  let state = states.get(DB_PATH);
+  if (!state) {
+    state = { db: null };
+    states.set(DB_PATH, state);
+  }
+  return state;
+}
 
 // File-based lock to prevent concurrent migration from multiple Next.js build workers.
 // Workers will retry for up to 10 seconds before giving up.
@@ -52,7 +116,9 @@ function withMigrationLock(dbInstance: Database.Database, fn: (db: Database.Data
 }
 
 export function getDb(): Database.Database {
-  if (!db) {
+  const state = getDatabaseProcessState();
+  let openedDatabase = false;
+  if (!state.db) {
     const dir = path.dirname(DB_PATH);
     if (!fs.existsSync(dir)) {
       fs.mkdirSync(dir, { recursive: true });
@@ -96,13 +162,25 @@ export function getDb(): Database.Database {
       }
     }
 
-    db = new Database(DB_PATH);
-    db.pragma('journal_mode = WAL');
-    db.pragma('busy_timeout = 5000');
-    db.pragma('foreign_keys = ON');
-    withMigrationLock(db, initDb);
+    state.db = new Database(DB_PATH);
+    state.db.pragma('journal_mode = WAL');
+    state.db.pragma('busy_timeout = 5000');
+    state.db.pragma('foreign_keys = ON');
+    openedDatabase = true;
   }
-  return db;
+
+  // A live dev process can keep an older global database handle across HMR.
+  // Re-run the idempotent structural bootstrap when the loaded code revision
+  // changes; runtime recovery remains tied to opening/owning the process and
+  // must not run merely because a route module was hot-reloaded.
+  if (openedDatabase || state.schemaRevision !== DATABASE_SCHEMA_REVISION) {
+    withMigrationLock(state.db, initDb);
+    state.schemaRevision = DATABASE_SCHEMA_REVISION;
+  }
+  if (openedDatabase) {
+    runRuntimeStartupRecoveryOnce(state.db);
+  }
+  return state.db;
 }
 
 function initDb(db: Database.Database): void {
@@ -125,7 +203,62 @@ function initDb(db: Database.Database): void {
       content TEXT NOT NULL,
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       token_usage TEXT,
+      stream_status TEXT NOT NULL DEFAULT 'completed',
       FOREIGN KEY (session_id) REFERENCES chat_sessions(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS subagent_runs (
+      id TEXT PRIMARY KEY,
+      logical_run_id TEXT NOT NULL DEFAULT '',
+      attempt_number INTEGER NOT NULL DEFAULT 1 CHECK(attempt_number > 0),
+      parent_session_id TEXT NOT NULL,
+      runtime TEXT NOT NULL CHECK(runtime IN ('codepilot_runtime', 'claude_code', 'codex_runtime')),
+      tool_name TEXT NOT NULL DEFAULT '',
+      agent_name TEXT NOT NULL DEFAULT 'Sub-agent',
+      provider_id TEXT NOT NULL DEFAULT '',
+      requested_model TEXT NOT NULL DEFAULT '',
+      effective_provider_id TEXT NOT NULL DEFAULT '',
+      effective_model TEXT NOT NULL DEFAULT '',
+      workflow_id TEXT NOT NULL DEFAULT '',
+      task_key TEXT NOT NULL DEFAULT '',
+      dependencies_json TEXT NOT NULL DEFAULT '[]',
+      dispatch_state TEXT NOT NULL DEFAULT 'executing'
+        CHECK(dispatch_state IN ('queued', 'executing', 'settling', 'terminal')),
+      prompt TEXT NOT NULL DEFAULT '',
+      status TEXT NOT NULL DEFAULT 'running'
+        CHECK(status IN ('running', 'completed', 'partial', 'failed', 'cancelled', 'timed_out')),
+      phase TEXT NOT NULL DEFAULT 'running'
+        CHECK(phase IN ('running', 'settling', 'terminal')),
+      terminal INTEGER NOT NULL DEFAULT 0 CHECK(terminal IN (0, 1)),
+      result_text TEXT NOT NULL DEFAULT '',
+      result_json TEXT NOT NULL DEFAULT '',
+      current_activity TEXT NOT NULL DEFAULT '',
+      last_activity_at TEXT NOT NULL DEFAULT '',
+      error_json TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+      completed_at TEXT NOT NULL DEFAULT '',
+      FOREIGN KEY (parent_session_id) REFERENCES chat_sessions(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS subagent_run_events (
+      id TEXT PRIMARY KEY,
+      run_id TEXT NOT NULL,
+      logical_run_id TEXT NOT NULL DEFAULT '',
+      sequence INTEGER NOT NULL CHECK(sequence > 0),
+      cursor INTEGER NOT NULL DEFAULT 0 CHECK(cursor >= 0),
+      event_type TEXT NOT NULL
+        CHECK(event_type IN (
+          'started', 'activity', 'tool_started', 'tool_completed',
+          'permission_requested', 'permission_resolved', 'partial_result',
+          'settling', 'terminal', 'route_warning'
+        )),
+      activity TEXT NOT NULL DEFAULT '',
+      tool_name TEXT NOT NULL DEFAULT '',
+      payload_json TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+      FOREIGN KEY (run_id) REFERENCES subagent_runs(id) ON DELETE CASCADE
     );
 
     CREATE TABLE IF NOT EXISTS settings (
@@ -242,6 +375,12 @@ function initDb(db: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_messages_session_id ON messages(session_id);
     CREATE INDEX IF NOT EXISTS idx_messages_created_at ON messages(created_at);
     CREATE INDEX IF NOT EXISTS idx_sessions_updated_at ON chat_sessions(updated_at);
+    CREATE INDEX IF NOT EXISTS idx_subagent_runs_parent_created
+      ON subagent_runs(parent_session_id, created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_subagent_runs_parent_terminal
+      ON subagent_runs(parent_session_id, terminal, updated_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_subagent_run_events_run_sequence
+      ON subagent_run_events(run_id, sequence);
     CREATE INDEX IF NOT EXISTS idx_tasks_session_id ON tasks(session_id);
     CREATE INDEX IF NOT EXISTS idx_media_created_at ON media_generations(created_at);
     CREATE INDEX IF NOT EXISTS idx_media_session_id ON media_generations(session_id);
@@ -509,6 +648,16 @@ function migrateDb(db: Database.Database): void {
     safeAddColumn(db, "ALTER TABLE messages ADD COLUMN is_heartbeat_ack INTEGER NOT NULL DEFAULT 0");
   }
 
+  // Durable assistant-stream checkpoint lifecycle. Existing rows are complete
+  // transcripts, so the conservative migration default is `completed`.
+  // In-flight collector rows explicitly opt into `streaming`; startup recovery
+  // below converts only those rows to `interrupted`.
+  if (!msgColNames.includes('stream_status')) {
+    safeAddColumn(db, "ALTER TABLE messages ADD COLUMN stream_status TEXT NOT NULL DEFAULT 'completed'");
+  }
+
+  migrateSubagentRunSchema(db);
+
   // Ensure tasks table exists for databases created before this migration
   db.exec(`
     CREATE TABLE IF NOT EXISTS tasks (
@@ -737,16 +886,6 @@ function migrateDb(db: Database.Database): void {
     // Column already exists
   }
 
-  // Recover stale jobs: mark 'running' jobs as 'paused' after process restart
-  db.exec(`
-    UPDATE media_jobs SET status = 'paused', updated_at = datetime('now')
-    WHERE status = 'running'
-  `);
-  db.exec(`
-    UPDATE media_job_items SET status = 'pending', updated_at = datetime('now')
-    WHERE status = 'processing'
-  `);
-
   // Create session_runtime_locks table
   db.exec(`
     CREATE TABLE IF NOT EXISTS session_runtime_locks (
@@ -781,23 +920,6 @@ function migrateDb(db: Database.Database): void {
     );
     CREATE INDEX IF NOT EXISTS idx_permission_session_status ON permission_requests(session_id, status);
     CREATE INDEX IF NOT EXISTS idx_permission_expires_at ON permission_requests(expires_at);
-  `);
-
-  // Startup recovery: reset stale runtime states from previous process
-  db.exec(`
-    UPDATE chat_sessions
-    SET runtime_status = 'idle',
-        runtime_error = 'Process restarted',
-        runtime_updated_at = datetime('now')
-    WHERE runtime_status IN ('running', 'waiting_permission')
-  `);
-  db.exec("DELETE FROM session_runtime_locks");
-  db.exec(`
-    UPDATE permission_requests
-    SET status = 'aborted',
-        resolved_at = datetime('now'),
-        message = 'Process restarted'
-    WHERE status = 'pending'
   `);
 
   // Migrate existing settings to a default provider if api_providers is empty
@@ -1179,6 +1301,134 @@ function migrateDb(db: Database.Database): void {
     );
     CREATE INDEX IF NOT EXISTS idx_notification_deliveries_event_id ON notification_deliveries(event_id);
   `);
+}
+
+/**
+ * Additive Sub-agent orchestration migration.
+ *
+ * Historical rows represented one physical attempt and had no logical task
+ * identity. Conservatively backfill each existing id as its own logical run,
+ * attempt 1; never guess that similarly named agents were retries.
+ */
+/** Exported for additive migration contract tests. Production uses migrateDb(). */
+export function migrateSubagentRunSchema(db: Database.Database): void {
+  const columns = db.prepare("PRAGMA table_info(subagent_runs)").all() as { name: string }[];
+  if (columns.length === 0) return;
+  const names = new Set(columns.map(column => column.name));
+
+  db.transaction(() => {
+    if (!names.has('logical_run_id')) {
+      safeAddColumn(db, "ALTER TABLE subagent_runs ADD COLUMN logical_run_id TEXT NOT NULL DEFAULT ''");
+    }
+    if (!names.has('attempt_number')) {
+      safeAddColumn(db, "ALTER TABLE subagent_runs ADD COLUMN attempt_number INTEGER NOT NULL DEFAULT 1 CHECK(attempt_number > 0)");
+    }
+    if (!names.has('effective_provider_id')) {
+      safeAddColumn(db, "ALTER TABLE subagent_runs ADD COLUMN effective_provider_id TEXT NOT NULL DEFAULT ''");
+    }
+    if (!names.has('phase')) {
+      safeAddColumn(db, "ALTER TABLE subagent_runs ADD COLUMN phase TEXT NOT NULL DEFAULT 'running' CHECK(phase IN ('running', 'settling', 'terminal'))");
+    }
+    if (!names.has('result_json')) {
+      safeAddColumn(db, "ALTER TABLE subagent_runs ADD COLUMN result_json TEXT NOT NULL DEFAULT ''");
+    }
+    if (!names.has('current_activity')) {
+      safeAddColumn(db, "ALTER TABLE subagent_runs ADD COLUMN current_activity TEXT NOT NULL DEFAULT ''");
+    }
+    if (!names.has('last_activity_at')) {
+      safeAddColumn(db, "ALTER TABLE subagent_runs ADD COLUMN last_activity_at TEXT NOT NULL DEFAULT ''");
+    }
+    if (!names.has('workflow_id')) {
+      safeAddColumn(db, "ALTER TABLE subagent_runs ADD COLUMN workflow_id TEXT NOT NULL DEFAULT ''");
+    }
+    if (!names.has('task_key')) {
+      safeAddColumn(db, "ALTER TABLE subagent_runs ADD COLUMN task_key TEXT NOT NULL DEFAULT ''");
+    }
+    if (!names.has('dependencies_json')) {
+      safeAddColumn(db, "ALTER TABLE subagent_runs ADD COLUMN dependencies_json TEXT NOT NULL DEFAULT '[]'");
+    }
+    if (!names.has('dispatch_state')) {
+      safeAddColumn(
+        db,
+        "ALTER TABLE subagent_runs ADD COLUMN dispatch_state TEXT NOT NULL DEFAULT 'executing' CHECK(dispatch_state IN ('queued', 'executing', 'settling', 'terminal'))",
+      );
+    }
+
+    db.exec(`
+      UPDATE subagent_runs
+      SET logical_run_id = id
+      WHERE logical_run_id = '';
+
+      UPDATE subagent_runs
+      SET phase = CASE WHEN terminal = 1 THEN 'terminal' ELSE 'running' END
+      WHERE phase = ''
+         OR (terminal = 1 AND phase != 'terminal');
+
+      UPDATE subagent_runs
+      SET last_activity_at = updated_at
+      WHERE last_activity_at = '';
+
+      UPDATE subagent_runs
+      SET dispatch_state = CASE
+        WHEN terminal = 1 THEN 'terminal'
+        WHEN phase = 'settling' THEN 'settling'
+        ELSE 'executing'
+      END
+      WHERE dispatch_state = ''
+         OR terminal = 1
+         OR phase = 'settling';
+
+      CREATE TABLE IF NOT EXISTS subagent_run_events (
+        id TEXT PRIMARY KEY,
+        run_id TEXT NOT NULL,
+        logical_run_id TEXT NOT NULL DEFAULT '',
+        sequence INTEGER NOT NULL CHECK(sequence > 0),
+        cursor INTEGER NOT NULL DEFAULT 0 CHECK(cursor >= 0),
+        event_type TEXT NOT NULL
+          CHECK(event_type IN (
+            'started', 'activity', 'tool_started', 'tool_completed',
+            'permission_requested', 'permission_resolved', 'partial_result',
+            'settling', 'terminal', 'route_warning'
+          )),
+        activity TEXT NOT NULL DEFAULT '',
+        tool_name TEXT NOT NULL DEFAULT '',
+        payload_json TEXT NOT NULL DEFAULT '',
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+        FOREIGN KEY (run_id) REFERENCES subagent_runs(id) ON DELETE CASCADE
+      );
+
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_subagent_runs_logical_attempt
+        ON subagent_runs(parent_session_id, logical_run_id, attempt_number);
+      CREATE INDEX IF NOT EXISTS idx_subagent_runs_parent_logical
+        ON subagent_runs(parent_session_id, logical_run_id, attempt_number DESC);
+      CREATE INDEX IF NOT EXISTS idx_subagent_runs_workflow_task
+        ON subagent_runs(parent_session_id, workflow_id, task_key, attempt_number DESC)
+        WHERE workflow_id != '' AND task_key != '';
+      CREATE INDEX IF NOT EXISTS idx_subagent_run_events_run_sequence
+        ON subagent_run_events(run_id, sequence);
+    `);
+
+    const eventColumns = db.prepare("PRAGMA table_info(subagent_run_events)")
+      .all() as { name: string }[];
+    if (!eventColumns.some(column => column.name === 'cursor')) {
+      safeAddColumn(
+        db,
+        'ALTER TABLE subagent_run_events ADD COLUMN cursor INTEGER NOT NULL DEFAULT 0 CHECK(cursor >= 0)',
+      );
+    }
+    db.exec(`
+      UPDATE subagent_run_events
+      SET cursor = rowid
+      WHERE cursor = 0;
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_subagent_run_events_cursor
+        ON subagent_run_events(cursor);
+      CREATE INDEX IF NOT EXISTS idx_subagent_run_events_logical_cursor
+        ON subagent_run_events(logical_run_id, cursor);
+      CREATE INDEX IF NOT EXISTS idx_subagent_run_events_run_cursor
+        ON subagent_run_events(run_id, cursor);
+    `);
+  })();
 }
 
 const BAILIAN_CODING_PLAN_URL = 'https://coding.dashscope.aliyuncs.com/apps/anthropic';
@@ -1565,6 +1815,801 @@ export function updateSessionPermissionProfile(id: string, profile: SessionPermi
 }
 
 // ==========================================
+// Managed Sub-agent Run Operations
+// ==========================================
+
+export const SUBAGENT_RUN_CHECKPOINT_MAX_CHARS = 64 * 1024;
+const SUBAGENT_LOGICAL_RUN_ID_MAX_CHARS = 160;
+const SUBAGENT_WORKFLOW_KEY_MAX_CHARS = 160;
+
+type SubagentLogicalRunConflictCode =
+  | 'LOGICAL_RUN_STILL_RUNNING'
+  | 'LOGICAL_RUN_ALREADY_COMPLETED'
+  | 'DUPLICATE_TASK_KEY';
+
+class SubagentLogicalRunConflictError extends Error {
+  readonly name = 'SubagentLogicalRunConflictError';
+  readonly retryable = false;
+
+  constructor(
+    readonly code: SubagentLogicalRunConflictCode,
+    readonly logicalRunId: string,
+    readonly latestAttemptId: string,
+    readonly latestStatus: SubagentRunRecord['status'],
+    readonly latestPhase: SubagentRunRecord['phase'],
+  ) {
+    super(
+      code === 'LOGICAL_RUN_STILL_RUNNING'
+        ? `Logical Sub-agent run "${logicalRunId}" already has active attempt "${latestAttemptId}" in phase "${latestPhase}".`
+        : code === 'LOGICAL_RUN_ALREADY_COMPLETED'
+          ? `Logical Sub-agent run "${logicalRunId}" already completed successfully in attempt "${latestAttemptId}".`
+          : `Workflow task "${logicalRunId}" already belongs to attempt "${latestAttemptId}".`,
+    );
+  }
+}
+
+class SubagentDependencySpecError extends Error {
+  readonly name = 'SubagentDependencySpecError';
+  readonly code = 'INVALID_DEPENDENCY_SPEC';
+  readonly retryable = false;
+
+  constructor(readonly detail: string) {
+    super(detail);
+  }
+}
+
+export function describeSubagentRunStartRejection(error: unknown): {
+  error: SubagentStatusError;
+  message: string;
+} | undefined {
+  if (!error || typeof error !== 'object') return undefined;
+  const dependencyCandidate = error as Partial<SubagentDependencySpecError>;
+  if (dependencyCandidate.code === 'INVALID_DEPENDENCY_SPEC') {
+    return {
+      error: { code: 'INVALID_DEPENDENCY_SPEC', retryable: false },
+      message: `INVALID_DEPENDENCY_SPEC: ${dependencyCandidate.detail || dependencyCandidate.message || 'the workflow dependency graph is invalid.'}`,
+    };
+  }
+  const candidate = error as Partial<SubagentLogicalRunConflictError>;
+  if (
+    candidate.code !== 'LOGICAL_RUN_STILL_RUNNING'
+    && candidate.code !== 'LOGICAL_RUN_ALREADY_COMPLETED'
+    && candidate.code !== 'DUPLICATE_TASK_KEY'
+  ) {
+    return undefined;
+  }
+  const logicalRunId = typeof candidate.logicalRunId === 'string'
+    ? candidate.logicalRunId
+    : '(unknown)';
+  const latestAttemptId = typeof candidate.latestAttemptId === 'string'
+    ? candidate.latestAttemptId
+    : '(unknown)';
+  if (candidate.code === 'LOGICAL_RUN_STILL_RUNNING') {
+    const latestPhase = candidate.latestPhase === 'settling' ? 'settling' : 'running';
+    return {
+      error: { code: candidate.code, retryable: false },
+      message: `${candidate.code}: logical_run_id "${logicalRunId}" already has active attempt "${latestAttemptId}" in phase "${latestPhase}". Do not launch a parallel retry or hide the active attempt. Wait for its terminal result and read the authoritative run details; omit logical_run_id only when starting genuinely different work.`,
+    };
+  }
+  if (candidate.code === 'DUPLICATE_TASK_KEY') {
+    return {
+      error: { code: candidate.code, retryable: false },
+      message: `${candidate.code}: workflow task "${logicalRunId}" already belongs to attempt "${latestAttemptId}". Do not create a second physical Sub-agent for the same workflow task. Use a different task_key, or explicitly retry the failed logicalRunId returned by the existing task.`,
+    };
+  }
+  return {
+    error: { code: candidate.code, retryable: false },
+    message: `${candidate.code}: logical_run_id "${logicalRunId}" already completed successfully in attempt "${latestAttemptId}". Do not replace or hide the delivered result. Read the existing result; omit logical_run_id if the user intends a new logical task.`,
+  };
+}
+
+function parseSubagentDependencyKeys(value: string): string[] {
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    return Array.isArray(parsed)
+      ? parsed.filter((item): item is string => typeof item === 'string')
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+function assertNoSubagentWorkflowCycle(
+  db: Database.Database,
+  parentSessionId: string,
+  workflowId: string,
+  taskKey: string,
+  dependencyTaskKeys: string[],
+): void {
+  const rows = db.prepare(`
+    SELECT task_key, dependencies_json
+    FROM subagent_runs
+    WHERE parent_session_id = ?
+      AND workflow_id = ?
+      AND task_key != ''
+    ORDER BY attempt_number DESC, rowid DESC
+  `).all(parentSessionId, workflowId) as Array<{
+    task_key: string;
+    dependencies_json: string;
+  }>;
+  const graph = new Map<string, string[]>();
+  for (const row of rows) {
+    if (!graph.has(row.task_key)) {
+      graph.set(row.task_key, parseSubagentDependencyKeys(row.dependencies_json));
+    }
+  }
+  graph.set(taskKey, dependencyTaskKeys);
+
+  const visiting = new Set<string>();
+  const visited = new Set<string>();
+  const visit = (current: string, path: string[]): string[] | undefined => {
+    if (visiting.has(current)) {
+      const cycleStart = path.indexOf(current);
+      return [...path.slice(Math.max(0, cycleStart)), current];
+    }
+    if (visited.has(current)) return undefined;
+    visiting.add(current);
+    for (const dependency of graph.get(current) || []) {
+      const cycle = visit(dependency, [...path, current]);
+      if (cycle) return cycle;
+    }
+    visiting.delete(current);
+    visited.add(current);
+    return undefined;
+  };
+  const cycle = visit(taskKey, []);
+  if (cycle) {
+    throw new SubagentDependencySpecError(
+      `workflow "${workflowId}" contains a dependency cycle (${cycle.join(' → ')}). No durable attempt was created and no child was started.`,
+    );
+  }
+}
+
+function normalizeSubagentWorkflowKey(
+  value: string | undefined,
+  field: 'workflow_id' | 'task_key',
+): string {
+  const candidate = value?.trim() || '';
+  if (!candidate) return '';
+  if (
+    candidate.length > SUBAGENT_WORKFLOW_KEY_MAX_CHARS
+    || !/^[A-Za-z0-9][A-Za-z0-9._:-]*$/.test(candidate)
+  ) {
+    throw new Error(
+      `Invalid ${field}. Use 1-${SUBAGENT_WORKFLOW_KEY_MAX_CHARS} ASCII letters, digits, dot, underscore, colon, or dash.`,
+    );
+  }
+  return candidate;
+}
+
+function normalizeLogicalRunId(value: string | undefined, fallbackAttemptId: string): string {
+  const candidate = value?.trim() || fallbackAttemptId;
+  if (
+    candidate.length === 0
+    || candidate.length > SUBAGENT_LOGICAL_RUN_ID_MAX_CHARS
+    || !/^[A-Za-z0-9][A-Za-z0-9._:-]*$/.test(candidate)
+  ) {
+    throw new Error(
+      'Invalid logical Sub-agent run id. Use 1-160 ASCII letters, digits, dot, underscore, colon, or dash.',
+    );
+  }
+  return candidate;
+}
+
+function subagentTimestamp(): string {
+  return new Date().toISOString().replace('T', ' ').split('.')[0];
+}
+
+function nextSubagentEventSequence(db: Database.Database, runId: string): number {
+  const row = db.prepare(`
+    SELECT COALESCE(MAX(sequence), 0) + 1 AS sequence
+    FROM subagent_run_events
+    WHERE run_id = ?
+  `).get(runId) as { sequence: number };
+  return row.sequence;
+}
+
+function nextSubagentEventCursor(db: Database.Database): number {
+  const row = db.prepare(`
+    SELECT COALESCE(MAX(cursor), 0) + 1 AS cursor
+    FROM subagent_run_events
+  `).get() as { cursor: number };
+  return row.cursor;
+}
+
+export const SUBAGENT_RUN_EVENT_LIMIT_PER_ATTEMPT = 200;
+
+function pruneSubagentRunEvents(db: Database.Database, runId: string): void {
+  db.prepare(`
+    DELETE FROM subagent_run_events
+    WHERE run_id = ?
+      AND id NOT IN (
+        SELECT id
+        FROM subagent_run_events
+        WHERE run_id = ?
+        ORDER BY cursor DESC
+        LIMIT ?
+      )
+  `).run(runId, runId, SUBAGENT_RUN_EVENT_LIMIT_PER_ATTEMPT);
+}
+
+function subagentEventId(runId: string, coalesceKey?: string): string {
+  if (!coalesceKey) return `subagent-event-${crypto.randomUUID()}`;
+  const digest = crypto.createHash('sha256').update(coalesceKey).digest('hex').slice(0, 24);
+  return `${runId}:event:${digest}`;
+}
+
+function insertSubagentRunEvent(
+  db: Database.Database,
+  run: Pick<SubagentRunRecord, 'id' | 'logical_run_id'>,
+  input: RecordSubagentRunEventInput,
+  now = subagentTimestamp(),
+): SubagentRunEventRecord {
+  const eventId = subagentEventId(run.id, input.coalesceKey);
+  const existing = input.coalesceKey
+    ? db.prepare('SELECT sequence, created_at FROM subagent_run_events WHERE id = ?')
+      .get(eventId) as { sequence: number; created_at: string } | undefined
+    : undefined;
+  const sequence = existing?.sequence || nextSubagentEventSequence(db, run.id);
+  const cursor = nextSubagentEventCursor(db);
+  const payloadJson = input.payload ? JSON.stringify(input.payload) : '';
+  db.prepare(`
+    INSERT INTO subagent_run_events (
+      id, run_id, logical_run_id, sequence, cursor, event_type, activity,
+      tool_name, payload_json, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(id) DO UPDATE SET
+      cursor = excluded.cursor,
+      event_type = excluded.event_type,
+      activity = excluded.activity,
+      tool_name = excluded.tool_name,
+      payload_json = excluded.payload_json,
+      updated_at = excluded.updated_at
+  `).run(
+    eventId,
+    run.id,
+    run.logical_run_id,
+    sequence,
+    cursor,
+    input.type,
+    input.activity || '',
+    input.toolName || '',
+    payloadJson,
+    existing?.created_at || now,
+    now,
+  );
+  pruneSubagentRunEvents(db, run.id);
+  return db.prepare('SELECT * FROM subagent_run_events WHERE id = ?')
+    .get(eventId) as SubagentRunEventRecord;
+}
+
+function safeFiniteNonNegative(value: number | undefined): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0
+    ? value
+    : undefined;
+}
+
+function buildDelegatedAgentResult(
+  run: SubagentRunRecord,
+  input: SettleSubagentRunInput,
+  resultText: string,
+  effectiveProviderId: string,
+  effectiveModel: string,
+): DelegatedAgentResult {
+  const usage = input.usage ? {
+    ...(safeFiniteNonNegative(input.usage.requests) !== undefined
+      ? { requests: safeFiniteNonNegative(input.usage.requests) }
+      : {}),
+    ...(safeFiniteNonNegative(input.usage.inputTokens) !== undefined
+      ? { inputTokens: safeFiniteNonNegative(input.usage.inputTokens) }
+      : {}),
+    ...(safeFiniteNonNegative(input.usage.outputTokens) !== undefined
+      ? { outputTokens: safeFiniteNonNegative(input.usage.outputTokens) }
+      : {}),
+    ...(safeFiniteNonNegative(input.usage.toolCalls) !== undefined
+      ? { toolCalls: safeFiniteNonNegative(input.usage.toolCalls) }
+      : {}),
+    ...(safeFiniteNonNegative(input.usage.costUsd) !== undefined
+      ? { costUsd: safeFiniteNonNegative(input.usage.costUsd) }
+      : {}),
+  } : undefined;
+  return {
+    status: input.status,
+    ...(resultText ? { summary: resultText } : {}),
+    ...(input.error ? { error: input.error } : {}),
+    sources: input.sources || [],
+    artifacts: input.artifacts || [],
+    warnings: input.warnings || [],
+    ...(usage && Object.keys(usage).length > 0 ? { usage } : {}),
+    provenance: {
+      logicalRunId: run.logical_run_id,
+      attemptId: run.id,
+      attemptNumber: run.attempt_number,
+      ...(run.provider_id ? { requestedProviderId: run.provider_id } : {}),
+      ...(run.requested_model ? { requestedModel: run.requested_model } : {}),
+      ...(effectiveProviderId ? { effectiveProviderId } : {}),
+      ...(effectiveModel ? { effectiveModel } : {}),
+      factSource: 'sqlite.subagent_runs',
+    },
+  };
+}
+
+/**
+ * Create the durable running fact before a managed child is launched.
+ *
+ * The parent session FK is deliberate: if the parent chat does not exist, the
+ * child must not run without an auditable owner. Callers should fail closed.
+ */
+export function startSubagentRun(input: StartSubagentRunInput): SubagentRunRecord {
+  const db = getDb();
+  const logicalRunId = normalizeLogicalRunId(input.logicalRunId, input.id);
+  const workflowId = normalizeSubagentWorkflowKey(input.workflowId, 'workflow_id');
+  const taskKey = normalizeSubagentWorkflowKey(input.taskKey, 'task_key');
+  const dependencyTaskKeys = [...new Set(input.dependencyTaskKeys || [])].map(
+    key => normalizeSubagentWorkflowKey(key, 'task_key'),
+  );
+  if ((workflowId && !taskKey) || (!workflowId && taskKey)) {
+    throw new Error('workflow_id and task_key must be provided together.');
+  }
+  if (dependencyTaskKeys.length > 0 && (!workflowId || !taskKey)) {
+    throw new Error('Dependent Sub-agent tasks require workflow_id and task_key.');
+  }
+  if (taskKey && dependencyTaskKeys.includes(taskKey)) {
+    throw new Error('A Sub-agent task cannot depend on itself.');
+  }
+  const dispatchState = dependencyTaskKeys.length > 0 ? 'queued' : 'executing';
+  const initialActivity = dependencyTaskKeys.length > 0
+    ? `Waiting for dependencies: ${dependencyTaskKeys.join(', ')}`.slice(0, 500)
+    : 'Starting Sub-agent';
+  const now = subagentTimestamp();
+  db.transaction(() => {
+    const latest = input.logicalRunId
+      ? db.prepare(`
+          SELECT id, status, phase, terminal
+          FROM subagent_runs
+          WHERE parent_session_id = ? AND logical_run_id = ?
+          ORDER BY attempt_number DESC, rowid DESC
+          LIMIT 1
+        `).get(input.parentSessionId, logicalRunId) as Pick<
+          SubagentRunRecord,
+          'id' | 'status' | 'phase' | 'terminal'
+        > | undefined
+      : undefined;
+    if (latest?.terminal === 0) {
+      throw new SubagentLogicalRunConflictError(
+        'LOGICAL_RUN_STILL_RUNNING',
+        logicalRunId,
+        latest.id,
+        latest.status,
+        latest.phase,
+      );
+    }
+    if (latest?.status === 'completed') {
+      throw new SubagentLogicalRunConflictError(
+        'LOGICAL_RUN_ALREADY_COMPLETED',
+        logicalRunId,
+        latest.id,
+        latest.status,
+        latest.phase,
+      );
+    }
+    if (workflowId && taskKey) {
+      const existingTask = db.prepare(`
+        SELECT id, logical_run_id, status, phase
+        FROM subagent_runs
+        WHERE parent_session_id = ?
+          AND workflow_id = ?
+          AND task_key = ?
+        ORDER BY attempt_number DESC, rowid DESC
+        LIMIT 1
+      `).get(input.parentSessionId, workflowId, taskKey) as Pick<
+        SubagentRunRecord,
+        'id' | 'logical_run_id' | 'status' | 'phase'
+      > | undefined;
+      const isExplicitRetry = Boolean(
+        input.logicalRunId
+        && existingTask
+        && existingTask.logical_run_id === logicalRunId,
+      );
+      if (existingTask && !isExplicitRetry) {
+        throw new SubagentLogicalRunConflictError(
+          'DUPLICATE_TASK_KEY',
+          `${workflowId}:${taskKey}`,
+          existingTask.id,
+          existingTask.status,
+          existingTask.phase,
+        );
+      }
+      assertNoSubagentWorkflowCycle(
+        db,
+        input.parentSessionId,
+        workflowId,
+        taskKey,
+        dependencyTaskKeys,
+      );
+    }
+    const previous = db.prepare(`
+      SELECT COALESCE(MAX(attempt_number), 0) AS max_attempt
+      FROM subagent_runs
+      WHERE parent_session_id = ? AND logical_run_id = ?
+    `).get(input.parentSessionId, logicalRunId) as { max_attempt: number };
+    const attemptNumber = previous.max_attempt + 1;
+    db.prepare(`
+      INSERT INTO subagent_runs (
+        id,
+        logical_run_id,
+        attempt_number,
+        parent_session_id,
+        runtime,
+        tool_name,
+        agent_name,
+        provider_id,
+        requested_model,
+        workflow_id,
+        task_key,
+        dependencies_json,
+        dispatch_state,
+        prompt,
+        status,
+        phase,
+        terminal,
+        current_activity,
+        last_activity_at,
+        created_at,
+        updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'running', 'running', 0, ?, ?, ?, ?)
+    `).run(
+      input.id,
+      logicalRunId,
+      attemptNumber,
+      input.parentSessionId,
+      input.runtime,
+      input.toolName,
+      input.agentName,
+      input.providerId || '',
+      input.requestedModel || '',
+      workflowId,
+      taskKey,
+      JSON.stringify(dependencyTaskKeys),
+      dispatchState,
+      input.prompt || '',
+      initialActivity,
+      now,
+      now,
+      now,
+    );
+    const run = db.prepare('SELECT * FROM subagent_runs WHERE id = ?')
+      .get(input.id) as SubagentRunRecord;
+    insertSubagentRunEvent(db, run, {
+      type: 'started',
+      activity: initialActivity,
+      payload: {
+        requestedProviderId: input.providerId || undefined,
+        requestedModel: input.requestedModel || undefined,
+        attemptNumber,
+        workflowId: workflowId || undefined,
+        taskKey: taskKey || undefined,
+        dependencies: dependencyTaskKeys,
+        dispatchState,
+      },
+    }, now);
+  })();
+  return getSubagentRun(input.id)!;
+}
+
+export function getSubagentRun(id: string): SubagentRunRecord | undefined {
+  return getDb()
+    .prepare('SELECT * FROM subagent_runs WHERE id = ?')
+    .get(id) as SubagentRunRecord | undefined;
+}
+
+export function getLatestSubagentRunByWorkflowTask(
+  parentSessionId: string,
+  workflowId: string,
+  taskKey: string,
+): SubagentRunRecord | undefined {
+  return getDb().prepare(`
+    SELECT *
+    FROM subagent_runs
+    WHERE parent_session_id = ?
+      AND workflow_id = ?
+      AND task_key = ?
+    ORDER BY attempt_number DESC, rowid DESC
+    LIMIT 1
+  `).get(parentSessionId, workflowId, taskKey) as SubagentRunRecord | undefined;
+}
+
+export function markSubagentRunExecuting(
+  id: string,
+  activity = 'Starting Sub-agent',
+): SubagentRunRecord | undefined {
+  const db = getDb();
+  const now = subagentTimestamp();
+  const boundedActivity = activity.slice(0, 500);
+  db.transaction(() => {
+    const run = db.prepare('SELECT * FROM subagent_runs WHERE id = ?')
+      .get(id) as SubagentRunRecord | undefined;
+    if (!run || run.terminal === 1) return;
+    db.prepare(`
+      UPDATE subagent_runs
+      SET dispatch_state = 'executing',
+          current_activity = ?,
+          last_activity_at = ?,
+          updated_at = ?
+      WHERE id = ? AND terminal = 0
+    `).run(boundedActivity, now, now, id);
+    insertSubagentRunEvent(db, run, {
+      type: 'activity',
+      activity: boundedActivity,
+      payload: { dispatchState: 'executing' },
+      coalesceKey: 'dispatch-state',
+    }, now);
+  })();
+  return getSubagentRun(id);
+}
+
+export function listSubagentRuns(
+  parentSessionId: string,
+  options?: { limit?: number },
+): SubagentRunRecord[] {
+  const requestedLimit = options?.limit ?? 10;
+  const limit = Math.max(1, Math.min(20, Math.trunc(requestedLimit) || 10));
+  return getDb()
+    .prepare(`
+      SELECT *
+      FROM subagent_runs
+      WHERE parent_session_id = ?
+      ORDER BY created_at DESC, rowid DESC
+      LIMIT ?
+    `)
+    .all(parentSessionId, limit) as SubagentRunRecord[];
+}
+
+/** Latest physical attempt for each logical task, for parent/UI summaries. */
+export function listLatestSubagentRuns(
+  parentSessionId: string,
+  options?: { limit?: number },
+): SubagentRunRecord[] {
+  const requestedLimit = options?.limit ?? 10;
+  const limit = Math.max(1, Math.min(20, Math.trunc(requestedLimit) || 10));
+  return getDb().prepare(`
+    SELECT run.*
+    FROM subagent_runs AS run
+    INNER JOIN (
+      SELECT logical_run_id, MAX(attempt_number) AS latest_attempt
+      FROM subagent_runs
+      WHERE parent_session_id = ?
+      GROUP BY logical_run_id
+    ) AS latest
+      ON latest.logical_run_id = run.logical_run_id
+     AND latest.latest_attempt = run.attempt_number
+    WHERE run.parent_session_id = ?
+    ORDER BY run.updated_at DESC, run.rowid DESC
+    LIMIT ?
+  `).all(parentSessionId, parentSessionId, limit) as SubagentRunRecord[];
+}
+
+export function listSubagentRunAttempts(
+  parentSessionId: string,
+  logicalRunId: string,
+): SubagentRunRecord[] {
+  return getDb().prepare(`
+    SELECT *
+    FROM subagent_runs
+    WHERE parent_session_id = ? AND logical_run_id = ?
+    ORDER BY attempt_number ASC, rowid ASC
+  `).all(parentSessionId, logicalRunId) as SubagentRunRecord[];
+}
+
+export function listSubagentRunEvents(
+  parentSessionId: string,
+  logicalRunId: string,
+  options?: { limit?: number; afterCursor?: number },
+): SubagentRunEventRecord[] {
+  const requestedLimit = options?.limit ?? SUBAGENT_RUN_EVENT_LIMIT_PER_ATTEMPT;
+  const limit = Math.max(
+    1,
+    Math.min(SUBAGENT_RUN_EVENT_LIMIT_PER_ATTEMPT, Math.trunc(requestedLimit) || 100),
+  );
+  const afterCursor = Math.max(0, Math.trunc(options?.afterCursor || 0));
+  const db = getDb();
+  if (afterCursor > 0) {
+    return db.prepare(`
+      SELECT event.*
+      FROM subagent_run_events AS event
+      INNER JOIN subagent_runs AS run ON run.id = event.run_id
+      WHERE run.parent_session_id = ?
+        AND event.logical_run_id = ?
+        AND event.cursor > ?
+      ORDER BY event.cursor ASC
+      LIMIT ?
+    `).all(parentSessionId, logicalRunId, afterCursor, limit) as SubagentRunEventRecord[];
+  }
+  const rows = db.prepare(`
+    SELECT event.*
+    FROM subagent_run_events AS event
+    INNER JOIN subagent_runs AS run ON run.id = event.run_id
+    WHERE run.parent_session_id = ? AND event.logical_run_id = ?
+    ORDER BY event.cursor DESC
+    LIMIT ?
+  `).all(parentSessionId, logicalRunId, limit) as SubagentRunEventRecord[];
+  return rows.reverse();
+}
+
+export function recordSubagentRunEvent(
+  id: string,
+  input: RecordSubagentRunEventInput,
+): SubagentRunEventRecord | undefined {
+  const db = getDb();
+  const now = subagentTimestamp();
+  let event: SubagentRunEventRecord | undefined;
+  db.transaction(() => {
+    const run = db.prepare('SELECT * FROM subagent_runs WHERE id = ?')
+      .get(id) as SubagentRunRecord | undefined;
+    if (!run || run.terminal === 1) return;
+    const activity = input.activity?.slice(0, 500) || '';
+    db.prepare(`
+      UPDATE subagent_runs
+      SET current_activity = CASE WHEN ? = '' THEN current_activity ELSE ? END,
+          last_activity_at = ?,
+          updated_at = ?
+      WHERE id = ? AND terminal = 0
+    `).run(activity, activity, now, now, id);
+    event = insertSubagentRunEvent(db, run, {
+      ...input,
+      activity,
+    }, now);
+  })();
+  return event;
+}
+
+export function markSubagentRunSettling(
+  id: string,
+  activity = 'Finalizing Sub-agent result',
+): SubagentRunRecord | undefined {
+  const db = getDb();
+  const now = subagentTimestamp();
+  db.transaction(() => {
+    const run = db.prepare('SELECT * FROM subagent_runs WHERE id = ?')
+      .get(id) as SubagentRunRecord | undefined;
+    if (!run || run.terminal === 1) return;
+    db.prepare(`
+      UPDATE subagent_runs
+      SET phase = 'settling',
+          dispatch_state = 'settling',
+          current_activity = ?,
+          last_activity_at = ?,
+          updated_at = ?
+      WHERE id = ? AND terminal = 0
+    `).run(activity.slice(0, 500), now, now, id);
+    insertSubagentRunEvent(db, run, {
+      type: 'settling',
+      activity: activity.slice(0, 500),
+      coalesceKey: 'settling',
+    }, now);
+  })();
+  return getSubagentRun(id);
+}
+
+/**
+ * Persist bounded in-flight child output/model facts without manufacturing a
+ * terminal state. A late checkpoint after the first terminal update is a no-op.
+ */
+export function checkpointSubagentRun(
+  id: string,
+  input: CheckpointSubagentRunInput,
+): SubagentRunRecord | undefined {
+  const db = getDb();
+  const now = subagentTimestamp();
+  const hasResultText = input.resultText !== undefined;
+  const hasEffectiveModel = input.effectiveModel !== undefined && input.effectiveModel !== '';
+  const activity = input.currentActivity?.slice(0, 500) || '';
+  const resultText = hasResultText
+    ? (input.resultText || '').slice(-SUBAGENT_RUN_CHECKPOINT_MAX_CHARS)
+    : '';
+  db.prepare(`
+    UPDATE subagent_runs
+    SET
+      result_text = CASE WHEN ? = 1 THEN ? ELSE result_text END,
+      effective_model = CASE WHEN ? = 1 THEN ? ELSE effective_model END,
+      current_activity = CASE WHEN ? = '' THEN current_activity ELSE ? END,
+      last_activity_at = ?,
+      updated_at = ?
+    WHERE id = ? AND terminal = 0
+  `).run(
+    hasResultText ? 1 : 0,
+    resultText,
+    hasEffectiveModel ? 1 : 0,
+    input.effectiveModel || '',
+    activity,
+    activity,
+    now,
+    now,
+    id,
+  );
+  if (hasResultText) {
+    recordSubagentRunEvent(id, {
+      type: 'partial_result',
+      activity: activity || 'Generating Sub-agent result',
+      payload: { chars: resultText.length },
+      coalesceKey: 'partial-result',
+    });
+  }
+  return getSubagentRun(id);
+}
+
+/**
+ * Move a running run to one immutable terminal state.
+ *
+ * The `terminal = 0` predicate prevents late/duplicate events from rewriting a
+ * completed run. The existing row is returned even when this call lost that
+ * race, so callers can continue using the first terminal fact.
+ */
+export function settleSubagentRun(
+  id: string,
+  input: SettleSubagentRunInput,
+): SubagentRunRecord | undefined {
+  const db = getDb();
+  const now = subagentTimestamp();
+  const errorJson = input.error ? JSON.stringify(input.error) : '';
+  db.transaction(() => {
+    const run = db.prepare('SELECT * FROM subagent_runs WHERE id = ?')
+      .get(id) as SubagentRunRecord | undefined;
+    if (!run || run.terminal === 1) return;
+    const resultText = input.resultText === undefined ? run.result_text : input.resultText;
+    const effectiveProviderId = input.effectiveProviderId || run.effective_provider_id;
+    const effectiveModel = input.effectiveModel || run.effective_model;
+    const structured = buildDelegatedAgentResult(
+      run,
+      input,
+      resultText,
+      effectiveProviderId,
+      effectiveModel,
+    );
+    db.prepare(`
+      UPDATE subagent_runs
+      SET
+        status = ?,
+        phase = 'terminal',
+        dispatch_state = 'terminal',
+        terminal = 1,
+        result_text = ?,
+        result_json = ?,
+        effective_provider_id = ?,
+        effective_model = ?,
+        current_activity = ?,
+        last_activity_at = ?,
+        error_json = ?,
+        updated_at = ?,
+        completed_at = ?
+      WHERE id = ? AND terminal = 0
+    `).run(
+      input.status,
+      resultText,
+      JSON.stringify(structured),
+      effectiveProviderId,
+      effectiveModel,
+      `Sub-agent ${input.status}`,
+      now,
+      errorJson,
+      now,
+      now,
+      id,
+    );
+    insertSubagentRunEvent(db, run, {
+      type: 'terminal',
+      activity: `Sub-agent ${input.status}`,
+      payload: {
+        status: input.status,
+        error: input.error,
+      },
+      coalesceKey: 'terminal',
+    }, now);
+  })();
+  return getSubagentRun(id);
+}
+
+// ==========================================
 // Message Operations
 // ==========================================
 
@@ -1614,16 +2659,20 @@ export function addMessage(
   role: 'user' | 'assistant',
   content: string,
   tokenUsage?: string | null,
-  metadata?: { task_run_id?: string | null },
+  metadata?: {
+    task_run_id?: string | null;
+    stream_status?: 'streaming' | 'completed' | 'interrupted' | 'error';
+  },
 ): Message {
   const db = getDb();
   const id = crypto.randomBytes(16).toString('hex');
   const now = new Date().toISOString().replace('T', ' ').split('.')[0];
   const taskRunId = metadata?.task_run_id ?? null;
+  const streamStatus = metadata?.stream_status ?? 'completed';
 
   db.prepare(
-    'INSERT INTO messages (id, session_id, role, content, created_at, token_usage, task_run_id) VALUES (?, ?, ?, ?, ?, ?, ?)'
-  ).run(id, sessionId, role, content, now, tokenUsage || null, taskRunId);
+    'INSERT INTO messages (id, session_id, role, content, created_at, token_usage, task_run_id, stream_status) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+  ).run(id, sessionId, role, content, now, tokenUsage || null, taskRunId, streamStatus);
 
   updateSessionTimestamp(sessionId);
 
@@ -1634,6 +2683,252 @@ export function updateMessageContent(messageId: string, content: string): number
   const db = getDb();
   const result = db.prepare('UPDATE messages SET content = ? WHERE id = ?').run(content, messageId);
   return result.changes;
+}
+
+/**
+ * Update the single durable row owned by an assistant stream collector.
+ * Checkpoints and terminal writes share the same message id, preventing a
+ * refresh-recovered partial row from becoming a duplicate final response.
+ */
+export function updateMessageStreamCheckpoint(
+  messageId: string,
+  content: string,
+  status: 'streaming' | 'completed' | 'interrupted' | 'error',
+  tokenUsage?: string | null,
+): number {
+  const db = getDb();
+  const result = db.prepare(
+    'UPDATE messages SET content = ?, stream_status = ?, token_usage = ? WHERE id = ? AND role = ?'
+  ).run(content, status, tokenUsage || null, messageId, 'assistant');
+  return result.changes;
+}
+
+/**
+ * Settle a collector-owned row without allowing a stale stream to append newer
+ * content after its session lock was superseded.
+ */
+export function updateMessageStreamStatus(
+  messageId: string,
+  status: 'completed' | 'interrupted' | 'error',
+): number {
+  const db = getDb();
+  return db.prepare(
+    "UPDATE messages SET stream_status = ? WHERE id = ? AND role = 'assistant' AND stream_status = 'streaming'"
+  ).run(status, messageId).changes;
+}
+
+/**
+ * Startup recovery for a process that died between assistant checkpoints.
+ * Exported so the exact production recovery operation can be exercised against
+ * an isolated test database without restarting the test worker.
+ */
+export function recoverInterruptedMessageStreams(dbInstance: Database.Database = getDb()): number {
+  return dbInstance.prepare(
+    "UPDATE messages SET stream_status = 'interrupted' WHERE role = 'assistant' AND stream_status = 'streaming'"
+  ).run().changes;
+}
+
+/**
+ * Recover runtime-owned state after the previous CodePilot server process died.
+ *
+ * This must never run as part of schema initialization: Next.js may evaluate
+ * separate route bundles with separate module instances while another request
+ * is still streaming. Re-running this sweep from `initDb()` used to abort live
+ * permissions, interrupt checkpoints, and delete their session locks.
+ */
+export function recoverRuntimeStateAfterProcessRestart(
+  dbInstance: Database.Database = getDb(),
+): void {
+  dbInstance.transaction(() => {
+    dbInstance.exec(`
+      UPDATE media_jobs
+      SET status = 'paused', updated_at = datetime('now')
+      WHERE status = 'running'
+    `);
+    dbInstance.exec(`
+      UPDATE media_job_items
+      SET status = 'pending', updated_at = datetime('now')
+      WHERE status = 'processing'
+    `);
+    dbInstance.exec(`
+      UPDATE chat_sessions
+      SET runtime_status = 'idle',
+          runtime_error = 'Process restarted',
+          runtime_updated_at = datetime('now')
+      WHERE runtime_status IN ('running', 'streaming', 'waiting_permission')
+    `);
+    recoverInterruptedMessageStreams(dbInstance);
+    dbInstance.exec('DELETE FROM session_runtime_locks');
+    dbInstance.exec(`
+      UPDATE permission_requests
+      SET status = 'aborted',
+          resolved_at = datetime('now'),
+          message = 'Process restarted'
+      WHERE status = 'pending'
+    `);
+    const interruptedRuns = dbInstance.prepare(
+      'SELECT * FROM subagent_runs WHERE terminal = 0',
+    ).all() as SubagentRunRecord[];
+    const recoveryError: SubagentStatusError = {
+      code: 'RUNTIME_ERROR',
+      retryable: true,
+    };
+    const recoveryMessage = 'Process restarted before the Sub-agent reached a durable terminal state.';
+    const now = subagentTimestamp();
+    for (const run of interruptedRuns) {
+      const structured = buildDelegatedAgentResult(
+        run,
+        {
+          status: 'failed',
+          resultText: run.result_text,
+          error: recoveryError,
+        },
+        run.result_text,
+        run.effective_provider_id,
+        run.effective_model,
+      );
+      dbInstance.prepare(`
+        UPDATE subagent_runs
+        SET status = 'failed',
+            phase = 'terminal',
+            dispatch_state = 'terminal',
+            terminal = 1,
+            result_json = ?,
+            current_activity = 'Sub-agent failed',
+            last_activity_at = ?,
+            error_json = ?,
+            updated_at = ?,
+            completed_at = ?
+        WHERE id = ? AND terminal = 0
+      `).run(
+        JSON.stringify(structured),
+        now,
+        JSON.stringify({ ...recoveryError, message: recoveryMessage }),
+        now,
+        now,
+        run.id,
+      );
+      insertSubagentRunEvent(dbInstance, run, {
+        type: 'terminal',
+        activity: 'Sub-agent failed',
+        payload: {
+          status: 'failed',
+          error: { ...recoveryError, message: recoveryMessage },
+          recoveredAfterRestart: true,
+        },
+        coalesceKey: 'terminal',
+      }, now);
+    }
+  })();
+}
+
+function isProcessAlive(pid: number): boolean {
+  if (!Number.isSafeInteger(pid) || pid <= 0) return false;
+  if (pid === process.pid) return true;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code === 'EPERM';
+  }
+}
+
+function readRuntimeOwner(): RuntimeOwnerRecord | undefined {
+  try {
+    const parsed = JSON.parse(fs.readFileSync(RUNTIME_OWNER_PATH, 'utf8')) as Partial<RuntimeOwnerRecord>;
+    if (
+      typeof parsed.pid === 'number'
+      && typeof parsed.token === 'string'
+      && typeof parsed.claimedAt === 'string'
+    ) {
+      return parsed as RuntimeOwnerRecord;
+    }
+  } catch {
+    // Missing/corrupt owner is treated as stale and replaced under the lock.
+  }
+  return undefined;
+}
+
+function writeRuntimeOwner(owner: RuntimeOwnerRecord): void {
+  // The runtime-owner lock is held by the caller, so a direct replacement is
+  // cross-platform safe (Windows rename cannot atomically replace an existing
+  // file). A torn write can only happen if this process dies; the next process
+  // treats the corrupt record as stale and performs recovery.
+  fs.writeFileSync(RUNTIME_OWNER_PATH, JSON.stringify(owner), {
+    encoding: 'utf8',
+    mode: 0o600,
+  });
+}
+
+function withRuntimeOwnerLock<T>(fn: () => T): T {
+  const maxWait = 10_000;
+  const startedAt = Date.now();
+  while (true) {
+    try {
+      const fd = fs.openSync(
+        RUNTIME_OWNER_LOCK_PATH,
+        fs.constants.O_CREAT | fs.constants.O_EXCL | fs.constants.O_WRONLY,
+        0o600,
+      );
+      fs.closeSync(fd);
+      try {
+        return fn();
+      } finally {
+        try { fs.unlinkSync(RUNTIME_OWNER_LOCK_PATH); } catch { /* ignore */ }
+      }
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
+      if (Date.now() - startedAt > maxWait) {
+        try { fs.unlinkSync(RUNTIME_OWNER_LOCK_PATH); } catch { /* ignore */ }
+        continue;
+      }
+      const waitUntil = Date.now() + 50 + Math.random() * 100;
+      while (Date.now() < waitUntil) { /* sync DB initialization */ }
+    }
+  }
+}
+
+function shouldSkipAutomaticRuntimeRecovery(): boolean {
+  if (process.env.CODEPILOT_DISABLE_DB_MIGRATION_IN_TESTS === '1') return true;
+  if (process.env.NEXT_PHASE === 'phase-production-build') return true;
+  return process.env.npm_lifecycle_event === 'build'
+    || process.env.npm_lifecycle_event === 'electron:build';
+}
+
+/**
+ * Claim the DB runtime owner once per live CodePilot server process.
+ *
+ * Multiple Next route/module instances share the claim through the owner file.
+ * A live PID always wins fail-closed: another module must not "recover" state
+ * that process may still own. A dead/missing PID is the only automatic signal
+ * that permits the destructive recovery sweep.
+ */
+export function runRuntimeStartupRecoveryOnce(
+  dbInstance: Database.Database = getDb(),
+): boolean {
+  if (shouldSkipAutomaticRuntimeRecovery()) return false;
+  const state = getDatabaseProcessState();
+  if (state.runtimeOwnerToken) return false;
+
+  return withRuntimeOwnerLock(() => {
+    const existing = readRuntimeOwner();
+    if (existing && isProcessAlive(existing.pid)) {
+      if (existing.pid === process.pid) {
+        state.runtimeOwnerToken = existing.token;
+      }
+      return false;
+    }
+
+    const owner: RuntimeOwnerRecord = {
+      pid: process.pid,
+      token: crypto.randomBytes(16).toString('hex'),
+      claimedAt: new Date().toISOString(),
+    };
+    writeRuntimeOwner(owner);
+    state.runtimeOwnerToken = owner.token;
+    recoverRuntimeStateAfterProcessRestart(dbInstance);
+    return true;
+  });
 }
 
 export function updateMessageHeartbeatAck(messageId: string, isAck: boolean): void {
@@ -4309,27 +5604,48 @@ export function deleteScheduledTask(id: string): boolean {
 }
 
 export function closeDb(): void {
-  if (db) {
+  const state = getDatabaseProcessState();
+  if (state.db) {
     try {
-      db.close();
+      state.db.close();
       console.log('[db] Database closed gracefully');
     } catch (err) {
       console.warn('[db] Error closing database:', err);
     }
-    db = null;
+    state.db = null;
   }
 }
 
 // Register shutdown handlers to close the database when the process exits.
 // This prevents WAL file accumulation and potential data loss.
 function registerShutdownHandlers(): void {
+  const target = globalThis as typeof globalThis & {
+    [DATABASE_SHUTDOWN_HANDLER_KEY]?: boolean;
+  };
+  if (target[DATABASE_SHUTDOWN_HANDLER_KEY]) return;
+  target[DATABASE_SHUTDOWN_HANDLER_KEY] = true;
   let shuttingDown = false;
 
   const shutdown = (signal: string) => {
     if (shuttingDown) return;
     shuttingDown = true;
     console.log(`[db] Received ${signal}, closing database...`);
-    closeDb();
+    for (const [dbPath, state] of getDatabaseProcessStates()) {
+      if (state.db) {
+        try { state.db.close(); } catch { /* best effort */ }
+        state.db = null;
+      }
+      if (!state.runtimeOwnerToken) continue;
+      const ownerPath = `${dbPath}.runtime-owner.json`;
+      try {
+        const owner = JSON.parse(fs.readFileSync(ownerPath, 'utf8')) as RuntimeOwnerRecord;
+        if (owner.pid === process.pid && owner.token === state.runtimeOwnerToken) {
+          fs.unlinkSync(ownerPath);
+        }
+      } catch {
+        // Owner may already be gone (temporary test DB or abrupt cleanup).
+      }
+    }
   };
 
   // 'exit' fires synchronously when the process is about to exit

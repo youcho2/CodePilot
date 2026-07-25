@@ -22,7 +22,13 @@ import { registerConversation, unregisterConversation } from './conversation-reg
 import { captureCapabilities, isCacheFresh, setCachedPlugins } from './agent-sdk-capabilities';
 import { normalizeMessageContent, microCompactMessage } from './message-normalizer';
 import { roughTokenEstimate } from './context-estimator';
-import { getSetting, updateSdkSessionId, createPermissionRequest, isLockOwner } from './db';
+import {
+  getSetting,
+  updateSdkSessionId,
+  createPermissionRequest,
+  isLockOwner,
+  recordSubagentRunEvent,
+} from './db';
 import { issueApprovalToken } from './permission-approval-token';
 import { resolveForClaudeCode, resolveEffectiveAnthropicBaseUrl, type ResolvedProvider } from './provider-resolver';
 import { isFirstPartyAnthropicEndpoint } from './ai-provider';
@@ -35,6 +41,23 @@ import { resolveWorkingDirectory } from './working-directory';
 import { wrapController } from './safe-stream';
 import { type ShadowHome } from './claude-home-shadow';
 import { prepareSdkSubprocessEnv } from './sdk-subprocess-env';
+import {
+  validateClaudeSubagentToolInput,
+  type ClaudeSubagentRoutingContext,
+} from './agent-sdk-agents';
+import {
+  CLAUDE_SUBAGENT_SERVER_KEY,
+  createClaudeSubagentToolUseCorrelation,
+  createClaudeSubagentMcpServer,
+  findClaudeSubagentRoute,
+  getClaudeSubagentPermissionAttribution,
+  getClaudeSubagentRoutingGuidance,
+  isClaudeManagedSubagentToolName,
+  listClaudeSubagentRoutes,
+} from './claude-subagent-mcp';
+import { formatClaudeStreamErrorDiagnostic } from './claude-stream-diagnostics';
+import { getModelCompat, getProviderCompat } from './runtime-compat';
+import { encodeSubagentStatusResult, type SubagentExecutionStatus } from './subagent-status';
 // Static imports for resolveRuntime/detectTransport — used to be lazy
 // `require('./runtime')` / `require('./provider-transport')`, but Turbopack's
 // CJS↔ESM interop returns `{ default: ... }` shape that broke destructuring
@@ -989,6 +1012,38 @@ export function streamClaudeSdk(options: ClaudeStreamOptions): ReadableStream<st
         providerId: options.providerId,
         sessionProviderId: options.sessionProviderId,
       });
+      // Built-in Agent/Task remains provider-relative. CodePilot's managed
+      // sub-agent tool below owns cross-provider model routing and exposes the
+      // full set of non-grey Claude Code picker routes.
+      const subagentProviderCompat = resolved.provider
+        ? getProviderCompat(resolved.provider)
+        : 'claude_code_ready';
+      const subagentModelCompatible = (candidate: typeof resolved.availableModels[number]) => {
+        const compatibility = getModelCompat({
+          modelId: candidate.modelId,
+          upstreamModelId: candidate.upstreamModelId,
+          providerCompat: subagentProviderCompat,
+          capabilities: candidate.capabilities,
+        });
+        return compatibility.supportedRuntimes?.includes('claude_code') === true
+          && compatibility.tool_capable === true;
+      };
+      const claudeSubagentRouting: ClaudeSubagentRoutingContext = {
+        providerName: resolved.provider?.name || 'Claude Code environment',
+        parentModel: model || resolved.model,
+        availableModels: resolved.availableModels.filter(subagentModelCompatible),
+        roleModels: resolved.roleModels,
+        providerCompatible: !resolved.provider || getModelCompat({
+          modelId: model || resolved.model || 'inherit',
+          upstreamModelId: resolved.upstreamModel,
+          providerCompat: subagentProviderCompat,
+        }).supportedRuntimes?.includes('claude_code') === true,
+      };
+      const claudeSubagentAgents = {
+        ...(agents as Options['agents'] | undefined),
+      };
+      const claudeSubagentRoutes = listClaudeSubagentRoutes();
+      const claudeSubagentToolUseCorrelation = createClaudeSubagentToolUseCorrelation();
 
       // #632: trust the SDK-reported context window only for a first-party
       // Anthropic endpoint. Derive it from the EFFECTIVE base URL the SDK will
@@ -1145,6 +1200,12 @@ export function streamClaudeSdk(options: ClaudeStreamOptions): ReadableStream<st
           ...(permissionOptions as Pick<Options,
             'permissionMode' | 'allowedTools' | 'disallowedTools' | 'allowDangerouslySkipPermissions'>),
         };
+        // The parent MCP connection must stay open while a managed child is
+        // running. The SDK defaults this channel to 60s, shorter than the
+        // bounded five-minute child timeout.
+        if (queryOptions.env) {
+          queryOptions.env.CLAUDE_CODE_STREAM_CLOSE_TIMEOUT = '360000';
+        }
 
         // Reviewer breadcrumb (a02 / a08). The SDK's PermissionDenied hook
         // fires ONLY for auto-mode classifier denials — never for a user's own
@@ -1217,15 +1278,17 @@ export function streamClaudeSdk(options: ClaudeStreamOptions): ReadableStream<st
           queryOptions.model = model;
         }
 
-        if (systemPrompt) {
-          // Use preset append mode to keep Claude Code's default system prompt
-          // (which includes skills, working directory awareness, etc.)
-          queryOptions.systemPrompt = {
-            type: 'preset',
-            preset: 'claude_code',
-            append: systemPrompt,
-          };
-        }
+        // Use preset append mode to keep Claude Code's default system prompt.
+        // The managed routing contract lists every enabled model compatible
+        // with Claude Code, across configured Provider groups.
+        queryOptions.systemPrompt = {
+          type: 'preset',
+          preset: 'claude_code',
+          append: [
+            systemPrompt,
+            getClaudeSubagentRoutingGuidance(claudeSubagentRoutes),
+          ].filter(Boolean).join('\n\n'),
+        };
 
         // MCP servers: pass explicitly provided config (e.g. from CodePilot UI).
         // User-level MCP config from ~/.claude.json and ~/.claude/settings.json
@@ -1261,6 +1324,31 @@ export function streamClaudeSdk(options: ClaudeStreamOptions): ReadableStream<st
               ...(queryOptions.mcpServers || {}),
             };
           }
+        }
+
+        // Model-specific delegation is a CodePilot-managed child subprocess.
+        // This is the truthful provider-switching path; Claude's built-in
+        // Agent/Task tool cannot change the parent subprocess endpoint.
+        if (!isHeartbeatMode) {
+          queryOptions.mcpServers = {
+            ...(queryOptions.mcpServers || {}),
+            [CLAUDE_SUBAGENT_SERVER_KEY]: createClaudeSubagentMcpServer({
+              sessionId,
+              workingDirectory: resolvedWorkingDirectory.path,
+              abortSignal: abortController?.signal,
+              routes: claudeSubagentRoutes,
+              toolUseCorrelation: claudeSubagentToolUseCorrelation,
+              getParentToolOptions: () => ({
+                tools: queryOptions.tools,
+                allowedTools: queryOptions.allowedTools,
+                disallowedTools: queryOptions.disallowedTools,
+                permissionMode: queryOptions.permissionMode,
+                allowDangerouslySkipPermissions: queryOptions.allowDangerouslySkipPermissions,
+                canUseTool: queryOptions.canUseTool,
+                mcpServers: queryOptions.mcpServers,
+              }),
+            }),
+          };
         }
 
         // Phase 5d Phase 2 slice 2c (2026-05-17) — capability prompt
@@ -1595,9 +1683,83 @@ export function streamClaudeSdk(options: ClaudeStreamOptions): ReadableStream<st
         if (outputFormat) {
           queryOptions.outputFormat = outputFormat;
         }
-        if (agents) {
-          queryOptions.agents = agents as Options['agents'];
+        // Preserve explicitly supplied SDK Agent definitions, but do not add a
+        // fake "inherit" worker or provider-relative model profiles. Named
+        // model requests use the managed MCP route above.
+        if (Object.keys(claudeSubagentAgents).length > 0) {
+          queryOptions.agents = claudeSubagentAgents;
         }
+        // `canUseTool` is a permission callback, not a guaranteed execution
+        // interceptor: auto-approved tools may never invoke it. PreToolUse is
+        // therefore the non-bypassable shipping boundary for sub-agent route
+        // validation. Keep canUseTool's copy below as defence in depth for SDK
+        // versions / modes that still enter the permission path.
+        const unavailableSubagentToolUses = new Set<string>();
+        const emitSubagentModelUnavailable = (
+          validation: Exclude<ReturnType<typeof validateClaudeSubagentToolInput>, { ok: true }>,
+          toolUseId?: string,
+        ) => {
+          if (toolUseId && unavailableSubagentToolUses.has(toolUseId)) return;
+          if (toolUseId) unavailableSubagentToolUses.add(toolUseId);
+          controller.enqueue(formatSSE({
+            type: 'status',
+            data: JSON.stringify({
+              notification: true,
+              code: validation.code,
+              reason: 'runtime-model-unsupported',
+              params: { model: validation.requestedModel },
+            }),
+          }));
+        };
+        queryOptions.hooks = {
+          ...queryOptions.hooks,
+          PreToolUse: [
+            ...(queryOptions.hooks?.PreToolUse || []),
+            {
+              hooks: [
+                async (hookInput, toolUseId) => {
+                  const preTool = hookInput as {
+                    hook_event_name?: string;
+                    tool_name?: string;
+                    tool_input?: unknown;
+                  };
+                  if (preTool.hook_event_name !== 'PreToolUse' || !preTool.tool_name) return {};
+                  const validation = validateClaudeSubagentToolInput(
+                    preTool.tool_name,
+                    preTool.tool_input && typeof preTool.tool_input === 'object'
+                      ? preTool.tool_input as Record<string, unknown>
+                      : {},
+                    queryOptions.agents as Options['agents'],
+                    claudeSubagentRouting,
+                  );
+                  if (validation.ok) {
+                    if (
+                      toolUseId
+                      && isClaudeManagedSubagentToolName(preTool.tool_name)
+                      && preTool.tool_input
+                      && typeof preTool.tool_input === 'object'
+                    ) {
+                      claudeSubagentToolUseCorrelation.record(
+                        toolUseId,
+                        preTool.tool_input as Record<string, unknown>,
+                      );
+                    }
+                    return {};
+                  }
+                  emitSubagentModelUnavailable(validation, toolUseId);
+                  return {
+                    systemMessage: validation.message,
+                    hookSpecificOutput: {
+                      hookEventName: 'PreToolUse' as const,
+                      permissionDecision: 'deny' as const,
+                      permissionDecisionReason: validation.message,
+                    },
+                  };
+                },
+              ],
+            },
+          ],
+        };
         if (agent) {
           queryOptions.agent = agent;
         }
@@ -1654,6 +1816,24 @@ export function streamClaudeSdk(options: ClaudeStreamOptions): ReadableStream<st
 
         // Permission handler: sends SSE event and waits for user response
         queryOptions.canUseTool = async (toolName, input, opts) => {
+          const childAttribution = getClaudeSubagentPermissionAttribution(opts);
+          const subagentModelValidation = validateClaudeSubagentToolInput(
+            toolName,
+            input,
+            queryOptions.agents as Options['agents'],
+            claudeSubagentRouting,
+          );
+          if (!subagentModelValidation.ok) {
+            // This is a Runtime capability failure, not a permission choice.
+            // Deny before execution and give both the user and parent model a
+            // concrete recovery choice; never silently inherit/substitute.
+            emitSubagentModelUnavailable(subagentModelValidation, opts.toolUseID);
+            return {
+              behavior: 'deny' as const,
+              message: subagentModelValidation.message,
+            };
+          }
+
           // Decision order (runtime-permission-modes.md Phase 1, a04/a05):
           //
           //   1. human-only → ask the user, whatever the profile says
@@ -1712,6 +1892,7 @@ export function streamClaudeSdk(options: ClaudeStreamOptions): ReadableStream<st
             blockedPath: opts.blockedPath,
             toolUseId: opts.toolUseID,
             description: undefined,
+            ...(childAttribution ? childAttribution : {}),
             // HMAC over (id, expiresAt) — /api/chat/permission rejects
             // approvals that don't echo it (Phase 4 ② hardening).
             approvalToken: issueApprovalToken(permissionRequestId, expiresAt),
@@ -1750,6 +1931,14 @@ export function streamClaudeSdk(options: ClaudeStreamOptions): ReadableStream<st
             type: 'permission_request',
             data: JSON.stringify(permEvent),
           }));
+          if (childAttribution) {
+            recordSubagentRunEvent(childAttribution.agentRunId, {
+              type: 'permission_requested',
+              activity: `Waiting for permission: ${toolName}`,
+              toolName,
+              payload: { permissionRequestId },
+            });
+          }
 
           // Notify via Telegram (fire-and-forget) — skip for auto-trigger turns
           if (!autoTrigger) {
@@ -1765,7 +1954,10 @@ export function streamClaudeSdk(options: ClaudeStreamOptions): ReadableStream<st
           // same SSE stream so the chat UI shows the auto-deny (A5 Step 2).
           const result = await registerPendingPermission(permissionRequestId, input, opts.signal, () => {
             try {
-              controller.enqueue(formatSSE(buildPermissionResolvedEvent(permissionRequestId)));
+              controller.enqueue(formatSSE(buildPermissionResolvedEvent(
+                permissionRequestId,
+                childAttribution,
+              )));
             } catch {
               // stream already closed — deny still applies
             }
@@ -1778,6 +1970,22 @@ export function streamClaudeSdk(options: ClaudeStreamOptions): ReadableStream<st
           // state rather than a flavour of deny: the UI needs to say "nobody
           // answered" instead of implying the user refused.
           const timedOut = result.behavior === 'deny' && /timed out|timeout|expired/i.test(result.message || '');
+          if (childAttribution) {
+            recordSubagentRunEvent(childAttribution.agentRunId, {
+              type: 'permission_resolved',
+              activity: result.behavior === 'allow'
+                ? `Permission approved: ${toolName}`
+                : timedOut
+                  ? `Permission timed out: ${toolName}`
+                  : `Permission denied: ${toolName}`,
+              toolName,
+              payload: {
+                permissionRequestId,
+                behavior: result.behavior,
+                timedOut,
+              },
+            });
+          }
           emitReviewEvent(buildReviewEvent({
             state: result.behavior === 'allow' ? 'approved' : timedOut ? 'timeout' : 'denied',
             requestId: permissionRequestId,
@@ -1800,11 +2008,11 @@ export function streamClaudeSdk(options: ClaudeStreamOptions): ReadableStream<st
           workingDirectory: resolvedWorkingDirectory.path,
         };
 
-        // No queryOptions.hooks — all hook types (Notification, PostToolUse) use
-        // the SDK's hook_callback control_request transport, which fails with
-        // "CLI output was not valid JSON" when the CLI mixes control frames with
-        // normal stdout. Notifications are derived from stream messages instead
-        // (task_notification, result). TodoWrite sync uses tool_use → tool_result.
+        // Do not add Notification/PostToolUse hooks: those lifecycle signals are
+        // derived from stream messages (task_notification, result), and TodoWrite
+        // sync uses tool_use → tool_result. PreToolUse above is the narrow
+        // exception because model-route validation must run before execution and
+        // canUseTool is not guaranteed for SDK-auto-approved tools.
 
         // Capture real-time stderr output from Claude Code process
         queryOptions.stderr = (data: string) => {
@@ -2003,6 +2211,13 @@ export function streamClaudeSdk(options: ClaudeStreamOptions): ReadableStream<st
         let tokenUsage: TokenUsage | null = null;
         // Track pending TodoWrite tool_use_ids so we can sync after successful execution
         const pendingTodoWrites = new Map<string, Array<{ content: string; status: string; activeForm?: string }>>();
+        // Claude background Agent calls return async_launched immediately. The
+        // actual terminal fact arrives later as task_notification, keyed by
+        // tool_use_id (or via task_id after task_started). Keep that mapping so
+        // a synthetic last-wins tool_result can update the same chat card.
+        const subagentToolUseIds = new Set<string>();
+        const subagentTaskToolIds = new Map<string, string>();
+        const terminalSubagentToolIds = new Set<string>();
         for await (const message of conversation) {
           if (abortController?.signal.aborted) {
             break;
@@ -2024,6 +2239,62 @@ export function streamClaudeSdk(options: ClaudeStreamOptions): ReadableStream<st
               // Check for tool use blocks
               for (const block of assistantMsg.message.content) {
                 if (block.type === 'tool_use') {
+                  const isManagedSubagent = isClaudeManagedSubagentToolName(block.name);
+                  const isSubagentTool = /^(agent|task)$/i.test(block.name) || isManagedSubagent;
+                  const rawToolInput = block.input && typeof block.input === 'object'
+                    ? block.input as Record<string, unknown>
+                    : {};
+                  const subagentType = !isManagedSubagent && isSubagentTool && typeof rawToolInput.subagent_type === 'string'
+                    ? rawToolInput.subagent_type
+                    : '';
+                  const pinnedModel = subagentType
+                    ? claudeSubagentAgents[subagentType]?.model
+                    : undefined;
+                  const directSdkModel = !isManagedSubagent && typeof rawToolInput.model === 'string'
+                    ? rawToolInput.model.trim()
+                    : '';
+                  const roleMappedModel = directSdkModel === 'sonnet'
+                    || directSdkModel === 'opus'
+                    || directSdkModel === 'haiku'
+                    ? claudeSubagentRouting.roleModels?.[directSdkModel]
+                    : undefined;
+                  const sdkModelReference = roleMappedModel
+                    || directSdkModel
+                    || (pinnedModel ? String(pinnedModel) : '')
+                    || model
+                    || resolved.model
+                    || '';
+                  const sdkModelEntry = !isManagedSubagent && isSubagentTool
+                    ? claudeSubagentRouting.availableModels.find(candidate =>
+                        candidate.modelId === sdkModelReference
+                        || candidate.upstreamModelId === sdkModelReference,
+                      )
+                    : undefined;
+                  const sdkRequestedModel = sdkModelEntry?.displayName || sdkModelReference || undefined;
+                  const managedRoute = isManagedSubagent
+                    ? findClaudeSubagentRoute(
+                        claudeSubagentRoutes,
+                        rawToolInput.provider_id,
+                        rawToolInput.model,
+                      )
+                    : undefined;
+                  // AgentDefinition.model is not repeated in AgentInput. Add it
+                  // only to CodePilot's transcript payload as requested-model
+                  // provenance, never as an effective-model claim. The raw SDK
+                  // input still goes to Context Accounting and execution.
+                  const transcriptToolInput = managedRoute
+                    ? {
+                        ...rawToolInput,
+                        requested_model: managedRoute.displayName,
+                        requested_model_id: managedRoute.modelId,
+                        provider_name: managedRoute.providerName,
+                        agent_name: typeof rawToolInput.agent_name === 'string' && rawToolInput.agent_name.trim()
+                          ? rawToolInput.agent_name
+                          : `${managedRoute.displayName} Sub Agent`,
+                      }
+                    : isSubagentTool && sdkRequestedModel
+                      ? { ...rawToolInput, requested_model: sdkRequestedModel }
+                      : block.input;
                   // Phase 7 — accumulate for Context Accounting at result time.
                   toolInvocationAccumulator.recordToolUse(block.id, block.name, block.input);
 
@@ -2032,9 +2303,13 @@ export function streamClaudeSdk(options: ClaudeStreamOptions): ReadableStream<st
                     data: JSON.stringify({
                       id: block.id,
                       name: block.name,
-                      input: block.input,
+                      input: transcriptToolInput,
                     }),
                   }));
+
+                  if (isSubagentTool) {
+                    subagentToolUseIds.add(block.id);
+                  }
 
                   // Track TodoWrite calls — sync deferred until tool_result confirms success
                   if (block.name === 'TodoWrite') {
@@ -2123,10 +2398,15 @@ export function streamClaudeSdk(options: ClaudeStreamOptions): ReadableStream<st
                     // media stripped, MEDIA_RESULT_MARKER trimmed above).
                     toolInvocationAccumulator.recordToolResult(block.tool_use_id, resultContent);
 
-                    controller.enqueue(formatSSE({
-                      type: 'tool_result',
-                      data: JSON.stringify(ssePayload),
-                    }));
+                    // A rare event-order inversion must not let the earlier
+                    // async_launched receipt overwrite a terminal
+                    // task_notification already observed for the same Agent.
+                    if (!terminalSubagentToolIds.has(block.tool_use_id)) {
+                      controller.enqueue(formatSSE({
+                        type: 'tool_result',
+                        data: JSON.stringify(ssePayload),
+                      }));
+                    }
 
                     // Deferred TodoWrite sync: only emit task_update after successful execution
                     if (!block.is_error && pendingTodoWrites.has(block.tool_use_id)) {
@@ -2228,11 +2508,59 @@ export function streamClaudeSdk(options: ClaudeStreamOptions): ReadableStream<st
                       data: statusMsg.permissionMode,
                     }));
                   }
+                } else if (sysMsg.subtype === 'task_started' || sysMsg.subtype === 'task_progress') {
+                  const taskMsg = sysMsg as SDKSystemMessage & {
+                    task_id: string;
+                    tool_use_id?: string;
+                    description?: string;
+                    summary?: string;
+                  };
+                  const toolUseId = taskMsg.tool_use_id || subagentTaskToolIds.get(taskMsg.task_id);
+                  if (taskMsg.tool_use_id && subagentToolUseIds.has(taskMsg.tool_use_id)) {
+                    subagentTaskToolIds.set(taskMsg.task_id, taskMsg.tool_use_id);
+                  }
+                  if (
+                    toolUseId
+                    && subagentToolUseIds.has(toolUseId)
+                    && !terminalSubagentToolIds.has(toolUseId)
+                  ) {
+                    controller.enqueue(formatSSE({
+                      type: 'tool_result',
+                      data: JSON.stringify({
+                        tool_use_id: toolUseId,
+                        content: encodeSubagentStatusResult(
+                          { status: 'running', taskId: taskMsg.task_id, runtime: 'claude_code' },
+                          taskMsg.summary || taskMsg.description || '',
+                        ),
+                        is_error: false,
+                      }),
+                    }));
+                  }
                 } else if (sysMsg.subtype === 'task_notification') {
                   // Agent task completed/failed/stopped — surface as notification
                   const taskMsg = sysMsg as SDKSystemMessage & {
-                    status: string; summary: string; task_id: string;
+                    status: string; summary: string; task_id: string; tool_use_id?: string;
                   };
+                  const toolUseId = taskMsg.tool_use_id || subagentTaskToolIds.get(taskMsg.task_id);
+                  if (toolUseId && subagentToolUseIds.has(toolUseId)) {
+                    const status: SubagentExecutionStatus = taskMsg.status === 'completed'
+                      ? 'completed'
+                      : taskMsg.status === 'stopped'
+                        ? 'cancelled'
+                        : 'failed';
+                    controller.enqueue(formatSSE({
+                      type: 'tool_result',
+                      data: JSON.stringify({
+                        tool_use_id: toolUseId,
+                        content: encodeSubagentStatusResult(
+                          { status, taskId: taskMsg.task_id, runtime: 'claude_code' },
+                          taskMsg.summary || '',
+                        ),
+                        is_error: status === 'failed',
+                      }),
+                    }));
+                    terminalSubagentToolIds.add(toolUseId);
+                  }
                   const title = taskMsg.status === 'completed' ? 'Task completed' : `Task ${taskMsg.status}`;
                   controller.enqueue(formatSSE({
                     type: 'status',
@@ -2278,8 +2606,14 @@ export function streamClaudeSdk(options: ClaudeStreamOptions): ReadableStream<st
                   elapsed_time_seconds: progressMsg.elapsed_time_seconds,
                 }),
               }));
-              // Auto-timeout: abort if tool runs longer than configured threshold
-              if (toolTimeoutSeconds > 0 && progressMsg.elapsed_time_seconds >= toolTimeoutSeconds) {
+              // Managed Sub Agents own their lifecycle with a renewable idle
+              // timeout and a hard cap. The generic outer tool timeout must
+              // not abort a healthy child at exactly 300 seconds.
+              if (
+                !isClaudeManagedSubagentToolName(progressMsg.tool_name)
+                && toolTimeoutSeconds > 0
+                && progressMsg.elapsed_time_seconds >= toolTimeoutSeconds
+              ) {
                 controller.enqueue(formatSSE({
                   type: 'tool_timeout',
                   data: JSON.stringify({
@@ -2476,15 +2810,10 @@ export function streamClaudeSdk(options: ClaudeStreamOptions): ReadableStream<st
         controller.close();
       } catch (error) {
         const rawMessage = error instanceof Error ? error.message : 'Unknown error';
-        // Log full error details for debugging (visible in terminal / dev tools)
+        // Log one serialized value: Next dev otherwise renders Error/object
+        // arguments as `{}`, erasing the only useful failure evidence.
         const stderrContent = error instanceof Error ? (error as { stderr?: string }).stderr : undefined;
-        console.error('[claude-client] Stream error:', {
-          message: rawMessage,
-          stack: error instanceof Error ? error.stack : undefined,
-          cause: error instanceof Error ? (error as { cause?: unknown }).cause : undefined,
-          stderr: stderrContent,
-          code: error instanceof Error ? (error as NodeJS.ErrnoException).code : undefined,
-        });
+        console.error(`[claude-client] Stream error: ${formatClaudeStreamErrorDiagnostic(error)}`);
 
         // Look up preset meta for recovery action URLs
         const presetForMeta = resolved.provider?.base_url

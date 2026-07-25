@@ -434,7 +434,6 @@ describe('translateCodexNotification — chat-only item types return null (P2.1 
     'enteredReviewMode',
     'exitedReviewMode',
     'contextCompaction',
-    'collabAgentToolCall',
     // Phase 5b smoke round 7 (2026-05-16): imageView / imageGeneration
     // are NOT chat-only — they have no delta channel and their final
     // item is the only surface where the result reaches the user. See
@@ -459,6 +458,61 @@ describe('translateCodexNotification — chat-only item types return null (P2.1 
       assert.equal(event, null);
     });
   }
+});
+
+describe('translateCodexNotification — collabAgentToolCall visibility', () => {
+  it('maps a Codex child start to a dedicated sub-agent tool card', () => {
+    const event = translateCodexNotification(
+      'item/started',
+      {
+        item: {
+          type: 'collabAgentToolCall',
+          id: 'child-1',
+          status: 'inProgress',
+          model: 'gpt-5.6',
+          prompt: 'Review this patch',
+        },
+        threadId: 't',
+        turnId: 'u',
+        startedAtMs: 0,
+      },
+      ctx,
+    );
+    assert.ok(event);
+    if (event.type !== 'tool_started') throw new Error(`expected tool_started, got ${event.type}`);
+    assert.equal(event.name, 'codex_subagent');
+    assert.equal(event.toolId, 'child-1');
+    assert.deepEqual(event.input, {
+      type: 'collabAgentToolCall',
+      id: 'child-1',
+      status: 'inProgress',
+      model: 'gpt-5.6',
+      prompt: 'Review this patch',
+    });
+  });
+
+  it('preserves the full Codex child completion payload', () => {
+    const event = translateCodexNotification(
+      'item/completed',
+      {
+        item: {
+          type: 'collabAgentToolCall',
+          id: 'child-1',
+          status: 'completed',
+          model: 'gpt-5.6',
+          result: 'Looks good',
+        },
+        threadId: 't',
+        turnId: 'u',
+        completedAtMs: 0,
+      },
+      ctx,
+    );
+    assert.ok(event);
+    if (event.type !== 'tool_completed') throw new Error(`expected tool_completed, got ${event.type}`);
+    assert.equal(event.toolId, 'child-1');
+    assert.equal((event.output as { model?: string }).model, 'gpt-5.6');
+  });
 });
 
 describe('translateCodexNotification — imageGeneration / imageView lifecycle (Phase 5b smoke round 7)', () => {
@@ -830,10 +884,25 @@ describe('translateCodexApproval — server-to-client request → canonical perm
     const event = translateCodexApproval({
       ...baseArgs,
       method: 'item/permissions/requestApproval',
-      params: { reason: 'elevate sandbox' },
+      params: {
+        reason: 'elevate sandbox',
+        cwd: '/workspace',
+        environmentId: 'local',
+        permissions: { network: { enabled: true } },
+      },
     });
     if (event.type !== 'permission_request') throw new Error('unreachable');
     assert.equal(event.toolName, 'Permissions');
+    assert.deepEqual(event.toolInput, {
+      permissions: { network: { enabled: true } },
+      cwd: '/workspace',
+      environmentId: 'local',
+    });
+    assert.deepEqual(event.permissionHints, [{
+      type: 'codexPermissionGrant',
+      behavior: 'allow',
+      destination: 'session',
+    }]);
   });
 
   it('unknown approval kind → permission_unavailable (conservative default)', () => {

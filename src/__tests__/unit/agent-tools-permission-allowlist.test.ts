@@ -146,6 +146,14 @@ describe('PERMISSION_SAFE_TOOLS — read-only tools that MUST be on the list', (
       name: 'codepilot_session_search',
       why: 'reads SQLite messages table only',
     },
+    {
+      name: 'codepilot_list_subagent_runs',
+      why: 'reads durable managed Sub-agent lifecycle facts for the current parent session',
+    },
+    {
+      name: 'codepilot_spawn_subagent',
+      why: 'spawning does not mutate host state; inherited child tools retain the parent approval/sandbox boundary and recursive delegation is blocked',
+    },
   ];
 
   for (const { name, why } of readOnlyCodePilotTools) {
@@ -300,9 +308,11 @@ describe('PERMISSION_SAFE_TOOLS — exact set equality (no silent expansion)', (
     'codepilot_cli_tools_list',
     'codepilot_cli_tools_check_updates',
     'codepilot_session_search',
+    'codepilot_list_subagent_runs',
+    'codepilot_spawn_subagent',
   ]);
 
-  it('size is exactly the documented count (currently 14)', () => {
+  it('size is exactly the documented count (currently 16)', () => {
     // The literal count is part of the contract — bumping it requires
     // updating this test, which forces explicit reviewer attention to
     // the new entry.

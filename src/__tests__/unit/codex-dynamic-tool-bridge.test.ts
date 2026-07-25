@@ -4,9 +4,10 @@
  * Run: npx tsx --test src/__tests__/unit/codex-dynamic-tool-bridge.test.ts
  *
  * The model-autonomous path: Codex sends `item/tool/call` (a server
- * request) when the model decides to call a Memory tool mid-turn. The
- * bridge forwards an allowed call to Codex's MCP manager via
- * mcpServer/tool/call and shapes the DynamicToolCallResponse.
+ * request) when the model decides to call an inherited MCP tool mid-turn.
+ * The bridge forwards the call to Codex's MCP manager via
+ * mcpServer/tool/call and shapes the DynamicToolCallResponse. It must not
+ * maintain a second CodePilot-specific capability allowlist.
  */
 
 import { describe, it } from 'node:test';
@@ -32,7 +33,7 @@ function params(over: Partial<CodexDynamicToolCallParams> = {}): CodexDynamicToo
 }
 
 describe('handleCodexDynamicToolCall', () => {
-  it('forwards an allowed memory call to mcpServer/tool/call and returns success text', async () => {
+  it('forwards an inherited MCP call to mcpServer/tool/call and returns success text', async () => {
     const calls: unknown[] = [];
     const forward = async (req: unknown): Promise<McpToolCallResultLike> => {
       calls.push(req);
@@ -64,33 +65,46 @@ describe('handleCodexDynamicToolCall', () => {
     assert.match((res.contentItems[0] as { text: string }).text, /boom/);
   });
 
-  it('unsupported namespace → graceful success:false, does NOT forward', async () => {
-    let forwarded = false;
-    const forward = async (): Promise<McpToolCallResultLike> => {
-      forwarded = true;
-      return {};
+  it('forwards arbitrary inherited MCP namespaces instead of enforcing a CodePilot allowlist', async () => {
+    const calls: unknown[] = [];
+    const forward = async (req: unknown): Promise<McpToolCallResultLike> => {
+      calls.push(req);
+      return { content: [{ type: 'text', text: 'sunny' }] };
     };
     const res = await handleCodexDynamicToolCall(
-      params({ namespace: 'user_weather', tool: 'get_forecast' }),
+      params({
+        namespace: 'user_weather',
+        tool: 'get_forecast',
+        arguments: { city: 'Shanghai' },
+      }),
       forward,
     );
-    assert.equal(forwarded, false, 'must not forward a non-allowlisted namespace');
-    assert.equal(res.success, false);
-    assert.match((res.contentItems[0] as { text: string }).text, /not available/i);
+    assert.deepEqual(calls, [{
+      threadId: 't1',
+      server: 'user_weather',
+      tool: 'get_forecast',
+      arguments: { city: 'Shanghai' },
+    }]);
+    assert.equal(res.success, true);
+    assert.equal((res.contentItems[0] as { text: string }).text, 'sunny');
   });
 
-  it('unsupported tool within codepilot_memory → graceful success:false, does NOT forward', async () => {
-    let forwarded = false;
-    const forward = async (): Promise<McpToolCallResultLike> => {
-      forwarded = true;
-      return {};
+  it('forwards arbitrary tools within an inherited namespace and leaves approval to Codex', async () => {
+    const calls: unknown[] = [];
+    const forward = async (req: unknown): Promise<McpToolCallResultLike> => {
+      calls.push(req);
+      return { structuredContent: { deleted: true } };
     };
     const res = await handleCodexDynamicToolCall(
       params({ tool: 'codepilot_memory_delete_everything' }),
       forward,
     );
-    assert.equal(forwarded, false);
-    assert.equal(res.success, false);
+    assert.equal(calls.length, 1);
+    assert.equal(res.success, true);
+    assert.equal(
+      (res.contentItems[0] as { text: string }).text,
+      JSON.stringify({ deleted: true }),
+    );
   });
 
   it('null namespace → graceful success:false', async () => {
@@ -131,6 +145,11 @@ describe('runtime.ts — dynamic tool call wiring (source pin)', () => {
       runtimeSrc,
       /client\.request<[^>]*>\('mcpServer\/tool\/call'/,
       'dynamic calls must forward through mcpServer/tool/call (keep Codex MCP lifecycle)',
+    );
+    assert.doesNotMatch(
+      runtimeSrc,
+      /ALLOWED_DYNAMIC_TOOLS/,
+      'runtime must not reintroduce a second CodePilot capability allowlist',
     );
   });
 });

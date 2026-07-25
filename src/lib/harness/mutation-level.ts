@@ -97,6 +97,13 @@ export const CODEPILOT_TOOL_MUTATION_LEVELS: Readonly<Record<string, MutationLev
 
   // Session search — reads SQLite messages table.
   codepilot_session_search: 'safe_read',
+
+  // Managed Sub Agent — spawning itself does not mutate host state. The child
+  // inherits the parent permission profile, so every mutating child tool still
+  // reaches the normal approval/sandbox boundary (or the user's explicit
+  // full-access profile); recursive delegation is removed.
+  codepilot_list_subagent_runs: 'safe_read',
+  codepilot_spawn_subagent: 'safe_read',
 };
 
 /**

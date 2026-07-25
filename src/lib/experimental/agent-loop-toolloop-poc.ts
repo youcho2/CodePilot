@@ -488,6 +488,9 @@ export function runToolLoopAgentPoc(options: AgentLoopOptions): ReadableStream<s
           }));
         }
 
+        const responseData = await result.response;
+        const runtimeReportedModel = responseData.modelId?.trim() || undefined;
+
         // 9. Skill nudge (same heuristic + event as agent-loop step 6a)
         if (shouldSuggestSkill({ step, distinctTools })) {
           controller.enqueue(formatSSE({
@@ -511,6 +514,7 @@ export function runToolLoopAgentPoc(options: AgentLoopOptions): ReadableStream<s
             usage: usageWithAccounting,
             session_id: sessionId,
             num_turns: step,
+            ...(runtimeReportedModel ? { model_id: runtimeReportedModel } : {}),
           }),
         }));
 

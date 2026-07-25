@@ -135,7 +135,16 @@ export function parseResponsesRequest(raw: unknown): ParseResult {
       if (typeof item.arguments !== 'string') {
         return { ok: false, field: `input[${i}].arguments`, message: `function_call item ${i} arguments must be a JSON-encoded string.` };
       }
-      parsedInput.push({ type: 'function_call', call_id: item.call_id, name: item.name, arguments: item.arguments });
+      if (item.namespace !== undefined && typeof item.namespace !== 'string') {
+        return { ok: false, field: `input[${i}].namespace`, message: `function_call item ${i} namespace must be a string when present.` };
+      }
+      parsedInput.push({
+        type: 'function_call',
+        call_id: item.call_id,
+        name: item.name,
+        ...(typeof item.namespace === 'string' ? { namespace: item.namespace } : {}),
+        arguments: item.arguments,
+      });
     } else if (itemType === 'function_call_output') {
       if (typeof item.call_id !== 'string') {
         return { ok: false, field: `input[${i}].call_id`, message: `function_call_output item ${i} must include call_id:string.` };

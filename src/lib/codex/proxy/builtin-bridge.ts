@@ -52,6 +52,37 @@ import type { MediaBlock } from '@/types';
 import { makeToolStarted, makeToolCompleted } from '@/lib/runtime/event-adapter';
 import { emitBuiltinEvent } from './builtin-event-bus';
 import { materializeCodexEventMedia } from '@/lib/codex/media-import';
+import {
+  CODEX_SUBAGENT_TIMEOUT_MS,
+  getCodexSubagentParentContext,
+  isManagedCodexSubagentSession,
+  resolveCodexSubagentAbortSignal,
+  runCodexSubagent,
+} from '@/lib/codex/subagent';
+import {
+  findSubagentRoute,
+  getSubagentRoutingGuidance,
+  listSubagentRoutes,
+  subagentRouteSelector,
+} from '@/lib/subagent-models';
+import {
+  encodeSubagentStatusResult,
+  type SubagentExecutionStatus,
+  type SubagentStatusError,
+} from '@/lib/subagent-status';
+import {
+  resolveSubagentDependencies,
+  validateSubagentDispatchSpec,
+} from '@/lib/subagent-orchestration';
+import {
+  checkpointSubagentRun,
+  describeSubagentRunStartRejection,
+  markSubagentRunSettling,
+  recordSubagentRunEvent,
+  startSubagentRun,
+  settleSubagentRun,
+} from '@/lib/db';
+import { formatSubagentRunToolResult } from '@/lib/subagent-run-context';
 // Phase 5d Phase 2 slice 2e (2026-05-17) — `WIDGET_SYSTEM_PROMPT`
 // import dropped: the bridge no longer holds a local WIDGET_PROMPT
 // scalar. Capability prompts are produced by the Context Compiler
@@ -71,6 +102,8 @@ export const CODEPILOT_BUILTIN_TOOL_NAMES = [
   'codepilot_schedule_task',
   'codepilot_list_tasks',
   'codepilot_cancel_task',
+  'codepilot_list_subagent_runs',
+  'codepilot_spawn_subagent',
 ] as const;
 
 export type CodePilotBuiltinToolName = (typeof CODEPILOT_BUILTIN_TOOL_NAMES)[number];
@@ -89,6 +122,20 @@ export interface BuiltinBridgeOpts {
    *  adapter — `codex_account` should never reach here, but the
    *  guard below stays as defence in depth. */
   targetProviderId: string;
+}
+
+/**
+ * Narrow dependency seam for the managed Codex child workflow.
+ *
+ * Production callers use the defaults. Tests may provide a catalog fixture
+ * and child runner without booting a real app-server, which lets lifecycle
+ * tests cross the actual bridge execute/settle boundary.
+ */
+export interface BuiltinBridgeDependencies {
+  listSubagentRoutes?: typeof listSubagentRoutes;
+  getCodexSubagentParentContext?: typeof getCodexSubagentParentContext;
+  resolveSubagentDependencies?: typeof resolveSubagentDependencies;
+  runCodexSubagent?: typeof runCodexSubagent;
 }
 
 export interface BuiltinBridgeResult {
@@ -116,12 +163,18 @@ export interface BuiltinBridgeResult {
  *   - `targetProviderId === 'codex_account'` — Codex Account routes
  *     natively, bridge tools would be a routing bug.
  */
-export function createCodePilotBuiltinTools(opts: BuiltinBridgeOpts): BuiltinBridgeResult {
+export function createCodePilotBuiltinTools(
+  opts: BuiltinBridgeOpts,
+  dependencies: BuiltinBridgeDependencies = {},
+): BuiltinBridgeResult {
   if (!opts.sessionId) {
     return emptyResult('Empty sessionId — runtime did not supply x-codepilot-session-id header.');
   }
   if (opts.targetProviderId === 'codex_account') {
     return emptyResult('Codex Account target — bridge intentionally disabled (native path owns these capabilities).');
+  }
+  if (isManagedCodexSubagentSession(opts.sessionId)) {
+    return emptyResult('Managed Codex Sub Agent — delegation depth is limited to one and bridge tools are disabled.');
   }
 
   const tools: ToolSet = {};
@@ -133,6 +186,8 @@ export function createCodePilotBuiltinTools(opts: BuiltinBridgeOpts): BuiltinBri
   tools.codepilot_schedule_task = buildScheduleTaskTool(opts);
   tools.codepilot_list_tasks = buildListTasksTool(opts);
   tools.codepilot_cancel_task = buildCancelTaskTool(opts);
+  tools.codepilot_list_subagent_runs = buildCodexSubagentRunsTool(opts);
+  tools.codepilot_spawn_subagent = buildCodexSubagentTool(opts, dependencies);
 
   // Memory tools are workspace-gated — without a workspace there's
   // no manifest to read. We still register the names in the set so
@@ -158,6 +213,342 @@ export function createCodePilotBuiltinTools(opts: BuiltinBridgeOpts): BuiltinBri
     toolNames: new Set(Object.keys(tools)),
     systemPrompt: '',
   };
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// Managed Codex Sub Agent — a separate app-server thread with an exact
+// CodePilot Provider + Model route. This is intentionally not Codex's native
+// spawnAgent: native children inherit the parent's modelProvider config and
+// therefore cannot truthfully switch to another CodePilot Provider.
+// ─────────────────────────────────────────────────────────────────────
+
+const activeCodexDelegations = new Map<string, number>();
+const MAX_CONCURRENT_CODEX_DELEGATIONS = 2;
+
+interface CodexSubagentToolInput {
+  prompt: string;
+  agent_name?: string;
+  provider_id: string;
+  model: string;
+  logical_run_id?: string;
+  workflow_id?: string;
+  task_key?: string;
+  depends_on?: string[];
+}
+
+function buildCodexSubagentTool(
+  opts: BuiltinBridgeOpts,
+  dependencies: BuiltinBridgeDependencies,
+) {
+  const loadSubagentRoutes = dependencies.listSubagentRoutes || listSubagentRoutes;
+  const getParentContext = dependencies.getCodexSubagentParentContext
+    || getCodexSubagentParentContext;
+  const resolveDependencies = dependencies.resolveSubagentDependencies
+    || resolveSubagentDependencies;
+  const runChild = dependencies.runCodexSubagent || runCodexSubagent;
+  const routes = loadSubagentRoutes('codex_runtime');
+  const guidance = getSubagentRoutingGuidance('codex_runtime', routes);
+  return tool({
+    description: [
+      'Run a one-shot Sub Agent in a separate Codex Runtime thread using an exact CodePilot Provider + Model route.',
+      'The child inherits the parent Codex native tools, MCP servers, sandbox, approval policy, and tool-call lifecycle. CodePilot only changes the child Provider + Model route.',
+      'In a CodePilot-proxied Codex thread this is the only Sub Agent entry point. Call it directly once per requested child; never wrap it with Codex native multi_agent_v1/spawn_agent/wait_agent workers, because those inherit a different model route and create duplicate Agent runs.',
+      'This is a blocking foreground call: it returns only after the child reaches a terminal status, and no background child remains running afterward. Consume terminal=true plus the returned status/body immediately; never describe it as merely submitted, launched, queued, or still processing.',
+      'For dependent children in one plan, use one workflow_id, a unique task_key per child, and depends_on upstream task keys; emit upstream task calls before their dependents. CodePilot waits durably and injects upstream terminal results before the downstream child thread starts. Undeclared wait-only placeholders are rejected.',
+      'Omit logical_run_id on a first attempt. If retrying the same logical task, reuse the exact logicalRunId returned by the failed attempt; never reuse it for different work.',
+      'CodePilot rejects logical_run_id reuse while the prior attempt is running/settling or after it completed successfully. Wait/read the existing run, or omit the ID for genuinely new work.',
+      'Never claim success after a failed status and never substitute another route.',
+      guidance,
+    ].join('\n'),
+    inputSchema: jsonSchema({
+      type: 'object',
+      additionalProperties: false,
+      required: ['prompt', 'provider_id', 'model'],
+      properties: {
+        prompt: { type: 'string', description: 'Complete one-shot task for the Sub Agent.' },
+        agent_name: { type: 'string', description: 'Short user-facing name, such as Researcher or Copywriter.' },
+        provider_id: { type: 'string', description: 'Exact provider_id from the route list.' },
+        model: { type: 'string', description: 'Exact model selector from the route list.' },
+        logical_run_id: {
+          type: 'string',
+          maxLength: 160,
+          description: 'Opaque logical task id for a retry. Omit on first attempt; reuse logicalRunId returned by a failed attempt.',
+        },
+        workflow_id: {
+          type: 'string',
+          maxLength: 160,
+          description: 'Stable workflow id shared by all children in one dependency graph. Provide together with task_key.',
+        },
+        task_key: {
+          type: 'string',
+          maxLength: 160,
+          description: 'Unique task key within workflow_id, such as research, copy, or implementation.',
+        },
+        depends_on: {
+          type: 'array',
+          items: { type: 'string', maxLength: 160 },
+          description: 'Upstream task_key values in the same workflow. CodePilot waits for their durable completed results and injects them into this child prompt.',
+        },
+      },
+    } satisfies JSONSchema7),
+    execute: async (rawInput: unknown, execOptions) => {
+      const input = rawInput as CodexSubagentToolInput;
+      return runWithEvents(opts, 'codepilot_spawn_subagent', input, async (runId) => {
+        const route = findSubagentRoute(routes, input.provider_id, input.model);
+        const displayModel = route?.displayName || input.model;
+        const displayAgent = input.agent_name?.trim() || `${displayModel} Sub Agent`;
+        const dispatchValidation = validateSubagentDispatchSpec({
+          prompt: input.prompt,
+          workflowId: input.workflow_id,
+          taskKey: input.task_key,
+          dependsOn: input.depends_on,
+        });
+        if (!dispatchValidation.ok) {
+          return {
+            text: encodeSubagentStatusResult({
+              status: 'failed',
+              phase: 'terminal',
+              taskId: runId,
+              agentName: displayAgent,
+              requestedProviderId: input.provider_id,
+              requestedModel: input.model,
+              model: displayModel,
+              runtime: 'codex_runtime',
+              error: dispatchValidation.error,
+            }, dispatchValidation.message),
+          };
+        }
+        if (!route) {
+          return {
+            text: encodeSubagentStatusResult({
+              status: 'failed',
+              phase: 'terminal',
+              taskId: runId,
+              agentName: displayAgent,
+              requestedProviderId: input.provider_id,
+              requestedModel: input.model,
+              model: displayModel,
+              runtime: 'codex_runtime',
+              error: { code: 'MODEL_UNAVAILABLE', retryable: false },
+            }, `SUBAGENT_MODEL_UNAVAILABLE: Codex Runtime cannot route provider "${input.provider_id}" model "${input.model}". The request was rejected before a durable workflow attempt was created. Do not continue as if this Sub Agent ran. Ask the user whether to choose an available route or change Runtime.`),
+          };
+        }
+        const dispatchSpec = dispatchValidation.spec;
+        let logicalRunId = runId;
+        let attemptNumber = 1;
+        const encode = (
+          status: 'completed' | 'partial' | 'failed' | 'cancelled' | 'timed_out',
+          text: string,
+          error?: import('@/lib/subagent-status').SubagentStatusError,
+          effectiveModel?: string,
+        ) => encodeSubagentStatusResult({
+          status,
+          phase: 'terminal',
+          taskId: runId,
+          logicalRunId,
+          attemptId: runId,
+          attemptNumber,
+          agentName: displayAgent,
+          requestedProviderId: input.provider_id,
+          requestedModel: input.model,
+          ...(effectiveModel && route ? { effectiveProviderId: route.providerId } : {}),
+          ...(effectiveModel ? { effectiveModel } : {}),
+          model: effectiveModel || displayModel,
+          runtime: 'codex_runtime',
+          error,
+        }, text);
+        const terminalResult = (
+          status: Exclude<SubagentExecutionStatus, 'running'>,
+          text: string,
+          error?: SubagentStatusError,
+          effectiveModel?: string,
+        ): HandlerSuccess => {
+          try {
+            markSubagentRunSettling(runId);
+            settleSubagentRun(runId, {
+              status,
+              resultText: text,
+              effectiveProviderId: effectiveModel ? route?.providerId : undefined,
+              effectiveModel,
+              error,
+            });
+            return { text: encode(status, text, error, effectiveModel) };
+          } catch (persistenceError) {
+            const detail = persistenceError instanceof Error
+              ? persistenceError.message
+              : String(persistenceError);
+            return {
+              text: encode(
+                'failed',
+                `SUBAGENT_RUN_PERSISTENCE_FAILED: child reached ${status}, but CodePilot could not persist the terminal fact (${detail}). Do not claim completion or background progress.\n\n${text}`,
+                { code: 'RUNTIME_ERROR', retryable: false },
+              ),
+            };
+          }
+        };
+
+        try {
+          const startedRun = startSubagentRun({
+            id: runId,
+            logicalRunId: input.logical_run_id,
+            parentSessionId: opts.sessionId,
+            runtime: 'codex_runtime',
+            toolName: 'codepilot_spawn_subagent',
+            agentName: displayAgent,
+            providerId: input.provider_id,
+            requestedModel: input.model,
+            workflowId: dispatchSpec.workflowId,
+            taskKey: dispatchSpec.taskKey,
+            dependencyTaskKeys: dispatchSpec.dependencyTaskKeys,
+            prompt: input.prompt,
+          });
+          logicalRunId = startedRun.logical_run_id;
+          attemptNumber = startedRun.attempt_number;
+        } catch (persistenceError) {
+          const rejection = describeSubagentRunStartRejection(persistenceError);
+          const detail = persistenceError instanceof Error
+            ? persistenceError.message
+            : String(persistenceError);
+          return {
+            text: encodeSubagentStatusResult({
+              status: 'failed',
+              phase: 'terminal',
+              taskId: runId,
+              agentName: displayAgent,
+              requestedProviderId: input.provider_id,
+              requestedModel: input.model,
+              model: displayModel,
+              runtime: 'codex_runtime',
+              error: rejection?.error || { code: 'RUNTIME_ERROR', retryable: true },
+            }, rejection?.message
+              || `SUBAGENT_RUN_PERSISTENCE_UNAVAILABLE: CodePilot could not create an auditable run before launch (${detail}). The child was not started. Ask the user to retry after fixing local storage.`),
+          };
+        }
+
+        const parentContext = getParentContext(opts.sessionId);
+        const delegationAbortSignal = resolveCodexSubagentAbortSignal(
+          parentContext,
+          execOptions.abortSignal,
+        );
+
+        const dependencyResolution = await resolveDependencies({
+          runId,
+          parentSessionId: opts.sessionId,
+          prompt: input.prompt,
+          workflowId: dispatchSpec.workflowId,
+          dependencyTaskKeys: dispatchSpec.dependencyTaskKeys,
+          abortSignal: delegationAbortSignal,
+        });
+        if (!dependencyResolution.ok) {
+          return terminalResult(
+            dependencyResolution.status,
+            dependencyResolution.message,
+            dependencyResolution.error,
+          );
+        }
+        const active = activeCodexDelegations.get(opts.sessionId) || 0;
+        if (active >= MAX_CONCURRENT_CODEX_DELEGATIONS) {
+          return terminalResult(
+            'failed',
+            `SUBAGENT_CONCURRENCY_LIMIT: at most ${MAX_CONCURRENT_CODEX_DELEGATIONS} Codex Sub Agents may run at once.`,
+            { code: 'CONCURRENCY_LIMIT', retryable: true },
+          );
+        }
+        activeCodexDelegations.set(opts.sessionId, active + 1);
+        try {
+          // Re-resolve immediately before the credential-bearing call. A route
+          // removed after this tool description was built must fail closed.
+          const currentRoute = findSubagentRoute(
+            loadSubagentRoutes('codex_runtime'),
+            route.providerId,
+            subagentRouteSelector(route),
+          );
+          if (!currentRoute) {
+            return terminalResult(
+              'failed',
+              `SUBAGENT_MODEL_UNAVAILABLE: ${route.displayName} is no longer enabled for Codex Runtime.`,
+              { code: 'MODEL_UNAVAILABLE', retryable: false },
+            );
+          }
+          const outcome = await runChild({
+            route: currentRoute,
+            prompt: dependencyResolution.prompt,
+            workingDirectory: opts.workspacePath,
+            abortSignal: delegationAbortSignal,
+            timeoutMs: CODEX_SUBAGENT_TIMEOUT_MS,
+            parentContext,
+            onLifecycleEvent: (update) => {
+              if (update.partialText !== undefined || update.effectiveModel) {
+                checkpointSubagentRun(runId, {
+                  ...(update.partialText !== undefined
+                    ? { resultText: update.partialText }
+                    : {}),
+                  ...(update.effectiveModel
+                    ? { effectiveModel: update.effectiveModel }
+                    : {}),
+                  currentActivity: update.event.activity,
+                });
+              }
+              recordSubagentRunEvent(runId, update.event);
+            },
+          });
+          return terminalResult(
+            outcome.status,
+            outcome.text,
+            outcome.error,
+            outcome.effectiveModel,
+          );
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          return terminalResult(
+            'failed',
+            message,
+            { code: 'RUNTIME_ERROR', retryable: false },
+          );
+        } finally {
+          const remaining = (activeCodexDelegations.get(opts.sessionId) || 1) - 1;
+          if (remaining > 0) activeCodexDelegations.set(opts.sessionId, remaining);
+          else activeCodexDelegations.delete(opts.sessionId);
+        }
+      });
+    },
+  });
+}
+
+function buildCodexSubagentRunsTool(opts: BuiltinBridgeOpts) {
+  return tool({
+    description: [
+      'Read the authoritative durable lifecycle records for managed Sub Agents in this CodePilot chat session.',
+      'Use this before answering any progress/status/history question. Never infer Sub-agent progress from update_plan, assistant narration, elapsed time, or workspace files.',
+      'terminal=false means running. terminal=true means the child has stopped; status then distinguishes completed, partial, failed, cancelled, or timed_out.',
+    ].join('\n'),
+    inputSchema: jsonSchema({
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        limit: {
+          type: 'integer',
+          minimum: 1,
+          maximum: 20,
+          description: 'Maximum number of newest physical runs to return. Defaults to 10.',
+        },
+        include_results: {
+          type: 'boolean',
+          description: 'Include bounded child result excerpts when true. Defaults to false.',
+        },
+      },
+    } satisfies JSONSchema7),
+    execute: async (rawInput: unknown) => {
+      const input = rawInput as { limit?: number; include_results?: boolean };
+      return runWithEvents(opts, 'codepilot_list_subagent_runs', input, async () => ({
+        text: formatSubagentRunToolResult({
+          sessionId: opts.sessionId,
+          limit: input.limit,
+          includeResults: input.include_results === true,
+        }),
+      }));
+    },
+  });
 }
 
 function emptyResult(reason: string): BuiltinBridgeResult {
@@ -198,13 +589,13 @@ async function runWithEvents(
   opts: BuiltinBridgeOpts,
   toolName: string,
   input: unknown,
-  handler: () => Promise<HandlerSuccess>,
+  handler: (toolId: string) => Promise<HandlerSuccess>,
 ): Promise<string> {
   const toolId = `cpb_${crypto.randomBytes(8).toString('hex')}`;
   const base = { runtimeId: 'codex_runtime' as const, sessionId: opts.sessionId };
   emitBuiltinEvent(opts.sessionId, makeToolStarted(base, { toolId, name: toolName, input }));
   try {
-    const result = await handler();
+    const result = await handler(toolId);
     // Media import boundary: if any block carries a localPath that
     // sits outside `<dataDir>/.codepilot-media`, copy it in BEFORE
     // emitting so `/api/media/serve` will accept it. The same helper

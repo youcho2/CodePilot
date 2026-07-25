@@ -49,6 +49,7 @@ const generalProvider: ApiProvider = {
 
 const allowedScenes: ProviderCallScene[] = [
   'interactive_chat',
+  'delegated_interactive',
   'active_turn_compact',
   'active_turn_memory_rerank',
   'user_onboarding',
@@ -87,7 +88,7 @@ after(() => {
 describe('interactive-only provider call policy', () => {
   it('has an explicit positive or negative ruling for every callScene', () => {
     const allScenes: ProviderCallScene[] = [...allowedScenes, ...blockedScenes];
-    assert.equal(new Set(allScenes).size, 20, 'scene matrix must cover the complete union');
+    assert.equal(new Set(allScenes).size, 21, 'scene matrix must cover the complete union');
     for (const scene of allowedScenes) assert.equal(isInteractiveSceneAllowed(scene), true, scene);
     for (const scene of blockedScenes) assert.equal(isInteractiveSceneAllowed(scene), false, scene);
   });

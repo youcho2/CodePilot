@@ -8,6 +8,7 @@ import { getPreset, resolveProviderPresetIdentity } from './provider-catalog';
  */
 export type ProviderCallScene =
   | 'interactive_chat'
+  | 'delegated_interactive'
   | 'active_turn_compact'
   | 'active_turn_memory_rerank'
   | 'user_onboarding'
@@ -30,6 +31,7 @@ export type ProviderCallScene =
 
 const INTERACTIVE_ALLOWED = new Set<ProviderCallScene>([
   'interactive_chat',
+  'delegated_interactive',
   'active_turn_compact',
   'active_turn_memory_rerank',
   'user_onboarding',

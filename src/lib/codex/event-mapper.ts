@@ -471,6 +471,10 @@ const TOOL_LIKE_ITEM_TYPES = new Set<string>([
   'webSearch',
   'imageGeneration',
   'imageView',
+  // Codex app-server owns the worker lifecycle. Surface it as a real tool
+  // card instead of hiding it in chat-only status; model fields are preserved
+  // verbatim when the installed app-server reports them.
+  'collabAgentToolCall',
 ]);
 
 /**
@@ -498,7 +502,6 @@ const CHAT_ONLY_ITEM_TYPES = new Set<string>([
   'enteredReviewMode',
   'exitedReviewMode',
   'contextCompaction',
-  'collabAgentToolCall',
   // NOTE: imageGeneration / imageView are NOT chat-only — they have no
   // streaming delta channel and their final item/completed is the only
   // way the result reaches the user. See TOOL_LIKE_ITEM_TYPES above for
@@ -566,6 +569,13 @@ function translateItemStarted(
       input: { path: item.path },
     });
   }
+  if (item.type === 'collabAgentToolCall') {
+    return makeToolStarted(base, {
+      toolId: id,
+      name: 'codex_subagent',
+      input: item,
+    });
+  }
   // Known chat-only item types — text / reasoning / review markers
   // etc. carry no extra info in the lifecycle event; the actual
   // content streams through dedicated delta methods. Return null
@@ -623,6 +633,13 @@ function translateItemCompleted(
       toolId: id,
       output: item,
       ...(media ? { media: [media] } : {}),
+    });
+  }
+  if (item.type === 'collabAgentToolCall') {
+    return makeToolCompleted(base, {
+      toolId: id,
+      output: item,
+      error: item.status === 'failed' ? 'Codex sub-agent failed' : undefined,
     });
   }
   // mcpToolCall — Phase 8 Phase 3. Surface the MCP tool error into the
@@ -771,13 +788,33 @@ export function translateCodexApproval(args: {
     }
 
     case 'item/permissions/requestApproval': {
-      const p = params as { reason?: string };
+      const p = params as {
+        reason?: string | null;
+        cwd?: string;
+        environmentId?: string | null;
+        permissions?: unknown;
+      };
       return {
         type: 'permission_request',
         ...base,
         toolName: 'Permissions',
+        toolInput: {
+          permissions: p.permissions ?? {},
+          ...(p.cwd ? { cwd: p.cwd } : {}),
+          ...(p.environmentId !== undefined ? { environmentId: p.environmentId } : {}),
+        },
         subject: 'Codex requests elevated permissions',
         details: p.reason ?? undefined,
+        // The generic UI exposes "Allow for session" only when at least one
+        // suggestion is present. The response bridge never trusts this
+        // renderer-round-tripped object as the grant itself: it echoes only
+        // the subset originally requested by Codex and uses this hint solely
+        // to select the session scope.
+        permissionHints: [{
+          type: 'codexPermissionGrant',
+          behavior: 'allow',
+          destination: 'session',
+        }],
         nativeRequestRef: {
           runtimeId: 'codex_runtime',
           raw: { method, params },

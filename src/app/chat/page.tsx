@@ -101,7 +101,11 @@ function NewChatPageInner() {
   // user event, so the accept-time consume always sees the live prefill.
   const prefillTextRef = useRef(prefillText);
   useEffect(() => { prefillTextRef.current = prefillText; }, [prefillText]);
-  const { setPendingApprovalSessionId } = usePanel();
+  const {
+    setPendingApprovalSessionId,
+    setSessionId: setPanelSessionId,
+    setWorkingDirectory: setPanelWorkingDirectory,
+  } = usePanel();
   const { t } = useTranslation();
   const { isElectron, openNativePicker } = useNativeFolderPicker();
   const [messages, setMessages] = useState<Message[]>([]);
@@ -730,9 +734,19 @@ function NewChatPageInner() {
   }, []);
 
   const stopStreaming = useCallback(() => {
+    // Explicit Stop is the only action that cancels the server-owned turn.
+    // Navigation/unmount merely aborts this renderer's fetch below; the chat
+    // route intentionally keeps collecting and checkpointing in the background.
+    if (createdSessionId) {
+      void fetch('/api/chat/interrupt', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sessionId: createdSessionId }),
+      }).catch(() => {});
+    }
     abortControllerRef.current?.abort();
     abortControllerRef.current = null;
-  }, []);
+  }, [createdSessionId]);
 
   const handlePermissionResponse = useCallback(async (decision: 'allow' | 'allow_session' | 'deny', updatedInput?: Record<string, unknown>, denyMessage?: string) => {
     if (!pendingPermission) return;
@@ -893,6 +907,12 @@ function NewChatPageInner() {
         const { session }: SessionResponse = await createRes.json();
         sessionId = session.id;
         setCreatedSessionId(sessionId);
+        // The first turn remains on /chat until streaming completes. Scope the
+        // workspace sidebar to the real session immediately so a completed
+        // sub-agent's Details button can open during the parent's remaining
+        // output instead of waiting for the /chat/[id] navigation.
+        setPanelSessionId(sessionId);
+        setPanelWorkingDirectory(session.working_directory || workingDir.trim());
 
         // Phase 2 Step 4c — if the user explicitly picked a runtime in
         // the composer's RuntimeSelector before sending, persist it now
@@ -1273,7 +1293,7 @@ function NewChatPageInner() {
         firstSendInFlightRef.current = false;
       }
     },
-    [isStreaming, router, workingDir, mode, currentModel, currentProviderId, permissionProfile, selectedEffort, thinkingMode, context1m, setPendingApprovalSessionId, t, canSendWithCurrentProvider, modelReady, noCompatibleProvider, invalidDefault]
+    [isStreaming, router, workingDir, mode, currentModel, currentProviderId, runtimePin, permissionProfile, selectedEffort, thinkingMode, context1m, setPendingApprovalSessionId, setPanelSessionId, setPanelWorkingDirectory, t, canSendWithCurrentProvider, modelReady, noCompatibleProvider, invalidDefault]
   );
 
   const handleCommand = useCallback((command: string) => {

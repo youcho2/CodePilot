@@ -67,6 +67,7 @@ describe('FirstTurnNavGuard 行为（Phase 2 ③）', () => {
 
 describe('page.tsx 接线源码钉（Phase 2 ③）', () => {
   const src = fs.readFileSync(path.resolve(__dirname, '../../app/chat/page.tsx'), 'utf8');
+  const chatRouteSrc = fs.readFileSync(path.resolve(__dirname, '../../app/api/chat/route.ts'), 'utf8');
 
   it('创建 guard、mount 重新武装、卸载 cleanup deactivate + abort 发送 controller', () => {
     assert.match(src, /createFirstTurnNavGuard\(\)/, '必须创建首轮导航 guard');
@@ -95,6 +96,19 @@ describe('page.tsx 接线源码钉（Phase 2 ③）', () => {
       src,
       /(?<!navigate\(\(\) => )router\.push\(`\/chat\/\$\{sessionId\}`\)/,
       'abort 后的首轮跳转不得存在不经 guard 的裸 router.push(`/chat/${sessionId}`)',
+    );
+  });
+
+  it('切换会话只分离 renderer，显式 Stop 才中断 server-owned Runtime', () => {
+    assert.doesNotMatch(
+      chatRouteSrc,
+      /request\.signal\.addEventListener\(['"]abort['"][\s\S]{0,160}abortController\.abort\(\)/,
+      'renderer transport disconnect must not abort the server-owned Runtime',
+    );
+    assert.match(
+      src,
+      /const stopStreaming = useCallback\(\(\) => \{[\s\S]{0,500}fetch\(['"]\/api\/chat\/interrupt['"][\s\S]{0,500}abortControllerRef\.current\?\.abort\(\)/,
+      'the first-turn Stop action must explicitly interrupt the Runtime before detaching its local fetch',
     );
   });
 });

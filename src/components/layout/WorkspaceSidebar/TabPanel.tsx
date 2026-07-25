@@ -20,6 +20,7 @@ import dynamic from 'next/dynamic';
 import { useWorkspaceSidebar } from '@/hooks/useWorkspaceSidebar';
 import { usePanel } from '@/hooks/usePanel';
 import { previewSourceFromTab, type Tab } from '@/lib/workspace-sidebar';
+import { AgentRunPanel } from './AgentRunPanel';
 
 const GitTabContent = dynamic(
   () => import('@/components/layout/panels/GitPanel').then((m) => ({ default: m.GitTabContent })),
@@ -48,6 +49,9 @@ function ActiveContent({ tab }: { tab: Tab }) {
     // shell owns resize, and Pin is meaningless because we're already
     // inside the sidebar. (Codex P2 收口 2026-04-30.)
     return <FileTreePanel variant="sidebar" />;
+  }
+  if (tab.kind === 'agent-run') {
+    return <AgentRunPanel tab={tab} />;
   }
   // markdown / artifact / file all flow through PreviewPanel; the
   // panel reads previewSource from PanelContext (kept in sync by

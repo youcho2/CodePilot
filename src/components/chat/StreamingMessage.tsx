@@ -17,6 +17,12 @@ import { WidgetRenderer } from './WidgetRenderer';
 import { parseAllShowWidgets, computePartialWidgetKey, MalformedWidgetNotice } from './MessageItem';
 import { PENDING_KEY, buildReferenceImages } from '@/lib/image-ref-store';
 import type { PlannerOutput, MediaBlock } from '@/types';
+import { SubagentCard } from './SubagentCard';
+import {
+  buildSubagentRunView,
+  collapseLogicalSubagentRuns,
+  isSubagentToolName,
+} from '@/lib/subagent-view';
 
 interface ImageGenRequest {
   prompt: string;
@@ -308,6 +314,27 @@ export function StreamingMessage({
     () => toolUses.filter((tool) => !toolResultsById.has(tool.id)),
     [toolUses, toolResultsById]
   );
+  const subagentTools = useMemo(
+    () => toolUses.filter(tool => isSubagentToolName(tool.name)),
+    [toolUses],
+  );
+  const subagentRuns = useMemo(
+    () => collapseLogicalSubagentRuns(subagentTools.map((tool) => {
+      const result = toolResultsById.get(tool.id);
+      return buildSubagentRunView({
+        id: tool.id,
+        name: tool.name,
+        toolInput: tool.input,
+        result: result?.content,
+        isError: result?.is_error,
+      });
+    })),
+    [subagentTools, toolResultsById],
+  );
+  const regularTools = useMemo(
+    () => toolUses.filter(tool => !isSubagentToolName(tool.name)),
+    [toolUses],
+  );
 
   // Extract a human-readable summary of the running command
   const getRunningCommandSummary = (): string | undefined => {
@@ -331,9 +358,9 @@ export function StreamingMessage({
     <AIMessage from="assistant">
       <MessageContent>
         {/* Tool calls + thinking — single collapsible group */}
-        {(toolUses.length > 0 || thinkingContent) && (
+        {(regularTools.length > 0 || thinkingContent) && (
           <ToolActionsGroup
-            tools={toolUses.map((tool) => {
+            tools={regularTools.map((tool) => {
               const result = toolResultsById.get(tool.id);
               return {
                 id: tool.id,
@@ -591,6 +618,20 @@ export function StreamingMessage({
           })() : undefined)
           || (content && content.length > 0 ? t('streaming.generating') : undefined)
         } onForceStop={onForceStop} startedAt={startedAt} />}
+
+        {/* Compact Sub Agent capsules follow the parent's live output and wrap
+            into the available row width. */}
+        {subagentRuns.length > 0 && (
+          <div className="mt-2 flex flex-wrap items-center gap-2">
+            {subagentRuns.map(run => (
+              <SubagentCard
+                key={run.id}
+                run={run}
+                sessionId={sessionId}
+              />
+            ))}
+          </div>
+        )}
       </MessageContent>
     </AIMessage>
   );
