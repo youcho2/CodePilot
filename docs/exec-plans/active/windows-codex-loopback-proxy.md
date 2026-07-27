@@ -2,7 +2,7 @@
 
 > 创建时间：2026-07-27
 > 最后更新：2026-07-27
-> 状态：🟡 Code complete + Tests pass；真实 Windows + Clash packaged smoke 待跑
+> 状态：🟡 Code complete + Tests pass；修复已随 v0.60.0 正式发布（commit `7690cee6`），真实 Windows + Clash packaged smoke 待原报告用户升级复测后回写
 
 ## 用户问题与结论
 
@@ -100,3 +100,4 @@ env 修复仍然成立。但“仅启用 Windows 系统代理、无 proxy env”
 - 2026-07-27：Review / Triage → Claude 独立审查指出 CodePilot proxy 自己也会把上游错误映射为 loopback HTTP 502，原诊断会把真实 Provider 故障误报为系统代理截获；同时确认 bundled `codex-cli 0.145.0-alpha.27` 含 `respect_system_proxy` flag，但其 Windows 启用与 bypass 语义无法由静态代码定案。
 - 2026-07-27：Fix / Guardrail → 对 parsed streaming request 的 managed application/upstream 错误统一返回 HTTP 200 SSE `response.failed`，保留 non-stream HTTP status + JSON；诊断层再排除 CodePilot structured error envelope并附上原始 Codex error。增加真实协议形状反例、空 proxy env 边缘用例，并把 system-proxy-only 场景列为独立 Windows smoke。
 - 2026-07-27：Verify / Guardrail → targeted 130/130、全量 4699/4699、ESLint、typecheck、production build、Electron build、docs drift、`git diff --check` 通过；真实 Windows + Clash / system-proxy-only smoke 未执行，计划保持 active/🟡，不标 Smoke passed。
+- 2026-07-27（v0.60.0 正式发布）：修复随 `v0.60.0` 发布（fix commit `7690cee6`，release commit `d6c4090e`）；GitHub Actions run `30272492570` verify-source / build-macos / build-windows / release 全绿，Windows NSIS 安装包已上传稳定 Release。Release Notes 已注明"实机验证仍在进行中"。下一步：请原报告用户升级 0.60.0 后按上方待实施矩阵复测，结果回写本 Ledger；全部通过后移至 `completed/`。

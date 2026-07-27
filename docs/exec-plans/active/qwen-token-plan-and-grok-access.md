@@ -410,6 +410,7 @@ Release Notes 能准确说明“新增哪种千问套餐”“Grok 是 API Key �
 - 2026-07-23（用户反馈与能力审计）：用户指出 Grok 应能直接检索推特/X，且 OAuth 登录的 Grok 也应具有同样能力。审计确认当前只接入 `xai.responses('grok-4.5')` 与 CodePilot 客户端函数工具，未发送 xAI hosted `x_search`；官方 SDK 已提供 `xai.tools.xSearch()`。裁决新增 Phase 7，API Key/OAuth 与 CodePilot/Codex Runtime 四组合分别验收；OAuth `api:access` scope、登录成功和文本回复不再被当作 `x_search` entitlement 证据。
 - 2026-07-27（Phase 7 实现，commit `ec7f356a`）：选择共享 `xai-hosted-search.ts` 作为 provider-aware hosted-tool、外部 source 与失败分类真源。Native 直接把 provider-executed event 映射到现有 SSE；Codex proxy 抑制 Codex 不应执行的 hosted call，同时通过既有 per-session event bus 镜像 lifecycle，避免建立第四套工具协议。SDK request-shape 证明 function tool 与 `x_search` 可同请求混用；提交门禁为 4686/4686、production build 通过，真实 entitlement、来源质量和四组合可用性仍只能由凭据 smoke 关闭。
 - 2026-07-27（Phase 7 真实 smoke）：会话 `e034a05b12615c632393018afbb3449b` 证明 xAI OAuth × CodePilot Runtime × `grok-4.5` 能执行并持久化原生 `x_search`。DB 中共有 21 个成功 `x_search` tool result，最终纠错轮含 54 个唯一 `x.com` URL，来源信任均为 `external`；用户确认最终交互可用。核对同时发现 response-level 54 个 citations 被复制到该轮 14 个 tool result（756 source rows、消息约 119 KB）；记为非阻塞 P3，后续应把 response-level 来源只归属一次，避免存储与详情 UI 线性膨胀，不影响本次能力结论。
+- 2026-07-27（v0.60.0 正式发布）：Grok X Search 随 `v0.60.0` 发布（feature commit `ec7f356a`，release commit `d6c4090e`）；GitHub Actions run `30272492570` 全绿。Release Notes 按台账口径注明"已验证 xAI OAuth × CodePilot Runtime 组合，API Key 与 Codex Runtime 组合仍在验证中"，未把 X Search 宣称为全组合 capability verified；其余三组合与 citation fan-out P3 保持待办。
 
 ## Release Notes 草案（已写入 `RELEASE_NOTES.md`，版本 v0.59.1）
 
