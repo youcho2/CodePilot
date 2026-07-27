@@ -85,8 +85,9 @@ import { promptNeedsWidget } from '@/lib/widget-guidelines';
 import { promptNeedsDashboard } from '@/lib/dashboard-mcp';
 import { promptNeedsCli } from '@/lib/cli-tools-mcp';
 import {
-  handleCodexDynamicToolCall,
-  type CodexDynamicToolCallParams,
+  dispatchCodexDynamicToolCall,
+  isManagedLocalDynamicToolLifecycle,
+  registerCodexDynamicToolRoute,
   type McpToolCallResultLike,
 } from './dynamic-tool-bridge';
 import {
@@ -97,6 +98,7 @@ import {
 } from './mcp-elicitation';
 import { getSetting } from '@/lib/db';
 import { subscribeBuiltinEvents } from './proxy/builtin-event-bus';
+import { createCodexAccountManagedTools } from './proxy/builtin-bridge';
 import {
   codexNotificationBelongsToThread,
   registerCodexSubagentParentContext,
@@ -108,7 +110,9 @@ import {
   clearRuntimeSessionRef,
 } from '@/lib/runtime/session-store';
 import {
+  abortCodexTurnController,
   CodexTurnInterruptRegistry,
+  registerCodexTurnAbortController,
   requestCodexTurnInterrupt,
 } from './turn-interrupt-registry';
 
@@ -298,6 +302,12 @@ export const codexRuntime: AgentRuntime = {
 
         let active = true;
         const unsubscribers: Array<() => void> = [];
+        if (options.abortController) {
+          unsubscribers.push(registerCodexTurnAbortController(
+            sessionId,
+            options.abortController,
+          ));
+        }
         const tryEnqueue = (line: string) => {
           if (!active) return;
           try {
@@ -387,6 +397,35 @@ export const codexRuntime: AgentRuntime = {
           }
 
           const { client } = await getCodexAppServer();
+          const codexAccountManagedBridge = requestedProviderId === 'codex_account'
+            ? createCodexAccountManagedTools({
+                sessionId,
+                workspacePath: options.workingDirectory,
+                targetProviderId: requestedProviderId,
+              })
+            : null;
+          const codexAccountLocalTools = new Map<
+            string,
+            (input: unknown, call: { toolCallId: string; abortSignal?: AbortSignal }) => Promise<unknown>
+          >();
+          if (codexAccountManagedBridge) {
+            for (const [name, definition] of Object.entries(codexAccountManagedBridge.tools)) {
+              const execute = definition.execute;
+              if (!execute) continue;
+              codexAccountLocalTools.set(name, async (input, call) => {
+                const result = execute(input, {
+                  toolCallId: call.toolCallId,
+                  messages: [],
+                  context: undefined,
+                  ...(call.abortSignal ? { abortSignal: call.abortSignal } : {}),
+                });
+                if (result && typeof result === 'object' && Symbol.asyncIterator in result) {
+                  throw new Error(`Streaming output is unsupported for CodePilot dynamic tool "${name}".`);
+                }
+                return await result;
+              });
+            }
+          }
 
           // ── server-originated approval requests ──────────────────────
           // Phase 5 Phase 4 Slice 2 (2026-05-13). Wires Codex's
@@ -507,19 +546,12 @@ export const codexRuntime: AgentRuntime = {
           // MCP manager via mcpServer/tool/call (so Codex keeps owning the
           // MCP lifecycle, elicitation, and approval policy) and shape the
           // DynamicToolCallResponse. Do not add a second CodePilot allowlist.
-          const unsubDynTool = client.onServerRequest('item/tool/call', async (params) => {
-            const p = params as CodexDynamicToolCallParams;
-            const res = await handleCodexDynamicToolCall(p, (req) =>
-              client.request<McpToolCallResultLike>('mcpServer/tool/call', req),
-            );
-            console.debug('[codex.dynamic-tool-call]', {
-              namespace: p.namespace,
-              tool: p.tool,
-              success: res.success,
-            });
-            return res;
-          });
-          unsubscribers.push(unsubDynTool);
+          // One app-server client has one handler slot per server-request
+          // method. Install a stable process dispatcher; per-thread owners are
+          // registered after thread resolution below. Registering a closure
+          // per chat would let the newest turn steal tool calls from older
+          // concurrent chats.
+          client.onServerRequest('item/tool/call', dispatchCodexDynamicToolCall);
 
           // ── CodePilot built-in tool bridge subscription (Phase 5c) ──
           // Side-channel events emitted by the proxy's bridge tools
@@ -649,7 +681,16 @@ export const codexRuntime: AgentRuntime = {
           // Fingerprint the injected MCP set; a resume whose fingerprint
           // differs starts a fresh thread (below) so a continuation can't
           // bind to a stale tool set.
-          const mcpFingerprint = fingerprintCodexMcpConfig(hasMcp ? codexMcpServers : undefined);
+          const rawMcpFingerprint = fingerprintCodexMcpConfig(
+            hasMcp ? codexMcpServers : undefined,
+          );
+          // Dynamic tools are sticky thread-start capabilities. The revision
+          // forces pre-feature Codex Account refs onto a fresh thread exactly
+          // once; subsequent turns resume the thread without resending the
+          // unsupported `dynamicTools` resume field.
+          const mcpFingerprint = requestedProviderId === 'codex_account'
+            ? `${rawMcpFingerprint}:codex-account-managed-subagents-v1`
+            : rawMcpFingerprint;
 
           let codexPermission = resolveCodexPermissionWire({
             permissionMode: options.permissionMode,
@@ -715,6 +756,15 @@ export const codexRuntime: AgentRuntime = {
             emitAutoReviewUnavailable(reason);
           };
 
+          const accountDelegationInstructions = codexAccountManagedBridge
+            ? [
+                'CodePilot exact-route delegation contract:',
+                '- When the user requests a specific CodePilot Provider or a model different from this Codex Account parent, call codepilot_spawn_subagent directly.',
+                '- Never use native spawn_agent/multi_agent_v1 as a substitute for a named Provider/Model; native workers inherit this parent route.',
+                '- If the requested managed route is unavailable or fails, stop and ask the user what to do. Do not silently fall back.',
+                '- Native collaboration remains available only for workers that intentionally inherit the parent Codex model.',
+              ].join('\n')
+            : '';
           const threadParams = {
             ...buildCodexThreadParams({
               providerId: requestedProviderId,
@@ -730,7 +780,16 @@ export const codexRuntime: AgentRuntime = {
               mcpServers: hasMcp ? codexMcpServers : undefined,
             }),
             ...codexPermission.thread,
+            ...(accountDelegationInstructions
+              ? { developerInstructions: accountDelegationInstructions }
+              : {}),
           };
+          const threadStartParams = codexAccountManagedBridge
+            ? {
+                ...threadParams,
+                dynamicTools: codexAccountManagedBridge.dynamicTools,
+              }
+            : threadParams;
 
           // ── thread resolution: resume if we have a ref + provider AND
           // MCP fingerprint match, else start ──
@@ -764,7 +823,7 @@ export const codexRuntime: AgentRuntime = {
               // Resume failed (thread archived / unknown id) → start fresh.
               const result = await client.request<CodexThreadStartResponse>(
                 'thread/start',
-                threadParams,
+                threadStartParams,
               );
               applyPermissionEcho(result);
               threadId = result.thread.id;
@@ -782,7 +841,7 @@ export const codexRuntime: AgentRuntime = {
             if (existingRef) clearRuntimeSessionRef(sessionId, 'codex_runtime');
             const result = await client.request<CodexThreadStartResponse>(
               'thread/start',
-              threadParams,
+              threadStartParams,
             );
             applyPermissionEcho(result);
             threadId = result.thread.id;
@@ -792,6 +851,15 @@ export const codexRuntime: AgentRuntime = {
               metadata: refMetadata,
             });
           }
+
+          unsubscribers.push(registerCodexDynamicToolRoute(threadId, {
+            forwardMcp: (req) =>
+              client.request<McpToolCallResultLike>('mcpServer/tool/call', req),
+            ...(codexAccountLocalTools.size > 0
+              ? { localTools: codexAccountLocalTools }
+              : {}),
+            ...(parentAbortSignal ? { abortSignal: parentAbortSignal } : {}),
+          }));
 
           // ── workspace filesystem watch ──────────────────────────────
           // Phase 5 review round 3 (2026-05-13). Register an fs/watch
@@ -833,6 +901,16 @@ export const codexRuntime: AgentRuntime = {
             // managed child thread. Never render a child's deltas as parent
             // prose or close the parent stream on the child's turn/completed.
             if (!codexNotificationBelongsToThread(params, threadId)) return;
+            if (
+              codexAccountManagedBridge
+              && isManagedLocalDynamicToolLifecycle(
+                method,
+                params,
+                codexAccountManagedBridge.toolNames,
+              )
+            ) {
+              return;
+            }
             const rawEvent = translateCodexNotification(method, params, { sessionId });
             // Phase 5b smoke round 9 (2026-05-16) — materialise MediaBlocks
             // before SSE encoding. Codex hands us raw paths like
@@ -1053,6 +1131,11 @@ export const codexRuntime: AgentRuntime = {
     // so this HTTP-route entry and the in-stream abort-signal handler remain
     // one implementation (codex-stop-recovery). No-ops when the entry is
     // missing (race against turn completion / Codex unreachable).
+    // Abort first: a parent blocked inside `item/tool/call` cannot process its
+    // own turn/interrupt until the dynamic tool returns. The shared signal
+    // cancels the managed child and wakes the chat route's lock watchdog;
+    // turn/interrupt remains the app-server cleanup path.
+    abortCodexTurnController(sessionId);
     issueCodexTurnInterrupt(sessionId, 'route');
   },
 

@@ -71,6 +71,28 @@ export function isSubagentToolName(name: string): boolean {
     || lower.endsWith('__codepilot_spawn_subagent');
 }
 
+/**
+ * Instance-level guard for legacy Codex transcripts. Older event-mapper
+ * versions persisted every anonymous wait action with the `codex_subagent`
+ * name, so checking the name alone revives bogus capsules after refresh.
+ */
+export function isSubagentToolCall(
+  name: string,
+  toolInput: unknown,
+  result?: string,
+): boolean {
+  if (!isSubagentToolName(name)) return false;
+  const lower = name.toLowerCase();
+  if (lower !== 'codex_subagent' && lower !== 'collabagenttoolcall') return true;
+  const input = asRecord(toolInput);
+  if (input.type !== 'collabAgentToolCall') {
+    // Preserve pre-collab legacy tool records whose input shape cannot be
+    // identified as an app-server collaboration action.
+    return true;
+  }
+  return parseCodexCollabFacts(input, result) !== undefined;
+}
+
 export function isManagedSubagentToolName(name: string): boolean {
   const lower = name.toLowerCase();
   return lower === 'codepilot_spawn_subagent'
@@ -86,6 +108,9 @@ export function buildSubagentRunView(input: {
 }): SubagentRunView {
   const args = asRecord(input.toolInput);
   const parsedResult = parseNativeResult(input.result);
+  const codexCollab = input.name.toLowerCase() === 'codex_subagent'
+    ? parseCodexCollabFacts(args, input.result)
+    : undefined;
   const agentName = parsedResult.agentName || firstString(
     args.agent_name,
     args.agent,
@@ -96,21 +121,33 @@ export function buildSubagentRunView(input: {
   ) || (input.name === 'codex_subagent' ? 'Codex worker' : 'Sub-agent');
   const requestedModel = normalizeModel(parsedResult.requestedModel || firstString(
     args.requested_model,
+    codexCollab?.model,
     args.model,
     args.requestedModel,
     args.model_id,
   ));
-  const prompt = firstString(args.prompt, args.task, args.message, args.description) || '';
+  const prompt = firstString(
+    codexCollab?.prompt,
+    args.prompt,
+    args.task,
+    args.message,
+    args.description,
+  ) || '';
   const status = deriveStatus(
     input.name,
     args,
     input.result,
     input.isError,
     parsedResult.status,
+    codexCollab?.status,
   );
-  const attemptId = parsedResult.attemptId || parsedResult.taskId || input.id;
+  const attemptId = parsedResult.attemptId
+    || parsedResult.taskId
+    || firstString(args.id)
+    || input.id;
   const logicalRunId = parsedResult.logicalRunId
     || firstString(args.logical_run_id, args.logicalRunId)
+    || codexCollab?.childId
     || attemptId;
 
   return {
@@ -133,7 +170,7 @@ export function buildSubagentRunView(input: {
     status,
     phase: parsedResult.phase || (status === 'running' ? 'running' : 'terminal'),
     dispatchState: status === 'running' ? 'executing' : 'terminal',
-    currentActivity: parsedResult.currentActivity,
+    currentActivity: parsedResult.currentActivity || codexCollab?.currentActivity,
     result: parsedResult.result,
     isError: input.isError,
     error: parsedResult.error,
@@ -283,11 +320,18 @@ function deriveStatus(
   result: string | undefined,
   isError: boolean | undefined,
   explicitStatus?: SubagentExecutionStatus,
+  codexChildStatus?: SubagentRunStatus,
 ): SubagentRunStatus {
   if (explicitStatus) return explicitStatus;
+  const lowerName = toolName.toLowerCase();
+  if (lowerName === 'codex_subagent' || lowerName === 'collabagenttoolcall') {
+    // The collab item's top-level status is only the wait/sendInput/etc.
+    // action status. It must never complete or fail the child. Child lifecycle
+    // facts come exclusively from agentsStates (or a future typed lifecycle).
+    return codexChildStatus ?? 'running';
+  }
   if (!result) return 'running';
   if (isError) return 'failed';
-  const lowerName = toolName.toLowerCase();
   const requestedBackground = toolInput.run_in_background === true
     || toolInput.runInBackground === true
     || toolInput.background === true
@@ -297,9 +341,6 @@ function deriveStatus(
   // done. Completion is updated later from task_notification on the same id.
   if (isAsyncSubagentLaunchResult(result)) return 'running';
   if (/SUBAGENT_CANCELLED|cancelled|canceled/i.test(result)) return 'cancelled';
-  if (lowerName === 'codex_subagent' || lowerName === 'collabagenttoolcall') {
-    return codexCollabStatus(result) ?? 'running';
-  }
   // Managed routes always return CodePilot's structured terminal envelope.
   // A plain tool result is therefore not proof that the child finished; it is
   // most commonly a launch/transport receipt. Fail closed as running instead
@@ -313,31 +354,80 @@ function deriveStatus(
   return 'completed';
 }
 
-function codexCollabStatus(result: string): SubagentRunStatus | undefined {
-  try {
-    const parsed = JSON.parse(result) as { status?: unknown };
-    if (typeof parsed.status !== 'string') return undefined;
-    switch (parsed.status.toLowerCase()) {
-      case 'completed':
-        return 'completed';
-      case 'failed':
-      case 'error':
-        return 'failed';
-      case 'cancelled':
-      case 'canceled':
-      case 'stopped':
-        return 'cancelled';
-      case 'interrupted':
-        return 'partial';
-      case 'inprogress':
-      case 'in_progress':
-      case 'running':
-      case 'pending':
-      case 'starting':
-        return 'running';
-      default:
-        return undefined;
+interface CodexCollabFacts {
+  childId: string;
+  model?: string;
+  prompt?: string;
+  status?: SubagentRunStatus;
+  currentActivity?: string;
+}
+
+function parseCodexCollabFacts(
+  input: Record<string, unknown>,
+  result: string | undefined,
+): CodexCollabFacts | undefined {
+  const output = parseJsonRecord(result);
+  const records = output ? [output, input] : [input];
+  const ids = new Set<string>();
+  for (const record of records) {
+    for (const id of stringArray(record.receiverThreadIds)) {
+      if (id.trim()) ids.add(id.trim());
     }
+    for (const id of Object.keys(asRecord(record.agentsStates))) {
+      if (id.trim()) ids.add(id.trim());
+    }
+  }
+  if (ids.size !== 1) return undefined;
+  const childId = ids.values().next().value;
+  if (!childId) return undefined;
+
+  let state: Record<string, unknown> | undefined;
+  for (const record of records) {
+    const candidate = asRecord(asRecord(record.agentsStates)[childId]);
+    if (Object.keys(candidate).length > 0) {
+      state = candidate;
+      break;
+    }
+  }
+
+  return {
+    childId,
+    model: firstString(...records.map(record => record.model)),
+    prompt: firstString(...records.map(record => record.prompt)),
+    status: codexChildStateStatus(firstString(state?.status)),
+    currentActivity: firstString(state?.message),
+  };
+}
+
+function codexChildStateStatus(status: string | undefined): SubagentRunStatus | undefined {
+  switch (status?.toLowerCase()) {
+    case 'completed':
+      return 'completed';
+    case 'errored':
+    case 'error':
+    case 'notfound':
+    case 'not_found':
+      return 'failed';
+    case 'shutdown':
+    case 'cancelled':
+    case 'canceled':
+      return 'cancelled';
+    case 'interrupted':
+      return 'partial';
+    case 'pendinginit':
+    case 'pending_init':
+    case 'running':
+      return 'running';
+    default:
+      return undefined;
+  }
+}
+
+function parseJsonRecord(value: string | undefined): Record<string, unknown> | undefined {
+  if (!value) return undefined;
+  try {
+    const parsed = JSON.parse(value);
+    return asRecord(parsed);
   } catch {
     return undefined;
   }

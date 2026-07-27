@@ -433,6 +433,17 @@ interface ThreadItemLike {
   // generic tool-call status / args
   status?: string;
   arguments?: unknown;
+  // collabAgentToolCall. `id` is the collaboration action id, not a
+  // child-thread id. A child identity exists only when app-server reports it
+  // through receiverThreadIds / agentsStates.
+  receiverThreadIds?: ReadonlyArray<string>;
+  agentsStates?: Readonly<Record<string, {
+    status?: string;
+    message?: string | null;
+  }>>;
+  model?: string | null;
+  prompt?: string | null;
+  reasoningEffort?: string | null;
   // mcpToolCall failure detail (McpToolCallError = { message })
   error?: { message?: string } | null;
   // fileChange
@@ -572,7 +583,7 @@ function translateItemStarted(
   if (item.type === 'collabAgentToolCall') {
     return makeToolStarted(base, {
       toolId: id,
-      name: 'codex_subagent',
+      name: codexCollabToolName(item),
       input: item,
     });
   }
@@ -636,10 +647,17 @@ function translateItemCompleted(
     });
   }
   if (item.type === 'collabAgentToolCall') {
+    const isChildLifecycle = getSingleCodexCollabChildId(item) !== undefined;
     return makeToolCompleted(base, {
       toolId: id,
       output: item,
-      error: item.status === 'failed' ? 'Codex sub-agent failed' : undefined,
+      // The outer status belongs to this collaboration action (wait,
+      // sendInput, closeAgent…), not to the child. Only anonymous/ambiguous
+      // collaboration activities surface that action failure as a tool error.
+      // Identity-bound child status is derived separately from agentsStates.
+      error: !isChildLifecycle && item.status === 'failed'
+        ? `Codex collaboration ${item.tool || 'action'} failed`
+        : undefined,
     });
   }
   // mcpToolCall — Phase 8 Phase 3. Surface the MCP tool error into the
@@ -669,6 +687,34 @@ function translateItemCompleted(
     });
   }
   return null;
+}
+
+/**
+ * Native Codex collaboration notifications describe collaboration actions,
+ * not necessarily child lifecycles. The app-server item id is per action, so
+ * treating every wait/sendInput/close call as a child creates duplicate
+ * capsules. Only an item that proves exactly one child identity may enter the
+ * Sub-agent rendering path. Anonymous or multi-child actions stay ordinary
+ * collaboration tool activity.
+ */
+function codexCollabToolName(item: ThreadItemLike): string {
+  if (getSingleCodexCollabChildId(item)) return 'codex_subagent';
+  const action = typeof item.tool === 'string' && item.tool.trim()
+    ? item.tool.trim().replace(/([a-z0-9])([A-Z])/g, '$1_$2').toLowerCase()
+    : 'action';
+  return `codex_collaboration_${action}`;
+}
+
+function getSingleCodexCollabChildId(item: ThreadItemLike): string | undefined {
+  const ids = new Set<string>();
+  for (const id of item.receiverThreadIds || []) {
+    if (typeof id === 'string' && id.trim()) ids.add(id.trim());
+  }
+  for (const id of Object.keys(item.agentsStates || {})) {
+    if (id.trim()) ids.add(id.trim());
+  }
+  if (ids.size !== 1) return undefined;
+  return ids.values().next().value;
 }
 
 /**

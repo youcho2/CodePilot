@@ -9,6 +9,7 @@ import type { Query } from '@anthropic-ai/claude-agent-sdk';
 interface ConversationEntry {
   query: Query;
   lockId?: string;
+  abortController?: AbortController;
 }
 
 // V2: entry shape changed from `Query` to `{query, lockId?}`. Bump the
@@ -27,8 +28,9 @@ export function registerConversation(
   sessionId: string,
   conversation: Query,
   lockId?: string,
+  abortController?: AbortController,
 ): void {
-  getMap().set(sessionId, { query: conversation, lockId });
+  getMap().set(sessionId, { query: conversation, lockId, abortController });
 }
 
 /**
@@ -48,4 +50,21 @@ export function unregisterConversation(sessionId: string, lockId?: string): void
 
 export function getConversation(sessionId: string): Query | undefined {
   return getMap().get(sessionId)?.query;
+}
+
+/**
+ * Abort the application-owned turn signal for the currently registered SDK
+ * conversation. Query.interrupt() alone asks Claude Code to stop its parent
+ * turn, but the SDK can discard an in-flight MCP handler without resolving its
+ * Promise. Managed children listen to this controller, so abort it explicitly
+ * before sending the graceful Query interrupt.
+ */
+export function abortConversation(
+  sessionId: string,
+  reason: unknown = new Error('Parent turn stopped by the user.'),
+): boolean {
+  const controller = getMap().get(sessionId)?.abortController;
+  if (!controller) return false;
+  if (!controller.signal.aborted) controller.abort(reason);
+  return true;
 }

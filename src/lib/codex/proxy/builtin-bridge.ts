@@ -39,10 +39,9 @@
  *     `<dataDir>/.codepilot-media`.
  *
  * Codex Account guardrail: the unified adapter must NOT mount this
- * bridge when `targetProviderId === 'codex_account'` (Codex Account
- * routes natively without the proxy injection at all — the proxy's
- * `adapter.ts` virtual-provider routingBug check fires earlier, but
- * we keep the bridge-side check too as defence in depth).
+ * proxy bridge when `targetProviderId === 'codex_account'`. The
+ * app-server runtime may separately expose the managed Sub-agent
+ * pair as native dynamic tools; see `createCodexAccountManagedTools`.
  */
 
 import { tool, jsonSchema, type ToolSet } from 'ai';
@@ -154,6 +153,17 @@ export interface BuiltinBridgeResult {
   readonly skippedReason?: string;
 }
 
+export interface CodexDynamicFunctionToolSpec {
+  type: 'function';
+  name: string;
+  description: string;
+  inputSchema: JSONSchema7;
+}
+
+export interface CodexAccountManagedBridgeResult extends BuiltinBridgeResult {
+  readonly dynamicTools: readonly CodexDynamicFunctionToolSpec[];
+}
+
 /**
  * Build the CodePilot built-in tool bridge for the current turn.
  *
@@ -215,6 +225,62 @@ export function createCodePilotBuiltinTools(
   };
 }
 
+/**
+ * Exact cross-model delegation for a Codex Account parent.
+ *
+ * Codex's native collaboration workers inherit the parent model route. These
+ * two tools instead reuse CodePilot's durable managed workflow while leaving
+ * Codex Account auth, native tools, MCP, sandbox, and approvals untouched.
+ */
+export function createCodexAccountManagedTools(
+  opts: BuiltinBridgeOpts,
+  dependencies: BuiltinBridgeDependencies = {},
+): CodexAccountManagedBridgeResult {
+  if (!opts.sessionId) {
+    return {
+      ...emptyResult('Empty sessionId — Codex Account managed tools require an auditable parent session.'),
+      dynamicTools: [],
+    };
+  }
+  if (opts.targetProviderId !== 'codex_account') {
+    return {
+      ...emptyResult('Non-Codex-Account target — proxy bridge owns managed delegation.'),
+      dynamicTools: [],
+    };
+  }
+  if (isManagedCodexSubagentSession(opts.sessionId)) {
+    return {
+      ...emptyResult('Managed Codex Sub Agent — delegation depth is limited to one.'),
+      dynamicTools: [],
+    };
+  }
+
+  const routes = (dependencies.listSubagentRoutes || listSubagentRoutes)('codex_runtime');
+  const tools: ToolSet = {
+    codepilot_spawn_subagent: buildCodexSubagentTool(opts, dependencies),
+    codepilot_list_subagent_runs: buildCodexSubagentRunsTool(opts),
+  };
+  return {
+    tools,
+    toolNames: new Set(Object.keys(tools)),
+    systemPrompt: '',
+    dynamicTools: [
+      {
+        type: 'function',
+        name: 'codepilot_spawn_subagent',
+        description: buildCodexSubagentDescription(routes),
+        inputSchema: CODEX_SUBAGENT_INPUT_SCHEMA,
+      },
+      {
+        type: 'function',
+        name: 'codepilot_list_subagent_runs',
+        description: CODEX_SUBAGENT_RUNS_DESCRIPTION,
+        inputSchema: CODEX_SUBAGENT_RUNS_INPUT_SCHEMA,
+      },
+    ],
+  };
+}
+
 // ─────────────────────────────────────────────────────────────────────
 // Managed Codex Sub Agent — a separate app-server thread with an exact
 // CodePilot Provider + Model route. This is intentionally not Codex's native
@@ -236,6 +302,55 @@ interface CodexSubagentToolInput {
   depends_on?: string[];
 }
 
+const CODEX_SUBAGENT_INPUT_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['prompt', 'provider_id', 'model'],
+  properties: {
+    prompt: { type: 'string', description: 'Complete one-shot task for the Sub Agent.' },
+    agent_name: { type: 'string', description: 'Short user-facing name, such as Researcher or Copywriter.' },
+    provider_id: { type: 'string', description: 'Exact provider_id from the route list.' },
+    model: { type: 'string', description: 'Exact model selector from the route list.' },
+    logical_run_id: {
+      type: 'string',
+      maxLength: 160,
+      description: 'Opaque logical task id for a retry. Omit on first attempt; reuse logicalRunId returned by a failed attempt.',
+    },
+    workflow_id: {
+      type: 'string',
+      maxLength: 160,
+      description: 'Stable workflow id shared by all children in one dependency graph. Provide together with task_key.',
+    },
+    task_key: {
+      type: 'string',
+      maxLength: 160,
+      description: 'Unique task key within workflow_id, such as research, copy, or implementation.',
+    },
+    depends_on: {
+      type: 'array',
+      items: { type: 'string', maxLength: 160 },
+      description: 'Upstream task_key values in the same workflow. CodePilot waits for their durable completed results and injects them into this child prompt.',
+    },
+  },
+} satisfies JSONSchema7;
+
+function buildCodexSubagentDescription(
+  routes: ReturnType<typeof listSubagentRoutes>,
+): string {
+  return [
+    'Run a one-shot Sub Agent in a separate Codex Runtime thread using an exact CodePilot Provider + Model route.',
+    'The child inherits the parent Codex native tools, MCP servers, sandbox, approval policy, and tool-call lifecycle. CodePilot only changes the child Provider + Model route.',
+    'For any user-requested CodePilot Provider or non-parent model, this managed tool is the only Sub Agent entry point. Call it directly once per requested child; never wrap it with Codex native multi_agent_v1/spawn_agent/wait_agent workers, because native workers inherit the parent route.',
+    'If the requested route is unavailable or the call fails, stop and ask the user what to do; never silently fall back to the parent model or another route.',
+    'This is a blocking foreground call: it returns only after the child reaches a terminal status, and no background child remains running afterward. Consume terminal=true plus the returned status/body immediately; never describe it as merely submitted, launched, queued, or still processing.',
+    'For dependent children in one plan, use one workflow_id, a unique task_key per child, and depends_on upstream task keys; emit upstream task calls before their dependents. CodePilot waits durably and injects upstream terminal results before the downstream child thread starts. Undeclared wait-only placeholders are rejected.',
+    'Omit logical_run_id on a first attempt. If retrying the same logical task, reuse the exact logicalRunId returned by the failed attempt; never reuse it for different work.',
+    'CodePilot rejects logical_run_id reuse while the prior attempt is running/settling or after it completed successfully. Wait/read the existing run, or omit the ID for genuinely new work.',
+    'Never claim success after a failed status and never substitute another route.',
+    getSubagentRoutingGuidance('codex_runtime', routes),
+  ].join('\n');
+}
+
 function buildCodexSubagentTool(
   opts: BuiltinBridgeOpts,
   dependencies: BuiltinBridgeDependencies,
@@ -247,50 +362,9 @@ function buildCodexSubagentTool(
     || resolveSubagentDependencies;
   const runChild = dependencies.runCodexSubagent || runCodexSubagent;
   const routes = loadSubagentRoutes('codex_runtime');
-  const guidance = getSubagentRoutingGuidance('codex_runtime', routes);
   return tool({
-    description: [
-      'Run a one-shot Sub Agent in a separate Codex Runtime thread using an exact CodePilot Provider + Model route.',
-      'The child inherits the parent Codex native tools, MCP servers, sandbox, approval policy, and tool-call lifecycle. CodePilot only changes the child Provider + Model route.',
-      'In a CodePilot-proxied Codex thread this is the only Sub Agent entry point. Call it directly once per requested child; never wrap it with Codex native multi_agent_v1/spawn_agent/wait_agent workers, because those inherit a different model route and create duplicate Agent runs.',
-      'This is a blocking foreground call: it returns only after the child reaches a terminal status, and no background child remains running afterward. Consume terminal=true plus the returned status/body immediately; never describe it as merely submitted, launched, queued, or still processing.',
-      'For dependent children in one plan, use one workflow_id, a unique task_key per child, and depends_on upstream task keys; emit upstream task calls before their dependents. CodePilot waits durably and injects upstream terminal results before the downstream child thread starts. Undeclared wait-only placeholders are rejected.',
-      'Omit logical_run_id on a first attempt. If retrying the same logical task, reuse the exact logicalRunId returned by the failed attempt; never reuse it for different work.',
-      'CodePilot rejects logical_run_id reuse while the prior attempt is running/settling or after it completed successfully. Wait/read the existing run, or omit the ID for genuinely new work.',
-      'Never claim success after a failed status and never substitute another route.',
-      guidance,
-    ].join('\n'),
-    inputSchema: jsonSchema({
-      type: 'object',
-      additionalProperties: false,
-      required: ['prompt', 'provider_id', 'model'],
-      properties: {
-        prompt: { type: 'string', description: 'Complete one-shot task for the Sub Agent.' },
-        agent_name: { type: 'string', description: 'Short user-facing name, such as Researcher or Copywriter.' },
-        provider_id: { type: 'string', description: 'Exact provider_id from the route list.' },
-        model: { type: 'string', description: 'Exact model selector from the route list.' },
-        logical_run_id: {
-          type: 'string',
-          maxLength: 160,
-          description: 'Opaque logical task id for a retry. Omit on first attempt; reuse logicalRunId returned by a failed attempt.',
-        },
-        workflow_id: {
-          type: 'string',
-          maxLength: 160,
-          description: 'Stable workflow id shared by all children in one dependency graph. Provide together with task_key.',
-        },
-        task_key: {
-          type: 'string',
-          maxLength: 160,
-          description: 'Unique task key within workflow_id, such as research, copy, or implementation.',
-        },
-        depends_on: {
-          type: 'array',
-          items: { type: 'string', maxLength: 160 },
-          description: 'Upstream task_key values in the same workflow. CodePilot waits for their durable completed results and injects them into this child prompt.',
-        },
-      },
-    } satisfies JSONSchema7),
+    description: buildCodexSubagentDescription(routes),
+    inputSchema: jsonSchema(CODEX_SUBAGENT_INPUT_SCHEMA),
     execute: async (rawInput: unknown, execOptions) => {
       const input = rawInput as CodexSubagentToolInput;
       return runWithEvents(opts, 'codepilot_spawn_subagent', input, async (runId) => {
@@ -365,14 +439,29 @@ function buildCodexSubagentTool(
         ): HandlerSuccess => {
           try {
             markSubagentRunSettling(runId);
-            settleSubagentRun(runId, {
+            const settled = settleSubagentRun(runId, {
               status,
               resultText: text,
               effectiveProviderId: effectiveModel ? route?.providerId : undefined,
               effectiveModel,
               error,
             });
-            return { text: encode(status, text, error, effectiveModel) };
+            // A parent Stop/recovery barrier may have won the terminal race
+            // while the child transport was still unwinding. Never encode the
+            // late handler outcome over the immutable durable fact.
+            const factStatus = settled?.terminal === 1
+              ? settled.status as Exclude<SubagentExecutionStatus, 'running'>
+              : status;
+            const factText = settled?.terminal === 1 ? settled.result_text : text;
+            const factModel = settled?.effective_model || effectiveModel;
+            return {
+              text: encode(
+                factStatus,
+                factText,
+                factStatus === status ? error : undefined,
+                factModel,
+              ),
+            };
           } catch (persistenceError) {
             const detail = persistenceError instanceof Error
               ? persistenceError.message
@@ -510,35 +599,39 @@ function buildCodexSubagentTool(
           if (remaining > 0) activeCodexDelegations.set(opts.sessionId, remaining);
           else activeCodexDelegations.delete(opts.sessionId);
         }
-      });
+      }, execOptions.toolCallId);
     },
   });
 }
 
+const CODEX_SUBAGENT_RUNS_DESCRIPTION = [
+  'Read the authoritative durable lifecycle records for managed Sub Agents in this CodePilot chat session.',
+  'Use this before answering any progress/status/history question. Never infer Sub-agent progress from update_plan, assistant narration, elapsed time, or workspace files.',
+  'terminal=false means running. terminal=true means the child has stopped; status then distinguishes completed, partial, failed, cancelled, or timed_out.',
+].join('\n');
+
+const CODEX_SUBAGENT_RUNS_INPUT_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    limit: {
+      type: 'integer',
+      minimum: 1,
+      maximum: 20,
+      description: 'Maximum number of newest physical runs to return. Defaults to 10.',
+    },
+    include_results: {
+      type: 'boolean',
+      description: 'Include bounded child result excerpts when true. Defaults to false.',
+    },
+  },
+} satisfies JSONSchema7;
+
 function buildCodexSubagentRunsTool(opts: BuiltinBridgeOpts) {
   return tool({
-    description: [
-      'Read the authoritative durable lifecycle records for managed Sub Agents in this CodePilot chat session.',
-      'Use this before answering any progress/status/history question. Never infer Sub-agent progress from update_plan, assistant narration, elapsed time, or workspace files.',
-      'terminal=false means running. terminal=true means the child has stopped; status then distinguishes completed, partial, failed, cancelled, or timed_out.',
-    ].join('\n'),
-    inputSchema: jsonSchema({
-      type: 'object',
-      additionalProperties: false,
-      properties: {
-        limit: {
-          type: 'integer',
-          minimum: 1,
-          maximum: 20,
-          description: 'Maximum number of newest physical runs to return. Defaults to 10.',
-        },
-        include_results: {
-          type: 'boolean',
-          description: 'Include bounded child result excerpts when true. Defaults to false.',
-        },
-      },
-    } satisfies JSONSchema7),
-    execute: async (rawInput: unknown) => {
+    description: CODEX_SUBAGENT_RUNS_DESCRIPTION,
+    inputSchema: jsonSchema(CODEX_SUBAGENT_RUNS_INPUT_SCHEMA),
+    execute: async (rawInput: unknown, execOptions) => {
       const input = rawInput as { limit?: number; include_results?: boolean };
       return runWithEvents(opts, 'codepilot_list_subagent_runs', input, async () => ({
         text: formatSubagentRunToolResult({
@@ -546,7 +639,7 @@ function buildCodexSubagentRunsTool(opts: BuiltinBridgeOpts) {
           limit: input.limit,
           includeResults: input.include_results === true,
         }),
-      }));
+      }), execOptions.toolCallId);
     },
   });
 }
@@ -590,8 +683,9 @@ async function runWithEvents(
   toolName: string,
   input: unknown,
   handler: (toolId: string) => Promise<HandlerSuccess>,
+  toolIdOverride?: string,
 ): Promise<string> {
-  const toolId = `cpb_${crypto.randomBytes(8).toString('hex')}`;
+  const toolId = toolIdOverride?.trim() || `cpb_${crypto.randomBytes(8).toString('hex')}`;
   const base = { runtimeId: 'codex_runtime' as const, sessionId: opts.sessionId };
   emitBuiltinEvent(opts.sessionId, makeToolStarted(base, { toolId, name: toolName, input }));
   try {

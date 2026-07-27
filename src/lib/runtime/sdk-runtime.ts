@@ -12,7 +12,7 @@
 import type { AgentRuntime, RuntimeStreamOptions } from './types';
 import type { ClaudeStreamOptions } from '@/types';
 import { findClaudeBinary } from '../platform';
-import { getConversation } from '../conversation-registry';
+import { abortConversation, getConversation } from '../conversation-registry';
 import { getSetting, getActiveProvider } from '../db';
 // Static import. Used to be `require('../claude-client')` for lazy loading,
 // but Turbopack's ESM↔CJS interop returns the module wrapped in `{ default: ... }`
@@ -75,6 +75,7 @@ export const sdkRuntime: AgentRuntime = {
   },
 
   interrupt(sessionId: string): void {
+    abortConversation(sessionId);
     const conversation = getConversation(sessionId);
     if (conversation) {
       conversation.interrupt();

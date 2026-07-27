@@ -10,6 +10,52 @@ export interface CodexInterruptClient {
   ): Promise<unknown>;
 }
 
+interface CodexTurnAbortOwner {
+  readonly token: object;
+  readonly controller: AbortController;
+}
+
+const CODEX_TURN_ABORT_REGISTRY_KEY = Symbol.for(
+  'codepilot.codex.turn-abort-registry.v1',
+);
+
+function getCodexTurnAbortRegistry(): Map<string, CodexTurnAbortOwner> {
+  const holder = globalThis as typeof globalThis & {
+    [CODEX_TURN_ABORT_REGISTRY_KEY]?: Map<string, CodexTurnAbortOwner>;
+  };
+  if (!holder[CODEX_TURN_ABORT_REGISTRY_KEY]) {
+    holder[CODEX_TURN_ABORT_REGISTRY_KEY] = new Map();
+  }
+  return holder[CODEX_TURN_ABORT_REGISTRY_KEY]!;
+}
+
+/**
+ * HMR-safe ownership of the chat route's AbortController. `turn/interrupt`
+ * alone cannot cancel a parent blocked inside a dynamic-tool server request;
+ * aborting this controller also reaches the managed child signal and the chat
+ * route's lock watchdog.
+ */
+export function registerCodexTurnAbortController(
+  sessionId: string,
+  controller: AbortController,
+): () => void {
+  const registry = getCodexTurnAbortRegistry();
+  const owner: CodexTurnAbortOwner = { token: {}, controller };
+  registry.set(sessionId, owner);
+  return () => {
+    if (registry.get(sessionId) === owner) registry.delete(sessionId);
+  };
+}
+
+export function abortCodexTurnController(sessionId: string): boolean {
+  const owner = getCodexTurnAbortRegistry().get(sessionId);
+  if (!owner) return false;
+  if (!owner.controller.signal.aborted) {
+    owner.controller.abort(new Error('CodePilot parent turn interrupted'));
+  }
+  return true;
+}
+
 /**
  * Small testable owner for the transient turn identity required by
  * turn/interrupt. Runtime wiring still decides when a turn starts/ends, while

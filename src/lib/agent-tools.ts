@@ -72,6 +72,11 @@ export interface AssembleToolsOptions {
   workingDirectory?: string;
   prompt?: string;
   mode?: string;
+  /** Runtime lifecycle identity. Kept separate from permission wrapping so
+   * full_access can skip approval checks without losing persistence/cancel. */
+  sessionId?: string;
+  emitSSE?: (event: { type: string; data: string }) => void;
+  abortSignal?: AbortSignal;
   /** Provider ID (passed to sub-agents for inheritance) */
   providerId?: string;
   /** Session provider ID (passed to sub-agents for inheritance) */
@@ -113,14 +118,14 @@ export function assembleTools(options: AssembleToolsOptions = {}): AssembleTools
   // (Agent tool) can inherit the parent's permission mode and SSE emitter.
   const builtinTools = createBuiltinTools({
     workingDirectory: cwd,
-    sessionId: options.permissionContext?.sessionId,
+    sessionId: options.sessionId ?? options.permissionContext?.sessionId,
     providerId: options.providerId,
     sessionProviderId: options.sessionProviderId,
     model: options.model,
     permissionMode: options.permissionContext?.permissionMode ?? options.mode,
     bypassPermissions: options.bypassPermissions,
-    emitSSE: options.permissionContext?.emitSSE,
-    abortSignal: options.permissionContext?.abortSignal,
+    emitSSE: options.emitSSE ?? options.permissionContext?.emitSSE,
+    abortSignal: options.abortSignal ?? options.permissionContext?.abortSignal,
     parentCallScene: options.callScene,
   });
 
@@ -136,7 +141,7 @@ export function assembleTools(options: AssembleToolsOptions = {}): AssembleTools
     const { tools: safeMcpTools, systemPrompts } = getBuiltinTools({
       workspacePath: cwd,
       prompt: options.prompt,
-      sessionId: options.permissionContext?.sessionId,
+      sessionId: options.sessionId ?? options.permissionContext?.sessionId,
       safeReadOnly: true,
     });
     const safeBuiltin = Object.fromEntries(
@@ -154,7 +159,7 @@ export function assembleTools(options: AssembleToolsOptions = {}): AssembleTools
   const { tools: builtinMcpTools, systemPrompts } = getBuiltinTools({
     workspacePath: cwd,
     prompt: options.prompt,
-    sessionId: options.permissionContext?.sessionId,
+    sessionId: options.sessionId ?? options.permissionContext?.sessionId,
   });
 
   // External MCP tools from connected servers

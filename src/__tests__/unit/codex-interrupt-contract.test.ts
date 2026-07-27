@@ -25,7 +25,9 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import {
+  abortCodexTurnController,
   CodexTurnInterruptRegistry,
+  registerCodexTurnAbortController,
   requestCodexTurnInterrupt,
 } from '../../lib/codex/turn-interrupt-registry';
 
@@ -110,6 +112,21 @@ describe('Codex turn registry — Slice 3 contract', () => {
 });
 
 describe('Codex interrupt — shared helper (single implementation)', () => {
+  it('aborts the HMR-safe parent controller and protects a newer owner from stale cleanup', () => {
+    const oldController = new AbortController();
+    const cleanupOld = registerCodexTurnAbortController('session-abort', oldController);
+    const currentController = new AbortController();
+    const cleanupCurrent = registerCodexTurnAbortController('session-abort', currentController);
+
+    cleanupOld();
+    assert.equal(abortCodexTurnController('session-abort'), true);
+    assert.equal(oldController.signal.aborted, false);
+    assert.equal(currentController.signal.aborted, true);
+
+    cleanupCurrent();
+    assert.equal(abortCodexTurnController('session-abort'), false);
+  });
+
   it('sends the exact app-server turn/interrupt payload', async () => {
     const calls: Array<{ method: string; params: unknown }> = [];
     await requestCodexTurnInterrupt({
@@ -148,13 +165,18 @@ describe('Codex interrupt — shared helper (single implementation)', () => {
   it('public interrupt(sessionId) delegates to the shared helper (no duplicated impl)', () => {
     assert.match(
       runtimeSrc,
-      /interrupt\(sessionId: string\): void \{[\s\S]{0,800}issueCodexTurnInterrupt\(sessionId, 'route'\)/,
+      /interrupt\(sessionId: string\): void \{[\s\S]{0,900}abortCodexTurnController\(sessionId\);[\s\S]{0,200}issueCodexTurnInterrupt\(sessionId, 'route'\)/,
     );
   });
 });
 
 describe('Codex stream() honors the abort signal (codex-stop-recovery Phase 2)', () => {
   it('reads options.abortController.signal and bails before turn/start if already aborted', () => {
+    assert.match(
+      runtimeSrc,
+      /registerCodexTurnAbortController\(\s*sessionId,\s*options\.abortController/,
+      'Stop must be able to abort a parent blocked inside a dynamic tool request',
+    );
     assert.match(
       runtimeSrc,
       /const parentAbortSignal = options\.abortController\?\.signal;/,

@@ -684,7 +684,7 @@ export function createClaudeSubagentMcpServer(options: ClaudeSubagentMcpOptions)
           ) => {
             try {
               markSubagentRunSettling(permissionAttribution.agentRunId);
-              settleSubagentRun(permissionAttribution.agentRunId, {
+              const settled = settleSubagentRun(permissionAttribution.agentRunId, {
                 status,
                 resultText: text,
                 effectiveProviderId: route.providerId,
@@ -692,11 +692,16 @@ export function createClaudeSubagentMcpServer(options: ClaudeSubagentMcpOptions)
                 error,
                 usage,
               });
+              const factStatus = settled?.terminal === 1
+                ? settled.status as ClaudeSubagentTerminalStatus
+                : status;
+              const factText = settled?.terminal === 1 ? settled.result_text : text;
+              const factEffectiveModel = settled?.effective_model || effectiveModel;
               return {
                 content: [{
                   type: 'text' as const,
                   text: encodeSubagentStatusResult({
-                    status,
+                    status: factStatus,
                     phase: 'terminal',
                     taskId: permissionAttribution.agentRunId,
                     logicalRunId,
@@ -705,14 +710,14 @@ export function createClaudeSubagentMcpServer(options: ClaudeSubagentMcpOptions)
                     agentName: displayAgent,
                     requestedProviderId: route.providerId,
                     requestedModel: route.modelId,
-                    effectiveProviderId: route.providerId,
-                    ...(effectiveModel ? { effectiveModel } : {}),
-                    model: effectiveModel || route.displayName,
+                    effectiveProviderId: settled?.effective_provider_id || route.providerId,
+                    ...(factEffectiveModel ? { effectiveModel: factEffectiveModel } : {}),
+                    model: factEffectiveModel || route.displayName,
                     runtime: 'claude_code',
-                    error,
-                  }, text),
+                    error: factStatus === status ? error : undefined,
+                  }, factText),
                 }],
-                ...(status === 'completed' ? {} : { isError: true }),
+                ...(factStatus === 'completed' ? {} : { isError: true }),
               };
             } catch (persistenceError) {
               const detail = persistenceError instanceof Error

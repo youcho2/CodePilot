@@ -226,11 +226,13 @@ describe('subagent_runs durable lifecycle', () => {
 
     const checkpoint = db.checkpointSubagentRun('run-terminal-once', {
       resultText: 'Two sources collected so far.',
+      effectiveProviderId: 'provider-qwen',
       effectiveModel: 'Qwen 3.8 Max Preview',
     });
     assert.equal(checkpoint?.status, 'running');
     assert.equal(checkpoint?.terminal, 0);
     assert.equal(checkpoint?.result_text, 'Two sources collected so far.');
+    assert.equal(checkpoint?.effective_provider_id, 'provider-qwen');
     assert.equal(checkpoint?.effective_model, 'Qwen 3.8 Max Preview');
     assert.equal(checkpoint?.completed_at, '');
 
@@ -286,10 +288,12 @@ describe('subagent_runs durable lifecycle', () => {
 
     const lateCheckpoint = db.checkpointSubagentRun('run-terminal-once', {
       resultText: 'Late running output must not replace the terminal result.',
+      effectiveProviderId: 'wrong-late-provider',
       effectiveModel: 'Wrong late model',
     });
     assert.equal(lateCheckpoint?.status, 'completed');
     assert.equal(lateCheckpoint?.result_text, 'Verified race summary.');
+    assert.equal(lateCheckpoint?.effective_provider_id, 'provider-qwen');
     assert.equal(lateCheckpoint?.effective_model, 'Qwen 3.8 Max Preview');
 
     assert.equal(db.deleteSession(session.id), true);
@@ -1116,5 +1120,72 @@ describe('subagent_runs durable lifecycle', () => {
     } finally {
       unregister();
     }
+  });
+
+  it('returns the immutable cancelled fact when a Codex child reports completed after Stop', async () => {
+    const session = createParentSession('bridge late completion after stop');
+    const route = {
+      providerId: 'provider-late',
+      providerName: 'Late Provider',
+      id: 'late-model',
+      displayName: 'Late Model',
+    };
+    let announceChildStarted!: () => void;
+    const childStarted = new Promise<void>((resolve) => {
+      announceChildStarted = resolve;
+    });
+    let finishChild!: () => void;
+    const childCanFinish = new Promise<void>((resolve) => {
+      finishChild = resolve;
+    });
+    const bridge = createCodePilotBuiltinTools({
+      sessionId: session.id,
+      targetProviderId: 'provider-parent',
+      workspacePath: tempDataDir,
+    }, {
+      listSubagentRoutes: () => [route],
+      runCodexSubagent: async () => {
+        announceChildStarted();
+        await childCanFinish;
+        return {
+          status: 'completed',
+          text: 'late completed transport result',
+          effectiveModel: route.id,
+        };
+      },
+    });
+    const spawn = bridge.tools.codepilot_spawn_subagent as {
+      execute?: (
+        input: unknown,
+        options: { toolCallId: string; messages: unknown[]; context?: unknown },
+      ) => Promise<unknown>;
+    };
+    assert.ok(spawn.execute);
+
+    const execution = spawn.execute!({
+      prompt: 'Stay active until Stop wins.',
+      agent_name: 'Late Worker',
+      provider_id: route.providerId,
+      model: route.id,
+    }, {
+      toolCallId: 'late-wire-call',
+      messages: [],
+      context: undefined,
+    });
+    await childStarted;
+    assert.deepEqual(
+      db.cancelSubagentRunsForParentSession(session.id),
+      ['late-wire-call'],
+    );
+    finishChild();
+
+    const parsed = parseSubagentStatusResult(String(await execution));
+    assert.equal(parsed.metadata?.status, 'cancelled');
+    assert.equal(parsed.metadata?.phase, 'terminal');
+    assert.doesNotMatch(parsed.body || '', /late completed transport result/);
+
+    const run = db.getSubagentRun('late-wire-call');
+    assert.equal(run?.status, 'cancelled');
+    assert.equal(run?.terminal, 1);
   });
 });

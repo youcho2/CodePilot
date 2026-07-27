@@ -2502,6 +2502,10 @@ export function checkpointSubagentRun(
   const db = getDb();
   const now = subagentTimestamp();
   const hasResultText = input.resultText !== undefined;
+  const hasEffectiveProviderId = (
+    input.effectiveProviderId !== undefined
+    && input.effectiveProviderId !== ''
+  );
   const hasEffectiveModel = input.effectiveModel !== undefined && input.effectiveModel !== '';
   const activity = input.currentActivity?.slice(0, 500) || '';
   const resultText = hasResultText
@@ -2511,6 +2515,7 @@ export function checkpointSubagentRun(
     UPDATE subagent_runs
     SET
       result_text = CASE WHEN ? = 1 THEN ? ELSE result_text END,
+      effective_provider_id = CASE WHEN ? = 1 THEN ? ELSE effective_provider_id END,
       effective_model = CASE WHEN ? = 1 THEN ? ELSE effective_model END,
       current_activity = CASE WHEN ? = '' THEN current_activity ELSE ? END,
       last_activity_at = ?,
@@ -2519,6 +2524,8 @@ export function checkpointSubagentRun(
   `).run(
     hasResultText ? 1 : 0,
     resultText,
+    hasEffectiveProviderId ? 1 : 0,
+    input.effectiveProviderId || '',
     hasEffectiveModel ? 1 : 0,
     input.effectiveModel || '',
     activity,
@@ -2607,6 +2614,78 @@ export function settleSubagentRun(
     }, now);
   })();
   return getSubagentRun(id);
+}
+
+/**
+ * Converge every foreground child owned by a stopped parent session.
+ *
+ * Runtime adapters still receive their AbortSignal so subprocesses/turns can
+ * stop naturally. This database barrier is independent of whether a parent
+ * SDK waits for an in-flight tool handler to return: once Stop is accepted,
+ * no child capsule may remain queued/running indefinitely.
+ */
+export function cancelSubagentRunsForParentSession(
+  parentSessionId: string,
+  message = 'Parent turn stopped before the Sub-agent reached a terminal result.',
+): string[] {
+  const db = getDb();
+  const cancelledIds: string[] = [];
+  const now = subagentTimestamp();
+  db.transaction(() => {
+    const runs = db.prepare(`
+      SELECT *
+      FROM subagent_runs
+      WHERE parent_session_id = ? AND terminal = 0
+      ORDER BY created_at ASC, rowid ASC
+    `).all(parentSessionId) as SubagentRunRecord[];
+    for (const run of runs) {
+      const resultText = run.result_text || message;
+      const structured = buildDelegatedAgentResult(
+        run,
+        {
+          status: 'cancelled',
+          resultText,
+        },
+        resultText,
+        run.effective_provider_id,
+        run.effective_model,
+      );
+      const updated = db.prepare(`
+        UPDATE subagent_runs
+        SET status = 'cancelled',
+            phase = 'terminal',
+            dispatch_state = 'terminal',
+            terminal = 1,
+            result_text = ?,
+            result_json = ?,
+            current_activity = 'Sub-agent cancelled',
+            last_activity_at = ?,
+            error_json = '',
+            updated_at = ?,
+            completed_at = ?
+        WHERE id = ? AND terminal = 0
+      `).run(
+        resultText,
+        JSON.stringify(structured),
+        now,
+        now,
+        now,
+        run.id,
+      );
+      if (updated.changes !== 1) continue;
+      cancelledIds.push(run.id);
+      insertSubagentRunEvent(db, run, {
+        type: 'terminal',
+        activity: 'Sub-agent cancelled',
+        payload: {
+          status: 'cancelled',
+          source: 'parent_stop',
+        },
+        coalesceKey: 'terminal',
+      }, now);
+    }
+  })();
+  return cancelledIds;
 }
 
 // ==========================================

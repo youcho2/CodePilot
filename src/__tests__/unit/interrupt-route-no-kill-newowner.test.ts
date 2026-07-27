@@ -28,8 +28,10 @@ import { POST } from '@/app/api/chat/interrupt/route';
 import {
   createSession,
   acquireSessionLock,
+  getSubagentRun,
   isLockOwner,
   setSessionRuntimeStatus,
+  startSubagentRun,
 } from '@/lib/db';
 import {
   registerConversation,
@@ -96,19 +98,61 @@ describe('/api/chat/interrupt — authoritative runtime_status, lock-safe', () =
 
     // A live SDK conversation for this session (the newer turn's stream).
     let interrupted = 0;
+    const controller = new AbortController();
     const sentinel = { interrupt: async () => { interrupted += 1; } } as unknown as Query;
-    registerConversation(sid, sentinel, newLock);
+    registerConversation(sid, sentinel, newLock, controller);
 
     await callInterrupt(sid);
 
     // Fan-out reached the conversation (best-effort graceful interrupt)...
     assert.equal(interrupted, 1, 'SDK conversation.interrupt() should be invoked by the fan-out');
+    assert.equal(controller.signal.aborted, true, 'Stop must also abort the application-owned child signal');
     // ...but the registry entry must remain — interrupt never unregisters, so the
     // newer turn keeps its live stream handle.
     assert.equal(getConversation(sid), sentinel, 'interrupt must not evict the conversation registry entry');
     assert.equal(isLockOwner(sid, newLock), true, 'lock still owned by the newer turn');
 
     unregisterConversation(sid, newLock); // cleanup for worker-shared registry
+  });
+
+  it('converges executing and queued child rows to durable cancelled facts', async () => {
+    const sid = createSession('interrupt-cancels-managed-children').id;
+    startSubagentRun({
+      id: 'interrupt-running-child',
+      parentSessionId: sid,
+      runtime: 'claude_code',
+      toolName: 'codepilot_spawn_subagent',
+      agentName: 'Running child',
+      providerId: 'provider-qwen',
+      requestedModel: 'qwen-max',
+      workflowId: 'interrupt-workflow',
+      taskKey: 'upstream',
+      prompt: 'Run the long task.',
+    });
+    startSubagentRun({
+      id: 'interrupt-queued-child',
+      parentSessionId: sid,
+      runtime: 'claude_code',
+      toolName: 'codepilot_spawn_subagent',
+      agentName: 'Queued child',
+      providerId: 'provider-deepseek',
+      requestedModel: 'deepseek-pro',
+      workflowId: 'interrupt-workflow',
+      taskKey: 'downstream',
+      dependencyTaskKeys: ['upstream'],
+      prompt: 'Use the upstream handoff.',
+    });
+
+    await callInterrupt(sid);
+
+    for (const id of ['interrupt-running-child', 'interrupt-queued-child']) {
+      const run = getSubagentRun(id);
+      assert.equal(run?.status, 'cancelled');
+      assert.equal(run?.phase, 'terminal');
+      assert.equal(run?.dispatch_state, 'terminal');
+      assert.equal(run?.terminal, 1);
+      assert.match(run?.result_text || '', /Parent turn stopped/);
+    }
   });
 
   it('interrupt does not clobber the runtime_status either (read-only, no settle)', async () => {

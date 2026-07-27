@@ -35,7 +35,7 @@ import { SubagentCard } from './SubagentCard';
 import {
   buildSubagentRunView,
   collapseLogicalSubagentRuns,
-  isSubagentToolName,
+  isSubagentToolCall,
 } from '@/lib/subagent-view';
 
 interface ImageGenRequest {
@@ -651,7 +651,9 @@ export const MessageItem = memo(function MessageItem({ message, sessionId, isAss
     const pairedTools = pairTools(tools);
     return { text, pairedTools, thinking };
   }, [message.content]);
-  const subagentTools = pairedTools.filter(tool => isSubagentToolName(tool.name));
+  const subagentTools = pairedTools.filter(tool => (
+    isSubagentToolCall(tool.name, tool.input, tool.result)
+  ));
   const subagentRuns = collapseLogicalSubagentRuns(subagentTools.map(tool => buildSubagentRunView({
     id: tool.id,
     name: tool.name,
@@ -659,7 +661,9 @@ export const MessageItem = memo(function MessageItem({ message, sessionId, isAss
     result: tool.result,
     isError: tool.isError,
   })));
-  const regularTools = pairedTools.filter(tool => !isSubagentToolName(tool.name));
+  const regularTools = pairedTools.filter(tool => (
+    !isSubagentToolCall(tool.name, tool.input, tool.result)
+  ));
 
   // Memoize file attachment parsing
   const { files, displayText } = useMemo(() => {

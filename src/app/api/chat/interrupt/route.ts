@@ -54,13 +54,22 @@ export async function POST(request: NextRequest) {
 
     // Try SDK runtime (conversation.interrupt)
     try {
-      const { getConversation } = await import('@/lib/conversation-registry');
+      const { abortConversation, getConversation } = await import('@/lib/conversation-registry');
+      const signalAborted = abortConversation(sessionId);
       const conversation = getConversation(sessionId);
       if (conversation) {
         await conversation.interrupt();
-        attempted.sdk = true;
       }
+      attempted.sdk = signalAborted || Boolean(conversation);
     } catch { /* SDK not available */ }
+
+    // Durable child state must converge even when a Runtime abandons an
+    // in-flight tool handler after Stop. Runtime aborts above own process/turn
+    // termination; this barrier owns the user-visible/auditable run facts.
+    try {
+      const { cancelSubagentRunsForParentSession } = await import('@/lib/db');
+      cancelSubagentRunsForParentSession(sessionId);
+    } catch { /* DB unavailable — runtime abort remains best effort */ }
 
     // Diagnostic breadcrumb only — never logs prompt / files / credentials.
     console.debug('[interrupt] fan-out', { sessionId, attempted });

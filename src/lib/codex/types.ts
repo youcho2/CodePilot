@@ -77,6 +77,11 @@ export interface CodexClientInfo {
 
 export interface CodexInitializeCapabilities {
   experimentalApi?: boolean;
+  /** CodePilot does not handle upstream attestation requests. Current
+   * app-server schemas require an explicit boolean when capabilities are
+   * present. */
+  requestAttestation?: boolean;
+  mcpServerOpenaiFormElicitation?: boolean;
   /** Exact method names to suppress for this connection. */
   optOutNotificationMethods?: readonly string[];
 }

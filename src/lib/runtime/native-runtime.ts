@@ -13,9 +13,12 @@ import { syncMcpConnections, disposeAll as disposeMcp } from '../mcp-connection-
 import { isOAuthUsable } from '../openai-oauth-manager';
 import { isXaiOAuthUsable } from '../xai-oauth-manager';
 import { wrapController } from '../safe-stream';
-
-// Track active AbortControllers for interrupt support
-const activeControllers = new Map<string, AbortController>();
+import {
+  disposeNativeTurns,
+  interruptNativeTurn,
+  registerNativeTurnController,
+  unregisterNativeTurnController,
+} from './native-turn-registry';
 
 export const nativeRuntime: AgentRuntime = {
   id: 'native',
@@ -33,7 +36,7 @@ export const nativeRuntime: AgentRuntime = {
 
     // Create or reuse abort controller
     const abortController = options.abortController || new AbortController();
-    activeControllers.set(options.sessionId, abortController);
+    registerNativeTurnController(options.sessionId, abortController);
 
     const ro = options.runtimeOptions || {};
     const maxSteps = (ro.maxSteps as number) || undefined;
@@ -78,7 +81,7 @@ export const nativeRuntime: AgentRuntime = {
             if (controller.closed) break; // consumer aborted — stop pulling
           }
         } finally {
-          activeControllers.delete(options.sessionId);
+          unregisterNativeTurnController(options.sessionId, abortController);
           controller.close();
         }
       },
@@ -88,11 +91,7 @@ export const nativeRuntime: AgentRuntime = {
   },
 
   interrupt(sessionId: string): void {
-    const controller = activeControllers.get(sessionId);
-    if (controller) {
-      controller.abort();
-      activeControllers.delete(sessionId);
-    }
+    interruptNativeTurn(sessionId);
   },
 
   isAvailable(): boolean {
@@ -117,11 +116,7 @@ export const nativeRuntime: AgentRuntime = {
   },
 
   dispose(): void {
-    // Abort all active sessions
-    for (const controller of activeControllers.values()) {
-      controller.abort();
-    }
-    activeControllers.clear();
+    disposeNativeTurns();
     // Clean up MCP connections
     disposeMcp().catch(() => {});
   },

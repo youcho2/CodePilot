@@ -461,16 +461,17 @@ describe('translateCodexNotification — chat-only item types return null (P2.1 
 });
 
 describe('translateCodexNotification — collabAgentToolCall visibility', () => {
-  it('maps a Codex child start to a dedicated sub-agent tool card', () => {
+  it('keeps an anonymous wait as ordinary collaboration activity, not a child capsule', () => {
     const event = translateCodexNotification(
       'item/started',
       {
         item: {
           type: 'collabAgentToolCall',
-          id: 'child-1',
+          id: 'wait-call-1',
+          tool: 'wait',
           status: 'inProgress',
-          model: 'gpt-5.6',
-          prompt: 'Review this patch',
+          receiverThreadIds: [],
+          agentsStates: {},
         },
         threadId: 't',
         turnId: 'u',
@@ -480,27 +481,103 @@ describe('translateCodexNotification — collabAgentToolCall visibility', () => 
     );
     assert.ok(event);
     if (event.type !== 'tool_started') throw new Error(`expected tool_started, got ${event.type}`);
-    assert.equal(event.name, 'codex_subagent');
-    assert.equal(event.toolId, 'child-1');
+    assert.equal(event.name, 'codex_collaboration_wait');
+    assert.equal(event.toolId, 'wait-call-1');
     assert.deepEqual(event.input, {
       type: 'collabAgentToolCall',
-      id: 'child-1',
+      id: 'wait-call-1',
+      tool: 'wait',
       status: 'inProgress',
-      model: 'gpt-5.6',
-      prompt: 'Review this patch',
+      receiverThreadIds: [],
+      agentsStates: {},
     });
   });
 
-  it('preserves the full Codex child completion payload', () => {
+  it('does not turn fifteen identity-less wait actions into fifteen sub-agent capsules', () => {
+    const names = Array.from({ length: 15 }, (_, index) => {
+      const event = translateCodexNotification(
+        'item/started',
+        {
+          item: {
+            type: 'collabAgentToolCall',
+            id: `wait-call-${index}`,
+            tool: 'wait',
+            status: 'inProgress',
+            receiverThreadIds: [],
+            agentsStates: {},
+          },
+        },
+        ctx,
+      );
+      if (event?.type !== 'tool_started') throw new Error('expected tool_started');
+      return event.name;
+    });
+    assert.equal(names.filter(name => name === 'codex_subagent').length, 0);
+    assert.deepEqual(new Set(names), new Set(['codex_collaboration_wait']));
+  });
+
+  it('maps a collaboration item to a child capsule only with one proven child identity', () => {
+    const event = translateCodexNotification(
+      'item/started',
+      {
+        item: {
+          type: 'collabAgentToolCall',
+          id: 'wait-call-2',
+          tool: 'wait',
+          status: 'inProgress',
+          receiverThreadIds: ['child-thread-1'],
+          agentsStates: {
+            'child-thread-1': { status: 'running', message: 'Reviewing patch' },
+          },
+          model: 'gpt-5.6-sol',
+          prompt: 'Review this patch',
+        },
+      },
+      ctx,
+    );
+    assert.ok(event);
+    if (event.type !== 'tool_started') throw new Error(`expected tool_started, got ${event.type}`);
+    assert.equal(event.name, 'codex_subagent');
+    assert.equal(event.toolId, 'wait-call-2');
+  });
+
+  it('keeps multi-child wait activity out of the single-child capsule path', () => {
+    const event = translateCodexNotification(
+      'item/started',
+      {
+        item: {
+          type: 'collabAgentToolCall',
+          id: 'wait-call-many',
+          tool: 'wait',
+          status: 'inProgress',
+          receiverThreadIds: ['child-1', 'child-2'],
+          agentsStates: {
+            'child-1': { status: 'running' },
+            'child-2': { status: 'completed' },
+          },
+        },
+      },
+      ctx,
+    );
+    assert.ok(event);
+    if (event.type !== 'tool_started') throw new Error(`expected tool_started, got ${event.type}`);
+    assert.equal(event.name, 'codex_collaboration_wait');
+  });
+
+  it('preserves the full identity-bound completion payload without treating action status as child failure', () => {
     const event = translateCodexNotification(
       'item/completed',
       {
         item: {
           type: 'collabAgentToolCall',
-          id: 'child-1',
-          status: 'completed',
-          model: 'gpt-5.6',
-          result: 'Looks good',
+          id: 'wait-call-2',
+          tool: 'wait',
+          status: 'failed',
+          receiverThreadIds: ['child-thread-1'],
+          agentsStates: {
+            'child-thread-1': { status: 'running', message: 'Still reviewing' },
+          },
+          model: 'gpt-5.6-sol',
         },
         threadId: 't',
         turnId: 'u',
@@ -510,8 +587,29 @@ describe('translateCodexNotification — collabAgentToolCall visibility', () => 
     );
     assert.ok(event);
     if (event.type !== 'tool_completed') throw new Error(`expected tool_completed, got ${event.type}`);
-    assert.equal(event.toolId, 'child-1');
-    assert.equal((event.output as { model?: string }).model, 'gpt-5.6');
+    assert.equal(event.toolId, 'wait-call-2');
+    assert.equal((event.output as { model?: string }).model, 'gpt-5.6-sol');
+    assert.equal(event.error, undefined);
+  });
+
+  it('surfaces an anonymous collaboration action failure as a regular tool error', () => {
+    const event = translateCodexNotification(
+      'item/completed',
+      {
+        item: {
+          type: 'collabAgentToolCall',
+          id: 'wait-call-failed',
+          tool: 'wait',
+          status: 'failed',
+          receiverThreadIds: [],
+          agentsStates: {},
+        },
+      },
+      ctx,
+    );
+    assert.ok(event);
+    if (event.type !== 'tool_completed') throw new Error(`expected tool_completed, got ${event.type}`);
+    assert.equal(event.error, 'Codex collaboration wait failed');
   });
 });
 

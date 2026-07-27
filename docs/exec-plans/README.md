@@ -101,7 +101,7 @@
 
 | 文件 | 主题 | 状态 |
 |------|------|------|
-| [active/same-runtime-multi-model-subagents.md](active/same-runtime-multi-model-subagents.md) | **同 Runtime 多模型 Sub-agent MVP**：当前会话模型保持父 Agent；三 Runtime exact Provider+Model child；logical run/attempt、settling、结构化结果与 lifecycle 详情 | 🧪 P0 可信编排 code/tests 完成；真实 Provider/UI 复测、entitlement cache 与 individual cancel 待续 |
+| [active/same-runtime-multi-model-subagents.md](active/same-runtime-multi-model-subagents.md) | **同 Runtime 多模型 Sub-agent MVP**：当前会话模型保持父 Agent；三 Runtime exact Provider+Model child；logical run/attempt、settling、结构化结果与 lifecycle 详情 | ✅ 三 Runtime managed 依赖链 code/tests/smoke 完成；identity-bearing native collab、entitlement cache、individual cancel 与可靠性长尾待续 |
 | [active/qwen-token-plan-and-grok-access.md](active/qwen-token-plan-and-grok-access.md) | **千问 Token Plan 与 Grok 4.5 接入**：把百炼 Coding Plan、千问 Token Plan 个人版/团队版建模为三个稳定套餐，修复同 URL identity 串线并增加交互式使用 gate；xAI 同时接 API Key + Grok 4.5 Responses 和兼容 SuperGrok browser/device OAuth；新增 Phase 7 补齐两类凭据、两种 Runtime 的原生 X Search | 🟡 Phase 0–5 与 0.59.1 发布完成；Phase 6 外部验收部分通过；Phase 7 `x_search` 待实施与真实 entitlement/citation smoke |
 | [active/codebase-health-audit-2026-06.md](active/codebase-health-audit-2026-06.md) | **代码健康审计与修复计划（2026-06）**：6 路并行审计（流式核心 / Codex / DB+API / 前端 / Electron+构建 / 测试覆盖）产出 bug、性能、安全加固、测试补洞四个 Phase；关键发现已现场核验并逐条标注核验状态与验证分层；v2 已按 Codex 静态审查订正 7 处事实偏差与执行边界 | 🔄 Phase A 已完成（A1–A6），B/C/D 待实施（Codex 负责审查/用例设计） |
 | [active/codex-cli-discovery-refresh.md](active/codex-cli-discovery-refresh.md) | **Codex CLI 发现与刷新修复**：适配当前 `ChatGPT.app` 内置 CLI，保留旧 `Codex.app`，修复进程级路径缓存与设置页假刷新，并让实际 selected binary/version 与登录失败可见 | 🟡 production UI、签名 arm64 `.app`/DMG/ZIP 与 packaged Codex status smoke 已完成；仅真实双安装终验待完成 |

@@ -38,6 +38,12 @@ import {
   resolveSubagentDependencies,
   validateSubagentDispatchSpec,
 } from '../subagent-orchestration';
+import {
+  classifyReportedSubagentTaskFailure,
+  explicitlyReportsSubagentTaskFailure,
+  parseReportedSubagentOutcome,
+  SUBAGENT_OUTCOME_INSTRUCTION,
+} from '../reported-subagent-outcome';
 
 const activeDelegations = new Map<string, number>();
 const MAX_CONCURRENT_DELEGATIONS = 2;
@@ -223,6 +229,7 @@ export function createAgentTool(ctx: {
       }
       const logicalRunId = startedRun.logical_run_id;
       const attemptNumber = startedRun.attempt_number;
+      let runtimeStarted = false;
       let runtimeReportedModel: string | undefined;
       const terminalResult = (
         status: Exclude<SubagentExecutionStatus, 'running'>,
@@ -238,16 +245,23 @@ export function createAgentTool(ctx: {
       ): string => {
         try {
           markSubagentRunSettling(agentRunId);
-          settleSubagentRun(agentRunId, {
+          const settled = settleSubagentRun(agentRunId, {
             status,
             resultText: text,
-            effectiveProviderId: route.providerId,
+            effectiveProviderId: runtimeStarted ? route.providerId : undefined,
             effectiveModel: runtimeReportedModel,
             error,
             usage,
           });
+          const factStatus = settled?.terminal === 1
+            ? settled.status as Exclude<SubagentExecutionStatus, 'running'>
+            : status;
+          const factText = settled?.terminal === 1 ? settled.result_text : text;
+          const factEffectiveProvider = settled?.effective_provider_id
+            || (runtimeStarted ? route.providerId : undefined);
+          const factEffectiveModel = settled?.effective_model || runtimeReportedModel;
           return encodeSubagentStatusResult({
-            status,
+            status: factStatus,
             phase: 'terminal',
             taskId: agentRunId,
             logicalRunId,
@@ -256,12 +270,12 @@ export function createAgentTool(ctx: {
             agentName: agentDef.displayName,
             requestedProviderId: route.providerId,
             requestedModel: route.id,
-            effectiveProviderId: route.providerId,
-            effectiveModel: runtimeReportedModel,
+            effectiveProviderId: factEffectiveProvider,
+            effectiveModel: factEffectiveModel,
             model: route.displayName,
             runtime: 'codepilot_runtime',
-            error,
-          }, text);
+            error: factStatus === status ? error : undefined,
+          }, factText);
         } catch (persistenceError) {
           const detail = persistenceError instanceof Error
             ? persistenceError.message
@@ -330,7 +344,12 @@ export function createAgentTool(ctx: {
       // Persist permission rows against the real parent chat session (the DB
       // foreign key), while carrying child identity in the SSE payload so a
       // prompt can be approved/denied for the correct run.
-      const permissionContext = (ctx.parentSessionId && ctx.emitSSE && ctx.permissionMode)
+      const permissionContext = (
+        !ctx.bypassPermissions
+        && ctx.parentSessionId
+        && ctx.emitSSE
+        && ctx.permissionMode
+      )
         ? {
             sessionId: ctx.parentSessionId,
             permissionMode: (ctx.permissionMode || 'normal') as import('../permission-checker').PermissionMode,
@@ -343,6 +362,9 @@ export function createAgentTool(ctx: {
       const { tools: allTools, systemPrompts: childToolPrompts } = assembleTools({
         workingDirectory: ctx.workingDirectory,
         prompt: executionPrompt,
+        sessionId: ctx.parentSessionId,
+        emitSSE: ctx.emitSSE,
+        abortSignal: childAbortController.signal,
         providerId: route.providerId,
         sessionProviderId: route.providerId,
         model: route.id,
@@ -370,7 +392,18 @@ export function createAgentTool(ctx: {
         `Working directory: ${ctx.workingDirectory}`,
         ...childToolPrompts,
         'Use the inherited tools under the parent permission policy. Do not spawn another agent.',
+        'If the task needs a capability or tool that is unavailable or denied, explicitly report that the task failed. Never substitute training knowledge, stale files, or a completed-sounding summary.',
+        SUBAGENT_OUTCOME_INSTRUCTION,
       ].filter(Boolean).join('\n\n');
+
+      // The requested Provider becomes an effective fact only at the point
+      // where this adapter actually starts the child Runtime. A queued child
+      // cancelled during dependency wait must keep effectiveProviderId empty.
+      runtimeStarted = true;
+      checkpointSubagentRun(agentRunId, {
+        effectiveProviderId: route.providerId,
+        currentActivity: 'Starting Sub-agent Runtime',
+      });
 
       // Run sub-agent loop and collect the full response
       const stream = runAgentLoop({
@@ -532,14 +565,34 @@ export function createAgentTool(ctx: {
           usage,
         );
       }
-      const result = textParts.join('') || '(Sub-agent produced no text output)';
+      const reportedOutcome = parseReportedSubagentOutcome(textParts.join(''));
+      const result = reportedOutcome.text || '(Sub-agent produced no text output)';
       const resultText = `${result}\n\nRequested route: ${route.providerName} / ${subagentRouteSelector(route)}${
         runtimeReportedModel ? `\nRuntime-reported model: ${runtimeReportedModel}` : ''
       }`;
+      if (
+        reportedOutcome.status === 'failed'
+        || explicitlyReportsSubagentTaskFailure(result)
+      ) {
+        return terminalResult(
+          'failed',
+          resultText,
+          reportedOutcome.error || classifyReportedSubagentTaskFailure(result),
+          usage,
+        );
+      }
+      if (reportedOutcome.status === 'partial') {
+        return terminalResult(
+          'partial',
+          resultText,
+          reportedOutcome.error || { code: 'RUNTIME_ERROR', retryable: true },
+          usage,
+        );
+      }
       return terminalResult(
-        textParts.length > 0 ? 'completed' : 'failed',
+        reportedOutcome.text ? 'completed' : 'failed',
         resultText,
-        textParts.length > 0
+        reportedOutcome.text
           ? undefined
           : { code: 'EMPTY_RESULT' as const, retryable: true },
         usage,

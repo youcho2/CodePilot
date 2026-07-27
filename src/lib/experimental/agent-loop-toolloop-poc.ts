@@ -149,6 +149,11 @@ export function runToolLoopAgentPoc(options: AgentLoopOptions): ReadableStream<s
             workingDirectory: workingDirectory || process.cwd(),
             prompt,
             mode: permissionMode,
+            sessionId,
+            emitSSE: (event) => {
+              controller.enqueue(formatSSE(event as SSEEvent));
+            },
+            abortSignal: abortController.signal,
             providerId,
             sessionProviderId,
             model: modelOverride || sessionModel,

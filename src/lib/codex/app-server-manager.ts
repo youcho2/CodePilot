@@ -613,6 +613,14 @@ export async function getCodexAppServer(): Promise<ManagedAppServer> {
     const client = new CodexAppServerClient(transport, {
       version,
       title: 'CodePilot',
+      // Native dynamic tools (used by Codex Account exact-route managed
+      // Sub-agents) are rejected at thread/start unless the client opted into
+      // the experimental app-server surface during initialize. Attestation is
+      // intentionally disabled: CodePilot has no handler for that request.
+      capabilities: {
+        experimentalApi: true,
+        requestAttestation: false,
+      },
     });
 
     // Listen for unexpected exit so the cache stays accurate.

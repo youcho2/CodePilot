@@ -21,6 +21,7 @@ import assert from 'node:assert/strict';
 import type { Query } from '@anthropic-ai/claude-agent-sdk';
 
 import {
+  abortConversation,
   registerConversation,
   unregisterConversation,
   getConversation,
@@ -82,6 +83,21 @@ describe('conversation-registry lockId ownership gate', () => {
 
   it('unregister on an unknown session is a safe no-op (no throw)', () => {
     assert.doesNotThrow(() => unregisterConversation('reg-ownership-missing', 'whatever'));
+  });
+
+  it('aborts only the application-owned controller registered with the active turn', () => {
+    const sid = 'reg-ownership-abort-controller';
+    const q = makeSentinelQuery('abortable');
+    const controller = new AbortController();
+    registerConversation(sid, q, 'lock-abort', controller);
+
+    assert.equal(abortConversation(sid, new Error('stop-smoke')), true);
+    assert.equal(controller.signal.aborted, true);
+    assert.match(String(controller.signal.reason), /stop-smoke/);
+    assert.equal(getConversation(sid), q, 'aborting must not evict the live Query handle');
+
+    unregisterConversation(sid, 'lock-abort');
+    assert.equal(abortConversation(sid), false);
   });
 });
 

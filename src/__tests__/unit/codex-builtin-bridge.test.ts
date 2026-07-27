@@ -25,6 +25,7 @@
 import { describe, it, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  createCodexAccountManagedTools,
   createCodePilotBuiltinTools,
   CODEPILOT_BUILTIN_TOOL_NAMES,
 } from '@/lib/codex/proxy/builtin-bridge';
@@ -56,6 +57,29 @@ describe('createCodePilotBuiltinTools — mount + skip', () => {
     });
     assert.equal(Object.keys(bridge.tools).length, 0);
     assert.match(bridge.skippedReason ?? '', /Codex Account/);
+  });
+
+  it('exposes only managed delegation/query as Codex Account dynamic tools', () => {
+    const bridge = createCodexAccountManagedTools({
+      sessionId: 'chat-account-1',
+      targetProviderId: 'codex_account',
+      workspacePath: '/Users/me/proj',
+    });
+    assert.deepEqual(
+      Object.keys(bridge.tools).sort(),
+      ['codepilot_list_subagent_runs', 'codepilot_spawn_subagent'],
+    );
+    assert.deepEqual(
+      bridge.dynamicTools.map((entry) => entry.name).sort(),
+      ['codepilot_list_subagent_runs', 'codepilot_spawn_subagent'],
+    );
+    const spawn = bridge.dynamicTools.find((entry) => entry.name === 'codepilot_spawn_subagent');
+    assert.ok(spawn);
+    assert.deepEqual(spawn.inputSchema.required, ['prompt', 'provider_id', 'model']);
+    assert.match(spawn.description, /native workers inherit the parent route/i);
+    assert.match(spawn.description, /stop and ask the user/i);
+    assert.equal(bridge.tools.codepilot_generate_image, undefined);
+    assert.equal(bridge.tools.codepilot_memory_search, undefined);
   });
 
   it('returns an empty bridge inside a managed child so delegation depth stays one', () => {

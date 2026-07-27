@@ -2201,7 +2201,7 @@ export function streamClaudeSdk(options: ClaudeStreamOptions): ReadableStream<st
           }
         }
 
-        registerConversation(sessionId, conversation, options.lockId);
+        registerConversation(sessionId, conversation, options.lockId, abortController);
 
         // Defer capability capture until first assistant response to avoid
         // competing with first-token latency. Skip entirely if cache is fresh.

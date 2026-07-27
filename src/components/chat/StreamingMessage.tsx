@@ -21,7 +21,7 @@ import { SubagentCard } from './SubagentCard';
 import {
   buildSubagentRunView,
   collapseLogicalSubagentRuns,
-  isSubagentToolName,
+  isSubagentToolCall,
 } from '@/lib/subagent-view';
 
 interface ImageGenRequest {
@@ -315,8 +315,11 @@ export function StreamingMessage({
     [toolUses, toolResultsById]
   );
   const subagentTools = useMemo(
-    () => toolUses.filter(tool => isSubagentToolName(tool.name)),
-    [toolUses],
+    () => toolUses.filter((tool) => {
+      const result = toolResultsById.get(tool.id);
+      return isSubagentToolCall(tool.name, tool.input, result?.content);
+    }),
+    [toolUses, toolResultsById],
   );
   const subagentRuns = useMemo(
     () => collapseLogicalSubagentRuns(subagentTools.map((tool) => {
@@ -332,8 +335,11 @@ export function StreamingMessage({
     [subagentTools, toolResultsById],
   );
   const regularTools = useMemo(
-    () => toolUses.filter(tool => !isSubagentToolName(tool.name)),
-    [toolUses],
+    () => toolUses.filter((tool) => {
+      const result = toolResultsById.get(tool.id);
+      return !isSubagentToolCall(tool.name, tool.input, result?.content);
+    }),
+    [toolUses, toolResultsById],
   );
 
   // Extract a human-readable summary of the running command

@@ -194,14 +194,14 @@ describe('claude-client + agent-tools plumb the context through registration', (
     assert.match(notifyBlock![0], /workingDirectory:\s*options\.workspacePath/);
   });
 
-  it('agent-tools.assembleTools forwards permissionContext.sessionId to getBuiltinTools', () => {
+  it('agent-tools.assembleTools forwards explicit sessionId with permission-context fallback', () => {
     const src = read('lib/agent-tools.ts');
     const callBlock = src.match(/getBuiltinTools\(\s*\{[\s\S]{0,500}?\}\s*\)/);
     assert.ok(callBlock, 'agent-tools.ts must call getBuiltinTools with a context bag.');
     assert.match(
       callBlock![0],
-      /sessionId:\s*options\.permissionContext\?\.sessionId/,
-      'agent-tools must thread permissionContext.sessionId into getBuiltinTools so codepilot_schedule_task gets the right anchor.',
+      /sessionId:\s*options\.sessionId\s*\?\?\s*options\.permissionContext\?\.sessionId/,
+      'agent-tools must prefer the runtime lifecycle sessionId and preserve permissionContext.sessionId as the legacy fallback.',
     );
   });
 });

@@ -242,6 +242,11 @@ export function runAgentLoop(options: AgentLoopOptions): ReadableStream<string> 
             workingDirectory: workingDirectory || process.cwd(),
             prompt,
             mode: permissionMode,
+            sessionId,
+            emitSSE: (event) => {
+              controller.enqueue(formatSSE(event as SSEEvent));
+            },
+            abortSignal: timeoutCtl.signal,
             providerId,
             sessionProviderId,
             model: modelOverride || sessionModel,

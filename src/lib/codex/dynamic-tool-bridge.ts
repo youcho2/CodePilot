@@ -49,6 +49,49 @@ export interface McpToolCallResultLike {
   isError?: boolean;
 }
 
+export interface CodexDynamicToolRoute {
+  forwardMcp: (req: {
+    threadId: string;
+    server: string;
+    tool: string;
+    arguments?: unknown;
+  }) => Promise<McpToolCallResultLike>;
+  localTools?: ReadonlyMap<
+    string,
+    (input: unknown, options: { toolCallId: string; abortSignal?: AbortSignal }) => Promise<unknown>
+  >;
+  abortSignal?: AbortSignal;
+}
+
+const DYNAMIC_TOOL_ROUTE_REGISTRY_KEY = Symbol.for(
+  'codepilot.codex.dynamic-tool-route-registry.v1',
+);
+
+function getDynamicToolRouteRegistry(): Map<string, CodexDynamicToolRoute> {
+  const holder = globalThis as typeof globalThis & {
+    [DYNAMIC_TOOL_ROUTE_REGISTRY_KEY]?: Map<string, CodexDynamicToolRoute>;
+  };
+  if (!holder[DYNAMIC_TOOL_ROUTE_REGISTRY_KEY]) {
+    holder[DYNAMIC_TOOL_ROUTE_REGISTRY_KEY] = new Map();
+  }
+  return holder[DYNAMIC_TOOL_ROUTE_REGISTRY_KEY]!;
+}
+
+/**
+ * Register one live app-server thread. Identity-gated cleanup prevents an old
+ * stream/HMR owner from deleting a newer turn's route for the same thread.
+ */
+export function registerCodexDynamicToolRoute(
+  threadId: string,
+  route: CodexDynamicToolRoute,
+): () => void {
+  const registry = getDynamicToolRouteRegistry();
+  registry.set(threadId, route);
+  return () => {
+    if (registry.get(threadId) === route) registry.delete(threadId);
+  };
+}
+
 function inputText(text: string): DynamicToolCallOutputContentItem {
   return { type: 'inputText', text };
 }
@@ -121,4 +164,93 @@ export async function handleCodexDynamicToolCall(
       ],
     };
   }
+}
+
+function localToolResultToText(result: unknown): string {
+  if (typeof result === 'string') return result;
+  if (result === undefined) return '';
+  try {
+    return JSON.stringify(result);
+  } catch {
+    return String(result);
+  }
+}
+
+/**
+ * Stable process-wide dispatcher for app-server server requests.
+ *
+ * `CodexAppServerClient` permits only one handler per method. A handler
+ * registered independently by every chat causes the newest turn to steal
+ * `item/tool/call` from older live turns. The dispatcher instead resolves by
+ * wire threadId, supporting concurrent parent chats and HMR safely.
+ */
+export async function dispatchCodexDynamicToolCall(
+  params: CodexDynamicToolCallParams,
+): Promise<CodexDynamicToolCallResponse> {
+  const route = getDynamicToolRouteRegistry().get(params.threadId);
+  if (!route) {
+    return {
+      success: false,
+      contentItems: [inputText(
+        `No active CodePilot dynamic-tool owner for Codex thread "${params.threadId}".`,
+      )],
+    };
+  }
+
+  if (params.namespace) {
+    return handleCodexDynamicToolCall(params, route.forwardMcp);
+  }
+
+  const execute = route.localTools?.get(params.tool);
+  if (!execute) {
+    return {
+      success: false,
+      contentItems: [inputText(
+        `Unknown non-namespaced CodePilot dynamic tool "${params.tool || '(none)'}".`,
+      )],
+    };
+  }
+  try {
+    const result = await execute(params.arguments ?? {}, {
+      toolCallId: params.callId,
+      ...(route.abortSignal ? { abortSignal: route.abortSignal } : {}),
+    });
+    return {
+      success: true,
+      contentItems: [inputText(localToolResultToText(result))],
+    };
+  } catch (err) {
+    return {
+      success: false,
+      contentItems: [inputText(
+        `CodePilot dynamic tool call failed: ${err instanceof Error ? err.message : String(err)}`,
+      )],
+    };
+  }
+}
+
+/**
+ * Managed local dynamic tools already emit richer canonical events through
+ * the durable built-in side channel. Suppress the app-server's mirrored
+ * dynamicToolCall lifecycle for those exact names, otherwise one physical
+ * call becomes two tool blocks (and may render duplicate capsules).
+ */
+export function isManagedLocalDynamicToolLifecycle(
+  method: string,
+  params: unknown,
+  managedToolNames: ReadonlySet<string>,
+): boolean {
+  if (method !== 'item/started' && method !== 'item/completed') return false;
+  if (!params || typeof params !== 'object') return false;
+  const item = (params as { item?: unknown }).item;
+  if (!item || typeof item !== 'object') return false;
+  const candidate = item as {
+    type?: unknown;
+    namespace?: unknown;
+    tool?: unknown;
+  };
+  return candidate.type === 'dynamicToolCall'
+    && (candidate.namespace === null || candidate.namespace === undefined)
+    && typeof candidate.tool === 'string'
+    && managedToolNames.has(candidate.tool);
 }

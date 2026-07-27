@@ -12,6 +12,12 @@ import {
 import type { SubagentRoute } from '../subagent-models';
 import type { SubagentExecutionStatus, SubagentStatusError } from '../subagent-status';
 import type { RecordSubagentRunEventInput } from '@/types';
+import {
+  classifyReportedSubagentTaskFailure,
+  explicitlyReportsSubagentTaskFailure,
+  parseReportedSubagentOutcome,
+  SUBAGENT_OUTCOME_INSTRUCTION,
+} from '../reported-subagent-outcome';
 
 export const CODEX_SUBAGENT_SESSION_PREFIX = 'codex-subagent-';
 export const CODEX_SUBAGENT_TIMEOUT_MS = 5 * 60 * 1000;
@@ -155,14 +161,14 @@ export function normalizeCodexSubagentTurn(
   fallbackError?: CodexTurnErrorLike,
 ): CodexSubagentOutcome {
   const rawText = extractFinalAgentText(turn.items) || streamedText.trim();
-  const reported = parseCodexSubagentOutcome(rawText);
+  const reported = parseReportedSubagentOutcome(rawText);
   const text = reported.text;
   if (turn.status === 'completed') {
     if (reported.status === 'failed') {
       return {
         status: 'failed',
         text: text || 'SUBAGENT_REPORTED_FAILURE: the child reported that it could not complete the task.',
-        error: reported.error || classifyReportedTaskFailure(text),
+        error: reported.error || classifyReportedSubagentTaskFailure(text),
       };
     }
     if (reported.status === 'partial') {
@@ -172,11 +178,11 @@ export function normalizeCodexSubagentTurn(
         error: reported.error || { code: 'RUNTIME_ERROR', retryable: true },
       };
     }
-    if (explicitlyReportsTaskFailure(text)) {
+    if (explicitlyReportsSubagentTaskFailure(text)) {
       return {
         status: 'failed',
         text,
-        error: classifyReportedTaskFailure(text),
+        error: classifyReportedSubagentTaskFailure(text),
       };
     }
     if (!text) {
@@ -246,7 +252,7 @@ export async function runCodexSubagent(input: {
       'Use the tools and sandbox inherited from the parent turn. Request approval whenever the inherited Codex policy requires it.',
       'Never spawn another agent or claim access to tools you do not have.',
       'If the task needs live/external information and no corresponding tool is available, explicitly say you cannot complete it. Never substitute training knowledge or stale local files.',
-      'Your final response MUST start with exactly one machine-readable line: __CODEPILOT_SUBAGENT_OUTCOME__{"status":"completed"}, __CODEPILOT_SUBAGENT_OUTCOME__{"status":"partial"}, or __CODEPILOT_SUBAGENT_OUTCOME__{"status":"failed","error":{"code":"CAPABILITY_UNAVAILABLE","retryable":true}}. Choose completed only when the assigned task itself succeeded; finishing your response is not task completion. Put the user-facing result after that line.',
+      SUBAGENT_OUTCOME_INSTRUCTION,
     ].join('\n'),
   };
 
@@ -278,15 +284,23 @@ export async function runCodexSubagent(input: {
       error: { code: 'ROUTE_MISMATCH', retryable: false },
     };
   }
+  const effectiveModel = normalizeCodexSubagentEffectiveModel(
+    started.model,
+    input.route,
+  );
   const threadId = started.thread.id;
   input.onLifecycleEvent?.({
     event: {
       type: 'activity',
       activity: 'Codex child thread initialized',
-      payload: { threadId },
+      payload: {
+        threadId,
+        ...(started.model ? { runtimeReportedModel: started.model } : {}),
+        ...(effectiveModel ? { effectiveModel } : {}),
+      },
       coalesceKey: 'runtime-init',
     },
-    effectiveModel: started.model,
+    effectiveModel,
   });
   let turnId = '';
   let streamedText = '';
@@ -300,7 +314,7 @@ export async function runCodexSubagent(input: {
       if (settled) return;
       settled = true;
       for (const unsubscribe of cleanup.splice(0)) unsubscribe();
-      resolve({ ...outcome, ...(started.model ? { effectiveModel: started.model } : {}) });
+      resolve({ ...outcome, ...(effectiveModel ? { effectiveModel } : {}) });
     };
     const emitPartial = (force = false) => {
       const now = Date.now();
@@ -314,7 +328,7 @@ export async function runCodexSubagent(input: {
           coalesceKey: 'partial-result',
         },
         partialText: streamedText,
-        effectiveModel: started.model,
+        effectiveModel,
       });
     };
     const interrupt = () => {
@@ -344,7 +358,7 @@ export async function runCodexSubagent(input: {
             activity: toolName ? `Running ${toolName}` : 'Codex child item started',
             ...(toolName ? { toolName } : {}),
           },
-          effectiveModel: started.model,
+          effectiveModel,
         });
       } else if (method === 'item/completed' && payload.item) {
         const toolName = codexLifecycleToolName(payload.item);
@@ -354,7 +368,7 @@ export async function runCodexSubagent(input: {
             activity: toolName ? `${toolName} completed` : 'Codex child item completed',
             ...(toolName ? { toolName } : {}),
           },
-          effectiveModel: started.model,
+          effectiveModel,
         });
       } else if (method === 'item/permissions/requestApproval') {
         input.onLifecycleEvent?.({
@@ -362,7 +376,7 @@ export async function runCodexSubagent(input: {
             type: 'permission_requested',
             activity: 'Waiting for Codex permission approval',
           },
-          effectiveModel: started.model,
+          effectiveModel,
         });
       } else if (method === 'error' && payload.willRetry !== true && payload.error) {
         lastError = payload.error;
@@ -428,6 +442,23 @@ export function codexReportedModelMatchesRoute(reportedModel: string, route: Sub
   ].filter((value): value is string => Boolean(value))).has(reported);
 }
 
+/**
+ * Codex-compatible providers may report the protocol selector (`sonnet`) even
+ * when that selector is the verified route for Kimi / GLM / another concrete
+ * model. Keep the raw report in the runtime-init lifecycle payload, but expose
+ * the route display identity to users after the route check succeeds.
+ */
+export function normalizeCodexSubagentEffectiveModel(
+  reportedModel: string | undefined,
+  route: SubagentRoute,
+): string | undefined {
+  const reported = reportedModel?.trim();
+  if (!reported) return undefined;
+  return codexReportedModelMatchesRoute(reported, route)
+    ? route.displayName
+    : reported;
+}
+
 function codexLifecycleToolName(
   item: { type?: unknown; name?: unknown; tool?: unknown },
 ): string | undefined {
@@ -445,119 +476,6 @@ function extractFinalAgentText(items: CodexTurnLike['items']): string {
   const final = [...messages].reverse().find(item => item.phase === 'final_answer')
     || messages[messages.length - 1];
   return final?.text?.trim() || '';
-}
-
-const CODEX_SUBAGENT_OUTCOME_PREFIX = '__CODEPILOT_SUBAGENT_OUTCOME__';
-
-interface CodexReportedSubagentOutcome {
-  status?: 'completed' | 'partial' | 'failed';
-  text: string;
-  error?: SubagentStatusError;
-}
-
-function parseCodexSubagentOutcome(text: string): CodexReportedSubagentOutcome {
-  const trimmed = text.trim();
-  const markerIndex = trimmed.indexOf(CODEX_SUBAGENT_OUTCOME_PREFIX);
-  if (markerIndex === -1) return { text: trimmed };
-  const jsonStart = markerIndex + CODEX_SUBAGENT_OUTCOME_PREFIX.length;
-  const jsonEnd = findJsonObjectEnd(trimmed, jsonStart);
-  if (jsonEnd === -1) return { text: trimmed };
-  const raw = trimmed.slice(jsonStart, jsonEnd);
-  // Some compatible models prepend a sentence before the required marker.
-  // Preserve that user-facing evidence while removing only the machine
-  // marker, rather than silently treating the whole failed run as completed.
-  const body = [
-    trimmed.slice(0, markerIndex).trim(),
-    trimmed.slice(jsonEnd).trim(),
-  ].filter(Boolean).join('\n').trim();
-  try {
-    const parsed = JSON.parse(raw) as {
-      status?: unknown;
-      error?: { code?: unknown; retryable?: unknown };
-    };
-    if (
-      parsed.status !== 'completed'
-      && parsed.status !== 'partial'
-      && parsed.status !== 'failed'
-    ) {
-      return { text: trimmed };
-    }
-    const error = parseReportedStatusError(parsed.error);
-    return {
-      status: parsed.status,
-      text: body,
-      ...(error ? { error } : {}),
-    };
-  } catch {
-    return { text: trimmed };
-  }
-}
-
-function findJsonObjectEnd(text: string, start: number): number {
-  if (text[start] !== '{') return -1;
-  let depth = 0;
-  let inString = false;
-  let escaped = false;
-  for (let index = start; index < text.length; index += 1) {
-    const char = text[index];
-    if (inString) {
-      if (escaped) escaped = false;
-      else if (char === '\\') escaped = true;
-      else if (char === '"') inString = false;
-      continue;
-    }
-    if (char === '"') {
-      inString = true;
-    } else if (char === '{') {
-      depth += 1;
-    } else if (char === '}') {
-      depth -= 1;
-      if (depth === 0) return index + 1;
-    }
-  }
-  return -1;
-}
-
-function parseReportedStatusError(
-  error: { code?: unknown; retryable?: unknown } | undefined,
-): SubagentStatusError | undefined {
-  if (!error) return undefined;
-  const code = error.code;
-  if (
-    code !== 'AUTH_FORBIDDEN'
-    && code !== 'ENTITLEMENT'
-    && code !== 'RATE_LIMITED'
-    && code !== 'MODEL_UNAVAILABLE'
-    && code !== 'ROUTE_MISMATCH'
-    && code !== 'CAPABILITY_UNAVAILABLE'
-    && code !== 'CONCURRENCY_LIMIT'
-    && code !== 'TIMEOUT'
-    && code !== 'MAX_TURNS'
-    && code !== 'MAX_BUDGET'
-    && code !== 'RUNTIME_ERROR'
-    && code !== 'EMPTY_RESULT'
-  ) {
-    return undefined;
-  }
-  return {
-    code,
-    ...(typeof error.retryable === 'boolean' ? { retryable: error.retryable } : {}),
-  };
-}
-
-function explicitlyReportsTaskFailure(text: string): boolean {
-  return /(?:^|\n)\s*(?:\*{0,2}(?:无法完成(?:此|该|这个)?任务|不能完成(?:此|该|这个)?任务|任务无法完成|unable to complete (?:this|the) task|cannot complete (?:this|the) task|could not complete (?:this|the) task)\*{0,2})(?:\s|[:：]|$)/im.test(text)
-    || /\bSUBAGENT_(?:CAPABILITY_UNAVAILABLE|CANNOT_COMPLETE)\b/i.test(text);
-}
-
-function classifyReportedTaskFailure(text: string): SubagentStatusError {
-  if (
-    /(?:network|联网|网络|DNS|tool|工具|browser|浏览器|capabilit|权限|sandbox|沙箱)[\s\S]{0,120}(?:unavailable|不可用|受限|阻断|无法|missing|没有)/i.test(text)
-    || /(?:unavailable|不可用|受限|阻断|无法|missing|没有)[\s\S]{0,120}(?:network|联网|网络|DNS|tool|工具|browser|浏览器|capabilit|权限|sandbox|沙箱)/i.test(text)
-  ) {
-    return { code: 'CAPABILITY_UNAVAILABLE', retryable: true };
-  }
-  return { code: 'RUNTIME_ERROR', retryable: true };
 }
 
 function formatTurnError(error: CodexTurnErrorLike | null | undefined): string {

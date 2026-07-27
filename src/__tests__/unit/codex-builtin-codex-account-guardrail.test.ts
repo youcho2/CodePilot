@@ -21,8 +21,13 @@
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { createCodePilotBuiltinTools } from '@/lib/codex/proxy/builtin-bridge';
+import {
+  createCodePilotBuiltinTools,
+  createCodexAccountManagedTools,
+} from '@/lib/codex/proxy/builtin-bridge';
 import { buildCodexThreadParams } from '@/lib/codex/provider-proxy';
+import fs from 'node:fs';
+import path from 'node:path';
 
 describe('Codex Account guardrails — bridge layer', () => {
   it('createCodePilotBuiltinTools returns empty bridge for codex_account', () => {
@@ -35,6 +40,23 @@ describe('Codex Account guardrails — bridge layer', () => {
     assert.equal(bridge.toolNames.size, 0);
     assert.equal(bridge.systemPrompt, '');
     assert.match(bridge.skippedReason ?? '', /Codex Account/);
+  });
+
+  it('Codex Account dynamic surface adds only exact-route managed delegation', () => {
+    const bridge = createCodexAccountManagedTools({
+      sessionId: 'chat-1',
+      targetProviderId: 'codex_account',
+      workspacePath: '/Users/me/proj',
+    });
+    assert.deepEqual(
+      [...bridge.toolNames].sort(),
+      ['codepilot_list_subagent_runs', 'codepilot_spawn_subagent'],
+    );
+    assert.equal(bridge.dynamicTools.length, 2);
+    assert.ok(
+      bridge.dynamicTools.every((spec) => spec.type === 'function'),
+      'managed tools must use app-server dynamic function calls without proxy injection',
+    );
   });
 
   it('non-codex_account provider gets the full bridge surface (control)', () => {
@@ -64,5 +86,43 @@ describe('Codex Account guardrails — thread params layer (mirror of codex-prox
     assert.equal(params.config, undefined);
     assert.equal(params.cwd, '/Users/me/proj');
     assert.equal(params.model, 'gpt-5.5');
+  });
+
+  it('runtime mounts managed dynamic tools only on thread/start and revisions stale refs', () => {
+    const runtimeSource = fs.readFileSync(
+      path.resolve(__dirname, '../../lib/codex/runtime.ts'),
+      'utf8',
+    );
+    assert.match(runtimeSource, /createCodexAccountManagedTools/);
+    assert.match(
+      runtimeSource,
+      /dynamicTools:\s*codexAccountManagedBridge\.dynamicTools/,
+      'Codex Account start params must contain the exact managed tool declarations',
+    );
+    assert.match(
+      runtimeSource,
+      /codex-account-managed-subagents-v1/,
+      'old Codex Account thread refs must be invalidated once because dynamic tools are start-only',
+    );
+    assert.match(
+      runtimeSource,
+      /'thread\/resume',[\s\S]*threadId:\s*existingRef\.token,[\s\S]*\.\.\.threadParams/,
+      'resume must omit the start-only dynamicTools field',
+    );
+    assert.match(
+      runtimeSource,
+      /Never use native spawn_agent\/multi_agent_v1 as a substitute/,
+      'named Provider/Model delegation must not silently fall back to a native inherited worker',
+    );
+
+    const managerSource = fs.readFileSync(
+      path.resolve(__dirname, '../../lib/codex/app-server-manager.ts'),
+      'utf8',
+    );
+    assert.match(
+      managerSource,
+      /capabilities:\s*\{[\s\S]*experimentalApi:\s*true[\s\S]*requestAttestation:\s*false/,
+      'app-server initialize must opt into dynamicTools while declining unsupported attestation requests',
+    );
   });
 });

@@ -17,18 +17,18 @@
 | 1 | `/chat` 首消息和 `/chat/[id]` 后续消息**各自独立**管理 effort / thinking 状态并都传给 `/api/chat`，不依赖跨 page 共享状态 | page.tsx + ChatView.tsx |
 | 2 | Rewind point 仅对 prompt-level user message（`parent_tool_use_id === null`）发出；autoTrigger / tool_result 不发 | `useSSEStream.ts` |
 | 3 | Capability cache 必须 per-provider（`Map<string, ProviderCapabilityCache>`），所有调用者显式传 providerId | `src/lib/agent-sdk-capabilities.ts` |
-| 4 | `Agent` / `Task` / Codex collab 的 tool_use 与 tool_result 必须保留同一个真实 tool id；历史消息不得改写成 `hist-N` 后丢失 run 归属 | `MessageItem.tsx` + Runtime adapter |
+| 4 | `Agent` / `Task` 的 tool_use 与 tool_result，以及 Codex 原生 collab 的单次 action start/result，必须保留同一个真实 tool id；历史消息不得改写成 `hist-N` 后丢失归属。Codex collab action id 不是 child thread id，不能拿来充当 Sub-agent identity | `MessageItem.tsx` + Runtime adapter |
 | 5 | 子 Agent 在 streaming 与历史两条渲染链都必须从普通 `ToolActionsGroup` 分流；普通工具仍维持原折叠行为 | `StreamingMessage.tsx` + `MessageItem.tsx` |
-| 6 | requested model 与 effective model 是两个事实；只有 Runtime 返回真实 breadcrumb 时才填 effective，缺失时不得拿 requested 冒充 | `subagent-view.ts` + Runtime adapter |
+| 6 | requested model、Runtime-reported selector 与用户可见 effective model 是三个可区分的事实；只有 Runtime 返回真实 breadcrumb 时才填 effective，缺失时不得拿 requested 冒充。若 `sonnet` 等协议槽位已经通过 exact route 校验，应向用户显示 route 的具体模型名（如 Kimi for Coding），同时把原始 selector 保存在 lifecycle/provenance 中；真正 mismatch 不得被归一化掩盖 | `subagent-view.ts` + Runtime adapter |
 | 7 | 三条 managed Runtime 的每个 physical child 都必须写入 `subagent_runs` 生命周期事实；Claude/Native 的用户可见 transcript 仍从已持久化 chat tool blocks 重建，Codex bridge call/result 被 proxy 抑制时则以该表为跨回合事实源。Workspace Sidebar 不把 prompt/result 再复制到 localStorage | Runtime child adapter + `workspace-sidebar.ts` + `db.ts` |
 | 8 | Claude background Agent 的 `async_launched` 只是运行回执；只有 `task_notification` 的 completed/failed/stopped 才能写终态，同 tool id last-wins 且终态不可被乱序回执覆盖 | `claude-client.ts` + `subagent-status.ts` |
 | 9 | 子 Agent 卡片在父输出之后渲染，随正文向下滚动；首轮 `/chat` 在 session 创建后立即绑定真实 sessionId，并允许 Details 拉起 Workspace Sidebar | `StreamingMessage.tsx` + `MessageItem.tsx` + `AppShell.tsx` + `chat/page.tsx` |
 | 10 | Claude managed child 的 SDK `subtype=success` 只表示协议拿到 result；`is_error=true` 或 `api_error_status` 失败必须进入 failed。maxTurns / timeout 分别进入 partial / timed_out，错误正文不能把状态抬成 completed | `claude-subagent-mcp.ts` + `subagent-status.ts` |
-| 11 | 普通 `tool_result` / spawn acknowledgement 不是子 Agent 终态。managed child 只有 CodePilot 结构化 `status + terminal=true` 才能完成；Codex child 的 app-server `turn.status=completed` 只证明回合结束，任务结果还必须读取 child 的结构化 outcome；显式“无法完成”与 completed 声明冲突时 fail closed。Codex 原生 collab 读取 payload.status；显式 background input 在 terminal lifecycle 前保持 running | `codex/subagent.ts` + `subagent-status.ts` + `subagent-view.ts` |
+| 11 | 普通 `tool_result` / spawn acknowledgement 不是子 Agent 终态。managed child 只有 CodePilot 结构化 `status + terminal=true` 才能完成；Codex child 的 app-server `turn.status=completed` 只证明回合结束，任务结果还必须读取 child 的结构化 outcome；显式“无法完成”与 completed 声明冲突时 fail closed。Codex 原生 collab 的顶层 `payload.status` 只表示 wait/sendInput 等 action 的状态；只有 `receiverThreadIds / agentsStates` 精确证明一个 child 时才渲染胶囊，并只以该 child 的 `agentsStates` 判 lifecycle。匿名或多 child action 留在普通协作工具活动；显式 background input 在 terminal lifecycle 前保持 running | `codex/event-mapper.ts` + `codex/subagent.ts` + `subagent-status.ts` + `subagent-view.ts` |
 | 12 | CodePilot / Claude / Codex managed spawn 都必须在调用 child 前创建 durable running row；持久化失败则不启动 child；只有第一次结构化 terminal 可收口。Codex UI toolId = DB runId，后续回合状态来自 `subagent_runs`，不得从 `update_plan`、正文、耗时或工作区文件推断 | Runtime child adapter + `subagent-run-context.ts` + `db.ts` |
 | 13 | Assistant 流不能等 SSE 完整关闭后才首次落库。首个有效 text/thinking/tool block 创建 `streaming` checkpoint，后续增量更新同一 message id，终态原位收口；进程重启只把遗留 `streaming` 行改成 `interrupted`。刷新后的历史 UI 轮询该行到终态，不得把 checkpoint 当完成或插入重复回复 | `chat-collect-stream-response.ts` + `db.ts` + `ChatView.tsx` + `MessageItem.tsx` |
 | 14 | managed child 的权限 request 与 timeout resolved 事件必须携带同一 `agentRunId` / `childSessionId`；request 另带用户可见 `agentName`。PermissionPrompt 必须显示发起者，不能把 child 写入审批伪装成父 Agent 请求 | `claude-subagent-mcp.ts` + `claude-client.ts` + `permission-registry.ts` + `PermissionPrompt.tsx` |
-| 15 | Renderer 切换聊天、刷新或 fetch transport 断开只表示客户端 detach，不能取消 server-owned Runtime/collector；只有显式 Stop 调用 `/api/chat/interrupt` 才能向父/child abort 传播。首轮 `/chat` 的 Stop 也必须先发 interrupt，再终止本地 fetch。Codex managed delegation 必须把父 turn 的同一 AbortSignal 同时用于 dependency wait 与 child execution；proxy transport signal 只能合并为 fallback，不能取代父 Stop source。组合信号必须兼容仓库 Node 18+ 开发基线，不能裸依赖 `AbortSignal.any` | `api/chat/route.ts` + `chat/page.tsx` + `ChatView.tsx` + `codex/runtime.ts` + `codex/subagent.ts` + `codex/proxy/builtin-bridge.ts` |
+| 15 | Renderer 切换聊天、刷新或 fetch transport 断开只表示客户端 detach，不能取消 server-owned Runtime/collector；只有显式 Stop 调用 `/api/chat/interrupt` 才能向父/child abort 传播。首轮 `/chat` 的 Stop 也必须先发 interrupt，再终止本地 fetch。Codex managed delegation 必须把父 turn 的同一 AbortSignal 同时用于 dependency wait 与 child execution；proxy transport signal 只能合并为 fallback，不能取代父 Stop source。Codex Account 的动态工具可能阻塞在 app-server 的 `item/tool/call` 上，因此 Stop 必须同时 abort 进程内父 turn controller 并发送 `turn/interrupt`；只做后者会让本地 child 继续运行。组合信号必须兼容仓库 Node 18+ 开发基线，不能裸依赖 `AbortSignal.any` | `api/chat/route.ts` + `chat/page.tsx` + `ChatView.tsx` + `codex/runtime.ts` + `codex/turn-interrupt-registry.ts` + `codex/subagent.ts` + `codex/proxy/builtin-bridge.ts` |
 | 16 | Claude managed child 的 timeout 必须区分可续期 idle deadline 与不可续期 hard cap；任何 SDK activity 都续期 idle。运行中 assistant 正文/effective model 必须 bounded checkpoint 到仍为 `terminal=0` 的 run，timeout/cancel 保留部分正文，terminal 后迟到 checkpoint 不得覆盖终态 | `claude-subagent-mcp.ts` + `db.ts` |
 | 17 | 事实/研究 child handoff 必须让 source URL 与 claim 同行；无来源的精确日期、数字、排名和引语不得升格成已验证事实。失败 child 后由父 Agent 接管时，最终说明必须区分 child 失败与 parent 产物 | `claude-subagent-mcp.ts` routing/tool/system contract |
 | 18 | Sub-agent 的用户任务 identity 是 logical run，不是 tool call。显式 retry 复用 `logical_run_id`，物理调用使用新的 attempt id/number；聊天胶囊和父进展快照只展示最新 attempt 的一个 logical task，详情保留全部 attempt | Runtime child adapter + `subagent-view.ts` + `subagent-run-context.ts` |
@@ -37,6 +37,7 @@
 | 21 | Claude managed MCP 的 SDK tool-use id 必须成为 durable physical attempt id；首次调用可把它作为默认 opaque logical id，显式 retry 则保留旧 logical id + 新 tool-use/attempt id。运行中 transcript、权限归属与详情查询不得各造一套 UUID | `claude-client.ts` + `claude-subagent-mcp.ts` + `SubagentCard.tsx` |
 | 22 | Claude managed child 的超时 owner 是 child 内部可续期 idle deadline + hard cap；父回合通用 tool timeout 不得在 300 秒整 abort managed spawn。详情 API 的 404/5xx/网络异常先做有界快速探测，随后进入低频冷却恢复；不得永久每秒请求，也不得因首次 transient error 永久吞掉真实 terminal run。404 可标 missing，transient 只能是 unknown；stream Error 必须先序列化后写日志，不能只留下 `{}` | `claude-client.ts` + `claude-stream-diagnostics.ts` + `subagent-detail-probe.ts` + `SubagentCard.tsx` |
 | 23 | managed tool_use 到达不等于 Agent run 已接受。胶囊只为 durable `subagent_runs` row 展示；生产渲染链传入的 transcript `run` view 本身不是 durable evidence，必须由 session-scoped details API 200 证明。workflow dependency accepted 后显示 queued，只有 app-side handoff compiler 注入上游 terminal result 并切 dispatch_state=executing 后才显示运行中。schema/initial-route/capability 预检失败不得制造幽灵胶囊或占用 workflow task key | `subagent-orchestration.ts` + `subagent-view.ts` + `SubagentCard.tsx` + `codex/proxy/builtin-bridge.ts` |
+| 24 | Codex Account 有两条明确分离的委派通道：用户指定 CodePilot Provider / Model 时，只能通过 app-server `dynamicTools` 暴露的 managed `codepilot_spawn_subagent` 精确路由并落 durable fact；Codex 原生 `spawn_agent` 只表示继承父 Codex route 的 native worker，不能冒充指定模型。动态工具仅在 `thread/start` 注册，initialize 必须声明 `experimentalApi`，旧 thread 由 feature fingerprint 切到新 thread；每个真实 Codex thread 使用独立 dispatcher route，不能用进程级单 handler 互相抢占。managed local tool 的 app-server mirror lifecycle 必须抑制，聊天只能出现一次调用/结果；最终 wire result 必须重读 terminal-immutable durable row，晚到的 child completion 不得覆盖先发生的取消 | `codex/runtime.ts` + `codex/app-server-manager.ts` + `codex/dynamic-tool-bridge.ts` + `codex/proxy/builtin-bridge.ts` + `db.ts` |
 
 ## 关键文件 + 责任
 
@@ -58,6 +59,9 @@
 | `src/lib/claude-subagent-mcp.ts` | Claude managed child durable lifecycle |
 | `src/lib/claude-stream-diagnostics.ts` | Claude stream error 的可序列化诊断事实 |
 | `src/lib/codex/proxy/builtin-bridge.ts` | Codex managed child durable lifecycle |
+| `src/lib/codex/dynamic-tool-bridge.ts` | Codex Account app-server dynamic tool 的 per-thread 路由、managed local lifecycle 去重 |
+| `src/lib/codex/turn-interrupt-registry.ts` | Codex 父 turn AbortController 的 HMR-safe 所有权与显式 Stop 传播 |
+| `src/lib/codex/app-server-manager.ts` | Codex initialize capabilities；dynamic tools 所需 experimental API 声明 |
 | `src/lib/chat-collect-stream-response.ts` | assistant checkpoint 增量写入、owner gate、同 id 终态收口 |
 | `src/components/chat/PermissionPrompt.tsx` | child permission attribution 展示 |
 
@@ -74,6 +78,7 @@
 - [ ] 新会话首轮的详情交互必须在 `/chat` streaming 期间可打开，不得等重定向后才挂载侧栏
 - [ ] 改 Claude managed child 终态时必须覆盖 `success + is_error`、maxTurns、timeout；禁止按“有 result 文本”推断完成
 - [ ] 改 Agent 状态时覆盖 managed plain receipt、background input、Codex inProgress/completed；禁止恢复“任意非错误 tool_result = completed”
+- [ ] 改 Codex 原生 collab 映射时使用真实协议 fixture（`tool + receiverThreadIds + agentsStates`）：匿名/multi-child wait 不得生成 Sub-agent 胶囊，outer action completed/failed 不得改写 child 终态
 - [ ] 改 Codex child 归一化时覆盖 structured completed/partial/failed、completed 标记与“无法完成”正文冲突、以及无 marker 的旧 child 失败措辞
 - [ ] 改任一 managed child adapter 时确认调用 Provider 前已创建 `subagent_runs.running`，所有 terminal 分支只收口一次；持久化失败必须不启动 child
 - [ ] 改 assistant persistence 时覆盖刷新中途 checkpoint、同 id terminal、真正进程重启 interrupted、live process 重复 DB init 不误中断、stale owner 不落新内容
@@ -83,10 +88,13 @@
 - [ ] 改研究/写作委派提示词时保留 source→claim 与 parent fallback provenance，不允许无来源精确事实或失败 child 冒领父产物
 - [ ] 改 retry/胶囊聚合时覆盖一个 logical run 多 attempt、latest-attempt 父快照、详情完整 attempt/event；不能按 Agent 名称去重
 - [ ] 改 effective route 时覆盖 Runtime reported alias 正例与真实 mismatch 反例；不得把 requested 值回填成 effective
+- [ ] 改 Codex model report 时覆盖协议 selector → route displayName、raw report lifecycle breadcrumb、真实 mismatch 保持原值并 fail-closed
 - [ ] 改完成态时覆盖 settling 非终态、structured result/provenance 与 terminal event durable 后才完成
 - [ ] 改 Claude managed MCP 接线时覆盖 PreToolUse tool-use id → physical attempt 的 one-shot 关联、首次 logical id、显式 retry 新 attempt；详情不得用无法命中 DB 的临时 ID 无限轮询
 - [ ] 改父工具 timeout 时确认 managed spawn 被排除，child 的 idle renewal / hard cap 仍各自有效；错误日志必须保留 message/code/cause
 - [ ] 改 managed tool 渲染或依赖编排时覆盖：无 durable row 不显示、queued 与 executing 分离、上游失败时下游 Provider 未启动、下游实际 prompt 含上游 durable result
+- [ ] 改 Codex Account dynamic tool 时覆盖：initialize `experimentalApi`、`thread/start.dynamicTools`、旧 thread fingerprint、不同 thread 并发路由、local lifecycle 去重、Stop 同时 abort parent controller + `turn/interrupt`
+- [ ] 改 terminal settle wrapper 时覆盖“durable cancelled 之后 handler 晚到 completed”：wire、DB 与胶囊都必须保持 cancelled
 
 ## 常见坑
 
@@ -99,6 +107,11 @@
 - 不要相信父模型写出的“已提交/仍在后台处理”。CodePilot managed Agent 是 blocking foreground：工具返回时 child 已终止，不存在稍后自行回报；UI 只认结构化 lifecycle 事实。
 - 不要把 Codex bridge side-channel 当 durable transcript；它只服务当前 SSE。跨回合必须读取 `subagent_runs`，且 child prompt/result 不得直接进入 system instructions。
 - 不要把 Codex `turn.status=completed` 当作任务成功。它也会包住“网络不可用，无法完成任务”的正常 final answer；必须消费 child outcome contract，并对明确失败正文做兼容性兜底。
+- 不要把 Codex 原生 `collabAgentToolCall.id` 或顶层 `status` 当 child identity / child status。真实协议可能只上报多次匿名 `wait`，而 spawn 完全不进入客户端 notification；此时宁可显示普通协作活动或零胶囊，也不能制造一批 “Codex worker 已完成”。
+- 不要让 Codex Account 在用户指定 Qwen / DeepSeek / Kimi 等 CodePilot route 时自行改用 native `spawn_agent`。native worker 继承 Codex 父 route；精确 Provider+Model 必须走 managed dynamic tool，路由不可用就结构化失败并询问用户。
+- 不要把 Codex app-server 的动态工具 dispatcher 保存成单个进程级可替换 callback；并发聊天会互相偷走路由。dispatcher 必须按真实 Codex thread id 查找 client/context，并在相同 owner 清理时才注销。
+- 不要同时转发 managed dynamic tool 的本地 side-channel lifecycle 与 app-server mirror lifecycle；同一次调用会出现两个 tool_use / tool_result。managed local tool 只保留一个事实流。
+- 不要假设 `turn/interrupt` 会打断正在等待本地 `item/tool/call` 的执行。Codex Account Stop 还必须 abort 该父 turn 的进程内 controller；terminal wrapper随后必须以 immutable durable record 为准。
 - 不要只在 SSE `done` 后 `addMessage`。页面刷新、renderer 重载或 dev 进程重启会让整个 Assistant 回复和 Sub-agent tool blocks 从历史消失；必须先 checkpoint，再原位收口。
 - 不要把 renderer fetch 的断连当成用户 Stop。页面切换会自然 abort 客户端请求，但 server collector 应继续完成并持久化；取消权必须来自显式 `/api/chat/interrupt`。
 - 不要假设 schema 模块初始化等于真正的进程启动；Next route/module duplication 会在活进程中重复执行初始化，restart recovery 必须由独立的进程 owner 守门。
@@ -107,6 +120,7 @@
 - 不要只在 child terminal 时写 result；长任务超时、取消或进程退出后，running checkpoint 是唯一可恢复的部分正文。
 - 不要把每次 retry 都渲染成同级 Agent，也不要为了少胶囊删除物理调用；logical capsule 与 attempt 审计必须同时存在。
 - 不要把 child SDK/app-server “回合结束”直接显示为完成。settling 是明确屏障，只有 DB terminal result 才是用户完成态。
+- 不要把 Codex app-server 报告的 `sonnet / opus / haiku` 协议 selector 直接放进胶囊；先用 raw 值验证 route，验证成功后显示具体 route identity，并把 raw selector 留在 lifecycle 审计字段。
 - 不要让父回合的普通工具 300 秒 timeout 再次包住 Claude managed child；它会越过 child activity renewal，在健康 research run 上精确触发取消。
 - 不要在 SDK transcript、MCP handler、permission attribution 和 durable row 之间另造互不相干的 run ID；MCP callback 没有 tool-use id 时，应通过同一 parent stream 的 PreToolUse correlation 传递。
 - 不要对确定不存在的 durable row 永久按秒轮询。只允许短暂 spawn race 重试，legacy/mismatch id 必须有界停止。
@@ -122,10 +136,10 @@
 | clearSnapshot 只消费 finalMessageContent、快照保持可读 | `clear-snapshot-preserves-state.test.ts` |
 | Provider 编辑/删除后 capability cache 失效 | `capability-cache-invalidation.test.ts` |
 | 子 Agent view、真实 id、侧栏去重与不落 localStorage | `subagent-orchestration.test.ts` |
-| spawn receipt / background / Codex collab 终态 | `subagent-orchestration.test.ts` |
+| spawn receipt / background / Codex collab child 终态 | `subagent-orchestration.test.ts` |
 | 三 Runtime managed run 持久化、terminal immutable、Codex 跨回合快照 | `subagent-run-persistence.test.ts` |
 | Codex child 回合终态与任务语义分离 | `subagent-orchestration.test.ts` |
-| Codex collab item → tool lifecycle | `codex-event-mapper.test.ts` |
+| Codex collab action/child identity 分流、匿名 wait 反例 → tool lifecycle | `codex-event-mapper.test.ts` |
 | Assistant 流式 checkpoint、同 id 收口、startup interrupted | `collect-owner-gate.test.ts` |
 | 刷新后 checkpoint 状态 UI 与窄范围轮询 | `subagent-orchestration.test.ts` |
 | Claude child permission request/timeout 归属与 UI 发起者 | `subagent-orchestration.test.ts` |
@@ -135,6 +149,9 @@
 | logical run / attempt、legacy backfill、settling、structured result 与 typed lifecycle | `subagent-run-persistence.test.ts`、`subagent-orchestration.test.ts` |
 | Claude tool-use/attempt correlation、outer timeout exemption、error diagnostic 与 404/5xx 冷却恢复 probe | `subagent-orchestration.test.ts` |
 | workflow placeholder/edge/compiler、queued→executing、dependency failure/parallel wait、deadline taxonomy、Codex queued Stop durable cancelled、duplicate/cycle、managed durable-evidence capsule | `subagent-orchestration.test.ts`、`subagent-run-persistence.test.ts` |
+| Codex Account dynamic tool surface、per-thread dispatch、mirror lifecycle 去重、feature fingerprint、initialize capability 与 parent Stop | `codex-builtin-bridge.test.ts`、`codex-dynamic-tool-bridge.test.ts`、`codex-builtin-codex-account-guardrail.test.ts`、`codex-interrupt-contract.test.ts` |
+| Codex protocol selector 的 exact-route 校验、用户模型归一化与 raw lifecycle breadcrumb | `subagent-orchestration.test.ts` |
+| durable cancellation 不被晚到 completion 覆盖 | `subagent-run-persistence.test.ts` |
 
 ## 设计决策日志
 
@@ -155,3 +172,5 @@
 - 2026-07-24：会话 `3f0085c5fc664deca85005d70b1abfca` 有四个 transcript managed tool_use，但只有 Qwen/DeepSeek 两个 durable run；前两个 malformed capability input 在 SDK schema 层失败，仍被 UI 画成 running。DeepSeek 又在 Qwen 完成前生成“等待输入”的冻结 prompt，真正启动后只能自行搜索。现 managed capsule 必须先命中 durable row；malformed capability 进入应用层结构化错误；三 Runtime 用 workflow/task/dependency queued handoff compiler 在执行时注入上游结果。
 - 2026-07-24：会话 `f7153c2b01e6a58b31e0406db9be56ec` 证明 workflow 合同本身正确、但 dev HMR 可让代码与缓存 SQLite handle 的 schema 暂时错位。两次 child 都在创建 durable row 前报 `no such column: workflow_id`。修复归 DatabaseSchema guardrail：code-owned revision 变化时重跑幂等结构迁移，但绝不随 HMR 重跑 runtime recovery。
 - 2026-07-25：Claude follow-up 证明 durable gate 的 fail-closed 不能等同于永久隐藏：terminal managed run 首次 details 500 会停在 unknown，五次 404 后迟到 row 也无法恢复。现统一为 5 次快速 probe 后每 30 秒一次低频恢复，成功即清空冷却；Codex bridge 以行为测试证明 queued parent Stop 收口 durable cancelled。dependency deadline 最后查询一次以区分 never-created 与 active upstream；Codex signal 组合为 Node 18 增加兼容 fallback，turn registry/wire 改为行为测试、只把真实 app-server 集成留给 smoke。
+- 2026-07-26：Codex Account 原生 collab 只能可靠表达 inherited-route worker，无法兑现用户指定的 CodePilot Provider+Model。产品采用双通道：保留 native collab 的 identity-bearing 诚实展示；指定外部 route 时由 app-server dynamic `codepilot_spawn_subagent` 进入既有 managed workflow/durable bridge。真实 smoke 发现 experimental capability 缺失、local/mirror lifecycle 重复、Stop 只中断 app-server turn 以及晚到 completion 覆盖取消，现分别用 initialize capability、per-thread dispatcher 去重、父 turn AbortController registry 和 terminal durable reread 收口。
+- 2026-07-27：真实 Codex Account Kimi smoke 证明 exact route 成功仍不等于用户可见模型正确：app-server 会回报协议 selector `sonnet`。Codex 现与 Claude 共用同一语义——raw selector 先用于 route 核验并写 lifecycle breadcrumb，核验通过后 `effective_model` 使用具体 route display identity；真实 mismatch 保留 raw 值并 fail-closed。

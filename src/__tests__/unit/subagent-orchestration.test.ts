@@ -15,6 +15,7 @@ import {
   agentRunTabFromView,
   buildSubagentRunView,
   collapseLogicalSubagentRuns,
+  isSubagentToolCall,
   isSubagentToolName,
   shouldDisplaySubagentRun,
 } from '../../lib/subagent-view';
@@ -68,6 +69,7 @@ import {
   combineCodexSubagentAbortSignalsFallback,
   getCodexSubagentParentContext,
   isManagedCodexSubagentSession,
+  normalizeCodexSubagentEffectiveModel,
   normalizeCodexSubagentTurn,
   registerCodexSubagentParentContext,
   resolveCodexSubagentAbortSignal,
@@ -87,6 +89,10 @@ import {
   NATIVE_SUBAGENT_TIMEOUTS,
   parseChildErrorEvent,
 } from '../../lib/tools/agent';
+import {
+  explicitlyReportsSubagentTaskFailure,
+  parseReportedSubagentOutcome,
+} from '../../lib/reported-subagent-outcome';
 import fs from 'node:fs';
 import path from 'node:path';
 import { PermissionPrompt } from '../../components/chat/PermissionPrompt';
@@ -136,6 +142,30 @@ describe('Runtime-independent Sub-agent workflow contract', () => {
     assert.equal(placeholder.ok, false);
     if (!placeholder.ok) {
       assert.equal(placeholder.error.code, 'DEPENDENCY_DECLARATION_REQUIRED');
+    }
+
+    const realLongRunningCommand = validateSubagentDispatchSpec({
+      prompt: '必须先使用 Bash 执行 sleep 180，等待命令结束后才输出 STOP_SMOKE_UPSTREAM_DONE；除此之外不要输出其他内容。',
+      workflowId: 'release-smoke-stop',
+      taskKey: 'upstream',
+      dependsOn: [],
+    });
+    assert.equal(realLongRunningCommand.ok, true);
+
+    const realEnglishCommand = validateSubagentDispatchSpec({
+      prompt: 'Run the build and wait for the command output before reporting the verification result.',
+      workflowId: 'release-smoke-stop',
+      taskKey: 'upstream-en',
+      dependsOn: [],
+    });
+    assert.equal(realEnglishCommand.ok, true);
+
+    const undeclaredUpstreamOutput = validateSubagentDispatchSpec({
+      prompt: 'Wait for the upstream output, then write the final copy.',
+    });
+    assert.equal(undeclaredUpstreamOutput.ok, false);
+    if (!undeclaredUpstreamOutput.ok) {
+      assert.equal(undeclaredUpstreamOutput.error.code, 'DEPENDENCY_DECLARATION_REQUIRED');
     }
 
     const workflow = validateSubagentDispatchSpec({
@@ -294,9 +324,27 @@ describe('CodePilot/Codex managed cross-provider routes', () => {
   it('inherits the Native parent tool surface while preventing recursive delegation', () => {
     const source = fs.readFileSync(path.join(process.cwd(), 'src/lib/tools/agent.ts'), 'utf8');
     assert.match(source, /parentPolicyKnown = Boolean\(permissionContext \|\| ctx\.bypassPermissions\)/);
+    assert.match(source, /!ctx\.bypassPermissions[\s\S]{0,120}ctx\.parentSessionId/);
     assert.match(source, /name !== 'Agent'/);
     assert.match(source, /name !== 'codepilot_spawn_subagent'/);
     assert.doesNotMatch(source, /filterTools\(readOnlyTools/);
+  });
+
+  it('uses one shared task-outcome contract instead of treating a denied Native tool run as completed', () => {
+    const failed = parseReportedSubagentOutcome([
+      '__CODEPILOT_SUBAGENT_OUTCOME__{"status":"failed","error":{"code":"CAPABILITY_UNAVAILABLE","retryable":true}}',
+      '命令未能执行：Bash 调用被权限策略拒绝。',
+    ].join('\n'));
+    assert.equal(failed.status, 'failed');
+    assert.equal(failed.error?.code, 'CAPABILITY_UNAVAILABLE');
+    assert.equal(explicitlyReportsSubagentTaskFailure(failed.text), true);
+
+    const contradictory = parseReportedSubagentOutcome([
+      '__CODEPILOT_SUBAGENT_OUTCOME__{"status":"completed"}',
+      '命令未能执行：permission denied。',
+    ].join('\n'));
+    assert.equal(contradictory.status, 'completed');
+    assert.equal(explicitlyReportsSubagentTaskFailure(contradictory.text), true);
   });
 
   it('turns a Native child SSE 403 into a failed auth terminal instead of an empty success', () => {
@@ -400,12 +448,17 @@ describe('Codex managed Sub Agent lifecycle', () => {
   });
 
   it('keeps the structured task outcome requirement in the child system instructions', () => {
-    const source = fs.readFileSync(
+    const codexSource = fs.readFileSync(
       path.join(process.cwd(), 'src/lib/codex/subagent.ts'),
       'utf8',
     );
-    assert.match(source, /final response MUST start with exactly one machine-readable line/);
-    assert.match(source, /finishing your response is not task completion/);
+    const sharedSource = fs.readFileSync(
+      path.join(process.cwd(), 'src/lib/reported-subagent-outcome.ts'),
+      'utf8',
+    );
+    assert.match(codexSource, /SUBAGENT_OUTCOME_INSTRUCTION/);
+    assert.match(sharedSource, /final response MUST start with exactly one machine-readable line/);
+    assert.match(sharedSource, /finishing your response is not task completion/);
   });
 
   it('fails closed for legacy child prose that explicitly says the task was not completed', () => {
@@ -984,8 +1037,43 @@ describe('sub-agent transcript view and workspace tab', () => {
     assert.equal(isSubagentToolName('Agent'), true);
     assert.equal(isSubagentToolName('Task'), true);
     assert.equal(isSubagentToolName('codex_subagent'), true);
+    assert.equal(isSubagentToolName('codex_collaboration_wait'), false);
     assert.equal(isSubagentToolName('mcp__codepilot-subagent__codepilot_spawn_subagent'), true);
     assert.equal(isSubagentToolName('Bash'), false);
+  });
+
+  it('hides legacy anonymous Codex wait capsules after refresh while preserving identity-bound children', () => {
+    const anonymousWait = {
+      type: 'collabAgentToolCall',
+      id: 'wait-call-anonymous',
+      tool: 'wait',
+      status: 'inProgress',
+      receiverThreadIds: [],
+      agentsStates: {},
+    };
+    assert.equal(
+      isSubagentToolCall('codex_subagent', anonymousWait, JSON.stringify({
+        ...anonymousWait,
+        status: 'completed',
+      })),
+      false,
+    );
+
+    const identityBoundWait = {
+      ...anonymousWait,
+      id: 'wait-call-child',
+      receiverThreadIds: ['child-thread-1'],
+      agentsStates: { 'child-thread-1': { status: 'running' } },
+    };
+    assert.equal(
+      isSubagentToolCall('codex_subagent', identityBoundWait, JSON.stringify({
+        ...identityBoundWait,
+        status: 'completed',
+      })),
+      true,
+    );
+    assert.equal(isSubagentToolCall('Agent', { prompt: 'Review' }), true);
+    assert.equal(isSubagentToolCall('Bash', { command: 'pwd' }), false);
   });
 
   it('shows the catalog-verified model name instead of an SDK role alias', () => {
@@ -1066,22 +1154,81 @@ describe('sub-agent transcript view and workspace tab', () => {
     assert.equal(sdkBackgroundReceipt.status, 'running');
   });
 
-  it('uses Codex collab status facts instead of treating item completion as child completion', () => {
+  it('uses Codex agentsStates facts instead of treating collaboration action completion as child completion', () => {
     const running = buildSubagentRunView({
-      id: 'run-codex-running',
+      id: 'wait-call-1',
       name: 'codex_subagent',
-      toolInput: { agent_name: 'Reviewer' },
-      result: JSON.stringify({ status: 'inProgress', receiverThreadIds: ['child-1'] }),
+      toolInput: {
+        type: 'collabAgentToolCall',
+        id: 'wait-call-1',
+        tool: 'wait',
+        status: 'inProgress',
+        receiverThreadIds: ['child-1'],
+        agentsStates: { 'child-1': { status: 'running', message: 'Reviewing' } },
+      },
+      result: JSON.stringify({
+        type: 'collabAgentToolCall',
+        id: 'wait-call-1',
+        tool: 'wait',
+        status: 'completed',
+        receiverThreadIds: ['child-1'],
+        agentsStates: { 'child-1': { status: 'running', message: 'Still reviewing' } },
+        model: 'gpt-5.6-sol',
+        prompt: 'Review this patch',
+      }),
     });
     assert.equal(running.status, 'running');
+    assert.equal(running.id, 'child-1');
+    assert.equal(running.attemptId, 'wait-call-1');
+    assert.equal(running.currentActivity, 'Still reviewing');
+    assert.equal(running.requestedModel, 'gpt-5.6-sol');
+    assert.equal(running.prompt, 'Review this patch');
 
     const completed = buildSubagentRunView({
-      id: 'run-codex-completed',
+      id: 'wait-call-2',
       name: 'codex_subagent',
-      toolInput: { agent_name: 'Reviewer' },
-      result: JSON.stringify({ status: 'completed', receiverThreadIds: ['child-1'] }),
+      toolInput: {
+        type: 'collabAgentToolCall',
+        id: 'wait-call-2',
+        tool: 'wait',
+        status: 'inProgress',
+        receiverThreadIds: ['child-1'],
+      },
+      result: JSON.stringify({
+        type: 'collabAgentToolCall',
+        id: 'wait-call-2',
+        tool: 'wait',
+        status: 'completed',
+        receiverThreadIds: ['child-1'],
+        agentsStates: { 'child-1': { status: 'completed' } },
+      }),
     });
     assert.equal(completed.status, 'completed');
+    assert.equal(completed.id, 'child-1');
+
+    const actionFailedButChildUnknown = buildSubagentRunView({
+      id: 'wait-call-3',
+      name: 'codex_subagent',
+      toolInput: {
+        type: 'collabAgentToolCall',
+        id: 'wait-call-3',
+        tool: 'wait',
+        receiverThreadIds: ['child-1'],
+      },
+      result: JSON.stringify({
+        type: 'collabAgentToolCall',
+        id: 'wait-call-3',
+        tool: 'wait',
+        status: 'failed',
+        receiverThreadIds: ['child-1'],
+        agentsStates: {},
+      }),
+    });
+    assert.equal(
+      actionFailedButChildUnknown.status,
+      'running',
+      'a failed wait action is not proof that the child failed',
+    );
   });
 
   it('round-trips partial and timed-out status metadata with structured errors', () => {
@@ -1273,6 +1420,42 @@ describe('runtime adapter safety contracts', () => {
     assert.equal(codexReportedModelMatchesRoute('qwen/qwen3.8-max-preview', route), true);
     assert.equal(codexReportedModelMatchesRoute('Qwen 3.8 Max Preview', route), true);
     assert.equal(codexReportedModelMatchesRoute('gpt-5.6', route), false);
+  });
+
+  it('shows the verified Codex route identity instead of a protocol selector', () => {
+    const kimiRoute: SubagentRoute = {
+      providerId: 'kimi-provider',
+      providerName: 'Kimi Coding Plan',
+      id: 'sonnet',
+      upstreamId: 'kimi-for-coding',
+      displayName: 'Kimi for Coding',
+    };
+    assert.equal(
+      normalizeCodexSubagentEffectiveModel('sonnet', kimiRoute),
+      'Kimi for Coding',
+    );
+    assert.equal(
+      normalizeCodexSubagentEffectiveModel('kimi-for-coding', kimiRoute),
+      'Kimi for Coding',
+    );
+    assert.equal(
+      normalizeCodexSubagentEffectiveModel('gpt-5.6', kimiRoute),
+      'gpt-5.6',
+      'a real mismatch must stay visible and must not be relabelled as Kimi',
+    );
+  });
+
+  it('keeps the raw Codex model report as a lifecycle breadcrumb', () => {
+    const source = fs.readFileSync(
+      path.join(process.cwd(), 'src/lib/codex/subagent.ts'),
+      'utf8',
+    );
+    assert.match(source, /runtimeReportedModel:\s*started\.model/);
+    assert.match(
+      source,
+      /\.\.\.\(effectiveModel\s*\?\s*\{\s*effectiveModel\s*\}\s*:\s*\{\}\)/,
+      'the runtime-init event must also carry the normalized user-facing identity',
+    );
   });
 
   it('does not synthesize inheriting or provider-relative SDK Agent profiles', () => {

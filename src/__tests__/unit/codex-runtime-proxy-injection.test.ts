@@ -323,9 +323,16 @@ describe('CodexRuntime — thread/resume payload mirrors thread/start (Phase 5b 
     );
   });
 
-  it('runtime calls thread/start with the same threadParams (no divergence)', () => {
-    // Same source of truth: both thread/start invocations (fresh path
-    // + resume-failed fallback) must use `threadParams`.
+  it('runtime calls thread/start with one shared extension of threadParams', () => {
+    // `dynamicTools` is a thread/start-only app-server field. Both start
+    // invocations must use the same extension, and that extension must
+    // preserve the proxy/permission-bearing `threadParams` base also used
+    // by resume.
+    assert.match(
+      runtimeSrc,
+      /const threadStartParams =[\s\S]{0,300}\.\.\.threadParams/,
+      'threadStartParams must extend the shared threadParams base',
+    );
     const matches = [
       ...runtimeSrc.matchAll(
         /client\.request<[^>]+>\(\s*\n?\s*['"]thread\/start['"][\s\S]{0,200}?\)/g,
@@ -338,8 +345,8 @@ describe('CodexRuntime — thread/resume payload mirrors thread/start (Phase 5b 
     for (const m of matches) {
       assert.match(
         m[0],
-        /threadParams\s*,?\s*\)/,
-        'thread/start call must pass `threadParams` directly so all three paths (start fresh, resume, resume-failed) share one params object. Found:\n' + m[0],
+        /threadStartParams\s*,?\s*\)/,
+        'thread/start call must pass the shared start-only extension. Found:\n' + m[0],
       );
     }
   });

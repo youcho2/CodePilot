@@ -1,8 +1,8 @@
 # 同 Runtime 多模型 Sub-agent MVP
 
 > 创建时间：2026-07-22
-> 最后更新：2026-07-25
-> 状态：🟡 Phase 6 `Code complete` / `Tests pass`：workflow/task/dependency、queued→executing 事实与 app-side handoff compiler 已下沉为三 Runtime 共用合同；durable-evidence 的 404/5xx 可恢复探测、Codex route preflight、queued Stop 终态、父 Stop 与 dependency taxonomy 收口完成；真实 Qwen → DeepSeek → Kimi Provider smoke 待复测
+> 最后更新：2026-07-27
+> 状态：🟡 Phase 7 `Code complete` / `Tests pass`；三 Runtime managed Qwen → DeepSeek → Kimi 依赖链 `Smoke passed`。Codex Account 原生协作已分离 action identity 与 child identity；匿名 wait/sendInput/close 不再制造 Sub-agent 胶囊，child 状态只读 app-server `agentsStates`；真实 identity-bearing native collab smoke 仍待 app-server 提供身份载荷
 > 事实基线：[多 Runtime / 多模型 Sub-agent 协作调研](../../research/cross-runtime-multi-agent-orchestration-2026-07-22.md)
 > P0 对标复核：[Sub-agent 编排竞品补充调研](../../research/subagent-orchestration-competitor-followup-2026-07-24.md)
 > 交接：[same-runtime-multi-model-subagents](../../handover/same-runtime-multi-model-subagents.md)；产品复盘：[insights](../../insights/same-runtime-multi-model-subagents.md)
@@ -21,9 +21,10 @@
 | Phase 1 | Runtime 接线 | ✅ 代码完成 | CodePilot / Claude / Codex proxy 显式 Provider+Model child；不可达路由 fail-closed；原生 collab 保持可见 |
 | Phase 2 | 聊天胶囊与侧边栏 | ✅ 代码完成 | 单行可换行胶囊；动态模型图标；运行中即可打开详情 |
 | Phase 3 | 权限、取消与回归收口 | ✅ 代码完成 | parent tools/permission、depth 1、concurrency 2、显式 parent abort、三 Runtime durable run；individual cancel 后续 |
-| Phase 4 | 文档与验证 | 🟡 外部 smoke 待跑 | targeted/type/docs 与完整 4654 项测试通过；真实凭据由用户 / Claude 复测 |
+| Phase 4 | 文档与验证 | ✅ managed 核心 smoke 完成 | Claude Code、CodePilot、Codex Account 三条依赖链，以及 Native 长任务/无效路由/Stop 均有真实证据 |
 | Phase 5 | P0 可信编排收口 | ✅ 代码完成 | 一逻辑任务一胶囊；attempt 审计、真实路由、收尾阶段、结构化结果与 lifecycle 详情 |
-| Phase 6 | 三 Runtime 共用依赖编排（工作流仍 same-runtime） | 🟡 代码与合同测试完成 | 只有 durable run 才显示胶囊；依赖 child 在 app 侧等候并自动收到上游 terminal result；真实凭据 smoke 待跑 |
+| Phase 6 | 三 Runtime 共用依赖编排（工作流仍 same-runtime） | ✅ 代码、合同与三 Runtime smoke 完成 | Claude Code、CodePilot Runtime、Codex Account 三段依赖链均由 durable DB 事实验证 |
+| Phase 7 | Codex Account 双通道可信协作 | ✅ managed 精确路由完成；native identity 继续 fail-closed | 指定 CodePilot Provider+Model 走 managed dynamic tool；原生 inherited worker 只在有真实 identity 时显示 |
 
 ## Phase 0：合同与能力边界
 
@@ -65,7 +66,7 @@
 - [x] Claude managed tool input 必须声明 `required_capabilities`，用于核对 Claude SDK 父 query 的真实 built-in surface；任意 MCP 的存在不再自动授予 read/network/write，`codepilot-memory + 无 WebSearch/WebFetch` 必须对 live search fail closed。MCP 本身仍完整继承。Codex child 不使用该字段，由 app-server 原生 tools/MCP/sandbox/approval 决定能力。
 - [x] 不再注入 synthetic inheriting/model-pinned AgentDefinition；指定模型必须走 managed tool。原生 Agent/Task 仍有 PreToolUse 冒充门禁。
 - [x] `PreToolUse` shipping boundary 拒绝 prompt-level 模型冒充（例如 child 实际继承 DeepSeek 却写“你是 Grok 专家”）；`canUseTool` 只作 defence in depth，普通研究主题提及不拦截。
-- [x] Codex `collabAgentToolCall` 不再被静默过滤；模型来源缺失时诚实降级。
+- [x] Codex `collabAgentToolCall` 不再被静默过滤；匿名/多 child action 作为普通协作活动，只有 app-server 精确证明一个 child identity 时才进入 Sub-agent 胶囊；模型来源缺失时诚实降级。
 - [x] Codex Provider proxy 注册 `codepilot_spawn_subagent`，为目标 Provider+Model 新建独立 app-server thread；child 通知按 thread ID 与父 stream 隔离，managed child 禁止再次委派。
 - [x] Codex child 继承父 sandbox / approval、Codex 原生工具与全部 MCP；dynamic MCP namespace/tool 无 CodePilot allowlist，统一交回 Codex MCP manager。`web_search` 对 xAI、OpenAI Responses、官方 Anthropic 翻译为真实 hosted tool。
 - [x] proxy 内部执行的 `codepilot_spawn_subagent` 与 hosted tool 从 Codex-bound function-call stream 抑制，不能再次回传 app-server 形成 `unsupported call`。
@@ -88,7 +89,7 @@
 
 ### 执行清单
 
-- [x] 从 ToolActionsGroup 分流 Agent / Task / Codex collab tool。
+- [x] 从 ToolActionsGroup 分流 Agent / Task 与 identity-bound Codex child；匿名 wait/sendInput/close 等 Codex collab action 留在普通工具活动。
 - [x] 新增可键盘访问的紧凑 `SubagentCard` 胶囊，历史和 streaming 两条渲染链一致。
 - [x] Workspace Sidebar 增加 `agent-run` dynamic tab 与 `AgentRunPanel`。
 - [x] 卡片左侧根据 Kimi / Zhipu GLM / xAI Grok / DeepSeek / Anthropic / OpenAI 模型族动态展示品牌图标；未知模型才回退通用图标。
@@ -175,7 +176,29 @@
 - [x] Dev cached-handle migration 的行为测试同时保留一条 live `messages.stream_status=streaming`，证明 schema revision refresh 只补结构、不触发 startup recovery。
 - [x] 三 Adapter 消费同一 dependency compiler；补 sequential、parallel wait、dependency failure、placeholder、duplicate/cyclic key、durable ownership 与 UI durable evidence 回归。
 - [x] 将 Google ADK / LangGraph / AutoGen GraphFlow / Pydantic Harness + durable execution 的可借鉴边界写入 research/guardrail/handover。
-- [ ] 真实 smoke：Qwen research → DeepSeek copy → Kimi implementation，断言 3 个 durable logical task、下游 prompt 实际含上游 terminal result、无额外 schema/placeholder 胶囊。
+- [x] 真实 smoke：Claude Code、CodePilot Native 与 Codex Account managed 已分别完成 Qwen research → DeepSeek copy/edit → Kimi implementation/review。三条链各只有 3 个 durable logical task，下游实际输入含上游 terminal result，无额外 schema/placeholder 胶囊；Native 证据由 DB `subagent_runs.runtime=codepilot_runtime` 独立确认。
+
+## Phase 7：Codex Account 双通道可信协作
+
+### 用户结果
+
+Codex Account 按用户意图使用两条互不冒充的通道。用户只要求 Codex native worker 时，原生 collaboration action 继续使用继承父 route 的能力：app-server 没有暴露 child 身份时，wait/sendInput/close 只作为普通协作工具活动；只有载荷能精确证明一个 child thread 时才显示胶囊。用户明确指定 CodePilot Provider / Model 时，Codex Account 通过 app-server dynamic tool 调用既有 managed bridge，获得精确路由、workflow、durable lifecycle、详情与 Stop 语义。
+
+### 执行清单
+
+- [x] `collabAgentToolCall.id` 只作为单次 action id；`receiverThreadIds + agentsStates keys` 合并后恰好一个真实 thread id 才进入 `codex_subagent` 映射。
+- [x] identity 为空或同时指向多个 child 的 action 使用 `codex_collaboration_<action>` 普通工具名，不进入 `MessageItem/StreamingMessage` 的 Sub-agent 分流。
+- [x] Codex 原生 child 的 logical id 使用真实 child thread id；wait/sendInput 等多次 action 可按 child 聚合，不按 action id 制造重复胶囊。
+- [x] outer `status=completed/failed` 只表示协作 action 终态；child 状态只读取同一 child 的 `agentsStates.status`。缺失 child lifecycle 时保持 running/unknown，不冒充 completed。
+- [x] 真实事故协议反例进入测试：15 次 `tool=wait + receiverThreadIds=[] + agentsStates={}` 产生 0 个 Sub-agent 胶囊；单 child、多 child、outer failed + child running 均有反例。
+- [x] `codex_account` 的 `thread/start` 注册 managed `codepilot_spawn_subagent` / `codepilot_list_subagent_runs` dynamic tools；指定 CodePilot route 时明确禁止 native worker fallback，route 不可用即结构化失败。
+- [x] initialize 声明 dynamic tool 所需 `experimentalApi`，feature fingerprint 使旧 Account thread 进入支持新能力的新 thread；resume 不重复发送 start-only 参数。
+- [x] dynamic dispatcher 按真实 Codex thread id 隔离并发会话；managed local tool 的 app-server mirror lifecycle 被抑制，单次物理调用只产生一组 tool_use/result。
+- [x] Account 显式 Stop 同时 abort 父 turn controller 与发送 `turn/interrupt`；terminal wrapper 以 immutable durable row 为最终事实，晚到 completion 不能覆盖 cancelled。
+- [x] 真实 Account smoke：Qwen research → DeepSeek edit → Kimi review 精确命中三条 Provider+Model route，3 个 durable logical 胶囊；running Qwen Stop 后 durable/wire/UI 均为 cancelled。
+- [ ] tech-debt #59 仅保留 native inherited worker 的可观测性：spawn 未进入 notification、wait 又无 identity 时，不猜测 child；如未来需要恢复其名称/模型/详情，另做 app-server typed ingestion。
+- [x] Electron dev 历史 smoke：重载会话 `8c94f9c716fc80e4244d34cb32b2811b` 后 “Codex worker” 胶囊为 0，页面 console 0 error；旧 transcript 无需重跑 mapper 即按 identity 重新分流。
+- [ ] 原生 inherited worker 的 identity-bearing smoke：若当前 app-server 上报 child identity，则一个 child 只显示一个胶囊且 action completed 不提前完成 child；这不阻塞 managed 精确路由能力。
 
 ## Phase 4：文档与验证
 
@@ -185,11 +208,11 @@
 
 ### 执行清单
 
-- [x] targeted unit / contract tests（Sub-agent/Codex bridge/interrupt/persistence 四文件 120/120；覆盖 workflow/dependency/queued/compiler、生产 transcript durable gate、404/5xx 冷却恢复、invalid route 零持久化、queued Stop durable cancelled、dependency 边界、Node 18 abort fallback、HMR migration 不 recovery，以及前序 route/terminal/permission 合同）。
+- [x] targeted unit / contract tests（最新 Codex collab + Sub-agent 两文件 147/147；前序 Sub-agent/Codex bridge/interrupt/persistence 四文件 120/120；覆盖真实匿名 wait 协议、child identity/status、历史 transcript 恢复、workflow/dependency/queued/compiler、生产 transcript durable gate、404/5xx 冷却恢复、invalid route 零持久化、queued Stop durable cancelled、dependency 边界、Node 18 abort fallback、HMR migration 不 recovery，以及前序 route/terminal/permission 合同）。
 - [x] `npm run typecheck`、`lint:hooks`、`lint:docs-drift`。
-- [x] 完整 `npm run test`：2026-07-25 typecheck 通过、unit suite 4654/4654；模型图标改为精确导入 `@lobehub/icons/*/components/Mono`，不再经品牌 barrel 连带加载 `@lobehub/ui`/CodeDiff，原 5 个 Widget/Harness 加载失败已关闭。
+- [x] 完整 `npm run test`：2026-07-26 typecheck 通过、unit suite 4659/4659；模型图标改为精确导入 `@lobehub/icons/*/components/Mono`，不再经品牌 barrel 连带加载 `@lobehub/ui`/CodeDiff，原 5 个 Widget/Harness 加载失败已关闭。
 - [x] dev client / UI smoke：真实历史会话分别验证 terminal / running 胶囊；高度 30px、无提示词段落/第二行、详情按钮在 running 可点；P0 详情面板可展示请求/实际路由、logical run/current attempt 与 durable 结果，legacy 行不伪造 lifecycle；console 0 error。
-- [ ] 真实 Claude / Native / Codex 模型切换 smoke；无法获得凭据的行标 external prerequisite。
+- [x] 真实 Claude / Native / Codex managed 模型切换 smoke；三条 Runtime 的 Qwen → DeepSeek → Kimi 依赖链均有 session 与 durable DB 证据。原生 inherited worker 的 identity-bearing smoke 属 Phase 7 非 managed 范围，继续 fail-closed。
 - [x] 更新 handover / insights / guardrail 与索引。
 
 ## 验收矩阵
@@ -216,7 +239,7 @@
 | Codex 动态权限与 MCP | `item/permissions/requestApproval` 的 allow/deny 使用 `{ permissions, scope }` 且 grant 不超出原请求；namespace MCP 对第三方 Provider 可见并以原始 `(namespace, name)` 回给 app-server | 用户点允许但回包 shape 错误仍被拒；descriptor 虽保留却未暴露给模型；代理伪造更宽权限 |
 | Codex proxied 委派入口 | CodePilot Provider proxy 只暴露 exact-route `codepilot_spawn_subagent`；原生 `multi_agent_v1` 仅保留在不经过 proxy 的 Codex Account | 同一逻辑 child 同时创建 managed run 与 inherited-model Codex worker；把 `spawn/wait` 控制动作各显示一枚胶囊 |
 | Codex 任务语义终态 | child structured outcome 决定 completed/partial/failed；turn completed + “无法完成”必须 failed | 把“模型回答完了”显示成“任务完成” |
-| Codex Account / 原生 collab | child/collab 可见；只展示 app-server 实际上报的模型 | 未经 proxy 却宣称跨 CodePilot Provider 成功 |
+| Codex Account / 原生 collab | outer action 与 child lifecycle 分离；只有 `receiverThreadIds/agentsStates` 精确证明一个 child 时才显示/聚合胶囊，状态只读该 child 的 `agentsStates`；匿名/multi-child wait 作为普通协作活动。只展示 app-server 实际上报的模型 | 每次 wait/sendInput/close 各生成 “Codex worker” 胶囊；outer action completed 冒充 child completed；未经 proxy 却宣称跨 CodePilot Provider 成功 |
 | Agent UI | 单行胶囊位于父输出之后并可横向容纳多个 child；左侧为模型族品牌图标；不显示提示词/Runtime 胶囊 | 全尺寸卡片、第二行模型、被固定在文本上方或图标不符 |
 | logical retry | 只有显式复用同一 `logical_run_id` 的调用才聚合为一个逻辑任务；详情保留 attempt 1..N 和各自终态。未声明 retry 关联时即使名称相同也平铺为不同胶囊 | 按 agent name / prompt / model 猜测合并，或为了去重删除真实物理调用 |
 | logical retry guard | active/settling logical ID 返回 `LOGICAL_RUN_STILL_RUNNING`；completed logical ID 返回 `LOGICAL_RUN_ALREADY_COMPLETED`；均不新增 attempt、不启动 Provider | 并行创建同 logical attempt，或让失败 retry 遮蔽已交付的 completed 结果 |
@@ -236,7 +259,8 @@
 | _待跑_ | codepilot_runtime | configured providers | parent A / child Qwen、DeepSeek、Kimi | API key / token plan | Provider+Model + external MCP/写入工具继承 + approval + card/sidebar | 📋 | |
 | _待跑_ | claude_code | Claude-Code-compatible providers | parent A / child Kimi、GLM、DeepSeek；Grok negative | key/login | Provider+Model + WebSearch/WebFetch/MCP/写入继承 + approval | 📋 | |
 | _待跑_ | codex_runtime | CodePilot configured providers | parent A / child Qwen、DeepSeek、Kimi、Grok | API key / token plan | child thread + sandbox/approval/MCP + hosted Web/X Search | 📋 | |
-| _待跑_ | codex_runtime | codex_account | parent / native child model | login | native collab visibility / Provider-relative model provenance | 📋 | 不验跨 CodePilot Provider |
+| 2026-07-26 | codex_runtime | codex_account + CodePilot managed routes | GPT-5.6 parent / Qwen 3.8 Max Preview → DeepSeek V4 Pro → Kimi for Coding | login + 用户本地 Provider 凭据 | Account dynamic tool 精确 Provider+Model、workflow handoff、durable card/sidebar | ✅（路由）/ ⚠️（旧显示） | session `aceb4956ff3c498aa3f054fb95571c88`：三条 Runtime-reported selector 均通过 exact route 校验，3 个 logical 胶囊与依赖 marker 正确；但历史 Kimi row 把 wire selector `sonnet` 直接存为用户可见 effective model。2026-07-27 已修新调用归一化，旧 row 保留为事故证据，不反写用户历史。 |
+| _待跑_ | codex_runtime | codex_account | parent / native inherited child | login | native identity-bearing collab visibility / Provider-relative provenance | 📋 | 只验证 inherited native worker；指定 CodePilot Provider+Model 已由上一行 managed 路径覆盖 |
 | _待跑_ | claude_code / codex_runtime | configured Provider | catalog short/alias ID ↔ Runtime version-suffixed full ID | 用户本地凭据 | Runtime-reported route identity：合法版本后缀/alias 不误杀，真实替换仍 `ROUTE_MISMATCH` | 📋 | 首次真实 init report 若误杀，先核对 Provider 返回的 canonical/versioned model ID，不扩大成任意前缀匹配 |
 | _待跑_ | codepilot_runtime | configured providers | 任意可用长任务 child | 用户本地凭据 | 启动 child → 切换其他聊天 → 等待终态 → 切回；再用显式 Stop 对照 | 📋 | 期望页面切换不取消，Stop 才取消；`subagent_runs` 与 assistant checkpoint 均到真实终态 |
 | 2026-07-22 | UI adapter | isolated temp DB | synthetic Native Agent tool pair | 无外部凭据 | historical card + model/runtime + agent-run sidebar + transcript + reload rebuild（首轮实现） | ✅ | DOM: `data-subagent-card=1`、`data-tab-id=agent-run:agent-smoke-1`、console error=0；临时 DB 已删除 |
@@ -258,6 +282,7 @@
 | 2026-07-23 | Codex permission/MCP contracts | current app-server generated schema + synthetic namespace stream | third-party Provider routes | 不发外部请求 | permission subset/scope、session hint、namespace definition/call/result round trip、Kimi mid-text failure marker | ✅ | 相关定向 209/209；`npx tsc --noEmit`、`git diff --check` 通过。全量复跑 4463/4468；5 个失败均为既有 `@pierre/diffs/react` package export 阻断。真实 Provider approval/MCP smoke 待用户/Claude |
 | 2026-07-23 | codex_runtime | CodePilot Provider proxy | Qwen 3.8 Max / DeepSeek / Kimi | 用户本地凭据 | 三个指定模型 Sub-agent + Codex native collab 冲突 | ❌ | session `0b385950a86ec7fbeff5bb44508ec76c` 与 parent rollout：除 4 个 managed physical run 外又创建 3 个 native child thread；首个 `spawn_agent(model=qwen3.8-max)` 明确报 unknown model，随后 native workers 全继承父 route；`spawn_agent/wait_agent` 均被显示为 “Codex worker” 胶囊 |
 | 2026-07-23 | Codex delegation exclusivity contracts | synthetic native-collab namespace + managed bridge | CodePilot Provider proxy / Codex Account boundary | 不发外部请求 | proxy 移除 `multi_agent_v1`、managed instruction 唯一入口、普通 MCP namespace 保留 | ✅ | 定向 72/72，typecheck 通过；全量 4464/4469，5 个失败仍为既有 `@pierre/diffs/react` package export 阻断。真实三模型胶囊 smoke 待用户/Claude |
+| 2026-07-26 | codex_runtime | codex_account + installed app-server rollout | parent/3 native child threads | 用户本地登录 | 原生 collab action/child identity/status 可信展示 | ❌→✅ | session `8c94f9c716fc80e4244d34cb32b2811b`：DB 无 `subagent_runs`，CodePilot transcript 只收到 15 个匿名 `tool=wait`（`receiverThreadIds=[] / agentsStates={}`），spawn 未进入 notification；旧 mapper 因每个 action id 创建胶囊而显示 15 个 “Codex worker 已完成”。修复后真实协议 fixture 断言匿名 15 wait = 0 胶囊；历史 transcript 也按 identity 重新分流；单 child 以 thread id 聚合，outer action status 不再决定 child 状态。定向 147/147、typecheck/ESLint、完整 4659/4659 通过；Electron dev 重载该历史会话实测 “Codex worker”=0、console error=0。identity-bearing live child smoke 仍待跑 |
 | 2026-07-23 | stream persistence contracts | isolated SQLite + controllable SSE | text + managed Sub-agent tool blocks | 不发外部请求 | 流中 checkpoint、真实 tool id、同 message id terminal、startup interrupted、stale owner、刷新 UI polling | ✅ | 组合定向 60/60；typecheck/hooks/docs/diff 通过；全量 4467/4472，5 个失败均为既有 `@pierre/diffs/react` package export 阻断 |
 | 2026-07-23 | Claude capability/permission/write contracts | synthetic tool surface + approval callback + deferred writers | Memory MCP negative / explicit WebSearch+Write positive | 不发外部请求 | capability fail-closed、MCP 透传、request/timeout run attribution、同目录写串行 | ✅ | `subagent-orchestration.test.ts` 50/50；权限相关组合定向 152/152；typecheck、ESLint（0 error）、hooks、docs drift、diff check 通过。全量 4470/4475；仅 5 个既有 `@pierre/diffs/react` export 加载阻断：`codex-widget-format-contract`、`harness-artifact-contract`、`harness-capability-contract`、`harness-context-compiler`、`widget-system`。真实审批/Provider smoke 仍待用户与 Claude |
 | 2026-07-23 | DB isolation cleanup | electron-dev local API + bare targeted test | `collect-owner-gate` synthetic sessions | 不发外部请求 | 精确清理 12 条误写测试会话；裸跑测试不得再次改变 Dev 最近列表 | ✅ | 裸跑定向 4/4、typecheck、docs drift、diff check 均通过；测试后 API `collect-*` 仍为 0，真实五个最近测试会话保持前五 |
@@ -276,8 +301,14 @@
 | 2026-07-25 | Claude follow-up closure | synthetic 404/500 probe、Codex bridge route fixture + queued dependency、short deadline、abort fallback | codex_runtime / shared UI + workflow | 不发外部请求 | terminal 首次 500 可恢复、404 冷却后可恢复、queued Stop durable cancelled、timeout≤grace taxonomy、Node 18 signal compatibility、interrupt registry/wire behavior | ✅ | 四文件定向 120/120；typecheck 与 touched ESLint 通过；完整 unit 4511/4516，新增 6 条均通过，失败仍维持既有 5 个 `@pierre/diffs/react` export 加载阻断。Dev HMR 编译成功；真实 Provider/Stop smoke 仍待跑。 |
 | 2026-07-25 | electron-dev 历史会话恢复 | fresh Dev process + Chromium，session `7d3e2a115a9f8fc72854fed1b9b95fbb` | shared UI / details API | 本地既有数据 | durable capsule 恢复、ghost id 有界探测、冷却后低频恢复 | ✅ | 三个 durable logical run 均返回 200 并只展示三个胶囊；历史无 row 的 `cpb_439c8b28aba42969` 先请求 5 次 404，随后 30 秒内仅恢复探测 1 次，无 500、无每秒无限轮询、无 Hook/HMR 告警。该行不代替 terminal 首次 500 mock 或真实 Provider/Stop smoke。 |
 | 2026-07-25 | Node test import closure | Widget/Harness 五文件 + Sub-agent 图标回归 + full suite | shared chat UI | 不发外部请求 | 品牌图标导入不得连带加载 Lobe UI/CodeDiff；原 `@pierre/diffs/react` CJS resolver 失败关闭 | ✅ | 六文件定向 211/211；`npm run test` typecheck + unit 4654/4654。反例：品牌目录 `index` 会静态挂载 Avatar 并引入 `@lobehub/ui` barrel；精确 `components/Mono` 导入不触发该链路且仍渲染真实品牌 SVG。 |
-| _待跑_ | claude_code / codepilot_runtime / codex_runtime | configured providers | Qwen research → DeepSeek copy → Kimi implementation | 用户本地凭据 | 同一 workflow 的三段真实依赖链 | 📋 | 必须只有 3 个 durable logical task；copy/implementation 先 queued 后 executing；详情中的 dependency keys 正确；下游实际输入含上游 terminal result；无 schema/placeholder 胶囊。 |
-| _待跑_ | claude_code | 任意可用长任务 Provider | 可运行超过 300 秒的 child | 用户本地凭据 | child 持续 activity 超过 300 秒仍运行；运行中详情 API 200；最后由真实 terminal / idle / hard cap 收口 | 📋 | 同时确认新日志在强制错误时含 message/code，而非 `{}`；旧事故会话不作为新行为证据。 |
+| 2026-07-26 | claude_code | Aliyun Token Plan + configured providers | Qwen research → DeepSeek copy → Kimi implementation | 用户本地凭据 | 同一 workflow 的三段真实依赖链 | ✅ | session `01ad12843924e28124a2c679a21deb3f`：DB 三条 child row 的 `runtime=claude_code`；恰好 3 个 durable logical task，依赖按 research→copy→implementation handoff，三条 terminal completed，无 placeholder/ghost 胶囊。原 `codepilot_runtime` 标注错误已于 2026-07-27 更正。 |
+| 2026-07-27 | codepilot_runtime | configured Qwen / DeepSeek / Kimi providers | Qwen research → DeepSeek copy → Kimi implementation | 用户本地凭据 | Native 同一 workflow 的三段真实依赖链（同一步并发反例） | ❌ | session `556a136a55617207797385a4322b5b2b`：父模型在同一 assistant step 并发发出三次需审批的 Agent 调用；审批 UI 先放行 Kimi，upstream durable row 尚不存在，implementation 以 `DEPENDENCY_NOT_FOUND` fail-closed。该尝试不计作通过，也没有用 Claude 子进程冒充 Native；暴露的 ask-mode 审批排序限制记入 tech-debt #58。 |
+| 2026-07-27 | codepilot_runtime | Qwen Token Plan Personal / DeepSeek / Kimi Coding Plan | Qwen research → DeepSeek copy → Kimi implementation | 用户本地凭据 | Native 同一 workflow 严格顺序三段真实依赖链 | ✅ | session `a71b037dc35f20dc7c8efd31427d4dff` / workflow `native-chain-smoke-sequential-20260727`：UI 恰好 3 个 completed 胶囊；DB 恰好 3 个 logical run，`runtime=codepilot_runtime` 3/3、`terminal=1 + phase=terminal + dispatch_state=terminal` 3/3，依赖为 `[] → [research] → [copy]`；effective model 依次 `qwen3.8-max-preview / deepseek-v4-pro / kimi-for-coding`，最终 JSON 完整保留两个 marker 与 `17/29/43`。父 session `runtime_pin=codepilot_runtime`、`runtime_status=idle`。 |
+| 2026-07-27 | Codex model display contracts | synthetic Kimi route + raw app-server selector | `sonnet` → Kimi for Coding；真实 mismatch → raw report | 不发外部请求 | route identity 校验与用户可见 effective model 分离 | ✅ | `normalizeCodexSubagentEffectiveModel` 仅在 raw report 属于已验证 route 时返回 `route.displayName`；`runtime-init.payload.runtimeReportedModel` 保留原始 `sonnet` breadcrumb，`gpt-5.6` 等 mismatch 不会被改名。 |
+| 2026-07-26 | codepilot_runtime | Aliyun Token Plan | Qwen 3.8 Max Preview | 用户本地凭据 | child 持续 activity 超过 300 秒；切换聊天后再返回，durable result/胶囊/详情恢复 | ✅ | session `c2a85dbea347a9ff40cad2a59f7f7201`：15:31:04→15:36:32 共 328 秒后真实 completed；切回后一个 completed 胶囊、完整结果与详情仍可读，SSE/DB 已终态。 |
+| 2026-07-26 | codepilot_runtime | invalid configured route | 不可用 child route/capability | 用户本地配置 | spawn 前 route/capability fail-closed | ✅ | session `0748bf2717460da4cfdd5a2752856d31`：结构化拒绝并要求用户处理，0 个 child durable row，不伪造执行。 |
+| 2026-07-26 | codepilot_runtime | Aliyun Token Plan | running Qwen + queued dependent child | 用户本地凭据 | parent Stop 贯穿 executing/queued child | ✅ | session `bdf81a0052a36d0ae0889f5d876a8106`：两条 child 均 durable cancelled，parent runtime idle、lock=0；queued child 未被误启动。 |
+| 2026-07-26 | codex_runtime | codex_account + CodePilot Qwen route | GPT-5.6 parent / Qwen child | login + 用户本地 Provider 凭据 | Account dynamic local tool running 时显式 Stop | ✅ | session `6ac2347949089dd8bacee7c224b32181`：单次 tool_use、单胶囊；Stop 同时终止父 turn 与 child，wire/result/DB/UI 均 cancelled，runtime idle、lock=0。 |
 | _待跑_ | electron-dev | 任意长回复 + Sub-agent | 任意 | 用户本地配置 | Sub-agent 运行中刷新；正文/胶囊不丢、状态非假完成、最终不重复 | 📋 | |
 
 ## 决策日志
@@ -339,3 +370,12 @@
 - 2026-07-25（Smoke）：干净重启 electron-dev 后打开历史 session `7d3e2a115a9f8fc72854fed1b9b95fbb`；三个 durable run 恢复为三个胶囊，单个历史 ghost id 的请求节奏为 5 次快速 404 + 30 秒后一次恢复 probe，未复现 500、无限轮询或 HMR Hook 告警。真实 Provider/Stop 与首次 500 注入 smoke 仍保留为待跑。
 - 2026-07-25（Signal/Triage）：正常提交门禁暴露 5 个长期被归为“既有依赖”的加载失败。实际根因是 `SubagentModelIcon` 从 `@lobehub/icons/es/<Brand>` 品牌 barrel 导入；该入口为默认组件挂载 Avatar，Avatar 继续引入 `@lobehub/ui` 全量 barrel 和 CodeDiff。tsx 的 CommonJS 测试加载器随后解析到仅声明 `import` condition 的 `@pierre/diffs/react`，在测试正文执行前报 `ERR_PACKAGE_PATH_NOT_EXPORTED`。
 - 2026-07-25（Fix/Verify/Guardrail）：模型胶囊只需要 Mono SVG，现精确导入十个品牌的 `components/Mono`，不修改第三方 package exports、不为测试伪造 alias，也不把无关 UI/Diff 子系统带进聊天组件。新增真实 server-render 图标回归；原五文件加 Sub-agent 定向 211/211，完整 `npm run test` typecheck + unit 4654/4654，全量门禁恢复为绿。
+- 2026-07-26（Signal/Triage）：真实 Codex Account 会话 `8c94f9c716fc80e4244d34cb32b2811b` 要求 3 个 native child，却显示 15 个无名称/模型的 “Codex worker 已完成”。SQLite 中该会话无 managed `subagent_runs`；CodePilot transcript 的 15 个 `collabAgentToolCall` 全是匿名 `wait`，spawn 根本未进入客户端 notification。旧 event mapper 无视 `item.tool` 和 child identity，把每个 action id 当独立 child；`subagent-view` 又把 outer wait `status=completed` 当 child completed。该事故属于 Codex Account 原生协作的产品可观测性缺口，不是 managed bridge 路由回归。
+- 2026-07-26（Fix/Verify/Guardrail）：Codex collab mapper 现在只有在 `receiverThreadIds + agentsStates keys` 恰好证明一个 child thread 时才生成 `codex_subagent`；匿名/多 child action 降级为普通 `codex_collaboration_<action>` 工具活动。历史与 streaming 渲染链都增加 instance-level identity gate，因此旧 transcript 的匿名 `codex_subagent` 也不会在刷新后复活。原生胶囊用 child thread id 聚合，并只从该 child 的 `agentsStates` 读取 running/completed/errored/interrupted/shutdown；outer action status 不再抬升 child。真实协议反例覆盖 15 个匿名 wait、单 child、多 child和 action-failed/child-running 冲突；定向 147/147、typecheck/ESLint、完整 unit 4659/4659 通过。Codex Account 原生 durable ingestion 与跨 Provider 拦截保持为独立产品决策。
+- 2026-07-26（Smoke）：在运行中的 Electron dev 客户端直接重载事故会话 `8c94f9c716fc80e4244d34cb32b2811b`，历史正文与普通工具活动仍在，“Codex worker” 胶囊数量从旧行为 15 降为 0，浏览器 console error 为 0。该 smoke 证明 legacy transcript identity gate 生效；当前 app-server 若未来上报 identity-bearing child 的真实聚合/状态仍保留独立 smoke。
+- 2026-07-26（Product decision）：Codex Account 不再被迫在“native worker 可执行但不能指定 CodePilot route”和“完全没有多模型能力”之间二选一。采用双通道：native collab 继续服务继承父 Codex route 的 worker，并对缺失 identity fail-closed；用户明确指定 CodePilot Provider+Model 时，app-server 注册 managed dynamic tools，复用三 Runtime 共用的 route/workflow/durable bridge。主 Agent 仍是用户当前选择的 Codex Account GPT-5.6，不偷换父会话。
+- 2026-07-26（Signal/Triage）：Codex Account 第一次 managed smoke 先因 initialize 未声明 `experimentalApi` 被 app-server 拒绝；接通后同一 physical call 又同时从本地 side-channel 与 app-server mirror 产生重复 tool_use/result。第一次 Stop smoke 中，`turn/interrupt` 没有打断阻塞的本地 `item/tool/call`，child 继续运行；其晚到 completed 结果还试图覆盖已经落库的 cancelled。
+- 2026-07-26（Fix/Verify/Guardrail）：initialize 明确声明 experimental API；dynamic tools 只在 `thread/start` 注入，feature fingerprint 让旧 thread 安全换新；HMR-safe dispatcher 按真实 Codex thread id 路由并只清理同 owner，managed local mirror lifecycle 被抑制。Codex turn 注册父 AbortController，显式 Stop 同时本地 abort 与发送 `turn/interrupt`；三 Adapter terminal wrapper 都重读 immutable durable record。相关定向 122/122、start/resume/session 兼容回归 47/47、最终 `npm run test` 4675/4675 通过；touched ESLint 0 error，hooks/docs-drift/diff check 全绿。
+- 2026-07-26（Real smoke，2026-07-27 更正 Runtime）：Claude Code session `01ad12843924e28124a2c679a21deb3f` 与 Codex Account session `aceb4956ff3c498aa3f054fb95571c88` 均完成 Qwen→DeepSeek→Kimi 三段真实依赖链，只有 3 个 logical 胶囊；前者 DB 三行 `runtime` 均为 `claude_code`，此前写成 CodePilot Native 属台账错误，Native 三段依赖链恢复待跑。长任务 session `c2a85dbea347a9ff40cad2a59f7f7201` 连续运行 328 秒后完成并可跨聊天恢复；invalid route session `0748bf2717460da4cfdd5a2752856d31` 在 child 启动前 fail-closed。CodePilot Stop `bdf81a0052a36d0ae0889f5d876a8106` 与 Codex Account Stop `6ac2347949089dd8bacee7c224b32181` 均收口 durable cancelled、parent idle、lock=0。
+- 2026-07-27（Review/Triage）：Claude 复核直接查询六个 smoke 会话后发现 `01ad…` 三条 durable row 实际均为 `claude_code`，推翻 Native 依赖链已 smoke 的台账声明；受影响的不只是 Ledger 行，还包括 Phase 4/6 状态、Phase 6 checklist 与决策日志。同时 `aceb…` 的 Kimi row 把 app-server 协议 selector `sonnet` 直接存入 `effective_model`，导致胶囊/详情违背“协议槽位不得冒充用户模型”的合同。
+- 2026-07-27（Fix/Verify/Guardrail）：台账所有受影响声明已统一降级，Native 三段链新增独立待跑行并要求 DB `runtime=codepilot_runtime` 为证。Codex 新增与 Claude 对齐的 effective-model 归一化：先用 raw report 做 exact route 校验，成功后用户可见值使用 `route.displayName`；原始 `sonnet` 保存在 `runtime-init` lifecycle payload 的 `runtimeReportedModel`，真实 mismatch 仍保留原值并 fail-closed。历史 `aceb…` row 不静默反写，继续作为旧显示事故证据。Sub-agent 定向 114/114、最终 `npm run test` 4677/4677、touched ESLint、hooks/docs-drift 与 diff check 全部通过。

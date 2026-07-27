@@ -323,6 +323,7 @@ export interface SettleSubagentRunInput {
 
 export interface CheckpointSubagentRunInput {
   resultText?: string;
+  effectiveProviderId?: string;
   effectiveModel?: string;
   currentActivity?: string;
 }

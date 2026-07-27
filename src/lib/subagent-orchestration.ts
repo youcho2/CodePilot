@@ -50,9 +50,10 @@ function isValidWorkflowKey(value: string | undefined): value is string {
 
 function isDependencyPlaceholder(prompt: string): boolean {
   return [
-    /\b(?:wait(?:ing)?|stand(?:ing)? by)\b[\s\S]{0,80}\b(?:sub[- ]?agent|agent|result|output)\b/i,
+    /\b(?:wait(?:ing)?|stand(?:ing)? by)\b[\s\S]{0,80}\b(?:sub[- ]?agent|agent)\b/i,
+    /\b(?:wait(?:ing)?|stand(?:ing)? by)\b[\s\S]{0,80}\b(?:another|other|upstream|previous|prior)\b[\s\S]{0,40}\b(?:result|output)\b/i,
     /\b(?:sub[- ]?agent|agent)\b[\s\S]{0,80}\b(?:wait(?:ing)?|stand(?:ing)? by)\b/i,
-    /等待[\s\S]{0,80}(?:子\s*Agent|Sub[- ]?agent|Agent|智能体|结果|输出|资料|内容)/i,
+    /等待[\s\S]{0,80}(?:子\s*Agent|Sub[- ]?agent|Agent|智能体|上游[\s\S]{0,20}(?:结果|输出)|前置[\s\S]{0,20}(?:结果|输出)|另一个[\s\S]{0,20}(?:结果|输出)|其他[\s\S]{0,20}(?:结果|输出))/i,
     /(?:子\s*Agent|Sub[- ]?agent|Agent|智能体)[\s\S]{0,80}(?:等待|待命|稍后提供)/i,
     /目前处于等待状态/i,
   ].some(pattern => pattern.test(prompt));
