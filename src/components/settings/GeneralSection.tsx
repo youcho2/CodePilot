@@ -35,6 +35,8 @@ import { useTranslation } from "@/hooks/useTranslation";
 import { SUPPORTED_LOCALES, type Locale } from "@/i18n";
 import type { TranslationKey } from "@/i18n";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
 import { SettingsCard } from "@/components/patterns/SettingsCard";
 import { FieldRow } from "@/components/patterns/FieldRow";
 import { StatusBanner } from "@/components/patterns/StatusBanner";
@@ -212,6 +214,9 @@ export function GeneralSection() {
 
       </SettingsCard>
 
+      {/* Network proxy card */}
+      <ProxyCard t={t} />
+
       {/* Skip-permissions warning dialog */}
       <AlertDialog open={showSkipPermWarning} onOpenChange={setShowSkipPermWarning}>
         <AlertDialogContent>
@@ -259,6 +264,117 @@ const getSentryEnabled = () => {
   try { return localStorage.getItem('codepilot:sentry-disabled') !== 'true'; } catch { return true; }
 };
 const getSentryEnabledServer = () => true; // SSR default
+
+/* ── Network proxy (SDK / Codex subprocess + native/OAuth/discovery) ── */
+
+function ProxyCard({ t }: { t: (key: TranslationKey) => string }) {
+  const [url, setUrl] = useState("");
+  const [noProxy, setNoProxy] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [testing, setTesting] = useState(false);
+  const [testResult, setTestResult] = useState<{ ok: boolean; msg: string } | null>(null);
+
+  useEffect(() => {
+    fetch("/api/settings/app")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (!d) return;
+        const s = d.settings || {};
+        setUrl(s.network_proxy_url || "");
+        setNoProxy(s.network_no_proxy || "");
+      })
+      .catch(() => { /* ignore */ });
+  }, []);
+
+  const save = useCallback(async () => {
+    setSaving(true);
+    setSaved(false);
+    setTestResult(null);
+    try {
+      const res = await fetch("/api/settings/app", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          settings: { network_proxy_url: url.trim(), network_no_proxy: noProxy.trim() },
+        }),
+      });
+      if (res.ok) {
+        setSaved(true);
+        setTimeout(() => setSaved(false), 2500);
+      }
+    } catch {
+      // ignore
+    } finally {
+      setSaving(false);
+    }
+  }, [url, noProxy]);
+
+  const test = useCallback(async () => {
+    setTesting(true);
+    setTestResult(null);
+    try {
+      const res = await fetch("/api/settings/proxy-test", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url: url.trim() }),
+      });
+      const d = await res.json();
+      setTestResult(
+        d.ok
+          ? { ok: true, msg: t("settings.proxyTestOk" as TranslationKey) }
+          : { ok: false, msg: `${t("settings.proxyTestFail" as TranslationKey)}${d.error ? `：${d.error}` : ""}` },
+      );
+    } catch {
+      setTestResult({ ok: false, msg: t("settings.proxyTestFail" as TranslationKey) });
+    } finally {
+      setTesting(false);
+    }
+  }, [url, t]);
+
+  return (
+    <SettingsCard
+      title={t("settings.proxyTitle" as TranslationKey)}
+      description={t("settings.proxyDesc" as TranslationKey)}
+    >
+      <div className="space-y-1.5">
+        <label className="text-xs font-medium">{t("settings.proxyUrlLabel" as TranslationKey)}</label>
+        <Input
+          value={url}
+          onChange={(e) => setUrl(e.target.value)}
+          placeholder="http://127.0.0.1:7890"
+          spellCheck={false}
+          autoCapitalize="off"
+        />
+      </div>
+      <div className="space-y-1.5">
+        <label className="text-xs font-medium">{t("settings.proxyNoProxyLabel" as TranslationKey)}</label>
+        <Input
+          value={noProxy}
+          onChange={(e) => setNoProxy(e.target.value)}
+          placeholder="example.com,.internal.net"
+          spellCheck={false}
+          autoCapitalize="off"
+        />
+        <p className="text-[11px] text-muted-foreground">{t("settings.proxyNoProxyHint" as TranslationKey)}</p>
+      </div>
+      <div className="flex items-center gap-2">
+        <Button size="sm" onClick={save} disabled={saving}>
+          {saving ? t("settings.proxySaving" as TranslationKey) : t("settings.proxySave" as TranslationKey)}
+        </Button>
+        <Button size="sm" variant="outline" onClick={test} disabled={testing || !url.trim()}>
+          {testing ? t("settings.proxyTesting" as TranslationKey) : t("settings.proxyTest" as TranslationKey)}
+        </Button>
+        {saved && (
+          <span className="text-xs text-status-success-foreground">{t("settings.proxySaved" as TranslationKey)}</span>
+        )}
+      </div>
+      {testResult && (
+        <StatusBanner variant={testResult.ok ? "success" : "warning"}>{testResult.msg}</StatusBanner>
+      )}
+    </SettingsCard>
+  );
+}
 
 function SentryToggle({ locale, t }: { locale: string; t: (key: TranslationKey) => string }) {
   const enabled = useSyncExternalStore(sentrySubscribe, getSentryEnabled, getSentryEnabledServer);

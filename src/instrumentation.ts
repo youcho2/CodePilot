@@ -83,6 +83,17 @@ export async function register() {
     const { initRuntimeLog } = await import('@/lib/runtime-log');
     initRuntimeLog();
 
+    // Apply the user-configured network proxy (Settings → General) to this
+    // server process: sync process.env + install the global fetch dispatcher
+    // so native/OAuth/discovery route through it. Subprocess (SDK/Codex)
+    // overlays read the setting at spawn time separately. No-op when unset.
+    try {
+      const { initProxyFromSettings } = await import('@/lib/proxy-config');
+      initProxyFromSettings();
+    } catch {
+      // Proxy init must never block server boot.
+    }
+
     // Reconcile assistant heartbeat desired state before the scheduler starts
     // scanning due rows. This repairs missing/drifted rows on cold boot and
     // removes disabled rows without waiting for the Settings page to open.

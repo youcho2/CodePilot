@@ -1,5 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSetting, setSetting } from '@/lib/db';
+import {
+  PROXY_URL_SETTING,
+  PROXY_NO_PROXY_SETTING,
+  initProxyFromSettings,
+} from '@/lib/proxy-config';
 
 /**
  * CodePilot app-level settings (stored in SQLite, separate from ~/.claude/settings.json).
@@ -18,6 +23,10 @@ const ALLOWED_KEYS = [
   'default_panel',
   'agent_runtime',
   'cli_enabled',
+  // Network proxy applied to every outbound path (SDK / Codex subprocess +
+  // native/OAuth/discovery fetch). See src/lib/proxy-config.ts.
+  PROXY_URL_SETTING,
+  PROXY_NO_PROXY_SETTING,
   // Feature announcement dismiss flags (persist across Electron restarts)
   'codepilot:announcement:v0.48-agent-engine',
 ];
@@ -52,6 +61,7 @@ export async function PUT(request: NextRequest) {
       return NextResponse.json({ error: 'Invalid settings data' }, { status: 400 });
     }
 
+    let proxyChanged = false;
     for (const [key, value] of Object.entries(settings)) {
       if (!ALLOWED_KEYS.includes(key)) continue;
       const strValue = String(value ?? '').trim();
@@ -65,6 +75,14 @@ export async function PUT(request: NextRequest) {
         // Empty value = remove the setting
         setSetting(key, '');
       }
+      if (key === PROXY_URL_SETTING || key === PROXY_NO_PROXY_SETTING) proxyChanged = true;
+    }
+
+    // Apply the proxy to this server process immediately so it takes effect on
+    // the next send/fetch without an app restart (subprocess overlays read the
+    // setting at spawn time; this handles the native/OAuth global dispatcher).
+    if (proxyChanged) {
+      try { initProxyFromSettings(); } catch { /* non-fatal — boot will retry */ }
     }
 
     return NextResponse.json({ success: true });

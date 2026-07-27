@@ -743,6 +743,11 @@ export async function getCodexAppServer(): Promise<ManagedAppServer> {
         stdio: ['pipe', 'pipe', 'pipe'],
         windowsHide: true,
         windowsVerbatimArguments: launch.windowsVerbatimArguments,
+        // buildProxySafeEnvironment (inside buildCodexAppServerEnv) reads the
+        // proxy from process.env, which initProxyFromSettings() populates from
+        // the in-app Settings → General proxy at boot. So the user-configured
+        // egress (B-031) reaches the Codex app-server without a separate
+        // overlay here.
         env: buildCodexAppServerEnv(process.env, process.platform, preparedHome.codexHome),
       });
     } catch (err) {
