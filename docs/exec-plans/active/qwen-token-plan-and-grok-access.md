@@ -342,6 +342,7 @@ Release Notes 能准确说明“新增哪种千问套餐”“Grok 是 API Key �
 - [x] 定义边界：X 内容写入 `trust: external` 并注入反提示词规则；hosted search 不另造本地权限升级，费用只由上游真实账单决定，UI 不显示猜测金额；401、403（scope/entitlement 不武断细分）、429、network、5xx 有可判别类别。
 - [x] CodePilot Runtime 与 Codex proxy 分别补回归；两条 Runtime 不共享“某一条成功就全部 verified”的状态。
 - [x] 更新 UI：搜索工具使用专用搜索图标，并展示去重后的可点击来源；capability verified 状态保持不提升，四组合仍在 Ledger 单列待测。
+- [x] v0.60.0 route 回归修复：已认证 `xai-oauth/grok-4.5` 使用 picker / resolver / managed Sub-agent 共享 catalog，在 CodePilot 与 Codex Runtime 同时出现；未认证/disabled 与 Claude Code 协议不兼容场景保持 fail closed。
 
 ### 验收标准
 
@@ -411,6 +412,8 @@ Release Notes 能准确说明“新增哪种千问套餐”“Grok 是 API Key �
 - 2026-07-27（Phase 7 实现，commit `ec7f356a`）：选择共享 `xai-hosted-search.ts` 作为 provider-aware hosted-tool、外部 source 与失败分类真源。Native 直接把 provider-executed event 映射到现有 SSE；Codex proxy 抑制 Codex 不应执行的 hosted call，同时通过既有 per-session event bus 镜像 lifecycle，避免建立第四套工具协议。SDK request-shape 证明 function tool 与 `x_search` 可同请求混用；提交门禁为 4686/4686、production build 通过，真实 entitlement、来源质量和四组合可用性仍只能由凭据 smoke 关闭。
 - 2026-07-27（Phase 7 真实 smoke）：会话 `e034a05b12615c632393018afbb3449b` 证明 xAI OAuth × CodePilot Runtime × `grok-4.5` 能执行并持久化原生 `x_search`。DB 中共有 21 个成功 `x_search` tool result，最终纠错轮含 54 个唯一 `x.com` URL，来源信任均为 `external`；用户确认最终交互可用。核对同时发现 response-level 54 个 citations 被复制到该轮 14 个 tool result（756 source rows、消息约 119 KB）；记为非阻塞 P3，后续应把 response-level 来源只归属一次，避免存储与详情 UI 线性膨胀，不影响本次能力结论。
 - 2026-07-27（v0.60.0 正式发布）：Grok X Search 随 `v0.60.0` 发布（feature commit `ec7f356a`，release commit `d6c4090e`）；GitHub Actions run `30272492570` 全绿。Release Notes 按台账口径注明"已验证 xAI OAuth × CodePilot Runtime 组合，API Key 与 Codex Runtime 组合仍在验证中"，未把 X Search 宣称为全组合 capability verified；其余三组合与 citation fan-out P3 保持待办。
+- 2026-07-27（v0.60.0 Sub-agent route 回归）：另一台已更新客户端中，xAI OAuth Grok 4.5 主会话可访问，但 managed Sub-agent 枚举不到该 route。根因是 OAuth virtual Provider 只在模型 API 手工追加、不存在于 `providers` 表，而 Sub-agent 目录只遍历 DB。修复为 picker、resolver、managed Sub-agent 共用认证感知 catalog；CodePilot/Codex 包含精确 `xai-oauth/grok-4.5`，Claude Code 不因本修复放宽协议兼容。自动化覆盖路由/认证负例，定向 93/93、完整 unit 4703/4703、production build 通过；真实 packaged Sub-agent + X Search 仍单列待测。
+- 2026-07-27（Claude review P2 闭环）：Claude route 不再靠“未枚举 OAuth virtual Provider”碰巧排除 Grok，而是先消费共享候选、再由精确 `codepilot_only/xai` compat 过滤；Codex proxy 也不再复制 compat/protocol，改从共享静态定义派生。变异可观测的 compat/protocol 与 proxy metadata parity 回归已加入；定向 93/93、完整 unit 4703/4703、production build 通过。
 
 ## Release Notes 草案（已写入 `RELEASE_NOTES.md`，版本 v0.59.1）
 
@@ -473,6 +476,8 @@ Release Notes 能准确说明“新增哪种千问套餐”“Grok 是 API Key �
 | 2026-07-27 | phase7-contract | xAI API/OAuth assembly | grok-4.5 | isolated/mock | provider-aware injection、mixed request shape、Codex/Native lifecycle、external sources 持久化、错误分类 | ✅ 218/218 targeted | 不使用真实凭据；只证明接线与序列化合同，不能替代下方四组合 smoke |
 | 2026-07-27 | unit | all | all | isolated/mock | Phase 7 完整 `npm run test` | ✅ 4686/4686 | typecheck + 1116 suites，零失败；不替代真实 xAI entitlement/source smoke |
 | 2026-07-27 | build | Next production | all | local build | Phase 7 `npm run build` | ✅ | production compile + typecheck + 128 static pages；保留既有 NFT dynamic-trace warning |
+| 2026-07-27 | route-contract | xAI/OpenAI OAuth virtual | grok-4.5 / shared GPT catalog | isolated authenticated token fixtures | picker、resolver、CodePilot/Codex managed Sub-agent route 同源；unauth/disabled/Claude negative | ✅ 93/93 targeted；4703/4703 full；build ✅ | 修复 v0.60.0 非 DB OAuth route 漏枚举；不发外部请求，不替代 packaged 用户 smoke |
+| _待测_ | packaged codepilot_runtime / codex_runtime | xAI OAuth | grok-4.5 | SuperGrok browser OAuth | managed Sub-agent route + 文本 + `x_search` | ⏳ | 主会话 Grok 可用不等于 child route 已通过；需更新产物实测 |
 | _待测_ | claude_code | Qwen Token Plan Personal | qwen3.8-max-preview | `sk-sp-` personal | two-turn + tool + effort | ⏳ | |
 | _待测_ | codepilot_runtime | Qwen Token Plan Team | qwen3.8-max-preview | `sk-sp-` seat | two-turn + tool + usage gate | ⏳ | |
 | _待测_ | claude_code | Qwen Token Plan Team | deepseek-v3.2 / kimi-k2.7-code / MiniMax-M2.5 | `sk-sp-` seat | Anthropic wire one-turn/model | ⏳ | |

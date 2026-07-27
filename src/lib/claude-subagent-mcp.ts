@@ -47,6 +47,7 @@ import {
   resolveSubagentDependencies,
   validateSubagentDispatchSpec,
 } from './subagent-orchestration';
+import { listManagedVirtualProviderModelGroups } from './managed-virtual-provider-models';
 
 export const CLAUDE_SUBAGENT_SERVER_KEY = 'codepilot-subagent';
 export const CLAUDE_SUBAGENT_TOOL_NAME = 'codepilot_spawn_subagent';
@@ -209,8 +210,24 @@ export function createClaudeSubagentToolUseCorrelation(): ClaudeSubagentToolUseC
  */
 export function listClaudeSubagentRoutes(): ClaudeSubagentRoute[] {
   const providers = [
-    { id: 'env', name: 'Claude Code', provider: undefined },
-    ...getAllProviders().map(provider => ({ id: provider.id, name: provider.name, provider })),
+    {
+      id: 'env',
+      name: 'Claude Code',
+      provider: undefined,
+      providerCompat: 'claude_code_ready' as const,
+    },
+    ...getAllProviders().map(provider => ({
+      id: provider.id,
+      name: provider.name,
+      provider,
+      providerCompat: getProviderCompat(provider),
+    })),
+    ...listManagedVirtualProviderModelGroups().map(group => ({
+      id: group.providerId,
+      name: group.providerName,
+      provider: undefined,
+      providerCompat: group.compat,
+    })),
   ];
   const routes: ClaudeSubagentRoute[] = [];
 
@@ -225,9 +242,6 @@ export function listClaudeSubagentRoutes(): ClaudeSubagentRoute[] {
     } catch {
       continue;
     }
-    const providerCompat = candidate.provider
-      ? getProviderCompat(candidate.provider)
-      : 'claude_code_ready';
     const availableModels: CatalogModel[] = candidate.id === 'env' && getCachedModels('env').length > 0
       ? getCachedModels('env').map(cached => {
           const catalog = resolved.availableModels.find(model => model.modelId === cached.value);
@@ -251,7 +265,7 @@ export function listClaudeSubagentRoutes(): ClaudeSubagentRoute[] {
       const compat = getModelCompat({
         modelId: model.modelId,
         upstreamModelId: model.upstreamModelId,
-        providerCompat,
+        providerCompat: candidate.providerCompat,
         capabilities: model.capabilities,
       });
       if (compat.media || !compat.supportedRuntimes?.includes('claude_code')) continue;

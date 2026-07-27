@@ -45,6 +45,8 @@ import { getProviderCompatFromApi } from '@/lib/runtime-compat';
 import { makeErrorResult, classifyUpstreamError } from './errors';
 import { createUnifiedAdapter } from './unified-adapter';
 import type { ProviderRuntimeCompat } from '@/types';
+import type { Protocol } from '@/lib/provider-catalog';
+import { listManagedVirtualProviderDefinitions } from '@/lib/managed-virtual-provider-models';
 import type {
   ProxyHandlerInput,
   ProxyResult,
@@ -76,28 +78,32 @@ import type {
  *                  Defensive entry so the failure surfaces clearly
  *                  rather than as a stale `provider_not_found`.
  *
- * Mirror of the surfaces in `src/app/api/providers/models/route.ts`
- * lines ~315–347. Any new virtual provider added there MUST be added
- * here too so the proxy can resolve it; the API-contract test below
- * pins that invariant.
+ * Mirror of the managed surfaces in
+ * `src/lib/managed-virtual-provider-models.ts`, plus the native
+ * `codex_account` boundary exposed by `/api/providers/models`. Any new
+ * virtual provider added there MUST be added here too so the proxy can
+ * resolve it; the API-contract test below pins that invariant.
  */
 interface VirtualProviderEntry {
   displayName: string;
   compat: ProviderRuntimeCompat;
+  protocol?: Protocol;
   /** When true, this id should never have been routed through the
    *  proxy at all — surface a clear routing-bug error. */
   routingBug?: true;
 }
 
 const VIRTUAL_PROVIDERS: Record<string, VirtualProviderEntry> = {
-  'openai-oauth': {
-    displayName: 'OpenAI OAuth (Codex API)',
-    compat: 'codepilot_only',
-  },
-  'xai-oauth': {
-    displayName: 'xAI Grok OAuth',
-    compat: 'codepilot_only',
-  },
+  ...Object.fromEntries(
+    listManagedVirtualProviderDefinitions().map(definition => [
+      definition.providerId,
+      {
+        displayName: definition.providerName,
+        compat: definition.compat,
+        protocol: definition.protocol,
+      },
+    ]),
+  ),
   codex_account: {
     displayName: 'Codex Account',
     compat: 'codex_account',
@@ -108,6 +114,16 @@ const VIRTUAL_PROVIDERS: Record<string, VirtualProviderEntry> = {
 /** Exposed for the API-contract regression test. */
 export function getProxyResolvableProviderIds(extraDbIds: string[]): Set<string> {
   return new Set<string>([...Object.keys(VIRTUAL_PROVIDERS), ...extraDbIds]);
+}
+
+/** Exposed for metadata parity regression tests. */
+export function getProxyVirtualProviderMetadata(
+  providerId: string,
+): Pick<VirtualProviderEntry, 'compat' | 'protocol'> | undefined {
+  const entry = VIRTUAL_PROVIDERS[providerId];
+  return entry
+    ? { compat: entry.compat, ...(entry.protocol ? { protocol: entry.protocol } : {}) }
+    : undefined;
 }
 
 /**

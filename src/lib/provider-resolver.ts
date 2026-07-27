@@ -43,6 +43,9 @@ import {
   isInteractiveSceneAllowed,
   type ProviderCallScene,
 } from './provider-call-policy';
+import {
+  getManagedVirtualProviderDefinition,
+} from './managed-virtual-provider-models';
 
 // ── Resolution result ───────────────────────────────────────────
 
@@ -932,15 +935,6 @@ export function toAiSdkConfig(
 
 // ── Internal helpers ────────────────────────────────────────────
 
-// OpenAI Codex API models available through ChatGPT Plus/Pro OAuth
-const OPENAI_CODEX_MODELS: CatalogModel[] = [
-  { modelId: 'gpt-5.5', displayName: 'GPT-5.5' },
-  { modelId: 'gpt-5.4', displayName: 'GPT-5.4' },
-  { modelId: 'gpt-5.4-mini', displayName: 'GPT-5.4-Mini' },
-  { modelId: 'gpt-5.3-codex', displayName: 'GPT-5.3-Codex' },
-  { modelId: 'gpt-5.3-codex-spark', displayName: 'GPT-5.3-Codex-Spark' },
-];
-
 /**
  * Build resolution for the virtual OpenAI OAuth provider.
  * Uses OAuth Bearer token + Codex API endpoint.
@@ -979,13 +973,14 @@ function buildCodexAccountResolution(opts: ResolveOptions): ResolvedProvider {
 }
 
 function buildOpenAIOAuthResolution(opts: ResolveOptions): ResolvedProvider {
-  const model = opts.model || opts.sessionModel || 'gpt-5.5';
+  const definition = getManagedVirtualProviderDefinition('openai-oauth');
+  const model = opts.model || opts.sessionModel || definition.models[0].modelId;
 
-  const catalogEntry = OPENAI_CODEX_MODELS.find(m => m.modelId === model);
+  const catalogEntry = definition.models.find(m => m.modelId === model);
 
   return {
     provider: undefined,
-    protocol: 'openai-compatible',
+    protocol: definition.protocol,
     authStyle: 'api_key',
     model,
     upstreamModel: model,
@@ -994,27 +989,27 @@ function buildOpenAIOAuthResolution(opts: ResolveOptions): ResolvedProvider {
     envOverrides: {},
     roleModels: { default: model },
     hasCredentials: true, // OAuth token checked at call time
-    availableModels: OPENAI_CODEX_MODELS,
+    availableModels: definition.models,
     settingSources: [],
     _openaiOAuth: true, // marker for toAiSdkConfig
   } as ResolvedProvider;
 }
 
 function buildXaiOAuthResolution(opts: ResolveOptions): ResolvedProvider {
-  const model = opts.model || opts.sessionModel || 'grok-4.5';
-  const availableModels: CatalogModel[] = [{ modelId: 'grok-4.5', displayName: 'Grok 4.5' }];
+  const definition = getManagedVirtualProviderDefinition('xai-oauth');
+  const model = opts.model || opts.sessionModel || definition.models[0].modelId;
   return {
     provider: undefined,
-    protocol: 'xai',
+    protocol: definition.protocol,
     authStyle: 'api_key',
     model,
     upstreamModel: model,
-    modelDisplayName: availableModels.find(item => item.modelId === model)?.displayName || model,
+    modelDisplayName: definition.models.find(item => item.modelId === model)?.displayName || model,
     headers: {},
     envOverrides: {},
-    roleModels: { default: 'grok-4.5' },
+    roleModels: { default: definition.models[0].modelId },
     hasCredentials: true,
-    availableModels,
+    availableModels: definition.models,
     settingSources: [],
     _xaiOAuth: true,
   };

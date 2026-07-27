@@ -64,6 +64,8 @@ CodePilot 有两条 chat 运行路径：**Claude Code Runtime**（SDK 子进程�
 
 **不变量**：同 Runtime 不等于任意 model string，也不等于同 Provider。managed route 必须来自该 Runtime picker 未置灰/兼容集合并同时命中 `provider_id + model`，执行层的工具装配、凭据解析和模型调用必须全部使用目标 Provider；只传 `sonnet / haiku` 等重复 alias 不足以证明模型身份。不能按品牌误杀 Kimi / GLM / DeepSeek，也不能把不可达模型静默改成 Sonnet/inherit。Claude 原生 AgentDefinition 与 Codex 原生 spawn 即使接受 model，也不能被当作 CodePilot 跨 Provider 路由；Runtime 未返回 effective 事实时 UI 留空；一旦 Runtime 明确报告了不同模型，必须以 `ROUTE_MISMATCH` 终止当前 attempt，不能接受 fallback。catalog 命中不等于 entitlement 成功；任何结构化 provider error 都不能归为 completed。
 
+DB Provider 与已认证的 managed virtual Provider 必须共用同一套 picker / Sub-agent catalog 事实源。`openai-oauth`、`xai-oauth` 这类不写入 `providers` 表的凭据入口，不能只在 `/api/providers/models` 手工追加：认证成功时它们必须进入三条 managed Sub-agent 候选集合，再统一由 Runtime 兼容矩阵决定是否保留；因此 CodePilot/Codex 能看到 Grok，而 Claude Code 是经 compat gate 排除 xAI，不是靠漏枚举碰巧排除。未认证或集成关闭时各入口同时消失。Codex proxy 的 compat/protocol 也必须从同一静态定义派生，不能维护第二份 metadata。`codex_account` 的模型来自 app-server 异步发现，继续走其原生边界，不混入这个 managed virtual catalog。
+
 Claude managed subprocess 的调用方仍必须完整声明 `required_capabilities`，该字段只核对 Claude SDK 父 query 的真实工具 surface，不是固定只读开关。Codex managed child 不暴露这个字段：Codex app-server 是 native tools、MCP、sandbox 与 approval 的唯一能力事实源，CodePilot 只负责目标 Provider+Model 路由与 transport，不预判或裁剪工具类别。两条路径在真实工具缺失时都必须诚实失败，不能用训练知识或本地旧内容冒充实时检索。每个调用仍是 one-shot foreground attempt，不能 placeholder / stand-by / resume；同一用户任务的显式 retry 必须复用前次返回的 `logicalRunId`，不同任务不得复用。Runtime Adapter 不能只信调用方：复用 active/settling logical run 必须返回 `LOGICAL_RUN_STILL_RUNNING`，复用 completed logical run 必须返回 `LOGICAL_RUN_ALREADY_COMPLETED`，且两者都不得调用 Provider 或把拒绝记录成新的 attempt。
 
 三 Runtime 的依赖编排不能由各自 SDK 猜测。一个 dependency graph 使用共同的 `workflow_id`，每个 child 使用唯一 `task_key`，边由 `depends_on` 声明；Adapter 先创建 durable queued run，再统一调用 `resolveSubagentDependencies()`。只有上游同 workflow task 已 durable completed 且存在结果时，CodePilot 才把结果作为带 provenance 的 data 注入实际 child prompt 并切换到 executing。SDK tool call 串行不等于结果自动传递；调用方必须先发 upstream，缺失上游只给并行 handler 5 秒创建宽限，不能让 dependent-first 在串行 Runtime 上长期阻塞。未声明依赖的 wait/stand-by prompt、失败依赖、重复 task key 与 self/indirect cycle 必须在 Provider 启动前 fail closed。
@@ -96,6 +98,7 @@ CodePilot Provider 会话把 Codex app-server 的 Responses endpoint 指向
 | ChatRuntime 词汇 | `src/lib/chat-runtime.ts` | 必须 import 自 `'./runtime'`（barrel）而非 `'./runtime/registry'`，否则 `registerRuntime()` 副作用不触发 → `resolveRuntime()` 抛 "No agent runtime registered" |
 | Provider compat tier | `src/lib/runtime-compat.ts` `getProviderCompat()` | preset.protocol='anthropic' 必须按 `meta.claudeCodeVerified` 拆 verified vs experimental；`codepilot_only` 分支**不能**有 claude alias lift |
 | Model compat flags | `src/lib/runtime-compat.ts` `getModelCompat()` | `claude_code_ready` 双向兼容（claude_code + codepilot_runtime）；`verified` / `experimental` 仅 `claude_code_compatible`；`codepilot_only` 仅 `codepilot_runtime_compatible` |
+| Managed virtual catalog | `src/lib/managed-virtual-provider-models.ts` | 已认证的非 DB Provider 是 picker、resolver 与 managed Sub-agent route 的共同事实源；未认证/disabled fail closed；不纳入异步发现的 `codex_account` |
 | Server filter | `src/app/api/providers/models/route.ts` | 仅当传 `?runtime=` 才过滤；过滤后空 group **必须** drop（`.filter(g => g.models.length > 0)`），否则 hook 仍会 cross-wire |
 | Hook contract | `src/hooks/useProviderModels.ts` | 暴露 `fetchState / resolvedProviderId / resolvedModel / providerWasFilteredOut / noCompatibleProvider` 五字段；区分 `providerId === undefined`（fallback chain）vs `providerId === ''`（env 历史会话）vs 显式值 |
 | Composer send | `src/components/chat/ChatView.tsx` `doStartStream` / `sendMessage` | 三道 gate：`fetchState === 'idle'` / `noCompatibleProvider` / `loaded && (!resolvedProviderId \|\| !resolvedModel)`；wire 用 resolved pair 而非 raw |
@@ -144,6 +147,7 @@ CodePilot Provider 会话把 Codex app-server 的 Responses endpoint 指向
 | `src/__tests__/unit/runtime-selection.test.ts` | inlined `predictNativeRuntime` (registry side effects 隔离) |
 | `src/__tests__/unit/sdk-availability.test.ts` | sdk-runtime 直接 import（被 barrel registerRuntime 调用前先 init），测 isAvailable 各路径 |
 | `src/__tests__/unit/subagent-orchestration.test.ts` | Provider+Model route、三 Runtime 工具/权限继承、hosted search、requested/effective view |
+| `src/__tests__/unit/subagent-virtual-provider-routes.test.ts` | OAuth virtual Provider 的 picker/Sub-agent route 同源；xAI/OpenAI 正例、未认证/disabled/Claude Code 负例 |
 | `src/__tests__/unit/process-proxy-env.test.ts` | Electron/Codex 两道 child env、显式/system proxy 优先级、Windows casing、loopback bypass |
 | `src/__tests__/unit/codex-proxy-foundation.test.ts` | streaming Provider error 的 HTTP 200 `response.failed` 与 non-stream HTTP status 合同 |
 | `src/__tests__/unit/codex-event-mapper.test.ts` | loopback transport 502 专用诊断、原文保留与 managed upstream envelope 反例 |
@@ -164,3 +168,5 @@ CodePilot Provider 会话把 Codex app-server 的 Responses endpoint 指向
 - **2026-07-24** 会话 `3f0085c5fc664deca85005d70b1abfca` 证明 one-shot prompt 指导不能完成结果 handoff：DeepSeek tool input 在 Qwen 输出前已冻结，串行执行后仍只能自行重搜。三 Runtime 现统一使用 workflow/task/dependency durable compiler；Adapter 不再各自解释“等待上游”的自然语言。
 - **2026-07-27** Windows + Clash 实机证明 Codex 的 CodePilot loopback Responses 请求会继承 proxy env 并在缺少 `NO_PROXY` 时被截获为 502。两道 child-process 边界统一使用共享 proxy-safe builder；保留外网代理，不用 Chromium direct mode 掩盖 Rust 子进程问题。
 - **2026-07-27** Claude 独立审查证明“loopback URL + HTTP 502”不足以识别代理截获，因为 CodePilot managed proxy 的上游失败也曾返回同一 HTTP 签名。parsed streaming 请求现统一用 HTTP 200 SSE `response.failed` 表达 Provider 错误；专用 loopback 诊断只处理 transport 502、排除 structured envelope 并保留原文。bundled Codex 的 `respect_system_proxy` 语义仍以 Windows system-proxy-only smoke 为准。
+- **2026-07-27** v0.60.0 用户在另一台电脑确认 Grok 4.5 主会话可用，但 managed Sub-agent 声称没有该 route。根因不是 entitlement，而是 picker 手工加入 `xai-oauth`，Sub-agent route 却只枚举 env + `providers` 表。现以 `managed-virtual-provider-models.ts` 统一 OAuth provider/model/auth 事实，CodePilot/Codex 同时获得已认证 Grok/OpenAI OAuth route；Claude Code 的协议 gate 不放宽。
+- **2026-07-27** Claude review 通过变异测试证明首版 Claude negative 是空断言，且 Codex proxy 仍复制 compat。现让 Claude 候选也消费共享 catalog 后再按 compat 过滤；测试直接锁定 xAI=`codepilot_only/xai`、OpenAI OAuth=`codepilot_only/openai-compatible`。Proxy registry 从共享定义生成，metadata parity 同时断言 id/compat/protocol，不再只比 id。

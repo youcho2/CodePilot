@@ -5,38 +5,13 @@ import { isFirstPartyAnthropicEndpoint } from '@/lib/ai-provider';
 import { getDefaultModelsForProvider, getEffectiveProviderProtocol, findPresetForLegacy, ENV_CLAUDE_CODE_MODELS } from '@/lib/provider-catalog';
 import type { Protocol } from '@/lib/provider-catalog';
 import type { ErrorResponse, ProviderModelGroup } from '@/types';
-import { getOAuthStatus } from '@/lib/openai-oauth-manager';
-import { getXaiOAuthStatus } from '@/lib/xai-oauth-manager';
+import { listManagedVirtualProviderModelGroups } from '@/lib/managed-virtual-provider-models';
 import {
   getProviderCompat,
   getModelCompat,
   isOpenRouterAnthropicSkinUrl,
 } from '@/lib/runtime-compat';
 import { isChatRuntimeParam, resolveChatRuntimeParam, type ChatRuntime } from '@/lib/chat-runtime';
-
-// OpenAI models reachable through the legacy ChatGPT Plus/Pro OAuth login
-// (`openai-oauth`, compat: codepilot_only).
-//
-// NOT the same thing as the `codex_account` group built by
-// `@/lib/codex/models` further down (Phase 0, 2026-07-17):
-//   - openai-oauth  — this STATIC, hand-maintained list. Reasoning effort is
-//     fixed to 'medium' server-side and is NOT user-configurable, so these
-//     entries deliberately carry no effort capability metadata and the
-//     composer's effort selector stays hidden for them.
-//   - codex_account — DYNAMIC, sourced from the Codex app-server's
-//     `model/list`, per-model effort tiers, runtime `codex_runtime`.
-//
-// Because this list is static it necessarily LAGS upstream. Do not hand-add
-// models (e.g. GPT-5.6) to make the picker look current: an entry here is a
-// claim that THIS OAuth path can serve that model, which nothing verifies.
-// New Codex models must arrive through the codex_account group instead.
-const OPENAI_OAUTH_MODELS = [
-  { value: 'gpt-5.5', label: 'GPT-5.5' },
-  { value: 'gpt-5.4', label: 'GPT-5.4' },
-  { value: 'gpt-5.4-mini', label: 'GPT-5.4-Mini' },
-  { value: 'gpt-5.3-codex', label: 'GPT-5.3-Codex' },
-  { value: 'gpt-5.3-codex-spark', label: 'GPT-5.3-Codex-Spark' },
-];
 
 // Default Claude model options (for the built-in 'env' provider).
 // Capability metadata ensures `xhigh` appears in the effort dropdown even
@@ -472,36 +447,25 @@ export async function GET(request: NextRequest) {
       });
     }
 
-    // Add OpenAI OAuth virtual provider when authenticated
-    try {
-      const oauthStatus = getOAuthStatus();
-      if (oauthStatus.authenticated) {
-        groups.push({
-          provider_id: 'openai-oauth',
-          provider_name: `OpenAI${oauthStatus.plan ? ` (${oauthStatus.plan})` : ''}`,
-          provider_type: 'openai-oauth',
-          preset_key: 'openai-oauth',
-          protocol: 'openai-compatible',
-          compat: 'codepilot_only',
-          models: OPENAI_OAUTH_MODELS,
-        });
-      }
-    } catch { /* OpenAI OAuth module not available */ }
-
-    try {
-      const xaiStatus = getXaiOAuthStatus();
-      if (xaiStatus.enabled && xaiStatus.authenticated) {
-        groups.push({
-          provider_id: 'xai-oauth',
-          provider_name: 'xAI Grok OAuth',
-          provider_type: 'xai-oauth',
-          preset_key: 'xai-oauth',
-          protocol: 'xai',
-          compat: 'codepilot_only',
-          models: [{ value: 'grok-4.5', label: 'Grok 4.5' }],
-        });
-      }
-    } catch { /* xAI OAuth module not available */ }
+    // Authenticated virtual providers share one catalog with managed
+    // Sub-agent route discovery. Do not hand-add a provider here: doing so
+    // caused v0.60.0 to show Grok in the picker while rejecting it as a child.
+    for (const virtual of listManagedVirtualProviderModelGroups()) {
+      groups.push({
+        provider_id: virtual.providerId,
+        provider_name: virtual.providerName,
+        provider_type: virtual.providerType,
+        preset_key: virtual.presetKey,
+        protocol: virtual.protocol,
+        compat: virtual.compat,
+        models: virtual.models.map(model => ({
+          value: model.modelId,
+          label: model.displayName,
+          ...(model.upstreamModelId ? { upstreamModelId: model.upstreamModelId } : {}),
+          ...(model.capabilities ? { capabilities: model.capabilities } : {}),
+        })),
+      });
+    }
 
     // Phase 5 Phase 2 (2026-05-13) — Codex Account virtual provider.
     //

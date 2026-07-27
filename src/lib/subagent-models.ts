@@ -3,6 +3,7 @@ import type { ChatRuntime } from './chat-runtime';
 import type { CatalogModel } from './provider-catalog';
 import { resolveProvider, type ResolvedProvider } from './provider-resolver';
 import { getModelCompat, getProviderCompat } from './runtime-compat';
+import { listManagedVirtualProviderModelGroups } from './managed-virtual-provider-models';
 
 export interface SubagentModelOption {
   id: string;
@@ -28,9 +29,22 @@ export type SubagentModelResolution =
 export function listSubagentRoutes(runtime: Extract<ChatRuntime, 'codepilot_runtime' | 'codex_runtime'>): SubagentRoute[] {
   const candidates = [
     ...(runtime === 'codepilot_runtime'
-      ? [{ id: 'env', name: 'Environment', provider: undefined }]
+      ? [{
+          id: 'env',
+          name: 'Environment',
+          providerCompat: 'claude_code_ready' as const,
+        }]
       : []),
-    ...getAllProviders().map(provider => ({ id: provider.id, name: provider.name, provider })),
+    ...getAllProviders().map(provider => ({
+      id: provider.id,
+      name: provider.name,
+      providerCompat: getProviderCompat(provider),
+    })),
+    ...listManagedVirtualProviderModelGroups().map(group => ({
+      id: group.providerId,
+      name: group.providerName,
+      providerCompat: group.compat,
+    })),
   ];
   const routes: SubagentRoute[] = [];
 
@@ -46,9 +60,6 @@ export function listSubagentRoutes(runtime: Extract<ChatRuntime, 'codepilot_runt
       continue;
     }
 
-    const providerCompat = candidate.provider
-      ? getProviderCompat(candidate.provider)
-      : 'claude_code_ready';
     const models = [...resolved.availableModels];
     appendMissingRoleModels(models, resolved);
 
@@ -56,7 +67,7 @@ export function listSubagentRoutes(runtime: Extract<ChatRuntime, 'codepilot_runt
       const compat = getModelCompat({
         modelId: model.modelId,
         upstreamModelId: model.upstreamModelId,
-        providerCompat,
+        providerCompat: candidate.providerCompat,
         capabilities: model.capabilities,
       });
       if (compat.media || !compat.supportedRuntimes?.includes(runtime)) continue;
