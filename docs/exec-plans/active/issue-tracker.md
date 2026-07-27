@@ -1,7 +1,7 @@
 # Issue Tracker — 统一问题跟踪
 
 > 创建时间：2026-04-13
-> 最后更新：2026-07-27（新增 B-030：SDK runtime 下认 Claude Code CLI 登录，修「装了 CLI 却报无可用服务商」；code+typecheck 完成，单测待兼容 Node 跑）
+> 最后更新：2026-07-27（B-030 SDK runtime 认 CLI 登录 + B-031 新增 App 级网络代理配置修内网 403；均 code+typecheck+全量单测通过 node22 4553/0，待重打包 smoke）
 > 合并自：`open-issues-2026-03-12.md` + `v0.48-post-release-issues.md` + GitHub Issues 最新盘点
 
 **AI 须知：**
@@ -204,6 +204,18 @@ GitHub milestone `v0.56.x Stability / Trust`（#1）+ P0/P1 label 体系已建�
 - **反例语义（已写进单测）:** runtime 强制 `native` 或 `codex_runtime`、或 `cli_enabled=false`、或无 `claude` 二进制时，**仅有 CLI 登录不足以过门**——因为那些运行时用不了 CLI 登录（各需自己的 key/账号）。
 - **验证:** `tsc --noEmit` 全项目通过（exit 0）。单测因本机 Node v26 无法编译原生依赖未能执行（环境问题，非改动问题）；逻辑已逐条手核 + 反例覆盖，待 CI/兼容 Node 跑绿。
 - **权衡/已知副作用:** 装了 CLI 但**从未登录**的全新用户，现在会通过门 → 由子进程报"请先登录"清晰错误，而非入口一刀切引导加 provider。这是刻意选择（用户明确要求认 CLI 登录），且符合 SDK runtime "运行时报错" 的既有契约。
+
+#### B-031 内网/代理用户：CLI 登录能用但 CodePilot 里报 403（新增 App 级网络代理配置）
+- **状态:** 🟡 已实现 + typecheck + 全量单测通过（2026-07-27，node22 本地 4553/0）；待重新打包 + 真机 smoke（设置代理→发消息连通）
+- **现象:** 用户默认 `~/.claude` 是工作账号，Anthropic 要求经公司代理出口访问；终端 `claude` 靠 `claude.sh` 注入 `HTTPS_PROXY` 才能用。CodePilot 拉起 `claude` 子进程时不带代理 → `Failed to authenticate. API Error: 403 Request not allowed`（UI 显示成 `Error: success`，是 #577 抑制 + terminal_type=success 的显示 artifact）。**决定性复现:** 同一 `claude`，无代理→403，带代理 `10.x.x.x:3218`→OK。
+- **根因:** CodePilot 只认①登录 shell 的代理 env（用户刻意不写进 profile）②macOS 系统代理（全局，影响所有 app）。没有 App 级、按需的代理开关；native/OAuth/discovery 用裸 `fetch` 更是完全不认代理 env。
+- **修复（本轮）:** 新增 **Settings → General → 网络代理**，一处配置、所有出站统一走代理，保存即生效免重启：
+  - `src/lib/proxy-config.ts`（新）——单一真源：`getConfiguredProxy`/`buildProxyEnvVars`/`applyConfiguredProxyEnv`（子进程 env 叠加）/`syncConfiguredProxyToProcessEnv` + `installOrRefreshGlobalProxyDispatcher`（Node fetch）。NO_PROXY 恒含 `localhost/127.0.0.1/::1`，非 http(s) URL 视为未配置（fail-safe）。
+  - 注入点：SDK 子进程（`sdk-subprocess-env.ts` 末尾叠加）、Codex app-server spawn（`app-server-manager.ts`）、Native/OAuth/discovery（undici `EnvHttpProxyAgent` 全局 dispatcher，**仅当用户配了代理才装**，honors NO_PROXY 放行 loopback → 未配代理用户零影响）。
+  - 生效链：`instrumentation.ts` 启动时 `initProxyFromSettings()`；`/api/settings/app` PUT 到 proxy key 时热刷新。
+  - UI：General 页「网络代理」卡（地址 + 不走代理列表 + 「测试连接」→ 新端点 `/api/settings/proxy-test` 经代理探测 api.anthropic.com）；i18n en/zh 齐全。
+  - 测试：`src/__tests__/unit/proxy-config.test.ts`（9 用例，含未配=null/非 http(s)=null/loopback 恒在/不删继承 env 等反例）。
+- **验证:** node22 下 `npm run test` 4553 tests / 0 fail；`tsc --noEmit` 通过。**注意:** 用户当前装的 0.59.1 是加此功能前打的包，需重新打包才有该设置项。
 
 ---
 
