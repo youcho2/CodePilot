@@ -1,7 +1,7 @@
 # Issue Tracker — 统一问题跟踪
 
 > 创建时间：2026-04-13
-> 最后更新：2026-07-20（Codex CLI/登录发布 smoke 回写；B-029 打包污染与签名阻断已修复）
+> 最后更新：2026-07-27（新增 B-030：SDK runtime 下认 Claude Code CLI 登录，修「装了 CLI 却报无可用服务商」；code+typecheck 完成，单测待兼容 Node 跑）
 > 合并自：`open-issues-2026-03-12.md` + `v0.48-post-release-issues.md` + GitHub Issues 最新盘点
 
 **AI 须知：**
@@ -194,6 +194,16 @@ GitHub milestone `v0.56.x Stability / Trust`（#1）+ P0/P1 label 体系已建�
 - **根因证据:** Next/Turbopack 的 instrumentation NFT 不应用 route 级 `outputFileTracingExcludes`，动态 HOME/workspace 文件访问把整个项目根误判为运行依赖。除 `.claude/worktrees/**/release` 的嵌套 Electron 产物外，审计还发现本地 `data/*.db`、`.codepilot`、上传文件与文档被复制进 standalone；前者使递归 codesign 失败，后者构成不可接受的发布数据泄漏风险。
 - **修复:** Electron production build 先精确清理 `release/.next/dist-electron`；动态 HOME 扫描增加 Turbopack ignore 边界；Next build 后以严格根目录 allowlist 只保留 `.next`、`node_modules`、`server.js`、`package.json`、`cache-handler.js`，移除其余误追踪内容并 fail-closed 复核。新增 4 条行为/合同测试覆盖安全清理、泄漏阻断、最小 allowlist 与构建顺序。
 - **验证:** 最终 0.58.2 arm64 `.app` 的 standalone 只有 Next runtime 5 项，electron-builder 额外加入受控 `public/themes`；包内无本地 DB、上传、`.codepilot/.claude/.git`。`codesign --verify --deep --strict` 通过；DMG `hdiutil verify` 通过；隔离启动最终 packaged server 后 health 200，Codex status GET/POST 均真实选中 ChatGPT.app CLI。生成 `CodePilot-0.58.2-arm64.dmg` 与 `.zip`，B-029 不再阻断发布。
+
+#### B-030 只装 Claude Code CLI（订阅登录）无法发消息："无可用的 API 服务商"
+- **状态:** 🟡 已修 code + typecheck（2026-07-27）；单测已写但本机 Node v26 无法编译 better-sqlite3/zlib-sync，待兼容 Node（20/22）跑 `npm run test:unit` 确认
+- **现象:** 用户装了 Claude Code CLI 并 `claude login`（订阅 OAuth，无 API Key），概览显示"服务商已接入 1"、`/api/claude-auth` 也识别为已登录，但一发消息就被 `/api/chat` 拦为 412 `NEEDS_PROVIDER_SETUP` → 前端「无可用的 API 服务商」。服务商配置页同时显示 0（那是 DB provider CRUD，CLI 登录本就不在其中）。
+- **根因:** `provider-presence.ts hasCodePilotProvider()`（chat 入口硬门）刻意不认 CLI 登录——只认 env `ANTHROPIC_*` / DB `anthropic_auth_token` / OpenAI·xAI OAuth / DB provider。这是 0.50.3 为压 Sentry NEXT-2Z「No provider credentials」而做的二元收口（关掉 `~/.claude/settings.json` 凭据推断）。但它把"SDK runtime 会拉起 `claude` 子进程、复用 CLI 自己的认证（Keychain OAuth / `.credentials` / 内网代理网关）"这条真实可用路径也一并拒了 → 概览/`claude-auth` 说通、chat 说不通，正是「管道通了但 UI 语义骗人」。
+- **修复（本轮，2026-07-27）:** `hasCodePilotProvider()` 新增最后一条分支：当 **SDK runtime 会服务本次发送**（检测到 `claude` 二进制且 `agent_runtime` 未被强制 `native`/`codex_runtime`、`cli_enabled≠false`）时，认为有可用 provider，把鉴权下沉给子进程——与 `sdk-runtime.isAvailable()` 既有哲学一致（"auth 由 CLI 管，运行时报清晰错，不在入口预判"）。**不读** settings.json env 块（cc-switch 占位符正是当年误判源）。同步更新 `/api/chat`、`/api/setup` 的 lockstep 注释，使概览/setup 卡片/chat 门三处一致。
+  - 触及：`src/lib/provider-presence.ts`（+分支 +`claudeCodeSdkWillRun()` +测试 seam `__setSdkBinaryProbeForTests`）、`src/app/api/chat/route.ts`、`src/app/api/setup/route.ts`、`src/__tests__/unit/provider-presence.test.ts`（+6 用例，含 native/codex/cli_enabled=false/无二进制 4 条反例）。
+- **反例语义（已写进单测）:** runtime 强制 `native` 或 `codex_runtime`、或 `cli_enabled=false`、或无 `claude` 二进制时，**仅有 CLI 登录不足以过门**——因为那些运行时用不了 CLI 登录（各需自己的 key/账号）。
+- **验证:** `tsc --noEmit` 全项目通过（exit 0）。单测因本机 Node v26 无法编译原生依赖未能执行（环境问题，非改动问题）；逻辑已逐条手核 + 反例覆盖，待 CI/兼容 Node 跑绿。
+- **权衡/已知副作用:** 装了 CLI 但**从未登录**的全新用户，现在会通过门 → 由子进程报"请先登录"清晰错误，而非入口一刀切引导加 provider。这是刻意选择（用户明确要求认 CLI 登录），且符合 SDK runtime "运行时报错" 的既有契约。
 
 ---
 

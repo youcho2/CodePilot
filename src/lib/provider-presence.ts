@@ -7,12 +7,25 @@
  *   - process.env.ANTHROPIC_API_KEY / ANTHROPIC_AUTH_TOKEN
  *   - Legacy DB setting `anthropic_auth_token`
  *   - OpenAI OAuth session (virtual provider, no DB record required)
+ *   - Claude Code CLI login, but ONLY when the SDK runtime will serve the
+ *     send (added 2026-07-27). When `claude` is installed and the runtime
+ *     isn't forced to Native/Codex, the SDK subprocess reuses whatever the
+ *     CLI is authenticated with (macOS Keychain OAuth, ~/.claude/.credentials,
+ *     a corporate proxy gateway, env vars, …). We DON'T try to detect that
+ *     auth here — the Keychain path has no file to stat, and past attempts to
+ *     infer CLI credentials are exactly what made this check unreliable — so
+ *     we defer auth to the subprocess: an SDK-capable runtime with the binary
+ *     present is treated as a usable provider. A genuinely logged-out CLI then
+ *     surfaces a clear, specific error from the subprocess instead of the
+ *     generic pre-block. This mirrors `sdk-runtime.isAvailable()`'s own stated
+ *     philosophy ("auth is managed by the CLI, should fail at runtime with a
+ *     clear error, not be pre-filtered here").
  *
  * Out of scope (intentionally NOT checked):
- *   - ~/.claude/settings.json env block (cc-switch, hand-edit) — that file
- *     lives under the Claude Code CLI's ownership; CodePilot treats CLI login
- *     state as "not our business". A user with only settings.json and no
- *     CodePilot-level provider will be intercepted and asked to add one.
+ *   - The `~/.claude/settings.json` env block (cc-switch, hand-edit) is still
+ *     NOT read here: cc-switch proxy PLACEHOLDERS lived in that block and
+ *     produced false positives. It's the CLI's file; the subprocess loads it
+ *     on its own when the SDK runtime runs (see the in-scope note above).
  *
  * Used by:
  *   - `/api/chat` entry precheck (412 + NEEDS_PROVIDER_SETUP when false)
@@ -26,6 +39,39 @@ import type { ApiProvider } from '@/types';
 import { getSetting, getAllProviders } from '@/lib/db';
 import { isOAuthUsable } from '@/lib/openai-oauth-manager';
 import { isXaiOAuthUsable } from '@/lib/xai-oauth-manager';
+import { findClaudeBinary } from '@/lib/platform';
+
+/**
+ * Test seam: probe for "is the Claude Code CLI binary installed?". Production
+ * delegates to platform.findClaudeBinary() (60s-cached; the same probe
+ * resolveRuntime() runs on every send). Unit tests override it so a CI / dev
+ * box that happens to have `claude` on PATH can't flip the clean-install
+ * assertions. Pass null to restore the real probe.
+ */
+let sdkBinaryProbe: () => boolean = () => !!findClaudeBinary();
+export function __setSdkBinaryProbeForTests(fn: (() => boolean) | null): void {
+  sdkBinaryProbe = fn ?? (() => !!findClaudeBinary());
+}
+
+/**
+ * True when the Claude Code SDK runtime will serve a *default* (no per-request
+ * override) send: the `claude` binary exists and neither the global runtime
+ * setting nor the legacy cli toggle forces us onto Native / Codex.
+ *
+ * Mirrors the auto/global branch of resolveRuntime() (runtime/registry.ts)
+ * WITHOUT importing the registry — provider-presence sits under /api/chat's
+ * hot path and the registry barrel pulls in claude-client, so a direct import
+ * risks the claude-client ⇄ runtime init cycle. Session-level pins can still
+ * override the runtime per request; this coarse gate only needs the global
+ * picture, same as every other credential source in hasCodePilotProvider().
+ */
+function claudeCodeSdkWillRun(): boolean {
+  const setting = getSetting('agent_runtime') || 'auto';
+  if (setting === 'native' || setting === 'codex_runtime') return false;
+  if (getSetting('cli_enabled') === 'false') return false;
+  // 'auto' or 'claude-code-sdk': the subprocess runs iff the binary exists.
+  return sdkBinaryProbe();
+}
 
 /**
  * True when a single DB provider has credentials CodePilot can dispatch on.
@@ -104,6 +150,21 @@ export function hasCodePilotProvider(): boolean {
       if (providerHasUsableCodePilotAuth(p)) return true;
     }
   } catch {
+    return true;
+  }
+
+  // Claude Code CLI login — last because the binary probe may spawn a
+  // subprocess. When the SDK runtime will serve this send, the `claude`
+  // subprocess reuses whatever the CLI is authenticated with; we defer auth to
+  // it rather than (unreliably) detecting login state here. See the file
+  // header for the full rationale. Gated on runtime because Native / Codex
+  // can't use the CLI login — they need their own key / account.
+  try {
+    if (claudeCodeSdkWillRun()) return true;
+  } catch {
+    // Probe failure (e.g. binary --version timed out) is fail-open, consistent
+    // with the DB/OAuth probes above: let the downstream resolver surface the
+    // real error instead of blocking on a transient glitch.
     return true;
   }
 

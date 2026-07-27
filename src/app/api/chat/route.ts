@@ -75,9 +75,12 @@ export async function POST(request: NextRequest) {
     console.log('[chat API] content length:', content.length, 'first 200 chars:', content.slice(0, 200));
     console.log('[chat API] systemPromptAppend:', systemPromptAppend ? `${systemPromptAppend.length} chars` : 'none');
 
-    // Precondition: CodePilot must have a provider configured. ~/.claude/settings.json
-    // (cc-switch, CLI login) is intentionally NOT counted — users with only that source
-    // are redirected to the setup flow to add a proper CodePilot provider.
+    // Precondition: CodePilot must have a dispatchable provider. As of
+    // 2026-07-27 a Claude Code CLI login counts WHEN the SDK runtime will serve
+    // the send (binary present, runtime not forced Native/Codex) — the SDK
+    // subprocess reuses the CLI's own auth. The ~/.claude/settings.json env
+    // block is still not read here (see provider-presence.ts header). Users
+    // with none of these are redirected to the setup flow to add a provider.
     if (!hasCodePilotProvider()) {
       return new Response(
         JSON.stringify({
