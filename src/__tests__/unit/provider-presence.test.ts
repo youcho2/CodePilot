@@ -3,10 +3,15 @@
  * decide whether to let a request through or redirect the user to the setup
  * flow.
  *
- * Key contract: settings.json (cc-switch, manual edits) is NOT a credential
- * source for CodePilot's provider-presence check. The user must have either
- * a DB provider, process.env ANTHROPIC_*, or the legacy
- * `anthropic_auth_token` setting.
+ * Key contracts:
+ *   - The `~/.claude/settings.json` env block (cc-switch, manual edits) is NOT
+ *     a credential source. A user must have a DB provider, process.env
+ *     ANTHROPIC_*, the legacy `anthropic_auth_token` setting, an OAuth session,
+ *     OR (as of 2026-07-27) a Claude Code CLI login usable under the SDK runtime.
+ *   - The CLI-login source is gated on the SDK runtime actually serving the
+ *     send: binary present AND runtime not forced to Native/Codex. The binary
+ *     probe is stubbed via `__setSdkBinaryProbeForTests` so a host that happens
+ *     to have `claude` installed can't flip the clean-install assertions.
  */
 import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
@@ -46,9 +51,17 @@ beforeEach(async () => {
   setSetting('openai_oauth_access_token', '');
   setSetting('openai_oauth_refresh_token', '');
   setSetting('openai_oauth_expires_at', '');
+  // Reset runtime settings so the CLI-login branch is deterministic per test.
+  setSetting('agent_runtime', '');
+  setSetting('cli_enabled', '');
+  // Default: no CLI binary. Individual tests opt into "installed" explicitly.
+  const { __setSdkBinaryProbeForTests } = await import('../../lib/provider-presence');
+  __setSdkBinaryProbeForTests(() => false);
 });
 
-afterEach(() => {
+afterEach(async () => {
+  const { __setSdkBinaryProbeForTests } = await import('../../lib/provider-presence');
+  __setSdkBinaryProbeForTests(null); // restore the real platform probe
   if (originalHome !== undefined) process.env.HOME = originalHome;
   else delete process.env.HOME;
   if (originalUserProfile !== undefined) process.env.USERPROFILE = originalUserProfile;
@@ -186,5 +199,64 @@ describe('hasCodePilotProvider', () => {
   it('returns false when OAuth is logged out (no access token)', async () => {
     const { hasCodePilotProvider } = await import('../../lib/provider-presence');
     assert.equal(hasCodePilotProvider(), false);
+  });
+
+  // ── Claude Code CLI login under the SDK runtime (2026-07-27) ──────────────
+
+  it('returns true when the Claude Code CLI is installed and runtime is auto', async () => {
+    const { hasCodePilotProvider, __setSdkBinaryProbeForTests } = await import('../../lib/provider-presence');
+    __setSdkBinaryProbeForTests(() => true); // CLI binary present
+    // agent_runtime unset → 'auto' → SDK serves when the binary exists.
+    assert.equal(hasCodePilotProvider(), true);
+  });
+
+  it('returns true when agent_runtime is explicitly claude-code-sdk and CLI installed', async () => {
+    const { setSetting } = await import('@/lib/db');
+    setSetting('agent_runtime', 'claude-code-sdk');
+    const { hasCodePilotProvider, __setSdkBinaryProbeForTests } = await import('../../lib/provider-presence');
+    __setSdkBinaryProbeForTests(() => true);
+    assert.equal(hasCodePilotProvider(), true);
+  });
+
+  it('COUNTER-EXAMPLE: returns false when CLI installed but runtime forced to native', async () => {
+    // Native runtime dispatches via @ai-sdk/* with its own API key — it can't
+    // reuse the CLI login, so the binary alone must NOT satisfy the gate.
+    const { setSetting } = await import('@/lib/db');
+    setSetting('agent_runtime', 'native');
+    const { hasCodePilotProvider, __setSdkBinaryProbeForTests } = await import('../../lib/provider-presence');
+    __setSdkBinaryProbeForTests(() => true);
+    assert.equal(hasCodePilotProvider(), false);
+  });
+
+  it('COUNTER-EXAMPLE: returns false when CLI installed but runtime is codex_runtime', async () => {
+    const { setSetting } = await import('@/lib/db');
+    setSetting('agent_runtime', 'codex_runtime');
+    const { hasCodePilotProvider, __setSdkBinaryProbeForTests } = await import('../../lib/provider-presence');
+    __setSdkBinaryProbeForTests(() => true);
+    assert.equal(hasCodePilotProvider(), false);
+  });
+
+  it('COUNTER-EXAMPLE: returns false when CLI installed but cli_enabled=false', async () => {
+    const { setSetting } = await import('@/lib/db');
+    setSetting('cli_enabled', 'false');
+    const { hasCodePilotProvider, __setSdkBinaryProbeForTests } = await import('../../lib/provider-presence');
+    __setSdkBinaryProbeForTests(() => true);
+    assert.equal(hasCodePilotProvider(), false);
+  });
+
+  it('COUNTER-EXAMPLE: returns false under SDK runtime when no CLI binary is present', async () => {
+    const { hasCodePilotProvider, __setSdkBinaryProbeForTests } = await import('../../lib/provider-presence');
+    __setSdkBinaryProbeForTests(() => false); // not installed
+    assert.equal(hasCodePilotProvider(), false);
+  });
+
+  it('CLI login passes via the runtime branch even when settings.json is ignored', async () => {
+    // The macOS-Keychain / proxy-gateway user (no settings.json creds, no
+    // .credentials file) is exactly why we defer auth to the subprocess.
+    // settings.json is still not read; the SDK-runtime branch is what unblocks.
+    writeClaudeSettings({ env: {} });
+    const { hasCodePilotProvider, __setSdkBinaryProbeForTests } = await import('../../lib/provider-presence');
+    __setSdkBinaryProbeForTests(() => true);
+    assert.equal(hasCodePilotProvider(), true);
   });
 });

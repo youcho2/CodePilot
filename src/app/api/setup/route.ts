@@ -27,10 +27,12 @@ export async function GET() {
     // (hasCodePilotProvider). If SetupCenter tells a user "provider: completed"
     // while the chat entry is 412-blocking them, the wizard is lying.
     //
-    // Specifically: Claude CLI existence is NOT a provider source for CodePilot —
-    // it's the Claude card's concern. A user who only has the CLI installed
-    // (no DB provider, no env, no OAuth) falls into "not-configured" here so
-    // the Provider card can surface the "Add provider" CTA.
+    // As of 2026-07-27 hasCodePilotProvider() counts a Claude Code CLI login
+    // when the SDK runtime will serve the send (binary present, runtime not
+    // forced Native/Codex) — so a CLI-only user under the SDK runtime now
+    // reads "completed" here, matching the unblocked chat entry. A user with
+    // no CLI binary and no DB provider / env / OAuth still falls into
+    // "not-configured" so the Provider card surfaces the "Add provider" CTA.
     let provider: 'not-configured' | 'completed' | 'skipped' | 'needs-fix' = 'not-configured';
     if (hasCodePilotProvider()) {
       provider = 'completed';
