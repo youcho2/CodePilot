@@ -30,6 +30,8 @@ import {
 } from '@/lib/codex/proxy/provider-parity';
 import { handleProxyRequest, registerAdapter } from '@/lib/codex/proxy/adapter';
 import { makeErrorResult, classifyUpstreamError } from '@/lib/codex/proxy/errors';
+import { serializeCodexProxyResult } from '@/lib/codex/proxy/http-response';
+import type { ResponsesRequestBody } from '@/lib/codex/proxy/types';
 import type { ProviderRuntimeCompat, ApiProvider } from '@/types';
 
 // ─────────────────────────────────────────────────────────────────────
@@ -429,6 +431,46 @@ describe('makeErrorResult — default status by code', () => {
   });
   it('upstream_timeout → 504', () => {
     assert.equal(makeErrorResult('upstream_timeout', 'm').status, 504);
+  });
+});
+
+describe('serializeCodexProxyResult — transport status is not Provider status', () => {
+  const body: ResponsesRequestBody = {
+    model: 'gpt-4o',
+    input: [],
+    stream: true,
+  };
+
+  it('returns an upstream 502 as HTTP 200 response.failed for a streaming Codex request', async () => {
+    const response = serializeCodexProxyResult(
+      makeErrorResult('upstream_server_error', 'Provider is unavailable'),
+      body,
+      () => 'resp_test',
+    );
+
+    assert.equal(response.status, 200);
+    assert.match(response.headers.get('content-type') ?? '', /text\/event-stream/);
+    const text = await response.text();
+    assert.match(text, /event: response\.failed/);
+    assert.match(text, /"code":"upstream_server_error"/);
+    assert.match(text, /Provider is unavailable/);
+    assert.match(text, /data: \[DONE\]/);
+  });
+
+  it('keeps HTTP status + structured JSON for an explicit non-stream request', async () => {
+    const response = serializeCodexProxyResult(
+      makeErrorResult('upstream_server_error', 'Provider is unavailable'),
+      { ...body, stream: false },
+      () => 'unused',
+    );
+
+    assert.equal(response.status, 502);
+    assert.deepEqual(await response.json(), {
+      error: {
+        code: 'upstream_server_error',
+        message: 'Provider is unavailable',
+      },
+    });
   });
 });
 

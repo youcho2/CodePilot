@@ -31,6 +31,7 @@ import { getTrayMenuLabels } from '../src/lib/tray-menu-labels';
 import { BoundedLineRing } from '../src/lib/logging/bounded-line-ring';
 import { createRotatingLogWriter, type RotatingLogWriter } from '../src/lib/logging/main-log-rotation';
 import { classifyNavigation } from '../src/lib/navigation-policy';
+import { buildProxySafeEnvironment } from '../src/lib/process-proxy-env';
 
 // B-025: hard caps for the persistent main log + the in-memory server-output
 // ring. The 12.5 GB log a user hit came from an unbounded active file plus an
@@ -867,20 +868,28 @@ function startServer(port: number): Electron.UtilityProcess {
   const home = os.homedir();
   const constructedPath = getExpandedShellPath();
 
-  const env: Record<string, string> = {
-    ...userShellEnv,
-    ...sanitizedProcessEnv(),
-    // Ensure user shell env vars override (especially API keys)
-    ...userShellEnv,
-    // Inject system proxy (only if not already set in shell env)
-    ...(!userShellEnv.HTTP_PROXY && !userShellEnv.HTTPS_PROXY ? resolvedProxyEnv : {}),
-    PORT: String(port),
-    HOSTNAME: '127.0.0.1',
-    CLAUDE_GUI_DATA_DIR: path.join(home, '.codepilot'),
-    HOME: home,
-    USERPROFILE: home,
-    PATH: constructedPath,
-  };
+  const env = buildProxySafeEnvironment({
+    // Ensure user shell env vars override inherited values (especially API
+    // keys). On Windows loadUserShellEnv() is empty, so inherited process.env
+    // remains the explicit-proxy source of truth.
+    baseEnv: {
+      ...sanitizedProcessEnv(),
+      ...userShellEnv,
+    },
+    // Chromium's system proxy is only a fallback. The shared helper checks all
+    // upper/lower-case proxy keys before applying it, then ensures loopback
+    // traffic cannot be sent through Clash/Surge/etc.
+    fallbackProxyEnv: resolvedProxyEnv,
+    overrides: {
+      PORT: String(port),
+      HOSTNAME: '127.0.0.1',
+      CLAUDE_GUI_DATA_DIR: path.join(home, '.codepilot'),
+      HOME: home,
+      USERPROFILE: home,
+      PATH: constructedPath,
+    },
+    platform: process.platform,
+  }) as Record<string, string>;
 
   // Use Electron's utilityProcess to run the server in a child process
   // without spawning a separate Dock icon on macOS.

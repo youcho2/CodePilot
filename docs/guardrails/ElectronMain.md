@@ -25,6 +25,8 @@
 | 7 | xAI browser OAuth callback 固定为 `127.0.0.1:56121/callback` 且只绑定 loopback；不得改成 `0.0.0.0`、任意空闲端口或未注册 deep link | `src/lib/xai-oauth-manager.ts` |
 | 8 | packaged 环境无法打开浏览器或固定端口被占用时，必须明确提示 device-code 登录；不能静默失败或换 redirect URI | Settings UI + xAI OAuth routes |
 | 9 | 主进程注入 `HTTP_PROXY/HTTPS_PROXY` 只提供配置事实；packaged Next server 的 xAI OAuth fetch 必须显式挂代理 dispatcher，不能假设 Node fetch 自动读取 env | `electron/main.ts` + `src/lib/env-proxy-fetch.ts` |
+| 10 | Electron → packaged Next 的 child env 必须保留显式用户 proxy、仅在缺省时补 system proxy，并把既有 `NO_PROXY` 与 `127.0.0.1,localhost,::1` 合并；Windows 不得同时传大小写重复的 proxy keys | `electron/main.ts` + `src/lib/process-proxy-env.ts` |
+| 11 | bundled Codex 若启用 `respect_system_proxy`，环境变量 bypass 是否仍覆盖 Windows system proxy 必须以“仅 system proxy、无 proxy env”的 packaged smoke 证明；不得用 source pin 冒充 | Windows release smoke + Windows loopback exec plan |
 
 ## 关键文件 + 责任
 
@@ -36,6 +38,7 @@
 | `electron-builder.yml` | 打包配置（DMG / NSIS / arm64 + x64） |
 | `src/lib/xai-oauth-manager.ts` | loopback server 生命周期、loopback/Origin gate、端口占用错误 |
 | `src/lib/env-proxy-fetch.ts` | packaged server 上游 xAI 请求的 HTTP(S) system-proxy bridge；不接管 loopback |
+| `src/lib/process-proxy-env.ts` | 两道 child-process 边界共享的 proxy 优先级、Windows key 归一与 loopback bypass |
 | `src/components/settings/ProviderManager.tsx` | 显式用户点击打开授权页、browser/device fallback 与 cancel |
 
 ## 改动检查表
@@ -50,6 +53,8 @@
 - [ ] 改 OAuth 回调/外链后在 packaged macOS 与 Windows 分别验证 browser 登录、device flow、取消和端口占用提示
 - [ ] 外部授权页只由用户显式点击打开；页面仍受主进程外链策略约束，不在后台自动拉起
 - [ ] system proxy smoke 同时确认浏览器授权页和 server token exchange；只看到网页成功不等于凭据已落库
+- [ ] 改 child env / system proxy 时同时验证：显式大小写 proxy key、既有 `NO_PROXY` 保留、loopback 直连、外网仍走代理
+- [ ] Codex proxy 相关 Windows smoke 必须分别覆盖 env proxy 与 system-proxy-only；前者通过不能替代后者
 
 ## 常见坑
 
@@ -59,6 +64,8 @@
 - v0.58.3：为修复上述重叠，将 `.next` 改成独立 FileSet 后，electron-builder 自动过滤其根 `node_modules`，Next.js 哈希 external alias 未进入包；构建和 ABI 检查都通过，但 packaged server 无法响应健康检查。嵌套 alias 必须独立复制，发版门禁必须真实启动 server。
 - OAuth loopback 只在 web/dev 环境通过，不代表 packaged 可用；macOS/Windows 的外链拦截、防火墙、固定端口和应用退出清理都可能不同，发布前必须分别 smoke。
 - xAI proxy bridge 直接依赖 `undici` 6.x 的 dispatcher 接口；升级 Node/Electron 或迁移到 undici 7+ 时必须重跑真实 CONNECT proxy 合同测试并核对 handler 接口，不能只依赖 typecheck。
+- Windows 的 `process.env` / child env key 是大小写不敏感语义；同时传 `http_proxy` 与 `HTTP_PROXY` 时 Node 只会选其中一个。禁止用对象 spread 的偶然顺序决定代理，必须先归一。
+- 不要用 `session.setProxy({ mode: 'direct' })` 解决 Codex loopback：它会关闭 Chromium 外网代理，且管不到 Rust app-server 的 socket。应在 child-process 环境边界合并 `NO_PROXY`。
 
 ## 测试覆盖
 
@@ -69,6 +76,7 @@
 | packaged version + native ABI + server health | `scripts/verify-packaged-server.mjs`, `.github/workflows/build.yml` |
 | xAI loopback/CORS/端口占用（Node 合同） | `src/__tests__/unit/xai-oauth-manager.test.ts` |
 | xAI packaged server proxy bridge | `src/__tests__/unit/env-proxy-fetch.test.ts` + HTTP(S) proxy 真实 packaged smoke |
+| system proxy 优先级 + loopback child env | `src/__tests__/unit/process-proxy-env.test.ts` + Windows Clash packaged smoke |
 | packaged xAI browser/device OAuth | 手工 macOS + Windows smoke（真实账号；未自动化） |
 
 ## 设计决策日志
@@ -78,3 +86,5 @@
 - 2026-07-20 — v0.58.3 packaged server 因 `.next/node_modules` 被过滤无法启动；哈希 alias 改为独立 FileSet，并把 packaged server health smoke 升为发布门禁。
 - 2026-07-21 — xAI OAuth 采用固定 loopback browser PKCE + device-code 双路径，不引入 Electron deep link；Node 合同测试不能替代 packaged macOS/Windows 真实登录门禁。
 - 2026-07-22 — v0.59.0 真实 packaged 日志暴露 browser/system proxy 与 server/global fetch 分流；主进程继续只负责注入代理 env，xAI server fetch 以局部 dispatcher 显式消费，避免全局代理 loopback。
+- 2026-07-27 — Windows 0.59.1 实机出现 Codex 请求 `127.0.0.1:47823/api/codex/proxy` 被 Clash 截获并返回 502；Electron child env 改为“显式 proxy 优先 + system fallback + loopback bypass”，Windows proxy key 先归一，外网代理能力保持不变。
+- 2026-07-27 — bundled `codex-cli 0.145.0-alpha.27` 含 `respect_system_proxy` feature flag；静态 strings 不能证明启用状态或 Windows resolver 是否遵守 env `NO_PROXY`，因此增加 system-proxy-only packaged smoke，未通过前不宣称该路径已关闭。

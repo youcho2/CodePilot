@@ -24,6 +24,10 @@ import { dirname, join, win32 as win32Path } from 'node:path';
 import { CodexAppServerClient, type CodexTransport } from './app-server-client';
 import type { CodexAvailability } from './types';
 import { shouldDropCodexTraceLine, resolveCodexRustLog } from './codex-trace-filter';
+import {
+  buildProxySafeEnvironment,
+  type ProxyProcessEnvironment,
+} from '../process-proxy-env';
 
 interface SpawnedTransport extends CodexTransport {
   readonly proc: ChildProcessWithoutNullStreams;
@@ -566,6 +570,30 @@ let cached: Promise<ManagedAppServer> | null = null;
 let lastAvailability: CodexAvailability = { kind: 'unknown' };
 
 /**
+ * Build the Codex child environment at the final process boundary.
+ *
+ * Electron already protects the packaged Next server, but dev servers and
+ * alternate launchers do not cross that boundary. Re-applying the idempotent
+ * bypass here guarantees Codex's local Responses request remains direct.
+ */
+export function buildCodexAppServerEnv(
+  source: ProxyProcessEnvironment = process.env,
+  platform: NodeJS.Platform = process.platform,
+): NodeJS.ProcessEnv {
+  return buildProxySafeEnvironment({
+    baseEnv: source,
+    overrides: {
+      // B-025: default to 'warn' to avoid the Codex INFO tracing flood
+      // (codex_core::tasks enter/exit spans) bloating the persistent main
+      // log + main-process memory. Explicit RUST_LOG wins; opt into full
+      // 'info' tracing with CODEPILOT_CODEX_TRACE=1.
+      RUST_LOG: resolveCodexRustLog(source),
+    },
+    platform,
+  }) as NodeJS.ProcessEnv;
+}
+
+/**
  * Resolve (or create) the shared app-server connection.
  *
  * Returns the managed instance OR throws when the binary isn't
@@ -592,14 +620,7 @@ export async function getCodexAppServer(): Promise<ManagedAppServer> {
         stdio: ['pipe', 'pipe', 'pipe'],
         windowsHide: true,
         windowsVerbatimArguments: launch.windowsVerbatimArguments,
-        env: {
-          ...process.env,
-          // B-025: default to 'warn' to avoid the Codex INFO tracing flood
-          // (codex_core::tasks enter/exit spans) bloating the persistent main
-          // log + main-process memory. Explicit RUST_LOG wins; opt into full
-          // 'info' tracing with CODEPILOT_CODEX_TRACE=1.
-          RUST_LOG: resolveCodexRustLog(process.env),
-        },
+        env: buildCodexAppServerEnv(),
       });
     } catch (err) {
       cached = null;

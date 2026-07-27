@@ -40,6 +40,7 @@ import {
   translateCodexApproval,
   CODEX_KNOWN_NOTIFICATION_METHODS,
 } from '@/lib/codex/event-mapper';
+import { diagnoseCodexNetworkError } from '@/lib/codex/error-diagnostics';
 
 const ctx = { sessionId: 's1' };
 
@@ -290,6 +291,22 @@ describe('translateCodexNotification — turn lifecycle (nested status per schem
     assert.match(event.message, /Codex turn failed/);
   });
 
+  it('turn/completed diagnoses a 502 that targets CodePilot loopback proxy', () => {
+    const event = translateCodexNotification(
+      'turn/completed',
+      turnCompleted('failed', {
+        message: 'unexpected status 502 Bad Gateway: Unknown error, url: http://127.0.0.1:47823/api/codex/proxy/v1/responses (other)',
+      }),
+      ctx,
+    );
+    if (event?.type !== 'run_failed') throw new Error('unreachable');
+    assert.equal(event.code, 'CODEX_LOOPBACK_PROXY_INTERCEPTED');
+    assert.match(event.message, /^CODEX_LOOPBACK_PROXY_INTERCEPTED:/);
+    assert.match(event.message, /127\.0\.0\.1\/localhost/);
+    assert.match(event.message, /Original Codex error:/);
+    assert.match(event.message, /url: http:\/\/127\.0\.0\.1:47823/);
+  });
+
   it('turn/completed with status=inProgress → run_completed (conservative, with the real status as reason)', () => {
     // Codex doesn't typically emit inProgress here, but the schema
     // allows it. Surface the real status so downstream can distinguish.
@@ -324,6 +341,25 @@ describe('translateCodexNotification — turn lifecycle (nested status per schem
     assert.match(event.message, /retry budget exhausted/);
     assert.match(event.message, /httpConnectionFailed HTTP 504/);
     assert.equal(event.code, 'codex:httpConnectionFailed');
+  });
+
+  it('error notification diagnoses loopback 502 when the URL is in additionalDetails', () => {
+    const event = translateCodexNotification(
+      'error',
+      {
+        error: {
+          message: 'Unknown error',
+          codexErrorInfo: { httpConnectionFailed: { httpStatusCode: 502 } },
+          additionalDetails: 'unexpected status 502 Bad Gateway, url: http://127.0.0.1:47823/api/codex/proxy/v1/responses',
+        },
+        willRetry: false,
+      },
+      ctx,
+    );
+    if (event?.type !== 'run_failed') throw new Error('unreachable');
+    assert.equal(event.code, 'CODEX_LOOPBACK_PROXY_INTERCEPTED');
+    assert.match(event.message, /^CODEX_LOOPBACK_PROXY_INTERCEPTED:/);
+    assert.match(event.message, /url: http:\/\/127\.0\.0\.1:47823/);
   });
 
   it('error notification with willRetry=true → unknown_item (NOT run_failed) so the stream stays open', () => {
@@ -416,6 +452,32 @@ describe('translateCodexNotification — turn lifecycle (nested status per schem
     if (event?.type !== 'run_failed') throw new Error('unreachable');
     assert.match(event.message, /Codex error \(no message\)/);
     assert.equal(event.code, 'codex_error');
+  });
+});
+
+describe('Codex loopback proxy error diagnosis', () => {
+  it('recognizes localhost and IPv6 CodePilot proxy URLs', () => {
+    assert.match(
+      diagnoseCodexNetworkError(
+        'unexpected status 502 Bad Gateway, url: http://localhost:47823/api/codex/proxy/v1/responses',
+      ).message,
+      /^CODEX_LOOPBACK_PROXY_INTERCEPTED:/,
+    );
+    assert.match(
+      diagnoseCodexNetworkError(
+        'unexpected status 502 Bad Gateway, url: http://[::1]:47823/api/codex/proxy/v1/responses',
+      ).message,
+      /^CODEX_LOOPBACK_PROXY_INTERCEPTED:/,
+    );
+  });
+
+  it('does not relabel an upstream Provider 502, a managed proxy envelope, or an unrelated loopback endpoint', () => {
+    const upstream = 'unexpected status 502 Bad Gateway, url: https://api.example.test/v1/responses';
+    const unrelated = 'unexpected status 502 Bad Gateway, url: http://127.0.0.1:47825/v1/responses';
+    const managedEnvelope = 'unexpected status 502 Bad Gateway: {"error":{"code":"upstream_server_error","message":"Provider unavailable"}}, url: http://127.0.0.1:47823/api/codex/proxy/v1/responses';
+    assert.deepEqual(diagnoseCodexNetworkError(upstream), { message: upstream });
+    assert.deepEqual(diagnoseCodexNetworkError(unrelated), { message: unrelated });
+    assert.deepEqual(diagnoseCodexNetworkError(managedEnvelope), { message: managedEnvelope });
   });
 });
 

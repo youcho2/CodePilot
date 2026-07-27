@@ -68,6 +68,27 @@ Claude managed subprocess 的调用方仍必须完整声明 `required_capabiliti
 
 三 Runtime 的依赖编排不能由各自 SDK 猜测。一个 dependency graph 使用共同的 `workflow_id`，每个 child 使用唯一 `task_key`，边由 `depends_on` 声明；Adapter 先创建 durable queued run，再统一调用 `resolveSubagentDependencies()`。只有上游同 workflow task 已 durable completed 且存在结果时，CodePilot 才把结果作为带 provenance 的 data 注入实际 child prompt 并切换到 executing。SDK tool call 串行不等于结果自动传递；调用方必须先发 upstream，缺失上游只给并行 handler 5 秒创建宽限，不能让 dependent-first 在串行 Runtime 上长期阻塞。未声明依赖的 wait/stand-by prompt、失败依赖、重复 task key 与 self/indirect cycle 必须在 Provider 启动前 fail closed。
 
+### 2.5 Codex 本机 Provider Proxy 边界
+
+CodePilot Provider 会话把 Codex app-server 的 Responses endpoint 指向
+`http://127.0.0.1:<port>/api/codex/proxy/v1`。这是**本机 transport**，不是上游 Provider：
+
+- Electron → packaged Next 与 Next → Codex app-server 两道进程边界都必须幂等追加
+  `NO_PROXY/no_proxy=127.0.0.1,localhost,::1`，并保留用户已有 bypass 条目。
+- 外网 `HTTP_PROXY/HTTPS_PROXY/ALL_PROXY` 继续保留；禁止为修 loopback 而全局关闭代理。
+- Windows child env 中 proxy key 必须规范化为单一 casing，避免 Node 只传某个重复键。
+- 已解析的 `stream:true` managed proxy 请求发生 Provider / application error 时，必须用 HTTP 200
+  SSE `response.failed` 承载 structured error；显式 non-stream 请求才保留 HTTP status + JSON。
+  禁止把上游 Provider 502重新暴露成 loopback transport HTTP 502。
+- 只有 transport 502 同时指向 loopback + `/api/codex/proxy/`，且不含 CodePilot structured
+  error envelope 时，才能诊断为 `CODEX_LOOPBACK_PROXY_INTERCEPTED`；诊断必须保留原始
+  Codex error，外部 Provider 错误不得冒充本机拦截。
+- 用户自建 `~/.codex/proxy.mjs` 不属于 CodePilot 生命周期，禁止自动执行；本地自定义 endpoint
+  未监听时只可给出连接诊断。
+- bundled Codex 含 `respect_system_proxy` feature 不代表环境变量 bypass 一定覆盖 Windows
+  system proxy resolver；相关改动必须补“仅 system proxy、无 env proxy”的 packaged smoke，
+  不能用 source test 或 macOS build 代替。
+
 ## 3. 关键文件 + 不变量
 
 | 模块 | 文件 | 不变量 |
@@ -83,6 +104,9 @@ Claude managed subprocess 的调用方仍必须完整声明 `required_capabiliti
 | Auto-trigger | `src/hooks/useAssistantTrigger.ts` | welcome / heartbeat 必须吃 resolved pair + 在 `fetchState !== 'loaded' \|\| noCompatibleProvider` 时 return |
 | Chat API resolver | `src/app/api/chat/route.ts` 第 263 行 | `resolveProvider({ runtime: getActiveChatRuntime() })` —— 别忘了传 |
 | Bridge engine | `src/lib/bridge/conversation-engine.ts` | 同上 |
+| Codex child process env | `src/lib/process-proxy-env.ts`, `src/lib/codex/app-server-manager.ts` | 保留外网 proxy、loopback 直连、Windows key 单一化 |
+| Codex proxy HTTP/SSE contract | `src/lib/codex/proxy/http-response.ts`, `src/app/api/codex/proxy/v1/responses/route.ts` | streaming structured error 走 HTTP 200 `response.failed`；non-stream 保留 status + JSON |
+| Codex network diagnosis | `src/lib/codex/error-diagnostics.ts`, `src/lib/codex/event-mapper.ts` | 只识别 CodePilot loopback transport 502，保留原文，不误判 managed upstream envelope |
 
 ## 4. 加 / 改新功能时必须检查
 
@@ -120,6 +144,9 @@ Claude managed subprocess 的调用方仍必须完整声明 `required_capabiliti
 | `src/__tests__/unit/runtime-selection.test.ts` | inlined `predictNativeRuntime` (registry side effects 隔离) |
 | `src/__tests__/unit/sdk-availability.test.ts` | sdk-runtime 直接 import（被 barrel registerRuntime 调用前先 init），测 isAvailable 各路径 |
 | `src/__tests__/unit/subagent-orchestration.test.ts` | Provider+Model route、三 Runtime 工具/权限继承、hosted search、requested/effective view |
+| `src/__tests__/unit/process-proxy-env.test.ts` | Electron/Codex 两道 child env、显式/system proxy 优先级、Windows casing、loopback bypass |
+| `src/__tests__/unit/codex-proxy-foundation.test.ts` | streaming Provider error 的 HTTP 200 `response.failed` 与 non-stream HTTP status 合同 |
+| `src/__tests__/unit/codex-event-mapper.test.ts` | loopback transport 502 专用诊断、原文保留与 managed upstream envelope 反例 |
 
 加新 runtime gate 行为的功能时，至少加一组 unit test 覆盖三场景：(1) loaded + 兼容 → 通过；(2) loaded + 不兼容 → gate 拦；(3) idle → gate 拦。
 
@@ -135,3 +162,5 @@ Claude managed subprocess 的调用方仍必须完整声明 `required_capabiliti
 - **2026-07-23** 用户真实 smoke 发现 SDK `success` envelope 可携带 `is_error=true` 的 403，且父 Agent 把 one-shot subprocess 当作待命/续跑 worker，造成 3 个逻辑 Agent 产生 6 次调用。终态收口到结构化 SDK 字段；managed tool 加 one-shot 与 capability 声明，unsupported 能力 fail closed。
 - **2026-07-23** Codex 真实会话 `1d154cca69c53c23091b43d8f55100a6` 暴露两层错误：proxy 内已执行的 `codepilot_spawn_subagent` 被再次回传给 app-server，得到 `unsupported call`；dynamic MCP bridge 又只允许 Memory namespace。修复后所有 bridge-executed tool 都在 Codex-bound stream 中抑制，所有 namespaced MCP 调用都交回 Codex MCP manager；Codex child 不再要求 `required_capabilities` 或维护第二套工具 allowlist，只禁止递归 spawn。
 - **2026-07-24** 会话 `3f0085c5fc664deca85005d70b1abfca` 证明 one-shot prompt 指导不能完成结果 handoff：DeepSeek tool input 在 Qwen 输出前已冻结，串行执行后仍只能自行重搜。三 Runtime 现统一使用 workflow/task/dependency durable compiler；Adapter 不再各自解释“等待上游”的自然语言。
+- **2026-07-27** Windows + Clash 实机证明 Codex 的 CodePilot loopback Responses 请求会继承 proxy env 并在缺少 `NO_PROXY` 时被截获为 502。两道 child-process 边界统一使用共享 proxy-safe builder；保留外网代理，不用 Chromium direct mode 掩盖 Rust 子进程问题。
+- **2026-07-27** Claude 独立审查证明“loopback URL + HTTP 502”不足以识别代理截获，因为 CodePilot managed proxy 的上游失败也曾返回同一 HTTP 签名。parsed streaming 请求现统一用 HTTP 200 SSE `response.failed` 表达 Provider 错误；专用 loopback 诊断只处理 transport 502、排除 structured envelope 并保留原文。bundled Codex 的 `respect_system_proxy` 语义仍以 Windows system-proxy-only smoke 为准。

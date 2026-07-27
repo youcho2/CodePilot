@@ -14,12 +14,11 @@
  *   4. Serialise the ProxyResult into either an SSE stream
  *      (`Content-Type: text/event-stream`) or a JSON body.
  *
- * Pre-stream errors (provider not found, credentials missing,
- * unknown-tier provider that the proxy can't infer a wire format
- * for) come back as `kind: 'error'` and we map them to HTTP status
- * code + JSON. During-stream errors come back as `kind: 'stream'`
- * with an embedded `response.failed` event; the route still returns
- * 200 because the SSE protocol carries the error.
+ * Once a valid request declares `stream:true` (Codex's default), every
+ * application/upstream failure is returned as HTTP 200 SSE with a structured
+ * `response.failed` event. Non-stream requests keep HTTP status + JSON. This
+ * distinction prevents a Provider 502 from becoming indistinguishable from a
+ * system proxy intercepting CodePilot's loopback transport.
  *
  * Phase 5b adapter status: SHIPPED. The unified translator at
  * `src/lib/codex/proxy/unified-adapter.ts` handles all three families
@@ -34,6 +33,7 @@ import { NextResponse, type NextRequest } from 'next/server';
 import { handleProxyRequest } from '@/lib/codex/proxy/adapter';
 import { parseResponsesRequest } from '@/lib/codex/proxy/parse-request';
 import { makeErrorResult, toNonStreamErrorBody } from '@/lib/codex/proxy/errors';
+import { serializeCodexProxyResult } from '@/lib/codex/proxy/http-response';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -93,22 +93,5 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(toNonStreamErrorBody(result.error), { status: result.status });
   }
 
-  // Serialise. Three result shapes; route just translates HTTP.
-  if (proxyResult.kind === 'error') {
-    return NextResponse.json(toNonStreamErrorBody(proxyResult.error), {
-      status: proxyResult.status,
-    });
-  }
-  if (proxyResult.kind === 'json') {
-    return NextResponse.json(proxyResult.body, { status: 200 });
-  }
-  // SSE stream. Codex's HTTP client looks for `text/event-stream`.
-  return new Response(proxyResult.body, {
-    status: 200,
-    headers: {
-      'Content-Type': 'text/event-stream; charset=utf-8',
-      'Cache-Control': 'no-cache, no-transform',
-      Connection: 'keep-alive',
-    },
-  });
+  return serializeCodexProxyResult(proxyResult, parseResult.body);
 }

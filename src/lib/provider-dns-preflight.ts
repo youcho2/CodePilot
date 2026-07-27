@@ -35,6 +35,9 @@ function noProxyEntryHost(entry: string): string {
     const bracket = value.indexOf(']');
     return bracket >= 0 ? value.slice(1, bracket) : value;
   }
+  // Unbracketed IPv6 (including the loopback form we inject for child
+  // processes) contains colons that are part of the address, not a port.
+  if (isIP(value) === 6) return value;
   return value.replace(/:\d+$/, '');
 }
 

@@ -46,6 +46,7 @@ import {
   makeRunFailed,
   makeUnknownItem,
 } from '@/lib/runtime/event-adapter';
+import { diagnoseCodexNetworkError } from './error-diagnostics';
 
 interface CodexMappingContext {
   sessionId: string;
@@ -223,11 +224,18 @@ export function translateCodexNotification(
       const status = p.turn?.status;
       if (status === 'failed') {
         const err = p.turn?.error;
-        const message =
+        const rawMessage =
           (err?.message && err.message.trim().length > 0 ? err.message : null) ??
           err?.additionalDetails ??
           'Codex turn failed';
-        return makeRunFailed(base, { code: 'codex_turn_failed', message });
+        const diagnosticInput = [rawMessage, err?.additionalDetails]
+          .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
+          .join(' ');
+        const diagnosis = diagnoseCodexNetworkError(diagnosticInput);
+        return makeRunFailed(base, {
+          code: diagnosis.code ?? 'codex_turn_failed',
+          message: diagnosis.code ? diagnosis.message : rawMessage,
+        });
       }
       // For completed / interrupted / inProgress (and missing status —
       // be conservative): preserve the real status as finishReason so
@@ -258,12 +266,18 @@ export function translateCodexNotification(
         willRetry?: boolean;
         turnId?: string;
       };
-      const baseMessage = p.error?.message?.trim() || 'Codex error (no message)';
+      const rawBaseMessage = p.error?.message?.trim() || 'Codex error (no message)';
       const additional = p.error?.additionalDetails?.trim();
+      const diagnosticInput = [rawBaseMessage, additional]
+        .filter((value): value is string => typeof value === 'string' && value.length > 0)
+        .join(' ');
+      const diagnosis = diagnoseCodexNetworkError(diagnosticInput);
+      const wasDiagnosed = diagnosis.code !== undefined;
+      const baseMessage = wasDiagnosed ? diagnosis.message : rawBaseMessage;
       const errorInfo = p.error?.codexErrorInfo;
       const classification = describeCodexErrorInfo(errorInfo);
       const parts = [baseMessage];
-      if (additional && additional !== baseMessage) parts.push(additional);
+      if (!wasDiagnosed && additional && additional !== baseMessage) parts.push(additional);
       if (classification) parts.push(`(${classification})`);
 
       // Phase 5b smoke round 6 (2026-05-18, user-driven) — willRetry
@@ -305,11 +319,13 @@ export function translateCodexNotification(
       }
 
       return makeRunFailed(base, {
-        code: typeof errorInfo === 'string'
-          ? errorInfo
-          : typeof errorInfo === 'object' && errorInfo
-            ? `codex:${Object.keys(errorInfo as Record<string, unknown>)[0] ?? 'unknown'}`
-            : 'codex_error',
+        code: diagnosis.code ?? (
+          typeof errorInfo === 'string'
+            ? errorInfo
+            : typeof errorInfo === 'object' && errorInfo
+              ? `codex:${Object.keys(errorInfo as Record<string, unknown>)[0] ?? 'unknown'}`
+              : 'codex_error'
+        ),
         message: parts.join(' '),
       });
     }

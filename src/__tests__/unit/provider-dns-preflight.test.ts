@@ -77,6 +77,8 @@ describe('Claude provider DNS preflight', () => {
   it('supports exact, suffix, port and wildcard NO_PROXY entries', () => {
     assert.equal(hostMatchesNoProxy('api.example.test', { NO_PROXY: 'api.example.test:443' }), true);
     assert.equal(hostMatchesNoProxy('api.example.test', { no_proxy: 'example.test' }), true);
+    assert.equal(hostMatchesNoProxy('::1', { NO_PROXY: '::1' }), true);
+    assert.equal(hostMatchesNoProxy('::1', { NO_PROXY: '[::1]:8080' }), true);
     assert.equal(hostMatchesNoProxy('unrelated.test', { NO_PROXY: 'example.test' }), false);
     assert.equal(hostMatchesNoProxy('anything.test', { NO_PROXY: '*' }), true);
   });
