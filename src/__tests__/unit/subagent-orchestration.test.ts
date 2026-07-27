@@ -571,7 +571,12 @@ describe('Codex managed Sub Agent lifecycle', () => {
     const descriptors = [{ rawType: 'web_search', payload: { type: 'web_search' } }];
     assert.deepEqual(
       Object.keys(buildCodexHostedSearchTools(descriptors, { sdkType: 'xai' })).sort(),
-      ['web_search', 'x_search'],
+      ['x_search'],
+    );
+    assert.deepEqual(
+      Object.keys(buildCodexHostedSearchTools(undefined, { sdkType: 'xai' })),
+      ['x_search'],
+      'xAI route mounts its native hosted tool even when Codex did not advertise generic web_search',
     );
     assert.deepEqual(
       Object.keys(buildCodexHostedSearchTools(descriptors, {

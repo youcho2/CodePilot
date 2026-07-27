@@ -42,7 +42,7 @@ import { generateText, streamText, tool, type LanguageModel, type ModelMessage, 
 import { z } from 'zod';
 import { createAnthropic } from '@ai-sdk/anthropic';
 import { createOpenAI } from '@ai-sdk/openai';
-import { createXai } from '@ai-sdk/xai';
+import { createXai, xaiTools } from '@ai-sdk/xai';
 import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
 import { withChatImageDataUrlFetch } from '../../lib/openai-chat-image-normalizer';
 
@@ -690,6 +690,23 @@ describe('provider request shape — xAI Responses API', () => {
     assert.equal(req.body.tools[0].name, 'read_file');
     assert.equal(req.body.tool_choice, 'auto');
     checkFixture('xai-responses-tool-choice-auto', XAI_RESPONSES_META, req);
+  });
+
+  it('serializes client function tools and provider-hosted x_search in one request', async () => {
+    const req = await captureGenerate('openai-responses', appXaiResponses, {
+      system: SYSTEM,
+      prompt: PROMPT,
+      tools: {
+        ...TOOLS,
+        x_search: xaiTools.xSearch() as unknown as ToolSet[string],
+      },
+      toolChoice: 'auto',
+      providerOptions: XAI_PROVIDER_OPTIONS,
+    });
+    assert.equal(req.body.tools?.length, 2);
+    assert.ok(req.body.tools.some((entry: { type?: string; name?: string }) =>
+      entry.type === 'function' && entry.name === 'read_file'));
+    assert.ok(req.body.tools.some((entry: { type?: string }) => entry.type === 'x_search'));
   });
 
   it('streamText uses the same xAI Responses body with stream=true', async () => {

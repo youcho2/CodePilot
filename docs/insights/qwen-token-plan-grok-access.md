@@ -39,6 +39,12 @@ URL 是传输配置，不是产品身份。把 `preset_key` 持久化后，用�
 
 浏览器 PKCE 面向桌面用户，设备码面向 VPS/SSH/端口受限环境。它们是同一 OAuth identity 的两种登录方法，不应在浏览器登录过程中同时出现、制造“还需要设备码”的误解。
 
+## 为什么 Grok 模型可用不等于 X Search 可用
+
+Grok 的文本推理、CodePilot 客户端函数工具和 xAI 托管 X Search 是三层不同事实。模型返回文本只能证明 Responses 调用成功；文件/Shell 工具工作只能证明 CodePilot 的 client tools 接线成功；只有请求真实携带 `x_search`、上游返回 provider-executed lifecycle 与 X citation，才能证明本轮使用了 X Search。
+
+因此产品不做静默能力猜测：API Key 与 OAuth 共用同一 hosted-tool 接线，但四个 Runtime/凭据组合仍分别真实验收。搜索结果按不可信外部数据处理，来源进入消息持久化；403 只说明上游拒绝访问，不能仅凭状态码把原因写死为订阅 entitlement。费用也不按调用次数在客户端猜算，只有上游真实 usage/账单事实才可显示。
+
 ## 用户反馈改变了什么
 
 真实测试连续暴露了两个单元测试不容易发现的完成感问题：

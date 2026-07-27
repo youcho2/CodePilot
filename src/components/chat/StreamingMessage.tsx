@@ -9,6 +9,7 @@ import {
 } from '@/components/ai-elements/message';
 import { ToolActionsGroup } from '@/components/ai-elements/tool-actions-group';
 import { MediaPreview } from './MediaPreview';
+import { SearchSources } from './SearchSources';
 import { Button } from '@/components/ui/button';
 import { Shimmer } from '@/components/ai-elements/shimmer';
 import { ImageGenConfirmation } from './ImageGenConfirmation';
@@ -16,7 +17,7 @@ import { BatchPlanInlinePreview } from './batch-image-gen/BatchPlanInlinePreview
 import { WidgetRenderer } from './WidgetRenderer';
 import { parseAllShowWidgets, computePartialWidgetKey, MalformedWidgetNotice } from './MessageItem';
 import { PENDING_KEY, buildReferenceImages } from '@/lib/image-ref-store';
-import type { PlannerOutput, MediaBlock } from '@/types';
+import type { PlannerOutput, MediaBlock, ExternalSource } from '@/types';
 import { SubagentCard } from './SubagentCard';
 import {
   buildSubagentRunView,
@@ -106,6 +107,7 @@ interface ToolResultInfo {
   content: string;
   is_error?: boolean;
   media?: MediaBlock[];
+  sources?: ExternalSource[];
 }
 
 interface StreamingMessageProps {
@@ -388,6 +390,8 @@ export function StreamingMessage({
           const allMedia = toolResults.flatMap(r => r.media || []);
           return allMedia.length > 0 ? <MediaPreview media={allMedia} /> : null;
         })()}
+
+        <SearchSources sources={toolResults.flatMap(result => result.sources || [])} />
 
         {/* Streaming text content rendered via Streamdown */}
         {content && (() => {

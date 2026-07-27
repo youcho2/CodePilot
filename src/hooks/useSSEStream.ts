@@ -1,5 +1,5 @@
 import { useRef, useCallback } from 'react';
-import type { SSEEvent, TokenUsage, PermissionRequestEvent, MediaBlock } from '@/types';
+import type { SSEEvent, TokenUsage, PermissionRequestEvent, MediaBlock, ExternalSource } from '@/types';
 import {
   isReviewEventState,
   isReviewerSource,
@@ -19,6 +19,7 @@ interface ToolResultInfo {
   content: string;
   is_error?: boolean;
   media?: MediaBlock[];
+  sources?: ExternalSource[];
 }
 
 export interface SkillNudgeData {
@@ -221,6 +222,9 @@ function handleSSEEvent(
           ...(resultData.is_error ? { is_error: true } : {}),
           ...(Array.isArray(resultData.media) && resultData.media.length > 0
             ? { media: resultData.media }
+            : {}),
+          ...(Array.isArray(resultData.sources) && resultData.sources.length > 0
+            ? { sources: resultData.sources }
             : {}),
         });
       } catch (err) {

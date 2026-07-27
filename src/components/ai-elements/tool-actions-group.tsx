@@ -143,7 +143,7 @@ const TOOL_REGISTRY: ToolRendererDef[] = [
     },
   },
   {
-    match: (n) => ['search', 'glob', 'grep', 'find_files', 'search_files', 'websearch', 'web_search'].includes(n.toLowerCase()),
+    match: (n) => ['search', 'glob', 'grep', 'find_files', 'search_files', 'websearch', 'web_search', 'x_search', 'xai.x_search'].includes(n.toLowerCase()),
     iconName: 'search',
     label: 'Search',
     getSummary: (input) => {

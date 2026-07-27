@@ -120,6 +120,8 @@ export type RuntimeRunEvent =
        * inside the JSON-stringified `output` and was never rendered.
        */
       media?: readonly MediaBlock[];
+      /** Provider-reported citations for hosted search tools. */
+      sources?: readonly import('@/types').ExternalSource[];
     })
   | (RuntimeRunEventBase & {
       type: 'command_started';

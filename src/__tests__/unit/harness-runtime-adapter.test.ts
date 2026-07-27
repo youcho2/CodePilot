@@ -452,18 +452,21 @@ describe('Codex proxy — single source for stop / step / builtin tool names', (
     );
   });
 
-  it('streamPath / nonStreamPath callers pass adapted.stopWhen + adapted.stepCount + adapted.builtinToolNames', () => {
+  it('streamPath / nonStreamPath callers pass adapted stop/step decisions and the adapter-seeded bridge suppression set', () => {
     const src = adapterSrc();
-    // streamPath caller object literal must include the three
-    // adapter-sourced fields.
     assert.match(
       src,
-      /streamPath\(\{[\s\S]*?builtinToolNames:\s*adapted\.builtinToolNames[\s\S]*?stopWhen:\s*adapted\.stopWhen[\s\S]*?stepCount:\s*adapted\.stepCount[\s\S]*?\}\)/,
+      /const bridgeOwnedToolNames = new Set\(\[\s*\.\.\.adapted\.builtinToolNames,\s*\.\.\.bridge\.toolNames,/,
+      'the concrete bridge suppression set must be seeded from adapter.builtinToolNames before adding runtime-mounted bridge names',
+    );
+    assert.match(
+      src,
+      /streamPath\(\{[\s\S]*?builtinToolNames:\s*bridgeOwnedToolNames[\s\S]*?stopWhen:\s*adapted\.stopWhen[\s\S]*?stepCount:\s*adapted\.stepCount[\s\S]*?\}\)/,
       'streamPath caller must forward adapter outputs (builtinToolNames + stopWhen + stepCount)',
     );
     assert.match(
       src,
-      /nonStreamPath\(\{[\s\S]*?builtinToolNames:\s*adapted\.builtinToolNames[\s\S]*?stopWhen:\s*adapted\.stopWhen[\s\S]*?stepCount:\s*adapted\.stepCount[\s\S]*?\}\)/,
+      /nonStreamPath\(\{[\s\S]*?builtinToolNames:\s*bridgeOwnedToolNames[\s\S]*?stopWhen:\s*adapted\.stopWhen[\s\S]*?stepCount:\s*adapted\.stepCount[\s\S]*?\}\)/,
       'nonStreamPath caller must forward adapter outputs',
     );
   });

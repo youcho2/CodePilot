@@ -36,6 +36,7 @@ const DEFAULT_STATUS_BY_CODE: Record<ResponsesErrorCode, number> = {
   upstream_unauthorized: 401,
   upstream_rate_limited: 429,
   upstream_server_error: 502,
+  upstream_network: 502,
   upstream_timeout: 504,
   unknown_tool: 400,
   unsupported_tool_kind: 400,
@@ -90,8 +91,15 @@ export function classifyUpstreamError(
     if (typeof statusCode === 'number') {
       const ctx: Record<string, unknown> = { statusCode };
       if (responseBody) ctx.responseBody = String(responseBody).slice(0, 1024);
-      if (statusCode === 401 || statusCode === 403) {
-        return { code: 'upstream_unauthorized', message: `Upstream authentication failed (HTTP ${statusCode}). ${msg}`, context: ctx };
+      if (statusCode === 401) {
+        return { code: 'upstream_unauthorized', message: `Upstream authentication failed (HTTP 401). ${msg}`, context: ctx };
+      }
+      if (statusCode === 403) {
+        return {
+          code: 'upstream_unauthorized',
+          message: `Upstream access was denied (HTTP 403). Check the credential scope or account entitlement. ${msg}`,
+          context: ctx,
+        };
       }
       if (statusCode === 429) {
         return { code: 'upstream_rate_limited', message: `Upstream rate limit / quota reached (HTTP 429). ${msg}`, context: ctx };
@@ -106,6 +114,9 @@ export function classifyUpstreamError(
 
     if (/timed?\s*out|timeout|ETIMEDOUT/i.test(msg)) {
       return { code: 'upstream_timeout', message: msg, context: { name } };
+    }
+    if (/fetch failed|network|ECONN(?:RESET|REFUSED|ABORTED)|ENOTFOUND|DNS|socket|TLS/i.test(msg)) {
+      return { code: 'upstream_network', message: msg, context: { name } };
     }
 
     // Credential-shaped errors raised before reaching the wire.

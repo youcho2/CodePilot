@@ -423,12 +423,24 @@ export interface MediaBlock {
   };
 }
 
+/**
+ * A provider-reported URL source used to support a model response.
+ * `trust: external` is intentionally carried into persistence/UI so retrieved
+ * post text can never be confused with CodePilot instructions.
+ */
+export interface ExternalSource {
+  id: string;
+  url: string;
+  title?: string;
+  trust: 'external';
+}
+
 // Structured message content blocks (stored as JSON in messages.content)
 export type MessageContentBlock =
   | { type: 'text'; text: string }
   | { type: 'thinking'; thinking: string }
   | { type: 'tool_use'; id: string; name: string; input: unknown }
-  | { type: 'tool_result'; tool_use_id: string; content: string; is_error?: boolean; media?: MediaBlock[] }
+  | { type: 'tool_result'; tool_use_id: string; content: string; is_error?: boolean; media?: MediaBlock[]; sources?: ExternalSource[] }
   | { type: 'code'; language: string; code: string };
 
 // Helper to parse message content - returns blocks or wraps plain text
@@ -1663,6 +1675,7 @@ export interface ToolResultInfo {
   content: string;
   is_error?: boolean;
   media?: MediaBlock[];
+  sources?: ExternalSource[];
 }
 
 export type StreamPhase = 'active' | 'completed' | 'error' | 'stopped';

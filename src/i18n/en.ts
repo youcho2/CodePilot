@@ -2202,6 +2202,7 @@ const en = {
 
   // onboarding
   'wizard.startChatting': 'Start chatting',
+  'sources.used': 'Used {count} sources',
 } as const;
 
 export type TranslationKey = keyof typeof en;

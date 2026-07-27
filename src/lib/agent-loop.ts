@@ -11,7 +11,7 @@
  */
 
 import { streamText, type LanguageModel, type ToolSet, type ModelMessage } from 'ai';
-import type { SSEEvent, TokenUsage, MediaBlock } from '@/types';
+import type { SSEEvent, TokenUsage, MediaBlock, ExternalSource } from '@/types';
 import { subscribeBuiltinEvents } from './harness/builtin-event-bus';
 import { createModel } from './ai-provider';
 import { assembleTools, READ_ONLY_TOOLS } from './agent-tools';
@@ -39,6 +39,14 @@ import {
 import { isAiSdkTraceEnabled, createRedactedTraceTelemetry } from './aisdk-trace';
 import type { ToolInvocationRecord } from './harness/auto-invoke-accounting';
 import type { ProviderCallScene } from './provider-call-policy';
+import {
+  appendUniqueExternalSource,
+  buildXaiHostedSearchTools,
+  mergeHostedTools,
+  normalizeExternalUrlSource,
+  XAI_X_SEARCH_SYSTEM_GUIDANCE,
+  XAI_X_SEARCH_TOOL_NAME,
+} from './xai-hosted-search';
 
 // ── Types ───────────────────────────────────────────────────────
 
@@ -196,6 +204,7 @@ export function runAgentLoop(options: AgentLoopOptions): ReadableStream<string> 
       // emits without subscribers, no buffering — see contract note
       // in `harness/builtin-event-bus.ts`).
       const pendingMediaByCallId = new Map<string, MediaBlock[]>();
+      let xaiSearchEnabled = false;
 
       // Phase 7 Context Accounting — per-turn ToolInvocationAccumulator.
       // Lives in start(controller) closure so step loop tool_use/tool_result
@@ -281,7 +290,7 @@ export function runAgentLoop(options: AgentLoopOptions): ReadableStream<string> 
         // silently dropped toolSystemPrompts whenever the base was
         // empty. Now both halves combine through filter(Boolean) so
         // either side can be empty without losing the other.
-        const effectiveSystemPrompt =
+        let effectiveSystemPrompt =
           [systemPrompt, ...toolSystemPrompts].filter(Boolean).join('\n\n') ||
           undefined;
 
@@ -293,6 +302,15 @@ export function runAgentLoop(options: AgentLoopOptions): ReadableStream<string> 
           model: modelOverride,
           sessionModel,
         });
+        const hostedSearchTools = buildXaiHostedSearchTools(config, callScene);
+        xaiSearchEnabled = Object.keys(hostedSearchTools).length > 0;
+        if (xaiSearchEnabled) {
+          tools = mergeHostedTools(tools, hostedSearchTools);
+          effectiveSystemPrompt = [
+            effectiveSystemPrompt,
+            XAI_X_SEARCH_SYSTEM_GUIDANCE,
+          ].filter(Boolean).join('\n\n');
+        }
 
         // 2. Load conversation history from DB
         const { messages: dbMessages } = getMessages(sessionId, { limit: 200, excludeHeartbeatAck: true });
@@ -501,7 +519,10 @@ export function runAgentLoop(options: AgentLoopOptions): ReadableStream<string> 
           const isPlanMode = permissionMode === 'plan';
           const hasTools = tools && Object.keys(tools).length > 0;
           const activeToolNames = isPlanMode && hasTools
-            ? Object.keys(tools).filter(name => READ_ONLY_TOOLS.includes(name as typeof READ_ONLY_TOOLS[number]))
+            ? Object.keys(tools).filter(name =>
+                READ_ONLY_TOOLS.includes(name as typeof READ_ONLY_TOOLS[number]) ||
+                name === XAI_X_SEARCH_TOOL_NAME
+              )
             : undefined; // undefined = all tools active
 
           // Phase 4 ① — arm connect + first-token budgets for this step's
@@ -595,6 +616,26 @@ export function runAgentLoop(options: AgentLoopOptions): ReadableStream<string> 
           let hasToolCalls = false;
           let hasContent = false; // tracks whether any actual content was produced
           const stepToolNames: string[] = [];
+          let externalSources: ExternalSource[] = [];
+          const providerSearchResults = new Map<string, {
+            content: string;
+            isError: boolean;
+          }>();
+          const isXSearchTool = (toolName: string | undefined): boolean =>
+            toolName === XAI_X_SEARCH_TOOL_NAME || toolName === 'xai.x_search';
+          const emitProviderSearchResult = (toolCallId: string): void => {
+            const stored = providerSearchResults.get(toolCallId);
+            if (!stored) return;
+            controller.enqueue(formatSSE({
+              type: 'tool_result',
+              data: JSON.stringify({
+                tool_use_id: toolCallId,
+                content: stored.content,
+                ...(stored.isError ? { is_error: true } : {}),
+                ...(externalSources.length > 0 ? { sources: externalSources } : {}),
+              }),
+            }));
+          };
 
           // guardStream: a fired budget must unblock this loop even when a
           // hung tool ignores the abort signal (ai@7 awaits execute() and
@@ -616,7 +657,11 @@ export function runAgentLoop(options: AgentLoopOptions): ReadableStream<string> 
                 break;
 
               case 'tool-call':
-                hasToolCalls = true;
+                // Provider-executed tools already ran upstream. They remain
+                // visible/auditable, but must not force another manual loop
+                // step as though CodePilot needed to execute them locally.
+                if (!event.providerExecuted) hasToolCalls = true;
+                else hasContent = true;
                 stepToolNames.push(event.toolName);
                 distinctTools.add(event.toolName);
                 // Phase 7 — accumulate for Context Accounting at result time.
@@ -652,6 +697,12 @@ export function runAgentLoop(options: AgentLoopOptions): ReadableStream<string> 
                   : JSON.stringify(event.output);
                 // Phase 7 — accumulate for Context Accounting.
                 toolInvocationAccumulator.recordToolResult(event.toolCallId, resultText);
+                if (event.providerExecuted && isXSearchTool(event.toolName)) {
+                  providerSearchResults.set(event.toolCallId, {
+                    content: resultText,
+                    isError: false,
+                  });
+                }
                 controller.enqueue(formatSSE({
                   type: 'tool_result',
                   data: JSON.stringify({
@@ -659,6 +710,9 @@ export function runAgentLoop(options: AgentLoopOptions): ReadableStream<string> 
                     content: resultText,
                     is_error: false,
                     ...(media && media.length > 0 ? { media } : {}),
+                    ...(event.providerExecuted && isXSearchTool(event.toolName) && externalSources.length > 0
+                      ? { sources: externalSources }
+                      : {}),
                   }),
                 }));
                 break;
@@ -687,10 +741,33 @@ export function runAgentLoop(options: AgentLoopOptions): ReadableStream<string> 
                 break;
               }
 
+              case 'source': {
+                const source = normalizeExternalUrlSource(event);
+                if (!source) break;
+                externalSources = appendUniqueExternalSource(externalSources, source);
+                // xAI emits citations as separate source parts, commonly
+                // after the provider-executed tool result. Re-emit the same
+                // tool_result id with richer evidence; all consumers use
+                // last-wins replacement, so no duplicate tool card appears.
+                for (const toolCallId of providerSearchResults.keys()) {
+                  emitProviderSearchResult(toolCallId);
+                }
+                break;
+              }
+
               case 'error':
                 controller.enqueue(formatSSE({
                   type: 'error',
-                  data: typeof event.error === 'string' ? event.error : JSON.stringify({ userMessage: String(event.error) }),
+                  data: xaiSearchEnabled
+                    ? JSON.stringify(buildNativeErrorEventData(
+                        event.error,
+                        undefined,
+                        undefined,
+                        { xaiSearchEnabled: true },
+                      ))
+                    : (typeof event.error === 'string'
+                        ? event.error
+                        : JSON.stringify({ userMessage: String(event.error) })),
                 }));
                 break;
 
@@ -841,7 +918,12 @@ export function runAgentLoop(options: AgentLoopOptions): ReadableStream<string> 
               : undefined;
           controller.enqueue(formatSSE({
             type: 'error',
-            data: JSON.stringify(buildNativeErrorEventData(err, errorAccounting, timedOut)),
+            data: JSON.stringify(buildNativeErrorEventData(
+              err,
+              errorAccounting,
+              timedOut,
+              { xaiSearchEnabled },
+            )),
           }));
         }
 

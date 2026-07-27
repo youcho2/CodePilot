@@ -185,6 +185,31 @@ describe('buildFinalMessageContent — covers text-only, thinking-only, tool-onl
     assert.equal(blocks[0].type, 'tool_use');
     assert.equal(blocks[1].type, 'tool_result');
   });
+
+  it('persists provider-reported external sources on the matching tool result', () => {
+    const out = buildFinalMessageContent({
+      accumulated: '',
+      thinking: '',
+      toolUses: [{ id: 'x-search-1', name: 'x_search', input: {} }],
+      toolResults: [{
+        tool_use_id: 'x-search-1',
+        content: '{}',
+        sources: [{
+          id: 'source-1',
+          url: 'https://x.com/example/status/1',
+          title: 'Example post',
+          trust: 'external',
+        }],
+      }],
+    });
+    const blocks = JSON.parse(out!) as Array<{ type: string; sources?: Array<{ url: string; trust: string }> }>;
+    assert.deepEqual(blocks[1].sources, [{
+      id: 'source-1',
+      url: 'https://x.com/example/status/1',
+      title: 'Example post',
+      trust: 'external',
+    }]);
+  });
 });
 
 // ─────────────────────────────────────────────────────────────────────
@@ -251,5 +276,11 @@ describe('codex/runtime.canonicalToSseLine source — tool_result emits is_error
       /event\.error/,
       'event.error must still be inspected so we know when to set is_error',
     );
+  });
+
+  it('tool_completed arm forwards provider sources into tool_result', () => {
+    const arm = src.match(/case 'tool_completed':\s*\{[\s\S]{0,3000}\}/);
+    assert.ok(arm);
+    assert.match(arm![0], /event\.sources/);
   });
 });

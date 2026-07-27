@@ -2,7 +2,7 @@
 
 import { Suspense, useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import type { Message, SSEEvent, SessionResponse, TokenUsage, PermissionRequestEvent, FileAttachment, MentionRef } from '@/types';
+import type { Message, SSEEvent, SessionResponse, TokenUsage, PermissionRequestEvent, FileAttachment, MentionRef, ExternalSource } from '@/types';
 import type { SessionPermissionProfile } from '@/lib/permission/profile';
 import { MessageList } from '@/components/chat/MessageList';
 import { MessageInput, composerDraftKey } from '@/components/chat/MessageInput';
@@ -58,6 +58,7 @@ interface ToolResultInfo {
   tool_use_id: string;
   content: string;
   is_error?: boolean;
+  sources?: ExternalSource[];
 }
 
 export default function NewChatPage() {
@@ -1071,7 +1072,21 @@ function NewChatPageInner() {
                   try {
                     const resultData = JSON.parse(event.data);
                     setStreamingToolOutput('');
-                    setToolResults((prev) => [...prev, { tool_use_id: resultData.tool_use_id, content: resultData.content }]);
+                    setToolResults((prev) => {
+                      const next: ToolResultInfo = {
+                        tool_use_id: resultData.tool_use_id,
+                        content: resultData.content,
+                        ...(resultData.is_error ? { is_error: true } : {}),
+                        ...(Array.isArray(resultData.sources) && resultData.sources.length > 0
+                          ? { sources: resultData.sources as ExternalSource[] }
+                          : {}),
+                      };
+                      const index = prev.findIndex(item => item.tool_use_id === next.tool_use_id);
+                      if (index < 0) return [...prev, next];
+                      const copy = [...prev];
+                      copy[index] = next;
+                      return copy;
+                    });
                   } catch { /* skip */ }
                   break;
                 }

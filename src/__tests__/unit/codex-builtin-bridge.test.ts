@@ -175,8 +175,13 @@ describe('createCodePilotBuiltinTools — mount + skip', () => {
     );
     assert.match(
       adapterSource,
-      /const providerExecutedToolNames = new Set\(\[\s*\.\.\.bridge\.toolNames,/,
+      /const bridgeOwnedToolNames = new Set\(\[\s*\.\.\.adapted\.builtinToolNames,\s*\.\.\.bridge\.toolNames,/,
       'codepilot_spawn_subagent and every other executed bridge tool must not leak back as an unsupported app-server call',
+    );
+    assert.match(
+      adapterSource,
+      /const providerExecutedToolNames = new Set\(\[\s*\.\.\.Object\.keys\(hostedSearchTools\),/,
+      'provider-hosted tools need a distinct lifecycle set so they can be mirrored without duplicating bridge events',
     );
   });
 

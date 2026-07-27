@@ -38,4 +38,19 @@ describe('buildNativeErrorEventData (audit A3)', () => {
     assert.equal(buildNativeErrorEventData('plain string').userMessage, 'plain string');
     assert.equal(buildNativeErrorEventData(42).userMessage, '42');
   });
+
+  it('uses structured X Search failures only when the hosted capability was mounted', () => {
+    const forbidden = Object.assign(new Error('forbidden'), { statusCode: 403 });
+    assert.equal(
+      buildNativeErrorEventData(forbidden, undefined, undefined, {
+        xaiSearchEnabled: true,
+      }).category,
+      'XAI_X_SEARCH_FORBIDDEN',
+    );
+    assert.equal(
+      buildNativeErrorEventData(forbidden).category,
+      'AGENT_ERROR',
+      'ordinary provider calls must not be mislabeled as X Search failures',
+    );
+  });
 });

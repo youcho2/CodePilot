@@ -6,7 +6,7 @@ import { useTranslation } from '@/hooks/useTranslation';
 import type { TranslationKey } from '@/i18n';
 import { useStickToBottomContext } from 'use-stick-to-bottom';
 import { Button } from '@/components/ui/button';
-import type { Message } from '@/types';
+import type { Message, ExternalSource } from '@/types';
 import {
   Conversation,
   ConversationContent,
@@ -182,6 +182,7 @@ interface ToolResultInfo {
   tool_use_id: string;
   content: string;
   is_error?: boolean;
+  sources?: ExternalSource[];
 }
 
 /** Rewind points contain SDK UUIDs (not local message IDs) */

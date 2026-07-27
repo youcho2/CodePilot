@@ -178,6 +178,7 @@ function canonicalToSseLine(event: RuntimeRunEvent): string {
           content,
           ...(isError ? { is_error: true } : {}),
           ...(event.media && event.media.length > 0 ? { media: event.media } : {}),
+          ...(event.sources && event.sources.length > 0 ? { sources: event.sources } : {}),
         }),
       })}\n\n`;
     }

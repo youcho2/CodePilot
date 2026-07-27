@@ -2173,6 +2173,7 @@ const zh: Record<TranslationKey, string> = {
 
   // onboarding
   'wizard.startChatting': '开始对话',
+  'sources.used': '使用了 {count} 个来源',
 };
 
 export default zh;

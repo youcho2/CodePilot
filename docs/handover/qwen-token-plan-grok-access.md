@@ -67,9 +67,18 @@ OAuth token bundle 以单个 JSON setting 原子写入；并发 refresh 合并�
 
 ## Runtime 数据流
 
-- CodePilot Runtime：resolver 选择 xAI API/OAuth → `@ai-sdk/xai` Responses → native agent loop。
-- Codex Runtime：virtual provider 进入 provider proxy → adapter 注入 xAI options 和 OAuth fetch override → Responses 上游。
+- CodePilot Runtime：resolver 选择 xAI API/OAuth → `@ai-sdk/xai` Responses → native agent loop；交互场景由共享 `xai-hosted-search.ts` 注入 provider-executed `x_search`。
+- Codex Runtime：virtual provider 进入 provider proxy → adapter 注入 xAI options、OAuth fetch override 与相同 `x_search` → Responses 上游；hosted call 不回显给 Codex 执行，而是通过现有 canonical event bus 回到聊天。
 - Claude Code Runtime：xAI 不暴露；千问套餐按各自 Anthropic-compatible 目录和角色映射暴露。
+
+## X Search 合同
+
+- 只在 xAI 的 `interactive_chat` / `delegated_interactive` 请求中挂载；非 xAI、标题/记忆/定时等辅助或后台场景不获得该工具。
+- API Key 与 OAuth 共用同一 tool assembly。凭据类型只改变认证注入，不改变 `tools[].type === 'x_search'` 的请求形状。
+- 安装版本已经用真实 SDK request capture 证明：客户端 function tool 与 hosted `x_search` 可以存在于同一 Responses 请求。工具名碰撞直接报错，不覆盖用户/MCP 工具。
+- provider-executed tool call/result 使用普通 `tool_use` / `tool_result` UI 合同；URL citation 附着在同一个 result，进入流式 checkpoint 和最终消息，刷新后不丢。
+- 来源统一标记 `trust: external`。系统提示明确把帖子和链接当证据而非指令；没有 X Search 时不得用训练知识冒充实时搜索。
+- CodePilot 不猜测单次搜索费用。401、403、429、网络与 5xx 分开呈现；403 只能诚实描述为 access denied，并提示检查 scope 或 entitlement，不能从状态码单独断言套餐原因。
 
 ## 安全与日志
 
@@ -82,4 +91,4 @@ OAuth token bundle 以单个 JSON setting 原子写入；并发 refresh 合并�
 
 关键回归文件包括 `provider-preset-identity-migration.test.ts`、`provider-call-policy.test.ts`、`qwen-token-plan-catalog.test.ts`、`xai-provider.test.ts`、`xai-oauth.test.ts`、`xai-oauth-manager.test.ts`、`env-proxy-fetch.test.ts` 和 `xai-oauth-ui.test.ts`。
 
-用户已在 Electron dev 验证 xAI browser OAuth 与 Qwen Personal 可在 CodePilot/Codex Runtime 连接并回复。device、refresh/tool/logout、Qwen Team/Coding Plan 真实凭据，以及 packaged macOS/Windows OAuth 仍记录在执行计划 Smoke Ledger，不得从 mock 或单一路径推断为已验证。
+用户已在 Electron dev 验证 xAI browser OAuth 与 Qwen Personal 可在 CodePilot/Codex Runtime 连接并回复。Phase 7 的 X Search 代码与合同测试已完成，但 API Key/OAuth × CodePilot/Codex 四组合仍全部待真实凭据 smoke；device、refresh/tool/logout、Qwen Team/Coding Plan 真实凭据，以及 packaged macOS/Windows OAuth 也记录在执行计划 Smoke Ledger。不得从 mock、文本回复或单一路径推断为 X Search verified。

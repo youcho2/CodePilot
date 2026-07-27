@@ -22,7 +22,7 @@ import {
 import { notifySessionComplete, notifySessionError } from '@/lib/telegram-bot';
 import { extractCompletion } from '@/lib/onboarding-completion';
 import { saveMediaToLibrary } from '@/lib/media-saver';
-import type { SSEEvent, TokenUsage, MessageContentBlock, MediaBlock } from '@/types';
+import type { SSEEvent, TokenUsage, MessageContentBlock, MediaBlock, ExternalSource } from '@/types';
 
 const ASSISTANT_CHECKPOINT_INTERVAL_MS = 120;
 const HEARTBEAT_MARKER_RE = /\s*<!--\s*heartbeat-done\s*-->\s*/g;
@@ -257,6 +257,9 @@ export async function collectStreamResponse(
                   content: resultData.content,
                   is_error: resultData.is_error || false,
                   ...(savedMedia && savedMedia.length > 0 ? { media: savedMedia } : {}),
+                  ...(Array.isArray(resultData.sources) && resultData.sources.length > 0
+                    ? { sources: resultData.sources as ExternalSource[] }
+                    : {}),
                 };
                 // Last-wins: if same tool_use_id already exists, replace it
                 // (user handler's result may be more complete than PostToolUse's)

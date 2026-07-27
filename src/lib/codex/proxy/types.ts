@@ -430,6 +430,8 @@ export type ResponsesErrorCode =
   | 'upstream_rate_limited'
   /** Upstream provider returned 5xx. */
   | 'upstream_server_error'
+  /** DNS/socket/TLS/fetch failure before a valid upstream response. */
+  | 'upstream_network'
   /** Total / idle timeout on the upstream call. */
   | 'upstream_timeout'
   /** Tool call referenced a tool not declared in the tools[] array. */

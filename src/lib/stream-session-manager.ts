@@ -231,6 +231,7 @@ export function buildFinalMessageContent(args: {
         content: normalizeContentToString(tr.content),
         ...(tr.is_error ? { is_error: true } : {}),
         ...(tr.media && tr.media.length > 0 ? { media: tr.media } : {}),
+        ...(tr.sources && tr.sources.length > 0 ? { sources: tr.sources } : {}),
       });
     }
   }
@@ -247,6 +248,7 @@ export function buildFinalMessageContent(args: {
       content: normalizeContentToString(tr.content),
       ...(tr.is_error ? { is_error: true } : {}),
       ...(tr.media && tr.media.length > 0 ? { media: tr.media } : {}),
+      ...(tr.sources && tr.sources.length > 0 ? { sources: tr.sources } : {}),
     });
   }
   return JSON.stringify(blocks);

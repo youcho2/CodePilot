@@ -346,6 +346,60 @@ describe('translateStream — ai-sdk fullStream → Codex Responses SSE (SDK fix
     assert.equal((events[1] as { type: string }).type, 'response.completed');
   });
 
+  it('suppresses provider x_search from Codex while forwarding lifecycle and citations', async () => {
+    const lifecycle: Array<Record<string, unknown>> = [];
+    const events = await collectStream(
+      translateStream({
+        responseId: 'resp_x',
+        body: baseBody,
+        source: source([
+          { type: 'start' } as never,
+          { type: 'tool-input-start', id: 'xs_1', toolName: 'x_search' } as never,
+          {
+            type: 'tool-call',
+            toolCallId: 'xs_1',
+            toolName: 'x_search',
+            input: {},
+            providerExecuted: true,
+          } as never,
+          {
+            type: 'tool-result',
+            toolCallId: 'xs_1',
+            toolName: 'x_search',
+            output: { query: 'CodePilot', posts: [] },
+            providerExecuted: true,
+          } as never,
+          {
+            type: 'source',
+            sourceType: 'url',
+            id: 'source-1',
+            url: 'https://x.com/example/status/1',
+            title: 'Example post',
+          } as never,
+          { type: 'finish', finishReason: 'stop', totalUsage: {} } as never,
+        ]),
+        builtinToolNames: new Set(['x_search']),
+        providerExecutedToolNames: new Set(['x_search']),
+        onProviderToolEvent: event => lifecycle.push(event as unknown as Record<string, unknown>),
+      }),
+    );
+
+    assert.equal(
+      events.some(event => (event as { type: string }).type === 'response.output_item.done'),
+      false,
+      'provider-hosted calls must not leak to Codex as client-executed function calls',
+    );
+    assert.equal(lifecycle[0]?.type, 'started');
+    assert.equal(lifecycle[1]?.type, 'completed');
+    assert.equal(lifecycle[2]?.type, 'completed', 'late source enriches the same completed call');
+    assert.deepEqual(lifecycle[2]?.sources, [{
+      id: 'source-1',
+      url: 'https://x.com/example/status/1',
+      title: 'Example post',
+      trust: 'external',
+    }]);
+  });
+
   it('emits output_item.added + output_text.delta + output_item.done(message) for a text block (SDK contract)', async () => {
     const events = await collectStream(
       translateStream({

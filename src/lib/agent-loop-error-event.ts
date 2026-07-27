@@ -4,6 +4,10 @@ import {
   describeNativeTimeout,
   type NativeTimeoutFired,
 } from './native-timeout';
+import {
+  classifyXaiSearchFailure,
+  type XaiSearchFailureCode,
+} from './xai-hosted-search';
 
 /**
  * Data payload for the Native runtime `error` SSE event.
@@ -23,6 +27,7 @@ import {
  */
 export type NativeErrorCategory =
   | 'AGENT_ERROR'
+  | XaiSearchFailureCode
   | 'TIMEOUT_CONNECT'
   | 'TIMEOUT_FIRST_TOKEN'
   | 'TIMEOUT_TOOL_EXECUTION'
@@ -51,12 +56,23 @@ export function buildNativeErrorEventData(
   err: unknown,
   accounting?: RuntimeContextAccountingSnapshot,
   timeout?: NativeTimeoutFired | null,
+  context?: { xaiSearchEnabled?: boolean },
 ): NativeErrorEventData {
   if (timeout) {
     return {
       category: TIMEOUT_CATEGORY[timeout.reason],
       userMessage: describeNativeTimeout(timeout),
       timeout,
+      ...(accounting ? { context_accounting: accounting } : {}),
+    };
+  }
+  const xaiFailure = context?.xaiSearchEnabled
+    ? classifyXaiSearchFailure(err)
+    : undefined;
+  if (xaiFailure) {
+    return {
+      category: xaiFailure.code,
+      userMessage: xaiFailure.message,
       ...(accounting ? { context_accounting: accounting } : {}),
     };
   }

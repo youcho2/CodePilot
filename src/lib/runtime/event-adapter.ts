@@ -85,6 +85,8 @@ export function makeToolCompleted(
      *  (Codex imageGeneration / imageView etc.). Drives the SSE
      *  `tool_result.media` channel that `MediaPreview` renders. */
     media?: readonly import('@/types').MediaBlock[];
+    /** Provider-reported citations for hosted search tools. */
+    sources?: readonly import('@/types').ExternalSource[];
   },
 ): Extract<RuntimeRunEvent, { type: 'tool_completed' }> {
   return { type: 'tool_completed', ...base, ...args };

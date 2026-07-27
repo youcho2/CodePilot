@@ -52,13 +52,20 @@ import { buildXaiProviderOptions } from '@/lib/xai-provider-options';
 import { buildCodexSubagentRunContext } from '@/lib/subagent-run-context';
 import { anthropic } from '@ai-sdk/anthropic';
 import { openai } from '@ai-sdk/openai';
-import { xaiTools } from '@ai-sdk/xai';
 import type { AiSdkConfig } from '@/lib/provider-resolver';
 import type { ClassifiedNonFunctionTool } from './types';
 import {
   translateCodexNamespaceTools,
   type CodexNamespaceToolRoute,
 } from './namespace-tools';
+import {
+  buildXaiHostedSearchTools,
+  mergeHostedTools,
+  XAI_X_SEARCH_SYSTEM_GUIDANCE,
+} from '@/lib/xai-hosted-search';
+import { emitBuiltinEvent } from '@/lib/harness/builtin-event-bus';
+import { makeToolCompleted, makeToolStarted } from '@/lib/runtime/event-adapter';
+import type { ProviderCallScene } from '@/lib/provider-call-policy';
 
 /** JSON value type matching ai-sdk's SharedV3ProviderOptions inner. */
 type JsonValue = string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue };
@@ -90,11 +97,12 @@ export function createUnifiedAdapter(family: string): ResponsesAdapter {
     let languageModel: LanguageModel;
     let modelConfig: AiSdkConfig;
     let isThirdPartyProxy = false;
+    const callScene: ProviderCallScene = isManagedCodexSubagentSession(input.sessionId)
+      ? 'delegated_interactive'
+      : 'interactive_chat';
     try {
       const created = createModel({
-        callScene: isManagedCodexSubagentSession(input.sessionId)
-          ? 'delegated_interactive'
-          : 'interactive_chat',
+        callScene,
         providerId: input.targetProviderId,
         model: input.body.model,
       });
@@ -151,18 +159,29 @@ export function createUnifiedAdapter(family: string): ResponsesAdapter {
         : 'invalid_request';
       return makeErrorResult(code, message, { family });
     }
-    const hostedSearchTools = buildCodexHostedSearchTools(
-      input.body.passthroughTools,
-      modelConfig,
-      isThirdPartyProxy,
-    );
     const namespaceTools = translateCodexNamespaceTools(input.body.passthroughTools);
-    const tools: ToolSet | undefined = mergeToolSets(
-      codexTools,
-      namespaceTools.tools,
-      bridge.tools,
-      hostedSearchTools,
-    );
+    let hostedSearchTools: ToolSet;
+    let tools: ToolSet | undefined;
+    try {
+      hostedSearchTools = buildCodexHostedSearchTools(
+        input.body.passthroughTools,
+        modelConfig,
+        isThirdPartyProxy,
+        callScene,
+      );
+      tools = mergeToolSets(
+        codexTools,
+        namespaceTools.tools,
+        bridge.tools,
+        hostedSearchTools,
+      );
+    } catch (err) {
+      return makeErrorResult(
+        'invalid_request',
+        err instanceof Error ? err.message : String(err),
+        { family },
+      );
+    }
 
     // Phase 5d Phase 3 (2026-05-17) — capability prompt assembly +
     // stopWhen / builtinToolNames hints routed through the Runtime
@@ -228,8 +247,11 @@ export function createUnifiedAdapter(family: string): ResponsesAdapter {
     // Both bridge tools and provider-hosted tools are completed inside this
     // adapter. They must never be echoed back to Codex as function calls:
     // app-server owns neither name and would answer "unsupported call".
-    const providerExecutedToolNames = new Set([
+    const bridgeOwnedToolNames = new Set([
+      ...adapted.builtinToolNames,
       ...bridge.toolNames,
+    ]);
+    const providerExecutedToolNames = new Set([
       ...Object.keys(hostedSearchTools),
     ]);
     // #28: append the platform shell-dialect hint (no-op off Windows-PowerShell)
@@ -261,6 +283,9 @@ export function createUnifiedAdapter(family: string): ResponsesAdapter {
       adapted.systemPromptInstructions,
       subagentRunContext,
       managedDelegationInstruction,
+      Object.prototype.hasOwnProperty.call(hostedSearchTools, 'x_search')
+        ? XAI_X_SEARCH_SYSTEM_GUIDANCE
+        : '',
       platformCommandGuidance(),
     ]
       .filter((s) => s.length > 0)
@@ -305,7 +330,7 @@ export function createUnifiedAdapter(family: string): ResponsesAdapter {
         instructions,
         messages,
         tools,
-        builtinToolNames: adapted.builtinToolNames,
+        builtinToolNames: bridgeOwnedToolNames,
         stopWhen: adapted.stopWhen,
         stepCount: adapted.stepCount,
         providerExecutedToolNames,
@@ -313,6 +338,7 @@ export function createUnifiedAdapter(family: string): ResponsesAdapter {
         signal: input.signal,
         family,
         namespaceToolRoutes: namespaceTools.routes,
+        sessionId: input.sessionId,
       });
     }
 
@@ -323,7 +349,7 @@ export function createUnifiedAdapter(family: string): ResponsesAdapter {
       instructions,
       messages,
       tools,
-      builtinToolNames: adapted.builtinToolNames,
+      builtinToolNames: bridgeOwnedToolNames,
       stopWhen: adapted.stopWhen,
       stepCount: adapted.stepCount,
       providerExecutedToolNames,
@@ -331,6 +357,7 @@ export function createUnifiedAdapter(family: string): ResponsesAdapter {
       signal: input.signal,
       family,
       namespaceToolRoutes: namespaceTools.routes,
+      sessionId: input.sessionId,
     });
   };
 }
@@ -348,7 +375,8 @@ function mergeToolSets(
   bridge: ToolSet,
   hosted: ToolSet = {},
 ): ToolSet | undefined {
-  const merged: ToolSet = { ...(codex ?? {}), ...namespace, ...bridge, ...hosted };
+  const clientTools: ToolSet = { ...(codex ?? {}), ...namespace, ...bridge };
+  const merged = mergeHostedTools(clientTools, hosted);
   return Object.keys(merged).length > 0 ? merged : undefined;
 }
 
@@ -363,17 +391,12 @@ export function buildCodexHostedSearchTools(
   passthrough: readonly ClassifiedNonFunctionTool[] | undefined,
   config: Pick<AiSdkConfig, 'sdkType' | 'useResponsesApi'>,
   isThirdPartyProxy = false,
+  callScene: ProviderCallScene = 'interactive_chat',
 ): ToolSet {
-  if (!passthrough?.some(tool => tool.rawType === 'web_search')) return {};
   if (config.sdkType === 'xai') {
-    return {
-      // @ai-sdk/xai currently carries a provider-tool generic from the v4
-      // provider package while ai@7's ToolSet expects the v5 intersection.
-      // The runtime wire shape is the same provider-executed tool contract.
-      web_search: xaiTools.webSearch() as unknown as ToolSet[string],
-      x_search: xaiTools.xSearch() as unknown as ToolSet[string],
-    };
+    return buildXaiHostedSearchTools(config, callScene);
   }
+  if (!passthrough?.some(tool => tool.rawType === 'web_search')) return {};
   if (config.sdkType === 'openai' && config.useResponsesApi) {
     return { web_search: openai.tools.webSearch() };
   }
@@ -457,6 +480,7 @@ interface PathInput {
   signal: AbortSignal;
   family: string;
   namespaceToolRoutes: ReadonlyMap<string, CodexNamespaceToolRoute>;
+  sessionId: string;
 }
 
 /**
@@ -498,6 +522,7 @@ function streamPath(args: PathInput): ProxyResult {
     signal,
     family,
     namespaceToolRoutes,
+    sessionId,
   } = args;
   const suppressedToolNames = new Set([
     ...builtinToolNames,
@@ -540,7 +565,27 @@ function streamPath(args: PathInput): ProxyResult {
           body,
           source: result.fullStream,
           builtinToolNames: suppressedToolNames,
+          providerExecutedToolNames,
           namespaceToolRoutes,
+          onProviderToolEvent: (event) => {
+            if (!sessionId) return;
+            const base = { runtimeId: 'codex_runtime' as const, sessionId };
+            emitBuiltinEvent(
+              sessionId,
+              event.type === 'started'
+                ? makeToolStarted(base, {
+                    toolId: event.toolId,
+                    name: event.name,
+                    input: event.input,
+                  })
+                : makeToolCompleted(base, {
+                    toolId: event.toolId,
+                    output: event.output,
+                    error: event.error,
+                    sources: event.sources,
+                  }),
+            );
+          },
         });
         for await (const event of events) {
           controller.enqueue(encodeEvent(event));

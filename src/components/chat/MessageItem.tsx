@@ -3,7 +3,7 @@
 import { useState, useCallback, useRef, useEffect, useMemo, memo } from 'react';
 import { motion } from 'motion/react';
 import { cn } from '@/lib/utils';
-import type { Message, TokenUsage, FileAttachment, MediaBlock } from '@/types';
+import type { Message, TokenUsage, FileAttachment, MediaBlock, ExternalSource } from '@/types';
 import {
   Message as AIMessage,
   MessageContent,
@@ -32,6 +32,7 @@ import { isWriteTool, isCreateTool, extractWritePath, resolveToolPath } from '@/
 import { DevOutputSegment } from './DevOutputChips';
 import type { PlannerOutput } from '@/types';
 import { SubagentCard } from './SubagentCard';
+import { SearchSources } from './SearchSources';
 import {
   buildSubagentRunView,
   collapseLogicalSubagentRuns,
@@ -434,6 +435,7 @@ interface ToolBlock {
   content?: string;
   is_error?: boolean;
   media?: MediaBlock[];
+  sources?: ExternalSource[];
 }
 
 function parseToolBlocks(content: string): { text: string; tools: ToolBlock[]; thinking?: string } {
@@ -475,6 +477,7 @@ function parseToolBlocks(content: string): { text: string; tools: ToolBlock[]; t
             content: block.content,
             is_error: block.is_error,
             media: (block as { media?: MediaBlock[] }).media,
+            sources: (block as { sources?: ExternalSource[] }).sources,
           });
         }
       }
@@ -520,6 +523,7 @@ function pairTools(tools: ToolBlock[]): Array<{
   result?: string;
   isError?: boolean;
   media?: MediaBlock[];
+  sources?: ExternalSource[];
 }> {
   const paired: Array<{
     id: string;
@@ -528,6 +532,7 @@ function pairTools(tools: ToolBlock[]): Array<{
     result?: string;
     isError?: boolean;
     media?: MediaBlock[];
+    sources?: ExternalSource[];
   }> = [];
 
   const resultMap = new Map<string, ToolBlock>();
@@ -547,6 +552,7 @@ function pairTools(tools: ToolBlock[]): Array<{
         result: result?.content,
         isError: result?.is_error,
         media: result?.media,
+        sources: result?.sources,
       });
     }
   }
@@ -560,6 +566,7 @@ function pairTools(tools: ToolBlock[]): Array<{
         result: t.content,
         isError: t.is_error,
         media: t.media,
+        sources: t.sources,
       });
     }
   }
@@ -737,6 +744,10 @@ export const MessageItem = memo(function MessageItem({ message, sessionId, isAss
           const allMedia = pairedTools.flatMap(t => t.media || []);
           return allMedia.length > 0 ? <MediaPreview media={allMedia} /> : null;
         })()}
+
+        {!isUser && (
+          <SearchSources sources={pairedTools.flatMap(tool => tool.sources || [])} />
+        )}
 
         {/* Text content */}
         {displayText && (
