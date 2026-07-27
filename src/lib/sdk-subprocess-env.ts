@@ -20,6 +20,7 @@ import { findGitBash, getExpandedPath } from './platform';
 import { toClaudeCodeEnv, type ResolvedProvider } from './provider-resolver';
 import { createShadowClaudeHome, type ShadowHome } from './claude-home-shadow';
 import { applyMacosKeychainGuard } from './macos-keychain-guard';
+import { buildProxyEnvVars } from './proxy-config';
 
 export interface SdkSubprocessSetup {
   /** Env to pass to the SDK's `env` Option (already sanitized for spawn). */
@@ -84,6 +85,13 @@ export function prepareSdkSubprocessEnv(resolved: ResolvedProvider): SdkSubproce
   // from baseEnv and we want HOME/USERPROFILE to survive that cleanup.
   const resolvedEnv = toClaudeCodeEnv(sdkEnv, resolved);
   Object.assign(sdkEnv, resolvedEnv);
+
+  // Overlay the user-configured network proxy LAST so the spawned `claude`
+  // subprocess reaches the provider through it (corporate egress). Explicit
+  // overlay (not just process.env inheritance) keeps this testable and immune
+  // to any earlier env cleanup. No-op when no proxy is configured.
+  const proxyVars = buildProxyEnvVars();
+  if (proxyVars) Object.assign(sdkEnv, proxyVars);
 
   return { env: sdkEnv, shadow };
 }
