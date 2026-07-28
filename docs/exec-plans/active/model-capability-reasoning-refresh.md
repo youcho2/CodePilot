@@ -1,8 +1,8 @@
 # 模型目录与推理强度统一适配
 
 > 创建时间：2026-07-17
-> 最后更新：2026-07-20
-> 状态：🚧 最终 route/DB 修复已落地：GPT-5.6 与 Kimi capability 可到达 composer，智谱 CodePlan 无网络时回退内置目录，Claude selector 复用模型菜单视觉合同。2026-07-20 按 Kimi K3 最新文档与渠道现状把 Kimi for Coding 扩为 Low/High/Max；ClinePass / OpenCode Go 显式 K3 已分别完成 4-token direct wire smoke。Kimi effort 与其他真实 provider smoke 仍待跑，Phase 3–4 待继续。
+> 最后更新：2026-07-28
+> 状态：🚧 最终 route/DB 修复已落地：GPT-5.6 与 Kimi capability 可到达 composer，智谱 CodePlan 无网络时回退内置目录，Claude selector 复用模型菜单视觉合同。2026-07-28 已把 Opus 5 作为显式模型接入 Claude Code/Native/Codex proxy 共用目录、Sub-agent route、1M context 与 adaptive/effort 合同；effort 现保留用户选择/系统兼容兜底 provenance，并按模型×档位在 wire 边界校验，避免 Auto 冒充 High 与 Sonnet 4.6 `xhigh` 外发。Dev 真实完整 turn 已证明 `claude-opus-5` 可运行；其后发现 SDK `supportedModels()` 只返回 convenience aliases 并覆盖静态目录，导致 UI 把仍为 Opus 5 的会话显示成 Default，现已改为“canonical 目录稳定 + SDK 仅追加新入口”。packaged UI 仍待验。Kimi effort 与其他真实 provider smoke 仍待跑，Phase 3–4 待继续。
 > 事实基线：[基础体验更新事实基线](../../research/foundation-experience-refresh-2026-07-17.md)
 
 ## 用户问题与取舍
@@ -17,7 +17,7 @@
 |---|---|---|---|
 | Phase 0 | Codex GPT-5.6 与 schema drift | ✅ 恢复修复：最终序列化统一 lift capability；route-contract 直接断言 GPT-5.6 top-level effort allowlist | Codex 渠道可看到账号真实返回的 5.6，并显示可用强度 |
 | Phase 1 | GLM-5.2 / Kimi for Coding 目录与强度 | ✅ 恢复修复：manual exact-ID + hidden legacy alias 仍可只读 enrichment；CodePlan search 以内置目录降级 | 两个 Coding Plan 显示正确模型和真实档位 |
-| Phase 2 | Claude Sonnet 5 与现有模型复核 | ✅ 恢复修复：effort trigger 字体、items spacing、popover geometry/motion 与模型选择器一致；真实凭据 smoke 仍待 DNS | Sonnet 5 可选；Claude 模型右侧稳定显示匹配且视觉一致的强度菜单 |
+| Phase 2 | Claude Sonnet 5 / Opus 5 与现有模型复核 | ✅ 恢复修复：Opus 5 显式目录、1M context、三 Runtime 共用 adaptive/effort、effort provenance/精确档位门与本地化提示已落地；真实 CLI route/entitlement 通过，packaged UI smoke 待跑 | Sonnet 5 / Opus 5 可选；Claude 模型右侧稳定显示匹配且视觉一致的强度菜单 |
 | Phase 3 | capability 统一与后续跟进机制 | 📋 待开始 | 上游模型变化不会再靠多处硬编码静默漂移 |
 | Phase 4 | Tier 2 回归与真实凭据 smoke | 📋 待开始 | 模型、Runtime、强度和实际请求一致 |
 
@@ -79,13 +79,15 @@
 - [x] Moonshot provider（`provider-catalog.ts:638-660`）不属于本轮 Kimi for Coding 改名范围；但改动 catalog 时确认 `legacy-catalog-hint.test.ts:119-196`（pin 了 `kimi-k2.5`）不被破坏。（Moonshot 零改动 + 新增反向断言钉住其不改名；`legacy-catalog-hint.test.ts` 未改动即全绿——该文件 pin 的是「用户手加 `kimi-k2.5` 不该报 legacy badge」，与 Kimi 内置目录改名正交）
 - [ ] 模型切换导致缓存失效时给用户可理解提示；不在同一 session 偷换模型。**未做：转 Phase 2「模型切换时若旧档位不受支持，回到 Auto 并显示一次非误导提示」一并实现，避免两处各写一套提示。**
 
-## Phase 2：Claude Sonnet 5
+## Phase 2：Claude Sonnet 5 / Opus 5
 
 ### 不做什么
 
 - 不只在 catalog 加一行。
 - 不把 manual extended thinking、非默认 sampling 参数继续发给会返回 400 的 Sonnet 5。
 - 不自动把所有既有对话从 Sonnet 4.6 升级到 Sonnet 5。
+- 不把既有 `opus` alias 从 4.7 静默改到 5；Opus 5 使用显式 `opus-5`。
+- 不给未经验证的 OpenRouter/Bedrock/Vertex 添加 Opus 5 slug，也不把 catalog 命中冒充账号 entitlement。
 
 ### 执行清单
 
@@ -95,6 +97,12 @@
 - [x] 显式裁决 `src/lib/agent-loop.ts:408-425`（及 `agent-loop-toolloop-poc.ts`）Native 路径丢弃显式 effort 的旧逻辑。**裁决=恢复下发**：核实 `@ai-sdk/anthropic@4.0.5` 走 GA `output_config.effort`，dist 内无 `effort-2025-11-24` / 任何 effort beta header（grep 0 命中），旧 workaround 前提失效。两条 native 路径改为对所有模型透传 effort，官方路径去掉 `RUNTIME_EFFORT_IGNORED` toast（第三方代理路径保留），UI 选择 = wire 一致。**复审轮 #1 升级**：wire 构造抽到 `agent-loop-anthropic-wire.ts`（`buildAnthropicProviderOptions`，随 `agent-loop-error-event.ts` 先例），`agent-loop-anthropic-wire.test.ts` 以**可执行行为**断言 sonnet-5+xhigh 官方路径 `providerOptions.anthropic.effort='xhigh'` 且 `effortDroppedForProxy=false`、代理路径丢弃并升起 drop 信号——从源码 pin 升级为真实对象断言。**复审轮 #4 修复（run i31）**：Codex 独立复现 `claude-haiku-4-5-20251001` + `max` 在官方 Native 路径仍发出 `{"effort":"max"}`——`buildAnthropicProviderOptions` 根本不接收 model，「不再对 adaptive 家族丢弃」被实现成了「对所有模型无条件透传」，而官方 effort supported-model 列表不含 Haiku 4.5。**改法**：`claude-model-options.ts` 新增带官方 breadcrumb 的 per-model allowlist `ANTHROPIC_API_EFFORT_MODELS` + `anthropicApiSupportsEffort()`（**刻意不派生自 catalog `supportedEffortLevels`**——那是 UI picker / Claude Code CLI 的能力面，更宽，first-party haiku 在那里声明 low/medium/high；用它当 wire 门就等于复活本 finding），wire 层改收 `model` 并只对 allowlist 内模型下发 effort，不支持/未知模型省略并升起新信号 `effortDroppedUnsupportedModel`，两条 native 路径（`agent-loop.ts` + `agent-loop-toolloop-poc.ts`，后者本轮改为消费同一 helper 消除 drift）据此发一次 `RUNTIME_EFFORT_IGNORED`（文案如实说明「该模型不支持 effort、按自身默认深度运行」，与真实行为不矛盾）。`agent-loop-anthropic-wire.test.ts` 补三类可执行请求形状断言：Haiku 4.5+max → wire **无** effort 键 + 信号 true、未知模型同样 fail-closed、Sonnet 5+xhigh 正例仍 `effort='xhigh'` 且两个 drop 信号均 false；另加「allowlist 不得读 catalog / 每条必须有 breadcrumb」的守卫。`fable-5-model.test.ts` 原钉住「官方分支无条件透传」的断言随之改为钉 per-model 门（旧断言前提被本轮推翻）。
 - [x] 触点补齐：`useProviderModels.ts` 客户端 fallback、`route.ts` `ENV_ALIAS_TO_UPSTREAM`（均经 `ENV_CLAUDE_CODE_MODELS` 派生，自动含 sonnet-5，`env-models-single-source.test.ts` pin）、i18n `en/zh` 新增 `messageInput.effort.resetOnModelSwitch`；token budget tokenizer +30% 注记进 `model-context.ts` + sanitizer。
 - [x] 保持强度控件紧邻模型选择器；模型切换时若旧档位不受支持，回到 Auto 并显示一次非误导提示。（新纯函数 `resolveEffortAfterModelSwitch` + `ChatView.handleProviderModelChange` 接线；i18n 提示；`effort-menu-levels.test.ts` 覆盖。**复审轮 #1 升级**：`resolveModelSwitchEffortEffect(currentEffort, levels)→{resetEffort, showResetToast}` 把 reset/toast 决策收成可执行函数，ChatView 消费其结果。**复审轮 #2 修复（run i31）**：Codex 指原实现 manual-only（isAuto 自动纠正与新会话 `chat/page.tsx` 入口均不清除不受支持的瞬态档位 → 切到不支持该档的模型后 UI 仍显示并发送该档，违反「UI 所选 = 发送参数 = 供应商档位」一致）。**改法**：`resolveModelSwitchEffortEffect` 去掉 isAuto 参数——清除非法瞬态 effort 与「是否持久化 session pin」是两件事，前者对 manual 与 auto-correct 一致执行（isAuto 仅在调用点 gate 持久化 early-return），后者不变；`chat/page.tsx` 新会话入口补接同一 helper + 一次性 sourced toast；`MessageInput` 加 `emitProviderModelChange` 包装器，从与 picker 同一 `providerGroups/modelOptions` feed 解析新模型 `supportedEffortLevels` 并经 `opts` 下发给两入口（同一真源校验），手动 picker 与 auto-correct 两路径都经该包装器。`effort-menu-levels.test.ts` 重写为断言 manual/auto × 支持/不支持一致清除 + 清除后 `toWireEffort` 不下发被清档位 + 两入口 source pin（helper 调用先于 isAuto persist-skip）+ MessageInput feed 下发；`codex-phase-6-wiring.test.ts` 的 isAuto 钉改为断言包装器 `...opts` 转发保 isAuto）**复审轮 #3 修复（run i31）**：Codex 指复审轮 #2 只让父层 `setSelectedEffort(undefined)`，但 `MessageInput.tsx` 的 `selectedEffort = effortProp ?? localEffort` 会在父值清成 undefined 后回退到 stale `localEffort`——用户先选 xhigh、再切不支持 xhigh 的模型，按钮仍显示 xhigh 而 wire 已省略 effort，实际组件从未真正回到 Auto，仍违反「UI 所选 = 发送参数 = 供应商档位」；且原测试只测纯函数 + 源码顺序，未经过 MessageInput 显示解析。**改法**：显示解析抽成纯函数 `resolveComposerEffortDisplay(controlledEffort, localEffort, isControlled)`——父层拥有 effort 时（`onEffortChange` 已接，三个调用点都接）为**真正受控**，显示 = `effortProp ?? 'auto'`，永不回退 stale local；`localEffort` 仅供无 `onEffortChange` 的独立用法。`effort-menu-levels.test.ts` 新增全链行为测试（`makeComposerHarness` 用真实 helper 串起显示/reset/wire）：两入口 × manual/auto-correct 先选 xhigh 再切 Sonnet 4.6 → 断言按钮 Auto、wire 省略 effort、toast 恰好一次；含 stale-local 回归守卫与「受控值压过 local」断言；MessageInput 源码钉住调用受控解析、`effortProp ?? localEffort` 不复活）
+- [x] Opus 5 以显式 `opus-5 → claude-opus-5` 加入 first-party/env 单一目录，并自动进入 Claude managed Sub-agent route；旧 `opus → claude-opus-4-7` pin 保持不变，避免旧会话静默换模型。OpenRouter/Bedrock/Vertex 未验证 slug 保持缺席。
+- [x] Opus 5 按官方合同加入 1M context、adaptive thinking、low/medium/high/xhigh/max effort 与 sampling guard；`thinking=disabled` 同时选择 xhigh/max 会在 Native/Claude Code 两条可关闭 thinking 的 Runtime 下调到 high，并以 `RUNTIME_EFFORT_ADJUSTED` 中英文提示用户；Auto 也显式发 high，不依赖 CLI 可变默认值。
+- [x] Codex proxy 不再把 Anthropic effort 一律翻译成 manual `budgetTokens`；它把解析后的 upstream model 交给同一 sanitizer/wire builder，Opus 4.7/4.8、Fable 5、Sonnet 5、Opus 5 均发送 adaptive + effort。`xhigh` 已补进 proxy request type，第三方代理也不会再收到 adaptive 家族明确拒绝的 manual thinking 形状。
+- [x] Claude Code 渠道基线核验：本机系统 CLI `2.1.220`，官方从 `2.1.219` 加入 Opus 5；CodePilot 生产路径显式使用系统 CLI，故本轮不把 Agent SDK `0.2.111 → 0.3.x` 大版本迁移夹带进模型目录修复。
+- [x] Claude 复审收尾：sanitizer 新增 `effortProvenance`，区分用户显式档位与 Opus 5 `Auto + thinking off` 生成的兼容 High；第三方代理只对真实用户选择发 `RUNTIME_EFFORT_IGNORED`，并保留调整前的原始档位。官方 Anthropic allowlist 从“模型布尔支持”升级为“模型 × 精确档位”，Sonnet 4.6 的 `xhigh` 在 Native/Codex proxy wire 边界均被省略，Native 以结构化中英文提示列出真实可用档位；第三方 proxy 提示也从服务端英文改为 code/reason/params 本地化。
+- [x] Claude Code SDK 动态目录不得覆盖 canonical env 目录：`supportedModels()` 只作为补充入口，不能删除已成功路由的显式 `opus-5 / sonnet-5 / opus-4-8`。身份重叠时 canonical 行优先，避免移动 alias 的描述把固定版本静默迁移；`env-models-single-source.test.ts` 用真实 2.1.220 五行缓存复现并锁住“回复后仍显示 Opus 5”。
 - **Phase 2 目标快照（s11 三处一致锚点）**：commit `fb53dfe`（= 复审轮 #6 修复后 HEAD，含 effort allowlist 事实修正 + 运行时提示本地化；历史链 `a7c6795` → `03ca9b0` → `65a71ab` → `aa2623e` → `eb75df8`）；canonical 账本按**命令语义分两栏**（两者不得互相冒充）：
 
   - **该次并行观测值（canonical 原样命令，计数随 force-exit 竞态逐次浮动）**：`# tests 4268 / # suites 1050 / # pass 4268 / # fail 0`（exit 0）——Codex reviewer 在该 HEAD、全新空 HOME、前台**原样**执行 canonical 命令单次所得真实 footer；是一次真实门禁观测，**不代表完整注册量**。
@@ -113,7 +121,7 @@
 
 - [ ] 单测：selector 可见性、档位集合、Auto 语义、模型切换清理、未知档位 fail-closed（含 EffortSelectorDropdown 空/未知/缺失 levels 的组件测试，禁止回退写死全集）。
 - [ ] 单测：Codex 新旧 `model/list` schema；5.6 max/xhigh 不被静默降级；unsupported 不外发。
-- [x] 单测：Sonnet 5 不发 manual thinking / 非默认 sampling；Kimi for Coding 恰为 Auto/Low/High/Max；GLM 只表达两档真值。
+- [x] 单测：Sonnet 5 / Opus 5 不发 manual thinking / 非默认 sampling；Opus 5 disabled-thinking × Auto/xhigh/max 生成合法 high wire；Codex proxy 全 adaptive 家族无 manual budget；Kimi for Coding 恰为 Auto/Low/High/Max；GLM 只表达两档真值。
 - [x] `npm run test` 等价的权威串行全量：4410/4410，exit 0；默认并发脚本断言结束后受既有句柄影响不退出，因此完成证据采用 `--test-concurrency=1 --test-force-exit`。
 - [ ] 真实 smoke：Claude Code × GLM/Kimi/Anthropic；Codex Runtime × Codex Account；Native × Anthropic/OpenAI-compatible。
 - [ ] 每个 smoke 记录 Runtime / Provider / Model / UI 选择 / wire 参数 / 实际结果。
@@ -123,7 +131,7 @@
 - 用户在模型右侧看到的每个档位都有官方或运行时 source breadcrumb。
 - UI 所选、session 持久化、发送参数、供应商实际档位四者一致；映射必须显式说明。
 - 模型不支持或能力未知时隐藏/降级，不显示假选项。
-- GPT-5.6、GLM-5.2、Kimi for Coding、Sonnet 5 各有至少一个真实凭据 smoke。
+- GPT-5.6、GLM-5.2、Kimi for Coding、Sonnet 5 / Opus 5 各有至少一个真实凭据 smoke；route/entitlement 与完整输出必须分开记账。
 - 新模型不会改变旧会话已固定的 provider/model。
 
 ## Smoke Ledger
@@ -141,6 +149,10 @@
 | _待跑_ | claude_code | Kimi Code | kimi-for-coding | API key | 固定展示名；Auto 省略与 Low/High/Max 三档逐一发送 | 📋 本轮继续验证 | 目录已落 `upstreamModelId='kimi-for-coding'` + Auto/Low/High/Max；静态与 route 回归通过，真实网关接受/降级仍以此 smoke 为准 |
 | _待跑_ | claude_code | Kimi Code | kimi-for-coding | API key | `queryOptions.effort` vs `CLAUDE_CODE_EFFORT_LEVEL` 优先级；Kimi 渠道是否接受 effort | 📋 移交用户统一验证 | p1-effort-chain：本轮未改 env 注入代码，见决策日志 |
 | _待跑_ | claude_code + native | Anthropic | claude-sonnet-5 | API key/login | adaptive + effort | 📋 | |
+| 2026-07-28 | claude_code CLI | Anthropic | claude-opus-5 | 当前登录 | `--model claude-opus-5 --effort high --safe-mode --no-session-persistence --max-budget-usd 0.05` | ✅ route/entitlement；⚠️ output 未完成 | CLI `2.1.220` 的结构化结果真实上报 `modelUsage.claude-opus-5`、`canonicalModel=claude-opus-5`、`contextWindow=1000000`；首轮总成本约 0.062 USD，触发人为 0.05 USD `error_max_budget_usd`，故本行不冒充完整 turn 成功 |
+| _待跑_ | packaged claude_code UI | Anthropic | opus-5 | 当前登录 | picker 选择 Opus 5 → 一次完整 turn → managed Sub-agent 同 route | 📋 | CLI route/entitlement 已证实；仍需验证打包客户端的目录展示、wire 与 Sub-agent 入口 |
+| _待跑_ | codepilot_runtime | third-party Anthropic proxy | opus-5 | API key | thinking off + Auto：不得提示“你选择了 High”；显式 xhigh 则必须按原始选择提示未发送 | 📋 | 结构化 provenance 与中英文通知已有 unit 覆盖；真实代理是否接受 thinking/默认 effort 仍须凭据 smoke，不以测试冒充 |
+| `bfc8f1e84e5de9bdcc31c6723b18b39c` | electron-dev claude_code | Claude Code | claude-opus-5 | 当前登录 | 选择 Opus 5 → 完整回复 → 回复后模型标签保持 Opus 5 | ✅ route/turn；⚠️ UI 首跑暴露并修复目录覆盖，待用户热更新复验 | 真实 turn 成功，DB 仍为 `claude-opus-5`；SDK 随后缓存仅 `default/opus[1m]/fable/sonnet/haiku`，旧实现替换目录后 UI 自动纠正成 Default。修复后 live `/api/providers/models?runtime=claude_code` 同时返回 canonical `opus-5→claude-opus-5` 与 SDK convenience entries |
 | _待跑_ | codepilot_runtime | OpenAI-compatible | supported model | API key | effort 透传/降级 | 📋 | |
 | 2026-07-20 | codepilot_runtime | ClinePass | cline-pass/kimi-k3 | API key | direct non-stream, max_tokens=4 | ✅ HTTP 200 | 响应 model=`moonshotai/kimi-k3`；仅验证精确模型 ID，不代表 streaming/tool/effort 已 smoke |
 | 2026-07-20 | codepilot_runtime | OpenCode Go (OpenAI) | kimi-k3 | API key | direct non-stream, max_tokens=4 | ✅ HTTP 200 | 响应 model=`kimi-k3`；仅验证精确模型 ID，不代表 streaming/tool/effort 已 smoke |
@@ -151,6 +163,9 @@
 
 ## 决策日志
 
+- 2026-07-28（Claude 复审 follow-up：effort provenance + 精确档位门）：**Signal**：Opus 5 `thinking off + Auto` 的系统兼容 High 被第三方 proxy 当成“用户选择的 High”发出假提示；Sonnet 4.6 allowlist 注释写明无 `xhigh`，但生产门只判断模型支持 effort，外部 Codex config 仍可把 `xhigh` 发到 wire。**Triage/Fix**：`ClaudeModelOptionsOutput` 增加 `effortProvenance`，proxy drop 只认 `source=explicit` 并保留原始 requested tier；官方 effort 表增加可执行 `levels`，wire 同时核验 model + tier，分别产出 unsupported-model / unsupported-tier / third-party-proxy 三种结构化事实，Native 两路径和 en/zh 共用 reason 映射；Codex proxy 复用同一 wire builder，因此不再外发 Sonnet 4.6 `xhigh`。**Verify**：核心定向 112/112；沙箱外 `npm run test` 4736/4736；`npx tsc --noEmit`、生产构建通过；touched ESLint 0 error（`agent-loop.ts` 4 条既有 unused warning）。**Guardrail**：allowlist 测试要求每个 pattern 同时具备 breadcrumb + levels，反例锁定 Auto 不冒充 High、调整后的 proxy 提示仍引用原始 xhigh、Sonnet 4.6 max 可发而 xhigh 不可发。真实第三方代理 packaged smoke 保持待跑，不标 Smoke passed。
+- 2026-07-28（Opus 5 回复后显示 Default）：**Signal**：用户在 electron-dev 选择 Opus 5 并完成真实回复后，composer 标签变成 `Default (recommended)`。**Triage**：会话 `bfc8…` 的 DB `model=claude-opus-5`、SDK init/turn 均成功；回复后 capability cache 捕获 5 个 convenience entries，`/api/providers/models` 用它整表替换 canonical env 目录，删除 `opus-5`，随后 `MessageInput` 对“缺失模型”执行合法但前提错误的 auto-correct。**Fix**：新增 `mergeEnvCatalogWithSdkModels()`，保持 canonical 行及顺序，SDK 仅追加身份未重叠的新入口；重叠的移动 alias 不覆盖固定版本标签/upstream。**Verify**：真实 Dev 接口热更新后同时返回 `opus-5→claude-opus-5`、`default` 与 SDK variants；定向目录/round-trip/Opus 5 测试 44/44；`npm run test`（含 `tsc --noEmit`）4737/4737；touched ESLint 与 `git diff --check` 通过。**Guardrail**：route 行为测试注入真实 2.1.220 五行缓存，断言 `opus-5` 不消失、`default` 仍追加、`sonnet` 不重复或被改名。packaged UI 仍待跑。
+- 2026-07-28（Opus 5 接入 + Claude review 闭环）：官方模型 ID 为 `claude-opus-5`，Claude Code `2.1.219` 起加入该模型；CodePilot 新增显式 `opus-5`，不改既有 `opus→4.7` pin，不给未验证的第三方云目录伪造 slug。Opus 5 复用 adaptive/sampling 合同并加入 effort API allowlist；disabled thinking × xhigh/max 受控降到 high 并通过结构化、本地化 status 告知，Auto 则显式 high，消除对 CLI `default_effort` 的隐含依赖。Claude review 另发现 Codex proxy 仍把所有 Anthropic effort 映射为 manual `budgetTokens`；现改为使用 resolved upstream model + 共享 sanitizer/wire builder，五个 adaptive 模型均生成 adaptive + effort，第三方 proxy 至少不再收到明确非法的 manual thinking。`buildEffortAdjustmentNotice` 的缺省模型名也从会误指 Opus 5 的硬编码改为 `unknown`。生产链使用系统 Claude binary，本机 `2.1.220` 的真实请求已经上报 `claude-opus-5` 与 1M context；请求仅因本地 0.05 USD 保护上限被截断，按 route/entitlement 通过、完整输出待 packaged smoke 记账。门禁：最终核心定向 91/91，真实 AI SDK Anthropic 请求形状含 adaptive summarized + effort；`npm run test` 4726/4726、`npm run build`、touched ESLint（0 error）与 `tsc --noEmit` 均通过。
 - 2026-07-20（Kimi 档位纠偏）：接受 Claude P2-1 的 stale 判断。Kimi 最新 K3 文档已从 max-only 更新为 low/high/max，且用户确认 Kimi for Coding 当前返回 K3；catalog、i18n、DB enrichment 与测试同步扩为三档。展示名和 wire ID 不变，真实 `/coding/` 逐档 smoke 仍作为独立验收，不反推 ClinePass/OpenCode Go 网关能力。
 - 2026-07-20（聚合套餐 K3）：ClinePass / OpenCode Go 各自新增显式 K3 SKU，但 `Kimi for Coding` 继续保持 latest 渠道抽象，不展示底层版本。Kimi 官方 low/high/max 只证明模型本体能力，不能自动证明两个 OpenAI-compatible 网关接受同一 effort 字段；在网关 wire smoke 前 fail closed，不声明 `supportsEffort`。
 - 2026-07-19（用户 UI smoke 打回）：Phase 0/1/2 重新打开。既有 builder/catalog/unit 绿只证明局部对象成立，没有覆盖最终 route serialization、用户编辑后的手动 DB 行和真实 popover 样式；后续不得再以局部测试关闭这三类问题。

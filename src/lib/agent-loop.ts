@@ -25,6 +25,7 @@ import { buildCoreMessages } from './message-builder';
 import { sanitizeClaudeModelOptions } from './claude-model-options';
 import { buildAnthropicProviderOptions } from './agent-loop-anthropic-wire';
 import { buildSamplingIgnoredNotice } from './anthropic-sampling-notice';
+import { buildEffortAdjustmentNotice } from './anthropic-effort-adjustment-notice';
 import { buildXaiProviderOptions } from './xai-provider-options';
 import { getMessages } from './db';
 import { wrapController } from './safe-stream';
@@ -397,6 +398,22 @@ export function runAgentLoop(options: AgentLoopOptions): ReadableStream<string> 
             topP,
             topK,
           });
+          const effortAdjustmentNotice = buildEffortAdjustmentNotice({
+            model: config.modelId,
+            sanitized,
+          });
+          if (effortAdjustmentNotice && !isThirdPartyProxy && step === 1) {
+            console.warn(
+              `[agent-loop] ${config.modelId}: effort '${effortAdjustmentNotice.params.requested}' is incompatible with disabled thinking; sending '${effortAdjustmentNotice.params.effective}' instead.`,
+            );
+            controller.enqueue(formatSSE({
+              type: 'status',
+              data: JSON.stringify({
+                notification: true,
+                ...effortAdjustmentNotice,
+              }),
+            }));
+          }
           if (sanitized.thinkingForcedOn && step === 1) {
             // Fable 5: thinking cannot be turned off — the sanitizer omitted
             // the user's thinking:'disabled' to stay wire-valid, but adaptive
@@ -449,10 +466,10 @@ export function runAgentLoop(options: AgentLoopOptions): ReadableStream<string> 
           if (config.sdkType === 'anthropic') {
             // Build the exact `providerOptions.anthropic` wire object. Effort
             // rides GA output_config.effort on the official path, but only for
-            // models on Anthropic's effort list; unsupported models and
-            // third-party proxies drop it and raise their own drop signal so we
-            // surface a one-shot toast. See buildAnthropicProviderOptions for
-            // the full policy + s05 rationale.
+            // exact model + tier pairs on Anthropic's effort list. Unsupported
+            // models/tiers and explicit picks on third-party proxies raise
+            // distinct drop signals; synthesized Auto defaults never masquerade
+            // as user picks. See buildAnthropicProviderOptions.
             const wire = buildAnthropicProviderOptions({
               isThirdPartyProxy,
               model: config.modelId,
@@ -474,16 +491,36 @@ export function runAgentLoop(options: AgentLoopOptions): ReadableStream<string> 
               }));
             }
             if (wire.effortDroppedForProxy && step === 1) {
+              const requestedEffort = wire.effortDroppedForProxyRequested || 'unknown';
               console.warn(
-                `[agent-loop] Third-party Anthropic proxy: dropping explicit effort='${sanitized.effort}' — effort GA beta header may not be supported by proxies. Switch to SDK runtime or the official Anthropic endpoint to control effort.`,
+                `[agent-loop] Third-party Anthropic proxy: dropping explicit effort='${requestedEffort}' — effort GA beta header may not be supported by proxies. Switch to SDK runtime or the official Anthropic endpoint to control effort.`,
               );
               controller.enqueue(formatSSE({
                 type: 'status',
                 data: JSON.stringify({
                   notification: true,
                   code: 'RUNTIME_EFFORT_IGNORED',
-                  title: 'Effort ignored on this runtime',
-                  message: `Third-party Anthropic proxies may not support the effort parameter — your "${sanitized.effort}" choice wasn't sent. Switch to SDK runtime or an official Anthropic provider to control effort explicitly.`,
+                  reason: 'third-party-proxy',
+                  params: { effort: requestedEffort },
+                }),
+              }));
+            }
+            if (wire.effortDroppedUnsupportedTier && step === 1) {
+              const { requested, supported } = wire.effortDroppedUnsupportedTier;
+              console.warn(
+                `[agent-loop] ${config.modelId} does not accept effort='${requested}' — supported tiers: ${supported.join(', ')}. The unsupported tier was omitted.`,
+              );
+              controller.enqueue(formatSSE({
+                type: 'status',
+                data: JSON.stringify({
+                  notification: true,
+                  code: 'RUNTIME_EFFORT_IGNORED',
+                  reason: 'unsupported-tier',
+                  params: {
+                    model: config.modelId || '',
+                    effort: requested,
+                    supported: supported.join(', '),
+                  },
                 }),
               }));
             }

@@ -17,6 +17,9 @@ export const MODEL_CONTEXT_WINDOWS: Record<string, number> = {
   'claude-opus-4-20250514': 200000,
   'claude-opus-4-7': 1_000_000,
   'claude-opus-4-8': 1_000_000,
+  // Opus 5 — 1M context (default and ceiling) / 128K max output.
+  // https://platform.claude.com/docs/en/about-claude/models/overview
+  'claude-opus-5': 1_000_000,
   // Fable 5 — 1M context / 128K max output per official model docs
   // https://platform.claude.com/docs/en/about-claude/models/overview
   'claude-fable-5': 1_000_000,

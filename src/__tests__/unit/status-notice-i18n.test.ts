@@ -33,6 +33,12 @@ const NEW_KEYS = [
   'chat.notice.samplingIgnored.runtimeCannotSend.other',
   'chat.notice.effortIgnored.unsupportedModel.title',
   'chat.notice.effortIgnored.unsupportedModel.message',
+  'chat.notice.effortIgnored.unsupportedTier.title',
+  'chat.notice.effortIgnored.unsupportedTier.message',
+  'chat.notice.effortIgnored.thirdPartyProxy.title',
+  'chat.notice.effortIgnored.thirdPartyProxy.message',
+  'chat.notice.effortAdjusted.thinkingDisabled.title',
+  'chat.notice.effortAdjusted.thinkingDisabled.message',
   'chat.notice.subagentModelUnavailable.title',
   'chat.notice.subagentModelUnavailable.message',
 ] as const;
@@ -138,6 +144,59 @@ describe('s09 — unsupported-model effort notice is localized too', () => {
   });
 });
 
+describe('s09 — effort tier/proxy omissions preserve the user\'s real choice', () => {
+  it('renders the unsupported Sonnet 4.6 tier and its real allowlist', () => {
+    const payload = {
+      code: 'RUNTIME_EFFORT_IGNORED',
+      reason: 'unsupported-tier',
+      params: {
+        model: 'claude-sonnet-4-6',
+        effort: 'xhigh',
+        supported: 'low, medium, high, max',
+      },
+    };
+    const keys = resolveStatusNoticeKeys(payload)!;
+    assert.equal(keys.messageKey, 'chat.notice.effortIgnored.unsupportedTier.message');
+    for (const locale of ['en', 'zh'] as const) {
+      const text = translate(locale, keys.messageKey, payload.params);
+      assert.match(text, /claude-sonnet-4-6/);
+      assert.match(text, /xhigh/);
+      assert.match(text, /low, medium, high, max/);
+    }
+  });
+
+  it('localizes the third-party proxy notice instead of shipping English prose', () => {
+    const payload = {
+      code: 'RUNTIME_EFFORT_IGNORED',
+      reason: 'third-party-proxy',
+      params: { effort: 'xhigh' },
+    };
+    const keys = resolveStatusNoticeKeys(payload)!;
+    assert.equal(keys.messageKey, 'chat.notice.effortIgnored.thirdPartyProxy.message');
+    assert.match(translate('en', keys.messageKey, payload.params), /"xhigh"/);
+    assert.match(translate('zh', keys.messageKey, payload.params), /「xhigh」/);
+  });
+});
+
+describe('Opus 5 — disabled-thinking effort adjustment is localized', () => {
+  const payload = {
+    code: 'RUNTIME_EFFORT_ADJUSTED',
+    reason: 'thinking-disabled-cap',
+    params: { model: 'claude-opus-5', requested: 'xhigh', effective: 'high' },
+  };
+
+  it('names the requested and effective effort in both locales', () => {
+    const keys = resolveStatusNoticeKeys(payload)!;
+    assert.equal(keys.messageKey, 'chat.notice.effortAdjusted.thinkingDisabled.message');
+    for (const locale of ['en', 'zh'] as const) {
+      const text = translate(locale, keys.messageKey, payload.params);
+      assert.match(text, /claude-opus-5/);
+      assert.match(text, /xhigh/);
+      assert.match(text, /high/);
+    }
+  });
+});
+
 describe('sub-agent model capability failures are localized and actionable', () => {
   const payload = {
     code: 'SUBAGENT_MODEL_UNAVAILABLE',
@@ -165,10 +224,8 @@ describe('s09 — unmapped notices degrade, they do not break', () => {
     );
   });
 
-  it('the third-party-proxy variant is untouched by this round', () => {
-    // Still server-rendered; deliberately out of the fix scope. Documented so a
-    // future reader doesn't mistake it for an oversight.
-    assert.equal(resolveStatusNoticeKeys({ code: 'RUNTIME_EFFORT_IGNORED', reason: 'proxy' }), null);
+  it('a notice without a reason remains unmapped', () => {
+    assert.equal(resolveStatusNoticeKeys({ code: 'RUNTIME_EFFORT_IGNORED' }), null);
   });
 });
 
@@ -191,14 +248,16 @@ describe('s09 — both chat entry points render via the shared resolver', () => 
       'the page must NOT map keys itself; one resolver, one set of keys');
   });
 
-  it('neither native producer emits English prose for the two localized codes', () => {
+  it('neither native producer emits English prose for localized effort omissions', () => {
     for (const rel of ['lib/agent-loop.ts', 'lib/experimental/agent-loop-toolloop-poc.ts']) {
       const src = readSrc(rel);
-      const block = src.slice(src.indexOf("wire.effortDroppedUnsupportedModel"));
-      const emit = block.slice(0, block.indexOf('}));'));
-      assert.match(emit, /reason: 'unsupported-model'/, `${rel} must send the reason`);
-      assert.doesNotMatch(emit, /doesn't support the effort parameter/,
-        `${rel} still hardcodes the English sentence`);
+      assert.match(src, /reason: 'unsupported-model'/, `${rel} must localize unsupported models`);
+      assert.match(src, /reason: 'unsupported-tier'/, `${rel} must localize unsupported tiers`);
+      assert.match(src, /reason: 'third-party-proxy'/, `${rel} must localize proxy omissions`);
+      assert.doesNotMatch(src, /title: 'Effort ignored on this runtime'/,
+        `${rel} still hardcodes the English proxy title`);
+      assert.doesNotMatch(src, /message: `Third-party Anthropic proxies/,
+        `${rel} still hardcodes the English proxy message`);
     }
   });
 

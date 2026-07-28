@@ -172,20 +172,25 @@ describe('Fable 5 — thinkingForcedOn surfacing (Codex P1 closeout)', () => {
     // Codex review P1 (same day) narrowed this: "not dropped for the adaptive
     // family" is NOT "sent unconditionally". Only models on Anthropic's effort
     // list get the field; everything else omits it and raises
-    // effortDroppedUnsupportedModel. This assertion now pins the per-model gate
-    // on the official branch — the executable proof (fable/opus send it, haiku
-    // and unknown models don't) lives in agent-loop-anthropic-wire.test.ts.
+    // effortDroppedUnsupportedModel. The gate is now model × exact tier:
+    // Sonnet 4.6 accepts max but not xhigh, including values supplied by an
+    // external Codex config. This assertion pins the shared table lookup; the
+    // executable matrix lives in agent-loop-anthropic-wire.test.ts.
     const wireSrc = read('agent-loop-anthropic-wire.ts');
     const elseIdx = wireSrc.indexOf('} else {');
     const ctx1mIdx = wireSrc.indexOf('sanitized.applyContext1mBeta', elseIdx);
     assert.ok(elseIdx > 0 && ctx1mIdx > elseIdx, 'official (else) branch markers present');
     const officialBlock = wireSrc.slice(elseIdx, ctx1mIdx);
-    assert.match(officialBlock, /anthropicApiSupportsEffort\(model\)/,
-      'official native path must gate effort on the per-model allowlist');
+    assert.match(officialBlock, /getAnthropicApiSupportedEffortLevels\(model\)/,
+      'official native path must load the exact per-model tier allowlist');
+    assert.match(officialBlock, /supportedLevels\.includes\(sanitized\.effort/,
+      'official native path must gate the concrete effort tier, not only the model');
     assert.match(officialBlock, /anthropicOpts\.effort = sanitized\.effort;/,
       'supported models must still get the composer pick on the wire');
     assert.match(officialBlock, /effortDroppedUnsupportedModel = true/,
       'an unsupported model must raise the drop signal, never omit silently');
+    assert.match(officialBlock, /effortDroppedUnsupportedTier = \{/,
+      'an unsupported tier must raise a distinct drop signal');
     // The PROXY-only signal still never appears on the official branch.
     assert.doesNotMatch(officialBlock, /effortDroppedForProxy = true/,
       'the official path is not a proxy — the two drop reasons stay distinct');

@@ -439,6 +439,22 @@ describe('provider request shape — Anthropic Messages API', () => {
     checkFixture('anthropic-reasoning-thinking-adaptive', ANTHROPIC_META, req);
   });
 
+  it('reasoning: adaptive summarized survives the exact Opus 5 proxy wire', async () => {
+    const req = await captureGenerate('anthropic', appAnthropicOpus, {
+      system: SYSTEM,
+      prompt: PROMPT,
+      maxOutputTokens: 16384,
+      providerOptions: {
+        anthropic: {
+          thinking: { type: 'adaptive', display: 'summarized' },
+          effort: 'high',
+        },
+      },
+    });
+    assert.deepEqual(req.body.thinking, { type: 'adaptive', display: 'summarized' });
+    assert.equal(req.body.output_config?.effort, 'high');
+  });
+
   it('effort: providerOptions.anthropic.effort is sent (capture shows exact field + any beta header)', async () => {
     const req = await captureGenerate('anthropic', appAnthropicOpus, {
       system: SYSTEM,

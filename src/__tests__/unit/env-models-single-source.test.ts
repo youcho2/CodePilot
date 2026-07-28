@@ -18,15 +18,16 @@ import path from 'node:path';
 import { NextRequest } from 'next/server';
 import { ENV_CLAUDE_CODE_MODELS } from '../../lib/provider-catalog';
 import { getSetting, setSetting } from '../../lib/db';
+import { resolveComposerModelAutoCorrect } from '../../lib/model-option-match';
 import { GET as modelsGET } from '../../app/api/providers/models/route';
 
 const SRC = path.resolve(path.dirname(new URL(import.meta.url).pathname), '../..');
 const read = (f: string) => fs.readFileSync(path.join(SRC, f), 'utf8');
 
 describe('ENV_CLAUDE_CODE_MODELS — canonical content', () => {
-  it('ships the full alias set including opus-4-8, fable-5 and sonnet-5', () => {
+  it('ships the full alias set including Opus 5 and the prior explicit models', () => {
     const ids = new Set(ENV_CLAUDE_CODE_MODELS.map(m => m.modelId));
-    for (const expected of ['sonnet', 'sonnet-5', 'opus', 'opus-4-8', 'fable-5', 'haiku']) {
+    for (const expected of ['sonnet', 'sonnet-5', 'opus', 'opus-4-8', 'opus-5', 'fable-5', 'haiku']) {
       assert.ok(ids.has(expected), `env model list must contain ${expected}`);
     }
   });
@@ -94,6 +95,13 @@ describe('/api/providers/models — env group serves the canonical list', () => 
     assert.ok(opus48, 'env group must include opus-4-8');
     assert.equal(opus48!.upstreamModelId, 'claude-opus-4-8');
 
+    const opus5 = envGroup!.models.find(m => m.value === 'opus-5');
+    assert.ok(opus5, 'env group must include opus-5');
+    assert.equal(opus5!.label, 'Opus 5');
+    assert.equal(opus5!.upstreamModelId, 'claude-opus-5');
+    assert.equal(opus5!.contextWindow, 1_000_000);
+    assert.deepEqual(opus5!.supportedEffortLevels, ['low', 'medium', 'high', 'xhigh', 'max']);
+
     // sonnet-5 (model plan Phase 2) — flows through the same derived route.
     const sonnet5 = envGroup!.models.find(m => m.value === 'sonnet-5');
     assert.ok(sonnet5, 'env group must include sonnet-5');
@@ -103,6 +111,106 @@ describe('/api/providers/models — env group serves the canonical list', () => 
     assert.equal(sonnet5!.supportsEffort, true);
     assert.deepEqual(sonnet5!.supportedEffortLevels, ['low', 'medium', 'high', 'xhigh', 'max']);
     assert.equal(sonnet5!.supportsAdaptiveThinking, true);
+  });
+
+  it('keeps explicit Opus 5 after the SDK cache reports only convenience aliases', async () => {
+    // Real Claude Code 2.1.220 response captured in the user repro
+    // bfc8f1e84e5de9bdcc31c6723b18b39c. Before this regression fix the
+    // route replaced DEFAULT_MODELS with these five rows, removing `opus-5`;
+    // MessageInput then auto-corrected the visible selection to `default`
+    // even though chat_sessions.model remained `claude-opus-5`.
+    (globalThis as Record<string, unknown>)['__agentSdkCapabilities__'] = new Map([
+      ['env', {
+        models: [
+          {
+            value: 'default',
+            displayName: 'Default (recommended)',
+            description: 'Opus 5 with 1M context · Best for everyday, complex tasks',
+            supportsEffort: true,
+            supportedEffortLevels: ['low', 'medium', 'high', 'xhigh', 'max'],
+            supportsAdaptiveThinking: true,
+          },
+          {
+            value: 'opus[1m]',
+            displayName: 'Opus (1M context)',
+            description: 'Opus 5 with 1M context · Best for everyday, complex tasks',
+            supportsEffort: true,
+            supportedEffortLevels: ['low', 'medium', 'high', 'xhigh', 'max'],
+            supportsAdaptiveThinking: true,
+          },
+          {
+            value: 'claude-fable-5[1m]',
+            displayName: 'Fable',
+            description: 'Fable 5 · Most capable for your hardest and longest-running tasks',
+            supportsEffort: true,
+            supportedEffortLevels: ['low', 'medium', 'high', 'xhigh', 'max'],
+            supportsAdaptiveThinking: true,
+          },
+          {
+            value: 'sonnet',
+            displayName: 'Sonnet',
+            description: 'Sonnet 5 · Efficient for routine tasks',
+            supportsEffort: true,
+            supportedEffortLevels: ['low', 'medium', 'high', 'xhigh', 'max'],
+            supportsAdaptiveThinking: true,
+          },
+          {
+            value: 'haiku',
+            displayName: 'Haiku',
+            description: 'Haiku 4.5 · Fastest for quick answers',
+          },
+        ],
+        commands: [],
+        account: null,
+        mcpStatus: [],
+        loadedPlugins: [],
+        capturedAt: Date.now(),
+        sessionId: 'sdk-opus-5-catalog-regression',
+      }],
+    ]);
+
+    try {
+      const res = await modelsGET(
+        new NextRequest('http://localhost/api/providers/models?runtime=claude_code'),
+      );
+      assert.equal(res.status, 200);
+      const body = await res.json();
+      const envGroup = (body.groups as Array<{
+        provider_id: string;
+        models: Array<Record<string, unknown>>;
+      }>).find(g => g.provider_id === 'env');
+      assert.ok(envGroup);
+
+      const opus5 = envGroup!.models.find(m => m.value === 'opus-5');
+      assert.ok(opus5, 'SDK discovery must not delete the explicit Opus 5 route');
+      assert.equal(opus5!.label, 'Opus 5');
+      assert.equal(opus5!.upstreamModelId, 'claude-opus-5');
+      assert.equal(
+        resolveComposerModelAutoCorrect(
+          'claude-opus-5',
+          envGroup!.models as Array<{ value: string; upstreamModelId?: string }>,
+        ),
+        null,
+        'the composer must not auto-correct a persisted Opus 5 session to default',
+      );
+
+      assert.ok(
+        envGroup!.models.some(m => m.value === 'default'),
+        'genuinely new SDK convenience entries should still be appended',
+      );
+      assert.equal(
+        envGroup!.models.filter(m => m.value === 'sonnet').length,
+        1,
+        'an SDK alias must not duplicate or relabel the canonical pinned row',
+      );
+      assert.equal(
+        envGroup!.models.find(m => m.value === 'sonnet')?.label,
+        'Sonnet 4.6',
+        'the moving SDK alias description must not silently migrate the pinned catalog route',
+      );
+    } finally {
+      (globalThis as Record<string, unknown>)['__agentSdkCapabilities__'] = new Map();
+    }
   });
 });
 

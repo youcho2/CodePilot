@@ -1,40 +1,43 @@
-## CodePilot v0.60.0
+## CodePilot v0.61.0
 
-> 新增多模型 Sub-agent 编排：在同一个对话里让 Qwen、DeepSeek、Kimi 等不同模型分工协作，并修复 Windows 系统代理导致 Codex 请求 502 的问题。
+> 新增 Claude Opus 5 / Sonnet 5，并让 Grok 4.5 能作为指定模型的 Sub-agent 使用；同时修复模型回复后显示名称漂移和推理强度参数不兼容的问题。
 
 ### 新增功能
 
-- **多模型 Sub-agent 编排** — 主对话可以启动多个子代理并为每个子代理指定确切的服务商和模型（如 Qwen 负责调研、DeepSeek 负责文案、Kimi 负责实现）。CodePilot Runtime、Claude Code Runtime、Codex Runtime 三条路径均已支持。
-- **子代理依赖工作流** — 子代理之间可以声明依赖关系：下游任务会自动等待上游完成，并在启动时收到上游的完成结果，不再需要手动在任务间搬运内容。
-- **子代理运行胶囊与详情面板** — 每个子代理任务在对话中显示为一个状态胶囊（排队 / 运行中 / 已完成 / 失败 / 已取消），可打开侧边栏查看实时活动、使用的真实模型、重试次数和完整结果。状态均来自持久化的运行记录，刷新或重启后仍可恢复。
-- **Codex Account 支持指定模型的子代理** — 使用 Codex 登录账号时，也可以把子任务精确委派给已配置的 CodePilot 服务商模型，主对话保持你选择的模型不变。
-- **Grok X Search** — xAI Grok 模型现已支持官方 X Search 联网搜索，回答会附带可点击的来源链接并在刷新后保留。目前已完整验证 xAI OAuth 登录 + CodePilot Runtime 组合，API Key 与 Codex Runtime 组合仍在验证中。
+- **Claude Opus 5** — Claude Code、CodePilot Runtime 和 Codex Runtime 的 Anthropic 渠道现可选择 Opus 5，支持 1M 上下文、自适应思考和 Low / Medium / High / XHigh / Max 推理强度。旧的 `Opus` 入口仍固定为 Opus 4.7，不会让已有会话静默升级。
+- **Claude Sonnet 5** — 新增显式 Sonnet 5 入口，支持 1M 上下文和完整推理强度选择；旧的 `Sonnet` 入口继续固定为 Sonnet 4.6。
+- **Grok 4.5 Sub-agent** — 已通过 xAI OAuth 登录的用户，现在可以在 CodePilot Runtime 和 Codex Runtime 中把 Grok 4.5 指定为 Sub-agent 模型，模型选择器与 Sub-agent 路由使用同一份可用性目录。
 
 ### 修复问题
 
-- **修复 Windows 系统代理导致 Codex 请求 502** — 开启 Clash 等系统代理且未配置 `NO_PROXY` 时，CodePilot 发往本机 Codex 通道的请求可能被代理截获并返回 502 Bad Gateway。现在应用会自动让本机回环地址绕过代理，同时完整保留你的外网代理设置。
-- **修复子代理停止按钮失效** — 点击停止后，排队中和运行中的子代理现在会立即终止并记录为“已取消”，不会再出现停止后子任务仍在后台继续运行、或迟到的完成结果覆盖取消状态的问题。
-- **修复 Codex 协作任务的胶囊误报** — 此前 Codex 原生协作的每次内部轮询都会生成一个“Codex worker 已完成”的胶囊（一次会话可能出现十几个假胶囊）。现在只有能确认真实子任务身份时才显示胶囊，状态也不再把轮询完成误当作任务完成。
-- **修复模型显示与路由校验** — 子代理胶囊会区分“请求的模型”与“实际运行的模型”；当运行时静默替换成其他模型时会直接报错，而不是显示错误的模型名继续执行。
+- **修复 Opus 5 回复后显示成 Default** — Claude Code 返回动态模型目录后，不会再删除当前会话选择的显式模型。Opus 5 完成回复、切换会话或刷新后仍会正确显示为 Opus 5。
+- **修复 Opus 5 关闭思考时的请求错误** — 关闭思考后选择 XHigh / Max 会自动使用该组合允许的最高档 High，并明确提示；Auto 会发送兼容值，但不会谎称用户主动选择了 High。
+- **修复 Sonnet 4.6 非法 XHigh 参数** — Sonnet 4.6 不支持的 XHigh 不会再被发送到 Anthropic；界面会如实说明可用档位，避免上游返回 400。
+- **修复第三方 Anthropic 代理的误导提示** — 代理未发送推理强度时，提示会显示用户原本选择的档位，而不是系统调整后的内部值；相关提示现已支持中英文。
+- **修复 Grok 主会话可用但 Sub-agent 列表缺失** — OAuth 虚拟服务商不再只出现在主模型选择器，Sub-agent 路由也会按 Runtime 兼容性正确列出。
 
 ### 优化改进
 
-- 网络类错误现在会给出更明确的诊断：本机代理截获、上游服务商故障、连接被拒绝会分别提示，并保留原始错误信息便于排查。
-- 子代理运行记录在应用重启、页面刷新和开发热更新后保持一致，不会误报中断或丢失进行中的任务。
+- Anthropic Native、Claude Code SDK 和 Codex Provider Proxy 现在共用模型思考与推理强度校验，减少三条 Runtime 之间的行为漂移。
+- Claude Code 动态发现的模型只会补充目录，不会覆盖 CodePilot 的显式模型和固定版本映射。
+- 模型请求会继续区分用户选择、系统兼容兜底和 Runtime 实际发送值，避免把内部默认值展示成用户选择。
 
 ### 已知限制
 
-- Codex Account 原生协作模式下，如果 Codex 未上报子任务身份信息，CodePilot 不会显示对应胶囊（宁缺毋假）；指定模型的子代理不受影响。
-- Windows 系统代理修复已通过完整自动化测试，真实 Windows + Clash 环境的实机验证仍在进行中，如仍遇到 502 请反馈。
+- Claude Code Runtime 使用 Opus 5 需要 Claude Code CLI 2.1.219 或更新版本。
+- 尚未验证的 OpenRouter、Bedrock 和 Vertex Opus 5 模型 ID 不会被自动加入目录；可用性以各服务商实际支持为准。
+- Grok 4.5 Sub-agent 是否可运行仍取决于当前 xAI 账号的实际权限；目录可见不代表套餐 entitlement 一定可用。
+- 部分 Windows 11 25H2 设备仍可能出现安装程序启动后立即退出的问题，正在 [#633](https://github.com/op7418/CodePilot/issues/633) 跟进。
+- Native Runtime 的定时任务工具缺失、复杂项目的新会话上下文膨胀，以及更新提示期间 CPU 持续偏高，分别在 [#634](https://github.com/op7418/CodePilot/issues/634)、[#632](https://github.com/op7418/CodePilot/issues/632)、[#626](https://github.com/op7418/CodePilot/issues/626) 跟进。
 
 ## 下载地址
 
 ### macOS
-- [Apple Silicon (M1/M2/M3/M4)](https://github.com/op7418/CodePilot/releases/download/v0.60.0/CodePilot-0.60.0-arm64.dmg)
-- [Intel](https://github.com/op7418/CodePilot/releases/download/v0.60.0/CodePilot-0.60.0-x64.dmg)
+- [Apple Silicon (M1/M2/M3/M4)](https://github.com/op7418/CodePilot/releases/download/v0.61.0/CodePilot-0.61.0-arm64.dmg)
+- [Intel](https://github.com/op7418/CodePilot/releases/download/v0.61.0/CodePilot-0.61.0-x64.dmg)
 
 ### Windows
-- [Windows 安装包](https://github.com/op7418/CodePilot/releases/download/v0.60.0/CodePilot.Setup.0.60.0.exe)
+- [Windows 安装包](https://github.com/op7418/CodePilot/releases/download/v0.61.0/CodePilot.Setup.0.61.0.exe)
 
 ## 安装说明
 

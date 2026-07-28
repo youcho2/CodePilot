@@ -66,6 +66,8 @@ import {
 import { emitBuiltinEvent } from '@/lib/harness/builtin-event-bus';
 import { makeToolCompleted, makeToolStarted } from '@/lib/runtime/event-adapter';
 import type { ProviderCallScene } from '@/lib/provider-call-policy';
+import { sanitizeClaudeModelOptions } from '@/lib/claude-model-options';
+import { buildAnthropicProviderOptions } from '@/lib/agent-loop-anthropic-wire';
 
 /** JSON value type matching ai-sdk's SharedV3ProviderOptions inner. */
 type JsonValue = string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue };
@@ -311,7 +313,17 @@ export function createUnifiedAdapter(family: string): ResponsesAdapter {
       return makeErrorResult('invalid_request', message, { family });
     }
 
-    const providerOptions = buildProviderOptions(bodyWithBridgePrompt);
+    const providerOptions = buildProviderOptions(
+      bodyWithBridgePrompt,
+      modelConfig.sdkType === 'anthropic'
+        ? {
+            anthropic: {
+              model: modelConfig.modelId,
+              isThirdPartyProxy,
+            },
+          }
+        : undefined,
+    );
     const wantsStream = input.body.stream !== false;
 
     // Phase 5d Phase 3 review fix #1 (2026-05-17) — Path inputs read
@@ -727,6 +739,18 @@ export function buildPrompt(body: ResponsesRequestBody): {
 /** Exported for unit testing — see codex-proxy-translators.test.ts. */
 export function buildProviderOptions(
   body: ResponsesRequestBody,
+  context?: {
+    /**
+     * Present only when the resolved AI SDK model uses the Anthropic wire.
+     * The resolved upstream model (not the Codex-facing selector) is required
+     * so adaptive-thinking and per-model effort gates use the same identity as
+     * Native / Claude Code Runtime.
+     */
+    anthropic?: {
+      model: string;
+      isThirdPartyProxy: boolean;
+    };
+  },
 ): AiProviderOptions | undefined {
   const out: AiProviderOptions = {};
 
@@ -761,12 +785,31 @@ export function buildProviderOptions(
 
   const effort = body.reasoning?.effort;
   if (effort) {
-    // Anthropic thinking — only enabled for medium/high/max budgets.
-    // Mapping mirrors how CodePilot's native runtime maps effort →
-    // budget (see src/lib/effort.ts for the canonical table).
+    // Anthropic: Codex expresses reasoning as an effort tier. Older proxy code
+    // translated that into manual `{type:'enabled', budgetTokens}`, which is a
+    // hard 400 on the adaptive family (Opus 4.7+/Fable 5/Sonnet 5). When the
+    // resolved provider is Anthropic, run the SAME sanitizer and wire builder
+    // as Native so the three Runtime paths cannot disagree on model contracts.
     const anthropicThinking = mapEffortToAnthropicThinking(effort);
     const openaiReasoning = mapEffortToOpenAI(effort);
-    if (anthropicThinking) {
+    if (context?.anthropic) {
+      const sanitized = sanitizeClaudeModelOptions({
+        model: context.anthropic.model,
+        thinking: anthropicThinking,
+        effort: effort === 'minimal' ? undefined : effort,
+      });
+      const wire = buildAnthropicProviderOptions({
+        isThirdPartyProxy: context.anthropic.isThirdPartyProxy,
+        model: context.anthropic.model,
+        sanitized,
+      });
+      if (wire.anthropic) {
+        out.anthropic = wire.anthropic as JsonObject;
+      }
+    } else if (anthropicThinking) {
+      // Non-Anthropic SDKs ignore this legacy companion bag. Keep it for
+      // existing direct unit callers and unknown provider families; production
+      // Anthropic calls always take the shared-sanitizer branch above.
       out.anthropic = { thinking: { type: anthropicThinking.type, budgetTokens: anthropicThinking.budgetTokens } };
     }
     if (openaiReasoning) {
@@ -778,7 +821,7 @@ export function buildProviderOptions(
 }
 
 function mapEffortToAnthropicThinking(
-  effort: 'minimal' | 'low' | 'medium' | 'high' | 'max',
+  effort: 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max',
 ): { type: 'enabled'; budgetTokens: number } | undefined {
   switch (effort) {
     case 'low':
@@ -787,6 +830,7 @@ function mapEffortToAnthropicThinking(
       return { type: 'enabled', budgetTokens: 4096 };
     case 'high':
       return { type: 'enabled', budgetTokens: 16384 };
+    case 'xhigh':
     case 'max':
       return { type: 'enabled', budgetTokens: 32000 };
     case 'minimal':
@@ -796,7 +840,7 @@ function mapEffortToAnthropicThinking(
 }
 
 function mapEffortToOpenAI(
-  effort: 'minimal' | 'low' | 'medium' | 'high' | 'max',
+  effort: 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max',
 ): 'minimal' | 'low' | 'medium' | 'high' | undefined {
   switch (effort) {
     case 'minimal':
@@ -806,6 +850,7 @@ function mapEffortToOpenAI(
     case 'medium':
       return 'medium';
     case 'high':
+    case 'xhigh':
     case 'max':
       return 'high';
     default:

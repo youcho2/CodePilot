@@ -2,8 +2,8 @@
  * status-notice-i18n.ts — map an SSE status notification's (code, reason) pair
  * to the i18n keys that render it.
  *
- * Why this exists (Codex review P2, 2026-07-18): SAMPLING_PARAMS_IGNORED and the
- * unsupported-model RUNTIME_EFFORT_IGNORED were emitted as server-rendered
+ * Why this exists (Codex review P2, 2026-07-18; Opus 5 follow-up,
+ * 2026-07-28): sampling/effort adjustments were emitted as server-rendered
  * English strings. The server can't know the reader's locale, so a zh user got
  * an English toast for a decision the app made on their behalf. The producers
  * now send `{ code, reason, params }` and the rendering happens here, on the
@@ -15,9 +15,8 @@
  * SAME key: they both call `maybeShowStatusToast`, which calls this. A second
  * mapping table would be exactly the drift this module prevents.
  *
- * Notices without a `reason` (THINKING_ALWAYS_ON, the third-party-proxy variant
- * of RUNTIME_EFFORT_IGNORED) are NOT mapped here and keep using the server's
- * `message` field — untouched by this round's scope.
+ * Notices without a `reason` (for example THINKING_ALWAYS_ON) are NOT mapped
+ * here and keep using the server's `message` field.
  */
 
 import type { TranslationKey } from '@/i18n';
@@ -66,6 +65,21 @@ export function resolveStatusNoticeKeys(
       return {
         titleKey: 'chat.notice.effortIgnored.unsupportedModel.title',
         messageKey: 'chat.notice.effortIgnored.unsupportedModel.message',
+      };
+    case 'RUNTIME_EFFORT_IGNORED:unsupported-tier':
+      return {
+        titleKey: 'chat.notice.effortIgnored.unsupportedTier.title',
+        messageKey: 'chat.notice.effortIgnored.unsupportedTier.message',
+      };
+    case 'RUNTIME_EFFORT_IGNORED:third-party-proxy':
+      return {
+        titleKey: 'chat.notice.effortIgnored.thirdPartyProxy.title',
+        messageKey: 'chat.notice.effortIgnored.thirdPartyProxy.message',
+      };
+    case 'RUNTIME_EFFORT_ADJUSTED:thinking-disabled-cap':
+      return {
+        titleKey: 'chat.notice.effortAdjusted.thinkingDisabled.title',
+        messageKey: 'chat.notice.effortAdjusted.thinkingDisabled.message',
       };
     case 'SUBAGENT_MODEL_UNAVAILABLE:runtime-model-unsupported':
       return {

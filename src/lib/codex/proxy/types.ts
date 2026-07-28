@@ -174,7 +174,7 @@ export interface ResponsesRequestBody {
    *  the underlying SDK accepts it (Anthropic thinking, OpenAI o1
    *  reasoning_effort, etc.). */
   reasoning?: {
-    effort?: 'minimal' | 'low' | 'medium' | 'high' | 'max';
+    effort?: 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max';
   };
   /** OpenAI Responses-API `store` field. The Codex `/responses`
    *  endpoint (chatgpt.com/backend-api/codex/responses) requires

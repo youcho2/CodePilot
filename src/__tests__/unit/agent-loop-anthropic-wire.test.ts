@@ -21,7 +21,11 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { buildAnthropicProviderOptions } from '../../lib/agent-loop-anthropic-wire';
-import { sanitizeClaudeModelOptions } from '../../lib/claude-model-options';
+import {
+  anthropicApiSupportsEffortLevel,
+  getAnthropicApiSupportedEffortLevels,
+  sanitizeClaudeModelOptions,
+} from '../../lib/claude-model-options';
 
 // Mirror agent-loop.ts: sanitize the user's model options, then build the wire.
 function wireFor(opts: {
@@ -85,6 +89,32 @@ describe('s05 — Sonnet 5 effort reaches the OFFICIAL Anthropic Native wire', (
       'no drop → no contradictory "not supported" toast');
     // 4.6 is NOT in the adaptive family: manual extended thinking survives.
     assert.deepEqual(wire.anthropic?.thinking, { type: 'enabled', budgetTokens: 4000 });
+  });
+
+  it('sonnet 4.6 + max remains valid, but xhigh is omitted with exact tier evidence', () => {
+    const max = wireFor({
+      model: 'claude-sonnet-4-6', effort: 'max', isThirdPartyProxy: false,
+    });
+    assert.equal(max.anthropic?.effort, 'max');
+    assert.equal(max.effortDroppedUnsupportedTier, undefined);
+
+    const xhigh = wireFor({
+      model: 'claude-sonnet-4-6', effort: 'xhigh', isThirdPartyProxy: false,
+    });
+    assert.equal(xhigh.anthropic?.effort, undefined,
+      'Sonnet 4.6 supports effort but does not accept xhigh');
+    assert.deepEqual(xhigh.effortDroppedUnsupportedTier, {
+      requested: 'xhigh',
+      supported: ['low', 'medium', 'high', 'max'],
+    });
+    assert.equal(xhigh.effortDroppedUnsupportedModel, false,
+      'the model supports effort; this is specifically a tier mismatch');
+    assert.equal(anthropicApiSupportsEffortLevel('claude-sonnet-4-6', 'xhigh'), false);
+    assert.equal(anthropicApiSupportsEffortLevel('claude-sonnet-4-6', 'max'), true);
+    assert.deepEqual(
+      getAnthropicApiSupportedEffortLevels('claude-sonnet-4-6'),
+      ['low', 'medium', 'high', 'max'],
+    );
   });
 
   it('the rest of the adaptive family also sends effort on the official path', () => {
@@ -155,12 +185,15 @@ describe('s05 — both native paths gate on the model and announce the drop', ()
       'without a model the gate cannot exist — this is the exact P1 regression');
     assert.match(src, /wire\.effortDroppedUnsupportedModel[\s\S]{0,600}RUNTIME_EFFORT_IGNORED/,
       'the omission must raise the one-shot notification, not vanish');
+    assert.match(src, /wire\.effortDroppedUnsupportedTier[\s\S]{0,900}unsupported-tier/,
+      'an unsupported tier must be announced separately from an unsupported model');
   });
 
   it('the toolloop POC shares the same builder (no drift between native paths)', () => {
     const src = read('experimental/agent-loop-toolloop-poc.ts');
     assert.match(src, /buildAnthropicProviderOptions\(\{[\s\S]{0,120}model: config\.modelId/);
     assert.match(src, /wire\.effortDroppedUnsupportedModel[\s\S]{0,600}RUNTIME_EFFORT_IGNORED/);
+    assert.match(src, /wire\.effortDroppedUnsupportedTier[\s\S]{0,900}unsupported-tier/);
   });
 
   it('the allowlist is NOT sourced from catalog supportedEffortLevels', () => {
@@ -173,11 +206,16 @@ describe('s05 — both native paths gate on the model and announce the drop', ()
     assert.match(src, /ANTHROPIC_API_EFFORT_MODELS/);
     // Every entry must carry the official source it was verified against.
     const block = src.slice(src.indexOf('ANTHROPIC_API_EFFORT_MODELS:'));
-    const entries = block.slice(0, block.indexOf('];'));
+    const entries = block.slice(0, block.indexOf('\n];'));
     assert.equal(
       (entries.match(/pattern:/g) || []).length,
       (entries.match(/breadcrumb:/g) || []).length,
       'an allowlist entry without a breadcrumb is an unsourced capability claim',
+    );
+    assert.equal(
+      (entries.match(/pattern:/g) || []).length,
+      (entries.match(/levels:/g) || []).length,
+      'every verified model must enforce its exact API effort tiers',
     );
     assert.ok((entries.match(/pattern:/g) || []).length >= 5);
     // Every pattern must be bounded on both sides or near-miss IDs slip in.
@@ -195,6 +233,51 @@ describe('s05 — third-party proxy still DROPS effort and raises the signal', (
       'proxies may not accept effort — it must not reach the wire');
     assert.equal(wire.effortDroppedForProxy, true,
       'the drop must raise RUNTIME_EFFORT_IGNORED via effortDroppedForProxy');
+    assert.equal(wire.effortDroppedForProxyRequested, 'xhigh');
+  });
+
+  it('Opus 5 Auto + thinking off is a compatibility default, not a user-picked High', () => {
+    const sanitized = sanitizeClaudeModelOptions({
+      model: 'claude-opus-5',
+      thinking: { type: 'disabled' },
+    });
+    assert.equal(sanitized.effort, 'high');
+    assert.deepEqual(sanitized.effortProvenance, {
+      source: 'compatibility-default',
+      reason: 'thinking-disabled-cap',
+    });
+
+    const wire = buildAnthropicProviderOptions({
+      isThirdPartyProxy: true,
+      model: 'claude-opus-5',
+      sanitized,
+    });
+    assert.equal(wire.anthropic?.effort, undefined);
+    assert.equal(wire.effortDroppedForProxy, false,
+      'a system compatibility default must not produce "your High choice was ignored"');
+    assert.equal(wire.effortDroppedForProxyRequested, undefined);
+  });
+
+  it('an adjusted explicit tier preserves the user\'s original choice in the proxy notice', () => {
+    const sanitized = sanitizeClaudeModelOptions({
+      model: 'claude-opus-5',
+      thinking: { type: 'disabled' },
+      effort: 'xhigh',
+    });
+    assert.equal(sanitized.effort, 'high');
+    assert.deepEqual(sanitized.effortProvenance, {
+      source: 'explicit',
+      requested: 'xhigh',
+    });
+
+    const wire = buildAnthropicProviderOptions({
+      isThirdPartyProxy: true,
+      model: 'claude-opus-5',
+      sanitized,
+    });
+    assert.equal(wire.effortDroppedForProxy, true);
+    assert.equal(wire.effortDroppedForProxyRequested, 'xhigh',
+      'the notice must name the user input, not the sanitizer\'s intermediate High');
   });
 
   it('a proxy with no effort selected raises no drop signal', () => {

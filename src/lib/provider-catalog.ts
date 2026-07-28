@@ -463,6 +463,24 @@ const ANTHROPIC_FIRST_PARTY_MODELS: CatalogModel[] = [
     },
   },
   {
+    modelId: 'opus-5',
+    upstreamModelId: 'claude-opus-5',
+    displayName: 'Opus 5',
+    // No `role`: Opus 5 is an explicit pick. Keep the existing `opus`
+    // role pinned to 4.7 so saved sessions and defaults do not silently
+    // change model after an application update.
+    //
+    // Official contract (2026-07-24): 1M context, adaptive thinking on by
+    // default, effort low/medium/high(default)/xhigh/max. When thinking is
+    // explicitly disabled, xhigh/max are invalid; the shared sanitizer keeps
+    // thinking off and lowers effort to high with a visible notice.
+    capabilities: {
+      supportsEffort: true,
+      supportedEffortLevels: ['low', 'medium', 'high', 'xhigh', 'max'],
+      supportsAdaptiveThinking: true,
+    },
+  },
+  {
     modelId: 'fable-5',
     upstreamModelId: 'claude-fable-5',
     displayName: 'Fable 5',

@@ -100,6 +100,7 @@ CodePilot Provider 会话把 Codex app-server 的 Responses endpoint 指向
 | Model compat flags | `src/lib/runtime-compat.ts` `getModelCompat()` | `claude_code_ready` 双向兼容（claude_code + codepilot_runtime）；`verified` / `experimental` 仅 `claude_code_compatible`；`codepilot_only` 仅 `codepilot_runtime_compatible` |
 | Managed virtual catalog | `src/lib/managed-virtual-provider-models.ts` | 已认证的非 DB Provider 是 picker、resolver 与 managed Sub-agent route 的共同事实源；未认证/disabled fail closed；不纳入异步发现的 `codex_account` |
 | Server filter | `src/app/api/providers/models/route.ts` | 仅当传 `?runtime=` 才过滤；过滤后空 group **必须** drop（`.filter(g => g.models.length > 0)`），否则 hook 仍会 cross-wire |
+| Claude SDK model cache | `src/app/api/providers/models/route.ts` `mergeEnvCatalogWithSdkModels()` | `supportedModels()` 只补充 runtime convenience entries，不能整表替换 `ENV_CLAUDE_CODE_MODELS`、删除显式 canonical route，或用移动 alias 描述覆盖固定版本标签/upstream |
 | Hook contract | `src/hooks/useProviderModels.ts` | 暴露 `fetchState / resolvedProviderId / resolvedModel / providerWasFilteredOut / noCompatibleProvider` 五字段；区分 `providerId === undefined`（fallback chain）vs `providerId === ''`（env 历史会话）vs 显式值 |
 | Composer send | `src/components/chat/ChatView.tsx` `doStartStream` / `sendMessage` | 三道 gate：`fetchState === 'idle'` / `noCompatibleProvider` / `loaded && (!resolvedProviderId \|\| !resolvedModel)`；wire 用 resolved pair 而非 raw |
 | Composer disabled | `src/components/chat/ChatView.tsx` `MessageInput.disabled` | `noCompatibleProvider \|\| providerFetchState === 'idle'` —— idle 也禁用，避免 send 按钮看似可用但底层吞 |
@@ -144,6 +145,7 @@ CodePilot Provider 会话把 Codex app-server 的 Responses endpoint 指向
 |---|---|
 | `src/__tests__/unit/chat-runtime.test.ts` | `getActiveChatRuntime()` 不抛 + 各 setting 下返回值 + param helpers |
 | `src/__tests__/unit/provider-resolver.test.ts` | `getProviderCompat` 5 态 + `getModelCompat` alias-lift 删除回归 + runtime gate skip + hidden+runtime stack + env session env normalize |
+| `src/__tests__/unit/env-models-single-source.test.ts` | canonical env 目录三方单一出口；SDK 五行 convenience cache 注入后 `opus-5` 仍保留、动态入口只追加、固定 alias 不被改名 |
 | `src/__tests__/unit/runtime-selection.test.ts` | inlined `predictNativeRuntime` (registry side effects 隔离) |
 | `src/__tests__/unit/sdk-availability.test.ts` | sdk-runtime 直接 import（被 barrel registerRuntime 调用前先 init），测 isAvailable 各路径 |
 | `src/__tests__/unit/subagent-orchestration.test.ts` | Provider+Model route、三 Runtime 工具/权限继承、hosted search、requested/effective view |
@@ -151,6 +153,9 @@ CodePilot Provider 会话把 Codex app-server 的 Responses endpoint 指向
 | `src/__tests__/unit/process-proxy-env.test.ts` | Electron/Codex 两道 child env、显式/system proxy 优先级、Windows casing、loopback bypass |
 | `src/__tests__/unit/codex-proxy-foundation.test.ts` | streaming Provider error 的 HTTP 200 `response.failed` 与 non-stream HTTP status 合同 |
 | `src/__tests__/unit/codex-event-mapper.test.ts` | loopback transport 502 专用诊断、原文保留与 managed upstream envelope 反例 |
+| `src/__tests__/unit/opus-5-model.test.ts` | Opus 5 显式目录与旧 alias pin、1M context、adaptive/sampling/effort、disabled-thinking 上限、Auto compatibility-default provenance、本地化调整提示和 Claude managed Sub-agent route |
+| `src/__tests__/unit/agent-loop-anthropic-wire.test.ts` | Anthropic 官方 model×effort-tier wire allowlist；Auto 不冒充显式 High；第三方代理保留原始 requested tier；Sonnet 4.6 max/xhigh 正反例 |
+| `src/__tests__/unit/codex-proxy-translators.test.ts` | Codex proxy 对 Anthropic resolved upstream model 使用共享 sanitizer；adaptive 家族禁止 manual budget thinking，支持档位 xhigh 保真、Sonnet 4.6 非法 xhigh 省略 |
 
 加新 runtime gate 行为的功能时，至少加一组 unit test 覆盖三场景：(1) loaded + 兼容 → 通过；(2) loaded + 不兼容 → gate 拦；(3) idle → gate 拦。
 
@@ -170,3 +175,4 @@ CodePilot Provider 会话把 Codex app-server 的 Responses endpoint 指向
 - **2026-07-27** Claude 独立审查证明“loopback URL + HTTP 502”不足以识别代理截获，因为 CodePilot managed proxy 的上游失败也曾返回同一 HTTP 签名。parsed streaming 请求现统一用 HTTP 200 SSE `response.failed` 表达 Provider 错误；专用 loopback 诊断只处理 transport 502、排除 structured envelope 并保留原文。bundled Codex 的 `respect_system_proxy` 语义仍以 Windows system-proxy-only smoke 为准。
 - **2026-07-27** v0.60.0 用户在另一台电脑确认 Grok 4.5 主会话可用，但 managed Sub-agent 声称没有该 route。根因不是 entitlement，而是 picker 手工加入 `xai-oauth`，Sub-agent route 却只枚举 env + `providers` 表。现以 `managed-virtual-provider-models.ts` 统一 OAuth provider/model/auth 事实，CodePilot/Codex 同时获得已认证 Grok/OpenAI OAuth route；Claude Code 的协议 gate 不放宽。
 - **2026-07-27** Claude review 通过变异测试证明首版 Claude negative 是空断言，且 Codex proxy 仍复制 compat。现让 Claude 候选也消费共享 catalog 后再按 compat 过滤；测试直接锁定 xAI=`codepilot_only/xai`、OpenAI OAuth=`codepilot_only/openai-compatible`。Proxy registry 从共享定义生成，metadata parity 同时断言 id/compat/protocol，不再只比 id。
+- **2026-07-28** Opus 5 以显式 `opus-5 → claude-opus-5` 加入 first-party/env 单一目录，并自然进入 Claude managed Sub-agent route；既有 `opus → claude-opus-4-7` pin 不变，避免旧会话静默迁移。模型合同为 1M context + adaptive thinking + low/medium/high/xhigh/max effort；thinking disabled × xhigh/max 必须受控降到 high 并通过本地化结构化状态告知，Auto 也必须显式发 high，不能依赖 CLI 可变默认值。Codex proxy 的 Anthropic 请求必须用 resolved upstream model 经过同一 sanitizer/wire builder；禁止再把 adaptive 家族的 effort 翻译成 manual `budgetTokens`。CodePilot 生产路径使用系统 Claude binary，Opus 5 要求 Claude Code `2.1.219+`；Agent SDK 大版本升级和未经验证的 OpenRouter/Bedrock/Vertex slug 不与本次目录修复捆绑。

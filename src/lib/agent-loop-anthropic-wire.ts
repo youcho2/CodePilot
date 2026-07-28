@@ -11,7 +11,11 @@
  * on the real request shape, not a source-text grep.
  */
 
-import { anthropicApiSupportsEffort, type ClaudeModelOptionsOutput } from './claude-model-options';
+import {
+  getAnthropicApiSupportedEffortLevels,
+  type EffortLevel,
+  type ClaudeModelOptionsOutput,
+} from './claude-model-options';
 
 /**
  * Result of {@link buildAnthropicProviderOptions}: the exact `anthropic`
@@ -26,6 +30,9 @@ export interface AnthropicWireOptions {
   /** True when a user-picked effort was NOT sent because the target is a
    *  third-party Anthropic proxy (may not accept the field). */
   effortDroppedForProxy: boolean;
+  /** Original user-picked tier omitted by the proxy. Compatibility defaults
+   *  never populate this field because they are not user choices. */
+  effortDroppedForProxyRequested?: string;
   /** True when a user-picked effort was NOT sent on the OFFICIAL Anthropic
    *  path because the resolved model isn't on Anthropic's effort-capable list
    *  (`anthropicApiSupportsEffort`) — e.g. Haiku 4.5 or an unknown model.
@@ -34,17 +41,22 @@ export interface AnthropicWireOptions {
    *  SDK-level effort, so an unannounced omission would silently misrepresent
    *  the pick. Mutually exclusive with `effortDroppedForProxy`. */
   effortDroppedUnsupportedModel: boolean;
+  /** Present when the model accepts effort but not the requested tier. */
+  effortDroppedUnsupportedTier?: {
+    requested: string;
+    supported: readonly string[];
+  };
 }
 
 /**
  * Build the Anthropic `providerOptions` from sanitized model options.
  *
- * Effort policy on the official Anthropic path is PER MODEL, not blanket:
+ * Effort policy on the official Anthropic path is PER MODEL + LEVEL:
  * @ai-sdk/anthropic 4.0.5 ships effort via GA `output_config.effort` with no
  * effort beta header, so the old "drop effort for the whole adaptive family"
  * workaround is dead — but the API only accepts the field for the models on
  * Anthropic's effort list (`anthropicApiSupportsEffort`). Supported models
- * (Sonnet 5 / Fable 5 / Opus 4.7 / 4.8) get the composer's pick on the wire
+ * (Sonnet 5 / Fable 5 / Opus 4.7 / 4.8 / 5) get the composer's pick on the wire
  * (the plan's "four-way consistency" gate) with no toast, since that matches
  * real behavior. Unsupported or unknown models (e.g. Haiku 4.5) omit effort and
  * set `effortDroppedUnsupportedModel` so the caller notifies once — sending it
@@ -52,7 +64,8 @@ export interface AnthropicWireOptions {
  * haiku 4.5 + max was reaching the wire as {"effort":"max"}).
  *
  * Third-party proxies drop effort regardless of model (may not accept the
- * field) and set `effortDroppedForProxy` so the caller notifies once.
+ * field). `effortDroppedForProxy` is raised only for an explicit user choice;
+ * an Opus 5 Auto compatibility default is not misreported as user-picked High.
  */
 export function buildAnthropicProviderOptions(args: {
   isThirdPartyProxy: boolean;
@@ -60,12 +73,20 @@ export function buildAnthropicProviderOptions(args: {
    *  are not on the effort list and fail closed to "unsupported" — callers
    *  should resolve to upstream before building the wire. */
   model: string | undefined;
-  sanitized: Pick<ClaudeModelOptionsOutput, 'thinking' | 'effort' | 'applyContext1mBeta'>;
+  sanitized: Pick<
+    ClaudeModelOptionsOutput,
+    'thinking' | 'effort' | 'effortProvenance' | 'applyContext1mBeta'
+  >;
 }): AnthropicWireOptions {
   const { isThirdPartyProxy, model, sanitized } = args;
   const anthropicOpts: Record<string, unknown> = {};
   let effortDroppedForProxy = false;
+  let effortDroppedForProxyRequested: string | undefined;
   let effortDroppedUnsupportedModel = false;
+  let effortDroppedUnsupportedTier: AnthropicWireOptions['effortDroppedUnsupportedTier'];
+  const explicitlyRequestedEffort = sanitized.effortProvenance.source === 'explicit'
+    ? sanitized.effortProvenance.requested
+    : undefined;
 
   if (isThirdPartyProxy) {
     // Proxies: only pass thinking if explicitly enabled (not adaptive), skip
@@ -76,8 +97,9 @@ export function buildAnthropicProviderOptions(args: {
     if (sanitized.thinking && sanitized.thinking.type === 'enabled') {
       anthropicOpts.thinking = sanitized.thinking;
     }
-    if (sanitized.effort) {
+    if (sanitized.effort && explicitlyRequestedEffort) {
       effortDroppedForProxy = true;
+      effortDroppedForProxyRequested = explicitlyRequestedEffort;
     }
     // Don't pass effort or adaptive thinking for proxies.
   } else {
@@ -88,10 +110,16 @@ export function buildAnthropicProviderOptions(args: {
       anthropicOpts.thinking = sanitized.thinking;
     }
     if (sanitized.effort) {
-      if (anthropicApiSupportsEffort(model)) {
-        anthropicOpts.effort = sanitized.effort;
-      } else {
+      const supportedLevels = getAnthropicApiSupportedEffortLevels(model);
+      if (!supportedLevels) {
         effortDroppedUnsupportedModel = true;
+      } else if (!supportedLevels.includes(sanitized.effort as EffortLevel)) {
+        effortDroppedUnsupportedTier = {
+          requested: explicitlyRequestedEffort ?? sanitized.effort,
+          supported: supportedLevels,
+        };
+      } else {
+        anthropicOpts.effort = sanitized.effort;
       }
     }
   }
@@ -103,6 +131,8 @@ export function buildAnthropicProviderOptions(args: {
   return {
     anthropic: Object.keys(anthropicOpts).length > 0 ? anthropicOpts : undefined,
     effortDroppedForProxy,
+    effortDroppedForProxyRequested,
     effortDroppedUnsupportedModel,
+    effortDroppedUnsupportedTier,
   };
 }

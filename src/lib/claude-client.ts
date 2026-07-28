@@ -34,6 +34,7 @@ import { resolveForClaudeCode, resolveEffectiveAnthropicBaseUrl, type ResolvedPr
 import { isFirstPartyAnthropicEndpoint } from './ai-provider';
 import { sanitizeClaudeModelOptions } from './claude-model-options';
 import { buildSamplingIgnoredNotice } from './anthropic-sampling-notice';
+import { buildEffortAdjustmentNotice } from './anthropic-effort-adjustment-notice';
 import { findClaudeBinary, invalidateClaudePathCache } from './platform';
 import { notifyPermissionRequest, notifyGeneric } from './telegram-bot';
 import { classifyError, formatClassifiedError, isSessionStateResultError } from './error-classifier';
@@ -1618,6 +1619,23 @@ export function streamClaudeSdk(options: ClaudeStreamOptions): ReadableStream<st
           topP,
           topK,
         });
+
+        const effortAdjustmentNotice = buildEffortAdjustmentNotice({
+          model,
+          sanitized,
+        });
+        if (effortAdjustmentNotice) {
+          console.warn(
+            `[streamClaudeSdk] ${model}: effort '${effortAdjustmentNotice.params.requested}' is incompatible with disabled thinking; sending '${effortAdjustmentNotice.params.effective}' instead.`,
+          );
+          controller.enqueue(formatSSE({
+            type: 'status',
+            data: JSON.stringify({
+              notification: true,
+              ...effortAdjustmentNotice,
+            }),
+          }));
+        }
 
         if (sanitized.thinkingForcedOn) {
           // Fable 5: thinking cannot be turned off — the sanitizer omitted

@@ -7,7 +7,7 @@
  * have to be duplicated across paths and drift (which is exactly what Codex
  * flagged in the Opus 4.7 review).
  *
- * Scope for the Opus 4.7+ adaptive-thinking family (4.7, 4.8, Fable 5, and
+ * Scope for the adaptive-thinking family (Opus 4.7, 4.8, and 5; Fable 5; and
  * Sonnet 5, per the official migration guides — they share the same request
  * contract; Fable 5 additionally cannot turn thinking off AT ALL — adaptive
  * thinking runs even when the param is omitted; see FABLE_PATTERN note below.
@@ -38,10 +38,11 @@
  *     budget estimates (model-context.ts fallback window) under-count on it —
  *     prefer SDK / upstream-reported usage. (Note carried in model-context.ts.)
  *
- * NOTE on effort DEFAULT (4.7 → xhigh, 4.8 → high): that per-model default
- * is applied by the Claude Code CLI / SDK when `effort` is left unset (see
- * claude-client.ts ~1193), NOT here. This sanitizer only normalizes thinking
- * + the context-1m beta; it passes `effort` through untouched.
+ * NOTE on effort DEFAULT (4.7 → xhigh, 4.8 → high): per-model defaults remain
+ * owned by the Claude Code CLI / SDK when `effort` is left unset. The sole
+ * exception is Opus 5 + explicit thinking off: Auto is pinned to the documented
+ * compatible High tier so a mutable Runtime default cannot create a 400. That
+ * synthesized value carries `effortProvenance: compatibility-default`.
  */
 
 export type ThinkingConfig =
@@ -79,6 +80,18 @@ export interface SanitizedSampling {
 export interface ClaudeModelOptionsOutput {
   thinking?: ThinkingConfig;
   effort?: string;
+  /**
+   * Provenance for the sanitized effort value.
+   *
+   * `effort` alone is not enough to drive user-visible notices: Opus 5 may
+   * synthesize `high` when the user selected Auto + thinking off. Treating
+   * that compatibility default as a user-picked High produces a false
+   * "your High choice was ignored" warning on third-party proxies.
+   */
+  effortProvenance:
+    | { source: 'none' }
+    | { source: 'explicit'; requested: string }
+    | { source: 'compatibility-default'; reason: 'thinking-disabled-cap' };
   /** After sanitization, whether the caller should attach the
    *  context-1m-2025-08-07 beta header. Opus 4.7 is 1M by default and
    *  returns true only for models that still need the beta. */
@@ -94,6 +107,16 @@ export interface ClaudeModelOptionsOutput {
    *  off" choice is NOT honored — callers MUST surface this (one-shot
    *  notification), never swallow it silently. */
   thinkingForcedOn: boolean;
+  /**
+   * Claude Opus 5 accepts thinking:'disabled' only through effort='high'.
+   * When a caller combines disabled thinking with xhigh/max, the sanitizer
+   * preserves the explicit "thinking off" choice and lowers effort to high
+   * so the request does not 400. Callers MUST surface this adjustment.
+   */
+  effortAdjustedForThinking?: {
+    requested: 'xhigh' | 'max';
+    effective: 'high';
+  };
   /** Sampling params (temperature / topP / topK) that are safe to send after
    *  sanitization. For the adaptive family, non-default values are removed and
    *  their names appear in `strippedSamplingParams`; for non-adaptive models
@@ -128,6 +151,14 @@ export interface ClaudeModelOptionsOutput {
 // `opus-4[78]` also claims `claude-opus-48`, another unknown-ID false positive.
 // Every real ID carries the separator (`claude-opus-4-8`, `claude-opus-4.8`).
 const OPUS_ADAPTIVE_THINKING_PATTERN = /(?:^|[^a-z0-9])opus-?4[-.][78](?![0-9])/i;
+
+// Opus 5 (claude-opus-5, 2026-07 launch) keeps the adaptive-family request
+// contract and adds one interaction constraint: thinking:{type:'disabled'} is
+// valid only at effort high or lower. xhigh/max + disabled returns 400. The
+// sanitizer preserves the explicit thinking-off choice and lowers effort to
+// high with an observable adjustment signal (official migration guide,
+// verified 2026-07-28).
+const OPUS_5_PATTERN = /(?:^|[^a-z0-9])opus-?5(?![0-9])/i;
 
 // Fable 5 (claude-fable-5, 2026-06 launch) shares the Opus 4.7/4.8 request
 // contract (sampling params removed; 1M default) with ONE extra breaking
@@ -165,6 +196,11 @@ export function isSonnet5Model(model: string | undefined): boolean {
   return SONNET_5_PATTERN.test(model);
 }
 
+export function isOpus5Model(model: string | undefined): boolean {
+  if (!model) return false;
+  return OPUS_5_PATTERN.test(model);
+}
+
 // ── Anthropic API effort support (per-model allowlist) ──────────
 //
 // SEPARATE AXIS from the adaptive-thinking family above. `output_config.effort`
@@ -189,13 +225,12 @@ export function isSonnet5Model(model: string | undefined): boolean {
 // here ONLY after confirming it on Anthropic's effort docs — not by inferring
 // from a version-number pattern.
 //
-// The list is MODEL-level ("does the API accept output_config.effort at all?"),
-// deliberately not level-level. Which levels a model exposes is the catalog's
-// `capabilities.supportedEffortLevels` job: it drives the composer picker and
-// the s07 reset-to-Auto path, so an unsupported level never gets selected in the
-// first place. Each breadcrumb records the official level set for review, but
-// no code reads it — a live-looking field nothing enforces would be worse than
-// prose (semantic-acceptance rule: no fields without a real source).
+// This is deliberately a MODEL × LEVEL table. The catalog still drives the
+// normal composer picker, but request boundaries cannot trust UI reachability:
+// Codex can supply `model_reasoning_effort` from its own config. Sonnet 4.6 is
+// the important counterexample — it accepts effort but not `xhigh`. Keeping
+// exact levels here lets the official Anthropic wire fail closed instead of
+// forwarding an unsupported tier and relying on a 400.
 //
 // Patterns are bounded the same way as the family patterns above — `sonnet-?4`
 // without `(?![0-9])` would claim `claude-sonnet-40`, and unknown IDs must fail
@@ -203,13 +238,36 @@ export function isSonnet5Model(model: string | undefined): boolean {
 export const ANTHROPIC_API_EFFORT_MODELS: ReadonlyArray<{
   /** Matches upstream IDs and dotted/tagged variants (e.g. `claude-opus-4.8`, `claude-sonnet-5[1m]`). */
   pattern: RegExp;
+  /** Exact effort tiers accepted by Anthropic's API for this model. */
+  levels: readonly EffortLevel[];
   /** Which official source lists this model as effort-capable. */
   breadcrumb: string;
 }> = [
-  { pattern: /(?:^|[^a-z0-9])opus-?4[-.]7(?![0-9])/i, breadcrumb: 'anthropic effort docs — Opus 4.7, GA output_config.effort (low/medium/high/xhigh/max)' },
-  { pattern: /(?:^|[^a-z0-9])opus-?4[-.]8(?![0-9])/i, breadcrumb: 'anthropic effort docs — Opus 4.8, GA output_config.effort (low/medium/high/xhigh/max)' },
-  { pattern: /(?:^|[^a-z0-9])fable-?5(?![0-9])/i, breadcrumb: 'anthropic effort docs + Fable 5 migration guide (low/medium/high/xhigh/max)' },
-  { pattern: /(?:^|[^a-z0-9])sonnet-?5(?![0-9])/i, breadcrumb: 'anthropic effort docs + whats-new-sonnet-5 (low/medium/high/xhigh/max)' },
+  {
+    pattern: /(?:^|[^a-z0-9])opus-?4[-.]7(?![0-9])/i,
+    levels: ['low', 'medium', 'high', 'xhigh', 'max'],
+    breadcrumb: 'anthropic effort docs — Opus 4.7, GA output_config.effort (low/medium/high/xhigh/max)',
+  },
+  {
+    pattern: /(?:^|[^a-z0-9])opus-?4[-.]8(?![0-9])/i,
+    levels: ['low', 'medium', 'high', 'xhigh', 'max'],
+    breadcrumb: 'anthropic effort docs — Opus 4.8, GA output_config.effort (low/medium/high/xhigh/max)',
+  },
+  {
+    pattern: /(?:^|[^a-z0-9])opus-?5(?![0-9])/i,
+    levels: ['low', 'medium', 'high', 'xhigh', 'max'],
+    breadcrumb: 'anthropic effort docs + Opus 5 migration guide (low/medium/high/xhigh/max; thinking disabled capped at high)',
+  },
+  {
+    pattern: /(?:^|[^a-z0-9])fable-?5(?![0-9])/i,
+    levels: ['low', 'medium', 'high', 'xhigh', 'max'],
+    breadcrumb: 'anthropic effort docs + Fable 5 migration guide (low/medium/high/xhigh/max)',
+  },
+  {
+    pattern: /(?:^|[^a-z0-9])sonnet-?5(?![0-9])/i,
+    levels: ['low', 'medium', 'high', 'xhigh', 'max'],
+    breadcrumb: 'anthropic effort docs + whats-new-sonnet-5 (low/medium/high/xhigh/max)',
+  },
   // Sonnet 4.6 IS on Anthropic's effort list (low/medium/high/max — no xhigh),
   // and the first-party catalog entry already declares supportsEffort with that
   // exact level set. Omitting it here was the Codex review P1: the composer
@@ -217,8 +275,20 @@ export const ANTHROPIC_API_EFFORT_MODELS: ReadonlyArray<{
   // user got a "this model doesn't support effort" toast that contradicted both
   // the UI and the provider. Non-adaptive thinking (manual extended thinking
   // still works here) is a SEPARATE axis — see isOpusAdaptiveThinkingModel.
-  { pattern: /(?:^|[^a-z0-9])sonnet-?4[-.]6(?![0-9])/i, breadcrumb: 'anthropic effort docs — Claude Sonnet 4.6 (low/medium/high/max; no xhigh)' },
+  {
+    pattern: /(?:^|[^a-z0-9])sonnet-?4[-.]6(?![0-9])/i,
+    levels: ['low', 'medium', 'high', 'max'],
+    breadcrumb: 'anthropic effort docs — Claude Sonnet 4.6 (low/medium/high/max; no xhigh)',
+  },
 ];
+
+/** Return the exact API effort tiers for a verified Anthropic model. */
+export function getAnthropicApiSupportedEffortLevels(
+  model: string | undefined,
+): readonly EffortLevel[] | undefined {
+  if (!model) return undefined;
+  return ANTHROPIC_API_EFFORT_MODELS.find(({ pattern }) => pattern.test(model))?.levels;
+}
 
 /**
  * Whether the Anthropic Messages API accepts `output_config.effort` for this
@@ -231,8 +301,20 @@ export const ANTHROPIC_API_EFFORT_MODELS: ReadonlyArray<{
  * risks a 400 on the whole turn.
  */
 export function anthropicApiSupportsEffort(model: string | undefined): boolean {
-  if (!model) return false;
-  return ANTHROPIC_API_EFFORT_MODELS.some(({ pattern }) => pattern.test(model));
+  return getAnthropicApiSupportedEffortLevels(model) !== undefined;
+}
+
+/**
+ * Whether a concrete effort tier is accepted for this concrete model.
+ * Model-level support is insufficient: Sonnet 4.6 supports effort but rejects
+ * `xhigh`, while newer adaptive models accept it.
+ */
+export function anthropicApiSupportsEffortLevel(
+  model: string | undefined,
+  effort: string | undefined,
+): boolean {
+  if (!effort) return false;
+  return getAnthropicApiSupportedEffortLevels(model)?.includes(effort as EffortLevel) ?? false;
 }
 
 export function isOpusAdaptiveThinkingModel(model: string | undefined): boolean {
@@ -242,6 +324,7 @@ export function isOpusAdaptiveThinkingModel(model: string | undefined): boolean 
   // pass-through) applies to them too. Fable 5's extra "can't disable
   // thinking" rule is handled separately via isFableModel below.
   return OPUS_ADAPTIVE_THINKING_PATTERN.test(model)
+    || OPUS_5_PATTERN.test(model)
     || FABLE_PATTERN.test(model)
     || SONNET_5_PATTERN.test(model);
 }
@@ -256,7 +339,12 @@ export function sanitizeClaudeModelOptions(
   const isOpusAdaptiveThinking = isOpusAdaptiveThinkingModel(input.model);
 
   let thinking = input.thinking;
+  let sanitizedEffort = input.effort as string | undefined;
+  let effortProvenance: ClaudeModelOptionsOutput['effortProvenance'] = input.effort
+    ? { source: 'explicit', requested: String(input.effort) }
+    : { source: 'none' };
   let thinkingForcedOn = false;
+  let effortAdjustedForThinking: ClaudeModelOptionsOutput['effortAdjustedForThinking'];
   if (isOpusAdaptiveThinking && thinking) {
     // Opus 4.7+ reject manual extended thinking. Convert to adaptive so
     // the user's "thinking enabled" intent survives without triggering
@@ -284,6 +372,34 @@ export function sanitizeClaudeModelOptions(
       // through untouched — same behavior as Opus 4.8.
       thinking = undefined;
       thinkingForcedOn = true;
+    }
+  }
+
+  if (
+    isOpus5Model(input.model)
+    && thinking?.type === 'disabled'
+  ) {
+    if (sanitizedEffort === 'xhigh' || sanitizedEffort === 'max') {
+      // Opus 5 rejects disabled thinking at xhigh/max. Keep the user's explicit
+      // thinking-off choice and lower effort to the highest compatible tier.
+      // This is never silent: both Runtime paths consume the adjustment signal.
+      effortAdjustedForThinking = {
+        requested: sanitizedEffort,
+        effective: 'high',
+      };
+      sanitizedEffort = 'high';
+    } else if (!sanitizedEffort) {
+      // "Auto" normally means omit effort and let the Runtime/model choose.
+      // With thinking explicitly disabled, however, an upstream default above
+      // high would make the request invalid. Pin the current compatible default
+      // so correctness does not depend on Claude Code's mutable model table.
+      // No adjustment notice is needed: the user did not pick a conflicting
+      // effort, and Opus 5's documented default is already high.
+      sanitizedEffort = 'high';
+      effortProvenance = {
+        source: 'compatibility-default',
+        reason: 'thinking-disabled-cap',
+      };
     }
   }
 
@@ -315,10 +431,12 @@ export function sanitizeClaudeModelOptions(
 
   return {
     thinking,
-    effort: input.effort as string | undefined,
+    effort: sanitizedEffort,
+    effortProvenance,
     applyContext1mBeta,
     isOpusAdaptiveThinking,
     thinkingForcedOn,
+    effortAdjustedForThinking,
     sampling,
     strippedSamplingParams,
   };

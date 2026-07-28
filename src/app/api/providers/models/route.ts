@@ -109,6 +109,37 @@ function sameModelIdentity(a: ModelEntry, b: ModelEntry): boolean {
 }
 
 /**
+ * The SDK's `supportedModels()` result is an additional runtime surface, not
+ * an authoritative replacement for CodePilot's canonical env catalog.
+ *
+ * In Claude Code 2.1.220 the SDK reports only five convenience entries
+ * (`default`, `opus[1m]`, `claude-fable-5[1m]`, `sonnet`, `haiku`). Replacing
+ * the catalog with that list made explicit, successfully-routed selections
+ * such as `opus-5 → claude-opus-5` disappear after the first response. The
+ * composer then auto-corrected the missing row to `default`, so the visible
+ * model changed even though `chat_sessions.model` and the wire route remained
+ * Opus 5.
+ *
+ * Keep canonical rows stable and append genuinely new SDK convenience
+ * entries. When identities overlap, the canonical row wins: a short SDK alias
+ * can describe a newer moving target (for example `sonnet` currently describes
+ * Sonnet 5) while CodePilot deliberately pins its canonical `sonnet` row to
+ * Sonnet 4.6 to avoid silently migrating saved sessions.
+ */
+export function mergeEnvCatalogWithSdkModels(
+  catalogModels: readonly ModelEntry[],
+  sdkModels: readonly ModelEntry[],
+): ModelEntry[] {
+  const merged = [...catalogModels];
+  for (const sdkModel of sdkModels) {
+    if (!merged.some(existing => sameModelIdentity(existing, sdkModel))) {
+      merged.push(sdkModel);
+    }
+  }
+  return merged;
+}
+
+/**
  * User-edited DB rows remain authoritative on disk. For the read-only picker
  * feed, fill only missing system metadata by matching the catalog's canonical
  * upstream id. This covers Kimi's real `kimi-for-coding` row shadowing its
@@ -218,14 +249,17 @@ export async function GET(request: NextRequest) {
       });
     }
 
-    // If SDK has discovered models, use them for the env group
+    // If SDK has discovered models, add its runtime-only convenience entries
+    // without deleting CodePilot's explicit canonical routes. The SDK list is
+    // intentionally incomplete (for example it may omit `opus-5` after a
+    // successful `claude-opus-5` turn), so it must never replace this group.
     const envGroup = groups.find(g => g.provider_id === 'env');
     if (envGroup) {
       try {
         const { getCachedModels } = await import('@/lib/agent-sdk-capabilities');
         const sdkModels = getCachedModels('env');
         if (sdkModels.length > 0) {
-          envGroup.models = sdkModels.map(m => {
+          const sdkModelEntries = sdkModels.map(m => {
             // SDK sometimes returns short aliases (e.g. 'opus') — map to
             // the concrete upstream so context window and downstream
             // sanitizer checks agree with the env provider's resolver.
@@ -242,6 +276,7 @@ export async function GET(request: NextRequest) {
               ...(cw != null ? { contextWindow: cw } : {}),
             };
           });
+          envGroup.models = mergeEnvCatalogWithSdkModels(envGroup.models, sdkModelEntries);
         }
       } catch {
         // SDK capabilities not available, keep defaults

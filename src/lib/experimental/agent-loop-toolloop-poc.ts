@@ -58,6 +58,7 @@ import type { PermissionMode } from '../permission-checker';
 import { buildCoreMessages } from '../message-builder';
 import { sanitizeClaudeModelOptions } from '../claude-model-options';
 import { buildAnthropicProviderOptions } from '../agent-loop-anthropic-wire';
+import { buildEffortAdjustmentNotice } from '../anthropic-effort-adjustment-notice';
 import { getMessages } from '../db';
 import { wrapController } from '../safe-stream';
 import { buildNativeErrorEventData } from '../agent-loop-error-event';
@@ -223,6 +224,22 @@ export function runToolLoopAgentPoc(options: AgentLoopOptions): ReadableStream<s
           effort,
           context1m,
         });
+        const effortAdjustmentNotice = buildEffortAdjustmentNotice({
+          model: config.modelId,
+          sanitized,
+        });
+        if (effortAdjustmentNotice && !isThirdPartyProxy) {
+          console.warn(
+            `[toolloop-poc] ${config.modelId}: effort '${effortAdjustmentNotice.params.requested}' is incompatible with disabled thinking; sending '${effortAdjustmentNotice.params.effective}' instead.`,
+          );
+          controller.enqueue(formatSSE({
+            type: 'status',
+            data: JSON.stringify({
+              notification: true,
+              ...effortAdjustmentNotice,
+            }),
+          }));
+        }
         if (sanitized.thinkingForcedOn) {
           console.warn(
             `[toolloop-poc] Fable 5: thinking cannot be disabled — request runs with adaptive thinking despite thinking_mode='disabled'.`,
@@ -241,25 +258,45 @@ export function runToolLoopAgentPoc(options: AgentLoopOptions): ReadableStream<s
         let providerOptions: any;
         if (config.sdkType === 'anthropic') {
           // Parity with agent-loop.ts via the SAME shared builder (model plan
-          // Phase 2 / s05) — the wire shape and both effort-drop rules
-          // (unsupported model on the official path, any model on a proxy) can
-          // no longer drift between the two native paths.
+          // Phase 2 / s05) — unsupported models, unsupported tiers, and
+          // explicit picks dropped by a third-party proxy can no longer drift
+          // between the two native paths.
           const wire = buildAnthropicProviderOptions({
             isThirdPartyProxy,
             model: config.modelId,
             sanitized,
           });
           if (wire.effortDroppedForProxy) {
+            const requestedEffort = wire.effortDroppedForProxyRequested || 'unknown';
             console.warn(
-              `[toolloop-poc] Third-party Anthropic proxy: dropping explicit effort='${sanitized.effort}' — effort GA beta header may not be supported by proxies. Switch to SDK runtime or the official Anthropic endpoint to control effort.`,
+              `[toolloop-poc] Third-party Anthropic proxy: dropping explicit effort='${requestedEffort}' — effort GA beta header may not be supported by proxies. Switch to SDK runtime or the official Anthropic endpoint to control effort.`,
             );
             controller.enqueue(formatSSE({
               type: 'status',
               data: JSON.stringify({
                 notification: true,
                 code: 'RUNTIME_EFFORT_IGNORED',
-                title: 'Effort ignored on this runtime',
-                message: `Third-party Anthropic proxies may not support the effort parameter — your "${sanitized.effort}" choice wasn't sent. Switch to SDK runtime or an official Anthropic provider to control effort explicitly.`,
+                reason: 'third-party-proxy',
+                params: { effort: requestedEffort },
+              }),
+            }));
+          }
+          if (wire.effortDroppedUnsupportedTier) {
+            const { requested, supported } = wire.effortDroppedUnsupportedTier;
+            console.warn(
+              `[toolloop-poc] ${config.modelId} does not accept effort='${requested}' — supported tiers: ${supported.join(', ')}. The unsupported tier was omitted.`,
+            );
+            controller.enqueue(formatSSE({
+              type: 'status',
+              data: JSON.stringify({
+                notification: true,
+                code: 'RUNTIME_EFFORT_IGNORED',
+                reason: 'unsupported-tier',
+                params: {
+                  model: config.modelId || '',
+                  effort: requested,
+                  supported: supported.join(', '),
+                },
               }),
             }));
           }

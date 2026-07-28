@@ -797,6 +797,108 @@ describe('buildProviderOptions — forwards instructions + store for the Codex /
     assert.equal(opts!.openai!.store, false, 'store must still be set when other openai options are present');
     assert.ok(opts!.anthropic);
   });
+
+  it('uses adaptive thinking + effort for Opus 5 instead of the legacy manual budget shape', () => {
+    const opts = buildProviderOptions({
+      model: 'opus-5',
+      input: [],
+      reasoning: { effort: 'high' },
+    }, {
+      anthropic: {
+        model: 'claude-opus-5',
+        isThirdPartyProxy: false,
+      },
+    });
+
+    assert.deepEqual(opts!.anthropic, {
+      thinking: { type: 'adaptive', display: 'summarized' },
+      effort: 'high',
+    });
+    assert.equal(
+      (opts!.anthropic!.thinking as Record<string, unknown>).budgetTokens,
+      undefined,
+      'manual budget tokens are rejected by the adaptive family',
+    );
+    assert.equal((opts!.openai as Record<string, unknown>).reasoningEffort, 'high');
+  });
+
+  it('preserves xhigh for an official adaptive Anthropic model', () => {
+    const opts = buildProviderOptions({
+      model: 'opus-5',
+      input: [],
+      reasoning: { effort: 'xhigh' },
+    }, {
+      anthropic: {
+        model: 'claude-opus-5',
+        isThirdPartyProxy: false,
+      },
+    });
+    assert.deepEqual(opts!.anthropic, {
+      thinking: { type: 'adaptive', display: 'summarized' },
+      effort: 'xhigh',
+    });
+  });
+
+  it('does not forward Codex xhigh to Sonnet 4.6, which supports max but not xhigh', () => {
+    const opts = buildProviderOptions({
+      model: 'sonnet',
+      input: [],
+      reasoning: { effort: 'xhigh' },
+    }, {
+      anthropic: {
+        model: 'claude-sonnet-4-6',
+        isThirdPartyProxy: false,
+      },
+    });
+    assert.equal(
+      (opts!.anthropic as Record<string, unknown>).effort,
+      undefined,
+      'a user Codex config can supply xhigh even though CodePilot hides it; the proxy boundary must still reject the tier',
+    );
+    assert.deepEqual((opts!.anthropic as Record<string, unknown>).thinking, {
+      type: 'enabled',
+      budgetTokens: 32000,
+    });
+  });
+
+  it('removes manual budget thinking for every adaptive-family model', () => {
+    for (const model of [
+      'claude-opus-4-7',
+      'claude-opus-4-8',
+      'claude-fable-5',
+      'claude-sonnet-5',
+      'claude-opus-5',
+    ]) {
+      const opts = buildProviderOptions({
+        model,
+        input: [],
+        reasoning: { effort: 'high' },
+      }, {
+        anthropic: {
+          model,
+          isThirdPartyProxy: false,
+        },
+      });
+      assert.deepEqual(opts!.anthropic, {
+        thinking: { type: 'adaptive', display: 'summarized' },
+        effort: 'high',
+      }, model);
+    }
+  });
+
+  it('does not send invalid manual thinking to an adaptive model through a third-party proxy', () => {
+    const opts = buildProviderOptions({
+      model: 'opus-5',
+      input: [],
+      reasoning: { effort: 'high' },
+    }, {
+      anthropic: {
+        model: 'claude-opus-5',
+        isThirdPartyProxy: true,
+      },
+    });
+    assert.equal(opts!.anthropic, undefined);
+  });
 });
 
 // ai@7 迁移回归（2026-07-03 用户实测抓到）：ai@7 禁止 messages 里出现
