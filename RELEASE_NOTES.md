@@ -24,6 +24,7 @@
 
 ### 已知限制
 
+- Claude Code Runtime 连接首包等待极长的第三方渠道时，分级超时修复已经落地，但 6–9 分钟真实慢渠道验证尚未完成；如仍出现自动中断，请在 [#635](https://github.com/op7418/CodePilot/issues/635) 反馈 Runtime、服务商和错误提示。
 - Claude Code Runtime 使用 Opus 5 需要 Claude Code CLI 2.1.219 或更新版本。
 - 尚未验证的 OpenRouter、Bedrock 和 Vertex Opus 5 模型 ID 不会被自动加入目录；可用性以各服务商实际支持为准。
 - Grok 4.5 Sub-agent 是否可运行仍取决于当前 xAI 账号的实际权限；目录可见不代表套餐 entitlement 一定可用。
