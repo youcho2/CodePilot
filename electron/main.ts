@@ -983,6 +983,50 @@ const LOADING_HTML = `data:text/html;charset=utf-8,${encodeURIComponent(`<!DOCTY
 </body>
 </html>`)}`;
 
+/**
+ * Give every editable renderer surface the platform-native editing menu.
+ *
+ * Chromium does not add a copy/paste context menu to Electron inputs by
+ * default. Keeping this in the main process covers ordinary inputs,
+ * textareas and contenteditable editors (including CodeMirror) without each
+ * React component having to reimplement clipboard behavior. Electron roles
+ * also supply native labels, shortcuts and enablement semantics per platform.
+ */
+function attachRendererEditingContextMenu(targetWindow: BrowserWindow): void {
+  targetWindow.webContents.on('context-menu', (_event, params) => {
+    const hasSelection = params.selectionText.length > 0;
+    const isPassword = params.inputFieldType === 'password';
+
+    if (!params.isEditable && !hasSelection) return;
+
+    const template: Electron.MenuItemConstructorOptions[] = params.isEditable
+      ? [
+          { role: 'undo', enabled: params.editFlags.canUndo },
+          { role: 'redo', enabled: params.editFlags.canRedo },
+          { type: 'separator' },
+          {
+            role: 'cut',
+            enabled: !isPassword && params.editFlags.canCut,
+          },
+          {
+            role: 'copy',
+            enabled: !isPassword && params.editFlags.canCopy,
+          },
+          { role: 'paste', enabled: params.editFlags.canPaste },
+          { role: 'delete', enabled: params.editFlags.canDelete },
+          { type: 'separator' },
+          { role: 'selectAll', enabled: params.editFlags.canSelectAll },
+        ]
+      : [
+          { role: 'copy', enabled: hasSelection },
+          { type: 'separator' },
+          { role: 'selectAll' },
+        ];
+
+    Menu.buildFromTemplate(template).popup({ window: targetWindow });
+  });
+}
+
 function createWindow(url?: string) {
   const windowOptions: Electron.BrowserWindowConstructorOptions = {
     width: 1280,
@@ -1070,6 +1114,7 @@ function createWindow(url?: string) {
   }
 
   mainWindow = new BrowserWindow(windowOptions);
+  attachRendererEditingContextMenu(mainWindow);
 
   // External links: open in system default browser instead of Electron
   mainWindow.webContents.setWindowOpenHandler(({ url: targetUrl }) => {

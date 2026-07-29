@@ -16,6 +16,13 @@ import {
   DropdownMenuItem,
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuSeparator,
+  ContextMenuTrigger,
+} from "@/components/ui/context-menu";
 import { cn } from "@/lib/utils";
 import { useTranslation } from '@/hooks/useTranslation';
 import { copyWithToast } from "@/lib/clipboard";
@@ -67,6 +74,65 @@ export function ProjectGroupHeader({
   const [menuOpen, setMenuOpen] = useState(false);
   const showActions = isFolderHovered || menuOpen;
 
+  const handleOpenFolder = () => {
+    const w = window as unknown as { electronAPI?: { shell?: { openPath?: (p: string) => void } } };
+    if (w.electronAPI?.shell?.openPath) {
+      w.electronAPI.shell.openPath(workingDirectory);
+    } else {
+      fetch('/api/files/open', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path: workingDirectory }),
+      }).catch(() => {});
+    }
+  };
+
+  const handleCopyFolderPath = () => {
+    // v11 fix — see lib/clipboard.ts for why fire-and-forget writeText
+    // fails in Electron renderers after a popup menu loses focus.
+    void copyWithToast({ text: workingDirectory, t });
+  };
+
+  const withProjectContextMenu = (content: React.ReactElement) => {
+    if (!workingDirectory) return content;
+    return (
+      <ContextMenu>
+        <ContextMenuTrigger asChild>{content}</ContextMenuTrigger>
+        <ContextMenuContent className="min-w-[180px]" onClick={(e) => e.stopPropagation()}>
+          <ContextMenuItem
+            onSelect={(event) =>
+              onCreateSession(event as unknown as React.MouseEvent)
+            }
+          >
+            <CodePilotIcon name="edit" size="sm" aria-hidden />
+            <span>{t('chatList.newConversation')}</span>
+          </ContextMenuItem>
+          <ContextMenuSeparator />
+          <ContextMenuItem onSelect={handleOpenFolder}>
+            <ArrowSquareOut size={14} />
+            <span>{t('chatList.openFolder' as TranslationKey)}</span>
+          </ContextMenuItem>
+          <ContextMenuItem onSelect={handleCopyFolderPath}>
+            <CodePilotIcon name="copy" size="sm" aria-hidden />
+            <span>{t('chatList.copyFolderPath' as TranslationKey)}</span>
+          </ContextMenuItem>
+          {onRemoveProject && !isWorkspace && (
+            <>
+              <ContextMenuSeparator />
+              <ContextMenuItem
+                variant="destructive"
+                onSelect={() => onRemoveProject(workingDirectory)}
+              >
+                <FolderMinus size={14} />
+                <span>{t('chatList.removeProject' as TranslationKey)}</span>
+              </ContextMenuItem>
+            </>
+          )}
+        </ContextMenuContent>
+      </ContextMenu>
+    );
+  };
+
   const actionButtons = workingDirectory !== "" && (
     <div className={cn(
       "flex items-center gap-0.5 transition-opacity",
@@ -92,6 +158,7 @@ export function ProjectGroupHeader({
             size="icon-xs"
             className="h-5 w-5 shrink-0 text-muted-foreground hover:text-foreground"
             tabIndex={showActions ? 0 : -1}
+            aria-label={t('chatList.moreActions' as TranslationKey)}
             onClick={(e) => {
               e.stopPropagation();
             }}
@@ -100,26 +167,11 @@ export function ProjectGroupHeader({
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="min-w-[160px]" onClick={(e) => e.stopPropagation()}>
-          <DropdownMenuItem onClick={() => {
-            const w = window as unknown as { electronAPI?: { shell?: { openPath?: (p: string) => void } } };
-            if (w.electronAPI?.shell?.openPath) {
-              w.electronAPI.shell.openPath(workingDirectory);
-            } else {
-              fetch('/api/files/open', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ path: workingDirectory }),
-              }).catch(() => {});
-            }
-          }}>
+          <DropdownMenuItem onClick={handleOpenFolder}>
             <ArrowSquareOut size={14} />
             <span>{t('chatList.openFolder' as TranslationKey)}</span>
           </DropdownMenuItem>
-          <DropdownMenuItem onClick={() => {
-            // v11 fix — see lib/clipboard.ts for why fire-and-forget
-            // writeText fails in Electron renderers after dropdown blur.
-            void copyWithToast({ text: workingDirectory, t });
-          }}>
+          <DropdownMenuItem onClick={handleCopyFolderPath}>
             <CodePilotIcon name="copy" size="sm" aria-hidden />
             <span>{t('chatList.copyFolderPath' as TranslationKey)}</span>
           </DropdownMenuItem>
@@ -154,7 +206,7 @@ export function ProjectGroupHeader({
       ? (buddyName || assistantName || t('assistant.defaultName' as TranslationKey))
       : t('buddy.adoptPrompt' as TranslationKey);
 
-    return (
+    return withProjectContextMenu(
       <div
         className={cn(
           "flex items-center gap-2 rounded-lg px-2 py-1.5 cursor-pointer select-none transition-colors",
@@ -195,7 +247,7 @@ export function ProjectGroupHeader({
     );
   }
 
-  return (
+  return withProjectContextMenu(
     <div
       className={cn(
         "flex items-center gap-2 rounded-xl px-3 h-8 cursor-pointer select-none transition-colors",

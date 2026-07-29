@@ -29,6 +29,9 @@ const fixture = [
   '',
   '![diagram](./assets/diagram.png)',
   '',
+  '- [ ] Todo',
+  '- [x] Done',
+  '',
   '| Name | Value |',
   '| --- | --- |',
   '| A | 1 |',
@@ -69,6 +72,8 @@ describe('production Markdown Live Preview decorations', () => {
       'math-inline',
       'link-marker',
       'image',
+      'task-list-prefix',
+      'task-checkbox',
       'table',
       'code-block',
       'mermaid',
@@ -77,6 +82,11 @@ describe('production Markdown Live Preview decorations', () => {
       assert.ok(kinds.includes(expected), `missing ${expected}: ${kinds.join(', ')}`);
     }
     assert.ok(decorationKinds(built.atomic).includes('table'));
+    assert.equal(
+      kinds.filter((kind) => kind === 'task-checkbox').length,
+      2,
+      'unchecked and checked tasks should both render as checkbox widgets',
+    );
   });
 
   it('reveals the entire active block as lossless source', () => {

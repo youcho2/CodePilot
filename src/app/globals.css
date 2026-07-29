@@ -705,11 +705,35 @@ html.dark[data-platform="darwin"][data-shell="electron"][data-platform-style="au
  * widget moves the selection to its source range, which removes the decoration
  * and exposes the exact Markdown for editing.
  */
+[data-markdown-editor] .cm-gutters {
+  display: none;
+}
+[data-markdown-editor] .cm-activeLine {
+  background: transparent !important;
+}
+[data-markdown-editor] .cm-content span {
+  text-decoration: none;
+}
+[data-markdown-editor] .cm-line > span:not([class*="cm-lp-"]) {
+  /*
+   * The default Markdown highlighter treats a leading `--- … ---`
+   * frontmatter block as a Setext heading and paints every metadata line
+   * bold + underlined. Live Preview supplies its own semantic typography,
+   * so neutralise that token style on undecorated top-level spans.
+   */
+  font-weight: inherit;
+}
 .cm-lp-heading {
   font-family: var(--font-sans), system-ui, sans-serif;
   font-weight: 600;
   letter-spacing: -0.015em;
   line-height: 1.35;
+  text-decoration: none;
+}
+.cm-lp-heading *,
+.cm-lp-strong * {
+  font-weight: inherit;
+  text-decoration: inherit;
 }
 .cm-lp-h1 { font-size: 1.5rem; }
 .cm-lp-h2 { font-size: 1.25rem; }
@@ -717,7 +741,11 @@ html.dark[data-platform="darwin"][data-shell="electron"][data-platform-style="au
 .cm-lp-h4,
 .cm-lp-h5,
 .cm-lp-h6 { font-size: 1rem; }
-.cm-lp-strong { font-weight: 650; color: var(--foreground); }
+.cm-lp-strong {
+  color: var(--foreground);
+  font-size: inherit;
+  font-weight: 600;
+}
 .cm-lp-emphasis { font-style: italic; }
 .cm-lp-code {
   border-radius: 0.25rem;
@@ -727,7 +755,8 @@ html.dark[data-platform="darwin"][data-shell="electron"][data-platform-style="au
   font-family: var(--font-mono), ui-monospace, monospace;
   font-size: 0.875em;
 }
-.cm-lp-link {
+[data-markdown-editor] .cm-content .cm-lp-link,
+[data-markdown-editor] .cm-content .cm-lp-link * {
   color: var(--primary);
   text-decoration: underline;
   text-decoration-color: color-mix(in oklch, var(--primary) 35%, transparent);
@@ -740,7 +769,27 @@ html.dark[data-platform="darwin"][data-shell="electron"][data-platform-style="au
   font-family: var(--font-sans), system-ui, sans-serif;
   user-select: none;
 }
-.cm-lp-list-marker { min-width: 1.25rem; text-align: center; }
+.cm-lp-list-marker {
+  min-width: 1.25rem;
+  margin-right: 0.125rem;
+  text-align: center;
+}
+.cm-lp-task-checkbox {
+  display: inline-flex;
+  width: 1.5rem;
+  align-items: center;
+  justify-content: center;
+  margin-right: 0.125rem;
+  vertical-align: -0.125em;
+}
+.cm-lp-task-checkbox input {
+  width: 0.875rem;
+  height: 0.875rem;
+  margin: 0;
+  accent-color: var(--primary);
+  opacity: 1;
+  pointer-events: none;
+}
 .cm-lp-quote-marker {
   margin-right: 0.5rem;
   color: var(--border);

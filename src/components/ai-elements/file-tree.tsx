@@ -32,14 +32,9 @@ interface FileTreeContextType {
   togglePath: (path: string) => void;
   selectedPath?: string;
   onSelect?: (path: string) => void;
-  /**
-   * Add affordance — invoked from the per-row hover "+" button. The
-   * nodeType lets the consumer route file vs. directory adds to
-   * different downstream pipelines (file → attachment, directory →
-   * mention chip).
-   */
+  /** Context-menu action for adding a file or directory to chat. */
   onAdd?: (path: string, nodeType: 'file' | 'directory') => void;
-  /** Localised label used by the "+" button's `title` and `aria-label`. */
+  /** Localised label used by the context-menu action. */
   addLabel?: string;
   /**
    * Separate selected-folder channel from selectedPath so folder and file
@@ -71,7 +66,7 @@ export type FileTreeProps = HTMLAttributes<HTMLDivElement> & {
   selectedPath?: string;
   onSelect?: (path: string) => void;
   onAdd?: (path: string, nodeType: 'file' | 'directory') => void;
-  /** Localised label for per-row "+" buttons. */
+  /** Localised label for the add-to-chat context-menu action. */
   addLabel?: string;
   selectedFolderPath?: string;
   onSelectFolder?: (folderPath: string) => void;
@@ -188,14 +183,6 @@ export const FileTreeFolder = ({
     onSelectFolder?.(path);
   }, [togglePath, onSelectFolder, path]);
 
-  const handleAddFolder = useCallback(
-    (e: React.MouseEvent) => {
-      e.stopPropagation();
-      onAdd?.(path, 'directory');
-    },
-    [onAdd, path],
-  );
-
   const folderContextValue = useMemo(
     () => ({ isExpanded, name, path }),
     [isExpanded, name, path]
@@ -241,8 +228,8 @@ export const FileTreeFolder = ({
               <ContextMenuTrigger asChild>
                 <div
               className={cn(
-                "group/folder flex w-full cursor-pointer items-center gap-1 rounded px-2 py-1 text-left transition-colors hover:bg-muted/50",
-                isSelected && "bg-muted",
+                "group/folder flex w-full cursor-pointer items-center gap-1 rounded border-l-2 border-transparent py-1 pl-1.5 pr-2 text-left transition-colors hover:bg-muted/50",
+                isSelected && "border-primary bg-primary/[0.05] text-foreground",
               )}
               role="button"
               tabIndex={0}
@@ -298,17 +285,6 @@ export const FileTreeFolder = ({
                 />
               ) : (
                 <FileTreeName title={path}>{name}</FileTreeName>
-              )}
-              {onAdd && (
-                <button
-                  type="button"
-                  className="ml-auto flex size-5 shrink-0 items-center justify-center rounded opacity-0 transition-opacity hover:bg-muted group-hover/folder:opacity-100 focus-visible:opacity-100"
-                  onClick={handleAddFolder}
-                  title={addLabel ?? 'Add to chat'}
-                  aria-label={addLabel ?? 'Add to chat'}
-                >
-                  <CodePilotIcon name="plus" size={12} className="text-muted-foreground" aria-hidden />
-                </button>
               )}
                 </div>
               </ContextMenuTrigger>
@@ -408,14 +384,6 @@ export const FileTreeFile = ({
     [name, onRename, onSelect, path]
   );
 
-  const handleAdd = useCallback(
-    (e: React.MouseEvent) => {
-      e.stopPropagation();
-      onAdd?.(path, 'file');
-    },
-    [onAdd, path]
-  );
-
   const fileContextValue = useMemo(() => ({ name, path }), [name, path]);
 
   const beginRename = useCallback(() => {
@@ -450,8 +418,8 @@ export const FileTreeFile = ({
         <ContextMenuTrigger asChild>
           <div
             className={cn(
-              "group/file flex cursor-pointer items-center gap-1 rounded px-2 py-1 transition-colors hover:bg-muted/50",
-              isSelected && "bg-muted",
+              "group/file flex cursor-pointer items-center gap-1 rounded border-l-2 border-transparent py-1 pl-1.5 pr-2 transition-colors hover:bg-muted/50",
+              isSelected && "border-primary bg-primary/[0.05] text-foreground",
               className
             )}
             onClick={handleClick}
@@ -499,17 +467,6 @@ export const FileTreeFile = ({
                 ) : (
                   <FileTreeName title={path}>{name}</FileTreeName>
                 )}
-            {onAdd && (
-              <button
-                type="button"
-                className="ml-auto flex size-5 shrink-0 items-center justify-center rounded opacity-0 transition-opacity hover:bg-muted group-hover/file:opacity-100 focus-visible:opacity-100"
-                onClick={handleAdd}
-                title={addLabel ?? 'Add to chat'}
-                aria-label={addLabel ?? 'Add to chat'}
-              >
-                <CodePilotIcon name="plus" size={12} className="text-muted-foreground" aria-hidden />
-              </button>
-            )}
               </>
             )}
           </div>

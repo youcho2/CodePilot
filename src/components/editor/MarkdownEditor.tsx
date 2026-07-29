@@ -3,7 +3,7 @@
 import { useEffect, useRef } from "react";
 import { EditorState, Compartment } from "@codemirror/state";
 import { EditorView, keymap } from "@codemirror/view";
-import { basicSetup } from "codemirror";
+import { minimalSetup } from "codemirror";
 import { markdown, markdownLanguage } from "@codemirror/lang-markdown";
 import { oneDark } from "@codemirror/theme-one-dark";
 import { indentWithTab } from "@codemirror/commands";
@@ -80,13 +80,29 @@ export function MarkdownEditor({
     if (!hostRef.current || viewRef.current) return;
 
     const baseTheme = EditorView.theme({
-      "&": { height: "100%", fontSize: "13px" },
+      "&": {
+        height: "100%",
+        minWidth: "0",
+        width: "100%",
+        fontSize: "14px",
+      },
       ".cm-scroller": {
         fontFamily: "var(--font-sans, system-ui, sans-serif)",
+        maxWidth: "100%",
+        overflow: "auto",
       },
-      ".cm-content": { padding: "12px" },
-      ".cm-activeLine": {
-        fontFamily: "var(--font-mono, ui-monospace, monospace)",
+      ".cm-content": {
+        boxSizing: "border-box",
+        minWidth: "0",
+        width: "100%",
+        maxWidth: "100%",
+        padding: "16px 18px",
+      },
+      ".cm-line": {
+        lineHeight: "1.75rem",
+        overflowWrap: "anywhere",
+        whiteSpace: "pre-wrap",
+        wordBreak: "break-word",
       },
       "&.cm-focused": { outline: "none" },
     });
@@ -111,7 +127,11 @@ export function MarkdownEditor({
     const state = EditorState.create({
       doc: value,
       extensions: [
-        basicSetup,
+        // `basicSetup` also installs line numbers, a fold gutter and active-
+        // line highlighting. Live Preview is a document surface rather than
+        // a code editor, so use the gutter-free setup and keep only editing,
+        // history, selection and completion primitives.
+        minimalSetup,
         // Use the package's extended parser (GFM tables, task lists, etc.).
         // markdown() defaults to CommonMark and silently parses pipe tables as
         // paragraphs, which would make Live Preview lose table parity.
@@ -127,9 +147,25 @@ export function MarkdownEditor({
       ],
     });
 
-    viewRef.current = new EditorView({ state, parent: hostRef.current });
+    const view = new EditorView({ state, parent: hostRef.current });
+    viewRef.current = view;
+
+    // The workspace sidebar is continuously resizable. CodeMirror normally
+    // observes its own DOM, but a flex ancestor changing width can leave line
+    // wrapping measured against the previous geometry until another input or
+    // fast resize occurs. Observe the actual host and explicitly request a
+    // measure so slow drags and programmatic sidebar changes wrap immediately.
+    let measureFrame = 0;
+    const resizeObserver = new ResizeObserver(() => {
+      cancelAnimationFrame(measureFrame);
+      measureFrame = requestAnimationFrame(() => view.requestMeasure());
+    });
+    resizeObserver.observe(hostRef.current);
+
     return () => {
-      viewRef.current?.destroy();
+      resizeObserver.disconnect();
+      cancelAnimationFrame(measureFrame);
+      view.destroy();
       viewRef.current = null;
     };
     // Intentional single-run — subsequent prop changes propagate via
@@ -178,6 +214,7 @@ export function MarkdownEditor({
       ref={hostRef}
       className={className ?? "h-full w-full overflow-hidden"}
       data-filename={filename}
+      data-markdown-editor={isMarkdownFilename(filename) || undefined}
       aria-label={placeholder}
     />
   );

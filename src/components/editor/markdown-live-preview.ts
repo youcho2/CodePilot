@@ -134,6 +134,30 @@ class TextWidget extends RevealWidget {
   }
 }
 
+class TaskCheckboxWidget extends RevealWidget {
+  constructor(sourceFrom: number, readonly checked: boolean) {
+    super(sourceFrom);
+  }
+
+  eq(other: TaskCheckboxWidget): boolean {
+    return other.sourceFrom === this.sourceFrom && other.checked === this.checked;
+  }
+
+  toDOM(view: EditorView): HTMLElement {
+    const root = this.makeRoot(view, "span", "cm-lp-task-checkbox");
+    root.setAttribute("role", "checkbox");
+    root.setAttribute("aria-checked", String(this.checked));
+    const checkbox = document.createElement("input");
+    checkbox.type = "checkbox";
+    checkbox.checked = this.checked;
+    checkbox.disabled = true;
+    checkbox.tabIndex = -1;
+    checkbox.setAttribute("aria-hidden", "true");
+    root.append(checkbox);
+    return root;
+  }
+}
+
 class RuleWidget extends RevealWidget {
   eq(other: RuleWidget): boolean {
     return other.sourceFrom === this.sourceFrom;
@@ -601,7 +625,34 @@ export function buildMarkdownLivePreview(
           return;
         }
 
+        if (ref.name === "TaskMarker") {
+          const marker = documentText.slice(ref.from, ref.to);
+          addReplace(
+            ref.from,
+            ref.to,
+            new TaskCheckboxWidget(ref.from, /\[[xX]\]/.test(marker)),
+            false,
+            "task-checkbox",
+          );
+          return;
+        }
+
         if (ref.name === "ListMark") {
+          const task = node.parent?.getChild("Task");
+          const taskMarker = task?.getChild("TaskMarker");
+          if (taskMarker) {
+            // A task item owns a real checkbox widget, so suppress the list
+            // marker and the separating source space instead of rendering a
+            // duplicate bullet before it.
+            addReplace(
+              ref.from,
+              taskMarker.from,
+              undefined,
+              false,
+              "task-list-prefix",
+            );
+            return;
+          }
           const marker = documentText.slice(ref.from, ref.to);
           const rendered = /^\d/.test(marker) ? marker : "•";
           addReplace(

@@ -1,11 +1,11 @@
 "use client";
 
-import { useState, useCallback, useRef, useEffect } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { useSearchParams } from "next/navigation";
 import { X } from "@/components/ui/icon";
 import { CodePilotIcon } from "@/components/ui/semantic-icon";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import { PromptDialog } from "@/components/ui/prompt-dialog";
 import { usePanel } from "@/hooks/usePanel";
 import { useTranslation } from "@/hooks/useTranslation";
 import type { TranslationKey } from "@/i18n";
@@ -56,17 +56,11 @@ export function FileTreePanel({ variant = 'legacy' }: { variant?: 'legacy' | 'si
   // that context the button is hidden.
   const ws = useWorkspaceSidebarOptional();
 
-  // VS-Code-like "new item" flow.
-  // newItemMode gates the input row: null = hidden, 'file' = creating a
-  // Markdown file, 'folder' = creating a directory. newItemTargetDir is
-  // the parent directory (workspace root or a folder clicked via the
-  // hover "+" on a tree row).
+  // VS-Code-like "new item" flow. The mode gates a focused modal instead
+  // of inserting a low-contrast row above the tree, so the create action
+  // cannot be missed in a narrow sidebar.
   const [newItemMode, setNewItemMode] = useState<NewItemMode | null>(null);
   const [newItemTargetDir, setNewItemTargetDir] = useState<string>("");
-  const [newItemName, setNewItemName] = useState("");
-  const [newItemError, setNewItemError] = useState<string | null>(null);
-  const [creating, setCreating] = useState(false);
-  const newItemInputRef = useRef<HTMLInputElement | null>(null);
   const { runFileMutation, registerParticipant, hasUnsavedChanges } =
     useFileMutation();
 
@@ -109,21 +103,6 @@ export function FileTreePanel({ variant = 'legacy' }: { variant?: 'legacy' | 'si
     [registerParticipant, variant],
   );
 
-  // On open: focus the input and pre-select the stem (everything before
-  // the last dot) for file mode, or the whole name for folder mode.
-  useEffect(() => {
-    if (newItemMode && newItemInputRef.current) {
-      const input = newItemInputRef.current;
-      input.focus();
-      if (newItemMode === "file") {
-        const dot = input.value.lastIndexOf(".");
-        input.setSelectionRange(0, dot >= 0 ? dot : input.value.length);
-      } else {
-        input.select();
-      }
-    }
-  }, [newItemMode]);
-
   const highlightPath = searchParams.get("file") || undefined;
   const highlightSeek = searchParams.get("seek") || undefined;
 
@@ -143,30 +122,20 @@ export function FileTreePanel({ variant = 'legacy' }: { variant?: 'legacy' | 'si
   }, []);
 
   /**
-   * Open the new-item input in the given mode, targeting a specific
+   * Open the new-item dialog in the given mode, targeting a specific
    * directory (or the workspace root when targetDir is undefined).
-   * Toggling the same mode + same target closes the input — matches the
-   * VS Code affordance where clicking New File twice returns to the
-   * tree without creating anything.
    */
   const openNewItem = useCallback(
     (mode: NewItemMode, targetDir?: string) => {
-      // Precedence: explicit targetDir (from hover "+" on a folder row) →
+      // Precedence: explicit targetDir (from a folder context menu) →
       // currently-selected folder (from click on folder row) → workspace
       // root. This matches the VS-Code feel: click folder, then click
       // New File, new file lands in that folder.
       const effectiveTarget = targetDir ?? selectedFolderPath ?? workingDirectory;
-      setNewItemMode((cur) => {
-        const sameAsCurrent =
-          cur === mode && newItemTargetDir === effectiveTarget;
-        if (sameAsCurrent) return null;
-        return mode;
-      });
       setNewItemTargetDir(effectiveTarget);
-      setNewItemName(mode === "file" ? "untitled.md" : "new-folder");
-      setNewItemError(null);
+      setNewItemMode(mode);
     },
-    [workingDirectory, selectedFolderPath, newItemTargetDir],
+    [workingDirectory, selectedFolderPath],
   );
 
   /**
@@ -175,61 +144,47 @@ export function FileTreePanel({ variant = 'legacy' }: { variant?: 'legacy' | 'si
    * the server-side path safety check can enforce the workspace
    * envelope regardless of which subfolder the user targeted.
    */
-  const handleCreateItem = useCallback(async () => {
-    setNewItemError(null);
-    const trimmed = newItemName.trim();
+  const handleCreateItem = useCallback(async (name: string) => {
+    const trimmed = name.trim();
     if (!trimmed) {
-      setNewItemError(t("fileTree.newFileErrorEmpty"));
-      return;
+      throw new Error(t("fileTree.newFileErrorEmpty"));
     }
     if (!workingDirectory) {
-      setNewItemError(t("fileTree.newFileErrorNoWorkspace"));
-      return;
+      throw new Error(t("fileTree.newFileErrorNoWorkspace"));
     }
+    if (!newItemMode) return;
     const targetDir = newItemTargetDir || workingDirectory;
-    setCreating(true);
-    try {
-      const separator = targetDir.includes("\\") ? "\\" : "/";
-      const targetPath = `${targetDir}${separator}${trimmed}`;
-      const endpoint = newItemMode === "folder" ? "/api/files/mkdir" : "/api/files/write";
-      const body =
-        newItemMode === "folder"
-          ? { path: targetPath, baseDir: workingDirectory, createParents: false }
-          : {
-              path: targetPath,
-              baseDir: workingDirectory,
-              content: `# ${trimmed.replace(/\.[^.]+$/, "")}\n\n`,
-              overwrite: false,
-              createParents: false,
-            };
-      const res = await fetch(endpoint, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        setNewItemError(data.error || t("fileTree.newFileErrorGeneric"));
-        return;
-      }
-      const data = await res.json();
-      setNewItemMode(null);
-      setNewItemName("");
-      window.dispatchEvent(new Event("refresh-file-tree"));
-      // Only open a preview for files — folders have nothing to preview.
-      // setPreviewFile flows through AppShell.setPreviewSource which on
-      // chat-detail routes dispatches a workspace-tab-open event; an
-      // explicit setPreviewOpen(true) here would double-render the
-      // legacy PanelZone PreviewPanel alongside the sidebar Tab.
-      if (newItemMode === "file") {
-        setPreviewFile(data.path);
-      }
-    } catch (err) {
-      setNewItemError(err instanceof Error ? err.message : "Create failed");
-    } finally {
-      setCreating(false);
+    const separator = targetDir.includes("\\") ? "\\" : "/";
+    const targetPath = `${targetDir}${separator}${trimmed}`;
+    const endpoint = newItemMode === "folder" ? "/api/files/mkdir" : "/api/files/write";
+    const body =
+      newItemMode === "folder"
+        ? { path: targetPath, baseDir: workingDirectory, createParents: false }
+        : {
+            path: targetPath,
+            baseDir: workingDirectory,
+            content: `# ${trimmed.replace(/\.[^.]+$/, "")}\n\n`,
+            overwrite: false,
+            createParents: false,
+          };
+    const res = await fetch(endpoint, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      throw new Error(data.error || t("fileTree.newFileErrorGeneric"));
     }
-  }, [newItemMode, newItemName, newItemTargetDir, workingDirectory, t, setPreviewFile]);
+    const data = await res.json();
+    window.dispatchEvent(new Event("refresh-file-tree"));
+    // Only open a preview for files — folders have nothing to preview.
+    // setPreviewFile flows through AppShell.setPreviewSource which on
+    // chat-detail routes dispatches a workspace-tab-open event.
+    if (newItemMode === "file") {
+      setPreviewFile(data.path);
+    }
+  }, [newItemMode, newItemTargetDir, workingDirectory, t, setPreviewFile]);
 
   const mutationErrorMessage = useCallback(
     (error: unknown) => {
@@ -367,8 +322,8 @@ export function FileTreePanel({ variant = 'legacy' }: { variant?: 'legacy' | 'si
   // depending on `variant` at the bottom of this function.
   const body = (
     <>
-        {/* Body — Action icons row → (optional new-item input) →
-            FileTree (which now hosts the search input on its own row).
+        {/* Body — Action icons row → FileTree (which hosts the search
+            input on its own row).
             April 2026 layout fix:
               - The duplicate "文件" section title above the action bar
                 was redundant with the panel header — removed.
@@ -415,49 +370,6 @@ export function FileTreePanel({ variant = 'legacy' }: { variant?: 'legacy' | 'si
             </Button>
           </div>
 
-          {/* Inline new-item input. Mode controls placeholder + what API
-              the submit handler hits. Esc cancels, Enter submits. */}
-          {newItemMode && (
-            <div className="shrink-0 border-y border-border/40 bg-muted/30 px-3 py-2 space-y-1">
-              <p className="truncate text-[10px] text-muted-foreground/60 font-mono">
-                {targetBreadcrumb}
-              </p>
-              <div className="flex items-center gap-1.5">
-                <Input
-                  ref={newItemInputRef}
-                  value={newItemName}
-                  onChange={(e) => setNewItemName(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") {
-                      e.preventDefault();
-                      if (!creating) void handleCreateItem();
-                    } else if (e.key === "Escape") {
-                      e.preventDefault();
-                      setNewItemMode(null);
-                      setNewItemError(null);
-                    }
-                  }}
-                  placeholder={newItemMode === "folder" ? "new-folder" : "untitled.md"}
-                  className="h-7 text-xs font-mono"
-                  disabled={creating}
-                />
-                <Button
-                  size="xs"
-                  onClick={() => void handleCreateItem()}
-                  disabled={creating || !newItemName.trim()}
-                >
-                  {creating ? "…" : t("fileTree.createButton")}
-                </Button>
-              </div>
-              {newItemError && (
-                <p className="text-[11px] text-destructive">{newItemError}</p>
-              )}
-              <p className="text-[10px] text-muted-foreground/60">
-                {t("fileTree.newFileHint")}
-              </p>
-            </div>
-          )}
-
           {/* File tree preserves its expansion state across refreshes. */}
           <div className="flex-1 min-h-0 overflow-hidden">
             <FileTree
@@ -475,6 +387,26 @@ export function FileTreePanel({ variant = 'legacy' }: { variant?: 'legacy' | 'si
             />
           </div>
         </div>
+        <PromptDialog
+          open={newItemMode !== null}
+          onOpenChange={(open) => {
+            if (!open) setNewItemMode(null);
+          }}
+          title={
+            newItemMode === "folder"
+              ? t("fileTree.newFolder")
+              : t("fileTree.newMarkdown")
+          }
+          description={targetBreadcrumb}
+          defaultValue={newItemMode === "folder" ? "new-folder" : "untitled.md"}
+          placeholder={newItemMode === "folder" ? "new-folder" : "untitled.md"}
+          confirmLabel={t("fileTree.createButton")}
+          cancelLabel={t("common.cancel")}
+          onConfirm={handleCreateItem}
+          validate={(value) =>
+            value.trim() ? undefined : t("fileTree.newFileErrorEmpty")
+          }
+        />
         <AlertDialog
           open={!!deleteTarget}
           onOpenChange={(open) => {
