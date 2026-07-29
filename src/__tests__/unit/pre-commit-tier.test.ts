@@ -19,6 +19,26 @@ import path from 'node:path';
 // scripts/ is excluded from tsconfig but allowJs pulls this in as a typed dep.
 import { classifyCommitTier, isDocPath } from '../../../scripts/pre-commit-tier.mjs';
 
+const gitLocalEnvVars = execFileSync('git', ['rev-parse', '--local-env-vars'], {
+  encoding: 'utf8',
+})
+  .split(/\r?\n/)
+  .filter(Boolean);
+
+/**
+ * Git exports repository-local GIT_* variables to hooks. A nested `git init`
+ * that inherits them can mutate the real repository instead of its cwd.
+ */
+function scrubbedGitEnv(
+  source: NodeJS.ProcessEnv = process.env,
+): NodeJS.ProcessEnv {
+  const clean = { ...source };
+  for (const name of [...gitLocalEnvVars, 'GIT_NAMESPACE']) {
+    delete clean[name];
+  }
+  return clean;
+}
+
 describe('classifyCommitTier — docs fast-path', () => {
   it('all-docs set (docs/**, nested *.md, README) → docs', () => {
     assert.equal(
@@ -101,10 +121,17 @@ describe('isDocPath — unit', () => {
 // throwaway git repo so the --diff-filter regression can't come back silently.
 describe('pre-commit-tier CLI — staged deletions must count (Codex P1)', () => {
   const SCRIPT = path.resolve(__dirname, '../../../scripts/pre-commit-tier.mjs');
-  const git = (cwd: string, args: string[]) => execFileSync('git', args, { cwd, stdio: 'pipe' });
+  const childEnv = scrubbedGitEnv();
+  const git = (cwd: string, args: string[]) =>
+    execFileSync('git', args, { cwd, env: childEnv, stdio: 'pipe' });
   const commit = (cwd: string, msg: string) =>
     git(cwd, ['-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-q', '-m', msg]);
-  const tierIn = (cwd: string) => execFileSync('node', [SCRIPT], { cwd, encoding: 'utf8' }).trim();
+  const tierIn = (cwd: string) =>
+    execFileSync('node', [SCRIPT], {
+      cwd,
+      encoding: 'utf8',
+      env: childEnv,
+    }).trim();
 
   it('docs edit + DELETED code file → code (deletion is not invisible)', () => {
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'tier-del-'));
@@ -138,6 +165,69 @@ describe('pre-commit-tier CLI — staged deletions must count (Codex P1)', () =>
       assert.equal(tierIn(tmp), 'docs');
     } finally {
       fs.rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('pre-commit-tier CLI — nested repositories must not inherit hook Git state', () => {
+  it('scrubs every repository-local variable reported by Git', () => {
+    const poisoned: NodeJS.ProcessEnv = { ...process.env };
+    for (const name of [...gitLocalEnvVars, 'GIT_NAMESPACE']) {
+      poisoned[name] = `/tmp/poison-${name}`;
+    }
+
+    const clean = scrubbedGitEnv(poisoned);
+    for (const name of gitLocalEnvVars) {
+      assert.equal(clean[name], undefined, `${name} must be scrubbed`);
+    }
+    assert.equal(clean.GIT_NAMESPACE, undefined);
+  });
+
+  it('keeps an external repository unchanged when cwd initializes another repo', () => {
+    const external = fs.mkdtempSync(path.join(os.tmpdir(), 'tier-external-'));
+    const target = fs.mkdtempSync(path.join(os.tmpdir(), 'tier-target-'));
+    const clean = scrubbedGitEnv();
+    const run = (
+      cwd: string,
+      args: string[],
+      env: NodeJS.ProcessEnv = clean,
+    ) => execFileSync('git', args, { cwd, env, encoding: 'utf8' }).trim();
+
+    try {
+      run(external, ['init', '-q']);
+      fs.writeFileSync(path.join(external, 'sentinel.txt'), 'unchanged\n');
+      run(external, ['add', 'sentinel.txt']);
+      run(external, [
+        '-c',
+        'user.email=t@t',
+        '-c',
+        'user.name=t',
+        'commit',
+        '-q',
+        '-m',
+        'sentinel',
+      ]);
+      run(external, ['config', 'core.bare', 'false']);
+
+      const poisoned: NodeJS.ProcessEnv = {
+        ...process.env,
+        GIT_DIR: path.join(external, '.git'),
+        GIT_WORK_TREE: external,
+        GIT_INDEX_FILE: path.join(external, '.git', 'index'),
+        GIT_NAMESPACE: 'must-not-leak',
+      };
+      run(target, ['init', '-q'], scrubbedGitEnv(poisoned));
+
+      assert.equal(fs.existsSync(path.join(target, '.git')), true);
+      assert.equal(run(external, ['config', '--bool', 'core.bare']), 'false');
+      assert.equal(run(external, ['rev-list', '--count', 'HEAD']), '1');
+      assert.equal(
+        fs.readFileSync(path.join(external, 'sentinel.txt'), 'utf8'),
+        'unchanged\n',
+      );
+    } finally {
+      fs.rmSync(external, { recursive: true, force: true });
+      fs.rmSync(target, { recursive: true, force: true });
     }
   });
 });

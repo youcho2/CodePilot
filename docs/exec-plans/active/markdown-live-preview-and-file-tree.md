@@ -2,7 +2,7 @@
 
 > 创建时间：2026-07-29
 > 最后更新：2026-07-29
-> 状态：📋 Phase 0 待开始（Codex 第二轮 plan review 修订已落盘，待形成可审计基线）
+> 状态：🚧 Phase 0 进行中（0.A state 层 POC 11/11 ✅；真实 DOM/IME 手工项待补）
 > 对应调研：
 > - [docs/research/markdown-editor-tiptap-evaluation.md](../../research/markdown-editor-tiptap-evaluation.md)（CodeMirror 选型依据）
 > - [docs/research/craft-agents-markdown-internals.md](../../research/craft-agents-markdown-internals.md)（渲染/编辑分栈佐证）
@@ -21,7 +21,7 @@
 
 | Phase | 内容 | 状态 | 价值形态 | 备注 |
 |-------|------|------|---------|------|
-| Phase 0 | 前置 POC（Live Preview 装饰核心 / trash 打包 smoke / 图标提取管线 + 视觉 POC / ContextMenu 行为） | 📋 待开始 | C 基建 | 每项结论写回决策日志；RC-12 保证无临时入口遗留 |
+| Phase 0 | 前置 POC（Live Preview 装饰核心 / trash 打包 smoke / 图标提取管线 + 视觉 POC / ContextMenu 行为） | 🚧 进行中（0.A partial；0.B/0.C/0.D 待重做） | C 基建 | 用户要求撤回计划 commit 后的 Claude/loop 产物；已从 `089e4d45` 基线由 Codex 重做 0.A state 层，11/11 targeted + tsc 通过，真实 DOM/IME 仍待证 |
 | Phase 1 | 中立 Markdown component contract + 删除 presentation 主题 + Export 脚手架解耦 | 📋 待开始 | A 可见 | 依赖 RC-5 / RC-8 |
 | Phase 2 | Live Preview 接入（2a 行内 marks → 2b 最低渲染 parity）+ viewMode 收敛 | 📋 待开始 | A 可见 | 依赖 Phase 0.A、RC-3 / RC-6 / RC-11 |
 | Phase 3 | 文件树右键菜单 + 行内重命名 + 删除（file mutation transaction） | 📋 待开始 | A 可见 | 依赖 Phase 0.B/0.D、RC-1 / RC-4；RC-2 是 Windows 发版门禁 |
@@ -32,6 +32,9 @@
 
 ## 决策日志
 
+- 2026-07-29 [用户要求撤回并重做] 停止 Claude/loop，将专用 worktree 从 `1222167c` 精确 reset 到 canonical 计划提交 `089e4d45`；撤回其后的 `fc10691f`/`1222167c`、未提交 0.C、`material-icon-theme` 安装残留、DMG/ZIP/`.next` 打包产物。此后不再启动 Claude/loop，由 Codex 直接实现。
+- 2026-07-29 [Phase 0.A Codex 重做 — partial] 仅在 `src/__tests__` 新增纯 state harness + 11 条测试，证明 inactive decoration / active reveal、半开 visible ranges 去重、atomicRanges provider、IME freeze/map/compositionend 空 update rebuild、controlled value 最小 diff + history/selection 保持；targeted **11/11**、全量 `npm run test` **3851 tests / 964 suites / 0 fail**，零生产 importer。真实 DOM 点击/方向键/selection/delete 与中文 IME 候选框未验证，因此不把 0.A 标完成；详见 [research/phase-0-pocs/0.A](../../research/phase-0-pocs/0.A-live-preview-decoration-core.md)。
+- 2026-07-29 [Phase 0.A 首次 commit 门禁 P1 — 已修] 手动全量 3851/3851 后，真实 pre-commit 反而出现 3849/3851 并把主仓库切成 `core.bare=true`。根因是 `pre-commit-tier.test.ts` 的临时 repo 子进程继承 hook 的 repository-local `GIT_*` 环境，`git init` 操作了主仓库；不是 flaky。恢复 `core.bare=false` 后，新增 `scrubbedGitEnv()`（动态剥离 `git rev-parse --local-env-vars` 全集 + `GIT_NAMESPACE`），临时 git/node 全部使用 clean env，并加“变量全集清除 + 外部 repo 零污染”两条 guardrail。修复后相关 targeted（Live Preview 11 + pre-commit 17）**28/28**、tsc 通过；提交必须重新过真实 hook 才算关闭。
 - 2026-07-29 [Codex 第二轮 plan review] 修订 canonical plan 的两个剩余 P1：
   - **File mutation 跨 owner 协调**：状态图补成有明确 owner、participant、prepare/commit/rollback acknowledgement 的事务协议。`savingEdit` 只是 boolean，不能被 `await`；实现必须引入 `autosaveTimerRef` / `savePromiseRef`，并由 common-owner `FileMutationCoordinator` 在 API 前等待 PreviewPanel prepare、API 后等待各 participant commit ack，guard 才能解除。
   - **最低渲染 parity 是出货门禁**：2a 只作为内部里程碑，不能在移除 Preview Tab 后单独作为本轮用户交付。图片、表格、代码围栏、Mermaid、数学公式达到非活动块渲染 parity（RC-11）后，RC-10 才允许移除临时 Preview Tab；否则必须保留 fallback 或取得用户明确降级同意。
@@ -55,7 +58,7 @@
 **用户可见变化：** 无（POC 产物在 `docs/research/phase-0-pocs/`，图标视觉 POC 出截图供用户裁决确认）。
 **本阶段不做：** 不保留任何生产/debug 路由或临时菜单入口；不装运行时依赖（material-icon-theme 仅 devDependency，且待 0.C 结论后再装）。POC 为验证可以在专用 worktree 暂时加入 harness，但 Phase 0 结束前必须删除临时入口并由 RC-12 证明生产构建不可达。
 
-- **0.A Live Preview 装饰核心 POC**：优先使用 test-only/隔离 harness 挂现有 `MarkdownEditor` + 最小 livePreview extension（标题前缀 / 粗斜体 / 行内码 / 链接的 replace decoration + atomicRanges + 选区所在节点还原原文）。若为手工验证临时增加 debug 路由，该路由只能存在于专用 POC worktree，Phase 0 结论落盘后立即删除，不得进入后续实现 commit。必测：中文 IME composition（`view.composing` 守卫下装饰不更新、无丢字/重复）、undo/redo（装饰切换不进 history）、外部 value 写回（quiet refresh 场景保光标不整段替换）。→ 结论决定 2a 范围。
+- **0.A Live Preview 装饰核心 POC** 🚧 **partial（Codex 重做）**：纯 `src/__tests__` state harness 已验证标题/粗斜体/行内码/链接 replace+mark、active reveal、半开 visible range、atomicRanges provider、IME freeze/map/空 compositionend rebuild、undo history 与外部 value 最小 diff/selection mapping；11/11 targeted + tsc 通过，零生产 importer。真实 DOM 点击/方向键/选择/删除和真机中文 IME 候选框仍待补，完成前不标 ✅。结论见 [research/phase-0-pocs/0.A](../../research/phase-0-pocs/0.A-live-preview-decoration-core.md)。
 - **0.B trash 打包 smoke（RC-1 前置）**：完整打包 macOS DMG，在产物内通过 `/api/files/delete` 真删一个文件，确认进入系统废纸篓且可恢复；观察 `macos-trash` 可执行位与 hardened runtime 行为。Windows NSIS 有环境则一并做（RC-2），无环境则记录为发版前 required check。
 - **0.C 图标提取管线 + 代表性视觉 POC**：脚本从 `material-icon-theme` npm 包（devDependency）提取代表性 12–15 个 SVG（md/ts/tsx/js/json/yaml/html/css/docker/env/package.json/tsconfig/通用回退），生成静态模块；文件树内亮/暗双主题截图各一张，供用户确认视觉气质后再扩到 30–50 个全量子集。同时产出 license manifest 样例（见 Phase 4）。
 - **0.D ContextMenu 行为 POC**：在隔离 harness 中使用 `import { ContextMenu } from 'radix-ui'`（聚合包已含 v2.2.16，无需装包）验证右键触发、键盘菜单键（Shift+F10）、焦点归还、子菜单、禁用项；正式 `src/components/ui/context-menu.tsx` 到 Phase 3 再创建，Phase 0 不留下 production wrapper。
@@ -240,3 +243,4 @@ idle
 | Date | Runtime | Provider | Model | 凭据形态 | 场景 | Result | Evidence |
 |------|---------|----------|-------|---------|------|--------|----------|
 | _示例_ | - | - | - | - | RC-1 DMG 废纸篓 smoke | - | 截图路径 |
+| 2026-07-29 | - | - | - | - | Phase 0.A Codex 重做：Live Preview state 层 decoration / atomic provider / IME freeze / history POC | ⚠️ partial | targeted **11/11**；全量 `npm run test` **3851 tests / 964 suites / 0 fail**；真实 DOM 点击/删除与真机 IME 待补。证据 [research/phase-0-pocs/0.A-live-preview-decoration-core.md](../../research/phase-0-pocs/0.A-live-preview-decoration-core.md) |
