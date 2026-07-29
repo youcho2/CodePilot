@@ -19,6 +19,12 @@ The macOS profile is allowed to affect only the shell and control layers:
 
 Content layers remain opaque and stable.
 
+Dark appearance has one additional shell invariant: application dark mode
+must remain readable even when macOS itself is using a light appearance.
+`--platform-surface-window` therefore adds a dark translucent renderer tint
+above the window-level vibrancy; navigation cards add their own
+`--platform-surface-sidebar` tint above that shared shell material.
+
 ## Reference Notes
 
 - Raycast v2's useful lesson is not the full Swift/C# shell rewrite. The useful lesson is the boundary: shared web UI for product speed, native/platform shell for platform feel.
@@ -49,7 +55,7 @@ Sources:
 
 | Surface | Files | Layer | Current light | Current dark | Current border / hover | macOS candidate | Risk |
 |---------|-------|-------|---------------|--------------|-------------------------|------------------|------|
-| Main Electron window | `electron/main.ts` | chrome_layer | `BrowserWindow` with `hiddenInset` + `vibrancy: 'sidebar'` | Same option; renderer dark mode supplies opaque content | No `visualEffectState` override; renderer often covers material | Keep `hiddenInset`; Phase 2 POC compares whole-window `sidebar` vs `under-window` vs `content` | Whole-window material choice affects every opaque gap. Do not pick based on one page. |
+| Main Electron window | `electron/main.ts`, `src/app/globals.css` | chrome_layer | `BrowserWindow` with `hiddenInset` + `vibrancy: 'sidebar'`; light renderer leaves the window material exposed | Same native option; `--platform-surface-window` adds an 82% application-background tint so light system material cannot wash out the dark title bar | Native material is window-level; renderer tint is theme-aware | Keep `hiddenInset`; derive theme contrast from the renderer platform token rather than assuming native vibrancy follows the app theme | Whole-window material choice affects every transparent gap. Do not bind content cards to the platform tint. |
 | Root page / content background | `src/app/globals.css` | content_layer | `body` applies `bg-background` (`oklch(1 0 0)`) | `oklch(0.147 0.004 49.25)` | Global text and border tokens | Keep opaque. This is the reading canvas and should not become glass. | If made translucent, chat/code/settings readability drops. |
 | Unified top bar | `src/components/layout/UnifiedTopBar.tsx` | chrome_layer | `h-12 bg-background px-4`; non-chat route `h-8` drag strip | Same token in dark | Icon buttons use `hover:text-foreground`; no bar material token | CSS `--platform-surface-bar`, transparent-ish background, subtle bottom edge, traffic-light-safe spacing | Must preserve drag region and nested button `no-drag` areas. |
 | Left chat sidebar | `src/components/layout/ChatListPanel.tsx` | navigation_layer | `bg-sidebar/80 backdrop-blur-xl`; selected rows use `bg-sidebar-accent` / `bg-primary/[0.12]` | Same structure with dark sidebar tokens | Many `hover:bg-sidebar-accent` / `cursor-pointer` rows | First-class macOS sidebar surface. Keep blur, introduce `--platform-surface-sidebar`, weaken hover fill under macOS profile | Heavy session-list hover can still read webby. Must preserve selected/streaming/pending states. |

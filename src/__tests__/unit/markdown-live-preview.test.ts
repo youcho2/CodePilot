@@ -1,5 +1,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown';
 import { history, undo } from '@codemirror/commands';
 import { EditorState } from '@codemirror/state';
@@ -13,6 +15,11 @@ import {
   resolveMarkdownAssetUrl,
 } from '../../components/editor/markdown-live-preview';
 import { markdownEditingExtensions } from '../../components/editor/MarkdownEditor';
+
+const GLOBALS_SOURCE = readFileSync(
+  resolve(__dirname, '../../app/globals.css'),
+  'utf-8',
+);
 
 function decorationKinds(set: DecorationSet): string[] {
   const result: string[] = [];
@@ -172,6 +179,35 @@ describe('production Markdown Live Preview decorations', () => {
       buildMarkdownLivePreview(state, [{ from: 0, to: headingEnd }]).decorations,
     );
     assert.deepEqual(kinds, ['heading-prefix']);
+  });
+});
+
+describe('Markdown Live Preview product-theme contract', () => {
+  it('uses app surfaces and prevents syntax colors from leaking into rendered headings', () => {
+    assert.ok(
+      GLOBALS_SOURCE.includes(
+        '[data-markdown-editor] .cm-editor {',
+      ) && GLOBALS_SOURCE.includes(
+        'background-color: var(--background);',
+      ),
+      'Markdown CodeMirror canvas must use the same --background token as its workspace card',
+    );
+    assert.ok(
+      GLOBALS_SOURCE.includes(
+        '[data-markdown-editor] .cm-lp-heading {',
+      ) && GLOBALS_SOURCE.includes(
+        'color: var(--foreground);',
+      ),
+      'rendered Markdown headings must use the shared foreground token',
+    );
+    assert.ok(
+      GLOBALS_SOURCE.includes(
+        '[data-markdown-editor] .cm-lp-heading *,',
+      ) && GLOBALS_SOURCE.includes(
+        'color: inherit;',
+      ),
+      'nested CodeMirror syntax spans must inherit the rendered heading color',
+    );
   });
 });
 

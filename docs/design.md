@@ -94,7 +94,7 @@ CodePilot 的 CSS token 分两层。本节是项目级原则，虽然 design.md 
 - `--platform-font-ui` —— chrome UI 字体（默认 Geist；macOS 切到 SF/system-ui 栈）
 - `--platform-radius-window` / `--platform-radius-control` —— 窗口和控件圆角
 - `--platform-hover-alpha` —— 壳层 hover 强度（默认 1，macOS 软化到 0.7）
-- `--platform-surface-sidebar` / `--platform-surface-bar` / `--platform-surface-popover` / `--platform-surface-hud` / `--platform-surface-tooltip` —— 壳层与浮层表面
+- `--platform-surface-window` / `--platform-surface-sidebar` / `--platform-surface-bar` / `--platform-surface-popover` / `--platform-surface-hud` / `--platform-surface-tooltip` —— 窗口、壳层与浮层表面
 - `--platform-border-subtle` —— chrome 边缘细线
 
 **用在**：窗口 chrome / 顶栏 / 侧栏 / Composer 外壳 / Popover / Menu / HUD / Tooltip 这类"壳层 + 浮层"。
@@ -167,7 +167,7 @@ CodePilot 的 CSS token 分两层。本节是项目级原则，虽然 design.md 
 **规则：**
 - **内容层永远不透明**。玻璃化内容会毁掉可读性和 artifact 保真；Dialog 正文 / 卡片 / 消息一律实色（`bg-background` / `bg-card` / `bg-popover`）。
 - **DOM 浮层只是 CSS 材质模拟**，不是真原生 vibrancy。Electron 的 `vibrancy` 是窗口级（`titleBarStyle: 'hiddenInset'` + `vibrancy: 'sidebar'`）；Radix popover / tooltip / RunCockpit 这些 DOM 面在 webview 里裁剪，不要宣称"原生 popover 行为"。
-- **平台差异一律走 `--platform-*` token，不在组件里写 `isMac` 分支**（见上方「平台 token」节）。darwin profile 把 `--platform-surface-bar` 设 `transparent`、`--platform-surface-sidebar` 设半透明，让 vibrancy 透上来；off-mac 这些 token 退回实色，同一份 DOM 直接当普通块渲染。
+- **平台差异一律走 `--platform-*` token，不在组件里写 `isMac` 分支**（见上方「平台 token」节）。darwin profile 把 `--platform-surface-bar` 设 `transparent`、`--platform-surface-sidebar` 设半透明，让 vibrancy 透上来；深色模式下 `--platform-surface-window` 必须用应用 `--background` 提供确定性的半透明暗色 tint，不能假设 macOS 原生 material 会跟随应用内主题。off-mac 这些 token 退回实色，同一份 DOM 直接当普通块渲染。
 - **顶栏保留拖动区 + 红绿灯安全间距**；嵌套按钮要标 `no-drag`。
 
 实现路径（实现者）：profile 由 `data-platform` / `data-platform-style`（anti-FOUC `<script>` 在 hydration 前盖到 `<html>`）驱动；token 在 `globals.css` 的 darwin profile 块（`--platform-surface-*`）；Electron 窗口在 `electron/main.ts`。

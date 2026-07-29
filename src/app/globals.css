@@ -273,6 +273,7 @@
      pinned these to specific files + lines). Phase 2 will route these
      surfaces through the tokens; before then, the tokens just exist
      and produce no diff. */
+  --platform-surface-window: var(--background);
   --platform-surface-sidebar: color-mix(in oklch, var(--sidebar) 80%, transparent);
   --platform-surface-bar: var(--background);
   --platform-surface-popover: var(--popover);
@@ -308,7 +309,8 @@
 }
 
 .dark {
-  /* Dark sidebar surface — same alpha treatment, dark base. */
+  /* Dark shell surfaces — same alpha treatment, dark product bases. */
+  --platform-surface-window: var(--background);
   --platform-surface-sidebar: color-mix(in oklch, var(--sidebar) 80%, transparent);
   --platform-surface-bar: var(--background);
   --platform-surface-popover: var(--popover);
@@ -362,6 +364,7 @@ html[data-platform="darwin"][data-shell="electron"][data-platform-style="auto"] 
      because the topbar IS meant to read as part of the gutter, not
      as a fourth floating card. Dark mode value is set under the
      `.dark` selector below. */
+  --platform-surface-window: transparent;
   --platform-surface-sidebar: color-mix(in oklch, white 58%, transparent);
   --platform-surface-bar: transparent;
   --platform-surface-popover: color-mix(in oklch, var(--popover) 82%, transparent);
@@ -383,12 +386,15 @@ html[data-platform="darwin"][data-shell="electron"][data-platform-style="auto"] 
   --platform-traffic-light-offset-y: 0px;
 }
 
-/* Round 28 — dark-mode tint for the floating sidebar fill. Mirrors
-   the light value (white 58% over vibrancy) inverted to a soft
-   black tint that darkens vibrancy locally so the sidebar still
-   reads as a separate surface against a dark window backdrop. */
+/* Dark-mode material must be deterministic even when macOS itself is using
+   a light appearance. Electron vibrancy is window-level and otherwise stays
+   light behind our transparent body, making the title bar unreadable.
+   The window tint keeps a small amount of material visible while anchoring
+   the whole shell to the app's dark product background. The sidebar then
+   receives its own stronger `--sidebar` tint so it still reads as a card. */
 html.dark[data-platform="darwin"][data-shell="electron"][data-platform-style="auto"] {
-  --platform-surface-sidebar: color-mix(in oklch, black 28%, transparent);
+  --platform-surface-window: color-mix(in oklch, var(--background) 82%, transparent);
+  --platform-surface-sidebar: color-mix(in oklch, var(--sidebar) 88%, transparent);
 }
 
 @layer base {
@@ -514,7 +520,7 @@ html.dark[data-platform="darwin"][data-shell="electron"][data-platform-style="au
   }
 
   html[data-platform="darwin"][data-shell="electron"][data-platform-style="auto"] body {
-    background-color: transparent;
+    background-color: var(--platform-surface-window);
   }
 
   /* Selection color — derives from primary */
@@ -708,6 +714,16 @@ html.dark[data-platform="darwin"][data-shell="electron"][data-platform-style="au
 [data-markdown-editor] .cm-gutters {
   display: none;
 }
+[data-markdown-editor] .cm-editor {
+  /*
+   * Markdown is a document/content surface, not a standalone code-theme
+   * canvas. Keep CodeMirror's syntax highlighting for the active source line,
+   * but pin the editor fill and base text to the same product tokens as the
+   * surrounding workspace/file-tree cards.
+   */
+  background-color: var(--background);
+  color: var(--foreground);
+}
 [data-markdown-editor] .cm-activeLine {
   background: transparent !important;
 }
@@ -723,15 +739,17 @@ html.dark[data-platform="darwin"][data-shell="electron"][data-platform-style="au
    */
   font-weight: inherit;
 }
-.cm-lp-heading {
+[data-markdown-editor] .cm-lp-heading {
+  color: var(--foreground);
   font-family: var(--font-sans), system-ui, sans-serif;
   font-weight: 600;
   letter-spacing: -0.015em;
   line-height: 1.35;
   text-decoration: none;
 }
-.cm-lp-heading *,
+[data-markdown-editor] .cm-lp-heading *,
 .cm-lp-strong * {
+  color: inherit;
   font-weight: inherit;
   text-decoration: inherit;
 }

@@ -76,6 +76,7 @@ test("globals.css declares the --platform-* token layer", () => {
     "--platform-radius-window",
     "--platform-radius-control",
     "--platform-hover-alpha",
+    "--platform-surface-window",
     "--platform-surface-sidebar",
     "--platform-surface-bar",
     "--platform-surface-popover",
@@ -140,4 +141,33 @@ test("globals.css does NOT shadow content-layer tokens inside the macOS profile"
       `macOS profile must NOT override content-layer token ${forbidden} (HIG: content stays opaque)`,
     );
   }
+});
+
+test("macOS dark profile tints the native material from product dark tokens", () => {
+  const darkMacBlockMatch = GLOBALS_SOURCE.match(
+    /html\.dark\[data-platform="darwin"\]\[data-shell="electron"\]\[data-platform-style="auto"\]\s*\{([^}]*)\}/,
+  );
+  ok(
+    darkMacBlockMatch,
+    "expected to find the dark macOS Electron profile block in globals.css",
+  );
+  const darkMacBlock = darkMacBlockMatch![1];
+  ok(
+    darkMacBlock.includes(
+      "--platform-surface-window: color-mix(in oklch, var(--background) 82%, transparent)",
+    ),
+    "dark macOS window tint must derive from --background so light native vibrancy cannot wash out the title bar",
+  );
+  ok(
+    darkMacBlock.includes(
+      "--platform-surface-sidebar: color-mix(in oklch, var(--sidebar) 88%, transparent)",
+    ),
+    "dark macOS sidebar tint must derive from --sidebar so the navigation card stays distinct",
+  );
+  ok(
+    GLOBALS_SOURCE.includes(
+      "background-color: var(--platform-surface-window)",
+    ),
+    "the macOS Electron body must consume the platform window tint token",
+  );
 });

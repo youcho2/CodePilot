@@ -1,8 +1,8 @@
 # Markdown Live Preview 统一样式 × 文件树 Explorer 化 × 文件类型图标
 
 > 创建时间：2026-07-29
-> 最后更新：2026-07-29
-> 状态：🚧 实现与 macOS 验收完成；发布矩阵仍待原生中文 IME 人工项与 Windows RC-2
+> 最后更新：2026-07-30
+> 状态：🚧 macOS 主功能、中文 IME、暗色选中态与深色主题 follow-up 均验收完成；仅余 Windows RC-2 发版门禁
 > 对应调研：
 > - [docs/research/markdown-editor-tiptap-evaluation.md](../../research/markdown-editor-tiptap-evaluation.md)（CodeMirror 选型依据）
 > - [docs/research/craft-agents-markdown-internals.md](../../research/craft-agents-markdown-internals.md)（渲染/编辑分栈佐证）
@@ -21,17 +21,19 @@
 
 | Phase | 内容 | 状态 | 价值形态 | 备注 |
 |-------|------|------|---------|------|
-| Phase 0 | 前置 POC（Live Preview 装饰核心 / trash 打包 smoke / 图标提取管线 + 视觉 POC / ContextMenu 行为） | 🚧 0.B/0.C/0.D ✅；0.A 仅剩原生 IME | C 基建 | production DOM 的活动行源码、输入、undo、滚动已验；macOS packaged Trash 可恢复；真正中文候选窗仍需人工 |
+| Phase 0 | 前置 POC（Live Preview 装饰核心 / trash 打包 smoke / 图标提取管线 + 视觉 POC / ContextMenu 行为） | ✅ 已完成 | C 基建 | production DOM 的活动行源码、输入、undo、滚动已验；用户实机确认中文 IME 正常；macOS packaged Trash 可恢复 |
 | Phase 1 | 中立 Markdown component contract + 删除 presentation 主题 + Export 脚手架解耦 | ✅ 已完成 | A 可见 | RC-5 / RC-8 targeted 28/28；全量 3850/3850 |
-| Phase 2 | Live Preview 接入（2a 行内 marks → 2b 最低渲染 parity）+ viewMode 收敛 | 🚧 代码与自动验收完成 | A 可见 | RC-6 / RC-11 ✅；RC-3 state/DOM/undo ✅，原生中文 IME 候选窗待人工 |
+| Phase 2 | Live Preview 接入（2a 行内 marks → 2b 最低渲染 parity）+ viewMode 收敛 | ✅ 已完成 | A 可见 | RC-3 / RC-6 / RC-11 ✅；Live Preview surface/heading 已对齐应用 background/foreground token |
 | Phase 3 | 文件树右键菜单 + 行内重命名 + 删除（file mutation transaction） | ✅ macOS 已完成 | A 可见 | RC-1 / RC-4 ✅；RC-2 保持为 Windows 发版 fail-closed 门禁 |
 | Phase 4 | FileTypeIcon（material-icon-theme 静态子集）+ 文件夹仅 chevron + 全名 tooltip | ✅ 已完成 | A 可见 | 固定 50 图标 + manifest/license；亮暗主题视觉 smoke 完成 |
-| Phase 5 | 回归、文档漂移修复、handover/insights 双文档、tech-debt 回写 | 🚧 审查修正已提交，待发布矩阵收口后归档 | C 基建 | `5d562a0c`；Claude 独立复跑 unit 3873/3873，Codex smoke 20/20；既有 build、macOS DMG/ZIP 全绿；不提前宣称 Windows ready |
+| Phase 5 | 回归、文档漂移修复、handover/insights 双文档、tech-debt 回写 | 🚧 macOS 范围完成，仅余 Windows 发版门禁 | C 基建 | 深色 follow-up targeted 17/17、full unit 3875/3875、Electron + browser 视觉核验通过；不提前宣称 Windows ready |
 
 **状态符号：** 📋 待开始 / 🚧 进行中 / ✅ 已完成 / ⏸ blocked / ❌ 放弃
 
 ## 决策日志
 
+- 2026-07-30 [深色主题 follow-up 修复 — Code complete / Tests pass / visual smoke passed] Markdown CodeMirror canvas 以高优先级内容层规则固定到 `--background` / `--foreground`，保留 One Dark 仅用于活动源码 token；`.cm-lp-heading` 及嵌套 syntax span 显式继承 `--foreground`，阻断红色 heading token 泄漏。macOS shell 新增 `--platform-surface-window`：亮色继续透明，深色以应用 `--background` 82% tint 覆盖窗口级 vibrancy；sidebar 以 `--sidebar` 88% 建立独立卡片层次，因此即使 macOS 系统处于亮色外观，应用内深色顶栏、外层玻璃与左侧卡片仍保持可读。未改 Electron 主进程或内容卡片透明度。targeted **17/17**、`npm run test` **3875/3875**；浏览器 computed style 显示 editor/workspace/fileTree 同为 `oklch(0.147 0.004 49.25)`，heading 与 child 同为 `oklch(0.985 0.001 106.423)`，console 无 error/warn；实际 Electron 整窗截图确认外层、顶栏和左侧卡片均已变深。
+- 2026-07-30 [用户实机验收 + 深色主题 signal] 用户确认原生中文 IME 输入与暗色 5% 选中态均正常，RC-3 人工项关闭。Codex 对运行中的 Electron 整窗截图复现四项深色回归：Markdown 编辑面为 One Dark 的 `rgb(40, 44, 52)`，未使用应用 `--background`；Live Preview 标题子 span 继承 One Dark 的 `rgb(224, 108, 117)` 红色 token；macOS 外层透明窗口 / 顶栏暴露浅色原生 vibrancy；最左侧 sidebar/card 的弱黑色透明叠层因此也偏亮。根因范围收敛为两组：`MarkdownEditor` 在暗色模式直接加载 `oneDark`，而 `.cm-lp-heading *` 未覆盖 syntax color；macOS shell 的透明 surface 未保证应用暗色主题与 native material 的对比度。修复需让 Markdown Live Preview 使用应用 surface/foreground token，并为 macOS dark shell 提供确定性深色 tint（若改用 Electron `nativeTheme` 同步，按 ElectronMain guardrail 做 packaged 回归）。这四项重新打开 Phase 2/5，不随本轮既有自动测试结果视为通过。
 - 2026-07-29 [Claude 审查修正闭环 — `5d562a0c`] Codex 逐项实证复核后关闭 2 个 P1 与 4 个 P2：ContextMenu rename 使用 `onCloseAutoFocus` + 延迟聚焦完成菜单到行内输入的焦点交接；会话 rename/delete 不再阻止非受控菜单关闭，也不再把 Radix event 强转 React MouseEvent；行内输入右键交还 Electron 原生编辑菜单；CodeMirror 补回搜索/补全/括号等非视觉 editing extensions；controlled 外部值同步用 annotation 触发 block/inline widget 重建；新建 Markdown 默认只选择文件名 stem。同期补齐 Setext、删除线、有序 Checklist、checkbox 可访问性与 Dialog 关闭动画标题稳定性。Codex 真实 E2E **3/3** 覆盖文件树重命名、会话菜单关闭、quiet refresh Checklist，并完成完整 smoke **20/20**；Claude 随后独立复跑 unit **3873/3873** 并逐条核验实现，结论为六项 P1/P2 全部正确。菜单生命周期规则同步写入 `docs/design.md`。剩余非阻塞 P3（widget tooltip i18n、文件名 `/` 语义提示、更多暗色选中态实机档位）保留为归档前体验复核项，不混作本轮 blocker 已关闭。
 - 2026-07-29 [Codex 直接实现 Phase 2–5] 未启动 Claude/loop。`.md/.mdx` 收敛到单一 CodeMirror Live Preview；inactive inline/block 使用官方 decoration/widget，图片、表格、代码 fence、Mermaid、KaTeX 达到 RC-11，active block 显示无损源码。输入期间若仍在同一活动行，只 map 现有 decoration；换行、selection block 或 viewport 变化才重建，避免逐字符重扫可见语法树。旧 Preview Tab 与 presentation 主题入口已移除，autosave/Cmd+S/冲突/`loadedPath` 事实源链保留。
 - 2026-07-29 [RC-6 performance] 固定 seed 夹具为 **117,929 bytes / 200 headings / 50 fences / 20 tables**。darwin arm64 production server 同机基线（纯文本）p95 frame **18.3ms**、input **56ms**；Live Preview 最终 p95 frame **16.8ms**、max **17.7ms**、>100ms **0**，31 字符 × 4 event entries 的 input p95/max **48ms**，通过预算。Chrome DevTools connector 能完成 trace/observer 采样，但拒绝把 raw trace 写入已配置 workspace，故本次只登记可复现脚本与数值，不伪造 trace 路径。
@@ -65,7 +67,7 @@
 **用户可见变化：** 无（POC 产物在 `docs/research/phase-0-pocs/`，图标视觉 POC 出截图供用户裁决确认）。
 **本阶段不做：** 不保留任何生产/debug 路由或临时菜单入口；不装运行时依赖（material-icon-theme 仅 devDependency，且待 0.C 结论后再装）。POC 为验证可以在专用 worktree 暂时加入 harness，但 Phase 0 结束前必须删除临时入口并由 RC-12 证明生产构建不可达。
 
-- **0.A Live Preview 装饰核心 POC** 🚧 **partial（Codex 重做）**：纯 `src/__tests__` state harness 已验证标题/粗斜体/行内码/链接 replace+mark、active reveal、半开 visible range、atomicRanges provider、IME freeze/map/空 compositionend rebuild、undo history 与外部 value 最小 diff/selection mapping；11/11 targeted + tsc 通过，零生产 importer。真实 DOM 点击/方向键/选择/删除和真机中文 IME 候选框仍待补，完成前不标 ✅。结论见 [research/phase-0-pocs/0.A](../../research/phase-0-pocs/0.A-live-preview-decoration-core.md)。
+- **0.A Live Preview 装饰核心 POC** ✅ **完成**：纯 `src/__tests__` state harness 已验证标题/粗斜体/行内码/链接 replace+mark、active reveal、半开 visible range、atomicRanges provider、IME freeze/map/空 compositionend rebuild、undo history 与外部 value 最小 diff/selection mapping；11/11 targeted + tsc 通过，零生产 importer。后续 production DOM 已验证点击、输入、选择、删除与 undo，用户于 2026-07-30 实机确认中文 IME 候选与输入正常。结论见 [research/phase-0-pocs/0.A](../../research/phase-0-pocs/0.A-live-preview-decoration-core.md)。
 - **0.B trash 打包 smoke（RC-1 前置）**：完整打包 macOS DMG，在产物内通过 `/api/files/delete` 真删一个文件，确认进入系统废纸篓且可恢复；观察 `macos-trash` 可执行位与 hardened runtime 行为。Windows NSIS 有环境则一并做（RC-2），无环境则记录为发版前 required check。
 - **0.C 图标提取管线 + 代表性视觉 POC**：脚本从 `material-icon-theme` npm 包（devDependency）提取代表性 12–15 个 SVG（md/ts/tsx/js/json/yaml/html/css/docker/env/package.json/tsconfig/通用回退），生成静态模块；文件树内亮/暗双主题截图各一张，供用户确认视觉气质后再扩到 30–50 个全量子集。同时产出 license manifest 样例（见 Phase 4）。
 - **0.D ContextMenu 行为 POC**：在隔离 harness 中使用 `import { ContextMenu } from 'radix-ui'`（聚合包已含 v2.2.16，无需装包）验证右键触发、键盘菜单键（Shift+F10）、焦点归还、子菜单、禁用项；正式 `src/components/ui/context-menu.tsx` 到 Phase 3 再创建，Phase 0 不留下 production wrapper。
@@ -137,7 +139,9 @@
 - [x] P2-6：新建 Markdown 只选中 stem，保留最终扩展名。
 - [x] 非阻塞 P3 顺手闭环：删除线、Setext、有序任务序号、checkbox `aria-disabled`、Dialog 标题闪回；frontmatter 保持 lossless source。
 - [x] 自动验证：Codex unit/pre-commit **3873/3873**、smoke **20/20**；Claude 独立复跑 unit **3873/3873**。
-- [ ] 人工发布矩阵：原生中文 IME 输入走查、暗色 5% 选中态目检。
+- [x] 人工发布矩阵：用户于 2026-07-30 确认原生中文 IME 输入正常。
+- [x] 人工发布矩阵：用户于 2026-07-30 确认暗色 5% 选中态正常。
+- [x] 深色主题 follow-up：Markdown surface 与应用卡片一致；Live Preview 标题改为 `--foreground`；macOS 外层玻璃 / 顶栏获得可读的深色 tint；最左侧 sidebar/card surface 对齐。
 - [ ] Windows RC-2：NSIS 产物废纸篓删除与恢复，未完成前不宣称 Windows ready。
 
 ## File Mutation Transaction（rename / delete 状态转换与失败回滚）
@@ -271,3 +275,6 @@ idle
 | 2026-07-29 | - | - | - | - | RC-1 signed packaged macOS Trash + restore | ✅ | DMG/ZIP + strict codesign；packaged server `:47823` API 返回 `trashed:true`；Finder Trash 列出 marker，恢复后内容完整。RC-2 未在 Windows 执行 |
 | 2026-07-29 | - | - | - | - | Phase 5 full regression | ✅ | targeted **16/16**；unit **3866/3866**；Playwright smoke **17/17**；typecheck/build/macOS pack 通过 |
 | 2026-07-29 | - | - | - | - | Claude review P1/P2 closure（`5d562a0c`）：菜单动作焦点/关闭、rename 输入右键、编辑器搜索、quiet refresh widget、新建文件 stem | ✅ | Codex targeted E2E **3/3**、unit/pre-commit **3873/3873**、smoke **20/20**；Claude 独立复跑 unit **3873/3873**；targeted ESLint **0 error** |
+| 2026-07-30 | - | - | - | - | RC-3 中文 IME + 暗色 5% 选中态人工验收 | ✅ | 用户在实际 Electron 客户端确认两项均无问题 |
+| 2026-07-30 | - | - | - | - | Electron 整窗深色主题视觉复核 | ❌ follow-up | 四项均复现；computed style 核验 Markdown editor `rgb(40,44,52)`、标题 syntax span `rgb(224,108,117)`，与应用 background/foreground token 不一致；macOS 外层 vibrancy 与 sidebar/card 偏亮 |
+| 2026-07-30 | - | - | - | - | 深色主题 follow-up 修复复验 | ✅ | targeted **17/17**、full unit **3875/3875**；editor/workspace/fileTree background token 完全一致，heading/child 均为 foreground；browser console clean；Electron 整窗确认外层玻璃、顶栏、左侧卡片深色可读 |

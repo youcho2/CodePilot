@@ -35,6 +35,7 @@ PreviewPanel.editContent ──→ MarkdownEditor / CodeMirror document
 - composition 期间冻结并 map 已有 decoration；composition end 再重建，装饰变化不进入 undo history。
 - 外部 value 同步走最小 diff transaction，并继续受 `loadedPath` 身份门禁保护。
 - 相对图片通过当前 session 的文件读取入口解析；Mermaid 使用 strict security；KaTeX `trust=false`。
+- Live Preview 属于内容层：CodeMirror canvas 必须使用 `--background` / `--foreground`，inactive 标题及其嵌套 syntax span 必须继承 `--foreground`；代码主题只能影响活动源码 token，不能覆盖文档 surface 或渲染后的标题颜色。
 
 实现入口：
 
@@ -88,7 +89,7 @@ rename/delete 不允许由文件树直接调用 API 后再各自 fire-and-forget
 
 本轮基线：targeted 16/16、unit 3866/3866、Playwright smoke 17/17。117,929-byte 固定夹具的 production Live Preview 滚动 p95 16.8ms、输入 p95 48ms、无 >100ms 卡顿帧。macOS Developer ID 签名 DMG/ZIP 中的 `/api/files/delete` 已验证真实进入 Finder Trash 且可以恢复。
 
-真正的中文 IME 候选框仍需人工发布矩阵验证；Windows Trash 必须在 Windows 打包环境复验，不能由 macOS 结果代替。`afterPack` 会把工作区 `better-sqlite3` 留在 Electron ABI，打包后继续运行 Node 命令前先执行 `npm rebuild better-sqlite3`。
+用户已于 2026-07-30 实机确认中文 IME 候选与输入正常；Windows Trash 仍必须在 Windows 打包环境复验，不能由 macOS 结果代替。`afterPack` 会把工作区 `better-sqlite3` 留在 Electron ABI，打包后继续运行 Node 命令前先执行 `npm rebuild better-sqlite3`。
 
 ## 修改检查表
 
