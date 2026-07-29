@@ -1,0 +1,242 @@
+# Markdown Live Preview 统一样式 × 文件树 Explorer 化 × 文件类型图标
+
+> 创建时间：2026-07-29
+> 最后更新：2026-07-29
+> 状态：📋 Phase 0 待开始（Codex 第二轮 plan review 修订已落盘，待形成可审计基线）
+> 对应调研：
+> - [docs/research/markdown-editor-tiptap-evaluation.md](../../research/markdown-editor-tiptap-evaluation.md)（CodeMirror 选型依据）
+> - [docs/research/craft-agents-markdown-internals.md](../../research/craft-agents-markdown-internals.md)（渲染/编辑分栈佐证）
+> - [docs/research/phase-0-pocs/0.4-codemirror-integration.md](../../research/phase-0-pocs/0.4-codemirror-integration.md)（注意：文内 `src/components/markdown/` 路径已 stale，实际实现在 `src/components/editor/`）
+> 前置迭代：[completed/markdown-artifact-overhaul.md](../completed/markdown-artifact-overhaul.md) + [completed/phase-4-markdown-artifact.md](../completed/phase-4-markdown-artifact.md)
+> 本计划同时闭环 markdown-artifact-overhaul §4.2（文件树右键菜单）的 plan/代码 drift。
+
+## 用户核心诉求
+
+1. **Markdown 预览删除多主题**（`default/article/report/brief/pitch` 五套 in-place 样式，非应用明暗主题），只保留一套 CodePilot 自有样式，且与聊天消息的 Markdown 样式一致（标题/段距/列表/引用/链接/行内码/代码块/表格）。
+2. **编辑、保存、预览合并为同一页面**，交互接近 Obsidian Live Preview：非活动行渲染、活动行显示原始标记、Markdown 原文永远是事实源；保留自动保存/显式保存/磁盘冲突检测/文件身份保护。
+3. **文件树补齐 VS Code Explorer 能力**：右键菜单、新建文件/文件夹、重命名、删除进系统废纸篓、文件夹只留展开箭头、文件同槽位显示类型图标、截断名可看全名。
+4. 拖放 / 多选 / 剪切粘贴 / 超大目录虚拟化：**本轮明确不做**（tech-debt #62 记录，未来与 Headless Tree 评估合并）。
+
+## 状态
+
+| Phase | 内容 | 状态 | 价值形态 | 备注 |
+|-------|------|------|---------|------|
+| Phase 0 | 前置 POC（Live Preview 装饰核心 / trash 打包 smoke / 图标提取管线 + 视觉 POC / ContextMenu 行为） | 📋 待开始 | C 基建 | 每项结论写回决策日志；RC-12 保证无临时入口遗留 |
+| Phase 1 | 中立 Markdown component contract + 删除 presentation 主题 + Export 脚手架解耦 | 📋 待开始 | A 可见 | 依赖 RC-5 / RC-8 |
+| Phase 2 | Live Preview 接入（2a 行内 marks → 2b 最低渲染 parity）+ viewMode 收敛 | 📋 待开始 | A 可见 | 依赖 Phase 0.A、RC-3 / RC-6 / RC-11 |
+| Phase 3 | 文件树右键菜单 + 行内重命名 + 删除（file mutation transaction） | 📋 待开始 | A 可见 | 依赖 Phase 0.B/0.D、RC-1 / RC-4；RC-2 是 Windows 发版门禁 |
+| Phase 4 | FileTypeIcon（material-icon-theme 静态子集）+ 文件夹仅 chevron + 全名 tooltip | 📋 待开始 | A 可见 | 依赖 Phase 0.C、RC-7 |
+| Phase 5 | 回归、文档漂移修复、handover/insights 双文档、tech-debt 回写 | 📋 待开始 | C 基建 | |
+
+**状态符号：** 📋 待开始 / 🚧 进行中 / ✅ 已完成 / ⏸ blocked / ❌ 放弃
+
+## 决策日志
+
+- 2026-07-29 [Codex 第二轮 plan review] 修订 canonical plan 的两个剩余 P1：
+  - **File mutation 跨 owner 协调**：状态图补成有明确 owner、participant、prepare/commit/rollback acknowledgement 的事务协议。`savingEdit` 只是 boolean，不能被 `await`；实现必须引入 `autosaveTimerRef` / `savePromiseRef`，并由 common-owner `FileMutationCoordinator` 在 API 前等待 PreviewPanel prepare、API 后等待各 participant commit ack，guard 才能解除。
+  - **最低渲染 parity 是出货门禁**：2a 只作为内部里程碑，不能在移除 Preview Tab 后单独作为本轮用户交付。图片、表格、代码围栏、Mermaid、数学公式达到非活动块渲染 parity（RC-11）后，RC-10 才允许移除临时 Preview Tab；否则必须保留 fallback 或取得用户明确降级同意。
+  - 同轮收口：Phase 0 POC 不得留下 production/debug 入口（RC-12）；RC-2 只作为 Windows 发版门禁；RC-6 改用 production server 基准；CC BY-SA 理由改为履约复杂度判断；rename 默认 `Enter` 提交、`Escape` / blur 取消，避免失焦误改名。
+- 2026-07-29 [审查轮] Claude Code 初版审查报告经 Codex review，verdict = fix_requested，7 项修订全部采纳并核验：
+  - **F2 降级（事实修正）**：初版称「trash 二进制缺 asarUnpack、生产包可能恒 `trash_unavailable`」不成立——`electron-builder.yml` 的 `extraResources` 已把 `.next/standalone/node_modules/` 整体复制到 ASAR 外，本地 standalone 产物含 `trash/lib/macos-trash` 与 `windows-trash.exe`。打包废纸篓 smoke 保留为 **required check（RC-1/RC-2）**，不再是 P0 已知缺陷。残余风险：可执行位保留、macOS hardened runtime 下 spawn 未签名捆绑二进制、Windows 执行策略——正是 smoke 要覆盖的。
+  - **F9 修正**：`@streamdown/code` **不是死依赖**——`src/components/ai-elements/reasoning.tsx:13` 直接 `import { code } from "@streamdown/code"`（2026-07-29 grep 复核）。不得删除。其余疑似死代码逐项复核后属实（`MarkdownEditor.lazy.tsx` 零消费者、`PresentationPicker.tsx` 仅剩注释掉的 import、`lucide-react` src 零 import 但为 apps/site + @lobehub/ui 传递需要），全部移入 tech-debt #60，不进本计划范围。
+  - **F3 扩写**：rename/delete 必须走完整 file mutation transaction 契约（见下方专节），含 autosave 暂停/等待 in-flight 写入、dirty 语义、失败回滚、迁移顺序、race test。
+  - **F5 改向**：共享样式抽**中立模块**，PreviewPanel 不得直接依赖 `chat/markdown-components`（见 Phase 1 设计）。
+- 2026-07-29 [用户裁决 ×3]（经 Codex 转达）：
+  1. **最终产品不保留可见 Preview Tab**——Live Preview 是唯一 Markdown 视图；内部 POC / 开发分支可临时保留 rendered Tab 作对照，出货前移除。
+  2. **文件图标采用 material-icon-theme**（MIT），先做代表性视觉 POC（Phase 0.C 出亮/暗双主题截图）再全量接入。
+  3. **Export 脚手架（presentation-templates.ts 的 4 套 HTML 模板 + 3 个 helper，tech-debt #18 保留物）本轮只解耦、不删除**——从 `MarkdownPresentationStyle` 类型依赖中剥离使其自洽，后续单独处理 tech-debt。
+- 2026-07-29 [图标数据源裁决] `@iconify-json/vscode-icons` **否决**：上游 vscode-icons README 明示图标画作为 CC BY-SA 4.0（非 MIT），品牌图标另受版权约束；Iconify 元数据标 MIT 与上游冲突，以上游为准。CC BY-SA 并不自动改变整个桌面应用的许可证，但其署名、再分发、衍生资产与品牌权利履约边界超出本轮希望承担的复杂度，因此不采用。`react-file-icon` 否决（16 种通用类别非技术栈风格、17 个月未发版）。继续 HugeIcons 手工映射否决（实测 free 包 5121 图标中无 Markdown/JSON/YAML/Docker/Go/Rust 专属图标，物理上做不到区分）。**采用 `material-icon-theme`**（MIT、2026-07 活跃、1250 SVG + 现成 `dist/material-icons.json` 文件名/后缀映射）。
+- 2026-07-29 [Live Preview 选型] 四个候选库全部否决（均经 GitHub API 核实真实存在）：`react-inline-markdown-editor`（10 stars、周下载 3、创建当天即停更）；`codemirror-markdown-hybrid`（8 stars、仓库无 LICENSE 文件与 npm 声明 MIT 冲突、捆绑 marked/katex/mermaid）；`markdown-inline-editor-vscode`（VS Code 扩展、零 CodeMirror 代码，仅交互参考）；Milkdown/Tiptap（既有调研已否决，ProseMirror 无虚拟化 + 往返有损）。**采用 CM6 官方 API 自研**：`syntaxTree` + `Decoration.replace/mark` + `EditorView.atomicRanges`，装饰仅在 `visibleRanges` 计算；可读源码参考 `kenforthewin/atomic-editor`（MIT，活跃）、`segphault/codemirror-rich-markdoc`（MIT）、`retronav/ixora`（Apache-2.0，休眠）。零新增运行时依赖（需补声明 phantom deps，见 Phase 2）。
+
+## 详细设计
+
+### Phase 0 — 前置 POC
+
+**用户可见变化：** 无（POC 产物在 `docs/research/phase-0-pocs/`，图标视觉 POC 出截图供用户裁决确认）。
+**本阶段不做：** 不保留任何生产/debug 路由或临时菜单入口；不装运行时依赖（material-icon-theme 仅 devDependency，且待 0.C 结论后再装）。POC 为验证可以在专用 worktree 暂时加入 harness，但 Phase 0 结束前必须删除临时入口并由 RC-12 证明生产构建不可达。
+
+- **0.A Live Preview 装饰核心 POC**：优先使用 test-only/隔离 harness 挂现有 `MarkdownEditor` + 最小 livePreview extension（标题前缀 / 粗斜体 / 行内码 / 链接的 replace decoration + atomicRanges + 选区所在节点还原原文）。若为手工验证临时增加 debug 路由，该路由只能存在于专用 POC worktree，Phase 0 结论落盘后立即删除，不得进入后续实现 commit。必测：中文 IME composition（`view.composing` 守卫下装饰不更新、无丢字/重复）、undo/redo（装饰切换不进 history）、外部 value 写回（quiet refresh 场景保光标不整段替换）。→ 结论决定 2a 范围。
+- **0.B trash 打包 smoke（RC-1 前置）**：完整打包 macOS DMG，在产物内通过 `/api/files/delete` 真删一个文件，确认进入系统废纸篓且可恢复；观察 `macos-trash` 可执行位与 hardened runtime 行为。Windows NSIS 有环境则一并做（RC-2），无环境则记录为发版前 required check。
+- **0.C 图标提取管线 + 代表性视觉 POC**：脚本从 `material-icon-theme` npm 包（devDependency）提取代表性 12–15 个 SVG（md/ts/tsx/js/json/yaml/html/css/docker/env/package.json/tsconfig/通用回退），生成静态模块；文件树内亮/暗双主题截图各一张，供用户确认视觉气质后再扩到 30–50 个全量子集。同时产出 license manifest 样例（见 Phase 4）。
+- **0.D ContextMenu 行为 POC**：在隔离 harness 中使用 `import { ContextMenu } from 'radix-ui'`（聚合包已含 v2.2.16，无需装包）验证右键触发、键盘菜单键（Shift+F10）、焦点归还、子菜单、禁用项；正式 `src/components/ui/context-menu.tsx` 到 Phase 3 再创建，Phase 0 不留下 production wrapper。
+
+### Phase 1 — 中立 Markdown contract + 删主题 + Export 解耦
+
+**用户可见变化：** Markdown 预览样式与聊天一致；Style Select 从预览头部消失。
+**验收入口：** 打开任一 `.md` 的 Preview 视图，与聊天中同内容消息逐块比对。
+**本阶段不做：** 不动 Live Preview（Phase 2）、不删 Export helpers（只解耦）。
+
+1. **中立共享模块**：新建 `src/components/markdown/markdown-contract.tsx`（目录同时兑现 POC 0.4 的原始路径设想）：
+   - `BASE_MARKDOWN_COMPONENTS` — 中立排版映射（h1-h4/p/ul/ol/li/blockquote/hr/a/strong/img/table 家族/inline code/fence 基座），从现 `chat/markdown-components.tsx` 提炼，**不含聊天上下文行为**。
+   - 上下文策略以覆盖层表达：`CHAT_MARKDOWN_COMPONENTS = { ...BASE, a: chatLink, code: chatCode }`（保留 fence preview action、本地路径 chip 等聊天策略，仍住 `chat/markdown-components.tsx`，改为从 contract 组装）；`PREVIEW_MARKDOWN_COMPONENTS = { ...BASE, a: previewLink（wikilink/外链策略）, code: previewCode（无聊天 action） }`。
+   - **PreviewPanel 只 import 中立模块与 preview 覆盖层，不 import `chat/markdown-components`**；`InlineMarkdownView` 同步。
+2. **删除 presentation 主题**：`PreviewPanel.tsx` 的 `PresentationStyleSelect`（:1380-1401）+ `presentationStyle` 传递链（:1032-1045,1302,1601,1712,1742,1870）；`usePanel.ts:71` / `workspace-sidebar.ts:44,304,404` 的 `presentationTemplate` 字段（**parse 必须容忍旧 localStorage Tab 数据中的残留字段**，back-compat 测试已有先例可循）；`globals.css:747-826` 的 `codepilot-md-template-*` 五套 CSS（`codepilot-md-body` 基座是否保留由 contract 落地方式定）；i18n `filePreview.presentation.*`。
+3. **Export 脚手架解耦（用户裁决 3）**：`presentation-templates.ts` 拆分——删除 `MarkdownPresentationStyle` / `MARKDOWN_PRESENTATION_STYLES` / `DEFAULT_MARKDOWN_PRESENTATION_STYLE`（in-place 半边）；`PresentationTemplateId`（4 模板）+ `renderPresentation` + 3 个 artifact helper 保持自洽（`presentationStyleToTemplateId` 改为无 style 入参或内联默认）。legacy inline-html 刷新路径（`PreviewPanel.tsx:914-946`）改走固定默认模板。tech-debt #18 补注「2026-07-29 已与 in-place 样式解耦」。
+4. **测试迁移**：`markdown-presentation-style.test.ts` 的 5 主题名单/默认值断言删除，序列化 back-compat 用例改写为「残留 presentationTemplate 字段被安全忽略」；`presentation-templates.test.ts` 保留 Export 半边断言。
+5. RC-5（聊天 vs 预览渲染一致性 fixture）+ RC-8（旧 Tab 数据 back-compat）+ `npm run test`。
+
+### Phase 2 — Live Preview 接入
+
+**用户可见变化：** `.md/.mdx` 打开即单页 Live Preview：非活动行渲染、光标行显原文；Edit/Preview 双 Tab 消失（**最终产品不保留 Preview Tab**——用户裁决 1；开发期可临时保留作对照，出货前移除并在决策日志登记移除 commit）。
+**本阶段不做：** wikilinks/callouts 渲染增强、`.txt` 仍走纯文本编辑。
+
+- **2a 行内 marks（内部里程碑，不单独作为本轮用户交付）**：标题前缀/粗斜体/行内码/链接/列表 bullet/引用条。表格、代码围栏、数学、Mermaid、frontmatter 在 2a 验证期可保持源码显示（CM lang-markdown 嵌套高亮天然可用；frontmatter 走已声明的 `@codemirror/lang-yaml`），但此时不得移除完整 Preview fallback。
+- **2b 最低渲染 parity（出货门禁）**：图片、表格、代码围栏、Mermaid、数学公式在非活动块必须呈现与统一 CodePilot Markdown contract 等价的可读渲染，活动块进入可编辑源码态；frontmatter 可继续作为元数据源码显示。每类独立验收，但 RC-11 全部通过前不得执行 RC-10。若某类无法在本轮安全实现，必须保留可访问的 Preview fallback，或由用户明确接受该类型降级，不能静默删除既有能力。
+- **机制保留**：autosave（1s 防抖）/ Cmd+S / 冲突横幅 / `loadedPath` 身份门禁全链路不动；装饰层不得影响 `editContent` 数据流。
+- **依赖声明**：补 `@codemirror/commands`（现 phantom，`MarkdownEditor.tsx:9`）、新增直接 import 的 `@codemirror/language`、`@lezer/markdown` 进 dependencies。
+- RC-3（IME/undo/光标）+ RC-6（性能预算）+ RC-11（最低渲染 parity）+ `npm run test`。
+
+### Phase 3 — 文件树右键菜单 + 重命名 + 删除
+
+**用户可见变化：** 树内右键出三类菜单（空白=新建；文件=重命名/删除/加入对话；文件夹=在此新建/重命名/删除）；F2 对选中行进入行内重命名；删除弹确认（文件夹显示子项数、文案为「移入系统回收站，可恢复」）。
+**本阶段不做：** 方向键树导航 / roving focus（F2 绑定在已选中行）；外部（Finder）改名/删除的感知（无 watcher，超范围）。
+
+- 新建 `src/components/ui/context-menu.tsx`（shadcn 风格 wrapper）；`ai-elements/file-tree.tsx` 行级接 trigger；`FileTreePanel.tsx` 承载动作与 API 调用。
+- **行内重命名协议**：Enter 提交 / Escape 还原 / blur 取消 / F2 进入；提交期间禁重入；API 错误（`already_exists`/`blocked_directory` 等）内联显示且保持编辑态不丢输入。若 POC 实证 VS Code 的 blur 行为且产品希望完全追随，再由决策日志显式改为 blur 提交，不能把失焦误改名当默认。
+- **删除**：AlertDialog 确认；黑名单项（`.env*` 等，服务端 `isBlockedPath` 必拒）菜单侧直接禁用删除项；`fileIO.errors.*` 全 14 个错误码补 en/zh 文案（现仅 3 个 newFileError 键）。
+- **一切 mutation 走下方 transaction 契约**；树刷新统一走 `refresh-file-tree` 事件路径（保留 expandedPaths），并把现有新建流程从 `treeReloadKey` remount（`FileTreePanel.tsx:166,327`，会丢展开态）迁到同一路径。
+- 后端零改动：四个 `/api/files/*` API 已齐备（rename/delete 现为零调用死代码，本阶段接活）。
+- RC-1（macOS 打包废纸篓 smoke 复验）+ RC-4（race test）+ `npm run test`。RC-2 不阻塞非 Windows 环境下的 Phase 3 收口，但保持为 Windows 构建/发版的 fail-closed 门禁。
+
+### Phase 4 — FileTypeIcon + 文件夹 chevron + tooltip
+
+**用户可见变化：** 文件夹行只剩展开箭头；文件行同槽位显示类型图标（`.md/.ts/.html/package.json/Dockerfile/.env` 等可区分）；截断行 hover 可见完整相对路径。
+**本阶段不做：** 不打包 material-icon-theme 全集、不联网 Iconify API、不改 SemanticIcon 既有 alias。
+
+- **构建期提取**：`scripts/generate-file-type-icons.mjs` 从 `material-icon-theme`（devDependency）提取 30–50 个 SVG → 生成 `src/components/ui/file-type-icons.generated.tsx` + **license manifest**（`file-type-icons.manifest.json`：每图标的源包名/版本/源文件/上游仓库 URL/MIT 许可声明 + 生成脚本版本），MIT LICENSE 全文随 manifest 存放。
+- **`FileTypeIcon` 单一入口**：解析优先级 = 完整文件名（package.json/tsconfig.json/Dockerfile/Makefile/.env*）→ 复合后缀（`.d.ts`/`.test.ts`）→ 普通后缀 → 通用回退；对照 `material-icon-theme` 自带 `dist/material-icons.json` 校准映射。
+- **lint import 边界**：`eslint.config.mjs` 新增 no-restricted-imports——`material-icon-theme` 仅允许生成脚本引用；`file-type-icons.generated` 仅允许 `FileTypeIcon` 引用。（现有 lint 只 ban lucide/Phosphor，对新图标源无约束力，必须新增规则而非依赖注释约定。）
+- **品牌/商标免责声明**：manifest 与 `docs/handover/icon-system.md` 受控例外条款中写明——图标中的第三方品牌标识（TypeScript/Docker 等 logo）仍受各自商标条款约束，仅作文件类型指示用途，非品牌背书。
+- **树行改动**：`ai-elements/file-tree.tsx:199-213` 文件夹去 `folder/folder_open` 图标只留 CaretRight；`:304` 文件默认图标换 `FileTypeIcon`；`FileTreeName`（:339-347）加 `title`（相对路径，原生 title 而非每行挂 Radix Tooltip——树行数量大）。
+- RC-7（manifest + 亮/暗截图验收）+ `npm run test`。
+
+### Phase 5 — 回归与文档
+
+- 全量 `npm run test` + `test:smoke`；打包产物回归（RC-1/RC-2 终验）。
+- **文档漂移修复（docs-only commit）**：POC 0.4 文内路径加 stale 注记；`insights/icon-system.md:41` 的 error/warn 口径对齐 `eslint.config.mjs:118`；`FileTree.tsx:264` 注释事件名改 `refresh-file-tree`；`markdown-artifact-overhaul.md` §4.2 加 supersede 指针指向本计划。
+- handover + insights 双文档（互链）：`docs/handover/markdown-live-preview-file-tree.md` + `docs/insights/markdown-live-preview-file-tree.md`；`icon-system.md` 受控例外条款。
+- tech-debt 回写：#18 补注解耦；#60/#61/#62 状态核对（见 tracker）；本计划移 `completed/`。
+
+## File Mutation Transaction（rename / delete 状态转换与失败回滚）
+
+所有由 CodePilot UI 发起的 rename/delete 必须走此契约。目标：**任何时序下旧路径不被 autosave 复活、失败后 UI/state 完整回到事务前**。
+
+### 协调所有权与 participant 协议
+
+- 在 `AppShell` 与 Workspace Sidebar、PreviewPanel、FileTree 都可访问的共同上层建立 `FileMutationCoordinator`（可由独立 `FileMutationContext` 承载，provider 必须位于这些消费者的共同祖先）。文件树不得直接“先调 API、再各处 fire-and-forget setState”；所有 rename/delete 只调用 coordinator 暴露的 `runFileMutation(request)`。
+- coordinator 为每次操作生成 `transactionId`，并支持 PreviewPanel 注册可选 participant：
+  - `matches(targetPath, kind)`：当前 editor 是否命中文件或目录子树。
+  - `prepare(transaction)`：同步写入 ref 级 guard，取消 `autosaveTimerRef`，等待 `savePromiseRef` 中已经发出的保存；保存失败则 prepare 失败并阻止文件 mutation。返回事务前 editor snapshot。
+  - `commit(transaction)`：先同步更新用于写入门禁的 path refs，再提交 `loadedPath` / dirty-buffer React state；在 `useLayoutEffect` 确认新 path anchor 已生效后 resolve acknowledgement。
+  - `rollback(transaction, snapshot)`：恢复 snapshot 并解除 guard；API 失败前不得提交任何 path state，因此 rollback 主要负责恢复 autosave 调度和 UI 编辑态。
+- `PreviewPanel` 必须把现有 effect 内部的匿名 autosave timer 改成可取消的 `autosaveTimerRef`；`handleSaveEdit` 必须把当前保存 Promise 写入 `savePromiseRef`，不能把 boolean `savingEdit` 当成可等待对象。guard 同时检查 transactionId 与目标路径/目录子树，防止 stale closure 越过门禁。
+- Workspace Sidebar 以单个 reducer action 提交 rename/delete：一次性更新 Tab `id/key/filePath/title`、activeTabId 和持久化数据；AppShell 在同一 coordinator commit 中更新 `previewSource`；FileTree 通过带 `transactionId/oldPath/newPath/kind` 的 commit 事件更新 `expandedPaths` / `selectedFolderPath`。各 participant 回 ack 前 guard 不解除。
+- 没有挂载 PreviewPanel 或当前 editor 不命中 mutation 子树时，prepare 视为立即成功；目录 rename/delete 必须用路径边界安全的 descendant 判断，不能用裸 `startsWith`。
+
+```
+idle
+ └─ 用户触发 rename/delete
+     ↓
+[1] preparing —— 暂停写入
+     · coordinator 生成 transactionId，调用所有 matching participant.prepare()
+     · PreviewPanel 同步设置 ref 级 mutation guard（autosave effect 与 handleSaveEdit 首行均检查）
+     · clearTimeout(autosaveTimerRef) 取消 pending 的 1s 防抖 autosave
+     · await savePromiseRef 中已在飞行的保存；失败则停止 mutation 并进入 [R]
+     ↓
+[2] dirty 语义分支
+     · rename + dirty：保留 editContent 缓冲，不向旧路径 flush；成功后缓冲整体迁移到新路径（dirty 状态延续，savedContent 不变）
+     · delete + dirty：确认对话框必须显式声明「有未保存修改，删除将丢弃」；用户取消 → 直接进 [5] 恢复，状态零变更
+     · 干净缓冲：直接进 [3]
+     ↓
+[3] executing —— 调 /api/files/rename | /api/files/delete
+     · 失败（任何 FileIOError / 网络错误）→ [R] 回滚
+     ↓
+[4] migrating —— 仅在 API 成功后执行，顺序固定：
+     a. PreviewPanel participant.commit：先改 path refs，再提交 loadedPath / dirty buffer 迁移
+     b. AppShell：previewSource filePath 重写（含文件夹 rename 后代）/ setPreviewSource(null)
+     c. Workspace Sidebar：单 reducer action 原子迁移 tabs（id/key/filePath/title/activeTabId/localStorage）/ close affected tabs
+     d. FileTree commit 事件：expandedPaths 前缀重写 / 子树移除；selectedFolderPath 同规则
+     e. 等待 PreviewPanel layout-effect ack 与其他 participant commit ack
+     f. 派发 refresh-file-tree 事件（保留已迁移的展开态）
+     ↓
+[5] resuming —— 清除 mutationInFlight guard，恢复 autosave 调度
+     · rename 后首次 autosave 前置断言：loadedPath === previewSource.filePath === 新路径，否则拒绝写入（沿用既有 loadedPath 门禁）
+     ↓
+idle
+
+[R] rolled-back（prepare / executing 失败时）：
+     · coordinator 调用 participant.rollback(snapshot)；此前未做 path state 迁移（迁移只发生在 [4]），所以 editContent/loadedPath/tabs 保持事务前原值
+     · prepare 阶段的 in-flight save 若失败，文件 mutation 不执行；保留原路径与 dirty 状态并呈现保存错误
+     · rename：行内输入框保持编辑态并内联显示错误码文案，不丢用户输入
+     · delete：toast 显示错误（trash_unavailable 等），文件与 Tab 均不动
+```
+
+**Race test（RC-4，fake timers + coordinator harness）必须覆盖：**
+1. dirty 缓冲 + 防抖计时到 500ms 时启动 rename 事务 → 断言旧路径在事务开始后零写入、后续保存只落新路径、旧路径未被重建。
+2. autosave 写入已在飞行（fetch 未返回）时启动事务 → 断言事务等待写入完成后才执行 rename，最终新路径内容 = 飞行写入的内容。
+3. delete + dirty 确认后 → 断言旧路径无任何后续写入（含防抖尾巴），Tab 关闭、previewSource 清空。
+4. 事务 API 失败 → 断言 guard 释放后 autosave 恢复且仍写旧路径（文件未动，属正确行为）。
+5. 人为延迟 React commit/layout-effect acknowledgement → ack 前 autosave guard 始终有效；全部 path owner 对齐后才恢复写入。
+6. 无活动 PreviewPanel时执行文件夹 rename/delete → coordinator 不等待不存在的 participant，tabs/expandedPaths 仍按路径边界正确迁移，且相似前缀目录（`foo` / `foobar`）不被误伤。
+
+## Required Checks（结构化，均为对应 Phase 的出货闸门）
+
+| ID | 检查 | 方法 | 闸门 |
+|----|------|------|------|
+| RC-1 | macOS DMG 打包产物内真实删除进废纸篓且可恢复 | 打包 + 手工操作 + 废纸篓截图 | Phase 0.B 初验；Phase 3 出货复验 |
+| RC-2 | Windows NSIS 产物同上（windows-trash.exe 路径） | Windows 构建/发版前必须执行；没有 Windows 证据时不得宣称 Windows ready | Windows 构建/发版，非 Phase 3 的 macOS 收口门禁 |
+| RC-3 | 中文 IME / undo-redo / 光标选区在 Live Preview 下无回归 | POC 手工清单 + CM state 层单测（装饰不进 history） | Phase 2 |
+| RC-4 | file mutation race/coordinator test 套件全绿（上节 6 条） | `tsx --test` fake timers + participant harness | Phase 3 |
+| RC-5 | 聊天 vs 文件预览渲染一致性 | 固定 fixture 双端渲染，逐块（h/p/list/quote/link/inline-code/fence/table）DOM 断言或截图比对 | Phase 1 |
+| RC-6 | Live Preview 性能预算达标 | 见下方「性能验收」可复现规程 | Phase 2 |
+| RC-7 | 图标 license manifest 完整 + 亮/暗双主题截图验收 | manifest 字段核对 + 截图入 Smoke Ledger | Phase 4 |
+| RC-8 | 旧 localStorage Tab 数据（含 presentationTemplate 残留）反序列化零异常 | workspace-sidebar back-compat 单测 | Phase 1 |
+| RC-9 | 每 Phase 结束 `npm run test` 全绿；Phase 3/5 追加 `test:smoke` | CI/本地 | 各 Phase |
+| RC-10 | RC-11 通过后，移除开发期临时 Preview Tab（用户裁决 1），移除 commit 登记决策日志 | code review + 决策日志；不得早于 RC-11 | Phase 2 收尾 |
+| RC-11 | Live Preview 最低渲染 parity：图片/表格/代码围栏/Mermaid/数学公式非活动块可读渲染，活动块可回到无损源码编辑 | 固定 fixture + 逐类型 DOM/视觉 smoke；与现有 Preview 反例对照 | Phase 2，RC-10 前置 |
+| RC-12 | Phase 0 不遗留临时 debug route、POC menu 或 production 可达入口 | diff/route manifest 检查 + production build；POC 结论与截图保留在 research/Smoke Ledger | Phase 0 收尾 |
+
+## 性能验收（可复现规程，替代裸 “p95 < 16ms”）
+
+- **Fixture（入库）**：`src/__tests__/fixtures/md/live-preview-100k.md`，由带固定 seed 的生成脚本产出并提交：≈10 万字符、200 标题、50 个 ≤80 行代码围栏、20 表格、中英混排。
+- **参考设备与环境**：当前开发机（darwin arm64 / Apple Silicon）。主基准使用 `npm run build` 后的 production server（`npm run start`），关闭 HMR 与 React/Next 开发期检查；Phase 2 收尾再用打包或 production Electron renderer 做一次同场景确认。不得用 `npm run dev` 的 trace 作为性能门禁证据。
+- **采样方法**：chrome-devtools Performance trace 覆盖两个脚本化场景——① 固定节奏 PageDown 连续滚动 10s；② 文档中部连续输入 30 字符（含一次中文 IME 组合）。从 trace 提取帧时长与输入延迟。
+- **基线**：先在**未启用 Live Preview** 的现有编辑器上对同一 fixture 走完全相同规程，记录基线 B（p95 帧时长、p95 输入延迟），写入 Smoke Ledger。
+- **预算**：启用 Live Preview 后，p95 帧时长 ≤ max(16.7ms, B×1.2)；p95 输入延迟 ≤ max(B×1.2, 绝对上限 50ms)；trace 内无单帧 >100ms 的连续卡顿簇。
+- **回归幅度**：后续改动允许相对已登记结果 ±20%，超出即回归，需修复或在决策日志明确接受理由。
+- **证据**：trace 文件路径 + 数值登记 Smoke Ledger。
+
+## 测试与验收矩阵
+
+| 场景 | 方法 | 通过标准 |
+|------|------|---------|
+| 中文 IME | POC 清单 + 手工（RC-3） | composition 期间装饰冻结；无丢字/重复；候选框不跳位 |
+| Undo/Redo | CM state 单测 | 装饰切换不进 history；外部写回不清 undo 栈 |
+| 光标/选区 | 手工 + targeted test | 点击渲染行光标落语义位置；atomicRanges 下跨标记选区/删除整体行为正确 |
+| 长文档 | RC-6 规程 | 预算内 |
+| 图片/表格/代码块/Mermaid/数学 | 2a 内部源码高亮断言；RC-11 固定 fixture + DOM/视觉 smoke | 出货时活动块还原无损原文；非活动块渲染正确，未达 parity 不移除 Preview fallback |
+| 自动保存/磁盘冲突 | 既有 smoke + 反例：Live Preview 下 dirty 时外部改文件 | 冲突横幅出现、不静默覆盖；loadedPath 门禁回归 |
+| 文件/文件夹重命名 | UI smoke + API 单测（已有） | Enter 提交、Esc/blur 取消、F2 进入；错误内联不丢输入 |
+| 重命名目录后 Tab 迁移 | workspace-sidebar 迁移纯函数单测 | 后代 Tab id/key/filePath/title 全改写；localStorage 往返一致；expandedPaths 前缀迁移 |
+| 删除活动文件 | RC-4 race test + UI smoke | Tab 关闭、previewSource 清空、selectedFolderPath 清理、dirty 不复活文件 |
+| F2/Enter/Esc + 右键菜单 | 手工 + smoke | 键盘菜单键可开菜单；焦点归还触发行；黑名单项禁用 |
+| 同名不同后缀图标 | FileTypeIcon 解析单测 + 视觉 | `a.md`/`a.ts`/`a.html` 互异；`package.json` 命中特殊名 |
+| 长文件名截断 + tooltip | 视觉检查 | truncate 行 hover 可见完整相对路径 |
+| macOS/Windows 废纸篓 | RC-1/RC-2 | 进系统废纸篓可恢复；trash 失败明确报错且磁盘文件不动 |
+
+## 明确不做（本轮）
+
+- 拖放 / 多选 / 剪切粘贴 / 超大目录虚拟化（tech-debt #62；届时与 Headless Tree 评估合并）
+- 方向键树导航 / roving focus 全套
+- 外部（Finder/终端）重命名删除的感知（无 watcher）
+- wikilinks/callouts 的 Live Preview 增强渲染
+- Export pipeline 重启（tech-debt #18，仅解耦）
+- `.xlsx`、URL 预览等既有 defer 项
+
+## Smoke Ledger（真实凭据 / UI / E2E 验证记录）
+
+> 跑了真实 smoke 后必须在这里登记一行。RC-1/RC-2/RC-6/RC-7 的证据（截图 / trace 路径）也登记于此。
+
+| Date | Runtime | Provider | Model | 凭据形态 | 场景 | Result | Evidence |
+|------|---------|----------|-------|---------|------|--------|----------|
+| _示例_ | - | - | - | - | RC-1 DMG 废纸篓 smoke | - | 截图路径 |
