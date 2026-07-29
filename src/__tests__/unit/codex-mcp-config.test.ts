@@ -169,7 +169,9 @@ describe('sameRealPath (runtime gate ↔ route authorization)', () => {
       fs.symlinkSync(real, link, process.platform === 'win32' ? 'junction' : undefined);
       assert.equal(sameRealPath(link, real), true);
     } finally {
-      fs.rmSync(link, { force: true });
+      // unlinkSync removes the symlink itself on every supported Node version;
+      // rmSync may follow a directory link far enough to reject it with EISDIR.
+      try { fs.unlinkSync(link); } catch { /* best-effort cleanup */ }
       fs.rmSync(real, { recursive: true, force: true });
     }
   });

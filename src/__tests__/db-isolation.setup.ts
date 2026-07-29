@@ -25,12 +25,14 @@
  * `~/Library/Application Support/...` (same trick as the per-file
  * `_codex-media-import-env.ts`; this generalises it to the whole suite).
  *
- * Guarded on `!CLAUDE_GUI_DATA_DIR` so a file that sets its own test root
- * first (e.g. codex-media-import) or an explicit CI override still wins.
+ * A non-default `CLAUDE_GUI_DATA_DIR` still wins (for example a file-specific
+ * test root or CI override). An unset value or an explicit ~/.codepilot value
+ * is replaced, because both resolve to the user's real database.
  */
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { isDefaultCodePilotDataDir } from '../lib/db-test-safety';
 
 // Worker-wide backstop against real-DB leakage. Even if a test re-points
 // CLAUDE_GUI_DATA_DIR to its own temp dir in beforeEach WITHOUT pre-touching
@@ -45,7 +47,11 @@ process.env.CODEPILOT_PROVIDER_SECRET_KEY ??= Buffer.alloc(32, 0x42).toString('b
 process.env.CODEPILOT_PROVIDER_SECRET_BACKEND ??= 'test';
 process.env.CODEPILOT_PROVIDER_SECRET_LEVEL ??= 'test';
 
-if (!process.env.CLAUDE_GUI_DATA_DIR) {
+// The packaged/dev launcher may explicitly export CLAUDE_GUI_DATA_DIR as the
+// normal ~/.codepilot path. That is still the REAL user DB, so tests must
+// replace it just like an unset value. Only a genuinely non-default override
+// (for example an isolated CI directory) is safe to preserve.
+if (isDefaultCodePilotDataDir(process.env.CLAUDE_GUI_DATA_DIR, os.homedir())) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'codepilot-unit-db-'));
   process.env.CLAUDE_GUI_DATA_DIR = root;
   try {

@@ -39,6 +39,12 @@ import {
 import type { TitleOrigin } from './conversation-title';
 import { normalizePermissionProfile, type SessionPermissionProfile } from './permission/profile';
 import type { DelegatedAgentResult, SubagentStatusError } from './subagent-status';
+import {
+  DEFAULT_PANEL,
+  DEFAULT_PANEL_MIGRATION_KEY,
+  shouldResetLegacyDefaultPanel,
+} from './default-panel';
+import { shouldRefuseRealDbFromTest } from './db-test-safety';
 
 const dataDir = process.env.CLAUDE_GUI_DATA_DIR || path.join(os.homedir(), '.codepilot');
 const DB_PATH = path.join(dataDir, 'codepilot.db');
@@ -87,6 +93,32 @@ function getDatabaseProcessState(): DatabaseProcessState {
   return state;
 }
 
+// Fail-closed guard against test fixtures leaking into the user's REAL DB.
+//
+// Root cause of the incident (2026-07-29): running a unit-test file directly
+// (`tsx --test src/__tests__/unit/foo.test.ts`) WITHOUT the
+// `--import ./src/__tests__/db-isolation.setup.ts` preload leaves
+// CLAUDE_GUI_DATA_DIR unset, so `dataDir` resolves to the real ~/.codepilot and
+// the test's ~100 fixture sessions get written into the user's real DB — they
+// then show up in the sidebar as "mystery projects". The isolation setup fixes
+// the happy path, but only when the preload is actually used. This guard makes
+// the unsafe path impossible: a test runner pointed at the real DB throws
+// instead of writing. Only `npm run test:unit` (which carries the --import
+// preload → dataDir repointed to a temp dir) passes. Production has no test
+// runner in argv/env, so it is never affected.
+function assertNotTestRunnerOnRealDb(): void {
+  const realDataDir = path.join(os.homedir(), '.codepilot');
+  if (shouldRefuseRealDbFromTest(dataDir, os.homedir(), process)) {
+    throw new Error(
+      '[db] Refusing to open the REAL database (' +
+        realDataDir +
+        ') from a test runner. Test fixtures would leak into the user\'s sidebar. ' +
+        'Run unit tests via `npm run test:unit`, or pass ' +
+        '`--import ./src/__tests__/db-isolation.setup.ts` so CLAUDE_GUI_DATA_DIR is repointed to an isolated temp dir.',
+    );
+  }
+}
+
 // File-based lock to prevent concurrent migration from multiple Next.js build workers.
 // Workers will retry for up to 10 seconds before giving up.
 function withMigrationLock(dbInstance: Database.Database, fn: (db: Database.Database) => void): void {
@@ -127,6 +159,7 @@ export function getDb(): Database.Database {
   const state = getDatabaseProcessState();
   let openedDatabase = false;
   if (!state.db) {
+    assertNotTestRunnerOnRealDb();
     const dir = path.dirname(DB_PATH);
     if (!fs.existsSync(dir)) {
       fs.mkdirSync(dir, { recursive: true });
@@ -1251,10 +1284,32 @@ function migrateDb(db: Database.Database): void {
   // gracefully ignores missing runs. NEVER read by prompt builder.
   safeAddColumn(db, "ALTER TABLE messages ADD COLUMN task_run_id TEXT");
 
-  // Migration: set default_panel to 'file_tree' only if not already configured
-  db.prepare(
-    "INSERT OR IGNORE INTO settings (key, value) VALUES ('default_panel', 'file_tree')"
-  ).run();
+  // 2026-07-29: new conversations should start without an auto-opened panel.
+  // Older builds seeded `file_tree` for every database, so that value cannot
+  // be distinguished from an explicit user choice. Reset it once, record the
+  // migration atomically, and then preserve every later user choice (including
+  // choosing `file_tree` again).
+  const migrateDefaultPanel = db.transaction(() => {
+    const migrated = db.prepare(
+      'SELECT value FROM settings WHERE key = ?'
+    ).get(DEFAULT_PANEL_MIGRATION_KEY) as { value: string } | undefined;
+    const current = db.prepare(
+      "SELECT value FROM settings WHERE key = 'default_panel'"
+    ).get() as { value: string } | undefined;
+    const shouldReset = shouldResetLegacyDefaultPanel(current?.value, migrated?.value);
+    if (migrated) return;
+
+    if (shouldReset) {
+      db.prepare(
+        "INSERT INTO settings (key, value) VALUES ('default_panel', ?) " +
+        'ON CONFLICT(key) DO UPDATE SET value = excluded.value'
+      ).run(DEFAULT_PANEL);
+    }
+    db.prepare(
+      'INSERT INTO settings (key, value) VALUES (?, ?)'
+    ).run(DEFAULT_PANEL_MIGRATION_KEY, '1');
+  });
+  migrateDefaultPanel();
 
   // Migration (Phase 2C): backfill `global_default_mode` for existing rows.
   // Rule: if both pinned values are present at migration time → 'pinned'
