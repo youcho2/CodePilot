@@ -108,8 +108,19 @@ test.describe('Card ResizeGutter geometry @smoke', () => {
   test('chat detail: multiple gutters stay centered between the correct card pairs @smoke', async ({
     page,
   }) => {
+    // New conversations now intentionally start with both right rails closed.
+    // This geometry case needs a multi-card layout, so request the Git tab
+    // explicitly instead of relying on the removed auto-open default.
+    await page.route('**/api/settings/app', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ settings: { default_panel: 'git' } }),
+      });
+    });
+
     // A chat-detail route renders the multi-card row. The workspace
-    // sidebar surfaces here (via a post-mount effect), so the row holds
+    // sidebar surfaces here via the explicit Git default above, so the row holds
     // at least sidebar | main | workspace → ≥2 gutters across two
     // different card pairs (sidebar↔main and main↔workspace). The
     // session id need not resolve to real data; the cards are layout-

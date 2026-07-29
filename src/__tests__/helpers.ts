@@ -1,4 +1,5 @@
 import { type Page, type Locator, expect } from '@playwright/test';
+import { ANNOUNCEMENT_KEY } from '../components/layout/feature-announcement-key';
 
 // ---------------------------------------------------------------------------
 // Navigation helpers
@@ -12,6 +13,12 @@ import { type Page, type Locator, expect } from '@playwright/test';
  * version is published upstream.
  */
 async function disableUpdateDialog(page: Page) {
+  // The release announcement is another global modal that can cover the
+  // interaction being tested. Announcement behavior has dedicated coverage;
+  // shared navigation helpers should start from the normal dismissed state.
+  await page.addInitScript((key) => {
+    localStorage.setItem(key, '1');
+  }, ANNOUNCEMENT_KEY);
   await page.route('**/api/app/updates**', async (route) => {
     await route.fulfill({
       status: 200,

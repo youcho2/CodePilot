@@ -24,6 +24,11 @@ import {
   isToolUnsupportedError,
   buildToolUnsupportedHint,
 } from '@/lib/harness/capability-display-text';
+import {
+  resolveAutoDisclosure,
+  type AutoDisclosureOverride,
+  type AutoDisclosurePhase,
+} from '@/lib/auto-disclosure';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -462,8 +467,58 @@ function ToolActionRow({ tool, streamingToolOutput }: { tool: ToolAction; stream
   const summary = renderer.getSummary(tool.input, tool.name);
   const filePath = getFilePath(tool.input);
   const status = getStatus(tool);
-  const hasDetail = renderer.iconName === 'terminal' || renderer.iconName === 'assistant';
-  const showDetail = hasDetail && renderer.renderDetail && (status === 'running' || streamingToolOutput || tool.result);
+  const { stopScroll } = useStickToBottomContext();
+  const detailPhase: AutoDisclosurePhase = status === 'running' ? 'active' : 'settled';
+  const [detailOverride, setDetailOverride] = useState<AutoDisclosureOverride | null>(null);
+  const detailExpanded = resolveAutoDisclosure(detailPhase, detailOverride);
+  const hasDetail = renderer.iconName === 'terminal'
+    || (renderer.iconName === 'assistant' && status === 'running' && Boolean(streamingToolOutput));
+  const canShowDetail = Boolean(
+    hasDetail
+    && renderer.renderDetail
+    && (status === 'running' || streamingToolOutput || tool.result),
+  );
+
+  const handleDetailToggle = () => {
+    const willExpand = !detailExpanded;
+    setDetailOverride({ phase: detailPhase, expanded: willExpand });
+    if (willExpand) stopScroll();
+  };
+
+  const rowContent = (
+    <>
+      <CodePilotIcon name={renderer.iconName} size="sm" className="shrink-0 text-muted-foreground" aria-hidden />
+
+      {renderer.label && (
+        <span className="font-medium text-muted-foreground shrink-0">{renderer.label}</span>
+      )}
+
+      <span className="font-mono text-muted-foreground/60 truncate flex-1">
+        {summary}
+      </span>
+
+      {filePath && !hasDetail && (
+        <span className="text-muted-foreground/40 text-[11px] font-mono truncate max-w-[200px] hidden sm:inline">
+          {truncatePath(filePath)}
+        </span>
+      )}
+
+      {tool.media && tool.media.length > 0 && (
+        <CodePilotIcon name="image" size="sm" className="shrink-0 text-primary/60" aria-hidden />
+      )}
+
+      <StatusDot status={status} />
+      {canShowDetail && (
+        <CaretRight
+          size={10}
+          className={cn(
+            "shrink-0 text-muted-foreground/60 transition-transform duration-200",
+            detailExpanded && "rotate-90",
+          )}
+        />
+      )}
+    </>
+  );
 
   // Phase 5e round 8 (2026-05-18) — small inline hint when the model
   // tried to call a `codepilot_*` built-in tool that isn't supported
@@ -483,30 +538,21 @@ function ToolActionRow({ tool, streamingToolOutput }: { tool: ToolAction; stream
 
   return (
     <div>
-      <div className="flex items-center gap-2 px-2 py-1 min-h-[28px] text-xs hover:bg-muted/30 rounded-sm transition-colors">
-        <CodePilotIcon name={renderer.iconName} size="sm" className="shrink-0 text-muted-foreground" aria-hidden />
-
-        {renderer.label && (
-          <span className="font-medium text-muted-foreground shrink-0">{renderer.label}</span>
-        )}
-
-        <span className="font-mono text-muted-foreground/60 truncate flex-1">
-          {summary}
-        </span>
-
-        {filePath && !hasDetail && (
-          <span className="text-muted-foreground/40 text-[11px] font-mono truncate max-w-[200px] hidden sm:inline">
-            {truncatePath(filePath)}
-          </span>
-        )}
-
-        {tool.media && tool.media.length > 0 && (
-          <CodePilotIcon name="image" size="sm" className="shrink-0 text-primary/60" aria-hidden />
-        )}
-
-        <StatusDot status={status} />
-      </div>
-      {showDetail && renderer.renderDetail?.(tool, streamingToolOutput)}
+      {canShowDetail ? (
+        <button
+          type="button"
+          aria-expanded={detailExpanded}
+          onClick={handleDetailToggle}
+          className="flex w-full items-center gap-2 px-2 py-1 min-h-[28px] text-xs hover:bg-muted/30 rounded-sm transition-colors cursor-pointer"
+        >
+          {rowContent}
+        </button>
+      ) : (
+        <div className="flex items-center gap-2 px-2 py-1 min-h-[28px] text-xs hover:bg-muted/30 rounded-sm transition-colors">
+          {rowContent}
+        </div>
+      )}
+      {canShowDetail && detailExpanded && renderer.renderDetail?.(tool, streamingToolOutput)}
       {unsupportedHint && (
         <p
           data-testid={`tool-unsupported-hint-${tool.id ?? tool.name}`}
@@ -543,11 +589,11 @@ export function ToolActionsGroup({
 }: ToolActionsGroupProps) {
   const hasRunningTool = tools.some((t) => t.result === undefined);
 
-  // Track whether user has manually toggled and their chosen state
-  const [userExpandedState, setUserExpandedState] = useState<boolean | null>(null);
-
-  // Derived: if user has toggled, use their choice; otherwise auto-expand based on streaming state
-  const expanded = userExpandedState !== null ? userExpandedState : (hasRunningTool || isStreaming);
+  // Manual choices are scoped to the current lifecycle phase. This preserves
+  // user control while still auto-closing the group when a live turn settles.
+  const groupPhase: AutoDisclosurePhase = hasRunningTool || isStreaming ? 'active' : 'settled';
+  const [groupOverride, setGroupOverride] = useState<AutoDisclosureOverride | null>(null);
+  const expanded = resolveAutoDisclosure(groupPhase, groupOverride);
 
   if (tools.length === 0 && !thinkingContent) return null;
 
@@ -579,7 +625,7 @@ export function ToolActionsGroup({
   const runningDesc = getRunningDescription(tools);
 
   const handleToggle = () => {
-    setUserExpandedState((prev) => prev !== null ? !prev : !expanded);
+    setGroupOverride({ phase: groupPhase, expanded: !expanded });
   };
 
   // Build summary text parts
@@ -601,6 +647,7 @@ export function ToolActionsGroup({
           the curve scale across nested elements. */}
       <button
         type="button"
+        aria-expanded={expanded}
         onClick={handleToggle}
         className="flex w-full items-center gap-2 px-2 py-1 text-xs rounded-md hover:bg-muted/30 transition-colors"
       >
