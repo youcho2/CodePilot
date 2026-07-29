@@ -13,6 +13,7 @@ import { useTranslation } from '@/hooks/useTranslation';
 import { getSnapshot, seedSnapshotPatch } from '@/lib/stream-session-manager';
 import { subscribeSessionTitle } from '@/lib/session-title-events';
 import { reconcilePhase } from '@/lib/stream-phase-reconcile';
+import { DEFAULT_PANEL } from '@/lib/default-panel';
 
 interface ChatSessionPageProps {
   params: Promise<{ id: string }>;
@@ -187,9 +188,13 @@ export default function ChatSessionPage({ params }: ChatSessionPageProps) {
           return;
         }
         const res = await fetch('/api/settings/app');
-        if (!res.ok) return;
+        if (!res.ok) {
+          setFileTreeOpen(false);
+          if (ws) ws.setOpen(false);
+          return;
+        }
         const data = await res.json();
-        const panel = data.settings?.default_panel || 'file_tree';
+        const panel = data.settings?.default_panel || DEFAULT_PANEL;
         // Phase 2 (2026-04-30) migration: 'git' and 'dashboard'
         // defaults used to flip dedicated PanelZone panels — those
         // panels were folded into the Workspace Sidebar as fixed Tabs.
@@ -211,11 +216,15 @@ export default function ChatSessionPage({ params }: ChatSessionPageProps) {
           setFileTreeOpen(false);
           ws.setActiveTab('widget');
         } else {
-          // Unknown setting or sidebar provider missing → safe default.
-          setFileTreeOpen(true);
+          // Unknown setting or sidebar provider missing → keep the chat
+          // surface focused instead of opening a rail unexpectedly.
+          setFileTreeOpen(false);
+          if (ws) ws.setOpen(false);
         }
       } catch {
-        setFileTreeOpen(true);
+        // A settings read failure must not make a panel appear by surprise.
+        setFileTreeOpen(false);
+        if (ws) ws.setOpen(false);
       }
     })();
     // ws.setActiveTab / ws.setOpen are stable callbacks from the

@@ -123,6 +123,12 @@ test.describe('Context chips — directory chip lifecycle @smoke', () => {
     let chatRequestBody: Record<string, unknown> | null = null;
     let sessionCounter = 0;
 
+    // The production send gate correctly requires a project directory.
+    // Keep this test independent from the developer's persisted setup state.
+    await page.addInitScript(() => {
+      localStorage.setItem('codepilot:last-working-directory', '/tmp');
+    });
+
     // The /chat first-message flow always tries to create a session row
     // before opening the SSE stream. Without this mock the page would
     // either block or 500 on session insert.

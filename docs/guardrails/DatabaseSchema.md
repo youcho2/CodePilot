@@ -102,6 +102,7 @@
 | schema 加列、legacy backfill、幂等、ambiguous 保留 | `src/__tests__/unit/provider-preset-identity-migration.test.ts` |
 | provider create/update 字段 roundtrip | `src/__tests__/unit/provider-key-lifecycle.test.ts`, `provider-preset-switch-route.test.ts` |
 | DB-wins、hidden/manual/user-edited 保留 | `provider-resolver.test.ts`, `apply-discovery-diff.test.ts`, `align-enabled-with-catalog.test.ts` |
+| 测试运行器拒绝真实 `~/.codepilot`，preload 覆盖显式默认路径 | `db-test-safety.test.ts`, `db-isolation.setup.ts` |
 | 全量类型与单测门禁 | `npm run test` |
 | additive `subagent_runs` / `subagent_run_events`、legacy backfill、logical attempt、workflow queued/dependency handoff/duplicate/cycle、active/completed reuse guard、parent FK/cascade、running checkpoint、settling/terminal immutable | `src/__tests__/unit/subagent-run-persistence.test.ts` |
 | cached handle 在 dev schema revision 变化后重跑幂等 migration，且 live streaming row 不被 recovery 中断 | `src/__tests__/unit/subagent-run-persistence.test.ts` |
@@ -123,6 +124,7 @@
 - 2026-07-24 — Claude P2 复核指出“显式 ID”仍可能被父模型误用。`startSubagentRun` 现于插入前检查同 session/logical 的最新 attempt：active/settling 返回 `LOGICAL_RUN_STILL_RUNNING`，completed 返回 `LOGICAL_RUN_ALREADY_COMPLETED`；两者均不写新 physical row，三 Runtime 在 Provider 启动前返回结构化拒绝。
 - 2026-07-24 — 会话 `3f0085c5fc664deca85005d70b1abfca` 证明 SDK 串行工具执行不会重写已经生成的下游 tool input。新增 additive workflow/task/dependencies/dispatch state：accepted downstream 先 queued，应用只从同 session/workflow 的 durable completed result 编译实际 prompt；duplicate task key、self/indirect cycle 与失败依赖 fail closed。
 - 2026-07-24 — 会话 `f7153c2b01e6a58b31e0406db9be56ec` 暴露 dev HMR schema 漂移：代码已写 `workflow_id`，但进程级缓存 DB handle 没有重新执行新增 migration，两次 child 都在 durable row 创建前报 `no such column: workflow_id`。`getDb()` 现用 code-owned schema revision 在 HMR 后重跑纯结构、幂等 migration；startup recovery 仍只在真正打开/取得进程 owner 时执行。
+- 2026-07-29 — 测试隔离改为 fail closed：测试运行器访问真实 `~/.codepilot` 时在打开 DB 前拒绝；全量测试 preload 会把“未配置”或“显式配置为默认真实路径”统一替换为临时目录，仅保留真正的非默认隔离目录，避免启动环境继承 `CLAUDE_GUI_DATA_DIR=~/.codepilot` 时污染用户会话。
 - 2026-07-31 — Asset 标签从 legacy `media_generations.tags` 提升为 `asset_records.tags`，覆盖 HTML 与所有已注册 kind。迁移只在新列默认空数组时复制可验证的 legacy JSON array；写入 Asset 标签时对 source media 双写，兼容旧消费者且不删除原字段。
 - 2026-08-07 — 独立审查发现回滚/换机可形成“当前明文 + 旧密文”混合行，原迁移会信任旧密文并让任一失败穿透启动。合同改为当前明文优先、fresh envelope、per-row 保留失败数据并继续；数据密钥损坏/DEV owner 的产品级恢复另记 tech-debt #78。
 - 2026-07-31 — Gallery 的 100 条/请求渐进 backfill 曾可能被同一坏行永久占住进度。新增 `asset_backfill_failures` 与 code-owned failure revision：坏行可审计、同 revision 跳过、后续行继续；修复迁移逻辑时 bump revision 才重试。schema revision 同步更新，HMR cached handle 会补建该表。

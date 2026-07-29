@@ -28,6 +28,24 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
 
+async function waitForLinkedRun(
+  db: typeof import('../../lib/db'),
+  taskId: string,
+  runId: string,
+  timeoutMs = 5000,
+) {
+  const deadline = Date.now() + timeoutMs;
+  let row = db.listTaskRunLogs(taskId).find((candidate) => candidate.id === runId);
+  while (
+    Date.now() < deadline &&
+    (!row || !['success', 'failed', 'error'].includes(row.status) || !row.notification_event_id)
+  ) {
+    await new Promise((resolve) => setTimeout(resolve, 25));
+    row = db.listTaskRunLogs(taskId).find((candidate) => candidate.id === runId);
+  }
+  return row;
+}
+
 let tempDir: string;
 let originalDataDir: string | undefined;
 
@@ -88,20 +106,18 @@ describe('task_run_logs.notification_event_id link (Phase 3 Step 3 v6 fix)', () 
     if (result.status !== 'running') return;
     const runId = result.runId;
 
-    // Wait for the fire-and-forget execution to finish.
-    await new Promise((r) => setTimeout(r, 300));
-
-    const runs = db.listTaskRunLogs(task.id);
-    const matching = runs.filter((r) => r.id === runId);
-    assert.equal(matching.length, 1, 'one task_run_logs row per execution');
-    assert.equal(matching[0].status, 'success');
+    // Poll the durable terminal state rather than assuming parallel test load
+    // will always complete the fire-and-forget work within a fixed sleep.
+    const linkedRun = await waitForLinkedRun(db, task.id, runId);
+    assert.ok(linkedRun, 'one task_run_logs row per execution');
+    assert.equal(linkedRun.status, 'success');
     assert.ok(
-      matching[0].notification_event_id,
+      linkedRun.notification_event_id,
       'task_run_logs.notification_event_id MUST be populated after a successful notify (v6 P1 fix)',
     );
 
     // Replay the /runs join logic: notification_event_id → events row → deliveries list.
-    const event = db.getNotificationEvent(matching[0].notification_event_id!);
+    const event = db.getNotificationEvent(linkedRun.notification_event_id!);
     assert.ok(event, 'getNotificationEvent must resolve the linked event row');
     assert.equal(event!.task_id, task.id);
     const deliveries = db.listNotificationDeliveries(event!.event_id);
@@ -158,19 +174,7 @@ describe('task_run_logs.notification_event_id link (Phase 3 Step 3 v6 fix)', () 
     }
     const runId = result.runId;
 
-    // Provider-gate fail is fast (<50ms), but the scheduler then has
-    // to dispatch sendTaskNotification → write notification_events
-    // and notification_deliveries rows → updateTaskRunLog with the
-    // event_id. Under DB contention from the parallel test workers
-    // the multi-step linkback can stretch past a tight 400ms window,
-    // so give it a comfortable margin. The path is still
-    // synchronous-ish; we're not waiting for streamClaude.
-    let row = db.listTaskRunLogs(task.id).find((candidate) => candidate.id === runId);
-    const deadline = Date.now() + 5_000;
-    while ((!row || !row.notification_event_id) && Date.now() < deadline) {
-      await new Promise((resolve) => setTimeout(resolve, 100));
-      row = db.listTaskRunLogs(task.id).find((candidate) => candidate.id === runId);
-    }
+    const row = await waitForLinkedRun(db, task.id, runId);
     assert.ok(row);
     // Phase 3 Step 4 — new 5-state enum writes 'failed'. Legacy
     // 'error' is still accepted on read but new code paths produce

@@ -40,6 +40,7 @@ import { Button } from "@/components/ui/button";
 import { SettingsCard } from "@/components/patterns/SettingsCard";
 import { FieldRow } from "@/components/patterns/FieldRow";
 import { StatusBanner } from "@/components/patterns/StatusBanner";
+import { DEFAULT_PANEL } from '@/lib/default-panel';
 
 export function GeneralSection() {
   const [skipPermissions, setSkipPermissions] = useState(false);
@@ -47,7 +48,7 @@ export function GeneralSection() {
   const [skipPermSaving, setSkipPermSaving] = useState(false);
   const [generativeUI, setGenerativeUI] = useState(true);
   const [generativeUISaving, setGenerativeUISaving] = useState(false);
-  const [defaultPanel, setDefaultPanel] = useState('file_tree');
+  const [defaultPanel, setDefaultPanel] = useState(DEFAULT_PANEL);
   const { t, locale, setLocale } = useTranslation();
 
   const fetchAppSettings = useCallback(async () => {
@@ -59,8 +60,9 @@ export function GeneralSection() {
         setSkipPermissions(appSettings.dangerously_skip_permissions === "true");
         // generative_ui_enabled defaults to true when not set
         setGenerativeUI(appSettings.generative_ui_enabled !== "false");
-        // default_panel defaults to 'file_tree' when not set
-        setDefaultPanel(appSettings.default_panel || 'file_tree');
+        // Keep new conversations focused on chat unless the user explicitly
+        // chooses a panel to auto-open.
+        setDefaultPanel(appSettings.default_panel || DEFAULT_PANEL);
       }
     } catch {
       // ignore
