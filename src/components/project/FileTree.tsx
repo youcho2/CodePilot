@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import { CodePilotIcon } from "@/components/ui/semantic-icon";
+import { FileTypeIcon } from "@/components/ui/FileTypeIcon";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import type { FileTreeNode } from "@/types";
@@ -10,9 +11,22 @@ import {
   FileTreeFolder,
   FileTreeFile,
 } from "@/components/ai-elements/file-tree";
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuTrigger,
+} from "@/components/ui/context-menu";
 import { useTranslation } from "@/hooks/useTranslation";
 import type { TranslationKey } from "@/i18n";
-import type { ReactNode } from "react";
+import {
+  FILE_MUTATION_COMMIT_EVENT,
+  isProtectedFileTreePath,
+  pathIsWithin,
+  remapMutationPath,
+  type FileMutationCommitDetail,
+  type FileMutationNodeType,
+} from "@/lib/file-mutation";
 
 interface FileTreeProps {
   workingDirectory: string;
@@ -26,44 +40,13 @@ interface FileTreeProps {
   selectedFilePath?: string;
   highlightPath?: string;
   highlightSeek?: string;
-}
-
-function getFileIcon(extension?: string): ReactNode {
-  switch (extension) {
-    case "ts":
-    case "tsx":
-    case "js":
-    case "jsx":
-    case "py":
-    case "rb":
-    case "rs":
-    case "go":
-    case "java":
-    case "c":
-    case "cpp":
-    case "h":
-    case "hpp":
-    case "cs":
-    case "swift":
-    case "kt":
-    case "dart":
-    case "lua":
-    case "php":
-    case "zig":
-      return <CodePilotIcon name="file_code" size="md" className="text-muted-foreground" aria-hidden />;
-    case "json":
-    case "yaml":
-    case "yml":
-    case "toml":
-      return <CodePilotIcon name="code" size="md" className="text-muted-foreground" aria-hidden />;
-    case "md":
-    case "mdx":
-    case "txt":
-    case "csv":
-      return <CodePilotIcon name="file" size="md" className="text-muted-foreground" aria-hidden />;
-    default:
-      return <CodePilotIcon name="file" size="md" className="text-muted-foreground" aria-hidden />;
-  }
+  onCreateIn?: (mode: "file" | "folder", directory: string) => void;
+  onRename?: (
+    path: string,
+    nextName: string,
+    nodeType: FileMutationNodeType,
+  ) => Promise<void>;
+  onDelete?: (node: FileTreeNode, descendantCount: number) => void;
 }
 
 function containsMatch(node: FileTreeNode, query: string): boolean {
@@ -85,7 +68,36 @@ function filterTree(nodes: FileTreeNode[], query: string): FileTreeNode[] {
     }));
 }
 
-function RenderTreeNodes({ nodes, searchQuery, highlightPath }: { nodes: FileTreeNode[]; searchQuery: string; highlightPath?: string }) {
+function descendantCount(node: FileTreeNode): number {
+  return (node.children ?? []).reduce(
+    (total, child) => total + 1 + descendantCount(child),
+    0,
+  );
+}
+
+function RenderTreeNodes({
+  nodes,
+  searchQuery,
+  highlightPath,
+  onCreateIn,
+  onRename,
+  onDelete,
+  labels,
+}: {
+  nodes: FileTreeNode[];
+  searchQuery: string;
+  highlightPath?: string;
+  onCreateIn?: FileTreeProps["onCreateIn"];
+  onRename?: FileTreeProps["onRename"];
+  onDelete?: FileTreeProps["onDelete"];
+  labels: {
+    newFile: string;
+    newFolder: string;
+    addToChat: string;
+    rename: string;
+    delete: string;
+  };
+}) {
   const filtered = searchQuery ? filterTree(nodes, searchQuery) : nodes;
 
   return (
@@ -98,11 +110,29 @@ function RenderTreeNodes({ nodes, searchQuery, highlightPath }: { nodes: FileTre
               key={node.path}
               path={node.path}
               name={node.name}
+              onCreateFile={() => onCreateIn?.("file", node.path)}
+              onCreateFolder={() => onCreateIn?.("folder", node.path)}
+              onRename={
+                onRename
+                  ? (nextName) => onRename(node.path, nextName, "directory")
+                  : undefined
+              }
+              onDelete={() => onDelete?.(node, descendantCount(node))}
+              protectedPath={isProtectedFileTreePath(node.path)}
+              labels={labels}
               className={cn(isHighlighted && "file-tree-flash")}
               id={isHighlighted ? `file-tree-highlight` : undefined}
             >
               {node.children && (
-                <RenderTreeNodes nodes={node.children} searchQuery={searchQuery} highlightPath={highlightPath} />
+                <RenderTreeNodes
+                  nodes={node.children}
+                  searchQuery={searchQuery}
+                  highlightPath={highlightPath}
+                  onCreateIn={onCreateIn}
+                  onRename={onRename}
+                  onDelete={onDelete}
+                  labels={labels}
+                />
               )}
             </FileTreeFolder>
           );
@@ -113,7 +143,15 @@ function RenderTreeNodes({ nodes, searchQuery, highlightPath }: { nodes: FileTre
             key={node.path}
             path={node.path}
             name={node.name}
-            icon={getFileIcon(node.extension)}
+            icon={<FileTypeIcon filePath={node.path} />}
+            onRename={
+              onRename
+                ? (nextName) => onRename(node.path, nextName, "file")
+                : undefined
+            }
+            onDelete={() => onDelete?.(node, 0)}
+            protectedPath={isProtectedFileTreePath(node.path)}
+            labels={labels}
             className={cn(isHighlighted && "file-tree-flash")}
             id={isHighlighted ? `file-tree-highlight` : undefined}
           />
@@ -135,7 +173,19 @@ function getParentPaths(filePath: string): string[] {
   return parents;
 }
 
-export function FileTree({ workingDirectory, onFileSelect, onFileAdd, selectedFolderPath, onSelectFolder, selectedFilePath, highlightPath, highlightSeek }: FileTreeProps) {
+export function FileTree({
+  workingDirectory,
+  onFileSelect,
+  onFileAdd,
+  selectedFolderPath,
+  onSelectFolder,
+  selectedFilePath,
+  highlightPath,
+  highlightSeek,
+  onCreateIn,
+  onRename,
+  onDelete,
+}: FileTreeProps) {
   const [tree, setTree] = useState<FileTreeNode[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -220,6 +270,29 @@ export function FileTree({ workingDirectory, onFileSelect, onFileAdd, selectedFo
   // Controlled expansion state for search-driven highlighting
   const [expandedPaths, setExpandedPaths] = useState<Set<string>>(new Set());
 
+  useEffect(() => {
+    const handleMutationCommit = (event: Event) => {
+      const detail = (event as CustomEvent<FileMutationCommitDetail>).detail;
+      if (!detail) return;
+      setExpandedPaths((current) => {
+        const next = new Set<string>();
+        for (const expanded of current) {
+          if (!pathIsWithin(expanded, detail.targetPath)) {
+            next.add(expanded);
+          } else if (detail.kind === "rename" && detail.newPath) {
+            next.add(
+              remapMutationPath(expanded, detail.targetPath, detail.newPath),
+            );
+          }
+        }
+        return next;
+      });
+    };
+    window.addEventListener(FILE_MUTATION_COMMIT_EVENT, handleMutationCommit);
+    return () =>
+      window.removeEventListener(FILE_MUTATION_COMMIT_EVENT, handleMutationCommit);
+  }, []);
+
   // Sync expanded paths when highlightPath changes
   useEffect(() => {
     if (highlightPath) {
@@ -261,7 +334,7 @@ export function FileTree({ workingDirectory, onFileSelect, onFileAdd, selectedFo
     <div className="flex flex-col h-full min-h-0">
       {/* Search row — full-width, dedicated. The Refresh button used to
           live here on the right; it moved up to the action icons row in
-          FileTreePanel, which now dispatches `filetree-refresh` window
+          FileTreePanel, which now dispatches `refresh-file-tree` window
           events that the effect below catches. */}
       <div className="px-3 pb-2 shrink-0">
         <div className="relative">
@@ -286,20 +359,48 @@ export function FileTree({ workingDirectory, onFileSelect, onFileAdd, selectedFo
             {error ? error : workingDirectory ? t('fileTree.noFiles') : t('fileTree.selectFolder')}
           </p>
         ) : (
-          <AIFileTree
-            expanded={expandedPaths}
-            onExpandedChange={setExpandedPaths}
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any -- AI Elements FileTree onSelect type conflicts with HTMLAttributes.onSelect
-            onSelect={onFileSelect as any}
-            onAdd={onFileAdd}
-            addLabel={t('fileTree.addToChat' as TranslationKey)}
-            selectedPath={selectedFilePath}
-            selectedFolderPath={selectedFolderPath}
-            onSelectFolder={onSelectFolder}
-            className="border-0 rounded-none"
-          >
-            <RenderTreeNodes nodes={tree} searchQuery={searchQuery} highlightPath={highlightPath} />
-          </AIFileTree>
+          <ContextMenu>
+            <ContextMenuTrigger asChild>
+              <div className="min-h-full">
+                <AIFileTree
+                  expanded={expandedPaths}
+                  onExpandedChange={setExpandedPaths}
+                  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- AI Elements FileTree onSelect type conflicts with HTMLAttributes.onSelect
+                  onSelect={onFileSelect as any}
+                  onAdd={onFileAdd}
+                  addLabel={t('fileTree.addToChat' as TranslationKey)}
+                  selectedPath={selectedFilePath}
+                  selectedFolderPath={selectedFolderPath}
+                  onSelectFolder={onSelectFolder}
+                  className="border-0 rounded-none"
+                >
+                  <RenderTreeNodes
+                    nodes={tree}
+                    searchQuery={searchQuery}
+                    highlightPath={highlightPath}
+                    onCreateIn={onCreateIn}
+                    onRename={onRename}
+                    onDelete={onDelete}
+                    labels={{
+                      newFile: t("fileTree.context.newFile" as TranslationKey),
+                      newFolder: t("fileTree.context.newFolder" as TranslationKey),
+                      addToChat: t("fileTree.addToChat" as TranslationKey),
+                      rename: t("fileTree.context.rename" as TranslationKey),
+                      delete: t("fileTree.context.delete" as TranslationKey),
+                    }}
+                  />
+                </AIFileTree>
+              </div>
+            </ContextMenuTrigger>
+            <ContextMenuContent>
+              <ContextMenuItem onSelect={() => onCreateIn?.("file", workingDirectory)}>
+                {t("fileTree.context.newFile" as TranslationKey)}
+              </ContextMenuItem>
+              <ContextMenuItem onSelect={() => onCreateIn?.("folder", workingDirectory)}>
+                {t("fileTree.context.newFolder" as TranslationKey)}
+              </ContextMenuItem>
+            </ContextMenuContent>
+          </ContextMenu>
         )}
       </div>
     </div>

@@ -794,6 +794,8 @@ Response: { path, trashed: true } | { error: 'path_unsafe' | 'not_found' | 'dir_
 
 ### 4.2 文件树右键菜单
 
+> **2026-07-29 superseded**：本节原先是未落地的 follow-up 描述。实际 Explorer 右键菜单、F2 行内重命名、Trash 删除和跨 owner 文件 mutation transaction 已由 [Markdown Live Preview × Explorer 文件树交接](../../handover/markdown-live-preview-file-tree.md) 接管。本历史计划不再作为实现合同。
+
 - 定位 `src/components/ai-elements/file-tree.tsx`
 - 追加右键菜单项（使用 shadcn ContextMenu 或 Radix）：
   - "新建 Markdown 文件" → 调 `/api/files/write` + `overwrite=false` + 默认内容 `# {untitled}\n\n`

@@ -30,6 +30,7 @@ import type { TranslationKey } from '@/i18n';
 import { cn } from '@/lib/utils';
 import { useWorkspaceSidebar } from '@/hooks/useWorkspaceSidebar';
 import type { Tab } from '@/lib/workspace-sidebar';
+import { FileTypeIcon } from '@/components/ui/FileTypeIcon';
 
 interface TabBarProps {
   className?: string;
@@ -64,10 +65,7 @@ function tabIcon(tab: Tab): React.ReactNode {
   if (tab.kind === 'files-pinned') return <CodePilotIcon name="pin" size="md" className="text-inherit" aria-hidden />;
   if (tab.kind === 'agent-run') return <CodePilotIcon name={tab.run.icon} size="md" className="text-inherit" aria-hidden />;
   if (tab.kind === 'markdown' || tab.kind === 'file') {
-    const ext = (tab.kind === 'markdown' ? '.md' : tab.filePath.split('.').pop() || '').toLowerCase();
-    if (ext.endsWith('.md') || tab.kind === 'markdown') return <CodePilotIcon name="file" size="md" className="text-inherit" aria-hidden />;
-    if (['.ts', '.tsx', '.js', '.jsx', '.py'].includes(`.${ext}`)) return <CodePilotIcon name="code" size="md" className="text-inherit" aria-hidden />;
-    return <CodePilotIcon name="file_code" size="md" className="text-inherit" aria-hidden />;
+    return <FileTypeIcon filePath={tab.filePath} />;
   }
   // artifact
   return <CodePilotIcon name="folder_open" size="md" className="text-inherit" aria-hidden />;

@@ -40,6 +40,7 @@
 | decouple-native-runtime.md | Native Agent Runtime：双 Runtime 架构、AI SDK agent-loop、OpenAI Codex 集成、文件快照 rewind、MCP 全链路、验证边界与剩余风险 |
 | provider-proxy-bridge.md | Provider Proxy Bridge Contract：Codex provider proxy / 任何新 Agent 框架接入的 8 个 hook（parseInbound / translateInput / translateTools / translateProviderOptions / translateStream / translateResponse / translateError / resumeThreadParams）、AI SDK v6 `tool({inputSchema: jsonSchema(...)})` schema 合约、Codex schema 来源清单、Smoke 矩阵收口标准；接新 Agent 框架前必读 |
 | markdown-artifact-overhaul.md | Markdown 渲染 × Artifact 预览体系：PreviewSource 联合、DiffSummary 卡片、Sandpack 单文件 React、CodeMirror 编辑+自动保存、长图导出 IPC、文件 I/O API 合同、loadedPath/freshPreview 防漂移 |
+| markdown-live-preview-file-tree.md | Markdown 单页 Live Preview、跨 owner 文件 mutation transaction、Explorer 右键/F2/Trash、material-icon-theme 静态文件类型图标 |
 | phase-4-markdown-artifact.md | Phase 4 Markdown 数据层 × HTML 表现层 × 工程引用：trust tier 三档授权、html-preview 同源路由 + 4 轮 CSP 演进、codepilot:file-changed 单通道 + quiet refresh、原地 Markdown 风格 Select、code-fence Preview / dev-output chips；Save-HTML 入口 deferred 的代码锚点与重启条件 |
 | chat-composer-redesign.md | Chat composer 重构（April 2026）：三层视觉规则、Run 状态聚合面板、ai-elements 整合、隐形 select、弹窗底座统一、弥散阴影 token、左侧栏密度收紧 |
 | new-chat-greeting.md | 新对话欢迎语：「时段问候 + 场景问句」组合（场景优先级 assistant > project > general、项目名插值）、SSR-safe 的 client-only 组合逻辑、page.tsx / ChatView 调用点、助理检测的已知局限 |

@@ -11,6 +11,25 @@ import { useTranslation } from "@/hooks/useTranslation";
 import type { TranslationKey } from "@/i18n";
 import { FileTree } from "@/components/project/FileTree";
 import { useWorkspaceSidebarOptional } from "@/hooks/useWorkspaceSidebar";
+import { useFileMutation } from "@/hooks/useFileMutation";
+import {
+  FileMutationError,
+  fileMutationTargetPath,
+  pathIsWithin,
+  remapMutationPath,
+  type FileMutationNodeType,
+} from "@/lib/file-mutation";
+import type { FileTreeNode } from "@/types";
+import {
+  AlertDialog,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { showToast } from "@/hooks/useToast";
 
 // Width state moved to PanelZone (Phase 7c-D); these constants now
 // live there alongside the CardFrame width prop wiring.
@@ -47,8 +66,9 @@ export function FileTreePanel({ variant = 'legacy' }: { variant?: 'legacy' | 'si
   const [newItemName, setNewItemName] = useState("");
   const [newItemError, setNewItemError] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
-  const [treeReloadKey, setTreeReloadKey] = useState(0);
   const newItemInputRef = useRef<HTMLInputElement | null>(null);
+  const { runFileMutation, registerParticipant, hasUnsavedChanges } =
+    useFileMutation();
 
   // Folder selection drives the "create inside this folder" default when
   // the user clicks the top-level New File / New Folder icons — if a
@@ -56,6 +76,38 @@ export function FileTreePanel({ variant = 'legacy' }: { variant?: 'legacy' | 'si
   // the workspace root. Independent of file selection so clicking a
   // file doesn't clobber the current folder target.
   const [selectedFolderPath, setSelectedFolderPath] = useState<string | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<{
+    node: FileTreeNode;
+    descendantCount: number;
+    dirty: boolean;
+  } | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+
+  useEffect(
+    () =>
+      registerParticipant({
+        id: `file-tree-selection-${variant}`,
+        priority: 40,
+        matches: () => true,
+        commit: (transaction) => {
+          setSelectedFolderPath((current) => {
+            if (!current || !pathIsWithin(current, transaction.targetPath)) {
+              return current;
+            }
+            if (transaction.kind === "delete") return null;
+            return transaction.newPath
+              ? remapMutationPath(
+                  current,
+                  transaction.targetPath,
+                  transaction.newPath,
+                )
+              : current;
+          });
+        },
+      }),
+    [registerParticipant, variant],
+  );
 
   // On open: focus the input and pre-select the stem (everything before
   // the last dot) for file mode, or the whole name for folder mode.
@@ -163,7 +215,7 @@ export function FileTreePanel({ variant = 'legacy' }: { variant?: 'legacy' | 'si
       const data = await res.json();
       setNewItemMode(null);
       setNewItemName("");
-      setTreeReloadKey((k) => k + 1);
+      window.dispatchEvent(new Event("refresh-file-tree"));
       // Only open a preview for files — folders have nothing to preview.
       // setPreviewFile flows through AppShell.setPreviewSource which on
       // chat-detail routes dispatches a workspace-tab-open event; an
@@ -178,6 +230,92 @@ export function FileTreePanel({ variant = 'legacy' }: { variant?: 'legacy' | 'si
       setCreating(false);
     }
   }, [newItemMode, newItemName, newItemTargetDir, workingDirectory, t, setPreviewFile]);
+
+  const mutationErrorMessage = useCallback(
+    (error: unknown) => {
+      if (error instanceof FileMutationError) {
+        return t(`fileIO.errors.${error.code}` as TranslationKey);
+      }
+      return error instanceof Error
+        ? error.message
+        : t("fileIO.errors.write_failed" as TranslationKey);
+    },
+    [t],
+  );
+
+  const handleRename = useCallback(
+    async (
+      targetPath: string,
+      nextName: string,
+      nodeType: FileMutationNodeType,
+    ) => {
+      const slash = Math.max(
+        targetPath.lastIndexOf("/"),
+        targetPath.lastIndexOf("\\"),
+      );
+      const parentPath = slash >= 0 ? targetPath.slice(0, slash) : workingDirectory;
+      const newPath = fileMutationTargetPath(parentPath, nextName);
+      try {
+        await runFileMutation({
+          kind: "rename",
+          targetPath,
+          newPath,
+          nodeType,
+          baseDir: workingDirectory,
+        });
+      } catch (error) {
+        throw new Error(mutationErrorMessage(error));
+      }
+    },
+    [mutationErrorMessage, runFileMutation, workingDirectory],
+  );
+
+  const handleDeleteRequest = useCallback(
+    (node: FileTreeNode, descendantCount: number) => {
+      const request = {
+        kind: "delete" as const,
+        targetPath: node.path,
+        nodeType: node.type,
+        baseDir: workingDirectory,
+        recursive: node.type === "directory",
+      };
+      setDeleteError(null);
+      setDeleteTarget({
+        node,
+        descendantCount,
+        dirty: hasUnsavedChanges(request),
+      });
+    },
+    [hasUnsavedChanges, workingDirectory],
+  );
+
+  const handleConfirmDelete = useCallback(async () => {
+    if (!deleteTarget || deleting) return;
+    setDeleting(true);
+    setDeleteError(null);
+    try {
+      await runFileMutation({
+        kind: "delete",
+        targetPath: deleteTarget.node.path,
+        nodeType: deleteTarget.node.type,
+        baseDir: workingDirectory,
+        recursive: deleteTarget.node.type === "directory",
+      });
+      setDeleteTarget(null);
+    } catch (error) {
+      const message = mutationErrorMessage(error);
+      setDeleteError(message);
+      showToast({ type: "error", message });
+    } finally {
+      setDeleting(false);
+    }
+  }, [
+    deleteTarget,
+    deleting,
+    mutationErrorMessage,
+    runFileMutation,
+    workingDirectory,
+  ]);
 
   const handleFileSelect = useCallback((path: string) => {
     const ext = path.split(".").pop()?.toLowerCase() || "";
@@ -320,11 +458,9 @@ export function FileTreePanel({ variant = 'legacy' }: { variant?: 'legacy' | 'si
             </div>
           )}
 
-          {/* File tree. treeReloadKey bumps on every successful create
-              so the directory scan reloads and the new file appears. */}
+          {/* File tree preserves its expansion state across refreshes. */}
           <div className="flex-1 min-h-0 overflow-hidden">
             <FileTree
-              key={treeReloadKey}
               workingDirectory={workingDirectory}
               onFileSelect={handleFileSelect}
               onFileAdd={handleFileAdd}
@@ -333,9 +469,57 @@ export function FileTreePanel({ variant = 'legacy' }: { variant?: 'legacy' | 'si
               selectedFilePath={previewFile ?? undefined}
               highlightPath={highlightPath}
               highlightSeek={highlightSeek}
+              onCreateIn={(mode, directory) => openNewItem(mode, directory)}
+              onRename={handleRename}
+              onDelete={handleDeleteRequest}
             />
           </div>
         </div>
+        <AlertDialog
+          open={!!deleteTarget}
+          onOpenChange={(open) => {
+            if (!open && !deleting) setDeleteTarget(null);
+          }}
+        >
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>
+                {t("fileTree.delete.title" as TranslationKey, {
+                  name: deleteTarget?.node.name ?? "",
+                })}
+              </AlertDialogTitle>
+              <AlertDialogDescription>
+                {deleteTarget?.node.type === "directory"
+                  ? t("fileTree.delete.folderDescription" as TranslationKey, {
+                      count: deleteTarget.descendantCount,
+                    })
+                  : t("fileTree.delete.fileDescription" as TranslationKey)}
+              </AlertDialogDescription>
+              {deleteTarget?.dirty && (
+                <p className="text-sm font-medium text-destructive">
+                  {t("fileTree.delete.unsavedWarning" as TranslationKey)}
+                </p>
+              )}
+              {deleteError && (
+                <p className="text-sm text-destructive">{deleteError}</p>
+              )}
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel disabled={deleting}>
+                {t("common.cancel")}
+              </AlertDialogCancel>
+              <Button
+                variant="destructive"
+                disabled={deleting}
+                onClick={() => void handleConfirmDelete()}
+              >
+                {deleting
+                  ? t("fileTree.delete.deleting" as TranslationKey)
+                  : t("fileTree.delete.confirm" as TranslationKey)}
+              </Button>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
     </>
   );
 

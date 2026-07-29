@@ -4,10 +4,14 @@ import { useEffect, useRef } from "react";
 import { EditorState, Compartment } from "@codemirror/state";
 import { EditorView, keymap } from "@codemirror/view";
 import { basicSetup } from "codemirror";
-import { markdown } from "@codemirror/lang-markdown";
+import { markdown, markdownLanguage } from "@codemirror/lang-markdown";
 import { oneDark } from "@codemirror/theme-one-dark";
 import { indentWithTab } from "@codemirror/commands";
 import { useTheme } from "next-themes";
+import {
+  externalMarkdownValueSync,
+  markdownLivePreview,
+} from "@/components/editor/markdown-live-preview";
 
 /*
  * MarkdownEditor — Phase 4 replacement for the raw <textarea> in
@@ -34,6 +38,8 @@ export interface MarkdownEditorProps {
   onSave?: () => void;
   /** Optional filename shown via data-attribute (used for testing hooks). */
   filename?: string;
+  /** Session scope used to resolve relative Markdown image paths safely. */
+  sessionId?: string | null;
   /** Aria label for a11y; also shown as placeholder hint. */
   placeholder?: string;
   className?: string;
@@ -44,6 +50,7 @@ export function MarkdownEditor({
   onChange,
   onSave,
   filename,
+  sessionId,
   placeholder,
   className,
 }: MarkdownEditorProps) {
@@ -52,6 +59,7 @@ export function MarkdownEditor({
   // Compartment is stable across renders — store on ref init so we don't
   // create a new one on every render (which would cause reconfigure loops).
   const themeCompartment = useRef(new Compartment()).current;
+  const livePreviewCompartment = useRef(new Compartment()).current;
   const onChangeRef = useRef(onChange);
   const onSaveRef = useRef(onSave);
   const { resolvedTheme } = useTheme();
@@ -74,9 +82,12 @@ export function MarkdownEditor({
     const baseTheme = EditorView.theme({
       "&": { height: "100%", fontSize: "13px" },
       ".cm-scroller": {
-        fontFamily: "var(--font-mono, ui-monospace, monospace)",
+        fontFamily: "var(--font-sans, system-ui, sans-serif)",
       },
       ".cm-content": { padding: "12px" },
+      ".cm-activeLine": {
+        fontFamily: "var(--font-mono, ui-monospace, monospace)",
+      },
       "&.cm-focused": { outline: "none" },
     });
 
@@ -93,14 +104,21 @@ export function MarkdownEditor({
     ]);
 
     const initialTheme = resolvedTheme === "dark" ? oneDark : [];
+    const livePreview = isMarkdownFilename(filename)
+      ? markdownLivePreview({ filename, sessionId })
+      : [];
 
     const state = EditorState.create({
       doc: value,
       extensions: [
         basicSetup,
-        markdown(),
+        // Use the package's extended parser (GFM tables, task lists, etc.).
+        // markdown() defaults to CommonMark and silently parses pipe tables as
+        // paragraphs, which would make Live Preview lose table parity.
+        markdown({ base: markdownLanguage }),
         baseTheme,
         themeCompartment.of(initialTheme),
+        livePreviewCompartment.of(livePreview),
         saveKeymap,
         EditorView.lineWrapping,
         EditorView.updateListener.of((u) => {
@@ -115,7 +133,7 @@ export function MarkdownEditor({
       viewRef.current = null;
     };
     // Intentional single-run — subsequent prop changes propagate via
-    // dedicated effects (value / theme).
+    // dedicated effects (value / theme / Live Preview options).
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -125,12 +143,8 @@ export function MarkdownEditor({
   useEffect(() => {
     const view = viewRef.current;
     if (!view) return;
-    const cur = view.state.doc.toString();
-    if (cur !== value) {
-      view.dispatch({
-        changes: { from: 0, to: cur.length, insert: value },
-      });
-    }
+    const spec = externalMarkdownValueSync(view.state, value);
+    if (spec) view.dispatch(spec);
   }, [value]);
 
   // Theme compartment swap — no EditorView rebuild, no cursor loss.
@@ -144,6 +158,21 @@ export function MarkdownEditor({
     });
   }, [resolvedTheme, themeCompartment]);
 
+  // A PreviewPanel instance may stay mounted while the active file changes.
+  // Reconfigure the resolver so relative images always belong to the current
+  // Markdown file/session without rebuilding the EditorView or losing history.
+  useEffect(() => {
+    const view = viewRef.current;
+    if (!view) return;
+    view.dispatch({
+      effects: livePreviewCompartment.reconfigure(
+        isMarkdownFilename(filename)
+          ? markdownLivePreview({ filename, sessionId })
+          : [],
+      ),
+    });
+  }, [filename, sessionId, livePreviewCompartment]);
+
   return (
     <div
       ref={hostRef}
@@ -152,4 +181,8 @@ export function MarkdownEditor({
       aria-label={placeholder}
     />
   );
+}
+
+function isMarkdownFilename(filename: string | undefined): boolean {
+  return !!filename && /\.(?:md|mdx)$/i.test(filename);
 }

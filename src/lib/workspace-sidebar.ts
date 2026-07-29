@@ -21,6 +21,11 @@ import type {
   SubagentDispatchState,
   SubagentRunPhase,
 } from '@/lib/subagent-status';
+import {
+  pathIsWithin,
+  remapMutationPath,
+  type FileMutationTransaction,
+} from '@/lib/file-mutation';
 
 export type FixedTabId = 'git' | 'widget';
 
@@ -239,6 +244,58 @@ export function setWidth(state: WorkspaceSidebarState, width: number): Workspace
   const clamped = Math.min(SIDEBAR_MAX_WIDTH, Math.max(SIDEBAR_MIN_WIDTH, width));
   if (state.width === clamped) return state;
   return { ...state, width: clamped };
+}
+
+/**
+ * Atomically migrate every file-backed tab after a successful filesystem
+ * mutation. IDs and keys contain the absolute path, so changing only
+ * `filePath` would leave persistence and future deduplication corrupted.
+ */
+export function commitWorkspaceFileMutation(
+  state: WorkspaceSidebarState,
+  transaction: FileMutationTransaction,
+): WorkspaceSidebarState {
+  const affected = (tab: Tab) =>
+    (tab.kind === 'markdown' || tab.kind === 'file') &&
+    pathIsWithin(tab.filePath, transaction.targetPath);
+  const activeIndex = state.tabs.findIndex((tab) => tab.id === state.activeTabId);
+
+  if (transaction.kind === 'delete') {
+    const tabs = state.tabs.filter((tab) => !affected(tab));
+    if (tabs.length === state.tabs.length) return state;
+    const activeWasDeleted = state.tabs.some(
+      (tab) => tab.id === state.activeTabId && affected(tab),
+    );
+    const activeTabId = activeWasDeleted
+      ? tabs[Math.max(0, activeIndex - 1)]?.id ?? tabs[0]?.id ?? 'git'
+      : state.activeTabId;
+    return { ...state, tabs, activeTabId };
+  }
+
+  if (!transaction.newPath) return state;
+  let nextActiveId = state.activeTabId;
+  let changed = false;
+  const tabs = state.tabs.map((tab) => {
+    if (!affected(tab) || (tab.kind !== 'markdown' && tab.kind !== 'file')) {
+      return tab;
+    }
+    changed = true;
+    const filePath = remapMutationPath(
+      tab.filePath,
+      transaction.targetPath,
+      transaction.newPath!,
+    );
+    const id = dynamicTabId(tab.kind, filePath);
+    if (tab.id === state.activeTabId) nextActiveId = id;
+    return {
+      ...tab,
+      id,
+      key: filePath,
+      filePath,
+      title: filePath.split(/[\\/]/).filter(Boolean).pop() ?? filePath,
+    };
+  });
+  return changed ? { ...state, tabs, activeTabId: nextActiveId } : state;
 }
 
 // ─── Persistence ───────────────────────────────────────────────────

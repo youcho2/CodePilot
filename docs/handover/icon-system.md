@@ -25,6 +25,18 @@
 - shadcn primitive（`src/components/ui/{command,sheet,select,dialog,spinner,dropdown-menu}.tsx`）— 这些是 shadcn 生成代码，本轮不动，避免与下次 shadcn 升级冲突。
 - ai-elements 内部组件 — 接近 upstream primitive 的部分留例外清单；CodePilot 自维护的部分一并迁移。具体逐文件判定在 Phase 3。
 
+### 受控例外：文件类型 artwork（2026-07-29）
+
+`material-icon-theme` 的文件类型 artwork 表达的是 `.md`、`.ts`、`Dockerfile` 等外部文件格式，不是 CodePilot 自有产品语义，因此不进入 `CodePilotIcon` semantic alias 字典。
+
+- 源包只能作为 devDependency，由 `scripts/generate-file-type-icons.mjs` 构建期提取固定静态子集；运行时不得 import。
+- 产品代码只能通过 `src/components/ui/FileTypeIcon.tsx` 消费；generated mapping 仅允许该组件导入，ESLint fail closed。
+- 产物必须携带逐图标 manifest、MIT LICENSE 和第三方品牌标识免责声明。
+- 文件夹不使用这套 artwork；文件树以 Caret 表示文件夹，以 FileTypeIcon 表示文件。
+- 增删类型必须重新运行 generator 和 `file-type-icon.test.ts`，禁止在业务组件散落手写映射。
+
+完整数据流和解析优先级见 [Markdown Live Preview × Explorer 文件树交接](./markdown-live-preview-file-tree.md)。
+
 ## 一、Semantic alias 字典
 
 下表是 CodePilot 自有 semantic alias，**业务代码不要再直接表达 vendor icon name**（`Brain` / `Lightning` 等），而是通过 `<CodePilotIcon name="model" />` 这种方式调用。

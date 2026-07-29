@@ -1,5 +1,6 @@
 @import "tailwindcss";
 @import "tw-animate-css";
+@import "katex/dist/katex.min.css";
 
 @custom-variant dark (&:is(.dark *));
 
@@ -696,6 +697,159 @@ html.dark[data-platform="darwin"][data-shell="electron"][data-platform-style="au
   .cm-editor * {
     all: revert-layer;
   }
+}
+
+/*
+ * Markdown Live Preview. The document remains plain Markdown in CodeMirror;
+ * these classes style only decorations/widgets on inactive lines. Clicking a
+ * widget moves the selection to its source range, which removes the decoration
+ * and exposes the exact Markdown for editing.
+ */
+.cm-lp-heading {
+  font-family: var(--font-sans), system-ui, sans-serif;
+  font-weight: 600;
+  letter-spacing: -0.015em;
+  line-height: 1.35;
+}
+.cm-lp-h1 { font-size: 1.5rem; }
+.cm-lp-h2 { font-size: 1.25rem; }
+.cm-lp-h3 { font-size: 1.125rem; }
+.cm-lp-h4,
+.cm-lp-h5,
+.cm-lp-h6 { font-size: 1rem; }
+.cm-lp-strong { font-weight: 650; color: var(--foreground); }
+.cm-lp-emphasis { font-style: italic; }
+.cm-lp-code {
+  border-radius: 0.25rem;
+  background: var(--muted);
+  padding: 0.1rem 0.35rem;
+  color: var(--foreground);
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: 0.875em;
+}
+.cm-lp-link {
+  color: var(--primary);
+  text-decoration: underline;
+  text-decoration-color: color-mix(in oklch, var(--primary) 35%, transparent);
+  text-underline-offset: 3px;
+}
+.cm-lp-list-marker,
+.cm-lp-quote-marker {
+  display: inline-block;
+  color: var(--muted-foreground);
+  font-family: var(--font-sans), system-ui, sans-serif;
+  user-select: none;
+}
+.cm-lp-list-marker { min-width: 1.25rem; text-align: center; }
+.cm-lp-quote-marker {
+  margin-right: 0.5rem;
+  color: var(--border);
+  font-weight: 700;
+}
+.cm-lp-rule {
+  display: inline-block;
+  width: min(100%, 44rem);
+  margin: 0.65rem 0;
+  border: 0;
+  border-top: 1px solid var(--border);
+  vertical-align: middle;
+}
+.cm-lp-image {
+  display: inline-flex;
+  max-width: 100%;
+  flex-direction: column;
+  gap: 0.35rem;
+  margin: 0.5rem 0;
+  vertical-align: top;
+}
+.cm-lp-image img {
+  display: block;
+  max-width: 100%;
+  max-height: 28rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  object-fit: contain;
+}
+.cm-lp-image-caption {
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+  text-align: center;
+}
+.cm-lp-block {
+  display: block;
+  box-sizing: border-box;
+  width: min(100%, 52rem);
+  margin: 0.65rem 0;
+  overflow: auto;
+  border: 1px solid color-mix(in oklch, var(--border) 70%, transparent);
+  border-radius: var(--radius-lg);
+  background: color-mix(in oklch, var(--muted) 20%, transparent);
+  color: var(--foreground);
+  font-family: var(--font-sans), system-ui, sans-serif;
+  white-space: normal;
+}
+.cm-lp-block-header {
+  padding: 0.4rem 0.75rem;
+  background: color-mix(in oklch, var(--muted) 45%, transparent);
+  color: var(--muted-foreground);
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: 0.65rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.cm-lp-code-block pre {
+  margin: 0;
+  padding: 0.85rem;
+  overflow: auto;
+  background: transparent;
+  color: var(--foreground);
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: 0.8125rem;
+  line-height: 1.55;
+  white-space: pre;
+}
+.cm-lp-table-wrap { padding: 0.5rem; }
+.cm-lp-table-wrap table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.8125rem;
+}
+.cm-lp-table-wrap th,
+.cm-lp-table-wrap td {
+  padding: 0.45rem 0.65rem;
+  border-bottom: 1px solid color-mix(in oklch, var(--border) 65%, transparent);
+  text-align: left;
+}
+.cm-lp-table-wrap th {
+  background: color-mix(in oklch, var(--muted) 40%, transparent);
+  font-weight: 600;
+}
+.cm-lp-table-wrap tr:last-child td { border-bottom: 0; }
+.cm-lp-math-block,
+.cm-lp-mermaid {
+  padding: 1rem;
+  text-align: center;
+}
+.cm-lp-math-inline {
+  display: inline-block;
+  padding: 0 0.15rem;
+  vertical-align: middle;
+}
+.cm-lp-mermaid svg {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  margin: 0 auto;
+}
+.cm-lp-mermaid-loading {
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+}
+.cm-lp-render-error {
+  color: var(--destructive);
+  font-family: var(--font-mono), ui-monospace, monospace;
+  text-align: left;
+  white-space: pre-wrap;
 }
 
 /*

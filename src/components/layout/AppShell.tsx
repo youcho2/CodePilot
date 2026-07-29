@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import { useState, useEffect, useLayoutEffect, useCallback, useMemo, useRef } from "react";
 import dynamic from "next/dynamic";
 import { usePathname, useRouter } from "next/navigation";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -11,6 +11,7 @@ import { CardFrame, CardSurface, ResizeGutter } from "./card-primitives";
 import { UpdateBanner } from "./UpdateBanner";
 import { UnifiedTopBar } from "./UnifiedTopBar";
 import { WorkspaceSidebarProvider, useWorkspaceSidebar, useWorkspaceSidebarOptional } from "@/hooks/useWorkspaceSidebar";
+import { FileMutationProvider, useFileMutation } from "@/hooks/useFileMutation";
 import { PanelContext, usePanel, type PreviewViewMode, type PreviewSource } from "@/hooks/usePanel";
 import { UpdateContext } from "@/hooks/useUpdate";
 import { useUpdateChecker } from "@/hooks/useUpdateChecker";
@@ -26,6 +27,11 @@ import { useNotificationClickRoute } from '@/hooks/useNotificationClickRoute';
 import { useGlobalSearchShortcut } from '@/hooks/useGlobalSearchShortcut';
 import { GlobalSearchDialog } from './GlobalSearchDialog';
 import { ANNOUNCEMENT_KEY } from './feature-announcement-key';
+import {
+  pathIsWithin,
+  remapMutationPath,
+  type FileMutationTransaction,
+} from "@/lib/file-mutation";
 
 // AppShell static-import contract (Phase A memory cut, 2026-05-08): the six
 // components below are conditionally rendered (gated by route, modal state,
@@ -107,10 +113,47 @@ const RENDERED_EXTENSIONS = new Set([".md", ".mdx", ".html", ".htm", ".jsx", ".t
 function defaultViewMode(filePath: string): PreviewViewMode {
   const dot = filePath.lastIndexOf(".");
   const ext = dot >= 0 ? filePath.slice(dot).toLowerCase() : "";
+  // Markdown now has one canonical surface: CodeMirror Live Preview.
+  // Keep "rendered" for the other previewable formats, whose source and
+  // rendered views are still meaningfully separate.
+  if (ext === ".md" || ext === ".mdx") return "edit";
   return RENDERED_EXTENSIONS.has(ext) ? "rendered" : "source";
 }
 
 const LG_BREAKPOINT = 1024;
+
+function AppFileMutationParticipant({
+  previewSource,
+  onCommit,
+}: {
+  previewSource: PreviewSource | null;
+  onCommit: (transaction: FileMutationTransaction) => void;
+}) {
+  const { registerParticipant } = useFileMutation();
+  const previewSourceRef = useRef(previewSource);
+
+  useLayoutEffect(() => {
+    previewSourceRef.current = previewSource;
+  }, [previewSource]);
+
+  useEffect(
+    () =>
+      registerParticipant({
+        id: "app-preview-source",
+        priority: 20,
+        matches: (transaction) =>
+          previewSourceRef.current?.kind === "file" &&
+          pathIsWithin(
+            previewSourceRef.current.filePath,
+            transaction.targetPath,
+          ),
+        commit: (transaction) => onCommit(transaction),
+      }),
+    [onCommit, registerParticipant],
+  );
+
+  return null;
+}
 
 /**
  * Inner row that holds the chat main area + the two right-rail
@@ -613,6 +656,32 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     [setPreviewSource, workingDirectory],
   );
 
+  const commitPreviewFileMutation = useCallback(
+    (transaction: FileMutationTransaction) => {
+      setPreviewSourceRaw((current) => {
+        if (
+          current?.kind !== "file" ||
+          !pathIsWithin(current.filePath, transaction.targetPath)
+        ) {
+          return current;
+        }
+        if (transaction.kind === "delete") {
+          lastPreviewFilePathRef.current = null;
+          return null;
+        }
+        if (!transaction.newPath) return current;
+        const filePath = remapMutationPath(
+          current.filePath,
+          transaction.targetPath,
+          transaction.newPath,
+        );
+        lastPreviewFilePathRef.current = filePath;
+        return { ...current, filePath };
+      });
+    },
+    [],
+  );
+
   // Reset doc preview when navigating between pages/sessions
   /* eslint-disable react-hooks/set-state-in-effect */
   useEffect(() => {
@@ -703,6 +772,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     <UpdateContext.Provider value={updateContextValue}>
       <SentryInit />
       <PanelContext.Provider value={panelContextValue}>
+        <FileMutationProvider>
+        <AppFileMutationParticipant
+          previewSource={previewSource}
+          onCommit={commitPreviewFileMutation}
+        />
         <WorkspaceSidebarProvider workingDirectory={workingDirectory} sessionId={sessionId}>
         <SplitContext.Provider value={splitContextValue}>
         <BatchImageGenContext.Provider value={batchImageGenValue}>
@@ -804,6 +878,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         </BatchImageGenContext.Provider>
         </SplitContext.Provider>
         </WorkspaceSidebarProvider>
+        </FileMutationProvider>
       </PanelContext.Provider>
     </UpdateContext.Provider>
   );

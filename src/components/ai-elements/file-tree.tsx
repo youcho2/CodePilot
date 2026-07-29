@@ -10,6 +10,15 @@ import {
 import { cn } from "@/lib/utils";
 import { CaretRight } from "@phosphor-icons/react";
 import { CodePilotIcon } from "@/components/ui/semantic-icon";
+import { Input } from "@/components/ui/input";
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuSeparator,
+  ContextMenuShortcut,
+  ContextMenuTrigger,
+} from "@/components/ui/context-menu";
 import {
   createContext,
   useCallback,
@@ -140,11 +149,23 @@ const FileTreeFolderContext = createContext<FileTreeFolderContextType>({
 export type FileTreeFolderProps = HTMLAttributes<HTMLDivElement> & {
   path: string;
   name: string;
+  onCreateFile?: () => void;
+  onCreateFolder?: () => void;
+  onRename?: (nextName: string) => Promise<void>;
+  onDelete?: () => void;
+  protectedPath?: boolean;
+  labels?: FileTreeActionLabels;
 };
 
 export const FileTreeFolder = ({
   path,
   name,
+  onCreateFile,
+  onCreateFolder,
+  onRename,
+  onDelete,
+  protectedPath,
+  labels,
   className,
   children,
   ...props
@@ -153,6 +174,10 @@ export const FileTreeFolder = ({
     useContext(FileTreeContext);
   const isExpanded = expandedPaths.has(path);
   const isSelected = selectedFolderPath === path;
+  const [renaming, setRenaming] = useState(false);
+  const [renameValue, setRenameValue] = useState(name);
+  const [renameError, setRenameError] = useState<string | null>(null);
+  const [renamePending, setRenamePending] = useState(false);
 
   const handleToggle = useCallback(() => {
     togglePath(path);
@@ -176,16 +201,45 @@ export const FileTreeFolder = ({
     [isExpanded, name, path]
   );
 
+  const submitRename = useCallback(async () => {
+    const nextName = renameValue.trim();
+    if (!onRename || !nextName || nextName === name) {
+      setRenaming(false);
+      setRenameValue(name);
+      setRenameError(null);
+      return;
+    }
+    setRenamePending(true);
+    setRenameError(null);
+    try {
+      await onRename(nextName);
+      setRenaming(false);
+    } catch (error) {
+      setRenameError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setRenamePending(false);
+    }
+  }, [name, onRename, renameValue]);
+
+  const beginRename = useCallback(() => {
+    setRenameValue(name);
+    setRenameError(null);
+    setRenaming(true);
+  }, [name]);
+
   return (
     <FileTreeFolderContext.Provider value={folderContextValue}>
       <Collapsible onOpenChange={handleToggle} open={isExpanded}>
         <div
           className={cn("", className)}
           role="treeitem"
+          aria-selected={isSelected}
           {...props}
         >
-          <CollapsibleTrigger asChild>
-            <div
+          <ContextMenu>
+            <CollapsibleTrigger asChild>
+              <ContextMenuTrigger asChild>
+                <div
               className={cn(
                 "group/folder flex w-full cursor-pointer items-center gap-1 rounded px-2 py-1 text-left transition-colors hover:bg-muted/50",
                 isSelected && "bg-muted",
@@ -193,7 +247,11 @@ export const FileTreeFolder = ({
               role="button"
               tabIndex={0}
               onKeyDown={(e) => {
-                if (e.key === 'Enter' || e.key === ' ') {
+                if (e.key === "F2" && onRename) {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  beginRename();
+                } else if (e.key === 'Enter' || e.key === ' ') {
                   e.preventDefault();
                   handleToggle();
                 }
@@ -208,14 +266,39 @@ export const FileTreeFolder = ({
                   )}
                 />
               </span>
-              <FileTreeIcon>
-                {isExpanded ? (
-                  <CodePilotIcon name="folder_open" size="md" className="text-muted-foreground" aria-hidden />
-                ) : (
-                  <CodePilotIcon name="folder" size="md" className="text-muted-foreground" aria-hidden />
-                )}
-              </FileTreeIcon>
-              <FileTreeName>{name}</FileTreeName>
+              {renaming ? (
+                <Input
+                  autoFocus
+                  value={renameValue}
+                  disabled={renamePending}
+                  onChange={(event) => setRenameValue(event.target.value)}
+                  onClick={(event) => event.stopPropagation()}
+                  onPointerDown={(event) => event.stopPropagation()}
+                  onBlur={() => {
+                    if (!renamePending) {
+                      setRenaming(false);
+                      setRenameValue(name);
+                      setRenameError(null);
+                    }
+                  }}
+                  onKeyDown={(event) => {
+                    event.stopPropagation();
+                    if (event.key === "Enter") {
+                      event.preventDefault();
+                      void submitRename();
+                    } else if (event.key === "Escape") {
+                      event.preventDefault();
+                      setRenaming(false);
+                      setRenameValue(name);
+                      setRenameError(null);
+                    }
+                  }}
+                  className="h-6 min-w-0 flex-1 px-1.5 py-0 font-mono text-xs"
+                  aria-label={labels?.rename ?? "Rename"}
+                />
+              ) : (
+                <FileTreeName title={path}>{name}</FileTreeName>
+              )}
               {onAdd && (
                 <button
                   type="button"
@@ -227,8 +310,38 @@ export const FileTreeFolder = ({
                   <CodePilotIcon name="plus" size={12} className="text-muted-foreground" aria-hidden />
                 </button>
               )}
-            </div>
-          </CollapsibleTrigger>
+                </div>
+              </ContextMenuTrigger>
+            </CollapsibleTrigger>
+            <ContextMenuContent>
+              <ContextMenuItem onSelect={onCreateFile}>
+                {labels?.newFile ?? "New file"}
+              </ContextMenuItem>
+              <ContextMenuItem onSelect={onCreateFolder}>
+                {labels?.newFolder ?? "New folder"}
+              </ContextMenuItem>
+              <ContextMenuSeparator />
+              {onAdd && (
+                <ContextMenuItem onSelect={() => onAdd(path, "directory")}>
+                  {labels?.addToChat ?? addLabel ?? "Add to chat"}
+                </ContextMenuItem>
+              )}
+              <ContextMenuItem disabled={!onRename || protectedPath} onSelect={beginRename}>
+                {labels?.rename ?? "Rename"}
+                <ContextMenuShortcut>F2</ContextMenuShortcut>
+              </ContextMenuItem>
+              <ContextMenuItem
+                variant="destructive"
+                disabled={!onDelete || protectedPath}
+                onSelect={onDelete}
+              >
+                {labels?.delete ?? "Delete"}
+              </ContextMenuItem>
+            </ContextMenuContent>
+          </ContextMenu>
+          {renameError && (
+            <p className="px-8 py-0.5 text-[10px] text-destructive">{renameError}</p>
+          )}
           <CollapsibleContent>
             <div className="ml-4 border-l pl-2">{children}</div>
           </CollapsibleContent>
@@ -252,18 +365,30 @@ export type FileTreeFileProps = HTMLAttributes<HTMLDivElement> & {
   path: string;
   name: string;
   icon?: ReactNode;
+  onRename?: (nextName: string) => Promise<void>;
+  onDelete?: () => void;
+  protectedPath?: boolean;
+  labels?: FileTreeActionLabels;
 };
 
 export const FileTreeFile = ({
   path,
   name,
   icon,
+  onRename,
+  onDelete,
+  protectedPath,
+  labels,
   className,
   children,
   ...props
 }: FileTreeFileProps) => {
   const { selectedPath, onSelect, onAdd, addLabel } = useContext(FileTreeContext);
   const isSelected = selectedPath === path;
+  const [renaming, setRenaming] = useState(false);
+  const [renameValue, setRenameValue] = useState(name);
+  const [renameError, setRenameError] = useState<string | null>(null);
+  const [renamePending, setRenamePending] = useState(false);
 
   const handleClick = useCallback(() => {
     onSelect?.(path);
@@ -271,11 +396,16 @@ export const FileTreeFile = ({
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
-      if (e.key === "Enter" || e.key === " ") {
+      if (e.key === "F2" && onRename) {
+        e.preventDefault();
+        setRenameValue(name);
+        setRenameError(null);
+        setRenaming(true);
+      } else if (e.key === "Enter" || e.key === " ") {
         onSelect?.(path);
       }
     },
-    [onSelect, path]
+    [name, onRename, onSelect, path]
   );
 
   const handleAdd = useCallback(
@@ -288,26 +418,87 @@ export const FileTreeFile = ({
 
   const fileContextValue = useMemo(() => ({ name, path }), [name, path]);
 
+  const beginRename = useCallback(() => {
+    setRenameValue(name);
+    setRenameError(null);
+    setRenaming(true);
+  }, [name]);
+
+  const submitRename = useCallback(async () => {
+    const nextName = renameValue.trim();
+    if (!onRename || !nextName || nextName === name) {
+      setRenaming(false);
+      setRenameValue(name);
+      setRenameError(null);
+      return;
+    }
+    setRenamePending(true);
+    setRenameError(null);
+    try {
+      await onRename(nextName);
+      setRenaming(false);
+    } catch (error) {
+      setRenameError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setRenamePending(false);
+    }
+  }, [name, onRename, renameValue]);
+
   return (
     <FileTreeFileContext.Provider value={fileContextValue}>
-      <div
-        className={cn(
-          "group/file flex cursor-pointer items-center gap-1 rounded px-2 py-1 transition-colors hover:bg-muted/50",
-          isSelected && "bg-muted",
-          className
-        )}
-        onClick={handleClick}
-        onKeyDown={handleKeyDown}
-        role="treeitem"
-        tabIndex={0}
-        {...props}
-      >
-        {children ?? (
-          <>
-            <FileTreeIcon>
-              {icon ?? <CodePilotIcon name="file" size="md" className="text-muted-foreground" aria-hidden />}
-            </FileTreeIcon>
-            <FileTreeName>{name}</FileTreeName>
+      <ContextMenu>
+        <ContextMenuTrigger asChild>
+          <div
+            className={cn(
+              "group/file flex cursor-pointer items-center gap-1 rounded px-2 py-1 transition-colors hover:bg-muted/50",
+              isSelected && "bg-muted",
+              className
+            )}
+            onClick={handleClick}
+            onKeyDown={handleKeyDown}
+            role="treeitem"
+            aria-selected={isSelected}
+            tabIndex={0}
+            {...props}
+          >
+            {children ?? (
+              <>
+                <FileTreeIcon>
+                  {icon ?? <CodePilotIcon name="file" size="md" className="text-muted-foreground" aria-hidden />}
+                </FileTreeIcon>
+                {renaming ? (
+                  <Input
+                    autoFocus
+                    value={renameValue}
+                    disabled={renamePending}
+                    onChange={(event) => setRenameValue(event.target.value)}
+                    onClick={(event) => event.stopPropagation()}
+                    onPointerDown={(event) => event.stopPropagation()}
+                    onBlur={() => {
+                      if (!renamePending) {
+                        setRenaming(false);
+                        setRenameValue(name);
+                        setRenameError(null);
+                      }
+                    }}
+                    onKeyDown={(event) => {
+                      event.stopPropagation();
+                      if (event.key === "Enter") {
+                        event.preventDefault();
+                        void submitRename();
+                      } else if (event.key === "Escape") {
+                        event.preventDefault();
+                        setRenaming(false);
+                        setRenameValue(name);
+                        setRenameError(null);
+                      }
+                    }}
+                    className="h-6 min-w-0 flex-1 px-1.5 py-0 font-mono text-xs"
+                    aria-label={labels?.rename ?? "Rename"}
+                  />
+                ) : (
+                  <FileTreeName title={path}>{name}</FileTreeName>
+                )}
             {onAdd && (
               <button
                 type="button"
@@ -319,12 +510,44 @@ export const FileTreeFile = ({
                 <CodePilotIcon name="plus" size={12} className="text-muted-foreground" aria-hidden />
               </button>
             )}
-          </>
+              </>
+            )}
+          </div>
+        </ContextMenuTrigger>
+        <ContextMenuContent>
+          {onAdd && (
+            <ContextMenuItem onSelect={() => onAdd(path, "file")}>
+              {labels?.addToChat ?? addLabel ?? "Add to chat"}
+            </ContextMenuItem>
+          )}
+          <ContextMenuItem disabled={!onRename || protectedPath} onSelect={beginRename}>
+            {labels?.rename ?? "Rename"}
+            <ContextMenuShortcut>F2</ContextMenuShortcut>
+          </ContextMenuItem>
+          <ContextMenuSeparator />
+          <ContextMenuItem
+            variant="destructive"
+            disabled={!onDelete || protectedPath}
+            onSelect={onDelete}
+          >
+            {labels?.delete ?? "Delete"}
+          </ContextMenuItem>
+        </ContextMenuContent>
+        {renameError && (
+          <p className="px-8 py-0.5 text-[10px] text-destructive">{renameError}</p>
         )}
-      </div>
+      </ContextMenu>
     </FileTreeFileContext.Provider>
   );
 };
+
+export interface FileTreeActionLabels {
+  newFile: string;
+  newFolder: string;
+  addToChat: string;
+  rename: string;
+  delete: string;
+}
 
 export type FileTreeIconProps = HTMLAttributes<HTMLSpanElement>;
 
@@ -345,7 +568,7 @@ export const FileTreeName = ({
   children,
   ...props
 }: FileTreeNameProps) => (
-  <span className={cn("truncate", className)} {...props}>
+  <span className={cn("min-w-0 truncate", className)} {...props}>
     {children}
   </span>
 );

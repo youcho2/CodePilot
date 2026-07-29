@@ -48,6 +48,12 @@ import { PREVIEW_MARKDOWN_COMPONENTS } from "@/components/markdown/markdown-cont
 import { buildPresentationRefreshUrl } from "@/lib/markdown/presentation-refresh";
 import { dispatchAddToChat } from "@/lib/add-to-chat-event";
 import { injectInlineHtmlCsp } from "@/lib/inline-html-csp";
+import { useFileMutation } from "@/hooks/useFileMutation";
+import {
+  pathIsWithin,
+  remapMutationPath,
+  type FileMutationTransaction,
+} from "@/lib/file-mutation";
 // MarkdownOutlineRail removed from the UI per Codex UX feedback —
 // outline rail ate too much sidebar width and its partial background
 // looked broken. The post-render heading + callout helpers stay
@@ -274,6 +280,7 @@ export function PreviewPanel(_: { variant?: 'sidebar' } = {}) {
   const { t } = useTranslation();
   const [copied, setCopied] = useState(false);
   const [width, setWidth] = useState(PREVIEW_DEFAULT_WIDTH);
+  const { registerParticipant } = useFileMutation();
 
   // Phase 4 Phase 1 — trust-tier derivation.
   // Default missing `trust` to 'workspace' so pre-Phase-4 callers and
@@ -548,6 +555,17 @@ export function PreviewPanel(_: { variant?: 'sidebar' } = {}) {
   const [savedContent, setSavedContent] = useState<string>("");
   const [savingEdit, setSavingEdit] = useState(false);
   const [editJustSaved, setEditJustSaved] = useState(false);
+  const autosaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const savePromiseRef = useRef<Promise<boolean> | null>(null);
+  const mutationGuardRef = useRef<FileMutationTransaction | null>(null);
+  const previewPathRef = useRef(filePath);
+  const loadedPathRef = useRef<string | null>(null);
+  const editDirtyRef = useRef(false);
+  const pendingMutationAckRef = useRef<{
+    targetPath: string;
+    resolve: () => void;
+  } | null>(null);
+  const [mutationResumeTick, setMutationResumeTick] = useState(0);
   // Phase 5.6 — the "loaded path" anchor for every stale-content check in
   // this panel. Populated when loadPreview successfully seats a new
   // preview.content; cleared synchronously on filePath changes before
@@ -568,6 +586,9 @@ export function PreviewPanel(_: { variant?: 'sidebar' } = {}) {
     }
   }, [preview?.content, preview?.path]);
   const editDirty = editContent !== savedContent && loadedMatchesActive;
+  previewPathRef.current = filePath;
+  loadedPathRef.current = loadedPath;
+  editDirtyRef.current = editDirty;
 
   // Codex P1 follow-up. The render path below used to read `preview`
   // directly, which meant on the first frame after a file switch React
@@ -604,62 +625,66 @@ export function PreviewPanel(_: { variant?: 'sidebar' } = {}) {
     return null;
   }, [previewSource, filePath, freshPreview]);
 
-  const handleSaveEdit = useCallback(async () => {
-    if (!editDirty || savingEdit) return;
-    if (previewSource?.kind !== "file") return;
+  const handleSaveEdit = useCallback((): Promise<boolean> => {
+    if (mutationGuardRef.current) return Promise.resolve(false);
+    if (!editDirty || savingEdit) return Promise.resolve(true);
+    if (previewSource?.kind !== "file") return Promise.resolve(false);
     // Second hard gate — editDirty already bakes this in, but the save
     // path is sensitive enough that duplicating the check against
     // loadedPath is cheap insurance for future refactors.
-    if (loadedPath !== previewSource.filePath) return;
+    if (loadedPath !== previewSource.filePath) return Promise.resolve(false);
     // Phase 4: never write to a readonly source. The UI already hides
     // the save button + autosave gate, but a future code path or
     // keyboard shortcut shouldn't be able to slip a write through.
-    if (isReadonlySource) return;
+    if (isReadonlySource) return Promise.resolve(false);
     const targetPath = previewSource.filePath;
     setSavingEdit(true);
-    try {
-      const res = await fetch("/api/files/write", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          path: targetPath,
-          baseDir: sourceBaseDir,
-          content: editContent,
-          overwrite: true,
-          createParents: false,
-        }),
-      });
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        alert(`Save failed: ${data.error || res.statusText}`);
-        return;
+    const promise = (async () => {
+      try {
+        const res = await fetch("/api/files/write", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            path: targetPath,
+            baseDir: sourceBaseDir,
+            content: editContent,
+            overwrite: true,
+            createParents: false,
+          }),
+        });
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          alert(`Save failed: ${data.error || res.statusText}`);
+          return false;
+        }
+        // Only mark clean if the current previewSource is still the file
+        // we were saving. A mid-save file switch would otherwise leave
+        // savedContent pointing at content that belongs to the previous
+        // file — benign for persistence (the target file on disk is
+        // correct) but would mislabel dirty state on the new file.
+        setSavedContent((prev) =>
+          previewPathRef.current === targetPath ? editContent : prev,
+        );
+        setEditJustSaved(true);
+        setTimeout(() => setEditJustSaved(false), 2000);
+        dispatchFileChanged({
+          paths: [targetPath],
+          source: "preview-save",
+          originId: targetPath,
+        });
+        return true;
+      } catch (err) {
+        alert(`Save failed: ${err instanceof Error ? err.message : String(err)}`);
+        return false;
+      } finally {
+        setSavingEdit(false);
       }
-      // Only mark clean if the current previewSource is still the file
-      // we were saving. A mid-save file switch would otherwise leave
-      // savedContent pointing at content that belongs to the previous
-      // file — benign for persistence (the target file on disk is
-      // correct) but would mislabel dirty state on the new file.
-      setSavedContent((prev) =>
-        previewSource?.kind === "file" && previewSource.filePath === targetPath
-          ? editContent
-          : prev,
-      );
-      setEditJustSaved(true);
-      setTimeout(() => setEditJustSaved(false), 2000);
-      // Phase 4: tell every other listener (and ourselves, idempotent)
-      // that this path's on-disk content just changed. `originId` lets
-      // our own listener skip the self-echo so we don't refetch the
-      // bytes we just wrote.
-      dispatchFileChanged({
-        paths: [targetPath],
-        source: "preview-save",
-        originId: targetPath,
-      });
-    } catch (err) {
-      alert(`Save failed: ${err instanceof Error ? err.message : String(err)}`);
-    } finally {
-      setSavingEdit(false);
-    }
+    })();
+    savePromiseRef.current = promise;
+    void promise.finally(() => {
+      if (savePromiseRef.current === promise) savePromiseRef.current = null;
+    });
+    return promise;
   }, [editDirty, savingEdit, previewSource, editContent, loadedPath, sourceBaseDir, isReadonlySource]);
 
   // Debounced autosave. Fires 1 second after the user stops typing, as
@@ -676,11 +701,87 @@ export function PreviewPanel(_: { variant?: 'sidebar' } = {}) {
     // gate inside handleSaveEdit — without this we'd queue a save timer
     // that fires into the readonly guard and silently no-ops.
     if (isReadonlySource) return;
-    const timer = setTimeout(() => {
+    if (mutationGuardRef.current) return;
+    autosaveTimerRef.current = setTimeout(() => {
+      autosaveTimerRef.current = null;
       void handleSaveEdit();
     }, 1000);
-    return () => clearTimeout(timer);
-  }, [editContent, editDirty, savingEdit, previewSource, filePath, isReadonlySource, handleSaveEdit]);
+    return () => {
+      if (autosaveTimerRef.current) {
+        clearTimeout(autosaveTimerRef.current);
+        autosaveTimerRef.current = null;
+      }
+    };
+  }, [editContent, editDirty, savingEdit, previewSource, filePath, isReadonlySource, handleSaveEdit, mutationResumeTick]);
+
+  useLayoutEffect(() => {
+    const pending = pendingMutationAckRef.current;
+    if (
+      pending &&
+      previewSource?.kind === "file" &&
+      previewSource.filePath === pending.targetPath &&
+      loadedPath === pending.targetPath
+    ) {
+      pendingMutationAckRef.current = null;
+      mutationGuardRef.current = null;
+      pending.resolve();
+      setMutationResumeTick((tick) => tick + 1);
+    }
+  }, [loadedPath, previewSource]);
+
+  useEffect(
+    () =>
+      registerParticipant({
+        id: "markdown-preview-editor",
+        priority: 10,
+        matches: (transaction) =>
+          !!previewPathRef.current &&
+          pathIsWithin(previewPathRef.current, transaction.targetPath),
+        isDirty: () => editDirtyRef.current,
+        prepare: async (transaction) => {
+          mutationGuardRef.current = transaction;
+          if (autosaveTimerRef.current) {
+            clearTimeout(autosaveTimerRef.current);
+            autosaveTimerRef.current = null;
+          }
+          const inFlightSave = savePromiseRef.current;
+          if (inFlightSave && !(await inFlightSave)) {
+            throw new Error("The active Markdown file could not be saved");
+          }
+          return {
+            loadedPath: loadedPathRef.current,
+          };
+        },
+        commit: (transaction) => {
+          if (transaction.kind === "delete") {
+            mutationGuardRef.current = null;
+            setLoadedPath(null);
+            setEditContent("");
+            setSavedContent("");
+            return;
+          }
+          if (!transaction.newPath || !loadedPathRef.current) {
+            mutationGuardRef.current = null;
+            return;
+          }
+          const targetPath = remapMutationPath(
+            loadedPathRef.current,
+            transaction.targetPath,
+            transaction.newPath,
+          );
+          loadedPathRef.current = targetPath;
+          setLoadedPath(targetPath);
+          return new Promise<void>((resolve) => {
+            pendingMutationAckRef.current = { targetPath, resolve };
+          });
+        },
+        rollback: () => {
+          mutationGuardRef.current = null;
+          setMutationResumeTick((tick) => tick + 1);
+        },
+      }),
+    [registerParticipant],
+  );
 
   // Phase 4: listen for codepilot:file-changed events.
   //
@@ -1022,7 +1123,7 @@ export function PreviewPanel(_: { variant?: 'sidebar' } = {}) {
         {/* The Updated indicator lives next to the filename; the retired
             presentation-style Select no longer consumes header space. */}
 
-        {canRender && !isMedia && !isAgentReferenced && (
+        {canRender && !isMedia && !isAgentReferenced && !isMarkdown(filePath) && (
           <ViewModeToggle
             value={previewViewMode}
             onChange={setPreviewViewMode}
@@ -1034,7 +1135,7 @@ export function PreviewPanel(_: { variant?: 'sidebar' } = {}) {
             dot + label affordance from SkillEditor so the two editing
             surfaces feel consistent. Cmd+S inside the editor triggers the
             same handler, so this is an alternate path for mouse users. */}
-        {previewViewMode === "edit" && previewSource?.kind === "file" && isEditable(filePath) && !isReadonlySource && (
+        {(previewViewMode === "edit" || isMarkdown(filePath)) && previewSource?.kind === "file" && isEditable(filePath) && !isReadonlySource && (
           <>
             {editDirty && (
               <span
@@ -1248,7 +1349,7 @@ export function PreviewPanel(_: { variant?: 'sidebar' } = {}) {
           </div>
         ) : freshPreview ? (
           <>
-            {isEditable(filePath) && !isReadonlySource && (previewViewMode === "edit" || previewViewMode === "source") ? (
+            {isEditable(filePath) && !isReadonlySource && (isMarkdown(filePath) || previewViewMode === "edit" || previewViewMode === "source") ? (
               // Editable files: Source and Edit both route to the
               // CodeMirror surface (Edit is Source for Markdown). Cmd+S
               // calls handleSaveEdit through the editor keymap; the
@@ -1262,8 +1363,9 @@ export function PreviewPanel(_: { variant?: 'sidebar' } = {}) {
                 onChange={setEditContent}
                 onSave={handleSaveEdit}
                 filename={filePath}
+                sessionId={sessionId}
               />
-            ) : previewViewMode === "rendered" && canRender ? (
+            ) : (previewViewMode === "rendered" || isMarkdown(filePath)) && canRender ? (
               <RenderedView
                 content={freshPreview.content}
                 filePath={filePath}

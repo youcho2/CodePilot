@@ -151,6 +151,32 @@ const eslintConfig = defineConfig([
     },
   },
 
+  // File type artwork is a build-time-only dependency. Product code may
+  // consume only the generated static subset through FileTypeIcon.
+  {
+    files: ["src/**/*.{ts,tsx}"],
+    ignores: ["src/components/ui/FileTypeIcon.tsx"],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          patterns: [
+            {
+              group: ["material-icon-theme", "material-icon-theme/*"],
+              message:
+                "material-icon-theme is build-time only; use FileTypeIcon.",
+            },
+            {
+              group: ["@/components/ui/file-type-icons.generated"],
+              message:
+                "Only FileTypeIcon may import the generated icon mapping.",
+            },
+          ],
+        },
+      ],
+    },
+  },
+
   // ── Raw status colors ──
   // ESLint cannot lint inside className strings. Use `npm run lint:colors` (grep-based)
   // to check for raw green/red/yellow/orange/blue-{400-700} usage in business components.

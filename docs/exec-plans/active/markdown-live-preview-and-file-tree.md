@@ -2,7 +2,7 @@
 
 > 创建时间：2026-07-29
 > 最后更新：2026-07-29
-> 状态：🚧 执行中（Phase 1 ✅；Phase 2 开始；Phase 0.A 真实 DOM/IME 手工项待补）
+> 状态：🚧 实现与 macOS 验收完成；发布矩阵仍待原生中文 IME 人工项与 Windows RC-2
 > 对应调研：
 > - [docs/research/markdown-editor-tiptap-evaluation.md](../../research/markdown-editor-tiptap-evaluation.md)（CodeMirror 选型依据）
 > - [docs/research/craft-agents-markdown-internals.md](../../research/craft-agents-markdown-internals.md)（渲染/编辑分栈佐证）
@@ -21,17 +21,22 @@
 
 | Phase | 内容 | 状态 | 价值形态 | 备注 |
 |-------|------|------|---------|------|
-| Phase 0 | 前置 POC（Live Preview 装饰核心 / trash 打包 smoke / 图标提取管线 + 视觉 POC / ContextMenu 行为） | 🚧 进行中（0.A partial；0.B/0.C/0.D 待重做） | C 基建 | 用户要求撤回计划 commit 后的 Claude/loop 产物；已从 `089e4d45` 基线由 Codex 重做 0.A state 层，11/11 targeted + tsc 通过，真实 DOM/IME 仍待证 |
+| Phase 0 | 前置 POC（Live Preview 装饰核心 / trash 打包 smoke / 图标提取管线 + 视觉 POC / ContextMenu 行为） | 🚧 0.B/0.C/0.D ✅；0.A 仅剩原生 IME | C 基建 | production DOM 的活动行源码、输入、undo、滚动已验；macOS packaged Trash 可恢复；真正中文候选窗仍需人工 |
 | Phase 1 | 中立 Markdown component contract + 删除 presentation 主题 + Export 脚手架解耦 | ✅ 已完成 | A 可见 | RC-5 / RC-8 targeted 28/28；全量 3850/3850 |
-| Phase 2 | Live Preview 接入（2a 行内 marks → 2b 最低渲染 parity）+ viewMode 收敛 | 📋 待开始 | A 可见 | 依赖 Phase 0.A、RC-3 / RC-6 / RC-11 |
-| Phase 3 | 文件树右键菜单 + 行内重命名 + 删除（file mutation transaction） | 📋 待开始 | A 可见 | 依赖 Phase 0.B/0.D、RC-1 / RC-4；RC-2 是 Windows 发版门禁 |
-| Phase 4 | FileTypeIcon（material-icon-theme 静态子集）+ 文件夹仅 chevron + 全名 tooltip | 📋 待开始 | A 可见 | 依赖 Phase 0.C、RC-7 |
-| Phase 5 | 回归、文档漂移修复、handover/insights 双文档、tech-debt 回写 | 📋 待开始 | C 基建 | |
+| Phase 2 | Live Preview 接入（2a 行内 marks → 2b 最低渲染 parity）+ viewMode 收敛 | 🚧 代码与自动验收完成 | A 可见 | RC-6 / RC-11 ✅；RC-3 state/DOM/undo ✅，原生中文 IME 候选窗待人工 |
+| Phase 3 | 文件树右键菜单 + 行内重命名 + 删除（file mutation transaction） | ✅ macOS 已完成 | A 可见 | RC-1 / RC-4 ✅；RC-2 保持为 Windows 发版 fail-closed 门禁 |
+| Phase 4 | FileTypeIcon（material-icon-theme 静态子集）+ 文件夹仅 chevron + 全名 tooltip | ✅ 已完成 | A 可见 | 固定 50 图标 + manifest/license；亮暗主题视觉 smoke 完成 |
+| Phase 5 | 回归、文档漂移修复、handover/insights 双文档、tech-debt 回写 | 🚧 实现完成，待发布矩阵收口后归档 | C 基建 | 3866/3866 unit、17/17 smoke、build、macOS DMG/ZIP 全绿；不提前宣称 Windows ready |
 
 **状态符号：** 📋 待开始 / 🚧 进行中 / ✅ 已完成 / ⏸ blocked / ❌ 放弃
 
 ## 决策日志
 
+- 2026-07-29 [Codex 直接实现 Phase 2–5] 未启动 Claude/loop。`.md/.mdx` 收敛到单一 CodeMirror Live Preview；inactive inline/block 使用官方 decoration/widget，图片、表格、代码 fence、Mermaid、KaTeX 达到 RC-11，active block 显示无损源码。输入期间若仍在同一活动行，只 map 现有 decoration；换行、selection block 或 viewport 变化才重建，避免逐字符重扫可见语法树。旧 Preview Tab 与 presentation 主题入口已移除，autosave/Cmd+S/冲突/`loadedPath` 事实源链保留。
+- 2026-07-29 [RC-6 performance] 固定 seed 夹具为 **117,929 bytes / 200 headings / 50 fences / 20 tables**。darwin arm64 production server 同机基线（纯文本）p95 frame **18.3ms**、input **56ms**；Live Preview 最终 p95 frame **16.8ms**、max **17.7ms**、>100ms **0**，31 字符 × 4 event entries 的 input p95/max **48ms**，通过预算。Chrome DevTools connector 能完成 trace/observer 采样，但拒绝把 raw trace 写入已配置 workspace，故本次只登记可复现脚本与数值，不伪造 trace 路径。
+- 2026-07-29 [Phase 3/4 UI + transaction] `FileMutationCoordinator` 统一 PreviewPanel、AppShell、Workspace Sidebar 与树状态的 prepare/execute/commit/rollback；六种 race 全覆盖。树内空白/文件/目录右键菜单、F2/Enter/Escape/blur、Trash 确认、受保护路径与 14 个错误码已接通；真实浏览器 smoke 验证文件/目录 rename-delete 及 tab/preview 迁移。文件夹 arrow-only；`FileTypeIcon` 以 exact → env → compound → extension → fallback 解析固定 50 个 `material-icon-theme` SVG，随 MIT license/manifest/商标说明入库，亮暗主题均检查。
+- 2026-07-29 [RC-1 packaged macOS] `npm run electron:pack:mac` 生成 Developer ID 签名的 **CodePilot-0.58.0-arm64.dmg（182MB）** 与 ZIP（177MB）；Electron 40.2.1 arm64 `better-sqlite3` ABI rebuild 替换两处产物后，`codesign --verify --deep --strict` 通过。产物内 `trash/lib/macos-trash` 保留 `rwxr-xr-x`。直接启动打包 App，内部 server 绑定 `127.0.0.1:47823`，通过其 `/api/files/delete` 将唯一 `/private/tmp` marker 移入系统 Trash；Finder 能列出同名项，再由 Finder 恢复到原目录并核对首行内容完整。RC-1 通过。Windows helper 虽已打入 standalone，但未在 Windows 运行，RC-2 仍 fail-closed。
+- 2026-07-29 [回归与打包环境] targeted Live Preview/mutation/icon **16/16**；`npm run test` **3866 tests / 970 suites / 0 fail**；`npm run test:smoke` **17/17**；typecheck/build 通过。构建仍报告既有 `files/suggest` NFT whole-project trace warning。`afterPack` 会把工作区 `better-sqlite3` 留在 Electron ABI，打包后继续跑 Node 测试/服务器前必须 `npm rebuild better-sqlite3`；本轮已恢复并写入 Electron guardrail。
 - 2026-07-29 [Phase 1 Codex 实现 — 完成] 新建中立 `markdown-contract.tsx`，聊天与文件预览共享标题/段落/列表/引用/链接/行内码/表格/代码块视觉基座；聊天仅覆盖带复制动作的 table/code。移除 Preview header 的 Style Select、五套 in-place CSS、PreviewSource/Tab 运行态字段；parse 边界继续接受旧 `presentationTemplate` 并主动剥离。四套 standalone HTML Export templates 保留且不再依赖 in-place style。`tsc` 通过，RC-5/RC-8 与相关回归 targeted **28/28**；全量 `npm run test` **3850 tests / 965 suites / 0 fail**。
 - 2026-07-29 [用户要求撤回并重做] 停止 Claude/loop，将专用 worktree 从 `1222167c` 精确 reset 到 canonical 计划提交 `089e4d45`；撤回其后的 `fc10691f`/`1222167c`、未提交 0.C、`material-icon-theme` 安装残留、DMG/ZIP/`.next` 打包产物。此后不再启动 Claude/loop，由 Codex 直接实现。
 - 2026-07-29 [Phase 0.A Codex 重做 — partial] 仅在 `src/__tests__` 新增纯 state harness + 11 条测试，证明 inactive decoration / active reveal、半开 visible ranges 去重、atomicRanges provider、IME freeze/map/compositionend 空 update rebuild、controlled value 最小 diff + history/selection 保持；targeted **11/11**、全量 `npm run test` **3851 tests / 964 suites / 0 fail**，零生产 importer。真实 DOM 点击/方向键/selection/delete 与中文 IME 候选框未验证，因此不把 0.A 标完成；详见 [research/phase-0-pocs/0.A](../../research/phase-0-pocs/0.A-live-preview-decoration-core.md)。
@@ -245,3 +250,9 @@ idle
 |------|---------|----------|-------|---------|------|--------|----------|
 | _示例_ | - | - | - | - | RC-1 DMG 废纸篓 smoke | - | 截图路径 |
 | 2026-07-29 | - | - | - | - | Phase 0.A Codex 重做：Live Preview state 层 decoration / atomic provider / IME freeze / history POC | ⚠️ partial | targeted **11/11**；全量 `npm run test` **3851 tests / 964 suites / 0 fail**；真实 DOM 点击/删除与真机 IME 待补。证据 [research/phase-0-pocs/0.A-live-preview-decoration-core.md](../../research/phase-0-pocs/0.A-live-preview-decoration-core.md) |
+| 2026-07-29 | - | - | - | - | RC-3/RC-11 production DOM：inactive parity、active lossless source、连续输入、Cmd+Z | ⚠️ partial | 活动行保留 `$x_91 + y_91$` 原文；31 字符输入后 Cmd+Z marker 消失；图片/表格/fence/Mermaid/KaTeX targeted 通过。原生中文 IME 候选窗仍待人工 |
+| 2026-07-29 | - | - | - | - | RC-6 100K production performance | ✅ | baseline frame/input p95 **18.3/56ms**；Live Preview **16.8/48ms**，max frame **17.7ms**，>100ms **0**；raw trace 因 DevTools connector workspace 写入限制未落盘 |
+| 2026-07-29 | - | - | - | - | RC-4 file mutation race + browser UI | ✅ | coordinator 六种 race **6/6**；真实 UI 验证 file/folder rename-delete、tab/preview/expanded path 迁移 |
+| 2026-07-29 | - | - | - | - | RC-7 FileTypeIcon 许可与亮暗视觉 | ✅ | 固定 50 SVG；manifest/license test 通过；light/dark 文件树检查，folder arrow-only、同名不同后缀可区分 |
+| 2026-07-29 | - | - | - | - | RC-1 signed packaged macOS Trash + restore | ✅ | DMG/ZIP + strict codesign；packaged server `:47823` API 返回 `trashed:true`；Finder Trash 列出 marker，恢复后内容完整。RC-2 未在 Windows 执行 |
+| 2026-07-29 | - | - | - | - | Phase 5 full regression | ✅ | targeted **16/16**；unit **3866/3866**；Playwright smoke **17/17**；typecheck/build/macOS pack 通过 |

@@ -12,10 +12,12 @@ import {
   serialize,
   storageKey,
   tabFromPreviewSource,
+  commitWorkspaceFileMutation,
   type DynamicTab,
   type WorkspaceSidebarState,
 } from '@/lib/workspace-sidebar';
 import type { PreviewSource } from '@/hooks/usePanel';
+import { useFileMutation } from '@/hooks/useFileMutation';
 
 /**
  * Window event other parts of the app dispatch to ask the sidebar to
@@ -59,12 +61,29 @@ interface ProviderProps {
  * state during render" rule and avoids hydration mismatches.
  */
 export function WorkspaceSidebarProvider({ workingDirectory, sessionId, children }: ProviderProps) {
+  const { registerParticipant } = useFileMutation();
   const key = storageKey(workingDirectory, sessionId);
   const [state, setState] = useState<WorkspaceSidebarState>(() => initialState());
+
+  useEffect(
+    () =>
+      registerParticipant({
+        id: 'workspace-sidebar-tabs',
+        priority: 30,
+        matches: () => true,
+        commit: (transaction) => {
+          setState((current) =>
+            commitWorkspaceFileMutation(current, transaction),
+          );
+        },
+      }),
+    [registerParticipant],
+  );
 
   // Hydrate from storage when the scope (workspace + session) changes.
   // Without this, switching chats inside the same workspace would keep
   // the previous chat's dynamic Tabs around.
+  /* eslint-disable react-hooks/set-state-in-effect */
   useEffect(() => {
     try {
       const raw = typeof window !== 'undefined' ? window.localStorage.getItem(key) : null;
@@ -73,6 +92,7 @@ export function WorkspaceSidebarProvider({ workingDirectory, sessionId, children
       setState(initialState());
     }
   }, [key]);
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   // Persist on every change. JSON.stringify is cheap relative to user
   // interaction frequency; the alternative (debounce) would let an

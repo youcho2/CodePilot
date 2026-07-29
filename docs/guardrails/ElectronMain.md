@@ -66,6 +66,7 @@
 - xAI proxy bridge 直接依赖 `undici` 6.x 的 dispatcher 接口；升级 Node/Electron 或迁移到 undici 7+ 时必须重跑真实 CONNECT proxy 合同测试并核对 handler 接口，不能只依赖 typecheck。
 - Windows 的 `process.env` / child env key 是大小写不敏感语义；同时传 `http_proxy` 与 `HTTP_PROXY` 时 Node 只会选其中一个。禁止用对象 spread 的偶然顺序决定代理，必须先归一。
 - 不要用 `session.setProxy({ mode: 'direct' })` 解决 Codex loopback：它会关闭 Chromium 外网代理，且管不到 Rust app-server 的 socket。应在 child-process 环境边界合并 `NO_PROXY`。
+- `scripts/after-pack.js` 会原地把工作区 `node_modules/better-sqlite3` 重编成 Electron ABI。打包产物验证完成后，如果还要运行普通 Node/Next 测试或开发服务器，先执行 `npm rebuild better-sqlite3` 恢复当前 Node ABI；否则会出现 `NODE_MODULE_VERSION` 不匹配。2026-07-29 的 macOS packaged smoke 已实证这条恢复步骤。
 
 ## 测试覆盖
 
