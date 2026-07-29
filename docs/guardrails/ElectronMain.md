@@ -29,6 +29,7 @@
 | 10 | packaged Next server 的 xAI OAuth fetch 必须显式消费代理 dispatcher，不能假设 Node fetch 自动读取 env | `electron/main.ts` + env proxy fetch |
 | 11 | Electron → packaged Next child env 保留显式 proxy、缺省时补 system proxy，并合并 loopback `NO_PROXY`；Windows 不得传大小写重复 key | process proxy env |
 | 12 | bundled Codex 的 Windows system-proxy-only 路径必须以 packaged smoke 证明；静态 source pin 不能替代 | Windows release smoke |
+| 13 | macOS 原生窗口材质必须跟随 app 的 `system/light/dark` 模式；IPC 只接受这三个枚举，renderer 外围保持透明，不能用高不透明度 CSS 遮罩伪造主题同步 | `ThemeProvider` + preload/main bridge + tests |
 
 ## 关键文件 + 责任
 
@@ -40,6 +41,7 @@
 | `scripts/after-pack.js` | better-sqlite3 ABI rebuild |
 | `scripts/after-sign.js` | macOS 签名后处理 |
 | `electron-builder.yml` | DMG / NSIS / arm64 + x64 打包配置 |
+| `electron/preload.ts` + `src/components/layout/ThemeProvider.tsx` | app 主题到 `nativeTheme.themeSource` 的窄 IPC 桥 |
 | `src/lib/xai-oauth-manager.ts` | loopback server 生命周期与端口策略 |
 | `src/lib/env-proxy-fetch.ts` | packaged server 上游 HTTP(S) system-proxy bridge |
 | `src/lib/process-proxy-env.ts` | child-process proxy 优先级、Windows key 归一与 bypass |
@@ -54,6 +56,7 @@
 - [ ] 运行 `scripts/verify-packaged-server.mjs`，确认产物 `/api/health`
 - [ ] 审计 packaged standalone 不含 DB、uploads、`.codepilot`、`.claude`、`.git` 或嵌套 release
 - [ ] OAuth/代理改动在 macOS 与 Windows 分别验证 browser/device/cancel/端口占用和外网代理
+- [ ] 改 macOS vibrancy / theme bridge 时运行 `native-theme-sync` 与 `platform-marker`，并在真实 Electron 窗口分别切换浅色、深色；两种模式的 body/window surface 都保持 transparent
 
 ## 常见坑
 
@@ -78,6 +81,7 @@
 | 清理、standalone allowlist、extraResources 互斥 | `src/__tests__/unit/electron-packaging-hygiene.test.ts` |
 | packaged version + native ABI + server health | `scripts/verify-packaged-server.mjs`, build workflow |
 | xAI loopback / proxy / child env | 对应 xAI、env-proxy、process-proxy 单测 + packaged smoke |
+| 原生主题枚举、preload/main bridge、透明 surface | `src/__tests__/unit/native-theme-sync.test.ts` + `platform-marker.test.ts` |
 
 ## 设计决策日志
 
@@ -86,3 +90,4 @@
 - 2026-07-21 — xAI OAuth 采用固定 loopback browser PKCE + device-code 双路径。
 - 2026-07-27 — Electron child env 改为显式 proxy 优先 + system fallback + loopback bypass。
 - 2026-07-29 — 输入框右键统一放在主进程 `webContents.context-menu`，业务对象右键仍由 Renderer 负责。
+- 2026-07-30 — 用户否决用 82% window / 88% sidebar renderer tint 解决深色可读性：它会遮住浅/深两种模式的原生磨砂。改为 app mode 经窄 IPC 同步 `nativeTheme.themeSource`，外围透明、侧栏只保留 40% tint；见 `569b117d`。

@@ -21,9 +21,23 @@ Content layers remain opaque and stable.
 
 Dark appearance has one additional shell invariant: application dark mode
 must remain readable even when macOS itself is using a light appearance.
-`--platform-surface-window` therefore adds a dark translucent renderer tint
-above the window-level vibrancy; navigation cards add their own
-`--platform-surface-sidebar` tint above that shared shell material.
+The renderer must not solve that mismatch with an opaque window tint:
+`ThemeProvider` sends the app mode through the preload bridge and the main
+process assigns it to `nativeTheme.themeSource`. The outer renderer surface
+stays transparent; navigation cards add only a low-alpha
+`--platform-surface-sidebar` tint above the correctly themed native material.
+
+Theme synchronization contract:
+
+```text
+next-themes system/light/dark
+  → ThemeProvider.NativeThemeSync
+  → electronAPI.theme.setSource
+  → ipcMain validation
+  → nativeTheme.themeSource
+```
+
+Only `system`, `light`, and `dark` are accepted at the IPC boundary.
 
 ## Reference Notes
 
@@ -44,7 +58,7 @@ Sources:
 
 | Layer | Current implementation | Phase 7b implication |
 |-------|------------------------|----------------------|
-| Electron chrome | `electron/main.ts` sets macOS `titleBarStyle: 'hiddenInset'` and `vibrancy: 'sidebar'` | Native entry already exists. Phase 2 should compare `sidebar`, `under-window`, and `content` as whole-window candidates. |
+| Electron chrome | `electron/main.ts` sets macOS `titleBarStyle: 'hiddenInset'`, `vibrancy: 'menu'`, transparent backing, and synchronizes `nativeTheme.themeSource` from the app mode | Native material owns light/dark appearance; renderer chrome must not cover it with an opaque fallback tint. |
 | Platform detection | `electron/preload.ts` exposes `versions.platform`; `useClientPlatform()` derives `isMac/isWindows/isLinux` | Enough for Phase 1 to stamp `data-platform` / platform style attributes. |
 | Theme family | `ThemeFamilyProvider` writes `data-theme-family`; `globals.css` owns design tokens | Product theme and platform profile are currently mixed. Phase 1 needs separate `--platform-*` tokens. |
 | Radius | `docs/design.md` says card radius is 8px; `globals.css` sets `--radius: 1rem` | Confirms the need to separate product card tokens from platform shell tokens. |
@@ -55,8 +69,8 @@ Sources:
 
 | Surface | Files | Layer | Current light | Current dark | Current border / hover | macOS candidate | Risk |
 |---------|-------|-------|---------------|--------------|-------------------------|------------------|------|
-| Main Electron window | `electron/main.ts`, `src/app/globals.css` | chrome_layer | `BrowserWindow` with `hiddenInset` + `vibrancy: 'sidebar'`; light renderer leaves the window material exposed | Same native option; `--platform-surface-window` adds an 82% application-background tint so light system material cannot wash out the dark title bar | Native material is window-level; renderer tint is theme-aware | Keep `hiddenInset`; derive theme contrast from the renderer platform token rather than assuming native vibrancy follows the app theme | Whole-window material choice affects every transparent gap. Do not bind content cards to the platform tint. |
-| Root page / content background | `src/app/globals.css` | content_layer | `body` applies `bg-background` (`oklch(1 0 0)`) | `oklch(0.147 0.004 49.25)` | Global text and border tokens | Keep opaque. This is the reading canvas and should not become glass. | If made translucent, chat/code/settings readability drops. |
+| Main Electron window | `electron/main.ts`, `electron/preload.ts`, `ThemeProvider.tsx`, `src/app/globals.css` | chrome_layer | `BrowserWindow` uses `hiddenInset` + `vibrancy: 'menu'`; app mode is sent to `nativeTheme.themeSource`; renderer window surface is transparent | Same contract; native material itself switches dark, renderer window surface remains transparent | Native material is window-level; sidebar adds only a 40% theme-derived tint | Keep native theme and app mode synchronized; never reintroduce the rejected 82%/88% renderer masks | Whole-window material choice affects every transparent gap. Do not bind content cards to the platform tint. |
+| Root page / content background | `src/app/globals.css` | content_layer | Web / non-macOS Electron keeps the opaque `bg-background`; macOS Electron makes only the outer `body` transparent | Same contract in dark mode; native material supplies the outer appearance | Global text and border tokens | Keep reading surfaces and content cards opaque while leaving the macOS Electron outer shell transparent. | Making the content cards translucent harms readability; making the outer shell opaque hides native vibrancy. |
 | Unified top bar | `src/components/layout/UnifiedTopBar.tsx` | chrome_layer | `h-12 bg-background px-4`; non-chat route `h-8` drag strip | Same token in dark | Icon buttons use `hover:text-foreground`; no bar material token | CSS `--platform-surface-bar`, transparent-ish background, subtle bottom edge, traffic-light-safe spacing | Must preserve drag region and nested button `no-drag` areas. |
 | Left chat sidebar | `src/components/layout/ChatListPanel.tsx` | navigation_layer | `bg-sidebar/80 backdrop-blur-xl`; selected rows use `bg-sidebar-accent` / `bg-primary/[0.12]` | Same structure with dark sidebar tokens | Many `hover:bg-sidebar-accent` / `cursor-pointer` rows | First-class macOS sidebar surface. Keep blur, introduce `--platform-surface-sidebar`, weaken hover fill under macOS profile | Heavy session-list hover can still read webby. Must preserve selected/streaming/pending states. |
 | Settings sidebar | `src/components/layout/SettingsSidebar.tsx` | navigation_layer | `bg-sidebar/80 backdrop-blur-xl`; active link `bg-sidebar-accent` | Same | Back/nav buttons use rounded-xl and hover fills | Reuse left sidebar treatment; align active/hover with ChatListPanel | Settings nav is a key long-session surface; do not change route structure. |

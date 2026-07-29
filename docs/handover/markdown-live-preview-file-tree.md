@@ -87,7 +87,7 @@ rename/delete 不允许由文件树直接调用 API 后再各自 fire-and-forget
 - 通用回归：`npm run test`
 - UI smoke：Live Preview 各 block、F2 rename、Trash delete、tab/path 迁移、亮暗主题文件图标。
 
-本轮基线：targeted 16/16、unit 3866/3866、Playwright smoke 17/17。117,929-byte 固定夹具的 production Live Preview 滚动 p95 16.8ms、输入 p95 48ms、无 >100ms 卡顿帧。macOS Developer ID 签名 DMG/ZIP 中的 `/api/files/delete` 已验证真实进入 Finder Trash 且可以恢复。
+本轮最新基线：原生主题/磨砂 targeted 11/11、unit 3878/3878；既有 Playwright smoke 20/20。117,929-byte 固定夹具的 production Live Preview 滚动 p95 16.8ms、输入 p95 48ms、无 >100ms 卡顿帧。macOS Developer ID 签名 DMG/ZIP 中的 `/api/files/delete` 已验证真实进入 Finder Trash 且可以恢复。macOS 外围材质必须保持 renderer transparent，由 Electron `nativeTheme.themeSource` 跟随 app `system/light/dark`；禁止恢复已被用户否决的 82% window / 88% sidebar 高不透明度遮罩。
 
 用户已于 2026-07-30 实机确认中文 IME 候选与输入正常；Windows Trash 仍必须在 Windows 打包环境复验，不能由 macOS 结果代替。`afterPack` 会把工作区 `better-sqlite3` 留在 Electron ABI，打包后继续运行 Node 命令前先执行 `npm rebuild better-sqlite3`。
 
