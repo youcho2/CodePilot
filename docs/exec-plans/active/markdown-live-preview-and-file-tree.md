@@ -26,12 +26,13 @@
 | Phase 2 | Live Preview 接入（2a 行内 marks → 2b 最低渲染 parity）+ viewMode 收敛 | 🚧 代码与自动验收完成 | A 可见 | RC-6 / RC-11 ✅；RC-3 state/DOM/undo ✅，原生中文 IME 候选窗待人工 |
 | Phase 3 | 文件树右键菜单 + 行内重命名 + 删除（file mutation transaction） | ✅ macOS 已完成 | A 可见 | RC-1 / RC-4 ✅；RC-2 保持为 Windows 发版 fail-closed 门禁 |
 | Phase 4 | FileTypeIcon（material-icon-theme 静态子集）+ 文件夹仅 chevron + 全名 tooltip | ✅ 已完成 | A 可见 | 固定 50 图标 + manifest/license；亮暗主题视觉 smoke 完成 |
-| Phase 5 | 回归、文档漂移修复、handover/insights 双文档、tech-debt 回写 | 🚧 实现完成，待发布矩阵收口后归档 | C 基建 | 3866/3866 unit、17/17 smoke、build、macOS DMG/ZIP 全绿；不提前宣称 Windows ready |
+| Phase 5 | 回归、文档漂移修复、handover/insights 双文档、tech-debt 回写 | 🚧 实现完成，待发布矩阵收口后归档 | C 基建 | 审查修正后 3873/3873 unit、20/20 smoke；既有 build、macOS DMG/ZIP 全绿；不提前宣称 Windows ready |
 
 **状态符号：** 📋 待开始 / 🚧 进行中 / ✅ 已完成 / ⏸ blocked / ❌ 放弃
 
 ## 决策日志
 
+- 2026-07-29 [Claude 审查修正闭环] Codex 逐项实证复核后关闭 2 个 P1 与 4 个 P2：ContextMenu rename 使用 `onCloseAutoFocus` + 延迟聚焦完成菜单到行内输入的焦点交接；会话 rename/delete 不再阻止非受控菜单关闭，也不再把 Radix event 强转 React MouseEvent；行内输入右键交还 Electron 原生编辑菜单；CodeMirror 补回搜索/补全/括号等非视觉 editing extensions；controlled 外部值同步用 annotation 触发 block/inline widget 重建；新建 Markdown 默认只选择文件名 stem。同期补齐 Setext、删除线、有序 Checklist、checkbox 可访问性与 Dialog 关闭动画标题稳定性。真实 E2E **3/3** 覆盖文件树重命名、会话菜单关闭、quiet refresh Checklist；菜单生命周期规则同步写入 `docs/design.md`。剩余非阻塞 P3（widget tooltip i18n、文件名 `/` 语义提示、更多暗色选中态实机档位）保留为归档前体验复核项，不混作本轮 blocker 已关闭。
 - 2026-07-29 [Codex 直接实现 Phase 2–5] 未启动 Claude/loop。`.md/.mdx` 收敛到单一 CodeMirror Live Preview；inactive inline/block 使用官方 decoration/widget，图片、表格、代码 fence、Mermaid、KaTeX 达到 RC-11，active block 显示无损源码。输入期间若仍在同一活动行，只 map 现有 decoration；换行、selection block 或 viewport 变化才重建，避免逐字符重扫可见语法树。旧 Preview Tab 与 presentation 主题入口已移除，autosave/Cmd+S/冲突/`loadedPath` 事实源链保留。
 - 2026-07-29 [RC-6 performance] 固定 seed 夹具为 **117,929 bytes / 200 headings / 50 fences / 20 tables**。darwin arm64 production server 同机基线（纯文本）p95 frame **18.3ms**、input **56ms**；Live Preview 最终 p95 frame **16.8ms**、max **17.7ms**、>100ms **0**，31 字符 × 4 event entries 的 input p95/max **48ms**，通过预算。Chrome DevTools connector 能完成 trace/observer 采样，但拒绝把 raw trace 写入已配置 workspace，故本次只登记可复现脚本与数值，不伪造 trace 路径。
 - 2026-07-29 [Phase 3/4 UI + transaction] `FileMutationCoordinator` 统一 PreviewPanel、AppShell、Workspace Sidebar 与树状态的 prepare/execute/commit/rollback；六种 race 全覆盖。树内空白/文件/目录右键菜单、F2/Enter/Escape/blur、Trash 确认、受保护路径与 14 个错误码已接通；真实浏览器 smoke 验证文件/目录 rename-delete 及 tab/preview 迁移。文件夹 arrow-only；`FileTypeIcon` 以 exact → env → compound → extension → fallback 解析固定 50 个 `material-icon-theme` SVG，随 MIT license/manifest/商标说明入库，亮暗主题均检查。
@@ -256,3 +257,4 @@ idle
 | 2026-07-29 | - | - | - | - | RC-7 FileTypeIcon 许可与亮暗视觉 | ✅ | 固定 50 SVG；manifest/license test 通过；light/dark 文件树检查，folder arrow-only、同名不同后缀可区分 |
 | 2026-07-29 | - | - | - | - | RC-1 signed packaged macOS Trash + restore | ✅ | DMG/ZIP + strict codesign；packaged server `:47823` API 返回 `trashed:true`；Finder Trash 列出 marker，恢复后内容完整。RC-2 未在 Windows 执行 |
 | 2026-07-29 | - | - | - | - | Phase 5 full regression | ✅ | targeted **16/16**；unit **3866/3866**；Playwright smoke **17/17**；typecheck/build/macOS pack 通过 |
+| 2026-07-29 | - | - | - | - | Claude review P1/P2 closure：菜单动作焦点/关闭、rename 输入右键、编辑器搜索、quiet refresh widget、新建文件 stem | ✅ | targeted E2E **3/3**；`npm run test` **3873 tests / 971 suites / 0 fail**；`npm run test:smoke` **20/20**；targeted ESLint **0 error** |

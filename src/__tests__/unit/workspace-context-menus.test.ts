@@ -38,6 +38,12 @@ describe('workspace context-menu contracts', () => {
     assert.match(session, /chatList\.renameConversation/);
     assert.match(session, /chatList\.copySessionId/);
     assert.match(session, /chatList\.deleteConversation/);
+    assert.doesNotMatch(
+      session,
+      /onDelete\(event as unknown as React\.MouseEvent/,
+      'Radix select events must not be cast to React mouse events',
+    );
+    assert.match(session, /onCloseAutoFocus/);
   });
 
   it('uses a modal new-item flow and keeps add-to-chat in file-tree context menus only', () => {
@@ -49,5 +55,8 @@ describe('workspace context-menu contracts', () => {
     assert.doesNotMatch(tree, /name=["']plus["']/);
     assert.match(tree, /onAdd\(path,\s*["']directory["']\)/);
     assert.match(tree, /onAdd\(path,\s*["']file["']\)/);
+    assert.match(tree, /onContextMenu=\{\(event\) => event\.stopPropagation\(\)\}/);
+    assert.match(tree, /onCloseAutoFocus/);
+    assert.match(panel, /selectStem=\{dialogItemMode === ["']file["']\}/);
   });
 });

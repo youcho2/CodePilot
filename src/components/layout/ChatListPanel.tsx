@@ -274,12 +274,7 @@ export function ChatListPanel({ open, hasUpdate, readyToInstall }: ChatListPanel
     return () => clearInterval(interval);
   }, [fetchSessions]);
 
-  const handleDeleteSession = async (
-    e: React.MouseEvent,
-    sessionId: string
-  ) => {
-    e.preventDefault();
-    e.stopPropagation();
+  const handleDeleteSession = async (sessionId: string) => {
     if (!confirm("Delete this conversation?")) return;
     setDeletingSession(sessionId);
     try {

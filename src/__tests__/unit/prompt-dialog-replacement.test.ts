@@ -22,6 +22,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { promptDialogSelectionRange } from '../../components/ui/prompt-dialog';
 
 function readSource(relativePath: string): string {
   return fs.readFileSync(path.join(process.cwd(), relativePath), 'utf-8');
@@ -63,6 +64,13 @@ describe('window.prompt() replacement — regression guard', () => {
         errorBlock,
         'should catch onConfirm errors, surface via setError, and keep dialog open',
       );
+    });
+
+    it('can preserve the final extension when selecting a default filename', () => {
+      assert.deepEqual(promptDialogSelectionRange('untitled.md', true), [0, 8]);
+      assert.deepEqual(promptDialogSelectionRange('archive.tar.md', true), [0, 11]);
+      assert.deepEqual(promptDialogSelectionRange('.env', true), [0, 4]);
+      assert.deepEqual(promptDialogSelectionRange('new-folder', false), [0, 10]);
     });
   });
 

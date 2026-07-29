@@ -73,6 +73,20 @@ export interface PromptDialogProps {
   inputType?: "text" | "password";
   /** Whether to trim the value before passing to onConfirm / validate. Defaults to true. */
   trimOnConfirm?: boolean;
+  /**
+   * Select only the filename stem on open, preserving its final extension
+   * while the user types a replacement name. Defaults to false.
+   */
+  selectStem?: boolean;
+}
+
+export function promptDialogSelectionRange(
+  value: string,
+  selectStem: boolean,
+): [start: number, end: number] {
+  if (!selectStem) return [0, value.length];
+  const finalDot = value.lastIndexOf(".");
+  return [0, finalDot > 0 ? finalDot : value.length];
 }
 
 export function PromptDialog({
@@ -90,6 +104,7 @@ export function PromptDialog({
   maxLength = 200,
   inputType = "text",
   trimOnConfirm = true,
+  selectStem = false,
 }: PromptDialogProps) {
   const [value, setValue] = React.useState(defaultValue);
   const [error, setError] = React.useState<string | null>(null);
@@ -141,7 +156,15 @@ export function PromptDialog({
       const input = inputRef.current;
       if (input) {
         input.focus();
-        input.select();
+        if (selectStem) {
+          const [start, end] = promptDialogSelectionRange(
+            input.value,
+            true,
+          );
+          input.setSelectionRange(start, end);
+        } else {
+          input.select();
+        }
       }
     });
   };

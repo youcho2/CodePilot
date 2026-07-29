@@ -24,6 +24,7 @@ import {
   useCallback,
   useContext,
   useMemo,
+  useRef,
   useState,
 } from "react";
 
@@ -173,6 +174,8 @@ export const FileTreeFolder = ({
   const [renameValue, setRenameValue] = useState(name);
   const [renameError, setRenameError] = useState<string | null>(null);
   const [renamePending, setRenamePending] = useState(false);
+  const contextRenameIntentRef = useRef(false);
+  const renameInputRef = useRef<HTMLInputElement>(null);
 
   const handleToggle = useCallback(() => {
     togglePath(path);
@@ -214,6 +217,11 @@ export const FileTreeFolder = ({
     setRenaming(true);
   }, [name]);
 
+  const beginContextRename = useCallback(() => {
+    contextRenameIntentRef.current = true;
+    beginRename();
+  }, [beginRename]);
+
   return (
     <FileTreeFolderContext.Provider value={folderContextValue}>
       <Collapsible onOpenChange={handleToggle} open={isExpanded}>
@@ -228,8 +236,8 @@ export const FileTreeFolder = ({
               <ContextMenuTrigger asChild>
                 <div
               className={cn(
-                "group/folder flex w-full cursor-pointer items-center gap-1 rounded border-l-2 border-transparent py-1 pl-1.5 pr-2 text-left transition-colors hover:bg-muted/50",
-                isSelected && "border-primary bg-primary/[0.05] text-foreground",
+                "group/folder flex w-full cursor-pointer items-center gap-1 rounded py-1 pl-1.5 pr-2 text-left transition-colors hover:bg-muted/50",
+                isSelected && "bg-primary/[0.05] text-foreground",
               )}
               role="button"
               tabIndex={0}
@@ -255,12 +263,14 @@ export const FileTreeFolder = ({
               </span>
               {renaming ? (
                 <Input
+                  ref={renameInputRef}
                   autoFocus
                   value={renameValue}
                   disabled={renamePending}
                   onChange={(event) => setRenameValue(event.target.value)}
                   onClick={(event) => event.stopPropagation()}
                   onPointerDown={(event) => event.stopPropagation()}
+                  onContextMenu={(event) => event.stopPropagation()}
                   onBlur={() => {
                     if (!renamePending) {
                       setRenaming(false);
@@ -289,7 +299,16 @@ export const FileTreeFolder = ({
                 </div>
               </ContextMenuTrigger>
             </CollapsibleTrigger>
-            <ContextMenuContent>
+            <ContextMenuContent
+              onCloseAutoFocus={(event) => {
+                if (!contextRenameIntentRef.current) return;
+                event.preventDefault();
+                contextRenameIntentRef.current = false;
+                requestAnimationFrame(() => {
+                  renameInputRef.current?.focus();
+                });
+              }}
+            >
               <ContextMenuItem onSelect={onCreateFile}>
                 {labels?.newFile ?? "New file"}
               </ContextMenuItem>
@@ -302,7 +321,10 @@ export const FileTreeFolder = ({
                   {labels?.addToChat ?? addLabel ?? "Add to chat"}
                 </ContextMenuItem>
               )}
-              <ContextMenuItem disabled={!onRename || protectedPath} onSelect={beginRename}>
+              <ContextMenuItem
+                disabled={!onRename || protectedPath}
+                onSelect={beginContextRename}
+              >
                 {labels?.rename ?? "Rename"}
                 <ContextMenuShortcut>F2</ContextMenuShortcut>
               </ContextMenuItem>
@@ -365,6 +387,8 @@ export const FileTreeFile = ({
   const [renameValue, setRenameValue] = useState(name);
   const [renameError, setRenameError] = useState<string | null>(null);
   const [renamePending, setRenamePending] = useState(false);
+  const contextRenameIntentRef = useRef(false);
+  const renameInputRef = useRef<HTMLInputElement>(null);
 
   const handleClick = useCallback(() => {
     onSelect?.(path);
@@ -392,6 +416,11 @@ export const FileTreeFile = ({
     setRenaming(true);
   }, [name]);
 
+  const beginContextRename = useCallback(() => {
+    contextRenameIntentRef.current = true;
+    beginRename();
+  }, [beginRename]);
+
   const submitRename = useCallback(async () => {
     const nextName = renameValue.trim();
     if (!onRename || !nextName || nextName === name) {
@@ -418,8 +447,8 @@ export const FileTreeFile = ({
         <ContextMenuTrigger asChild>
           <div
             className={cn(
-              "group/file flex cursor-pointer items-center gap-1 rounded border-l-2 border-transparent py-1 pl-1.5 pr-2 transition-colors hover:bg-muted/50",
-              isSelected && "border-primary bg-primary/[0.05] text-foreground",
+              "group/file flex cursor-pointer items-center gap-1 rounded py-1 pl-1.5 pr-2 transition-colors hover:bg-muted/50",
+              isSelected && "bg-primary/[0.05] text-foreground",
               className
             )}
             onClick={handleClick}
@@ -436,12 +465,14 @@ export const FileTreeFile = ({
                 </FileTreeIcon>
                 {renaming ? (
                   <Input
+                    ref={renameInputRef}
                     autoFocus
                     value={renameValue}
                     disabled={renamePending}
                     onChange={(event) => setRenameValue(event.target.value)}
                     onClick={(event) => event.stopPropagation()}
                     onPointerDown={(event) => event.stopPropagation()}
+                    onContextMenu={(event) => event.stopPropagation()}
                     onBlur={() => {
                       if (!renamePending) {
                         setRenaming(false);
@@ -471,13 +502,25 @@ export const FileTreeFile = ({
             )}
           </div>
         </ContextMenuTrigger>
-        <ContextMenuContent>
+        <ContextMenuContent
+          onCloseAutoFocus={(event) => {
+            if (!contextRenameIntentRef.current) return;
+            event.preventDefault();
+            contextRenameIntentRef.current = false;
+            requestAnimationFrame(() => {
+              renameInputRef.current?.focus();
+            });
+          }}
+        >
           {onAdd && (
             <ContextMenuItem onSelect={() => onAdd(path, "file")}>
               {labels?.addToChat ?? addLabel ?? "Add to chat"}
             </ContextMenuItem>
           )}
-          <ContextMenuItem disabled={!onRename || protectedPath} onSelect={beginRename}>
+          <ContextMenuItem
+            disabled={!onRename || protectedPath}
+            onSelect={beginContextRename}
+          >
             {labels?.rename ?? "Rename"}
             <ContextMenuShortcut>F2</ContextMenuShortcut>
           </ContextMenuItem>

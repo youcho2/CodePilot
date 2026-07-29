@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import Link from "next/link";
 import {
   Bell,
@@ -44,7 +44,7 @@ interface SessionListItemProps {
   t: (key: TranslationKey, params?: Record<string, string | number>) => string;
   onMouseEnter: () => void;
   onMouseLeave: () => void;
-  onDelete: (e: React.MouseEvent, sessionId: string) => void;
+  onDelete: (sessionId: string) => void;
   onRename: (sessionId: string, newTitle: string) => void;
   onAddToSplit: (session: ChatSession) => void;
 }
@@ -68,11 +68,19 @@ export function SessionListItem({
 }: SessionListItemProps) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [renameOpen, setRenameOpen] = useState(false);
+  const contextRenameIntentRef = useRef(false);
   const showActions = isHovered || menuOpen || isDeleting;
-  const handleRenameMenuSelect = (event: Event) => {
+  const handleDropdownRenameSelect = (event: Event) => {
     // Prevent popup focus restoration from racing the dialog's autofocus.
     event.preventDefault();
     setMenuOpen(false);
+    setRenameOpen(true);
+  };
+  const handleContextRenameSelect = () => {
+    // Let Radix close the context menu normally. The matching
+    // onCloseAutoFocus handler below only suppresses focus restoration to
+    // the row, so the rename dialog keeps the focus it just received.
+    contextRenameIntentRef.current = true;
     setRenameOpen(true);
   };
 
@@ -155,7 +163,7 @@ export function SessionListItem({
                   <Columns size={14} />
                   <span>{t('chatList.splitScreen' as TranslationKey)}</span>
                 </DropdownMenuItem>
-                <DropdownMenuItem onSelect={handleRenameMenuSelect}>
+                <DropdownMenuItem onSelect={handleDropdownRenameSelect}>
                   <CodePilotIcon name="edit" size="sm" aria-hidden />
                   <span>{t('chatList.renameConversation' as TranslationKey)}</span>
                 </DropdownMenuItem>
@@ -170,7 +178,7 @@ export function SessionListItem({
                 <DropdownMenuSeparator />
                 <DropdownMenuItem
                   variant="destructive"
-                  onClick={(e) => onDelete(e as unknown as React.MouseEvent, session.id)}
+                  onClick={() => onDelete(session.id)}
                 >
                   <CodePilotIcon name="delete" size="sm" aria-hidden />
                   <span>{t('chatList.deleteConversation' as TranslationKey)}</span>
@@ -179,7 +187,14 @@ export function SessionListItem({
             </DropdownMenu>
           </div>
         </ContextMenuTrigger>
-        <ContextMenuContent className="min-w-[180px]">
+        <ContextMenuContent
+          className="min-w-[180px]"
+          onCloseAutoFocus={(event) => {
+            if (!contextRenameIntentRef.current) return;
+            event.preventDefault();
+            contextRenameIntentRef.current = false;
+          }}
+        >
           <ContextMenuItem
             disabled={isActive || !canSplit}
             onSelect={() => onAddToSplit(session)}
@@ -187,7 +202,7 @@ export function SessionListItem({
             <Columns size={14} />
             <span>{t('chatList.splitScreen' as TranslationKey)}</span>
           </ContextMenuItem>
-          <ContextMenuItem onSelect={handleRenameMenuSelect}>
+          <ContextMenuItem onSelect={handleContextRenameSelect}>
             <CodePilotIcon name="edit" size="sm" aria-hidden />
             <span>{t('chatList.renameConversation' as TranslationKey)}</span>
           </ContextMenuItem>
@@ -200,9 +215,7 @@ export function SessionListItem({
           <ContextMenuSeparator />
           <ContextMenuItem
             variant="destructive"
-            onSelect={(event) =>
-              onDelete(event as unknown as React.MouseEvent, session.id)
-            }
+            onSelect={() => onDelete(session.id)}
           >
             <CodePilotIcon name="delete" size="sm" aria-hidden />
             <span>{t('chatList.deleteConversation' as TranslationKey)}</span>

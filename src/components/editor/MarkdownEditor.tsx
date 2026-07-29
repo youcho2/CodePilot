@@ -1,17 +1,57 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import { EditorState, Compartment } from "@codemirror/state";
-import { EditorView, keymap } from "@codemirror/view";
+import {
+  EditorState,
+  Compartment,
+  type Extension,
+} from "@codemirror/state";
+import {
+  EditorView,
+  crosshairCursor,
+  dropCursor,
+  keymap,
+  rectangularSelection,
+} from "@codemirror/view";
 import { minimalSetup } from "codemirror";
 import { markdown, markdownLanguage } from "@codemirror/lang-markdown";
+import { bracketMatching, indentOnInput } from "@codemirror/language";
 import { oneDark } from "@codemirror/theme-one-dark";
 import { indentWithTab } from "@codemirror/commands";
+import {
+  autocompletion,
+  closeBrackets,
+  closeBracketsKeymap,
+  completionKeymap,
+} from "@codemirror/autocomplete";
+import {
+  highlightSelectionMatches,
+  search,
+  searchKeymap,
+} from "@codemirror/search";
 import { useTheme } from "next-themes";
 import {
   externalMarkdownValueSync,
   markdownLivePreview,
 } from "@/components/editor/markdown-live-preview";
+
+export const markdownEditingExtensions: Extension = [
+  EditorState.allowMultipleSelections.of(true),
+  dropCursor(),
+  indentOnInput(),
+  bracketMatching(),
+  closeBrackets(),
+  autocompletion(),
+  rectangularSelection(),
+  crosshairCursor(),
+  search(),
+  highlightSelectionMatches(),
+  keymap.of([
+    ...closeBracketsKeymap,
+    ...searchKeymap,
+    ...completionKeymap,
+  ]),
+];
 
 /*
  * MarkdownEditor — Phase 4 replacement for the raw <textarea> in
@@ -129,9 +169,10 @@ export function MarkdownEditor({
       extensions: [
         // `basicSetup` also installs line numbers, a fold gutter and active-
         // line highlighting. Live Preview is a document surface rather than
-        // a code editor, so use the gutter-free setup and keep only editing,
-        // history, selection and completion primitives.
+        // a code editor, so start from the gutter-free setup, then restore
+        // the non-visual editing affordances users already had.
         minimalSetup,
+        markdownEditingExtensions,
         // Use the package's extended parser (GFM tables, task lists, etc.).
         // markdown() defaults to CommonMark and silently parses pipe tables as
         // paragraphs, which would make Live Preview lose table parity.

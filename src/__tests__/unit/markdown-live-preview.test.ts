@@ -3,13 +3,16 @@ import assert from 'node:assert/strict';
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown';
 import { history, undo } from '@codemirror/commands';
 import { EditorState } from '@codemirror/state';
-import type { DecorationSet } from '@codemirror/view';
+import { EditorView, keymap, type DecorationSet } from '@codemirror/view';
 
 import {
   buildMarkdownLivePreview,
   externalMarkdownValueSync,
+  externalMarkdownValueSyncAnnotation,
+  markdownLivePreview,
   resolveMarkdownAssetUrl,
 } from '../../components/editor/markdown-live-preview';
+import { markdownEditingExtensions } from '../../components/editor/MarkdownEditor';
 
 function decorationKinds(set: DecorationSet): string[] {
   const result: string[] = [];
@@ -22,15 +25,27 @@ function decorationKinds(set: DecorationSet): string[] {
   return result;
 }
 
+function decorationClasses(set: DecorationSet): string[] {
+  const result: string[] = [];
+  const cursor = set.iter();
+  while (cursor.value) {
+    const className = cursor.value.spec.class;
+    if (typeof className === 'string') result.push(className);
+    cursor.next();
+  }
+  return result;
+}
+
 const fixture = [
   '# Heading',
   '',
-  'Paragraph with **bold**, $x^2$ and [link](https://example.com).',
+  'Paragraph with **bold**, ~~gone~~, $x^2$ and [link](https://example.com).',
   '',
   '![diagram](./assets/diagram.png)',
   '',
   '- [ ] Todo',
   '- [x] Done',
+  '1. [x] Ordered',
   '',
   '| Name | Value |',
   '| --- | --- |',
@@ -69,6 +84,7 @@ describe('production Markdown Live Preview decorations', () => {
     for (const expected of [
       'heading-prefix',
       'emphasis-marker',
+      'strikethrough-marker',
       'math-inline',
       'link-marker',
       'image',
@@ -84,8 +100,50 @@ describe('production Markdown Live Preview decorations', () => {
     assert.ok(decorationKinds(built.atomic).includes('table'));
     assert.equal(
       kinds.filter((kind) => kind === 'task-checkbox').length,
-      2,
-      'unchecked and checked tasks should both render as checkbox widgets',
+      3,
+      'unordered and ordered tasks should all render as checkbox widgets',
+    );
+    const orderedStart = fixture.indexOf('1. [x]');
+    const orderedCursor = built.decorations.iter(orderedStart);
+    const orderedPrefix = orderedCursor.value;
+    if (!orderedPrefix) throw new Error('ordered task prefix decoration is missing');
+    assert.equal(orderedPrefix.spec.codepilotKind, 'task-list-prefix');
+    assert.equal(
+      fixture.slice(orderedStart, orderedCursor.to),
+      '1.',
+      'ordered task prefix must retain its sequence marker',
+    );
+  });
+
+  it('keeps frontmatter as source while styling real Setext headings', () => {
+    const source = [
+      '---',
+      'title: Metadata',
+      '---',
+      '',
+      'Visible heading',
+      '===============',
+      '',
+      'end',
+    ].join('\n');
+    const state = EditorState.create({
+      doc: source,
+      selection: { anchor: source.length },
+      extensions: [markdown({ base: markdownLanguage })],
+    });
+    const built = buildMarkdownLivePreview(
+      state,
+      [{ from: 0, to: source.length }],
+    );
+    const kinds = decorationKinds(built.decorations);
+    assert.equal(kinds.includes('rule'), false, 'frontmatter delimiter is not a rule');
+    assert.equal(
+      kinds.filter((kind) => kind === 'heading-prefix').length,
+      1,
+      'only the real Setext heading receives heading decoration',
+    );
+    assert.ok(
+      decorationClasses(built.decorations).includes('cm-lp-heading cm-lp-h1'),
     );
   });
 
@@ -126,7 +184,13 @@ describe('controlled value and asset contracts', () => {
     }).state;
     const sync = externalMarkdownValueSync(state, 'ALPHA!');
     assert.ok(sync);
-    state = state.update(sync).state;
+    const transaction = state.update(sync);
+    assert.equal(
+      transaction.annotation(externalMarkdownValueSyncAnnotation),
+      true,
+      'external changes must be identifiable by Live Preview plugins',
+    );
+    state = transaction.state;
     assert.equal(state.doc.toString(), 'ALPHA!');
     assert.equal(state.selection.main.head, 6);
 
@@ -139,6 +203,45 @@ describe('controlled value and asset contracts', () => {
     });
     assert.equal(didUndo, true);
     assert.equal(undone.doc.toString(), 'ALPHA');
+  });
+
+  it('rebuilds block widgets from externally-synchronised content', () => {
+    const initial = '| A |\n| --- |\n| old |\n\nend';
+    let state = EditorState.create({
+      doc: initial,
+      selection: { anchor: initial.length },
+      extensions: [
+        markdown({ base: markdownLanguage }),
+        markdownLivePreview(),
+      ],
+    });
+    const next = initial.replace('old', 'new');
+    const sync = externalMarkdownValueSync(state, next);
+    assert.ok(sync);
+    state = state.update(sync).state;
+
+    const blockDecorations = state
+      .facet(EditorView.decorations)
+      .find(
+        (source): source is DecorationSet =>
+          typeof source !== 'function' && typeof source.iter === 'function',
+      );
+    if (!blockDecorations) throw new Error('block decorations are missing');
+    const blockCursor = blockDecorations.iter();
+    if (!blockCursor.value) throw new Error('table widget decoration is missing');
+    const widget = blockCursor.value.spec.widget as
+      | { source?: string }
+      | undefined;
+    assert.equal(widget?.source?.includes('new'), true);
+    assert.equal(widget?.source?.includes('old'), false);
+  });
+
+  it('retains the standard document-search key binding without gutters', () => {
+    const state = EditorState.create({
+      extensions: [markdownEditingExtensions],
+    });
+    const keys = state.facet(keymap).flat().map((binding) => binding.key);
+    assert.ok(keys.includes('Mod-f'));
   });
 
   it('resolves relative images through the session-scoped file route', () => {

@@ -219,6 +219,18 @@ macOS profile 下，外壳是**几张悬浮卡片**并排：左侧栏 / 主聊�
 
 实现路径（实现者）：`src/components/chat/MessageInput.tsx`（外壳 + footer），`MessageInputParts.tsx`（胶囊行），`ModelSelectorDropdown` / `EffortSelectorDropdown`；运行状态读出在 `ChatView.tsx`（`ModeIndicator` / `RuntimeSelector`）。
 
+## Radix 菜单事件与焦点交接
+
+Radix DropdownMenu / ContextMenu 的 `onSelect` 收到的是 DOM `Event`，不是 React `MouseEvent`；浮层关闭时还会自动把焦点还给 Trigger。菜单动作若要进入行内重命名、Dialog 或原生确认框，必须显式处理这两个生命周期。
+
+**规则：**
+- 不把 Radix `onSelect` 事件强转为 React `MouseEvent`，业务 handler 只接业务参数；需要阻止默认行为时在适配层直接处理 Radix event。
+- 不在非受控 ContextMenu 的普通动作里调用 `preventDefault()`；这会阻止菜单关闭。仅当产品明确要求菜单保持打开时才允许。
+- 菜单关闭后要把焦点交给行内输入框时，用 intent ref 标记动作，在 `Content.onCloseAutoFocus` 阻止 Trigger 抢焦点，再在下一帧聚焦输入框。
+- 菜单动作打开 Dialog 时，同样在 `onCloseAutoFocus` 阻止焦点回到 Trigger，让 Dialog 自己的 autofocus 接管。
+- 业务行被 `ContextMenuTrigger` 包裹时，行内 `input` 必须停止 `contextmenu` 冒泡，使输入框继续使用 Electron 原生复制、粘贴、剪切菜单。
+- 回归测试至少覆盖：菜单确实关闭、目标输入/Dialog 获得焦点、输入框右键不会重新打开业务菜单。
+
 ## Page shell
 
 Every Settings sub-page uses the same outer container:

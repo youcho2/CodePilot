@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import { useSearchParams } from "next/navigation";
 import { X } from "@/components/ui/icon";
 import { CodePilotIcon } from "@/components/ui/semantic-icon";
@@ -60,6 +60,7 @@ export function FileTreePanel({ variant = 'legacy' }: { variant?: 'legacy' | 'si
   // of inserting a low-contrast row above the tree, so the create action
   // cannot be missed in a narrow sidebar.
   const [newItemMode, setNewItemMode] = useState<NewItemMode | null>(null);
+  const lastNewItemModeRef = useRef<NewItemMode>("file");
   const [newItemTargetDir, setNewItemTargetDir] = useState<string>("");
   const { runFileMutation, registerParticipant, hasUnsavedChanges } =
     useFileMutation();
@@ -133,6 +134,7 @@ export function FileTreePanel({ variant = 'legacy' }: { variant?: 'legacy' | 'si
       // New File, new file lands in that folder.
       const effectiveTarget = targetDir ?? selectedFolderPath ?? workingDirectory;
       setNewItemTargetDir(effectiveTarget);
+      lastNewItemModeRef.current = mode;
       setNewItemMode(mode);
     },
     [workingDirectory, selectedFolderPath],
@@ -315,6 +317,7 @@ export function FileTreePanel({ variant = 'legacy' }: { variant?: 'legacy' | 'si
     !newItemTargetDir || newItemTargetDir === workingDirectory
       ? "./"
       : `./${newItemTargetDir.replace(workingDirectory, "").replace(/^[/\\]/, "")}/`;
+  const dialogItemMode = newItemMode ?? lastNewItemModeRef.current;
 
   // The body (action row + new-item input + tree) is identical across
   // both variants. Only the outer chrome (resize handle, title bar,
@@ -393,13 +396,14 @@ export function FileTreePanel({ variant = 'legacy' }: { variant?: 'legacy' | 'si
             if (!open) setNewItemMode(null);
           }}
           title={
-            newItemMode === "folder"
+            dialogItemMode === "folder"
               ? t("fileTree.newFolder")
               : t("fileTree.newMarkdown")
           }
           description={targetBreadcrumb}
-          defaultValue={newItemMode === "folder" ? "new-folder" : "untitled.md"}
-          placeholder={newItemMode === "folder" ? "new-folder" : "untitled.md"}
+          defaultValue={dialogItemMode === "folder" ? "new-folder" : "untitled.md"}
+          placeholder={dialogItemMode === "folder" ? "new-folder" : "untitled.md"}
+          selectStem={dialogItemMode === "file"}
           confirmLabel={t("fileTree.createButton")}
           cancelLabel={t("common.cancel")}
           onConfirm={handleCreateItem}

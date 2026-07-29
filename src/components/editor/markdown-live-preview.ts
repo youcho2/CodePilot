@@ -1,5 +1,6 @@
 import { syntaxTree } from "@codemirror/language";
 import {
+  Annotation,
   EditorState,
   RangeSet,
   StateField,
@@ -34,6 +35,9 @@ export interface MarkdownVisibleRange {
 
 type Span = MarkdownVisibleRange;
 
+export const externalMarkdownValueSyncAnnotation =
+  Annotation.define<boolean>();
+
 function overlaps(left: Span, right: Span): boolean {
   return left.from < right.to && right.from < left.to;
 }
@@ -57,6 +61,13 @@ function mergedSpans(ranges: readonly Span[]): Span[] {
 
 function overlapsAny(span: Span, ranges: readonly Span[]): boolean {
   return ranges.some((range) => overlaps(span, range));
+}
+
+function markdownFrontmatterSpan(documentText: string): Span | null {
+  const match = documentText.match(
+    /^---[ \t]*\r?\n[\s\S]*?\r?\n---[ \t]*(?:\r?\n|$)/,
+  );
+  return match ? { from: 0, to: match[0].length } : null;
 }
 
 function activeLines(state: EditorState): Span[] {
@@ -147,6 +158,7 @@ class TaskCheckboxWidget extends RevealWidget {
     const root = this.makeRoot(view, "span", "cm-lp-task-checkbox");
     root.setAttribute("role", "checkbox");
     root.setAttribute("aria-checked", String(this.checked));
+    root.setAttribute("aria-disabled", "true");
     const checkbox = document.createElement("input");
     checkbox.type = "checkbox";
     checkbox.checked = this.checked;
@@ -457,6 +469,13 @@ export function buildMarkdownLivePreview(
     if (to <= from) return;
     decorationRanges.push(Decoration.mark({ class: className }).range(from, to));
   };
+  const frontmatter = markdownFrontmatterSpan(documentText);
+  if (frontmatter && isVisible(frontmatter)) {
+    // Frontmatter remains lossless source. Without this exclusion the base
+    // Markdown grammar interprets its delimiters as a HorizontalRule plus a
+    // Setext heading, producing false visual semantics.
+    blockSpans.push(frontmatter);
+  }
 
   // Display math is not part of @lezer/markdown's base grammar. Detect it
   // line-wise before syntax-tree blocks so it participates in the same
@@ -497,7 +516,13 @@ export function buildMarkdownLivePreview(
         expression = body.join("\n");
       }
       const span = { from: line.from, to: endLine.to };
-      if (!isVisible(span) || isActive(span)) continue;
+      if (
+        !isVisible(span) ||
+        isActive(span) ||
+        overlapsAny(span, blockSpans)
+      ) {
+        continue;
+      }
       blockSpans.push(span);
       if (mode !== "inline") {
         addReplace(
@@ -576,6 +601,31 @@ export function buildMarkdownLivePreview(
           return;
         }
 
+        if (/^SetextHeading[12]$/.test(ref.name)) {
+          const marker = node.getChild("HeaderMark");
+          if (!marker) return;
+          let contentTo = marker.from;
+          while (
+            contentTo > ref.from &&
+            /[\r\n]/.test(documentText[contentTo - 1] ?? "")
+          ) {
+            contentTo -= 1;
+          }
+          addMark(
+            ref.from,
+            contentTo,
+            `cm-lp-heading cm-lp-h${ref.name.slice(-1)}`,
+          );
+          addReplace(
+            marker.from,
+            marker.to,
+            undefined,
+            false,
+            "heading-prefix",
+          );
+          return;
+        }
+
         if (ref.name === "StrongEmphasis" || ref.name === "Emphasis") {
           const marks = node.getChildren("EmphasisMark");
           if (marks.length < 2) return;
@@ -585,6 +635,31 @@ export function buildMarkdownLivePreview(
             marks[0].to,
             marks.at(-1)!.from,
             ref.name === "StrongEmphasis" ? "cm-lp-strong" : "cm-lp-emphasis",
+          );
+          return;
+        }
+
+        if (ref.name === "Strikethrough") {
+          const marks = node.getChildren("StrikethroughMark");
+          if (marks.length < 2) return;
+          addReplace(
+            marks[0].from,
+            marks[0].to,
+            undefined,
+            false,
+            "strikethrough-marker",
+          );
+          addReplace(
+            marks.at(-1)!.from,
+            marks.at(-1)!.to,
+            undefined,
+            false,
+            "strikethrough-marker",
+          );
+          addMark(
+            marks[0].to,
+            marks.at(-1)!.from,
+            "cm-lp-strikethrough",
           );
           return;
         }
@@ -641,16 +716,30 @@ export function buildMarkdownLivePreview(
           const task = node.parent?.getChild("Task");
           const taskMarker = task?.getChild("TaskMarker");
           if (taskMarker) {
-            // A task item owns a real checkbox widget, so suppress the list
-            // marker and the separating source space instead of rendering a
-            // duplicate bullet before it.
-            addReplace(
-              ref.from,
-              taskMarker.from,
-              undefined,
-              false,
-              "task-list-prefix",
-            );
+            const marker = documentText.slice(ref.from, ref.to);
+            if (/^\d/.test(marker)) {
+              // Ordered task lists keep their visible sequence number. Only
+              // unordered task bullets are redundant beside the checkbox.
+              addReplace(
+                ref.from,
+                ref.to,
+                new TextWidget(
+                  ref.from,
+                  marker,
+                  "cm-lp-list-marker",
+                ),
+                false,
+                "task-list-prefix",
+              );
+            } else {
+              addReplace(
+                ref.from,
+                taskMarker.from,
+                undefined,
+                false,
+                "task-list-prefix",
+              );
+            }
             return;
           }
           const marker = documentText.slice(ref.from, ref.to);
@@ -731,7 +820,10 @@ export function externalMarkdownValueSync(
       to: current.length - suffix,
       insert: nextValue.slice(prefix, nextValue.length - suffix),
     },
-    annotations: Transaction.addToHistory.of(false),
+    annotations: [
+      Transaction.addToHistory.of(false),
+      externalMarkdownValueSyncAnnotation.of(true),
+    ],
   };
 }
 
@@ -751,9 +843,13 @@ export function markdownLivePreview(
       // A document change maps existing block widgets cheaply. While the
       // cursor remains inside a block that block is raw source, so its widget
       // does not need rebuilding on every keystroke. Recompute only on an
-      // explicit selection move (enter/leave a block); this keeps block
-      // geometry stable and avoids the viewport ↔ block-height feedback loop.
-      if (transaction.selection) {
+      // explicit selection move (enter/leave a block), or a controlled
+      // external-value sync; this keeps normal typing cheap while ensuring a
+      // quiet disk refresh rebuilds widgets whose rendered content changed.
+      if (
+        transaction.selection ||
+        transaction.annotation(externalMarkdownValueSyncAnnotation)
+      ) {
         return buildMarkdownLivePreview(
           transaction.state,
           [{ from: 0, to: transaction.state.doc.length }],
@@ -795,6 +891,10 @@ export function markdownLivePreview(
           return;
         }
         const compositionJustEnded = this.composing;
+        const externalValueChanged = update.transactions.some(
+          (transaction) =>
+            transaction.annotation(externalMarkdownValueSyncAnnotation),
+        );
         const nextActiveKey = activeLineKey(update.state);
         const activeLineChanged = nextActiveKey !== this.activeKey;
         this.activeKey = nextActiveKey;
@@ -808,6 +908,7 @@ export function markdownLivePreview(
         }
         if (
           compositionJustEnded ||
+          externalValueChanged ||
           activeLineChanged ||
           (!update.docChanged &&
             (update.viewportChanged || update.geometryChanged))

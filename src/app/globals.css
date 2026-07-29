@@ -747,6 +747,9 @@ html.dark[data-platform="darwin"][data-shell="electron"][data-platform-style="au
   font-weight: 600;
 }
 .cm-lp-emphasis { font-style: italic; }
+[data-markdown-editor] .cm-content .cm-lp-strikethrough {
+  text-decoration: line-through;
+}
 .cm-lp-code {
   border-radius: 0.25rem;
   background: var(--muted);
