@@ -15,7 +15,6 @@
 
 import type { PreviewSource } from '@/hooks/usePanel';
 import type { PreviewTrust } from '@/lib/preview-source';
-import type { MarkdownPresentationStyle } from '@/lib/markdown/presentation-templates';
 import type { SubagentRunDetailsResponse } from '@/types';
 import type {
   DelegatedAgentResult,
@@ -44,10 +43,6 @@ export interface MarkdownTab {
   trust?: PreviewTrust;
   baseDir?: string;
   readonly?: boolean;
-  /** Phase 4 UX — in-place presentation style. Persists so the user's
-   *  choice survives reload + tab dedupe. Missing = the renderer
-   *  applies DEFAULT_MARKDOWN_PRESENTATION_STYLE. */
-  presentationTemplate?: MarkdownPresentationStyle;
 }
 
 export interface ArtifactTab {
@@ -294,7 +289,7 @@ export function parse(raw: string | null | undefined): WorkspaceSidebarState {
   try {
     const data = JSON.parse(raw) as Partial<SerializedState>;
     const dynamicTabs = Array.isArray(data.dynamicTabs)
-      ? data.dynamicTabs.filter(isParsableDynamicTab)
+      ? data.dynamicTabs.filter(isParsableDynamicTab).map(stripLegacyPresentationTemplate)
       : [];
     const tabs: Tab[] = [...FIXED_TABS, ...dynamicTabs];
     const fallbackActive = 'git';
@@ -311,6 +306,18 @@ export function parse(raw: string | null | undefined): WorkspaceSidebarState {
   } catch {
     return initialState();
   }
+}
+
+/**
+ * Tabs written by v0.54 may carry the retired in-place Markdown theme.
+ * Accept the old record, but deliberately drop that field at the parse
+ * boundary so it cannot leak back into current runtime state.
+ */
+function stripLegacyPresentationTemplate(tab: DynamicTab): DynamicTab {
+  if (tab.kind !== 'markdown' || !('presentationTemplate' in tab)) return tab;
+  const next = { ...tab } as DynamicTab & { presentationTemplate?: unknown };
+  delete next.presentationTemplate;
+  return next;
 }
 
 function isParsableDynamicTab(value: unknown): value is DynamicTab {
@@ -356,7 +363,6 @@ export function tabFromPreviewSource(source: PreviewSource): DynamicTab {
       trust: source.trust,
       baseDir: source.baseDir,
       readonly: source.readonly,
-      presentationTemplate: source.presentationTemplate,
     };
     if (MARKDOWN_EXTENSIONS.has(ext)) {
       return {
@@ -456,9 +462,6 @@ export function previewSourceFromTab(tab: Tab): PreviewSource | null {
     if (tab.trust !== undefined) provenance.trust = tab.trust;
     if (tab.baseDir !== undefined) provenance.baseDir = tab.baseDir;
     if (tab.readonly !== undefined) provenance.readonly = tab.readonly;
-    if (tab.kind === 'markdown' && tab.presentationTemplate !== undefined) {
-      provenance.presentationTemplate = tab.presentationTemplate;
-    }
     return { kind: 'file', filePath: tab.filePath, ...provenance };
   }
   if (tab.kind === 'artifact') {

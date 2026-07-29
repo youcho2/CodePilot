@@ -418,8 +418,7 @@ const zh: Record<TranslationKey, string> = {
   'presentation.pickerTitle': '选一个展示样式',
   'presentation.cancel': '取消',
   'presentation.generate': '生成',
-  // ── Phase 4 UX: in-place presentation Select + quiet refresh ─
-  'filePreview.presentation.styleLabel': '样式',
+  // ── Phase 4 UX: quiet refresh ────────────────────────────────
   'filePreview.quietRefresh.updated': '已更新',
   'filePreview.external.confirm.openReadOnly': '只读打开',
   'filePreview.external.confirm.permission': '只读 · 不会写入磁盘',

@@ -28,59 +28,6 @@ import type { ParsedFrontmatter } from "./frontmatter";
 
 export type PresentationTemplateId = "article" | "report" | "brief" | "pitch";
 
-/**
- * Phase 4 UX — in-place Markdown presentation style for the rendered
- * view. Differs from `PresentationTemplateId` in that it includes a
- * `default` option (minimal styling) and does NOT produce an HTML
- * artifact: the renderer applies it as a CSS class on the rendered
- * body wrapper. Persists per Markdown tab so the user's choice
- * survives reloads.
- */
-export type MarkdownPresentationStyle =
-  | "default"
-  | "article"
-  | "report"
-  | "brief"
-  | "pitch";
-
-export const MARKDOWN_PRESENTATION_STYLES: ReadonlyArray<{
-  id: MarkdownPresentationStyle;
-  label: string;
-  /** Slightly looser tooltip text — describes how the style differs
-   *  rather than what it's "for". */
-  description: string;
-}> = [
-  { id: "default", label: "Default", description: "Minimal — same as the legacy preview." },
-  { id: "article", label: "Article", description: "Wider line-height, serif body, accent headings." },
-  { id: "report", label: "Report", description: "Sans body, dense layout, structured." },
-  { id: "brief", label: "Brief", description: "Tight spacing, prominent intro." },
-  { id: "pitch", label: "Pitch", description: "Large headings, accent banner." },
-];
-
-/**
- * Default presentation style applied when a Markdown source has no
- * explicit `presentationTemplate`. Article is chosen so a freshly
- * opened Markdown is more readable than the v0.54 minimal layout
- * without the user having to do anything.
- */
-export const DEFAULT_MARKDOWN_PRESENTATION_STYLE: MarkdownPresentationStyle =
-  "article";
-
-export function presentationStyleToTemplateId(
-  style: MarkdownPresentationStyle | undefined,
-): PresentationTemplateId {
-  switch (style) {
-    case "report":
-    case "brief":
-    case "pitch":
-    case "article":
-      return style;
-    case "default":
-    default:
-      return "article";
-  }
-}
-
 export function slugifyPresentationArtifactName(input: string): string {
   const slug = input
     .normalize("NFKD")

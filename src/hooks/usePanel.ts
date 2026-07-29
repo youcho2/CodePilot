@@ -60,15 +60,6 @@ export type PreviewSource =
        * `src/lib/markdown/anchor.ts`. Invalid anchors are ignored.
        */
       anchor?: string;
-      /**
-       * Phase 4 UX — Markdown presentation style applied in-place to
-       * the rendered view. NOT an artifact: the file is still the
-       * source of truth; the template only changes typography/colors
-       * via a CSS class on the body wrapper. Persists with the tab
-       * so each Markdown opens with the user's last choice for that
-       * file. Missing = `article` (the polished default).
-       */
-      presentationTemplate?: import("@/lib/markdown/presentation-templates").MarkdownPresentationStyle;
     }
   | { kind: "inline-html"; html: string; virtualName?: string;
       /**

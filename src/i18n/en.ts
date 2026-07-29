@@ -431,8 +431,7 @@ const en = {
   'presentation.pickerTitle': 'Pick a presentation style',
   'presentation.cancel': 'Cancel',
   'presentation.generate': 'Generate',
-  // ── Phase 4 UX: in-place presentation Select + quiet refresh ─
-  'filePreview.presentation.styleLabel': 'Style',
+  // ── Phase 4 UX: quiet refresh ─────────────────────────────────
   'filePreview.quietRefresh.updated': 'Updated',
   'filePreview.external.confirm.openReadOnly': 'Open read-only',
   'filePreview.external.confirm.permission': 'Read-only · no disk writes',

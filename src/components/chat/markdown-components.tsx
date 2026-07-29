@@ -26,13 +26,21 @@
  * plug it in without restyling.
  */
 
-import type { ComponentProps, ReactNode } from "react";
+import type { ComponentProps } from "react";
 import { useCallback, useRef } from "react";
 import type { BundledLanguage } from "shiki";
 import { cn } from "@/lib/utils";
 import { CodePilotIcon } from "@/components/ui/semantic-icon";
 import { showToast } from "@/hooks/useToast";
 import { CodeBlockContent } from "@/components/ai-elements/code-block";
+import {
+  BASE_MARKDOWN_COMPONENTS,
+  MarkdownInlineCode,
+  isMarkdownFenceBlock,
+  markdownChildrenToText,
+  markdownFenceLanguage,
+  type MarkdownCodeProps,
+} from "@/components/markdown/markdown-contract";
 
 // Shared card-action-button class — same geometry as Widget toolbar.
 // `justify-center` is intentional: icon-only variants (h-7 w-7 px-0)
@@ -41,20 +49,6 @@ import { CodeBlockContent } from "@/components/ai-elements/code-block";
 // fix after user feedback.
 const cardActionBtn =
   "h-7 px-2 gap-1 inline-flex items-center justify-center rounded-md text-xs text-muted-foreground hover:text-foreground hover:bg-muted transition-colors disabled:opacity-40 disabled:pointer-events-none";
-
-// Recursively flatten React children to plain text. Used for "copy as
-// plaintext" fallbacks where we don't need full markdown round-trip.
-function childrenToText(children: ReactNode): string {
-  if (children == null || children === false) return "";
-  if (typeof children === "string" || typeof children === "number") return String(children);
-  if (Array.isArray(children)) return children.map(childrenToText).join("");
-  if (typeof children === "object" && children !== null && "props" in children) {
-    // ReactElement
-    const props = (children as { props?: { children?: ReactNode } }).props;
-    return childrenToText(props?.children);
-  }
-  return "";
-}
 
 // ---------------------------------------------------------------------------
 // Table → Widget-style card with action buttons
@@ -124,13 +118,6 @@ function ChatTable({ children, className, ...props }: ComponentProps<"table">) {
   );
 }
 
-function ChatTHead(props: ComponentProps<"thead">) {
-  return <thead className="border-b border-border/60 bg-muted/40 [&_th]:px-3 [&_th]:py-2 [&_th]:text-left [&_th]:font-medium" {...props} />;
-}
-function ChatTBody(props: ComponentProps<"tbody">) {
-  return <tbody className="[&_tr]:border-b [&_tr]:border-border/30 [&_tr:last-child]:border-0 [&_td]:px-3 [&_td]:py-2 [&_td]:align-top" {...props} />;
-}
-
 // ---------------------------------------------------------------------------
 // Code block — Widget-style card, Shiki-highlighted via the Web Worker
 // ---------------------------------------------------------------------------
@@ -151,12 +138,6 @@ function ChatTBody(props: ComponentProps<"tbody">) {
 // shown immediately so a block is never blank. `pre` becomes a pass-through
 // (streamdown's own default) because the card now owns the whole block.
 
-/** Extract the fence language from react-markdown's `language-xxx` className. */
-function extractFenceLanguage(className?: string): string {
-  const m = className?.match(/language-([\w+#.-]+)/i);
-  return m ? m[1] : "";
-}
-
 /**
  * Inline-vs-block classification, mirroring streamdown's own heuristic
  * (`node.position.start.line === node.position.end.line` ⇒ inline). A fenced
@@ -169,29 +150,7 @@ export function isChatFenceBlock(args: {
   className?: string;
   text: string;
 }): boolean {
-  const { node, className, text } = args;
-  const hasLangClass = typeof className === "string" && /(^|\s)language-/.test(className);
-  const start = node?.position?.start?.line;
-  const end = node?.position?.end?.line;
-  const multiLine =
-    typeof start === "number" && typeof end === "number"
-      ? start !== end
-      : text.includes("\n");
-  return hasLangClass || multiLine;
-}
-
-// Inline code (single backtick). Don't apply card chrome — just a
-// muted pill so it stands out in prose.
-function ChatInlineCode({ className, ...props }: ComponentProps<"code">) {
-  return (
-    <code
-      className={cn(
-        "rounded bg-muted px-1.5 py-0.5 font-mono text-[0.875em] text-foreground",
-        className,
-      )}
-      {...props}
-    />
-  );
+  return isMarkdownFenceBlock(args);
 }
 
 /**
@@ -235,112 +194,25 @@ function ChatCodeFenceBlock({ code, language }: { code: string; language: string
   );
 }
 
-type ChatCodeProps = ComponentProps<"code"> & {
-  node?: { position?: { start?: { line?: number }; end?: { line?: number } } };
-};
-
 // The `code` component override. Inline code stays a muted pill; fenced blocks
 // render as the highlighted Widget-card block above (worker-backed).
-function ChatCode({ node, className, children, ...props }: ChatCodeProps) {
-  const text = childrenToText(children);
+function ChatCode({ node, className, children, ...props }: MarkdownCodeProps) {
+  const text = markdownChildrenToText(children);
   if (!isChatFenceBlock({ node, className, text })) {
     return (
-      <ChatInlineCode className={className} {...props}>
+      <MarkdownInlineCode className={className} {...props}>
         {children}
-      </ChatInlineCode>
+      </MarkdownInlineCode>
     );
   }
-  return <ChatCodeFenceBlock code={text} language={extractFenceLanguage(className)} />;
+  return <ChatCodeFenceBlock code={text} language={markdownFenceLanguage(className)} />;
 }
 
 // `pre` is now a pass-through: ChatCode renders the entire fenced-block card,
 // so `pre` only needs to hand the block through — matching streamdown's own
 // default `pre` (which is likewise a pass-through).
-function ChatPre({ children }: ComponentProps<"pre">) {
-  return <>{children}</>;
-}
-
-// ---------------------------------------------------------------------------
-// Typography — heading / paragraph / list / blockquote / hr / link
-// ---------------------------------------------------------------------------
-
-function ChatH1(props: ComponentProps<"h1">) {
-  return <h1 className="mt-6 mb-3 text-2xl font-semibold tracking-tight" {...props} />;
-}
-function ChatH2(props: ComponentProps<"h2">) {
-  return <h2 className="mt-5 mb-3 text-xl font-semibold tracking-tight" {...props} />;
-}
-function ChatH3(props: ComponentProps<"h3">) {
-  return <h3 className="mt-4 mb-2 text-lg font-semibold" {...props} />;
-}
-function ChatH4(props: ComponentProps<"h4">) {
-  return <h4 className="mt-3 mb-2 text-base font-semibold" {...props} />;
-}
-function ChatParagraph(props: ComponentProps<"p">) {
-  return <p className="my-3 leading-7" {...props} />;
-}
-function ChatUl(props: ComponentProps<"ul">) {
-  return <ul className="my-3 ml-5 list-disc space-y-1.5 marker:text-muted-foreground/60" {...props} />;
-}
-function ChatOl(props: ComponentProps<"ol">) {
-  return <ol className="my-3 ml-5 list-decimal space-y-1.5 marker:text-muted-foreground/60" {...props} />;
-}
-function ChatLi(props: ComponentProps<"li">) {
-  return <li className="pl-1.5 leading-7" {...props} />;
-}
-function ChatBlockquote(props: ComponentProps<"blockquote">) {
-  return (
-    <blockquote
-      className="my-4 border-l-4 border-border pl-4 py-1 text-muted-foreground italic"
-      {...props}
-    />
-  );
-}
-function ChatHr(props: ComponentProps<"hr">) {
-  return <hr className="my-6 border-border/50" {...props} />;
-}
-function ChatLink(props: ComponentProps<"a">) {
-  return (
-    <a
-      className="text-primary underline underline-offset-4 decoration-primary/30 hover:decoration-primary"
-      target={props.href?.startsWith("http") ? "_blank" : undefined}
-      rel={props.href?.startsWith("http") ? "noopener noreferrer" : undefined}
-      {...props}
-    />
-  );
-}
-function ChatStrong(props: ComponentProps<"strong">) {
-  return <strong className="font-semibold text-foreground" {...props} />;
-}
-
-// `img` — center + rounded; keeps images sane in the chat column.
-function ChatImg(props: ComponentProps<"img">) {
-  return (
-    <img
-      className="my-3 max-w-full rounded-lg border border-border/40"
-      loading="lazy"
-      {...props}
-    />
-  );
-}
-
 export const CHAT_MARKDOWN_COMPONENTS = {
-  h1: ChatH1,
-  h2: ChatH2,
-  h3: ChatH3,
-  h4: ChatH4,
-  p: ChatParagraph,
-  ul: ChatUl,
-  ol: ChatOl,
-  li: ChatLi,
-  blockquote: ChatBlockquote,
-  hr: ChatHr,
-  a: ChatLink,
-  strong: ChatStrong,
-  img: ChatImg,
+  ...BASE_MARKDOWN_COMPONENTS,
   table: ChatTable,
-  thead: ChatTHead,
-  tbody: ChatTBody,
-  pre: ChatPre,
   code: ChatCode,
 } as const;

@@ -35,9 +35,6 @@ import { parseAnchor } from "@/lib/markdown/anchor";
 import {
   renderPresentation,
   type PresentationTemplateId,
-  type MarkdownPresentationStyle,
-  MARKDOWN_PRESENTATION_STYLES,
-  DEFAULT_MARKDOWN_PRESENTATION_STYLE,
 } from "@/lib/markdown/presentation-templates";
 import {
   Select,
@@ -47,6 +44,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { PREVIEW_MARKDOWN_COMPONENTS } from "@/components/markdown/markdown-contract";
 import { buildPresentationRefreshUrl } from "@/lib/markdown/presentation-refresh";
 import { dispatchAddToChat } from "@/lib/add-to-chat-event";
 import { injectInlineHtmlCsp } from "@/lib/inline-html-csp";
@@ -905,12 +903,9 @@ export function PreviewPanel(_: { variant?: 'sidebar' } = {}) {
   // refresh. The fix is to use a plain JSX element below (no
   // intermediate component). Same DOM, stable identity, no remount.
 
-  // Phase 4 UX — presentation popup retired. The current Markdown
-  // tab's presentationTemplate (read inside MarkdownRenderedView)
-  // drives an in-place CSS theme; there's no "generate artifact"
-  // step in this flow. handleRefreshPresentation below stays for
-  // back-compat with any legacy inline-html sources persisted
-  // before this batch landed.
+  // The in-place presentation theme switcher is retired. This handler
+  // remains only for legacy inline-html artifacts persisted before the
+  // Markdown renderer was unified.
   const handleRefreshPresentation = useCallback(async () => {
     if (previewSource?.kind !== "inline-html") return;
     const backlink = previewSource.sourceBacklink;
@@ -1024,29 +1019,8 @@ export function PreviewPanel(_: { variant?: 'sidebar' } = {}) {
           )}
         </div>
 
-        {/* Phase 4 UX (Codex feedback) — Markdown style Select sits
-            to the LEFT of the view-mode toggle in the SAME header
-            row. Drops the redundant "样式" label, retires the
-            separate in-content toolbar, and keeps the rendered area
-            from stacking three toolbar bars. */}
-        {previewSource?.kind === "file" &&
-          isEditable(filePath) &&
-          isMarkdown(previewSource.filePath) &&
-          previewViewMode === "rendered" && (
-            <PresentationStyleSelect
-              value={
-                previewSource.presentationTemplate ?? DEFAULT_MARKDOWN_PRESENTATION_STYLE
-              }
-              onChange={(style) => {
-                if (previewSource?.kind !== "file") return;
-                setPreviewSource({ ...previewSource, presentationTemplate: style });
-              }}
-            />
-          )}
-
-        {/* The Updated indicator moved next to the filename — see
-            the identity row above. Keeps the controls cluster
-            (Select + view-mode Tabs) compact and visually balanced. */}
+        {/* The Updated indicator lives next to the filename; the retired
+            presentation-style Select no longer consumes header space. */}
 
         {canRender && !isMedia && !isAgentReferenced && (
           <ViewModeToggle
@@ -1299,10 +1273,6 @@ export function PreviewPanel(_: { variant?: 'sidebar' } = {}) {
                 workingDirectory={workingDirectory}
                 setPreviewSource={setPreviewSource}
                 classifyPathFn={classifyPath}
-                presentationStyle={
-                  (previewSource?.kind === "file" && previewSource.presentationTemplate) ||
-                  DEFAULT_MARKDOWN_PRESENTATION_STYLE
-                }
               />
             ) : (
               <SourceView preview={freshPreview} isDark={isDark} />
@@ -1364,39 +1334,6 @@ function ViewModeToggle({
         <TabsTrigger value="rendered">{t("filePreview.viewMode.preview")}</TabsTrigger>
       </TabsList>
     </Tabs>
-  );
-}
-
-/**
- * Compact in-header Select for the Markdown presentation style.
- * Sits to the LEFT of the view-mode Tabs.
- *
- * Phase 4 UX v2 — uses SelectTrigger's built-in `size="sm"` (a
- * first-class prop on the primitive, see src/components/ui/select.tsx:
- * `size?: "sm" | "default"` mapping to `data-[size=sm]:h-8` etc.).
- * No hand-rolled h-N override; we just pass `size="sm"`. The
- * "样式" label is dropped — the trigger surfaces the current style.
- */
-function PresentationStyleSelect({
-  value,
-  onChange,
-}: {
-  value: MarkdownPresentationStyle;
-  onChange: (style: MarkdownPresentationStyle) => void;
-}) {
-  return (
-    <Select value={value} onValueChange={(v) => onChange(v as MarkdownPresentationStyle)}>
-      <SelectTrigger size="sm" data-codepilot-md-style-select>
-        <SelectValue />
-      </SelectTrigger>
-      <SelectContent>
-        {MARKDOWN_PRESENTATION_STYLES.map((s) => (
-          <SelectItem key={s.id} value={s.id}>
-            {s.label}
-          </SelectItem>
-        ))}
-      </SelectContent>
-    </Select>
   );
 }
 
@@ -1598,7 +1535,6 @@ function RenderedView({
   workingDirectory,
   setPreviewSource,
   classifyPathFn,
-  presentationStyle,
 }: {
   content: string;
   filePath: string;
@@ -1626,7 +1562,6 @@ function RenderedView({
   workingDirectory: string | null | undefined;
   setPreviewSource: (source: ReturnType<typeof usePanel>["previewSource"]) => void;
   classifyPathFn: typeof import("@/lib/preview-source").classifyPath;
-  presentationStyle: MarkdownPresentationStyle;
 }) {
   const { t } = useTranslation();
   const [ready, setReady] = useState(false);
@@ -1709,7 +1644,6 @@ function RenderedView({
       workingDirectory={workingDirectory}
       setPreviewSource={setPreviewSource}
       classifyPathFn={classifyPathFn}
-      presentationStyle={presentationStyle}
     />
   );
 }
@@ -1739,7 +1673,6 @@ function MarkdownRenderedView({
   workingDirectory,
   setPreviewSource,
   classifyPathFn,
-  presentationStyle,
 }: {
   content: string;
   filePath: string;
@@ -1747,11 +1680,6 @@ function MarkdownRenderedView({
   workingDirectory: string | null | undefined;
   setPreviewSource: (source: ReturnType<typeof usePanel>["previewSource"]) => void;
   classifyPathFn: typeof import("@/lib/preview-source").classifyPath;
-  /** In-place CSS theme applied via `codepilot-md-template-<id>`.
-   *  Style switching + the "Updated" indicator live in the main
-   *  panel header now — this component just consumes the resolved
-   *  style as a class. */
-  presentationStyle: MarkdownPresentationStyle;
 }) {
   const { t } = useTranslation();
   const bodyRef = useRef<HTMLDivElement | null>(null);
@@ -1867,11 +1795,12 @@ function MarkdownRenderedView({
         <div
           ref={bodyRef}
           onClick={onClick}
-          className={`px-6 py-4 overflow-x-hidden break-words codepilot-md-body codepilot-md-template-${presentationStyle}`}
+          className="codepilot-md-body overflow-x-hidden break-words px-6 py-4"
         >
           <Sd
             className="size-full [&>*:first-child]:mt-0 [&>*:last-child]:mb-0 [&_ul]:pl-6 [&_ol]:pl-6"
             plugins={_streamdownPlugins!}
+            components={PREVIEW_MARKDOWN_COMPONENTS}
             linkSafety={{ enabled: false }}
             // Phase 4 UX v5 — mode="static" instead of the default
             // "streaming". Streaming mode wraps each parse cycle in
@@ -2000,6 +1929,7 @@ function InlineMarkdownView({ markdown }: { markdown: string }) {
       <Sd
         className="size-full [&>*:first-child]:mt-0 [&>*:last-child]:mb-0 [&_ul]:pl-6 [&_ol]:pl-6"
         plugins={_streamdownPlugins}
+        components={PREVIEW_MARKDOWN_COMPONENTS}
         // Phase 4 UX v5 — mode="static" same reasoning as
         // MarkdownRenderedView: code-fence Preview is a one-shot
         // snapshot, not a streaming AI turn, so the useTransition

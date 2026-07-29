@@ -2,7 +2,7 @@
 
 > 创建时间：2026-07-29
 > 最后更新：2026-07-29
-> 状态：🚧 Phase 0 进行中（0.A state 层 POC 11/11 ✅；真实 DOM/IME 手工项待补）
+> 状态：🚧 执行中（Phase 1 ✅；Phase 2 开始；Phase 0.A 真实 DOM/IME 手工项待补）
 > 对应调研：
 > - [docs/research/markdown-editor-tiptap-evaluation.md](../../research/markdown-editor-tiptap-evaluation.md)（CodeMirror 选型依据）
 > - [docs/research/craft-agents-markdown-internals.md](../../research/craft-agents-markdown-internals.md)（渲染/编辑分栈佐证）
@@ -22,7 +22,7 @@
 | Phase | 内容 | 状态 | 价值形态 | 备注 |
 |-------|------|------|---------|------|
 | Phase 0 | 前置 POC（Live Preview 装饰核心 / trash 打包 smoke / 图标提取管线 + 视觉 POC / ContextMenu 行为） | 🚧 进行中（0.A partial；0.B/0.C/0.D 待重做） | C 基建 | 用户要求撤回计划 commit 后的 Claude/loop 产物；已从 `089e4d45` 基线由 Codex 重做 0.A state 层，11/11 targeted + tsc 通过，真实 DOM/IME 仍待证 |
-| Phase 1 | 中立 Markdown component contract + 删除 presentation 主题 + Export 脚手架解耦 | 📋 待开始 | A 可见 | 依赖 RC-5 / RC-8 |
+| Phase 1 | 中立 Markdown component contract + 删除 presentation 主题 + Export 脚手架解耦 | ✅ 已完成 | A 可见 | RC-5 / RC-8 targeted 28/28；全量 3850/3850 |
 | Phase 2 | Live Preview 接入（2a 行内 marks → 2b 最低渲染 parity）+ viewMode 收敛 | 📋 待开始 | A 可见 | 依赖 Phase 0.A、RC-3 / RC-6 / RC-11 |
 | Phase 3 | 文件树右键菜单 + 行内重命名 + 删除（file mutation transaction） | 📋 待开始 | A 可见 | 依赖 Phase 0.B/0.D、RC-1 / RC-4；RC-2 是 Windows 发版门禁 |
 | Phase 4 | FileTypeIcon（material-icon-theme 静态子集）+ 文件夹仅 chevron + 全名 tooltip | 📋 待开始 | A 可见 | 依赖 Phase 0.C、RC-7 |
@@ -32,6 +32,7 @@
 
 ## 决策日志
 
+- 2026-07-29 [Phase 1 Codex 实现 — 完成] 新建中立 `markdown-contract.tsx`，聊天与文件预览共享标题/段落/列表/引用/链接/行内码/表格/代码块视觉基座；聊天仅覆盖带复制动作的 table/code。移除 Preview header 的 Style Select、五套 in-place CSS、PreviewSource/Tab 运行态字段；parse 边界继续接受旧 `presentationTemplate` 并主动剥离。四套 standalone HTML Export templates 保留且不再依赖 in-place style。`tsc` 通过，RC-5/RC-8 与相关回归 targeted **28/28**；全量 `npm run test` **3850 tests / 965 suites / 0 fail**。
 - 2026-07-29 [用户要求撤回并重做] 停止 Claude/loop，将专用 worktree 从 `1222167c` 精确 reset 到 canonical 计划提交 `089e4d45`；撤回其后的 `fc10691f`/`1222167c`、未提交 0.C、`material-icon-theme` 安装残留、DMG/ZIP/`.next` 打包产物。此后不再启动 Claude/loop，由 Codex 直接实现。
 - 2026-07-29 [Phase 0.A Codex 重做 — partial] 仅在 `src/__tests__` 新增纯 state harness + 11 条测试，证明 inactive decoration / active reveal、半开 visible ranges 去重、atomicRanges provider、IME freeze/map/compositionend 空 update rebuild、controlled value 最小 diff + history/selection 保持；targeted **11/11**、全量 `npm run test` **3851 tests / 964 suites / 0 fail**，零生产 importer。真实 DOM 点击/方向键/selection/delete 与中文 IME 候选框未验证，因此不把 0.A 标完成；详见 [research/phase-0-pocs/0.A](../../research/phase-0-pocs/0.A-live-preview-decoration-core.md)。
 - 2026-07-29 [Phase 0.A 首次 commit 门禁 P1 — 已修] 手动全量 3851/3851 后，真实 pre-commit 反而出现 3849/3851 并把主仓库切成 `core.bare=true`。根因是 `pre-commit-tier.test.ts` 的临时 repo 子进程继承 hook 的 repository-local `GIT_*` 环境，`git init` 操作了主仓库；不是 flaky。恢复 `core.bare=false` 后，新增 `scrubbedGitEnv()`（动态剥离 `git rev-parse --local-env-vars` 全集 + `GIT_NAMESPACE`），临时 git/node 全部使用 clean env，并加“变量全集清除 + 外部 repo 零污染”两条 guardrail。修复后相关 targeted（Live Preview 11 + pre-commit 17）**28/28**、tsc 通过；提交必须重新过真实 hook 才算关闭。

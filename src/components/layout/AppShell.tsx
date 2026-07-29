@@ -550,8 +550,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const [previewViewMode, setPreviewViewMode] = useState<PreviewViewMode>("source");
   // Track the last filePath we routed through setPreviewSource so we can
   // distinguish "file change" (reset view mode) from "metadata update"
-  // (Phase 4 UX — same-file presentationTemplate / anchor / trust
-  // promotions must NOT bounce the user out of Edit mode).
+  // (same-file anchor / trust promotions must NOT bounce the user out
+  // of Edit mode).
   const lastPreviewFilePathRef = useRef<string | null>(null);
 
   const previewFile: string | null =

@@ -20,7 +20,6 @@ import {
   buildPresentationArtifactPath,
   PRESENTATION_TEMPLATES,
   getTemplate,
-  presentationStyleToTemplateId,
   renderMarkdownToHtml,
   renderPresentation,
   slugifyPresentationArtifactName,
@@ -117,14 +116,6 @@ describe('renderPresentation — template + structure', () => {
 });
 
 describe('presentation artifact helpers', () => {
-  it('maps in-place styles to exportable templates', () => {
-    assert.equal(presentationStyleToTemplateId('default'), 'article');
-    assert.equal(presentationStyleToTemplateId(undefined), 'article');
-    assert.equal(presentationStyleToTemplateId('report'), 'report');
-    assert.equal(presentationStyleToTemplateId('brief'), 'brief');
-    assert.equal(presentationStyleToTemplateId('pitch'), 'pitch');
-  });
-
   it('slugifies artifact names conservatively', () => {
     assert.equal(slugifyPresentationArtifactName('My Notes v2'), 'my-notes-v2');
     assert.equal(slugifyPresentationArtifactName(''), 'markdown-artifact');
