@@ -143,7 +143,23 @@ test("globals.css does NOT shadow content-layer tokens inside the macOS profile"
   }
 });
 
-test("macOS dark profile tints the native material from product dark tokens", () => {
+test("macOS light and dark profiles preserve native material translucency", () => {
+  const macBlockMatch = GLOBALS_SOURCE.match(
+    /html\[data-platform="darwin"\]\[data-shell="electron"\]\[data-platform-style="auto"\]\s*\{([^}]*)\}/,
+  );
+  ok(macBlockMatch, "expected to find the macOS Electron profile block");
+  const macBlock = macBlockMatch![1];
+  ok(
+    macBlock.includes("--platform-surface-window: transparent"),
+    "light macOS shell must not cover the native material",
+  );
+  ok(
+    macBlock.includes(
+      "--platform-surface-sidebar: color-mix(in oklch, white 40%, transparent)",
+    ),
+    "light macOS sidebar must keep a low-alpha card tint",
+  );
+
   const darkMacBlockMatch = GLOBALS_SOURCE.match(
     /html\.dark\[data-platform="darwin"\]\[data-shell="electron"\]\[data-platform-style="auto"\]\s*\{([^}]*)\}/,
   );
@@ -153,16 +169,14 @@ test("macOS dark profile tints the native material from product dark tokens", ()
   );
   const darkMacBlock = darkMacBlockMatch![1];
   ok(
-    darkMacBlock.includes(
-      "--platform-surface-window: color-mix(in oklch, var(--background) 82%, transparent)",
-    ),
-    "dark macOS window tint must derive from --background so light native vibrancy cannot wash out the title bar",
+    darkMacBlock.includes("--platform-surface-window: transparent"),
+    "dark macOS shell must not cover the native material",
   );
   ok(
     darkMacBlock.includes(
-      "--platform-surface-sidebar: color-mix(in oklch, var(--sidebar) 88%, transparent)",
+      "--platform-surface-sidebar: color-mix(in oklch, var(--sidebar) 40%, transparent)",
     ),
-    "dark macOS sidebar tint must derive from --sidebar so the navigation card stays distinct",
+    "dark macOS sidebar must keep a low-alpha card tint",
   );
   ok(
     GLOBALS_SOURCE.includes(

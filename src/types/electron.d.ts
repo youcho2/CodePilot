@@ -76,6 +76,10 @@ interface ElectronAPI {
      *  error). Renderer must guard for absence in non-Electron / web contexts. */
     getLogPath: () => Promise<string | null>;
   };
+  theme?: {
+    /** Keep Electron's native window material in sync with next-themes. */
+    setSource: (source: 'system' | 'light' | 'dark') => Promise<boolean>;
+  };
   fs: {
     /** Resolve a File's absolute filesystem path (via Electron webUtils). Empty string if unavailable. */
     getPathForFile: (file: File) => string;

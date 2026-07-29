@@ -18,7 +18,7 @@ if (!sentryDisabled) {
   });
 }
 
-import { app, BrowserWindow, Notification, nativeImage, dialog, session, utilityProcess, ipcMain, shell, Tray, Menu } from 'electron';
+import { app, BrowserWindow, Notification, nativeImage, nativeTheme, dialog, session, utilityProcess, ipcMain, shell, Tray, Menu } from 'electron';
 import path from 'path';
 import { execFileSync, spawn, ChildProcess } from 'child_process';
 import fs from 'fs';
@@ -32,6 +32,7 @@ import { BoundedLineRing } from '../src/lib/logging/bounded-line-ring';
 import { createRotatingLogWriter, type RotatingLogWriter } from '../src/lib/logging/main-log-rotation';
 import { classifyNavigation } from '../src/lib/navigation-policy';
 import { buildProxySafeEnvironment } from '../src/lib/process-proxy-env';
+import { isNativeThemeSource } from '../src/lib/native-theme-source';
 
 // B-025: hard caps for the persistent main log + the in-memory server-output
 // ring. The 12.5 GB log a user hit came from an unbounded active file plus an
@@ -2070,6 +2071,16 @@ app.whenReady().then(async () => {
     } catch {
       return null;
     }
+  });
+
+  // Keep the NSVisualEffectView appearance aligned with the renderer's
+  // next-themes mode. Without this bridge, an app-level dark selection can
+  // sit over a light native material (or vice versa), which previously led us
+  // to hide the mismatch behind an almost-opaque CSS tint.
+  ipcMain.handle('theme:set-source', (_event, source: unknown) => {
+    if (!isNativeThemeSource(source)) return false;
+    nativeTheme.themeSource = source;
+    return true;
   });
 
   // Bridge status IPC

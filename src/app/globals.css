@@ -347,25 +347,12 @@ html[data-platform="darwin"][data-shell="electron"][data-platform-style="auto"] 
      intensity Apple uses in sidebar lists vs typical web row hovers. */
   --platform-hover-alpha: 0.7;
 
-  /* Round 28 — Codex review (2026-05-23) flipped the previous
-     "fully transparent sidebar lets vibrancy show through" model.
-     Problem with that model: Electron `BrowserWindow.vibrancy` is a
-     WINDOW-LEVEL material. A transparent sidebar then shares the
-     exact same NSVisualEffectView material as the empty gutter
-     outside it, so there is no visual seam between "card surface"
-     and "gutter background" — users can't perceive the sidebar as
-     a separate floating card no matter how many shadow / radius /
-     z-index passes we add.
-     Fix: give the sidebar its own translucent tint that sits ON TOP
-     of vibrancy. The fill is light enough to keep the vibrancy
-     readable underneath (wallpaper / window-behind tint still
-     bleeds through ~40%) but solid enough to create the "this is a
-     surface, that is gutter" contrast. Bar token stays transparent
-     because the topbar IS meant to read as part of the gutter, not
-     as a fourth floating card. Dark mode value is set under the
-     `.dark` selector below. */
+  /* Native-theme-synced shell: keep the outer shell fully transparent so
+     Electron's native material is visible. The sidebar gets only a light
+     tint: enough to retain the floating card seam, while leaving most of the
+     native blur/translucency visible. */
   --platform-surface-window: transparent;
-  --platform-surface-sidebar: color-mix(in oklch, white 58%, transparent);
+  --platform-surface-sidebar: color-mix(in oklch, white 40%, transparent);
   --platform-surface-bar: transparent;
   --platform-surface-popover: color-mix(in oklch, var(--popover) 82%, transparent);
   --platform-surface-hud: color-mix(in oklch, var(--popover) 75%, transparent);
@@ -386,15 +373,12 @@ html[data-platform="darwin"][data-shell="electron"][data-platform-style="auto"] 
   --platform-traffic-light-offset-y: 0px;
 }
 
-/* Dark-mode material must be deterministic even when macOS itself is using
-   a light appearance. Electron vibrancy is window-level and otherwise stays
-   light behind our transparent body, making the title bar unreadable.
-   The window tint keeps a small amount of material visible while anchoring
-   the whole shell to the app's dark product background. The sidebar then
-   receives its own stronger `--sidebar` tint so it still reads as a card. */
+/* Electron's nativeTheme now follows the app mode, so dark readability no
+   longer needs an opaque renderer-level window tint. Keep the outer shell
+   transparent and use the same low-alpha card treatment as light mode. */
 html.dark[data-platform="darwin"][data-shell="electron"][data-platform-style="auto"] {
-  --platform-surface-window: color-mix(in oklch, var(--background) 82%, transparent);
-  --platform-surface-sidebar: color-mix(in oklch, var(--sidebar) 88%, transparent);
+  --platform-surface-window: transparent;
+  --platform-surface-sidebar: color-mix(in oklch, var(--sidebar) 40%, transparent);
 }
 
 @layer base {
