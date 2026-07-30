@@ -2,7 +2,7 @@
 
 > 创建时间：2026-07-29
 > 最后更新：2026-07-30
-> 状态：✅ v0.62.0 本地发布门禁通过，待 tag/CI 生成 Mac/Windows 产物；macOS 主功能与人工项已验收，Windows RC-2 按用户裁决改为发布后实机验证
+> 状态：✅ v0.62.0 已发布，Mac/Windows CI 打包与 packaged server 门禁通过；macOS 主功能与人工项已验收，仅保留用户的 Windows 发布后实机验证待办
 > 对应调研：
 > - [docs/research/markdown-editor-tiptap-evaluation.md](../../research/markdown-editor-tiptap-evaluation.md)（CodeMirror 选型依据）
 > - [docs/research/craft-agents-markdown-internals.md](../../research/craft-agents-markdown-internals.md)（渲染/编辑分栈佐证）
@@ -26,12 +26,13 @@
 | Phase 2 | Live Preview 接入（2a 行内 marks → 2b 最低渲染 parity）+ viewMode 收敛 | ✅ 已完成 | A 可见 | RC-3 / RC-6 / RC-11 ✅；Live Preview surface/heading 已对齐应用 background/foreground token |
 | Phase 3 | 文件树右键菜单 + 行内重命名 + 删除（file mutation transaction） | ✅ macOS 已完成；Windows 发布后验证 | A 可见 | RC-1 / RC-4 ✅；用户明确接受本版跳过发布前 RC-2，不代表 Windows 已验证 |
 | Phase 4 | FileTypeIcon（material-icon-theme 静态子集）+ 文件夹仅 chevron + 全名 tooltip | ✅ 已完成 | A 可见 | 固定 50 图标 + manifest/license；亮暗主题视觉 smoke 完成 |
-| Phase 5 | 回归、文档漂移修复、handover/insights 双文档、tech-debt 回写 | ✅ v0.62.0 本地发布门禁完成 | C 基建 | 正式 v0.61 发布线集成后 typecheck + unit **4776/4776**、production build、独立端口 smoke **22/22**；Mac/Windows 同步发布，Windows RC-2 诚实记录为发布后验证 |
+| Phase 5 | 回归、文档漂移修复、handover/insights 双文档、tech-debt 回写 | ✅ v0.62.0 已发布 | C 基建 | 正式 v0.61 发布线集成后 typecheck + unit **4776/4776**、production build、独立端口 smoke **22/22**；CI Mac/Windows 打包、ABI 与 packaged server 验证通过；Windows 实机 RC-2 留作发布后验证 |
 
 **状态符号：** 📋 待开始 / 🚧 进行中 / ✅ 已完成 / ⏸ blocked / ❌ 放弃
 
 ## 决策日志
 
+- 2026-07-30 [v0.62.0 正式发布] release commit `bd598563` 与轻量 tag `v0.62.0` 已原子推送到正式发布线；GitHub Actions [run 30513383728](https://github.com/op7418/CodePilot/actions/runs/30513383728) 的 source gate、macOS arm64+x64、Windows x64 和 release job 全部通过。两个平台均完成版本号、native ABI、packaged server 启动与 checksum 门禁；稳定版 [CodePilot v0.62.0](https://github.com/op7418/CodePilot/releases/tag/v0.62.0) 已发布，包含 arm64/x64 DMG+ZIP、Windows EXE 与 `SHA256SUMS.txt`。这证明产物能构建和启动，不替代用户后续的 Windows Trash/restore 交互验收。
 - 2026-07-30 [v0.62.0 正式发布线集成] 功能分支没有直接覆盖旧基线，而是迁移到当前正式发布线 `v0.61.0`，保留该线的 Opus/Sonnet 5、Grok 4.5 Sub-agent、代理与 Sub-agent 状态模型等后续能力。排除仅修改 Codex 权限说明的 `6737a9a1`，产品提交逐个通过 pre-commit；最终发布候选完成 `npm install` lock 同步、typecheck + unit **4776/4776**、`npm run build`、独立 `:3012` dev server smoke **22/22**。本地门禁通过后才允许 tag 触发双平台 CI。
 - 2026-07-30 [v0.62.0 发布风险接受] 用户明确要求不再等待 Windows RC-2，直接同步发布 macOS 与 Windows，安装后由用户实机验证，若失败再修。该裁决只把 RC-2 从“发布前 fail-closed 门禁”改为“发布后验证”，不构成 Windows Trash/restore 已通过的声明；Release Notes 必须披露未做发布前实机验证，CI 仍需成功生成并校验 Mac/Windows 产物。
 - 2026-07-30 [原生磨砂强度微调 — `83e041cd`] 用户在透明材质恢复后继续反馈外围磨砂过于模糊。Electron 官方 `BrowserWindow.vibrancy` 没有可调 blur radius，`setVibrancy` 的 options 只提供淡入淡出时长，因此没有用 CSS 高不透明 tint 伪造“低模糊”。通过既有 `ELECTRON_VIBRANCY` 诊断开关，用隔离 Electron 窗口对比 `menu` 与 `under-window`；后者仍保留原生半透明 backing，但背景轮廓更清楚。默认值改为 `under-window`，环境变量候选矩阵继续保留；renderer body/window 仍为 transparent，sidebar 40% tint 与局部 card blur 均未改。新增 source-pin 防止默认材质被无意改回；targeted **12/12**、typecheck、ESLint、两轮 full unit/pre-commit **3879/3879**，最终无环境变量 Electron 日志确认 `vibrancyOption=under-window`、`bodyBg=transparent`、`opaqueElementCount=0`。
@@ -147,6 +148,8 @@
 - [x] 人工发布矩阵：用户于 2026-07-30 确认暗色 5% 选中态正常。
 - [x] 深色主题与磨砂 follow-up：Markdown surface 与应用卡片一致；Live Preview 标题使用 `--foreground`；Electron 原生材质跟随 app `system/light/dark`；macOS 外围透明，浅/深 sidebar/card 只保留 40% tint；整窗默认材质按用户反馈从较重的 `menu` 调为 `under-window`。
 - [x] Windows RC-2 发布门禁裁决：用户于 2026-07-30 明确接受跳过发布前实机验证，Mac/Windows 同步发布后再验证 NSIS 产物的废纸篓删除与恢复；文档与 Release Notes 不宣称该路径已预验证。
+- [x] v0.62.0 发布：commit `bd598563`、tag `v0.62.0`、CI run `30513383728`；Mac/Windows 打包、ABI、packaged server 与 release asset 上传全部通过。
+- [ ] Windows 发布后实机验收：用户安装 v0.62.0 后验证文件/文件夹移入系统回收站与恢复；若失败按 fix-forward 处理。
 
 ## File Mutation Transaction（rename / delete 状态转换与失败回滚）
 
@@ -287,3 +290,4 @@ idle
 | 2026-07-30 | - | - | - | - | 原生磨砂强度微调（`83e041cd`） | ✅ | 隔离 Electron 同机对比 `menu` / `under-window` 后选择较轻的 `under-window`；最终无环境变量窗口日志为 `vibrancyOption=under-window`、body/window transparent、`opaqueElementCount=0`；targeted **12/12**、两轮 full unit/pre-commit **3879/3879** |
 | 2026-07-30 | - | - | - | - | v0.62.0 Windows RC-2 发布裁决 | ⚠️ accepted | 用户明确接受跳过发布前 Windows Trash/restore 实机 smoke；Mac/Windows 同步发布后由用户验证，失败则 fix-forward；此记录不等同于 RC-2 通过 |
 | 2026-07-30 | - | - | - | - | v0.62.0 正式发布线最终门禁 | ✅ | 基于 v0.61.0 集成；`npm install` lock 同步；typecheck + unit **4776/4776**；production build 通过；独立端口 smoke **22/22**；无 conflict marker / `git diff --check` 问题 |
+| 2026-07-30 | - | - | - | - | v0.62.0 Mac/Windows CI + Stable Release | ✅ | release commit `bd598563`；tag `v0.62.0`；Actions run `30513383728` 全绿；Mac arm64/x64 与 Windows x64 均通过版本、ABI、packaged server、checksum；稳定 Release 与 6 个 assets 已发布 |
