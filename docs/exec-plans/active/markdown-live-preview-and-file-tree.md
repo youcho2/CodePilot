@@ -2,7 +2,7 @@
 
 > 创建时间：2026-07-29
 > 最后更新：2026-07-30
-> 状态：🚧 macOS 主功能、中文 IME、暗色选中态、深色主题及原生磨砂回归均验收完成；仅余 Windows RC-2 发版门禁
+> 状态：✅ v0.62.0 本地发布门禁通过，待 tag/CI 生成 Mac/Windows 产物；macOS 主功能与人工项已验收，Windows RC-2 按用户裁决改为发布后实机验证
 > 对应调研：
 > - [docs/research/markdown-editor-tiptap-evaluation.md](../../research/markdown-editor-tiptap-evaluation.md)（CodeMirror 选型依据）
 > - [docs/research/craft-agents-markdown-internals.md](../../research/craft-agents-markdown-internals.md)（渲染/编辑分栈佐证）
@@ -24,14 +24,16 @@
 | Phase 0 | 前置 POC（Live Preview 装饰核心 / trash 打包 smoke / 图标提取管线 + 视觉 POC / ContextMenu 行为） | ✅ 已完成 | C 基建 | production DOM 的活动行源码、输入、undo、滚动已验；用户实机确认中文 IME 正常；macOS packaged Trash 可恢复 |
 | Phase 1 | 中立 Markdown component contract + 删除 presentation 主题 + Export 脚手架解耦 | ✅ 已完成 | A 可见 | RC-5 / RC-8 targeted 28/28；全量 3850/3850 |
 | Phase 2 | Live Preview 接入（2a 行内 marks → 2b 最低渲染 parity）+ viewMode 收敛 | ✅ 已完成 | A 可见 | RC-3 / RC-6 / RC-11 ✅；Live Preview surface/heading 已对齐应用 background/foreground token |
-| Phase 3 | 文件树右键菜单 + 行内重命名 + 删除（file mutation transaction） | ✅ macOS 已完成 | A 可见 | RC-1 / RC-4 ✅；RC-2 保持为 Windows 发版 fail-closed 门禁 |
+| Phase 3 | 文件树右键菜单 + 行内重命名 + 删除（file mutation transaction） | ✅ macOS 已完成；Windows 发布后验证 | A 可见 | RC-1 / RC-4 ✅；用户明确接受本版跳过发布前 RC-2，不代表 Windows 已验证 |
 | Phase 4 | FileTypeIcon（material-icon-theme 静态子集）+ 文件夹仅 chevron + 全名 tooltip | ✅ 已完成 | A 可见 | 固定 50 图标 + manifest/license；亮暗主题视觉 smoke 完成 |
-| Phase 5 | 回归、文档漂移修复、handover/insights 双文档、tech-debt 回写 | 🚧 macOS 范围完成，仅余 Windows 发版门禁 | C 基建 | `569b117d` 恢复透明材质，`83e041cd` 将整窗默认材质从 `menu` 调轻为 `under-window`；targeted 12/12、full unit 3879/3879、真实 Electron 核验通过；不提前宣称 Windows ready |
+| Phase 5 | 回归、文档漂移修复、handover/insights 双文档、tech-debt 回写 | ✅ v0.62.0 本地发布门禁完成 | C 基建 | 正式 v0.61 发布线集成后 typecheck + unit **4776/4776**、production build、独立端口 smoke **22/22**；Mac/Windows 同步发布，Windows RC-2 诚实记录为发布后验证 |
 
 **状态符号：** 📋 待开始 / 🚧 进行中 / ✅ 已完成 / ⏸ blocked / ❌ 放弃
 
 ## 决策日志
 
+- 2026-07-30 [v0.62.0 正式发布线集成] 功能分支没有直接覆盖旧基线，而是迁移到当前正式发布线 `v0.61.0`，保留该线的 Opus/Sonnet 5、Grok 4.5 Sub-agent、代理与 Sub-agent 状态模型等后续能力。排除仅修改 Codex 权限说明的 `6737a9a1`，产品提交逐个通过 pre-commit；最终发布候选完成 `npm install` lock 同步、typecheck + unit **4776/4776**、`npm run build`、独立 `:3012` dev server smoke **22/22**。本地门禁通过后才允许 tag 触发双平台 CI。
+- 2026-07-30 [v0.62.0 发布风险接受] 用户明确要求不再等待 Windows RC-2，直接同步发布 macOS 与 Windows，安装后由用户实机验证，若失败再修。该裁决只把 RC-2 从“发布前 fail-closed 门禁”改为“发布后验证”，不构成 Windows Trash/restore 已通过的声明；Release Notes 必须披露未做发布前实机验证，CI 仍需成功生成并校验 Mac/Windows 产物。
 - 2026-07-30 [原生磨砂强度微调 — `83e041cd`] 用户在透明材质恢复后继续反馈外围磨砂过于模糊。Electron 官方 `BrowserWindow.vibrancy` 没有可调 blur radius，`setVibrancy` 的 options 只提供淡入淡出时长，因此没有用 CSS 高不透明 tint 伪造“低模糊”。通过既有 `ELECTRON_VIBRANCY` 诊断开关，用隔离 Electron 窗口对比 `menu` 与 `under-window`；后者仍保留原生半透明 backing，但背景轮廓更清楚。默认值改为 `under-window`，环境变量候选矩阵继续保留；renderer body/window 仍为 transparent，sidebar 40% tint 与局部 card blur 均未改。新增 source-pin 防止默认材质被无意改回；targeted **12/12**、typecheck、ESLint、两轮 full unit/pre-commit **3879/3879**，最终无环境变量 Electron 日志确认 `vibrancyOption=under-window`、`bodyBg=transparent`、`opaqueElementCount=0`。
 - 2026-07-30 [原生磨砂回归二次修复 — `569b117d`] 用户实机指出第一次深色修复后，外围材质在浅色和深色下都失去半透明感、接近纯色。复核确认第一次方案用 renderer CSS 以 `--background` 82% 覆盖暗色外层、以 `--sidebar` 88% 覆盖暗色侧栏，虽然压住了系统浅色材质，却也遮住了真正的 `BrowserWindow.vibrancy`；这是方案错误，不是需要继续加深颜色的微调。替代实现把 app 的 `system/light/dark` 经 `ThemeProvider → preload → ipcMain` 同步到 Electron `nativeTheme.themeSource`，主进程只接受三个枚举值；macOS 外围恢复 `transparent`，浅/深侧栏都只保留 40% tint 维持卡片边界。隔离 Electron 窗口实测浅/深切换均生效：两种模式 `bodyBackground=rgba(0,0,0,0)`、`windowSurface=transparent`，暗色 `sidebarSurface=var(--sidebar) 40%`，IPC 返回 `bridgeAccepted=true`；真实整窗截图确认原生材质重新出现且主题色随应用切换。targeted **11/11**、typecheck、ESLint、hooks/docs drift 均通过；commit pre-commit 全量 **3878/3878**。
 - 2026-07-30 [深色主题首次 follow-up 修复 — Markdown 部分保留，玻璃部分已被 `569b117d` 取代] Markdown CodeMirror canvas 以高优先级内容层规则固定到 `--background` / `--foreground`，保留 One Dark 仅用于活动源码 token；`.cm-lp-heading` 及嵌套 syntax span 显式继承 `--foreground`，阻断红色 heading token 泄漏。首次 shell 方案以应用 `--background` 82% tint 覆盖暗色窗口级 vibrancy、以 `--sidebar` 88% 建立卡片层次；自动测试与当时截图确认深色可读，但随后用户实机指出它让材质变成纯色，因此该 shell 决策不再有效，只有 Markdown surface/heading 修复继续保留。首次验证为 targeted **17/17**、`npm run test` **3875/3875**。
@@ -144,7 +146,7 @@
 - [x] 人工发布矩阵：用户于 2026-07-30 确认原生中文 IME 输入正常。
 - [x] 人工发布矩阵：用户于 2026-07-30 确认暗色 5% 选中态正常。
 - [x] 深色主题与磨砂 follow-up：Markdown surface 与应用卡片一致；Live Preview 标题使用 `--foreground`；Electron 原生材质跟随 app `system/light/dark`；macOS 外围透明，浅/深 sidebar/card 只保留 40% tint；整窗默认材质按用户反馈从较重的 `menu` 调为 `under-window`。
-- [ ] Windows RC-2：NSIS 产物废纸篓删除与恢复，未完成前不宣称 Windows ready。
+- [x] Windows RC-2 发布门禁裁决：用户于 2026-07-30 明确接受跳过发布前实机验证，Mac/Windows 同步发布后再验证 NSIS 产物的废纸篓删除与恢复；文档与 Release Notes 不宣称该路径已预验证。
 
 ## File Mutation Transaction（rename / delete 状态转换与失败回滚）
 
@@ -283,3 +285,5 @@ idle
 | 2026-07-30 | - | - | - | - | 第一次深色 shell 方案实机复核 | ❌ regression | 用户确认 82% window / 88% sidebar renderer tint 在浅色、深色下都使外围磨砂接近纯色；第一次“深色可读”不能替代半透明材质验收 |
 | 2026-07-30 | - | - | - | - | 原生主题同步 + 磨砂回归复验（`569b117d`） | ✅ | isolated Electron light/dark 截图；两种模式 body/window 均 transparent，sidebar 40% tint，dark IPC `bridgeAccepted=true`；targeted **11/11**、typecheck、pre-commit full unit **3878/3878** |
 | 2026-07-30 | - | - | - | - | 原生磨砂强度微调（`83e041cd`） | ✅ | 隔离 Electron 同机对比 `menu` / `under-window` 后选择较轻的 `under-window`；最终无环境变量窗口日志为 `vibrancyOption=under-window`、body/window transparent、`opaqueElementCount=0`；targeted **12/12**、两轮 full unit/pre-commit **3879/3879** |
+| 2026-07-30 | - | - | - | - | v0.62.0 Windows RC-2 发布裁决 | ⚠️ accepted | 用户明确接受跳过发布前 Windows Trash/restore 实机 smoke；Mac/Windows 同步发布后由用户验证，失败则 fix-forward；此记录不等同于 RC-2 通过 |
+| 2026-07-30 | - | - | - | - | v0.62.0 正式发布线最终门禁 | ✅ | 基于 v0.61.0 集成；`npm install` lock 同步；typecheck + unit **4776/4776**；production build 通过；独立端口 smoke **22/22**；无 conflict marker / `git diff --check` 问题 |
