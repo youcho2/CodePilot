@@ -20,6 +20,18 @@ const previewSource = fs.readFileSync(
   path.join(root, 'components/layout/panels/PreviewPanel.tsx'),
   'utf8',
 );
+const diffSummarySource = fs.readFileSync(
+  path.join(root, 'components/chat/DiffSummary.tsx'),
+  'utf8',
+);
+const messageItemSource = fs.readFileSync(
+  path.join(root, 'components/chat/MessageItem.tsx'),
+  'utf8',
+);
+const archiveClientSource = fs.readFileSync(
+  path.join(root, 'lib/archive-html-asset-client.ts'),
+  'utf8',
+);
 const enSource = fs.readFileSync(path.join(root, 'i18n/en.ts'), 'utf8');
 const zhSource = fs.readFileSync(path.join(root, 'i18n/zh.ts'), 'utf8');
 
@@ -42,10 +54,19 @@ describe('Asset Library UI contract', () => {
   });
 
   it('archives only explicit HTML previews through the scoped materializer API', () => {
-    assert.match(previewSource, /\/api\/assets\/html-bundles/);
+    assert.match(archiveClientSource, /\/api\/assets\/html-bundles/);
+    assert.match(previewSource, /archiveHtmlAsset/);
     assert.match(previewSource, /sessionId/);
     assert.match(previewSource, /sourceTrust === 'workspace'/);
     assert.match(previewSource, /filePreview\.archiveAsset\.failed/);
+  });
+
+  it('offers the same scoped archive action on workspace HTML chat cards', () => {
+    assert.match(diffSummarySource, /onArchiveHtml/);
+    assert.match(diffSummarySource, /filePreview\.archiveAsset/);
+    assert.match(messageItemSource, /archiveHtmlAsset/);
+    assert.match(messageItemSource, /classifyPath\(resolvedPath, workingDirectory\)/);
+    assert.match(messageItemSource, /trust === 'workspace'/);
   });
 
   it('uses recoverable Trash/Restore copy in both languages', () => {

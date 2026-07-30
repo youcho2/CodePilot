@@ -29,6 +29,7 @@ import { parseDBDate } from '@/lib/utils';
 import { usePanel } from '@/hooks/usePanel';
 import { classifyPath } from '@/lib/preview-source';
 import { isWriteTool, isCreateTool, extractWritePath, resolveToolPath } from '@/lib/file-write-tools';
+import { archiveHtmlAsset } from '@/lib/archive-html-asset-client';
 import { DevOutputSegment } from './DevOutputChips';
 import type { PlannerOutput } from '@/types';
 import { SubagentCard } from './SubagentCard';
@@ -857,7 +858,14 @@ export const MessageItem = memo(function MessageItem({ message, sessionId, isAss
             const resolvedPath = resolveToolPath(rawPath, workingDirectory);
             const parts = resolvedPath.split(/[/\\]/);
             const operation: 'created' | 'modified' = isCreateTool(t.name) ? 'created' : 'modified';
-            return { path: resolvedPath, name: parts[parts.length - 1] || resolvedPath, operation };
+            const archiveable =
+              classifyPath(resolvedPath, workingDirectory).trust === 'workspace';
+            return {
+              path: resolvedPath,
+              name: parts[parts.length - 1] || resolvedPath,
+              operation,
+              archiveable,
+            };
           })
           .filter(f => f.path);
         if (modifiedFiles.length === 0) return null;
@@ -916,6 +924,14 @@ export const MessageItem = memo(function MessageItem({ message, sessionId, isAss
                 alert(`Export failed: ${err instanceof Error ? err.message : String(err)}`);
               }
             }}
+            onArchiveHtml={sessionId ? async (file) => {
+              await archiveHtmlAsset({
+                sessionId,
+                source: 'workspace',
+                filePath: file.path,
+                prompt: file.name,
+              });
+            } : undefined}
           />
         );
       })()}

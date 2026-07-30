@@ -1,5 +1,6 @@
 'use client';
 
+import { useState } from 'react';
 import { cn } from '@/lib/utils';
 import { CodePilotIcon } from '@/components/ui/semantic-icon';
 import { Button } from '@/components/ui/button';
@@ -19,6 +20,7 @@ export type DiffFile = {
   path: string;
   name: string;
   operation?: 'created' | 'modified';
+  archiveable?: boolean;
 };
 
 export interface DiffSummaryProps {
@@ -36,6 +38,8 @@ export interface DiffSummaryProps {
    * the button per row.
    */
   onExportLongShot?: (file: DiffFile) => void;
+  /** Archives a completed workspace HTML file as a durable Asset. */
+  onArchiveHtml?: (file: DiffFile) => Promise<void>;
 }
 
 /**
@@ -76,16 +80,43 @@ function ArtifactFileCard({
   file,
   onPreview,
   onExportLongShot,
+  onArchiveHtml,
 }: {
   file: DiffFile;
   onPreview?: (file: DiffFile) => void;
   onExportLongShot?: (file: DiffFile) => void;
+  onArchiveHtml?: (file: DiffFile) => Promise<void>;
 }) {
   const { t } = useTranslation();
+  const [archiveState, setArchiveState] = useState<
+    'idle' | 'archiving' | 'archived'
+  >('idle');
   const ext = getExt(file.name);
   const canPreview = !!onPreview && PREVIEWABLE.has(ext);
   const canExport = !!onExportLongShot && LONGSHOT.has(ext);
+  const canArchive =
+    !!onArchiveHtml && file.archiveable === true && LONGSHOT.has(ext);
   const label = file.operation === 'created' ? 'Created' : 'Modified';
+  const archiveLabel =
+    archiveState === 'archiving'
+      ? t('filePreview.archiveAsset.archiving')
+      : archiveState === 'archived'
+        ? t('filePreview.archiveAsset.archived')
+        : t('filePreview.archiveAsset');
+
+  const handleArchive = async () => {
+    if (!onArchiveHtml || archiveState !== 'idle') return;
+    setArchiveState('archiving');
+    try {
+      await onArchiveHtml(file);
+      setArchiveState('archived');
+    } catch (error) {
+      setArchiveState('idle');
+      alert(t('filePreview.archiveAsset.failed', {
+        reason: error instanceof Error ? error.message : String(error),
+      }));
+    }
+  };
 
   return (
     <div className="mt-2 flex items-center gap-3 rounded-lg border border-border/50 bg-card px-4 py-3">
@@ -111,7 +142,7 @@ function ArtifactFileCard({
           {file.path}
         </p>
       </div>
-      {(canPreview || canExport) && (
+      {(canPreview || canArchive || canExport) && (
         <div className="flex shrink-0 items-center gap-2">
           {canPreview && (
             <Button
@@ -122,6 +153,22 @@ function ArtifactFileCard({
             >
               <CodePilotIcon name="preview" size="sm" aria-hidden />
               {t('diffSummary.openPreview')}
+            </Button>
+          )}
+          {canArchive && (
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              onClick={handleArchive}
+              disabled={archiveState !== 'idle'}
+              title={archiveLabel}
+              aria-label={archiveLabel}
+            >
+              <CodePilotIcon
+                name="archive"
+                size="sm"
+                aria-hidden
+              />
             </Button>
           )}
           {canExport && (
@@ -154,7 +201,12 @@ function ArtifactFileCard({
  * glance. If a future turn produces many cards (e.g. 10+ previewable
  * files), we can add a per-card collapse, not a list-level one.
  */
-export function DiffSummary({ files, onPreview, onExportLongShot }: DiffSummaryProps) {
+export function DiffSummary({
+  files,
+  onPreview,
+  onExportLongShot,
+  onArchiveHtml,
+}: DiffSummaryProps) {
   const previewable = files.filter(
     (f) => !!onPreview && PREVIEWABLE.has(getExt(f.name)),
   );
@@ -172,6 +224,7 @@ export function DiffSummary({ files, onPreview, onExportLongShot }: DiffSummaryP
           file={f}
           onPreview={onPreview}
           onExportLongShot={onExportLongShot}
+          onArchiveHtml={onArchiveHtml}
         />
       ))}
       {others.length > 0 && (

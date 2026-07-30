@@ -23,7 +23,7 @@ export interface HtmlBundleInspection {
 }
 
 function isHiddenRelativePath(relativePath: string): boolean {
-  return relativePath.split(path.sep).some((segment) => segment.startsWith('.'));
+  return relativePath.split(/[/\\]/).some((segment) => segment.startsWith('.'));
 }
 
 function assertSafeRelativePath(relativePath: string): string {
@@ -130,8 +130,23 @@ function validateResourceUrl(input: {
   includedFiles: ReadonlySet<string>;
   externalUrls: Set<string>;
 }): void {
+  const relative = resolveLocalResourceUrl(input);
+  if (relative && !input.includedFiles.has(relative)) {
+    throw new Error(
+      `HTML bundle resource "${input.url.trim()}" from "${input.sourceFile}" was not materialized.`,
+    );
+  }
+}
+
+function resolveLocalResourceUrl(input: {
+  url: string;
+  context: string;
+  sourceFile: string;
+  root: string;
+  externalUrls: Set<string>;
+}): string | null {
   const raw = input.url.trim();
-  if (!raw || raw.startsWith('#')) return;
+  if (!raw || raw.startsWith('#')) return null;
   const lowered = raw.toLowerCase();
   if (
     lowered.startsWith('javascript:')
@@ -147,7 +162,7 @@ function validateResourceUrl(input: {
       throw new Error('External scripts are not allowed in archived HTML bundles.');
     }
     input.externalUrls.add(raw);
-    return;
+    return null;
   }
   if (
     lowered.startsWith('data:')
@@ -155,7 +170,7 @@ function validateResourceUrl(input: {
     || lowered.startsWith('mailto:')
     || lowered.startsWith('tel:')
   ) {
-    return;
+    return null;
   }
   if (raw.startsWith('/')) {
     throw new Error(`Root-relative URL "${raw}" is outside the archived bundle.`);
@@ -166,7 +181,7 @@ function validateResourceUrl(input: {
   } catch {
     throw new Error(`HTML bundle contains malformed URL "${raw}".`);
   }
-  if (!decoded) return;
+  if (!decoded) return null;
   const resolved = path.resolve(
     input.root,
     path.dirname(input.sourceFile),
@@ -174,11 +189,118 @@ function validateResourceUrl(input: {
   );
   const relative = path.relative(input.root, resolved).replace(/\\/g, '/');
   assertSafeRelativePath(relative);
-  if (!input.includedFiles.has(relative)) {
-    throw new Error(
-      `HTML bundle resource "${raw}" from "${input.sourceFile}" was not materialized.`,
-    );
+  return relative;
+}
+
+function inspectReferencedFile(root: string, relativePath: string): {
+  relativePath: string;
+  byteSize: number;
+} {
+  const relative = assertSafeRelativePath(relativePath);
+  if (isHiddenRelativePath(relative)) {
+    throw new Error(`HTML bundle cannot materialize hidden resource "${relative}".`);
   }
+  let current = root;
+  const segments = relative.split('/');
+  for (let index = 0; index < segments.length; index++) {
+    current = path.join(current, segments[index]);
+    if (!fs.existsSync(current)) {
+      throw new Error(`HTML bundle resource "${relative}" does not exist.`);
+    }
+    const stat = fs.lstatSync(current);
+    if (stat.isSymbolicLink()) {
+      throw new Error(`HTML bundle cannot contain symlink "${relative}".`);
+    }
+    if (index < segments.length - 1 && !stat.isDirectory()) {
+      throw new Error(`HTML bundle resource "${relative}" has an invalid path.`);
+    }
+    if (index === segments.length - 1) {
+      if (!stat.isFile()) {
+        throw new Error(`HTML bundle resource "${relative}" is not a file.`);
+      }
+      if (!ALLOWED_EXTENSIONS.has(path.extname(relative).toLowerCase())) {
+        throw new Error(`HTML bundle resource "${relative}" is not materializable.`);
+      }
+      if (stat.size > MAX_FILE_BYTES) {
+        throw new Error(`HTML bundle file "${relative}" exceeds ${MAX_FILE_BYTES} bytes.`);
+      }
+      return { relativePath: relative, byteSize: stat.size };
+    }
+  }
+  throw new Error(`HTML bundle resource "${relative}" is invalid.`);
+}
+
+/**
+ * Inspect only the entry document and the local resources it actually
+ * references. A workspace root is not a bundle root: recursively sweeping it
+ * can capture unrelated user files and makes a one-file page fail merely
+ * because its project contains more than MAX_FILES files.
+ */
+export function inspectHtmlEntryClosure(
+  sourceRoot: string,
+  entryFileInput: string,
+): HtmlBundleInspection {
+  const root = fs.realpathSync(path.resolve(sourceRoot));
+  const entryFile = assertSafeRelativePath(entryFileInput);
+  if (!['.html', '.htm'].includes(path.extname(entryFile).toLowerCase())) {
+    throw new Error('HTML bundle entry file must be .html or .htm.');
+  }
+
+  const queue = [entryFile];
+  const includedFiles = new Set<string>();
+  const externalUrls = new Set<string>();
+  let byteSize = 0;
+  while (queue.length > 0) {
+    const candidate = queue.shift()!;
+    const inspected = inspectReferencedFile(root, candidate);
+    if (includedFiles.has(inspected.relativePath)) continue;
+    includedFiles.add(inspected.relativePath);
+    byteSize += inspected.byteSize;
+    if (includedFiles.size > MAX_FILES) {
+      throw new Error(`HTML bundle exceeds ${MAX_FILES} materialized files.`);
+    }
+    if (byteSize > MAX_TOTAL_BYTES) {
+      throw new Error(`HTML bundle exceeds ${MAX_TOTAL_BYTES} total bytes.`);
+    }
+
+    const ext = path.extname(inspected.relativePath).toLowerCase();
+    if (!['.html', '.htm', '.css'].includes(ext)) continue;
+    const content = fs.readFileSync(
+      path.join(root, inspected.relativePath),
+      'utf8',
+    );
+    if (ext === '.html' || ext === '.htm') {
+      validateMarkupStructure(content, inspected.relativePath);
+    }
+    for (const resource of extractUrls(content)) {
+      const localResource = resolveLocalResourceUrl({
+        ...resource,
+        sourceFile: inspected.relativePath,
+        root,
+        externalUrls,
+      });
+      if (localResource && !includedFiles.has(localResource)) {
+        queue.push(localResource);
+      }
+    }
+  }
+
+  const files = Array.from(includedFiles).sort();
+  const hash = crypto.createHash('sha256');
+  for (const relative of files) {
+    hash.update(relative);
+    hash.update('\0');
+    hash.update(fs.readFileSync(path.join(root, relative)));
+    hash.update('\0');
+  }
+  return {
+    root,
+    entryFile,
+    files,
+    byteSize,
+    contentHash: `sha256:${hash.digest('hex')}`,
+    externalUrls: Array.from(externalUrls).sort(),
+  };
 }
 
 export function inspectHtmlBundle(

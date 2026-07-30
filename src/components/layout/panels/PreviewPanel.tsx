@@ -6,6 +6,7 @@ import { useTheme } from "next-themes";
 import { X, Check, SpinnerGap } from "@/components/ui/icon";
 import { CodePilotIcon } from "@/components/ui/semantic-icon";
 import { exportHtmlAsLongShot, ArtifactExportError } from "@/lib/artifact-export";
+import { archiveHtmlAsset } from "@/lib/archive-html-asset-client";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { Light as SyntaxHighlighter } from "react-syntax-highlighter";
@@ -936,31 +937,21 @@ export function PreviewPanel(_: { variant?: 'sidebar' } = {}) {
     if (!canArchiveHtml || !exportableHtml || !sessionId || !previewSource) return;
     setArchiveState('archiving');
     try {
-      const response = await fetch('/api/assets/html-bundles', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(
-          previewSource.kind === 'inline-html'
-            ? {
-              sessionId,
-              source: 'inline',
-              html: exportableHtml,
-              prompt: previewSource.virtualName || 'preview.html',
-            }
-            : {
-              sessionId,
-              source: 'workspace',
-              filePath,
-              prompt: filePath.split('/').pop() || filePath,
-            },
-        ),
-      });
-      const data = await response.json().catch(() => ({})) as {
-        error?: string;
-      };
-      if (!response.ok) {
-        throw new Error(data.error || response.statusText);
-      }
+      await archiveHtmlAsset(
+        previewSource.kind === 'inline-html'
+          ? {
+            sessionId,
+            source: 'inline',
+            html: exportableHtml,
+            prompt: previewSource.virtualName || 'preview.html',
+          }
+          : {
+            sessionId,
+            source: 'workspace',
+            filePath,
+            prompt: filePath.split('/').pop() || filePath,
+          },
+      );
       setArchiveState('archived');
     } catch (error) {
       setArchiveState('idle');

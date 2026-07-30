@@ -114,6 +114,50 @@ describe('HTML bundle materialization conformance', () => {
     }
   });
 
+  it('archives a workspace page without sweeping unrelated project files', () => {
+    const workspace = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'html-entry-closure-'),
+    );
+    try {
+      fs.writeFileSync(
+        path.join(workspace, 'index.html'),
+        '<!doctype html><html><body><h1>Focused bundle</h1></body></html>',
+        'utf8',
+      );
+      const unrelated = path.join(workspace, 'unrelated');
+      fs.mkdirSync(unrelated);
+      for (let index = 0; index < 520; index++) {
+        fs.writeFileSync(
+          path.join(unrelated, `note-${index}.txt`),
+          `unrelated ${index}`,
+          'utf8',
+        );
+      }
+
+      const asset = materializeHtmlBundle({
+        terminalState: 'completed',
+        source: {
+          kind: 'workspace',
+          sourceDir: workspace,
+          entryFile: 'index.html',
+          scopeRoot: workspace,
+        },
+        sessionId: 'session-entry-closure',
+      });
+      const metadata = JSON.parse(asset.metadata) as {
+        bundleRoot: string;
+        fileCount: number;
+      };
+      assert.equal(metadata.fileCount, 1);
+      assert.equal(
+        fs.existsSync(path.join(metadata.bundleRoot, 'unrelated')),
+        false,
+      );
+    } finally {
+      fs.rmSync(workspace, { recursive: true, force: true });
+    }
+  });
+
   it('archives an explicit inline snapshot as a single-file static bundle', () => {
     const asset = materializeHtmlBundle({
       terminalState: 'completed',
@@ -177,6 +221,11 @@ describe('HTML bundle materialization conformance', () => {
     fs.symlinkSync(
       path.join(workspace.pageDir, 'styles.css'),
       path.join(workspace.pageDir, 'linked.css'),
+    );
+    fs.writeFileSync(
+      path.join(workspace.pageDir, 'index.html'),
+      '<html><head><link rel="stylesheet" href="./linked.css"></head></html>',
+      'utf8',
     );
     assert.throws(
       () => materializeHtmlBundle({

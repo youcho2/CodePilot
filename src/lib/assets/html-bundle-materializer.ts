@@ -8,6 +8,7 @@ import { addAssetLineage, getAssetRecord } from './service';
 import { assertRegisteredAssetProducer } from './kind-registry';
 import {
   copyInspectedHtmlBundle,
+  inspectHtmlEntryClosure,
   inspectHtmlBundle,
   type HtmlBundleInspection,
 } from './html-bundle-security';
@@ -81,7 +82,7 @@ function prepareSource(input: HtmlBundleSource, stagingRoot: string): {
     throw new Error('HTML bundle source directory is outside the session workspace.');
   }
   return {
-    inspection: inspectHtmlBundle(sourceDir, input.entryFile),
+    inspection: inspectHtmlEntryClosure(sourceDir, input.entryFile),
     sourceScope: sourceDir,
     producerId: 'html-bundle:workspace-materializer',
   };
