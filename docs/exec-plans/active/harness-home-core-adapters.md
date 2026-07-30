@@ -2,7 +2,7 @@
 
 > 创建时间：2026-07-30
 > 最后更新：2026-07-30
-> 状态：🔄 A1/A2 已完成，A3 实施中；用户已授权 Codex 直接实施，明确不启动 loop
+> 状态：🔄 A1–A3 已完成，A4 实施中；用户已授权 Codex 直接实施，明确不启动 loop
 > 父计划：[harness-home-user-owned-core.md](harness-home-user-owned-core.md)
 > 基线：正式 v0.62 发布线；实施时必须从当时最新 `main` 新建隔离 worktree
 
@@ -29,8 +29,8 @@ Asset DB/Gallery 演进见 [harness-home-asset-library.md](harness-home-asset-li
 | A0 | Shared Phase 0 inventory 与 enforcement anchors | ✅ 完成 | 父计划全部 Phase 0 checkbox |
 | A1 | Domain contracts、scope、provenance、reference status | ✅ 完成 | A0 全绿 |
 | A2 | File repository、write model、SecretStore、migration | ✅ 完成 | A1 contract frozen |
-| A3 | HarnessAdapter L0/L1 + per-adapter conformance | 🔄 实施中 | A2 dry-run/round-trip 通过 |
-| A4 | RuntimeAdapter L2/L3 + CodePilot Full Reference | 📋 待开始 | A3 边界与 touchpoint budget 通过 |
+| A3 | HarnessAdapter L0/L1 + per-adapter conformance | ✅ 完成 | A2 dry-run/round-trip 通过 |
+| A4 | RuntimeAdapter L2/L3 + CodePilot Full Reference | 🔄 实施中 | A3 边界与 touchpoint budget 通过 |
 
 ## 用户会看到什么
 
@@ -272,6 +272,36 @@ src/lib/harness-home/adapters/<framework-id>/
 
 Changed-files guard 必须由调用者提供明确 base commit 和 allowlist。任何例外都进入计划决策日志，不能静默放宽。
 
+### A3 实施结果
+
+首批 source adapters：
+
+- `assistant-workspace`：identity / rules / long-term + daily Memory；
+- `claude-code`：rules / commands / skills / MCP descriptors；
+- `codex`：AGENTS / prompts / skills；`config.toml` 只做 L0 感知，因混合 Runtime/MCP/credential 字段而明确标 unsupported，不复制内容。
+
+共享边界：
+
+- `src/lib/harness-home/adapters/types.ts`
+- `src/lib/harness-home/adapters/base.ts`
+- `src/lib/harness-home/adapters/filesystem.ts`
+- `src/lib/harness-home/adapters/registry.ts`
+- `scripts/check-harness-adapter-boundary.mjs`
+
+验证：
+
+```text
+npm run typecheck
+npx eslint src/lib/harness-home/adapters \
+  src/__tests__/unit/harness-home-adapter-conformance.test.ts \
+  scripts/check-harness-adapter-boundary.mjs
+CODEX_DISABLED=1 npx tsx --test --import ./src/__tests__/db-isolation.setup.ts \
+  src/__tests__/unit/harness-home-adapter-conformance.test.ts
+=> 19/19 pass
+```
+
+Conformance 覆盖 descriptor、只读发现、path/symlink boundary、provenance、Secret 剥离、dry-run/apply、idempotency、冲突、canonical↔external round-trip、显式 export、no-overwrite 和 partial rollback。新增普通 L0/L1 adapter 的 changed-files guard 要求调用方显式提供 `--base`，无 `HEAD~1` 猜测。
+
 ## A4 — RuntimeAdapter 与 Full Reference
 
 ```ts
@@ -335,7 +365,7 @@ interface RuntimeDescriptor {
 
 | Date | Phase | Runtime / Adapter | 凭据形态 | 场景 | Result | Evidence |
 |------|-------|-------------------|----------|------|--------|----------|
-| _待执行_ | A3 | fourth-framework L1 fixture | none | discover → dry-run → import → round-trip | ⏳ | test command / fixture hash |
+| 2026-07-30 | A3 | assistant-workspace / claude-code / codex | none | discover → dry-run → import → export → re-import；conflict / partial rollback / symlink | ✅ | `harness-home-adapter-conformance.test.ts` 19/19 |
 | _待执行_ | A4 | CodePilot / Claude / Codex | real credential | canonical memory/skill/MCP projection | ⏳ | session ids / logs / screenshots |
 
 ## 决策日志
@@ -348,3 +378,4 @@ interface RuntimeDescriptor {
 - 2026-07-30：Shared Phase 0 以 `docs/research/harness-home-v0.62-inventory-2026-07-30.md` 收口；用户授权 Codex 在隔离 worktree 直接实施并明确不启动 loop。
 - 2026-07-30：A1 完成。核心 contract 使用 opaque Runtime/framework ID；manifest 保留未知 overlay/字段；stable capability 必须 executable；Secret 明文扫描、scope precedence、Taste evidence 门禁均有定向测试。A1 不接入现有 Runtime/UI，保持用户行为零变化。
 - 2026-07-30：A2 完成。仓库采用 realpath 单写者 lease、显式 dead-holder takeover、同根 staging、prepared journal、manifest-last atomic rename、启动恢复和 hash/rescan；外部修改与 symlink 越界 fail-closed。SecretStore 首版只代理 v0.62 既有 stores，env/external-owned 只读，诊断不含 resolved value。
+- 2026-07-30：A3 完成。首批 Assistant Workspace、Claude Code、Codex source adapters 共用 L0/L1 contract；Codex `config.toml` 不做不安全的整文件 import。普通新 adapter 目标变更面固定为自身目录 + registry + conformance，changed-files guard 强制显式 base。
