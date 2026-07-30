@@ -8,7 +8,10 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { GalleryGrid, type GalleryItem } from '@/components/gallery/GalleryGrid';
-import { GalleryDetail } from '@/components/gallery/GalleryDetail';
+import {
+  GalleryDetail,
+  type AssetMutationResult,
+} from '@/components/gallery/GalleryDetail';
 import { useTranslation } from '@/hooks/useTranslation';
 import type { TranslationKey } from '@/i18n';
 
@@ -17,7 +20,7 @@ const PAGE_SIZE = 20;
 type SortOrder = 'newest' | 'oldest';
 
 export default function GalleryPage() {
-  const { t } = useTranslation();
+  const { t, locale } = useTranslation();
 
   const [items, setItems] = useState<GalleryItem[]>([]);
   const [total, setTotal] = useState(0);
@@ -30,6 +33,13 @@ export default function GalleryPage() {
   const [sort, setSort] = useState<SortOrder>('newest');
   const [showFilters, setShowFilters] = useState(false);
   const [favoritesOnly, setFavoritesOnly] = useState(false);
+  const [query, setQuery] = useState('');
+  const [kind, setKind] = useState('');
+  const [showTrash, setShowTrash] = useState(false);
+  const [kinds, setKinds] = useState<Array<{
+    id: string;
+    displayName: { en: string; zh: string };
+  }>>([]);
 
   // Detail
   const [selectedItem, setSelectedItem] = useState<GalleryItem | null>(null);
@@ -42,6 +52,9 @@ export default function GalleryPage() {
       if (dateFrom) params.set('dateFrom', dateFrom);
       if (dateTo) params.set('dateTo', dateTo);
       if (favoritesOnly) params.set('favoritesOnly', '1');
+      if (query.trim()) params.set('query', query.trim());
+      if (kind) params.set('kind', kind);
+      if (showTrash) params.set('lifecycle', 'trashed');
       params.set('sort', sort);
       params.set('limit', String(PAGE_SIZE));
       params.set('offset', reset ? '0' : String(offset));
@@ -63,29 +76,70 @@ export default function GalleryPage() {
     } finally {
       setLoading(false);
     }
-  }, [dateFrom, dateTo, sort, offset, favoritesOnly]);
+  }, [
+    dateFrom,
+    dateTo,
+    favoritesOnly,
+    kind,
+    offset,
+    query,
+    showTrash,
+    sort,
+  ]);
+
+  useEffect(() => {
+    fetch('/api/assets/kinds')
+      .then((response) => response.ok ? response.json() : null)
+      .then((data) => {
+        if (Array.isArray(data?.kinds)) setKinds(data.kinds);
+      })
+      .catch(() => {});
+  }, []);
 
   // Initial load and reload on filter changes
   useEffect(() => {
     setOffset(0);
     fetchItems(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dateFrom, dateTo, sort, favoritesOnly]);
+  }, [dateFrom, dateTo, sort, favoritesOnly, query, kind, showTrash]);
 
   const handleSelect = useCallback((item: GalleryItem) => {
     setSelectedItem(item);
     setDetailOpen(true);
   }, []);
 
-  const handleDelete = useCallback(async (id: string) => {
+  const handleDelete = useCallback(async (id: string): Promise<AssetMutationResult> => {
     try {
       const res = await fetch(`/api/media/${id}`, { method: 'DELETE' });
+      const data = await res.json().catch(() => ({}));
       if (res.ok) {
         setItems((prev) => prev.filter((item) => item.id !== id));
         setTotal((prev) => prev - 1);
+        return { ok: true };
       }
+      return {
+        ok: false,
+        error: data.error,
+        code: data.code,
+        consumers: data.consumers,
+      };
     } catch {
-      // ignore
+      return { ok: false };
+    }
+  }, []);
+
+  const handleRestore = useCallback(async (id: string): Promise<AssetMutationResult> => {
+    try {
+      const res = await fetch(`/api/assets/${encodeURIComponent(id)}/restore`, {
+        method: 'POST',
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) return { ok: false, error: data.error, code: data.code };
+      setItems((prev) => prev.filter((item) => item.id !== id));
+      setTotal((prev) => prev - 1);
+      return { ok: true };
+    } catch {
+      return { ok: false };
     }
   }, []);
 
@@ -143,6 +197,15 @@ export default function GalleryPage() {
       <header className="shrink-0 px-6 pt-4 pb-3">
         <div className="flex items-center justify-end gap-1.5 flex-wrap">
           <Button
+            variant={showTrash ? 'secondary' : 'ghost'}
+            size="sm"
+            className="h-8 gap-1.5"
+            onClick={() => setShowTrash((value) => !value)}
+          >
+            <CodePilotIcon name={showTrash ? 'archive' : 'appearance'} size="sm" aria-hidden />
+            {showTrash ? t('gallery.trash') : t('gallery.activeAssets')}
+          </Button>
+          <Button
             variant={favoritesOnly ? 'secondary' : 'ghost'}
             size="sm"
             className="h-8 gap-1.5"
@@ -185,6 +248,31 @@ export default function GalleryPage() {
         {/* Filter bar */}
         {showFilters && (
           <div className="mb-4 space-y-2.5">
+            <div className="flex flex-wrap items-center gap-2">
+              <Input
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                placeholder={t('gallery.searchPlaceholder')}
+                className="h-8 min-w-64 flex-1 text-xs"
+              />
+              <Button
+                variant={kind === '' ? 'secondary' : 'outline'}
+                size="xs"
+                onClick={() => setKind('')}
+              >
+                {t('gallery.kindAll')}
+              </Button>
+              {kinds.map((entry) => (
+                <Button
+                  key={entry.id}
+                  variant={kind === entry.id ? 'secondary' : 'outline'}
+                  size="xs"
+                  onClick={() => setKind(entry.id)}
+                >
+                  {entry.displayName[locale]}
+                </Button>
+              ))}
+            </div>
             {/* Date range */}
             <div className="flex items-center gap-2">
               <Label htmlFor="gallery-date-from" className="text-xs text-muted-foreground">
@@ -256,6 +344,7 @@ export default function GalleryPage() {
         open={detailOpen}
         onOpenChange={setDetailOpen}
         onDelete={handleDelete}
+        onRestore={handleRestore}
         onToggleFavorite={handleToggleFavorite}
       />
     </div>

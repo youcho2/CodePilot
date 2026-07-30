@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { CodePilotIcon } from '@/components/ui/semantic-icon';
 import { cn, parseDBDate } from '@/lib/utils';
@@ -19,8 +19,30 @@ interface GalleryDetailProps {
   item: GalleryItem | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onDelete?: (id: string) => void;
+  onDelete?: (id: string) => Promise<AssetMutationResult>;
+  onRestore?: (id: string) => Promise<AssetMutationResult>;
   onToggleFavorite?: (id: string) => void;
+}
+
+export interface AssetMutationResult {
+  ok: boolean;
+  error?: string;
+  code?: string;
+  consumers?: Array<{ label: string }>;
+}
+
+interface AssetDetailPayload {
+  lineage?: {
+    parents?: Array<{
+      parent_asset_id: string;
+      relation: string;
+    }>;
+    children?: Array<{
+      child_asset_id: string;
+      relation: string;
+    }>;
+  };
+  consumers?: Array<{ label: string }>;
 }
 
 function imageUrl(img: GalleryItem['images'][0]): string {
@@ -53,12 +75,16 @@ export function GalleryDetail({
   open,
   onOpenChange,
   onDelete,
+  onRestore,
   onToggleFavorite,
 }: GalleryDetailProps) {
   const { t } = useTranslation();
   const router = useRouter();
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [deleteError, setDeleteError] = useState('');
+  const [mutating, setMutating] = useState(false);
+  const [assetDetail, setAssetDetail] = useState<AssetDetailPayload | null>(null);
 
   // Reset state when item changes (React-recommended ref pattern instead of useEffect+setState)
   const prevItemId = useRef(item?.id);
@@ -66,7 +92,23 @@ export function GalleryDetail({
     prevItemId.current = item?.id;
     setCurrentImageIndex(0);
     setConfirmDelete(false);
+    setDeleteError('');
+    setAssetDetail(null);
   }
+
+  useEffect(() => {
+    if (!open || !item) return;
+    let cancelled = false;
+    fetch(`/api/assets/${encodeURIComponent(item.id)}`)
+      .then((response) => response.ok ? response.json() : null)
+      .then((payload) => {
+        if (!cancelled && payload) setAssetDetail(payload);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [item, open]);
 
   const handleDownload = useCallback(async () => {
     if (!item) return;
@@ -93,35 +135,85 @@ export function GalleryDetail({
     }
   }, [item, currentImageIndex]);
 
-  const handleDelete = useCallback(() => {
+  const handleDelete = useCallback(async () => {
     if (!item) return;
     if (!confirmDelete) {
       setConfirmDelete(true);
       return;
     }
-    onDelete?.(item.id);
+    setMutating(true);
+    setDeleteError('');
+    const result = await onDelete?.(item.id);
+    setMutating(false);
+    if (!result?.ok) {
+      const consumers = result?.consumers?.map((entry) => entry.label).join(', ');
+      setDeleteError(
+        consumers
+          ? t('gallery.deleteBlocked', { consumers })
+          : t('gallery.trashFailed'),
+      );
+      return;
+    }
     onOpenChange(false);
     setConfirmDelete(false);
-  }, [item, confirmDelete, onDelete, onOpenChange]);
+  }, [item, confirmDelete, onDelete, onOpenChange, t]);
+
+  const handleRestore = useCallback(async () => {
+    if (!item || !onRestore) return;
+    setMutating(true);
+    setDeleteError('');
+    const result = await onRestore(item.id);
+    setMutating(false);
+    if (!result.ok) {
+      setDeleteError(result.error || t('gallery.restoreFailed'));
+      return;
+    }
+    onOpenChange(false);
+  }, [item, onOpenChange, onRestore, t]);
 
   if (!item) return null;
 
   const currentImage = item.images[currentImageIndex];
   const hasMultipleImages = item.images.length > 1;
   const isVideo = item.type === 'video' || !!currentImage?.mimeType?.startsWith('video/');
+  const isAudio = item.type === 'audio' || !!currentImage?.mimeType?.startsWith('audio/');
+  const isHtml = item.type === 'html_bundle';
+  const integrityFailed =
+    item.integrityState && item.integrityState !== 'valid';
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-[calc(100vw-4rem)] sm:max-w-[calc(100vw-4rem)] max-h-[calc(100vh-4rem)] w-full h-[calc(100vh-4rem)] overflow-hidden p-0 gap-0 border-0" showCloseButton>
         <DialogTitle className="sr-only">
-          {t('gallery.imageDetail' as TranslationKey)}
+          {t('gallery.mediaDetail' as TranslationKey)}
         </DialogTitle>
 
         <div className="flex flex-row h-full">
           {/* Left: Media preview */}
           <div className="relative w-[70%] shrink-0 bg-black">
             <div className="absolute inset-0 flex items-center justify-center">
-              {currentImage && (
+              {integrityFailed ? (
+                <div className="flex max-w-md flex-col items-center gap-3 px-6 text-center text-white/80">
+                  <CodePilotIcon name="warning" size="xl" aria-hidden />
+                  <p className="text-sm">
+                    {t(
+                      item.integrityState === 'missing'
+                        ? 'gallery.integrity.missing'
+                        : 'gallery.integrity.modified',
+                    )}
+                  </p>
+                  {item.integrityReason && (
+                    <p className="text-xs text-white/50">{item.integrityReason}</p>
+                  )}
+                </div>
+              ) : isHtml && item.previewUrl ? (
+                <iframe
+                  src={item.previewUrl}
+                  sandbox=""
+                  title={t('gallery.staticWebPreview')}
+                  className="h-full w-full border-0 bg-white"
+                />
+              ) : currentImage && (
                 isVideo ? (
                    
                   <video
@@ -130,6 +222,16 @@ export function GalleryDetail({
                     preload="metadata"
                     className="max-w-full max-h-full object-contain"
                   />
+                ) : isAudio ? (
+                  <div className="flex w-full max-w-xl flex-col items-center gap-5 px-8">
+                    <CodePilotIcon name="media_audio" size="xl" className="text-white/70" aria-hidden />
+                    <audio
+                      src={imageUrl(currentImage)}
+                      controls
+                      preload="metadata"
+                      className="w-full"
+                    />
+                  </div>
                 ) : (
                   // eslint-disable-next-line @next/next/no-img-element
                   <img
@@ -201,6 +303,11 @@ export function GalleryDetail({
 
             {/* Metadata badges */}
             <div className="flex items-center gap-1.5 flex-wrap">
+              {item.kind && (
+                <Badge variant="outline" className="text-[10px]">
+                  {item.kind}
+                </Badge>
+              )}
               {item.model && (
                 <Badge variant="secondary" className="text-[10px] gap-1">
                   <CodePilotIcon name="appearance" size={12} aria-hidden />
@@ -218,6 +325,84 @@ export function GalleryDetail({
                 </Badge>
               )}
             </div>
+
+            <div className="space-y-2 text-xs">
+              {item.producerId && (
+                <div>
+                  <span className="text-muted-foreground">{t('gallery.source')}: </span>
+                  <span className="break-all">{item.producerId}</span>
+                </div>
+              )}
+              {item.projectId && (
+                <div>
+                  <span className="text-muted-foreground">{t('gallery.project')}: </span>
+                  <span className="break-all">{item.projectId}</span>
+                </div>
+              )}
+              {item.runtimeId && (
+                <div>
+                  <span className="text-muted-foreground">{t('gallery.runtime')}: </span>
+                  <span>{item.runtimeId}</span>
+                </div>
+              )}
+              {item.methodRef && (
+                <div>
+                  <span className="text-muted-foreground">{t('gallery.method')}: </span>
+                  <span className="break-all">{item.methodRef}</span>
+                </div>
+              )}
+              {item.integrityState && (
+                <div>
+                  <span className="text-muted-foreground">{t('gallery.integrity')}: </span>
+                  <span>
+                    {t(`gallery.integrity.${item.integrityState}` as TranslationKey)}
+                  </span>
+                </div>
+              )}
+            </div>
+
+            {assetDetail && (
+              <div>
+                <div className="mb-1 text-xs font-medium text-muted-foreground">
+                  {t('gallery.lineage')}
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  <Badge variant="outline" className="text-[10px]">
+                    {t('gallery.parents', {
+                      count: assetDetail.lineage?.parents?.length || 0,
+                    })}
+                  </Badge>
+                  <Badge variant="outline" className="text-[10px]">
+                    {t('gallery.children', {
+                      count: assetDetail.lineage?.children?.length || 0,
+                    })}
+                  </Badge>
+                  <Badge variant="outline" className="text-[10px]">
+                    {t('gallery.consumers', {
+                      count: assetDetail.consumers?.length || 0,
+                    })}
+                  </Badge>
+                </div>
+                {(assetDetail.lineage?.parents?.length || 0) > 0 && (
+                  <div className="mt-2 space-y-1 text-[10px] text-muted-foreground">
+                    {assetDetail.lineage?.parents?.map((parent) => (
+                      <div key={`${parent.parent_asset_id}:${parent.relation}`}>
+                        ← {parent.relation} · {parent.parent_asset_id.slice(0, 12)}
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {(assetDetail.lineage?.children?.length || 0) > 0 && (
+                  <div className="mt-2 space-y-1 text-[10px] text-muted-foreground">
+                    {assetDetail.lineage?.children?.map((child) => (
+                      <div key={`${child.child_asset_id}:${child.relation}`}>
+                        → {child.relation} · {child.child_asset_id.slice(0, 12)}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* Reference images */}
             {item.referenceImages && item.referenceImages.length > 0 && (
@@ -262,23 +447,46 @@ export function GalleryDetail({
                   {t('gallery.openChat' as TranslationKey)}
                 </Button>
               )}
-              <Button variant="outline" size="sm" onClick={handleDownload}>
-                <CodePilotIcon name="download" size="sm" aria-hidden />
-                {t('gallery.download' as TranslationKey)}
-              </Button>
-              <div className="ml-auto">
-                <Button
-                  variant={confirmDelete ? 'destructive' : 'ghost'}
-                  size="sm"
-                  onClick={handleDelete}
-                >
-                  <CodePilotIcon name="delete" size="sm" aria-hidden />
-                  {confirmDelete
-                    ? t('gallery.confirmDelete' as TranslationKey)
-                    : t('gallery.delete' as TranslationKey)}
+              {!isHtml && !integrityFailed && (
+                <Button variant="outline" size="sm" onClick={handleDownload}>
+                  <CodePilotIcon name="download" size="sm" aria-hidden />
+                  {t('gallery.download' as TranslationKey)}
                 </Button>
+              )}
+              <div className="ml-auto">
+                {item.lifecycleState === 'trashed' ? (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleRestore}
+                    disabled={mutating}
+                  >
+                    <CodePilotIcon name="refresh" size="sm" aria-hidden />
+                    {t('gallery.restore')}
+                  </Button>
+                ) : (
+                  <Button
+                    variant={confirmDelete ? 'destructive' : 'ghost'}
+                    size="sm"
+                    onClick={handleDelete}
+                    disabled={mutating}
+                  >
+                    <CodePilotIcon name="archive" size="sm" aria-hidden />
+                    {confirmDelete
+                      ? t('gallery.confirmMoveToTrash')
+                      : t('gallery.moveToTrash')}
+                  </Button>
+                )}
               </div>
             </div>
+            {confirmDelete && !deleteError && (
+              <p className="text-xs text-muted-foreground">
+                {t('gallery.recoverableDelete')}
+              </p>
+            )}
+            {deleteError && (
+              <p className="text-xs text-destructive">{deleteError}</p>
+            )}
           </div>
         </div>
       </DialogContent>

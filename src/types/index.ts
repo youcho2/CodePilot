@@ -420,6 +420,8 @@ export interface MediaBlock {
     prompt?: string;
     /** Provider/model identifier (e.g. 'codex-image'). */
     model?: string;
+    /** Typed Asset inputs used to produce this result, when the producer knows them. */
+    parentAssetIds?: string[];
   };
 }
 
@@ -1609,6 +1611,7 @@ export interface AssetRecord {
   integrity_state: AssetIntegrityState;
   integrity_reason: string;
   metadata: string;
+  materialization_key: string;
   source_media_generation_id: string | null;
   created_at: string;
   updated_at: string;

@@ -11,6 +11,7 @@ import {
   addAssetReference,
   AssetInUseError,
   backfillMediaAssets,
+  findActiveAssetIdsByStablePaths,
   getAssetLineage,
   getAssetRecord,
   listAssetConsumers,
@@ -71,7 +72,10 @@ function insertLegacyMedia(input: {
 describe('Harness Home Asset Library conformance', () => {
   it('registers only real producer → materializer → validator → consumer chains', () => {
     const kinds = listAssetKinds();
-    assert.deepEqual(kinds.map((kind) => kind.id), ['image', 'video', 'audio']);
+    assert.deepEqual(
+      kinds.map((kind) => kind.id),
+      ['image', 'video', 'audio', 'html_bundle'],
+    );
     assert.equal(getAssetKind('component'), undefined);
     assert.equal(getAssetKind('document'), undefined);
     for (const kind of kinds) {
@@ -232,6 +236,12 @@ describe('Harness Home Asset Library conformance', () => {
     const child = saveMediaToLibrary(
       { type: 'image', mimeType: 'image/png', data: PNG_BASE64 },
       { prompt: 'child', parentAssetIds: [parent.assetId] },
+    );
+    assert.deepEqual(
+      findActiveAssetIdsByStablePaths([
+        getAssetRecord(parent.assetId)!.stable_path,
+      ]),
+      [parent.assetId],
     );
     const grandchild = importFileToLibrary(videoPath, {
       mimeType: 'video/mp4',

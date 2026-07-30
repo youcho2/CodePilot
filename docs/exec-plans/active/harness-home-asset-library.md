@@ -2,7 +2,7 @@
 
 > 创建时间：2026-07-30
 > 最后更新：2026-07-30
-> 状态：🔄 B0/B1 code/tests 完成；B2 HTML bundle 与 B3 Gallery 演进实施中；用户已授权 Codex 直接实施，明确不启动 loop
+> 状态：🟡 B0–B3 code/tests 完成；packaged/human UI gate 待最终验收；用户已授权 Codex 直接实施，明确不启动 loop
 > 父计划：[harness-home-user-owned-core.md](harness-home-user-owned-core.md)
 > 依赖：[harness-home-core-adapters.md](harness-home-core-adapters.md) 的 `AssetRef` / scope / provenance / repository boundary
 
@@ -18,8 +18,8 @@
 |-------|------|------|----------|
 | B0 | Producer / consumer inventory 与 DB migration 设计 | ✅ 完成 | Shared Phase 0 Asset inventory |
 | B1 | Asset registry、现有 media backfill、lineage | ✅ code/tests 完成 | Program A shared contract frozen |
-| B2 | HTML bundle materializer 与 trust/CSP | 🔄 实施中 | B1 + 现有 Artifact trust contract |
-| B3 | Library/Gallery 渐进演进与 typed references | 🔄 实施中 | B1/B2 数据门禁 |
+| B2 | HTML bundle materializer 与 trust/CSP | ✅ code/tests 完成 | B1 + 现有 Artifact trust contract |
+| B3 | Library/Gallery 渐进演进与 typed references | ✅ code/tests 完成 | B1/B2 数据门禁 |
 
 ## 用户会看到什么
 
@@ -151,6 +151,14 @@ HTML / web result 只有同时满足以下条件才 materialize：
 - HTML Asset 不绕过既有 trust/CSP/scope。
 - bundle 删除/移动不会留下无来源的成功记录。
 
+### B2 实施证据
+
+- Preview 中的完整 workspace HTML 与用户主动选定的 inline HTML 可归档；服务端从真实 session 推导 workspace scope、Runtime、Provider、Model 与 project，不信任客户端自报 provenance。
+- materializer 采用临时目录 → 有界复制 → 全 bundle hash → manifest → 原子 rename → DB transaction；相同来源与 hash 的重复请求返回同一 Asset。
+- 只复制登记的静态资源类型，限制文件数、扫描数、单文件与总大小；symlink、scope escape、`file:` / `javascript:`、外部 script、iframe/object/embed/form/base/meta refresh fail-closed。
+- HTML Asset 只用现有 `/api/files/html-preview` strict 模式重开；Gallery iframe 不带 `allow-scripts` / `allow-same-origin`，未建立更宽松的旁路。
+- partial / failed 不创建成功 Asset；入口或依赖丢失、字节改变会转为 `missing` / `modified`，不能生成 typed ref 或恢复为 active。
+
 ## B3 — Gallery 渐进演进
 
 - 复用 Gallery 页面与现有 media preview；
@@ -166,6 +174,15 @@ HTML / web result 只有同时满足以下条件才 materialize：
 - CodePilot、Claude、Codex projection 引用同一 AssetRef。
 - 用户能检索来源、方法、项目和 parent。
 - 未注册 kind 不出现在筛选器或创建 API。
+
+### B3 实施证据
+
+- Gallery 原页面增量演进为 Asset Library；kind filters 由 `/api/assets/kinds` registry 返回，首版只有 image / video / audio / html_bundle。
+- 图片、视频、真实 WAV、严格静态网页均有真实 preview；缺失/变化显示 integrity 原因，不渲染空白成功卡。
+- 详情读取真实 source / project / Runtime / model / method / content hash、parent/child relation 与 active consumers。
+- 搜索覆盖 prompt / project / provider / model / method / producer；旧 Gallery row 通过 100 条/请求的 bounded backfill journal 渐进进入 Asset index。
+- 删除改为 Trash lifecycle，不删除旧 media row 或本地字节；引用者会阻止删除，Trash 视图可恢复。
+- 现有图片生成会把已登记 reference path 解析成 parent Asset；MediaBlock 可携带 typed parent IDs；三 Runtime projection 继续使用 Program A 的同一 canonical `AssetRef`。
 
 ## Conformance Suite
 
@@ -198,7 +215,9 @@ HTML / web result 只有同时满足以下条件才 materialize：
 | Date | Kind | Producer | 场景 | Result | Evidence |
 |------|------|----------|------|--------|----------|
 | 2026-07-30 | image/video/audio | media saver / image generator / Codex import / legacy backfill | terminal write → hash → lineage → typed reference → trash/restore | ✅ Tier 0/1：7/7 | `asset-library-conformance.test.ts`；真实 PNG、MP4 bytes、WAV fixture + isolated SQLite |
-| _待执行_ | html_bundle | HTML materializer | complete/partial/failure 三路径 | ⏳ | bundle hash / CSP evidence / screenshot |
+| 2026-07-30 | html_bundle | workspace/inline materializer | complete → atomic bundle/hash/preview；partial/failure/symlink/scope/danger URL fail-closed | ✅ Tier 0/1：6/6 | `html-bundle-conformance.test.ts` |
+| 2026-07-30 | all registered kinds | Asset/Gallery API + UI contracts | registry filters、search、provenance/lineage、consumer block、Trash/Restore、strict preview | ✅ Tier 1：12/12 | `asset-library-api.test.ts` 7/7；`asset-library-ui.test.ts` 5/5 |
+| _待执行_ | all registered kinds | packaged app | multi-kind visual readability + HTML safety copy | ⏳ Human gate | screenshot / user feedback |
 
 ## 决策日志
 
@@ -208,3 +227,5 @@ HTML / web result 只有同时满足以下条件才 materialize：
 - 2026-07-30：HTML bundle 是首个新增重点，但必须先完成 durable materializer 与 trust/CSP conformance。
 - 2026-07-30：用户授权 Codex 在隔离 worktree 直接实施，明确不启动 loop。
 - 2026-07-30：B1 采用增量 Asset index + 保留 `media_generations` 的兼容策略；删除默认只改变 Asset lifecycle，不删除旧 row 或本地字节。
+- 2026-07-30：B2 只归档用户主动选定的完整 workspace/inline snapshot；归档 HTML 永远使用 strict sandbox/CSP，不继承 Preview 的 interactive script 偏好。
+- 2026-07-30：B3 沿用 Gallery 路由与页面，不另建平行 Asset UI；旧 row 采用 bounded on-read backfill，避免 schema init 或单个请求同步 hash 整个大库。

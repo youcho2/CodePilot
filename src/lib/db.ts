@@ -57,7 +57,7 @@ const RUNTIME_OWNER_LOCK_PATH = `${DB_PATH}.runtime-owner.lock`;
 // replacing this module. Keep a code-owned revision beside that handle so a
 // newly loaded migration still runs without requiring the user to restart the
 // desktop client. Bump this value whenever initDb/migrateDb gains a migration.
-const DATABASE_SCHEMA_REVISION = '2026-07-30-harness-home-assets';
+const DATABASE_SCHEMA_REVISION = '2026-07-30-harness-home-html-assets';
 
 function getDatabaseProcessStates(): Map<string, DatabaseProcessState> {
   const target = globalThis as typeof globalThis & {
@@ -1317,6 +1317,7 @@ const ASSET_RECORD_REQUIRED_COLUMNS = [
   'mime_type',
   'curation_state',
   'rating',
+  'materialization_key',
   'lifecycle_state',
   'integrity_state',
   'source_media_generation_id',
@@ -1368,6 +1369,7 @@ export function migrateAssetLibrarySchema(db: Database.Database): void {
         CHECK(integrity_state IN ('valid','missing','modified')),
       integrity_reason TEXT NOT NULL DEFAULT '',
       metadata TEXT NOT NULL DEFAULT '{}',
+      materialization_key TEXT NOT NULL DEFAULT '',
       source_media_generation_id TEXT UNIQUE,
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       updated_at TEXT NOT NULL DEFAULT (datetime('now')),
@@ -1448,6 +1450,18 @@ export function migrateAssetLibrarySchema(db: Database.Database): void {
        CHECK(rating IS NULL OR (rating >= 1 AND rating <= 5))`,
     );
   }
+  if (!existingAssetColumns.has('materialization_key')) {
+    safeAddColumn(
+      db,
+      `ALTER TABLE asset_records
+       ADD COLUMN materialization_key TEXT NOT NULL DEFAULT ''`,
+    );
+  }
+  db.exec(`
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_asset_materialization_key
+      ON asset_records(materialization_key)
+      WHERE materialization_key != ''
+  `);
   const backfillColumns = new Set(
     (db.prepare("PRAGMA table_info(asset_backfill_state)").all() as { name: string }[])
       .map((column) => column.name),

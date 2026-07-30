@@ -1,0 +1,237 @@
+import '../db-isolation.setup';
+import { describe, it } from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import {
+  getHtmlBundlePreviewLocation,
+  materializeHtmlBundle,
+} from '@/lib/assets/html-bundle-materializer';
+import { getAssetRecord, reconcileAssetIntegrity, toTypedAssetRef } from '@/lib/assets/service';
+import { listAssetKinds } from '@/lib/assets/kind-registry';
+import { buildHtmlPreviewUrl } from '@/lib/html-preview-url';
+import { getDb } from '@/lib/db';
+
+function createWorkspace(): {
+  root: string;
+  pageDir: string;
+} {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'html-bundle-workspace-'));
+  const pageDir = path.join(root, 'site');
+  fs.mkdirSync(path.join(pageDir, 'assets'), { recursive: true });
+  fs.writeFileSync(
+    path.join(pageDir, 'index.html'),
+    `<!doctype html>
+     <html><head><link rel="stylesheet" href="./styles.css"></head>
+     <body><img src="./assets/pixel.png"><a href="https://example.com">Source</a></body></html>`,
+    'utf8',
+  );
+  fs.writeFileSync(
+    path.join(pageDir, 'styles.css'),
+    'body { color: rebeccapurple; }',
+    'utf8',
+  );
+  fs.writeFileSync(
+    path.join(pageDir, 'assets', 'pixel.png'),
+    Buffer.from('pixel-bytes'),
+  );
+  return { root, pageDir };
+}
+
+describe('HTML bundle materialization conformance', () => {
+  it('registers html_bundle only with a complete producer/validator/preview chain', () => {
+    const descriptor = listAssetKinds().find((kind) => kind.id === 'html_bundle');
+    assert.ok(descriptor);
+    assert.deepEqual(descriptor.producers, [
+      'html-bundle:workspace-materializer',
+      'html-bundle:user-selected-inline',
+    ]);
+    assert.match(descriptor.trustPolicy, /sandbox/);
+    assert.match(descriptor.trustPolicy, /CSP/);
+  });
+
+  it('copies a bounded workspace bundle, hashes all files, and is idempotent', () => {
+    const workspace = createWorkspace();
+    try {
+      const input = {
+        terminalState: 'completed' as const,
+        source: {
+          kind: 'workspace' as const,
+          sourceDir: workspace.pageDir,
+          entryFile: 'index.html',
+          scopeRoot: workspace.root,
+        },
+        sessionId: 'session-html-workspace',
+        projectId: 'project-html-workspace',
+        runtimeId: 'codepilot_runtime',
+        providerId: 'provider-test',
+        modelId: 'model-test',
+        prompt: 'A durable web page',
+        methodRef: 'method:web-v1',
+      };
+      const first = materializeHtmlBundle(input);
+      const retry = materializeHtmlBundle(input);
+      assert.equal(retry.id, first.id);
+      assert.equal(first.kind, 'html_bundle');
+      assert.equal(first.integrity_state, 'valid');
+      assert.equal(first.runtime_id, 'codepilot_runtime');
+      assert.equal(first.method_ref, 'method:web-v1');
+      assert.match(first.content_hash, /^sha256:[a-f0-9]{64}$/);
+      assert.deepEqual(toTypedAssetRef(first), {
+        assetId: first.id,
+        kind: 'html_bundle',
+        contentHash: first.content_hash,
+      });
+
+      const preview = getHtmlBundlePreviewLocation(first);
+      assert.equal(fs.existsSync(preview.entryPath), true);
+      assert.equal(fs.existsSync(path.join(preview.bundleRoot, 'styles.css')), true);
+      const previewUrl = buildHtmlPreviewUrl(
+        preview.entryPath,
+        { kind: 'workspace', baseDir: preview.bundleRoot },
+      );
+      assert.match(previewUrl, /^\/api\/files\/html-preview\/ws\./);
+      assert.ok(!previewUrl.includes('interactive=1'));
+
+      const metadata = JSON.parse(first.metadata) as {
+        fileCount: number;
+        externalUrls: string[];
+      };
+      assert.equal(metadata.fileCount, 3);
+      assert.deepEqual(metadata.externalUrls, ['https://example.com']);
+
+      fs.writeFileSync(
+        path.join(workspace.pageDir, 'styles.css'),
+        'body { color: steelblue; }',
+        'utf8',
+      );
+      const changed = materializeHtmlBundle(input);
+      assert.notEqual(changed.id, first.id);
+      assert.notEqual(changed.content_hash, first.content_hash);
+    } finally {
+      fs.rmSync(workspace.root, { recursive: true, force: true });
+    }
+  });
+
+  it('archives an explicit inline snapshot as a single-file static bundle', () => {
+    const asset = materializeHtmlBundle({
+      terminalState: 'completed',
+      source: {
+        kind: 'inline',
+        html: '<!doctype html><html><body><h1>Snapshot</h1></body></html>',
+      },
+      sessionId: 'session-inline',
+      prompt: 'Selected inline artifact',
+    });
+    assert.equal(asset.producer_id, 'html-bundle:user-selected-inline');
+    assert.equal(asset.trust_tier, 'user_selected_inline');
+    assert.equal(fs.readFileSync(asset.stable_path, 'utf8').includes('Snapshot'), true);
+    const preview = getHtmlBundlePreviewLocation(asset);
+    assert.equal(
+      fs.existsSync(path.join(path.dirname(preview.bundleRoot), 'inline-source')),
+      false,
+    );
+  });
+
+  it('never creates success Assets for partial or failed output', () => {
+    const countBefore = (
+      getDb().prepare(
+        "SELECT COUNT(*) AS count FROM asset_records WHERE kind = 'html_bundle'",
+      ).get() as { count: number }
+    ).count;
+    for (const terminalState of ['partial', 'failed'] as const) {
+      assert.throws(
+        () => materializeHtmlBundle({
+          terminalState,
+          source: { kind: 'inline', html: '<h1>Incomplete</h1>' },
+        }),
+        /cannot materialize/,
+      );
+    }
+    const countAfter = (
+      getDb().prepare(
+        "SELECT COUNT(*) AS count FROM asset_records WHERE kind = 'html_bundle'",
+      ).get() as { count: number }
+    ).count;
+    assert.equal(countAfter, countBefore);
+  });
+
+  it('rejects source-scope escape, symlinks, dangerous URLs, and embedded navigation', () => {
+    const workspace = createWorkspace();
+    const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'html-bundle-outside-'));
+    fs.writeFileSync(path.join(outside, 'index.html'), '<h1>Outside</h1>', 'utf8');
+    assert.throws(
+      () => materializeHtmlBundle({
+        terminalState: 'completed',
+        source: {
+          kind: 'workspace',
+          sourceDir: outside,
+          entryFile: 'index.html',
+          scopeRoot: workspace.root,
+        },
+      }),
+      /outside the session workspace/,
+    );
+
+    fs.symlinkSync(
+      path.join(workspace.pageDir, 'styles.css'),
+      path.join(workspace.pageDir, 'linked.css'),
+    );
+    assert.throws(
+      () => materializeHtmlBundle({
+        terminalState: 'completed',
+        source: {
+          kind: 'workspace',
+          sourceDir: workspace.pageDir,
+          entryFile: 'index.html',
+          scopeRoot: workspace.root,
+        },
+      }),
+      /symlink/,
+    );
+    fs.unlinkSync(path.join(workspace.pageDir, 'linked.css'));
+
+    for (const html of [
+      '<html><script src="https://example.com/evil.js"></script></html>',
+      '<html><img src="file:///etc/passwd"></html>',
+      '<html><iframe src="https://example.com"></iframe></html>',
+      '<html><meta http-equiv="refresh" content="0;url=https://example.com"></html>',
+    ]) {
+      assert.throws(
+        () => materializeHtmlBundle({
+          terminalState: 'completed',
+          source: { kind: 'inline', html },
+        }),
+      );
+    }
+
+    fs.rmSync(workspace.root, { recursive: true, force: true });
+    fs.rmSync(outside, { recursive: true, force: true });
+  });
+
+  it('reconciles the aggregate bundle hash instead of only the entry file', () => {
+    const workspace = createWorkspace();
+    try {
+      const asset = materializeHtmlBundle({
+        terminalState: 'completed',
+        source: {
+          kind: 'workspace',
+          sourceDir: workspace.pageDir,
+          entryFile: 'index.html',
+          scopeRoot: workspace.root,
+        },
+      });
+      const preview = getHtmlBundlePreviewLocation(asset);
+      fs.writeFileSync(
+        path.join(preview.bundleRoot, 'styles.css'),
+        'body { color: tomato; }',
+        'utf8',
+      );
+      assert.equal(reconcileAssetIntegrity(asset.id).integrity_state, 'modified');
+      assert.equal(getAssetRecord(asset.id)?.lifecycle_state, 'active');
+    } finally {
+      fs.rmSync(workspace.root, { recursive: true, force: true });
+    }
+  });
+});

@@ -73,7 +73,22 @@ const audio: AssetKindDescriptor = {
   conformanceSuite: 'asset-library-conformance.test.ts#wav-fixture',
 };
 
-const descriptors: AssetKindDescriptor[] = [image, video, audio];
+const htmlBundle: AssetKindDescriptor = {
+  id: 'html_bundle',
+  displayName: { zh: '网页', en: 'Web page' },
+  producers: [
+    'html-bundle:workspace-materializer',
+    'html-bundle:user-selected-inline',
+  ],
+  materializer: 'src/lib/assets/html-bundle-materializer.ts',
+  validator: 'inspectHtmlBundle',
+  previewConsumer: 'GalleryDetail → sandboxed html-preview route',
+  inputConsumers: ['creative-method reference', 'Harness AssetRef'],
+  trustPolicy: 'stable bundle + aggregate hash + sandbox + strict CSP + source scope',
+  conformanceSuite: 'html-bundle-conformance.test.ts',
+};
+
+const descriptors: AssetKindDescriptor[] = [image, video, audio, htmlBundle];
 
 export function registerAssetKind(descriptor: AssetKindDescriptor): void {
   if (descriptors.some((entry) => entry.id === descriptor.id)) {

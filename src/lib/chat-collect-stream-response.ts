@@ -234,7 +234,10 @@ export async function collectStreamResponse(
                   for (const block of resultData.media as MediaBlock[]) {
                     if (block.data) {
                       try {
-                        const saved = saveMediaToLibrary(block, { sessionId });
+                        const saved = saveMediaToLibrary(block, {
+                          sessionId,
+                          parentAssetIds: block.sourceMetadata?.parentAssetIds,
+                        });
                         savedMedia.push({
                           type: block.type,
                           mimeType: block.mimeType,

@@ -279,6 +279,9 @@ export function PreviewPanel(_: { variant?: 'sidebar' } = {}) {
   const [error, setError] = useState<string | null>(null);
   const { t } = useTranslation();
   const [copied, setCopied] = useState(false);
+  const [archiveState, setArchiveState] = useState<
+    'idle' | 'archiving' | 'archived'
+  >('idle');
   const [width, setWidth] = useState(PREVIEW_DEFAULT_WIDTH);
   const { registerParticipant } = useFileMutation();
 
@@ -624,6 +627,17 @@ export function PreviewPanel(_: { variant?: 'sidebar' } = {}) {
     }
     return null;
   }, [previewSource, filePath, freshPreview]);
+  const canArchiveHtml = !!(
+    exportableHtml
+    && sessionId
+    && (
+      previewSource?.kind === 'inline-html'
+      || (
+        previewSource?.kind === 'file'
+        && sourceTrust === 'workspace'
+      )
+    )
+  );
 
   const handleSaveEdit = useCallback((): Promise<boolean> => {
     if (mutationGuardRef.current) return Promise.resolve(false);
@@ -917,6 +931,51 @@ export function PreviewPanel(_: { variant?: 'sidebar' } = {}) {
       setExporting(false);
     }
   }, [exportableHtml, filePath, previewSource]);
+
+  const handleArchiveHtmlAsset = useCallback(async () => {
+    if (!canArchiveHtml || !exportableHtml || !sessionId || !previewSource) return;
+    setArchiveState('archiving');
+    try {
+      const response = await fetch('/api/assets/html-bundles', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(
+          previewSource.kind === 'inline-html'
+            ? {
+              sessionId,
+              source: 'inline',
+              html: exportableHtml,
+              prompt: previewSource.virtualName || 'preview.html',
+            }
+            : {
+              sessionId,
+              source: 'workspace',
+              filePath,
+              prompt: filePath.split('/').pop() || filePath,
+            },
+        ),
+      });
+      const data = await response.json().catch(() => ({})) as {
+        error?: string;
+      };
+      if (!response.ok) {
+        throw new Error(data.error || response.statusText);
+      }
+      setArchiveState('archived');
+    } catch (error) {
+      setArchiveState('idle');
+      alert(t('filePreview.archiveAsset.failed', {
+        reason: error instanceof Error ? error.message : String(error),
+      }));
+    }
+  }, [
+    canArchiveHtml,
+    exportableHtml,
+    filePath,
+    previewSource,
+    sessionId,
+    t,
+  ]);
 
   // No `handleClose` here — the Workspace Sidebar Tab strip's X owns
   // close, and there's no panel chrome on this surface for the user
@@ -1256,6 +1315,38 @@ export function PreviewPanel(_: { variant?: 'sidebar' } = {}) {
               <SpinnerGap size={14} className="animate-spin" />
             ) : (
               <CodePilotIcon name="image" size="sm" aria-hidden />
+            )}
+          </Button>
+        )}
+
+        {canArchiveHtml && (
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            onClick={handleArchiveHtmlAsset}
+            disabled={archiveState === 'archiving' || archiveState === 'archived'}
+            title={
+              archiveState === 'archiving'
+                ? t('filePreview.archiveAsset.archiving')
+                : archiveState === 'archived'
+                  ? t('filePreview.archiveAsset.archived')
+                  : t('filePreview.archiveAsset')
+            }
+            aria-label={
+              archiveState === 'archiving'
+                ? t('filePreview.archiveAsset.archiving')
+                : archiveState === 'archived'
+                  ? t('filePreview.archiveAsset.archived')
+                  : t('filePreview.archiveAsset')
+            }
+            className="h-7 w-7 text-muted-foreground/80 hover:text-foreground hover:bg-muted/50"
+          >
+            {archiveState === 'archiving' ? (
+              <SpinnerGap size={14} className="animate-spin" />
+            ) : archiveState === 'archived' ? (
+              <Check size={14} className="text-status-success-foreground" />
+            ) : (
+              <CodePilotIcon name="archive" size="sm" aria-hidden />
             )}
           </Button>
         )}

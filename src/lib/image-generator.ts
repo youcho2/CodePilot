@@ -2,7 +2,10 @@ import { generateImage, NoImageGeneratedError } from 'ai';
 import { createGoogleGenerativeAI } from '@ai-sdk/google';
 import { createOpenAI } from '@ai-sdk/openai';
 import { getDb, getSession, getSetting } from '@/lib/db';
-import { registerMediaGenerationAsset } from '@/lib/assets/service';
+import {
+  findActiveAssetIdsByStablePaths,
+  registerMediaGenerationAsset,
+} from '@/lib/assets/service';
 import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
@@ -290,6 +293,7 @@ export async function generateSingleImage(params: GenerateSingleImageParams): Pr
   // Collect reference images (base64 strings). Both referenceImagePaths and
   // referenceImages may be provided together.
   const refImageData: string[] = [];
+  const resolvedReferencePaths: string[] = [];
   if (params.referenceImagePaths && params.referenceImagePaths.length > 0) {
     for (const fp of params.referenceImagePaths) {
       // Resolve relative paths against session working directory
@@ -297,6 +301,7 @@ export async function generateSingleImage(params: GenerateSingleImageParams): Pr
       if (fs.existsSync(resolved)) {
         const buf = fs.readFileSync(resolved);
         refImageData.push(buf.toString('base64'));
+        resolvedReferencePaths.push(resolved);
       }
     }
   }
@@ -446,6 +451,7 @@ export async function generateSingleImage(params: GenerateSingleImageParams): Pr
     registerMediaGenerationAsset({
       mediaGenerationId: id,
       producerId: 'image-generator',
+      parentAssetIds: findActiveAssetIdsByStablePaths(resolvedReferencePaths),
     });
   })();
 

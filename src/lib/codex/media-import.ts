@@ -101,6 +101,7 @@ export function materializeCodexEventMedia(
         cwd: opts.cwd,
         prompt: block.sourceMetadata?.prompt,
         model: block.sourceMetadata?.model,
+        parentAssetIds: block.sourceMetadata?.parentAssetIds,
       });
       imported.push({
         ...block,

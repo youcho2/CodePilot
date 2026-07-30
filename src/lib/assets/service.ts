@@ -15,6 +15,7 @@ import {
   getAssetKind,
   requireAssetKind,
 } from './kind-registry';
+import { inspectHtmlBundle } from './html-bundle-security';
 
 interface MediaGenerationRow {
   id: string;
@@ -55,6 +56,13 @@ function canonicalMediaDir(): string {
     process.env.CLAUDE_GUI_DATA_DIR
     || path.join(os.homedir(), '.codepilot');
   return path.resolve(dataDir, '.codepilot-media');
+}
+
+function canonicalAssetsDir(): string {
+  const dataDir =
+    process.env.CLAUDE_GUI_DATA_DIR
+    || path.join(os.homedir(), '.codepilot');
+  return path.resolve(dataDir, '.codepilot-assets');
 }
 
 function safeJsonObject(value: string): Record<string, unknown> {
@@ -191,6 +199,27 @@ export function getAssetRecord(id: string): AssetRecord | undefined {
   return getDb().prepare(
     'SELECT * FROM asset_records WHERE id = ?',
   ).get(id) as AssetRecord | undefined;
+}
+
+export function findActiveAssetIdsByStablePaths(
+  filePaths: readonly string[],
+): readonly string[] {
+  const normalized = Array.from(new Set(filePaths.map((filePath) => {
+    const resolved = path.resolve(filePath);
+    return fs.existsSync(resolved) ? fs.realpathSync(resolved) : resolved;
+  })));
+  if (normalized.length === 0) return [];
+  const placeholders = normalized.map(() => '?').join(', ');
+  const rows = getDb().prepare(
+    `SELECT id, stable_path FROM asset_records
+     WHERE lifecycle_state = 'active'
+       AND integrity_state = 'valid'
+       AND stable_path IN (${placeholders})`,
+  ).all(...normalized) as { id: string; stable_path: string }[];
+  const idByPath = new Map(rows.map((row) => [row.stable_path, row.id]));
+  return normalized
+    .map((stablePath) => idByPath.get(stablePath))
+    .filter((id): id is string => !!id);
 }
 
 export function registerMediaGenerationAsset(input: {
@@ -417,7 +446,44 @@ export function reconcileAssetIntegrity(assetId: string): AssetRecord {
     ).run('The Asset file is missing.', assetId);
     return getAssetRecord(assetId)!;
   }
-  const currentHash = hashFile(asset.stable_path);
+  let currentHash: string;
+  try {
+    if (asset.kind === 'html_bundle') {
+      const metadata = safeJsonObject(asset.metadata);
+      if (typeof metadata.bundleRoot !== 'string') {
+        throw new Error('The HTML bundle root is missing from provenance.');
+      }
+      const bundleRoot = path.resolve(metadata.bundleRoot);
+      const assetRoot = canonicalAssetsDir();
+      if (
+        bundleRoot !== assetRoot
+        && !bundleRoot.startsWith(`${assetRoot}${path.sep}`)
+      ) {
+        throw new Error('The HTML bundle root is outside the Asset Library.');
+      }
+      const entryFile = path.relative(
+        bundleRoot,
+        asset.stable_path,
+      );
+      currentHash = inspectHtmlBundle(
+        bundleRoot,
+        entryFile,
+      ).contentHash;
+    } else {
+      currentHash = hashFile(asset.stable_path);
+    }
+  } catch (error) {
+    getDb().prepare(
+      `UPDATE asset_records
+       SET integrity_state = 'modified', integrity_reason = ?,
+           updated_at = datetime('now')
+       WHERE id = ?`,
+    ).run(
+      error instanceof Error ? error.message : String(error),
+      assetId,
+    );
+    return getAssetRecord(assetId)!;
+  }
   const state: AssetIntegrityState =
     currentHash === asset.content_hash ? 'valid' : 'modified';
   getDb().prepare(
