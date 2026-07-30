@@ -175,6 +175,9 @@ export interface RuntimeProjection {
 export interface CreativeMethodDefinition {
   readonly id: string;
   readonly version: string;
+  readonly status: 'candidate' | 'confirmed' | 'retired';
+  readonly title: string;
+  readonly summary: string;
   readonly source: Provenance;
   readonly scope: HarnessScope;
   readonly triggers: readonly string[];
@@ -187,6 +190,21 @@ export interface CreativeMethodDefinition {
   readonly counterexampleRefs: readonly AssetRef[];
   readonly critiqueCriteria: readonly string[];
   readonly progressiveDisclosureRef: PortableContentRef;
+  readonly changelog: readonly {
+    readonly version: string;
+    readonly changedAt: string;
+    readonly summary: string;
+  }[];
+  readonly overridePolicy: {
+    readonly userEditable: boolean;
+    readonly projectOverride: boolean;
+  };
+  /**
+   * Candidate methods deliberately omit this field. A method cannot become
+   * active merely because a model produced plausible-sounding guidance.
+   */
+  readonly confirmationEvidenceRef?: PortableContentRef | AssetRef;
+  readonly confirmedAt?: string;
 }
 
 export type TasteMemoryClass =
@@ -197,13 +215,21 @@ export type TasteMemoryClass =
 
 export interface TasteMemoryEvidence {
   readonly id: string;
+  /**
+   * Stable semantic key used for scope precedence and conflict detection.
+   * Two active memories with the same key and scope never silently win by
+   * insertion order.
+   */
+  readonly preferenceKey: string;
   readonly classification: TasteMemoryClass;
   readonly statement: string;
   readonly evidenceRef: PortableContentRef | AssetRef;
   readonly scope: HarnessScope;
   readonly confidence: number;
   readonly createdAt: string;
+  readonly updatedAt: string;
   readonly lastConfirmedAt?: string;
   readonly revokedAt?: string;
+  readonly revokeReason?: string;
   readonly affectedMethodIds: readonly string[];
 }

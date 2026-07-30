@@ -12,6 +12,15 @@ import {
 } from '@/lib/harness-home/runtime/configured';
 import { FileHarnessRepository } from '@/lib/harness-home/repository/file-repository';
 import { projectCanonicalRepository } from '@/lib/harness-home/runtime/repository-projection';
+import {
+  CREATIVE_METHOD_MEDIA_TYPE,
+} from '@/lib/harness-home/design-method';
+import {
+  TASTE_MEMORY_MEDIA_TYPE,
+} from '@/lib/harness-home/taste-memory';
+import {
+  CREATIVE_PROJECT_MEDIA_TYPE,
+} from '@/lib/harness-home/creative-project';
 
 function requestedRuntime(request: NextRequest): RuntimeId | null {
   const candidate =
@@ -60,6 +69,15 @@ export async function GET(request: NextRequest) {
       assetRefs: result.harness.projection.assetRefs,
       unavailableCapabilities:
         result.harness.projection.unavailableReasons,
+      designMethod: {
+        methodCount:
+          result.harness.sections.filter(
+            (section) => section.kind === 'creative_method',
+          ).length,
+        selectedMethodIds: result.harness.diagnostics.selectedMethodIds,
+        tasteConflictKeys: result.harness.diagnostics.tasteConflictKeys,
+        creativeProjectId: result.harness.diagnostics.creativeProjectId,
+      },
     },
     secrets: result.secrets,
   });
@@ -90,10 +108,22 @@ export async function PUT(request: NextRequest) {
       runtimeId: 'codepilot_runtime',
     });
     setSetting(HARNESS_HOME_ROOT_SETTING, repository.root);
+    const manifest = repository.manifest;
     return NextResponse.json({
       success: true,
       root: repository.root,
-      generation: repository.manifest.generation,
+      generation: manifest.generation,
+      inventory: {
+        creativeMethods: manifest.definition.creativeMethodRefs.filter(
+          (ref) => ref.mediaType === CREATIVE_METHOD_MEDIA_TYPE,
+        ).length,
+        tasteMemories: manifest.state.preferenceRefs.filter(
+          (ref) => ref.mediaType === TASTE_MEMORY_MEDIA_TYPE,
+        ).length,
+        creativeProjects: manifest.state.feedbackRefs.filter(
+          (ref) => ref.mediaType === CREATIVE_PROJECT_MEDIA_TYPE,
+        ).length,
+      },
     });
   } catch (error) {
     return NextResponse.json(

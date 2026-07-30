@@ -1,6 +1,8 @@
 import type {
+  AssetRef,
   CanonicalCapabilityRef,
   CreativeMethodDefinition,
+  PortableContentRef,
   RuntimeProjection,
   TasteMemoryEvidence,
 } from './contracts';
@@ -117,23 +119,108 @@ export function validateRuntimeProjection(projection: RuntimeProjection): void {
 }
 
 export function validateCreativeMethod(method: CreativeMethodDefinition): void {
-  if (!method.id || !method.version || method.steps.length === 0) {
-    throw new Error('Creative Method requires id, version and at least one step.');
+  if (
+    !method.id.trim()
+    || !method.version.trim()
+    || !method.title.trim()
+    || !method.summary.trim()
+    || method.steps.length === 0
+  ) {
+    throw new Error(
+      'Creative Method requires id, version, title, summary and at least one step.',
+    );
   }
   if (method.critiqueCriteria.length === 0) {
     throw new Error(`Creative Method "${method.id}" requires critique criteria.`);
   }
+  if (method.triggers.length === 0) {
+    throw new Error(`Creative Method "${method.id}" requires at least one trigger.`);
+  }
+  if (method.changelog.length === 0) {
+    throw new Error(`Creative Method "${method.id}" requires a changelog.`);
+  }
+  if (
+    method.status === 'confirmed'
+    && (!method.confirmedAt || !method.confirmationEvidenceRef)
+  ) {
+    throw new Error(
+      `Confirmed Creative Method "${method.id}" requires a confirmation `
+      + 'timestamp and evidence reference.',
+    );
+  }
+  if (
+    method.confirmedAt
+    && !Number.isFinite(Date.parse(method.confirmedAt))
+  ) {
+    throw new Error(`Creative Method "${method.id}" has an invalid confirmedAt.`);
+  }
+  for (const entry of method.changelog) {
+    if (
+      !entry.version.trim()
+      || !entry.summary.trim()
+      || !Number.isFinite(Date.parse(entry.changedAt))
+    ) {
+      throw new Error(
+        `Creative Method "${method.id}" has an invalid changelog entry.`,
+      );
+    }
+  }
+  validateEvidenceRef(
+    method.progressiveDisclosureRef,
+    `method ${method.id} progressive disclosure`,
+  );
+  if (method.confirmationEvidenceRef) {
+    validateEvidenceRef(
+      method.confirmationEvidenceRef,
+      `method ${method.id} confirmation`,
+    );
+  }
   assertCompleteProvenance(method.source, `method ${method.id}`);
+}
+
+function isPortableContentRef(
+  value: PortableContentRef | AssetRef,
+): value is PortableContentRef {
+  return 'path' in value;
+}
+
+function validateEvidenceRef(
+  ref: PortableContentRef | AssetRef,
+  label: string,
+): void {
+  if (isPortableContentRef(ref)) {
+    if (!ref.id.trim() || !ref.path.trim() || !ref.contentHash.trim()) {
+      throw new Error(`${label} must identify portable content.`);
+    }
+    return;
+  }
+  if (!ref.assetId.trim()) {
+    throw new Error(`${label} must identify an Asset.`);
+  }
 }
 
 export function validateTasteMemoryEvidence(
   evidence: TasteMemoryEvidence,
 ): void {
+  if (!evidence.id.trim() || !evidence.preferenceKey.trim()) {
+    throw new Error('Taste Memory requires id and preferenceKey.');
+  }
   if (!evidence.statement.trim()) {
     throw new Error('Taste Memory statement must not be empty.');
   }
   if (evidence.confidence < 0 || evidence.confidence > 1) {
     throw new Error('Taste Memory confidence must be between 0 and 1.');
+  }
+  validateEvidenceRef(evidence.evidenceRef, `Taste Memory ${evidence.id}`);
+  for (const [field, value] of [
+    ['createdAt', evidence.createdAt],
+    ['updatedAt', evidence.updatedAt],
+    ['lastConfirmedAt', evidence.lastConfirmedAt],
+    ['revokedAt', evidence.revokedAt],
+  ] as const) {
+    if (value && !Number.isFinite(Date.parse(value))) {
+      throw new Error(`Taste Memory ${field} must be an ISO-compatible timestamp.`);
+    }
   }
   if (
     evidence.classification === 'durable_user_preference'
@@ -142,5 +229,16 @@ export function validateTasteMemoryEvidence(
     throw new Error(
       'Durable user preference requires an explicit confirmation timestamp.',
     );
+  }
+  if (
+    evidence.classification === 'builtin_principle'
+    && !evidence.lastConfirmedAt
+  ) {
+    throw new Error(
+      'Built-in principle requires an explicit confirmation timestamp.',
+    );
+  }
+  if (evidence.revokedAt && !evidence.revokeReason?.trim()) {
+    throw new Error('Revoked Taste Memory requires a reason.');
   }
 }

@@ -220,12 +220,14 @@ describe('Harness Home contract', () => {
     assert.throws(
       () => validateTasteMemoryEvidence({
         id: 'taste-1',
+        preferenceKey: 'layout.density',
         classification: 'durable_user_preference',
         statement: 'Prefer compact hierarchy.',
         evidenceRef: { assetId: 'asset-1' },
         scope: { kind: 'user' },
         confidence: 0.8,
         createdAt: '2026-07-30T12:00:00.000Z',
+        updatedAt: '2026-07-30T12:00:00.000Z',
         affectedMethodIds: [],
       }),
       /confirmation timestamp/,

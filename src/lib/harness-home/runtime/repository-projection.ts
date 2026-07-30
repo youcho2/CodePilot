@@ -2,6 +2,15 @@ import type { RuntimeId } from '@/lib/runtime/runtime-id';
 import {
   buildRuntimeProjection,
 } from '../projection';
+import {
+  CREATIVE_PROJECT_MEDIA_TYPE,
+  listCreativeProjects,
+} from '../creative-project';
+import {
+  listCreativeMethods,
+  selectCreativeMethods,
+} from '../design-method';
+import { assertEvidenceRefResolvable } from '../evidence';
 import type {
   ContextFragment,
   PortableContentRef,
@@ -11,6 +20,13 @@ import type {
 } from '../contracts';
 import { assertCompleteProvenance } from '../provenance';
 import { FileHarnessRepository } from '../repository/file-repository';
+import type { HarnessScopeContext } from '../scope';
+import {
+  TASTE_MEMORY_MEDIA_TYPE,
+  listTasteMemories,
+  renderTasteMemory,
+  resolveTasteMemoryProjection,
+} from '../taste-memory';
 import { assertNoSecretMaterial } from '../validation';
 import { requireRuntimeDescriptor } from './descriptor';
 
@@ -60,6 +76,10 @@ export interface CanonicalRuntimeHarness {
     readonly contentBytes: number;
     readonly definitionCount: number;
     readonly assetCount: number;
+    readonly selectedMethodIds: readonly string[];
+    readonly tasteConflictKeys: readonly string[];
+    readonly unavailableEvidenceIds: readonly string[];
+    readonly creativeProjectId?: string;
   };
 }
 
@@ -67,6 +87,7 @@ interface SectionSource {
   readonly kind: CanonicalHarnessSectionKind;
   readonly ref: PortableContentRef;
   readonly overlay: boolean;
+  readonly contentOverride?: string;
 }
 
 function requireProvenance(ref: PortableContentRef): Provenance {
@@ -107,6 +128,10 @@ function descriptorFor(
 export function projectCanonicalRepository(input: {
   readonly repository: FileHarnessRepository;
   readonly runtimeId: RuntimeId;
+  readonly userPrompt?: string;
+  readonly scopeContext?: Omit<HarnessScopeContext, 'runtimeId'>;
+  readonly explicitMethodIds?: readonly string[];
+  readonly creativeProjectId?: string;
 }): CanonicalRuntimeHarness {
   const descriptor = requireRuntimeDescriptor(input.runtimeId);
   const consistency = input.repository.scanConsistency();
@@ -119,6 +144,64 @@ export function projectCanonicalRepository(input: {
 
   const manifest = input.repository.manifest;
   const overlay = manifest.runtimeOverlays[input.runtimeId];
+  const scopeContext: HarnessScopeContext = {
+    ...(input.scopeContext ?? {}),
+    runtimeId: input.runtimeId,
+  };
+  const tasteRecords = listTasteMemories(input.repository);
+  const methodRecords = listCreativeMethods(input.repository);
+  const unavailableTasteEvidenceIds = new Set<string>();
+  const unavailableMethodEvidenceIds = new Set<string>();
+  for (const record of tasteRecords) {
+    try {
+      assertEvidenceRefResolvable(
+        input.repository,
+        record.evidence.evidenceRef,
+        `Taste Memory ${record.evidence.id} evidence`,
+      );
+    } catch {
+      unavailableTasteEvidenceIds.add(record.evidence.id);
+    }
+  }
+  for (const record of methodRecords) {
+    if (
+      record.definition.status === 'confirmed'
+      && record.definition.confirmationEvidenceRef
+    ) {
+      try {
+        assertEvidenceRefResolvable(
+          input.repository,
+          record.definition.confirmationEvidenceRef,
+          `Creative Method ${record.definition.id} confirmation`,
+        );
+      } catch {
+        unavailableMethodEvidenceIds.add(record.definition.id);
+      }
+    }
+  }
+  const tasteProjection = resolveTasteMemoryProjection({
+    records: tasteRecords,
+    scopeContext,
+    unavailableEvidenceIds: unavailableTasteEvidenceIds,
+  });
+  const methodSelection = selectCreativeMethods({
+    records: methodRecords,
+    userPrompt: input.userPrompt ?? '',
+    scopeContext,
+    explicitMethodIds: input.explicitMethodIds,
+    unavailableEvidenceMethodIds: unavailableMethodEvidenceIds,
+  });
+  const activeCreativeProject = input.creativeProjectId
+    ? listCreativeProjects(input.repository).find(
+      (record) => record.project.id === input.creativeProjectId,
+    )
+    : undefined;
+  if (input.creativeProjectId && !activeCreativeProject) {
+    throw new Error(
+      `Creative Project "${input.creativeProjectId}" is not in the `
+      + 'canonical repository.',
+    );
+  }
   const sources: SectionSource[] = [
     ...manifest.definition.identityRefs.map((ref) => ({
       kind: 'identity' as const,
@@ -135,19 +218,34 @@ export function projectCanonicalRepository(input: {
       ref,
       overlay: false,
     })),
-    ...manifest.state.preferenceRefs.map((ref) => ({
+    ...manifest.state.preferenceRefs
+      .filter((ref) => ref.mediaType !== TASTE_MEMORY_MEDIA_TYPE)
+      .map((ref) => ({
       kind: 'preference' as const,
       ref,
       overlay: false,
     })),
-    ...manifest.state.feedbackRefs.map((ref) => ({
+    ...tasteProjection.selected.map((record) => ({
+      kind: 'preference' as const,
+      ref: record.ref,
+      overlay: false,
+      contentOverride: renderTasteMemory(record),
+    })),
+    ...manifest.state.feedbackRefs
+      .filter((ref) => ref.mediaType !== CREATIVE_PROJECT_MEDIA_TYPE)
+      .map((ref) => ({
       kind: 'feedback' as const,
       ref,
       overlay: false,
     })),
-    ...manifest.definition.creativeMethodRefs.map((ref) => ({
+    ...(activeCreativeProject ? [{
+      kind: 'feedback' as const,
+      ref: activeCreativeProject.ref,
+      overlay: false,
+    }] : []),
+    ...methodSelection.selected.map((record) => ({
       kind: 'creative_method' as const,
-      ref,
+      ref: record.guideRef,
       overlay: false,
     })),
     ...(overlay
@@ -176,7 +274,7 @@ export function projectCanonicalRepository(input: {
         `Canonical context exceeds the ${MAX_CONTEXT_BYTES}-byte turn limit.`,
       );
     }
-    const content = bytes.toString('utf8');
+    const content = source.contentOverride ?? bytes.toString('utf8');
     assertNoSecretMaterial(content, `Canonical content ${source.ref.id}`);
     const provenance = requireProvenance(source.ref);
     sections.push({
@@ -245,6 +343,19 @@ export function projectCanonicalRepository(input: {
       contentBytes,
       definitionCount: definitions.length,
       assetCount: manifest.assetRefs.length,
+      selectedMethodIds: methodSelection.selected.map(
+        (record) => record.definition.id,
+      ),
+      tasteConflictKeys: tasteProjection.conflicts.map(
+        (conflict) => conflict.preferenceKey,
+      ),
+      unavailableEvidenceIds: [
+        ...unavailableMethodEvidenceIds,
+        ...unavailableTasteEvidenceIds,
+      ],
+      ...(activeCreativeProject
+        ? { creativeProjectId: activeCreativeProject.project.id }
+        : {}),
     },
   };
 }

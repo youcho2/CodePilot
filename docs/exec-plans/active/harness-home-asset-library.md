@@ -2,7 +2,7 @@
 
 > 创建时间：2026-07-30
 > 最后更新：2026-07-30
-> 状态：🟡 B0–B3 code/tests 完成；packaged/human UI gate 待最终验收；用户已授权 Codex 直接实施，明确不启动 loop
+> 状态：🟡 B0–B3 code/tests 与隔离浏览器 UI smoke 完成；packaged app / 用户 human gate 待最终验收；用户已授权 Codex 直接实施，明确不启动 loop
 > 父计划：[harness-home-user-owned-core.md](harness-home-user-owned-core.md)
 > 依赖：[harness-home-core-adapters.md](harness-home-core-adapters.md) 的 `AssetRef` / scope / provenance / repository boundary
 
@@ -217,6 +217,7 @@ HTML / web result 只有同时满足以下条件才 materialize：
 | 2026-07-30 | image/video/audio | media saver / image generator / Codex import / legacy backfill | terminal write → hash → lineage → typed reference → trash/restore | ✅ Tier 0/1：7/7 | `asset-library-conformance.test.ts`；真实 PNG、MP4 bytes、WAV fixture + isolated SQLite |
 | 2026-07-30 | html_bundle | workspace/inline materializer | complete → atomic bundle/hash/preview；partial/failure/symlink/scope/danger URL fail-closed | ✅ Tier 0/1：6/6 | `html-bundle-conformance.test.ts` |
 | 2026-07-30 | all registered kinds | Asset/Gallery API + UI contracts | registry filters、search、provenance/lineage、consumer block、Trash/Restore、strict preview | ✅ Tier 1：12/12 | `asset-library-api.test.ts` 7/7；`asset-library-ui.test.ts` 5/5 |
+| 2026-07-30 | html_bundle | isolated local dev app | 两个真实 materialized bundle → 卡片预览 → detail provenance/parent lineage → search → Trash → Restore | ✅ Browser smoke；iframe `sandbox=""`；0 console errors | 独立 `CLAUDE_GUI_DATA_DIR` + migration disabled；临时数据库与 bundle 已在验收后删除 |
 | _待执行_ | all registered kinds | packaged app | multi-kind visual readability + HTML safety copy | ⏳ Human gate | screenshot / user feedback |
 
 ## 决策日志
@@ -229,3 +230,4 @@ HTML / web result 只有同时满足以下条件才 materialize：
 - 2026-07-30：B1 采用增量 Asset index + 保留 `media_generations` 的兼容策略；删除默认只改变 Asset lifecycle，不删除旧 row 或本地字节。
 - 2026-07-30：B2 只归档用户主动选定的完整 workspace/inline snapshot；归档 HTML 永远使用 strict sandbox/CSP，不继承 Preview 的 interactive script 偏好。
 - 2026-07-30：B3 沿用 Gallery 路由与页面，不另建平行 Asset UI；旧 row 采用 bounded on-read backfill，避免 schema init 或单个请求同步 hash 整个大库。
+- 2026-07-30：隔离浏览器 smoke 发现详情 Dialog 缺少可访问描述，已补 `DialogDescription`；该 smoke 不替代 packaged app 与用户审美验收。

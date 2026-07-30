@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button';
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogTitle,
 } from '@/components/ui/dialog';
 import { useTranslation } from '@/hooks/useTranslation';
@@ -187,6 +188,9 @@ export function GalleryDetail({
         <DialogTitle className="sr-only">
           {t('gallery.mediaDetail' as TranslationKey)}
         </DialogTitle>
+        <DialogDescription className="sr-only">
+          {t('gallery.description' as TranslationKey)}
+        </DialogDescription>
 
         <div className="flex flex-row h-full">
           {/* Left: Media preview */}

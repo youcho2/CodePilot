@@ -38,6 +38,13 @@ export type ConfiguredHarnessHomeResult =
  */
 export function loadConfiguredHarnessHome(
   runtimeId: RuntimeId,
+  options: {
+    readonly userPrompt?: string;
+    readonly projectId?: string;
+    readonly assistantId?: string;
+    readonly explicitMethodIds?: readonly string[];
+    readonly creativeProjectId?: string;
+  } = {},
 ): ConfiguredHarnessHomeResult {
   const configuredRoot = getSetting(HARNESS_HOME_ROOT_SETTING)?.trim();
   if (!configuredRoot) {
@@ -52,7 +59,17 @@ export function loadConfiguredHarnessHome(
     repository = FileHarnessRepository.open(configuredRoot, {
       mode: 'readonly',
     });
-    const harness = projectCanonicalRepository({ repository, runtimeId });
+    const harness = projectCanonicalRepository({
+      repository,
+      runtimeId,
+      userPrompt: options.userPrompt,
+      scopeContext: {
+        ...(options.projectId ? { projectId: options.projectId } : {}),
+        ...(options.assistantId ? { assistantId: options.assistantId } : {}),
+      },
+      explicitMethodIds: options.explicitMethodIds,
+      creativeProjectId: options.creativeProjectId,
+    });
     const secretStore = createCodePilotSecretStore();
     const secrets = harness.secretRefs.map((ref) => {
       try {

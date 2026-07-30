@@ -1,5 +1,8 @@
 export * from './adapters';
 export * from './contracts';
+export * from './creative-project';
+export * from './design-method';
+export * from './evidence';
 export * from './manifest';
 export * from './migration';
 export * from './projection';
@@ -10,4 +13,5 @@ export * from './runtime';
 export * from './scope';
 export * from './secret-store';
 export * from './secret-ref';
+export * from './taste-memory';
 export * from './validation';

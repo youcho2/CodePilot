@@ -2,7 +2,7 @@
 
 > 创建时间：2026-07-30
 > 最后更新：2026-07-30
-> 状态：📋 真实案例采集待开始；**未授权产品代码实施**
+> 状态：🟡 C0 候选证据清单 + C1/C2/C3 foundation/API/tests 已完成；用户方法确认、golden set、真实 producer 与人工审美门禁待执行
 > 父计划：[harness-home-user-owned-core.md](harness-home-user-owned-core.md)
 > 依赖：Program A shared scope/provenance；完整创作 lineage 依赖 Program B
 
@@ -16,10 +16,10 @@
 
 | Phase | 内容 | 状态 | 入口门禁 |
 |-------|------|------|----------|
-| C0 | 真实案例、反例、选择理由与方法素材采集 | 📋 待开始 | 用户提供/确认真实素材 |
-| C1 | Design Method v0 + golden set + critique rubric | 📋 待开始 | C0 素材足够且有用户确认 |
-| C2 | Taste Memory 证据模型与撤销 | 📋 待开始 | Program A scope/provenance frozen |
-| C3 | 图片→视频→网页编排与 Asset lineage | 📋 待开始 | Program B typed AssetRef 可用 |
+| C0 | 真实案例、反例、选择理由与方法素材采集 | 🟡 4 组真实产品 brief 已建候选清单；通用方法归属与 Asset 证据待用户确认 | 用户提供/确认真实素材 |
+| C1 | Design Method v0 + golden set + critique rubric | 🟡 versioned store、candidate/confirmed、rubric、trigger/non-trigger、progressive disclosure 与三 Runtime 投影已完成；v0 pack / golden set 待确认 | C0 素材足够且有用户确认 |
+| C2 | Taste Memory 证据模型与撤销 | ✅ foundation/API/tests 完成；独立 UI 仍服从 Deferred UI 决策 | Program A scope/provenance frozen |
+| C3 | 图片→视频→网页编排与 Asset lineage | 🟡 durable creative project、typed AssetRef/parent、Runtime/Provider checkpoint、unsupported degradation 已完成；真实 image→video→HTML run 待执行 | Program B typed AssetRef 可用 |
 
 ## 用户会看到什么
 
@@ -73,6 +73,12 @@ CodePilot 能按照一套可识别的方法：
 - CodePilot Design Method v0 素材清单；
 - 待用户确认问题，不替用户回答。
 
+### C0 实施证据
+
+- `docs/research/harness-home-design-evidence-inventory-2026-07-30.md` 已从 macOS shell、Chat composer、semantic icon、Markdown/Artifact 四组真实 brief 整理 source、accepted、rejected、reason、scope 与 candidate principles。
+- 清单明确区分“已经确认的 CodePilot 产品决策”与“尚未确认的用户通用设计方法”；没有据此预装 confirmed Method 或 durable Taste Memory。
+- 图片/视频/网页 Asset ID、字体/色彩/构图/运动节奏选择和 3–5 个 golden run 仍需用户提供/确认，不能由单元测试关闭。
+
 ## C1 — Method Pack
 
 首版至少覆盖：
@@ -98,6 +104,15 @@ CodePilot 能按照一套可识别的方法：
 - critique rubric；
 - user/project override 行为；
 - progressive-disclosure entry。
+
+### C1 foundation 实施证据
+
+- `CreativeMethodDefinition` 已包含 `candidate | confirmed | retired`、title/summary、source/scope、trigger/non-trigger、inputs/outputs/steps/modalities、references/counterexamples、critique criteria、changelog、override policy 与 confirmation evidence。
+- definition JSON 与 progressive guide Markdown 同一原子 generation 写入；乐观并发、hash、secret scan 和 repository consistency 复用 Program A write model。
+- candidate / retired 永远不进入 turn；confirmed 仍需 evidence 可解析、scope 命中、prompt trigger 命中且不触发 non-trigger。
+- Claude Code、CodePilot Runtime、Codex Runtime 都从真实 user prompt + workspace scope 调用同一 selector；不再把所有 creative method 塞进每轮全局 prompt。
+- `/api/harness-home/design-methods` 提供 metadata/guide 的查看与候选/确认版本写入边界；app write 会拒绝不存在的 Asset ID 或未被 Harness manifest 索引的 portable evidence。
+- 尚未创建 CodePilot Design Method v0 内容；这是有意保留的人类方法真实性门禁，不是遗漏。
 
 ### Golden set
 
@@ -148,6 +163,13 @@ CodePilot built-in principle
 - 跨项目默认不传播 project preference。
 - 没有 evidence 的推断不能持久化。
 
+### C2 实施证据
+
+- `writeTasteMemory` 创建/编辑时强制 evidenceRef、classification、scope、confidence 与 stable preferenceKey；durable user preference / built-in principle 没有明确确认时间会被拒绝。
+- project > assistant/user > builtin 的作用域优先级沿用 Program A；同一 preferenceKey 在同 rank 出现不同 statement 时不会按插入顺序偷偷选一个，而是 withheld + conflict diagnostic。
+- revoke 保留记录和 reason，但后续 projection 不再注入；unavailable evidence 同样 fail-closed。
+- `/api/harness-home/taste-memory` 支持查看、编辑（带 expected hash）与撤销；没有为了它提前拍板 Settings/Plugins/独立 Home 的 UI 归属。
+
 ## C3 — Creative Orchestration
 
 ```mermaid
@@ -172,6 +194,13 @@ flowchart LR
 - 图片→视频→html_bundle lineage 可追溯。
 - 切换 Runtime/Provider 后继续同一 creative project。
 - unsupported modality 有真实降级，不伪造完成。
+
+### C3 foundation 实施证据
+
+- durable creative project 保存 brief、method id/version、distinct directions、criterion refs、用户 selection/rejection evidence、typed AssetRef、parent Asset IDs 和 Runtime/Provider/Model checkpoint。
+- directions 少于两个或 rationale 重复会被拒绝；choice 没有 evidence、Asset kind 与 stage 不匹配、未知 producer-backed kind 同样 fail-closed。
+- Runtime/Provider 切换只追加 execution checkpoint，不改 brief、method、decision 或 Asset lineage；unsupported image/video/html stage 以 reason 明确记录，不创建假 Asset。
+- `/api/harness-home/creative-projects` 提供同一 canonical repository 中的 durable load/save；真正的 image→video→html_bundle producer run 和用户视觉验收仍在 Human gate。
 
 ## 用户验收门禁
 
@@ -205,6 +234,7 @@ Snapshot、模型自评和单元测试不能单独关闭这些门禁。
 | _待执行_ | golden brief 1 | v0 candidate | TBD | directions + images | ⏳ | asset ids / user notes |
 | _待执行_ | golden brief 2 | v0 candidate | TBD | image → video | ⏳ | video id / critique |
 | _待执行_ | golden brief 3 | v0 candidate | TBD | image → html_bundle | ⏳ | bundle hash / screenshot |
+| 2026-07-30 | foundation conformance | candidate + confirmed fixtures | 三 Runtime projection | method/taste/project contracts + API | ✅ Tier 0/1：10/10；组合回归 24/24；全量 4866/4866 + production build | `harness-home-design-method.test.ts`；`harness-home-design-api.test.ts`；无模型自评 |
 
 ## 决策日志
 
@@ -212,3 +242,8 @@ Snapshot、模型自评和单元测试不能单独关闭这些门禁。
 - 2026-07-30：built-in method 必须来自真实案例、反例和用户确认，不由模型生成品牌话术。
 - 2026-07-30：Taste Memory evidence-only、分 scope、可查看、可编辑、可撤销。
 - 2026-07-30：创作联动只引用 Program B 已注册的 producer-backed Asset kinds。
+- 2026-07-30：用户授权 Codex 直接实施，明确不启动 loop；push、merge、release 未授权。
+- 2026-07-30：候选方法与 confirmed 方法分开；confirmed 仍必须有可解析证据，跨设备 unresolved 不进入模型上下文。
+- 2026-07-30：Method 使用 prompt trigger + non-trigger + scope 做 progressive disclosure，默认每轮不加载。
+- 2026-07-30：同 rank 的冲突 Taste Memory fail-closed，不按最后写入或 confidence 静默覆盖。
+- 2026-07-30：UI 入口继续服从 umbrella 的 Deferred UI 决策；本轮只提供 canonical file/API/Runtime surfaces，不把 Harness Home 强塞进 Settings 或 Plugins。

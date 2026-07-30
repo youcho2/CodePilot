@@ -1578,7 +1578,10 @@ export function streamClaudeSdk(options: ClaudeStreamOptions): ReadableStream<st
             const { loadConfiguredHarnessHome } = await import(
               '@/lib/harness-home/runtime/configured'
             );
-            const configured = loadConfiguredHarnessHome('claude_code');
+            const configured = loadConfiguredHarnessHome('claude_code', {
+              userPrompt: prompt || '',
+              projectId: resolvedWorkingDirectory.path,
+            });
             if (configured.status === 'loaded') {
               canonicalHarness = configured.harness;
             } else if (configured.status === 'unavailable') {

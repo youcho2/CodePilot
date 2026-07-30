@@ -226,7 +226,6 @@ describe('Canonical repository Runtime projection', () => {
           'identity',
           'rule',
           'memory',
-          'creative_method',
           'runtime_overlay',
         ],
       );

@@ -74,6 +74,17 @@ type JsonValue = string | number | boolean | null | JsonValue[] | { [key: string
 type JsonObject = { [key: string]: JsonValue };
 type AiProviderOptions = Record<string, JsonObject>;
 
+function harnessPromptFromResponsesBody(body: ResponsesRequestBody): string {
+  return body.input
+    .filter((item) => item.type === 'message' && item.role === 'user')
+    .flatMap((item) => item.type === 'message'
+      ? item.content
+        .filter((block) => block.type === 'input_text')
+        .map((block) => block.type === 'input_text' ? block.text : '')
+      : [])
+    .join('\n');
+}
+
 /**
  * Build the unified adapter. The family parameter is accepted but
  * doesn't change behaviour today — it's threaded into error context
@@ -240,7 +251,10 @@ export function createUnifiedAdapter(family: string): ResponsesAdapter {
       const { loadConfiguredHarnessHome } = await import(
         '@/lib/harness-home/runtime/configured'
       );
-      const configured = loadConfiguredHarnessHome('codex_runtime');
+      const configured = loadConfiguredHarnessHome('codex_runtime', {
+        userPrompt: harnessPromptFromResponsesBody(input.body),
+        projectId: input.workspacePath || undefined,
+      });
       if (configured.status === 'loaded') {
         canonicalHarness = configured.harness;
       } else if (configured.status === 'unavailable') {

@@ -225,7 +225,10 @@ export function getBuiltinTools(
   try {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { loadConfiguredHarnessHome } = require('@/lib/harness-home/runtime/configured');
-    const configured = loadConfiguredHarnessHome('codepilot_runtime');
+    const configured = loadConfiguredHarnessHome('codepilot_runtime', {
+      userPrompt: options.prompt || '',
+      projectId: options.workspacePath || undefined,
+    });
     if (configured.status === 'loaded') {
       canonicalHarness = configured.harness;
     } else if (configured.status === 'unavailable') {

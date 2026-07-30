@@ -12,8 +12,8 @@
 |---------|------|------|----------|
 | Shared Phase 0 | 基线、事实 inventory、enforcement anchors 与跨计划 contract 边界 | ✅ 完成；见 `docs/research/harness-home-v0.62-inventory-2026-07-30.md` | 本文件 |
 | Program A | Harness Core、Canonical Repository、Harness/Runtime Adapter | 🟡 A1–A4 code/tests 完成；真实凭据 Tier 2 smoke 待最终验收 | [harness-home-core-adapters.md](harness-home-core-adapters.md) |
-| Program B | 通用 Asset Library、materialization 与 lineage | 🟡 B0–B3 code/tests 完成；packaged/human UI gate 待最终验收 | [harness-home-asset-library.md](harness-home-asset-library.md) |
-| Program C | CodePilot Design Method、Taste Memory 与创作编排 | 📋 事实采集可先行；产品化待共享 contract | [harness-home-design-method.md](harness-home-design-method.md) |
+| Program B | 通用 Asset Library、materialization 与 lineage | 🟡 B0–B3 code/tests + 隔离浏览器 UI smoke 完成；packaged app / 用户 human gate 待最终验收 | [harness-home-asset-library.md](harness-home-asset-library.md) |
+| Program C | CodePilot Design Method、Taste Memory 与创作编排 | 🟡 C0 候选证据清单 + C1/C2/C3 foundation/API/tests 完成；真实 Method/golden producer/human gate 待用户 | [harness-home-design-method.md](harness-home-design-method.md) |
 | Deferred UI | Plugins / Settings / Workspace / 独立入口的信息架构 | ⏸ 明确暂缓 | 本文件只保留候选方案与用户决策 |
 
 ## 用户问题与共享回答
@@ -298,7 +298,7 @@ flowchart LR
   B --> C
 ```
 
-- Program C 的真实案例采集可与 Shared Phase 0 并行，不写产品代码。
+- Program C 的真实案例采集已从四组既有产品决策建立 candidate 清单；用户已授权 foundation 产品代码实施，但通用方法归属仍保留用户确认门禁。
 - Program B 只依赖 Program A 的 `AssetRef`、scope、provenance 和 repository boundary，不依赖完整 RuntimeAdapter。
 - Program C 产品化依赖共享 scope/provenance；创作 lineage 功能依赖 Program B。
 - 三个 program 各自维护状态、验收和 Smoke Ledger；Umbrella 不复写执行进度。
