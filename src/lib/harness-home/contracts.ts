@@ -41,7 +41,8 @@ export interface PortableContentRef {
   readonly path: string;
   readonly contentHash: ContentHash;
   readonly mediaType?: string;
-  readonly [key: string]: JsonValue | undefined;
+  readonly provenance?: Provenance;
+  readonly [key: string]: JsonValue | Provenance | undefined;
 }
 
 export interface AssetRef {

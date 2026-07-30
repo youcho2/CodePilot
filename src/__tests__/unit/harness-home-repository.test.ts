@@ -1,0 +1,416 @@
+import { afterEach, describe, it } from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import {
+  CompositeSecretStore,
+  FileHarnessRepository,
+  RepositoryLockedError,
+  acquireWriterLease,
+  applyHarnessImportPlan,
+  createEnvironmentSecretBackend,
+  createExternalOwnedSecretBackend,
+  createKeyValueSecretBackend,
+  createProvenance,
+  hashBytes,
+  listTransactionJournals,
+  planHarnessImport,
+  takeoverDeadWriterLease,
+  type HarnessImportCandidate,
+  type SecretRef,
+} from '@/lib/harness-home';
+
+const tempRoots: string[] = [];
+
+function tempRoot(name: string): string {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), `harness-home-${name}-`));
+  tempRoots.push(root);
+  return root;
+}
+
+afterEach(() => {
+  for (const root of tempRoots.splice(0)) {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+function memoryCandidate(
+  content = '# Memory\n\nA durable fact.\n',
+): HarnessImportCandidate {
+  return {
+    id: 'memory/main',
+    index: 'memoryRefs',
+    targetPath: 'state/memory.md',
+    content,
+    mediaType: 'text/markdown',
+    provenance: createProvenance({
+      sourceKind: 'migration',
+      sourceRef: 'fixture://assistant/memory.md',
+      contentHash: hashBytes(content),
+      observedAt: '2026-07-30T12:00:00.000Z',
+    }),
+  };
+}
+
+describe('FileHarnessRepository', () => {
+  it('allows one writer and gives a second instance a read-only breadcrumb', () => {
+    const root = tempRoot('lock');
+    const writer = FileHarnessRepository.create(root, 'harness-1', {
+      instanceId: 'writer-a',
+    });
+    const reader = FileHarnessRepository.open(root, {
+      mode: 'prefer-writable',
+      instanceId: 'writer-b',
+    });
+
+    assert.equal(writer.writable, true);
+    assert.equal(reader.writable, false);
+    assert.equal(reader.diagnostics().lockHolder?.instanceId, 'writer-a');
+    assert.throws(
+      () => FileHarnessRepository.open(root, {
+        mode: 'require-writable',
+        instanceId: 'writer-c',
+      }),
+      RepositoryLockedError,
+    );
+    reader.close();
+    writer.close();
+  });
+
+  it('imports through dry-run, commits manifest last and is idempotent', () => {
+    const root = tempRoot('import');
+    const repository = FileHarnessRepository.create(root, 'harness-1');
+    const candidate = memoryCandidate();
+
+    const plan = planHarnessImport(repository, [candidate]);
+    assert.equal(plan.canApply, true);
+    assert.equal(plan.items[0].action, 'create');
+    const journal = applyHarnessImportPlan(repository, plan);
+
+    assert.equal(journal?.state, 'committed');
+    assert.equal(repository.manifest.generation, 1);
+    assert.equal(
+      repository.read(candidate.targetPath).toString('utf8'),
+      candidate.content,
+    );
+    assert.deepEqual(repository.scanConsistency(), []);
+
+    const repeated = planHarnessImport(repository, [candidate]);
+    assert.equal(repeated.items[0].action, 'skip_same');
+    assert.equal(applyHarnessImportPlan(repository, repeated), undefined);
+    assert.equal(repository.manifest.generation, 1);
+    repository.close();
+  });
+
+  it('restores identity, memory, Skill, MCP descriptor and Method refs in a clean root', () => {
+    const root = tempRoot('portable-roundtrip');
+    const repository = FileHarnessRepository.create(root, 'portable-harness');
+    const candidate = (
+      id: string,
+      index: HarnessImportCandidate['index'],
+      targetPath: string,
+      content: string,
+    ): HarnessImportCandidate => ({
+      id,
+      index,
+      targetPath,
+      content,
+      mediaType: targetPath.endsWith('.json')
+        ? 'application/json'
+        : 'text/markdown',
+      provenance: createProvenance({
+        sourceKind: 'migration',
+        sourceRef: `fixture://${id}`,
+        contentHash: hashBytes(content),
+        observedAt: '2026-07-30T12:00:00.000Z',
+      }),
+    });
+    const candidates: HarnessImportCandidate[] = [
+      candidate('identity/main', 'identityRefs', 'definition/identity.md', '# Identity\n'),
+      candidate('memory/main', 'memoryRefs', 'state/memory.md', '# Memory\n'),
+      candidate('skill/design', 'skillRefs', 'definition/skills/design/SKILL.md', '# Design Skill\n'),
+      candidate(
+        'mcp/browser',
+        'mcpRefs',
+        'definition/mcp/browser.json',
+        '{"command":"browser-server","secretRef":"secret://environment/BROWSER_TOKEN?scope=machine&v=1"}',
+      ),
+      candidate(
+        'method/critique',
+        'creativeMethodRefs',
+        'definition/methods/critique.md',
+        '# Critique Method v1\n',
+      ),
+    ];
+
+    const journal = applyHarnessImportPlan(
+      repository,
+      planHarnessImport(repository, candidates),
+    );
+    assert.equal(journal?.state, 'committed');
+    const manifest = repository.manifest;
+    assert.deepEqual({
+      identity: manifest.definition.identityRefs.length,
+      memory: manifest.state.memoryRefs.length,
+      skills: manifest.definition.skillRefs.length,
+      mcp: manifest.definition.mcpRefs.length,
+      methods: manifest.definition.creativeMethodRefs.length,
+    }, {
+      identity: 1,
+      memory: 1,
+      skills: 1,
+      mcp: 1,
+      methods: 1,
+    });
+    assert.deepEqual(repository.scanConsistency(), []);
+    repository.close();
+
+    const reopened = FileHarnessRepository.open(root, { mode: 'readonly' });
+    assert.equal(reopened.manifest.harnessId, 'portable-harness');
+    assert.deepEqual(reopened.scanConsistency(), []);
+    assert.match(
+      reopened.read('definition/mcp/browser.json').toString('utf8'),
+      /secret:\/\/environment\//,
+    );
+    reopened.close();
+  });
+
+  it('reports same-identity different-content as a conflict', () => {
+    const root = tempRoot('conflict');
+    const repository = FileHarnessRepository.create(root, 'harness-1');
+    applyHarnessImportPlan(repository, planHarnessImport(repository, [memoryCandidate()]));
+
+    const conflict = planHarnessImport(
+      repository,
+      [memoryCandidate('# Memory\n\nA different fact.\n')],
+    );
+    assert.equal(conflict.canApply, false);
+    assert.equal(conflict.items[0].action, 'conflict');
+    assert.throws(
+      () => applyHarnessImportPlan(repository, conflict),
+      /contains conflicts/,
+    );
+    repository.close();
+  });
+
+  it('detects an external edit by content hash and refuses last-write-wins', () => {
+    const root = tempRoot('external-edit');
+    const repository = FileHarnessRepository.create(root, 'harness-1');
+    const candidate = memoryCandidate();
+    applyHarnessImportPlan(repository, planHarnessImport(repository, [candidate]));
+
+    fs.writeFileSync(
+      path.join(root, candidate.targetPath),
+      '# Memory\n\nEdited outside CodePilot.\n',
+    );
+    const diagnostics = repository.diagnostics();
+    assert.equal(diagnostics.stale, true);
+    assert.deepEqual(
+      diagnostics.consistency.map((issue) => issue.state),
+      ['modified'],
+    );
+
+    const current = repository.manifest;
+    assert.throws(
+      () => repository.commit({
+        expectedGeneration: current.generation,
+        manifest: {
+          ...current,
+          generation: current.generation + 1,
+          writtenAt: '2026-07-30T13:00:00.000Z',
+        },
+        writes: [],
+      }),
+      /expects .* found/,
+    );
+    repository.close();
+  });
+
+  it('recovers a prepared partial write without mixing manifest generations', () => {
+    const root = tempRoot('recovery');
+    let injected = false;
+    const repository = FileHarnessRepository.create(root, 'harness-1', {
+      instanceId: 'crashing-writer',
+      faultInjector: {
+        afterTargetWrite(targetPath) {
+          if (!injected && targetPath !== 'manifest.json') {
+            injected = true;
+            throw new Error('simulated process crash');
+          }
+        },
+      },
+    });
+    const candidate = memoryCandidate();
+    assert.throws(
+      () => applyHarnessImportPlan(
+        repository,
+        planHarnessImport(repository, [candidate]),
+      ),
+      /simulated process crash/,
+    );
+    assert.equal(repository.manifest.generation, 0);
+    assert.equal(
+      listTransactionJournals(root).filter((journal) => journal.state === 'prepared').length,
+      1,
+    );
+    repository.close();
+
+    const recovered = FileHarnessRepository.open(root, {
+      mode: 'require-writable',
+      instanceId: 'recovery-writer',
+    });
+    assert.equal(recovered.manifest.generation, 1);
+    assert.deepEqual(recovered.scanConsistency(), []);
+    assert.equal(
+      listTransactionJournals(root).filter((journal) => journal.state === 'committed').length,
+      1,
+    );
+    recovered.close();
+  });
+
+  it('rejects writes through a repository symlink', () => {
+    const root = tempRoot('symlink');
+    const outside = tempRoot('outside');
+    const repository = FileHarnessRepository.create(root, 'harness-1');
+    fs.symlinkSync(outside, path.join(root, 'state'));
+    const plan = planHarnessImport(repository, [memoryCandidate()]);
+    assert.throws(
+      () => applyHarnessImportPlan(repository, plan),
+      /traverses a symlink/,
+    );
+    assert.equal(fs.readdirSync(outside).length, 0);
+    repository.close();
+  });
+
+  it('rejects direct repository writes that bypass import planning with a Secret', () => {
+    const root = tempRoot('secret-write');
+    const repository = FileHarnessRepository.create(root, 'harness-1');
+    const current = repository.manifest;
+    assert.throws(
+      () => repository.commit({
+        expectedGeneration: current.generation,
+        manifest: {
+          ...current,
+          generation: current.generation + 1,
+          writtenAt: '2026-07-30T14:00:00.000Z',
+        },
+        writes: [{
+          path: 'definitions/provider.json',
+          content: '{"accessToken":"secret-inline-value"}',
+        }],
+      }),
+      /forbidden secret material/,
+    );
+    assert.equal(repository.manifest.generation, 0);
+    repository.close();
+  });
+
+  it('requires exact, explicit confirmation before taking over a dead lease', () => {
+    const root = tempRoot('takeover');
+    fs.mkdirSync(root, { recursive: true });
+    const original = acquireWriterLease(root, {
+      instanceId: 'dead-writer',
+      pid: 2_147_483_647,
+      processStartedAt: '2026-07-30T00:00:00.000Z',
+      repositoryGeneration: 0,
+    });
+    assert.throws(
+      () => takeoverDeadWriterLease(root, {
+        expectedInstanceId: 'dead-writer',
+        confirmedByUser: false,
+        instanceId: 'new-writer',
+        repositoryGeneration: 0,
+      }),
+      /explicit user confirmation/,
+    );
+    const replacement = takeoverDeadWriterLease(root, {
+      expectedInstanceId: 'dead-writer',
+      confirmedByUser: true,
+      instanceId: 'new-writer',
+      repositoryGeneration: 0,
+    });
+    assert.equal(replacement.metadata.instanceId, 'new-writer');
+    original.release();
+    replacement.release();
+  });
+});
+
+describe('CompositeSecretStore', () => {
+  const settingRef: SecretRef = {
+    scheme: 'secret',
+    namespace: 'codepilot-setting',
+    key: 'provider_token',
+    scope: 'user',
+    version: 1,
+  };
+
+  it('keeps diagnostics value-free while resolving only on explicit request', () => {
+    const values = new Map([['provider_token', 'sk-live-secret-value']]);
+    const store = new CompositeSecretStore([
+      createKeyValueSecretBackend({
+        namespace: 'codepilot-setting',
+        read: (key) => values.get(key),
+        write: (key, value) => values.set(key, value),
+        remove: (key) => {
+          values.delete(key);
+        },
+      }),
+    ]);
+
+    const metadata = store.get(settingRef);
+    assert.equal(metadata.status, 'available');
+    assert.equal(metadata.mutable, true);
+    assert.doesNotMatch(JSON.stringify(metadata), /sk-live-secret-value/);
+    assert.deepEqual(store.resolve(settingRef), {
+      status: 'resolved',
+      value: 'sk-live-secret-value',
+    });
+
+    store.set(settingRef, 'rotated-secret');
+    assert.equal(values.get('provider_token'), 'rotated-secret');
+    store.delete(settingRef);
+    assert.equal(store.get(settingRef).status, 'unresolved');
+  });
+
+  it('treats environment and external-owned credentials as read-only', () => {
+    const store = new CompositeSecretStore([
+      createEnvironmentSecretBackend({ SERVICE_TOKEN: 'env-secret' }),
+      createExternalOwnedSecretBackend(),
+    ]);
+    const envRef: SecretRef = {
+      scheme: 'secret',
+      namespace: 'environment',
+      key: 'SERVICE_TOKEN',
+      scope: 'machine',
+      version: 1,
+    };
+    assert.equal(store.resolve(envRef).status, 'resolved');
+    assert.throws(() => store.set(envRef, 'new-value'), /read-only/);
+
+    const externalRef: SecretRef = {
+      scheme: 'secret',
+      namespace: 'external-owned',
+      key: 'runtime/account',
+      scope: 'machine',
+      version: 1,
+    };
+    const external = store.resolve(externalRef);
+    assert.equal(external.status, 'unavailable');
+    assert.equal(external.reauthorizationRequired, true);
+  });
+
+  it('fails closed for an unknown namespace', () => {
+    const store = new CompositeSecretStore([]);
+    assert.throws(
+      () => store.resolve({
+        scheme: 'secret',
+        namespace: 'unknown-store',
+        key: 'credential',
+        scope: 'user',
+        version: 1,
+      }),
+      /not registered/,
+    );
+  });
+});

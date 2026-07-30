@@ -2,7 +2,7 @@
 
 > 创建时间：2026-07-30
 > 最后更新：2026-07-30
-> 状态：🔄 A1 已完成，A2 实施中；用户已授权 Codex 直接实施，明确不启动 loop
+> 状态：🔄 A1/A2 已完成，A3 实施中；用户已授权 Codex 直接实施，明确不启动 loop
 > 父计划：[harness-home-user-owned-core.md](harness-home-user-owned-core.md)
 > 基线：正式 v0.62 发布线；实施时必须从当时最新 `main` 新建隔离 worktree
 
@@ -28,8 +28,8 @@ Asset DB/Gallery 演进见 [harness-home-asset-library.md](harness-home-asset-li
 |-------|------|------|----------|
 | A0 | Shared Phase 0 inventory 与 enforcement anchors | ✅ 完成 | 父计划全部 Phase 0 checkbox |
 | A1 | Domain contracts、scope、provenance、reference status | ✅ 完成 | A0 全绿 |
-| A2 | File repository、write model、SecretStore、migration | 🔄 实施中 | A1 contract frozen |
-| A3 | HarnessAdapter L0/L1 + per-adapter conformance | 📋 待开始 | A2 dry-run/round-trip 通过 |
+| A2 | File repository、write model、SecretStore、migration | ✅ 完成 | A1 contract frozen |
+| A3 | HarnessAdapter L0/L1 + per-adapter conformance | 🔄 实施中 | A2 dry-run/round-trip 通过 |
 | A4 | RuntimeAdapter L2/L3 + CodePilot Full Reference | 📋 待开始 | A3 边界与 touchpoint budget 通过 |
 
 ## 用户会看到什么
@@ -183,13 +183,35 @@ Harness export 只能包含 `secretRef` 与重新授权提示。
 
 ### A2 完成标准
 
-- fixture 能生成完整 manifest。
-- 重复迁移 idempotent。
-- 半写/崩溃可恢复，无 silently mixed generation。
-- 外部编辑可被 hash/rescan 发现。
-- 两实例不能同时写同一 root。
-- 导出扫描不到 Secret。
-- 干净临时目录导入后恢复 identity / memory / skill metadata / MCP descriptor / method refs。
+- [x] fixture 能生成完整 manifest。
+- [x] 重复迁移 idempotent。
+- [x] 半写/崩溃可恢复，无 silently mixed generation。
+- [x] 外部编辑可被 hash/rescan 发现。
+- [x] 两实例不能同时写同一 root。
+- [x] Manifest 与任意 repository write 的 Secret 明文扫描 fail-closed。
+- [x] 干净临时目录导入后恢复 identity / memory / skill metadata / MCP descriptor / method refs。
+
+实现入口：
+
+- `src/lib/harness-home/repository/file-repository.ts`
+- `src/lib/harness-home/repository/writer-lease.ts`
+- `src/lib/harness-home/repository/transaction.ts`
+- `src/lib/harness-home/migration.ts`
+- `src/lib/harness-home/secret-store.ts`
+- `src/lib/harness-home/codepilot-secret-store.ts`
+
+验证：
+
+```text
+npm run typecheck
+npx eslint src/lib/harness-home src/__tests__/unit/harness-home-*.test.ts
+CODEX_DISABLED=1 npx tsx --test --import ./src/__tests__/db-isolation.setup.ts \
+  src/__tests__/unit/harness-home-contract.test.ts \
+  src/__tests__/unit/harness-home-repository.test.ts
+=> 22/22 pass
+```
+
+A2 没有新增 SQLite schema。Canonical 文件和 transaction journal 是事实源；DB 索引/Asset lineage 在 Program B 以 cache-only migration 增量接入。
 
 ## A3 — HarnessAdapter L0/L1
 
@@ -325,3 +347,4 @@ interface RuntimeDescriptor {
 - 2026-07-30：Full Reference 允许 draft pending，但 stable canonical 必须在 CodePilot executable。
 - 2026-07-30：Shared Phase 0 以 `docs/research/harness-home-v0.62-inventory-2026-07-30.md` 收口；用户授权 Codex 在隔离 worktree 直接实施并明确不启动 loop。
 - 2026-07-30：A1 完成。核心 contract 使用 opaque Runtime/framework ID；manifest 保留未知 overlay/字段；stable capability 必须 executable；Secret 明文扫描、scope precedence、Taste evidence 门禁均有定向测试。A1 不接入现有 Runtime/UI，保持用户行为零变化。
+- 2026-07-30：A2 完成。仓库采用 realpath 单写者 lease、显式 dead-holder takeover、同根 staging、prepared journal、manifest-last atomic rename、启动恢复和 hash/rescan；外部修改与 symlink 越界 fail-closed。SecretStore 首版只代理 v0.62 既有 stores，env/external-owned 只读，诊断不含 resolved value。
