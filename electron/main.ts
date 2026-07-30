@@ -1059,9 +1059,11 @@ function createWindow(url?: string) {
     //   ELECTRON_VIBRANCY=menu|sidebar|under-window|content|fullscreen-ui|off
     //   ELECTRON_TRANSPARENT=true|false                   (default: true)
     //
-    // Defaults reflect what we know so far:
-    //   - `'menu'` is what /Applications/Codex.app actually uses
-    //     as its primary window material (verified in app.asar).
+    // Default material:
+    //   - `'under-window'` keeps the native translucent backing while
+    //     preserving more background definition than the heavier
+    //     `'menu'` material. The user selected this after a same-window
+    //     visual comparison on 2026-07-30.
     //   - `transparent: true` makes Electron honor an alpha-0
     //     backgroundColor on macOS — required for `vibrancy` to
     //     surface unless we go the davidcann route of native
@@ -1078,7 +1080,7 @@ function createWindow(url?: string) {
     const envVibrancy = process.env.ELECTRON_VIBRANCY;
     const vibrancyChoice = envVibrancy && (VIBRANCY_CANDIDATES.has(envVibrancy) || envVibrancy === 'off')
       ? envVibrancy
-      : 'menu';
+      : 'under-window';
     const envTransparent = process.env.ELECTRON_TRANSPARENT;
     const transparentChoice = envTransparent === 'false' ? false : true;
 

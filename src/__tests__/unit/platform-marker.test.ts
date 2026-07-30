@@ -33,6 +33,11 @@ const GLOBALS_SOURCE = readFileSync(
   "utf-8",
 );
 
+const ELECTRON_MAIN_SOURCE = readFileSync(
+  resolve(__dirname, "../../../electron/main.ts"),
+  "utf-8",
+);
+
 test("layout.tsx stamps data-platform on <html> before hydration", () => {
   // The inline script must call setAttribute with 'data-platform' so
   // [data-platform="darwin"] CSS cascades apply on first paint, not
@@ -183,5 +188,18 @@ test("macOS light and dark profiles preserve native material translucency", () =
       "background-color: var(--platform-surface-window)",
     ),
     "the macOS Electron body must consume the platform window tint token",
+  );
+});
+
+test("macOS defaults to the lighter under-window material while retaining override support", () => {
+  ok(
+    ELECTRON_MAIN_SOURCE.includes("const envVibrancy = process.env.ELECTRON_VIBRANCY"),
+    "expected the macOS material override to remain available for diagnostics",
+  );
+  ok(
+    /const vibrancyChoice[\s\S]*\?\s*envVibrancy\s*:\s*['"]under-window['"]/.test(
+      ELECTRON_MAIN_SOURCE,
+    ),
+    "expected under-window to remain the default macOS material",
   );
 });
