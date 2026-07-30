@@ -201,6 +201,9 @@ export function getBuiltinTools(
   let externalExtensions: ReturnType<
     typeof import('@/lib/harness/external-framework-harness').scanExternalFrameworkExtensions
   > = [];
+  let canonicalHarness: import(
+    '@/lib/harness-home/runtime/repository-projection'
+  ).CanonicalRuntimeHarness | undefined;
   try {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { scanUserCodePilotExtensions } = require('@/lib/harness/user-codepilot-extensions');
@@ -219,6 +222,25 @@ export function getBuiltinTools(
     // perceptionHint".
     externalExtensions = scanExternalFrameworkExtensions({});
   } catch { /* best effort */ }
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { loadConfiguredHarnessHome } = require('@/lib/harness-home/runtime/configured');
+    const configured = loadConfiguredHarnessHome('codepilot_runtime');
+    if (configured.status === 'loaded') {
+      canonicalHarness = configured.harness;
+    } else if (configured.status === 'unavailable') {
+      console.warn('[harness-home] Canonical projection unavailable', {
+        runtimeId: 'codepilot_runtime',
+        root: configured.root,
+        reason: configured.reason,
+      });
+    }
+  } catch (error) {
+    console.warn('[harness-home] Canonical projection failed', {
+      runtimeId: 'codepilot_runtime',
+      reason: error instanceof Error ? error.message : String(error),
+    });
+  }
 
   const adapted = adaptForNative({
     sessionId: options.sessionId || 'native-anonymous',
@@ -229,6 +251,7 @@ export function getBuiltinTools(
     enabledCapabilities,
     userExtensions,
     externalExtensions,
+    canonicalHarness,
   });
 
   const systemPrompts: string[] = [];

@@ -15,6 +15,8 @@ Harness Home is the framework-neutral, user-owned source of truth for portable i
 | Writer lease | Single-writer lock for one canonical realpath. |
 | Prepared journal | Durable intent plus staged bytes used to resume a partial multi-file transaction. |
 | Reference status | `pending`, `executable` or `rejected`; a stable canonical capability must be executable in CodePilot. |
+| Runtime registration | Compile-time descriptor that owns wire ID, display metadata, packaged driver, exposure key and projection modes. It is not a dynamic JS plugin. |
+| Definition descriptor | Canonical Skill/MCP metadata. Discovery makes it perceptible; only a Runtime-owned mounter may prove it executable. |
 
 ## 2. 不变量 / 契约表
 
@@ -32,6 +34,10 @@ Harness Home is the framework-neutral, user-owned source of truth for portable i
 | 10 | New L0/L1 framework work defaults to its adapter directory, one registry entry and conformance fixtures. Context Compiler, Settings coverage and Artifact renderer are outside the allowed boundary. |
 | 11 | Runtime overlays may override projection for the active Runtime but never overwrite the canonical base definition/state. |
 | 12 | Creative Method and durable Taste Memory require evidence. A durable user preference requires explicit confirmation and remains revocable. |
+| 13 | Runtime wire IDs, Settings labels, capability rows and packaged drivers derive from the explicit Runtime catalog. Unknown IDs fail closed; a missing packaged driver fails startup. |
+| 14 | Canonical projection reads exactly one hash-consistent generation. Missing provenance, external edits, oversized context or Secret material abort projection before prompt assembly. |
+| 15 | Canonical Skill/MCP definitions are catalogued as perception-only until a Runtime-specific mounter proves a real executable wire. Their bodies are not injected as fake tools. |
+| 16 | Runtime switching is read-only with respect to canonical files. It may select a matching overlay but cannot rewrite the base manifest or external Harness source. |
 
 ## 3. 关键文件 + 责任
 
@@ -48,6 +54,13 @@ Harness Home is the framework-neutral, user-owned source of truth for portable i
 | `secret-store.ts` | Value-free metadata plus explicit resolve/mutate facade |
 | `codepilot-secret-store.ts` | Compatibility resolver over v0.62 Settings/Provider/env/external-owned stores |
 | `registry.ts` | Open descriptor registries for Harness and Runtime adapters |
+| `src/lib/runtime/runtime-catalog.ts` | Built-in Runtime registration, display/driver/exposure metadata and packaged-driver gate |
+| `runtime/descriptor.ts` | Descriptor-derived capability declarations and CodePilot Full Reference assertion |
+| `runtime/repository-projection.ts` | Consistent canonical generation → Runtime projection and prompt fragment |
+| `runtime/definitions.ts` | Canonical-first Skill/MCP create/update with expected-hash conflict protection |
+| `runtime/configured.ts` | Read-only configured-root resolution and value-free Secret diagnostics |
+| `src/app/api/harness-home/**` | Metadata-only diagnostics, configure/unconfigure and canonical definition write boundary |
+| `src/lib/harness/runtime-adapter.ts` | Injects a validated canonical projection into all three Runtime facades |
 
 ## 4. 改动检查表
 
@@ -58,6 +71,9 @@ Harness Home is the framework-neutral, user-owned source of truth for portable i
 - [ ] New credential namespace declares resolve, mutation, reauthorization and cleanup semantics.
 - [ ] New L0/L1 adapter passes the shared conformance suite and does not modify forbidden touchpoints.
 - [ ] New Runtime descriptor keeps unsupported capabilities explicit and passes permission/event conformance.
+- [ ] New Runtime registration includes a real packaged driver and keeps DB/HTTP wire validation fail-closed.
+- [ ] Canonical projection includes source provenance and does not expose Memory/identity bodies through diagnostics.
+- [ ] Skill/MCP discovery remains perception-only until a conformance-tested mounter is passed explicitly.
 - [ ] New Asset kind is producer-backed and is registered in Program B, not added as a speculative enum here.
 - [ ] New Taste/Method persistence includes evidence, scope and revoke behavior.
 - [ ] Tests use isolated temporary roots; never point at a real user Harness root.
@@ -70,6 +86,9 @@ Harness Home is the framework-neutral, user-owned source of truth for portable i
 - Resolving a SecretRef for diagnostics and accidentally serializing the returned value.
 - Parsing only known Runtime overlays and dropping fields from an uninstalled adapter.
 - Calling an L0/L1 scanner a Runtime integration, then branching in Context Compiler and Settings.
+- Treating a canonical Skill/MCP file as mounted because it was successfully read.
+- Returning canonical section bodies or resolved Secret values from diagnostics.
+- Adding a selectable Runtime descriptor without registering its packaged driver.
 - Treating a selected image or one-off edit as a permanent user preference.
 - Adding `component`, `document` or `html_bundle` before a real materializer/validator/consumer exists.
 
@@ -84,6 +103,9 @@ Harness Home is the framework-neutral, user-owned source of truth for portable i
 | Symlink boundary and inline Secret rejection | `harness-home-repository.test.ts` |
 | SecretStore value-free diagnostics/read-only namespaces | `harness-home-repository.test.ts` |
 | Per-adapter L0/L1 behavior | `harness-home-adapter-conformance.test.ts` |
+| Runtime registry/wire/packaged driver/Full Reference | `harness-home-runtime-conformance.test.ts` |
+| Canonical projection, cross-Runtime read-only injection, stale generation and Secret metadata | `harness-home-runtime-conformance.test.ts` |
+| Canonical Skill/MCP create/idempotency/hash conflict/Secret rejection | `harness-home-runtime-conformance.test.ts` |
 
 Required local verification for core/repository changes:
 
@@ -103,3 +125,7 @@ Run full `npm run test` before closing a phase or changing existing Runtime/DB/M
 - 2026-07-30 — The write model uses a single writer, same-root staging, durable journal, manifest-last commit, hash reconciliation and explicit dead-holder takeover.
 - 2026-07-30 — The initial SecretStore is a compatibility facade over existing v0.62 stores. No silent credential migration or external auth-file read is allowed.
 - 2026-07-30 — L0/L1 Harness adapters are separated from L2/L3 Runtime adapters to keep new framework integration bounded.
+- 2026-07-30 — Runtime IDs and user-facing metadata derive from one compile-time catalog. The legacy three wire values remain compatible; arbitrary third-party JS loading remains out of scope.
+- 2026-07-30 — Canonical identity/rules/Memory/Method context is projected into all three Runtime facades from one consistent generation. Skill/MCP bodies remain perception-only until an executable mounter exists.
+- 2026-07-30 — Harness Home Skill/MCP creation writes the canonical repository first. Replacing different bytes requires the caller's expected content hash; external export remains a separate adapter action.
+- 2026-07-30 — Harness Home diagnostics are a code/API surface, not a new page. They return root, provenance, conflicts, capability gaps and Secret availability metadata, never canonical content or resolved values.

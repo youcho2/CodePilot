@@ -16,6 +16,10 @@ import OpenAI from '@lobehub/icons/es/OpenAI';
 import { MonolithIcon } from '@/components/brand/MonolithIcon';
 import type { ChatRuntime } from '@/lib/chat-runtime-shared';
 import { RUNTIME_IDS, type RuntimeId } from '@/lib/runtime/runtime-id';
+import {
+  requireRuntimeRegistration,
+  type RuntimeBrandIcon,
+} from '@/lib/runtime/runtime-catalog';
 
 /**
  * Per-runtime i18n label keys. Single source of truth — adding a new
@@ -31,20 +35,16 @@ import { RUNTIME_IDS, type RuntimeId } from '@/lib/runtime/runtime-id';
  * "Claude Code" / "CodePilot" / "Codex" without the duplicate
  * "Runtime" / "引擎" suffix that bloated the composer toolbar.
  */
-const RUNTIME_LABEL_KEYS: Record<RuntimeId, { label: TranslationKey; desc: TranslationKey }> = {
-  claude_code: {
-    label: 'runtimeSelector.claudeCode' as TranslationKey,
-    desc: 'runtimeSelector.claudeCodeDesc' as TranslationKey,
-  },
-  codepilot_runtime: {
-    label: 'runtimeSelector.codepilotRuntime' as TranslationKey,
-    desc: 'runtimeSelector.codepilotRuntimeDesc' as TranslationKey,
-  },
-  codex_runtime: {
-    label: 'runtimeSelector.codexRuntime' as TranslationKey,
-    desc: 'runtimeSelector.codexRuntimeDesc' as TranslationKey,
-  },
-};
+function runtimeTranslationKeys(runtime: RuntimeId): {
+  label: TranslationKey;
+  desc: TranslationKey;
+} {
+  const keys = requireRuntimeRegistration(runtime).translationKeys;
+  return {
+    label: keys.label as TranslationKey,
+    desc: keys.description as TranslationKey,
+  };
+}
 
 /**
  * Per-runtime brand icon. Phase 6 UI收口 P1 (2026-05-14) — replaces the
@@ -57,8 +57,9 @@ const RUNTIME_LABEL_KEYS: Record<RuntimeId, { label: TranslationKey; desc: Trans
  *   codex_runtime     → OpenAI (Codex is an OpenAI product)
  */
 function RuntimeIcon({ runtime, size, className }: { runtime: RuntimeId; size: number; className?: string }) {
-  if (runtime === 'claude_code') return <Anthropic size={size} className={className} />;
-  if (runtime === 'codex_runtime') return <OpenAI size={size} className={className} />;
+  const icon: RuntimeBrandIcon = requireRuntimeRegistration(runtime).icon;
+  if (icon === 'anthropic') return <Anthropic size={size} className={className} />;
+  if (icon === 'openai') return <OpenAI size={size} className={className} />;
   return <MonolithIcon size={size} className={className} />;
 }
 
@@ -105,7 +106,7 @@ export function RuntimeSelector({
     runtimePin && (RUNTIME_IDS as readonly string[]).includes(runtimePin)
       ? (runtimePin as ChatRuntime)
       : effectiveRuntime;
-  const label = t(RUNTIME_LABEL_KEYS[activeRuntime].label);
+  const label = t(runtimeTranslationKeys(activeRuntime).label);
 
   return (
     <DropdownMenu>
@@ -134,7 +135,7 @@ export function RuntimeSelector({
           >
             <RuntimeIcon runtime={id} size={14} className="mt-0.5" />
             <div className="flex flex-col items-start gap-0.5 flex-1 min-w-0">
-              <span>{t(RUNTIME_LABEL_KEYS[id].label)}</span>
+              <span>{t(runtimeTranslationKeys(id).label)}</span>
               {/* Round 16: trimmed to one line. The description was
                   wrapping over 2-3 lines in zh and made the runtime
                   picker feel like a settings page. Active-state
@@ -142,7 +143,7 @@ export function RuntimeSelector({
                   the active row via its own bg highlight, the
                   redundant ✓ added visual noise. */}
               <span className="text-[11px] text-muted-foreground leading-tight line-clamp-1 max-w-[200px]">
-                {t(RUNTIME_LABEL_KEYS[id].desc)}
+                {t(runtimeTranslationKeys(id).desc)}
               </span>
             </div>
           </DropdownMenuItem>

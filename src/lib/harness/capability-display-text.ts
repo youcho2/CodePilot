@@ -33,6 +33,7 @@
  */
 
 import type { RuntimeId } from '@/lib/runtime/runtime-id';
+import { getRuntimeDisplayName } from '@/lib/runtime/runtime-catalog';
 
 export interface BilingualText {
   readonly zh: string;
@@ -47,19 +48,8 @@ export interface CapabilityDisplay {
   readonly description?: BilingualText;
 }
 
-const RUNTIME_LABEL_ZH: Record<RuntimeId, string> = {
-  claude_code: 'Claude Code',
-  codepilot_runtime: 'CodePilot',
-  codex_runtime: 'Codex',
-};
-const RUNTIME_LABEL_EN: Record<RuntimeId, string> = {
-  claude_code: 'Claude Code',
-  codepilot_runtime: 'CodePilot',
-  codex_runtime: 'Codex',
-};
-
 function runtimeLabel(runtimeId: RuntimeId, lang: 'zh' | 'en'): string {
-  return lang === 'zh' ? RUNTIME_LABEL_ZH[runtimeId] : RUNTIME_LABEL_EN[runtimeId];
+  return getRuntimeDisplayName(runtimeId, lang);
 }
 
 const CAPABILITY_DISPLAY: Readonly<Record<string, CapabilityDisplay>> = {

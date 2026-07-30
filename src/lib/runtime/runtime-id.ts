@@ -3,26 +3,42 @@
  * Runtime registered with CodePilot.
  *
  * Slice A of Phase 0.5 (Runtime Contract Hardening, 2026-05-13) — this
- * file is the one place to add a new runtime id. The string-literal
- * union is consumed by:
+ * The ID set is derived from `runtime-catalog.ts`, which also carries the
+ * packaged driver and user-facing descriptor. The database/HTTP wire values
+ * remain backward compatible, but validation now goes through the explicit
+ * registry rather than an independent hand-written whitelist.
  *
  *   - `RuntimeSessionRef.runtimeId` (adapter-owned session metadata)
  *   - `RuntimeRunEvent` / `RuntimePermissionEvent` (internal event union)
  *   - `ModelRuntimeCompat.supportedRuntimes` (model compat matrix)
  *   - `ChatRuntime` (legacy alias for backward compat — same values)
  *
- * Codex Runtime is intentionally NOT in `RUNTIME_IDS` yet — adding it
- * is a Phase 5 deliverable. Slice A only lays the foundation; the
- * Codex integration slices add 'codex_runtime' to this array in one
- * atomic change that propagates through every consumer at once.
  */
 
-export const RUNTIME_IDS = ['claude_code', 'codepilot_runtime', 'codex_runtime'] as const;
+import {
+  BUILTIN_RUNTIME_REGISTRATIONS,
+  getRuntimeRegistration,
+  requireRuntimeRegistration,
+  type RegisteredRuntimeId,
+} from './runtime-catalog';
 
-export type RuntimeId = (typeof RUNTIME_IDS)[number];
+export const RUNTIME_IDS: readonly RegisteredRuntimeId[] =
+  BUILTIN_RUNTIME_REGISTRATIONS.map((registration) => registration.id);
+
+export type RuntimeId = RegisteredRuntimeId;
 
 export function isRuntimeId(v: unknown): v is RuntimeId {
-  return typeof v === 'string' && (RUNTIME_IDS as readonly string[]).includes(v);
+  return !!getRuntimeRegistration(v);
+}
+
+/** Validate a persisted/HTTP value and return its registered wire ID. */
+export function parseRuntimeId(v: unknown): RuntimeId {
+  return requireRuntimeRegistration(v).id;
+}
+
+/** Validate before persisting so unknown IDs never enter a session row. */
+export function serializeRuntimeId(v: RuntimeId): string {
+  return requireRuntimeRegistration(v).id;
 }
 
 /**

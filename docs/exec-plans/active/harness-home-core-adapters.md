@@ -2,7 +2,7 @@
 
 > 创建时间：2026-07-30
 > 最后更新：2026-07-30
-> 状态：🔄 A1–A3 已完成，A4 实施中；用户已授权 Codex 直接实施，明确不启动 loop
+> 状态：🟡 A1–A4 工程实现完成；A4 真实凭据 Tier 2 smoke 待最终验收；用户已授权 Codex 直接实施，明确不启动 loop
 > 父计划：[harness-home-user-owned-core.md](harness-home-user-owned-core.md)
 > 基线：正式 v0.62 发布线；实施时必须从当时最新 `main` 新建隔离 worktree
 
@@ -30,7 +30,7 @@ Asset DB/Gallery 演进见 [harness-home-asset-library.md](harness-home-asset-li
 | A1 | Domain contracts、scope、provenance、reference status | ✅ 完成 | A0 全绿 |
 | A2 | File repository、write model、SecretStore、migration | ✅ 完成 | A1 contract frozen |
 | A3 | HarnessAdapter L0/L1 + per-adapter conformance | ✅ 完成 | A2 dry-run/round-trip 通过 |
-| A4 | RuntimeAdapter L2/L3 + CodePilot Full Reference | 🔄 实施中 | A3 边界与 touchpoint budget 通过 |
+| A4 | RuntimeAdapter L2/L3 + CodePilot Full Reference | 🟡 工程完成，真实凭据 smoke 待验收 | A3 边界与 touchpoint budget 通过 |
 
 ## 用户会看到什么
 
@@ -352,6 +352,45 @@ interface RuntimeDescriptor {
 - Draft pending capability 不进入稳定 coverage。
 - Runtime 切换不改写 canonical 数据。
 
+### A4 实施结果
+
+- Runtime wire ID、双语名称、Settings metadata、capability exposure key 和
+  packaged driver 改由 `src/lib/runtime/runtime-catalog.ts` 单一显式注册；
+  旧 DB/HTTP 三个 wire 值保持兼容，unknown ID fail-closed。
+- packaged startup 逐项确认 descriptor 的实际 driver 已注册；缺失时启动
+  失败，不允许 UI 选中 A、实际回退 B。
+- `runtime/descriptor.ts` 从现有 capability contract/matrix 派生三 Runtime
+  声明，并在模块加载时执行
+  `stable canonical ⊆ CodePilot executable`。
+- `runtime/repository-projection.ts` 对 canonical manifest generation/content
+  hash/provenance/Secret/大小门禁后，将 identity、rules、Memory、Methods、
+  matching overlay 和 Asset refs 投影到 Claude Code、CodePilot、Codex 三条
+  现有真实 adapter 入口。
+- Skill/MCP 目前只归档为 `perception_only` descriptor；未建立真实 mounter
+  前不注入定义正文、不增加 tool name、不声称可调用。
+- `/api/harness-home/definitions` 的创建/更新默认写 canonical repository；
+  同内容幂等，不同内容更新必须带 expected content hash。写入不触碰
+  `.claude`/`.codex`，外部 export 仍是独立显式动作。
+- `/api/harness-home` 提供 metadata-only diagnostics 与显式配置/取消配置；
+  不新增 Harness Home 页面，不返回 Memory/identity 内容或 Secret value，
+  取消配置不会删除用户 repository。
+
+定向验证：
+
+```text
+npm run typecheck
+npx eslint <A4 touched files>
+CODEX_DISABLED=1 npx tsx --test --import ./src/__tests__/db-isolation.setup.ts \
+  src/__tests__/unit/harness-home-runtime-conformance.test.ts \
+  src/__tests__/unit/harness-runtime-adapter.test.ts \
+  src/__tests__/unit/harness-capability-matrix.test.ts \
+  src/__tests__/unit/runtime-id-hardcoding.test.ts
+=> 74/74 pass
+```
+
+真实凭据的 resume / interrupt / permission / tool event smoke 不伪造结果，
+保留为最终 Tier 2 验收；既有对应 Runtime contract 测试仍由全量门禁覆盖。
+
 ## 验证分层
 
 | 层 | 内容 |
@@ -366,6 +405,7 @@ interface RuntimeDescriptor {
 | Date | Phase | Runtime / Adapter | 凭据形态 | 场景 | Result | Evidence |
 |------|-------|-------------------|----------|------|--------|----------|
 | 2026-07-30 | A3 | assistant-workspace / claude-code / codex | none | discover → dry-run → import → export → re-import；conflict / partial rollback / symlink | ✅ | `harness-home-adapter-conformance.test.ts` 19/19 |
+| 2026-07-30 | A4 | Claude / CodePilot / Codex facades | none | registered descriptor → canonical repository projection → prompt；canonical Skill/MCP write；stale/unknown/Secret fail-closed | ✅ | `harness-home-runtime-conformance.test.ts` + related tests 74/74 |
 | _待执行_ | A4 | CodePilot / Claude / Codex | real credential | canonical memory/skill/MCP projection | ⏳ | session ids / logs / screenshots |
 
 ## 决策日志
@@ -379,3 +419,4 @@ interface RuntimeDescriptor {
 - 2026-07-30：A1 完成。核心 contract 使用 opaque Runtime/framework ID；manifest 保留未知 overlay/字段；stable capability 必须 executable；Secret 明文扫描、scope precedence、Taste evidence 门禁均有定向测试。A1 不接入现有 Runtime/UI，保持用户行为零变化。
 - 2026-07-30：A2 完成。仓库采用 realpath 单写者 lease、显式 dead-holder takeover、同根 staging、prepared journal、manifest-last atomic rename、启动恢复和 hash/rescan；外部修改与 symlink 越界 fail-closed。SecretStore 首版只代理 v0.62 既有 stores，env/external-owned 只读，诊断不含 resolved value。
 - 2026-07-30：A3 完成。首批 Assistant Workspace、Claude Code、Codex source adapters 共用 L0/L1 contract；Codex `config.toml` 不做不安全的整文件 import。普通新 adapter 目标变更面固定为自身目录 + registry + conformance，changed-files guard 强制显式 base。
+- 2026-07-30：A4 工程实现完成。Runtime 元数据改为显式 compile-time registry，旧 wire 保持兼容并对 unknown fail-closed；CodePilot stable Full Reference 由自动化强制。Canonical Repository 已接三条 Runtime facade；Skill/MCP 先感知、不冒充挂载。真实凭据 smoke 留在最终 Tier 2。

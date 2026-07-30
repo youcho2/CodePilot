@@ -190,3 +190,33 @@ Existing `docs/handover/macos-visual-profile.md` is accepted as a real, implemen
 ## Phase 0 conclusion
 
 Shared contracts may start. Program C’s aesthetic quality cannot be closed without user-confirmed briefs and outputs; that is an intentional human gate, not an engineering blocker for Program A.
+
+## A4 implementation delta
+
+The v0.62 observations above remain the historical baseline. Program A4 now
+changes the implementation as follows:
+
+- `src/lib/runtime/runtime-catalog.ts` is the compile-time registration source
+  for wire IDs, Settings labels, capability exposure keys and packaged driver
+  IDs. Existing DB/HTTP values remain unchanged.
+- `src/lib/harness-home/runtime/descriptor.ts` derives Runtime capability
+  declarations from the existing capability contract/matrix and enforces
+  `stable canonical ⊆ CodePilot executable`.
+- `src/lib/harness-home/runtime/repository-projection.ts` reads a single
+  hash-consistent canonical generation and supplies identity, rules, Memory,
+  Methods, matching overlays and Asset refs to all three existing Runtime
+  facades.
+- Skill/MCP files are visible as catalogued descriptors only. A read succeeds
+  without promoting them to executable; their bodies are not injected into
+  model context.
+- `/api/harness-home/definitions` creates Skills/MCP descriptors in the
+  canonical repository first. Same bytes are idempotent; replacing different
+  bytes requires an expected hash; external export remains a separate action.
+- `GET /api/harness-home` exposes metadata-only diagnostics. `PUT` selects an
+  existing validated root and `DELETE` unconfigures it without deleting the
+  repository.
+
+This reduces the three fixed Runtime metadata copies, but does not claim that a
+fourth chat Runtime is now zero-cost. A fourth packaged Runtime still needs a
+driver, event/permission/session/artifact conformance and an explicit shipping
+registration. L0/L1 source adapters remain the lightweight path.

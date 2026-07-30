@@ -24,7 +24,11 @@
  *     mechanises it for the rest).
  */
 
-import type { RuntimeId } from '@/lib/runtime/runtime-id';
+import { RUNTIME_IDS, type RuntimeId } from '@/lib/runtime/runtime-id';
+import {
+  getRuntimeDisplayName,
+  requireRuntimeRegistration,
+} from '@/lib/runtime/runtime-catalog';
 import {
   HARNESS_CAPABILITIES,
   type CapabilityContract,
@@ -99,34 +103,16 @@ export interface CapabilityMatrixCell {
     | 'mixed';
 }
 
-const ALL_RUNTIMES: readonly RuntimeId[] = [
-  'claude_code',
-  'codepilot_runtime',
-  'codex_runtime',
-];
+const ALL_RUNTIMES: readonly RuntimeId[] = RUNTIME_IDS;
 
 function exposureKey(
   runtimeId: RuntimeId,
 ): 'claudecode_sdk' | 'native' | 'codex_proxy' {
-  switch (runtimeId) {
-    case 'claude_code':
-      return 'claudecode_sdk';
-    case 'codepilot_runtime':
-      return 'native';
-    case 'codex_runtime':
-      return 'codex_proxy';
-  }
+  return requireRuntimeRegistration(runtimeId).exposureKey;
 }
 
 function runtimeDisplayName(runtimeId: RuntimeId): string {
-  switch (runtimeId) {
-    case 'claude_code':
-      return 'ClaudeCode SDK';
-    case 'codepilot_runtime':
-      return 'CodePilot Native';
-    case 'codex_runtime':
-      return 'Codex';
-  }
+  return getRuntimeDisplayName(runtimeId, 'en');
 }
 
 /**

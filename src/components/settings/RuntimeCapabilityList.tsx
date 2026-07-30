@@ -56,6 +56,7 @@ import {
 } from '@/components/ui/dialog';
 import { cn } from '@/lib/utils';
 import type { RuntimeId } from '@/lib/runtime/runtime-id';
+import { getRuntimeDisplayName } from '@/lib/runtime/runtime-catalog';
 import type { CapabilityMatrixCell } from '@/lib/harness/capability-matrix';
 import {
   getCapabilityDisplay,
@@ -198,24 +199,7 @@ function trustBoundaryClass(
 }
 
 function runtimeLabel(runtimeId: RuntimeId, isZh: boolean): string {
-  if (isZh) {
-    switch (runtimeId) {
-      case 'claude_code':
-        return 'Claude Code';
-      case 'codepilot_runtime':
-        return 'CodePilot';
-      case 'codex_runtime':
-        return 'Codex';
-    }
-  }
-  switch (runtimeId) {
-    case 'claude_code':
-      return 'Claude Code';
-    case 'codepilot_runtime':
-      return 'CodePilot';
-    case 'codex_runtime':
-      return 'Codex';
-  }
+  return getRuntimeDisplayName(runtimeId, isZh ? 'zh' : 'en');
 }
 
 export function RuntimeCapabilityList({

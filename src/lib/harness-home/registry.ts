@@ -57,10 +57,27 @@ export interface HarnessAdapterDescriptor extends IdentifiedDescriptor {
 
 export type RuntimeIntegrationLevel = 'bridge' | 'full';
 
+export interface RuntimeCapabilityDeclaration {
+  readonly id: string;
+  readonly maturity: 'draft' | 'stable';
+  readonly referenceStatus: 'pending' | 'executable' | 'rejected';
+  readonly execution:
+    | 'executable'
+    | 'perception_only'
+    | 'unavailable'
+    | 'undetermined';
+  readonly exposureKind: string;
+  readonly reason?: string;
+}
+
 export interface RuntimeDescriptor extends IdentifiedDescriptor {
   readonly displayName: string;
   readonly integrationLevel: RuntimeIntegrationLevel;
-  readonly capabilityIds: readonly string[];
+  readonly capabilities: readonly RuntimeCapabilityDeclaration[];
   readonly projectionModes: readonly string[];
+  readonly sessionDriverId: string;
+  readonly eventContract: 'canonical-runtime-events-v1';
+  readonly permissionContract: 'canonical-runtime-permissions-v1';
+  readonly artifactContract: 'canonical-artifacts-v1';
   readonly packagedRegistration: 'explicit';
 }

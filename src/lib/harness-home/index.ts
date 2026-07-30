@@ -6,6 +6,7 @@ export * from './projection';
 export * from './provenance';
 export * from './registry';
 export * from './repository';
+export * from './runtime';
 export * from './scope';
 export * from './secret-store';
 export * from './secret-ref';

@@ -216,6 +216,9 @@ export function createUnifiedAdapter(family: string): ResponsesAdapter {
     let externalExtensions: ReturnType<
       typeof import('@/lib/harness/external-framework-harness').scanExternalFrameworkExtensions
     > = [];
+    let canonicalHarness: import(
+      '@/lib/harness-home/runtime/repository-projection'
+    ).CanonicalRuntimeHarness | undefined;
     try {
       const { scanUserCodePilotExtensions } = await import(
         '@/lib/harness/user-codepilot-extensions'
@@ -233,6 +236,26 @@ export function createUnifiedAdapter(family: string): ResponsesAdapter {
         activeFramework: 'codex',
       });
     } catch { /* best effort */ }
+    try {
+      const { loadConfiguredHarnessHome } = await import(
+        '@/lib/harness-home/runtime/configured'
+      );
+      const configured = loadConfiguredHarnessHome('codex_runtime');
+      if (configured.status === 'loaded') {
+        canonicalHarness = configured.harness;
+      } else if (configured.status === 'unavailable') {
+        console.warn('[harness-home] Canonical projection unavailable', {
+          runtimeId: 'codex_runtime',
+          root: configured.root,
+          reason: configured.reason,
+        });
+      }
+    } catch (error) {
+      console.warn('[harness-home] Canonical projection failed', {
+        runtimeId: 'codex_runtime',
+        reason: error instanceof Error ? error.message : String(error),
+      });
+    }
 
     const adapted = adaptForCodexProxy({
       sessionId: input.sessionId || 'codex-anonymous',
@@ -245,6 +268,7 @@ export function createUnifiedAdapter(family: string): ResponsesAdapter {
         : new Set<string>(),
       userExtensions,
       externalExtensions,
+      canonicalHarness,
     });
     // Both bridge tools and provider-hosted tools are completed inside this
     // adapter. They must never be echoed back to Codex as function calls:

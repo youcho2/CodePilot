@@ -78,6 +78,10 @@ import {
   type ExternalFrameworkHarnessRef,
   type HarnessBundle,
 } from './harness-bundle';
+import {
+  renderCanonicalHarnessFragment,
+  type CanonicalRuntimeHarness,
+} from '@/lib/harness-home/runtime/repository-projection';
 
 // ─────────────────────────────────────────────────────────────────────
 // Input shape (shared across all three runtime facades).
@@ -114,6 +118,13 @@ export interface RuntimeAdapterInput {
    *  Runtime" hint). Caller produces this via
    *  `scanExternalFrameworkExtensions()`. */
   readonly externalExtensions?: readonly ExternalFrameworkHarnessRef[];
+  /**
+   * Optional read-only projection from the user's canonical repository.
+   * The loader validates generation/hash/provenance before producing this
+   * object. Skill/MCP descriptors remain perceptible-only here; mounting is
+   * a separate Runtime-owned operation.
+   */
+  readonly canonicalHarness?: CanonicalRuntimeHarness;
 }
 
 const DEFAULT_TOKEN_BUDGET = {
@@ -212,7 +223,20 @@ export function renderHarnessExtensionFragment(bundle: HarnessBundle): string {
 function buildBundleAndRender(
   input: RuntimeAdapterInput,
   runtimeId: 'claude_code' | 'codepilot_runtime' | 'codex_runtime',
-): { bundle: HarnessBundle; fragment: string } {
+): {
+  bundle: HarnessBundle;
+  extensionFragment: string;
+  canonicalFragment: string;
+} {
+  if (
+    input.canonicalHarness
+    && input.canonicalHarness.runtimeId !== runtimeId
+  ) {
+    throw new Error(
+      `Canonical Harness projection targets `
+      + `"${input.canonicalHarness.runtimeId}", not "${runtimeId}".`,
+    );
+  }
   const bundle = buildHarnessBundle({
     runtimeId,
     providerId: input.providerId,
@@ -220,7 +244,13 @@ function buildBundleAndRender(
     userCapabilities: input.userExtensions,
     externalExtensions: input.externalExtensions,
   });
-  return { bundle, fragment: renderHarnessExtensionFragment(bundle) };
+  return {
+    bundle,
+    extensionFragment: renderHarnessExtensionFragment(bundle),
+    canonicalFragment: input.canonicalHarness
+      ? renderCanonicalHarnessFragment(input.canonicalHarness)
+      : '',
+  };
 }
 
 /**
@@ -228,14 +258,10 @@ function buildBundleAndRender(
  * text + (optional) harness extension perception fragment. Used by
  * all three runtime facades so the rendering is consistent.
  */
-function composeSystemPromptWithExtensions(
-  capabilityText: string,
-  extFragment: string,
+function composeSystemPromptWithHarness(
+  ...fragments: readonly string[]
 ): string {
-  if (!capabilityText && !extFragment) return '';
-  if (!extFragment) return capabilityText;
-  if (!capabilityText) return extFragment;
-  return `${capabilityText}\n\n${extFragment}`;
+  return fragments.filter((fragment) => fragment.length > 0).join('\n\n');
 }
 
 // ─────────────────────────────────────────────────────────────────────
@@ -280,11 +306,15 @@ export function adaptForClaudeCode(
   // Phase 5e review round 3 fix P1 #A — bundle goes through
   // buildHarnessBundle() (strong-validation builder) before
   // rendering. No raw-array shortcut.
-  const { fragment: extFragment } = buildBundleAndRender(input, 'claude_code');
+  const {
+    extensionFragment,
+    canonicalFragment,
+  } = buildBundleAndRender(input, 'claude_code');
   return {
-    systemPromptAppend: composeSystemPromptWithExtensions(
+    systemPromptAppend: composeSystemPromptWithHarness(
       compiled.systemPromptText,
-      extFragment,
+      canonicalFragment,
+      extensionFragment,
     ),
     mcpServerNames: hints?.mcpServerNames ?? [],
     allowedToolNames: hints?.allowedToolNames ?? [],
@@ -322,11 +352,15 @@ export function adaptForNative(
   });
   const hints: NativeHints | undefined = compiled.runtimeHints.native;
   // Phase 5e review round 3 fix P1 #A — bundle through builder.
-  const { fragment: extFragment } = buildBundleAndRender(input, 'codepilot_runtime');
+  const {
+    extensionFragment,
+    canonicalFragment,
+  } = buildBundleAndRender(input, 'codepilot_runtime');
   return {
-    systemPromptText: composeSystemPromptWithExtensions(
+    systemPromptText: composeSystemPromptWithHarness(
       compiled.systemPromptText,
-      extFragment,
+      canonicalFragment,
+      extensionFragment,
     ),
     toolSetKeys: hints?.toolSetKeys ?? [],
     compiled,
@@ -374,11 +408,15 @@ export function adaptForCodexProxy(
   });
   const hints: CodexProxyHints | undefined = compiled.runtimeHints.codex_proxy;
   // Phase 5e review round 3 fix P1 #A — bundle through builder.
-  const { fragment: extFragment } = buildBundleAndRender(input, 'codex_runtime');
+  const {
+    extensionFragment,
+    canonicalFragment,
+  } = buildBundleAndRender(input, 'codex_runtime');
   return {
-    systemPromptInstructions: composeSystemPromptWithExtensions(
+    systemPromptInstructions: composeSystemPromptWithHarness(
       compiled.systemPromptText,
-      extFragment,
+      canonicalFragment,
+      extensionFragment,
     ),
     builtinToolNames: hints?.builtinToolNames ?? new Set<string>(),
     stopWhen: hints?.stopWhen ?? 'never',
