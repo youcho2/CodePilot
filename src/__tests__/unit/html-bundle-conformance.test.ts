@@ -158,6 +158,42 @@ describe('HTML bundle materialization conformance', () => {
     }
   });
 
+  it('ignores encoded document fragments nested inside a data SVG', () => {
+    const workspace = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'html-data-svg-fragment-'),
+    );
+    try {
+      fs.writeFileSync(
+        path.join(workspace, 'index.html'),
+        `<!doctype html>
+<html>
+  <style>
+    .noise {
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'/%3E%3Crect filter='url(%23n)'/%3E%3C/svg%3E");
+    }
+  </style>
+</html>`,
+        'utf8',
+      );
+
+      const asset = materializeHtmlBundle({
+        terminalState: 'completed',
+        source: {
+          kind: 'workspace',
+          sourceDir: workspace,
+          entryFile: 'index.html',
+          scopeRoot: workspace,
+        },
+        sessionId: 'session-data-svg-fragment',
+      });
+      const metadata = JSON.parse(asset.metadata) as { fileCount: number };
+      assert.equal(metadata.fileCount, 1);
+      assert.equal(asset.integrity_state, 'valid');
+    } finally {
+      fs.rmSync(workspace, { recursive: true, force: true });
+    }
+  });
+
   it('archives an explicit inline snapshot as a single-file static bundle', () => {
     const asset = materializeHtmlBundle({
       terminalState: 'completed',

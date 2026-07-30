@@ -181,7 +181,11 @@ function resolveLocalResourceUrl(input: {
   } catch {
     throw new Error(`HTML bundle contains malformed URL "${raw}".`);
   }
-  if (!decoded) return null;
+  // Encoded SVG/CSS fragments such as url(%23noise) are still document-local
+  // references. The regex scanner can encounter them inside a data: SVG after
+  // it has already ignored the outer data URL, so apply fragment semantics
+  // again after decoding rather than treating "#noise" as a local filename.
+  if (!decoded || decoded.startsWith('#')) return null;
   const resolved = path.resolve(
     input.root,
     path.dirname(input.sourceFile),

@@ -219,6 +219,7 @@ HTML / web result 只有同时满足以下条件才 materialize：
 | 2026-07-30 | all registered kinds | Asset/Gallery API + UI contracts | registry filters、search、provenance/lineage、consumer block、Trash/Restore、strict preview | ✅ Tier 1：12/12 | `asset-library-api.test.ts` 7/7；`asset-library-ui.test.ts` 5/5 |
 | 2026-07-30 | html_bundle | isolated local dev app | 两个真实 materialized bundle → 卡片预览 → detail provenance/parent lineage → search → Trash → Restore | ✅ Browser smoke；iframe `sandbox=""`；0 console errors | 独立 `CLAUDE_GUI_DATA_DIR` + migration disabled；临时数据库与 bundle 已在验收后删除 |
 | 2026-07-30 | html_bundle | real workspace chat card | session `5caa4952ddda37df94da3cd11acf7cc4` 首次归档因误扫描 workspace 超过 512 文件而失败 → 改为入口依赖闭包 → API 真实归档 → 聊天卡片单按钮点击变为“已归档到素材库” | ✅ 目标测试 20/20；Browser smoke；真实 Asset `2dff7212-29f3-44a0-b4e2-5bb3420155ca` integrity `valid` | 520 个无关文件回归 fixture；真实用户数据保留该验收 Asset |
+| 2026-07-30 | html_bundle | encoded data-SVG fragment | session `20107cbbbc77aeae80f675b1a035b2fc` 的 data URI 内含 `url(%23n)`，解码后的 SVG fragment 被误判为本地文件 `#n` → 解码后再次应用 fragment 语义 | ✅ 目标测试 21/21；真实 API + Browser card smoke；Asset `07e7b8a0-a486-496e-8ed9-04bdc28fe730` integrity `valid` | 精确 data-SVG regression fixture；真实用户数据保留该验收 Asset |
 | _待执行_ | all registered kinds | packaged app | multi-kind visual readability + HTML safety copy | ⏳ Human gate | screenshot / user feedback |
 
 ## 决策日志
@@ -231,5 +232,6 @@ HTML / web result 只有同时满足以下条件才 materialize：
 - 2026-07-30：B1 采用增量 Asset index + 保留 `media_generations` 的兼容策略；删除默认只改变 Asset lifecycle，不删除旧 row 或本地字节。
 - 2026-07-30：B2 只归档用户主动选定的完整 workspace/inline snapshot；归档 HTML 永远使用 strict sandbox/CSP，不继承 Preview 的 interactive script 偏好。
 - 2026-07-30：真实 workspace 归档暴露“入口文件所在目录被误当成 bundle root”的缺陷；修复后 workspace materialization 必须从入口 HTML 计算本地资源闭包，无关文件不计入限额也不进入归档。Preview 与聊天卡片必须共用归档客户端，避免两个入口行为漂移。
+- 2026-07-30：资源 URL 的安全分类必须在 percent-decoding 后重新识别 document fragment；`%23...` 属于 SVG/CSS 页内引用，不能作为本地文件进入依赖闭包。
 - 2026-07-30：B3 沿用 Gallery 路由与页面，不另建平行 Asset UI；旧 row 采用 bounded on-read backfill，避免 schema init 或单个请求同步 hash 整个大库。
 - 2026-07-30：隔离浏览器 smoke 发现详情 Dialog 缺少可访问描述，已补 `DialogDescription`；该 smoke 不替代 packaged app 与用户审美验收。
