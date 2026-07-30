@@ -1571,6 +1571,68 @@ export interface MediaContextEvent {
   created_at: string;
 }
 
+export type AssetLifecycleState = 'active' | 'trashed';
+export type AssetIntegrityState = 'valid' | 'missing' | 'modified';
+export type AssetLineageRelation =
+  | 'derived_from'
+  | 'input_reference'
+  | 'variant_of';
+
+export interface AssetRecord {
+  id: string;
+  kind: string;
+  producer_id: string;
+  stable_path: string;
+  content_hash: string;
+  mime_type: string;
+  byte_size: number;
+  width: number | null;
+  height: number | null;
+  duration_ms: number | null;
+  preview_path: string;
+  harness_id: string;
+  project_id: string;
+  session_id: string | null;
+  message_id: string | null;
+  runtime_id: string;
+  provider_id: string;
+  model_id: string;
+  prompt: string;
+  method_ref: string;
+  trust_tier: string;
+  source_scope: string;
+  license: string;
+  source_url: string;
+  curation_state: 'unreviewed' | 'selected' | 'rejected';
+  rating: number | null;
+  lifecycle_state: AssetLifecycleState;
+  integrity_state: AssetIntegrityState;
+  integrity_reason: string;
+  metadata: string;
+  source_media_generation_id: string | null;
+  created_at: string;
+  updated_at: string;
+  deleted_at: string | null;
+}
+
+export interface AssetLineageRecord {
+  parent_asset_id: string;
+  child_asset_id: string;
+  relation: AssetLineageRelation;
+  metadata: string;
+  created_at: string;
+}
+
+export interface AssetReferenceRecord {
+  id: string;
+  asset_id: string;
+  consumer_type: string;
+  consumer_id: string;
+  metadata: string;
+  created_at: string;
+  released_at: string | null;
+}
+
 export interface BatchConfig {
   concurrency: number;     // max parallel image generations (default: 2)
   maxRetries: number;      // max retry attempts per item (default: 2)

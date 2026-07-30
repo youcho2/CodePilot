@@ -57,7 +57,7 @@ const RUNTIME_OWNER_LOCK_PATH = `${DB_PATH}.runtime-owner.lock`;
 // replacing this module. Keep a code-owned revision beside that handle so a
 // newly loaded migration still runs without requiring the user to restart the
 // desktop client. Bump this value whenever initDb/migrateDb gains a migration.
-const DATABASE_SCHEMA_REVISION = '2026-07-24-subagent-workflow-dependencies';
+const DATABASE_SCHEMA_REVISION = '2026-07-30-harness-home-assets';
 
 function getDatabaseProcessStates(): Map<string, DatabaseProcessState> {
   const target = globalThis as typeof globalThis & {
@@ -465,6 +465,10 @@ function initDb(db: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_perm_links_request ON channel_permission_links(permission_request_id);
   `);
 
+  // Harness Home Program B. One idempotent additive schema function serves
+  // both clean bootstrap and on-touch upgrade so the two shapes cannot drift.
+  migrateAssetLibrarySchema(db);
+
   // Run migrations for existing databases
   migrateDb(db);
 }
@@ -480,6 +484,7 @@ function safeAddColumn(db: Database.Database, sql: string): void {
 }
 
 function migrateDb(db: Database.Database): void {
+  migrateAssetLibrarySchema(db);
   const columns = db.prepare("PRAGMA table_info(chat_sessions)").all() as { name: string }[];
   const colNames = columns.map(c => c.name);
 
@@ -1301,6 +1306,172 @@ function migrateDb(db: Database.Database): void {
     );
     CREATE INDEX IF NOT EXISTS idx_notification_deliveries_event_id ON notification_deliveries(event_id);
   `);
+}
+
+const ASSET_RECORD_REQUIRED_COLUMNS = [
+  'id',
+  'kind',
+  'producer_id',
+  'stable_path',
+  'content_hash',
+  'mime_type',
+  'curation_state',
+  'rating',
+  'lifecycle_state',
+  'integrity_state',
+  'source_media_generation_id',
+  'created_at',
+  'updated_at',
+] as const;
+
+/**
+ * Additive, data-preserving Asset Library schema.
+ *
+ * Existing `media_generations` remains untouched and readable by v0.62.
+ * `asset_records` is a typed index/provenance layer over those bytes plus
+ * future materializers. Backfill is performed separately and idempotently so
+ * schema initialization never hashes a large user library on the hot path.
+ */
+export function migrateAssetLibrarySchema(db: Database.Database): void {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS asset_records (
+      id TEXT PRIMARY KEY,
+      kind TEXT NOT NULL,
+      producer_id TEXT NOT NULL,
+      stable_path TEXT NOT NULL,
+      content_hash TEXT NOT NULL DEFAULT '',
+      mime_type TEXT NOT NULL DEFAULT '',
+      byte_size INTEGER NOT NULL DEFAULT 0,
+      width INTEGER,
+      height INTEGER,
+      duration_ms INTEGER,
+      preview_path TEXT NOT NULL DEFAULT '',
+      harness_id TEXT NOT NULL DEFAULT '',
+      project_id TEXT NOT NULL DEFAULT '',
+      session_id TEXT,
+      message_id TEXT,
+      runtime_id TEXT NOT NULL DEFAULT '',
+      provider_id TEXT NOT NULL DEFAULT '',
+      model_id TEXT NOT NULL DEFAULT '',
+      prompt TEXT NOT NULL DEFAULT '',
+      method_ref TEXT NOT NULL DEFAULT '',
+      trust_tier TEXT NOT NULL DEFAULT 'local_generated',
+      source_scope TEXT NOT NULL DEFAULT '',
+      license TEXT NOT NULL DEFAULT '',
+      source_url TEXT NOT NULL DEFAULT '',
+      curation_state TEXT NOT NULL DEFAULT 'unreviewed'
+        CHECK(curation_state IN ('unreviewed','selected','rejected')),
+      rating INTEGER CHECK(rating IS NULL OR (rating >= 1 AND rating <= 5)),
+      lifecycle_state TEXT NOT NULL DEFAULT 'active'
+        CHECK(lifecycle_state IN ('active','trashed')),
+      integrity_state TEXT NOT NULL DEFAULT 'valid'
+        CHECK(integrity_state IN ('valid','missing','modified')),
+      integrity_reason TEXT NOT NULL DEFAULT '',
+      metadata TEXT NOT NULL DEFAULT '{}',
+      source_media_generation_id TEXT UNIQUE,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+      deleted_at TEXT,
+      FOREIGN KEY (source_media_generation_id)
+        REFERENCES media_generations(id) ON DELETE RESTRICT
+    );
+
+    CREATE TABLE IF NOT EXISTS asset_lineage (
+      parent_asset_id TEXT NOT NULL,
+      child_asset_id TEXT NOT NULL,
+      relation TEXT NOT NULL
+        CHECK(relation IN ('derived_from','input_reference','variant_of')),
+      metadata TEXT NOT NULL DEFAULT '{}',
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      PRIMARY KEY (parent_asset_id, child_asset_id, relation),
+      CHECK(parent_asset_id != child_asset_id),
+      FOREIGN KEY (parent_asset_id) REFERENCES asset_records(id) ON DELETE RESTRICT,
+      FOREIGN KEY (child_asset_id) REFERENCES asset_records(id) ON DELETE RESTRICT
+    );
+
+    CREATE TABLE IF NOT EXISTS asset_references (
+      id TEXT PRIMARY KEY,
+      asset_id TEXT NOT NULL,
+      consumer_type TEXT NOT NULL,
+      consumer_id TEXT NOT NULL,
+      metadata TEXT NOT NULL DEFAULT '{}',
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      released_at TEXT,
+      UNIQUE(asset_id, consumer_type, consumer_id),
+      FOREIGN KEY (asset_id) REFERENCES asset_records(id) ON DELETE RESTRICT
+    );
+
+    CREATE TABLE IF NOT EXISTS asset_backfill_state (
+      source_table TEXT PRIMARY KEY,
+      scanned_count INTEGER NOT NULL DEFAULT 0,
+      created_count INTEGER NOT NULL DEFAULT 0,
+      missing_count INTEGER NOT NULL DEFAULT 0,
+      skipped_count INTEGER NOT NULL DEFAULT 0,
+      last_error TEXT NOT NULL DEFAULT '',
+      last_run_at TEXT,
+      completed_at TEXT
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_asset_kind_created
+      ON asset_records(kind, created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_asset_lifecycle_created
+      ON asset_records(lifecycle_state, created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_asset_content_hash
+      ON asset_records(content_hash);
+    CREATE INDEX IF NOT EXISTS idx_asset_session
+      ON asset_records(session_id, created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_asset_lineage_parent
+      ON asset_lineage(parent_asset_id);
+    CREATE INDEX IF NOT EXISTS idx_asset_lineage_child
+      ON asset_lineage(child_asset_id);
+    CREATE INDEX IF NOT EXISTS idx_asset_references_asset
+      ON asset_references(asset_id, released_at);
+  `);
+
+  const existingAssetColumns = new Set(
+    (db.prepare("PRAGMA table_info(asset_records)").all() as { name: string }[])
+      .map((column) => column.name),
+  );
+  if (!existingAssetColumns.has('curation_state')) {
+    safeAddColumn(
+      db,
+      `ALTER TABLE asset_records
+       ADD COLUMN curation_state TEXT NOT NULL DEFAULT 'unreviewed'
+       CHECK(curation_state IN ('unreviewed','selected','rejected'))`,
+    );
+  }
+  if (!existingAssetColumns.has('rating')) {
+    safeAddColumn(
+      db,
+      `ALTER TABLE asset_records
+       ADD COLUMN rating INTEGER
+       CHECK(rating IS NULL OR (rating >= 1 AND rating <= 5))`,
+    );
+  }
+  const backfillColumns = new Set(
+    (db.prepare("PRAGMA table_info(asset_backfill_state)").all() as { name: string }[])
+      .map((column) => column.name),
+  );
+  if (!backfillColumns.has('last_error')) {
+    safeAddColumn(
+      db,
+      `ALTER TABLE asset_backfill_state
+       ADD COLUMN last_error TEXT NOT NULL DEFAULT ''`,
+    );
+  }
+  const columns = new Set(
+    (db.prepare("PRAGMA table_info(asset_records)").all() as { name: string }[])
+      .map((column) => column.name),
+  );
+  const missing = ASSET_RECORD_REQUIRED_COLUMNS.filter(
+    (column) => !columns.has(column),
+  );
+  if (missing.length > 0) {
+    throw new Error(
+      `Existing asset_records table has an incompatible shape; missing: `
+      + missing.join(', '),
+    );
+  }
 }
 
 /**

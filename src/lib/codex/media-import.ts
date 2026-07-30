@@ -95,6 +95,8 @@ export function materializeCodexEventMedia(
       const result = importFileToLibrary(block.localPath, {
         sessionId: opts.sessionId,
         source: 'codex',
+        producerId: 'codex-media-import',
+        runtimeId: 'codex_runtime',
         mimeType: block.mimeType,
         cwd: opts.cwd,
         prompt: block.sourceMetadata?.prompt,

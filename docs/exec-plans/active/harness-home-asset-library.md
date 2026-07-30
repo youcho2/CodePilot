@@ -2,7 +2,7 @@
 
 > 创建时间：2026-07-30
 > 最后更新：2026-07-30
-> 状态：📋 待 Program A shared contract；**未授权产品代码实施**
+> 状态：🔄 B0/B1 code/tests 完成；B2 HTML bundle 与 B3 Gallery 演进实施中；用户已授权 Codex 直接实施，明确不启动 loop
 > 父计划：[harness-home-user-owned-core.md](harness-home-user-owned-core.md)
 > 依赖：[harness-home-core-adapters.md](harness-home-core-adapters.md) 的 `AssetRef` / scope / provenance / repository boundary
 
@@ -16,10 +16,10 @@
 
 | Phase | 内容 | 状态 | 入口门禁 |
 |-------|------|------|----------|
-| B0 | Producer / consumer inventory 与 DB migration 设计 | 📋 待开始 | Shared Phase 0 Asset inventory |
-| B1 | Asset registry、现有 media backfill、lineage | 📋 待开始 | Program A shared contract frozen |
-| B2 | HTML bundle materializer 与 trust/CSP | 📋 待开始 | B1 + 现有 Artifact trust contract |
-| B3 | Library/Gallery 渐进演进与 typed references | 📋 待开始 | B1/B2 数据门禁 |
+| B0 | Producer / consumer inventory 与 DB migration 设计 | ✅ 完成 | Shared Phase 0 Asset inventory |
+| B1 | Asset registry、现有 media backfill、lineage | ✅ code/tests 完成 | Program A shared contract frozen |
+| B2 | HTML bundle materializer 与 trust/CSP | 🔄 实施中 | B1 + 现有 Artifact trust contract |
+| B3 | Library/Gallery 渐进演进与 typed references | 🔄 实施中 | B1/B2 数据门禁 |
 
 ## 用户会看到什么
 
@@ -122,6 +122,15 @@ Backfill 原则：
 - 默认走可恢复删除。
 - 没有 registered producer 的 kind 无法写入。
 
+### B1 实施证据
+
+- `asset_records` 作为 `media_generations` 上的增量 typed index，旧表和旧字节不改；旧版仍能读取原 Gallery 数据。
+- image / video / audio 只有已登记 producer 才能落库；`component` / `document` 未注册。
+- 内置图片生成、MCP base64 保存、CLI/Codex 文件导入均在同一事务中写 media row 与 Asset provenance。
+- backfill 只扫描 terminal `completed`，missing path 明确记为 `missing`，partial/failed 不伪造成 Asset。
+- lineage、active reference、typed ref、删除保护、软删除与恢复均由 `asset-library-conformance.test.ts` 覆盖。
+- 兼容边界：v0.62 会忽略新增 Asset 表；因此新版本的“已移入废纸篓”状态不会被旧版 Gallery 理解，但文件和旧 media row 均保留，不会造成数据丢失。
+
 ## B2 — HTML bundle
 
 HTML / web result 只有同时满足以下条件才 materialize：
@@ -188,7 +197,7 @@ HTML / web result 只有同时满足以下条件才 materialize：
 
 | Date | Kind | Producer | 场景 | Result | Evidence |
 |------|------|----------|------|--------|----------|
-| _待执行_ | image/video | existing media pipeline | backfill → lineage → typed reference | ⏳ | asset ids / DB snapshot / screenshot |
+| 2026-07-30 | image/video/audio | media saver / image generator / Codex import / legacy backfill | terminal write → hash → lineage → typed reference → trash/restore | ✅ Tier 0/1：7/7 | `asset-library-conformance.test.ts`；真实 PNG、MP4 bytes、WAV fixture + isolated SQLite |
 | _待执行_ | html_bundle | HTML materializer | complete/partial/failure 三路径 | ⏳ | bundle hash / CSP evidence / screenshot |
 
 ## 决策日志
@@ -197,3 +206,5 @@ HTML / web result 只有同时满足以下条件才 materialize：
 - 2026-07-30：Asset kind 必须 producer-backed；扩展性通过 registry，不通过预埋假枚举值。
 - 2026-07-30：`component` / `document` 没有真实 materialization pipeline，首版不进入 schema/UI。
 - 2026-07-30：HTML bundle 是首个新增重点，但必须先完成 durable materializer 与 trust/CSP conformance。
+- 2026-07-30：用户授权 Codex 在隔离 worktree 直接实施，明确不启动 loop。
+- 2026-07-30：B1 采用增量 Asset index + 保留 `media_generations` 的兼容策略；删除默认只改变 Asset lifecycle，不删除旧 row 或本地字节。

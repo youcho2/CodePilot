@@ -11,8 +11,8 @@
 | Program | 内容 | 状态 | 权威计划 |
 |---------|------|------|----------|
 | Shared Phase 0 | 基线、事实 inventory、enforcement anchors 与跨计划 contract 边界 | ✅ 完成；见 `docs/research/harness-home-v0.62-inventory-2026-07-30.md` | 本文件 |
-| Program A | Harness Core、Canonical Repository、Harness/Runtime Adapter | 🔄 A1 实施中 | [harness-home-core-adapters.md](harness-home-core-adapters.md) |
-| Program B | 通用 Asset Library、materialization 与 lineage | 📋 待共享 `AssetRef` / scope / provenance contract | [harness-home-asset-library.md](harness-home-asset-library.md) |
+| Program A | Harness Core、Canonical Repository、Harness/Runtime Adapter | 🟡 A1–A4 code/tests 完成；真实凭据 Tier 2 smoke 待最终验收 | [harness-home-core-adapters.md](harness-home-core-adapters.md) |
+| Program B | 通用 Asset Library、materialization 与 lineage | 🔄 B0/B1 code/tests 完成；B2/B3 实施中 | [harness-home-asset-library.md](harness-home-asset-library.md) |
 | Program C | CodePilot Design Method、Taste Memory 与创作编排 | 📋 事实采集可先行；产品化待共享 contract | [harness-home-design-method.md](harness-home-design-method.md) |
 | Deferred UI | Plugins / Settings / Workspace / 独立入口的信息架构 | ⏸ 明确暂缓 | 本文件只保留候选方案与用户决策 |
 
