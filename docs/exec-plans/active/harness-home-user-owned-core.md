@@ -9,7 +9,7 @@
 
 | Phase | 内容 | 状态 | 备注 |
 |-------|------|------|------|
-| Phase 0 | 基线、术语、迁移源与设计方法事实锁定 | 🔄 本地 `main` 已规范化到 v0.62，待 Claude Code 评审 | 旧 divergent 0.58 分支不并入发布主线 |
+| Phase 0 | 基线、术语、迁移源与设计方法事实锁定 | 🔄 基线已锁定，待 inventory 与设计方法事实采集 | Claude Code plan review 已通过；后续实施从当前 v0.62 `main` 新建隔离 worktree |
 | Phase 1 | Harness Home 领域契约与作用域模型 | 📋 待开始 | 与 UI、物理存储解耦；先做纯类型、纯函数与 contract tests |
 | Phase 2 | 用户所有的 Canonical Repository + 无损迁移层 | 📋 待开始 | CodePilot 中立源成为事实源；外部框架目录变成 import/export adapter |
 | Phase 3 | Harness Adapter Kit + Runtime Adapter Kit 分级瘦身 | 📋 待开始 | 接“配置/记忆/Skill”不再被迫接完整 Runtime |
@@ -288,17 +288,18 @@ interface RuntimeProjection {
 
 ### 本阶段明确不做
 
-- 不切换或合并当前 divergent `main`。
+- 不在主目录直接实施 Runtime / DB 改造；产品代码实施必须从当前 v0.62 `main` 新建隔离 worktree。
 - 不修改 Runtime、DB、MCP、Skill、Media 产品代码。
 - 不凭空编写“CodePilot 审美方法”。
 - 不决定 Harness Home UI 放在哪里。
 
-### Claude Code 评审任务
+### Phase 0 执行任务
 
-1. 确认实施基线：
-   - 使用已建立的 `codex/sync-v0.62.0` 隔离工作树；
-   - 基线必须为正式 Release `v0.62.0@bd598563`；
-   - 当前 `main@089e4d45` 只保留计划，不作为实施基线。
+1. ✅ 实施基线已确认：
+   - 正式功能基线为 Release `v0.62.0@bd598563`；
+   - 本地与远端 `main` 已规范化到 v0.62 发布线，并包含本计划与 v0.62 发布记录；
+   - 旧 `main@089e4d45` 已删除，不再参与实施基线选择；
+   - 后续产品代码实施从当前 `main` 新建隔离 worktree，不复用已经移除的临时同步 worktree。
 2. 对 v0.62 重新生成以下 inventory：
    - Memory 的所有读写源；
    - Skill 的发现、创建、安装、执行源；
@@ -318,10 +319,10 @@ interface RuntimeProjection {
 
 ### 完成标准
 
-- 计划记录选定实施 commit。
-- 每类现有资产都有 source-of-truth map。
-- “第四个框架接入成本”有可复核的 touchpoint 数量。
-- Design Method 输入来自真实决策/案例，不是模型自动生成的品牌文案。
+- [x] 计划记录选定实施基线：正式 Release `v0.62.0@bd598563`，后续从当前 v0.62 `main` 新建隔离 worktree。
+- [ ] 每类现有资产都有 source-of-truth map。
+- [ ] “第四个框架接入成本”有可复核的 touchpoint 数量。
+- [ ] Design Method 输入来自真实决策/案例，不是模型自动生成的品牌文案。
 
 ## Phase 1 — Harness Home 领域契约与作用域模型
 
@@ -805,3 +806,4 @@ flowchart LR
 - 2026-07-30：核验发现当时工作目录的 0.58 是分支/发布基线问题；不把有大量双边改动和冲突的旧 `main` 原地合并到发布线。
 - 2026-07-30：首次读取 GitHub Releases 页面时受缓存/不完整结果影响，错误判断 v0.62.0 尚未正式发布。随后通过 GitHub Release API 确认 `v0.62.0` 已于 2026-07-30 04:24:33 UTC 正式发布，且非 Draft / Pre-release。
 - 2026-07-30：用户确认未进入 v0.62 的旧 0.58 本地提交不再保留。本地主目录已切换到 `v0.62.0@bd598563`，旧 `main@089e4d45` 分支删除，临时同步 worktree 移除，并由 v0.62 基线重新建立本地 `main`；远端只在本地测试与构建通过后同步。
+- 2026-07-30：Claude Code 独立复核通过，确认本地/远端 `main`、v0.62 发布记录、Harness Home 计划与测试声明均与仓库事实一致。Phase 0 不再重复选择实施基线；剩余工作收敛为现状 inventory、第四个框架 touchpoint 统计与真实设计方法素材采集。
