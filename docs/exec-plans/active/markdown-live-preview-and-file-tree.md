@@ -26,12 +26,13 @@
 | Phase 2 | Live Preview 接入（2a 行内 marks → 2b 最低渲染 parity）+ viewMode 收敛 | ✅ 已完成 | A 可见 | RC-3 / RC-6 / RC-11 ✅；Live Preview surface/heading 已对齐应用 background/foreground token |
 | Phase 3 | 文件树右键菜单 + 行内重命名 + 删除（file mutation transaction） | ✅ macOS 已完成 | A 可见 | RC-1 / RC-4 ✅；RC-2 保持为 Windows 发版 fail-closed 门禁 |
 | Phase 4 | FileTypeIcon（material-icon-theme 静态子集）+ 文件夹仅 chevron + 全名 tooltip | ✅ 已完成 | A 可见 | 固定 50 图标 + manifest/license；亮暗主题视觉 smoke 完成 |
-| Phase 5 | 回归、文档漂移修复、handover/insights 双文档、tech-debt 回写 | 🚧 macOS 范围完成，仅余 Windows 发版门禁 | C 基建 | 原生磨砂回归由 `569b117d` 修复；targeted 11/11、full unit 3878/3878、Electron 浅/深视觉核验通过；不提前宣称 Windows ready |
+| Phase 5 | 回归、文档漂移修复、handover/insights 双文档、tech-debt 回写 | 🚧 macOS 范围完成，仅余 Windows 发版门禁 | C 基建 | `569b117d` 恢复透明材质，`83e041cd` 将整窗默认材质从 `menu` 调轻为 `under-window`；targeted 12/12、full unit 3879/3879、真实 Electron 核验通过；不提前宣称 Windows ready |
 
 **状态符号：** 📋 待开始 / 🚧 进行中 / ✅ 已完成 / ⏸ blocked / ❌ 放弃
 
 ## 决策日志
 
+- 2026-07-30 [原生磨砂强度微调 — `83e041cd`] 用户在透明材质恢复后继续反馈外围磨砂过于模糊。Electron 官方 `BrowserWindow.vibrancy` 没有可调 blur radius，`setVibrancy` 的 options 只提供淡入淡出时长，因此没有用 CSS 高不透明 tint 伪造“低模糊”。通过既有 `ELECTRON_VIBRANCY` 诊断开关，用隔离 Electron 窗口对比 `menu` 与 `under-window`；后者仍保留原生半透明 backing，但背景轮廓更清楚。默认值改为 `under-window`，环境变量候选矩阵继续保留；renderer body/window 仍为 transparent，sidebar 40% tint 与局部 card blur 均未改。新增 source-pin 防止默认材质被无意改回；targeted **12/12**、typecheck、ESLint、两轮 full unit/pre-commit **3879/3879**，最终无环境变量 Electron 日志确认 `vibrancyOption=under-window`、`bodyBg=transparent`、`opaqueElementCount=0`。
 - 2026-07-30 [原生磨砂回归二次修复 — `569b117d`] 用户实机指出第一次深色修复后，外围材质在浅色和深色下都失去半透明感、接近纯色。复核确认第一次方案用 renderer CSS 以 `--background` 82% 覆盖暗色外层、以 `--sidebar` 88% 覆盖暗色侧栏，虽然压住了系统浅色材质，却也遮住了真正的 `BrowserWindow.vibrancy`；这是方案错误，不是需要继续加深颜色的微调。替代实现把 app 的 `system/light/dark` 经 `ThemeProvider → preload → ipcMain` 同步到 Electron `nativeTheme.themeSource`，主进程只接受三个枚举值；macOS 外围恢复 `transparent`，浅/深侧栏都只保留 40% tint 维持卡片边界。隔离 Electron 窗口实测浅/深切换均生效：两种模式 `bodyBackground=rgba(0,0,0,0)`、`windowSurface=transparent`，暗色 `sidebarSurface=var(--sidebar) 40%`，IPC 返回 `bridgeAccepted=true`；真实整窗截图确认原生材质重新出现且主题色随应用切换。targeted **11/11**、typecheck、ESLint、hooks/docs drift 均通过；commit pre-commit 全量 **3878/3878**。
 - 2026-07-30 [深色主题首次 follow-up 修复 — Markdown 部分保留，玻璃部分已被 `569b117d` 取代] Markdown CodeMirror canvas 以高优先级内容层规则固定到 `--background` / `--foreground`，保留 One Dark 仅用于活动源码 token；`.cm-lp-heading` 及嵌套 syntax span 显式继承 `--foreground`，阻断红色 heading token 泄漏。首次 shell 方案以应用 `--background` 82% tint 覆盖暗色窗口级 vibrancy、以 `--sidebar` 88% 建立卡片层次；自动测试与当时截图确认深色可读，但随后用户实机指出它让材质变成纯色，因此该 shell 决策不再有效，只有 Markdown surface/heading 修复继续保留。首次验证为 targeted **17/17**、`npm run test` **3875/3875**。
 - 2026-07-30 [用户实机验收 + 深色主题 signal] 用户确认原生中文 IME 输入与暗色 5% 选中态均正常，RC-3 人工项关闭。Codex 对运行中的 Electron 整窗截图复现四项深色回归：Markdown 编辑面为 One Dark 的 `rgb(40, 44, 52)`，未使用应用 `--background`；Live Preview 标题子 span 继承 One Dark 的 `rgb(224, 108, 117)` 红色 token；macOS 外层透明窗口 / 顶栏暴露浅色原生 vibrancy；最左侧 sidebar/card 的弱黑色透明叠层因此也偏亮。根因范围收敛为两组：`MarkdownEditor` 在暗色模式直接加载 `oneDark`，而 `.cm-lp-heading *` 未覆盖 syntax color；macOS shell 的透明 surface 未保证应用暗色主题与 native material 的对比度。修复需让 Markdown Live Preview 使用应用 surface/foreground token，并为 macOS dark shell 提供确定性深色 tint（若改用 Electron `nativeTheme` 同步，按 ElectronMain guardrail 做 packaged 回归）。这四项重新打开 Phase 2/5，不随本轮既有自动测试结果视为通过。
@@ -142,7 +143,7 @@
 - [x] 自动验证：Codex unit/pre-commit **3873/3873**、smoke **20/20**；Claude 独立复跑 unit **3873/3873**。
 - [x] 人工发布矩阵：用户于 2026-07-30 确认原生中文 IME 输入正常。
 - [x] 人工发布矩阵：用户于 2026-07-30 确认暗色 5% 选中态正常。
-- [x] 深色主题与磨砂 follow-up：Markdown surface 与应用卡片一致；Live Preview 标题使用 `--foreground`；Electron 原生材质跟随 app `system/light/dark`；macOS 外围透明，浅/深 sidebar/card 只保留 40% tint。
+- [x] 深色主题与磨砂 follow-up：Markdown surface 与应用卡片一致；Live Preview 标题使用 `--foreground`；Electron 原生材质跟随 app `system/light/dark`；macOS 外围透明，浅/深 sidebar/card 只保留 40% tint；整窗默认材质按用户反馈从较重的 `menu` 调为 `under-window`。
 - [ ] Windows RC-2：NSIS 产物废纸篓删除与恢复，未完成前不宣称 Windows ready。
 
 ## File Mutation Transaction（rename / delete 状态转换与失败回滚）
@@ -281,3 +282,4 @@ idle
 | 2026-07-30 | - | - | - | - | 深色主题 follow-up 修复复验 | ✅ | targeted **17/17**、full unit **3875/3875**；editor/workspace/fileTree background token 完全一致，heading/child 均为 foreground；browser console clean；Electron 整窗确认外层玻璃、顶栏、左侧卡片深色可读 |
 | 2026-07-30 | - | - | - | - | 第一次深色 shell 方案实机复核 | ❌ regression | 用户确认 82% window / 88% sidebar renderer tint 在浅色、深色下都使外围磨砂接近纯色；第一次“深色可读”不能替代半透明材质验收 |
 | 2026-07-30 | - | - | - | - | 原生主题同步 + 磨砂回归复验（`569b117d`） | ✅ | isolated Electron light/dark 截图；两种模式 body/window 均 transparent，sidebar 40% tint，dark IPC `bridgeAccepted=true`；targeted **11/11**、typecheck、pre-commit full unit **3878/3878** |
+| 2026-07-30 | - | - | - | - | 原生磨砂强度微调（`83e041cd`） | ✅ | 隔离 Electron 同机对比 `menu` / `under-window` 后选择较轻的 `under-window`；最终无环境变量窗口日志为 `vibrancyOption=under-window`、body/window transparent、`opaqueElementCount=0`；targeted **12/12**、两轮 full unit/pre-commit **3879/3879** |
