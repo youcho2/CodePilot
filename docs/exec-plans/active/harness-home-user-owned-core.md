@@ -2,7 +2,7 @@
 
 > 创建时间：2026-07-30
 > 最后更新：2026-07-30
-> 状态：📋 Umbrella 修订完成；**当前只允许计划评审与 Shared Phase 0 事实采集，未授权产品代码实施**
+> 状态：🔄 Shared Phase 0 已完成；用户已授权 Codex 在隔离 worktree 直接实施，明确不启动 loop
 > 规划基线：正式 Release `v0.62.0` tag `bd598563`；本地与远端 `main` 已规范化到 v0.62 发布线
 > 文档职责：只维护共享定义、跨计划依赖、Phase 0 门禁和用户决策；各 program 的实施状态与 Smoke Ledger 以子计划为准
 
@@ -10,8 +10,8 @@
 
 | Program | 内容 | 状态 | 权威计划 |
 |---------|------|------|----------|
-| Shared Phase 0 | 基线、事实 inventory、enforcement anchors 与跨计划 contract 边界 | 🔄 基线已锁定；其余 inventory 待完成 | 本文件 |
-| Program A | Harness Core、Canonical Repository、Harness/Runtime Adapter | 📋 待 Shared Phase 0 门禁 | [harness-home-core-adapters.md](harness-home-core-adapters.md) |
+| Shared Phase 0 | 基线、事实 inventory、enforcement anchors 与跨计划 contract 边界 | ✅ 完成；见 `docs/research/harness-home-v0.62-inventory-2026-07-30.md` | 本文件 |
+| Program A | Harness Core、Canonical Repository、Harness/Runtime Adapter | 🔄 A1 实施中 | [harness-home-core-adapters.md](harness-home-core-adapters.md) |
 | Program B | 通用 Asset Library、materialization 与 lineage | 📋 待共享 `AssetRef` / scope / provenance contract | [harness-home-asset-library.md](harness-home-asset-library.md) |
 | Program C | CodePilot Design Method、Taste Memory 与创作编排 | 📋 事实采集可先行；产品化待共享 contract | [harness-home-design-method.md](harness-home-design-method.md) |
 | Deferred UI | Plugins / Settings / Workspace / 独立入口的信息架构 | ⏸ 明确暂缓 | 本文件只保留候选方案与用户决策 |
@@ -216,14 +216,9 @@ interface RuntimeProjection {
 
 ## Shared Phase 0 — 事实与门禁
 
-### 当前允许做什么
+### 当前实施授权
 
-无产品 UI 变化，不改 Runtime、DB、MCP、Skill 或 Media 产品代码。当前只允许：
-
-1. 事实 inventory；
-2. enforcing anchor 设计；
-3. 设计方法真实案例/反例采集；
-4. 三个 program 的计划评审。
+2026-07-30 用户明确授权 Codex 按本计划直接实施，并明确要求不启动 loop。实施必须在隔离 worktree 进行；push、merge、release 仍未授权。
 
 ### Inventory
 
@@ -283,13 +278,13 @@ Changed-files guard 不得默认为本地 `HEAD~1`；例外文件必须逐项说
 ### 完成标准
 
 - [x] 实施基线锁定为正式 v0.62 发布线。
-- [ ] 每类 Harness 资产有 source-of-truth map。
-- [ ] 第四个框架的 L0/L1 与 L3 touchpoint 有可复核数字。
-- [ ] D1–D7、L0/L1 和 Full Reference 规则有 enforcing file+symbol 与检验方式。
-- [ ] File write model 已覆盖单写者、原子性、外部编辑与多实例。
-- [ ] SecretStore 与 `secretRef` 的解析/换机行为已拍板。
-- [ ] Producer-backed Asset kind inventory 完成；无 producer 的 kind 不进入 registry。
-- [ ] Design Method 输入来自真实决策/案例，不是自动生成的品牌文案。
+- [x] 每类 Harness 资产有 source-of-truth map。
+- [x] 第四个框架的 L0/L1 与 L3 touchpoint 有可复核数字。
+- [x] D1–D7、L0/L1 和 Full Reference 规则有 enforcing file+symbol 与检验方式。
+- [x] File write model 已覆盖单写者、原子性、外部编辑与多实例。
+- [x] SecretStore 与 `secretRef` 的解析/换机行为已拍板。
+- [x] Producer-backed Asset kind inventory 完成；无 producer 的 kind 不进入 registry。
+- [x] Design Method 事实输入只接受真实决策/案例；现有 macOS profile 可作工程事实，built-in method/golden set 仍保留用户人工门禁。
 
 ## Program 依赖与并行边界
 
@@ -382,3 +377,5 @@ Umbrella 不维护共享 Smoke Ledger。真实 smoke 必须登记到产生该行
 - 2026-07-30：采纳第二轮评审：Full Reference 改为 conformance 参照实现；允许 draft canonical 处于 pending，但 stable 必须 executable。
 - 2026-07-30：采纳 file-as-source-of-truth 写模型、SecretStore、producer-backed Asset kinds 与 L0/L1 conformance 缺口。
 - 2026-07-30：原 Phase 1–4、Phase 5、Phase 6 拆成三个独立 program；本文件降为 umbrella，避免工程、DB 和设计 R&D 共用状态与 Smoke Ledger。
+- 2026-07-30：用户授权 Codex 直接实施并明确不启动 loop；实施分支为 `codex/harness-home-implementation`，不自动 push/merge/release。
+- 2026-07-30：Shared Phase 0 inventory 完成。确认当前 L0 感知链路跨 8 文件，Runtime lexical surface 为 35 产品文件 + 57 测试/fixture；SecretStore 首版引用既有 DB/env/external-owned 源，不复制 Secret。

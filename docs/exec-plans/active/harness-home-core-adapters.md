@@ -2,7 +2,7 @@
 
 > 创建时间：2026-07-30
 > 最后更新：2026-07-30
-> 状态：📋 待 Shared Phase 0 门禁；**未授权产品代码实施**
+> 状态：🔄 A1 已完成，A2 实施中；用户已授权 Codex 直接实施，明确不启动 loop
 > 父计划：[harness-home-user-owned-core.md](harness-home-user-owned-core.md)
 > 基线：正式 v0.62 发布线；实施时必须从当时最新 `main` 新建隔离 worktree
 
@@ -26,9 +26,9 @@ Asset DB/Gallery 演进见 [harness-home-asset-library.md](harness-home-asset-li
 
 | Phase | 内容 | 状态 | 入口门禁 |
 |-------|------|------|----------|
-| A0 | Shared Phase 0 inventory 与 enforcement anchors | 🔄 待完成 | 父计划全部 Phase 0 checkbox |
-| A1 | Domain contracts、scope、provenance、reference status | 📋 待开始 | A0 全绿 |
-| A2 | File repository、write model、SecretStore、migration | 📋 待开始 | A1 contract frozen |
+| A0 | Shared Phase 0 inventory 与 enforcement anchors | ✅ 完成 | 父计划全部 Phase 0 checkbox |
+| A1 | Domain contracts、scope、provenance、reference status | ✅ 完成 | A0 全绿 |
+| A2 | File repository、write model、SecretStore、migration | 🔄 实施中 | A1 contract frozen |
 | A3 | HarnessAdapter L0/L1 + per-adapter conformance | 📋 待开始 | A2 dry-run/round-trip 通过 |
 | A4 | RuntimeAdapter L2/L3 + CodePilot Full Reference | 📋 待开始 | A3 边界与 touchpoint budget 通过 |
 
@@ -102,12 +102,21 @@ stable canonical capabilities ⊆ CodePilot executable capabilities
 
 ### A1 完成标准
 
-- Contract 中没有 `.claude` / `.codex` 路径。
-- Contract 中没有固定三 Runtime 的 record key。
-- 未注册 Runtime overlay 可无损 round-trip。
-- Secret 明文进入 manifest/export model 时 fail-closed。
-- D1–D7 各有自动化或明确人工门禁。
-- 现有 Runtime 与 UI 行为零变化。
+- [x] Contract 中没有外部框架私有路径。
+- [x] Contract 中没有固定三 Runtime 的 record key。
+- [x] 未注册 Runtime overlay 可无损 round-trip。
+- [x] Secret 明文进入 manifest/export model 时 fail-closed。
+- [x] D1–D7 各有自动化或明确人工门禁。
+- [x] 现有 Runtime 与 UI 行为零变化。
+
+实现入口：`src/lib/harness-home/index.ts`。验证：
+
+```text
+npm run typecheck
+npx eslint src/lib/harness-home src/__tests__/unit/harness-home-contract.test.ts
+CODEX_DISABLED=1 npx tsx --test --import ./src/__tests__/db-isolation.setup.ts src/__tests__/unit/harness-home-contract.test.ts
+=> 10/10 pass
+```
 
 ## A2 — Canonical Repository 与写模型
 
@@ -314,3 +323,5 @@ interface RuntimeDescriptor {
 - 2026-07-30：file-as-source-of-truth 必须有单写者、journal、atomic write、hash/rescan 和多实例 contract。
 - 2026-07-30：SecretStore 在 inventory 后拍板；manifest 永远只持有 `secretRef`。
 - 2026-07-30：Full Reference 允许 draft pending，但 stable canonical 必须在 CodePilot executable。
+- 2026-07-30：Shared Phase 0 以 `docs/research/harness-home-v0.62-inventory-2026-07-30.md` 收口；用户授权 Codex 在隔离 worktree 直接实施并明确不启动 loop。
+- 2026-07-30：A1 完成。核心 contract 使用 opaque Runtime/framework ID；manifest 保留未知 overlay/字段；stable capability 必须 executable；Secret 明文扫描、scope precedence、Taste evidence 门禁均有定向测试。A1 不接入现有 Runtime/UI，保持用户行为零变化。
