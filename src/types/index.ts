@@ -1607,6 +1607,7 @@ export interface AssetRecord {
   source_url: string;
   curation_state: 'unreviewed' | 'selected' | 'rejected';
   rating: number | null;
+  tags: string;
   lifecycle_state: AssetLifecycleState;
   integrity_state: AssetIntegrityState;
   integrity_reason: string;

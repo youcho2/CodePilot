@@ -53,18 +53,20 @@ function insertLegacyMedia(input: {
   status?: 'completed' | 'failed' | 'processing';
   localPath: string;
   mimeType: string;
+  tags?: readonly string[];
 }): void {
   getDb().prepare(
     `INSERT INTO media_generations (
        id, type, status, provider, model, prompt, local_path,
        thumbnail_path, tags, metadata, created_at, completed_at
      ) VALUES (?, ?, ?, 'legacy', 'legacy-model', 'legacy prompt', ?,
-       '', '[]', ?, datetime('now'), datetime('now'))`,
+       '', ?, ?, datetime('now'), datetime('now'))`,
   ).run(
     input.id,
     input.type,
     input.status ?? 'completed',
     input.localPath,
+    JSON.stringify(input.tags ?? []),
     JSON.stringify({ mimeType: input.mimeType }),
   );
 }
@@ -236,6 +238,7 @@ describe('Harness Home Asset Library conformance', () => {
       type: 'image',
       localPath: validPath,
       mimeType: 'image/png',
+      tags: ['legacy-tag'],
     });
     insertLegacyMedia({
       id: 'legacy-missing-asset',
@@ -254,6 +257,10 @@ describe('Harness Home Asset Library conformance', () => {
     const first = backfillMediaAssets(100);
     assert.ok(first.created >= 2);
     assert.equal(getAssetRecord('legacy-valid-asset')?.integrity_state, 'valid');
+    assert.deepEqual(
+      JSON.parse(getAssetRecord('legacy-valid-asset')!.tags),
+      ['legacy-tag'],
+    );
     assert.equal(getAssetRecord('legacy-missing-asset')?.integrity_state, 'missing');
     assert.equal(getAssetRecord('legacy-partial-asset'), undefined);
 
@@ -359,6 +366,61 @@ describe('Harness Home Asset Library conformance', () => {
         'SELECT COUNT(*) AS count FROM media_generations',
       ).get() as { count: number }).count,
       1,
+    );
+    const tagsColumn = db.prepare(
+      `SELECT name, "notnull" AS required, dflt_value AS defaultValue
+       FROM pragma_table_info('asset_records')
+       WHERE name = 'tags'`,
+    ).get() as {
+      name: string;
+      required: number;
+      defaultValue: string;
+    };
+    assert.deepEqual(tagsColumn, {
+      name: 'tags',
+      required: 1,
+      defaultValue: "'[]'",
+    });
+    db.close();
+  });
+
+  it('backfills legacy media tags when an existing Asset schema gains tags', () => {
+    const db = new Database(':memory:');
+    db.exec(`
+      CREATE TABLE media_generations (
+        id TEXT PRIMARY KEY,
+        tags TEXT NOT NULL DEFAULT '[]'
+      );
+    `);
+    migrateAssetLibrarySchema(db);
+    db.prepare(
+      `INSERT INTO media_generations (id, tags)
+       VALUES ('tagged-media', '["legacy","favorite"]')`,
+    ).run();
+    db.prepare(
+      `INSERT INTO asset_records (
+         id, kind, producer_id, stable_path, source_media_generation_id
+       ) VALUES (
+         'tagged-media', 'image', 'legacy-media-backfill',
+         '/tmp/tagged-media.png', 'tagged-media'
+       )`,
+    ).run();
+    db.exec('ALTER TABLE asset_records DROP COLUMN tags');
+
+    migrateAssetLibrarySchema(db);
+    migrateAssetLibrarySchema(db);
+
+    assert.equal(
+      (db.prepare(
+        'SELECT tags FROM asset_records WHERE id = ?',
+      ).get('tagged-media') as { tags: string }).tags,
+      '["legacy","favorite"]',
+    );
+    assert.equal(
+      (db.prepare(
+        'SELECT tags FROM media_generations WHERE id = ?',
+      ).get('tagged-media') as { tags: string }).tags,
+      '["legacy","favorite"]',
     );
     db.close();
   });

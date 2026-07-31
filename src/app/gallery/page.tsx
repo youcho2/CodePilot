@@ -14,6 +14,17 @@ import {
   GalleryDetail,
   type AssetMutationResult,
 } from '@/components/gallery/GalleryDetail';
+import { GalleryTagDialog } from '@/components/gallery/GalleryTagDialog';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { useTranslation } from '@/hooks/useTranslation';
 import type { TranslationKey } from '@/i18n';
 import { ensureHtmlAssetThumbnail } from '@/lib/html-asset-thumbnail-client';
@@ -50,6 +61,10 @@ export default function GalleryPage() {
   // Detail
   const [selectedItem, setSelectedItem] = useState<GalleryItem | null>(null);
   const [detailOpen, setDetailOpen] = useState(false);
+  const [tagEditorItem, setTagEditorItem] = useState<GalleryItem | null>(null);
+  const [deleteCandidate, setDeleteCandidate] = useState<GalleryItem | null>(null);
+  const [deleteError, setDeleteError] = useState('');
+  const [deleting, setDeleting] = useState(false);
   const [thumbnailSweep, setThumbnailSweep] = useState(0);
   const thumbnailAttemptsRef = useRef(new Set<string>());
 
@@ -186,6 +201,61 @@ export default function GalleryPage() {
     }
   }, []);
 
+  const handleUpdateTags = useCallback(async (
+    id: string,
+    tags: readonly string[],
+  ): Promise<boolean> => {
+    try {
+      const response = await fetch(
+        `/api/assets/${encodeURIComponent(id)}/tags`,
+        {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ tags }),
+        },
+      );
+      if (!response.ok) return false;
+      const data = await response.json() as { tags?: unknown };
+      if (
+        !Array.isArray(data.tags)
+        || !data.tags.every((tag): tag is string => typeof tag === 'string')
+      ) {
+        return false;
+      }
+      const savedTags = data.tags;
+      setItems((current) => current.map((item) => (
+        item.id === id ? { ...item, tags: savedTags } : item
+      )));
+      setSelectedItem((current) => (
+        current?.id === id ? { ...current, tags: savedTags } : current
+      ));
+      setTagEditorItem((current) => (
+        current?.id === id ? { ...current, tags: savedTags } : current
+      ));
+      return true;
+    } catch {
+      return false;
+    }
+  }, []);
+
+  const handleContextDelete = useCallback(async () => {
+    if (!deleteCandidate) return;
+    setDeleting(true);
+    setDeleteError('');
+    const result = await handleDelete(deleteCandidate.id);
+    setDeleting(false);
+    if (result.ok) {
+      setDeleteCandidate(null);
+      return;
+    }
+    const consumers = result.consumers?.map((entry) => entry.label).join(', ');
+    setDeleteError(
+      consumers
+        ? t('gallery.deleteBlocked', { consumers })
+        : t('gallery.deleteFailed'),
+    );
+  }, [deleteCandidate, handleDelete, t]);
+
   const hasMore = items.length < total;
   const sentinelRef = useRef<HTMLDivElement>(null);
   const loadingRef = useRef(false);
@@ -216,39 +286,44 @@ export default function GalleryPage() {
       {/* Search is the primary control; kind filters stay expanded directly
           below it so the toolbar reads top-to-bottom by information priority. */}
       <header className="shrink-0 px-6 pt-4 pb-3">
-        <div className="flex flex-wrap items-center gap-1.5">
+        <div className="flex flex-wrap items-center gap-2">
           <Input
             value={query}
             onChange={(event) => setQuery(event.target.value)}
             placeholder={t('gallery.searchPlaceholder')}
-            className="mr-1 h-8 w-full max-w-sm flex-none text-xs"
+            className="h-8 min-w-52 max-w-sm flex-1 text-xs"
           />
-          <Button
-            variant={favoritesOnly ? 'secondary' : 'ghost'}
-            size="sm"
-            className="h-8 gap-1.5"
-            onClick={() => setFavoritesOnly((v) => !v)}
-          >
-            <CodePilotIcon
-              name="favorite"
+          <div className="ml-auto flex shrink-0 items-center gap-1.5">
+            <Button
+              variant={favoritesOnly ? 'secondary' : 'ghost'}
               size="sm"
-              strokeWidth={favoritesOnly ? 2 : undefined}
-              className={cn(favoritesOnly && 'text-status-error-foreground')}
-              aria-hidden
-            />
-            {t('gallery.favoritesOnly' as TranslationKey)}
-          </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-8 gap-1.5"
-            onClick={() => setSort((s) => (s === 'newest' ? 'oldest' : 'newest'))}
-          >
-            <SortDescending size={14} />
-            {sort === 'newest'
-              ? t('gallery.newestFirst' as TranslationKey)
-              : t('gallery.oldestFirst' as TranslationKey)}
-          </Button>
+              className="h-8 gap-1.5"
+              onClick={() => setFavoritesOnly((v) => !v)}
+            >
+              <CodePilotIcon
+                name="favorite"
+                size="sm"
+                strokeWidth={1.5}
+                className={cn(
+                  '[&_path]:fill-current',
+                  favoritesOnly && 'text-status-error-foreground',
+                )}
+                aria-hidden
+              />
+              {t('gallery.favoritesOnly' as TranslationKey)}
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-8 gap-1.5"
+              onClick={() => setSort((s) => (s === 'newest' ? 'oldest' : 'newest'))}
+            >
+              <SortDescending size={14} />
+              {sort === 'newest'
+                ? t('gallery.newestFirst' as TranslationKey)
+                : t('gallery.oldestFirst' as TranslationKey)}
+            </Button>
+          </div>
         </div>
         <div className="mt-3 flex flex-wrap items-center gap-1.5">
           <Button
@@ -297,6 +372,12 @@ export default function GalleryPage() {
             <GalleryGrid
               items={items}
               onSelect={handleSelect}
+              onManageTags={setTagEditorItem}
+              onToggleFavorite={(item) => void handleToggleFavorite(item.id)}
+              onRequestDelete={(item) => {
+                setDeleteError('');
+                setDeleteCandidate(item);
+              }}
             />
             {/* Sentinel for infinite scroll */}
             <div ref={sentinelRef} className="flex justify-center py-4">
@@ -315,7 +396,49 @@ export default function GalleryPage() {
         onOpenChange={setDetailOpen}
         onDelete={handleDelete}
         onToggleFavorite={handleToggleFavorite}
+        onUpdateTags={handleUpdateTags}
       />
+      <GalleryTagDialog
+        item={tagEditorItem}
+        open={!!tagEditorItem}
+        onOpenChange={(open) => {
+          if (!open) setTagEditorItem(null);
+        }}
+        onUpdateTags={handleUpdateTags}
+      />
+      <AlertDialog
+        open={!!deleteCandidate}
+        onOpenChange={(open) => {
+          if (!open && !deleting) {
+            setDeleteCandidate(null);
+            setDeleteError('');
+          }
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t('gallery.confirmDelete')}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {deleteError || t('gallery.deleteConfirm')}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleting}>
+              {t('gallery.cancel')}
+            </AlertDialogCancel>
+            <AlertDialogAction
+              variant="destructive"
+              disabled={deleting}
+              onClick={(event) => {
+                event.preventDefault();
+                void handleContextDelete();
+              }}
+            >
+              {t('gallery.delete')}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

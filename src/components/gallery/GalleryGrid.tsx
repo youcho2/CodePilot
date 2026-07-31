@@ -9,6 +9,13 @@ import {
   useState,
 } from 'react';
 import { CodePilotIcon } from '@/components/ui/semantic-icon';
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuSeparator,
+  ContextMenuTrigger,
+} from '@/components/ui/context-menu';
 import { useTranslation } from '@/hooks/useTranslation';
 import type { TranslationKey } from '@/i18n';
 
@@ -45,6 +52,9 @@ export interface GalleryItem {
 interface GalleryGridProps {
   items: GalleryItem[];
   onSelect: (item: GalleryItem) => void;
+  onManageTags: (item: GalleryItem) => void;
+  onToggleFavorite: (item: GalleryItem) => void;
+  onRequestDelete: (item: GalleryItem) => void;
 }
 
 interface MasonryPosition {
@@ -130,7 +140,13 @@ function MasonryItem({
   );
 }
 
-export function GalleryGrid({ items, onSelect }: GalleryGridProps) {
+export function GalleryGrid({
+  items,
+  onSelect,
+  onManageTags,
+  onToggleFavorite,
+  onRequestDelete,
+}: GalleryGridProps) {
   const { t } = useTranslation();
   const containerRef = useRef<HTMLDivElement>(null);
   const [containerWidth, setContainerWidth] = useState(0);
@@ -228,20 +244,22 @@ export function GalleryGrid({ items, onSelect }: GalleryGridProps) {
             position={position}
             onHeight={handleHeight}
           >
-            <div
-              role="button"
-              tabIndex={0}
-              aria-label={t(ariaKey, { prompt: promptPreview })}
-              className="w-full cursor-pointer overflow-hidden rounded-lg bg-card ring-0 transition-shadow hover:ring-2 hover:ring-border focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-              onClick={() => onSelect(item)}
-              onKeyDown={(event) => {
-                if (event.key === 'Enter' || event.key === ' ') {
-                  event.preventDefault();
-                  onSelect(item);
-                }
-              }}
-            >
-              <div className="relative bg-muted/30">
+            <ContextMenu>
+              <ContextMenuTrigger asChild>
+                <div
+                  role="button"
+                  tabIndex={0}
+                  aria-label={t(ariaKey, { prompt: promptPreview })}
+                  className="w-full cursor-pointer overflow-hidden rounded-lg bg-card ring-0 transition-shadow hover:ring-2 hover:ring-border focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  onClick={() => onSelect(item)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter' || event.key === ' ') {
+                      event.preventDefault();
+                      onSelect(item);
+                    }
+                  }}
+                >
+                  <div className="relative bg-muted/30">
                 {integrityFailed ? (
                   <div
                     className="flex min-h-36 flex-col items-center justify-center gap-2 px-4 text-center"
@@ -321,13 +339,46 @@ export function GalleryGrid({ items, onSelect }: GalleryGridProps) {
                     {item.images.length}
                   </span>
                 )}
-                {item.favorited && (
-                  <span className="absolute left-1.5 top-1.5">
-                    <CodePilotIcon name="favorite" size="md" strokeWidth={2} className="text-status-error-foreground drop-shadow" aria-hidden />
-                  </span>
-                )}
-              </div>
-            </div>
+                    {item.favorited && (
+                      <span className="absolute left-2.5 top-2.5">
+                        <CodePilotIcon
+                          name="favorite"
+                          size="lg"
+                          strokeWidth={1.5}
+                          className="text-status-error-foreground drop-shadow-md [&_path]:fill-current"
+                          aria-hidden
+                        />
+                      </span>
+                    )}
+                  </div>
+                </div>
+              </ContextMenuTrigger>
+              <ContextMenuContent className="min-w-40">
+                <ContextMenuItem onSelect={() => onManageTags(item)}>
+                  <CodePilotIcon name="tag" size="sm" aria-hidden />
+                  {t('gallery.addTag')}
+                </ContextMenuItem>
+                <ContextMenuItem onSelect={() => onToggleFavorite(item)}>
+                  <CodePilotIcon
+                    name="favorite"
+                    size="sm"
+                    className="[&_path]:fill-current"
+                    aria-hidden
+                  />
+                  {item.favorited
+                    ? t('gallery.removeFromFavorites')
+                    : t('gallery.addToFavorites')}
+                </ContextMenuItem>
+                <ContextMenuSeparator />
+                <ContextMenuItem
+                  variant="destructive"
+                  onSelect={() => onRequestDelete(item)}
+                >
+                  <CodePilotIcon name="delete" size="sm" aria-hidden />
+                  {t('gallery.delete')}
+                </ContextMenuItem>
+              </ContextMenuContent>
+            </ContextMenu>
           </MasonryItem>
         );
       })}

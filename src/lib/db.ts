@@ -57,7 +57,7 @@ const RUNTIME_OWNER_LOCK_PATH = `${DB_PATH}.runtime-owner.lock`;
 // replacing this module. Keep a code-owned revision beside that handle so a
 // newly loaded migration still runs without requiring the user to restart the
 // desktop client. Bump this value whenever initDb/migrateDb gains a migration.
-const DATABASE_SCHEMA_REVISION = '2026-07-30-harness-home-html-assets';
+const DATABASE_SCHEMA_REVISION = '2026-07-31-asset-tags';
 
 function getDatabaseProcessStates(): Map<string, DatabaseProcessState> {
   const target = globalThis as typeof globalThis & {
@@ -1317,6 +1317,7 @@ const ASSET_RECORD_REQUIRED_COLUMNS = [
   'mime_type',
   'curation_state',
   'rating',
+  'tags',
   'materialization_key',
   'lifecycle_state',
   'integrity_state',
@@ -1363,6 +1364,7 @@ export function migrateAssetLibrarySchema(db: Database.Database): void {
       curation_state TEXT NOT NULL DEFAULT 'unreviewed'
         CHECK(curation_state IN ('unreviewed','selected','rejected')),
       rating INTEGER CHECK(rating IS NULL OR (rating >= 1 AND rating <= 5)),
+      tags TEXT NOT NULL DEFAULT '[]',
       lifecycle_state TEXT NOT NULL DEFAULT 'active'
         CHECK(lifecycle_state IN ('active','trashed')),
       integrity_state TEXT NOT NULL DEFAULT 'valid'
@@ -1449,6 +1451,38 @@ export function migrateAssetLibrarySchema(db: Database.Database): void {
        ADD COLUMN rating INTEGER
        CHECK(rating IS NULL OR (rating >= 1 AND rating <= 5))`,
     );
+  }
+  if (!existingAssetColumns.has('tags')) {
+    safeAddColumn(
+      db,
+      `ALTER TABLE asset_records
+       ADD COLUMN tags TEXT NOT NULL DEFAULT '[]'`,
+    );
+    const mediaColumns = new Set(
+      (db.prepare("PRAGMA table_info(media_generations)").all() as { name: string }[])
+        .map((column) => column.name),
+    );
+    if (mediaColumns.has('tags')) {
+      db.prepare(
+        `UPDATE asset_records
+         SET tags = (
+           SELECT mg.tags
+           FROM media_generations mg
+           WHERE mg.id = asset_records.source_media_generation_id
+             AND json_valid(mg.tags)
+             AND json_type(mg.tags) = 'array'
+         )
+         WHERE tags = '[]'
+           AND source_media_generation_id IS NOT NULL
+           AND EXISTS (
+             SELECT 1
+             FROM media_generations mg
+             WHERE mg.id = asset_records.source_media_generation_id
+               AND json_valid(mg.tags)
+               AND json_type(mg.tags) = 'array'
+           )`,
+      ).run();
+    }
   }
   if (!existingAssetColumns.has('materialization_key')) {
     safeAddColumn(

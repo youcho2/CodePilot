@@ -91,6 +91,7 @@
 | additive `subagent_runs` / `subagent_run_events`、legacy backfill、logical attempt、workflow queued/dependency handoff/duplicate/cycle、active/completed reuse guard、parent FK/cascade、running checkpoint、settling/terminal immutable | `src/__tests__/unit/subagent-run-persistence.test.ts` |
 | cached handle 在 dev schema revision 变化后重跑幂等 migration，且 live streaming row 不被 recovery 中断 | `src/__tests__/unit/subagent-run-persistence.test.ts` |
 | `messages.stream_status` checkpoint、terminal 原位更新、live-owner 下重复 startup no-op | `src/__tests__/unit/collect-owner-gate.test.ts` |
+| `asset_records.tags` additive column、legacy media tags 保守回填、重复 migration 幂等 | `src/__tests__/unit/asset-library-conformance.test.ts` |
 
 ## 设计决策日志
 
@@ -104,3 +105,4 @@
 - 2026-07-24 — Claude P2 复核指出“显式 ID”仍可能被父模型误用。`startSubagentRun` 现于插入前检查同 session/logical 的最新 attempt：active/settling 返回 `LOGICAL_RUN_STILL_RUNNING`，completed 返回 `LOGICAL_RUN_ALREADY_COMPLETED`；两者均不写新 physical row，三 Runtime 在 Provider 启动前返回结构化拒绝。
 - 2026-07-24 — 会话 `3f0085c5fc664deca85005d70b1abfca` 证明 SDK 串行工具执行不会重写已经生成的下游 tool input。新增 additive workflow/task/dependencies/dispatch state：accepted downstream 先 queued，应用只从同 session/workflow 的 durable completed result 编译实际 prompt；duplicate task key、self/indirect cycle 与失败依赖 fail closed。
 - 2026-07-24 — 会话 `f7153c2b01e6a58b31e0406db9be56ec` 暴露 dev HMR schema 漂移：代码已写 `workflow_id`，但进程级缓存 DB handle 没有重新执行新增 migration，两次 child 都在 durable row 创建前报 `no such column: workflow_id`。`getDb()` 现用 code-owned schema revision 在 HMR 后重跑纯结构、幂等 migration；startup recovery 仍只在真正打开/取得进程 owner 时执行。
+- 2026-07-31 — Asset 标签从 legacy `media_generations.tags` 提升为 `asset_records.tags`，覆盖 HTML 与所有已注册 kind。迁移只在新列默认空数组时复制可验证的 legacy JSON array；写入 Asset 标签时对 source media 双写，兼容旧消费者且不删除原字段。

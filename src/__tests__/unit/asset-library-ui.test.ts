@@ -16,6 +16,10 @@ const detailSource = fs.readFileSync(
   path.join(root, 'components/gallery/GalleryDetail.tsx'),
   'utf8',
 );
+const tagEditorSource = fs.readFileSync(
+  path.join(root, 'components/gallery/GalleryTagEditor.tsx'),
+  'utf8',
+);
 const previewSource = fs.readFileSync(
   path.join(root, 'components/layout/panels/PreviewPanel.tsx'),
   'utf8',
@@ -50,7 +54,8 @@ describe('Asset Library UI contract', () => {
       pageSource,
       /<Input[\s\S]*gallery\.favoritesOnly[\s\S]*gallery\.newestFirst/,
     );
-    assert.match(pageSource, /max-w-sm flex-none/);
+    assert.match(pageSource, /max-w-sm flex-1/);
+    assert.match(pageSource, /ml-auto flex shrink-0/);
     assert.match(pageSource, /gallery\.kindAll[\s\S]*kinds\.map/);
     assert.doesNotMatch(pageSource, /showFilters|gallery\.filters|name="filter"/);
     assert.doesNotMatch(pageSource, /type="date"|dateFrom|dateTo|clearFilters/);
@@ -109,6 +114,25 @@ describe('Asset Library UI contract', () => {
     assert.match(detailSource, /gallery\.deleteBlocked/);
     assert.doesNotMatch(detailSource, /restore|recoverableDelete|moveToTrash/);
     assert.doesNotMatch(pageSource, /showTrash|lifecycle|restore/);
+  });
+
+  it('offers real tag mutation from the context menu and detail panel', () => {
+    assert.match(gridSource, /<ContextMenu>/);
+    assert.match(gridSource, /onManageTags\(item\)/);
+    assert.match(gridSource, /onToggleFavorite\(item\)/);
+    assert.match(gridSource, /onRequestDelete\(item\)/);
+    assert.match(pageSource, /\/api\/assets\/\$\{encodeURIComponent\(id\)\}\/tags/);
+    assert.match(pageSource, /<GalleryTagDialog/);
+    assert.match(detailSource, /<GalleryTagEditor/);
+    assert.match(tagEditorSource, /gallery\.newTagPlaceholder/);
+    assert.match(tagEditorSource, /tags\.filter/);
+  });
+
+  it('uses a larger solid favorite mark and distinguishes labels from actions', () => {
+    assert.match(gridSource, /left-2\.5 top-2\.5/);
+    assert.match(gridSource, /name="favorite"[\s\S]*size="lg"[\s\S]*fill-current/);
+    assert.match(detailSource, /variant="outline"[\s\S]*name="favorite"/);
+    assert.match(detailSource, /<Badge variant="secondary" className="border-0 text-\[10px\]"/);
   });
 
   it('surfaces provenance, integrity, lineage, and consumers from real fields', () => {

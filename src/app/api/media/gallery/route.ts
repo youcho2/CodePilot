@@ -18,7 +18,7 @@ interface AssetGalleryRow extends AssetRecord {
   media_model: string | null;
   aspect_ratio: string | null;
   image_size: string | null;
-  tags: string | null;
+  media_tags: string | null;
   favorited: number | null;
   media_metadata: string | null;
 }
@@ -111,6 +111,8 @@ function mapRow(row: AssetGalleryRow) {
       thumbnailUrl = undefined;
     }
   }
+  const assetTags = safeArray(row.tags);
+
   return {
     id: row.id,
     type: row.kind,
@@ -125,7 +127,7 @@ function mapRow(row: AssetGalleryRow) {
     model: row.model_id || row.media_model || undefined,
     aspectRatio: row.aspect_ratio || undefined,
     imageSize: row.image_size || undefined,
-    tags: safeArray(row.tags),
+    tags: assetTags.length > 0 ? assetTags : safeArray(row.media_tags),
     favorited: !!row.favorited || row.curation_state === 'selected',
     created_at: row.created_at,
     session_id: row.session_id || undefined,
@@ -186,9 +188,22 @@ export async function GET(request: NextRequest) {
       conditions.push(
         `(ar.prompt LIKE ? OR ar.project_id LIKE ? OR ar.provider_id LIKE ?
           OR ar.model_id LIKE ? OR ar.method_ref LIKE ? OR ar.producer_id LIKE ?
-          OR ar.metadata LIKE ?)`,
+          OR ar.metadata LIKE ? OR EXISTS (
+            SELECT 1
+            FROM json_each(COALESCE(ar.tags, '[]')) query_tag
+            WHERE query_tag.value LIKE ?
+          ))`,
       );
-      params.push(search, search, search, search, search, search, search);
+      params.push(
+        search,
+        search,
+        search,
+        search,
+        search,
+        search,
+        search,
+        search,
+      );
     }
     const tagList = tags
       ? tags.split(',').map((tag) => tag.trim()).filter(Boolean)
@@ -197,8 +212,8 @@ export async function GET(request: NextRequest) {
       const placeholders = tagList.map(() => '?').join(', ');
       conditions.push(
         `EXISTS (
-           SELECT 1 FROM json_each(COALESCE(mg.tags, '[]'))
-           WHERE json_each.value IN (${placeholders})
+           SELECT 1 FROM json_each(COALESCE(ar.tags, '[]')) asset_tag
+           WHERE asset_tag.value IN (${placeholders})
          )`,
       );
       params.push(...tagList);
@@ -220,7 +235,7 @@ export async function GET(request: NextRequest) {
          mg.model AS media_model,
          mg.aspect_ratio,
          mg.image_size,
-         mg.tags,
+         mg.tags AS media_tags,
          mg.favorited,
          mg.metadata AS media_metadata
        ${fromClause}

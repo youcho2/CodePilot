@@ -15,6 +15,7 @@ import {
 import { useTranslation } from '@/hooks/useTranslation';
 import type { TranslationKey } from '@/i18n';
 import type { GalleryItem } from './GalleryGrid';
+import { GalleryTagEditor } from './GalleryTagEditor';
 
 interface GalleryDetailProps {
   item: GalleryItem | null;
@@ -22,6 +23,10 @@ interface GalleryDetailProps {
   onOpenChange: (open: boolean) => void;
   onDelete?: (id: string) => Promise<AssetMutationResult>;
   onToggleFavorite?: (id: string) => void;
+  onUpdateTags?: (
+    id: string,
+    tags: readonly string[],
+  ) => Promise<boolean>;
 }
 
 export interface AssetMutationResult {
@@ -76,6 +81,7 @@ export function GalleryDetail({
   onOpenChange,
   onDelete,
   onToggleFavorite,
+  onUpdateTags,
 }: GalleryDetailProps) {
   const { t } = useTranslation();
   const router = useRouter();
@@ -270,7 +276,7 @@ export function GalleryDetail({
           <div className="flex-1 min-w-0 border-l border-border/50 overflow-y-auto p-6 space-y-5">
             {/* Favorite button */}
             <Button
-              variant="ghost"
+              variant="outline"
               size="sm"
               onClick={() => onToggleFavorite?.(item.id)}
               className={cn(
@@ -283,7 +289,8 @@ export function GalleryDetail({
               <CodePilotIcon
                 name="favorite"
                 size="lg"
-                strokeWidth={item.favorited ? 2 : undefined}
+                strokeWidth={1.5}
+                className="[&_path]:fill-current"
                 aria-hidden
               />
               {item.favorited
@@ -322,6 +329,20 @@ export function GalleryDetail({
                   {item.imageSize}
                 </Badge>
               )}
+            </div>
+
+            <div>
+              <div className="mb-1.5 text-xs font-medium text-muted-foreground">
+                {t('gallery.tags')}
+              </div>
+              <GalleryTagEditor
+                tags={item.tags}
+                onChange={(tags) => (
+                  onUpdateTags
+                    ? onUpdateTags(item.id, tags)
+                    : Promise.resolve(false)
+                )}
+              />
             </div>
 
             <div className="space-y-2 text-xs">
@@ -365,17 +386,17 @@ export function GalleryDetail({
                   {t('gallery.lineage')}
                 </div>
                 <div className="flex flex-wrap gap-1.5">
-                  <Badge variant="outline" className="text-[10px]">
+                  <Badge variant="secondary" className="border-0 text-[10px]">
                     {t('gallery.parents', {
                       count: assetDetail.lineage?.parents?.length || 0,
                     })}
                   </Badge>
-                  <Badge variant="outline" className="text-[10px]">
+                  <Badge variant="secondary" className="border-0 text-[10px]">
                     {t('gallery.children', {
                       count: assetDetail.lineage?.children?.length || 0,
                     })}
                   </Badge>
-                  <Badge variant="outline" className="text-[10px]">
+                  <Badge variant="secondary" className="border-0 text-[10px]">
                     {t('gallery.consumers', {
                       count: assetDetail.consumers?.length || 0,
                     })}
@@ -454,7 +475,7 @@ export function GalleryDetail({
               <div className="ml-auto flex items-center gap-1.5">
                 {confirmDelete && (
                   <Button
-                    variant="ghost"
+                    variant="outline"
                     size="sm"
                     onClick={() => {
                       setConfirmDelete(false);
@@ -466,7 +487,7 @@ export function GalleryDetail({
                   </Button>
                 )}
                 <Button
-                  variant={confirmDelete ? 'destructive' : 'ghost'}
+                  variant={confirmDelete ? 'destructive' : 'outline'}
                   size="sm"
                   onClick={handleDelete}
                   disabled={mutating}

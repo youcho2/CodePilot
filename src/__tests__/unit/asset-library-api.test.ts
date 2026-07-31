@@ -20,6 +20,10 @@ import {
   GET as getHtmlThumbnail,
   POST as storeHtmlThumbnail,
 } from '@/app/api/assets/[id]/thumbnail/route';
+import {
+  GET as getAssetTags,
+  PUT as updateAssetTags,
+} from '@/app/api/assets/[id]/tags/route';
 import { DELETE as deleteMedia } from '@/app/api/media/[id]/route';
 import { PUT as toggleFavorite } from '@/app/api/media/[id]/favorite/route';
 
@@ -273,6 +277,66 @@ describe('Asset Library API', () => {
     assert.equal(response.status, 200);
     assert.equal((await response.json()).favorited, 1);
     assert.equal(getAssetRecord(archivedAssetId)?.curation_state, 'selected');
+  });
+
+  it('persists bounded tags for every Asset kind and makes them searchable', async () => {
+    const updated = await updateAssetTags(
+      request(`/api/assets/${archivedAssetId}/tags`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tags: ['网页', '灵感', '网页'] }),
+      }),
+      { params: Promise.resolve({ id: archivedAssetId }) },
+    );
+    assert.equal(updated.status, 200);
+    assert.deepEqual((await updated.json()).tags, ['网页', '灵感']);
+    assert.deepEqual(
+      JSON.parse(getAssetRecord(archivedAssetId)!.tags),
+      ['网页', '灵感'],
+    );
+
+    const read = await getAssetTags(
+      request(`/api/assets/${archivedAssetId}/tags`),
+      { params: Promise.resolve({ id: archivedAssetId }) },
+    );
+    assert.equal(read.status, 200);
+    assert.deepEqual((await read.json()).tags, ['网页', '灵感']);
+
+    const searched = await getGallery(request(
+      `/api/media/gallery?query=${encodeURIComponent('灵感')}`,
+    ));
+    assert.equal(searched.status, 200);
+    assert.equal(
+      (await searched.json()).items.some(
+        (item: { id: string }) => item.id === archivedAssetId,
+      ),
+      true,
+    );
+    const filtered = await getGallery(request(
+      `/api/media/gallery?tags=${encodeURIComponent('网页')}`,
+    ));
+    assert.equal(filtered.status, 200);
+    assert.equal(
+      (await filtered.json()).items.some(
+        (item: { id: string }) => item.id === archivedAssetId,
+      ),
+      true,
+    );
+
+    const rejected = await updateAssetTags(
+      request(`/api/assets/${archivedAssetId}/tags`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tags: ['x'.repeat(33)] }),
+      }),
+      { params: Promise.resolve({ id: archivedAssetId }) },
+    );
+    assert.equal(rejected.status, 400);
+    assert.equal((await rejected.json()).code, 'tags_invalid');
+    assert.deepEqual(
+      JSON.parse(getAssetRecord(archivedAssetId)!.tags),
+      ['网页', '灵感'],
+    );
   });
 
   it('keeps old media rows available during the additive migration', () => {

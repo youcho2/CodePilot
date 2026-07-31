@@ -28,6 +28,7 @@ interface MediaGenerationRow {
   thumbnail_path: string;
   session_id: string | null;
   message_id: string | null;
+  tags: string;
   metadata: string;
   created_at: string;
 }
@@ -73,6 +74,49 @@ function safeJsonObject(value: string): Record<string, unknown> {
       : {};
   } catch {
     return {};
+  }
+}
+
+const MAX_ASSET_TAGS = 20;
+const MAX_ASSET_TAG_LENGTH = 32;
+
+export function normalizeAssetTags(tags: readonly string[]): string[] {
+  if (tags.length > MAX_ASSET_TAGS) {
+    throw new Error(`An Asset can have at most ${MAX_ASSET_TAGS} tags.`);
+  }
+  const normalized: string[] = [];
+  const seen = new Set<string>();
+  for (const rawTag of tags) {
+    if (typeof rawTag !== 'string') {
+      throw new Error('Every Asset tag must be a string.');
+    }
+    const tag = rawTag.normalize('NFKC').trim();
+    if (!tag) throw new Error('Asset tags cannot be empty.');
+    if (tag.length > MAX_ASSET_TAG_LENGTH) {
+      throw new Error(
+        `Asset tags can contain at most ${MAX_ASSET_TAG_LENGTH} characters.`,
+      );
+    }
+    if (/[\u0000-\u001f\u007f,]/u.test(tag)) {
+      throw new Error('Asset tags cannot contain control characters or commas.');
+    }
+    const key = tag.toLocaleLowerCase('en-US');
+    if (seen.has(key)) continue;
+    seen.add(key);
+    normalized.push(tag);
+  }
+  return normalized;
+}
+
+export function parseStoredAssetTags(value: string | null | undefined): string[] {
+  try {
+    const parsed = JSON.parse(value || '[]') as unknown;
+    if (!Array.isArray(parsed)) return [];
+    return normalizeAssetTags(
+      parsed.filter((entry): entry is string => typeof entry === 'string'),
+    );
+  } catch {
+    return [];
   }
 }
 
@@ -179,7 +223,7 @@ function inspectMediaFile(
 function mediaRow(id: string): MediaGenerationRow | undefined {
   return getDb().prepare(
     `SELECT id, type, status, provider, model, prompt, local_path,
-            thumbnail_path, session_id, message_id, metadata, created_at
+            thumbnail_path, session_id, message_id, tags, metadata, created_at
      FROM media_generations WHERE id = ?`,
   ).get(id) as MediaGenerationRow | undefined;
 }
@@ -199,6 +243,31 @@ export function getAssetRecord(id: string): AssetRecord | undefined {
   return getDb().prepare(
     'SELECT * FROM asset_records WHERE id = ?',
   ).get(id) as AssetRecord | undefined;
+}
+
+export function setAssetTags(
+  assetId: string,
+  tags: readonly string[],
+): readonly string[] {
+  const asset = getAssetRecord(assetId);
+  if (!asset || asset.lifecycle_state !== 'active') {
+    throw new Error(`Active Asset "${assetId}" does not exist.`);
+  }
+  const normalized = normalizeAssetTags(tags);
+  const encoded = JSON.stringify(normalized);
+  getDb().transaction(() => {
+    getDb().prepare(
+      `UPDATE asset_records
+       SET tags = ?, updated_at = datetime('now')
+       WHERE id = ? AND lifecycle_state = 'active'`,
+    ).run(encoded, assetId);
+    if (asset.source_media_generation_id) {
+      getDb().prepare(
+        'UPDATE media_generations SET tags = ? WHERE id = ?',
+      ).run(encoded, asset.source_media_generation_id);
+    }
+  })();
+  return normalized;
 }
 
 export function findActiveAssetIdsByStablePaths(
@@ -296,12 +365,12 @@ export function registerMediaGenerationAsset(input: {
          id, kind, producer_id, stable_path, content_hash, mime_type,
          byte_size, preview_path, project_id, session_id, message_id,
          runtime_id, provider_id, model_id, prompt, method_ref,
-         trust_tier, source_scope, lifecycle_state, integrity_state,
+         trust_tier, source_scope, tags, lifecycle_state, integrity_state,
          integrity_reason, metadata, source_media_generation_id,
          created_at, updated_at
        ) VALUES (
          ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-         ?, 'active', ?, ?, ?, ?, ?, ?
+         ?, ?, 'active', ?, ?, ?, ?, ?, ?
        )`,
     ).run(
       row.id,
@@ -324,6 +393,7 @@ export function registerMediaGenerationAsset(input: {
       ),
       'local_generated',
       canonicalMediaDir(),
+      JSON.stringify(parseStoredAssetTags(row.tags)),
       file.integrityState,
       file.integrityReason,
       JSON.stringify({
