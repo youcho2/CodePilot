@@ -10,6 +10,7 @@ export interface GalleryItem {
    *  the UI to label the engine that produced the image. */
   provider?: string;
   prompt: string;
+  title?: string;
   images: Array<{ data?: string; mimeType: string; localPath?: string }>;
   type?: 'image' | 'video' | 'audio' | 'html_bundle';
   kind?: 'image' | 'video' | 'audio' | 'html_bundle';
@@ -29,7 +30,6 @@ export interface GalleryItem {
   integrityState?: 'valid' | 'missing' | 'modified';
   integrityReason?: string;
   trustTier?: string;
-  lifecycleState?: 'active' | 'trashed';
   referenceImages?: Array<{ mimeType: string; localPath: string }>;
 }
 
@@ -66,10 +66,9 @@ export function GalleryGrid({ items, onSelect }: GalleryGridProps) {
   const { t } = useTranslation();
   return (
     <div
-      className="gap-3"
+      className="grid items-start gap-3"
       style={{
-        columnCount: 6,
-        columnGap: '12px',
+        gridTemplateColumns: 'repeat(auto-fill, 16rem)',
       }}
     >
       {items.map((item) => {
@@ -77,11 +76,13 @@ export function GalleryGrid({ items, onSelect }: GalleryGridProps) {
         const isVideo = isVideoItem(item);
         const isAudio = isAudioItem(item);
         const isHtml = item.type === 'html_bundle';
+        const displayTitle =
+          isHtml && item.title?.trim() ? item.title.trim() : item.prompt;
         const integrityFailed =
           item.integrityState && item.integrityState !== 'valid';
-        const promptPreview = item.prompt.length > 80
-          ? `${item.prompt.slice(0, 80)}…`
-          : item.prompt;
+        const promptPreview = displayTitle.length > 80
+          ? `${displayTitle.slice(0, 80)}…`
+          : displayTitle;
         const ariaKey: TranslationKey = isVideo
           ? 'gallery.playVideoAria'
           : isAudio
@@ -98,8 +99,7 @@ export function GalleryGrid({ items, onSelect }: GalleryGridProps) {
             role="button"
             tabIndex={0}
             aria-label={t(ariaKey, { prompt: promptPreview })}
-            className="mb-3 cursor-pointer rounded-lg overflow-hidden ring-0 hover:ring-2 hover:ring-border focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring transition-all"
-            style={{ breakInside: 'avoid' }}
+            className="w-64 cursor-pointer overflow-hidden rounded-lg bg-card ring-0 transition-all hover:ring-2 hover:ring-border focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             onClick={() => onSelect(item)}
             onKeyDown={(e) => {
               if (e.key === 'Enter' || e.key === ' ') {
@@ -124,17 +124,20 @@ export function GalleryGrid({ items, onSelect }: GalleryGridProps) {
                   </span>
                 </div>
               ) : isHtml && item.previewUrl ? (
-                <div className="relative h-52 overflow-hidden bg-background">
+                <div className="relative aspect-video w-full overflow-hidden bg-background">
                   <iframe
                     src={item.previewUrl}
                     sandbox=""
                     loading="lazy"
-                    title={t('gallery.staticWebPreview')}
-                    className="pointer-events-none h-[800px] w-[1280px] origin-top-left scale-[0.25] border-0"
+                    title={displayTitle}
+                    className="pointer-events-none absolute left-0 top-0 h-[720px] w-[1280px] origin-top-left scale-[0.2] border-0 bg-white"
                   />
-                  <span className="absolute bottom-2 left-2 rounded-full bg-background/90 px-2 py-1 text-[10px] text-foreground shadow-sm">
+                  <span className="absolute left-2 top-2 rounded-full bg-background/90 px-2 py-1 text-[10px] text-foreground shadow-sm backdrop-blur-sm">
                     <CodePilotIcon name="web" size={12} className="mr-1 inline" aria-hidden />
                     {t('gallery.staticWebPreview')}
+                  </span>
+                  <span className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 via-black/45 to-transparent px-3 pb-2 pt-8 text-xs font-medium text-white">
+                    <span className="block truncate">{displayTitle}</span>
                   </span>
                 </div>
               ) : isAudio && url ? (
@@ -185,7 +188,10 @@ export function GalleryGrid({ items, onSelect }: GalleryGridProps) {
                 </span>
               )}
               {item.favorited && (
-                <span className="absolute top-1.5 left-1.5">
+                <span className={isHtml
+                  ? 'absolute right-2 top-2'
+                  : 'absolute left-1.5 top-1.5'}
+                >
                   <CodePilotIcon name="favorite" size="md" strokeWidth={2} className="text-status-error-foreground drop-shadow" aria-hidden />
                 </span>
               )}

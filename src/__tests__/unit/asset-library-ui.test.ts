@@ -40,7 +40,35 @@ describe('Asset Library UI contract', () => {
     assert.match(pageSource, /fetch\('\/api\/assets\/kinds'\)/);
     assert.match(pageSource, /kinds\.map\(/);
     assert.match(pageSource, /params\.set\('kind', kind\)/);
+    assert.match(pageSource, /KIND_ICONS/);
+    assert.match(pageSource, /name=\{KIND_ICONS\[entry\.id\] \|\| 'artifact'\}/);
     assert.doesNotMatch(pageSource, /component.*document|document.*component/);
+  });
+
+  it('keeps search and primary actions together with kind filters expanded below', () => {
+    assert.match(
+      pageSource,
+      /useState\(true\)[\s\S]*showFilters|showFilters[\s\S]*useState\(true\)/,
+    );
+    assert.match(
+      pageSource,
+      /<Input[\s\S]*gallery\.favoritesOnly[\s\S]*gallery\.filters[\s\S]*gallery\.newestFirst/,
+    );
+    assert.match(pageSource, /showFilters && \([\s\S]*gallery\.kindAll[\s\S]*kinds\.map/);
+    assert.doesNotMatch(pageSource, /type="date"|dateFrom|dateTo|clearFilters/);
+  });
+
+  it('uses a fixed-width row-major grid and a bounded 16:9 web preview', () => {
+    assert.match(gridSource, /className="grid items-start gap-3"/);
+    assert.match(gridSource, /gridTemplateColumns: 'repeat\(auto-fill, 16rem\)'/);
+    assert.match(gridSource, /className="w-64 cursor-pointer/);
+    assert.doesNotMatch(gridSource, /columnCount|breakInside/);
+
+    assert.match(gridSource, /className="relative aspect-video w-full overflow-hidden/);
+    assert.match(gridSource, /h-\[720px\] w-\[1280px\]/);
+    assert.match(gridSource, /scale-\[0\.2\]/);
+    assert.match(gridSource, /absolute left-2 top-2 rounded-full/);
+    assert.match(gridSource, /\{displayTitle\}/);
   });
 
   it('renders real audio and strict static HTML previews with an honest failure state', () => {
@@ -69,17 +97,19 @@ describe('Asset Library UI contract', () => {
     assert.match(messageItemSource, /trust === 'workspace'/);
   });
 
-  it('uses recoverable Trash/Restore copy in both languages', () => {
+  it('uses permanent-delete confirmation copy and exposes no Trash/Restore UI', () => {
     for (const source of [enSource, zhSource]) {
-      assert.match(source, /'gallery\.moveToTrash'/);
-      assert.match(source, /'gallery\.recoverableDelete'/);
-      assert.match(source, /'gallery\.restore'/);
+      assert.match(source, /'gallery\.deleteFailed'/);
+      assert.match(source, /'gallery\.deleteConfirm'/);
       assert.match(source, /'gallery\.deleteBlocked'/);
+      assert.doesNotMatch(source, /'gallery\.(?:trash|activeAssets|moveToTrash|recoverableDelete|restore|restoreFailed|trashFailed)'/);
     }
-    assert.match(detailSource, /gallery\.recoverableDelete/);
+    assert.match(detailSource, /gallery\.deleteConfirm/);
+    assert.match(detailSource, /gallery\.confirmDelete/);
+    assert.match(detailSource, /name="delete"/);
     assert.match(detailSource, /gallery\.deleteBlocked/);
-    assert.match(pageSource, /lifecycle.*trashed/);
-    assert.match(pageSource, /\/restore/);
+    assert.doesNotMatch(detailSource, /restore|recoverableDelete|moveToTrash/);
+    assert.doesNotMatch(pageSource, /showTrash|lifecycle|restore/);
   });
 
   it('surfaces provenance, integrity, lineage, and consumers from real fields', () => {

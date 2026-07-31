@@ -2,11 +2,13 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { SortDescending, SpinnerGap } from '@/components/ui/icon';
-import { CodePilotIcon } from '@/components/ui/semantic-icon';
+import {
+  CodePilotIcon,
+  type CodePilotIconName,
+} from '@/components/ui/semantic-icon';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 import { GalleryGrid, type GalleryItem } from '@/components/gallery/GalleryGrid';
 import {
   GalleryDetail,
@@ -19,6 +21,13 @@ const PAGE_SIZE = 20;
 
 type SortOrder = 'newest' | 'oldest';
 
+const KIND_ICONS: Readonly<Record<string, CodePilotIconName>> = {
+  image: 'image',
+  video: 'media_video',
+  audio: 'media_audio',
+  html_bundle: 'web',
+};
+
 export default function GalleryPage() {
   const { t, locale } = useTranslation();
 
@@ -28,14 +37,11 @@ export default function GalleryPage() {
   const [offset, setOffset] = useState(0);
 
   // Filters
-  const [dateFrom, setDateFrom] = useState('');
-  const [dateTo, setDateTo] = useState('');
   const [sort, setSort] = useState<SortOrder>('newest');
-  const [showFilters, setShowFilters] = useState(false);
+  const [showFilters, setShowFilters] = useState(true);
   const [favoritesOnly, setFavoritesOnly] = useState(false);
   const [query, setQuery] = useState('');
   const [kind, setKind] = useState('');
-  const [showTrash, setShowTrash] = useState(false);
   const [kinds, setKinds] = useState<Array<{
     id: string;
     displayName: { en: string; zh: string };
@@ -49,12 +55,9 @@ export default function GalleryPage() {
     setLoading(true);
     try {
       const params = new URLSearchParams();
-      if (dateFrom) params.set('dateFrom', dateFrom);
-      if (dateTo) params.set('dateTo', dateTo);
       if (favoritesOnly) params.set('favoritesOnly', '1');
       if (query.trim()) params.set('query', query.trim());
       if (kind) params.set('kind', kind);
-      if (showTrash) params.set('lifecycle', 'trashed');
       params.set('sort', sort);
       params.set('limit', String(PAGE_SIZE));
       params.set('offset', reset ? '0' : String(offset));
@@ -77,13 +80,10 @@ export default function GalleryPage() {
       setLoading(false);
     }
   }, [
-    dateFrom,
-    dateTo,
     favoritesOnly,
     kind,
     offset,
     query,
-    showTrash,
     sort,
   ]);
 
@@ -101,7 +101,7 @@ export default function GalleryPage() {
     setOffset(0);
     fetchItems(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dateFrom, dateTo, sort, favoritesOnly, query, kind, showTrash]);
+  }, [sort, favoritesOnly, query, kind]);
 
   const handleSelect = useCallback((item: GalleryItem) => {
     setSelectedItem(item);
@@ -123,21 +123,6 @@ export default function GalleryPage() {
         code: data.code,
         consumers: data.consumers,
       };
-    } catch {
-      return { ok: false };
-    }
-  }, []);
-
-  const handleRestore = useCallback(async (id: string): Promise<AssetMutationResult> => {
-    try {
-      const res = await fetch(`/api/assets/${encodeURIComponent(id)}/restore`, {
-        method: 'POST',
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) return { ok: false, error: data.error, code: data.code };
-      setItems((prev) => prev.filter((item) => item.id !== id));
-      setTotal((prev) => prev - 1);
-      return { ok: true };
     } catch {
       return { ok: false };
     }
@@ -190,21 +175,16 @@ export default function GalleryPage() {
 
   return (
     <div className="flex h-full flex-col overflow-hidden">
-      {/* Page chrome — same rhythm as `/plugins`: no title/description
-          (the rail label "素材库" already says where we are), no bottom
-          divider. The toolbar (favorites / filters / sort) sits in the
-          same row position as the plugins page's row-2 action bar. */}
+      {/* Search is the primary control; kind filters stay expanded directly
+          below it so the toolbar reads top-to-bottom by information priority. */}
       <header className="shrink-0 px-6 pt-4 pb-3">
-        <div className="flex items-center justify-end gap-1.5 flex-wrap">
-          <Button
-            variant={showTrash ? 'secondary' : 'ghost'}
-            size="sm"
-            className="h-8 gap-1.5"
-            onClick={() => setShowTrash((value) => !value)}
-          >
-            <CodePilotIcon name={showTrash ? 'archive' : 'appearance'} size="sm" aria-hidden />
-            {showTrash ? t('gallery.trash') : t('gallery.activeAssets')}
-          </Button>
+        <div className="flex flex-wrap items-center gap-1.5">
+          <Input
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder={t('gallery.searchPlaceholder')}
+            className="mr-1 h-8 min-w-64 flex-1 text-xs"
+          />
           <Button
             variant={favoritesOnly ? 'secondary' : 'ghost'}
             size="sm"
@@ -225,6 +205,7 @@ export default function GalleryPage() {
             size="sm"
             className="h-8 gap-1.5"
             onClick={() => setShowFilters(!showFilters)}
+            aria-expanded={showFilters}
           >
             <CodePilotIcon name="filter" size="sm" aria-hidden />
             {t('gallery.filters' as TranslationKey)}
@@ -241,76 +222,39 @@ export default function GalleryPage() {
               : t('gallery.oldestFirst' as TranslationKey)}
           </Button>
         </div>
+        {showFilters && (
+          <div className="mt-3 flex flex-wrap items-center gap-1.5">
+            <Button
+              variant={kind === '' ? 'secondary' : 'outline'}
+              size="xs"
+              className="gap-1.5 rounded-full px-3"
+              onClick={() => setKind('')}
+            >
+              <CodePilotIcon name="artifact" size={12} aria-hidden />
+              {t('gallery.kindAll')}
+            </Button>
+            {kinds.map((entry) => (
+              <Button
+                key={entry.id}
+                variant={kind === entry.id ? 'secondary' : 'outline'}
+                size="xs"
+                className="gap-1.5 rounded-full px-3"
+                onClick={() => setKind(entry.id)}
+              >
+                <CodePilotIcon
+                  name={KIND_ICONS[entry.id] || 'artifact'}
+                  size={12}
+                  aria-hidden
+                />
+                {entry.displayName[locale]}
+              </Button>
+            ))}
+          </div>
+        )}
       </header>
 
       {/* Content */}
       <div className="flex-1 overflow-y-auto px-6 pb-5">
-        {/* Filter bar */}
-        {showFilters && (
-          <div className="mb-4 space-y-2.5">
-            <div className="flex flex-wrap items-center gap-2">
-              <Input
-                value={query}
-                onChange={(event) => setQuery(event.target.value)}
-                placeholder={t('gallery.searchPlaceholder')}
-                className="h-8 min-w-64 flex-1 text-xs"
-              />
-              <Button
-                variant={kind === '' ? 'secondary' : 'outline'}
-                size="xs"
-                onClick={() => setKind('')}
-              >
-                {t('gallery.kindAll')}
-              </Button>
-              {kinds.map((entry) => (
-                <Button
-                  key={entry.id}
-                  variant={kind === entry.id ? 'secondary' : 'outline'}
-                  size="xs"
-                  onClick={() => setKind(entry.id)}
-                >
-                  {entry.displayName[locale]}
-                </Button>
-              ))}
-            </div>
-            {/* Date range */}
-            <div className="flex items-center gap-2">
-              <Label htmlFor="gallery-date-from" className="text-xs text-muted-foreground">
-                {t('gallery.dateFrom' as TranslationKey)}
-              </Label>
-              <Input
-                id="gallery-date-from"
-                type="date"
-                value={dateFrom}
-                onChange={(e) => setDateFrom(e.target.value)}
-                className="h-7 w-auto px-2 text-xs"
-              />
-              <Label htmlFor="gallery-date-to" className="text-xs text-muted-foreground">
-                {t('gallery.dateTo' as TranslationKey)}
-              </Label>
-              <Input
-                id="gallery-date-to"
-                type="date"
-                value={dateTo}
-                onChange={(e) => setDateTo(e.target.value)}
-                className="h-7 w-auto px-2 text-xs"
-              />
-              {(dateFrom || dateTo) && (
-                <Button
-                  variant="ghost"
-                  size="xs"
-                  onClick={() => {
-                    setDateFrom('');
-                    setDateTo('');
-                  }}
-                >
-                  {t('gallery.clearFilters' as TranslationKey)}
-                </Button>
-              )}
-            </div>
-          </div>
-        )}
-
         {/* Gallery content */}
         {loading && items.length === 0 ? (
           <div className="flex h-full items-center justify-center">
@@ -344,7 +288,6 @@ export default function GalleryPage() {
         open={detailOpen}
         onOpenChange={setDetailOpen}
         onDelete={handleDelete}
-        onRestore={handleRestore}
         onToggleFavorite={handleToggleFavorite}
       />
     </div>

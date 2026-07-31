@@ -44,7 +44,7 @@ export class AssetInUseError extends Error {
   constructor(assetId: string, consumers: readonly AssetConsumer[]) {
     super(
       `Asset "${assetId}" has ${consumers.length} active consumer(s) and `
-      + 'cannot be trashed until they are released.',
+      + 'cannot be deleted until they are released.',
     );
     this.name = 'AssetInUseError';
     this.consumers = consumers;
@@ -658,6 +658,175 @@ export function trashAsset(assetId: string): AssetRecord {
      WHERE id = ?`,
   ).run(assetId);
   return getAssetRecord(assetId)!;
+}
+
+export interface PermanentAssetDeleteResult {
+  readonly assetId: string;
+  readonly deletedPaths: readonly string[];
+  readonly retainedSharedPaths: readonly string[];
+  readonly sourceMediaGenerationDeleted: boolean;
+}
+
+function resolveThroughExistingAncestor(inputPath: string): string {
+  let existingAncestor = path.resolve(inputPath);
+  const missingSegments: string[] = [];
+  while (!fs.existsSync(existingAncestor)) {
+    const parent = path.dirname(existingAncestor);
+    if (parent === existingAncestor) break;
+    missingSegments.unshift(path.basename(existingAncestor));
+    existingAncestor = parent;
+  }
+  const canonicalAncestor = fs.existsSync(existingAncestor)
+    ? fs.realpathSync(existingAncestor)
+    : existingAncestor;
+  return path.join(canonicalAncestor, ...missingSegments);
+}
+
+function assertCanonicalDeleteTarget(targetPath: string, rootPath: string): string {
+  // macOS exposes the same temporary directory through both `/var` and
+  // `/private/var`. Resolve the nearest existing ancestor so this boundary
+  // check compares filesystem identities rather than path aliases.
+  const target = resolveThroughExistingAncestor(targetPath);
+  const root = resolveThroughExistingAncestor(rootPath);
+  if (target === root || !target.startsWith(`${root}${path.sep}`)) {
+    throw new Error(
+      `Refusing to delete Asset bytes "${target}" outside "${root}".`,
+    );
+  }
+  return target;
+}
+
+function isAssetPathShared(
+  assetId: string,
+  sourceMediaGenerationId: string | null,
+  targetPath: string,
+): boolean {
+  const mediaRoot = canonicalMediaDir();
+  const canonicalMediaRoot = resolveThroughExistingAncestor(mediaRoot);
+  const relativePath = path.relative(canonicalMediaRoot, targetPath);
+  const equivalentPaths = Array.from(new Set([
+    targetPath,
+    path.join(path.resolve(mediaRoot), relativePath),
+  ]));
+  const placeholders = equivalentPaths.map(() => '?').join(', ');
+  const assetOwner = getDb().prepare(
+    `SELECT id FROM asset_records
+     WHERE id != ?
+       AND (
+         stable_path IN (${placeholders})
+         OR preview_path IN (${placeholders})
+       )
+     LIMIT 1`,
+  ).get(assetId, ...equivalentPaths, ...equivalentPaths);
+  if (assetOwner) return true;
+  const mediaOwner = getDb().prepare(
+    `SELECT id FROM media_generations
+     WHERE id != ?
+       AND (
+         local_path IN (${placeholders})
+         OR thumbnail_path IN (${placeholders})
+       )
+     LIMIT 1`,
+  ).get(
+    sourceMediaGenerationId || '',
+    ...equivalentPaths,
+    ...equivalentPaths,
+  );
+  return !!mediaOwner;
+}
+
+/**
+ * Permanently removes an Asset after proving that no active consumer depends
+ * on it. The Asset Library owns bytes only inside its canonical media/Asset
+ * roots; shared media paths are retained for their other owner.
+ *
+ * Bytes are removed before the small, preflighted DB transaction. If an
+ * unexpected DB failure occurs, the remaining record honestly reconciles to
+ * `missing` and the user can retry instead of receiving a false success.
+ */
+export function deleteAssetPermanently(
+  assetId: string,
+): PermanentAssetDeleteResult {
+  const asset = getAssetRecord(assetId);
+  if (!asset) throw new Error(`Asset "${assetId}" does not exist.`);
+  const consumers = listAssetConsumers(assetId);
+  if (consumers.length > 0) throw new AssetInUseError(assetId, consumers);
+
+  const sourceMedia = asset.source_media_generation_id
+    ? mediaRow(asset.source_media_generation_id)
+    : undefined;
+  const candidates: string[] = [];
+  if (asset.kind === 'html_bundle') {
+    const assetRoot = assertCanonicalDeleteTarget(
+      path.join(canonicalAssetsDir(), asset.id),
+      canonicalAssetsDir(),
+    );
+    const stablePath = resolveThroughExistingAncestor(asset.stable_path);
+    if (
+      stablePath !== assetRoot
+      && !stablePath.startsWith(`${assetRoot}${path.sep}`)
+    ) {
+      throw new Error('HTML Asset entry is outside its canonical Asset root.');
+    }
+    candidates.push(assetRoot);
+  } else {
+    for (const candidate of [
+      asset.stable_path,
+      asset.preview_path,
+      sourceMedia?.local_path,
+      sourceMedia?.thumbnail_path,
+    ]) {
+      if (!candidate) continue;
+      candidates.push(
+        assertCanonicalDeleteTarget(candidate, canonicalMediaDir()),
+      );
+    }
+  }
+
+  const uniqueCandidates = Array.from(new Set(candidates));
+  const deletedPaths: string[] = [];
+  const retainedSharedPaths: string[] = [];
+  for (const targetPath of uniqueCandidates) {
+    if (
+      isAssetPathShared(
+        asset.id,
+        asset.source_media_generation_id,
+        targetPath,
+      )
+    ) {
+      retainedSharedPaths.push(targetPath);
+      continue;
+    }
+    if (!fs.existsSync(targetPath)) continue;
+    fs.rmSync(targetPath, { recursive: true, force: false });
+    deletedPaths.push(targetPath);
+  }
+
+  let sourceMediaGenerationDeleted = false;
+  getDb().transaction(() => {
+    getDb().prepare(
+      'DELETE FROM asset_references WHERE asset_id = ?',
+    ).run(asset.id);
+    getDb().prepare(
+      `DELETE FROM asset_lineage
+       WHERE child_asset_id = ? OR parent_asset_id = ?`,
+    ).run(asset.id, asset.id);
+    getDb().prepare(
+      'DELETE FROM asset_records WHERE id = ?',
+    ).run(asset.id);
+    if (asset.source_media_generation_id) {
+      sourceMediaGenerationDeleted = getDb().prepare(
+        'DELETE FROM media_generations WHERE id = ?',
+      ).run(asset.source_media_generation_id).changes > 0;
+    }
+  })();
+
+  return {
+    assetId: asset.id,
+    deletedPaths,
+    retainedSharedPaths,
+    sourceMediaGenerationDeleted,
+  };
 }
 
 export function restoreAsset(assetId: string): AssetRecord {

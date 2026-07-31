@@ -1,14 +1,14 @@
 # Harness Home Program B — Producer-backed Asset Library
 
 > 创建时间：2026-07-30
-> 最后更新：2026-07-30
-> 状态：🟡 B0–B3 code/tests 与隔离浏览器 UI smoke 完成；packaged app / 用户 human gate 待最终验收；用户已授权 Codex 直接实施，明确不启动 loop
+> 最后更新：2026-07-31
+> 状态：🟡 B0–B3 code/tests 与本地 Electron/浏览器 UI smoke 完成；素材库 UI 简化与永久删除语义已落地；packaged app / 用户 human gate 待最终验收；用户已授权 Codex 直接实施，明确不启动 loop
 > 父计划：[harness-home-user-owned-core.md](harness-home-user-owned-core.md)
 > 依赖：[harness-home-core-adapters.md](harness-home-core-adapters.md) 的 `AssetRef` / scope / provenance / repository boundary
 
 ## 目标
 
-把现有 Gallery 演进为用户长期拥有的通用 Asset Library，覆盖真实 producer 产出的图片、视频、音频和完整网页 bundle，并提供 lineage、引用、删除保护和跨 Runtime projection。
+把现有 Gallery 演进为用户长期拥有的通用 Asset Library，覆盖真实 producer 产出的图片、视频、音频和完整网页 bundle，并提供 lineage、引用、永久删除保护和跨 Runtime projection。
 
 本计划不负责 Harness/Runtime adapter，也不负责 CodePilot Design Method 的审美内容。
 
@@ -26,7 +26,10 @@
 - 素材库不再只像图片 Gallery；
 - 图片、视频、音频和成功物化的网页结果可以在同一项目脉络中归档；
 - 用户能看到 parent/derived-from、来源模型、方法版本和引用关系；
-- 删除前显示消费者，默认可恢复；
+- 删除是有二次确认的永久删除；存在消费者时会阻止删除；
+- 搜索与主要操作同层，类型筛选默认展开且有图标；
+- 素材按最新时间从左到右、逐行排列；缩窄窗口只减少列数，不拉伸卡片；
+- 网页卡片展示真实页面标题，以固定 16:9 比例完整缩放桌面画布；
 - 同一 Asset 可继续用于图片变体、视频或网页创作。
 
 ## 明确不做
@@ -88,7 +91,7 @@ Migration plan 必须包含：
 - rollback / restart；
 - 旧版本读取新 DB 的兼容边界；
 - large file path 与 missing file 状态；
-- 引用计数与删除恢复。
+- 引用计数与安全永久删除。
 
 ## B1 — Asset registry、backfill 与 lineage
 
@@ -119,7 +122,7 @@ Backfill 原则：
 - 现有 media 数据无损 backfill。
 - image → derived image → video lineage 可查询。
 - 删除 Asset 前能列出引用者。
-- 默认走可恢复删除。
+- 删除必须二次确认；无活跃消费者时永久移除 Asset 记录和独占字节。
 - 没有 registered producer 的 kind 无法写入。
 
 ### B1 实施证据
@@ -128,8 +131,8 @@ Backfill 原则：
 - image / video / audio 只有已登记 producer 才能落库；`component` / `document` 未注册。
 - 内置图片生成、MCP base64 保存、CLI/Codex 文件导入均在同一事务中写 media row 与 Asset provenance。
 - backfill 只扫描 terminal `completed`，missing path 明确记为 `missing`，partial/failed 不伪造成 Asset。
-- lineage、active reference、typed ref、删除保护、软删除与恢复均由 `asset-library-conformance.test.ts` 覆盖。
-- 兼容边界：v0.62 会忽略新增 Asset 表；因此新版本的“已移入废纸篓”状态不会被旧版 Gallery 理解，但文件和旧 media row 均保留，不会造成数据丢失。
+- lineage、active reference、typed ref、消费者阻断与永久删除均由 `asset-library-conformance.test.ts` 覆盖。
+- 兼容边界：既有 `lifecycle_state` / restore 路由暂留作旧 trashed record 的数据兼容，不再出现在素材库 UI；新删除路径会移除 Asset record、关联 source media row 和 Asset Library 独占字节，旧版本同样不会再显示已永久删除的内容。
 
 ## B2 — HTML bundle
 
@@ -149,7 +152,7 @@ HTML / web result 只有同时满足以下条件才 materialize：
 - 完整网页结果可 materialize、重开和再次引用。
 - partial/failure 不进入 Asset Library。
 - HTML Asset 不绕过既有 trust/CSP/scope。
-- bundle 删除/移动不会留下无来源的成功记录。
+- bundle 永久删除不会留下无来源的成功记录或孤立 Asset 目录。
 
 ### B2 实施证据
 
@@ -180,8 +183,11 @@ HTML / web result 只有同时满足以下条件才 materialize：
 - Gallery 原页面增量演进为 Asset Library；kind filters 由 `/api/assets/kinds` registry 返回，首版只有 image / video / audio / html_bundle。
 - 图片、视频、真实 WAV、严格静态网页均有真实 preview；缺失/变化显示 integrity 原因，不渲染空白成功卡。
 - 详情读取真实 source / project / Runtime / model / method / content hash、parent/child relation 与 active consumers。
-- 搜索覆盖 prompt / project / provider / model / method / producer；旧 Gallery row 通过 100 条/请求的 bounded backfill journal 渐进进入 Asset index。
-- 删除改为 Trash lifecycle，不删除旧 media row 或本地字节；引用者会阻止删除，Trash 视图可恢复。
+- 搜索与收藏/筛选/排序位于同一主层；类型胶囊在下一层默认展开、由 registry 派生并显示对应图标；开始/结束日期和 Trash 切换均已移除。
+- 搜索覆盖 prompt / page title metadata / project / provider / model / method / producer；旧 Gallery row 通过 100 条/请求的 bounded backfill journal 渐进进入 Asset index。
+- CSS Columns 已改为固定 256px 宽的 CSS Grid：数据库按 `created_at + id` 稳定排序，页面从左到右逐行放置，窗口变窄时减少列数而不改变卡片尺寸。
+- HTML materializer 在归档时保存真实 `<title>`；旧 bundle 在读取时从实际入口 HTML 补取标题，最终才回退到真实入口文件名。网页卡片用 1280×720 静态画布缩放为 256×144，胶囊悬浮在顶部，标题叠加在底部，不产生 3:4 白边。
+- 删除不再进入 Trash lifecycle：详情先展示不可撤销提示，第二次点击才永久删除；活跃引用者仍会阻止删除，共享字节会保留。
 - 现有图片生成会把已登记 reference path 解析成 parent Asset；MediaBlock 可携带 typed parent IDs；三 Runtime projection 继续使用 Program A 的同一 canonical `AssetRef`。
 
 ## Conformance Suite
@@ -196,7 +202,7 @@ HTML / web result 只有同时满足以下条件才 materialize：
 6. preview consumer；
 7. typed-reference round-trip；
 8. lineage parent existence；
-9. deletion/recovery；
+9. deletion/consumer protection；
 10. trust/security policy；
 11. missing file / partial failure；
 12. unsupported Runtime degradation。
@@ -206,7 +212,7 @@ HTML / web result 只有同时满足以下条件才 materialize：
 | 层 | 内容 |
 |----|------|
 | Tier 0 | registry/descriptor、provenance、kind validation |
-| Tier 1 | backfill、hash、lineage、delete/recover、typed references |
+| Tier 1 | backfill、hash、lineage、permanent delete / consumer protection、typed references |
 | Tier 2 | DB migration、真实 media producer、HTML materialization、packaged preview |
 | Human gate | Gallery 多 kind 可读性、网页预览安全提示、创作链路理解 |
 
@@ -214,12 +220,13 @@ HTML / web result 只有同时满足以下条件才 materialize：
 
 | Date | Kind | Producer | 场景 | Result | Evidence |
 |------|------|----------|------|--------|----------|
-| 2026-07-30 | image/video/audio | media saver / image generator / Codex import / legacy backfill | terminal write → hash → lineage → typed reference → trash/restore | ✅ Tier 0/1：7/7 | `asset-library-conformance.test.ts`；真实 PNG、MP4 bytes、WAV fixture + isolated SQLite |
+| 2026-07-30 | image/video/audio | media saver / image generator / Codex import / legacy backfill | terminal write → hash → lineage → typed reference → trash/restore（历史 smoke；删除决策已在 2026-07-31 替代） | ✅ 当时通过 | 旧版 `asset-library-conformance.test.ts`；真实 PNG、MP4 bytes、WAV fixture + isolated SQLite |
 | 2026-07-30 | html_bundle | workspace/inline materializer | complete → atomic bundle/hash/preview；partial/failure/symlink/scope/danger URL fail-closed | ✅ Tier 0/1：6/6 | `html-bundle-conformance.test.ts` |
-| 2026-07-30 | all registered kinds | Asset/Gallery API + UI contracts | registry filters、search、provenance/lineage、consumer block、Trash/Restore、strict preview | ✅ Tier 1：12/12 | `asset-library-api.test.ts` 7/7；`asset-library-ui.test.ts` 5/5 |
-| 2026-07-30 | html_bundle | isolated local dev app | 两个真实 materialized bundle → 卡片预览 → detail provenance/parent lineage → search → Trash → Restore | ✅ Browser smoke；iframe `sandbox=""`；0 console errors | 独立 `CLAUDE_GUI_DATA_DIR` + migration disabled；临时数据库与 bundle 已在验收后删除 |
+| 2026-07-30 | all registered kinds | Asset/Gallery API + UI contracts | registry filters、search、provenance/lineage、consumer block、Trash/Restore、strict preview（历史 smoke；删除决策已在 2026-07-31 替代） | ✅ 当时通过 | 旧版 `asset-library-api.test.ts` / `asset-library-ui.test.ts` |
+| 2026-07-30 | html_bundle | isolated local dev app | 两个真实 materialized bundle → 卡片预览 → detail provenance/parent lineage → search → Trash → Restore（历史 smoke；删除决策已在 2026-07-31 替代） | ✅ 当时通过；iframe `sandbox=""`；0 console errors | 独立 `CLAUDE_GUI_DATA_DIR` + migration disabled；临时数据库与 bundle 已在验收后删除 |
 | 2026-07-30 | html_bundle | real workspace chat card | session `5caa4952ddda37df94da3cd11acf7cc4` 首次归档因误扫描 workspace 超过 512 文件而失败 → 改为入口依赖闭包 → API 真实归档 → 聊天卡片单按钮点击变为“已归档到素材库” | ✅ 目标测试 20/20；Browser smoke；真实 Asset `2dff7212-29f3-44a0-b4e2-5bb3420155ca` integrity `valid` | 520 个无关文件回归 fixture；真实用户数据保留该验收 Asset |
 | 2026-07-30 | html_bundle | encoded data-SVG fragment | session `20107cbbbc77aeae80f675b1a035b2fc` 的 data URI 内含 `url(%23n)`，解码后的 SVG fragment 被误判为本地文件 `#n` → 解码后再次应用 fragment 语义 | ✅ 目标测试 21/21；真实 API + Browser card smoke；Asset `07e7b8a0-a486-496e-8ed9-04bdc28fe730` integrity `valid` | 精确 data-SVG regression fixture；真实用户数据保留该验收 Asset |
+| 2026-07-31 | all registered kinds | Gallery UI + permanent delete | 默认展开的图标筛选、无日期/Trash UI、稳定 newest row-major grid、真实网页标题、固定 16:9 预览、二次确认永久删除、consumer/shared-byte block | ✅ 目标测试 32/32、全量单测 4873/4873、生产 build；Browser smoke：1280px 为 3 列、700px 为 2 列，卡片恒为 256px、iframe 恒为 256×144，无横向溢出、0 console errors | `asset-library-api.test.ts` 8/8；`asset-library-conformance.test.ts` 8/8；`asset-library-ui.test.ts` 8/8；`html-bundle-conformance.test.ts` 8/8；真实本地素材只读验收，未执行删除 |
 | _待执行_ | all registered kinds | packaged app | multi-kind visual readability + HTML safety copy | ⏳ Human gate | screenshot / user feedback |
 
 ## 决策日志
@@ -235,3 +242,6 @@ HTML / web result 只有同时满足以下条件才 materialize：
 - 2026-07-30：资源 URL 的安全分类必须在 percent-decoding 后重新识别 document fragment；`%23...` 属于 SVG/CSS 页内引用，不能作为本地文件进入依赖闭包。
 - 2026-07-30：B3 沿用 Gallery 路由与页面，不另建平行 Asset UI；旧 row 采用 bounded on-read backfill，避免 schema init 或单个请求同步 hash 整个大库。
 - 2026-07-30：隔离浏览器 smoke 发现详情 Dialog 缺少可访问描述，已补 `DialogDescription`；该 smoke 不替代 packaged app 与用户审美验收。
+- 2026-07-31：用户取消素材库废纸篓。B1 的“默认可恢复删除”决策被本条替代：UI 仅提供二次确认永久删除；活跃 consumer 继续 fail-closed，Asset Library 独占字节与 source media row 一并删除。旧 lifecycle/restore 代码暂留只为读取历史 trashed records，不构成产品入口。
+- 2026-07-31：用户要求窗口缩放改变列数而不是卡片尺寸。B3 从 CSS Columns 改为固定宽度 CSS Grid，以 SQL newest 排序 + DOM 顺序保证从左到右逐行阅读。
+- 2026-07-31：HTML 卡片标题以归档入口的真实 `<title>` 为 source breadcrumb；新归档写入 manifest/metadata，旧归档按需读取入口文件，禁止统一伪造“预览”标题。

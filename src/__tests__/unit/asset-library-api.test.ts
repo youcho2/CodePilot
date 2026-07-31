@@ -15,8 +15,7 @@ import { GET as getKinds } from '@/app/api/assets/kinds/route';
 import { POST as archiveHtml } from '@/app/api/assets/html-bundles/route';
 import { GET as getGallery } from '@/app/api/media/gallery/route';
 import { GET as getAssetDetail } from '@/app/api/assets/[id]/route';
-import { DELETE as trashMedia } from '@/app/api/media/[id]/route';
-import { POST as restoreAssetRoute } from '@/app/api/assets/[id]/restore/route';
+import { DELETE as deleteMedia } from '@/app/api/media/[id]/route';
 import { PUT as toggleFavorite } from '@/app/api/media/[id]/favorite/route';
 
 const workspace = fs.mkdtempSync(path.join(os.tmpdir(), 'asset-api-workspace-'));
@@ -24,7 +23,7 @@ const pageDir = path.join(workspace, 'site');
 fs.mkdirSync(pageDir, { recursive: true });
 fs.writeFileSync(
   path.join(pageDir, 'index.html'),
-  '<!doctype html><html><body><h1>API archive</h1></body></html>',
+  '<!doctype html><html><head><title>API Archive Title</title></head><body><h1>API archive</h1></body></html>',
   'utf8',
 );
 const session = createSession(
@@ -102,15 +101,83 @@ describe('Asset Library API', () => {
     fs.rmSync(outside, { recursive: true, force: true });
   });
 
+  it('orders the Gallery stably by Asset creation time and then id', async () => {
+    fs.writeFileSync(
+      path.join(pageDir, 'older.html'),
+      '<!doctype html><title>Older archive</title>',
+      'utf8',
+    );
+    fs.writeFileSync(
+      path.join(pageDir, 'newer.html'),
+      '<!doctype html><title>Newer archive</title>',
+      'utf8',
+    );
+    const archive = async (fileName: string) => {
+      const response = await archiveHtml(request('/api/assets/html-bundles', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          sessionId: session.id,
+          source: 'workspace',
+          filePath: path.join(pageDir, fileName),
+        }),
+      }));
+      assert.equal(response.status, 200);
+      return (await response.json()).asset.id as string;
+    };
+    const olderId = await archive('older.html');
+    const newerId = await archive('newer.html');
+    getDb().prepare(
+      `UPDATE asset_records
+       SET created_at = CASE id
+         WHEN ? THEN '2026-01-01T00:00:00.000Z'
+         WHEN ? THEN '2026-01-02T00:00:00.000Z'
+         WHEN ? THEN '2026-01-03T00:00:00.000Z'
+       END
+       WHERE id IN (?, ?, ?)`,
+    ).run(
+      olderId,
+      archivedAssetId,
+      newerId,
+      olderId,
+      archivedAssetId,
+      newerId,
+    );
+
+    const newest = await getGallery(request(
+      '/api/media/gallery?kind=html_bundle&sort=newest',
+    ));
+    assert.deepEqual(
+      (await newest.json()).items.map((item: { id: string }) => item.id),
+      [newerId, archivedAssetId, olderId],
+    );
+    const oldest = await getGallery(request(
+      '/api/media/gallery?kind=html_bundle&sort=oldest',
+    ));
+    assert.deepEqual(
+      (await oldest.json()).items.map((item: { id: string }) => item.id),
+      [olderId, archivedAssetId, newerId],
+    );
+
+    for (const id of [olderId, newerId]) {
+      const deleted = await deleteMedia(
+        request(`/api/media/${id}`, { method: 'DELETE' }),
+        { params: Promise.resolve({ id }) },
+      );
+      assert.equal(deleted.status, 200);
+    }
+  });
+
   it('lists registry-backed Assets and returns strict HTML preview metadata', async () => {
     const gallery = await getGallery(request(
-      '/api/media/gallery?kind=html_bundle&query=API-created',
+      '/api/media/gallery?kind=html_bundle&query=API%20Archive%20Title',
     ));
     assert.equal(gallery.status, 200);
     const galleryData = await gallery.json();
     assert.equal(galleryData.total, 1);
     assert.equal(galleryData.items[0].id, archivedAssetId);
     assert.equal(galleryData.items[0].type, 'html_bundle');
+    assert.equal(galleryData.items[0].title, 'API Archive Title');
     assert.match(
       galleryData.items[0].previewUrl,
       /^\/api\/files\/html-preview\/ws\./,
@@ -143,13 +210,24 @@ describe('Asset Library API', () => {
     assert.equal(getAssetRecord(archivedAssetId)?.curation_state, 'selected');
   });
 
-  it('blocks trash while referenced, then soft-deletes and restores without deleting bytes', async () => {
+  it('keeps old media rows available during the additive migration', () => {
+    const asset = getAssetRecord(archivedAssetId)!;
+    assert.equal(asset.source_media_generation_id, null);
+    assert.equal(
+      (getDb().prepare(
+        'SELECT COUNT(*) AS count FROM media_generations',
+      ).get() as { count: number }).count,
+      0,
+    );
+  });
+
+  it('blocks permanent deletion while referenced, then removes the record and owned bytes', async () => {
     addAssetReference({
       assetId: archivedAssetId,
       consumerType: 'harness_manifest',
       consumerId: 'harness:api-test',
     });
-    const blocked = await trashMedia(
+    const blocked = await deleteMedia(
       request(`/api/media/${archivedAssetId}`, { method: 'DELETE' }),
       { params: Promise.resolve({ id: archivedAssetId }) },
     );
@@ -164,42 +242,23 @@ describe('Asset Library API', () => {
       consumerId: 'harness:api-test',
     });
     const stablePath = getAssetRecord(archivedAssetId)!.stable_path;
-    const trashed = await trashMedia(
+    const assetRoot = path.dirname(path.dirname(stablePath));
+    const deleted = await deleteMedia(
       request(`/api/media/${archivedAssetId}`, { method: 'DELETE' }),
       { params: Promise.resolve({ id: archivedAssetId }) },
     );
-    assert.equal(trashed.status, 200);
-    const trashedData = await trashed.json();
-    assert.equal(trashedData.recoverable, true);
-    assert.equal(trashedData.fileDeleted, false);
-    assert.equal(fs.existsSync(stablePath), true);
+    assert.equal(deleted.status, 200);
+    const deletedData = await deleted.json();
+    assert.equal(deletedData.permanent, true);
+    assert.equal(deletedData.recoverable, false);
+    assert.equal(deletedData.fileDeleted, true);
+    assert.equal(fs.existsSync(stablePath), false);
+    assert.equal(fs.existsSync(assetRoot), false);
+    assert.equal(getAssetRecord(archivedAssetId), undefined);
 
     const activeGallery = await getGallery(request(
       '/api/media/gallery?kind=html_bundle',
     ));
     assert.equal((await activeGallery.json()).total, 0);
-    const trashGallery = await getGallery(request(
-      '/api/media/gallery?kind=html_bundle&lifecycle=trashed',
-    ));
-    assert.equal((await trashGallery.json()).total, 1);
-
-    const restored = await restoreAssetRoute(
-      request(`/api/assets/${archivedAssetId}/restore`, { method: 'POST' }),
-      { params: Promise.resolve({ id: archivedAssetId }) },
-    );
-    assert.equal(restored.status, 200);
-    assert.equal(getAssetRecord(archivedAssetId)?.lifecycle_state, 'active');
-    assert.equal(fs.existsSync(stablePath), true);
-  });
-
-  it('keeps old media rows available during the additive migration', () => {
-    const asset = getAssetRecord(archivedAssetId)!;
-    assert.equal(asset.source_media_generation_id, null);
-    assert.equal(
-      (getDb().prepare(
-        'SELECT COUNT(*) AS count FROM media_generations',
-      ).get() as { count: number }).count,
-      0,
-    );
   });
 });

@@ -50,6 +50,55 @@ function isWithin(target: string, root: string): boolean {
   return target === root || target.startsWith(`${root}${path.sep}`);
 }
 
+function decodeHtmlTitle(value: string): string {
+  const named: Readonly<Record<string, string>> = {
+    amp: '&',
+    apos: "'",
+    gt: '>',
+    lt: '<',
+    nbsp: ' ',
+    quot: '"',
+  };
+  return value
+    .replace(/<[^>]*>/g, ' ')
+    .replace(
+      /&(?:#(\d+)|#x([0-9a-f]+)|([a-z]+));/gi,
+      (match, decimal: string, hexadecimal: string, entity: string) => {
+        const codePoint = decimal
+          ? Number.parseInt(decimal, 10)
+          : hexadecimal
+            ? Number.parseInt(hexadecimal, 16)
+            : NaN;
+        if (Number.isFinite(codePoint)) {
+          try {
+            return String.fromCodePoint(codePoint);
+          } catch {
+            return match;
+          }
+        }
+        return named[entity?.toLowerCase()] ?? match;
+      },
+    )
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function readHtmlDocumentTitle(entryPath: string): string {
+  const file = fs.openSync(entryPath, 'r');
+  try {
+    const stat = fs.fstatSync(file);
+    const length = Math.min(stat.size, 256 * 1024);
+    const buffer = Buffer.alloc(length);
+    fs.readSync(file, buffer, 0, length, 0);
+    const match = buffer
+      .toString('utf8')
+      .match(/<title\b[^>]*>([\s\S]*?)<\/title\s*>/i);
+    return match ? decodeHtmlTitle(match[1]).slice(0, 200) : '';
+  } finally {
+    fs.closeSync(file);
+  }
+}
+
 function prepareSource(input: HtmlBundleSource, stagingRoot: string): {
   inspection: HtmlBundleInspection;
   sourceScope: string;
@@ -139,6 +188,9 @@ export function materializeHtmlBundle(
     if (copied.contentHash !== prepared.inspection.contentHash) {
       throw new Error('HTML bundle bytes changed during materialization.');
     }
+    const pageTitle = readHtmlDocumentTitle(
+      path.join(stagedBundle, copied.entryFile),
+    );
     prepared.cleanup?.();
     const now = new Date().toISOString();
     fs.writeFileSync(
@@ -149,6 +201,7 @@ export function materializeHtmlBundle(
         kind: descriptor.id,
         producerId: prepared.producerId,
         entryFile: copied.entryFile,
+        pageTitle,
         contentHash: copied.contentHash,
         files: copied.files,
         externalUrls: copied.externalUrls,
@@ -191,6 +244,7 @@ export function materializeHtmlBundle(
           JSON.stringify({
             bundleRoot: path.join(finalRoot, 'bundle'),
             entryFile: copied.entryFile,
+            pageTitle,
             fileCount: copied.files.length,
             externalUrls: copied.externalUrls,
           }),
@@ -246,4 +300,23 @@ export function getHtmlBundlePreviewLocation(asset: AssetRecord): {
     throw new Error(`HTML bundle "${asset.id}" entry escapes its bundle root.`);
   }
   return { entryPath, bundleRoot };
+}
+
+export function getHtmlBundleDisplayTitle(asset: AssetRecord): string {
+  const metadata = JSON.parse(asset.metadata || '{}') as {
+    entryFile?: unknown;
+    pageTitle?: unknown;
+  };
+  if (typeof metadata.pageTitle === 'string' && metadata.pageTitle.trim()) {
+    return metadata.pageTitle.trim();
+  }
+  const { entryPath } = getHtmlBundlePreviewLocation(asset);
+  if (fs.existsSync(entryPath)) {
+    const documentTitle = readHtmlDocumentTitle(entryPath);
+    if (documentTitle) return documentTitle;
+  }
+  if (typeof metadata.entryFile === 'string' && metadata.entryFile.trim()) {
+    return path.basename(metadata.entryFile);
+  }
+  return path.basename(entryPath);
 }

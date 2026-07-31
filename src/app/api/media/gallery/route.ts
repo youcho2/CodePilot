@@ -2,7 +2,10 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getDb } from '@/lib/db';
 import { backfillMediaAssets } from '@/lib/assets/service';
 import { getAssetKind } from '@/lib/assets/kind-registry';
-import { getHtmlBundlePreviewLocation } from '@/lib/assets/html-bundle-materializer';
+import {
+  getHtmlBundleDisplayTitle,
+  getHtmlBundlePreviewLocation,
+} from '@/lib/assets/html-bundle-materializer';
 import { buildHtmlPreviewUrl } from '@/lib/html-preview-url';
 import type { AssetRecord } from '@/types';
 
@@ -63,6 +66,14 @@ function mapRow(row: AssetGalleryRow) {
     // Legacy malformed metadata remains visible without reference images.
   }
   let previewUrl: string | undefined;
+  let title = row.prompt;
+  if (row.kind === 'html_bundle') {
+    try {
+      title = getHtmlBundleDisplayTitle(row);
+    } catch {
+      title = row.prompt;
+    }
+  }
   if (row.kind === 'html_bundle' && row.integrity_state === 'valid') {
     try {
       const location = getHtmlBundlePreviewLocation(row);
@@ -81,6 +92,7 @@ function mapRow(row: AssetGalleryRow) {
     producerId: row.producer_id,
     provider: row.provider_id || row.media_provider || undefined,
     prompt: row.prompt,
+    title,
     images,
     previewUrl,
     model: row.model_id || row.media_model || undefined,
@@ -97,7 +109,6 @@ function mapRow(row: AssetGalleryRow) {
     integrityState: row.integrity_state,
     integrityReason: row.integrity_reason || undefined,
     trustTier: row.trust_tier,
-    lifecycleState: row.lifecycle_state,
     referenceImages,
   };
 }
@@ -106,14 +117,10 @@ export async function GET(request: NextRequest) {
   try {
     const { searchParams } = request.nextUrl;
     const tags = searchParams.get('tags');
-    const dateFrom = searchParams.get('dateFrom');
-    const dateTo = searchParams.get('dateTo');
     const favoritesOnly = searchParams.get('favoritesOnly') === '1';
     const sort = searchParams.get('sort') || 'newest';
     const kind = searchParams.get('kind');
     const query = searchParams.get('query')?.trim() || '';
-    const lifecycle =
-      searchParams.get('lifecycle') === 'trashed' ? 'trashed' : 'active';
     const limit = Math.min(
       100,
       Math.max(1, parseInt(searchParams.get('limit') || '50', 10) || 50),
@@ -133,8 +140,8 @@ export async function GET(request: NextRequest) {
     // page loads continue the idempotent journal if a library is very large.
     backfillMediaAssets(100);
 
-    const conditions = ['ar.lifecycle_state = ?'];
-    const params: unknown[] = [lifecycle];
+    const conditions = ["ar.lifecycle_state = 'active'"];
+    const params: unknown[] = [];
     if (favoritesOnly) {
       conditions.push(
         `COALESCE(
@@ -147,21 +154,14 @@ export async function GET(request: NextRequest) {
       conditions.push('ar.kind = ?');
       params.push(kind);
     }
-    if (dateFrom) {
-      conditions.push('ar.created_at >= ?');
-      params.push(dateFrom);
-    }
-    if (dateTo) {
-      conditions.push('ar.created_at <= ?');
-      params.push(dateTo);
-    }
     if (query) {
       const search = `%${query}%`;
       conditions.push(
         `(ar.prompt LIKE ? OR ar.project_id LIKE ? OR ar.provider_id LIKE ?
-          OR ar.model_id LIKE ? OR ar.method_ref LIKE ? OR ar.producer_id LIKE ?)`,
+          OR ar.model_id LIKE ? OR ar.method_ref LIKE ? OR ar.producer_id LIKE ?
+          OR ar.metadata LIKE ?)`,
       );
-      params.push(search, search, search, search, search, search);
+      params.push(search, search, search, search, search, search, search);
     }
     const tagList = tags
       ? tags.split(',').map((tag) => tag.trim()).filter(Boolean)
@@ -198,7 +198,7 @@ export async function GET(request: NextRequest) {
          mg.metadata AS media_metadata
        ${fromClause}
        ${whereClause}
-       ORDER BY ar.created_at ${orderDirection}
+       ORDER BY ar.created_at ${orderDirection}, ar.id ${orderDirection}
        LIMIT ? OFFSET ?`,
     ).all(...params, limit, offset) as AssetGalleryRow[];
 

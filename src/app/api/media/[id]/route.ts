@@ -2,9 +2,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getDb } from '@/lib/db';
 import {
   AssetInUseError,
+  deleteAssetPermanently,
   getAssetRecord,
   registerMediaGenerationAsset,
-  trashAsset,
 } from '@/lib/assets/service';
 
 export const runtime = 'nodejs';
@@ -58,7 +58,7 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
       if (row.status !== 'completed') {
         return NextResponse.json(
           {
-            error: 'Only completed media can enter the recoverable Asset trash.',
+            error: 'Only completed media can be permanently deleted as an Asset.',
             code: 'asset_not_materialized',
           },
           { status: 409 },
@@ -70,12 +70,14 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
         allowMissing: true,
       });
     }
-    const trashed = trashAsset(asset!.id);
+    const deleted = deleteAssetPermanently(asset!.id);
     return NextResponse.json({
       success: true,
-      recoverable: true,
-      fileDeleted: false,
-      asset: trashed,
+      permanent: true,
+      recoverable: false,
+      fileDeleted: deleted.deletedPaths.length > 0,
+      retainedSharedPaths: deleted.retainedSharedPaths,
+      sourceMediaGenerationDeleted: deleted.sourceMediaGenerationDeleted,
     });
   } catch (error) {
     if (error instanceof AssetInUseError) {

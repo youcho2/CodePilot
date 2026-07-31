@@ -21,7 +21,6 @@ interface GalleryDetailProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onDelete?: (id: string) => Promise<AssetMutationResult>;
-  onRestore?: (id: string) => Promise<AssetMutationResult>;
   onToggleFavorite?: (id: string) => void;
 }
 
@@ -76,7 +75,6 @@ export function GalleryDetail({
   open,
   onOpenChange,
   onDelete,
-  onRestore,
   onToggleFavorite,
 }: GalleryDetailProps) {
   const { t } = useTranslation();
@@ -151,26 +149,13 @@ export function GalleryDetail({
       setDeleteError(
         consumers
           ? t('gallery.deleteBlocked', { consumers })
-          : t('gallery.trashFailed'),
+          : t('gallery.deleteFailed'),
       );
       return;
     }
     onOpenChange(false);
     setConfirmDelete(false);
   }, [item, confirmDelete, onDelete, onOpenChange, t]);
-
-  const handleRestore = useCallback(async () => {
-    if (!item || !onRestore) return;
-    setMutating(true);
-    setDeleteError('');
-    const result = await onRestore(item.id);
-    setMutating(false);
-    if (!result.ok) {
-      setDeleteError(result.error || t('gallery.restoreFailed'));
-      return;
-    }
-    onOpenChange(false);
-  }, [item, onOpenChange, onRestore, t]);
 
   if (!item) return null;
 
@@ -457,35 +442,36 @@ export function GalleryDetail({
                   {t('gallery.download' as TranslationKey)}
                 </Button>
               )}
-              <div className="ml-auto">
-                {item.lifecycleState === 'trashed' ? (
+              <div className="ml-auto flex items-center gap-1.5">
+                {confirmDelete && (
                   <Button
-                    variant="outline"
+                    variant="ghost"
                     size="sm"
-                    onClick={handleRestore}
+                    onClick={() => {
+                      setConfirmDelete(false);
+                      setDeleteError('');
+                    }}
                     disabled={mutating}
                   >
-                    <CodePilotIcon name="refresh" size="sm" aria-hidden />
-                    {t('gallery.restore')}
-                  </Button>
-                ) : (
-                  <Button
-                    variant={confirmDelete ? 'destructive' : 'ghost'}
-                    size="sm"
-                    onClick={handleDelete}
-                    disabled={mutating}
-                  >
-                    <CodePilotIcon name="archive" size="sm" aria-hidden />
-                    {confirmDelete
-                      ? t('gallery.confirmMoveToTrash')
-                      : t('gallery.moveToTrash')}
+                    {t('gallery.cancel')}
                   </Button>
                 )}
+                <Button
+                  variant={confirmDelete ? 'destructive' : 'ghost'}
+                  size="sm"
+                  onClick={handleDelete}
+                  disabled={mutating}
+                >
+                  <CodePilotIcon name="delete" size="sm" aria-hidden />
+                  {confirmDelete
+                    ? t('gallery.confirmDelete')
+                    : t('gallery.delete')}
+                </Button>
               </div>
             </div>
             {confirmDelete && !deleteError && (
-              <p className="text-xs text-muted-foreground">
-                {t('gallery.recoverableDelete')}
+              <p className="text-xs text-destructive">
+                {t('gallery.deleteConfirm')}
               </p>
             )}
             {deleteError && (

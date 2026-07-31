@@ -11,14 +11,14 @@ import {
   addAssetReference,
   AssetInUseError,
   backfillMediaAssets,
+  deleteAssetPermanently,
   findActiveAssetIdsByStablePaths,
   getAssetLineage,
   getAssetRecord,
   listAssetConsumers,
+  registerMediaGenerationAsset,
   releaseAssetReference,
-  restoreAsset,
   toTypedAssetRef,
-  trashAsset,
 } from '@/lib/assets/service';
 import { getAssetKind, listAssetKinds } from '@/lib/assets/kind-registry';
 import {
@@ -156,6 +156,43 @@ describe('Harness Home Asset Library conformance', () => {
     assert.notEqual(firstAsset.prompt, secondAsset.prompt);
   });
 
+  it('retains bytes that are still owned by another media row', () => {
+    const sharedPath = path.join(getMediaDir(), 'shared-delete-guard.png');
+    fs.mkdirSync(path.dirname(sharedPath), { recursive: true });
+    fs.writeFileSync(sharedPath, Buffer.from(PNG_BASE64, 'base64'));
+    insertLegacyMedia({
+      id: 'shared-delete-owner',
+      type: 'image',
+      localPath: sharedPath,
+      mimeType: 'image/png',
+    });
+    insertLegacyMedia({
+      id: 'shared-delete-consumer',
+      type: 'image',
+      status: 'processing',
+      localPath: sharedPath,
+      mimeType: 'image/png',
+    });
+    const asset = registerMediaGenerationAsset({
+      mediaGenerationId: 'shared-delete-owner',
+      producerId: 'legacy-media-backfill',
+    });
+
+    const deleted = deleteAssetPermanently(asset.id);
+    assert.deepEqual(deleted.deletedPaths, []);
+    assert.deepEqual(deleted.retainedSharedPaths, [asset.stable_path]);
+    assert.equal(fs.existsSync(sharedPath), true);
+    assert.equal(getAssetRecord(asset.id), undefined);
+    assert.ok(getDb().prepare(
+      'SELECT id FROM media_generations WHERE id = ?',
+    ).get('shared-delete-consumer'));
+
+    getDb().prepare(
+      'DELETE FROM media_generations WHERE id = ?',
+    ).run('shared-delete-consumer');
+    fs.rmSync(sharedPath, { force: true });
+  });
+
   it('rolls back bytes and media rows when kind or producer validation fails', () => {
     const mediaDir = getMediaDir();
     const rowsBefore = (getDb().prepare(
@@ -225,7 +262,7 @@ describe('Harness Home Asset Library conformance', () => {
     assert.equal(second.remaining, 0);
   });
 
-  it('tracks acyclic lineage and protects active consumers from recoverable deletion', () => {
+  it('tracks acyclic lineage and protects active consumers from permanent deletion', () => {
     const sourceDir = fs.mkdtempSync(path.join(os.tmpdir(), 'asset-lineage-'));
     const videoPath = path.join(sourceDir, 'derived.mp4');
     fs.writeFileSync(videoPath, Buffer.from('derived-video-bytes'));
@@ -260,7 +297,7 @@ describe('Harness Home Asset Library conformance', () => {
       /cycle/,
     );
     assert.throws(
-      () => trashAsset(parent.assetId),
+      () => deleteAssetPermanently(parent.assetId),
       (error: unknown) => (
         error instanceof AssetInUseError
         && error.consumers.some((consumer) => consumer.type === 'asset_lineage')
@@ -278,7 +315,7 @@ describe('Harness Home Asset Library conformance', () => {
     });
     assert.equal(listAssetConsumers(standalone.assetId).length, 1);
     assert.throws(
-      () => trashAsset(standalone.assetId),
+      () => deleteAssetPermanently(standalone.assetId),
       (error: unknown) => error instanceof AssetInUseError,
     );
     assert.equal(releaseAssetReference({
@@ -287,12 +324,13 @@ describe('Harness Home Asset Library conformance', () => {
       consumerId: 'harness:test',
     }), true);
     const stablePath = getAssetRecord(standalone.assetId)!.stable_path;
-    assert.equal(trashAsset(standalone.assetId).lifecycle_state, 'trashed');
-    assert.equal(fs.existsSync(stablePath), true);
-    assert.ok(getDb().prepare(
+    const deleted = deleteAssetPermanently(standalone.assetId);
+    assert.deepEqual(deleted.deletedPaths, [stablePath]);
+    assert.equal(fs.existsSync(stablePath), false);
+    assert.equal(getAssetRecord(standalone.assetId), undefined);
+    assert.equal(getDb().prepare(
       'SELECT id FROM media_generations WHERE id = ?',
-    ).get(standalone.mediaId));
-    assert.equal(restoreAsset(standalone.assetId).lifecycle_state, 'active');
+    ).get(standalone.mediaId), undefined);
   });
 
   it('applies the additive schema idempotently without mutating legacy media rows', () => {
