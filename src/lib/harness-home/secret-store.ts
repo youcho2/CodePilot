@@ -151,7 +151,7 @@ export function createExternalOwnedSecretBackend(): SecretStoreBackend {
         status: 'unavailable',
         reason:
           `Credential ${formatSecretRef(ref)} is owned by an external Harness. `
-          + 'Reconnect through that Harness; CodePilot will not read its auth files.',
+          + 'Reconnect through that Harness; the host application will not read its auth files.',
         reauthorizationRequired: true,
       };
     },

@@ -149,7 +149,7 @@ describe('CodePilot Design Method', () => {
       definition: {
         ...methodInput(),
         source: {
-          sourceKind: 'codepilot' as const,
+          sourceKind: 'host_application' as const,
           sourceRef: 'test',
           observedAt: '2026-07-30T12:00:00.000Z',
           secretMaterial: 'absent' as const,

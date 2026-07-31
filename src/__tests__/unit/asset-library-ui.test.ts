@@ -61,6 +61,18 @@ describe('Asset Library UI contract', () => {
     assert.doesNotMatch(pageSource, /type="date"|dateFrom|dateTo|clearFilters/);
   });
 
+  it('debounces search and prevents stale filter responses from mutating the grid', () => {
+    assert.match(pageSource, /setDebouncedQuery\(query\.trim\(\)\)/);
+    assert.match(pageSource, /250/);
+    assert.match(pageSource, /new AbortController\(\)/);
+    assert.match(pageSource, /activeRequestRef\.current\?\.abort\(\)/);
+    assert.match(
+      pageSource,
+      /requestVersion !== requestVersionRef\.current/,
+    );
+    assert.match(pageSource, /knownIds\.has\(item\.id\)/);
+  });
+
   it('uses a fill-width measured masonry with a bounded 16:9 web preview', () => {
     assert.match(gridSource, /MIN_COLUMN_WIDTH/);
     assert.match(gridSource, /columnCount/);
@@ -92,6 +104,7 @@ describe('Asset Library UI contract', () => {
     assert.match(detailSource, /<audio/);
     assert.match(detailSource, /item\.thumbnailUrl/);
     assert.doesNotMatch(detailSource, /<iframe|sandbox=|allow-scripts|allow-same-origin/);
+    assert.match(detailSource, /gallery\.staticWebPreviewHint/);
   });
 
   it('archives only explicit HTML previews through the scoped materializer API', () => {

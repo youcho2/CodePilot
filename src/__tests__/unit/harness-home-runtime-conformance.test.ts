@@ -1,3 +1,4 @@
+import '../db-isolation.setup';
 import { afterEach, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -51,7 +52,7 @@ afterEach(() => {
 });
 
 const provenance: Provenance = {
-  sourceKind: 'codepilot',
+  sourceKind: 'host_application',
   sourceRef: 'harness-home-runtime-conformance',
   observedAt: '2026-07-30T12:00:00.000Z',
   secretMaterial: 'absent',

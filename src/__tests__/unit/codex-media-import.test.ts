@@ -2,11 +2,13 @@
  * Phase 5b smoke round 9 (2026-05-16) — Codex media import bridge.
  *
  * Pins the path that makes Codex `imageGeneration.savedPath` and
- * `imageView.path` actually renderable through `/api/media/serve`:
+ * `imageView.path` actually renderable through `/api/media/serve`
+ * without registering every view as a second durable Asset:
  *
  *   raw FS path (/tmp/foo.webp) → materializeCodexEventMedia
- *   → importFileToLibrary copies into ~/.codepilot/.codepilot-media
- *   → MediaBlock.localPath rewritten to the imported path
+ *   → imageGeneration imports once; imageView reuses that Asset or stages
+ *     a content-addressed preview-only copy
+ *   → MediaBlock.localPath rewritten to a served path
  *   → /api/media/serve?path=<imported> returns 200
  *
  * Pre-fix the mapper handed `MediaBlock.localPath` = raw Codex path
@@ -18,7 +20,8 @@
  * Tests cover:
  *   - savedPath outside the media dir → imported, localPath rewritten,
  *     mediaId stamped, file actually copied to disk.
- *   - imageView.path same.
+ *   - imageView.path is preview-only unless it can reuse a durable import.
+ *   - repeated generation/view events produce one durable DB row.
  *   - localPath already inside the media dir → pass through unchanged.
  *   - data-only block (no localPath) → pass through unchanged.
  *   - source missing → block dropped, console.warn, event still
@@ -215,21 +218,93 @@ describe('materializeCodexEventMedia — Codex savedPath imported into the media
     assert.equal(row!.model, '', 'fallback model stays empty');
   });
 
-  it('imageView path is imported same way', () => {
+  it('imageView path is staged for preview without creating a durable DB row', async () => {
     const src = buildSourcePng();
+    const { getDb } = await import('../../lib/db');
+    const countBefore = (getDb().prepare(
+      "SELECT COUNT(*) AS count FROM media_generations WHERE provider = 'codex'",
+    ).get() as { count: number }).count;
     const event: RuntimeRunEvent = {
       type: 'tool_completed',
       runtimeId: 'codex_runtime',
       sessionId: 's-1',
       toolId: 'view-1',
       output: { type: 'imageView', id: 'view-1', path: src },
-      media: [{ type: 'image', mimeType: 'image/webp', localPath: src }],
+      media: [{
+        type: 'image',
+        mimeType: 'image/webp',
+        localPath: src,
+        sourceMetadata: { persistence: 'preview_only' },
+      }],
     };
     const out = materializeCodexEventMedia(event, { sessionId: 's-1' });
     if (out.type !== 'tool_completed') throw new Error('unreachable');
     const block = out.media![0];
-    assert.ok(block.localPath!.startsWith(path.join(tempDir, '.codepilot-media') + path.sep));
-    assert.ok(block.mediaId);
+    assert.ok(
+      block.localPath!.startsWith(
+        path.join(tempDir, '.codepilot-media', '.previews') + path.sep,
+      ),
+    );
+    assert.equal(block.mediaId, undefined);
+    const countAfter = (getDb().prepare(
+      "SELECT COUNT(*) AS count FROM media_generations WHERE provider = 'codex'",
+    ).get() as { count: number }).count;
+    assert.equal(countAfter, countBefore);
+  });
+
+  it('repeated imageGeneration events reuse one durable Asset row', async () => {
+    const src = buildSourcePng();
+    const first = materializeCodexEventMedia(
+      makeImageGenerationEvent(src),
+      { sessionId: 's-dedup-generation' },
+    );
+    const second = materializeCodexEventMedia(
+      makeImageGenerationEvent(src),
+      { sessionId: 's-dedup-generation' },
+    );
+    if (first.type !== 'tool_completed' || second.type !== 'tool_completed') {
+      throw new Error('unreachable');
+    }
+    assert.equal(second.media![0].mediaId, first.media![0].mediaId);
+    assert.equal(second.media![0].localPath, first.media![0].localPath);
+    const { getDb } = await import('../../lib/db');
+    const count = (getDb().prepare(
+      `SELECT COUNT(*) AS count FROM media_generations
+       WHERE provider = 'codex' AND session_id = ?`,
+    ).get('s-dedup-generation') as { count: number }).count;
+    assert.equal(count, 1);
+  });
+
+  it('imageView reuses the durable generation instead of creating an ID-only duplicate', async () => {
+    const src = buildSourcePng();
+    const generated = materializeCodexEventMedia(
+      makeImageGenerationEvent(src),
+      { sessionId: 's-generation-view' },
+    );
+    if (generated.type !== 'tool_completed') throw new Error('unreachable');
+    const viewed = materializeCodexEventMedia({
+      type: 'tool_completed',
+      runtimeId: 'codex_runtime',
+      sessionId: 's-generation-view',
+      toolId: 'view-after-generation',
+      output: { type: 'imageView', id: 'view-after-generation', path: src },
+      media: [{
+        type: 'image',
+        mimeType: 'image/webp',
+        localPath: src,
+        sourceMetadata: { persistence: 'preview_only' },
+      }],
+    }, { sessionId: 's-generation-view' });
+    if (viewed.type !== 'tool_completed') throw new Error('unreachable');
+    assert.equal(viewed.media![0].mediaId, generated.media![0].mediaId);
+    assert.equal(viewed.media![0].localPath, generated.media![0].localPath);
+
+    const { getDb } = await import('../../lib/db');
+    const count = (getDb().prepare(
+      `SELECT COUNT(*) AS count FROM media_generations
+       WHERE provider = 'codex' AND session_id = ?`,
+    ).get('s-generation-view') as { count: number }).count;
+    assert.equal(count, 1);
   });
 
   it('block ALREADY inside .codepilot-media is passed through unchanged (no re-import)', () => {

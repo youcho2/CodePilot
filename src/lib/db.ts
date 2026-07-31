@@ -57,7 +57,7 @@ const RUNTIME_OWNER_LOCK_PATH = `${DB_PATH}.runtime-owner.lock`;
 // replacing this module. Keep a code-owned revision beside that handle so a
 // newly loaded migration still runs without requiring the user to restart the
 // desktop client. Bump this value whenever initDb/migrateDb gains a migration.
-const DATABASE_SCHEMA_REVISION = '2026-07-31-asset-tags';
+const DATABASE_SCHEMA_REVISION = '2026-07-31-asset-backfill-failures';
 
 function getDatabaseProcessStates(): Map<string, DatabaseProcessState> {
   const target = globalThis as typeof globalThis & {
@@ -1416,6 +1416,17 @@ export function migrateAssetLibrarySchema(db: Database.Database): void {
       completed_at TEXT
     );
 
+    CREATE TABLE IF NOT EXISTS asset_backfill_failures (
+      source_table TEXT NOT NULL,
+      source_id TEXT NOT NULL,
+      failure_revision TEXT NOT NULL,
+      error TEXT NOT NULL,
+      attempt_count INTEGER NOT NULL DEFAULT 1,
+      first_failed_at TEXT NOT NULL DEFAULT (datetime('now')),
+      last_failed_at TEXT NOT NULL DEFAULT (datetime('now')),
+      PRIMARY KEY (source_table, source_id)
+    );
+
     CREATE INDEX IF NOT EXISTS idx_asset_kind_created
       ON asset_records(kind, created_at DESC);
     CREATE INDEX IF NOT EXISTS idx_asset_lifecycle_created
@@ -1430,6 +1441,8 @@ export function migrateAssetLibrarySchema(db: Database.Database): void {
       ON asset_lineage(child_asset_id);
     CREATE INDEX IF NOT EXISTS idx_asset_references_asset
       ON asset_references(asset_id, released_at);
+    CREATE INDEX IF NOT EXISTS idx_asset_backfill_failures_revision
+      ON asset_backfill_failures(source_table, failure_revision);
   `);
 
   const existingAssetColumns = new Set(

@@ -3,8 +3,8 @@ import { getDb } from '@/lib/db';
 import {
   AssetInUseError,
   deleteAssetPermanently,
+  deleteLegacyMediaGenerationPermanently,
   getAssetRecord,
-  registerMediaGenerationAsset,
 } from '@/lib/assets/service';
 
 export const runtime = 'nodejs';
@@ -47,7 +47,7 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
       status: string;
     } | undefined;
 
-    let asset = getAssetRecord(id);
+    const asset = getAssetRecord(id);
     if (!row && !asset) {
       return NextResponse.json(
         { error: 'Asset not found', code: 'asset_not_found' },
@@ -55,19 +55,15 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
       );
     }
     if (!asset && row) {
-      if (row.status !== 'completed') {
-        return NextResponse.json(
-          {
-            error: 'Only completed media can be permanently deleted as an Asset.',
-            code: 'asset_not_materialized',
-          },
-          { status: 409 },
-        );
-      }
-      asset = registerMediaGenerationAsset({
-        mediaGenerationId: id,
-        producerId: 'legacy-media-backfill',
-        allowMissing: true,
+      const deleted = deleteLegacyMediaGenerationPermanently(id);
+      return NextResponse.json({
+        success: true,
+        permanent: true,
+        recoverable: false,
+        fileDeleted: deleted.deletedPaths.length > 0,
+        retainedSharedPaths: deleted.retainedSharedPaths,
+        retainedExternalPaths: deleted.retainedExternalPaths,
+        sourceMediaGenerationDeleted: true,
       });
     }
     const deleted = deleteAssetPermanently(asset!.id);

@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { assertNoActiveNextDev } from './assert-next-build-safe.mjs';
 
 export const ELECTRON_BUILD_ARTIFACT_DIRS = ['release', '.next', 'dist-electron'];
 export const STANDALONE_ROOT_ALLOWLIST = new Set([
@@ -29,6 +30,9 @@ function assertCodePilotProject(projectDir) {
 
 export function cleanElectronBuildArtifacts(projectDir = process.cwd()) {
   const root = assertCodePilotProject(projectDir);
+  // This check must run before the first rmSync: Electron builds clean `.next`
+  // and would otherwise destroy a live dev server's manifests and lock.
+  assertNoActiveNextDev(root);
 
   for (const relativeDir of ELECTRON_BUILD_ARTIFACT_DIRS) {
     const target = path.resolve(root, relativeDir);

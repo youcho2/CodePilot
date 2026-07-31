@@ -422,6 +422,11 @@ export interface MediaBlock {
     model?: string;
     /** Typed Asset inputs used to produce this result, when the producer knows them. */
     parentAssetIds?: string[];
+    /**
+     * `imageGeneration` creates a durable Asset. `imageView` is only a chat
+     * preview and must not create another Gallery record for the same bytes.
+     */
+    persistence?: 'durable_asset' | 'preview_only';
   };
 }
 

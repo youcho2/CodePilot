@@ -1,5 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getDb } from '@/lib/db';
+import {
+  getAssetRecord,
+  normalizeAssetTags,
+  setAssetTags,
+} from '@/lib/assets/service';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -31,14 +36,19 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
       );
     }
 
-    // Update tags
-    db.prepare('UPDATE media_generations SET tags = ? WHERE id = ?').run(
-      JSON.stringify(body.tags),
-      id
-    );
+    const tags = normalizeAssetTags(body.tags);
+    const asset = getAssetRecord(id);
+    if (asset) {
+      setAssetTags(id, tags);
+    } else {
+      db.prepare('UPDATE media_generations SET tags = ? WHERE id = ?').run(
+        JSON.stringify(tags),
+        id,
+      );
+    }
 
     const updated = db.prepare('SELECT * FROM media_generations WHERE id = ?').get(id);
-    return NextResponse.json(updated);
+    return NextResponse.json({ ...(updated as object), tags });
   } catch (error) {
     console.error('[media/[id]/tags] PUT Error:', error);
     return NextResponse.json(

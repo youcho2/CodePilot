@@ -73,6 +73,127 @@ function ensureMediaDir(): string {
   return mediaDir;
 }
 
+function resolveSourcePath(
+  filePath: string,
+  cwd?: string,
+): string {
+  return path.isAbsolute(filePath)
+    ? path.resolve(filePath)
+    : path.resolve(cwd || process.cwd(), filePath);
+}
+
+function contentDigest(filePath: string): string {
+  const hash = crypto.createHash('sha256');
+  const file = fs.openSync(filePath, 'r');
+  const buffer = Buffer.allocUnsafe(1024 * 1024);
+  try {
+    let offset = 0;
+    while (true) {
+      const bytesRead = fs.readSync(file, buffer, 0, buffer.length, offset);
+      if (bytesRead === 0) break;
+      hash.update(buffer.subarray(0, bytesRead));
+      offset += bytesRead;
+    }
+  } finally {
+    fs.closeSync(file);
+  }
+  return hash.digest('hex');
+}
+
+export function findReusableImportedFile(
+  filePath: string,
+  opts: {
+    sessionId?: string;
+    source?: string;
+    cwd?: string;
+  } = {},
+): SaveMediaResult | undefined {
+  const resolved = resolveSourcePath(filePath, opts.cwd);
+  if (!fs.existsSync(resolved)) return undefined;
+  const rows = getDb().prepare(
+    `SELECT id, local_path
+     FROM media_generations
+     WHERE status = 'completed'
+       AND provider = ?
+       AND COALESCE(session_id, '') = ?
+       AND (
+         local_path = ?
+         OR (
+           json_valid(metadata)
+           AND json_extract(metadata, '$.originalPath') IN (?, ?)
+         )
+       )
+     ORDER BY created_at DESC`,
+  ).all(
+    opts.source || 'cli-import',
+    opts.sessionId || '',
+    resolved,
+    resolved,
+    filePath,
+  ) as Array<{ id: string; local_path: string }>;
+  if (rows.length === 0) return undefined;
+
+  const sourceStat = fs.statSync(resolved);
+  let sourceHash: string | undefined;
+  for (const row of rows) {
+    if (!row.local_path || !fs.existsSync(row.local_path)) continue;
+    const destinationStat = fs.statSync(row.local_path);
+    if (
+      !sourceStat.isFile()
+      || !destinationStat.isFile()
+      || sourceStat.size !== destinationStat.size
+    ) {
+      continue;
+    }
+    sourceHash ??= contentDigest(resolved);
+    if (contentDigest(row.local_path) !== sourceHash) continue;
+    return {
+      localPath: row.local_path,
+      mediaId: row.id,
+      assetId: row.id,
+    };
+  }
+  return undefined;
+}
+
+export function stageFileForMediaPreview(
+  filePath: string,
+  opts: { mimeType: string; cwd?: string },
+): { localPath: string } {
+  const resolved = resolveSourcePath(filePath, opts.cwd);
+  if (!fs.existsSync(resolved) || !fs.statSync(resolved).isFile()) {
+    throw new Error(`File not found: ${resolved}`);
+  }
+  const mediaDir = ensureMediaDir();
+  if (
+    resolved === path.resolve(mediaDir)
+    || resolved.startsWith(`${path.resolve(mediaDir)}${path.sep}`)
+  ) {
+    return { localPath: resolved };
+  }
+  const previewDir = path.join(mediaDir, '.previews');
+  fs.mkdirSync(previewDir, { recursive: true });
+  const sourceExtension = path.extname(resolved).toLowerCase();
+  const extension = EXT_TO_MIME[sourceExtension]
+    ? sourceExtension
+    : MIME_TO_EXT[opts.mimeType] || '.bin';
+  const destination = path.join(
+    previewDir,
+    `${contentDigest(resolved)}${extension}`,
+  );
+  if (!fs.existsSync(destination)) {
+    try {
+      fs.copyFileSync(resolved, destination, fs.constants.COPYFILE_EXCL);
+    } catch (error) {
+      // Two concurrent imageView events may compute the same content-addressed
+      // preview path. The winner wrote the exact bytes we wanted; every other
+      // failure still propagates.
+      if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
+    }
+  }
+  return { localPath: destination };
+}
+
 function mimeToMediaType(mimeType: string): 'image' | 'video' | 'audio' {
   if (mimeType.startsWith('video/')) return 'video';
   if (mimeType.startsWith('audio/')) return 'audio';
@@ -177,9 +298,7 @@ export function importFileToLibrary(
 
   // Resolve relative paths against the provided cwd (session working directory),
   // not the app process cwd which is typically the project root.
-  const resolved = path.isAbsolute(filePath)
-    ? path.resolve(filePath)
-    : path.resolve(opts.cwd || process.cwd(), filePath);
+  const resolved = resolveSourcePath(filePath, opts.cwd);
   if (!fs.existsSync(resolved)) {
     throw new Error(`File not found: ${resolved}`);
   }
@@ -204,7 +323,7 @@ export function importFileToLibrary(
       metadata: {
         mimeType,
         source: opts.source || 'cli-import',
-        originalPath: filePath,
+        originalPath: resolved,
         runtimeId: opts.runtimeId || '',
         methodRef: opts.methodRef || '',
       },

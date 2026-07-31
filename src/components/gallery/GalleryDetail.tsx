@@ -381,7 +381,51 @@ export function GalleryDetail({
                   </span>
                 </div>
               )}
+              {item.generationStatus && (
+                <div>
+                  <span className="text-muted-foreground">
+                    {t('gallery.generationStatus')}:{' '}
+                  </span>
+                  <span>{item.generationStatus}</span>
+                </div>
+              )}
             </div>
+
+            {isHtml && (
+              <p className="rounded-md bg-muted/40 px-3 py-2 text-xs leading-relaxed text-muted-foreground">
+                {t('gallery.staticWebPreviewHint')}
+              </p>
+            )}
+
+            {isHtml && item.externalUrls && item.externalUrls.length > 0 && (
+              <div className="space-y-2">
+                <div>
+                  <div className="text-xs font-medium text-muted-foreground">
+                    {t('gallery.externalResources')}
+                  </div>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {t('gallery.externalResourcesHint')}
+                  </p>
+                </div>
+                <ul className="space-y-1 text-[11px] text-foreground">
+                  {item.externalUrls.slice(0, 10).map((url) => (
+                    <li
+                      key={url}
+                      className="break-all rounded-md bg-muted/40 px-2 py-1.5"
+                    >
+                      {url}
+                    </li>
+                  ))}
+                </ul>
+                {item.externalUrls.length > 10 && (
+                  <p className="text-[11px] text-muted-foreground">
+                    {t('gallery.externalResourcesMore', {
+                      count: item.externalUrls.length - 10,
+                    })}
+                  </p>
+                )}
+              </div>
+            )}
 
             {assetDetail && (
               <div>

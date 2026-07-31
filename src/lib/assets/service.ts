@@ -112,9 +112,24 @@ export function parseStoredAssetTags(value: string | null | undefined): string[]
   try {
     const parsed = JSON.parse(value || '[]') as unknown;
     if (!Array.isArray(parsed)) return [];
-    return normalizeAssetTags(
-      parsed.filter((entry): entry is string => typeof entry === 'string'),
-    );
+    const salvaged: string[] = [];
+    const seen = new Set<string>();
+    for (const entry of parsed) {
+      if (typeof entry !== 'string') continue;
+      try {
+        const [tag] = normalizeAssetTags([entry]);
+        const key = tag.toLocaleLowerCase('en-US');
+        if (!seen.has(key)) {
+          seen.add(key);
+          salvaged.push(tag);
+        }
+      } catch {
+        // Migration is per-item conservative: one legacy comma/control/long
+        // tag must not erase every valid tag stored beside it.
+      }
+      if (salvaged.length >= MAX_ASSET_TAGS) break;
+    }
+    return salvaged;
   } catch {
     return [];
   }
@@ -132,6 +147,7 @@ const EXTENSION_MIME: Readonly<Record<string, string>> = {
   '.mp4': 'video/mp4',
   '.webm': 'video/webm',
   '.mov': 'video/quicktime',
+  '.m4v': 'video/x-m4v',
   '.avi': 'video/x-msvideo',
   '.mkv': 'video/x-matroska',
   '.mp3': 'audio/mpeg',
@@ -139,6 +155,7 @@ const EXTENSION_MIME: Readonly<Record<string, string>> = {
   '.ogg': 'audio/ogg',
   '.flac': 'audio/flac',
   '.aac': 'audio/aac',
+  '.m4a': 'audio/mp4',
 };
 
 function inferMimeType(row: MediaGenerationRow): string {
@@ -151,7 +168,19 @@ function inferMimeType(row: MediaGenerationRow): string {
 
 function hashFile(filePath: string): string {
   const hash = crypto.createHash('sha256');
-  hash.update(fs.readFileSync(filePath));
+  const file = fs.openSync(filePath, 'r');
+  const buffer = Buffer.allocUnsafe(1024 * 1024);
+  try {
+    let offset = 0;
+    while (true) {
+      const bytesRead = fs.readSync(file, buffer, 0, buffer.length, offset);
+      if (bytesRead === 0) break;
+      hash.update(buffer.subarray(0, bytesRead));
+      offset += bytesRead;
+    }
+  } finally {
+    fs.closeSync(file);
+  }
   return `sha256:${hash.digest('hex')}`;
 }
 
@@ -423,16 +452,39 @@ export interface AssetBackfillResult {
   readonly remaining: number;
 }
 
+const ASSET_BACKFILL_FAILURE_REVISION = 'media-assets-v2';
+
+function recordBackfillFailure(sourceId: string, error: string): void {
+  getDb().prepare(
+    `INSERT INTO asset_backfill_failures (
+       source_table, source_id, failure_revision, error
+     ) VALUES ('media_generations', ?, ?, ?)
+     ON CONFLICT(source_table, source_id) DO UPDATE SET
+       failure_revision = excluded.failure_revision,
+       error = excluded.error,
+       attempt_count = asset_backfill_failures.attempt_count + 1,
+       last_failed_at = datetime('now')`,
+  ).run(sourceId, ASSET_BACKFILL_FAILURE_REVISION, error);
+}
+
 export function backfillMediaAssets(limit = 100): AssetBackfillResult {
   const rows = getDb().prepare(
     `SELECT mg.id, mg.type
      FROM media_generations mg
      LEFT JOIN asset_records ar ON ar.source_media_generation_id = mg.id
+     LEFT JOIN asset_backfill_failures abf
+       ON abf.source_table = 'media_generations'
+      AND abf.source_id = mg.id
+      AND abf.failure_revision = ?
      WHERE ar.id IS NULL AND mg.status = 'completed'
        AND mg.type IN ('image','video','audio')
+       AND abf.source_id IS NULL
      ORDER BY mg.created_at ASC
      LIMIT ?`,
-  ).all(limit) as { id: string; type: string }[];
+  ).all(ASSET_BACKFILL_FAILURE_REVISION, limit) as {
+    id: string;
+    type: string;
+  }[];
   let created = 0;
   let missing = 0;
   let skipped = 0;
@@ -440,6 +492,10 @@ export function backfillMediaAssets(limit = 100): AssetBackfillResult {
   for (const row of rows) {
     if (!getAssetKind(row.type)) {
       skipped++;
+      recordBackfillFailure(
+        row.id,
+        `Asset kind "${row.type}" is not registered.`,
+      );
       continue;
     }
     try {
@@ -450,9 +506,14 @@ export function backfillMediaAssets(limit = 100): AssetBackfillResult {
       });
       created++;
       if (asset.integrity_state === 'missing') missing++;
+      getDb().prepare(
+        `DELETE FROM asset_backfill_failures
+         WHERE source_table = 'media_generations' AND source_id = ?`,
+      ).run(row.id);
     } catch (error) {
       skipped++;
       lastError = error instanceof Error ? error.message : String(error);
+      recordBackfillFailure(row.id, lastError);
     }
   }
   const remaining = (
@@ -460,9 +521,14 @@ export function backfillMediaAssets(limit = 100): AssetBackfillResult {
       `SELECT COUNT(*) AS count
        FROM media_generations mg
        LEFT JOIN asset_records ar ON ar.source_media_generation_id = mg.id
+       LEFT JOIN asset_backfill_failures abf
+         ON abf.source_table = 'media_generations'
+        AND abf.source_id = mg.id
+        AND abf.failure_revision = ?
        WHERE ar.id IS NULL AND mg.status = 'completed'
-         AND mg.type IN ('image','video','audio')`,
-    ).get() as { count: number }
+         AND mg.type IN ('image','video','audio')
+         AND abf.source_id IS NULL`,
+    ).get(ASSET_BACKFILL_FAILURE_REVISION) as { count: number }
   ).count;
   const previous = getDb().prepare(
     'SELECT * FROM asset_backfill_state WHERE source_table = ?',
@@ -715,26 +781,18 @@ export function listAssetConsumers(assetId: string): readonly AssetConsumer[] {
   ];
 }
 
-export function trashAsset(assetId: string): AssetRecord {
-  const asset = getAssetRecord(assetId);
-  if (!asset) throw new Error(`Asset "${assetId}" does not exist.`);
-  if (asset.lifecycle_state === 'trashed') return asset;
-  const consumers = listAssetConsumers(assetId);
-  if (consumers.length > 0) throw new AssetInUseError(assetId, consumers);
-  getDb().prepare(
-    `UPDATE asset_records
-     SET lifecycle_state = 'trashed', deleted_at = datetime('now'),
-         updated_at = datetime('now')
-     WHERE id = ?`,
-  ).run(assetId);
-  return getAssetRecord(assetId)!;
-}
-
 export interface PermanentAssetDeleteResult {
   readonly assetId: string;
   readonly deletedPaths: readonly string[];
   readonly retainedSharedPaths: readonly string[];
   readonly sourceMediaGenerationDeleted: boolean;
+}
+
+export interface PermanentLegacyMediaDeleteResult {
+  readonly mediaGenerationId: string;
+  readonly deletedPaths: readonly string[];
+  readonly retainedSharedPaths: readonly string[];
+  readonly retainedExternalPaths: readonly string[];
 }
 
 function resolveThroughExistingAncestor(inputPath: string): string {
@@ -764,6 +822,17 @@ function assertCanonicalDeleteTarget(targetPath: string, rootPath: string): stri
     );
   }
   return target;
+}
+
+function canonicalOwnedDeleteTarget(
+  targetPath: string,
+  rootPath: string,
+): string | null {
+  try {
+    return assertCanonicalDeleteTarget(targetPath, rootPath);
+  } catch {
+    return null;
+  }
 }
 
 function isAssetPathShared(
@@ -899,7 +968,69 @@ export function deleteAssetPermanently(
   };
 }
 
+/**
+ * Removes a legacy generation that could not become an Asset. Only bytes
+ * inside the current canonical media directory are owned by this library;
+ * migrated/external paths are deliberately left untouched while the stale DB
+ * row is still removable.
+ */
+export function deleteLegacyMediaGenerationPermanently(
+  mediaGenerationId: string,
+): PermanentLegacyMediaDeleteResult {
+  if (getAssetRecord(mediaGenerationId)) {
+    throw new Error(
+      `Media generation "${mediaGenerationId}" is materialized as an Asset.`,
+    );
+  }
+  const row = mediaRow(mediaGenerationId);
+  if (!row) {
+    throw new Error(`Media generation "${mediaGenerationId}" does not exist.`);
+  }
+  const deletedPaths: string[] = [];
+  const retainedSharedPaths: string[] = [];
+  const retainedExternalPaths: string[] = [];
+  for (const candidate of Array.from(new Set([
+    row.local_path,
+    row.thumbnail_path,
+  ].filter(Boolean)))) {
+    const target = canonicalOwnedDeleteTarget(candidate, canonicalMediaDir());
+    if (!target) {
+      retainedExternalPaths.push(path.resolve(candidate));
+      continue;
+    }
+    if (isAssetPathShared('', row.id, target)) {
+      retainedSharedPaths.push(target);
+      continue;
+    }
+    if (!fs.existsSync(target)) continue;
+    fs.rmSync(target, { recursive: false, force: false });
+    deletedPaths.push(target);
+  }
+  getDb().transaction(() => {
+    getDb().prepare(
+      `DELETE FROM asset_backfill_failures
+       WHERE source_table = 'media_generations' AND source_id = ?`,
+    ).run(row.id);
+    getDb().prepare(
+      'DELETE FROM media_generations WHERE id = ?',
+    ).run(row.id);
+  })();
+  return {
+    mediaGenerationId: row.id,
+    deletedPaths,
+    retainedSharedPaths,
+    retainedExternalPaths,
+  };
+}
+
 export function restoreAsset(assetId: string): AssetRecord {
+  const existing = getAssetRecord(assetId);
+  if (!existing) throw new Error(`Asset "${assetId}" does not exist.`);
+  if (existing.lifecycle_state !== 'trashed') {
+    throw new Error(
+      `Asset "${assetId}" is not a legacy trashed record and cannot be restored.`,
+    );
+  }
   const asset = reconcileAssetIntegrity(assetId);
   if (asset.integrity_state !== 'valid') {
     throw new Error(

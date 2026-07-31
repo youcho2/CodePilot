@@ -46,12 +46,12 @@ export default function GalleryPage() {
   const [items, setItems] = useState<GalleryItem[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
-  const [offset, setOffset] = useState(0);
 
   // Filters
   const [sort, setSort] = useState<SortOrder>('newest');
   const [favoritesOnly, setFavoritesOnly] = useState(false);
   const [query, setQuery] = useState('');
+  const [debouncedQuery, setDebouncedQuery] = useState('');
   const [kind, setKind] = useState('');
   const [kinds, setKinds] = useState<Array<{
     id: string;
@@ -67,42 +67,81 @@ export default function GalleryPage() {
   const [deleting, setDeleting] = useState(false);
   const [thumbnailSweep, setThumbnailSweep] = useState(0);
   const thumbnailAttemptsRef = useRef(new Set<string>());
+  const nextOffsetRef = useRef(0);
+  const requestVersionRef = useRef(0);
+  const activeRequestRef = useRef<AbortController | null>(null);
+  const loadingRef = useRef(false);
 
   const fetchItems = useCallback(async (reset = false) => {
+    const requestOffset = reset ? 0 : nextOffsetRef.current;
+    const requestVersion = requestVersionRef.current + 1;
+    requestVersionRef.current = requestVersion;
+    activeRequestRef.current?.abort();
+    const controller = new AbortController();
+    activeRequestRef.current = controller;
+    loadingRef.current = true;
     setLoading(true);
     try {
       const params = new URLSearchParams();
       if (favoritesOnly) params.set('favoritesOnly', '1');
-      if (query.trim()) params.set('query', query.trim());
+      if (debouncedQuery) params.set('query', debouncedQuery);
       if (kind) params.set('kind', kind);
       params.set('sort', sort);
       params.set('limit', String(PAGE_SIZE));
-      params.set('offset', reset ? '0' : String(offset));
+      params.set('offset', String(requestOffset));
 
-      const res = await fetch(`/api/media/gallery?${params.toString()}`);
+      const res = await fetch(
+        `/api/media/gallery?${params.toString()}`,
+        { signal: controller.signal },
+      );
       if (res.ok) {
         const data = await res.json();
+        if (requestVersion !== requestVersionRef.current) return;
+        const nextItems = Array.isArray(data.items)
+          ? data.items as GalleryItem[]
+          : [];
         if (reset) {
-          setItems(data.items || []);
-          setOffset(PAGE_SIZE);
+          setItems(nextItems);
         } else {
-          setItems((prev) => [...prev, ...(data.items || [])]);
-          setOffset((prev) => prev + PAGE_SIZE);
+          setItems((current) => {
+            const knownIds = new Set(current.map((item) => item.id));
+            return [
+              ...current,
+              ...nextItems.filter((item) => !knownIds.has(item.id)),
+            ];
+          });
         }
-        setTotal(data.total || 0);
+        nextOffsetRef.current = requestOffset + nextItems.length;
+        setTotal(
+          typeof data.total === 'number' && Number.isFinite(data.total)
+            ? data.total
+            : 0,
+        );
       }
-    } catch {
-      // ignore
+    } catch (error) {
+      if ((error as DOMException).name !== 'AbortError') {
+        console.error('[gallery] Failed to fetch Assets:', error);
+      }
     } finally {
-      setLoading(false);
+      if (requestVersion === requestVersionRef.current) {
+        activeRequestRef.current = null;
+        loadingRef.current = false;
+        setLoading(false);
+      }
     }
   }, [
+    debouncedQuery,
     favoritesOnly,
     kind,
-    offset,
-    query,
     sort,
   ]);
+
+  useEffect(() => {
+    const timeout = window.setTimeout(() => {
+      setDebouncedQuery(query.trim());
+    }, 250);
+    return () => window.clearTimeout(timeout);
+  }, [query]);
 
   useEffect(() => {
     fetch('/api/assets/kinds')
@@ -115,10 +154,14 @@ export default function GalleryPage() {
 
   // Initial load and reload on filter changes
   useEffect(() => {
-    setOffset(0);
-    fetchItems(true);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sort, favoritesOnly, query, kind]);
+    nextOffsetRef.current = 0;
+    void fetchItems(true);
+  }, [fetchItems]);
+
+  useEffect(() => () => {
+    requestVersionRef.current += 1;
+    activeRequestRef.current?.abort();
+  }, []);
 
   // Existing HTML Assets from before static thumbnails were introduced are
   // upgraded lazily, one at a time. The Electron main process serializes the
@@ -258,7 +301,6 @@ export default function GalleryPage() {
 
   const hasMore = items.length < total;
   const sentinelRef = useRef<HTMLDivElement>(null);
-  const loadingRef = useRef(false);
 
   // Infinite scroll via IntersectionObserver
   useEffect(() => {
@@ -268,10 +310,7 @@ export default function GalleryPage() {
     const observer = new IntersectionObserver(
       (entries) => {
         if (entries[0].isIntersecting && hasMore && !loadingRef.current) {
-          loadingRef.current = true;
-          fetchItems(false).finally(() => {
-            loadingRef.current = false;
-          });
+          void fetchItems(false);
         }
       },
       { rootMargin: '200px' },

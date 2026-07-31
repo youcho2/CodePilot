@@ -46,6 +46,9 @@ export interface GalleryItem {
   integrityState?: 'valid' | 'missing' | 'modified';
   integrityReason?: string;
   trustTier?: string;
+  externalUrls?: string[];
+  generationStatus?: string;
+  legacyOnly?: boolean;
   referenceImages?: Array<{ mimeType: string; localPath: string }>;
 }
 

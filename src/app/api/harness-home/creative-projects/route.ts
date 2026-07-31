@@ -8,7 +8,9 @@ import {
   writeCreativeProject,
   type CreativeProjectState,
 } from '@/lib/harness-home/creative-project';
+import { listCreativeMethods } from '@/lib/harness-home/design-method';
 import { FileHarnessRepository } from '@/lib/harness-home/repository';
+import { assertEvidenceRefResolvable } from '@/lib/harness-home/evidence';
 
 function configuredRoot(): string | null {
   return getSetting(HARNESS_HOME_ROOT_SETTING)?.trim() || null;
@@ -71,6 +73,39 @@ export async function POST(request: NextRequest) {
   let repository: FileHarnessRepository | undefined;
   try {
     repository = FileHarnessRepository.open(root, { mode: 'require-writable' });
+    const method = listCreativeMethods(repository).find(
+      (record) => (
+        record.definition.id === body.project!.methodRef
+        && record.definition.version === body.project!.methodVersion
+      ),
+    );
+    if (!method) {
+      throw new Error(
+        `Creative Project method "${body.project.methodRef}`
+        + `@${body.project.methodVersion}" does not exist.`,
+      );
+    }
+    for (const [index, decision] of body.project.decisions.entries()) {
+      assertEvidenceRefResolvable(
+        repository,
+        decision.evidenceRef,
+        `Creative decision ${index + 1} evidence`,
+      );
+    }
+    for (const [index, asset] of body.project.assets.entries()) {
+      assertEvidenceRefResolvable(
+        repository,
+        asset.assetRef,
+        `Creative project Asset ${index + 1}`,
+      );
+      for (const parentAssetId of asset.parentAssetIds) {
+        assertEvidenceRefResolvable(
+          repository,
+          { assetId: parentAssetId },
+          `Creative project Asset ${index + 1} parent`,
+        );
+      }
+    }
     const result = writeCreativeProject(repository, {
       project: body.project,
       sourceRef: body.sourceRef,

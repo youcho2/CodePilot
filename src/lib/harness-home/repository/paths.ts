@@ -7,17 +7,18 @@ export const HARNESS_LOCK_FILE = 'writer.lock.json';
 export const HARNESS_TRANSACTIONS_DIR = 'transactions';
 
 export function assertSafeRepositoryPath(relativePath: string): void {
-  if (!relativePath || path.isAbsolute(relativePath)) {
+  const portable = relativePath.replace(/[\\/]+/g, path.sep);
+  if (!portable || path.isAbsolute(portable)) {
     throw new Error(`Repository path must be relative: ${relativePath}`);
   }
-  const normalized = path.normalize(relativePath);
+  const normalized = path.normalize(portable);
   const parts = normalized.split(path.sep);
+  const lowerParts = parts.map((part) => part.toLocaleLowerCase('en-US'));
   if (
     normalized === '..'
     || normalized.startsWith(`..${path.sep}`)
     || parts.includes('..')
-    || normalized === HARNESS_INTERNAL_DIR
-    || normalized.startsWith(`${HARNESS_INTERNAL_DIR}${path.sep}`)
+    || lowerParts.includes(HARNESS_INTERNAL_DIR)
   ) {
     throw new Error(`Repository path escapes or targets internal state: ${relativePath}`);
   }

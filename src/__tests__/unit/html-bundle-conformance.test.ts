@@ -158,6 +158,52 @@ describe('HTML bundle materialization conformance', () => {
     }
   });
 
+  it('does not materialize local anchor targets as bundle dependencies', () => {
+    const workspace = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'html-anchor-closure-'),
+    );
+    try {
+      fs.writeFileSync(
+        path.join(workspace, 'index.html'),
+        '<a href="./">Home</a><a href="./missing.json">Missing</a>'
+          + '<a href="%23section">Section</a>',
+        'utf8',
+      );
+      const asset = materializeHtmlBundle({
+        terminalState: 'completed',
+        source: {
+          kind: 'workspace',
+          sourceDir: workspace,
+          entryFile: 'index.html',
+          scopeRoot: workspace,
+        },
+      });
+      const metadata = JSON.parse(asset.metadata) as { fileCount: number };
+      assert.equal(metadata.fileCount, 1);
+    } finally {
+      fs.rmSync(workspace, { recursive: true, force: true });
+    }
+  });
+
+  it('scans a large malformed tag in bounded linear time', () => {
+    const malformed = `<img src="${'x'.repeat(768 * 1024)}`;
+    const startedAt = Date.now();
+    const asset = materializeHtmlBundle({
+      terminalState: 'completed',
+      source: {
+        kind: 'inline',
+        html: `<!doctype html><html><body>${malformed}</body></html>`,
+      },
+      sessionId: 'session-malformed-linear-scan',
+    });
+    const elapsedMs = Date.now() - startedAt;
+    assert.equal(asset.kind, 'html_bundle');
+    assert.ok(
+      elapsedMs < 1_500,
+      `malformed 768 KiB tag took ${elapsedMs}ms; scanner may have regressed`,
+    );
+  });
+
   it('ignores encoded document fragments nested inside a data SVG', () => {
     const workspace = fs.mkdtempSync(
       path.join(os.tmpdir(), 'html-data-svg-fragment-'),
@@ -288,6 +334,7 @@ describe('HTML bundle materialization conformance', () => {
           terminalState: 'completed',
           source: { kind: 'inline', html },
         }),
+        /External scripts|unsafe URL|unsupported embedded|meta refresh/,
       );
     }
 

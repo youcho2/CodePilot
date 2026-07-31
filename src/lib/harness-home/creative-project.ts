@@ -8,10 +8,13 @@ import type {
 } from './contracts';
 import { FileHarnessRepository } from './repository/file-repository';
 import { hashBytes } from './repository/hash';
-import { assertNoSecretMaterial } from './validation';
+import {
+  assertNoSecretMaterial,
+  validateHarnessScope,
+} from './validation';
 
 export const CREATIVE_PROJECT_MEDIA_TYPE =
-  'application/vnd.codepilot.creative-project+json';
+  'application/vnd.harness-home.creative-project+json';
 
 export type CreativeOutputStage = 'image' | 'video' | 'html_bundle';
 
@@ -108,6 +111,7 @@ function validateEvidenceRef(
 export function validateCreativeProject(project: CreativeProjectState): void {
   nonEmpty(project.id, 'Creative Project id', 160);
   nonEmpty(project.brief, 'Creative Project brief');
+  validateHarnessScope(project.scope, `Creative Project ${project.id} scope`);
   nonEmpty(project.methodRef, 'Creative Project methodRef', 240);
   nonEmpty(project.methodVersion, 'Creative Project methodVersion', 80);
   iso(project.createdAt, 'Creative Project createdAt');
@@ -385,7 +389,7 @@ export function writeCreativeProject(
     contentHash,
     mediaType: CREATIVE_PROJECT_MEDIA_TYPE,
     provenance: {
-      sourceKind: 'codepilot',
+      sourceKind: 'host_application',
       sourceRef: input.sourceRef,
       observedAt: input.project.updatedAt,
       methodRef: input.project.methodRef,

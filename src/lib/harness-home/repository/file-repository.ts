@@ -15,6 +15,7 @@ import { hashBytes, hashFile } from './hash';
 import {
   HARNESS_INTERNAL_DIR,
   HARNESS_MANIFEST_FILE,
+  assertNoSymlinkTraversal,
   resolveRepositoryPath,
 } from './paths';
 import {
@@ -22,6 +23,7 @@ import {
   RepositoryWriterLease,
   acquireWriterLease,
   inspectWriterLease,
+  recoverDeadWriterLease,
   type WriterLeaseMetadata,
 } from './writer-lease';
 import {
@@ -56,6 +58,59 @@ export interface RepositoryDiagnostics {
   readonly lockHolder?: WriterLeaseMetadata;
   readonly consistency: readonly RepositoryConsistencyIssue[];
   readonly stale: boolean;
+}
+
+interface ConsistencyCacheEntry {
+  readonly expectedHash: string;
+  readonly statSignature: string | null;
+  readonly actualHash: string | null;
+}
+
+const MAX_CONSISTENCY_CACHE_GENERATIONS = 32;
+const consistencyCache = new Map<
+  string,
+  ReadonlyMap<string, ConsistencyCacheEntry>
+>();
+let consistencyHashReads = 0;
+
+export function getRepositoryConsistencyCacheStats(): {
+  readonly cachedGenerations: number;
+  readonly contentHashReads: number;
+} {
+  return {
+    cachedGenerations: consistencyCache.size,
+    contentHashReads: consistencyHashReads,
+  };
+}
+
+function contentStatSignature(filePath: string): string | null {
+  try {
+    const stat = fs.statSync(filePath, { bigint: true });
+    if (!stat.isFile()) return 'not-a-file';
+    return [
+      stat.dev,
+      stat.ino,
+      stat.size,
+      stat.mtimeNs,
+      stat.ctimeNs,
+    ].join(':');
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null;
+    throw error;
+  }
+}
+
+function rememberConsistencyGeneration(
+  key: string,
+  entries: ReadonlyMap<string, ConsistencyCacheEntry>,
+): void {
+  consistencyCache.delete(key);
+  consistencyCache.set(key, entries);
+  while (consistencyCache.size > MAX_CONSISTENCY_CACHE_GENERATIONS) {
+    const oldest = consistencyCache.keys().next().value as string | undefined;
+    if (!oldest) break;
+    consistencyCache.delete(oldest);
+  }
 }
 
 function emptyManifest(harnessId: string): HarnessHomeManifest {
@@ -191,8 +246,20 @@ export class FileHarnessRepository {
           repositoryGeneration: manifest.generation,
         });
       } catch (error) {
-        if (!(error instanceof RepositoryLockedError) || mode === 'require-writable') {
+        if (!(error instanceof RepositoryLockedError)) {
           throw error;
+        }
+        try {
+          // A SIGKILL or power loss leaves the exclusive file behind. Reclaim
+          // only the exact observed holder and only when the OS proves its PID
+          // is dead. Live or unverifiable locks still fail closed.
+          lease = recoverDeadWriterLease(canonicalRoot, {
+            expectedInstanceId: error.holder.instanceId,
+            instanceId: options.instanceId,
+            repositoryGeneration: manifest.generation,
+          });
+        } catch {
+          if (mode === 'require-writable') throw error;
         }
       }
     }
@@ -236,6 +303,7 @@ export class FileHarnessRepository {
   }
 
   read(relativePath: string): Buffer {
+    assertNoSymlinkTraversal(this.root, relativePath);
     return fs.readFileSync(resolveRepositoryPath(this.root, relativePath));
   }
 
@@ -250,8 +318,29 @@ export class FileHarnessRepository {
   }
 
   scanConsistency(): readonly RepositoryConsistencyIssue[] {
-    return allContentRefs(this.#manifest).flatMap((ref) => {
-      const actualHash = hashFile(resolveRepositoryPath(this.root, ref.path));
+    const cacheKey = `${this.root}\u0000${this.#manifestHash}`;
+    const previous = consistencyCache.get(cacheKey);
+    const current = new Map<string, ConsistencyCacheEntry>();
+    const issues = allContentRefs(this.#manifest).flatMap((ref) => {
+      assertNoSymlinkTraversal(this.root, ref.path);
+      const filePath = resolveRepositoryPath(this.root, ref.path);
+      const statSignature = contentStatSignature(filePath);
+      const cached = previous?.get(ref.path);
+      const actualHash = (
+        cached
+        && cached.expectedHash === ref.contentHash
+        && cached.statSignature === statSignature
+      )
+        ? cached.actualHash
+        : (() => {
+          consistencyHashReads += 1;
+          return hashFile(filePath);
+        })();
+      current.set(ref.path, {
+        expectedHash: ref.contentHash,
+        statSignature,
+        actualHash,
+      });
       if (actualHash === ref.contentHash) return [];
       return [{
         path: ref.path,
@@ -260,6 +349,8 @@ export class FileHarnessRepository {
         state: actualHash ? 'modified' as const : 'missing' as const,
       }];
     });
+    rememberConsistencyGeneration(cacheKey, current);
+    return issues;
   }
 
   diagnostics(): RepositoryDiagnostics {

@@ -174,6 +174,26 @@ export interface TakeoverWriterLeaseInput extends AcquireWriterLeaseInput {
   readonly confirmedByUser: boolean;
 }
 
+export function recoverDeadWriterLease(
+  root: string,
+  input: Omit<TakeoverWriterLeaseInput, 'confirmedByUser'>,
+): RepositoryWriterLease {
+  const holder = inspectWriterLease(root);
+  if (!holder || holder.instanceId !== input.expectedInstanceId) {
+    throw new Error('Writer lease changed before recovery; rescan and retry.');
+  }
+  const alive = isLeaseProcessAlive(holder);
+  if (alive !== false) {
+    throw new Error(
+      alive
+        ? 'Cannot recover a live Harness writer lease.'
+        : 'Cannot prove the Harness writer process is dead; recovery fails closed.',
+    );
+  }
+  fs.unlinkSync(lockPath(root));
+  return acquireWriterLease(root, input);
+}
+
 /**
  * Explicit recovery path. It never takes over a live or unverifiable lease,
  * and it requires the caller to confirm the exact observed holder.
@@ -185,18 +205,5 @@ export function takeoverDeadWriterLease(
   if (!input.confirmedByUser) {
     throw new Error('Writer lease takeover requires explicit user confirmation.');
   }
-  const holder = inspectWriterLease(root);
-  if (!holder || holder.instanceId !== input.expectedInstanceId) {
-    throw new Error('Writer lease changed before takeover; rescan and confirm again.');
-  }
-  const alive = isLeaseProcessAlive(holder);
-  if (alive !== false) {
-    throw new Error(
-      alive
-        ? 'Cannot take over a live Harness writer lease.'
-        : 'Cannot prove the Harness writer process is dead; takeover fails closed.',
-    );
-  }
-  fs.unlinkSync(lockPath(root));
-  return acquireWriterLease(root, input);
+  return recoverDeadWriterLease(root, input);
 }

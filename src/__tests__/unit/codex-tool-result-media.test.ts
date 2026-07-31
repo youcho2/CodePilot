@@ -100,10 +100,11 @@ describe('Codex tool_result media — canonical event populated for image items'
     assert.deepEqual(m.sourceMetadata, {
       prompt: 'a calm pond at dusk with floating lanterns',
       model: 'codex-image',
+      persistence: 'durable_asset',
     });
   });
 
-  it('imageGeneration without revisedPrompt: no sourceMetadata field (import layer falls back to filename)', () => {
+  it('imageGeneration without revisedPrompt is still marked as a durable Asset', () => {
     const event = translateCodexNotification(
       'item/completed',
       {
@@ -120,7 +121,9 @@ describe('Codex tool_result media — canonical event populated for image items'
       ctx,
     );
     if (event?.type !== 'tool_completed') throw new Error('unreachable');
-    assert.equal(event.media![0].sourceMetadata, undefined);
+    assert.deepEqual(event.media![0].sourceMetadata, {
+      persistence: 'durable_asset',
+    });
   });
 
   it('imageView always emits a media block', () => {
@@ -132,6 +135,9 @@ describe('Codex tool_result media — canonical event populated for image items'
     if (event?.type !== 'tool_completed') throw new Error('unreachable');
     assert.equal(event.media?.[0].localPath, '/Users/me/p.gif');
     assert.equal(event.media?.[0].mimeType, 'image/gif');
+    assert.deepEqual(event.media?.[0].sourceMetadata, {
+      persistence: 'preview_only',
+    });
   });
 });
 

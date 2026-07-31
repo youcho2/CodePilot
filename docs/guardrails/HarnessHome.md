@@ -26,7 +26,7 @@ Harness Home is the framework-neutral, user-owned source of truth for portable i
 | 2 | Unknown manifest fields and Runtime overlays round-trip without loss. Unknown executable behavior still fails closed. |
 | 3 | `stable` canonical capability implies `referenceStatus=executable`. Draft/pending capability cannot enter stable Settings coverage or executable model context. |
 | 4 | Manifest and canonical repository writes reject inline Secret material. Diagnostics/export contain only SecretRef and availability metadata. |
-| 5 | A realpath has at most one writer. A second instance becomes read-only or fails. Takeover requires exact holder identity, provably dead PID and explicit confirmation. |
+| 5 | A realpath has at most one writer. A second live/unverifiable instance becomes read-only or fails. Startup may reclaim the exact observed holder only when the OS proves its PID is dead; manual takeover additionally requires explicit confirmation. |
 | 6 | Multi-file write order is staging → prepared journal → content atomic rename → manifest atomic rename → committed journal. Manifest is always last. |
 | 7 | `fs.watch` is a hint only. Open/focus/pre-write/explicit refresh must use generation and content hashes. External edits never become silent last-write-wins. |
 | 8 | Existing path components may not be symlinks. Repository-relative refs may not be absolute, contain `..`, or target `.harness-home`. |
@@ -81,7 +81,7 @@ Harness Home is the framework-neutral, user-owned source of truth for portable i
 ## 5. 常见坑
 
 - Treating a successful `fs.watch` event as proof that an index is current.
-- Deleting a lock by age alone. A slow or suspended live process is still the writer.
+- Deleting a lock by age alone. A slow or suspended live process is still the writer; automatic recovery is allowed only for an exact holder whose PID is provably dead.
 - Writing the manifest before content and exposing a mixed generation after a crash.
 - Resolving a SecretRef for diagnostics and accidentally serializing the returned value.
 - Parsing only known Runtime overlays and dropping fields from an uninstalled adapter.

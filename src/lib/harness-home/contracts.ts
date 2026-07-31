@@ -54,7 +54,7 @@ export interface AssetRef {
 
 export type ProvenanceSourceKind =
   | 'user_file'
-  | 'codepilot'
+  | 'host_application'
   | 'external_framework'
   | 'runtime'
   | 'migration'
@@ -78,8 +78,6 @@ export interface Provenance {
 export interface SecretRef {
   readonly scheme: 'secret';
   readonly namespace:
-    | 'codepilot-setting'
-    | 'codepilot-provider'
     | 'environment'
     | 'external-owned'
     | (string & {});

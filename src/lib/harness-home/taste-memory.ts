@@ -20,7 +20,7 @@ import {
 } from './validation';
 
 export const TASTE_MEMORY_MEDIA_TYPE =
-  'application/vnd.codepilot.taste-memory+json';
+  'application/vnd.harness-home.taste-memory+json';
 
 export interface TasteMemoryRecord {
   readonly evidence: TasteMemoryEvidence;
@@ -200,7 +200,7 @@ function commitTasteMemory(
     contentHash,
     mediaType: TASTE_MEMORY_MEDIA_TYPE,
     provenance: {
-      sourceKind: 'codepilot',
+      sourceKind: 'host_application',
       sourceRef: input.sourceRef,
       observedAt: evidence.updatedAt,
       contentHash,

@@ -34,7 +34,11 @@
 
 import path from 'path';
 import os from 'os';
-import { importFileToLibrary } from '@/lib/media-saver';
+import {
+  findReusableImportedFile,
+  importFileToLibrary,
+  stageFileForMediaPreview,
+} from '@/lib/media-saver';
 import type { MediaBlock } from '@/types';
 import type { RuntimeRunEvent } from '@/lib/runtime/contract';
 
@@ -81,17 +85,52 @@ export function materializeCodexEventMedia(
       imported.push(block);
       continue;
     }
-    // Already inside the served directory: pass through. Don't
-    // re-import on re-emit.
-    if (isInsideMediaDir(block.localPath)) {
-      imported.push(block);
-      continue;
-    }
+    const outputType = (
+      event.output
+      && typeof event.output === 'object'
+      && 'type' in event.output
+      && typeof event.output.type === 'string'
+    )
+      ? event.output.type
+      : '';
+    const persistence = block.sourceMetadata?.persistence
+      ?? (outputType === 'imageView' ? 'preview_only' : 'durable_asset');
     // Foreign path → import into the library. Pull `prompt` + `model` from
     // the block's sourceMetadata so a Codex-generated image lands in the
     // gallery with its real revised prompt + a recognizable model tag
     // ('codex-image'), not the meaningless temp filename.
     try {
+      const reusable = findReusableImportedFile(block.localPath, {
+        sessionId: opts.sessionId,
+        source: 'codex',
+        cwd: opts.cwd,
+      });
+      if (reusable) {
+        imported.push({
+          ...block,
+          localPath: reusable.localPath,
+          mediaId: reusable.mediaId,
+        });
+        continue;
+      }
+      if (persistence === 'preview_only') {
+        const preview = stageFileForMediaPreview(block.localPath, {
+          mimeType: block.mimeType,
+          cwd: opts.cwd,
+        });
+        imported.push({
+          ...block,
+          localPath: preview.localPath,
+        });
+        continue;
+      }
+      // Already-imported durable blocks with a media id need no work. A path
+      // inside the media dir but without an id may be a preview cache entry,
+      // so it still goes through the durable import boundary.
+      if (isInsideMediaDir(block.localPath) && block.mediaId) {
+        imported.push(block);
+        continue;
+      }
       const result = importFileToLibrary(block.localPath, {
         sessionId: opts.sessionId,
         source: 'codex',

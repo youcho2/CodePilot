@@ -1,3 +1,4 @@
+import '../db-isolation.setup';
 import { afterEach, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -13,6 +14,9 @@ import {
   GET as tasteGET,
   POST as tastePOST,
 } from '@/app/api/harness-home/taste-memory/route';
+import {
+  POST as projectsPOST,
+} from '@/app/api/harness-home/creative-projects/route';
 import {
   FileHarnessRepository,
   hashBytes,
@@ -197,6 +201,135 @@ describe('Harness Home Design APIs', () => {
     assert.equal(response.status, 409);
     assert.match(
       String((await response.json() as { error?: string }).error),
+      /does not exist/,
+    );
+  });
+
+  it('rejects unknown Taste classifications and malformed scopes', async () => {
+    const { evidenceRef } = configureRepository();
+    for (const [classification, scope] of [
+      ['durable-user-preference', { kind: 'user' }],
+      ['one_off', { kind: 'project' }],
+      ['one_off', undefined],
+    ] as const) {
+      const response = await tastePOST(jsonRequest(
+        '/api/harness-home/taste-memory',
+        'POST',
+        {
+          id: `taste-invalid-${classification}-${scope?.kind || 'missing'}`,
+          preferenceKey: 'hero.composition',
+          classification,
+          statement: 'This invalid record must never reach the repository.',
+          evidenceRef,
+          scope,
+          confidence: 1,
+          affectedMethodIds: [],
+          sourceRef: 'test:invalid-contract',
+        },
+      ));
+      assert.equal(response.status, 409);
+      assert.match(
+        String((await response.json() as { error?: string }).error),
+        /classification|scope|projectId/i,
+      );
+    }
+  });
+
+  it('rejects creative projects with unresolved methods or decision evidence', async () => {
+    const { evidenceRef } = configureRepository();
+    const method = await methodsPOST(jsonRequest(
+      '/api/harness-home/design-methods',
+      'POST',
+      {
+        id: 'candidate.web',
+        version: '0.1.0',
+        status: 'candidate',
+        title: 'Candidate web method',
+        summary: 'A candidate awaiting user review.',
+        scope: { kind: 'user' },
+        triggers: ['landing page'],
+        nonTriggers: [],
+        inputs: ['brief'],
+        outputs: ['directions'],
+        steps: ['Clarify the brief.'],
+        modalities: ['text'],
+        referenceRefs: [],
+        counterexampleRefs: [],
+        critiqueCriteria: ['The direction answers the brief.'],
+        changelog: [{
+          version: '0.1.0',
+          changedAt: '2026-07-30T12:00:00.000Z',
+          summary: 'Candidate created from a real review packet.',
+        }],
+        overridePolicy: { userEditable: true, projectOverride: true },
+        sourceRef: 'review-packet:candidate-web',
+        observedAt: '2026-07-30T12:00:00.000Z',
+      },
+    ));
+    assert.equal(method.status, 201);
+
+    const baseProject = {
+      id: 'launch-site',
+      brief: 'Create the launch site.',
+      scope: { kind: 'project', projectId: '/workspace/launch' },
+      methodRef: 'candidate.web',
+      methodVersion: '0.1.0',
+      createdAt: '2026-07-30T12:00:00.000Z',
+      updatedAt: '2026-07-30T12:01:00.000Z',
+      directions: [{
+        id: 'direction-a',
+        title: 'Editorial',
+        rationale: 'Use an editorial hierarchy.',
+        criterionRefs: ['hierarchy'],
+      }],
+      decisions: [{
+        directionId: 'direction-a',
+        outcome: 'selected',
+        reason: 'The user selected this direction.',
+        evidenceRef,
+        decidedAt: '2026-07-30T12:01:00.000Z',
+      }],
+      assets: [],
+      executionHistory: [{
+        runtimeId: 'codepilot_runtime',
+        providerId: 'provider',
+        modelId: 'model',
+        changedAt: '2026-07-30T12:00:00.000Z',
+      }],
+      unsupported: [],
+    } as const;
+
+    const unknownMethod = await projectsPOST(jsonRequest(
+      '/api/harness-home/creative-projects',
+      'POST',
+      {
+        project: { ...baseProject, methodRef: 'missing.method' },
+        sourceRef: 'test:unknown-method',
+      },
+    ));
+    assert.equal(unknownMethod.status, 409);
+    assert.match(
+      String((await unknownMethod.json() as { error?: string }).error),
+      /method .* does not exist/i,
+    );
+
+    const fakeEvidence = await projectsPOST(jsonRequest(
+      '/api/harness-home/creative-projects',
+      'POST',
+      {
+        project: {
+          ...baseProject,
+          decisions: [{
+            ...baseProject.decisions[0],
+            evidenceRef: { assetId: 'asset-does-not-exist' },
+          }],
+        },
+        sourceRef: 'test:fake-decision-evidence',
+      },
+    ));
+    assert.equal(fakeEvidence.status, 409);
+    assert.match(
+      String((await fakeEvidence.json() as { error?: string }).error),
       /does not exist/,
     );
   });

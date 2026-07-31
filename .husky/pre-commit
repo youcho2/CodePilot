@@ -19,6 +19,7 @@ case "$TIER" in
     echo "[pre-commit] docs-only 改动 — 跳过 tsc + 单测。（高风险 docs：release/security/runtime/provider/permission 请手动跑 'npm run test'，必要时 build/smoke。）"
     ;;
   *)
+    node scripts/check-harness-adapter-boundary.mjs --check-canonical
     npx tsc --noEmit
     # CODEX_DISABLED=1 mirrors `npm run test:unit` (see package.json scripts).
     # Without it the pre-commit hook spawns the real Codex app-server during

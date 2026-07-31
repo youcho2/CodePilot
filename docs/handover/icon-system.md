@@ -126,7 +126,8 @@
 | `panel_left` / `panel_left_close` / `panel_left_open` | `PanelLeftIcon` / `PanelLeftCloseIcon` / `PanelLeftOpenIcon` | 侧栏开 / 折 / 打开按钮（替代原通用 `sidebar`，方向语义更准） |
 | `panel_right` | `PanelRightIcon` | workspace sidebar toggle |
 | `file_tree` | `HierarchyFilesIcon` | 文件树切换按钮（不是单 file 也不是普通 folder） |
-| `favorite` | `StarIcon` | 收藏 / 评分 |
+| `favorite` | `StarIcon` | 素材收藏 |
+| `rating` | `StarIcon` | CLI 工具评分；与收藏 alias 分离，后续任一视觉变化不会串改另一处 |
 | `tag` | `Tag01Icon` | 标签 |
 | `bookmark` | `Bookmark01Icon` | 书签 |
 | `external` | `ArrowUpRight01Icon` | 外部链接 / 新窗口打开（替代 Phosphor `ArrowSquareOut`） |

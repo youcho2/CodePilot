@@ -16,8 +16,10 @@ import {
   getAssetLineage,
   getAssetRecord,
   listAssetConsumers,
+  parseStoredAssetTags,
   registerMediaGenerationAsset,
   releaseAssetReference,
+  restoreAsset,
   toTypedAssetRef,
 } from '@/lib/assets/service';
 import { getAssetKind, listAssetKinds } from '@/lib/assets/kind-registry';
@@ -269,6 +271,72 @@ describe('Harness Home Asset Library conformance', () => {
     assert.equal(second.remaining, 0);
   });
 
+  it('salvages valid legacy tags instead of dropping the whole array', () => {
+    assert.deepEqual(
+      parseStoredAssetTags(JSON.stringify([
+        'useful',
+        'bad,comma',
+        42,
+        'also useful',
+        'USEFUL',
+        'x'.repeat(40),
+      ])),
+      ['useful', 'also useful'],
+    );
+  });
+
+  it('journals a poison backfill row so later valid rows are not starved', () => {
+    const outsideDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'asset-backfill-poison-'),
+    );
+    const outsidePath = path.join(outsideDir, 'outside.png');
+    fs.writeFileSync(outsidePath, Buffer.from(PNG_BASE64, 'base64'));
+    insertLegacyMedia({
+      id: 'legacy-poison-first',
+      type: 'image',
+      localPath: outsidePath,
+      mimeType: 'image/png',
+    });
+    getDb().prepare(
+      `UPDATE media_generations SET created_at = '2000-01-01 00:00:00'
+       WHERE id = ?`,
+    ).run('legacy-poison-first');
+
+    const validPath = path.join(getMediaDir(), 'legacy-after-poison.png');
+    fs.mkdirSync(path.dirname(validPath), { recursive: true });
+    fs.writeFileSync(validPath, Buffer.from(PNG_BASE64, 'base64'));
+    insertLegacyMedia({
+      id: 'legacy-valid-after-poison',
+      type: 'image',
+      localPath: validPath,
+      mimeType: 'image/png',
+    });
+    getDb().prepare(
+      `UPDATE media_generations SET created_at = '2030-01-01 00:00:00'
+       WHERE id = ?`,
+    ).run('legacy-valid-after-poison');
+
+    try {
+      const first = backfillMediaAssets(1);
+      assert.equal(first.scanned, 1);
+      assert.equal(first.skipped, 1);
+      assert.equal(getAssetRecord('legacy-poison-first'), undefined);
+      assert.ok(getDb().prepare(
+        `SELECT source_id FROM asset_backfill_failures
+         WHERE source_table = 'media_generations' AND source_id = ?`,
+      ).get('legacy-poison-first'));
+
+      const second = backfillMediaAssets(1);
+      assert.equal(second.created, 1);
+      assert.equal(
+        getAssetRecord('legacy-valid-after-poison')?.integrity_state,
+        'valid',
+      );
+    } finally {
+      fs.rmSync(outsideDir, { recursive: true, force: true });
+    }
+  });
+
   it('tracks acyclic lineage and protects active consumers from permanent deletion', () => {
     const sourceDir = fs.mkdtempSync(path.join(os.tmpdir(), 'asset-lineage-'));
     const videoPath = path.join(sourceDir, 'derived.mp4');
@@ -340,6 +408,24 @@ describe('Harness Home Asset Library conformance', () => {
     ).get(standalone.mediaId), undefined);
   });
 
+  it('keeps restore only for legacy trashed rows and rejects active Assets', () => {
+    const saved = saveMediaToLibrary(
+      { type: 'image', mimeType: 'image/png', data: PNG_BASE64 },
+      { prompt: 'legacy restore compatibility' },
+    );
+    assert.throws(
+      () => restoreAsset(saved.assetId),
+      /not a legacy trashed record/,
+    );
+    getDb().prepare(
+      `UPDATE asset_records
+       SET lifecycle_state = 'trashed', deleted_at = datetime('now')
+       WHERE id = ?`,
+    ).run(saved.assetId);
+    assert.equal(restoreAsset(saved.assetId).lifecycle_state, 'active');
+    deleteAssetPermanently(saved.assetId);
+  });
+
   it('applies the additive schema idempotently without mutating legacy media rows', () => {
     const db = new Database(':memory:');
     db.exec(`
@@ -356,6 +442,7 @@ describe('Harness Home Asset Library conformance', () => {
        ORDER BY name`,
     ).all() as { name: string }[];
     assert.deepEqual(tables.map((row) => row.name), [
+      'asset_backfill_failures',
       'asset_backfill_state',
       'asset_lineage',
       'asset_records',

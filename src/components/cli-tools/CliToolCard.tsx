@@ -118,7 +118,7 @@ export function CliToolCard({
                 {[1, 2, 3, 4, 5].map(i => (
                   <CodePilotIcon
                     key={i}
-                    name="favorite"
+                    name="rating"
                     size={10}
                     strokeWidth={i <= score ? 2 : undefined}
                     className={i <= score ? 'text-primary' : 'text-muted-foreground/30'}

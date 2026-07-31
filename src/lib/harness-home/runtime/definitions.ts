@@ -139,7 +139,7 @@ export function writeCanonicalDefinition(
 
   const refPath = existing?.path ?? definitionPath(input.kind, id);
   const provenance: Provenance = {
-    sourceKind: 'codepilot',
+    sourceKind: 'host_application',
     sourceRef: input.sourceRef ?? 'api:harness-home/definitions',
     observedAt: input.observedAt ?? new Date().toISOString(),
     contentHash,

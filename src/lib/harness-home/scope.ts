@@ -3,6 +3,7 @@ import type {
   HarnessScope,
   RuntimeIdRef,
 } from './contracts';
+import { validateHarnessScope } from './validation';
 
 export interface HarnessScopeContext {
   readonly userId?: string;
@@ -24,6 +25,7 @@ const BASE_SCOPE_RANK: Record<BaseHarnessScope['kind'], number> = {
 };
 
 function baseScope(scope: HarnessScope): BaseHarnessScope {
+  validateHarnessScope(scope);
   return scope.kind === 'runtime_overlay' ? scope.base : scope;
 }
 
@@ -56,6 +58,7 @@ export function harnessScopeApplies(
   scope: HarnessScope,
   context: HarnessScopeContext,
 ): boolean {
+  validateHarnessScope(scope);
   if (scope.kind === 'runtime_overlay') {
     return scope.runtimeId === context.runtimeId
       && baseScopeMatches(scope.base, context);

@@ -33,6 +33,13 @@ import { createRotatingLogWriter, type RotatingLogWriter } from '../src/lib/logg
 import { classifyNavigation } from '../src/lib/navigation-policy';
 import { buildProxySafeEnvironment } from '../src/lib/process-proxy-env';
 import { isNativeThemeSource } from '../src/lib/native-theme-source';
+import {
+  deriveHtmlThumbnailRequestScope,
+  HTML_THUMBNAIL_CAPTURE_TIMEOUT_MS,
+  HtmlThumbnailCaptureTimeoutError,
+  isHtmlThumbnailRequestAllowed,
+  SerializedDeadlineQueue,
+} from './html-thumbnail-security';
 
 // B-025: hard caps for the persistent main log + the in-memory server-output
 // ring. The 12.5 GB log a user hit came from an unbounded active file plus an
@@ -2160,116 +2167,148 @@ app.whenReady().then(async () => {
   // Asset API, then renders only that static image on subsequent visits.
   // Calls are serialized so opening a library with legacy HTML Assets cannot
   // create a burst of hidden Chromium renderers.
-  let htmlThumbnailCaptureQueue = Promise.resolve();
+  const htmlThumbnailCaptureQueue = new SerializedDeadlineQueue();
   ipcMain.handle('asset:capture-html-thumbnail', async (
     event,
     params: { previewUrl?: unknown; width?: unknown; height?: unknown },
   ) => {
-    const previousCapture = htmlThumbnailCaptureQueue;
-    let releaseCapture = () => {};
-    htmlThumbnailCaptureQueue = new Promise<void>((resolve) => {
-      releaseCapture = resolve;
-    });
-    await previousCapture;
+    let captureWindow: BrowserWindow | null = null;
     try {
-      const senderUrl = new URL(event.sender.getURL());
-      const width = params.width === undefined ? 1280 : Number(params.width);
-      const height = params.height === undefined ? 720 : Number(params.height);
-      if (
-        senderUrl.protocol !== 'http:'
-        || senderUrl.hostname !== '127.0.0.1'
-        || typeof params.previewUrl !== 'string'
-        || params.previewUrl.length > 16_384
-        || !Number.isInteger(width)
-        || !Number.isInteger(height)
-        || width !== 1280
-        || height !== 720
-      ) {
-        return { error: 'invalid_request' as const };
-      }
-      const targetUrl = new URL(params.previewUrl, senderUrl.origin);
-      if (
-        targetUrl.origin !== senderUrl.origin
-        || !targetUrl.pathname.startsWith('/api/files/html-preview/ws.')
-        || targetUrl.searchParams.has('interactive')
-      ) {
-        return { error: 'invalid_preview_url' as const };
-      }
+      return await htmlThumbnailCaptureQueue.run(async () => {
+        const senderUrl = new URL(event.sender.getURL());
+        const width = params.width === undefined ? 1280 : Number(params.width);
+        const height = params.height === undefined ? 720 : Number(params.height);
+        if (
+          senderUrl.protocol !== 'http:'
+          || senderUrl.hostname !== '127.0.0.1'
+          || typeof params.previewUrl !== 'string'
+          || params.previewUrl.length > 16_384
+          || !Number.isInteger(width)
+          || !Number.isInteger(height)
+          || width !== 1280
+          || height !== 720
+        ) {
+          return { error: 'invalid_request' as const };
+        }
+        const targetUrl = new URL(params.previewUrl, senderUrl.origin);
+        if (
+          targetUrl.origin !== senderUrl.origin
+          || !targetUrl.pathname.startsWith('/api/files/html-preview/ws.')
+          || targetUrl.searchParams.has('interactive')
+        ) {
+          return { error: 'invalid_preview_url' as const };
+        }
 
-      const captureWindow = new BrowserWindow({
-        show: false,
-        width,
-        height,
-        backgroundColor: '#ffffff',
-        paintWhenInitiallyHidden: true,
-        webPreferences: {
-          contextIsolation: true,
-          nodeIntegration: false,
-          sandbox: true,
-          backgroundThrottling: false,
-          partition: `asset-thumbnail-${Date.now()}`,
+        const requestScope = deriveHtmlThumbnailRequestScope(targetUrl);
+        const partition = `asset-thumbnail-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+        const captureSession = session.fromPartition(partition, { cache: false });
+        captureSession.setPermissionCheckHandler(() => false);
+        captureSession.setPermissionRequestHandler(
+          (_webContents, _permission, callback) => callback(false),
+        );
+        captureSession.webRequest.onBeforeRequest(
+          {
+            urls: ['<all_urls>'],
+          },
+          (details, callback) => {
+            callback({
+              cancel: !isHtmlThumbnailRequestAllowed(details.url, requestScope),
+            });
+          },
+        );
+
+        captureWindow = new BrowserWindow({
+          show: false,
+          width,
+          height,
+          backgroundColor: '#ffffff',
+          paintWhenInitiallyHidden: true,
+          webPreferences: {
+            contextIsolation: true,
+            nodeIntegration: false,
+            sandbox: true,
+            backgroundThrottling: false,
+            partition,
+          },
+        });
+        captureWindow.webContents.on('will-navigate', (navigationEvent) => {
+          navigationEvent.preventDefault();
+        });
+        captureWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+        try {
+          await captureWindow.loadURL(targetUrl.toString());
+          await captureWindow.webContents.insertCSS(`
+            html, body {
+              width: 1280px !important;
+              height: 720px !important;
+              overflow: hidden !important;
+              scrollbar-width: none !important;
+            }
+            *, *::before, *::after {
+              animation: none !important;
+              transition: none !important;
+              caret-color: transparent !important;
+            }
+            ::-webkit-scrollbar { display: none !important; }
+          `);
+          await Promise.race([
+            captureWindow.webContents.executeJavaScript(`
+              Promise.all([
+                document.fonts ? document.fonts.ready : Promise.resolve(),
+                ...Array.from(document.images).map((image) =>
+                  image.complete
+                    ? Promise.resolve()
+                    : new Promise((resolve) => {
+                        image.addEventListener('load', resolve, { once: true });
+                        image.addEventListener('error', resolve, { once: true });
+                      })
+                ),
+              ]).then(() => true)
+            `),
+            new Promise((resolve) => setTimeout(resolve, 2500)),
+          ]);
+          await new Promise((resolve) => setTimeout(resolve, 150));
+          const image = await captureWindow.webContents.capturePage({
+            x: 0,
+            y: 0,
+            width,
+            height,
+          });
+          const resized = image.resize({ width, height, quality: 'best' });
+          return {
+            base64: resized.toPNG().toString('base64'),
+            width,
+            height,
+          };
+        } finally {
+          if (captureWindow && !captureWindow.isDestroyed()) {
+            captureWindow.destroy();
+          }
+          captureWindow = null;
+          captureSession.webRequest.onBeforeRequest(null);
+          captureSession.setPermissionCheckHandler(null);
+          captureSession.setPermissionRequestHandler(null);
+        }
+      }, {
+        timeoutMs: HTML_THUMBNAIL_CAPTURE_TIMEOUT_MS,
+        onTimeout: () => {
+          if (captureWindow && !captureWindow.isDestroyed()) {
+            captureWindow.webContents.stop();
+            captureWindow.destroy();
+          }
+          captureWindow = null;
         },
       });
-      captureWindow.webContents.on('will-navigate', (navigationEvent) => {
-        navigationEvent.preventDefault();
-      });
-      captureWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
-      try {
-        await captureWindow.loadURL(targetUrl.toString());
-        await captureWindow.webContents.insertCSS(`
-          html, body {
-            width: 1280px !important;
-            height: 720px !important;
-            overflow: hidden !important;
-            scrollbar-width: none !important;
-          }
-          *, *::before, *::after {
-            animation: none !important;
-            transition: none !important;
-            caret-color: transparent !important;
-          }
-          ::-webkit-scrollbar { display: none !important; }
-        `);
-        await Promise.race([
-          captureWindow.webContents.executeJavaScript(`
-            Promise.all([
-              document.fonts ? document.fonts.ready : Promise.resolve(),
-              ...Array.from(document.images).map((image) =>
-                image.complete
-                  ? Promise.resolve()
-                  : new Promise((resolve) => {
-                      image.addEventListener('load', resolve, { once: true });
-                      image.addEventListener('error', resolve, { once: true });
-                    })
-              ),
-            ]).then(() => true)
-          `),
-          new Promise((resolve) => setTimeout(resolve, 2500)),
-        ]);
-        await new Promise((resolve) => setTimeout(resolve, 150));
-        const image = await captureWindow.webContents.capturePage({
-          x: 0,
-          y: 0,
-          width,
-          height,
-        });
-        const resized = image.resize({ width, height, quality: 'best' });
-        return {
-          base64: resized.toPNG().toString('base64'),
-          width,
-          height,
-        };
-      } finally {
-        captureWindow.destroy();
-      }
     } catch (error) {
       console.warn(
         '[asset:capture-html-thumbnail] capture failed:',
         error instanceof Error ? error.message : String(error),
       );
-      return { error: 'capture_failed' as const };
-    } finally {
-      releaseCapture();
+      return {
+        error: error instanceof HtmlThumbnailCaptureTimeoutError
+          ? 'capture_timeout' as const
+          : 'capture_failed' as const,
+      };
     }
   });
 

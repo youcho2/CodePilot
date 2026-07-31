@@ -14,8 +14,12 @@ import {
   createKeyValueSecretBackend,
   createProvenance,
   hashBytes,
+  getRepositoryConsistencyCacheStats,
   listTransactionJournals,
   planHarnessImport,
+  prepareRepositoryTransaction,
+  applyPreparedTransaction,
+  assertSafeRepositoryPath,
   takeoverDeadWriterLease,
   type HarnessImportCandidate,
   type SecretRef,
@@ -176,6 +180,43 @@ describe('FileHarnessRepository', () => {
     reopened.close();
   });
 
+  it('reuses verified hashes across read-only turns and invalidates on external edits', () => {
+    const root = tempRoot('consistency-cache');
+    const writer = FileHarnessRepository.create(root, 'cache-harness');
+    const candidate = memoryCandidate();
+    applyHarnessImportPlan(writer, planHarnessImport(writer, [candidate]));
+    writer.close();
+
+    const first = FileHarnessRepository.open(root, { mode: 'readonly' });
+    const beforeFirst = getRepositoryConsistencyCacheStats().contentHashReads;
+    assert.deepEqual(first.scanConsistency(), []);
+    const afterFirst = getRepositoryConsistencyCacheStats().contentHashReads;
+    assert.equal(afterFirst - beforeFirst, 1);
+    first.close();
+
+    const second = FileHarnessRepository.open(root, { mode: 'readonly' });
+    const beforeSecond = getRepositoryConsistencyCacheStats().contentHashReads;
+    assert.deepEqual(second.scanConsistency(), []);
+    assert.equal(
+      getRepositoryConsistencyCacheStats().contentHashReads - beforeSecond,
+      0,
+      'an unchanged manifest generation should use stat-backed hash cache',
+    );
+
+    fs.writeFileSync(
+      path.join(root, candidate.targetPath),
+      '# Memory\n\nExternally changed.\n',
+    );
+    const beforeChanged = getRepositoryConsistencyCacheStats().contentHashReads;
+    assert.equal(second.scanConsistency()[0]?.state, 'modified');
+    assert.equal(
+      getRepositoryConsistencyCacheStats().contentHashReads - beforeChanged,
+      1,
+      'a changed stat signature must force content revalidation',
+    );
+    second.close();
+  });
+
   it('reports same-identity different-content as a conflict', () => {
     const root = tempRoot('conflict');
     const repository = FileHarnessRepository.create(root, 'harness-1');
@@ -283,6 +324,49 @@ describe('FileHarnessRepository', () => {
     repository.close();
   });
 
+  it('rejects case-variant internal paths and staged journal escapes', () => {
+    assert.throws(
+      () => assertSafeRepositoryPath('.Harness-Home/transactions/forged.json'),
+      /internal state/,
+    );
+    assert.throws(
+      () => assertSafeRepositoryPath('state\\.HARNESS-HOME\\forged.json'),
+      /internal state/,
+    );
+
+    const root = tempRoot('staged-path-escape');
+    const repository = FileHarnessRepository.create(root, 'harness-1');
+    const manifest = repository.manifest;
+    const prepared = prepareRepositoryTransaction({
+      root,
+      baseGeneration: manifest.generation,
+      targetGeneration: manifest.generation + 1,
+      writes: [],
+      manifestContent: `${JSON.stringify({
+        ...manifest,
+        generation: manifest.generation + 1,
+      })}\n`,
+      expectedManifestHash: hashBytes(
+        fs.readFileSync(path.join(root, 'manifest.json')),
+      ),
+    });
+    const outside = path.join(root, 'outside-secret.txt');
+    fs.writeFileSync(outside, 'must-not-be-copied', 'utf8');
+    const forged = {
+      ...prepared,
+      files: prepared.files.map((file, index) => (
+        index === 0
+          ? { ...file, stagedPath: '../../../outside-secret.txt' }
+          : file
+      )),
+    };
+    assert.throws(
+      () => applyPreparedTransaction(root, forged),
+      /stagedPath escapes/,
+    );
+    repository.close();
+  });
+
   it('rejects direct repository writes that bypass import planning with a Secret', () => {
     const root = tempRoot('secret-write');
     const repository = FileHarnessRepository.create(root, 'harness-1');
@@ -333,6 +417,34 @@ describe('FileHarnessRepository', () => {
     assert.equal(replacement.metadata.instanceId, 'new-writer');
     original.release();
     replacement.release();
+  });
+
+  it('reclaims a provably dead crash lease without requiring graceful close', () => {
+    const root = tempRoot('crash-lease-recovery');
+    const repository = FileHarnessRepository.create(root, 'harness-1');
+    repository.close();
+    const crashed = acquireWriterLease(root, {
+      instanceId: 'crashed-process',
+      pid: 2_147_483_647,
+      processStartedAt: '2026-07-30T00:00:00.000Z',
+      repositoryGeneration: 0,
+    });
+
+    const recovered = FileHarnessRepository.open(root, {
+      mode: 'require-writable',
+      instanceId: 'replacement-process',
+    });
+    assert.equal(recovered.writable, true);
+    assert.equal(
+      recovered.diagnostics().lockHolder?.instanceId,
+      'replacement-process',
+    );
+
+    // The stale process never called release(); its old lease object can no
+    // longer remove the replacement lock because ownership changed.
+    crashed.release();
+    assert.equal(recovered.writable, true);
+    recovered.close();
   });
 });
 

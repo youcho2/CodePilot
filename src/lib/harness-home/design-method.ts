@@ -16,9 +16,9 @@ import {
 } from './validation';
 
 export const CREATIVE_METHOD_MEDIA_TYPE =
-  'application/vnd.codepilot.creative-method+json';
+  'application/vnd.harness-home.creative-method+json';
 export const CREATIVE_METHOD_GUIDE_MEDIA_TYPE =
-  'text/vnd.codepilot.creative-method+markdown';
+  'text/vnd.harness-home.creative-method+markdown';
 
 export interface CreativeMethodRecord {
   readonly definition: CreativeMethodDefinition;
@@ -242,7 +242,7 @@ function comparableInput(input: WriteCreativeMethodInput): string {
     overridePolicy: input.overridePolicy,
     confirmationEvidenceRef: input.confirmationEvidenceRef,
     confirmedAt: input.confirmedAt,
-    sourceKind: input.sourceKind ?? 'codepilot',
+    sourceKind: input.sourceKind ?? 'host_application',
     sourceRef: input.sourceRef,
   });
 }
@@ -328,7 +328,7 @@ export function writeCreativeMethod(
     existing?.guideRef.path ?? `definitions/method/${slug}.md`;
   const observedAt = input.observedAt ?? new Date().toISOString();
   const source = {
-    sourceKind: input.sourceKind ?? 'codepilot',
+    sourceKind: input.sourceKind ?? 'host_application',
     sourceRef: input.sourceRef,
     observedAt,
     secretMaterial: 'absent' as const,

@@ -46,6 +46,14 @@ export interface RepositoryFaultInjector {
 }
 
 function transactionRoot(root: string, transactionId: string): string {
+  if (
+    !transactionId
+    || transactionId === '.'
+    || transactionId === '..'
+    || !/^[a-zA-Z0-9_-]+$/.test(transactionId)
+  ) {
+    throw new Error('Harness transaction id is invalid.');
+  }
   return resolveInternalPath(root, HARNESS_TRANSACTIONS_DIR, transactionId);
 }
 
@@ -58,6 +66,31 @@ function writeJournal(root: string, journal: RepositoryTransactionJournal): void
   const temp = `${target}.tmp`;
   fs.writeFileSync(temp, `${JSON.stringify(journal, null, 2)}\n`, 'utf8');
   fs.renameSync(temp, target);
+}
+
+function resolveStagedTransactionPath(
+  txRoot: string,
+  stagedPath: string,
+): string {
+  if (!stagedPath || path.isAbsolute(stagedPath)) {
+    throw new Error('Harness transaction stagedPath must be relative.');
+  }
+  const resolvedRoot = path.resolve(txRoot);
+  const resolved = path.resolve(resolvedRoot, stagedPath);
+  if (
+    resolved === resolvedRoot
+    || !resolved.startsWith(`${resolvedRoot}${path.sep}`)
+  ) {
+    throw new Error('Harness transaction stagedPath escapes its transaction.');
+  }
+  const real = fs.realpathSync(resolved);
+  if (!real.startsWith(`${resolvedRoot}${path.sep}`)) {
+    throw new Error('Harness transaction stagedPath traverses a symlink.');
+  }
+  if (!fs.statSync(real).isFile()) {
+    throw new Error('Harness transaction stagedPath must identify a file.');
+  }
+  return real;
 }
 
 export function readTransactionJournal(
@@ -189,7 +222,7 @@ export function applyPreparedTransaction(
       }
 
       fs.mkdirSync(path.dirname(target), { recursive: true });
-      const staged = path.join(txRoot, file.stagedPath);
+      const staged = resolveStagedTransactionPath(txRoot, file.stagedPath);
       const targetTemp = `${target}.${inputJournal.transactionId}.tmp`;
       fs.copyFileSync(staged, targetTemp);
       const fd = fs.openSync(targetTemp, 'r');

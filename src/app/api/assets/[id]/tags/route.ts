@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { getDb } from '@/lib/db';
 import {
   getAssetRecord,
   normalizeAssetTags,
@@ -20,6 +21,15 @@ export async function GET(
   const { id } = await params;
   const asset = getAssetRecord(id);
   if (!asset || asset.lifecycle_state !== 'active') {
+    const legacy = getDb().prepare(
+      'SELECT tags FROM media_generations WHERE id = ?',
+    ).get(id) as { tags: string } | undefined;
+    if (legacy) {
+      return NextResponse.json({
+        tags: parseStoredAssetTags(legacy.tags),
+        legacyOnly: true,
+      });
+    }
     return NextResponse.json(
       { error: 'Asset not found.', code: 'asset_not_found' },
       { status: 404 },
@@ -42,7 +52,20 @@ export async function PUT(
       );
     }
     const tags = normalizeAssetTags(body.tags as string[]);
-    return NextResponse.json({ tags: setAssetTags(id, tags) });
+    const asset = getAssetRecord(id);
+    if (asset?.lifecycle_state === 'active') {
+      return NextResponse.json({ tags: setAssetTags(id, tags) });
+    }
+    const updated = getDb().prepare(
+      'UPDATE media_generations SET tags = ? WHERE id = ?',
+    ).run(JSON.stringify(tags), id);
+    if (updated.changes === 0) {
+      return NextResponse.json(
+        { error: `Asset "${id}" does not exist.`, code: 'asset_not_found' },
+        { status: 404 },
+      );
+    }
+    return NextResponse.json({ tags, legacyOnly: true });
   } catch (error) {
     const message = error instanceof Error
       ? error.message

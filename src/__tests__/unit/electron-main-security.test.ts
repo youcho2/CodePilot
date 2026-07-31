@@ -20,6 +20,12 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
+import {
+  deriveHtmlThumbnailRequestScope,
+  HtmlThumbnailCaptureTimeoutError,
+  isHtmlThumbnailRequestAllowed,
+  SerializedDeadlineQueue,
+} from '../../../electron/html-thumbnail-security';
 
 const MAIN = path.resolve(__dirname, '../../../electron/main.ts');
 const PRELOAD = path.resolve(__dirname, '../../../electron/preload.ts');
@@ -47,7 +53,8 @@ function balancedBlock(src: string, fromIndex: number): string {
 }
 
 describe('electron main security guardrails (audit 2026-07 Loop 1)', () => {
-  const main = stripComments(readFileSync(MAIN, 'utf-8'));
+  const rawMain = readFileSync(MAIN, 'utf-8');
+  const main = stripComments(rawMain);
   const preload = stripComments(readFileSync(PRELOAD, 'utf-8'));
 
   it('1.1 — artifact export never accepts or writes a renderer-supplied outPath', () => {
@@ -96,10 +103,10 @@ describe('electron main security guardrails (audit 2026-07 Loop 1)', () => {
   });
 
   it('Asset HTML capture is origin-bound, scope-bound, and returns bytes without a path write', () => {
-    const idx = main.indexOf("ipcMain.handle('asset:capture-html-thumbnail'");
+    const idx = rawMain.indexOf("ipcMain.handle('asset:capture-html-thumbnail'");
     assert.ok(idx >= 0, 'the static HTML thumbnail capture handler must exist');
-    const callbackStart = main.indexOf(') => {', idx);
-    const body = balancedBlock(main, callbackStart);
+    const callbackStart = rawMain.indexOf(') => {', idx);
+    const body = balancedBlock(rawMain, callbackStart);
     assert.match(body, /senderUrl\.hostname\s*!==\s*['"]127\.0\.0\.1['"]/);
     assert.match(body, /targetUrl\.origin\s*!==\s*senderUrl\.origin/);
     assert.match(
@@ -110,6 +117,68 @@ describe('electron main security guardrails (audit 2026-07 Loop 1)', () => {
     assert.match(body, /capturePage/);
     assert.match(body, /toPNG\(\)\.toString\(['"]base64['"]\)/);
     assert.doesNotMatch(body, /writeFile|outPath/);
+    assert.match(body, /isHtmlThumbnailRequestAllowed/);
+    assert.match(body, /setPermissionRequestHandler/);
+    assert.match(body, /HTML_THUMBNAIL_CAPTURE_TIMEOUT_MS/);
     assert.match(preload, /asset:capture-html-thumbnail/);
+  });
+
+  it('allows only the exact local preview scope and rejects every external request', () => {
+    const target = new URL(
+      'http://127.0.0.1:3001/api/files/html-preview/ws.scope-token/'
+        + 'Users/test/.codepilot-assets/asset/bundle/index.html',
+    );
+    const scope = deriveHtmlThumbnailRequestScope(target);
+    assert.equal(isHtmlThumbnailRequestAllowed(target.toString(), scope), true);
+    assert.equal(
+      isHtmlThumbnailRequestAllowed(
+        'http://127.0.0.1:3001/api/files/html-preview/ws.scope-token/'
+          + 'Users/test/.codepilot-assets/asset/bundle/style.css',
+        scope,
+      ),
+      true,
+    );
+    assert.equal(
+      isHtmlThumbnailRequestAllowed('https://attacker.example/pixel.png', scope),
+      false,
+    );
+    assert.equal(
+      isHtmlThumbnailRequestAllowed(
+        'http://127.0.0.1:3001/api/chat/sessions',
+        scope,
+      ),
+      false,
+    );
+    assert.equal(
+      isHtmlThumbnailRequestAllowed(
+        'http://127.0.0.1:3001/api/files/html-preview/ws.other-token/'
+          + 'Users/test/private.png',
+        scope,
+      ),
+      false,
+    );
+    assert.equal(isHtmlThumbnailRequestAllowed('file:///etc/passwd', scope), false);
+  });
+
+  it('times out a stuck capture and releases the serialized queue', async () => {
+    const queue = new SerializedDeadlineQueue();
+    let timeoutCleanupCalled = false;
+    const stuck = queue.run(
+      () => new Promise<string>(() => {}),
+      {
+        timeoutMs: 20,
+        onTimeout: () => {
+          timeoutCleanupCalled = true;
+        },
+      },
+    );
+    const next = queue.run(
+      async () => 'next-capture-completed',
+      { timeoutMs: 200 },
+    );
+
+    await assert.rejects(stuck, HtmlThumbnailCaptureTimeoutError);
+    assert.equal(timeoutCleanupCalled, true);
+    assert.equal(await next, 'next-capture-completed');
   });
 });

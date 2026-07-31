@@ -981,15 +981,18 @@ function buildImageGenerationMedia(item: ThreadItemLike): import('@/types').Medi
   // but no model id on this item, so we tag with the fixed identifier
   // 'codex-image' that downstream UI / filters can recognize.)
   const revisedPrompt = typeof item.revisedPrompt === 'string' ? item.revisedPrompt : undefined;
-  const sourceMetadata = revisedPrompt
-    ? { prompt: revisedPrompt, model: 'codex-image' }
-    : undefined;
+  const sourceMetadata = {
+    ...(revisedPrompt
+      ? { prompt: revisedPrompt, model: 'codex-image' }
+      : {}),
+    persistence: 'durable_asset' as const,
+  };
   return {
     type: 'image',
     mimeType,
     ...(savedPath ? { localPath: savedPath } : {}),
     ...(result && !savedPath ? { data: result } : {}),
-    ...(sourceMetadata ? { sourceMetadata } : {}),
+    sourceMetadata,
   };
 }
 
@@ -1009,6 +1012,9 @@ function buildImageViewMedia(item: ThreadItemLike): import('@/types').MediaBlock
     type: 'image',
     mimeType: mimeTypeFromPath(path) ?? 'image/png',
     localPath: path,
+    sourceMetadata: {
+      persistence: 'preview_only',
+    },
   };
 }
 

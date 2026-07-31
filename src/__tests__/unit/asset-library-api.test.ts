@@ -26,6 +26,8 @@ import {
 } from '@/app/api/assets/[id]/tags/route';
 import { DELETE as deleteMedia } from '@/app/api/media/[id]/route';
 import { PUT as toggleFavorite } from '@/app/api/media/[id]/favorite/route';
+import { POST as restoreLegacyAsset } from '@/app/api/assets/[id]/restore/route';
+import { getMediaDir } from '@/lib/media-saver';
 
 const workspace = fs.mkdtempSync(path.join(os.tmpdir(), 'asset-api-workspace-'));
 const pageDir = path.join(workspace, 'site');
@@ -279,6 +281,16 @@ describe('Asset Library API', () => {
     assert.equal(getAssetRecord(archivedAssetId)?.curation_state, 'selected');
   });
 
+  it('does not expose restore semantics for an active Asset', async () => {
+    const response = await restoreLegacyAsset(
+      request(`/api/assets/${archivedAssetId}/restore`, { method: 'POST' }),
+      { params: Promise.resolve({ id: archivedAssetId }) },
+    );
+    assert.equal(response.status, 409);
+    assert.equal((await response.json()).code, 'asset_restore_failed');
+    assert.equal(getAssetRecord(archivedAssetId)?.lifecycle_state, 'active');
+  });
+
   it('persists bounded tags for every Asset kind and makes them searchable', async () => {
     const updated = await updateAssetTags(
       request(`/api/assets/${archivedAssetId}/tags`, {
@@ -348,6 +360,108 @@ describe('Asset Library API', () => {
       ).get() as { count: number }).count,
       0,
     );
+  });
+
+  it('keeps failed ID-only legacy rows visible, taggable, searchable, and permanently deletable', async () => {
+    const mediaDir = getMediaDir();
+    fs.mkdirSync(mediaDir, { recursive: true });
+    const legacyPath = path.join(mediaDir, 'legacy-failed-id-only.png');
+    fs.writeFileSync(legacyPath, Buffer.from('legacy failed bytes'));
+    getDb().prepare(
+      `INSERT INTO media_generations (
+         id, type, status, provider, model, prompt, local_path,
+         thumbnail_path, tags, metadata, error, created_at
+       ) VALUES (
+         'legacy-failed-id-only', 'image', 'failed', 'codex', '', '', ?,
+         '', '[]', '{"mimeType":"image/png"}', 'generation failed',
+         '2026-07-30 00:00:00'
+       )`,
+    ).run(legacyPath);
+
+    const listed = await getGallery(request(
+      '/api/media/gallery?query=legacy-failed-id-only',
+    ));
+    assert.equal(listed.status, 200);
+    const listedData = await listed.json();
+    assert.equal(listedData.total, 1);
+    assert.equal(listedData.items[0].id, 'legacy-failed-id-only');
+    assert.equal(listedData.items[0].title, 'legacy-failed-id-only');
+    assert.equal(listedData.items[0].legacyOnly, true);
+    assert.equal(listedData.items[0].generationStatus, 'failed');
+    assert.deepEqual(listedData.items[0].images, []);
+
+    const tagged = await updateAssetTags(
+      request('/api/assets/legacy-failed-id-only/tags', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tags: ['待整理', '待整理'] }),
+      }),
+      { params: Promise.resolve({ id: 'legacy-failed-id-only' }) },
+    );
+    assert.equal(tagged.status, 200);
+    assert.deepEqual((await tagged.json()).tags, ['待整理']);
+    const searched = await getGallery(request(
+      `/api/media/gallery?tags=${encodeURIComponent('待整理')}`,
+    ));
+    assert.equal(
+      (await searched.json()).items.some(
+        (item: { id: string }) => item.id === 'legacy-failed-id-only',
+      ),
+      true,
+    );
+
+    const deleted = await deleteMedia(
+      request('/api/media/legacy-failed-id-only', { method: 'DELETE' }),
+      { params: Promise.resolve({ id: 'legacy-failed-id-only' }) },
+    );
+    assert.equal(deleted.status, 200);
+    const deletedData = await deleted.json();
+    assert.equal(deletedData.permanent, true);
+    assert.equal(deletedData.fileDeleted, true);
+    assert.equal(fs.existsSync(legacyPath), false);
+    assert.equal(getDb().prepare(
+      'SELECT id FROM media_generations WHERE id = ?',
+    ).get('legacy-failed-id-only'), undefined);
+  });
+
+  it('removes an external legacy record without deleting the external file', async () => {
+    const externalPath = path.join(workspace, 'legacy-external.png');
+    fs.writeFileSync(externalPath, Buffer.from('external legacy bytes'));
+    getDb().prepare(
+      `INSERT INTO media_generations (
+         id, type, status, provider, model, prompt, local_path,
+         thumbnail_path, tags, metadata, created_at, completed_at
+       ) VALUES (
+         'legacy-external-record', 'image', 'completed', 'codex', '',
+         'external legacy record', ?, '', '[]',
+         '{"mimeType":"image/png"}', '2026-07-29 00:00:00',
+         '2026-07-29 00:00:00'
+       )`,
+    ).run(externalPath);
+
+    const listed = await getGallery(request(
+      '/api/media/gallery?query=external%20legacy%20record',
+    ));
+    assert.equal(listed.status, 200);
+    const listedData = await listed.json();
+    assert.equal(listedData.total, 1);
+    assert.equal(listedData.items[0].legacyOnly, true);
+    assert.deepEqual(listedData.items[0].images, []);
+
+    const deleted = await deleteMedia(
+      request('/api/media/legacy-external-record', { method: 'DELETE' }),
+      { params: Promise.resolve({ id: 'legacy-external-record' }) },
+    );
+    assert.equal(deleted.status, 200);
+    const deletedData = await deleted.json();
+    assert.equal(deletedData.fileDeleted, false);
+    assert.deepEqual(deletedData.retainedExternalPaths, [
+      path.resolve(externalPath),
+    ]);
+    assert.equal(fs.existsSync(externalPath), true);
+    assert.equal(getDb().prepare(
+      'SELECT id FROM media_generations WHERE id = ?',
+    ).get('legacy-external-record'), undefined);
   });
 
   it('does not render a legacy HTML file as a broken image tile', async () => {

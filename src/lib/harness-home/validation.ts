@@ -2,8 +2,10 @@ import type {
   AssetRef,
   CanonicalCapabilityRef,
   CreativeMethodDefinition,
+  HarnessScope,
   PortableContentRef,
   RuntimeProjection,
+  TasteMemoryClass,
   TasteMemoryEvidence,
 } from './contracts';
 import { assertCompleteProvenance } from './provenance';
@@ -16,7 +18,76 @@ const SECRET_VALUE_PATTERNS: readonly RegExp[] = [
   /\bBearer\s+[A-Za-z0-9._~+/-]{8,}=*/i,
   /-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----/,
   /\b(?:sk|ghp|gh_pat|xai)-[A-Za-z0-9_-]{12,}\b/i,
+  /\bAKIA[A-Z0-9]{16}\b/,
+  /\bAIza[0-9A-Za-z_-]{30,}\b/,
+  /\bxox[baprs]-[0-9A-Za-z-]{10,}\b/i,
+  /\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\b/,
+  /\b(?:token|secret|api[_-]?key)\s*[:=]\s*["']?[a-f0-9]{32,}\b/i,
 ];
+
+const TASTE_MEMORY_CLASSES = new Set<TasteMemoryClass>([
+  'one_off',
+  'project_preference',
+  'durable_user_preference',
+  'builtin_principle',
+]);
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === 'object' && !Array.isArray(value);
+}
+
+function requireNonEmptyString(value: unknown, label: string): void {
+  if (typeof value !== 'string' || !value.trim()) {
+    throw new Error(`${label} must be a non-empty string.`);
+  }
+}
+
+export function validateHarnessScope(
+  value: unknown,
+  label = 'Harness scope',
+): asserts value is HarnessScope {
+  if (!isRecord(value) || typeof value.kind !== 'string') {
+    throw new Error(`${label} must be a valid Harness scope object.`);
+  }
+  switch (value.kind) {
+    case 'builtin':
+      return;
+    case 'user':
+      if (value.userId !== undefined) {
+        requireNonEmptyString(value.userId, `${label}.userId`);
+      }
+      return;
+    case 'assistant':
+      requireNonEmptyString(value.assistantId, `${label}.assistantId`);
+      return;
+    case 'project':
+      requireNonEmptyString(value.projectId, `${label}.projectId`);
+      if (value.rootRef !== undefined) {
+        requireNonEmptyString(value.rootRef, `${label}.rootRef`);
+      }
+      return;
+    case 'runtime_overlay':
+      requireNonEmptyString(value.runtimeId, `${label}.runtimeId`);
+      if (!isRecord(value.base) || value.base.kind === 'runtime_overlay') {
+        throw new Error(`${label}.base must be a non-overlay Harness scope.`);
+      }
+      validateHarnessScope(value.base, `${label}.base`);
+      return;
+    default:
+      throw new Error(`${label}.kind "${value.kind}" is not supported.`);
+  }
+}
+
+export function validateTasteMemoryClass(
+  value: unknown,
+): asserts value is TasteMemoryClass {
+  if (
+    typeof value !== 'string'
+    || !TASTE_MEMORY_CLASSES.has(value as TasteMemoryClass)
+  ) {
+    throw new Error('Taste Memory classification is not supported.');
+  }
+}
 
 export interface SecretLeak {
   readonly path: string;
@@ -119,6 +190,7 @@ export function validateRuntimeProjection(projection: RuntimeProjection): void {
 }
 
 export function validateCreativeMethod(method: CreativeMethodDefinition): void {
+  validateHarnessScope(method.scope, `Creative Method ${method.id || '(unknown)'} scope`);
   if (
     !method.id.trim()
     || !method.version.trim()
@@ -202,6 +274,8 @@ function validateEvidenceRef(
 export function validateTasteMemoryEvidence(
   evidence: TasteMemoryEvidence,
 ): void {
+  validateTasteMemoryClass(evidence.classification);
+  validateHarnessScope(evidence.scope, `Taste Memory ${evidence.id || '(unknown)'} scope`);
   if (!evidence.id.trim() || !evidence.preferenceKey.trim()) {
     throw new Error('Taste Memory requires id and preferenceKey.');
   }

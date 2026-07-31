@@ -39,6 +39,35 @@ describe('Electron packaging hygiene', () => {
     }
   });
 
+  it('refuses cleanup before touching a live Next dev output tree', () => {
+    const fixture = makeFixture();
+    try {
+      fs.mkdirSync(path.join(fixture, '.next/dev'), { recursive: true });
+      fs.writeFileSync(path.join(fixture, '.next/dev/lock'), 'locked');
+      fs.mkdirSync(path.join(fixture, 'release'), { recursive: true });
+      fs.writeFileSync(path.join(fixture, 'release/keep.txt'), 'keep');
+
+      const result = spawnSync(process.execPath, [hygieneScript], {
+        cwd: fixture,
+        encoding: 'utf8',
+      });
+
+      assert.notEqual(result.status, 0);
+      assert.match(result.stderr, /Refusing to build[\s\S]*next\/dev\/lock/);
+      assert.equal(
+        fs.readFileSync(path.join(fixture, 'release/keep.txt'), 'utf8'),
+        'keep',
+        'the guard must run before any build artifact is removed',
+      );
+      assert.equal(
+        fs.existsSync(path.join(fixture, '.next/dev/lock')),
+        true,
+      );
+    } finally {
+      fs.rmSync(fixture, { recursive: true, force: true });
+    }
+  });
+
   it('fails closed when standalone contains local worktree state', () => {
     const fixture = makeFixture();
     try {
@@ -123,6 +152,14 @@ describe('Electron packaging hygiene', () => {
     assert.match(
       packageJson.scripts['electron:build'],
       /^node scripts\/clean-electron-build\.mjs && next build && node scripts\/build-electron\.mjs$/,
+    );
+    assert.equal(
+      packageJson.scripts.prebuild,
+      'node scripts/assert-next-build-safe.mjs',
+    );
+    assert.match(
+      fs.readFileSync(hygieneScript, 'utf8'),
+      /assertNoActiveNextDev\(root\)[\s\S]*for \(const relativeDir/,
     );
     assert.match(
       fs.readFileSync(path.join(repoRoot, 'scripts/build-electron.mjs'), 'utf8'),

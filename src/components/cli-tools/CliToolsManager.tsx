@@ -334,7 +334,7 @@ export const CliToolsManager = forwardRef<CliToolsManagerHandle, CliToolsManager
                       <span className="text-[10px] text-muted-foreground">{t('cliTools.agentFriendliness' as TranslationKey)}</span>
                       <div className="flex gap-0.5">
                         {[1, 2, 3, 4, 5].map(i => (
-                          <CodePilotIcon key={i} name="favorite" size={10} strokeWidth={i <= score ? 2 : undefined} className={i <= score ? 'text-primary' : 'text-muted-foreground/30'} aria-hidden />
+                          <CodePilotIcon key={i} name="rating" size={10} strokeWidth={i <= score ? 2 : undefined} className={i <= score ? 'text-primary' : 'text-muted-foreground/30'} aria-hidden />
                         ))}
                       </div>
                     </div>
@@ -388,7 +388,7 @@ export const CliToolsManager = forwardRef<CliToolsManagerHandle, CliToolsManager
                         <span className="text-[10px] text-muted-foreground">{t('cliTools.agentFriendliness' as TranslationKey)}</span>
                         <div className="flex gap-0.5">
                           {[1, 2, 3, 4, 5].map(i => (
-                            <CodePilotIcon key={i} name="favorite" size={10} strokeWidth={i <= score ? 2 : undefined} className={i <= score ? 'text-primary' : 'text-muted-foreground/30'} aria-hidden />
+                            <CodePilotIcon key={i} name="rating" size={10} strokeWidth={i <= score ? 2 : undefined} className={i <= score ? 'text-primary' : 'text-muted-foreground/30'} aria-hidden />
                           ))}
                         </div>
                       </div>

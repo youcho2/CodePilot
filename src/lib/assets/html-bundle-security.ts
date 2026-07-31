@@ -89,24 +89,112 @@ function extractUrls(content: string): Array<{
   context: string;
 }> {
   const urls: Array<{ url: string; context: string }> = [];
-  const attributePattern =
-    /<(script|link|img|source|video|audio|a)\b[^>]*?\b(src|href|poster)=["']([^"']+)["'][^>]*>/gi;
-  for (const match of content.matchAll(attributePattern)) {
-    urls.push({
-      url: match[3],
-      context: `${match[1].toLowerCase()}.${match[2].toLowerCase()}`,
-    });
+  let cursor = 0;
+  while (cursor < content.length) {
+    const tagStart = content.indexOf('<', cursor);
+    if (tagStart < 0) break;
+
+    // Find the closing bracket with a quote-aware linear scan. The previous
+    // single regex used nested lazy/greedy repetitions and became quadratic
+    // when an Agent emitted a long malformed "<img ..." token without ">".
+    let quote = '';
+    let tagEnd = -1;
+    for (let index = tagStart + 1; index < content.length; index++) {
+      const character = content[index];
+      if (quote) {
+        if (character === quote) quote = '';
+      } else if (character === '"' || character === "'") {
+        quote = character;
+      } else if (character === '>') {
+        tagEnd = index;
+        break;
+      }
+    }
+    if (tagEnd < 0) break;
+    cursor = tagEnd + 1;
+
+    const tag = content.slice(tagStart + 1, tagEnd);
+    let index = 0;
+    while (index < tag.length && /\s/.test(tag[index])) index++;
+    if (tag[index] === '/' || tag[index] === '!' || tag[index] === '?') continue;
+    const nameStart = index;
+    while (index < tag.length && /[a-z0-9:-]/i.test(tag[index])) index++;
+    const tagName = tag.slice(nameStart, index).toLowerCase();
+    if (!['script', 'link', 'img', 'source', 'video', 'audio', 'a'].includes(tagName)) {
+      continue;
+    }
+
+    const attributes = new Map<string, string>();
+    while (index < tag.length) {
+      while (index < tag.length && (/\s/.test(tag[index]) || tag[index] === '/')) {
+        index++;
+      }
+      const attributeStart = index;
+      while (index < tag.length && !/[\s=/>]/.test(tag[index])) index++;
+      if (index === attributeStart) {
+        index++;
+        continue;
+      }
+      const attributeName = tag.slice(attributeStart, index).toLowerCase();
+      while (index < tag.length && /\s/.test(tag[index])) index++;
+      if (tag[index] !== '=') {
+        attributes.set(attributeName, '');
+        continue;
+      }
+      index++;
+      while (index < tag.length && /\s/.test(tag[index])) index++;
+      const delimiter = tag[index] === '"' || tag[index] === "'" ? tag[index++] : '';
+      const valueStart = index;
+      if (delimiter) {
+        while (index < tag.length && tag[index] !== delimiter) index++;
+      } else {
+        while (index < tag.length && !/[\s>]/.test(tag[index])) index++;
+      }
+      attributes.set(attributeName, tag.slice(valueStart, index));
+      if (delimiter && tag[index] === delimiter) index++;
+    }
+
+    const addAttribute = (attribute: string): void => {
+      const value = attributes.get(attribute);
+      if (value) {
+        urls.push({ url: value, context: `${tagName}.${attribute}` });
+      }
+    };
+    if (tagName === 'script') addAttribute('src');
+    if (tagName === 'img' || tagName === 'source') {
+      addAttribute('src');
+      const srcset = attributes.get('srcset');
+      if (srcset) {
+        for (const candidate of srcset.split(',')) {
+          const url = candidate.trim().split(/\s+/)[0];
+          if (url) urls.push({ url, context: `${tagName}.srcset` });
+        }
+      }
+    }
+    if (tagName === 'video') {
+      addAttribute('src');
+      addAttribute('poster');
+    }
+    if (tagName === 'audio') addAttribute('src');
+    if (tagName === 'a') addAttribute('href');
+    if (tagName === 'link') {
+      const rel = (attributes.get('rel') || '')
+        .toLowerCase()
+        .split(/\s+/)
+        .filter(Boolean);
+      if (rel.some((value) => (
+        value === 'stylesheet'
+        || value === 'icon'
+        || value === 'preload'
+        || value === 'modulepreload'
+      ))) {
+        addAttribute('href');
+      }
+    }
   }
   const cssPattern = /(?:url\(\s*|@import\s+)(?:["']?)([^"')\s;]+)(?:["']?)\s*\)?/gi;
   for (const match of content.matchAll(cssPattern)) {
     urls.push({ url: match[1], context: 'css.resource' });
-  }
-  const srcsetPattern = /\bsrcset=["']([^"']+)["']/gi;
-  for (const match of content.matchAll(srcsetPattern)) {
-    for (const candidate of match[1].split(',')) {
-      const url = candidate.trim().split(/\s+/)[0];
-      if (url) urls.push({ url, context: 'img.srcset' });
-    }
   }
   return urls;
 }
@@ -172,6 +260,10 @@ function resolveLocalResourceUrl(input: {
   ) {
     return null;
   }
+  // Links are navigation, not materialized dependencies. Keeping a local
+  // <a href="./"> or a dead documentation link must not sweep unrelated files
+  // into an Asset or make the entire archive fail.
+  if (input.context === 'a.href') return null;
   if (raw.startsWith('/')) {
     throw new Error(`Root-relative URL "${raw}" is outside the archived bundle.`);
   }
