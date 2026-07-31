@@ -26,7 +26,7 @@ Harness Home is the framework-neutral, user-owned source of truth for portable i
 | 2 | Unknown manifest fields and Runtime overlays round-trip without loss. Unknown executable behavior still fails closed. |
 | 3 | `stable` canonical capability implies `referenceStatus=executable`. Draft/pending capability cannot enter stable Settings coverage or executable model context. |
 | 4 | Manifest and canonical repository writes reject inline Secret material. Diagnostics/export contain only SecretRef and availability metadata. |
-| 5 | A realpath has at most one writer. A second live/unverifiable instance becomes read-only or fails. Startup may reclaim the exact observed holder only when the OS proves its PID is dead; manual takeover additionally requires explicit confirmation. |
+| 5 | A realpath has at most one writer. A second live/unverifiable instance becomes read-only or fails. Startup may reclaim the exact observed holder only when its opaque machine identity matches and the OS proves its PID is dead; another/unknown machine always fails closed. Manual takeover additionally requires explicit confirmation and the same-machine proof. |
 | 6 | Multi-file write order is staging → fsynced prepared journal → content atomic rename → manifest atomic rename → fsynced committed journal. Manifest is always last. Journal discovery isolates each transaction directory; missing-journal remnants cannot hide valid siblings, and any recovery failure releases the writer lease. |
 | 7 | `fs.watch` is a hint only. Open/focus/pre-write/explicit refresh must use generation and content hashes. External edits never become silent last-write-wins. |
 | 8 | Existing path components may not be symlinks. Repository-relative refs may not be absolute, contain `..`, or target `.harness-home`. |
@@ -41,6 +41,7 @@ Harness Home is the framework-neutral, user-owned source of truth for portable i
 | 17 | Canonical core files remain product/framework neutral. Product Runtime identities and integration imports belong only in adapter/runtime/product binding files; the recursive canonical boundary guard is a required test and pre-commit gate. |
 | 18 | A read-only consistency check may cache hashes only behind stat identity (`dev/ino/size/mtimeNs/ctimeNs`) and a bounded generation cache. Any stat change, symlink, out-of-root path or journal mismatch forces revalidation/fail-closed; no cache may hide an external edit. |
 | 19 | Invalid persisted Taste Memory is isolated per record and returned as metadata diagnostics; it cannot block valid Taste projection. Import validates Taste evidence before commit, while update/revoke of the same invalid identity fails closed until repaired. |
+| 20 | Creative Method trigger/non-trigger phrases are bounded, non-empty after trim and free of control characters. Write, import and historical read all fail closed; an empty phrase can never activate or suppress every prompt. |
 
 ## 3. 关键文件 + 责任
 
@@ -81,12 +82,14 @@ Harness Home is the framework-neutral, user-owned source of truth for portable i
 - [ ] New Asset kind is producer-backed and is registered in Program B, not added as a speculative enum here.
 - [ ] New Taste/Method persistence includes evidence, scope and revoke behavior.
 - [ ] Taste readers isolate legacy/import poison per record and keep a visible diagnostic breadcrumb.
+- [ ] Lease recovery proves the holder is on the same machine before probing its PID; portable roots never infer cross-machine death from a local PID miss.
+- [ ] Method activation phrases pass the same non-empty/length/control-character validation on write, import and historical read.
 - [ ] Tests use isolated temporary roots; never point at a real user Harness root.
 
 ## 5. 常见坑
 
 - Treating a successful `fs.watch` event as proof that an index is current.
-- Deleting a lock by age alone. A slow or suspended live process is still the writer; automatic recovery is allowed only for an exact holder whose PID is provably dead.
+- Deleting a lock by age or local PID miss alone. A slow, suspended or cross-machine process may still be the writer; automatic recovery requires an exact same-machine holder whose PID is provably dead.
 - Writing the manifest before content and exposing a mixed generation after a crash.
 - Resolving a SecretRef for diagnostics and accidentally serializing the returned value.
 - Parsing only known Runtime overlays and dropping fields from an uninstalled adapter.
@@ -117,6 +120,8 @@ Harness Home is the framework-neutral, user-owned source of truth for portable i
 | Streaming hash, unchanged generation cache hit and external-edit invalidation | `harness-home-repository.test.ts` |
 | Fsynced journal, missing-journal sibling isolation and recovery lease release | `harness-home-repository.test.ts` |
 | Taste import validation and persisted poison isolation | `harness-home-repository.test.ts` + `harness-home-design-method.test.ts` |
+| Same-machine dead lease recovery and cross-machine fail-closed | `harness-home-repository.test.ts` |
+| Method trigger/non-trigger write and historical-read validation | `harness-home-design-method.test.ts` |
 
 Required local verification for core/repository changes:
 
@@ -144,3 +149,4 @@ Run full `npm run test` before closing a phase or changing existing Runtime/DB/M
 - 2026-07-31 — Claude review exposed product identity in canonical defaults and the lack of an enforcing recursive boundary. Portable provenance/MIME/secret namespaces are now neutral; `test:harness-boundary` scans nested canonical files and runs in the code pre-commit tier.
 - 2026-07-31 — Repository consistency now uses streaming hashes plus a 32-generation stat-backed cache. This removes full-file hashing from unchanged read-only turns while preserving external-edit, symlink and journal fail-closed behavior.
 - 2026-07-31 — Journal replacement is file-fsynced and directory-synced where the platform supports it; recovery handles transaction directories independently and releases the lease on every failed open. Taste Memory import validates evidence, while read/projection isolates invalid persisted records with diagnostics instead of poisoning the whole collection.
+- 2026-07-31 — Writer leases persist only an opaque hashed machine identity. Dead-holder recovery is limited to the same identity before the local PID probe; legacy leases without identity and synced locks from another machine remain conflicts. Creative Method activation phrases now use one fail-closed validator across write/import/read.

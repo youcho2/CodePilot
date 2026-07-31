@@ -142,7 +142,7 @@ Backfill 原则：
 - image / video / audio 只有已登记 producer 才能落库；`component` / `document` 未注册。
 - 内置图片生成、MCP base64 保存、CLI/Codex 文件导入均在同一事务中写 media row 与 Asset provenance。
 - backfill 只扫描 terminal `completed`，missing path 明确记为 `missing`，partial/failed 不伪造成 Asset。
-- 单个坏行写入带 revision 的 `asset_backfill_failures`，同一 revision 跳过并继续后续行；标签按项 salvage，坏标签不会饿死整个 bounded backfill。
+- 单个坏行写入带 revision 和 permanent/transient/deferred 分类的 `asset_backfill_failures`：permanent 同 revision 跳过，transient 冷却后自动重试，在线超预算 deferred 由显式无界迁移恢复；标签按项 salvage，坏标签或大文件不会饿死整个 bounded backfill。
 - lineage、active reference、typed ref、消费者阻断与永久删除均由 `asset-library-conformance.test.ts` 覆盖。
 - failed / processing / external / unmaterialized legacy row 仍可见、可检索、可加标签和删除记录；只有 canonical media root 内的 owned bytes 会被删除，外部文件保留。
 - Codex image generation 是 durable Asset，image view 是 preview-only；同一 session 按原始路径与内容复用，不再把同一图片保存为“提示词版本 + 两个只有 ID 的版本”。
@@ -199,7 +199,7 @@ HTML / web result 只有同时满足以下条件才 materialize：
 - 图片、视频、真实 WAV、严格静态网页均有真实 preview；缺失/变化显示 integrity 原因，不渲染空白成功卡。
 - 详情读取真实 source / project / Runtime / model / method / content hash、parent/child relation 与 active consumers。
 - 搜索与收藏/排序位于同一主层，搜索框限制为中等宽度，收藏/排序贴右且保留页面边距；类型胶囊在下一层永久展开、由 registry 派生并显示对应图标；筛选折叠按钮、开始/结束日期和 Trash 切换均已移除。
-- 搜索覆盖 prompt / page title metadata / tag / project / provider / model / method / producer；旧 Gallery row 通过 100 条/请求的 bounded backfill journal 渐进进入 Asset index。
+- 搜索覆盖 prompt / page title metadata / tag / project / provider / model / method / producer；旧 Gallery row 通过 100 条、32 MiB 累计/单文件和 75ms 调度预算的 bounded backfill journal 渐进进入 Asset index。
 - `asset_records.tags` 是四种 Asset kind 的通用标签事实源；旧 `media_generations.tags` 在 additive migration 中保守回填，后续对 legacy source 双写保持兼容。标签最多 20 个、单项 32 字符，并拒绝空值、控制字符和逗号。
 - 卡片右键菜单提供标签、收藏与删除；标签在右键 Dialog 和详情页都可增删。右键删除与详情删除共用不可撤销语义和 consumer fail-closed 结果。
 - 详情 Dialog 以动态视口高度为硬边界，右侧信息面板独立滚动；“取消收藏”文字沿用普通 action 前景色，仅 Star 保留收藏状态色。
@@ -253,6 +253,7 @@ HTML / web result 只有同时满足以下条件才 materialize：
 | 2026-07-31 | all registered kinds | Gallery card interaction | hover 描边加粗到 3px；基础态预置灰色 ring token；移除 shadow transition，杜绝黑→灰闪烁；focus-visible 同厚度 | ✅ UI contract 12/12；Browser computed style：base ring = `border` token、transition duration = 0s；0 console errors | `asset-library-ui.test.ts`；真实 Gallery 卡片 computed style 核对 |
 | 2026-07-31 | all registered kinds + Codex | Claude review remediation | poison backfill 继续推进；legacy/external row 可管理且不删外部文件；generation/view 去重；HTML 外部请求阻断/超时释放；250ms search debounce + stale response/重复 ID/分页 guard；dev lock build fail-closed | ✅ Asset/Codex 定向 47/47；组合 65/65；全量 4904/4904；production build；Browser 1024/1280/1600 = 2/3/5 列，600px 详情独立滚动，0 console errors | review fix `ef396b0d`；API/conformance/Codex/Electron packaging tests；本地真实素材只读验收，未执行删除 |
 | 2026-07-31 | image + html_bundle | Codex Runtime live / HTML materializer | 真实 Codex 只生成一次并 image view 同图一次；manifest/apple-touch-icon 进入闭包；preconnect/dns-prefetch 只披露不复制 | ✅ 测试标记 Asset 0→1，generation/view 共用 media ID；follow-up 51/51；全量 4909/4909；production build；sessions/notify 均 200 | fix `fb77d434`；session `73f5f1ddb44410f3c406aa3a733a86d3`；Asset `a163f37ae4ec60e489ee92afef1d9c18`；测试素材保留，未执行删除 |
+| 2026-07-31 | media + html_bundle | legacy Gallery / tag API / Electron thumbnail | 瞬态 backfill 冷却重试、字节/时限预算与 deferred 恢复；legacy realpath 竞态降级；trashed tag 409；标题 bidi 清洗；IPC canonical workspace segment | ✅ 六个相关文件 76/76；全量 4917/4917；production build | fix `1dea192d`；Asset/API/HTML/Electron behavior tests；未修改或删除用户素材 |
 | _待执行_ | all registered kinds | packaged app | multi-kind visual readability + HTML safety copy | ⏳ Human gate | screenshot / user feedback |
 
 ## 决策日志
@@ -279,3 +280,4 @@ HTML / web result 只有同时满足以下条件才 materialize：
 - 2026-07-31：卡片原先只在 `:hover` 注入 `ring-border`，与 `transition-shadow` 同帧启动时会先使用默认黑色 ring，再插值为灰色。修复为基础态固定 ring token、hover/focus 仅切换到 3px 宽度，并取消该过渡。
 - 2026-07-31：Claude review 与用户 Codex 重复图片反馈合并收口于 `ef396b0d`。可见 preview 不再自动等价于 durable Asset；legacy 失败行先可管理、后续如需清理仍由用户决定，修复不自动删除任何现有素材。
 - 2026-07-31：`fb77d434` 后使用真实 Codex Account 做 generation → image view 实走；两条事件返回同一 media ID，Gallery 按唯一 prompt 标记只出现一个 Asset。测试会话与素材按用户授权保留，不清理真实验收证据。
+- 2026-07-31：`1dea192d` 关闭剩余 Asset P3：Gallery 在线 backfill 从纯行数升级为行数+字节+时限预算，瞬态失败可重试且 deferred 可由显式迁移恢复；legacy 文件消失不再 500，trashed Asset 两条 tag route 统一 409。HTML 标题双侧清洗 bidi/control，Electron IPC 只接受 canonical workspace segment。

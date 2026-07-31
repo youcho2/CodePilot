@@ -247,6 +247,7 @@ Snapshot、模型自评和单元测试不能单独关闭这些门禁。
 | 2026-07-30 | foundation conformance | candidate + confirmed fixtures | 三 Runtime projection | method/taste/project contracts + API | ✅ Tier 0/1：10/10；组合回归 24/24；全量 4866/4866 + production build | `harness-home-design-method.test.ts`；`harness-home-design-api.test.ts`；无模型自评 |
 | 2026-07-31 | foundation review | candidate/confirmed fixtures | 三 Runtime projection | invalid scope/classification/method/evidence/parent refs fail-closed | ✅ 纳入定向 65/65、全量 4904/4904 与 production build | review fix `ef396b0d`；`harness-home-design-api.test.ts` / `harness-home-design-method.test.ts`；无模型自评 |
 | 2026-07-31 | poison-read follow-up | candidate/confirmed fixtures + invalid persisted record | 三 Runtime projection | 单条非法 Taste Memory 被诊断隔离；其余合法 Taste 继续投影；L1 import 复用 evidence 校验 | ✅ follow-up 三组 51/51；全量 4909/4909；production build | fix `fb77d434`；`harness-home-design-method.test.ts` / `harness-home-repository.test.ts`；无模型自评、未创建用户 Taste |
+| 2026-07-31 | activation validation | candidate/confirmed fixtures + poisoned persisted Method | 三 Runtime projection | 空白 trigger、控制字符 non-trigger 写入拒绝；历史 poison Method 读取 fail closed | ✅ 六个相关文件 76/76；全量 4917/4917；production build | fix `1dea192d`；`harness-home-design-method.test.ts`；无模型自评、未创建用户 Method/Taste |
 
 ## 决策日志
 
@@ -261,3 +262,4 @@ Snapshot、模型自评和单元测试不能单独关闭这些门禁。
 - 2026-07-30：UI 入口继续服从 umbrella 的 Deferred UI 决策；本轮只提供 canonical file/API/Runtime surfaces，不把 Harness Home 强塞进 Settings 或 Plugins。
 - 2026-07-31：review hardening 只加强证据与引用真实性，不据此创建 Method v0 或用户 Taste；schema/API 全绿仍不能替代用户的设计选择。
 - 2026-07-31：`fb77d434` 将历史 Taste poison 从“整组读取失败”降为“单记录可归因诊断”；该韧性修复不改变 evidence-only 门禁，也不把损坏记录静默修复或送入模型上下文。
+- 2026-07-31：`1dea192d` 明确 Method progressive disclosure 的激活短语不是自由文本兜底：trigger/non-trigger 必须非空、有界且无控制字符，write/import/read 一致 fail closed；不据此生成任何新方法内容。
