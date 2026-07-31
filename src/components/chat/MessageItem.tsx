@@ -30,6 +30,8 @@ import { usePanel } from '@/hooks/usePanel';
 import { classifyPath } from '@/lib/preview-source';
 import { isWriteTool, isCreateTool, extractWritePath, resolveToolPath } from '@/lib/file-write-tools';
 import { archiveHtmlAsset } from '@/lib/archive-html-asset-client';
+import { inspectLocalPath, openPathWithSystem } from '@/lib/local-path-navigation';
+import { showToast } from '@/hooks/useToast';
 import { DevOutputSegment } from './DevOutputChips';
 import type { PlannerOutput } from '@/types';
 import { SubagentCard } from './SubagentCard';
@@ -893,6 +895,25 @@ export const MessageItem = memo(function MessageItem({ message, sessionId, isAss
                 ...(baseDir ? { baseDir } : {}),
                 readonly,
               });
+            }}
+            onOpenInSystemBrowser={async (file) => {
+              try {
+                const kind = await inspectLocalPath(
+                  file.path,
+                  workingDirectory || undefined,
+                );
+                if (kind !== 'file') {
+                  throw new Error(t('localReference.unsupported'));
+                }
+                await openPathWithSystem(file.path);
+              } catch (error) {
+                showToast({
+                  type: 'error',
+                  message: t('diffSummary.openSystemBrowserFailed', {
+                    reason: error instanceof Error ? error.message : String(error),
+                  }),
+                });
+              }
             }}
             // Phase 3: export long screenshot via the Electron IPC. Only
             // .html/.htm rows pass the PREVIEWABLE+LONGSHOT gate in

@@ -149,26 +149,29 @@ function dispatchFileChanged(detail: FileChangedDetail): void;
 
 ## 4 条关键数据流
 
-### 流 1：AI 提到外部文件 → 授权卡 → 升级 trust
+### 流 1：AI 提到本地路径 → 类型探测 / 授权卡 → 正确打开
 
 ```
-assistant turn 文本 / tool_result 引用 /abs/path/outside-workspace.md
+assistant turn Markdown / tool_result 引用本地路径（文件或目录）
   ↓
-MessageItem 解析：path ∉ workingDirectory ⇒ 不直接 fetch，渲染为 chip
+DevOutputSegment 解析 href：HTTP(S) 保持外链；本地路径进入 local-reference 路由
   ↓
-用户点 chip → openDynamicTab(id=resolvedPath, trust='agent-referenced', readonly=true)
+用户点工作区内路径 → GET /api/files/inspect（scope + realpath/symlink 校验）
+  ├─ file：setPreviewSource → 文件侧栏
+  └─ directory：Electron shell.openPath → Finder / Explorer（不创建预览 Tab）
+  ↓
+用户点工作区外路径 → openDynamicTab(id=resolvedPath, trust='agent-referenced', readonly=true)
   ↓
 PreviewPanel 检测 trust='agent-referenced'：
-  ├─ 不发 /api/files/preview
-  └─ 显示 ConfirmCard：「打开外部 Markdown？只读 · 不会写入磁盘」+ source 标注
+  ├─ 不发 /api/files/inspect，也不发 /api/files/preview
+  └─ 显示 ConfirmCard：披露完整路径 + 只读/不写盘边界
   ↓
-用户点「只读打开」
-  ├─ Tab 升级 metadata：openDynamicTab 同 id 复用必须 *replace* trust 字段（不是合并）
-  ├─ previewSource → { trust: 'user-selected', readonly: true, baseDir: undefined }
-  └─ PreviewPanel 现在发请求；fetch '/api/files/preview?path=<abs>'（无 baseDir → home scope 解析）
+用户确认后才发 /api/files/inspect（无 baseDir → home scope）
+  ├─ file：Tab 升级为 { trust: 'user-selected', readonly: true }，再走 preview
+  └─ directory：shell.openPath 后关闭确认 Tab
 ```
 
-**关键边界：** confirm 卡是**单 turn 决定**，不持久化"已信任所有外部文件"。每个新外部路径都重新走一次。Tab 升级保留到 session 结束 + 序列化 round-trip 后；杀进程或换 chat 又要重新确认。
+**关键边界：** 路径文本不等于文件类型，只有 `/api/files/inspect` 可做 file/directory 判断；确认卡是**单路径决定**，不持久化“已信任所有外部路径”。每个新外部路径都重新确认。`file://` 只解析成本地路径，不交给 Chromium 导航。
 
 ### 流 2：HTML 文件预览 → 同源路由 + CSP 分档
 
@@ -298,6 +301,8 @@ MarkdownRenderedView 读 presentationTemplate
 10. **Auto-refresh Switch 用 shadcn 原语** — `src/components/layout/panels/DashboardPanel.tsx` 的 `<Switch size="sm" />`，与 Settings 风格统一。
 11. **Markdown 渲染 wrapper 不是 inline component** — `PreviewPanel.tsx` 的渲染入口不要写成 `const Outer = ({ children }) => <div>...</div>`。inline component 在函数体内产生新 identity，React 把整个子树 unmount + remount，安静刷新就会闪。修法：直接 inline `<div>` 元素。
 12. **interactiveScripts 偏好持久化** — `PreviewPanel.tsx` 的 `localStorage.getItem("codepilot.preview.interactiveScripts")`。默认 `true`；用户切到 Static 后跨 session 记住。
+13. **本地链接先判类型再分流** — `src/lib/markdown/local-link-detector.ts` 只做 href → 本地路径解析；`src/app/api/files/inspect/route.ts` 才能在 scope / realpath 校验后判断 file / directory。目录不得进入 PreviewPanel。工作区外路径在用户确认前不得探测。
+14. **聊天 HTML 卡的系统浏览器入口只对工作区文件开放** — `DiffSummary.tsx` 同时要求 `.html/.htm`、`archiveable === true` 和显式回调，图标 tooltip 为 `diffSummary.openSystemBrowser`；打开失败必须显示真实错误。
 
 ---
 
@@ -308,6 +313,8 @@ MarkdownRenderedView 读 presentationTemplate
 | 区域 | key | 用途 |
 |------|-----|------|
 | `filePreview.external.*` | `confirm.openReadOnly` / `confirm.permission` / `confirm.source` / `chip` / `chipTooltip` | agent-referenced 授权卡 + user-selected 外部 chip |
+| `diffSummary.*` | `openSystemBrowser` / `openSystemBrowserFailed` | HTML 聊天卡系统浏览器入口 |
+| `localReference.*` | `openFailed` / `unsupported` | 本地文件/目录分流失败反馈 |
 | `filePreview.interactive.*` | `modeStatic` / `modeInteractive` | HTML 预览 Static / Interactive Select |
 | `filePreview.presentation.*` | `styleLabel` / `generate` / `refresh` | Markdown 风格切换 |
 | `filePreview.quietRefresh.*` | `updated` | quiet refresh 后的「已更新」badge |
@@ -329,13 +336,16 @@ MarkdownRenderedView 读 presentationTemplate
 - `code-fence-routing.test.ts` — code-fence Preview action 按 language 路由到正确 PreviewSource
 - `diff-viewer-classify.test.ts` — diff 内容识别
 - `dev-output-parser.test.ts` — 工程输出（path / line / diff / localhost）解析
+- `local-link-detector.test.ts` — HTTP(S) / file URL / Windows 路径 / 文件锚点 / 目录形态分类
+- `local-path-navigation.test.ts` — scope + symlink 防护、file/directory 探测、Electron openPath 错误语义
 - `presentation-templates.test.ts` — 5 种 in-place style + slugify + buildPresentationArtifactPath（helpers 备用）
 
 **手工 CDP smoke：**
 - workspace `.md` 打开 + Style Select 切换 + autosave + 冲突横幅
 - workspace `.html` Static / Interactive 切换 + sibling 资源刷新
-- 外部 Markdown agent-referenced 授权卡 → 只读打开
-- 聊天消息里 `README.md:12` chip / ```diff Preview action / localhost URL chip
+- 外部 Markdown agent-referenced 授权卡 → 只读打开；外部目录确认后进 Finder / Explorer
+- 聊天消息里 `README.md:12` chip / 工作区目录链接 / HTTP(S) 链接 / ```diff Preview action / localhost URL chip
+- HTML DiffSummary 卡 hover 外链图标 → tooltip → 系统浏览器打开
 
 ---
 

@@ -38,6 +38,8 @@ export interface DiffSummaryProps {
    * the button per row.
    */
   onExportLongShot?: (file: DiffFile) => void;
+  /** Opens a completed workspace HTML file in the OS default browser. */
+  onOpenInSystemBrowser?: (file: DiffFile) => void | Promise<void>;
   /** Archives a completed workspace HTML file as a durable Asset. */
   onArchiveHtml?: (file: DiffFile) => Promise<void>;
 }
@@ -80,11 +82,13 @@ function ArtifactFileCard({
   file,
   onPreview,
   onExportLongShot,
+  onOpenInSystemBrowser,
   onArchiveHtml,
 }: {
   file: DiffFile;
   onPreview?: (file: DiffFile) => void;
   onExportLongShot?: (file: DiffFile) => void;
+  onOpenInSystemBrowser?: (file: DiffFile) => void | Promise<void>;
   onArchiveHtml?: (file: DiffFile) => Promise<void>;
 }) {
   const { t } = useTranslation();
@@ -94,6 +98,8 @@ function ArtifactFileCard({
   const ext = getExt(file.name);
   const canPreview = !!onPreview && PREVIEWABLE.has(ext);
   const canExport = !!onExportLongShot && LONGSHOT.has(ext);
+  const canOpenInSystemBrowser =
+    !!onOpenInSystemBrowser && file.archiveable === true && LONGSHOT.has(ext);
   const canArchive =
     !!onArchiveHtml && file.archiveable === true && LONGSHOT.has(ext);
   const label = file.operation === 'created' ? 'Created' : 'Modified';
@@ -142,7 +148,7 @@ function ArtifactFileCard({
           {file.path}
         </p>
       </div>
-      {(canPreview || canArchive || canExport) && (
+      {(canPreview || canOpenInSystemBrowser || canArchive || canExport) && (
         <div className="flex shrink-0 items-center gap-2">
           {canPreview && (
             <Button
@@ -153,6 +159,17 @@ function ArtifactFileCard({
             >
               <CodePilotIcon name="preview" size="sm" aria-hidden />
               {t('diffSummary.openPreview')}
+            </Button>
+          )}
+          {canOpenInSystemBrowser && (
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              onClick={() => void onOpenInSystemBrowser?.(file)}
+              title={t('diffSummary.openSystemBrowser')}
+              aria-label={t('diffSummary.openSystemBrowser')}
+            >
+              <CodePilotIcon name="external" size="sm" aria-hidden />
             </Button>
           )}
           {canArchive && (
@@ -205,6 +222,7 @@ export function DiffSummary({
   files,
   onPreview,
   onExportLongShot,
+  onOpenInSystemBrowser,
   onArchiveHtml,
 }: DiffSummaryProps) {
   const previewable = files.filter(
@@ -224,6 +242,7 @@ export function DiffSummary({
           file={f}
           onPreview={onPreview}
           onExportLongShot={onExportLongShot}
+          onOpenInSystemBrowser={onOpenInSystemBrowser}
           onArchiveHtml={onArchiveHtml}
         />
       ))}

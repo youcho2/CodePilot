@@ -1123,6 +1123,10 @@ export interface FilePreviewResponse {
   preview: FilePreview;
 }
 
+export interface FileInspectResponse {
+  kind: 'file' | 'directory' | 'other';
+}
+
 // --- Task API Responses ---
 
 export interface TasksResponse {

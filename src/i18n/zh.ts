@@ -397,8 +397,8 @@ const zh: Record<TranslationKey, string> = {
   // ── Phase 4 Phase 1: 外部 / 只读授权 + 磁盘冲突 ───────────────
   'filePreview.external.chip': '外部 · 只读',
   'filePreview.external.chipTooltip': '该文件不在当前工作区内，仅以只读模式预览。',
-  'filePreview.external.confirm.title': 'AI 引用了工作区外的文件',
-  'filePreview.external.confirm.body': '确认打开后将以只读模式预览。文件不会自动加载，确认前 CodePilot 不会读取磁盘内容。',
+  'filePreview.external.confirm.title': 'AI 引用了工作区外的本地路径',
+  'filePreview.external.confirm.body': '确认后，文件会以只读方式预览，文件夹会在系统文件管理器中打开。确认前 CodePilot 不会探测该路径。',
   'filePreview.external.confirm.confirm': '确认打开',
   'filePreview.external.confirm.cancel': '取消',
   'filePreview.conflict.title': '磁盘已更新',
@@ -424,11 +424,15 @@ const zh: Record<TranslationKey, string> = {
   'presentation.generate': '生成',
   // ── Phase 4 UX: quiet refresh ────────────────────────────────
   'filePreview.quietRefresh.updated': '已更新',
-  'filePreview.external.confirm.openReadOnly': '只读打开',
-  'filePreview.external.confirm.permission': '只读 · 不会写入磁盘',
-  'filePreview.external.confirm.source': '来源：AI 提到的文件',
+  'filePreview.external.confirm.openReadOnly': '打开',
+  'filePreview.external.confirm.permission': '文件只读 · 不会写入磁盘',
+  'filePreview.external.confirm.source': '来源：AI 提到的本地路径',
   'diffSummary.openPreview': '预览',
+  'diffSummary.openSystemBrowser': '用系统浏览器打开',
+  'diffSummary.openSystemBrowserFailed': '无法用系统浏览器打开：{reason}',
   'diffSummary.exportLongShot': '导出长图',
+  'localReference.openFailed': '无法打开这个本地路径：{reason}',
+  'localReference.unsupported': '暂不支持打开这种本地路径。',
 
   // ── File tree actions (Phase 4) ─────────────────────────────
   'fileTree.sectionTitle': '文件',

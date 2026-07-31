@@ -12,6 +12,7 @@ import assert from 'node:assert/strict';
 import {
   looksLikeRemoteHref,
   isPotentialLocalFile,
+  parseLocalMarkdownReference,
 } from '../../lib/markdown/local-link-detector';
 
 describe('looksLikeRemoteHref', () => {
@@ -37,6 +38,7 @@ describe('looksLikeRemoteHref', () => {
 
   it('treats local paths as non-remote', () => {
     assert.equal(looksLikeRemoteHref('/abs/foo.md'), false);
+    assert.equal(looksLikeRemoteHref('C:\\work\\README.md'), false);
     assert.equal(looksLikeRemoteHref('docs/foo.md'), false);
     assert.equal(looksLikeRemoteHref('README.md'), false);
   });
@@ -70,6 +72,47 @@ describe('isPotentialLocalFile', () => {
   it('rejects empty / pathless input', () => {
     assert.equal(isPotentialLocalFile(''), false);
     assert.equal(isPotentialLocalFile('no-extension-bare-word'), false);
+  });
+
+  it('accepts explicit relative directory shapes without treating bare words as paths', () => {
+    assert.equal(isPotentialLocalFile('./docs'), true);
+    assert.equal(isPotentialLocalFile('../fixtures'), true);
+    assert.equal(isPotentialLocalFile('examples/'), true);
+    assert.equal(isPotentialLocalFile('docs'), false);
+  });
+});
+
+describe('parseLocalMarkdownReference', () => {
+  it('keeps remote links out of local-file routing', () => {
+    assert.equal(parseLocalMarkdownReference('https://example.com/docs'), null);
+    assert.equal(parseLocalMarkdownReference('mailto:hello@example.com'), null);
+    assert.equal(parseLocalMarkdownReference('javascript:alert(1)'), null);
+  });
+
+  it('decodes local paths and preserves line anchors', () => {
+    assert.deepEqual(
+      parseLocalMarkdownReference('/Users/me/My%20Project/README.md#L12'),
+      { filePath: '/Users/me/My Project/README.md', anchor: '#L12' },
+    );
+    assert.deepEqual(
+      parseLocalMarkdownReference('docs/guide.md:42:7'),
+      { filePath: 'docs/guide.md', anchor: ':42:7' },
+    );
+  });
+
+  it('normalizes file URLs and recognizes directory references', () => {
+    assert.deepEqual(
+      parseLocalMarkdownReference('file:///Users/me/My%20Project/index.html#L3'),
+      { filePath: '/Users/me/My Project/index.html', anchor: '#L3' },
+    );
+    assert.deepEqual(
+      parseLocalMarkdownReference('/Users/me/project'),
+      { filePath: '/Users/me/project' },
+    );
+    assert.deepEqual(
+      parseLocalMarkdownReference('./docs/'),
+      { filePath: './docs/' },
+    );
   });
 });
 

@@ -14,6 +14,8 @@ import { useThemeFamily } from "@/lib/theme/context";
 import { resolveCodeTheme, resolveHljsStyle } from "@/lib/theme/code-themes";
 import { usePanel } from "@/hooks/usePanel";
 import { useTranslation } from "@/hooks/useTranslation";
+import { showToast } from "@/hooks/useToast";
+import { inspectLocalPath, openPathWithSystem } from "@/lib/local-path-navigation";
 import { ResizeHandle } from "@/components/layout/ResizeHandle";
 import type { FilePreview as FilePreviewType } from "@/types";
 import type { PreviewTrust } from "@/lib/preview-source";
@@ -977,20 +979,40 @@ export function PreviewPanel(_: { variant?: 'sidebar' } = {}) {
   // the source to user-selected (readonly) so the next render lights
   // up the load effect with the external-path scoping. Cancel just
   // drops the preview (the Tab strip's X already closes from the rail).
-  const handleConfirmExternal = useCallback(() => {
+  const handleConfirmExternal = useCallback(async () => {
     if (previewSource?.kind !== "file") return;
-    // Phase 4 P2.2 — preserve the anchor so an agent-referenced link
-    // like `/abs/foo.md#L12` opens directly at the requested location
-    // after confirm. Dropping it (the original bug) made the user
-    // jump back to the top of the file on every external open.
-    setPreviewSource({
-      kind: "file",
-      filePath: previewSource.filePath,
-      trust: "user-selected",
-      readonly: true,
-      ...(previewSource.anchor ? { anchor: previewSource.anchor } : {}),
-    });
-  }, [previewSource, setPreviewSource]);
+    try {
+      // This probe happens only after the explicit permission click. Files
+      // keep the readonly preview flow; directories never enter the file
+      // renderer and instead open in Finder / Explorer.
+      const kind = await inspectLocalPath(previewSource.filePath);
+      if (kind === "directory") {
+        await openPathWithSystem(previewSource.filePath);
+        setPreviewSource(null);
+        return;
+      }
+      if (kind !== "file") {
+        showToast({ type: "warning", message: t("localReference.unsupported") });
+        return;
+      }
+      // Preserve the anchor so an external `/abs/foo.md#L12` opens at the
+      // requested location after confirmation.
+      setPreviewSource({
+        kind: "file",
+        filePath: previewSource.filePath,
+        trust: "user-selected",
+        readonly: true,
+        ...(previewSource.anchor ? { anchor: previewSource.anchor } : {}),
+      });
+    } catch (error) {
+      showToast({
+        type: "error",
+        message: t("localReference.openFailed", {
+          reason: error instanceof Error ? error.message : String(error),
+        }),
+      });
+    }
+  }, [previewSource, setPreviewSource, t]);
 
   const handleCancelExternal = useCallback(() => {
     setPreviewSource(null);
@@ -1603,8 +1625,8 @@ function InlineHtmlView({
  * sees the full path and explicitly confirms before the panel calls
  * /api/files/preview.
  *
- * Confirm → caller sets the source to user-selected (readonly) which
- * triggers the load effect with homeDir scoping.
+ * Confirm → caller probes the path. Files transition to user-selected
+ * (readonly); directories open in the system file manager.
  * Cancel  → caller clears the preview source, closing the rail entry.
  */
 function AgentReferencedConfirm({

@@ -410,8 +410,8 @@ const en = {
   // ── Phase 4 Phase 1: external / read-only authorization + disk conflict ─
   'filePreview.external.chip': 'External · Read-only',
   'filePreview.external.chipTooltip': 'This file is outside the current workspace; preview is read-only.',
-  'filePreview.external.confirm.title': 'AI referenced a file outside the workspace',
-  'filePreview.external.confirm.body': 'Opening it will preview in read-only mode. CodePilot will not read from disk until you confirm.',
+  'filePreview.external.confirm.title': 'AI referenced a local path outside the workspace',
+  'filePreview.external.confirm.body': 'After confirmation, files open as read-only previews and folders open in the system file manager. CodePilot will not inspect the path until you confirm.',
   'filePreview.external.confirm.confirm': 'Open file',
   'filePreview.external.confirm.cancel': 'Cancel',
   'filePreview.conflict.title': 'Disk content changed',
@@ -437,11 +437,15 @@ const en = {
   'presentation.generate': 'Generate',
   // ── Phase 4 UX: quiet refresh ─────────────────────────────────
   'filePreview.quietRefresh.updated': 'Updated',
-  'filePreview.external.confirm.openReadOnly': 'Open read-only',
-  'filePreview.external.confirm.permission': 'Read-only · no disk writes',
-  'filePreview.external.confirm.source': 'Source: file mentioned by the AI',
+  'filePreview.external.confirm.openReadOnly': 'Open',
+  'filePreview.external.confirm.permission': 'Files read-only · no disk writes',
+  'filePreview.external.confirm.source': 'Source: local path mentioned by the AI',
   'diffSummary.openPreview': 'Open preview',
+  'diffSummary.openSystemBrowser': 'Open in system browser',
+  'diffSummary.openSystemBrowserFailed': 'Could not open in the system browser: {reason}',
   'diffSummary.exportLongShot': 'Export long shot',
+  'localReference.openFailed': 'Could not open this local path: {reason}',
+  'localReference.unsupported': 'This local path type is not supported.',
 
   // ── File tree actions (Phase 4) ─────────────────────────────
   'fileTree.sectionTitle': 'Files',

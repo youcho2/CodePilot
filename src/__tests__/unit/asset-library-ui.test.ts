@@ -124,6 +124,15 @@ describe('Asset Library UI contract', () => {
     assert.match(messageItemSource, /trust === 'workspace'/);
   });
 
+  it('offers a tooltip-labelled system-browser action on workspace HTML chat cards', () => {
+    assert.match(diffSummarySource, /onOpenInSystemBrowser/);
+    assert.match(diffSummarySource, /file\.archiveable === true/);
+    assert.match(diffSummarySource, /diffSummary\.openSystemBrowser/);
+    assert.match(diffSummarySource, /name="external"/);
+    assert.match(messageItemSource, /inspectLocalPath\([\s\S]{0,120}file\.path/);
+    assert.match(messageItemSource, /openPathWithSystem\(file\.path\)/);
+  });
+
   it('uses permanent-delete confirmation copy and exposes no Trash/Restore UI', () => {
     for (const source of [enSource, zhSource]) {
       assert.match(source, /'gallery\.deleteFailed'/);
