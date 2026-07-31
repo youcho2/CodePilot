@@ -16,6 +16,7 @@ import {
 } from '@/components/gallery/GalleryDetail';
 import { useTranslation } from '@/hooks/useTranslation';
 import type { TranslationKey } from '@/i18n';
+import { ensureHtmlAssetThumbnail } from '@/lib/html-asset-thumbnail-client';
 
 const PAGE_SIZE = 20;
 
@@ -38,7 +39,6 @@ export default function GalleryPage() {
 
   // Filters
   const [sort, setSort] = useState<SortOrder>('newest');
-  const [showFilters, setShowFilters] = useState(true);
   const [favoritesOnly, setFavoritesOnly] = useState(false);
   const [query, setQuery] = useState('');
   const [kind, setKind] = useState('');
@@ -50,6 +50,8 @@ export default function GalleryPage() {
   // Detail
   const [selectedItem, setSelectedItem] = useState<GalleryItem | null>(null);
   const [detailOpen, setDetailOpen] = useState(false);
+  const [thumbnailSweep, setThumbnailSweep] = useState(0);
+  const thumbnailAttemptsRef = useRef(new Set<string>());
 
   const fetchItems = useCallback(async (reset = false) => {
     setLoading(true);
@@ -102,6 +104,42 @@ export default function GalleryPage() {
     fetchItems(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sort, favoritesOnly, query, kind]);
+
+  // Existing HTML Assets from before static thumbnails were introduced are
+  // upgraded lazily, one at a time. The Electron main process serializes the
+  // hidden captures as a second resource-safety boundary.
+  useEffect(() => {
+    if (!window.electronAPI?.asset?.captureHtmlThumbnail) return;
+    const pending = items.find((item) => (
+      item.type === 'html_bundle'
+      && !!item.previewUrl
+      && !item.thumbnailUrl
+      && !thumbnailAttemptsRef.current.has(item.id)
+    ));
+    if (!pending) return;
+    let cancelled = false;
+    thumbnailAttemptsRef.current.add(pending.id);
+    void (async () => {
+      try {
+        const thumbnailUrl = await ensureHtmlAssetThumbnail({
+          assetId: pending.id,
+          previewUrl: pending.previewUrl!,
+        }).catch(() => null);
+        if (!thumbnailUrl || cancelled) return;
+        setItems((current) => current.map((entry) => (
+          entry.id === pending.id ? { ...entry, thumbnailUrl } : entry
+        )));
+        setSelectedItem((current) => (
+          current?.id === pending.id ? { ...current, thumbnailUrl } : current
+        ));
+      } finally {
+        if (!cancelled) setThumbnailSweep((current) => current + 1);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [items, thumbnailSweep]);
 
   const handleSelect = useCallback((item: GalleryItem) => {
     setSelectedItem(item);
@@ -183,7 +221,7 @@ export default function GalleryPage() {
             value={query}
             onChange={(event) => setQuery(event.target.value)}
             placeholder={t('gallery.searchPlaceholder')}
-            className="mr-1 h-8 min-w-64 flex-1 text-xs"
+            className="mr-1 h-8 w-full max-w-sm flex-none text-xs"
           />
           <Button
             variant={favoritesOnly ? 'secondary' : 'ghost'}
@@ -201,16 +239,6 @@ export default function GalleryPage() {
             {t('gallery.favoritesOnly' as TranslationKey)}
           </Button>
           <Button
-            variant={showFilters ? 'secondary' : 'ghost'}
-            size="sm"
-            className="h-8 gap-1.5"
-            onClick={() => setShowFilters(!showFilters)}
-            aria-expanded={showFilters}
-          >
-            <CodePilotIcon name="filter" size="sm" aria-hidden />
-            {t('gallery.filters' as TranslationKey)}
-          </Button>
-          <Button
             variant="ghost"
             size="sm"
             className="h-8 gap-1.5"
@@ -222,35 +250,33 @@ export default function GalleryPage() {
               : t('gallery.oldestFirst' as TranslationKey)}
           </Button>
         </div>
-        {showFilters && (
-          <div className="mt-3 flex flex-wrap items-center gap-1.5">
+        <div className="mt-3 flex flex-wrap items-center gap-1.5">
+          <Button
+            variant={kind === '' ? 'secondary' : 'outline'}
+            size="xs"
+            className="gap-1.5 rounded-full px-3"
+            onClick={() => setKind('')}
+          >
+            <CodePilotIcon name="artifact" size={12} aria-hidden />
+            {t('gallery.kindAll')}
+          </Button>
+          {kinds.map((entry) => (
             <Button
-              variant={kind === '' ? 'secondary' : 'outline'}
+              key={entry.id}
+              variant={kind === entry.id ? 'secondary' : 'outline'}
               size="xs"
               className="gap-1.5 rounded-full px-3"
-              onClick={() => setKind('')}
+              onClick={() => setKind(entry.id)}
             >
-              <CodePilotIcon name="artifact" size={12} aria-hidden />
-              {t('gallery.kindAll')}
+              <CodePilotIcon
+                name={KIND_ICONS[entry.id] || 'artifact'}
+                size={12}
+                aria-hidden
+              />
+              {entry.displayName[locale]}
             </Button>
-            {kinds.map((entry) => (
-              <Button
-                key={entry.id}
-                variant={kind === entry.id ? 'secondary' : 'outline'}
-                size="xs"
-                className="gap-1.5 rounded-full px-3"
-                onClick={() => setKind(entry.id)}
-              >
-                <CodePilotIcon
-                  name={KIND_ICONS[entry.id] || 'artifact'}
-                  size={12}
-                  aria-hidden
-                />
-                {entry.displayName[locale]}
-              </Button>
-            ))}
-          </div>
-        )}
+          ))}
+        </div>
       </header>
 
       {/* Content */}

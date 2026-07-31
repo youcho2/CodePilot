@@ -39,6 +39,11 @@ export interface MaterializeHtmlBundleInput {
   readonly parentAssetIds?: readonly string[];
 }
 
+const PNG_SIGNATURE = Buffer.from([
+  0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
+]);
+const MAX_HTML_THUMBNAIL_BYTES = 8 * 1024 * 1024;
+
 function assetsRoot(): string {
   const dataDir =
     process.env.CLAUDE_GUI_DATA_DIR
@@ -48,6 +53,56 @@ function assetsRoot(): string {
 
 function isWithin(target: string, root: string): boolean {
   return target === root || target.startsWith(`${root}${path.sep}`);
+}
+
+function readPngDimensions(bytes: Buffer): { width: number; height: number } {
+  if (
+    bytes.length < 24
+    || !bytes.subarray(0, PNG_SIGNATURE.length).equals(PNG_SIGNATURE)
+    || bytes.toString('ascii', 12, 16) !== 'IHDR'
+  ) {
+    throw new Error('HTML thumbnail must be a valid PNG.');
+  }
+  const width = bytes.readUInt32BE(16);
+  const height = bytes.readUInt32BE(20);
+  if (
+    width < 320
+    || width > 3840
+    || height < 180
+    || height > 2160
+    || Math.abs((width / height) - (16 / 9)) > 0.01
+  ) {
+    throw new Error('HTML thumbnail must use a bounded 16:9 viewport.');
+  }
+  let offset = PNG_SIGNATURE.length;
+  let chunkIndex = 0;
+  let sawImageData = false;
+  let sawEnd = false;
+  while (offset + 12 <= bytes.length) {
+    const length = bytes.readUInt32BE(offset);
+    const type = bytes.toString('ascii', offset + 4, offset + 8);
+    const nextOffset = offset + 12 + length;
+    if (nextOffset > bytes.length) {
+      throw new Error('HTML thumbnail has a truncated PNG chunk.');
+    }
+    if (chunkIndex === 0 && (type !== 'IHDR' || length !== 13)) {
+      throw new Error('HTML thumbnail has an invalid PNG header.');
+    }
+    if (type === 'IDAT' && length > 0) sawImageData = true;
+    if (type === 'IEND') {
+      if (length !== 0 || nextOffset !== bytes.length) {
+        throw new Error('HTML thumbnail has an invalid PNG terminator.');
+      }
+      sawEnd = true;
+      break;
+    }
+    offset = nextOffset;
+    chunkIndex += 1;
+  }
+  if (!sawImageData || !sawEnd) {
+    throw new Error('HTML thumbnail PNG is incomplete.');
+  }
+  return { width, height };
 }
 
 function decodeHtmlTitle(value: string): string {
@@ -319,4 +374,50 @@ export function getHtmlBundleDisplayTitle(asset: AssetRecord): string {
     return path.basename(metadata.entryFile);
   }
   return path.basename(entryPath);
+}
+
+export function storeHtmlBundleThumbnail(
+  assetId: string,
+  pngBytes: Buffer,
+): AssetRecord {
+  if (pngBytes.length > MAX_HTML_THUMBNAIL_BYTES) {
+    throw new Error('HTML thumbnail exceeds 8 MiB.');
+  }
+  const asset = getAssetRecord(assetId);
+  if (!asset) throw new Error(`Asset "${assetId}" was not found.`);
+  const { bundleRoot } = getHtmlBundlePreviewLocation(asset);
+  const assetRoot = path.dirname(bundleRoot);
+  const root = assetsRoot();
+  if (!isWithin(assetRoot, root)) {
+    throw new Error(`HTML bundle "${assetId}" root is outside the Asset Library.`);
+  }
+  const { width, height } = readPngDimensions(pngBytes);
+  const previewPath = path.join(assetRoot, 'preview.png');
+  const temporaryPath = path.join(
+    assetRoot,
+    `.preview-${crypto.randomUUID()}.tmp`,
+  );
+  fs.writeFileSync(temporaryPath, pngBytes, { mode: 0o600 });
+  try {
+    fs.renameSync(temporaryPath, previewPath);
+  } finally {
+    if (fs.existsSync(temporaryPath)) fs.unlinkSync(temporaryPath);
+  }
+  getDb().prepare(
+    `UPDATE asset_records
+     SET preview_path = ?, width = ?, height = ?, updated_at = ?
+     WHERE id = ? AND kind = 'html_bundle'`,
+  ).run(previewPath, width, height, new Date().toISOString(), assetId);
+  return getAssetRecord(assetId)!;
+}
+
+export function getHtmlBundleThumbnailPath(asset: AssetRecord): string | null {
+  if (asset.kind !== 'html_bundle' || !asset.preview_path) return null;
+  const { bundleRoot } = getHtmlBundlePreviewLocation(asset);
+  const assetRoot = path.dirname(bundleRoot);
+  const previewPath = path.resolve(asset.preview_path);
+  if (!isWithin(previewPath, assetRoot) || path.basename(previewPath) !== 'preview.png') {
+    throw new Error(`HTML bundle "${asset.id}" thumbnail path is invalid.`);
+  }
+  return fs.existsSync(previewPath) ? previewPath : null;
 }

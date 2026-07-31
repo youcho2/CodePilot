@@ -69,6 +69,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
       timeoutMs?: number;
     }) => ipcRenderer.invoke('artifact:export-long-shot', params),
   },
+  asset: {
+    captureHtmlThumbnail: (params: {
+      previewUrl: string;
+      width?: number;
+      height?: number;
+    }) => ipcRenderer.invoke('asset:capture-html-thumbnail', params),
+  },
   terminal: {
     create: (opts: { id: string; cwd: string; cols: number; rows: number }) =>
       ipcRenderer.invoke('terminal:create', opts),

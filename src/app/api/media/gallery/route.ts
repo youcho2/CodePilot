@@ -5,6 +5,7 @@ import { getAssetKind } from '@/lib/assets/kind-registry';
 import {
   getHtmlBundleDisplayTitle,
   getHtmlBundlePreviewLocation,
+  getHtmlBundleThumbnailPath,
 } from '@/lib/assets/html-bundle-materializer';
 import { buildHtmlPreviewUrl } from '@/lib/html-preview-url';
 import type { AssetRecord } from '@/types';
@@ -33,11 +34,31 @@ function safeArray(value: string | null): string[] {
   }
 }
 
+function hasRenderableMediaMime(row: AssetGalleryRow): boolean {
+  const extension = row.stable_path
+    .slice(row.stable_path.lastIndexOf('.'))
+    .toLowerCase();
+  if (row.kind === 'image') {
+    return row.mime_type.startsWith('image/')
+      && ['.png', '.jpg', '.jpeg', '.gif', '.webp', '.avif', '.bmp'].includes(extension);
+  }
+  if (row.kind === 'video') {
+    return row.mime_type.startsWith('video/')
+      && ['.mp4', '.webm', '.mov', '.m4v'].includes(extension);
+  }
+  if (row.kind === 'audio') {
+    return row.mime_type.startsWith('audio/')
+      && ['.mp3', '.wav', '.m4a', '.aac', '.ogg', '.flac'].includes(extension);
+  }
+  return false;
+}
+
 function mapRow(row: AssetGalleryRow) {
   const images: Array<{ mimeType: string; localPath: string }> = [];
   if (
     row.integrity_state === 'valid'
     && ['image', 'video', 'audio'].includes(row.kind)
+    && hasRenderableMediaMime(row)
     && row.stable_path
   ) {
     images.push({
@@ -66,6 +87,7 @@ function mapRow(row: AssetGalleryRow) {
     // Legacy malformed metadata remains visible without reference images.
   }
   let previewUrl: string | undefined;
+  let thumbnailUrl: string | undefined;
   let title = row.prompt;
   if (row.kind === 'html_bundle') {
     try {
@@ -81,8 +103,12 @@ function mapRow(row: AssetGalleryRow) {
         location.entryPath,
         { kind: 'workspace', baseDir: location.bundleRoot },
       );
+      if (getHtmlBundleThumbnailPath(row)) {
+        thumbnailUrl = `/api/assets/${encodeURIComponent(row.id)}/thumbnail`;
+      }
     } catch {
       previewUrl = undefined;
+      thumbnailUrl = undefined;
     }
   }
   return {
@@ -95,6 +121,7 @@ function mapRow(row: AssetGalleryRow) {
     title,
     images,
     previewUrl,
+    thumbnailUrl,
     model: row.model_id || row.media_model || undefined,
     aspectRatio: row.aspect_ratio || undefined,
     imageSize: row.image_size || undefined,

@@ -48,41 +48,40 @@ describe('Asset Library UI contract', () => {
   it('keeps search and primary actions together with kind filters expanded below', () => {
     assert.match(
       pageSource,
-      /useState\(true\)[\s\S]*showFilters|showFilters[\s\S]*useState\(true\)/,
+      /<Input[\s\S]*gallery\.favoritesOnly[\s\S]*gallery\.newestFirst/,
     );
-    assert.match(
-      pageSource,
-      /<Input[\s\S]*gallery\.favoritesOnly[\s\S]*gallery\.filters[\s\S]*gallery\.newestFirst/,
-    );
-    assert.match(pageSource, /showFilters && \([\s\S]*gallery\.kindAll[\s\S]*kinds\.map/);
+    assert.match(pageSource, /max-w-sm flex-none/);
+    assert.match(pageSource, /gallery\.kindAll[\s\S]*kinds\.map/);
+    assert.doesNotMatch(pageSource, /showFilters|gallery\.filters|name="filter"/);
     assert.doesNotMatch(pageSource, /type="date"|dateFrom|dateTo|clearFilters/);
   });
 
-  it('uses a fixed-width row-major grid and a bounded 16:9 web preview', () => {
-    assert.match(gridSource, /className="grid items-start gap-3"/);
-    assert.match(gridSource, /gridTemplateColumns: 'repeat\(auto-fill, 16rem\)'/);
-    assert.match(gridSource, /className="w-64 cursor-pointer/);
-    assert.doesNotMatch(gridSource, /columnCount|breakInside/);
-
+  it('uses a fill-width measured masonry with a bounded 16:9 web preview', () => {
+    assert.match(gridSource, /MIN_COLUMN_WIDTH/);
+    assert.match(gridSource, /columnCount/);
+    assert.match(gridSource, /columnHeights/);
+    assert.match(gridSource, /ResizeObserver/);
+    assert.match(gridSource, /containerWidth - COLUMN_GAP \* \(columnCount - 1\)/);
+    assert.match(gridSource, /className="absolute"/);
     assert.match(gridSource, /className="relative aspect-video w-full overflow-hidden/);
-    assert.match(gridSource, /h-\[720px\] w-\[1280px\]/);
-    assert.match(gridSource, /scale-\[0\.2\]/);
-    assert.match(gridSource, /absolute left-2 top-2 rounded-full/);
+    assert.match(gridSource, /item\.thumbnailUrl/);
     assert.match(gridSource, /\{displayTitle\}/);
   });
 
-  it('renders real audio and strict static HTML previews with an honest failure state', () => {
+  it('renders real audio and static HTML images with an honest failure state', () => {
     assert.match(gridSource, /item\.type === 'audio'/);
     assert.match(gridSource, /item\.type === 'html_bundle'/);
-    assert.match(gridSource, /sandbox=""/);
+    assert.doesNotMatch(gridSource, /<iframe|sandbox=/);
+    assert.doesNotMatch(gridSource, /gallery\.staticWebPreview/);
     assert.match(gridSource, /item\.integrityState === 'missing'/);
     assert.match(detailSource, /<audio/);
-    assert.match(detailSource, /sandbox=""/);
-    assert.doesNotMatch(detailSource, /allow-scripts|allow-same-origin/);
+    assert.match(detailSource, /item\.thumbnailUrl/);
+    assert.doesNotMatch(detailSource, /<iframe|sandbox=|allow-scripts|allow-same-origin/);
   });
 
   it('archives only explicit HTML previews through the scoped materializer API', () => {
     assert.match(archiveClientSource, /\/api\/assets\/html-bundles/);
+    assert.match(archiveClientSource, /ensureHtmlAssetThumbnail/);
     assert.match(previewSource, /archiveHtmlAsset/);
     assert.match(previewSource, /sessionId/);
     assert.match(previewSource, /sourceTrust === 'workspace'/);

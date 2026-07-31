@@ -2,7 +2,12 @@ import path from 'node:path';
 import { NextRequest, NextResponse } from 'next/server';
 import { getSession } from '@/lib/db';
 import { resolveRuntimeForSession } from '@/lib/chat-runtime';
-import { materializeHtmlBundle } from '@/lib/assets/html-bundle-materializer';
+import {
+  getHtmlBundlePreviewLocation,
+  getHtmlBundleThumbnailPath,
+  materializeHtmlBundle,
+} from '@/lib/assets/html-bundle-materializer';
+import { buildHtmlPreviewUrl } from '@/lib/html-preview-url';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -72,6 +77,8 @@ export async function POST(request: NextRequest) {
           scopeRoot: session.working_directory,
         },
       });
+    const previewLocation = getHtmlBundlePreviewLocation(asset);
+    const thumbnailPath = getHtmlBundleThumbnailPath(asset);
 
     return NextResponse.json({
       asset: {
@@ -80,6 +87,13 @@ export async function POST(request: NextRequest) {
         contentHash: asset.content_hash,
         lifecycleState: asset.lifecycle_state,
         integrityState: asset.integrity_state,
+        previewUrl: buildHtmlPreviewUrl(
+          previewLocation.entryPath,
+          { kind: 'workspace', baseDir: previewLocation.bundleRoot },
+        ),
+        thumbnailUrl: thumbnailPath
+          ? `/api/assets/${encodeURIComponent(asset.id)}/thumbnail`
+          : undefined,
       },
     });
   } catch (error) {

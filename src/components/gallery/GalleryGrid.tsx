@@ -1,5 +1,13 @@
 'use client';
 
+import {
+  type ReactNode,
+  useCallback,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import { CodePilotIcon } from '@/components/ui/semantic-icon';
 import { useTranslation } from '@/hooks/useTranslation';
 import type { TranslationKey } from '@/i18n';
@@ -15,6 +23,7 @@ export interface GalleryItem {
   type?: 'image' | 'video' | 'audio' | 'html_bundle';
   kind?: 'image' | 'video' | 'audio' | 'html_bundle';
   previewUrl?: string;
+  thumbnailUrl?: string;
   producerId?: string;
   model?: string;
   aspectRatio?: string;
@@ -38,22 +47,31 @@ interface GalleryGridProps {
   onSelect: (item: GalleryItem) => void;
 }
 
+interface MasonryPosition {
+  left: number;
+  top: number;
+  width: number;
+}
+
+const COLUMN_GAP = 12;
+const MIN_COLUMN_WIDTH = 240;
+
 function thumbnailUrl(item: GalleryItem): string {
-  const img = item.images[0];
-  if (!img) return '';
-  if (img.localPath) {
-    return `/api/media/serve?path=${encodeURIComponent(img.localPath)}`;
+  const media = item.images[0];
+  if (!media) return '';
+  if (media.localPath) {
+    return `/api/media/serve?path=${encodeURIComponent(media.localPath)}`;
   }
-  if (img.data) {
-    return `data:${img.mimeType};base64,${img.data}`;
+  if (media.data) {
+    return `data:${media.mimeType};base64,${media.data}`;
   }
   return '';
 }
 
 function isVideoItem(item: GalleryItem): boolean {
   if (item.type === 'video') return true;
-  const img = item.images[0];
-  return !!img?.mimeType?.startsWith('video/');
+  const media = item.images[0];
+  return !!media?.mimeType?.startsWith('video/');
 }
 
 function isAudioItem(item: GalleryItem): boolean {
@@ -62,16 +80,130 @@ function isAudioItem(item: GalleryItem): boolean {
   return !!media?.mimeType?.startsWith('audio/');
 }
 
-export function GalleryGrid({ items, onSelect }: GalleryGridProps) {
-  const { t } = useTranslation();
+function estimatedCardHeight(item: GalleryItem, width: number): number {
+  if (item.type === 'html_bundle') return width * 9 / 16;
+  if (isAudioItem(item)) return width * 3 / 4;
+  const ratio = item.aspectRatio?.match(/^(\d+(?:\.\d+)?)\s*:\s*(\d+(?:\.\d+)?)$/);
+  if (ratio) {
+    const ratioWidth = Number(ratio[1]);
+    const ratioHeight = Number(ratio[2]);
+    if (ratioWidth > 0 && ratioHeight > 0) {
+      return width * ratioHeight / ratioWidth;
+    }
+  }
+  return width;
+}
+
+function MasonryItem({
+  id,
+  position,
+  onHeight,
+  children,
+}: {
+  id: string;
+  position: MasonryPosition;
+  onHeight: (id: string, height: number) => void;
+  children: ReactNode;
+}) {
+  const measureRef = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const node = measureRef.current;
+    if (!node) return;
+    const measure = () => onHeight(id, node.getBoundingClientRect().height);
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [id, onHeight]);
+
   return (
     <div
-      className="grid items-start gap-3"
+      className="absolute"
       style={{
-        gridTemplateColumns: 'repeat(auto-fill, 16rem)',
+        left: position.left,
+        top: position.top,
+        width: position.width,
       }}
     >
+      <div ref={measureRef}>{children}</div>
+    </div>
+  );
+}
+
+export function GalleryGrid({ items, onSelect }: GalleryGridProps) {
+  const { t } = useTranslation();
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [containerWidth, setContainerWidth] = useState(0);
+  const [measuredHeights, setMeasuredHeights] = useState<Record<string, number>>({});
+
+  useLayoutEffect(() => {
+    const node = containerRef.current;
+    if (!node) return;
+    const measure = () => setContainerWidth(node.getBoundingClientRect().width);
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, []);
+
+  const handleHeight = useCallback((id: string, height: number) => {
+    setMeasuredHeights((current) => (
+      Math.abs((current[id] || 0) - height) < 0.5
+        ? current
+        : { ...current, [id]: height }
+    ));
+  }, []);
+
+  const layout = useMemo(() => {
+    if (containerWidth <= 0) {
+      return {
+        positions: new Map<string, MasonryPosition>(),
+        height: 0,
+      };
+    }
+    const columnCount = Math.max(
+      1,
+      Math.floor((containerWidth + COLUMN_GAP) / (MIN_COLUMN_WIDTH + COLUMN_GAP)),
+    );
+    const columnWidth = (
+      containerWidth - COLUMN_GAP * (columnCount - 1)
+    ) / columnCount;
+    const columnHeights = Array.from({ length: columnCount }, () => 0);
+    const positions = new Map<string, MasonryPosition>();
+
+    for (const item of items) {
+      let targetColumn = 0;
+      for (let index = 1; index < columnHeights.length; index += 1) {
+        if (columnHeights[index] < columnHeights[targetColumn]) {
+          targetColumn = index;
+        }
+      }
+      const top = columnHeights[targetColumn];
+      positions.set(item.id, {
+        left: targetColumn * (columnWidth + COLUMN_GAP),
+        top,
+        width: columnWidth,
+      });
+      columnHeights[targetColumn] = top
+        + (measuredHeights[item.id] || estimatedCardHeight(item, columnWidth))
+        + COLUMN_GAP;
+    }
+
+    return {
+      positions,
+      height: Math.max(0, ...columnHeights) - COLUMN_GAP,
+    };
+  }, [containerWidth, items, measuredHeights]);
+
+  return (
+    <div
+      ref={containerRef}
+      className="relative w-full"
+      style={{ height: layout.height }}
+    >
       {items.map((item) => {
+        const position = layout.positions.get(item.id);
+        if (!position) return null;
         const url = thumbnailUrl(item);
         const isVideo = isVideoItem(item);
         const isAudio = isAudioItem(item);
@@ -90,113 +222,113 @@ export function GalleryGrid({ items, onSelect }: GalleryGridProps) {
             : 'gallery.openItemAria';
 
         return (
-          // role="button" + tabIndex + Enter/Space handler — image
-          // tiles are the primary activator on this page; without
-          // these the a11y tree only exposes them as "image" and
-          // keyboard / screen-reader users have no way in.
-          <div
+          <MasonryItem
             key={item.id}
-            role="button"
-            tabIndex={0}
-            aria-label={t(ariaKey, { prompt: promptPreview })}
-            className="w-64 cursor-pointer overflow-hidden rounded-lg bg-card ring-0 transition-all hover:ring-2 hover:ring-border focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            onClick={() => onSelect(item)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' || e.key === ' ') {
-                e.preventDefault();
-                onSelect(item);
-              }
-            }}
+            id={item.id}
+            position={position}
+            onHeight={handleHeight}
           >
-            <div className="relative bg-muted/30">
-              {integrityFailed ? (
-                <div
-                  className="flex min-h-36 flex-col items-center justify-center gap-2 px-4 text-center"
-                  title={item.integrityReason}
-                >
-                  <CodePilotIcon name="warning" size="lg" className="text-status-warning-foreground" aria-hidden />
-                  <span className="text-xs text-muted-foreground">
-                    {t(
-                      item.integrityState === 'missing'
-                        ? 'gallery.integrity.missing'
-                        : 'gallery.integrity.modified',
+            <div
+              role="button"
+              tabIndex={0}
+              aria-label={t(ariaKey, { prompt: promptPreview })}
+              className="w-full cursor-pointer overflow-hidden rounded-lg bg-card ring-0 transition-shadow hover:ring-2 hover:ring-border focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              onClick={() => onSelect(item)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter' || event.key === ' ') {
+                  event.preventDefault();
+                  onSelect(item);
+                }
+              }}
+            >
+              <div className="relative bg-muted/30">
+                {integrityFailed ? (
+                  <div
+                    className="flex min-h-36 flex-col items-center justify-center gap-2 px-4 text-center"
+                    title={item.integrityReason}
+                  >
+                    <CodePilotIcon name="warning" size="lg" className="text-status-warning-foreground" aria-hidden />
+                    <span className="text-xs text-muted-foreground">
+                      {t(
+                        item.integrityState === 'missing'
+                          ? 'gallery.integrity.missing'
+                          : 'gallery.integrity.modified',
+                      )}
+                    </span>
+                  </div>
+                ) : isHtml ? (
+                  <div className="relative aspect-video w-full overflow-hidden bg-background">
+                    {item.thumbnailUrl ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={item.thumbnailUrl}
+                        alt={displayTitle}
+                        className="block h-full w-full object-cover"
+                        loading="lazy"
+                      />
+                    ) : (
+                      <div className="flex h-full w-full items-center justify-center bg-muted/30">
+                        <CodePilotIcon name="web" size="xl" className="text-muted-foreground/40" aria-hidden />
+                      </div>
                     )}
+                    <span className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 via-black/45 to-transparent px-3 pb-2 pt-8 text-xs font-medium text-white">
+                      <span className="block truncate">{displayTitle}</span>
+                    </span>
+                  </div>
+                ) : isAudio && url ? (
+                  <div className="flex aspect-[4/3] flex-col items-center justify-center gap-3 bg-muted/40">
+                    <CodePilotIcon name="media_audio" size="xl" className="text-muted-foreground" aria-hidden />
+                    <span className="px-3 text-center text-xs text-muted-foreground">
+                      {t('gallery.audioPreview')}
+                    </span>
+                  </div>
+                ) : url ? (
+                  isVideo ? (
+                    <video
+                      src={url}
+                      muted
+                      preload="metadata"
+                      className="block h-auto w-full"
+                    />
+                  ) : (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={url}
+                      alt={item.prompt}
+                      className="block h-auto w-full"
+                      loading="lazy"
+                    />
+                  )
+                ) : (
+                  <div className="flex aspect-square items-center justify-center">
+                    <CodePilotIcon name="appearance" size="xl" className="text-muted-foreground/30" aria-hidden />
+                  </div>
+                )}
+                {isVideo && url && (
+                  <span className="absolute inset-0 flex items-center justify-center">
+                    <span className="flex h-10 w-10 items-center justify-center rounded-full bg-black/50 backdrop-blur-sm">
+                      <CodePilotIcon name="play" size="lg" strokeWidth={2} className="ml-0.5 text-white" aria-hidden />
+                    </span>
                   </span>
-                </div>
-              ) : isHtml && item.previewUrl ? (
-                <div className="relative aspect-video w-full overflow-hidden bg-background">
-                  <iframe
-                    src={item.previewUrl}
-                    sandbox=""
-                    loading="lazy"
-                    title={displayTitle}
-                    className="pointer-events-none absolute left-0 top-0 h-[720px] w-[1280px] origin-top-left scale-[0.2] border-0 bg-white"
-                  />
-                  <span className="absolute left-2 top-2 rounded-full bg-background/90 px-2 py-1 text-[10px] text-foreground shadow-sm backdrop-blur-sm">
-                    <CodePilotIcon name="web" size={12} className="mr-1 inline" aria-hidden />
-                    {t('gallery.staticWebPreview')}
-                  </span>
-                  <span className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 via-black/45 to-transparent px-3 pb-2 pt-8 text-xs font-medium text-white">
-                    <span className="block truncate">{displayTitle}</span>
-                  </span>
-                </div>
-              ) : isAudio && url ? (
-                <div className="flex aspect-[4/3] flex-col items-center justify-center gap-3 bg-muted/40">
-                  <CodePilotIcon name="media_audio" size="xl" className="text-muted-foreground" aria-hidden />
-                  <span className="px-3 text-center text-xs text-muted-foreground">
+                )}
+                {isAudio && url && (
+                  <span className="absolute inset-x-2 bottom-2 rounded-full bg-black/55 px-2 py-1 text-center text-[10px] text-white backdrop-blur-sm">
                     {t('gallery.audioPreview')}
                   </span>
-                </div>
-              ) : url ? (
-                isVideo ? (
-                   
-                  <video
-                    src={url}
-                    muted
-                    preload="metadata"
-                    className="block w-full h-auto"
-                  />
-                ) : (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img
-                    src={url}
-                    alt={item.prompt}
-                    className="block w-full h-auto"
-                    loading="lazy"
-                  />
-                )
-              ) : (
-                <div className="flex aspect-square items-center justify-center">
-                  <CodePilotIcon name="appearance" size="xl" className="text-muted-foreground/30" aria-hidden />
-                </div>
-              )}
-              {isVideo && url && (
-                <span className="absolute inset-0 flex items-center justify-center">
-                  <span className="flex h-10 w-10 items-center justify-center rounded-full bg-black/50 backdrop-blur-sm">
-                    <CodePilotIcon name="play" size="lg" strokeWidth={2} className="text-white ml-0.5" aria-hidden />
+                )}
+                {item.images.length > 1 && (
+                  <span className="absolute right-1.5 top-1.5 rounded-full bg-black/50 px-1.5 py-0.5 text-[10px] font-medium text-white">
+                    {item.images.length}
                   </span>
-                </span>
-              )}
-              {isAudio && url && (
-                <span className="absolute inset-x-2 bottom-2 rounded-full bg-black/55 px-2 py-1 text-center text-[10px] text-white backdrop-blur-sm">
-                  {t('gallery.audioPreview')}
-                </span>
-              )}
-              {item.images.length > 1 && (
-                <span className="absolute top-1.5 right-1.5 rounded-full bg-black/50 px-1.5 py-0.5 text-[10px] text-white font-medium">
-                  {item.images.length}
-                </span>
-              )}
-              {item.favorited && (
-                <span className={isHtml
-                  ? 'absolute right-2 top-2'
-                  : 'absolute left-1.5 top-1.5'}
-                >
-                  <CodePilotIcon name="favorite" size="md" strokeWidth={2} className="text-status-error-foreground drop-shadow" aria-hidden />
-                </span>
-              )}
+                )}
+                {item.favorited && (
+                  <span className="absolute left-1.5 top-1.5">
+                    <CodePilotIcon name="favorite" size="md" strokeWidth={2} className="text-status-error-foreground drop-shadow" aria-hidden />
+                  </span>
+                )}
+              </div>
             </div>
-          </div>
+          </MasonryItem>
         );
       })}
     </div>

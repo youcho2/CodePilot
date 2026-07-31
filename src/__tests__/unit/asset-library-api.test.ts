@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import sharp from 'sharp';
 import { NextRequest } from 'next/server';
 import { createSession, getDb } from '@/lib/db';
 import {
@@ -15,6 +16,10 @@ import { GET as getKinds } from '@/app/api/assets/kinds/route';
 import { POST as archiveHtml } from '@/app/api/assets/html-bundles/route';
 import { GET as getGallery } from '@/app/api/media/gallery/route';
 import { GET as getAssetDetail } from '@/app/api/assets/[id]/route';
+import {
+  GET as getHtmlThumbnail,
+  POST as storeHtmlThumbnail,
+} from '@/app/api/assets/[id]/thumbnail/route';
 import { DELETE as deleteMedia } from '@/app/api/media/[id]/route';
 import { PUT as toggleFavorite } from '@/app/api/media/[id]/favorite/route';
 
@@ -183,6 +188,7 @@ describe('Asset Library API', () => {
       /^\/api\/files\/html-preview\/ws\./,
     );
     assert.equal(galleryData.items[0].previewUrl.includes('interactive=1'), false);
+    assert.equal(galleryData.items[0].thumbnailUrl, undefined);
 
     const detail = await getAssetDetail(
       request(`/api/assets/${archivedAssetId}`),
@@ -198,6 +204,65 @@ describe('Asset Library API', () => {
     ));
     assert.equal(invalidKind.status, 400);
     assert.equal((await invalidKind.json()).code, 'kind_unregistered');
+  });
+
+  it('stores and serves one bounded static PNG thumbnail for an HTML Asset', async () => {
+    const rejected = await storeHtmlThumbnail(
+      request(`/api/assets/${archivedAssetId}/thumbnail`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          pngBase64: Buffer.from('not a png').toString('base64'),
+        }),
+      }),
+      { params: Promise.resolve({ id: archivedAssetId }) },
+    );
+    assert.equal(rejected.status, 400);
+    assert.equal((await rejected.json()).code, 'thumbnail_invalid');
+
+    const png = await sharp({
+      create: {
+        width: 1280,
+        height: 720,
+        channels: 4,
+        background: { r: 20, g: 30, b: 40, alpha: 1 },
+      },
+    }).png().toBuffer();
+    const stored = await storeHtmlThumbnail(
+      request(`/api/assets/${archivedAssetId}/thumbnail`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pngBase64: png.toString('base64') }),
+      }),
+      { params: Promise.resolve({ id: archivedAssetId }) },
+    );
+    assert.equal(stored.status, 200);
+    assert.equal(
+      (await stored.json()).thumbnailUrl,
+      `/api/assets/${archivedAssetId}/thumbnail`,
+    );
+    const asset = getAssetRecord(archivedAssetId)!;
+    assert.equal(asset.width, 1280);
+    assert.equal(asset.height, 720);
+    assert.equal(path.basename(asset.preview_path), 'preview.png');
+    assert.equal(fs.existsSync(asset.preview_path), true);
+
+    const served = await getHtmlThumbnail(
+      request(`/api/assets/${archivedAssetId}/thumbnail`),
+      { params: Promise.resolve({ id: archivedAssetId }) },
+    );
+    assert.equal(served.status, 200);
+    assert.equal(served.headers.get('content-type'), 'image/png');
+    assert.deepEqual(Buffer.from(await served.arrayBuffer()), png);
+
+    const gallery = await getGallery(request(
+      '/api/media/gallery?kind=html_bundle&query=API%20Archive%20Title',
+    ));
+    const galleryData = await gallery.json();
+    assert.equal(
+      galleryData.items[0].thumbnailUrl,
+      `/api/assets/${archivedAssetId}/thumbnail`,
+    );
   });
 
   it('favorites HTML Assets through the existing Gallery action', async () => {
@@ -219,6 +284,31 @@ describe('Asset Library API', () => {
       ).get() as { count: number }).count,
       0,
     );
+  });
+
+  it('does not render a legacy HTML file as a broken image tile', async () => {
+    const legacyHtml = path.join(workspace, 'legacy-image.html');
+    fs.writeFileSync(legacyHtml, '<!doctype html><title>Not an image</title>');
+    getDb().prepare(
+      `INSERT INTO asset_records (
+         id, kind, producer_id, stable_path, content_hash, mime_type,
+         byte_size, prompt, metadata, materialization_key
+       ) VALUES (
+         'legacy-html-image', 'image', 'media:legacy-backfill', ?,
+         'fixture-hash', 'image/png', ?, 'mime mismatch fixture', '{}',
+         'legacy:mime-mismatch'
+       )`,
+    ).run(
+      legacyHtml,
+      fs.statSync(legacyHtml).size,
+    );
+    const gallery = await getGallery(request(
+      '/api/media/gallery?kind=image&query=mime%20mismatch',
+    ));
+    assert.equal(gallery.status, 200);
+    const data = await gallery.json();
+    assert.equal(data.total, 1);
+    assert.deepEqual(data.items[0].images, []);
   });
 
   it('blocks permanent deletion while referenced, then removes the record and owned bytes', async () => {

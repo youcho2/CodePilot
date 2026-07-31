@@ -60,6 +60,19 @@ interface ElectronTerminalAPI {
   onExit: (callback: (data: { id: string; code: number }) => void) => () => void;
 }
 
+interface ElectronAssetAPI {
+  captureHtmlThumbnail: (params: {
+    previewUrl: string;
+    width?: number;
+    height?: number;
+  }) => Promise<{
+    base64?: string;
+    width?: number;
+    height?: number;
+    error?: 'invalid_request' | 'invalid_preview_url' | 'capture_failed';
+  }>;
+}
+
 interface ElectronAPI {
   versions: {
     electron: string;
@@ -98,6 +111,7 @@ interface ElectronAPI {
   proxy?: {
     resolve: (url: string) => Promise<string>;
   };
+  asset?: ElectronAssetAPI;
   terminal?: ElectronTerminalAPI;
   notification?: {
     /**

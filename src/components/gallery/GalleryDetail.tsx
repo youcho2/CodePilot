@@ -195,13 +195,22 @@ export function GalleryDetail({
                     <p className="text-xs text-white/50">{item.integrityReason}</p>
                   )}
                 </div>
-              ) : isHtml && item.previewUrl ? (
-                <iframe
-                  src={item.previewUrl}
-                  sandbox=""
-                  title={t('gallery.staticWebPreview')}
-                  className="h-full w-full border-0 bg-white"
-                />
+              ) : isHtml ? (
+                item.thumbnailUrl ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={item.thumbnailUrl}
+                    alt={item.title?.trim() || item.prompt}
+                    className="max-h-full max-w-full object-contain"
+                  />
+                ) : (
+                  <CodePilotIcon
+                    name="web"
+                    size="xl"
+                    className="text-white/40"
+                    aria-hidden
+                  />
+                )
               ) : currentImage && (
                 isVideo ? (
                    

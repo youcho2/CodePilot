@@ -2154,6 +2154,125 @@ app.whenReady().then(async () => {
     }
   });
 
+  // --- Asset Library HTML thumbnail capture ---
+  // The Gallery never embeds archived HTML. It asks this isolated window to
+  // paint one bounded frame, persists the returned PNG through the scoped
+  // Asset API, then renders only that static image on subsequent visits.
+  // Calls are serialized so opening a library with legacy HTML Assets cannot
+  // create a burst of hidden Chromium renderers.
+  let htmlThumbnailCaptureQueue = Promise.resolve();
+  ipcMain.handle('asset:capture-html-thumbnail', async (
+    event,
+    params: { previewUrl?: unknown; width?: unknown; height?: unknown },
+  ) => {
+    const previousCapture = htmlThumbnailCaptureQueue;
+    let releaseCapture = () => {};
+    htmlThumbnailCaptureQueue = new Promise<void>((resolve) => {
+      releaseCapture = resolve;
+    });
+    await previousCapture;
+    try {
+      const senderUrl = new URL(event.sender.getURL());
+      const width = params.width === undefined ? 1280 : Number(params.width);
+      const height = params.height === undefined ? 720 : Number(params.height);
+      if (
+        senderUrl.protocol !== 'http:'
+        || senderUrl.hostname !== '127.0.0.1'
+        || typeof params.previewUrl !== 'string'
+        || params.previewUrl.length > 16_384
+        || !Number.isInteger(width)
+        || !Number.isInteger(height)
+        || width !== 1280
+        || height !== 720
+      ) {
+        return { error: 'invalid_request' as const };
+      }
+      const targetUrl = new URL(params.previewUrl, senderUrl.origin);
+      if (
+        targetUrl.origin !== senderUrl.origin
+        || !targetUrl.pathname.startsWith('/api/files/html-preview/ws.')
+        || targetUrl.searchParams.has('interactive')
+      ) {
+        return { error: 'invalid_preview_url' as const };
+      }
+
+      const captureWindow = new BrowserWindow({
+        show: false,
+        width,
+        height,
+        backgroundColor: '#ffffff',
+        paintWhenInitiallyHidden: true,
+        webPreferences: {
+          contextIsolation: true,
+          nodeIntegration: false,
+          sandbox: true,
+          backgroundThrottling: false,
+          partition: `asset-thumbnail-${Date.now()}`,
+        },
+      });
+      captureWindow.webContents.on('will-navigate', (navigationEvent) => {
+        navigationEvent.preventDefault();
+      });
+      captureWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+      try {
+        await captureWindow.loadURL(targetUrl.toString());
+        await captureWindow.webContents.insertCSS(`
+          html, body {
+            width: 1280px !important;
+            height: 720px !important;
+            overflow: hidden !important;
+            scrollbar-width: none !important;
+          }
+          *, *::before, *::after {
+            animation: none !important;
+            transition: none !important;
+            caret-color: transparent !important;
+          }
+          ::-webkit-scrollbar { display: none !important; }
+        `);
+        await Promise.race([
+          captureWindow.webContents.executeJavaScript(`
+            Promise.all([
+              document.fonts ? document.fonts.ready : Promise.resolve(),
+              ...Array.from(document.images).map((image) =>
+                image.complete
+                  ? Promise.resolve()
+                  : new Promise((resolve) => {
+                      image.addEventListener('load', resolve, { once: true });
+                      image.addEventListener('error', resolve, { once: true });
+                    })
+              ),
+            ]).then(() => true)
+          `),
+          new Promise((resolve) => setTimeout(resolve, 2500)),
+        ]);
+        await new Promise((resolve) => setTimeout(resolve, 150));
+        const image = await captureWindow.webContents.capturePage({
+          x: 0,
+          y: 0,
+          width,
+          height,
+        });
+        const resized = image.resize({ width, height, quality: 'best' });
+        return {
+          base64: resized.toPNG().toString('base64'),
+          width,
+          height,
+        };
+      } finally {
+        captureWindow.destroy();
+      }
+    } catch (error) {
+      console.warn(
+        '[asset:capture-html-thumbnail] capture failed:',
+        error instanceof Error ? error.message : String(error),
+      );
+      return { error: 'capture_failed' as const };
+    } finally {
+      releaseCapture();
+    }
+  });
+
   // --- Artifact long-shot export (Phase 3) ---
   // Captures an arbitrary HTML source as a single full-page PNG, using
   // Chromium's CDP captureBeyondViewport so we can exceed the viewport

@@ -18,6 +18,8 @@ export interface ArchivedHtmlAsset {
   contentHash: string;
   lifecycleState: string;
   integrityState: string;
+  previewUrl?: string;
+  thumbnailUrl?: string;
 }
 
 export async function archiveHtmlAsset(
@@ -34,6 +36,20 @@ export async function archiveHtmlAsset(
   };
   if (!response.ok || !payload.asset) {
     throw new Error(payload.error || response.statusText || 'Archive failed.');
+  }
+  if (payload.asset.previewUrl && !payload.asset.thumbnailUrl) {
+    try {
+      const { ensureHtmlAssetThumbnail } = await import(
+        '@/lib/html-asset-thumbnail-client'
+      );
+      payload.asset.thumbnailUrl = await ensureHtmlAssetThumbnail({
+        assetId: payload.asset.id,
+        previewUrl: payload.asset.previewUrl,
+      }) || undefined;
+    } catch {
+      // Archiving the immutable bundle still succeeds. The Gallery retries
+      // thumbnail generation for legacy or temporarily failed captures.
+    }
   }
   return payload.asset;
 }

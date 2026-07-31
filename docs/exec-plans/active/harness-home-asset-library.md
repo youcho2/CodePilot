@@ -2,7 +2,7 @@
 
 > 创建时间：2026-07-30
 > 最后更新：2026-07-31
-> 状态：🟡 B0–B3 code/tests 与本地 Electron/浏览器 UI smoke 完成；素材库 UI 简化与永久删除语义已落地；packaged app / 用户 human gate 待最终验收；用户已授权 Codex 直接实施，明确不启动 loop
+> 状态：🟡 B0–B3 code/tests 与本地 Electron/浏览器 UI smoke 完成；素材库 UI 简化、静态网页缩略图、自适应瀑布流与永久删除语义已落地；packaged app / 用户 human gate 待最终验收；用户已授权 Codex 直接实施，明确不启动 loop
 > 父计划：[harness-home-user-owned-core.md](harness-home-user-owned-core.md)
 > 依赖：[harness-home-core-adapters.md](harness-home-core-adapters.md) 的 `AssetRef` / scope / provenance / repository boundary
 
@@ -28,8 +28,8 @@
 - 用户能看到 parent/derived-from、来源模型、方法版本和引用关系；
 - 删除是有二次确认的永久删除；存在消费者时会阻止删除；
 - 搜索与主要操作同层，类型筛选默认展开且有图标；
-- 素材按最新时间从左到右、逐行排列；缩窄窗口只减少列数，不拉伸卡片；
-- 网页卡片展示真实页面标题，以固定 16:9 比例完整缩放桌面画布；
+- 素材按最新时间进入自适应瀑布流；容器余宽均分给各列，拉宽时增列、缩窄时减列；
+- 网页卡片展示真实页面标题，以一次性生成的固定 16:9 PNG 缩略图呈现，不在图库运行网页；
 - 同一 Asset 可继续用于图片变体、视频或网页创作。
 
 ## 明确不做
@@ -159,7 +159,7 @@ HTML / web result 只有同时满足以下条件才 materialize：
 - Preview 与聊天网页卡片中的完整 workspace HTML，以及用户主动选定的 inline HTML 均可归档；两处复用同一客户端入口和服务端安全链路。服务端从真实 session 推导 workspace scope、Runtime、Provider、Model 与 project，不信任客户端自报 provenance。
 - materializer 采用临时目录 → 有界复制 → 全 bundle hash → manifest → 原子 rename → DB transaction；相同来源与 hash 的重复请求返回同一 Asset。
 - workspace HTML 以用户选定的入口文件为根，只闭包复制 HTML/CSS 实际引用的本地静态依赖，不把入口所在的整个 workspace 当作 bundle；限制文件数、单文件与总大小。被引用的 symlink、scope escape、`file:` / `javascript:`、外部 script、iframe/object/embed/form/base/meta refresh fail-closed。
-- HTML Asset 只用现有 `/api/files/html-preview` strict 模式重开；Gallery iframe 不带 `allow-scripts` / `allow-same-origin`，未建立更宽松的旁路。
+- HTML Asset 的截图输入只使用现有 `/api/files/html-preview` strict 模式；Electron 在同源、workspace scope、无 interactive 参数的约束下用隔离隐藏窗口生成一次 1280×720 PNG。Gallery 与详情不嵌入 iframe，也不运行归档网页。
 - partial / failed 不创建成功 Asset；入口或依赖丢失、字节改变会转为 `missing` / `modified`，不能生成 typed ref 或恢复为 active。
 
 ## B3 — Gallery 渐进演进
@@ -183,10 +183,11 @@ HTML / web result 只有同时满足以下条件才 materialize：
 - Gallery 原页面增量演进为 Asset Library；kind filters 由 `/api/assets/kinds` registry 返回，首版只有 image / video / audio / html_bundle。
 - 图片、视频、真实 WAV、严格静态网页均有真实 preview；缺失/变化显示 integrity 原因，不渲染空白成功卡。
 - 详情读取真实 source / project / Runtime / model / method / content hash、parent/child relation 与 active consumers。
-- 搜索与收藏/筛选/排序位于同一主层；类型胶囊在下一层默认展开、由 registry 派生并显示对应图标；开始/结束日期和 Trash 切换均已移除。
+- 搜索与收藏/排序位于同一主层，搜索框限制为中等宽度；类型胶囊在下一层永久展开、由 registry 派生并显示对应图标；筛选折叠按钮、开始/结束日期和 Trash 切换均已移除。
 - 搜索覆盖 prompt / page title metadata / project / provider / model / method / producer；旧 Gallery row 通过 100 条/请求的 bounded backfill journal 渐进进入 Asset index。
-- CSS Columns 已改为固定 256px 宽的 CSS Grid：数据库按 `created_at + id` 稳定排序，页面从左到右逐行放置，窗口变窄时减少列数而不改变卡片尺寸。
-- HTML materializer 在归档时保存真实 `<title>`；旧 bundle 在读取时从实际入口 HTML 补取标题，最终才回退到真实入口文件名。网页卡片用 1280×720 静态画布缩放为 256×144，胶囊悬浮在顶部，标题叠加在底部，不产生 3:4 白边。
+- Gallery 使用测量式最短列瀑布流：数据库仍按 `created_at + id` 稳定排序，DOM 顺序保留 newest-first；列数由 240px 最小列宽决定，剩余容器宽度平均分配给现有列，不留下右侧空槽。
+- HTML materializer 在归档时保存真实 `<title>`；旧 bundle 在读取时从实际入口 HTML 补取标题，最终才回退到真实入口文件名。网页归档/旧资产首次打开时经 Electron 隔离窗口生成一次 1280×720 PNG 并保存为 Asset 派生 preview；卡片和详情只读该图片，底部叠加真实标题，不显示“已归档/静态网页”胶囊。
+- Gallery 对 legacy media 同时核对 kind、MIME 与文件扩展名；历史上被错误标成 `image/png` 的 `.html` 不再作为坏图压成细条，而是降级为有界占位卡。
 - 删除不再进入 Trash lifecycle：详情先展示不可撤销提示，第二次点击才永久删除；活跃引用者仍会阻止删除，共享字节会保留。
 - 现有图片生成会把已登记 reference path 解析成 parent Asset；MediaBlock 可携带 typed parent IDs；三 Runtime projection 继续使用 Program A 的同一 canonical `AssetRef`。
 
@@ -226,7 +227,8 @@ HTML / web result 只有同时满足以下条件才 materialize：
 | 2026-07-30 | html_bundle | isolated local dev app | 两个真实 materialized bundle → 卡片预览 → detail provenance/parent lineage → search → Trash → Restore（历史 smoke；删除决策已在 2026-07-31 替代） | ✅ 当时通过；iframe `sandbox=""`；0 console errors | 独立 `CLAUDE_GUI_DATA_DIR` + migration disabled；临时数据库与 bundle 已在验收后删除 |
 | 2026-07-30 | html_bundle | real workspace chat card | session `5caa4952ddda37df94da3cd11acf7cc4` 首次归档因误扫描 workspace 超过 512 文件而失败 → 改为入口依赖闭包 → API 真实归档 → 聊天卡片单按钮点击变为“已归档到素材库” | ✅ 目标测试 20/20；Browser smoke；真实 Asset `2dff7212-29f3-44a0-b4e2-5bb3420155ca` integrity `valid` | 520 个无关文件回归 fixture；真实用户数据保留该验收 Asset |
 | 2026-07-30 | html_bundle | encoded data-SVG fragment | session `20107cbbbc77aeae80f675b1a035b2fc` 的 data URI 内含 `url(%23n)`，解码后的 SVG fragment 被误判为本地文件 `#n` → 解码后再次应用 fragment 语义 | ✅ 目标测试 21/21；真实 API + Browser card smoke；Asset `07e7b8a0-a486-496e-8ed9-04bdc28fe730` integrity `valid` | 精确 data-SVG regression fixture；真实用户数据保留该验收 Asset |
-| 2026-07-31 | all registered kinds | Gallery UI + permanent delete | 默认展开的图标筛选、无日期/Trash UI、稳定 newest row-major grid、真实网页标题、固定 16:9 预览、二次确认永久删除、consumer/shared-byte block | ✅ 目标测试 32/32、全量单测 4873/4873、生产 build；Browser smoke：1280px 为 3 列、700px 为 2 列，卡片恒为 256px、iframe 恒为 256×144，无横向溢出、0 console errors | `asset-library-api.test.ts` 8/8；`asset-library-conformance.test.ts` 8/8；`asset-library-ui.test.ts` 8/8；`html-bundle-conformance.test.ts` 8/8；真实本地素材只读验收，未执行删除 |
+| 2026-07-31 | all registered kinds | Gallery UI + permanent delete | 默认展开的图标筛选、无日期/Trash UI、稳定 newest row-major grid、真实网页标题、固定 16:9 预览、二次确认永久删除、consumer/shared-byte block（历史 smoke；固定 grid 与 live iframe 已被下一条替代） | ✅ 当时目标测试 32/32、全量单测 4873/4873、生产 build | `asset-library-api.test.ts` 8/8；`asset-library-conformance.test.ts` 8/8；`asset-library-ui.test.ts` 8/8；`html-bundle-conformance.test.ts` 8/8；真实本地素材只读验收，未执行删除 |
+| 2026-07-31 | html_bundle + media | Electron thumbnail capture / Gallery UI | 网页一次性串行截图并持久化 PNG；Gallery 0 iframe、无“已归档/静态网页”胶囊；搜索框收窄、筛选常显；容器测量式最短列瀑布流；脏历史 `.html`/`image` row fail-closed | ✅ 目标测试 37/37、全量单测 4876/4876、生产 build；真实 Electron 为 3 个旧网页 Asset 生成缩略图均 POST/GET 200；Browser smoke：700px = 2×317px、900px = 3×274px、1600px = 5×250px，余宽均分、0 iframe、无固定行空洞 | `asset-library-api.test.ts` 10/10；`asset-library-conformance.test.ts` 8/8；`asset-library-ui.test.ts` 8/8；`electron-main-security.test.ts` 3/3；`html-bundle-conformance.test.ts` 8/8；宽/窄窗口截图人工核对 |
 | _待执行_ | all registered kinds | packaged app | multi-kind visual readability + HTML safety copy | ⏳ Human gate | screenshot / user feedback |
 
 ## 决策日志
@@ -243,5 +245,7 @@ HTML / web result 只有同时满足以下条件才 materialize：
 - 2026-07-30：B3 沿用 Gallery 路由与页面，不另建平行 Asset UI；旧 row 采用 bounded on-read backfill，避免 schema init 或单个请求同步 hash 整个大库。
 - 2026-07-30：隔离浏览器 smoke 发现详情 Dialog 缺少可访问描述，已补 `DialogDescription`；该 smoke 不替代 packaged app 与用户审美验收。
 - 2026-07-31：用户取消素材库废纸篓。B1 的“默认可恢复删除”决策被本条替代：UI 仅提供二次确认永久删除；活跃 consumer 继续 fail-closed，Asset Library 独占字节与 source media row 一并删除。旧 lifecycle/restore 代码暂留只为读取历史 trashed records，不构成产品入口。
-- 2026-07-31：用户要求窗口缩放改变列数而不是卡片尺寸。B3 从 CSS Columns 改为固定宽度 CSS Grid，以 SQL newest 排序 + DOM 顺序保证从左到右逐行阅读。
+- 2026-07-31：用户首次要求窗口缩放改变列数而不是卡片尺寸，B3 从 CSS Columns 改为固定宽度 CSS Grid；该决策随后被用户对余宽和瀑布流的进一步反馈替代。
 - 2026-07-31：HTML 卡片标题以归档入口的真实 `<title>` 为 source breadcrumb；新归档写入 manifest/metadata，旧归档按需读取入口文件，禁止统一伪造“预览”标题。
+- 2026-07-31：用户明确要求恢复瀑布流，并要求不足以新增一列时由现有列等比吃满余宽。B3 改为 ResizeObserver 测量 + 最短列排布；newest-first 保留在 SQL 与 DOM 顺序，不再用固定 256px 卡宽制造右侧空槽。
+- 2026-07-31：用户指出 Gallery 里的网页预览仍在运行和动画。网页卡片与详情从 live iframe 改为持久静态 PNG；截图只接受当前 CodePilot `127.0.0.1` 同源、workspace-scoped strict preview URL，串行执行且不接受 renderer 提供写入路径。

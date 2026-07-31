@@ -94,4 +94,22 @@ describe('electron main security guardrails (audit 2026-07 Loop 1)', () => {
       'the open-external decision check must precede shell.openExternal',
     );
   });
+
+  it('Asset HTML capture is origin-bound, scope-bound, and returns bytes without a path write', () => {
+    const idx = main.indexOf("ipcMain.handle('asset:capture-html-thumbnail'");
+    assert.ok(idx >= 0, 'the static HTML thumbnail capture handler must exist');
+    const callbackStart = main.indexOf(') => {', idx);
+    const body = balancedBlock(main, callbackStart);
+    assert.match(body, /senderUrl\.hostname\s*!==\s*['"]127\.0\.0\.1['"]/);
+    assert.match(body, /targetUrl\.origin\s*!==\s*senderUrl\.origin/);
+    assert.match(
+      body,
+      /pathname\.startsWith\(['"]\/api\/files\/html-preview\/ws\./,
+    );
+    assert.match(body, /searchParams\.has\(['"]interactive['"]\)/);
+    assert.match(body, /capturePage/);
+    assert.match(body, /toPNG\(\)\.toString\(['"]base64['"]\)/);
+    assert.doesNotMatch(body, /writeFile|outPath/);
+    assert.match(preload, /asset:capture-html-thumbnail/);
+  });
 });
