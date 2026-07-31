@@ -132,7 +132,22 @@ describe('Asset Library UI contract', () => {
     assert.match(gridSource, /left-2\.5 top-2\.5/);
     assert.match(gridSource, /name="favorite"[\s\S]*size="lg"[\s\S]*fill-current/);
     assert.match(detailSource, /variant="outline"[\s\S]*name="favorite"/);
+    assert.match(detailSource, /className="gap-1\.5 text-foreground"/);
+    assert.doesNotMatch(
+      detailSource,
+      /<Button[\s\S]{0,300}text-status-error-foreground[\s\S]{0,300}removeFromFavorites/,
+    );
     assert.match(detailSource, /<Badge variant="secondary" className="border-0 text-\[10px\]"/);
+  });
+
+  it('keeps the detail dialog within the viewport and scrolls the info panel', () => {
+    assert.match(detailSource, /h-\[calc\(100dvh-4rem\)\]/);
+    assert.match(detailSource, /grid-rows-\[minmax\(0,1fr\)\]/);
+    assert.match(detailSource, /flex h-full min-h-0 flex-row overflow-hidden/);
+    assert.match(
+      detailSource,
+      /min-h-0 min-w-0 flex-1[\s\S]*overflow-y-auto overscroll-contain/,
+    );
   });
 
   it('surfaces provenance, integrity, lineage, and consumers from real fields', () => {

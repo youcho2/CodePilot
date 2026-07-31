@@ -175,7 +175,10 @@ export function GalleryDetail({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-[calc(100vw-4rem)] sm:max-w-[calc(100vw-4rem)] max-h-[calc(100vh-4rem)] w-full h-[calc(100vh-4rem)] overflow-hidden p-0 gap-0 border-0" showCloseButton>
+      <DialogContent
+        className="h-[calc(100dvh-4rem)] max-h-[calc(100dvh-4rem)] w-full max-w-[calc(100vw-4rem)] grid-rows-[minmax(0,1fr)] overflow-hidden border-0 p-0 sm:max-w-[calc(100vw-4rem)]"
+        showCloseButton
+      >
         <DialogTitle className="sr-only">
           {t('gallery.mediaDetail' as TranslationKey)}
         </DialogTitle>
@@ -183,9 +186,9 @@ export function GalleryDetail({
           {t('gallery.description' as TranslationKey)}
         </DialogDescription>
 
-        <div className="flex flex-row h-full">
+        <div className="flex h-full min-h-0 flex-row overflow-hidden">
           {/* Left: Media preview */}
-          <div className="relative w-[70%] shrink-0 bg-black">
+          <div className="relative min-h-0 w-[70%] shrink-0 bg-black">
             <div className="absolute inset-0 flex items-center justify-center">
               {integrityFailed ? (
                 <div className="flex max-w-md flex-col items-center gap-3 px-6 text-center text-white/80">
@@ -273,24 +276,24 @@ export function GalleryDetail({
           </div>
 
           {/* Right: Info panel */}
-          <div className="flex-1 min-w-0 border-l border-border/50 overflow-y-auto p-6 space-y-5">
+          <div className="min-h-0 min-w-0 flex-1 space-y-5 overflow-y-auto overscroll-contain border-l border-border/50 p-6 [scrollbar-gutter:stable]">
             {/* Favorite button */}
             <Button
               variant="outline"
               size="sm"
               onClick={() => onToggleFavorite?.(item.id)}
-              className={cn(
-                'gap-1.5',
-                item.favorited
-                  ? 'text-status-error-foreground'
-                  : 'text-muted-foreground hover:text-status-error-foreground',
-              )}
+              className="gap-1.5 text-foreground"
             >
               <CodePilotIcon
                 name="favorite"
                 size="lg"
                 strokeWidth={1.5}
-                className="[&_path]:fill-current"
+                className={cn(
+                  '[&_path]:fill-current',
+                  item.favorited
+                    ? 'text-status-error-foreground'
+                    : 'text-muted-foreground',
+                )}
                 aria-hidden
               />
               {item.favorited
