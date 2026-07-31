@@ -40,6 +40,7 @@ export type RepositoryOpenMode = 'readonly' | 'prefer-writable' | 'require-writa
 export interface FileHarnessRepositoryOptions {
   readonly mode?: RepositoryOpenMode;
   readonly instanceId?: string;
+  readonly machineId?: string;
   readonly faultInjector?: RepositoryFaultInjector;
 }
 
@@ -215,6 +216,7 @@ export class FileHarnessRepository {
       ? undefined
       : acquireWriterLease(canonicalRoot, {
         instanceId: options.instanceId,
+        machineId: options.machineId,
         repositoryGeneration: manifest.generation,
       });
     return new FileHarnessRepository({
@@ -243,6 +245,7 @@ export class FileHarnessRepository {
       try {
         lease = acquireWriterLease(canonicalRoot, {
           instanceId: options.instanceId,
+          machineId: options.machineId,
           repositoryGeneration: manifest.generation,
         });
       } catch (error) {
@@ -256,6 +259,7 @@ export class FileHarnessRepository {
           lease = recoverDeadWriterLease(canonicalRoot, {
             expectedInstanceId: error.holder.instanceId,
             instanceId: options.instanceId,
+            machineId: options.machineId,
             repositoryGeneration: manifest.generation,
           });
         } catch {

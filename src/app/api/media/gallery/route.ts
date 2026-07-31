@@ -119,17 +119,40 @@ function inspectLegacyPreview(row: LegacyGalleryRow): {
       mimeType,
     };
   }
-  if (!row.local_path || !fs.existsSync(row.local_path)) {
+  if (!row.local_path) {
     return {
       integrityState: 'missing',
       integrityReason: 'The legacy media file is missing.',
       mimeType,
     };
   }
-  const mediaRoot = fs.existsSync(getMediaDir())
-    ? fs.realpathSync(getMediaDir())
-    : path.resolve(getMediaDir());
-  const resolved = fs.realpathSync(row.local_path);
+  let resolved: string;
+  try {
+    // One syscall closes the former existsSync → realpathSync deletion race.
+    resolved = fs.realpathSync(row.local_path);
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    return {
+      integrityState: code === 'ENOENT' ? 'missing' : 'modified',
+      integrityReason: code === 'ENOENT'
+        ? 'The legacy media file is missing.'
+        : 'The legacy media file could not be safely inspected.',
+      mimeType,
+    };
+  }
+  let mediaRoot: string;
+  try {
+    mediaRoot = fs.realpathSync(getMediaDir());
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+      return {
+        integrityState: 'modified',
+        integrityReason: 'The Asset Library root could not be safely inspected.',
+        mimeType,
+      };
+    }
+    mediaRoot = path.resolve(getMediaDir());
+  }
   if (
     resolved === mediaRoot
     || !resolved.startsWith(`${mediaRoot}${path.sep}`)
@@ -315,7 +338,11 @@ export async function GET(request: NextRequest) {
 
     // Bounded on-read migration: old Gallery bytes remain untouched. Repeated
     // page loads continue the idempotent journal if a library is very large.
-    backfillMediaAssets(100);
+    backfillMediaAssets(100, {
+      maxBytes: 32 * 1024 * 1024,
+      maxSingleFileBytes: 32 * 1024 * 1024,
+      maxDurationMs: 75,
+    });
 
     const conditions = ["ar.lifecycle_state = 'active'"];
     const params: unknown[] = [];

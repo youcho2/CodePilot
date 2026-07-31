@@ -111,6 +111,10 @@ describe('electron main security guardrails (audit 2026-07 Loop 1)', () => {
     assert.match(body, /targetUrl\.origin\s*!==\s*senderUrl\.origin/);
     assert.match(
       body,
+      /deriveHtmlThumbnailRequestScope\(targetUrl\)/,
+    );
+    assert.doesNotMatch(
+      body,
       /pathname\.startsWith\(['"]\/api\/files\/html-preview\/ws\./,
     );
     assert.match(body, /searchParams\.has\(['"]interactive['"]\)/);
@@ -124,15 +128,16 @@ describe('electron main security guardrails (audit 2026-07 Loop 1)', () => {
   });
 
   it('allows only the exact local preview scope and rejects every external request', () => {
+    const scopeToken = `ws.${Buffer.from('/Users/test').toString('base64url')}`;
     const target = new URL(
-      'http://127.0.0.1:3001/api/files/html-preview/ws.scope-token/'
+      `http://127.0.0.1:3001/api/files/html-preview/${scopeToken}/`
         + 'Users/test/.codepilot-assets/asset/bundle/index.html',
     );
     const scope = deriveHtmlThumbnailRequestScope(target);
     assert.equal(isHtmlThumbnailRequestAllowed(target.toString(), scope), true);
     assert.equal(
       isHtmlThumbnailRequestAllowed(
-        'http://127.0.0.1:3001/api/files/html-preview/ws.scope-token/'
+        `http://127.0.0.1:3001/api/files/html-preview/${scopeToken}/`
           + 'Users/test/.codepilot-assets/asset/bundle/style.css',
         scope,
       ),
@@ -158,6 +163,29 @@ describe('electron main security guardrails (audit 2026-07 Loop 1)', () => {
       false,
     );
     assert.equal(isHtmlThumbnailRequestAllowed('file:///etc/passwd', scope), false);
+  });
+
+  it('rejects non-canonical, containing, and encoded-delimiter workspace tokens', () => {
+    const encoded = Buffer.from('/Users/test').toString('base64url');
+    const preview = (token: string) => new URL(
+      `http://127.0.0.1:3001/api/files/html-preview/${token}/Users/test/index.html`,
+    );
+    assert.throws(
+      () => deriveHtmlThumbnailRequestScope(preview('ws.scope-token')),
+      /canonical base64url/,
+    );
+    assert.throws(
+      () => deriveHtmlThumbnailRequestScope(preview(`ws.${encoded}suffix`)),
+      /canonical base64url/,
+    );
+    assert.throws(
+      () => deriveHtmlThumbnailRequestScope(preview(`ws.${encoded}%2Fsibling`)),
+      /invalid workspace scope segment/,
+    );
+    assert.throws(
+      () => deriveHtmlThumbnailRequestScope(preview('ws.')),
+      /invalid workspace scope segment/,
+    );
   });
 
   it('times out a stuck capture and releases the serialized queue', async () => {

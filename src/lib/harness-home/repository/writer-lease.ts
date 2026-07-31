@@ -1,5 +1,6 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { HARNESS_HOME_SCHEMA_VERSION } from '../contracts';
 import {
@@ -9,6 +10,8 @@ import {
 
 export interface WriterLeaseMetadata {
   readonly instanceId: string;
+  /** Opaque, non-user-facing identity for the physical machine. */
+  readonly machineId: string;
   readonly pid: number;
   readonly processStartedAt: string;
   readonly acquiredAt: string;
@@ -19,6 +22,7 @@ export interface WriterLeaseMetadata {
 
 export interface AcquireWriterLeaseInput {
   readonly instanceId?: string;
+  readonly machineId?: string;
   readonly pid?: number;
   readonly processStartedAt?: string;
   readonly repositoryGeneration: number;
@@ -36,6 +40,25 @@ export class RepositoryLockedError extends Error {
 
 function processStartedAt(): string {
   return new Date(Date.now() - process.uptime() * 1000).toISOString();
+}
+
+/**
+ * Stable but opaque by default. The optional seed gives administrators a
+ * rotation path without persisting a hostname or account name in a portable
+ * Harness root.
+ */
+export function currentHarnessMachineId(): string {
+  let userIdentity = '';
+  try {
+    const user = os.userInfo();
+    userIdentity = `${user.uid ?? ''}:${user.username}`;
+  } catch {
+    // Some restricted runtimes do not expose userInfo. The remaining machine
+    // properties still provide a stable local recovery boundary.
+  }
+  const seed = process.env.HARNESS_HOME_MACHINE_ID
+    || [os.hostname(), os.platform(), os.arch(), userIdentity].join('\0');
+  return `sha256:${crypto.createHash('sha256').update(seed).digest('hex')}`;
 }
 
 function lockPath(root: string): string {
@@ -56,7 +79,12 @@ function parseLease(raw: string): WriterLeaseMetadata {
   ) {
     throw new Error('Harness writer lease metadata is malformed.');
   }
-  return parsed as WriterLeaseMetadata;
+  return {
+    ...parsed,
+    // Pre-machine-identity leases remain visible as conflicts, but the empty
+    // identity makes them intentionally ineligible for automatic recovery.
+    machineId: typeof parsed.machineId === 'string' ? parsed.machineId : '',
+  } as WriterLeaseMetadata;
 }
 
 function writeLeaseAtomic(root: string, lease: WriterLeaseMetadata): void {
@@ -140,6 +168,7 @@ export function acquireWriterLease(
   const now = new Date().toISOString();
   const metadata: WriterLeaseMetadata = {
     instanceId: input.instanceId ?? crypto.randomUUID(),
+    machineId: input.machineId ?? currentHarnessMachineId(),
     pid: input.pid ?? process.pid,
     processStartedAt: input.processStartedAt ?? processStartedAt(),
     acquiredAt: now,
@@ -182,6 +211,13 @@ export function recoverDeadWriterLease(
   if (!holder || holder.instanceId !== input.expectedInstanceId) {
     throw new Error('Writer lease changed before recovery; rescan and retry.');
   }
+  const claimantMachineId = input.machineId ?? currentHarnessMachineId();
+  if (!holder.machineId || holder.machineId !== claimantMachineId) {
+    throw new Error(
+      'Cannot recover a Harness writer lease owned by another or unknown machine; '
+      + 'recovery fails closed.',
+    );
+  }
   const alive = isLeaseProcessAlive(holder);
   if (alive !== false) {
     throw new Error(
@@ -191,7 +227,10 @@ export function recoverDeadWriterLease(
     );
   }
   fs.unlinkSync(lockPath(root));
-  return acquireWriterLease(root, input);
+  return acquireWriterLease(root, {
+    ...input,
+    machineId: claimantMachineId,
+  });
 }
 
 /**

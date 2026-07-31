@@ -208,6 +208,43 @@ describe('CodePilot Design Method', () => {
     assert.equal(blocked.rejected[0]?.reason, 'non_trigger');
   });
 
+  it('rejects empty/control activation phrases on write and historical read', () => {
+    const repo = repository();
+    try {
+      assert.throws(
+        () => writeCreativeMethod(repo, {
+          ...methodInput(),
+          triggers: ['   '],
+        }),
+        /triggers must be 1-240 characters/,
+      );
+      assert.throws(
+        () => writeCreativeMethod(repo, {
+          ...methodInput(),
+          nonTriggers: ['never\u0000use'],
+        }),
+        /non-triggers must be 1-240 characters/,
+      );
+
+      const created = writeCreativeMethod(repo, methodInput());
+      const persisted = JSON.parse(
+        repo.read(created.record.definitionRef.path).toString('utf8'),
+      ) as { triggers: string[] };
+      persisted.triggers = [''];
+      fs.writeFileSync(
+        path.join(repo.root, created.record.definitionRef.path),
+        `${JSON.stringify(persisted)}\n`,
+        'utf8',
+      );
+      assert.throws(
+        () => listCreativeMethods(repo),
+        /triggers must be 1-240 characters/,
+      );
+    } finally {
+      repo.close();
+    }
+  });
+
   it('injects confirmed methods only when the prompt triggers progressive disclosure', () => {
     const repo = repository();
     try {

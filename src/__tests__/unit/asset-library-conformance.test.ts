@@ -11,6 +11,7 @@ import {
   addAssetReference,
   AssetInUseError,
   backfillMediaAssets,
+  classifyAssetBackfillError,
   deleteAssetPermanently,
   findActiveAssetIdsByStablePaths,
   getAssetLineage,
@@ -335,6 +336,126 @@ describe('Harness Home Asset Library conformance', () => {
     } finally {
       fs.rmSync(outsideDir, { recursive: true, force: true });
     }
+  });
+
+  it('cools down transient backfill failures, advances later rows, then retries', () => {
+    const mediaDir = getMediaDir();
+    fs.mkdirSync(mediaDir, { recursive: true });
+    const firstPath = path.join(mediaDir, 'legacy-transient-first.png');
+    const secondPath = path.join(mediaDir, 'legacy-after-transient.png');
+    fs.writeFileSync(firstPath, Buffer.from(PNG_BASE64, 'base64'));
+    fs.writeFileSync(secondPath, Buffer.from(PNG_BASE64, 'base64'));
+    insertLegacyMedia({
+      id: 'legacy-transient-first',
+      type: 'image',
+      localPath: firstPath,
+      mimeType: 'image/png',
+    });
+    insertLegacyMedia({
+      id: 'legacy-after-transient',
+      type: 'image',
+      localPath: secondPath,
+      mimeType: 'image/png',
+    });
+    getDb().prepare(
+      `UPDATE media_generations SET created_at = CASE id
+         WHEN 'legacy-transient-first' THEN '1980-01-01 00:00:00'
+         ELSE '1981-01-01 00:00:00'
+       END
+       WHERE id IN ('legacy-transient-first', 'legacy-after-transient')`,
+    ).run();
+    getDb().prepare(
+      `INSERT INTO asset_backfill_failures (
+         source_table, source_id, failure_revision, error, last_failed_at
+       ) VALUES (
+         'media_generations', 'legacy-transient-first', 'media-assets-v2',
+         'transient: resource busy', datetime('now')
+       )`,
+    ).run();
+
+    assert.equal(
+      classifyAssetBackfillError(Object.assign(new Error('busy'), { code: 'EBUSY' })).kind,
+      'transient',
+    );
+    assert.equal(
+      classifyAssetBackfillError(Object.assign(new Error('invalid'), { code: 'EINVAL' })).kind,
+      'permanent',
+    );
+    const advanced = backfillMediaAssets(1);
+    assert.equal(advanced.created, 1);
+    assert.ok(getAssetRecord('legacy-after-transient'));
+    assert.equal(getAssetRecord('legacy-transient-first'), undefined);
+
+    getDb().prepare(
+      `UPDATE asset_backfill_failures
+       SET last_failed_at = '2000-01-01 00:00:00'
+       WHERE source_id = 'legacy-transient-first'`,
+    ).run();
+    const retried = backfillMediaAssets(1);
+    assert.equal(retried.created, 1);
+    assert.ok(getAssetRecord('legacy-transient-first'));
+    assert.equal(getDb().prepare(
+      'SELECT 1 FROM asset_backfill_failures WHERE source_id = ?',
+    ).get('legacy-transient-first'), undefined);
+  });
+
+  it('bounds inline backfill by cumulative and per-file byte budgets', () => {
+    const mediaDir = getMediaDir();
+    fs.mkdirSync(mediaDir, { recursive: true });
+    const firstPath = path.join(mediaDir, 'budget-first.png');
+    const secondPath = path.join(mediaDir, 'budget-second.png');
+    const oversizedPath = path.join(mediaDir, 'budget-oversized.png');
+    fs.writeFileSync(firstPath, Buffer.alloc(64, 1));
+    fs.writeFileSync(secondPath, Buffer.alloc(64, 2));
+    fs.writeFileSync(oversizedPath, Buffer.alloc(128, 3));
+    for (const [id, localPath] of [
+      ['budget-first', firstPath],
+      ['budget-second', secondPath],
+      ['budget-oversized', oversizedPath],
+    ] as const) {
+      insertLegacyMedia({ id, type: 'image', localPath, mimeType: 'image/png' });
+    }
+    getDb().prepare(
+      `UPDATE media_generations SET created_at = CASE id
+         WHEN 'budget-first' THEN '1970-01-01 00:00:00'
+         WHEN 'budget-second' THEN '1971-01-01 00:00:00'
+         ELSE '1972-01-01 00:00:00'
+       END
+       WHERE id IN ('budget-first', 'budget-second', 'budget-oversized')`,
+    ).run();
+
+    const first = backfillMediaAssets(100, {
+      maxBytes: 64,
+      maxSingleFileBytes: 64,
+      maxDurationMs: 1_000,
+    });
+    assert.equal(first.scanned, 1);
+    assert.equal(first.created, 1);
+    assert.ok(getAssetRecord('budget-first'));
+    assert.equal(getAssetRecord('budget-second'), undefined);
+
+    const second = backfillMediaAssets(100, {
+      maxBytes: 64,
+      maxSingleFileBytes: 64,
+      maxDurationMs: 1_000,
+    });
+    assert.equal(second.created, 1);
+    assert.equal(second.deferred, 1);
+    assert.ok(getAssetRecord('budget-second'));
+    assert.equal(getAssetRecord('budget-oversized'), undefined);
+    assert.match(
+      (getDb().prepare(
+        'SELECT error FROM asset_backfill_failures WHERE source_id = ?',
+      ).get('budget-oversized') as { error: string }).error,
+      /^deferred:/,
+    );
+
+    const resumed = backfillMediaAssets(100);
+    assert.equal(resumed.created, 1);
+    assert.ok(getAssetRecord('budget-oversized'));
+    assert.equal(getDb().prepare(
+      'SELECT 1 FROM asset_backfill_failures WHERE source_id = ?',
+    ).get('budget-oversized'), undefined);
   });
 
   it('tracks acyclic lineage and protects active consumers from permanent deletion', () => {

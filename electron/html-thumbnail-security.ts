@@ -1,3 +1,5 @@
+import path from 'node:path';
+
 export const HTML_THUMBNAIL_CAPTURE_TIMEOUT_MS = 12_000;
 
 export class HtmlThumbnailCaptureTimeoutError extends Error {
@@ -11,15 +13,28 @@ export function deriveHtmlThumbnailRequestScope(targetUrl: URL): {
   origin: string;
   pathPrefix: string;
 } {
-  const match = targetUrl.pathname.match(
-    /^(\/api\/files\/html-preview\/ws\.[^/]+\/)/,
-  );
-  if (!match) {
+  const routePrefix = '/api/files/html-preview/';
+  if (!targetUrl.pathname.startsWith(routePrefix)) {
     throw new Error('HTML thumbnail URL is outside the workspace preview route.');
+  }
+  const segments = targetUrl.pathname.slice(routePrefix.length).split('/');
+  const [scopeToken, ...pathSegments] = segments;
+  const tokenMatch = scopeToken.match(/^ws\.([A-Za-z0-9_-]+)$/u);
+  if (!tokenMatch || pathSegments.length === 0 || pathSegments.some((segment) => !segment)) {
+    throw new Error('HTML thumbnail URL has an invalid workspace scope segment.');
+  }
+  const encodedBaseDir = tokenMatch[1];
+  const decodedBaseDir = Buffer.from(encodedBaseDir, 'base64url').toString('utf8');
+  if (
+    !path.isAbsolute(decodedBaseDir)
+    || decodedBaseDir.includes('\0')
+    || Buffer.from(decodedBaseDir, 'utf8').toString('base64url') !== encodedBaseDir
+  ) {
+    throw new Error('HTML thumbnail workspace scope is not canonical base64url.');
   }
   return {
     origin: targetUrl.origin,
-    pathPrefix: match[1],
+    pathPrefix: `${routePrefix}${scopeToken}/`,
   };
 }
 

@@ -5,6 +5,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import {
+  getHtmlBundleDisplayTitle,
   getHtmlBundlePreviewLocation,
   materializeHtmlBundle,
 } from '@/lib/assets/html-bundle-materializer';
@@ -211,6 +212,32 @@ describe('HTML bundle materialization conformance', () => {
     } finally {
       fs.rmSync(workspace, { recursive: true, force: true });
     }
+  });
+
+  it('removes bidi and invisible control characters from HTML display titles', () => {
+    const asset = materializeHtmlBundle({
+      terminalState: 'completed',
+      source: {
+        kind: 'inline',
+        html: '<!doctype html><title>Quarterly \u202Egpj.exe\u202C\u200B Report</title>',
+      },
+      sessionId: 'session-bidi-title',
+    });
+    const metadata = JSON.parse(asset.metadata) as { pageTitle: string };
+    assert.equal(metadata.pageTitle, 'Quarterly gpj.exe Report');
+    assert.equal(getHtmlBundleDisplayTitle(asset), 'Quarterly gpj.exe Report');
+
+    const poisonedMetadata = {
+      ...JSON.parse(asset.metadata),
+      pageTitle: 'Trusted\u2066 disguised.exe\u2069',
+    };
+    getDb().prepare(
+      'UPDATE asset_records SET metadata = ? WHERE id = ?',
+    ).run(JSON.stringify(poisonedMetadata), asset.id);
+    assert.equal(
+      getHtmlBundleDisplayTitle(getAssetRecord(asset.id)!),
+      'Trusted disguised.exe',
+    );
   });
 
   it('does not materialize local anchor targets as bundle dependencies', () => {

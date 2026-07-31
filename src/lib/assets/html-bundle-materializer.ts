@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { getDb } from '@/lib/db';
+import { sanitizeDisplayText } from '@/lib/display-text-sanitizer';
 import type { AssetRecord } from '@/types';
 import { addAssetLineage, getAssetRecord } from './service';
 import { assertRegisteredAssetProducer } from './kind-registry';
@@ -114,7 +115,7 @@ function decodeHtmlTitle(value: string): string {
     nbsp: ' ',
     quot: '"',
   };
-  return value
+  return sanitizeDisplayText(value
     .replace(/<[^>]*>/g, ' ')
     .replace(
       /&(?:#(\d+)|#x([0-9a-f]+)|([a-z]+));/gi,
@@ -133,9 +134,7 @@ function decodeHtmlTitle(value: string): string {
         }
         return named[entity?.toLowerCase()] ?? match;
       },
-    )
-    .replace(/\s+/g, ' ')
-    .trim();
+    ));
 }
 
 function readHtmlDocumentTitle(entryPath: string): string {
@@ -148,7 +147,7 @@ function readHtmlDocumentTitle(entryPath: string): string {
     const match = buffer
       .toString('utf8')
       .match(/<title\b[^>]*>([\s\S]*?)<\/title\s*>/i);
-    return match ? decodeHtmlTitle(match[1]).slice(0, 200) : '';
+    return match ? decodeHtmlTitle(match[1]) : '';
   } finally {
     fs.closeSync(file);
   }
@@ -363,7 +362,8 @@ export function getHtmlBundleDisplayTitle(asset: AssetRecord): string {
     pageTitle?: unknown;
   };
   if (typeof metadata.pageTitle === 'string' && metadata.pageTitle.trim()) {
-    return metadata.pageTitle.trim();
+    const pageTitle = sanitizeDisplayText(metadata.pageTitle);
+    if (pageTitle) return pageTitle;
   }
   const { entryPath } = getHtmlBundlePreviewLocation(asset);
   if (fs.existsSync(entryPath)) {

@@ -20,7 +20,13 @@ export async function GET(
 ) {
   const { id } = await params;
   const asset = getAssetRecord(id);
-  if (!asset || asset.lifecycle_state !== 'active') {
+  if (asset && asset.lifecycle_state !== 'active') {
+    return NextResponse.json(
+      { error: 'Asset is not active.', code: 'asset_not_active' },
+      { status: 409 },
+    );
+  }
+  if (!asset) {
     const legacy = getDb().prepare(
       'SELECT tags FROM media_generations WHERE id = ?',
     ).get(id) as { tags: string } | undefined;
@@ -53,6 +59,12 @@ export async function PUT(
     }
     const tags = normalizeAssetTags(body.tags as string[]);
     const asset = getAssetRecord(id);
+    if (asset && asset.lifecycle_state !== 'active') {
+      return NextResponse.json(
+        { error: 'Asset is not active.', code: 'asset_not_active' },
+        { status: 409 },
+      );
+    }
     if (asset?.lifecycle_state === 'active') {
       return NextResponse.json({ tags: setAssetTags(id, tags) });
     }

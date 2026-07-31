@@ -544,6 +544,40 @@ describe('FileHarnessRepository', () => {
     assert.equal(recovered.writable, true);
     recovered.close();
   });
+
+  it('never treats a PID on another machine as proof that a writer is dead', () => {
+    const root = tempRoot('cross-machine-lease');
+    const repository = FileHarnessRepository.create(root, 'harness-1');
+    repository.close();
+    const remote = acquireWriterLease(root, {
+      instanceId: 'remote-writer',
+      machineId: 'machine-a',
+      pid: 2_147_483_647,
+      processStartedAt: '2026-07-30T00:00:00.000Z',
+      repositoryGeneration: 0,
+    });
+
+    assert.throws(
+      () => FileHarnessRepository.open(root, {
+        mode: 'require-writable',
+        instanceId: 'local-writer',
+        machineId: 'machine-b',
+      }),
+      RepositoryLockedError,
+    );
+    assert.throws(
+      () => takeoverDeadWriterLease(root, {
+        expectedInstanceId: 'remote-writer',
+        confirmedByUser: true,
+        instanceId: 'local-writer',
+        machineId: 'machine-b',
+        repositoryGeneration: 0,
+      }),
+      /another or unknown machine/,
+    );
+    assert.equal(remote.metadata.machineId, 'machine-a');
+    remote.release();
+  });
 });
 
 describe('CompositeSecretStore', () => {

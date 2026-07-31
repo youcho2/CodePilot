@@ -205,9 +205,32 @@ export function validateCreativeMethod(method: CreativeMethodDefinition): void {
   if (method.critiqueCriteria.length === 0) {
     throw new Error(`Creative Method "${method.id}" requires critique criteria.`);
   }
-  if (method.triggers.length === 0) {
-    throw new Error(`Creative Method "${method.id}" requires at least one trigger.`);
-  }
+  const validateActivationPhrases = (
+    value: readonly string[],
+    label: 'trigger' | 'non-trigger',
+    required: boolean,
+  ): void => {
+    if (!Array.isArray(value) || (required && value.length === 0)) {
+      throw new Error(
+        `Creative Method "${method.id}" requires at least one ${label}.`,
+      );
+    }
+    for (const phrase of value) {
+      if (
+        typeof phrase !== 'string'
+        || !phrase.trim()
+        || phrase.length > 240
+        || /[\u0000-\u001f\u007f-\u009f]/u.test(phrase)
+      ) {
+        throw new Error(
+          `Creative Method "${method.id}" ${label}s must be 1-240 `
+          + 'characters without control characters.',
+        );
+      }
+    }
+  };
+  validateActivationPhrases(method.triggers, 'trigger', true);
+  validateActivationPhrases(method.nonTriggers, 'non-trigger', false);
   if (method.changelog.length === 0) {
     throw new Error(`Creative Method "${method.id}" requires a changelog.`);
   }

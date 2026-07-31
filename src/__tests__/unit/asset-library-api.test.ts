@@ -10,6 +10,7 @@ import { createSession, getDb } from '@/lib/db';
 import {
   addAssetReference,
   getAssetRecord,
+  registerMediaGenerationAsset,
   releaseAssetReference,
 } from '@/lib/assets/service';
 import { GET as getKinds } from '@/app/api/assets/kinds/route';
@@ -26,6 +27,7 @@ import {
 } from '@/app/api/assets/[id]/tags/route';
 import { DELETE as deleteMedia } from '@/app/api/media/[id]/route';
 import { PUT as toggleFavorite } from '@/app/api/media/[id]/favorite/route';
+import { PUT as updateLegacyMediaTags } from '@/app/api/media/[id]/tags/route';
 import { POST as restoreLegacyAsset } from '@/app/api/assets/[id]/restore/route';
 import { getMediaDir } from '@/lib/media-saver';
 
@@ -349,6 +351,107 @@ describe('Asset Library API', () => {
       JSON.parse(getAssetRecord(archivedAssetId)!.tags),
       ['网页', '灵感'],
     );
+  });
+
+  it('rejects tag writes to trashed Assets through both tag routes', async () => {
+    const mediaDir = getMediaDir();
+    fs.mkdirSync(mediaDir, { recursive: true });
+    const localPath = path.join(mediaDir, 'trashed-tag-route.png');
+    fs.writeFileSync(localPath, Buffer.from('trashed tag bytes'));
+    getDb().prepare(
+      `INSERT INTO media_generations (
+         id, type, status, provider, model, prompt, local_path,
+         thumbnail_path, tags, metadata, created_at, completed_at
+       ) VALUES (
+         'trashed-tag-route', 'image', 'completed', 'test', 'test',
+         'trashed tags', ?, '', '[]', '{"mimeType":"image/png"}',
+         datetime('now'), datetime('now')
+       )`,
+    ).run(localPath);
+    registerMediaGenerationAsset({
+      mediaGenerationId: 'trashed-tag-route',
+      producerId: 'legacy-media-backfill',
+    });
+    getDb().prepare(
+      `UPDATE asset_records
+       SET lifecycle_state = 'trashed', deleted_at = datetime('now')
+       WHERE id = 'trashed-tag-route'`,
+    ).run();
+
+    const body = {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tags: ['should-not-land'] }),
+    } as const;
+    const canonical = await updateAssetTags(
+      request('/api/assets/trashed-tag-route/tags', body),
+      { params: Promise.resolve({ id: 'trashed-tag-route' }) },
+    );
+    assert.equal(canonical.status, 409);
+    assert.equal((await canonical.json()).code, 'asset_not_active');
+    const legacy = await updateLegacyMediaTags(
+      request('/api/media/trashed-tag-route/tags', body),
+      { params: Promise.resolve({ id: 'trashed-tag-route' }) },
+    );
+    assert.equal(legacy.status, 409);
+    assert.equal((await legacy.json()).code, 'asset_not_active');
+    assert.equal(
+      (getDb().prepare(
+        'SELECT tags FROM media_generations WHERE id = ?',
+      ).get('trashed-tag-route') as { tags: string }).tags,
+      '[]',
+    );
+
+    getDb().prepare(
+      `UPDATE asset_records SET lifecycle_state = 'active', deleted_at = NULL
+       WHERE id = 'trashed-tag-route'`,
+    ).run();
+    const deleted = await deleteMedia(
+      request('/api/media/trashed-tag-route', { method: 'DELETE' }),
+      { params: Promise.resolve({ id: 'trashed-tag-route' }) },
+    );
+    assert.equal(deleted.status, 200);
+  });
+
+  it('keeps a legacy row listable when its file disappears before realpath', async () => {
+    const missingPath = path.join(getMediaDir(), 'legacy-realpath-race.png');
+    fs.rmSync(missingPath, { force: true });
+    getDb().prepare(
+      `INSERT INTO media_generations (
+         id, type, status, provider, model, prompt, local_path,
+         thumbnail_path, tags, metadata, error, created_at
+       ) VALUES (
+         'legacy-realpath-race', 'image', 'completed', 'legacy', '',
+         'legacy realpath race', ?, '', '[]',
+         '{"mimeType":"image/png"}', NULL, datetime('now')
+       )`,
+    ).run(missingPath);
+    getDb().prepare(
+      `INSERT INTO asset_backfill_failures (
+         source_table, source_id, failure_revision, error
+       ) VALUES (
+         'media_generations', 'legacy-realpath-race', 'media-assets-v2',
+         'permanent:test keeps the row on the legacy read path'
+       )`,
+    ).run();
+
+    try {
+      const response = await getGallery(request(
+        '/api/media/gallery?query=legacy%20realpath%20race',
+      ));
+      assert.equal(response.status, 200);
+      const data = await response.json();
+      assert.equal(data.total, 1);
+      assert.equal(data.items[0].integrityState, 'missing');
+      assert.equal(data.items[0].legacyOnly, true);
+    } finally {
+      getDb().prepare(
+        'DELETE FROM asset_backfill_failures WHERE source_id = ?',
+      ).run('legacy-realpath-race');
+      getDb().prepare(
+        'DELETE FROM media_generations WHERE id = ?',
+      ).run('legacy-realpath-race');
+    }
   });
 
   it('keeps old media rows available during the additive migration', () => {

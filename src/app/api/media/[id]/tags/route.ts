@@ -38,7 +38,13 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
 
     const tags = normalizeAssetTags(body.tags);
     const asset = getAssetRecord(id);
-    if (asset) {
+    if (asset && asset.lifecycle_state !== 'active') {
+      return NextResponse.json(
+        { error: 'Asset is not active.', code: 'asset_not_active' },
+        { status: 409 },
+      );
+    }
+    if (asset?.lifecycle_state === 'active') {
       setAssetTags(id, tags);
     } else {
       db.prepare('UPDATE media_generations SET tags = ? WHERE id = ?').run(

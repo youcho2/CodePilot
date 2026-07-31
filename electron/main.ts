@@ -2193,13 +2193,16 @@ app.whenReady().then(async () => {
         const targetUrl = new URL(params.previewUrl, senderUrl.origin);
         if (
           targetUrl.origin !== senderUrl.origin
-          || !targetUrl.pathname.startsWith('/api/files/html-preview/ws.')
           || targetUrl.searchParams.has('interactive')
         ) {
           return { error: 'invalid_preview_url' as const };
         }
-
-        const requestScope = deriveHtmlThumbnailRequestScope(targetUrl);
+        let requestScope: ReturnType<typeof deriveHtmlThumbnailRequestScope>;
+        try {
+          requestScope = deriveHtmlThumbnailRequestScope(targetUrl);
+        } catch {
+          return { error: 'invalid_preview_url' as const };
+        }
         const partition = `asset-thumbnail-${Date.now()}-${Math.random().toString(36).slice(2)}`;
         const captureSession = session.fromPartition(partition, { cache: false });
         captureSession.setPermissionCheckHandler(() => false);

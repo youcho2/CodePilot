@@ -449,12 +449,44 @@ export interface AssetBackfillResult {
   readonly created: number;
   readonly missing: number;
   readonly skipped: number;
+  readonly deferred: number;
   readonly remaining: number;
 }
 
-const ASSET_BACKFILL_FAILURE_REVISION = 'media-assets-v2';
+export interface AssetBackfillBudget {
+  readonly maxBytes?: number;
+  readonly maxSingleFileBytes?: number;
+  readonly maxDurationMs?: number;
+}
 
-function recordBackfillFailure(sourceId: string, error: string): void {
+const ASSET_BACKFILL_FAILURE_REVISION = 'media-assets-v2';
+const TRANSIENT_BACKFILL_CODES = new Set([
+  'EAGAIN',
+  'EBUSY',
+  'EIO',
+  'EMFILE',
+  'ENFILE',
+  'ETIMEDOUT',
+]);
+
+export function classifyAssetBackfillError(error: unknown): {
+  kind: 'permanent' | 'transient';
+  message: string;
+} {
+  const code = (error as NodeJS.ErrnoException | undefined)?.code;
+  return {
+    kind: code && TRANSIENT_BACKFILL_CODES.has(code)
+      ? 'transient'
+      : 'permanent',
+    message: error instanceof Error ? error.message : String(error),
+  };
+}
+
+function recordBackfillFailure(
+  sourceId: string,
+  kind: 'permanent' | 'transient' | 'deferred',
+  error: string,
+): void {
   getDb().prepare(
     `INSERT INTO asset_backfill_failures (
        source_table, source_id, failure_revision, error
@@ -464,12 +496,38 @@ function recordBackfillFailure(sourceId: string, error: string): void {
        error = excluded.error,
        attempt_count = asset_backfill_failures.attempt_count + 1,
        last_failed_at = datetime('now')`,
-  ).run(sourceId, ASSET_BACKFILL_FAILURE_REVISION, error);
+  ).run(
+    sourceId,
+    ASSET_BACKFILL_FAILURE_REVISION,
+    `${kind}: ${error}`,
+  );
 }
 
-export function backfillMediaAssets(limit = 100): AssetBackfillResult {
+function backfillSourceByteSize(localPath: string): number {
+  if (!localPath) return 0;
+  const resolved = path.resolve(localPath);
+  const mediaDir = canonicalMediaDir();
+  if (resolved !== mediaDir && !resolved.startsWith(`${mediaDir}${path.sep}`)) {
+    return 0;
+  }
+  try {
+    const stat = fs.lstatSync(resolved);
+    return stat.isFile() ? stat.size : 0;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return 0;
+    throw error;
+  }
+}
+
+export function backfillMediaAssets(
+  limit = 100,
+  budget: AssetBackfillBudget = {},
+): AssetBackfillResult {
+  const retryDeferred = budget.maxBytes === undefined
+    && budget.maxSingleFileBytes === undefined
+    && budget.maxDurationMs === undefined;
   const rows = getDb().prepare(
-    `SELECT mg.id, mg.type
+    `SELECT mg.id, mg.type, mg.local_path
      FROM media_generations mg
      LEFT JOIN asset_records ar ON ar.source_media_generation_id = mg.id
      LEFT JOIN asset_backfill_failures abf
@@ -478,22 +536,61 @@ export function backfillMediaAssets(limit = 100): AssetBackfillResult {
       AND abf.failure_revision = ?
      WHERE ar.id IS NULL AND mg.status = 'completed'
        AND mg.type IN ('image','video','audio')
-       AND abf.source_id IS NULL
+       AND (
+         abf.source_id IS NULL
+         OR (
+           abf.error LIKE 'transient:%'
+           AND abf.last_failed_at <= datetime('now', '-30 seconds')
+         )
+         OR (? = 1 AND abf.error LIKE 'deferred:%')
+       )
      ORDER BY mg.created_at ASC
      LIMIT ?`,
-  ).all(ASSET_BACKFILL_FAILURE_REVISION, limit) as {
+  ).all(ASSET_BACKFILL_FAILURE_REVISION, retryDeferred ? 1 : 0, limit) as {
     id: string;
     type: string;
+    local_path: string;
   }[];
+  const startedAt = Date.now();
+  const maxBytes = budget.maxBytes ?? Number.POSITIVE_INFINITY;
+  const maxSingleFileBytes = budget.maxSingleFileBytes ?? maxBytes;
+  const maxDurationMs = budget.maxDurationMs ?? Number.POSITIVE_INFINITY;
+  let scanned = 0;
+  let inspectedBytes = 0;
   let created = 0;
   let missing = 0;
   let skipped = 0;
+  let deferred = 0;
   let lastError = '';
   for (const row of rows) {
+    if (scanned > 0 && Date.now() - startedAt >= maxDurationMs) break;
+    let sourceBytes: number;
+    try {
+      sourceBytes = backfillSourceByteSize(row.local_path);
+    } catch (error) {
+      scanned++;
+      skipped++;
+      const failure = classifyAssetBackfillError(error);
+      lastError = failure.message;
+      recordBackfillFailure(row.id, failure.kind, failure.message);
+      continue;
+    }
+    if (sourceBytes > maxSingleFileBytes || (scanned === 0 && sourceBytes > maxBytes)) {
+      scanned++;
+      skipped++;
+      deferred++;
+      lastError = `Source file is ${sourceBytes} bytes, above the inline backfill budget.`;
+      recordBackfillFailure(row.id, 'deferred', lastError);
+      continue;
+    }
+    if (inspectedBytes + sourceBytes > maxBytes) break;
+    scanned++;
+    inspectedBytes += sourceBytes;
     if (!getAssetKind(row.type)) {
       skipped++;
       recordBackfillFailure(
         row.id,
+        'permanent',
         `Asset kind "${row.type}" is not registered.`,
       );
       continue;
@@ -512,8 +609,9 @@ export function backfillMediaAssets(limit = 100): AssetBackfillResult {
       ).run(row.id);
     } catch (error) {
       skipped++;
-      lastError = error instanceof Error ? error.message : String(error);
-      recordBackfillFailure(row.id, lastError);
+      const failure = classifyAssetBackfillError(error);
+      lastError = failure.message;
+      recordBackfillFailure(row.id, failure.kind, failure.message);
     }
   }
   const remaining = (
@@ -527,7 +625,11 @@ export function backfillMediaAssets(limit = 100): AssetBackfillResult {
         AND abf.failure_revision = ?
        WHERE ar.id IS NULL AND mg.status = 'completed'
          AND mg.type IN ('image','video','audio')
-         AND abf.source_id IS NULL`,
+         AND (
+           abf.source_id IS NULL
+           OR abf.error LIKE 'transient:%'
+           OR abf.error LIKE 'deferred:%'
+         )`,
     ).get(ASSET_BACKFILL_FAILURE_REVISION) as { count: number }
   ).count;
   const previous = getDb().prepare(
@@ -553,7 +655,7 @@ export function backfillMediaAssets(limit = 100): AssetBackfillResult {
        completed_at = excluded.completed_at`,
   ).run(
     'media_generations',
-    (previous?.scanned_count ?? 0) + rows.length,
+    (previous?.scanned_count ?? 0) + scanned,
     (previous?.created_count ?? 0) + created,
     (previous?.missing_count ?? 0) + missing,
     (previous?.skipped_count ?? 0) + skipped,
@@ -561,10 +663,11 @@ export function backfillMediaAssets(limit = 100): AssetBackfillResult {
     remaining === 0 ? new Date().toISOString() : null,
   );
   return {
-    scanned: rows.length,
+    scanned,
     created,
     missing,
     skipped,
+    deferred,
     remaining,
   };
 }
