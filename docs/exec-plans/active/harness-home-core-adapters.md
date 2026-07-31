@@ -1,8 +1,8 @@
 # Harness Home Program A — Core、Repository 与 Adapter Kits
 
 > 创建时间：2026-07-30
-> 最后更新：2026-07-30
-> 状态：🟡 A1–A4 工程实现完成；A4 真实凭据 Tier 2 smoke 待最终验收；用户已授权 Codex 直接实施，明确不启动 loop
+> 最后更新：2026-07-31
+> 状态：🟡 A1–A4 工程实现与 Claude review hardening 完成；A4 真实凭据 Tier 2 smoke 待最终验收；用户已授权 Codex 直接实施，明确不启动 loop
 > 父计划：[harness-home-user-owned-core.md](harness-home-user-owned-core.md)
 > 基线：正式 v0.62 发布线；实施时必须从当时最新 `main` 新建隔离 worktree
 
@@ -31,6 +31,16 @@ Asset DB/Gallery 演进见 [harness-home-asset-library.md](harness-home-asset-li
 | A2 | File repository、write model、SecretStore、migration | ✅ 完成 | A1 contract frozen |
 | A3 | HarnessAdapter L0/L1 + per-adapter conformance | ✅ 完成 | A2 dry-run/round-trip 通过 |
 | A4 | RuntimeAdapter L2/L3 + CodePilot Full Reference | 🟡 工程完成，真实凭据 smoke 待验收 | A3 边界与 touchpoint budget 通过 |
+
+## 执行清单
+
+- [x] A0 inventory、enforcement anchors、write model 与 SecretStore 决策
+- [x] A1 framework-neutral contracts、scope、provenance、reference status
+- [x] A2 file repository、lease、journal、crash recovery、external-edit consistency
+- [x] A3 三个 L0/L1 source adapter 与共享 conformance
+- [x] A4 三 Runtime facade、Full Reference assertion、canonical Skill/MCP write boundary
+- [x] Claude review hardening：递归中立门禁、输入校验、Secret scan、dead-writer 证明、staged journal containment、流式 hash 与 bounded consistency cache
+- [ ] A4 三 Runtime 真实凭据 / permission / resume / interrupt / packaged registration smoke
 
 ## 用户会看到什么
 
@@ -406,6 +416,7 @@ CODEX_DISABLED=1 npx tsx --test --import ./src/__tests__/db-isolation.setup.ts \
 |------|-------|-------------------|----------|------|--------|----------|
 | 2026-07-30 | A3 | assistant-workspace / claude-code / codex | none | discover → dry-run → import → export → re-import；conflict / partial rollback / symlink | ✅ | `harness-home-adapter-conformance.test.ts` 19/19 |
 | 2026-07-30 | A4 | Claude / CodePilot / Codex facades | none | registered descriptor → canonical repository projection → prompt；canonical Skill/MCP write；stale/unknown/Secret fail-closed | ✅ | `harness-home-runtime-conformance.test.ts` + related tests 74/74 |
+| 2026-07-31 | A1–A4 review | canonical repository / API / boundary gate | none | nested framework leakage、invalid scope/method/evidence、inline secrets、forged/dead lease、journal path、unchanged/external-edited consistency | ✅ 定向 65/65；全量 4904/4904；production build | review fix `ef396b0d`；`harness-home-boundary-guard.test.ts` / repository/design/runtime suites |
 | _待执行_ | A4 | CodePilot / Claude / Codex | real credential | canonical memory/skill/MCP projection | ⏳ | session ids / logs / screenshots |
 
 ## 决策日志
@@ -420,3 +431,4 @@ CODEX_DISABLED=1 npx tsx --test --import ./src/__tests__/db-isolation.setup.ts \
 - 2026-07-30：A2 完成。仓库采用 realpath 单写者 lease、显式 dead-holder takeover、同根 staging、prepared journal、manifest-last atomic rename、启动恢复和 hash/rescan；外部修改与 symlink 越界 fail-closed。SecretStore 首版只代理 v0.62 既有 stores，env/external-owned 只读，诊断不含 resolved value。
 - 2026-07-30：A3 完成。首批 Assistant Workspace、Claude Code、Codex source adapters 共用 L0/L1 contract；Codex `config.toml` 不做不安全的整文件 import。普通新 adapter 目标变更面固定为自身目录 + registry + conformance，changed-files guard 强制显式 base。
 - 2026-07-30：A4 工程实现完成。Runtime 元数据改为显式 compile-time registry，旧 wire 保持兼容并对 unknown fail-closed；CodePilot stable Full Reference 由自动化强制。Canonical Repository 已接三条 Runtime facade；Skill/MCP 先感知、不冒充挂载。真实凭据 smoke 留在最终 Tier 2。
+- 2026-07-31：Claude review hardening 收口于 `ef396b0d`。Canonical defaults 改为 `host_application` / 中立 MIME 与 secret namespace；递归 boundary gate 进入 `npm test` 和 pre-commit。Repository scan 改为流式 hash + stat-backed 32-generation cache；任何外部编辑重新 hash，staged journal / symlink / dead-writer recovery 继续 fail-closed。

@@ -32,6 +32,7 @@
 | 13 | `subagent_run_events` 只接受枚举 lifecycle type，FK 绑定真实 attempt，logical id 来自 run row；重复 progress 可 coalesce，但 started/settling/terminal 审计事实不得靠模型自由文本推断 | `recordSubagentRunEvent` + `insertSubagentRunEvent` |
 | 14 | workflow edge 是 `(parent_session_id, workflow_id, task_key)` 下的显式身份。依赖 task 在 Provider 启动前以 `dispatch_state=queued` 落库，只有上游同 workflow task 的 durable `completed + result_text` 齐备后才能切 `executing`；重复 key 与 self/indirect cycle 必须在插入/启动前拒绝；旧行保守回填为 `executing/terminal`，不得从 prompt 猜依赖 | `startSubagentRun` + `resolveSubagentDependencies` |
 | 15 | Next dev HMR 会保留进程级 SQLite handle；新代码的 additive migration 不能依赖“重新打开 DB”才执行。`getDb()` 必须比较 code-owned schema revision，并在 revision 变化时只重跑幂等结构初始化；runtime recovery 不得随 HMR 重跑。回归测试必须在 revision refresh 前保留 live streaming row，并确认 refresh 后仍为 streaming，不能只断言 index/column 被补齐 | `DatabaseProcessState.schemaRevision` + `DATABASE_SCHEMA_REVISION` |
+| 16 | Bounded Asset backfill 不能被单个 poison legacy row 永久饿死。失败项必须按 `(source_table, source_id, failure_revision)` 留下可审计记录；同 revision 跳过并继续后续行，只有迁移逻辑显式 bump revision 后才重试。失败记录不等于删除源 row，也不能伪造成成功 Asset | `asset_backfill_failures` + `backfillMediaAssets` |
 
 ## 关键文件 + 责任
 
@@ -91,7 +92,7 @@
 | additive `subagent_runs` / `subagent_run_events`、legacy backfill、logical attempt、workflow queued/dependency handoff/duplicate/cycle、active/completed reuse guard、parent FK/cascade、running checkpoint、settling/terminal immutable | `src/__tests__/unit/subagent-run-persistence.test.ts` |
 | cached handle 在 dev schema revision 变化后重跑幂等 migration，且 live streaming row 不被 recovery 中断 | `src/__tests__/unit/subagent-run-persistence.test.ts` |
 | `messages.stream_status` checkpoint、terminal 原位更新、live-owner 下重复 startup no-op | `src/__tests__/unit/collect-owner-gate.test.ts` |
-| `asset_records.tags` additive column、legacy media tags 保守回填、重复 migration 幂等 | `src/__tests__/unit/asset-library-conformance.test.ts` |
+| `asset_records.tags` additive column、legacy media tags 逐项保守回填、重复 migration 幂等、poison row failure revision 不阻塞后续行 | `src/__tests__/unit/asset-library-conformance.test.ts` |
 
 ## 设计决策日志
 
@@ -106,3 +107,4 @@
 - 2026-07-24 — 会话 `3f0085c5fc664deca85005d70b1abfca` 证明 SDK 串行工具执行不会重写已经生成的下游 tool input。新增 additive workflow/task/dependencies/dispatch state：accepted downstream 先 queued，应用只从同 session/workflow 的 durable completed result 编译实际 prompt；duplicate task key、self/indirect cycle 与失败依赖 fail closed。
 - 2026-07-24 — 会话 `f7153c2b01e6a58b31e0406db9be56ec` 暴露 dev HMR schema 漂移：代码已写 `workflow_id`，但进程级缓存 DB handle 没有重新执行新增 migration，两次 child 都在 durable row 创建前报 `no such column: workflow_id`。`getDb()` 现用 code-owned schema revision 在 HMR 后重跑纯结构、幂等 migration；startup recovery 仍只在真正打开/取得进程 owner 时执行。
 - 2026-07-31 — Asset 标签从 legacy `media_generations.tags` 提升为 `asset_records.tags`，覆盖 HTML 与所有已注册 kind。迁移只在新列默认空数组时复制可验证的 legacy JSON array；写入 Asset 标签时对 source media 双写，兼容旧消费者且不删除原字段。
+- 2026-07-31 — Gallery 的 100 条/请求渐进 backfill 曾可能被同一坏行永久占住进度。新增 `asset_backfill_failures` 与 code-owned failure revision：坏行可审计、同 revision 跳过、后续行继续；修复迁移逻辑时 bump revision 才重试。schema revision 同步更新，HMR cached handle 会补建该表。

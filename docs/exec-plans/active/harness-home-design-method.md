@@ -1,7 +1,7 @@
 # Harness Home Program C — CodePilot Design Method
 
 > 创建时间：2026-07-30
-> 最后更新：2026-07-30
+> 最后更新：2026-07-31
 > 状态：🟡 C0 候选证据清单 + C1/C2/C3 foundation/API/tests 已完成；用户方法确认、golden set、真实 producer 与人工审美门禁待执行
 > 父计划：[harness-home-user-owned-core.md](harness-home-user-owned-core.md)
 > 依赖：Program A shared scope/provenance；完整创作 lineage 依赖 Program B
@@ -20,6 +20,16 @@
 | C1 | Design Method v0 + golden set + critique rubric | 🟡 versioned store、candidate/confirmed、rubric、trigger/non-trigger、progressive disclosure 与三 Runtime 投影已完成；v0 pack / golden set 待确认 | C0 素材足够且有用户确认 |
 | C2 | Taste Memory 证据模型与撤销 | ✅ foundation/API/tests 完成；独立 UI 仍服从 Deferred UI 决策 | Program A scope/provenance frozen |
 | C3 | 图片→视频→网页编排与 Asset lineage | 🟡 durable creative project、typed AssetRef/parent、Runtime/Provider checkpoint、unsupported degradation 已完成；真实 image→video→HTML run 待执行 | Program B typed AssetRef 可用 |
+
+## 执行清单
+
+- [x] C0 四组真实 CodePilot 产品 brief 候选证据清单
+- [x] C1 candidate/confirmed/retired Method contract、selector、三 Runtime projection 与 API
+- [x] C2 evidence-only Taste Memory、scope/conflict、编辑与撤销 API
+- [x] C3 durable creative project、typed parent refs、checkpoint 与 unsupported degradation
+- [x] Claude review hardening：method id/version、decision evidence、parent AssetRef、scope 与 Taste classification 服务端校验
+- [ ] 用户确认可泛化的 Design Method v0
+- [ ] 3–5 个 golden briefs、真实 image→video/HTML producer run 与人工审美门禁
 
 ## 用户会看到什么
 
@@ -235,6 +245,7 @@ Snapshot、模型自评和单元测试不能单独关闭这些门禁。
 | _待执行_ | golden brief 2 | v0 candidate | TBD | image → video | ⏳ | video id / critique |
 | _待执行_ | golden brief 3 | v0 candidate | TBD | image → html_bundle | ⏳ | bundle hash / screenshot |
 | 2026-07-30 | foundation conformance | candidate + confirmed fixtures | 三 Runtime projection | method/taste/project contracts + API | ✅ Tier 0/1：10/10；组合回归 24/24；全量 4866/4866 + production build | `harness-home-design-method.test.ts`；`harness-home-design-api.test.ts`；无模型自评 |
+| 2026-07-31 | foundation review | candidate/confirmed fixtures | 三 Runtime projection | invalid scope/classification/method/evidence/parent refs fail-closed | ✅ 纳入定向 65/65、全量 4904/4904 与 production build | review fix `ef396b0d`；`harness-home-design-api.test.ts` / `harness-home-design-method.test.ts`；无模型自评 |
 
 ## 决策日志
 
@@ -247,3 +258,4 @@ Snapshot、模型自评和单元测试不能单独关闭这些门禁。
 - 2026-07-30：Method 使用 prompt trigger + non-trigger + scope 做 progressive disclosure，默认每轮不加载。
 - 2026-07-30：同 rank 的冲突 Taste Memory fail-closed，不按最后写入或 confidence 静默覆盖。
 - 2026-07-30：UI 入口继续服从 umbrella 的 Deferred UI 决策；本轮只提供 canonical file/API/Runtime surfaces，不把 Harness Home 强塞进 Settings 或 Plugins。
+- 2026-07-31：review hardening 只加强证据与引用真实性，不据此创建 Method v0 或用户 Taste；schema/API 全绿仍不能替代用户的设计选择。

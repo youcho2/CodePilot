@@ -8,6 +8,7 @@
 
 | 文档 | 对应交接文档 | 主题 |
 |------|------------|------|
+| [harness-home.md](./harness-home.md) | [handover/harness-home.md](../handover/harness-home.md) | 为什么 Harness Home 是用户所有的领域聚合根而不是一张页面；开放接入为何拆成 L0/L1 与 L2/L3；CodePilot Full Reference、Asset ownership、Codex preview 去重和 Design Method human gate 的产品取舍 |
 | [same-runtime-multi-model-subagents.md](./same-runtime-multi-model-subagents.md) | [handover/same-runtime-multi-model-subagents.md](../handover/same-runtime-multi-model-subagents.md) | 为什么主控跟随当前会话、Profile 只做可选身份模板、为什么先 same-runtime/read-only、Agent 卡片与 requested/effective 诚实展示的产品取舍 |
 | [qwen-token-plan-grok-access.md](./qwen-token-plan-grok-access.md) | [handover/qwen-token-plan-grok-access.md](../handover/qwen-token-plan-grok-access.md) | 为什么套餐 identity 不能靠 URL、为什么订阅凭据需要场景 gate、xAI API Key/OAuth 双渠道取舍与真实 OAuth 完成感反馈 |
 | [cli-tools.md](./cli-tools.md) | [handover/cli-tools.md](../handover/cli-tools.md) | CLI 工具管理的 MCP 化、Agent-first CLI 趋势、凭证管理痛点 |

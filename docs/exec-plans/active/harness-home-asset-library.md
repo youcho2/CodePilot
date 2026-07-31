@@ -21,6 +21,16 @@
 | B2 | HTML bundle materializer 与 trust/CSP | ✅ code/tests 完成 | B1 + 现有 Artifact trust contract |
 | B3 | Library/Gallery 渐进演进与 typed references | ✅ code/tests 完成 | B1/B2 数据门禁 |
 
+## 执行清单
+
+- [x] B0 producer/consumer/legacy data inventory
+- [x] B1 typed Asset index、bounded backfill、lineage、consumer-safe permanent delete
+- [x] B2 HTML dependency closure、atomic bundle、strict static thumbnail
+- [x] B3 multi-kind Gallery、tags/search/context menu、typed references
+- [x] Claude review hardening：poison-row journal、legacy row 管理、external byte ownership、Codex durable/preview-only 去重、搜索并发与 build/dev 互斥
+- [x] 本地真实 Browser responsive/search/detail/context-menu smoke
+- [ ] packaged app multi-kind/human gate
+
 ## 用户会看到什么
 
 - 素材库不再只像图片 Gallery；
@@ -132,7 +142,10 @@ Backfill 原则：
 - image / video / audio 只有已登记 producer 才能落库；`component` / `document` 未注册。
 - 内置图片生成、MCP base64 保存、CLI/Codex 文件导入均在同一事务中写 media row 与 Asset provenance。
 - backfill 只扫描 terminal `completed`，missing path 明确记为 `missing`，partial/failed 不伪造成 Asset。
+- 单个坏行写入带 revision 的 `asset_backfill_failures`，同一 revision 跳过并继续后续行；标签按项 salvage，坏标签不会饿死整个 bounded backfill。
 - lineage、active reference、typed ref、消费者阻断与永久删除均由 `asset-library-conformance.test.ts` 覆盖。
+- failed / processing / external / unmaterialized legacy row 仍可见、可检索、可加标签和删除记录；只有 canonical media root 内的 owned bytes 会被删除，外部文件保留。
+- Codex image generation 是 durable Asset，image view 是 preview-only；同一 session 按原始路径与内容复用，不再把同一图片保存为“提示词版本 + 两个只有 ID 的版本”。
 - 兼容边界：既有 `lifecycle_state` / restore 路由暂留作旧 trashed record 的数据兼容，不再出现在素材库 UI；新删除路径会移除 Asset record、关联 source media row 和 Asset Library 独占字节，旧版本同样不会再显示已永久删除的内容。
 
 ## B2 — HTML bundle
@@ -161,6 +174,7 @@ HTML / web result 只有同时满足以下条件才 materialize：
 - materializer 采用临时目录 → 有界复制 → 全 bundle hash → manifest → 原子 rename → DB transaction；相同来源与 hash 的重复请求返回同一 Asset。
 - workspace HTML 以用户选定的入口文件为根，只闭包复制 HTML/CSS 实际引用的本地静态依赖，不把入口所在的整个 workspace 当作 bundle；限制文件数、单文件与总大小。被引用的 symlink、scope escape、`file:` / `javascript:`、外部 script、iframe/object/embed/form/base/meta refresh fail-closed。
 - HTML Asset 的截图输入只使用现有 `/api/files/html-preview` strict 模式；Electron 在同源、workspace scope、无 interactive 参数的约束下用隔离隐藏窗口生成一次 1280×720 PNG。Gallery 与详情不嵌入 iframe，也不运行归档网页。
+- 缩略图 partition 拒绝全部权限、导航与新窗口；`webRequest` 只放行精确 preview scope，外部 URL 全部阻断并在详情中解释。截图串行且有 12 秒整体 deadline，超时会销毁隐藏窗口并释放队列。
 - partial / failed 不创建成功 Asset；入口或依赖丢失、字节改变会转为 `missing` / `modified`，不能生成 typed ref 或恢复为 active。
 
 ## B3 — Gallery 渐进演进
@@ -237,6 +251,7 @@ HTML / web result 只有同时满足以下条件才 materialize：
 | 2026-07-31 | all registered kinds | Asset tag API / Gallery context menu / detail UI | additive 通用标签 + legacy 回填/双写；搜索命中标签；右键标签/收藏/删除；实心 Star 收藏标记；详情按钮描边与 lineage 标签层级 | ✅ 目标测试 41/41、全量单测 4880/4880、生产 build；真实 Browser 完成“添加验收标签 → 搜索唯一命中 → 详情移除”并清理，右键删除仅打开确认未执行；0 console errors | `asset-library-api.test.ts` 11/11；`asset-library-conformance.test.ts` 9/9；`asset-library-ui.test.ts` 10/10；真实工具栏 rect：收藏/排序 right=1256、1280 viewport 留 24px；卡片/右键菜单/详情截图人工核对 |
 | 2026-07-31 | all registered kinds | Gallery detail Dialog | 长 prompt 详情保持在动态视口内；右侧可滚至底部；取消收藏文字与 Star 使用分离状态色 | ✅ UI contract 11/11；Browser 1280×720：Dialog top/bottom = 32/688，右栏 client/scroll height = 656/1443，实际 scrollTop 0→787；恢复测试素材原收藏状态；0 console errors | `asset-library-ui.test.ts`；真实长 prompt 素材详情截图与 computed style 核对 |
 | 2026-07-31 | all registered kinds | Gallery card interaction | hover 描边加粗到 3px；基础态预置灰色 ring token；移除 shadow transition，杜绝黑→灰闪烁；focus-visible 同厚度 | ✅ UI contract 12/12；Browser computed style：base ring = `border` token、transition duration = 0s；0 console errors | `asset-library-ui.test.ts`；真实 Gallery 卡片 computed style 核对 |
+| 2026-07-31 | all registered kinds + Codex | Claude review remediation | poison backfill 继续推进；legacy/external row 可管理且不删外部文件；generation/view 去重；HTML 外部请求阻断/超时释放；250ms search debounce + stale response/重复 ID/分页 guard；dev lock build fail-closed | ✅ Asset/Codex 定向 47/47；组合 65/65；全量 4904/4904；production build；Browser 1024/1280/1600 = 2/3/5 列，600px 详情独立滚动，0 console errors | review fix `ef396b0d`；API/conformance/Codex/Electron packaging tests；本地真实素材只读验收，未执行删除 |
 | _待执行_ | all registered kinds | packaged app | multi-kind visual readability + HTML safety copy | ⏳ Human gate | screenshot / user feedback |
 
 ## 决策日志
@@ -261,3 +276,4 @@ HTML / web result 只有同时满足以下条件才 materialize：
 - 2026-07-31：收藏的语义图标从 heart 修正为 Star；卡片使用放大、内移的实心状态标记。详情 action 统一描边，lineage 计数使用 filled secondary badge，明确表达非交互标签。
 - 2026-07-31：详情内容可能远高于预览区；Dialog 固定在 `100dvh` 安全边界内，右侧通过 `min-height: 0` flex 约束独立滚动。收藏 action 的文字不再承担红色状态表达，状态色只落在 Star。
 - 2026-07-31：卡片原先只在 `:hover` 注入 `ring-border`，与 `transition-shadow` 同帧启动时会先使用默认黑色 ring，再插值为灰色。修复为基础态固定 ring token、hover/focus 仅切换到 3px 宽度，并取消该过渡。
+- 2026-07-31：Claude review 与用户 Codex 重复图片反馈合并收口于 `ef396b0d`。可见 preview 不再自动等价于 durable Asset；legacy 失败行先可管理、后续如需清理仍由用户决定，修复不自动删除任何现有素材。

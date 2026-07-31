@@ -38,6 +38,8 @@ Harness Home is the framework-neutral, user-owned source of truth for portable i
 | 14 | Canonical projection reads exactly one hash-consistent generation. Missing provenance, external edits, oversized context or Secret material abort projection before prompt assembly. |
 | 15 | Canonical Skill/MCP definitions are catalogued as perception-only until a Runtime-specific mounter proves a real executable wire. Their bodies are not injected as fake tools. |
 | 16 | Runtime switching is read-only with respect to canonical files. It may select a matching overlay but cannot rewrite the base manifest or external Harness source. |
+| 17 | Canonical core files remain product/framework neutral. Product Runtime identities and integration imports belong only in adapter/runtime/product binding files; the recursive canonical boundary guard is a required test and pre-commit gate. |
+| 18 | A read-only consistency check may cache hashes only behind stat identity (`dev/ino/size/mtimeNs/ctimeNs`) and a bounded generation cache. Any stat change, symlink, out-of-root path or journal mismatch forces revalidation/fail-closed; no cache may hide an external edit. |
 
 ## 3. 关键文件 + 责任
 
@@ -70,6 +72,7 @@ Harness Home is the framework-neutral, user-owned source of truth for portable i
 - [ ] New transaction path keeps manifest last and recovery idempotent.
 - [ ] New credential namespace declares resolve, mutation, reauthorization and cleanup semantics.
 - [ ] New L0/L1 adapter passes the shared conformance suite and does not modify forbidden touchpoints.
+- [ ] Canonical files pass `npm run test:harness-boundary`; product/framework identity remains in the declared integration layer.
 - [ ] New Runtime descriptor keeps unsupported capabilities explicit and passes permission/event conformance.
 - [ ] New Runtime registration includes a real packaged driver and keeps DB/HTTP wire validation fail-closed.
 - [ ] Canonical projection includes source provenance and does not expose Memory/identity bodies through diagnostics.
@@ -86,6 +89,8 @@ Harness Home is the framework-neutral, user-owned source of truth for portable i
 - Resolving a SecretRef for diagnostics and accidentally serializing the returned value.
 - Parsing only known Runtime overlays and dropping fields from an uninstalled adapter.
 - Calling an L0/L1 scanner a Runtime integration, then branching in Context Compiler and Settings.
+- Adding a new product/framework word to a portable provenance value, MIME type, secret namespace or canonical import.
+- Rehashing every Harness file on every read-only turn, or caching by pathname/mtime alone and missing an external edit.
 - Treating a canonical Skill/MCP file as mounted because it was successfully read.
 - Returning canonical section bodies or resolved Secret values from diagnostics.
 - Adding a selectable Runtime descriptor without registering its packaged driver.
@@ -106,11 +111,14 @@ Harness Home is the framework-neutral, user-owned source of truth for portable i
 | Runtime registry/wire/packaged driver/Full Reference | `harness-home-runtime-conformance.test.ts` |
 | Canonical projection, cross-Runtime read-only injection, stale generation and Secret metadata | `harness-home-runtime-conformance.test.ts` |
 | Canonical Skill/MCP create/idempotency/hash conflict/Secret rejection | `harness-home-runtime-conformance.test.ts` |
+| Recursive canonical neutrality, nested violation detection and pre-commit wiring | `harness-home-boundary-guard.test.ts` + `npm run test:harness-boundary` |
+| Streaming hash, unchanged generation cache hit and external-edit invalidation | `harness-home-repository.test.ts` |
 
 Required local verification for core/repository changes:
 
 ```bash
 npm run typecheck
+npm run test:harness-boundary
 npx eslint src/lib/harness-home src/__tests__/unit/harness-home-*.test.ts
 CODEX_DISABLED=1 npx tsx --test --import ./src/__tests__/db-isolation.setup.ts src/__tests__/unit/harness-home-*.test.ts
 ```
@@ -129,3 +137,5 @@ Run full `npm run test` before closing a phase or changing existing Runtime/DB/M
 - 2026-07-30 — Canonical identity/rules/Memory/Method context is projected into all three Runtime facades from one consistent generation. Skill/MCP bodies remain perception-only until an executable mounter exists.
 - 2026-07-30 — Harness Home Skill/MCP creation writes the canonical repository first. Replacing different bytes requires the caller's expected content hash; external export remains a separate adapter action.
 - 2026-07-30 — Harness Home diagnostics are a code/API surface, not a new page. They return root, provenance, conflicts, capability gaps and Secret availability metadata, never canonical content or resolved values.
+- 2026-07-31 — Claude review exposed product identity in canonical defaults and the lack of an enforcing recursive boundary. Portable provenance/MIME/secret namespaces are now neutral; `test:harness-boundary` scans nested canonical files and runs in the code pre-commit tier.
+- 2026-07-31 — Repository consistency now uses streaming hashes plus a 32-generation stat-backed cache. This removes full-file hashing from unchanged read-only turns while preserving external-edit, symlink and journal fail-closed behavior.
