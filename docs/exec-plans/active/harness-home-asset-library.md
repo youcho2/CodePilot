@@ -252,6 +252,7 @@ HTML / web result 只有同时满足以下条件才 materialize：
 | 2026-07-31 | all registered kinds | Gallery detail Dialog | 长 prompt 详情保持在动态视口内；右侧可滚至底部；取消收藏文字与 Star 使用分离状态色 | ✅ UI contract 11/11；Browser 1280×720：Dialog top/bottom = 32/688，右栏 client/scroll height = 656/1443，实际 scrollTop 0→787；恢复测试素材原收藏状态；0 console errors | `asset-library-ui.test.ts`；真实长 prompt 素材详情截图与 computed style 核对 |
 | 2026-07-31 | all registered kinds | Gallery card interaction | hover 描边加粗到 3px；基础态预置灰色 ring token；移除 shadow transition，杜绝黑→灰闪烁；focus-visible 同厚度 | ✅ UI contract 12/12；Browser computed style：base ring = `border` token、transition duration = 0s；0 console errors | `asset-library-ui.test.ts`；真实 Gallery 卡片 computed style 核对 |
 | 2026-07-31 | all registered kinds + Codex | Claude review remediation | poison backfill 继续推进；legacy/external row 可管理且不删外部文件；generation/view 去重；HTML 外部请求阻断/超时释放；250ms search debounce + stale response/重复 ID/分页 guard；dev lock build fail-closed | ✅ Asset/Codex 定向 47/47；组合 65/65；全量 4904/4904；production build；Browser 1024/1280/1600 = 2/3/5 列，600px 详情独立滚动，0 console errors | review fix `ef396b0d`；API/conformance/Codex/Electron packaging tests；本地真实素材只读验收，未执行删除 |
+| 2026-07-31 | image + html_bundle | Codex Runtime live / HTML materializer | 真实 Codex 只生成一次并 image view 同图一次；manifest/apple-touch-icon 进入闭包；preconnect/dns-prefetch 只披露不复制 | ✅ 测试标记 Asset 0→1，generation/view 共用 media ID；follow-up 51/51；全量 4909/4909；production build；sessions/notify 均 200 | fix `fb77d434`；session `73f5f1ddb44410f3c406aa3a733a86d3`；Asset `a163f37ae4ec60e489ee92afef1d9c18`；测试素材保留，未执行删除 |
 | _待执行_ | all registered kinds | packaged app | multi-kind visual readability + HTML safety copy | ⏳ Human gate | screenshot / user feedback |
 
 ## 决策日志
@@ -277,3 +278,4 @@ HTML / web result 只有同时满足以下条件才 materialize：
 - 2026-07-31：详情内容可能远高于预览区；Dialog 固定在 `100dvh` 安全边界内，右侧通过 `min-height: 0` flex 约束独立滚动。收藏 action 的文字不再承担红色状态表达，状态色只落在 Star。
 - 2026-07-31：卡片原先只在 `:hover` 注入 `ring-border`，与 `transition-shadow` 同帧启动时会先使用默认黑色 ring，再插值为灰色。修复为基础态固定 ring token、hover/focus 仅切换到 3px 宽度，并取消该过渡。
 - 2026-07-31：Claude review 与用户 Codex 重复图片反馈合并收口于 `ef396b0d`。可见 preview 不再自动等价于 durable Asset；legacy 失败行先可管理、后续如需清理仍由用户决定，修复不自动删除任何现有素材。
+- 2026-07-31：`fb77d434` 后使用真实 Codex Account 做 generation → image view 实走；两条事件返回同一 media ID，Gallery 按唯一 prompt 标记只出现一个 Asset。测试会话与素材按用户授权保留，不清理真实验收证据。

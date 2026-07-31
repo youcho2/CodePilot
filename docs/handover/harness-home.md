@@ -2,7 +2,7 @@
 
 > 对应产品思考：[../insights/harness-home.md](../insights/harness-home.md)
 > 执行计划入口：[../exec-plans/active/harness-home-user-owned-core.md](../exec-plans/active/harness-home-user-owned-core.md)
-> 代码审查修复基线：`ef396b0d`
+> 代码审查修复基线：`fb77d434`
 
 ## 定位
 
@@ -104,8 +104,11 @@ Electron 缩略图使用独立无缓存 partition、拒绝全部权限和新窗�
 
 本轮审查闭环证据：
 
-- `npm run test`：4904/4904；
+- `npm run test`：4909/4909；
 - `npm run build`：通过；保留既有 Turbopack NFT tracing warning；
+- follow-up 定向 repository / design / HTML 三组：51/51；Harness boundary gate 通过；
+- 真实 Codex Runtime：session `73f5f1ddb44410f3c406aa3a733a86d3` 只调用一次 generation、一次同图 image view；两条事件共用 media ID，唯一标记查询 Asset 从 0 变为 1（`a163f37ae4ec60e489ee92afef1d9c18`）；测试素材按用户授权保留；
+- dev 运行中 `/api/chat/sessions` 与 `/api/tasks/notify` 均返回 200；
 - Browser：1024/1280/1600 宽分别呈现 2/3/5 列，无横向溢出；
 - 搜索命中真实 prompt，详情在 600px 高窗口内独立滚动；
 - HTML 安全提示、外部资源清单、右键菜单均可见；

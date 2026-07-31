@@ -25,6 +25,7 @@
 | Program C Method / Taste / creative-project foundation | `a54aad4b` |
 | Asset Library UI 多轮用户反馈收口 | `dcf40d7f`、`b8115101`、`41924589`、`2b3a9a14`、`300f4904` |
 | Claude review + Codex duplicate media + boundary/build hardening | `ef396b0d` |
+| Review follow-up：journal/Taste poison 韧性与 link/Codex 实走 | `fb77d434` |
 
 ## 用户问题与共享回答
 
@@ -390,3 +391,4 @@ Umbrella 不维护共享 Smoke Ledger。真实 smoke 必须登记到产生该行
 - 2026-07-30：用户授权 Codex 直接实施并明确不启动 loop；实施分支为 `codex/harness-home-implementation`，不自动 push/merge/release。
 - 2026-07-30：Shared Phase 0 inventory 完成。确认当前 L0 感知链路跨 8 文件，Runtime lexical surface 为 35 产品文件 + 57 测试/fixture；SecretStore 首版引用既有 DB/env/external-owned 源，不复制 Secret。
 - 2026-07-31：Claude review failed 后完成逐项闭环：HTML 截图外联/超时、canonical 中立性、repository 校验/性能、poison backfill、legacy/external ownership、Codex durable/preview-only 去重、搜索并发与 build/dev 互斥均有行为测试。全量 4904/4904、production build、真实本地 Gallery responsive/detail/search/context-menu smoke 通过；未删除用户现有素材。
+- 2026-07-31：review follow-up 收口于 `fb77d434`。Journal durable write、按事务目录恢复与异常 lease 释放形成完整失败链门禁；非法 Taste Memory 改为按记录隔离且 import 同步校验证据。真实 Codex Runtime 生成一次并预览同图一次，素材库从 0 个测试标记项变为 1 个，证明 preview-only 不再重复入库。
