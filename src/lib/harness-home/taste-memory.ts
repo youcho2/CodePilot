@@ -27,6 +27,18 @@ export interface TasteMemoryRecord {
   readonly ref: PortableContentRef;
 }
 
+export interface InvalidTasteMemoryRecord {
+  readonly id: string;
+  readonly path: string;
+  readonly contentHash: string;
+  readonly reason: string;
+}
+
+export interface TasteMemoryReadResult {
+  readonly records: readonly TasteMemoryRecord[];
+  readonly invalid: readonly InvalidTasteMemoryRecord[];
+}
+
 export interface WriteTasteMemoryInput {
   readonly id: string;
   readonly preferenceKey: string;
@@ -120,12 +132,28 @@ function readTasteMemory(
 export function listTasteMemories(
   repository: FileHarnessRepository,
 ): readonly TasteMemoryRecord[] {
-  return repository.manifest.state.preferenceRefs
-    .filter((ref) => ref.mediaType === TASTE_MEMORY_MEDIA_TYPE)
-    .map((ref) => ({
-      evidence: readTasteMemory(repository, ref),
-      ref,
-    }));
+  return inspectTasteMemories(repository).records;
+}
+
+export function inspectTasteMemories(
+  repository: FileHarnessRepository,
+): TasteMemoryReadResult {
+  const records: TasteMemoryRecord[] = [];
+  const invalid: InvalidTasteMemoryRecord[] = [];
+  for (const ref of repository.manifest.state.preferenceRefs) {
+    if (ref.mediaType !== TASTE_MEMORY_MEDIA_TYPE) continue;
+    try {
+      records.push({ evidence: readTasteMemory(repository, ref), ref });
+    } catch (error) {
+      invalid.push({
+        id: ref.id,
+        path: ref.path,
+        contentHash: ref.contentHash,
+        reason: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+  return { records, invalid };
 }
 
 function comparableInput(input: WriteTasteMemoryInput): string {
@@ -245,7 +273,15 @@ export function writeTasteMemory(
   const id = normalizedField(input.id, 'id');
   const preferenceKey = normalizedField(input.preferenceKey, 'preferenceKey');
   const sourceRef = normalizedField(input.sourceRef, 'sourceRef');
-  const existing = listTasteMemories(repository)
+  const inspection = inspectTasteMemories(repository);
+  const invalidExisting = inspection.invalid.find((record) => record.id === id);
+  if (invalidExisting) {
+    throw new Error(
+      `Taste Memory "${id}" is invalid and must be repaired before update: `
+      + invalidExisting.reason,
+    );
+  }
+  const existing = inspection.records
     .find((record) => record.evidence.id === id);
   const normalizedInput = {
     ...input,
@@ -311,7 +347,15 @@ export function revokeTasteMemory(
   const id = normalizedField(input.id, 'id');
   const reason = input.reason.trim();
   if (!reason) throw new Error('Taste Memory revoke reason must not be empty.');
-  const existing = listTasteMemories(repository)
+  const inspection = inspectTasteMemories(repository);
+  const invalidExisting = inspection.invalid.find((record) => record.id === id);
+  if (invalidExisting) {
+    throw new Error(
+      `Taste Memory "${id}" is invalid and must be repaired before revoke: `
+      + invalidExisting.reason,
+    );
+  }
+  const existing = inspection.records
     .find((record) => record.evidence.id === id);
   if (!existing) throw new Error(`Taste Memory "${id}" does not exist.`);
   if (existing.ref.contentHash !== input.expectedContentHash) {

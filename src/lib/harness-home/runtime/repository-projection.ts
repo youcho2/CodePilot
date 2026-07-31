@@ -23,7 +23,7 @@ import { FileHarnessRepository } from '../repository/file-repository';
 import type { HarnessScopeContext } from '../scope';
 import {
   TASTE_MEMORY_MEDIA_TYPE,
-  listTasteMemories,
+  inspectTasteMemories,
   renderTasteMemory,
   resolveTasteMemoryProjection,
 } from '../taste-memory';
@@ -79,6 +79,7 @@ export interface CanonicalRuntimeHarness {
     readonly selectedMethodIds: readonly string[];
     readonly tasteConflictKeys: readonly string[];
     readonly unavailableEvidenceIds: readonly string[];
+    readonly invalidTasteMemoryIds: readonly string[];
     readonly creativeProjectId?: string;
   };
 }
@@ -148,7 +149,8 @@ export function projectCanonicalRepository(input: {
     ...(input.scopeContext ?? {}),
     runtimeId: input.runtimeId,
   };
-  const tasteRecords = listTasteMemories(input.repository);
+  const tasteInspection = inspectTasteMemories(input.repository);
+  const tasteRecords = tasteInspection.records;
   const methodRecords = listCreativeMethods(input.repository);
   const unavailableTasteEvidenceIds = new Set<string>();
   const unavailableMethodEvidenceIds = new Set<string>();
@@ -353,6 +355,7 @@ export function projectCanonicalRepository(input: {
         ...unavailableMethodEvidenceIds,
         ...unavailableTasteEvidenceIds,
       ],
+      invalidTasteMemoryIds: tasteInspection.invalid.map((record) => record.id),
       ...(activeCreativeProject
         ? { creativeProjectId: activeCreativeProject.project.id }
         : {}),

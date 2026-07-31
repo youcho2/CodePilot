@@ -4,7 +4,7 @@ import {
   HARNESS_HOME_ROOT_SETTING,
 } from '@/lib/harness-home/runtime/configured';
 import {
-  listTasteMemories,
+  inspectTasteMemories,
   revokeTasteMemory,
   writeTasteMemory,
   type WriteTasteMemoryInput,
@@ -19,20 +19,26 @@ function configuredRoot(): string | null {
 export async function GET() {
   const root = configuredRoot();
   if (!root) {
-    return NextResponse.json({ configured: false, tasteMemories: [] });
+    return NextResponse.json({
+      configured: false,
+      tasteMemories: [],
+      invalidTasteMemories: [],
+    });
   }
   let repository: FileHarnessRepository | undefined;
   try {
     repository = FileHarnessRepository.open(root, { mode: 'readonly' });
+    const inspection = inspectTasteMemories(repository);
     return NextResponse.json({
       configured: true,
       root: repository.root,
       generation: repository.manifest.generation,
-      tasteMemories: listTasteMemories(repository).map((record) => ({
+      tasteMemories: inspection.records.map((record) => ({
         ...record.evidence,
         contentHash: record.ref.contentHash,
         path: record.ref.path,
       })),
+      invalidTasteMemories: inspection.invalid,
     });
   } catch (error) {
     return NextResponse.json(

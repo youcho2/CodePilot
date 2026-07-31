@@ -5,10 +5,12 @@ import os from 'node:os';
 import path from 'node:path';
 import {
   FileHarnessRepository,
+  TASTE_MEMORY_MEDIA_TYPE,
   addCreativeDirections,
   attachCreativeAsset,
   createCreativeProject,
   hashBytes,
+  inspectTasteMemories,
   listCreativeMethods,
   listCreativeProjects,
   listTasteMemories,
@@ -388,6 +390,96 @@ describe('evidence-backed Taste Memory', () => {
           (entry) => entry.id === 'taste-project-density-b',
         )?.reason,
         'revoked',
+      );
+    } finally {
+      repo.close();
+    }
+  });
+
+  it('isolates a persisted poison record without blocking valid projection', () => {
+    const repo = repository();
+    try {
+      const evidenceRef = indexEvidence(repo);
+      writeTasteMemory(repo, {
+        id: 'taste-valid-layout',
+        preferenceKey: 'layout.composition',
+        classification: 'one_off',
+        statement: 'Prefer an asymmetric composition for this variation.',
+        evidenceRef,
+        scope: { kind: 'user' },
+        confidence: 0.85,
+        affectedMethodIds: [],
+        sourceRef: 'user-choice:valid-layout',
+        observedAt: '2026-07-31T00:00:00.000Z',
+      });
+
+      const poisonEvidence = {
+        id: 'taste-poison-layout',
+        preferenceKey: 'layout.density',
+        classification: 'one_off',
+        statement: '',
+        evidenceRef,
+        scope: { kind: 'user' },
+        confidence: 0.5,
+        createdAt: '2026-07-31T00:01:00.000Z',
+        updatedAt: '2026-07-31T00:01:00.000Z',
+        affectedMethodIds: [],
+      };
+      const content = `${JSON.stringify(poisonEvidence, null, 2)}\n`;
+      const contentHash = hashBytes(content);
+      const current = repo.manifest;
+      repo.commit({
+        expectedGeneration: current.generation,
+        manifest: {
+          ...current,
+          generation: current.generation + 1,
+          writtenAt: '2026-07-31T00:01:00.000Z',
+          state: {
+            ...current.state,
+            preferenceRefs: [
+              ...current.state.preferenceRefs,
+              {
+                id: poisonEvidence.id,
+                path: 'state/taste/poison-layout.json',
+                contentHash,
+                mediaType: TASTE_MEMORY_MEDIA_TYPE,
+                provenance: {
+                  sourceKind: 'migration',
+                  sourceRef: 'fixture://taste/poison-layout',
+                  observedAt: '2026-07-31T00:01:00.000Z',
+                  contentHash,
+                  secretMaterial: 'absent',
+                },
+              },
+            ],
+          },
+        },
+        writes: [{
+          path: 'state/taste/poison-layout.json',
+          content,
+          expectedOldHash: null,
+        }],
+      });
+
+      const inspection = inspectTasteMemories(repo);
+      assert.deepEqual(
+        inspection.records.map((record) => record.evidence.id),
+        ['taste-valid-layout'],
+      );
+      assert.equal(inspection.invalid[0]?.id, 'taste-poison-layout');
+      assert.match(inspection.invalid[0]?.reason ?? '', /statement must not be empty/);
+
+      const projection = projectCanonicalRepository({
+        repository: repo,
+        runtimeId: 'codepilot_runtime',
+      });
+      assert.deepEqual(
+        projection.diagnostics.invalidTasteMemoryIds,
+        ['taste-poison-layout'],
+      );
+      assert.match(
+        renderCanonicalHarnessFragment(projection),
+        /Prefer an asymmetric composition/,
       );
     } finally {
       repo.close();

@@ -2,6 +2,7 @@ import type {
   HarnessHomeManifest,
   PortableContentRef,
   Provenance,
+  TasteMemoryEvidence,
 } from './contracts';
 import {
   FileHarnessRepository,
@@ -10,7 +11,11 @@ import {
   resolveRepositoryPath,
 } from './repository';
 import type { RepositoryTransactionJournal } from './repository';
-import { assertNoSecretMaterial } from './validation';
+import { TASTE_MEMORY_MEDIA_TYPE } from './taste-memory';
+import {
+  assertNoSecretMaterial,
+  validateTasteMemoryEvidence,
+} from './validation';
 
 export type HarnessManifestIndex =
   | keyof HarnessHomeManifest['definition']
@@ -62,6 +67,32 @@ function assertKnownIndex(index: HarnessManifestIndex): void {
   }
 }
 
+function validateCandidateSemantics(candidate: HarnessImportCandidate): void {
+  if (
+    candidate.index !== 'preferenceRefs'
+    || candidate.mediaType !== TASTE_MEMORY_MEDIA_TYPE
+  ) {
+    return;
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(
+      Buffer.isBuffer(candidate.content)
+        ? candidate.content.toString('utf8')
+        : candidate.content,
+    );
+  } catch {
+    throw new Error(`Taste Memory import "${candidate.id}" is not valid JSON.`);
+  }
+  validateTasteMemoryEvidence(parsed as TasteMemoryEvidence);
+  if ((parsed as TasteMemoryEvidence).id !== candidate.id) {
+    throw new Error(
+      `Taste Memory import ref "${candidate.id}" does not match evidence id `
+      + `"${(parsed as TasteMemoryEvidence).id}".`,
+    );
+  }
+}
+
 function currentRef(
   manifest: HarnessHomeManifest,
   index: HarnessManifestIndex,
@@ -89,6 +120,7 @@ export function planHarnessImport(
     seenTargets.add(candidate.targetPath);
     seenIds.add(`${candidate.index}:${candidate.id}`);
     assertNoSecretMaterial(candidate.content, `Import candidate ${candidate.id}`);
+    validateCandidateSemantics(candidate);
 
     const contentHash = hashBytes(candidate.content);
     const existingRef = currentRef(manifest, candidate.index, candidate.id);

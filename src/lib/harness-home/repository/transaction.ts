@@ -61,11 +61,37 @@ function journalPath(root: string, transactionId: string): string {
   return path.join(transactionRoot(root, transactionId), 'journal.json');
 }
 
+function syncDirectory(directory: string): void {
+  let fd: number | undefined;
+  try {
+    fd = fs.openSync(directory, 'r');
+    fs.fsyncSync(fd);
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (
+      process.platform === 'win32'
+      && ['EBADF', 'EINVAL', 'EISDIR', 'ENOTSUP', 'EPERM'].includes(code ?? '')
+    ) {
+      return;
+    }
+    throw error;
+  } finally {
+    if (fd !== undefined) fs.closeSync(fd);
+  }
+}
+
 function writeJournal(root: string, journal: RepositoryTransactionJournal): void {
   const target = journalPath(root, journal.transactionId);
   const temp = `${target}.tmp`;
-  fs.writeFileSync(temp, `${JSON.stringify(journal, null, 2)}\n`, 'utf8');
+  const fd = fs.openSync(temp, 'w', 0o600);
+  try {
+    fs.writeFileSync(fd, `${JSON.stringify(journal, null, 2)}\n`, 'utf8');
+    fs.fsyncSync(fd);
+  } finally {
+    fs.closeSync(fd);
+  }
   fs.renameSync(temp, target);
+  syncDirectory(path.dirname(target));
 }
 
 function resolveStagedTransactionPath(
@@ -106,15 +132,43 @@ export function listTransactionJournals(
   root: string,
 ): readonly RepositoryTransactionJournal[] {
   const transactionsDir = resolveInternalPath(root, HARNESS_TRANSACTIONS_DIR);
+  let entries: fs.Dirent[];
   try {
-    return fs.readdirSync(transactionsDir, { withFileTypes: true })
-      .filter((entry) => entry.isDirectory())
-      .map((entry) => readTransactionJournal(root, entry.name))
-      .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+    entries = fs.readdirSync(transactionsDir, { withFileTypes: true });
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') return [];
     throw error;
   }
+
+  const journals: RepositoryTransactionJournal[] = [];
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue;
+    try {
+      journals.push(readTransactionJournal(root, entry.name));
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+      const txRoot = transactionRoot(root, entry.name);
+      const temp = `${journalPath(root, entry.name)}.tmp`;
+      try {
+        const recovered = JSON.parse(
+          fs.readFileSync(temp, 'utf8'),
+        ) as RepositoryTransactionJournal;
+        fs.renameSync(temp, journalPath(root, entry.name));
+        syncDirectory(txRoot);
+        journals.push(recovered);
+      } catch (tempError) {
+        if ((tempError as NodeJS.ErrnoException).code !== 'ENOENT') {
+          throw tempError;
+        }
+        // Without either a committed journal or its fsynced temporary file,
+        // staged bytes have no recoverable intent. Remove only this validated
+        // internal transaction directory so one crash remnant cannot hide
+        // valid sibling journals forever.
+        fs.rmSync(txRoot, { recursive: true, force: true });
+      }
+    }
+  }
+  return journals.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
 }
 
 export function prepareRepositoryTransaction(input: {

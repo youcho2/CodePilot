@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 const ALLOWED_EXTENSIONS = new Set([
-  '.html', '.htm', '.css', '.js', '.mjs', '.json', '.txt',
+  '.html', '.htm', '.css', '.js', '.mjs', '.json', '.webmanifest', '.txt',
   '.svg', '.png', '.jpg', '.jpeg', '.gif', '.webp', '.avif', '.ico', '.bmp',
   '.woff', '.woff2', '.ttf', '.otf', '.eot',
   '.mp4', '.webm', '.mp3', '.wav', '.ogg',
@@ -182,13 +182,24 @@ function extractUrls(content: string): Array<{
         .toLowerCase()
         .split(/\s+/)
         .filter(Boolean);
-      if (rel.some((value) => (
+      const href = attributes.get('href');
+      const materializedDependency = rel.some((value) => (
         value === 'stylesheet'
         || value === 'icon'
+        || value.endsWith('-icon')
+        || value === 'manifest'
         || value === 'preload'
         || value === 'modulepreload'
-      ))) {
-        addAttribute('href');
+      ));
+      if (href && materializedDependency) {
+        urls.push({ url: href, context: 'link.href' });
+      } else if (
+        href
+        && rel.some((value) => value === 'preconnect' || value === 'dns-prefetch')
+      ) {
+        // Connection hints are not files to archive, but their hostnames are
+        // still part of the bundle's external-network disclosure.
+        urls.push({ url: href, context: 'link.connection-hint' });
       }
     }
   }
@@ -252,6 +263,7 @@ function resolveLocalResourceUrl(input: {
     input.externalUrls.add(raw);
     return null;
   }
+  if (input.context === 'link.connection-hint') return null;
   if (
     lowered.startsWith('data:')
     || lowered.startsWith('blob:')

@@ -158,6 +158,61 @@ describe('HTML bundle materialization conformance', () => {
     }
   });
 
+  it('archives manifest/icon links and discloses external connection hints', () => {
+    const workspace = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'html-link-rel-closure-'),
+    );
+    try {
+      fs.writeFileSync(
+        path.join(workspace, 'index.html'),
+        `<!doctype html><html><head>
+          <link rel="manifest" href="./app.webmanifest">
+          <link rel="apple-touch-icon" href="./touch.png">
+          <link rel="preconnect" href="https://cdn.example.com">
+          <link rel="dns-prefetch" href="https://fonts.example.com">
+        </head><body>Archived app</body></html>`,
+        'utf8',
+      );
+      fs.writeFileSync(
+        path.join(workspace, 'app.webmanifest'),
+        '{"name":"Archived app"}',
+        'utf8',
+      );
+      fs.writeFileSync(path.join(workspace, 'touch.png'), 'png-bytes', 'utf8');
+
+      const asset = materializeHtmlBundle({
+        terminalState: 'completed',
+        source: {
+          kind: 'workspace',
+          sourceDir: workspace,
+          entryFile: 'index.html',
+          scopeRoot: workspace,
+        },
+        sessionId: 'session-link-rel-closure',
+      });
+      const metadata = JSON.parse(asset.metadata) as {
+        bundleRoot: string;
+        fileCount: number;
+        externalUrls: string[];
+      };
+      assert.equal(metadata.fileCount, 3);
+      assert.equal(
+        fs.existsSync(path.join(metadata.bundleRoot, 'app.webmanifest')),
+        true,
+      );
+      assert.equal(
+        fs.existsSync(path.join(metadata.bundleRoot, 'touch.png')),
+        true,
+      );
+      assert.deepEqual(metadata.externalUrls, [
+        'https://cdn.example.com',
+        'https://fonts.example.com',
+      ]);
+    } finally {
+      fs.rmSync(workspace, { recursive: true, force: true });
+    }
+  });
+
   it('does not materialize local anchor targets as bundle dependencies', () => {
     const workspace = fs.mkdtempSync(
       path.join(os.tmpdir(), 'html-anchor-closure-'),

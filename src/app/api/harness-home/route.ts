@@ -76,6 +76,8 @@ export async function GET(request: NextRequest) {
           ).length,
         selectedMethodIds: result.harness.diagnostics.selectedMethodIds,
         tasteConflictKeys: result.harness.diagnostics.tasteConflictKeys,
+        invalidTasteMemoryIds:
+          result.harness.diagnostics.invalidTasteMemoryIds,
         creativeProjectId: result.harness.diagnostics.creativeProjectId,
       },
     },

@@ -27,7 +27,7 @@ Harness Home is the framework-neutral, user-owned source of truth for portable i
 | 3 | `stable` canonical capability implies `referenceStatus=executable`. Draft/pending capability cannot enter stable Settings coverage or executable model context. |
 | 4 | Manifest and canonical repository writes reject inline Secret material. Diagnostics/export contain only SecretRef and availability metadata. |
 | 5 | A realpath has at most one writer. A second live/unverifiable instance becomes read-only or fails. Startup may reclaim the exact observed holder only when the OS proves its PID is dead; manual takeover additionally requires explicit confirmation. |
-| 6 | Multi-file write order is staging → prepared journal → content atomic rename → manifest atomic rename → committed journal. Manifest is always last. |
+| 6 | Multi-file write order is staging → fsynced prepared journal → content atomic rename → manifest atomic rename → fsynced committed journal. Manifest is always last. Journal discovery isolates each transaction directory; missing-journal remnants cannot hide valid siblings, and any recovery failure releases the writer lease. |
 | 7 | `fs.watch` is a hint only. Open/focus/pre-write/explicit refresh must use generation and content hashes. External edits never become silent last-write-wins. |
 | 8 | Existing path components may not be symlinks. Repository-relative refs may not be absolute, contain `..`, or target `.harness-home`. |
 | 9 | Migration is dry-run first, copy-only, idempotent and conflict-aware. It does not delete or rewrite the external source. |
@@ -40,6 +40,7 @@ Harness Home is the framework-neutral, user-owned source of truth for portable i
 | 16 | Runtime switching is read-only with respect to canonical files. It may select a matching overlay but cannot rewrite the base manifest or external Harness source. |
 | 17 | Canonical core files remain product/framework neutral. Product Runtime identities and integration imports belong only in adapter/runtime/product binding files; the recursive canonical boundary guard is a required test and pre-commit gate. |
 | 18 | A read-only consistency check may cache hashes only behind stat identity (`dev/ino/size/mtimeNs/ctimeNs`) and a bounded generation cache. Any stat change, symlink, out-of-root path or journal mismatch forces revalidation/fail-closed; no cache may hide an external edit. |
+| 19 | Invalid persisted Taste Memory is isolated per record and returned as metadata diagnostics; it cannot block valid Taste projection. Import validates Taste evidence before commit, while update/revoke of the same invalid identity fails closed until repaired. |
 
 ## 3. 关键文件 + 责任
 
@@ -79,6 +80,7 @@ Harness Home is the framework-neutral, user-owned source of truth for portable i
 - [ ] Skill/MCP discovery remains perception-only until a conformance-tested mounter is passed explicitly.
 - [ ] New Asset kind is producer-backed and is registered in Program B, not added as a speculative enum here.
 - [ ] New Taste/Method persistence includes evidence, scope and revoke behavior.
+- [ ] Taste readers isolate legacy/import poison per record and keep a visible diagnostic breadcrumb.
 - [ ] Tests use isolated temporary roots; never point at a real user Harness root.
 
 ## 5. 常见坑
@@ -113,6 +115,8 @@ Harness Home is the framework-neutral, user-owned source of truth for portable i
 | Canonical Skill/MCP create/idempotency/hash conflict/Secret rejection | `harness-home-runtime-conformance.test.ts` |
 | Recursive canonical neutrality, nested violation detection and pre-commit wiring | `harness-home-boundary-guard.test.ts` + `npm run test:harness-boundary` |
 | Streaming hash, unchanged generation cache hit and external-edit invalidation | `harness-home-repository.test.ts` |
+| Fsynced journal, missing-journal sibling isolation and recovery lease release | `harness-home-repository.test.ts` |
+| Taste import validation and persisted poison isolation | `harness-home-repository.test.ts` + `harness-home-design-method.test.ts` |
 
 Required local verification for core/repository changes:
 
@@ -139,3 +143,4 @@ Run full `npm run test` before closing a phase or changing existing Runtime/DB/M
 - 2026-07-30 — Harness Home diagnostics are a code/API surface, not a new page. They return root, provenance, conflicts, capability gaps and Secret availability metadata, never canonical content or resolved values.
 - 2026-07-31 — Claude review exposed product identity in canonical defaults and the lack of an enforcing recursive boundary. Portable provenance/MIME/secret namespaces are now neutral; `test:harness-boundary` scans nested canonical files and runs in the code pre-commit tier.
 - 2026-07-31 — Repository consistency now uses streaming hashes plus a 32-generation stat-backed cache. This removes full-file hashing from unchanged read-only turns while preserving external-edit, symlink and journal fail-closed behavior.
+- 2026-07-31 — Journal replacement is file-fsynced and directory-synced where the platform supports it; recovery handles transaction directories independently and releases the lease on every failed open. Taste Memory import validates evidence, while read/projection isolates invalid persisted records with diagnostics instead of poisoning the whole collection.

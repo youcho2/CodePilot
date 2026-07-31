@@ -38,13 +38,15 @@ Canonical 数据不依赖 Claude Code、Codex 或某个模型。外部框架通�
 1. 校验 root、scope、schema、Secret 和引用；
 2. 取得单写者 lease；只有能证明原 owner 已死亡时才允许自动恢复；
 3. 在同一 root 下建立 staged transaction 和 prepared journal；
-4. 校验 expected hash，写临时文件并 durable flush；
+4. 校验 expected hash，写临时文件并 durable flush；prepared/committed journal 自身也先 fsync 再原子替换，并在平台支持时同步父目录；
 5. manifest-last 原子替换；
 6. journal 收口，刷新 consistency generation。
 
-路径校验必须同时覆盖 lexical containment、realpath containment 和 symlink 拒绝。journal 中记录的 staged path 也要重新验证，不能把 journal 当可信输入。
+路径校验必须同时覆盖 lexical containment、realpath containment 和 symlink 拒绝。journal 中记录的 staged path 也要重新验证，不能把 journal 当可信输入。启动扫描按 transaction 目录独立容错：缺 journal 的不可恢复 staging 会被清理，但不能遮住同级有效事务；损坏 journal 仍 fail closed，且失败打开必定释放刚取得的 writer lease。
 
-只读打开会进行 consistency scan。扫描用 1 MiB 流式 hash，并按 `dev/ino/size/mtimeNs/ctimeNs` 缓存最多 32 个 generation；未变化文件不会在每轮重复读完整内容，任何外部编辑都会让 stat key 失效并重新 hash。
+只读打开会进行 consistency scan。扫描用 1 MiB 流式 hash，并按 `dev/ino/size/mtimeNs/ctimeNs` 缓存最多 32 个 generation；未变化文件不会在每轮重复读完整内容。能改变这组 stat identity 的外部编辑会触发重新 hash；同时保持全部五项完全不变的底层替换不在该缓存机制的可观察范围内，不能笼统宣称“任何外部编辑”都必然被缓存键发现。
+
+Taste Memory 读取按记录隔离。合法记录继续进入 Runtime projection；JSON/schema/scope/evidence 结构损坏的历史记录保留在文件事实源中，并以 `id/path/contentHash/reason` 返回诊断，不再让整个 GET 或投影失败。L1 import 在写入前执行同一 evidence 校验；对同一损坏 identity 的更新/撤销保持 fail closed，必须先显式修复。
 
 ## Secret 与中立边界
 
@@ -86,7 +88,7 @@ Codex `MediaBlock` 必须显式携带 persistence：
 HTML archive 只复制入口及其真实本地依赖闭包。扫描器是 quote-aware 的线性状态机：
 
 - anchor `href` 不作为归档依赖；
-- `link[href]` 只接受 stylesheet/icon/preload/modulepreload；
+- `link[href]` 的 stylesheet/icon/apple-touch-icon/manifest/preload/modulepreload 进入本地依赖闭包；preconnect/dns-prefetch 不复制文件，但外部地址进入 metadata 披露；
 - script、iframe、object、embed、form、base、meta refresh、危险 scheme、scope escape 和 symlink fail closed；
 - 外部资源只记录到 metadata，不在截图时加载。
 
@@ -128,4 +130,3 @@ Electron 缩略图使用独立无缓存 partition、拒绝全部权限和新窗�
 - A4 三 Runtime 真实凭据/permission/resume/interrupt packaged smoke 未执行；
 - Design Method v0、golden producer run 和用户审美 gate 必须由真实作品与用户选择关闭；
 - packaged app 的 Asset Library human gate 未执行。
-

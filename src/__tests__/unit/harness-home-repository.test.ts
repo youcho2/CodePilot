@@ -7,6 +7,7 @@ import {
   CompositeSecretStore,
   FileHarnessRepository,
   RepositoryLockedError,
+  TASTE_MEMORY_MEDIA_TYPE,
   acquireWriterLease,
   applyHarnessImportPlan,
   createEnvironmentSecretBackend,
@@ -104,6 +105,41 @@ describe('FileHarnessRepository', () => {
     assert.equal(repeated.items[0].action, 'skip_same');
     assert.equal(applyHarnessImportPlan(repository, repeated), undefined);
     assert.equal(repository.manifest.generation, 1);
+    repository.close();
+  });
+
+  it('rejects an invalid Taste Memory at the migration boundary', () => {
+    const root = tempRoot('invalid-taste-import');
+    const repository = FileHarnessRepository.create(root, 'harness-1');
+    const invalidTaste = JSON.stringify({
+      id: 'taste-invalid-import',
+      preferenceKey: 'layout.density',
+      classification: 'one_off',
+      statement: '',
+      evidenceRef: { assetId: 'asset-evidence' },
+      scope: { kind: 'user' },
+      confidence: 0.5,
+      createdAt: '2026-07-31T00:00:00.000Z',
+      updatedAt: '2026-07-31T00:00:00.000Z',
+      affectedMethodIds: [],
+    });
+    assert.throws(
+      () => planHarnessImport(repository, [{
+        id: 'taste-invalid-import',
+        index: 'preferenceRefs',
+        targetPath: 'state/taste/invalid.json',
+        content: invalidTaste,
+        mediaType: TASTE_MEMORY_MEDIA_TYPE,
+        provenance: createProvenance({
+          sourceKind: 'migration',
+          sourceRef: 'fixture://taste/invalid',
+          contentHash: hashBytes(invalidTaste),
+          observedAt: '2026-07-31T00:00:00.000Z',
+        }),
+      }]),
+      /statement must not be empty/,
+    );
+    assert.equal(repository.manifest.generation, 0);
     repository.close();
   });
 
@@ -308,6 +344,68 @@ describe('FileHarnessRepository', () => {
       1,
     );
     recovered.close();
+  });
+
+  it('isolates an unjournaled transaction directory from valid siblings', () => {
+    const root = tempRoot('missing-journal-sibling');
+    const repository = FileHarnessRepository.create(root, 'harness-1');
+    const manifest = repository.manifest;
+    const prepared = prepareRepositoryTransaction({
+      root,
+      baseGeneration: manifest.generation,
+      targetGeneration: manifest.generation + 1,
+      writes: [],
+      manifestContent: `${JSON.stringify({
+        ...manifest,
+        generation: manifest.generation + 1,
+      })}\n`,
+      expectedManifestHash: hashBytes(
+        fs.readFileSync(path.join(root, 'manifest.json')),
+      ),
+    });
+    const abandoned = path.join(
+      root,
+      '.harness-home',
+      'transactions',
+      'abandoned-before-journal',
+    );
+    fs.mkdirSync(path.join(abandoned, 'staging'), { recursive: true });
+    fs.writeFileSync(path.join(abandoned, 'staging', '0000.content'), 'orphan');
+
+    const journals = listTransactionJournals(root);
+    assert.deepEqual(
+      journals.map((journal) => journal.transactionId),
+      [prepared.transactionId],
+    );
+    assert.equal(fs.existsSync(abandoned), false);
+    repository.close();
+  });
+
+  it('releases the writer lease when a damaged journal aborts recovery', () => {
+    const root = tempRoot('damaged-journal-lease');
+    const repository = FileHarnessRepository.create(root, 'harness-1');
+    repository.close();
+    const transactionDir = path.join(
+      root,
+      '.harness-home',
+      'transactions',
+      'damaged-journal',
+    );
+    fs.mkdirSync(transactionDir, { recursive: true });
+    fs.writeFileSync(path.join(transactionDir, 'journal.json'), '{not-json', 'utf8');
+
+    assert.throws(
+      () => FileHarnessRepository.open(root, {
+        mode: 'require-writable',
+        instanceId: 'failed-recovery-writer',
+      }),
+      /JSON/,
+    );
+    const replacement = acquireWriterLease(root, {
+      instanceId: 'replacement-after-failed-recovery',
+      repositoryGeneration: 0,
+    });
+    replacement.release();
   });
 
   it('rejects writes through a repository symlink', () => {

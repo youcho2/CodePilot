@@ -264,25 +264,29 @@ export class FileHarnessRepository {
       }
     }
     if (lease) {
-      const recovered = recoverPreparedTransactions(canonicalRoot);
-      const orphaned = recovered.find((journal) => journal.state === 'orphaned');
-      if (orphaned) {
-        lease.release();
-        throw new Error(
-          `Harness recovery found an orphaned transaction `
-          + `${orphaned.transactionId}: ${orphaned.orphanedReason ?? 'unknown reason'}`,
-        );
-      }
-      if (recovered.length > 0) {
-        manifest = readManifest(canonicalRoot);
-        manifestHash = hashFile(
-          resolveRepositoryPath(canonicalRoot, HARNESS_MANIFEST_FILE),
-        );
-        if (!manifestHash) {
-          lease.release();
-          throw new Error('Harness manifest disappeared during recovery.');
+      let recoverySucceeded = false;
+      try {
+        const recovered = recoverPreparedTransactions(canonicalRoot);
+        const orphaned = recovered.find((journal) => journal.state === 'orphaned');
+        if (orphaned) {
+          throw new Error(
+            `Harness recovery found an orphaned transaction `
+            + `${orphaned.transactionId}: ${orphaned.orphanedReason ?? 'unknown reason'}`,
+          );
         }
-        lease.refresh(manifest.generation);
+        if (recovered.length > 0) {
+          manifest = readManifest(canonicalRoot);
+          manifestHash = hashFile(
+            resolveRepositoryPath(canonicalRoot, HARNESS_MANIFEST_FILE),
+          );
+          if (!manifestHash) {
+            throw new Error('Harness manifest disappeared during recovery.');
+          }
+          lease.refresh(manifest.generation);
+        }
+        recoverySucceeded = true;
+      } finally {
+        if (!recoverySucceeded) lease.release();
       }
     }
     return new FileHarnessRepository({
