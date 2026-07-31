@@ -250,7 +250,7 @@ export function GalleryGrid({
                   role="button"
                   tabIndex={0}
                   aria-label={t(ariaKey, { prompt: promptPreview })}
-                  className="w-full cursor-pointer overflow-hidden rounded-lg bg-card ring-0 transition-shadow hover:ring-2 hover:ring-border focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  className="w-full cursor-pointer overflow-hidden rounded-lg bg-card ring-0 ring-border hover:ring-[3px] focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring"
                   onClick={() => onSelect(item)}
                   onKeyDown={(event) => {
                     if (event.key === 'Enter' || event.key === ' ') {

@@ -73,6 +73,16 @@ describe('Asset Library UI contract', () => {
     assert.match(gridSource, /\{displayTitle\}/);
   });
 
+  it('uses one stable, visible card outline for hover and keyboard focus', () => {
+    assert.match(
+      gridSource,
+      /ring-0 ring-border[\s\S]*hover:ring-\[3px\][\s\S]*focus-visible:ring-\[3px\]/,
+    );
+    assert.doesNotMatch(gridSource, /hover:ring-border/);
+    assert.doesNotMatch(gridSource, /hover:ring-2/);
+    assert.doesNotMatch(gridSource, /transition-shadow/);
+  });
+
   it('renders real audio and static HTML images with an honest failure state', () => {
     assert.match(gridSource, /item\.type === 'audio'/);
     assert.match(gridSource, /item\.type === 'html_bundle'/);

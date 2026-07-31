@@ -189,6 +189,7 @@ HTML / web result 只有同时满足以下条件才 materialize：
 - `asset_records.tags` 是四种 Asset kind 的通用标签事实源；旧 `media_generations.tags` 在 additive migration 中保守回填，后续对 legacy source 双写保持兼容。标签最多 20 个、单项 32 字符，并拒绝空值、控制字符和逗号。
 - 卡片右键菜单提供标签、收藏与删除；标签在右键 Dialog 和详情页都可增删。右键删除与详情删除共用不可撤销语义和 consumer fail-closed 结果。
 - 详情 Dialog 以动态视口高度为硬边界，右侧信息面板独立滚动；“取消收藏”文字沿用普通 action 前景色，仅 Star 保留收藏状态色。
+- 卡片 hover / keyboard focus 共用 3px ring；ring 颜色在基础态即固定为 `border` token，只切换宽度且不做阴影过渡，避免默认黑色 ring 闪现后再变灰。
 - Gallery 使用测量式最短列瀑布流：数据库仍按 `created_at + id` 稳定排序，DOM 顺序保留 newest-first；列数由 240px 最小列宽决定，剩余容器宽度平均分配给现有列，不留下右侧空槽。
 - HTML materializer 在归档时保存真实 `<title>`；旧 bundle 在读取时从实际入口 HTML 补取标题，最终才回退到真实入口文件名。网页归档/旧资产首次打开时经 Electron 隔离窗口生成一次 1280×720 PNG 并保存为 Asset 派生 preview；卡片和详情只读该图片，底部叠加真实标题，不显示“已归档/静态网页”胶囊。
 - Gallery 对 legacy media 同时核对 kind、MIME 与文件扩展名；历史上被错误标成 `image/png` 的 `.html` 不再作为坏图压成细条，而是降级为有界占位卡。
@@ -235,6 +236,7 @@ HTML / web result 只有同时满足以下条件才 materialize：
 | 2026-07-31 | html_bundle + media | Electron thumbnail capture / Gallery UI | 网页一次性串行截图并持久化 PNG；Gallery 0 iframe、无“已归档/静态网页”胶囊；搜索框收窄、筛选常显；容器测量式最短列瀑布流；脏历史 `.html`/`image` row fail-closed | ✅ 目标测试 37/37、全量单测 4876/4876、生产 build；真实 Electron 为 3 个旧网页 Asset 生成缩略图均 POST/GET 200；Browser smoke：700px = 2×317px、900px = 3×274px、1600px = 5×250px，余宽均分、0 iframe、无固定行空洞 | `asset-library-api.test.ts` 10/10；`asset-library-conformance.test.ts` 8/8；`asset-library-ui.test.ts` 8/8；`electron-main-security.test.ts` 3/3；`html-bundle-conformance.test.ts` 8/8；宽/窄窗口截图人工核对 |
 | 2026-07-31 | all registered kinds | Asset tag API / Gallery context menu / detail UI | additive 通用标签 + legacy 回填/双写；搜索命中标签；右键标签/收藏/删除；实心 Star 收藏标记；详情按钮描边与 lineage 标签层级 | ✅ 目标测试 41/41、全量单测 4880/4880、生产 build；真实 Browser 完成“添加验收标签 → 搜索唯一命中 → 详情移除”并清理，右键删除仅打开确认未执行；0 console errors | `asset-library-api.test.ts` 11/11；`asset-library-conformance.test.ts` 9/9；`asset-library-ui.test.ts` 10/10；真实工具栏 rect：收藏/排序 right=1256、1280 viewport 留 24px；卡片/右键菜单/详情截图人工核对 |
 | 2026-07-31 | all registered kinds | Gallery detail Dialog | 长 prompt 详情保持在动态视口内；右侧可滚至底部；取消收藏文字与 Star 使用分离状态色 | ✅ UI contract 11/11；Browser 1280×720：Dialog top/bottom = 32/688，右栏 client/scroll height = 656/1443，实际 scrollTop 0→787；恢复测试素材原收藏状态；0 console errors | `asset-library-ui.test.ts`；真实长 prompt 素材详情截图与 computed style 核对 |
+| 2026-07-31 | all registered kinds | Gallery card interaction | hover 描边加粗到 3px；基础态预置灰色 ring token；移除 shadow transition，杜绝黑→灰闪烁；focus-visible 同厚度 | ✅ UI contract 12/12；Browser computed style：base ring = `border` token、transition duration = 0s；0 console errors | `asset-library-ui.test.ts`；真实 Gallery 卡片 computed style 核对 |
 | _待执行_ | all registered kinds | packaged app | multi-kind visual readability + HTML safety copy | ⏳ Human gate | screenshot / user feedback |
 
 ## 决策日志
@@ -258,3 +260,4 @@ HTML / web result 只有同时满足以下条件才 materialize：
 - 2026-07-31：标签从 legacy `media_generations` 提升到通用 `asset_records`；迁移只为仍为默认空数组的旧 Asset 回填有效数组，所有新旧 kind 通过同一有界 API 管理。主搜索同时检索标签，不另造只适用于媒体的标签入口。
 - 2026-07-31：收藏的语义图标从 heart 修正为 Star；卡片使用放大、内移的实心状态标记。详情 action 统一描边，lineage 计数使用 filled secondary badge，明确表达非交互标签。
 - 2026-07-31：详情内容可能远高于预览区；Dialog 固定在 `100dvh` 安全边界内，右侧通过 `min-height: 0` flex 约束独立滚动。收藏 action 的文字不再承担红色状态表达，状态色只落在 Star。
+- 2026-07-31：卡片原先只在 `:hover` 注入 `ring-border`，与 `transition-shadow` 同帧启动时会先使用默认黑色 ring，再插值为灰色。修复为基础态固定 ring token、hover/focus 仅切换到 3px 宽度，并取消该过渡。
