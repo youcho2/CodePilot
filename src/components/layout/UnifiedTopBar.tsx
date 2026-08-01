@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useSyncExternalStore } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import {
   DotOutline,
@@ -125,8 +125,11 @@ export function UnifiedTopBar() {
   // would briefly appear (server: chatListOpen=false → button shown)
   // and then disappear (client effect → chatListOpen=true), tripping
   // a hydration mismatch warning.
-  const [mounted, setMounted] = useState(false);
-  useEffect(() => { setMounted(true); }, []);
+  const mounted = useSyncExternalStore(
+    () => () => {},
+    () => true,
+    () => false,
+  );
   // Round 20 — single sidebar toggle button (open AND close). Used
   // to be a "reopen only" button that lived in the topbar; the
   // matching collapse button lived inside ChatListPanel. Round 20
@@ -248,14 +251,17 @@ export function UnifiedTopBar() {
                   size="sm"
                   className="h-7 max-w-[200px] px-2 text-xs font-normal text-muted-foreground hover:text-foreground"
                   onClick={() => {
-                    if (workingDirectory) {
-                      if (window.electronAPI?.shell?.openPath) {
-                        window.electronAPI.shell.openPath(workingDirectory);
+                    if (workingDirectory && sessionId) {
+                      if (window.electronAPI?.shell?.revealPath) {
+                        void window.electronAPI.shell.revealPath({
+                          path: workingDirectory,
+                          sessionId,
+                        });
                       } else {
                         fetch('/api/files/open', {
                           method: 'POST',
                           headers: { 'Content-Type': 'application/json' },
-                          body: JSON.stringify({ path: workingDirectory }),
+                          body: JSON.stringify({ path: workingDirectory, sessionId }),
                         }).catch(() => {});
                       }
                     }

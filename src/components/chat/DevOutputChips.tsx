@@ -27,8 +27,10 @@
  * markdown content itself changes).
  */
 
-import { useEffect, useRef, useCallback } from "react";
+import { useEffect, useRef, useCallback, useMemo } from "react";
 import type React from "react";
+import { defaultRemarkPlugins } from "streamdown";
+import type { PluggableList } from "unified";
 import { MessageResponse } from "@/components/ai-elements/message";
 import { MARKDOWN_LINK_CLASS_NAME } from "@/components/markdown/markdown-contract";
 import { usePanel } from "@/hooks/usePanel";
@@ -40,8 +42,11 @@ import {
   tokenizeDevOutput,
   type DevOutputToken,
 } from "@/lib/markdown/dev-output-parser";
-import { parseLocalMarkdownReference } from "@/lib/markdown/local-link-detector";
-import { inspectLocalPath, openPathWithSystem } from "@/lib/local-path-navigation";
+import {
+  parseLocalMarkdownReference,
+  remarkResolveLocalLinks,
+} from "@/lib/markdown/local-link-detector";
+import { inspectLocalPath, revealPathWithSystem } from "@/lib/local-path-navigation";
 import { resolveToolPath } from "@/lib/file-write-tools";
 
 /** Tag names whose subtree we never tokenize — letting markdown
@@ -62,20 +67,23 @@ const PROCESSED_ATTR = "data-codepilot-dev-processed";
 export function DevOutputMarkdownLink(
   props: React.AnchorHTMLAttributes<HTMLAnchorElement>,
 ) {
-  const { href, children, className, ...rest } = props;
+  const { href, children, className, title, target, rel, ...rest } = props;
   const safeHref = typeof href === "string" ? href : "";
   const linkClassName = cn(MARKDOWN_LINK_CLASS_NAME, className);
   const localReference = parseLocalMarkdownReference(safeHref);
   if (localReference) {
     return (
       <a
+        {...rest}
         href={safeHref}
         className={linkClassName}
+        title={title ?? safeHref}
+        target={target ?? "_blank"}
+        rel={rel ?? "noreferrer"}
         data-codepilot-fileref-path={localReference.filePath}
         {...(localReference.anchor
           ? { "data-codepilot-fileref-anchor": localReference.anchor }
           : {})}
-        {...rest}
       >
         {children}
       </a>
@@ -84,11 +92,12 @@ export function DevOutputMarkdownLink(
   if (/^(?:https?|mailto|tel):/i.test(safeHref)) {
     return (
       <a
+        {...rest}
         href={safeHref}
         className={linkClassName}
+        title={title ?? safeHref}
         target="_blank"
         rel="noopener noreferrer"
-        {...rest}
       >
         {children}
       </a>
@@ -102,8 +111,15 @@ const DEV_OUTPUT_MARKDOWN_COMPONENTS = { a: DevOutputMarkdownLink };
 
 export function DevOutputSegment({ text }: { text: string }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
-  const { workingDirectory, setPreviewSource } = usePanel();
+  const { workingDirectory, sessionId, setPreviewSource } = usePanel();
   const { t } = useTranslation();
+  const remarkPlugins = useMemo<PluggableList>(
+    () => [
+      ...Object.values(defaultRemarkPlugins),
+      [remarkResolveLocalLinks, { workingDirectory }],
+    ],
+    [workingDirectory],
+  );
 
   const openLocalReference = useCallback(
     async (rawFilePath: string, anchor?: string) => {
@@ -125,18 +141,19 @@ export function DevOutputSegment({ text }: { text: string }) {
       }
 
       try {
-        const kind = await inspectLocalPath(absolutePath, cls.baseDir);
-        if (kind === "directory") {
-          await openPathWithSystem(absolutePath);
+        if (!sessionId) throw new Error("Missing session scope");
+        const inspection = await inspectLocalPath(absolutePath, { sessionId });
+        if (inspection.kind === "directory") {
+          await revealPathWithSystem({ path: inspection.realPath, sessionId });
           return;
         }
-        if (kind !== "file") {
+        if (inspection.kind !== "file") {
           showToast({ type: "warning", message: t("localReference.unsupported") });
           return;
         }
         setPreviewSource({
           kind: "file",
-          filePath: absolutePath,
+          filePath: inspection.realPath,
           trust: cls.trust,
           ...(cls.baseDir ? { baseDir: cls.baseDir } : {}),
           readonly: cls.readonly,
@@ -151,7 +168,7 @@ export function DevOutputSegment({ text }: { text: string }) {
         });
       }
     },
-    [workingDirectory, setPreviewSource, t],
+    [workingDirectory, sessionId, setPreviewSource, t],
   );
 
   // Click delegation — single listener at the container catches every
@@ -230,7 +247,12 @@ export function DevOutputSegment({ text }: { text: string }) {
   //      navigates the browser.
   return (
     <div ref={containerRef} onClick={onClick}>
-      <MessageResponse components={DEV_OUTPUT_MARKDOWN_COMPONENTS}>{text}</MessageResponse>
+      <MessageResponse
+        components={DEV_OUTPUT_MARKDOWN_COMPONENTS}
+        remarkPlugins={remarkPlugins}
+      >
+        {text}
+      </MessageResponse>
     </div>
   );
 }

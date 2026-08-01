@@ -81,8 +81,28 @@ export function resolveToolPath(
   workingDirectory: string | null | undefined,
 ): string {
   if (!rawPath) return rawPath;
-  if (rawPath.startsWith('/') || /^[A-Za-z]:[/\\]/.test(rawPath)) return rawPath;
-  if (!workingDirectory) return rawPath;
-  const sep = workingDirectory.includes('\\') ? '\\' : '/';
-  return `${workingDirectory}${sep}${rawPath}`;
+  const isWindows = /^[A-Za-z]:[/\\]/.test(rawPath)
+    || Boolean(workingDirectory?.match(/^[A-Za-z]:[/\\]/));
+  const separator = isWindows ? '\\' : '/';
+  const isAbsolute = rawPath.startsWith('/') || /^[A-Za-z]:[/\\]/.test(rawPath);
+  if (!isAbsolute && !workingDirectory) return rawPath;
+
+  const combined = isAbsolute
+    ? rawPath
+    : `${workingDirectory!.replace(/[/\\]+$/, '')}${separator}${rawPath}`;
+  const normalized = combined.replace(/[\\/]+/g, separator);
+  const drive = isWindows ? normalized.slice(0, 2) : '';
+  const remainder = isWindows ? normalized.slice(2) : normalized;
+  const segments: string[] = [];
+  for (const segment of remainder.split(separator)) {
+    if (!segment || segment === '.') continue;
+    if (segment === '..') {
+      segments.pop();
+      continue;
+    }
+    segments.push(segment);
+  }
+  return isWindows
+    ? `${drive}${separator}${segments.join(separator)}`
+    : `${separator}${segments.join(separator)}`;
 }

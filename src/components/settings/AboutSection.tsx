@@ -91,13 +91,16 @@ export function AboutSection() {
   const handleOpenLogFolder = async () => {
     if (!logPath) return;
     try {
-      // Electron's `shell.openPath` resolves with a *string* — empty
+      // Electron's scoped reveal bridge resolves with a *string* — empty
       // means success, non-empty is the OS-level error message
       // ("no such file", permission denied, etc). It rarely throws.
       // Without checking the returned string the user's last escape
       // hatch silently does nothing on failure; the OS error is more
       // useful to surface in the toast than a generic failure message.
-      const error = await window.electronAPI?.shell?.openPath(logPath);
+      const error = await window.electronAPI?.shell?.revealPath({
+        path: logPath,
+        scope: "home",
+      });
       if (error) {
         showToast({
           message: t("about.support.openLogsFailedWith", { error }),

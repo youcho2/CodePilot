@@ -398,7 +398,7 @@ const zh: Record<TranslationKey, string> = {
   'filePreview.external.chip': '外部 · 只读',
   'filePreview.external.chipTooltip': '该文件不在当前工作区内，仅以只读模式预览。',
   'filePreview.external.confirm.title': 'AI 引用了工作区外的本地路径',
-  'filePreview.external.confirm.body': '确认后，文件会以只读方式预览，文件夹会在系统文件管理器中打开。确认前 CodePilot 不会探测该路径。',
+  'filePreview.external.confirm.body': '确认后，文件会以只读方式预览，文件夹会在系统文件管理器中定位显示。确认前 CodePilot 不会探测该路径。',
   'filePreview.external.confirm.confirm': '确认打开',
   'filePreview.external.confirm.cancel': '取消',
   'filePreview.conflict.title': '磁盘已更新',

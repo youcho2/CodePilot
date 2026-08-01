@@ -411,7 +411,7 @@ const en = {
   'filePreview.external.chip': 'External · Read-only',
   'filePreview.external.chipTooltip': 'This file is outside the current workspace; preview is read-only.',
   'filePreview.external.confirm.title': 'AI referenced a local path outside the workspace',
-  'filePreview.external.confirm.body': 'After confirmation, files open as read-only previews and folders open in the system file manager. CodePilot will not inspect the path until you confirm.',
+  'filePreview.external.confirm.body': 'After confirmation, files open as read-only previews and folders are revealed in the system file manager. CodePilot will not inspect the path until you confirm.',
   'filePreview.external.confirm.confirm': 'Open file',
   'filePreview.external.confirm.cancel': 'Cancel',
   'filePreview.conflict.title': 'Disk content changed',

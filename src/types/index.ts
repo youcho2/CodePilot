@@ -1125,6 +1125,8 @@ export interface FilePreviewResponse {
 
 export interface FileInspectResponse {
   kind: 'file' | 'directory' | 'other';
+  /** Canonical path after server-side realpath + scope validation. */
+  realPath: string;
 }
 
 // --- Task API Responses ---

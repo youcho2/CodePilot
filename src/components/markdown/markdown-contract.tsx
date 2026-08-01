@@ -137,15 +137,21 @@ export const MARKDOWN_LINK_CLASS_NAME = cn(
   "dark:text-blue-400 dark:hover:text-blue-300 dark:hover:decoration-blue-300",
 );
 
-function MarkdownLink({ className, href, ...props }: ComponentProps<"a">) {
+function MarkdownLink({
+  className,
+  href,
+  target,
+  rel,
+  ...props
+}: ComponentProps<"a">) {
   const external = href?.startsWith("http");
   return (
     <a
       {...props}
       href={href}
       className={cn(MARKDOWN_LINK_CLASS_NAME, className)}
-      target={external ? "_blank" : undefined}
-      rel={external ? "noopener noreferrer" : undefined}
+      target={target ?? (external ? "_blank" : undefined)}
+      rel={rel ?? (external ? "noopener noreferrer" : undefined)}
     />
   );
 }

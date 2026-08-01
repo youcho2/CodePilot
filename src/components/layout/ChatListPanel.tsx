@@ -584,6 +584,7 @@ export function ChatListPanel({ open, hasUpdate, readyToInstall }: ChatListPanel
                         <div key={group.workingDirectory || "__no_project"}>
                           <ProjectGroupHeader
                             workingDirectory={group.workingDirectory}
+                            sessionId={group.sessions[0]?.id || ''}
                             displayName={group.displayName}
                             isCollapsed={isCollapsed}
                             isFolderHovered={isFolderHovered}

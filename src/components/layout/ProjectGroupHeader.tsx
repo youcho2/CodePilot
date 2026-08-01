@@ -32,6 +32,7 @@ import { SPECIES_IMAGE_URL, EGG_IMAGE_URL, type Species } from "@/lib/buddy";
 
 interface ProjectGroupHeaderProps {
   workingDirectory: string;
+  sessionId: string;
   displayName: string;
   isCollapsed: boolean;
   isFolderHovered: boolean;
@@ -53,6 +54,7 @@ interface ProjectGroupHeaderProps {
 
 export function ProjectGroupHeader({
   workingDirectory,
+  sessionId,
   displayName,
   isCollapsed,
   isFolderHovered,
@@ -75,14 +77,13 @@ export function ProjectGroupHeader({
   const showActions = isFolderHovered || menuOpen;
 
   const handleOpenFolder = () => {
-    const w = window as unknown as { electronAPI?: { shell?: { openPath?: (p: string) => void } } };
-    if (w.electronAPI?.shell?.openPath) {
-      w.electronAPI.shell.openPath(workingDirectory);
+    if (window.electronAPI?.shell?.revealPath) {
+      void window.electronAPI.shell.revealPath({ path: workingDirectory, sessionId });
     } else {
       fetch('/api/files/open', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ path: workingDirectory }),
+        body: JSON.stringify({ path: workingDirectory, sessionId }),
       }).catch(() => {});
     }
   };

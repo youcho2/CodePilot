@@ -40,6 +40,12 @@ import {
   isHtmlThumbnailRequestAllowed,
   SerializedDeadlineQueue,
 } from './html-thumbnail-security';
+import {
+  buildScopedPathInspectionUrl,
+  type ScopedSystemPathRequest,
+  type SystemPathPurpose,
+  validateScopedPathInspection,
+} from '../src/lib/local-path-security';
 
 // B-025: hard caps for the persistent main log + the in-memory server-output
 // ring. The 12.5 GB log a user hit came from an unbounded active file plus an
@@ -239,6 +245,42 @@ async function stopBridge(): Promise<void> {
 function chatWindowUrlForRevival(): string | undefined {
   if (serverPort == null) return undefined;
   return `http://127.0.0.1:${serverPort}`;
+}
+
+async function resolveScopedSystemPath(
+  event: Electron.IpcMainInvokeEvent,
+  request: ScopedSystemPathRequest,
+  purpose: SystemPathPurpose,
+): Promise<{ realPath: string } | { error: string }> {
+  try {
+    const inspectUrl = buildScopedPathInspectionUrl(
+      event.sender.getURL(),
+      request,
+      purpose,
+    );
+    const response = await fetch(inspectUrl, { cache: 'no-store' });
+    if (!response.ok) return { error: `Path validation failed (${response.status})` };
+    const inspected = validateScopedPathInspection(await response.json(), purpose);
+
+    // The route returns a canonical real path. Re-check it immediately before
+    // the OS call so swapping that path to a symlink after inspection cannot
+    // turn an allowed HTML file into an executable or bundle.
+    const currentRealPath = fs.realpathSync(inspected.realPath);
+    if (currentRealPath !== inspected.realPath) {
+      return { error: 'Path changed after validation' };
+    }
+    const stat = fs.statSync(currentRealPath);
+    validateScopedPathInspection(
+      {
+        realPath: currentRealPath,
+        kind: stat.isFile() ? 'file' : stat.isDirectory() ? 'directory' : 'other',
+      },
+      purpose,
+    );
+    return { realPath: currentRealPath };
+  } catch {
+    return { error: 'Path validation failed' };
+  }
 }
 
 /**
@@ -2065,9 +2107,25 @@ app.whenReady().then(async () => {
 
   // --- End install wizard IPC handlers ---
 
-  // Open a folder in the system file manager (Finder / Explorer)
-  ipcMain.handle('shell:open-path', async (_event: Electron.IpcMainInvokeEvent, folderPath: string) => {
-    return shell.openPath(folderPath);
+  // AI-authored paths never enter a generic shell.openPath bridge. Reveal is
+  // non-launching, and the only launching path is a workspace-scoped HTML
+  // file that has passed the server + main-process realpath checks.
+  ipcMain.handle('shell:reveal-path', async (
+    event: Electron.IpcMainInvokeEvent,
+    request: ScopedSystemPathRequest,
+  ) => {
+    const resolved = await resolveScopedSystemPath(event, request, 'reveal');
+    if ('error' in resolved) return resolved.error;
+    shell.showItemInFolder(resolved.realPath);
+    return '';
+  });
+  ipcMain.handle('shell:open-html-file', async (
+    event: Electron.IpcMainInvokeEvent,
+    request: ScopedSystemPathRequest,
+  ) => {
+    const resolved = await resolveScopedSystemPath(event, request, 'open-html');
+    if ('error' in resolved) return resolved.error;
+    return shell.openPath(resolved.realPath);
   });
 
   // Phase 2C.6 follow-up: expose the persistent log directory to the

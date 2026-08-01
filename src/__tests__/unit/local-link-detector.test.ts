@@ -13,6 +13,7 @@ import {
   looksLikeRemoteHref,
   isPotentialLocalFile,
   parseLocalMarkdownReference,
+  remarkResolveLocalLinks,
 } from '../../lib/markdown/local-link-detector';
 
 describe('looksLikeRemoteHref', () => {
@@ -161,5 +162,44 @@ describe('relative-path resolution → classifyPath workspace tier', () => {
   it('absolute paths pass through unchanged', async () => {
     const { resolveToolPath } = await import('../../lib/file-write-tools');
     assert.equal(resolveToolPath('/abs/foo.md', '/Users/me/proj'), '/abs/foo.md');
+  });
+
+  it('normalizes dot segments before scope classification', async () => {
+    const { resolveToolPath } = await import('../../lib/file-write-tools');
+    assert.equal(
+      resolveToolPath('./docs/../README.md', '/Users/me/proj'),
+      '/Users/me/proj/README.md',
+    );
+    assert.equal(
+      resolveToolPath('../../../etc/passwd', '/Users/me/proj'),
+      '/etc/passwd',
+    );
+  });
+});
+
+describe('remarkResolveLocalLinks', () => {
+  function transform(url: string): string {
+    const tree = {
+      type: 'root',
+      children: [{ type: 'link', url, children: [{ type: 'text' }] }],
+    };
+    remarkResolveLocalLinks({ workingDirectory: '/Users/me/proj' })(tree);
+    return tree.children[0].url;
+  }
+
+  it('resolves bare files and relative directories before rehype hardening', () => {
+    assert.equal(transform('README.md'), '/Users/me/proj/README.md');
+    assert.equal(transform('./docs/'), '/Users/me/proj/docs');
+    assert.equal(transform('../fixtures/data.json#L4'), '/Users/me/fixtures/data.json#L4');
+  });
+
+  it('keeps scope escapes absolute so the later trust gate can require confirmation', () => {
+    assert.equal(transform('../../../etc/passwd'), '/etc/passwd');
+  });
+
+  it('does not rewrite remote or dangerous protocols', () => {
+    assert.equal(transform('https://example.com'), 'https://example.com');
+    assert.equal(transform('javascript:alert(1)'), 'javascript:alert(1)');
+    assert.equal(transform('data:text/html,boom'), 'data:text/html,boom');
   });
 });

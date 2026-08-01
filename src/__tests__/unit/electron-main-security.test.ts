@@ -29,6 +29,7 @@ import {
 
 const MAIN = path.resolve(__dirname, '../../../electron/main.ts');
 const PRELOAD = path.resolve(__dirname, '../../../electron/preload.ts');
+const OPEN_ROUTE = path.resolve(__dirname, '../../app/api/files/open/route.ts');
 
 /** Strip line + block comments (same approach as sentry-dev-guard.test.ts). */
 function stripComments(src: string): string {
@@ -56,6 +57,7 @@ describe('electron main security guardrails (audit 2026-07 Loop 1)', () => {
   const rawMain = readFileSync(MAIN, 'utf-8');
   const main = stripComments(rawMain);
   const preload = stripComments(readFileSync(PRELOAD, 'utf-8'));
+  const openRoute = stripComments(readFileSync(OPEN_ROUTE, 'utf-8'));
 
   it('1.1 — artifact export never accepts or writes a renderer-supplied outPath', () => {
     assert.doesNotMatch(
@@ -100,6 +102,34 @@ describe('electron main security guardrails (audit 2026-07 Loop 1)', () => {
       gateIdx >= 0 && gateIdx < openIdx,
       'the open-external decision check must precede shell.openExternal',
     );
+  });
+
+  it('local paths expose no generic openPath bridge and directories are reveal-only', () => {
+    assert.doesNotMatch(main, /ipcMain\.handle\(['"]shell:open-path['"]/);
+    assert.doesNotMatch(preload, /openPath\s*:/);
+
+    const revealIndex = main.indexOf("ipcMain.handle('shell:reveal-path'");
+    assert.ok(revealIndex >= 0, 'the scoped reveal handler must exist');
+    const revealBody = balancedBlock(main, revealIndex);
+    assert.match(revealBody, /resolveScopedSystemPath/);
+    assert.match(revealBody, /showItemInFolder/);
+    assert.doesNotMatch(revealBody, /openPath/);
+
+    const htmlIndex = main.indexOf("ipcMain.handle('shell:open-html-file'");
+    assert.ok(htmlIndex >= 0, 'the HTML-only open handler must exist');
+    const htmlBody = balancedBlock(main, htmlIndex);
+    assert.match(htmlBody, /resolveScopedSystemPath/);
+    assert.match(htmlBody, /openPath/);
+    assert.match(preload, /shell:reveal-path/);
+    assert.match(preload, /shell:open-html-file/);
+  });
+
+  it('the non-Electron reveal fallback uses fixed argv with the shell disabled', () => {
+    assert.doesNotMatch(openRoute, /\bexec\s*\(/);
+    assert.match(openRoute, /spawn\(command, args/);
+    assert.match(openRoute, /shell:\s*false/);
+    assert.match(openRoute, /buildFileManagerRevealCommand/);
+    assert.match(openRoute, /getSession\(body\.sessionId\)/);
   });
 
   it('Asset HTML capture is origin-bound, scope-bound, and returns bytes without a path write', () => {

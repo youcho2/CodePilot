@@ -30,7 +30,7 @@ import { usePanel } from '@/hooks/usePanel';
 import { classifyPath } from '@/lib/preview-source';
 import { isWriteTool, isCreateTool, extractWritePath, resolveToolPath } from '@/lib/file-write-tools';
 import { archiveHtmlAsset } from '@/lib/archive-html-asset-client';
-import { inspectLocalPath, openPathWithSystem } from '@/lib/local-path-navigation';
+import { inspectLocalPath, openHtmlFileWithSystem } from '@/lib/local-path-navigation';
 import { showToast } from '@/hooks/useToast';
 import { DevOutputSegment } from './DevOutputChips';
 import type { PlannerOutput } from '@/types';
@@ -898,14 +898,15 @@ export const MessageItem = memo(function MessageItem({ message, sessionId, isAss
             }}
             onOpenInSystemBrowser={async (file) => {
               try {
-                const kind = await inspectLocalPath(
-                  file.path,
-                  workingDirectory || undefined,
-                );
-                if (kind !== 'file') {
+                if (!sessionId) throw new Error(t('localReference.unsupported'));
+                const inspection = await inspectLocalPath(file.path, { sessionId });
+                if (inspection.kind !== 'file') {
                   throw new Error(t('localReference.unsupported'));
                 }
-                await openPathWithSystem(file.path);
+                await openHtmlFileWithSystem({
+                  path: inspection.realPath,
+                  sessionId,
+                });
               } catch (error) {
                 showToast({
                   type: 'error',

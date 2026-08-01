@@ -16,6 +16,7 @@
  */
 
 import { PREVIEWABLE_FILE_EXTENSIONS } from './dev-output-parser';
+import { resolveToolPath } from '../file-write-tools';
 
 /**
  * Return true for hrefs that obviously aren't local file paths and
@@ -116,4 +117,37 @@ export function isPotentialLocalFile(path: string): boolean {
   if (dot < 0) return false;
   const ext = path.slice(dot).toLowerCase().replace(/[#:].*$/, '');
   return PREVIEWABLE_FILE_EXTENSIONS.has(ext);
+}
+
+type MarkdownLinkNode = {
+  type?: string;
+  url?: string;
+  children?: MarkdownLinkNode[];
+};
+
+/**
+ * Resolve local Markdown destinations before Streamdown's hardening pass.
+ * rehype-harden otherwise blocks bare `README.md` and rewrites `./docs` to
+ * `/docs`, losing the workspace-relative meaning before our link component can
+ * inspect it. Dangerous protocols are untouched and remain blocked upstream.
+ */
+export function remarkResolveLocalLinks(options?: { workingDirectory?: string }) {
+  return (tree: MarkdownLinkNode): void => {
+    const visit = (node: MarkdownLinkNode) => {
+      if (node.type === 'link' && typeof node.url === 'string') {
+        const reference = parseLocalMarkdownReference(node.url);
+        if (reference) {
+          const resolvedPath = resolveToolPath(
+            reference.filePath,
+            options?.workingDirectory,
+          );
+          if (resolvedPath.startsWith('/') || /^[A-Za-z]:[/\\]/.test(resolvedPath)) {
+            node.url = `${resolvedPath}${reference.anchor || ''}`;
+          }
+        }
+      }
+      node.children?.forEach(visit);
+    };
+    visit(tree);
+  };
 }

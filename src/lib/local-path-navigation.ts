@@ -1,5 +1,14 @@
 export type LocalPathKind = 'file' | 'directory' | 'other';
 
+export type LocalPathScope =
+  | { sessionId: string; scope?: never }
+  | { sessionId?: never; scope: 'home' };
+
+export type LocalPathInspection = {
+  kind: LocalPathKind;
+  realPath: string;
+};
+
 export class LocalPathInspectionError extends Error {
   constructor(
     message: string,
@@ -13,14 +22,16 @@ export class LocalPathInspectionError extends Error {
 
 export async function inspectLocalPath(
   filePath: string,
-  baseDir?: string,
+  scope: LocalPathScope,
   fetcher: typeof fetch = fetch,
-): Promise<LocalPathKind> {
+): Promise<LocalPathInspection> {
   const params = new URLSearchParams({ path: filePath });
-  if (baseDir) params.set('baseDir', baseDir);
+  if (scope.sessionId) params.set('sessionId', scope.sessionId);
+  else params.set('scope', 'home');
   const response = await fetcher(`/api/files/inspect?${params}`);
   const body = await response.json().catch(() => ({})) as {
     kind?: LocalPathKind;
+    realPath?: string;
     error?: string;
     code?: string;
   };
@@ -31,30 +42,51 @@ export async function inspectLocalPath(
       response.status,
     );
   }
-  if (body.kind !== 'file' && body.kind !== 'directory' && body.kind !== 'other') {
+  if (
+    (body.kind !== 'file' && body.kind !== 'directory' && body.kind !== 'other')
+    || typeof body.realPath !== 'string'
+    || body.realPath.length === 0
+  ) {
     throw new LocalPathInspectionError('Path inspection returned an invalid result');
   }
-  return body.kind;
+  return { kind: body.kind, realPath: body.realPath };
 }
 
-type ShellPathOpener = {
-  openPath: (path: string) => Promise<string>;
+export type SystemPathRequest = LocalPathScope & { path: string };
+
+type ShellPathNavigator = {
+  revealPath: (request: SystemPathRequest) => Promise<string>;
+  openHtmlFile: (request: { path: string; sessionId: string }) => Promise<string>;
 };
 
 /**
- * Open a local path with the operating system. Electron resolves with an
- * empty string on success and an error message on failure.
+ * Reveal a validated local path in Finder / Explorer without launching it.
  */
-export async function openPathWithSystem(
-  filePath: string,
-  opener?: ShellPathOpener,
+export async function revealPathWithSystem(
+  request: SystemPathRequest,
+  navigator?: Pick<ShellPathNavigator, 'revealPath'>,
 ): Promise<void> {
-  const resolvedOpener = opener ?? (
+  const resolvedNavigator = navigator ?? (
     typeof window !== 'undefined' ? window.electronAPI?.shell : undefined
   );
-  if (!resolvedOpener?.openPath) {
-    throw new Error('System open is unavailable outside the desktop app');
+  if (!resolvedNavigator?.revealPath) {
+    throw new Error('System file manager is unavailable outside the desktop app');
   }
-  const error = await resolvedOpener.openPath(filePath);
+  const error = await resolvedNavigator.revealPath(request);
+  if (error) throw new Error(error);
+}
+
+/** Open only a server-validated workspace HTML file with its system app. */
+export async function openHtmlFileWithSystem(
+  request: { path: string; sessionId: string },
+  navigator?: Pick<ShellPathNavigator, 'openHtmlFile'>,
+): Promise<void> {
+  const resolvedNavigator = navigator ?? (
+    typeof window !== 'undefined' ? window.electronAPI?.shell : undefined
+  );
+  if (!resolvedNavigator?.openHtmlFile) {
+    throw new Error('System browser is unavailable outside the desktop app');
+  }
+  const error = await resolvedNavigator.openHtmlFile(request);
   if (error) throw new Error(error);
 }

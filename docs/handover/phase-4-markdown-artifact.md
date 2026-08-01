@@ -154,11 +154,12 @@ function dispatchFileChanged(detail: FileChangedDetail): void;
 ```
 assistant turn Markdown / tool_result 引用本地路径（文件或目录）
   ↓
-DevOutputSegment 解析 href：HTTP(S) 保持外链；本地路径进入 local-reference 路由
+remarkResolveLocalLinks 在 harden 前按 session workingDirectory 解析 README.md / ./ / ../；
+DevOutputSegment 解析 href：HTTP(S) 保持外链，危险协议变成惰性文本，本地路径进入 local-reference 路由
   ↓
-用户点工作区内路径 → GET /api/files/inspect（scope + realpath/symlink 校验）
+用户点工作区内路径 → GET /api/files/inspect?sessionId=…（服务端推导 scope + realpath/symlink 校验并返回 canonical realPath）
   ├─ file：setPreviewSource → 文件侧栏
-  └─ directory：Electron shell.openPath → Finder / Explorer（不创建预览 Tab）
+  └─ directory：Electron scoped revealPath → Finder / Explorer 定位（不启动目录、不创建预览 Tab）
   ↓
 用户点工作区外路径 → openDynamicTab(id=resolvedPath, trust='agent-referenced', readonly=true)
   ↓
@@ -166,12 +167,12 @@ PreviewPanel 检测 trust='agent-referenced'：
   ├─ 不发 /api/files/inspect，也不发 /api/files/preview
   └─ 显示 ConfirmCard：披露完整路径 + 只读/不写盘边界
   ↓
-用户确认后才发 /api/files/inspect（无 baseDir → home scope）
+用户确认后才发 /api/files/inspect?scope=home（固定 home scope）
   ├─ file：Tab 升级为 { trust: 'user-selected', readonly: true }，再走 preview
-  └─ directory：shell.openPath 后关闭确认 Tab
+  └─ directory：scoped revealPath 定位后关闭确认 Tab
 ```
 
-**关键边界：** 路径文本不等于文件类型，只有 `/api/files/inspect` 可做 file/directory 判断；确认卡是**单路径决定**，不持久化“已信任所有外部路径”。每个新外部路径都重新确认。`file://` 只解析成本地路径，不交给 Chromium 导航。
+**关键边界：** 路径文本不等于文件类型，只有 `/api/files/inspect` 可做 file/directory 判断；客户端不能提交 `baseDir`，相对路径必须先按 session workingDirectory 解析，路由只接绝对路径。确认卡是**单路径决定**，不持久化“已信任所有外部路径”。每个新外部路径都重新确认。`file://` 只解析成本地路径，不交给 Chromium 导航。主进程不暴露 generic `openPath`：目录用 `showItemInFolder` 且拒绝 `.app/.workflow/.prefPane/.saver` 等 bundle；系统打开只对再次校验的 workspace `.html/.htm` 开放。
 
 ### 流 2：HTML 文件预览 → 同源路由 + CSP 分档
 
@@ -301,8 +302,10 @@ MarkdownRenderedView 读 presentationTemplate
 10. **Auto-refresh Switch 用 shadcn 原语** — `src/components/layout/panels/DashboardPanel.tsx` 的 `<Switch size="sm" />`，与 Settings 风格统一。
 11. **Markdown 渲染 wrapper 不是 inline component** — `PreviewPanel.tsx` 的渲染入口不要写成 `const Outer = ({ children }) => <div>...</div>`。inline component 在函数体内产生新 identity，React 把整个子树 unmount + remount，安静刷新就会闪。修法：直接 inline `<div>` 元素。
 12. **interactiveScripts 偏好持久化** — `PreviewPanel.tsx` 的 `localStorage.getItem("codepilot.preview.interactiveScripts")`。默认 `true`；用户切到 Static 后跨 session 记住。
-13. **本地链接先判类型再分流** — `src/lib/markdown/local-link-detector.ts` 只做 href → 本地路径解析；`src/app/api/files/inspect/route.ts` 才能在 scope / realpath 校验后判断 file / directory。目录不得进入 PreviewPanel。工作区外路径在用户确认前不得探测。
-14. **聊天 HTML 卡的系统浏览器入口只对工作区文件开放** — `DiffSummary.tsx` 同时要求 `.html/.htm`、`archiveable === true` 和显式回调，图标 tooltip 为 `diffSummary.openSystemBrowser`；打开失败必须显示真实错误。
+13. **本地链接先解析、再判类型分流** — `remarkResolveLocalLinks` 在 Streamdown harden 前把 bare/relative target 按 workingDirectory 变成绝对路径；`src/app/api/files/inspect/route.ts` 从 session/home 推导 scope，在 realpath 校验后返回 kind + canonical path。目录不得进入 PreviewPanel，工作区外路径在用户确认前不得探测。
+14. **聊天 HTML 卡的系统浏览器入口只对工作区 HTML 开放** — `DiffSummary.tsx` 同时要求 `.html/.htm`、`archiveable === true` 和显式回调；主进程再校验 session scope、canonical path、当前 stat 和 `.html/.htm`，不能只信 Renderer。
+15. **系统路径能力按意图拆分** — Renderer 只有 `revealPath` 与 `openHtmlFile`，没有 generic `openPath`。bundle 目录 fail-closed；Next fallback 使用固定 executable + argv、`shell: false`，不能把路径插入命令字符串。
+16. **Markdown 链接安全是显式合同** — Streamdown 固定到 2.1.0；自定义 link renderer 明确允许 http/https/mailto/tel 与本地引用，其他协议渲染为惰性文本；蓝色样式不能覆盖上游 `target/rel`，本地链接 title 必须披露完整解析后目标。
 
 ---
 
@@ -337,14 +340,16 @@ MarkdownRenderedView 读 presentationTemplate
 - `diff-viewer-classify.test.ts` — diff 内容识别
 - `dev-output-parser.test.ts` — 工程输出（path / line / diff / localhost）解析
 - `local-link-detector.test.ts` — HTTP(S) / file URL / Windows 路径 / 文件锚点 / 目录形态分类
-- `local-path-navigation.test.ts` — scope + symlink 防护、file/directory 探测、Electron openPath 错误语义
+- `local-path-navigation.test.ts` — session/home scope、canonical realPath、symlink 防护、bundle 拒绝、HTML-only/reveal IPC 与固定 argv
+- `markdown-contract.test.ts` — 真实 Streamdown parse、相对链接、完整 title、target/rel 与危险协议惰性化
+- `electron-main-security.test.ts` — 无 generic openPath、目录 reveal-only、HTML-only handler 与 files/open 禁止 shell 拼接
 - `presentation-templates.test.ts` — 5 种 in-place style + slugify + buildPresentationArtifactPath（helpers 备用）
 
 **手工 CDP smoke：**
 - workspace `.md` 打开 + Style Select 切换 + autosave + 冲突横幅
 - workspace `.html` Static / Interactive 切换 + sibling 资源刷新
-- 外部 Markdown agent-referenced 授权卡 → 只读打开；外部目录确认后进 Finder / Explorer
-- 聊天消息里 `README.md:12` chip / 工作区目录链接 / HTTP(S) 链接 / ```diff Preview action / localhost URL chip
+- 外部 Markdown agent-referenced 授权卡 → 只读打开；外部目录确认后在 Finder / Explorer 定位
+- 聊天消息里 `README.md:12`、`[README](README.md)`、`[docs](./docs/)`、工作区目录链接、HTTP(S) 链接、危险协议、```diff Preview action / localhost URL chip
 - HTML DiffSummary 卡 hover 外链图标 → tooltip → 系统浏览器打开
 
 ---

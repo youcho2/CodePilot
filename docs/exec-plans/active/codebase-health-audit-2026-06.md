@@ -83,9 +83,8 @@
 
 ### 实现路径
 
-- [ ] **B1 [P2 security] `shell:open-path` / `dialog:open-folder` 参数不校验** — ✅ 已核验（open-path 在 `electron/main.ts:1995-1997` 直传 `shell.openPath`）
-  - 修法：open-path 校验绝对路径 + `realpathSync` 解析 + `statSync().isDirectory()`，拒绝 UNC（win32）；dialog 的 `defaultPath` 仅接受存在的绝对目录否则置 undefined。
-  - 验证：单测/手测传 `../../etc`、不存在路径、symlink，断言拒绝。Tier 2（Electron IPC）。
+- [x] **B1a [P1 security] `shell:open-path` 参数不校验** — 完成 2026-08-01。通用 IPC 已删除；目录只允许 session/home scoped `revealPath` 并在主进程二次 realpath/stat、拒绝 bundle，文件只有 workspace HTML 可走专用 `openHtmlFile`。Next fallback 同步删除 `exec(open \"${path}\")`，改固定 argv + `shell:false`。行为/源码门禁覆盖相对路径、symlink escape、`.app/.workflow`、`.command` 与命令元字符。
+- [ ] **B1b [P2 security] `dialog:open-folder` defaultPath 参数不校验** — 待单独核验；仅接受存在的绝对目录，否则置 undefined。验证传 `../../etc`、不存在路径、symlink 与 UNC（win32）。Tier 2（Electron IPC）。
 
 - [ ] **B2 [P2 security] `terminal:write` 无输入大小限制** — ⚠️ 待核验（`electron/main.ts` 约 :2243 + `terminal-manager.ts` 直写 stdin）
   - 修法：单次写入上限（如 1MB）超限丢弃并 warn；evaluate 是否需要速率限制（终端正常使用不会触发，定低噪音上限即可）。

@@ -130,7 +130,8 @@ describe('Asset Library UI contract', () => {
     assert.match(diffSummarySource, /diffSummary\.openSystemBrowser/);
     assert.match(diffSummarySource, /name="external"/);
     assert.match(messageItemSource, /inspectLocalPath\([\s\S]{0,120}file\.path/);
-    assert.match(messageItemSource, /openPathWithSystem\(file\.path\)/);
+    assert.match(messageItemSource, /openHtmlFileWithSystem\(/);
+    assert.match(messageItemSource, /inspection\.realPath/);
   });
 
   it('uses permanent-delete confirmation copy and exposes no Trash/Restore UI', () => {

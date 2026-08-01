@@ -355,7 +355,13 @@ export const MessageResponse = memo(
       {...props}
     />
   ),
-  (prevProps, nextProps) => prevProps.children === nextProps.children
+  (prevProps, nextProps) => (
+    prevProps.children === nextProps.children
+    && prevProps.components === nextProps.components
+    && prevProps.remarkPlugins === nextProps.remarkPlugins
+    && prevProps.rehypePlugins === nextProps.rehypePlugins
+    && prevProps.className === nextProps.className
+  )
 );
 
 MessageResponse.displayName = "MessageResponse";

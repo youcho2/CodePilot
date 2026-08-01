@@ -15,7 +15,7 @@ import { resolveCodeTheme, resolveHljsStyle } from "@/lib/theme/code-themes";
 import { usePanel } from "@/hooks/usePanel";
 import { useTranslation } from "@/hooks/useTranslation";
 import { showToast } from "@/hooks/useToast";
-import { inspectLocalPath, openPathWithSystem } from "@/lib/local-path-navigation";
+import { inspectLocalPath, revealPathWithSystem } from "@/lib/local-path-navigation";
 import { ResizeHandle } from "@/components/layout/ResizeHandle";
 import type { FilePreview as FilePreviewType } from "@/types";
 import type { PreviewTrust } from "@/lib/preview-source";
@@ -984,14 +984,14 @@ export function PreviewPanel(_: { variant?: 'sidebar' } = {}) {
     try {
       // This probe happens only after the explicit permission click. Files
       // keep the readonly preview flow; directories never enter the file
-      // renderer and instead open in Finder / Explorer.
-      const kind = await inspectLocalPath(previewSource.filePath);
-      if (kind === "directory") {
-        await openPathWithSystem(previewSource.filePath);
+      // renderer and are instead revealed in Finder / Explorer.
+      const inspection = await inspectLocalPath(previewSource.filePath, { scope: "home" });
+      if (inspection.kind === "directory") {
+        await revealPathWithSystem({ path: inspection.realPath, scope: "home" });
         setPreviewSource(null);
         return;
       }
-      if (kind !== "file") {
+      if (inspection.kind !== "file") {
         showToast({ type: "warning", message: t("localReference.unsupported") });
         return;
       }
@@ -999,7 +999,7 @@ export function PreviewPanel(_: { variant?: 'sidebar' } = {}) {
       // requested location after confirmation.
       setPreviewSource({
         kind: "file",
-        filePath: previewSource.filePath,
+        filePath: inspection.realPath,
         trust: "user-selected",
         readonly: true,
         ...(previewSource.anchor ? { anchor: previewSource.anchor } : {}),
@@ -1626,7 +1626,7 @@ function InlineHtmlView({
  * /api/files/preview.
  *
  * Confirm → caller probes the path. Files transition to user-selected
- * (readonly); directories open in the system file manager.
+ * (readonly); directories are revealed in the system file manager.
  * Cancel  → caller clears the preview source, closing the rail entry.
  */
 function AgentReferencedConfirm({

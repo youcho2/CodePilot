@@ -81,7 +81,12 @@ interface ElectronAPI {
     platform: string;
   };
   shell: {
-    openPath: (path: string) => Promise<string>;
+    revealPath: (request: {
+      path: string;
+      sessionId?: string;
+      scope?: 'home';
+    }) => Promise<string>;
+    openHtmlFile: (request: { path: string; sessionId: string }) => Promise<string>;
   };
   app?: {
     /** Resolve the persistent log directory used by main process logging.
