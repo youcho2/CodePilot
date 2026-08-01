@@ -4,7 +4,7 @@
 
 import { tool } from 'ai';
 import { z } from 'zod';
-import { execSync } from 'child_process';
+import { execFileSync } from 'child_process';
 import path from 'path';
 import type { ToolContext } from './index';
 
@@ -43,7 +43,7 @@ export function createGrepTool(ctx: ToolContext) {
       args.push('--', pattern, '.');
 
       try {
-        const result = execSync(`rg ${args.join(' ')}`, {
+        const result = execFileSync('rg', args, {
           cwd,
           encoding: 'utf-8',
           timeout: 15_000,
@@ -68,9 +68,9 @@ export function createGrepTool(ctx: ToolContext) {
         try {
           const grepArgs = ['-rn', '--include=' + (globPattern || '*')];
           if (case_insensitive) grepArgs.push('-i');
-          grepArgs.push(pattern, '.');
+          grepArgs.push('--', pattern, '.');
 
-          const result = execSync(`grep ${grepArgs.join(' ')}`, {
+          const result = execFileSync('grep', grepArgs, {
             cwd,
             encoding: 'utf-8',
             timeout: 15_000,

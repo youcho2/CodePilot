@@ -1,15 +1,36 @@
 import { NextResponse } from "next/server";
-import { spawn } from "child_process";
+import {
+  isValidMarketplaceSkillName,
+  spawnSkillsProcess,
+  validateMarketplaceMutationRequest,
+} from "@/lib/skills-marketplace-command";
 
 export async function POST(request: Request) {
+  const requestError = validateMarketplaceMutationRequest(request);
+  if (requestError) {
+    return NextResponse.json(
+      { error: requestError.error },
+      { status: requestError.status },
+    );
+  }
   try {
-    const body = await request.json();
-    const { skill, global: isGlobal } = body as { skill: string; global?: boolean };
+    const body = await request.json().catch(() => null) as {
+      skill?: unknown;
+      global?: unknown;
+    } | null;
+    const skill = body?.skill;
+    const isGlobal = body?.global;
 
-    if (!skill || typeof skill !== "string") {
+    if (!isValidMarketplaceSkillName(skill)) {
       return NextResponse.json(
-        { error: "skill name is required" },
+        { error: "skill must be a valid installed marketplace skill name" },
         { status: 400 }
+      );
+    }
+    if (isGlobal !== undefined && typeof isGlobal !== "boolean") {
+      return NextResponse.json(
+        { error: "global must be a boolean" },
+        { status: 400 },
       );
     }
 
@@ -18,10 +39,7 @@ export async function POST(request: Request) {
       args.splice(3, 0, "-g");
     }
 
-    const child = spawn("npx", args, {
-      env: { ...process.env },
-      shell: true,
-    });
+    const child = spawnSkillsProcess(args);
 
     const encoder = new TextEncoder();
     const stream = new ReadableStream({

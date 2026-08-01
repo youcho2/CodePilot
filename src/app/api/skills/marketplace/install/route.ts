@@ -1,15 +1,36 @@
 import { NextResponse } from "next/server";
-import { spawn } from "child_process";
+import {
+  isValidMarketplaceSource,
+  spawnSkillsProcess,
+  validateMarketplaceMutationRequest,
+} from "@/lib/skills-marketplace-command";
 
 export async function POST(request: Request) {
+  const requestError = validateMarketplaceMutationRequest(request);
+  if (requestError) {
+    return NextResponse.json(
+      { error: requestError.error },
+      { status: requestError.status },
+    );
+  }
   try {
-    const body = await request.json();
-    const { source, global: isGlobal } = body as { source: string; global?: boolean };
+    const body = await request.json().catch(() => null) as {
+      source?: unknown;
+      global?: unknown;
+    } | null;
+    const source = body?.source;
+    const isGlobal = body?.global;
 
-    if (!source || typeof source !== "string") {
+    if (!isValidMarketplaceSource(source)) {
       return NextResponse.json(
-        { error: "source is required" },
+        { error: "source must be a valid GitHub marketplace repository" },
         { status: 400 }
+      );
+    }
+    if (isGlobal !== undefined && typeof isGlobal !== "boolean") {
+      return NextResponse.json(
+        { error: "global must be a boolean" },
+        { status: 400 },
       );
     }
 
@@ -18,10 +39,7 @@ export async function POST(request: Request) {
       args.splice(3, 0, "-g");
     }
 
-    const child = spawn("npx", args, {
-      env: { ...process.env },
-      shell: true,
-    });
+    const child = spawnSkillsProcess(args);
 
     const encoder = new TextEncoder();
     const stream = new ReadableStream({
