@@ -567,12 +567,21 @@ html.dark[data-platform="darwin"][data-shell="electron"][data-platform-style="au
     font-style: normal;
   }
   .prose a {
-    color: var(--primary);
+    color: var(--color-blue-600);
     text-decoration: underline;
+    text-decoration-color: color-mix(in oklch, var(--color-blue-500) 40%, transparent);
     text-underline-offset: 2px;
   }
+  .prose a:hover {
+    color: var(--color-blue-700);
+    text-decoration-color: var(--color-blue-600);
+  }
   .dark .prose a {
-    color: var(--primary);
+    color: var(--color-blue-400);
+  }
+  .dark .prose a:hover {
+    color: var(--color-blue-300);
+    text-decoration-color: var(--color-blue-300);
   }
   .prose hr {
     border-color: var(--border);

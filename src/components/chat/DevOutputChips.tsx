@@ -27,12 +27,14 @@
  * markdown content itself changes).
  */
 
-import { useEffect, useRef, useCallback, useMemo } from "react";
+import { useEffect, useRef, useCallback } from "react";
 import type React from "react";
 import { MessageResponse } from "@/components/ai-elements/message";
+import { MARKDOWN_LINK_CLASS_NAME } from "@/components/markdown/markdown-contract";
 import { usePanel } from "@/hooks/usePanel";
 import { useTranslation } from "@/hooks/useTranslation";
 import { showToast } from "@/hooks/useToast";
+import { cn } from "@/lib/utils";
 import { classifyPath } from "@/lib/preview-source";
 import {
   tokenizeDevOutput,
@@ -50,6 +52,53 @@ const SKIP_TAGS = new Set(["PRE", "CODE", "A", "BUTTON"]);
 /** Marker set on processed text-node parents so re-renders don't
  *  re-process already-chipified content. */
 const PROCESSED_ATTR = "data-codepilot-dev-processed";
+
+/**
+ * Link renderer for DevOutputSegment only. Streamdown treats unknown hrefs as
+ * inert controls, but Codex output often contains local file references that
+ * CodePilot needs to route itself. Keep the shared Markdown link appearance
+ * while preserving those stricter navigation rules.
+ */
+export function DevOutputMarkdownLink(
+  props: React.AnchorHTMLAttributes<HTMLAnchorElement>,
+) {
+  const { href, children, className, ...rest } = props;
+  const safeHref = typeof href === "string" ? href : "";
+  const linkClassName = cn(MARKDOWN_LINK_CLASS_NAME, className);
+  const localReference = parseLocalMarkdownReference(safeHref);
+  if (localReference) {
+    return (
+      <a
+        href={safeHref}
+        className={linkClassName}
+        data-codepilot-fileref-path={localReference.filePath}
+        {...(localReference.anchor
+          ? { "data-codepilot-fileref-anchor": localReference.anchor }
+          : {})}
+        {...rest}
+      >
+        {children}
+      </a>
+    );
+  }
+  if (/^(?:https?|mailto|tel):/i.test(safeHref)) {
+    return (
+      <a
+        href={safeHref}
+        className={linkClassName}
+        target="_blank"
+        rel="noopener noreferrer"
+        {...rest}
+      >
+        {children}
+      </a>
+    );
+  }
+  // Anything else (javascript:, data:, unknown schemes) → inert span.
+  return <span title="Blocked URL">{children}</span>;
+}
+
+const DEV_OUTPUT_MARKDOWN_COMPONENTS = { a: DevOutputMarkdownLink };
 
 export function DevOutputSegment({ text }: { text: string }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -179,40 +228,9 @@ export function DevOutputSegment({ text }: { text: string }) {
   //      anchor with target=_blank + rel="noopener noreferrer".
   //   3. Anything else → render a plain span so the URL never
   //      navigates the browser.
-  const linkRenderer = useMemo(
-    () =>
-      function CodepilotLink(props: React.AnchorHTMLAttributes<HTMLAnchorElement>) {
-        const { href, children, ...rest } = props;
-        const safeHref = typeof href === "string" ? href : "";
-        const localReference = parseLocalMarkdownReference(safeHref);
-        if (localReference) {
-          return (
-            <a
-              href={safeHref}
-              data-codepilot-fileref-path={localReference.filePath}
-              {...(localReference.anchor ? { "data-codepilot-fileref-anchor": localReference.anchor } : {})}
-              {...rest}
-            >
-              {children}
-            </a>
-          );
-        }
-        if (/^(?:https?|mailto|tel):/i.test(safeHref)) {
-          return (
-            <a href={safeHref} target="_blank" rel="noopener noreferrer" {...rest}>
-              {children}
-            </a>
-          );
-        }
-        // Anything else (javascript:, data:, unknown schemes) → inert span.
-        return <span title="Blocked URL">{children}</span>;
-      },
-    [],
-  );
-
   return (
     <div ref={containerRef} onClick={onClick}>
-      <MessageResponse components={{ a: linkRenderer }}>{text}</MessageResponse>
+      <MessageResponse components={DEV_OUTPUT_MARKDOWN_COMPONENTS}>{text}</MessageResponse>
     </div>
   );
 }
