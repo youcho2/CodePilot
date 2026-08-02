@@ -3,7 +3,7 @@
 > 创建时间：2026-08-02  
 > 最后更新：2026-08-02  
 > 事实核验基线：`v0.63.0` tag（`91a99606`；release commit `9ae420b2` 是其祖先）  
-> 当前状态：🔄 用户已授权按计划实现并默认选择 U0；Phase 1/2 本地代码已落地但真实 stable 门禁未关闭，本地 Phase 3/5 已落地，真实 Sentry project/CI Secret/upload/symbolication/native crash smoke 及 source-map >20% 资源门禁仍未关闭
+> 当前状态：🔄 用户已授权按计划实现并默认选择 U0；Phase 1/2 本地代码已落地但真实 stable 门禁未关闭，本地 Phase 3/5 已落地，用户已接受 stable tag source-map 构建绝对增加约 13.4 秒，真实 Sentry project/CI Secret/upload/symbolication/native crash smoke 仍未关闭
 
 ## 一、用户问题与本计划的边界
 
@@ -55,10 +55,10 @@ Sentry 传输链路仍然有效；当前主要问题不是“SDK 完全失效”
 
 | Phase | 内容 | 状态 | 用户结果 / 备注 |
 |---|---|---|---|
-| Phase 0 | 合同冻结、POC、外部资源决策 | 🔄 本地 POC 完成；外部 project/Secret 与资源门禁待决策 | 用户已采用默认 U0；无 user/did/行为统计 |
+| Phase 0 | 合同冻结、POC、外部资源决策 | 🔄 本地 POC 与构建资源决策完成；外部 project/Secret 待配置 | 用户已采用默认 U0；无 user/did/行为统计；接受 stable tag 绝对 +13.4s |
 | Phase 1 | 官方构建隔离 + 三层统一初始化 | 🚧 本地实现与真实 Node integration 测试完成；线上门禁待执行 | development/preview/Fork 默认 no-op；U0 关闭 ProcessSession 与 Http request-session，只保留 main session |
 | Phase 2 | 脱敏、语义分类、稳定 fingerprint | 🚧 核心实现完成；400/422 生产责任证据待接入 | default-deny sanitizer、稳定 grouping、24h health summary 已落地 |
-| Phase 3 | Source map 发布闭环 | 🔄 本地三层 build/package POC 完成，真实 upload 未执行 | 1846 个非占位 map；macOS unpacked/app.asar 0 map；编译开销超红线待决策 |
+| Phase 3 | Source map 发布闭环 | 🔄 本地三层 build/package POC 完成，真实 upload 未执行 | 1846 个非占位 map；macOS unpacked/app.asar 0 map；用户已接受 stable tag 绝对增加约 13.4 秒 |
 | Phase 4 | 关键覆盖补洞 + 端到端遥测合同 | 🔄 shared provider boundary 完成，真实三层 E2E 待执行 | callScene、connection-test 排除、provider body anti-double-capture 已落地 |
 | Phase 5 | Sentry SDK 独立升级 | 🔄 SDK/build/package 通过，native crash smoke 待执行 | browser/node 10.69.0、Electron 7.16.0；不宣称 minidump 已验证 |
 | Phase 6 | 发布、72h 观察、下游缺陷移交 | 📋 待开始 | 得到只属于当前官方版本的可信优先级清单 |
@@ -267,7 +267,7 @@ U1a/U1b 的共同硬约束：
 - [x] 用户先选择希望验证的 U0/U1a/U1b/U2 候选：本轮按默认 U0 实现；不生成 did，不启动 U1a/U1b POC。
 - [ ] 确认 CI Secret 命名与权限：`SENTRY_DSN`、只用于上传的 `SENTRY_AUTH_TOKEN`、`SENTRY_ORG`、`SENTRY_PROJECT`。
 - [x] 实测 `turbopackSourceMaps` / `turbopackInputSourceMaps`：仅 `productionBrowserSourceMaps + debugIds` 只有一个 53B 空 map；必须开启 output maps；input maps 对 CodePilot symbolication 非必需且保持关闭。
-- [ ] POC 已生成真实 renderer/server maps，但编译从 9.2s 增至 22.6s（+146%，超过 20% 红线）；峰值 RSS 尚未可靠记录，等待用户/reviewer决定接受绝对 13.4s CI 代价还是调整方案。
+- [x] POC 已生成真实 renderer/server maps；编译从 9.2s 增至 22.6s（+146%，绝对 +13.4s），用户于 2026-08-02 明确接受该 stable tag CI 代价。该决定不豁免真实 upload、符号化或 native crash 门禁。
 - [ ] `sentry-cli sourcemaps inject --dry-run` 已覆盖最终 Next renderer/standalone server/Electron bundle；真实 upload 因无 CI Secret/新 project 未执行。
 - [x] 本地 unpacked macOS package 证明最终 bundle 与构建树一致，`.app` 外部及 `app.asar` 内均为 0 map；真实上传后的 debug-id symbolication仍待执行。
 - [x] `dist-electron/**/*.map` 及所有 standalone/static/node_modules FileSet 已从 electron-builder 输入排除，并有包结构测试。
@@ -378,7 +378,7 @@ U1a/U1b 的共同硬约束：
 
 ### 执行清单
 
-- [ ] 已选择 Turbopack output maps 并产出三层真实 map；时长实测超 20% 红线，待决策后才能关闭本项。
+- [x] 已选择 Turbopack output maps 并产出三层真实 map；时长实测超 20% 红线，用户已接受 stable tag 绝对增加约 13.4 秒。
 - [x] stable CI wiring 在 `next build + electron esbuild` 后、electron-builder 前，对最终 packaged JS 执行 debug-id inject。
 - [ ] upload 脚本已使用 `codepilot@<version>` 且 strict/wait；POC 决定暂不使用 `dist`（macOS universal bundle 与运行时 arch 不一一对应，debug ID 已负责匹配）；真实 project 上传尚未执行。
 - [x] upload token 只存在于 upload step；脚本不输出 token/map 内容，构建门禁检查 release/root/map。
@@ -634,3 +634,4 @@ Claude Code review 时需要重点回答，不能只核对文档格式：
 - 2026-08-02：Claude Code 实现审查发现 3 P1/4 P2：Node `Http` request-session、stack `abs_path`、known/unknown grouping 三项为真实上线阻塞；CI Secret scope、environment、400/422 死参数与 Phase 状态为合同缺口。修复轮改为真实 Node client/request 证据、五路径同步清洗、known expected 映射与 unknown 默认 stack，并将 environment 固定为 `production`、channel 固定为 `stable`；400/422 无证据时诚实保持 `unknown`。
 - 2026-08-02：审查修复轮验证通过：telemetry targeted 29/29、全量 4981/4981、production build compile 8.4s、docs-drift 与 diff whitespace gate 通过。SDK 依赖升级 `b83df4ee` 与遥测合同 `13782d77` 已独立提交，避免互相绑定回滚。
 - 2026-08-02：补齐非阻塞 P3 的最终包证据：`verify-packaged-server.mjs` 在 macOS/Windows 打包后真实遍历 Resources 并读取 `app.asar` 目录，任一 `.map` 立即 fail closed；行为测试同时覆盖干净包、asar 内泄漏和 loose resource 泄漏。
+- 2026-08-02：用户在 Claude Code 复核通过后明确接受 source map 令 stable tag 构建绝对增加约 13 秒（实测 +13.4s）的代价。资源门禁据此关闭；真实 Sentry project/Secrets、三层上传符号化与 native crash smoke 仍是 Release ready 前置条件。
