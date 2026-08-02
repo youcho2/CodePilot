@@ -8,6 +8,7 @@
 
 | 文件 | 主题 |
 |------|------|
+| deepseek-v4-flash-0731-adaptation-2026-08-02.md | **DeepSeek V4 Flash 0731 适配核验**：确认模型 ID 不变、Flash 独占当前原生 Responses/Codex 路径、Flash Low/High/Max 与 Pro High/Max 推理合同；记录 CodePilot Anthropic effort、Codex API-key Responses、AI SDK force-reasoning/summary 兼容点，以及 ClinePass/OpenCode Go 不继承第一方能力的边界与两条真实 API smoke |
 | harness-home-design-evidence-inventory-2026-07-30.md | **Harness Home Design Method C0 证据候选清单**：从 macOS shell、Chat composer、semantic icon、Markdown/Artifact 四个真实 brief 提取 accepted/rejected/source/scope/candidate principles；明确区分“既有产品决策”与“用户通用审美”，未确认前不生成 confirmed Method 或 durable Taste Memory |
 | harness-home-v0.62-inventory-2026-07-30.md | **Harness Home v0.62 实施盘点**：Memory / Skill / MCP / Runtime / Artifact / Media / Secret 的事实源地图；量化第四框架 L0 当前 8 文件、Runtime lexical surface 35 产品文件 + 57 测试；拍板单写者 + journal + atomic rename 写模型、兼容型 SecretStore、首批 producer-backed Asset kind 与 enforcing anchors |
 | subagent-orchestration-competitor-followup-2026-07-24.md | **Sub-agent 编排竞品补充调研**：排除既有重点对标后，新增核对 VS Code/Copilot、Pydantic AI Harness、OpenAI Agents SDK、Roo Code、Gemini CLI、Cline Subagents/Agent Teams、LangGraph 与 Microsoft Agent Framework；确认动态子模型方向正确。2026-07-24 已对齐 P0 落地事实：attempt 只按显式 `logical_run_id` 关联、缺省不按名称合并，active/completed ID 误复用由应用层拒绝；保留 structured error，settling 使用独立 phase，capability/permission 归属缺陷已修；整树预算、usage measurement source 与幂等恢复后移。明确不照搬静默模型回退、固定只读和完整 workflow engine |

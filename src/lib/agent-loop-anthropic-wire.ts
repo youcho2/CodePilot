@@ -77,8 +77,10 @@ export function buildAnthropicProviderOptions(args: {
     ClaudeModelOptionsOutput,
     'thinking' | 'effort' | 'effortProvenance' | 'applyContext1mBeta'
   >;
+  /** Vendor-verified tiers for a third-party Anthropic-compatible wire. */
+  verifiedEffortLevels?: readonly EffortLevel[];
 }): AnthropicWireOptions {
-  const { isThirdPartyProxy, model, sanitized } = args;
+  const { isThirdPartyProxy, model, sanitized, verifiedEffortLevels } = args;
   const anthropicOpts: Record<string, unknown> = {};
   let effortDroppedForProxy = false;
   let effortDroppedForProxyRequested: string | undefined;
@@ -89,19 +91,31 @@ export function buildAnthropicProviderOptions(args: {
     : undefined;
 
   if (isThirdPartyProxy) {
-    // Proxies: only pass thinking if explicitly enabled (not adaptive), skip
-    // effort (requires beta header proxies may not support). UI still shows the
-    // Effort selector for these providers (supportsEffort is a model-level
-    // catalog flag, not per provider-runtime), so an explicit pick silently
-    // evaporates — flag it so the caller surfaces a one-shot toast.
+    // Proxies: only pass thinking if explicitly enabled (not adaptive).
+    // Effort stays fail-closed unless the matched provider preset declares
+    // model-specific support for GA `output_config.effort`. This lets a
+    // first-party DeepSeek credential use its documented effort contract
+    // without granting the same claim to aggregators that happen to expose
+    // an identically named model.
     if (sanitized.thinking && sanitized.thinking.type === 'enabled') {
       anthropicOpts.thinking = sanitized.thinking;
     }
-    if (sanitized.effort && explicitlyRequestedEffort) {
-      effortDroppedForProxy = true;
-      effortDroppedForProxyRequested = explicitlyRequestedEffort;
+    if (sanitized.effort) {
+      if (!verifiedEffortLevels) {
+        if (explicitlyRequestedEffort) {
+          effortDroppedForProxy = true;
+          effortDroppedForProxyRequested = explicitlyRequestedEffort;
+        }
+      } else if (!verifiedEffortLevels.includes(sanitized.effort as EffortLevel)) {
+        effortDroppedUnsupportedTier = {
+          requested: explicitlyRequestedEffort ?? sanitized.effort,
+          supported: verifiedEffortLevels,
+        };
+      } else {
+        anthropicOpts.effort = sanitized.effort;
+      }
     }
-    // Don't pass effort or adaptive thinking for proxies.
+    // Don't pass adaptive thinking for proxies.
   } else {
     // Official API: pass through sanitized thinking, and effort ONLY for models
     // on Anthropic's effort list (see JSDoc above). UI selection == wire for

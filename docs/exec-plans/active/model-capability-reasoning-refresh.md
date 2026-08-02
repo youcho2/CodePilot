@@ -1,8 +1,8 @@
 # 模型目录与推理强度统一适配
 
 > 创建时间：2026-07-17
-> 最后更新：2026-07-28
-> 状态：🚧 最终 route/DB 修复已落地：GPT-5.6 与 Kimi capability 可到达 composer，智谱 CodePlan 无网络时回退内置目录，Claude selector 复用模型菜单视觉合同。2026-07-28 已把 Opus 5 作为显式模型接入 Claude Code/Native/Codex proxy 共用目录、Sub-agent route、1M context 与 adaptive/effort 合同；effort 现保留用户选择/系统兼容兜底 provenance，并按模型×档位在 wire 边界校验，避免 Auto 冒充 High 与 Sonnet 4.6 `xhigh` 外发。Dev 真实完整 turn 已证明 `claude-opus-5` 可运行；其后发现 SDK `supportedModels()` 只返回 convenience aliases 并覆盖静态目录，导致 UI 把仍为 Opus 5 的会话显示成 Default，现已改为“canonical 目录稳定 + SDK 仅追加新入口”。packaged UI 仍待验。Kimi effort 与其他真实 provider smoke 仍待跑，Phase 3–4 待继续。
+> 最后更新：2026-08-02
+> 状态：🚧 最终 route/DB 修复已落地：GPT-5.6 与 Kimi capability 可到达 composer，智谱 CodePlan 无网络时回退内置目录，Claude selector 复用模型菜单视觉合同。2026-07-28 已把 Opus 5 作为显式模型接入 Claude Code/Native/Codex proxy 共用目录、Sub-agent route、1M context 与 adaptive/effort 合同；effort 现保留用户选择/系统兼容兜底 provenance，并按模型×档位在 wire 边界校验。2026-08-02 新增 DeepSeek V4 Flash 0731 slice：模型 ID 保持 `deepseek-v4-flash`，第一方 Flash 在 Codex Runtime 走原生 Responses，CodePilot/Claude Code 保持 Anthropic-compatible；Flash Low/High/Max、Pro High/Max 能力与 wire 分轴，ClinePass/OpenCode Go 不继承第一方 effort。两条真实 API smoke 已通过。packaged UI、Claude Code 子进程与 Kimi/GLM 等其余 provider smoke 仍待跑，Phase 3–4 继续进行。
 > 事实基线：[基础体验更新事实基线](../../research/foundation-experience-refresh-2026-07-17.md)
 
 ## 用户问题与取舍
@@ -18,8 +18,8 @@
 | Phase 0 | Codex GPT-5.6 与 schema drift | ✅ 恢复修复：最终序列化统一 lift capability；route-contract 直接断言 GPT-5.6 top-level effort allowlist | Codex 渠道可看到账号真实返回的 5.6，并显示可用强度 |
 | Phase 1 | GLM-5.2 / Kimi for Coding 目录与强度 | ✅ 恢复修复：manual exact-ID + hidden legacy alias 仍可只读 enrichment；CodePlan search 以内置目录降级 | 两个 Coding Plan 显示正确模型和真实档位 |
 | Phase 2 | Claude Sonnet 5 / Opus 5 与现有模型复核 | ✅ 恢复修复：Opus 5 显式目录、1M context、三 Runtime 共用 adaptive/effort、effort provenance/精确档位门与本地化提示已落地；真实 CLI route/entitlement 通过，packaged UI smoke 待跑 | Sonnet 5 / Opus 5 可选；Claude 模型右侧稳定显示匹配且视觉一致的强度菜单 |
-| Phase 3 | capability 统一与后续跟进机制 | 📋 待开始 | 上游模型变化不会再靠多处硬编码静默漂移 |
-| Phase 4 | Tier 2 回归与真实凭据 smoke | 📋 待开始 | 模型、Runtime、强度和实际请求一致 |
+| Phase 3 | capability 统一与后续跟进机制 | 🔄 进行中：DeepSeek model/UI 与 verified wire 已分轴，通用 normalization 仍待收口 | 上游模型变化不会再靠多处硬编码静默漂移 |
+| Phase 4 | Tier 2 回归与真实凭据 smoke | 🔄 进行中：DeepSeek Responses + Anthropic 两条真实 API 通过，其余矩阵待跑 | 模型、Runtime、强度和实际请求一致 |
 
 ## 2026-07-19 用户 smoke 打回：新增修复清单
 
@@ -113,6 +113,9 @@
 ## Phase 3：后续能力跟进
 
 - [ ] 建立 provider/model capability normalization：`supportedEffortLevels`、default、thinking mode、context、source breadcrumb。
+- [x] DeepSeek V4 Flash 0731 更新保持稳定模型 ID；补 Flash Low/High/Max + 1M/default High、Pro High/Max，并以官方链接记录 source breadcrumb。
+- [x] 模型/UI capability 与 provider wire capability 分轴：preset `wireCapabilities` 经 identity + exact model 解析；DeepSeek 第一方 Flash 才有 Codex Responses，ClinePass/OpenCode Go 同名模型保持 tool-use-only。
+- [x] preset env 改为 `catalog defaults < stored override` 分层读取；旧 DeepSeek provider 自动获得 Flash Sub-agent 默认值，用户 override 仍优先。
 - [ ] API/SDK 动态能力优先；catalog 只作有 provenance 的 fallback。
 - [ ] 增加 upstream schema fixture / contract test，字段改名或出现空值时 fail closed。
 - [ ] 将模型目录复核列入 provider/runtime guardrail，新增模型必须同时回答 UI、wire、default、unsupported 四项。
@@ -122,8 +125,10 @@
 - [ ] 单测：selector 可见性、档位集合、Auto 语义、模型切换清理、未知档位 fail-closed（含 EffortSelectorDropdown 空/未知/缺失 levels 的组件测试，禁止回退写死全集）。
 - [ ] 单测：Codex 新旧 `model/list` schema；5.6 max/xhigh 不被静默降级；unsupported 不外发。
 - [x] 单测：Sonnet 5 / Opus 5 不发 manual thinking / 非默认 sampling；Opus 5 disabled-thinking × Auto/xhigh/max 生成合法 high wire；Codex proxy 全 adaptive 家族无 manual budget；Kimi for Coding 恰为 Auto/Low/High/Max；GLM 只表达两档真值。
+- [x] 单测：DeepSeek exact preset/model dispatch、legacy provider env 分层、Flash Codex Responses outbound body、Anthropic `output_config.effort`、Max 保真 / xhigh→High / unsupported omit、aggregator fail-closed。
 - [x] `npm run test` 等价的权威串行全量：4410/4410，exit 0；默认并发脚本断言结束后受既有句柄影响不退出，因此完成证据采用 `--test-concurrency=1 --test-force-exit`。
 - [ ] 真实 smoke：Claude Code × GLM/Kimi/Anthropic；Codex Runtime × Codex Account；Native × Anthropic/OpenAI-compatible。
+- [x] DeepSeek 第一方真实 smoke：Codex Runtime × Flash × Responses High；CodePilot Runtime × Flash × Anthropic thinking + High。两条均返回预期 marker，且 production resolver/factory/wire builder 全链参与。
 - [ ] 每个 smoke 记录 Runtime / Provider / Model / UI 选择 / wire 参数 / 实际结果。
 
 ## 验收标准
@@ -138,6 +143,8 @@
 
 | Date | Runtime | Provider | Model | 凭据形态 | 场景 | Result | Evidence |
 |---|---|---|---|---|---|---|---|
+| 2026-08-02 | codex_runtime | DeepSeek official | deepseek-v4-flash | 已配置 API key | production resolver → API-key Responses，reasoning High，最小文本 turn | ✅ | `sdkType=openai`、`useResponsesApi=true`、`auth=api_key`，返回 `DEEPSEEK_RESPONSES_OK`；key 未打印 |
+| 2026-08-02 | codepilot_runtime | DeepSeek official | deepseek-v4-flash | 已配置 API key | production compat adapter，thinking enabled + `output_config.effort=high`，最小文本 turn | ✅ | `sdkType=claude-code-compat`、`effortSent=high`、`thinkingSent=true`，返回 `DEEPSEEK_ANTHROPIC_OK`；key 未打印 |
 | 2026-07-17 | codex app-server probe | isolated/no login | gpt-5.6-sol/terra/luna | 无用户凭据 | initialize + model/list | ✅ 目录与新 schema 已确认；不代表账号 entitlement | codex-cli 0.144.2，本调研文档 POC |
 | 2026-07-19 | codex_runtime | Codex Account | gpt-5.6-sol | 当前登录 | 选择模型后检查 composer effort selector | ❌ selector 未出现，Phase 0 重新打开 | `/api/providers/models` 的 Codex 行只有 nested `capabilities.supportedEffortLevels`；UI 只读 top-level 字段。用户截图 + route JSON 均复现 |
 | 2026-07-19 | claude_code | Kimi for Coding | kimi-for-coding | 当前配置 | 选择模型后检查 composer effort selector | ❌ selector 未出现，Phase 1 重新打开 | 启用 DB 行为 `manual_enabled/user_edited`，`capabilities_json={}`；旧 catalog `sonnet` 行为 `manual_hidden`，catalog round-trip 测试未覆盖此路径 |
@@ -163,6 +170,7 @@
 
 ## 决策日志
 
+- 2026-08-02（DeepSeek V4 Flash 0731）：**Signal**：DeepSeek 2026-07-31 更新 Flash、单独支持 Codex/Responses，并公布推理强度；用户要求判断是否需要适配以及 ClinePass/OpenCode Go 是否跟进。**Triage**：模型名没变，所以不需要新 SKU；但仓库的 DeepSeek 模型无 capability、第三方 Anthropic effort 被统一丢弃、Codex Runtime 只会把 Responses 转译回 Anthropic，没有利用官方 Flash 原生 Responses。ClinePass/OpenCode Go 只能证明模型可选，不能证明网关接受第一方 effort 字段。**Fix**：preset 增加模型能力与独立 `wireCapabilities`；resolver 以 identity+exact model 选择 transport；Flash/Codex 使用 API-key Responses，AI SDK 未识别 DeepSeek reasoning 时由 verified transport 设置 `forceReasoning` 并移除未支持 summary；CodePilot compat 把 verified effort 写入 `output_config.effort`；旧 provider 以 preset defaults < stored override 合并；聚合渠道不动。Auto 继续表示不显式指定，未硬写官方示例的全局 max。**Verify**：定向 70/70 后全量 `npm run test` exit 0；真实 DeepSeek Responses High 与 Anthropic thinking+High 两条均返回预期 marker。**Guardrail**：ProviderManagement/Runtime 增加 model-vs-wire 分轴、exact-model dispatch、SDK unknown-model reasoning 与 unsupported-field 规则；研究基线见 `docs/research/deepseek-v4-flash-0731-adaptation-2026-08-02.md`。packaged UI 与 Claude Code subprocess 尚未冒充完成。
 - 2026-07-28（Claude 复审 follow-up：effort provenance + 精确档位门）：**Signal**：Opus 5 `thinking off + Auto` 的系统兼容 High 被第三方 proxy 当成“用户选择的 High”发出假提示；Sonnet 4.6 allowlist 注释写明无 `xhigh`，但生产门只判断模型支持 effort，外部 Codex config 仍可把 `xhigh` 发到 wire。**Triage/Fix**：`ClaudeModelOptionsOutput` 增加 `effortProvenance`，proxy drop 只认 `source=explicit` 并保留原始 requested tier；官方 effort 表增加可执行 `levels`，wire 同时核验 model + tier，分别产出 unsupported-model / unsupported-tier / third-party-proxy 三种结构化事实，Native 两路径和 en/zh 共用 reason 映射；Codex proxy 复用同一 wire builder，因此不再外发 Sonnet 4.6 `xhigh`。**Verify**：核心定向 112/112；沙箱外 `npm run test` 4736/4736；`npx tsc --noEmit`、生产构建通过；touched ESLint 0 error（`agent-loop.ts` 4 条既有 unused warning）。**Guardrail**：allowlist 测试要求每个 pattern 同时具备 breadcrumb + levels，反例锁定 Auto 不冒充 High、调整后的 proxy 提示仍引用原始 xhigh、Sonnet 4.6 max 可发而 xhigh 不可发。真实第三方代理 packaged smoke 保持待跑，不标 Smoke passed。
 - 2026-07-28（Opus 5 回复后显示 Default）：**Signal**：用户在 electron-dev 选择 Opus 5 并完成真实回复后，composer 标签变成 `Default (recommended)`。**Triage**：会话 `bfc8…` 的 DB `model=claude-opus-5`、SDK init/turn 均成功；回复后 capability cache 捕获 5 个 convenience entries，`/api/providers/models` 用它整表替换 canonical env 目录，删除 `opus-5`，随后 `MessageInput` 对“缺失模型”执行合法但前提错误的 auto-correct。**Fix**：新增 `mergeEnvCatalogWithSdkModels()`，保持 canonical 行及顺序，SDK 仅追加身份未重叠的新入口；重叠的移动 alias 不覆盖固定版本标签/upstream。**Verify**：真实 Dev 接口热更新后同时返回 `opus-5→claude-opus-5`、`default` 与 SDK variants；定向目录/round-trip/Opus 5 测试 44/44；`npm run test`（含 `tsc --noEmit`）4737/4737；touched ESLint 与 `git diff --check` 通过。**Guardrail**：route 行为测试注入真实 2.1.220 五行缓存，断言 `opus-5` 不消失、`default` 仍追加、`sonnet` 不重复或被改名。packaged UI 仍待跑。
 - 2026-07-28（Opus 5 接入 + Claude review 闭环）：官方模型 ID 为 `claude-opus-5`，Claude Code `2.1.219` 起加入该模型；CodePilot 新增显式 `opus-5`，不改既有 `opus→4.7` pin，不给未验证的第三方云目录伪造 slug。Opus 5 复用 adaptive/sampling 合同并加入 effort API allowlist；disabled thinking × xhigh/max 受控降到 high 并通过结构化、本地化 status 告知，Auto 则显式 high，消除对 CLI `default_effort` 的隐含依赖。Claude review 另发现 Codex proxy 仍把所有 Anthropic effort 映射为 manual `budgetTokens`；现改为使用 resolved upstream model + 共享 sanitizer/wire builder，五个 adaptive 模型均生成 adaptive + effort，第三方 proxy 至少不再收到明确非法的 manual thinking。`buildEffortAdjustmentNotice` 的缺省模型名也从会误指 Opus 5 的硬编码改为 `unknown`。生产链使用系统 Claude binary，本机 `2.1.220` 的真实请求已经上报 `claude-opus-5` 与 1M context；请求仅因本地 0.05 USD 保护上限被截断，按 route/entitlement 通过、完整输出待 packaged smoke 记账。门禁：最终核心定向 91/91，真实 AI SDK Anthropic 请求形状含 adaptive summarized + effort；`npm run test` 4726/4726、`npm run build`、touched ESLint（0 error）与 `tsc --noEmit` 均通过。

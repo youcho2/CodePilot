@@ -101,6 +101,9 @@ export function buildBody(
   if (anthropicOpts?.thinking) {
     body.thinking = anthropicOpts.thinking;
   }
+  if (typeof anthropicOpts?.effort === 'string') {
+    body.output_config = { effort: anthropicOpts.effort };
+  }
 
   return body;
 }

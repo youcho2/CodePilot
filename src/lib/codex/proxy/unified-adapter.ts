@@ -118,6 +118,7 @@ export function createUnifiedAdapter(family: string): ResponsesAdapter {
         callScene,
         providerId: input.targetProviderId,
         model: input.body.model,
+        runtime: 'codex_runtime',
       });
       languageModel = created.languageModel;
       modelConfig = created.config;
@@ -353,14 +354,24 @@ export function createUnifiedAdapter(family: string): ResponsesAdapter {
 
     const providerOptions = buildProviderOptions(
       bodyWithBridgePrompt,
-      modelConfig.sdkType === 'anthropic'
-        ? {
-            anthropic: {
-              model: modelConfig.modelId,
-              isThirdPartyProxy,
-            },
-          }
-        : undefined,
+      {
+        ...(modelConfig.sdkType === 'anthropic' || modelConfig.sdkType === 'claude-code-compat'
+          ? {
+              anthropic: {
+                model: modelConfig.modelId,
+                isThirdPartyProxy,
+                verifiedEffortLevels: modelConfig.verifiedAnthropicEffortLevels,
+              },
+            }
+          : {}),
+        ...(modelConfig.verifiedResponsesEffortLevels
+          ? {
+              responses: {
+                verifiedEffortLevels: modelConfig.verifiedResponsesEffortLevels,
+              },
+            }
+          : {}),
+      },
     );
     const wantsStream = input.body.stream !== false;
 
@@ -787,10 +798,24 @@ export function buildProviderOptions(
     anthropic?: {
       model: string;
       isThirdPartyProxy: boolean;
+      verifiedEffortLevels?: readonly ('low' | 'medium' | 'high' | 'xhigh' | 'max')[];
+    };
+    /** Present only for a preset-verified native Responses transport. */
+    responses?: {
+      verifiedEffortLevels: readonly ('low' | 'medium' | 'high' | 'xhigh' | 'max')[];
     };
   },
 ): AiProviderOptions | undefined {
   const out: AiProviderOptions = {};
+
+  // @ai-sdk/openai only recognizes its own model catalog. A verified
+  // third-party Responses model (DeepSeek V4 Flash) would otherwise be
+  // classified as non-reasoning and the SDK would drop reasoning.effort
+  // before fetch. The preset-gated context is the evidence for overriding
+  // that heuristic.
+  if (context?.responses) {
+    out.openai = { forceReasoning: true };
+  }
 
   // Phase 5b smoke follow-up (2026-05-15) — Codex's `/responses`
   // endpoint (chatgpt.com/backend-api/codex/responses) REQUIRES a
@@ -829,7 +854,10 @@ export function buildProviderOptions(
     // resolved provider is Anthropic, run the SAME sanitizer and wire builder
     // as Native so the three Runtime paths cannot disagree on model contracts.
     const anthropicThinking = mapEffortToAnthropicThinking(effort);
-    const openaiReasoning = mapEffortToOpenAI(effort);
+    const openaiReasoning = mapEffortToOpenAI(
+      effort,
+      context?.responses?.verifiedEffortLevels,
+    );
     if (context?.anthropic) {
       const sanitized = sanitizeClaudeModelOptions({
         model: context.anthropic.model,
@@ -840,6 +868,7 @@ export function buildProviderOptions(
         isThirdPartyProxy: context.anthropic.isThirdPartyProxy,
         model: context.anthropic.model,
         sanitized,
+        verifiedEffortLevels: context.anthropic.verifiedEffortLevels,
       });
       if (wire.anthropic) {
         out.anthropic = wire.anthropic as JsonObject;
@@ -879,7 +908,17 @@ function mapEffortToAnthropicThinking(
 
 function mapEffortToOpenAI(
   effort: 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max',
-): 'minimal' | 'low' | 'medium' | 'high' | undefined {
+  verifiedLevels?: readonly ('low' | 'medium' | 'high' | 'xhigh' | 'max')[],
+): 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max' | undefined {
+  if (verifiedLevels) {
+    if (verifiedLevels.includes(effort as 'low' | 'medium' | 'high' | 'xhigh' | 'max')) {
+      return effort as 'low' | 'medium' | 'high' | 'xhigh' | 'max';
+    }
+    // DeepSeek documents xhigh as an alias of high. Keep that one explicit
+    // compatibility mapping; unknown tiers remain omitted rather than guessed.
+    if (effort === 'xhigh' && verifiedLevels.includes('high')) return 'high';
+    return undefined;
+  }
   switch (effort) {
     case 'minimal':
       return 'minimal';

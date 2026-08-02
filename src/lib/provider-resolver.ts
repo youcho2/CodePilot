@@ -11,12 +11,14 @@ import {
   type Protocol,
   type AuthStyle,
   type CatalogModel,
+  type ProviderEffortLevel,
   type RoleModels,
   inferProtocolFromLegacy,
   inferAuthStyleFromLegacy,
   getDefaultModelsForProvider,
   getEffectiveProviderProtocol,
   findPresetForLegacy,
+  getVerifiedProviderWireCapabilities,
   ENV_CLAUDE_CODE_MODELS,
 } from './provider-catalog';
 import {
@@ -409,6 +411,7 @@ export function toClaudeCodeEnv(
     'CLAUDE_CODE_SKIP_VERTEX_AUTH',
     'CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC',
     'CLAUDE_CODE_DISABLE_NONSTREAMING_FALLBACK',
+    'CLAUDE_CODE_SUBAGENT_MODEL',
     'CLAUDE_CODE_EFFORT_LEVEL',
     'ENABLE_TOOL_SEARCH',
     'AWS_REGION',
@@ -589,6 +592,14 @@ export interface AiSdkConfig {
   processEnvInjections: Record<string, string>;
   /** Use OpenAI Responses API instead of Chat Completions (for Codex API) */
   useResponsesApi?: boolean;
+  /** Authentication mode for a Responses transport. */
+  responsesApiAuth?: 'codex_oauth' | 'api_key';
+  /** Vendor-verified effort tiers for an Anthropic-compatible wire. */
+  verifiedAnthropicEffortLevels?: readonly ProviderEffortLevel[];
+  /** Vendor-verified effort tiers for a native Responses wire. */
+  verifiedResponsesEffortLevels?: readonly ProviderEffortLevel[];
+  /** Whether the selected Responses endpoint accepts reasoning summaries. */
+  supportsResponsesReasoningSummary?: boolean;
   /** Resolve bearer credentials per request from the atomic xAI OAuth bundle. */
   useXaiOAuth?: boolean;
 }
@@ -600,6 +611,7 @@ export interface AiSdkConfig {
 export function toAiSdkConfig(
   resolved: ResolvedProvider,
   modelOverride?: string,
+  options: { runtime?: ChatRuntime } = {},
 ): AiSdkConfig {
   // Resolve the upstream model ID (the actual API model name).
   // If modelOverride is given (from caller), check if it maps to a different upstream ID
@@ -685,6 +697,9 @@ export function toAiSdkConfig(
   }
 
   const headers = resolved.headers;
+  const verifiedWire = provider
+    ? getVerifiedProviderWireCapabilities(provider, modelId)
+    : {};
 
   // OpenAI OAuth (Codex API) — special path using OAuth Bearer token.
   // The actual OAuth token is resolved in ai-provider.ts at model creation time
@@ -702,6 +717,7 @@ export function toAiSdkConfig(
       headers,
       processEnvInjections,
       useResponsesApi: true,
+      responsesApiAuth: 'codex_oauth',
     };
   }
 
@@ -715,6 +731,32 @@ export function toAiSdkConfig(
       headers,
       processEnvInjections,
       useXaiOAuth: true,
+    };
+  }
+
+  // A provider preset may declare a model-specific native Responses
+  // transport for Codex Runtime. This is capability-driven rather than a
+  // hostname special case: only an identity-resolved preset + explicitly
+  // listed model can take this path. DeepSeek V4 Flash is the first verified
+  // declaration; other DeepSeek models and aggregator copies keep the normal
+  // Anthropic/OpenAI-compatible route.
+  if (
+    options.runtime === 'codex_runtime'
+    && provider
+    && verifiedWire.codexResponses
+  ) {
+    return {
+      sdkType: 'openai',
+      apiKey: provider.api_key || undefined,
+      authToken: undefined,
+      baseUrl: verifiedWire.codexResponses.baseUrl,
+      modelId,
+      headers,
+      processEnvInjections,
+      useResponsesApi: true,
+      responsesApiAuth: 'api_key',
+      verifiedResponsesEffortLevels: verifiedWire.codexResponses.supportedEffortLevels,
+      supportsResponsesReasoningSummary: verifiedWire.codexResponses.supportsReasoningSummary,
     };
   }
 
@@ -784,6 +826,9 @@ export function toAiSdkConfig(
         modelId,
         headers,
         processEnvInjections,
+        ...(verifiedWire.anthropicEffortLevels
+          ? { verifiedAnthropicEffortLevels: verifiedWire.anthropicEffortLevels }
+          : {}),
       };
     }
 
@@ -1071,7 +1116,20 @@ function buildResolution(
 
   // Parse JSON fields
   const headers = safeParseJson(provider.headers_json);
-  const envOverrides = safeParseJson(provider.env_overrides_json || provider.extra_env);
+  const preset = findPresetForLegacy(
+    provider.base_url,
+    provider.provider_type,
+    protocol,
+    provider.preset_key,
+  );
+  // Preset defaults evolve with vendor integrations (for example DeepSeek's
+  // official Flash sub-agent recommendation). Existing provider rows may
+  // predate those defaults, so read them as a layered config rather than a
+  // one-time creation snapshot. Explicit stored values remain authoritative.
+  const envOverrides = {
+    ...(preset?.defaultEnvOverrides ?? {}),
+    ...safeParseJson(provider.env_overrides_json || provider.extra_env),
+  };
   let roleModels = safeParseJson(provider.role_models_json) as RoleModels;
 
   // Fall back to catalog preset's defaultRoleModels when DB has no role mappings.
@@ -1079,7 +1137,6 @@ function buildResolution(
   // ANTHROPIC_MODEL / ANTHROPIC_DEFAULT_*_MODEL env vars even when role_models_json
   // was saved as '{}' by the preset connect dialog.
   if (!roleModels.default && !roleModels.sonnet) {
-    const preset = findPresetForLegacy(provider.base_url, provider.provider_type, protocol, provider.preset_key);
     if (preset?.defaultRoleModels) {
       roleModels = { ...preset.defaultRoleModels, ...roleModels };
     }

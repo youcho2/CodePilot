@@ -463,7 +463,7 @@ export function runAgentLoop(options: AgentLoopOptions): ReadableStream<string> 
           }
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           let providerOptions: any;
-          if (config.sdkType === 'anthropic') {
+          if (config.sdkType === 'anthropic' || config.sdkType === 'claude-code-compat') {
             // Build the exact `providerOptions.anthropic` wire object. Effort
             // rides GA output_config.effort on the official path, but only for
             // exact model + tier pairs on Anthropic's effort list. Unsupported
@@ -474,6 +474,7 @@ export function runAgentLoop(options: AgentLoopOptions): ReadableStream<string> 
               isThirdPartyProxy,
               model: config.modelId,
               sanitized,
+              verifiedEffortLevels: config.verifiedAnthropicEffortLevels,
             });
             if (wire.effortDroppedUnsupportedModel && step === 1) {
               console.warn(

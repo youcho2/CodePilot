@@ -265,6 +265,7 @@ export function runToolLoopAgentPoc(options: AgentLoopOptions): ReadableStream<s
             isThirdPartyProxy,
             model: config.modelId,
             sanitized,
+            verifiedEffortLevels: config.verifiedAnthropicEffortLevels,
           });
           if (wire.effortDroppedForProxy) {
             const requestedEffort = wire.effortDroppedForProxyRequested || 'unknown';

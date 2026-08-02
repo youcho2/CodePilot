@@ -36,6 +36,7 @@ import { createXaiOAuthFetch } from './xai-oauth-manager';
 import { hasClaudeSettingsCredentials } from './claude-settings';
 import { withChatImageDataUrlFetch } from './openai-chat-image-normalizer';
 import { assertProviderCallAllowed, type ProviderCallScene } from './provider-call-policy';
+import type { ChatRuntime } from './chat-runtime';
 
 // ── Public API ──────────────────────────────────────────────────
 
@@ -48,6 +49,8 @@ export interface CreateModelOptions {
   resolvedProvider?: ResolvedProvider;
   model?: string;
   sessionModel?: string;
+  /** Runtime-specific transport selection (for example native Responses in Codex Runtime). */
+  runtime?: ChatRuntime;
 }
 
 export interface CreateModelResult {
@@ -69,6 +72,7 @@ export function createModel(opts: CreateModelOptions): CreateModelResult {
     sessionProviderId: opts.sessionProviderId,
     model: opts.model,
     sessionModel: opts.sessionModel,
+    runtime: opts.runtime,
   });
   assertProviderCallAllowed(resolved.provider, opts.callScene);
 
@@ -87,7 +91,9 @@ export function createModel(opts: CreateModelOptions): CreateModelResult {
     );
   }
 
-  const config = toAiSdkConfig(resolved, opts.model || opts.sessionModel);
+  const config = toAiSdkConfig(resolved, opts.model || opts.sessionModel, {
+    runtime: opts.runtime,
+  });
 
   // ── Model ID resolution ─────────────────────────────────────
   // toAiSdkConfig tries to resolve via availableModels catalog, but if
@@ -115,8 +121,11 @@ export function createModel(opts: CreateModelOptions): CreateModelResult {
     process.env[k] = v;
   }
 
-  const isThirdPartyProxy = config.sdkType === 'anthropic' &&
-    !!config.baseUrl && !isOfficialAnthropicUrl(config.baseUrl);
+  const isThirdPartyProxy = config.sdkType === 'claude-code-compat' || (
+    config.sdkType === 'anthropic'
+    && !!config.baseUrl
+    && !isOfficialAnthropicUrl(config.baseUrl)
+  );
 
   const rawModel = createLanguageModel(config, isThirdPartyProxy);
 
@@ -178,6 +187,49 @@ const ANTHROPIC_BETA_HEADERS = [
   'interleaved-thinking-2025-05-14',
 ];
 
+/**
+ * Build an API-key authenticated Responses model from a resolved transport.
+ * Exported so request-shape tests can exercise the exact production factory
+ * with a capture fetch instead of duplicating the SDK setup.
+ */
+export function createApiKeyResponsesLanguageModel(
+  config: Pick<
+    AiSdkConfig,
+    'apiKey' | 'baseUrl' | 'modelId' | 'headers' | 'supportsResponsesReasoningSummary'
+  >,
+  fetchImpl?: typeof fetch,
+): LanguageModel {
+  const hasHeaders = Object.keys(config.headers || {}).length > 0;
+  const upstreamFetch = fetchImpl ?? globalThis.fetch;
+  const compatibleFetch = config.supportsResponsesReasoningSummary === false
+    ? (async (input: RequestInfo | URL, init?: RequestInit) => {
+        if (typeof init?.body !== 'string') return upstreamFetch(input, init);
+        let body: Record<string, unknown>;
+        try {
+          body = JSON.parse(init.body) as Record<string, unknown>;
+        } catch {
+          return upstreamFetch(input, init);
+        }
+        const reasoning = body.reasoning;
+        if (!reasoning || typeof reasoning !== 'object' || Array.isArray(reasoning)) {
+          return upstreamFetch(input, init);
+        }
+        const { summary: _unsupportedSummary, ...supportedReasoning } = reasoning as Record<string, unknown>;
+        return upstreamFetch(input, {
+          ...init,
+          body: JSON.stringify({ ...body, reasoning: supportedReasoning }),
+        });
+      }) as typeof fetch
+    : fetchImpl;
+  const openai = createOpenAI({
+    apiKey: config.apiKey,
+    baseURL: config.baseUrl,
+    ...(hasHeaders ? { headers: config.headers } : {}),
+    ...(compatibleFetch ? { fetch: compatibleFetch } : {}),
+  });
+  return openai.responses(config.modelId);
+}
+
 function createLanguageModel(config: AiSdkConfig, isThirdPartyProxy: boolean): LanguageModel {
   const hasHeaders = Object.keys(config.headers || {}).length > 0;
 
@@ -212,9 +264,16 @@ function createLanguageModel(config: AiSdkConfig, isThirdPartyProxy: boolean): L
     }
 
     case 'openai': {
+      // API-key Responses providers use the normal SDK transport. The preset
+      // resolver only enables this for model/runtime pairs whose vendor wire
+      // contract was verified (DeepSeek V4 Flash + Codex Runtime today).
+      if (config.useResponsesApi && config.responsesApiAuth === 'api_key') {
+        return createApiKeyResponsesLanguageModel(config);
+      }
+
       // OpenAI OAuth (Codex API) — use custom fetch to rewrite URL + inject auth
       // Pattern from opencode-dev's codex.ts plugin
-      if (config.useResponsesApi) {
+      if (config.useResponsesApi && config.responsesApiAuth === 'codex_oauth') {
         // Phase 5b round-7 fix (2026-05-18) — per-fetch token refresh.
         // Pre-fix this captured `getOAuthCredentialsSync()` at model-
         // creation time AND stored `accessToken` / `accountId` in

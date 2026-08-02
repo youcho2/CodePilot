@@ -48,6 +48,7 @@ interface ModelEntry {
   supportedEffortLevels?: string[];
   effortNoteKey?: string;
   supportsAdaptiveThinking?: boolean;
+  contextWindow?: number;
   capabilities?: Record<string, unknown>;
   variants?: Record<string, unknown>;
 }
@@ -70,6 +71,7 @@ export function normalizeModelCapabilitySurface(model: ModelEntry): ModelEntry {
     supportedEffortLevels: directEffortLevels,
     effortNoteKey: directEffortNoteKey,
     supportsAdaptiveThinking: directAdaptiveThinking,
+    contextWindow: directContextWindow,
     ...base
   } = model;
   const supportsEffort = typeof directSupportsEffort === 'boolean'
@@ -94,12 +96,18 @@ export function normalizeModelCapabilitySurface(model: ModelEntry): ModelEntry {
     : typeof caps.supportsAdaptiveThinking === 'boolean'
       ? caps.supportsAdaptiveThinking
       : undefined;
+  const contextWindow = typeof directContextWindow === 'number'
+    ? directContextWindow
+    : typeof caps.contextWindow === 'number'
+      ? caps.contextWindow
+      : undefined;
   return {
     ...base,
     ...(supportsEffort !== undefined ? { supportsEffort } : {}),
     ...(supportedEffortLevels !== undefined ? { supportedEffortLevels } : {}),
     ...(effortNoteKey !== undefined ? { effortNoteKey } : {}),
     ...(supportsAdaptiveThinking !== undefined ? { supportsAdaptiveThinking } : {}),
+    ...(contextWindow !== undefined ? { contextWindow } : {}),
   };
 }
 

@@ -42,6 +42,9 @@ export type AuthStyle =
  */
 export type ModelRole = 'default' | 'reasoning' | 'small' | 'haiku' | 'sonnet' | 'opus';
 
+/** Reasoning-effort tiers exposed by provider model catalogs. */
+export type ProviderEffortLevel = 'low' | 'medium' | 'high' | 'xhigh' | 'max';
+
 /**
  * A model entry in the catalog.
  */
@@ -64,7 +67,7 @@ export interface CatalogModel {
     /** Whether this model supports effort levels (reasoning effort) */
     supportsEffort?: boolean;
     /** Allowed effort levels for this model (Opus 4.7 adds 'xhigh') */
-    supportedEffortLevels?: ('low' | 'medium' | 'high' | 'xhigh' | 'max')[];
+    supportedEffortLevels?: ProviderEffortLevel[];
     /**
      * i18n key for a one-line note under the effort menu, used when the tier
      * list alone would misread. Phase 1 (2026-07-17): GLM collapses Claude
@@ -79,7 +82,7 @@ export interface CatalogModel {
     /** Vendor-documented thinking mode when it is not user-switchable. */
     thinkingMode?: 'always' | 'adaptive';
     /** Vendor default effort when the user leaves the selector on Auto. */
-    defaultEffortLevel?: 'low' | 'medium' | 'high' | 'xhigh' | 'max';
+    defaultEffortLevel?: ProviderEffortLevel;
     /** Vendor sampling defaults/limits that must be represented honestly. */
     thinkingTemperatureDefault?: number;
     thinkingTemperatureMin?: number;
@@ -139,6 +142,25 @@ export interface VendorPreset {
   sdkProxyOnly?: boolean;
   /** Whether this credential may be used outside an immediate user interaction. */
   usagePolicy?: 'general' | 'interactive_only';
+  /**
+   * Provider-specific wire capabilities that have been verified against the
+   * vendor's own API contract. These declarations are deliberately separate
+   * from model UI capabilities: an aggregator may list the same model without
+   * implementing the same transport or effort fields.
+   */
+  wireCapabilities?: {
+    /** Anthropic-compatible models that accept GA `output_config.effort`. */
+    anthropicEffort?: {
+      modelIds: string[];
+    };
+    /** Native Responses transport used only when Codex Runtime selects a listed model. */
+    codexResponses?: {
+      baseUrl: string;
+      modelIds: string[];
+      /** Whether the endpoint accepts OpenAI's optional reasoning summary field. */
+      supportsReasoningSummary?: boolean;
+    };
+  };
   /** Provider meta info for user guidance and error recovery */
   meta?: {
     /** URL where user can obtain/manage API key */
@@ -269,6 +291,16 @@ export const PresetSchema = z.object({
   iconKey: z.string(),
   sdkProxyOnly: z.boolean().optional(),
   usagePolicy: z.enum(['general', 'interactive_only']).optional(),
+  wireCapabilities: z.object({
+    anthropicEffort: z.object({
+      modelIds: z.array(z.string().min(1)).min(1),
+    }).optional(),
+    codexResponses: z.object({
+      baseUrl: z.string().url(),
+      modelIds: z.array(z.string().min(1)).min(1),
+      supportsReasoningSummary: z.boolean().optional(),
+    }).optional(),
+  }).optional(),
   category: z.enum(['chat', 'media']).optional(),
   defaultRoleModels: z.record(z.string(), z.string()).optional(),
   meta: PresetMetaSchema.optional(),
@@ -1393,10 +1425,12 @@ export const VENDOR_PRESETS: VendorPreset[] = [
     defaultEnvOverrides: {
       CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1',
       CLAUDE_CODE_DISABLE_NONSTREAMING_FALLBACK: '1',
+      CLAUDE_CODE_SUBAGENT_MODEL: 'deepseek-v4-flash',
     },
     // DeepSeek catalog — verified against
-    // https://api-docs.deepseek.com/quick_start/agent_integrations/claude_code
-    // and the pricing page (2026-05-06). The legacy aliases deepseek-chat
+    // https://api-docs.deepseek.com/zh-cn/quick_start/agent_integrations/claude_code,
+    // /codex, /guides/thinking_mode, and /updates (verified 2026-08-02).
+    // The legacy aliases deepseek-chat
     // and deepseek-reasoner will be deprecated 2026-07-24 and currently
     // map to non-thinking / thinking modes of deepseek-v4-flash, so they
     // are not surfaced as defaults — users still get them by manual add.
@@ -1404,10 +1438,58 @@ export const VENDOR_PRESETS: VendorPreset[] = [
     // verbatim to select the 1M-context variant; both v4-pro and v4-flash
     // also have a non-suffixed default-context variant.
     defaultModels: [
-      { modelId: 'deepseek-v4-pro[1m]', upstreamModelId: 'deepseek-v4-pro[1m]', displayName: 'DeepSeek V4 Pro (1M)', role: 'opus' },
-      { modelId: 'deepseek-v4-pro', upstreamModelId: 'deepseek-v4-pro', displayName: 'DeepSeek V4 Pro', role: 'default' },
-      { modelId: 'deepseek-v4-flash', upstreamModelId: 'deepseek-v4-flash', displayName: 'DeepSeek V4 Flash', role: 'haiku' },
+      {
+        modelId: 'deepseek-v4-pro[1m]',
+        upstreamModelId: 'deepseek-v4-pro[1m]',
+        displayName: 'DeepSeek V4 Pro (1M)',
+        role: 'opus',
+        capabilities: {
+          reasoning: true,
+          toolUse: true,
+          contextWindow: 1_048_576,
+          supportsEffort: true,
+          supportedEffortLevels: ['high', 'max'],
+          defaultEffortLevel: 'high',
+        },
+      },
+      {
+        modelId: 'deepseek-v4-pro',
+        upstreamModelId: 'deepseek-v4-pro',
+        displayName: 'DeepSeek V4 Pro',
+        role: 'default',
+        capabilities: {
+          reasoning: true,
+          toolUse: true,
+          supportsEffort: true,
+          supportedEffortLevels: ['high', 'max'],
+          defaultEffortLevel: 'high',
+        },
+      },
+      {
+        modelId: 'deepseek-v4-flash',
+        upstreamModelId: 'deepseek-v4-flash',
+        displayName: 'DeepSeek V4 Flash',
+        role: 'haiku',
+        capabilities: {
+          reasoning: true,
+          toolUse: true,
+          contextWindow: 1_048_576,
+          supportsEffort: true,
+          supportedEffortLevels: ['low', 'high', 'max'],
+          defaultEffortLevel: 'high',
+        },
+      },
     ],
+    wireCapabilities: {
+      anthropicEffort: {
+        modelIds: ['deepseek-v4-pro[1m]', 'deepseek-v4-pro', 'deepseek-v4-flash'],
+      },
+      codexResponses: {
+        baseUrl: 'https://api.deepseek.com',
+        modelIds: ['deepseek-v4-flash'],
+        supportsReasoningSummary: false,
+      },
+    },
     defaultRoleModels: {
       default: 'deepseek-v4-pro[1m]',
       opus: 'deepseek-v4-pro[1m]',
@@ -2211,6 +2293,62 @@ export function resolveProviderPresetIdentity(
 export function findMatchingPresetForRecord(record: ProviderPresetIdentityRecord): VendorPreset | undefined {
   const resolution = resolveProviderPresetIdentity(record);
   return resolution.status === 'resolved' ? resolution.preset : undefined;
+}
+
+export interface VerifiedProviderWireCapabilities {
+  /** Verified Anthropic `output_config.effort` tiers for this exact model. */
+  anthropicEffortLevels?: readonly ProviderEffortLevel[];
+  /** Verified native Responses endpoint for Codex Runtime. */
+  codexResponses?: {
+    baseUrl: string;
+    supportedEffortLevels: readonly ProviderEffortLevel[];
+    supportsReasoningSummary: boolean;
+  };
+}
+
+/**
+ * Resolve model-specific wire capabilities from the provider preset.
+ *
+ * This is intentionally record-aware and fail-closed. A matching hostname is
+ * not enough: the stored provider identity must resolve to a real preset, the
+ * selected model must be in that preset's catalog, and the wire declaration
+ * must explicitly list it. This keeps same-model aggregators from inheriting
+ * DeepSeek's first-party transport contract.
+ */
+export function getVerifiedProviderWireCapabilities(
+  record: ProviderPresetIdentityRecord,
+  modelId: string,
+): VerifiedProviderWireCapabilities {
+  const preset = findMatchingPresetForRecord(record);
+  if (!preset) return {};
+
+  const model = preset.defaultModels.find(candidate =>
+    candidate.modelId === modelId || candidate.upstreamModelId === modelId,
+  );
+  if (!model) return {};
+
+  const canonicalIds = new Set([model.modelId, model.upstreamModelId].filter(Boolean));
+  const isDeclared = (ids: readonly string[] | undefined): boolean =>
+    Boolean(ids?.some(id => canonicalIds.has(id)));
+  const supportedEffortLevels = model.capabilities?.supportsEffort
+    ? model.capabilities.supportedEffortLevels
+    : undefined;
+
+  return {
+    ...(supportedEffortLevels && isDeclared(preset.wireCapabilities?.anthropicEffort?.modelIds)
+      ? { anthropicEffortLevels: supportedEffortLevels }
+      : {}),
+    ...(supportedEffortLevels && isDeclared(preset.wireCapabilities?.codexResponses?.modelIds)
+      ? {
+          codexResponses: {
+            baseUrl: preset.wireCapabilities!.codexResponses!.baseUrl,
+            supportedEffortLevels,
+            supportsReasoningSummary:
+              preset.wireCapabilities!.codexResponses!.supportsReasoningSummary === true,
+          },
+        }
+      : {}),
+  };
 }
 
 /** All valid Protocol union values — used for raw-field validation. */
