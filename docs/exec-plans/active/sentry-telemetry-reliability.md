@@ -3,7 +3,7 @@
 > 创建时间：2026-08-02  
 > 最后更新：2026-08-02  
 > 事实核验基线：`v0.63.0` tag（`91a99606`；release commit `9ae420b2` 是其祖先）  
-> 当前状态：🔄 用户已授权按计划实现并默认选择 U0；Phase 1/2 本地代码已落地但真实 stable 门禁未关闭，本地 Phase 3/5 已落地，用户已接受 stable tag source-map 构建绝对增加约 13.4 秒，真实 Sentry project/CI Secret/upload/symbolication/native crash smoke 仍未关闭
+> 当前状态：🔄 用户已授权按计划实现并默认选择 U0；新 official stable Sentry project、最小权限 CI Secrets 和 macOS/Windows 真实 source-map upload + package 已通过；三层 symbolication 与 native minidump 正在用手动 macOS CI 隔离夹具收口，尚不宣称 Smoke passed / Release ready
 
 ## 一、用户问题与本计划的边界
 
@@ -55,12 +55,12 @@ Sentry 传输链路仍然有效；当前主要问题不是“SDK 完全失效”
 
 | Phase | 内容 | 状态 | 用户结果 / 备注 |
 |---|---|---|---|
-| Phase 0 | 合同冻结、POC、外部资源决策 | 🔄 本地 POC 与构建资源决策完成；外部 project/Secret 待配置 | 用户已采用默认 U0；无 user/did/行为统计；接受 stable tag 绝对 +13.4s |
+| Phase 0 | 合同冻结、POC、外部资源决策 | 🔄 新 project、Secrets、资源取舍已落地；线上基线独立复核待完成 | 用户已采用默认 U0；无 user/did/行为统计；接受 stable tag 绝对 +13.4s |
 | Phase 1 | 官方构建隔离 + 三层统一初始化 | 🚧 本地实现与真实 Node integration 测试完成；线上门禁待执行 | development/preview/Fork 默认 no-op；U0 关闭 ProcessSession 与 Http request-session，只保留 main session |
 | Phase 2 | 脱敏、语义分类、稳定 fingerprint | 🚧 核心实现完成；400/422 生产责任证据待接入 | default-deny sanitizer、稳定 grouping、24h health summary 已落地 |
-| Phase 3 | Source map 发布闭环 | 🔄 本地三层 build/package POC 完成，真实 upload 未执行 | 1846 个非占位 map；macOS unpacked/app.asar 0 map；用户已接受 stable tag 绝对增加约 13.4 秒 |
+| Phase 3 | Source map 发布闭环 | 🔄 macOS/Windows 真实 upload + package 通过，三层 symbolication 待收口 | CI run #310 上传 4344/4346 files；两平台最终包 0 map；用户已接受 stable tag 绝对 +13.4s |
 | Phase 4 | 关键覆盖补洞 + 端到端遥测合同 | 🔄 shared provider boundary 完成，真实三层 E2E 待执行 | callScene、connection-test 排除、provider body anti-double-capture 已落地 |
-| Phase 5 | Sentry SDK 独立升级 | 🔄 SDK/build/package 通过，native crash smoke 待执行 | browser/node 10.69.0、Electron 7.16.0；不宣称 minidump 已验证 |
+| Phase 5 | Sentry SDK 独立升级 | 🔄 SDK 与 macOS/Windows CI package 通过，native crash smoke 待执行 | browser/node 10.69.0、Electron 7.16.0；不宣称 minidump 已验证 |
 | Phase 6 | 发布、72h 观察、下游缺陷移交 | 📋 待开始 | 得到只属于当前官方版本的可信优先级清单 |
 
 ## 三、事实基线（2026-08-02）
@@ -261,14 +261,14 @@ U1a/U1b 的共同硬约束：
 ### 执行清单
 
 - [x] 把本文及 `docs/exec-plans/README.md` 索引改动迁入从 `origin/main@91a99606` 建立的独立 `codex/sentry-telemetry-plan` 分支；`codex/harness-home-implementation` 已清理本任务草案与索引改动，未跨 feature worktree 提交。
-- [ ] Claude Code 独立复核本文的代码坐标、最近 14 天事件口径和既有修复状态。
+- [ ] Claude Code 已独立复核代码坐标和修复状态，两轮 finding 修复后本地审查结论为 `Review passed`；但 reviewer 无线上只读凭据，最近 14 天事件口径尚未由第二执行者复跑，本项保持未完成。
 - [ ] 由第二个具有只读 Sentry 凭据的执行者重跑 3.1 同口径查询，记录查询时间、environment/release filters 与结果；若数字变化，只更新基线，不改变分类判断。
-- [ ] 用户批准或否决：新建仅供官方 stable build 的 Sentry project；旧 `javascript-nextjs` 项目降为历史归档。
+- [x] 用户批准新建仅供官方 stable build 的 Sentry project；已创建 `codepilot-desktop`，旧 `javascript-nextjs` 保持不动，作为历史基线。
 - [x] 用户先选择希望验证的 U0/U1a/U1b/U2 候选：本轮按默认 U0 实现；不生成 did，不启动 U1a/U1b POC。
-- [ ] 确认 CI Secret 命名与权限：`SENTRY_DSN`、只用于上传的 `SENTRY_AUTH_TOKEN`、`SENTRY_ORG`、`SENTRY_PROJECT`。
+- [x] 确认并配置 CI Secrets：`SENTRY_DSN`、`SENTRY_AUTH_TOKEN`、`SENTRY_ORG`、`SENTRY_PROJECT`；上传 token 仅有 `org:ci` 权限，没有事件读取或管理权限。
 - [x] 实测 `turbopackSourceMaps` / `turbopackInputSourceMaps`：仅 `productionBrowserSourceMaps + debugIds` 只有一个 53B 空 map；必须开启 output maps；input maps 对 CodePilot symbolication 非必需且保持关闭。
 - [x] POC 已生成真实 renderer/server maps；编译从 9.2s 增至 22.6s（+146%，绝对 +13.4s），用户于 2026-08-02 明确接受该 stable tag CI 代价。该决定不豁免真实 upload、符号化或 native crash 门禁。
-- [ ] `sentry-cli sourcemaps inject --dry-run` 已覆盖最终 Next renderer/standalone server/Electron bundle；真实 upload 因无 CI Secret/新 project 未执行。
+- [x] `sentry-cli sourcemaps inject --dry-run` 已覆盖最终 Next renderer/standalone server/Electron bundle；GitHub Actions run #310 已向新 project 执行 macOS/Windows 真实 upload，两个上传均关联 release `0.63.0`。
 - [x] 本地 unpacked macOS package 证明最终 bundle 与构建树一致，`.app` 外部及 `app.asar` 内均为 0 map；真实上传后的 debug-id symbolication仍待执行。
 - [x] `dist-electron/**/*.map` 及所有 standalone/static/node_modules FileSet 已从 electron-builder 输入排除，并有包结构测试。
 - [ ] 记录 SDK v10 / Electron SDK v7 migration breaking changes；Phase 0 只形成升级清单，不混进 Phase 1。
@@ -380,12 +380,12 @@ U1a/U1b 的共同硬约束：
 
 - [x] 已选择 Turbopack output maps 并产出三层真实 map；时长实测超 20% 红线，用户已接受 stable tag 绝对增加约 13.4 秒。
 - [x] stable CI wiring 在 `next build + electron esbuild` 后、electron-builder 前，对最终 packaged JS 执行 debug-id inject。
-- [ ] upload 脚本已使用 `codepilot@<version>` 且 strict/wait；POC 决定暂不使用 `dist`（macOS universal bundle 与运行时 arch 不一一对应，debug ID 已负责匹配）；真实 project 上传尚未执行。
+- [x] upload 脚本使用 `codepilot@<version>` 且 strict/wait；不使用 `dist`（macOS universal bundle 与运行时 arch 不一一对应，debug ID 负责匹配）；CI run #310 已对新 project 完成 macOS/Windows 两次真实上传。
 - [x] upload token 只存在于 upload step；脚本不输出 token/map 内容，构建门禁检查 release/root/map。
 - [ ] 上传成功是 stable build gate；Sentry API 临时失败允许 job 有界重试，不允许静默发布“有遥测但无法定位”的构建。
 - [x] 所有 electron-builder FileSet 排除 `.map`；macOS unpacked `.app` 与 app.asar 实测均为 0 map。
 - [ ] 分别触发 renderer、Next server、Electron main synthetic fault，记录 event id、release、runtime layer、symbolicated source file + line。
-- [ ] CI wiring 已保证 Next renderer/server map 生成、inject 在 package 前、upload token 非 public env；打包后的真实 `Resources` + `app.asar` 现会扫描并阻断任何 `.map`。真实 upload/release 匹配与 `sourcesContent` 线上验证仍待完成。
+- [x] CI wiring 已保证 Next renderer/server map 生成、inject 在 package 前、upload token 非 public env；CI run #310 的 macOS/Windows 两个最终包均通过 `Resources` + `app.asar` 0 map 扫描。线上 symbolication 仍待三层 synthetic event 收口。
 
 ### Phase 3 完成门禁
 
@@ -448,7 +448,7 @@ U1a/U1b 的共同硬约束：
 - [x] 同步升级 `@sentry/browser`/`@sentry/node` 10.69.0、`@sentry/electron` 7.16.0，并加入 `@sentry/cli` 3.6.2；依赖升级已独立提交为 `b83df4ee`，可与合同实现 `13782d77` 分别审查/回滚。
 - [ ] 对照官方 migration guide 审核 integrations、init、event processor、Electron renderer/main API 与 native crash 行为。
 - [x] dev guard 保持：只有 production/stable 路径动态 import `@sentry/node`，源码行为测试通过；dev RSS 仍待单独记录。
-- [ ] Electron 40 macOS arm64 unpacked package 构建通过；macOS x64/Windows 与 native crash helper 需 CI/真实 smoke。
+- [x] Electron 40 macOS arm64/x64 与 Windows package 在 GitHub Actions run #310 通过；native crash helper 仍需真实 smoke。
 - [ ] 跑 Phase 1–4 所有合同测试和三层 packaged synthetic smoke。
 - [ ] 在隔离的 packaged 测试构建中使用 test-only fixture 触发一次真实 native crash/minidump，验证新 SDK 的 minidump 送达、release/platform 标记与 opt-out；mock JS transport 不能作为 native crash 证据。若执行环境无法安全触发，必须在 Smoke Ledger 明确记为“native crash 未验证”的接受盲区，禁止汇报为完整 Smoke passed。
 - [ ] 若升级导致 dev 内存、startup、native packaging 或 event shape 回归，只回滚 SDK upgrade commit，不回滚已独立落地的分类 / 脱敏 / CI 合同。
@@ -549,6 +549,9 @@ U1a/U1b 的共同硬约束：
 | 2026-08-02 | host_application | N/A | N/A | fake DSN / no network upload | macOS arm64 unpacked package | ✅ | electron-builder exit 0；`.app` filesystem 0 map；`app.asar` 0 map；真实 Sentry symbolication/native crash 未验证 |
 | 2026-08-02 | codepilot_runtime | fixture | fixture | none | telemetry classifier/sanitizer/provider/build targeted suite | ✅ | 29 tests / 29 pass；含真实 Node client + HTTP request 0 session；typecheck pass |
 | 2026-08-02 | all local runtimes | fixture | fixture | none | repository full regression | ✅ | `npm run test`：4981 tests / 4981 pass；production build 8.4s；docs-drift 与 `git diff --check` 通过 |
+| 2026-08-02 | host_application | N/A | N/A | GitHub Secrets + `org:ci` upload token | macOS/Windows official-style source-map upload | ✅ | GitHub Actions [Build & Package #310](https://github.com/op7418/CodePilot/actions/runs/30751815526)；Sentry 两个 upload 关联 release `0.63.0`，分别含 4344 / 4346 files（upload `0ea14955-ee42-56a2-b047-38caa14409cc` / `f1ab06ce-3400-5cc8-97bc-42bff0ccf2b9`） |
+| 2026-08-02 | host_application | N/A | N/A | CI package，无 upload token 进入 package step | macOS arm64+x64 / Windows final package gates | ✅ | run #310；macOS 8m05s、Windows 7m14s；两端 package 0 map、native ABI 与 packaged server startup 全通过 |
+| 2026-08-02 | all telemetry layers | static fixture | fixture | none | manual-CI-only smoke guardrail 本地回归 | ✅ | targeted 14/14；`npm run test` 4985/4985；普通无 Sentry 生产构建通过，compile 8.6s；ESLint、docs-drift、YAML parse、`git diff --check` 通过 |
 
 ## 八、风险与回滚
 
@@ -635,3 +638,5 @@ Claude Code review 时需要重点回答，不能只核对文档格式：
 - 2026-08-02：审查修复轮验证通过：telemetry targeted 29/29、全量 4981/4981、production build compile 8.4s、docs-drift 与 diff whitespace gate 通过。SDK 依赖升级 `b83df4ee` 与遥测合同 `13782d77` 已独立提交，避免互相绑定回滚。
 - 2026-08-02：补齐非阻塞 P3 的最终包证据：`verify-packaged-server.mjs` 在 macOS/Windows 打包后真实遍历 Resources 并读取 `app.asar` 目录，任一 `.map` 立即 fail closed；行为测试同时覆盖干净包、asar 内泄漏和 loose resource 泄漏。
 - 2026-08-02：用户在 Claude Code 复核通过后明确接受 source map 令 stable tag 构建绝对增加约 13 秒（实测 +13.4s）的代价。资源门禁据此关闭；真实 Sentry project/Secrets、三层上传符号化与 native crash smoke 仍是 Release ready 前置条件。
+- 2026-08-02：用户授权继续后创建新 official stable project `codepilot-desktop`，旧 `javascript-nextjs` 保持不动；GitHub Secrets 使用只含 `org:ci` 的上传 token。手动 CI run #310 已证明 macOS/Windows 真实上传和最终 package gate；因尚无可安全触发的三层故障，symbolication/native minidump 仍保持未完成。
+- 2026-08-02：为关闭三层 symbolication 和 native minidump 门禁，新增手动 macOS CI-only 隔离夹具。只有 `workflow_dispatch + telemetry_smoke=true` 才在编译期打开三层静态故障；native crash 还需运行时 `CODEPILOT_NATIVE_CRASH_SMOKE=1`；tag/本地/Windows 编译关闭，smoke package 不上传为 artifact。

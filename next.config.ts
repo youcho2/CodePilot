@@ -67,6 +67,7 @@ const nextConfig: NextConfig = {
     NEXT_PUBLIC_APP_VERSION: pkg.version,
     NEXT_PUBLIC_SENTRY_DSN: process.env.SENTRY_DSN || '',
     NEXT_PUBLIC_CODEPILOT_CHANNEL: process.env.CODEPILOT_APP_CHANNEL || 'local',
+    NEXT_PUBLIC_CODEPILOT_TELEMETRY_SMOKE: process.env.CODEPILOT_TELEMETRY_SMOKE === '1' ? '1' : '0',
   },
   // outputFileTracingExcludes: strip non-code dirs out of every route's NFT.
   // Turbopack sees the recursive fs.readdir() in src/lib/files#scanDirectory

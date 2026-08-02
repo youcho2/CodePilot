@@ -38,6 +38,7 @@ export async function register() {
       });
       if (config.enabled) {
         const Sentry = await import('@sentry/node');
+        const { createTelemetrySmokeError, telemetrySmokeEnabled } = await import('@/lib/telemetry/smoke');
         Sentry.init({
           dsn: config.dsn,
           environment: config.environment,
@@ -65,6 +66,11 @@ export async function register() {
             });
           },
         });
+        if (telemetrySmokeEnabled(process.env.NEXT_PUBLIC_CODEPILOT_TELEMETRY_SMOKE)) {
+          const eventId = Sentry.captureException(createTelemetrySmokeError('next_server'));
+          console.log(`[telemetry-smoke] layer=next_server event_id=${eventId}`);
+          await Sentry.flush(5_000);
+        }
       }
     }
 

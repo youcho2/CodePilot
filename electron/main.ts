@@ -4,6 +4,7 @@ import { existsSync, readFileSync } from 'fs';
 import { join } from 'path';
 import { filterTelemetryIntegrations, resolveTelemetryConfig, TELEMETRY_IGNORE_ERRORS } from '../src/lib/telemetry/contract';
 import { sanitizeTelemetryBreadcrumb, sanitizeTelemetryEvent } from '../src/lib/telemetry/sanitize';
+import { createTelemetrySmokeError, telemetrySmokeEnabled } from '../src/lib/telemetry/smoke';
 
 // Check opt-out before init — reads a marker file that the renderer writes
 const sentryOptOutPath = join(
@@ -44,7 +45,16 @@ if (electronTelemetry.enabled) {
       });
     },
   });
+  if (telemetrySmokeEnabled(process.env.CODEPILOT_TELEMETRY_SMOKE)) {
+    const eventId = Sentry.captureException(createTelemetrySmokeError('electron_main'));
+    console.log(`[telemetry-smoke] layer=electron_main event_id=${eventId}`);
+    void Sentry.flush(5_000);
+  }
 }
+
+const nativeCrashSmokeEnabled = electronTelemetry.enabled
+  && telemetrySmokeEnabled(process.env.CODEPILOT_TELEMETRY_SMOKE)
+  && process.env.CODEPILOT_NATIVE_CRASH_SMOKE === '1';
 
 import { app, BrowserWindow, Notification, nativeImage, nativeTheme, dialog, session, utilityProcess, ipcMain, shell, Tray, Menu } from 'electron';
 import path from 'path';
@@ -1624,6 +1634,12 @@ app.whenReady().then(async () => {
   // path exist, so the next crash near the Codex approval path leaves size /
   // memory evidence instead of vanishing.
   registerCrashBreadcrumbs();
+
+  if (nativeCrashSmokeEnabled) {
+    console.log('[telemetry-smoke] native crash fixture armed');
+    setTimeout(() => process.crash(), 3_000);
+    return;
+  }
 
   // Load user's full shell environment (API keys, PATH, etc.)
   userShellEnv = loadUserShellEnv();

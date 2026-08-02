@@ -84,6 +84,7 @@ async function buildElectron() {
       'process.env.CODEPILOT_APP_VERSION': JSON.stringify(pkg.version),
       'process.env.CODEPILOT_APP_CHANNEL': JSON.stringify(process.env.CODEPILOT_APP_CHANNEL || 'local'),
       'process.env.CODEPILOT_SENTRY_DSN': JSON.stringify(process.env.SENTRY_DSN || ''),
+      'process.env.CODEPILOT_TELEMETRY_SMOKE': JSON.stringify(process.env.CODEPILOT_TELEMETRY_SMOKE === '1' ? '1' : '0'),
     },
   };
 

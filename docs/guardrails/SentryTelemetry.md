@@ -24,6 +24,7 @@
 | ST-10 | Electron init 保持在应用 import 之前，不得用 async policy 推迟；不得用 `integrations: []` 清空 native/minidump 默认能力。 |
 | ST-11 | auth token 只在 CI upload step；DSN 不得以 literal 提交；public env 不得含上传权限。 |
 | ST-12 | stable source-map upload 必须覆盖最终 packaged JS 并 fail closed；任何 DMG/ZIP/EXE/app.asar 不得含 `.map`。 |
+| ST-13 | 真实 Sentry smoke 只能由手动 CI 的显式 boolean 输入编译开启；tag、普通本地构建和 Windows 必须编译为关闭。Native crash 还必须同时提供运行时开关，smoke 产物不得上传为可下载 artifact 或发布。 |
 
 ## 3. 关键文件与责任
 
@@ -33,6 +34,7 @@
 - `src/lib/telemetry/provider-failure.ts` + `provider-marker.ts`：ST-08/09。
 - `src/instrumentation.ts`、`SentryInit.tsx`、`electron/main.ts`：三层 adapter 与 session policy。
 - `scripts/build-electron.mjs`、`scripts/sentry-source-maps.mjs`、`.github/workflows/build.yml`、`electron-builder.yml`：ST-11/12。
+- `src/lib/telemetry/smoke.ts` 与 `.github/workflows/build.yml`：ST-13 的测试专用错误与双门禁。
 
 ## 4. 改动检查表
 
@@ -43,6 +45,7 @@
 - [ ] official build 的 release/channel 与 package version 一致。
 - [ ] upload 使用最终 bundle，package 扫描仍为 0 map。
 - [ ] 修改 source path 时同步处理 debug_meta，保留行列号/debug ID。
+- [ ] 真实 smoke 仍是手动 macOS-only；正式 tag 的 compile flag 为 `0`，native crash 无运行时 flag 时不可触发。
 
 ## 5. 常见坑
 
@@ -61,6 +64,7 @@
 - `telemetry-health-summary.test.ts`：跨重启 24h 去重与 bucket 限界。
 - `telemetry-provider-failure.test.ts`：provider test/cancel/retry 分类与 anti-double-capture。
 - `telemetry-build-wiring.test.ts`：DSN/Secret/init/source-map CI 形状。
+- `telemetry-smoke.test.ts`：三层静态故障、手动 CI 编译门禁、native crash 双门禁与 smoke artifact 排除。
 - `electron-packaging-hygiene.test.ts`：所有 package FileSet 排除 map。
 - `instrumentation-shape.test.ts` + `sentry-dev-guard.test.ts`：dev 不加载 Node SDK。
 
@@ -68,4 +72,5 @@
 
 - 2026-08-02：默认采用 U0；U1a/U1b/U2 不在本轮实现。
 - 2026-08-02：升级 browser/node 到 10.69.0、Electron 到 7.16.0；三层 default integrations 改为显式过滤而非整体替换。
-- 2026-08-02：Turbopack output maps 可覆盖三层，但 compile 从 9.2s 增至 22.6s，超过计划 20% 门槛；保留条件实现，Phase 3 仍需用户/reviewer接受资源取舍。
+- 2026-08-02：Turbopack output maps 可覆盖三层，compile 从 9.2s 增至 22.6s；用户已接受 stable tag 绝对增加约 13.4s 的取舍。
+- 2026-08-02：三层 symbolication 与 native minidump 采用手动 macOS CI 的隔离夹具；编译时 + 运行时双门禁防止正式发布误触发。

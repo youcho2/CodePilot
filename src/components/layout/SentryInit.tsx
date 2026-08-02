@@ -3,6 +3,7 @@
 import { useEffect } from "react";
 import { filterTelemetryIntegrations, resolveTelemetryConfig, TELEMETRY_IGNORE_ERRORS } from "@/lib/telemetry/contract";
 import { sanitizeTelemetryBreadcrumb, sanitizeTelemetryEvent } from "@/lib/telemetry/sanitize";
+import { createTelemetrySmokeError, telemetrySmokeEnabled } from "@/lib/telemetry/smoke";
 
 /**
  * Client-side Sentry initialization component.
@@ -55,6 +56,10 @@ export function SentryInit() {
           });
         },
       });
+      if (telemetrySmokeEnabled(process.env.NEXT_PUBLIC_CODEPILOT_TELEMETRY_SMOKE)) {
+        Sentry.captureException(createTelemetrySmokeError('renderer'));
+        void Sentry.flush(5_000);
+      }
     }).catch(() => {
       /* Sentry not available */
     });
