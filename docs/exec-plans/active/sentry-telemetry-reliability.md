@@ -3,7 +3,7 @@
 > 创建时间：2026-08-02  
 > 最后更新：2026-08-02  
 > 事实核验基线：`v0.63.0` tag（`91a99606`；release commit `9ae420b2` 是其祖先）  
-> 当前状态：🔄 用户已授权按计划实现并默认选择 U0；新 official stable Sentry project、最小权限 CI Secrets 和 macOS/Windows 真实 source-map upload + package 已通过；三层 symbolication 与 native minidump 正在用手动 macOS CI 隔离夹具收口，尚不宣称 Smoke passed / Release ready
+> 当前状态：🔄 用户已授权按计划实现并默认选择 U0；新 official stable Sentry project、最小权限 CI Secrets、macOS/Windows 真实 source-map upload + package 和三层 symbolication 已通过；native minidump 首跑暴露“需下次启动上传”缺口，已补恢复启动并待第二次真实 CI，尚不宣称 Smoke passed / Release ready
 
 ## 一、用户问题与本计划的边界
 
@@ -58,7 +58,7 @@ Sentry 传输链路仍然有效；当前主要问题不是“SDK 完全失效”
 | Phase 0 | 合同冻结、POC、外部资源决策 | 🔄 新 project、Secrets、资源取舍已落地；线上基线独立复核待完成 | 用户已采用默认 U0；无 user/did/行为统计；接受 stable tag 绝对 +13.4s |
 | Phase 1 | 官方构建隔离 + 三层统一初始化 | 🚧 本地实现与真实 Node integration 测试完成；线上门禁待执行 | development/preview/Fork 默认 no-op；U0 关闭 ProcessSession 与 Http request-session，只保留 main session |
 | Phase 2 | 脱敏、语义分类、稳定 fingerprint | 🚧 核心实现完成；400/422 生产责任证据待接入 | default-deny sanitizer、稳定 grouping、24h health summary 已落地 |
-| Phase 3 | Source map 发布闭环 | 🔄 macOS/Windows 真实 upload + package 通过，三层 symbolication 待收口 | CI run #310 上传 4344/4346 files；两平台最终包 0 map；用户已接受 stable tag 绝对 +13.4s |
+| Phase 3 | Source map 发布闭环 | 🔄 双平台 upload/package + 三层 symbolication 通过，上传瞬态重试加固待收口 | CI #310/#311；三层分别定位 `smoke.ts:21/23/25`；两平台最终包 0 map |
 | Phase 4 | 关键覆盖补洞 + 端到端遥测合同 | 🔄 shared provider boundary 完成，真实三层 E2E 待执行 | callScene、connection-test 排除、provider body anti-double-capture 已落地 |
 | Phase 5 | Sentry SDK 独立升级 | 🔄 SDK 与 macOS/Windows CI package 通过，native crash smoke 待执行 | browser/node 10.69.0、Electron 7.16.0；不宣称 minidump 已验证 |
 | Phase 6 | 发布、72h 观察、下游缺陷移交 | 📋 待开始 | 得到只属于当前官方版本的可信优先级清单 |
@@ -384,7 +384,7 @@ U1a/U1b 的共同硬约束：
 - [x] upload token 只存在于 upload step；脚本不输出 token/map 内容，构建门禁检查 release/root/map。
 - [ ] 上传成功是 stable build gate；Sentry API 临时失败允许 job 有界重试，不允许静默发布“有遥测但无法定位”的构建。
 - [x] 所有 electron-builder FileSet 排除 `.map`；macOS unpacked `.app` 与 app.asar 实测均为 0 map。
-- [ ] 分别触发 renderer、Next server、Electron main synthetic fault，记录 event id、release、runtime layer、symbolicated source file + line。
+- [x] 分别触发 renderer、Next server、Electron main synthetic fault；CI #311 三个代表 event 已记录到 Smoke Ledger，均为 release `0.63.0` / `production`，并精确符号化到 `smoke.ts:21/23/25`。
 - [x] CI wiring 已保证 Next renderer/server map 生成、inject 在 package 前、upload token 非 public env；CI run #310 的 macOS/Windows 两个最终包均通过 `Resources` + `app.asar` 0 map 扫描。线上 symbolication 仍待三层 synthetic event 收口。
 
 ### Phase 3 完成门禁
@@ -449,7 +449,7 @@ U1a/U1b 的共同硬约束：
 - [ ] 对照官方 migration guide 审核 integrations、init、event processor、Electron renderer/main API 与 native crash 行为。
 - [x] dev guard 保持：只有 production/stable 路径动态 import `@sentry/node`，源码行为测试通过；dev RSS 仍待单独记录。
 - [x] Electron 40 macOS arm64/x64 与 Windows package 在 GitHub Actions run #310 通过；native crash helper 仍需真实 smoke。
-- [ ] 跑 Phase 1–4 所有合同测试和三层 packaged synthetic smoke。
+- [x] 跑 Phase 1–4 所有合同测试和三层 packaged synthetic smoke；本地全量 4985/4985，CI #311 三层事件均送达并符号化。
 - [ ] 在隔离的 packaged 测试构建中使用 test-only fixture 触发一次真实 native crash/minidump，验证新 SDK 的 minidump 送达、release/platform 标记与 opt-out；mock JS transport 不能作为 native crash 证据。若执行环境无法安全触发，必须在 Smoke Ledger 明确记为“native crash 未验证”的接受盲区，禁止汇报为完整 Smoke passed。
 - [ ] 若升级导致 dev 内存、startup、native packaging 或 event shape 回归，只回滚 SDK upgrade commit，不回滚已独立落地的分类 / 脱敏 / CI 合同。
 
@@ -537,11 +537,11 @@ U1a/U1b 的共同硬约束：
 
 | Date | Runtime | Provider | Model | 凭据形态 | 场景 | Result | Evidence |
 |---|---|---|---|---|---|---|---|
-| _待执行_ | host_application | N/A | N/A | Sentry CI secret | macOS packaged renderer synthetic fault | ⏳ | event id + source file:line |
-| _待执行_ | codepilot_runtime | test fixture | fixture | mock/no real provider key | Next server normalized product fault | ⏳ | event id + fingerprint |
-| _待执行_ | host_application | N/A | N/A | Sentry CI secret | Electron unexpected utility lifecycle fixture | ⏳ | event id + source file:line |
+| 2026-08-02 | host_application | N/A | N/A | Sentry CI secret | macOS packaged renderer synthetic fault | ✅ | CI [#311](https://github.com/op7418/CodePilot/actions/runs/30752743946)；event `dc96beb83997469db14659a0074adb90`；`runtime.layer=renderer`；`src/lib/telemetry/smoke.ts:21:18`；release `0.63.0`，environment `production` |
+| 2026-08-02 | host_application | test fixture | fixture | Sentry CI secret | packaged Next server synthetic fault | ✅ | CI #311；event `fa7f0bb8aa854d59bd77e9f57408fba4`；`runtime.layer=next_server`；`src/lib/telemetry/smoke.ts:23:18`；2 events 来自 package-startup gate + smoke 两个独立 server process，非单进程重复 capture |
+| 2026-08-02 | host_application | N/A | N/A | Sentry CI secret | packaged Electron main synthetic fault | ✅ | CI #311；event `8043bff038a3440baa1b25c22f73e95c`；`runtime.layer=electron_main`；`src/lib/telemetry/smoke.ts:25:14` → `electron/main.ts:49:45`；Electron 40.2.1 arm64 |
 | _待执行_ | host_application | N/A | N/A | opt-out marker | packaged 三层不发送 | ⏳ | mock/envelope count 0 |
-| _待执行_ | host_application | N/A | N/A | test-only packaged fixture | Electron native crash/minidump | ⏳ | native event id，或用户接受的未验证盲区 |
+| 2026-08-02 | host_application | N/A | N/A | test-only packaged fixture | Electron native crash/minidump 首跑 | ❌ dump 未送达 | CI #311 证明 `process.crash()` 非零退出，但新 project 只有三个 JS Issue；SDK 本体证实 `SentryMinidump` 需下次启动读取 completed dump，已补 recovery launch 并待第二次 CI 验证 |
 | _待执行_ | host_application | N/A | N/A | U0 opt-in | packaged main-only session | ⏳ | main 1 session/run；renderer/server 0 session；无 did |
 | _条件执行_ | host_application | N/A | N/A | U1a 独立 opt-in | main session + 三层 error did 组合 | ⏳ | 月内 did、绑定时机、启动偏差披露 |
 | _条件执行_ | host_application | N/A | N/A | U1b 独立 opt-in | 首次有意义操作前后 | ⏳ | 操作前 0 did；操作后 1 signal + subsequent error did |
@@ -640,3 +640,4 @@ Claude Code review 时需要重点回答，不能只核对文档格式：
 - 2026-08-02：用户在 Claude Code 复核通过后明确接受 source map 令 stable tag 构建绝对增加约 13 秒（实测 +13.4s）的代价。资源门禁据此关闭；真实 Sentry project/Secrets、三层上传符号化与 native crash smoke 仍是 Release ready 前置条件。
 - 2026-08-02：用户授权继续后创建新 official stable project `codepilot-desktop`，旧 `javascript-nextjs` 保持不动；GitHub Secrets 使用只含 `org:ci` 的上传 token。手动 CI run #310 已证明 macOS/Windows 真实上传和最终 package gate；因尚无可安全触发的三层故障，symbolication/native minidump 仍保持未完成。
 - 2026-08-02：为关闭三层 symbolication 和 native minidump 门禁，新增手动 macOS CI-only 隔离夹具。只有 `workflow_dispatch + telemetry_smoke=true` 才在编译期打开三层静态故障；native crash 还需运行时 `CODEPILOT_NATIVE_CRASH_SMOKE=1`；tag/本地/Windows 编译关闭，smoke package 不上传为 artifact。
+- 2026-08-02：CI #311 首次真实 packaged smoke 完整通过三层 JS 符号化，但 native Issue 为 0。根因不是 Sentry 延迟，而是 SDK v7 `SentryMinidump` 以 `uploadToServer:false` 生成 Crashpad dump，只在下次启动读取上传。已在同一隔离 job 补上无 crash flag 的 recovery launch；未看到真实 native event 前不标 Phase 5 完成。

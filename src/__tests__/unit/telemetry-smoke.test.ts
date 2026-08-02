@@ -42,4 +42,19 @@ describe('isolated Sentry telemetry smoke', () => {
     assert.match(workflow, /CODEPILOT_NATIVE_CRASH_SMOKE=1/);
     assert.match(workflow, /!\(github\.event_name == 'workflow_dispatch' && inputs\.telemetry_smoke\)/);
   });
+
+  it('relaunches after the native crash so SentryMinidump can drain the completed dump', () => {
+    const workflow = read('.github/workflows/build.yml');
+    const nativeStep = workflow.slice(
+      workflow.indexOf('- name: Run packaged Sentry native crash fixture'),
+      workflow.indexOf('\n      - name: Checksums'),
+    );
+
+    assert.match(nativeStep, /uploadToServer=false/);
+    assert.equal((nativeStep.match(/CODEPILOT_NATIVE_CRASH_SMOKE=1/g) ?? []).length, 1);
+    assert.equal((nativeStep.match(/"\$APP\/Contents\/MacOS\/CodePilot"/g) ?? []).length, 2);
+    assert.match(nativeStep, /RECOVERY_PID=\$!/);
+    assert.match(nativeStep, /grep -q "layer=electron_main" "\$RECOVERY_LOG"/);
+    assert.match(nativeStep, /recovery launch drained pending minidumps/);
+  });
 });

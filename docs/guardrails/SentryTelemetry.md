@@ -53,6 +53,7 @@
 - Sentry SDK 默认集成会随版本变化，不能把“当前默认”当合同。
 - Node `Http` integration 自带 request-mode Release Health session；只过滤 `ProcessSession` 并不能得到 main-only 分母。
 - `captureMessage(..., 'info')` 仍会形成 Issue，不能拿它冒充无成本 metrics/activity。
+- Electron SDK v7 默认 `SentryMinidump` 不在崩溃时直传（Crashpad `uploadToServer:false`）；隔离崩溃 smoke 必须再无 crash flag 启动一次，让 SDK 读取并上传 completed dump。
 - `productionBrowserSourceMaps` + debug ID 不保证 Turbopack 产生真实 map；必须检查非占位产物。
 - standalone tracer 会漏掉 server map；必须按最终 JS 图复制并验证。
 - map 上传成功也不代表安全；electron-builder 每个 FileSet 都要排除 `.map`。
@@ -74,3 +75,4 @@
 - 2026-08-02：升级 browser/node 到 10.69.0、Electron 到 7.16.0；三层 default integrations 改为显式过滤而非整体替换。
 - 2026-08-02：Turbopack output maps 可覆盖三层，compile 从 9.2s 增至 22.6s；用户已接受 stable tag 绝对增加约 13.4s 的取舍。
 - 2026-08-02：三层 symbolication 与 native minidump 采用手动 macOS CI 的隔离夹具；编译时 + 运行时双门禁防止正式发布误触发。
+- 2026-08-02：首次 native smoke 只证明 `process.crash()` 非零退出，新 project 无 native Issue；核对 SDK 本体后补上崩溃后恢复启动，禁止把“已生成 dump”冒充为“已送达 Sentry”。

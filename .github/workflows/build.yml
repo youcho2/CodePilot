@@ -262,8 +262,28 @@ jobs:
           set -e
           [ "$STATUS" -ne 0 ] || { echo "::error::native crash fixture exited successfully"; exit 1; }
           grep -q "native crash fixture armed" "$LOG" || { echo "::error::native crash fixture did not arm"; tail -80 "$LOG"; exit 1; }
-          sleep 12
-          echo "Native crash fixture exited with expected non-zero status $STATUS"
+          # SentryMinidump deliberately sets Electron crashReporter uploadToServer=false;
+          # the SDK reads and uploads completed Crashpad dumps on the next app start.
+          # Relaunch without the runtime crash flag so the pending dump can drain.
+          RECOVERY_LOG="$RUNNER_TEMP/codepilot-native-crash-recovery.log"
+          "$APP/Contents/MacOS/CodePilot" >"$RECOVERY_LOG" 2>&1 &
+          RECOVERY_PID=$!
+          for _ in $(seq 1 20); do
+            if grep -q "layer=electron_main" "$RECOVERY_LOG"; then
+              break
+            fi
+            if ! kill -0 "$RECOVERY_PID" 2>/dev/null; then
+              echo "::error::native crash recovery launch exited early"
+              tail -80 "$RECOVERY_LOG"
+              exit 1
+            fi
+            sleep 1
+          done
+          grep -q "layer=electron_main" "$RECOVERY_LOG" || { echo "::error::Sentry did not initialize on native crash recovery launch"; tail -80 "$RECOVERY_LOG"; exit 1; }
+          sleep 20
+          kill "$RECOVERY_PID" 2>/dev/null || true
+          wait "$RECOVERY_PID" 2>/dev/null || true
+          echo "Native crash fixture exited with expected non-zero status $STATUS; recovery launch drained pending minidumps"
 
       - name: Checksums
         run: cd release && shasum -a 256 CodePilot-*.dmg CodePilot-*.zip 2>/dev/null | tee checksums-macos.sha256
