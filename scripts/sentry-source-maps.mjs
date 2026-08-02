@@ -11,6 +11,8 @@ const requiredArtifactRoots = [
   '.next/standalone/.next/server',
   'dist-electron',
 ];
+const uploadAttempts = 3;
+const uploadRetryDelayMs = process.env.SENTRY_UPLOAD_RETRY_DELAY_MS === '0' ? 0 : 2_000;
 const artifactRoots = requiredArtifactRoots.filter((relative) => fs.existsSync(path.join(root, relative)));
 
 function walkMaps(dir, output = []) {
@@ -92,10 +94,24 @@ const uploadArgs = [
 ];
 if (process.env.SENTRY_DIST) uploadArgs.push('--dist', process.env.SENTRY_DIST);
 uploadArgs.push(...artifactRoots);
-execFileSync(process.execPath, uploadArgs, {
-  cwd: root,
-  env: cliEnv,
-  stdio: 'inherit',
-});
+
+for (let attempt = 1; attempt <= uploadAttempts; attempt += 1) {
+  try {
+    execFileSync(process.execPath, uploadArgs, {
+      cwd: root,
+      env: cliEnv,
+      stdio: 'inherit',
+    });
+    break;
+  } catch (error) {
+    if (attempt === uploadAttempts) throw error;
+    console.warn(
+      `[sentry-source-maps] upload attempt ${attempt}/${uploadAttempts} failed; retrying in ${uploadRetryDelayMs}ms`,
+    );
+    if (uploadRetryDelayMs > 0) {
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, uploadRetryDelayMs);
+    }
+  }
+}
 
 console.log(`[sentry-source-maps] uploaded ${release}${process.env.SENTRY_DIST ? ` (${process.env.SENTRY_DIST})` : ''}`);

@@ -89,4 +89,67 @@ describe('telemetry release wiring', () => {
       fs.rmSync(fixture, { recursive: true, force: true });
     }
   });
+
+  it('retries transient source-map upload failures and remains fail closed', () => {
+    const fixture = fs.mkdtempSync(path.join(os.tmpdir(), 'codepilot-sentry-upload-'));
+    try {
+      for (const relative of [
+        '.next/static',
+        '.next/standalone/.next/server',
+        'dist-electron',
+      ]) {
+        fs.mkdirSync(path.join(fixture, relative), { recursive: true });
+        fs.writeFileSync(
+          path.join(fixture, relative, 'main.js.map'),
+          JSON.stringify({ version: 3, sources: ['src/main.ts'], sourcesContent: ['x'.repeat(256)] }),
+        );
+      }
+
+      const fakeCli = path.join(fixture, 'node_modules/@sentry/cli/bin/sentry-cli');
+      fs.mkdirSync(path.dirname(fakeCli), { recursive: true });
+      fs.writeFileSync(fakeCli, `
+const fs = require('node:fs');
+const counter = process.env.FAKE_SENTRY_COUNTER;
+if (process.argv.includes('inject')) process.exit(0);
+const count = fs.existsSync(counter) ? Number(fs.readFileSync(counter, 'utf8')) + 1 : 1;
+fs.writeFileSync(counter, String(count));
+if (process.env.FAKE_SENTRY_ALWAYS_FAIL === '1' || count < 3) process.exit(75);
+`);
+
+      const script = path.join(root, 'scripts/sentry-source-maps.mjs');
+      const counter = path.join(fixture, 'upload-count');
+      const env = {
+        ...process.env,
+        CODEPILOT_APP_CHANNEL: 'stable',
+        CODEPILOT_SOURCE_MAPS: '1',
+        SENTRY_AUTH_TOKEN: 'fixture-token',
+        SENTRY_DSN: 'https://public@example.com/1',
+        SENTRY_ORG: 'fixture-org',
+        SENTRY_PROJECT: 'fixture-project',
+        SENTRY_UPLOAD_RETRY_DELAY_MS: '0',
+        FAKE_SENTRY_COUNTER: counter,
+      };
+
+      const recovered = spawnSync(process.execPath, [script, '--upload'], {
+        cwd: fixture,
+        env,
+        encoding: 'utf8',
+      });
+      assert.equal(recovered.status, 0, recovered.stderr);
+      assert.equal(fs.readFileSync(counter, 'utf8'), '3');
+      assert.match(recovered.stderr, /attempt 1\/3 failed/);
+      assert.match(recovered.stderr, /attempt 2\/3 failed/);
+
+      fs.rmSync(counter);
+      const failed = spawnSync(process.execPath, [script, '--upload'], {
+        cwd: fixture,
+        env: { ...env, FAKE_SENTRY_ALWAYS_FAIL: '1' },
+        encoding: 'utf8',
+      });
+      assert.notEqual(failed.status, 0);
+      assert.equal(fs.readFileSync(counter, 'utf8'), '3');
+    } finally {
+      fs.rmSync(fixture, { recursive: true, force: true });
+    }
+  });
 });

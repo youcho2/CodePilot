@@ -23,7 +23,7 @@
 | ST-09 | rich provider body 只供 UI；共享边界 capture 后必须 marker，Node auto-capture 必须丢弃原始异常。 |
 | ST-10 | Electron init 保持在应用 import 之前，不得用 async policy 推迟；不得用 `integrations: []` 清空 native/minidump 默认能力。 |
 | ST-11 | auth token 只在 CI upload step；DSN 不得以 literal 提交；public env 不得含上传权限。 |
-| ST-12 | stable source-map upload 必须覆盖最终 packaged JS 并 fail closed；任何 DMG/ZIP/EXE/app.asar 不得含 `.map`。 |
+| ST-12 | stable source-map upload 必须覆盖最终 packaged JS；临时失败最多重试 3 次，最终仍失败必须 fail closed；任何 DMG/ZIP/EXE/app.asar 不得含 `.map`。 |
 | ST-13 | 真实 Sentry smoke 只能由手动 CI 的显式 boolean 输入编译开启；tag、普通本地构建和 Windows 必须编译为关闭。Native crash 还必须同时提供运行时开关，smoke 产物不得上传为可下载 artifact 或发布。 |
 
 ## 3. 关键文件与责任
@@ -57,6 +57,7 @@
 - `productionBrowserSourceMaps` + debug ID 不保证 Turbopack 产生真实 map；必须检查非占位产物。
 - standalone tracer 会漏掉 server map；必须按最终 JS 图复制并验证。
 - map 上传成功也不代表安全；electron-builder 每个 FileSet 都要排除 `.map`。
+- source-map upload 可以对临时网络/API 故障做有界重试，但不得跳过失败继续 package；测试可用 `SENTRY_UPLOAD_RETRY_DELAY_MS=0` 取消等待，生产固定保留退避。
 
 ## 6. 测试覆盖
 
@@ -76,3 +77,4 @@
 - 2026-08-02：Turbopack output maps 可覆盖三层，compile 从 9.2s 增至 22.6s；用户已接受 stable tag 绝对增加约 13.4s 的取舍。
 - 2026-08-02：三层 symbolication 与 native minidump 采用手动 macOS CI 的隔离夹具；编译时 + 运行时双门禁防止正式发布误触发。
 - 2026-08-02：首次 native smoke 只证明 `process.crash()` 非零退出，新 project 无 native Issue；核对 SDK 本体后补上崩溃后恢复启动，禁止把“已生成 dump”冒充为“已送达 Sentry”。
+- 2026-08-02：CI #312 的恢复启动成功上传真实 minidump；Sentry event `778040c8b19a40ee983c2b3bfe79cb1c` 解析为 `electron::ElectronBindings::Crash` / `EXC_BAD_ACCESS`，release `0.63.0`、environment `production`、Electron 40.2.1 macOS arm64。
