@@ -1,9 +1,9 @@
 # Sentry 遥测可信度与错误分诊修复计划
 
 > 创建时间：2026-08-02  
-> 最后更新：2026-08-02  
+> 最后更新：2026-08-03
 > 事实核验基线：`v0.63.0` tag（`91a99606`；release commit `9ae420b2` 是其祖先）  
-> 当前状态：🔄 用户已授权按计划实现并默认选择 U0；新 official stable Sentry project、最小权限 CI Secrets、macOS/Windows 真实 source-map upload + package、三层 symbolication 与 Electron native minidump 均已通过；发布管道核心 smoke 已闭合，但 opt-out/main-only session 真包反例、独立线上基线复核与发布后 72h 观察仍未完成，尚不宣称整项 Release ready
+> 当前状态：🔄 用户已授权按计划实现并默认选择 U0；新 official stable Sentry project、最小权限 CI Secrets、macOS/Windows 与 Linux x64/arm64 真实 source-map upload + package、三层 symbolication 与 Electron native minidump 均已通过；v0.64.0 发布前技术门禁已闭合，尚待用户明确 tag，以及发布后的 opt-out/main-only session 抽查、独立线上基线复核与 72h 观察
 
 ## 一、用户问题与本计划的边界
 
@@ -58,9 +58,9 @@ Sentry 传输链路仍然有效；当前主要问题不是“SDK 完全失效”
 | Phase 0 | 合同冻结、POC、外部资源决策 | 🔄 新 project、Secrets、资源取舍已落地；线上基线独立复核待完成 | 用户已采用默认 U0；无 user/did/行为统计；接受 stable tag 绝对 +13.4s |
 | Phase 1 | 官方构建隔离 + 三层统一初始化 | 🚧 本地实现与真实 Node integration 测试完成；线上门禁待执行 | development/preview/Fork 默认 no-op；U0 关闭 ProcessSession 与 Http request-session，只保留 main session |
 | Phase 2 | 脱敏、语义分类、稳定 fingerprint | 🚧 核心实现完成；400/422 生产责任证据待接入 | default-deny sanitizer、稳定 grouping、24h health summary 已落地 |
-| Phase 3 | Source map 发布闭环 | ✅ 双平台 upload/package + 三层 symbolication + 有界重试闭合 | CI #310/#311；三层分别定位 `smoke.ts:21/23/25`；两平台最终包 0 map；上传最多 3 次后 fail closed |
+| Phase 3 | Source map 发布闭环 | ✅ macOS/Windows/Linux upload/package + 三层 symbolication + 有界重试闭合 | CI #310/#311/#313；三层分别定位 `smoke.ts:21/23/25`；所有已验证最终包 0 map；上传最多 3 次后 fail closed |
 | Phase 4 | 关键覆盖补洞 + 端到端遥测合同 | 🔄 shared provider boundary 完成，真实三层 E2E 待执行 | callScene、connection-test 排除、provider body anti-double-capture 已落地 |
-| Phase 5 | Sentry SDK 独立升级 | 🔄 SDK、双平台 package 与真实 native crash smoke 通过；migration/RSS 收尾待完成 | browser/node 10.69.0、Electron 7.16.0；CI #312 event `778040c8…` 为真实 minidump |
+| Phase 5 | Sentry SDK 独立升级 | 🔄 SDK、多平台 package 与真实 native crash smoke 通过；migration/RSS 收尾待完成 | browser/node 10.69.0、Electron 7.16.0；CI #312 event `778040c8…` 为真实 minidump；CI #313 Linux 双架构通过 |
 | Phase 6 | 发布、72h 观察、下游缺陷移交 | 📋 待开始 | 得到只属于当前官方版本的可信优先级清单 |
 
 ## 三、事实基线（2026-08-02）
@@ -528,7 +528,7 @@ U1a/U1b 的共同硬约束：
 
 - Targeted：telemetry classifier / sanitizer / fingerprint / init / build-wiring / Electron lifecycle tests。
 - Tier 1：mock transport 行为测试，Provider test 与错误 UI 语义测试。
-- Tier 2：`npm run test`、`npm run build`、macOS packaged smoke、Windows CI package gate、Sentry API event/source-map 验证。
+- Tier 2：`npm run test`、`npm run build`、macOS packaged smoke、Windows CI package gate、Linux x64/arm64 原生 CI package gate、Sentry API event/source-map 验证。
 - Release observation：24h / 72h 只读 Sentry 查询，必须固定 `environment=production + release=current official`。
 
 ## Smoke Ledger（真实 Sentry / packaged / E2E 验证记录）
@@ -553,6 +553,7 @@ U1a/U1b 的共同硬约束：
 | 2026-08-02 | host_application | N/A | N/A | GitHub Secrets + `org:ci` upload token | macOS/Windows official-style source-map upload | ✅ | GitHub Actions [Build & Package #310](https://github.com/op7418/CodePilot/actions/runs/30751815526)；Sentry 两个 upload 关联 release `0.63.0`，分别含 4344 / 4346 files（upload `0ea14955-ee42-56a2-b047-38caa14409cc` / `f1ab06ce-3400-5cc8-97bc-42bff0ccf2b9`） |
 | 2026-08-02 | host_application | N/A | N/A | CI package，无 upload token 进入 package step | macOS arm64+x64 / Windows final package gates | ✅ | run #310；macOS 8m05s、Windows 7m14s；两端 package 0 map、native ABI 与 packaged server startup 全通过 |
 | 2026-08-02 | all telemetry layers | static fixture | fixture | none | manual-CI-only smoke guardrail 本地回归 | ✅ | targeted 15/15；`npm run test` 4987/4987；普通无 Sentry 生产构建通过，compile 8.6s；ESLint、docs-drift、YAML parse、`git diff --check` 通过；新增 source-map upload 第三次恢复/三次失败门禁 |
+| 2026-08-03 | host_application | N/A | N/A | GitHub Secrets + 原生 Ubuntu 22.04 runners | Linux x64/arm64 source-map upload + AppImage/deb/rpm package gates | ✅ | GitHub Actions [Build & Package #313](https://github.com/op7418/CodePilot/actions/runs/30756193409)，commit `d29e102b`；arm64 8m11s、x64 8m50s；六个 v0.64.0 包均通过架构、better-sqlite3 Electron ABI 143、packaged server、0 map；glibc 2.35 |
 
 ## 八、风险与回滚
 
@@ -643,3 +644,4 @@ Claude Code review 时需要重点回答，不能只核对文档格式：
 - 2026-08-02：为关闭三层 symbolication 和 native minidump 门禁，新增手动 macOS CI-only 隔离夹具。只有 `workflow_dispatch + telemetry_smoke=true` 才在编译期打开三层静态故障；native crash 还需运行时 `CODEPILOT_NATIVE_CRASH_SMOKE=1`；tag/本地/Windows 编译关闭，smoke package 不上传为 artifact。
 - 2026-08-02：CI #311 首次真实 packaged smoke 完整通过三层 JS 符号化，但 native Issue 为 0。根因不是 Sentry 延迟，而是 SDK v7 `SentryMinidump` 以 `uploadToServer:false` 生成 Crashpad dump，只在下次启动读取上传。已在同一隔离 job 补上无 crash flag 的 recovery launch；未看到真实 native event 前不标 Phase 5 完成。
 - 2026-08-02：CI #312 的 crash + recovery launch 链路通过；Sentry 收到 event `778040c8b19a40ee983c2b3bfe79cb1c`，机制明确为未处理 `minidump`，解析到 Electron native frame、release/environment/platform。Phase 5 的 native crash 门禁关闭；首次失败记录保留，避免抹掉真实 SDK 行为。
+- 2026-08-03：用户要求在下一版恢复 Linux。复核确认 Linux builder 配置一直存在，v0.55 只是在重写 stable workflow 时移除了 CI job；v0.64.0 采用原生 Ubuntu 22.04 x64/arm64 matrix 恢复 AppImage/deb/rpm，任一架构失败都会阻断 Release。CI #313 六个安装包与 Sentry upload 全通过，兼容基线据真实 runner 固定为 glibc 2.35。

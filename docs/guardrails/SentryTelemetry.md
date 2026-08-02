@@ -80,3 +80,4 @@
 - 2026-08-02：三层 symbolication 与 native minidump 采用手动 macOS CI 的隔离夹具；编译时 + 运行时双门禁防止正式发布误触发。
 - 2026-08-02：首次 native smoke 只证明 `process.crash()` 非零退出，新 project 无 native Issue；核对 SDK 本体后补上崩溃后恢复启动，禁止把“已生成 dump”冒充为“已送达 Sentry”。
 - 2026-08-02：CI #312 的恢复启动成功上传真实 minidump；Sentry event `778040c8b19a40ee983c2b3bfe79cb1c` 解析为 `electron::ElectronBindings::Crash` / `EXC_BAD_ACCESS`，release `0.63.0`、environment `production`、Electron 40.2.1 macOS arm64。
+- 2026-08-03：stable Linux 恢复为原生 Ubuntu 22.04 x64/arm64 matrix；CI #313 的六个 v0.64.0 安装包全部通过架构、Electron ABI、packaged server、0-map 与 glibc 2.35 基线门禁。
