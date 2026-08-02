@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process';
+import { listPackage } from '@electron/asar';
 import fs from 'node:fs';
 import http from 'node:http';
 import os from 'node:os';
@@ -9,7 +10,41 @@ const STARTUP_TIMEOUT_MS = 45_000;
 const MAX_CAPTURED_OUTPUT = 64 * 1024;
 
 function usage() {
-  return 'Usage: node scripts/verify-packaged-server.mjs <electron-binary> <resources-directory>';
+  return 'Usage: node scripts/verify-packaged-server.mjs <electron-binary> <resources-directory> | --source-maps-only <resources-directory>';
+}
+
+function listLooseSourceMaps(root) {
+  const found = [];
+  const pending = [root];
+  while (pending.length > 0) {
+    const current = pending.pop();
+    for (const entry of fs.readdirSync(current, { withFileTypes: true })) {
+      const absolute = path.join(current, entry.name);
+      if (entry.isDirectory()) pending.push(absolute);
+      else if (entry.isFile() && entry.name.endsWith('.map')) found.push(absolute);
+    }
+  }
+  return found;
+}
+
+export function assertPackageHasNoSourceMaps(resourcesDirectory) {
+  if (!fs.statSync(resourcesDirectory, { throwIfNoEntry: false })?.isDirectory()) {
+    throw new Error(`Packaged resources directory not found: ${resourcesDirectory}`);
+  }
+  const asarPath = path.join(resourcesDirectory, 'app.asar');
+  if (!fs.statSync(asarPath, { throwIfNoEntry: false })?.isFile()) {
+    throw new Error(`Packaged app.asar not found: ${asarPath}`);
+  }
+  const looseMaps = listLooseSourceMaps(resourcesDirectory);
+  const asarMaps = listPackage(asarPath).filter((entry) => entry.toLowerCase().endsWith('.map'));
+  if (looseMaps.length > 0 || asarMaps.length > 0) {
+    const evidence = [
+      ...looseMaps.map((entry) => path.relative(resourcesDirectory, entry)),
+      ...asarMaps.map((entry) => `app.asar:${entry}`),
+    ].slice(0, 20);
+    throw new Error(`Packaged source maps are forbidden:\n${evidence.join('\n')}`);
+  }
+  console.log('Packaged source-map hygiene OK (Resources + app.asar: 0 maps)');
 }
 
 function reservePort() {
@@ -74,10 +109,17 @@ async function stopChild(child, exited) {
 }
 
 async function main() {
+  if (process.argv[2] === '--source-maps-only') {
+    const resourcesDirectory = process.argv[3] ? path.resolve(process.argv[3]) : '';
+    if (!resourcesDirectory) throw new Error(usage());
+    assertPackageHasNoSourceMaps(resourcesDirectory);
+    return;
+  }
   const electronBinary = process.argv[2] ? path.resolve(process.argv[2]) : '';
   const resourcesDirectory = process.argv[3] ? path.resolve(process.argv[3]) : '';
   if (!electronBinary || !resourcesDirectory) throw new Error(usage());
   if (!fs.existsSync(electronBinary)) throw new Error(`Electron binary not found: ${electronBinary}`);
+  assertPackageHasNoSourceMaps(resourcesDirectory);
 
   const standaloneDirectory = path.join(resourcesDirectory, 'standalone');
   const serverPath = path.join(standaloneDirectory, 'server.js');

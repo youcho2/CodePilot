@@ -385,7 +385,7 @@ U1a/U1b 的共同硬约束：
 - [ ] 上传成功是 stable build gate；Sentry API 临时失败允许 job 有界重试，不允许静默发布“有遥测但无法定位”的构建。
 - [x] 所有 electron-builder FileSet 排除 `.map`；macOS unpacked `.app` 与 app.asar 实测均为 0 map。
 - [ ] 分别触发 renderer、Next server、Electron main synthetic fault，记录 event id、release、runtime layer、symbolicated source file + line。
-- [ ] 增加 CI wiring test：保证 Next renderer/server map 已生成，inject 在 package 前、upload token 非 public env、release 与 package version 一致；最终包中不存在 `.map` 或 `sourcesContent`。
+- [ ] CI wiring 已保证 Next renderer/server map 生成、inject 在 package 前、upload token 非 public env；打包后的真实 `Resources` + `app.asar` 现会扫描并阻断任何 `.map`。真实 upload/release 匹配与 `sourcesContent` 线上验证仍待完成。
 
 ### Phase 3 完成门禁
 
@@ -633,3 +633,4 @@ Claude Code review 时需要重点回答，不能只核对文档格式：
 - 2026-08-02：本地实现收口复跑通过：telemetry targeted 24/24、全量 `npm run test` 4979/4979、普通无 Sentry 环境的 production/Electron build 通过、docs-drift 与 diff whitespace gate 通过。真实 project/upload/symbolication/native crash 与 source-map 资源门禁仍保持未完成状态。
 - 2026-08-02：Claude Code 实现审查发现 3 P1/4 P2：Node `Http` request-session、stack `abs_path`、known/unknown grouping 三项为真实上线阻塞；CI Secret scope、environment、400/422 死参数与 Phase 状态为合同缺口。修复轮改为真实 Node client/request 证据、五路径同步清洗、known expected 映射与 unknown 默认 stack，并将 environment 固定为 `production`、channel 固定为 `stable`；400/422 无证据时诚实保持 `unknown`。
 - 2026-08-02：审查修复轮验证通过：telemetry targeted 29/29、全量 4981/4981、production build compile 8.4s、docs-drift 与 diff whitespace gate 通过。SDK 依赖升级 `b83df4ee` 与遥测合同 `13782d77` 已独立提交，避免互相绑定回滚。
+- 2026-08-02：补齐非阻塞 P3 的最终包证据：`verify-packaged-server.mjs` 在 macOS/Windows 打包后真实遍历 Resources 并读取 `app.asar` 目录，任一 `.map` 立即 fail closed；行为测试同时覆盖干净包、asar 内泄漏和 loose resource 泄漏。

@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { describe, it } from 'node:test';
+import { createPackage } from '@electron/asar';
 
 const repoRoot = path.resolve(__dirname, '../../..');
 const hygieneScript = path.join(repoRoot, 'scripts/clean-electron-build.mjs');
@@ -223,5 +224,48 @@ describe('Electron packaging hygiene', () => {
     assert.match(releaseWorkflow, /node scripts\/verify-packaged-server\.mjs/);
     assert.match(packagedSmoke, /\/api\/health/);
     assert.match(packagedSmoke, /ELECTRON_RUN_AS_NODE/);
+    assert.match(packagedSmoke, /listPackage/);
+    assert.match(packagedSmoke, /Packaged source maps are forbidden/);
+  });
+
+  it('scans the real Resources tree and app.asar for source maps', async () => {
+    const fixture = makeFixture();
+    const resources = path.join(fixture, 'Resources');
+    const appSource = path.join(fixture, 'app-source');
+    const packagedSmoke = path.join(repoRoot, 'scripts/verify-packaged-server.mjs');
+    try {
+      fs.mkdirSync(resources, { recursive: true });
+      fs.mkdirSync(appSource, { recursive: true });
+      fs.writeFileSync(path.join(appSource, 'main.js'), 'console.log("ok")');
+      await createPackage(appSource, path.join(resources, 'app.asar'));
+
+      const clean = spawnSync(process.execPath, [packagedSmoke, '--source-maps-only', resources], {
+        encoding: 'utf8',
+      });
+      assert.equal(clean.status, 0, clean.stderr);
+      assert.match(clean.stdout, /Resources \+ app\.asar: 0 maps/);
+
+      fs.writeFileSync(path.join(appSource, 'hidden.js.map'), '{}');
+      fs.rmSync(path.join(resources, 'app.asar'));
+      await createPackage(appSource, path.join(resources, 'app.asar'));
+      const asarLeak = spawnSync(process.execPath, [packagedSmoke, '--source-maps-only', resources], {
+        encoding: 'utf8',
+      });
+      assert.notEqual(asarLeak.status, 0);
+      assert.match(asarLeak.stderr, /app\.asar:.*hidden\.js\.map/);
+
+      fs.rmSync(path.join(appSource, 'hidden.js.map'));
+      fs.rmSync(path.join(resources, 'app.asar'));
+      await createPackage(appSource, path.join(resources, 'app.asar'));
+      fs.mkdirSync(path.join(resources, 'standalone'), { recursive: true });
+      fs.writeFileSync(path.join(resources, 'standalone', 'server.js.map'), '{}');
+      const looseLeak = spawnSync(process.execPath, [packagedSmoke, '--source-maps-only', resources], {
+        encoding: 'utf8',
+      });
+      assert.notEqual(looseLeak.status, 0);
+      assert.match(looseLeak.stderr, /standalone.*server\.js\.map/);
+    } finally {
+      fs.rmSync(fixture, { recursive: true, force: true });
+    }
   });
 });
