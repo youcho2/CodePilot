@@ -30,7 +30,7 @@
 | 14 | Claude managed child 复用父 `canUseTool` 时必须额外携带唯一 `agentRunId`、实际 child session id 与 `agentName`；权限 UI 显示发起者，批准/拒绝仍由唯一 permissionRequestId 定向。**当前只有 Claude adapter** 能根据必填 `required_capabilities=write_workspace` 识别写任务并按真实 working-directory 串行；Native / Codex 没有等价声明与跨 Runtime 共享锁，不能把本条描述成三 Runtime 通用防护 | `claude-subagent-mcp.ts` + `claude-client.ts` + `PermissionPrompt.tsx` |
 | 15 | 破坏性进程重启 recovery 只有在上一 runtime owner 已死亡时才能中止 pending permission / 清理 lock；Next route/module 重复初始化或用户切换聊天不能把仍存活的 child 审批改成 `Process restarted` | `src/lib/db.ts` runtime owner guard |
 | 16 | 标为 `safe_read` / `PERMISSION_SAFE_TOOLS` 的工具不得把模型输入拼入 shell 字符串；调用外部只读程序必须使用固定 executable + argv 数组，`shell:false`，并以恶意分号、引号、命令替换反例证明没有副作用 | `src/lib/tools/grep.ts`、`src/lib/tools/glob.ts` |
-| 17 | 本地 HTTP 路由只要能安装/卸载软件或启动进程，就必须在解析 body 前要求 loopback Host、同源 `Origin`、`application/json`，并对请求参数采用闭合语法；跨平台兼容不得把未验证参数重新送回 shell | `src/lib/skills-marketplace-command.ts` + Skills Marketplace install/remove routes |
+| 17 | 本地 HTTP 路由只要能安装/卸载软件或启动进程，就必须在解析 body 前要求 loopback Host、同源 `Origin`、`application/json`，并对请求参数采用闭合语法；跨平台兼容不得把未验证参数重新送回 shell。Windows 的固定 `cmd.exe /d /s /c npx.cmd` bridge 会重新解析 argv，其安全性显式依赖当前 `SAFE_PATH_SEGMENT` 闭合语法；任何放宽都必须先补 Windows metachar 反例并重新审查该边界 | `src/lib/skills-marketplace-command.ts` + Skills Marketplace install/remove routes |
 
 ## 关键文件 + 责任
 
@@ -56,7 +56,7 @@
 
 - [ ] 加新工具时确认默认是 unsafe，明确决定是否加入 PERMISSION_SAFE_TOOLS
 - [ ] safe_read 工具若调用外部程序，只能固定 executable + argv + `shell:false`；用模型可控 metachar 输入跑副作用反例
-- [ ] 新增本地安装/卸载/进程 route 时，先做 loopback Host、同源 JSON 门禁和闭合输入语法，再启动进程；Windows `.cmd` 兼容不得接受任意 shell token
+- [ ] 新增本地安装/卸载/进程 route 时，先做 loopback Host、同源 JSON 门禁和闭合输入语法，再启动进程；Windows `.cmd` 兼容不得接受任意 shell token，放宽 `SAFE_PATH_SEGMENT` 前必须重跑 Windows metachar 反例
 - [ ] 改 mutationLevel 分类时跑 harness-capability-contract.test.ts
 - [ ] 新 Runtime 接入时填能力矩阵；不支持的能力标 `unsupported` 不能假装支持
 - [ ] 改 reviewer capability 时覆盖 UI route 与运行时 shipping boundary；不得只在下拉框禁用
