@@ -50,6 +50,7 @@ import { subscribeBuiltinEvents } from '../harness/builtin-event-bus';
 import { createModel } from '../ai-provider';
 import { assembleTools, READ_ONLY_TOOLS } from '../agent-tools';
 import { reportNativeError } from '../error-classifier';
+import { providerTelemetryIdentity, type ProviderTelemetryIdentity } from '../telemetry/provider-failure';
 import { pruneOldToolResults } from '../context-pruner';
 import { shouldSuggestSkill, buildSkillNudgeStatusEvent } from '../skill-nudge';
 import { emit as emitEvent } from '../runtime/event-bus';
@@ -127,6 +128,7 @@ export function runToolLoopAgentPoc(options: AgentLoopOptions): ReadableStream<s
       let step = 0;
       const totalUsage: TokenUsage = { input_tokens: 0, output_tokens: 0 };
       const distinctTools = new Set<string>();
+      let telemetryProvider: ProviderTelemetryIdentity | undefined;
 
       try {
         // 0. Sync MCP servers (same as agent-loop step 0)
@@ -176,13 +178,14 @@ export function runToolLoopAgentPoc(options: AgentLoopOptions): ReadableStream<s
           undefined;
 
         // 1. Create model (same factory as agent-loop)
-        const { languageModel, modelId, config, isThirdPartyProxy } = createModel({
+        const { languageModel, modelId, config, resolved, isThirdPartyProxy } = createModel({
           callScene: 'interactive_chat',
           providerId,
           sessionProviderId,
           model: modelOverride,
           sessionModel,
         });
+        telemetryProvider = providerTelemetryIdentity(resolved);
 
         // 2. Load conversation history from DB (same as agent-loop step 2)
         const { messages: dbMessages } = getMessages(sessionId, { limit: 200, excludeHeartbeatAck: true });
@@ -482,7 +485,7 @@ export function runToolLoopAgentPoc(options: AgentLoopOptions): ReadableStream<s
               const category = config.useResponsesApi && isAuthError
                 ? 'OPENAI_AUTH_FAILED' as const
                 : 'NATIVE_STREAM_ERROR' as const;
-              reportNativeError(category, err, { modelId, sessionId });
+              reportNativeError(category, err, { modelId, sessionId, ...telemetryProvider });
               controller.enqueue(formatSSE({
                 type: 'error',
                 data: typeof event.error === 'string' ? event.error : JSON.stringify({ userMessage: String(event.error) }),
@@ -521,7 +524,7 @@ export function runToolLoopAgentPoc(options: AgentLoopOptions): ReadableStream<s
         if (!lastStepHadToolCalls && !lastStepHadContent) {
           const finishReason = await result.finishReason;
           console.error(`[toolloop-poc] Empty response: finishReason=${finishReason}, model=${modelId}`);
-          reportNativeError('EMPTY_RESPONSE', new Error(`Empty response: finishReason=${finishReason}`), { modelId, sessionId });
+          reportNativeError('EMPTY_RESPONSE', new Error(`Empty response: finishReason=${finishReason}`), { modelId, sessionId, ...telemetryProvider });
           controller.enqueue(formatSSE({
             type: 'error',
             data: JSON.stringify({
@@ -571,7 +574,7 @@ export function runToolLoopAgentPoc(options: AgentLoopOptions): ReadableStream<s
 
         if (!isAbort) {
           console.error('[toolloop-poc] Error:', err instanceof Error ? err.message : err);
-          reportNativeError('NATIVE_STREAM_ERROR', err, { sessionId });
+          reportNativeError('NATIVE_STREAM_ERROR', err, { sessionId, retryExhausted: true, ...telemetryProvider });
           const errorRecords = toolInvocationAccumulator.drain();
           const errorAccounting =
             errorRecords.length > 0

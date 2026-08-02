@@ -192,6 +192,11 @@ describe('Electron packaging hygiene', () => {
     assert.doesNotMatch(rootRuntimeFileSet, /!node_modules/);
     assert.doesNotMatch(rootRuntimeFileSet, /!release/);
     assert.match(builderConfig, /- from: \.next\/standalone\/node_modules\//);
+    assert.match(builderConfig, /!dist-electron\/\*\*\/\*\.map/);
+    assert.ok(
+      (builderConfig.match(/!\*\*\/\*\.map/g) ?? []).length >= 3,
+      'no JavaScript source map may be copied into a packaged app',
+    );
 
     const nextRuntimeFileSet = builderConfig.match(
       /- from: \.next\/standalone\/\.next\/[\s\S]*?(?=\n  - from: \.next\/standalone\/\.next\/node_modules\/)/,

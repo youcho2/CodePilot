@@ -16,6 +16,7 @@ import { subscribeBuiltinEvents } from './harness/builtin-event-bus';
 import { createModel } from './ai-provider';
 import { assembleTools, READ_ONLY_TOOLS } from './agent-tools';
 import { reportNativeError } from './error-classifier';
+import { providerTelemetryIdentity, type ProviderTelemetryIdentity } from './telemetry/provider-failure';
 import { pruneOldToolResults } from './context-pruner';
 import { shouldSuggestSkill, buildSkillNudgeStatusEvent } from './skill-nudge';
 import { emit as emitEvent } from './runtime/event-bus';
@@ -206,6 +207,7 @@ export function runAgentLoop(options: AgentLoopOptions): ReadableStream<string> 
       // in `harness/builtin-event-bus.ts`).
       const pendingMediaByCallId = new Map<string, MediaBlock[]>();
       let xaiSearchEnabled = false;
+      let telemetryProvider: ProviderTelemetryIdentity | undefined;
 
       // Phase 7 Context Accounting — per-turn ToolInvocationAccumulator.
       // Lives in start(controller) closure so step loop tool_use/tool_result
@@ -296,13 +298,14 @@ export function runAgentLoop(options: AgentLoopOptions): ReadableStream<string> 
           undefined;
 
         // 1. Create model
-        const { languageModel, modelId, config, isThirdPartyProxy } = createModel({
+        const { languageModel, modelId, config, resolved, isThirdPartyProxy } = createModel({
           callScene,
           providerId,
           sessionProviderId,
           model: modelOverride,
           sessionModel,
         });
+        telemetryProvider = providerTelemetryIdentity(resolved);
         const hostedSearchTools = buildXaiHostedSearchTools(config, callScene);
         xaiSearchEnabled = Object.keys(hostedSearchTools).length > 0;
         if (xaiSearchEnabled) {
@@ -646,7 +649,7 @@ export function runAgentLoop(options: AgentLoopOptions): ReadableStream<string> 
               const category = config.useResponsesApi && isAuthError
                 ? 'OPENAI_AUTH_FAILED' as const
                 : 'NATIVE_STREAM_ERROR' as const;
-              reportNativeError(category, err, { modelId, sessionId });
+              reportNativeError(category, err, { modelId, sessionId, ...telemetryProvider });
             },
           });
 
@@ -834,7 +837,7 @@ export function runAgentLoop(options: AgentLoopOptions): ReadableStream<string> 
             if (!hasContent) {
               const finishReason = await result.finishReason;
               console.error(`[agent-loop] Empty response: finishReason=${finishReason}, model=${modelId}`);
-              reportNativeError('EMPTY_RESPONSE', new Error(`Empty response: finishReason=${finishReason}`), { modelId, sessionId });
+              reportNativeError('EMPTY_RESPONSE', new Error(`Empty response: finishReason=${finishReason}`), { modelId, sessionId, ...telemetryProvider });
               controller.enqueue(formatSSE({
                 type: 'error',
                 data: JSON.stringify({
@@ -937,7 +940,7 @@ export function runAgentLoop(options: AgentLoopOptions): ReadableStream<string> 
           reportNativeError(
             timedOut ? TIMEOUT_CATEGORY[timedOut.reason] : 'NATIVE_STREAM_ERROR',
             err,
-            { sessionId },
+            { sessionId, retryExhausted: true, ...telemetryProvider },
           );
           // A3 (audit 2026-06): the success path drains the accumulator at
           // result time; if we threw inside the step loop that drain never

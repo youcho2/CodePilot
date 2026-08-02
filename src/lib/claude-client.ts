@@ -2880,6 +2880,7 @@ export function streamClaudeSdk(options: ClaudeStreamOptions): ReadableStream<st
             docsUrl: presetForMeta.meta.docsUrl,
             pricingUrl: presetForMeta.meta.pricingUrl,
           } : undefined,
+          retryExhausted: true,
         });
 
         // ── Reactive compact: auto-compress and retry on CONTEXT_TOO_LONG ──
@@ -3388,6 +3389,7 @@ export async function testProviderConnection(config: {
       providerName: config.providerName,
       baseUrl: config.baseUrl,
       providerMeta: config.providerMeta,
+      providerTest: true,
     });
 
     return {
@@ -3408,6 +3410,7 @@ export async function testProviderConnection(config: {
       providerName: config.providerName,
       baseUrl: config.baseUrl,
       providerMeta: config.providerMeta,
+      providerTest: true,
     });
 
     return {
@@ -3459,6 +3462,7 @@ async function testXaiConnection(config: {
       providerName: config.providerName || 'xAI',
       baseUrl,
       providerMeta: config.providerMeta,
+      providerTest: true,
     });
     return {
       success: false,
@@ -3476,6 +3480,7 @@ async function testXaiConnection(config: {
       providerName: config.providerName || 'xAI',
       baseUrl,
       providerMeta: config.providerMeta,
+      providerTest: true,
     });
     return {
       success: false,
@@ -3537,6 +3542,7 @@ async function testOpenAICompatibleConnection(config: {
       providerName: config.providerName,
       baseUrl: config.baseUrl,
       providerMeta: config.providerMeta,
+      providerTest: true,
     });
 
     return {
@@ -3555,6 +3561,7 @@ async function testOpenAICompatibleConnection(config: {
       providerName: config.providerName,
       baseUrl: config.baseUrl,
       providerMeta: config.providerMeta,
+      providerTest: true,
     });
 
     return {
@@ -3623,6 +3630,7 @@ async function testMediaProviderConnection(config: {
       providerName: config.providerName,
       baseUrl: config.baseUrl,
       providerMeta: config.providerMeta,
+      providerTest: true,
     });
 
     return {
@@ -3641,6 +3649,7 @@ async function testMediaProviderConnection(config: {
       providerName: config.providerName,
       baseUrl: config.baseUrl,
       providerMeta: config.providerMeta,
+      providerTest: true,
     });
     return {
       success: false,

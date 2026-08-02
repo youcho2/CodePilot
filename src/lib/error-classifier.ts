@@ -5,21 +5,15 @@
  * classifier that produces actionable, user-facing error messages.
  */
 
-// ── Sentry integration (lazy, no-op when unavailable) ───────────
+import {
+  buildNormalizedFingerprint,
+  classifyTelemetryOutcome,
+  shouldUseDefaultStackGrouping,
+  shouldSendErrorEnvelope,
+  statusClass,
+} from './telemetry/contract';
 
-const SENTRY_REPORTABLE: Set<string> = new Set([
-  // PROCESS_CRASH removed — too noisy (136+ events/day), mostly user config issues
-  'UNKNOWN', 'CLI_NOT_FOUND', 'CLI_INSTALL_CONFLICT',
-  'MISSING_GIT_BASH', 'PROVIDER_NOT_APPLIED', 'SESSION_STATE_ERROR',
-  // Native Runtime errors
-  'NATIVE_STREAM_ERROR', 'OPENAI_AUTH_FAILED', 'MCP_CONNECTION_ERROR',
-  // Model-output failures — agent-loop calls reportNativeError for these
-  // (EMPTY_RESPONSE = proxy/model incompatibility; TIMEOUT_* = real hangs).
-  // They were declared reportable-by-caller but absent from this set, so the
-  // reports were silent no-ops. (audit 2026-07 "Sentry blind spot 1")
-  'EMPTY_RESPONSE',
-  'TIMEOUT_CONNECT', 'TIMEOUT_FIRST_TOKEN', 'TIMEOUT_TOOL_EXECUTION', 'TIMEOUT_TOTAL_RUN',
-]);
+// ── Sentry integration (lazy, no-op when unavailable) ───────────
 
 /**
  * Pure predicate: should this (category, error) be reported to Sentry?
@@ -36,13 +30,21 @@ const SENTRY_REPORTABLE: Set<string> = new Set([
  *     failure, so the abort/cancel message filter must not swallow it.
  */
 export function shouldReportToSentry(category: string, error: unknown): boolean {
-  if (!SENTRY_REPORTABLE.has(category)) return false;
-  if (category.startsWith('TIMEOUT_')) return true;
-  const msg = error instanceof Error ? error.message : String(error);
-  return !/abort|cancel/i.test(msg);
+  return shouldSendErrorEnvelope(classifyTelemetryOutcome(category, error));
 }
 
-function reportToSentry(category: string, error: unknown, extra?: Record<string, unknown>) {
+interface SentryReportContext {
+  runtimeId?: string;
+  providerProtocol?: string;
+  providerClass?: string;
+  statusCode?: number;
+  retryExhausted?: boolean;
+  callScene?: string;
+  timeoutStage?: string;
+  providerTest?: boolean;
+}
+
+function reportToSentry(category: string, error: unknown, context: SentryReportContext = {}) {
   // Dev-server memory guardrail (2026-05-09): even though instrumentation.ts
   // skips Sentry.init in dev, this lazy import path would still pull
   // `@sentry/node` + the `@opentelemetry/*` chain into Turbopack's compile
@@ -52,19 +54,71 @@ function reportToSentry(category: string, error: unknown, extra?: Record<string,
   // instrumentation.ts contract here. Locked in by
   // `src/__tests__/unit/sentry-dev-guard.test.ts`.
   if (process.env.NODE_ENV !== 'development') {
-    if (!shouldReportToSentry(category, error)) return;
-    const msg = error instanceof Error ? error.message : String(error);
+    if (process.env.NODE_ENV !== 'production') return;
+    if (process.env.NEXT_PUBLIC_CODEPILOT_CHANNEL !== 'stable') return;
+    const outcome = classifyTelemetryOutcome(category, error, {
+      retryExhausted: context.retryExhausted,
+      providerTest: context.providerTest,
+    });
+    const isHealthSummary = outcome === 'user_action_required';
+    if (!isHealthSummary && !shouldSendErrorEnvelope(outcome)) return;
 
     // Fire-and-forget async import — never blocks the classifier
-    import('@sentry/node').then((Sentry) => {
+    import('@sentry/node').then(async (Sentry) => {
+      if (!Sentry.isInitialized()) return;
+      if (isHealthSummary) {
+        const [{ claimHealthSummary }, os, path] = await Promise.all([
+          import('./telemetry/health-summary'),
+          import('node:os'),
+          import('node:path'),
+        ]);
+        const providerClass = context.providerClass || 'unknown';
+        const runtimeId = context.runtimeId || 'unknown';
+        const release = `codepilot@${process.env.NEXT_PUBLIC_APP_VERSION || 'unknown'}`;
+        const claimed = claimHealthSummary(
+          path.join(os.homedir(), '.codepilot', 'telemetry-health-v1.json'),
+          { release, category, providerClass, runtimeId },
+        );
+        if (!claimed) return;
+        Sentry.withScope((scope) => {
+          scope.setLevel('info');
+          scope.setTag('error.category', category);
+          scope.setTag('error.outcome', outcome);
+          scope.setTag('error.runtime', runtimeId);
+          scope.setTag('runtime.id', runtimeId);
+          scope.setTag('provider.class', providerClass);
+          scope.setTag('grouping.strategy', 'normalized');
+          scope.setFingerprint(['health-summary-v1', release, category, providerClass, runtimeId]);
+          Sentry.captureMessage('telemetry.health_summary', 'info');
+        });
+        return;
+      }
       Sentry.withScope((scope) => {
         scope.setTag('error.category', category);
-        scope.setTag('error.provider', (extra?.providerName as string) || 'unknown');
-        scope.setTag('error.runtime', (extra?.runtime as string) || 'unknown');
-        if (extra?.baseUrl) scope.setTag('provider.baseUrl', extra.baseUrl as string);
-        if (extra?.modelId) scope.setTag('model.id', extra.modelId as string);
-        if (extra) scope.setExtras(extra);
-        scope.setFingerprint([category, msg.slice(0, 100)]);
+        scope.setTag('error.outcome', outcome);
+        scope.setTag('error.runtime', context.runtimeId || 'unknown');
+        scope.setTag('runtime.id', context.runtimeId || 'unknown');
+        scope.setTag('provider.protocol', context.providerProtocol || 'unknown');
+        scope.setTag('provider.class', context.providerClass || 'unknown');
+        scope.setTag('status.class', statusClass(context.statusCode));
+        scope.setExtras({
+          callScene: context.callScene,
+          retryExhausted: context.retryExhausted,
+          timeoutStage: context.timeoutStage,
+        });
+        const useDefaultStackGrouping = shouldUseDefaultStackGrouping(outcome, error);
+        if (outcome === 'unknown') scope.setTag('needs_classification', 'yes');
+        if (!useDefaultStackGrouping) {
+          scope.setTag('grouping.strategy', 'normalized');
+          scope.setFingerprint(buildNormalizedFingerprint({
+            category,
+            layer: 'next_server',
+            runtimeId: context.runtimeId,
+            providerProtocol: context.providerProtocol,
+            providerClass: context.providerClass,
+            statusCode: context.statusCode,
+          }));
+        }
         if (error instanceof Error) {
           Sentry.captureException(error);
         } else {
@@ -82,9 +136,23 @@ function reportToSentry(category: string, error: unknown, extra?: Record<string,
 export function reportNativeError(
   category: ClaudeErrorCategory,
   error: unknown,
-  context?: { providerName?: string; modelId?: string; sessionId?: string; baseUrl?: string },
+  context?: {
+    providerProtocol?: string;
+    providerClass?: string;
+    retryExhausted?: boolean;
+    /** Accepted for existing callers but deliberately never sent. */
+    modelId?: string;
+    sessionId?: string;
+    providerName?: string;
+    baseUrl?: string;
+  },
 ) {
-  reportToSentry(category, error, { ...context, runtime: 'native' });
+  reportToSentry(category, error, {
+    runtimeId: 'codepilot_runtime',
+    providerProtocol: context?.providerProtocol,
+    providerClass: context?.providerClass,
+    retryExhausted: context?.retryExhausted,
+  });
 }
 
 // ── Error categories ────────────────────────────────────────────
@@ -174,6 +242,10 @@ export interface ErrorContext {
     docsUrl?: string;
     pricingUrl?: string;
   };
+  /** Diagnostic connection tests are user-invoked probes, never product faults. */
+  providerTest?: boolean;
+  /** True only after the caller's retry/fallback budget has been exhausted. */
+  retryExhausted?: boolean;
 }
 
 // ── Pattern definitions ─────────────────────────────────────────
@@ -196,7 +268,12 @@ const ERROR_PATTERNS: ErrorPattern[] = [
   // ── CLI not found ──
   {
     category: 'CLI_NOT_FOUND',
-    patterns: ['ENOENT', 'spawn', 'not found', 'No such file'],
+    patterns: [
+      /spawn(?:ing)? [^\n]+ enoent/i,
+      /claude code (?:cli|executable|native binary)[^\n]*not found/i,
+      /executable[^\n]*not found/i,
+      'No such file',
+    ],
     codes: ['ENOENT'],
     userMessage: () => 'Claude Code CLI not found.',
     actionHint: () => 'Please install Claude Code CLI and ensure it is available in your PATH. Run: npm install -g @anthropic-ai/claude-code',
@@ -537,9 +614,9 @@ function buildResult(
 
   // Report severe errors to Sentry (non-blocking, ignores expected errors like RATE_LIMITED)
   reportToSentry(category, ctx.error, {
-    providerName: ctx.providerName,
-    baseUrl: ctx.baseUrl,
-    rawMessage,
+    runtimeId: 'claude_code',
+    providerTest: ctx.providerTest,
+    retryExhausted: ctx.retryExhausted,
   });
 
   return {

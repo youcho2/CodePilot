@@ -4,6 +4,7 @@ import React, { useState } from "react";
 import { WarningCircle } from "@/components/ui/icon";
 import { Button } from "@/components/ui/button";
 import { useTranslation } from "@/hooks/useTranslation";
+import { captureRendererException } from "@/lib/telemetry/browser";
 
 interface ErrorBoundaryProps {
   children: React.ReactNode;
@@ -115,10 +116,9 @@ export class ErrorBoundary extends React.Component<
 
     console.error("[ErrorBoundary] Uncaught error:", error);
     console.error("[ErrorBoundary] Component stack:", errorInfo.componentStack);
-    // Report to Sentry if available
-    import('@sentry/browser').then((Sentry) => {
-      Sentry.captureException(error, { contexts: { react: { componentStack: errorInfo.componentStack } } });
-    }).catch(() => { /* Sentry not available */ });
+    // The facade preserves the Error stack for source maps but intentionally
+    // does not attach component-stack text or other renderer state.
+    captureRendererException(error, 'REACT_ERROR_BOUNDARY');
   }
 
   handleReset = () => {

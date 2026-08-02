@@ -4,6 +4,9 @@ import pkg from "./package.json" with { type: "json" };
 
 const nextConfig: NextConfig = {
   output: 'standalone',
+  // Official builds upload these privately before packaging. The package
+  // filters below exclude every *.map from distributable artifacts.
+  productionBrowserSourceMaps: process.env.CODEPILOT_SOURCE_MAPS === '1',
   // Packaged CodePilot runs the Next standalone server with its cwd inside the
   // read-only install dir (e.g. C:\Program Files\CodePilot\resources\standalone).
   // Next's default FileSystemCache mkdir's `.next/cache` there on the first
@@ -27,6 +30,7 @@ const nextConfig: NextConfig = {
   // resolves to the actual config file's directory regardless of cwd.
   turbopack: {
     root: import.meta.dirname,
+    debugIds: process.env.CODEPILOT_SOURCE_MAPS === '1',
   },
   // Electron dev loads the renderer from 127.0.0.1 while Next's dev
   // server advertises localhost. Next 16 blocks cross-origin dev
@@ -42,7 +46,12 @@ const nextConfig: NextConfig = {
     // Settings route graph. Dev source maps are useful but expensive here;
     // production builds still emit their normal artifacts.
     turbopackMemoryLimit: 1536 * 1024 * 1024,
-    turbopackSourceMaps: false,
+    // This remains false in dev. Official release builds enable output maps
+    // with productionBrowserSourceMaps so Turbopack emits real renderer/server
+    // maps instead of debug IDs pointing at empty placeholder maps. Consuming
+    // dependency input maps stays off: the POC showed it more than doubled
+    // compile time without being required for CodePilot source symbolication.
+    turbopackSourceMaps: process.env.CODEPILOT_SOURCE_MAPS === '1',
     turbopackInputSourceMaps: false,
   },
   // serverExternalPackages: keep these in node_modules at runtime instead of bundling.
@@ -56,7 +65,8 @@ const nextConfig: NextConfig = {
   serverExternalPackages: ['better-sqlite3', 'discord.js', '@discordjs/ws', 'zlib-sync', '@anthropic-ai/claude-agent-sdk'],
   env: {
     NEXT_PUBLIC_APP_VERSION: pkg.version,
-    NEXT_PUBLIC_SENTRY_DSN: 'https://245dc3525425bcd8eb99dd4b9a2ca5cd@o4511161899548672.ingest.us.sentry.io/4511161904791552',
+    NEXT_PUBLIC_SENTRY_DSN: process.env.SENTRY_DSN || '',
+    NEXT_PUBLIC_CODEPILOT_CHANNEL: process.env.CODEPILOT_APP_CHANNEL || 'local',
   },
   // outputFileTracingExcludes: strip non-code dirs out of every route's NFT.
   // Turbopack sees the recursive fs.readdir() in src/lib/files#scanDirectory

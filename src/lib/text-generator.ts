@@ -2,6 +2,8 @@ import { streamText } from 'ai';
 import { createModel } from './ai-provider';
 import type { ResolvedProvider } from './provider-resolver';
 import { assertProviderCallAllowed, type ProviderCallScene } from './provider-call-policy';
+import { reportProviderFailure } from './telemetry/provider-failure';
+import { markProviderFailureHandled } from './telemetry/provider-marker';
 
 export interface StreamTextParams {
   callScene: ProviderCallScene;
@@ -53,23 +55,35 @@ export async function* pumpTextStream(
 
 export async function* streamTextFromProvider(params: StreamTextParams): AsyncIterable<string> {
   assertProviderCallAllowed(params.resolvedProvider?.provider, params.callScene);
-  const { languageModel } = createModel({
-    callScene: params.callScene,
-    providerId: params.providerId,
-    resolvedProvider: params.resolvedProvider,
-    model: params.model,
-  });
-
-  const result = streamText({
-    model: languageModel,
-    // ai@7: `system` is a deprecated alias of `instructions` (wire-identical).
-    instructions: params.system,
-    prompt: params.prompt,
-    maxOutputTokens: params.maxTokens || 4096,
-    abortSignal: params.abortSignal || AbortSignal.timeout(120_000),
-  });
-
-  yield* pumpTextStream(result.fullStream as AsyncIterable<{ type: string; text?: string; error?: unknown }>);
+  let resolvedForTelemetry = params.resolvedProvider;
+  try {
+    const { languageModel, resolved } = createModel({
+      callScene: params.callScene,
+      providerId: params.providerId,
+      resolvedProvider: params.resolvedProvider,
+      model: params.model,
+    });
+    resolvedForTelemetry = resolved;
+    const result = streamText({
+      model: languageModel,
+      // ai@7: `system` is a deprecated alias of `instructions` (wire-identical).
+      instructions: params.system,
+      prompt: params.prompt,
+      maxOutputTokens: params.maxTokens || 4096,
+      abortSignal: params.abortSignal || AbortSignal.timeout(120_000),
+    });
+    yield* pumpTextStream(result.fullStream as AsyncIterable<{ type: string; text?: string; error?: unknown }>);
+  } catch (error) {
+    reportProviderFailure(error, {
+      callScene: params.callScene,
+      resolvedProvider: resolvedForTelemetry,
+    });
+    // Preserve the rich upstream reason for the user-facing fallback, but
+    // prevent the Node SDK's unhandled-error integration from capturing the
+    // same raw provider body a second time.
+    markProviderFailureHandled(error);
+    throw error;
+  }
 }
 
 /**

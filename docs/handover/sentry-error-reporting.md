@@ -1,166 +1,88 @@
-# Sentry 匿名错误上报
+# Sentry 匿名错误上报与崩溃率统计
 
-> 产品思考见 [docs/insights/user-audience-analysis.md](../insights/user-audience-analysis.md)
+> 产品取舍见 [docs/insights/sentry-error-reporting.md](../insights/sentry-error-reporting.md)，稳定开发契约见 [docs/guardrails/SentryTelemetry.md](../guardrails/SentryTelemetry.md)。
 
----
+## 一、当前产品边界
 
-## 一、架构
+当前只实现 U0（Release Health）：官方 stable build 在用户未 opt-out 时发送经脱敏的错误，并只保留 Electron main-process session 作为 crash-free sessions 的分母。
 
-三层覆盖，共用一个 DSN，共用一个 opt-out 机制。
+- 不设置 `user.id` / installation id / device fingerprint；
+- 不统计 DAU、MAU、留存或功能使用；
+- renderer 的 `BrowserSession`、Next server 的 `ProcessSession` 与 `Http` request-session 显式关闭；
+- preview、development、普通源码 checkout 即使安装了 SDK 也不会发送到官方项目。
 
-```
-Browser (Renderer)       Server (Node.js)         Electron Main
-      │                       │                        │
-  SentryInit.tsx         instrumentation.ts        electron/main.ts
-  @sentry/browser        @sentry/node              @sentry/electron
-      │                       │                        │
-  beforeSend             beforeSend                Sentry.init()
-  (localStorage check)   (strip auth headers)      (marker file check)
-      │                       │                        │
-      └─── DSN: next.config.ts env ──── DSN: hardcoded ┘
-                     │
-           ~/.codepilot/sentry-disabled
-               (opt-out marker file)
-```
+设置文案因此是“匿名错误上报与崩溃率统计”，不是“使用分析”。
 
-### DSN
+## 二、三层结构
 
-- Renderer + Server：通过 `next.config.ts` 的 `NEXT_PUBLIC_SENTRY_DSN` 环境变量
-- Electron Main：硬编码（main process 不经过 Next.js env）
-- DSN 是公开 ingest URL（Sentry 设计），安全提交到代码库
+| 层 | 初始化入口 | SDK | Session | 事件策略 |
+|---|---|---|---|---|
+| Renderer | `src/components/layout/SentryInit.tsx` | `@sentry/browser@10.69.0` | 关闭 `BrowserSession` | ErrorBoundary 走 browser facade；beforeSend 统一脱敏 |
+| Next server | `src/instrumentation.ts` | `@sentry/node@10.69.0` | 关闭 `ProcessSession`；以 `trackIncomingRequestsAsSessions:false` 替换默认 `Http` | classifier / provider shared boundary；beforeSend 统一脱敏 |
+| Electron main | `electron/main.ts` 文件顶部 | `@sentry/electron@7.16.0` | 保留 `MainProcessSession` | 保留 SDK 默认 native/minidump，禁截图、console、PII |
 
-### 为什么不用 @sentry/nextjs
+三层 release 统一为 `codepilot@<package version>`，environment 为 `production`、`app.channel` 为 `stable`。DSN 只由 stable CI 的 `SENTRY_DSN` 注入；源码不再包含 ingest literal。`SENTRY_AUTH_TOKEN` 只给独立 source-map upload step，绝不能进入 build/package step、Next public env 或 Electron define。
 
-`@sentry/nextjs@9.x` 的 peer dep 要求 `next@^13 || ^14 || ^15`，CodePilot 用 Next.js 16。改用：
-- `@sentry/browser` — 客户端
-- `@sentry/node` — 服务端
-- `@sentry/electron` — 主进程
+## 三、启用与 opt-out
 
----
+`src/lib/telemetry/contract.ts` 的 `resolveTelemetryConfig()` 是唯一启用判定：同时满足 production、stable、有 DSN、未 opt-out 才启用。
 
-## 二、初始化点
+| 层 | opt-out 事实源 | 生效时机 |
+|---|---|---|
+| Renderer | `localStorage['codepilot:sentry-disabled']` | beforeSend 即时生效 |
+| Next server | `~/.codepilot/sentry-disabled` | 应用重启 |
+| Electron main | `~/.codepilot/sentry-disabled` | 应用重启 |
 
-### Browser（即时）
+设置路由仍由 `POST /api/settings/sentry` 写 marker；UI 明确提示完全生效需要重启。
 
-**文件**：`src/components/layout/SentryInit.tsx`
+## 四、事件合同
 
-- 客户端组件，在 `AppShell` 中渲染
-- `useEffect` 中动态 `import('@sentry/browser')`，DSN 不存在时不加载
-- `beforeSend` 检查 `localStorage['codepilot:sentry-disabled']`，opt-out 即时生效
-- 去除 `ui.input` breadcrumb，删除 auth headers
+`src/lib/telemetry/contract.ts` 将错误分成 `product_fault`、`provider_protocol_fault`、`transient_upstream`、`user_action_required`、`provider_test_result`、`user_cancelled`、`expected_lifecycle`、`unknown`。
 
-### Server（启动时）
+- 有真实 stack 的 `product_fault` 与 `unknown` 保留 Sentry 默认 stack grouping；`unknown` 额外标 `needs_classification=yes`；
+- protocol/transient/无 stack 错误只使用稳定枚举 fingerprint，禁止 message、URL、model/session/request id；
+- connection test、用户取消、正常生命周期不生成 Error Issue；
+- `user_action_required` 用 `~/.codepilot/telemetry-health-v1.json` 做 24h、最多 64 bucket 的跨重启去重，只发送稳定的 `telemetry.health_summary` info Issue；文件只含 release/category/provider class/runtime id 和时间戳；
+- `text-generator.ts` 是后台 provider 调用的共享 capture 边界。原始 upstream body 仍用于用户可见诊断，但错误被非枚举 marker 标记，Node auto-capture 会丢弃它，只保留无正文的 normalized telemetry event。
+- 400/422 的责任归属纯合同与 fixture 已存在，但生产 Provider 边界目前没有可靠结构化责任证据；因此生产路径一律保守归 `unknown`，不能把合同 fixture 冒充为已经自动区分用户输入、CodePilot payload 和上游 schema。
 
-**文件**：`src/instrumentation.ts`
+## 五、隐私策略
 
-- Next.js `register()` hook，服务启动时执行一次
-- 读取 `~/.codepilot/sentry-disabled` marker file
-- 如果 marker 为 `true`，不初始化 `@sentry/node`
-- opt-out 变更需**重启应用**才对 server 层生效
+`src/lib/telemetry/sanitize.ts` 是三层共用的 default-deny allow-list：
 
-### Electron Main（启动时）
+- 删除 user、server_name、request headers/body/query/cookies、modules；
+- console 与 `ui.input` breadcrumb 删除；网络 breadcrumb 只留 method、pathname、status；
+- tags/extras/contexts 只允许稳定、低基数字段；
+- URL、secret、长 ID、用户目录与控制字符被清洗；
+- stack `filename/abs_path/module` 与 `debug_meta.images[].code_file/debug_file` 同步匿名化，保留行列号与 debug ID；
+- 三层显式 `sendDefaultPii: false`、`tracesSampleRate: 0`，Electron `attachScreenshot: false`。
 
-**文件**：`electron/main.ts`（文件最顶部，所有其他 import 之前）
+## 六、Source Map 发布闭环
 
-- 读取 `~/.codepilot/sentry-disabled` marker file
-- 如果 marker 为 `true`，不调用 `Sentry.init()`
-- opt-out 变更需**重启应用**才对 main process 生效
+官方构建设置 `CODEPILOT_SOURCE_MAPS=1`：
 
----
+1. Next 开启 `productionBrowserSourceMaps`、Turbopack debug ID 和 output maps；依赖 input maps 保持关闭；
+2. `scripts/build-electron.mjs` 给 Electron 生成 map，并把 `.next/server` 中与 standalone JS 对应的 map 复制到实际部署树；
+3. `scripts/sentry-source-maps.mjs` 验证 renderer / packaged server / Electron 都存在非占位 map；
+4. stable CI 对即将打包的同一份 JS 执行 `sentry-cli sourcemaps inject` 和严格 upload；以 debug ID 匹配，暂不设置 `dist`（macOS universal 构建与运行时 arch 不一一对应）；上传失败阻断构建；
+5. `electron-builder.yml` 在 app.asar、standalone、node_modules、static 所有入口排除 `*.map`。
 
-## 三、Opt-out 机制
+2026-08-02 本地 POC：上传前 1846 个非占位 map；debug-id dry-run 成功；unpacked macOS `.app` 和 `app.asar` 均为 0 个 map。真实 upload、symbolication、Windows package 和 native minidump 仍需 CI Secret / packaged smoke。
 
-### 用户界面
+资源门禁未关闭：无 map 编译 9.2s，真实 output map 编译 22.6s，超过计划的 20% 红线。绝对时间仍远低于 45min CI timeout，但必须由用户/reviewer接受或调整方案后才能称 Phase 3 完成。
 
-**文件**：`src/components/settings/GeneralSection.tsx` — `SentryToggle` 组件
+## 七、关键文件与验证
 
-- 位置：Settings > General 卡片内，紧跟 Setup Center 下方
-- 使用 `useSyncExternalStore` 读取 localStorage（无 hydration mismatch）
-- 默认开启，用户可关闭
-
-### 持久化
-
-切换开关时同时写两个位置：
-1. `localStorage['codepilot:sentry-disabled']` — browser 层即时读取
-2. `~/.codepilot/sentry-disabled` 文件 — server + electron main 启动时读取
-
-文件写入通过 `POST /api/settings/sentry`（`src/app/api/settings/sentry/route.ts`）。
-
-### 生效时机
-
-| 层 | opt-out 生效 |
+| 文件 | 责任 |
 |---|---|
-| Browser | 即时（beforeSend 每次检查 localStorage） |
-| Server | 重启后（instrumentation.ts 只在 register() 读一次） |
-| Electron Main | 重启后（main.ts 顶部只读一次） |
+| `src/lib/telemetry/contract.ts` | enable/session/outcome/fingerprint 合同 |
+| `src/lib/telemetry/sanitize.ts` | 三层 default-deny event/breadcrumb 清洗 |
+| `src/lib/telemetry/health-summary.ts` | user-action 24h 持久化预算 |
+| `src/lib/telemetry/provider-failure.ts` | background/provider shared capture |
+| `src/instrumentation.ts` | Next init、auto-capture 去重 |
+| `src/components/layout/SentryInit.tsx` | renderer init 与 opt-out |
+| `electron/main.ts` | early main init、main-only session、native crash 默认集成 |
+| `scripts/sentry-source-maps.mjs` | release/map/Secret fail-closed upload |
+| `electron-builder.yml` | packaged map 排除 |
 
-文案已明确提示用户"更改后需重启应用才能完全生效"。
-
----
-
-## 四、上报策略
-
-### 什么会被上报
-
-**文件**：`src/lib/error-classifier.ts` — `reportToSentry()`
-
-仅上报严重错误类别：
-- `PROCESS_CRASH` — Claude Code SDK 进程崩溃
-- `UNKNOWN` — 无法分类的错误
-- `CLI_NOT_FOUND` — CLI 找不到
-- `CLI_INSTALL_CONFLICT` — CLI 安装冲突
-- `MISSING_GIT_BASH` — Windows 缺 Git Bash
-- `PROVIDER_NOT_APPLIED` — Provider 未生效
-- `SESSION_STATE_ERROR` — 会话状态损坏
-
-### 什么不会被上报
-
-- `RATE_LIMITED` — 预期内，限流
-- `CONTEXT_TOO_LONG` — 预期内，自动压缩处理
-- `AUTH_REJECTED` / `AUTH_FORBIDDEN` — 用户配置问题
-- `NETWORK_UNREACHABLE` — 网络问题
-- `RESUME_FAILED` — 会话恢复失败（自动处理）
-
-### React 渲染错误
-
-**文件**：`src/components/layout/ErrorBoundary.tsx`
-
-`componentDidCatch` 中通过 `import('@sentry/browser').then(Sentry.captureException)` 上报所有未捕获的 React 渲染错误。
-
-### 隐私保护
-
-- 不采集 performance trace（`tracesSampleRate: 0`）
-- 不采集 session replay
-- 不采集用户输入 breadcrumb（`ui.input` 过滤）
-- 删除 auth headers（`x-api-key`、`authorization`、`anthropic-api-key`）
-- 不含对话内容
-
----
-
-## 五、关键文件清单
-
-| 文件 | 职责 |
-|------|------|
-| `next.config.ts` | DSN 环境变量（NEXT_PUBLIC_SENTRY_DSN） |
-| `electron/main.ts` | Electron main Sentry.init() + opt-out check |
-| `src/instrumentation.ts` | Server Sentry.init() + opt-out check |
-| `src/components/layout/SentryInit.tsx` | Browser 动态初始化 |
-| `src/components/layout/ErrorBoundary.tsx` | React 错误捕获 → Sentry |
-| `src/components/layout/AppShell.tsx` | 渲染 SentryInit |
-| `src/lib/error-classifier.ts` | reportToSentry() 严重错误上报 |
-| `src/components/settings/GeneralSection.tsx` | SentryToggle opt-out 开关 |
-| `src/app/api/settings/sentry/route.ts` | opt-out marker 文件读写 API |
-| `src/i18n/en.ts` + `zh.ts` | 开关文案 + 重启提示 |
-
----
-
-## 六、免费额度管理
-
-Sentry 免费版限额 5,000 错误/月。通过以下方式控制：
-
-1. 只上报 `SENTRY_REPORTABLE` 集合中的严重错误（7 个类别）
-2. `tracesSampleRate: 0` — 不采性能数据
-3. `replaysSessionSampleRate: 0` — 不录回放
-4. 预期内错误（限流、上下文过长）不上报
-
-如果接近额度，可以在 Sentry Dashboard 设置 rate limiting。
+日常回归：`npm run test`。发布前还必须跑 official-style source-map build、unpacked package map scan，并在真实 Sentry project 记录 renderer/server/Electron/native synthetic event 的 event id 与 symbolicated file:line。

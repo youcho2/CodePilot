@@ -21,50 +21,50 @@ export async function register() {
   if (process.env.NEXT_RUNTIME === 'nodejs') {
     if (process.env.NODE_ENV !== 'development') {
       // Initialize Sentry for server-side error capture (respects opt-out marker file)
-      const dsn = process.env.NEXT_PUBLIC_SENTRY_DSN;
-      if (dsn) {
-        const fs = await import('fs');
-        const path = await import('path');
-        const os = await import('os');
-        const markerPath = path.join(os.homedir(), '.codepilot', 'sentry-disabled');
-        const optedOut = fs.existsSync(markerPath) && fs.readFileSync(markerPath, 'utf-8').trim() === 'true';
-        if (!optedOut) {
-          const Sentry = await import('@sentry/node');
-          Sentry.init({
-            dsn,
-            environment: process.env.NODE_ENV,
-            release: `codepilot@${process.env.NEXT_PUBLIC_APP_VERSION}`,
-            tracesSampleRate: 0,
-            ignoreErrors: [
-              // Aborts — user/client cancellation, not bugs
-              'AbortError',
-              'Operation aborted',
-              'The operation was aborted',
-              'signal is aborted',
-              // Electron renderer doesn't implement window.prompt — known and handled with PromptDialog
-              'prompt() is not supported',
-              // Browser quirk: not a real error but Chromium reports it
-              'ResizeObserver loop',
-            ],
-            beforeSend(event) {
-              // Strip auth headers
-              if (event.request?.headers) {
-                delete event.request.headers['x-api-key'];
-                delete event.request.headers['authorization'];
-                delete event.request.headers['anthropic-api-key'];
-              }
-              // Add server context
-              event.tags = {
-                ...event.tags,
-                runtime: 'server',
-                'os.platform': process.platform,
-                'os.arch': process.arch,
-                'node.version': process.version,
-              };
-              return event;
-            },
-          });
-        }
+      const fs = await import('fs');
+      const path = await import('path');
+      const os = await import('os');
+      const { configureNextServerIntegrations, resolveTelemetryConfig, TELEMETRY_IGNORE_ERRORS } = await import('@/lib/telemetry/contract');
+      const { isProviderFailureHandled } = await import('@/lib/telemetry/provider-marker');
+      const { sanitizeTelemetryBreadcrumb, sanitizeTelemetryEvent } = await import('@/lib/telemetry/sanitize');
+      const markerPath = path.join(os.homedir(), '.codepilot', 'sentry-disabled');
+      const optedOut = fs.existsSync(markerPath) && fs.readFileSync(markerPath, 'utf-8').trim() === 'true';
+      const config = resolveTelemetryConfig({
+        dsn: process.env.NEXT_PUBLIC_SENTRY_DSN,
+        channel: process.env.NEXT_PUBLIC_CODEPILOT_CHANNEL,
+        version: process.env.NEXT_PUBLIC_APP_VERSION,
+        nodeEnv: process.env.NODE_ENV,
+        optedOut,
+      });
+      if (config.enabled) {
+        const Sentry = await import('@sentry/node');
+        Sentry.init({
+          dsn: config.dsn,
+          environment: config.environment,
+          release: config.release,
+          sendDefaultPii: false,
+          tracesSampleRate: 0,
+          ignoreErrors: TELEMETRY_IGNORE_ERRORS,
+          integrations: (defaults) => configureNextServerIntegrations(
+            defaults,
+            Sentry.httpIntegration({
+              trackIncomingRequestsAsSessions: false,
+              maxIncomingRequestBodySize: 'none',
+            }),
+          ),
+          beforeBreadcrumb(breadcrumb) {
+            return sanitizeTelemetryBreadcrumb(breadcrumb);
+          },
+          beforeSend(event, hint) {
+            if (isProviderFailureHandled(hint.originalException)) return null;
+            return sanitizeTelemetryEvent(event, {
+              layer: 'next_server',
+              channel: config.channel,
+              platform: process.platform,
+              arch: process.arch,
+            });
+          },
+        });
       }
     }
 

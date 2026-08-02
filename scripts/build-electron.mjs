@@ -2,6 +2,7 @@ import { build } from 'esbuild';
 import fs from 'fs';
 import path from 'path';
 import { sanitizeStandaloneOutput } from './clean-electron-build.mjs';
+import pkg from '../package.json' with { type: 'json' };
 
 // Replace symlinks in standalone with real copies so electron-builder can package them
 function resolveStandaloneSymlinks() {
@@ -22,6 +23,39 @@ function resolveStandaloneSymlinks() {
       }
     }
   }
+}
+
+// Next's standalone tracer copies server JavaScript but omits its adjacent
+// source maps. Copy only maps whose deployed JS sibling is present so the
+// Sentry upload operates on the exact packaged server graph. electron-builder
+// excludes these temporary files from the final application.
+function copyStandaloneServerSourceMaps() {
+  if (process.env.CODEPILOT_SOURCE_MAPS !== '1') return;
+  const builtServer = '.next/server';
+  const standaloneServer = '.next/standalone/.next/server';
+  if (!fs.existsSync(builtServer) || !fs.existsSync(standaloneServer)) {
+    throw new Error('Source-map build is missing a Next server artifact root');
+  }
+
+  let copied = 0;
+  const visit = (directory) => {
+    for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
+      const full = path.join(directory, entry.name);
+      if (entry.isDirectory()) {
+        visit(full);
+        continue;
+      }
+      if (!entry.name.endsWith('.js')) continue;
+      const relative = path.relative(standaloneServer, full);
+      const sourceMap = path.join(builtServer, `${relative}.map`);
+      if (!fs.existsSync(sourceMap) || fs.statSync(sourceMap).size <= 128) continue;
+      fs.copyFileSync(sourceMap, `${full}.map`);
+      copied++;
+    }
+  };
+  visit(standaloneServer);
+  if (copied === 0) throw new Error('No deployable Next server source maps were copied');
+  console.log(`Copied ${copied} deployable Next server source maps`);
 }
 
 async function buildElectron() {
@@ -45,6 +79,12 @@ async function buildElectron() {
     external: ['electron'],
     sourcemap: true,
     minify: false,
+    define: {
+      'process.env.NODE_ENV': JSON.stringify('production'),
+      'process.env.CODEPILOT_APP_VERSION': JSON.stringify(pkg.version),
+      'process.env.CODEPILOT_APP_CHANNEL': JSON.stringify(process.env.CODEPILOT_APP_CHANNEL || 'local'),
+      'process.env.CODEPILOT_SENTRY_DSN': JSON.stringify(process.env.SENTRY_DSN || ''),
+    },
   };
 
   await build({
@@ -60,6 +100,8 @@ async function buildElectron() {
   });
 
   console.log('Electron build complete');
+
+  copyStandaloneServerSourceMaps();
 
   // Fix standalone symlinks after next build
   resolveStandaloneSymlinks();

@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect } from "react";
+import { filterTelemetryIntegrations, resolveTelemetryConfig, TELEMETRY_IGNORE_ERRORS } from "@/lib/telemetry/contract";
+import { sanitizeTelemetryBreadcrumb, sanitizeTelemetryEvent } from "@/lib/telemetry/sanitize";
 
 /**
  * Client-side Sentry initialization component.
@@ -9,38 +11,36 @@ import { useEffect } from "react";
  */
 export function SentryInit() {
   useEffect(() => {
-    const dsn = process.env.NEXT_PUBLIC_SENTRY_DSN;
-    if (!dsn) return;
-
     // Check user opt-out
+    let optedOut = false;
     try {
-      if (localStorage.getItem("codepilot:sentry-disabled") === "true") return;
+      optedOut = localStorage.getItem("codepilot:sentry-disabled") === "true";
     } catch {
       /* ignore */
     }
+    const config = resolveTelemetryConfig({
+      dsn: process.env.NEXT_PUBLIC_SENTRY_DSN,
+      channel: process.env.NEXT_PUBLIC_CODEPILOT_CHANNEL,
+      version: process.env.NEXT_PUBLIC_APP_VERSION,
+      nodeEnv: process.env.NODE_ENV,
+      optedOut,
+    });
+    if (!config.enabled) return;
 
     // Dynamic import to avoid bundling Sentry when DSN is absent
     import("@sentry/browser").then((Sentry) => {
       if (Sentry.isInitialized()) return;
       Sentry.init({
-        dsn,
-        environment: process.env.NODE_ENV,
-        release: `codepilot@${process.env.NEXT_PUBLIC_APP_VERSION}`,
+        dsn: config.dsn,
+        environment: config.environment,
+        release: config.release,
+        sendDefaultPii: false,
         tracesSampleRate: 0,
+        integrations: (defaults) => filterTelemetryIntegrations('renderer', defaults),
         beforeBreadcrumb(breadcrumb) {
-          if (breadcrumb.category === "ui.input") return null;
-          return breadcrumb;
+          return sanitizeTelemetryBreadcrumb(breadcrumb);
         },
-        ignoreErrors: [
-          // Expected/non-actionable errors — don't waste Sentry quota
-          'AbortError',
-          'Operation aborted',
-          'The operation was aborted',
-          'signal is aborted',
-          'prompt() is not supported',        // Electron doesn't support window.prompt
-          'ResizeObserver loop',               // Browser quirk, not a real error
-          /^Object \[object Object\] has no method/,  // Sentry's own frontend bug
-        ],
+        ignoreErrors: TELEMETRY_IGNORE_ERRORS,
         beforeSend(event) {
           // Respect opt-out
           try {
@@ -48,19 +48,11 @@ export function SentryInit() {
           } catch {
             /* ignore */
           }
-          // Strip auth headers
-          if (event.request?.headers) {
-            delete event.request.headers["x-api-key"];
-            delete event.request.headers["authorization"];
-            delete event.request.headers["anthropic-api-key"];
-          }
-          // Add useful context tags
-          event.tags = {
-            ...event.tags,
+          return sanitizeTelemetryEvent(event, {
+            layer: 'renderer',
+            channel: config.channel,
             platform: navigator.platform,
-            electron: typeof window !== 'undefined' && 'electronAPI' in window ? 'yes' : 'no',
-          };
-          return event;
+          });
         },
       });
     }).catch(() => {

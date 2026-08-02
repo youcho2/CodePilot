@@ -162,13 +162,30 @@ jobs:
 
       - run: npm ci
 
-      - name: Build + package macOS (arm64 + x64)
+      - name: Build macOS release bundles
         timeout-minutes: 45
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: "false"
-        run: |
-          npm run electron:build
-          npx electron-builder --mac --arm64 --x64 --config electron-builder.yml --publish never
+          CODEPILOT_APP_CHANNEL: stable
+          CODEPILOT_SOURCE_MAPS: "1"
+          SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
+        run: npm run electron:build
+
+      - name: Upload macOS source maps to Sentry
+        env:
+          CODEPILOT_APP_CHANNEL: stable
+          CODEPILOT_SOURCE_MAPS: "1"
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
+          SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
+          SENTRY_PROJECT: ${{ secrets.SENTRY_PROJECT }}
+        run: npm run sentry:sourcemaps:upload
+
+      - name: Package macOS (arm64 + x64)
+        timeout-minutes: 45
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+        run: npx electron-builder --mac --arm64 --x64 --config electron-builder.yml --publish never
 
       - name: Verify packaged version, native ABI, and server startup
         env:
@@ -225,11 +242,27 @@ jobs:
 
       - run: npm ci
 
-      - name: Build + package Windows x64
+      - name: Build Windows release bundles
         timeout-minutes: 35
-        run: |
-          npm run electron:build
-          npx electron-builder --win --x64 --config electron-builder.yml --publish never
+        env:
+          CODEPILOT_APP_CHANNEL: stable
+          CODEPILOT_SOURCE_MAPS: "1"
+          SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
+        run: npm run electron:build
+
+      - name: Upload Windows source maps to Sentry
+        env:
+          CODEPILOT_APP_CHANNEL: stable
+          CODEPILOT_SOURCE_MAPS: "1"
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
+          SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
+          SENTRY_PROJECT: ${{ secrets.SENTRY_PROJECT }}
+        run: npm run sentry:sourcemaps:upload
+
+      - name: Package Windows x64
+        timeout-minutes: 35
+        run: npx electron-builder --win --x64 --config electron-builder.yml --publish never
 
       - name: Verify packaged version, native ABI, and server startup
         shell: bash

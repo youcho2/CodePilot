@@ -29,7 +29,7 @@ describe('next.config.ts dev-server guardrails', () => {
 
   it('caps Turbopack dev memory pressure from Settings compilation', () => {
     assert.match(NEXT_CONFIG, /turbopackMemoryLimit:\s*1536\s*\*\s*1024\s*\*\s*1024/);
-    assert.match(NEXT_CONFIG, /turbopackSourceMaps:\s*false/);
+    assert.match(NEXT_CONFIG, /turbopackSourceMaps:\s*process\.env\.CODEPILOT_SOURCE_MAPS\s*===\s*['"]1['"]/);
     assert.match(NEXT_CONFIG, /turbopackInputSourceMaps:\s*false/);
   });
 

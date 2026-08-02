@@ -2,6 +2,8 @@
 import * as Sentry from '@sentry/electron/main';
 import { existsSync, readFileSync } from 'fs';
 import { join } from 'path';
+import { filterTelemetryIntegrations, resolveTelemetryConfig, TELEMETRY_IGNORE_ERRORS } from '../src/lib/telemetry/contract';
+import { sanitizeTelemetryBreadcrumb, sanitizeTelemetryEvent } from '../src/lib/telemetry/sanitize';
 
 // Check opt-out before init — reads a marker file that the renderer writes
 const sentryOptOutPath = join(
@@ -12,9 +14,35 @@ const sentryOptOutPath = join(
 const sentryDisabled = existsSync(sentryOptOutPath) &&
   readFileSync(sentryOptOutPath, 'utf-8').trim() === 'true';
 
-if (!sentryDisabled) {
+const electronTelemetry = resolveTelemetryConfig({
+  dsn: process.env.CODEPILOT_SENTRY_DSN,
+  channel: process.env.CODEPILOT_APP_CHANNEL,
+  version: process.env.CODEPILOT_APP_VERSION,
+  nodeEnv: process.env.NODE_ENV,
+  optedOut: sentryDisabled,
+});
+
+if (electronTelemetry.enabled) {
   Sentry.init({
-    dsn: 'https://245dc3525425bcd8eb99dd4b9a2ca5cd@o4511161899548672.ingest.us.sentry.io/4511161904791552',
+    dsn: electronTelemetry.dsn,
+    environment: electronTelemetry.environment,
+    release: electronTelemetry.release,
+    sendDefaultPii: false,
+    attachScreenshot: false,
+    tracesSampleRate: 0,
+    ignoreErrors: TELEMETRY_IGNORE_ERRORS,
+    integrations: (defaults) => filterTelemetryIntegrations('electron_main', defaults),
+    beforeBreadcrumb(breadcrumb) {
+      return sanitizeTelemetryBreadcrumb(breadcrumb);
+    },
+    beforeSend(event) {
+      return sanitizeTelemetryEvent(event, {
+        layer: 'electron_main',
+        channel: electronTelemetry.channel,
+        platform: process.platform,
+        arch: process.arch,
+      });
+    },
   });
 }
 

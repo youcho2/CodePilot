@@ -59,9 +59,10 @@ describe('shouldReportToSentry — Sentry blind spot 1 (audit 2026-07)', () => {
     assert.equal(shouldReportToSentry('UNKNOWN', new Error('request was cancelled')), false);
   });
 
-  it('categories not in the allow-list are never reported', () => {
+  it('user-action categories do not create Error Issues', () => {
     assert.equal(shouldReportToSentry('RATE_LIMITED', new Error('429')), false);
     assert.equal(shouldReportToSentry('NO_CREDENTIALS', new Error('no key')), false);
+    assert.equal(shouldReportToSentry('CLI_NOT_FOUND', new Error('missing binary')), false);
   });
 
   it('non-Error values are handled (string abort still filtered for non-timeout)', () => {
