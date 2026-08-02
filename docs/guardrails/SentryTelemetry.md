@@ -23,8 +23,9 @@
 | ST-09 | rich provider body 只供 UI；共享边界 capture 后必须 marker，Node auto-capture 必须丢弃原始异常。 |
 | ST-10 | Electron init 保持在应用 import 之前，不得用 async policy 推迟；不得用 `integrations: []` 清空 native/minidump 默认能力。 |
 | ST-11 | auth token 只在 CI upload step；DSN 不得以 literal 提交；public env 不得含上传权限。 |
-| ST-12 | stable source-map upload 必须覆盖最终 packaged JS；临时失败最多重试 3 次，最终仍失败必须 fail closed；任何 DMG/ZIP/EXE/app.asar 不得含 `.map`。 |
-| ST-13 | 真实 Sentry smoke 只能由手动 CI 的显式 boolean 输入编译开启；tag、普通本地构建和 Windows 必须编译为关闭。Native crash 还必须同时提供运行时开关，smoke 产物不得上传为可下载 artifact 或发布。 |
+| ST-12 | stable source-map upload 必须覆盖最终 packaged JS；临时失败最多重试 3 次，最终仍失败必须 fail closed；任何 DMG/ZIP/EXE/AppImage/deb/rpm/app.asar 不得含 `.map`。 |
+| ST-13 | 真实 Sentry smoke 只能由手动 CI 的显式 boolean 输入编译开启；tag、普通本地构建、Windows 与 Linux 必须编译为关闭。Native crash 还必须同时提供运行时开关，smoke 产物不得上传为可下载 artifact 或发布。 |
+| ST-14 | stable Linux 必须在原生 Ubuntu 22.04 x64/arm64 runner 构建 AppImage、deb、rpm；两种架构都要验证包架构、better-sqlite3 Electron ABI、packaged server 启动与 0 map，任一失败都阻断 Release。 |
 
 ## 3. 关键文件与责任
 
@@ -33,7 +34,7 @@
 - `src/lib/telemetry/health-summary.ts`：ST-08。
 - `src/lib/telemetry/provider-failure.ts` + `provider-marker.ts`：ST-08/09。
 - `src/instrumentation.ts`、`SentryInit.tsx`、`electron/main.ts`：三层 adapter 与 session policy。
-- `scripts/build-electron.mjs`、`scripts/sentry-source-maps.mjs`、`.github/workflows/build.yml`、`electron-builder.yml`：ST-11/12。
+- `scripts/build-electron.mjs`、`scripts/sentry-source-maps.mjs`、`.github/workflows/build.yml`、`electron-builder.yml`：ST-11/12/14。
 - `src/lib/telemetry/smoke.ts` 与 `.github/workflows/build.yml`：ST-13 的测试专用错误与双门禁。
 
 ## 4. 改动检查表
@@ -44,6 +45,7 @@
 - [ ] SDK 升级后用真实 SDK client 重新枚举三层 default integrations，并以 request 行为确认只有 main session。
 - [ ] official build 的 release/channel 与 package version 一致。
 - [ ] upload 使用最终 bundle，package 扫描仍为 0 map。
+- [ ] Linux x64/arm64 均由原生 runner 产出三种格式，且架构/ABI/server/0-map 门禁没有被降级为文件存在检查。
 - [ ] 修改 source path 时同步处理 debug_meta，保留行列号/debug ID。
 - [ ] 真实 smoke 仍是手动 macOS-only；正式 tag 的 compile flag 为 `0`，native crash 无运行时 flag 时不可触发。
 

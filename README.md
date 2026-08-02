@@ -26,8 +26,8 @@
 | Platform | Download | Architecture |
 |---|---|---|
 | macOS | [Apple Silicon (.dmg)](https://github.com/op7418/CodePilot/releases/latest) · [Intel (.dmg)](https://github.com/op7418/CodePilot/releases/latest) | arm64 / x64 |
-| Windows | [Installer (.exe)](https://github.com/op7418/CodePilot/releases/latest) | x64 + arm64 |
-| Linux | Build from source | x64 + arm64 |
+| Windows | [Installer (.exe)](https://github.com/op7418/CodePilot/releases/latest) | x64 |
+| Linux | [AppImage / deb / rpm](https://github.com/op7418/CodePilot/releases/latest) | x64 / arm64 |
 
 Or visit the [Releases](https://github.com/op7418/CodePilot/releases) page for all versions.
 
@@ -266,10 +266,10 @@ npm run build                  # Production build
 npm run electron:build         # Build Electron distributable
 npm run electron:pack:mac      # macOS DMG (arm64 + x64)
 npm run electron:pack:win      # Windows NSIS installer
-npm run electron:pack:linux    # Linux AppImage, deb, rpm (local build only — not a GitHub Release download)
+npm run electron:pack:linux    # Linux AppImage, deb, rpm
 ```
 
-**CI/CD:** Pushing a `v*` tag builds the macOS and Windows packages and creates a GitHub Release automatically. Linux is not part of the release build — build it locally with `npm run electron:pack:linux`.
+**CI/CD:** Pushing a `v*` tag builds macOS arm64/x64, Windows x64, and Linux arm64/x64 packages, then creates a GitHub Release automatically. A failure in any target blocks the Release.
 
 **Notes:**
 - Electron forks a Next.js standalone server on `127.0.0.1` with a random free port

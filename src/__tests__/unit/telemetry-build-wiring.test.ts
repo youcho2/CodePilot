@@ -33,13 +33,21 @@ describe('telemetry release wiring', () => {
     assert.match(workflow, /SENTRY_AUTH_TOKEN:\s*\$\{\{\s*secrets\.SENTRY_AUTH_TOKEN\s*\}\}/);
     assert.match(workflow, /npm run sentry:sourcemaps:upload/);
     const tokenOffsets = [...workflow.matchAll(/SENTRY_AUTH_TOKEN:/g)].map((match) => match.index);
-    assert.equal(tokenOffsets.length, 2, 'one least-privilege upload step per platform');
+    assert.equal(
+      tokenOffsets.length,
+      3,
+      'one least-privilege upload step per job definition (Linux is a native-arch matrix)',
+    );
     for (const offset of tokenOffsets) {
       const precedingStep = workflow.lastIndexOf('- name:', offset);
       const stepNameEnd = workflow.indexOf('\n', precedingStep);
       assert.match(workflow.slice(precedingStep, stepNameEnd), /Upload .* source maps to Sentry/);
     }
-    for (const buildStepName of ['Build macOS release bundles', 'Build Windows release bundles']) {
+    for (const buildStepName of [
+      'Build macOS release bundles',
+      'Build Windows release bundles',
+      'Build Linux release bundle',
+    ]) {
       const start = workflow.indexOf(`- name: ${buildStepName}`);
       const end = workflow.indexOf('\n      - name:', start + 1);
       assert.doesNotMatch(workflow.slice(start, end), /SENTRY_AUTH_TOKEN|SENTRY_ORG|SENTRY_PROJECT/);

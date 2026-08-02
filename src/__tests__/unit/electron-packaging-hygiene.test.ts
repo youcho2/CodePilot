@@ -228,6 +228,45 @@ describe('Electron packaging hygiene', () => {
     assert.match(packagedSmoke, /Packaged source maps are forbidden/);
   });
 
+  it('publishes Linux x64 and arm64 from native runners behind strict release gates', () => {
+    const releaseWorkflow = fs.readFileSync(
+      path.join(repoRoot, '.github/workflows/build.yml'),
+      'utf8',
+    );
+    const builderConfig = fs.readFileSync(
+      path.join(repoRoot, 'electron-builder.yml'),
+      'utf8',
+    );
+    const linuxJob = releaseWorkflow.match(
+      /  build-linux:\n[\s\S]*?(?=\n  release:)/,
+    )?.[0];
+
+    assert.ok(linuxJob, 'stable workflow must define a Linux build job');
+    assert.match(releaseWorkflow, /options:[\s\S]*?- linux/);
+    assert.match(linuxJob, /fail-fast:\s*false/);
+    assert.match(linuxJob, /arch:\s*x64[\s\S]*?runner:\s*ubuntu-22\.04/);
+    assert.match(linuxJob, /arch:\s*arm64[\s\S]*?runner:\s*ubuntu-22\.04-arm/);
+    assert.match(
+      linuxJob,
+      /electron-builder --linux --\$\{\{ matrix\.arch \}\}/,
+    );
+    assert.match(linuxJob, /Upload Linux source maps to Sentry/);
+    assert.match(linuxJob, /better-sqlite3 OK/);
+    assert.match(linuxJob, /node scripts\/verify-packaged-server\.mjs/);
+    for (const extension of ['AppImage', 'deb', 'rpm']) {
+      assert.match(linuxJob, new RegExp(`release/CodePilot-\\*\\.${extension}`));
+      assert.match(
+        releaseWorkflow,
+        new RegExp(`-name "\\\*\\.${extension}"`),
+      );
+    }
+    assert.match(
+      releaseWorkflow,
+      /needs:\s*\[build-macos, build-windows, build-linux\]/,
+    );
+    assert.match(builderConfig, /linux:[\s\S]*?target:[\s\S]*?- AppImage[\s\S]*?- deb[\s\S]*?- rpm/);
+  });
+
   it('scans the real Resources tree and app.asar for source maps', async () => {
     const fixture = makeFixture();
     const resources = path.join(fixture, 'Resources');

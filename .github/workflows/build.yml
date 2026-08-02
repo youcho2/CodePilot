@@ -2,8 +2,9 @@ name: Build & Package
 
 # Stable tag-release workflow.
 #
-# Triggers on `v*` tags → builds macOS (arm64 + x64) and Windows packages, then
-# creates a real GitHub Release (NOT a prerelease) whose body is RELEASE_NOTES.md.
+# Triggers on `v*` tags → builds macOS (arm64 + x64), Windows x64, and Linux
+# (x64 + arm64) packages, then creates a real GitHub Release (NOT a prerelease)
+# whose body is RELEASE_NOTES.md.
 # The internal tester channel lives in `preview-build.yml` / `preview-release.yml`
 # (artifacts-only / prerelease) — those are intentionally separate and untouched.
 #
@@ -14,6 +15,7 @@ name: Build & Package
 #   - P0 startup regression pins (codex binary discovery, app-server client
 #     fast-fail, provider resolver / catalog)
 #   - packaged better-sqlite3 native ABI loads under the Electron runtime
+#   - every packaged standalone server boots and contains no source maps
 
 on:
   workflow_dispatch:
@@ -27,6 +29,7 @@ on:
           - all
           - windows
           - macos
+          - linux
       telemetry_smoke:
         description: "Compile and run isolated Sentry smoke fixtures (manual macOS only)"
         required: true
@@ -365,11 +368,117 @@ jobs:
             release/checksums-windows.sha256
           retention-days: 7
 
+  build-linux:
+    needs: verify-source
+    if: ${{ github.event_name == 'push' || inputs.platform == 'all' || inputs.platform == 'linux' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x64
+            runner: ubuntu-22.04
+            deb_arch: amd64
+            rpm_arch: x86_64
+            file_arch: x86-64
+          - arch: arm64
+            runner: ubuntu-22.04-arm
+            deb_arch: arm64
+            rpm_arch: aarch64
+            file_arch: ARM aarch64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install RPM packaging support
+        run: sudo apt-get update && sudo apt-get install -y rpm
+
+      - run: npm ci
+
+      - name: Build Linux release bundle
+        timeout-minutes: 35
+        env:
+          CODEPILOT_APP_CHANNEL: stable
+          CODEPILOT_SOURCE_MAPS: "1"
+          CODEPILOT_TELEMETRY_SMOKE: "0"
+          SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
+        run: npm run electron:build
+
+      - name: Upload Linux source maps to Sentry
+        env:
+          CODEPILOT_APP_CHANNEL: stable
+          CODEPILOT_SOURCE_MAPS: "1"
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
+          SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
+          SENTRY_PROJECT: ${{ secrets.SENTRY_PROJECT }}
+        run: npm run sentry:sourcemaps:upload
+
+      - name: Package Linux ${{ matrix.arch }}
+        timeout-minutes: 35
+        run: npx electron-builder --linux --${{ matrix.arch }} --config electron-builder.yml --publish never
+
+      - name: Verify Linux package architecture, native ABI, and server startup
+        env:
+          EXPECTED_VERSION: ${{ needs.verify-source.outputs.version }}
+          EXPECTED_DEB_ARCH: ${{ matrix.deb_arch }}
+          EXPECTED_RPM_ARCH: ${{ matrix.rpm_arch }}
+          EXPECTED_FILE_ARCH: ${{ matrix.file_arch }}
+        run: |
+          set -euo pipefail
+          APPIMAGE=$(find release -maxdepth 1 -name "CodePilot-*.AppImage" | head -1)
+          DEB=$(find release -maxdepth 1 -name "CodePilot-*.deb" | head -1)
+          RPM=$(find release -maxdepth 1 -name "CodePilot-*.rpm" | head -1)
+          for PACKAGE in "$APPIMAGE" "$DEB" "$RPM"; do
+            [ -n "$PACKAGE" ] || { echo "::error::missing Linux package"; exit 1; }
+            case "$PACKAGE" in *"$EXPECTED_VERSION"*) ;; *) echo "::error::$PACKAGE lacks version $EXPECTED_VERSION"; exit 1 ;; esac
+          done
+          [ "$(dpkg-deb -f "$DEB" Architecture)" = "$EXPECTED_DEB_ARCH" ] || {
+            echo "::error::DEB architecture does not match $EXPECTED_DEB_ARCH"
+            exit 1
+          }
+          [ "$(rpm -qp --qf '%{ARCH}' "$RPM")" = "$EXPECTED_RPM_ARCH" ] || {
+            echo "::error::RPM architecture does not match $EXPECTED_RPM_ARCH"
+            exit 1
+          }
+          UNPACKED=$(find release -maxdepth 1 -type d -name "linux*unpacked" | head -1)
+          [ -n "$UNPACKED" ] || { echo "::error::Linux unpacked app not found"; exit 1; }
+          BIN="$UNPACKED/codepilot"
+          [ -x "$BIN" ] || BIN="$UNPACKED/CodePilot"
+          [ -x "$BIN" ] || { echo "::error::CodePilot Linux executable not found"; exit 1; }
+          file "$BIN" | grep -F "$EXPECTED_FILE_ARCH" || {
+            echo "::error::Linux executable architecture does not match $EXPECTED_FILE_ARCH"
+            file "$BIN"
+            exit 1
+          }
+          SQLITE=$(find "$UNPACKED/resources" -path "*better-sqlite3*" -name "*.node" | head -1)
+          [ -n "$SQLITE" ] || { echo "::error::better-sqlite3 .node not found"; exit 1; }
+          ELECTRON_RUN_AS_NODE=1 "$BIN" -e "const path = require('node:path'); require(path.resolve(process.argv[1])); console.log('better-sqlite3 OK, ABI=' + process.versions.modules)" "$SQLITE"
+          node scripts/verify-packaged-server.mjs "$BIN" "$UNPACKED/resources"
+          echo "Linux build baseline: $(getconf GNU_LIBC_VERSION)"
+
+      - name: Checksums
+        run: cd release && sha256sum CodePilot-*.AppImage CodePilot-*.deb CodePilot-*.rpm | tee "checksums-linux-${{ matrix.arch }}.sha256"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-linux-${{ matrix.arch }}
+          path: |
+            release/CodePilot-*.AppImage
+            release/CodePilot-*.deb
+            release/CodePilot-*.rpm
+            release/checksums-linux-${{ matrix.arch }}.sha256
+          retention-days: 7
+
   release:
-    # Only on a `v*` tag push, and only after both build jobs succeed (default
+    # Only on a `v*` tag push, and only after all build jobs succeed (default
     # `needs` semantics skip this job if any dependency fails).
     if: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') }}
-    needs: [build-macos, build-windows]
+    needs: [build-macos, build-windows, build-linux]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -410,7 +519,7 @@ jobs:
           FILES=()
           while IFS= read -r f; do
             FILES+=("$f")
-          done < <(find artifacts -type f \( -name "*.dmg" -o -name "*.zip" -o -name "*.exe" \) | sort)
+          done < <(find artifacts -type f \( -name "*.dmg" -o -name "*.zip" -o -name "*.exe" -o -name "*.AppImage" -o -name "*.deb" -o -name "*.rpm" \) | sort)
           FILES+=("artifacts/SHA256SUMS.txt")
           echo "=== Release assets ==="
           printf '%s\n' "${FILES[@]}"

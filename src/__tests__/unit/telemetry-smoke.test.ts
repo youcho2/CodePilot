@@ -27,8 +27,17 @@ describe('isolated Sentry telemetry smoke', () => {
     assert.match(workflow, /telemetry_smoke:[\s\S]*?default:\s*false[\s\S]*?type:\s*boolean/);
     assert.match(workflow, /Build macOS release bundles[\s\S]*?CODEPILOT_TELEMETRY_SMOKE:\s*\$\{\{ inputs\.telemetry_smoke && '1' \|\| '0' \}\}/);
 
-    const windowsJob = workflow.slice(workflow.indexOf('  build-windows:'));
+    const windowsJob = workflow.slice(
+      workflow.indexOf('  build-windows:'),
+      workflow.indexOf('  build-linux:'),
+    );
     assert.doesNotMatch(windowsJob, /CODEPILOT_TELEMETRY_SMOKE/);
+    const linuxJob = workflow.slice(
+      workflow.indexOf('  build-linux:'),
+      workflow.indexOf('  release:'),
+    );
+    assert.match(linuxJob, /CODEPILOT_TELEMETRY_SMOKE:\s*"0"/);
+    assert.doesNotMatch(linuxJob, /CODEPILOT_TELEMETRY_SMOKE:\s*\$\{\{\s*inputs/);
     assert.match(nextConfig, /process\.env\.CODEPILOT_TELEMETRY_SMOKE === '1' \? '1' : '0'/);
     assert.match(electronBuild, /CODEPILOT_TELEMETRY_SMOKE === '1' \? '1' : '0'/);
   });
