@@ -57,7 +57,7 @@ const RUNTIME_OWNER_LOCK_PATH = `${DB_PATH}.runtime-owner.lock`;
 // replacing this module. Keep a code-owned revision beside that handle so a
 // newly loaded migration still runs without requiring the user to restart the
 // desktop client. Bump this value whenever initDb/migrateDb gains a migration.
-const DATABASE_SCHEMA_REVISION = '2026-07-31-asset-backfill-failures';
+const DATABASE_SCHEMA_REVISION = '2026-08-03-heartbeat-notification-durability';
 
 function getDatabaseProcessStates(): Map<string, DatabaseProcessState> {
   const target = globalThis as typeof globalThis & {
@@ -1283,6 +1283,8 @@ function migrateDb(db: Database.Database): void {
       event_id TEXT NOT NULL UNIQUE,
       task_id TEXT,
       session_id TEXT,
+      action_type TEXT,
+      action_payload TEXT,
       source TEXT NOT NULL DEFAULT 'codepilot',
       title TEXT NOT NULL,
       body TEXT NOT NULL,
@@ -1306,6 +1308,64 @@ function migrateDb(db: Database.Database): void {
     );
     CREATE INDEX IF NOT EXISTS idx_notification_deliveries_event_id ON notification_deliveries(event_id);
   `);
+
+  safeAddColumn(db, 'ALTER TABLE notification_events ADD COLUMN action_type TEXT');
+  safeAddColumn(db, 'ALTER TABLE notification_events ADD COLUMN action_payload TEXT');
+
+  // Durable consumer lease. Status CHECK remains unchanged; claim/retry is
+  // represented by additive columns so old rows and old readers stay valid.
+  safeAddColumn(db, 'ALTER TABLE notification_deliveries ADD COLUMN claim_owner TEXT');
+  safeAddColumn(db, 'ALTER TABLE notification_deliveries ADD COLUMN claimed_at TEXT');
+  safeAddColumn(db, 'ALTER TABLE notification_deliveries ADD COLUMN attempt_count INTEGER NOT NULL DEFAULT 0');
+  safeAddColumn(db, 'ALTER TABLE notification_deliveries ADD COLUMN last_attempt_at TEXT');
+  safeAddColumn(db, 'ALTER TABLE notification_deliveries ADD COLUMN next_attempt_at TEXT');
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_notification_deliveries_claimable
+    ON notification_deliveries(channel, status, next_attempt_at, claimed_at);
+  `);
+
+  consolidateHeartbeatTasksAndEnsureUniqueIndex(db);
+}
+
+/**
+ * Normalize historical system heartbeat rows before enforcing the one-row
+ * invariant. Run/event history is re-linked to the keeper; user-created tasks
+ * and notification event identities are never rewritten or deleted.
+ */
+export function consolidateHeartbeatTasksAndEnsureUniqueIndex(db: Database.Database): void {
+  const migrate = db.transaction(() => {
+    const rows = db.prepare(`
+      SELECT id
+      FROM scheduled_tasks
+      WHERE source = 'assistant_heartbeat'
+      ORDER BY
+        CASE status WHEN 'active' THEN 0 ELSE 1 END,
+        datetime(updated_at) DESC,
+        id ASC
+    `).all() as Array<{ id: string }>;
+
+    if (rows.length > 1) {
+      const keeperId = rows[0].id;
+      const duplicateIds = rows.slice(1).map((row) => row.id);
+      const placeholders = duplicateIds.map(() => '?').join(', ');
+      db.prepare(
+        `UPDATE task_run_logs SET task_id = ? WHERE task_id IN (${placeholders})`,
+      ).run(keeperId, ...duplicateIds);
+      db.prepare(
+        `UPDATE notification_events SET task_id = ? WHERE task_id IN (${placeholders})`,
+      ).run(keeperId, ...duplicateIds);
+      db.prepare(
+        `DELETE FROM scheduled_tasks WHERE id IN (${placeholders})`,
+      ).run(...duplicateIds);
+    }
+
+    db.exec(`
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_scheduled_tasks_one_assistant_heartbeat
+      ON scheduled_tasks(source)
+      WHERE source = 'assistant_heartbeat';
+    `);
+  });
+  migrate();
 }
 
 const ASSET_RECORD_REQUIRED_COLUMNS = [
@@ -3445,6 +3505,25 @@ export function setSetting(key: string, value: string): void {
   ).run(key, value);
 }
 
+/**
+ * Commit a setting only while it is still absent or blank.
+ *
+ * Default-assistant bootstrap uses this as its commit point. Filesystem
+ * initialization may race with an explicit Settings save, but the user's
+ * explicit non-blank value always wins because this decision is made by one
+ * SQLite statement instead of a read-then-write pair in application code.
+ */
+export function compareAndSetSettingIfBlank(key: string, value: string): boolean {
+  const db = getDb();
+  const result = db.prepare(`
+    INSERT INTO settings (key, value)
+    VALUES (?, ?)
+    ON CONFLICT(key) DO UPDATE SET value = excluded.value
+    WHERE trim(settings.value) = ''
+  `).run(key, value);
+  return result.changes === 1;
+}
+
 export function getAllSettings(): SettingsMap {
   const db = getDb();
   const rows = db.prepare('SELECT key, value FROM settings').all() as { key: string; value: string }[];
@@ -5552,6 +5631,9 @@ const ALLOWED_TASK_RUN_STATUSES: ReadonlySet<string> = new Set([
   'failed',
   'waiting_for_permission',
   'cancelled',
+  'skipped_empty',
+  'skipped_reconcile_drift',
+  'blocked',
   // Legacy values still accepted on read; insert path also tolerates
   // them so v6 / Phase 3 Step 3 callers don't break before they're
   // migrated to the 5-state enum.
@@ -5773,6 +5855,7 @@ export function insertNotificationEvent(evt: {
   event_id: string;
   task_id?: string | null;
   session_id?: string | null;
+  action?: { type: string; payload: string } | null;
   source?: 'codepilot' | 'external';
   title: string;
   body: string;
@@ -5781,13 +5864,17 @@ export function insertNotificationEvent(evt: {
   const db = getDb();
   const id = crypto.randomBytes(8).toString('hex');
   db.prepare(
-    `INSERT INTO notification_events (id, event_id, task_id, session_id, source, title, body, priority, status)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'queued')`,
+    `INSERT INTO notification_events (
+       id, event_id, task_id, session_id, action_type, action_payload,
+       source, title, body, priority, status
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'queued')`,
   ).run(
     id,
     evt.event_id,
     evt.task_id ?? null,
     evt.session_id ?? null,
+    evt.action?.type ?? null,
+    evt.action?.payload ?? null,
     evt.source ?? 'codepilot',
     evt.title,
     evt.body,
@@ -5858,11 +5945,16 @@ export function listNotificationDeliveries(eventId: string): Array<{
   error: string | null;
   created_at: string;
   acked_at: string | null;
+  attempt_count: number;
+  last_attempt_at: string | null;
+  next_attempt_at: string | null;
 }> {
   const db = getDb();
   return db
     .prepare(
-      'SELECT id, event_id, channel, status, error, created_at, acked_at FROM notification_deliveries WHERE event_id = ? ORDER BY created_at ASC',
+      `SELECT id, event_id, channel, status, error, created_at, acked_at,
+              attempt_count, last_attempt_at, next_attempt_at
+       FROM notification_deliveries WHERE event_id = ? ORDER BY created_at ASC`,
     )
     .all(eventId) as Array<{
       id: string;
@@ -5872,7 +5964,127 @@ export function listNotificationDeliveries(eventId: string): Array<{
       error: string | null;
       created_at: string;
       acked_at: string | null;
+      attempt_count: number;
+      last_attempt_at: string | null;
+      next_attempt_at: string | null;
     }>;
+}
+
+export interface ClaimedNotificationDelivery {
+  delivery_id: string;
+  event_id: string;
+  channel: string;
+  attempt_count: number;
+  title: string;
+  body: string;
+  priority: 'low' | 'normal' | 'urgent';
+  task_id: string | null;
+  session_id: string | null;
+  action_type: string | null;
+  action_payload: string | null;
+}
+
+/** Atomically lease the oldest claimable delivery for one channel. */
+export function claimNotificationDelivery(args: {
+  channel: string;
+  owner: string;
+  now?: Date;
+  staleAfterMs?: number;
+}): ClaimedNotificationDelivery | null {
+  const db = getDb();
+  const now = args.now ?? new Date();
+  const nowIso = now.toISOString();
+  const staleIso = new Date(now.getTime() - (args.staleAfterMs ?? 30_000)).toISOString();
+  const claim = db.transaction(() => {
+    const candidate = db.prepare(`
+      SELECT d.id
+      FROM notification_deliveries d
+      WHERE d.channel = ?
+        AND d.status = 'queued'
+        AND (d.next_attempt_at IS NULL OR datetime(d.next_attempt_at) <= datetime(?))
+        AND (d.claim_owner IS NULL OR datetime(d.claimed_at) <= datetime(?))
+      ORDER BY datetime(d.created_at) ASC, d.id ASC
+      LIMIT 1
+    `).get(args.channel, nowIso, staleIso) as { id: string } | undefined;
+    if (!candidate) return null;
+
+    const updated = db.prepare(`
+      UPDATE notification_deliveries
+      SET claim_owner = ?, claimed_at = ?, last_attempt_at = ?,
+          attempt_count = attempt_count + 1
+      WHERE id = ?
+        AND status = 'queued'
+        AND (claim_owner IS NULL OR datetime(claimed_at) <= datetime(?))
+    `).run(args.owner, nowIso, nowIso, candidate.id, staleIso);
+    if (updated.changes !== 1) return null;
+
+    return db.prepare(`
+      SELECT d.id AS delivery_id, d.event_id, d.channel, d.attempt_count,
+             e.title, e.body, e.priority, e.task_id, e.session_id,
+             e.action_type, e.action_payload
+      FROM notification_deliveries d
+      JOIN notification_events e ON e.event_id = d.event_id
+      WHERE d.id = ?
+    `).get(candidate.id) as ClaimedNotificationDelivery;
+  });
+  return claim();
+}
+
+/** Settle a leased attempt without expanding the frozen status enum. */
+export function settleClaimedNotificationDelivery(args: {
+  deliveryId: string;
+  owner: string;
+  outcome: 'delivered' | 'error';
+  error?: string | null;
+  retryable?: boolean;
+  now?: Date;
+  maxAttempts?: number;
+}): { written: boolean; status: 'queued' | 'delivered' | 'error' | null } {
+  const db = getDb();
+  const now = args.now ?? new Date();
+  const row = db.prepare(`
+    SELECT status, attempt_count, claim_owner
+    FROM notification_deliveries
+    WHERE id = ?
+  `).get(args.deliveryId) as {
+    status: string;
+    attempt_count: number;
+    claim_owner: string | null;
+  } | undefined;
+  if (!row || row.status !== 'queued' || row.claim_owner !== args.owner) {
+    return { written: false, status: row?.status as 'queued' | 'delivered' | 'error' | null ?? null };
+  }
+
+  if (args.outcome === 'delivered') {
+    const result = db.prepare(`
+      UPDATE notification_deliveries
+      SET status = 'delivered', error = NULL, acked_at = ?,
+          claim_owner = NULL, claimed_at = NULL, next_attempt_at = NULL
+      WHERE id = ? AND status = 'queued' AND claim_owner = ?
+    `).run(now.toISOString(), args.deliveryId, args.owner);
+    return { written: result.changes === 1, status: result.changes === 1 ? 'delivered' : null };
+  }
+
+  const maxAttempts = Math.max(1, args.maxAttempts ?? 3);
+  if (args.retryable && row.attempt_count < maxAttempts) {
+    const backoffMs = Math.min(60_000, 2_000 * (2 ** Math.max(0, row.attempt_count - 1)));
+    const nextAttempt = new Date(now.getTime() + backoffMs).toISOString();
+    const result = db.prepare(`
+      UPDATE notification_deliveries
+      SET error = ?, claim_owner = NULL, claimed_at = NULL,
+          next_attempt_at = ?, acked_at = NULL
+      WHERE id = ? AND status = 'queued' AND claim_owner = ?
+    `).run(args.error ?? 'native notification failed', nextAttempt, args.deliveryId, args.owner);
+    return { written: result.changes === 1, status: result.changes === 1 ? 'queued' : null };
+  }
+
+  const result = db.prepare(`
+    UPDATE notification_deliveries
+    SET status = 'error', error = ?, acked_at = ?,
+        claim_owner = NULL, claimed_at = NULL, next_attempt_at = NULL
+    WHERE id = ? AND status = 'queued' AND claim_owner = ?
+  `).run(args.error ?? 'native notification failed', now.toISOString(), args.deliveryId, args.owner);
+  return { written: result.changes === 1, status: result.changes === 1 ? 'error' : null };
 }
 
 export function getNotificationEvent(eventId: string): {
@@ -5880,6 +6092,8 @@ export function getNotificationEvent(eventId: string): {
   event_id: string;
   task_id: string | null;
   session_id: string | null;
+  action_type: string | null;
+  action_payload: string | null;
   source: string;
   title: string;
   body: string;
@@ -5890,7 +6104,9 @@ export function getNotificationEvent(eventId: string): {
   const db = getDb();
   return db
     .prepare(
-      'SELECT id, event_id, task_id, session_id, source, title, body, priority, status, created_at FROM notification_events WHERE event_id = ?',
+      `SELECT id, event_id, task_id, session_id, action_type, action_payload,
+              source, title, body, priority, status, created_at
+       FROM notification_events WHERE event_id = ?`,
     )
     .get(eventId) as
       | {
@@ -5898,6 +6114,8 @@ export function getNotificationEvent(eventId: string): {
           event_id: string;
           task_id: string | null;
           session_id: string | null;
+          action_type: string | null;
+          action_payload: string | null;
           source: string;
           title: string;
           body: string;

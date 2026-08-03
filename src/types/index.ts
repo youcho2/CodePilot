@@ -1350,6 +1350,8 @@ export interface AssistantWorkspaceFiles {
 export interface AssistantWorkspaceFilesV2 extends AssistantWorkspaceFiles {
   rootDir?: string;
   heartbeatMd?: string;
+  /** The selected rules file is also discoverable as cwd/CLAUDE.md. */
+  rulesFileNativeClaude?: boolean;
 }
 
 // ==========================================
@@ -2189,7 +2191,10 @@ export type TaskRunStatus =
   | 'succeeded'
   | 'failed'
   | 'waiting_for_permission'
-  | 'cancelled';
+  | 'cancelled'
+  | 'skipped_empty'
+  | 'skipped_reconcile_drift'
+  | 'blocked';
 
 export const TASK_RUN_STATUS_VALUES: ReadonlyArray<TaskRunStatus> = [
   'running',
@@ -2197,6 +2202,9 @@ export const TASK_RUN_STATUS_VALUES: ReadonlyArray<TaskRunStatus> = [
   'failed',
   'waiting_for_permission',
   'cancelled',
+  'skipped_empty',
+  'skipped_reconcile_drift',
+  'blocked',
 ];
 
 export function isTaskRunStatus(value: unknown): value is TaskRunStatus {
@@ -2271,13 +2279,8 @@ export interface ScheduledTask {
  */
 export type NotificationChannel =
   | 'renderer-toast'
-  // `electron-native` covers BOTH the renderer-driven IPC path
-  // (window visible → useNotificationPoll calls electronAPI.notification.show)
-  // AND the bg-poller path (window hidden → main process drains the
-  // queue and shows OS native). v6 P1 fix unified them: the OS-level
-  // surface is identical from the user's POV, and tracking it as one
-  // row prevents "permanent queued" leftovers in delivery log when
-  // the window-hidden path acked under a separate channel name.
+  // `electron-native` is exclusively claimed and displayed by Electron Main,
+  // independent of BrowserWindow visibility.
   // The retired `electron-bg-native` literal is intentionally NOT
   // listed here so a future regression can't smuggle it back in.
   | 'electron-native'
@@ -2311,6 +2314,8 @@ export interface NotificationEvent {
   event_id: string;
   task_id?: string;
   session_id?: string;
+  action_type?: string | null;
+  action_payload?: string | null;
   source: 'codepilot' | 'external';
   title: string;
   body: string;
@@ -2327,4 +2332,9 @@ export interface NotificationDelivery {
   error?: string | null;
   created_at: string;
   acked_at?: string | null;
+  claim_owner?: string | null;
+  claimed_at?: string | null;
+  attempt_count?: number;
+  last_attempt_at?: string | null;
+  next_attempt_at?: string | null;
 }
