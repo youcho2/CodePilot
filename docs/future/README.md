@@ -7,7 +7,7 @@
 ## 索引
 
 - [core-system-guardrails.md](core-system-guardrails.md) — 核心系统护栏：Design / Context / Provider 三份原则文档规划
-- [scheduled-tasks-and-notifications.md](scheduled-tasks-and-notifications.md) — 定时任务 + 通知：心跳系统、cron 调度、多渠道投递
+- [scheduled-tasks-and-notifications.md](scheduled-tasks-and-notifications.md) — 定时任务 + 通知的后续构想：任意 cron、多渠道、浮窗与 TTS；默认助理/心跳/native notification P0 已转 [active 计划](../exec-plans/active/default-assistant-heartbeat-system-notification.md)
 - [voice-assistant.md](voice-assistant.md) — 语音助手：浮窗 + MCP 架构，复用 ElevenLabs UI 组件
 - [agent-friends.md](agent-friends.md) — Agent 好友系统：跨用户 Agent 共享频道，项目驱动的权限控制
 - [memory-enhancements.md](memory-enhancements.md) — 记忆增强：GUI 管理面板、Widget 可视化、本地向量搜索、硬 Flush

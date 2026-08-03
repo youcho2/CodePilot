@@ -1,8 +1,8 @@
 # Harness Home Umbrella — 用户所有的 Harness、轻量接入与创作闭环
 
 > 创建时间：2026-07-30
-> 最后更新：2026-07-31
-> 状态：🔄 Shared Phase 0 与 Program A/B/C foundation 已实现并完成 Claude review hardening；真实凭据、packaged app 与 Design Method human gates 仍开放
+> 最后更新：2026-08-03
+> 状态：🔄 Shared Phase 0 与 Program A/B/C foundation 已实现并完成 Claude review hardening；当前用户可见 P0 转向“默认助理 → 心跳 → 系统通知”纵向闭环，真实凭据、packaged app 与 Design Method human gates 仍开放
 > 规划基线：正式 Release `v0.62.0` tag `bd598563`；本地与远端 `main` 已规范化到 v0.62 发布线
 > 文档职责：只维护共享定义、跨计划依赖、Phase 0 门禁和用户决策；各 program 的实施状态与 Smoke Ledger 以子计划为准
 
@@ -11,6 +11,7 @@
 | Program | 内容 | 状态 | 权威计划 |
 |---------|------|------|----------|
 | Shared Phase 0 | 基线、事实 inventory、enforcement anchors 与跨计划 contract 边界 | ✅ 完成；见 `docs/research/harness-home-v0.62-inventory-2026-07-30.md` | 本文件 |
+| 当前 P0 纵向切片 | 默认用户自有助理、heartbeat desired/actual 自愈、Electron 系统通知与点击闭环 | 🟡 Code complete + Tests pass + Review passed（本地范围）；packaged native/sound/click smoke 待验收 | [default-assistant-heartbeat-system-notification.md](default-assistant-heartbeat-system-notification.md) |
 | Program A | Harness Core、Canonical Repository、Harness/Runtime Adapter | 🟡 A1–A4 code/tests + review hardening 完成；真实凭据 Tier 2 smoke 待最终验收 | [harness-home-core-adapters.md](harness-home-core-adapters.md) |
 | Program B | 通用 Asset Library、materialization 与 lineage | 🟡 B0–B3 code/tests + 真实本地 Browser UI smoke + review hardening 完成；packaged app / 用户 human gate 待最终验收 | [harness-home-asset-library.md](harness-home-asset-library.md) |
 | Program C | CodePilot Design Method、Taste Memory 与创作编排 | 🟡 C0 候选证据清单 + C1/C2/C3 foundation/API/tests 完成；真实 Method/golden producer/human gate 待用户 | [harness-home-design-method.md](harness-home-design-method.md) |
@@ -303,6 +304,7 @@ Changed-files guard 不得默认为本地 `HEAD~1`；例外文件必须逐项说
 ```mermaid
 flowchart LR
   P0["Shared Phase 0\ninventory + anchors"] --> A1["Program A\nshared contracts"]
+  P0 --> UX["Current P0 vertical slice\ndefault assistant + heartbeat + native notification"]
   A1 --> A2["Program A\nrepository + adapters"]
   A1 --> B["Program B\nAsset Library"]
   A1 --> C["Program C\nDesign Method productization"]
@@ -311,6 +313,7 @@ flowchart LR
 ```
 
 - Program C 的真实案例采集已从四组既有产品决策建立 candidate 清单；用户已授权 foundation 产品代码实施，但通用方法归属仍保留用户确认门禁。
+- 当前 P0 纵向切片优先修复用户每天能直接感知的主动助理路径；它复用 Shared Phase 0 的用户所有权边界，但不把 Assistant Workspace 自动设为 canonical `harness_home_root`，也不宣称已完成 Memory vNext。
 - Program B 只依赖 Program A 的 `AssetRef`、scope、provenance 和 repository boundary，不依赖完整 RuntimeAdapter。
 - Program C 产品化依赖共享 scope/provenance；创作 lineage 功能依赖 Program B。
 - 三个 program 各自维护状态、验收和 Smoke Ledger；Umbrella 不复写执行进度。
@@ -379,6 +382,9 @@ Umbrella 不维护共享 Smoke Ledger。真实 smoke 必须登记到产生该行
 
 ## 决策日志
 
+- 2026-08-03：当前 P0 纵向切片通过 Claude 本地代码/测试复审；DB、默认助理/心跳、Electron 通知分别落在 `4b5f97dd`、`19847570`、`3f16b895`。三平台 packaged native/sound/click smoke 仍开放，因此 umbrella 只同步为 Review passed（本地范围），不提升为 Smoke passed / Release ready。
+- 2026-08-03：默认助理纵向 P0 已完成实现与自动化收口：commit-time CAS、neutral instructions、desired-first + runner gate、heartbeat uniqueness、Main-owned durable notification 与点击队列均已落地；全量测试、Next production build 和 Electron bundle 通过。三平台 packaged native/sound/click smoke 仍开放，不能标记 Release ready。
+- 2026-08-03：用户将“默认助理 → 心跳 → 系统通知”确定为 Harness Home 当前 P0；单独建立 active 纵向计划。新用户可获得默认用户自有目录，老用户路径 no-touch；Assistant Workspace 与 canonical Harness repository 的合并继续受 Program A migration contract 约束。
 - 2026-07-30：用户确认 Harness Home 是与 UI 无关的领域概念；Plugin/MCP/Skill 是资产类型，UI 入口暂缓。
 - 2026-07-30：CodePilot 作为最完整渠道，但完整能力不能以数据锁定为代价。
 - 2026-07-30：采用 L0–L3 分级，拆分 HarnessAdapter 与 RuntimeAdapter，解决接新 Harness 太重。

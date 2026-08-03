@@ -33,6 +33,9 @@
 | 14 | workflow edge 是 `(parent_session_id, workflow_id, task_key)` 下的显式身份。依赖 task 在 Provider 启动前以 `dispatch_state=queued` 落库，只有上游同 workflow task 的 durable `completed + result_text` 齐备后才能切 `executing`；重复 key 与 self/indirect cycle 必须在插入/启动前拒绝；旧行保守回填为 `executing/terminal`，不得从 prompt 猜依赖 | `startSubagentRun` + `resolveSubagentDependencies` |
 | 15 | Next dev HMR 会保留进程级 SQLite handle；新代码的 additive migration 不能依赖“重新打开 DB”才执行。`getDb()` 必须比较 code-owned schema revision，并在 revision 变化时只重跑幂等结构初始化；runtime recovery 不得随 HMR 重跑。回归测试必须在 revision refresh 前保留 live streaming row，并确认 refresh 后仍为 streaming，不能只断言 index/column 被补齐 | `DatabaseProcessState.schemaRevision` + `DATABASE_SCHEMA_REVISION` |
 | 16 | Bounded Asset backfill 不能被单个 poison legacy row 或大文件永久饿死。失败项按 `(source_table, source_id, failure_revision)` 留下可审计分类：permanent 只在 revision bump 后重试，transient 冷却后自动重试，超过在线字节预算的 deferred 只由显式无界迁移重试。Gallery 在线路径同时受行数、累计字节、单文件字节与 wall-clock 预算约束；任何失败都不删除源 row，也不伪造成成功 Asset | `asset_backfill_failures` + `backfillMediaAssets` |
+| 17 | `source='assistant_heartbeat'` 全库至多一条。建 partial UNIQUE index 前必须选 keeper、重关联 `task_run_logs.task_id` 与 `notification_events.task_id`、再删除 duplicate；user-source task 不得受影响 | `consolidateHeartbeatTasksAndEnsureUniqueIndex` |
+| 18 | Notification claim 只使用 additive lease/attempt columns，不扩展既有 delivery status CHECK。claim 在 transaction 中完成；settle 用 owner/status 条件 UPDATE，stale ack 不能覆盖新 owner；retry backoff 有界且 terminal delivered/error 不回滚 | notification delivery migration + CRUD |
+| 19 | Notification action 以受限 `action_type/action_payload` additive 保存；route consumer 只能按 channel claim，不能恢复 destructive GET drain | notification event/delivery schema + claim routes |
 
 ## 关键文件 + 责任
 
@@ -65,6 +68,8 @@
 - [ ] 改 workflow/task/dependency 时验证 bootstrap + additive migration、queued→executing、missing-upstream 创建宽限与反序 fail-fast、同 workflow task key 防重复、self/indirect cycle 拒绝、dependency failure 不启动下游 Provider
 - [ ] 给 `initDb` / `migrateDb` 新增 migration 时同步 bump `DATABASE_SCHEMA_REVISION`，并验证缓存 DB handle 不重启也能补齐结构、且不触发 runtime recovery
 - [ ] 改 Asset backfill 时验证 permanent/transient/deferred 分类、冷却重试、显式 deferred 恢复，以及在线行数/字节/时限预算均不会饿死后续行
+- [ ] 改 heartbeat migration 时验证 duplicate consolidation 保留 run→event 关联、user-source task 不变、partial UNIQUE index 幂等
+- [ ] 改 notification delivery 时保持 status 枚举冻结，验证双 claimant、owner mismatch、stale reclaim、retry cap 和 terminal immutability
 
 ## 常见坑
 
@@ -82,6 +87,8 @@
 - catalog 更新时直接重建 `provider_models` 会抹掉 manual/user-edited 状态；只能 reconcile catalog 管理行。
 - tech-debt #7 — `claude-settings-credentials.test.ts` 和 `project-mcp-injection.test.ts` 的 DB-related test 在 CI 上 skip，本地通过；疑似 tsx + node 20 ESM module identity 去重在 linux 行为差异。
 - 不要把 EBUSY/EIO 等瞬态错误按同 revision 永久拉黑，也不要只用行数限制在线 backfill；一个大视频仍可能让 Gallery 请求同步 hash 过久。deferred 不是成功，必须保留可恢复路径。
+- 不要为了表示 claim 中间态给 `notification_deliveries.status` 新增值；lease owner/time 和 attempt columns 才是并发状态。
+- 不要先建 heartbeat unique index 再处理历史 duplicate；这会让旧用户启动时直接 migration 失败。
 
 ## 测试覆盖
 
@@ -95,6 +102,8 @@
 | cached handle 在 dev schema revision 变化后重跑幂等 migration，且 live streaming row 不被 recovery 中断 | `src/__tests__/unit/subagent-run-persistence.test.ts` |
 | `messages.stream_status` checkpoint、terminal 原位更新、live-owner 下重复 startup no-op | `src/__tests__/unit/collect-owner-gate.test.ts` |
 | `asset_records.tags` additive column、legacy media tags 逐项保守回填、重复 migration 幂等、poison row 不阻塞后续行、transient 冷却重试与 byte/time budget | `src/__tests__/unit/asset-library-conformance.test.ts` |
+| Heartbeat duplicate consolidation、partial UNIQUE、cadence/reconcile | `heartbeat-reconcile.test.ts`, `scheduler-trigger-unification.test.ts` |
+| Notification additive claim、并发/stale/retry/terminal | `notification-delivery-claim.test.ts`, `notification-claim-policy.test.ts` |
 
 ## 设计决策日志
 
@@ -111,3 +120,4 @@
 - 2026-07-31 — Asset 标签从 legacy `media_generations.tags` 提升为 `asset_records.tags`，覆盖 HTML 与所有已注册 kind。迁移只在新列默认空数组时复制可验证的 legacy JSON array；写入 Asset 标签时对 source media 双写，兼容旧消费者且不删除原字段。
 - 2026-07-31 — Gallery 的 100 条/请求渐进 backfill 曾可能被同一坏行永久占住进度。新增 `asset_backfill_failures` 与 code-owned failure revision：坏行可审计、同 revision 跳过、后续行继续；修复迁移逻辑时 bump revision 才重试。schema revision 同步更新，HMR cached handle 会补建该表。
 - 2026-07-31 — Backfill failure journal 增加 permanent/transient/deferred 语义。瞬态 I/O 错误冷却 30 秒后重试；Gallery 在线迁移限制 32 MiB 累计/单文件与 75ms 调度预算；超预算行先 deferred 让后续行继续，显式无界迁移仍可恢复它，不把预算判断变成永久数据结论。
+- 2026-08-03 — Heartbeat system task 增加 exact-source partial UNIQUE index；历史 duplicate 先在事务中重关联 run/event 再合并。Notification delivery 使用 additive claim owner/time/attempt/backoff 字段，冻结现有 status CHECK，以 durable row 取代进程内 drain queue。

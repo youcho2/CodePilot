@@ -1,6 +1,8 @@
 # 定时任务 + 通知系统
 
 > 关联：[语音助手](voice-assistant.md)、[统一上下文层 Phase 4-5](../exec-plans/deferred/unified-context-layer.md)
+>
+> **2026-08-03 路由说明：**“默认助理 → 心跳 → Electron 系统通知”的当前 P0 已进入正式执行计划 [default-assistant-heartbeat-system-notification.md](../exec-plans/active/default-assistant-heartbeat-system-notification.md)。本文继续保存任意 cron、Bridge、浮窗、TTS 等后续构想；其旧 heartbeat / notification 架构图不再作为 P0 实施事实源。
 
 ## 核心想法
 
