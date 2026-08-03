@@ -66,8 +66,10 @@ export function ensureSchedulerRunning(): void {
       const { getDueTasks } = await import('@/lib/db');
       const dueTasks = getDueTasks();
       for (const task of dueTasks) {
-        // Fire-and-forget: don't block the poll loop
-        executeDueTask(task).catch(err =>
+        // Use the same atomic row lock as the manual "Run now" endpoint.
+        // A poll/manual race therefore produces one execution and one
+        // already_running result instead of two model calls.
+        runScheduledTaskNow(task.id).catch(err =>
           console.error(`[scheduler] Task ${task.id} (${task.name}) failed:`, err)
         );
       }
@@ -256,16 +258,35 @@ async function executeDueTask(
           && (isHeartbeat || !!task.notify_on_complete);
         if (shouldNotify) {
           const titlePrefix = isHeartbeat ? '💬' : '✅';
+          const notificationSessionId = out.sessionId || task.session_id;
           const eventId = await sendTaskNotification(
             `${titlePrefix} ${task.name}`,
             (out.result || '').slice(0, 200),
             task.priority as 'low' | 'normal' | 'urgent',
-            { taskId: task.id, sessionId: out.sessionId || task.session_id },
+            {
+              taskId: task.id,
+              sessionId: notificationSessionId,
+              action: isHeartbeat
+                ? heartbeatNotificationAction(notificationSessionId)
+                : undefined,
+            },
           );
           if (eventId) {
             try { updateTaskRunLog(out.runId, { notification_event_id: eventId }); } catch { /* best effort */ }
           }
         }
+      } else if (
+        out.status === 'skipped_empty'
+        || out.status === 'skipped_reconcile_drift'
+      ) {
+        updateScheduledTask(task.id, {
+          last_status: 'skipped',
+          last_result: (out.result || out.status).slice(0, 2000),
+          last_run: new Date().toISOString(),
+          last_error: undefined,
+          consecutive_errors: 0,
+        });
+        await computeNextRun(task);
       } else if (out.status === 'waiting_for_permission') {
         // Phase 3 Step 4 — paused state: scheduler must NOT re-trigger
         // this task on the next due tick. Park `scheduled_tasks.status`
@@ -543,8 +564,8 @@ async function executeDueTask(
  *     respond immediately. The actual execution runs fire-and-forget
  *     and updates the same row when it terminates.
  *
- * The poll loop calls `executeDueTask` directly with `providedRunId`
- * obtained the same way; both paths share the same row-lifecycle.
+ * The poll loop and startup missed-task recovery call this same entry point;
+ * all durable task triggers therefore share the same row lifecycle.
  */
 export async function runScheduledTaskNow(taskId: string): Promise<
   | { status: 'running'; runId: string }
@@ -726,7 +747,11 @@ async function sendTaskNotification(
   title: string,
   body: string,
   priority: 'low' | 'normal' | 'urgent',
-  payload?: { taskId?: string; sessionId?: string },
+  payload?: {
+    taskId?: string;
+    sessionId?: string;
+    action?: { type: string; payload: string };
+  },
 ): Promise<string | null> {
   try {
     const { sendNotification } = await import('@/lib/notification-manager');
@@ -736,12 +761,12 @@ async function sendTaskNotification(
       priority,
       taskId: payload?.taskId,
       sessionId: payload?.sessionId,
+      action: payload?.action,
       source: 'codepilot',
     });
-    // #34 observability — confirm the notification reached the queue (the
-    // chain's first hop). If a task "fires but no popup", grep `[notify]`:
-    // enqueue OK here but no Electron `[notify]` show line ⇒ the bg-poller /
-    // renderer drain dropped it; enqueue FAILED below ⇒ the queue never got it.
+    // Confirm the durable event and candidate delivery row were persisted. If
+    // a task fires without a popup, correlate this event_id with Electron
+    // Main's native-delivery outcome log.
     console.log(`[notify] enqueued event_id=${result.event_id ?? 'null'} priority=${priority} title=${JSON.stringify(title)}`);
     return result.event_id;
   } catch (err) {
@@ -750,6 +775,18 @@ async function sendTaskNotification(
     console.error('[notify] enqueue FAILED (task notification not queued):', err);
     return null;
   }
+}
+
+/** Heartbeat speak-up clicks return to the assistant conversation, not Tasks. */
+export function heartbeatNotificationAction(
+  sessionId: string | null | undefined,
+): { type: 'route'; payload: string } | undefined {
+  const normalized = sessionId?.trim();
+  if (!normalized) return undefined;
+  return {
+    type: 'route',
+    payload: `/chat/${encodeURIComponent(normalized)}`,
+  };
 }
 
 // ── Missed task recovery ──────────────────────────────────────────
@@ -789,8 +826,9 @@ async function handleMissedTasks(): Promise<void> {
       { taskId: task.id, sessionId: task.session_id },
     ).catch(() => { /* best effort */ });
 
-    // Execute the missed task immediately
-    executeDueTask(task).catch(err =>
+    // Execute through the canonical lock-aware entry point so startup recovery
+    // cannot race a manual run into a duplicate execution.
+    runScheduledTaskNow(task.id).catch(err =>
       console.error(`[scheduler] Missed task ${task.id} execution failed:`, err)
     );
   }
@@ -845,24 +883,19 @@ async function checkExpiredTasks(): Promise<void> {
 export async function ensureHeartbeatTask(opts: {
   enabled: boolean;
   intervalHours?: number;
-}): Promise<void> {
+  workspacePath?: string;
+}): Promise<ScheduledTask | undefined> {
   const { getHeartbeatTask, removeHeartbeatTask, createScheduledTask, updateScheduledTask } = await import('@/lib/db');
   const desiredInterval = Math.max(1, Math.floor(opts.intervalHours ?? 24));
 
   if (!opts.enabled) {
     removeHeartbeatTask();
-    return;
+    return undefined;
   }
 
-  // cron at every Nth hour at minute 0. For intervals > 24 we fall
-  // back to "0 9 * * *" (daily 9 AM) — multi-day cadence isn't worth
-  // the complexity.
-  const cronExpr = desiredInterval >= 24
-    ? '0 9 * * *'
-    : `0 */${desiredInterval} * * *`;
+  const cronExpr = heartbeatCronForInterval(desiredInterval);
 
-  const existing = getHeartbeatTask();
-  if (existing) {
+  const syncExisting = (existing: ScheduledTask): ScheduledTask => {
     // Always re-sync prompt + schedule when the existing row has any
     // drift. A user upgrading from the pre-Codex-P1 build still has a
     // row with the old "respond per silent contract" prompt, which
@@ -870,8 +903,10 @@ export async function ensureHeartbeatTask(opts: {
     // it to HEARTBEAT_TASK_PROMPT here closes that path on first
     // app start after the upgrade.
     const promptDrift = existing.prompt !== HEARTBEAT_TASK_PROMPT;
-    const scheduleDrift = existing.schedule_value !== cronExpr || existing.status !== 'active';
-    if (promptDrift || scheduleDrift) {
+    const cadenceChanged = existing.schedule_value !== cronExpr;
+    const scheduleDrift = cadenceChanged || existing.status !== 'active';
+    const workspaceDrift = !!opts.workspacePath && existing.working_directory !== opts.workspacePath;
+    if (promptDrift || scheduleDrift || workspaceDrift) {
       // Codex P1 — DON'T move next_run forward to the next cron
       // boundary just because we touched the row. If the existing
       // row's next_run is already in the future, leave it alone; if
@@ -884,12 +919,12 @@ export async function ensureHeartbeatTask(opts: {
         prompt: HEARTBEAT_TASK_PROMPT,
         schedule_value: cronExpr,
         status: 'active',
+        working_directory: opts.workspacePath || existing.working_directory,
       };
-      // Only refresh next_run when the existing one is missing or
-      // overdue + clearly stale enough that we'd want to "wake up"
-      // anyway. Conservative default: leave next_run alone unless
-      // it's obviously bogus.
-      if (!existing.next_run) {
+      // A user cadence change is an explicit scheduling decision, so it
+      // takes effect from now. Reconciliation with an unchanged cadence keeps
+      // the exact future next_run byte-for-byte across restarts/HMR.
+      if (cadenceChanged || !existing.next_run) {
         const next = getNextCronTime(cronExpr);
         updates.next_run = next
           ? next.toISOString()
@@ -897,34 +932,44 @@ export async function ensureHeartbeatTask(opts: {
       }
       updateScheduledTask(existing.id, updates);
     }
-    return;
-  }
+    return (getHeartbeatTask() || existing);
+  };
+
+  const existing = getHeartbeatTask();
+  if (existing) return syncExisting(existing);
 
   const next = getNextCronTime(cronExpr);
-  createScheduledTask({
-    name: 'Assistant heartbeat',
-    // Codex P1 — heartbeat prompt deliberately narrow. Earlier rev
-    // told the model "respond per silent contract" with no tool
-    // restrictions, so the model would routinely fan out into
-    // codepilot_list_tasks (recursing on the scheduler itself),
-    // memory search, file reads, shell `date`, etc. and on a runtime
-    // that doesn't honor a final `done` after a step the headless
-    // run would hang forever. Here we list the legal sources of
-    // information explicitly and forbid the dangerous ones; the
-    // runner ALSO disallows the same tool list at the SDK level
-    // (see agent-task-runner.ts heartbeat branch) — belt + suspenders.
-    prompt: HEARTBEAT_TASK_PROMPT,
-    schedule_type: 'cron',
-    schedule_value: cronExpr,
-    kind: 'ai_task',
-    source: 'assistant_heartbeat',
-    next_run: next ? next.toISOString() : new Date(Date.now() + 3600_000).toISOString(),
-    consecutive_errors: 0,
-    status: 'active',
-    priority: 'normal',
-    notify_on_complete: 1,
-    permanent: 1,
-  });
+  try {
+    return createScheduledTask({
+      name: 'Assistant heartbeat',
+      // Heartbeat prompt deliberately narrow; the runner also applies the
+      // same tool restrictions at execution time.
+      prompt: HEARTBEAT_TASK_PROMPT,
+      schedule_type: 'cron',
+      schedule_value: cronExpr,
+      kind: 'ai_task',
+      source: 'assistant_heartbeat',
+      next_run: next ? next.toISOString() : new Date(Date.now() + 3600_000).toISOString(),
+      consecutive_errors: 0,
+      status: 'active',
+      priority: 'normal',
+      notify_on_complete: 1,
+      permanent: 1,
+      working_directory: opts.workspacePath,
+    });
+  } catch (error) {
+    // Startup/bootstrap/PATCH can reconcile concurrently. The partial UNIQUE
+    // index picks the winner; losers re-read and repair that row instead of
+    // surfacing a spurious 500 or creating a second heartbeat.
+    const winner = getHeartbeatTask();
+    if (winner) return syncExisting(winner);
+    throw error;
+  }
+}
+
+export function heartbeatCronForInterval(intervalHours?: number): string {
+  const desired = Math.max(1, Math.floor(intervalHours ?? 24));
+  return desired >= 24 ? '0 9 * * *' : `0 */${desired} * * *`;
 }
 
 /**

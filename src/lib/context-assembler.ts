@@ -27,8 +27,14 @@ export interface ContextAssemblyConfig {
   systemPromptAppend?: string;
   /** Conversation history (for widget keyword detection in resume context) */
   conversationHistory?: Array<{ role: string; content: string }>;
-  /** Whether this is an auto-trigger turn (heartbeat, onboarding hook, etc.) */
+  /** Whether this is an invisible assistant hook (for example buddy welcome). */
   autoTrigger?: boolean;
+  /**
+   * True only when the effective Claude Code SDK call includes the project
+   * setting source. In that case cwd/CLAUDE.md belongs to the SDK, while
+   * CodePilot continues to own neutral instructions.md + soul/user injection.
+   */
+  claudeSdkOwnsProjectRules?: boolean;
 }
 
 export interface AssembledContext {
@@ -45,7 +51,14 @@ export interface AssembledContext {
 // ── Main function ────────────────────────────────────────────────────
 
 export async function assembleContext(config: ContextAssemblyConfig): Promise<AssembledContext> {
-  const { session, entryPoint, userPrompt, systemPromptAppend, conversationHistory, autoTrigger } = config;
+  const {
+    session,
+    entryPoint,
+    userPrompt,
+    systemPromptAppend,
+    conversationHistory,
+    claudeSdkOwnsProjectRules,
+  } = config;
   const t0 = Date.now();
 
   let workspacePrompt = '';
@@ -61,7 +74,7 @@ export async function assembleContext(config: ContextAssemblyConfig): Promise<As
       isAssistantProject = sessionWd === workspacePath;
 
       if (isAssistantProject) {
-        const { loadWorkspaceFiles, assembleWorkspacePrompt, loadState, shouldRunHeartbeat } =
+        const { loadWorkspaceFiles, assembleWorkspacePrompt, loadState } =
           await import('@/lib/assistant-workspace');
 
         // Incremental reindex BEFORE MCP search so tool calls see latest content.
@@ -84,7 +97,9 @@ export async function assembleContext(config: ContextAssemblyConfig): Promise<As
         // assembleWorkspacePrompt only includes identity files (soul/user/claude).
         // We also inject a lightweight "memory availability hint" so AI knows
         // what's available without loading full content.
-        workspacePrompt = assembleWorkspacePrompt(files);
+        workspacePrompt = assembleWorkspacePrompt(files, undefined, {
+          omitRules: claudeSdkOwnsProjectRules === true && files.rulesFileNativeClaude === true,
+        });
 
         // Memory availability hint — stored separately as volatile content
         // (changes daily, should not invalidate the static identity prefix cache)
@@ -101,26 +116,11 @@ export async function assembleContext(config: ContextAssemblyConfig): Promise<As
 
         const state = loadState(workspacePath);
 
-        // Detect heartbeat auto-trigger by checking the actual prompt content,
-        // not just the autoTrigger flag (which is also true for buddy-welcome).
-        const isHeartbeatTrigger = autoTrigger && userPrompt.includes('心跳检查');
-
         if (!state.onboardingComplete) {
           assistantProjectInstructions = buildOnboardingInstructions();
-        } else if (isHeartbeatTrigger && shouldRunHeartbeat(state)) {
-          // Full heartbeat task mode — only for explicit heartbeat auto-trigger
-          assistantProjectInstructions = buildHeartbeatInstructions();
         } else {
           // Progressive file update guidance for completed onboarding
           assistantProjectInstructions = buildProgressiveUpdateInstructions();
-
-          // Soft heartbeat hint for normal conversations when overdue.
-          // The AI naturally incorporates a brief check-in; the backend
-          // updates lastHeartbeatDate when it detects heartbeat keywords
-          // in the assistant response (no HEARTBEAT_OK token needed).
-          if (!autoTrigger && shouldRunHeartbeat(state)) {
-            assistantProjectInstructions += '\n\n' + buildSoftHeartbeatHint();
-          }
 
           // If no buddy yet, prepend a welcome + adoption prompt
           if (!state.buddy) {
@@ -307,37 +307,8 @@ function buildOnboardingInstructions(): string {
 \\\`\\\`\\\`
 
 - 输出 fence 后，明确告知用户："初始设置完成！我已经根据我们的对话生成了配置文件。从现在开始，我会按照这些设置来帮你。"
-- 不要自己写文件，系统会自动从你收集的信息生成 soul.md、user.md、claude.md 和 memory.md
+- 不要自己写文件，系统会自动从你收集的信息生成 soul.md、user.md、instructions.md 和 memory.md
 - 整个过程保持友好、自然，像两个人第一次认识在聊天
-</assistant-project-task>`;
-}
-
-function buildSoftHeartbeatHint(): string {
-  return `<heartbeat-hint>
-今天还没有做过日常检查。在回答用户问题的同时，可以自然地：
-- 简短提及 HEARTBEAT.md 中你觉得值得关注的事项
-- 回顾最近记忆，看有没有需要跟进的
-不要让检查主导对话，优先回答用户的问题。
-如果你确实做了检查（哪怕只是简短一提），请在回复末尾加上 <!-- heartbeat-done -->
-</heartbeat-hint>`;
-}
-
-function buildHeartbeatInstructions(): string {
-  return `<assistant-project-task type="tick">
-这是一次自主检查。你可以做以下任何事情：
-
-1. 检查 HEARTBEAT.md 中的检查清单
-2. 回顾最近的记忆，看看有没有需要跟进的事
-3. 如果发现值得告诉用户的事，说出来
-4. 如果没什么事，回复 HEARTBEAT_OK
-
-你也可以主动：
-- 更新过期的记忆文件
-- 整理 daily memory 中的重复内容
-- 更新 user.md 如果发现用户画像有变化
-
-如果什么都不需要做，回复 HEARTBEAT_OK。
-不要问固定的问卷问题，不要重复上次已讨论的内容。
 </assistant-project-task>`;
 }
 

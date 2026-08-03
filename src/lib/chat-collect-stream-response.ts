@@ -25,19 +25,13 @@ import { saveMediaToLibrary } from '@/lib/media-saver';
 import type { SSEEvent, TokenUsage, MessageContentBlock, MediaBlock, ExternalSource } from '@/types';
 
 const ASSISTANT_CHECKPOINT_INTERVAL_MS = 120;
-const HEARTBEAT_MARKER_RE = /\s*<!--\s*heartbeat-done\s*-->\s*/g;
-
 /**
  * Serialize assistant blocks with the same shape used by historical rendering.
  * Checkpoints and terminal persistence must share this helper so refreshing
  * cannot change a tool/sub-agent block into a different transcript shape.
  */
 function serializeAssistantBlocks(blocks: readonly MessageContentBlock[]): string | null {
-  const cleanedBlocks = blocks.map((block) =>
-    block.type === 'text'
-      ? { ...block, text: block.text.replace(HEARTBEAT_MARKER_RE, '') }
-      : block
-  );
+  const cleanedBlocks = blocks;
   const hasStructuredBlocks = cleanedBlocks.some(
     (block) =>
       block.type === 'tool_use'
@@ -94,7 +88,6 @@ export async function collectStreamResponse(
   telegramOpts: { sessionId?: string; sessionTitle?: string; workingDirectory?: string },
   onComplete?: () => void,
   opts?: {
-    isHeartbeatTurn?: boolean;
     suppressNotifications?: boolean;
     /** Phase 2 semantic title generation. Present only when this turn is the
      *  session's FIRST real user turn (the route sets it from the fallback-title
@@ -450,73 +443,12 @@ export async function collectStreamResponse(
         }
       }
 
-      // 2a. Soft heartbeat: for normal turns in assistant projects, mark heartbeat done
-      // only if the AI's response actually mentions heartbeat-related content.
-      if (!opts?.isHeartbeatTurn && !hasError && fullText.trim().length > 0) {
-        try {
-          const workspacePath = getSetting('assistant_workspace_path');
-          const session = getSession(sessionId);
-          if (workspacePath && session && session.working_directory === workspacePath) {
-            const { loadState, saveState, shouldRunHeartbeat } = await import('@/lib/assistant-workspace');
-            const { getLocalDateString } = await import('@/lib/utils');
-            const st = loadState(workspacePath);
-            if (shouldRunHeartbeat(st)) {
-              // Only mark done if the AI included the heartbeat-done marker.
-              // The soft hint instructs the AI to append <!-- heartbeat-done --> when it checks in.
-              const didCheck = fullText.includes('<!-- heartbeat-done -->');
-              if (didCheck) {
-                st.lastHeartbeatDate = getLocalDateString();
-                saveState(workspacePath, st);
-              }
-            }
-          }
-        } catch { /* best effort */ }
-      }
-
-      // 2b. Heartbeat state update — ONLY for actual heartbeat turns, and ONLY on success
-      if (opts?.isHeartbeatTurn && !hasError && fullText.trim().length > 0) {
-        try {
-          const workspacePath = getSetting('assistant_workspace_path');
-          const session = getSession(sessionId);
-          if (workspacePath && session && session.working_directory === workspacePath) {
-            const { stripHeartbeatToken } = await import('@/lib/heartbeat');
-            const { loadState, saveState } = await import('@/lib/assistant-workspace');
-            const { getLocalDateString } = await import('@/lib/utils');
-            const stripped = stripHeartbeatToken(fullText);
-
-            const st = loadState(workspacePath);
-            st.lastHeartbeatDate = getLocalDateString();
-
-            if (stripped.shouldSkip && lastSavedAssistantMsgId) {
-              // Pure HEARTBEAT_OK — mark ONLY the assistant reply as ack
-              // (auto-trigger messages are not persisted, so we only have the reply)
-              try {
-                const { updateMessageHeartbeatAck } = await import('@/lib/db');
-                updateMessageHeartbeatAck(lastSavedAssistantMsgId, true);
-              } catch { /* best effort */ }
-            } else if (!stripped.shouldSkip) {
-              // Has real content — record for dedup
-              st.lastHeartbeatText = stripped.text;
-              st.lastHeartbeatSentAt = Date.now();
-            }
-
-            // Clear hookTriggeredSessionId
-            if (st.hookTriggeredSessionId === sessionId || !st.hookTriggeredSessionId) {
-              st.hookTriggeredSessionId = undefined;
-              st.hookTriggeredAt = undefined;
-            }
-            saveState(workspacePath, st);
-          }
-        } catch {
-          // best effort heartbeat state update
-        }
-      }
     } catch (e) {
       console.error('[chat API] Server-side completion detection failed:', e);
     }
 
     // Memory extraction: auto-extract durable memories every N turns (assistant projects only)
-    if (!opts?.isHeartbeatTurn && !opts?.suppressNotifications) {
+    if (!opts?.suppressNotifications) {
       try {
         const workspacePath = getSetting('assistant_workspace_path');
         const session = getSession(sessionId);

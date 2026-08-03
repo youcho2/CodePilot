@@ -3,10 +3,14 @@ import fs from 'fs';
 import path from 'path';
 import { getSetting, setSetting } from '@/lib/db';
 import { validateWorkspace, initializeWorkspace, loadState, saveState } from '@/lib/assistant-workspace';
+import {
+  ASSISTANT_WORKSPACE_PATH_SETTING,
+  bootstrapDefaultAssistantWorkspace,
+} from '@/lib/assistant-default-workspace';
 
 export async function GET() {
   try {
-    const workspacePath = getSetting('assistant_workspace_path');
+    const workspacePath = getSetting(ASSISTANT_WORKSPACE_PATH_SETTING);
     if (!workspacePath) {
       return NextResponse.json({ path: null, valid: false, reason: 'no_path_configured', files: {}, state: null });
     }
@@ -90,6 +94,50 @@ export async function GET() {
       files: fileStatus,
       state,
       taxonomy,
+      heartbeat: await (async () => {
+        const { getHeartbeatTask, listTaskRunLogs, listNotificationDeliveries } = await import('@/lib/db');
+        const task = getHeartbeatTask();
+        const recentRuns = task ? listTaskRunLogs(task.id, 20) : [];
+        const latestRun = recentRuns[0];
+        const latestAlert = recentRuns.find((run) =>
+          run.status === 'succeeded'
+          && run.result !== 'silent'
+          && !!run.notification_event_id,
+        );
+        const deliveryEventId = latestRun?.notification_event_id || latestAlert?.notification_event_id;
+        const latestDelivery = deliveryEventId
+          ? listNotificationDeliveries(deliveryEventId).find((row) => row.channel === 'electron-native')
+          : undefined;
+        return {
+          schedulerSource: 'scheduled_tasks',
+          desiredEnabled: state.heartbeatEnabled === true,
+          actualStatus: task?.status ?? 'absent',
+          taskId: task?.id ?? null,
+          nextRun: task?.next_run ?? null,
+          lastRunStatus: latestRun?.status ?? null,
+          lastRunResult: latestRun?.result ?? null,
+          lastRunError: latestRun?.error ?? null,
+          lastRunAt: latestRun?.created_at ?? null,
+          lastRunDurationMs: latestRun?.duration_ms ?? null,
+          lastAttemptSource: latestRun ? 'task_run_logs' : null,
+          lastMeaningfulAlert: latestAlert ? {
+            source: 'task_run_logs',
+            runId: latestAlert.id,
+            text: latestAlert.result,
+            createdAt: latestAlert.created_at,
+            notificationEventId: latestAlert.notification_event_id,
+          } : null,
+          lastDelivery: latestDelivery ? {
+            source: 'notification_deliveries',
+            channel: latestDelivery.channel,
+            status: latestDelivery.status,
+            error: latestDelivery.error,
+            attemptCount: latestDelivery.attempt_count,
+            lastAttemptAt: latestDelivery.last_attempt_at,
+            acceptedAt: latestDelivery.acked_at,
+          } : null,
+        };
+      })(),
       // Codex P1 — heartbeat is now scheduler-only. The
       // `needsHeartbeat` field used to drive the foreground
       // chat-mount auto-trigger via useAssistantTrigger; we removed
@@ -107,10 +155,40 @@ export async function GET() {
 export async function PUT(request: NextRequest) {
   try {
     const body = await request.json();
-    const { path: workspacePath, initialize, resetOnboarding } = body as { path: string; initialize?: boolean; resetOnboarding?: boolean };
+    const { path: workspacePath, initialize, resetOnboarding, ifUnconfigured } = body as {
+      path: string;
+      initialize?: boolean;
+      resetOnboarding?: boolean;
+      ifUnconfigured?: boolean;
+    };
 
     if (!workspacePath || typeof workspacePath !== 'string') {
       return NextResponse.json({ error: 'Invalid workspace path' }, { status: 400 });
+    }
+
+    // Automatic bootstrap is a distinct, fail-closed path. It never replaces
+    // a non-blank existing value and never creates an onboarding chat.
+    if (ifUnconfigured) {
+      if (initialize !== true) {
+        return NextResponse.json(
+          { error: 'Automatic bootstrap requires initialize=true' },
+          { status: 400 },
+        );
+      }
+      try {
+        const result = await bootstrapDefaultAssistantWorkspace(workspacePath);
+        const { reconcileAssistantHeartbeat } = await import('@/lib/assistant-heartbeat');
+        const heartbeat = await reconcileAssistantHeartbeat();
+        return NextResponse.json({ success: true, ...result, heartbeat });
+      } catch (initErr) {
+        return NextResponse.json(
+          {
+            error: `Failed to initialize default workspace: ${initErr instanceof Error ? initErr.message : 'unknown error'}`,
+            code: 'default_init_failed',
+          },
+          { status: 500 },
+        );
+      }
     }
 
     // Validate the path before saving
@@ -182,9 +260,12 @@ export async function PUT(request: NextRequest) {
     }
 
     // All side-effects succeeded — now commit the setting
-    setSetting('assistant_workspace_path', workspacePath);
+    setSetting(ASSISTANT_WORKSPACE_PATH_SETTING, workspacePath);
 
-    return NextResponse.json({ success: true, createdFiles });
+    const { reconcileAssistantHeartbeat } = await import('@/lib/assistant-heartbeat');
+    const heartbeat = await reconcileAssistantHeartbeat();
+
+    return NextResponse.json({ success: true, createdFiles, heartbeat });
   } catch (e) {
     console.error('[settings/workspace] PUT failed:', e);
     return NextResponse.json({ error: 'Failed to save workspace settings' }, { status: 500 });
@@ -195,7 +276,7 @@ export async function PUT(request: NextRequest) {
 export async function PATCH(request: NextRequest) {
   try {
     const body = await request.json();
-    const workspacePath = getSetting('assistant_workspace_path');
+    const workspacePath = getSetting(ASSISTANT_WORKSPACE_PATH_SETTING);
     if (!workspacePath) {
       return NextResponse.json({ error: 'No workspace configured' }, { status: 400 });
     }
@@ -243,20 +324,13 @@ export async function PATCH(request: NextRequest) {
 
     saveState(workspacePath, state);
 
-    // Phase 3 Step 4 — keep the system-injected heartbeat task in
-    // sync with the user's enable / interval settings. Idempotent:
-    // disable removes the row, enable creates / updates it.
-    try {
-      const { ensureHeartbeatTask } = await import('@/lib/task-scheduler');
-      await ensureHeartbeatTask({
-        enabled: state.heartbeatEnabled === true,
-        intervalHours: state.heartbeatIntervalHours,
-      });
-    } catch (err) {
-      console.warn('[settings/workspace] ensureHeartbeatTask failed:', err);
-    }
+    // Desired state is already durable. Reconcile derived scheduler state
+    // afterwards; a failure is returned honestly as `blocked` and does not
+    // roll back or disguise the user's choice.
+    const { reconcileAssistantHeartbeat } = await import('@/lib/assistant-heartbeat');
+    const heartbeat = await reconcileAssistantHeartbeat();
 
-    return NextResponse.json({ success: true, state });
+    return NextResponse.json({ success: true, state, heartbeat });
   } catch (e) {
     console.error('[settings/workspace] PATCH failed:', e);
     return NextResponse.json({ error: 'Failed to update workspace state' }, { status: 500 });

@@ -111,6 +111,19 @@ describe('/api/settings/workspace no longer returns needsHeartbeat', () => {
   });
 });
 
+describe('public chat cannot enter the heartbeat protocol', () => {
+  it('has no client-controlled heartbeat classifier in route, context, or collector', () => {
+    const route = read('app/api/chat/route.ts');
+    const context = read('lib/context-assembler.ts');
+    const collector = read('lib/chat-collect-stream-response.ts');
+    for (const [name, source] of [['route', route], ['context', context], ['collector', collector]] as const) {
+      assert.doesNotMatch(source, /isHeartbeatTurn|stripHeartbeatToken|heartbeat-done/,
+        `${name} must not expose the retired foreground heartbeat protocol`);
+    }
+    assert.doesNotMatch(route, /autoTrigger[^\n]+\u5fc3\u8df3|\u5fc3\u8df3[^\n]+autoTrigger/);
+  });
+});
+
 // ──────────────────────────────────────────────────────────────────
 // 2. Heartbeat prompt is narrow + forbids dangerous tools
 // ──────────────────────────────────────────────────────────────────
@@ -334,7 +347,8 @@ beforeEach(() => {
 
 afterEach(async () => {
   try {
-    const { closeDb } = await import('../../lib/db');
+    const { closeDb, removeHeartbeatTask } = await import('../../lib/db');
+    removeHeartbeatTask();
     closeDb();
   } catch { /* ignore */ }
   if (originalDataDir === undefined) delete process.env.CLAUDE_GUI_DATA_DIR;

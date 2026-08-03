@@ -65,10 +65,25 @@ describe('Assistant Workspace', () => {
 
     it('should create all 4 template files', () => {
       initializeWorkspace(workDir);
-      assert.ok(fs.existsSync(path.join(workDir, 'claude.md')));
+      assert.ok(fs.existsSync(path.join(workDir, 'instructions.md')));
       assert.ok(fs.existsSync(path.join(workDir, 'soul.md')));
       assert.ok(fs.existsSync(path.join(workDir, 'user.md')));
       assert.ok(fs.existsSync(path.join(workDir, 'memory.md')));
+    });
+
+    it('keeps a legacy rules file as the single source instead of creating a duplicate', () => {
+      fs.writeFileSync(path.join(workDir, 'CLAUDE.md'), '# Existing rules\n', 'utf-8');
+      initializeWorkspace(workDir);
+
+      assert.equal(fs.existsSync(path.join(workDir, 'instructions.md')), false);
+      const files = loadWorkspaceFiles(workDir);
+      assert.equal(files.claude, '# Existing rules\n');
+      assert.equal(files.rulesFileNativeClaude, true);
+    });
+
+    it('marks neutral instructions.md as CodePilot-owned rather than Claude-native', () => {
+      initializeWorkspace(workDir);
+      assert.equal(loadWorkspaceFiles(workDir).rulesFileNativeClaude, false);
     });
 
     it('should create V2 directories (memory/daily, Inbox)', () => {
@@ -286,6 +301,22 @@ describe('Assistant Workspace', () => {
   });
 
   describe('budget-aware prompt assembly', () => {
+    it('can omit only Claude-native rules while retaining neutral identity files', () => {
+      fs.writeFileSync(path.join(workDir, 'CLAUDE.md'), '# Native Claude rules', 'utf-8');
+      fs.writeFileSync(path.join(workDir, 'soul.md'), '# Soul\nKeep this identity.', 'utf-8');
+      const files = loadWorkspaceFiles(workDir);
+      const prompt = assembleWorkspacePrompt(files, undefined, { omitRules: true });
+      assert.ok(!prompt.includes('Native Claude rules'));
+      assert.ok(prompt.includes('Keep this identity.'));
+    });
+
+    it('renders canonical rules under a framework-neutral prompt role', () => {
+      initializeWorkspace(workDir);
+      const prompt = assembleWorkspacePrompt(loadWorkspaceFiles(workDir));
+      assert.match(prompt, /<instructions>[\s\S]*?<\/instructions>/);
+      assert.doesNotMatch(prompt, /<claude>/);
+    });
+
     it('should only include identity files in prompt (memory accessed via MCP)', () => {
       initializeWorkspace(workDir);
       fs.writeFileSync(path.join(workDir, 'soul.md'), '# Soul\nI am helpful.', 'utf-8');

@@ -77,8 +77,16 @@ export async function register() {
     const { initRuntimeLog } = await import('@/lib/runtime-log');
     initRuntimeLog();
 
-    // Start the task scheduler so persisted tasks resume on cold boot
-    // (previously only started as a side effect of /api/chat)
+    // Reconcile assistant heartbeat desired state before the scheduler starts
+    // scanning due rows. This repairs missing/drifted rows on cold boot and
+    // removes disabled rows without waiting for the Settings page to open.
+    const { reconcileAssistantHeartbeat } = await import('@/lib/assistant-heartbeat');
+    const heartbeat = await reconcileAssistantHeartbeat();
+    if (heartbeat.status === 'blocked') {
+      console.warn('[heartbeat] startup reconciliation blocked:', heartbeat.reason);
+    }
+
+    // Start the task scheduler so persisted tasks resume on cold boot.
     const { ensureSchedulerRunning } = await import('@/lib/task-scheduler');
     ensureSchedulerRunning();
   }

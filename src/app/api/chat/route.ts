@@ -583,6 +583,8 @@ export async function POST(request: NextRequest) {
       systemPromptAppend,
       conversationHistory: historyMsgs,
       autoTrigger: !!autoTrigger,
+      claudeSdkOwnsProjectRules:
+        effectiveSessionRuntime === 'claude_code' && !resolved.provider,
     });
     const finalSystemPrompt = assembled.systemPrompt;
     const generativeUIEnabled = assembled.generativeUIEnabled;
@@ -898,11 +900,9 @@ export async function POST(request: NextRequest) {
     }, 60_000);
 
     // Save assistant message in background, with cleanup callback to release lock
-    const isHeartbeatTurn = !!autoTrigger && content.includes('心跳检查');
     collectStreamResponse(streamForCollect, session_id, lockId, telegramNotifyOpts, () => {
       settleLock('idle');
     }, {
-      isHeartbeatTurn,
       suppressNotifications: !!autoTrigger,
       // Phase 2 semantic title. Non-null only on the first real user turn.
       // The provider/runtime handed over here are THIS session's resolved

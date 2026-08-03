@@ -77,7 +77,7 @@ ${userName ? `I address the user as ${userName}.` : 'I use a friendly, respectfu
 `;
     writeIfMissing(path.join(workspacePath, 'soul.md'), soulContent);
 
-    // claude.md is already created by initializeWorkspace with system preset rules
+    // instructions.md (or a legacy rule file) is already handled by initializeWorkspace
     // memory.md is already created by initializeWorkspace
 
     // Write HEARTBEAT.md if not exists
@@ -91,7 +91,6 @@ ${userName ? `I address the user as ${userName}.` : 'I use a friendly, respectfu
     const state = loadState(workspacePath);
     state.onboardingComplete = true;
     state.lastHeartbeatDate = today;
-    state.heartbeatEnabled = true;
     state.schemaVersion = 5;
     // Generate buddy companion
     const { generateBuddy, getPeakStatHint } = await import('@/lib/buddy');
@@ -110,6 +109,9 @@ ${userName ? `I address the user as ${userName}.` : 'I use a friendly, respectfu
     }
 
     saveState(workspacePath, state);
+
+    const { reconcileAssistantHeartbeat } = await import('@/lib/assistant-heartbeat');
+    await reconcileAssistantHeartbeat();
 
     // Create session
     const { addMessage } = await import('@/lib/db');

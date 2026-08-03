@@ -16,9 +16,10 @@ const STATE_DIR = '.assistant';
 const STATE_FILE = 'state.json';
 const MEMORY_DAILY_DIR = 'memory/daily';
 
-// Canonical filenames — lowercase preferred, uppercase fallback
+// Canonical filenames — neutral instructions.md for new workspaces, with
+// legacy Claude/Agent-specific names kept as read-compatible fallbacks.
 const FILE_MAP: Record<keyof AssistantWorkspaceFiles, string[]> = {
-  claude: ['claude.md', 'Claude.md', 'CLAUDE.md', 'AGENTS.md'],
+  claude: ['instructions.md', 'claude.md', 'Claude.md', 'CLAUDE.md', 'AGENTS.md'],
   soul: ['soul.md', 'Soul.md', 'SOUL.md'],
   user: ['user.md', 'User.md', 'USER.md', 'PROFILE.md'],
   memory: ['memory.md', 'Memory.md', 'MEMORY.md'],
@@ -26,7 +27,7 @@ const FILE_MAP: Record<keyof AssistantWorkspaceFiles, string[]> = {
 
 // Templates for initialization
 const FILE_TEMPLATES: Record<keyof AssistantWorkspaceFiles, string> = {
-  claude: '# Rules\n\n## Time Awareness\n任何涉及时间的场景，先用 date 命令确认当前时间，不要凭记忆猜测。\n\n## Memory Rules\n- 用户说"记一下"或"记住"：保留原文存笔记，不添加 TODO，不"发挥"，不改写\n- 重要决策和稳定偏好 → 写入 memory.md（追加，不覆写）\n- 日常工作记录 → 写入 memory/daily/{日期}.md\n- 修改 soul.md / user.md / claude.md → 必须告知用户\n\n## Document Organization\n- 双向链接：使用 [[文件名]] 创建文档之间的链接\n- 反向链接：追踪哪些文档引用了当前文档\n- 标签系统：使用 #标签 进行分类和检索\n- 属性标记：在文档顶部使用 YAML frontmatter 添加元数据\n- 少用文件夹层级，多用标签和链接做组织\n\n## Writing Constraints\n- 不使用空泛修饰词（核心能力、关键、彰显、赋能、驱动…）\n- 不使用"不是...而是..."对比句式，除非用户要求\n- 输出内容以实用为主，不添加不必要的修饰\n\n## Safety\n- 修改身份文件（soul/user/claude.md）后必须通知用户具体改了什么\n- memory.md 只追加，不覆写已有内容\n- 不在记忆文件中存储密码、API key 等敏感信息\n',
+  claude: '# Rules\n\n## Time Awareness\n任何涉及时间的场景，先用 date 命令确认当前时间，不要凭记忆猜测。\n\n## Memory Rules\n- 用户说"记一下"或"记住"：保留原文存笔记，不添加 TODO，不"发挥"，不改写\n- 重要决策和稳定偏好 → 写入 memory.md（追加，不覆写）\n- 日常工作记录 → 写入 memory/daily/{日期}.md\n- 修改 soul.md / user.md / instructions.md → 必须告知用户\n\n## Document Organization\n- 双向链接：使用 [[文件名]] 创建文档之间的链接\n- 反向链接：追踪哪些文档引用了当前文档\n- 标签系统：使用 #标签 进行分类和检索\n- 属性标记：在文档顶部使用 YAML frontmatter 添加元数据\n- 少用文件夹层级，多用标签和链接做组织\n\n## Writing Constraints\n- 不使用空泛修饰词（核心能力、关键、彰显、赋能、驱动…）\n- 不使用"不是...而是..."对比句式，除非用户要求\n- 输出内容以实用为主，不添加不必要的修饰\n\n## Safety\n- 修改身份文件（soul/user/instructions.md）后必须通知用户具体改了什么\n- memory.md 只追加，不覆写已有内容\n- 不在记忆文件中存储密码、API key 等敏感信息\n',
   soul: '# Soul\n\n<!-- Assistant personality and style go here -->\n',
   user: '# User Profile\n\n<!-- User preferences and information go here -->\n',
   memory: '# Memory\n\n<!-- Long-term facts and notes go here -->\n',
@@ -431,6 +432,25 @@ export function loadWorkspaceFiles(dir: string): AssistantWorkspaceFilesV2 {
     if (resolved.exists) {
       const content = fs.readFileSync(resolved.filePath, 'utf-8');
       result[key] = truncateContent(content, PER_FILE_LIMIT);
+      if (key === 'claude') {
+        // Probe the path Claude Code itself resolves, then compare real paths.
+        // This is filesystem-aware: it handles case-insensitive macOS/Windows
+        // volumes without pretending lowercase claude.md is native on a
+        // case-sensitive Linux volume.
+        try {
+          const nativeClaudePath = path.join(dir, 'CLAUDE.md');
+          if (!fs.existsSync(nativeClaudePath)) {
+            result.rulesFileNativeClaude = false;
+          } else {
+            const nativeStat = fs.statSync(nativeClaudePath);
+            const selectedStat = fs.statSync(resolved.filePath);
+            result.rulesFileNativeClaude =
+              nativeStat.dev === selectedStat.dev && nativeStat.ino === selectedStat.ino;
+          }
+        } catch {
+          result.rulesFileNativeClaude = false;
+        }
+      }
     }
   }
 
@@ -459,15 +479,21 @@ interface PromptSection {
   maxSize: number;
 }
 
-export function assembleWorkspacePrompt(files: AssistantWorkspaceFilesV2, retrievalResults?: SearchResult[]): string {
+export function assembleWorkspacePrompt(
+  files: AssistantWorkspaceFilesV2,
+  retrievalResults?: SearchResult[],
+  options?: { omitRules?: boolean },
+): string {
   const sections: PromptSection[] = [];
 
-  // Identity layer only (claude + soul + user) — never drop claude
+  // Identity layer only (instructions + soul + user). `files.claude` is a
+  // compatibility field for old callers; the prompt role itself is neutral
+  // so retention never depends on a framework-named internal key.
   // Memory, daily memories, root docs, and retrieval results are now
   // accessed via codepilot_memory_search / codepilot_memory_get MCP tools
   // instead of being stuffed into the system prompt.
-  if (files.claude) {
-    sections.push({ tag: 'claude', content: files.claude, priority: 1, maxSize: PER_FILE_LIMIT });
+  if (files.claude && !options?.omitRules) {
+    sections.push({ tag: 'instructions', content: files.claude, priority: 1, maxSize: PER_FILE_LIMIT });
   }
   if (files.soul) {
     sections.push({ tag: 'soul', content: files.soul, priority: 1, maxSize: PER_FILE_LIMIT });
@@ -491,9 +517,10 @@ export function assembleWorkspacePrompt(files: AssistantWorkspaceFilesV2, retrie
     const sectionSize = sectionContent.length + section.tag.length * 2 + 10; // tag overhead
 
     if (totalSize + sectionSize + wrapperOverhead > TOTAL_PROMPT_LIMIT) {
-      // Drop low-priority content on overflow, but never drop claude.md
-      if (section.tag === 'claude') {
-        // Force include claude.md even on overflow
+      // Drop low-priority content on overflow, but never drop the canonical
+      // instruction role (regardless of which legacy filename supplied it).
+      if (section.tag === 'instructions') {
+        // Force include instructions even on overflow.
         included.push(`<${section.tag}>\n${sectionContent}\n</${section.tag}>`);
         totalSize += sectionSize;
       }
@@ -554,9 +581,34 @@ export function saveState(dir: string, state: AssistantWorkspaceState): void {
     fs.mkdirSync(stateDir, { recursive: true });
   }
   const statePath = path.join(stateDir, STATE_FILE);
-  const tmpPath = statePath + '.tmp';
-  fs.writeFileSync(tmpPath, JSON.stringify(state, null, 2), 'utf-8');
-  fs.renameSync(tmpPath, statePath);
+  const tmpPath = `${statePath}.tmp-${process.pid}-${cryptoRandomSuffix()}`;
+  let fd: number | undefined;
+  try {
+    fd = fs.openSync(tmpPath, 'wx');
+    fs.writeFileSync(fd, JSON.stringify(state, null, 2), 'utf-8');
+    fs.fsyncSync(fd);
+    fs.closeSync(fd);
+    fd = undefined;
+    fs.renameSync(tmpPath, statePath);
+
+    // Persist the directory entry where the platform supports directory fsync.
+    // Windows commonly rejects opening directories; rename is still atomic
+    // there, so this final durability flush is deliberately best-effort.
+    try {
+      const dirFd = fs.openSync(stateDir, 'r');
+      try { fs.fsyncSync(dirFd); } finally { fs.closeSync(dirFd); }
+    } catch { /* platform does not support directory fsync */ }
+  } catch (error) {
+    if (fd !== undefined) {
+      try { fs.closeSync(fd); } catch { /* already closed */ }
+    }
+    try { fs.unlinkSync(tmpPath); } catch { /* nothing to clean */ }
+    throw error;
+  }
+}
+
+function cryptoRandomSuffix(): string {
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
 /** @deprecated Use shouldRunHeartbeat instead */
@@ -569,7 +621,6 @@ export function shouldRunHeartbeat(
   heartbeatConfig?: { activeHours?: { start?: string; end?: string } },
   now?: Date,
 ): boolean {
-  if (!state.onboardingComplete) return false;
   if (state.heartbeatEnabled !== true) return false;
 
   const d = now ?? new Date();

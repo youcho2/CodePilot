@@ -42,6 +42,22 @@ const INTERACTIVE_ALLOWED = new Set<ProviderCallScene>([
   'connection_test',
 ]);
 
+const PROVIDER_CALL_OBSERVER_KEY = Symbol.for('codepilot.provider-call-policy-observer');
+
+type ProviderCallObserver = (scene: ProviderCallScene | undefined) => void;
+
+/** Test-only observation point at the shared pre-credential policy boundary. */
+export function setProviderCallPolicyObserverForTests(observer: ProviderCallObserver | null): void {
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error('Provider call observer is unavailable in production');
+  }
+  const target = globalThis as typeof globalThis & {
+    [PROVIDER_CALL_OBSERVER_KEY]?: ProviderCallObserver;
+  };
+  if (observer) target[PROVIDER_CALL_OBSERVER_KEY] = observer;
+  else delete target[PROVIDER_CALL_OBSERVER_KEY];
+}
+
 export class ProviderCallPolicyError extends Error {
   readonly code: 'CALL_SCENE_REQUIRED' | 'INTERACTIVE_ONLY_SCENE_BLOCKED';
   readonly scene?: ProviderCallScene;
@@ -99,6 +115,10 @@ export function assertProviderCallAllowed(
   provider: ApiProvider | undefined,
   scene: ProviderCallScene | undefined,
 ): void {
+  const observer = (globalThis as typeof globalThis & {
+    [PROVIDER_CALL_OBSERVER_KEY]?: ProviderCallObserver;
+  })[PROVIDER_CALL_OBSERVER_KEY];
+  observer?.(scene);
   if (!scene) throw new ProviderCallPolicyError({ code: 'CALL_SCENE_REQUIRED' });
   if (getProviderUsagePolicy(provider) !== 'interactive_only') return;
   if (!isInteractiveSceneAllowed(scene)) {

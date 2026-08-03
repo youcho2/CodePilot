@@ -278,6 +278,7 @@ export async function processMessage(
       entryPoint: 'bridge',
       userPrompt: text,
       conversationHistory: historyMsgs,
+      claudeSdkOwnsProjectRules: activeRuntime === 'claude_code' && !resolved.provider,
     });
 
     // Resolve a valid working directory from multiple candidates
