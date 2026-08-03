@@ -24,6 +24,7 @@ import { dirname, join, win32 as win32Path } from 'node:path';
 import { CodexAppServerClient, type CodexTransport } from './app-server-client';
 import type { CodexAvailability } from './types';
 import { shouldDropCodexTraceLine, resolveCodexRustLog } from './codex-trace-filter';
+import { prepareCodePilotCodexHome } from './home-isolation';
 import {
   buildProxySafeEnvironment,
   type ProxyProcessEnvironment,
@@ -579,6 +580,7 @@ let lastAvailability: CodexAvailability = { kind: 'unknown' };
 export function buildCodexAppServerEnv(
   source: ProxyProcessEnvironment = process.env,
   platform: NodeJS.Platform = process.platform,
+  codexHome?: string,
 ): NodeJS.ProcessEnv {
   return buildProxySafeEnvironment({
     baseEnv: source,
@@ -588,9 +590,23 @@ export function buildCodexAppServerEnv(
       // log + main-process memory. Explicit RUST_LOG wins; opt into full
       // 'info' tracing with CODEPILOT_CODEX_TRACE=1.
       RUST_LOG: resolveCodexRustLog(source),
+      // Codex rollouts and its SQLite thread index must have one owner. The
+      // official client uses ~/.codex; CodePilot prepares a dedicated home
+      // and mirrors only user-owned Harness inputs into it.
+      ...(codexHome ? { CODEX_HOME: codexHome, CODEX_SQLITE_HOME: codexHome } : {}),
     },
     platform,
   }) as NodeJS.ProcessEnv;
+}
+
+/** Keep the SQLite index isolated even when the mirrored user config.toml has
+ * an explicit `sqlite_home` (config values otherwise outrank the env var). */
+export function buildCodexAppServerArgs(codexHome: string): string[] {
+  return [
+    'app-server',
+    '-c',
+    `sqlite_home=${JSON.stringify(codexHome)}`,
+  ];
 }
 
 /**
@@ -612,15 +628,42 @@ export async function getCodexAppServer(): Promise<ManagedAppServer> {
   cached = (async (): Promise<ManagedAppServer> => {
     let proc: ChildProcessWithoutNullStreams;
     try {
+      const preparedHome = prepareCodePilotCodexHome();
       // Windows `.cmd`/`.bat` shims can't be spawned directly (EINVAL) — run
       // them through cmd.exe. Real .exe / macOS / Linux paths spawn directly.
-      const launch = buildCodexLaunch(binary, ['app-server']);
-      console.info('[codex.app-server] spawning', { binary, command: launch.command, args: launch.args });
+      const launch = buildCodexLaunch(binary, buildCodexAppServerArgs(preparedHome.codexHome));
+      console.info('[codex.app-server] spawning', {
+        binary,
+        command: launch.command,
+        args: launch.args,
+        codexHome: preparedHome.codexHome,
+        migratedRollouts: preparedHome.migratedRollouts,
+        credentialMirrors: preparedHome.credentialMirrors,
+      });
+      const independentCredentials = Object.entries(preparedHome.credentialMirrors)
+        .filter(([, mode]) => ['copy', 'target_only', 'broken_link'].includes(mode))
+        .map(([name]) => name);
+      if (independentCredentials.length > 0) {
+        console.warn('[codex.app-server] credential mirror is independent on this platform; CodePilot may require a separate login', {
+          entries: independentCredentials,
+          modes: preparedHome.credentialMirrors,
+        });
+      }
+      if (preparedHome.harnessSnapshotEntries.length > 0) {
+        console.warn('[codex.app-server] live Harness mirror unavailable; using a snapshot that may require manual refresh', {
+          entries: preparedHome.harnessSnapshotEntries,
+        });
+      }
+      if (preparedHome.skippedUnreadableRollouts > 0) {
+        console.warn('[codex.app-server] skipped legacy rollouts with unreadable session metadata', {
+          count: preparedHome.skippedUnreadableRollouts,
+        });
+      }
       proc = spawn(launch.command, launch.args, {
         stdio: ['pipe', 'pipe', 'pipe'],
         windowsHide: true,
         windowsVerbatimArguments: launch.windowsVerbatimArguments,
-        env: buildCodexAppServerEnv(),
+        env: buildCodexAppServerEnv(process.env, process.platform, preparedHome.codexHome),
       });
     } catch (err) {
       cached = null;

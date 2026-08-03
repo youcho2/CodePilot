@@ -7,7 +7,10 @@ import {
   hasConfiguredProxy,
   withLoopbackProxyBypass,
 } from '@/lib/process-proxy-env';
-import { buildCodexAppServerEnv } from '@/lib/codex/app-server-manager';
+import {
+  buildCodexAppServerArgs,
+  buildCodexAppServerEnv,
+} from '@/lib/codex/app-server-manager';
 
 describe('process proxy environment — loopback boundary', () => {
   it('preserves user NO_PROXY rules, appends all loopback forms, and is idempotent on POSIX', () => {
@@ -92,15 +95,28 @@ describe('process proxy environment — loopback boundary', () => {
   });
 
   it('re-applies the bypass at the Codex app-server process boundary', () => {
+    const isolatedHome = path.join(path.sep, 'codepilot-data', 'codex-home');
     const env = buildCodexAppServerEnv({
       HTTP_PROXY: 'http://127.0.0.1:7892',
       NO_PROXY: '.corp.test',
       RUST_LOG: 'error',
-    }, 'win32');
+      CODEX_SQLITE_HOME: path.join(path.sep, 'shared-codex-state'),
+    }, 'win32', isolatedHome);
 
     assert.equal(env.HTTP_PROXY, 'http://127.0.0.1:7892');
     assert.equal(env.NO_PROXY, '.corp.test,127.0.0.1,localhost,::1');
     assert.equal(env.RUST_LOG, 'error');
+    assert.equal(env.CODEX_HOME, isolatedHome);
+    assert.equal(env.CODEX_SQLITE_HOME, isolatedHome);
+  });
+
+  it('forces the isolated SQLite home above a mirrored user config value', () => {
+    const isolatedHome = path.join(path.sep, 'CodePilot Data', 'codex-home');
+    assert.deepEqual(buildCodexAppServerArgs(isolatedHome), [
+      'app-server',
+      '-c',
+      `sqlite_home=${JSON.stringify(isolatedHome)}`,
+    ]);
   });
 
   it('wires the shared builder into Electron packaged-server startup', () => {

@@ -31,6 +31,7 @@ import {
   isFatalCodexConfigStderr,
   resetCodexBinaryCacheForTests,
   buildCodexLaunch,
+  buildCodexAppServerArgs,
   collectCodexCandidatePaths,
   fingerprintCodexCandidates,
   getMacOSCodexBundleCandidates,
@@ -228,10 +229,19 @@ describe('Codex app-server spawn compatibility', () => {
     // Phase 1 (2026-06-02) routed the spawn through buildCodexLaunch so a
     // Windows `.cmd` shim gets a cmd.exe wrapper; we pin the app-server
     // subcommand + no---listen contract that older Codex.app builds need.
+    const args = buildCodexAppServerArgs('/tmp/codepilot/codex-home');
+    const launch = buildCodexLaunch('/usr/bin/codex', args, 'linux');
+    assert.equal(launch.command, '/usr/bin/codex');
+    assert.equal(launch.args[0], 'app-server');
+    assert.equal(launch.args.includes('--listen'), false);
+    assert.deepEqual(launch.args.slice(1), [
+      '-c',
+      'sqlite_home="/tmp/codepilot/codex-home"',
+    ]);
     assert.match(
       managerSrc,
-      /buildCodexLaunch\(binary,\s*\[\s*['"]app-server['"]\s*\]/,
-      'app-server must be launched through buildCodexLaunch with the app-server subcommand',
+      /buildCodexLaunch\(binary,\s*buildCodexAppServerArgs\(preparedHome\.codexHome\)\)/,
+      'getCodexAppServer must launch with the isolated app-server argument builder',
     );
     assert.match(
       managerSrc,

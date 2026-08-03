@@ -91,6 +91,39 @@ CodePilot Provider 会话把 Codex app-server 的 Responses endpoint 指向
   system proxy resolver；相关改动必须补“仅 system proxy、无 env proxy”的 packaged smoke，
   不能用 source test 或 macOS build 代替。
 
+### 2.6 Codex 会话存储隔离
+
+- CodePilot 的 `codex app-server` 必须同时把 `CODEX_HOME` 与
+  `CODEX_SQLITE_HOME` 指向 `<CLAUDE_GUI_DATA_DIR>/codex-home`，不能再使用官方
+  Codex 客户端默认的 `~/.codex` 状态根。否则 CodePilot 创建的 thread 会进入
+  Codex Desktop 的任务列表，两个客户端也会竞争同一份 rollout / SQLite 索引。
+- 隔离目录可以镜像用户所有的 Harness 输入（账号引导、`config.toml` 与 profile、
+  Skills、Plugins、rules、themes、memories），但禁止镜像 runtime 所有的
+  `sessions`、`archived_sessions`、SQLite、日志与缓存。`config.toml` 等 Harness
+  输入优先使用 live symlink / junction（Windows 文件可降级 hardlink）；CodePilot
+  对这些 live entry 的写入有意回到用户的官方 Codex Harness，因此 project trust
+  等配置可能同时出现在官方客户端。若上游以 atomic rename 替换文件而断开链接，
+  下次启动必须识别为 snapshot 并告警；禁止自动覆盖或伪装仍在实时同步。
+- 首次初始化只复制 `session_meta.originator === 'codex_codepilot'` 的旧 rollout；
+  禁止把用户的全部 Codex 历史导入 CodePilot。rollout 必须复制而非链接，保证后续
+  CodePilot turn 不会继续改写官方客户端的历史文件。
+- 凭据 entry 只在首次初始化建立一次；初始化模式必须写进 marker，每次启动还要按
+  当前 inode / realpath 重新分类并在日志披露：
+  `symlink`（macOS/Linux 首选，实时共享）、`hardlink`（Windows 同卷降级，共享
+  inode）或 `copy`（跨卷/受限环境降级，从建立时起为 CodePilot 独立凭据）。
+  `copy` / `target_only` 必须明确告警“可能需要分别登录”；不得把它们描述为共享。
+  symlink/hardlink 遇到 atomic rename 后也可能转为独立文件，不能继续沿用 marker 中
+  的旧分类。用户在 CodePilot 内退出登录只删除隔离目录 entry，不能
+  删除官方凭据；marker 存在后重启不得再次从官方客户端静默恢复。
+- live mirror 不可用时，文件/目录 copy 只是 snapshot。启动日志必须列出降级 entry；
+  因 CodePilot 与官方客户端都可能写入，首版不做破坏性的自动覆盖/伪合并，由用户
+  重新登录或手动同步 Harness 内容。
+- 旧 rollout 采用 copy-not-move；因此升级前已经显示在 Codex Desktop 的历史条目
+  仍会保留，但 CodePilot 后续只续写隔离副本。清理官方历史必须是独立的用户确认
+  操作，不能藏在迁移里。
+- 后续新增的 app-server spawn 路径或后台 worker 必须复用
+  `prepareCodePilotCodexHome()`；只设置两个 home 变量中的一个属于契约违规。
+
 ## 3. 关键文件 + 不变量
 
 | 模块 | 文件 | 不变量 |
