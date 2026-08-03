@@ -30,6 +30,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   },
   app: {
     getLogPath: () => ipcRenderer.invoke('app:get-log-path') as Promise<string | null>,
+    getDefaultAssistantHome: () =>
+      ipcRenderer.invoke('app:get-default-assistant-home') as Promise<string>,
   },
   theme: {
     setSource: (source: 'system' | 'light' | 'dark') =>
@@ -103,30 +105,19 @@ contextBridge.exposeInMainWorld('electronAPI', {
     },
   },
   notification: {
-    // Phase 3 Step 3: payload extended with task / session / event IDs
-    // so the click → router.push round-trip can route to the right
-    // /settings/tasks?focus=… or chat session.
-    show: (options: {
-      title: string;
-      body: string;
-      onClick?: unknown;
-      taskId?: string;
-      sessionId?: string;
-      event_id?: string;
-    }) =>
-      ipcRenderer.invoke('notification:show', options),
+    ready: () => ipcRenderer.send('notification:renderer-ready'),
     onClick: (
       callback: (
         action:
           | { type: string; payload: string }
-          | { taskId?: string; sessionId?: string; event_id?: string },
+          | { taskId?: string; sessionId?: string; event_id?: string; route?: string },
       ) => void,
     ) => {
       const listener = (
         _event: unknown,
         action:
           | { type: string; payload: string }
-          | { taskId?: string; sessionId?: string; event_id?: string },
+          | { taskId?: string; sessionId?: string; event_id?: string; route?: string },
       ) => callback(action);
       ipcRenderer.on('notification:click', listener);
       return () => { ipcRenderer.removeListener('notification:click', listener); };

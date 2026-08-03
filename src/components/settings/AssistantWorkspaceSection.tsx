@@ -2,7 +2,6 @@
 
 import { useState, useCallback, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { getLocalDateString } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { PromptDialog } from "@/components/ui/prompt-dialog";
 import {
@@ -66,6 +65,14 @@ export function AssistantWorkspaceSection() {
   // branch and this dialog is never shown.
   const [pathPromptOpen, setPathPromptOpen] = useState(false);
   const [showWizard, setShowWizard] = useState(false);
+  const [runningHeartbeat, setRunningHeartbeat] = useState(false);
+  const [testingNotification, setTestingNotification] = useState(false);
+  const [testNotificationStatus, setTestNotificationStatus] = useState<{
+    status: 'queued' | 'delivered' | 'error';
+    error?: string | null;
+    attemptCount?: number;
+    acceptedAt?: string | null;
+  } | null>(null);
   const [summary, setSummary] = useState<WorkspaceSummary | null>(null);
 
   const fetchWorkspace = useCallback(async () => {
@@ -91,6 +98,56 @@ export function AssistantWorkspaceSection() {
         setSummary(data);
       }
     } catch { /* ignore */ }
+  }, []);
+
+  const handleTestNotification = useCallback(async () => {
+    setTestingNotification(true);
+    setTestNotificationStatus(null);
+    try {
+      const created = await fetch('/api/tasks/notify/test', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: '{}',
+      });
+      if (!created.ok) throw new Error(`HTTP ${created.status}`);
+      const payload = await created.json() as { event_id: string };
+      setTestNotificationStatus({ status: 'queued' });
+
+      // Electron Main polls every two seconds. Keep this bounded and report
+      // only the durable row's real terminal state; a timeout remains queued.
+      for (let attempt = 0; attempt < 50; attempt += 1) {
+        await new Promise((resolve) => setTimeout(resolve, 1_000));
+        const response = await fetch(
+          `/api/tasks/notify/test?event_id=${encodeURIComponent(payload.event_id)}`,
+        );
+        if (!response.ok) continue;
+        const result = await response.json() as {
+          delivery?: {
+            status: string;
+            error?: string | null;
+            attempt_count?: number;
+            acked_at?: string | null;
+          } | null;
+        };
+        const delivery = result.delivery;
+        if (delivery?.status === 'delivered' || delivery?.status === 'error') {
+          setTestNotificationStatus({
+            status: delivery.status,
+            error: delivery.error,
+            attemptCount: delivery.attempt_count,
+            acceptedAt: delivery.acked_at,
+          });
+          return;
+        }
+      }
+    } catch (error) {
+      setTestNotificationStatus({
+        status: 'error',
+        error: error instanceof Error ? error.message : String(error),
+      });
+    } finally {
+      setTestingNotification(false);
+    }
   }, []);
 
   const fetchTaxonomy = useCallback(async () => {
@@ -347,8 +404,6 @@ export function AssistantWorkspaceSection() {
     );
   }
 
-  const today = getLocalDateString();
-  const checkInDoneToday = workspace?.state?.lastHeartbeatDate === today;
 
   const defaultTab: { id: TabId; label: string } = { id: 'files', label: t('assistant.fileStatus') };
   const advancedTabs: Array<{ id: TabId; label: string }> = [
@@ -484,11 +539,9 @@ export function AssistantWorkspaceSection() {
         </SettingsCard>
       )}
 
-      {/* Daily Check-in Card */}
-      {workspace?.path && workspace.valid !== false && workspace.state?.onboardingComplete && (
+      {/* Heartbeat is optional and independent from onboarding. */}
+      {workspace?.path && workspace.valid !== false && workspace.state && (
         <CheckInCard
-          lastCheckInDate={workspace.state?.lastHeartbeatDate ?? null}
-          checkInDoneToday={checkInDoneToday}
           autoTriggerEnabled={workspace.state?.heartbeatEnabled === true}
           onAutoTriggerChange={async (enabled) => {
             try {
@@ -498,10 +551,7 @@ export function AssistantWorkspaceSection() {
                 body: JSON.stringify({ heartbeatEnabled: enabled }),
               });
               if (!res.ok) return; // don't flip UI on failure
-              setWorkspace((prev) => prev && prev.state ? {
-                ...prev,
-                state: { ...prev.state, heartbeatEnabled: enabled },
-              } : prev);
+              await fetchWorkspace();
             } catch { /* network error — leave UI unchanged */ }
           }}
           intervalHours={workspace.state?.heartbeatIntervalHours ?? 24}
@@ -513,12 +563,23 @@ export function AssistantWorkspaceSection() {
                 body: JSON.stringify({ heartbeatIntervalHours: hours }),
               });
               if (!res.ok) return;
-              setWorkspace((prev) => prev && prev.state ? {
-                ...prev,
-                state: { ...prev.state, heartbeatIntervalHours: hours },
-              } : prev);
+              await fetchWorkspace();
             } catch { /* network error — leave UI unchanged */ }
           }}
+          heartbeatStatus={workspace.heartbeat}
+          runningNow={runningHeartbeat}
+          onRunNow={workspace.heartbeat?.taskId ? async () => {
+            setRunningHeartbeat(true);
+            try {
+              await fetch(`/api/tasks/${workspace.heartbeat!.taskId}/run`, { method: 'POST' });
+              await fetchWorkspace();
+            } finally {
+              setRunningHeartbeat(false);
+            }
+          } : undefined}
+          onTestNotification={handleTestNotification}
+          testingNotification={testingNotification}
+          testNotificationStatus={testNotificationStatus}
         />
       )}
 

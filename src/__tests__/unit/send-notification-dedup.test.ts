@@ -80,8 +80,8 @@ describe('sendNotification dedup return shape (v7 P2 fix)', () => {
     const channels = result.deliveries.map((d) => d.channel);
     assert.deepEqual(
       channels.sort(),
-      ['electron-native', 'renderer-toast'].sort(),
-      'normal priority candidates: renderer-toast + electron-native, exactly once each',
+      ['electron-native'],
+      'normal priority has one native candidate owned by Electron Main',
     );
     // No bridge candidates at non-urgent.
     assert.ok(!result.deliveries.some((d) => d.channel.startsWith('bridge-')));

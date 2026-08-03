@@ -1,61 +1,58 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { settleClaimedNotificationDelivery } from '@/lib/db';
+import { validateNotificationConsumerRequest } from '@/lib/notification-claim-policy';
 
-/**
- * Phase 3 Step 3 — delivery ack.
- *
- * Renderer / Electron bg-poller / Bridge channels POST here after
- * actually displaying a notification (or failing to). v5 plan locks
- * the semantics: this route MUST be UPSERT, never INSERT a duplicate.
- * `upsertNotificationDelivery` writes the row only if it doesn't exist,
- * otherwise updates the existing row's status + error + acked_at. The
- * DB layer also has a `UNIQUE(event_id, channel)` constraint as a
- * second safety net.
- *
- * State transition rules (enforced inside the helper):
- *   - queued / not_configured / skipped → delivered / error: allowed
- *   - delivered → error or error → delivered: rejected (a stale ack
- *     can't flip a previously-confirmed terminal state)
- *   - same terminal state re-acked: idempotent no-op (returns true)
- *
- * Returns `{ ok: true, written: <bool> }` where `written=false` means
- * the call was rejected by the state-transition guard. Renderer can
- * use this to log a soft warning without bothering the user.
- */
+/** Settle one leased delivery attempt. Owner matching prevents stale acks. */
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { event_id, channel, status, error } = body as {
-      event_id?: string;
+    const { delivery_id, owner, channel, outcome, error, retryable } = body as {
+      delivery_id?: string;
+      owner?: string;
       channel?: string;
-      status?: string;
+      outcome?: string;
       error?: string;
+      retryable?: boolean;
     };
 
-    if (!event_id || !channel || !status) {
+    const policy = validateNotificationConsumerRequest(request, channel);
+    if (!policy.ok) return NextResponse.json({ error: policy.error }, { status: policy.status });
+
+    if (!delivery_id || !owner || !channel || !outcome) {
       return NextResponse.json(
-        { error: 'event_id, channel and status are required' },
+        { error: 'delivery_id, owner, channel and outcome are required' },
+        { status: 400 },
+      );
+    }
+    if (
+      typeof delivery_id !== 'string' || delivery_id.length > 128
+      || typeof owner !== 'string' || owner.length > 128
+      || (error !== undefined && (typeof error !== 'string' || error.length > 2_000))
+    ) {
+      return NextResponse.json({ error: 'Ack fields exceed their allowed bounds' }, { status: 400 });
+    }
+
+    if (outcome !== 'delivered' && outcome !== 'error') {
+      return NextResponse.json(
+        { error: 'outcome must be delivered or error' },
         { status: 400 },
       );
     }
 
-    const validStatuses = new Set(['queued', 'delivered', 'error', 'not_configured', 'skipped']);
-    if (!validStatuses.has(status)) {
-      return NextResponse.json(
-        { error: `status must be one of ${[...validStatuses].join(' | ')}` },
-        { status: 400 },
-      );
-    }
-
-    const { upsertNotificationDelivery } = await import('@/lib/db');
-    const written = upsertNotificationDelivery({
-      event_id,
-      channel,
-      status: status as 'queued' | 'delivered' | 'error' | 'not_configured' | 'skipped',
-      error: error ?? null,
+    const result = settleClaimedNotificationDelivery({
+      deliveryId: delivery_id,
+      owner,
+      outcome,
+      error,
+      retryable: retryable === true,
     });
 
-    return NextResponse.json({ ok: true, written });
+    return NextResponse.json({ ok: true, ...result });
   } catch (e) {
-    return NextResponse.json({ error: e instanceof Error ? e.message : 'Failed' }, { status: 500 });
+    const invalidJson = e instanceof SyntaxError;
+    return NextResponse.json(
+      { error: invalidJson ? 'Invalid JSON.' : (e instanceof Error ? e.message : 'Failed') },
+      { status: invalidJson ? 400 : 500 },
+    );
   }
 }

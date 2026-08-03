@@ -80,8 +80,6 @@ export function OnboardingCard({ onboardingComplete, creatingSession, onStartOnb
 // ── Heartbeat Card ──
 
 interface CheckInCardProps {
-  lastCheckInDate: string | null;
-  checkInDoneToday: boolean;
   autoTriggerEnabled: boolean;
   onAutoTriggerChange: (enabled: boolean) => void;
   /**
@@ -92,17 +90,63 @@ interface CheckInCardProps {
    */
   intervalHours?: number;
   onIntervalChange?: (hours: number) => void;
+  heartbeatStatus?: {
+    actualStatus: string;
+    taskId: string | null;
+    nextRun: string | null;
+    lastRunStatus: string | null;
+    lastRunResult?: string | null;
+    lastRunError: string | null;
+    lastRunDurationMs?: number | null;
+    lastMeaningfulAlert?: {
+      text: string;
+      createdAt: string;
+    } | null;
+    lastDelivery?: {
+      status: string;
+      error: string | null;
+      attemptCount: number;
+      acceptedAt: string | null;
+    } | null;
+  };
+  onRunNow?: () => void;
+  runningNow?: boolean;
+  onTestNotification?: () => void;
+  testingNotification?: boolean;
+  testNotificationStatus?: {
+    status: 'queued' | 'delivered' | 'error';
+    error?: string | null;
+    attemptCount?: number;
+    acceptedAt?: string | null;
+  } | null;
 }
 
 export function CheckInCard({
-  lastCheckInDate,
-  checkInDoneToday,
   autoTriggerEnabled,
   onAutoTriggerChange,
   intervalHours,
   onIntervalChange,
+  heartbeatStatus,
+  onRunNow,
+  runningNow,
+  onTestNotification,
+  testingNotification,
+  testNotificationStatus,
 }: CheckInCardProps) {
   const { t } = useTranslation();
+  const latestOutcome = (() => {
+    if (!autoTriggerEnabled) return t('assistant.heartbeatDisabled' as TranslationKey);
+    if (heartbeatStatus?.lastRunStatus === 'running') return t('assistant.heartbeatRunning' as TranslationKey);
+    if (heartbeatStatus?.lastRunStatus === 'skipped_empty') return t('assistant.heartbeatNoReminder' as TranslationKey);
+    if (heartbeatStatus?.lastRunStatus === 'succeeded' && heartbeatStatus.lastRunResult === 'silent') {
+      return t('assistant.heartbeatNoReminder' as TranslationKey);
+    }
+    if (heartbeatStatus?.lastRunStatus === 'succeeded') return t('assistant.heartbeatAlerted' as TranslationKey);
+    if (heartbeatStatus?.lastRunStatus) return t('assistant.heartbeatBlocked' as TranslationKey);
+    return heartbeatStatus?.actualStatus === 'active'
+      ? t('assistant.heartbeatScheduled' as TranslationKey)
+      : t('assistant.heartbeatBlocked' as TranslationKey);
+  })();
 
   // v12 layout: title + Switch on the top row only; description and
   // status get full card width below. v13 (Step 4) adds an interval
@@ -119,17 +163,8 @@ export function CheckInCard({
       <p className="text-xs text-muted-foreground leading-relaxed">
         {t('assistant.heartbeatDesc')}
       </p>
-      <p className="text-xs">
-        {lastCheckInDate && (
-          <span className="text-muted-foreground">
-            {t('assistant.lastHeartbeatLabel')}: {lastCheckInDate}
-          </span>
-        )}
-        {lastCheckInDate ? " " : null}
-        {checkInDoneToday
-          ? <span className="text-status-success-foreground">{t('assistant.heartbeatOk')}</span>
-          : <span className="text-status-warning-foreground">{t('assistant.heartbeatNeeded')}</span>
-        }
+      <p className="text-[11px] text-muted-foreground">
+        {t('assistant.heartbeatCostNotice' as TranslationKey)}
       </p>
       {autoTriggerEnabled && typeof intervalHours === 'number' && onIntervalChange && (
         <div className="flex items-center justify-between gap-3 pt-1">
@@ -152,6 +187,72 @@ export function CheckInCard({
           </Select>
         </div>
       )}
+      <div className="rounded-md border border-border/50 px-3 py-2 text-[11px] text-muted-foreground space-y-1">
+        <p>{latestOutcome}</p>
+        {autoTriggerEnabled && (
+          <>
+          {heartbeatStatus?.nextRun && (
+            <p>{t('assistant.heartbeatNextRun' as TranslationKey)}: {new Date(heartbeatStatus.nextRun).toLocaleString()}</p>
+          )}
+          {heartbeatStatus?.lastRunStatus && (
+            <p>{t('assistant.heartbeatLastResult' as TranslationKey)}: {heartbeatStatus.lastRunStatus}</p>
+          )}
+          {typeof heartbeatStatus?.lastRunDurationMs === 'number' && (
+            <p>{t('assistant.heartbeatDuration' as TranslationKey)}: {heartbeatStatus.lastRunDurationMs} ms</p>
+          )}
+          {heartbeatStatus?.lastRunError && (
+            <p className="text-status-error-foreground">{heartbeatStatus.lastRunError}</p>
+          )}
+          {heartbeatStatus?.lastMeaningfulAlert && (
+            <p>
+              {t('assistant.heartbeatLastAlert' as TranslationKey)}: {heartbeatStatus.lastMeaningfulAlert.text}
+              {` · ${new Date(heartbeatStatus.lastMeaningfulAlert.createdAt).toLocaleString()}`}
+            </p>
+          )}
+          {heartbeatStatus?.lastDelivery && (
+            <p>
+              {t('assistant.heartbeatDelivery' as TranslationKey)}: {heartbeatStatus.lastDelivery.status}
+              {` · ${t('assistant.heartbeatDeliveryAttempts' as TranslationKey)}: ${heartbeatStatus.lastDelivery.attemptCount}`}
+              {heartbeatStatus.lastDelivery.error ? ` · ${heartbeatStatus.lastDelivery.error}` : ''}
+            </p>
+          )}
+          </>
+        )}
+      </div>
+      {autoTriggerEnabled && heartbeatStatus?.taskId && onRunNow && (
+        <Button variant="outline" size="sm" onClick={onRunNow} disabled={runningNow}>
+          {runningNow ? <SpinnerGap size={14} className="animate-spin" /> : null}
+          {t('assistant.heartbeatRunNow' as TranslationKey)}
+        </Button>
+      )}
+      {onTestNotification && (
+        <div className="flex flex-wrap items-center gap-2 pt-1">
+          <Button variant="outline" size="sm" onClick={onTestNotification} disabled={testingNotification}>
+            {testingNotification ? <SpinnerGap size={14} className="animate-spin" /> : null}
+            {t('assistant.testSystemNotification' as TranslationKey)}
+          </Button>
+          {testNotificationStatus?.status === 'queued' && (
+            <span className="text-[11px] text-muted-foreground">
+              {t('assistant.testNotificationQueued' as TranslationKey)}
+            </span>
+          )}
+          {testNotificationStatus?.status === 'delivered' && (
+            <span className="text-[11px] text-status-success-foreground">
+              {t('assistant.testNotificationAccepted' as TranslationKey)}
+              {testNotificationStatus.acceptedAt ? ` · ${new Date(testNotificationStatus.acceptedAt).toLocaleTimeString()}` : ''}
+            </span>
+          )}
+          {testNotificationStatus?.status === 'error' && (
+            <span className="text-[11px] text-status-error-foreground">
+              {t('assistant.testNotificationFailed' as TranslationKey)}
+              {testNotificationStatus.error ? `: ${testNotificationStatus.error}` : ''}
+            </span>
+          )}
+        </div>
+      )}
+      <p className="text-[11px] text-muted-foreground">
+        {t('assistant.testNotificationHint' as TranslationKey)}
+      </p>
       <p className="text-[11px] text-muted-foreground">
         {t('assistant.editHeartbeatHint')}
       </p>

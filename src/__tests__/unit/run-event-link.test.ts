@@ -107,11 +107,11 @@ describe('task_run_logs.notification_event_id link (Phase 3 Step 3 v6 fix)', () 
     const deliveries = db.listNotificationDeliveries(event!.event_id);
     assert.ok(
       deliveries.length >= 1,
-      'at least one notification_deliveries row per fire (renderer-toast for any priority)',
+      'at least one notification_deliveries row per fire',
     );
     const channels = new Set(deliveries.map((d) => d.channel));
-    assert.ok(channels.has('renderer-toast'));
     assert.ok(channels.has('electron-native'), 'normal priority must produce an electron-native row');
+    assert.ok(!channels.has('renderer-toast'), 'normal priority must not create a duplicate in-app toast');
   });
 
   it('failure path also links the failure notification to its run row', async () => {

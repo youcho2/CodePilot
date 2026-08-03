@@ -128,12 +128,11 @@ describe('scheduler — reminder kind path', () => {
     assert.equal(events.length, 1, 'one notification_events row per logical task notification (v4 fix #2)');
     assert.match(events[0].title, /Drink water/);
 
-    // notification_deliveries: one row per candidate channel.
-    // For priority='normal' that's renderer-toast + electron-native.
+    // notification_deliveries: normal priority has one native candidate.
     const deliveries = db.listNotificationDeliveries(events[0].event_id);
     const channels = new Set(deliveries.map((d) => d.channel));
-    assert.ok(channels.has('renderer-toast'), 'renderer-toast delivery row missing');
     assert.ok(channels.has('electron-native'), 'electron-native delivery row missing for normal priority');
+    assert.ok(!channels.has('renderer-toast'), 'normal priority must not duplicate as an in-app toast');
     assert.ok(
       ![...channels].some((c) => c.startsWith('bridge-')),
       'non-urgent priority must NOT write any bridge-* delivery row (v4 fix #3 — Bridge is urgent-only candidate)',

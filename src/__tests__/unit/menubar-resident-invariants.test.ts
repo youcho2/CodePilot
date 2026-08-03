@@ -87,21 +87,18 @@ describe('electron/main.ts — menubar-resident invariants', () => {
     assert.doesNotMatch(trayBuild![0], /Bridge|bridge/);
   });
 
-  it('background notification poll is not gated on bridge state', () => {
-    // The poll must run whenever the main window is hidden, regardless
-    // of bridge activity. The trigger is mainWindow.on('hide'), not
-    // isBridgeActive() inside window-all-closed.
-    assert.match(MAIN, /mainWindow\.on\(['"]hide['"][\s\S]*?startBgNotifyPoll/);
-    assert.match(MAIN, /mainWindow\.on\(['"]show['"][\s\S]*?stopBgNotifyPoll/);
+  it('native notification delivery runs for the app lifetime, independent of visibility and Bridge', () => {
+    assert.match(MAIN, /function startNativeDeliveryService/);
+    assert.match(MAIN, /startNativeDeliveryService\(\)/);
+    assert.doesNotMatch(MAIN, /mainWindow\.on\(['"]hide['"][\s\S]{0,120}Delivery/);
+    assert.doesNotMatch(MAIN, /mainWindow\.on\(['"]show['"][\s\S]{0,120}Delivery/);
 
-    // window-all-closed must not start bg-poll under isBridgeActive() —
-    // that was the removed bridge-coupled path.
     const winAllClosed = MAIN.match(
       /app\.on\(['"]window-all-closed['"][\s\S]*?\}\);/,
     );
     assert.ok(winAllClosed, 'window-all-closed handler not found');
     assert.doesNotMatch(winAllClosed![0], /isBridgeActive/);
-    assert.doesNotMatch(winAllClosed![0], /startBgNotifyPoll/);
+    assert.doesNotMatch(winAllClosed![0], /startNativeDeliveryService|stopNativeDeliveryService/);
   });
 
   it('window-all-closed does NOT call app.quit on non-Darwin', () => {
@@ -115,23 +112,16 @@ describe('electron/main.ts — menubar-resident invariants', () => {
     assert.doesNotMatch(winAllClosed![0], /app\.quit\(\)/);
   });
 
-  it('background poll re-reads serverPort each tick instead of caching at start', () => {
-    // Regression guard: previously `const port = serverPort || 3000` was
-    // evaluated when startBgNotifyPoll() was called, so if the user
-    // closed the loading window before startServerOnStablePort()
-    // resolved, the poller pinned itself to port 3000 forever. The fix
-    // reads serverPort inside the interval callback and skips the tick
-    // when it's null.
+  it('native delivery service re-reads serverPort each tick instead of caching at start', () => {
     const startBody = MAIN.match(
-      /function startBgNotifyPoll[\s\S]*?function stopBgNotifyPoll/,
+      /function startNativeDeliveryService[\s\S]*?function stopNativeDeliveryService/,
     );
-    assert.ok(startBody, 'startBgNotifyPoll body not found');
-    // The fallback "|| 3000" must NOT live at the top of startBgNotifyPoll
-    // anymore (or anywhere in the body that would cache it once).
+    assert.ok(startBody, 'startNativeDeliveryService body not found');
     assert.doesNotMatch(startBody![0], /serverPort\s*\|\|\s*3000/);
-    // And there must be a "skip this tick if no port yet" guard.
-    assert.match(startBody![0], /const port = serverPort/);
-    assert.match(startBody![0], /if \(!port\) return/);
+    assert.match(
+      startBody![0],
+      /const poll = async \(\) => \{[\s\S]*?const port = serverPort;[\s\S]*?if\s*\(\s*!port\s*\)\s*\{[\s\S]*?return;?[\s\S]*?\}/,
+    );
   });
 
   it('macOS tray single-click does NOT open the window (menu-only convention)', () => {
@@ -191,10 +181,8 @@ describe('electron/main.ts — menubar-resident invariants', () => {
     // which returns `undefined` (→ LOADING_HTML splash) when the port
     // hasn't latched yet.
     //
-    // Allow `serverPort || 3000` only inside the bg-poller's tick body
-    // (already covered by an earlier case in this suite — that code
-    // intentionally lives in dev-startup adjacent paths). For showMainWindow
-    // and the activate handler specifically, this fallback must be gone.
+    // For showMainWindow and the activate handler specifically, this fallback
+    // must be gone.
     const showFn = MAIN.match(/function showMainWindow\(\)[\s\S]*?\n\}\n/);
     assert.ok(showFn, 'showMainWindow body not found');
     assert.doesNotMatch(

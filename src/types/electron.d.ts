@@ -93,6 +93,8 @@ interface ElectronAPI {
      *  Returns null when Electron can't surface a path (e.g. permission
      *  error). Renderer must guard for absence in non-Electron / web contexts. */
     getLogPath: () => Promise<string | null>;
+    /** Platform-correct default assistant directory resolved by Electron. */
+    getDefaultAssistantHome: () => Promise<string>;
   };
   theme?: {
     /** Keep Electron's native window material in sync with next-themes. */
@@ -119,21 +121,8 @@ interface ElectronAPI {
   asset?: ElectronAssetAPI;
   terminal?: ElectronTerminalAPI;
   notification?: {
-    /**
-     * Phase 3 Step 3: payload extended with task / session / event IDs
-     * so the OS notification's click handler can route to
-     * `/settings/tasks?focus=…` (or the chat session). Returns the
-     * underlying `ipcRenderer.invoke` result — `true` if the native
-     * notification was created, `false` on Electron error.
-     */
-    show: (options: {
-      title: string;
-      body?: string;
-      onClick?: { type: string; payload: string } | string;
-      taskId?: string;
-      sessionId?: string;
-      event_id?: string;
-    }) => Promise<boolean>;
+    /** Announces that the renderer click listener is installed. */
+    ready: () => void;
     /**
      * Phase 3 Step 3: action payload now carries the task/session/event
      * tuple so `useNotificationClickRoute` can `router.push` to the
@@ -145,7 +134,7 @@ interface ElectronAPI {
         action:
           | string
           | { type: string; payload: string }
-          | { taskId?: string; sessionId?: string; event_id?: string },
+          | { taskId?: string; sessionId?: string; event_id?: string; route?: string },
       ) => void,
     ) => () => void;
   };

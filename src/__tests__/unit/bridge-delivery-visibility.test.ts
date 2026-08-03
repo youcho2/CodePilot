@@ -52,10 +52,6 @@ afterEach(async () => {
     const { closeDb } = await import('../../lib/db');
     closeDb();
   } catch { /* ignore */ }
-  // Reset notification-manager queue so tests don't leak state across
-  // each other.
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  delete (globalThis as any).__codepilot_notification_queue__;
   try {
     fs.rmSync(tempDir, { recursive: true, force: true });
   } catch { /* ignore */ }
@@ -136,10 +132,10 @@ describe('bridge × priority — Phase 3 Step 3', () => {
         0,
         `priority=${priority} must produce zero bridge-* rows — Bridge isn't a candidate at this priority (v4 fix #3)`,
       );
-      // renderer-toast must always exist; electron-native exists for normal.
-      assert.ok(deliveries.some((d) => d.channel === 'renderer-toast'));
-      if (priority === 'normal') {
-        assert.ok(deliveries.some((d) => d.channel === 'electron-native'));
+      if (priority === 'low') {
+        assert.deepEqual(deliveries.map((d) => d.channel), ['renderer-toast']);
+      } else {
+        assert.deepEqual(deliveries.map((d) => d.channel), ['electron-native']);
       }
     }
   });

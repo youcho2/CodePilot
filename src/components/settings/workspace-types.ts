@@ -40,6 +40,27 @@ export interface WorkspaceInfo {
   exists?: boolean;
   files: Record<string, FileStatus>;
   state: WorkspaceState | null;
+  heartbeat?: {
+    desiredEnabled: boolean;
+    actualStatus: string;
+    taskId: string | null;
+    nextRun: string | null;
+    lastRunStatus: string | null;
+    lastRunResult: string | null;
+    lastRunError: string | null;
+    lastRunAt: string | null;
+    lastRunDurationMs: number | null;
+    lastMeaningfulAlert: {
+      text: string;
+      createdAt: string;
+    } | null;
+    lastDelivery: {
+      status: string;
+      error: string | null;
+      attemptCount: number;
+      acceptedAt: string | null;
+    } | null;
+  };
 }
 
 export type TabId = 'files' | 'taxonomy' | 'index' | 'organize';

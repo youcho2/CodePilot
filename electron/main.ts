@@ -57,6 +57,17 @@ const nativeCrashSmokeEnabled = electronTelemetry.enabled
   && process.env.CODEPILOT_NATIVE_CRASH_SMOKE === '1';
 
 import { app, BrowserWindow, Notification, nativeImage, nativeTheme, dialog, session, utilityProcess, ipcMain, shell, Tray, Menu } from 'electron';
+import { resolveDefaultAssistantHome } from './default-assistant-home';
+import {
+  buildNativeNotificationOptions,
+  deliverNativeNotification,
+  NativeNotificationRetention,
+} from './notification-lifecycle';
+import {
+  NotificationClickQueue,
+  resolveNotificationActionRoute,
+  type NotificationClickAction,
+} from './notification-click-queue';
 import path from 'path';
 import { execFileSync, spawn, ChildProcess } from 'child_process';
 import fs from 'fs';
@@ -113,6 +124,11 @@ function sanitizedProcessEnv(): Record<string, string> {
 }
 
 let mainWindow: BrowserWindow | null = null;
+const notificationClickQueue = new NotificationClickQueue((action) => {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('notification:click', action);
+  }
+});
 let serverProcess: Electron.UtilityProcess | null = null;
 let serverPort: number | null = null;
 const serverErrors = new BoundedLineRing(SERVER_ERRORS_MAX_LINES, SERVER_ERRORS_MAX_BYTES);
@@ -126,7 +142,10 @@ let userShellEnv: Record<string, string> = {};
 let resolvedProxyEnv: Record<string, string> = {};
 let isQuitting = false;
 let tray: Tray | null = null;
-let bgNotifyTimer: ReturnType<typeof setInterval> | null = null;
+let nativeDeliveryTimer: ReturnType<typeof setInterval> | null = null;
+let nativeDeliveryPolling = false;
+const nativeDeliveryOwner = `electron-main-${process.pid}-${Math.random().toString(36).slice(2)}`;
+const nativeNotificationRetention = new NativeNotificationRetention<Notification>();
 
 // --- Install orchestrator ---
 interface InstallStep {
@@ -415,192 +434,136 @@ function destroyTray(): void {
     tray.destroy();
     tray = null;
   }
-  stopBgNotifyPoll();
+  stopNativeDeliveryService();
 }
 
-/**
- * Parse notification API response. Canonical version: src/lib/bg-notify-parser.ts
- *
- * Phase 3 Step 3: surfaces `event_id` / `task_id` / `session_id` so the
- * bg-poller can ack delivery and route clicks. We tolerate missing
- * fields (older payloads / external sources) by keeping them optional.
- */
-interface BgNotificationPayload {
+interface NativeDeliveryPayload {
+  delivery_id: string;
+  event_id: string;
   title: string;
   body: string;
-  priority: string;
-  event_id?: string;
-  task_id?: string;
-  session_id?: string;
+  priority: 'low' | 'normal' | 'urgent';
+  task_id: string | null;
+  session_id: string | null;
+  action_type: string | null;
+  action_payload: string | null;
 }
 
-function parseBgNotifications(json: string): BgNotificationPayload[] {
-  try {
-    const parsed = JSON.parse(json);
-    const notifications: BgNotificationPayload[] = parsed.notifications || [];
-    return notifications.filter((n: { title: string }) => n.title);
-  } catch {
-    return [];
-  }
-}
-
-/**
- * Phase 3 Step 3 — ack a delivery row from the Electron main process.
- * Used by the bg-poller after `notification.show()` succeeds.
- *
- * Best effort: if the server is unreachable or the ack fails, we just
- * log; the user-visible notification has already fired, the worst case
- * is the delivery row stays `queued` (which the UI represents
- * honestly as "shown, ack pending" — see v3 plan ack-loss path).
- */
-function ackDelivery(
+async function postNotificationApi<T>(
   port: number,
-  payload: { event_id: string; channel: string; status: 'delivered' | 'error'; error?: string },
-): void {
+  route: string,
+  payload: unknown,
+): Promise<T> {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const http = require('http');
   const body = JSON.stringify(payload);
-  const req = http.request(
-    {
+  return new Promise<T>((resolve, reject) => {
+    const req = http.request({
       hostname: '127.0.0.1',
       port,
-      path: '/api/tasks/notify/ack',
+      path: route,
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'Content-Length': Buffer.byteLength(body),
+        'X-CodePilot-Consumer': 'electron-main',
       },
-    },
-    () => { /* ignore response */ },
-  );
-  req.on('error', () => { /* best effort */ });
-  req.setTimeout(2000, () => { req.destroy(); });
-  req.write(body);
-  req.end();
+    }, (res: import('http').IncomingMessage) => {
+      let responseBody = '';
+      res.on('data', (chunk: Buffer) => { responseBody += chunk.toString(); });
+      res.on('end', () => {
+        if ((res.statusCode || 500) >= 400) {
+          reject(new Error(`notification API ${route} returned ${res.statusCode}`));
+          return;
+        }
+        try { resolve(JSON.parse(responseBody) as T); }
+        catch { reject(new Error(`notification API ${route} returned invalid JSON`)); }
+      });
+    });
+    req.on('error', reject);
+    req.setTimeout(3000, () => { req.destroy(new Error('notification API timeout')); });
+    req.write(body);
+    req.end();
+  });
 }
 
 /**
- * Background notification poller — runs in the main process whenever the
- * main window is hidden or destroyed, so local macOS notifications continue
- * working even after the user closes the window into the menubar. When the
- * window is visible the renderer's `useNotificationPoll` hook handles the
- * same queue, so we self-stop to avoid duplicate delivery.
- *
- * This is intentionally bridge-independent: bridges (Telegram / 飞书 / QQ /
- * Discord) are optional remote channels. Local notifications must work with
- * just CodePilot menubar-resident, no bridge configured.
+ * One native owner for the entire app lifetime. Visibility changes never
+ * transfer ownership to the renderer, so an event cannot be shown twice at
+ * the visible/hidden boundary.
  */
-function startBgNotifyPoll(): void {
-  if (bgNotifyTimer) return;
-
-  bgNotifyTimer = setInterval(async () => {
-    // Stop polling whenever the renderer is on screen — it will drain the
-    // queue itself via useNotificationPoll. We check `isVisible()` instead
-    // of "window count" because in the new menubar-resident model the main
-    // window stays alive (just hidden) when the user clicks close.
-    if (mainWindow && !mainWindow.isDestroyed() && mainWindow.isVisible()) {
-      stopBgNotifyPoll();
+function startNativeDeliveryService(): void {
+  if (nativeDeliveryTimer) return;
+  const poll = async () => {
+    if (nativeDeliveryPolling) return;
+    nativeDeliveryPolling = true;
+    const port = serverPort;
+    if (!port) {
+      nativeDeliveryPolling = false;
       return;
     }
-
-    // Re-read the port each tick. In prod the loading window is created
-    // BEFORE startServerOnStablePort() resolves; if the user closes that
-    // loading window during boot, `hide` fires and startBgNotifyPoll()
-    // runs while serverPort is still null. Caching `serverPort || 3000`
-    // at start would then pin the poller to 3000 forever, even after the
-    // real port lands. Skipping the tick keeps the timer armed; it'll
-    // succeed on the next 5s wakeup once the server is ready.
-    const port = serverPort;
-    if (!port) return;
-
     try {
-      const http = await import('http');
-      const data = await new Promise<string>((resolve, reject) => {
-        const req = http.get(`http://127.0.0.1:${port}/api/tasks/notify`, (res) => {
-          let body = '';
-          res.on('data', (chunk: Buffer) => { body += chunk.toString(); });
-          res.on('end', () => resolve(body));
-        });
-        req.on('error', reject);
-        req.setTimeout(3000, () => { req.destroy(); reject(new Error('timeout')); });
-      });
+      const claimed = await postNotificationApi<{ delivery: NativeDeliveryPayload | null }>(
+        port,
+        '/api/tasks/notify/claim',
+        { channel: 'electron-native', owner: nativeDeliveryOwner },
+      );
+      const delivery = claimed.delivery;
+      if (!delivery) return;
 
-      const notifications = parseBgNotifications(data);
-      for (const notif of notifications) {
-        try {
-          const notification = new Notification({
-            title: notif.title,
-            body: notif.body || '',
-          });
-          // #34 observability — bg (window-hidden) show path. supported=false
-          // OR no banner despite supported=true ⇒ macOS notification permission
-          // for this app (esp. an unsigned dev Electron binary) is the suspect.
-          console.log(`[notify] bg-poller OS notification: supported=${Notification.isSupported()} title=${JSON.stringify(notif.title)}`);
-          // Phase 3 Step 3: click → re-open window AND forward payload
-          // to renderer so it can route to /settings/tasks?focus=<id>
-          // (or the relevant chat session). The IPC channel is the
-          // same one notification:show uses for in-renderer display.
-          notification.on('click', () => {
-            showMainWindow();
-            if (notif.task_id || notif.session_id) {
-              mainWindow?.webContents.send('notification:click', {
-                taskId: notif.task_id,
-                sessionId: notif.session_id,
-                event_id: notif.event_id,
-              });
-            }
-          });
-          notification.show();
-          // v6 fix (P1): unify on `electron-native`. `sendNotification`
-          // pre-writes a `electron-native` row in queued state when
-          // priority is normal/urgent; the bg-poller MUST ack THAT
-          // row, not introduce a new `electron-bg-native` channel
-          // that leaves the original queued forever. Whether the OS
-          // notification was rendered by the bg-poller (window hidden)
-          // or by the renderer's `useNotificationPoll` (window visible)
-          // is the same surface from the user's POV — one row tracking
-          // both is the honest representation.
-          if (notif.event_id) {
-            ackDelivery(port, {
-              event_id: notif.event_id,
-              channel: 'electron-native',
-              status: 'delivered',
-            });
-            // The drain consumed the queue, so the renderer (when the
-            // window returns visible) will NOT see this notification
-            // again. Mark its `renderer-toast` candidate as skipped so
-            // the UI can show "in-app toast: skipped (window hidden)"
-            // instead of perpetual queued. UPSERT semantics make this
-            // safe to call even if the row was already acked.
-            ackDelivery(port, {
-              event_id: notif.event_id,
-              channel: 'renderer-toast',
-              status: 'skipped',
-              error: 'window hidden — bg-poller delivered native notification only',
-            });
-          }
-        } catch (err) {
-          if (notif.event_id) {
-            ackDelivery(port, {
-              event_id: notif.event_id,
-              channel: 'electron-native',
-              status: 'error',
-              error: err instanceof Error ? err.message : String(err),
-            });
-          }
-        }
+      const action: NotificationClickAction = {
+        taskId: delivery.task_id || undefined,
+        sessionId: delivery.session_id || undefined,
+        event_id: delivery.event_id,
+        route: resolveNotificationActionRoute(delivery.action_type, delivery.action_payload),
+      };
+      const supported = Notification.isSupported();
+      const notification = supported
+        ? new Notification(buildNativeNotificationOptions(process.platform, delivery.title, delivery.body || ''))
+        : null;
+      if (notification) {
+        nativeNotificationRetention.retain(notification);
+        notification.once('close', () => nativeNotificationRetention.release(notification));
       }
-    } catch {
-      // Server may not be reachable — ignore
+      const outcome = await deliverNativeNotification({
+        platform: process.platform,
+        supported,
+        notification,
+        onClick: () => {
+          if (notification) nativeNotificationRetention.release(notification);
+          showMainWindow();
+          notificationClickQueue.push(action);
+        },
+      });
+      if (outcome.status === 'error' && notification) {
+        nativeNotificationRetention.release(notification);
+      }
+      await postNotificationApi(port, '/api/tasks/notify/ack', {
+        delivery_id: delivery.delivery_id,
+        owner: nativeDeliveryOwner,
+        channel: 'electron-native',
+        outcome: outcome.status,
+        error: outcome.status === 'error' ? outcome.error : undefined,
+        retryable: outcome.status === 'error' ? outcome.retryable : false,
+      });
+      console.log(`[notify] native delivery event_id=${delivery.event_id} outcome=${outcome.status}`);
+    } catch (error) {
+      console.warn('[notify] native delivery poll failed:', error instanceof Error ? error.message : String(error));
+    } finally {
+      nativeDeliveryPolling = false;
     }
-  }, 5000);
+  };
+  void poll();
+  nativeDeliveryTimer = setInterval(() => { void poll(); }, 2_000);
 }
 
-function stopBgNotifyPoll(): void {
-  if (bgNotifyTimer) {
-    clearInterval(bgNotifyTimer);
-    bgNotifyTimer = null;
+function stopNativeDeliveryService(): void {
+  if (nativeDeliveryTimer) {
+    clearInterval(nativeDeliveryTimer);
+    nativeDeliveryTimer = null;
   }
+  nativeDeliveryPolling = false;
+  nativeNotificationRetention.clear();
 }
 
 /**
@@ -1205,6 +1168,12 @@ function createWindow(url?: string) {
 
   mainWindow = new BrowserWindow(windowOptions);
   attachRendererEditingContextMenu(mainWindow);
+  mainWindow.webContents.on('did-start-loading', () => {
+    // A navigation replaces the renderer and its IPC listeners. Hold native
+    // notification clicks until the new AppShell explicitly announces that
+    // its route listener is installed.
+    notificationClickQueue.setReady(false);
+  });
 
   // External links: open in system default browser instead of Electron
   mainWindow.webContents.setWindowOpenHandler(({ url: targetUrl }) => {
@@ -1361,21 +1330,16 @@ function createWindow(url?: string) {
   // quitting the app. Only `isQuitting` (set by the tray "Quit CodePilot"
   // menu item or by `before-quit`) lets the close go through to a real
   // teardown. The scheduler and local notifications keep running while
-  // hidden — see startBgNotifyPoll().
+  // hidden. Native notification delivery is owned by Electron Main for the
+  // whole app lifetime and does not change with window visibility.
   mainWindow.on('close', (event) => {
     if (isQuitting) return;
     event.preventDefault();
     mainWindow?.hide();
   });
 
-  // When the window goes hidden, hand off notification polling to the main
-  // process (the renderer's useNotificationPoll may be throttled by Chromium
-  // background heuristics on hidden BrowserWindows). When it returns visible,
-  // the renderer takes over and the main-process poller self-stops.
-  mainWindow.on('hide', () => { startBgNotifyPoll(); });
-  mainWindow.on('show', () => { stopBgNotifyPoll(); });
-
   mainWindow.on('closed', () => {
+    notificationClickQueue.setReady(false);
     mainWindow = null;
   });
 }
@@ -2184,6 +2148,10 @@ app.whenReady().then(async () => {
     }
   });
 
+  ipcMain.handle('app:get-default-assistant-home', async () => {
+    return resolveDefaultAssistantHome(app.getPath('documents'));
+  });
+
   // Keep the NSVisualEffectView appearance aligned with the renderer's
   // next-themes mode. Without this bridge, an app-level dark selection can
   // sit over a light native material (or vice versa), which previously led us
@@ -2607,51 +2575,10 @@ app.whenReady().then(async () => {
 
   // --- End terminal IPC handlers ---
 
-  // --- Notification IPC handler ---
-  // Phase 3 Step 3: payload extended with `taskId` / `sessionId` /
-  // `event_id` so a click → re-open + route to /settings/tasks?focus=…
-  // works whether the notification was rendered here (window visible)
-  // or by the bg-poller (window hidden). The legacy `onClick` field is
-  // kept for backward compatibility with non-task notifications.
-  ipcMain.handle('notification:show', async (_event, options: {
-    title: string;
-    body: string;
-    onClick?: { type: string; payload: string };
-    taskId?: string;
-    sessionId?: string;
-    event_id?: string;
-  }) => {
-    try {
-      const notification = new Notification({
-        title: options.title,
-        body: options.body || '',
-      });
-      // #34 observability — renderer (window-visible) show path. On macOS the
-      // OS banner is SUPPRESSED while the app is focused (focused=true) — the
-      // in-app toast from useNotificationPoll is the visible fallback there.
-      console.log(`[notify] notification:show renderer path: supported=${Notification.isSupported()} focused=${mainWindow?.isFocused() ?? 'n/a'} title=${JSON.stringify(options.title)}`);
-      const hasTaskPayload = !!(options.taskId || options.sessionId);
-      if (options.onClick || hasTaskPayload) {
-        notification.on('click', () => {
-          mainWindow?.show();
-          mainWindow?.focus();
-          if (hasTaskPayload) {
-            mainWindow?.webContents.send('notification:click', {
-              taskId: options.taskId,
-              sessionId: options.sessionId,
-              event_id: options.event_id,
-            });
-          } else if (options.onClick) {
-            mainWindow?.webContents.send('notification:click', options.onClick);
-          }
-        });
-      }
-      notification.show();
-      return true;
-    } catch (err) {
-      console.error('[notification] Failed to show:', err);
-      return false;
-    }
+  // Notification ownership is deliberately one-way: the renderer may listen
+  // for clicks but cannot ask Main to show arbitrary native notifications.
+  ipcMain.on('notification:renderer-ready', () => {
+    notificationClickQueue.setReady(true);
   });
 
   // Proxy resolution IPC — allows renderer/API routes to query system proxy
@@ -2718,6 +2645,8 @@ app.whenReady().then(async () => {
       autoStartReq.end();
     }
 
+    startNativeDeliveryService();
+
   } catch (err) {
     console.error('Failed to start:', err);
     dialog.showErrorBox(
@@ -2761,6 +2690,7 @@ app.on('activate', async () => {
       createWindow();
       const port = await startServerOnStablePort();
       serverPort = port;
+      startNativeDeliveryService();
       if (mainWindow) {
         mainWindow.loadURL(`http://127.0.0.1:${port}`);
       }

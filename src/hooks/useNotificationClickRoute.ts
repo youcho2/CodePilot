@@ -7,8 +7,8 @@ import { useRouter } from 'next/navigation';
  * Phase 3 Step 3 — route Electron notification clicks to the right page.
  *
  * The OS notification carries `{ taskId?, sessionId?, event_id? }` (the
- * payload sendNotification stamped onto the events row, threaded
- * through `electron/main.ts`'s notification.show / bg-poller paths).
+ * payload sendNotification stamped onto the events row, threaded through the
+ * single Electron Main native-delivery owner).
  * On click the main process re-opens the window and forwards the
  * payload via IPC; we listen here and `router.push` to:
  *
@@ -28,11 +28,12 @@ export function useNotificationClickRoute(): void {
     const electronAPI = (window as unknown as {
       electronAPI?: {
         notification?: {
+          ready?: () => void;
           onClick?: (
             cb: (
               action:
                 | { type: string; payload: string }
-                | { taskId?: string; sessionId?: string; event_id?: string },
+                | { taskId?: string; sessionId?: string; event_id?: string; route?: string },
             ) => void,
           ) => () => void;
         };
@@ -43,6 +44,10 @@ export function useNotificationClickRoute(): void {
 
     const unsubscribe = onClick((action) => {
       if (!action || typeof action !== 'object') return;
+      if ('route' in action && action.route) {
+        router.push(action.route);
+        return;
+      }
       // Task / session payload — route to /settings/tasks or /chat
       if ('taskId' in action && action.taskId) {
         router.push(`/settings/tasks?focus=${encodeURIComponent(action.taskId)}`);
@@ -55,6 +60,10 @@ export function useNotificationClickRoute(): void {
       // Legacy onClick payload (`{ type, payload }`) — leave to other
       // listeners (e.g. AppShell's hash bridge for #providers).
     });
+
+    // Register first, then flush clicks that Main buffered while the renderer
+    // was loading. This ordering closes the notification-click startup race.
+    electronAPI.notification?.ready?.();
 
     return unsubscribe;
   }, [router]);

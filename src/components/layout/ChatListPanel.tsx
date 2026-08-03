@@ -365,10 +365,19 @@ export function ChatListPanel({ open, hasUpdate, readyToInstall }: ChatListPanel
 
   const projectGroups = useMemo(() => {
     const groups = groupSessionsByProject(filteredSessions);
-    // Pin assistant workspace project to top
+    // A configured assistant exists before it has any chat sessions. Keep a
+    // synthetic zero-session group so the sidebar immediately exposes the
+    // primary "new assistant conversation" action after bootstrap.
     if (workspacePath) {
       const wsIdx = groups.findIndex(g => g.workingDirectory === workspacePath);
-      if (wsIdx > 0) {
+      if (wsIdx === -1) {
+        groups.unshift({
+          workingDirectory: workspacePath,
+          displayName: workspacePath.split(/[\\/]/).pop() || 'Assistant',
+          sessions: [],
+          latestUpdatedAt: 0,
+        });
+      } else if (wsIdx > 0) {
         const [wsGroup] = groups.splice(wsIdx, 1);
         groups.unshift(wsGroup);
       }

@@ -1,170 +1,83 @@
 'use client';
 
-import { useEffect, useRef } from 'react';
+import { useEffect } from 'react';
 import { showToast, type ToastType } from '@/hooks/useToast';
 
-const POLL_INTERVAL = 5_000; // 5s
-
+const POLL_INTERVAL = 5_000;
 const PRIORITY_TO_TOAST: Record<string, ToastType> = {
   low: 'info',
   normal: 'info',
   urgent: 'warning',
 };
 
-/**
- * Phase 3 Step 3 — ack a notification_deliveries row by event_id +
- * channel. Best-effort: any failure is logged and ignored; the
- * notification has already been shown to the user, the worst case is
- * the delivery row stays `queued` (which the UI represents as
- * "shown, ack pending").
- */
-function ackDelivery(payload: {
+interface ClaimedToast {
+  delivery_id: string;
   event_id: string;
-  channel: string;
-  status: 'delivered' | 'error';
-  error?: string;
-}): void {
-  fetch('/api/tasks/notify/ack', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
-  }).catch(() => { /* best effort */ });
-}
-
-interface PolledNotification {
-  id: string;
-  event_id?: string;
-  task_id?: string;
-  session_id?: string;
   title: string;
   body: string;
   priority: 'low' | 'normal' | 'urgent';
-  timestamp: number;
 }
 
-/**
- * Polls GET /api/tasks/notify to drain server-side notification queue
- * and display them as toasts + system notifications via Electron IPC.
- *
- * Phase 3 Step 3 — after a successful display, POST /api/tasks/notify/ack
- * so the UI can show "delivered" instead of perpetual "queued". The
- * UPSERT semantics (v5 plan) mean repeated acks are idempotent, so
- * this stays safe even if the renderer + bg-poller both ack the same
- * event after a window-visibility flip.
- */
 export function useNotificationPoll() {
-  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-
-  // Request notification permission on mount (web/dev mode only)
   useEffect(() => {
-    if (
-      typeof window !== 'undefined' &&
-      !window.electronAPI?.notification &&
-      'Notification' in window &&
-      Notification.permission === 'default'
-    ) {
-      Notification.requestPermission().catch(() => {});
+    let stopped = false;
+    // Side-effect identity belongs to the effect lifecycle, not render. React
+    // Strict Mode may mount the effect twice; each lease owner is independent
+    // and stale claims remain recoverable by the DB timeout contract.
+    const owner = `renderer-${crypto.randomUUID()}`;
+
+    async function settle(delivery: ClaimedToast, outcome: 'delivered' | 'error', error?: string) {
+      await fetch('/api/tasks/notify/ack', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          delivery_id: delivery.delivery_id,
+          owner,
+          channel: 'renderer-toast',
+          outcome,
+          error,
+        }),
+      });
     }
-  }, []);
 
-  useEffect(() => {
     async function poll() {
       try {
-        const res = await fetch('/api/tasks/notify');
-        if (!res.ok) return;
-        const data = await res.json();
-        const notifications: PolledNotification[] = data.notifications || [];
-
-        for (const notif of notifications) {
-          const eventId = notif.event_id;
-
-          // In-app toast for all priorities (channel: renderer-toast)
+        // Bound each tick so a long offline backlog cannot monopolize render.
+        for (let i = 0; i < 10 && !stopped; i += 1) {
+          const res = await fetch('/api/tasks/notify/claim', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ channel: 'renderer-toast', owner }),
+          });
+          if (!res.ok) return;
+          const data = await res.json() as { delivery: ClaimedToast | null };
+          if (!data.delivery) return;
           try {
             showToast({
-              type: PRIORITY_TO_TOAST[notif.priority] || 'info',
-              message: notif.body ? `${notif.title}: ${notif.body}` : notif.title,
+              type: PRIORITY_TO_TOAST[data.delivery.priority] || 'info',
+              message: data.delivery.body
+                ? `${data.delivery.title}: ${data.delivery.body}`
+                : data.delivery.title,
             });
-            if (eventId) {
-              ackDelivery({ event_id: eventId, channel: 'renderer-toast', status: 'delivered' });
-            }
-          } catch (err) {
-            if (eventId) {
-              ackDelivery({
-                event_id: eventId,
-                channel: 'renderer-toast',
-                status: 'error',
-                error: err instanceof Error ? err.message : String(err),
-              });
-            }
-          }
-
-          // System notification for normal/urgent via Electron IPC
-          // bridge (channel: electron-native).
-          if (notif.priority === 'normal' || notif.priority === 'urgent') {
-            if (typeof window !== 'undefined' && window.electronAPI?.notification) {
-              window.electronAPI.notification
-                .show({
-                  title: notif.title,
-                  body: notif.body || '',
-                  // Phase 3 Step 3: thread payload through so the OS
-                  // notification's click handler can route to
-                  // /settings/tasks?focus=… or the chat session.
-                  taskId: notif.task_id,
-                  sessionId: notif.session_id,
-                  event_id: eventId,
-                })
-                .then((ok) => {
-                  if (eventId) {
-                    ackDelivery({
-                      event_id: eventId,
-                      channel: 'electron-native',
-                      status: ok ? 'delivered' : 'error',
-                    });
-                  }
-                })
-                .catch((err) => {
-                  if (eventId) {
-                    ackDelivery({
-                      event_id: eventId,
-                      channel: 'electron-native',
-                      status: 'error',
-                      error: err instanceof Error ? err.message : String(err),
-                    });
-                  }
-                });
-            } else if (
-              typeof window !== 'undefined' &&
-              'Notification' in window &&
-              Notification.permission === 'granted'
-            ) {
-              // Browser fallback (dev mode) — counts as electron-native
-              // for ack purposes since it's the same surface in spirit.
-              try {
-                new Notification(notif.title, { body: notif.body || '' });
-                if (eventId) {
-                  ackDelivery({ event_id: eventId, channel: 'electron-native', status: 'delivered' });
-                }
-              } catch (err) {
-                if (eventId) {
-                  ackDelivery({
-                    event_id: eventId,
-                    channel: 'electron-native',
-                    status: 'error',
-                    error: err instanceof Error ? err.message : String(err),
-                  });
-                }
-              }
-            }
+            await settle(data.delivery, 'delivered');
+          } catch (error) {
+            await settle(
+              data.delivery,
+              'error',
+              error instanceof Error ? error.message : String(error),
+            );
           }
         }
       } catch {
-        // Best effort polling
+        // Durable rows remain queued and will be retried on a later tick.
       }
     }
 
-    timerRef.current = setInterval(poll, POLL_INTERVAL);
+    void poll();
+    const timer = setInterval(() => { void poll(); }, POLL_INTERVAL);
     return () => {
-      if (timerRef.current) clearInterval(timerRef.current);
+      stopped = true;
+      clearInterval(timer);
     };
   }, []);
 }
