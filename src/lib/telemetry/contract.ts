@@ -106,20 +106,18 @@ export function classifyTelemetryOutcome(
     retryExhausted?: boolean;
     providerTest?: boolean;
     statusCode?: number;
-    responsibility?: 'user_input' | 'canonical_payload' | 'upstream_schema' | 'unknown';
   } = {},
 ): TelemetryOutcomeKind {
   if (options.providerTest) return 'provider_test_result';
 
+  if (
+    options.statusCode !== undefined
+    && options.statusCode >= 400
+    && options.statusCode <= 499
+  ) return 'user_action_required';
   const message = error instanceof Error ? error.message : String(error);
   if (/abort|cancel/i.test(message) && !category.startsWith('TIMEOUT_')) {
     return 'user_cancelled';
-  }
-  if (options.statusCode === 400 || options.statusCode === 422) {
-    if (options.responsibility === 'user_input') return 'user_action_required';
-    if (options.responsibility === 'canonical_payload') return 'product_fault';
-    if (options.responsibility === 'upstream_schema') return 'provider_protocol_fault';
-    return 'unknown';
   }
   if (USER_ACTION_CATEGORIES.has(category)) return 'user_action_required';
   if (PRODUCT_FAULT_CATEGORIES.has(category)) return 'product_fault';

@@ -51,6 +51,7 @@ import { createModel } from '../ai-provider';
 import { assembleTools, READ_ONLY_TOOLS } from '../agent-tools';
 import { reportNativeError } from '../error-classifier';
 import { providerTelemetryIdentity, type ProviderTelemetryIdentity } from '../telemetry/provider-failure';
+import { markProviderFailureHandled } from '../telemetry/provider-marker';
 import { pruneOldToolResults } from '../context-pruner';
 import { shouldSuggestSkill, buildSkillNudgeStatusEvent } from '../skill-nudge';
 import { emit as emitEvent } from '../runtime/event-bus';
@@ -129,6 +130,7 @@ export function runToolLoopAgentPoc(options: AgentLoopOptions): ReadableStream<s
       const totalUsage: TokenUsage = { input_tokens: 0, output_tokens: 0 };
       const distinctTools = new Set<string>();
       let telemetryProvider: ProviderTelemetryIdentity | undefined;
+      let lastProviderStreamError: unknown;
 
       try {
         // 0. Sync MCP servers (same as agent-loop step 0)
@@ -479,13 +481,13 @@ export function runToolLoopAgentPoc(options: AgentLoopOptions): ReadableStream<s
 
             case 'error': {
               const err = event.error;
+              lastProviderStreamError = err;
+              markProviderFailureHandled(err);
               const msg = err instanceof Error ? err.message : String(err);
               console.error('[toolloop-poc] stream error:', msg);
-              const isAuthError = /unauthorized|forbidden|401|403/i.test(msg);
-              const category = config.useResponsesApi && isAuthError
-                ? 'OPENAI_AUTH_FAILED' as const
-                : 'NATIVE_STREAM_ERROR' as const;
-              reportNativeError(category, err, { modelId, sessionId, ...telemetryProvider });
+              // Capture only at the catch tail, after the SDK retry budget is
+              // exhausted. Keep the structured error here so a later
+              // NoOutput wrapper cannot hide its status/code/cause.
               controller.enqueue(formatSSE({
                 type: 'error',
                 data: typeof event.error === 'string' ? event.error : JSON.stringify({ userMessage: String(event.error) }),
@@ -524,7 +526,12 @@ export function runToolLoopAgentPoc(options: AgentLoopOptions): ReadableStream<s
         if (!lastStepHadToolCalls && !lastStepHadContent) {
           const finishReason = await result.finishReason;
           console.error(`[toolloop-poc] Empty response: finishReason=${finishReason}, model=${modelId}`);
-          reportNativeError('EMPTY_RESPONSE', new Error(`Empty response: finishReason=${finishReason}`), { modelId, sessionId, ...telemetryProvider });
+          reportNativeError('EMPTY_RESPONSE', new Error(`Empty response: finishReason=${finishReason}`), {
+            modelId,
+            sessionId,
+            retryExhausted: true,
+            ...telemetryProvider,
+          });
           controller.enqueue(formatSSE({
             type: 'error',
             data: JSON.stringify({
@@ -574,7 +581,11 @@ export function runToolLoopAgentPoc(options: AgentLoopOptions): ReadableStream<s
 
         if (!isAbort) {
           console.error('[toolloop-poc] Error:', err instanceof Error ? err.message : err);
-          reportNativeError('NATIVE_STREAM_ERROR', err, { sessionId, retryExhausted: true, ...telemetryProvider });
+          reportNativeError('NATIVE_STREAM_ERROR', lastProviderStreamError ?? err, {
+            sessionId,
+            retryExhausted: true,
+            ...telemetryProvider,
+          });
           const errorRecords = toolInvocationAccumulator.drain();
           const errorAccounting =
             errorRecords.length > 0

@@ -7,11 +7,14 @@
 
 import {
   buildNormalizedFingerprint,
-  classifyTelemetryOutcome,
   shouldUseDefaultStackGrouping,
-  shouldSendErrorEnvelope,
   statusClass,
 } from './telemetry/contract';
+import { markProviderFailureHandled } from './telemetry/provider-marker';
+import {
+  createSafeTelemetryError,
+  normalizeTelemetryFailure,
+} from './telemetry/root-cause';
 
 // ── Sentry integration (lazy, no-op when unavailable) ───────────
 
@@ -29,8 +32,12 @@ import {
  *     the combined signal; see agent-loop.ts:728). A timeout is a real
  *     failure, so the abort/cancel message filter must not swallow it.
  */
-export function shouldReportToSentry(category: string, error: unknown): boolean {
-  return shouldSendErrorEnvelope(classifyTelemetryOutcome(category, error));
+export function shouldReportToSentry(
+  category: string,
+  error: unknown,
+  context: Pick<SentryReportContext, 'statusCode' | 'retryExhausted' | 'providerTest'> = {},
+): boolean {
+  return normalizeTelemetryFailure(category, error, context).shouldReport;
 }
 
 interface SentryReportContext {
@@ -45,6 +52,10 @@ interface SentryReportContext {
 }
 
 function reportToSentry(category: string, error: unknown, context: SentryReportContext = {}) {
+  // Every classified provider/native error is now owned by this boundary,
+  // including zero-event outcomes. Prevent the Node SDK from auto-capturing
+  // the original rich object after the caller rethrows it.
+  markProviderFailureHandled(error);
   // Dev-server memory guardrail (2026-05-09): even though instrumentation.ts
   // skips Sentry.init in dev, this lazy import path would still pull
   // `@sentry/node` + the `@opentelemetry/*` chain into Turbopack's compile
@@ -56,73 +67,49 @@ function reportToSentry(category: string, error: unknown, context: SentryReportC
   if (process.env.NODE_ENV !== 'development') {
     if (process.env.NODE_ENV !== 'production') return;
     if (process.env.NEXT_PUBLIC_CODEPILOT_CHANNEL !== 'stable') return;
-    const outcome = classifyTelemetryOutcome(category, error, {
+    const normalized = normalizeTelemetryFailure(category, error, {
       retryExhausted: context.retryExhausted,
       providerTest: context.providerTest,
+      statusCode: context.statusCode,
     });
-    const isHealthSummary = outcome === 'user_action_required';
-    if (!isHealthSummary && !shouldSendErrorEnvelope(outcome)) return;
+    if (!normalized.shouldReport) return;
 
     // Fire-and-forget async import — never blocks the classifier
-    import('@sentry/node').then(async (Sentry) => {
+    import('@sentry/node').then((Sentry) => {
       if (!Sentry.isInitialized()) return;
-      if (isHealthSummary) {
-        const [{ claimHealthSummary }, os, path] = await Promise.all([
-          import('./telemetry/health-summary'),
-          import('node:os'),
-          import('node:path'),
-        ]);
-        const providerClass = context.providerClass || 'unknown';
-        const runtimeId = context.runtimeId || 'unknown';
-        const release = `codepilot@${process.env.NEXT_PUBLIC_APP_VERSION || 'unknown'}`;
-        const claimed = claimHealthSummary(
-          path.join(os.homedir(), '.codepilot', 'telemetry-health-v1.json'),
-          { release, category, providerClass, runtimeId },
-        );
-        if (!claimed) return;
-        Sentry.withScope((scope) => {
-          scope.setLevel('info');
-          scope.setTag('error.category', category);
-          scope.setTag('error.outcome', outcome);
-          scope.setTag('error.runtime', runtimeId);
-          scope.setTag('runtime.id', runtimeId);
-          scope.setTag('provider.class', providerClass);
-          scope.setTag('grouping.strategy', 'normalized');
-          scope.setFingerprint(['health-summary-v1', release, category, providerClass, runtimeId]);
-          Sentry.captureMessage('telemetry.health_summary', 'info');
-        });
-        return;
-      }
       Sentry.withScope((scope) => {
-        scope.setTag('error.category', category);
-        scope.setTag('error.outcome', outcome);
+        scope.setTag('error.category', normalized.category);
+        scope.setTag('error.outcome', normalized.outcome);
         scope.setTag('error.runtime', context.runtimeId || 'unknown');
         scope.setTag('runtime.id', context.runtimeId || 'unknown');
         scope.setTag('provider.protocol', context.providerProtocol || 'unknown');
         scope.setTag('provider.class', context.providerClass || 'unknown');
-        scope.setTag('status.class', statusClass(context.statusCode));
+        scope.setTag('status.class', statusClass(normalized.statusCode));
         scope.setExtras({
           callScene: context.callScene,
-          retryExhausted: context.retryExhausted,
+          retryExhausted: normalized.retryExhausted,
           timeoutStage: context.timeoutStage,
         });
-        const useDefaultStackGrouping = shouldUseDefaultStackGrouping(outcome, error);
-        if (outcome === 'unknown') scope.setTag('needs_classification', 'yes');
+        const useDefaultStackGrouping = shouldUseDefaultStackGrouping(normalized.outcome, error);
+        if (normalized.outcome === 'unknown') scope.setTag('needs_classification', 'yes');
         if (!useDefaultStackGrouping) {
           scope.setTag('grouping.strategy', 'normalized');
           scope.setFingerprint(buildNormalizedFingerprint({
-            category,
+            category: normalized.category,
             layer: 'next_server',
             runtimeId: context.runtimeId,
             providerProtocol: context.providerProtocol,
             providerClass: context.providerClass,
-            statusCode: context.statusCode,
+            statusCode: normalized.statusCode,
           }));
         }
-        if (error instanceof Error) {
-          Sentry.captureException(error);
+        if (useDefaultStackGrouping && error instanceof Error) {
+          const safeMessage = normalized.outcome === 'product_fault'
+            ? 'telemetry.product_fault'
+            : 'telemetry.unknown_failure';
+          Sentry.captureException(createSafeTelemetryError(error, safeMessage));
         } else {
-          Sentry.captureMessage(String(error), 'error');
+          Sentry.captureMessage('telemetry.normalized_failure', 'error');
         }
       });
     }).catch(() => { /* Sentry not available */ });

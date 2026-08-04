@@ -31,15 +31,22 @@ describe('pumpTextStream — 错误如实传播（#53）', () => {
   });
 
   it('error part 必须抛出真实上游信息（含 responseBody），不得静默变空文本', async () => {
+    const upstream = {
+      message: 'Bad Request',
+      statusCode: 403,
+      responseBody: '{"error":"invalid model format. Expected format: modelType/model"}',
+    };
     const run = async () => {
       for await (const _ of pumpTextStream(parts([
         { type: 'start' },
-        { type: 'error', error: { message: 'Bad Request', responseBody: '{"error":"invalid model format. Expected format: modelType/model"}' } },
+        { type: 'error', error: upstream },
       ]))) void _;
     };
-    await assert.rejects(run, (e: Error) => {
+    await assert.rejects(run, (e: Error & { cause?: unknown }) => {
       assert.ok(e.message.includes('Bad Request'), e.message);
       assert.ok(e.message.includes('invalid model format'), 'must carry upstream body: ' + e.message);
+      assert.equal(e.cause, upstream, 'structured status/code must survive as a non-enumerable cause');
+      assert.equal(Object.prototype.propertyIsEnumerable.call(e, 'cause'), false);
       return true;
     });
   });

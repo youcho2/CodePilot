@@ -3,7 +3,7 @@ import { createModel } from './ai-provider';
 import type { ResolvedProvider } from './provider-resolver';
 import { assertProviderCallAllowed, type ProviderCallScene } from './provider-call-policy';
 import { reportProviderFailure } from './telemetry/provider-failure';
-import { markProviderFailureHandled } from './telemetry/provider-marker';
+import { toMarkableProviderFailure } from './telemetry/provider-marker';
 
 export interface StreamTextParams {
   callScene: ProviderCallScene;
@@ -48,7 +48,15 @@ export async function* pumpTextStream(
     } else if (part.type === 'error') {
       const er = part.error as { message?: string; responseBody?: string } | undefined;
       const body = typeof er?.responseBody === 'string' ? ` — upstream: ${er.responseBody.slice(0, 300)}` : '';
-      throw new Error(`${er?.message || String(part.error)}${body}`);
+      const failure = new Error(`${er?.message || String(part.error)}${body}`);
+      // Keep the SDK error as a non-enumerable cause so the shared telemetry
+      // normalizer can recover status/code without serializing responseBody.
+      Object.defineProperty(failure, 'cause', {
+        value: part.error,
+        enumerable: false,
+        configurable: false,
+      });
+      throw failure;
     }
   }
 }
@@ -74,15 +82,14 @@ export async function* streamTextFromProvider(params: StreamTextParams): AsyncIt
     });
     yield* pumpTextStream(result.fullStream as AsyncIterable<{ type: string; text?: string; error?: unknown }>);
   } catch (error) {
-    reportProviderFailure(error, {
+    const markableError = toMarkableProviderFailure(error);
+    reportProviderFailure(markableError, {
       callScene: params.callScene,
       resolvedProvider: resolvedForTelemetry,
     });
-    // Preserve the rich upstream reason for the user-facing fallback, but
-    // prevent the Node SDK's unhandled-error integration from capturing the
-    // same raw provider body a second time.
-    markProviderFailureHandled(error);
-    throw error;
+    // The reporting boundary marks this rich object before any async capture,
+    // so the Node SDK cannot auto-capture its raw provider body a second time.
+    throw markableError;
   }
 }
 

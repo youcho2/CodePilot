@@ -180,23 +180,13 @@ describe('telemetry U0 contract', () => {
     );
   });
 
-  it('keeps 400/422 unknown unless a caller supplies structured responsibility', () => {
-    const base = { statusCode: 422 as const };
-    assert.equal(
-      classifyTelemetryOutcome('INVALID_REQUEST', new Error('invalid'), { ...base, responsibility: 'user_input' }),
-      'user_action_required',
-    );
-    assert.equal(
-      classifyTelemetryOutcome('INVALID_REQUEST', new Error('invalid'), { ...base, responsibility: 'canonical_payload' }),
-      'product_fault',
-    );
-    assert.equal(
-      classifyTelemetryOutcome('INVALID_REQUEST', new Error('invalid'), { ...base, responsibility: 'upstream_schema' }),
-      'provider_protocol_fault',
-    );
-    assert.equal(
-      classifyTelemetryOutcome('INVALID_REQUEST', new Error('invalid'), base),
-      'unknown',
-    );
+  it('freezes every HTTP 4xx as user action, including 400/422/429', () => {
+    for (const statusCode of [400, 401, 402, 403, 404, 418, 422, 429]) {
+      assert.equal(
+        classifyTelemetryOutcome('INVALID_REQUEST', new Error('invalid'), { statusCode }),
+        'user_action_required',
+        String(statusCode),
+      );
+    }
   });
 });
