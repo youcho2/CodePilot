@@ -57,7 +57,9 @@ const RUNTIME_OWNER_LOCK_PATH = `${DB_PATH}.runtime-owner.lock`;
 // replacing this module. Keep a code-owned revision beside that handle so a
 // newly loaded migration still runs without requiring the user to restart the
 // desktop client. Bump this value whenever initDb/migrateDb gains a migration.
-const DATABASE_SCHEMA_REVISION = '2026-08-03-heartbeat-notification-durability';
+const DATABASE_SCHEMA_REVISION = '2026-08-03-notification-backlog-suppression';
+const LEGACY_NOTIFICATION_BACKLOG_MARKER = 'notification_delivery_legacy_backlog_v1';
+const LEGACY_NOTIFICATION_BACKLOG_MAX_AGE_MS = 60 * 60 * 1000;
 
 function getDatabaseProcessStates(): Map<string, DatabaseProcessState> {
   const target = globalThis as typeof globalThis & {
@@ -1324,7 +1326,52 @@ function migrateDb(db: Database.Database): void {
     ON notification_deliveries(channel, status, next_attempt_at, claimed_at);
   `);
 
+  suppressLegacyQueuedNotificationBacklog(db);
   consolidateHeartbeatTasksAndEnsureUniqueIndex(db);
+}
+
+/**
+ * The pre-durable renderer queue left delivery rows in `queued` after its
+ * in-memory payload had vanished. Replaying those rows when the durable
+ * consumer first appears produces a burst of months-old notifications.
+ *
+ * Preserve the event/delivery audit trail, but close stale legacy work as
+ * `skipped`. The one-time marker makes the migration idempotent, while the
+ * age boundary protects notifications created by the current app run during
+ * a dev HMR race.
+ */
+export function suppressLegacyQueuedNotificationBacklog(
+  db: Database.Database,
+  now = new Date(),
+): number {
+  const migrate = db.transaction(() => {
+    const alreadyMigrated = db.prepare('SELECT 1 FROM settings WHERE key = ?').get(
+      LEGACY_NOTIFICATION_BACKLOG_MARKER,
+    );
+    if (alreadyMigrated) return 0;
+
+    const cutoff = new Date(now.getTime() - LEGACY_NOTIFICATION_BACKLOG_MAX_AGE_MS).toISOString();
+    const ackedAt = now.toISOString();
+    const result = db.prepare(`
+      UPDATE notification_deliveries
+      SET status = 'skipped',
+          error = 'legacy_backlog_suppressed',
+          acked_at = ?,
+          claim_owner = NULL,
+          claimed_at = NULL,
+          next_attempt_at = NULL
+      WHERE status = 'queued'
+        AND channel IN ('renderer-toast', 'electron-native')
+        AND datetime(created_at) <= datetime(?)
+    `).run(ackedAt, cutoff);
+
+    db.prepare('INSERT INTO settings (key, value) VALUES (?, ?)').run(
+      LEGACY_NOTIFICATION_BACKLOG_MARKER,
+      JSON.stringify({ migratedAt: ackedAt, cutoff, skipped: result.changes }),
+    );
+    return result.changes;
+  });
+  return migrate();
 }
 
 /**

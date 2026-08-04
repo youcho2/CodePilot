@@ -36,6 +36,7 @@
 | 17 | `source='assistant_heartbeat'` 全库至多一条。建 partial UNIQUE index 前必须选 keeper、重关联 `task_run_logs.task_id` 与 `notification_events.task_id`、再删除 duplicate；user-source task 不得受影响 | `consolidateHeartbeatTasksAndEnsureUniqueIndex` |
 | 18 | Notification claim 只使用 additive lease/attempt columns，不扩展既有 delivery status CHECK。claim 在 transaction 中完成；settle 用 owner/status 条件 UPDATE，stale ack 不能覆盖新 owner；retry backoff 有界且 terminal delivered/error 不回滚 | notification delivery migration + CRUD |
 | 19 | Notification action 以受限 `action_type/action_payload` additive 保存；route consumer 只能按 channel claim，不能恢复 destructive GET drain | notification event/delivery schema + claim routes |
+| 20 | 首次启用 durable notification consumer 时不得重放旧内存队列遗留的历史 `queued` 行。超过迁移安全窗口的 native/toast delivery 只改为可审计 `skipped`，保留 event/delivery；one-time marker 与 cutoff 必须同事务写入 | `suppressLegacyQueuedNotificationBacklog` |
 
 ## 关键文件 + 责任
 
@@ -70,6 +71,7 @@
 - [ ] 改 Asset backfill 时验证 permanent/transient/deferred 分类、冷却重试、显式 deferred 恢复，以及在线行数/字节/时限预算均不会饿死后续行
 - [ ] 改 heartbeat migration 时验证 duplicate consolidation 保留 run→event 关联、user-source task 不变、partial UNIQUE index 幂等
 - [ ] 改 notification delivery 时保持 status 枚举冻结，验证双 claimant、owner mismatch、stale reclaim、retry cap 和 terminal immutability
+- [ ] 从内存队列迁到 durable consumer 时验证历史 backlog 不会在升级后集中弹出，同时新近通知仍保持 queued、event 审计行不被删除、migration 重跑 no-op
 
 ## 常见坑
 
@@ -88,6 +90,7 @@
 - tech-debt #7 — `claude-settings-credentials.test.ts` 和 `project-mcp-injection.test.ts` 的 DB-related test 在 CI 上 skip，本地通过；疑似 tsx + node 20 ESM module identity 去重在 linux 行为差异。
 - 不要把 EBUSY/EIO 等瞬态错误按同 revision 永久拉黑，也不要只用行数限制在线 backfill；一个大视频仍可能让 Gallery 请求同步 hash 过久。deferred 不是成功，必须保留可恢复路径。
 - 不要为了表示 claim 中间态给 `notification_deliveries.status` 新增值；lease owner/time 和 attempt columns 才是并发状态。
+- 不要让新 durable consumer 直接领取旧内存队列留下的 `queued` 行；它们已失去当时的展示上下文，升级后重放会把数月前测试通知集中推给用户。用有时间边界的一次性 `skipped` 迁移保留审计，不要 DELETE。
 - 不要先建 heartbeat unique index 再处理历史 duplicate；这会让旧用户启动时直接 migration 失败。
 
 ## 测试覆盖
@@ -103,7 +106,7 @@
 | `messages.stream_status` checkpoint、terminal 原位更新、live-owner 下重复 startup no-op | `src/__tests__/unit/collect-owner-gate.test.ts` |
 | `asset_records.tags` additive column、legacy media tags 逐项保守回填、重复 migration 幂等、poison row 不阻塞后续行、transient 冷却重试与 byte/time budget | `src/__tests__/unit/asset-library-conformance.test.ts` |
 | Heartbeat duplicate consolidation、partial UNIQUE、cadence/reconcile | `heartbeat-reconcile.test.ts`, `scheduler-trigger-unification.test.ts` |
-| Notification additive claim、并发/stale/retry/terminal | `notification-delivery-claim.test.ts`, `notification-claim-policy.test.ts` |
+| Notification additive claim、并发/stale/retry/terminal、legacy backlog 抑制 | `notification-delivery-claim.test.ts`, `notification-claim-policy.test.ts` |
 
 ## 设计决策日志
 
@@ -121,3 +124,4 @@
 - 2026-07-31 — Gallery 的 100 条/请求渐进 backfill 曾可能被同一坏行永久占住进度。新增 `asset_backfill_failures` 与 code-owned failure revision：坏行可审计、同 revision 跳过、后续行继续；修复迁移逻辑时 bump revision 才重试。schema revision 同步更新，HMR cached handle 会补建该表。
 - 2026-07-31 — Backfill failure journal 增加 permanent/transient/deferred 语义。瞬态 I/O 错误冷却 30 秒后重试；Gallery 在线迁移限制 32 MiB 累计/单文件与 75ms 调度预算；超预算行先 deferred 让后续行继续，显式无界迁移仍可恢复它，不把预算判断变成永久数据结论。
 - 2026-08-03 — Heartbeat system task 增加 exact-source partial UNIQUE index；历史 duplicate 先在事务中重关联 run/event 再合并。Notification delivery 使用 additive claim owner/time/attempt/backoff 字段，冻结现有 status CHECK，以 durable row 取代进程内 drain queue。
+- 2026-08-03 — dev 实机首次启用 durable renderer consumer 后连续弹出历史 `Hi / There`。数据库证明不是 retry：137 条不同旧 event 长期停在 `renderer-toast/queued`。新增一次性事务迁移，把首次升级时超过 1 小时的 renderer/native backlog 标记为 `skipped`，保留 event/delivery 审计并保护当前运行中新通知。1 小时边界成立于版本上线顺序：升级时已有 queued renderer 行均由 pre-durable 版本产生；durable consumer 与该 migration 同版本首次出现，所以边界内行只可能来自当前升级运行或同分支 dev，必须保护而不能按 legacy 回放处理。

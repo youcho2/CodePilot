@@ -1,3 +1,4 @@
+import '../db-isolation.setup';
 import { after, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -154,5 +155,35 @@ describe('durable notification delivery claims', () => {
     assert.equal(row.attempt_count, 0);
     assert.equal(row.last_attempt_at, null);
     assert.equal(row.next_attempt_at, null);
+  });
+
+  it('skips stale pre-durable backlog once without deleting its audit trail', () => {
+    const oldEventId = queued('renderer-toast');
+    const recentEventId = queued('renderer-toast');
+    const sql = db.getDb();
+    sql.prepare("DELETE FROM settings WHERE key = 'notification_delivery_legacy_backlog_v1'").run();
+    sql.prepare("UPDATE notification_deliveries SET created_at = ? WHERE event_id = ?")
+      .run('2026-08-03T08:00:00.000Z', oldEventId);
+    sql.prepare("UPDATE notification_deliveries SET created_at = ? WHERE event_id = ?")
+      .run('2026-08-03T09:30:00.000Z', recentEventId);
+
+    assert.equal(
+      db.suppressLegacyQueuedNotificationBacklog(sql, new Date('2026-08-03T10:00:00.000Z')),
+      1,
+    );
+    const oldDelivery = db.listNotificationDeliveries(oldEventId)[0];
+    const recentDelivery = db.listNotificationDeliveries(recentEventId)[0];
+    assert.equal(oldDelivery.status, 'skipped');
+    assert.equal(oldDelivery.error, 'legacy_backlog_suppressed');
+    assert.ok(oldDelivery.acked_at);
+    assert.equal(recentDelivery.status, 'queued');
+    assert.ok(db.getNotificationEvent(oldEventId), 'migration must preserve the historical event');
+
+    assert.equal(
+      db.suppressLegacyQueuedNotificationBacklog(sql, new Date('2026-08-04T10:00:00.000Z')),
+      0,
+      'the migration marker must make subsequent starts a no-op',
+    );
+    assert.equal(db.listNotificationDeliveries(recentEventId)[0].status, 'queued');
   });
 });
