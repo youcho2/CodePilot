@@ -40,6 +40,9 @@ import {
 } from "./chat-list-utils";
 import type { ChatSession } from "@/types";
 
+const previewAssistantOnboarding =
+  process.env.NEXT_PUBLIC_CODEPILOT_UI_PREVIEW === 'assistant-onboarding';
+
 interface ChatListPanelProps {
   open: boolean;
   hasUpdate?: boolean;
@@ -500,10 +503,14 @@ export function ChatListPanel({ open, hasUpdate, readyToInstall }: ChatListPanel
         <div className="flex flex-col pb-3">
 
           {/* Assistant promo card for unconfigured users */}
-          {assistantSummary && !assistantSummary.configured && !promoDismissed && (
+          {assistantSummary
+            && (!assistantSummary.configured || previewAssistantOnboarding)
+            && (!promoDismissed || previewAssistantOnboarding)
+            && (
             <AssistantPromoCard
               onSetup={() => router.push('/settings/assistant')}
               onDismiss={() => setPromoDismissed(true)}
+              preview={previewAssistantOnboarding}
             />
           )}
 

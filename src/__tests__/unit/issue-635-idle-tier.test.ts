@@ -74,18 +74,20 @@ describe('#635 — api_retry status shows human copy, not raw JSON (Codex P2 fol
   const sse = readFileSync(path.resolve(__dirname, '../../hooks/useSSEStream.ts'), 'utf8');
   const page = readFileSync(path.resolve(__dirname, '../../app/chat/page.tsx'), 'utf8');
 
-  it('useSSEStream has a dedicated apiRetry branch BEFORE the raw-data fallback', () => {
+  it('useSSEStream has a dedicated apiRetry branch BEFORE the safe generic fallback', () => {
     assert.match(sse, /statusData\.apiRetry[\s\S]{0,600}Retrying upstream/);
-    // must precede the `else { onStatus(event.data) }` raw fallback or JSON leaks
+    // Must precede the generic fallback. The fallback itself is now safe — it
+    // only passes ordinary human strings and degrades structured JSON to
+    // localized copy — but apiRetry still carries more useful attempt detail.
     const retryIdx = sse.indexOf('statusData.apiRetry');
-    const rawIdx = sse.indexOf('onStatus(typeof event.data');
-    assert.ok(retryIdx > 0 && retryIdx < rawIdx, 'apiRetry branch must precede the raw-data fallback');
+    const fallbackIdx = sse.indexOf('callbacks.onStatus(resolveSafeStatusFallback');
+    assert.ok(retryIdx > 0 && retryIdx < fallbackIdx, 'apiRetry branch must precede the safe generic fallback');
   });
 
-  it('first-message page.tsx has the same apiRetry branch BEFORE its raw fallback', () => {
+  it('first-message page.tsx has the same apiRetry branch BEFORE its safe generic fallback', () => {
     assert.match(page, /statusData\.apiRetry[\s\S]{0,600}Retrying upstream/);
     const retryIdx = page.indexOf('statusData.apiRetry');
-    const rawIdx = page.indexOf('setStatusText(event.data');
-    assert.ok(retryIdx > 0 && retryIdx < rawIdx, 'apiRetry branch must precede the raw-data fallback');
+    const fallbackIdx = page.indexOf('setStatusText(resolveSafeStatusFallback');
+    assert.ok(retryIdx > 0 && retryIdx < fallbackIdx, 'apiRetry branch must precede the safe generic fallback');
   });
 });

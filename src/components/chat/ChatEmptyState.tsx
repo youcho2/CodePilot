@@ -2,34 +2,34 @@
 
 import { useState } from 'react';
 import { Button } from '@/components/ui/button';
-import { Card, CardHeader, CardTitle, CardDescription, CardFooter } from '@/components/ui/card';
 import { X } from '@/components/ui/icon';
 import { CodePilotIcon } from '@/components/ui/semantic-icon';
 import { useTranslation } from '@/hooks/useTranslation';
 import { EGG_IMAGE_URL } from '@/lib/buddy';
+import { cn } from '@/lib/utils';
 
 interface ChatEmptyStateProps {
   hasDirectory: boolean;
   hasProvider: boolean;
   onSelectFolder: () => void;
-  recentProjects?: string[];
-  onSelectProject?: (path: string) => void;
   assistantConfigured?: boolean;
   onOpenAssistant?: () => void;
+  /** Dev-only visual QA mode; changes visibility, never persisted product state. */
+  preview?: boolean;
 }
 
 export function ChatEmptyState({
   hasDirectory,
   hasProvider,
   onSelectFolder,
-  recentProjects,
-  onSelectProject,
   assistantConfigured,
   onOpenAssistant,
+  preview = false,
 }: ChatEmptyStateProps) {
   const { t } = useTranslation();
+  const showAssistantOpen = Boolean(assistantConfigured && !preview);
 
-  if (hasDirectory && hasProvider) {
+  if (hasDirectory && hasProvider && !preview) {
     return (
       <div className="flex flex-1 items-center justify-center p-8">
         <p className="text-sm text-muted-foreground">{t('chat.empty.ready')}</p>
@@ -38,64 +38,39 @@ export function ChatEmptyState({
   }
 
   return (
-    <div className="flex flex-1 items-center justify-center p-8">
-      <div className="max-w-2xl w-full space-y-6">
+    <div className="w-full px-4 py-2">
+      <div className="w-full space-y-2.5">
         {/* Dual entry point cards */}
-        <div className="flex flex-col sm:flex-row gap-4">
-          {/* Project Chat card */}
-          <Card className="flex-1 cursor-pointer">
-            <CardHeader>
-              <div className="flex items-center gap-2">
-                <CodePilotIcon name="folder_open" size="lg" className="text-primary" aria-hidden />
-                <CardTitle className="text-base">{t('chat.empty.projectChat.title')}</CardTitle>
-              </div>
-              <CardDescription>{t('chat.empty.projectChat.description')}</CardDescription>
-            </CardHeader>
-            <CardFooter>
-              <Button size="sm" className="gap-1.5" onClick={onSelectFolder}>
-                <CodePilotIcon name="folder_open" size="sm" aria-hidden />
-                {t('chat.empty.selectFolder')}
-              </Button>
-            </CardFooter>
-          </Card>
+        <div className="grid gap-2 sm:grid-cols-2" data-assistant-onboarding-cards>
+          <ChatEntryCard
+            icon={(
+              <CodePilotIcon name="folder_open" size="lg" className="text-foreground/75" aria-hidden />
+            )}
+            title={t('chat.empty.projectChat.title')}
+            description={t('chat.empty.projectChat.description')}
+            actionLabel={t('chat.empty.selectFolder')}
+            onClick={onSelectFolder}
+          />
 
-          {/* Personal Assistant card */}
-          <Card className="flex-1 cursor-pointer">
-            <CardHeader>
-              <div className="flex items-center gap-2">
-                <img src={EGG_IMAGE_URL} alt="" width={24} height={24} className="shrink-0" />
-                <CardTitle className="text-base">{t('chat.empty.assistant.title')}</CardTitle>
-              </div>
-              <CardDescription>{t('chat.empty.assistant.description')}</CardDescription>
-            </CardHeader>
-            <CardFooter>
-              {assistantConfigured ? (
-                <Button size="sm" className="gap-1.5" onClick={onOpenAssistant}>
-                  <img src={EGG_IMAGE_URL} alt="" width={14} height={14} />
-                  {t('chat.empty.assistant.open')}
-                </Button>
-              ) : (
-                <Button size="sm" variant="outline" className="gap-1.5" onClick={onOpenAssistant}>
-                  <img src={EGG_IMAGE_URL} alt="" width={14} height={14} />
-                  {t('chat.empty.assistant.setup')}
-                </Button>
-              )}
-            </CardFooter>
-          </Card>
+          <ChatEntryCard
+            icon={<img src={EGG_IMAGE_URL} alt="" width={28} height={28} className="shrink-0" />}
+            title={t('chat.empty.assistant.title')}
+            description={t('chat.empty.assistant.description')}
+            actionLabel={showAssistantOpen
+              ? t('chat.empty.assistant.open')
+              : t('chat.empty.assistant.setup')}
+            onClick={onOpenAssistant}
+            assistant
+          />
         </div>
-
-        {/* Explanation text */}
-        <p className="text-xs text-center text-muted-foreground px-4">
-          {t('chat.empty.explanation')}
-        </p>
 
         {/* Provider setup prompt */}
         {!hasProvider && (
-          <div className="space-y-2 text-center">
-            <p className="text-sm font-medium">{t('chat.empty.noProvider')}</p>
+          <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1 px-1 text-left">
+            <p className="text-xs text-muted-foreground">{t('chat.empty.noProvider')}</p>
             <Button
-              size="sm"
-              variant="outline"
+              size="xs"
+              variant="ghost"
               onClick={() => window.dispatchEvent(new CustomEvent('open-setup-center', { detail: { initialCard: 'provider' } }))}
             >
               {t('chat.empty.openSetup')}
@@ -103,31 +78,63 @@ export function ChatEmptyState({
           </div>
         )}
 
-        {/* Recent projects */}
-        {recentProjects && recentProjects.length > 0 && onSelectProject && (
-          <div className="space-y-1.5 text-center">
-            <p className="text-xs text-muted-foreground">{t('chat.empty.recentProjects')}</p>
-            <div className="flex flex-wrap justify-center gap-1.5">
-              {recentProjects.slice(0, 5).map(p => {
-                const name = p.split(/[\\/]/).filter(Boolean).pop() || p;
-                return (
-                  <Button
-                    key={p}
-                    variant="outline"
-                    size="sm"
-                    className="h-6 px-2 text-[11px] font-mono"
-                    onClick={() => onSelectProject(p)}
-                    title={p}
-                  >
-                    {name}
-                  </Button>
-                );
-              })}
-            </div>
-          </div>
-        )}
       </div>
     </div>
+  );
+}
+
+function ChatEntryCard({
+  icon,
+  title,
+  description,
+  actionLabel,
+  onClick,
+  assistant = false,
+}: {
+  icon: React.ReactNode;
+  title: string;
+  description: string;
+  actionLabel: string;
+  onClick?: () => void;
+  assistant?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={!onClick}
+      className={cn(
+        'group grid min-h-[88px] w-full grid-cols-[36px_minmax(0,1fr)_auto] items-center gap-3 rounded-2xl',
+        'border border-border/50 bg-card px-3.5 py-3 text-left',
+        'transition-[background-color,border-color,transform] duration-150',
+        'hover:border-foreground/20 hover:bg-muted/30 active:translate-y-px',
+        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30',
+        'disabled:pointer-events-none disabled:opacity-50',
+      )}
+      data-chat-entry-card={assistant ? 'assistant' : 'project'}
+    >
+      <span
+        className={cn(
+          'flex size-9 items-center justify-center rounded-xl bg-muted/70',
+          assistant && 'bg-muted/45',
+        )}
+        aria-hidden
+      >
+        {icon}
+      </span>
+      <span className="min-w-0">
+        <span className="block text-[13px] font-medium leading-5 text-foreground">
+          {title}
+        </span>
+        <span className="mt-0.5 block text-[11px] leading-4 text-muted-foreground">
+          {description}
+        </span>
+      </span>
+      <span className="flex shrink-0 items-center gap-1 pl-1 text-[11px] font-medium text-muted-foreground transition-colors group-hover:text-foreground">
+        <span className="hidden lg:inline">{actionLabel}</span>
+        <CodePilotIcon name="forward" size="sm" aria-hidden />
+      </span>
+    </button>
   );
 }
 
@@ -136,9 +143,11 @@ export function ChatEmptyState({
 interface AssistantPromoCardProps {
   onSetup: () => void;
   onDismiss: () => void;
+  /** Visual-QA escape hatch. Never persisted and only wired from a dev env flag. */
+  preview?: boolean;
 }
 
-export function AssistantPromoCard({ onSetup, onDismiss }: AssistantPromoCardProps) {
+export function AssistantPromoCard({ onSetup, onDismiss, preview = false }: AssistantPromoCardProps) {
   const { t } = useTranslation();
   const [dismissed, setDismissed] = useState(() => {
     if (typeof window === 'undefined') return false;
@@ -149,49 +158,53 @@ export function AssistantPromoCard({ onSetup, onDismiss }: AssistantPromoCardPro
     }
   });
 
-  if (dismissed) return null;
+  if (dismissed && !preview) return null;
 
   const handleDismiss = () => {
-    try {
-      localStorage.setItem('codepilot:assistant-promo-dismissed', '1');
-    } catch {
-      // localStorage unavailable (private mode / restricted Electron) —
-      // dismissal won't persist across sessions; degrade gracefully.
+    if (!preview) {
+      try {
+        localStorage.setItem('codepilot:assistant-promo-dismissed', '1');
+      } catch {
+        // localStorage unavailable (private mode / restricted Electron) —
+        // dismissal won't persist across sessions; degrade gracefully.
+      }
+      setDismissed(true);
     }
-    setDismissed(true);
     onDismiss();
   };
 
   return (
-    <div className="relative mx-2 mb-2 rounded-xl border border-sidebar-border/60 bg-sidebar-accent/40 px-3 py-2.5 text-sidebar-foreground">
+    <div
+      className="relative mx-2 mb-2 px-3 py-2 text-sidebar-foreground"
+      data-assistant-promo
+      data-preview={preview || undefined}
+    >
       <button
         type="button"
         onClick={handleDismiss}
-        className="absolute right-2 top-2 inline-flex size-6 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-foreground"
+        className="absolute right-2 top-1.5 inline-flex size-6 items-start justify-center rounded-lg pt-1 text-muted-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-foreground"
         aria-label={t('chat.empty.assistant.dismiss')}
       >
         <X size={13} />
       </button>
-      <div className="flex items-start gap-2.5 pr-7">
-        <img src={EGG_IMAGE_URL} alt="" width={22} height={22} className="mt-0.5 shrink-0" />
-        <div className="min-w-0 flex-1">
-          <p className="text-[13px] font-medium leading-[18px]">
-            {t('chat.empty.assistant.title')}
-          </p>
-          <p className="mt-0.5 text-[11px] leading-4 text-muted-foreground">
-            {t('chat.empty.assistant.description')}
-          </p>
-          <Button
-            type="button"
-            size="xs"
-            variant="ghost"
-            className="-ml-2 mt-1 h-6 px-2 text-xs"
-            onClick={onSetup}
-          >
-            {t('chat.empty.assistant.setup')}
-          </Button>
-        </div>
+      <div className="min-w-0 pr-7">
+        <p className="text-[13px] font-semibold leading-[18px]">
+          {t('chat.empty.assistant.title')}
+        </p>
+        <p className="mt-1 text-[11px] leading-4 text-sidebar-foreground/60">
+          {t('chat.empty.assistant.description')}
+        </p>
       </div>
+      <Button
+        type="button"
+        size="xs"
+        variant="ghost"
+        className="-ml-2 mt-1.5 h-6 rounded-lg px-2 text-xs text-sidebar-foreground hover:bg-sidebar-accent"
+        onClick={onSetup}
+      >
+        {t('chat.empty.assistant.setup')}
+        <CodePilotIcon name="forward" size="sm" aria-hidden />
+      </Button>
     </div>
   );
 }

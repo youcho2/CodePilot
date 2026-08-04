@@ -85,6 +85,9 @@ const en = {
   'streaming.thinking': 'Thinking...',
   'streaming.thinkingDeep': 'Thinking deeply...',
   'streaming.preparing': 'Preparing response...',
+  'streaming.toolConnectionFailed': 'A tool connection failed. Some capabilities may be temporarily unavailable.',
+  'streaming.reconnecting': 'Reconnecting...',
+  'streaming.runtimeStatusUpdated': 'Runtime status updated.',
   'streaming.generating': 'Generating',
   'streaming.allowForSession': 'Allow for Session',
   'streaming.allowed': 'Allowed',
@@ -1786,7 +1789,6 @@ const en = {
   'chat.empty.selectFolder': 'Select Folder',
   'chat.empty.skipForNow': 'Skip for now',
   'chat.empty.ready': 'Ready to chat. Type a message to get started.',
-  'chat.empty.recentProjects': 'Recent Projects',
   'chat.empty.projectChat.title': 'Project Chat',
   'chat.empty.projectChat.description': 'Open a project folder, AI helps you code, debug and refactor',
   'chat.empty.assistant.title': 'Personal Assistant',
@@ -1794,7 +1796,6 @@ const en = {
   'chat.empty.assistant.setup': 'Set Up Assistant',
   'chat.empty.assistant.open': 'Open Assistant',
   'chat.empty.assistant.dismiss': 'Dismiss assistant suggestion',
-  'chat.empty.explanation': 'Project Chat works within a codebase folder. Personal Assistant works across all your tasks without a specific project.',
 
   // New-chat welcome — composed as "{salutation}{sep}{question}" by
   // NewChatWelcome.tsx. The salutation reflects time of day; the question

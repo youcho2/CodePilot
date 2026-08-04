@@ -178,11 +178,82 @@ export function maybeShowStatusToast(
   }).catch(() => { /* toast system unavailable — caller falls back to status text */ });
 }
 
+export interface InternalRuntimeStatusResolution {
+  handled: boolean;
+  text?: string;
+}
+
+/**
+ * Convert structured Runtime lifecycle statuses into safe chat copy.
+ *
+ * These events carry useful diagnostic fields, but their `{ kind, payload }`
+ * envelope is an internal protocol and must never be rendered verbatim. The
+ * ready branch is retained defensively for an old server/new renderer pairing;
+ * current Codex mapping suppresses successful readiness at the source.
+ */
+export function resolveInternalRuntimeStatus(
+  statusData: unknown,
+): InternalRuntimeStatusResolution {
+  if (!statusData || typeof statusData !== 'object') return { handled: false };
+  const kind = (statusData as { kind?: unknown }).kind;
+
+  if (kind === 'codex.mcpServerReady') {
+    return { handled: true };
+  }
+  if (kind === 'codex.mcpServerStartupFailed') {
+    return {
+      handled: true,
+      text: translateActive('streaming.toolConnectionFailed'),
+    };
+  }
+  if (kind === 'codex_retry') {
+    return {
+      handled: true,
+      text: translateActive('streaming.reconnecting'),
+    };
+  }
+  if (typeof kind === 'string' && kind.startsWith('codex.')) {
+    return {
+      handled: true,
+      text: translateActive('streaming.runtimeStatusUpdated'),
+    };
+  }
+  return { handled: false };
+}
+
+const UNPARSED_STATUS = Symbol('unparsed-status');
+
+/**
+ * Last-resort display policy for status events that have no dedicated handler.
+ * Human strings remain visible; structured objects and truncated JSON degrade
+ * to localized copy instead of exposing an internal protocol envelope.
+ */
+export function resolveSafeStatusFallback(
+  rawData: unknown,
+  parsedData: unknown = UNPARSED_STATUS,
+): string | undefined {
+  if (parsedData !== UNPARSED_STATUS) {
+    if (typeof parsedData === 'string') {
+      const text = parsedData.trim();
+      return text || undefined;
+    }
+    return translateActive('streaming.runtimeStatusUpdated');
+  }
+
+  if (typeof rawData !== 'string') return undefined;
+  const text = rawData.trim();
+  if (!text) return undefined;
+  if (text.startsWith('{') || text.startsWith('[')) {
+    return translateActive('streaming.runtimeStatusUpdated');
+  }
+  return text;
+}
+
 /**
  * Parse a single SSE line (after stripping "data: " prefix) and dispatch
  * to the appropriate callback.  Returns the updated accumulated text.
  */
-function handleSSEEvent(
+export function handleSSEEvent(
   event: SSEEvent,
   accumulated: string,
   callbacks: SSECallbacks,
@@ -254,6 +325,11 @@ function handleSSEEvent(
     case 'status': {
       try {
         const statusData = JSON.parse(event.data);
+        const internalRuntimeStatus = resolveInternalRuntimeStatus(statusData);
+        if (internalRuntimeStatus.handled) {
+          if (internalRuntimeStatus.text) callbacks.onStatus(internalRuntimeStatus.text);
+          return accumulated;
+        }
         // Skip internal-only status events (e.g. resume fallback notifications)
         if (statusData._internal) {
           return accumulated;
@@ -314,10 +390,10 @@ function handleSSEEvent(
               : 'Retrying upstream…',
           );
         } else {
-          callbacks.onStatus(typeof event.data === 'string' ? event.data : undefined);
+          callbacks.onStatus(resolveSafeStatusFallback(event.data, statusData));
         }
       } catch {
-        callbacks.onStatus(event.data || undefined);
+        callbacks.onStatus(resolveSafeStatusFallback(event.data));
       }
       return accumulated;
     }

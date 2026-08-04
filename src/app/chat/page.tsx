@@ -39,7 +39,11 @@ import { FolderPicker } from '@/components/chat/FolderPicker';
 import { useNativeFolderPicker } from '@/hooks/useNativeFolderPicker';
 import { useTranslation } from '@/hooks/useTranslation';
 import { usePanel } from '@/hooks/usePanel';
-import { maybeShowStatusToast } from '@/hooks/useSSEStream';
+import {
+  maybeShowStatusToast,
+  resolveInternalRuntimeStatus,
+  resolveSafeStatusFallback,
+} from '@/hooks/useSSEStream';
 import { seedSnapshotPatch } from '@/lib/stream-session-manager';
 import { createFirstTurnNavGuard, type FirstTurnNavGuard } from '@/lib/first-turn-navigation';
 // `runtime/effective` stays — it's needed for the local resolver effect
@@ -47,6 +51,9 @@ import { createFirstTurnNavGuard, type FirstTurnNavGuard } from '@/lib/first-tur
 // That's the only contributor to RunCheckpoint's pinned-invalid
 // reason on the new-chat page.
 import { resolveNewChatDefault } from '@/lib/runtime/effective';
+
+const previewAssistantOnboarding =
+  process.env.NEXT_PUBLIC_CODEPILOT_UI_PREVIEW === 'assistant-onboarding';
 
 interface ToolUseInfo {
   id: string;
@@ -119,7 +126,6 @@ function NewChatPageInner() {
   const [workingDir, setWorkingDir] = useState('');
   const [folderPickerOpen, setFolderPickerOpen] = useState(false);
   const [errorBanner, setErrorBanner] = useState<{ message: string; description?: string } | null>(null);
-  const [recentProjects, setRecentProjects] = useState<string[]>([]);
   const [hasProvider, setHasProvider] = useState(true); // assume true until checked
   // True when the runtime-filtered /api/providers/models call succeeded
   // but returned an empty list — i.e. user has providers configured but
@@ -566,14 +572,6 @@ function NewChatPageInner() {
     };
   }, []);
 
-  // Load recent projects for empty state
-  useEffect(() => {
-    fetch('/api/setup/recent-projects')
-      .then(r => r.ok ? r.json() : { projects: [] })
-      .then(data => setRecentProjects(data.projects || []))
-      .catch(() => {});
-  }, []);
-
   // Detect assistant workspace status
   useEffect(() => {
     fetch('/api/settings/workspace')
@@ -727,11 +725,6 @@ function NewChatPageInner() {
     setWorkingDir(path);
     localStorage.setItem('codepilot:last-working-directory', path);
     setFolderPickerOpen(false);
-  }, []);
-
-  const handleSelectProject = useCallback((path: string) => {
-    setWorkingDir(path);
-    localStorage.setItem('codepilot:last-working-directory', path);
   }, []);
 
   const stopStreaming = useCallback(() => {
@@ -1109,7 +1102,10 @@ function NewChatPageInner() {
                 case 'status': {
                   try {
                     const statusData = JSON.parse(event.data);
-                    if (statusData.session_id) {
+                    const internalRuntimeStatus = resolveInternalRuntimeStatus(statusData);
+                    if (internalRuntimeStatus.handled) {
+                      if (internalRuntimeStatus.text) setStatusText(internalRuntimeStatus.text);
+                    } else if (statusData.session_id) {
                       setStatusText(`Connected (${statusData.model || 'claude'})`);
                       setTimeout(() => setStatusText(undefined), 2000);
                     } else if (statusData.notification) {
@@ -1129,10 +1125,10 @@ function NewChatPageInner() {
                           : 'Retrying upstream…',
                       );
                     } else {
-                      setStatusText(event.data || undefined);
+                      setStatusText(resolveSafeStatusFallback(event.data, statusData));
                     }
                   } catch {
-                    setStatusText(event.data || undefined);
+                    setStatusText(resolveSafeStatusFallback(event.data));
                   }
                   break;
                 }
@@ -1353,16 +1349,17 @@ function NewChatPageInner() {
   // sends the first message (messages.length > 0 OR isStreaming),
   // we fall back to the traditional list-above + composer-below layout.
   const isNewChat = messages.length === 0 && !isStreaming;
-  const needsOnboardingCards = !workingDir.trim() || !hasSendableProviderForCurrentRuntime;
+  const needsOnboardingCards = previewAssistantOnboarding
+    || !workingDir.trim()
+    || !hasSendableProviderForCurrentRuntime;
 
   const chatEmptyStateNode = (
     <ChatEmptyState
       hasDirectory={!!workingDir.trim()}
       hasProvider={hasSendableProviderForCurrentRuntime}
       onSelectFolder={handleSelectFolder}
-      recentProjects={recentProjects}
-      onSelectProject={handleSelectProject}
       assistantConfigured={assistantConfigured}
+      preview={previewAssistantOnboarding}
       onOpenAssistant={() => {
         if (assistantConfigured) {
           // Navigate to the latest assistant session

@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { ThinkingOrb } from 'thinking-orbs';
 import { useTranslation } from '@/hooks/useTranslation';
 import {
   Message as AIMessage,
@@ -207,7 +208,18 @@ function ThinkingPhaseLabel() {
       ? t('streaming.thinkingDeep')
       : t('streaming.preparing');
 
-  return <Shimmer>{text}</Shimmer>;
+  return (
+    <div className="inline-flex items-center gap-2 text-muted-foreground">
+      <ThinkingOrb
+        state="working"
+        size={20}
+        role="presentation"
+        aria-hidden="true"
+        className="shrink-0 opacity-70"
+      />
+      <Shimmer>{text}</Shimmer>
+    </div>
+  );
 }
 
 function ElapsedTimer({ startedAt }: { startedAt: number }) {

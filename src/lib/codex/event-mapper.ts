@@ -354,22 +354,19 @@ export function translateCodexNotification(
     case 'item/plan/delta':
     case 'item/reasoning/summaryPartAdded':
     case 'mcpServer/startupStatus/updated': {
-      // Phase 8 Phase 3 — MCP server lifecycle must not be silent. A
-      // `failed` startup surfaces as a visible (non-terminal) diagnostic
-      // so a broken Memory / user MCP is explainable in chat instead of
-      // just a missing tool; `ready` confirms it came up. `starting`
-      // (transient) stays quiet to avoid noise.
+      // Phase 8 Phase 3 — a failed MCP startup must remain diagnosable so a
+      // broken Memory / user MCP is explainable instead of looking like a
+      // missing tool. Successful readiness, however, is internal lifecycle
+      // noise: surfacing it through the generic status fallback exposes the
+      // raw `{ kind, payload }` envelope in the chat Thinking area. Keep
+      // `ready` and the transient `starting` state quiet; only failures cross
+      // the canonical boundary, where the clients render human copy while
+      // retaining the structured payload for diagnostics.
       const sp = params as { name?: string; status?: string; error?: string | null };
       if (sp.status === 'failed') {
         return makeUnknownItem(base, {
           sourceType: 'codex.mcpServerStartupFailed',
           payload: { server: sp.name ?? null, error: sp.error ?? null },
-        });
-      }
-      if (sp.status === 'ready') {
-        return makeUnknownItem(base, {
-          sourceType: 'codex.mcpServerReady',
-          payload: { server: sp.name ?? null },
         });
       }
       return null;

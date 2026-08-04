@@ -82,6 +82,9 @@ const zh: Record<TranslationKey, string> = {
   'streaming.thinking': '思考中...',
   'streaming.thinkingDeep': '深度思考中...',
   'streaming.preparing': '组织回复中...',
+  'streaming.toolConnectionFailed': '一个工具连接失败，部分功能可能暂时不可用。',
+  'streaming.reconnecting': '正在重新连接...',
+  'streaming.runtimeStatusUpdated': '运行状态已更新。',
   'streaming.generating': '生成中',
   'streaming.allowForSession': '本次会话允许',
   'streaming.allowed': '已允许',
@@ -1763,7 +1766,6 @@ const zh: Record<TranslationKey, string> = {
   'chat.empty.selectFolder': '选择文件夹',
   'chat.empty.skipForNow': '暂时跳过',
   'chat.empty.ready': '准备就绪。输入消息开始对话。',
-  'chat.empty.recentProjects': '最近的项目',
   'chat.empty.projectChat.title': '项目对话',
   'chat.empty.projectChat.description': '打开项目文件夹，AI 帮你编码、调试和重构',
   'chat.empty.assistant.title': '个人助理',
@@ -1771,7 +1773,6 @@ const zh: Record<TranslationKey, string> = {
   'chat.empty.assistant.setup': '设置助理',
   'chat.empty.assistant.open': '打开助理',
   'chat.empty.assistant.dismiss': '关闭助理提示',
-  'chat.empty.explanation': '项目对话在代码目录中工作。个人助理跨所有任务工作，无需特定项目。',
 
   // 新对话欢迎语 — 由 NewChatWelcome.tsx 拼成「{时段问候}{分隔}{问句}」。
   // 问候随时段变化；问句池随上下文切换（助理 > 具名项目 > 通用）。问句不带

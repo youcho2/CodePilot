@@ -2,6 +2,7 @@
 
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
+import { ThinkingOrb } from 'thinking-orbs';
 import {
   SpinnerGap,
   CheckCircle,
@@ -408,17 +409,27 @@ function ThinkingRow({ content, isStreaming }: { content: string; isStreaming?: 
         onMouseLeave={() => setHovered(false)}
         className="flex items-center gap-2 px-2 py-1 min-h-[28px] text-xs hover:bg-muted/30 rounded-sm transition-colors w-full"
       >
-        {hovered ? (
-          <CaretRight
-            size={14}
-            className={cn(
-              "shrink-0 text-muted-foreground transition-transform duration-200",
-              expanded && "rotate-90"
-            )}
-          />
-        ) : (
-          <CodePilotIcon name="assistant" size="sm" className="shrink-0 text-muted-foreground" aria-hidden />
-        )}
+        <span className="flex size-5 shrink-0 items-center justify-center">
+          {hovered ? (
+            <CaretRight
+              size={14}
+              className={cn(
+                "text-muted-foreground transition-transform duration-200",
+                expanded && "rotate-90"
+              )}
+            />
+          ) : isStreaming ? (
+            <ThinkingOrb
+              state="solving"
+              size={20}
+              role="presentation"
+              aria-hidden="true"
+              className="opacity-70"
+            />
+          ) : (
+            <CodePilotIcon name="assistant" size="sm" className="text-muted-foreground" aria-hidden />
+          )}
+        </span>
         <span className="font-mono text-muted-foreground/60 truncate flex-1 text-left">
           {isStreaming ? <Shimmer duration={1.5}>{summary}</Shimmer> : summary}
         </span>

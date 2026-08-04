@@ -18,11 +18,17 @@ import {
   handleCodexMcpElicitationApproval,
 } from '../../lib/codex/mcp-elicitation';
 import { resolvePendingPermission } from '../../lib/permission-registry';
+import {
+  handleSSEEvent,
+  resolveInternalRuntimeStatus,
+  resolveSafeStatusFallback,
+} from '../../hooks/useSSEStream';
+import { setActiveLocale } from '../../i18n';
 
 const ctx = { sessionId: 'sess-1' } as const;
 
-describe('mcpServer/startupStatus/updated — not silent', () => {
-  it('failed → visible (non-terminal) diagnostic carrying the error', () => {
+describe('mcpServer/startupStatus/updated — user-safe lifecycle display', () => {
+  it('failed → structured diagnostic plus localized human copy', () => {
     const ev = translateCodexNotification(
       'mcpServer/startupStatus/updated',
       { name: 'codepilot_memory', status: 'failed', error: 'handshake failed' },
@@ -34,16 +40,32 @@ describe('mcpServer/startupStatus/updated — not silent', () => {
     assert.equal(e.sourceType, 'codex.mcpServerStartupFailed');
     assert.equal(e.payload.server, 'codepilot_memory');
     assert.equal(e.payload.error, 'handshake failed');
+
+    setActiveLocale('zh');
+    try {
+      const display = resolveInternalRuntimeStatus({ kind: e.sourceType, payload: e.payload });
+      assert.equal(display.handled, true);
+      assert.equal(display.text, '一个工具连接失败，部分功能可能暂时不可用。');
+      assert.doesNotMatch(display.text ?? '', /codepilot_memory|handshake|\{|\}/);
+    } finally {
+      setActiveLocale('en');
+    }
   });
 
-  it('ready → lightweight visible status', () => {
+  it('ready → silent, including defensive handling of an older server envelope', () => {
     const ev = translateCodexNotification(
       'mcpServer/startupStatus/updated',
       { name: 'codepilot_memory', status: 'ready', error: null },
       ctx,
     );
-    assert.equal(ev?.type, 'unknown_item');
-    assert.equal((ev as { sourceType: string }).sourceType, 'codex.mcpServerReady');
+    assert.equal(ev, null);
+    assert.deepEqual(
+      resolveInternalRuntimeStatus({
+        kind: 'codex.mcpServerReady',
+        payload: { server: 'openaiDeveloperDocs' },
+      }),
+      { handled: true },
+    );
   });
 
   it('starting (transient) → no event (avoid noise)', () => {
@@ -53,6 +75,86 @@ describe('mcpServer/startupStatus/updated — not silent', () => {
       ctx,
     );
     assert.equal(ev, null);
+  });
+
+  it('both chat entry points consume internal Runtime statuses before generic display', () => {
+    const hookSrc = fs.readFileSync(path.resolve(__dirname, '../../hooks/useSSEStream.ts'), 'utf-8');
+    const firstTurnSrc = fs.readFileSync(path.resolve(__dirname, '../../app/chat/page.tsx'), 'utf-8');
+    assert.match(hookSrc, /resolveInternalRuntimeStatus\(statusData\)/);
+    assert.match(firstTurnSrc, /resolveInternalRuntimeStatus\(statusData\)/);
+  });
+
+  it('unknown Codex lifecycle kinds degrade to human copy, while non-Codex status stays generic', () => {
+    setActiveLocale('zh');
+    try {
+      assert.deepEqual(
+        resolveInternalRuntimeStatus({ kind: 'codex.futureLifecycle', payload: { raw: true } }),
+        { handled: true, text: '运行状态已更新。' },
+      );
+      assert.deepEqual(
+        resolveInternalRuntimeStatus({ kind: 'codex_retry', payload: { willRetry: true } }),
+        { handled: true, text: '正在重新连接...' },
+      );
+      assert.deepEqual(
+        resolveInternalRuntimeStatus({ kind: 'claude.userFacingStatus' }),
+        { handled: false },
+      );
+    } finally {
+      setActiveLocale('en');
+    }
+  });
+
+  it('generic fallback never renders structured or truncated JSON, and result clears status', () => {
+    const statusTexts: Array<string | undefined> = [];
+    const callbacks: Parameters<typeof handleSSEEvent>[2] = {
+      onText: () => {},
+      onToolUse: () => {},
+      onToolResult: () => {},
+      onToolOutput: () => {},
+      onToolProgress: () => {},
+      onStatus: (text) => statusTexts.push(text),
+      onResult: () => {},
+      onPermissionRequest: () => {},
+      onToolTimeout: () => {},
+      onModeChanged: () => {},
+      onTaskUpdate: () => {},
+      onRewindPoint: () => {},
+      onKeepAlive: () => {},
+      onError: () => {},
+    };
+
+    setActiveLocale('zh');
+    try {
+      handleSSEEvent(
+        { type: 'status', data: JSON.stringify({ kind: 'native.futureLifecycle', payload: { raw: true } }) },
+        '',
+        callbacks,
+      );
+      handleSSEEvent(
+        { type: 'status', data: '{"kind":"native.partial"' },
+        '',
+        callbacks,
+      );
+      handleSSEEvent(
+        { type: 'status', data: 'Indexing workspace...' },
+        '',
+        callbacks,
+      );
+      handleSSEEvent({ type: 'result', data: '{}' }, '', callbacks);
+    } finally {
+      setActiveLocale('en');
+    }
+
+    assert.deepEqual(statusTexts, [
+      '运行状态已更新。',
+      '运行状态已更新。',
+      'Indexing workspace...',
+      undefined,
+    ]);
+    assert.equal(
+      resolveSafeStatusFallback('{"kind":"native.partial"'),
+      'Runtime status updated.',
+    );
   });
 });
 
