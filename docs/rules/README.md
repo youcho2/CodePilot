@@ -12,6 +12,7 @@
 |------|------|-----------|
 | [reporting.md](reporting.md) | 完成状态词典 + 简化汇报协议 | 每次汇报 / 判断"做完了没" |
 | [release.md](release.md) | 完整发版流程 + Release Notes 模板 + 写作规则 | 发版时 |
+| [fork-sync.md](fork-sync.md) | Fork 同步流程（main 镜像上游 + codepilot/main 工作分支） | 同步上游 / 处理 fork 分叉时 |
 
 规则增删后更新本索引。
 
