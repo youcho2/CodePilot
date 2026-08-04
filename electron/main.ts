@@ -77,6 +77,7 @@ import { TerminalManager } from './terminal-manager';
 import { validateTerminalCreateOpts } from './terminal-create-validation';
 import { sanitizeLogLine } from './log-sanitize';
 import { getTrayMenuLabels } from '../src/lib/tray-menu-labels';
+import { NATIVE_NOTIFICATION_ERROR } from '../src/lib/notification-error-codes';
 import { BoundedLineRing } from '../src/lib/logging/bounded-line-ring';
 import { createRotatingLogWriter, type RotatingLogWriter } from '../src/lib/logging/main-log-rotation';
 import { classifyNavigation } from '../src/lib/navigation-policy';
@@ -518,7 +519,15 @@ function startNativeDeliveryService(): void {
         route: resolveNotificationActionRoute(delivery.action_type, delivery.action_payload),
       };
       const supported = Notification.isSupported();
-      const notification = supported
+      // Electron's macOS implementation requires a code-signed application.
+      // `electron:dev` runs the unsigned Electron.app, whose `show` event can
+      // fire without anything reaching Notification Center on Electron 40.
+      // Fail closed instead of persisting a fake delivered receipt. Release
+      // builds remain subject to the signed-package smoke gate.
+      const unavailableReason = process.platform === 'darwin' && !app.isPackaged
+        ? NATIVE_NOTIFICATION_ERROR.macosUnsignedDevelopment
+        : undefined;
+      const notification = supported && !unavailableReason
         ? new Notification(buildNativeNotificationOptions(process.platform, delivery.title, delivery.body || ''))
         : null;
       if (notification) {
@@ -529,6 +538,7 @@ function startNativeDeliveryService(): void {
         platform: process.platform,
         supported,
         notification,
+        unavailableReason,
         onClick: () => {
           if (notification) nativeNotificationRetention.release(notification);
           showMainWindow();

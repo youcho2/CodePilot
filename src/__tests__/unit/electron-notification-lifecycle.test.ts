@@ -38,6 +38,19 @@ describe('Electron native notification lifecycle', () => {
 
   it('reports unsupported, throw, timeout and Windows failed distinctly', async () => {
     assert.deepEqual(
+      await deliverNativeNotification({
+        platform: 'darwin',
+        supported: true,
+        notification: null,
+        unavailableReason: 'native_notification_macos_unsigned_development',
+      }),
+      {
+        status: 'error',
+        error: 'native_notification_macos_unsigned_development',
+        retryable: false,
+      },
+    );
+    assert.deepEqual(
       await deliverNativeNotification({ platform: 'linux', supported: false, notification: null }),
       { status: 'error', error: 'native notifications are unsupported', retryable: false },
     );

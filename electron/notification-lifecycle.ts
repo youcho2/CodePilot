@@ -61,9 +61,17 @@ export function deliverNativeNotification(args: {
   platform: NodeJS.Platform;
   supported: boolean;
   notification: NativeNotificationAdapter | null;
+  unavailableReason?: string;
   timeoutMs?: number;
   onClick?: () => void;
 }): Promise<NativeNotificationOutcome> {
+  if (args.unavailableReason) {
+    return Promise.resolve({
+      status: 'error',
+      error: args.unavailableReason,
+      retryable: false,
+    });
+  }
   if (!args.supported || !args.notification) {
     return Promise.resolve({ status: 'error', error: 'native notifications are unsupported', retryable: false });
   }

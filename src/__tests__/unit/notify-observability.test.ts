@@ -32,6 +32,8 @@ describe('#34 notification dispatch observability (source-pin)', () => {
     assert.match(src, /\[notify\] native delivery event_id=/);
     assert.match(src, /outcome=\$\{outcome\.status\}/);
     assert.match(src, /Notification\.isSupported\(\)/);
+    assert.match(src, /process\.platform === 'darwin' && !app\.isPackaged/);
+    assert.match(src, /NATIVE_NOTIFICATION_ERROR\.macosUnsignedDevelopment/);
     assert.doesNotMatch(src, /notification:show/);
   });
 });
