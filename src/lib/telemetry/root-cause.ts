@@ -32,6 +32,17 @@ const MODEL_CODES = new Set([
   'MODEL_NOT_SUPPORTED',
   'UNSUPPORTED_MODEL',
 ]);
+const PROVIDER_ERROR_TYPE_STATUS = new Map<string, number>([
+  ['INVALID_REQUEST_ERROR', 400],
+  ['AUTHENTICATION_ERROR', 401],
+  ['BILLING_ERROR', 402],
+  ['PERMISSION_ERROR', 403],
+  ['NOT_FOUND_ERROR', 404],
+  ['REQUEST_TOO_LARGE', 413],
+  ['RATE_LIMIT_ERROR', 429],
+  ['API_ERROR', 500],
+  ['OVERLOADED_ERROR', 529],
+]);
 const CREDENTIAL_CATEGORIES = new Set([
   'NO_CREDENTIALS',
   'AUTH_REJECTED',
@@ -121,6 +132,19 @@ function addNodeSignals(node: UnknownRecord, inspected: InspectedRootCause): voi
 
   const code = boundedString(ownValue(node, 'code'), 64);
   if (code && /^[a-z0-9_.-]{1,64}$/i.test(code)) inspected.codes.add(code.toUpperCase());
+
+  // In-band provider SSE errors commonly retain only a low-cardinality
+  // `type` enum; the adapter's APICallError/status wrapper exists only for
+  // initial request failures. Treat the allow-listed enum like `code` and
+  // recover the provider's documented HTTP semantics without reading bodies.
+  const type = boundedString(ownValue(node, 'type'), 64);
+  if (type && /^[a-z0-9_.-]{1,64}$/i.test(type)) {
+    const normalizedType = type.toUpperCase();
+    inspected.codes.add(normalizedType);
+    if (inspected.statusCode === undefined) {
+      inspected.statusCode = PROVIDER_ERROR_TYPE_STATUS.get(normalizedType);
+    }
+  }
 
   const name = boundedString(ownValue(node, 'name'), 96);
   if (name) inspected.names.push(name);
@@ -214,8 +238,9 @@ export function normalizeTelemetryFailure(
     || (genericProviderFailure && /\bno output generated\b/i.test(text));
   const timeout = category.startsWith('TIMEOUT_')
     || hasCode(inspected, TIMEOUT_CODES)
-    || /\b(?:timeout|timed out)\b/i.test(text);
-  const dns = hasCode(inspected, DNS_CODES) || /\b(?:ENOTFOUND|EAI_AGAIN|getaddrinfo)\b/i.test(text);
+    || (genericProviderFailure && /\b(?:timeout|timed out)\b/i.test(text));
+  const dns = hasCode(inspected, DNS_CODES)
+    || (genericProviderFailure && /\b(?:ENOTFOUND|EAI_AGAIN|getaddrinfo)\b/i.test(text));
 
   // Phase 6 freezes every structured HTTP 4xx, including 429, as an
   // actionable configuration/account/permission failure with zero Issue.
@@ -347,8 +372,12 @@ export function createSafeTelemetryError(error: Error, safeMessage: string): Err
     return safe;
   }
   if (!stack) return safe;
-  const newline = stack.indexOf('\n');
-  if (newline < 0) return safe;
-  safe.stack = `${safe.name}: ${safeMessage}${stack.slice(newline)}`.slice(0, MAX_SAFE_STACK);
+  // V8 embeds the complete (possibly multi-line) Error.message before the
+  // first frame. Preserve only frame lines so response bodies or provider
+  // chunks cannot survive on continuation lines of the stack header.
+  const frameIndex = stack.split('\n').findIndex((line) => /^\s*at\b/.test(line));
+  if (frameIndex < 0) return safe;
+  const frames = stack.split('\n').slice(frameIndex).join('\n');
+  safe.stack = `${safe.name}: ${safeMessage}\n${frames}`.slice(0, MAX_SAFE_STACK);
   return safe;
 }

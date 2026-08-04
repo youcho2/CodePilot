@@ -17,7 +17,7 @@ import { createModel } from './ai-provider';
 import { assembleTools, READ_ONLY_TOOLS } from './agent-tools';
 import { reportNativeError } from './error-classifier';
 import { providerTelemetryIdentity, type ProviderTelemetryIdentity } from './telemetry/provider-failure';
-import { markProviderFailureHandled } from './telemetry/provider-marker';
+import { NativeStreamTelemetryState } from './telemetry/native-stream-boundary';
 import { pruneOldToolResults } from './context-pruner';
 import { shouldSuggestSkill, buildSkillNudgeStatusEvent } from './skill-nudge';
 import { emit as emitEvent } from './runtime/event-bus';
@@ -209,7 +209,7 @@ export function runAgentLoop(options: AgentLoopOptions): ReadableStream<string> 
       const pendingMediaByCallId = new Map<string, MediaBlock[]>();
       let xaiSearchEnabled = false;
       let telemetryProvider: ProviderTelemetryIdentity | undefined;
-      let lastProviderStreamError: unknown;
+      const providerStreamTelemetry = new NativeStreamTelemetryState();
 
       // Phase 7 Context Accounting — per-turn ToolInvocationAccumulator.
       // Lives in start(controller) closure so step loop tool_use/tool_result
@@ -377,7 +377,7 @@ export function runAgentLoop(options: AgentLoopOptions): ReadableStream<string> 
 
         while (step < maxSteps) {
           step++;
-          lastProviderStreamError = undefined;
+          providerStreamTelemetry.resetStep();
 
           // Build provider options (Anthropic-specific).
           // Shared sanitizer applies Opus 4.7 migration guards (manual
@@ -640,8 +640,7 @@ export function runAgentLoop(options: AgentLoopOptions): ReadableStream<string> 
 
             onError: (event) => {
               const err = event.error;
-              lastProviderStreamError = err;
-              markProviderFailureHandled(err);
+              providerStreamTelemetry.observe(err);
               const msg = err instanceof Error ? err.message : String(err);
               console.error('[agent-loop] streamText error:', msg);
               if (err && typeof err === 'object') {
@@ -649,9 +648,9 @@ export function runAgentLoop(options: AgentLoopOptions): ReadableStream<string> 
                 if (anyErr.responseBody) console.error('[agent-loop] Response body:', anyErr.responseBody);
                 if (anyErr.statusCode) console.error('[agent-loop] Status code:', anyErr.statusCode);
               }
-              // Do not capture from this callback. The catch tail is the
-              // retry-exhausted boundary and feeds this structured SDK error
-              // (rather than a NoOutput wrapper) to the shared normalizer.
+              // Do not capture from this callback. Keep the structured SDK
+              // error until either finish-step or catch proves the step is
+              // terminal and the retry budget is exhausted.
             },
           });
 
@@ -831,6 +830,19 @@ export function runAgentLoop(options: AgentLoopOptions): ReadableStream<string> 
           const responseData = await result.response;
           runtimeReportedModel = responseData.modelId?.trim() || runtimeReportedModel;
 
+          // An in-band error part can finish with all AI SDK promises
+          // resolved. Capture its structured status/code here, at the
+          // retry-exhausted step boundary, instead of relying on catch.
+          const terminalProviderFailure = providerStreamTelemetry.takeTerminalFailure();
+          if (terminalProviderFailure) {
+            reportNativeError('NATIVE_STREAM_ERROR', terminalProviderFailure.error, {
+              modelId,
+              sessionId,
+              retryExhausted: true,
+              ...telemetryProvider,
+            });
+          }
+
           // Usage is accumulated in onStepFinish callback above
 
           // If no tool calls, the model is done
@@ -839,12 +851,14 @@ export function runAgentLoop(options: AgentLoopOptions): ReadableStream<string> 
             if (!hasContent) {
               const finishReason = await result.finishReason;
               console.error(`[agent-loop] Empty response: finishReason=${finishReason}, model=${modelId}`);
-              reportNativeError('EMPTY_RESPONSE', new Error(`Empty response: finishReason=${finishReason}`), {
-                modelId,
-                sessionId,
-                retryExhausted: true,
-                ...telemetryProvider,
-              });
+              if (!providerStreamTelemetry.hasReportedFailure) {
+                reportNativeError('EMPTY_RESPONSE', new Error(`Empty response: finishReason=${finishReason}`), {
+                  modelId,
+                  sessionId,
+                  retryExhausted: true,
+                  ...telemetryProvider,
+                });
+              }
               controller.enqueue(formatSSE({
                 type: 'error',
                 data: JSON.stringify({
@@ -944,12 +958,16 @@ export function runAgentLoop(options: AgentLoopOptions): ReadableStream<string> 
 
         if (!isAbort) {
           console.error('[agent-loop] Error:', err instanceof Error ? err.message : err);
-          const telemetryError = timedOut ? err : (lastProviderStreamError ?? err);
-          reportNativeError(
-            timedOut ? TIMEOUT_CATEGORY[timedOut.reason] : 'NATIVE_STREAM_ERROR',
-            telemetryError,
-            { sessionId, retryExhausted: true, ...telemetryProvider },
-          );
+          const telemetryFailure = timedOut
+            ? { error: err }
+            : providerStreamTelemetry.takeCatchFailure(err);
+          if (telemetryFailure) {
+            reportNativeError(
+              timedOut ? TIMEOUT_CATEGORY[timedOut.reason] : 'NATIVE_STREAM_ERROR',
+              telemetryFailure.error,
+              { sessionId, retryExhausted: true, ...telemetryProvider },
+            );
+          }
           // A3 (audit 2026-06): the success path drains the accumulator at
           // result time; if we threw inside the step loop that drain never
           // ran, so drain here too and attach the snapshot to the error event

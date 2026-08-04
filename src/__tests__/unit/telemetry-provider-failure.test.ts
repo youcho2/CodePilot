@@ -56,6 +56,22 @@ describe('provider failure telemetry boundary', () => {
     }
   });
 
+  it('recovers HTTP semantics from bounded in-band provider error types', () => {
+    for (const [type, statusCode] of [
+      ['invalid_request_error', 400],
+      ['authentication_error', 401],
+      ['billing_error', 402],
+      ['permission_error', 403],
+      ['not_found_error', 404],
+      ['request_too_large', 413],
+      ['rate_limit_error', 429],
+      ['api_error', 500],
+      ['overloaded_error', 529],
+    ] as const) {
+      assert.equal(providerFailureStatus({ type, body: 'must-not-read' }), statusCode);
+    }
+  });
+
   it('keeps provider tests and user cancellations out of Issues', () => {
     assert.equal(
       describeProviderFailure({ statusCode: 500 }, 'connection_test').outcome,
@@ -169,6 +185,29 @@ describe('provider failure telemetry boundary', () => {
     assert.equal(safe.message, 'telemetry.unknown_failure');
     assert.match(safe.stack || '', /providerCall/);
     assert.doesNotMatch((safe.stack || '').split('\n')[0], /secret|alice/i);
+  });
+
+  it('drops multi-line provider messages before preserving stack frames', () => {
+    const original = new Error('provider failure');
+    original.stack = [
+      'Error: provider failure',
+      'raw response body with sk-secret and /Users/alice/private',
+      'second private continuation line',
+      '    at providerCall (/Users/alice/project/provider.ts:10:2)',
+    ].join('\n');
+    const safe = createSafeTelemetryError(original, 'telemetry.unknown_failure');
+    assert.match(safe.stack || '', /providerCall/);
+    assert.doesNotMatch(safe.stack || '', /raw response|secret|private continuation/i);
+  });
+
+  it('does not reclassify product faults from incidental timeout or DNS text', () => {
+    for (const message of ['session state timed out', 'getaddrinfo appeared in persisted output']) {
+      const normalized = normalizeTelemetryFailure('SESSION_STATE_ERROR', new Error(message), {
+        retryExhausted: true,
+      });
+      assert.equal(normalized.outcome, 'product_fault');
+      assert.equal(normalized.category, 'SESSION_STATE_ERROR');
+    }
   });
 
   it('marks errors non-enumerably, including frozen SDK errors, to prevent double capture', () => {
