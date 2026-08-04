@@ -39,6 +39,7 @@ import {
 import type { ApiProvider, ProviderModelGroup } from "@/types";
 import type { CodexAccountState, CodexRateLimitSnapshot } from "@/lib/codex/types";
 import type { CodexLoginStart } from "@/lib/codex/account";
+import { invalidateCodexModelCatalogWarmup } from "@/lib/codex/model-catalog-warmup";
 import { useTranslation } from "@/hooks/useTranslation";
 import type { TranslationKey } from "@/i18n";
 import { runAutoDiscoverForProvider } from "@/lib/auto-discover-models";
@@ -779,6 +780,11 @@ export function ProviderManager() {
         return false;
       }
       setCodexLoginStart(json.login);
+      // The server invalidates its capability cache at login start. Mirror
+      // that transition in the renderer even though the chat model hooks are
+      // unmounted on Settings, otherwise a prior success memo can suppress
+      // discovery when the user returns to chat (including after cancel).
+      invalidateCodexModelCatalogWarmup();
       return true;
     } catch (err) {
       setCodexError(err instanceof Error ? err.message : String(err));
@@ -802,6 +808,7 @@ export function ProviderManager() {
 
   const handleCodexLoginComplete = useCallback(() => {
     setCodexLoginStart(null);
+    invalidateCodexModelCatalogWarmup();
     fetchCodexAccount();
     fetchModels();
     window.dispatchEvent(new Event('provider-changed'));
@@ -812,6 +819,7 @@ export function ProviderManager() {
       await fetch('/api/codex/account', { method: 'DELETE' });
       setCodexAccount({ kind: 'logged_out' });
       setCodexRateLimits(null);
+      invalidateCodexModelCatalogWarmup();
       fetchModels();
       window.dispatchEvent(new Event('provider-changed'));
     } catch { /* ignore */ }
