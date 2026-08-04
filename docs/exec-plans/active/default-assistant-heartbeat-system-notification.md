@@ -1,8 +1,8 @@
 # P0：先完成“默认助理 → 心跳 → 系统通知”纵向闭环
 
 > 创建时间：2026-08-03
-> 最后更新：2026-08-03
-> 状态：🟡 Code complete + Tests pass + Review passed（本地代码/测试范围）；真实 Claude rules POC、全量测试、production build 与 Electron bundle 已通过；三平台 packaged native/sound/click smoke 待验收
+> 最后更新：2026-08-04
+> 状态：🟡 Code complete + Tests pass；2026-08-04 review findings 已修复并补 production build，等待复审；真实 Claude rules POC、全量测试、production build 与 Electron bundle 已通过；三平台 packaged native/sound/click smoke 待验收
 > 优先级：P0
 > 父方向：[Harness Home Umbrella](harness-home-user-owned-core.md)
 > 历史参考：[助理工作区](../completed/assistant-workspace.md)、[后台任务与通知归档](../completed/refactor-phase-3-background-tasks-notifications.md)、[Memory v3（deferred）](../deferred/memory-system-v3.md)
@@ -126,10 +126,11 @@
 ### D3. 新默认工作区不继续扩大 framework lock-in
 
 - 新 workspace 的 canonical rules 文件采用中立名称，推荐 `instructions.md`。
-- loader 优先读取 canonical `instructions.md`，继续兼容 `claude.md` / `CLAUDE.md` / `AGENTS.md`；不重命名、不覆盖老用户文件。
+- 新 workspace 同时生成带 provenance hash 的 `CLAUDE.md` / `AGENTS.md` native mirrors；它们只在内容仍等于上次生成版本时随 canonical 同步。手改/unmanaged 时整组 freeze 并由 Settings 披露冲突，绝不覆盖。
+- loader 优先读取 canonical `instructions.md`，继续兼容没有 canonical 的 `claude.md` / `CLAUDE.md` / `AGENTS.md` 老目录；不重命名、不自动迁移老用户文件。
 - `FILE_MAP` 只解析一个 winning rules file：同时存在 `instructions.md` 与 legacy 文件时 canonical 优先，Context Assembler 恰好注入一份；不得拼接两份。
 - P0.0 必须用真实 ClaudeCode 助理会话确认 SDK `settingSources` 是否会从 cwd 原生加载 `CLAUDE.md`。若会，实施必须给 ClaudeCode 路径做 effective-prompt 去重或明确只保留一个 owner；不能把“Assembler 单读”冒充“模型只看见一份”。真实结论回写 D3 后才可进入 P0.1。
-- 2026-08-03 真实 POC 结论：Claude CLI `2.1.220` 在临时 cwd、`--setting-sources project`、无工具、Haiku 下准确返回 cwd `CLAUDE.md` 的唯一 marker，证明 SDK 会原生装载 project rules。最终 owner 因此锁为：仅当 Runtime=`claude_code`、使用 env provider 且 winning legacy rules 与 cwd `CLAUDE.md` 是同一 dev/ino 时，由 SDK 原生加载并让 Assembler `omitRules`；`instructions.md`、非 cwd legacy 和其他 Runtime 仍由 Assembler 注入。成功运行成本 `$0.0022951`；此前两次预算不足 POC 分别消耗 `$0.036809`、`$0.01413`，均未伪装成成功证据。
+- 2026-08-03 真实 POC 结论：Claude CLI `2.1.220` 在临时 cwd、`--setting-sources project`、无工具、Haiku 下准确返回 cwd `CLAUDE.md` 的唯一 marker，证明 SDK 会原生装载 project rules。最终 owner 因此锁为：仅 env Claude + clean `CLAUDE.md` mirror 由 SDK 原生加载并允许 Assembler 省略 rules；其他路径由 Assembler 注入 canonical。Codex 的非 git cwd / `project_doc_max_bytes=0` native discovery 尚无真实证据，所以即使 clean `AGENTS.md` 存在，也保留 rules 并经 `developerInstructions` 投递。成功运行成本 `$0.0022951`；此前两次预算不足 POC 分别消耗 `$0.036809`、`$0.01413`，均未伪装成成功证据。
 - 新 `instructions.md` 模板正文中的修改提示、安全规则和自引用必须同步使用 canonical filename；不能继续教模型修改不存在的 `claude.md`。
 - token overflow 时“规则必保留”绑定 canonical instruction role，不绑定旧内部 key `claude`；内部类型渐进重命名不能让规则在 overflow 时被丢弃。
 - 对旧 `AssistantWorkspaceFiles.claude` 等内部命名采用兼容别名/渐进迁移，不能在本 P0 里批量重写用户内容。
@@ -250,7 +251,7 @@
 |------|-------------|------------------------------|----------|
 | 仅缺失设置时建默认助理 | `settings/workspace route GET/PUT`、`db.ts:setSetting` | `src/lib/db.ts:compareAndSetSettingIfBlank` + `assistant default bootstrap single-flight` | 新用户、非空/invalid 旧路径、bootstrap 与显式 PUT 竞态；显式 PUT 必须胜出 |
 | 默认路径由 Electron 解析 | 无 | `electron/main.ts` fixed-path IPC + `preload.ts` narrow bridge | source-pin + mac/win/linux path fixture；IPC 不接收任意 path 参数 |
-| 新规则文件中立且恰好一份 | `assistant-workspace.ts:FILE_MAP / FILE_TEMPLATES`、`context-assembler.ts:assembleWorkspacePrompt` | canonical `instructions.md` resolver + Runtime-aware effective injection policy | 新建目录与模板自引用；canonical+legacy 同存；overflow 必保留；真实 ClaudeCode `settingSources` smoke |
+| 新规则真源中立且投递不丢失 | `assistant-workspace.ts` mirror reconcile、`context-assembler.ts` owner gate、`codex/runtime.ts` developer instructions | canonical `instructions.md` + managed native mirrors + evidence-backed injection | clean sync、manual conflict freeze、legacy no-touch；env Claude clean owner 恰好一份；Codex canonical final wire 始终存在，native 是否重复不作未经验证的承诺 |
 | 零会话助理可见 | `ChatListPanel.tsx:assistantGroup` | synthetic empty group / explicit empty state | component/UI smoke：0 session 仍有助理和新对话按钮 |
 | heartbeat desired/actual 一致 | `workspace PATCH` + `assistant-workspace.ts:saveState` + `ensureHeartbeatTask` | atomic desired-state writer + `reconcileAssistantHeartbeat` + desired-first PATCH contract | enable/disable/file-write failure/reconcile failure/interval/restart/drift/DB restore tests |
 | heartbeat 单 row | `ensureHeartbeatTask` check-then-create、`getHeartbeatTask LIMIT 1` | `db.ts` duplicate consolidation + partial UNIQUE index；reconcile unique-conflict reread | 并发 startup/bootstrap/PATCH；历史 duplicate + run/event linkage preserved |
@@ -333,7 +334,7 @@
 - [x] Electron Main 暴露无输入的 `getDefaultAssistantHome` 窄 IPC；preload 只返回固定解析结果。
 - [x] workspace API 增加 `if_unconfigured` bootstrap single-flight；commit 使用 `compareAndSetSettingIfBlank`，初始化失败不写 setting，CAS loser 返回现有显式选择。
 - [x] default initialization 复用/收敛 `initializeWorkspace`，保证重复执行不覆盖用户修改过的文件。
-- [x] 新 workspace 生成 `instructions.md`；模板正文不再自引用 `claude.md`；legacy workspace 继续读取现有 rule files。
+- [x] 新 workspace 生成 `instructions.md` 及 managed `CLAUDE.md` / `AGENTS.md`；模板正文只把 canonical 当真源；legacy workspace 继续读取现有 rule files。
 - [x] canonical + legacy 同存时 resolver 只选 canonical；按 P0.0 的 ClaudeCode `settingSources` 结论实施 effective injection 去重。
 - [x] overflow 必保留 canonical instruction role；不再通过旧 `claude` 内部 key 特判。
 - [x] `ChatListPanel` 在 configured + 0 session 时渲染真实 empty state，而不是构造假 DB session。
@@ -345,7 +346,7 @@
 
 - default path fixed IPC source/security test；
 - workspace initializer no-overwrite、legacy compatibility、single-flight、bootstrap-vs-explicit-PUT 全 interleaving test；
-- `instructions.md + claude.md` 同存恰好一份 CodePilot-owned injection；ClaudeCode effective prompt 按 P0.0 结论验证；canonical template 无旧文件名自引用；overflow 仍保留 rules；
+- managed mirrors clean update、manual conflict freeze 且 Settings 可见；env Claude clean owner 去重；Codex synced/conflict 时 canonical rules 仍进入 developer instructions，允许未证明的 native 重复但禁止丢失；canonical template 无旧文件名自引用；overflow 仍保留 rules；
 - sidebar 0-session render + click creates exactly one session；
 - invalid old path remains selected；
 - new template neutrality guard：新目录不生成 `claude.md`，旧目录读取不回写。
@@ -521,7 +522,8 @@
 | A3 | 老用户路径暂时不可用 | 保留原路径，显示修复 | 静默换成默认目录 |
 | A4 | 新用户未 onboarding | 可直接聊天，可看 heartbeat 设置 | 必须完成问答才能使用 |
 | A5 | bootstrap 与用户显式 PUT 并发 | 显式路径最终胜出；bootstrap CAS no-op | bootstrap 后提交覆盖用户选择 |
-| A6 | `instructions.md` 与 legacy rules 同存 | canonical 优先；按 Runtime effective owner 恰好一份 | Assembler + SDK 双注入 |
+| A6 | `instructions.md` 与 legacy rules 同存 | canonical 优先；env Claude clean owner 去重；Codex canonical 始终进入 developer instructions，native 重复暂时允许 | canonical 丢失或把未经 POC 的 Codex native owner 当事实 |
+| A6b | managed `CLAUDE.md` / `AGENTS.md` 被单独修改 | 整组停止覆盖、Settings 披露；canonical 仍是 CodePilot 真源 | 用户规则被静默覆盖或两 Runtime 漂移 |
 | H1 | heartbeat off | 正常清理后 0 system task；即使 stale row 暂存也 0 model call | 后台偷偷运行/花费额度 |
 | H2 | enabled + app restart | exactly one active system row，next run 不被无故重置 | 重启后消失/重复 |
 | H3 | empty HEARTBEAT.md | skipped_empty，0 Provider call | 花费模型额度 |
@@ -580,6 +582,7 @@
 | 两套 silent helper | 正文被吞/无事却提醒 | one exact classifier + reachability guard |
 | empty checklist 仍调模型 | 无意义费用 | pre-provider empty gate |
 | shared destructive queue | 漏投/重复 | durable per-channel claim |
+| durable consumer 重放旧 queued backlog | 升级后集中弹出数月前测试通知 | one-time cutoff migration；标记 skipped、保留审计、不删 event |
 | renderer/main 双 native owner | 切窗口时重复 | Main-only native boundary |
 | `show()` 即 delivered | observability 造假 | event-driven terminal ack |
 | 跨平台等待不存在的 failed | 永久 queued / 假测试 | Windows failed；macOS/Linux bounded timeout |
@@ -624,6 +627,7 @@ node scripts/verify-packaged-server.mjs <artifact>
 |------|-------|--------------------|---------|------------------|------|--------|----------|
 | 2026-08-03 | P0.0 | macOS / Claude CLI 2.1.220 | `claude_code` | env / Haiku | 临时 cwd `CLAUDE.md` + `--setting-sources project`，无工具、无持久 session | PASS | 模型准确返回唯一 marker，证明 SDK 原生加载 project rules；成功 run `$0.0022951`。两次预算不足预跑 `$0.036809` / `$0.01413` 记录为失败，不计成功证据 |
 | 2026-08-03 | P0.1–P0.3 | isolated worktree + APFS build copy | automated | no live Provider | 全量测试、Next production build、Electron main/preload bundle | PASS | `npm run test`: 5019/5019；`npm run build` compiled 136 routes；`node scripts/build-electron.mjs` complete。既存 NFT dynamic-trace warning 仍存在 |
+| 2026-08-04 | Review fix round | current isolated worktree | automated | no live Provider | Codex canonical rules 保守投递、mirror conflict/CRLF、model warm-up success memo；全量测试、Next production build、Electron bundle | PASS | 定向 74/74；Provider 生命周期失效点收口后复跑 62/62；最终 `npm run test`: 5036/5036；`npm run build` compiled 136 routes；`node scripts/build-electron.mjs` complete。仅既存 NFT dynamic-trace warning |
 
 ## 13. Claude review 请求清单
 
@@ -656,8 +660,13 @@ node scripts/verify-packaged-server.mjs <artifact>
 
 ## 15. 决策日志
 
+- 2026-08-03：用户拍板跨客户端兼容采用“一份 canonical + 两个 native 入口”。`instructions.md` 保持用户拥有的中立真源；CodePilot 生成带 hash 的 `CLAUDE.md` / `AGENTS.md`，只对 untouched mirror 自动同步，冲突时 freeze + Settings 告警。复核同时发现 Codex Runtime 虽收到 RuntimeStreamOptions.systemPrompt，但未把它送到 app-server；本轮补入 `developerInstructions`。2026-08-04 follow-up review 证明 Codex native owner 假设缺少非 git cwd / config disable POC，现保守改为 Codex 始终保留 canonical rules；未来只有真实 marker smoke 通过后才允许去重。
+- 2026-08-04：Claude review 的 1 P1 / 3 P2 已按保守路径收口：Codex 不再依赖未经证明的 native `AGENTS.md` owner，canonical rules 恒进 `developerInstructions`；冲突态明确为 freeze + canonical 注入 + 可能 native 双投递；warm-up 成功在 renderer memo，Codex login start/complete/logout 在 Settings 侧显式以 generation 失效并阻止 stale in-flight ready（不能依赖当时通常未挂载的 chat hook）。同期将 CRLF-only mirror 归一化为 synced，记录 managed stale write 的残余毫秒级 TOCTOU，并补本轮 production build / Electron bundle 证据。实现按风险面拆为 `49d900bf`（legacy notification backlog）、`0e20c891`（native instruction mirrors + Codex developer instructions）、`e67e08b9`（macOS unsigned notification fail-closed）、`1c8bdf52`（assistant Settings UI）、`e6cbc671`（Codex model catalog warm-up）。
+- 2026-08-03：macOS dev 验收发现侧栏助理提示沿用内容区重型 Card，与导航密度不一致；改为 sidebar token、紧凑层级和 ghost action。同期右下角连续 `Hi / There` 经 DB 复核为 137 条不同历史 `renderer-toast/queued`，不是同一 delivery 重试。修复采用一次性、非删除式 backlog migration：首次升级时只把超过 1 小时的 renderer/native 遗留 delivery 标记为 `skipped`，保留事件审计并保护新通知。
 - 2026-08-03：Claude 完成实现复审并给出 `Review passed（Code complete + Tests pass 范围）`，首轮 3 P1 / 5 P2 全部真实收口；Smoke 保留项判定正确。代码按风险面拆为 `4b5f97dd`（DB CAS、heartbeat uniqueness、notification lease persistence）、`19847570`（默认助理规则所有权与 heartbeat desired/reconcile/runner）、`3f16b895`（fixed-path UI 接线与 Electron Main native delivery）。复审后补充 guardrail：当前 native lifecycle timeout 12s、stale claim lease 30s；未来调整 timeout 必须同步复核 lease，保持 timeout < lease。
 - 2026-08-03：实现完成并通过自动化收口。默认助理使用 Electron fixed-path + process single-flight + DB CAS；新规则文件为 `instructions.md`，真实 Claude rules POC 后只在 cwd `CLAUDE.md` 的精确 SDK-owner 条件省略 Assembler rules；心跳统一 desired-first reconcile、partial UNIQUE 与 pre-provider gate；notification 改为 Main-only durable claim/ack、event-driven OS accepted、bounded Notification retention 与 pending click queue，heartbeat click 明确返回对应助理 session。`npm run test` 5019/5019、Next production build 与 Electron bundle 通过；三平台 packaged native/sound/click smoke 保持开放，因此状态为 Code complete + Tests pass，不是 Smoke passed / Release ready。
+- 2026-08-03：macOS dev 实测暴露假成功：Electron 40 的 unsigned `Electron.app` 触发 `show` 并 ack delivered，但 Notification Center 无横幅。按 Electron 官方 code-signing 约束增加 Main preflight：darwin + `!app.isPackaged` 不构造通知，使用稳定错误码 non-retryable 收口；Settings 显示“需 signed CodePilot package”，不再把 unsigned dev 当 smoke 证据。正式 macOS show/sound/click 仍由 signed package gate 验收。
+- 2026-08-03：助理设置的路径控件从“最近聊天 cwd Select”收敛为当前持久化路径展示。更换入口改名为“设置新的助理文件夹路径”，固定流程为后果确认 → 系统目录选择 → 目标目录 inspect/初始化或接管确认；文案明确人格、记忆、规则、心跳来源随路径切换，原目录不删除且不自动迁移。
 - 2026-08-03：Claude 首轮 review 结论为 failed（3 P1 / 5 P2 / 4 P3，无 P0），确认方向与事实底座成立。计划逐条回写：bootstrap commit-time CAS、desired-first + runner gate、heartbeat partial UNIQUE index、ClaudeCode settingSources smoke、delivery status freeze、平台 lifecycle 矩阵、interval next_run 语义、服务端旧 heartbeat 封堵与 packaged sound/Windows 门禁；尚未开始产品实现。
 - 2026-08-03：用户将“默认助理 → 心跳 → 系统通知”定为 Harness Home 当前 P0，并要求先写计划交 Claude 审查。
 - 2026-08-03：默认助理只覆盖没有任何 workspace 设置的新用户；老用户非空路径无条件优先，invalid 也不静默替换。

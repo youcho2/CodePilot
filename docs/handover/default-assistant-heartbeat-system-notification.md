@@ -21,7 +21,9 @@ Renderer GET workspace(ifUnconfigured)
   → CAS loser 读取显式 workspace，不删除刚建空目录
 ```
 
-新目录的规则文件是 `instructions.md`。loader 的顺序是 canonical 优先，再兼容 `claude.md` / `CLAUDE.md` / `AGENTS.md`。真实 Claude CLI POC 证明 project `CLAUDE.md` 会由 SDK 的 `settingSources=project` 原生装载，因此只有“Claude Code + env provider + winning rule 就是 cwd/CLAUDE.md”时，Context Assembler 省略自己的 rules fragment；其他情况仍显式注入。判断使用 real file identity，不靠字符串路径猜测。
+新目录的规则真源是 `instructions.md`，并生成带 provenance hash 的 `CLAUDE.md` / `AGENTS.md`，让目录离开 CodePilot 后仍可被两个原生客户端发现。mirror 仍等于上次生成内容时才随 canonical 更新；任一被手动修改或原本就是 unmanaged 文件，整组停止覆盖，Settings 显示冲突。用户需先把要保留的内容合并回 `instructions.md`，再删除冲突 mirror，后续助理对话会重建。无 canonical 的旧 workspace 继续只读 legacy 文件，不自动迁移。
+
+真实 Claude CLI POC 证明 project `CLAUDE.md` 会由 SDK 的 `settingSources=project` 原生装载，因此只有 env Claude + clean `CLAUDE.md` 时省略 rules fragment；soul/user/session 仍进入 system prompt，Claude DB provider 继续由 CodePilot 注入 canonical。Codex 对非 git cwd 与 `project_doc_max_bytes=0` 的 native discovery 尚无真实证据，所以即使 `AGENTS.md` clean，也始终把 canonical rules 随 assembled system prompt 送进 app-server `developerInstructions`。mirror 冲突时不覆盖用户版，Assembler 保留 canonical，明确接受 Runtime 可能同时原生加载用户版的保守双投递。
 
 默认初始化不创建 session、不调用模型、不启用 heartbeat、不发通知。侧栏为 configured-but-empty workspace 渲染助理入口，用户点击后才创建第一条真实会话。
 
@@ -53,7 +55,9 @@ notification event + per-channel delivery
 
 Renderer 只能 claim `renderer-toast`，Electron Main 始终拥有 `electron-native`，不随窗口 visible/hidden 切换。claim 用 additive owner/time/attempt/backoff columns，现有 delivery status 枚举不变；stale lease 可恢复，最多三次后 terminal error。当前单次 native lifecycle timeout 为 12 秒、stale claim lease 为 30 秒；调整前者时必须同步复核后者并保持 `timeout < lease`，避免同一 delivery 在首次系统回调仍未收口时被重复领取。
 
-所有平台以 Electron `show` event 作为 OS accepted；共同处理 throw、unsupported 和 12 秒 timeout，Windows 额外处理 `failed`。macOS options 使用 `silent:false + sound:'default'`，Windows/Linux 服从平台默认。代码和单测不替代 signed/installed packaged 声音证据。
+旧版本曾把页面通知 payload 放在进程内队列，却把 delivery 长期留为 `queued`。durable consumer 首次上线若直接领取，会把数月前的测试通知当成新提醒重放。启动迁移因此只在首次执行时，把超过 1 小时的 `renderer-toast` / `electron-native` 遗留行改为可审计的 `skipped`；事件与 delivery 都保留，新近通知不受影响，重复启动由 settings marker 保证 no-op。
+
+所有平台以 Electron `show` event 作为 OS accepted；共同处理 throw、unsupported 和 12 秒 timeout，Windows 额外处理 `failed`。Electron 40 的 macOS unsigned dev 可能触发 `show` 却不进入 Notification Center，因此 Main 在 `!app.isPackaged` 时以稳定错误码 fail-closed，设置页明确要求 signed CodePilot package；不再把 dev 结果写成 delivered。macOS options 使用 `silent:false + sound:'default'`，Windows/Linux 服从平台默认。代码和单测不替代 signed/installed packaged 声音证据。
 
 已 show 的 Electron Notification 对象在 click/close 前进入有界 retention，避免 JS wrapper 提前回收导致点击丢失；TTL 和数量上限避免常驻应用无限持有。点击 action 先校验为内部 route，heartbeat speak-up 明确写入对应 `/chat/<session>`；renderer 未 ready 时进入有界队列，ready handshake 后按 event id 幂等送达。测试通知也走真实 DB 和 Main consumer，但只跳回设置页，不创建聊天、记忆或模型调用。
 

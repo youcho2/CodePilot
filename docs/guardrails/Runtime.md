@@ -135,6 +135,7 @@ CodePilot Provider 会话把 Codex app-server 的 Responses endpoint 指向
 | Server filter | `src/app/api/providers/models/route.ts` | 仅当传 `?runtime=` 才过滤；过滤后空 group **必须** drop（`.filter(g => g.models.length > 0)`），否则 hook 仍会 cross-wire |
 | Claude SDK model cache | `src/app/api/providers/models/route.ts` `mergeEnvCatalogWithSdkModels()` | `supportedModels()` 只补充 runtime convenience entries，不能整表替换 `ENV_CLAUDE_CODE_MODELS`、删除显式 canonical route，或用移动 alias 描述覆盖固定版本标签/upstream |
 | Hook contract | `src/hooks/useProviderModels.ts` | 暴露 `fetchState / resolvedProviderId / resolvedModel / providerWasFilteredOut / noCompatibleProvider` 五字段；区分 `providerId === undefined`（fallback chain）vs `providerId === ''`（env 历史会话）vs 显式值 |
+| Codex model warm-up | `src/lib/codex/model-catalog-warmup.ts` + `src/hooks/useProviderModels.ts` | 全量目录继续只读 Codex cache；chat mount 以独立 bounded endpoint 非阻塞预热，成功后只通知模型 hook refetch，并在 renderer 内 memo 成功避免会话切换 churn；Codex login start/complete/logout 必须在 Settings 侧显式失效 memo（此时 chat hook 通常未挂载）。禁止恢复全量目录内同步 spawn，也禁止依赖进入 Settings 才预热 |
 | Composer send | `src/components/chat/ChatView.tsx` `doStartStream` / `sendMessage` | 三道 gate：`fetchState === 'idle'` / `noCompatibleProvider` / `loaded && (!resolvedProviderId \|\| !resolvedModel)`；wire 用 resolved pair 而非 raw |
 | Composer disabled | `src/components/chat/ChatView.tsx` `MessageInput.disabled` | `noCompatibleProvider \|\| providerFetchState === 'idle'` —— idle 也禁用，避免 send 按钮看似可用但底层吞 |
 | New session init | `src/app/chat/page.tsx` | 两处 init handler 必须用 `?runtime=auto`；空集合 → `setNoCompatibleProvider(true)`，不走 localStorage fallback |
@@ -164,6 +165,7 @@ CodePilot Provider 会话把 Codex app-server 的 Responses endpoint 指向
 - 新增 `useProviderModels` consumer：
   - 默认走 `runtime: 'auto'`（chat picker 行为）
   - 想看全集才显式传 `null`，并在代码里写注释说明为什么需要全集
+  - chat 首次进入必须能独立发现 Codex Account 模型；不能把 Settings 页面 mount 当成隐式初始化步骤
 - 新增 chat 入口（除现有 chat-route / bridge 外）：
   - 调 `resolveProvider()` 时**必须**传 `runtime: getActiveChatRuntime()`
   - send 路径前必须 gate `noCompatibleProvider` + `fetchState`
@@ -210,6 +212,7 @@ CodePilot Provider 会话把 Codex app-server 的 Responses endpoint 指向
 - **2026-04-26** `claude_code_ready` 双向兼容（既 `claude_code_compatible` 又 `codepilot_runtime_compatible`）。理由：`@ai-sdk/anthropic` 能直调 Anthropic / Bedrock / Vertex，native runtime 用户配 Anthropic 不该看到 0 模型
 - **2026-04-26** API 空集合 server-side drop（不返回 `models: []`）。理由：hook 兜底逻辑会把空 group fallback 到 `DEFAULT_MODEL_OPTIONS`，相当于偷渡 sonnet/opus/haiku 进 picker
 - **2026-04-26** Hook 加 `fetchState`、`AbortController`、`requestedProviderId vs preferredProviderId` 拆分，全部因 Codex review 指出竞态 / 语义错位
+- **2026-08-03** chat 非阻塞预热 Codex model catalog。全量目录保留 cache-only 防卡顿；显式 discovery 从 Settings 副作用迁到 chat mount，成功后用窄事件刷新模型 hook
 - **2026-04-26** `chat-runtime.ts` 必须 import barrel（`./runtime`）。理由：runtime/index.ts 的 `registerRuntime` 副作用是注册唯一入口，跳过 → empty registry → 500
 - **2026-07-22—23** 子 Agent 首版保持 same-runtime，但用户复测纠正了“same-runtime = same-provider”的错误假设。CodePilot Native、Claude managed subprocess、Codex CodePilot-Provider proxy child 都必须使用 Runtime-compatible exact Provider+Model route；合法集合与 picker 未置灰状态同源。AgentDefinition full model string 与 Codex 原生 spawn 都不能承担 CodePilot 跨 Provider 路由，因为它们不能可靠切换父 endpoint/provider config。Codex Account 只展示原生 collab，不冒充跨 CodePilot Provider 成功。
 - **2026-07-23** 用户真实 smoke 发现 SDK `success` envelope 可携带 `is_error=true` 的 403，且父 Agent 把 one-shot subprocess 当作待命/续跑 worker，造成 3 个逻辑 Agent 产生 6 次调用。终态收口到结构化 SDK 字段；managed tool 加 one-shot 与 capability 声明，unsupported 能力 fail closed。
