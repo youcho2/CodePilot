@@ -41,10 +41,11 @@
 
 - 有真实 stack 的 `product_fault` 与 `unknown` 保留 Sentry 默认 stack grouping；`unknown` 额外标 `needs_classification=yes`；
 - protocol/transient/无 stack 错误只使用稳定枚举 fingerprint，禁止 message、URL、model/session/request id；
-- connection test、用户取消、正常生命周期不生成 Error Issue；
-- `user_action_required` 用 `~/.codepilot/telemetry-health-v1.json` 做 24h、最多 64 bucket 的跨重启去重，只发送稳定的 `telemetry.health_summary` info Issue；文件只含 release/category/provider class/runtime id 和时间戳；
-- `text-generator.ts` 是后台 provider 调用的共享 capture 边界。原始 upstream body 仍用于用户可见诊断，但错误被非枚举 marker 标记，Node auto-capture 会丢弃它，只保留无正文的 normalized telemetry event。
-- 400/422 的责任归属纯合同与 fixture 已存在，但生产 Provider 边界目前没有可靠结构化责任证据；因此生产路径一律保守归 `unknown`，不能把合同 fixture 冒充为已经自动区分用户输入、CodePilot payload 和上游 schema。
+- connection test、用户取消、正常生命周期与 `user_action_required` 生成 0 个 Sentry event；不再保留 `telemetry.health_summary` info/message Issue 或本地 health-summary 状态文件；
+- `src/lib/telemetry/root-cause.ts` 是 shared Provider、Claude classifier 与 Native 两条 loop 的共同分类源：HTTP 4xx（含 429）、缺凭据、模型不支持 → `user_action_required`；5xx、`ENOTFOUND`/`EAI_AGAIN`、timeout 只有 retry exhausted 才上报稳定 transient bucket；
+- `AI_NoOutputGeneratedError` 先在最多 4 层/16 节点的 allow-list cause graph 中检查 status/code/type；底层 4xx/5xx/DNS/timeout 优先，只有确实没有 upstream 根因时才归 `EMPTY_RESPONSE` protocol fault；
+- normalizer 不读取或返回 response body、chunk、request/data/header/path。原始 upstream body 可继续用于本地用户诊断，但 shared boundary 在 rethrow/async capture 前写 non-enumerable marker，Node auto-capture 丢弃原始对象；受控 unknown/product event 以固定 message 的安全 Error 副本保留原 stack frame，其他事件只发送固定 message + 枚举 tag/fingerprint；
+- Native agent loop 与 experimental ToolLoop 的 `onError` 只保存结构化错误并 marker，不 capture；terminal catch 以 `retryExhausted:true` 统一上报，避免 NoOutput wrapper 掩盖 403 或同一错误双报。
 
 ## 五、隐私策略
 
@@ -67,22 +68,24 @@
 4. stable CI 对即将打包的同一份 JS 执行 `sentry-cli sourcemaps inject` 和严格 upload；以 debug ID 匹配，暂不设置 `dist`（macOS universal 构建与运行时 arch 不一一对应）；上传失败阻断构建；
 5. `electron-builder.yml` 在 app.asar、standalone、node_modules、static 所有入口排除 `*.map`。
 
-2026-08-02 本地 POC：上传前 1846 个非占位 map；debug-id dry-run 成功；unpacked macOS `.app` 和 `app.asar` 均为 0 个 map。真实 upload、symbolication、Windows package 和 native minidump 仍需 CI Secret / packaged smoke。
+2026-08-02 至 2026-08-03 的 official CI 已完成三层 source-map upload/symbolication、native minidump 恢复上传与 macOS/Windows/Linux package 0-map 门禁；Linux x64/arm64 六个 v0.64.0 包还通过架构、Electron ABI、packaged server 与 glibc 2.35 基线。用户已明确接受 stable source-map build 绝对增加约 13.4s 的资源取舍，资源门禁关闭。
 
-资源门禁未关闭：无 map 编译 9.2s，真实 output map 编译 22.6s，超过计划的 20% 红线。绝对时间仍远低于 45min CI timeout，但必须由用户/reviewer接受或调整方案后才能称 Phase 3 完成。
+v0.64.0 与 v0.65.0 已正式发布。Phase 6 仍需对实现 P1 后的新 stable release 单独建立 24h/72h cohort；不得把旧 `javascript-nextjs`、修复前 release 或跨 release lifetime count 混在一起。
 
 ## 七、关键文件与验证
 
 | 文件 | 责任 |
 |---|---|
 | `src/lib/telemetry/contract.ts` | enable/session/outcome/fingerprint 合同 |
+| `src/lib/telemetry/root-cause.ts` | 有界 cause/status/code normalizer、retry gate、安全 stack 副本 |
 | `src/lib/telemetry/sanitize.ts` | 三层 default-deny event/breadcrumb 清洗 |
-| `src/lib/telemetry/health-summary.ts` | user-action 24h 持久化预算 |
 | `src/lib/telemetry/provider-failure.ts` | background/provider shared capture |
+| `src/lib/error-classifier.ts` | Claude/Native capture policy；user-action 0 event |
+| `src/lib/agent-loop.ts` / `src/lib/experimental/agent-loop-toolloop-poc.ts` | onError 只保留 root cause；terminal catch capture |
 | `src/instrumentation.ts` | Next init、auto-capture 去重 |
 | `src/components/layout/SentryInit.tsx` | renderer init 与 opt-out |
 | `electron/main.ts` | early main init、main-only session、native crash 默认集成 |
 | `scripts/sentry-source-maps.mjs` | release/map/Secret fail-closed upload |
 | `electron-builder.yml` | packaged map 排除 |
 
-日常回归：`npm run test`。发布前还必须跑 official-style source-map build、unpacked package map scan，并在真实 Sentry project 记录 renderer/server/Electron/native synthetic event 的 event id 与 symbolicated file:line。
+日常回归：telemetry 定向 fixtures + `npm run test`。发布前还必须跑 `npm run build`、official-style source-map/package gate；发布后在真实 `codepilot-desktop` project、单一 release、`environment=production` 下记录 4xx zero-Issue、retry-exhausted transient、NoOutput root cause、renderer/server/Electron symbolication 与 native crash smoke。当前 worktree 没有 `SENTRY_AUTH_TOKEN`，production P0 查询必须保持 blocked，不能把交接快照升级为已验证事实。

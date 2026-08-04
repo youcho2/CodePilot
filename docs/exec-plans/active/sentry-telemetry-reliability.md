@@ -1,9 +1,9 @@
 # Sentry 遥测可信度与错误分诊修复计划
 
 > 创建时间：2026-08-02  
-> 最后更新：2026-08-03
-> 事实核验基线：`v0.63.0` tag（`91a99606`；release commit `9ae420b2` 是其祖先）  
-> 当前状态：🔄 用户已授权按计划实现并默认选择 U0；新 official stable Sentry project、最小权限 CI Secrets、macOS/Windows 与 Linux x64/arm64 真实 source-map upload + package、三层 symbolication 与 Electron native minidump 均已通过；v0.64.0 发布前技术门禁已闭合，尚待用户明确 tag，以及发布后的 opt-out/main-only session 抽查、独立线上基线复核与 72h 观察
+> 最后更新：2026-08-04
+> 事实核验基线：`origin/main@979fda51` / `v0.65.0`（本任务从该 commit 的 detached clean checkout 起步）
+> 当前状态：🚧 `v0.64.0` 已于 2026-08-03 00:44（北京时间）正式发布，`v0.65.0` 已于 2026-08-04 12:06 正式发布；Phase 6 已进入发布后观察，不再处于“等待 v0.64.0 tag”。新 official stable Sentry project、三层 source map、native minidump 与多平台 package 的发布前门禁已有证据。用户已授权当前隔离 worktree 实施 P1 分类合同，shared/native root-cause normalizer、4xx zero-event、retry gate、NoOutput 解包和 info Issue 移除已 code complete；定向 46/46、`npm run test` 5053/5053 与 production build 均通过。真实 stable/Sentry smoke 仍待后续新 release。当前环境缺少只读 `SENTRY_AUTH_TOKEN`，线上 issue/session 数字尚未独立复跑；本轮不改外部 Sentry 状态、不 push、不发版。
 
 ## 一、用户问题与本计划的边界
 
@@ -56,12 +56,12 @@ Sentry 传输链路仍然有效；当前主要问题不是“SDK 完全失效”
 | Phase | 内容 | 状态 | 用户结果 / 备注 |
 |---|---|---|---|
 | Phase 0 | 合同冻结、POC、外部资源决策 | 🔄 新 project、Secrets、资源取舍已落地；线上基线独立复核待完成 | 用户已采用默认 U0；无 user/did/行为统计；接受 stable tag 绝对 +13.4s |
-| Phase 1 | 官方构建隔离 + 三层统一初始化 | 🚧 本地实现与真实 Node integration 测试完成；线上门禁待执行 | development/preview/Fork 默认 no-op；U0 关闭 ProcessSession 与 Http request-session，只保留 main session |
-| Phase 2 | 脱敏、语义分类、稳定 fingerprint | 🚧 核心实现完成；400/422 生产责任证据待接入 | default-deny sanitizer、稳定 grouping、24h health summary 已落地 |
+| Phase 1 | 官方构建隔离 + 三层统一初始化 | 🚧 已随 v0.64.0/v0.65.0 发布；真实 opt-out/main-only session 抽查待完成 | development/preview/Fork 默认 no-op；U0 目标为仅保留 main session |
+| Phase 2 | 脱敏、语义分类、稳定 fingerprint | 🚧 Phase 6 P1 code complete + local gates pass；stable smoke 待闭合 | 4xx/DNS/timeout/NoOutput 统一 normalizer；user-action 0 event；product fault stack grouping 保留 |
 | Phase 3 | Source map 发布闭环 | ✅ macOS/Windows/Linux upload/package + 三层 symbolication + 有界重试闭合 | CI #310/#311/#313；三层分别定位 `smoke.ts:21/23/25`；所有已验证最终包 0 map；上传最多 3 次后 fail closed |
-| Phase 4 | 关键覆盖补洞 + 端到端遥测合同 | 🔄 shared provider boundary 完成，真实三层 E2E 待执行 | callScene、connection-test 排除、provider body anti-double-capture 已落地 |
-| Phase 5 | Sentry SDK 独立升级 | 🔄 SDK、多平台 package 与真实 native crash smoke 通过；migration/RSS 收尾待完成 | browser/node 10.69.0、Electron 7.16.0；CI #312 event `778040c8…` 为真实 minidump；CI #313 Linux 双架构通过 |
-| Phase 6 | 发布、72h 观察、下游缺陷移交 | 📋 待开始 | 得到只属于当前官方版本的可信优先级清单 |
+| Phase 4 | 关键覆盖补洞 + 端到端遥测合同 | 🔄 shared provider/native root-cause extractor、anti-double-capture fixture 与 local build 已补；真实 stable smoke 待跑 | callScene、connection-test 排除、provider body marker、terminal catch capture 已落地 |
+| Phase 5 | Sentry SDK 独立升级 | 🟡 已随 v0.64.0/v0.65.0 发布；migration/RSS 记录待收尾 | browser/node 10.69.0、Electron 7.16.0；CI #312 event `778040c8…` 为真实 minidump；CI #313 Linux 双架构通过 |
+| Phase 6 | 发布、72h 观察、信号清理与下游缺陷移交 | 🚧 P1 code complete，P0/P2/P3 待线上证据 | v0.64.0/v0.65.0 仍只作修复前基线；P1 必须由后续单一新 release 重新建立 72h 窗 |
 
 ## 三、事实基线（2026-08-02）
 
@@ -110,7 +110,7 @@ Release 中同时出现 `CapyWork@0.3.x`、`linkiebuypilot@1.0.2`、`xteam@0.59.
 | Build / release | `next.config.ts`、`scripts/build-electron.mjs`、`electron-builder.yml`、`.github/workflows/build.yml` | DSN 写死；Electron esbuild 生成 map 但没有 debug-id inject/upload/verification；Next production server 当前实测没有可上传 map |
 | Docs / tests | `docs/handover/sentry-error-reporting.md`、现有 Sentry unit tests | 文档仍列已删除的 `PROCESS_CRASH`；未锁 Browser/Electron/CI/source-map/fingerprint/sanitizer 合同 |
 
-**当前进行中的源码暴露：** `electron-builder.yml` 的 `files: dist-electron/**/*` 会把 `dist-electron/main.js.map` 打入安装包；该 map 默认含 `sourcesContent`，即 Electron main 及被 bundle 依赖的源码文本。这不是 Phase 3 的未来风险，而是下一次发布前必须先关闭的现状问题。完整 source-map 发布闭环未完成前，也必须先在打包 allow-list 中排除 `*.map`。
+**实施前的源码暴露（已关闭的历史基线）：** 当时 `electron-builder.yml` 的 `files: dist-electron/**/*` 会把 `dist-electron/main.js.map` 打入安装包；该 map 默认含 `sourcesContent`。Phase 3 已改为所有 FileSet 排除 `.map`，并由 macOS/Windows/Linux 最终包 0-map gate 实证；不得再把本段误读为 v0.64.0/v0.65.0 的当前风险。
 
 ### 3.4 SDK 版本基线
 
@@ -131,6 +131,32 @@ Release 中同时出现 `CapyWork@0.3.x`、`linkiebuypilot@1.0.2`、`xteam@0.59.
 - Next server 在 development 下不初始化 `@sentry/node`，避免把 OpenTelemetry 依赖链拉入 Turbopack dev 内存图。
 - 用户已有 Sentry opt-out 设置与 marker file；本计划只能统一语义，不能静默取消用户选择。
 - `PROCESS_CRASH` 因历史噪音从 reportable 分类中移除；不得仅为“多收数据”原样恢复。
+
+### 3.6 2026-08-04 当前发布线复核
+
+**修复前诊断基线（已独立核验，并在本 worktree P1 修正）：**
+
+- 本任务起点 worktree clean，`HEAD == origin/main == v0.65.0 == 979fda51`；现有计划此前仍写“尚待用户明确 v0.64.0 tag”，属于状态失真。
+- GitHub Release 只读查询确认 `v0.64.0` 为非 draft、非 prerelease，发布时间为 2026-08-02 16:44:25 UTC（北京时间 2026-08-03 00:44）；`v0.65.0` 为非 draft、非 prerelease，发布时间为 2026-08-04 04:06:25 UTC（北京时间 12:06）。
+- `v0.64.0..v0.65.0` 没有改动 `src/lib/telemetry/**`、Sentry source-map 脚本或三层 init policy；`electron/main.ts` / `src/instrumentation.ts` 有助理通知/心跳相关改动，所以两个 release 的 crash/error 指标仍必须分开，不得直接合并成一个 72h cohort。
+- `src/lib/telemetry/contract.ts` 已满足：凭据缺失和模型不支持类别进入 `user_action_required`；`TIMEOUT_*` 进入 `transient_upstream`；有 stack 的 `product_fault` / `unknown` 保留默认 stack grouping。
+- `src/lib/telemetry/provider-failure.ts` 只把 401/403/404 归 `user_action_required`；402、400/422 与其他 4xx 仍落 `unknown`，429 仍落 `transient_upstream`，不符合本轮冻结的“HTTP 4xx → user_action_required”目标。
+- 同文件只识别 message 中的 timeout；DNS `ENOTFOUND` / `EAI_AGAIN` 没有稳定映射。Native catch 又以 `NATIVE_STREAM_ERROR` 上报，`classifyTelemetryOutcome()` 不会仅凭 `retryExhausted` 把它转成 transient，因此 DNS 可继续成为 `unknown + needs_classification`。
+- `agent-loop.ts` / `experimental/agent-loop-toolloop-poc.ts` 的 `onError` 和 catch tail 都只看顶层 message；`AI_NoOutputGeneratedError` 在 `finishReason` / stream 失败时被作为 `NATIVE_STREAM_ERROR` 上报，没有有界解包 `cause` / status。底层 403 因而可能被 wrapper 隐藏，正好解释交接快照中的 `NATIVE_STREAM_ERROR / unknown / needs_classification`。
+- `src/lib/error-classifier.ts` 对 `user_action_required` 仍调用 `Sentry.captureMessage('telemetry.health_summary', 'info')`。info event 仍会形成 Issue，违反本轮“不要用 info event 灌 Issue”的冻结合同；`provider-failure.ts` 的 shared boundary 则已经直接丢弃该 outcome，两处政策目前不一致。
+- `MessageItem.tsx` 对从 DB JSON 直接解析出的 `token_usage` 不做 runtime shape 校验，随后调用 `usage.input_tokens.toLocaleString()` / `output_tokens.toLocaleString()`；字段缺失时是真实 renderer 产品缺陷候选。本主线已用稳定 ID `HEXP-SENTRY-001` 交接“历史体验问题”任务 `019fcbe8-7d8e-7ac3-a3ea-e7532a663223`，不在这里修 UI。
+
+**本 worktree 修复后判断：**
+
+- `src/lib/telemetry/root-cause.ts` 统一 shared Provider、Claude classifier 与 Native 两条 loop：最多 4 层/16 节点，只读取 cause/status/code/name/message allow-list，不遍历或返回 body/chunk/request/data；循环、超深、非 Error、hostile getter fixture 已锁定。
+- 全部结构化 HTTP 4xx（含 400/402/422/429）、凭据与模型不支持均为 `user_action_required + shouldReport=false`；旧 `health-summary.ts` 与 info capture 路径已移除。
+- 5xx、`ENOTFOUND`、`EAI_AGAIN` 与 timeout 只有 `retryExhausted:true` 才创建 stable transient event；Native/ToolLoop `onError` 只保存并 marker 原始 SDK error，terminal catch 才上报。
+- NoOutput wrapper 优先使用底层 4xx/5xx/DNS/timeout；无 upstream 根因才进入 `EMPTY_RESPONSE` protocol bucket。unknown/product Error 用固定 message 的安全副本保留原 stack frame，不设置 custom fingerprint；原始 message/cause graph 不进入事件。
+
+**尚未独立核验：**
+
+- 交接快照称新 project 约有 37 个 unresolved issue、406 个 error samples、8 个 unhandled、334 sessions，crash-free sessions 约 98.5%。当前 shell 没有只读 `SENTRY_AUTH_TOKEN`，本轮不能把这些数字升级为已验证事实；Phase 6 查询补齐前均标为 `unverified handoff snapshot`。
+- crash-free users 为 0% 与 U0 不绑定 user id 的代码合同一致，但线上展示值仍需只读 API/Release Health 查询复核；它不能被当作产品故障或“没有用户”。
 
 ## 四、目标遥测合同
 
@@ -159,23 +185,18 @@ Release 中同时出现 `CapyWork@0.3.x`、`linkiebuypilot@1.0.2`、`xteam@0.59.
 |---|---|---|---|
 | `product_fault` | DB invariant、renderer crash、内部状态机错误、必需字段非法 | 保留当前错误 UI / recovery | 100% 上报；有 stack 的异常保留 Sentry 默认 stack-based grouping，不强设 custom fingerprint |
 | `provider_protocol_fault` | malformed stream/tool call、响应 schema 不合法 | 显示 Provider 兼容错误 | 上报脱敏结构，不上传 raw chunk/body；custom fingerprint 必须含 `provider.class` |
-| `transient_upstream` | retry exhausted 的 5xx、TLS、timeout、ECONNRESET | 显示可重试提示 | 只在重试耗尽后上报；按协议 + status/code 合并 |
-| `user_action_required` | no credentials、401/403、余额/额度、model permission、region opt-in | 显示明确操作建议 | 不逐次创建 Error Issue；保留每 release 的低频 aggregate health signal，必要时形成明确标记的 info-level health-summary Issue，防止凭据迁移/header 回归导致全量尖峰却完全不可见 |
+| `transient_upstream` | retry exhausted 的 5xx、DNS、TLS、timeout、ECONNRESET | 显示可重试提示 | 只在重试耗尽后上报；按协议 + status/code 合并 |
+| `user_action_required` | HTTP 4xx、no credentials、余额/额度、model permission、region opt-in | 显示明确操作建议 | 不创建 Error Issue，也不以 info event / `captureMessage` 创建 health-summary Issue；本轮不新增 metrics、身份或行为采集 |
 | `provider_test_result` | 设置页测试返回 404/invalid model | 测试结果留在 UI | 不创建 Error Issue |
 | `user_cancelled` | stop、AbortError、窗口关闭导致的主动中断 | 正常结束或显示已停止 | 丢弃，不上报 |
 | `expected_lifecycle` | 应用退出 / 主动重启导致的 child exit | 无额外错误 | 只有可证明的退出状态才丢弃 |
 | `unknown` | 无法分类 | 保持原有 recovery | 受控上报并标 `needs_classification=yes`，不得附 raw payload；有 Error stack 时保留默认 stack grouping |
 
-`400/422 invalid_request` 不能只按 HTTP 状态分类：
+本轮按用户冻结的信号治理目标，Provider HTTP 4xx 先统一归 `user_action_required`，包括 400/402/403/404/422/429 等；明确由本地 timeout budget 产生的 `TIMEOUT_*` 仍按 timeout 事实进入 `transient_upstream`。这会牺牲“canonical payload 400 是产品 bug”的自动推断，但当前生产边界没有可靠责任证据，继续把 400/422 送入 `unknown` 只会污染 Issues。未来若调用方提供结构化、可测试的责任枚举，可另开计划把确定由 CodePilot canonical payload 造成的 4xx 提升为 `product_fault`，不得靠 message substring 猜测。
 
-- 若结构化证据表明错误来自用户输入的自定义模型/参数，归 `user_action_required`；
-- 若 CodePilot 为官方 preset / canonical request 生成了上游拒绝的非法 payload，归 `product_fault`；
-- 若上游返回违反已声明协议的 schema，归 `provider_protocol_fault`；
-- 无法证明责任方时归 `unknown`，不能静默丢弃。
+`user_action_required` 在本轮必须完全退出 Sentry Issues：不逐错误发送，不发 `level=info` health summary，不以 `captureMessage` 或异常 level 名称规避 Issue 成本。凭据/header/模型权限的版本回归只能通过用户反馈、Provider Doctor、本地脱敏诊断，或未来单独审批的非 Issue metrics 合同观察；本阶段不为补这个洞扩大 telemetry、身份或行为采集。现有 `telemetry-health-v1.json` / `claimHealthSummary()` 路径在下一次获授权实现时应与 capture 入口一起移除或停用，并同步更新 guardrail/handover/tests。
 
-当前生产 shared Provider 边界只有 status/callScene/provider snapshot，没有可信的“payload 由谁拥有”证据。责任参数与正反 fixture 已实现，但尚无生产调用方可以诚实传入；因此现阶段所有 Provider 400/422 都保守归 `unknown`。只有调用方以后提供结构化责任枚举并有行为测试时，才能启用前三条映射。
-
-`user_action_required` 的 aggregate signal 采用以下硬约束：优先使用实施时 SDK 支持且已 POC 的无用户标识 counter；若无可靠 counter API，则使用本地持久化、TTL 有界的去重状态，在同一 `release + error.code + provider.class + runtime.id` 下每 24 小时最多发送一条 `level=info` 的 summary event。持久化键只含前述稳定枚举，最多 64 个 bucket，过期自动清理，不得记录 raw message、用户配置或 identifier。必须用“进程重启后仍不重复”的行为测试证明 24 小时承诺；若无法安全持久化，则把合同降为每 app-run 每 bucket 最多一条并同步修改文案，不得继续宣称 24 小时去重。`level=info` summary 会形成 Sentry Issue，必须使用独立 `health_summary` tag/fingerprint 与普通 Error Issues 分开，并明确计入事件成本；不得逐错误发送或生成 stable installation ID。Phase 6 必须观察该 signal 的版本间比率尖峰。
+`AI_NoOutputGeneratedError` 不是最终分类。进入分类前必须有界解包 wrapper（至少顶层、`cause`、SDK error/response status 的结构化字段），只保留稳定类型、code、status class 和 retry 事实：底层 4xx → `user_action_required`，5xx/DNS/timeout → `transient_upstream`，协议上成功但真正无输出 → `provider_protocol_fault`；无法证明时才是 `unknown`。不得上传 raw response body/chunk，也不得让 wrapper message 进入 fingerprint。
 
 ### 4.3 稳定 fingerprint
 
@@ -269,7 +290,7 @@ U1a/U1b 的共同硬约束：
 - [x] 实测 `turbopackSourceMaps` / `turbopackInputSourceMaps`：仅 `productionBrowserSourceMaps + debugIds` 只有一个 53B 空 map；必须开启 output maps；input maps 对 CodePilot symbolication 非必需且保持关闭。
 - [x] POC 已生成真实 renderer/server maps；编译从 9.2s 增至 22.6s（+146%，绝对 +13.4s），用户于 2026-08-02 明确接受该 stable tag CI 代价。该决定不豁免真实 upload、符号化或 native crash 门禁。
 - [x] `sentry-cli sourcemaps inject --dry-run` 已覆盖最终 Next renderer/standalone server/Electron bundle；GitHub Actions run #310 已向新 project 执行 macOS/Windows 真实 upload，两个上传均关联 release `0.63.0`。
-- [x] 本地 unpacked macOS package 证明最终 bundle 与构建树一致，`.app` 外部及 `app.asar` 内均为 0 map；真实上传后的 debug-id symbolication仍待执行。
+- [x] 本地 unpacked macOS package 证明最终 bundle 与构建树一致，`.app` 外部及 `app.asar` 内均为 0 map；后续 CI #311 已完成真实上传后的三层 debug-id symbolication，本项不再待执行。
 - [x] `dist-electron/**/*.map` 及所有 standalone/static/node_modules FileSet 已从 electron-builder 输入排除，并有包结构测试。
 - [ ] 记录 SDK v10 / Electron SDK v7 migration breaking changes；Phase 0 只形成升级清单，不混进 Phase 1。
 - [x] 新增 `docs/guardrails/SentryTelemetry.md` 并更新 guardrails/handover/insights 三处索引与配对文档。
@@ -303,7 +324,7 @@ U1a/U1b 的共同硬约束：
 ### 执行清单
 
 - [x] 删除 `next.config.ts` 和 `electron/main.ts` 中的硬编码 DSN；源码 checkout 无 CI 注入时 Sentry 全层 no-op。
-- [x] stable tag build wiring 从 GitHub Actions Secret 注入 DSN；preview 默认关闭。真实 Secret 尚待仓库侧配置。
+- [x] stable tag build wiring 从 GitHub Actions Secret 注入 DSN；preview 默认关闭。v0.64.0/v0.65.0 已完成正式发布，仓库侧 Secret 不再是“尚待配置”。
 - [x] 建立 universal 纯函数配置层与三层 adapter；Electron main policy 为同步无副作用 import。
 - [x] Browser、Next、Electron 统一 release、environment、channel、runtime layer、opt-out 与 traces=0 合同。
 - [x] Session tracking 逐层显式配置：U0 仅保留 Electron `MainProcessSession`；renderer 过滤 `BrowserSession`；server 过滤 `ProcessSession` 并以 `trackIncomingRequestsAsSessions:false` 替换默认 `Http`，真实 Node client/request 行为测试锁定 0 request session。
@@ -312,7 +333,7 @@ U1a/U1b 的共同硬约束：
 - [x] Electron 保持源码顶部同步初始化；options 只过滤明确禁用 integration，不清空默认列表，保留 `MainProcessSession`/minidump；CI #312 已完成真实 native crash smoke。
 - [x] ErrorBoundary 通过统一 facade capture；非 production/stable/未初始化时 no-op。
 - [x] stable workflow 与测试禁止源码 ingest literal，上传 token 只在 CI upload step。
-- [ ] 新增 Browser / server / Electron init shape + behavior tests，覆盖 dev、stable、preview、无 DSN、opt-out；build-wiring test 必须检查最终 `dist-electron/main.js` 中 `Sentry.init` 先于 Electron require/import，并断言 default integrations 未被替换为空数组。
+- [x] 已有 universal config、真实 Node client、instrumentation shape、Electron source/build-wiring 测试覆盖 dev、stable、preview、无 DSN、opt-out 与 default integrations；`telemetry-build-wiring.test.ts` 锁定源码中 `Sentry.init` 早于 Electron import。最终 packaged `dist-electron/main.js` 的 init 顺序仍由发布 smoke 负责，不把源码 shape 冒充最终 bundle 反汇编证据。
 
 ### Phase 1 完成门禁
 
@@ -344,10 +365,10 @@ U1a/U1b 的共同硬约束：
 - [x] telemetry capture 对 non-Error 只抽取 status 等 allow-list 字段；event sanitizer 阻断任意对象正文与 `[object Object]` grouping。
 - [x] 替换 `scope.setExtras(extra)` 全量写入；逐字段 allow-list。
 - [x] 删除 `msg.slice(0, 100)` fingerprint；实现稳定 key builder。
-- [x] provider / AI SDK shared boundary 映射 HTTP status、retry exhausted、timeout/cancel 与稳定 protocol/provider class。
-- [x] no credentials、401/403/404、provider test、user abort 进入非产品分类；user-action 使用跨重启 24h/64 bucket health summary，不逐错误发送。
-- [ ] 400/422 责任归属纯合同与 fixtures 已完成，但生产调用方没有可靠责任证据源；shared Provider 边界当前统一 `unknown`。接入结构化 `responsibility` 后才可关闭本项。
-- [x] provider shared boundary 将最终抛出的 429/5xx/timeout 标为 retry exhausted；rich upstream error 使用非枚举 marker 阻断 Node auto-capture，防重复及正文泄漏。
+- [x] provider / AI SDK shared boundary 已补齐：HTTP 4xx → `user_action_required`，5xx/DNS/timeout → `transient_upstream` 且只有 retry-exhausted 才上报。
+- [x] no credentials、模型不支持、Provider 4xx、provider test、user abort 产生 0 个 Sentry event；旧 info health-summary capture/module/test 已移除。
+- [x] `AI_NoOutputGeneratedError` 先有界解包真实根因；底层 403 不再表现为 `NATIVE_STREAM_ERROR / unknown / needs_classification`，raw body/chunk 不进入 normalizer/capture。
+- [x] rich upstream error 使用非枚举 marker 阻断 Node auto-capture，防重复及正文泄漏；这一安全边界在后续分类修正中不得回退。
 - [ ] Electron expected exit 必须以 `isQuitting / restart reason / child role / exit code / signal` 证据分类；禁止按标题 blanket ignore 所有 Utility/GPU crash。
 - [x] 实现三层共享 sanitizer，覆盖 message、exception、request、breadcrumbs、contexts、extras、tags，并有假 secret/path/URL/ID/body fixture。
 - [x] 三层显式 `sendDefaultPii: false`；console/ui.input breadcrumb 删除，网络 breadcrumb 只留 method/path/status。
@@ -356,7 +377,7 @@ U1a/U1b 的共同硬约束：
 
 ### Phase 2 完成门禁
 
-- 规定的 `user_action_required / provider_test_result / user_cancelled` fixture 产生 0 个 Error envelope；
+- 规定的 `user_action_required / provider_test_result / user_cancelled` fixture 产生 0 个 Error envelope 且 0 个 info/message Issue；
 - product/protocol fault 产生且只产生 1 个脱敏 envelope；
 - payload snapshot 中不存在 fake secret、prompt、response、tool args/result、用户名、本地目录、raw URL、动态 ID；
 - 同根 fixture 的 fingerprint 稳定，异根 fixture 不误合并；
@@ -473,23 +494,40 @@ U1a/U1b 的共同硬约束：
 
 ### 本阶段明确不做
 
-不根据旧项目 lifetime count 宣称当前版本回归；不在观察期内批量 resolve 历史 issue；不因样本少伪造“下降百分比”。
+不根据旧项目 lifetime count 宣称当前版本回归；不在观察期内批量 resolve 历史 issue；不因样本少伪造“下降百分比”；不以 info event 补 metrics；不在本主线顺手修 `MessageItem`、MissingToolResults 或其他历史体验产品代码。
+
+### 2026-08-04 观察窗口
+
+| Release | 正式发布时间（北京时间） | 24h checkpoint | 72h checkpoint | 用法 |
+|---|---|---|---|---|
+| `codepilot@0.64.0` | 2026-08-03 00:44 | 2026-08-04 00:44（已到） | 2026-08-06 00:44 | 第一版 official-stable U0 线上基线；只作同 release 统计 |
+| `codepilot@0.65.0` | 2026-08-04 12:06 | 2026-08-05 12:06 | 2026-08-07 12:06 | 当前 release；与 0.64.0 分开查询，不因遥测文件无 diff 就合并 crash/error 分母 |
+
+### 有界优先级（P1 已实施；P0/P2/P3 保持只读/待发布观察）
+
+| 优先级 / 时限 | 信号 | 处理边界 | 退出条件 |
+|---|---|---|---|
+| P0 / 先于任何 Issue 清理 | 查询口径与隐私 | 使用只读 token 固定 `project=codepilot-desktop + environment=production + release=单一当前版本`；复核 unresolved、error samples、unhandled、sessions、crash-free sessions、unsymbolicated ratio；抽查 Top 20 是否含 prompt/body/path/secret。禁止 resolve/delete/mute。 | 查询时间、filter、结果与隐私抽样写入 ledger；无 token 时明确 blocked，不沿用交接数字冒充实测 |
+| P1 / ✅ 2026-08-04 code complete + local gates pass | 分类合同修正 | 有界 root-cause normalizer：HTTP 4xx/凭据/模型不支持 → `user_action_required`；5xx/DNS/timeout → retry-exhausted `transient_upstream`；NoOutput 解包 wrapper；user-action 产生 0 Error/0 info Issue；product fault 保留 stack grouping。只改遥测分类与测试，不修业务 UI。 | 定向 46/46、全量 5053/5053、production build 通过；仍需新 stable release 真实 smoke，不能拿本地 fixture 代替线上 zero-Issue |
+| P2 / 24–72h | 干净信号观察 | 每个 release 分别看 24h/72h；按 outcome/category/provider.class/runtime.layer 看 volume、duplicate、unhandled、unsymbolicated；不拿旧 `javascript-nextjs` lifetime count 比涨跌。若 P1 需要新 release，重新建立该 release 的 72h 窗，不把修复前后拼成同一 cohort。 | Top 20 中 ≥80% 可直接判断行动方向；expected/user-action 在 Issues 中为 0；真正 product fault 可 symbolicate |
+| P3 / 72h 后 | 产品缺陷交接 | 只登记 root bucket、影响 release/count、代表 event id、symbolicated file:line 与 owner。`MessageItem.toLocaleString` 等交“历史体验问题”任务；NoOutput 只把 wrapper 分类修正留在本主线，底层真实业务缺陷另交接。 | 每个活跃产品缺陷有独立 owner/任务入口；本计划不吞并 UI/Runtime 业务修复 |
 
 ### 执行清单
 
-- [ ] 用户明确授权后才进入正常 release 流程；不得因本文自动 push/tag。
+- [x] v0.64.0 / v0.65.0 已由其他发布流程正式发布；本计划不再写成“尚待 tag”。本轮没有执行 push/tag/release。
 - [ ] 真实 stable package 跑 opt-in / opt-out、renderer/server/Electron source map smoke，写入 Smoke Ledger。
-- [ ] 观察 24h、72h：只查询新 official project + 当前 release + production。
-- [ ] 检查 development / foreign release 是否为 0；检查 expected outcome Error 占比、duplicate ratio、unsymbolicated ratio、sanitizer violations；同时查看 `user_action_required` release-scoped aggregate signal，若 no-credentials/auth/model-access 比率相对上一 release 异常抬升，必须按产品回归调查，不能因它不是 Error Issue 而忽略。
+- [ ] 用只读 Sentry token 补跑 v0.64.0 24h 与 v0.65.0 当前快照；只查询新 official project + 单一 release + production，并记录 query time/filters。当前 token 缺失，交接数字保持 unverified。
+- [ ] 检查 development / foreign release 是否为 0；检查 expected/user-action Issue、duplicate ratio、unhandled、unsymbolicated ratio、sanitizer violations。`user_action_required` 目标为 0 Issue，不再观察或保留 info health-summary signal。
+- [x] 用户已明确授权 P1；已实现 4xx/DNS/timeout/NoOutput normalizer、移除 info Issue/health-summary，并补 Native/ToolLoop terminal capture 与 anti-double-capture fixture。
 - [ ] 人工审阅 Top 20 issue，至少 80% 应能从 title/code/tags 直接判断行动方向；无法分类的 issue 回写 classifier fixture。
-- [ ] 将仍活跃的真实问题拆到 `docs/exec-plans/active/issue-tracker.md` 或独立计划，至少包括：NoOutput root buckets、SenseNova tool call、MissingToolResults、renderer `toLocaleString`、Electron utility/GPU。
-- [ ] 更新 `docs/handover/sentry-error-reporting.md`，并新增 / 更新配对产品思考文档；修正文档中 `PROCESS_CRASH` 等陈旧描述。
+- [ ] 将仍活跃的真实问题拆到“历史体验问题”任务、`docs/exec-plans/active/issue-tracker.md` 或独立计划，至少包括：NoOutput 底层 product root buckets、SenseNova tool call、MissingToolResults、renderer `toLocaleString`、Electron utility/GPU；本主线只保留分类/脱敏/source map/session health。
+- [x] 更新 `docs/guardrails/SentryTelemetry.md`、`docs/handover/sentry-error-reporting.md` 与配对 `docs/insights/sentry-error-reporting.md`；保留执行计划/索引互链。
 - [ ] 状态表、执行清单、决策日志、Smoke Ledger 四处一致后，才把本计划移入 `completed/`。
 
 ### Phase 6 完成门禁
 
 - development 和普通 Fork 对新官方 project 的意外事件为 0；
-- known expected outcome fixtures 在线上没有形成 Error Issues；
+- known expected / user-action outcome 在线上没有形成 Error 或 info/message Issues；
 - synthetic + 真实 Top issues 可 symbolicate；
 - Top 20 actionable ratio ≥ 80%；
 - 无已知 secret / prompt / response / local-path sanitizer finding；
@@ -507,10 +545,12 @@ U1a/U1b 的共同硬约束：
 | Error object | ✅ | ✅ | ✅ | 类型、稳定 code、symbolicated stack |
 | non-Error object | ✅ | ✅ | ✅ | 不出现 `[object Object]`，只保留 allow-list |
 | 用户取消 | ✅ | ✅ | ✅ | 0 Error envelope |
-| no credentials / 401 / quota | — | ✅ | — | UI 诚实提示，0 Error envelope；仅有界 aggregate health signal |
-| 400/422 + 明确 user-owned 证据 | — | 合同 fixture | — | 目标为 `user_action_required`；生产证据源尚未接入 |
-| 400/422 + 明确 canonical payload 证据 | — | 合同 fixture | — | 目标为 `product_fault`；生产证据源尚未接入 |
-| retry exhausted 5xx/network | — | ✅ | — | 1 个 normalized transient event |
+| no credentials / model unsupported / HTTP 4xx | — | ✅ | — | UI 诚实提示，0 Error envelope、0 info/message Issue |
+| HTTP 4xx + 无责任证据 | — | ✅ | — | 本轮统一 `user_action_required`；不靠 message 推断 canonical payload product fault |
+| retry exhausted 5xx/DNS/network/timeout | — | ✅ | — | 1 个 normalized transient event；明确 retry-exhausted |
+| NoOutput wrapper + 底层 403 | — | ✅ | — | 解包为 `user_action_required`，不保留 `NATIVE_STREAM_ERROR/unknown` Issue |
+| NoOutput wrapper + 底层 503/DNS/timeout | — | ✅ | — | 解包为 retry-exhausted `transient_upstream`，无 raw response body |
+| 真正无输出且无 upstream error | — | ✅ | — | 1 个脱敏 `provider_protocol_fault` |
 | provider malformed tool chunk | — | ✅ | — | 1 个脱敏 protocol fault，无 raw chunk |
 | expected app quit/restart | — | — | ✅ | 0 Error envelope |
 | unexpected utility exit | — | — | ✅ | 1 个带 lifecycle code 的 event |
@@ -554,6 +594,8 @@ U1a/U1b 的共同硬约束：
 | 2026-08-02 | host_application | N/A | N/A | CI package，无 upload token 进入 package step | macOS arm64+x64 / Windows final package gates | ✅ | run #310；macOS 8m05s、Windows 7m14s；两端 package 0 map、native ABI 与 packaged server startup 全通过 |
 | 2026-08-02 | all telemetry layers | static fixture | fixture | none | manual-CI-only smoke guardrail 本地回归 | ✅ | targeted 15/15；`npm run test` 4987/4987；普通无 Sentry 生产构建通过，compile 8.6s；ESLint、docs-drift、YAML parse、`git diff --check` 通过；新增 source-map upload 第三次恢复/三次失败门禁 |
 | 2026-08-03 | host_application | N/A | N/A | GitHub Secrets + 原生 Ubuntu 22.04 runners | Linux x64/arm64 source-map upload + AppImage/deb/rpm package gates | ✅ | GitHub Actions [Build & Package #313](https://github.com/op7418/CodePilot/actions/runs/30756193409)，commit `d29e102b`；arm64 8m11s、x64 8m50s；六个 v0.64.0 包均通过架构、better-sqlite3 Electron ABI 143、packaged server、0 map；glibc 2.35 |
+| 2026-08-04 | all telemetry layers | code audit | N/A | read-only repo + GitHub Release metadata | origin/main 发布状态与 Phase 6 分类合同校准 | ⚠️ 计划已校准，代码未修 | `HEAD/origin/main/v0.65.0=979fda51`；v0.64.0/v0.65.0 均为正式 Release；telemetry targeted 22/22；docs drift/diff check 通过；full `npm run test` 在 typecheck 前置因共享依赖缺 `thinking-orbs` 未启动单测；发现 4xx/DNS/NoOutput/info Issue P1 偏差；当前无 `SENTRY_AUTH_TOKEN`，37/406/334/98.5% 保持 unverified |
+| 2026-08-04 | codepilot_runtime / Claude classifier / shared provider | fixture | fixture | none | Phase 6 P1 root-cause/classification/privacy/duplicate local closeout | ✅ local gates pass | bounded cause graph 4 层/16 节点；4xx 含 429 zero-event；5xx/DNS/timeout retry gate；NoOutput 403/503/DNS/timeout/true-empty；循环/超深/non-Error/body/chunk/secret/path；marker + safe stack；targeted 46/46；`npm run test` 5053/5053；最终 `npm run build` compile 8.9s、exit 0（保留既有 NFT trace warning）；锁文件无漂移；production/Sentry smoke 因无 token/未发新版待执行 |
 
 ## 八、风险与回滚
 
@@ -579,7 +621,7 @@ Claude Code review 时需要重点回答，不能只核对文档格式：
 2. **架构**：Next 16 production renderer/server 是否真实生成可用 map？post-build `sentry-cli inject/upload` 是否真能覆盖 Next 16 Turbopack + Electron esbuild 的最终 packaged bundle？是否需要 `@sentry/nextjs`，若需要必须说明运行时和 dev 内存代价。
 3. **Electron**：统一 facade 是否会推迟 main-process init，导致 early/native crash 丢失？
 4. **隐私**：stack path 清洗与 debug ID symbolication 是否能同时成立？allow-list 是否遗漏 breadcrumbs、server_name、request body、raw provider chunk？
-5. **语义**：401/403/402/429/404、400/422、no credentials、provider test、user abort、retry exhausted 的分类边界和 aggregate signal 是否会吞掉 CodePilot 自己造成的错误？
+5. **语义**：HTTP 4xx / no credentials / model unsupported 是否统一为 `user_action_required` 且 0 Issue；5xx/DNS/timeout 是否只有在 retry exhausted 后成为 transient；NoOutput 是否先解包根因；这套保守政策是否有清晰的未来 canonical-payload product-fault 升级门槛？
 6. **分组**：normalized fingerprint 是否会误合并不同 `provider.class` 的协议缺陷；有 stack 的 product fault 是否完整保留 Sentry 默认分组？
 7. **测试**：mock transport 是否能真实抓住 auto-capture + manual capture 的重复事件？build-wiring test 是否检查最终包而不只是源码形状？
 8. **发布**：新 Sentry project、CI Secrets、source-map token 最小权限与 stable fail-closed 是否可在现有 GitHub workflow 中执行？
@@ -599,7 +641,9 @@ Claude Code review 时需要重点回答，不能只核对文档格式：
 - DMG/ZIP/EXE 仍包含 `.map` 或任意含 `sourcesContent` 的调试产物；
 - custom fingerprint 覆盖有 stack 的 `product_fault`，导致不同 renderer/server 崩溃被合并；
 - `provider_protocol_fault` 的 custom fingerprint 缺少 `provider.class`；
-- `user_action_required` 完全静默且没有 release-scoped 低频 aggregate signal；
+- `user_action_required` 仍通过 Error、info、message 或 health-summary event 形成任何 Sentry Issue；
+- `AI_NoOutputGeneratedError` 未解包真实 status/code/cause 就以 `NATIVE_STREAM_ERROR / unknown` 上报；
+- DNS/5xx/timeout 在 retry exhausted 后仍进入 `unknown`，或未耗尽 retry 就被当成 transient Issue；
 - `classifyError` 的 `not found` 等 substring first-match 陷阱没有反例 fixture；
 - 未显式设置 `sendDefaultPii: false`，或 console breadcrumb 可绕过 sanitizer；
 - Electron policy 使用 async/dynamic import 推迟 early init，或覆盖 default integrations 导致 native/minidump 能力丢失；
@@ -645,3 +689,8 @@ Claude Code review 时需要重点回答，不能只核对文档格式：
 - 2026-08-02：CI #311 首次真实 packaged smoke 完整通过三层 JS 符号化，但 native Issue 为 0。根因不是 Sentry 延迟，而是 SDK v7 `SentryMinidump` 以 `uploadToServer:false` 生成 Crashpad dump，只在下次启动读取上传。已在同一隔离 job 补上无 crash flag 的 recovery launch；未看到真实 native event 前不标 Phase 5 完成。
 - 2026-08-02：CI #312 的 crash + recovery launch 链路通过；Sentry 收到 event `778040c8b19a40ee983c2b3bfe79cb1c`，机制明确为未处理 `minidump`，解析到 Electron native frame、release/environment/platform。Phase 5 的 native crash 门禁关闭；首次失败记录保留，避免抹掉真实 SDK 行为。
 - 2026-08-03：用户要求在下一版恢复 Linux。复核确认 Linux builder 配置一直存在，v0.55 只是在重写 stable workflow 时移除了 CI job；v0.64.0 采用原生 Ubuntu 22.04 x64/arm64 matrix 恢复 AppImage/deb/rpm，任一架构失败都会阻断 Release。CI #313 六个安装包与 Sentry upload 全通过，兼容基线据真实 runner 固定为 glibc 2.35。
+- 2026-08-04：从 clean `origin/main@979fda51` 重新校准。GitHub Release 只读证据确认 v0.64.0 / v0.65.0 已正式发布，Phase 6 改为进行中，并为两个 release 分别固定 72h 窗口。代码审计确认 product-fault stack grouping、main-only 目标和 sanitizer 主体仍在，但本轮目标合同尚未满足：shared Provider 只把 401/403/404 归 user action，429 仍归 transient、400/422/402 等仍归 unknown；DNS 与 NoOutput wrapper 没有统一根因解包；`error-classifier.ts` 仍用 info health-summary 生成 Issue。用户本轮只要求诊断与计划校准，因此未修改产品代码、测试、外部 Sentry 状态、push 或 release；后续 P1 实现必须再次获得明确授权，并同步更新 guardrail/handover/tests。
+- 2026-08-04：本轮 shell 无只读 `SENTRY_AUTH_TOKEN`。交接中的约 37 unresolved / 406 error samples / 8 unhandled / 334 sessions / crash-free sessions 98.5% 以及 crash-free users 0% 均未冒充独立实测；待 token 可用后按 `project=codepilot-desktop + environment=production + 单一 release` 重跑。crash-free users 0 与 U0 不绑定 user id 的预期一致，但仍不能代表用户数。
+- 2026-08-04：验证证据为 telemetry targeted 22/22、`npm run lint:docs-drift`、`git diff --check` 通过。完整 `npm run test` 尝试使用现有共享依赖时在 typecheck 阶段因依赖树缺少 v0.65.0 新增的 `thinking-orbs` 而停止，单元测试未启动；没有运行 `npm install`，避免修改其他 worktree 的共享依赖。该环境缺口不推翻纯函数/静态代码诊断，也不能被写成 full tests pass。
+- 2026-08-04：用户随后明确授权在当前隔离 worktree 实施 Phase 6 P1。新增共享有界 root-cause normalizer（4 层/16 节点/字段 allow-list/字符串上限），全部 4xx 含 429 固定 user action，5xx/DNS/timeout 加 retry-exhausted send gate，NoOutput 先解包 root cause；移除 info health-summary module/capture。Native 与 ToolLoop `onError` 只 marker + 保存结构化错误，terminal catch 才 capture；unknown/product 用固定 message 的安全 Error 副本保留 stack frame，原始 provider body/cause graph 不进入事件。
+- 2026-08-04：依锁文件在本 worktree 运行 `npm install` 恢复缺失 `thinking-orbs`，`package.json`/`package-lock.json` 无漂移；最终定向 46/46、全量 `npm run test` 5053/5053、`npm run build` 成功（compile 8.9s，保留既有 NFT dynamic-trace warning）。没有 push/merge/tag/release，没有修改外部 Sentry；只读 token 仍缺失，因此 production P0 与修复后 stable 72h smoke 保持待执行。
