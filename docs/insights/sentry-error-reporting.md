@@ -12,6 +12,8 @@
 
 NoOutput 也不能被当作根因名称。SDK wrapper 只说明最终没有输出，底层可能是 403、503、DNS 或 timeout；因此分类器只在有界 allow-list cause graph 中读取 status/code/type，不读取 response body/chunk。只有确实没有 upstream 根因时，才把它归为 provider protocol fault。这一保守顺序让 Sentry bucket 指向可行动责任，同时不扩大身份、行为或内容采集。
 
+同样，stream callback 的 `onError` 既不能直接上报，也不能假设后续一定进入 catch。真实 AI SDK 生命周期中，in-band error part 之后 `response` 与 `finishReason` 仍可能正常 resolve，甚至已经输出部分内容。可靠边界因此是 per-step terminal state：`onError` 只保存并标记结构化根因，在 resolved terminal 或 catch 中 exactly-once 分类；这样既不会把未耗尽 retry 的中间态提前变成 Issue，也不会让 4xx 伪装成 `EMPTY_RESPONSE` 或让 partial-content 5xx 完全消失。
+
 Source Map 也遵循同样原则：能产生 map 不等于可交付。必须证明上传的是最终 packaged bundle、debug ID 对得上、安装包不携带源码，并记录真实构建代价。用户已接受 stable build 绝对增加约 13.4s；official CI 已证明三层 symbolication、native minidump 恢复上传，以及 macOS/Windows/Linux 最终包 0 map，因此这部分发布门禁已闭合。后续仍要在每次相关发布中防回退，不能把历史 smoke 当作永久保证。
 
 未来若要看用户量或活跃度，应单独做 U1/U2：独立 consent、诚实的启动/行为口径、可验证的数据集和成本。不能把错误上报开关扩张成行为分析授权，也不能用 Sentry session 数冒充 DAU/MAU。

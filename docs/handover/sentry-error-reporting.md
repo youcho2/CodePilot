@@ -43,9 +43,9 @@
 - protocol/transient/无 stack 错误只使用稳定枚举 fingerprint，禁止 message、URL、model/session/request id；
 - connection test、用户取消、正常生命周期与 `user_action_required` 生成 0 个 Sentry event；不再保留 `telemetry.health_summary` info/message Issue 或本地 health-summary 状态文件；
 - `src/lib/telemetry/root-cause.ts` 是 shared Provider、Claude classifier 与 Native 两条 loop 的共同分类源：HTTP 4xx（含 429）、缺凭据、模型不支持 → `user_action_required`；5xx、`ENOTFOUND`/`EAI_AGAIN`、timeout 只有 retry exhausted 才上报稳定 transient bucket；
-- `AI_NoOutputGeneratedError` 先在最多 4 层/16 节点的 allow-list cause graph 中检查 status/code/type；底层 4xx/5xx/DNS/timeout 优先，只有确实没有 upstream 根因时才归 `EMPTY_RESPONSE` protocol fault；
+- `AI_NoOutputGeneratedError` 与 in-band stream error 先在最多 4 层/16 节点的 allow-list cause graph 中检查 status/code/type；底层 4xx/5xx/DNS/timeout 优先，只有确实没有 upstream 根因时才归 `EMPTY_RESPONSE` protocol fault；provider SSE `type` 只接受固定低基数 enum 映射，不读取 body/chunk；
 - normalizer 不读取或返回 response body、chunk、request/data/header/path。原始 upstream body 可继续用于本地用户诊断，但 shared boundary 在 rethrow/async capture 前写 non-enumerable marker，Node auto-capture 丢弃原始对象；受控 unknown/product event 以固定 message 的安全 Error 副本保留原 stack frame，其他事件只发送固定 message + 枚举 tag/fingerprint；
-- Native agent loop 与 experimental ToolLoop 的 `onError` 只保存结构化错误并 marker，不 capture；terminal catch 以 `retryExhausted:true` 统一上报，避免 NoOutput wrapper 掩盖 403 或同一错误双报。
+- Native agent loop 与 experimental ToolLoop 的 `onError` 只保存结构化错误并 marker，不 capture；shared per-step terminal state 在 response/finish-step 或 catch 确认 retry exhausted 后 exactly-once 上报。即使 AI SDK 的 in-band error 后续正常 resolve、已有 partial content，也不会被 `EMPTY_RESPONSE` 或 catch 缺席掩盖。
 
 ## 五、隐私策略
 
@@ -81,11 +81,12 @@ v0.64.0 与 v0.65.0 已正式发布。Phase 6 仍需对实现 P1 后的新 stabl
 | `src/lib/telemetry/sanitize.ts` | 三层 default-deny event/breadcrumb 清洗 |
 | `src/lib/telemetry/provider-failure.ts` | background/provider shared capture |
 | `src/lib/error-classifier.ts` | Claude/Native capture policy；user-action 0 event |
-| `src/lib/agent-loop.ts` / `src/lib/experimental/agent-loop-toolloop-poc.ts` | onError 只保留 root cause；terminal catch capture |
+| `src/lib/telemetry/native-stream-boundary.ts` | per-step in-band error 状态、terminal/catch exactly-once 与 anti-double-capture |
+| `src/lib/agent-loop.ts` / `src/lib/experimental/agent-loop-toolloop-poc.ts` | onError 只保留 root cause；resolved terminal / catch capture |
 | `src/instrumentation.ts` | Next init、auto-capture 去重 |
 | `src/components/layout/SentryInit.tsx` | renderer init 与 opt-out |
 | `electron/main.ts` | early main init、main-only session、native crash 默认集成 |
 | `scripts/sentry-source-maps.mjs` | release/map/Secret fail-closed upload |
 | `electron-builder.yml` | packaged map 排除 |
 
-日常回归：telemetry 定向 fixtures + `npm run test`。发布前还必须跑 `npm run build`、official-style source-map/package gate；发布后在真实 `codepilot-desktop` project、单一 release、`environment=production` 下记录 4xx zero-Issue、retry-exhausted transient、NoOutput root cause、renderer/server/Electron symbolication 与 native crash smoke。当前 worktree 没有 `SENTRY_AUTH_TOKEN`，production P0 查询必须保持 blocked，不能把交接快照升级为已验证事实。
+日常回归：telemetry 定向 fixtures + `npm run test`。本轮 Claude findings 修复后的 telemetry/Sentry/stream-honesty 定向超集为 63/63（其中真实 Native/ToolLoop SSE + Sentry transport 为 6/6），全量为 5067/5067，production build 通过。发布前还必须跑 official-style source-map/package gate；发布后在真实 `codepilot-desktop` project、单一 release、`environment=production` 下记录 4xx zero-Issue、retry-exhausted transient、NoOutput root cause、renderer/server/Electron symbolication 与 native crash smoke。当前 worktree 已有 mode 600、gitignored 的只读 Sentry credential（仅 event/org/project read），一次只读 API 请求已证明访问可用；这不等于完成单 release cohort/P0 查询，也不得把 token 打印、提交或送入 build/package。
