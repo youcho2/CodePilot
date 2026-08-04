@@ -39,6 +39,14 @@ export interface WorkspaceInfo {
   reason?: string;
   exists?: boolean;
   files: Record<string, FileStatus>;
+  instructionMirrors?: {
+    canonicalExists: boolean;
+    mirrors: Array<{
+      fileName: 'CLAUDE.md' | 'AGENTS.md';
+      status: 'missing' | 'synced' | 'stale' | 'modified' | 'unmanaged';
+    }>;
+    conflicts: string[];
+  };
   state: WorkspaceState | null;
   heartbeat?: {
     desiredEnabled: boolean;

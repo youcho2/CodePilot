@@ -4,18 +4,11 @@ import { useState, useCallback, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { PromptDialog } from "@/components/ui/prompt-dialog";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { SpinnerGap } from "@/components/ui/icon";
 import { useTranslation } from "@/hooks/useTranslation";
 import { SettingsCard } from "@/components/patterns/SettingsCard";
-import type { ChatSession, WorkspaceInspectResult } from "@/types";
+import type { WorkspaceInspectResult } from "@/types";
 import { FilesTabPanel, TaxonomyTabPanel, IndexTabPanel, OrganizeTabPanel } from "./WorkspaceTabPanels";
 import { WorkspaceConfirmDialogs, type ConfirmDialogType } from "./WorkspaceConfirmDialogs";
 import { OnboardingCard, CheckInCard } from "./WorkspaceStatusCards";
@@ -46,11 +39,6 @@ export function AssistantWorkspaceSection() {
   const [initializing, setInitializing] = useState(false);
   const [refreshingDocs, setRefreshingDocs] = useState(false);
   const [pathInput, setPathInput] = useState("");
-  // Recent workspaces — distinct working_directory values from chat
-  // sessions, ordered by most-recent activity. Source for the Select
-  // dropdown so users can jump between project paths they've already
-  // used in CodePilot instead of typing them out.
-  const [recentPaths, setRecentPaths] = useState<string[]>([]);
   const [activeTab, setActiveTab] = useState<TabId>('files');
   const [taxonomy, setTaxonomy] = useState<TaxonomyCategoryInfo[]>([]);
   const [indexStats, setIndexStats] = useState<IndexStats | null>(null);
@@ -170,31 +158,9 @@ export function AssistantWorkspaceSection() {
     } catch { /* ignore */ }
   }, []);
 
-  const fetchRecentPaths = useCallback(async () => {
-    try {
-      const res = await fetch("/api/chat/sessions");
-      if (res.ok) {
-        const data = await res.json();
-        const sessions: ChatSession[] = data.sessions || [];
-        // Distinct working_directory, ordered by most-recent session
-        // updated_at — same data ChatListPanel uses to group projects.
-        const seen = new Set<string>();
-        const ordered: string[] = [];
-        for (const s of [...sessions].sort((a, b) => (b.updated_at || '').localeCompare(a.updated_at || ''))) {
-          const wd = s.working_directory?.trim();
-          if (!wd || seen.has(wd)) continue;
-          seen.add(wd);
-          ordered.push(wd);
-        }
-        setRecentPaths(ordered);
-      }
-    } catch { /* ignore */ }
-  }, []);
-
   useEffect(() => {
     fetchWorkspace();
-    fetchRecentPaths();
-  }, [fetchWorkspace, fetchRecentPaths]);
+  }, [fetchWorkspace]);
 
   useEffect(() => {
     if (workspace?.path && workspace.valid !== false) {
@@ -256,10 +222,7 @@ export function AssistantWorkspaceSection() {
     }
   }, [pathInput, fetchWorkspace, workspace?.path, router]);
 
-  // Inspect path and show confirmation dialog. Accepts an explicit
-  // path so Select-driven changes can pass the freshly-picked value
-  // before React commits the setPathInput update — avoiding a stale
-  // closure read.
+  // Inspect the freshly-picked path before any workspace setting changes.
   const handleSaveClick = useCallback(async (explicitPath?: string) => {
     const target = (explicitPath ?? pathInput).trim();
     if (!target) return;
@@ -326,9 +289,9 @@ export function AssistantWorkspaceSection() {
         if (!result.canceled && result.filePaths[0]) {
           const picked = result.filePaths[0];
           setPathInput(picked);
-          // Auto-trigger save flow — same as Select onChange path.
-          // confirmDialog still surfaces inside handleSaveClick for
-          // empty / partial / existing-workspace safety checks.
+          // The pre-picker warning has already been accepted. Keep the
+          // target-specific empty / partial / existing-workspace safety
+          // check before changing the persisted workspace.
           handleSaveClick(picked);
         }
       } else {
@@ -341,6 +304,19 @@ export function AssistantWorkspaceSection() {
       console.error("Failed to select folder:", e);
     }
   }, [handleSaveClick, t]);
+
+  const handleRequestFolderChange = useCallback(() => {
+    setPathError(null);
+    setConfirmDialog({ kind: 'switch_path' });
+  }, []);
+
+  const handleConfirmFolderChange = useCallback(() => {
+    // Close the in-app alert before opening the native modal. Deferring by
+    // one task also prevents Radix's close callback from clearing the
+    // target-specific confirmation created after the user picks a folder.
+    setConfirmDialog(null);
+    window.setTimeout(() => { void handleSelectFolder(); }, 0);
+  }, [handleSelectFolder]);
 
   const handleRefreshDocs = useCallback(async () => {
     setRefreshingDocs(true);
@@ -387,15 +363,6 @@ export function AssistantWorkspaceSection() {
     }
   }, []);
 
-  // Must stay above any early returns — Rules of Hooks. Earlier this
-  // sat next to its consumer in the JSX, which broke hook order on the
-  // initial loading-state render.
-  const handleSelectChange = useCallback((next: string) => {
-    if (!next || next === workspace?.path) return;
-    setPathInput(next);
-    handleSaveClick(next);
-  }, [workspace?.path, handleSaveClick]);
-
   if (loading) {
     return (
       <div className="flex items-center justify-center py-12">
@@ -414,18 +381,7 @@ export function AssistantWorkspaceSection() {
 
   const assistantName = summary?.name || t('assistant.defaultName');
 
-  // Path Select drops the per-keystroke validation (the select can only
-  // produce paths we already know — either from `recentPaths` or the
-  // native folder picker — so debounced inspect is redundant). The
-  // workspaceStatus inspect still runs inside handleSaveClick before
-  // any destructive change.
-  const currentPath = pathInput || workspace?.path || "";
-  // Include the active workspace path itself, even when no chat session
-  // is tied to it yet, so the Select always shows the current selection.
-  const selectOptions = [
-    ...(currentPath && !recentPaths.includes(currentPath) ? [currentPath] : []),
-    ...recentPaths,
-  ];
+  const currentPath = workspace?.path || "";
 
   return (
     <div className="max-w-4xl mx-auto space-y-8">
@@ -433,38 +389,24 @@ export function AssistantWorkspaceSection() {
       <div>
         <h2 className="text-xl font-semibold tracking-tight">{t('settings.assistant' as TranslationKey)}</h2>
       </div>
-      {/* Workspace Path Card — Select-driven: pick a recent project
-          or use "选择文件夹" for a new one. Both paths immediately
-          trigger handleSaveClick, which still surfaces the confirm
-          dialog for empty / partial / existing-workspace safety. */}
+      {/* The workspace is an identity boundary, not a recent-project
+          selector. Show the active source of truth and make replacement an
+          explicit, warned action followed by the native folder picker. */}
       <SettingsCard
         title={t('assistant.workspacePath')}
         description={t('assistant.workspacePathHint')}
       >
-        <div className="flex items-center gap-2">
-          <Select value={currentPath} onValueChange={handleSelectChange} disabled={inspecting}>
-            <SelectTrigger className="flex-1 text-sm">
-              <SelectValue placeholder="/path/to/workspace" />
-            </SelectTrigger>
-            <SelectContent>
-              {selectOptions.length === 0 ? (
-                <div className="px-2 py-1.5 text-xs text-muted-foreground">
-                  {t('assistant.selectFolder')}
-                </div>
-              ) : (
-                selectOptions.map((p) => (
-                  <SelectItem key={p} value={p}>
-                    {p}
-                  </SelectItem>
-                ))
-              )}
-            </SelectContent>
-          </Select>
-          <Button variant="outline" size="sm" onClick={handleSelectFolder} disabled={inspecting}>
+        <div className="space-y-3">
+          <div className="rounded-md border border-border/50 bg-muted/30 px-3 py-2.5">
+            <p className="text-xs font-mono leading-5 break-all text-foreground">
+              {currentPath || t('assistant.pathNotSet')}
+            </p>
+          </div>
+          <Button variant="outline" size="sm" onClick={handleRequestFolderChange} disabled={inspecting}>
             {inspecting ? (
               <SpinnerGap size={14} className="animate-spin" />
             ) : null}
-            {t('assistant.selectFolder')}
+            {t('assistant.changeWorkspacePath')}
           </Button>
         </div>
         {pathError && (
@@ -486,6 +428,22 @@ export function AssistantWorkspaceSection() {
               ? t('assistant.pathNotWritable')
               : t('assistant.pathInvalid')
             }
+          </p>
+        </div>
+      )}
+
+      {workspace?.path
+        && workspace.valid !== false
+        && (workspace.instructionMirrors?.conflicts.length ?? 0) > 0 && (
+        <div className="rounded-lg border border-status-warning-border bg-status-warning-muted p-4">
+          <p className="text-sm font-medium text-status-warning-foreground">
+            {t('assistant.rulesMirrorConflictTitle')}
+          </p>
+          <p className="mt-1 text-xs leading-5 text-muted-foreground">
+            {t('assistant.rulesMirrorConflictDesc')}
+          </p>
+          <p className="mt-2 text-xs font-medium text-status-warning-foreground">
+            {workspace.instructionMirrors?.conflicts.join(' · ')}
           </p>
         </div>
       )}
@@ -639,6 +597,7 @@ export function AssistantWorkspaceSection() {
         confirmDialog={confirmDialog}
         initializing={initializing}
         onClose={() => setConfirmDialog(null)}
+        onConfirmSwitchPath={handleConfirmFolderChange}
         onExecuteSave={executeSave}
       />
 

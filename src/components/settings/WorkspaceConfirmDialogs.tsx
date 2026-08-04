@@ -16,6 +16,7 @@ import { useTranslation } from "@/hooks/useTranslation";
 import type { WorkspaceInspectResult } from "@/types";
 
 export type ConfirmDialogType =
+  | { kind: 'switch_path' }
   | { kind: 'not_found' }
   | { kind: 'empty' }
   | { kind: 'normal_directory' }
@@ -26,6 +27,7 @@ interface WorkspaceConfirmDialogsProps {
   confirmDialog: ConfirmDialogType | null;
   initializing: boolean;
   onClose: () => void;
+  onConfirmSwitchPath: () => void;
   onExecuteSave: (initialize: boolean, resetOnboarding?: boolean, navigateMode?: 'new' | 'reuse') => void;
 }
 
@@ -33,6 +35,7 @@ export function WorkspaceConfirmDialogs({
   confirmDialog,
   initializing,
   onClose,
+  onConfirmSwitchPath,
   onExecuteSave,
 }: WorkspaceConfirmDialogsProps) {
   const { t } = useTranslation();
@@ -43,6 +46,27 @@ export function WorkspaceConfirmDialogs({
 
   return (
     <>
+      {/* Workspace identity boundary — warn before opening the OS picker. */}
+      <AlertDialog open={confirmDialog?.kind === 'switch_path'} onOpenChange={handleOpenChange}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t('assistant.confirmSwitchPathTitle')}</AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-2">
+                <p>{t('assistant.confirmSwitchPathDesc')}</p>
+                <p className="text-xs text-muted-foreground">{t('assistant.confirmSwitchPathHint')}</p>
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
+            <AlertDialogAction onClick={onConfirmSwitchPath}>
+              {t('assistant.continueSelectFolder')}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
       {/* Non-existent path — offer to create */}
       <AlertDialog open={confirmDialog?.kind === 'not_found'} onOpenChange={handleOpenChange}>
         <AlertDialogContent>

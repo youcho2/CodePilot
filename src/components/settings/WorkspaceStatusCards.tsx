@@ -12,6 +12,7 @@ import { Switch } from "@/components/ui/switch";
 import { SpinnerGap, CheckCircle } from "@/components/ui/icon";
 import { useTranslation } from "@/hooks/useTranslation";
 import type { TranslationKey } from "@/i18n";
+import { NATIVE_NOTIFICATION_ERROR } from "@/lib/notification-error-codes";
 
 // ── Onboarding Status Card ──
 
@@ -244,8 +245,9 @@ export function CheckInCard({
           )}
           {testNotificationStatus?.status === 'error' && (
             <span className="text-[11px] text-status-error-foreground">
-              {t('assistant.testNotificationFailed' as TranslationKey)}
-              {testNotificationStatus.error ? `: ${testNotificationStatus.error}` : ''}
+              {testNotificationStatus.error === NATIVE_NOTIFICATION_ERROR.macosUnsignedDevelopment
+                ? t('assistant.testNotificationMacDev' as TranslationKey)
+                : `${t('assistant.testNotificationFailed' as TranslationKey)}${testNotificationStatus.error ? `: ${testNotificationStatus.error}` : ''}`}
             </span>
           )}
         </div>

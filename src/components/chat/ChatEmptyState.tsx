@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { Button } from '@/components/ui/button';
-import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from '@/components/ui/card';
+import { Card, CardHeader, CardTitle, CardDescription, CardFooter } from '@/components/ui/card';
 import { X } from '@/components/ui/icon';
 import { CodePilotIcon } from '@/components/ui/semantic-icon';
 import { useTranslation } from '@/hooks/useTranslation';
@@ -163,27 +163,35 @@ export function AssistantPromoCard({ onSetup, onDismiss }: AssistantPromoCardPro
   };
 
   return (
-    <Card className="mx-2 mb-2">
-      <CardContent className="relative py-3 px-3">
-        <button
-          onClick={handleDismiss}
-          className="absolute top-1.5 right-1.5 p-0.5 rounded-sm text-muted-foreground hover:text-foreground transition-colors"
-          aria-label="Dismiss"
-        >
-          <X size={12} />
-        </button>
-        <div className="flex items-start gap-2 pr-4">
-          <img src={EGG_IMAGE_URL} alt="" width={20} height={20} className="shrink-0 mt-0.5" />
-          <div className="space-y-1.5">
-            <p className="text-xs font-medium leading-snug">
-              {t('chat.empty.assistant.promo')}
-            </p>
-            <Button size="xs" variant="outline" onClick={onSetup}>
-              {t('chat.empty.assistant.setup')}
-            </Button>
-          </div>
+    <div className="relative mx-2 mb-2 rounded-xl border border-sidebar-border/60 bg-sidebar-accent/40 px-3 py-2.5 text-sidebar-foreground">
+      <button
+        type="button"
+        onClick={handleDismiss}
+        className="absolute right-2 top-2 inline-flex size-6 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-foreground"
+        aria-label={t('chat.empty.assistant.dismiss')}
+      >
+        <X size={13} />
+      </button>
+      <div className="flex items-start gap-2.5 pr-7">
+        <img src={EGG_IMAGE_URL} alt="" width={22} height={22} className="mt-0.5 shrink-0" />
+        <div className="min-w-0 flex-1">
+          <p className="text-[13px] font-medium leading-[18px]">
+            {t('chat.empty.assistant.title')}
+          </p>
+          <p className="mt-0.5 text-[11px] leading-4 text-muted-foreground">
+            {t('chat.empty.assistant.description')}
+          </p>
+          <Button
+            type="button"
+            size="xs"
+            variant="ghost"
+            className="-ml-2 mt-1 h-6 px-2 text-xs"
+            onClick={onSetup}
+          >
+            {t('chat.empty.assistant.setup')}
+          </Button>
         </div>
-      </CardContent>
-    </Card>
+      </div>
+    </div>
   );
 }
