@@ -1352,6 +1352,10 @@ export interface AssistantWorkspaceFilesV2 extends AssistantWorkspaceFiles {
   heartbeatMd?: string;
   /** The selected rules file is also discoverable as cwd/CLAUDE.md. */
   rulesFileNativeClaude?: boolean;
+  /** The selected rules file is also discoverable as cwd/AGENTS.md. */
+  rulesFileNativeCodex?: boolean;
+  /** Native mirror files that CodePilot refused to overwrite. */
+  rulesMirrorConflicts?: string[];
 }
 
 // ==========================================

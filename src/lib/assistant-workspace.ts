@@ -1,5 +1,6 @@
 import fs from 'fs';
 import path from 'path';
+import crypto from 'crypto';
 import type { AssistantWorkspaceState, AssistantWorkspaceFiles, AssistantWorkspaceFilesV2, SearchResult } from '@/types';
 import { getLocalDateString } from '@/lib/utils';
 import { HEARTBEAT_TEMPLATE, isWithinActiveHours } from './heartbeat';
@@ -15,11 +16,14 @@ const DEFAULT_STATE: AssistantWorkspaceState = {
 const STATE_DIR = '.assistant';
 const STATE_FILE = 'state.json';
 const MEMORY_DAILY_DIR = 'memory/daily';
+const CANONICAL_INSTRUCTIONS_FILE = 'instructions.md';
+const NATIVE_INSTRUCTION_MIRRORS = ['CLAUDE.md', 'AGENTS.md'] as const;
+const MANAGED_MIRROR_HEADER = /^<!-- codepilot-managed-instructions\r?\nsource: instructions\.md\r?\ncontent-sha256: ([a-f0-9]{64})\r?\n-->\r?\n/;
 
 // Canonical filenames — neutral instructions.md for new workspaces, with
 // legacy Claude/Agent-specific names kept as read-compatible fallbacks.
 const FILE_MAP: Record<keyof AssistantWorkspaceFiles, string[]> = {
-  claude: ['instructions.md', 'claude.md', 'Claude.md', 'CLAUDE.md', 'AGENTS.md'],
+  claude: [CANONICAL_INSTRUCTIONS_FILE, 'claude.md', 'Claude.md', 'CLAUDE.md', 'AGENTS.md'],
   soul: ['soul.md', 'Soul.md', 'SOUL.md'],
   user: ['user.md', 'User.md', 'USER.md', 'PROFILE.md'],
   memory: ['memory.md', 'Memory.md', 'MEMORY.md'],
@@ -46,6 +50,173 @@ function resolveFile(dir: string, key: keyof AssistantWorkspaceFiles): { filePat
     }
   }
   return { filePath: path.join(dir, FILE_MAP[key][0]), exists: false };
+}
+
+export type InstructionMirrorStatus = 'missing' | 'synced' | 'stale' | 'modified' | 'unmanaged';
+
+export interface InstructionMirrorInspection {
+  fileName: (typeof NATIVE_INSTRUCTION_MIRRORS)[number];
+  status: InstructionMirrorStatus;
+}
+
+export interface InstructionMirrorsInspection {
+  canonicalExists: boolean;
+  mirrors: InstructionMirrorInspection[];
+  conflicts: string[];
+}
+
+export interface InstructionMirrorsReconcileResult extends InstructionMirrorsInspection {
+  created: string[];
+  updated: string[];
+}
+
+function normalizeInstructionLineEndings(content: string): string {
+  return content.replace(/\r\n/g, '\n');
+}
+
+function instructionHash(content: string): string {
+  return crypto.createHash('sha256').update(normalizeInstructionLineEndings(content), 'utf8').digest('hex');
+}
+
+function renderManagedInstructionMirror(content: string): string {
+  return [
+    '<!-- codepilot-managed-instructions',
+    `source: ${CANONICAL_INSTRUCTIONS_FILE}`,
+    `content-sha256: ${instructionHash(content)}`,
+    '-->',
+    content,
+  ].join('\n');
+}
+
+function sameFile(left: string, right: string): boolean {
+  try {
+    const leftStat = fs.statSync(left);
+    const rightStat = fs.statSync(right);
+    return leftStat.dev === rightStat.dev && leftStat.ino === rightStat.ino;
+  } catch {
+    return false;
+  }
+}
+
+function inspectInstructionMirror(
+  dir: string,
+  fileName: (typeof NATIVE_INSTRUCTION_MIRRORS)[number],
+  canonicalContent: string,
+): InstructionMirrorInspection {
+  const canonicalPath = path.join(dir, CANONICAL_INSTRUCTIONS_FILE);
+  const mirrorPath = path.join(dir, fileName);
+  if (!fs.existsSync(mirrorPath)) {
+    return { fileName, status: 'missing' };
+  }
+  if (sameFile(canonicalPath, mirrorPath)) {
+    return { fileName, status: 'synced' };
+  }
+  try {
+    // A link to the canonical file is accepted above. Any other symlink is
+    // user-owned topology; never replace the link merely because its current
+    // target happens to contain a managed-looking header.
+    if (fs.lstatSync(mirrorPath).isSymbolicLink()) {
+      return { fileName, status: 'unmanaged' };
+    }
+  } catch {
+    return { fileName, status: 'unmanaged' };
+  }
+
+  let raw: string;
+  try {
+    raw = fs.readFileSync(mirrorPath, 'utf8');
+  } catch {
+    return { fileName, status: 'unmanaged' };
+  }
+  const header = raw.match(MANAGED_MIRROR_HEADER);
+  if (!header) {
+    return { fileName, status: 'unmanaged' };
+  }
+  const body = raw.slice(header[0].length);
+  const recordedHash = header[1];
+  if (instructionHash(body) !== recordedHash) {
+    return { fileName, status: 'modified' };
+  }
+  return {
+    fileName,
+    status: instructionHash(canonicalContent) === recordedHash ? 'synced' : 'stale',
+  };
+}
+
+/** Read-only status used by Settings and Runtime ownership gates. */
+export function inspectInstructionMirrors(dir: string): InstructionMirrorsInspection {
+  const canonicalPath = path.join(dir, CANONICAL_INSTRUCTIONS_FILE);
+  if (!fs.existsSync(canonicalPath)) {
+    return {
+      canonicalExists: false,
+      mirrors: NATIVE_INSTRUCTION_MIRRORS.map((fileName) => ({
+        fileName,
+        status: fs.existsSync(path.join(dir, fileName)) ? 'unmanaged' : 'missing',
+      })),
+      // A legacy workspace without instructions.md remains valid and no-touch.
+      conflicts: [],
+    };
+  }
+
+  const canonicalContent = fs.readFileSync(canonicalPath, 'utf8');
+  const mirrors = NATIVE_INSTRUCTION_MIRRORS.map((fileName) =>
+    inspectInstructionMirror(dir, fileName, canonicalContent));
+  return {
+    canonicalExists: true,
+    mirrors,
+    conflicts: mirrors
+      .filter((mirror) => mirror.status === 'modified' || mirror.status === 'unmanaged')
+      .map((mirror) => mirror.fileName),
+  };
+}
+
+function atomicWriteManagedMirror(targetPath: string, content: string): void {
+  const tempPath = `${targetPath}.tmp-${process.pid}-${crypto.randomBytes(6).toString('hex')}`;
+  try {
+    fs.writeFileSync(tempPath, content, 'utf8');
+    fs.renameSync(tempPath, targetPath);
+  } finally {
+    try { fs.unlinkSync(tempPath); } catch { /* already renamed or never created */ }
+  }
+}
+
+/**
+ * Keep framework-native entry files aligned with the neutral truth source.
+ * Any unmanaged or manually edited mirror freezes the whole pair so CodePilot
+ * never overwrites user-authored rules or leaves Claude/Codex on two versions.
+ */
+export function reconcileInstructionMirrors(dir: string): InstructionMirrorsReconcileResult {
+  const before = inspectInstructionMirrors(dir);
+  const created: string[] = [];
+  const updated: string[] = [];
+  if (!before.canonicalExists || before.conflicts.length > 0) {
+    return { ...before, created, updated };
+  }
+
+  const canonicalContent = fs.readFileSync(path.join(dir, CANONICAL_INSTRUCTIONS_FILE), 'utf8');
+  const rendered = renderManagedInstructionMirror(canonicalContent);
+  for (const mirror of before.mirrors) {
+    if (mirror.status !== 'missing' && mirror.status !== 'stale') continue;
+    const targetPath = path.join(dir, mirror.fileName);
+    // Re-check immediately before the write. A concurrently created or edited
+    // file becomes a conflict on the next inspection instead of being replaced.
+    const current = inspectInstructionMirror(dir, mirror.fileName, canonicalContent);
+    if (current.status !== mirror.status) continue;
+    if (mirror.status === 'missing') {
+      try {
+        fs.writeFileSync(targetPath, rendered, { encoding: 'utf8', flag: 'wx' });
+        created.push(targetPath);
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
+      }
+    } else {
+      atomicWriteManagedMirror(targetPath, rendered);
+      updated.push(targetPath);
+    }
+  }
+
+  const after = inspectInstructionMirrors(dir);
+  return { ...after, created, updated };
 }
 
 // ==========================================
@@ -362,6 +533,18 @@ export function initializeWorkspace(dir: string): string[] {
     }
   }
 
+  // A fresh neutral workspace also exposes native discovery files for Claude
+  // Code and Codex. Existing legacy workspaces have no instructions.md and
+  // therefore remain strictly no-touch. Managed mirrors update only while
+  // their provenance hash proves the user has not edited them independently.
+  const mirrorResult = reconcileInstructionMirrors(dir);
+  created.push(...mirrorResult.created);
+  if (mirrorResult.conflicts.length > 0) {
+    console.warn('[assistant-workspace] Instruction mirror conflict; auto-sync paused', {
+      files: mirrorResult.conflicts,
+    });
+  }
+
   // Create V2 directories
   ensureDailyDir(dir);
   const inboxDir = path.join(dir, 'Inbox');
@@ -426,6 +609,7 @@ export function truncateContent(content: string, limit: number): string {
 export function loadWorkspaceFiles(dir: string): AssistantWorkspaceFilesV2 {
   const result: AssistantWorkspaceFilesV2 = {};
   const keys = Object.keys(FILE_MAP) as Array<keyof AssistantWorkspaceFiles>;
+  const instructionMirrors = inspectInstructionMirrors(dir);
 
   for (const key of keys) {
     const resolved = resolveFile(dir, key);
@@ -433,23 +617,19 @@ export function loadWorkspaceFiles(dir: string): AssistantWorkspaceFilesV2 {
       const content = fs.readFileSync(resolved.filePath, 'utf-8');
       result[key] = truncateContent(content, PER_FILE_LIMIT);
       if (key === 'claude') {
-        // Probe the path Claude Code itself resolves, then compare real paths.
-        // This is filesystem-aware: it handles case-insensitive macOS/Windows
-        // volumes without pretending lowercase claude.md is native on a
-        // case-sensitive Linux volume.
-        try {
-          const nativeClaudePath = path.join(dir, 'CLAUDE.md');
-          if (!fs.existsSync(nativeClaudePath)) {
-            result.rulesFileNativeClaude = false;
-          } else {
-            const nativeStat = fs.statSync(nativeClaudePath);
-            const selectedStat = fs.statSync(resolved.filePath);
-            result.rulesFileNativeClaude =
-              nativeStat.dev === selectedStat.dev && nativeStat.ino === selectedStat.ino;
-          }
-        } catch {
-          result.rulesFileNativeClaude = false;
-        }
+        const selectedIsCanonical = path.basename(resolved.filePath) === CANONICAL_INSTRUCTIONS_FILE;
+        const claudeMirror = instructionMirrors.mirrors.find((mirror) => mirror.fileName === 'CLAUDE.md');
+        const codexMirror = instructionMirrors.mirrors.find((mirror) => mirror.fileName === 'AGENTS.md');
+        // A clean managed mirror is semantically the same source even though
+        // it is not the same inode. Legacy workspaces retain the original
+        // filesystem-identity rule and are never rewritten.
+        result.rulesFileNativeClaude = selectedIsCanonical
+          ? claudeMirror?.status === 'synced'
+          : sameFile(resolved.filePath, path.join(dir, 'CLAUDE.md'));
+        result.rulesFileNativeCodex = selectedIsCanonical
+          ? codexMirror?.status === 'synced'
+          : sameFile(resolved.filePath, path.join(dir, 'AGENTS.md'));
+        result.rulesMirrorConflicts = instructionMirrors.conflicts;
       }
     }
   }
@@ -466,6 +646,22 @@ export function loadWorkspaceFiles(dir: string): AssistantWorkspaceFilesV2 {
   result.rootDir = dir;
 
   return result;
+}
+
+/**
+ * Decide whether CodePilot may omit the canonical rules fragment because the
+ * active Runtime has a proven native project-doc owner.
+ *
+ * Claude Code is the only proven owner today (real CLI POC with project
+ * settingSources). Codex intentionally returns false even for a synced
+ * AGENTS.md mirror: non-git cwd discovery and project_doc_max_bytes=0 have not
+ * been proven, so duplicate delivery is safer than silently losing rules.
+ */
+export function shouldOmitCanonicalRules(
+  nativeProjectRulesOwner: 'claude_code' | 'codex_runtime' | undefined,
+  files: Pick<AssistantWorkspaceFilesV2, 'rulesFileNativeClaude' | 'rulesFileNativeCodex'>,
+): boolean {
+  return nativeProjectRulesOwner === 'claude_code' && files.rulesFileNativeClaude === true;
 }
 
 // ==========================================

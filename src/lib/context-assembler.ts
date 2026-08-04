@@ -29,12 +29,8 @@ export interface ContextAssemblyConfig {
   conversationHistory?: Array<{ role: string; content: string }>;
   /** Whether this is an invisible assistant hook (for example buddy welcome). */
   autoTrigger?: boolean;
-  /**
-   * True only when the effective Claude Code SDK call includes the project
-   * setting source. In that case cwd/CLAUDE.md belongs to the SDK, while
-   * CodePilot continues to own neutral instructions.md + soul/user injection.
-   */
-  claudeSdkOwnsProjectRules?: boolean;
+  /** Runtime that will natively discover the managed project-rules mirror. */
+  nativeProjectRulesOwner?: 'claude_code' | 'codex_runtime';
 }
 
 export interface AssembledContext {
@@ -57,7 +53,7 @@ export async function assembleContext(config: ContextAssemblyConfig): Promise<As
     userPrompt,
     systemPromptAppend,
     conversationHistory,
-    claudeSdkOwnsProjectRules,
+    nativeProjectRulesOwner,
   } = config;
   const t0 = Date.now();
 
@@ -74,7 +70,13 @@ export async function assembleContext(config: ContextAssemblyConfig): Promise<As
       isAssistantProject = sessionWd === workspacePath;
 
       if (isAssistantProject) {
-        const { loadWorkspaceFiles, assembleWorkspacePrompt, loadState } =
+        const {
+          loadWorkspaceFiles,
+          assembleWorkspacePrompt,
+          loadState,
+          reconcileInstructionMirrors,
+          shouldOmitCanonicalRules,
+        } =
           await import('@/lib/assistant-workspace');
 
         // Incremental reindex BEFORE MCP search so tool calls see latest content.
@@ -91,6 +93,12 @@ export async function assembleContext(config: ContextAssemblyConfig): Promise<As
           // indexer not available or timed out, skip — MCP search will use stale index
         }
 
+        const mirrorResult = reconcileInstructionMirrors(workspacePath);
+        if (mirrorResult.conflicts.length > 0) {
+          console.warn('[context-assembler] Native instruction mirror conflict; canonical rules stay CodePilot-owned', {
+            files: mirrorResult.conflicts,
+          });
+        }
         const files = loadWorkspaceFiles(workspacePath);
 
         // Memory/retrieval is handled by codepilot_memory_search MCP tool.
@@ -98,7 +106,7 @@ export async function assembleContext(config: ContextAssemblyConfig): Promise<As
         // We also inject a lightweight "memory availability hint" so AI knows
         // what's available without loading full content.
         workspacePrompt = assembleWorkspacePrompt(files, undefined, {
-          omitRules: claudeSdkOwnsProjectRules === true && files.rulesFileNativeClaude === true,
+          omitRules: shouldOmitCanonicalRules(nativeProjectRulesOwner, files),
         });
 
         // Memory availability hint — stored separately as volatile content

@@ -583,8 +583,12 @@ export async function POST(request: NextRequest) {
       systemPromptAppend,
       conversationHistory: historyMsgs,
       autoTrigger: !!autoTrigger,
-      claudeSdkOwnsProjectRules:
-        effectiveSessionRuntime === 'claude_code' && !resolved.provider,
+      nativeProjectRulesOwner:
+        effectiveSessionRuntime === 'claude_code' && !resolved.provider
+          ? 'claude_code'
+          : effectiveSessionRuntime === 'codex_runtime'
+            ? 'codex_runtime'
+            : undefined,
     });
     const finalSystemPrompt = assembled.systemPrompt;
     const generativeUIEnabled = assembled.generativeUIEnabled;

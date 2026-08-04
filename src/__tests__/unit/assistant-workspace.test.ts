@@ -11,6 +11,7 @@
  * 5. V2: Daily memory write/load, v1→v2 migration, budget-aware prompt assembly
  */
 
+import '../db-isolation.setup';
 import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'path';
@@ -29,6 +30,9 @@ const {
   saveState,
   needsDailyCheckIn,
   loadWorkspaceFiles,
+  inspectInstructionMirrors,
+  reconcileInstructionMirrors,
+  shouldOmitCanonicalRules,
   assembleWorkspacePrompt,
   generateDirectoryDocs,
   ensureDailyDir,
@@ -63,12 +67,17 @@ describe('Assistant Workspace', () => {
       assert.equal(state.schemaVersion, 5);
     });
 
-    it('should create all 4 template files', () => {
+    it('creates neutral templates plus Claude Code and Codex discovery mirrors', () => {
       initializeWorkspace(workDir);
       assert.ok(fs.existsSync(path.join(workDir, 'instructions.md')));
+      assert.ok(fs.existsSync(path.join(workDir, 'CLAUDE.md')));
+      assert.ok(fs.existsSync(path.join(workDir, 'AGENTS.md')));
       assert.ok(fs.existsSync(path.join(workDir, 'soul.md')));
       assert.ok(fs.existsSync(path.join(workDir, 'user.md')));
       assert.ok(fs.existsSync(path.join(workDir, 'memory.md')));
+      const canonical = fs.readFileSync(path.join(workDir, 'instructions.md'), 'utf8');
+      assert.ok(fs.readFileSync(path.join(workDir, 'CLAUDE.md'), 'utf8').endsWith(canonical));
+      assert.ok(fs.readFileSync(path.join(workDir, 'AGENTS.md'), 'utf8').endsWith(canonical));
     });
 
     it('keeps a legacy rules file as the single source instead of creating a duplicate', () => {
@@ -76,14 +85,70 @@ describe('Assistant Workspace', () => {
       initializeWorkspace(workDir);
 
       assert.equal(fs.existsSync(path.join(workDir, 'instructions.md')), false);
+      assert.equal(fs.existsSync(path.join(workDir, 'AGENTS.md')), false);
       const files = loadWorkspaceFiles(workDir);
       assert.equal(files.claude, '# Existing rules\n');
       assert.equal(files.rulesFileNativeClaude, true);
     });
 
-    it('marks neutral instructions.md as CodePilot-owned rather than Claude-native', () => {
+    it('marks clean managed mirrors as native discovery owners', () => {
       initializeWorkspace(workDir);
+      const files = loadWorkspaceFiles(workDir);
+      assert.equal(files.rulesFileNativeClaude, true);
+      assert.equal(files.rulesFileNativeCodex, true);
+      assert.deepEqual(files.rulesMirrorConflicts, []);
+    });
+
+    it('updates both untouched mirrors when instructions.md changes', () => {
+      initializeWorkspace(workDir);
+      fs.writeFileSync(path.join(workDir, 'instructions.md'), '# Updated canonical rules\n', 'utf8');
+
+      const result = reconcileInstructionMirrors(workDir);
+      assert.deepEqual(result.conflicts, []);
+      assert.deepEqual(result.updated.map((file) => path.basename(file)).sort(), ['AGENTS.md', 'CLAUDE.md']);
+      for (const fileName of ['CLAUDE.md', 'AGENTS.md']) {
+        assert.ok(
+          fs.readFileSync(path.join(workDir, fileName), 'utf8').endsWith('# Updated canonical rules\n'),
+        );
+      }
+    });
+
+    it('freezes the mirror pair when one managed file was edited by the user', () => {
+      initializeWorkspace(workDir);
+      const agentsBefore = fs.readFileSync(path.join(workDir, 'AGENTS.md'), 'utf8');
+      fs.appendFileSync(path.join(workDir, 'CLAUDE.md'), '\n# User-owned change\n', 'utf8');
+      fs.writeFileSync(path.join(workDir, 'instructions.md'), '# New canonical content\n', 'utf8');
+
+      const result = reconcileInstructionMirrors(workDir);
+      assert.deepEqual(result.conflicts, ['CLAUDE.md']);
+      assert.match(fs.readFileSync(path.join(workDir, 'CLAUDE.md'), 'utf8'), /User-owned change/);
+      assert.equal(fs.readFileSync(path.join(workDir, 'AGENTS.md'), 'utf8'), agentsBefore);
       assert.equal(loadWorkspaceFiles(workDir).rulesFileNativeClaude, false);
+      assert.equal(loadWorkspaceFiles(workDir).rulesFileNativeCodex, false);
+    });
+
+    it('never creates the other mirror beside an unmanaged compatibility file', () => {
+      fs.writeFileSync(path.join(workDir, 'instructions.md'), '# Canonical\n', 'utf8');
+      fs.writeFileSync(path.join(workDir, 'CLAUDE.md'), '# Existing custom Claude rules\n', 'utf8');
+
+      const result = reconcileInstructionMirrors(workDir);
+      assert.deepEqual(result.conflicts, ['CLAUDE.md']);
+      assert.equal(fs.existsSync(path.join(workDir, 'AGENTS.md')), false);
+      assert.equal(inspectInstructionMirrors(workDir).mirrors[0].status, 'unmanaged');
+    });
+
+    it('accepts a symlink to canonical but never replaces a foreign symlink', {
+      skip: process.platform === 'win32' ? 'ordinary Windows users cannot create file symlinks' : false,
+    }, () => {
+      fs.writeFileSync(path.join(workDir, 'instructions.md'), '# Canonical\n', 'utf8');
+      fs.symlinkSync('instructions.md', path.join(workDir, 'CLAUDE.md'));
+      fs.writeFileSync(path.join(workDir, 'foreign.md'), '# Foreign\n', 'utf8');
+      fs.symlinkSync('foreign.md', path.join(workDir, 'AGENTS.md'));
+
+      const result = reconcileInstructionMirrors(workDir);
+      assert.deepEqual(result.conflicts, ['AGENTS.md']);
+      assert.equal(fs.readlinkSync(path.join(workDir, 'CLAUDE.md')), 'instructions.md');
+      assert.equal(fs.readlinkSync(path.join(workDir, 'AGENTS.md')), 'foreign.md');
     });
 
     it('should create V2 directories (memory/daily, Inbox)', () => {
@@ -315,6 +380,47 @@ describe('Assistant Workspace', () => {
       const prompt = assembleWorkspacePrompt(loadWorkspaceFiles(workDir));
       assert.match(prompt, /<instructions>[\s\S]*?<\/instructions>/);
       assert.doesNotMatch(prompt, /<claude>/);
+    });
+
+    it('keeps canonical rules in Codex developerInstructions even with a synced AGENTS.md mirror', () => {
+      initializeWorkspace(workDir);
+      fs.writeFileSync(path.join(workDir, 'instructions.md'), '# Codex delivery marker\n', 'utf8');
+      reconcileInstructionMirrors(workDir);
+      const files = loadWorkspaceFiles(workDir);
+
+      assert.equal(files.rulesFileNativeCodex, true);
+      assert.equal(shouldOmitCanonicalRules('codex_runtime', files), false);
+      const prompt = assembleWorkspacePrompt(files, undefined, {
+        omitRules: shouldOmitCanonicalRules('codex_runtime', files),
+      });
+      assert.match(prompt, /Codex delivery marker/);
+    });
+
+    it('injects canonical rules during a native mirror conflict and preserves the user mirror', () => {
+      initializeWorkspace(workDir);
+      fs.appendFileSync(path.join(workDir, 'CLAUDE.md'), '\n# User conflict rule\n', 'utf8');
+      const files = loadWorkspaceFiles(workDir);
+
+      assert.equal(shouldOmitCanonicalRules('claude_code', files), false);
+      assert.match(
+        assembleWorkspacePrompt(files, undefined, {
+          omitRules: shouldOmitCanonicalRules('claude_code', files),
+        }),
+        /Memory Rules/,
+      );
+      assert.match(fs.readFileSync(path.join(workDir, 'CLAUDE.md'), 'utf8'), /User conflict rule/);
+    });
+
+    it('treats CRLF-only mirror rewrites as synced rather than a user-content conflict', () => {
+      initializeWorkspace(workDir);
+      for (const fileName of ['CLAUDE.md', 'AGENTS.md']) {
+        const filePath = path.join(workDir, fileName);
+        fs.writeFileSync(filePath, fs.readFileSync(filePath, 'utf8').replace(/\n/g, '\r\n'), 'utf8');
+      }
+
+      const inspection = inspectInstructionMirrors(workDir);
+      assert.deepEqual(inspection.conflicts, []);
+      assert.ok(inspection.mirrors.every((mirror) => mirror.status === 'synced'));
     });
 
     it('should only include identity files in prompt (memory accessed via MCP)', () => {
@@ -639,5 +745,6 @@ describe('saveState is atomic (write-then-rename)', () => {
 describe('cleanup', () => {
   it('close db', () => {
     closeDb();
+    fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 });

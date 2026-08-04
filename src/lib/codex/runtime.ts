@@ -38,6 +38,7 @@ import type { RuntimeRunEvent } from '@/lib/runtime/contract';
 import type { RuntimeContextAccountingSnapshot, FileAttachment } from '@/types';
 import type { CodexThreadResumeResponse, CodexThreadStartResponse } from './types';
 import { buildCodexTurnInput } from './turn-input';
+import { composeCodexDeveloperInstructions } from './developer-instructions';
 // Phase 4 — Codex Context Accounting (2026-05-20). Imported at top so
 // the closure-scoped cache + run_completed supplementary result event
 // don't need dynamic import inside the sync onAnyNotification handler.
@@ -766,6 +767,10 @@ export const codexRuntime: AgentRuntime = {
                 '- Native collaboration remains available only for workers that intentionally inherit the parent Codex model.',
               ].join('\n')
             : '';
+          const developerInstructions = composeCodexDeveloperInstructions(
+            options.systemPrompt,
+            accountDelegationInstructions,
+          );
           const threadParams = {
             ...buildCodexThreadParams({
               providerId: requestedProviderId,
@@ -781,8 +786,8 @@ export const codexRuntime: AgentRuntime = {
               mcpServers: hasMcp ? codexMcpServers : undefined,
             }),
             ...codexPermission.thread,
-            ...(accountDelegationInstructions
-              ? { developerInstructions: accountDelegationInstructions }
+            ...(developerInstructions
+              ? { developerInstructions }
               : {}),
           };
           const threadStartParams = codexAccountManagedBridge

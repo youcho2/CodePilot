@@ -2,7 +2,13 @@ import { NextRequest, NextResponse } from 'next/server';
 import fs from 'fs';
 import path from 'path';
 import { getSetting, setSetting } from '@/lib/db';
-import { validateWorkspace, initializeWorkspace, loadState, saveState } from '@/lib/assistant-workspace';
+import {
+  validateWorkspace,
+  initializeWorkspace,
+  inspectInstructionMirrors,
+  loadState,
+  saveState,
+} from '@/lib/assistant-workspace';
 import {
   ASSISTANT_WORKSPACE_PATH_SETTING,
   bootstrapDefaultAssistantWorkspace,
@@ -51,6 +57,7 @@ export async function GET() {
     }
 
     const validation = validateWorkspace(workspacePath);
+    const instructionMirrors = inspectInstructionMirrors(workspacePath);
     const state = loadState(workspacePath);
 
     // Build file status with preview
@@ -92,6 +99,7 @@ export async function GET() {
       valid: true,
       exists: validation.exists,
       files: fileStatus,
+      instructionMirrors,
       state,
       taxonomy,
       heartbeat: await (async () => {
