@@ -1,9 +1,9 @@
 # Sentry 遥测可信度与错误分诊修复计划
 
 > 创建时间：2026-08-02  
-> 最后更新：2026-08-04
+> 最后更新：2026-08-05
 > 事实核验基线：`origin/main@979fda51` / `v0.65.0`（本任务从该 commit 的 detached clean checkout 起步）
-> 当前状态：🚧 `v0.64.0` 已于 2026-08-03 00:44（北京时间）正式发布，`v0.65.0` 已于 2026-08-04 12:06 正式发布；Phase 6 已进入发布后观察，不再处于“等待 v0.64.0 tag”。新 official stable Sentry project、三层 source map、native minidump 与多平台 package 的发布前门禁已有证据。用户已授权当前隔离 worktree 实施 P1 分类合同；Claude 独立复核发现 resolved in-band error 的 P1 漏报与 partial-content P2 盲区后，Native/ToolLoop 已改为 shared one-shot terminal boundary，并补真实 AI SDK/SSE/Sentry transport 生命周期测试。定向超集 63/63、全量 `npm run test` 5067/5067 与 production build 均通过。真实 stable/Sentry smoke 仍待后续新 release。当前已有本地 gitignored、mode 600 的只读 Sentry credential，并完成一次访问校验，但单 release P0/cohort 查询尚未闭合；本轮不改外部 Sentry 状态、不 push、不发版。
+> 当前状态：🚧 `v0.64.0` 已于 2026-08-03 00:44（北京时间）正式发布，`v0.65.0` 已于 2026-08-04 12:06 正式发布；Phase 6 已进入发布后观察。Claude 2026-08-05 同 tip 复审新增的 ToolLoop POC rejected-promise P2 已闭合：result promise 现在先于 resolved-stream fallback 判定 terminal，初始 HTTP 403/503 不再产生虚假 `EMPTY_RESPONSE` 或双报。定向超集 67/67、全量 `npm run test` 5071/5071 与 production build 均通过。真实 stable/Sentry smoke 仍待后续新 release。当前已有本地 gitignored、mode 600 的只读 Sentry credential，并完成一次访问校验，但单 release P0/cohort 查询尚未闭合；本轮不改外部 Sentry 状态、不 push、不发版。
 
 ## 一、用户问题与本计划的边界
 
@@ -508,7 +508,7 @@ U1a/U1b 的共同硬约束：
 | 优先级 / 时限 | 信号 | 处理边界 | 退出条件 |
 |---|---|---|---|
 | P0 / 先于任何 Issue 清理 | 查询口径与隐私 | 使用只读 token 固定 `project=codepilot-desktop + environment=production + release=单一当前版本`；复核 unresolved、error samples、unhandled、sessions、crash-free sessions、unsymbolicated ratio；抽查 Top 20 是否含 prompt/body/path/secret。禁止 resolve/delete/mute。 | 查询时间、filter、结果与隐私抽样写入 ledger；无 token 时明确 blocked，不沿用交接数字冒充实测 |
-| P1 / ✅ 2026-08-04 code complete + review findings closed | 分类合同修正 | 有界 root-cause normalizer：HTTP 4xx/凭据/模型不支持 → `user_action_required`；5xx/DNS/timeout → retry-exhausted `transient_upstream`；NoOutput 与 resolved in-band error 解包 root cause；user-action 产生 0 Error/0 info Issue；product fault 保留 stack grouping。只改遥测分类与测试，不修业务 UI。 | 定向超集 63/63（真实 Native/ToolLoop SSE + Sentry transport 6/6）、全量 5067/5067、production build 通过；仍需新 stable release 真实 smoke，不能拿本地 fixture 代替线上 zero-Issue |
+| P1 / ✅ 2026-08-05 code complete + two review rounds closed | 分类合同修正 | 有界 root-cause normalizer：HTTP 4xx/凭据/模型不支持 → `user_action_required`；5xx/DNS/timeout → retry-exhausted `transient_upstream`；NoOutput 与 resolved/rejected stream error 解包 root cause；user-action 产生 0 Error/0 info Issue；product fault 保留 stack grouping。只改遥测分类与测试，不修业务 UI。 | 定向超集 67/67（真实 Native/ToolLoop SSE + 初始 HTTP + Sentry transport 10/10）、全量 5071/5071、production build 通过；仍需新 stable release 真实 smoke，不能拿本地 fixture 代替线上 zero-Issue |
 | P2 / 24–72h | 干净信号观察 | 每个 release 分别看 24h/72h；按 outcome/category/provider.class/runtime.layer 看 volume、duplicate、unhandled、unsymbolicated；不拿旧 `javascript-nextjs` lifetime count 比涨跌。若 P1 需要新 release，重新建立该 release 的 72h 窗，不把修复前后拼成同一 cohort。 | Top 20 中 ≥80% 可直接判断行动方向；expected/user-action 在 Issues 中为 0；真正 product fault 可 symbolicate |
 | P3 / 72h 后 | 产品缺陷交接 | 只登记 root bucket、影响 release/count、代表 event id、symbolicated file:line 与 owner。`MessageItem.toLocaleString` 等交“历史体验问题”任务；NoOutput 只把 wrapper 分类修正留在本主线，底层真实业务缺陷另交接。 | 每个活跃产品缺陷有独立 owner/任务入口；本计划不吞并 UI/Runtime 业务修复 |
 
@@ -518,7 +518,7 @@ U1a/U1b 的共同硬约束：
 - [ ] 真实 stable package 跑 opt-in / opt-out、renderer/server/Electron source map smoke，写入 Smoke Ledger。
 - [ ] 用只读 Sentry token 补跑 v0.64.0 24h 与 v0.65.0 当前快照；只查询新 official project + 单一 release + production，并记录 query time/filters。本地只读 credential 与访问已验证，但完整 cohort 查询尚未执行，交接数字保持 unverified。
 - [ ] 检查 development / foreign release 是否为 0；检查 expected/user-action Issue、duplicate ratio、unhandled、unsymbolicated ratio、sanitizer violations。`user_action_required` 目标为 0 Issue，不再观察或保留 info health-summary signal。
-- [x] 用户已明确授权 P1；已实现 4xx/DNS/timeout/NoOutput/in-band normalizer、移除 info Issue/health-summary，并补 Native/ToolLoop resolved terminal/catch exactly-once 与 anti-double-capture fixture。
+- [x] 用户已明确授权 P1；已实现 4xx/DNS/timeout/NoOutput/in-band normalizer、移除 info Issue/health-summary，并补 Native/ToolLoop resolved/rejected terminal exactly-once、初始 HTTP 403/503、阳性 transport 对照与 anti-double-capture fixture。
 - [ ] 人工审阅 Top 20 issue，至少 80% 应能从 title/code/tags 直接判断行动方向；无法分类的 issue 回写 classifier fixture。
 - [ ] 将仍活跃的真实问题拆到“历史体验问题”任务、`docs/exec-plans/active/issue-tracker.md` 或独立计划，至少包括：NoOutput 底层 product root buckets、SenseNova tool call、MissingToolResults、renderer `toLocaleString`、Electron utility/GPU；本主线只保留分类/脱敏/source map/session health。
 - [x] 更新 `docs/guardrails/SentryTelemetry.md`、`docs/handover/sentry-error-reporting.md` 与配对 `docs/insights/sentry-error-reporting.md`；保留执行计划/索引互链。
@@ -598,6 +598,7 @@ U1a/U1b 的共同硬约束：
 | 2026-08-04 | codepilot_runtime / Claude classifier / shared provider | fixture | fixture | none | Phase 6 P1 root-cause/classification/privacy/duplicate local closeout | ✅ local gates pass | bounded cause graph 4 层/16 节点；4xx 含 429 zero-event；5xx/DNS/timeout retry gate；NoOutput 403/503/DNS/timeout/true-empty；循环/超深/non-Error/body/chunk/secret/path；marker + safe stack；targeted 46/46；`npm run test` 5053/5053；最终 `npm run build` compile 8.9s、exit 0（保留既有 NFT trace warning）；锁文件无漂移；当时尚无 token，后续 credential 校验见下方独立 Ledger 行；新 stable smoke 仍待执行 |
 | 2026-08-04 | Native loop / ToolLoop POC | Anthropic SSE fixture | claude-sonnet-4-6 fixture | fake provider key + local Sentry transport | Claude P1/P2 review closeout：resolved in-band 4xx/5xx、empty/partial content、terminal/catch duplicate | ✅ local gates pass | 真实 `ai@7` lifecycle 证明 `response`/`finishReason` 可在 error part 后 resolve；两条真实 loop 的 overloaded empty/partial 均 exactly 1 transient event，permission empty 为 0 event（6/6）；bounded provider `type` 映射、V8 frame-only safe stack、product-fault text 反例已锁定；定向超集 63/63、`npm run test` 5067/5067、`npm run build` exit 0；未连接 provider/Sentry 网络 |
 | 2026-08-04 | Sentry API access | N/A | N/A | local gitignored mode-600 read-only credential | official project 只读访问校验 | ✅ credential available | token scope 仅 event/org/project read；一次只读请求成功。该行只解除“无凭据” blocker，不代表 v0.64.0/v0.65.0 单 release cohort、Top 20 隐私抽查或新 stable smoke 已完成；无外部写操作 |
+| 2026-08-05 | Native loop / ToolLoop POC | Anthropic initial HTTP + SSE fixture | claude-sonnet-4-6 fixture | fake provider key + local Sentry transport | 同 tip 复审 P2：fullStream 结束后 result promise reject 的 exactly-once 顺序 | ✅ local gates pass | 修复前行为实证：主 loop 403/503 为 0/1 event，POC 为错误的 1/2；修复后两条 loop 均为 0/1。初始 HTTP 与 resolved in-band/partial 共 10/10，定向超集 67/67；`npm run test` 5071/5071；`npm run build` compile 8.6s、136 pages、exit 0（保留既有 NFT warning）；无 provider/Sentry 网络与外部写操作 |
 
 ## 八、风险与回滚
 
@@ -698,3 +699,5 @@ Claude Code review 时需要重点回答，不能只核对文档格式：
 - 2026-08-04：依锁文件在本 worktree 运行 `npm install` 恢复缺失 `thinking-orbs`，`package.json`/`package-lock.json` 无漂移；首轮定向 46/46、全量 `npm run test` 5053/5053、`npm run build` 成功（compile 8.9s，保留既有 NFT dynamic-trace warning）。没有 push/merge/tag/release，没有修改外部 Sentry；当时只读 token 尚缺，随后 credential 可用性另行验证；修复后 stable 72h smoke 保持待执行。
 - 2026-08-04：Claude findings-first 独立复核（1 P1 / 2 P2 / 4 P3）证明 `ai@7` 的 in-band error part 可在 `response`/`finishReason` 正常 resolve 后绕过 catch：空输出会被合成 `EMPTY_RESPONSE` 覆盖，partial content 则完全漏报。修复采用 shared per-step terminal state，在 Native response / ToolLoop finish-step / catch 间 exactly-once capture，并加 full-stream fallback；低基数 provider `type` enum 恢复 HTTP 语义。P3 同轮收紧为 generic provider 才允许 timeout/DNS 文本嗅探，safe Error 只保留 V8 `at` frame；默认 retry exhausted 与 499 语义维持已记录取舍。
 - 2026-08-04：新增真实 AI SDK mock lifecycle 与两条生产 loop + Anthropic SSE + local Sentry transport 行为 fixture，覆盖 empty/partial in-band 4xx/5xx、true empty 与 catch 去重。修复后定向超集 63/63（真实 loop 6/6）、全量 `npm run test` 5067/5067、`npm run build` 通过。随后本 worktree 获得 gitignored、mode 600、仅 event/org/project read 的 credential，并以一次只读请求验证访问；P0 单 release cohort/Top 20/新 stable smoke 仍未执行。没有打印或提交 token，没有外部 Sentry 写、push、merge、tag 或 release。
+- 2026-08-05：Claude 在 clean `fed7508d` 同 tip 复审新增 1 个仅限 experimental ToolLoop POC 的 P2：初始 HTTP 失败会先结束 fullStream、再用 fresh 无 cause NoOutput reject result promise，原 full-stream fallback 过早把 provider error 标成 reported，catch 因而二报 protocol fault。先用真实 createAnthropic + 初始 403/503 + local Sentry transport 复现 POC 1/2 event（主 loop 阳性对照 0/1），再把 POC 的 `await result.response` 移到 fallback 之前；修复后两条 loop 均为 0/1。零事件 fixture 必须与阳性 event 共用同文件 carrier 的方法论写入 guardrail。
+- 2026-08-05：最终定向超集 67/67、全量 `npm run test` 5071/5071、`npm run build` compile 8.6s / 136 pages / exit 0。没有扩大到生产 UI/Runtime 行为，没有新增身份或内容遥测，没有读取/打印 token，没有外部 Sentry 写、push、merge、tag 或 release；新 stable 24h/72h cohort 仍是线上完成门禁。

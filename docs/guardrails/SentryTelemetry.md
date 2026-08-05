@@ -47,6 +47,7 @@
 - [ ] 新 expected failure 是否仍保持用户可见，但不冒充 product fault？
 - [ ] Provider/Native capture 是否统一经过 root-cause normalizer；4xx/user-action 是否确实 0 event，transient 是否带 retry-exhausted 事实？
 - [ ] NoOutput wrapper 与 resolved in-band error 是否先解包 cause/status/code/type；空响应与 partial-content 两种 stream 是否都经过 one-shot terminal capture；新增字段是否在 allow-list、深度/节点/字符串预算内，且未读取 body/chunk/request/data？
+- [ ] “必须 0 event”的 transport/envelope 测试是否在同文件包含至少一个已知应产生 event 的阳性对照，证明 SDK carrier 与捕获链路实际接通？
 - [ ] SDK 升级后用真实 SDK client 重新枚举三层 default integrations，并以 request 行为确认只有 main session。
 - [ ] official build 的 release/channel 与 package version 一致。
 - [ ] upload 使用最终 bundle，package 扫描仍为 0 map。
@@ -61,6 +62,7 @@
 - Node `Http` integration 自带 request-mode Release Health session；只过滤 `ProcessSession` 并不能得到 main-only 分母。
 - `captureMessage(..., 'info')` 仍会形成 Issue，不能拿它冒充无成本 metrics/activity。
 - Native `onError` 不是 retry-exhausted boundary；直接在回调 capture 会把 SDK 后续 finish/catch 再报一次，并把未耗尽的 transient 提前变成 Issue。反过来，只依赖 catch 也会漏掉 promise 正常 resolve 的 in-band error。
+- fullStream 正常结束不代表 result promise 一定 resolve；初始 HTTP/DNS 失败可能先产生 error part，再以 fresh、无 cause 的 NoOutput 拒绝 `response`/`finishReason`。resolved-stream fallback 必须排在 result promise 之后，避免先报 root cause、catch 又报虚假 `EMPTY_RESPONSE`。
 - Electron SDK v7 默认 `SentryMinidump` 不在崩溃时直传（Crashpad `uploadToServer:false`）；隔离崩溃 smoke 必须再无 crash flag 启动一次，让 SDK 读取并上传 completed dump。
 - `productionBrowserSourceMaps` + debug ID 不保证 Turbopack 产生真实 map；必须检查非占位产物。
 - standalone tracer 会漏掉 server map；必须按最终 JS 图复制并验证。
@@ -73,7 +75,7 @@
 - `telemetry-sanitizer.test.ts`：PII/content/path/debug_meta 清洗。
 - `telemetry-provider-failure.test.ts`：全 4xx、5xx/DNS/timeout retry、NoOutput 解包、循环/深度/恶意对象、safe stack 与 anti-double-capture。
 - `telemetry-native-stream-boundary.test.ts`：真实 AI SDK error-part 生命周期、resolved promise、partial content、one-shot terminal/catch 去重。
-- `telemetry-native-stream-loop.test.ts`：真实 Native/ToolLoop + Anthropic SSE + Sentry transport，锁定 5xx exactly-once 与 4xx zero-Issue。
+- `telemetry-native-stream-loop.test.ts`：真实 Native/ToolLoop + Anthropic SSE/初始 HTTP 失败 + Sentry transport，锁定 resolved/rejected 两种生命周期下 5xx exactly-once 与 4xx zero-Issue；零事件断言与阳性 5xx 对照共用同一 carrier。
 - `telemetry-native-boundary-shape.test.ts`：Native/ToolLoop `onError` 延后到 terminal finish/catch 与 shared marker 所有权。
 - `sentry-should-report.test.ts`：user-action 0 event、无 info/message health-summary、transient retry gate 与默认 stack grouping。
 - `telemetry-build-wiring.test.ts`：DSN/Secret/init/source-map CI 形状。
@@ -92,3 +94,4 @@
 - 2026-08-03：stable Linux 恢复为原生 Ubuntu 22.04 x64/arm64 matrix；CI #313 的六个 v0.64.0 安装包全部通过架构、Electron ABI、packaged server、0-map 与 glibc 2.35 基线门禁。
 - 2026-08-04：Phase 6 P1 统一 shared/native normalizer；429 随全部 4xx 固定为 user action，移除 `telemetry-health-v1.json`/info Issue 代码；不新增 user/did、metrics 或行为遥测。
 - 2026-08-04：Claude 独立复核证明 AI SDK 的 in-band error 可在 `response`/`finishReason` 均 resolve 时绕过 catch；Native 两条 loop 改为 shared per-step terminal state，在 response/finish-step 与 catch 之间 exactly-once capture。只接受有界 provider `type` enum 映射，不读取 SSE body/chunk；同时只保留 V8 frame line，避免多行 Error message 混入 safe stack。
+- 2026-08-05：Claude 同 tip 复审补出 ToolLoop POC 的 rejected-promise P2：fullStream 后过早执行 fallback，会先标 reported，再把 fresh NoOutput 当无关故障二报。POC 改为先 await `result.response`，仅在 promise resolve 后执行 defensive terminal fallback；真实初始 403/503 对照锁定两条 loop 为 0/1 event。

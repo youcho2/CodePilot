@@ -45,7 +45,7 @@
 - `src/lib/telemetry/root-cause.ts` 是 shared Provider、Claude classifier 与 Native 两条 loop 的共同分类源：HTTP 4xx（含 429）、缺凭据、模型不支持 → `user_action_required`；5xx、`ENOTFOUND`/`EAI_AGAIN`、timeout 只有 retry exhausted 才上报稳定 transient bucket；
 - `AI_NoOutputGeneratedError` 与 in-band stream error 先在最多 4 层/16 节点的 allow-list cause graph 中检查 status/code/type；底层 4xx/5xx/DNS/timeout 优先，只有确实没有 upstream 根因时才归 `EMPTY_RESPONSE` protocol fault；provider SSE `type` 只接受固定低基数 enum 映射，不读取 body/chunk；
 - normalizer 不读取或返回 response body、chunk、request/data/header/path。原始 upstream body 可继续用于本地用户诊断，但 shared boundary 在 rethrow/async capture 前写 non-enumerable marker，Node auto-capture 丢弃原始对象；受控 unknown/product event 以固定 message 的安全 Error 副本保留原 stack frame，其他事件只发送固定 message + 枚举 tag/fingerprint；
-- Native agent loop 与 experimental ToolLoop 的 `onError` 只保存结构化错误并 marker，不 capture；shared per-step terminal state 在 response/finish-step 或 catch 确认 retry exhausted 后 exactly-once 上报。即使 AI SDK 的 in-band error 后续正常 resolve、已有 partial content，也不会被 `EMPTY_RESPONSE` 或 catch 缺席掩盖。
+- Native agent loop 与 experimental ToolLoop 的 `onError` 只保存结构化错误并 marker，不 capture；shared per-step terminal state 在 response/finish-step 或 catch 确认 retry exhausted 后 exactly-once 上报。ToolLoop 必须先 await result promise，再执行 resolved-stream fallback：初始 HTTP/DNS 失败可能让 fullStream 正常结束、随后以 fresh NoOutput reject，提前 fallback 会造成二报。resolved in-band、partial content 与 rejected initial request 三种形态均有真实 transport fixture。
 
 ## 五、隐私策略
 
@@ -89,4 +89,4 @@ v0.64.0 与 v0.65.0 已正式发布。Phase 6 仍需对实现 P1 后的新 stabl
 | `scripts/sentry-source-maps.mjs` | release/map/Secret fail-closed upload |
 | `electron-builder.yml` | packaged map 排除 |
 
-日常回归：telemetry 定向 fixtures + `npm run test`。本轮 Claude findings 修复后的 telemetry/Sentry/stream-honesty 定向超集为 63/63（其中真实 Native/ToolLoop SSE + Sentry transport 为 6/6），全量为 5067/5067，production build 通过。发布前还必须跑 official-style source-map/package gate；发布后在真实 `codepilot-desktop` project、单一 release、`environment=production` 下记录 4xx zero-Issue、retry-exhausted transient、NoOutput root cause、renderer/server/Electron symbolication 与 native crash smoke。当前 worktree 已有 mode 600、gitignored 的只读 Sentry credential（仅 event/org/project read），一次只读 API 请求已证明访问可用；这不等于完成单 release cohort/P0 查询，也不得把 token 打印、提交或送入 build/package。
+日常回归：telemetry 定向 fixtures + `npm run test`。2026-08-05 复审修复后的 telemetry/Sentry/stream-honesty 定向超集为 67/67（真实两条 loop 的 SSE + 初始 HTTP + Sentry transport 为 10/10），全量为 5071/5071，production build 通过。每个 zero-event 测试文件都必须包含共用 carrier 的阳性 event 对照。发布前还必须跑 official-style source-map/package gate；发布后在真实 `codepilot-desktop` project、单一 release、`environment=production` 下记录 4xx zero-Issue、retry-exhausted transient、NoOutput root cause、renderer/server/Electron symbolication 与 native crash smoke。当前 worktree 已有 mode 600、gitignored 的只读 Sentry credential（仅 event/org/project read），一次只读 API 请求已证明访问可用；这不等于完成单 release cohort/P0 查询，也不得把 token 打印、提交或送入 build/package。
