@@ -515,20 +515,6 @@ export function runToolLoopAgentPoc(options: AgentLoopOptions): ReadableStream<s
           }
         }
 
-        // Defensive terminal fallback: ToolLoopAgent normally emits
-        // finish-step (captured above), but a future adapter must not turn a
-        // final partial-content error into a telemetry blind spot merely by
-        // omitting that bookkeeping part.
-        const terminalProviderFailure = providerStreamTelemetry.takeTerminalFailure();
-        if (terminalProviderFailure) {
-          reportNativeError('NATIVE_STREAM_ERROR', terminalProviderFailure.error, {
-            modelId,
-            sessionId,
-            retryExhausted: true,
-            ...telemetryProvider,
-          });
-        }
-
         // 8a. Abort routing parity. When the user aborts while the last step
         // still had pending tool calls, agent-loop tries to CONTINUE the
         // while-loop (await result.response / next streamText call) and
@@ -541,6 +527,28 @@ export function runToolLoopAgentPoc(options: AgentLoopOptions): ReadableStream<s
         if (abortController.signal.aborted && lastStepHadToolCalls) {
           onRuntimeStatusChange?.('error'); // mirrors agent-loop's catch tail
           return; // finally emits done + closes
+        }
+
+        // Match agent-loop's terminal order: an initial HTTP/DNS failure can
+        // end fullStream normally but reject the result promises with a fresh
+        // NoOutput wrapper. Await response before marking the observed error
+        // reported, so catch can still choose the structured status/code.
+        const responseData = await result.response;
+        const runtimeReportedModel = responseData.modelId?.trim() || undefined;
+
+        // Defensive resolved-stream fallback: ToolLoopAgent normally emits
+        // finish-step (captured above), but a future adapter must not turn a
+        // final partial-content error into a telemetry blind spot merely by
+        // omitting that bookkeeping part. Rejected result promises have
+        // already routed to catch before this point.
+        const terminalProviderFailure = providerStreamTelemetry.takeTerminalFailure();
+        if (terminalProviderFailure) {
+          reportNativeError('NATIVE_STREAM_ERROR', terminalProviderFailure.error, {
+            modelId,
+            sessionId,
+            retryExhausted: true,
+            ...telemetryProvider,
+          });
         }
 
         // 8. Empty-response detection — agent-loop checks the FINAL step (the
@@ -569,9 +577,6 @@ export function runToolLoopAgentPoc(options: AgentLoopOptions): ReadableStream<s
             }),
           }));
         }
-
-        const responseData = await result.response;
-        const runtimeReportedModel = responseData.modelId?.trim() || undefined;
 
         // 9. Skill nudge (same heuristic + event as agent-loop step 6a)
         if (shouldSuggestSkill({ step, distinctTools })) {

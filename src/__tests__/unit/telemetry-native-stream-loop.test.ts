@@ -52,20 +52,29 @@ function providerErrorStream(errorType: string, text?: string): Response {
   });
 }
 
+function providerHttpError(status: number, errorType: string): Response {
+  return new Response(JSON.stringify({
+    type: 'error',
+    error: { type: errorType, message: `${errorType} initial request fixture` },
+  }), {
+    status,
+    headers: { 'content-type': 'application/json' },
+  });
+}
+
 async function runLoop(
   loop: Loop,
   workingDirectory: string,
-  errorType: string,
-  text?: string,
+  responseFactory: () => Response,
 ): Promise<string> {
-  const session = createSession('in-band-telemetry', MODEL, '', workingDirectory);
-  addMessage(session.id, 'user', 'probe in-band failure');
+  const session = createSession('stream-telemetry', MODEL, '', workingDirectory);
+  addMessage(session.id, 'user', 'probe provider stream failure');
   const originalFetch = globalThis.fetch;
-  globalThis.fetch = (async () => providerErrorStream(errorType, text)) as typeof fetch;
+  globalThis.fetch = (async () => responseFactory()) as typeof fetch;
   try {
     const stream = loop({
       callScene: 'interactive_chat',
-      prompt: 'probe in-band failure',
+      prompt: 'probe provider stream failure',
       sessionId: session.id,
       model: MODEL,
       systemPrompt: 'Return the fixture response.',
@@ -97,7 +106,7 @@ function sentryEvents(envelopes: unknown[]): Array<Record<string, unknown>> {
   });
 }
 
-describe('native loops capture resolved in-band provider errors', () => {
+describe('native loops capture provider stream failures', () => {
   let workingDirectory: string;
   let originalNodeEnv: string | undefined;
   let originalChannel: string | undefined;
@@ -148,7 +157,11 @@ describe('native loops capture resolved in-band provider errors', () => {
     ] as const) {
       it(`${label}: ${shape} in-band overload produces one HTTP 5xx transient event`, async () => {
         envelopes.length = 0;
-        const raw = await runLoop(loop, workingDirectory, 'overloaded_error', text);
+        const raw = await runLoop(
+          loop,
+          workingDirectory,
+          () => providerErrorStream('overloaded_error', text),
+        );
         await new Promise<void>((resolve) => setImmediate(resolve));
         await sentry.flush(1_000);
 
@@ -164,13 +177,48 @@ describe('native loops capture resolved in-band provider errors', () => {
 
     it(`${label}: empty in-band permission error produces zero Sentry Issue`, async () => {
       envelopes.length = 0;
-      const raw = await runLoop(loop, workingDirectory, 'permission_error');
+      const raw = await runLoop(
+        loop,
+        workingDirectory,
+        () => providerErrorStream('permission_error'),
+      );
       await new Promise<void>((resolve) => setImmediate(resolve));
       await sentry.flush(1_000);
 
       assert.match(raw, /data: \{"type":"error"/);
       assert.match(raw, /data: \{"type":"done"/);
       assert.equal(sentryEvents(envelopes).length, 0);
+    });
+
+    it(`${label}: initial HTTP 403 produces zero Sentry Issue`, async () => {
+      envelopes.length = 0;
+      await runLoop(
+        loop,
+        workingDirectory,
+        () => providerHttpError(403, 'permission_error'),
+      );
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      await sentry.flush(1_000);
+
+      assert.equal(sentryEvents(envelopes).length, 0);
+    });
+
+    it(`${label}: initial HTTP 503 produces exactly one transient Issue`, async () => {
+      envelopes.length = 0;
+      await runLoop(
+        loop,
+        workingDirectory,
+        () => providerHttpError(503, 'api_error'),
+      );
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      await sentry.flush(1_000);
+
+      const events = sentryEvents(envelopes);
+      assert.equal(events.length, 1, `${label}/initial-503 must capture exactly once`);
+      const tags = events[0].tags as Record<string, unknown>;
+      assert.equal(tags['error.category'], 'PROVIDER_HTTP_5XX');
+      assert.equal(tags['error.outcome'], 'transient_upstream');
+      assert.equal(tags['status.class'], '5xx');
     });
   }
 });
