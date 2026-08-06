@@ -6,19 +6,37 @@ import { fileURLToPath } from 'node:url';
 import {
   buildCodexPowerShellLaunchSpec,
   CODEX_WINDOWS_INSTALL_COMMAND,
+  CODEX_WINDOWS_NPM_INSTALL_COMMAND,
+  findWindowsNpmCommand,
   isTrustedCodexRecoverySender,
+  selectCodexWindowsInstallCommand,
 } from '../../../electron/codex-windows-recovery';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
 
-test('Codex recovery command is fixed to the official installer and never becomes PowerShell argv', () => {
+test('Codex recovery commands are fixed and PowerShell receives no installer argv', () => {
   assert.equal(CODEX_WINDOWS_INSTALL_COMMAND, 'irm https://chatgpt.com/codex/install.ps1 | iex');
-  const spec = buildCodexPowerShellLaunchSpec('win32', 'C:\\Windows');
-  assert.equal(spec.command, 'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe');
-  assert.deepEqual(spec.args, ['-NoLogo', '-NoExit']);
-  assert.equal(spec.shell, false);
-  assert.equal(spec.windowsHide, false);
-  assert.equal(spec.args.some((arg) => arg.includes('install.ps1')), false);
+  assert.equal(CODEX_WINDOWS_NPM_INSTALL_COMMAND, 'npm.cmd install -g @openai/codex');
+  const launch = buildCodexPowerShellLaunchSpec('win32', 'C:\\Windows');
+  assert.equal(launch.command, 'C:\\Windows\\System32\\cmd.exe');
+  assert.deepEqual(launch.args.slice(0, 3), ['/d', '/s', '/c']);
+  assert.match(launch.args[3], /^"start "" "C:\\Windows\\System32\\WindowsPowerShell\\v1\.0\\powershell\.exe" -NoLogo -NoExit"$/);
+  assert.equal(launch.windowsHide, true);
+  assert.equal(launch.shell, false);
+  assert.equal(launch.windowsVerbatimArguments, true);
+  assert.equal(launch.args.some(arg => arg.includes('install.ps1') || arg.includes('@openai/codex')), false);
+  assert.equal(selectCodexWindowsInstallCommand('C:\\Program Files\\nodejs\\npm.cmd').method, 'npm');
+  assert.equal(selectCodexWindowsInstallCommand(null).method, 'standalone_script');
+});
+
+test('npm discovery is Windows-only, PATH-aware and injectable', () => {
+  const expected = 'C:\\Program Files\\nodejs\\npm.cmd';
+  const env: NodeJS.ProcessEnv = {
+    NODE_ENV: 'test',
+    PATH: 'C:\\Windows\\System32;C:\\Program Files\\nodejs',
+  };
+  assert.equal(findWindowsNpmCommand(env, candidate => candidate === expected, 'win32'), expected);
+  assert.equal(findWindowsNpmCommand(env, () => true, 'darwin'), null);
 });
 
 test('Codex recovery is Windows-only and trusts only the current loopback renderer port', () => {
@@ -36,10 +54,12 @@ test('main/preload bridge exposes only a no-argument prepare action and does not
   const handlerStart = main.indexOf("ipcMain.handle('codex:prepare-windows-recovery'");
   assert.ok(handlerStart >= 0);
   const handler = main.slice(handlerStart, handlerStart + 2_400);
-  assert.match(handler, /clipboard\.writeText\(CODEX_WINDOWS_INSTALL_COMMAND\)/);
+  assert.match(handler, /clipboard\.writeText\(install\.command\)/);
+  assert.match(handler, /selectCodexWindowsInstallCommand\(findWindowsNpmCommand\(\)\)/);
   assert.match(handler, /buildCodexPowerShellLaunchSpec\(\)/);
-  assert.match(handler, /shell:\s*spec\.shell/);
-  assert.doesNotMatch(handler, /install\.ps1|\|-?Command|sendInput|paste/i);
+  assert.match(handler, /spawn\(spec\.command, spec\.args/);
+  assert.match(handler, /launcher\.once\('close'/);
+  assert.doesNotMatch(handler, /\|-?Command|sendInput|paste|install\.command.*spec/i);
   assert.match(preload, /prepareWindowsRecovery:\s*\(\)\s*=>\s*ipcRenderer\.invoke/);
-  assert.match(panel, /runtime\.codexRecoveryReady/);
+  assert.match(panel, /runtime\.codexRecoveryReadyNpm/);
 });

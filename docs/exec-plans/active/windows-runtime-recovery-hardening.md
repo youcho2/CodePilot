@@ -29,6 +29,7 @@
 
 - 2026-08-06：用户明确要求实现调研中的 P0/P1，并新增“复制安装命令 + 打开 PowerShell”入口。
 - 2026-08-06：安装命令固定为官方 `irm https://chatgpt.com/codex/install.ps1 | iex`；Electron 只复制并打开可见 PowerShell，不把命令作为 argv 传入，也不自动执行。
+- 2026-08-07：用户真机发现旧启动链只收到 child `spawn` 事件却没有可见 PowerShell；同时官方 `install.ps1` 在 Windows PowerShell 中读取 `OSArchitecture` 失败。恢复入口改用固定 `cmd.exe /c start` 独立控制台，并等待 launcher 退出码；检测到 `npm.cmd` 时优先复制官方支持的 `npm.cmd install -g @openai/codex`，没有 npm 才回退 standalone 脚本。renderer 仍无权传入命令。
 - 2026-08-06：Path Identity 的 `comparisonKey` 只用于 lookup/cache；安全授权继续依赖存在对象的 native realpath + containment，不做全局 lowercase 授权。
 - 2026-08-06：sandbox 没有上游真实信号时必须显示 `unknown/not_run`；不通过启发式推断 ready。
 - 2026-08-06：Provider 密钥采用 envelope encryption：Electron `safeStorage` 保护随机数据密钥，Next 运行进程只在内存/子进程环境持有数据密钥，SQLite 保存 AES-256-GCM 版本化密文。Linux `basic_text` 或无系统 backend 明确降级，不能称为系统安全存储。
@@ -104,7 +105,8 @@
 - [x] targeted tests + `npm run test`（最终结果见验证记录）
 - [x] `npm run electron:build`，Next 136 pages + Electron bundle 完成
 - [x] Windows Electron DEV 已启动；`/api/health` 为 `ok`，Codex Runtime 为真实 `desktop_only`
-- [ ] Windows DEV 点击复制/打开 PowerShell，确认命令未自动执行、console 无新增错误
+- [x] 固定 `cmd/start` 启动链真机返回 0 且独立 PowerShell 进程保持存活；安装命令未进入 argv
+- [ ] 用户在重启后的 Windows DEV 中复点恢复按钮，确认 PowerShell 可见且剪贴板为 npm 兼容命令
 - [x] 更新 Windows 技术交接与竞品调研结论
 - [x] 新增互相反链的技术交接文档与产品思考文档
 - [ ] 回写状态/清单/决策日志；完成后移入 `completed/`
@@ -126,5 +128,8 @@
 | 2026-08-06 | codex_runtime | Codex Account | — | Microsoft Store Desktop bundle | availability probe | ⚠️ desktop_only（真实反例） | `/api/codex/status` 返回 WindowsApps binary + `desktop_bundle_not_executable` |
 | 2026-08-06 | codepilot_runtime | — | — | Windows Electron DEV | app/server 启动 | ✅ 通过 | Electron 进程存活；`/api/health` 返回 `{"status":"ok"}`；诊断 CWD realpath 为 `E:\\code\\codepilot` |
 | 2026-08-06 | test_runtime | — | — | 隔离测试密钥 | full + targeted + build | ✅ 通过 | `npm run test`；最终安全边界定向测试 16/16；`npm run electron:build` |
+| 2026-08-07 | codex_recovery | — | — | 官方 standalone script | 用户真实恢复 | ❌ 反例 | 原启动器未显示窗口；脚本报 `OSArchitecture` PropertyNotFoundStrict |
+| 2026-08-07 | codex_recovery | — | — | npm fallback + fixed cmd/start | 启动器真机 | ✅ 通过 | launcher 约 2.4 秒返回 0；独立 `powershell.exe` 继续存活；命令未进入 argv |
+| 2026-08-07 | test_runtime | — | — | recovery follow-up | 381 个 unit 文件四段复跑 | ✅ 通过 | 96 + 96 + 96 + 93 个文件全部退出 0；typecheck 与 recovery 定向测试 4/4 通过 |
 | _待执行_ | codex_runtime | Codex Account | — | standalone CLI | sandbox setup/helper/first child | 待执行 | 当前机器没有可执行 standalone CLI，不冒充通过 |
 | _待执行_ | codepilot_runtime | configured provider | configured model | safeStorage-migrated API key | 两轮 chat | 待执行 | 需要用户真实凭据且不得写入文档 |

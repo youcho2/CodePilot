@@ -2062,9 +2062,11 @@ const zh: Record<TranslationKey, string> = {
   'runtime.codexRecoveryAction': '复制命令并打开 PowerShell',
   'runtime.codexRecoveryPreparing': '正在准备 PowerShell…',
   'runtime.codexRecoveryReady': '安装命令已复制，并已打开 PowerShell。粘贴后按 Enter 即可。',
+  'runtime.codexRecoveryReadyNpm': '已复制兼容的 npm 安装命令，并已打开 PowerShell。粘贴后按 Enter 即可。',
   'runtime.codexRecoveryCopiedOnly': '安装命令已复制，但未能打开 PowerShell；请手动打开、粘贴后按 Enter。',
   'runtime.codexRecoveryFailed': '未能准备恢复命令。',
   'runtime.codexRecoveryNoAutoRun': 'CodePilot 不会自动粘贴或执行这条命令。',
+  'runtime.codexRecoveryNpmHint': '检测到 npm 时优先使用官方 npm 安装方式，避开部分 Windows PowerShell 5.1 脚本兼容问题。',
   'runtimeSelector.pinnedBadge': '本会话已切换',
   // Step 4c R6 — transcript marker when user flips RuntimeSelector mid-chat.
   'runtimeSwitchMarker.changedFromTo': '已切换执行引擎：{from} → {to}',

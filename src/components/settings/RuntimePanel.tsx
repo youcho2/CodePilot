@@ -445,6 +445,7 @@ export function RuntimePanel(props: RuntimePanelProps = {}) {
   const [codexRecoveryState, setCodexRecoveryState] = useState<
     "idle" | "preparing" | "ready" | "copied_only" | "error"
   >("idle");
+  const [codexRecoveryMethod, setCodexRecoveryMethod] = useState<"npm" | "standalone_script" | null>(null);
   const [isWindowsElectron, setIsWindowsElectron] = useState(false);
   useEffect(() => {
     setIsWindowsElectron(window.electronAPI?.versions.platform === "win32");
@@ -504,6 +505,7 @@ export function RuntimePanel(props: RuntimePanelProps = {}) {
     setCodexRecoveryState("preparing");
     try {
       const result = await action();
+      setCodexRecoveryMethod(result.installMethod ?? null);
       if (result.copied && result.opened) setCodexRecoveryState("ready");
       else if (result.copied) setCodexRecoveryState("copied_only");
       else setCodexRecoveryState("error");
@@ -1942,6 +1944,9 @@ export function RuntimePanel(props: RuntimePanelProps = {}) {
                 <p className="text-[11px] text-muted-foreground mt-0.5">
                   {t("runtime.codexRecoveryNoAutoRun")}
                 </p>
+                <p className="text-[11px] text-muted-foreground mt-0.5">
+                  {t("runtime.codexRecoveryNpmHint")}
+                </p>
               </div>
               <Button
                 variant="outline"
@@ -1966,7 +1971,9 @@ export function RuntimePanel(props: RuntimePanelProps = {}) {
                   : "text-status-success-foreground",
               )} role="status">
                 {codexRecoveryState === "ready"
-                  ? t("runtime.codexRecoveryReady")
+                  ? codexRecoveryMethod === "npm"
+                    ? t("runtime.codexRecoveryReadyNpm")
+                    : t("runtime.codexRecoveryReady")
                   : codexRecoveryState === "copied_only"
                     ? t("runtime.codexRecoveryCopiedOnly")
                     : t("runtime.codexRecoveryFailed")}

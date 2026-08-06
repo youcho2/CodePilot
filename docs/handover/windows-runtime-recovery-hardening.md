@@ -54,10 +54,12 @@ Windows 上的 WSL drive mount（例如 `/mnt/c/项目`）会确定性映射为�
 
 - renderer 只能调用无参数 `codex.prepareWindowsRecovery()`；
 - Main 只接受当前 `127.0.0.1:<serverPort>` renderer；
-- 命令固定为 `irm https://chatgpt.com/codex/install.ps1 | iex`；
-- Main 写系统剪贴板，再以 `shell:false`、固定 executable、固定 argv `-NoLogo -NoExit` 打开可见 PowerShell；
+- 官方 Codex 仓库同时支持 standalone script 与 npm 安装；检测到真实 `npm.cmd` 时固定复制 `npm.cmd install -g @openai/codex`，否则固定复制 `irm https://chatgpt.com/codex/install.ps1 | iex`；
+- Main 写系统剪贴板，再用固定 `cmd.exe /d /s /c start` 命令行创建独立 PowerShell；临时 cmd 隐藏、PowerShell 可见，并以 launcher 退出码判断是否成功；
 - 安装命令不进入 argv，不自动粘贴、不自动回车、不自动执行；
 - UI 明确提示“已复制；粘贴后按 Enter”，PowerShell 打不开时仍区分 `copied_only`。
+
+2026-08-07 用户反例证明原来的 `spawn(powershell.exe, detached)` 只收到进程创建事件，不能证明控制台窗口可见；官方 `install.ps1` 当时还在其 Windows PowerShell 环境触发 `OSArchitecture` 属性错误。因此恢复动作不能把 child `spawn` 当作 UI 成功，也不能只有单一脚本通道。npm 回退来自 [OpenAI Codex 官方仓库 Quickstart](https://github.com/openai/codex#installing-and-running-codex-cli)。
 
 执行安装后用户需回到 Runtime 页面点击刷新；刷新重新跑 candidate discovery/`--version`，不会因为复制动作显示成功。
 
@@ -82,6 +84,8 @@ Legacy 迁移是单事务的“加密 → 认证解密并逐字验证 → 写密
 - 最终完整 `npm run test`：通过（typecheck + harness boundary + 全量 unit）。中途发现的旧断言未接受新增 `identity` 字段已修正并纳入最终结果。
 - `npm run electron:build`：通过；Next 136 个页面生成、Electron bundle 完成。保留仓库已有 NFT dynamic-trace warning，不是本轮新增失败。
 - 最新 Windows Electron DEV：已启动；`/api/health` 返回 `ok`，`/api/codex/status` 返回真实 `desktop_only`、`candidateSource=desktop_bundle`、`binary.probe=failed`、`sandbox=not_applicable/not_run`。恢复按钮点击与 PowerShell 可见性留给用户在当前窗口验收。
+- 恢复补丁：`npm run typecheck` 与 recovery 定向测试 4/4 通过；固定 `cmd/start` 真机 launcher 返回 0，独立 PowerShell 进程保持存活。仍需用户在重启后的 DEV 窗口复点按钮确认视觉结果与剪贴板内容。
+- 恢复补丁后的 381 个 unit test 文件按 96 + 96 + 96 + 93 四段复跑，四段全部退出 0；分段只为绕开 Windows 工具单命令 180 秒上限，不缩减测试范围。
 
 ## 跨机复查清单
 

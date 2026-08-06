@@ -97,12 +97,13 @@ interface ElectronAPI {
     getDefaultAssistantHome: () => Promise<string>;
   };
   codex?: {
-    /** Copy the fixed official installer command and open a visible PowerShell.
+    /** Copy one of the fixed official install commands and open a visible PowerShell.
      *  The main process never executes, pastes, or accepts a command argument. */
     prepareWindowsRecovery: () => Promise<{
       ok: boolean;
       copied: boolean;
       opened: boolean;
+      installMethod?: 'npm' | 'standalone_script';
       error?: string;
     }>;
   };

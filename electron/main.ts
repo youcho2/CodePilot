@@ -77,8 +77,9 @@ import { TerminalManager } from './terminal-manager';
 import { validateTerminalCreateOpts } from './terminal-create-validation';
 import {
   buildCodexPowerShellLaunchSpec,
-  CODEX_WINDOWS_INSTALL_COMMAND,
+  findWindowsNpmCommand,
   isTrustedCodexRecoverySender,
+  selectCodexWindowsInstallCommand,
 } from './codex-windows-recovery';
 import { initializeProviderSecretEnvironment } from './provider-secret-key';
 import { sanitizeLogLine } from './log-sanitize';
@@ -2159,22 +2160,27 @@ app.whenReady().then(async () => {
 
     let copied = false;
     try {
-      clipboard.writeText(CODEX_WINDOWS_INSTALL_COMMAND);
+      const install = selectCodexWindowsInstallCommand(findWindowsNpmCommand());
+      clipboard.writeText(install.command);
       copied = true;
       const spec = buildCodexPowerShellLaunchSpec();
-      const child = spawn(spec.command, spec.args, {
-        detached: true,
-        stdio: 'ignore',
+      const launcher = spawn(spec.command, spec.args, {
         windowsHide: spec.windowsHide,
+        windowsVerbatimArguments: spec.windowsVerbatimArguments,
         shell: spec.shell,
+        stdio: 'ignore',
       });
       await new Promise<void>((resolve, reject) => {
-        child.once('spawn', resolve);
-        child.once('error', reject);
+        launcher.once('error', reject);
+        launcher.once('close', code => {
+          if (code === 0) resolve();
+          else reject(new Error(`powershell_launcher_exit:${code ?? 'unknown'}`));
+        });
       });
-      child.unref();
-      return { ok: true, copied: true, opened: true };
+      console.log(`[codex-recovery] copied=true opened=true install_method=${install.method}`);
+      return { ok: true, copied: true, opened: true, installMethod: install.method };
     } catch (error) {
+      console.warn('[codex-recovery] copied command but PowerShell open failed', error);
       return {
         ok: false,
         copied,

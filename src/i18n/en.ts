@@ -2091,9 +2091,11 @@ const en = {
   'runtime.codexRecoveryAction': 'Copy command & open PowerShell',
   'runtime.codexRecoveryPreparing': 'Preparing PowerShell…',
   'runtime.codexRecoveryReady': 'Install command copied and PowerShell opened. Paste it, then press Enter.',
+  'runtime.codexRecoveryReadyNpm': 'Compatible npm install command copied and PowerShell opened. Paste it, then press Enter.',
   'runtime.codexRecoveryCopiedOnly': 'Install command copied. PowerShell could not be opened; open it manually, paste, then press Enter.',
   'runtime.codexRecoveryFailed': 'Could not prepare the recovery command.',
   'runtime.codexRecoveryNoAutoRun': 'CodePilot will not paste or run the command automatically.',
+  'runtime.codexRecoveryNpmHint': 'When npm is available, CodePilot prefers the official npm install path to avoid some Windows PowerShell 5.1 script compatibility failures.',
   'runtimeSelector.pinnedBadge': 'session-pinned',
   // Step 4c R6 — transcript marker when user flips RuntimeSelector mid-chat.
   'runtimeSwitchMarker.changedFromTo': 'Switched runtime: {from} → {to}',
