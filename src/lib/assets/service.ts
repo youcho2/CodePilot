@@ -223,9 +223,9 @@ function inspectMediaFile(
       integrityReason: 'The source media file is missing.',
     };
   }
-  const realPath = fs.realpathSync(resolved);
+  const realPath = fs.realpathSync.native(resolved);
   const realMediaDir = fs.existsSync(mediaDir)
-    ? fs.realpathSync(mediaDir)
+    ? fs.realpathSync.native(mediaDir)
     : mediaDir;
   if (
     realPath !== realMediaDir
@@ -304,7 +304,7 @@ export function findActiveAssetIdsByStablePaths(
 ): readonly string[] {
   const normalized = Array.from(new Set(filePaths.map((filePath) => {
     const resolved = path.resolve(filePath);
-    return fs.existsSync(resolved) ? fs.realpathSync(resolved) : resolved;
+    return fs.existsSync(resolved) ? fs.realpathSync.native(resolved) : resolved;
   })));
   if (normalized.length === 0) return [];
   const placeholders = normalized.map(() => '?').join(', ');
@@ -908,7 +908,7 @@ function resolveThroughExistingAncestor(inputPath: string): string {
     existingAncestor = parent;
   }
   const canonicalAncestor = fs.existsSync(existingAncestor)
-    ? fs.realpathSync(existingAncestor)
+    ? fs.realpathSync.native(existingAncestor)
     : existingAncestor;
   return path.join(canonicalAncestor, ...missingSegments);
 }

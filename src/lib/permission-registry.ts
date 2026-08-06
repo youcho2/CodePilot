@@ -95,11 +95,14 @@ function finalizePermission(
     updatedInput?: Record<string, unknown>;
     message?: string;
   },
+  clearTimer = true,
 ): boolean {
   const map = getMap();
   const entry = map.get(id);
   if (!entry) return false;
-  clearTimeout(entry.timer);
+  // A timeout callback is already consuming its own timer. Avoid clearing the
+  // currently-firing handle (and a Node 20 MockTimers failure on Windows).
+  if (clearTimer) clearTimeout(entry.timer);
   try {
     dbResolvePermission(id, dbStatus, dbExtra);
   } catch {
@@ -157,6 +160,7 @@ export function registerPendingPermission(
           { behavior: 'deny', message: TIMEOUT_MESSAGE },
           'timeout',
           { message: TIMEOUT_MESSAGE },
+          false,
         );
       }
     }, TIMEOUT_MS);

@@ -111,7 +111,7 @@
         "context_accounting": {
           "entries": {
             "tools": {
-              "tokens": 35,
+              "tokens": "<PLATFORM_PATH_DEPENDENT>",
               "source": "tool_use/tool/Read",
               "detail": "Read × 1"
             }

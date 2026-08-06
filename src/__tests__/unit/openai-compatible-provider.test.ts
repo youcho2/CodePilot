@@ -23,6 +23,7 @@ import { findMatchingPresetForRecord, getEffectiveProviderProtocol } from '@/lib
 import { getProviderCompat, getModelCompat, compatLabel, compatTooltip } from '@/lib/runtime-compat';
 import { POST as providersPOST } from '../../app/api/providers/route';
 import { PUT as providerPUT } from '../../app/api/providers/[id]/route';
+import { createProvider } from '@/lib/db';
 
 // A generic third-party gateway with an arbitrary URL — the case that used to
 // fall through every matcher branch and land in `unknown`.
@@ -193,7 +194,6 @@ describe('openai-compatible base_url guards (no silent fallback to official Open
   });
 
   it('PUT rejects clearing base_url on an openai-compatible provider', async () => {
-    const { createProvider } = await import('../../lib/db');
     const created = createProvider({
       name: '__test_oai_put',
       provider_type: 'openai-compatible',

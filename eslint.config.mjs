@@ -178,7 +178,7 @@ const eslintConfig = defineConfig([
   },
 
   // ── Raw status colors ──
-  // ESLint cannot lint inside className strings. Use `npm run lint:colors` (grep-based)
+  // ESLint cannot lint inside className strings. Use `npm run lint:colors`.
   // to check for raw green/red/yellow/orange/blue-{400-700} usage in business components.
   // Add `// lint-allow-raw-color` on lines where raw colors are intentional (e.g. diff syntax).
 

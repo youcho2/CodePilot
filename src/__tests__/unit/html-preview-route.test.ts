@@ -305,7 +305,12 @@ describe('html-preview route — workspace scope', () => {
 
 // Module-level setup for the home-scope suite — node:test's
 // module-scoped `after` (imported above) cleans up.
-const homeExternalDir = path.join(os.homedir(), '.codepilot-test-html-home-' + randomUUID());
+const originalHome = process.env.HOME;
+const originalUserProfile = process.env.USERPROFILE;
+const isolatedHome = path.join(process.cwd(), '.codepilot-test-html-home-' + randomUUID());
+process.env.HOME = isolatedHome;
+process.env.USERPROFILE = isolatedHome;
+const homeExternalDir = path.join(isolatedHome, 'external');
 fs.mkdirSync(homeExternalDir, { recursive: true });
 fs.writeFileSync(
   path.join(homeExternalDir, 'desktop.html'),
@@ -313,6 +318,11 @@ fs.writeFileSync(
 );
 after(() => {
   try { fs.rmSync(homeExternalDir, { recursive: true, force: true }); } catch {}
+  try { fs.rmSync(isolatedHome, { recursive: true, force: true }); } catch {}
+  if (originalHome === undefined) delete process.env.HOME;
+  else process.env.HOME = originalHome;
+  if (originalUserProfile === undefined) delete process.env.USERPROFILE;
+  else process.env.USERPROFILE = originalUserProfile;
 });
 
 describe('html-preview route — home scope', () => {
@@ -324,10 +334,21 @@ describe('html-preview route — home scope', () => {
     assert.match(body, /<h1>External<\/h1>/);
   });
 
-  it('rejects an out-of-home path even with home scope token', async () => {
+  it('rejects an out-of-home path even with home scope token', async (t) => {
     // Try to escape out of $HOME via /tmp. Real-path of /tmp is outside
     // homedir → assertRealPathInBase rejects.
-    const outsideHome = path.join(os.tmpdir(), 'codepilot-out-of-home-' + randomUUID());
+    const home = path.resolve(os.homedir());
+    const outsideBase = [os.tmpdir(), process.cwd()].find((candidate) => {
+      const relative = path.relative(home, path.resolve(candidate));
+      return relative === '..'
+        || relative.startsWith(`..${path.sep}`)
+        || path.isAbsolute(relative);
+    });
+    if (!outsideBase) {
+      t.skip('No writable path outside the user home is available on this host');
+      return;
+    }
+    const outsideHome = path.join(outsideBase, '.codepilot-out-of-home-' + randomUUID());
     fs.mkdirSync(outsideHome, { recursive: true });
     fs.writeFileSync(path.join(outsideHome, 'leak.html'), '<h1>leak</h1>');
     try {

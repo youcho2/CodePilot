@@ -78,10 +78,50 @@ describe('buildHtmlPreviewUrl — workspace scope', () => {
     }
   });
 
+  it('round-trips Windows drive paths without breaking relative resources', () => {
+    const orig = 'C:\\Users\\me\\中文 游戏\\页面.html';
+    const url = buildHtmlPreviewUrl(orig, {
+      kind: 'workspace',
+      baseDir: 'C:\\Users\\me\\中文 游戏',
+    });
+    assert.match(url, /__codepilot_win__\./);
+
+    const resourceUrl = url.replace(/\/[^/]+$/, '/style.css');
+    const parsed = parseHtmlPreviewSegments(
+      resourceUrl
+        .replace('/api/files/html-preview/', '')
+        .split('/')
+        .map(decodeURIComponent),
+    );
+    assert.equal(parsed.absolutePath, 'C:\\Users\\me\\中文 游戏\\style.css');
+    assert.deepEqual(parsed.scope, {
+      kind: 'workspace',
+      baseDir: 'C:\\Users\\me\\中文 游戏',
+    });
+  });
+
+  it('round-trips Windows UNC paths', () => {
+    const orig = '\\\\fileserver\\共享\\游戏\\index.html';
+    const url = buildHtmlPreviewUrl(orig, {
+      kind: 'workspace',
+      baseDir: '\\\\fileserver\\共享\\游戏',
+    });
+    const segments = url
+      .replace('/api/files/html-preview/', '')
+      .split('/')
+      .map(decodeURIComponent);
+    const parsed = parseHtmlPreviewSegments(segments);
+    assert.equal(parsed.absolutePath, orig);
+    assert.deepEqual(parsed.scope, {
+      kind: 'workspace',
+      baseDir: '\\\\fileserver\\共享\\游戏',
+    });
+  });
+
   it('throws when given a non-absolute path (catches caller bug early)', () => {
     assert.throws(
       () => buildHtmlPreviewUrl('relative/path.html', { kind: 'workspace', baseDir: '/x' }),
-      /absolute POSIX path/,
+      /absolute filesystem path/,
     );
   });
 });
@@ -138,7 +178,7 @@ describe('parseHtmlPreviewSegments — malformed input', () => {
     // (base64url("not/absolute") = "bm90L2Fic29sdXRl")
     assert.throws(
       () => parseHtmlPreviewSegments(['ws.bm90L2Fic29sdXRl', 'x', 'y.html']),
-      /absolute POSIX path/,
+      /absolute filesystem path/,
     );
   });
 

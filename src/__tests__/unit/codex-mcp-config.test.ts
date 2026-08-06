@@ -166,7 +166,7 @@ describe('sameRealPath (runtime gate ↔ route authorization)', () => {
     const real = fs.mkdtempSync(path.join(os.tmpdir(), 'srp-real-'));
     const link = path.join(os.tmpdir(), `srp-link-${Date.now()}`);
     try {
-      fs.symlinkSync(real, link);
+      fs.symlinkSync(real, link, process.platform === 'win32' ? 'junction' : undefined);
       assert.equal(sameRealPath(link, real), true);
     } finally {
       fs.rmSync(link, { force: true });

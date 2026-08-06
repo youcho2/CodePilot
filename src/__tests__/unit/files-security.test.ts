@@ -104,7 +104,7 @@ describe('File API path traversal scenarios', () => {
       const symlinkPath = path.join(projectDir, 'escape-link');
       try {
         fs.symlinkSync('/etc', symlinkPath);
-        const resolvedSymlink = fs.realpathSync(path.join(symlinkPath, 'passwd'));
+        const resolvedSymlink = fs.realpathSync.native(path.join(symlinkPath, 'passwd'));
         assert.equal(isPathSafe(projectDir, resolvedSymlink), false);
       } finally {
         try { fs.unlinkSync(symlinkPath); } catch { /* cleanup */ }

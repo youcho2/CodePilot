@@ -20,7 +20,7 @@
 import { spawn, spawnSync, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { dirname, join, win32 as win32Path } from 'node:path';
+import { dirname, join, posix as posixPath, win32 as win32Path } from 'node:path';
 import { CodexAppServerClient, type CodexTransport } from './app-server-client';
 import type { CodexAvailability } from './types';
 import { shouldDropCodexTraceLine, resolveCodexRustLog } from './codex-trace-filter';
@@ -369,6 +369,8 @@ export interface CodexCandidateDiscoveryOptions {
   readonly platform?: NodeJS.Platform;
   readonly pathValue?: string;
   readonly homeDir?: string;
+  readonly localAppData?: string;
+  readonly appData?: string;
   readonly exists?: (candidatePath: string) => boolean;
 }
 
@@ -383,9 +385,39 @@ export function getMacOSCodexBundleCandidates(homeDir: string = homedir()): stri
   return [
     '/Applications/ChatGPT.app/Contents/Resources/codex',
     '/Applications/Codex.app/Contents/Resources/codex',
-    join(homeDir, 'Applications/ChatGPT.app/Contents/Resources/codex'),
-    join(homeDir, 'Applications/Codex.app/Contents/Resources/codex'),
+    posixPath.join(homeDir, 'Applications/ChatGPT.app/Contents/Resources/codex'),
+    posixPath.join(homeDir, 'Applications/Codex.app/Contents/Resources/codex'),
   ];
+}
+
+/** Known standalone/user-shim locations that Electron's inherited PATH can miss. */
+export function getWindowsCodexCandidates(
+  homeDir: string = homedir(),
+  localAppData: string = process.env.LOCALAPPDATA || win32Path.join(homeDir, 'AppData', 'Local'),
+  appData: string = process.env.APPDATA || win32Path.join(homeDir, 'AppData', 'Roaming'),
+): string[] {
+  const directories = [
+    // Official standalone installer default.
+    win32Path.join(localAppData, 'Programs', 'OpenAI', 'Codex', 'bin'),
+    win32Path.join(homeDir, '.local', 'bin'),
+    win32Path.join(homeDir, '.codex', 'bin'),
+    win32Path.join(appData, 'npm'),
+    win32Path.join(localAppData, 'npm'),
+    // App execution aliases are checked last and must pass --version before use.
+    win32Path.join(localAppData, 'Microsoft', 'WindowsApps'),
+  ];
+  return directories.flatMap((directory) => [
+    win32Path.join(directory, 'codex.exe'),
+    win32Path.join(directory, 'codex.cmd'),
+    win32Path.join(directory, 'codex'),
+  ]);
+}
+
+/** Paths managed by the Windows app installer are not assumed executable. */
+export function isWindowsDesktopCodexPath(candidatePath: string): boolean {
+  const normalized = candidatePath.replace(/\//g, '\\').toLowerCase();
+  return normalized.includes('\\program files\\windowsapps\\')
+    || normalized.includes('\\microsoft\\windowsapps\\codex');
 }
 
 /** Cheap existence-only candidate scan. No subprocesses are spawned here. */
@@ -393,16 +425,30 @@ export function collectCodexCandidatePaths(options: CodexCandidateDiscoveryOptio
   const platform = options.platform ?? process.platform;
   const pathValue = options.pathValue ?? process.env.PATH ?? '';
   const homeDir = options.homeDir ?? homedir();
+  const localAppData = options.localAppData
+    ?? process.env.LOCALAPPDATA
+    ?? win32Path.join(homeDir, 'AppData', 'Local');
+  const appData = options.appData
+    ?? process.env.APPDATA
+    ?? win32Path.join(homeDir, 'AppData', 'Roaming');
   const exists = options.exists ?? existsSync;
-  const pathJoin = platform === 'win32' ? win32Path.join : join;
+  const pathJoin = platform === 'win32' ? win32Path.join : posixPath.join;
   const sep = platform === 'win32' ? ';' : ':';
   const exts = platform === 'win32' ? ['.exe', '.cmd', ''] : [''];
   const candidatePaths: string[] = [];
+  const seen = new Set<string>();
+  const addCandidate = (candidate: string) => {
+    const key = platform === 'win32' ? candidate.toLowerCase() : candidate;
+    if (exists(candidate) && !seen.has(key)) {
+      seen.add(key);
+      candidatePaths.push(candidate);
+    }
+  };
 
   for (const dir of pathValue.split(sep).filter(Boolean)) {
     for (const ext of exts) {
       const candidate = pathJoin(dir, `codex${ext}`);
-      if (exists(candidate) && !candidatePaths.includes(candidate)) candidatePaths.push(candidate);
+      addCandidate(candidate);
     }
   }
 
@@ -410,7 +456,13 @@ export function collectCodexCandidatePaths(options: CodexCandidateDiscoveryOptio
   // winning the input-order tiebreak in selectBestCodexCandidate().
   if (platform === 'darwin') {
     for (const candidate of getMacOSCodexBundleCandidates(homeDir)) {
-      if (exists(candidate) && !candidatePaths.includes(candidate)) candidatePaths.push(candidate);
+      addCandidate(candidate);
+    }
+  }
+
+  if (platform === 'win32') {
+    for (const candidate of getWindowsCodexCandidates(homeDir, localAppData, appData)) {
+      addCandidate(candidate);
     }
   }
 
@@ -427,11 +479,13 @@ export function fingerprintCodexCandidates(candidatePaths: readonly string[]): s
 // while a fresh existence scan produces the same candidate fingerprint.
 let resolvedBinaryCache: { fingerprint: string; value: string | null } | null = null;
 let versionProbeCache: { binary: string; value: string | null } | null = null;
+let lastUnusableDesktopCandidate: string | null = null;
 
 /** Test-only: clear the memoized binary resolution between cases. */
 export function resetCodexBinaryCacheForTests(): void {
   resolvedBinaryCache = null;
   versionProbeCache = null;
+  lastUnusableDesktopCandidate = null;
   if (!cached) lastAvailability = { kind: 'unknown' };
 }
 
@@ -493,12 +547,12 @@ export function getCodexAutoReviewCapability(): CodexAutoReviewCapability {
  *      unit tests never spawn the subprocess or hit network).
  *   2. CODEX_BIN env var (test / CI override of the resolved path) —
  *      highest explicit priority.
- *   3. Collect candidates: PATH walk first, then the macOS ChatGPT.app and
- *      legacy Codex.app bundled binaries (system-wide + per-user installs).
+ *   3. Collect candidates: PATH walk first, then known desktop/standalone
+ *      install locations on macOS and Windows.
  *   4. If more than one candidate exists, probe `--version` and pick the
  *      NEWEST (P0.1, 2026-06-01) so a stale Homebrew codex on PATH can't
  *      shadow a newer Codex.app build. Single candidate → use it as-is
- *      (no probe, keeps the common case spawn-free).
+ *      except Windows desktop-managed paths, which must prove executable.
  *
  * The cheap candidate-existence scan runs on every idle availability query.
  * Version probes are reused while its fingerprint is unchanged; install,
@@ -534,18 +588,38 @@ export function findCodexBinary(): string | null {
   // previous binary. Never disturb an active/pending app-server promise.
   const hadResolution = resolvedBinaryCache !== null;
   versionProbeCache = null;
+  lastUnusableDesktopCandidate = null;
   if (hadResolution && !cached) lastAvailability = { kind: 'unknown' };
 
   let selected: string | null;
   if (candidatePaths.length <= 1) {
-    selected = candidatePaths[0] ?? null;
-    if (selected) console.info('[codex] selected binary', { binary: selected, reason: 'sole candidate' });
+    const soleCandidate = candidatePaths[0] ?? null;
+    if (soleCandidate && isWindowsDesktopCodexPath(soleCandidate)) {
+      const version = probeCodexVersion(soleCandidate);
+      versionProbeCache = { binary: soleCandidate, value: version };
+      selected = version ? soleCandidate : null;
+      if (!selected) lastUnusableDesktopCandidate = soleCandidate;
+    } else {
+      selected = soleCandidate;
+    }
+    if (selected) console.info('[codex] selected binary', {
+      binary: selected,
+      reason: isWindowsDesktopCodexPath(selected) ? 'desktop candidate passed version probe' : 'sole candidate',
+    });
   } else {
     // Multiple codex installs (e.g. old /opt/homebrew/bin/codex alongside a
     // newer /Applications/Codex.app build) — probe versions and pick newest
     // so a stale PATH binary can't shadow Codex.app (packaged P0 2026-06-01).
     const probed: CodexBinaryCandidate[] = candidatePaths.map((p) => ({ path: p, version: probeCodexVersion(p) }));
-    selected = selectBestCodexCandidate(probed);
+    const usableCandidates = probed.filter((candidate) => (
+      candidate.version !== null || !isWindowsDesktopCodexPath(candidate.path)
+    ));
+    selected = selectBestCodexCandidate(usableCandidates);
+    if (!selected) {
+      lastUnusableDesktopCandidate = probed.find((candidate) => (
+        candidate.version === null && isWindowsDesktopCodexPath(candidate.path)
+      ))?.path ?? null;
+    }
     const selectedProbe = selected ? probed.find((candidate) => candidate.path === selected) : null;
     if (selected && selectedProbe) {
       versionProbeCache = { binary: selected, value: selectedProbe.version };
@@ -621,7 +695,9 @@ export async function getCodexAppServer(): Promise<ManagedAppServer> {
 
   const binary = findCodexBinary();
   if (!binary) {
-    lastAvailability = { kind: 'not_installed' };
+    lastAvailability = lastUnusableDesktopCandidate
+      ? { kind: 'desktop_only', binary: lastUnusableDesktopCandidate, reason: 'desktop_bundle_not_executable' }
+      : { kind: 'not_installed' };
     throw new Error('Codex binary not found on PATH (set CODEX_BIN to override)');
   }
 
@@ -730,7 +806,9 @@ export async function getCodexAvailability(): Promise<CodexAvailability> {
   if (lastAvailability.kind === 'ready') return lastAvailability;
   const binary = findCodexBinary();
   if (!binary) {
-    lastAvailability = { kind: 'not_installed' };
+    lastAvailability = lastUnusableDesktopCandidate
+      ? { kind: 'desktop_only', binary: lastUnusableDesktopCandidate, reason: 'desktop_bundle_not_executable' }
+      : { kind: 'not_installed' };
     return lastAvailability;
   }
   if (lastAvailability.kind === 'unknown' || lastAvailability.kind === 'not_installed') {
@@ -749,6 +827,7 @@ export async function refreshCodexAvailability(): Promise<CodexAvailability> {
   if (cached) return getCodexAvailability();
   resolvedBinaryCache = null;
   versionProbeCache = null;
+  lastUnusableDesktopCandidate = null;
   lastAvailability = { kind: 'unknown' };
   return getCodexAvailability();
 }

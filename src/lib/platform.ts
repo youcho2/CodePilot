@@ -109,7 +109,7 @@ export function classifyClaudePath(binPath: string): ClaudeInstallType {
   if (normalized === '/usr/local/bin/claude') {
     // /usr/local/bin could be npm or homebrew — check symlink target
     try {
-      const real = fs.realpathSync(binPath);
+      const real = fs.realpathSync.native(binPath);
       if (real.includes('node_modules')) return 'npm';
       if (real.includes('homebrew') || real.includes('Cellar')) return 'homebrew';
       if (real.includes('.bun')) return 'bun';
@@ -181,7 +181,7 @@ export function findAllClaudeBinaries(): ClaudeInstallInfo[] {
   function tryAdd(p: string) {
     try {
       let realPath: string;
-      try { realPath = fs.realpathSync(p); } catch { realPath = p; }
+      try { realPath = fs.realpathSync.native(p); } catch { realPath = p; }
       if (seenReal.has(realPath)) return;
 
       // On Windows, installers create multiple variants in the same directory:

@@ -12,6 +12,7 @@ import { afterEach, beforeEach, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { NextRequest } from 'next/server';
 import {
   createProvider,
@@ -31,7 +32,7 @@ import {
 import { POST as searchModelsPOST } from '@/app/api/providers/[id]/search-models/route';
 
 const TEST_PROVIDER_PREFIX = '__test_foundation_user_path_';
-const SRC = path.resolve(path.dirname(new URL(import.meta.url).pathname), '../..');
+const SRC = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 
 describe('capability API boundary rejects malformed runtime data', () => {
   it('does not turn string "false" into a truthy effort capability', () => {

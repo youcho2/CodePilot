@@ -218,6 +218,8 @@ export type CodexAvailability =
   | { kind: 'unknown' }
   /** `codex` binary not found on PATH. */
   | { kind: 'not_installed' }
+  /** Windows desktop app found, but its managed bundle is not an executable CLI for this process. */
+  | { kind: 'desktop_only'; binary: string; reason: 'desktop_bundle_not_executable' }
   /** Binary found, but the app-server has not been initialized in this process yet. */
   | { kind: 'installed_idle'; binary: string }
   /** Binary found but version is below our minimum supported. */

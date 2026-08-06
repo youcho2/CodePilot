@@ -7,36 +7,7 @@ import { z } from 'zod';
 import { execFileSync } from 'child_process';
 import path from 'path';
 import type { ToolContext } from './index';
-
-const EXCLUDED_DIRECTORIES = [
-  'node_modules',
-  '.git',
-  '.next',
-  'dist',
-  'build',
-  'coverage',
-  '.cache',
-  '__pycache__',
-] as const;
-
-function findFallback(cwd: string, pattern: string): string {
-  const normalized = pattern.replace(/\\/g, '/').replace(/^\.\//, '');
-  const basenamePattern = normalized.replace(/^\*\*\//, '');
-  const predicate = basenamePattern.includes('/')
-    ? ['-path', `./${basenamePattern}`]
-    : ['-name', basenamePattern];
-  const args = ['.', '-type', 'f', ...predicate];
-  for (const directory of EXCLUDED_DIRECTORIES) {
-    args.push('-not', '-path', `*/${directory}/*`);
-  }
-  return execFileSync('find', args, {
-    cwd,
-    encoding: 'utf-8',
-    timeout: 10_000,
-    maxBuffer: 1024 * 1024,
-    stdio: ['ignore', 'pipe', 'ignore'],
-  });
-}
+import { globWithNode, SEARCH_EXCLUDED_DIRECTORIES } from './search-fallback';
 
 export function createGlobTool(ctx: ToolContext) {
   return tool({
@@ -54,7 +25,7 @@ export function createGlobTool(ctx: ToolContext) {
 
       try {
         const args = ['--files', '--color=never', '--glob', pattern];
-        for (const directory of EXCLUDED_DIRECTORIES) {
+        for (const directory of SEARCH_EXCLUDED_DIRECTORIES) {
           args.push('--glob', `!${directory}/**`, '--glob', `!**/${directory}/**`);
         }
         let result: string;
@@ -70,13 +41,17 @@ export function createGlobTool(ctx: ToolContext) {
           if (processError.status === 1) {
             result = '';
           } else if (processError.code === 'ENOENT') {
-            result = findFallback(cwd, pattern);
+            result = globWithNode(cwd, pattern).join('\n');
           } else {
             throw error;
           }
         }
 
-        const files = result.trim().split('\n').filter(Boolean).sort().slice(0, 200);
+        const files = result.trim().split('\n')
+          .filter(Boolean)
+          .map((file) => file.replace(/^\.([/\\])/, '').replace(/\\/g, '/'))
+          .sort()
+          .slice(0, 200);
         if (files.length === 0) {
           return `No files found matching pattern "${pattern}" in ${cwd}`;
         }

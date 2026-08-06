@@ -204,7 +204,7 @@ export class FileHarnessRepository {
     options: FileHarnessRepositoryOptions = {},
   ): FileHarnessRepository {
     fs.mkdirSync(root, { recursive: true });
-    const canonicalRoot = fs.realpathSync(root);
+    const canonicalRoot = fs.realpathSync.native(root);
     const manifestPath = resolveRepositoryPath(canonicalRoot, HARNESS_MANIFEST_FILE);
     if (fs.existsSync(manifestPath)) {
       throw new Error(`Harness repository already exists at ${canonicalRoot}.`);
@@ -232,7 +232,7 @@ export class FileHarnessRepository {
     root: string,
     options: FileHarnessRepositoryOptions = {},
   ): FileHarnessRepository {
-    const canonicalRoot = fs.realpathSync(root);
+    const canonicalRoot = fs.realpathSync.native(root);
     let manifest = readManifest(canonicalRoot);
     let manifestHash = hashFile(
       resolveRepositoryPath(canonicalRoot, HARNESS_MANIFEST_FILE),

@@ -408,11 +408,20 @@ describe('FileHarnessRepository', () => {
     replacement.release();
   });
 
-  it('rejects writes through a repository symlink', () => {
+  it('rejects writes through a repository symlink', (t) => {
     const root = tempRoot('symlink');
     const outside = tempRoot('outside');
     const repository = FileHarnessRepository.create(root, 'harness-1');
-    fs.symlinkSync(outside, path.join(root, 'state'));
+    try {
+      fs.symlinkSync(outside, path.join(root, 'state'), 'junction');
+    } catch (error) {
+      repository.close();
+      if ((error as NodeJS.ErrnoException).code === 'EPERM') {
+        t.skip('Windows host does not permit unprivileged symlink creation');
+        return;
+      }
+      throw error;
+    }
     const plan = planHarnessImport(repository, [memoryCandidate()]);
     assert.throws(
       () => applyHarnessImportPlan(repository, plan),

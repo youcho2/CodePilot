@@ -101,7 +101,7 @@ describe('DB roundtrip (a01)', () => {
 describe('API validation rejects unknown profiles (a01)', () => {
   it('POST /api/chat/sessions 400s on an unknown profile, and persists nothing', async () => {
     const res = await postSession({
-      working_directory: '/tmp',
+      working_directory: REPO_ROOT,
       permission_profile: 'super_admin',
     });
     assert.equal(res.status, 400, 'creation with an unknown profile must be rejected');
@@ -114,7 +114,7 @@ describe('API validation rejects unknown profiles (a01)', () => {
 
   it('POST accepts each canonical profile and stores exactly what was asked for', async () => {
     for (const profile of PERMISSION_PROFILES) {
-      const res = await postSession({ working_directory: '/tmp', permission_profile: profile });
+      const res = await postSession({ working_directory: REPO_ROOT, permission_profile: profile });
       assert.equal(res.status, 201, `${profile} must be accepted`);
       const { session } = await res.json() as { session: { id: string; permission_profile: string } };
       // Both what the caller is told AND what was stored — a route that
@@ -127,7 +127,7 @@ describe('API validation rejects unknown profiles (a01)', () => {
   });
 
   it('POST without a profile creates the restrictive one (no implicit elevation)', async () => {
-    const res = await postSession({ working_directory: '/tmp' });
+    const res = await postSession({ working_directory: REPO_ROOT });
     const { session } = await res.json() as { session: { id: string } };
     assert.equal(getSession(session.id)?.permission_profile, 'default');
   });

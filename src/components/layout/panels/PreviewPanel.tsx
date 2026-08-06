@@ -914,7 +914,7 @@ export function PreviewPanel(_: { variant?: 'sidebar' } = {}) {
       // a TDZ (let/const before initialization) error at mount time.
       const virtualName =
         previewSource?.kind === 'inline-html' ? previewSource.virtualName ?? 'preview.html' :
-        previewSource?.kind === 'file' ? (filePath.split('/').pop() || filePath) :
+        previewSource?.kind === 'file' ? (filePath.split(/[\\/]/).pop() || filePath) :
         'artifact';
       await exportHtmlAsLongShot({
         html: exportableHtml,
@@ -951,7 +951,7 @@ export function PreviewPanel(_: { variant?: 'sidebar' } = {}) {
             sessionId,
             source: 'workspace',
             filePath,
-            prompt: filePath.split('/').pop() || filePath,
+            prompt: filePath.split(/[\\/]/).pop() || filePath,
           },
       );
       setArchiveState('archived');
@@ -1702,7 +1702,7 @@ function MediaView({ filePath, fileServeUrl }: { filePath: string; fileServeUrl:
       <div className="flex items-center justify-center p-4 h-full">
         <img
           src={fileServeUrl}
-          alt={filePath.split('/').pop() || ''}
+          alt={filePath.split(/[\\/]/).pop() || ''}
           className="max-w-full max-h-full object-contain rounded"
         />
       </div>

@@ -8,6 +8,7 @@
 
 | 文件 | 主题 |
 |------|------|
+| windows-runtime-path-compatibility-review.md | **Windows Runtime / 路径兼容性修复交接与跨机复查手册**：中文/空格/特殊字符 CWD、PowerShell 编码命令、无 bash/rg 回退、Claude `.exe/.cmd`、Codex Desktop vs standalone、WindowsApps/沙盒边界、参考项目专项适配与另一台 Windows 电脑的验收矩阵 |
 | harness-home.md | **Harness Home 技术交接**：framework-neutral canonical repository、L0/L1 HarnessAdapter 与 L2/L3 RuntimeAdapter、单写者/事务写/一致性缓存、SecretRef、中立门禁、Asset/HTML 安全、Codex durable/preview-only 去重与当前未关闭门禁 |
 | default-assistant-heartbeat-system-notification.md | **默认助理 → 心跳 → 系统通知纵向闭环**：only-if-empty bootstrap/CAS、`instructions.md` effective owner、desired/reconcile/run 真源、Main-owned durable native delivery 与点击恢复 |
 | same-runtime-multi-model-subagents.md | 同 Runtime 动态子模型：Native 白名单/child session、Claude SDK read-only worker、Codex collab 可见性、权限/取消、Agent 聊天卡片与侧栏 transcript |

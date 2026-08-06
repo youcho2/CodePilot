@@ -109,7 +109,7 @@ function resolveStagedTransactionPath(
   ) {
     throw new Error('Harness transaction stagedPath escapes its transaction.');
   }
-  const real = fs.realpathSync(resolved);
+  const real = fs.realpathSync.native(resolved);
   if (!real.startsWith(`${resolvedRoot}${path.sep}`)) {
     throw new Error('Harness transaction stagedPath traverses a symlink.');
   }
@@ -204,7 +204,10 @@ export function prepareRepositoryTransaction(input: {
     const stagedName = `${String(index).padStart(4, '0')}.content`;
     const stagedPath = path.join(stagingRoot, stagedName);
     fs.writeFileSync(stagedPath, write.content);
-    const fd = fs.openSync(stagedPath, 'r');
+    // Windows FlushFileBuffers (used by fsyncSync) requires a handle opened
+    // with write access. These are private staging files we just created, so
+    // `r+` preserves the durability contract on every platform.
+    const fd = fs.openSync(stagedPath, 'r+');
     try {
       fs.fsyncSync(fd);
     } finally {
@@ -279,7 +282,9 @@ export function applyPreparedTransaction(
       const staged = resolveStagedTransactionPath(txRoot, file.stagedPath);
       const targetTemp = `${target}.${inputJournal.transactionId}.tmp`;
       fs.copyFileSync(staged, targetTemp);
-      const fd = fs.openSync(targetTemp, 'r');
+      // See the staging fsync above: a read-only Windows file handle returns
+      // EPERM from FlushFileBuffers even though the file itself is writable.
+      const fd = fs.openSync(targetTemp, 'r+');
       try {
         fs.fsyncSync(fd);
       } finally {

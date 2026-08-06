@@ -11,6 +11,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { getPlatformShell, platformCommandGuidance } from '../../lib/platform';
 
 describe('#28 getPlatformShell', () => {
@@ -56,7 +57,7 @@ describe('#28 platformCommandGuidance', () => {
 });
 
 describe('#28 shell-dialect hint injected into Native + Codex system prompts (source-pin)', () => {
-  const SRC = path.resolve(path.dirname(new URL(import.meta.url).pathname), '../..');
+  const SRC = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
   const read = (f: string) => fs.readFileSync(path.join(SRC, f), 'utf8');
   it('Native (agent-system-prompt) injects platformCommandGuidance()', () => {
     assert.match(read('lib/agent-system-prompt.ts'), /platformCommandGuidance\(\)/);

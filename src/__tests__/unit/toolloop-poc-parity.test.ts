@@ -232,6 +232,13 @@ function normalizeEvents(
         }
         for (const [id, marker] of permIds) text = text.split(id).join(marker);
         text = text.split(opts.sessionId).join('<SID>');
+        // JSON event payloads escape Windows separators (`C:\\...` becomes
+        // `C:\\\\...` in the serialized string), so normalize that form
+        // before the raw-string replacement used on POSIX.
+        const escapedWorkingDirectory = JSON.stringify(opts.workingDirectory).slice(1, -1);
+        text = text
+          .split(`${escapedWorkingDirectory}\\\\`).join('<WD>/')
+          .split(escapedWorkingDirectory).join('<WD>');
         text = text.split(opts.workingDirectory).join('<WD>');
         if (e.type === 'rewind_point') {
           try {
@@ -240,6 +247,26 @@ function normalizeEvents(
           } catch { /* keep raw */ }
         }
         try { data = JSON.parse(text); } catch { data = text; }
+        if (e.type === 'result' && data && typeof data === 'object') {
+          const resultData = data as {
+            usage?: {
+              context_accounting?: {
+                entries?: Record<string, { tokens?: number | string }>;
+              };
+            };
+          };
+          const entries = resultData.usage?.context_accounting?.entries;
+          if (entries) {
+            for (const entry of Object.values(entries)) {
+              if (typeof entry.tokens === 'number') {
+                // Tool token estimates include absolute-path length, so the
+                // exact value differs between POSIX and Windows. Raw parity
+                // remains asserted separately by assertDbHistoryParity.
+                entry.tokens = '<PLATFORM_PATH_DEPENDENT>';
+              }
+            }
+          }
+        }
       }
       return { type: e.type, data };
     });

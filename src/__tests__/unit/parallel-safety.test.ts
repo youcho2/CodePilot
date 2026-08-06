@@ -1,5 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import path from 'node:path';
 import {
   isDestructiveCommand,
   pathsOverlap,
@@ -136,7 +137,7 @@ describe('parallel-safety — pathsOverlap', () => {
 // ───────────────────────────────────────────────────────────────
 
 describe('parallel-safety — extractScopePath', () => {
-  const cwd = '/tmp/testcwd';
+  const cwd = path.resolve(path.sep, 'tmp', 'testcwd');
 
   it('returns null for non-path-scoped tools', () => {
     assert.equal(extractScopePath('Grep', { pattern: 'foo' }, cwd), null);
@@ -152,22 +153,24 @@ describe('parallel-safety — extractScopePath', () => {
 
   it('resolves relative Read path against cwd', () => {
     const result = extractScopePath('Read', { path: 'foo/bar.txt' }, cwd);
-    assert.equal(result, '/tmp/testcwd/foo/bar.txt');
+    assert.equal(result, path.join(cwd, 'foo', 'bar.txt'));
   });
 
   it('uses file_path for Write (CodePilot convention)', () => {
-    const result = extractScopePath('Write', { file_path: '/abs/path.txt' }, cwd);
-    assert.equal(result, '/abs/path.txt');
+    const absolutePath = path.resolve(path.sep, 'abs', 'path.txt');
+    const result = extractScopePath('Write', { file_path: absolutePath }, cwd);
+    assert.equal(result, absolutePath);
   });
 
   it('uses file_path for Edit (CodePilot convention)', () => {
     const result = extractScopePath('Edit', { file_path: 'relative.txt' }, cwd);
-    assert.equal(result, '/tmp/testcwd/relative.txt');
+    assert.equal(result, path.join(cwd, 'relative.txt'));
   });
 
   it('keeps absolute paths unchanged', () => {
-    const result = extractScopePath('Read', { path: '/absolute/file.txt' }, cwd);
-    assert.equal(result, '/absolute/file.txt');
+    const absolutePath = path.resolve(path.sep, 'absolute', 'file.txt');
+    const result = extractScopePath('Read', { path: absolutePath }, cwd);
+    assert.equal(result, absolutePath);
   });
 });
 
@@ -176,7 +179,7 @@ describe('parallel-safety — extractScopePath', () => {
 // ───────────────────────────────────────────────────────────────
 
 describe('parallel-safety — shouldParallelizeToolBatch', () => {
-  const cwd = '/tmp/testcwd';
+  const cwd = path.resolve(path.sep, 'tmp', 'testcwd');
 
   // Layer 1
   it('empty batch is not parallelized', () => {

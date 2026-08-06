@@ -314,7 +314,7 @@ export function ChatListPanel({ open, hasUpdate, readyToInstall }: ChatListPanel
   };
 
   const handleRemoveProject = async (workingDirectory: string) => {
-    if (!confirm(`Remove project "${workingDirectory.split('/').pop()}" and all its conversations?`)) return;
+    if (!confirm(`Remove project "${workingDirectory.split(/[\\/]/).pop()}" and all its conversations?`)) return;
     const projectSessions = sessions.filter((s) => s.working_directory === workingDirectory);
     const deletedIds = new Set<string>();
     for (const session of projectSessions) {

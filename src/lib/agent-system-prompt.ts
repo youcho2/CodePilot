@@ -11,7 +11,7 @@
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
-import { execSync } from 'child_process';
+import { execFileSync } from 'child_process';
 import { getPlatformShell, platformCommandGuidance } from './platform';
 
 // ── Section: Identity ──────────────────────────────────────────
@@ -150,7 +150,7 @@ function buildEnvironmentSection(options: SystemPromptOptions): string | null {
 
     // Check if git repo
     try {
-      execSync('git rev-parse --is-inside-work-tree', {
+      execFileSync('git', ['rev-parse', '--is-inside-work-tree'], {
         cwd: options.workingDirectory, encoding: 'utf-8', timeout: 3000, stdio: 'pipe',
       });
       lines.push('  - Is a git repository: true');
@@ -168,10 +168,7 @@ function buildEnvironmentSection(options: SystemPromptOptions): string | null {
   const shellGuidance = platformCommandGuidance();
   if (shellGuidance) lines.push(shellGuidance);
 
-  try {
-    const osVersion = execSync('uname -sr', { encoding: 'utf-8', timeout: 3000, stdio: 'pipe' }).trim();
-    lines.push(`- OS Version: ${osVersion}`);
-  } catch { /* ignore */ }
+  lines.push(`- OS Version: ${os.type()} ${os.release()}`);
 
   // Model info
   if (options.modelId) {
@@ -268,14 +265,20 @@ function getGitContext(cwd: string): string | null {
   }
 
   try {
-    const run = (cmd: string) => execSync(cmd, { cwd, encoding: 'utf-8', timeout: 5000, stdio: 'pipe' }).trim();
+    const run = (args: string[]) => execFileSync('git', args, {
+      cwd,
+      encoding: 'utf-8',
+      timeout: 5000,
+      stdio: ['ignore', 'pipe', 'ignore'],
+    }).trim();
 
-    const branch = run('git rev-parse --abbrev-ref HEAD 2>/dev/null');
+    const branch = run(['rev-parse', '--abbrev-ref', 'HEAD']);
     if (!branch) { _gitContextCache = { cwd, result: null, ts: Date.now() }; return null; }
 
-    const user = run('git config user.name 2>/dev/null') || 'unknown';
-    const status = run('git status --short 2>/dev/null').slice(0, 500);
-    const recentCommits = run('git log --oneline -5 2>/dev/null');
+    let user = 'unknown';
+    try { user = run(['config', 'user.name']) || 'unknown'; } catch { /* optional */ }
+    const status = run(['status', '--short']).slice(0, 500);
+    const recentCommits = run(['log', '--oneline', '-5']);
 
     const parts = ['Git context:', `  Branch: ${branch}`, `  User: ${user}`];
     if (status) parts.push(`\n  Status:\n${status.split('\n').map(l => '    ' + l).join('\n')}`);

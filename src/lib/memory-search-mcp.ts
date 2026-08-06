@@ -136,8 +136,8 @@ export function createMemorySearchMcpServer(workspacePath: string) {
 
             // Resolve symlinks and verify the real path is still inside the workspace.
             // This prevents symlink escape (e.g., workspace/link -> /etc/passwd).
-            const realPath = fs.realpathSync(resolved);
-            const realWorkspace = fs.realpathSync(resolvedWorkspace);
+            const realPath = fs.realpathSync.native(resolved);
+            const realWorkspace = fs.realpathSync.native(resolvedWorkspace);
             const realRel = path.relative(realWorkspace, realPath);
             if (realRel.startsWith('..') || path.isAbsolute(realRel)) {
               return { content: [{ type: 'text' as const, text: 'Access denied: path resolves outside workspace (symlink).' }] };

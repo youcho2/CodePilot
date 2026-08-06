@@ -348,7 +348,7 @@ export function inspectHtmlEntryClosure(
   sourceRoot: string,
   entryFileInput: string,
 ): HtmlBundleInspection {
-  const root = fs.realpathSync(path.resolve(sourceRoot));
+  const root = fs.realpathSync.native(path.resolve(sourceRoot));
   const entryFile = assertSafeRelativePath(entryFileInput);
   if (!['.html', '.htm'].includes(path.extname(entryFile).toLowerCase())) {
     throw new Error('HTML bundle entry file must be .html or .htm.');
@@ -415,7 +415,7 @@ export function inspectHtmlBundle(
   sourceRoot: string,
   entryFileInput: string,
 ): HtmlBundleInspection {
-  const root = fs.realpathSync(path.resolve(sourceRoot));
+  const root = fs.realpathSync.native(path.resolve(sourceRoot));
   const entryFile = assertSafeRelativePath(entryFileInput);
   if (!['.html', '.htm'].includes(path.extname(entryFile).toLowerCase())) {
     throw new Error('HTML bundle entry file must be .html or .htm.');

@@ -1,7 +1,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-const REPO_ROOT = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..');
+const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const HOOK_PATH = process.env.LINT_HOOKS_PATH || path.join(REPO_ROOT, '.husky', 'pre-commit');
 
 // Test-runner command fragments that must carry the CODEX_DISABLED=1 guard.

@@ -120,15 +120,16 @@ function makeRenewalTick(deps: {
 describe('续租 interval 真实驱动（node:test mock timer）', () => {
   it('autoTrigger：正好 30 次续租后 settle(interrupted) 并停止续租（c-cap-test）', (t) => {
     t.mock.timers.enable({ apis: ['setInterval'] });
-    let handle: ReturnType<typeof setInterval>;
+    let active = true;
     const state = { renewalCount: 0 };
     const renew = mock.fn(() => true); // 始终成功续租 → 只有 cap 能停它
-    const settle = mock.fn((_status: string) => { clearInterval(handle); }); // 镜像 settleLock.clearRenewal
-    const tick = makeRenewalTick({
+    const settle = mock.fn((_status: string) => { active = false; }); // mirrors settleLock.clearRenewal
+    const renewalTick = makeRenewalTick({
       autoTrigger: true, max: MAX, state, renew, settle,
-      clear: () => clearInterval(handle),
+      clear: () => { active = false; },
     });
-    handle = setInterval(tick, 60_000);
+    const tick = () => { if (active) renewalTick(); };
+    setInterval(tick, 60_000);
 
     // 推进 50 分钟（远超 30 次上限），验证到 30 次即封顶、之后不再空转。
     t.mock.timers.tick(60_000 * 50);
@@ -141,16 +142,17 @@ describe('续租 interval 真实驱动（node:test mock timer）', () => {
 
   it('renew 返回 false → 立即停止续租，不再调用 renewSessionLock（c-renew-false-stops-test）', (t) => {
     t.mock.timers.enable({ apis: ['setInterval'] });
-    let handle: ReturnType<typeof setInterval>;
+    let active = true;
     const state = { renewalCount: 0 };
     let n = 0;
     const renew = mock.fn(() => { n++; return n < 3; }); // 第 1、2 次 true，第 3 次 false
-    const settle = mock.fn((_status: string) => { clearInterval(handle); });
-    const tick = makeRenewalTick({
+    const settle = mock.fn((_status: string) => { active = false; });
+    const renewalTick = makeRenewalTick({
       autoTrigger: true, max: MAX, state, renew, settle,
-      clear: () => clearInterval(handle),
+      clear: () => { active = false; },
     });
-    handle = setInterval(tick, 60_000);
+    const tick = () => { if (active) renewalTick(); };
+    setInterval(tick, 60_000);
 
     t.mock.timers.tick(60_000 * 20); // 推进远超第 3 次
 
@@ -161,7 +163,6 @@ describe('续租 interval 真实驱动（node:test mock timer）', () => {
 
   it('非 autoTrigger：100 次 tick 均续租，无 cap（c-non-autotrigger-unchanged）', (t) => {
     t.mock.timers.enable({ apis: ['setInterval'] });
-    let handle: ReturnType<typeof setInterval>;
     const state = { renewalCount: 0 };
     const renew = mock.fn(() => true);
     const settle = mock.fn((_status: string) => { clearInterval(handle); });
@@ -169,7 +170,7 @@ describe('续租 interval 真实驱动（node:test mock timer）', () => {
       autoTrigger: false, max: MAX, state, renew, settle,
       clear: () => clearInterval(handle),
     });
-    handle = setInterval(tick, 60_000);
+    const handle = setInterval(tick, 60_000);
 
     t.mock.timers.tick(60_000 * 100);
 
@@ -180,7 +181,6 @@ describe('续租 interval 真实驱动（node:test mock timer）', () => {
 
   it('瞬时 renew throw 不停租（best effort，保活 interval）', (t) => {
     t.mock.timers.enable({ apis: ['setInterval'] });
-    let handle: ReturnType<typeof setInterval>;
     const state = { renewalCount: 0 };
     let n = 0;
     const renew = mock.fn(() => { n++; if (n === 2) throw new Error('transient'); return true; });
@@ -189,7 +189,7 @@ describe('续租 interval 真实驱动（node:test mock timer）', () => {
       autoTrigger: true, max: MAX, state, renew, settle,
       clear: () => clearInterval(handle),
     });
-    handle = setInterval(tick, 60_000);
+    const handle = setInterval(tick, 60_000);
 
     t.mock.timers.tick(60_000 * 5);
 

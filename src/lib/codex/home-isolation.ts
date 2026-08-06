@@ -138,6 +138,48 @@ function inspectMirrorEntry(source: string, target: string): CodexMirrorMode {
   throw new Error(`CodePilot Codex mirror type mismatch: ${path.basename(target)}`);
 }
 
+function copyDirectorySnapshot(
+  source: string,
+  target: string,
+  visitedRealPaths: Set<string> = new Set(),
+): void {
+  const sourceRealPath = fs.realpathSync.native(source);
+  const visitKey = process.platform === 'win32'
+    ? sourceRealPath.toLocaleLowerCase()
+    : sourceRealPath;
+  if (visitedRealPaths.has(visitKey)) {
+    throw Object.assign(new Error(`Recursive link in Codex home snapshot: ${source}`), {
+      code: 'ELOOP',
+    });
+  }
+
+  visitedRealPaths.add(visitKey);
+  try {
+    const sourceStat = fs.statSync(sourceRealPath);
+    fs.mkdirSync(target, { mode: sourceStat.mode & 0o777 });
+    for (const entry of fs.readdirSync(sourceRealPath, { withFileTypes: true })) {
+      const sourceEntry = path.join(sourceRealPath, entry.name);
+      const targetEntry = path.join(target, entry.name);
+      const entryStat = fs.lstatSync(sourceEntry);
+      if (entryStat.isSymbolicLink()) {
+        const resolved = fs.realpathSync.native(sourceEntry);
+        const resolvedStat = fs.statSync(resolved);
+        if (resolvedStat.isDirectory()) {
+          copyDirectorySnapshot(resolved, targetEntry, visitedRealPaths);
+        } else if (resolvedStat.isFile()) {
+          fs.copyFileSync(resolved, targetEntry, fs.constants.COPYFILE_EXCL);
+        }
+      } else if (entryStat.isDirectory()) {
+        copyDirectorySnapshot(sourceEntry, targetEntry, visitedRealPaths);
+      } else if (entryStat.isFile()) {
+        fs.copyFileSync(sourceEntry, targetEntry, fs.constants.COPYFILE_EXCL);
+      }
+    }
+  } finally {
+    visitedRealPaths.delete(visitKey);
+  }
+}
+
 /**
  * Keep Harness inputs live across clients without sharing runtime state.
  * Junction/hard-link fallbacks preserve Windows compatibility where ordinary
@@ -174,7 +216,10 @@ export function mirrorCodexHomeEntry(
   // Junction creation normally succeeds without elevation on Windows. A
   // recursive copy is the final compatibility fallback; it is intentionally
   // used only when the live mirror is unavailable.
-  fs.cpSync(source, target, { recursive: true, errorOnExist: true, force: false });
+  // Keep the fallback bounded to the selected directory. fs.cpSync performs
+  // parent-path checks that can hit EPERM in Windows sandboxes even when both
+  // source and destination are accessible.
+  copyDirectorySnapshot(source, target);
   return inspectMirrorEntry(source, target);
 }
 

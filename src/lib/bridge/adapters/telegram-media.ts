@@ -261,7 +261,7 @@ async function downloadFileById(
 
       // Step 5: Convert to base64 and build FileAttachment
       const base64 = buffer.toString('base64');
-      const fileName = filePath.split('/').pop() || `image_${messageId}`;
+      const fileName = filePath.split(/[\\/]/).pop() || `image_${messageId}`;
 
       return {
         attachment: {

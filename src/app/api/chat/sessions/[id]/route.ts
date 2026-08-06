@@ -5,6 +5,8 @@ import { autoApprovePendingForSession } from '@/lib/bridge/permission-broker';
 import { clearRuntimeSessionRef } from '@/lib/runtime/session-store';
 import { isRuntimeId, RUNTIME_IDS } from '@/lib/runtime/runtime-id';
 import { isPermissionProfile, normalizePermissionProfile, PERMISSION_PROFILES } from '@/lib/permission/profile';
+import path from 'node:path';
+import { isExistingDirectory } from '@/lib/working-directory';
 
 export async function GET(
   _request: NextRequest,
@@ -37,7 +39,16 @@ export async function PATCH(
     const body = await request.json();
 
     if (body.working_directory) {
-      updateSessionWorkingDirectory(id, body.working_directory);
+      const workingDirectory = typeof body.working_directory === 'string'
+        ? body.working_directory.trim()
+        : '';
+      if (!path.isAbsolute(workingDirectory) || !isExistingDirectory(workingDirectory)) {
+        return Response.json(
+          { error: 'Working directory must be an existing absolute directory', code: 'INVALID_DIRECTORY' },
+          { status: 400 },
+        );
+      }
+      updateSessionWorkingDirectory(id, path.normalize(workingDirectory));
     }
     // Rename. `if (body.title)` used to be the whole validation, so a title of
     // "   " or a lone NUL byte was stored verbatim and rendered as a blank sidebar

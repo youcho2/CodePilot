@@ -149,7 +149,7 @@ describe('agent-task-runner: heartbeat resolves to user-visible buddy session, n
 describe('db.getLatestSessionByWorkingDirectory: includeSources filter is honored', () => {
   it('signature accepts opts.includeSources for source filtering', async () => {
     const dbSrc = await import('node:fs').then((fs) =>
-      fs.readFileSync(__dirname.replace('/__tests__/unit', '/lib') + '/db.ts', 'utf-8'),
+      fs.readFileSync(path.resolve(__dirname, '../../lib/db.ts'), 'utf-8'),
     );
     // Pin the signature shape so the agent-task-runner's call won't
     // silently no-op (typescript would catch a missing param, but a

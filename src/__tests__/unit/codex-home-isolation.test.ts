@@ -86,7 +86,11 @@ describe('CodePilot Codex home isolation', () => {
     assert.equal(prepared.initializedNow, true);
     assert.equal(prepared.migratedRollouts, 1);
     assert.equal(prepared.skippedUnreadableRollouts, 1);
-    assert.equal(prepared.credentialMirrors['auth.json'], 'symlink');
+    const credentialMode = prepared.credentialMirrors['auth.json'];
+    assert.ok(
+      credentialMode === 'symlink' || credentialMode === 'hardlink',
+      `expected a live credential mirror, got ${credentialMode}`,
+    );
     const marker = JSON.parse(fs.readFileSync(
       path.join(prepared.codexHome, '.codepilot-codex-home-v1.json'),
       'utf8',
@@ -101,7 +105,7 @@ describe('CodePilot Codex home isolation', () => {
       version: 1,
       migratedRollouts: 1,
       skippedUnreadableRollouts: 1,
-      credentialMirrors: { 'auth.json': 'symlink', '.credentials.json': 'absent' },
+      credentialMirrors: { 'auth.json': credentialMode, '.credentials.json': 'absent' },
       harnessSnapshotEntries: [],
     });
     assert.equal(fs.readFileSync(path.join(prepared.codexHome, 'config.toml'), 'utf8'), 'model = "gpt-test"\n');
@@ -165,7 +169,11 @@ describe('CodePilot Codex home isolation', () => {
     fs.writeFileSync(source, 'first\n');
 
     const symlinkTarget = path.join(root, 'symlink', 'auth.json');
-    assert.equal(mirrorCodexHomeEntry(source, symlinkTarget, 'linux'), 'symlink');
+    const preferredMode = mirrorCodexHomeEntry(source, symlinkTarget, process.platform);
+    assert.ok(
+      preferredMode === 'symlink' || preferredMode === 'hardlink',
+      `expected live mirror mode, got ${preferredMode}`,
+    );
     fs.writeFileSync(source, 'symlink-refresh\n');
     assert.equal(fs.readFileSync(symlinkTarget, 'utf8'), 'symlink-refresh\n');
 

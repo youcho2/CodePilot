@@ -44,7 +44,7 @@ describe('#628 — resolveInTreeAttachmentPath (cwd + symlink containment)', () 
   let workDir: string;
   let outsideFile: string;
   before(() => {
-    workDir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'issue-628-')));
+    workDir = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'issue-628-')));
     fs.writeFileSync(path.join(workDir, 'real.ts'), 'export const x = 1;');
     fs.mkdirSync(path.join(workDir, 'sub'));
     fs.writeFileSync(path.join(workDir, 'sub', 'nested.md'), '# hi');

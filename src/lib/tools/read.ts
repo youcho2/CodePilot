@@ -36,7 +36,9 @@ export function createReadTool(ctx: ToolContext) {
       }
 
       const content = fs.readFileSync(resolved, 'utf-8');
-      const lines = content.split('\n');
+      // Avoid leaking a trailing carriage return into each tool-output line
+      // when the source file uses Windows CRLF line endings.
+      const lines = content.split(/\r?\n/);
 
       const startLine = offset ?? 0;
       const maxLines = limit ?? 2000;

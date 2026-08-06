@@ -3,6 +3,7 @@ import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { finished } from 'node:stream/promises';
 import { describe, it } from 'node:test';
 import { createPackage } from '@electron/asar';
 
@@ -276,7 +277,7 @@ describe('Electron packaging hygiene', () => {
       fs.mkdirSync(resources, { recursive: true });
       fs.mkdirSync(appSource, { recursive: true });
       fs.writeFileSync(path.join(appSource, 'main.js'), 'console.log("ok")');
-      await createPackage(appSource, path.join(resources, 'app.asar'));
+      await finished(await createPackage(appSource, path.join(resources, 'app.asar')));
 
       const clean = spawnSync(process.execPath, [packagedSmoke, '--source-maps-only', resources], {
         encoding: 'utf8',
@@ -286,7 +287,7 @@ describe('Electron packaging hygiene', () => {
 
       fs.writeFileSync(path.join(appSource, 'hidden.js.map'), '{}');
       fs.rmSync(path.join(resources, 'app.asar'));
-      await createPackage(appSource, path.join(resources, 'app.asar'));
+      await finished(await createPackage(appSource, path.join(resources, 'app.asar')));
       const asarLeak = spawnSync(process.execPath, [packagedSmoke, '--source-maps-only', resources], {
         encoding: 'utf8',
       });
@@ -295,7 +296,7 @@ describe('Electron packaging hygiene', () => {
 
       fs.rmSync(path.join(appSource, 'hidden.js.map'));
       fs.rmSync(path.join(resources, 'app.asar'));
-      await createPackage(appSource, path.join(resources, 'app.asar'));
+      await finished(await createPackage(appSource, path.join(resources, 'app.asar')));
       fs.mkdirSync(path.join(resources, 'standalone'), { recursive: true });
       fs.writeFileSync(path.join(resources, 'standalone', 'server.js.map'), '{}');
       const looseLeak = spawnSync(process.execPath, [packagedSmoke, '--source-maps-only', resources], {

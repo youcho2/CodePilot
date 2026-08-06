@@ -363,7 +363,7 @@ for (const adapterId of Object.keys(FIXTURES)) {
       repository.close();
     });
 
-    it('does not follow a discovery symlink outside the declared root', async () => {
+    it('does not follow a discovery symlink outside the declared root', async (t) => {
       const adapter = requireHarnessAdapter(adapterId);
       const fixture = FIXTURES[adapterId]();
       const outside = tempRoot(`${adapterId}-outside`);
@@ -374,7 +374,15 @@ for (const adapterId of Object.keys(FIXTURES)) {
           ? path.join(fixture.homeRoot, '.claude', 'skills')
           : path.join(fixture.homeRoot, '.codex', 'skills');
       fs.mkdirSync(symlinkParent, { recursive: true });
-      fs.symlinkSync(outside, path.join(symlinkParent, 'outside-link'));
+      try {
+        fs.symlinkSync(outside, path.join(symlinkParent, 'outside-link'), 'junction');
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === 'EPERM') {
+          t.skip('Windows host does not permit unprivileged symlink creation');
+          return;
+        }
+        throw error;
+      }
 
       const discovered = await adapter.discover(fixture);
       assert.doesNotMatch(JSON.stringify(discovered), /Outside Secret|should-never-be-read/);

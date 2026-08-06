@@ -12,6 +12,7 @@ import {
   isOpenRouterAnthropicSkinUrl,
 } from '@/lib/runtime-compat';
 import { isChatRuntimeParam, resolveChatRuntimeParam, type ChatRuntime } from '@/lib/chat-runtime';
+import { buildCodexProviderModelGroup } from '@/lib/codex/models';
 
 // Default Claude model options (for the built-in 'env' provider).
 // Capability metadata ensures `xhigh` appears in the effort dropdown even
@@ -528,7 +529,6 @@ export async function GET(request: NextRequest) {
     //     Codex entirely — saves an unnecessary RPC.
     if (runtimeFilter === 'codex_runtime') {
       try {
-        const { buildCodexProviderModelGroup } = await import('@/lib/codex/models');
         const codexGroup = await buildCodexProviderModelGroup({ timeoutMs: 2500 });
         if (codexGroup) groups.push(codexGroup);
       } catch {
@@ -536,7 +536,6 @@ export async function GET(request: NextRequest) {
       }
     } else if (!runtimeFilter) {
       try {
-        const { buildCodexProviderModelGroup } = await import('@/lib/codex/models');
         // cacheOnly — never spawn from the full-catalog path.
         const codexGroup = await buildCodexProviderModelGroup({ cacheOnly: true });
         if (codexGroup) groups.push(codexGroup);

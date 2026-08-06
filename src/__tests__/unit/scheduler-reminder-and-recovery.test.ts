@@ -187,6 +187,23 @@ describe('scheduler — runScheduledTaskNow concurrency', () => {
 });
 
 describe('scheduler — stale running recovery', () => {
+  it('does not start or touch runtime state during the Next production build phase', async () => {
+    const previousPhase = process.env.NEXT_PHASE;
+    process.env.NEXT_PHASE = 'phase-production-build';
+    delete (globalThis as Record<string, unknown>).__codepilot_scheduler__;
+    try {
+      const { ensureSchedulerRunning } = await import('../../lib/task-scheduler');
+      ensureSchedulerRunning();
+      assert.equal(
+        (globalThis as Record<string, unknown>).__codepilot_scheduler__,
+        undefined,
+      );
+    } finally {
+      if (previousPhase === undefined) delete process.env.NEXT_PHASE;
+      else process.env.NEXT_PHASE = previousPhase;
+    }
+  });
+
   it('ensureSchedulerRunning resets stale running rows to error with backoff', async () => {
     const db = await import('../../lib/db');
     const past = new Date(Date.now() - 60 * 60 * 1000).toISOString(); // 1h ago

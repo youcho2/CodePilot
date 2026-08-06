@@ -379,7 +379,14 @@ function redactValues(rec: Record<string, string>): Record<string, string> {
  */
 export function sameRealPath(a: string, b: string): boolean {
   try {
-    return fs.realpathSync(a) === fs.realpathSync(b);
+    // The JavaScript implementation walks every parent directory. On Windows
+    // that can fail with EPERM in a sandbox even when the requested path itself
+    // is accessible. The native implementation also handles junctions.
+    const left = fs.realpathSync.native(a);
+    const right = fs.realpathSync.native(b);
+    return process.platform === 'win32'
+      ? left.toLocaleLowerCase() === right.toLocaleLowerCase()
+      : left === right;
   } catch {
     return false;
   }

@@ -179,8 +179,8 @@ function prepareSource(input: HtmlBundleSource, stagingRoot: string): {
     };
   }
 
-  const scopeRoot = fs.realpathSync(path.resolve(input.scopeRoot));
-  const sourceDir = fs.realpathSync(path.resolve(input.sourceDir));
+  const scopeRoot = fs.realpathSync.native(path.resolve(input.scopeRoot));
+  const sourceDir = fs.realpathSync.native(path.resolve(input.sourceDir));
   if (!isWithin(sourceDir, scopeRoot)) {
     throw new Error('HTML bundle source directory is outside the session workspace.');
   }

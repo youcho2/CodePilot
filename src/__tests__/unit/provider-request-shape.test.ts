@@ -213,7 +213,10 @@ const MAX_STRING = 200;
 function sanitizeHeaders(headers: Record<string, string>): Record<string, string> {
   const out: Record<string, string> = {};
   for (const key of Object.keys(headers).sort()) {
-    out[key] = SECRET_HEADERS.has(key) ? '[REDACTED]' : headers[key];
+    const value = SECRET_HEADERS.has(key) ? '[REDACTED]' : headers[key];
+    out[key] = key.toLowerCase() === 'user-agent'
+      ? value.replace(/runtime\/node\.js\/v?\d+(?:\.\d+)*/g, 'runtime/node.js/<NODE_VERSION>')
+      : value;
   }
   return out;
 }
@@ -254,6 +257,9 @@ function checkFixture(name: string, meta: FixtureMeta, captured: CapturedRequest
     fs.writeFileSync(file, `${JSON.stringify(sanitized, null, 2)}\n`);
   }
   const expected = JSON.parse(fs.readFileSync(file, 'utf8'));
+  if (expected?.request?.headers) {
+    expected.request.headers = sanitizeHeaders(expected.request.headers);
+  }
   assert.deepEqual(
     sanitized,
     expected,

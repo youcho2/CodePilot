@@ -35,6 +35,8 @@ import {
   collectCodexCandidatePaths,
   fingerprintCodexCandidates,
   getMacOSCodexBundleCandidates,
+  getWindowsCodexCandidates,
+  isWindowsDesktopCodexPath,
   getCodexAvailability,
 } from '@/lib/codex/app-server-manager';
 
@@ -183,6 +185,53 @@ describe('findCodexBinary — macOS desktop bundle discovery', () => {
       else process.env.PATH = savedPath;
       resetCodexBinaryCacheForTests();
     }
+  });
+});
+
+describe('findCodexBinary — Windows standalone and desktop discovery', () => {
+  it('checks the official standalone installer directory even when PATH misses it', () => {
+    const candidates = getWindowsCodexCandidates(
+      'C:\\Users\\tester',
+      'C:\\Users\\tester\\AppData\\Local',
+      'C:\\Users\\tester\\AppData\\Roaming',
+    );
+    assert.ok(candidates.includes(
+      'C:\\Users\\tester\\AppData\\Local\\Programs\\OpenAI\\Codex\\bin\\codex.exe',
+    ));
+
+    const existing = new Set([
+      'C:\\Users\\tester\\AppData\\Local\\Programs\\OpenAI\\Codex\\bin\\codex.exe',
+    ]);
+    assert.deepEqual(collectCodexCandidatePaths({
+      platform: 'win32',
+      pathValue: '',
+      homeDir: 'C:\\Users\\tester',
+      localAppData: 'C:\\Users\\tester\\AppData\\Local',
+      appData: 'C:\\Users\\tester\\AppData\\Roaming',
+      exists: (candidate) => existing.has(candidate),
+    }), [...existing]);
+  });
+
+  it('classifies Store/MSIX bundles and app aliases as probe-required desktop paths', () => {
+    assert.equal(isWindowsDesktopCodexPath(
+      'C:\\Program Files\\WindowsApps\\OpenAI.Codex_1.0_x64__id\\app\\resources\\codex.exe',
+    ), true);
+    assert.equal(isWindowsDesktopCodexPath(
+      'C:\\Users\\tester\\AppData\\Local\\Microsoft\\WindowsApps\\codex.exe',
+    ), true);
+    assert.equal(isWindowsDesktopCodexPath(
+      'C:\\Users\\tester\\AppData\\Local\\Programs\\OpenAI\\Codex\\bin\\codex.exe',
+    ), false);
+  });
+
+  it('RuntimePanel explains the desktop-only state and independent CLI recovery', () => {
+    const panelSrc = fs.readFileSync(
+      path.resolve(__dirname, '../../components/settings/RuntimePanel.tsx'),
+      'utf8',
+    );
+    assert.match(panelSrc, /codexAvailability\.kind === ["']desktop_only["']/);
+    assert.match(panelSrc, /chatgpt\.com\/codex\/install\.ps1/);
+    assert.match(panelSrc, /仅桌面应用/);
   });
 });
 

@@ -15,13 +15,14 @@ import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { NextRequest } from 'next/server';
 import { ENV_CLAUDE_CODE_MODELS } from '../../lib/provider-catalog';
 import { getSetting, setSetting } from '../../lib/db';
 import { resolveComposerModelAutoCorrect } from '../../lib/model-option-match';
 import { GET as modelsGET } from '../../app/api/providers/models/route';
 
-const SRC = path.resolve(path.dirname(new URL(import.meta.url).pathname), '../..');
+const SRC = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const read = (f: string) => fs.readFileSync(path.join(SRC, f), 'utf8');
 
 describe('ENV_CLAUDE_CODE_MODELS — canonical content', () => {

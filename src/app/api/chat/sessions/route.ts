@@ -1,10 +1,11 @@
 import { NextRequest } from 'next/server';
-import fs from 'fs/promises';
+import path from 'node:path';
 import { getAllSessions, createSession } from '@/lib/db';
 import { sanitizeManualTitle, type TitleOrigin } from '@/lib/conversation-title';
 import type { CreateSessionRequest, SessionsResponse, SessionResponse } from '@/types';
 import { serverErrorResponse } from '@/lib/api-error';
 import { isPermissionProfile, PERMISSION_PROFILES } from '@/lib/permission/profile';
+import { isExistingDirectory } from '@/lib/working-directory';
 
 export async function GET(request: NextRequest) {
   try {
@@ -48,11 +49,10 @@ export async function POST(request: NextRequest) {
     }
 
     // Validate directory actually exists on disk
-    try {
-      await fs.access(body.working_directory);
-    } catch {
+    const workingDirectory = body.working_directory.trim();
+    if (!path.isAbsolute(workingDirectory) || !isExistingDirectory(workingDirectory)) {
       return Response.json(
-        { error: 'Directory does not exist', code: 'INVALID_DIRECTORY' },
+        { error: 'Working directory must be an existing absolute directory', code: 'INVALID_DIRECTORY' },
         { status: 400 },
       );
     }
@@ -88,7 +88,7 @@ export async function POST(request: NextRequest) {
       title,
       body.model,
       body.system_prompt,
-      body.working_directory,
+      path.normalize(workingDirectory),
       body.mode,
       body.provider_id,
       body.permission_profile,

@@ -20,6 +20,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import {
   sanitizeClaudeModelOptions,
   isOpusAdaptiveThinkingModel,
@@ -27,7 +28,7 @@ import {
 } from '../../lib/claude-model-options';
 import { getContextWindow } from '../../lib/model-context';
 
-const LIB = path.resolve(path.dirname(new URL(import.meta.url).pathname), '../../lib');
+const LIB = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../lib');
 const read = (f: string) => fs.readFileSync(path.join(LIB, f), 'utf8');
 
 describe('Fable 5 — adaptive-thinking family detection', () => {

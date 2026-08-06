@@ -6,6 +6,7 @@
  */
 
 import * as path from 'path';
+import * as fs from 'node:fs';
 
 // ── Constants ────────────────────────────────────────────────────
 
@@ -32,7 +33,7 @@ const DANGEROUS_PATTERNS: Array<{ pattern: RegExp; reason: string }> = [
 
 /**
  * Validate a working directory path.
- * Must be an absolute path without traversal or shell metacharacters.
+ * Must be an existing absolute directory without traversal or control characters.
  * Returns sanitized path or null if invalid.
  */
 export function validateWorkingDirectory(rawPath: string): string | null {
@@ -43,8 +44,11 @@ export function validateWorkingDirectory(rawPath: string): string | null {
   // Must be absolute
   if (!path.isAbsolute(trimmed)) return null;
 
-  // Reject null bytes
-  if (trimmed.includes('\0')) return null;
+  // Reject control characters. Shell metacharacters are valid filename
+  // characters on Windows and are safe here because this value is passed as
+  // spawn.cwd / filesystem input, never interpolated into a command string.
+  // eslint-disable-next-line no-control-regex
+  if (/[\x00-\x1f]/.test(trimmed)) return null;
 
   // Reject path traversal segments
   const segments = trimmed.split(/[/\\]/);
@@ -53,11 +57,13 @@ export function validateWorkingDirectory(rawPath: string): string | null {
   // Reject if too long
   if (trimmed.length > MAX_PATH_LENGTH) return null;
 
-  // Reject shell metacharacters that have no place in a directory path
-  if (/[$`;|&><(){}\x00-\x1f]/.test(trimmed)) return null;
-
   // Normalize the path (resolves redundant slashes, etc.)
-  return path.normalize(trimmed);
+  const normalized = path.normalize(trimmed);
+  try {
+    return fs.statSync(normalized).isDirectory() ? normalized : null;
+  } catch {
+    return null;
+  }
 }
 
 /**

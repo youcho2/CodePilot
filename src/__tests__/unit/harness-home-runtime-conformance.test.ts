@@ -360,7 +360,7 @@ describe('Canonical repository Runtime projection', () => {
     const result = loadConfiguredHarnessHome('codepilot_runtime');
     assert.equal(result.status, 'loaded');
     if (result.status !== 'loaded') return;
-    assert.equal(result.harness.repositoryRoot, fs.realpathSync(fixture.root));
+    assert.equal(result.harness.repositoryRoot, fs.realpathSync.native(fixture.root));
     assert.equal(result.secrets[0]?.status, 'unresolved');
     assert.equal(
       Object.prototype.hasOwnProperty.call(result.secrets[0] ?? {}, 'value'),

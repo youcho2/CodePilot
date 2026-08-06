@@ -5,20 +5,75 @@
 import { tool } from 'ai';
 import { z } from 'zod';
 import { spawn } from 'child_process';
+import fs from 'node:fs';
+import path from 'node:path';
 import type { ToolContext } from './index';
 
 const MAX_OUTPUT_BYTES = 1024 * 1024; // 1MB
 const DEFAULT_TIMEOUT_MS = 120_000;   // 2 minutes
 
+export interface ShellLaunch {
+  command: string;
+  args: string[];
+  env: NodeJS.ProcessEnv;
+}
+
+/** Build an argv-only launch that preserves Unicode and never interpolates CWD. */
+export function buildShellLaunch(
+  command: string,
+  options: { platform?: NodeJS.Platform; env?: NodeJS.ProcessEnv } = {},
+): ShellLaunch {
+  const platform = options.platform ?? process.platform;
+  const env = options.env ?? process.env;
+  if (platform !== 'win32') {
+    return { command: 'bash', args: ['-c', command], env: { ...env, TERM: 'dumb' } };
+  }
+
+  const explicitBash = env.CLAUDE_CODE_GIT_BASH_PATH;
+  if (explicitBash && fs.existsSync(explicitBash)) {
+    return { command: explicitBash, args: ['-c', command], env: { ...env, TERM: 'dumb' } };
+  }
+
+  const systemRoot = env.SystemRoot || env.SYSTEMROOT || 'C:\\Windows';
+  const bundledPowerShell = path.win32.join(
+    systemRoot,
+    'System32',
+    'WindowsPowerShell',
+    'v1.0',
+    'powershell.exe',
+  );
+  const powershell = fs.existsSync(bundledPowerShell) ? bundledPowerShell : 'powershell.exe';
+  const utf8Command = [
+    '[Console]::InputEncoding = [System.Text.UTF8Encoding]::new($false)',
+    '[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)',
+    '$OutputEncoding = [System.Text.UTF8Encoding]::new($false)',
+    command,
+  ].join('; ');
+
+  return {
+    command: powershell,
+    args: [
+      '-NoLogo',
+      '-NoProfile',
+      '-NonInteractive',
+      '-ExecutionPolicy',
+      'Bypass',
+      '-EncodedCommand',
+      Buffer.from(utf8Command, 'utf16le').toString('base64'),
+    ],
+    env: { ...env, TERM: 'dumb' },
+  };
+}
+
 export function createBashTool(ctx: ToolContext) {
   return tool({
     description:
-      'Execute a bash command and return its output (stdout + stderr combined). ' +
+      'Execute a platform shell command and return its output (stdout + stderr combined). ' +
       'The command runs in the working directory. Use for system operations, ' +
       'running tests, installing packages, git commands, etc. ' +
       'Long-running commands are automatically killed after the timeout.',
     inputSchema: z.object({
-      command: z.string().describe('The bash command to execute'),
+      command: z.string().describe('The platform shell command to execute'),
       timeout: z.number().int().positive().optional()
         .describe('Timeout in milliseconds (default 120000)'),
     }),
@@ -30,9 +85,10 @@ export function createBashTool(ctx: ToolContext) {
         let totalBytes = 0;
         let truncated = false;
 
-        const proc = spawn('bash', ['-c', command], {
+        const launch = buildShellLaunch(command);
+        const proc = spawn(launch.command, launch.args, {
           cwd: ctx.workingDirectory,
-          env: { ...process.env, TERM: 'dumb' },
+          env: launch.env,
           stdio: ['ignore', 'pipe', 'pipe'],
           timeout: timeoutMs,
         });

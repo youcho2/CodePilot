@@ -40,7 +40,7 @@ export function GitPanel() {
     refresh();
   }, [workingDirectory, refresh]);
 
-  const repoName = workingDirectory.split('/').pop() || '';
+  const repoName = workingDirectory.split(/[\\/]/).pop() || '';
 
   if (!status?.isRepo) {
     return (

@@ -31,8 +31,8 @@ fs.writeFileSync(file, '# Hello');
 fs.writeFileSync(htmlFile, '<h1>Hello</h1>');
 fs.writeFileSync(outside, 'outside');
 const session = createSession('Local path test', undefined, undefined, workspace, 'code');
-const canonicalFile = fs.realpathSync(file);
-const canonicalDirectory = fs.realpathSync(directory);
+const canonicalFile = fs.realpathSync.native(file);
+const canonicalDirectory = fs.realpathSync.native(directory);
 
 after(() => {
   fs.rmSync(testRoot, { recursive: true, force: true });
@@ -79,9 +79,17 @@ describe('GET /api/files/inspect', () => {
     assert.equal((await escaped.json()).code, 'path_unsafe');
   });
 
-  it('rejects symlink escapes without disclosing resolved filesystem paths', async () => {
+  it('rejects symlink escapes without disclosing resolved filesystem paths', async (t) => {
     const link = path.join(workspace, 'escape-link');
-    fs.symlinkSync(outside, link);
+    try {
+      fs.symlinkSync(outside, link);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'EPERM') {
+        t.skip('Windows Developer Mode or symlink privilege is required for this fixture');
+        return;
+      }
+      throw error;
+    }
     const response = await GET(request(link));
     assert.equal(response.status, 403);
     const body = await response.json();

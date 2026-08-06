@@ -39,6 +39,8 @@ export interface ParsedHtmlPreviewRequest {
 
 const SCOPE_TOKEN_WORKSPACE_PREFIX = 'ws.';
 const SCOPE_TOKEN_HOME = 'home';
+const WINDOWS_PATH_TOKEN_PREFIX = '__codepilot_win__.';
+const POSIX_ESCAPE_TOKEN = '__codepilot_posix__';
 
 function toBase64Url(input: string): string {
   // Buffer is Node-only; this helper runs in both Node (route handler)
@@ -78,9 +80,49 @@ function fromBase64Url(input: string): string {
  * spaces / `?` / `#`.
  */
 function encodeAbsolutePath(absolutePath: string): string {
-  // Strip leading slashes — they become the route's leading slash.
-  const stripped = absolutePath.replace(/^\/+/, '');
-  return stripped.split('/').map((segment) => encodeURIComponent(segment)).join('/');
+  const normalized = absolutePath.replace(/\\/g, '/');
+  const driveMatch = normalized.match(/^([A-Za-z]:)\/(.*)$/);
+  if (driveMatch) {
+    const [, drive, remainder] = driveMatch;
+    const rootToken = WINDOWS_PATH_TOKEN_PREFIX + toBase64Url(`${drive}\\`);
+    const encodedRemainder = remainder
+      .split('/')
+      .map((segment) => encodeURIComponent(segment))
+      .join('/');
+    return encodedRemainder ? `${rootToken}/${encodedRemainder}` : rootToken;
+  }
+
+  const uncMatch = normalized.match(/^\/\/([^/]+)\/([^/]+)(?:\/(.*))?$/);
+  if (uncMatch) {
+    const [, server, share, remainder = ''] = uncMatch;
+    const rootToken = WINDOWS_PATH_TOKEN_PREFIX + toBase64Url(`\\\\${server}\\${share}\\`);
+    const encodedRemainder = remainder
+      .split('/')
+      .filter(Boolean)
+      .map((segment) => encodeURIComponent(segment))
+      .join('/');
+    return encodedRemainder ? `${rootToken}/${encodedRemainder}` : rootToken;
+  }
+
+  // Strip leading slashes; they become the route's leading slash.
+  const stripped = normalized.replace(/^\/+/, '');
+  const encoded = stripped.split('/').map((segment) => encodeURIComponent(segment));
+  // Escape a legal POSIX top-level directory that uses our marker prefix.
+  if (encoded[0]?.startsWith(WINDOWS_PATH_TOKEN_PREFIX) || encoded[0] === POSIX_ESCAPE_TOKEN) {
+    encoded.unshift(POSIX_ESCAPE_TOKEN);
+  }
+  return encoded.join('/');
+}
+
+function isAbsoluteFilesystemPath(filePath: string): boolean {
+  return filePath.startsWith('/')
+    || /^[A-Za-z]:[\\/]/.test(filePath)
+    || /^[\\/]{2}[^\\/]+[\\/]+[^\\/]+(?:[\\/]|$)/.test(filePath);
+}
+
+function isWindowsRoot(root: string): boolean {
+  return /^[A-Za-z]:\\$/.test(root)
+    || /^\\\\[^\\]+\\[^\\]+\\$/.test(root);
 }
 
 /**
@@ -109,9 +151,14 @@ export function buildHtmlPreviewUrl(
   scope: HtmlPreviewScope,
   options: { interactive?: boolean; reloadNonce?: number } = {},
 ): string {
-  if (!absolutePath.startsWith('/')) {
+  if (!isAbsoluteFilesystemPath(absolutePath)) {
     throw new Error(
-      `buildHtmlPreviewUrl requires an absolute POSIX path; got "${absolutePath}"`,
+      `buildHtmlPreviewUrl requires an absolute filesystem path; got "${absolutePath}"`,
+    );
+  }
+  if (scope.kind === 'workspace' && !isAbsoluteFilesystemPath(scope.baseDir)) {
+    throw new Error(
+      `buildHtmlPreviewUrl requires an absolute workspace baseDir; got "${scope.baseDir}"`,
     );
   }
   const scopeToken =
@@ -245,16 +292,41 @@ export function parseHtmlPreviewSegments(
     } catch {
       throw new Error('workspace scope token has invalid base64url payload');
     }
-    if (!baseDir.startsWith('/')) {
-      throw new Error('decoded baseDir must be an absolute POSIX path');
+    if (!isAbsoluteFilesystemPath(baseDir)) {
+      throw new Error('decoded baseDir must be an absolute filesystem path');
     }
     scope = { kind: 'workspace', baseDir };
   } else {
     throw new Error(`unrecognized scope token "${scopeToken}"`);
   }
 
-  // Rebuild the absolute path. Next.js already URL-decodes segments
-  // when handing them to the route, so we just join with /.
-  const absolutePath = '/' + pathSegments.join('/');
+  // Rebuild the absolute path. Windows roots live in the first marker
+  // segment while the remaining hierarchy stays browser-resolvable.
+  let absolutePath: string;
+  const [pathToken, ...remainingSegments] = pathSegments;
+  if (pathToken === POSIX_ESCAPE_TOKEN) {
+    if (remainingSegments.length === 0) {
+      throw new Error('escaped POSIX path is missing path segments');
+    }
+    absolutePath = '/' + remainingSegments.join('/');
+  } else if (pathToken.startsWith(WINDOWS_PATH_TOKEN_PREFIX)) {
+    const encodedRoot = pathToken.slice(WINDOWS_PATH_TOKEN_PREFIX.length);
+    if (!encodedRoot) {
+      throw new Error('Windows path token is missing its encoded root');
+    }
+    let windowsRoot: string;
+    try {
+      windowsRoot = fromBase64Url(encodedRoot);
+    } catch {
+      throw new Error('Windows path token has invalid base64url payload');
+    }
+    if (!isWindowsRoot(windowsRoot)) {
+      throw new Error('Windows path token does not contain a valid drive or UNC root');
+    }
+    absolutePath = windowsRoot + remainingSegments.join('\\');
+  } else {
+    // Legacy and POSIX wire shape.
+    absolutePath = '/' + pathSegments.join('/');
+  }
   return { scope, absolutePath };
 }

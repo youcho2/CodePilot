@@ -100,7 +100,7 @@ function scanRepo(): FileScan[] {
     const stripped = stripComments(raw);
     if (!SENTRY_NODE_RE.test(stripped)) continue;
     out.push({
-      rel: path.relative(SRC, file),
+      rel: path.relative(SRC, file).replaceAll(path.sep, '/'),
       stripped,
       blocks: extractDevGuardBlocks(stripped),
     });

@@ -365,7 +365,13 @@ function getUploadedFilePaths(files: FileAttachment[], workDir: string): string[
           fs.mkdirSync(uploadDir, { recursive: true });
         }
       }
-      const safeName = path.basename(file.name).replace(/[^a-zA-Z0-9._-]/g, '_');
+      const safeName = path.basename(file.name)
+        // Preserve Unicode filenames and replace only cross-platform-invalid
+        // filename/control characters.
+        // eslint-disable-next-line no-control-regex
+        .replace(/[<>:"/\\|?*\x00-\x1f]/g, '_')
+        .replace(/[. ]+$/g, '_')
+        .slice(0, 180) || 'attachment';
       const filePath = path.join(uploadDir, `${Date.now()}-${safeName}`);
       const buffer = Buffer.from(file.data, 'base64');
       fs.writeFileSync(filePath, buffer);

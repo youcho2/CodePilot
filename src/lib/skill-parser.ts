@@ -121,6 +121,6 @@ function parseArguments(value: unknown): SkillArgument[] {
 }
 
 function fileNameToSkillName(filePath: string): string {
-  const base = filePath.split('/').pop() || '';
+  const base = filePath.split(/[\\/]/).pop() || '';
   return base.replace(/\.(md|skill)$/i, '').replace(/[-_]/g, ' ');
 }

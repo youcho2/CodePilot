@@ -185,8 +185,8 @@ function estimateInvocationTokens(record: ToolInvocationRecord): number {
 
 function formatSkillSource(workspacePath: string, filePath: string): string {
   const rel = path.relative(workspacePath, filePath);
-  if (!rel.startsWith('..')) return `workspace/${rel}`;
-  return filePath;
+  if (!rel.startsWith('..')) return `workspace/${rel.replace(/\\/g, '/')}`;
+  return filePath.replace(/\\/g, '/');
 }
 
 // ─────────────────────────────────────────────────────────────────────────

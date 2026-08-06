@@ -165,10 +165,12 @@ describe('task_run_logs.notification_event_id link (Phase 3 Step 3 v6 fix)', () 
     // the multi-step linkback can stretch past a tight 400ms window,
     // so give it a comfortable margin. The path is still
     // synchronous-ish; we're not waiting for streamClaude.
-    await new Promise((r) => setTimeout(r, 1000));
-
-    const runs = db.listTaskRunLogs(task.id);
-    const row = runs.find((r) => r.id === runId);
+    let row = db.listTaskRunLogs(task.id).find((candidate) => candidate.id === runId);
+    const deadline = Date.now() + 5_000;
+    while ((!row || !row.notification_event_id) && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      row = db.listTaskRunLogs(task.id).find((candidate) => candidate.id === runId);
+    }
     assert.ok(row);
     // Phase 3 Step 4 — new 5-state enum writes 'failed'. Legacy
     // 'error' is still accepted on read but new code paths produce

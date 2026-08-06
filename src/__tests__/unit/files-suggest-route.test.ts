@@ -7,7 +7,7 @@ import { randomUUID } from 'node:crypto';
 import { NextRequest } from 'next/server';
 import { GET } from '../../app/api/files/suggest/route';
 
-const testRoot = path.join(os.homedir(), '.codepilot-test-files-suggest-' + randomUUID());
+const testRoot = path.join(os.tmpdir(), '.codepilot-test-files-suggest-' + randomUUID());
 
 function req(url: string) {
   return new NextRequest(url);
@@ -40,7 +40,7 @@ describe('/api/files/suggest route', () => {
     // breaking valid projects on external volumes, /tmp, or mounted
     // workspaces. The workspace the user selected is the trust boundary —
     // only filesystem-root paths should be rejected.
-    const outsideHome = path.join(os.tmpdir(), 'codepilot-non-home-' + randomUUID());
+    const outsideHome = path.join(process.cwd(), '.codepilot-non-home-' + randomUUID());
     fs.mkdirSync(outsideHome, { recursive: true });
     try {
       fs.writeFileSync(path.join(outsideHome, 'entry.ts'), '// smoke\n');

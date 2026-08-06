@@ -1,7 +1,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-const REPO_ROOT = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..');
+const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const EXEC_PLANS_DIR = path.join(REPO_ROOT, 'docs', 'exec-plans');
 const README_PATH = path.join(EXEC_PLANS_DIR, 'README.md');
 const ACTIVE_DIR = path.join(EXEC_PLANS_DIR, 'active');

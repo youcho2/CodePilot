@@ -31,6 +31,7 @@ import {
 } from './security/validators';
 import { ChannelPluginAdapter } from '../channels/channel-plugin-adapter';
 import type { FeishuChannelPlugin } from '../channels/feishu';
+import path from 'node:path';
 
 /**
  * Extract the real platform chat_id from a potentially synthetic thread-session address.
@@ -544,6 +545,12 @@ async function handleMessage(
           parseMode: 'HTML',
           replyToMessageId: msg.messageId,
         });
+      } else {
+        await deliver(adapter, {
+          address: msg.address,
+          text: 'Working directory is unavailable or is not an absolute directory.',
+          replyToMessageId: msg.messageId,
+        });
       }
       ack();
       return;
@@ -938,7 +945,7 @@ async function handleCommand(
       if (args) {
         const validated = validateWorkingDirectory(args);
         if (!validated) {
-          response = 'Invalid path. Must be an absolute path without traversal sequences.';
+          response = 'Invalid path. Must be an existing absolute directory without traversal sequences.';
           break;
         }
         workDir = validated;
@@ -977,7 +984,7 @@ async function handleCommand(
         // Direct path specified
         const validatedPath = validateWorkingDirectory(args);
         if (!validatedPath) {
-          response = 'Invalid path. Must be an absolute path without traversal sequences or special characters.';
+          response = 'Invalid path. Must be an existing absolute directory without traversal sequences.';
           break;
         }
         const binding = router.resolve(msg.address);
@@ -1011,7 +1018,8 @@ async function handleCommand(
 
       // Build inline buttons for project selection
       const inlineButtons = uniqueDirs.map((dir) => {
-        const label = dir === currentCwd ? `📍 ${dir.split('/').pop() || dir}` : (dir.split('/').pop() || dir);
+        const basename = path.basename(dir) || dir;
+        const label = dir === currentCwd ? `📍 ${basename}` : basename;
         return [{
           text: label,
           callbackData: `cwd:${dir}`,

@@ -41,6 +41,11 @@ export function removeSessionTask(id: string): void {
  * Safe to call multiple times — only starts once.
  */
 export function ensureSchedulerRunning(): void {
+  // App-route modules are evaluated while Next collects production build
+  // metadata. Starting the scheduler there touches the user's SQLite home and
+  // creates timers in a short-lived build worker. Runtime startup invokes this
+  // again with NEXT_PHASE unset, so suppress only the documented build phase.
+  if (process.env.NEXT_PHASE === 'phase-production-build') return;
   if ((globalThis as Record<string, unknown>)[GLOBAL_KEY]) return;
   (globalThis as Record<string, unknown>)[GLOBAL_KEY] = true;
 

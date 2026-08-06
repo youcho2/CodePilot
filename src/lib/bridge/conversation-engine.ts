@@ -8,7 +8,6 @@
 
 import fs from 'fs';
 import path from 'path';
-import os from 'os';
 import type { ChannelBinding } from './types';
 import type { SSEEvent, TokenUsage, MessageContentBlock, FileAttachment } from '@/types';
 import { streamClaude } from '../claude-client';
@@ -41,6 +40,7 @@ import { loadCodePilotMcpServers, loadAllMcpServers } from '../mcp-loader';
 import { assembleContext } from '../context-assembler';
 import { predictNativeRuntime } from '../runtime';
 import crypto from 'crypto';
+import { resolveWorkingDirectory } from '../working-directory';
 
 export interface PermissionRequestInfo {
   permissionRequestId: string;
@@ -78,17 +78,6 @@ export interface ConversationResult {
   permissionRequests: PermissionRequestInfo[];
   /** SDK session ID captured from status/result events, for session resume */
   sdkSessionId: string | null;
-}
-
-/**
- * Resolve and validate working directory from multiple candidates.
- * Returns the first existing directory, or HOME as last resort.
- */
-function resolveWorkingDirectory(...candidates: (string | undefined | null)[]): string {
-  for (const dir of candidates) {
-    if (dir && fs.existsSync(dir)) return dir;
-  }
-  return os.homedir();
 }
 
 /**
@@ -172,7 +161,13 @@ export async function processMessage(
             fs.mkdirSync(uploadDir, { recursive: true });
           }
           const fileMeta = files.map((f) => {
-            const safeName = path.basename(f.name).replace(/[^a-zA-Z0-9._-]/g, '_');
+            const safeName = path.basename(f.name)
+              // Preserve Unicode names; replace only characters that are
+              // invalid on Windows or unsafe as control characters.
+              // eslint-disable-next-line no-control-regex
+              .replace(/[<>:"/\\|?*\x00-\x1f]/g, '_')
+              .replace(/[. ]+$/g, '_')
+              .slice(0, 180) || 'attachment';
             const filePath = path.join(uploadDir, `${Date.now()}-${safeName}`);
             const buffer = Buffer.from(f.data, 'base64');
             fs.writeFileSync(filePath, buffer);
@@ -287,11 +282,22 @@ export async function processMessage(
     });
 
     // Resolve a valid working directory from multiple candidates
-    const effectiveCwd = resolveWorkingDirectory(
-      binding.workingDirectory,
-      session?.working_directory,
-      getSetting('bridge_default_work_dir'),
-    );
+    const resolvedCwd = resolveWorkingDirectory([
+      { path: session?.sdk_cwd, source: 'session_sdk_cwd' },
+      { path: binding.workingDirectory, source: 'binding' },
+      { path: session?.working_directory, source: 'session_working_directory' },
+      { path: getSetting('bridge_default_work_dir'), source: 'setting' },
+    ]);
+    const effectiveCwd = resolvedCwd.path;
+
+    if (resolvedCwd.invalidCandidates.length > 0) {
+      console.warn('[conversation-engine] Ignored invalid working directories', {
+        sessionId,
+        selected: effectiveCwd,
+        source: resolvedCwd.source,
+        invalidCandidates: resolvedCwd.invalidCandidates,
+      });
+    }
 
     // If the effective cwd differs from what the binding/session had, the
     // original directory is gone — clear sdkSessionId to prevent stale resume.

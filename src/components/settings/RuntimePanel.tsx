@@ -1042,6 +1042,20 @@ export function RuntimePanel(props: RuntimePanelProps = {}) {
    */
   const codexRuntimeStatus: RuntimeStatusInfo = useMemo(() => {
     const isSelected = effectiveRuntime === "codex_runtime";
+    if (codexAvailability.kind === "desktop_only") {
+      return {
+        state: "blocked",
+        reason: isZh
+          ? "检测到 ChatGPT/Codex 桌面应用，但没有可供 CodePilot 启动的独立 Codex CLI"
+          : "The ChatGPT/Codex desktop app was found, but no standalone Codex CLI is executable by CodePilot",
+        impact: isZh
+          ? "桌面应用本身仍可使用；Codex Runtime 需要能启动 app-server 的 CLI，当前发送会失败"
+          : "The desktop app remains usable, but Codex Runtime needs a CLI that can launch app-server and sends will currently fail",
+        recovery: isZh
+          ? "在 PowerShell 运行 `irm https://chatgpt.com/codex/install.ps1 | iex` 安装独立 CLI，或设置 CODEX_BIN 后刷新"
+          : "Run `irm https://chatgpt.com/codex/install.ps1 | iex` in PowerShell, or set CODEX_BIN, then refresh",
+      };
+    }
     if (codexAvailability.kind === "not_installed") {
       return {
         state: "blocked",
@@ -1052,8 +1066,8 @@ export function RuntimePanel(props: RuntimePanelProps = {}) {
           ? "Codex Runtime 整体无法启用：Codex 账户模型（gpt-5.5 等）和 CodePilot 服务商经 proxy 接入两条路径都会发送失败"
           : "Codex Runtime is fully blocked: both Codex Account models (gpt-5.5 etc.) and CodePilot providers via the proxy will fail at send time",
         recovery: isZh
-          ? "安装或更新 ChatGPT/Codex 客户端、Codex CLI，或设置 CODEX_BIN 指向自定义路径"
-          : "Install or update the ChatGPT/Codex app, Codex CLI, or point CODEX_BIN at a custom binary",
+          ? "安装 Codex CLI（PowerShell：`irm https://chatgpt.com/codex/install.ps1 | iex`），或设置 CODEX_BIN 指向自定义路径"
+          : "Install Codex CLI (`irm https://chatgpt.com/codex/install.ps1 | iex` in PowerShell), or point CODEX_BIN at a custom binary",
       };
     }
     if (codexAvailability.kind === "too_old") {
@@ -1321,6 +1335,8 @@ export function RuntimePanel(props: RuntimePanelProps = {}) {
                 ? (isZh ? "已就绪" : "Ready")
                 : codexAvailability.kind === "not_installed"
                   ? (isZh ? "未安装 codex CLI — 选用后无法发送" : "codex CLI not installed — sends will fail")
+                  : codexAvailability.kind === "desktop_only"
+                    ? (isZh ? "仅检测到桌面应用 — 需独立 CLI" : "Desktop app only — standalone CLI required")
                   : codexAvailability.kind === "installed_idle"
                     ? (isZh ? "已安装，可用" : "Installed, starts on demand")
                   : codexAvailability.kind === "spawn_failed"
@@ -1775,6 +1791,13 @@ export function RuntimePanel(props: RuntimePanelProps = {}) {
                   <XCircle size={14} className="text-status-error-foreground" />
                   <span className="text-xs text-muted-foreground">
                     {isZh ? "未安装" : "Not installed"}
+                  </span>
+                </>
+              ) : codexAvailability.kind === "desktop_only" ? (
+                <>
+                  <Warning size={14} weight="fill" className="text-status-warning-foreground" />
+                  <span className="text-xs text-muted-foreground">
+                    {isZh ? "仅桌面应用" : "Desktop app only"}
                   </span>
                 </>
               ) : codexAvailability.kind === "installed_idle" ? (

@@ -133,7 +133,7 @@ describe('Harness Home Asset Library conformance', () => {
       assert.equal(imageAsset.method_ref, 'method:test-image');
       assert.equal(imageAsset.integrity_state, 'valid');
       assert.match(imageAsset.content_hash, /^sha256:[a-f0-9]{64}$/);
-      assert.ok(imageAsset.stable_path.startsWith(fs.realpathSync(getMediaDir())));
+      assert.ok(imageAsset.stable_path.startsWith(fs.realpathSync.native(getMediaDir())));
       assert.equal(fs.readFileSync(audioAsset.stable_path).subarray(0, 4).toString(), 'RIFF');
       assert.deepEqual(toTypedAssetRef(videoAsset), {
         assetId: videoAsset.id,

@@ -129,7 +129,7 @@ function inspectLegacyPreview(row: LegacyGalleryRow): {
   let resolved: string;
   try {
     // One syscall closes the former existsSync → realpathSync deletion race.
-    resolved = fs.realpathSync(row.local_path);
+    resolved = fs.realpathSync.native(row.local_path);
   } catch (error) {
     const code = (error as NodeJS.ErrnoException).code;
     return {
@@ -142,7 +142,7 @@ function inspectLegacyPreview(row: LegacyGalleryRow): {
   }
   let mediaRoot: string;
   try {
-    mediaRoot = fs.realpathSync(getMediaDir());
+    mediaRoot = fs.realpathSync.native(getMediaDir());
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
       return {

@@ -1036,8 +1036,8 @@ function buildMemoryGetTool(opts: BuiltinBridgeOpts) {
           return { text: `File not found: ${input.file_path}` };
         }
         // Symlink escape guard.
-        const realPath = fs.realpathSync(resolved);
-        const realWorkspace = fs.realpathSync(resolvedWorkspace);
+        const realPath = fs.realpathSync.native(resolved);
+        const realWorkspace = fs.realpathSync.native(resolvedWorkspace);
         const realRel = path.relative(realWorkspace, realPath);
         if (realRel.startsWith('..') || path.isAbsolute(realRel)) {
           throw new Error('Access denied: path resolves outside the workspace (symlink).');

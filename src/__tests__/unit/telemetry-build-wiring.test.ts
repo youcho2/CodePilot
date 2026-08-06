@@ -1,7 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import { describe, it } from 'node:test';
 
@@ -55,7 +54,7 @@ describe('telemetry release wiring', () => {
   });
 
   it('verifies map presence without credentials and fails closed before upload without Secrets', () => {
-    const fixture = fs.mkdtempSync(path.join(os.tmpdir(), 'codepilot-sentry-maps-'));
+    const fixture = fs.mkdtempSync(path.join(root, '.codepilot-sentry-maps-'));
     try {
       for (const relative of [
         '.next/static',
@@ -99,7 +98,7 @@ describe('telemetry release wiring', () => {
   });
 
   it('retries transient source-map upload failures and remains fail closed', () => {
-    const fixture = fs.mkdtempSync(path.join(os.tmpdir(), 'codepilot-sentry-upload-'));
+    const fixture = fs.mkdtempSync(path.join(root, '.codepilot-sentry-upload-'));
     try {
       for (const relative of [
         '.next/static',

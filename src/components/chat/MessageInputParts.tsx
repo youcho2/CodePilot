@@ -102,7 +102,7 @@ export function FileTreeAttachmentBridge() {
         return;
       }
       const blob = await res.blob();
-      const fileName = filePath.split('/').pop() || 'file';
+      const fileName = filePath.split(/[\\/]/).pop() || 'file';
       // Use the content-type from the server response (it resolves from extension)
       const contentType = res.headers.get('content-type') || 'application/octet-stream';
       const file = new File([blob], fileName, { type: contentType });

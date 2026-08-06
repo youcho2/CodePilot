@@ -13,6 +13,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import {
   sanitizeClaudeModelOptions,
   isOpusAdaptiveThinkingModel,
@@ -20,7 +21,7 @@ import {
 import { getContextWindow } from '../../lib/model-context';
 import { ENV_CLAUDE_CODE_MODELS } from '../../lib/provider-catalog';
 
-const LIB = path.resolve(path.dirname(new URL(import.meta.url).pathname), '../../lib');
+const LIB = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../lib');
 const read = (f: string) => fs.readFileSync(path.join(LIB, f), 'utf8');
 const SRC = path.resolve(LIB, '..');
 const readSrc = (f: string) => fs.readFileSync(path.join(SRC, f), 'utf8');

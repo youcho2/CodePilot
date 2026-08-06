@@ -20,6 +20,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { setSetting } from '@/lib/db';
 
 const originalDataDir = process.env.CLAUDE_GUI_DATA_DIR;
 const originalHome = process.env.HOME;
@@ -127,7 +128,6 @@ describe('loadProjectMcpServers — explicit project .mcp.json injection', () =>
     });
 
     // Seed CodePilot DB with the secret value
-    const { setSetting } = await import('@/lib/db');
     setSetting('team_api_token', 'sk-team-secret');
 
     const { loadProjectMcpServers } = await import('../../lib/mcp-loader');

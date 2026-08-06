@@ -163,7 +163,7 @@ describe('native loops capture provider stream failures', () => {
           () => providerErrorStream('overloaded_error', text),
         );
         await new Promise<void>((resolve) => setImmediate(resolve));
-        await sentry.flush(1_000);
+        await sentry.flush(5_000);
 
         if (text !== undefined) assert.match(raw, /partial answer/);
         const events = sentryEvents(envelopes);
@@ -183,7 +183,7 @@ describe('native loops capture provider stream failures', () => {
         () => providerErrorStream('permission_error'),
       );
       await new Promise<void>((resolve) => setImmediate(resolve));
-      await sentry.flush(1_000);
+      await sentry.flush(5_000);
 
       assert.match(raw, /data: \{"type":"error"/);
       assert.match(raw, /data: \{"type":"done"/);
@@ -198,7 +198,7 @@ describe('native loops capture provider stream failures', () => {
         () => providerHttpError(403, 'permission_error'),
       );
       await new Promise<void>((resolve) => setImmediate(resolve));
-      await sentry.flush(1_000);
+      await sentry.flush(5_000);
 
       assert.equal(sentryEvents(envelopes).length, 0);
     });
@@ -211,7 +211,7 @@ describe('native loops capture provider stream failures', () => {
         () => providerHttpError(503, 'api_error'),
       );
       await new Promise<void>((resolve) => setImmediate(resolve));
-      await sentry.flush(1_000);
+      await sentry.flush(5_000);
 
       const events = sentryEvents(envelopes);
       assert.equal(events.length, 1, `${label}/initial-503 must capture exactly once`);
