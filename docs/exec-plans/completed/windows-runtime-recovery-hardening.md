@@ -1,11 +1,11 @@
 # Windows Runtime 诊断、恢复与凭据加固
 
 > 创建时间：2026-08-06
-> 最后更新：2026-08-06
-> 总状态：🚧 进行中
+> 最后更新：2026-08-07
+> 总状态：✅ 已完成（本机可验证范围；跨机真实凭据与 standalone sandbox 矩阵保留在交接清单）
 > 触发信号：Windows 中文/特殊字符工作区曾无法读取；Microsoft Store Codex 只能发现桌面 bundle、不能作为 CLI 执行；Runtime 页面缺少可操作的恢复入口；Provider API key 仍以明文存入 SQLite。
 > 调研依据：[Windows 竞品适配可借鉴矩阵](../../research/windows-competitor-adaptation-reuse-2026-08-06.md)
-> 前序修复：[Windows Runtime / 路径兼容性](../completed/windows-runtime-path-compatibility.md)
+> 前序修复：[Windows Runtime / 路径兼容性](./windows-runtime-path-compatibility.md)
 
 ## 状态
 
@@ -13,9 +13,9 @@
 |-------|------|------|------|
 | Phase 0 | 事实契约、边界与回归基线 | ✅ 已完成 | 已确认不能把 Desktop bundle、文件存在或 app-server ready 冒充完整可用 |
 | Phase 1 | Windows Path Identity + Runtime Doctor | ✅ 已完成 | 显示路径、比较身份、安全 realpath 分轴；三 Runtime 分层诊断 |
-| Phase 2 | Codex sandbox readiness + 安装恢复入口 | ✅ 已完成（代码） | desktop_only 固定复制官方命令并打开 PowerShell，不自动执行；真 UI 点击待 DEV 终验 |
-| Phase 3 | Provider secret 系统安全存储迁移 | ✅ 已完成（代码） | Electron safeStorage 保护数据密钥；SQLite 只保留版本化密文；跨 OS backend 待真机矩阵 |
-| Phase 4 | Windows DEV、测试、文档与复审交接 | 🚧 进行中 | targeted/full/build 已通过；最新 DEV 已启动并确认 `desktop_only`，恢复按钮真机点击留给用户验收 |
+| Phase 2 | Codex sandbox readiness + 安装恢复入口 | ✅ 已完成 | desktop_only 固定复制 npm 兼容命令并打开 PowerShell，不自动执行；用户已在 Windows DEV 验收 |
+| Phase 3 | Provider secret 系统安全存储迁移 | ✅ 已完成 | Electron safeStorage 保护数据密钥；SQLite 只保留版本化密文；跨 OS backend 真机矩阵交由后续复查 |
+| Phase 4 | Windows DEV、测试、文档与复审交接 | ✅ 已完成 | targeted/full/build、Windows DEV 与恢复入口用户验收均完成；DEV 已按用户要求关闭 |
 
 ## 用户问题与根因
 
@@ -30,6 +30,7 @@
 - 2026-08-06：用户明确要求实现调研中的 P0/P1，并新增“复制安装命令 + 打开 PowerShell”入口。
 - 2026-08-06：安装命令固定为官方 `irm https://chatgpt.com/codex/install.ps1 | iex`；Electron 只复制并打开可见 PowerShell，不把命令作为 argv 传入，也不自动执行。
 - 2026-08-07：用户真机发现旧启动链只收到 child `spawn` 事件却没有可见 PowerShell；同时官方 `install.ps1` 在 Windows PowerShell 中读取 `OSArchitecture` 失败。恢复入口改用固定 `cmd.exe /c start` 独立控制台，并等待 launcher 退出码；检测到 `npm.cmd` 时优先复制官方支持的 `npm.cmd install -g @openai/codex`，没有 npm 才回退 standalone 脚本。renderer 仍无权传入命令。
+- 2026-08-07：修复版 Windows DEV 经用户复点后反馈“好了”，据此关闭恢复入口的本机 UI 验收；用户要求补齐文档、关闭 DEV、push 当前改动但不发版，跨机 standalone/sandbox/safeStorage 真凭据矩阵留给另一台电脑上的模型复查。
 - 2026-08-06：Path Identity 的 `comparisonKey` 只用于 lookup/cache；安全授权继续依赖存在对象的 native realpath + containment，不做全局 lowercase 授权。
 - 2026-08-06：sandbox 没有上游真实信号时必须显示 `unknown/not_run`；不通过启发式推断 ready。
 - 2026-08-06：Provider 密钥采用 envelope encryption：Electron `safeStorage` 保护随机数据密钥，Next 运行进程只在内存/子进程环境持有数据密钥，SQLite 保存 AES-256-GCM 版本化密文。Linux `basic_text` 或无系统 backend 明确降级，不能称为系统安全存储。
@@ -100,16 +101,16 @@
 
 验收入口：Windows Electron DEV、unit/full test、Electron build；交接/产品文档。
 
-明确不做：没有 standalone Codex 与真实 Provider 凭据时，不把 sandbox child、真实计费请求或 safeStorage 升级 smoke 写成通过；不自动 push/release。
+明确不做：没有 standalone Codex 与真实 Provider 凭据时，不把 sandbox child、真实计费请求或 safeStorage 升级 smoke 写成通过；本轮按用户指令只 push，不打 tag、不构建发布包、不创建 Release。
 
 - [x] targeted tests + `npm run test`（最终结果见验证记录）
 - [x] `npm run electron:build`，Next 136 pages + Electron bundle 完成
 - [x] Windows Electron DEV 已启动；`/api/health` 为 `ok`，Codex Runtime 为真实 `desktop_only`
 - [x] 固定 `cmd/start` 启动链真机返回 0 且独立 PowerShell 进程保持存活；安装命令未进入 argv
-- [ ] 用户在重启后的 Windows DEV 中复点恢复按钮，确认 PowerShell 可见且剪贴板为 npm 兼容命令
+- [x] 用户在重启后的 Windows DEV 中复点恢复按钮，并反馈修复结果“好了”
 - [x] 更新 Windows 技术交接与竞品调研结论
 - [x] 新增互相反链的技术交接文档与产品思考文档
-- [ ] 回写状态/清单/决策日志；完成后移入 `completed/`
+- [x] 回写状态/清单/决策日志；完成后移入 `completed/`
 
 ## 验收语义与反例
 
@@ -130,6 +131,7 @@
 | 2026-08-06 | test_runtime | — | — | 隔离测试密钥 | full + targeted + build | ✅ 通过 | `npm run test`；最终安全边界定向测试 16/16；`npm run electron:build` |
 | 2026-08-07 | codex_recovery | — | — | 官方 standalone script | 用户真实恢复 | ❌ 反例 | 原启动器未显示窗口；脚本报 `OSArchitecture` PropertyNotFoundStrict |
 | 2026-08-07 | codex_recovery | — | — | npm fallback + fixed cmd/start | 启动器真机 | ✅ 通过 | launcher 约 2.4 秒返回 0；独立 `powershell.exe` 继续存活；命令未进入 argv |
+| 2026-08-07 | codex_recovery | — | — | Windows Electron DEV | 用户复点恢复按钮 | ✅ 用户验收 | 用户反馈修复结果“好了”，随后要求关闭 DEV 并 push 交由另一台电脑复查 |
 | 2026-08-07 | test_runtime | — | — | recovery follow-up | 381 个 unit 文件四段复跑 | ✅ 通过 | 96 + 96 + 96 + 93 个文件全部退出 0；typecheck 与 recovery 定向测试 4/4 通过 |
 | _待执行_ | codex_runtime | Codex Account | — | standalone CLI | sandbox setup/helper/first child | 待执行 | 当前机器没有可执行 standalone CLI，不冒充通过 |
 | _待执行_ | codepilot_runtime | configured provider | configured model | safeStorage-migrated API key | 两轮 chat | 待执行 | 需要用户真实凭据且不得写入文档 |

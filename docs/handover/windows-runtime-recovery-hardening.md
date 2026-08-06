@@ -83,9 +83,15 @@ Legacy 迁移是单事务的“加密 → 认证解密并逐字验证 → 写密
 - 新增/相关定向测试：23 项通过；`working-directory.test.ts` 5 项通过；最后一轮 recovery/secret/instrumentation 安全边界回归 16/16 通过。
 - 最终完整 `npm run test`：通过（typecheck + harness boundary + 全量 unit）。中途发现的旧断言未接受新增 `identity` 字段已修正并纳入最终结果。
 - `npm run electron:build`：通过；Next 136 个页面生成、Electron bundle 完成。保留仓库已有 NFT dynamic-trace warning，不是本轮新增失败。
-- 最新 Windows Electron DEV：已启动；`/api/health` 返回 `ok`，`/api/codex/status` 返回真实 `desktop_only`、`candidateSource=desktop_bundle`、`binary.probe=failed`、`sandbox=not_applicable/not_run`。恢复按钮点击与 PowerShell 可见性留给用户在当前窗口验收。
-- 恢复补丁：`npm run typecheck` 与 recovery 定向测试 4/4 通过；固定 `cmd/start` 真机 launcher 返回 0，独立 PowerShell 进程保持存活。仍需用户在重启后的 DEV 窗口复点按钮确认视觉结果与剪贴板内容。
+- 最新 Windows Electron DEV：`/api/health` 返回 `ok`，`/api/codex/status` 返回真实 `desktop_only`、`candidateSource=desktop_bundle`、`binary.probe=failed`、`sandbox=not_applicable/not_run`。2026-08-07 用户在修复版 DEV 中复点恢复按钮后反馈“好了”，本机 UI 验收关闭；DEV 随后按用户要求停止。
+- 恢复补丁：`npm run typecheck` 与 recovery 定向测试 4/4 通过；固定 `cmd/start` 真机 launcher 返回 0，独立 PowerShell 进程保持存活；用户复点结果通过。
 - 恢复补丁后的 381 个 unit test 文件按 96 + 96 + 96 + 93 四段复跑，四段全部退出 0；分段只为绕开 Windows 工具单命令 180 秒上限，不缩减测试范围。
+
+## 提交与复查交接
+
+- `2a6427bc feat(windows): harden runtime recovery and secret storage`：Path Identity、Runtime Doctor、sandbox readiness、secret storage 与首版恢复入口。
+- `9ef45dc0 fix(windows): make Codex recovery visible and compatible`：可见 PowerShell 启动链与 npm 兼容安装命令。
+- 2026-08-07 文档收口提交：记录用户验收、归档执行计划并供另一台 Windows 电脑复查；当前分支只 push，不打 tag、不构建发布包、不创建 GitHub Release。
 
 ## 跨机复查清单
 
