@@ -39,6 +39,11 @@ import path from 'node:path';
 // legacy-migration copy for the whole process (see db.ts getDb()). Set
 // unconditionally — it must hold no matter who owns CLAUDE_GUI_DATA_DIR.
 process.env.CODEPILOT_DISABLE_DB_MIGRATION_IN_TESTS = '1';
+// Exercise the production envelope-encryption path in every DB-touching unit
+// test while keeping the deterministic test key isolated to this worker.
+process.env.CODEPILOT_PROVIDER_SECRET_KEY ??= Buffer.alloc(32, 0x42).toString('base64');
+process.env.CODEPILOT_PROVIDER_SECRET_BACKEND ??= 'test';
+process.env.CODEPILOT_PROVIDER_SECRET_LEVEL ??= 'test';
 
 if (!process.env.CLAUDE_GUI_DATA_DIR) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'codepilot-unit-db-'));

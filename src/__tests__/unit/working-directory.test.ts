@@ -63,9 +63,10 @@ describe('working-directory helpers', () => {
 
     assert.equal(resolved.path, VALID_DIR);
     assert.equal(resolved.source, 'binding');
-    assert.deepEqual(resolved.invalidCandidates, [
+    assert.deepEqual(resolved.invalidCandidates.map(({ path, source }) => ({ path, source })), [
       { path: path.join(TEST_ROOT, 'missing-a'), source: 'requested' },
     ]);
+    assert.equal(resolved.invalidCandidates[0]?.identity?.kind, 'missing');
   });
 
   it('falls back to HOME when no candidates are valid', () => {
@@ -76,9 +77,13 @@ describe('working-directory helpers', () => {
 
     assert.equal(resolved.path, HOME_DIR);
     assert.equal(resolved.source, 'home');
-    assert.deepEqual(resolved.invalidCandidates, [
+    assert.deepEqual(resolved.invalidCandidates.map(({ path, source }) => ({ path, source })), [
       { path: path.join(TEST_ROOT, 'missing-a'), source: 'requested' },
       { path: path.join(TEST_ROOT, 'missing-b'), source: 'setting' },
+    ]);
+    assert.deepEqual(resolved.invalidCandidates.map(candidate => candidate.identity?.kind), [
+      'missing',
+      'missing',
     ]);
   });
 });

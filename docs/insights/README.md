@@ -8,6 +8,7 @@
 
 | 文档 | 对应交接文档 | 主题 |
 |------|------------|------|
+| [windows-runtime-recovery-hardening.md](./windows-runtime-recovery-hardening.md) | [handover/windows-runtime-recovery-hardening.md](../handover/windows-runtime-recovery-hardening.md) | 为什么 Windows 适配必须从路径补丁升级为可证明的执行链；如何吸收 OpenClaw/Craft/OpenCode/Codex 原则而不照搬弱安全实现；为什么恢复按钮只复制并打开 PowerShell、最终仍靠真实 probe 验收 |
 | [harness-home.md](./harness-home.md) | [handover/harness-home.md](../handover/harness-home.md) | 为什么 Harness Home 是用户所有的领域聚合根而不是一张页面；开放接入为何拆成 L0/L1 与 L2/L3；CodePilot Full Reference、Asset ownership、Codex preview 去重和 Design Method human gate 的产品取舍 |
 | [default-assistant-heartbeat-system-notification.md](./default-assistant-heartbeat-system-notification.md) | [handover/default-assistant-heartbeat-system-notification.md](../handover/default-assistant-heartbeat-system-notification.md) | 为什么默认助理必须开箱可用但不替用户造身份；为什么心跳要把文件、调度、运行、投递拆成四个事实源；为什么系统通知必须由 Main 独占且只承诺 OS accepted |
 | [sentry-error-reporting.md](./sentry-error-reporting.md) | [handover/sentry-error-reporting.md](../handover/sentry-error-reporting.md) | 为什么先建立可信 official-stable 错误/崩溃率口径，不用 session 冒充用户活跃；用户可见 provider 原因与遥测正文分离、resolved in-band error terminal 边界、Source Map 资源门禁的取舍 |

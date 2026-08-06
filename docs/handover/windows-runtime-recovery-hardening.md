@@ -1,0 +1,103 @@
+# Windows Runtime 诊断、恢复与凭据加固交接
+
+> 产品取舍见 [同名产品思考](../insights/windows-runtime-recovery-hardening.md)。
+> 竞品证据见 [Windows 竞品适配可借鉴矩阵](../research/windows-competitor-adaptation-reuse-2026-08-06.md)。
+> 前序路径/CLI 修复见 [Windows Runtime / 路径兼容性修复交接](./windows-runtime-path-compatibility-review.md)。
+
+## 结论
+
+本轮实现了竞品调研中的两个 P0 和三个 P1：统一 Path Identity、三 Runtime 分层 Doctor、Codex Windows sandbox 独立状态、Provider secret 加密迁移，以及 `desktop_only/not_installed` 的安全恢复入口。
+
+这不是“Windows 已全部验证通过”。当前机器只有 Microsoft Store/ChatGPT Desktop 管理的 Codex bundle，没有通过 CodePilot `--version` 探测的 standalone Codex CLI，因此 app-server、Windows sandbox helper/runner 和首个受限 child command 仍必须保留为未验证。代码与构建通过不替代另一台装有 standalone CLI 的真机 smoke。
+
+## 为什么 macOS App 能启动，Windows Desktop bundle 却不能直接复用
+
+macOS `.app` 常把可执行 CLI 放在可定位、可直接 spawn 的应用资源目录中；CodePilot 仍会用 `--version` 验证，而不是仅看文件存在。
+
+Windows Store/MSIX 的桌面应用由 AppX 包、WindowsApps ACL、执行别名和包身份共同管理。包内 `codex.exe` 能被扫描到，不代表普通第三方 Electron 进程有权把它当 standalone CLI 启动。复制 bundle、修改 WindowsApps ACL 或读取桌面应用私有 token 都会破坏系统/凭据边界，因此本项目把这种情况诚实标为 `desktop_only`，并引导安装官方 standalone CLI。
+
+## 数据流与关键落点
+
+### 1. Path Identity
+
+`src/lib/path-identity.ts` 将一条路径拆为：
+
+- `displayPath`：保留用户输入，给 UI/诊断使用；
+- `absolutePath`：按显式 host/dialect 解析后的绝对路径；
+- `nativeRealPath`：存在对象的 OS canonical path；
+- `comparisonKey`：仅用于 lookup/cache；Windows 做大小写与分隔符归一；
+- `dialect/exists/kind/volume`：drive、UNC、WSL、file URL 等来源事实。
+
+`working-directory.ts` 和 Bridge validator 已复用该合同。安全授权仍必须基于真实 filesystem object、native realpath 与 containment，禁止把 lowercase comparison key 直接当授权依据。
+
+Windows 上的 WSL drive mount（例如 `/mnt/c/项目`）会确定性映射为对应的 `C:\项目` identity；`\\wsl.localhost\...` 仍保留 UNC 语义。该映射有跨方言单测，但真实 WSL reparse/junction 仍列入跨机 smoke。
+
+### 2. Runtime Doctor
+
+`src/lib/runtime-probe.ts` 为 Native、Claude Code、Codex 输出同构 snapshot：候选来源、安装渠道、binary probe、CWD identity、shell、app-server、sandbox、最后失败阶段和日志位置。
+
+`/api/codex/status` 返回 `{ availability, probe }`；Provider Doctor 新增 `runtime` probe。Runtime 设置页展示 Codex candidate source、诊断 CWD 与 sandbox 状态。以下推导被明确禁止：
+
+- 文件存在 ⇒ binary probe 通过；
+- installer/复制成功 ⇒ CLI 可用；
+- app-server initialized ⇒ Windows sandbox ready。
+
+### 3. Sandbox readiness
+
+`src/lib/codex/sandbox-readiness.ts` 只消费 app-server 的真实通知/错误：`setup_helper`、`command_runner`、`child_spawn`、`filesystem`、`network`。`windowsSandbox/setupCompleted` 只证明 setup 阶段完成，状态为 `setup`，不会冒充 `ready`。没有上游信号时显示 `unknown/not_run`。
+
+### 4. “复制并打开 PowerShell”恢复入口
+
+入口位于 Settings → Runtime → Codex 卡片，仅 Windows Electron 且状态为 `desktop_only/not_installed` 时出现。
+
+安全合同：
+
+- renderer 只能调用无参数 `codex.prepareWindowsRecovery()`；
+- Main 只接受当前 `127.0.0.1:<serverPort>` renderer；
+- 命令固定为 `irm https://chatgpt.com/codex/install.ps1 | iex`；
+- Main 写系统剪贴板，再以 `shell:false`、固定 executable、固定 argv `-NoLogo -NoExit` 打开可见 PowerShell；
+- 安装命令不进入 argv，不自动粘贴、不自动回车、不自动执行；
+- UI 明确提示“已复制；粘贴后按 Enter”，PowerShell 打不开时仍区分 `copied_only`。
+
+执行安装后用户需回到 Runtime 页面点击刷新；刷新重新跑 candidate discovery/`--version`，不会因为复制动作显示成功。
+
+### 5. Provider secret envelope encryption
+
+生产路径：
+
+1. Electron Main 启动后调用 `safeStorage`，生成或解包随机 32-byte 数据密钥；
+2. 磁盘文件 `userData/provider-secret-key.v1.json` 只保存 `safeStorage` 包裹后的 key；
+3. packaged Next utility child 启动时通过环境接收一次，instrumentation 立即把数据密钥移入进程内全局状态并删除三个环境变量，后续 Agent/工具子进程无法继承；preload/renderer 不暴露密钥；
+4. SQLite `api_providers` 新增 `api_key_ciphertext` 与 `api_key_storage`；密文为绑定 provider id AAD 的 AES-256-GCM `cpsec:v1` envelope；
+5. CRUD 统一在 DB accessor 边界解密。Provider resolver、Harness SecretStore 与 image provider 都走 accessor，不直接依赖旧明文列。
+
+Legacy 迁移是单事务的“加密 → 认证解密并逐字验证 → 写密文并清空明文”。没有系统 key/backend 时不生成“密文旁明文 master key”，保留 legacy plaintext 并由 Doctor 报 warning；解密失败则 fail closed，API key 返回空值且 Doctor 只记录错误码，不泄漏 key/ciphertext。
+
+开发模式的 Next server 不由 Electron fork，默认不会自动获得数据密钥；如需验证加密路径，必须显式设置临时 `CODEPILOT_PROVIDER_SECRET_KEY/BACKEND/LEVEL`。单元测试 preload 已使用隔离、确定性的 test key。
+
+## 验证记录
+
+- `npm run typecheck`：通过。
+- 新增/相关定向测试：23 项通过；`working-directory.test.ts` 5 项通过；最后一轮 recovery/secret/instrumentation 安全边界回归 16/16 通过。
+- 最终完整 `npm run test`：通过（typecheck + harness boundary + 全量 unit）。中途发现的旧断言未接受新增 `identity` 字段已修正并纳入最终结果。
+- `npm run electron:build`：通过；Next 136 个页面生成、Electron bundle 完成。保留仓库已有 NFT dynamic-trace warning，不是本轮新增失败。
+- 最新 Windows Electron DEV：已启动；`/api/health` 返回 `ok`，`/api/codex/status` 返回真实 `desktop_only`、`candidateSource=desktop_bundle`、`binary.probe=failed`、`sandbox=not_applicable/not_run`。恢复按钮点击与 PowerShell 可见性留给用户在当前窗口验收。
+
+## 跨机复查清单
+
+在另一台 Windows 机器上按顺序检查：
+
+1. 中文、空格、`()`、`&`、另一盘符项目各创建会话，Native/Claude/Codex 分别读取真实文件。
+2. 仅安装 Store Desktop 时必须显示 `desktop_only`，不能显示 Codex ready。
+3. 点击恢复按钮后，剪贴板是固定官方命令、PowerShell 可见且命令尚未执行。
+4. 粘贴并执行后刷新，必须经过 standalone binary `--version`，再验证 account/models/app-server。
+5. 跑一条真实受限文件读取命令；在此之前 sandbox 必须是 `unknown/setup`，不能是 `ready`。
+6. 用含旧明文 provider 的数据库副本启动 packaged app：确认明文列清空、密文可解、Provider 调用仍工作；不要在报告中记录任何凭据。
+7. 检查 Doctor export：只允许 backend/security level/count/error code，不允许 data key、API key 或 ciphertext。
+
+## 已知边界
+
+- 未在本机完成 standalone Codex + Windows sandbox 首个 child smoke。
+- 未覆盖真实 UNC server、WSL reparse/junction、OneDrive Files On-Demand 的在线/离线矩阵。
+- safeStorage 系统保护级别需分别在 Windows DPAPI、macOS Keychain、Linux keyring/basic_text 环境复核；Linux `basic_text` 必须保持 degraded。
+- 三个旧 live-smoke 脚本仍只会读取 legacy `api_key` 列；迁移后的真实凭据不能再由任意 shell 脚本直接取出，应改用显式 smoke credential 或受控 app runtime，不能复制解密实现。

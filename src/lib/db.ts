@@ -30,6 +30,12 @@ import type {
 import type { ChannelType, ChannelBinding } from './bridge/types';
 import { getLocalDateString, localDayStartAsUTC } from './utils';
 import { inferProtocolFromLegacy } from './provider-catalog';
+import {
+  decryptProviderSecret,
+  encryptProviderSecret,
+  getProviderSecretEnvironmentStatus,
+  providerSecretStorageKind,
+} from './provider-secret-crypto';
 import type { TitleOrigin } from './conversation-title';
 import { normalizePermissionProfile, type SessionPermissionProfile } from './permission/profile';
 import type { DelegatedAgentResult, SubagentStatusError } from './subagent-status';
@@ -57,7 +63,7 @@ const RUNTIME_OWNER_LOCK_PATH = `${DB_PATH}.runtime-owner.lock`;
 // replacing this module. Keep a code-owned revision beside that handle so a
 // newly loaded migration still runs without requiring the user to restart the
 // desktop client. Bump this value whenever initDb/migrateDb gains a migration.
-const DATABASE_SCHEMA_REVISION = '2026-08-03-notification-backlog-suppression';
+const DATABASE_SCHEMA_REVISION = '2026-08-06-provider-secret-envelope-v1';
 const LEGACY_NOTIFICATION_BACKLOG_MARKER = 'notification_delivery_legacy_backlog_v1';
 const LEGACY_NOTIFICATION_BACKLOG_MAX_AGE_MS = 60 * 60 * 1000;
 
@@ -287,6 +293,8 @@ function initDb(db: Database.Database): void {
       preset_key TEXT NOT NULL DEFAULT '',
       base_url TEXT NOT NULL DEFAULT '',
       api_key TEXT NOT NULL DEFAULT '',
+      api_key_ciphertext TEXT NOT NULL DEFAULT '',
+      api_key_storage TEXT NOT NULL DEFAULT 'legacy_plaintext',
       is_active INTEGER NOT NULL DEFAULT 0,
       sort_order INTEGER NOT NULL DEFAULT 0,
       extra_env TEXT NOT NULL DEFAULT '{}',
@@ -699,6 +707,8 @@ function migrateDb(db: Database.Database): void {
       preset_key TEXT NOT NULL DEFAULT '',
       base_url TEXT NOT NULL DEFAULT '',
       api_key TEXT NOT NULL DEFAULT '',
+      api_key_ciphertext TEXT NOT NULL DEFAULT '',
+      api_key_storage TEXT NOT NULL DEFAULT 'legacy_plaintext',
       is_active INTEGER NOT NULL DEFAULT 0,
       sort_order INTEGER NOT NULL DEFAULT 0,
       extra_env TEXT NOT NULL DEFAULT '{}',
@@ -731,6 +741,12 @@ function migrateDb(db: Database.Database): void {
     }
     if (!provColNames.includes('options_json')) {
       safeAddColumn(db, "ALTER TABLE api_providers ADD COLUMN options_json TEXT NOT NULL DEFAULT '{}'");
+    }
+    if (!provColNames.includes('api_key_ciphertext')) {
+      safeAddColumn(db, "ALTER TABLE api_providers ADD COLUMN api_key_ciphertext TEXT NOT NULL DEFAULT ''");
+    }
+    if (!provColNames.includes('api_key_storage')) {
+      safeAddColumn(db, "ALTER TABLE api_providers ADD COLUMN api_key_storage TEXT NOT NULL DEFAULT 'legacy_plaintext'");
     }
   }
 
@@ -937,11 +953,14 @@ function migrateDb(db: Database.Database): void {
     if (tokenRow || baseUrlRow) {
       const id = crypto.randomBytes(16).toString('hex');
       const now = new Date().toISOString().replace('T', ' ').split('.')[0];
+      const storedSecret = encodeProviderSecret(id, tokenRow?.value || '');
       db.prepare(
-        'INSERT INTO api_providers (id, name, provider_type, base_url, api_key, is_active, sort_order, extra_env, notes, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
-      ).run(id, 'Default', 'anthropic', baseUrlRow?.value || '', tokenRow?.value || '', 1, 0, '{}', 'Migrated from settings', now, now);
+        'INSERT INTO api_providers (id, name, provider_type, base_url, api_key, api_key_ciphertext, api_key_storage, is_active, sort_order, extra_env, notes, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+      ).run(id, 'Default', 'anthropic', baseUrlRow?.value || '', storedSecret.plaintext, storedSecret.ciphertext, storedSecret.storage, 1, 0, '{}', 'Migrated from settings', now, now);
     }
   }
+
+  migrateProviderSecrets(db);
 
   // Ensure bridge tables exist for databases created before bridge feature
   db.exec(`
@@ -3684,19 +3703,133 @@ export function syncSdkTasks(
 // API Provider Operations
 // ==========================================
 
+interface ApiProviderStorageRow extends ApiProvider {
+  api_key_ciphertext: string;
+  api_key_storage: string;
+}
+
+interface StoredProviderSecret {
+  plaintext: string;
+  ciphertext: string;
+  storage: string;
+}
+
+const providerSecretErrors = new Map<string, string>();
+
+function providerSecretErrorCode(error: unknown): string {
+  if (!(error instanceof Error)) return 'provider_secret_unknown_error';
+  if (error.message.startsWith('provider_secret_')) return error.message;
+  return 'provider_secret_decrypt_failed';
+}
+
+function encodeProviderSecret(providerId: string, plaintext: string): StoredProviderSecret {
+  if (!plaintext) return { plaintext: '', ciphertext: '', storage: 'none' };
+  const environment = getProviderSecretEnvironmentStatus();
+  if (!environment.available) {
+    return { plaintext, ciphertext: '', storage: 'legacy_plaintext' };
+  }
+
+  const ciphertext = encryptProviderSecret(providerId, plaintext);
+  if (decryptProviderSecret(providerId, ciphertext) !== plaintext) {
+    throw new Error('provider_secret_roundtrip_failed');
+  }
+  return {
+    plaintext: '',
+    ciphertext,
+    storage: providerSecretStorageKind(),
+  };
+}
+
+function materializeProvider(row: ApiProviderStorageRow | undefined): ApiProvider | undefined {
+  if (!row) return undefined;
+  const { api_key_ciphertext: ciphertext, ...provider } = row;
+  if (!ciphertext) return provider;
+  try {
+    provider.api_key = decryptProviderSecret(row.id, ciphertext);
+    providerSecretErrors.delete(row.id);
+  } catch (error) {
+    // Fail closed: a corrupt or inaccessible encrypted secret must never fall
+    // back to a stale plaintext column or leak ciphertext through the API.
+    provider.api_key = '';
+    providerSecretErrors.set(row.id, providerSecretErrorCode(error));
+  }
+  return provider;
+}
+
+/**
+ * Encrypt legacy plaintext provider keys in one transaction. Plaintext is
+ * cleared only after an authenticated decrypt round-trip succeeds.
+ */
+export function migrateProviderSecrets(db: Database.Database): number {
+  if (!getProviderSecretEnvironmentStatus().available) return 0;
+  const rows = db.prepare(
+    "SELECT id, api_key, api_key_ciphertext FROM api_providers WHERE api_key != ''",
+  ).all() as Array<{ id: string; api_key: string; api_key_ciphertext: string }>;
+  if (rows.length === 0) return 0;
+
+  const update = db.prepare(
+    "UPDATE api_providers SET api_key = '', api_key_ciphertext = ?, api_key_storage = ?, updated_at = datetime('now') WHERE id = ?",
+  );
+  const transaction = db.transaction(() => {
+    for (const row of rows) {
+      const ciphertext = row.api_key_ciphertext || encryptProviderSecret(row.id, row.api_key);
+      if (decryptProviderSecret(row.id, ciphertext) !== row.api_key) {
+        throw new Error('provider_secret_migration_verification_failed');
+      }
+      update.run(ciphertext, providerSecretStorageKind(), row.id);
+    }
+  });
+  transaction();
+  return rows.length;
+}
+
+export interface ProviderSecretStorageDiagnostics {
+  available: boolean;
+  backend: string;
+  securityLevel: string;
+  encryptedProviders: number;
+  legacyPlaintextProviders: number;
+  emptyProviders: number;
+  lastErrorCode: string | null;
+}
+
+export function getProviderSecretStorageDiagnostics(): ProviderSecretStorageDiagnostics {
+  const db = getDb();
+  const counts = db.prepare(`
+    SELECT
+      SUM(CASE WHEN api_key_ciphertext != '' THEN 1 ELSE 0 END) AS encrypted,
+      SUM(CASE WHEN api_key != '' THEN 1 ELSE 0 END) AS legacy,
+      SUM(CASE WHEN api_key = '' AND api_key_ciphertext = '' THEN 1 ELSE 0 END) AS empty
+    FROM api_providers
+  `).get() as { encrypted: number | null; legacy: number | null; empty: number | null };
+  const environment = getProviderSecretEnvironmentStatus();
+  return {
+    available: environment.available,
+    backend: environment.backend,
+    securityLevel: environment.securityLevel,
+    encryptedProviders: counts.encrypted ?? 0,
+    legacyPlaintextProviders: counts.legacy ?? 0,
+    emptyProviders: counts.empty ?? 0,
+    lastErrorCode: providerSecretErrors.values().next().value ?? null,
+  };
+}
+
 export function getAllProviders(): ApiProvider[] {
   const db = getDb();
-  return db.prepare('SELECT * FROM api_providers ORDER BY sort_order ASC, created_at ASC').all() as ApiProvider[];
+  const rows = db.prepare('SELECT * FROM api_providers ORDER BY sort_order ASC, created_at ASC').all() as ApiProviderStorageRow[];
+  return rows.map(row => materializeProvider(row)!);
 }
 
 export function getProvider(id: string): ApiProvider | undefined {
   const db = getDb();
-  return db.prepare('SELECT * FROM api_providers WHERE id = ?').get(id) as ApiProvider | undefined;
+  const row = db.prepare('SELECT * FROM api_providers WHERE id = ?').get(id) as ApiProviderStorageRow | undefined;
+  return materializeProvider(row);
 }
 
 export function getActiveProvider(): ApiProvider | undefined {
   const db = getDb();
-  return db.prepare('SELECT * FROM api_providers WHERE is_active = 1 LIMIT 1').get() as ApiProvider | undefined;
+  const row = db.prepare('SELECT * FROM api_providers WHERE is_active = 1 LIMIT 1').get() as ApiProviderStorageRow | undefined;
+  return materializeProvider(row);
 }
 
 export function createProvider(data: CreateProviderRequest): ApiProvider {
@@ -3707,10 +3840,11 @@ export function createProvider(data: CreateProviderRequest): ApiProvider {
   // Get max sort_order to append at end
   const maxRow = db.prepare('SELECT MAX(sort_order) as max_order FROM api_providers').get() as { max_order: number | null };
   const sortOrder = (maxRow.max_order ?? -1) + 1;
+  const storedSecret = encodeProviderSecret(id, data.api_key || '');
 
   db.prepare(
-    `INSERT INTO api_providers (id, name, provider_type, preset_key, protocol, base_url, api_key, is_active, sort_order, extra_env, headers_json, env_overrides_json, role_models_json, options_json, notes, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    `INSERT INTO api_providers (id, name, provider_type, preset_key, protocol, base_url, api_key, api_key_ciphertext, api_key_storage, is_active, sort_order, extra_env, headers_json, env_overrides_json, role_models_json, options_json, notes, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).run(
     id,
     data.name,
@@ -3718,7 +3852,9 @@ export function createProvider(data: CreateProviderRequest): ApiProvider {
     data.preset_key || '',
     data.protocol || '',
     data.base_url || '',
-    data.api_key || '',
+    storedSecret.plaintext,
+    storedSecret.ciphertext,
+    storedSecret.storage,
     0,
     sortOrder,
     data.extra_env || '{}',
@@ -3736,7 +3872,7 @@ export function createProvider(data: CreateProviderRequest): ApiProvider {
 
 export function updateProvider(id: string, data: UpdateProviderRequest): ApiProvider | undefined {
   const db = getDb();
-  const existing = getProvider(id);
+  const existing = db.prepare('SELECT * FROM api_providers WHERE id = ?').get(id) as ApiProviderStorageRow | undefined;
   if (!existing) return undefined;
 
   const now = new Date().toISOString().replace('T', ' ').split('.')[0];
@@ -3745,7 +3881,13 @@ export function updateProvider(id: string, data: UpdateProviderRequest): ApiProv
   const presetKey = data.preset_key ?? existing.preset_key;
   const protocol = data.protocol ?? existing.protocol;
   const baseUrl = data.base_url ?? existing.base_url;
-  const apiKey = data.api_key ?? existing.api_key;
+  const storedSecret = data.api_key === undefined
+    ? {
+        plaintext: existing.api_key,
+        ciphertext: existing.api_key_ciphertext,
+        storage: existing.api_key_storage,
+      }
+    : encodeProviderSecret(id, data.api_key);
   const extraEnv = data.extra_env ?? existing.extra_env;
   const headersJson = data.headers_json ?? existing.headers_json;
   const envOverridesJson = data.env_overrides_json ?? existing.env_overrides_json;
@@ -3755,10 +3897,10 @@ export function updateProvider(id: string, data: UpdateProviderRequest): ApiProv
   const sortOrder = data.sort_order ?? existing.sort_order;
 
   db.prepare(
-    `UPDATE api_providers SET name = ?, provider_type = ?, preset_key = ?, protocol = ?, base_url = ?, api_key = ?,
+    `UPDATE api_providers SET name = ?, provider_type = ?, preset_key = ?, protocol = ?, base_url = ?, api_key = ?, api_key_ciphertext = ?, api_key_storage = ?,
      extra_env = ?, headers_json = ?, env_overrides_json = ?, role_models_json = ?, options_json = ?,
      notes = ?, sort_order = ?, updated_at = ? WHERE id = ?`
-  ).run(name, providerType, presetKey, protocol, baseUrl, apiKey, extraEnv, headersJson, envOverridesJson, roleModelsJson, optionsJson, notes, sortOrder, now, id);
+  ).run(name, providerType, presetKey, protocol, baseUrl, storedSecret.plaintext, storedSecret.ciphertext, storedSecret.storage, extraEnv, headersJson, envOverridesJson, roleModelsJson, optionsJson, notes, sortOrder, now, id);
 
   return getProvider(id);
 }
@@ -3766,6 +3908,7 @@ export function updateProvider(id: string, data: UpdateProviderRequest): ApiProv
 export function deleteProvider(id: string): boolean {
   const db = getDb();
   const result = db.prepare('DELETE FROM api_providers WHERE id = ?').run(id);
+  providerSecretErrors.delete(id);
   return result.changes > 0;
 }
 

@@ -33,6 +33,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
     getDefaultAssistantHome: () =>
       ipcRenderer.invoke('app:get-default-assistant-home') as Promise<string>,
   },
+  codex: {
+    prepareWindowsRecovery: () => ipcRenderer.invoke('codex:prepare-windows-recovery'),
+  },
   theme: {
     setSource: (source: 'system' | 'light' | 'dark') =>
       ipcRenderer.invoke('theme:set-source', source) as Promise<boolean>,

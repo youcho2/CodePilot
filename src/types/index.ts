@@ -481,6 +481,8 @@ export interface ApiProvider {
   protocol: string; // 'anthropic' | 'openai-compatible' | 'xai' | 'openrouter' | 'bedrock' | 'vertex' | 'google' | 'gemini-image' | 'openai-image'
   base_url: string;
   api_key: string;
+  /** Safe storage metadata only; never contains key material or ciphertext. */
+  api_key_storage?: string;
   is_active: number; // SQLite boolean: 0 or 1
   sort_order: number;
   extra_env: string; // JSON string of Record<string, string> (legacy, prefer env_overrides_json)

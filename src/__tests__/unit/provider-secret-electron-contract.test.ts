@@ -1,0 +1,26 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
+import test from 'node:test';
+import { fileURLToPath } from 'node:url';
+
+const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
+
+test('Electron protects the provider data key with safeStorage and passes it only to the packaged child', () => {
+  const keyManager = fs.readFileSync(path.join(repoRoot, 'electron/provider-secret-key.ts'), 'utf8');
+  const main = fs.readFileSync(path.join(repoRoot, 'electron/main.ts'), 'utf8');
+  const preload = fs.readFileSync(path.join(repoRoot, 'electron/preload.ts'), 'utf8');
+  const instrumentation = fs.readFileSync(path.join(repoRoot, 'src/instrumentation.ts'), 'utf8');
+
+  assert.match(keyManager, /safeStorage\.isEncryptionAvailable\(\)/);
+  assert.match(keyManager, /safeStorage\.encryptString\(encodedKey\)/);
+  assert.match(keyManager, /safeStorage\.decryptString/);
+  assert.match(keyManager, /wrappedKey:/);
+  assert.doesNotMatch(keyManager, /JSON\.stringify\(\{[^}]*encodedKey/);
+
+  assert.match(main, /initializeProviderSecretEnvironment\(app\.getPath\('userData'\)\)/);
+  assert.match(main, /overrides:\s*\{[\s\S]*?\.\.\.providerSecretEnvironment/);
+  assert.doesNotMatch(preload, /PROVIDER_SECRET_KEY|providerSecretEnvironment/);
+  assert.match(instrumentation, /consumeProviderSecretEnvironment\(\)/);
+  assert.match(keyManager, /PROVIDER_SECRET_KEY_ENV/);
+});

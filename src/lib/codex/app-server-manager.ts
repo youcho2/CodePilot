@@ -26,6 +26,10 @@ import type { CodexAvailability } from './types';
 import { shouldDropCodexTraceLine, resolveCodexRustLog } from './codex-trace-filter';
 import { prepareCodePilotCodexHome } from './home-isolation';
 import {
+  observeCodexSandboxNotification,
+  resetCodexSandboxReadiness,
+} from './sandbox-readiness';
+import {
   buildProxySafeEnvironment,
   type ProxyProcessEnvironment,
 } from '../process-proxy-env';
@@ -762,6 +766,9 @@ export async function getCodexAppServer(): Promise<ManagedAppServer> {
         requestAttestation: false,
       },
     });
+    client.onAnyNotification((method, params) => {
+      observeCodexSandboxNotification(method, params);
+    });
 
     // Listen for unexpected exit so the cache stays accurate.
     proc.once('exit', (code, signal) => {
@@ -829,6 +836,7 @@ export async function refreshCodexAvailability(): Promise<CodexAvailability> {
   versionProbeCache = null;
   lastUnusableDesktopCandidate = null;
   lastAvailability = { kind: 'unknown' };
+  resetCodexSandboxReadiness();
   return getCodexAvailability();
 }
 
@@ -844,6 +852,7 @@ export async function disposeCodexAppServer(): Promise<void> {
     return;
   }
   cached = null;
+  resetCodexSandboxReadiness();
   try {
     const { client } = await current;
     await client.dispose();

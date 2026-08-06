@@ -2088,6 +2088,12 @@ const en = {
   'runtimeSelector.codepilotRuntimeDesc': 'OpenAI-compatible',
   'runtimeSelector.codexRuntime': 'Codex',
   'runtimeSelector.codexRuntimeDesc': 'Codex account · native',
+  'runtime.codexRecoveryAction': 'Copy command & open PowerShell',
+  'runtime.codexRecoveryPreparing': 'Preparing PowerShell…',
+  'runtime.codexRecoveryReady': 'Install command copied and PowerShell opened. Paste it, then press Enter.',
+  'runtime.codexRecoveryCopiedOnly': 'Install command copied. PowerShell could not be opened; open it manually, paste, then press Enter.',
+  'runtime.codexRecoveryFailed': 'Could not prepare the recovery command.',
+  'runtime.codexRecoveryNoAutoRun': 'CodePilot will not paste or run the command automatically.',
   'runtimeSelector.pinnedBadge': 'session-pinned',
   // Step 4c R6 — transcript marker when user flips RuntimeSelector mid-chat.
   'runtimeSwitchMarker.changedFromTo': 'Switched runtime: {from} → {to}',

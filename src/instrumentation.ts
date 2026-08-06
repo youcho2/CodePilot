@@ -19,6 +19,12 @@
  */
 export async function register() {
   if (process.env.NEXT_RUNTIME === 'nodejs') {
+    // Electron passes the provider data-encryption key only to this packaged
+    // server process. Consume it into process-global memory immediately and
+    // delete the env entries before any Agent/tool subprocess can inherit it.
+    const { consumeProviderSecretEnvironment } = await import('@/lib/provider-secret-crypto');
+    consumeProviderSecretEnvironment();
+
     if (process.env.NODE_ENV !== 'development') {
       // Initialize Sentry for server-side error capture (respects opt-out marker file)
       const fs = await import('fs');

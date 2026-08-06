@@ -66,6 +66,7 @@ function transformApiResponse(raw: Record<string, unknown>, isZh: boolean): Diag
 
   const rawProbes = (raw as { probes?: Array<Record<string, unknown>> }).probes || [];
   const PROBE_NAMES: Record<string, { en: string; zh: string }> = {
+    runtime: { en: "Runtime execution chain", zh: "Runtime 执行链" },
     cli: { en: "CLI Health", zh: "CLI 健康" },
     auth: { en: "Auth Source", zh: "鉴权来源" },
     provider: { en: "Provider/Model", zh: "服务商/模型" },

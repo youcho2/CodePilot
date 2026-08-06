@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getDb, alignEnabledWithCatalog } from '@/lib/db';
+import { alignEnabledWithCatalog, getAllProviders } from '@/lib/db';
 import { getCatalogDefaultModelsForRecord } from '@/lib/provider-catalog';
-import type { ApiProvider } from '@/types';
 
 /**
  * POST /api/models/align-all-with-catalog[?dryRun=1]
@@ -17,8 +16,7 @@ import type { ApiProvider } from '@/types';
  */
 export async function POST(request: NextRequest) {
   const dryRun = request.nextUrl.searchParams.get('dryRun') === '1';
-  const db = getDb();
-  const providers = db.prepare('SELECT * FROM api_providers').all() as ApiProvider[];
+  const providers = getAllProviders();
 
   const results: Array<{
     providerId: string;

@@ -6,7 +6,7 @@
  */
 
 import * as path from 'path';
-import * as fs from 'node:fs';
+import { detectPathDialect, resolvePathIdentity } from '../../path-identity';
 
 // ── Constants ────────────────────────────────────────────────────
 
@@ -41,8 +41,13 @@ export function validateWorkingDirectory(rawPath: string): string | null {
 
   const trimmed = rawPath.trim();
 
-  // Must be absolute
+  // Must be absolute in the current host dialect. `path.isAbsolute()` alone
+  // cannot describe Windows input when tests/review run on another platform,
+  // so detect the input dialect explicitly and then require host compatibility.
+  const dialect = detectPathDialect(trimmed);
   if (!path.isAbsolute(trimmed)) return null;
+  if (process.platform === 'win32' && dialect === 'posix') return null;
+  if (process.platform !== 'win32' && (dialect === 'windows_drive' || dialect === 'unc')) return null;
 
   // Reject control characters. Shell metacharacters are valid filename
   // characters on Windows and are safe here because this value is passed as
@@ -57,10 +62,9 @@ export function validateWorkingDirectory(rawPath: string): string | null {
   // Reject if too long
   if (trimmed.length > MAX_PATH_LENGTH) return null;
 
-  // Normalize the path (resolves redundant slashes, etc.)
-  const normalized = path.normalize(trimmed);
   try {
-    return fs.statSync(normalized).isDirectory() ? normalized : null;
+    const identity = resolvePathIdentity(trimmed);
+    return identity.kind === 'directory' ? identity.absolutePath : null;
   } catch {
     return null;
   }

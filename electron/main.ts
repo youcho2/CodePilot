@@ -56,7 +56,7 @@ const nativeCrashSmokeEnabled = electronTelemetry.enabled
   && telemetrySmokeEnabled(process.env.CODEPILOT_TELEMETRY_SMOKE)
   && process.env.CODEPILOT_NATIVE_CRASH_SMOKE === '1';
 
-import { app, BrowserWindow, Notification, nativeImage, nativeTheme, dialog, session, utilityProcess, ipcMain, shell, Tray, Menu } from 'electron';
+import { app, BrowserWindow, Notification, nativeImage, nativeTheme, dialog, session, utilityProcess, ipcMain, shell, Tray, Menu, clipboard } from 'electron';
 import { resolveDefaultAssistantHome } from './default-assistant-home';
 import {
   buildNativeNotificationOptions,
@@ -75,6 +75,12 @@ import net from 'net';
 import os from 'os';
 import { TerminalManager } from './terminal-manager';
 import { validateTerminalCreateOpts } from './terminal-create-validation';
+import {
+  buildCodexPowerShellLaunchSpec,
+  CODEX_WINDOWS_INSTALL_COMMAND,
+  isTrustedCodexRecoverySender,
+} from './codex-windows-recovery';
+import { initializeProviderSecretEnvironment } from './provider-secret-key';
 import { sanitizeLogLine } from './log-sanitize';
 import { getTrayMenuLabels } from '../src/lib/tray-menu-labels';
 import { NATIVE_NOTIFICATION_ERROR } from '../src/lib/notification-error-codes';
@@ -141,6 +147,7 @@ let serverExited = false;
 let serverExitCode: number | null = null;
 let userShellEnv: Record<string, string> = {};
 let resolvedProxyEnv: Record<string, string> = {};
+let providerSecretEnvironment: Record<string, string> = {};
 let isQuitting = false;
 let tray: Tray | null = null;
 let nativeDeliveryTimer: ReturnType<typeof setInterval> | null = null;
@@ -942,6 +949,7 @@ function startServer(port: number): Electron.UtilityProcess {
     // traffic cannot be sent through Clash/Surge/etc.
     fallbackProxyEnv: resolvedProxyEnv,
     overrides: {
+      ...providerSecretEnvironment,
       PORT: String(port),
       HOSTNAME: '127.0.0.1',
       CLAUDE_GUI_DATA_DIR: path.join(home, '.codepilot'),
@@ -1618,6 +1626,19 @@ app.whenReady().then(async () => {
   // Load user's full shell environment (API keys, PATH, etc.)
   userShellEnv = loadUserShellEnv();
 
+  // Electron owns OS credential-store access. The standalone Next child gets
+  // only the in-memory data-encryption key; the database never stores it.
+  try {
+    providerSecretEnvironment = initializeProviderSecretEnvironment(app.getPath('userData'));
+    console.log(
+      `[provider-secret] backend=${providerSecretEnvironment.CODEPILOT_PROVIDER_SECRET_BACKEND} `
+      + `level=${providerSecretEnvironment.CODEPILOT_PROVIDER_SECRET_LEVEL}`,
+    );
+  } catch (error) {
+    providerSecretEnvironment = {};
+    console.warn('[provider-secret] OS-protected storage unavailable; legacy provider secrets will not be migrated', error);
+  }
+
   // Detect system proxy for Chinese users behind VPN (Clash, Surge, etc.)
   resolvedProxyEnv = await resolveSystemProxy();
 
@@ -2124,6 +2145,44 @@ app.whenReady().then(async () => {
   });
 
   // --- End install wizard IPC handlers ---
+
+  // Narrow Codex recovery capability: fixed official command, no arguments.
+  // The command is copied but never passed to PowerShell, pasted or executed.
+  ipcMain.handle('codex:prepare-windows-recovery', async (event: Electron.IpcMainInvokeEvent) => {
+    if (
+      process.platform !== 'win32'
+      || event.sender !== mainWindow?.webContents
+      || !isTrustedCodexRecoverySender(event.sender.getURL(), serverPort)
+    ) {
+      return { ok: false, copied: false, opened: false, error: 'unsupported_or_untrusted' };
+    }
+
+    let copied = false;
+    try {
+      clipboard.writeText(CODEX_WINDOWS_INSTALL_COMMAND);
+      copied = true;
+      const spec = buildCodexPowerShellLaunchSpec();
+      const child = spawn(spec.command, spec.args, {
+        detached: true,
+        stdio: 'ignore',
+        windowsHide: spec.windowsHide,
+        shell: spec.shell,
+      });
+      await new Promise<void>((resolve, reject) => {
+        child.once('spawn', resolve);
+        child.once('error', reject);
+      });
+      child.unref();
+      return { ok: true, copied: true, opened: true };
+    } catch (error) {
+      return {
+        ok: false,
+        copied,
+        opened: false,
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
+  });
 
   // AI-authored paths never enter a generic shell.openPath bridge. Reveal is
   // non-launching, and the only launching path is a workspace-scoped HTML

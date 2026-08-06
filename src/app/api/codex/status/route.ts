@@ -21,29 +21,38 @@ import {
   getCodexAvailability,
   refreshCodexAvailability,
 } from '@/lib/codex/app-server-manager';
+import { buildCodexRuntimeProbe, defaultRuntimeLogLocation } from '@/lib/runtime-probe';
 
 export async function GET() {
   try {
     const availability = await getCodexAvailability();
-    return NextResponse.json({ availability });
+    return NextResponse.json({
+      availability,
+      probe: buildCodexRuntimeProbe(availability, { logLocation: defaultRuntimeLogLocation() }),
+    });
   } catch (err) {
     const reason = err instanceof Error ? err.message : String(err);
-    return NextResponse.json(
-      { availability: { kind: 'spawn_failed', reason } },
-      { status: 200 },
-    );
+    const availability = { kind: 'spawn_failed', reason } as const;
+    return NextResponse.json({
+      availability,
+      probe: buildCodexRuntimeProbe(availability, { logLocation: defaultRuntimeLogLocation() }),
+    }, { status: 200 });
   }
 }
 
 export async function POST() {
   try {
     const availability = await refreshCodexAvailability();
-    return NextResponse.json({ availability });
+    return NextResponse.json({
+      availability,
+      probe: buildCodexRuntimeProbe(availability, { logLocation: defaultRuntimeLogLocation() }),
+    });
   } catch (err) {
     const reason = err instanceof Error ? err.message : String(err);
-    return NextResponse.json(
-      { availability: { kind: 'spawn_failed', reason } },
-      { status: 200 },
-    );
+    const availability = { kind: 'spawn_failed', reason } as const;
+    return NextResponse.json({
+      availability,
+      probe: buildCodexRuntimeProbe(availability, { logLocation: defaultRuntimeLogLocation() }),
+    }, { status: 200 });
   }
 }

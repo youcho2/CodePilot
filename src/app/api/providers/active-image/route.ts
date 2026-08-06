@@ -73,8 +73,8 @@ export async function GET() {
  *
  * Validates that the provider exists, is a media provider, AND has an api_key
  * before saving. Blocking empty-key rows avoids the "looks active in the UI
- * but generateSingleImage ignores it because its SELECT requires api_key != ''"
- * inconsistency.
+ * but generateSingleImage cannot authenticate" inconsistency. The generator
+ * reads through getAllProviders() so encrypted-at-rest credentials work too.
  */
 export async function PUT(request: NextRequest) {
   try {

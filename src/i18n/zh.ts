@@ -2059,6 +2059,12 @@ const zh: Record<TranslationKey, string> = {
   'runtimeSelector.codepilotRuntimeDesc': '兼容 OpenAI 服务商',
   'runtimeSelector.codexRuntime': 'Codex',
   'runtimeSelector.codexRuntimeDesc': 'Codex 账号 · 原生模型',
+  'runtime.codexRecoveryAction': '复制命令并打开 PowerShell',
+  'runtime.codexRecoveryPreparing': '正在准备 PowerShell…',
+  'runtime.codexRecoveryReady': '安装命令已复制，并已打开 PowerShell。粘贴后按 Enter 即可。',
+  'runtime.codexRecoveryCopiedOnly': '安装命令已复制，但未能打开 PowerShell；请手动打开、粘贴后按 Enter。',
+  'runtime.codexRecoveryFailed': '未能准备恢复命令。',
+  'runtime.codexRecoveryNoAutoRun': 'CodePilot 不会自动粘贴或执行这条命令。',
   'runtimeSelector.pinnedBadge': '本会话已切换',
   // Step 4c R6 — transcript marker when user flips RuntimeSelector mid-chat.
   'runtimeSwitchMarker.changedFromTo': '已切换执行引擎：{from} → {to}',

@@ -1,5 +1,6 @@
 import fs from 'fs';
 import os from 'os';
+import { resolvePathIdentity, type PathIdentity } from './path-identity';
 
 export type WorkingDirectorySource =
   | 'requested'
@@ -18,9 +19,11 @@ export interface WorkingDirectoryCandidate {
 export interface ResolvedWorkingDirectory {
   path: string;
   source: WorkingDirectorySource;
+  identity: PathIdentity;
   invalidCandidates: Array<{
     source: WorkingDirectoryCandidate['source'];
     path: string;
+    identity?: PathIdentity;
   }>;
 }
 
@@ -45,29 +48,42 @@ export function resolveWorkingDirectory(
     const value = typeof candidate.path === 'string' ? candidate.path.trim() : '';
     if (!value) continue;
 
-    if (isExistingDirectory(value)) {
+    let identity: PathIdentity | undefined;
+    try {
+      identity = resolvePathIdentity(value);
+    } catch {
+      // The invalid candidate is still surfaced below with its original
+      // display spelling; callers can explain the fallback without guessing.
+    }
+
+    if (identity?.kind === 'directory') {
       return {
-        path: value,
+        path: identity.absolutePath,
         source: candidate.source,
+        identity,
         invalidCandidates,
       };
     }
 
-    invalidCandidates.push({ source: candidate.source, path: value });
+    invalidCandidates.push({ source: candidate.source, path: value, identity });
   }
 
   const homeDir = os.homedir();
-  if (isExistingDirectory(homeDir)) {
+  const homeIdentity = resolvePathIdentity(homeDir);
+  if (homeIdentity.kind === 'directory') {
     return {
-      path: homeDir,
+      path: homeIdentity.absolutePath,
       source: 'home',
+      identity: homeIdentity,
       invalidCandidates,
     };
   }
 
+  const processIdentity = resolvePathIdentity(process.cwd());
   return {
-    path: process.cwd(),
+    path: processIdentity.absolutePath,
     source: 'process',
+    identity: processIdentity,
     invalidCandidates,
   };
 }
