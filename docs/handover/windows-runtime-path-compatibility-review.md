@@ -139,6 +139,8 @@ C:\Users\op741\.local\bin\claude.exe
 
 ## 4. 项目记录过的参考项目：Windows 专项结论
 
+> 更细的“已吸收 / 可立项 / 不应照搬”矩阵见 [Windows 竞品适配可借鉴矩阵](../research/windows-competitor-adaptation-reuse-2026-08-06.md)。
+
 ### 4.1 本仓库当前可直接读取的参考源码
 
 `资料/feishu-openclaw-plugin/` 有两项与本轮高度相关的 Windows 专项实现：

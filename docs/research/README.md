@@ -8,6 +8,7 @@
 
 | 文件 | 主题 |
 |------|------|
+| windows-competitor-adaptation-reuse-2026-08-06.md | **Windows 竞品适配可借鉴矩阵**：对照飞书 OpenClaw、Craft Agents、OpenCode 与 OpenAI Codex，区分已吸收 / P0-P2 建议 / 禁止照搬；建议 Runtime Doctor、Path Identity、Codex sandbox readiness、secret storage 和 installer repair 五个独立工作包 |
 | deepseek-v4-flash-0731-adaptation-2026-08-02.md | **DeepSeek V4 Flash 0731 适配核验**：确认模型 ID 不变、Flash 独占当前原生 Responses/Codex 路径、Flash Low/High/Max 与 Pro High/Max 推理合同；记录 CodePilot Anthropic effort、Codex API-key Responses、AI SDK force-reasoning/summary 兼容点，以及 ClinePass/OpenCode Go 不继承第一方能力的边界与两条真实 API smoke |
 | harness-home-design-evidence-inventory-2026-07-30.md | **Harness Home Design Method C0 证据候选清单**：从 macOS shell、Chat composer、semantic icon、Markdown/Artifact 四个真实 brief 提取 accepted/rejected/source/scope/candidate principles；明确区分“既有产品决策”与“用户通用审美”，未确认前不生成 confirmed Method 或 durable Taste Memory |
 | harness-home-v0.62-inventory-2026-07-30.md | **Harness Home v0.62 实施盘点**：Memory / Skill / MCP / Runtime / Artifact / Media / Secret 的事实源地图；量化第四框架 L0 当前 8 文件、Runtime lexical surface 35 产品文件 + 57 测试；拍板单写者 + journal + atomic rename 写模型、兼容型 SecretStore、首批 producer-backed Asset kind 与 enforcing anchors |
