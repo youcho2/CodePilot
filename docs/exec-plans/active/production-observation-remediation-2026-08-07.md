@@ -11,7 +11,7 @@
 | Phase 1 | IP/Geo 隐私 tombstone + Electron Release Health 启动 session | ✅ 已完成 | 保持 U0，不新增 user/install id 或行为分析 |
 | Phase 2 | Windows 外链打开拒绝的有界失败处理 | ✅ 已完成 | 消费 Promise rejection，并给用户明确系统提示 |
 | Phase 3 | `AI_MissingToolResultsError` 工具历史完整性修复 | ✅ 已完成 | 修未来持久化与既有损坏历史，不屏蔽错误 |
-| Phase 4 | Tier 2 回归、守卫与发布后 cohort 验证 | 🔄 进行中 | `v0.66.0` 本地门禁已通过；packaged/真实 Sentry 验证待 tag 构建与发布后 cohort |
+| Phase 4 | Tier 2 回归、守卫与发布后 cohort 验证 | 🔄 进行中 | `v0.66.0` tag CI 与跨平台 packaged gates 已通过；真实 Sentry 24h/72h cohort 与用户路径 smoke 待执行 |
 
 ## 用户结果
 
@@ -74,7 +74,8 @@
 | 2026-08-07 | Sentry API | official `codepilot-desktop` | `codepilot@0.65.0` | 本地只读 token | MissingToolResults symbolicated event + user/IP/Geo + release health metadata | ✅ 只读取证完成 | event `55fe138bafc54c7dbf7912ed76c6bbcd`；输出已脱敏，未写 Sentry |
 | 2026-08-07 | local Node + Next production build | local checkout | `codepilot@0.65.0` | 无真实用户凭据 | unit/typecheck/harness、真实 SDK/transport contract、production build、docs/hook/diff gates | ✅ 本地门禁通过 | 单测稳定重跑 5147 pass / 0 fail / 1 skip；`npm run build` 通过 |
 | 2026-08-07 | local Node + Next production build | local checkout | `codepilot@0.66.0` RC | 无真实用户凭据 | 发版版本 typecheck / Harness boundary / 5148 单测 / production build | ✅ 本地门禁通过 | 5147 pass / 0 fail / 1 skip；build 136 pages；既有 NFT warning 保留 |
-| _待发布_ | Electron packaged | stable | `codepilot@0.66.0` | official DSN | no-IP event / startup session / Windows external-open failure / interrupted tool replay | ⏳ | tag CI artifacts、新 release event/session 与 packaged smoke |
+| 2026-08-07 | Electron packaged CI | official stable | `codepilot@0.66.0` | official release secrets | macOS/Windows/Linux 双架构 build、source map、package version/native ABI/server startup、macOS packaged Sentry fixtures | ✅ CI packaged gates pass | [Build & Package #31155340623](https://github.com/op7418/CodePilot/actions/runs/31155340623)；[Release v0.66.0](https://github.com/op7418/CodePilot/releases/tag/v0.66.0)；12 assets uploaded |
+| _待观察_ | Electron packaged / Sentry API | official stable | `codepilot@0.66.0` | 用户 opt-in + 只读 Sentry token | no-IP event / startup session / MissingToolResults 24h/72h cohort / Windows external-open + interrupted tool replay | ⏳ | CI synthetic 证明打包链路；仍不替代真实用户状态、Windows 交互和发布后 cohort |
 
 ## 决策日志
 
@@ -83,3 +84,4 @@
 - 2026-08-07：不依赖长驻应用最终退出发送 session；启动即发送一次，退出/崩溃仍由同一个 session producer 更新状态。
 - 2026-08-07：不在本地代码任务中擅自修改 Sentry project 设置；Prevent Storing IP Addresses 作为发布侧待核验纵深防御保留。
 - 2026-08-07：用户在 Code complete + Tests pass + Review passed 后明确授权 push 与发版；目标版本确定为 `v0.66.0`。该授权接受以 tag CI 产出 packaged artifacts，但不把尚未发生的真实 Sentry cohort / Windows packaged 验证提前写成 Smoke passed。
+- 2026-08-07：`d983917f` 已推送 main 并标记 `v0.66.0`；Build & Package run `31155340623` 的 verify-source、macOS、Windows、Linux x64/arm64 与 release job 全部 success。GitHub Release 为非 draft、非 prerelease，12 个安装包/校验和 assets 均 uploaded。状态可记为 Shipped，但本计划 Phase 4 仍等待真实 Sentry cohort 与用户交互 smoke。

@@ -15,7 +15,7 @@
 | Phase 2 | P2 分流与防回归沉淀 | ✅ 已完成 | 直接收口 9 类；剩余风险记 #78–#84 |
 | Phase 3 | Targeted / full / build / 本机 UI 验证 | ✅ 已完成 | typecheck、targeted、5124-test full suite、production build、macOS 页面检查均通过 |
 | Phase 4 | Claude 独立复审 | ✅ Review passed | 4 个 P1 独立实测有效；P2 抽查通过；无新增 blocker |
-| Phase 5 | Windows packaged smoke | ⏳ 待执行 | 不以 macOS 自动化代替无 `rg`、真实 sandbox、packaged credential 跨机验收 |
+| Phase 5 | Windows packaged smoke | 🚧 artifact ready / 真机待执行 | `v0.66.0` CI 已通过 Windows package/version/native ABI/server startup；不以自动化替代无 `rg`、真实 sandbox、packaged credential 跨机验收 |
 
 ## 用户问题、争议与取舍
 
@@ -67,11 +67,12 @@
 - 2026-08-07：本机验证完成：expanded targeted 100 tests（99 pass、1 Windows-only skip）；`npm run typecheck` 通过；`npm run test` 5124 tests（5123 pass、0 fail、1 skip）；`npm run build` 通过并生成 136 个页面，保留仓库既有的 `next.config.ts` NFT 动态追踪 warning；changed-file ESLint 0 error（12 个既有 warning）；docs-drift、hook lint、`git diff --check` 均通过。macOS 实际 Runtime 页面正常且未显示 Codex PowerShell 指引；因本机 Codex 为 installed 状态，`not_installed/desktop_only` 的平台分支由 source contract 回归测试证明，Windows 真实视觉验收仍留 Phase 5。
 - 2026-08-07：Claude 独立复审结论为 **Review passed**，4 个 P1 均用原始复现或独立矩阵再次确认：混合 secret 行与 trigger 故障注入、失控正则 Worker 超时/正常阳性对照、darwin/WSL/UNC 路径矩阵、两类 Codex unavailable 文案门控全部有效；P2 抽查与 guardrail/交接闭环通过，无新增 blocker。非阻塞补充已 durable 记录：主线程 Glob 风险并入 #79；刷新失败旧 probe、Doctor 重复 Claude version spawn、Codex 同步 binary probe 分别登记 #82–#84。状态提升为 Code complete + Tests pass + Review passed，但 Windows packaged smoke 仍是独立门禁。
 - 2026-08-07：用户明确授权以 `v0.66.0` push/tag 发版；发版候选重新通过 typecheck、Harness boundary、5148 单测（5147 pass / 0 fail / 1 skip）和 production build。tag CI 将产出首个可用于 Phase 5 的 Windows packaged artifact，但产出本身不替代真机 smoke。
+- 2026-08-07：`v0.66.0` Build & Package run `31155340623` 的 Windows job 完整通过：bundle、source map upload、NSIS package、packaged version、better-sqlite3 native ABI、server startup、checksums 与 artifact upload 均 success；公开 Release 已包含 `CodePilot.Setup.0.66.0.exe`。Phase 5 仅剩 Windows 真机功能/凭据 smoke，不再缺安装包。
 
 ## Smoke Ledger（真实凭据 / UI / E2E 验证记录）
 
 | Date | Runtime | Provider | Model | 凭据形态 | 场景 | Result | Evidence |
 |------|---------|----------|-------|---------|------|--------|----------|
-| _待执行_ | codepilot_runtime | configured provider | configured model | `v0.66.0` packaged + safeStorage-migrated key | 回滚/换机后启动与两轮 chat | 待 Windows/packaged | tag CI artifact 生成后执行；不使用真实 key 的自动化不能替代 packaged 凭据 smoke |
+| _待执行_ | codepilot_runtime | configured provider | configured model | `v0.66.0` packaged + safeStorage-migrated key | 回滚/换机后启动与两轮 chat | installer ready / 待 Windows 真机 | [CodePilot.Setup.0.66.0.exe](https://github.com/op7418/CodePilot/releases/download/v0.66.0/CodePilot.Setup.0.66.0.exe)；不使用真实 key 的自动化不能替代 packaged 凭据 smoke |
 | 2026-08-07 | codepilot_runtime | — | — | Node fallback fixture | 灾难性正则、abort、隐藏文件 | 自动化通过 | 约 150ms worker timeout；主线程 heartbeat 正常；显式 abort 收口；`.env` 默认不遍历 |
 | 2026-08-07 | codex_runtime | Desktop bundled | — | macOS production build | Runtime 页面平台文案 | 本机页面通过 / 未安装分支未触达 | 页面正常且当前状态未显示 PowerShell；`not_installed/desktop_only` 由回归合同覆盖，仍需 Windows 真机视觉复查 |
