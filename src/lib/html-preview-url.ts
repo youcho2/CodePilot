@@ -42,6 +42,14 @@ const SCOPE_TOKEN_HOME = 'home';
 const WINDOWS_PATH_TOKEN_PREFIX = '__codepilot_win__.';
 const POSIX_ESCAPE_TOKEN = '__codepilot_posix__';
 
+function hostIsWindows(): boolean {
+  return typeof process !== 'undefined' && process.platform === 'win32';
+}
+
+function isWindowsNetworkOrDevicePath(filePath: string): boolean {
+  return filePath.startsWith('\\\\') || (hostIsWindows() && filePath.startsWith('//'));
+}
+
 function toBase64Url(input: string): string {
   // Buffer is Node-only; this helper runs in both Node (route handler)
   // and the browser (PreviewPanel). Use the browser's btoa for client
@@ -92,7 +100,9 @@ function encodeAbsolutePath(absolutePath: string): string {
     return encodedRemainder ? `${rootToken}/${encodedRemainder}` : rootToken;
   }
 
-  const uncMatch = normalized.match(/^\/\/([^/]+)\/([^/]+)(?:\/(.*))?$/);
+  const uncMatch = isWindowsNetworkOrDevicePath(absolutePath)
+    ? normalized.match(/^\/\/([^/]+)\/([^/]+)(?:\/(.*))?$/)
+    : null;
   if (uncMatch) {
     const [, server, share, remainder = ''] = uncMatch;
     const rootToken = WINDOWS_PATH_TOKEN_PREFIX + toBase64Url(`\\\\${server}\\${share}\\`);
@@ -121,8 +131,7 @@ function isAbsoluteFilesystemPath(filePath: string): boolean {
 }
 
 function isWindowsRoot(root: string): boolean {
-  return /^[A-Za-z]:\\$/.test(root)
-    || /^\\\\[^\\]+\\[^\\]+\\$/.test(root);
+  return /^[A-Za-z]:\\$/.test(root);
 }
 
 /**
@@ -156,10 +165,16 @@ export function buildHtmlPreviewUrl(
       `buildHtmlPreviewUrl requires an absolute filesystem path; got "${absolutePath}"`,
     );
   }
+  if (isWindowsNetworkOrDevicePath(absolutePath)) {
+    throw new Error('buildHtmlPreviewUrl does not allow Windows network or device paths');
+  }
   if (scope.kind === 'workspace' && !isAbsoluteFilesystemPath(scope.baseDir)) {
     throw new Error(
       `buildHtmlPreviewUrl requires an absolute workspace baseDir; got "${scope.baseDir}"`,
     );
+  }
+  if (scope.kind === 'workspace' && isWindowsNetworkOrDevicePath(scope.baseDir)) {
+    throw new Error('buildHtmlPreviewUrl does not allow Windows network or device workspace roots');
   }
   const scopeToken =
     scope.kind === 'workspace'
@@ -295,6 +310,9 @@ export function parseHtmlPreviewSegments(
     if (!isAbsoluteFilesystemPath(baseDir)) {
       throw new Error('decoded baseDir must be an absolute filesystem path');
     }
+    if (isWindowsNetworkOrDevicePath(baseDir)) {
+      throw new Error('decoded baseDir must not be a Windows network or device path');
+    }
     scope = { kind: 'workspace', baseDir };
   } else {
     throw new Error(`unrecognized scope token "${scopeToken}"`);
@@ -321,7 +339,7 @@ export function parseHtmlPreviewSegments(
       throw new Error('Windows path token has invalid base64url payload');
     }
     if (!isWindowsRoot(windowsRoot)) {
-      throw new Error('Windows path token does not contain a valid drive or UNC root');
+      throw new Error('Windows path token does not contain a valid local drive root');
     }
     absolutePath = windowsRoot + remainingSegments.join('\\');
   } else {

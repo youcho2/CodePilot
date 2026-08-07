@@ -17,7 +17,8 @@ describe('telemetry release wiring', () => {
     assert.doesNotMatch(main, /ingest\.(?:us\.)?sentry\.io/);
     assert.match(main, /sendDefaultPii:\s*false/);
     assert.match(main, /attachScreenshot:\s*false/);
-    assert.match(main, /filterTelemetryIntegrations\(['"]electron_main['"]/);
+    assert.match(main, /configureElectronMainIntegrations\(/);
+    assert.match(main, /mainProcessSessionIntegration\(\{\s*sendOnCreate:\s*true\s*\}\)/);
   });
 
   it('keeps auth tokens server-only and source maps private', () => {

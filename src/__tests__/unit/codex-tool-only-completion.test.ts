@@ -186,6 +186,29 @@ describe('buildFinalMessageContent — covers text-only, thinking-only, tool-onl
     assert.equal(blocks[1].type, 'tool_result');
   });
 
+  it('tool_use without a received result persists an honest terminal error pair', () => {
+    const out = buildFinalMessageContent({
+      accumulated: '',
+      thinking: '',
+      toolUses: [{ id: 'tu_stopped', name: 'Read', input: { file_path: 'README.md' } }],
+      toolResults: [],
+    });
+    const blocks = JSON.parse(out!) as Array<{
+      type: string;
+      tool_use_id?: string;
+      content?: string;
+      is_error?: boolean;
+    }>;
+    assert.equal(blocks.length, 2);
+    assert.equal(blocks[0].type, 'tool_use');
+    assert.deepEqual(blocks[1], {
+      type: 'tool_result',
+      tool_use_id: 'tu_stopped',
+      content: '[CodePilot: no tool result was received before this turn ended.]',
+      is_error: true,
+    });
+  });
+
   it('persists provider-reported external sources on the matching tool result', () => {
     const out = buildFinalMessageContent({
       accumulated: '',

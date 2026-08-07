@@ -30,11 +30,11 @@ Windows Store/MSIX 的桌面应用由 AppX 包、WindowsApps ACL、执行别名�
 
 `working-directory.ts` 和 Bridge validator 已复用该合同。安全授权仍必须基于真实 filesystem object、native realpath 与 containment，禁止把 lowercase comparison key 直接当授权依据。
 
-Windows 上的 WSL drive mount（例如 `/mnt/c/项目`）会确定性映射为对应的 `C:\项目` identity；`\\wsl.localhost\...` 仍保留 UNC 语义。该映射有跨方言单测，但真实 WSL reparse/junction 仍列入跨机 smoke。
+Windows 输入或真实 WSL 环境中的 drive mount（例如 `/mnt/c/项目`）会映射为对应的 `C:\项目` identity；普通 macOS/Linux 上同一字符串保持 POSIX。macOS/Linux 的 `//var/...` 同样保持 POSIX，不再被 forward-slash UNC 规则改写；`\\wsl.localhost\...` 仍保留 WSL UNC 语义。该映射有跨方言单测，但真实 WSL reparse/junction 仍列入跨机 smoke。
 
 ### 2. Runtime Doctor
 
-`src/lib/runtime-probe.ts` 为 Native、Claude Code、Codex 输出同构 snapshot：候选来源、安装渠道、binary probe、CWD identity、shell、app-server、sandbox、最后失败阶段和日志位置。
+`src/lib/runtime-probe.ts` 为 Native、Claude Code、Codex 输出同构 snapshot：候选来源、安装渠道、binary probe、CWD identity、shell、app-server、sandbox 与最后失败阶段。日志路径只有存在真实来源时才返回；Next server 不再虚构 `~/.codepilot/logs`。Native 是 in-process Runtime，因此 `appServer.probe=passed`，未实际运行的独立 binary probe 保持 `not_run`。
 
 `/api/codex/status` 返回 `{ availability, probe }`；Provider Doctor 新增 `runtime` probe。Runtime 设置页展示 Codex candidate source、诊断 CWD 与 sandbox 状态。以下推导被明确禁止：
 
@@ -44,7 +44,7 @@ Windows 上的 WSL drive mount（例如 `/mnt/c/项目`）会确定性映射为�
 
 ### 3. Sandbox readiness
 
-`src/lib/codex/sandbox-readiness.ts` 只消费 app-server 的真实通知/错误：`setup_helper`、`command_runner`、`child_spawn`、`filesystem`、`network`。`windowsSandbox/setupCompleted` 只证明 setup 阶段完成，状态为 `setup`，不会冒充 `ready`。没有上游信号时显示 `unknown/not_run`。
+`src/lib/codex/sandbox-readiness.ts` 只消费带明确 sandbox breadcrumb 的 app-server 通知/错误：`setup_helper`、`command_runner`、`child_spawn`、`filesystem`、`network`。普通工具的 `ENOENT`/CWD 错误不再误报 Sandbox Error；`windowsSandbox/setupCompleted` 只证明 setup 阶段完成，状态为 `setup`。当前没有受支持的 restricted-command success 信号，因此删除不可达的 `ready` UI；没有上游信号时显示 `unknown/not_run`，刷新会清掉旧观察窗口再等待新事实。
 
 ### 4. “复制并打开 PowerShell”恢复入口
 
@@ -73,9 +73,11 @@ Windows 上的 WSL drive mount（例如 `/mnt/c/项目`）会确定性映射为�
 4. SQLite `api_providers` 新增 `api_key_ciphertext` 与 `api_key_storage`；密文为绑定 provider id AAD 的 AES-256-GCM `cpsec:v1` envelope；
 5. CRUD 统一在 DB accessor 边界解密。Provider resolver、Harness SecretStore 与 image provider 都走 accessor，不直接依赖旧明文列。
 
-Legacy 迁移是单事务的“加密 → 认证解密并逐字验证 → 写密文并清空明文”。没有系统 key/backend 时不生成“密文旁明文 master key”，保留 legacy plaintext 并由 Doctor 报 warning；解密失败则 fail closed，API key 返回空值且 Doctor 只记录错误码，不泄漏 key/ciphertext。
+Legacy 迁移逐行执行“以非空明文为当前真源 → 生成 fresh envelope → 认证解密并逐字验证 → 写密文并清空明文”。回滚旧版、换机数据库等形成“当前明文 + 旧密文”时不得复活旧 key；单行加密/验证/UPDATE 失败保留该行明文、记录脱敏错误并继续其它行，不能穿透 `getDb()` 阻断启动。只有明文为空时，materialize 才尝试密文；密文损坏仍 fail closed，不回显 ciphertext。
 
 开发模式的 Next server 不由 Electron fork，默认不会自动获得数据密钥；如需验证加密路径，必须显式设置临时 `CODEPILOT_PROVIDER_SECRET_KEY/BACKEND/LEVEL`。单元测试 preload 已使用隔离、确定性的 test key。
+
+数据密钥文件损坏后的显式恢复、以及 packaged DB 与独立 `npm run dev` 共用时的 owner/隔离策略尚未产品化，见 tech-debt #78。不得把本轮启动容错描述成“密钥可自动再生且旧密文可恢复”。
 
 ## 验证记录
 

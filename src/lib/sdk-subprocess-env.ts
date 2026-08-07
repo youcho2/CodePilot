@@ -16,10 +16,10 @@
  * in a `finally` block. The cleanup is idempotent and a no-op when no
  * shadow was actually built (env-mode pass-through).
  */
-import os from 'node:os';
 import { findGitBash, getExpandedPath } from './platform';
 import { toClaudeCodeEnv, type ResolvedProvider } from './provider-resolver';
 import { createShadowClaudeHome, type ShadowHome } from './claude-home-shadow';
+import { applyMacosKeychainGuard } from './macos-keychain-guard';
 
 export interface SdkSubprocessSetup {
   /** Env to pass to the SDK's `env` Option (already sanitized for spawn). */
@@ -60,6 +60,14 @@ export function prepareSdkSubprocessEnv(resolved: ResolvedProvider): SdkSubproce
   // PATH expansion is needed in both Electron and dev so the subprocess can
   // find user-installed CLIs (npm global, brew, bun, etc.).
   sdkEnv.PATH = getExpandedPath();
+
+  // Claude Code eagerly invokes macOS `security` for its credential services
+  // even when an explicit provider API key is already present. If the user's
+  // configured default keychain no longer exists, that probe opens a blocking
+  // system modal on every subprocess start. The guard is activated only for
+  // that confirmed-unavailable state and forwards all unrelated security(1)
+  // calls unchanged.
+  applyMacosKeychainGuard(sdkEnv);
 
   // Drop CLAUDECODE so a CodePilot launched from inside a `claude` session
   // doesn't trip the SDK's "nested session" guard.

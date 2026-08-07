@@ -40,7 +40,9 @@ describe('telemetry default-deny sanitizer', () => {
       platform: 'MacIntel',
     });
 
-    assert.equal('user' in event, false);
+    assert.deepEqual(event.user, { ip_address: null });
+    assert.match(JSON.stringify(event), /"user":\{"ip_address":null\}/);
+    assert.doesNotMatch(JSON.stringify(event.user), /installation-id|person@example\.com/);
     assert.equal('server_name' in event, false);
     assert.doesNotMatch(event.message, /secret-token|api\.example|alice/i);
     assert.deepEqual(event.request, { method: 'POST', url: '/api/chat/sessions/[id]' });
@@ -92,5 +94,47 @@ describe('telemetry default-deny sanitizer', () => {
     assert.equal(event.debug_meta.images[0].debug_file, frame.abs_path);
     assert.equal(event.tags.needs_classification, 'yes');
     assert.deepEqual(event.fingerprint, ['normalized-v1', 'empty_response']);
+  });
+
+  it('serializes the null IP tombstone through a real Node Sentry transport', async () => {
+    const Sentry = await import('@sentry/node');
+    const envelopes: unknown[] = [];
+    Sentry.init({
+      dsn: 'https://public@example.invalid/1',
+      defaultIntegrations: false,
+      sendDefaultPii: false,
+      transport: () => ({
+        send(envelope) {
+          envelopes.push(envelope);
+          return Promise.resolve({ statusCode: 200 });
+        },
+        flush() { return Promise.resolve(true); },
+      }),
+      beforeSend(event) {
+        return sanitizeTelemetryEvent(event, {
+          layer: 'next_server',
+          channel: 'stable',
+          platform: process.platform,
+          arch: process.arch,
+        });
+      },
+    });
+    try {
+      Sentry.setUser({ id: 'must-not-survive', email: 'private@example.test' });
+      Sentry.captureException(new Error('tombstone transport probe'));
+      await Sentry.flush(1_000);
+      const eventPayload = envelopes.flatMap((envelope) => {
+        if (!Array.isArray(envelope) || !Array.isArray(envelope[1])) return [];
+        return envelope[1]
+          .filter((item) => Array.isArray(item) && (item[0] as { type?: unknown })?.type === 'event')
+          .map((item) => item[1] as { user?: unknown });
+      })[0];
+      assert.ok(eventPayload, 'expected a real Sentry event envelope');
+      assert.deepEqual(eventPayload.user, { ip_address: null });
+      assert.doesNotMatch(JSON.stringify(eventPayload.user), /must-not-survive|private@example\.test/);
+    } finally {
+      Sentry.setUser(null);
+      await Sentry.close(1_000);
+    }
   });
 });

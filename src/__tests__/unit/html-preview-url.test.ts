@@ -100,22 +100,32 @@ describe('buildHtmlPreviewUrl — workspace scope', () => {
     });
   });
 
-  it('round-trips Windows UNC paths', () => {
+  it('rejects Windows UNC and device paths before they can trigger network I/O', () => {
     const orig = '\\\\fileserver\\共享\\游戏\\index.html';
-    const url = buildHtmlPreviewUrl(orig, {
-      kind: 'workspace',
-      baseDir: '\\\\fileserver\\共享\\游戏',
-    });
-    const segments = url
-      .replace('/api/files/html-preview/', '')
-      .split('/')
-      .map(decodeURIComponent);
-    const parsed = parseHtmlPreviewSegments(segments);
-    assert.equal(parsed.absolutePath, orig);
-    assert.deepEqual(parsed.scope, {
-      kind: 'workspace',
-      baseDir: '\\\\fileserver\\共享\\游戏',
-    });
+    assert.throws(
+      () => buildHtmlPreviewUrl(orig, {
+        kind: 'workspace',
+        baseDir: '\\\\fileserver\\共享\\游戏',
+      }),
+      /network or device/,
+    );
+    assert.throws(
+      () => buildHtmlPreviewUrl('\\\\?\\C:\\project\\index.html', { kind: 'home' }),
+      /network or device/,
+    );
+
+    const uncBase = Buffer.from('\\\\attacker\\share\\project', 'utf8').toString('base64url');
+    assert.throws(
+      () => parseHtmlPreviewSegments([`ws.${uncBase}`, 'x.html']),
+      /must not be a Windows network or device path/,
+    );
+
+    const localBase = Buffer.from('C:\\project', 'utf8').toString('base64url');
+    const uncRoot = Buffer.from('\\\\attacker\\share\\', 'utf8').toString('base64url');
+    assert.throws(
+      () => parseHtmlPreviewSegments([`ws.${localBase}`, `__codepilot_win__.${uncRoot}`, 'x.html']),
+      /valid local drive root/,
+    );
   });
 
   it('throws when given a non-absolute path (catches caller bug early)', () => {

@@ -24,7 +24,7 @@ export function createGrepTool(ctx: ToolContext) {
       context: z.number().int().min(0).optional().describe('Lines of context around each match'),
       max_results: z.number().int().min(1).optional().describe('Maximum number of results (default 50)'),
     }),
-    execute: async ({ pattern, path: searchPath, glob: globPattern, case_insensitive, context: ctxLines, max_results }) => {
+    execute: async ({ pattern, path: searchPath, glob: globPattern, case_insensitive, context: ctxLines, max_results }, toolOptions) => {
       const requestedPath = searchPath
         ? (path.isAbsolute(searchPath) ? searchPath : path.resolve(ctx.workingDirectory, searchPath))
         : ctx.workingDirectory;
@@ -88,7 +88,7 @@ export function createGrepTool(ctx: ToolContext) {
         }
 
         try {
-          const lines = grepWithNode({
+          const lines = await grepWithNode({
             pattern,
             root: cwd,
             target: path.resolve(cwd, target),
@@ -96,9 +96,11 @@ export function createGrepTool(ctx: ToolContext) {
             caseInsensitive: case_insensitive,
             contextLines: ctxLines,
             limit,
+            signal: toolOptions.abortSignal,
           });
           return lines.join('\n') || `No matches found for pattern "${pattern}" in ${requestedPath}`;
         } catch (fallbackError) {
+          if (fallbackError instanceof Error && fallbackError.name === 'AbortError') throw fallbackError;
           const reason = fallbackError instanceof Error ? fallbackError.message : String(fallbackError);
           return `Error searching for pattern "${pattern}" in ${requestedPath}: ${reason}`;
         }

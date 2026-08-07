@@ -32,6 +32,6 @@ case "$TIER" in
     # (tech-debt #11/#25/#30 flake fix): node:test runs files in parallel, so without
     # this every DB test raced on the one real ~/.codepilot/codepilot.db → intermittent
     # failures that blocked commits. Now: no shared-file races, no real-DB pollution.
-    CODEX_DISABLED=1 npx tsx --test --import ./src/__tests__/db-isolation.setup.ts src/__tests__/unit/*.test.ts
+    CODEX_DISABLED=1 node scripts/run-node-tests.mjs unit
     ;;
 esac

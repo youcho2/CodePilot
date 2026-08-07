@@ -2,11 +2,14 @@
 
 > 对应产品思考：[../insights/harness-home.md](../insights/harness-home.md)
 > 执行计划入口：[../exec-plans/active/harness-home-user-owned-core.md](../exec-plans/active/harness-home-user-owned-core.md)
+> 当前 Program C：[../exec-plans/active/harness-home-context-capability-routing.md](../exec-plans/active/harness-home-context-capability-routing.md)
 > 代码审查修复基线：`1dea192d`
 
 ## 定位
 
-Harness Home 是用户所有 Harness 的领域聚合根，不是一个必须存在的页面。它把 portable definition、scope、provenance、SecretRef、Runtime projection、Design Method、Taste evidence 与 durable AssetRef 放到同一套契约下；Settings、Plugins、Assistant Workspace 和素材库只是不同入口。
+Harness Home 是用户所有 Harness 的领域聚合根，不是一个必须存在的页面。当前产品定义收敛为 Assistant files/services、统一 Capability Package（Skill/MCP/CLI/builtin/renderer/model adapter）、scope/provenance/SecretRef、Runtime projection 与 durable AssetRef；Settings、Plugins、Assistant Workspace 和素材库只是不同入口。
+
+2026-08-04 用户纠正了“隔离”的边界：项目若主动使用助理目录，`AGENTS.md`、`CLAUDE.md`、`memory.md` 和其他文件仍应自然可读；Program C 只用 persisted assistant binding 取代 cwd equality 对 identity/Memory 自动服务与 Heartbeat 的激活判断，不能把 binding 做成文件 ACL。独立 Design Method/Taste/Creative Orchestration 产品计划已移入 `superseded/`：已落地 schema/API/tests 保留兼容与安全修复；新的工作流、设计和媒体能力进入一个 Capability Package，由 Skill 描述、Broker 让 MCP/CLI/内置/renderer/model actions 相互调用，再由 Asset materialization 保存结果。
 
 Canonical 数据不依赖 Claude Code、Codex 或某个模型。外部框架通过两类 adapter 接入：
 
@@ -136,5 +139,8 @@ Electron 缩略图使用独立无缓存 partition、拒绝全部权限和新窗�
 - L0/L1 adapter 目前主要是 code/API/conformance surface，尚无正式导入/导出 UI；
 - 第四个 Full Runtime 仍需要少量产品 binding touchpoints，未达到“只注册 descriptor”；
 - A4 三 Runtime 真实凭据/permission/resume/interrupt packaged smoke 未执行；
-- Design Method v0、golden producer run 和用户审美 gate 必须由真实作品与用户选择关闭；
 - packaged app 的 Asset Library human gate 未执行。
+- Program C P0：Assistant service binding 尚未落地，现有 identity/Memory 自动服务与 Heartbeat 仍主要依赖 cwd equality；实现必须同时证明项目使用助理目录时普通文件仍可读；
+- Program C P1：canonical Skill/MCP 多为 perception-only，CLI/renderer/model adapter 尚未进入统一 Package，Capability Broker 与三 Runtime bridges 未落地；
+- Program C P2：`creative` 尚未验证模板化可视化质量、policy resolution、media model descriptor/adapter 与完整 Artifact→Asset lineage，tech debt #56 仍需真实 CodePilot Runtime smoke；
+- 推荐/安装/来源页面按用户决定 deferred，不属于当前关闭门禁。

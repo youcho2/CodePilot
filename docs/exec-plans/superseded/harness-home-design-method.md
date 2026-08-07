@@ -1,9 +1,11 @@
 # Harness Home Program C — CodePilot Design Method
 
+> **Archive note（2026-08-04）**：用户明确不再把“审美闭环”、Taste Memory 与 Creative Orchestration 作为独立产品主线。工作流和设计方法由 Capability Package 内的 Skill 承载，MCP/CLI/内置/renderer/model actions 通过 Broker 相互调用，Asset Library 负责持久化结果。本文已经落地的 Method/Taste/creative-project foundation、测试和安全门禁继续保留；未完成的 Method v0、大型 golden producer run 与人工审美 program 不再从本文领取任务，统一由 [Assistant 服务激活与统一能力包计划](../active/harness-home-context-capability-routing.md) P2 的 `creative` reference package 按轻量质量/policy/多模型边界接管。除非用户重新明确启动独立 Design Method 产品，否则不得把本文移回 active。
+>
 > 创建时间：2026-07-30
-> 最后更新：2026-07-31
-> 状态：🟡 C0 候选证据清单 + C1/C2/C3 foundation/API/tests 已完成；用户方法确认、golden set、真实 producer 与人工审美门禁待执行
-> 父计划：[harness-home-user-owned-core.md](harness-home-user-owned-core.md)
+> 最后更新：2026-08-04
+> 状态：🗃️ 已被接管；foundation 已完成并保留，剩余独立产品化任务取消
+> 历史父计划：[harness-home-user-owned-core.md](../active/harness-home-user-owned-core.md)
 > 依赖：Program A shared scope/provenance；完整创作 lineage 依赖 Program B
 
 ## 目标

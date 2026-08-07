@@ -40,18 +40,30 @@ export interface PathIdentity {
 export interface ResolvePathIdentityOptions {
   baseDir?: string;
   platform?: NodeJS.Platform;
+  isWsl?: boolean;
 }
 
 const WINDOWS_DRIVE_RE = /^[a-zA-Z]:[\\/]/;
-const UNC_RE = /^(?:\\\\|\/\/)[^\\/]+[\\/][^\\/]+/;
+const BACKSLASH_UNC_RE = /^\\\\[^\\/]+[\\/][^\\/]+/;
+const FORWARD_UNC_RE = /^\/\/[^\\/]+[\\/][^\\/]+/;
 const WSL_UNC_RE = /^(?:\\\\|\/\/)(?:wsl\$|wsl\.localhost)[\\/]/i;
 const WSL_MOUNT_RE = /^\/mnt\/[a-z](?:\/|$)/i;
 
-export function detectPathDialect(value: string): PathDialect {
+export function detectPathDialect(
+  value: string,
+  platform: NodeJS.Platform = process.platform,
+  isWsl: boolean = platform === 'linux'
+    && (!!process.env.WSL_DISTRO_NAME || !!process.env.WSL_INTEROP),
+): PathDialect {
   const trimmed = value.trim();
   if (/^file:/i.test(trimmed)) return 'file_url';
-  if (WSL_UNC_RE.test(trimmed) || WSL_MOUNT_RE.test(trimmed)) return 'wsl';
-  if (UNC_RE.test(trimmed)) return 'unc';
+  if (WSL_UNC_RE.test(trimmed) && (trimmed.startsWith('\\\\') || platform === 'win32')) {
+    return 'wsl';
+  }
+  if (WSL_MOUNT_RE.test(trimmed) && (platform === 'win32' || isWsl)) return 'wsl';
+  if (BACKSLASH_UNC_RE.test(trimmed) || (platform === 'win32' && FORWARD_UNC_RE.test(trimmed))) {
+    return 'unc';
+  }
   if (WINDOWS_DRIVE_RE.test(trimmed)) return 'windows_drive';
   if (trimmed.startsWith('/')) return 'posix';
   return 'relative';
@@ -135,11 +147,11 @@ export function resolvePathIdentity(
 ): PathIdentity {
   const displayPath = input.trim();
   if (!displayPath) throw new Error('Path must be a non-empty string');
-  // eslint-disable-next-line no-control-regex
+   
   if (/[\x00-\x1f]/.test(displayPath)) throw new Error('Path contains control characters');
 
   const platform = options.platform ?? process.platform;
-  const dialect = detectPathDialect(displayPath);
+  const dialect = detectPathDialect(displayPath, platform, options.isWsl);
   const baseDir = options.baseDir ?? process.cwd();
   const absolutePath = toAbsolutePath(displayPath, dialect, platform, baseDir);
   const volume = platform === 'win32' || ['windows_drive', 'unc'].includes(dialect)

@@ -124,6 +124,17 @@ interface RuntimeStatusInfo {
   recovery?: string; // omitted when no recovery is needed
 }
 
+function codexCliInstallRecovery(isZh: boolean, isWindowsElectron: boolean): string {
+  if (isWindowsElectron) {
+    return isZh
+      ? "在 PowerShell 运行 `irm https://chatgpt.com/codex/install.ps1 | iex` 安装独立 CLI，或设置 CODEX_BIN 后刷新"
+      : "Run `irm https://chatgpt.com/codex/install.ps1 | iex` in PowerShell, or set CODEX_BIN, then refresh";
+  }
+  return isZh
+    ? "按 Codex 官方文档安装适用于当前平台的 CLI，或设置 CODEX_BIN 指向自定义路径后刷新"
+    : "Install the Codex CLI using the official instructions for this platform, or set CODEX_BIN to a custom binary, then refresh";
+}
+
 // ---------------------------------------------------------------------------
 // Status pill (mirrors design.md "Status pill — provider runtime state")
 // ---------------------------------------------------------------------------
@@ -1071,6 +1082,7 @@ export function RuntimePanel(props: RuntimePanelProps = {}) {
    */
   const codexRuntimeStatus: RuntimeStatusInfo = useMemo(() => {
     const isSelected = effectiveRuntime === "codex_runtime";
+    const installRecovery = codexCliInstallRecovery(isZh, isWindowsElectron);
     if (codexAvailability.kind === "desktop_only") {
       return {
         state: "blocked",
@@ -1080,9 +1092,7 @@ export function RuntimePanel(props: RuntimePanelProps = {}) {
         impact: isZh
           ? "桌面应用本身仍可使用；Codex Runtime 需要能启动 app-server 的 CLI，当前发送会失败"
           : "The desktop app remains usable, but Codex Runtime needs a CLI that can launch app-server and sends will currently fail",
-        recovery: isZh
-          ? "在 PowerShell 运行 `irm https://chatgpt.com/codex/install.ps1 | iex` 安装独立 CLI，或设置 CODEX_BIN 后刷新"
-          : "Run `irm https://chatgpt.com/codex/install.ps1 | iex` in PowerShell, or set CODEX_BIN, then refresh",
+        recovery: installRecovery,
       };
     }
     if (codexAvailability.kind === "not_installed") {
@@ -1094,9 +1104,7 @@ export function RuntimePanel(props: RuntimePanelProps = {}) {
         impact: isZh
           ? "Codex Runtime 整体无法启用：Codex 账户模型（gpt-5.5 等）和 CodePilot 服务商经 proxy 接入两条路径都会发送失败"
           : "Codex Runtime is fully blocked: both Codex Account models (gpt-5.5 etc.) and CodePilot providers via the proxy will fail at send time",
-        recovery: isZh
-          ? "安装 Codex CLI（PowerShell：`irm https://chatgpt.com/codex/install.ps1 | iex`），或设置 CODEX_BIN 指向自定义路径"
-          : "Install Codex CLI (`irm https://chatgpt.com/codex/install.ps1 | iex` in PowerShell), or point CODEX_BIN at a custom binary",
+        recovery: installRecovery,
       };
     }
     if (codexAvailability.kind === "too_old") {
@@ -1160,7 +1168,7 @@ export function RuntimePanel(props: RuntimePanelProps = {}) {
       reason: isZh ? "正在检测 Codex 应用服务状态…" : "Detecting Codex app-server status…",
       impact: isZh ? "状态会在后台轮询后刷新" : "Status updates after background polling",
     };
-  }, [codexAvailability, effectiveRuntime, isZh]);
+  }, [codexAvailability, effectiveRuntime, isZh, isWindowsElectron]);
 
   /**
    * CodePilot Runtime is bundled and always available; the only thing
@@ -1907,9 +1915,7 @@ export function RuntimePanel(props: RuntimePanelProps = {}) {
                 <span className="text-xs text-muted-foreground text-right">
                   {codexProbe.sandbox?.state === "setup"
                     ? (isZh ? "setup 已完成；runner / 首个受限命令未验证" : "Setup completed; runner / first restricted command unverified")
-                    : codexProbe.sandbox?.state === "ready"
-                      ? (isZh ? "已由真实受限命令验证" : "Verified by a restricted command")
-                      : codexProbe.sandbox?.state === "error"
+                    : codexProbe.sandbox?.state === "error"
                         ? (isZh ? `错误 · ${codexProbe.sandbox.stage ?? "unknown"}` : `Error · ${codexProbe.sandbox.stage ?? "unknown"}`)
                         : codexProbe.sandbox?.state === "degraded"
                           ? (isZh ? `有警告 · ${codexProbe.sandbox.stage ?? "unknown"}` : `Warning · ${codexProbe.sandbox.stage ?? "unknown"}`)

@@ -53,6 +53,9 @@ extraResources:
   - from: themes/
     to: standalone/themes/
     filter: ["*.json"]
+  - from: resources/macos-keychain-guard/
+    to: macos-keychain-guard/
+    filter: ["security"]
   - from: build/
     to: .
     # icon.* = Dock/app/window icons; trayTemplate*.png = macOS menubar template

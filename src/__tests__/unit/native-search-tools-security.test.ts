@@ -69,7 +69,7 @@ describe('Native Grep/Glob command boundary', () => {
     assert.match(emptyGlobResult, /No files found matching pattern/);
   });
 
-  it('keeps Glob/Grep functional without Unix find or grep', () => {
+  it('keeps Glob/Grep functional without Unix find or grep', async () => {
     const projectDir = path.join(root, '中文 游戏 (测试)&资料');
     const sourceDir = path.join(projectDir, '源码');
     fs.mkdirSync(sourceDir, { recursive: true });
@@ -77,11 +77,72 @@ describe('Native Grep/Glob command boundary', () => {
     fs.writeFileSync(path.join(sourceDir, '忽略.js'), 'const needle = false;\n');
 
     assert.deepEqual(globWithNode(projectDir, '**/*.ts'), ['源码/角色.ts']);
-    assert.deepEqual(grepWithNode({
+    assert.deepEqual(await grepWithNode({
       pattern: 'needle-中文',
       root: projectDir,
       glob: '**/*.ts',
     }), ['源码/角色.ts:1:export const 英雄 = "needle-中文";']);
+  });
+
+  it('matches ripgrep defaults by excluding hidden files during fallback traversal', async () => {
+    const projectDir = path.join(root, 'hidden-files');
+    fs.mkdirSync(path.join(projectDir, '.hidden'), { recursive: true });
+    fs.writeFileSync(path.join(projectDir, '.env'), 'API_KEY=hidden-secret\n');
+    fs.writeFileSync(path.join(projectDir, '.hidden', 'secret.ts'), 'hidden-secret\n');
+    fs.writeFileSync(path.join(projectDir, 'visible.ts'), 'public-marker\n');
+
+    assert.deepEqual(globWithNode(projectDir, '**/*'), ['visible.ts']);
+    assert.deepEqual(await grepWithNode({
+      pattern: 'hidden-secret',
+      root: projectDir,
+    }), []);
+    assert.deepEqual(await grepWithNode({
+      pattern: 'hidden-secret',
+      root: projectDir,
+      target: path.join(projectDir, '.env'),
+    }), ['.env:1:API_KEY=hidden-secret']);
+  });
+
+  it('times out catastrophic fallback regexes without blocking the host event loop', async () => {
+    const projectDir = path.join(root, 'catastrophic-regex');
+    fs.mkdirSync(projectDir, { recursive: true });
+    fs.writeFileSync(path.join(projectDir, 'input.txt'), `${'a'.repeat(30_000)}!\n`);
+
+    let heartbeatRan = false;
+    const heartbeat = setTimeout(() => {
+      heartbeatRan = true;
+    }, 20);
+    const startedAt = Date.now();
+    await assert.rejects(
+      grepWithNode({
+        pattern: '(a+)+$',
+        root: projectDir,
+        timeoutMs: 150,
+      }),
+      /node_grep_timeout/,
+    );
+    clearTimeout(heartbeat);
+    assert.equal(heartbeatRan, true, 'regex evaluation must not monopolize the main thread');
+    assert.ok(Date.now() - startedAt < 2_000, 'worker timeout must bound the search');
+  });
+
+  it('aborts an in-flight fallback regex search', async () => {
+    const projectDir = path.join(root, 'aborted-regex');
+    fs.mkdirSync(projectDir, { recursive: true });
+    fs.writeFileSync(path.join(projectDir, 'input.txt'), `${'a'.repeat(30_000)}!\n`);
+    const controller = new AbortController();
+    const search = grepWithNode({
+      pattern: '(a+)+$',
+      root: projectDir,
+      timeoutMs: 5_000,
+      signal: controller.signal,
+    });
+    setTimeout(() => controller.abort(), 20);
+    await assert.rejects(search, (error: unknown) => {
+      assert.equal((error as Error).name, 'AbortError');
+      assert.match((error as Error).message, /node_grep_aborted/);
+      return true;
+    });
   });
 });
 
@@ -91,7 +152,10 @@ describe('Native shell platform boundary', () => {
       platform: 'win32',
       env: { ...process.env, SystemRoot: 'Z:\\Windows' },
     });
-    assert.equal(launch.command, 'powershell.exe');
+    assert.equal(
+      launch.command,
+      'Z:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe',
+    );
     assert.deepEqual(launch.args.slice(0, 6), [
       '-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-EncodedCommand',
     ]);

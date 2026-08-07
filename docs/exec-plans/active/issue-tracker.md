@@ -340,16 +340,13 @@ GitHub milestone `v0.56.x Stability / Trust`（#1）+ P0/P1 label 体系已建�
 
 #### B-018 macOS 启动 / 新对话时弹 "找不到用于储存 'apple' 的钥匙串" 对话框
 - **Issue:** [#501](https://github.com/op7418/CodePilot/issues/501)
-- **状态:** 🟡 非代码缺陷 + 有规避方案未落地（2026-04-16 诊断）
-- **现象:** v0.50.3 上部分 macOS 用户启动或点"新对话"时，系统弹 `Cannot find keychain to store 'apple'` 对话框；仅"取消/还原为默认"两选项，点取消后反复弹（3-5 次），不影响最终功能但体验阻塞
-- **维护者环境不复现**（两台机器均未触发）；报告者（vivi2886）使用第三方 API Key，CodePilot DB 无 OAuth token 记录也仍触发
-- **根因诊断:**
-  - 我们自己的代码**零处**调用 keychain / safeStorage / keytar（grep `'apple'` / `safeStorage` / `keytar` 于 `src/` 和 `electron/` 均无命中；仅 `claude-client.ts:1723` 的注释和 `main.ts:744` 的 CSS font-family 含 "apple"）
-  - "apple" 这个 service name 是 **Electron 底层 Chromium 在 macOS 访问 login keychain 的默认行为**（Chromium 用 keychain 加密 cookie / password manager 数据）
-  - 用户本机 login keychain 状态异常时（常见：系统重装后未迁移、第三方清理软件动过、登录密码重置过 keychain 未同步解锁）Chromium 初始化尝试访问 keychain 就会弹这个系统对话框
-- **规避方案（未实施）:** `electron/main.ts` 顶部加 `app.commandLine.appendSwitch('password-store', 'basic')`，让 Chromium 不碰系统 keychain，改用 profile 本地加密。副作用：Chromium 存的 cookie 不再经 keychain 加密——对我们这种本地 Electron 应用没敏感 cookie（所有凭据都在我们自己的 sqlite），影响可接受
-- **下一步:** 下个小版本（0.50.4 或独立 hotfix）加 `password-store=basic` 开关；issue 里可先回复用户说明"环境相关非代码 bug + 系统 Keychain Access 修复步骤 + 下版会加规避开关"
-- **Sentry 可见度:** 这个对话框是 macOS 系统级弹窗，不走 Electron renderer 的 JS 异常通道，Sentry 不会采到——所以只能靠 GitHub Issue 观测规模
+- **状态:** 🟢 代码修复 + 定向回归完成；待受影响 Mac packaged smoke（2026-08-07）
+- **Signal:** v0.50.3 已有用户在启动/新对话时看到 `Cannot find keychain to store 'apple'`；2026-08-05 又收到会话生成阶段的真实截图，文本为“找不到用于储存 `kevinyoung` 的钥匙串”，按钮仅“取消/还原为默认”。用户名随报告者变化，说明它不是固定 service name。
+- **更正后的根因:** 旧诊断把弹窗归因于 Chromium 且建议 `password-store=basic`，现已被直接调用链证据推翻。当前 bundled Claude CLI 会在每个 CLI subprocess 启动时以 `process.env.USER || os.userInfo().username` 作为 `-a`，并通过 PATH 调用 `security find-generic-password ... -s 'Claude Code*'` 做两次 eager prefetch；截图中的 `kevinyoung` 正好是该 account 参数。旧报告发生于 CodePilot 引入 `safeStorage` 之前，也排除了 provider secret 是历史主因。v0.65+ 的 Electron `safeStorage` 现在构成第二条可能触发链，需一并前置门控。
+- **Fix:** 新增只读 `/usr/bin/security default-keychain -d user` 探测，只解析配置路径并检查文件存在，不读取/解锁/创建/修复任何 credential item。确认 default keychain 缺失、未配置或 probe 失败时：① Electron Main 在进入 `safeStorage` 前跳过 provider DEK 初始化；② packaged Next child 收到脱敏状态码；③ 每个 Claude subprocess 的 PATH 前置 packaged `security` shim。shim 只对 `Claude Code*` service 的 find/add/delete 和无参数 `show-keychain-info` 非交互返回失败，让 Claude 使用已有环境变量/文件 fallback；其余命令以固定 `/usr/bin/security "$@"` 原样转发。健康 keychain 不改 PATH、不改变 OAuth/Provider 行为。复核所有 SDK `query()` 后又关闭一条“偶发”漏口：`CONTEXT_TOO_LONG` 压缩重试原先直接复制 `process.env`，现复用同一 request 已构建的 guarded/provider-isolated env。
+- **明确不采用:** 不设置 `password-store=basic`——Chromium 该 switch 的 `basic` backend 是 Linux 路径，不能作为 macOS 修复；不设置 `CLAUDE_CODE_SIMPLE` / `--bare`——它会同时关闭 hooks、插件同步、项目指令发现等正常能力。
+- **Verify:** `macos-keychain-guard.test.ts` 覆盖 available/missing/unconfigured/timeout、非 macOS no-op、shim 精确拒绝与 argv 固定转发、bundled Claude CLI 仍经 PATH lookup；`provider-secret-electron-contract.test.ts` 锁定 unavailable 分支在 safeStorage 之前；`electron-packaging-hygiene.test.ts` 锁定资源进包；源码钉禁止 reactive retry 重新使用 raw `process.env`。定向回归 58/58、Tier 1 全量 5131 pass / 0 fail / 1 skip，Electron Main one-shot bundle、targeted ESLint、hook/docs-drift lint 均通过。本机真实 default-keychain probe 为 `available`。维护者未破坏/改写本机钥匙串来制造复现；发布前仍需在报告者或隔离 macOS 账户上做 packaged smoke。
+- **可观测性:** Main log 只记录 `default_keychain_*` 原因码；Provider Doctor 增加 `auth.macos-default-keychain-unavailable` warning，不记录用户名、keychain 路径或凭据。系统 modal 本身仍不进入 Sentry。
 
 ---
 
@@ -442,6 +439,8 @@ GitHub milestone `v0.56.x Stability / Trust`（#1）+ P0/P1 label 体系已建�
 | ClaudeCodeCompat 503/500/400 | 9x | ↑ | — | 第三方代理 |
 | AI_MissingToolResultsError | 5x | → | — | 🔴 |
 | HMAC apikey not found | 4x | → | — | 特定 Provider |
+
+2026-08-07 补充：official 0.65 累计确认 57 条 `AI_MissingToolResultsError`，真实 stack 位于下一轮 AI SDK prompt conversion。未来 terminal 与 legacy history 的配对修复已在 [production-observation-remediation-2026-08-07.md](production-observation-remediation-2026-08-07.md) 落地并有真实 SDK 正/反对照；状态改为 **🟡 Code complete，待新 stable cohort 验证**。上表 5x 保留为 2026-04-11 历史快照，不覆盖历史计数。
 
 ---
 

@@ -831,12 +831,15 @@ export async function getCodexAvailability(): Promise<CodexAvailability> {
  * app-server is deliberately left untouched and remains the source of truth.
  */
 export async function refreshCodexAvailability(): Promise<CodexAvailability> {
+  // Refresh starts a new diagnostic observation window even when the healthy
+  // app-server stays alive. Without this, one historical sandbox warning is
+  // pinned in Settings for the rest of the process lifetime.
+  resetCodexSandboxReadiness();
   if (cached) return getCodexAvailability();
   resolvedBinaryCache = null;
   versionProbeCache = null;
   lastUnusableDesktopCandidate = null;
   lastAvailability = { kind: 'unknown' };
-  resetCodexSandboxReadiness();
   return getCodexAvailability();
 }
 

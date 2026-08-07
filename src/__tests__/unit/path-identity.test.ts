@@ -15,7 +15,11 @@ test('detectPathDialect distinguishes drive, UNC, WSL, file URL and POSIX paths'
   assert.equal(detectPathDialect('C:\\项目\\game'), 'windows_drive');
   assert.equal(detectPathDialect('\\\\server\\share\\项目'), 'unc');
   assert.equal(detectPathDialect('\\\\wsl.localhost\\Ubuntu\\home\\me'), 'wsl');
-  assert.equal(detectPathDialect('/mnt/c/项目'), 'wsl');
+  assert.equal(detectPathDialect('/mnt/c/项目', 'linux'), 'posix');
+  assert.equal(detectPathDialect('/mnt/c/项目', 'linux', true), 'wsl');
+  assert.equal(detectPathDialect('/mnt/c/项目', 'darwin'), 'posix');
+  assert.equal(detectPathDialect('//server/share/项目', 'win32'), 'unc');
+  assert.equal(detectPathDialect('//server/share/项目', 'darwin'), 'posix');
   assert.equal(detectPathDialect('file:///C:/Users/me/project'), 'file_url');
   assert.equal(detectPathDialect('/Users/me/project'), 'posix');
   assert.equal(detectPathDialect('relative/project'), 'relative');
@@ -45,6 +49,34 @@ test('Windows resolves WSL drive mounts to the matching native drive identity', 
   assert.equal(wsl.absolutePath, 'C:\\Users\\me\\中文 项目');
   assert.equal(wsl.volume, 'C:\\');
   assert.equal(samePathIdentity(wsl, native), true);
+});
+
+test('macOS keeps /mnt drive-like paths and double-slash roots in the POSIX dialect', () => {
+  const mountLike = resolvePathIdentity('/mnt/c/Users/me/project', { platform: 'darwin' });
+  assert.equal(mountLike.dialect, 'posix');
+  assert.equal(mountLike.absolutePath, '/mnt/c/Users/me/project');
+
+  const doubleSlash = resolvePathIdentity('//var/folders/project', { platform: 'darwin' });
+  assert.equal(doubleSlash.dialect, 'posix');
+  assert.equal(doubleSlash.absolutePath, '/var/folders/project');
+});
+
+test('double-slash POSIX working directories do not fall back to HOME', {
+  skip: process.platform === 'win32',
+}, () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'codepilot-double-slash-'));
+  const project = path.join(root, 'project');
+  fs.mkdirSync(project);
+  const doubleSlashProject = `/${project}`;
+  try {
+    const result = resolveWorkingDirectory([{ path: doubleSlashProject, source: 'requested' }]);
+    assert.equal(result.source, 'requested');
+    assert.equal(result.identity.dialect, 'posix');
+    assert.equal(result.identity.kind, 'directory');
+    assert.equal(result.identity.nativeRealPath, fs.realpathSync.native(project));
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
 });
 
 test('working-directory resolution preserves Unicode, spaces and legal shell characters as filesystem input', () => {

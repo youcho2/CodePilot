@@ -42,7 +42,6 @@ export function buildShellLaunch(
     'v1.0',
     'powershell.exe',
   );
-  const powershell = fs.existsSync(bundledPowerShell) ? bundledPowerShell : 'powershell.exe';
   const utf8Command = [
     '[Console]::InputEncoding = [System.Text.UTF8Encoding]::new($false)',
     '[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)',
@@ -51,7 +50,11 @@ export function buildShellLaunch(
   ].join('; ');
 
   return {
-    command: powershell,
+    // Never fall back to a bare executable name: Windows process lookup can
+    // search the repository CWD before system directories, allowing an
+    // untrusted workspace to shadow powershell.exe. A missing system binary
+    // should fail explicitly at this absolute path.
+    command: bundledPowerShell,
     args: [
       '-NoLogo',
       '-NoProfile',

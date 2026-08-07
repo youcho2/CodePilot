@@ -65,6 +65,7 @@ import { getMessages } from '../db';
 import { wrapController } from '../safe-stream';
 import { buildNativeErrorEventData } from '../agent-loop-error-event';
 import { buildToolErrorResultData } from '../agent-loop-tool-error';
+import { repairIncompleteToolHistory } from '../tool-history-integrity';
 import type { AgentLoopOptions } from '../agent-loop';
 import type { ToolInvocationRecord } from '../harness/auto-invoke-accounting';
 
@@ -366,7 +367,9 @@ export function runToolLoopAgentPoc(options: AgentLoopOptions): ReadableStream<s
           // before every streamText call; prepareStep is the SDK's equivalent
           // interception point.
           prepareStep: ({ messages }) => ({
-            messages: pruneOldToolResults(messages as ModelMessage[]),
+            messages: repairIncompleteToolHistory(
+              pruneOldToolResults(messages as ModelMessage[]),
+            ).messages,
           }),
           experimental_repairToolCall: async ({ toolCall, error }) => {
             console.warn(`[toolloop-poc] Repairing tool call "${toolCall.toolName}": ${error.message}`);

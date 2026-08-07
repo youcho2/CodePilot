@@ -152,7 +152,11 @@ export function sanitizeTelemetryEvent<T extends object>(
   options: SanitizeTelemetryOptions,
 ): T {
   const mutable = event as UnknownRecord;
-  delete mutable.user;
+  // Deleting `user` is not enough for server SDK events: Relay may infer the
+  // connecting IP and materialize user/geo after beforeSend. An explicit null
+  // is the protocol tombstone for "do not infer" while still removing every
+  // identity field supplied by callers.
+  mutable.user = { ip_address: null };
   delete mutable.server_name;
   delete mutable.modules;
   if ('message' in mutable) mutable.message = sanitizeText(mutable.message);

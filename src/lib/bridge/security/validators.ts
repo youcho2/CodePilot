@@ -44,7 +44,7 @@ export function validateWorkingDirectory(rawPath: string): string | null {
   // Must be absolute in the current host dialect. `path.isAbsolute()` alone
   // cannot describe Windows input when tests/review run on another platform,
   // so detect the input dialect explicitly and then require host compatibility.
-  const dialect = detectPathDialect(trimmed);
+  const dialect = detectPathDialect(trimmed, process.platform);
   if (!path.isAbsolute(trimmed)) return null;
   if (process.platform === 'win32' && dialect === 'posix') return null;
   if (process.platform !== 'win32' && (dialect === 'windows_drive' || dialect === 'unc')) return null;
@@ -52,7 +52,7 @@ export function validateWorkingDirectory(rawPath: string): string | null {
   // Reject control characters. Shell metacharacters are valid filename
   // characters on Windows and are safe here because this value is passed as
   // spawn.cwd / filesystem input, never interpolated into a command string.
-  // eslint-disable-next-line no-control-regex
+   
   if (/[\x00-\x1f]/.test(trimmed)) return null;
 
   // Reject path traversal segments
@@ -118,7 +118,7 @@ export function sanitizeInput(
   if (!text) return { text: '', truncated: false };
 
   // Strip control characters except \n (0x0A) and \t (0x09)
-  // eslint-disable-next-line no-control-regex
+   
   let sanitized = text.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '');
 
   const truncated = sanitized.length > maxLength;

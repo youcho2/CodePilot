@@ -1,4 +1,3 @@
-import os from 'node:os';
 import path from 'node:path';
 import type { CodexAvailability } from '@/lib/codex/types';
 import {
@@ -88,7 +87,10 @@ export function buildNativeRuntimeProbe(options: { cwd?: string; logLocation?: s
     platform: process.platform,
     candidateSource: 'builtin',
     installChannel: 'bundled',
-    binary: { exists: true, version: process.version, probe: 'passed' },
+    // Native runs in-process; there is no separate executable probe. Keep the
+    // bundled source and live appServer fact, but do not manufacture a passed
+    // binary check that never ran.
+    binary: { exists: true, version: process.version, probe: 'not_run' },
     cwd: defaultCwd(options.cwd),
     appServer: { probe: 'passed', detail: 'In-process CodePilot Runtime' },
     ...(options.logLocation ? { logLocation: options.logLocation } : {}),
@@ -198,8 +200,4 @@ export function buildCodexRuntimeProbe(
     };
   }
   return snapshot;
-}
-
-export function defaultRuntimeLogLocation(): string {
-  return path.join(os.homedir(), '.codepilot', 'logs');
 }

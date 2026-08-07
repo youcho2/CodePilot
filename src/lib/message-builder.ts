@@ -28,6 +28,7 @@ import type {
 import type { Message, MessageContentBlock } from '@/types';
 import { parseMessageContent } from '@/types';
 import fs from 'fs';
+import { repairIncompleteToolHistory } from './tool-history-integrity';
 
 interface FileMeta {
   id: string;
@@ -87,10 +88,18 @@ export function buildCoreMessages(dbMessages: Message[]): ModelMessage[] {
     }
   }
 
-  // Enforce message alternation: Anthropic API requires user/assistant turns to alternate.
-  // Consecutive same-role messages get merged (user) or the later one wins (assistant).
-  const result = enforceAlternation(raw);
-  return result;
+  // Enforce message alternation first, preserving the existing transcript
+  // semantics, then repair incomplete tool segments left by Stop/partial SSE
+  // persistence. The repair inserts only an explicit app-owned missing-result
+  // marker; it never fabricates a successful tool output.
+  const alternated = enforceAlternation(raw);
+  const repaired = repairIncompleteToolHistory(alternated);
+  if (repaired.synthesizedResults > 0 || repaired.droppedOrphanResults > 0) {
+    console.warn(
+      `[message-builder] repaired incomplete tool history: missing_results=${repaired.synthesizedResults} orphan_results=${repaired.droppedOrphanResults}`,
+    );
+  }
+  return enforceAlternation(repaired.messages);
 }
 
 /**

@@ -64,9 +64,8 @@ describe('pruneOldToolResults (legacy fixed-window mode)', () => {
     const prunedContent = result[0].content as Array<{ output?: { value: string }; toolName?: string }>;
     const output = prunedContent[0].output;
     assert.ok(output);
-    // New marker keeps tool name and result excerpt so the model can still
-    // reason about the call/result pairing — fixes AI_MissingToolResultsError
-    // regression where generic markers caused the model to lose track.
+    // New marker keeps tool name and result excerpt so the model can retain
+    // semantic context instead of narrating a tool call that never executed.
     assert.ok(
       output.value.startsWith('[Pruned'),
       `expected "[Pruned ..." marker, got: ${output.value}`,
@@ -82,8 +81,8 @@ describe('pruneOldToolResults (legacy fixed-window mode)', () => {
   });
 
   it('keeps tool name in the marker so model can match call→result', () => {
-    // Regression test for AI_MissingToolResultsError: the marker must include
-    // the tool name (or at least a placeholder) so the assistant doesn't
+    // Semantic regression test: the marker must include the tool name (or at
+    // least a placeholder) so the assistant doesn't
     // emit a fake tool call to "retry" what it thinks is a missing result.
     const msgs: ModelMessage[] = [];
     for (let i = 0; i < 20; i++) {

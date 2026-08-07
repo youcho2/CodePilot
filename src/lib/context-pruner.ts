@@ -18,13 +18,11 @@
 
 import type { ModelMessage } from 'ai';
 
-// Keep last N messages fully intact. Raised from 6 → 16 in 2026-04-15 to fix
-// AI_MissingToolResultsError regression: with 6 turns, a single tool-heavy
-// assistant turn (multiple tool_use blocks) can have its earlier tool_result
-// peers fall off the recent window while the tool_use blocks remain visible
-// — Vercel AI SDK then sees orphan tool_use entries and throws. 16 is enough
-// to cover ~8 full user/assistant exchanges including their tool calls.
-// See docs/exec-plans/active/agent-loop-tool-pairing.md.
+// Keep last N messages fully intact. Raised from 6 → 16 in 2026-04-15 after
+// short generic result markers made long tool-heavy tasks lose semantic
+// context and describe tools without actually calling them. This pruner never
+// removes a tool-result block, so structural call/result integrity is owned by
+// tool-history-integrity.ts rather than by this window size.
 const RECENT_TURNS_TO_KEEP = 16;
 const TRUNCATED_RESULT_MARKER = '[Tool result truncated — see earlier in conversation]';
 
@@ -51,7 +49,7 @@ export function pruneOldToolResults(messages: ModelMessage[]): ModelMessage[] {
 
     if (msg.role === 'tool' && Array.isArray(msg.content)) {
       // Truncate tool result content but keep tool name + a short excerpt so
-      // the model can still associate the result with its originating call.
+      // the model can still understand the result's originating call.
       // Generic markers ("[truncated]") were causing the model to lose track
       // and emit fake tool calls — see PR #468 for the original report.
       return {

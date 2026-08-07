@@ -19,6 +19,12 @@ test('Electron protects the provider data key with safeStorage and passes it onl
   assert.doesNotMatch(keyManager, /JSON\.stringify\(\{[^}]*encodedKey/);
 
   assert.match(main, /initializeProviderSecretEnvironment\(app\.getPath\('userData'\)\)/);
+  assert.match(
+    main,
+    /if \(macosKeychainProbe\.status === 'unavailable'\)[\s\S]*?safeStorage skipped[\s\S]*?else \{[\s\S]*?initializeProviderSecretEnvironment/,
+    'a confirmed-missing macOS keychain must bypass safeStorage before it can show a modal',
+  );
+  assert.match(main, /buildMacosKeychainEnvironment\(/);
   assert.match(main, /overrides:\s*\{[\s\S]*?\.\.\.providerSecretEnvironment/);
   assert.doesNotMatch(preload, /PROVIDER_SECRET_KEY|providerSecretEnvironment/);
   assert.match(instrumentation, /consumeProviderSecretEnvironment\(\)/);

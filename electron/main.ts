@@ -2,7 +2,7 @@
 import * as Sentry from '@sentry/electron/main';
 import { existsSync, readFileSync } from 'fs';
 import { join } from 'path';
-import { filterTelemetryIntegrations, resolveTelemetryConfig, TELEMETRY_IGNORE_ERRORS } from '../src/lib/telemetry/contract';
+import { configureElectronMainIntegrations, resolveTelemetryConfig, TELEMETRY_IGNORE_ERRORS } from '../src/lib/telemetry/contract';
 import { sanitizeTelemetryBreadcrumb, sanitizeTelemetryEvent } from '../src/lib/telemetry/sanitize';
 import { createTelemetrySmokeError, telemetrySmokeEnabled } from '../src/lib/telemetry/smoke';
 
@@ -32,7 +32,10 @@ if (electronTelemetry.enabled) {
     attachScreenshot: false,
     tracesSampleRate: 0,
     ignoreErrors: TELEMETRY_IGNORE_ERRORS,
-    integrations: (defaults) => filterTelemetryIntegrations('electron_main', defaults),
+    integrations: (defaults) => configureElectronMainIntegrations(
+      defaults,
+      Sentry.mainProcessSessionIntegration({ sendOnCreate: true }),
+    ),
     beforeBreadcrumb(breadcrumb) {
       return sanitizeTelemetryBreadcrumb(breadcrumb);
     },
@@ -68,6 +71,7 @@ import {
   resolveNotificationActionRoute,
   type NotificationClickAction,
 } from './notification-click-queue';
+import { externalOpenFailureCopy, openExternalSafely } from './external-navigation';
 import path from 'path';
 import { execFileSync, spawn, ChildProcess } from 'child_process';
 import fs from 'fs';
@@ -83,6 +87,10 @@ import {
 } from './codex-windows-recovery';
 import { initializeProviderSecretEnvironment } from './provider-secret-key';
 import { sanitizeLogLine } from './log-sanitize';
+import {
+  buildMacosKeychainEnvironment,
+  getMacosDefaultKeychainProbe,
+} from '../src/lib/macos-keychain-guard';
 import { getTrayMenuLabels } from '../src/lib/tray-menu-labels';
 import { NATIVE_NOTIFICATION_ERROR } from '../src/lib/notification-error-codes';
 import { BoundedLineRing } from '../src/lib/logging/bounded-line-ring';
@@ -149,12 +157,41 @@ let serverExitCode: number | null = null;
 let userShellEnv: Record<string, string> = {};
 let resolvedProxyEnv: Record<string, string> = {};
 let providerSecretEnvironment: Record<string, string> = {};
+let macosKeychainEnvironment: Record<string, string> = {};
 let isQuitting = false;
 let tray: Tray | null = null;
 let nativeDeliveryTimer: ReturnType<typeof setInterval> | null = null;
 let nativeDeliveryPolling = false;
 const nativeDeliveryOwner = `electron-main-${process.pid}-${Math.random().toString(36).slice(2)}`;
 const nativeNotificationRetention = new NativeNotificationRetention<Notification>();
+
+function openExternalInSystemBrowser(targetUrl: string): void {
+  void openExternalSafely(
+    targetUrl,
+    (url) => shell.openExternal(url),
+    async () => {
+      console.warn('[external-navigation] code=external_open_failed');
+      const locale = (() => {
+        try { return app.getLocale(); } catch { return 'en'; }
+      })();
+      const copy = externalOpenFailureCopy(locale);
+      const options: Electron.MessageBoxOptions = {
+        type: 'error',
+        title: copy.title,
+        message: copy.message,
+        detail: copy.detail,
+        buttons: ['OK'],
+        defaultId: 0,
+        noLink: true,
+      };
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        await dialog.showMessageBox(mainWindow, options);
+      } else {
+        await dialog.showMessageBox(options);
+      }
+    },
+  );
+}
 
 // --- Install orchestrator ---
 interface InstallStep {
@@ -950,6 +987,7 @@ function startServer(port: number): Electron.UtilityProcess {
     // traffic cannot be sent through Clash/Surge/etc.
     fallbackProxyEnv: resolvedProxyEnv,
     overrides: {
+      ...macosKeychainEnvironment,
       ...providerSecretEnvironment,
       PORT: String(port),
       HOSTNAME: '127.0.0.1',
@@ -1197,7 +1235,7 @@ function createWindow(url?: string) {
   // External links: open in system default browser instead of Electron
   mainWindow.webContents.setWindowOpenHandler(({ url: targetUrl }) => {
     if (targetUrl.startsWith('http://') || targetUrl.startsWith('https://')) {
-      shell.openExternal(targetUrl);
+      openExternalInSystemBrowser(targetUrl);
       return { action: 'deny' };
     }
     return { action: 'deny' };
@@ -1215,7 +1253,7 @@ function createWindow(url?: string) {
     if (decision === 'allow-in-app') return;
     event.preventDefault();
     if (decision === 'open-external') {
-      shell.openExternal(targetUrl);
+      openExternalInSystemBrowser(targetUrl);
     }
   });
 
@@ -1629,15 +1667,32 @@ app.whenReady().then(async () => {
 
   // Electron owns OS credential-store access. The standalone Next child gets
   // only the in-memory data-encryption key; the database never stores it.
-  try {
-    providerSecretEnvironment = initializeProviderSecretEnvironment(app.getPath('userData'));
-    console.log(
-      `[provider-secret] backend=${providerSecretEnvironment.CODEPILOT_PROVIDER_SECRET_BACKEND} `
-      + `level=${providerSecretEnvironment.CODEPILOT_PROVIDER_SECRET_LEVEL}`,
-    );
-  } catch (error) {
+  const macosKeychainProbe = getMacosDefaultKeychainProbe();
+  const macosSecurityShimDir = app.isPackaged
+    ? path.join(process.resourcesPath, 'macos-keychain-guard')
+    : path.join(app.getAppPath(), 'resources', 'macos-keychain-guard');
+  macosKeychainEnvironment = buildMacosKeychainEnvironment(
+    macosKeychainProbe,
+    macosSecurityShimDir,
+  );
+
+  if (macosKeychainProbe.status === 'unavailable') {
     providerSecretEnvironment = {};
-    console.warn('[provider-secret] OS-protected storage unavailable; legacy provider secrets will not be migrated', error);
+    console.warn(
+      `[macos-keychain] default keychain unavailable; noninteractive guard enabled; reason=${macosKeychainProbe.reason}`,
+    );
+    console.warn('[provider-secret] safeStorage skipped; legacy provider secrets will not be migrated');
+  } else {
+    try {
+      providerSecretEnvironment = initializeProviderSecretEnvironment(app.getPath('userData'));
+      console.log(
+        `[provider-secret] backend=${providerSecretEnvironment.CODEPILOT_PROVIDER_SECRET_BACKEND} `
+        + `level=${providerSecretEnvironment.CODEPILOT_PROVIDER_SECRET_LEVEL}`,
+      );
+    } catch (error) {
+      providerSecretEnvironment = {};
+      console.warn('[provider-secret] OS-protected storage unavailable; legacy provider secrets will not be migrated', error);
+    }
   }
 
   // Detect system proxy for Chinese users behind VPN (Clash, Surge, etc.)

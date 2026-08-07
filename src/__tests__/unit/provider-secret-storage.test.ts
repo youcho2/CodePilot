@@ -11,6 +11,7 @@ import {
   migrateProviderSecrets,
   updateProvider,
 } from '../../lib/db';
+import { encryptProviderSecret } from '../../lib/provider-secret-crypto';
 
 describe('provider secret storage', () => {
   it('stores new keys as ciphertext and materializes plaintext only in memory', () => {
@@ -75,6 +76,76 @@ describe('provider secret storage', () => {
       assert.doesNotMatch(JSON.stringify(diagnostics), /legacy-secret-value|cpsec:v1/);
     } finally {
       deleteProvider(id);
+    }
+  });
+
+  it('treats non-empty plaintext as authoritative over stale ciphertext', () => {
+    const id = `rollback-secret-${Date.now()}`;
+    const currentPlaintext = 'current-key-after-rollback';
+    const staleCiphertext = encryptProviderSecret(id, 'stale-key-before-rollback');
+    const now = new Date().toISOString();
+    getDb().prepare(`
+      INSERT INTO api_providers
+        (id, name, provider_type, base_url, api_key, api_key_ciphertext, api_key_storage, created_at, updated_at)
+      VALUES (?, ?, 'custom', 'https://example.invalid', ?, ?, 'safe_storage:test', ?, ?)
+    `).run(id, id, currentPlaintext, staleCiphertext, now, now);
+
+    try {
+      assert.equal(getProvider(id)?.api_key, currentPlaintext);
+      assert.equal(migrateProviderSecrets(getDb()), 1);
+      const raw = getDb().prepare(
+        'SELECT api_key, api_key_ciphertext FROM api_providers WHERE id = ?',
+      ).get(id) as { api_key: string; api_key_ciphertext: string };
+      assert.equal(raw.api_key, '');
+      assert.notEqual(raw.api_key_ciphertext, staleCiphertext);
+      assert.equal(getProvider(id)?.api_key, currentPlaintext);
+    } finally {
+      deleteProvider(id);
+    }
+  });
+
+  it('keeps a failed row recoverable without aborting other provider migrations', () => {
+    const suffix = Date.now();
+    const blockedId = `blocked-secret-${suffix}`;
+    const healthyId = `healthy-secret-${suffix}`;
+    const triggerName = `block_provider_secret_${suffix}`;
+    const now = new Date().toISOString();
+    const insert = getDb().prepare(`
+      INSERT INTO api_providers
+        (id, name, provider_type, base_url, api_key, api_key_ciphertext, api_key_storage, created_at, updated_at)
+      VALUES (?, ?, 'custom', 'https://example.invalid', ?, '', 'legacy_plaintext', ?, ?)
+    `);
+    insert.run(blockedId, blockedId, 'blocked-current-key', now, now);
+    insert.run(healthyId, healthyId, 'healthy-current-key', now, now);
+    getDb().exec(`
+      CREATE TRIGGER "${triggerName}"
+      BEFORE UPDATE OF api_key_ciphertext ON api_providers
+      WHEN OLD.id = '${blockedId}'
+      BEGIN
+        SELECT RAISE(ABORT, 'synthetic provider migration failure');
+      END;
+    `);
+
+    try {
+      assert.equal(migrateProviderSecrets(getDb()), 1);
+      const blocked = getDb().prepare(
+        'SELECT api_key, api_key_ciphertext FROM api_providers WHERE id = ?',
+      ).get(blockedId) as { api_key: string; api_key_ciphertext: string };
+      assert.equal(blocked.api_key, 'blocked-current-key');
+      assert.equal(blocked.api_key_ciphertext, '');
+      assert.equal(getProvider(blockedId)?.api_key, 'blocked-current-key');
+
+      const healthy = getDb().prepare(
+        'SELECT api_key, api_key_ciphertext FROM api_providers WHERE id = ?',
+      ).get(healthyId) as { api_key: string; api_key_ciphertext: string };
+      assert.equal(healthy.api_key, '');
+      assert.match(healthy.api_key_ciphertext, /^cpsec:v1:/);
+      assert.equal(getProvider(healthyId)?.api_key, 'healthy-current-key');
+      assert.notEqual(getProviderSecretStorageDiagnostics().lastErrorCode, null);
+    } finally {
+      getDb().exec(`DROP TRIGGER IF EXISTS "${triggerName}"`);
+      deleteProvider(blockedId);
+      deleteProvider(healthyId);
     }
   });
 });

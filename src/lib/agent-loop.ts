@@ -33,6 +33,7 @@ import { getMessages } from './db';
 import { wrapController } from './safe-stream';
 import { buildNativeErrorEventData } from './agent-loop-error-event';
 import { buildToolErrorResultData } from './agent-loop-tool-error';
+import { repairIncompleteToolHistory } from './tool-history-integrity';
 import {
   createNativeTimeoutController,
   resolveNativeTimeoutConfig,
@@ -557,7 +558,9 @@ export function runAgentLoop(options: AgentLoopOptions): ReadableStream<string> 
           }
 
           // Prune old tool results to reduce token usage
-          const prunedMessages = pruneOldToolResults(messages);
+          const prunedMessages = repairIncompleteToolHistory(
+            pruneOldToolResults(messages),
+          ).messages;
 
           // Determine activeTools based on mode (plan = read-only subset)
           const isPlanMode = permissionMode === 'plan';

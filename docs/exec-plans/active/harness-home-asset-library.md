@@ -10,7 +10,7 @@
 
 把现有 Gallery 演进为用户长期拥有的通用 Asset Library，覆盖真实 producer 产出的图片、视频、音频和完整网页 bundle，并提供 lineage、引用、永久删除保护和跨 Runtime projection。
 
-本计划不负责 Harness/Runtime adapter，也不负责 CodePilot Design Method 的审美内容。
+本计划不负责 Harness/Runtime adapter，也不负责 Program C 的 Assistant service binding、Capability Package/Broker 或 `creative` Skill/media model 内容；只负责它们成功 materialize 后的 Asset 生命周期。
 
 ## 状态
 

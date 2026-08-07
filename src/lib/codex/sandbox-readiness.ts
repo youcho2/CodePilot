@@ -2,7 +2,6 @@ export type CodexSandboxState =
   | 'unknown'
   | 'not_applicable'
   | 'setup'
-  | 'ready'
   | 'degraded'
   | 'error';
 
@@ -45,7 +44,13 @@ function textFromUnknown(value: unknown): string {
   try { return JSON.stringify(value); } catch { return String(value); }
 }
 
-function classifySandboxFailure(message: string): CodexSandboxStage | null {
+export function classifyCodexSandboxFailure(message: string): CodexSandboxStage | null {
+  // Generic tool/runtime errors such as "spawn ENOENT" are not proof of a
+  // sandbox failure. Require an explicit Windows sandbox breadcrumb before
+  // applying the broader stage classifiers below.
+  if (!/sandbox|windowssandbox|setup helper|command[-_ ]?runner|restricted token|appcontainer|\buac\b|\bacl\b/i.test(message)) {
+    return null;
+  }
   if (/setup(?:\.exe)?|setup helper|elevat|uac|acl/i.test(message)) return 'setup_helper';
   if (/command[-_ ]?runner|restricted token|appcontainer/i.test(message)) return 'command_runner';
   if (/spawn|createprocess|executable|enoent/i.test(message)) return 'child_spawn';
@@ -95,7 +100,7 @@ export function observeCodexSandboxNotification(method: string, params: unknown)
 
   if (method === 'error' || method === 'warning' || method === 'configWarning') {
     const message = textFromUnknown(params);
-    const stage = classifySandboxFailure(message);
+    const stage = classifyCodexSandboxFailure(message);
     if (!stage) return;
     store().current = {
       state: method === 'error' ? 'error' : 'degraded',

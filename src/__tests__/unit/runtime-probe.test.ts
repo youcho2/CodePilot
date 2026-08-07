@@ -39,13 +39,15 @@ test('ready app-server does not imply a ready Windows sandbox', () => {
     codexHome: process.cwd(),
   });
   assert.equal(codex.appServer?.probe, 'passed');
-  assert.notEqual(codex.sandbox?.state, 'ready');
+  assert.equal(codex.sandbox?.state, 'unknown');
 });
 
 test('Claude and Native probes expose source breadcrumbs', () => {
   const native = buildNativeRuntimeProbe();
   assert.equal(native.candidateSource, 'builtin');
-  assert.equal(native.binary.probe, 'passed');
+  assert.equal(native.binary.probe, 'not_run');
+  assert.equal(native.appServer?.probe, 'passed');
+  assert.equal(native.logLocation, undefined);
 
   const claude = buildClaudeRuntimeProbe({
     connected: true,

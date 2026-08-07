@@ -42,8 +42,12 @@ import {
   buildClaudeRuntimeProbe,
   buildCodexRuntimeProbe,
   buildNativeRuntimeProbe,
-  defaultRuntimeLogLocation,
 } from '@/lib/runtime-probe';
+import {
+  MACOS_KEYCHAIN_GUARD_ACTIVE_ENV,
+  MACOS_KEYCHAIN_REASON_ENV,
+  MACOS_KEYCHAIN_STATE_ENV,
+} from '@/lib/macos-keychain-guard';
 
 // ── Types ───────────────────────────────────────────────────────
 
@@ -183,9 +187,8 @@ async function runCliProbe(): Promise<ProbeResult> {
 async function runRuntimeProbe(): Promise<ProbeResult> {
   const findings: Finding[] = [];
   const start = Date.now();
-  const logLocation = defaultRuntimeLogLocation();
 
-  const native = buildNativeRuntimeProbe({ logLocation });
+  const native = buildNativeRuntimeProbe();
   findings.push({
     severity: 'ok',
     code: 'runtime.native',
@@ -202,7 +205,7 @@ async function runRuntimeProbe(): Promise<ProbeResult> {
     binaryPath: claudePath,
     installType: claudePath ? 'unknown' : null,
     missingGit: isWindows && !gitBash,
-  }, { gitBashPath: gitBash, logLocation });
+  }, { gitBashPath: gitBash });
   findings.push({
     severity: claude.binary.probe === 'passed' ? (claude.shell?.probe === 'failed' ? 'warn' : 'ok') : 'warn',
     code: claude.binary.probe === 'passed' ? 'runtime.claude.probed' : 'runtime.claude.not-ready',
@@ -213,7 +216,7 @@ async function runRuntimeProbe(): Promise<ProbeResult> {
   });
 
   const codexAvailability = await getCodexAvailability();
-  const codex = buildCodexRuntimeProbe(codexAvailability, { logLocation });
+  const codex = buildCodexRuntimeProbe(codexAvailability);
   const codexSeverity: Severity = codexAvailability.kind === 'ready' || codexAvailability.kind === 'installed_idle'
     ? codex.sandbox?.state === 'error' ? 'error' : codex.sandbox?.state === 'degraded' ? 'warn' : 'ok'
     : codexAvailability.kind === 'spawn_failed' || codexAvailability.kind === 'too_old'
@@ -247,6 +250,20 @@ async function runRuntimeProbe(): Promise<ProbeResult> {
 async function runAuthProbe(): Promise<ProbeResult> {
   const findings: Finding[] = [];
   const start = Date.now();
+
+  if (process.platform === 'darwin' && process.env[MACOS_KEYCHAIN_STATE_ENV] === 'unavailable') {
+    findings.push({
+      severity: 'warn',
+      code: 'auth.macos-default-keychain-unavailable',
+      message: 'The default macOS keychain is unavailable; blocking Claude credential prompts are suppressed',
+      detail: JSON.stringify({
+        reason: process.env[MACOS_KEYCHAIN_REASON_ENV] || 'unknown',
+        claudeCredentialGuard: process.env[MACOS_KEYCHAIN_GUARD_ACTIVE_ENV] === '1'
+          ? 'active'
+          : 'activates_per_subprocess',
+      }),
+    });
+  }
 
   const secretStorage = getProviderSecretStorageDiagnostics();
   const storageDetail = JSON.stringify({

@@ -19,7 +19,7 @@
 |---|---|---|---|---|
 | Renderer | `src/components/layout/SentryInit.tsx` | `@sentry/browser@10.69.0` | 关闭 `BrowserSession` | ErrorBoundary 走 browser facade；beforeSend 统一脱敏 |
 | Next server | `src/instrumentation.ts` | `@sentry/node@10.69.0` | 关闭 `ProcessSession`；以 `trackIncomingRequestsAsSessions:false` 替换默认 `Http` | classifier / provider shared boundary；beforeSend 统一脱敏 |
-| Electron main | `electron/main.ts` 文件顶部 | `@sentry/electron@7.16.0` | 保留 `MainProcessSession` | 保留 SDK 默认 native/minidump，禁截图、console、PII |
+| Electron main | `electron/main.ts` 文件顶部 | `@sentry/electron@7.16.0` | 唯一 `MainProcessSession`，`sendOnCreate:true` | 保留 SDK 默认 native/minidump，禁截图、console、PII |
 
 三层 release 统一为 `codepilot@<package version>`，environment 为 `production`、`app.channel` 为 `stable`。DSN 只由 stable CI 的 `SENTRY_DSN` 注入；源码不再包含 ingest literal。`SENTRY_AUTH_TOKEN` 只给独立 source-map upload step，绝不能进入 build/package step、Next public env 或 Electron define。
 
@@ -51,12 +51,14 @@
 
 `src/lib/telemetry/sanitize.ts` 是三层共用的 default-deny allow-list：
 
-- 删除 user、server_name、request headers/body/query/cookies、modules；
+- 删除调用方提供的全部 user identity，并改写为唯一 `user.ip_address:null` tombstone，阻止 Relay 按连接补 IP/Geo；同时删除 server_name、request headers/body/query/cookies、modules；
 - console 与 `ui.input` breadcrumb 删除；网络 breadcrumb 只留 method、pathname、status；
 - tags/extras/contexts 只允许稳定、低基数字段；
 - URL、secret、长 ID、用户目录与控制字符被清洗；
 - stack `filename/abs_path/module` 与 `debug_meta.images[].code_file/debug_file` 同步匿名化，保留行列号与 debug ID；
 - 三层显式 `sendDefaultPii: false`、`tracesSampleRate: 0`，Electron `attachScreenshot: false`。
+
+2026-08-07 的 0.65 只读生产复核证明：只删除 `user` 仍会得到 server-inferred IP/Geo；同一 release 为 `hasHealthData:false`，因为 tray-resident 应用不能依赖干净退出才首次发送 session。代码已补 null tombstone 与 eager main session；真正关闭这两项仍需新 stable event/session 验证，并在 Sentry project 侧复核 Prevent Storing IP Addresses（本地任务未修改外部设置）。
 
 ## 六、Source Map 发布闭环
 

@@ -210,6 +210,11 @@ describe('Electron packaging hygiene', () => {
       builderConfig,
       /- from: \.next\/standalone\/\.next\/node_modules\/[\s\S]*?to: standalone\/\.next\/node_modules\/[\s\S]*?filter: \["\*\*\/\*"\]/,
     );
+    assert.match(
+      builderConfig,
+      /- from: resources\/macos-keychain-guard\/[\s\S]*?to: macos-keychain-guard\/[\s\S]*?filter: \["security"\]/,
+      'the noninteractive macOS keychain guard must be present in packaged resources',
+    );
   });
 
   it('boots the packaged standalone server in release CI instead of checking ABI only', () => {

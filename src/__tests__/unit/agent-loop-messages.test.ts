@@ -128,4 +128,42 @@ describe('message-builder buildCoreMessages (real import)', () => {
       fs.rmSync(tmpDir, { recursive: true, force: true });
     }
   });
+
+  it('repairs a persisted tool_use that ended before its result arrived', async () => {
+    const { buildCoreMessages } = await import('@/lib/message-builder');
+    const result = buildCoreMessages([
+      { id: '1', session_id: 's', role: 'user', content: 'read it', created_at: '', is_heartbeat_ack: 0, token_usage: '' },
+      {
+        id: '2',
+        session_id: 's',
+        role: 'assistant',
+        content: JSON.stringify([{ type: 'tool_use', id: 'call-stopped', name: 'Read', input: { file_path: 'README.md' } }]),
+        created_at: '',
+        is_heartbeat_ack: 0,
+        token_usage: '',
+      },
+      { id: '3', session_id: 's', role: 'user', content: 'continue', created_at: '', is_heartbeat_ack: 0, token_usage: '' },
+    ]);
+    assert.deepEqual(result.map((message) => message.role), ['user', 'assistant', 'tool', 'user']);
+    const repair = result[2].content as Array<{ toolCallId: string; output: { value: string } }>;
+    assert.equal(repair[0].toolCallId, 'call-stopped');
+    assert.match(repair[0].output.value, /no tool result was received/);
+  });
+
+  it('omits an orphan persisted tool_result from model history', async () => {
+    const { buildCoreMessages } = await import('@/lib/message-builder');
+    const result = buildCoreMessages([
+      { id: '1', session_id: 's', role: 'user', content: 'hello', created_at: '', is_heartbeat_ack: 0, token_usage: '' },
+      {
+        id: '2',
+        session_id: 's',
+        role: 'assistant',
+        content: JSON.stringify([{ type: 'tool_result', tool_use_id: 'missing-call', content: 'orphan' }]),
+        created_at: '',
+        is_heartbeat_ack: 0,
+        token_usage: '',
+      },
+    ]);
+    assert.deepEqual(result.map((message) => message.role), ['user']);
+  });
 });

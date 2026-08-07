@@ -3,6 +3,7 @@ import { describe, it } from 'node:test';
 import {
   buildNormalizedFingerprint,
   classifyTelemetryOutcome,
+  configureElectronMainIntegrations,
   configureNextServerIntegrations,
   filterTelemetryIntegrations,
   resolveTelemetryConfig,
@@ -118,6 +119,29 @@ describe('telemetry U0 contract', () => {
       filterTelemetryIntegrations('electron_main', integrations).map((item) => item.name),
       ['BrowserSession', 'ProcessSession', 'MainProcessSession', 'InboundFilters'],
     );
+  });
+
+  it('replaces the Electron session producer with one eager instance', () => {
+    const eager: { name: string; eager?: boolean } = { name: 'MainProcessSession', eager: true };
+    const configured = configureElectronMainIntegrations([
+      { name: 'InboundFilters' },
+      { name: 'MainProcessSession' },
+      { name: 'MainProcessSession' },
+      { name: 'Console' },
+    ], eager);
+    assert.deepEqual(configured, [
+      { name: 'InboundFilters' },
+      eager,
+    ]);
+    assert.equal(configured.filter((item) => item.name === 'MainProcessSession').length, 1);
+  });
+
+  it('adds one eager Electron session when an SDK default is absent', () => {
+    const eager: { name: string; eager?: boolean } = { name: 'MainProcessSession', eager: true };
+    const configured = configureElectronMainIntegrations([
+      { name: 'InboundFilters' },
+    ], eager);
+    assert.deepEqual(configured, [{ name: 'InboundFilters' }, eager]);
   });
 
   it('separates product faults from expected/user-action outcomes', () => {

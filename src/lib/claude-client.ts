@@ -368,7 +368,7 @@ function getUploadedFilePaths(files: FileAttachment[], workDir: string): string[
       const safeName = path.basename(file.name)
         // Preserve Unicode filenames and replace only cross-platform-invalid
         // filename/control characters.
-        // eslint-disable-next-line no-control-regex
+         
         .replace(/[<>:"/\\|?*\x00-\x1f]/g, '_')
         .replace(/[. ]+$/g, '_')
         .slice(0, 180) || 'attachment';
@@ -1009,6 +1009,12 @@ export function streamClaudeSdk(options: ClaudeStreamOptions): ReadableStream<st
       // below once we know whether we have an explicit DB provider; cleaned up
       // in the outer finally block. See src/lib/claude-home-shadow.ts.
       let shadowHome: ShadowHome | null = null;
+      // Keep the exact guarded/provider-isolated subprocess environment alive
+      // for the reactive CONTEXT_TOO_LONG retry. That retry runs inside the
+      // same outer lifetime as shadowHome and must not fall back to raw
+      // process.env (which would bypass both credential isolation and the
+      // macOS missing-keychain guard).
+      let sdkSubprocessEnv: Record<string, string> | null = null;
 
       // Resolve provider via the unified resolver. The caller may pass an explicit
       // provider (from resolveProvider().provider), or undefined when 'env' mode is
@@ -1089,7 +1095,8 @@ export function streamClaudeSdk(options: ClaudeStreamOptions): ReadableStream<st
         // provider-group ownership rule is applied uniformly. See
         // src/lib/sdk-subprocess-env.ts.
         const setup = prepareSdkSubprocessEnv(resolved);
-        const sdkEnv = setup.env;
+        sdkSubprocessEnv = setup.env;
+        const sdkEnv = sdkSubprocessEnv;
         shadowHome = setup.shadow;
 
         // U8 — when macOS has no DNS configuration the SDK/CLI can stay silent
@@ -2952,6 +2959,10 @@ export function streamClaudeSdk(options: ClaudeStreamOptions): ReadableStream<st
               tokenBudget: retryBudget,
             });
 
+            if (!sdkSubprocessEnv) {
+              throw new Error('sdk_subprocess_environment_unavailable');
+            }
+
             // Rebuild minimal query options from closure variables
             // (queryOptions is scoped to the try block and not accessible here)
             const retryOptions: Options = {
@@ -2959,7 +2970,7 @@ export function streamClaudeSdk(options: ClaudeStreamOptions): ReadableStream<st
               abortController,
               permissionMode: 'bypassPermissions' as Options['permissionMode'],
               allowDangerouslySkipPermissions: true,
-              env: { ...process.env as Record<string, string> },
+              env: { ...sdkSubprocessEnv },
               maxTurns: undefined,
             };
             if (model) retryOptions.model = model;

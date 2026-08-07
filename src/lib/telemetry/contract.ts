@@ -191,6 +191,27 @@ export function filterTelemetryIntegrations<T extends NamedIntegration>(
 }
 
 /**
+ * Keep exactly one Electron main-process session producer, but send its
+ * initial session immediately. CodePilot is tray-resident, so relying on a
+ * clean app exit can leave a whole release without timely health data.
+ */
+export function configureElectronMainIntegrations<T extends NamedIntegration>(
+  integrations: T[],
+  eagerMainProcessSession: T,
+): T[] {
+  const filtered = filterTelemetryIntegrations('electron_main', integrations);
+  let replacedSession = false;
+  const configured = filtered.map((integration) => {
+    if (integration.name !== 'MainProcessSession') return integration;
+    if (replacedSession) return null;
+    replacedSession = true;
+    return eagerMainProcessSession;
+  }).filter((integration): integration is T => integration !== null);
+  if (!replacedSession) configured.push(eagerMainProcessSession);
+  return configured;
+}
+
+/**
  * Node v10 has two independent Release Health producers: ProcessSession and
  * incoming-request sessions inside the Http integration. Keep Http request
  * isolation/breadcrumbs, but replace the default integration with an

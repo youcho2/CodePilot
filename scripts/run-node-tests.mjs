@@ -32,6 +32,13 @@ const testFiles = fs.readdirSync(configuration.directory, { withFileTypes: true 
   .map((entry) => path.join(configuration.directory, entry.name))
   .sort((a, b) => a.localeCompare(b));
 
+if (testFiles.length === 0) {
+  console.error(
+    `No test files matched ${configuration.suffix} in ${configuration.directory}; refusing Node default discovery.`,
+  );
+  process.exit(1);
+}
+
 const args = [];
 if (process.platform === 'win32') {
   args.push('--require', './scripts/node-user-info-compat.cjs');

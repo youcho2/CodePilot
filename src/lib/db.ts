@@ -3743,6 +3743,12 @@ function encodeProviderSecret(providerId: string, plaintext: string): StoredProv
 function materializeProvider(row: ApiProviderStorageRow | undefined): ApiProvider | undefined {
   if (!row) return undefined;
   const { api_key_ciphertext: ciphertext, ...provider } = row;
+  // A non-empty plaintext column means migration did not complete or an older
+  // build wrote a newer key after rollback. In that mixed state the plaintext
+  // is the current user value; trusting the ciphertext can resurrect a stale
+  // key or make the provider unusable after moving the database to a machine
+  // with a different data-encryption key.
+  if (provider.api_key) return provider;
   if (!ciphertext) return provider;
   try {
     provider.api_key = decryptProviderSecret(row.id, ciphertext);
@@ -3770,17 +3776,30 @@ export function migrateProviderSecrets(db: Database.Database): number {
   const update = db.prepare(
     "UPDATE api_providers SET api_key = '', api_key_ciphertext = ?, api_key_storage = ?, updated_at = datetime('now') WHERE id = ?",
   );
+  let migrated = 0;
   const transaction = db.transaction(() => {
     for (const row of rows) {
-      const ciphertext = row.api_key_ciphertext || encryptProviderSecret(row.id, row.api_key);
-      if (decryptProviderSecret(row.id, ciphertext) !== row.api_key) {
-        throw new Error('provider_secret_migration_verification_failed');
+      try {
+        // Plaintext is authoritative whenever it exists. Always create a fresh
+        // envelope instead of trusting a ciphertext that may belong to an
+        // older key or another machine.
+        const ciphertext = encryptProviderSecret(row.id, row.api_key);
+        if (decryptProviderSecret(row.id, ciphertext) !== row.api_key) {
+          throw new Error('provider_secret_migration_verification_failed');
+        }
+        update.run(ciphertext, providerSecretStorageKind(), row.id);
+        providerSecretErrors.delete(row.id);
+        migrated += 1;
+      } catch (error) {
+        // One damaged row must not abort getDb()/application startup. Keep its
+        // plaintext intact so the user can still open Settings and repair it,
+        // while diagnostics expose a non-secret error code.
+        providerSecretErrors.set(row.id, providerSecretErrorCode(error));
       }
-      update.run(ciphertext, providerSecretStorageKind(), row.id);
     }
   });
   transaction();
-  return rows.length;
+  return migrated;
 }
 
 export interface ProviderSecretStorageDiagnostics {

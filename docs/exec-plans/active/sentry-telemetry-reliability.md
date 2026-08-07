@@ -521,6 +521,7 @@ U1a/U1b 的共同硬约束：
 - [x] 用户已明确授权 P1；已实现 4xx/DNS/timeout/NoOutput/in-band normalizer、移除 info Issue/health-summary，并补 Native/ToolLoop resolved/rejected terminal exactly-once、初始 HTTP 403/503、阳性 transport 对照与 anti-double-capture fixture。
 - [ ] 人工审阅 Top 20 issue，至少 80% 应能从 title/code/tags 直接判断行动方向；无法分类的 issue 回写 classifier fixture。
 - [ ] 将仍活跃的真实问题拆到“历史体验问题”任务、`docs/exec-plans/active/issue-tracker.md` 或独立计划，至少包括：NoOutput 底层 product root buckets、SenseNova tool call、MissingToolResults、renderer `toLocaleString`、Electron utility/GPU；本主线只保留分类/脱敏/source map/session health。
+  - [x] `MissingToolResults` 已由 [production-observation-remediation-2026-08-07.md](production-observation-remediation-2026-08-07.md) 独立承接：0.65 真实 stack 定位到残缺 persisted tool history，future terminal + legacy replay 两侧 code/tests 已落地；新 stable cohort 待验证。
 - [x] 更新 `docs/guardrails/SentryTelemetry.md`、`docs/handover/sentry-error-reporting.md` 与配对 `docs/insights/sentry-error-reporting.md`；保留执行计划/索引互链。
 - [ ] 状态表、执行清单、决策日志、Smoke Ledger 四处一致后，才把本计划移入 `completed/`。
 
@@ -701,3 +702,4 @@ Claude Code review 时需要重点回答，不能只核对文档格式：
 - 2026-08-04：新增真实 AI SDK mock lifecycle 与两条生产 loop + Anthropic SSE + local Sentry transport 行为 fixture，覆盖 empty/partial in-band 4xx/5xx、true empty 与 catch 去重。修复后定向超集 63/63（真实 loop 6/6）、全量 `npm run test` 5067/5067、`npm run build` 通过。随后本 worktree 获得 gitignored、mode 600、仅 event/org/project read 的 credential，并以一次只读请求验证访问；P0 单 release cohort/Top 20/新 stable smoke 仍未执行。没有打印或提交 token，没有外部 Sentry 写、push、merge、tag 或 release。
 - 2026-08-05：Claude 在 clean `fed7508d` 同 tip 复审新增 1 个仅限 experimental ToolLoop POC 的 P2：初始 HTTP 失败会先结束 fullStream、再用 fresh 无 cause NoOutput reject result promise，原 full-stream fallback 过早把 provider error 标成 reported，catch 因而二报 protocol fault。先用真实 createAnthropic + 初始 403/503 + local Sentry transport 复现 POC 1/2 event（主 loop 阳性对照 0/1），再把 POC 的 `await result.response` 移到 fallback 之前；修复后两条 loop 均为 0/1。零事件 fixture 必须与阳性 event 共用同文件 carrier 的方法论写入 guardrail。
 - 2026-08-05：最终定向超集 67/67、全量 `npm run test` 5071/5071、`npm run build` compile 8.6s / 136 pages / exit 0。没有扩大到生产 UI/Runtime 行为，没有新增身份或内容遥测，没有读取/打印 token，没有外部 Sentry 写、push、merge、tag 或 release；新 stable 24h/72h cohort 仍是线上完成门禁。
+- 2026-08-07：只读 0.65 复核发现 server event 在删除 user 后仍被补 IP/Geo、release `hasHealthData:false`，并确认 MissingToolResults 为下一轮 prompt conversion 的真实产品缺陷。隐私 tombstone/main eager session 留在遥测边界；MissingToolResults 与 Windows external-open Promise 交由独立生产观察修复计划，保持本计划“不吞所有产品 bug”的范围约束。

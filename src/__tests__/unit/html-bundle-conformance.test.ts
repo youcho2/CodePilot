@@ -382,36 +382,30 @@ describe('HTML bundle materialization conformance', () => {
       /outside the session workspace/,
     );
 
-    const linkedCss = path.join(workspace.pageDir, 'linked.css');
-    let symlinkCreated = false;
-    try {
-      fs.symlinkSync(path.join(workspace.pageDir, 'styles.css'), linkedCss);
-      symlinkCreated = true;
-    } catch (error) {
-      // Windows commonly disables unprivileged symlink creation. The same
-      // boundary remains covered on hosts where the fixture can be created.
-      if ((error as NodeJS.ErrnoException).code !== 'EPERM') throw error;
-    }
-    if (symlinkCreated) {
-      fs.writeFileSync(
-        path.join(workspace.pageDir, 'index.html'),
-        '<html><head><link rel="stylesheet" href="./linked.css"></head></html>',
-        'utf8',
-      );
-      assert.throws(
-        () => materializeHtmlBundle({
-          terminalState: 'completed',
-          source: {
-            kind: 'workspace',
-            sourceDir: workspace.pageDir,
-            entryFile: 'index.html',
-            scopeRoot: workspace.root,
-          },
-        }),
-        /symlink/,
-      );
-      fs.unlinkSync(linkedCss);
-    }
+    fs.writeFileSync(path.join(outside, 'styles.css'), 'body { color: red; }', 'utf8');
+    const linkedAssets = path.join(workspace.pageDir, 'linked-assets');
+    // A directory junction needs no Developer Mode/admin privilege on Windows,
+    // so this security assertion runs there instead of silently disappearing
+    // on EPERM from an unprivileged file-symlink fixture.
+    fs.symlinkSync(outside, linkedAssets, process.platform === 'win32' ? 'junction' : 'dir');
+    fs.writeFileSync(
+      path.join(workspace.pageDir, 'index.html'),
+      '<html><head><link rel="stylesheet" href="./linked-assets/styles.css"></head></html>',
+      'utf8',
+    );
+    assert.throws(
+      () => materializeHtmlBundle({
+        terminalState: 'completed',
+        source: {
+          kind: 'workspace',
+          sourceDir: workspace.pageDir,
+          entryFile: 'index.html',
+          scopeRoot: workspace.root,
+        },
+      }),
+      /symlink/,
+    );
+    fs.unlinkSync(linkedAssets);
 
     for (const html of [
       '<html><script src="https://example.com/evil.js"></script></html>',

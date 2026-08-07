@@ -43,13 +43,20 @@ export function createEditTool(ctx: ToolContext) {
       }
 
       const content = fs.readFileSync(resolved, 'utf-8');
+      const lineEnding = preferredLineEnding(content);
+      const normalizedOldString = normalizeLineEndings(old_string, lineEnding);
+      const normalizedNewString = normalizeLineEndings(new_string, lineEnding);
+
+      if (normalizedOldString === normalizedNewString) {
+        return 'Error: old_string and new_string are identical after preserving file line endings. No change needed.';
+      }
 
       // Try replacement strategies in order
       const result =
-        tryExactReplace(content, old_string, new_string) ??
-        tryTrimmedReplace(content, old_string, new_string) ??
-        tryWhitespaceNormalized(content, old_string, new_string) ??
-        tryFuzzyReplace(content, old_string, new_string);
+        tryExactReplace(content, normalizedOldString, normalizedNewString) ??
+        tryTrimmedReplace(content, normalizedOldString, normalizedNewString) ??
+        tryWhitespaceNormalized(content, normalizedOldString, normalizedNewString) ??
+        tryFuzzyReplace(content, normalizedOldString, normalizedNewString);
 
       if (!result) {
         // Build helpful error message
@@ -213,6 +220,16 @@ function countOccurrences(str: string, sub: string): number {
     pos += sub.length;
   }
   return count;
+}
+
+function preferredLineEnding(content: string): '\n' | '\r\n' {
+  const crlfCount = content.match(/\r\n/g)?.length ?? 0;
+  const lfCount = content.match(/(^|[^\r])\n/g)?.length ?? 0;
+  return crlfCount > lfCount ? '\r\n' : '\n';
+}
+
+function normalizeLineEndings(value: string, lineEnding: '\n' | '\r\n'): string {
+  return value.replace(/\r\n|\r|\n/g, lineEnding);
 }
 
 /** Simple line similarity (0-1) based on common character sequences */

@@ -20,12 +20,12 @@
 
 ## 2. 当前仓库状态（跨电脑前必读）
 
-- 基线提交：`ee38205dafc7c5f93838005451da546729d1e78f`
-- 当前工作区：85 个已跟踪文件有 diff，另有 8 个新文件；**尚未 commit，也未 push**。
-- 因此，另一台电脑只从 GitHub 拉取当前分支时看不到本轮修改。切换电脑前必须由用户明确决定：提交并 push、导出 patch，或复制整个工作区。本轮没有代替用户做发布、push 或 merge。
+- 审查基线：`ee38205dafc7c5f93838005451da546729d1e78f`。
+- Windows 路径兼容与后续恢复加固已通过 `b70c0c10..fcea977d` 的 5 个提交进入并推送到 `origin/main`；另一台电脑拉取 `main` 后可以直接复查，不再寻找旧工作区中的“未提交改动”。
+- 独立审查应先确认 `git rev-parse HEAD` 至少包含 `fcea977d`，再用 `git diff ee38205d..fcea977d` 查看原始 Windows 批次；若主分支已有后续 review remediation，则以实际提交范围和本计划/交接的最新记录为准。
 - Windows 受限令牌下可能出现 Git `dubious ownership`。审查时先确认真实登录用户、仓库 owner SID 与执行令牌；不要为消除提示而无条件写全局 `safe.directory=*`。
 
-新文件包括：
+相对上述基线新增的文件包括：
 
 - `.gitattributes`
 - `scripts/node-user-info-compat.cjs`
@@ -44,8 +44,8 @@
 
 | 边界 | 实现 | 复查重点 |
 |------|------|----------|
-| Shell 启动 | `src/lib/tools/bash.ts` 的 `buildShellLaunch()` | Windows 默认 PowerShell；命令通过 UTF-16LE `-EncodedCommand` 传入，CWD 仍是 `spawn` 的独立字段，不拼进命令字符串 |
-| Glob/Grep | `src/lib/tools/glob.ts`、`grep.ts`、`search-fallback.ts` | 保留 `rg` 快速路径；无 `rg` 时使用 Node 文件 API，并受文件大小、结果条数和时间限制，不再依赖 `find/grep` |
+| Shell 启动 | `src/lib/tools/bash.ts` 的 `buildShellLaunch()` | Windows 默认 PowerShell；固定使用 `%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe` 的绝对路径，禁止由仓库 CWD shadow 裸 `powershell.exe`；命令通过 UTF-16LE `-EncodedCommand` 传入，CWD 仍是 `spawn` 的独立字段 |
+| Glob/Grep | `src/lib/tools/glob.ts`、`grep.ts`、`search-fallback.ts` | 保留 `rg` 快速路径；无 `rg` 时使用 Node 文件 API，不可信正则在可 timeout/abort Worker 内执行；隐藏文件默认排除，文件/行长/结果/扫描量/时间上限 fail closed，不再依赖 `find/grep`。Nested `.gitignore` 完整语义仍见 tech-debt #79 |
 | 系统提示 | `src/lib/agent-system-prompt.ts` | OS/Git 探测不再使用 `uname`、`2>/dev/null` 等 Unix shell 语法 |
 
 这里最重要的契约是：路径作为数据传给 `cwd`/Node API，命令才进入 shell。不要把修复退化成不断给用户路径添加引号或反斜杠。
@@ -270,7 +270,7 @@ D:\another-drive\中文项目
 
 ## 7. 建议给独立审查模型的任务文案
 
-> 用户反馈 CodePilot 在 Windows 项目目录中无法读取文件，且只安装 ChatGPT/Codex Desktop 时 Codex 渠道不可用。请先阅读 `AGENTS.md`、`CLAUDE.md`、`docs/handover/windows-runtime-path-compatibility-review.md` 和完成态执行计划。以基线 `ee38205d` 审查未提交 diff，重点质疑：路径是否作为 `cwd` 数据而非 shell 文本传递、中文/空格/`()`/`&`、UNC/盘符/大小写 canonicalization、Native 无 bash/rg fallback、Claude `.exe/.cmd`、Codex Desktop vs standalone 的诚实状态、WindowsApps/MSIX 可执行性、沙盒 ACL/原子 rename、构建期用户目录访问。运行文档中的门禁和真实路径矩阵；没有真实 Codex standalone/凭据时必须写“未验证”，不得把 unit test 或 Desktop 安装存在当作端到端通过。发现 P1/P2 时给出 file:line、复现、用户影响和建议测试。
+> 用户反馈 CodePilot 在 Windows 项目目录中无法读取文件，且只安装 ChatGPT/Codex Desktop 时 Codex 渠道不可用。请先阅读 `AGENTS.md`、`CLAUDE.md`、`docs/handover/windows-runtime-path-compatibility-review.md` 和完成态执行计划。以 `ee38205d..fcea977d` 为原始 Windows 批次，并叠加主分支后续 review remediation，重点质疑：路径是否作为 `cwd` 数据而非 shell 文本传递、中文/空格/`()`/`&`、UNC/盘符/大小写 canonicalization、Native 无 bash/rg fallback、Claude `.exe/.cmd`、Codex Desktop vs standalone 的诚实状态、WindowsApps/MSIX 可执行性、沙盒 ACL/原子 rename、构建期用户目录访问。运行文档中的门禁和真实路径矩阵；没有真实 Codex standalone/凭据时必须写“未验证”，不得把 unit test 或 Desktop 安装存在当作端到端通过。发现 P1/P2 时给出 file:line、复现、用户影响和建议测试。
 
 ## 8. 后续收口条件
 

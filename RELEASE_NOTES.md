@@ -1,54 +1,54 @@
-## CodePilot v0.65.0
+## CodePilot v0.66.0
 
-> 建立“默认个人助理 → 后台心跳 → 系统通知”的首个完整闭环，并改善 Codex 会话隔离与聊天反馈。
+> 重点提升 Windows 与 macOS 的运行稳定性、凭据安全和故障可恢复性，推荐所有桌面端用户升级。
 
 ### 新增功能
 
-- **开箱即用的个人助理** — 新用户首次使用时会自动创建默认助理目录，不再被强制要求先选择文件夹；已有助理路径的用户继续沿用原配置，不会被迁移或覆盖。
-- **助理心跳** — 助理可以按设定周期读取 `HEARTBEAT.md`，在没有待办时安静跳过，在确有事项时生成一条可追踪的通知；设置页会展示启用、阻塞、上次运行和下次运行状态。
-- **系统原生通知** — 助理提醒改由 Electron 调用 macOS、Windows 或 Linux 的系统通知，并支持系统提示音和点击回到对应内容；软件常驻后台时也能真正提醒用户。
-- **多 Harness 指令镜像** — 助理目录以 `instructions.md` 为用户拥有的规则源，并为 Claude Code 与 Codex 维护受管的 `CLAUDE.md`、`AGENTS.md` 镜像；用户修改镜像发生冲突时会停止覆盖并明确提示。
-- **Thinking 动画** — 等待首个响应和模型真实思考流式输出时显示轻量 Thinking Orb；保留原有文字语义，并自动尊重系统的“减少动态效果”设置。
+- **Windows 运行环境诊断与修复** — 设置页可以识别 Codex CLI 缺失、PowerShell 不可用和 Sandbox 未就绪等状态，并提供与当前平台匹配的恢复指引；桌面端安装流程会展示真实进度和失败原因。
+- **Provider 密钥加密存储** — 桌面端使用本机数据密钥保护 Provider API Key；升级、回滚后再升级以及单条旧数据损坏时均会尽量恢复，不再因一条异常记录阻断应用启动。
+- **无 ripgrep 时的内置搜索回退** — Windows 等缺少 `rg` 的环境仍可使用文件搜索与文本搜索，并具备超时、中断和结果上限保护。
 
 ### 修复问题
 
-- **隔离 CodePilot 与 Codex Desktop 会话** — CodePilot 新建的 Codex 对话使用独立的会话与 SQLite 目录，不再自动出现在官方 Codex 客户端中；账号和用户拥有的 Harness 配置仍按可观测的镜像策略复用。
-- **修复 Codex 模型首启缺失** — 打开聊天页时会主动预热 Codex 模型目录，不再需要先进入设置再返回聊天才能看到模型。
-- **阻止协议内容泄漏到聊天** — MCP 启动、就绪、重试等结构化 runtime 状态不再以 JSON 原文显示给用户，两个聊天入口统一使用本地化的人类可读状态。
-- **停止旧通知反复弹出** — 升级前遗留的非持久通知不会在新版本中被误当成待投递通知反复领取。
-- **macOS 开发态通知诚实失败** — 无签名 dev 客户端不再伪装通知已成功展示；正式签名安装包仍走系统原生通知链路。
+- **避免 macOS 钥匙串弹窗阻断对话** — 当默认钥匙串缺失或未配置时，CodePilot 会为 Claude Code 子进程启用受限保护，避免反复弹出“找不到用于储存的钥匙串”；健康钥匙串环境不受影响。
+- **修复 Windows 路径与编辑兼容性** — 正确处理盘符、UNC、WSL 路径、大小写和 CRLF 文件，避免工作目录漂移、文件误判或多行编辑产生混合换行。
+- **修复搜索导致界面卡死** — 内置文本搜索在遇到高开销正则时会在独立线程内按时终止，不再锁死整个服务；停止操作也能真实中断搜索。
+- **修复不完整工具调用导致下一轮失败** — 停止生成或流式传输中断后，残缺的工具调用会以诚实的“未收到结果”状态闭合；旧会话中的同类损坏记录也会在重放时安全修复。
+- **修复 Windows 外部链接异常** — 系统没有默认浏览器或无法处理网页链接时，不再产生未处理异常，并会显示可操作的中英文提示。
+- **修复本地 HTML 预览边界** — 拒绝 UNC、设备路径及越界基础目录，降低非预期网络访问和本地文件暴露风险。
+- **修复跨平台安装提示** — macOS 与 Linux 不再看到 Windows PowerShell 安装命令，未安装状态与恢复卡片使用同一套平台判断。
+- **修复运行状态误报** — Sandbox、CLI 探针和日志位置只展示有真实来源的结果，不再把普通命令缺失误报为 Sandbox 故障，也不再显示未实际执行的成功状态。
 
 ### 优化改进
 
-- 助理设置页直接展示当前路径；“设置新的助理文件夹”会先说明切换影响，再打开系统目录选择器。
-- 新建聊天页的“项目对话 / 个人助理”入口改成与输入框对齐的轻量描边卡片，移除重复说明和最近项目胶囊。
-- 左侧个人助理引导改为无边框、无装饰图标的轻量布局，更贴近当前客户端的视觉规范。
-- Thinking 状态结束时保持固定图标槽位，避免流式状态切换造成布局跳动。
+- 错误报告会在客户端明确禁止 IP 与地理位置推断，不采集用户身份、安装标识或行为分析数据。
+- 桌面端启动时即可建立一次匿名 Release Health session，使常驻托盘应用也能更及时地反映版本稳定性。
+- 优化 Provider、Native Runtime 与 ToolLoop 的错误归因和去重，减少把用户取消、配置问题或上游故障误报成产品缺陷。
+- 加强跨平台打包、符号链接安全、测试发现和 pre-commit 门禁，Windows 与 Unix 使用同一套 fail-closed 验证规则。
 
 ### 已知限制
 
-- 系统通知是否展示和是否播放声音仍受操作系统通知权限、专注模式及 Linux 桌面通知服务影响。
-- 无签名 macOS dev 客户端无法代表正式包验证系统通知；请以本次 Release 的签名安装包为准。
-- 隔离只影响后续由 CodePilot 创建的 Codex 对话；过去已经写入官方 Codex 目录的历史对话不会被自动删除。
+- macOS 钥匙串保护目前覆盖“默认钥匙串缺失、未配置或探测失败”；钥匙串文件存在但被锁定、单个条目权限损坏时，系统仍可能显示原生访问提示。
+- Windows 的部分 Sandbox 能力取决于系统版本、PowerShell 和 Codex CLI 的实际安装状态；设置页会在无法确认时显示诊断状态，而不会伪装为已就绪。
 
 ## 下载地址
 
 ### macOS
-- [Apple Silicon (M1/M2/M3/M4)](https://github.com/op7418/CodePilot/releases/download/v0.65.0/CodePilot-0.65.0-arm64.dmg)
-- [Intel](https://github.com/op7418/CodePilot/releases/download/v0.65.0/CodePilot-0.65.0-x64.dmg)
+- [Apple Silicon (M1/M2/M3/M4)](https://github.com/op7418/CodePilot/releases/download/v0.66.0/CodePilot-0.66.0-arm64.dmg)
+- [Intel](https://github.com/op7418/CodePilot/releases/download/v0.66.0/CodePilot-0.66.0-x64.dmg)
 
 ### Windows
-- [Windows 安装包](https://github.com/op7418/CodePilot/releases/download/v0.65.0/CodePilot.Setup.0.65.0.exe)
+- [Windows 安装包](https://github.com/op7418/CodePilot/releases/download/v0.66.0/CodePilot.Setup.0.66.0.exe)
 
 ### Linux x64
-- [AppImage](https://github.com/op7418/CodePilot/releases/download/v0.65.0/CodePilot-0.65.0-x86_64.AppImage)
-- [deb](https://github.com/op7418/CodePilot/releases/download/v0.65.0/CodePilot-0.65.0-amd64.deb)
-- [rpm](https://github.com/op7418/CodePilot/releases/download/v0.65.0/CodePilot-0.65.0-x86_64.rpm)
+- [AppImage](https://github.com/op7418/CodePilot/releases/download/v0.66.0/CodePilot-0.66.0-x86_64.AppImage)
+- [deb](https://github.com/op7418/CodePilot/releases/download/v0.66.0/CodePilot-0.66.0-amd64.deb)
+- [rpm](https://github.com/op7418/CodePilot/releases/download/v0.66.0/CodePilot-0.66.0-x86_64.rpm)
 
 ### Linux arm64
-- [AppImage](https://github.com/op7418/CodePilot/releases/download/v0.65.0/CodePilot-0.65.0-arm64.AppImage)
-- [deb](https://github.com/op7418/CodePilot/releases/download/v0.65.0/CodePilot-0.65.0-arm64.deb)
-- [rpm](https://github.com/op7418/CodePilot/releases/download/v0.65.0/CodePilot-0.65.0-aarch64.rpm)
+- [AppImage](https://github.com/op7418/CodePilot/releases/download/v0.66.0/CodePilot-0.66.0-arm64.AppImage)
+- [deb](https://github.com/op7418/CodePilot/releases/download/v0.66.0/CodePilot-0.66.0-arm64.deb)
+- [rpm](https://github.com/op7418/CodePilot/releases/download/v0.66.0/CodePilot-0.66.0-aarch64.rpm)
 
 ## 安装说明
 

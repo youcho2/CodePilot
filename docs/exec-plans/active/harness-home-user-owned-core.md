@@ -1,9 +1,9 @@
-# Harness Home Umbrella — 用户所有的 Harness、轻量接入与创作闭环
+# Harness Home Umbrella — 用户所有的 Memory、Capabilities 与 Assets
 
 > 创建时间：2026-07-30
-> 最后更新：2026-08-03
-> 状态：🔄 Shared Phase 0 与 Program A/B/C foundation 已实现并完成 Claude review hardening；当前用户可见 P0 转向“默认助理 → 心跳 → 系统通知”纵向闭环，真实凭据、packaged app 与 Design Method human gates 仍开放
-> 规划基线：正式 Release `v0.62.0` tag `bd598563`；本地与远端 `main` 已规范化到 v0.62 发布线
+> 最后更新：2026-08-04
+> 状态：🔄 Program A/B foundation 与默认助理纵向切片已落地；当前主线收敛为 Assistant 服务显式激活、统一 Capability Package/Broker 与 `creative` reference package，待 Claude Code 审查后实施；推荐安装页已后移
+> 当前规划基线：`main@979fda51`，`package.json=0.65.0`；最初事实 inventory 保留 `v0.62.0@bd598563` 历史基线
 > 文档职责：只维护共享定义、跨计划依赖、Phase 0 门禁和用户决策；各 program 的实施状态与 Smoke Ledger 以子计划为准
 
 ## Program 状态
@@ -14,8 +14,9 @@
 | 当前 P0 纵向切片 | 默认用户自有助理、heartbeat desired/actual 自愈、Electron 系统通知与点击闭环 | 🟡 Code complete + Tests pass + Review passed（本地范围）；packaged native/sound/click smoke 待验收 | [default-assistant-heartbeat-system-notification.md](default-assistant-heartbeat-system-notification.md) |
 | Program A | Harness Core、Canonical Repository、Harness/Runtime Adapter | 🟡 A1–A4 code/tests + review hardening 完成；真实凭据 Tier 2 smoke 待最终验收 | [harness-home-core-adapters.md](harness-home-core-adapters.md) |
 | Program B | 通用 Asset Library、materialization 与 lineage | 🟡 B0–B3 code/tests + 真实本地 Browser UI smoke + review hardening 完成；packaged app / 用户 human gate 待最终验收 | [harness-home-asset-library.md](harness-home-asset-library.md) |
-| Program C | CodePilot Design Method、Taste Memory 与创作编排 | 🟡 C0 候选证据清单 + C1/C2/C3 foundation/API/tests 完成；真实 Method/golden producer/human gate 待用户 | [harness-home-design-method.md](harness-home-design-method.md) |
-| Deferred UI | Plugins / Settings / Workspace / 独立入口的信息架构 | ⏸ 明确暂缓 | 本文件只保留候选方案与用户决策 |
+| Program C | Assistant service binding、统一 Capability Package/Broker、三 Runtime bridge 与 `creative` media/model reference package | 📋 按用户纠正与竞品调研重写，待 Claude Code 审查；P0 只门控自动服务，不限制文件读取 | [harness-home-context-capability-routing.md](harness-home-context-capability-routing.md) |
+| 历史 Design foundation | Method/Taste/creative-project schema/API/tests | 🗃️ foundation 保留；独立 Method v0/golden/human-gate 产品路线已被接管，不再从旧计划领任务 | [superseded/harness-home-design-method.md](../superseded/harness-home-design-method.md) |
+| UI 信息架构 | Harness Home 不新增独立页面；素材继续在素材库，Assistant services 从助理入口激活；推荐/安装/来源暂缓 | ⏸️ 推荐页不在当前关键路径，等 Package/Broker smoke 后由用户重新排期 | Program C Deferred |
 
 ## 实施 commit 映射
 
@@ -23,7 +24,7 @@
 |------|--------|
 | Program A contracts/repository/adapters/runtime foundation | `6f02130e`、`59748101`、`7d2dc871`、`f80512fe` |
 | Program B Asset index / HTML materializer / Gallery foundation | `caf64001`、`6131ad92`、`c64c598c`、`bf6f913c` |
-| Program C Method / Taste / creative-project foundation | `a54aad4b` |
+| 历史 Design Method / Taste / creative-project foundation（现为 superseded 兼容底座） | `a54aad4b` |
 | Asset Library UI 多轮用户反馈收口 | `dcf40d7f`、`b8115101`、`41924589`、`2b3a9a14`、`300f4904` |
 | Claude review + Codex duplicate media + boundary/build hardening | `ef396b0d` |
 | Review follow-up：journal/Taste poison 韧性与 link/Codex 实走 | `fb77d434` |
@@ -40,13 +41,30 @@
 - UI 未来可以从 Assistant Workspace、素材库、项目页或独立入口进入同一领域对象。
 - 本轮不因为名称里有 “Home” 就预设侧栏页面。
 
-因此当前选择是：**领域上统一，UI 上多入口；是否建立独立 Harness Home 页面由后续用户研究决定。**
+因此当前选择是：**领域上统一，UI 上多入口；当前不建立独立 Harness Home 页面。** 素材继续进入素材库，Assistant services 从助理入口激活。推荐、安装和来源管理暂缓，不让临时 Marketplace UI 反向塑造 Capability Package 合同。
+
+### Harness Home 当前到底包含什么？
+
+2026-08-04 用户把范围收敛为：
+
+- **Memory**：用户可读的助理文件，以及只在显式 Assistant session 中自动开启的搜索、注入、写回与 Heartbeat 服务；
+- **Capabilities**：Skill、MCP、CLI、内置工具、renderer 与 model adapter 组成的统一 Package，具有同一身份、scope、权限、SecretRef 和调用图；
+- **Assets**：图片、视频、音频、网页等 producer-backed 长期结果；
+- **Runtime Projection**：把上述内容按 session binding、项目、Runtime 和权限生成最小必要投影。
+
+工作流、设计方法和可视化表达属于 Package 内的 Skill；MCP/CLI/内置工具/model adapter 是同一 Package 的 actions，可通过 Broker 相互调用；结果展示和归档属于 renderer/Artifact/Asset。Harness Home 不再新增独立“审美闭环”或 workflow engine。
+
+### 项目使用助理目录时，哪些东西应该生效？
+
+目录中的文件保持完整且可读：`AGENTS.md`、`CLAUDE.md` 和其他 Runtime 原生规则照常加载，`memory.md` / daily memory 也允许被用户显式引用或由普通文件工具读取。Program C 不把助理目录做成沙箱，也不把这些文件拆到另一个地方。
+
+需要单独门控的是自动行为：只有从个人助理入口显式绑定的会话才自动获得助理 identity 合成、Memory hint/search/index/writeback/extraction 与 Heartbeat。普通项目会话即使 cwd 相同也不自动开启这些服务。当前实现主要按 cwd equality 推断；Program C P0 将它收窄为 persisted `assistant_binding_ref`，而不是建立项目文件权限 profile。
 
 ### CodePilot 是什么角色？
 
 CodePilot Runtime 是稳定 canonical capability 的 **Full Reference Implementation**：
 
-- 用户的 Memory、Skill、MCP、设计方法和素材首先属于用户。
+- 用户的 Memory、Skill、MCP、CLI 和素材首先属于用户。
 - Stable canonical capability 必须在 CodePilot Runtime 可执行，并通过对应 conformance suite。
 - Canonical catalog 可以先出现 `draft + referenceStatus=pending` 的能力提案，但不得作为稳定能力或用户承诺。
 - Claude Code、Codex 和未来框架通过 adapter 获得自身协议支持的投影。
@@ -104,10 +122,13 @@ Harness Home 只提供统一身份、索引、作用域和生命周期：
 
 ```mermaid
 flowchart LR
-  Home["Harness Home\nidentity + scope + ownership"] --> Definition["Definition\nrules / skills / MCP / methods"]
-  Home --> State["State\nmemory / preferences / feedback"]
+  Home["Harness Home\nidentity + scope + ownership"] --> Definition["Definition\nrules / skills / MCP / CLI"]
+  Home --> State["Assistant State\npersonal memory"]
   Home --> Assets["Asset Catalog\nproducer-backed kinds"]
-  Home --> Projection["Runtime Projection"]
+  Home --> Package["Capability Package\nSkill + actions + renderer + model adapters"]
+  Package --> Broker["Capability Broker\npolicy + invocation + trace"]
+  Home --> Projection["Context + Runtime Projection"]
+  Broker --> Projection
   Projection --> CodePilot["CodePilot\nFull Reference"]
   Projection --> Claude["Claude Adapter"]
   Projection --> Codex["Codex Adapter"]
@@ -119,20 +140,25 @@ Context Compiler 每轮只读取与当前任务、项目、Runtime 和 token bud
 ### D2. 用户文件是事实源，数据库只做索引和运行态
 
 - `manifest + Markdown/YAML/JSON + Skill folders + assets` 是可导出事实源。
-- SQLite 可以保存索引、缓存、session/job 关联、全文检索和 journal，但不能成为 identity、memory、skill、method 的唯一副本。
+- SQLite 可以保存索引、缓存、session/job 关联、全文检索和 journal，但不能成为 identity、Assistant Memory、Skill/MCP/CLI 或兼容 Method/Taste 的唯一副本。
 - Secret 不进入 Harness root；manifest 只保存 `secretRef`。
-- 换机导入除重新授权 Secret 外，应恢复同一 identity、Memory、Skill、MCP descriptor、project overlay、method 和 asset index。
+- 换机导入除重新授权 Secret 外，应恢复同一 identity、Assistant Memory、Skill/MCP/CLI descriptor、project overlay 和 asset index。既有 Method/Taste 文件作为兼容数据保留，但不是当前产品完成门禁。
 - 日常写模型不是实现细节：单写者、锁、事务写、崩溃恢复、外部编辑和多实例冲突必须在 Program A 开工前拍板。
 
-### D3. 作用域不以 Runtime 为中心
+### D3. Capability 作用域不以 Runtime 为中心；Assistant 自动服务由窄 binding 门控
 
 ```text
-project overlay
-  > assistant/user overlay
-  > CodePilot built-in defaults
+Capabilities:
+  project overlay > user overlay > CodePilot built-in defaults
+
+Files:
+  readable from the selected working directory
+
+Assistant services:
+  explicit assistant binding only
 ```
 
-Runtime-specific 内容只作为 projection overlay，不得反向成为公共 Memory / Skill / MCP 的权威源。
+Runtime-specific 内容只作为 projection overlay，不得反向成为公共 Capability Package 的权威源。项目 session 无论 cwd 是否等于助理目录，都不得自动启动个人 Memory 搜索/注入/写回或 Heartbeat；但目录内普通文件与原生规则仍然可读。`working_directory` 不是 Assistant service activation token，也不是文件拒绝规则。
 
 ### D4. Full Reference 允许 draft 领先，但稳定能力必须可执行
 
@@ -152,15 +178,18 @@ Runtime-specific 内容只作为 projection overlay，不得反向成为公共 M
 - HTML 只有完整生成、通过 trust/CSP 分类并写入稳定 bundle 后才成为 Asset。
 - `component` / `document` 在没有真实 materializer、validator 和 consumer 前只属于候选设计，不进入首版 schema 或 UI。
 
-### D6. Creative Method 必须可说明、可版本化、可覆盖
+### D6. 工作流与设计方法进入统一 Capability Package，不建立平行产品系统
 
 ```text
-project art direction
-  > user taste / learned preferences
-  > CodePilot Design Method built-in pack
+Skill decides when/how
+  + Broker lets MCP / CLI / builtin / model actions invoke each other
+  + renderer presents typed Artifacts
+  + Asset Library persists materialized results and lineage
 ```
 
-方法必须包含触发条件、步骤、案例/反例、critique rubric、版本和来源；通过 Skill / progressive disclosure 按需加载，不进入每轮全局 prompt。Taste Memory 只记录有证据、可查看、可撤销的偏好。
+设计、可视化解释、图片/视频/网页联动首先是一个 Capability Package：Skill 保存触发条件、步骤、案例/反例和质量规则；MCP/CLI/内置工具/model adapters 作为同一 Package 的 actions，通过 Broker 相互调用；`show-widget` 等 renderer contract 展示结果。详细方法通过 progressive disclosure 按需加载，不进入每轮全局 prompt。
+
+既有 Creative Method/Taste foundation 保留兼容和安全边界，但不再要求创建独立 Method v0、Taste UI 或大型 golden program 才能完成 Harness Home。`creative` reference package 用小型真实 fixtures 验证模板化可视化、媒体效果、policy resolution 与多模型 adapter；项目 art direction 可写入 project Skill/config，一次选择不得自动升级为跨项目 Taste Memory。
 
 ### D7. Secret 与 portable data 分离
 
@@ -185,7 +214,8 @@ interface HarnessDefinitionIndex {
   ruleRefs: AssetRef[];
   skillRefs: AssetRef[];
   mcpRefs: AssetRef[];
-  creativeMethodRefs: AssetRef[];
+  cliRefs: AssetRef[];
+  creativeMethodRefs: AssetRef[]; // legacy/optional compatibility surface
   runtimeOverlayRefs: Record<string, AssetRef[]>;
 }
 
@@ -297,7 +327,7 @@ Changed-files guard 不得默认为本地 `HEAD~1`；例外文件必须逐项说
 - [x] File write model 已覆盖单写者、原子性、外部编辑与多实例。
 - [x] SecretStore 与 `secretRef` 的解析/换机行为已拍板。
 - [x] Producer-backed Asset kind inventory 完成；无 producer 的 kind 不进入 registry。
-- [x] Design Method 事实输入只接受真实决策/案例；现有 macOS profile 可作工程事实，built-in method/golden set 仍保留用户人工门禁。
+- [x] 既有 Method/Taste foundation 只接受真实证据且未伪造用户偏好；2026-08-04 起不再继续独立 Method/golden product program，工作流迁入 Skill/Capability Bundle。
 
 ## Program 依赖与并行边界
 
@@ -307,46 +337,54 @@ flowchart LR
   P0 --> UX["Current P0 vertical slice\ndefault assistant + heartbeat + native notification"]
   A1 --> A2["Program A\nrepository + adapters"]
   A1 --> B["Program B\nAsset Library"]
-  A1 --> C["Program C\nDesign Method productization"]
-  C0["Program C\nreal-case research"] --> C
-  B --> C
+  A1 --> C0["Program C P0\nAssistant service binding"]
+  C0 --> C1["Program C P1\nCapability Package + Broker"]
+  C1 --> C2["Program C P2\ncreative reference package"]
+  B --> C2
+  C1 -. user reprioritizes .-> CD["Deferred\n推荐 / 安装 / 来源"]
 ```
 
-- Program C 的真实案例采集已从四组既有产品决策建立 candidate 清单；用户已授权 foundation 产品代码实施，但通用方法归属仍保留用户确认门禁。
+- 旧 Design Method Program 已移入 `superseded/`；已落地 foundation 继续受 guardrail 保护，但剩余 Method v0/golden/human gate 不再是 active 任务。
 - 当前 P0 纵向切片优先修复用户每天能直接感知的主动助理路径；它复用 Shared Phase 0 的用户所有权边界，但不把 Assistant Workspace 自动设为 canonical `harness_home_root`，也不宣称已完成 Memory vNext。
 - Program B 只依赖 Program A 的 `AssetRef`、scope、provenance 和 repository boundary，不依赖完整 RuntimeAdapter。
-- Program C 产品化依赖共享 scope/provenance；创作 lineage 功能依赖 Program B。
-- 三个 program 各自维护状态、验收和 Smoke Ledger；Umbrella 不复写执行进度。
+- Program C P0 必须先把助理自动服务从 cwd 推断升级为显式 binding，同时保留普通文件可读；P1 复用 Program A repository/SecretStore 建立统一 Package/Broker；P2 复用 Program B 验证 `creative`、policy 与多媒体模型 adapter。推荐页不在当前关键路径。
+- 三个 active program 各自维护状态、验收和 Smoke Ledger；Umbrella 不复写执行进度。
 
-## UI 入口（明确暂缓）
+## UI 入口（领域统一、按任务分散）
 
 | 方案 | 优点 | 风险 |
 |------|------|------|
-| 放 Plugins | 延续 MCP/Skill 心智 | Memory、素材、网页和方法被误解为插件 |
+| 放 Plugins | 延续 MCP/Skill/CLI 心智 | 只适合 Capability，不承载 Memory 和素材 |
 | 放 Settings | 易配置和诊断 | 长期内容被藏进设置 |
 | 放 Assistant Workspace | 与身份/Memory 接近 | 素材和项目创作可能过重 |
 | 独立一级入口 | 可承载 Harness / Assets / Projects | 过早增加导航概念 |
 | 多入口同一领域对象 | 各任务从自然位置进入 | 需要稳定路由与一致信息架构 |
 
-当前只拍板领域统一，不拍板页面。
+当前决策：
+
+- 不新增独立 Harness Home 页面；
+- Personal Memory 从 Assistant 入口管理；
+- Assets 继续由素材库承载；
+- 现有 Skills/MCP/CLI 页面保持兼容，但新的领域合同以一个 Capability Package 为单位；
+- 推荐/安装/来源页面暂缓。等 Package/Broker 三 Runtime smoke 后，再决定是否复用 `/plugins` 以及是否改名为“能力”。
 
 ## 总体验收场景
 
 ### 用户所有权
 
-创建 Skill、MCP descriptor、Memory 和 Method → 导出 Harness → 干净环境导入 → 重新授权 Secret → 恢复同一身份、能力、Memory、方法与 Asset index。
+创建一个含 Skill/MCP/CLI actions 的 Package 和 Assistant Memory → 导出 Harness → 干净环境导入 → 重新授权 Secret → 恢复同一身份、Package、助理文件与 Asset index。
 
 ### Runtime 切换
 
-同一项目在 CodePilot 开始 → 切换 Claude/Codex → canonical Memory 与 Assets 不丢 → 不支持项有明确原因 → 切回 CodePilot 继续完整执行。
+同一项目在 CodePilot 开始 → 切换 Claude/Codex → Package 与 Assets 不丢 → 同一 action ID 可调用 → 不支持项有明确原因 → 切回 CodePilot 继续执行。项目若使用助理目录，文件仍可读，但个人 Memory 自动服务不因 cwd 相同而开启。
 
 ### 轻量接入第四个框架
 
 L0 Discover → L1 Portable Projection → 通过 per-adapter conformance → 不修改现有 adapter、Context Compiler、Settings capability component 或 Artifact renderer → 只有用户价值明确时进入 L2/L3。
 
-### 创作闭环
+### 可视化与创作能力
 
-真实 Brief → 多个可解释方向 → 图片/视频/网页 materialization → Asset lineage → 有证据的 Taste Memory → 可查看、撤销并继续创作。
+启用 `creative` Package → Skill 通过 Broker 调用真实 MCP/CLI/内置/model actions → 按 Runtime/model/permission/Provider policy 选择 adapter → 生成 Widget/图片/视频/网页 Artifact → 成功 materialization 后进入 Asset lineage。项目 art direction 来自 project Skill/config；一次选择不自动变成长期 Taste Memory。
 
 ## 风险与共享防线
 
@@ -359,7 +397,12 @@ L0 Discover → L1 Portable Projection → 通过 per-adapter conformance → �
 | Secret 进入导出包 | 严重安全事故 | SecretStore/SecretRef + scanner + fail-closed tests |
 | 没有 producer 的 Asset kind 先入 schema | UI/数据出现假能力 | producer-backed registry |
 | Asset Library 另造第二套 Gallery | 数据与 UI 双轨 | 复用 media pipeline，先 backfill |
-| 审美方法变宣传话术 | 差异化不可验收 | 真实案例、反例、rubric、版本、用户确认 |
+| 把助理 binding 做成文件 ACL | 用户主动选目录后读不到自己的规则/Memory 文件 | binding 只门控自动服务 + 普通文件读取正例 |
+| cwd 被当成 Assistant service 开关 | 项目无意启用 Memory 写回/Heartbeat | explicit binding + 三 Runtime negative tests |
+| Package 只在 UI 合并，调用仍分叉 | “一个整体”成为假文案 | Broker reverse-invocation conformance + trace + real smoke |
+| Skill/MCP/CLI 各自再建目录真源 | 安装、更新、卸载继续分叉 | canonical Package + managed projections + conflict freeze |
+| 媒体模型写死 Provider 特例 | 新图像/视频模型接入越来越重 | MediaModelDescriptor + ProviderAdapter conformance |
+| 设计能力再次扩成独立工作流系统 | 计划变重、与 Skills 重复 | Skill + Broker actions + renderer + Assets；旧计划 superseded |
 | 一个 umbrella 永远无法关闭 | 状态和 ledger 混杂 | 三个子计划独立推进与关闭 |
 
 ## 验证归属
@@ -368,20 +411,24 @@ L0 Discover → L1 Portable Projection → 通过 per-adapter conformance → �
 |----|-----------------|----------|
 | Tier 0 | shared contract、manifest、scope、Secret 和 adapter boundary | Program A |
 | Tier 1 | repository、migration、L0/L1 conformance、lineage | Program A / B |
-| Tier 2 | DB migration、Runtime、materialization、packaged smoke | Program A / B |
-| Human gate | Design Method golden set、图片/视频/网页质量 | Program C |
+| Tier 2 | assistant binding DB、Runtime bridge、Broker invocation、materialization、packaged smoke | Program C / A / B |
+| Human gate | 普通文件可读、真实 Runtime 调用、`creative` 效果与 Artifact/Asset | Program C |
 
-Umbrella 不维护共享 Smoke Ledger。真实 smoke 必须登记到产生该行为的子计划，避免工程、DB 和设计验证混在一张表。
+Umbrella 不维护共享 Smoke Ledger。真实 smoke 必须登记到产生该行为的子计划，避免 repository、Asset 和 capability routing 验证混在一张表。
 
 ## Smoke Ledger
 
-> 本表只做跨计划路由，不登记工程、DB 或设计行为的完成结果。真实证据分别进入 Program A / B / C 的 Smoke Ledger；在子计划尚未执行前保持空表，不用示例行冒充验证。
+> 本表只做跨计划路由，不登记工程、DB 或 Capability 行为的完成结果。真实证据分别进入 Program A / B / C 的 Smoke Ledger；在子计划尚未执行前保持空表，不用示例行冒充验证。
 
 | Date | Program | 场景 | Result | Evidence |
 |------|---------|------|--------|----------|
 
 ## 决策日志
 
+- 2026-08-04：用户纠正初稿：项目若主动使用助理目录，`AGENTS.md`、`CLAUDE.md`、`memory.md` 与其他文件都应自然可读。P0 改为窄 `AssistantServiceBinding`，只门控 identity/Memory 自动服务与 Heartbeat，不建立文件权限 profile。
+- 2026-08-04：用户要求 Skill/MCP/CLI 形成一个能相互调用的整体。Program C P1 改为统一 Capability Package + Broker + 三 Runtime bridges；内部 adapter/证据仍保留，但不拆成多个用户安装对象。
+- 2026-08-04：推荐安装页后移。Program C P2 改用 `creative` reference package 验证可视化效果、Runtime/model/permission/Provider policy 与更多图像/视频模型的 descriptor/adapter。
+- 2026-08-04：旧 Design Method/Taste/creative-project foundation 保留，但独立 Method v0、大型 golden producer、人工审美 program 被移入 superseded。工作流由 Skill 表达，Broker 让 MCP/CLI/内置/model actions 相互调用，Artifact/Asset 展示和持久化。
 - 2026-08-03：当前 P0 纵向切片通过 Claude 本地代码/测试复审；DB、默认助理/心跳、Electron 通知分别落在 `4b5f97dd`、`19847570`、`3f16b895`。三平台 packaged native/sound/click smoke 仍开放，因此 umbrella 只同步为 Review passed（本地范围），不提升为 Smoke passed / Release ready。
 - 2026-08-03：默认助理纵向 P0 已完成实现与自动化收口：commit-time CAS、neutral instructions、desired-first + runner gate、heartbeat uniqueness、Main-owned durable notification 与点击队列均已落地；全量测试、Next production build 和 Electron bundle 通过。三平台 packaged native/sound/click smoke 仍开放，不能标记 Release ready。
 - 2026-08-03：用户将“默认助理 → 心跳 → 系统通知”确定为 Harness Home 当前 P0；单独建立 active 纵向计划。新用户可获得默认用户自有目录，老用户路径 no-touch；Assistant Workspace 与 canonical Harness repository 的合并继续受 Program A migration contract 约束。

@@ -20,6 +20,7 @@ import {
   resolveToolPath,
 } from '@/lib/file-write-tools';
 import { reconcilePhase } from '@/lib/stream-phase-reconcile';
+import { MISSING_TOOL_RESULT_CONTENT } from '@/lib/tool-history-integrity';
 import type {
   ToolUseInfo,
   ToolResultInfo,
@@ -232,6 +233,17 @@ export function buildFinalMessageContent(args: {
         ...(tr.is_error ? { is_error: true } : {}),
         ...(tr.media && tr.media.length > 0 ? { media: tr.media } : {}),
         ...(tr.sources && tr.sources.length > 0 ? { sources: tr.sources } : {}),
+      });
+    } else {
+      // A stopped/partially delivered turn may end after tool_use but before
+      // any tool_result SSE arrives. Persist an honest app-owned terminal
+      // result so the next turn is valid AI SDK history. This says only what
+      // CodePilot observed; it does not claim whether the tool ran.
+      blocks.push({
+        type: 'tool_result',
+        tool_use_id: tu.id,
+        content: MISSING_TOOL_RESULT_CONTENT,
+        is_error: true,
       });
     }
   }
