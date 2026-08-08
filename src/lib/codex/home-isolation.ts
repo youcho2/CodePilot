@@ -39,6 +39,22 @@ const SEEDED_CREDENTIAL_FILES = [
   '.credentials.json',
 ] as const;
 
+// These settings are passive Harness inputs, not runtime state. Codex resolves
+// relative values from the config file that declares them, so mirroring only
+// config.toml into the isolated home changes their meaning unless the referenced
+// files are mirrored to the same relative locations as well.
+const CONFIG_FILE_DEPENDENCY_KEYS = new Set([
+  'model_catalog_json',
+  'model_instructions_file',
+  'experimental_instructions_file',
+  'experimental_compact_prompt_file',
+]);
+
+interface CodexConfigFileDependency {
+  readonly filePath: string;
+  readonly isNestedConfig: boolean;
+}
+
 export type CodexMirrorMode =
   | 'absent'
   | 'symlink'
@@ -85,6 +101,150 @@ export interface PreparedCodexHome {
 function nonEmpty(value: string | undefined): string | null {
   const trimmed = value?.trim();
   return trimmed ? trimmed : null;
+}
+
+function decodeTomlString(rawValue: string): string | null {
+  const value = rawValue.trimStart();
+  const quote = value[0];
+  if (quote !== '"' && quote !== "'") return null;
+
+  let decoded = '';
+  for (let index = 1; index < value.length; index += 1) {
+    const character = value[index];
+    if (character === quote) return decoded;
+    if (quote === "'" || character !== '\\') {
+      decoded += character;
+      continue;
+    }
+
+    index += 1;
+    const escaped = value[index];
+    const simpleEscapes: Readonly<Record<string, string>> = {
+      b: '\b',
+      t: '\t',
+      n: '\n',
+      f: '\f',
+      r: '\r',
+      '"': '"',
+      '\\': '\\',
+    };
+    if (escaped in simpleEscapes) {
+      decoded += simpleEscapes[escaped];
+      continue;
+    }
+    if (escaped === 'u' || escaped === 'U') {
+      const digits = escaped === 'u' ? 4 : 8;
+      const hexadecimal = value.slice(index + 1, index + 1 + digits);
+      if (!new RegExp(`^[0-9a-fA-F]{${digits}}$`).test(hexadecimal)) return null;
+      const codePoint = Number.parseInt(hexadecimal, 16);
+      if (codePoint > 0x10ffff || (codePoint >= 0xd800 && codePoint <= 0xdfff)) return null;
+      decoded += String.fromCodePoint(codePoint);
+      index += digits;
+      continue;
+    }
+    return null;
+  }
+  return null;
+}
+
+/**
+ * Read only the documented path-valued settings that Codex resolves relative
+ * to a config file. This deliberately is not a general TOML parser: failures
+ * are best-effort here and remain Codex's validation responsibility.
+ */
+function readCodexConfigFileDependencies(configPath: string): CodexConfigFileDependency[] {
+  if (!fs.existsSync(configPath) || !fs.statSync(configPath).isFile()) return [];
+
+  const dependencies: CodexConfigFileDependency[] = [];
+  let currentTable = '';
+  for (const line of fs.readFileSync(configPath, 'utf8').split(/\r?\n/u)) {
+    const table = line.match(/^\s*\[([^\]]+)\]\s*(?:#.*)?$/u);
+    if (table) {
+      currentTable = table[1].trim();
+      continue;
+    }
+
+    const assignment = line.match(/^\s*([A-Za-z0-9_.-]+)\s*=\s*(.+)$/u);
+    if (!assignment) continue;
+    const key = assignment[1];
+    const isConfigFileDependency = CONFIG_FILE_DEPENDENCY_KEYS.has(key)
+      && (currentTable === '' || currentTable.startsWith('profiles.'));
+    const isAgentConfig = key === 'config_file' && currentTable.startsWith('agents.');
+    const isDottedAgentConfig = currentTable === ''
+      && /^agents\..+\.config_file$/u.test(key);
+    if (!isConfigFileDependency && !isAgentConfig && !isDottedAgentConfig) continue;
+
+    const filePath = decodeTomlString(assignment[2]);
+    if (!filePath) continue;
+    dependencies.push({
+      filePath,
+      isNestedConfig: isAgentConfig || isDottedAgentConfig,
+    });
+  }
+  return dependencies;
+}
+
+function isAbsoluteOnAnyPlatform(filePath: string): boolean {
+  return path.isAbsolute(filePath)
+    || path.win32.isAbsolute(filePath)
+    || path.posix.isAbsolute(filePath);
+}
+
+function isStrictlyInside(root: string, candidate: string): boolean {
+  const relative = path.relative(root, candidate);
+  return relative !== ''
+    && relative !== '..'
+    && !relative.startsWith(`..${path.sep}`)
+    && !path.isAbsolute(relative);
+}
+
+function mirrorCodexConfigFileDependencies(
+  sourceHome: string,
+  targetHome: string,
+  configNames: readonly string[],
+  platform: NodeJS.Platform,
+  operations: CodexMirrorOperations,
+  recordMirror: (name: string, mode: CodexMirrorMode) => void,
+): void {
+  const pending = [...new Set(configNames)].map((name) => ({
+    sourceConfig: path.join(sourceHome, name),
+    targetConfig: path.join(targetHome, name),
+  }));
+  const visited = new Set<string>();
+
+  while (pending.length > 0) {
+    const pair = pending.pop()!;
+    const visitKey = platform === 'win32'
+      ? pair.targetConfig.toLocaleLowerCase()
+      : pair.targetConfig;
+    if (visited.has(visitKey)) continue;
+    visited.add(visitKey);
+
+    for (const dependency of readCodexConfigFileDependencies(pair.targetConfig)) {
+      if (isAbsoluteOnAnyPlatform(dependency.filePath)) continue;
+      const sourceDependency = path.resolve(path.dirname(pair.sourceConfig), dependency.filePath);
+      const targetDependency = path.resolve(path.dirname(pair.targetConfig), dependency.filePath);
+      if (!isStrictlyInside(sourceHome, sourceDependency)
+        || !isStrictlyInside(targetHome, targetDependency)) {
+        continue;
+      }
+      if (fs.existsSync(sourceDependency) && !fs.statSync(sourceDependency).isFile()) continue;
+
+      const mode = mirrorCodexHomeEntry(
+        sourceDependency,
+        targetDependency,
+        platform,
+        operations,
+      );
+      recordMirror(path.relative(targetHome, targetDependency), mode);
+      if (dependency.isNestedConfig && mode !== 'absent' && mode !== 'broken_link') {
+        pending.push({
+          sourceConfig: sourceDependency,
+          targetConfig: targetDependency,
+        });
+      }
+    }
+  }
 }
 
 export function resolveSourceCodexHome(
@@ -370,6 +530,14 @@ export function prepareCodePilotCodexHome(
     );
     recordHarnessMirror(name, mode);
   }
+  mirrorCodexConfigFileDependencies(
+    sourceCodexHome,
+    codexHome,
+    sharedFiles,
+    platform,
+    mirrorOperations,
+    recordHarnessMirror,
+  );
   for (const name of SHARED_DIRECTORIES) {
     const mode = mirrorCodexHomeEntry(
       path.join(sourceCodexHome, name),

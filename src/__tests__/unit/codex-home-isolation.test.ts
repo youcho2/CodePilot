@@ -130,6 +130,148 @@ describe('CodePilot Codex home isolation', () => {
     assert.doesNotMatch(fs.readFileSync(sourceCodePilotRollout, 'utf8'), /target/);
   });
 
+  it('mirrors relative file dependencies declared by config.toml', () => {
+    const root = temporaryRoot();
+    const source = path.join(root, 'source-codex');
+    const data = path.join(root, 'codepilot-data');
+    fs.mkdirSync(source, { recursive: true });
+    fs.writeFileSync(
+      path.join(source, 'config.toml'),
+      [
+        'model_catalog_json = "cc-switch-model-catalog.json"',
+        "model_instructions_file = 'custom-instructions.md'",
+        '',
+      ].join('\n'),
+    );
+    fs.writeFileSync(path.join(source, 'cc-switch-model-catalog.json'), '{"models":[]}\n');
+    fs.writeFileSync(path.join(source, 'custom-instructions.md'), '# Custom\n');
+    fs.writeFileSync(path.join(source, 'state_5.sqlite'), 'runtime state must stay isolated\n');
+
+    const prepared = prepareCodePilotCodexHome({
+      env: { CODEX_HOME: source, CLAUDE_GUI_DATA_DIR: data },
+      homeDir: path.join(root, 'home'),
+      platform: 'win32',
+      mirrorOperations: FORCE_HARDLINK,
+    });
+
+    assert.equal(
+      fs.readFileSync(path.join(prepared.codexHome, 'cc-switch-model-catalog.json'), 'utf8'),
+      '{"models":[]}\n',
+    );
+    assert.equal(
+      fs.readFileSync(path.join(prepared.codexHome, 'custom-instructions.md'), 'utf8'),
+      '# Custom\n',
+    );
+    assert.equal(fs.existsSync(path.join(prepared.codexHome, 'state_5.sqlite')), false);
+  });
+
+  it('mirrors profile and nested agent config dependencies recursively', () => {
+    const root = temporaryRoot();
+    const source = path.join(root, 'source-codex');
+    const data = path.join(root, 'codepilot-data');
+    fs.mkdirSync(path.join(source, 'agents'), { recursive: true });
+    fs.writeFileSync(
+      path.join(source, 'config.toml'),
+      [
+        '[profiles.local]',
+        'model_catalog_json = "profile-catalog.json"',
+        '',
+      ].join('\n'),
+    );
+    fs.writeFileSync(path.join(source, 'profile-catalog.json'), '{"models":[]}\n');
+    fs.writeFileSync(
+      path.join(source, 'review.config.toml'),
+      [
+        '[agents.reviewer]',
+        'config_file = "agents/reviewer.config.toml"',
+        '',
+      ].join('\n'),
+    );
+    fs.writeFileSync(
+      path.join(source, 'agents', 'reviewer.config.toml'),
+      'model_instructions_file = "reviewer.md"\n',
+    );
+    fs.writeFileSync(path.join(source, 'agents', 'reviewer.md'), '# Review instructions\n');
+
+    const prepared = prepareCodePilotCodexHome({
+      env: { CODEX_HOME: source, CLAUDE_GUI_DATA_DIR: data },
+      homeDir: path.join(root, 'home'),
+      platform: 'win32',
+      mirrorOperations: FORCE_HARDLINK,
+    });
+
+    assert.equal(
+      fs.readFileSync(path.join(prepared.codexHome, 'agents', 'reviewer.config.toml'), 'utf8'),
+      'model_instructions_file = "reviewer.md"\n',
+    );
+    assert.equal(
+      fs.readFileSync(path.join(prepared.codexHome, 'profile-catalog.json'), 'utf8'),
+      '{"models":[]}\n',
+    );
+    assert.equal(
+      fs.readFileSync(path.join(prepared.codexHome, 'agents', 'reviewer.md'), 'utf8'),
+      '# Review instructions\n',
+    );
+  });
+
+  it('does not copy absolute or parent-traversal config dependencies into the isolated home', () => {
+    const root = temporaryRoot();
+    const source = path.join(root, 'source-codex');
+    const data = path.join(root, 'codepilot-data');
+    const absoluteCatalog = path.join(root, 'absolute-catalog.json');
+    const parentInstructions = path.join(root, 'parent-instructions.md');
+    fs.mkdirSync(source, { recursive: true });
+    fs.writeFileSync(absoluteCatalog, '{"models":[]}\n');
+    fs.writeFileSync(parentInstructions, '# Parent\n');
+    fs.writeFileSync(
+      path.join(source, 'config.toml'),
+      [
+        `model_catalog_json = '${absoluteCatalog}'`,
+        "model_instructions_file = '../parent-instructions.md'",
+        '',
+      ].join('\n'),
+    );
+
+    const prepared = prepareCodePilotCodexHome({
+      env: { CODEX_HOME: source, CLAUDE_GUI_DATA_DIR: data },
+      homeDir: path.join(root, 'home'),
+      platform: 'win32',
+      mirrorOperations: FORCE_HARDLINK,
+    });
+
+    assert.equal(fs.existsSync(path.join(prepared.codexHome, path.basename(absoluteCatalog))), false);
+    assert.equal(fs.existsSync(path.join(data, 'parent-instructions.md')), false);
+  });
+
+  it('repairs a missing relative dependency after the isolated home was initialized', () => {
+    const root = temporaryRoot();
+    const source = path.join(root, 'source-codex');
+    const data = path.join(root, 'codepilot-data');
+    fs.mkdirSync(source, { recursive: true });
+    fs.writeFileSync(
+      path.join(source, 'config.toml'),
+      'model_catalog_json = "late-catalog.json"\n',
+    );
+    const options = {
+      env: { CODEX_HOME: source, CLAUDE_GUI_DATA_DIR: data },
+      homeDir: path.join(root, 'home'),
+      platform: 'win32',
+      mirrorOperations: FORCE_HARDLINK,
+    } as const;
+
+    const first = prepareCodePilotCodexHome(options);
+    assert.equal(first.initializedNow, true);
+    assert.equal(fs.existsSync(path.join(first.codexHome, 'late-catalog.json')), false);
+
+    fs.writeFileSync(path.join(source, 'late-catalog.json'), '{"models":[]}\n');
+    const second = prepareCodePilotCodexHome(options);
+    assert.equal(second.initializedNow, false);
+    assert.equal(
+      fs.readFileSync(path.join(second.codexHome, 'late-catalog.json'), 'utf8'),
+      '{"models":[]}\n',
+    );
+  });
+
   it('does not restore CodePilot credentials after an explicit logout', () => {
     const root = temporaryRoot();
     const source = path.join(root, 'source-codex');
@@ -198,7 +340,11 @@ describe('CodePilot Codex home isolation', () => {
     const source = path.join(root, 'source-codex');
     const data = path.join(root, 'codepilot-data');
     fs.mkdirSync(path.join(source, 'skills', 'one'), { recursive: true });
-    fs.writeFileSync(path.join(source, 'config.toml'), 'model = "first"\n');
+    fs.writeFileSync(
+      path.join(source, 'config.toml'),
+      'model = "first"\nmodel_catalog_json = "catalog.json"\n',
+    );
+    fs.writeFileSync(path.join(source, 'catalog.json'), '{"models":[]}\n');
     fs.writeFileSync(path.join(source, 'skills', 'one', 'SKILL.md'), '# One\n');
 
     const prepared = prepareCodePilotCodexHome({
@@ -209,7 +355,7 @@ describe('CodePilot Codex home isolation', () => {
     });
     assert.deepEqual(
       [...prepared.harnessSnapshotEntries].sort(),
-      ['config.toml', 'skills'],
+      ['catalog.json', 'config.toml', 'skills'],
     );
 
     fs.writeFileSync(path.join(source, 'config.toml'), 'model = "second"\n');
@@ -219,10 +365,13 @@ describe('CodePilot Codex home isolation', () => {
       platform: 'win32',
       mirrorOperations: FORCE_COPY,
     });
-    assert.deepEqual([...next.harnessSnapshotEntries].sort(), ['config.toml', 'skills']);
+    assert.deepEqual(
+      [...next.harnessSnapshotEntries].sort(),
+      ['catalog.json', 'config.toml', 'skills'],
+    );
     assert.equal(
       fs.readFileSync(path.join(next.codexHome, 'config.toml'), 'utf8'),
-      'model = "first"\n',
+      'model = "first"\nmodel_catalog_json = "catalog.json"\n',
       'snapshot mode is explicit and never silently overwrites divergent CodePilot state',
     );
   });
