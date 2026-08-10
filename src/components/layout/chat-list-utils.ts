@@ -72,5 +72,12 @@ export function formatRelativeTime(dateStr: string, t: (key: TranslationKey, par
   if (diffMin < 60) return t('chatList.minutesAgo', { n: diffMin });
   if (diffHr < 24) return t('chatList.hoursAgo', { n: diffHr });
   if (diffDay < 7) return t('chatList.daysAgo', { n: diffDay });
-  return date.toLocaleDateString();
+  // ≥ 7 days: show a compact date. The old `toLocaleDateString()` produced a
+  // full `YYYY/M/D` that overflowed the fixed-width (38px) timestamp column and
+  // was clipped to just the year. Show month/day for the current year, adding a
+  // 2-digit year only when it differs, so it stays short enough to fit.
+  const sameYear = date.getFullYear() === now.getFullYear();
+  return date.toLocaleDateString(undefined, sameYear
+    ? { month: 'numeric', day: 'numeric' }
+    : { year: '2-digit', month: 'numeric', day: 'numeric' });
 }

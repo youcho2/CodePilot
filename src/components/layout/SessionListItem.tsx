@@ -129,8 +129,9 @@ export function SessionListItem({
         <span className="flex-1 min-w-0 line-clamp-1 text-[13px] font-normal leading-tight break-all">
           {session.title}
         </span>
-        {/* Right area — fixed width, time or dots swap via opacity */}
-        <span className="shrink-0 w-[38px] flex items-center justify-end">
+        {/* Right area — fixed width, time or dots swap via opacity. Wide enough
+            for the compact ≥7-day date (e.g. cross-year "12/31/24"). */}
+        <span className="shrink-0 w-[46px] flex items-center justify-end">
           <span className={cn(
             "text-[11px] text-muted-foreground/40 truncate transition-opacity",
             showActions ? "opacity-0" : "opacity-100"
