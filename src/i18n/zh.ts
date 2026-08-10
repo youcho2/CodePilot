@@ -705,6 +705,8 @@ const zh: Record<TranslationKey, string> = {
   'update.rosettaWarning': 'CodePilot 当前正通过 Rosetta 在这台 Apple Silicon Mac 上运行。安装 arm64 版本可获得更好的响应速度。',
   'update.recommendedAsset': '推荐下载：{asset}',
   'update.getRecommendedBuild': '下载推荐版本',
+  'update.installerOpened': '安装包已打开——把 CodePilot 拖入「应用程序」文件夹即可完成更新。若 macOS 提示应用「已损坏」，右键点按选择「打开」。',
+  'update.reopenInstaller': '重新打开安装包',
 
   // ── Image Generation ──────────────────────────────────────
   'imageGen.toggle': '图片生成',

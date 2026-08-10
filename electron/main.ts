@@ -99,6 +99,7 @@ import {
   shouldSkipProviderSecretForIsolatedSmoke,
 } from './provider-secret-startup-policy';
 import { sanitizeLogLine } from './log-sanitize';
+import { downloadAndOpenInstaller } from './updater';
 import {
   buildMacosKeychainEnvironment,
   getMacosDefaultKeychainProbe,
@@ -2541,6 +2542,13 @@ app.whenReady().then(async () => {
 
   ipcMain.handle('install:get-logs', () => {
     return installState.logs;
+  });
+
+  // Fork assisted update (Path B): download the release installer for `url`
+  // with progress (renderer gets `app-update:progress`), then open it so the
+  // user drags CodePilot into /Applications. URL is validated in the updater.
+  ipcMain.handle('app-update:download', async (_event, url: string) => {
+    return downloadAndOpenInstaller(url, mainWindow);
   });
 
   // Install Git for Windows via winget (called from ConnectionStatus dialog)

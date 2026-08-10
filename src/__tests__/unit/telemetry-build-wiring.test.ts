@@ -37,11 +37,13 @@ describe('telemetry release wiring', () => {
     assert.ok((builder.match(/!\*\*\/\*\.map/g) ?? []).length >= 3);
     assert.match(workflow, /SENTRY_AUTH_TOKEN:\s*\$\{\{\s*secrets\.SENTRY_AUTH_TOKEN\s*\}\}/);
     assert.match(workflow, /npm run sentry:sourcemaps:upload/);
-    const tokenOffsets = [...workflow.matchAll(/SENTRY_AUTH_TOKEN:/g)].map((match) => match.index);
+    // Count real secret-injection sites (env declarations), not bash refs like
+    // `${SENTRY_AUTH_TOKEN:-}` in the fork's "skip upload if unset" guard.
+    const tokenOffsets = [...workflow.matchAll(/SENTRY_AUTH_TOKEN:\s*\$\{\{/g)].map((match) => match.index);
     assert.equal(
       tokenOffsets.length,
-      3,
-      'one least-privilege upload step per job definition (Linux is a native-arch matrix)',
+      1,
+      'one least-privilege upload step (fork ships macOS arm64 only)',
     );
     for (const offset of tokenOffsets) {
       const precedingStep = workflow.lastIndexOf('- name:', offset);
@@ -50,8 +52,6 @@ describe('telemetry release wiring', () => {
     }
     for (const buildStepName of [
       'Build macOS release bundles',
-      'Build Windows release bundles',
-      'Build Linux release bundle',
     ]) {
       const start = workflow.indexOf(`- name: ${buildStepName}`);
       const end = workflow.indexOf('\n      - name:', start + 1);

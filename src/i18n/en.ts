@@ -718,6 +718,8 @@ const en = {
   'update.rosettaWarning': 'CodePilot is running through Rosetta on this Apple Silicon Mac. Install the arm64 build for better responsiveness.',
   'update.recommendedAsset': 'Recommended download: {asset}',
   'update.getRecommendedBuild': 'Get Recommended Build',
+  'update.installerOpened': 'Installer opened — drag CodePilot into the Applications folder to finish. If macOS says the app "is damaged", right-click it and choose Open.',
+  'update.reopenInstaller': 'Reopen Installer',
 
   // ── Image Generation ──────────────────────────────────────
   'imageGen.toggle': 'Image Generation',

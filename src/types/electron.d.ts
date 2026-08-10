@@ -51,6 +51,16 @@ interface ElectronUpdaterAPI {
   onStatus: (callback: (data: UpdateStatusEvent) => void) => () => void;
 }
 
+/**
+ * Fork assisted update (Path B). Downloads a release installer with progress
+ * and opens it (Finder) for a drag-install. Distinct from `updater` (native
+ * Squirrel) — its presence must NOT enable native-updater mode.
+ */
+interface ElectronAppUpdateAPI {
+  downloadAndOpen: (url: string) => Promise<{ ok: boolean; path?: string; error?: string }>;
+  onProgress: (callback: (data: { percent: number }) => void) => () => void;
+}
+
 interface ElectronTerminalAPI {
   create: (opts: { id: string; cwd: string; cols: number; rows: number }) => Promise<void>;
   write: (id: string, data: string) => void;
@@ -131,6 +141,7 @@ interface ElectronAPI {
   };
   install: ElectronInstallAPI;
   updater?: ElectronUpdaterAPI;
+  appUpdate?: ElectronAppUpdateAPI;
   bridge?: {
     isActive: () => Promise<boolean>;
   };

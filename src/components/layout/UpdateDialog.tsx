@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Button } from "@/components/ui/button";
@@ -18,10 +19,17 @@ export function UpdateDialog() {
   const { updateInfo, showDialog, dismissUpdate, downloadUpdate, quitAndInstall } = useUpdate();
   const { t } = useTranslation();
 
+  // Assisted in-app download (Path B) is available when the Electron bridge is
+  // present. Computed client-side to avoid an SSR/hydration mismatch.
+  const [hasAssisted, setHasAssisted] = useState(false);
+  useEffect(() => {
+    setHasAssisted(typeof window !== "undefined" && !!window.electronAPI?.appUpdate);
+  }, []);
+
   if (!updateInfo?.updateAvailable) return null;
 
   const { isNativeUpdate, readyToInstall, downloadProgress } = updateInfo;
-  const isDownloading = isNativeUpdate && !readyToInstall && downloadProgress != null;
+  const isDownloading = !readyToInstall && downloadProgress != null;
 
   return (
     <Dialog open={showDialog} onOpenChange={(open) => {
@@ -116,29 +124,41 @@ export function UpdateDialog() {
           </p>
         )}
 
+        {/* Path B: installer downloaded and opened — guide the drag-install. */}
+        {!isNativeUpdate && hasAssisted && readyToInstall && (
+          <p className="rounded-md border border-primary/20 bg-primary/10 px-2 py-1 text-xs">
+            {t('update.installerOpened')}
+          </p>
+        )}
+
         <DialogFooter>
           <Button variant="outline" onClick={dismissUpdate}>
             {t('update.later')}
           </Button>
-          {!isNativeUpdate ? (
+          {isNativeUpdate ? (
+            readyToInstall ? (
+              <Button onClick={quitAndInstall}>{t('update.restartToUpdate')}</Button>
+            ) : isDownloading ? (
+              <Button disabled>{t('update.downloading')}...</Button>
+            ) : (
+              <Button onClick={downloadUpdate}>{t('update.installUpdate')}</Button>
+            )
+          ) : hasAssisted ? (
+            // Path B: assisted in-app download + open (no browser round-trip).
+            isDownloading ? (
+              <Button disabled>{t('update.downloading')}...</Button>
+            ) : readyToInstall ? (
+              <Button variant="outline" onClick={downloadUpdate}>{t('update.reopenInstaller')}</Button>
+            ) : (
+              <Button onClick={downloadUpdate}>{t('update.installUpdate')}</Button>
+            )
+          ) : (
             <Button
               onClick={() => {
                 window.open(updateInfo.downloadUrl || updateInfo.releaseUrl, "_blank");
               }}
             >
               {updateInfo.downloadAssetName ? t('update.getRecommendedBuild') : t('settings.viewRelease')}
-            </Button>
-          ) : readyToInstall ? (
-            <Button onClick={quitAndInstall}>
-              {t('update.restartToUpdate')}
-            </Button>
-          ) : isDownloading ? (
-            <Button disabled>
-              {t('update.downloading')}...
-            </Button>
-          ) : (
-            <Button onClick={downloadUpdate}>
-              {t('update.installUpdate')}
             </Button>
           )}
         </DialogFooter>
