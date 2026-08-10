@@ -151,6 +151,9 @@ const en = {
   'settings.errorReportingDesc': 'Anonymously reports sanitized errors and one app-process session for release health and crash-free statistics. It does not track feature usage or identify users, and never includes conversation content or API keys. Restart the app for the change to fully take effect.',
   'settings.generativeUITitle': 'Generative UI',
   'settings.generativeUIDesc': 'Enable interactive visualizations (charts, diagrams, mockups) in chat responses. Disabling saves tokens but removes visual generation capability.',
+  'settings.providerEncryptionTitle': 'Encrypt provider secrets locally',
+  'settings.providerEncryptionDesc': 'On: API keys are encrypted with the system keychain (this build is not notarized, so macOS may re-ask for keychain access after each update). Off: API keys are stored in plaintext in the local database, and no keychain prompt appears.',
+  'settings.providerEncryptionRestart': 'Takes effect after you restart the app.',
   'settings.defaultPanelTitle': 'Default Side Panel',
   'settings.defaultPanelDesc': 'Side panel to auto-open when starting a new conversation',
   // Network proxy

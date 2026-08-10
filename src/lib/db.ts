@@ -3857,6 +3857,47 @@ export function migrateProviderSecrets(db: Database.Database): number {
   return migrated;
 }
 
+/**
+ * Reverse of migrateProviderSecrets: decrypt every encrypted provider key back
+ * to the plaintext column so a build that no longer touches the keychain can
+ * still read them. MUST be called while the data-encryption key is still loaded
+ * (an encrypted session) — a row that fails to decrypt is left untouched so a
+ * recoverable ciphertext is never destroyed. Idempotent: rows already plaintext
+ * are skipped.
+ */
+export function disableProviderSecretEncryption(db: Database.Database): { migrated: number; failed: number } {
+  const rows = db.prepare(
+    "SELECT id, api_key, api_key_ciphertext FROM api_providers WHERE api_key_ciphertext != ''",
+  ).all() as Array<{ id: string; api_key: string; api_key_ciphertext: string }>;
+  if (rows.length === 0) return { migrated: 0, failed: 0 };
+
+  const update = db.prepare(
+    "UPDATE api_providers SET api_key = ?, api_key_ciphertext = '', api_key_storage = 'legacy_plaintext', updated_at = datetime('now') WHERE id = ?",
+  );
+  let migrated = 0;
+  let failed = 0;
+  const transaction = db.transaction(() => {
+    for (const row of rows) {
+      try {
+        // Mixed state: a non-empty plaintext column is authoritative (same rule
+        // as materializeProvider); otherwise decrypt the ciphertext.
+        const plaintext = row.api_key || decryptProviderSecret(row.id, row.api_key_ciphertext);
+        if (!plaintext) throw new Error('provider_secret_empty_after_decrypt');
+        update.run(plaintext, row.id);
+        providerSecretErrors.delete(row.id);
+        migrated += 1;
+      } catch (error) {
+        // Fail closed: keep the ciphertext so the key isn't lost; surface a
+        // non-secret diagnostic code.
+        providerSecretErrors.set(row.id, providerSecretErrorCode(error));
+        failed += 1;
+      }
+    }
+  });
+  transaction();
+  return { migrated, failed };
+}
+
 export interface ProviderSecretStorageDiagnostics {
   available: boolean;
   backend: string;
