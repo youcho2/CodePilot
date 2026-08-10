@@ -40,6 +40,7 @@
 - 2026-08-10：确立主线为 Path B（半自动，不 notarize），Path A 作为需 Apple Developer 账号的可选后续。理由：省成本、与上游现状一致、前端已就绪、macOS 静默更新绕不开 notarize 是苹果硬限制。
 - 2026-08-10：**版本号必须与上游岔开**（见下"版本策略"）。更新检查用 `compareSemver(fork最新Release, 当前app版本)`，且 `build.yml` 有硬门禁 `package.json version == tag version`；若 fork 沿用上游 `0.66.0` 会判"无更新"并与上游 tag 撞车。
 - 2026-08-10：`GITHUB_REPO` 的切换**必须在 fork 已有至少一个 Release 之后**再做（Phase 1 依赖 Phase 0），否则 fork Releases 为空 → 检查恒返回"已是最新"，反而丢掉现在能看到上游更新的能力。
+- 2026-08-10（首个 fork tag CI 失败 → 修复）：`v0.66.0-y.1` 首跑 CI，`verify-source` ✅（版本门禁 OK），但 mac/win/linux build job 全 ❌，`release` skipped。根因是 **"Upload source maps to Sentry" 步在 fork 缺 `SENTRY_AUTH_TOKEN` 时硬失败**（`next build` 本身成功），级联跳过 Package/Release。修复：给 `build.yml` 三处 sourcemap 上传步加 guard——无 `SENTRY_AUTH_TOKEN` 则打印跳过并 `exit 0`（fork 不接上游 Sentry，未来配了 secret 自动启用）。两个 packaged telemetry smoke 步有 `if: workflow_dispatch && telemetry_smoke` 守护，tag push 不触发，无需改。tag y.1 未产出任何 Release，移动 tag 安全。
 - 2026-08-10（Phase 0 部分实施）：核对 `build.yml` —— `gh release create ... --latest`（非 `--prerelease`），故 `0.66.0-y.1` 这种预发布号仍会被标为 latest，`/releases/latest` 能返回；版本门禁 `package.json==tag`，tag 用 `v0.66.0-y.1`；CI 用 node 20（better-sqlite3 编译无 node26 问题）。确认 `compareSemver`（`src/lib/compare-semver.ts`）已正确处理 `-y.N`（`y.2>y.1`、`y.10>y.9` 数字序、`0.66.0-y.1<0.66.0`），无需改实现，新增 5 条锁定测试（`compare-semver.test.ts`，15/15 通过）。已把 `package.json` + `package-lock.json`(2 处) 版本改为 `0.66.0-y.1`，`RELEASE_NOTES.md` 改为 fork 版说明。待用户手动启用 fork Actions 后打 tag 实测 CI。
 
 ## 详细设计

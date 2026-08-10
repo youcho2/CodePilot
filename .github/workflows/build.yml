@@ -188,7 +188,12 @@ jobs:
           SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
           SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
           SENTRY_PROJECT: ${{ secrets.SENTRY_PROJECT }}
-        run: npm run sentry:sourcemaps:upload
+        run: |
+          if [ -z "${SENTRY_AUTH_TOKEN:-}" ]; then
+            echo "SENTRY_AUTH_TOKEN not set (fork build without upstream Sentry) — skipping source-map upload"
+            exit 0
+          fi
+          npm run sentry:sourcemaps:upload
 
       - name: Package macOS (arm64 + x64)
         timeout-minutes: 45
@@ -340,7 +345,12 @@ jobs:
           SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
           SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
           SENTRY_PROJECT: ${{ secrets.SENTRY_PROJECT }}
-        run: npm run sentry:sourcemaps:upload
+        run: |
+          if [ -z "${SENTRY_AUTH_TOKEN:-}" ]; then
+            echo "SENTRY_AUTH_TOKEN not set (fork build without upstream Sentry) — skipping source-map upload"
+            exit 0
+          fi
+          npm run sentry:sourcemaps:upload
 
       - name: Package Windows x64
         timeout-minutes: 35
@@ -421,7 +431,12 @@ jobs:
           SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
           SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
           SENTRY_PROJECT: ${{ secrets.SENTRY_PROJECT }}
-        run: npm run sentry:sourcemaps:upload
+        run: |
+          if [ -z "${SENTRY_AUTH_TOKEN:-}" ]; then
+            echo "SENTRY_AUTH_TOKEN not set (fork build without upstream Sentry) — skipping source-map upload"
+            exit 0
+          fi
+          npm run sentry:sourcemaps:upload
 
       - name: Package Linux ${{ matrix.arch }}
         timeout-minutes: 35
