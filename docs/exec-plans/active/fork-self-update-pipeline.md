@@ -31,7 +31,7 @@
 | Phase | 内容 | 状态 | 备注 |
 |-------|------|------|------|
 | Phase 0 | Fork 发布流水线打通（启用 Actions / 版本号策略 / 首个 Release 实测） | ✅ 已完成 | `v0.66.0-y.1` tag → CI 绿 → Release 已建，`/releases/latest` 正确返回，arm64 DMG/zip 产出 |
-| Phase 1 | 更新检查源指向 fork（改 `GITHUB_REPO`）+ 无 Release 时的降级文案 | 📋 待开始 | 依赖 Phase 0 有 Release 后才切，否则永远"已是最新" |
+| Phase 1 | 更新检查源指向 fork（改 `GITHUB_REPO`）+ 无 Release 时的降级文案 | ✅ 已完成 | `route.ts` `GITHUB_REPO` → `youcho2/CodePilot`；fork 已有 Release，降级用现成 `noUpdatePayload`；UI 跳转链接（AboutSection 等）仍指上游，装饰性，暂不改 |
 | Phase 2 | Path B 半自动：app 内下载 DMG + 进度 + 自动打开/Finder 高亮 | 📋 待开始 | 复用现有 `downloadUpdate()` 接口；需 electron IPC |
 | Phase 3 | （可选）Path A 真·自动更新：重写 `electron/updater.ts` + 公证流水线 | ⏸ 暂缓 | 取决于是否办 Apple Developer 账号 |
 
