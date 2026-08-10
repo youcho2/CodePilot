@@ -100,4 +100,5 @@
 | _示例_ | n/a | GitHub Actions | n/a | GITHUB_TOKEN 自动 | fork tag → Release | ⏳ | 待 Phase 0 |
 | 2026-08-10 | GitHub Actions (macos-15) | GitHub Releases | n/a | GITHUB_TOKEN 自动注入 | push tag `v0.66.0-y.1` → build mac arm64 → 建 Release | ✅ | run 31368329059 全绿；Release `v0.66.0-y.1`（arm64 dmg 160MB + zip）；`/releases/latest` 返回该版本 |
 | 2026-08-10 | GitHub Actions (macos-15) | GitHub Releases | n/a | GITHUB_TOKEN 自动注入 | push tag `v0.66.0-y.2`（含 Phase 1+2）→ build → 建 Release | ✅ | run 31371231801 全绿；Release `v0.66.0-y.2`（arm64 dmg 160MB + zip） |
-| _待跑_ | Electron packaged | GitHub Releases | n/a | n/a | 装 y.2 → 出 y.3 → y.2 检测到更新 → 点「安装更新」→ app 内下载+进度+打开 → 拖入 Applications | ⏳ | **Phase 2 运行时 smoke，待用户在装好的 packaged app 上验收** |
+| 2026-08-10 | Electron packaged (arm64) | n/a | n/a | n/a | 用户装 y.2 packaged app，运行正常 | ✅ | 用户确认「已安装验证了，没有问题」 |
+| _进行中_ | Electron packaged (arm64) | GitHub Releases | n/a | n/a | y.2 检测到 y.3 → 点「安装更新」→ app 内下载+进度+打开 → 拖入 Applications | ⏳ | 已发 y.3 供 y.2 检测；完整 detect→download→open 待用户在 y.2 上点一次验收 |
