@@ -2548,7 +2548,19 @@ app.whenReady().then(async () => {
   // with progress (renderer gets `app-update:progress`), then open it so the
   // user drags CodePilot into /Applications. URL is validated in the updater.
   ipcMain.handle('app-update:download', async (_event, url: string) => {
-    return downloadAndOpenInstaller(url, mainWindow);
+    const result = await downloadAndOpenInstaller(url, mainWindow);
+    if (result.ok) {
+      // The DMG is now open in Finder. A running app bundle can't be replaced
+      // cleanly, so quit to let the user drag the new build over the old one.
+      // `isQuitting` makes the tray-resident window actually exit instead of
+      // hiding. Delay so the DMG finishes mounting and the renderer can show
+      // the "app will quit to finish updating" note first.
+      setTimeout(() => {
+        isQuitting = true;
+        app.quit();
+      }, 3000);
+    }
+    return result;
   });
 
   // Install Git for Windows via winget (called from ConnectionStatus dialog)
