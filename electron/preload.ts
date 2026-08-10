@@ -62,6 +62,18 @@ contextBridge.exposeInMainWorld('electronAPI', {
   proxy: {
     resolve: (url: string) => ipcRenderer.invoke('proxy:resolve', url),
   },
+  // Fork assisted update (Path B): download a release installer with progress
+  // and open it. Separate from `updater` (native Squirrel) on purpose — its
+  // presence must NOT flip the renderer into native-updater mode.
+  appUpdate: {
+    downloadAndOpen: (url: string) =>
+      ipcRenderer.invoke('app-update:download', url) as Promise<{ ok: boolean; path?: string; error?: string }>,
+    onProgress: (callback: (data: { percent: number }) => void) => {
+      const listener = (_event: unknown, data: { percent: number }) => callback(data);
+      ipcRenderer.on('app-update:progress', listener);
+      return () => { ipcRenderer.removeListener('app-update:progress', listener); };
+    },
+  },
   widget: {
     exportPng: (html: string, width: number, isDark: boolean) =>
       ipcRenderer.invoke('widget:export-png', { html, width, isDark }),

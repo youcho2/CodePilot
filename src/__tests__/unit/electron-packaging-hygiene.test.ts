@@ -234,43 +234,31 @@ describe('Electron packaging hygiene', () => {
     assert.match(packagedSmoke, /Packaged source maps are forbidden/);
   });
 
-  it('publishes Linux x64 and arm64 from native runners behind strict release gates', () => {
+  it('publishes macOS arm64 from a native runner behind strict release gates (fork: Apple-Silicon only)', () => {
+    // The fork ships macOS arm64 only — Windows/Linux/x64 targets were dropped
+    // (see docs/exec-plans/active/fork-self-update-pipeline.md). The macOS job
+    // keeps the strict release gates (packaged server boot + native ABI load +
+    // private source maps); this asserts the fork scope and those gates.
     const releaseWorkflow = fs.readFileSync(
       path.join(repoRoot, '.github/workflows/build.yml'),
       'utf8',
     );
-    const builderConfig = fs.readFileSync(
-      path.join(repoRoot, 'electron-builder.yml'),
-      'utf8',
-    );
-    const linuxJob = releaseWorkflow.match(
-      /  build-linux:\n[\s\S]*?(?=\n  release:)/,
+    const macJob = releaseWorkflow.match(
+      /  build-macos:\n[\s\S]*?(?=\n  release:)/,
     )?.[0];
 
-    assert.ok(linuxJob, 'stable workflow must define a Linux build job');
-    assert.match(releaseWorkflow, /options:[\s\S]*?- linux/);
-    assert.match(linuxJob, /fail-fast:\s*false/);
-    assert.match(linuxJob, /arch:\s*x64[\s\S]*?runner:\s*ubuntu-22\.04/);
-    assert.match(linuxJob, /arch:\s*arm64[\s\S]*?runner:\s*ubuntu-22\.04-arm/);
-    assert.match(
-      linuxJob,
-      /electron-builder --linux --\$\{\{ matrix\.arch \}\}/,
-    );
-    assert.match(linuxJob, /Upload Linux source maps to Sentry/);
-    assert.match(linuxJob, /better-sqlite3 OK/);
-    assert.match(linuxJob, /node scripts\/verify-packaged-server\.mjs/);
-    for (const extension of ['AppImage', 'deb', 'rpm']) {
-      assert.match(linuxJob, new RegExp(`release/CodePilot-\\*\\.${extension}`));
-      assert.match(
-        releaseWorkflow,
-        new RegExp(`-name "\\\*\\.${extension}"`),
-      );
-    }
-    assert.match(
-      releaseWorkflow,
-      /needs:\s*\[build-macos, build-windows, build-linux\]/,
-    );
-    assert.match(builderConfig, /linux:[\s\S]*?target:[\s\S]*?- AppImage[\s\S]*?- deb[\s\S]*?- rpm/);
+    assert.ok(macJob, 'stable workflow must define a macOS build job');
+    // Fork scope: no Windows / Linux jobs, no x64 slice.
+    assert.doesNotMatch(releaseWorkflow, /^  build-windows:/m);
+    assert.doesNotMatch(releaseWorkflow, /^  build-linux:/m);
+    assert.match(macJob, /electron-builder --mac --arm64 --config electron-builder\.yml/);
+    assert.doesNotMatch(macJob, /--mac --arm64 --x64/);
+    // Strict gates preserved on the mac path.
+    assert.match(macJob, /Upload macOS source maps to Sentry/);
+    assert.match(macJob, /better-sqlite3 OK/);
+    assert.match(macJob, /node scripts\/verify-packaged-server\.mjs/);
+    assert.match(macJob, /release\/CodePilot-\*\.dmg/);
+    assert.match(releaseWorkflow, /needs:\s*\[build-macos\]/);
   });
 
   it('scans the real Resources tree and app.asar for source maps', async () => {
