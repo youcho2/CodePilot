@@ -30,7 +30,7 @@
 
 | Phase | 内容 | 状态 | 备注 |
 |-------|------|------|------|
-| Phase 0 | Fork 发布流水线打通（启用 Actions / 版本号策略 / 首个 Release 实测） | 📋 待开始 | 需用户在 GitHub 启用 fork Actions |
+| Phase 0 | Fork 发布流水线打通（启用 Actions / 版本号策略 / 首个 Release 实测） | 🔄 进行中 | 部分：已做版本号 `0.66.0-y.1` + `compare-semver` 锁定测试 + fork RELEASE_NOTES + CI 兼容性核对；待用户启用 Actions + 打首个 tag 实测 |
 | Phase 1 | 更新检查源指向 fork（改 `GITHUB_REPO`）+ 无 Release 时的降级文案 | 📋 待开始 | 依赖 Phase 0 有 Release 后才切，否则永远"已是最新" |
 | Phase 2 | Path B 半自动：app 内下载 DMG + 进度 + 自动打开/Finder 高亮 | 📋 待开始 | 复用现有 `downloadUpdate()` 接口；需 electron IPC |
 | Phase 3 | （可选）Path A 真·自动更新：重写 `electron/updater.ts` + 公证流水线 | ⏸ 暂缓 | 取决于是否办 Apple Developer 账号 |
@@ -40,6 +40,7 @@
 - 2026-08-10：确立主线为 Path B（半自动，不 notarize），Path A 作为需 Apple Developer 账号的可选后续。理由：省成本、与上游现状一致、前端已就绪、macOS 静默更新绕不开 notarize 是苹果硬限制。
 - 2026-08-10：**版本号必须与上游岔开**（见下"版本策略"）。更新检查用 `compareSemver(fork最新Release, 当前app版本)`，且 `build.yml` 有硬门禁 `package.json version == tag version`；若 fork 沿用上游 `0.66.0` 会判"无更新"并与上游 tag 撞车。
 - 2026-08-10：`GITHUB_REPO` 的切换**必须在 fork 已有至少一个 Release 之后**再做（Phase 1 依赖 Phase 0），否则 fork Releases 为空 → 检查恒返回"已是最新"，反而丢掉现在能看到上游更新的能力。
+- 2026-08-10（Phase 0 部分实施）：核对 `build.yml` —— `gh release create ... --latest`（非 `--prerelease`），故 `0.66.0-y.1` 这种预发布号仍会被标为 latest，`/releases/latest` 能返回；版本门禁 `package.json==tag`，tag 用 `v0.66.0-y.1`；CI 用 node 20（better-sqlite3 编译无 node26 问题）。确认 `compareSemver`（`src/lib/compare-semver.ts`）已正确处理 `-y.N`（`y.2>y.1`、`y.10>y.9` 数字序、`0.66.0-y.1<0.66.0`），无需改实现，新增 5 条锁定测试（`compare-semver.test.ts`，15/15 通过）。已把 `package.json` + `package-lock.json`(2 处) 版本改为 `0.66.0-y.1`，`RELEASE_NOTES.md` 改为 fork 版说明。待用户手动启用 fork Actions 后打 tag 实测 CI。
 
 ## 详细设计
 
