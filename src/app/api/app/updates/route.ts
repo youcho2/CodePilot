@@ -3,7 +3,10 @@ import { getRuntimeArchitectureInfo } from "@/lib/platform";
 import { selectRecommendedReleaseAsset, type ReleaseAsset } from "@/lib/update-release";
 import { compareSemver } from "@/lib/compare-semver";
 
-const GITHUB_REPO = "op7418/CodePilot";
+// Fork release source: the update check reads THIS fork's GitHub Releases
+// (fork ships an independent `-y.N` version line, macOS arm64 only). Upstream
+// remains op7418/CodePilot. See docs/exec-plans/active/fork-self-update-pipeline.md.
+const GITHUB_REPO = "youcho2/CodePilot";
 
 function noUpdatePayload(currentVersion: string, runtimeInfo: ReturnType<typeof getRuntimeArchitectureInfo>) {
   return {
