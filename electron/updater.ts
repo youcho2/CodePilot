@@ -13,9 +13,8 @@
 // =============================================================================
 
 import type { BrowserWindow } from 'electron';
-import { shell, app } from 'electron';
+import { shell, app, net } from 'electron';
 import { createWriteStream, promises as fsp } from 'node:fs';
-import { get as httpsGet } from 'node:https';
 import { join } from 'node:path';
 import { basename } from 'node:path';
 
@@ -58,51 +57,55 @@ function isSafeInstallerUrl(raw: string): boolean {
 }
 
 /**
- * Stream a URL to `dest`, following GitHub's redirects, reporting byte progress.
- * Rejects on non-2xx (after redirects) or an unresolved redirect chain.
+ * Stream a URL to `dest` via Electron's `net` (Chromium network stack), which
+ * routes through the default session's resolved proxy — the system proxy
+ * (Clash / VPN / PAC). Node's `https` ignores that, so a direct GitHub
+ * connection was the likely cause of very slow downloads. Follows GitHub's
+ * redirects (validated against the host allowlist) and reports byte progress.
  */
 function downloadWithProgress(
   url: string,
   dest: string,
   onProgress: (received: number, total: number | null) => void,
-  redirectsLeft = 5,
 ): Promise<void> {
   return new Promise((resolve, reject) => {
-    if (redirectsLeft < 0) {
-      reject(new Error('too many redirects'));
-      return;
-    }
-    const req = httpsGet(url, { headers: { 'User-Agent': 'CodePilot-Updater' } }, (res) => {
-      const status = res.statusCode ?? 0;
-      // Follow redirects (GitHub → githubusercontent CDN).
-      if (status >= 300 && status < 400 && res.headers.location) {
-        res.resume(); // drain
-        const next = new URL(res.headers.location, url).toString();
-        if (!isSafeInstallerUrl(next) && !isAllowedHost(new URL(next).hostname)) {
-          reject(new Error('redirect to a disallowed host'));
-          return;
-        }
-        downloadWithProgress(next, dest, onProgress, redirectsLeft - 1).then(resolve, reject);
+    const request = net.request({ url, redirect: 'manual' });
+    request.setHeader('User-Agent', 'CodePilot-Updater');
+
+    request.on('redirect', (_status: number, _method: string, redirectUrl: string) => {
+      let host = '';
+      try { host = new URL(redirectUrl).hostname; } catch { /* invalid URL */ }
+      if (!host || !isAllowedHost(host)) {
+        request.abort();
+        reject(new Error('redirect to a disallowed host'));
         return;
       }
+      request.followRedirect();
+    });
+
+    request.on('response', (response) => {
+      const status = response.statusCode;
       if (status < 200 || status >= 300) {
-        res.resume();
         reject(new Error(`download failed: HTTP ${status}`));
         return;
       }
-      const total = res.headers['content-length'] ? Number(res.headers['content-length']) : null;
+      const cl = response.headers['content-length'];
+      const rawLen = Array.isArray(cl) ? cl[0] : cl;
+      const total = rawLen ? Number(rawLen) : null;
       let received = 0;
       const file = createWriteStream(dest);
-      res.on('data', (chunk: Buffer) => {
+      file.on('error', reject);
+      response.on('data', (chunk: Buffer) => {
         received += chunk.length;
+        file.write(chunk);
         onProgress(received, total);
       });
-      res.pipe(file);
-      file.on('finish', () => file.close((err) => (err ? reject(err) : resolve())));
-      file.on('error', reject);
-      res.on('error', reject);
+      response.on('end', () => file.end(() => resolve()));
+      response.on('error', reject);
     });
-    req.on('error', reject);
+
+    request.on('error', reject);
+    request.end();
   });
 }
 
