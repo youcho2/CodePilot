@@ -85,7 +85,11 @@ import {
   isTrustedCodexRecoverySender,
   selectCodexWindowsInstallCommand,
 } from './codex-windows-recovery';
-import { initializeProviderSecretEnvironment } from './provider-secret-key';
+import {
+  initializeProviderSecretEnvironment,
+  readProviderEncryptionEnabled,
+  writeProviderEncryptionEnabled,
+} from './provider-secret-key';
 import { sanitizeLogLine } from './log-sanitize';
 import { downloadAndOpenInstaller } from './updater';
 import {
@@ -1677,7 +1681,15 @@ app.whenReady().then(async () => {
     macosSecurityShimDir,
   );
 
-  if (macosKeychainProbe.status === 'unavailable') {
+  // Fork: Provider-secret encryption is a user toggle (default off on fresh
+  // installs) so ad-hoc-signed builds don't re-prompt for keychain access on
+  // every update. When off, we never touch safeStorage → secrets stored
+  // plaintext. See docs/exec-plans/active/provider-secret-encryption-toggle.md.
+  const providerEncryptionEnabled = readProviderEncryptionEnabled(app.getPath('userData'));
+  if (!providerEncryptionEnabled) {
+    providerSecretEnvironment = {};
+    console.log('[provider-secret] encryption disabled by setting — secrets stored plaintext; keychain not touched');
+  } else if (macosKeychainProbe.status === 'unavailable') {
     providerSecretEnvironment = {};
     console.warn(
       `[macos-keychain] default keychain unavailable; noninteractive guard enabled; reason=${macosKeychainProbe.reason}`,
@@ -2184,6 +2196,17 @@ app.whenReady().then(async () => {
       }, 3000);
     }
     return result;
+  });
+
+  // Provider-secret encryption mode (fork toggle). The renderer runs the DB
+  // migration via /api/settings/provider-encryption first; main only persists
+  // the userData flag that gates safeStorage at the next boot.
+  ipcMain.handle('provider-encryption:get', () => {
+    return { enabled: readProviderEncryptionEnabled(app.getPath('userData')) };
+  });
+  ipcMain.handle('provider-encryption:set', (_event, enabled: boolean) => {
+    writeProviderEncryptionEnabled(app.getPath('userData'), enabled === true);
+    return { ok: true, enabled: enabled === true };
   });
 
   // Install Git for Windows via winget (called from ConnectionStatus dialog)

@@ -148,6 +148,9 @@ const zh: Record<TranslationKey, string> = {
   'settings.errorReportingDesc': '匿名上报经脱敏的错误，并为版本健康和无崩溃率记录一次应用进程会话；不追踪功能使用，也不识别用户，且不包含对话内容或 API Key。更改后需重启应用才能完全生效。',
   'settings.generativeUITitle': '生成式 UI',
   'settings.generativeUIDesc': '启用聊天中的交互式可视化功能（图表、流程图、原型图等）。关闭后可节省 token，但将无法生成可视化内容。',
+  'settings.providerEncryptionTitle': '本地加密 Provider 密钥',
+  'settings.providerEncryptionDesc': '开启：用系统钥匙串加密 API Key（本构建未 notarize，每次更新后 macOS 可能重新要求授权钥匙串）。关闭：API Key 以明文存于本地数据库，且不再弹出钥匙串授权。',
+  'settings.providerEncryptionRestart': '重启应用后生效。',
   'settings.defaultPanelTitle': '默认侧边面板',
   'settings.defaultPanelDesc': '打开新对话时自动展开的侧边面板',
   // 网络代理

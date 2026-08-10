@@ -14,6 +14,44 @@ interface WrappedProviderSecretKey {
   createdAt: string;
 }
 
+const ENCRYPTION_MODE_FILE = 'provider-encryption.json';
+const PROVIDER_KEY_FILE = 'provider-secret-key.v1.json';
+
+/**
+ * Whether Provider secrets are stored OS-encrypted (safeStorage/keychain) or
+ * plaintext. Read by the Electron main process at boot to decide whether to
+ * touch the keychain at all.
+ *
+ * Default when no explicit choice exists yet:
+ *   - a prior encrypting install (the wrapped-key file exists) → `true`, so we
+ *     never strand already-encrypted keys (grandfather);
+ *   - a fresh install → `false` (fork default: no keychain prompt, plaintext).
+ */
+export function readProviderEncryptionEnabled(userDataDir: string): boolean {
+  const flagPath = path.join(userDataDir, ENCRYPTION_MODE_FILE);
+  try {
+    if (fs.existsSync(flagPath)) {
+      const parsed = JSON.parse(fs.readFileSync(flagPath, 'utf8')) as { enabled?: unknown };
+      return parsed.enabled === true;
+    }
+  } catch {
+    // Unreadable/corrupt flag → fall through to the default heuristic.
+  }
+  return fs.existsSync(path.join(userDataDir, PROVIDER_KEY_FILE));
+}
+
+/** Persist the encryption mode choice (written by main via IPC from Settings). */
+export function writeProviderEncryptionEnabled(userDataDir: string, enabled: boolean): void {
+  fs.mkdirSync(userDataDir, { recursive: true });
+  const flagPath = path.join(userDataDir, ENCRYPTION_MODE_FILE);
+  const tempPath = `${flagPath}.${process.pid}.tmp`;
+  fs.writeFileSync(tempPath, JSON.stringify({ enabled, updatedAt: new Date().toISOString() }), {
+    encoding: 'utf8',
+    mode: 0o600,
+  });
+  fs.renameSync(tempPath, flagPath);
+}
+
 function storageBackend(): { backend: string; level: 'system_protected' | 'degraded' } {
   if (process.platform === 'win32') return { backend: 'windows_dpapi', level: 'system_protected' };
   if (process.platform === 'darwin') return { backend: 'macos_keychain', level: 'system_protected' };

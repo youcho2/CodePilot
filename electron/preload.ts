@@ -74,6 +74,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
       return () => { ipcRenderer.removeListener('app-update:progress', listener); };
     },
   },
+  // Fork: Provider-secret encryption on/off (gates safeStorage/keychain at boot).
+  providerEncryption: {
+    get: () => ipcRenderer.invoke('provider-encryption:get') as Promise<{ enabled: boolean }>,
+    set: (enabled: boolean) =>
+      ipcRenderer.invoke('provider-encryption:set', enabled) as Promise<{ ok: boolean; enabled: boolean }>,
+  },
   widget: {
     exportPng: (html: string, width: number, isDark: boolean) =>
       ipcRenderer.invoke('widget:export-png', { html, width, isDark }),
