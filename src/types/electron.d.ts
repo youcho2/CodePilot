@@ -61,6 +61,16 @@ interface ElectronAppUpdateAPI {
   onProgress: (callback: (data: { percent: number }) => void) => () => void;
 }
 
+/**
+ * Fork: Provider-secret encryption on/off. The persisted flag (in Electron
+ * userData) gates whether the main process touches safeStorage/keychain at
+ * boot. Default off on fresh installs so ad-hoc builds don't re-prompt.
+ */
+interface ElectronProviderEncryptionAPI {
+  get: () => Promise<{ enabled: boolean }>;
+  set: (enabled: boolean) => Promise<{ ok: boolean; enabled: boolean }>;
+}
+
 interface ElectronTerminalAPI {
   create: (opts: { id: string; cwd: string; cols: number; rows: number }) => Promise<void>;
   write: (id: string, data: string) => void;
@@ -142,6 +152,7 @@ interface ElectronAPI {
   install: ElectronInstallAPI;
   updater?: ElectronUpdaterAPI;
   appUpdate?: ElectronAppUpdateAPI;
+  providerEncryption?: ElectronProviderEncryptionAPI;
   bridge?: {
     isActive: () => Promise<boolean>;
   };

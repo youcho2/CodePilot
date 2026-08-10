@@ -5,6 +5,7 @@ import { describe, it } from 'node:test';
 import {
   createProvider,
   deleteProvider,
+  disableProviderSecretEncryption,
   getDb,
   getProvider,
   getProviderSecretStorageDiagnostics,
@@ -41,6 +42,42 @@ describe('provider secret storage', () => {
         'SELECT api_key_ciphertext FROM api_providers WHERE id = ?',
       ).get(provider.id) as { api_key_ciphertext: string };
       assert.equal(after.api_key_ciphertext, priorCiphertext);
+    } finally {
+      deleteProvider(provider.id);
+    }
+  });
+
+  it('disableProviderSecretEncryption decrypts ciphertext back to plaintext, idempotently', () => {
+    const plaintext = 'sk-禁用加密-value';
+    const provider = createProvider({
+      name: `disable-enc-${Date.now()}`,
+      provider_type: 'custom',
+      base_url: 'https://example.invalid',
+      api_key: plaintext,
+    });
+    try {
+      // Precondition: stored as ciphertext.
+      const before = getDb().prepare(
+        'SELECT api_key, api_key_ciphertext, api_key_storage FROM api_providers WHERE id = ?',
+      ).get(provider.id) as { api_key: string; api_key_ciphertext: string; api_key_storage: string };
+      assert.equal(before.api_key, '');
+      assert.match(before.api_key_ciphertext, /^cpsec:v1:/);
+
+      const result = disableProviderSecretEncryption(getDb());
+      assert.equal(result.failed, 0);
+      assert.ok(result.migrated >= 1);
+
+      // Now plaintext, ciphertext cleared, storage marked legacy.
+      const after = getDb().prepare(
+        'SELECT api_key, api_key_ciphertext, api_key_storage FROM api_providers WHERE id = ?',
+      ).get(provider.id) as { api_key: string; api_key_ciphertext: string; api_key_storage: string };
+      assert.equal(after.api_key, plaintext);
+      assert.equal(after.api_key_ciphertext, '');
+      assert.equal(after.api_key_storage, 'legacy_plaintext');
+      // Still readable through the normal API.
+      assert.equal(getProvider(provider.id)?.api_key, plaintext);
+      // Idempotent: nothing left to migrate.
+      assert.deepEqual(disableProviderSecretEncryption(getDb()), { migrated: 0, failed: 0 });
     } finally {
       deleteProvider(provider.id);
     }

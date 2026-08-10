@@ -214,6 +214,9 @@ export function GeneralSection() {
         {/* Error Reporting — last row, before the warning dialog */}
         <SentryToggle locale={locale} t={t} />
 
+        {/* Provider-secret encryption (Electron only; fork default off) */}
+        <ProviderEncryptionToggle t={t} />
+
       </SettingsCard>
 
       {/* Network proxy card */}
@@ -266,6 +269,71 @@ const getSentryEnabled = () => {
   try { return localStorage.getItem('codepilot:sentry-disabled') !== 'true'; } catch { return true; }
 };
 const getSentryEnabledServer = () => true; // SSR default
+
+/* ── Provider-secret encryption toggle (Electron only, isolated state) ── */
+
+function ProviderEncryptionToggle({ t }: { t: (key: TranslationKey) => string }) {
+  const [available, setAvailable] = useState(false);
+  const [enabled, setEnabled] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [needsRestart, setNeedsRestart] = useState(false);
+
+  useEffect(() => {
+    const api = typeof window !== "undefined" ? window.electronAPI?.providerEncryption : undefined;
+    if (!api) return;
+    setAvailable(true);
+    api.get().then((r) => setEnabled(r.enabled)).catch(() => { /* ignore */ });
+  }, []);
+
+  const onToggle = useCallback(async (next: boolean) => {
+    const api = window.electronAPI?.providerEncryption;
+    if (!api) return;
+    setSaving(true);
+    try {
+      if (!next) {
+        // Disable: decrypt existing keys → plaintext first (needs the key still
+        // loaded this session), then persist the flag. 409 = no key this session
+        // (already plaintext), so nothing to migrate — flipping the flag is fine.
+        const res = await fetch("/api/settings/provider-encryption", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ enabled: false }),
+        });
+        if (!res.ok && res.status !== 409) return;
+        await api.set(false);
+        setEnabled(false);
+        setNeedsRestart(true);
+      } else {
+        // Enable: persist the flag; encryption is applied at the next boot.
+        await api.set(true);
+        setEnabled(true);
+        setNeedsRestart(true);
+      }
+    } catch {
+      // ignore
+    } finally {
+      setSaving(false);
+    }
+  }, []);
+
+  if (!available) return null;
+  return (
+    <>
+      <FieldRow
+        label={t('settings.providerEncryptionTitle')}
+        description={t('settings.providerEncryptionDesc')}
+        separator
+      >
+        <Switch checked={enabled} onCheckedChange={onToggle} disabled={saving} />
+      </FieldRow>
+      {needsRestart && (
+        <StatusBanner variant="warning">
+          {t('settings.providerEncryptionRestart')}
+        </StatusBanner>
+      )}
+    </>
+  );
+}
 
 /* ── Network proxy (SDK / Codex subprocess + native/OAuth/discovery) ── */
 
