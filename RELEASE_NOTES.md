@@ -1,49 +1,18 @@
-## CodePilot v0.67.1
+## CodePilot v0.66.0-y.1（Fork 版）
 
-> 修复 GLM-5.3 在模型管理中显示“已添加”却无法看到或选择的问题，推荐使用智谱 CodePlan 的用户升级。
+> 基于上游 CodePilot v0.66.0 的个人 fork 构建，在上游全部能力之上叠加了以下 fork 自有改动。首个自更新流水线验证版本。
 
-### 修复问题
+### Fork 自有改动
 
-- **修复 GLM-5.3 未出现在模型列表** — 打开模型管理后，旧版 GLM-5.2 目录会安全更新为当前 GLM-5.3、GLM-5-Turbo 与 GLM-4.7，不再出现候选显示“已添加”但列表仍停留在旧模型的情况。
-- **修复隐藏模型无法恢复** — 已隐藏的 GLM 模型会明确显示“已添加（已隐藏）”，可以直接重新启用。
-- **修复删除后重新添加丢失模型能力** — 从官方目录重新添加 GLM-5.3 时，会保留正确的实际请求模型、推理档位和上下文能力。
-- **修复并发加载模型目录偶发失败** — 多个窗口或进程同时首次打开模型管理时，不再因重复写入导致请求失败。
+- **应用内网络代理** — 设置 → 通用里可直接配置出站网络代理，应用到所有出站路径（native / OAuth / model-discovery），并 honor NO_PROXY 保护本机回环流量；无需依赖登录 shell 或系统代理。
+- **Claude Code CLI 登录作为 Provider** — 在 SDK Runtime 下正确识别并复用 Claude Code CLI 的登录态作为一个 Provider。
+- **默认面板与已完成工具默认折叠** — 聊天界面默认保持面板与已完成工具的折叠态，减少视觉噪音。
 
-### 优化改进
+### 说明
 
-- 添加模型现在会同时识别 CodePilot 中的稳定模型 ID 和服务商实际模型 ID，避免同一个 GLM 模型重复出现。
-- 模型搜索支持按 `glm-5.3[1m]` 等服务商实际模型 ID 查找。
-- 目录同步只更新 CodePilot 管理且未被用户修改的模型；手动模型、用户编辑和隐藏状态不会被静默覆盖。
+- 本版本用于验证 fork 自身的发布与更新流水线（检查更新指向本 fork 的 Releases）。
+- macOS 构建为 ad-hoc 签名、未 notarize：首次打开若提示"已损坏 / 无法验证开发者"，请右键 →「打开」，或执行 `xattr -dr com.apple.quarantine /Applications/CodePilot.app`。
 
-## 下载地址
+### 上游基线
 
-### macOS
-- [Apple Silicon (M1/M2/M3/M4)](https://github.com/op7418/CodePilot/releases/download/v0.67.1/CodePilot-0.67.1-arm64.dmg)
-- [Intel](https://github.com/op7418/CodePilot/releases/download/v0.67.1/CodePilot-0.67.1-x64.dmg)
-
-### Windows
-- [Windows 安装包](https://github.com/op7418/CodePilot/releases/download/v0.67.1/CodePilot.Setup.0.67.1.exe)
-
-### Linux x64
-- [AppImage](https://github.com/op7418/CodePilot/releases/download/v0.67.1/CodePilot-0.67.1-x86_64.AppImage)
-- [deb](https://github.com/op7418/CodePilot/releases/download/v0.67.1/CodePilot-0.67.1-amd64.deb)
-- [rpm](https://github.com/op7418/CodePilot/releases/download/v0.67.1/CodePilot-0.67.1-x86_64.rpm)
-
-### Linux arm64
-- [AppImage](https://github.com/op7418/CodePilot/releases/download/v0.67.1/CodePilot-0.67.1-arm64.AppImage)
-- [deb](https://github.com/op7418/CodePilot/releases/download/v0.67.1/CodePilot-0.67.1-arm64.deb)
-- [rpm](https://github.com/op7418/CodePilot/releases/download/v0.67.1/CodePilot-0.67.1-aarch64.rpm)
-
-## 安装说明
-
-**macOS**：下载 DMG → 拖入 Applications → 首次启动如遇安全提示，在系统设置 > 隐私与安全中点击“仍要打开”
-
-**Windows**：下载 exe 安装包 → 双击安装
-
-**Linux**：AppImage 添加可执行权限后直接运行；Debian/Ubuntu 安装 deb；Fedora/RHEL 系安装 rpm
-
-## 系统要求
-
-- macOS 12.0+ / Windows 10+ / Linux (glibc 2.35+)
-- 需要配置 API 服务商或受支持的套餐凭据
-- 推荐安装 Claude Code CLI 以获得完整功能
+完整的上游 v0.66.0 更新内容（Windows 稳定性、Provider 密钥加密、搜索回退、Sentry 遥测等）见上游仓库 op7418/CodePilot 的 v0.66.0 Release。

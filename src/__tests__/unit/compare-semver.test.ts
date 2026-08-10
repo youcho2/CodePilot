@@ -66,6 +66,36 @@ describe('compareSemver — stable outranks same-version prerelease (update chec
   });
 });
 
+describe('compareSemver — fork `-y.N` version line (fork-self-update-pipeline)', () => {
+  // The fork ships an independent version line `MAJOR.MINOR.PATCH-y.N` (see
+  // docs/exec-plans/active/fork-self-update-pipeline.md) so the update check
+  // never confuses a fork build with the same-numbered upstream stable. These
+  // lock the comparisons the fork's release pipeline depends on.
+  it('a later fork build is an update over an earlier one', () => {
+    assert.equal(compareSemver('0.66.0-y.2', '0.66.0-y.1'), 1);
+    assert.equal(updateAvailable('0.66.0-y.2', '0.66.0-y.1'), true);
+  });
+
+  it('a fork patch bump is an update', () => {
+    assert.equal(updateAvailable('0.66.1-y.1', '0.66.0-y.1'), true);
+  });
+
+  it('the same fork version is NOT an update', () => {
+    assert.equal(compareSemver('0.66.0-y.1', '0.66.0-y.1'), 0);
+    assert.equal(updateAvailable('0.66.0-y.1', '0.66.0-y.1'), false);
+  });
+
+  it('fork identifiers order numerically, not lexically: y.10 > y.9', () => {
+    assert.equal(compareSemver('0.66.0-y.10', '0.66.0-y.9'), 1);
+    assert.equal(updateAvailable('0.66.0-y.10', '0.66.0-y.9'), true);
+  });
+
+  it('a fork prerelease ranks below the same-numbered upstream stable (why the fork must bump its own line)', () => {
+    assert.equal(compareSemver('0.66.0-y.1', '0.66.0'), -1);
+    assert.equal(updateAvailable('0.66.0', '0.66.0-y.1'), true);
+  });
+});
+
 describe('updates route source — uses the shared comparator, not a re-inlined one', () => {
   const src = readFileSync(
     path.resolve(__dirname, '../../app/api/app/updates/route.ts'),
