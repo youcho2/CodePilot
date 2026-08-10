@@ -2,7 +2,7 @@
 
 > 创建时间：2026-08-10
 > 最后更新：2026-08-10
-> 总状态：📋 待开始（Phase 0 先行）— 方向倾向 Path B（半自动，不 notarize），Path A（真·静默自动更新）作为可选后续，取决于是否办 Apple Developer 账号。
+> 总状态：🔄 Phase 0 ✅ 已完成（fork 发布流水线端到端跑通，首个 Release `v0.66.0-y.1` 已产出 arm64 DMG）；Phase 1/2 待开始 — 方向 Path B（半自动，不 notarize），Path A 作为需 Apple Developer 账号的可选后续。fork 只出 macOS arm64。
 
 ## 背景与上下文（务必先读）
 
@@ -30,7 +30,7 @@
 
 | Phase | 内容 | 状态 | 备注 |
 |-------|------|------|------|
-| Phase 0 | Fork 发布流水线打通（启用 Actions / 版本号策略 / 首个 Release 实测） | 🔄 进行中 | 部分：已做版本号 `0.66.0-y.1` + `compare-semver` 锁定测试 + fork RELEASE_NOTES + CI 兼容性核对；待用户启用 Actions + 打首个 tag 实测 |
+| Phase 0 | Fork 发布流水线打通（启用 Actions / 版本号策略 / 首个 Release 实测） | ✅ 已完成 | `v0.66.0-y.1` tag → CI 绿 → Release 已建，`/releases/latest` 正确返回，arm64 DMG/zip 产出 |
 | Phase 1 | 更新检查源指向 fork（改 `GITHUB_REPO`）+ 无 Release 时的降级文案 | 📋 待开始 | 依赖 Phase 0 有 Release 后才切，否则永远"已是最新" |
 | Phase 2 | Path B 半自动：app 内下载 DMG + 进度 + 自动打开/Finder 高亮 | 📋 待开始 | 复用现有 `downloadUpdate()` 接口；需 electron IPC |
 | Phase 3 | （可选）Path A 真·自动更新：重写 `electron/updater.ts` + 公证流水线 | ⏸ 暂缓 | 取决于是否办 Apple Developer 账号 |
@@ -41,6 +41,7 @@
 - 2026-08-10：**版本号必须与上游岔开**（见下"版本策略"）。更新检查用 `compareSemver(fork最新Release, 当前app版本)`，且 `build.yml` 有硬门禁 `package.json version == tag version`；若 fork 沿用上游 `0.66.0` 会判"无更新"并与上游 tag 撞车。
 - 2026-08-10：`GITHUB_REPO` 的切换**必须在 fork 已有至少一个 Release 之后**再做（Phase 1 依赖 Phase 0），否则 fork Releases 为空 → 检查恒返回"已是最新"，反而丢掉现在能看到上游更新的能力。
 - 2026-08-10（首个 fork tag CI 失败 → 修复）：`v0.66.0-y.1` 首跑 CI，`verify-source` ✅（版本门禁 OK），但 mac/win/linux build job 全 ❌，`release` skipped。根因是 **"Upload source maps to Sentry" 步在 fork 缺 `SENTRY_AUTH_TOKEN` 时硬失败**（`next build` 本身成功），级联跳过 Package/Release。修复：给 `build.yml` 三处 sourcemap 上传步加 guard——无 `SENTRY_AUTH_TOKEN` 则打印跳过并 `exit 0`（fork 不接上游 Sentry，未来配了 secret 自动启用）。两个 packaged telemetry smoke 步有 `if: workflow_dispatch && telemetry_smoke` 守护，tag push 不触发，无需改。tag y.1 未产出任何 Release，移动 tag 安全。
+- 2026-08-10（Phase 0 ✅ 完成）：mac-only run 全绿（verify-source/build-macos/release 均 success），Release `CodePilot v0.66.0-y.1` 建成（`prerelease=false, draft=false`），资产 `CodePilot-0.66.0-y.1-arm64.dmg`(160MB) + `.zip` + `SHA256SUMS.txt`。实测 `/releases/latest` 正确返回该版本 —— 证明 `--latest` + `-y.N` 版本线对 app 更新检查（`/releases/latest` + `compareSemver`）成立，Phase 1 前提就绪。中途踩坑两处已修（Sentry sourcemap guard + Windows PowerShell shell）后因用户决定 mac-only 而整体简化。旧遗留全平台 run 由用户取消，无冲突 Release。
 - 2026-08-10（用户决定：只支持 macOS arm64）：Windows source-map 步用 PowerShell 再次失败后，用户决定 fork 只出 macOS Apple-Silicon 包。重构 `build.yml`：删掉 `build-windows` / `build-linux` 两个 job，`build-macos` 改 `--mac --arm64`（去掉 x64）、verify 步 arch 循环只留 arm64，`release` 的 `needs` 只留 `[build-macos]`，头部注释与 `workflow_dispatch` 选项同步收窄。js-yaml 校验通过（jobs: verify-source/build-macos/release）。产物只有 `CodePilot-<ver>-arm64.dmg` + zip。
 - 2026-08-10（第二轮 CI：mac/linux ✅，Windows 仍 ❌ → 修复）：guard 用 bash 语法（`[ -z ]`/`exit 0`），但 **Windows runner 默认 shell 是 PowerShell**，解析失败；mac/linux 默认 bash 所以过了。修复：三处 sourcemap 上传步显式加 `shell: bash`。
 - 2026-08-10（Phase 0 部分实施）：核对 `build.yml` —— `gh release create ... --latest`（非 `--prerelease`），故 `0.66.0-y.1` 这种预发布号仍会被标为 latest，`/releases/latest` 能返回；版本门禁 `package.json==tag`，tag 用 `v0.66.0-y.1`；CI 用 node 20（better-sqlite3 编译无 node26 问题）。确认 `compareSemver`（`src/lib/compare-semver.ts`）已正确处理 `-y.N`（`y.2>y.1`、`y.10>y.9` 数字序、`0.66.0-y.1<0.66.0`），无需改实现，新增 5 条锁定测试（`compare-semver.test.ts`，15/15 通过）。已把 `package.json` + `package-lock.json`(2 处) 版本改为 `0.66.0-y.1`，`RELEASE_NOTES.md` 改为 fork 版说明。待用户手动启用 fork Actions 后打 tag 实测 CI。
@@ -96,3 +97,4 @@
 | Date | Runtime | Provider | Model | 凭据形态 | 场景 | Result | Evidence |
 |------|---------|----------|-------|---------|------|--------|----------|
 | _示例_ | n/a | GitHub Actions | n/a | GITHUB_TOKEN 自动 | fork tag → Release | ⏳ | 待 Phase 0 |
+| 2026-08-10 | GitHub Actions (macos-15) | GitHub Releases | n/a | GITHUB_TOKEN 自动注入 | push tag `v0.66.0-y.1` → build mac arm64 → 建 Release | ✅ | run 31368329059 全绿；Release `v0.66.0-y.1`（arm64 dmg 160MB + zip）；`/releases/latest` 返回该版本 |
