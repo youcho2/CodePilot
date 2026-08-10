@@ -92,6 +92,19 @@ export function useUpdateChecker(): UpdateContextValue {
     return cleanup;
   }, [isNativeUpdater]);
 
+  // --- Assisted-download progress (Path B, Electron non-native) ---
+  // The fork's `appUpdate` bridge streams the release DMG and reports percent.
+  // This does NOT enable native-updater mode (isNativeUpdater stays false).
+  useEffect(() => {
+    if (isNativeUpdater) return;
+    const appUpdate = typeof window !== "undefined" ? window.electronAPI?.appUpdate : undefined;
+    if (!appUpdate) return;
+    const cleanup = appUpdate.onProgress(({ percent }) => {
+      setUpdateInfo((prev) => (prev ? { ...prev, downloadProgress: percent, lastError: null } : prev));
+    });
+    return cleanup;
+  }, [isNativeUpdater]);
+
   // --- Browser-mode update check (fallback for non-Electron) ---
   const checkForUpdatesBrowser = useCallback(async () => {
     setChecking(true);
@@ -159,8 +172,33 @@ export function useUpdateChecker(): UpdateContextValue {
   const downloadUpdate = useCallback(async () => {
     if (isNativeUpdater) {
       await window.electronAPI!.updater!.downloadUpdate();
+      return;
     }
-  }, [isNativeUpdater]);
+    // Path B: assisted in-app download + open (Electron); the DMG opens in
+    // Finder for a drag-install. `readyToInstall` here means "installer opened".
+    const appUpdate = typeof window !== "undefined" ? window.electronAPI?.appUpdate : undefined;
+    const url = updateInfo?.downloadUrl;
+    if (appUpdate && url) {
+      setUpdateInfo((prev) => (prev ? { ...prev, downloadProgress: 0, readyToInstall: false, lastError: null } : prev));
+      try {
+        const res = await appUpdate.downloadAndOpen(url);
+        setUpdateInfo((prev) =>
+          prev
+            ? res.ok
+              ? { ...prev, downloadProgress: 100, readyToInstall: true, lastError: null }
+              : { ...prev, downloadProgress: null, lastError: res.error ?? "download failed" }
+            : prev,
+        );
+      } catch (e) {
+        setUpdateInfo((prev) =>
+          prev ? { ...prev, downloadProgress: null, lastError: e instanceof Error ? e.message : String(e) } : prev,
+        );
+      }
+      return;
+    }
+    // Last resort (no Electron bridge): open the download in the browser.
+    if (url) window.open(url, "_blank");
+  }, [isNativeUpdater, updateInfo?.downloadUrl]);
 
   const quitAndInstall = useCallback(() => {
     if (isNativeUpdater) {
