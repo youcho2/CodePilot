@@ -278,7 +278,9 @@ export function ChatListPanel({ open, hasUpdate, readyToInstall }: ChatListPanel
   }, [fetchSessions]);
 
   const handleDeleteSession = async (sessionId: string) => {
-    if (!confirm("Delete this conversation?")) return;
+    // "Delete" archives the session (soft delete): the API DELETE handler flips
+    // status='archived' and getAllSessions hides it. Data stays in SQLite.
+    if (!confirm(t('chatList.archiveConfirm' as TranslationKey))) return;
     setDeletingSession(sessionId);
     try {
       const res = await fetch(`/api/chat/sessions/${sessionId}`, {
