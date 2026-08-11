@@ -724,6 +724,10 @@ const en = {
   'update.getRecommendedBuild': 'Get Recommended Build',
   'update.installerOpened': 'Installer opened — CodePilot will quit so you can drag the new build into the Applications folder. If macOS says the app "is damaged", right-click it and choose Open.',
   'update.reopenInstaller': 'Reopen Installer',
+  'update.paused': 'Paused',
+  'update.pause': 'Pause',
+  'update.resume': 'Resume',
+  'update.cancelDownload': 'Cancel',
 
   // ── Image Generation ──────────────────────────────────────
   'imageGen.toggle': 'Image Generation',

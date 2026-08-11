@@ -91,7 +91,12 @@ import {
   writeProviderEncryptionEnabled,
 } from './provider-secret-key';
 import { sanitizeLogLine } from './log-sanitize';
-import { downloadAndOpenInstaller } from './updater';
+import {
+  downloadAndOpenInstaller,
+  pauseInstallerDownload,
+  resumeInstallerDownload,
+  cancelInstallerDownload,
+} from './updater';
 import {
   buildMacosKeychainEnvironment,
   getMacosDefaultKeychainProbe,
@@ -2197,6 +2202,9 @@ app.whenReady().then(async () => {
     }
     return result;
   });
+  ipcMain.handle('app-update:pause', () => pauseInstallerDownload());
+  ipcMain.handle('app-update:resume', () => resumeInstallerDownload());
+  ipcMain.handle('app-update:cancel', () => cancelInstallerDownload());
 
   // Provider-secret encryption mode (fork toggle). The renderer runs the DB
   // migration via /api/settings/provider-encryption first; main only persists

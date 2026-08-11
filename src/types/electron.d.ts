@@ -58,7 +58,17 @@ interface ElectronUpdaterAPI {
  */
 interface ElectronAppUpdateAPI {
   downloadAndOpen: (url: string) => Promise<{ ok: boolean; path?: string; error?: string }>;
-  onProgress: (callback: (data: { percent: number }) => void) => () => void;
+  pause: () => Promise<{ ok: boolean }>;
+  resume: () => Promise<{ ok: boolean }>;
+  cancel: () => Promise<{ ok: boolean }>;
+  onProgress: (
+    callback: (data: {
+      percent: number;
+      received?: number;
+      total?: number | null;
+      status?: 'downloading' | 'paused' | 'done' | 'cancelled' | 'error';
+    }) => void,
+  ) => () => void;
 }
 
 /**
