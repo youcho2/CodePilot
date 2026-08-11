@@ -26,6 +26,8 @@ const en = {
   'chatList.newConversation': 'New Conversation',
   'chatList.delete': 'Delete',
   'chatList.deleteConversation': 'Delete Conversation',
+  'chatList.archiveConversation': 'Archive Conversation',
+  'chatList.archiveConfirm': 'Archive this conversation? You can find it in the database; it will be hidden from the list.',
   'chatList.copySessionId': 'Copy Conversation ID',
   'chatList.renameConversation': 'Rename Conversation',
   'chatList.removeProject': 'Remove Project',

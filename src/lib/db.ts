@@ -1928,13 +1928,20 @@ export function backfillProviderPresetKeys(dbInstance: Database.Database): void 
 export function getAllSessions(opts?: { includeSources?: ReadonlyArray<'user' | 'task'> }): ChatSession[] {
   const db = getDb();
   const filter = opts?.includeSources;
+  // Archived sessions are soft-deleted (status='archived') and hidden from the
+  // user-facing list. The row and its messages stay in SQLite. See the DELETE
+  // handler in api/chat/sessions/[id]/route.ts (archives instead of hard delete).
   if (filter && filter.length > 0) {
     const placeholders = filter.map(() => '?').join(',');
     return db
-      .prepare(`SELECT * FROM chat_sessions WHERE source IN (${placeholders}) ORDER BY updated_at DESC`)
+      .prepare(
+        `SELECT * FROM chat_sessions WHERE source IN (${placeholders}) AND (status IS NULL OR status != 'archived') ORDER BY updated_at DESC`,
+      )
       .all(...filter) as ChatSession[];
   }
-  return db.prepare('SELECT * FROM chat_sessions ORDER BY updated_at DESC').all() as ChatSession[];
+  return db
+    .prepare("SELECT * FROM chat_sessions WHERE (status IS NULL OR status != 'archived') ORDER BY updated_at DESC")
+    .all() as ChatSession[];
 }
 
 /**
@@ -2055,16 +2062,18 @@ export function getLatestSessionByWorkingDirectory(
 ): ChatSession | undefined {
   const db = getDb();
   const filter = opts?.includeSources;
+  // Skip archived (soft-deleted) sessions so buddy/heartbeat resume never lands
+  // on a hidden session and silently writes new messages into it.
   if (filter && filter.length > 0) {
     const placeholders = filter.map(() => '?').join(',');
     return db
       .prepare(
-        `SELECT * FROM chat_sessions WHERE working_directory = ? AND source IN (${placeholders}) ORDER BY updated_at DESC LIMIT 1`,
+        `SELECT * FROM chat_sessions WHERE working_directory = ? AND source IN (${placeholders}) AND (status IS NULL OR status != 'archived') ORDER BY updated_at DESC LIMIT 1`,
       )
       .get(workingDirectory, ...filter) as ChatSession | undefined;
   }
   return db
-    .prepare('SELECT * FROM chat_sessions WHERE working_directory = ? ORDER BY updated_at DESC LIMIT 1')
+    .prepare("SELECT * FROM chat_sessions WHERE working_directory = ? AND (status IS NULL OR status != 'archived') ORDER BY updated_at DESC LIMIT 1")
     .get(workingDirectory) as ChatSession | undefined;
 }
 

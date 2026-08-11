@@ -178,11 +178,10 @@ export function SessionListItem({
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem
-                  variant="destructive"
                   onClick={() => onDelete(session.id)}
                 >
-                  <CodePilotIcon name="delete" size="sm" aria-hidden />
-                  <span>{t('chatList.deleteConversation' as TranslationKey)}</span>
+                  <CodePilotIcon name="archive" size="sm" aria-hidden />
+                  <span>{t('chatList.archiveConversation' as TranslationKey)}</span>
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
@@ -215,11 +214,10 @@ export function SessionListItem({
           </ContextMenuItem>
           <ContextMenuSeparator />
           <ContextMenuItem
-            variant="destructive"
             onSelect={() => onDelete(session.id)}
           >
-            <CodePilotIcon name="delete" size="sm" aria-hidden />
-            <span>{t('chatList.deleteConversation' as TranslationKey)}</span>
+            <CodePilotIcon name="archive" size="sm" aria-hidden />
+            <span>{t('chatList.archiveConversation' as TranslationKey)}</span>
           </ContextMenuItem>
         </ContextMenuContent>
       </ContextMenu>
