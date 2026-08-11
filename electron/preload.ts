@@ -74,7 +74,17 @@ contextBridge.exposeInMainWorld('electronAPI', {
   appUpdate: {
     downloadAndOpen: (url: string) =>
       ipcRenderer.invoke('app-update:download', url) as Promise<{ ok: boolean; path?: string; error?: string }>,
-    onProgress: (callback: (data: { percent: number }) => void) => {
+    pause: () => ipcRenderer.invoke('app-update:pause') as Promise<{ ok: boolean }>,
+    resume: () => ipcRenderer.invoke('app-update:resume') as Promise<{ ok: boolean }>,
+    cancel: () => ipcRenderer.invoke('app-update:cancel') as Promise<{ ok: boolean }>,
+    onProgress: (
+      callback: (data: {
+        percent: number;
+        received?: number;
+        total?: number | null;
+        status?: 'downloading' | 'paused' | 'done' | 'cancelled' | 'error';
+      }) => void,
+    ) => {
       const listener = (_event: unknown, data: { percent: number }) => callback(data);
       ipcRenderer.on('app-update:progress', listener);
       return () => { ipcRenderer.removeListener('app-update:progress', listener); };

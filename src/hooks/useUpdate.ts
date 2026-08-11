@@ -13,6 +13,8 @@ export interface UpdateInfo {
   downloadAssetName?: string;
   publishedAt: string;
   downloadProgress: number | null;
+  /** Assisted-download (Path B) lifecycle; null when not started. */
+  downloadStatus?: 'downloading' | 'paused' | 'done' | 'cancelled' | 'error' | null;
   readyToInstall: boolean;
   isNativeUpdate: boolean;
   lastError: string | null;
@@ -27,6 +29,10 @@ export interface UpdateContextValue {
   checking: boolean;
   checkForUpdates: () => Promise<void>;
   downloadUpdate: () => void;
+  /** Path B assisted-download controls (no-op in native/browser modes). */
+  pauseDownload: () => void;
+  resumeDownload: () => void;
+  cancelDownload: () => void;
   dismissUpdate: () => void;
   showDialog: boolean;
   setShowDialog: (v: boolean) => void;

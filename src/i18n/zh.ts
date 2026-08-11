@@ -712,6 +712,10 @@ const zh: Record<TranslationKey, string> = {
   'update.getRecommendedBuild': '下载推荐版本',
   'update.installerOpened': '安装包已打开——CodePilot 将退出，请把新版本拖入「应用程序」文件夹覆盖安装。若 macOS 提示应用「已损坏」，右键点按选择「打开」。',
   'update.reopenInstaller': '重新打开安装包',
+  'update.paused': '已暂停',
+  'update.pause': '暂停',
+  'update.resume': '继续',
+  'update.cancelDownload': '取消',
 
   // ── Image Generation ──────────────────────────────────────
   'imageGen.toggle': '图片生成',
