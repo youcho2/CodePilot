@@ -1,5 +1,5 @@
 import { NextRequest } from 'next/server';
-import { deleteSession, getSession, updateSessionWorkingDirectory, updateSessionTitle, updateSessionMode, updateSessionModel, updateSessionProviderId, clearSessionMessages, updateSdkSessionId, updateSessionPermissionProfile, updateSessionRuntime } from '@/lib/db';
+import { updateSessionStatus, getSession, updateSessionWorkingDirectory, updateSessionTitle, updateSessionMode, updateSessionModel, updateSessionProviderId, clearSessionMessages, updateSdkSessionId, updateSessionPermissionProfile, updateSessionRuntime } from '@/lib/db';
 import { sanitizeManualTitle } from '@/lib/conversation-title';
 import { autoApprovePendingForSession } from '@/lib/bridge/permission-broker';
 import { clearRuntimeSessionRef } from '@/lib/runtime/session-store';
@@ -210,10 +210,13 @@ export async function DELETE(
       return Response.json({ error: 'Session not found' }, { status: 404 });
     }
 
-    deleteSession(id);
+    // Soft delete: archive instead of hard DELETE. The row + its messages stay
+    // in SQLite; getAllSessions filters out status='archived' so it disappears
+    // from the user-facing list. Recoverable at the DB level.
+    updateSessionStatus(id, 'archived');
     return Response.json({ success: true });
   } catch (error) {
-    const message = error instanceof Error ? error.message : 'Failed to delete session';
+    const message = error instanceof Error ? error.message : 'Failed to archive session';
     return Response.json({ error: message }, { status: 500 });
   }
 }

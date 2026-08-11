@@ -78,7 +78,8 @@ export function UnifiedTopBar() {
 
   const handleDelete = useCallback(async () => {
     if (!sessionId) return;
-    if (!confirm("Delete this conversation?")) return;
+    // "Delete" archives (soft delete): the API flips status='archived'. Data kept.
+    if (!confirm(t('chatList.archiveConfirm' as TranslationKey))) return;
     try {
       const res = await fetch(`/api/chat/sessions/${sessionId}`, { method: 'DELETE' });
       if (res.ok) {
@@ -88,7 +89,7 @@ export function UnifiedTopBar() {
     } catch {
       // Silent — same as sidebar.
     }
-  }, [sessionId, router]);
+  }, [sessionId, router, t]);
 
   const handleAddToSplit = useCallback(() => {
     if (!sessionId) return;
@@ -311,9 +312,9 @@ export function UnifiedTopBar() {
                   <span>{t('chatList.copySessionId' as TranslationKey)}</span>
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
-                <DropdownMenuItem variant="destructive" onClick={handleDelete}>
-                  <CodePilotIcon name="delete" size="sm" aria-hidden />
-                  <span>{t('chatList.deleteConversation' as TranslationKey)}</span>
+                <DropdownMenuItem onClick={handleDelete}>
+                  <CodePilotIcon name="archive" size="sm" aria-hidden />
+                  <span>{t('chatList.archiveConversation' as TranslationKey)}</span>
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>

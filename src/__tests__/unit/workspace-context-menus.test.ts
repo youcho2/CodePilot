@@ -37,7 +37,7 @@ describe('workspace context-menu contracts', () => {
     assert.match(session, /chatList\.splitScreen/);
     assert.match(session, /chatList\.renameConversation/);
     assert.match(session, /chatList\.copySessionId/);
-    assert.match(session, /chatList\.deleteConversation/);
+    assert.match(session, /chatList\.archiveConversation/);
     assert.doesNotMatch(
       session,
       /onDelete\(event as unknown as React\.MouseEvent/,
