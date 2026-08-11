@@ -99,8 +99,18 @@ export function useUpdateChecker(): UpdateContextValue {
     if (isNativeUpdater) return;
     const appUpdate = typeof window !== "undefined" ? window.electronAPI?.appUpdate : undefined;
     if (!appUpdate) return;
-    const cleanup = appUpdate.onProgress(({ percent }) => {
-      setUpdateInfo((prev) => (prev ? { ...prev, downloadProgress: percent, lastError: null } : prev));
+    const cleanup = appUpdate.onProgress(({ percent, status }) => {
+      setUpdateInfo((prev) =>
+        prev
+          ? {
+              ...prev,
+              downloadProgress: percent,
+              downloadStatus: status ?? prev.downloadStatus ?? 'downloading',
+              // 'done' is surfaced via readyToInstall by downloadUpdate()'s resolve.
+              lastError: status === 'error' ? prev.lastError : null,
+            }
+          : prev,
+      );
     });
     return cleanup;
   }, [isNativeUpdater]);
@@ -179,19 +189,19 @@ export function useUpdateChecker(): UpdateContextValue {
     const appUpdate = typeof window !== "undefined" ? window.electronAPI?.appUpdate : undefined;
     const url = updateInfo?.downloadUrl;
     if (appUpdate && url) {
-      setUpdateInfo((prev) => (prev ? { ...prev, downloadProgress: 0, readyToInstall: false, lastError: null } : prev));
+      setUpdateInfo((prev) => (prev ? { ...prev, downloadProgress: 0, downloadStatus: 'downloading', readyToInstall: false, lastError: null } : prev));
       try {
         const res = await appUpdate.downloadAndOpen(url);
-        setUpdateInfo((prev) =>
-          prev
-            ? res.ok
-              ? { ...prev, downloadProgress: 100, readyToInstall: true, lastError: null }
-              : { ...prev, downloadProgress: null, lastError: res.error ?? "download failed" }
-            : prev,
-        );
+        setUpdateInfo((prev) => {
+          if (!prev) return prev;
+          if (res.ok) return { ...prev, downloadProgress: 100, downloadStatus: 'done', readyToInstall: true, lastError: null };
+          // User cancelled → quiet reset, not an error.
+          if (res.error === 'cancelled') return { ...prev, downloadProgress: null, downloadStatus: 'cancelled', lastError: null };
+          return { ...prev, downloadProgress: null, downloadStatus: 'error', lastError: res.error ?? "download failed" };
+        });
       } catch (e) {
         setUpdateInfo((prev) =>
-          prev ? { ...prev, downloadProgress: null, lastError: e instanceof Error ? e.message : String(e) } : prev,
+          prev ? { ...prev, downloadProgress: null, downloadStatus: 'error', lastError: e instanceof Error ? e.message : String(e) } : prev,
         );
       }
       return;
@@ -199,6 +209,16 @@ export function useUpdateChecker(): UpdateContextValue {
     // Last resort (no Electron bridge): open the download in the browser.
     if (url) window.open(url, "_blank");
   }, [isNativeUpdater, updateInfo?.downloadUrl]);
+
+  const pauseDownload = useCallback(() => {
+    window.electronAPI?.appUpdate?.pause();
+  }, []);
+  const resumeDownload = useCallback(() => {
+    window.electronAPI?.appUpdate?.resume();
+  }, []);
+  const cancelDownload = useCallback(() => {
+    window.electronAPI?.appUpdate?.cancel();
+  }, []);
 
   const quitAndInstall = useCallback(() => {
     if (isNativeUpdater) {
@@ -212,11 +232,14 @@ export function useUpdateChecker(): UpdateContextValue {
       checking,
       checkForUpdates,
       downloadUpdate,
+      pauseDownload,
+      resumeDownload,
+      cancelDownload,
       dismissUpdate,
       showDialog,
       setShowDialog,
       quitAndInstall,
     }),
-    [updateInfo, checking, checkForUpdates, downloadUpdate, dismissUpdate, showDialog, quitAndInstall]
+    [updateInfo, checking, checkForUpdates, downloadUpdate, pauseDownload, resumeDownload, cancelDownload, dismissUpdate, showDialog, quitAndInstall]
   );
 }

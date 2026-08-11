@@ -16,7 +16,7 @@ import { useUpdate } from "@/hooks/useUpdate";
 import { useTranslation } from "@/hooks/useTranslation";
 
 export function UpdateDialog() {
-  const { updateInfo, showDialog, dismissUpdate, downloadUpdate, quitAndInstall } = useUpdate();
+  const { updateInfo, showDialog, dismissUpdate, downloadUpdate, pauseDownload, resumeDownload, cancelDownload, quitAndInstall } = useUpdate();
   const { t } = useTranslation();
 
   // Assisted in-app download (Path B) is available when the Electron bridge is
@@ -28,8 +28,10 @@ export function UpdateDialog() {
 
   if (!updateInfo?.updateAvailable) return null;
 
-  const { isNativeUpdate, readyToInstall, downloadProgress } = updateInfo;
+  const { isNativeUpdate, readyToInstall, downloadProgress, downloadStatus } = updateInfo;
   const isDownloading = !readyToInstall && downloadProgress != null;
+  const isPaused = downloadStatus === 'paused';
+  const inFlight = downloadStatus === 'downloading' || downloadStatus === 'paused';
 
   return (
     <Dialog open={showDialog} onOpenChange={(open) => {
@@ -113,7 +115,7 @@ export function UpdateDialog() {
               />
             </div>
             <p className="text-xs text-muted-foreground">
-              {t('update.downloading')} {Math.round(downloadProgress!)}%
+              {isPaused ? t('update.paused') : t('update.downloading')} {Math.round(downloadProgress!)}%
             </p>
           </div>
         )}
@@ -145,8 +147,15 @@ export function UpdateDialog() {
             )
           ) : hasAssisted ? (
             // Path B: assisted in-app download + open (no browser round-trip).
-            isDownloading ? (
-              <Button disabled>{t('update.downloading')}...</Button>
+            inFlight ? (
+              <>
+                {isPaused ? (
+                  <Button onClick={resumeDownload}>{t('update.resume')}</Button>
+                ) : (
+                  <Button variant="outline" onClick={pauseDownload}>{t('update.pause')}</Button>
+                )}
+                <Button variant="ghost" onClick={cancelDownload}>{t('update.cancelDownload')}</Button>
+              </>
             ) : readyToInstall ? (
               <Button variant="outline" onClick={downloadUpdate}>{t('update.reopenInstaller')}</Button>
             ) : (
