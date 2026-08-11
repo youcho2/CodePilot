@@ -129,9 +129,19 @@ export function useUpdateChecker(): UpdateContextValue {
         isNativeUpdate: false,
         lastError: null,
       };
-      setUpdateInfo(info);
+      // Never clobber an in-flight or finished assisted download with a
+      // re-check (user-triggered or the periodic poll) — the main-process
+      // download keeps running and the UI must keep showing its progress.
+      let clobbered = false;
+      setUpdateInfo((prev) => {
+        if (prev && (prev.downloadStatus === "downloading" || prev.downloadStatus === "paused" || prev.readyToInstall)) {
+          clobbered = true;
+          return prev;
+        }
+        return info;
+      });
 
-      if (info.updateAvailable && !isVersionDismissed(info.latestVersion)) {
+      if (!clobbered && info.updateAvailable && !isVersionDismissed(info.latestVersion)) {
         setShowDialog(true);
       }
     } catch {
@@ -143,6 +153,14 @@ export function useUpdateChecker(): UpdateContextValue {
 
   // --- Unified check: native first, browser fallback ---
   const checkForUpdates = useCallback(async () => {
+    // A download is already running or finished — surface it (reopen the
+    // dialog) instead of re-checking, which would otherwise look like the
+    // button does nothing.
+    const st = updateInfo?.downloadStatus;
+    if (st === "downloading" || st === "paused" || updateInfo?.readyToInstall) {
+      setShowDialog(true);
+      return;
+    }
     if (isNativeUpdater) {
       try {
         await window.electronAPI!.updater!.checkForUpdates();
@@ -152,7 +170,7 @@ export function useUpdateChecker(): UpdateContextValue {
       }
     }
     await checkForUpdatesBrowser();
-  }, [isNativeUpdater, checkForUpdatesBrowser]);
+  }, [isNativeUpdater, checkForUpdatesBrowser, updateInfo?.downloadStatus, updateInfo?.readyToInstall]);
 
   // Browser mode: periodic check (non-Electron or as fallback)
   useEffect(() => {
