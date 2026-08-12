@@ -58,9 +58,19 @@ if (
 }
 args.push(...forwarded, ...testFiles);
 
+// Tests must never inherit NODE_ENV=production: some test-only hooks
+// (e.g. the provider-call policy observer) refuse to arm in production and
+// throw. The CodePilot host process runs its Next server with
+// NODE_ENV=production and injects it into child shells, so an agent/terminal
+// launched inside the app would otherwise see spurious failures. Force a test
+// env regardless of the ambient value; respect a non-production explicit one.
+const nodeEnv = process.env.NODE_ENV && process.env.NODE_ENV !== 'production'
+  ? process.env.NODE_ENV
+  : 'test';
+
 const result = spawnSync(process.execPath, args, {
   cwd: repositoryRoot,
-  env: { ...process.env, ...configuration.env },
+  env: { ...process.env, NODE_ENV: nodeEnv, ...configuration.env },
   stdio: 'inherit',
   windowsHide: true,
 });
