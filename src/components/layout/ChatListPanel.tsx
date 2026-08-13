@@ -277,6 +277,65 @@ export function ChatListPanel({ open, hasUpdate, readyToInstall }: ChatListPanel
     return () => clearInterval(interval);
   }, [fetchSessions]);
 
+  // Clear the unread flag (open / explicit "mark as read"). Optimistic local
+  // update + fire-and-forget PATCH; no updated_at bump, so ordering is stable.
+  const markSessionRead = useCallback((sessionId: string) => {
+    setSessions((prev) => {
+      const target = prev.find((s) => s.id === sessionId);
+      if (!target || !target.unread) return prev; // already read — skip the PATCH
+      void fetch(`/api/chat/sessions/${sessionId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ unread: false }),
+      }).catch(() => {});
+      return prev.map((s) => (s.id === sessionId ? { ...s, unread: 0 } : s));
+    });
+  }, []);
+
+  const markSessionUnread = useCallback((sessionId: string) => {
+    setSessions((prev) => {
+      const target = prev.find((s) => s.id === sessionId);
+      if (!target || target.unread) return prev;
+      void fetch(`/api/chat/sessions/${sessionId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ unread: true }),
+      }).catch(() => {});
+      return prev.map((s) => (s.id === sessionId ? { ...s, unread: 1 } : s));
+    });
+  }, []);
+
+  // Currently-open session id (from the route). Used to (a) auto-clear unread
+  // on open and (b) exclude the viewed session from unread detection.
+  const openSessionId = useMemo(() => {
+    const m = pathname?.match(/^\/chat\/(.+)$/);
+    return m?.[1];
+  }, [pathname]);
+
+  // Clear unread when the conversation is opened. Re-runs when the list
+  // refreshes so a session fetched-back as unread while already open still
+  // clears. markSessionRead no-ops when the session is already read.
+  useEffect(() => {
+    if (openSessionId) markSessionRead(openSessionId);
+  }, [openSessionId, sessions, markSessionRead]);
+
+  // Unread detection — a session that just left the streaming set (its reply
+  // finished) while it is NOT the one on screen gets flagged unread. This is
+  // the meaningful signal: "a response completed while you were elsewhere."
+  // Semantic scope: only streams this client observed; pure server-side bridge
+  // writes we never saw stream aren't covered (documented, not faked).
+  const prevStreamingRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    const current = new Set<string>(activeStreamingSessions);
+    if (streamingSessionId) current.add(streamingSessionId);
+    for (const id of prevStreamingRef.current) {
+      if (!current.has(id) && id !== openSessionId) {
+        markSessionUnread(id);
+      }
+    }
+    prevStreamingRef.current = current;
+  }, [activeStreamingSessions, streamingSessionId, openSessionId, markSessionUnread]);
+
   const handleDeleteSession = async (sessionId: string) => {
     // "Delete" archives the session (soft delete): the API DELETE handler flips
     // status='archived' and getAllSessions hides it. Data stays in SQLite.
@@ -289,6 +348,31 @@ export function ChatListPanel({ open, hasUpdate, readyToInstall }: ChatListPanel
       if (res.ok) {
         setSessions((prev) => prev.filter((s) => s.id !== sessionId));
         // Drop from split group if it's there
+        if (isInSplit(sessionId)) {
+          removeFromSplit(sessionId);
+        }
+        if (pathname === `/chat/${sessionId}`) {
+          router.push("/chat");
+        }
+      }
+    } catch {
+      // Silently fail
+    } finally {
+      setDeletingSession(null);
+    }
+  };
+
+  const handleHardDeleteSession = async (sessionId: string) => {
+    // Permanent delete — physically removes the row + messages (DELETE ?hard=true).
+    // Unrecoverable, so confirm with the stronger copy.
+    if (!confirm(t('chatList.deleteConfirm' as TranslationKey))) return;
+    setDeletingSession(sessionId);
+    try {
+      const res = await fetch(`/api/chat/sessions/${sessionId}?hard=true`, {
+        method: "DELETE",
+      });
+      if (res.ok) {
+        setSessions((prev) => prev.filter((s) => s.id !== sessionId));
         if (isInSplit(sessionId)) {
           removeFromSplit(sessionId);
         }
@@ -637,6 +721,7 @@ export function ChatListPanel({ open, hasUpdate, readyToInstall }: ChatListPanel
                                         isDeleting={deletingSession === session.id}
                                         isSessionStreaming={activeStreamingSessions.has(session.id) || streamingSessionId === session.id}
                                         needsApproval={pendingApprovalSessionIds.has(session.id) || pendingApprovalSessionId === session.id}
+                                        unread={!!session.unread && !isActive}
                                         canSplit={canSplit}
                                         isWorkspace={false}
                                         formatRelativeTime={formatRelativeTime}
@@ -644,6 +729,8 @@ export function ChatListPanel({ open, hasUpdate, readyToInstall }: ChatListPanel
                                         onMouseEnter={() => setHoveredSession(session.id)}
                                         onMouseLeave={() => setHoveredSession(null)}
                                         onDelete={handleDeleteSession}
+                                        onHardDelete={handleHardDeleteSession}
+                                        onMarkRead={markSessionRead}
                                         onRename={handleRenameSession}
                                         onAddToSplit={(s) => addToSplit({
                                           sessionId: s.id,
@@ -772,6 +859,7 @@ export function ChatListPanel({ open, hasUpdate, readyToInstall }: ChatListPanel
                               isDeleting={deletingSession === session.id}
                               isSessionStreaming={activeStreamingSessions.has(session.id) || streamingSessionId === session.id}
                               needsApproval={pendingApprovalSessionIds.has(session.id) || pendingApprovalSessionId === session.id}
+                              unread={!!session.unread && !isActive}
                               canSplit={canSplit}
                               isWorkspace
                               formatRelativeTime={formatRelativeTime}
@@ -779,6 +867,8 @@ export function ChatListPanel({ open, hasUpdate, readyToInstall }: ChatListPanel
                               onMouseEnter={() => setHoveredSession(session.id)}
                               onMouseLeave={() => setHoveredSession(null)}
                               onDelete={handleDeleteSession}
+                              onHardDelete={handleHardDeleteSession}
+                              onMarkRead={markSessionRead}
                               onRename={handleRenameSession}
                               onAddToSplit={(s) => addToSplit({
                                 sessionId: s.id,

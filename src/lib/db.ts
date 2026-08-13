@@ -672,6 +672,14 @@ function migrateDb(db: Database.Database): void {
   if (!colNames.includes('context_summary_boundary_rowid')) {
     safeAddColumn(db, "ALTER TABLE chat_sessions ADD COLUMN context_summary_boundary_rowid INTEGER NOT NULL DEFAULT 0");
   }
+  // Unread flag (2026-08-12): 1 = a response completed in this conversation
+  // while the user was viewing another one. Set client-side on stream-end for
+  // a non-active session; cleared on open / explicit "mark as read". Default 0
+  // so existing rows never render as unread after upgrade. See
+  // updateSessionUnread + ChatListPanel unread detection.
+  if (!colNames.includes('unread')) {
+    safeAddColumn(db, "ALTER TABLE chat_sessions ADD COLUMN unread INTEGER NOT NULL DEFAULT 0");
+  }
   db.exec("CREATE INDEX IF NOT EXISTS idx_sessions_runtime_status ON chat_sessions(runtime_status)");
 
   // Migrate is_active provider to default_provider_id setting
@@ -3671,6 +3679,16 @@ export function getAllSettings(): SettingsMap {
 export function updateSessionStatus(id: string, status: 'active' | 'archived'): void {
   const db = getDb();
   db.prepare('UPDATE chat_sessions SET status = ? WHERE id = ?').run(status, id);
+}
+
+/**
+ * Set/clear the unread flag. Deliberately does NOT touch updated_at — marking
+ * read/unread must not reorder the sidebar. `unread` is meaningful state ("a
+ * reply landed while you were elsewhere"), so no ordering side effect.
+ */
+export function updateSessionUnread(id: string, unread: boolean): void {
+  const db = getDb();
+  db.prepare('UPDATE chat_sessions SET unread = ? WHERE id = ?').run(unread ? 1 : 0, id);
 }
 
 // ==========================================
