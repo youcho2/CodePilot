@@ -6,17 +6,10 @@ import {
   Bell,
   Columns,
   X,
-  DotsThree,
+  Check,
 } from "@/components/ui/icon";
 import { CodePilotIcon } from "@/components/ui/semantic-icon";
 import { Button } from "@/components/ui/button";
-import {
-  DropdownMenu,
-  DropdownMenuTrigger,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-} from "@/components/ui/dropdown-menu";
 import {
   ContextMenu,
   ContextMenuContent,
@@ -37,6 +30,8 @@ interface SessionListItemProps {
   isDeleting: boolean;
   isSessionStreaming: boolean;
   needsApproval: boolean;
+  /** New reply landed while viewing another conversation (see db.unread) */
+  unread: boolean;
   canSplit: boolean;
   /** Whether this session belongs to the assistant workspace */
   isWorkspace?: boolean;
@@ -44,7 +39,12 @@ interface SessionListItemProps {
   t: (key: TranslationKey, params?: Record<string, string | number>) => string;
   onMouseEnter: () => void;
   onMouseLeave: () => void;
+  /** Soft delete — archive (hover button + context menu) */
   onDelete: (sessionId: string) => void;
+  /** Permanent hard delete (context menu only) */
+  onHardDelete: (sessionId: string) => void;
+  /** Clear the unread flag (context menu) */
+  onMarkRead: (sessionId: string) => void;
   onRename: (sessionId: string, newTitle: string) => void;
   onAddToSplit: (session: ChatSession) => void;
 }
@@ -56,6 +56,7 @@ export function SessionListItem({
   isDeleting,
   isSessionStreaming,
   needsApproval,
+  unread,
   canSplit,
   isWorkspace,
   formatRelativeTime,
@@ -63,19 +64,14 @@ export function SessionListItem({
   onMouseEnter,
   onMouseLeave,
   onDelete,
+  onHardDelete,
+  onMarkRead,
   onRename,
   onAddToSplit,
 }: SessionListItemProps) {
-  const [menuOpen, setMenuOpen] = useState(false);
   const [renameOpen, setRenameOpen] = useState(false);
   const contextRenameIntentRef = useRef(false);
-  const showActions = isHovered || menuOpen || isDeleting;
-  const handleDropdownRenameSelect = (event: Event) => {
-    // Prevent popup focus restoration from racing the dialog's autofocus.
-    event.preventDefault();
-    setMenuOpen(false);
-    setRenameOpen(true);
-  };
+  const showActions = isHovered || isDeleting;
   const handleContextRenameSelect = () => {
     // Let Radix close the context menu normally. The matching
     // onCloseAutoFocus handler below only suppresses focus restoration to
@@ -110,7 +106,7 @@ export function SessionListItem({
             Skip empty 14px slot for assistant (workspace) sessions when idle:
             助理 section 是 flat list,无父 folder,空 slot 看着像无意义缩进。
             项目下的会话保留以维持"在 folder 内"的层级感。 */}
-        {(isSessionStreaming || needsApproval || !isWorkspace) && (
+        {(isSessionStreaming || needsApproval || unread || !isWorkspace) && (
           <span className="relative flex h-3.5 w-3.5 shrink-0 items-center justify-center">
             {isSessionStreaming && (
               <span className="relative flex h-2 w-2">
@@ -123,10 +119,17 @@ export function SessionListItem({
                 <Bell size={10} className="text-status-warning-foreground" />
               </span>
             )}
+            {/* Unread dot — lowest priority, hidden while streaming/awaiting approval */}
+            {unread && !isSessionStreaming && !needsApproval && (
+              <span className="h-2 w-2 rounded-full bg-primary" />
+            )}
           </span>
         )}
-        {/* Title — flex-1 + truncate ensures it shrinks */}
-        <span className="flex-1 min-w-0 line-clamp-1 text-[13px] font-normal leading-tight break-all">
+        {/* Title — flex-1 + truncate ensures it shrinks. Unread reads bolder. */}
+        <span className={cn(
+          "flex-1 min-w-0 line-clamp-1 text-[13px] leading-tight break-all",
+          unread ? "font-semibold text-sidebar-foreground" : "font-normal"
+        )}>
           {session.title}
         </span>
         {/* Right area — fixed width, time or dots swap via opacity. Wide enough
@@ -140,51 +143,47 @@ export function SessionListItem({
           </span>
         </span>
             </Link>
-            {/* Three-dot menu — absolute over the right area */}
-            <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
-              <DropdownMenuTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className={cn(
-                    "absolute right-2 top-1/2 -translate-y-1/2 z-10 flex items-center justify-center text-muted-foreground/60 hover:text-foreground transition-opacity h-5 w-5 p-0",
-                    showActions ? "opacity-100" : "opacity-0 pointer-events-none"
-                  )}
-                  onPointerDown={(e) => e.stopPropagation()}
-                  aria-label={t('chatList.moreActions' as TranslationKey)}
-                >
-                  <DotsThree size={16} weight="bold" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="min-w-[160px]">
-                <DropdownMenuItem
-                  disabled={isActive || !canSplit}
-                  onClick={() => onAddToSplit(session)}
-                >
-                  <Columns size={14} />
-                  <span>{t('chatList.splitScreen' as TranslationKey)}</span>
-                </DropdownMenuItem>
-                <DropdownMenuItem onSelect={handleDropdownRenameSelect}>
-                  <CodePilotIcon name="edit" size="sm" aria-hidden />
-                  <span>{t('chatList.renameConversation' as TranslationKey)}</span>
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => {
-                  // v11 fix — see lib/clipboard.ts for why fire-and-forget
-                  // writeText fails in Electron renderers post-DropdownMenu blur.
-                  void copyWithToast({ text: session.id, t });
-                }}>
-                  <CodePilotIcon name="copy" size="sm" aria-hidden />
-                  <span>{t('chatList.copySessionId' as TranslationKey)}</span>
-                </DropdownMenuItem>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem
-                  onClick={() => onDelete(session.id)}
-                >
-                  <CodePilotIcon name="archive" size="sm" aria-hidden />
-                  <span>{t('chatList.archiveConversation' as TranslationKey)}</span>
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
+            {/* Hover quick actions — split + archive, directly clickable (no
+                menu). Full action set (rename / copy id / delete / mark read)
+                lives in the right-click context menu below. */}
+            <div
+              className={cn(
+                "absolute right-1.5 top-1/2 -translate-y-1/2 z-10 flex items-center gap-0.5 transition-opacity",
+                showActions ? "opacity-100" : "opacity-0 pointer-events-none"
+              )}
+            >
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-5 w-5 p-0 text-muted-foreground/60 hover:text-foreground disabled:opacity-30"
+                disabled={isActive || !canSplit}
+                onPointerDown={(e) => e.stopPropagation()}
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  onAddToSplit(session);
+                }}
+                aria-label={t('chatList.splitScreen' as TranslationKey)}
+                title={t('chatList.splitScreen' as TranslationKey)}
+              >
+                <Columns size={14} />
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-5 w-5 p-0 text-muted-foreground/60 hover:text-foreground"
+                onPointerDown={(e) => e.stopPropagation()}
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  onDelete(session.id);
+                }}
+                aria-label={t('chatList.archiveConversation' as TranslationKey)}
+                title={t('chatList.archiveConversation' as TranslationKey)}
+              >
+                <CodePilotIcon name="archive" size="sm" aria-hidden />
+              </Button>
+            </div>
           </div>
         </ContextMenuTrigger>
         <ContextMenuContent
@@ -212,12 +211,26 @@ export function SessionListItem({
             <CodePilotIcon name="copy" size="sm" aria-hidden />
             <span>{t('chatList.copySessionId' as TranslationKey)}</span>
           </ContextMenuItem>
+          <ContextMenuItem
+            disabled={!unread}
+            onSelect={() => onMarkRead(session.id)}
+          >
+            <Check size={14} />
+            <span>{t('chatList.markAsRead' as TranslationKey)}</span>
+          </ContextMenuItem>
           <ContextMenuSeparator />
           <ContextMenuItem
             onSelect={() => onDelete(session.id)}
           >
             <CodePilotIcon name="archive" size="sm" aria-hidden />
             <span>{t('chatList.archiveConversation' as TranslationKey)}</span>
+          </ContextMenuItem>
+          <ContextMenuItem
+            className="text-destructive focus:text-destructive"
+            onSelect={() => onHardDelete(session.id)}
+          >
+            <CodePilotIcon name="delete" size="sm" aria-hidden />
+            <span>{t('chatList.deleteConversation' as TranslationKey)}</span>
           </ContextMenuItem>
         </ContextMenuContent>
       </ContextMenu>

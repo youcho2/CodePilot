@@ -1,5 +1,5 @@
 import { NextRequest } from 'next/server';
-import { updateSessionStatus, getSession, updateSessionWorkingDirectory, updateSessionTitle, updateSessionMode, updateSessionModel, updateSessionProviderId, clearSessionMessages, updateSdkSessionId, updateSessionPermissionProfile, updateSessionRuntime } from '@/lib/db';
+import { updateSessionStatus, getSession, updateSessionWorkingDirectory, updateSessionTitle, updateSessionMode, updateSessionModel, updateSessionProviderId, clearSessionMessages, updateSdkSessionId, updateSessionPermissionProfile, updateSessionRuntime, updateSessionUnread, deleteSession } from '@/lib/db';
 import { sanitizeManualTitle } from '@/lib/conversation-title';
 import { autoApprovePendingForSession } from '@/lib/bridge/permission-broker';
 import { clearRuntimeSessionRef } from '@/lib/runtime/session-store';
@@ -183,6 +183,11 @@ export async function PATCH(
     if (body.clear_messages) {
       clearSessionMessages(id);
     }
+    // Unread flag — set when a reply completes in a session the user isn't
+    // viewing, cleared on open / "mark as read". Does not touch updated_at.
+    if (body.unread !== undefined) {
+      updateSessionUnread(id, !!body.unread);
+    }
 
     const updated = getSession(id);
     // Phase 5 review round 4 — surface the coherence force-set so the
@@ -200,7 +205,7 @@ export async function PATCH(
 }
 
 export async function DELETE(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
@@ -210,9 +215,15 @@ export async function DELETE(
       return Response.json({ error: 'Session not found' }, { status: 404 });
     }
 
-    // Soft delete: archive instead of hard DELETE. The row + its messages stay
-    // in SQLite; getAllSessions filters out status='archived' so it disappears
-    // from the user-facing list. Recoverable at the DB level.
+    // `?hard=true` = permanent removal (right-click "Delete Conversation"): the
+    // row and its messages are physically DELETEd and cannot be recovered.
+    // Default (no flag / archive UI) is a soft delete: flip status='archived'
+    // so getAllSessions hides it while the data stays in SQLite.
+    const hard = new URL(request.url).searchParams.get('hard') === 'true';
+    if (hard) {
+      deleteSession(id);
+      return Response.json({ success: true, hard: true });
+    }
     updateSessionStatus(id, 'archived');
     return Response.json({ success: true });
   } catch (error) {

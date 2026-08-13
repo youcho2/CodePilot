@@ -81,6 +81,13 @@ export interface ChatSession {
    */
   source?: ChatSessionSource;
   status: 'active' | 'archived';
+  /**
+   * 1 = a response completed in this conversation while the user was viewing
+   * another one (set client-side on stream-end for a non-active session);
+   * 0/undefined = read. Cleared on open or explicit "mark as read". Stored as
+   * SQLite INTEGER, so it reads back as a number. See db.updateSessionUnread.
+   */
+  unread?: number;
   mode?: 'code' | 'plan' | 'ask';
   needs_approval?: boolean;
   provider_name: string;
