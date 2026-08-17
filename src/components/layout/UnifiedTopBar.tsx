@@ -79,7 +79,8 @@ export function UnifiedTopBar() {
   const handleDelete = useCallback(async () => {
     if (!sessionId) return;
     // "Delete" archives (soft delete): the API flips status='archived'. Data kept.
-    if (!confirm(t('chatList.archiveConfirm' as TranslationKey))) return;
+    // No confirm — archive is reversible, so it acts immediately (matches the
+    // sidebar's hover/context-menu archive).
     try {
       const res = await fetch(`/api/chat/sessions/${sessionId}`, { method: 'DELETE' });
       if (res.ok) {
@@ -89,7 +90,7 @@ export function UnifiedTopBar() {
     } catch {
       // Silent — same as sidebar.
     }
-  }, [sessionId, router, t]);
+  }, [sessionId, router]);
 
   const handleAddToSplit = useCallback(() => {
     if (!sessionId) return;

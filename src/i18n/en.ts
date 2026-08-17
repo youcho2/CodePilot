@@ -27,7 +27,6 @@ const en = {
   'chatList.delete': 'Delete',
   'chatList.deleteConversation': 'Delete Conversation',
   'chatList.archiveConversation': 'Archive Conversation',
-  'chatList.archiveConfirm': 'Archive this conversation? You can find it in the database; it will be hidden from the list.',
   'chatList.deleteConfirm': 'Permanently delete this conversation? It and all its messages will be removed from the local database and cannot be recovered.',
   'chatList.markAsRead': 'Mark as Read',
   'chatList.copySessionId': 'Copy Conversation ID',

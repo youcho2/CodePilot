@@ -24,7 +24,6 @@ const zh: Record<TranslationKey, string> = {
   'chatList.delete': '删除',
   'chatList.deleteConversation': '删除对话',
   'chatList.archiveConversation': '归档对话',
-  'chatList.archiveConfirm': '归档此对话？归档后会从列表隐藏，数据仍保留在本地。',
   'chatList.deleteConfirm': '彻底删除此对话？对话及其全部消息将从本地数据库永久移除，无法恢复。',
   'chatList.markAsRead': '已读会话',
   'chatList.copySessionId': '复制对话 ID',
