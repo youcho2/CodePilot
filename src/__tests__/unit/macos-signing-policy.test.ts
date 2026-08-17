@@ -62,31 +62,34 @@ describe('macOS signing policy', () => {
     }), { mode: 'adhoc', teamId: null });
   });
 
-  it('wires stable and preview macOS workflows to certificate secrets and a post-package gate', () => {
-    for (const relative of [
-      '.github/workflows/build.yml',
-      '.github/workflows/preview-build.yml',
-      '.github/workflows/preview-release.yml',
-    ]) {
-      const workflow = fs.readFileSync(path.join(repoRoot, relative), 'utf8');
-      assert.match(workflow, /CSC_LINK:\s*\$\{\{ secrets\.MAC_CERT_P12_BASE64 \}\}/);
-      assert.match(workflow, /CSC_KEY_PASSWORD:\s*\$\{\{ secrets\.MAC_CERT_PASSWORD \}\}/);
-      assert.match(workflow, /CODEPILOT_APPLE_TEAM_ID:\s*\$\{\{ secrets\.APPLE_TEAM_ID \}\}/);
-      assert.match(workflow, /CODEPILOT_REQUIRE_DEVELOPER_ID:\s*["']1["']/);
-      assert.match(workflow, /verify-macos-developer-id\.mjs release/);
+  // Fork divergence: this fork has no Apple Developer Program account, so its
+  // distributable release channel (build.yml) ships ad-hoc-signed, arm64-only
+  // packages — NOT Developer ID. Upstream's original assertion (all workflows
+  // wired to MAC_CERT_P12_BASE64 + a Developer ID post-package gate) is replaced
+  // below with the fork's real policy. The signing-mode machinery, afterSign,
+  // and the final verifier are still exercised by the other cases in this file;
+  // afterSign simply takes its ad-hoc fallback branch when no certificate is
+  // present. See docs/exec-plans/active/fork-self-update-pipeline.md.
+  //
+  // NOTE: preview-build.yml / preview-release.yml are still upstream Developer ID
+  // templates (with Windows targets) that this fork cannot run without Apple
+  // secrets; they are intentionally out of scope here and pending cleanup.
+  it('ships build.yml as the fork ad-hoc, arm64-only release channel (no Developer ID cert)', () => {
+    const workflow = fs.readFileSync(path.join(repoRoot, '.github/workflows/build.yml'), 'utf8');
 
-      const certificateBackedSteps = workflow
-        .split(/\n(?=\s+- name:)/)
-        .filter((step) => /CSC_LINK:\s*\$\{\{ secrets\.MAC_CERT_P12_BASE64 \}\}/.test(step));
-      assert.ok(certificateBackedSteps.length > 0, `${relative} must package with CSC_LINK`);
-      for (const step of certificateBackedSteps) {
-        assert.doesNotMatch(
-          step,
-          /CSC_IDENTITY_AUTO_DISCOVERY:\s*["']false["']/,
-          `${relative} must allow electron-builder to select the imported Developer ID identity`,
-        );
-      }
-    }
+    // The macOS package step is ad-hoc: electron-builder is told not to auto-
+    // discover a signing identity, and no certificate secret is wired in.
+    assert.match(workflow, /CSC_IDENTITY_AUTO_DISCOVERY:\s*["']false["']/);
+    assert.doesNotMatch(workflow, /CSC_LINK:\s*\$\{\{ secrets\.MAC_CERT_P12_BASE64 \}\}/);
+    assert.doesNotMatch(workflow, /CODEPILOT_REQUIRE_DEVELOPER_ID:\s*["']1["']/);
+
+    // Fork ships Apple Silicon only — no x64 / Windows / Linux electron-builder targets.
+    const packageStep = workflow
+      .split(/\n(?=\s+- name:)/)
+      .find((step) => /electron-builder --mac/.test(step));
+    assert.ok(packageStep, 'build.yml must have a macOS electron-builder package step');
+    assert.match(packageStep!, /--arm64/);
+    assert.doesNotMatch(packageStep!, /--x64|--win|--linux/);
   });
 
   it('keeps afterSign and the final artifact verifier on the shared fail-closed policy', () => {
