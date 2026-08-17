@@ -15,6 +15,7 @@ import { RuntimeSelector } from './RuntimeSelector';
 import type { ChatRuntime } from '@/lib/chat-runtime-shared';
 import { ChatPermissionSelector } from './ChatPermissionSelector';
 import { RunCockpit } from './RunCockpit';
+import { UsageCockpit } from './UsageCockpit';
 import { RunCheckpoint } from './RunCheckpoint';
 import { TaskCheckpoint } from './TaskCheckpoint';
 import { buildCheckpoints } from '@/lib/run-checkpoint';
@@ -1537,20 +1538,23 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
                 </>
               }
               right={
-                <RunCockpit
-                  providerId={currentProviderId}
-                  messages={messages}
-                  modelName={currentModel}
-                  context1m={context1m}
-                  hasSummary={hasSummary}
-                  upstreamModelId={currentModelUpstream}
-                  contextUsageSnapshot={streamSnapshot?.contextUsageSnapshot}
-                  permissionProfile={permissionProfile}
-                  pendingContextTokens={pendingContextTokens}
-                  pendingContextSubTotals={pendingContextSubTotals}
-                  sessionRuntimePin={runtimePin}
-                  reportedContextWindowTrusted={activeProviderReportsTrustedWindow}
-                />
+                <>
+                  <RunCockpit
+                    providerId={currentProviderId}
+                    messages={messages}
+                    modelName={currentModel}
+                    context1m={context1m}
+                    hasSummary={hasSummary}
+                    upstreamModelId={currentModelUpstream}
+                    contextUsageSnapshot={streamSnapshot?.contextUsageSnapshot}
+                    permissionProfile={permissionProfile}
+                    pendingContextTokens={pendingContextTokens}
+                    pendingContextSubTotals={pendingContextSubTotals}
+                    sessionRuntimePin={runtimePin}
+                    reportedContextWindowTrusted={activeProviderReportsTrustedWindow}
+                  />
+                  <UsageCockpit claudeRateLimit={streamSnapshot?.rateLimitInfo} />
+                </>
               }
             />
           </div>
@@ -1816,20 +1820,23 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
           </>
         }
         right={
-          <RunCockpit
-            providerId={currentProviderId}
-            messages={messages}
-            modelName={currentModel}
-            context1m={context1m}
-            hasSummary={hasSummary}
-            upstreamModelId={currentModelUpstream}
-            contextUsageSnapshot={streamSnapshot?.contextUsageSnapshot}
-            permissionProfile={permissionProfile}
-            pendingContextTokens={pendingContextTokens}
-            pendingContextSubTotals={pendingContextSubTotals}
-            sessionRuntimePin={runtimePin}
-            reportedContextWindowTrusted={activeProviderReportsTrustedWindow}
-          />
+          <>
+            <RunCockpit
+              providerId={currentProviderId}
+              messages={messages}
+              modelName={currentModel}
+              context1m={context1m}
+              hasSummary={hasSummary}
+              upstreamModelId={currentModelUpstream}
+              contextUsageSnapshot={streamSnapshot?.contextUsageSnapshot}
+              permissionProfile={permissionProfile}
+              pendingContextTokens={pendingContextTokens}
+              pendingContextSubTotals={pendingContextSubTotals}
+              sessionRuntimePin={runtimePin}
+              reportedContextWindowTrusted={activeProviderReportsTrustedWindow}
+            />
+            <UsageCockpit claudeRateLimit={streamSnapshot?.rateLimitInfo} />
+          </>
         }
       />
         </>

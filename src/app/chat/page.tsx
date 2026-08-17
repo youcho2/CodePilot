@@ -18,6 +18,7 @@ import { PermissionPrompt } from '@/components/chat/PermissionPrompt';
 import { ChatEmptyState } from '@/components/chat/ChatEmptyState';
 import { NewChatWelcome } from '@/components/chat/NewChatWelcome';
 import { RunCockpit } from '@/components/chat/RunCockpit';
+import { UsageCockpit } from '@/components/chat/UsageCockpit';
 import { RunCheckpoint } from '@/components/chat/RunCheckpoint';
 import { OnboardingWizard } from '@/components/assistant/OnboardingWizard';
 import { ErrorBanner } from '@/components/ui/error-banner';
@@ -177,6 +178,36 @@ function NewChatPageInner() {
   const [permissionResolved, setPermissionResolved] = useState<'allow' | 'deny' | 'timeout' | null>(null);
   const [streamingToolOutput, setStreamingToolOutput] = useState('');
   const [permissionProfile, setPermissionProfile] = useState<SessionPermissionProfile>('default');
+  // Born-honest new-session default: when the global "自动批准所有操作"
+  // (dangerously_skip_permissions) toggle is on, the composer starts on
+  // full_access so the chip matches the bypass the setting already applies at
+  // wire time — and so the session, created with the chip's value (see the
+  // POST /api/chat/sessions body), is persisted as full_access rather than
+  // default. The server-side defaultProfileForNewSession only fires when the
+  // client sends NO explicit profile; the composer always sends one, so the
+  // honest place to reflect the global intent is this initial chip state.
+  // Guarded so the async fetch never clobbers a profile the user picked first.
+  const permissionTouchedRef = useRef(false);
+  const handlePermissionChange = useCallback((profile: SessionPermissionProfile) => {
+    permissionTouchedRef.current = true;
+    setPermissionProfile(profile);
+  }, []);
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch('/api/settings/app');
+        if (!res.ok || cancelled) return;
+        const data = await res.json();
+        if (data.settings?.dangerously_skip_permissions === 'true' && !permissionTouchedRef.current) {
+          setPermissionProfile('full_access');
+        }
+      } catch {
+        // ignore — falls back to the safe 'default'
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
   const [pendingContextTokens, setPendingContextTokens] = useState(0);
   // Phase 6 Phase 3 — per-source split (attachment / mention / directory).
   // Flows through RunCockpit → useContextUsage → breakdown so the popover's
@@ -1477,21 +1508,24 @@ function NewChatPageInner() {
             />
             <ChatPermissionSelector
               permissionProfile={permissionProfile}
-              onPermissionChange={setPermissionProfile}
+              onPermissionChange={handlePermissionChange}
               runtime={sessionRuntimeParam}
             />
           </>
         }
         right={
-          <RunCockpit
-            providerId={currentProviderId}
-            messages={[]}
-            modelName={currentModel}
-            permissionProfile={permissionProfile}
-            pendingContextTokens={pendingContextTokens}
-            pendingContextSubTotals={pendingContextSubTotals}
-            sessionRuntimePin={runtimePin}
-          />
+          <>
+            <RunCockpit
+              providerId={currentProviderId}
+              messages={[]}
+              modelName={currentModel}
+              permissionProfile={permissionProfile}
+              pendingContextTokens={pendingContextTokens}
+              pendingContextSubTotals={pendingContextSubTotals}
+              sessionRuntimePin={runtimePin}
+            />
+            <UsageCockpit />
+          </>
         }
       />
     </>

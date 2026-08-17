@@ -103,11 +103,38 @@ function formatPercent(n: number | undefined): string {
   return n.toFixed(1) + "%";
 }
 
-/** Short date for chart x-axis: "2/24" */
+/**
+ * Short date for chart x-axis, zero-padded so every label is the same
+ * width: "02-24", "12-03". Uniform width keeps the two charts' ticks
+ * visually aligned (a bare "2/24" vs "12/3" jitters the axis).
+ */
 function shortDate(dateStr: string): string {
   const d = new Date(dateStr + "T00:00:00");
-  return `${d.getMonth() + 1}/${d.getDate()}`;
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  return `${mm}-${dd}`;
 }
+
+/**
+ * X-axis config shared by BOTH the token and cost charts. Keeping the
+ * date axis identical is the point: before this, the two charts had
+ * different YAxis widths, so recharts computed different tick subsets
+ * and the dates under each chart neither matched each other nor showed
+ * a stable set. `preserveStartEnd` + `minTickGap` gives a consistent,
+ * readable density that always includes the first and last day, and —
+ * because both charts now share the same plot width (see USAGE_YAXIS_WIDTH)
+ * — the exact same dates render under both.
+ */
+const USAGE_YAXIS_WIDTH = 60;
+const SHARED_DATE_XAXIS_PROPS = {
+  dataKey: "date" as const,
+  tick: { fontSize: 11, fill: "var(--color-muted-foreground)" },
+  tickLine: false,
+  axisLine: false,
+  interval: "preserveStartEnd" as const,
+  minTickGap: 28,
+  tickMargin: 6,
+};
 
 // ---------------------------------------------------------------------------
 // Stable model → color mapping
@@ -338,18 +365,13 @@ export function UsageStatsSection() {
                 stroke="var(--color-border)"
                 opacity={0.5}
               />
-              <XAxis
-                dataKey="date"
-                tick={{ fontSize: 11, fill: "var(--color-muted-foreground)" }}
-                tickLine={false}
-                axisLine={false}
-              />
+              <XAxis {...SHARED_DATE_XAXIS_PROPS} />
               <YAxis
                 tickFormatter={formatTokens}
                 tick={{ fontSize: 11, fill: "var(--color-muted-foreground)" }}
                 tickLine={false}
                 axisLine={false}
-                width={54}
+                width={USAGE_YAXIS_WIDTH}
               />
               <Tooltip
                 content={(props) => <ChartTooltip {...props} />}
@@ -403,18 +425,13 @@ export function UsageStatsSection() {
                 stroke="var(--color-border)"
                 opacity={0.5}
               />
-              <XAxis
-                dataKey="date"
-                tick={{ fontSize: 11, fill: "var(--color-muted-foreground)" }}
-                tickLine={false}
-                axisLine={false}
-              />
+              <XAxis {...SHARED_DATE_XAXIS_PROPS} />
               <YAxis
                 tickFormatter={(v: number) => formatCost(v)}
                 tick={{ fontSize: 11, fill: "var(--color-muted-foreground)" }}
                 tickLine={false}
                 axisLine={false}
-                width={64}
+                width={USAGE_YAXIS_WIDTH}
               />
               <Tooltip
                 content={(props: { active?: boolean; payload?: ReadonlyArray<RechartsPayloadItem>; label?: string | number }) => {

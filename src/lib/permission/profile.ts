@@ -39,6 +39,32 @@ export function normalizePermissionProfile(value: unknown): SessionPermissionPro
   return isPermissionProfile(value) ? value : DEFAULT_PERMISSION_PROFILE;
 }
 
+/**
+ * Default permission profile for a NEWLY created session when the caller did
+ * not pass an explicit one.
+ *
+ * The global `dangerously_skip_permissions` toggle ("自动批准所有操作") is the
+ * user's standing "auto-approve everything" intent. `resolveClaudeWireOptions`
+ * already lets that global skip widen a `default` session to bypass at wire
+ * time — so a new session born as `default` would run with NO confirmation
+ * while its composer chip claims 需要时询问我. That chip is a lie (反假数据).
+ * Born-honest: when the global skip is on, a new session defaults to
+ * `full_access` so the chip matches what actually happens.
+ *
+ * An EXPLICIT caller profile always wins (including an explicit `default` — a
+ * caller stating intent is never overridden by the global toggle). Note this
+ * only sets the session's *initial* profile; the user can still switch it, and
+ * per-session `auto_review`/`plan` remain fail-closed against the global skip
+ * via `resolveClaudeWireOptions`.
+ */
+export function defaultProfileForNewSession(input: {
+  readonly explicit?: SessionPermissionProfile;
+  readonly globalSkip: boolean;
+}): SessionPermissionProfile {
+  if (input.explicit) return input.explicit;
+  return input.globalSkip ? 'full_access' : DEFAULT_PERMISSION_PROFILE;
+}
+
 // ─────────────────────────────────────────────────────────────────────
 // Human-only categories (a04)
 // ─────────────────────────────────────────────────────────────────────

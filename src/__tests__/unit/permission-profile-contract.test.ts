@@ -27,6 +27,7 @@ import {
   HOST_AUTO_APPROVED_TOOLS,
   CODEPILOT_MCP_TOOL_SERVERS,
   buildClaudePermissionQueryOptions,
+  defaultProfileForNewSession,
   type SessionPermissionProfile,
 } from '@/lib/permission/profile';
 import {
@@ -324,6 +325,40 @@ describe('legacy global skip cannot widen Plan or auto_review (a03 + a09)', () =
     });
     assert.equal(wire.permissionMode, 'bypassPermissions');
     assert.equal(wire.bypassPermissions, true);
+  });
+});
+
+/**
+ * A new session must be born with a profile that matches what will actually
+ * happen. When the global skip is on, `default` would bypass silently (see the
+ * test just above) while the chip lies with 需要时询问我 — so new sessions
+ * default to full_access instead. An explicit caller choice always wins.
+ */
+describe('defaultProfileForNewSession — born-honest under global skip', () => {
+  it('defaults to full_access when the global skip is on', () => {
+    assert.equal(defaultProfileForNewSession({ globalSkip: true }), 'full_access');
+  });
+
+  it('defaults to default when the global skip is off', () => {
+    assert.equal(defaultProfileForNewSession({ globalSkip: false }), 'default');
+  });
+
+  it('an explicit profile always wins over the global skip (both directions)', () => {
+    // Explicit narrowing: user asked for auto_review even though skip is on.
+    assert.equal(
+      defaultProfileForNewSession({ explicit: 'auto_review', globalSkip: true }),
+      'auto_review',
+    );
+    // Explicit default is intent too — the toggle must not override it.
+    assert.equal(
+      defaultProfileForNewSession({ explicit: 'default', globalSkip: true }),
+      'default',
+    );
+    // Explicit full_access with skip off stays full_access.
+    assert.equal(
+      defaultProfileForNewSession({ explicit: 'full_access', globalSkip: false }),
+      'full_access',
+    );
   });
 });
 

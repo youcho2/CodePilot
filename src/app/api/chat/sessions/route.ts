@@ -1,10 +1,10 @@
 import { NextRequest } from 'next/server';
 import path from 'node:path';
-import { getAllSessions, createSession } from '@/lib/db';
+import { getAllSessions, createSession, getSetting } from '@/lib/db';
 import { sanitizeManualTitle, type TitleOrigin } from '@/lib/conversation-title';
 import type { CreateSessionRequest, SessionsResponse, SessionResponse } from '@/types';
 import { serverErrorResponse } from '@/lib/api-error';
-import { isPermissionProfile, PERMISSION_PROFILES } from '@/lib/permission/profile';
+import { isPermissionProfile, PERMISSION_PROFILES, defaultProfileForNewSession } from '@/lib/permission/profile';
 import { isExistingDirectory } from '@/lib/working-directory';
 
 export async function GET(request: NextRequest) {
@@ -84,6 +84,18 @@ export async function POST(request: NextRequest) {
       titleOrigin = 'manual';
     }
 
+    // Born-honest default: when the global "自动批准所有操作"
+    // (dangerously_skip_permissions) toggle is on, a new session with no
+    // explicit profile is created as full_access so its composer chip matches
+    // the bypass that global skip already applies at wire time — instead of
+    // showing 需要时询问我 while nothing actually asks. An explicit caller
+    // profile always wins. See defaultProfileForNewSession.
+    const globalSkip = getSetting('dangerously_skip_permissions') === 'true';
+    const permissionProfile = defaultProfileForNewSession({
+      explicit: body.permission_profile,
+      globalSkip,
+    });
+
     const session = createSession(
       title,
       body.model,
@@ -91,7 +103,7 @@ export async function POST(request: NextRequest) {
       path.normalize(workingDirectory),
       body.mode,
       body.provider_id,
-      body.permission_profile,
+      permissionProfile,
       undefined, // source
       titleOrigin,
     );
