@@ -26,6 +26,7 @@ import type {
   CheckpointSubagentRunInput,
   RecordSubagentRunEventInput,
   SettleSubagentRunInput,
+  KnownProject,
 } from '@/types';
 import type { ChannelType, ChannelBinding } from './bridge/types';
 import { getLocalDateString, localDayStartAsUTC } from './utils';
@@ -1950,6 +1951,40 @@ export function getAllSessions(opts?: { includeSources?: ReadonlyArray<'user' | 
   return db
     .prepare("SELECT * FROM chat_sessions WHERE (status IS NULL OR status != 'archived') ORDER BY updated_at DESC")
     .all() as ChatSession[];
+}
+
+/**
+ * Distinct project directories across ALL sessions, archived INCLUDED. This is
+ * the source of truth for "which project folders exist", independent of whether
+ * a folder currently has any visible (non-archived) conversation. Archiving the
+ * last conversation in a project must NOT make the folder disappear; the sidebar
+ * unions this list with the grouped visible sessions to keep an empty folder.
+ * A project only truly disappears once every session in it is hard-deleted
+ * (see the DELETE ?hard=true handler + handleRemoveProject).
+ * Excludes the '' (No Project) bucket.
+ */
+export function getKnownProjects(opts?: { includeSources?: ReadonlyArray<'user' | 'task'> }): KnownProject[] {
+  const db = getDb();
+  const filter = opts?.includeSources;
+  // project_name is stable per working_directory (backfilled from it), so a bare
+  // aggregate column is deterministic enough; MAX(updated_at) is lexically sound
+  // for the 'YYYY-MM-DD HH:MM:SS' text dates.
+  const select = `SELECT working_directory AS workingDirectory,
+                         project_name AS projectName,
+                         MAX(updated_at) AS latestUpdatedAt
+                  FROM chat_sessions
+                  WHERE working_directory != ''`;
+  const rows =
+    filter && filter.length > 0
+      ? db
+          .prepare(`${select} AND source IN (${filter.map(() => '?').join(',')}) GROUP BY working_directory`)
+          .all(...filter)
+      : db.prepare(`${select} GROUP BY working_directory`).all();
+  return (rows as Array<{ workingDirectory: string; projectName: string | null; latestUpdatedAt: string }>).map((r) => ({
+    workingDirectory: r.workingDirectory,
+    projectName: r.projectName || '',
+    latestUpdatedAt: r.latestUpdatedAt,
+  }));
 }
 
 /**

@@ -29,6 +29,7 @@ const zh: Record<TranslationKey, string> = {
   'chatList.copySessionId': '复制对话 ID',
   'chatList.renameConversation': '重命名对话',
   'chatList.removeProject': '移出项目',
+  'chatList.removeProjectConfirm': '移除项目"{name}"并永久删除其全部对话？此操作无法恢复。（若只想清空列表，归档对话会保留空文件夹。）',
   'chatList.openFolder': '打开文件夹',
   'chatList.copyFolderPath': '复制文件夹路径',
   'chatList.searchSessions': '搜索会话...',

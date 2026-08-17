@@ -32,6 +32,7 @@ const en = {
   'chatList.copySessionId': 'Copy Conversation ID',
   'chatList.renameConversation': 'Rename Conversation',
   'chatList.removeProject': 'Remove Project',
+  'chatList.removeProjectConfirm': 'Remove project "{name}" and permanently delete all its conversations? This cannot be undone. (Archiving conversations keeps the empty folder instead.)',
   'chatList.openFolder': 'Open Folder',
   'chatList.copyFolderPath': 'Copy Folder Path',
   'chatList.searchSessions': 'Search sessions...',

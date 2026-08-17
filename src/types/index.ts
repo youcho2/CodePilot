@@ -1081,6 +1081,23 @@ export interface SessionsResponse {
   sessions: ChatSession[];
 }
 
+/**
+ * A project = a distinct working directory that has at least one session in the
+ * DB, INCLUDING archived ones. Lets the sidebar keep an (empty) project folder
+ * visible after all its conversations are archived, instead of the folder
+ * vanishing. See GET /api/chat/projects + getKnownProjects.
+ */
+export interface KnownProject {
+  workingDirectory: string;
+  projectName: string;
+  /** MAX(updated_at) across all sessions (archived included) in this dir. */
+  latestUpdatedAt: string;
+}
+
+export interface ProjectsResponse {
+  projects: KnownProject[];
+}
+
 export interface SessionResponse {
   session: ChatSession;
 }

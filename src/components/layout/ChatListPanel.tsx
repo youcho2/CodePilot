@@ -22,7 +22,7 @@ import { useTranslation } from "@/hooks/useTranslation";
 import type { TranslationKey } from "@/i18n";
 import { useNativeFolderPicker } from "@/hooks/useNativeFolderPicker";
 import { showToast } from '@/hooks/useToast';
-import { cn } from "@/lib/utils";
+import { cn, parseDBDate } from "@/lib/utils";
 import { renameSession } from "@/lib/session-title-events";
 // ConnectionStatus removed from header — CLI status now lives in Settings > Claude CLI
 // ImportSessionDialog moved to Settings page
@@ -38,7 +38,7 @@ import {
   saveCollapsedProjects,
   COLLAPSED_INITIALIZED_KEY,
 } from "./chat-list-utils";
-import type { ChatSession } from "@/types";
+import type { ChatSession, KnownProject } from "@/types";
 
 const previewAssistantOnboarding =
   process.env.NEXT_PUBLIC_CODEPILOT_UI_PREVIEW === 'assistant-onboarding';
@@ -58,6 +58,10 @@ export function ChatListPanel({ open, hasUpdate, readyToInstall }: ChatListPanel
   const { t } = useTranslation();
   const { isElectron, openNativePicker } = useNativeFolderPicker();
   const [sessions, setSessions] = useState<ChatSession[]>([]);
+  // Distinct project folders incl. archived-only ones (GET /api/chat/projects).
+  // Unioned into projectGroups so a project stays visible after all its
+  // conversations are archived, instead of the folder vanishing.
+  const [knownProjects, setKnownProjects] = useState<KnownProject[]>([]);
   const [hoveredSession, setHoveredSession] = useState<string | null>(null);
   const [deletingSession, setDeletingSession] = useState<string | null>(null);
   const [expandedSessionGroups, setExpandedSessionGroups] = useState<Set<string>>(new Set());
@@ -231,10 +235,19 @@ export function ChatListPanel({ open, hasUpdate, readyToInstall }: ChatListPanel
     const controller = new AbortController();
     abortRef.current = controller;
     try {
-      const res = await fetch("/api/chat/sessions", { signal: controller.signal });
-      if (res.ok) {
-        const data = await res.json();
+      // Fetch sessions + known projects together so an archived-only project's
+      // folder stays in sync with the visible session list on every refresh.
+      const [sessRes, projRes] = await Promise.all([
+        fetch("/api/chat/sessions", { signal: controller.signal }),
+        fetch("/api/chat/projects", { signal: controller.signal }),
+      ]);
+      if (sessRes.ok) {
+        const data = await sessRes.json();
         setSessions(data.sessions || []);
+      }
+      if (projRes.ok) {
+        const data = await projRes.json();
+        setKnownProjects(data.projects || []);
       }
     } catch (e) {
       // Ignore abort errors; log others
@@ -380,6 +393,9 @@ export function ChatListPanel({ open, hasUpdate, readyToInstall }: ChatListPanel
         if (pathname === `/chat/${sessionId}`) {
           router.push("/chat");
         }
+        // Hard delete may have removed the project's last session entirely —
+        // refresh known projects so an emptied folder drops immediately.
+        fetchSessions();
       }
     } catch {
       // Silently fail
@@ -401,12 +417,16 @@ export function ChatListPanel({ open, hasUpdate, readyToInstall }: ChatListPanel
   };
 
   const handleRemoveProject = async (workingDirectory: string) => {
-    if (!confirm(`Remove project "${workingDirectory.split(/[\\/]/).pop()}" and all its conversations?`)) return;
+    // "Remove project" is the ONLY way a folder truly disappears now that
+    // archiving keeps empty folders around. It hard-deletes every conversation
+    // in the project (?hard=true) so no archived rows keep the folder alive.
+    // Unrecoverable, so confirm with the stronger copy.
+    if (!confirm(t('chatList.removeProjectConfirm' as TranslationKey, { name: workingDirectory.split(/[\\/]/).pop() || workingDirectory }))) return;
     const projectSessions = sessions.filter((s) => s.working_directory === workingDirectory);
     const deletedIds = new Set<string>();
     for (const session of projectSessions) {
       try {
-        const res = await fetch(`/api/chat/sessions/${session.id}`, { method: "DELETE" });
+        const res = await fetch(`/api/chat/sessions/${session.id}?hard=true`, { method: "DELETE" });
         if (res.ok) {
           deletedIds.add(session.id);
           if (isInSplit(session.id)) {
@@ -427,6 +447,9 @@ export function ChatListPanel({ open, hasUpdate, readyToInstall }: ChatListPanel
         }
       }
     }
+    // Drop the now-empty folder: refresh known projects so the hard-deleted dir
+    // (no sessions left at all) stops being injected as an empty group.
+    fetchSessions();
   };
 
   const handleCreateSessionInProject = async (
@@ -455,6 +478,24 @@ export function ChatListPanel({ open, hasUpdate, readyToInstall }: ChatListPanel
 
   const projectGroups = useMemo(() => {
     const groups = groupSessionsByProject(filteredSessions);
+    // Union in known projects that currently have no VISIBLE session (all their
+    // conversations are archived). Without this, archiving the last chat in a
+    // project makes its folder vanish. Injected as synthetic zero-session groups
+    // — the folder stays, exposing "+ new chat", until the project is truly
+    // removed (all sessions hard-deleted via handleRemoveProject).
+    const presentDirs = new Set(groups.map((g) => g.workingDirectory));
+    for (const proj of knownProjects) {
+      if (!proj.workingDirectory || proj.workingDirectory === workspacePath) continue;
+      if (presentDirs.has(proj.workingDirectory)) continue;
+      groups.push({
+        workingDirectory: proj.workingDirectory,
+        displayName: proj.projectName || proj.workingDirectory.split(/[\\/]/).pop() || proj.workingDirectory,
+        sessions: [],
+        latestUpdatedAt: proj.latestUpdatedAt ? parseDBDate(proj.latestUpdatedAt).getTime() : 0,
+      });
+    }
+    // Re-sort so injected empty folders slot in by real recency, not append order.
+    groups.sort((a, b) => b.latestUpdatedAt - a.latestUpdatedAt);
     // A configured assistant exists before it has any chat sessions. Keep a
     // synthetic zero-session group so the sidebar immediately exposes the
     // primary "new assistant conversation" action after bootstrap.
@@ -473,7 +514,7 @@ export function ChatListPanel({ open, hasUpdate, readyToInstall }: ChatListPanel
       }
     }
     return groups;
-  }, [filteredSessions, workspacePath]);
+  }, [filteredSessions, knownProjects, workspacePath]);
 
   // Split into 助理 (assistant workspace) and 项目 (everything else)
   const assistantGroup = useMemo(
