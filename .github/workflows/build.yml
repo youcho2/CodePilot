@@ -199,6 +199,12 @@ jobs:
         timeout-minutes: 45
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: "false"
+          # Fork ships ad-hoc arm64 (no Apple Developer ID). Upstream 0.67.x added a
+          # fail-closed afterSign gate (scripts/macos-signing-policy.cjs) that throws
+          # unless a Developer ID signature exists OR ad-hoc is explicitly allowed.
+          # Opt into ad-hoc here so packaging succeeds; the upstream preview workflows
+          # keep CODEPILOT_REQUIRE_DEVELOPER_ID=1 instead.
+          CODEPILOT_ALLOW_ADHOC_SIGNING: "1"
         run: npx electron-builder --mac --arm64 --config electron-builder.yml --publish never
 
       - name: Verify packaged version, native ABI, and server startup
