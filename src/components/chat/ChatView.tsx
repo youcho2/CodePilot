@@ -1553,7 +1553,7 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
                     sessionRuntimePin={runtimePin}
                     reportedContextWindowTrusted={activeProviderReportsTrustedWindow}
                   />
-                  <UsageCockpit claudeRateLimit={streamSnapshot?.rateLimitInfo} />
+                  <UsageCockpit runtime={sessionRuntimeParam} providerId={currentProviderId} />
                 </>
               }
             />
@@ -1835,7 +1835,7 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
               sessionRuntimePin={runtimePin}
               reportedContextWindowTrusted={activeProviderReportsTrustedWindow}
             />
-            <UsageCockpit claudeRateLimit={streamSnapshot?.rateLimitInfo} />
+            <UsageCockpit runtime={sessionRuntimeParam} providerId={currentProviderId} />
           </>
         }
       />

@@ -1524,7 +1524,7 @@ function NewChatPageInner() {
               pendingContextSubTotals={pendingContextSubTotals}
               sessionRuntimePin={runtimePin}
             />
-            <UsageCockpit />
+            <UsageCockpit runtime={sessionRuntimeParam} providerId={currentProviderId} />
           </>
         }
       />
