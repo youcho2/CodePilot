@@ -230,6 +230,14 @@ interface MessageListProps {
    * and the panel never disappears even after the abandon PATCH lands.
    */
   onTaskRunAction?: () => void;
+  /**
+   * Edit + resend the last user message. When present and
+   * `canEditLastMessage` is true, the last real user bubble gets an inline
+   * edit affordance. Gated off for Codex (server-side thread can't be rolled
+   * back cleanly yet) by the parent passing `canEditLastMessage={false}`.
+   */
+  onEditResend?: (userMessageId: string, newContent: string) => void | Promise<void>;
+  canEditLastMessage?: boolean;
 }
 
 export function MessageList({
@@ -248,6 +256,8 @@ export function MessageList({
   rewindPoints = [],
   taskRuns,
   onTaskRunAction,
+  onEditResend,
+  canEditLastMessage,
   sessionId,
   startedAt,
   isAssistantProject,
@@ -316,6 +326,8 @@ export function MessageList({
           isStreaming={isStreaming}
           taskRuns={taskRuns}
           onTaskRunAction={onTaskRunAction}
+          onEditResend={onEditResend}
+          canEditLastMessage={canEditLastMessage}
           isAssistantProject={isAssistantProject}
           assistantName={assistantName}
           hasMore={hasMore}
@@ -343,6 +355,8 @@ interface VirtualTranscriptProps {
   isStreaming: boolean;
   taskRuns?: Record<string, TaskRunSummary>;
   onTaskRunAction?: () => void;
+  onEditResend?: (userMessageId: string, newContent: string) => void | Promise<void>;
+  canEditLastMessage?: boolean;
   isAssistantProject?: boolean;
   assistantName?: string;
   hasMore?: boolean;
@@ -376,6 +390,8 @@ function VirtualTranscript({
   isStreaming,
   taskRuns,
   onTaskRunAction,
+  onEditResend,
+  canEditLastMessage,
   isAssistantProject,
   assistantName,
   hasMore,
@@ -408,6 +424,23 @@ function VirtualTranscript({
     () => messages.filter((m) => m.role === 'user'),
     [messages],
   );
+
+  // Id of the last *real* user prompt (skips UI-only sentinel rows). Drives
+  // the inline "edit + resend" affordance — only this bubble is editable, and
+  // only when not streaming, matching the server's own last-user resolution.
+  const lastUserPromptId = useMemo(() => {
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const m = messages[i];
+      if (
+        m.role === 'user' &&
+        !m.content.startsWith('[__RUNTIME_SWITCH__') &&
+        !m.content.startsWith('[__IMAGE_GEN_NOTICE__')
+      ) {
+        return m.id;
+      }
+    }
+    return null;
+  }, [messages]);
 
   const virtualizer = useVirtualizer({
     count: messages.length,
@@ -481,10 +514,24 @@ function VirtualTranscript({
     // rewind_point only for prompt-level user messages → 1:1 with userMessages).
     const rewindSdkUuid = resolveRewindUuid({ message, userMessages, rewindPoints, sessionId });
 
+    const canEdit =
+      !!canEditLastMessage &&
+      !!onEditResend &&
+      !isStreaming &&
+      message.role === 'user' &&
+      message.id === lastUserPromptId;
+
     return (
       <div id={`msg-${message.id}`} className="group pb-6">
         {leadingMarker}
-        <MessageItem message={message} sessionId={sessionId} isAssistantProject={isAssistantProject} assistantName={assistantName} />
+        <MessageItem
+          message={message}
+          sessionId={sessionId}
+          isAssistantProject={isAssistantProject}
+          assistantName={assistantName}
+          canEdit={canEdit}
+          onEditResend={onEditResend}
+        />
         {rewindSdkUuid && sessionId && !isStreaming && (
           <RewindButton sessionId={sessionId} userMessageId={rewindSdkUuid} />
         )}

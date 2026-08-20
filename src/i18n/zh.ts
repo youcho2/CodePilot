@@ -1543,6 +1543,9 @@ const zh: Record<TranslationKey, string> = {
   'messageList.rewindConfirm': '确认回滚',
   'messageList.rewindCancel': '取消',
   'messageList.rewindDone': '文件回滚成功',
+  'messageList.editResend': '保存并重新发送',
+  'messageList.editFailed': '编辑失败，请重试',
+  'messageList.editStale': '最后一条消息已变化，请刷新后重试',
 
   // ── SDK Capabilities: MCP Runtime ─────────────────────────
   'mcp.runtimeStatus': '运行状态',

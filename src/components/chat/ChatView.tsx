@@ -1285,6 +1285,68 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
 
   sendMessageRef.current = sendMessage;
 
+  // ── Edit + resend the last user message ──
+  // Truncate the last user turn (server drops it + its reply + clears the
+  // SDK session so context re-seeds from the truncated DB history), then
+  // resend the edited text through the normal sendMessage path. Codex is
+  // gated out at the composer (its server-side thread can't be rolled back
+  // cleanly yet) so this only runs under Claude Code / native.
+  const handleEditResend = useCallback(
+    async (userMessageId: string, newContent: string) => {
+      if (!sessionId || isStreaming) return;
+      const trimmed = newContent.trim();
+      if (!trimmed) return;
+
+      try {
+        const res = await fetch('/api/chat/messages/edit', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ sessionId, expectedMessageId: userMessageId }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || !data?.ok) {
+          const { showToast } = await import('@/hooks/useToast');
+          showToast({
+            type: 'error',
+            message:
+              data?.error === 'stale'
+                ? t('messageList.editStale' as TranslationKey)
+                : t('messageList.editFailed' as TranslationKey),
+            duration: 4000,
+          });
+          return;
+        }
+      } catch {
+        const { showToast } = await import('@/hooks/useToast');
+        showToast({ type: 'error', message: t('messageList.editFailed' as TranslationKey), duration: 4000 });
+        return;
+      }
+
+      // Drop the edited turn (last real user prompt + everything after) from
+      // the local list to match the server truncate; scan for the last user
+      // prompt rather than trusting the passed id (it may be an optimistic
+      // temp-* id) so we stay aligned with the endpoint's own resolution.
+      cappedSetMessages((prev) => {
+        let idx = -1;
+        for (let i = prev.length - 1; i >= 0; i--) {
+          const m = prev[i];
+          if (
+            m.role === 'user' &&
+            !m.content.startsWith('[__RUNTIME_SWITCH__') &&
+            !m.content.startsWith('[__IMAGE_GEN_NOTICE__')
+          ) {
+            idx = i;
+            break;
+          }
+        }
+        return idx >= 0 ? prev.slice(0, idx) : prev;
+      });
+
+      await sendMessageRef.current?.(trimmed);
+    },
+    [sessionId, isStreaming, cappedSetMessages, t],
+  );
+
   // ── Dequeue: when streaming finishes and queue is non-empty, send next ──
   useEffect(() => {
     if (!isStreaming && messageQueue.length > 0 && !dequeuingRef.current) {
@@ -1580,6 +1642,8 @@ export function ChatView({ sessionId, initialMessages = [], initialHasMore = fal
         isAssistantProject={isAssistantProject}
         assistantName={assistantName}
         taskRuns={taskRuns}
+        onEditResend={handleEditResend}
+        canEditLastMessage={sessionRuntimeParam !== 'codex_runtime'}
         // Codex P2 — wire the WaitingForPermissionPanel's
         // post-action callback into our existing message reconcile
         // so abandoning / re-running a paused run actually causes

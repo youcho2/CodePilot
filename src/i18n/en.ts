@@ -1566,6 +1566,9 @@ const en = {
   'messageList.rewindConfirm': 'Confirm rewind',
   'messageList.rewindCancel': 'Cancel',
   'messageList.rewindDone': 'Files rewound successfully',
+  'messageList.editResend': 'Save & resend',
+  'messageList.editFailed': 'Edit failed, please retry',
+  'messageList.editStale': 'Last message changed — reload and retry',
 
   // ── SDK Capabilities: MCP Runtime ─────────────────────────
   'mcp.runtimeStatus': 'Runtime Status',

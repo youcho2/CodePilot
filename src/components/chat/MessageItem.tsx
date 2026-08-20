@@ -13,7 +13,7 @@ import { ToolActionsGroup } from '@/components/ai-elements/tool-actions-group';
 import { MediaPreview } from './MediaPreview';
 import { DiffSummary } from './DiffSummary';
 import { Button } from "@/components/ui/button";
-import { Check, CaretDown, CaretUp, CaretRight } from "@/components/ui/icon";
+import { Check, CaretDown, CaretUp, CaretRight, PencilSimple } from "@/components/ui/icon";
 import { CodePilotIcon } from "@/components/ui/semantic-icon";
 import { FileAttachmentDisplay } from './FileAttachmentDisplay';
 import { ImageGenConfirmation } from './ImageGenConfirmation';
@@ -22,6 +22,7 @@ import { BatchPlanInlinePreview } from './batch-image-gen/BatchPlanInlinePreview
 import { WidgetRenderer } from './WidgetRenderer';
 import { buildReferenceImages } from '@/lib/image-ref-store';
 import { useTranslation } from '@/hooks/useTranslation';
+import type { TranslationKey } from '@/i18n';
 // SPECIES_IMAGE_URL / EGG_IMAGE_URL / RARITY_BG_GRADIENT were used by
 // the assistant-chat avatar (removed 2026-05-21); the imports are kept
 // out to avoid stale references.
@@ -428,6 +429,10 @@ interface MessageItemProps {
   isAssistantProject?: boolean;
   /** Assistant name for avatar */
   assistantName?: string;
+  /** When true, this (last) user message shows an inline edit + resend affordance */
+  canEdit?: boolean;
+  /** Truncate this user turn and resend the edited text. Only wired when canEdit. */
+  onEditResend?: (userMessageId: string, newContent: string) => void | Promise<void>;
 }
 
 interface ToolBlock {
@@ -639,7 +644,7 @@ function TokenUsageDisplay({ usage }: { usage: TokenUsage }) {
 
 const COLLAPSE_HEIGHT = 300;
 
-export const MessageItem = memo(function MessageItem({ message, sessionId, isAssistantProject, assistantName }: MessageItemProps) {
+export const MessageItem = memo(function MessageItem({ message, sessionId, isAssistantProject, assistantName, canEdit, onEditResend }: MessageItemProps) {
   const isUser = message.role === 'user';
   const { t } = useTranslation();
 
@@ -647,6 +652,11 @@ export const MessageItem = memo(function MessageItem({ message, sessionId, isAss
   const [isExpanded, setIsExpanded] = useState(false);
   const [isOverflowing, setIsOverflowing] = useState(false);
   const contentRef = useRef<HTMLDivElement>(null);
+
+  // Inline edit state for the last user message (canEdit gates the affordance).
+  const [isEditing, setIsEditing] = useState(false);
+  const [editDraft, setEditDraft] = useState('');
+  const editRef = useRef<HTMLTextAreaElement>(null);
 
   // Preview wiring for DiffSummary (Phase 2.3). Clicking a previewable row
   // opens the artifact panel on that file. setPreviewSource auto-flips
@@ -689,6 +699,34 @@ export const MessageItem = memo(function MessageItem({ message, sessionId, isAss
       setIsOverflowing(contentRef.current.scrollHeight > COLLAPSE_HEIGHT);
     }
   }, [isUser, displayText]);
+
+  // Close the editor if this stops being the editable (last, non-streaming)
+  // message — e.g. a new turn arrives or the stream starts while editing.
+  useEffect(() => {
+    if (!canEdit && isEditing) setIsEditing(false);
+  }, [canEdit, isEditing]);
+
+  const beginEdit = useCallback(() => {
+    setEditDraft(displayText);
+    setIsEditing(true);
+    // Focus + move caret to end on next paint.
+    requestAnimationFrame(() => {
+      const el = editRef.current;
+      if (el) {
+        el.focus();
+        el.setSelectionRange(el.value.length, el.value.length);
+      }
+    });
+  }, [displayText]);
+
+  const cancelEdit = useCallback(() => setIsEditing(false), []);
+
+  const submitEdit = useCallback(() => {
+    const next = editDraft.trim();
+    setIsEditing(false);
+    if (!next || next === displayText.trim()) return;
+    void onEditResend?.(message.id, next);
+  }, [editDraft, displayText, onEditResend, message.id]);
 
   // Memoize token usage JSON parsing
   const tokenUsage = useMemo<TokenUsage | null>(() => {
@@ -752,6 +790,41 @@ export const MessageItem = memo(function MessageItem({ message, sessionId, isAss
           <SearchSources sources={pairedTools.flatMap(tool => tool.sources || [])} />
         )}
 
+        {/* Inline editor for the last user message (edit + resend) */}
+        {isUser && isEditing ? (
+          <div className="flex flex-col gap-2">
+            <textarea
+              ref={editRef}
+              value={editDraft}
+              onChange={(e) => setEditDraft(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Escape') {
+                  e.preventDefault();
+                  cancelEdit();
+                } else if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+                  e.preventDefault();
+                  submitEdit();
+                }
+              }}
+              rows={Math.min(12, Math.max(2, editDraft.split('\n').length))}
+              className="w-full resize-y rounded-md border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary/60"
+            />
+            <div className="flex items-center justify-end gap-2">
+              <Button variant="ghost" size="sm" onClick={cancelEdit} className="h-7 px-2 text-xs">
+                {t('common.cancel' as TranslationKey)}
+              </Button>
+              <Button
+                size="sm"
+                onClick={submitEdit}
+                disabled={!editDraft.trim() || editDraft.trim() === displayText.trim()}
+                className="h-7 px-2 text-xs"
+              >
+                {t('messageList.editResend' as TranslationKey)}
+              </Button>
+            </div>
+          </div>
+        ) : (
+        <>
         {/* Text content */}
         {displayText && (
           isUser ? (
@@ -802,6 +875,8 @@ export const MessageItem = memo(function MessageItem({ message, sessionId, isAss
               )}
             </div>
           ) : <AssistantContent displayText={displayText} messageId={message.id} sessionId={sessionId} />
+        )}
+        </>
         )}
 
         {/* Compact Sub Agent capsules follow the assistant text and wrap on one
@@ -959,11 +1034,25 @@ export const MessageItem = memo(function MessageItem({ message, sessionId, isAss
       })()}
 
       {/* Footer with copy, timestamp and token usage */}
+      {!isEditing && (
       <div className={`flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity duration-200 ${isUser ? 'justify-end' : ''}`}>
         {!isUser && <span className="text-xs text-muted-foreground/50">{timestamp}</span>}
         {!isUser && tokenUsage && <TokenUsageDisplay usage={tokenUsage} />}
         {displayText && <CopyButton text={displayText} />}
+        {isUser && canEdit && files.length === 0 && (
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={beginEdit}
+            title={t('messageList.editResend' as TranslationKey)}
+            className="inline-flex items-center gap-1 px-1.5 py-0.5 text-xs text-muted-foreground/60 hover:text-muted-foreground h-auto"
+          >
+            <PencilSimple size={13} />
+            {t('common.edit' as TranslationKey)}
+          </Button>
+        )}
       </div>
+      )}
     </AIMessage>
       </div>
     </div>
